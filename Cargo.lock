@@ -5563,6 +5563,7 @@ name = "tondi-wallet-keys"
 version = "0.17.0"
 dependencies = [
  "async-trait",
+ "blake3",
  "borsh",
  "downcast",
  "faster-hex",
