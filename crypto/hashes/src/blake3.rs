@@ -13,7 +13,6 @@ pub fn blake3_256(data: &[u8]) -> [u8; 32] {
 }
 
 /// Computes a double BLAKE3 hash (i.e., BLAKE3d),
-/// suitable as a drop-in replacement for SHA256d (SHA256 twice).
 /// Returns a 32-byte array.
 ///
 /// 📌 Used for:
