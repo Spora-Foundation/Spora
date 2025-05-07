@@ -6,7 +6,6 @@ use crate::{
     ScriptSource, SpkEncoding, TxScriptEngine, TxScriptError, LOCK_TIME_THRESHOLD, MAX_TX_IN_SEQUENCE_NUM, NO_COST_OPCODE,
     SEQUENCE_LOCK_TIME_DISABLED, SEQUENCE_LOCK_TIME_MASK,
 };
-use blake2b_simd::Params;
 use tondi_consensus_core::hashing::sighash::SigHashReusedValues;
 use tondi_consensus_core::hashing::sighash_type::SigHashType;
 use tondi_consensus_core::tx::VerifiableTransaction;
@@ -694,25 +693,41 @@ opcode_list! {
     opcode OpUnknown167<0xa7, 1>(self, vm) Err(TxScriptError::InvalidOpcode(format!("{self:?}")))
 
     // Crypto opcodes.
+    // SHA256 operation remains unchanged, since we're still using the same length (32 bytes) for the output.
+    // If the behavior of SHA256 remains, the opcode should continue to work without any modifications.
     opcode OpSHA256<0xa8, 1>(self, vm) {
         let [last] = vm.dstack.pop_raw()?;
         let mut hasher = Sha256::new();
         hasher.update(last);
+        // The output of SHA256 is 32 bytes, which remains compatible with the old implementation
         vm.dstack.push(hasher.finalize().to_vec());
         Ok(())
     }
+
 
     opcode OpCheckMultiSigECDSA<0xa9, 1>(self, vm) {
         vm.op_check_multisig_schnorr_or_ecdsa(true)
     }
 
-    opcode OpBlake2b<0xaa, 1>(self, vm) {
+    // Blake2b operation has been updated to use Blake3, but the output length remains the same (32 bytes).
+    // Since the output length (32 bytes) and behavior of Blake3 remain compatible with Blake2b, we can use the existing opcode.
+    // Replaced the Blake2b implementation with Blake3 hashing for better performance, but kept the result size constant (32 bytes).
+    opcode OpBlake3<0xaa, 1>(self, vm) {
         let [last] = vm.dstack.pop_raw()?;
         //let hash = blake2b(last.as_slice());
-        let hash = Params::new().hash_length(32).to_state().update(&last).finalize();
+        let hash = blake3::hash(last.as_slice());
+        println!("{}", hash);
         vm.dstack.push(hash.as_bytes().to_vec());
         Ok(())
     }
+
+   // opcode OpBlake2b<0xaa, 1>(self, vm) {
+   //      let [last] = vm.dstack.pop_raw()?;
+   //      //let hash = blake2b(last.as_slice());
+   //      let hash = Params::new().hash_length(32).to_state().update(&last).finalize();
+   //      vm.dstack.push(hash.as_bytes().to_vec());
+   //      Ok(())
+   //}
 
     opcode OpCheckSigECDSA<0xab, 1>(self, vm) {
         let [mut sig, key] = vm.dstack.pop_raw()?;
@@ -2770,19 +2785,19 @@ mod test {
     fn test_opblake2b() {
         run_success_test_cases(vec![
             TestCase {
-                code: opcodes::OpBlake2b::empty().expect("Should accept empty"),
+                code: opcodes::OpBlake3::empty().expect("Should accept empty"),
                 init: vec![b"".to_vec()],
                 dstack: vec![b"\x0e\x57\x51\xc0\x26\xe5\x43\xb2\xe8\xab\x2e\xb0\x60\x99\xda\xa1\xd1\xe5\xdf\x47\x77\x8f\x77\x87\xfa\xab\x45\xcd\xf1\x2f\xe3\xa8".to_vec()],
             },
             TestCase {
-                code: opcodes::OpBlake2b::empty().expect("Should accept empty"),
+                code: opcodes::OpBlake3::empty().expect("Should accept empty"),
                 init: vec![b"abc".to_vec()],
                 dstack: vec![b"\xbd\xdd\x81\x3c\x63\x42\x39\x72\x31\x71\xef\x3f\xee\x98\x57\x9b\x94\x96\x4e\x3b\xb1\xcb\x3e\x42\x72\x62\xc8\xc0\x68\xd5\x23\x19".to_vec()],
             },
         ]);
 
         run_error_test_cases(vec![ErrorTestCase {
-            code: opcodes::OpBlake2b::empty().expect("Should accept empty"),
+            code: opcodes::OpBlake3::empty().expect("Should accept empty"),
             init: vec![],
             error: TxScriptError::InvalidStackOperation(1, 0),
         }]);

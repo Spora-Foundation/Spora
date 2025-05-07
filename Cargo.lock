@@ -5341,6 +5341,7 @@ name = "tondi-txscript"
 version = "0.17.0"
 dependencies = [
  "blake2b_simd",
+ "blake3",
  "borsh",
  "cfg-if 1.0.0",
  "criterion",

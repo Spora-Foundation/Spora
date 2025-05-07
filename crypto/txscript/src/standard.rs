@@ -1,5 +1,5 @@
 use crate::{
-    opcodes::codes::{OpBlake2b, OpCheckSig, OpCheckSigECDSA, OpData32, OpData33, OpEqual},
+    opcodes::codes::{OpBlake3, OpCheckSig, OpCheckSigECDSA, OpData32, OpData33, OpEqual},
     script_builder::{ScriptBuilder, ScriptBuilderResult},
     script_class::ScriptClass,
 };
@@ -33,7 +33,7 @@ fn pay_to_pub_key_ecdsa(address_payload: &[u8]) -> ScriptVec {
 fn pay_to_script_hash(script_hash: &[u8]) -> ScriptVec {
     // TODO: use ScriptBuilder when add_op and add_data fns or equivalents are available
     assert_eq!(script_hash.len(), 32);
-    SmallVec::from_iter([OpBlake2b, OpData32].iter().copied().chain(script_hash.iter().copied()).chain(once(OpEqual)))
+    SmallVec::from_iter([OpBlake3, OpData32].iter().copied().chain(script_hash.iter().copied()).chain(once(OpEqual)))
 }
 
 /// Creates a new script to pay a transaction output to the specified address.
