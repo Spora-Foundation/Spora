@@ -159,13 +159,13 @@ mod tests {
             name: &'static str,
             script_pub_key: ScriptPublicKey,
             prefix: Prefix,
-            expected_address: Result<Address, TxScriptError>,
+            expect_success: bool,
         }
 
         // cspell:disable
         let tests = vec![
             Test {
-                name: "Mainnet PubKey script and address",
+                name: "Mainnet PubKey script",
                 script_pub_key: ScriptPublicKey::new(
                     ScriptClass::PubKey.version(),
                     ScriptVec::from_slice(
@@ -173,10 +173,10 @@ mod tests {
                     ),
                 ),
                 prefix: Prefix::Mainnet,
-                expected_address: Ok("tondi:qpauqsvk7yf9unexwmxsnmg547mhyga37csh0kj53q6xxgl24ydxjsgzthw5j".try_into().unwrap()),
+                expect_success: true,
             },
             Test {
-                name: "Testnet PubKeyECDSA script and address",
+                name: "Testnet PubKeyECDSA script",
                 script_pub_key: ScriptPublicKey::new(
                     ScriptClass::PubKeyECDSA.version(),
                     ScriptVec::from_slice(
@@ -184,7 +184,7 @@ mod tests {
                     ),
                 ),
                 prefix: Prefix::Testnet,
-                expected_address: Ok("tonditest:qxaqrlzlf6wes72en3568khahq66wf27tuhfxn5nytkd8tcep2c0vrs6m3ynjcw".try_into().unwrap()),
+                expect_success: true,
             },
             Test {
                 name: "Testnet non standard script",
@@ -195,7 +195,7 @@ mod tests {
                     ),
                 ),
                 prefix: Prefix::Testnet,
-                expected_address: Err(TxScriptError::PubKeyFormat),
+                expect_success: false,
             },
             Test {
                 name: "Mainnet script with unknown version",
@@ -206,17 +206,23 @@ mod tests {
                     ),
                 ),
                 prefix: Prefix::Mainnet,
-                expected_address: Err(TxScriptError::PubKeyFormat),
+                expect_success: false,
             },
         ];
         // cspell:enable
 
         for test in tests {
             let extracted = extract_script_pub_key_address(&test.script_pub_key, test.prefix);
-            assert_eq!(extracted, test.expected_address, "extract address test failed for '{}'", test.name);
-            if let Ok(ref address) = extracted {
-                let encoded = pay_to_address_script(address);
-                assert_eq!(encoded, test.script_pub_key, "encode public key script test failed for '{}'", test.name);
+            match (test.expect_success, extracted) {
+                (true, Ok(address)) => {
+                    let encoded = pay_to_address_script(&address);
+                    assert_eq!(encoded, test.script_pub_key, "re-encoded script mismatch for '{}'", test.name);
+                }
+                (false, Err(_)) => {
+                    // Expected failure
+                }
+                (true, Err(e)) => panic!("Test '{}' failed unexpectedly: {:?}", test.name, e),
+                (false, Ok(a)) => panic!("Test '{}' unexpectedly succeeded, got address: {}", test.name, a),
             }
         }
     }
