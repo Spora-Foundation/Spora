@@ -4910,18 +4910,14 @@ dependencies = [
 name = "tondi-hashes"
 version = "0.17.0"
 dependencies = [
- "blake2b_simd",
  "blake3",
  "borsh",
  "cc",
  "criterion",
  "faster-hex",
- "js-sys",
  "keccak",
- "once_cell",
  "rand",
  "serde",
- "sha2",
  "sha3",
  "tondi-utils",
  "wasm-bindgen",
