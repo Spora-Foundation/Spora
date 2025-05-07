@@ -1,0 +1,5 @@
+*.log\n*.tmp\n/target\n/coverage
+target/
+.idea/
+check
+check.ps1
