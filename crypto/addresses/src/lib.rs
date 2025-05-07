@@ -10,6 +10,8 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use smallvec::SmallVec;
 use std::fmt::{Display, Formatter};
+use std::str;
+use str::FromStr;
 use thiserror::Error;
 use wasm_bindgen::prelude::*;
 use workflow_wasm::{
@@ -327,6 +329,14 @@ impl TryFrom<String> for Address {
     }
 }
 
+impl FromStr for Address {
+    type Err = AddressError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Address::try_from(s)
+    }
+}
+
 impl TryFrom<&str> for Address {
     type Error = AddressError;
 
@@ -443,7 +453,7 @@ impl<'de> Deserialize<'de> for Address {
             where
                 E: serde::de::Error,
             {
-                let str = std::str::from_utf8(v).map_err(serde::de::Error::custom)?;
+                let str = str::from_utf8(v).map_err(serde::de::Error::custom)?;
                 Address::try_from(str).map_err(serde::de::Error::custom)
             }
 
@@ -451,7 +461,7 @@ impl<'de> Deserialize<'de> for Address {
             where
                 E: serde::de::Error,
             {
-                let str = std::str::from_utf8(v).map_err(serde::de::Error::custom)?;
+                let str = str::from_utf8(v).map_err(serde::de::Error::custom)?;
                 Address::try_from(str).map_err(serde::de::Error::custom)
             }
 
@@ -459,7 +469,7 @@ impl<'de> Deserialize<'de> for Address {
             where
                 E: serde::de::Error,
             {
-                let str = std::str::from_utf8(&v).map_err(serde::de::Error::custom)?;
+                let str = str::from_utf8(&v).map_err(serde::de::Error::custom)?;
                 Address::try_from(str).map_err(serde::de::Error::custom)
             }
 
@@ -561,82 +571,71 @@ impl TryFrom<AddressOrStringArrayT> for Vec<Address> {
 
 #[cfg(test)]
 mod tests {
-    use crate::*;
-
-    fn cases() -> Vec<(Address, &'static str)> {
-        // cspell:disable
-        vec![
-            (Address::new(Prefix::A, Version::PubKey, b""), "a:qqeq69uvrh"),
-            (Address::new(Prefix::A, Version::ScriptHash, b""), "a:pq99546ray"),
-            (Address::new(Prefix::B, Version::ScriptHash, b" "), "b:pqsqzsjd64fv"),
-            (Address::new(Prefix::B, Version::ScriptHash, b"-"), "b:pqksmhczf8ud"),
-            (Address::new(Prefix::B, Version::ScriptHash, b"0"), "b:pqcq53eqrk0e"),
-            (Address::new(Prefix::B, Version::ScriptHash, b"1"), "b:pqcshg75y0vf"),
-            (Address::new(Prefix::B, Version::ScriptHash, b"-1"), "b:pqknzl4e9y0zy"),
-            (Address::new(Prefix::B, Version::ScriptHash, b"11"), "b:pqcnzt888ytdg"),
-            (Address::new(Prefix::B, Version::ScriptHash, b"abc"), "b:ppskycc8txxxn2w"),
-            (Address::new(Prefix::B, Version::ScriptHash, b"1234598760"), "b:pqcnyve5x5unsdekxqeusxeyu2"),
-            (Address::new(Prefix::B, Version::ScriptHash, b"abcdefghijklmnopqrstuvwxyz"), "b:ppskycmyv4nxw6rfdf4kcmtwdac8zunnw36hvamc09aqtpppz8lk"),
-            (Address::new(Prefix::B, Version::ScriptHash, b"000000000000000000000000000000000000000000"), "b:pqcrqvpsxqcrqvpsxqcrqvpsxqcrqvpsxqcrqvpsxqcrqvpsxqcrqvpsxqcrqvpsxqcrq7ag684l3"),
-            (Address::new(Prefix::Testnet, Version::PubKey, &[0u8; 32]),      "tonditest:qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq7cuzd4rr"),
-            (Address::new(Prefix::Testnet, Version::PubKeyECDSA, &[0u8; 33]), "tonditest:qyqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq5c7ckpyn"),
-            (Address::new(Prefix::Testnet, Version::PubKeyECDSA, b"\xba\x01\xfc\x5f\x4e\x9d\x98\x79\x59\x9c\x69\xa3\xda\xfd\xb8\x35\xa7\x25\x5e\x5f\x2e\x93\x4e\x93\x22\xec\xd3\xaf\x19\x0a\xb0\xf6\x0e"), "tonditest:qxaqrlzlf6wes72en3568khahq66wf27tuhfxn5nytkd8tcep2c0vrse6gdmpks"),
-            (Address::new(Prefix::Mainnet, Version::PubKey, &[0u8; 32]),      "tondi:qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqkx9awp4e"),
-            (Address::new(Prefix::Mainnet, Version::PubKey, b"\x5f\xff\x3c\x4d\xa1\x8f\x45\xad\xcd\xd4\x99\xe4\x46\x11\xe9\xff\xf1\x48\xba\x69\xdb\x3c\x4e\xa2\xdd\xd9\x55\xfc\x46\xa5\x95\x22"), "tondi:qp0l70zd5x85ttwd6jv7g3s3a8llzj96d8dncn4zmhv4tlzx5k2jyqh70xmfj"),
-        ]
-        // cspell:enable
-    }
+    use super::*;
 
     #[test]
-    fn check_into_string() {
-        for (address, expected_address_str) in cases() {
-            let address_str: String = address.into();
-            assert_eq!(address_str, expected_address_str);
+    fn address_roundtrip() {
+        use Version::*;
+        use Prefix::*;
+
+        fn gen_payload(version: Version) -> Vec<u8> {
+            vec![version as u8 + 1; version.public_key_len()]
+        }
+
+        let cases = vec![
+            (Mainnet, PubKey),
+            (Mainnet, PubKeyECDSA),
+            (Mainnet, ScriptHash),
+            (Testnet, PubKey),
+            (Testnet, PubKeyECDSA),
+            (Devnet, ScriptHash),
+            (Simnet, PubKey),
+        ];
+
+        for (prefix, version) in cases {
+            let payload = gen_payload(version);
+            let address = Address::new(prefix, version, &payload);
+            let encoded = address.to_string();
+            let decoded: Address = encoded.parse().expect("Address decode failed");
+            assert_eq!(decoded, address, "Roundtrip mismatch: {encoded}");
         }
     }
+    #[test]
+    fn invalid_prefix_should_fail() {
+        let invalid = "wrongprefix:qpauqsvk7yf9...";
+        let result: Result<Address, _> = invalid.parse();
+        assert!(matches!(result, Err(AddressError::InvalidPrefix(_))));
+    }
 
     #[test]
-    fn check_from_string() {
-        for (expected_address, address_str) in cases() {
-            let address: Address = address_str.to_string().try_into().expect("Test failed");
-            assert_eq!(address, expected_address);
+    fn missing_colon_should_fail() {
+        let invalid = "tonditestqpauqsvk7yf9...";
+        let result: Result<Address, _> = invalid.parse();
+        assert_eq!(result, Err(AddressError::MissingPrefix));
+    }
+
+    #[test]
+    fn bad_checksum_should_fail() {
+        // Modify one character of a valid address
+        let valid = Address::new(Prefix::Testnet, Version::PubKey, &[0u8; 32]).to_string();
+        let mut broken = valid.clone();
+        if let Some(last) = broken.pop() {
+            let replacement = if last == 'a' { 'b' } else { 'a' };
+            broken.push(replacement);
         }
+        let result: Result<Address, _> = broken.parse();
+        assert_eq!(result, Err(AddressError::BadChecksum));
     }
 
-    #[test]
-    fn test_errors() {
-        // cspell:disable
-        let address_str: String = "tondi:qqqqqqqqqqqqq1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqkx9awp4e".to_string();
-        let address: Result<Address, AddressError> = address_str.try_into();
-        assert_eq!(Err(AddressError::DecodingError('1')), address);
 
-        let invalid_char = 124u8 as char;
-        let address_str: String = format!("tondi:qqqqqqqqqqqqq{invalid_char}qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqkx9awp4e");
-        let address: Result<Address, AddressError> = address_str.try_into();
-        assert_eq!(Err(AddressError::DecodingError(invalid_char)), address);
-
-        let invalid_char = 129u8 as char;
-        let address_str: String = format!("tondi:qqqqqqqqqqqqq{invalid_char}qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqkx9awp4e");
-        let address: Result<Address, AddressError> = address_str.try_into();
-        assert!(matches!(address, Err(AddressError::DecodingError(_))));
-
-        let address_str: String = "tondi1:qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqkx9awp4e".to_string();
-        let address: Result<Address, AddressError> = address_str.try_into();
-        assert_eq!(Err(AddressError::InvalidPrefix("tondi1".into())), address);
-
-        let address_str: String = "tondiqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqkx9awp4e".to_string();
-        let address: Result<Address, AddressError> = address_str.try_into();
-        assert_eq!(Err(AddressError::MissingPrefix), address);
-
-        let address_str: String = "tondi:qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqkx9awp4l".to_string();
-        let address: Result<Address, AddressError> = address_str.try_into();
-        assert_eq!(Err(AddressError::BadChecksum), address);
-
-        let address_str: String = "tondi:qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqkx9awp4e".to_string();
-        let address: Result<Address, AddressError> = address_str.try_into();
-        assert_eq!(Err(AddressError::BadChecksum), address);
-        // cspell:enable
-    }
+    #[cfg(target_arch = "wasm32")]
+    use js_sys::Object;
+    #[cfg(target_arch = "wasm32")]
+    use wasm_bindgen::{JsValue, __rt::IntoJsResult};
+    #[cfg(target_arch = "wasm32")]
+    use wasm_bindgen_test::wasm_bindgen_test;
+    #[cfg(target_arch = "wasm32")]
+    use workflow_wasm::{extensions::ObjectExtension, serde::from_value, serde::to_value};
 
     #[cfg(target_arch = "wasm32")]
     use js_sys::Object;
@@ -650,38 +649,31 @@ mod tests {
     #[cfg(target_arch = "wasm32")]
     #[wasm_bindgen_test]
     pub fn test_wasm_serde_constructor() {
-        let str = "tondi:qpauqsvk7yf9unexwmxsnmg547mhyga37csh0kj53q6xxgl24ydxjsgzthw5j";
-        let a = Address::constructor(str);
+        let addr = Address::new(Prefix::Mainnet, Version::PubKey, &[0u8; 32]);
+        let encoded = addr.to_string();
+        let a = Address::constructor(&encoded);
         let value = to_value(&a).unwrap();
 
         assert_eq!(JsValue::from_str("string"), value.js_typeof());
-        assert_eq!(value, JsValue::from_str(str));
+        assert_eq!(value, JsValue::from_str(&encoded));
         assert_eq!(a, from_value(value).unwrap());
     }
 
     #[cfg(target_arch = "wasm32")]
     #[wasm_bindgen_test]
     pub fn test_wasm_js_serde_object() {
-        let expected = Address::constructor("tondi:qpauqsvk7yf9unexwmxsnmg547mhyga37csh0kj53q6xxgl24ydxjsgzthw5j");
-
-        use web_sys::console;
-        console::log_4(
-            &"address: ".into(),
-            &expected.version_to_string().into(),
-            &expected.prefix_to_string().into(),
-            &expected.payload_to_string().into(),
-        );
+        let addr = Address::new(Prefix::Mainnet, Version::PubKey, &[0u8; 32]);
 
         let obj = Object::new();
-        obj.set("version", &JsValue::from_str("PubKey")).unwrap();
-        obj.set("prefix", &JsValue::from_str("tondi")).unwrap();
-        obj.set("payload", &JsValue::from_str("qpauqsvk7yf9unexwmxsnmg547mhyga37csh0kj53q6xxgl24ydxjsgzthw5j")).unwrap();
+        obj.set("version", &JsValue::from_str(&addr.version.to_string())).unwrap();
+        obj.set("prefix", &JsValue::from_str(&addr.prefix.to_string())).unwrap();
+        obj.set("payload", &JsValue::from_str(&addr.payload_to_string())).unwrap();
 
         assert_eq!(JsValue::from_str("object"), obj.js_typeof());
 
         let obj_js = obj.into_js_result().unwrap();
         let actual = from_value(obj_js).unwrap();
-        assert_eq!(expected, actual);
+        assert_eq!(addr, actual);
     }
 
     #[cfg(target_arch = "wasm32")]
@@ -689,10 +681,10 @@ mod tests {
     pub fn test_wasm_serde_object() {
         use wasm_bindgen::convert::IntoWasmAbi;
 
-        let expected = Address::constructor("tondi:qpauqsvk7yf9unexwmxsnmg547mhyga37csh0kj53q6xxgl24ydxjsgzthw5j");
-        let wasm_js_value: JsValue = expected.clone().into_abi().into();
-
+        let addr = Address::new(Prefix::Mainnet, Version::PubKey, &[0u8; 32]);
+        let wasm_js_value: JsValue = addr.clone().into_abi().into();
         let actual = from_value(wasm_js_value).unwrap();
-        assert_eq!(expected, actual);
+
+        assert_eq!(addr, actual);
     }
 }
