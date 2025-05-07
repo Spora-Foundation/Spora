@@ -9,7 +9,6 @@ use chacha20poly1305::{
     aead::{AeadCore, AeadInPlace, KeyInit, OsRng},
     Key, XChaCha20Poly1305,
 };
-use sha2::{Digest, Sha256};
 use std::ops::{Deref, DerefMut};
 use zeroize::Zeroize;
 
@@ -203,33 +202,33 @@ impl Encrypted {
     }
 }
 
-/// Produces `SHA256` hash of the given data.
+/// Produces `BLAKE3` hash of the given data.
 #[inline]
-pub fn sha256_hash(data: &[u8]) -> Secret {
-    let mut sha256 = Sha256::default();
-    sha256.update(data);
-    Secret::new(sha256.finalize().to_vec())
+pub fn blake3_hash(data: &[u8]) -> Secret {
+    let result = blake3::hash(data);
+    Secret::new(result.as_bytes().to_vec())
 }
 
-/// Produces `SHA256d` hash of the given data.
+
+/// Produces `BLAKE3d` hash of the given data (double hash).
 #[inline]
-pub fn sha256d_hash(data: &[u8]) -> Secret {
-    let mut sha256 = Sha256::default();
-    sha256.update(data);
-    sha256_hash(sha256.finalize().as_slice())
+pub fn blake3d_hash(data: &[u8]) -> Secret {
+    let first = blake3_hash(data);
+    blake3_hash(first.as_ref())
 }
 
-/// Produces `argon2sha256iv` hash of the given data.
-pub fn argon2_sha256iv_hash(data: &[u8], byte_length: usize) -> Result<Secret> {
-    let salt = sha256_hash(data);
+
+/// Produces `argon2blake3iv` hash of the given data.
+pub fn argon2_blake3iv_hash(data: &[u8], byte_length: usize) -> Result<Secret> {
+    let salt = blake3_hash(data);  // Replace blake3_hash with blake3_hash
     let mut key = vec![0u8; byte_length];
     Argon2::default().hash_password_into(data, salt.as_ref(), &mut key)?;
     Ok(key.into())
 }
 
-/// Encrypts the given data using `XChaCha20Poly1305` algorithm.
+/// Encrypts the given data using `XChaCha20Poly1305` algorithm with BLAKE3.
 pub fn encrypt_xchacha20poly1305(data: &[u8], secret: &Secret) -> Result<Vec<u8>> {
-    let private_key_bytes = argon2_sha256iv_hash(secret.as_ref(), 32)?;
+    let private_key_bytes = argon2_blake3iv_hash(secret.as_ref(), 32)?;
     let key = Key::from_slice(private_key_bytes.as_ref());
     let cipher = XChaCha20Poly1305::new(key);
     let nonce = XChaCha20Poly1305::generate_nonce(&mut OsRng); // 96-bits; unique per message
@@ -240,9 +239,9 @@ pub fn encrypt_xchacha20poly1305(data: &[u8], secret: &Secret) -> Result<Vec<u8>
     Ok(buffer)
 }
 
-/// Decrypts the given data using `XChaCha20Poly1305` algorithm.
+/// Decrypts the given data using `XChaCha20Poly1305` algorithm with BLAKE3.
 pub fn decrypt_xchacha20poly1305(data: &[u8], secret: &Secret) -> Result<Secret> {
-    let private_key_bytes = argon2_sha256iv_hash(secret.as_ref(), 32)?;
+    let private_key_bytes = argon2_blake3iv_hash(secret.as_ref(), 32)?;
     let key = Key::from_slice(private_key_bytes.as_ref());
     let cipher = XChaCha20Poly1305::new(key);
     let nonce = &data[0..24];
@@ -259,10 +258,10 @@ mod tests {
     fn test_wallet_argon2() {
         println!("testing argon2 hash");
         let password = b"user_password";
-        let hash = argon2_sha256iv_hash(password, 32).unwrap();
+        let hash = argon2_blake3iv_hash(password, 32).unwrap();
         let hash_hex = hash.as_ref().to_hex();
         // println!("argon2hash: {:?}", hash_hex);
-        assert_eq!(hash_hex, "a79b661f0defd1960a4770889e19da0ce2fde1e98ca040f84ab9b2519ca46234");
+        assert_eq!(hash_hex, "7417f7d86f98257d447be45d151869f3110daf951ef0b95ef7b9e11a0f03c492");
     }
 
     #[test]

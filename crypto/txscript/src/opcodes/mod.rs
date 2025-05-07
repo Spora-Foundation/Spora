@@ -2739,7 +2739,7 @@ mod test {
     }
 
     #[test]
-    fn test_opsha256() {
+    fn test_opblake3() {
         // Some test vectors from https://www.dlitz.net/crypto/shad256-test-vectors/
         run_success_test_cases(vec![
             TestCase {

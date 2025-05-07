@@ -4,7 +4,7 @@
 //! generation of address-related events and balance tracking.
 //!
 
-use crate::encryption::sha256_hash;
+use crate::encryption::blake3_hash;
 use crate::events::Events;
 use crate::imports::*;
 use crate::result::Result;
@@ -20,7 +20,7 @@ use sorted_insert::SortedInsertBinaryByKey;
 static UTXO_CONTEXT_ID_SEQUENCER: AtomicU64 = AtomicU64::new(0);
 fn next_utxo_context_id() -> Hash {
     let id = UTXO_CONTEXT_ID_SEQUENCER.fetch_add(1, Ordering::SeqCst);
-    Hash::from_slice(sha256_hash(id.to_le_bytes().as_slice()).as_ref())
+    Hash::from_slice(blake3_hash(id.to_le_bytes().as_slice()).as_ref())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Ord, PartialOrd, Hash, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]

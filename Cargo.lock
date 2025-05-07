@@ -537,6 +537,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "blake3"
+version = "1.8.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3888aaa89e4b2a40fca9848e400f6a658a5a3978de7be858e209cafa8be9a4a0"
+dependencies = [
+ "arrayref",
+ "arrayvec",
+ "cc",
+ "cfg-if 1.0.0",
+ "constant_time_eq",
+]
+
+[[package]]
 name = "block-buffer"
 version = "0.10.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4898,6 +4911,7 @@ name = "tondi-hashes"
 version = "0.17.0"
 dependencies = [
  "blake2b_simd",
+ "blake3",
  "borsh",
  "cc",
  "criterion",
@@ -5370,6 +5384,7 @@ dependencies = [
  "async-channel 2.3.1",
  "async-trait",
  "bincode",
+ "blake3",
  "borsh",
  "cfg-if 1.0.0",
  "criterion",
@@ -5472,6 +5487,7 @@ dependencies = [
  "async-std",
  "async-trait",
  "base64",
+ "blake3",
  "borsh",
  "cfb-mode",
  "cfg-if 1.0.0",
