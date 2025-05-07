@@ -1,5 +1,6 @@
 mod hashers;
 mod pow_hashers;
+mod blake3;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use tondi_utils::{
