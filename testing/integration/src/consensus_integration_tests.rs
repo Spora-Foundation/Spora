@@ -785,7 +785,7 @@ struct RPCUTXOEntry {
 
 #[allow(non_snake_case)]
 #[derive(Deserialize, Debug)]
-struct tondidGoParams {
+struct TondidGoParams {
     K: GhostdagKType,
     TimestampDeviationTolerance: u64,
     TargetTimePerBlock: u64,
