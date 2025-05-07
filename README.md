@@ -4,14 +4,14 @@
 
 ---
 
-## 🧭 Project Overview
+## 🌝 Project Overview
 
 Tondi is designed as a Bitcoin-aligned execution layer — a minimal, stateless blockchain optimized for:
 
-- High-frequency transactions
-- Anchor-based smart contract validation
-- Hidden asset issuance and governance commitments
-- Cross-chain compatibility with BTC, Tondi, and Solana
+* High-frequency transactions
+* Anchor-based smart contract validation
+* Hidden asset issuance and governance commitments
+* Cross-chain compatibility with BTC, Tondi, and Solana
 
 It eliminates unnecessary complexity while maximizing composability and verifiability through client-side protocols.
 
@@ -19,24 +19,24 @@ It eliminates unnecessary complexity while maximizing composability and verifiab
 
 ## 🔧 Key Features
 
-| Component                | Description                                                                 |
-|--------------------------|-----------------------------------------------------------------------------|
-| 🧱 DAG Architecture      | Based on GhostDAG with cutoff optimization, enabling 10,000+ TPS and fast convergence |
-| 🔒 Taproot-Only Model    | All outputs are P2TR; legacy script types and ScriptPath are fully disabled |
-| ⚡ Schnorr Signatures    | Signatures are uniformly Schnorr-based with support for batch validation    |
-| 🔑 Anchor Obfuscation    | RGB and commitment outputs are indistinguishable from native transfers      |
-| 🧠 Blake3 Hash Engine    | Ultra-fast cryptographic hashing, replacing Blake2b/SHA256                  |
-| 🚫 Stateless Design      | No on-chain VM, global state, or script execution; all validation is client-side |
-| 🛰️ Cross-Chain Ready     | Architecture supports adaptor signature schemes for atomic swaps            |
+| Component             | Description                                                                           |
+| --------------------- | ------------------------------------------------------------------------------------- |
+| 🧱 DAG Architecture   | Based on GhostDAG with cutoff optimization, enabling 10,000+ TPS and fast convergence |
+| 🔒 Taproot-Only Model | All outputs are P2TR; legacy script types and ScriptPath are fully disabled           |
+| ⚡ Schnorr Signatures  | Signatures are uniformly Schnorr-based with support for batch validation              |
+| 🔑 Anchor Obfuscation | RGB and commitment outputs are indistinguishable from native transfers                |
+| 🧠 Blake3 Hash Engine | Ultra-fast cryptographic hashing, replacing Blake2b/SHA256                            |
+| 🚫 Stateless Design   | No on-chain VM, global state, or script execution; all validation is client-side      |
+| 🚁️ Cross-Chain Ready | Architecture supports adaptor signature schemes for atomic swaps                      |
 
 ---
 
 ## 🧱 Ideal Use Cases
 
-- RGB token and stablecoin settlement
-- Anchor-based DAO voting and SBT issuance
-- High-frequency payment rails with Taproot privacy
-- Interoperability bridges with Bitcoin, Solana, or other execution layers
+* RGB token and stablecoin settlement
+* Anchor-based DAO voting and SBT issuance
+* High-frequency payment rails with Taproot privacy
+* Interoperability bridges with Bitcoin, Solana, or other execution layers
 
 ---
 
@@ -46,3 +46,4 @@ It eliminates unnecessary complexity while maximizing composability and verifiab
 git clone https://github.com/AvatoLabs/Tondi.git
 cd Tondi
 cargo build --release
+```
