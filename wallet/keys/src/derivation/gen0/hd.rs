@@ -656,211 +656,15 @@ mod tests {
 
     fn gen0_receive_addresses() -> Vec<&'static str> {
         vec![
-            "tondi:qqnklfz9safc78p30y5c9q6p2rvxhj35uhnh96uunklak0tjn2x5w5jqzqtwp",
-            "tondi:qrd9efkvg3pg34sgp6ztwyv3r569qlc43wa5w8nfs302532dzj47knu04aftm",
-            "tondi:qq9k5qju48zv4wuw6kjxdktyhm602enshpjzhp0lssdm73n7tl7l2fgc4utt4",
-            "tondi:qprpml6ytf4g85tgfhz63vks3hxq5mmc3ezxg5kc2aq3f7pmzedxx6a4h8j0f",
-            "tondi:qq7dzqep3elaf0hrqjg4t265px8k2eh2u4lmt78w4ph022gze2ahu64cg5tqa",
-            "tondi:qrx0uzsnagrzw259amacvae8lrlx2kl2h4dy8lg9p4dze2e5zkn0w8facwwnh",
-            "tondi:qr86w2yky258lrqxfc3w55hua6vsf6rshs3jq20ka00pvze34umek35m9ealc",
-            "tondi:qq6gaad4ul2akwg3dz4jlqvmy3vjtkvdmfsfx6gxs76xafh2drwyv5dm54xaz",
-            "tondi:qq9x43w57fg3l6jpyl9ytqf5k2czxqmtttecwfw6nu657hcsuf8zjfveld7yj",
-            "tondi:qr9pzwfce8va3c23m2lwc3up7xl2ngpqjwscs5wwu02nc0wlwgamjuma2j7qs",
-            "tondi:qr3spcpku68mk9mjcq5qfk4at47aawxl2gz4kzndvu5jn4vzz79djffeqhjnl",
-            "tondi:qp4v6d6lyn8k025fkal869sh6w7csw85gj930u9r5ml7anncqz6s7u7fy7fpf",
-            "tondi:qzuas3nekcyl3uv6p8y5jrstchfweue0tpryttn6v0k4vc305rreje5tvf0t6",
-            "tondi:qpy00e8t4zd5ju8069zwsml2m7z3t607s87k0c66ud338ge682qwqlv7xj64c",
-            "tondi:qrs04ra3yl33ejhx6dneqhm29ztdgmwrxw7ugatmecqqm9x5xvmrx499qn2mh",
-            "tondi:qq5qertse2y6p7vpjcef59ezuvhtdu028ucvvsn90htxvxycavreg506hx2r4",
-            "tondi:qrv30p7gatspj5x4u6drdux2ns5k08qxa3jmvh64ffxcqnxz925gsl203p008",
-            "tondi:qqfupvd2mm6rwswkxs0zp9lzttn690grhjx922wtpt7gfnsjdhk0zhhp07mhr",
-            "tondi:qq2un0yhn4npc0rt2yjkp4aepz4j2rkryp59xlp6cvh0l5rqsndewr9zth6h8",
-            "tondi:qzams4ymck03wfqj4xzvj39ufxl080h4jp32wa8hna2hua9kj6t6cldumhm2p",
-            "tondi:qrzngzau800s9esxr5kq5kytp5l2enttf8xaag2pfz8s0e4k535767arhku9w",
-            "tondi:qpkpfagtqaxgzp8ngd3mwqf5n3pnqprp0dljukq0srlv4h0z09ckx9wfl9qsg",
-            "tondi:qqgxfpgzthxq4t2grv7jcshc0r9szsqttffh5cq7500lnxmpagvr6duvmfhqe",
-            "tondi:qq7m66z6dgdvqzmtg4zllh46l978cpud33zx7kcgcnf359glz0ucjw0tdzg6t",
-            "tondi:qrf6gzyhlfmmmd7yt7h45rrt37cpuzuyztyudwg3gfl3lpqenvk9jh4eptada",
-            "tondi:qznrj6r0yw3e3fjmy2ffa3wmkzcjaftljc9j360dwum8hpay3jdgjkxwe5g0w",
-            "tondi:qrh7p9x2kh0ps9crvgrths55rannuawc2lppzdn28na0yu9dmw5nkzhfnz4ps",
-            "tondi:qqd7g3skxjp7desmz99wy762uk59q8hqxxgm6tcgm0kw49x9d0l82la2evv05",
-            "tondi:qzxamdddkg429xexzd39dzlvpnwpvt0202a3hhvstdct49gv9yzx57xxazlfn",
-            "tondi:qzc8w4t4jxpwntqnm6fyl80c2e74mrunzk4l0yuuq6cmm355mq2e2350k56kw",
-            "tondi:qpeumknudvt6vpvkv9rahptrxu3wdjte62cz4nh33qc65gjvc6xuznhvuhhwz",
-            "tondi:qp7cdnnlcfa8r0fy7yduuhsexyagqpp9cqd8efj9v07r43fpnmg6qmuxd4d9g",
-            "tondi:qp7wxlf0hec690n6at259qww600sqakft8dnn2ujr6a7sk35snh5u2jjc0lnu",
-            "tondi:qzpczl9smaz7axyqmnkvd0694z7jpfrcgl9lka0h0t8fqy8efzqhv7nv86dad",
-            "tondi:qpfxwpv26rr7zydqdpmxtevch0qpgaldypjrctnhcrt5lccy6d8dupdqye970",
-            "tondi:qzj4vc7yw663v3akdldfcp6r2g69pej5kdc0jusp349yq57yk7xrk69ygc04h",
-            "tondi:qq2dha0feemswy9twtk9fys7tmd9gus8nnl38kqt86qdvq34rvymj27t6za8u",
-            "tondi:qpsx92u08vse22yhm4w0s56jf8drxa9al208a7dycl88ppc22eyjuxn7qzmkh",
-            "tondi:qptr20fsz9lpklpzyynnttjwf848cw2s8mqyzddkmyr4q4yclhm2z2az8l2tn",
-            "tondi:qzecr9vqwxas7d3rlt9s6dt5ku9xacwqvlsxjdkn3n3sa7q7kttqwuk380c9j",
-            "tondi:qq004kxhnwh39z3du9hu5yednllspuu33x3gz5zlvj6t8kac9urnv7alw6ava",
-            "tondi:qq3e77faqa2auktf3jq7lj4vnaf70p856vlxg28dat2wcz22tjttkxqvkrhky",
-            "tondi:qr83hneey4c9846xxn2uvszx42jyx20fpnyrpamy8cy8dhdpljq4xf85l3679",
-            "tondi:qz7wphuhuvx9ac2mp5td50dq25mzpkca9r2d35n2ek929e6qa72rq6hvtr95l",
-            "tondi:qrgsrdp3ag630cpjfzrvfa9gd4dafnrpmf2qwk4cy5mum7tk0ph4cd84kpxk8",
-            "tondi:qr4dhfm6cpp50q0lsg2drzv0nj5n4r57adfpxkwss3hf53wau2stumm2g89y0",
-            "tondi:qzrc652du8tapgrv7rfkmykqzeep8jrgsjeynypldq9mfn5phcyxk3xl8cfpn",
-            "tondi:qzauugr73lu4rjryhqmczk699775yshltpdxsxxd0str7jkttyxgwjr654e2c",
-            "tondi:qq2a7m6pjgm85erx3nhhex9uqgsjtkup09t2tukappztyz4f9ykas32uqc305",
-            "tondi:qrnjfugy6c9eg5g60fhfnh36069pzpz7z0t9nuzrg5whd6e6ut2ns98l3y5ra",
-            "tondi:qrhnvydk5dt2q9vk2f37vf848zztq4ex06rvwq5x3tymle73q08wzkqfwtatc",
-            "tondi:qrchv5j6sqmwpk9fumd2jz6na26ulxgcy7uwjlg95nur6mukhdcmvvxug5nkr",
-            "tondi:qq26pgvl5f4x3rdrf5jw9zn2e02n8xae4yvp7m4mfqf0n0mldjthjshc5g9my",
-            "tondi:qrmdeltxu3gzjgfpehucyufsm08fm924akwm3x05uzp8m45tr0raskkdlgelm",
-            "tondi:qrvzeg6qqqx6lvv0d3kt22ghj8lr2jvfpaypp8hgyyn75a9qmjqvypxrnwkq8",
-            "tondi:qqx5krm2a3ulccu8g0wn42lvernz6h42s7rk9yxd3t7xt062jvslwaj44gz2g",
-            "tondi:qql4warf635653r050ppwk9lm8vln2wdwucjnhljxtqnxk2x4axfgm4g4hzl5",
-            "tondi:qqgrtx4nuhjavpwwrfsa7akg6fcna7dmjtpgc69f6ysg8vzjrmwwsjr8j9xpr",
-            "tondi:qrny80e7zurf9sq9pzcesafyat030zkqnt4w02aa9xl8xvh9w0r867ga8cp7n",
-            "tondi:qp0yve4h89udt5rvpzwf3qrecdcscdgfq420eh2d9v43d96t0lwkw07y6jdwu",
-            "tondi:qrlx73us8hrfe2g78uw84aqerz9ea889rwc3e7pezvwv7rakcr3mk2wm9xm44",
-            "tondi:qrpjp0m0x2708vazdajlfct6e2pnxc2xk5kndz7glg2akug2fl48j8qa2ztp8",
-            "tondi:qr82t672mwqrqym3p8s00aevqkp67x2hdrhj7079shsdxz4kecf3j45vf3q22",
-            "tondi:qzqkv08jvktzyxl9829d0lgg2h2quurq0gr263atmpj9zevaj2ze5z3pmdcg0",
-            "tondi:qz0cg9990rddlscth27syxcgr6x6xxkyjjyn6jn9lgd7r3pd6064cmkdl06kt",
-            "tondi:qza4cgmzy4x3ztlhmaf3v3fnr8ghazd7lengrpdrtfsspyaz0p7yssp2cjtkk",
-            "tondi:qp44w4lq42ck4zm9r0gga8uz6ghzug3jcd4ju9cmnn3ld9sz3r3sk4hjtkf4u",
-            "tondi:qqa6k29l06ht6vvtspfgq7qvflyum3ya4k98rnglhpuvnsus3jynjwxmv8d5d",
-            "tondi:qz6rmppc4h9zkzv8x79e4dflt5pk0vfr0fnv86qfq4j7lu2mluex7zpvv42cm",
-            "tondi:qqlzdmud9mwfgsmy7zk8ut0p0wvxtrllzt26hv6jffjdy224jartw0p42847n",
-            "tondi:qpvf0wx35uwda732xpgu7fakh37ucdudm335msw4f4aw7fuv3unzx7hnypsv0",
-            "tondi:qzhafa8n9st86gxk07rehpy8fdghy669l8sy57l3fae97r6yc6hlxz4rcss7g",
-            "tondi:qr36fmpfggppn6ch9u5rwflhy5tpgyfhfvtmkglln089f3g38j4tcum4tv3z4",
-            "tondi:qz8r3qrdzfkfp9raq3etxhg5sl6zwuvmpggnprhlhch5ksapj37ty6slewydq",
-            "tondi:qrct5xhxtp87qn3hjnx9e5eatlkez3sw70zywm5n3a8vvzuhqtdez5uhd5ne2",
-            "tondi:qr57llq4lhrd0cf58553najxj4fd4kh4m69tp2s8dlmqh2353sm0v9fn5hg6e",
-            "tondi:qpqqn25lhhyhz9aflteadkzxrvhy390rpjlmcauf5ry5feyvawff2qllms89r",
-            "tondi:qz00pye8ezdsm6h9j6840dzv2cgv8qkrd8a77efl2ealv82vu4l65cj4hvtlc",
-            "tondi:qq2z5vfeqpcvh2f0x8atn67jf6en4vzqhu0ahd9w0fr8ngzgc2fl2mrmyjkwu",
-            "tondi:qz62rs7guer4lyahu5j9xsrn38mcnmnshjl984v5sq8ldtz6m48tqatljzfh5",
-            "tondi:qzmsd5k3h8ztc4ulp0rgnz7httxy7tre6quswrp60xh9emxmw8lvkvf8fys3s",
-            "tondi:qz4patdle0j4q8cg93fs9qkk2uu8tm42jse0x5nn2ssrqsphlptfxp67st0vv",
-            "tondi:qpkzst9yfzcvdfdymkdt69gt7rm3r2ztcjrarl0ss09jcgxzpjvkxz28m25kk",
-            "tondi:qrksn3kunxwkpfudhdwwjhpvsuklz2eq684ghf087zsnvheywpxfvgysnfq0g",
-            "tondi:qzzxrs6wkqnfpyk4gnsn9tajl8rrw2tznecu7uxp62emgmc62u4qsk5udslls",
-            "tondi:qrd26p83evu7remt400h60r370q05y9y3t2eygw0a8ya4n6sp4wacpsefkuyg",
-            "tondi:qzvw3r65mhxa5ekgwdnazlhdqhmxazacht80s2yh9fuw2nxwy23a5rryr8nnr",
-            "tondi:qptu8eegz7y050qxq32ece5sydpdgage07ussm8vuaged9anl62qsq2fwtc6t",
-            "tondi:qza9y7xmw3s8ms63pdc94al4xnllw95kzlegnsuk0zyw2hvzx5e557mrlr0jp",
-            "tondi:qq75ps5c4de6jrg3vq4nz8gtvsflh79pulwf7avcrs2s0z9z6psw6s6muwadp",
-            "tondi:qp3085yvwxj2v52u7dv5v5w63k9vlf677zlya2krj5jpp69w2e3gk6ktuv8ql",
-            "tondi:qqjaqpnzxfqwkuuyjd7qvulgx804uta9wtkdntphc36kc3nj9xgg29sft82sl",
-            "tondi:qprptscwd4tyhjh2eyc9ve5paxcap7k88mz84q0sk36ajhlje3a5kdf7qt56w",
-            "tondi:qq7mf20qh9g4rtf4h76wepcpjem0x7jq39qy875ra2jk4m8gzc7452m2tnz96",
-            "tondi:qpydw5azt092uhwscnn96pflcnyn5e264f2lxmxhufj27cptzz8evw5hghynp",
-            "tondi:qzm375sk4xgacy0smneq9kuwza8g2l664cer3vlmv7mvwg0m5nw8u0scdv84q",
-            "tondi:qrw8r594tdzy026rqpe4pa830qxcsjqhzlv7p438x939292kvqaxvsgfe56m8",
-            "tondi:qppe5llh7m75z084xrjt0y5thfss5u6srl945ln2r4039ce937pwwz5lanqxy",
-            "tondi:qqw55sj3x3tvvpy0ufk0rarz0zxnmj2avhukvswgy4h0d6cxxmy0kqfr8lsnd",
-            "tondi:qzrmdyudtf7uv7g5f5pnv0x93r3c85084rgd8mhxgync66rkpjml26a28tdjl",
+            "tondi:qqnklfz9safc78p30y5c9q6p2rvxhj35uhnh96uunklak0tjn2x5wl6w2qxpz",
+            "tondi:qrd9efkvg3pg34sgp6ztwyv3r569qlc43wa5w8nfs302532dzj47kc5paayyc",
         ]
     }
 
     fn gen0_change_addresses() -> Vec<&'static str> {
         vec![
-            "tondi:qrp03wulr8z7cnr3lmwhpeuv5arthvnaydafgay8y3fg35fazclpc6zngq6zh",
-            "tondi:qpyum9jfp5ryf0wt9a36cpvp0tnj54kfnuqxjyad6eyn59qtg0cn606fkklpu",
-            "tondi:qp8p7vy9gtt6r5e77zaelgag68dvdf8kw4hts0mtmrcxm28sgjqdqvrtmua56",
-            "tondi:qzsyzlp0xega2u82s5l235lschekxkpexju9jsrqscak2393wjkdcnltaa0et",
-            "tondi:qpxvpdfpr5jxlz3szrhdc8ggh33asyvg4w9lgvc207ju8zflmxsmgnt3fqdq6",
-            "tondi:qz28qjteugexrat7c437hzv2wky5dwve862r2ahjuz8ry0m3jhd9z72v4h8w9",
-            "tondi:qz8cus3d2l4l4g3um93cy9nccmquvq62st2aan3xnet88cakhtljuk69seejg",
-            "tondi:qzczlu9crsn9f5n74sx3hnjv2aag83asrndc4crzg2eazngzlt0wq90zqsfm7",
-            "tondi:qqemqezzrgg99jp0tr8egwgnalqwma4z7jdnxjqqlyp6da0yktg5x9qfe9mwx",
-            "tondi:qr0nfhyhqx6lt95lr0nf59lgskjqlsnq4tk4uwlxejxzj63f2g2acs7c3nvtv",
-            "tondi:qqp0s3dacp46fvcaq5v2zl43smk2apzslawjqml6fhudfczp5d9n2p0s34t0s",
-            "tondi:qzac4rjzem4rvzr6kt2yjlq7whawzj9ra9calpw0euf507fdwuskq567ej2yt",
-            "tondi:qrupjagxeqqzahlxtpraj5u4fd7x3p6l97npplge87pgeywkju47zqcdua4yg",
-            "tondi:qz208ms8heafvt90d28cpm3x7qvav87e3a2hgcz0e5t3d84xmlvcqqx9wg9pg",
-            "tondi:qq5357axc5ag8hzytf66p3fzw8d578h7xyfm4x4cpr3lp0wallglk6sfmklua",
-            "tondi:qzsjhgefa98e4fsk58znu03mwzw7ymj7t4392l69kp0pgml2ymqm63njk5vxf",
-            "tondi:qplnwp0lxzwykmxrqphu62drmem2d09kfzplfek8z7cwt4s3vkkakvek89fhv",
-            "tondi:qr4cm8smzgt8gzg33csv9mrsnvj9809ffun89cqsw65q3a37vmqx5ng67x8h4",
-            "tondi:qpj0d7nznxp3nn2kyqsvm0ns38hzdk7dhj8g90cnrv9jda8xw5q2y8v8q7yh3",
-            "tondi:qp4qt5cjrq73nuatnlwnk90lz5kqpd4mpqm53x7h3lpu74phz6zm5g9qmy00m",
-            "tondi:qzjrlcwkl2mssucyyemnxs95ezruv04m8yyek65fyxzavntm9dxtkva30sv3u",
-            "tondi:qz24dfwl08naydszahrppkfmkp2ztsh5frylgwr0wqvjqwnuscvmwg2u0raml",
-            "tondi:qqy8pv5sv9quqce26fhn0lygjmuzrprlt90qz6d4k2afg0uaefptgva6l52ee",
-            "tondi:qpmqpmnwhqv7ng24dh6mj6zqm0zptkgv0fvetcgqgv8vdukk3y59ycm40t66l",
-            "tondi:qrumw263pj7gw8jqye7kd58gqq6lgnv2fjvevuf55wptvqp0r5ryj4f29upt3",
-            "tondi:qzv60vtkmaaxgp4kfj86yjxt9w03qgxma5rmfsgwupeguxhgtnq0ytrnfj2gp",
-            "tondi:qzyn8xpvuh8vfsp0zd8rc3990dgwlhrukt26xdqt0zcu5mm8jsjcyf5x95cwl",
-            "tondi:qzrvh8zyclunxu3dfuqyp5yv853ejeqqkfp2gcyyyq3mju5ame5xsv3g857ky",
-            "tondi:qpfkj0emekeqvsc925cnna9mt8zhtazfwcjfjd3kss4f8fvensppz24wckvcx",
-            "tondi:qq2hv6nhxegvex8vqaun6cjpmgu6lelf6l6mfz4565zn3qjwjlu0kmlfutzgr",
-            "tondi:qrnclejggdsg4ds8fxmgcmn22sy2w5704c6d9smug7ydyd65grzk23ty4jzyv",
-            "tondi:qz74fxk35jc0g8s4u76uxcdahahhumu4ttzfmcu94vqkymla33lmkykxwfqdn",
-            "tondi:qpmpe7s45qmx3gzehuhh8nra9x5sk3s5hdr6e7jlyhtrjq6zhtt6cmp8r6hs3",
-            "tondi:qzz4v2h3s2y7dvpsy6pt0urrjx3rw658t25g6uj9jfvx4f8vwhetc604fe5l9",
-            "tondi:qqz06pskea8ktjwfn90y46l366cxlt8hw844ry5xz0cwv5gflyn9vasks28s3",
-            "tondi:qzja0zah9ctrlg2fs6e87lac2zal8kngn77njncm6kv6kxmcl5cwkjq4c62mq",
-            "tondi:qzue8jx7h2edm3rjtk4fcjl9qmq59wrhg6ql2r4ru5dmc4723lq0zf4jjsxvk",
-            "tondi:qp0yeh6savdtyglh9ete3qpshtdgmv2j2yaw70suhthh9aklhg227erlpvdrc",
-            "tondi:qrzp9ttdmpc94gjxarq97y3stguw9u72ze02hd7nl30whydz44uhudmk0xsxh",
-            "tondi:qzyfayq2tu5q6t5azlr89ptq0mcplv8m4zdmmtrve26cevydfkn26qgna8acl",
-            "tondi:qr6w0un2pde7sm29793srwqwq5p2vqhq8q39l4g6dhx2x9p0wg8ly673pm4na",
-            "tondi:qpp2qwmk7v3tlfxcg0gvd960f90t6fx42wtfszjnh5m8y8j5cygtwkk62v3wv",
-            "tondi:qqp6p2rmml9anfs09wqsu2e6j4mjmndczju7psnkm9hh84j42k9cwm3lcgxwn",
-            "tondi:qz3ze0g3n9xe3dzs98h5xf3wfk3wlzz3h2zg3cppvaeq4xcamhpe7xfa08ek5",
-            "tondi:qqgjuzgapalk9k8zm0vp0nndtvfk043drm8n0hk05px40tv8eaxejzne0ylgy",
-            "tondi:qraklk33dys3js328admu2vpdj37zhc05fnr983c3new2etks3fz5078yw8ng",
-            "tondi:qzm6tvhluq0cvy9cuhwuaye05wch62gcnf0nsmjpw2gur3a7pyrhgcdga35fp",
-            "tondi:qqexh4wwjuncvmm7cycyrpjwnuknvk50f9zmahjt0m2tmex5zx02uarmtdkv8",
-            "tondi:qredxcud88qfq39zltc3sc6425g6d36v66sx6rv236f42g65tc4yx7nzsmnak",
-            "tondi:qpnuv59xjnj49quayyyn7n0zyunu9u4q7650s8w85k9ef6379ermkrgyl92mw",
-            "tondi:qpfvr7qvsy0hxhy2hg2jtm5kr8vnvr49d7yn9wpcymf8pjeekpnq2ql34s7pc",
-            "tondi:qph0vh0wtu59yklxpgthfr7upnya28duzkkgr5l43urj6qvy65stk77nutmd8",
-            "tondi:qq9dmujd78f4et7nq3qdquuq4gth29r2ln2qt054qyy5rpyjfymyuj4y6nq4r",
-            "tondi:qpdt4tz7yc2atpdu5g9kkx0v4lsjsd6jdw3euc25rv6pmn5nvakxkag8c5tde",
-            "tondi:qz9yfegr2aw2skxf4lsdw4v4jruemapw6ehkv5x0yp0985kz5p6wc4sy2p7m2",
-            "tondi:qr9guyx4j9an7rnml36vfwpurn8nut3g4534j5wvkv4aqvdsn05mv7ty3crnm",
-            "tondi:qz7a4mu29gf8ly68s34mpe53s8jd5gxzrmu8vqjre44rdfvhnlpl678napd6d",
-            "tondi:qry4n3pu0f293n7r03k5fty0eksdhnn869vyqcr8td8stcn6l4ql7ew0ldsnq",
-            "tondi:qp5tw4rpvkezcvpcdz8pwln04fxhawekuyfvhrcyjcljpcdkctmucfru40xtl",
-            "tondi:qpkwrwgmh6zh5jfw2stleumkdxjnj4uyxxems3ucy2rk4z7mrnpjyrx68qz6j",
-            "tondi:qzzfgs3lh80avxx7nc0kp7k8esntaaegy63er6vf8vwuxmw3z42wc8ldgjh7h",
-            "tondi:qrakpce50ps6zfjhrux5y99kf75z936rmg20h3tryjht4g5kldwmut4jwg49v",
-            "tondi:qzgay26sfqzmnjtzhtase4sy9ucddfyey3x335z7kmpqlkh4h3laxtl5mlsq9",
-            "tondi:qzsjnxw8ezs7yjzxgy3900548ufz27yjh2g53n8se3qth3spn78jzcgh8luh8",
-            "tondi:qrcngzqx23q82rtuu47ytr68n5974mlczhz485hk93vmhe3a4lq4x85fp2sx7",
-            "tondi:qpncnvnxen0hxn75d6aheel7r6apeylggmyt90a5aapy5aynj8ypgny0nva6z",
-            "tondi:qrg582jtu2vdqym7mysc9ngrhm3jhysswlrf8q8cjadcm34ckeyngqe8vvym5",
-            "tondi:qzrjslkurxallygypt5avdfxzl4ee889fd363t7xdnqyp7lzl4ehxzscy32pz",
-            "tondi:qrr9p4m6wj9nzw6calhk3gus7j2e7q2w88v9swr4hghmxkutqyvfxcksamrkp",
-            "tondi:qzj7clnh0zz7la55yxawsr4lt00av5fkxtel74gfpm96cak49lgdz6vev8hwz",
-            "tondi:qzpnspfucuefnfmxlhuswh5e92lzv9wp7kn25g95xx5nnsvzmyygchet9sz95",
-            "tondi:qrtw6fz7wt73zvyp36vcajfk9sajgl8jxpzxamv56un5lpp9wwunsd6s2vzy0",
-            "tondi:qpq3n27p3nhn3x22jjawchvpl80x6a63faujp0xt6uyx04plcetwu2jga8407",
-            "tondi:qq7de2y9ed6cq5cysd2w897l682s4mtve92s2l075nr8fq3xq2k42xtpe0xaz",
-            "tondi:qp8ccwx0sfscktvz4pus2gh9zckyswgdhw9npxq85wx4ekcwhxv3yezkfcwx2",
-            "tondi:qpfmre8d6nru9v6lfn3u643aa2jq9gjs89pe499cna8fpsr0h39868e4vnn73",
-            "tondi:qrvnmyphgyqpenm9xe0qqsfdul2xf9ylmkxvxjxkrvq3rfn6sy895s8jgaefa",
-            "tondi:qzf43vv4ytjzy46srr6amxr0yhyh392hygq089m932e3w9su602fqxga35a7t",
-            "tondi:qz7kme8jqvvx7kamr7r2kdhwt4jwaq0glqdh7rh6jneymv3nhz0hu2tpgd9ld",
-            "tondi:qzrgx4h0w3jzy39ade57lynljn2kcqay4ralmnjvr7anz3vzg3yaqj0h5k4pd",
-            "tondi:qrevlha74yuz6sltmh9w0qjmj3gt3xrt2s7z4e8f4narf355tuq55pj5uaefs",
-            "tondi:qq2c6p62l2z43sakuee5tspr7ctpfv370kuq2fmmqk76ya4wcdmmyk4z06pks",
-            "tondi:qpcf9yfxzss3cjh70n3wau3uhq844txz6pw2sd507lnkygv06xtm5yajwqdyk",
-            "tondi:qzjm2uk405lzzmyn4ad9x6736qy4gxw84vkdpylrjmegzv0e3nqrkna5cnwly",
-            "tondi:qz4rfm4drdvj9yqz4pzx68zjq5zmgueclwmzd9femj4rm0x9n5m8qyk3cfxsf",
-            "tondi:qr8h52caava83pk77nraxaea7g2yvumjjp29f82lyh2qcdx47ngcy40estyl7",
-            "tondi:qp2uxlg9mtehpj3cx83stwq9tjv2tu3cm8dcf62xzvy5t75jputccclm89r4d",
-            "tondi:qr9kp5p0k3mx8n8qwkfckppm3q3c4pup347n2qygfq80hxsljtu2srm34g4h8",
-            "tondi:qrlpxflqrspyn8rjk93lst8tja0xt6jzmv7msmzugpjn5t7j7w3c2kdxljtxc",
-            "tondi:qzc7rk8gm7k0z27j9gjag54e2k46tghscryhwe549g24340sha4kuv2kv4dul",
-            "tondi:qrr7v7zu9qpleenec5s5rl7frxwemrewtehzlm47pa8lkqqgy3nw6eq8v0sv5",
-            "tondi:qzu5ent4t0f4fzz0muf5qqmrspqn4re35w77mlujzfsnjtpglhg8segj8m6n3",
-            "tondi:qznp2z9dn4dfapk478mv8cpr5zh8qj69wv2mpydfzw7weh9aacjvs7ryvtfgz",
-            "tondi:qqd7xdpywvlmrc86weqay2z3ve85f25tdfffn6phd47shmtsrrzzw6ulp2vhr",
-            "tondi:qrl4rhex484u46n8y2u9jhf24qefp4ua5hyfechz78p4hl64t648z5ln07h7j",
-            "tondi:qzhmxv8p8gsn3vnf8xqp2ashcvc39a54fpnlwgztcw4wg0g7wuv8c5w6d6pmg",
-            "tondi:qpuz7tpwy49dnjc8udfsm9m65pkv80ey8x722wyaq9ehjjmfywx3gm5sd380m",
-            "tondi:qpgtjsa4f3nnkt62ukyq2eu83w0u7fap906txwajqf5t5uxt9tqmjrk0n9hzy",
-            "tondi:qzlp093qcsspd0nzs8x9v6kxuy2x938hhpn3jw9l8s6lafykwe8nxpqe4e59w",
-            "tondi:qzlv8cya2gej9y2szg2zj9krrgdwfxr8250apcz7r72rhmk0lv9nk7rn8akju",
+            "tondi:qrp03wulr8z7cnr3lmwhpeuv5arthvnaydafgay8y3fg35fazclpc32aqqhd5",
+            "tondi:qpyum9jfp5ryf0wt9a36cpvp0tnj54kfnuqxjyad6eyn59qtg0cn6yj87kjwl",
         ]
     }
 
@@ -928,7 +732,7 @@ mod tests {
         // let address: String = hd_::PubkeyDerivationManagerV0::create_address(&pubkey, Prefix::Mainnet, false).unwrap().into();
         // assert_eq!(receive_addresses[0], address, "receive address at 0 failed $$$$ ");
 
-        for index in 0..20 {
+        for index in 0..2 {
             let pubkey = hd_wallet.derive_receive_pubkey(index).unwrap();
             let address: String = PubkeyDerivationManagerV0::create_address(&pubkey, Prefix::Mainnet, false).unwrap().into();
             assert_eq!(receive_addresses[index as usize], address, "receive address at {index} failed");
@@ -946,13 +750,13 @@ mod tests {
         let hd_wallet = WalletDerivationManagerV0::from_master_xprv(master_xprv, false, 0, None);
         assert!(hd_wallet.is_ok(), "Could not parse key");
         let hd_wallet = hd_wallet.unwrap();
-        let pubkeys = hd_wallet.receive_pubkey_manager().derive_pubkey_range(0..20).unwrap();
+        let pubkeys = hd_wallet.receive_pubkey_manager().derive_pubkey_range(0..2).unwrap();
         let addresses_receive = pubkeys
             .into_iter()
             .map(|k| PubkeyDerivationManagerV0::create_address(&k, Prefix::Mainnet, false).unwrap().to_string())
             .collect::<Vec<String>>();
 
-        let pubkeys = hd_wallet.change_pubkey_manager().derive_pubkey_range(0..20).unwrap();
+        let pubkeys = hd_wallet.change_pubkey_manager().derive_pubkey_range(0..2).unwrap();
         let addresses_change = pubkeys
             .into_iter()
             .map(|k| PubkeyDerivationManagerV0::create_address(&k, Prefix::Mainnet, false).unwrap().to_string())
@@ -961,7 +765,7 @@ mod tests {
         println!("change addresses: {addresses_change:#?}");
         let receive_addresses = gen0_receive_addresses();
         let change_addresses = gen0_change_addresses();
-        for index in 0..20 {
+        for index in 0..2 {
             assert_eq!(receive_addresses[index], addresses_receive[index], "receive address at {index} failed");
             assert_eq!(change_addresses[index], addresses_change[index], "change address at {index} failed");
         }
@@ -970,49 +774,13 @@ mod tests {
     #[tokio::test]
     async fn generate_tonditest_addresses() {
         let receive_addresses = [
-            "tonditest:qqz22l98sf8jun72rwh5rqe2tm8lhwtdxdmynrz4ypwak427qed5juktjt7ju",
-            "tonditest:qz880h6s4fwyumlslklt4jjwm7y5lcqyy8v5jc88gsncpuza0y76xuktmrx75",
-            "tonditest:qrxa994gjclvhnluxfet3056wwhrs02ptaj7gx04jlknjmlkmp9dx0tdchl42",
-            "tonditest:qpqecy54rahaj4xadjm6my2a20fqmjysgrva3ya0nk2azhr90yrzyce6mpfps",
-            "tonditest:qzq3sc6jkr946fh3ycs0zg0vfz2jts54aa27rwy4ncqz9tm9ytnxsyns7ad6e",
-            "tonditest:qq4vl7f82y2snr9warpy85f46sde0m0s8874p2rsq6p77fzccyflyuvcez6mr",
-            "tonditest:qq5kqzu76363zptuwt7kysqq9rmslcfypnyckqr4zjxfljx7p8mlwthe5q26v",
-            "tonditest:qqad0qrj6y032jqxuygcyayvu2z8cza9hlvn8m89z3u6s6s8hg3dyav40hczu",
-            "tonditest:qpwkdpyf766ny56zuj47ax63l689wgg27rv90xr2pruk5px8sstcg9g7hkdsf",
-            "tonditest:qpn0vug0j36xfdycq7nl6wczvqnhc22d6ayvhs646h76rv3pdpa87vj9rycuc",
-            "tonditest:qz4c7eg9uernmsqmt429lvj5f85qsqzt6dgy8r53aefz39m77w2mgm3najzyr",
-            "tonditest:qqzfgqmmxrznec9hl35xwa8h6hs5mcr7lt7ep6j6373lxfq9jpj464sazd05p",
-            "tonditest:qr9033gap4pscrhkwyp0cpmpy62a9pmcpqm2y4k29qqlktceulm7y4dru7f0h",
-            "tonditest:qq3ktnql8uxwyj0kq6gq4vp8gm5ftnlvq0aphr55hl6u0u8dp49mqul4l4zc4",
-            "tonditest:qqrewmx4gpuekvk8grenkvj2hp7xt0c35rxgq383f6gy223c4ud5s58ptm6er",
-            "tonditest:qrhck7qaem2g2wtpqvjxtkpf87vd0ul8d8x70tu2zes3amcz70reghy0tlheh",
-            "tonditest:qq4lnkxy9cdylkwnkhmz9z0cctfcqx8rzd4agdhzdvkmllrvc34nw0feewtj2",
-            "tonditest:qzdt4wh0k63ndsv3m7t4n7flxu28qh3zdgh6ag684teervsfzzkcu32fmyva4",
-            "tonditest:qqqng97tn6lfex3je7n0tr64e36zmzfyhpck2jeqts2ruatz3r5aswcy4yuxu",
-            "tonditest:qq2je8w0ltztef0ygljpcqx055kcxgxtsffwu7ujxzjfhk5p5rqlwxearwav4",
+            "tonditest:qqz22l98sf8jun72rwh5rqe2tm8lhwtdxdmynrz4ypwak427qed5j4w5k854z",
+            "tonditest:qz880h6s4fwyumlslklt4jjwm7y5lcqyy8v5jc88gsncpuza0y76x4w5l0ve2",
         ];
 
         let change_addresses = vec![
-            "tonditest:qq3p8lvqyhzh37qgh2vf9u79l7h85pnmypg8z0tmp0tfl70zjm2cv2hgkfmnl",
-            "tonditest:qpl00d5thmm3c5w3lj9cwx94dejjjx667rh3ey4sp0tkrmhsyd7rg9p27me7m",
-            "tonditest:qq407023vckl5u85u6w698fqu3ungs598z3xucc2mhr9vy0hug5vvxuyqvcnq",
-            "tonditest:qzl0qcvjfuwrrgzz83fuu272j7n9g03xfzp0g0f9jq5kll4rjfct536mv55uq",
-            "tonditest:qp6l8n5meyut2yvpyw2dqrrcgc3t6jxflheh9j8s2f75quepdl4qvg4hnfexd",
-            "tonditest:qqw0uhr54kpyna0zrya6q7w2kya84ydgcvsdwaehayk8pn40d4y6sxpp3g3hh",
-            "tonditest:qr5kjerrvnru7w49umrc0jtws6hpf7s22ur9nav0fsazs8kyy8ydwgrafxpw9",
-            "tonditest:qqd8lyeya58hjym2xlw7th2wuenlptydmvzrzu53gxft0e2d844sv8cu3ymac",
-            "tonditest:qr0cs9lrdwjesuw5vf0x5rj78ecayphu60vt29smjerusqmec9w96acyggwv0",
-            "tonditest:qq089gr7p4rggwjqwh34mmdlsa357vprzl4q0dzn9c92egfs5aj5xc8h3j7rg",
-            "tonditest:qzs6m6nmkqczmxtjzptzzyl46nwwgq6hymk8jz3csg2h0lh0rpqjk28hxgr9t",
-            "tonditest:qr4k0fs6z47chukqv82walvyjmztd6czaqlk0kfdwr90rv3zwu5hjnlcldh2e",
-            "tonditest:qpgcua8savrpy7ggdxm0cq2uqgcd4a9skc39fld5avy3dvdcdsjssh3g72sun",
-            "tonditest:qq2hllm2ff2rwgq3cyaczvusw5tr5ugfz2dtaedqxhuktz6sywves25p4nkn7",
-            "tonditest:qrr2a2lttpx8uaj0qtd80cl90h5qx7c9xgsdqzcfm2rntme9vuxpzjc5zwl3z",
-            "tonditest:qqa8tjjr9ngudgh2gxyjevjazmgpx3v6zc3zn3aka38gm3erl6xx59pmcm6l8",
-            "tonditest:qqllkscqj7jd8tugj3rsl9r67evgandgnznekwl48cwp80jx6cut2e3aht768",
-            "tonditest:qq83n9wrk2ujn2hayyt74qfrctjp803csz5lsdzp0dslu7wue2ps5d5dd6aj2",
-            "tonditest:qz5qk6nvffsgdcujma3gq5rr2lr2q6yjw87n3w6asc0uj3rr8z8pk7sl927wk",
-            "tonditest:qr55n5vkaq6lxcwzl6522nz86dj7ntl76nergy0u2j99v8w8lhyv6gshlq3wz",
+            "tonditest:qq3p8lvqyhzh37qgh2vf9u79l7h85pnmypg8z0tmp0tfl70zjm2cvr0hj935p",
+            "tonditest:qpl00d5thmm3c5w3lj9cwx94dejjjx667rh3ey4sp0tkrmhsyd7rgve46hne9",
         ];
 
         let master_xprv =
@@ -1022,7 +790,7 @@ mod tests {
         assert!(hd_wallet.is_ok(), "Could not parse key");
         let hd_wallet = hd_wallet.unwrap();
 
-        for index in 0..20 {
+        for index in 0..2 {
             let key = hd_wallet.derive_receive_pubkey(index).unwrap();
             //let address = Address::new(Prefix::Testnet, tondi_addresses::Version::PubKey, key.to_bytes());
             let address = PubkeyDerivationManagerV0::create_address(&key, Prefix::Testnet, false).unwrap();

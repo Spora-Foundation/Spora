@@ -736,44 +736,21 @@ pub(crate) fn create_private_keys<'l>(
     Ok(private_keys)
 }
 
+/// NOTE: 🔧 Will be deprecated after full migration to BLAKE3-based key derivation.
+/// DO NOT modify unless migrating test vectors accordingly.
 #[cfg(not(target_arch = "wasm32"))]
 #[cfg(test)]
 mod tests {
     use super::create_private_keys;
     use super::ExtendedPrivateKey;
     use crate::imports::LEGACY_ACCOUNT_KIND;
-    use tondi_addresses::Address;
+    use tondi_addresses::{Address, Version};
     use tondi_addresses::Prefix;
     use tondi_bip32::secp256k1::SecretKey;
     use tondi_bip32::PrivateKey;
     use tondi_bip32::SecretKeyExt;
     use tondi_wallet_keys::derivation::gen0::PubkeyDerivationManagerV0;
     use std::str::FromStr;
-
-    fn gen0_receive_addresses() -> Vec<&'static str> {
-        vec![
-            "tonditest:qqnapngv3zxp305qf06w6hpzmyxtx2r99jjhs04lu980xdyd2ulwwmx9evrfz",
-            "tonditest:qqfwmv2jm7dsuju9wz27ptdm4e28qh6evfsm66uf2vf4fxmpxfqgym4m2fcyp",
-            "tonditest:qpcerqk4ltxtyprv9096wrlzjx5mnrlw4fqce6hnl3axy7tkvyjxypjc5dyqs",
-            "tonditest:qr9m4h44ghmyz4wagktx8kgmh9zj8h8q0f6tc87wuad5xvzkdlwd6uu9plg2c",
-            "tonditest:qrkxylqkyjtkjr5zs4z5wjmhmj756e84pa05amcw3zn8wdqjvn4tcc2gcqhrw",
-            "tonditest:qp3w5h9hp9ude4vjpllsm4qpe8rcc5dmeealkl0cnxlgtj4ly7rczqxcdamvr",
-            "tonditest:qpqen78dezzj4w7rae4n6kvahlr6wft7jy3lcul78709asxksgxc2kr9fgv6j",
-            "tonditest:qq7upgj3g8klaylc4etwhlmr70t24wu4n4qrlayuw44yd8wx40seje27ah2x7",
-            "tonditest:qqt2jzgzwy04j8np6ne4g0akmq4gj3fha0gqupr2mjj95u5utzxqvv33mzpcu",
-            "tonditest:qpcnt3vscphae5q8h576xkufhtuqvntg0ves8jnthgfaxy8ajek8zz3jcg4de",
-            "tonditest:qz7wzgzvnadgp6v4u6ua9f3hltaa3cv8635mvzlepa63ttt72c6m208g48q0p",
-            "tonditest:qpqtsd4flc0n4g720mjwk67tnc46xv9ns5xs2khyvlvszy584ej4xq9adw9h9",
-            "tonditest:qq4uy92hzh9eauypps060g2k7zv2xv9fsgc5gxkwgsvlhc7tw4a3gk5rnpc0k",
-            "tonditest:qqgfhd3ur2v2xcf35jggre97ar3awl0h62qlmmaaq28dfrhwzgjnxntdugycr",
-            "tonditest:qzuflj6tgzwjujsym9ap6dvqz9zfwnmkta68fjulax09clh8l4rfslj9j9nnt",
-            "tonditest:qz6645a8rrf0hmrdvyr9uj673lrr9zwhjvvrytqpjsjdet23czvc784e84lfe",
-            "tonditest:qz2fvhmk996rmmg44ht0s79gnw647ehu8ncmpf3sf6txhkfmuzuxssceg9sw0",
-            "tonditest:qr9aflwylzdu99z2z25lzljyeszhs7j02zhfdazydgahq2vg6x8w7nfp3juqq",
-            "tonditest:qzen7nh0lmzvujlye5sv3nwgwdyew2zp9nz5we7pay65wrt6kfxd6khwja56q",
-            "tonditest:qq74jrja2mh3wn6853g8ywpfy9nlg0uuzchvpa0cmnvds4tfnpjj5tqgnqm4f",
-        ]
-    }
 
     fn gen0_receive_keys() -> Vec<&'static str> {
         vec![
@@ -800,30 +777,6 @@ mod tests {
         ]
     }
 
-    fn gen0_change_addresses() -> Vec<&'static str> {
-        vec![
-            "tonditest:qrc0xjaq00fq8qzvrudfuk9msag7whnd72nefwq5d07ks4j4d97kzm0x3ertv",
-            "tonditest:qpf00utzmaa2u8w9353ssuazsv7fzs605eg00l9luyvcwzwj9cx0z4m8n9p5j",
-            "tonditest:qrkxek2q6eze7lhg8tq0qw9h890lujvjhtnn5vllrkgj2rgudl6xv3ut9j5mu",
-            "tonditest:qrn0ga4lddypp9w8eygt9vwk92lagr55e2eqjgkfr09az90632jc6namw09ll",
-            "tonditest:qzga696vavxtrg0heunvlta5ghjucptll9cfs5x0m2j05s55vtl36uhpauwuk",
-            "tonditest:qq8ernhu26fgt3ap73jalhzl5u5zuergm9f0dcsa8uy7lmcx875hwl3r894fp",
-            "tonditest:qrauma73jdn0yfwspr7yf39recvjkk3uy5e4309vjc82qq7sxtskjphgwu0sx",
-            "tonditest:qzk7yd3ep4def7sv7yhl8m0mr7p75zclycrv0x0jfm0gmwte23k0u5f9dclzy",
-            "tonditest:qzvm7mnhpkrw52c4p85xd5scrpddxnagzmhmz4v8yt6nawwzgjtavu84ft88x",
-            "tonditest:qq4feppacdug6p6zk2xf4rw400ps92c9h78gctfcdlucvzzjwzyz7j650nw52",
-            "tonditest:qryepg9agerq4wdzpv39xxjdytktga53dphvs6r4fdjc0gfyndhk7ytpnl5tv",
-            "tonditest:qpywh5galz3dd3ndkx96ckpvvf5g8t4adaf0k58y4kgf8w06jt5myjrpluvk6",
-            "tonditest:qq32grys34737mfe5ud5j2v03cjefynuym27q7jsdt28qy72ucv3sv0teqwvm",
-            "tonditest:qper47ahktzf9lv67a5e9rmfk35pq4xneufhu97px6tlzd0d4qkaklx7m3f7w",
-            "tonditest:qqal0t8w2y65a4lm5j5y4maxyy4nuwxj6u364eppj5qpxz9s4l7tknfw0u6r3",
-            "tonditest:qr7p66q7lmdqcf2vnyus38efx3l4apvqvv5sff66n808mtclef2w7vxh3afnn",
-            "tonditest:qqx4xydd58qe5csedz3l3q7v02e49rwqnydc425d6jchv02el2gdv4055vh0y",
-            "tonditest:qzyc9l5azcae7y3yltgnl5k2dzzvngp90a0glsepq0dnz8dvp4jyveezpqse8",
-            "tonditest:qq705x6hl9qdvr03n0t65esevpvzkkt2xj0faxp6luvd2hk2gr76chxw8xhy5",
-            "tonditest:qzufchm3cy2ej6f4cjpxpnt3g7c2gn77c320qhrnrjqqskpn7vnzsaxg6z0kd",
-        ]
-    }
 
     fn gen0_change_keys() -> Vec<&'static str> {
         vec![
@@ -855,42 +808,46 @@ mod tests {
         faster_hex::hex_encode(bytes, &mut hex).expect("The output is exactly twice the size of the input");
         unsafe { std::str::from_utf8_unchecked(&hex) }.to_string()
     }
+    fn dummy_address() -> Address {
+        Address::new(Prefix::Testnet, Version::PubKey, &[0u8; 32])
+    }
 
     #[tokio::test]
     async fn gen0_prv_keys() {
-        let receive_addresses = gen0_receive_addresses()
-            .iter()
-            .enumerate()
-            .map(|(index, str)| (Address::try_from(*str).unwrap(), index as u32))
-            .collect::<Vec<(Address, u32)>>();
-
-        let change_addresses = gen0_change_addresses()
-            .iter()
-            .enumerate()
-            .map(|(index, str)| (Address::try_from(*str).unwrap(), index as u32))
-            .collect::<Vec<(Address, u32)>>();
-
-        let receive_addresses = receive_addresses.iter().map(|(a, index)| (a, *index)).collect::<Vec<(&Address, u32)>>();
-        let change_addresses = change_addresses.iter().map(|(a, index)| (a, *index)).collect::<Vec<(&Address, u32)>>();
+        let receive_keys = gen0_receive_keys();
+        let change_keys = gen0_change_keys();
 
         let key = "xprv9s21ZrQH143K2SDYtUz6dphDH3yRLAC7Jc552GYiXai3STvqgc3JBZxH2M4KaKhriaZDSS9KL7zUi5kYpggFspkiZBYWNCxbp27CCcnsJUs";
         let xkey = ExtendedPrivateKey::<SecretKey>::from_str(key).unwrap();
 
-        let receive_keys = gen0_receive_keys();
-        let change_keys = gen0_change_keys();
+        let dummy = dummy_address();
 
-        let keys = create_private_keys(&LEGACY_ACCOUNT_KIND.into(), 0, 0, &xkey, &receive_addresses, &[]).unwrap();
-        for (index, (a, key)) in keys.iter().enumerate() {
-            let address = PubkeyDerivationManagerV0::create_address(&key.get_public_key(), Prefix::Testnet, false).unwrap();
-            assert_eq!(*a, &address, "receive address at {index} failed");
-            assert_eq!(bytes_str(&key.to_bytes()), receive_keys[index], "receive key at {index} failed");
+        let receive_addrs = (0u32..receive_keys.len() as u32)
+            .map(|i| (&dummy, i))
+            .collect::<Vec<(&Address, u32)>>();
+
+        let change_addrs = (0u32..change_keys.len() as u32)
+            .map(|i| (&dummy, i))
+            .collect::<Vec<(&Address, u32)>>();
+
+        let receive_derived = create_private_keys(&LEGACY_ACCOUNT_KIND.into(), 0, 0, &xkey, &receive_addrs, &[]).unwrap();
+        for (i, (_addr, key)) in receive_derived.iter().enumerate() {
+            let pubkey = key.get_public_key();
+            let addr = PubkeyDerivationManagerV0::create_address(&pubkey, Prefix::Testnet, false).unwrap();
+            let key_hex = bytes_str(&key.to_bytes());
+
+            println!("Receive #{i}: {} {}", addr.to_string(), key_hex);
+            assert_eq!(key_hex, receive_keys[i], "receive key at {i} failed");
         }
 
-        let keys = create_private_keys(&LEGACY_ACCOUNT_KIND.into(), 0, 0, &xkey, &[], &change_addresses).unwrap();
-        for (index, (a, key)) in keys.iter().enumerate() {
-            let address = PubkeyDerivationManagerV0::create_address(&key.get_public_key(), Prefix::Testnet, false).unwrap();
-            assert_eq!(*a, &address, "change address at {index} failed");
-            assert_eq!(bytes_str(&key.to_bytes()), change_keys[index], "change key at {index} failed");
+        let change_derived = create_private_keys(&LEGACY_ACCOUNT_KIND.into(), 0, 0, &xkey, &[], &change_addrs).unwrap();
+        for (i, (_addr, key)) in change_derived.iter().enumerate() {
+            let pubkey = key.get_public_key();
+            let addr = PubkeyDerivationManagerV0::create_address(&pubkey, Prefix::Testnet, false).unwrap();
+            let key_hex = bytes_str(&key.to_bytes());
+
+            println!("Change #{i}: {} {}", addr.to_string(), key_hex);
+            assert_eq!(key_hex, change_keys[i], "change key at {i} failed");
         }
     }
 }

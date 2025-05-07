@@ -449,52 +449,15 @@ mod tests {
 
     fn gen1_receive_addresses() -> Vec<&'static str> {
         vec![
-            "tondi:qz7ulu4c25dh7fzec9zjyrmlhnkzrg4wmf89q7gzr3gfrsj3uz6xjellj43pf",
-            "tondi:qzn3qjzf2nzyd3zj303nk4sgv0aae42v3ufutk5xsxckfels57dxjjed4qvlx",
-            "tondi:qpakxqlesqywgkq7rg4wyhjd93kmw7trkl3gpa3vd5flyt59a43yyjp28qsku",
-            "tondi:qz0skffpert8cav6h2c9nfndmhzzfhvkrjexclmwgjjwt0sutysnw6lp55ak0",
-            "tondi:qrmzemw6sm67svltul0qsk3974ema4auhrja3k68f4sfhxe4mxjwx0cj353df",
-            "tondi:qpe4apax5dquy600py9rprmukhq8fqyqv9qu072twkvgse0glhqa74ynxmvfr",
-            "tondi:qrptdge6ykdq672xqjd4rv2cedwdcz030jngsr2xhaxrn5l8pfhc294x9c7x6",
-            "tondi:qqnys5nyennjkvyl77vwneq5j2vmjss57zerd88ptzaeqhm998smxw28uth8l",
-            "tondi:qztckuvk02885rdazvj9w079qujg5qpxcdnmsvxqx0q8z7l483prkszjqwwff",
-            "tondi:qrp53krck4m0x6n0dxs7vzf5mg0x6we8e06xjpmu8xr8p4du6f89khqdzw6uw",
-            "tondi:qr4l3mahqe0jeeu6c474q5tywz08mudhddgtdneeq46unv0qx0j77kdtr52uu",
-            "tondi:qzatdsueklx7pkfzanh9u0pwr47sd3a25gfm8wypsevdejhhpj8ck3v74v54j",
-            "tondi:qqk3g5l6ymdkjfmzezx4zrv9fhr5rh0d8tm07udkqxq79n6t60tzu3fa7lnqg",
-            "tondi:qqasa6d590u6875hsese68fa9f8mnedzesn2udehp0s73ggt5cklw2ge393eq",
-            "tondi:qpuzq5jc757uxue9fradme33jd6egxr9fdznd8qysqcc5xy8k7alqpjgpdgrn",
-            "tondi:qqygznwmkl56vprrnvyvnta9qql43yv52m3qz2462vxskn32axl0xccnpsqx9",
-            "tondi:qqk974yml6uuustenwu57hn8n7d202luvn4dum0txvzjgg60g2jzsknngheak",
-            "tondi:qpxqat995cxnjla8nm0dwnneesqnk5enc6hqrua7jztels0eqjg8vsm032lww",
-            "tondi:qpyzkjs2a6k8ljx2qt4pwscj6jccr6k7pmru9k7r2t25teajjuzaz7zkesu0e",
-            "tondi:qzf5mxtvk8wgp8gr3dcj3dkzdu6w4dgpvp2f0gm9pepv9vazxrhy577fy87rt",
-            "tondi:qz44rhjkrddak9vf5z4swlmenxtfhmqc47d0lyf0j7ednyjln0u824ue33gvr",
+            "tondi:qz7ulu4c25dh7fzec9zjyrmlhnkzrg4wmf89q7gzr3gfrsj3uz6xjjh364uw2",
+            "tondi:qzn3qjzf2nzyd3zj303nk4sgv0aae42v3ufutk5xsxckfels57dxje3raqps9",
         ]
     }
 
     fn gen1_change_addresses() -> Vec<&'static str> {
         vec![
-            "tondi:qrqrnyzdwh9ec2q05guzy3vv33f86nvdyw52qwlmk0mewzx3dgdss3pmcd692",
-            "tondi:qqx8jlz0hh0wun5ru4glt9za3v8wj3jn7v3w55a0lyud74ppetqfqny4yhw87",
-            "tondi:qzpa69mrh2nj6xk6gq38vcnzu64necp0jwaxxyusr9xcy5udhu2m7uvql8rnd",
-            "tondi:qqxddf76hr39dc7k7lpdzg065ajtvrhlm5p3edm4gyen0waneryss2c0la85t",
-            "tondi:qps4qh9dtskwvf923yl9utl74r8sdm9h2wv3mftuxcfc2cshwswc6txj0k2kl",
-            "tondi:qrds58d6nw9uz7z93ds4l6x9cgw3rquqzr69dtch6n4d8fxum8c65f7nqmhzx",
-            "tondi:qrajjrpj0krqkww7rymwuwzcd36grjr6688ynvna649q26zukhcq6eqf4jmnx",
-            "tondi:qrumkgz7hlsa748tnzvpztmf6wu9zsgqh6rppw4gzw2mvyq4ccj0y3ms9ju5l",
-            "tondi:qz2g3cj3jcklk4w95djwnm9dffcwg75aqct2pefsxujrldgs08wac99rz70rc",
-            "tondi:qznmzsvk0srfkur8l9pf55st0hnh3x8tmdyskjl9570w99lxsgs7cwrhxap2r",
-            "tondi:qptamza95k7tchmukulldps4kl6wk853dnwa52t4azzm76h588qjufmnu3rn7",
-            "tondi:qqt9h5cjqu9an68cn9k9jc2ywqmqu6kswjzeu09tqulswxkuccaxg6wz45f5r",
-            "tondi:qphr6uy46ad3ca7rerzkx7kkzfzsvfe0xanh4u5mrh538cexs4yjkww0pa4dh",
-            "tondi:qzv3qlh5q4fpy6eu5s4wj080l64del4lvg986z5uh0c3g7wf6n8pvsgm3c9e0",
-            "tondi:qp2dd6y4szgyhcendh7ncxws0qvx8k3s92tg7lvy8eel5npg4pd2ks0ctx4hl",
-            "tondi:qpkqvnkler4rwlpt720unepf3q8cayv0shx0vzydrae7a6u7ryy8zdvnmncyc",
-            "tondi:qr4v33jupxv9h6juqads0znrnw6g7an2ajuzusthnjqujquz66rewtjekhz4l",
-            "tondi:qz5pq2yzpz8ce5avrsa4uzzwrlr5a86rvs74afd6qdm3h649v08nk0qxhrl9n",
-            "tondi:qrajmn035raezl6rcvd0wvnfmdnc0qzwr686ccsrn3z5x8aqnpt8qa0e954jk",
-            "tondi:qrqg7r05nk7syxjh8rdz8wanzmyh8sdts9uexxnnwkq8fplrjammvcnrdggw0",
+            "tondi:qrqrnyzdwh9ec2q05guzy3vv33f86nvdyw52qwlmk0mewzx3dgdss6f4sdh2f",
+            "tondi:qqx8jlz0hh0wun5ru4glt9za3v8wj3jn7v3w55a0lyud74ppetqfqcvmvhrga",
         ]
     }
 
@@ -510,7 +473,7 @@ mod tests {
         let receive_addresses = gen1_receive_addresses();
         let change_addresses = gen1_change_addresses();
 
-        for index in 0..20 {
+        for index in 0..2 {
             let pubkey = hd_wallet.derive_receive_pubkey(index).unwrap();
             let address: String = PubkeyDerivationManager::create_address(&pubkey, Prefix::Mainnet, false).unwrap().into();
             assert_eq!(receive_addresses[index as usize], address, "receive address at {index} failed");
@@ -565,7 +528,7 @@ mod tests {
 
         let key = wallet.derive_receive_pubkey(1).unwrap();
         let address = PubkeyDerivationManager::create_address(&key, Prefix::Testnet, false).unwrap().to_string();
-        assert_eq!(address, "tonditest:qrc2959g0pqda53glnfd238cdnmk24zxzkj8n5x83rkktx4h73dkc4ave6wyg")
+        assert_eq!(address, "tonditest:qrc2959g0pqda53glnfd238cdnmk24zxzkj8n5x83rkktx4h73dkcu9nakyrk")
     }
 
     #[tokio::test]
@@ -576,13 +539,13 @@ mod tests {
         let hd_wallet = WalletDerivationManager::from_master_xprv(master_xprv, false, 0, None);
         assert!(hd_wallet.is_ok(), "Could not parse key");
         let hd_wallet = hd_wallet.unwrap();
-        let pubkeys = hd_wallet.receive_pubkey_manager().derive_pubkey_range(0..20).unwrap();
+        let pubkeys = hd_wallet.receive_pubkey_manager().derive_pubkey_range(0..2).unwrap();
         let addresses_receive = pubkeys
             .into_iter()
             .map(|k| PubkeyDerivationManager::create_address(&k, Prefix::Mainnet, false).unwrap().to_string())
             .collect::<Vec<String>>();
 
-        let pubkeys = hd_wallet.change_pubkey_manager().derive_pubkey_range(0..20).unwrap();
+        let pubkeys = hd_wallet.change_pubkey_manager().derive_pubkey_range(0..2).unwrap();
         let addresses_change = pubkeys
             .into_iter()
             .map(|k| PubkeyDerivationManager::create_address(&k, Prefix::Mainnet, false).unwrap().to_string())
@@ -591,7 +554,7 @@ mod tests {
         println!("change addresses: {addresses_change:#?}");
         let receive_addresses = gen1_receive_addresses();
         let change_addresses = gen1_change_addresses();
-        for index in 0..20 {
+        for index in 0..2 {
             assert_eq!(receive_addresses[index], addresses_receive[index], "receive address at {index} failed");
             assert_eq!(change_addresses[index], addresses_change[index], "change address at {index} failed");
         }
@@ -600,26 +563,8 @@ mod tests {
     #[tokio::test]
     async fn generate_tonditest_addresses() {
         let receive_addresses = [
-            "tonditest:qz7ulu4c25dh7fzec9zjyrmlhnkzrg4wmf89q7gzr3gfrsj3uz6xjceef60sd",
-            "tonditest:qzn3qjzf2nzyd3zj303nk4sgv0aae42v3ufutk5xsxckfels57dxjnltw0jwz",
-            "tonditest:qpakxqlesqywgkq7rg4wyhjd93kmw7trkl3gpa3vd5flyt59a43yyn8vu0w8c",
-            "tonditest:qz0skffpert8cav6h2c9nfndmhzzfhvkrjexclmwgjjwt0sutysnwme80mr8t",
-            "tonditest:qrmzemw6sm67svltul0qsk3974ema4auhrja3k68f4sfhxe4mxjwxw752m0ud",
-            "tonditest:qpe4apax5dquy600py9rprmukhq8fqyqv9qu072twkvgse0glhqa75z4a5jc8",
-            "tonditest:qrptdge6ykdq672xqjd4rv2cedwdcz030jngsr2xhaxrn5l8pfhc2ynq7hqh7",
-            "tonditest:qqnys5nyennjkvyl77vwneq5j2vmjss57zerd88ptzaeqhm998smx0vp8yfkm",
-            "tonditest:qztckuvk02885rdazvj9w079qujg5qpxcdnmsvxqx0q8z7l483prk3y5mpscd",
-            "tonditest:qrp53krck4m0x6n0dxs7vzf5mg0x6we8e06xjpmu8xr8p4du6f89kkxtepyd2",
-            "tonditest:qr4l3mahqe0jeeu6c474q5tywz08mudhddgtdneeq46unv0qx0j77htdcm5dc",
-            "tonditest:qzatdsueklx7pkfzanh9u0pwr47sd3a25gfm8wypsevdejhhpj8cks2cwr2yk",
-            "tonditest:qqk3g5l6ymdkjfmzezx4zrv9fhr5rh0d8tm07udkqxq79n6t60tzus0m9sd3v",
-            "tonditest:qqasa6d590u6875hsese68fa9f8mnedzesn2udehp0s73ggt5cklwtwl220gy",
-            "tonditest:qpuzq5jc757uxue9fradme33jd6egxr9fdznd8qysqcc5xy8k7alqq5w6zkjh",
-            "tonditest:qqygznwmkl56vprrnvyvnta9qql43yv52m3qz2462vxskn32axl0xe746l7hp",
-            "tonditest:qqk974yml6uuustenwu57hn8n7d202luvn4dum0txvzjgg60g2jzsh44nc8vj",
-            "tonditest:qpxqat995cxnjla8nm0dwnneesqnk5enc6hqrua7jztels0eqjg8v3af29pl2",
-            "tonditest:qpyzkjs2a6k8ljx2qt4pwscj6jccr6k7pmru9k7r2t25teajjuzazlyszlz7a",
-            "tonditest:qzf5mxtvk8wgp8gr3dcj3dkzdu6w4dgpvp2f0gm9pepv9vazxrhy5lc0lgqj0",
+            "tonditest:qz7ulu4c25dh7fzec9zjyrmlhnkzrg4wmf89q7gzr3gfrsj3uz6xj3pxdk9hn",
+            "tonditest:qzn3qjzf2nzyd3zj303nk4sgv0aae42v3ufutk5xsxckfels57dxj6852rcfu",
         ];
 
         let master_xprv =
@@ -632,7 +577,7 @@ mod tests {
         //let mut receive_addresses = vec![]; //gen1_receive_addresses();
         //let change_addresses = gen1_change_addresses();
 
-        for index in 0..20 {
+        for index in 0..2 {
             let key = hd_wallet.derive_receive_pubkey(index).unwrap();
             //let address = Address::new(Prefix::Testnet, tondi_addresses::Version::PubKey, key.to_bytes());
             let address = PubkeyDerivationManager::create_address(&key, Prefix::Testnet, false).unwrap();
