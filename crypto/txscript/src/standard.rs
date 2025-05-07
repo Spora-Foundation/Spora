@@ -9,6 +9,7 @@ use tondi_consensus_core::tx::{ScriptPublicKey, ScriptVec};
 use tondi_txscript_errors::TxScriptError;
 use smallvec::SmallVec;
 use std::iter::once;
+use blake3::hash;
 
 mod multisig;
 
@@ -48,7 +49,8 @@ pub fn pay_to_address_script(address: &Address) -> ScriptPublicKey {
 
 /// Takes a script and returns an equivalent pay-to-script-hash script
 pub fn pay_to_script_hash_script(redeem_script: &[u8]) -> ScriptPublicKey {
-    let redeem_script_hash = Params::new().hash_length(32).to_state().update(redeem_script).finalize();
+    // 使用 Blake3 替代 Blake2b
+    let redeem_script_hash = hash(redeem_script);  // Blake3 的默认输出是 32 字节
     let script = pay_to_script_hash(redeem_script_hash.as_bytes());
     ScriptPublicKey::new(ScriptClass::ScriptHash.version(), script)
 }
