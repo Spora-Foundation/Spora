@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
-use kaspa_database::prelude::CachePolicy;
-use kaspa_database::prelude::StoreResult;
-use kaspa_database::prelude::DB;
-use kaspa_database::prelude::{BatchDbWriter, CachedDbItem};
-use kaspa_database::registry::DatabaseStorePrefixes;
-use kaspa_hashes::Hash;
+use tondi_database::prelude::CachePolicy;
+use tondi_database::prelude::StoreResult;
+use tondi_database::prelude::DB;
+use tondi_database::prelude::{BatchDbWriter, CachedDbItem};
+use tondi_database::registry::DatabaseStorePrefixes;
+use tondi_hashes::Hash;
 use rocksdb::WriteBatch;
 
 use super::utxo_set::DbUtxoSetStore;

@@ -1,6 +1,6 @@
 [package]
-name = "kaspa-notify"
-description = "Kaspa notification subsystem"
+name = "tondi-notify"
+description = "Tondi notification subsystem"
 rust-version.workspace = true
 version.workspace = true
 edition.workspace = true
@@ -18,13 +18,13 @@ futures-util.workspace = true
 futures.workspace = true
 indexmap.workspace = true
 itertools.workspace = true
-kaspa-addresses.workspace = true
-kaspa-consensus-core.workspace = true
-kaspa-core.workspace = true
-kaspa-hashes.workspace = true
-kaspa-txscript-errors.workspace = true
-kaspa-txscript.workspace = true
-kaspa-utils.workspace = true
+tondi-addresses.workspace = true
+tondi-consensus-core.workspace = true
+tondi-core.workspace = true
+tondi-hashes.workspace = true
+tondi-txscript-errors.workspace = true
+tondi-txscript.workspace = true
+tondi-utils.workspace = true
 log.workspace = true
 parking_lot.workspace = true
 paste.workspace = true
@@ -38,8 +38,8 @@ workflow-serializer.workspace = true
 
 [dev-dependencies]
 criterion.workspace = true
-kaspa-alloc.workspace = true
-kaspa-math.workspace = true
+tondi-alloc.workspace = true
+tondi-math.workspace = true
 tokio = { workspace = true, features = ["rt", "macros"] }
 workflow-perf-monitor.workspace = true
 

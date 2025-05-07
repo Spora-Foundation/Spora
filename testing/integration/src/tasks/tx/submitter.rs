@@ -4,11 +4,11 @@ use crate::{
 };
 use async_channel::Sender;
 use async_trait::async_trait;
-use kaspa_consensus_core::tx::Transaction;
-use kaspa_core::{error, warn};
-use kaspa_grpc_client::ClientPool;
-use kaspa_rpc_core::{api::rpc::RpcApi, RpcError};
-use kaspa_utils::triggers::SingleTrigger;
+use tondi_consensus_core::tx::Transaction;
+use tondi_core::{error, warn};
+use tondi_grpc_client::ClientPool;
+use tondi_rpc_core::{api::rpc::RpcApi, RpcError};
+use tondi_utils::triggers::SingleTrigger;
 use std::{sync::Arc, time::Duration};
 use tokio::{task::JoinHandle, time::sleep};
 

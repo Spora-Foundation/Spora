@@ -4,18 +4,18 @@
 
 use crate::imports::*;
 use crate::result::Result;
-use kaspa_consensus_core::hashing::sighash::SigHashReusedValues;
-use kaspa_consensus_core::hashing::*;
-use kaspa_consensus_core::hashing::sighash_type::{SigHashType, SIG_HASH_ALL};
-use kaspa_consensus_core::subnets::SUBNETWORK_ID_NATIVE;
-use kaspa_consensus_core::tx::{TransactionOutpoint, TransactionOutput, VerifiableTransaction};
-// use kaspa_hashes::{Hash, Hasher, HasherBase, TransactionSigningHash};
+use tondi_consensus_core::hashing::sighash::SigHashReusedValues;
+use tondi_consensus_core::hashing::*;
+use tondi_consensus_core::hashing::sighash_type::{SigHashType, SIG_HASH_ALL};
+use tondi_consensus_core::subnets::SUBNETWORK_ID_NATIVE;
+use tondi_consensus_core::tx::{TransactionOutpoint, TransactionOutput, VerifiableTransaction};
+// use tondi_hashes::{Hash, Hasher, HasherBase, TransactionSigningHash};
 use crate::transaction::{Transaction,ITransaction};
 use crate::input::{ITransactionInput, TransactionInput};
 use crate::utxo::{IUtxoEntry,UtxoEntryReference};
-use kaspa_hashes::{Hash, Hasher, HasherBase, TransactionSigningHash, TransactionSigningHashECDSA, ZERO_HASH};
-use kaspa_consensus_core::hashing::HasherExtensions;
-use kaspa_consensus_core::hashing::sighash::*;
+use tondi_hashes::{Hash, Hasher, HasherBase, TransactionSigningHash, TransactionSigningHashECDSA, ZERO_HASH};
+use tondi_consensus_core::hashing::HasherExtensions;
+use tondi_consensus_core::hashing::sighash::*;
 
 #[derive(Default)]
 #[wasm_bindgen]

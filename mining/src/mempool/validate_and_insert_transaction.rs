@@ -9,12 +9,12 @@ use crate::mempool::{
     tx::{Orphan, Priority, RbfPolicy},
     Mempool,
 };
-use kaspa_consensus_core::{
+use tondi_consensus_core::{
     api::ConsensusApi,
     constants::UNACCEPTED_DAA_SCORE,
     tx::{MutableTransaction, Transaction, TransactionId, TransactionOutpoint, UtxoEntry},
 };
-use kaspa_core::{debug, info};
+use tondi_core::{debug, info};
 
 impl Mempool {
     pub(crate) fn pre_validate_and_populate_transaction(
@@ -152,14 +152,14 @@ impl Mempool {
     }
 
     fn validate_transaction_in_context(&self, transaction: &MutableTransaction) -> RuleResult<()> {
-        // TEMP: apply parts of go-kaspad mempool dust prevention patch
+        // TEMP: apply parts of go-Tondid mempool dust prevention patch
         let has_coinbase_input = transaction.entries.iter().any(|e| e.as_ref().unwrap().is_coinbase);
         let num_extra_outs = transaction.tx.outputs.len() as i64 - transaction.tx.inputs.len() as i64;
         if !has_coinbase_input
             && num_extra_outs > 2
-            && transaction.calculated_fee.unwrap() < num_extra_outs as u64 * kaspa_consensus_core::constants::SOMPI_PER_KASPA
+            && transaction.calculated_fee.unwrap() < num_extra_outs as u64 * tondi_consensus_core::constants::SOMPI_PER_TONDI
         {
-            kaspa_core::trace!("Rejected spam tx {} from mempool ({} outputs)", transaction.id(), transaction.tx.outputs.len());
+            tondi_core::trace!("Rejected spam tx {} from mempool ({} outputs)", transaction.id(), transaction.tx.outputs.len());
             return Err(RuleError::RejectSpamTransaction(transaction.id()));
         }
 

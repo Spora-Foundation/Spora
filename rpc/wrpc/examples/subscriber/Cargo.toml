@@ -1,6 +1,6 @@
 [package]
-name = "kaspa-wrpc-example-subscriber"
-description = "Kaspa wRPC subscription example"
+name = "tondi-wrpc-example-subscriber"
+description = "Tondi wRPC subscription example"
 publish = false
 rust-version.workspace = true
 version.workspace = true
@@ -12,10 +12,10 @@ repository.workspace = true
 
 [dependencies]
 futures.workspace = true
-kaspa-consensus-core.workspace = true
-kaspa-rpc-core.workspace = true
-kaspa-wrpc-client.workspace = true
-kaspa-notify.workspace = true
+tondi-consensus-core.workspace = true
+tondi-rpc-core.workspace = true
+tondi-wrpc-client.workspace = true
+tondi-notify.workspace = true
 tokio.workspace = true
 workflow-core.workspace = true
 workflow-log.workspace = true

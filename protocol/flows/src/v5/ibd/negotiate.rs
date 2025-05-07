@@ -1,14 +1,14 @@
 use std::time::Duration;
 
 use super::IbdFlow;
-use kaspa_consensus_core::blockstatus::BlockStatus;
-use kaspa_consensusmanager::ConsensusProxy;
-use kaspa_core::{debug, warn};
-use kaspa_hashes::Hash;
-use kaspa_p2p_lib::{
+use tondi_consensus_core::blockstatus::BlockStatus;
+use tondi_consensusmanager::ConsensusProxy;
+use tondi_core::{debug, warn};
+use tondi_hashes::Hash;
+use tondi_p2p_lib::{
     common::{ProtocolError, DEFAULT_TIMEOUT},
     dequeue_with_timeout, make_message,
-    pb::{kaspad_message::Payload, RequestIbdChainBlockLocatorMessage},
+    pb::{tondid_message::Payload, RequestIbdChainBlockLocatorMessage},
 };
 
 pub struct ChainNegotiationOutput {

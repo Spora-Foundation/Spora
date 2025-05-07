@@ -1,12 +1,12 @@
-use kaspa_consensus_core::{
+use tondi_consensus_core::{
     tx::{ScriptPublicKeys, TransactionOutpoint},
     utxo::utxo_diff::UtxoDiff,
     BlockHashSet,
 };
-use kaspa_consensusmanager::spawn_blocking;
-use kaspa_database::prelude::StoreResult;
-use kaspa_hashes::Hash;
-use kaspa_index_core::indexed_utxos::BalanceByScriptPublicKey;
+use tondi_consensusmanager::spawn_blocking;
+use tondi_database::prelude::StoreResult;
+use tondi_hashes::Hash;
+use tondi_index_core::indexed_utxos::BalanceByScriptPublicKey;
 use parking_lot::RwLock;
 use std::{collections::HashSet, fmt::Debug, sync::Arc};
 

@@ -1,5 +1,5 @@
 use crate::constants::{MAX_SOMPI, TX_VERSION};
-use kaspa_consensus_core::tx::Transaction;
+use tondi_consensus_core::tx::Transaction;
 use std::collections::HashSet;
 
 use super::{
@@ -121,7 +121,7 @@ fn check_duplicate_transaction_inputs(tx: &Transaction) -> TxResult<()> {
 }
 
 fn check_gas(tx: &Transaction) -> TxResult<()> {
-    // This should be revised if subnetworks are activated (along with other validations that weren't copied from kaspad)
+    // This should be revised if subnetworks are activated (along with other validations that weren't copied from Tondid)
     if tx.gas > 0 {
         return Err(TxRuleError::TxHasGas);
     }
@@ -170,11 +170,11 @@ fn check_transaction_subnetwork(tx: &Transaction) -> TxResult<()> {
 
 #[cfg(test)]
 mod tests {
-    use kaspa_consensus_core::{
+    use tondi_consensus_core::{
         subnets::{SubnetworkId, SUBNETWORK_ID_COINBASE, SUBNETWORK_ID_NATIVE},
         tx::{scriptvec, ScriptPublicKey, Transaction, TransactionId, TransactionInput, TransactionOutpoint, TransactionOutput},
     };
-    use kaspa_core::assert_match;
+    use tondi_core::assert_match;
 
     use crate::{
         constants::TX_VERSION,

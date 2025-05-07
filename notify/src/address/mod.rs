@@ -2,8 +2,8 @@ pub mod error;
 pub mod tracker;
 
 pub mod test_helpers {
-    use kaspa_addresses::Address;
-    use kaspa_addresses::{Prefix, Version};
+    use tondi_addresses::Address;
+    use tondi_addresses::{Prefix, Version};
 
     pub const ADDRESS_PREFIX: Prefix = Prefix::Mainnet;
 

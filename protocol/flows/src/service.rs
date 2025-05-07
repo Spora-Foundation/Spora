@@ -1,14 +1,14 @@
 use std::sync::Arc;
 
-use kaspa_addressmanager::NetAddress;
-use kaspa_connectionmanager::ConnectionManager;
-use kaspa_core::{
+use tondi_addressmanager::NetAddress;
+use tondi_connectionmanager::ConnectionManager;
+use tondi_core::{
     task::service::{AsyncService, AsyncServiceFuture},
     trace,
 };
-use kaspa_p2p_lib::Adaptor;
-use kaspa_utils::triggers::SingleTrigger;
-use kaspa_utils_tower::counters::TowerConnectionCounters;
+use tondi_p2p_lib::Adaptor;
+use tondi_utils::triggers::SingleTrigger;
+use tondi_utils_tower::counters::TowerConnectionCounters;
 
 use crate::flow_context::FlowContext;
 

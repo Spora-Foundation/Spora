@@ -17,7 +17,7 @@ members = [
     "consensus/notify",
     "consensus/pow",
     "consensus/wasm",
-    "kaspad",
+    "tondid",
     "simpa",
     "wasm",
     "wasm/core",
@@ -64,9 +64,9 @@ members = [
 [workspace.package]
 rust-version = "1.82.0"
 version = "0.17.0"
-authors = ["Kaspa developers"]
+authors = ["Tondi developers"]
 license = "ISC"
-repository = "https://github.com/kaspanet/rusty-kaspa"
+repository = "https://github.com/tondinet/rusty-tondi"
 edition = "2021"
 include = [
     "src/**/*.rs",
@@ -80,61 +80,59 @@ include = [
 ]
 
 [workspace.dependencies]
-# kaspa-testing-integration = { version = "0.17.0", path = "testing/integration" }
-kaspa-addresses = { version = "0.17.0", path = "crypto/addresses" }
-kaspa-addressmanager = { version = "0.17.0", path = "components/addressmanager" }
-kaspa-bip32 = { version = "0.17.0", path = "wallet/bip32" }
-kaspa-cli = { version = "0.17.0", path = "cli" }
-kaspa-connectionmanager = { version = "0.17.0", path = "components/connectionmanager" }
-kaspa-consensus = { version = "0.17.0", path = "consensus" }
-kaspa-consensus-core = { version = "0.17.0", path = "consensus/core" }
-kaspa-consensus-client = { version = "0.17.0", path = "consensus/client" }
-kaspa-consensus-notify = { version = "0.17.0", path = "consensus/notify" }
-kaspa-consensus-wasm = { version = "0.17.0", path = "consensus/wasm" }
-kaspa-consensusmanager = { version = "0.17.0", path = "components/consensusmanager" }
-kaspa-core = { version = "0.17.0", path = "core" }
-kaspa-daemon = { version = "0.17.0", path = "daemon" }
-kaspa-database = { version = "0.17.0", path = "database" }
-kaspa-grpc-client = { version = "0.17.0", path = "rpc/grpc/client" }
-kaspa-grpc-core = { version = "0.17.0", path = "rpc/grpc/core" }
-kaspa-grpc-server = { version = "0.17.0", path = "rpc/grpc/server" }
-kaspa-hashes = { version = "0.17.0", path = "crypto/hashes" }
-kaspa-index-core = { version = "0.17.0", path = "indexes/core" }
-kaspa-index-processor = { version = "0.17.0", path = "indexes/processor" }
-kaspa-math = { version = "0.17.0", path = "math" }
-kaspa-merkle = { version = "0.17.0", path = "crypto/merkle" }
-kaspa-metrics-core = { version = "0.17.0", path = "metrics/core" }
-kaspa-mining = { version = "0.17.0", path = "mining" }
-kaspa-mining-errors = { version = "0.17.0", path = "mining/errors" }
-kaspa-muhash = { version = "0.17.0", path = "crypto/muhash" }
-kaspa-notify = { version = "0.17.0", path = "notify" }
-kaspa-p2p-flows = { version = "0.17.0", path = "protocol/flows" }
-kaspa-p2p-lib = { version = "0.17.0", path = "protocol/p2p" }
-kaspa-perf-monitor = { version = "0.17.0", path = "metrics/perf_monitor" }
-kaspa-pow = { version = "0.17.0", path = "consensus/pow" }
-kaspa-rpc-core = { version = "0.17.0", path = "rpc/core" }
-kaspa-rpc-macros = { version = "0.17.0", path = "rpc/macros" }
-kaspa-rpc-service = { version = "0.17.0", path = "rpc/service" }
-kaspa-txscript = { version = "0.17.0", path = "crypto/txscript" }
-kaspa-txscript-errors = { version = "0.17.0", path = "crypto/txscript/errors" }
-kaspa-utils = { version = "0.17.0", path = "utils" }
-kaspa-utils-tower = { version = "0.17.0", path = "utils/tower" }
-kaspa-utxoindex = { version = "0.17.0", path = "indexes/utxoindex" }
-kaspa-wallet = { version = "0.17.0", path = "wallet/native" }
-kaspa-wallet-cli-wasm = { version = "0.17.0", path = "wallet/wasm" }
-kaspa-wallet-keys = { version = "0.17.0", path = "wallet/keys" }
-kaspa-wallet-pskt = { version = "0.17.0", path = "wallet/pskt" }
-kaspa-wallet-core = { version = "0.17.0", path = "wallet/core" }
-kaspa-wallet-macros = { version = "0.17.0", path = "wallet/macros" }
-kaspa-wasm = { version = "0.17.0", path = "wasm" }
-kaspa-wasm-core = { version = "0.17.0", path = "wasm/core" }
-kaspa-wrpc-client = { version = "0.17.0", path = "rpc/wrpc/client" }
-kaspa-wrpc-proxy = { version = "0.17.0", path = "rpc/wrpc/proxy" }
-kaspa-wrpc-server = { version = "0.17.0", path = "rpc/wrpc/server" }
-kaspa-wrpc-wasm = { version = "0.17.0", path = "rpc/wrpc/wasm" }
-kaspa-wrpc-example-subscriber = { version = "0.17.0", path = "rpc/wrpc/examples/subscriber" }
-kaspad = { version = "0.17.0", path = "kaspad" }
-kaspa-alloc = { version = "0.17.0", path = "utils/alloc" }
+# tondi-testing-integration = { version = "0.17.0", path = "testing/integration" }
+tondi-addresses = { version = "0.17.0", path = "crypto/addresses" }
+tondi-addressmanager = { version = "0.17.0", path = "components/addressmanager" }
+tondi-bip32 = { version = "0.17.0", path = "wallet/bip32" }
+tondi-cli = { version = "0.17.0", path = "cli" }
+tondi-connectionmanager = { version = "0.17.0", path = "components/connectionmanager" }
+tondi-consensus = { version = "0.17.0", path = "consensus" }
+tondi-consensus-core = { version = "0.17.0", path = "consensus/core" }
+tondi-consensus-client = { version = "0.17.0", path = "consensus/client" }
+tondi-consensus-notify = { version = "0.17.0", path = "consensus/notify" }
+tondi-consensus-wasm = { version = "0.17.0", path = "consensus/wasm" }
+tondi-consensusmanager = { version = "0.17.0", path = "components/consensusmanager" }
+tondi-core = { version = "0.17.0", path = "core" }
+tondi-daemon = { version = "0.17.0", path = "daemon" }
+tondi-database = { version = "0.17.0", path = "database" }
+tondi-grpc-client = { version = "0.17.0", path = "rpc/grpc/client" }
+tondi-grpc-core = { version = "0.17.0", path = "rpc/grpc/core" }
+tondi-grpc-server = { version = "0.17.0", path = "rpc/grpc/server" }
+tondi-hashes = { version = "0.17.0", path = "crypto/hashes" }
+tondi-index-core = { version = "0.17.0", path = "indexes/core" }
+tondi-index-processor = { version = "0.17.0", path = "indexes/processor" }
+tondi-math = { version = "0.17.0", path = "math" }
+tondi-merkle = { version = "0.17.0", path = "crypto/merkle" }
+tondi-metrics-core = { version = "0.17.0", path = "metrics/core" }
+tondi-mining = { version = "0.17.0", path = "mining" }
+tondi-mining-errors = { version = "0.17.0", path = "mining/errors" }
+tondi-muhash = { version = "0.17.0", path = "crypto/muhash" }
+tondi-notify = { version = "0.17.0", path = "notify" }
+tondi-p2p-flows = { version = "0.17.0", path = "protocol/flows" }
+tondi-p2p-lib = { version = "0.17.0", path = "protocol/p2p" }
+tondi-perf-monitor = { version = "0.17.0", path = "metrics/perf_monitor" }
+tondi-pow = { version = "0.17.0", path = "consensus/pow" }
+tondi-rpc-core = { version = "0.17.0", path = "rpc/core" }
+tondi-rpc-macros = { version = "0.17.0", path = "rpc/macros" }
+tondi-rpc-service = { version = "0.17.0", path = "rpc/service" }
+tondi-txscript = { version = "0.17.0", path = "crypto/txscript" }
+tondi-txscript-errors = { version = "0.17.0", path = "crypto/txscript/errors" }
+tondi-utils = { version = "0.17.0", path = "utils" }
+tondi-utils-tower = { version = "0.17.0", path = "utils/tower" }
+tondi-utxoindex = { version = "0.17.0", path = "indexes/utxoindex" }
+tondi-wallet = { version = "0.17.0", path = "wallet/native" }
+tondi-wallet-cli-wasm = { version = "0.17.0", path = "wallet/wasm" }
+tondi-wallet-keys = { version = "0.17.0", path = "wallet/keys" }
+tondi-wallet-pskt = { version = "0.17.0", path = "wallet/pskt" }
+tondi-wallet-core = { version = "0.17.0", path = "wallet/core" }
+tondi-wallet-macros = { version = "0.17.0", path = "wallet/macros" }
+tondi-wasm = { version = "0.17.0", path = "wasm" }
+tondi-wasm-core = { version = "0.17.0", path = "wasm/core" }
+tondi-wrpc-client = { version = "0.17.0", path = "rpc/wrpc/client" }
+tondi-wrpc-server = { version = "0.17.0", path = "rpc/wrpc/server" }
+tondi-wrpc-wasm = { version = "0.17.0", path = "rpc/wrpc/wasm" }
+tondid = { version = "0.17.0", path = "tondid" }
+tondi-alloc = { version = "0.17.0", path = "utils/alloc" }
 
 # external
 aes = "0.8.3"

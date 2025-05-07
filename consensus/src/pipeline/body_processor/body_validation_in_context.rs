@@ -10,9 +10,9 @@ use crate::{
         window::WindowManager,
     },
 };
-use kaspa_consensus_core::{block::Block, errors::tx::TxRuleError};
-use kaspa_database::prelude::StoreResultExtensions;
-use kaspa_hashes::Hash;
+use tondi_consensus_core::{block::Block, errors::tx::TxRuleError};
+use tondi_database::prelude::StoreResultExtensions;
+use tondi_hashes::Hash;
 use once_cell::unsync::Lazy;
 use std::sync::Arc;
 
@@ -119,14 +119,14 @@ mod tests {
         params::DEVNET_PARAMS,
         processes::{transaction_validator::errors::TxRuleError, window::WindowManager},
     };
-    use kaspa_consensus_core::{
+    use tondi_consensus_core::{
         api::ConsensusApi,
         merkle::calc_hash_merkle_root as calc_hash_merkle_root_with_options,
         subnets::SUBNETWORK_ID_NATIVE,
         tx::{Transaction, TransactionInput, TransactionOutpoint},
     };
-    use kaspa_core::assert_match;
-    use kaspa_hashes::Hash;
+    use tondi_core::assert_match;
+    use tondi_hashes::Hash;
 
     fn calc_hash_merkle_root<'a>(txs: impl ExactSizeIterator<Item = &'a Transaction>) -> Hash {
         calc_hash_merkle_root_with_options(txs, false)

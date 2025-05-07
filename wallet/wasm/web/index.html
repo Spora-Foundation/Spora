@@ -1,10 +1,10 @@
 <html>
     <head>
         <script type="module">
-            import * as kaspa from './kaspa-wallet/kaspa-wallet.js';
+            import * as tondi from './tondi-wallet/tondi-wallet.js';
             (async () => {
-                const wasm = await kaspa.default('./kaspa-wallet/kaspa-wallet_bg.wasm');
-                await wasm.load_kaspa_wallet_cli();
+                const wasm = await tondi.default('./tondi-wallet/tondi-wallet_bg.wasm');
+                await wasm.load_tondi_wallet_cli();
             })();
         </script>
         <style>

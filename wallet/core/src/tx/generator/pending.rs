@@ -8,10 +8,10 @@ use crate::result::Result;
 use crate::rpc::DynRpcApi;
 use crate::tx::{DataKind, Generator};
 use crate::utxo::{UtxoContext, UtxoEntryId, UtxoEntryReference};
-use kaspa_consensus_core::hashing::sighash_type::SigHashType;
-use kaspa_consensus_core::sign::{sign_input, sign_with_multiple_v2, Signed};
-use kaspa_consensus_core::tx::{SignableTransaction, Transaction, TransactionId};
-use kaspa_rpc_core::{RpcTransaction, RpcTransactionId};
+use tondi_consensus_core::hashing::sighash_type::SigHashType;
+use tondi_consensus_core::sign::{sign_input, sign_with_multiple_v2, Signed};
+use tondi_consensus_core::tx::{SignableTransaction, Transaction, TransactionId};
+use tondi_rpc_core::{RpcTransaction, RpcTransactionId};
 
 pub(crate) struct PendingTransactionInner {
     /// Generator that produced the transaction

@@ -1,7 +1,7 @@
 use async_channel::Receiver;
-use kaspa_grpc_client::GrpcClient;
-use kaspa_notify::{connection::ChannelType, events::EventType, listener::ListenerId, scope::Scope, subscription::Command};
-use kaspa_rpc_core::{api::rpc::RpcApi, notify::connection::ChannelConnection, Notification, RpcResult};
+use tondi_grpc_client::GrpcClient;
+use tondi_notify::{connection::ChannelType, events::EventType, listener::ListenerId, scope::Scope, subscription::Command};
+use tondi_rpc_core::{api::rpc::RpcApi, notify::connection::ChannelConnection, Notification, RpcResult};
 
 /// An event type bound notification listener
 #[derive(Clone)]

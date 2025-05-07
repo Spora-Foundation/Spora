@@ -3,9 +3,9 @@ use crate::mempool::{
     model::{pool::Pool, tx::TxRemovalReason},
     Mempool,
 };
-use kaspa_consensus_core::tx::TransactionId;
-use kaspa_core::debug;
-use kaspa_utils::iter::IterExtensions;
+use tondi_consensus_core::tx::TransactionId;
+use tondi_core::debug;
+use tondi_utils::iter::IterExtensions;
 
 impl Mempool {
     pub(crate) fn remove_transaction(

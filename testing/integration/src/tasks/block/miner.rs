@@ -1,11 +1,11 @@
 use crate::tasks::{Stopper, Task};
 use async_channel::Sender;
 use async_trait::async_trait;
-use kaspa_addresses::Address;
-use kaspa_core::warn;
-use kaspa_grpc_client::GrpcClient;
-use kaspa_rpc_core::{api::rpc::RpcApi, GetBlockTemplateResponse, RpcRawBlock};
-use kaspa_utils::triggers::SingleTrigger;
+use tondi_addresses::Address;
+use tondi_core::warn;
+use tondi_grpc_client::GrpcClient;
+use tondi_rpc_core::{api::rpc::RpcApi, GetBlockTemplateResponse, RpcRawBlock};
+use tondi_utils::triggers::SingleTrigger;
 use parking_lot::Mutex;
 use rand::thread_rng;
 use rand_distr::{Distribution, Exp};

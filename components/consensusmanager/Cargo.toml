@@ -1,6 +1,6 @@
 [package]
-name = "kaspa-consensusmanager"
-description = "Kaspa consensus library"
+name = "tondi-consensusmanager"
+description = "Tondi consensus library"
 rust-version.workspace = true
 version.workspace = true
 edition.workspace = true
@@ -14,11 +14,11 @@ duration-string.workspace = true
 futures-util.workspace = true
 futures.workspace = true
 itertools.workspace = true
-kaspa-addresses.workspace=true
-kaspa-consensus-core.workspace = true
-kaspa-consensus-notify.workspace = true
-kaspa-core.workspace = true
-kaspa-utils.workspace = true
+tondi-addresses.workspace=true
+tondi-consensus-core.workspace = true
+tondi-consensus-notify.workspace = true
+tondi-core.workspace = true
+tondi-utils.workspace = true
 log.workspace = true
 parking_lot.workspace = true
 rand.workspace = true

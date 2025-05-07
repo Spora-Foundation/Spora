@@ -1,6 +1,6 @@
 [package]
-name = "kaspa-wrpc-proxy"
-description = "Kaspa wRPC to gRPC proxy"
+name = "tondi-wrpc-proxy"
+description = "Tondi wRPC to gRPC proxy"
 rust-version.workspace = true
 version.workspace = true
 edition.workspace = true
@@ -12,11 +12,11 @@ repository.workspace = true
 [dependencies]
 async-trait.workspace = true
 clap.workspace = true
-kaspa-consensus-core.workspace = true
-kaspa-grpc-client.workspace = true
-kaspa-rpc-core.workspace = true
-kaspa-rpc-macros.workspace = true
-kaspa-wrpc-server.workspace = true
+tondi-consensus-core.workspace = true
+tondi-grpc-client.workspace = true
+tondi-rpc-core.workspace = true
+tondi-rpc-macros.workspace = true
+tondi-wrpc-server.workspace = true
 num_cpus.workspace = true
 thiserror.workspace = true
 tokio.workspace = true

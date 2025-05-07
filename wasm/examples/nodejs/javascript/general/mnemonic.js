@@ -1,9 +1,9 @@
-const kaspa = require('../../../../nodejs/kaspa');
+const tondi = require('../../../../nodejs/tondi');
 const {
     Mnemonic,
-} = kaspa;
+} = tondi;
 
-kaspa.initConsolePanicHook();
+tondi.initConsolePanicHook();
 
 (async () => {
 

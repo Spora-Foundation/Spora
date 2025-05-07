@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
-use kaspa_consensus_core::errors::{consensus::ConsensusError, sync::SyncManagerError};
-use kaspa_p2p_lib::{
+use tondi_consensus_core::errors::{consensus::ConsensusError, sync::SyncManagerError};
+use tondi_p2p_lib::{
     common::ProtocolError,
     dequeue_with_request_id, make_response,
-    pb::{kaspad_message::Payload, IbdChainBlockLocatorMessage},
+    pb::{tondid_message::Payload, IbdChainBlockLocatorMessage},
     IncomingRoute, Router,
 };
 

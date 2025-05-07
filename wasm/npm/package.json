@@ -1,28 +1,28 @@
 {
-  "name": "kaspa",
+  "name": "tondi",
   "version": "0.13.5",
-  "description": "Kaspa SDK",
+  "description": "Tondi SDK",
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/kaspanet/rusty-kaspa.git"
+    "url": "git+https://github.com/tondinet/rusty-tondi.git"
   },
   "keywords": [
-    "kaspa",
+    "tondi",
     "wasm",
     "sdk"
   ],
-  "author": "Kaspa developers",
+  "author": "Tondi developers",
   "license": "ISC",
   "bugs": {
-    "url": "https://github.com/kaspanet/rusty-kaspa/issues"
+    "url": "https://github.com/tondinet/rusty-tondi/issues"
   },
-  "homepage": "https://github.com/kaspanet/rusty-kaspa#readme",
+  "homepage": "https://github.com/tondinet/rusty-tondi#readme",
   "dependencies": {
     "websocket": "1.0.34",
-    "kaspa-wasm": "0.13.5"
+    "tondi-wasm": "0.13.5"
   }
 }

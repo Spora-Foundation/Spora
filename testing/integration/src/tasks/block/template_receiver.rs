@@ -3,12 +3,12 @@ use crate::{
     tasks::{Stopper, Task},
 };
 use async_trait::async_trait;
-use kaspa_addresses::Address;
-use kaspa_core::warn;
-use kaspa_grpc_client::GrpcClient;
-use kaspa_notify::{listener::ListenerId, scope::NewBlockTemplateScope};
-use kaspa_rpc_core::{api::rpc::RpcApi, GetBlockTemplateResponse, Notification};
-use kaspa_utils::{channel::Channel, triggers::SingleTrigger};
+use tondi_addresses::Address;
+use tondi_core::warn;
+use tondi_grpc_client::GrpcClient;
+use tondi_notify::{listener::ListenerId, scope::NewBlockTemplateScope};
+use tondi_rpc_core::{api::rpc::RpcApi, GetBlockTemplateResponse, Notification};
+use tondi_utils::{channel::Channel, triggers::SingleTrigger};
 use parking_lot::Mutex;
 use std::sync::Arc;
 use tokio::task::JoinHandle;

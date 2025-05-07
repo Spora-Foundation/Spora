@@ -1,6 +1,6 @@
 use crate::result::Result;
 use js_sys::BigInt;
-use kaspa_consensus_core::network::{NetworkType, NetworkTypeT};
+use tondi_consensus_core::network::{NetworkType, NetworkTypeT};
 use wasm_bindgen::prelude::*;
 use workflow_wasm::prelude::*;
 
@@ -8,39 +8,39 @@ use workflow_wasm::prelude::*;
 extern "C" {
     #[wasm_bindgen(typescript_type = "bigint | number | HexString")]
     #[derive(Clone, Debug)]
-    pub type ISompiToKaspa;
+    pub type ISompiToTondi;
 }
 
-/// Convert a Kaspa string to Sompi represented by bigint.
+/// Convert a Tondi string to Sompi represented by bigint.
 /// This function provides correct precision handling and
 /// can be used to parse user input.
 /// @category Wallet SDK
-#[wasm_bindgen(js_name = "kaspaToSompi")]
-pub fn kaspa_to_sompi(kaspa: String) -> Option<BigInt> {
-    crate::utils::try_kaspa_str_to_sompi(kaspa).ok().flatten().map(Into::into)
+#[wasm_bindgen(js_name = "tondiToSompi")]
+pub fn tondi_to_sompi(tondi: String) -> Option<BigInt> {
+    crate::utils::try_tondi_str_to_sompi(tondi).ok().flatten().map(Into::into)
 }
 
 ///
-/// Convert Sompi to a string representation of the amount in Kaspa.
+/// Convert Sompi to a string representation of the amount in Tondi.
 ///
 /// @category Wallet SDK
 ///
-#[wasm_bindgen(js_name = "sompiToKaspaString")]
-pub fn sompi_to_kaspa_string(sompi: ISompiToKaspa) -> Result<String> {
+#[wasm_bindgen(js_name = "sompiToTondiString")]
+pub fn sompi_to_tondi_string(sompi: ISompiToTondi) -> Result<String> {
     let sompi = sompi.try_as_u64()?;
-    Ok(crate::utils::sompi_to_kaspa_string(sompi))
+    Ok(crate::utils::sompi_to_tondi_string(sompi))
 }
 
 ///
-/// Format a Sompi amount to a string representation of the amount in Kaspa with a suffix
-/// based on the network type (e.g. `KAS` for mainnet, `TKAS` for testnet,
+/// Format a Sompi amount to a string representation of the amount in Tondi with a suffix
+/// based on the network type (e.g. `TND` for mainnet, `TKAS` for testnet,
 /// `SKAS` for simnet, `DKAS` for devnet).
 ///
 /// @category Wallet SDK
 ///
-#[wasm_bindgen(js_name = "sompiToKaspaStringWithSuffix")]
-pub fn sompi_to_kaspa_string_with_suffix(sompi: ISompiToKaspa, network: &NetworkTypeT) -> Result<String> {
+#[wasm_bindgen(js_name = "sompiToTondiStringWithSuffix")]
+pub fn sompi_to_tondi_string_with_suffix(sompi: ISompiToTondi, network: &NetworkTypeT) -> Result<String> {
     let sompi = sompi.try_as_u64()?;
     let network_type = NetworkType::try_from(network)?;
-    Ok(crate::utils::sompi_to_kaspa_string_with_suffix(sompi, &network_type))
+    Ok(crate::utils::sompi_to_tondi_string_with_suffix(sompi, &network_type))
 }

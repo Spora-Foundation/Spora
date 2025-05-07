@@ -1,6 +1,6 @@
 [package]
-name = "kaspa-mining"
-description = "Kaspa mining"
+name = "tondi-mining"
+description = "Tondi mining"
 rust-version.workspace = true
 version.workspace = true
 edition.workspace = true
@@ -10,15 +10,15 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-kaspa-addresses.workspace = true
-kaspa-consensus-core.workspace = true
-kaspa-consensusmanager.workspace = true
-kaspa-core.workspace = true
-kaspa-hashes.workspace = true
-kaspa-mining-errors.workspace = true
-kaspa-muhash.workspace = true
-kaspa-txscript.workspace = true
-kaspa-utils.workspace = true
+tondi-addresses.workspace = true
+tondi-consensus-core.workspace = true
+tondi-consensusmanager.workspace = true
+tondi-core.workspace = true
+tondi-hashes.workspace = true
+tondi-mining-errors.workspace = true
+tondi-muhash.workspace = true
+tondi-txscript.workspace = true
+tondi-utils.workspace = true
 
 futures-util.workspace = true
 itertools.workspace = true
@@ -32,7 +32,7 @@ thiserror.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal"] }
 
 [dev-dependencies]
-kaspa-txscript.workspace = true
+tondi-txscript.workspace = true
 criterion.workspace = true
 secp256k1.workspace = true
 

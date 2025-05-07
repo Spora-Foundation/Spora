@@ -1,4 +1,4 @@
-use kaspa_consensus_core::trusted::{TrustedGhostdagData, TrustedHeader};
+use tondi_consensus_core::trusted::{TrustedGhostdagData, TrustedHeader};
 
 use crate::pb as protowire;
 

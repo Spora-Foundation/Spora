@@ -2,17 +2,17 @@ use std::ops::Deref;
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
-use kaspa_consensus_core::api::stats::VirtualStateStats;
-use kaspa_consensus_core::{
+use tondi_consensus_core::api::stats::VirtualStateStats;
+use tondi_consensus_core::{
     block::VirtualStateApproxId, coinbase::BlockRewardData, config::genesis::GenesisBlock, tx::TransactionId,
     utxo::utxo_diff::UtxoDiff, BlockHashMap, BlockHashSet, HashMapCustomHasher,
 };
-use kaspa_database::prelude::{BatchDbWriter, CachedDbItem, DirectDbWriter, StoreResultExtensions};
-use kaspa_database::prelude::{CachePolicy, StoreResult};
-use kaspa_database::prelude::{StoreError, DB};
-use kaspa_database::registry::DatabaseStorePrefixes;
-use kaspa_hashes::Hash;
-use kaspa_muhash::MuHash;
+use tondi_database::prelude::{BatchDbWriter, CachedDbItem, DirectDbWriter, StoreResultExtensions};
+use tondi_database::prelude::{CachePolicy, StoreResult};
+use tondi_database::prelude::{StoreError, DB};
+use tondi_database::registry::DatabaseStorePrefixes;
+use tondi_hashes::Hash;
+use tondi_muhash::MuHash;
 use rocksdb::WriteBatch;
 use serde::{Deserialize, Serialize};
 

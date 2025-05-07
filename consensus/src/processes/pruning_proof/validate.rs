@@ -4,18 +4,18 @@ use std::{
 };
 
 use itertools::Itertools;
-use kaspa_consensus_core::{
+use tondi_consensus_core::{
     blockhash::{BlockHashExtensions, BlockHashes, ORIGIN},
     errors::pruning::{PruningImportError, PruningImportResult},
     header::Header,
     pruning::{PruningPointProof, PruningProofMetadata},
     BlockLevel,
 };
-use kaspa_core::info;
-use kaspa_database::prelude::{CachePolicy, ConnBuilder, StoreResultEmptyTuple, StoreResultExtensions};
-use kaspa_hashes::Hash;
-use kaspa_pow::{calc_block_level, calc_block_level_check_pow};
-use kaspa_utils::vec::VecExtensions;
+use tondi_core::info;
+use tondi_database::prelude::{CachePolicy, ConnBuilder, StoreResultEmptyTuple, StoreResultExtensions};
+use tondi_hashes::Hash;
+use tondi_pow::{calc_block_level, calc_block_level_check_pow};
+use tondi_utils::vec::VecExtensions;
 use parking_lot::lock_api::RwLock;
 use rocksdb::WriteBatch;
 
@@ -179,7 +179,7 @@ impl PruningProofManager {
 
         let headers_estimate = self.estimate_proof_unique_size(proof);
 
-        let (db_lifetime, db) = kaspa_database::create_temp_db!(ConnBuilder::default().with_files_limit(10));
+        let (db_lifetime, db) = tondi_database::create_temp_db!(ConnBuilder::default().with_files_limit(10));
         let cache_policy = CachePolicy::Count(2 * self.pruning_proof_m as usize);
         let headers_store =
             Arc::new(DbHeadersStore::new(db.clone(), CachePolicy::Count(headers_estimate), CachePolicy::Count(headers_estimate)));

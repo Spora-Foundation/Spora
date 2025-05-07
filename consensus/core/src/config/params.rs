@@ -8,8 +8,8 @@ use crate::{
     network::{NetworkId, NetworkType},
     BlockLevel, KType,
 };
-use kaspa_addresses::Prefix;
-use kaspa_math::Uint256;
+use tondi_addresses::Prefix;
+use tondi_math::Uint256;
 use std::{
     cmp::min,
     time::{SystemTime, UNIX_EPOCH},
@@ -244,7 +244,7 @@ pub struct Params {
     pub mass_per_sig_op: u64,
     pub max_block_mass: u64,
 
-    /// The parameter for scaling inverse KAS value to mass units (KIP-0009)
+    /// The parameter for scaling inverse TND value to mass units (KIP-0009)
     pub storage_mass_parameter: u64,
 
     /// DAA score after which the pre-deflationary period switches to the deflationary period
@@ -388,7 +388,7 @@ impl Params {
     }
 
     /// Returns the depth at which the anticone of a chain block is final (i.e., is a permanently closed set).
-    /// Based on the analysis at <https://github.com/kaspanet/docs/blob/main/Reference/prunality/Prunality.pdf>
+    /// Based on the analysis at <https://github.com/tondinet/docs/blob/main/Reference/prunality/Prunality.pdf>
     /// and on the decomposition of merge depth (rule R-I therein) from finality depth (φ)
     pub fn anticone_finalization_depth(&self) -> ForkedParam<u64> {
         let prior_anticone_finalization_depth = self.prior_finality_depth
@@ -500,27 +500,27 @@ impl From<NetworkId> for Params {
 pub const MAINNET_PARAMS: Params = Params {
     dns_seeders: &[
         // This DNS seeder is run by Denis Mashkevich
-        "mainnet-dnsseed-1.kaspanet.org",
+        "mainnet-dnsseed-1.tondinet.org",
         // This DNS seeder is run by Denis Mashkevich
-        "mainnet-dnsseed-2.kaspanet.org",
+        "mainnet-dnsseed-2.tondinet.org",
         // This DNS seeder is run by Constantine Bytensky
         "dnsseed.cbytensky.org",
         // This DNS seeder is run by Georges Künzli
-        "seeder1.kaspad.net",
+        "seeder1.Tondid.net",
         // This DNS seeder is run by Georges Künzli
-        "seeder2.kaspad.net",
+        "seeder2.Tondid.net",
         // This DNS seeder is run by Georges Künzli
-        "seeder3.kaspad.net",
+        "seeder3.Tondid.net",
         // This DNS seeder is run by Georges Künzli
-        "seeder4.kaspad.net",
+        "seeder4.Tondid.net",
         // This DNS seeder is run by Tim
-        "kaspadns.kaspacalc.net",
+        "tondidns.tondicalc.net",
         // This DNS seeder is run by supertypo
-        "n-mainnet.kaspa.ws",
+        "n-mainnet.tondi.ws",
         // This DNS seeder is run by -gerri-
-        "dnsseeder-kaspa-mainnet.x-con.at",
+        "dnsseeder-tondi-mainnet.x-con.at",
         // This DNS seeder is run by H@H
-        "ns-mainnet.kaspa-dnsseeder.net",
+        "ns-mainnet.tondi-dnsseeder.net",
     ],
     net: NetworkId::new(NetworkType::Mainnet),
     genesis: GENESIS,
@@ -539,7 +539,7 @@ pub const MAINNET_PARAMS: Params = Params {
     coinbase_payload_script_public_key_max_len: 150,
     max_coinbase_payload_len: 204,
 
-    // This is technically a soft fork from the Go implementation since kaspad's consensus doesn't
+    // This is technically a soft fork from the Go implementation since Tondid's consensus doesn't
     // check these rules, but in practice it's enforced by the network layer that limits the message
     // size to 1 GB.
     // These values should be lowered to more reasonable amounts on the next planned HF/SF.
@@ -575,13 +575,13 @@ pub const MAINNET_PARAMS: Params = Params {
 pub const TESTNET_PARAMS: Params = Params {
     dns_seeders: &[
         // This DNS seeder is run by Tiram
-        "seeder1-testnet.kaspad.net",
+        "seeder1-testnet.Tondid.net",
         // This DNS seeder is run by -gerri-
-        "dnsseeder-kaspa-testnet.x-con.at",
+        "dnsseeder-tondi-testnet.x-con.at",
         // This DNS seeder is run by H@H
-        "ns-testnet10.kaspa-dnsseeder.net",
+        "ns-testnet10.tondi-dnsseeder.net",
         // This DNS seeder is run by supertypo
-        "n-testnet-10.kaspa.ws",
+        "n-testnet-10.tondi.ws",
     ],
     net: NetworkId::with_suffix(NetworkType::Testnet, 10),
     genesis: TESTNET_GENESIS,
@@ -600,7 +600,7 @@ pub const TESTNET_PARAMS: Params = Params {
     coinbase_payload_script_public_key_max_len: 150,
     max_coinbase_payload_len: 204,
 
-    // This is technically a soft fork from the Go implementation since kaspad's consensus doesn't
+    // This is technically a soft fork from the Go implementation since Tondid's consensus doesn't
     // check these rules, but in practice it's enforced by the network layer that limits the message
     // size to 1 GB.
     // These values should be lowered to more reasonable amounts on the next planned HF/SF.
@@ -701,7 +701,7 @@ pub const DEVNET_PARAMS: Params = Params {
     coinbase_payload_script_public_key_max_len: 150,
     max_coinbase_payload_len: 204,
 
-    // This is technically a soft fork from the Go implementation since kaspad's consensus doesn't
+    // This is technically a soft fork from the Go implementation since Tondid's consensus doesn't
     // check these rules, but in practice it's enforced by the network layer that limits the message
     // size to 1 GB.
     // These values should be lowered to more reasonable amounts on the next planned HF/SF.

@@ -58,7 +58,7 @@ impl Keypair {
     }
 
     /// Get the [`Address`] of this Keypair's [`PublicKey`].
-    /// Receives a [`NetworkType`](kaspa_consensus_core::network::NetworkType)
+    /// Receives a [`NetworkType`](tondi_consensus_core::network::NetworkType)
     /// to determine the prefix of the address.
     /// JavaScript: `let address = keypair.toAddress(NetworkType.MAINNET);`.
     #[wasm_bindgen(js_name = toAddress)]
@@ -70,7 +70,7 @@ impl Keypair {
     }
 
     /// Get `ECDSA` [`Address`] of this Keypair's [`PublicKey`].
-    /// Receives a [`NetworkType`](kaspa_consensus_core::network::NetworkType)
+    /// Receives a [`NetworkType`](tondi_consensus_core::network::NetworkType)
     /// to determine the prefix of the address.
     /// JavaScript: `let address = keypair.toAddress(NetworkType.MAINNET);`.
     #[wasm_bindgen(js_name = toAddressECDSA)]

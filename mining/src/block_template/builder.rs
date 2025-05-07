@@ -1,11 +1,11 @@
 use super::errors::BuilderResult;
-use kaspa_consensus_core::{
+use tondi_consensus_core::{
     api::ConsensusApi,
     block::{BlockTemplate, TemplateBuildMode, TemplateTransactionSelector},
     coinbase::MinerData,
     tx::COINBASE_TRANSACTION_INDEX,
 };
-use kaspa_core::time::{unix_now, Stopwatch};
+use tondi_core::time::{unix_now, Stopwatch};
 
 pub(crate) struct BlockTemplateBuilder {}
 

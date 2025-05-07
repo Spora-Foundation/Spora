@@ -1,6 +1,6 @@
 [package]
-name = "kaspa-wrpc-simple-client-example"
-description = "Kaspa wRPC simple client example"
+name = "tondi-wrpc-simple-client-example"
+description = "Tondi wRPC simple client example"
 publish = false
 rust-version.workspace = true
 version.workspace = true
@@ -12,7 +12,7 @@ repository.workspace = true
 
 [dependencies]
 futures.workspace = true
-kaspa-rpc-core.workspace = true
-kaspa-wrpc-client.workspace = true
+tondi-rpc-core.workspace = true
+tondi-wrpc-client.workspace = true
 tokio.workspace = true
 

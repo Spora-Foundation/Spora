@@ -1,5 +1,5 @@
 use crate::{block_template::selector::ALPHA, mempool::model::tx::MempoolTransaction};
-use kaspa_consensus_core::{mass::ContextualMasses, tx::Transaction};
+use tondi_consensus_core::{mass::ContextualMasses, tx::Transaction};
 use std::sync::Arc;
 
 #[derive(Clone, Debug)]
@@ -91,11 +91,11 @@ impl From<&MempoolTransaction> for FeerateTransactionKey {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use kaspa_consensus_core::{
+    use tondi_consensus_core::{
         subnets::SUBNETWORK_ID_NATIVE,
         tx::{Transaction, TransactionInput, TransactionOutpoint},
     };
-    use kaspa_hashes::{HasherBase, TransactionID};
+    use tondi_hashes::{HasherBase, TransactionID};
     use std::sync::Arc;
 
     fn generate_unique_tx(i: u64) -> Arc<Transaction> {

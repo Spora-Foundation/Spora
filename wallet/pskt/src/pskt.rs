@@ -1,9 +1,9 @@
 //!
-//! Partially Signed Kaspa Transaction (PSKT)
+//! Partially Signed Tondi Transaction (PSKT)
 //!
 
-use kaspa_bip32::{secp256k1, DerivationPath, KeyFingerprint};
-use kaspa_consensus_core::hashing::sighash::SigHashReusedValuesUnsync;
+use tondi_bip32::{secp256k1, DerivationPath, KeyFingerprint};
+use tondi_consensus_core::hashing::sighash::SigHashReusedValuesUnsync;
 use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 use std::{collections::BTreeMap, fmt::Display, fmt::Formatter, future::Future, marker::PhantomData, ops::Deref};
@@ -13,13 +13,13 @@ pub use crate::global::{Global, GlobalBuilder};
 pub use crate::input::{Input, InputBuilder};
 pub use crate::output::{Output, OutputBuilder};
 pub use crate::role::{Combiner, Constructor, Creator, Extractor, Finalizer, Signer, Updater};
-use kaspa_consensus_core::tx::UtxoEntry;
-use kaspa_consensus_core::{
+use tondi_consensus_core::tx::UtxoEntry;
+use tondi_consensus_core::{
     hashing::sighash_type::SigHashType,
     subnets::SUBNETWORK_ID_NATIVE,
     tx::{MutableTransaction, SignableTransaction, Transaction, TransactionId, TransactionInput, TransactionOutput},
 };
-use kaspa_txscript::{caches::Cache, TxScriptEngine};
+use tondi_txscript::{caches::Cache, TxScriptEngine};
 
 #[derive(Debug, Default, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -52,7 +52,7 @@ impl Display for Version {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct KeySource {
-    #[serde(with = "kaspa_utils::serde_bytes_fixed")]
+    #[serde(with = "tondi_utils::serde_bytes_fixed")]
     pub key_fingerprint: KeyFingerprint,
     pub derivation_path: DerivationPath,
 }
@@ -82,9 +82,9 @@ impl Signature {
 }
 
 ///
-/// A Partially Signed Kaspa Transaction (PSKT) is a standardized format
+/// A Partially Signed Tondi Transaction (PSKT) is a standardized format
 /// that allows multiple participants to collaborate in creating and signing
-/// a Kaspa transaction. PSKT enables the exchange of incomplete transaction
+/// a Tondi transaction. PSKT enables the exchange of incomplete transaction
 /// data between different wallets or entities, allowing each participant
 /// to add their signature or inputs in stages. This facilitates more complex
 /// transaction workflows, such as multi-signature setups or hardware wallet
@@ -429,7 +429,7 @@ impl PSKT<Extractor> {
         let (tx, entries) = self.extract_tx_unchecked()?(0);
 
         let tx = MutableTransaction::with_entries(tx, entries.into_iter().flatten().collect());
-        use kaspa_consensus_core::tx::VerifiableTransaction;
+        use tondi_consensus_core::tx::VerifiableTransaction;
         {
             let tx = tx.as_verifiable();
             let cache = Cache::new(10_000);
@@ -474,7 +474,7 @@ pub enum FinalizeError<E> {
 #[derive(thiserror::Error, Debug, Clone, PartialEq, Eq)]
 pub enum ExtractError {
     #[error(transparent)]
-    TxScriptError(#[from] kaspa_txscript_errors::TxScriptError),
+    TxScriptError(#[from] tondi_txscript_errors::TxScriptError),
     #[error(transparent)]
     TxNotFinalized(#[from] TxNotFinalized),
 }

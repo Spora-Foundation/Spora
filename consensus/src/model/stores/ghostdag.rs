@@ -1,23 +1,23 @@
 use crate::processes::ghostdag::ordering::SortableBlock;
-use kaspa_consensus_core::trusted::ExternalGhostdagData;
-use kaspa_consensus_core::{blockhash::BlockHashes, BlueWorkType};
-use kaspa_consensus_core::{BlockHashMap, BlockHasher, BlockLevel, HashMapCustomHasher};
-use kaspa_database::prelude::DB;
-use kaspa_database::prelude::{BatchDbWriter, CachedDbAccess, DbKey};
-use kaspa_database::prelude::{CachePolicy, StoreError};
-use kaspa_database::registry::{DatabaseStorePrefixes, SEPARATOR};
-use kaspa_hashes::Hash;
+use tondi_consensus_core::trusted::ExternalGhostdagData;
+use tondi_consensus_core::{blockhash::BlockHashes, BlueWorkType};
+use tondi_consensus_core::{BlockHashMap, BlockHasher, BlockLevel, HashMapCustomHasher};
+use tondi_database::prelude::DB;
+use tondi_database::prelude::{BatchDbWriter, CachedDbAccess, DbKey};
+use tondi_database::prelude::{CachePolicy, StoreError};
+use tondi_database::registry::{DatabaseStorePrefixes, SEPARATOR};
+use tondi_hashes::Hash;
 
 use itertools::EitherOrBoth::{Both, Left, Right};
 use itertools::Itertools;
-use kaspa_utils::mem_size::MemSizeEstimator;
+use tondi_utils::mem_size::MemSizeEstimator;
 use rocksdb::WriteBatch;
 use serde::{Deserialize, Serialize};
 use std::iter::once;
 use std::{cell::RefCell, sync::Arc};
 
 /// Re-export for convenience
-pub use kaspa_consensus_core::{HashKTypeMap, KType};
+pub use tondi_consensus_core::{HashKTypeMap, KType};
 
 #[derive(Clone, Serialize, Deserialize, Default)]
 pub struct GhostdagData {
@@ -517,7 +517,7 @@ impl GhostdagStoreReader for MemoryGhostdagStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kaspa_consensus_core::BlockHashSet;
+    use tondi_consensus_core::BlockHashSet;
 
     #[test]
     fn test_mergeset_iterators() {

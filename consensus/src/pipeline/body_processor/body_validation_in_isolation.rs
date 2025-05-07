@@ -2,7 +2,7 @@ use std::{collections::HashSet, sync::Arc};
 
 use super::BlockBodyProcessor;
 use crate::errors::{BlockProcessResult, RuleError};
-use kaspa_consensus_core::{
+use tondi_consensus_core::{
     block::Block,
     mass::{ContextualMasses, Mass, NonContextualMasses},
     merkle::calc_hash_merkle_root,
@@ -161,7 +161,7 @@ mod tests {
         errors::RuleError,
         params::MAINNET_PARAMS,
     };
-    use kaspa_consensus_core::{
+    use tondi_consensus_core::{
         api::{BlockValidationFutures, ConsensusApi},
         block::MutableBlock,
         header::Header,
@@ -169,8 +169,8 @@ mod tests {
         subnets::{SUBNETWORK_ID_COINBASE, SUBNETWORK_ID_NATIVE},
         tx::{scriptvec, ScriptPublicKey, Transaction, TransactionId, TransactionInput, TransactionOutpoint, TransactionOutput},
     };
-    use kaspa_core::assert_match;
-    use kaspa_hashes::Hash;
+    use tondi_core::assert_match;
+    use tondi_hashes::Hash;
 
     fn calc_hash_merkle_root<'a>(txs: impl ExactSizeIterator<Item = &'a Transaction>) -> Hash {
         calc_hash_merkle_root_with_options(txs, false)

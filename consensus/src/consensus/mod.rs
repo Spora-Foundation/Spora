@@ -43,7 +43,7 @@ use crate::{
         window::{WindowManager, WindowType},
     },
 };
-use kaspa_consensus_core::{
+use tondi_consensus_core::{
     acceptance_data::AcceptanceData,
     api::{
         args::{TransactionValidationArgs, TransactionValidationBatchArgs},
@@ -73,18 +73,18 @@ use kaspa_consensus_core::{
     utxo::utxo_inquirer::UtxoInquirerError,
     BlockHashSet, BlueWorkType, ChainPath, HashMapCustomHasher,
 };
-use kaspa_consensus_notify::root::ConsensusNotificationRoot;
+use tondi_consensus_notify::root::ConsensusNotificationRoot;
 
 use crossbeam_channel::{
     bounded as bounded_crossbeam, unbounded as unbounded_crossbeam, Receiver as CrossbeamReceiver, Sender as CrossbeamSender,
 };
 use itertools::Itertools;
-use kaspa_consensusmanager::{SessionLock, SessionReadGuard};
+use tondi_consensusmanager::{SessionLock, SessionReadGuard};
 
-use kaspa_database::prelude::{StoreResultEmptyTuple, StoreResultExtensions};
-use kaspa_hashes::Hash;
-use kaspa_muhash::MuHash;
-use kaspa_txscript::caches::TxScriptCacheCounters;
+use tondi_database::prelude::{StoreResultEmptyTuple, StoreResultExtensions};
+use tondi_hashes::Hash;
+use tondi_muhash::MuHash;
+use tondi_txscript::caches::TxScriptCacheCounters;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 
 use std::{
@@ -341,7 +341,7 @@ impl Consensus {
         // We walk up via reachability tree children so that we only iterate blocks B s.t. pruning point ∈ chain(B)
         let mut queue = VecDeque::<Hash>::from_iter(reachability.get_children(pruning_point).unwrap().iter().copied());
         let mut processed = 0;
-        kaspa_core::info!("Upgrading database to include and populate the pruning samples store");
+        tondi_core::info!("Upgrading database to include and populate the pruning samples store");
         while let Some(current) = queue.pop_front() {
             if !self.get_block_status(current).is_some_and(|s| s == BlockStatus::StatusUTXOValid) {
                 // Skip branches of the tree which are not chain qualified.
@@ -360,7 +360,7 @@ impl Consensus {
             self.pruning_samples_store.insert(current, pruning_sample_from_pov).unwrap_or_exists();
         }
 
-        kaspa_core::info!("Done upgrading database (populated {} entries)", processed);
+        tondi_core::info!("Done upgrading database (populated {} entries)", processed);
     }
 
     pub fn run_processors(&self) -> Vec<JoinHandle<()>> {
@@ -599,7 +599,7 @@ impl ConsensusApi for Consensus {
                 // Note: because we are doing a topological BFS up (from `hash` towards virtual), the first chain block
                 // found must also be our merging block, so hash will be either in blues or in reds, rendering this line
                 // unreachable.
-                kaspa_core::warn!("DAG topology inconsistency: {decedent} is expected to be a merging block of {hash}");
+                tondi_core::warn!("DAG topology inconsistency: {decedent} is expected to be a merging block of {hash}");
                 // TODO: we should consider the option of returning Result<Option<bool>> from this method
                 return None;
             }
@@ -694,8 +694,8 @@ impl ConsensusApi for Consensus {
         // Part 1: Add samples from pruning point headers:
         if self.config.net.network_type == NetworkType::Mainnet {
             // For mainnet, we add extra data (16 pp headers) from before checkpoint genesis.
-            // Source: https://github.com/kaspagang/kaspad-py-explorer/blob/main/src/tx_timestamp_estimation.ipynb
-            // For context see also: https://github.com/kaspagang/kaspad-py-explorer/blob/main/src/genesis_proof.ipynb
+            // Source: https://github.com/tondigang/tondid-py-explorer/blob/main/src/tx_timestamp_estimation.ipynb
+            // For context see also: https://github.com/tondigang/tondid-py-explorer/blob/main/src/genesis_proof.ipynb
             const POINTS: &[DaaScoreTimestamp] = &[
                 DaaScoreTimestamp { daa_score: 0, timestamp: 1636298787842 },
                 DaaScoreTimestamp { daa_score: 87133, timestamp: 1636386662010 },

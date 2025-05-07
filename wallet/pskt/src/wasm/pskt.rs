@@ -1,10 +1,10 @@
 use crate::pskt::PSKT as Native;
 use crate::role::*;
-use kaspa_consensus_core::tx::TransactionId;
+use tondi_consensus_core::tx::TransactionId;
 use wasm_bindgen::prelude::*;
 // use js_sys::Object;
 use crate::pskt::Inner;
-use kaspa_consensus_client::{Transaction, TransactionInput, TransactionInputT, TransactionOutput, TransactionOutputT};
+use tondi_consensus_client::{Transaction, TransactionInput, TransactionInputT, TransactionOutput, TransactionOutputT};
 use serde::{Deserialize, Serialize};
 use std::sync::MutexGuard;
 use std::sync::{Arc, Mutex};

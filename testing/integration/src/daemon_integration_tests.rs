@@ -4,49 +4,49 @@ use crate::common::{
     daemon::Daemon,
     utils::{fetch_spendable_utxos, generate_tx, mine_block, wait_for},
 };
-use kaspa_addresses::Address;
-use kaspa_alloc::init_allocator_with_default_settings;
-use kaspa_consensus::params::SIMNET_PARAMS;
-use kaspa_consensus_core::header::Header;
-use kaspa_consensusmanager::ConsensusManager;
-use kaspa_core::{task::runtime::AsyncRuntime, trace};
-use kaspa_grpc_client::GrpcClient;
-use kaspa_notify::scope::{BlockAddedScope, UtxosChangedScope, VirtualDaaScoreChangedScope};
-use kaspa_rpc_core::{api::rpc::RpcApi, Notification, RpcTransactionId};
-use kaspa_txscript::pay_to_address_script;
-use kaspad_lib::args::Args;
+use tondi_addresses::Address;
+use tondi_alloc::init_allocator_with_default_settings;
+use tondi_consensus::params::SIMNET_PARAMS;
+use tondi_consensus_core::header::Header;
+use tondi_consensusmanager::ConsensusManager;
+use tondi_core::{task::runtime::AsyncRuntime, trace};
+use tondi_grpc_client::GrpcClient;
+use tondi_notify::scope::{BlockAddedScope, UtxosChangedScope, VirtualDaaScoreChangedScope};
+use tondi_rpc_core::{api::rpc::RpcApi, Notification, RpcTransactionId};
+use tondi_txscript::pay_to_address_script;
+use tondid_lib::args::Args;
 use rand::thread_rng;
 use std::{sync::Arc, time::Duration};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn daemon_sanity_test() {
     init_allocator_with_default_settings();
-    kaspa_core::log::try_init_logger("INFO");
+    tondi_core::log::try_init_logger("INFO");
 
-    // let total_fd_limit =  kaspa_utils::fd_budget::get_limit() / 2 - 128;
+    // let total_fd_limit =  tondi_utils::fd_budget::get_limit() / 2 - 128;
     let total_fd_limit = 10;
-    let mut kaspad1 = Daemon::new_random(total_fd_limit);
-    let rpc_client1 = kaspad1.start().await;
+    let mut tondid1 = Daemon::new_random(total_fd_limit);
+    let rpc_client1 = tondid1.start().await;
     assert!(rpc_client1.handle_message_id() && rpc_client1.handle_stop_notify(), "the client failed to collect server features");
 
-    let mut kaspad2 = Daemon::new_random(total_fd_limit);
-    let rpc_client2 = kaspad2.start().await;
+    let mut tondid2 = Daemon::new_random(total_fd_limit);
+    let rpc_client2 = tondid2.start().await;
     assert!(rpc_client2.handle_message_id() && rpc_client2.handle_stop_notify(), "the client failed to collect server features");
 
     tokio::time::sleep(Duration::from_secs(1)).await;
     rpc_client1.disconnect().await.unwrap();
     drop(rpc_client1);
-    kaspad1.shutdown();
+    tondid1.shutdown();
 
     rpc_client2.disconnect().await.unwrap();
     drop(rpc_client2);
-    kaspad2.shutdown();
+    tondid2.shutdown();
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn daemon_mining_test() {
     init_allocator_with_default_settings();
-    kaspa_core::log::try_init_logger("INFO");
+    tondi_core::log::try_init_logger("INFO");
 
     let args = Args {
         simnet: true,
@@ -55,15 +55,15 @@ async fn daemon_mining_test() {
         disable_upnp: true, // UPnP registration might take some time and is not needed for this test
         ..Default::default()
     };
-    // let total_fd_limit = kaspa_utils::fd_budget::get_limit() / 2 - 128;
+    // let total_fd_limit = tondi_utils::fd_budget::get_limit() / 2 - 128;
     let total_fd_limit = 10;
 
-    let mut kaspad1 = Daemon::new_random_with_args(args.clone(), total_fd_limit);
-    let mut kaspad2 = Daemon::new_random_with_args(args, total_fd_limit);
-    let rpc_client1 = kaspad1.start().await;
-    let rpc_client2 = kaspad2.start().await;
+    let mut tondid1 = Daemon::new_random_with_args(args.clone(), total_fd_limit);
+    let mut tondid2 = Daemon::new_random_with_args(args, total_fd_limit);
+    let rpc_client1 = tondid1.start().await;
+    let rpc_client2 = tondid2.start().await;
 
-    rpc_client2.add_peer(format!("127.0.0.1:{}", kaspad1.p2p_port).try_into().unwrap(), true).await.unwrap();
+    rpc_client2.add_peer(format!("127.0.0.1:{}", tondid1.p2p_port).try_into().unwrap(), true).await.unwrap();
     tokio::time::sleep(Duration::from_secs(1)).await; // Let it connect
     assert_eq!(rpc_client2.get_connected_peer_info().await.unwrap().peer_info.len(), 1);
 
@@ -75,7 +75,7 @@ async fn daemon_mining_test() {
     let mut last_block_hash = None;
     for i in 0..10 {
         let template = rpc_client1
-            .get_block_template(Address::new(kaspad1.network.into(), kaspa_addresses::Version::PubKey, &[0; 32]), vec![])
+            .get_block_template(Address::new(tondid1.network.into(), tondi_addresses::Version::PubKey, &[0; 32]), vec![])
             .await
             .unwrap();
         let header: Header = (&template.block.header).into();
@@ -108,7 +108,7 @@ async fn daemon_mining_test() {
     // Check that acceptance data contains the expected coinbase tx ids
     let vc = rpc_client2
         .get_virtual_chain_from_block(
-            kaspa_consensus::params::SIMNET_GENESIS.hash, //
+            tondi_consensus::params::SIMNET_GENESIS.hash, //
             true,
         )
         .await
@@ -121,14 +121,14 @@ async fn daemon_mining_test() {
     }
 }
 
-/// `cargo test --release --package kaspa-testing-integration --lib -- daemon_integration_tests::daemon_utxos_propagation_test`
+/// `cargo test --release --package tondi-testing-integration --lib -- daemon_integration_tests::daemon_utxos_propagation_test`
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn daemon_utxos_propagation_test() {
     #[cfg(feature = "heap")]
-    let _profiler = dhat::Profiler::builder().file_name("kaspa-testing-integration-heap.json").build();
+    let _profiler = dhat::Profiler::builder().file_name("tondi-testing-integration-heap.json").build();
 
-    kaspa_core::log::try_init_logger(
-        "INFO,kaspa_testing_integration=trace,kaspa_notify=debug,kaspa_rpc_core=debug,kaspa_grpc_client=debug",
+    tondi_core::log::try_init_logger(
+        "INFO,tondi_testing_integration=trace,tondi_notify=debug,tondi_rpc_core=debug,tondi_grpc_client=debug",
     );
 
     let args = Args {
@@ -142,18 +142,18 @@ async fn daemon_utxos_propagation_test() {
     let total_fd_limit = 10;
 
     let coinbase_maturity = SIMNET_PARAMS.coinbase_maturity().before();
-    let mut kaspad1 = Daemon::new_random_with_args(args.clone(), total_fd_limit);
-    let mut kaspad2 = Daemon::new_random_with_args(args, total_fd_limit);
-    let rpc_client1 = kaspad1.start().await;
-    let rpc_client2 = kaspad2.start().await;
+    let mut tondid1 = Daemon::new_random_with_args(args.clone(), total_fd_limit);
+    let mut tondid2 = Daemon::new_random_with_args(args, total_fd_limit);
+    let rpc_client1 = tondid1.start().await;
+    let rpc_client2 = tondid2.start().await;
 
     // Let rpc_client1 receive virtual DAA score changed notifications
     let (sender1, event_receiver1) = async_channel::unbounded();
     rpc_client1.start(Some(Arc::new(ChannelNotify::new(sender1)))).await;
     rpc_client1.start_notify(Default::default(), VirtualDaaScoreChangedScope {}.into()).await.unwrap();
 
-    // Connect kaspad2 to kaspad1
-    rpc_client2.add_peer(format!("127.0.0.1:{}", kaspad1.p2p_port).try_into().unwrap(), true).await.unwrap();
+    // Connect tondid2 to tondid1
+    rpc_client2.add_peer(format!("127.0.0.1:{}", tondid1.p2p_port).try_into().unwrap(), true).await.unwrap();
     let check_client = rpc_client2.clone();
     wait_for(
         50,
@@ -171,17 +171,17 @@ async fn daemon_utxos_propagation_test() {
     // Mining key and address
     let (miner_sk, miner_pk) = secp256k1::generate_keypair(&mut thread_rng());
     let miner_address =
-        Address::new(kaspad1.network.into(), kaspa_addresses::Version::PubKey, &miner_pk.x_only_public_key().0.serialize());
+        Address::new(tondid1.network.into(), tondi_addresses::Version::PubKey, &miner_pk.x_only_public_key().0.serialize());
     let miner_schnorr_key = secp256k1::Keypair::from_secret_key(secp256k1::SECP256K1, &miner_sk);
     let miner_spk = pay_to_address_script(&miner_address);
 
     // User key and address
     let (_user_sk, user_pk) = secp256k1::generate_keypair(&mut thread_rng());
     let user_address =
-        Address::new(kaspad1.network.into(), kaspa_addresses::Version::PubKey, &user_pk.x_only_public_key().0.serialize());
+        Address::new(tondid1.network.into(), tondi_addresses::Version::PubKey, &user_pk.x_only_public_key().0.serialize());
 
     // Some dummy non-monitored address
-    let blank_address = Address::new(kaspad1.network.into(), kaspa_addresses::Version::PubKey, &[0; 32]);
+    let blank_address = Address::new(tondid1.network.into(), tondi_addresses::Version::PubKey, &[0; 32]);
 
     // Mine 1000 blocks to daemon #1
     let initial_blocks = coinbase_maturity;
@@ -231,7 +231,7 @@ async fn daemon_utxos_propagation_test() {
     assert_eq!(dag_info.sink, last_block_hash.unwrap());
 
     // Check that acceptance data contains the expected coinbase tx ids
-    let vc = rpc_client2.get_virtual_chain_from_block(kaspa_consensus::params::SIMNET_GENESIS.hash, true).await.unwrap();
+    let vc = rpc_client2.get_virtual_chain_from_block(tondi_consensus::params::SIMNET_GENESIS.hash, true).await.unwrap();
     assert_eq!(vc.removed_chain_block_hashes.len(), 0);
     assert_eq!(vc.added_chain_block_hashes.len() as u64, initial_blocks);
     assert_eq!(vc.accepted_transaction_ids.len() as u64, initial_blocks);
@@ -240,7 +240,7 @@ async fn daemon_utxos_propagation_test() {
     }
 
     // Create a multi-listener RPC client on each node...
-    let mut clients = vec![ListeningClient::connect(&kaspad2).await, ListeningClient::connect(&kaspad1).await];
+    let mut clients = vec![ListeningClient::connect(&tondid2).await, ListeningClient::connect(&tondid1).await];
 
     // ...and subscribe each to some notifications
     for x in clients.iter_mut() {
@@ -353,24 +353,24 @@ async fn daemon_utxos_propagation_test() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn daemon_cleaning_test() {
     init_allocator_with_default_settings();
-    kaspa_core::log::try_init_logger("info,kaspa_grpc_core=trace,kaspa_grpc_server=trace,kaspa_grpc_client=trace,kaspa_core=trace");
+    tondi_core::log::try_init_logger("info,tondi_grpc_core=trace,tondi_grpc_server=trace,tondi_grpc_client=trace,tondi_core=trace");
     let args = Args { devnet: true, ..Default::default() };
     let consensus_manager;
     let async_runtime;
     let core;
     {
         let total_fd_limit = 10;
-        let mut kaspad1 = Daemon::new_random_with_args(args, total_fd_limit);
-        let dyn_consensus_manager = kaspad1.core.find(ConsensusManager::IDENT).unwrap();
-        let dyn_async_runtime = kaspad1.core.find(AsyncRuntime::IDENT).unwrap();
+        let mut tondid1 = Daemon::new_random_with_args(args, total_fd_limit);
+        let dyn_consensus_manager = tondid1.core.find(ConsensusManager::IDENT).unwrap();
+        let dyn_async_runtime = tondid1.core.find(AsyncRuntime::IDENT).unwrap();
         consensus_manager = Arc::downgrade(&Arc::downcast::<ConsensusManager>(dyn_consensus_manager.arc_any()).unwrap());
         async_runtime = Arc::downgrade(&Arc::downcast::<AsyncRuntime>(dyn_async_runtime.arc_any()).unwrap());
-        core = Arc::downgrade(&kaspad1.core);
+        core = Arc::downgrade(&tondid1.core);
 
-        let rpc_client1 = kaspad1.start().await;
+        let rpc_client1 = tondid1.start().await;
         rpc_client1.disconnect().await.unwrap();
         drop(rpc_client1);
-        kaspad1.shutdown();
+        tondid1.shutdown();
     }
     tokio::time::sleep(Duration::from_millis(200)).await;
 

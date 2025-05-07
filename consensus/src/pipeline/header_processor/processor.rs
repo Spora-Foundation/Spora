@@ -29,7 +29,7 @@ use crate::{
 };
 use crossbeam_channel::{Receiver, Sender};
 use itertools::Itertools;
-use kaspa_consensus_core::{
+use tondi_consensus_core::{
     blockhash::{BlockHashes, ORIGIN},
     blockstatus::BlockStatus::{self, StatusHeaderOnly, StatusInvalid},
     config::{
@@ -39,10 +39,10 @@ use kaspa_consensus_core::{
     header::Header,
     BlockHashSet, BlockLevel,
 };
-use kaspa_consensusmanager::SessionLock;
-use kaspa_database::prelude::{StoreResultEmptyTuple, StoreResultExtensions};
-use kaspa_hashes::Hash;
-use kaspa_utils::vec::VecExtensions;
+use tondi_consensusmanager::SessionLock;
+use tondi_database::prelude::{StoreResultEmptyTuple, StoreResultExtensions};
+use tondi_hashes::Hash;
+use tondi_utils::vec::VecExtensions;
 use parking_lot::RwLock;
 use rayon::ThreadPool;
 use rocksdb::WriteBatch;

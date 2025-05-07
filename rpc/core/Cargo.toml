@@ -1,6 +1,6 @@
 [package]
-name = "kaspa-rpc-core"
-description = "Kaspa RPC core"
+name = "tondi-rpc-core"
+description = "Tondi RPC core"
 rust-version.workspace = true
 version.workspace = true
 edition.workspace = true
@@ -11,25 +11,25 @@ repository.workspace = true
 
 [features]
 wasm32-sdk = [
-    "kaspa-consensus-client/wasm32-sdk",
-    "kaspa-consensus-wasm/wasm32-sdk"
+    "tondi-consensus-client/wasm32-sdk",
+    "tondi-consensus-wasm/wasm32-sdk"
 ]
 
 [dependencies]
-kaspa-addresses.workspace = true
-kaspa-consensus-core.workspace = true
-kaspa-consensus-client.workspace = true
-kaspa-consensus-notify.workspace = true
-kaspa-consensus-wasm.workspace = true
-kaspa-core.workspace = true
-kaspa-hashes.workspace = true
-kaspa-index-core.workspace = true
-kaspa-math.workspace = true
-kaspa-mining-errors.workspace = true
-kaspa-notify.workspace = true
-kaspa-txscript.workspace = true
-kaspa-utils.workspace = true
-kaspa-rpc-macros.workspace = true
+tondi-addresses.workspace = true
+tondi-consensus-core.workspace = true
+tondi-consensus-client.workspace = true
+tondi-consensus-notify.workspace = true
+tondi-consensus-wasm.workspace = true
+tondi-core.workspace = true
+tondi-hashes.workspace = true
+tondi-index-core.workspace = true
+tondi-math.workspace = true
+tondi-mining-errors.workspace = true
+tondi-notify.workspace = true
+tondi-txscript.workspace = true
+tondi-utils.workspace = true
+tondi-rpc-macros.workspace = true
 
 async-channel.workspace = true
 async-trait.workspace = true

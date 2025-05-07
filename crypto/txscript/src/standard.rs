@@ -4,9 +4,9 @@ use crate::{
     script_class::ScriptClass,
 };
 use blake2b_simd::Params;
-use kaspa_addresses::{Address, Prefix, Version};
-use kaspa_consensus_core::tx::{ScriptPublicKey, ScriptVec};
-use kaspa_txscript_errors::TxScriptError;
+use tondi_addresses::{Address, Prefix, Version};
+use tondi_consensus_core::tx::{ScriptPublicKey, ScriptVec};
+use tondi_txscript_errors::TxScriptError;
 use smallvec::SmallVec;
 use std::iter::once;
 
@@ -86,7 +86,7 @@ pub fn extract_script_pub_key_address(script_public_key: &ScriptPublicKey, prefi
 pub mod test_helpers {
     use super::*;
     use crate::{opcodes::codes::OpTrue, MAX_TX_IN_SEQUENCE_NUM};
-    use kaspa_consensus_core::{
+    use tondi_consensus_core::{
         constants::TX_VERSION,
         subnets::SUBNETWORK_ID_NATIVE,
         tx::{Transaction, TransactionInput, TransactionOutpoint, TransactionOutput},
@@ -173,7 +173,7 @@ mod tests {
                     ),
                 ),
                 prefix: Prefix::Mainnet,
-                expected_address: Ok("kaspa:qpauqsvk7yf9unexwmxsnmg547mhyga37csh0kj53q6xxgl24ydxjsgzthw5j".try_into().unwrap()),
+                expected_address: Ok("tondi:qpauqsvk7yf9unexwmxsnmg547mhyga37csh0kj53q6xxgl24ydxjsgzthw5j".try_into().unwrap()),
             },
             Test {
                 name: "Testnet PubKeyECDSA script and address",
@@ -184,7 +184,7 @@ mod tests {
                     ),
                 ),
                 prefix: Prefix::Testnet,
-                expected_address: Ok("kaspatest:qxaqrlzlf6wes72en3568khahq66wf27tuhfxn5nytkd8tcep2c0vrse6gdmpks".try_into().unwrap()),
+                expected_address: Ok("tonditest:qxaqrlzlf6wes72en3568khahq66wf27tuhfxn5nytkd8tcep2c0vrse6gdmpks".try_into().unwrap()),
             },
             Test {
                 name: "Testnet non standard script",

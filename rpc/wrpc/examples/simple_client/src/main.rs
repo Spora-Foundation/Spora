@@ -1,12 +1,12 @@
-// Example of simple client to connect with Kaspa node using wRPC connection and collect some node and network basic data
+// Example of simple client to connect with Tondi node using wRPC connection and collect some node and network basic data
 
-use kaspa_rpc_core::{api::rpc::RpcApi, GetBlockDagInfoResponse, GetServerInfoResponse};
-use kaspa_wrpc_client::{
+use tondi_rpc_core::{api::rpc::RpcApi, GetBlockDagInfoResponse, GetServerInfoResponse};
+use tondi_wrpc_client::{
     client::{ConnectOptions, ConnectStrategy},
     prelude::NetworkId,
     prelude::NetworkType,
     result::Result,
-    KaspaRpcClient, Resolver, WrpcEncoding,
+    TondiRpcClient, Resolver, WrpcEncoding,
 };
 use std::process::ExitCode;
 use std::time::Duration;
@@ -15,7 +15,7 @@ use std::time::Duration;
 async fn main() -> ExitCode {
     match check_node_status().await {
         Ok(_) => {
-            println!("Well done! You successfully completed your first client connection to Kaspa node!");
+            println!("Well done! You successfully completed your first client connection to Tondi node!");
             ExitCode::SUCCESS
         }
         Err(error) => {
@@ -30,12 +30,12 @@ async fn check_node_status() -> Result<()> {
     let encoding = WrpcEncoding::Borsh;
 
     // If you want to connect to your own node, define your node address and wRPC port using let url = Some("ws://0.0.0.0:17110")
-    // Verify your Kaspa node is runnning with --rpclisten-borsh=0.0.0.0:17110 parameter
+    // Verify your Tondi node is runnning with --rpclisten-borsh=0.0.0.0:17110 parameter
     // In this example we don't use a specific node but we connect through the resolver, which use a pool of public nodes
     let url = None;
     let resolver = Some(Resolver::default());
 
-    // Define the network your Kaspa node is connected to
+    // Define the network your Tondi node is connected to
     // You can select NetworkType::Mainnet, NetworkType::Testnet, NetworkType::Devnet, NetworkType::Simnet
     let network_type = NetworkType::Mainnet;
     let selected_network = Some(NetworkId::new(network_type));
@@ -44,7 +44,7 @@ async fn check_node_status() -> Result<()> {
     let subscription_context = None;
 
     // Create new wRPC client with parameters defined above
-    let client = KaspaRpcClient::new(encoding, url, resolver, selected_network, subscription_context)?;
+    let client = TondiRpcClient::new(encoding, url, resolver, selected_network, subscription_context)?;
 
     // Advanced connection options
     let timeout = 5_000;
@@ -55,10 +55,10 @@ async fn check_node_status() -> Result<()> {
         ..Default::default()
     };
 
-    // Connect to selected Kaspa node
+    // Connect to selected Tondi node
     client.connect(Some(options)).await?;
 
-    // Retrieve and show Kaspa node information
+    // Retrieve and show Tondi node information
     let GetServerInfoResponse { is_synced, server_version, network_id, has_utxo_index, .. } = client.get_server_info().await?;
 
     println!("Node version: {server_version}");
@@ -66,7 +66,7 @@ async fn check_node_status() -> Result<()> {
     println!("Node is synced: {is_synced}");
     println!("Node is indexing UTXOs: {has_utxo_index}");
 
-    // Retrieve and show Kaspa network information
+    // Retrieve and show Tondi network information
     let GetBlockDagInfoResponse {
         block_count,
         header_count,
@@ -96,7 +96,7 @@ async fn check_node_status() -> Result<()> {
     println!("Virtual DAA score: {virtual_daa_score}");
     println!("Sink: {sink}");
 
-    // Disconnect client from Kaspa node
+    // Disconnect client from Tondi node
     client.disconnect().await?;
 
     // Return function result

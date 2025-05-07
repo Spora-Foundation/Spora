@@ -1,8 +1,8 @@
 use crate::result::Result;
 use crate::tx::{mass, MAXIMUM_STANDARD_TRANSACTION_MASS};
-use kaspa_consensus_client::*;
-use kaspa_consensus_core::config::params::Params;
-use kaspa_consensus_core::network::{NetworkId, NetworkIdT};
+use tondi_consensus_client::*;
+use tondi_consensus_core::config::params::Params;
+use tondi_consensus_core::network::{NetworkId, NetworkIdT};
 use wasm_bindgen::prelude::*;
 use workflow_wasm::convert::*;
 

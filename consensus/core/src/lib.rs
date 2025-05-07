@@ -1,7 +1,7 @@
 //!
 //! # Consensus Core
 //!
-//! This crate implements primitives used in the Kaspa node consensus processing.
+//! This crate implements primitives used in the Tondi node consensus processing.
 //!
 
 extern crate alloc;
@@ -11,7 +11,7 @@ extern crate self as consensus_core;
 use std::collections::{HashMap, HashSet};
 use std::hash::{BuildHasher, Hasher};
 
-pub use kaspa_hashes::Hash;
+pub use tondi_hashes::Hash;
 
 pub mod acceptance_data;
 pub mod api;
@@ -39,7 +39,7 @@ pub mod utxo;
 /// Integer type for accumulated PoW of blue blocks. We expect no more than
 /// 2^128 work in a single block (btc has ~2^80), and no more than 2^64
 /// overall blocks, so 2^192 is definitely a justified upper-bound.
-pub type BlueWorkType = kaspa_math::Uint192;
+pub type BlueWorkType = tondi_math::Uint192;
 
 /// The extends directly from the expectation above about having no more than
 /// 2^128 work in a single block
@@ -134,7 +134,7 @@ pub type BlockLevel = u8;
 #[cfg(test)]
 mod tests {
     use super::BlockHasher;
-    use kaspa_hashes::Hash;
+    use tondi_hashes::Hash;
     use std::hash::{Hash as _, Hasher as _};
     #[test]
     fn test_block_hasher() {

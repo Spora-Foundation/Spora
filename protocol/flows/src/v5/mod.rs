@@ -15,8 +15,8 @@ use self::{
 };
 use crate::{flow_context::FlowContext, flow_trait::Flow};
 
-use kaspa_p2p_lib::{KaspadMessagePayloadType, Router, SharedIncomingRoute};
-use kaspa_utils::channel;
+use tondi_p2p_lib::{TondidMessagePayloadType, Router, SharedIncomingRoute};
+use tondi_utils::channel;
 use std::sync::Arc;
 
 pub(crate) mod address;
@@ -42,20 +42,20 @@ pub fn register(ctx: FlowContext, router: Arc<Router>) -> Vec<Box<dyn Flow>> {
             ctx.clone(),
             router.clone(),
             router.subscribe(vec![
-                KaspadMessagePayloadType::BlockHeaders,
-                KaspadMessagePayloadType::DoneHeaders,
-                KaspadMessagePayloadType::IbdBlockLocatorHighestHash,
-                KaspadMessagePayloadType::IbdBlockLocatorHighestHashNotFound,
-                KaspadMessagePayloadType::BlockWithTrustedDataV4,
-                KaspadMessagePayloadType::DoneBlocksWithTrustedData,
-                KaspadMessagePayloadType::IbdChainBlockLocator,
-                KaspadMessagePayloadType::IbdBlock,
-                KaspadMessagePayloadType::TrustedData,
-                KaspadMessagePayloadType::PruningPoints,
-                KaspadMessagePayloadType::PruningPointProof,
-                KaspadMessagePayloadType::UnexpectedPruningPoint,
-                KaspadMessagePayloadType::PruningPointUtxoSetChunk,
-                KaspadMessagePayloadType::DonePruningPointUtxoSetChunks,
+                TondidMessagePayloadType::BlockHeaders,
+                TondidMessagePayloadType::DoneHeaders,
+                TondidMessagePayloadType::IbdBlockLocatorHighestHash,
+                TondidMessagePayloadType::IbdBlockLocatorHighestHashNotFound,
+                TondidMessagePayloadType::BlockWithTrustedDataV4,
+                TondidMessagePayloadType::DoneBlocksWithTrustedData,
+                TondidMessagePayloadType::IbdChainBlockLocator,
+                TondidMessagePayloadType::IbdBlock,
+                TondidMessagePayloadType::TrustedData,
+                TondidMessagePayloadType::PruningPoints,
+                TondidMessagePayloadType::PruningPointProof,
+                TondidMessagePayloadType::UnexpectedPruningPoint,
+                TondidMessagePayloadType::PruningPointUtxoSetChunk,
+                TondidMessagePayloadType::DonePruningPointUtxoSetChunks,
             ]),
             relay_receiver,
         )),
@@ -63,93 +63,93 @@ pub fn register(ctx: FlowContext, router: Arc<Router>) -> Vec<Box<dyn Flow>> {
             ctx.clone(),
             router.clone(),
             SharedIncomingRoute::new(
-                router.subscribe_with_capacity(vec![KaspadMessagePayloadType::InvRelayBlock], ctx.block_invs_channel_size()),
+                router.subscribe_with_capacity(vec![TondidMessagePayloadType::InvRelayBlock], ctx.block_invs_channel_size()),
             ),
-            router.subscribe(vec![KaspadMessagePayloadType::Block, KaspadMessagePayloadType::BlockLocator]),
+            router.subscribe(vec![TondidMessagePayloadType::Block, TondidMessagePayloadType::BlockLocator]),
             ibd_sender,
         )),
         Box::new(HandleRelayBlockRequests::new(
             ctx.clone(),
             router.clone(),
-            router.subscribe(vec![KaspadMessagePayloadType::RequestRelayBlocks]),
+            router.subscribe(vec![TondidMessagePayloadType::RequestRelayBlocks]),
         )),
-        Box::new(ReceivePingsFlow::new(ctx.clone(), router.clone(), router.subscribe(vec![KaspadMessagePayloadType::Ping]))),
-        Box::new(SendPingsFlow::new(ctx.clone(), router.clone(), router.subscribe(vec![KaspadMessagePayloadType::Pong]))),
+        Box::new(ReceivePingsFlow::new(ctx.clone(), router.clone(), router.subscribe(vec![TondidMessagePayloadType::Ping]))),
+        Box::new(SendPingsFlow::new(ctx.clone(), router.clone(), router.subscribe(vec![TondidMessagePayloadType::Pong]))),
         Box::new(RequestHeadersFlow::new(
             ctx.clone(),
             router.clone(),
-            router.subscribe(vec![KaspadMessagePayloadType::RequestHeaders, KaspadMessagePayloadType::RequestNextHeaders]),
+            router.subscribe(vec![TondidMessagePayloadType::RequestHeaders, TondidMessagePayloadType::RequestNextHeaders]),
         )),
         Box::new(RequestPruningPointProofFlow::new(
             ctx.clone(),
             router.clone(),
-            router.subscribe(vec![KaspadMessagePayloadType::RequestPruningPointProof]),
+            router.subscribe(vec![TondidMessagePayloadType::RequestPruningPointProof]),
         )),
         Box::new(RequestIbdChainBlockLocatorFlow::new(
             ctx.clone(),
             router.clone(),
-            router.subscribe(vec![KaspadMessagePayloadType::RequestIbdChainBlockLocator]),
+            router.subscribe(vec![TondidMessagePayloadType::RequestIbdChainBlockLocator]),
         )),
         Box::new(PruningPointAndItsAnticoneRequestsFlow::new(
             ctx.clone(),
             router.clone(),
             router.subscribe(vec![
-                KaspadMessagePayloadType::RequestPruningPointAndItsAnticone,
-                KaspadMessagePayloadType::RequestNextPruningPointAndItsAnticoneBlocks,
+                TondidMessagePayloadType::RequestPruningPointAndItsAnticone,
+                TondidMessagePayloadType::RequestNextPruningPointAndItsAnticoneBlocks,
             ]),
         )),
         Box::new(RequestPruningPointUtxoSetFlow::new(
             ctx.clone(),
             router.clone(),
             router.subscribe(vec![
-                KaspadMessagePayloadType::RequestPruningPointUtxoSet,
-                KaspadMessagePayloadType::RequestNextPruningPointUtxoSetChunk,
+                TondidMessagePayloadType::RequestPruningPointUtxoSet,
+                TondidMessagePayloadType::RequestNextPruningPointUtxoSetChunk,
             ]),
         )),
         Box::new(HandleIbdBlockRequests::new(
             ctx.clone(),
             router.clone(),
-            router.subscribe(vec![KaspadMessagePayloadType::RequestIbdBlocks]),
+            router.subscribe(vec![TondidMessagePayloadType::RequestIbdBlocks]),
         )),
         Box::new(HandleAntipastRequests::new(
             ctx.clone(),
             router.clone(),
-            router.subscribe(vec![KaspadMessagePayloadType::RequestAntipast]),
+            router.subscribe(vec![TondidMessagePayloadType::RequestAntipast]),
         )),
         Box::new(RelayTransactionsFlow::new(
             ctx.clone(),
             router.clone(),
             router
-                .subscribe_with_capacity(vec![KaspadMessagePayloadType::InvTransactions], RelayTransactionsFlow::invs_channel_size()),
+                .subscribe_with_capacity(vec![TondidMessagePayloadType::InvTransactions], RelayTransactionsFlow::invs_channel_size()),
             router.subscribe_with_capacity(
-                vec![KaspadMessagePayloadType::Transaction, KaspadMessagePayloadType::TransactionNotFound],
+                vec![TondidMessagePayloadType::Transaction, TondidMessagePayloadType::TransactionNotFound],
                 RelayTransactionsFlow::txs_channel_size(),
             ),
         )),
         Box::new(RequestTransactionsFlow::new(
             ctx.clone(),
             router.clone(),
-            router.subscribe(vec![KaspadMessagePayloadType::RequestTransactions]),
+            router.subscribe(vec![TondidMessagePayloadType::RequestTransactions]),
         )),
-        Box::new(ReceiveAddressesFlow::new(ctx.clone(), router.clone(), router.subscribe(vec![KaspadMessagePayloadType::Addresses]))),
+        Box::new(ReceiveAddressesFlow::new(ctx.clone(), router.clone(), router.subscribe(vec![TondidMessagePayloadType::Addresses]))),
         Box::new(SendAddressesFlow::new(
             ctx.clone(),
             router.clone(),
-            router.subscribe(vec![KaspadMessagePayloadType::RequestAddresses]),
+            router.subscribe(vec![TondidMessagePayloadType::RequestAddresses]),
         )),
         Box::new(RequestBlockLocatorFlow::new(
             ctx,
             router.clone(),
-            router.subscribe(vec![KaspadMessagePayloadType::RequestBlockLocator]),
+            router.subscribe(vec![TondidMessagePayloadType::RequestBlockLocator]),
         )),
     ];
 
     // The reject message is handled as a special case by the router
-    // KaspadMessagePayloadType::Reject,
+    // TondidMessagePayloadType::Reject,
 
-    // We do not register the below two messages since they are deprecated also in go-kaspa
-    // KaspadMessagePayloadType::BlockWithTrustedData,
-    // KaspadMessagePayloadType::IbdBlockLocator,
+    // We do not register the below two messages since they are deprecated also in go-tondi
+    // TondidMessagePayloadType::BlockWithTrustedData,
+    // TondidMessagePayloadType::IbdBlockLocator,
 
     flows
 }

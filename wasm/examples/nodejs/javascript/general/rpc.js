@@ -1,14 +1,14 @@
 // @ts-ignore
 globalThis.WebSocket = require('websocket').w3cwebsocket; // W3C WebSocket module shim
 
-const kaspa = require('../../../../nodejs/kaspa');
+const tondi = require('../../../../nodejs/tondi');
 const { parseArgs } = require("../utils");
 const {
     RpcClient,
     Resolver,
-} = kaspa;
+} = tondi;
 
-kaspa.initConsolePanicHook();
+tondi.initConsolePanicHook();
 
 const {
     networkId,

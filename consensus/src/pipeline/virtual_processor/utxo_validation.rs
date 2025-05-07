@@ -21,7 +21,7 @@ use crate::{
         },
     },
 };
-use kaspa_consensus_core::{
+use tondi_consensus_core::{
     acceptance_data::{AcceptedTxEntry, MergesetBlockAcceptanceData},
     api::args::TransactionValidationArgs,
     coinbase::*,
@@ -35,17 +35,17 @@ use kaspa_consensus_core::{
     },
     BlockHashMap, BlockHashSet, HashMapCustomHasher,
 };
-use kaspa_core::{info, trace};
-use kaspa_hashes::Hash;
-use kaspa_muhash::MuHash;
-use kaspa_utils::refs::Refs;
+use tondi_core::{info, trace};
+use tondi_hashes::Hash;
+use tondi_muhash::MuHash;
+use tondi_utils::refs::Refs;
 
 use rayon::prelude::*;
 use smallvec::{smallvec, SmallVec};
 use std::{iter::once, ops::Deref};
 
 pub(crate) mod crescendo {
-    use kaspa_core::{info, log::CRESCENDO_KEYWORD};
+    use tondi_core::{info, log::CRESCENDO_KEYWORD};
     use std::sync::{
         atomic::{AtomicU8, Ordering},
         Arc,
@@ -459,12 +459,12 @@ impl VirtualStateProcessor {
         selected_parent: Hash,
     ) -> Hash {
         if self.crescendo_activation.is_active(daa_score) {
-            kaspa_merkle::merkle_hash(
+            tondi_merkle::merkle_hash(
                 self.headers_store.get_header(selected_parent).unwrap().accepted_id_merkle_root,
-                kaspa_merkle::calc_merkle_root(accepted_tx_ids),
+                tondi_merkle::calc_merkle_root(accepted_tx_ids),
             )
         } else {
-            kaspa_merkle::calc_merkle_root(accepted_tx_ids)
+            tondi_merkle::calc_merkle_root(accepted_tx_ids)
         }
     }
 }

@@ -1,7 +1,7 @@
 use crate::TxScriptError;
 use core::fmt::Debug;
 use core::iter;
-use kaspa_txscript_errors::SerializationError;
+use tondi_txscript_errors::SerializationError;
 use std::cmp::Ordering;
 use std::num::TryFromIntError;
 use std::ops::Deref;
@@ -345,7 +345,7 @@ impl DataStack for Stack {
 mod tests {
     use super::{Kip10I64, OpcodeData};
     use crate::data_stack::SizedEncodeInt;
-    use kaspa_txscript_errors::{SerializationError, TxScriptError};
+    use tondi_txscript_errors::{SerializationError, TxScriptError};
 
     // TestScriptNumBytes
     #[test]

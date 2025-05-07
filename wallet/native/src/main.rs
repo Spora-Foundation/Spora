@@ -1,8 +1,8 @@
-use kaspa_cli_lib::{kaspa_cli, TerminalOptions};
+use tondi_cli_lib::{tondi_cli, TerminalOptions};
 
 #[tokio::main]
 async fn main() {
-    let result = kaspa_cli(TerminalOptions::new().with_prompt("$ "), None).await;
+    let result = tondi_cli(TerminalOptions::new().with_prompt("$ "), None).await;
     if let Err(err) = result {
         println!("{err}");
     }

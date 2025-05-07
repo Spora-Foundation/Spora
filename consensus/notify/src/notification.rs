@@ -1,7 +1,7 @@
 use derive_more::Display;
-use kaspa_consensus_core::{acceptance_data::AcceptanceData, block::Block, utxo::utxo_diff::UtxoDiff};
-use kaspa_hashes::Hash;
-use kaspa_notify::{
+use tondi_consensus_core::{acceptance_data::AcceptanceData, block::Block, utxo::utxo_diff::UtxoDiff};
+use tondi_hashes::Hash;
+use tondi_notify::{
     events::EventType,
     full_featured,
     notification::Notification as NotificationTrait,

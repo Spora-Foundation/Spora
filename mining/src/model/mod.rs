@@ -1,4 +1,4 @@
-use kaspa_consensus_core::tx::TransactionId;
+use tondi_consensus_core::tx::TransactionId;
 use std::collections::HashSet;
 
 pub mod candidate_tx;

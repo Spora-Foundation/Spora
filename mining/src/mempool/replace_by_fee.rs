@@ -4,7 +4,7 @@ use crate::mempool::{
     tx::RbfPolicy,
     Mempool,
 };
-use kaspa_consensus_core::tx::{MutableTransaction, Transaction};
+use tondi_consensus_core::tx::{MutableTransaction, Transaction};
 use std::sync::Arc;
 
 impl Mempool {

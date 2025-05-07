@@ -1,11 +1,11 @@
-use kaspa_consensus_core::{
+use tondi_consensus_core::{
     block::Block,
     header::Header,
     subnets::SubnetworkId,
     tx::{ScriptPublicKey, ScriptVec, Transaction, TransactionInput, TransactionOutpoint, TransactionOutput, UtxoEntry},
     utxo::utxo_collection::UtxoCollection,
 };
-use kaspa_hashes::{Hash, HASH_SIZE};
+use tondi_hashes::{Hash, HASH_SIZE};
 use rand::{rngs::SmallRng, seq::SliceRandom, Rng};
 
 pub fn header_from_precomputed_hash(hash: Hash, parents: Vec<Hash>) -> Header {
@@ -154,4 +154,4 @@ pub fn generate_random_transaction_outpoint(rng: &mut SmallRng) -> TransactionOu
     TransactionOutpoint::new(generate_random_hash(rng), rng.gen())
 }
 
-//TODO: create `assert_eq_<kaspa-sturct>!()` helper macros in `consensus::test_helpers`
+//TODO: create `assert_eq_<tondi-sturct>!()` helper macros in `consensus::test_helpers`

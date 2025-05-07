@@ -6,28 +6,28 @@ use crate::{
     },
 };
 use futures::future::{join_all, select, try_join_all, Either};
-use kaspa_consensus_core::{
+use tondi_consensus_core::{
     api::BlockValidationFuture,
     block::Block,
     header::Header,
     pruning::{PruningPointProof, PruningPointsList, PruningProofMetadata},
     BlockHashSet,
 };
-use kaspa_consensusmanager::{spawn_blocking, ConsensusProxy, StagingConsensus};
-use kaspa_core::{debug, info, time::unix_now, warn};
-use kaspa_hashes::Hash;
-use kaspa_muhash::MuHash;
-use kaspa_p2p_lib::{
+use tondi_consensusmanager::{spawn_blocking, ConsensusProxy, StagingConsensus};
+use tondi_core::{debug, info, time::unix_now, warn};
+use tondi_hashes::Hash;
+use tondi_muhash::MuHash;
+use tondi_p2p_lib::{
     common::ProtocolError,
     convert::model::trusted::TrustedDataPackage,
     dequeue_with_timeout, make_message,
     pb::{
-        kaspad_message::Payload, RequestAntipastMessage, RequestHeadersMessage, RequestIbdBlocksMessage,
+        tondid_message::Payload, RequestAntipastMessage, RequestHeadersMessage, RequestIbdBlocksMessage,
         RequestPruningPointAndItsAnticoneMessage, RequestPruningPointProofMessage, RequestPruningPointUtxoSetMessage,
     },
     IncomingRoute, Router,
 };
-use kaspa_utils::channel::JobReceiver;
+use tondi_utils::channel::JobReceiver;
 use std::{
     sync::Arc,
     time::{Duration, Instant},

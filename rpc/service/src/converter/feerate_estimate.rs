@@ -1,5 +1,5 @@
-use kaspa_mining::feerate::{FeeEstimateVerbose, FeerateBucket, FeerateEstimations};
-use kaspa_rpc_core::{
+use tondi_mining::feerate::{FeeEstimateVerbose, FeerateBucket, FeerateEstimations};
+use tondi_rpc_core::{
     message::GetFeeEstimateExperimentalResponse as RpcFeeEstimateVerboseResponse, RpcFeeEstimate,
     RpcFeeEstimateVerboseExperimentalData as RpcFeeEstimateVerbose, RpcFeerateBucket,
 };

@@ -1,6 +1,6 @@
 [package]
-name = "kaspa-grpc-core"
-description = "Kaspa gRPC core"
+name = "tondi-grpc-core"
+description = "Tondi gRPC core"
 rust-version.workspace = true
 version.workspace = true
 edition.workspace = true
@@ -10,12 +10,12 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-kaspa-addresses.workspace = true
-kaspa-consensus-core.workspace = true
-kaspa-core.workspace = true
-kaspa-notify.workspace = true
-kaspa-rpc-core.workspace = true
-kaspa-utils.workspace = true
+tondi-addresses.workspace = true
+tondi-consensus-core.workspace = true
+tondi-core.workspace = true
+tondi-notify.workspace = true
+tondi-rpc-core.workspace = true
+tondi-utils.workspace = true
 
 async-channel.workspace = true
 async-stream.workspace = true

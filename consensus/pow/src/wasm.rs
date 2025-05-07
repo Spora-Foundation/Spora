@@ -1,13 +1,13 @@
 use crate::matrix::Matrix;
 use js_sys::BigInt;
-use kaspa_consensus_client::Header;
-use kaspa_consensus_client::HeaderT;
-use kaspa_consensus_core::hashing;
-use kaspa_hashes::Hash;
-use kaspa_hashes::PowHash;
-use kaspa_math::Uint256;
-use kaspa_utils::hex::FromHex;
-use kaspa_utils::hex::ToHex;
+use tondi_consensus_client::Header;
+use tondi_consensus_client::HeaderT;
+use tondi_consensus_core::hashing;
+use tondi_hashes::Hash;
+use tondi_hashes::PowHash;
+use tondi_math::Uint256;
+use tondi_utils::hex::FromHex;
+use tondi_utils::hex::ToHex;
 use num::Float;
 use wasm_bindgen::prelude::*;
 use workflow_wasm::convert::TryCastFromJs;
@@ -20,7 +20,7 @@ extern "C" {
     pub type WorkT;
 }
 
-/// Represents a Kaspa header PoW manager
+/// Represents a Tondi header PoW manager
 /// @category Mining
 #[wasm_bindgen(inspectable)]
 pub struct PoW {
@@ -91,11 +91,11 @@ impl PoW {
     }
 }
 
-// https://github.com/tmrlvi/kaspa-miner/blob/bf361d02a46c580f55f46b5dfa773477634a5753/src/client/stratum.rs#L36
+// https://github.com/tmrlvi/tondi-miner/blob/bf361d02a46c580f55f46b5dfa773477634a5753/src/client/stratum.rs#L36
 const DIFFICULTY_1_TARGET: (u64, i16) = (0xffffu64, 208); // 0xffff 2^208
 
 /// Calculates target from difficulty, based on set_difficulty function on
-/// <https://github.com/tmrlvi/kaspa-miner/blob/bf361d02a46c580f55f46b5dfa773477634a5753/src/client/stratum.rs#L375>
+/// <https://github.com/tmrlvi/tondi-miner/blob/bf361d02a46c580f55f46b5dfa773477634a5753/src/client/stratum.rs#L375>
 /// @category Mining
 #[wasm_bindgen(js_name = calculateTarget)]
 pub fn calculate_target(difficulty: f32) -> Result<BigInt> {

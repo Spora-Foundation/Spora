@@ -28,9 +28,9 @@ use crate::{
 
 use super::cache_policy_builder::CachePolicyBuilder as PolicyBuilder;
 use itertools::Itertools;
-use kaspa_consensus_core::{blockstatus::BlockStatus, BlockHashSet};
-use kaspa_database::registry::DatabaseStorePrefixes;
-use kaspa_hashes::Hash;
+use tondi_consensus_core::{blockstatus::BlockStatus, BlockHashSet};
+use tondi_database::registry::DatabaseStorePrefixes;
+use tondi_hashes::Hash;
 use parking_lot::RwLock;
 use std::{ops::DerefMut, sync::Arc};
 

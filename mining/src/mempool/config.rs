@@ -1,4 +1,4 @@
-use kaspa_consensus_core::{config::params::ForkedParam, constants::TX_VERSION};
+use tondi_consensus_core::{config::params::ForkedParam, constants::TX_VERSION};
 
 pub(crate) const DEFAULT_MAXIMUM_TRANSACTION_COUNT: usize = 1_000_000;
 pub(crate) const DEFAULT_MEMPOOL_SIZE_LIMIT: usize = 1_000_000_000;
@@ -95,7 +95,7 @@ impl Config {
     }
 
     /// Build a default config.
-    /// The arguments should be obtained from the current consensus [`kaspa_consensus_core::config::params::Params`] instance.
+    /// The arguments should be obtained from the current consensus [`tondi_consensus_core::config::params::Params`] instance.
     pub fn build_default(
         target_milliseconds_per_block: ForkedParam<u64>,
         relay_non_std_transactions: bool,

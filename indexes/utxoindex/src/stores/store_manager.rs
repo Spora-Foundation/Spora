@@ -1,12 +1,12 @@
 use std::{collections::HashSet, sync::Arc};
 
-use kaspa_consensus_core::{
+use tondi_consensus_core::{
     tx::{ScriptPublicKeys, TransactionOutpoint},
     BlockHashSet,
 };
-use kaspa_core::trace;
-use kaspa_database::prelude::{CachePolicy, StoreResult, DB};
-use kaspa_index_core::indexed_utxos::BalanceByScriptPublicKey;
+use tondi_core::trace;
+use tondi_database::prelude::{CachePolicy, StoreResult, DB};
+use tondi_index_core::indexed_utxos::BalanceByScriptPublicKey;
 
 use crate::{
     model::UtxoSetByScriptPublicKey,

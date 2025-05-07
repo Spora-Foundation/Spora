@@ -1,13 +1,13 @@
 //! # RPC Core
 //!
-//! This crate provides foundational primitives used in Rusty Kaspa node RPC subsystem.
+//! This crate provides foundational primitives used in Rusty Tondi node RPC subsystem.
 //! These include the main [`RpcApi`](api::rpc::RpcApi) trait, [`RpcApiOps`](crate::api::ops::RpcApiOps)
 //! enum used in RPC method dispatching, and various data structures used in RPC method arguments.
 //!
-//! This crate acts as a foundation for [`kaspa_grpc_client`](https://docs.rs/kaspa_grpc_client) and
-//! [`kaspa_wrpc_client`](https://docs.rs/kaspa_wrpc_client) crates, which provide gRPC and WebSocket
+//! This crate acts as a foundation for [`tondi_grpc_client`](https://docs.rs/tondi_grpc_client) and
+//! [`tondi_wrpc_client`](https://docs.rs/tondi_wrpc_client) crates, which provide gRPC and WebSocket
 //! RPC client implementations. This crate is also used by WASM bindings to provide [WASM RpcClient
-//! implementation](https://docs.rs/kaspa-wrpc-client/latest/kaspa_wrpc_client/wasm/struct.RpcClient.html)
+//! implementation](https://docs.rs/tondi-wrpc-client/latest/tondi_wrpc_client/wasm/struct.RpcClient.html)
 //! (based on wRPC).
 //!
 

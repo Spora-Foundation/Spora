@@ -1,18 +1,18 @@
-//! Kaspa wRPC client implementation.
+//! Tondi wRPC client implementation.
 
 use crate::imports::*;
 use crate::parse::parse_host;
 use crate::{error::Error, node::NodeDescriptor};
-use kaspa_consensus_core::network::NetworkType;
-use kaspa_notify::{
+use tondi_consensus_core::network::NetworkType;
+use tondi_notify::{
     listener::ListenerLifespan,
     subscription::{context::SubscriptionContext, MutationPolicies, UtxosChangedMutationPolicy},
 };
-use kaspa_rpc_core::{
+use tondi_rpc_core::{
     api::ctl::RpcCtl,
     notify::collector::{RpcCoreCollector, RpcCoreConverter},
 };
-pub use kaspa_rpc_macros::build_wrpc_client_interface;
+pub use tondi_rpc_macros::build_wrpc_client_interface;
 use std::fmt::Debug;
 use workflow_core::{channel::Multiplexer, runtime as application_runtime};
 use workflow_dom::utils::window;
@@ -52,7 +52,7 @@ struct Inner {
 
 impl Inner {
     pub fn new(encoding: Encoding, url: Option<&str>, resolver: Option<Resolver>, network_id: Option<NetworkId>) -> Result<Inner> {
-        // log_trace!("Kaspa wRPC::{encoding} connecting to: {url}");
+        // log_trace!("Tondi wRPC::{encoding} connecting to: {url}");
         let rpc_ctl = RpcCtl::with_descriptor(url);
         let wrpc_ctl_multiplexer = Multiplexer::<WrpcCtl>::new();
 
@@ -82,7 +82,7 @@ impl Inner {
             let notification_sender_ = notification_relay_channel.sender.clone();
             interface.notification(
                 notification_op,
-                workflow_rpc::client::Notification::new(move |notification: Serializable<kaspa_rpc_core::Notification>| {
+                workflow_rpc::client::Notification::new(move |notification: Serializable<tondi_rpc_core::Notification>| {
                     let notification_sender = notification_sender_.clone();
                     Box::pin(async move {
                         // log_info!("notification receivers: {}", notification_sender.receiver_count());
@@ -91,7 +91,7 @@ impl Inner {
                             // log_info!("notification: posting to channel: {notification:?}");
                             notification_sender.send(notification.into_inner()).await?;
                         } else {
-                            log_warn!("WARNING: Kaspa RPC notification is not consumed by user: {:?}", notification.into_inner());
+                            log_warn!("WARNING: Tondi RPC notification is not consumed by user: {:?}", notification.into_inner());
                         }
                         Ok(())
                     })
@@ -202,7 +202,7 @@ impl Inner {
 
 impl Debug for Inner {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("KaspaRpcClient")
+        f.debug_struct("TondiRpcClient")
             .field("rpc", &"rpc")
             // .field("notification_channel", &self.notification_channel)
             .field("encoding", &self.encoding)
@@ -248,7 +248,7 @@ impl RpcResolver for Inner {
 
 const WRPC_CLIENT: &str = "wrpc-client";
 
-/// # [`KaspaRpcClient`] connects to Kaspa wRPC endpoint via binary Borsh or JSON protocols.
+/// # [`TondiRpcClient`] connects to Tondi wRPC endpoint via binary Borsh or JSON protocols.
 ///
 /// RpcClient has two ways to interface with the underlying RPC subsystem:
 /// [`Interface`] that has a [`notification()`](Interface::notification)
@@ -261,19 +261,19 @@ const WRPC_CLIENT: &str = "wrpc-client";
 /// be configured to operate against custom node clusters.
 ///
 #[derive(Clone)]
-pub struct KaspaRpcClient {
+pub struct TondiRpcClient {
     inner: Arc<Inner>,
 }
 
-impl Debug for KaspaRpcClient {
+impl Debug for TondiRpcClient {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("KaspaRpcClient").field("url", &self.url()).field("connected", &self.is_connected()).finish()
+        f.debug_struct("TondiRpcClient").field("url", &self.url()).field("connected", &self.is_connected()).finish()
     }
 }
 
-impl KaspaRpcClient {
-    /// Create a new `KaspaRpcClient` with the given Encoding, and an optional url or a Resolver.
-    /// Please note that if you pass the url to the constructor, it will force the KaspaRpcClient
+impl TondiRpcClient {
+    /// Create a new `TondiRpcClient` with the given Encoding, and an optional url or a Resolver.
+    /// Please note that if you pass the url to the constructor, it will force the TondiRpcClient
     /// to always use this url.  If you want to have the ability to switch between urls,
     /// you must pass [`Option::None`] as the `url` argument and then supply your own url to the `connect()`
     /// function each time you connect.
@@ -283,10 +283,10 @@ impl KaspaRpcClient {
         resolver: Option<Resolver>,
         network_id: Option<NetworkId>,
         subscription_context: Option<SubscriptionContext>,
-    ) -> Result<KaspaRpcClient> {
+    ) -> Result<TondiRpcClient> {
         Self::new_with_args(encoding, url, resolver, network_id, subscription_context)
         // FIXME
-        // pub fn new(encoding: Encoding, url: &str, ) -> Result<KaspaRpcClient> {
+        // pub fn new(encoding: Encoding, url: &str, ) -> Result<TondiRpcClient> {
         //     Self::new_with_args(encoding, NotificationMode::Direct, url, subscription_context)
     }
 
@@ -297,14 +297,14 @@ impl KaspaRpcClient {
         resolver: Option<Resolver>,
         network_id: Option<NetworkId>,
         subscription_context: Option<SubscriptionContext>,
-    ) -> Result<KaspaRpcClient> {
+    ) -> Result<TondiRpcClient> {
         let inner = Arc::new(Inner::new(encoding, url, resolver, network_id)?);
         inner.build_notifier(subscription_context)?;
-        let client = KaspaRpcClient { inner };
+        let client = TondiRpcClient { inner };
         //     notification_mode: NotificationMode,
         //     url: &str,
         //     subscription_context: Option<SubscriptionContext>,
-        // ) -> Result<KaspaRpcClient> {
+        // ) -> Result<TondiRpcClient> {
         //     let inner = Arc::new(Inner::new(encoding, url)?);
         //     let notifier = if matches!(notification_mode, NotificationMode::MultiListeners) {
         //         let enabled_events = EVENT_TYPE_ARRAY[..].into();
@@ -325,7 +325,7 @@ impl KaspaRpcClient {
         //         None
         //     };
 
-        // let client = KaspaRpcClient { inner, notifier, notification_mode };
+        // let client = TondiRpcClient { inner, notifier, notification_mode };
 
         Ok(client)
     }
@@ -555,7 +555,7 @@ impl KaspaRpcClient {
                     },
                     msg = notification_relay_channel.receiver.recv().fuse() => {
                         if let Ok(msg) = msg {
-                            // inner.rpc_ctl.notify(msg).await.expect("(KaspaRpcClient) rpc_ctl.notify() error");
+                            // inner.rpc_ctl.notify(msg).await.expect("(TondiRpcClient) rpc_ctl.notify() error");
                             if let Err(err) = inner.notification_intake_channel.lock().unwrap().sender.try_send(msg) {
                                 log_error!("notification_intake_channel.sender.try_send() error: {err}");
                             }
@@ -567,10 +567,10 @@ impl KaspaRpcClient {
                         if let Ok(msg) = msg {
                             match msg {
                                 WrpcCtl::Connect => {
-                                    inner.rpc_ctl.signal_open().await.expect("(KaspaRpcClient) rpc_ctl.signal_open() error");
+                                    inner.rpc_ctl.signal_open().await.expect("(TondiRpcClient) rpc_ctl.signal_open() error");
                                 }
                                 WrpcCtl::Disconnect => {
-                                    inner.rpc_ctl.signal_close().await.expect("(KaspaRpcClient) rpc_ctl.signal_close() error");
+                                    inner.rpc_ctl.signal_close().await.expect("(TondiRpcClient) rpc_ctl.signal_close() error");
                                 }
                             }
                         } else {
@@ -599,7 +599,7 @@ impl KaspaRpcClient {
 }
 
 #[async_trait]
-impl RpcApi for KaspaRpcClient {
+impl RpcApi for TondiRpcClient {
     //
     // The following proc-macro iterates over the array of enum variants
     // generating a function for each variant as follows:

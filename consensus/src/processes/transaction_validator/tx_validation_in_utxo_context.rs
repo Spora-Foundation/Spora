@@ -1,10 +1,10 @@
 use crate::constants::{MAX_SOMPI, SEQUENCE_LOCK_TIME_DISABLED, SEQUENCE_LOCK_TIME_MASK};
-use kaspa_consensus_core::{
+use tondi_consensus_core::{
     hashing::sighash::{SigHashReusedValuesSync, SigHashReusedValuesUnsync},
     tx::{TransactionInput, VerifiableTransaction},
 };
-use kaspa_txscript::{caches::Cache, get_sig_op_count_upper_bound, SigCacheKey, TxScriptEngine};
-use kaspa_txscript_errors::TxScriptError;
+use tondi_txscript::{caches::Cache, get_sig_op_count_upper_bound, SigCacheKey, TxScriptEngine};
+use tondi_txscript_errors::TxScriptError;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use rayon::ThreadPool;
 use std::marker::Sync;
@@ -150,7 +150,7 @@ impl TransactionValidator {
                 // lock-time. We subtract one from the relative lock in
                 // order to maintain the original lockTime semantics.
                 //
-                // Note: in the kaspad codebase there's a use in i64 in order to use the -1 value
+                // Note: in the Tondid codebase there's a use in i64 in order to use the -1 value
                 // as None. Here it's not needed, but we still use it to avoid breaking consensus.
                 let lock_daa_score = entry.block_daa_score as i64 + relative_lock - 1;
 
@@ -250,11 +250,11 @@ mod tests {
     use super::CHECK_SCRIPTS_PARALLELISM_THRESHOLD;
     use core::str::FromStr;
     use itertools::Itertools;
-    use kaspa_consensus_core::sign::sign;
-    use kaspa_consensus_core::subnets::SubnetworkId;
-    use kaspa_consensus_core::tx::{MutableTransaction, PopulatedTransaction, ScriptVec, TransactionId, UtxoEntry};
-    use kaspa_consensus_core::tx::{ScriptPublicKey, Transaction, TransactionInput, TransactionOutpoint, TransactionOutput};
-    use kaspa_txscript_errors::TxScriptError;
+    use tondi_consensus_core::sign::sign;
+    use tondi_consensus_core::subnets::SubnetworkId;
+    use tondi_consensus_core::tx::{MutableTransaction, PopulatedTransaction, ScriptVec, TransactionId, UtxoEntry};
+    use tondi_consensus_core::tx::{ScriptPublicKey, Transaction, TransactionInput, TransactionOutpoint, TransactionOutput};
+    use tondi_txscript_errors::TxScriptError;
     use secp256k1::Secp256k1;
     use smallvec::SmallVec;
     use std::iter::once;

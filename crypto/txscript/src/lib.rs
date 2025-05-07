@@ -18,12 +18,12 @@ use crate::caches::Cache;
 use crate::data_stack::{DataStack, Stack};
 use crate::opcodes::{deserialize_next_opcode, OpCodeImplementation};
 use itertools::Itertools;
-use kaspa_consensus_core::hashing::sighash::{
+use tondi_consensus_core::hashing::sighash::{
     calc_ecdsa_signature_hash, calc_schnorr_signature_hash, SigHashReusedValues, SigHashReusedValuesUnsync,
 };
-use kaspa_consensus_core::hashing::sighash_type::SigHashType;
-use kaspa_consensus_core::tx::{ScriptPublicKey, TransactionInput, UtxoEntry, VerifiableTransaction};
-use kaspa_txscript_errors::TxScriptError;
+use tondi_consensus_core::hashing::sighash_type::SigHashType;
+use tondi_consensus_core::tx::{ScriptPublicKey, TransactionInput, UtxoEntry, VerifiableTransaction};
+use tondi_txscript_errors::TxScriptError;
 use log::trace;
 use opcodes::codes::OpReturn;
 use opcodes::{codes, to_small_int, OpCond};
@@ -316,7 +316,7 @@ impl<'a, T: VerifiableTransaction, Reused: SigHashReusedValues> TxScriptEngine<'
     }
 
     fn execute_opcode(&mut self, opcode: DynOpcodeImplementation<T, Reused>) -> Result<(), TxScriptError> {
-        // Different from kaspad: Illegal and disabled opcode are checked on execute instead
+        // Different from Tondid: Illegal and disabled opcode are checked on execute instead
         // Note that this includes OP_RESERVED which counts as a push operation.
         if !opcode.is_push_opcode() {
             self.num_ops += 1;
@@ -641,9 +641,9 @@ mod tests {
 
     use super::*;
     use crate::script_builder::{ScriptBuilder, ScriptBuilderResult};
-    use kaspa_consensus_core::hashing::sighash::SigHashReusedValuesUnsync;
-    use kaspa_consensus_core::hashing::sighash_type::SIG_HASH_ALL;
-    use kaspa_consensus_core::tx::{
+    use tondi_consensus_core::hashing::sighash::SigHashReusedValuesUnsync;
+    use tondi_consensus_core::hashing::sighash_type::SIG_HASH_ALL;
+    use tondi_consensus_core::tx::{
         MutableTransaction, PopulatedTransaction, ScriptPublicKey, Transaction, TransactionId, TransactionOutpoint, TransactionOutput,
     };
     use smallvec::SmallVec;
@@ -1310,9 +1310,9 @@ mod bitcoind_tests {
 
     use super::*;
     use crate::script_builder::ScriptBuilderError;
-    use kaspa_consensus_core::constants::MAX_TX_IN_SEQUENCE_NUM;
-    use kaspa_consensus_core::hashing::sighash::SigHashReusedValuesUnsync;
-    use kaspa_consensus_core::tx::{
+    use tondi_consensus_core::constants::MAX_TX_IN_SEQUENCE_NUM;
+    use tondi_consensus_core::hashing::sighash::SigHashReusedValuesUnsync;
+    use tondi_consensus_core::tx::{
         PopulatedTransaction, ScriptPublicKey, Transaction, TransactionId, TransactionOutpoint, TransactionOutput,
     };
 

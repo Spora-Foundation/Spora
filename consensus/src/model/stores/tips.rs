@@ -1,16 +1,16 @@
 use std::sync::Arc;
 
-use kaspa_consensus_core::BlockHashSet;
-use kaspa_consensus_core::BlockHasher;
-use kaspa_database::prelude::CachedDbSetItem;
-use kaspa_database::prelude::DbWriter;
-use kaspa_database::prelude::ReadLock;
-use kaspa_database::prelude::StoreResult;
-use kaspa_database::prelude::StoreResultExtensions;
-use kaspa_database::prelude::DB;
-use kaspa_database::prelude::{BatchDbWriter, DirectDbWriter};
-use kaspa_database::registry::DatabaseStorePrefixes;
-use kaspa_hashes::Hash;
+use tondi_consensus_core::BlockHashSet;
+use tondi_consensus_core::BlockHasher;
+use tondi_database::prelude::CachedDbSetItem;
+use tondi_database::prelude::DbWriter;
+use tondi_database::prelude::ReadLock;
+use tondi_database::prelude::StoreResult;
+use tondi_database::prelude::StoreResultExtensions;
+use tondi_database::prelude::DB;
+use tondi_database::prelude::{BatchDbWriter, DirectDbWriter};
+use tondi_database::registry::DatabaseStorePrefixes;
+use tondi_hashes::Hash;
 use rocksdb::WriteBatch;
 
 /// Reader API for `TipsStore`.
@@ -99,7 +99,7 @@ impl TipsStore for DbTipsStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kaspa_database::{create_temp_db, prelude::ConnBuilder};
+    use tondi_database::{create_temp_db, prelude::ConnBuilder};
 
     #[test]
     fn test_update_tips() {

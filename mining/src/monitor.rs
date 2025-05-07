@@ -1,7 +1,7 @@
 use super::MiningCounters;
 use crate::manager::MiningManagerProxy;
-use kaspa_consensusmanager::ConsensusManager;
-use kaspa_core::{
+use tondi_consensusmanager::ConsensusManager;
+use tondi_core::{
     debug, info,
     task::{
         service::{AsyncService, AsyncServiceFuture},
@@ -9,7 +9,7 @@ use kaspa_core::{
     },
     trace,
 };
-use kaspa_txscript::caches::TxScriptCacheCounters;
+use tondi_txscript::caches::TxScriptCacheCounters;
 use std::{sync::Arc, time::Duration};
 
 const MONITOR: &str = "mempool-monitor";

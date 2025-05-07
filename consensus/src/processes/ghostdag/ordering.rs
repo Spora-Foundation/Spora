@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 
-use kaspa_consensus_core::BlueWorkType;
-use kaspa_hashes::Hash;
+use tondi_consensus_core::BlueWorkType;
+use tondi_hashes::Hash;
 use serde::{Deserialize, Serialize};
 
 use crate::model::{

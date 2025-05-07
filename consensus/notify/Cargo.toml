@@ -1,6 +1,6 @@
 [package]
-name = "kaspa-consensus-notify"
-description = "Kaspa consensus notifier"
+name = "tondi-consensus-notify"
+description = "Tondi consensus notifier"
 rust-version.workspace = true
 version.workspace = true
 edition.workspace = true
@@ -14,11 +14,11 @@ async-channel.workspace = true
 cfg-if.workspace = true
 derive_more.workspace = true
 futures.workspace = true
-kaspa-consensus-core.workspace = true
-kaspa-core.workspace = true
-kaspa-hashes.workspace = true
-kaspa-notify.workspace = true
-kaspa-utils.workspace = true
+tondi-consensus-core.workspace = true
+tondi-core.workspace = true
+tondi-hashes.workspace = true
+tondi-notify.workspace = true
+tondi-utils.workspace = true
 log.workspace = true
 paste.workspace = true
 thiserror.workspace = true

@@ -1,4 +1,4 @@
 use crate::Notification;
-use kaspa_utils::channel::Channel;
+use tondi_utils::channel::Channel;
 
 pub type NotificationChannel = Channel<Notification>;

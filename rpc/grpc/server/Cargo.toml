@@ -1,6 +1,6 @@
 [package]
-name = "kaspa-grpc-server"
-description = "Kaspa gRPC server"
+name = "tondi-grpc-server"
+description = "Tondi gRPC server"
 rust-version.workspace = true
 version.workspace = true
 edition.workspace = true
@@ -10,15 +10,15 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-kaspa-consensus-core.workspace = true
-kaspa-core.workspace = true
-kaspa-grpc-core.workspace = true
-kaspa-notify.workspace = true
-kaspa-rpc-core.workspace = true
-kaspa-rpc-macros.workspace = true
-kaspa-rpc-service.workspace = true
-kaspa-utils-tower.workspace = true
-kaspa-utils.workspace = true
+tondi-consensus-core.workspace = true
+tondi-core.workspace = true
+tondi-grpc-core.workspace = true
+tondi-notify.workspace = true
+tondi-rpc-core.workspace = true
+tondi-rpc-macros.workspace = true
+tondi-rpc-service.workspace = true
+tondi-utils-tower.workspace = true
+tondi-utils.workspace = true
 
 async-channel.workspace = true
 async-stream.workspace = true
@@ -42,4 +42,4 @@ uuid.workspace = true
 rustls.workspace = true
 
 [dev-dependencies]
-kaspa-grpc-client.workspace = true
+tondi-grpc-client.workspace = true

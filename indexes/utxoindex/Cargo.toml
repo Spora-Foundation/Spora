@@ -1,6 +1,6 @@
 [package]
-name = "kaspa-utxoindex"
-description = "Kaspa UTXO index"
+name = "tondi-utxoindex"
+description = "Tondi UTXO index"
 rust-version.workspace = true
 version.workspace = true
 edition.workspace = true
@@ -11,13 +11,13 @@ repository.workspace = true
 
 [dependencies]
 futures.workspace = true
-kaspa-consensus-core.workspace = true
-kaspa-consensusmanager.workspace = true
-kaspa-core.workspace = true
-kaspa-database.workspace = true
-kaspa-hashes.workspace = true
-kaspa-index-core.workspace = true
-kaspa-utils.workspace = true
+tondi-consensus-core.workspace = true
+tondi-consensusmanager.workspace = true
+tondi-core.workspace = true
+tondi-database.workspace = true
+tondi-hashes.workspace = true
+tondi-index-core.workspace = true
+tondi-utils.workspace = true
 log.workspace = true
 parking_lot.workspace = true
 rocksdb.workspace = true
@@ -25,5 +25,5 @@ serde.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
-kaspa-consensus.workspace = true
+tondi-consensus.workspace = true
 rand = { workspace = true, features = ["small_rng"] }

@@ -1,13 +1,13 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use itertools::Itertools;
-use kaspa_consensus_core::{
+use tondi_consensus_core::{
     muhash::MuHashExtensions,
     subnets::SUBNETWORK_ID_NATIVE,
     tx::{ScriptPublicKey, SignableTransaction, Transaction, TransactionInput, TransactionOutpoint, TransactionOutput, UtxoEntry},
 };
-use kaspa_hashes::TransactionID;
-use kaspa_muhash::MuHash;
-use kaspa_utils::iter::parallelism_in_power_steps;
+use tondi_hashes::TransactionID;
+use tondi_muhash::MuHash;
+use tondi_utils::iter::parallelism_in_power_steps;
 use rayon::prelude::*;
 
 fn generate_transaction(ins: usize, outs: usize, randomness: u64) -> SignableTransaction {

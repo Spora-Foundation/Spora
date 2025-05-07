@@ -1,5 +1,5 @@
 //!
-//! Kaspa core wallet account variant implementations.
+//! Tondi core wallet account variant implementations.
 //!
 
 pub mod bip32;

@@ -1,11 +1,11 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use itertools::Itertools;
-use kaspa_consensus_core::{
+use tondi_consensus_core::{
     subnets::SUBNETWORK_ID_NATIVE,
     tx::{Transaction, TransactionInput, TransactionOutpoint},
 };
-use kaspa_hashes::{HasherBase, TransactionID};
-use kaspa_mining::{model::topological_index::TopologicalIndex, FeerateTransactionKey, Frontier, Policy};
+use tondi_hashes::{HasherBase, TransactionID};
+use tondi_mining::{model::topological_index::TopologicalIndex, FeerateTransactionKey, Frontier, Policy};
 use rand::{thread_rng, Rng};
 use std::{
     collections::{hash_set::Iter, HashMap, HashSet},

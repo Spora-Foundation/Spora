@@ -1,7 +1,7 @@
 # Tondi Chain
 # Tondi Chain
 
-**Tondi** is a high-throughput, privacy-first DAG blockchain tailored for client-side smart contract anchoring and digital asset settlement. Built on a heavily refactored version of Kaspa, Tondi delivers Taproot-native confidentiality, extreme concurrency, and native compatibility with RGB and other zero-knowledge protocols — all without sacrificing simplicity or auditability.
+**Tondi** is a high-throughput, privacy-first DAG blockchain tailored for client-side smart contract anchoring and digital asset settlement. Built on a heavily refactored version of Tondi, Tondi delivers Taproot-native confidentiality, extreme concurrency, and native compatibility with RGB and other zero-knowledge protocols — all without sacrificing simplicity or auditability.
 
 ---
 
@@ -12,7 +12,7 @@ Tondi is designed as a Bitcoin-aligned execution layer — a minimal, stateless 
 - High-frequency transactions
 - Anchor-based smart contract validation
 - Hidden asset issuance and governance commitments
-- Cross-chain compatibility with BTC, Kaspa, and Solana
+- Cross-chain compatibility with BTC, Tondi, and Solana
 
 It eliminates unnecessary complexity while maximizing composability and verifiability through client-side protocols.
 
@@ -47,4 +47,4 @@ It eliminates unnecessary complexity while maximizing composability and verifiab
 git clone https://github.com/your-org/tondi-chain.git
 cd tondi-chain
 cargo build --release
-./kaspad
+./Tondid

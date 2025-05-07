@@ -1,7 +1,7 @@
 //! Conversion of Transaction related types
 
 use crate::{RpcError, RpcResult, RpcTransaction, RpcTransactionInput, RpcTransactionOutput};
-use kaspa_consensus_core::tx::{Transaction, TransactionInput, TransactionOutput};
+use tondi_consensus_core::tx::{Transaction, TransactionInput, TransactionOutput};
 
 // ----------------------------------------------------------------------------
 // consensus_core to rpc_core
@@ -18,7 +18,7 @@ impl From<&Transaction> for RpcTransaction {
             gas: item.gas,
             payload: item.payload.clone(),
             mass: item.mass(),
-            // TODO: Implement a populating process inspired from kaspad\app\rpc\rpccontext\verbosedata.go
+            // TODO: Implement a populating process inspired from Tondid\app\rpc\rpccontext\verbosedata.go
             verbose_data: None,
         }
     }
@@ -29,7 +29,7 @@ impl From<&TransactionOutput> for RpcTransactionOutput {
         Self {
             value: item.value,
             script_public_key: item.script_public_key.clone(),
-            // TODO: Implement a populating process inspired from kaspad\app\rpc\rpccontext\verbosedata.go
+            // TODO: Implement a populating process inspired from Tondid\app\rpc\rpccontext\verbosedata.go
             verbose_data: None,
         }
     }
@@ -42,7 +42,7 @@ impl From<&TransactionInput> for RpcTransactionInput {
             signature_script: item.signature_script.clone(),
             sequence: item.sequence,
             sig_op_count: item.sig_op_count,
-            // TODO: Implement a populating process inspired from kaspad\app\rpc\rpccontext\verbosedata.go
+            // TODO: Implement a populating process inspired from Tondid\app\rpc\rpccontext\verbosedata.go
             verbose_data: None,
         }
     }
@@ -59,12 +59,12 @@ impl TryFrom<RpcTransaction> for Transaction {
             item.version,
             item.inputs
                 .into_iter()
-                .map(kaspa_consensus_core::tx::TransactionInput::try_from)
-                .collect::<RpcResult<Vec<kaspa_consensus_core::tx::TransactionInput>>>()?,
+                .map(tondi_consensus_core::tx::TransactionInput::try_from)
+                .collect::<RpcResult<Vec<tondi_consensus_core::tx::TransactionInput>>>()?,
             item.outputs
                 .into_iter()
-                .map(kaspa_consensus_core::tx::TransactionOutput::try_from)
-                .collect::<RpcResult<Vec<kaspa_consensus_core::tx::TransactionOutput>>>()?,
+                .map(tondi_consensus_core::tx::TransactionOutput::try_from)
+                .collect::<RpcResult<Vec<tondi_consensus_core::tx::TransactionOutput>>>()?,
             item.lock_time,
             item.subnetwork_id.clone(),
             item.gas,

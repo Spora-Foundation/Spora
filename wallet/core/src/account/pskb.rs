@@ -1,25 +1,25 @@
 //!
 //! Tools for interfacing wallet accounts with PSKBs.
-//! (Partial Signed Kaspa Transaction Bundles).
+//! (Partial Signed Tondi Transaction Bundles).
 //!
 
 pub use crate::error::Error;
 use crate::imports::*;
 use crate::tx::PaymentOutputs;
 use futures::stream;
-use kaspa_bip32::{DerivationPath, KeyFingerprint, PrivateKey};
-use kaspa_consensus_client::UtxoEntry as ClientUTXO;
-use kaspa_consensus_core::hashing::sighash::{calc_schnorr_signature_hash, SigHashReusedValuesUnsync};
-use kaspa_consensus_core::tx::VerifiableTransaction;
-use kaspa_consensus_core::tx::{TransactionInput, UtxoEntry};
-use kaspa_txscript::extract_script_pub_key_address;
-use kaspa_txscript::opcodes::codes::OpData65;
-use kaspa_txscript::script_builder::ScriptBuilder;
-use kaspa_wallet_core::tx::{Generator, GeneratorSettings, PaymentDestination, PendingTransaction};
-pub use kaspa_wallet_pskt::bundle::Bundle;
-use kaspa_wallet_pskt::prelude::KeySource;
-use kaspa_wallet_pskt::prelude::{Finalizer, Inner, SignInputOk, Signature, Signer};
-pub use kaspa_wallet_pskt::pskt::{Creator, PSKT};
+use tondi_bip32::{DerivationPath, KeyFingerprint, PrivateKey};
+use tondi_consensus_client::UtxoEntry as ClientUTXO;
+use tondi_consensus_core::hashing::sighash::{calc_schnorr_signature_hash, SigHashReusedValuesUnsync};
+use tondi_consensus_core::tx::VerifiableTransaction;
+use tondi_consensus_core::tx::{TransactionInput, UtxoEntry};
+use tondi_txscript::extract_script_pub_key_address;
+use tondi_txscript::opcodes::codes::OpData65;
+use tondi_txscript::script_builder::ScriptBuilder;
+use tondi_wallet_core::tx::{Generator, GeneratorSettings, PaymentDestination, PendingTransaction};
+pub use tondi_wallet_pskt::bundle::Bundle;
+use tondi_wallet_pskt::prelude::KeySource;
+use tondi_wallet_pskt::prelude::{Finalizer, Inner, SignInputOk, Signature, Signer};
+pub use tondi_wallet_pskt::pskt::{Creator, PSKT};
 use secp256k1::schnorr;
 use secp256k1::{Message, PublicKey};
 use std::iter;
@@ -319,7 +319,7 @@ pub fn pskt_to_pending_transaction(
         })
         .collect();
 
-    let output: Vec<kaspa_consensus_core::tx::TransactionOutput> = signed_tx.outputs.clone();
+    let output: Vec<tondi_consensus_core::tx::TransactionOutput> = signed_tx.outputs.clone();
     let recipient = extract_script_pub_key_address(&output[0].script_public_key, network_id.into())?;
     let fee_u: u64 = 0;
 
@@ -360,7 +360,7 @@ pub fn pskt_to_pending_transaction(
         1,
         0,
         0,
-        kaspa_wallet_core::tx::DataKind::Final,
+        tondi_wallet_core::tx::DataKind::Final,
     )?;
 
     Ok(pending_tx)

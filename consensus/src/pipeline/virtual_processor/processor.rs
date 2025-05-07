@@ -48,7 +48,7 @@ use crate::{
         window::WindowManager,
     },
 };
-use kaspa_consensus_core::{
+use tondi_consensus_core::{
     acceptance_data::AcceptanceData,
     api::args::{TransactionValidationArgs, TransactionValidationBatchArgs},
     block::{BlockTemplate, MutableBlock, TemplateBuildMode, TemplateTransactionSelector},
@@ -68,19 +68,19 @@ use kaspa_consensus_core::{
     },
     BlockHashSet, ChainPath,
 };
-use kaspa_consensus_notify::{
+use tondi_consensus_notify::{
     notification::{
         NewBlockTemplateNotification, Notification, SinkBlueScoreChangedNotification, UtxosChangedNotification,
         VirtualChainChangedNotification, VirtualDaaScoreChangedNotification,
     },
     root::ConsensusNotificationRoot,
 };
-use kaspa_consensusmanager::SessionLock;
-use kaspa_core::{debug, info, time::unix_now, trace, warn};
-use kaspa_database::prelude::{StoreError, StoreResultEmptyTuple, StoreResultExtensions};
-use kaspa_hashes::{Hash, ZERO_HASH};
-use kaspa_muhash::MuHash;
-use kaspa_notify::{events::EventType, notifier::Notify};
+use tondi_consensusmanager::SessionLock;
+use tondi_core::{debug, info, time::unix_now, trace, warn};
+use tondi_database::prelude::{StoreError, StoreResultEmptyTuple, StoreResultExtensions};
+use tondi_hashes::{Hash, ZERO_HASH};
+use tondi_muhash::MuHash;
+use tondi_notify::{events::EventType, notifier::Notify};
 use once_cell::unsync::Lazy;
 
 use super::{
@@ -89,8 +89,8 @@ use super::{
 };
 use crossbeam_channel::{Receiver as CrossbeamReceiver, Sender as CrossbeamSender};
 use itertools::Itertools;
-use kaspa_consensus_core::tx::ValidatedTransaction;
-use kaspa_utils::binary_heap::BinaryHeapExtensions;
+use tondi_consensus_core::tx::ValidatedTransaction;
+use tondi_utils::binary_heap::BinaryHeapExtensions;
 use parking_lot::{RwLock, RwLockUpgradableReadGuard};
 use rand::{seq::SliceRandom, Rng};
 use rayon::{

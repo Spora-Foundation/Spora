@@ -4,7 +4,7 @@
 
 use crate::model::message::*;
 use derive_more::Display;
-use kaspa_notify::{
+use tondi_notify::{
     events::EventType,
     notification::{full_featured, Notification as NotificationTrait},
     subscription::{

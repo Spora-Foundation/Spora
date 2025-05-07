@@ -1,0 +1,67 @@
+[package]
+name = "tondid"
+description = "tondi full node daemon"
+keywords = ["tondi", "blockdag"]
+rust-version.workspace = true
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+include.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+name = "tondid_lib"
+crate-type = ["cdylib", "lib"]
+
+[dependencies]
+tondi-alloc.workspace = true # This changes the global allocator for all of the next dependencies so should be kept first
+
+tondi-addresses.workspace = true
+tondi-addressmanager.workspace = true
+tondi-consensus-core.workspace = true
+tondi-consensus-notify.workspace = true
+tondi-consensus.workspace = true
+tondi-consensusmanager.workspace = true
+tondi-core.workspace = true
+tondi-database.workspace = true
+tondi-grpc-server.workspace = true
+tondi-hashes.workspace = true
+tondi-index-processor.workspace = true
+tondi-mining.workspace = true
+tondi-notify.workspace = true
+tondi-p2p-flows.workspace = true
+tondi-perf-monitor.workspace = true
+tondi-rpc-core.workspace = true
+tondi-rpc-service.workspace = true
+tondi-txscript.workspace = true
+tondi-utils.workspace = true
+tondi-utils-tower.workspace = true
+tondi-utxoindex.workspace = true
+tondi-wrpc-server.workspace = true
+
+async-channel.workspace = true
+cfg-if.workspace = true
+clap.workspace = true
+dhat = { workspace = true, optional = true }
+dirs.workspace = true
+futures-util.workspace = true
+itertools.workspace = true
+log.workspace = true
+num_cpus.workspace = true
+rand.workspace = true
+rayon.workspace = true
+rocksdb.workspace = true
+serde.workspace = true
+tempfile.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["rt", "macros", "rt-multi-thread"] }
+workflow-log.workspace = true
+
+toml = "0.8.10"
+serde_with = "3.7.0"
+
+[features]
+heap = ["dhat", "tondi-alloc/heap"]
+devnet-prealloc = ["tondi-consensus/devnet-prealloc"]
+semaphore-trace = ["tondi-utils/semaphore-trace"]

@@ -1,6 +1,6 @@
 [package]
-name = "kaspa-consensus-client"
-description = "Kaspa consensus client data structures"
+name = "tondi-consensus-client"
+description = "Tondi consensus client data structures"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -13,13 +13,13 @@ wasm32-sdk = []
 wasm32-types = []
 
 [dependencies]
-kaspa-addresses.workspace = true
-kaspa-consensus-core.workspace = true
-kaspa-hashes.workspace = true
-kaspa-math.workspace = true
-kaspa-txscript.workspace = true
-kaspa-utils.workspace = true
-kaspa-wasm-core.workspace = true
+tondi-addresses.workspace = true
+tondi-consensus-core.workspace = true
+tondi-hashes.workspace = true
+tondi-math.workspace = true
+tondi-txscript.workspace = true
+tondi-utils.workspace = true
+tondi-wasm-core.workspace = true
 
 ahash.workspace = true
 cfg-if.workspace = true

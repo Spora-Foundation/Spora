@@ -1,9 +1,9 @@
 use crate::{connection_handler::ConnectionHandler, manager::Manager};
-use kaspa_core::debug;
-use kaspa_notify::{notifier::Notifier, subscription::context::SubscriptionContext};
-use kaspa_rpc_core::{api::rpc::DynRpcService, notify::connection::ChannelConnection, Notification, RpcResult};
-use kaspa_utils::networking::NetAddress;
-use kaspa_utils_tower::counters::TowerConnectionCounters;
+use tondi_core::debug;
+use tondi_notify::{notifier::Notifier, subscription::context::SubscriptionContext};
+use tondi_rpc_core::{api::rpc::DynRpcService, notify::connection::ChannelConnection, Notification, RpcResult};
+use tondi_utils::networking::NetAddress;
+use tondi_utils_tower::counters::TowerConnectionCounters;
 use std::{ops::Deref, sync::Arc};
 use tokio::sync::{mpsc::channel as mpsc_channel, oneshot::Sender as OneshotSender};
 

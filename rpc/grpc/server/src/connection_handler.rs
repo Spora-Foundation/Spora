@@ -5,15 +5,15 @@ use crate::{
     request_handler::{factory::Factory, interface::Interface},
 };
 use futures::{FutureExt, Stream};
-use kaspa_core::{debug, info, warn};
-use kaspa_grpc_core::{
+use tondi_core::{debug, info, warn};
+use tondi_grpc_core::{
     protowire::{
         rpc_server::{Rpc, RpcServer},
-        KaspadRequest, KaspadResponse,
+        TondidRequest, TondidResponse,
     },
     RPC_MAX_MESSAGE_SIZE,
 };
-use kaspa_notify::{
+use tondi_notify::{
     connection::ChannelType,
     events::EVENT_TYPE_ARRAY,
     listener::ListenerLifespan,
@@ -21,13 +21,13 @@ use kaspa_notify::{
     subscriber::Subscriber,
     subscription::{context::SubscriptionContext, MutationPolicies, UtxosChangedMutationPolicy},
 };
-use kaspa_rpc_core::{
+use tondi_rpc_core::{
     api::rpc::DynRpcService,
     notify::{channel::NotificationChannel, connection::ChannelConnection},
     Notification, RpcResult,
 };
-use kaspa_utils::networking::NetAddress;
-use kaspa_utils_tower::{
+use tondi_utils::networking::NetAddress;
+use tondi_utils_tower::{
     counters::TowerConnectionCounters,
     middleware::{BodyExt, CountBytesBody, MapRequestBodyLayer, MapResponseBodyLayer},
 };
@@ -235,12 +235,12 @@ impl Drop for ConnectionHandler {
 
 #[tonic::async_trait]
 impl Rpc for ConnectionHandler {
-    type MessageStreamStream = Pin<Box<dyn Stream<Item = Result<KaspadResponse, tonic::Status>> + Send + Sync + 'static>>;
+    type MessageStreamStream = Pin<Box<dyn Stream<Item = Result<TondidResponse, tonic::Status>> + Send + Sync + 'static>>;
 
     /// Handle the new arriving client connection
     async fn message_stream(
         &self,
-        request: Request<tonic::Streaming<KaspadRequest>>,
+        request: Request<tonic::Streaming<TondidRequest>>,
     ) -> Result<Response<Self::MessageStreamStream>, tonic::Status> {
         const SERVICE_IS_DOWN: &str = "The gRPC service is down";
 

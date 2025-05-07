@@ -1,12 +1,12 @@
 use std::{cmp, sync::Arc};
 
-use kaspa_consensus_core::{
+use tondi_consensus_core::{
     acceptance_data::AcceptanceData,
     tx::{SignableTransaction, Transaction, UtxoEntry},
     utxo::{utxo_diff::ImmutableUtxoDiff, utxo_inquirer::UtxoInquirerError},
 };
-use kaspa_core::{trace, warn};
-use kaspa_hashes::Hash;
+use tondi_core::{trace, warn};
+use tondi_hashes::Hash;
 
 use crate::model::stores::{
     acceptance_data::AcceptanceDataStoreReader, block_transactions::BlockTransactionsStoreReader, headers::HeaderStoreReader,

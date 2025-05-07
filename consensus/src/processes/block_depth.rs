@@ -1,8 +1,8 @@
-use kaspa_consensus_core::{
+use tondi_consensus_core::{
     blockhash::{BlockHashExtensions, ORIGIN},
     config::params::ForkedParam,
 };
-use kaspa_hashes::Hash;
+use tondi_hashes::Hash;
 use std::sync::Arc;
 
 use crate::model::{

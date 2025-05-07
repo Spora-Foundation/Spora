@@ -6,12 +6,12 @@
 use crate::error::RpcError as Error;
 use crate::error::RpcResult as Result;
 use crate::model::*;
-use kaspa_addresses::Address;
-use kaspa_addresses::AddressOrStringArrayT;
-use kaspa_consensus_client::Transaction;
-use kaspa_consensus_client::UtxoEntryReference;
-use kaspa_consensus_core::tx as cctx;
-use kaspa_rpc_macros::declare_typescript_wasm_interface as declare;
+use tondi_addresses::Address;
+use tondi_addresses::AddressOrStringArrayT;
+use tondi_consensus_client::Transaction;
+use tondi_consensus_client::UtxoEntryReference;
+use tondi_consensus_core::tx as cctx;
+use tondi_rpc_macros::declare_typescript_wasm_interface as declare;
 pub use serde_wasm_bindgen::from_value;
 use wasm_bindgen::prelude::*;
 use workflow_wasm::convert::*;

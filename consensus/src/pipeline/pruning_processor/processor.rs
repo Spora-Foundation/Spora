@@ -24,7 +24,7 @@ use crate::{
 };
 use crossbeam_channel::Receiver as CrossbeamReceiver;
 use itertools::Itertools;
-use kaspa_consensus_core::{
+use tondi_consensus_core::{
     blockhash::ORIGIN,
     blockstatus::BlockStatus::StatusHeaderOnly,
     config::Config,
@@ -33,12 +33,12 @@ use kaspa_consensus_core::{
     trusted::ExternalGhostdagData,
     BlockHashMap, BlockHashSet, BlockLevel,
 };
-use kaspa_consensusmanager::SessionLock;
-use kaspa_core::{debug, info, warn};
-use kaspa_database::prelude::{BatchDbWriter, MemoryWriter, StoreResultExtensions, DB};
-use kaspa_hashes::Hash;
-use kaspa_muhash::MuHash;
-use kaspa_utils::iter::IterExtensions;
+use tondi_consensusmanager::SessionLock;
+use tondi_core::{debug, info, warn};
+use tondi_database::prelude::{BatchDbWriter, MemoryWriter, StoreResultExtensions, DB};
+use tondi_hashes::Hash;
+use tondi_muhash::MuHash;
+use tondi_utils::iter::IterExtensions;
 use parking_lot::RwLockUpgradableReadGuard;
 use rocksdb::WriteBatch;
 use std::{

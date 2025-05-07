@@ -1,7 +1,7 @@
 use crate::{hashing, BlueWorkType};
 use borsh::{BorshDeserialize, BorshSerialize};
-use kaspa_hashes::Hash;
-use kaspa_utils::mem_size::MemSizeEstimator;
+use tondi_hashes::Hash;
+use tondi_utils::mem_size::MemSizeEstimator;
 use serde::{Deserialize, Serialize};
 
 /// @category Consensus
@@ -108,7 +108,7 @@ impl MemSizeEstimator for Header {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kaspa_math::Uint192;
+    use tondi_math::Uint192;
     use serde_json::Value;
 
     #[test]

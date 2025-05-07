@@ -3,34 +3,34 @@ enable = false
 address = "http://127.0.0.1:8888"
 
 [[group]]
-template = "https://*.kaspa.stream"
+template = "https://*.tondi.stream"
 nodes = ["eric","maxim","sean","troy"]
 
 [[group]]
-template = "https://*.kaspa.red"
+template = "https://*.tondi.red"
 nodes = ["john", "mike", "paul", "alex"]
 
 [[group]]
-template = "https://*.kaspa.green"
+template = "https://*.tondi.green"
 nodes = ["jake", "mark", "adam", "liam"]
 
 [[group]]
-template = "https://*.kaspa.blue"
+template = "https://*.tondi.blue"
 nodes = ["noah", "ryan", "jack", "luke"]
 
 # [[group]]
 # enable = true
-# template = "https://*.kaspa-ng.org"
+# template = "https://*.tondi-ng.org"
 # nodes = ["cole", "ivan", "oscar", "zane"]
 
 # [[group]]
 # enable = true
-# template = "https://*.kaspa-ng.io"
+# template = "https://*.tondi-ng.io"
 # nodes = ["gary", "hugo", "finn", "evan"]
 
 # [[group]]
 # enable = true
-# template = "https://*.kaspa-ng.net"
+# template = "https://*.tondi-ng.net"
 # nodes = ["neil", "dave", "kyle", "toby"]
 
 # ---

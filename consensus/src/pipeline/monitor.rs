@@ -1,5 +1,5 @@
 use super::ProcessingCounters;
-use kaspa_core::{
+use tondi_core::{
     info,
     task::{
         service::{AsyncService, AsyncServiceFuture},

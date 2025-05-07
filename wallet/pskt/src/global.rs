@@ -3,14 +3,14 @@
 use crate::pskt::{KeySource, Version};
 use crate::utils::combine_if_no_conflicts;
 use derive_builder::Builder;
-use kaspa_consensus_core::tx::TransactionId;
+use tondi_consensus_core::tx::TransactionId;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{btree_map, BTreeMap},
     ops::Add,
 };
 
-type Xpub = kaspa_bip32::ExtendedPublicKey<secp256k1::PublicKey>;
+type Xpub = tondi_bip32::ExtendedPublicKey<secp256k1::PublicKey>;
 
 #[derive(Debug, Clone, Builder, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -112,7 +112,7 @@ impl Default for Global {
     fn default() -> Self {
         Global {
             version: Version::Zero,
-            tx_version: kaspa_consensus_core::constants::TX_VERSION,
+            tx_version: tondi_consensus_core::constants::TX_VERSION,
             fallback_lock_time: None,
             inputs_modifiable: false,
             outputs_modifiable: false,

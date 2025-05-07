@@ -4,12 +4,12 @@ pub mod tx_validation_in_isolation;
 pub mod tx_validation_in_utxo_context;
 use std::sync::Arc;
 
-use kaspa_txscript::{
+use tondi_txscript::{
     caches::{Cache, TxScriptCacheCounters},
     SigCacheKey,
 };
 
-use kaspa_consensus_core::{
+use tondi_consensus_core::{
     config::params::{ForkActivation, ForkedParam},
     mass::MassCalculator,
 };

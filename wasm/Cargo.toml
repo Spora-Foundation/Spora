@@ -1,6 +1,6 @@
 [package]
-name = "kaspa-wasm"
-description = "KASPA WASM bindings"
+name = "tondi-wasm"
+description = "tondi WASM bindings"
 rust-version.workspace = true
 version.workspace = true
 edition.workspace = true
@@ -17,21 +17,21 @@ crate-type = ["cdylib"]
 [dependencies]
 cfg-if.workspace = true
 js-sys.workspace = true
-kaspa-addresses.workspace = true
-kaspa-bip32.workspace = true
-kaspa-consensus-core.workspace = true
-kaspa-consensus-wasm.workspace = true
-kaspa-core.workspace = true
-kaspa-math.workspace = true
-kaspa-pow.workspace = true
-kaspa-txscript.workspace = true
-kaspa-rpc-core.workspace = true
-kaspa-utils.workspace = true
-kaspa-wasm-core.workspace = true
-kaspa-wallet-core.workspace = true
-kaspa-wallet-keys.workspace = true
-kaspa-wrpc-client.workspace = true
-kaspa-wrpc-wasm.workspace = true
+tondi-addresses.workspace = true
+tondi-bip32.workspace = true
+tondi-consensus-core.workspace = true
+tondi-consensus-wasm.workspace = true
+tondi-core.workspace = true
+tondi-math.workspace = true
+tondi-pow.workspace = true
+tondi-txscript.workspace = true
+tondi-rpc-core.workspace = true
+tondi-utils.workspace = true
+tondi-wasm-core.workspace = true
+tondi-wallet-core.workspace = true
+tondi-wallet-keys.workspace = true
+tondi-wrpc-client.workspace = true
+tondi-wrpc-wasm.workspace = true
 num.workspace = true
 wasm-bindgen.workspace = true
 workflow-log.workspace = true
@@ -40,20 +40,20 @@ workflow-wasm.workspace = true
 
 [features] 
 wasm32-sdk = [
-    "kaspa-wallet-core/wasm32-sdk",
-    "kaspa-pow/wasm32-sdk",
-    "kaspa-txscript/wasm32-sdk",
+    "tondi-wallet-core/wasm32-sdk",
+    "tondi-pow/wasm32-sdk",
+    "tondi-txscript/wasm32-sdk",
 ]
 wasm32-core = [
-    "kaspa-wallet-core/wasm32-core",
-    "kaspa-pow/wasm32-sdk",
-    "kaspa-txscript/wasm32-sdk",
+    "tondi-wallet-core/wasm32-core",
+    "tondi-pow/wasm32-sdk",
+    "tondi-txscript/wasm32-sdk",
 ]
 wasm32-rpc = [
-    "kaspa-consensus-core/wasm32-sdk",
-    "kaspa-consensus-wasm/wasm32-sdk",
-    "kaspa-wrpc-client/wasm32-sdk",
-    "kaspa-wrpc-wasm/wasm32-sdk",
+    "tondi-consensus-core/wasm32-sdk",
+    "tondi-consensus-wasm/wasm32-sdk",
+    "tondi-wrpc-client/wasm32-sdk",
+    "tondi-wrpc-wasm/wasm32-sdk",
 ]
 wasm32-keygen = []
 default = []
@@ -63,7 +63,7 @@ targets = ["wasm32-unknown-unknown"]
 
 [package.metadata.emanate.wasm]
 targets = [
-    { target = "nodejs", out-dir = "nodejs/kaspa" },
-    { target = "web", out-dir = "web/kaspa" }
+    { target = "nodejs", out-dir = "nodejs/tondi" },
+    { target = "web", out-dir = "web/tondi" }
 ]
 folder = "setup"

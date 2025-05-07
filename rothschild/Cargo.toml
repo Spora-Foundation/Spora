@@ -1,6 +1,6 @@
 [package]
 name = "rothschild"
-description = "Kaspa Transaction Generator"
+description = "Tondi Transaction Generator"
 rust-version.workspace = true
 version.workspace = true
 edition.workspace = true
@@ -10,14 +10,14 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-kaspa-addresses.workspace = true
-kaspa-consensus-core.workspace = true
-kaspa-core.workspace = true
-kaspa-grpc-client.workspace = true
-kaspa-notify.workspace = true
-kaspa-rpc-core.workspace = true
-kaspa-txscript.workspace = true
-kaspa-utils.workspace = true
+tondi-addresses.workspace = true
+tondi-consensus-core.workspace = true
+tondi-core.workspace = true
+tondi-grpc-client.workspace = true
+tondi-notify.workspace = true
+tondi-rpc-core.workspace = true
+tondi-txscript.workspace = true
+tondi-utils.workspace = true
 
 async-channel.workspace = true
 clap.workspace = true

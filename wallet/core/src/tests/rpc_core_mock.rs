@@ -2,15 +2,15 @@ use crate::imports::*;
 
 use async_channel::{unbounded, Receiver};
 use async_trait::async_trait;
-use kaspa_notify::events::EVENT_TYPE_ARRAY;
-use kaspa_notify::listener::{ListenerId, ListenerLifespan};
-use kaspa_notify::notifier::{Notifier, Notify};
-use kaspa_notify::scope::Scope;
-use kaspa_notify::subscription::context::SubscriptionContext;
-use kaspa_notify::subscription::{MutationPolicies, UtxosChangedMutationPolicy};
-use kaspa_rpc_core::api::ctl::RpcCtl;
-use kaspa_rpc_core::{api::connection::DynRpcConnection, api::rpc::RpcApi, *};
-use kaspa_rpc_core::{notify::connection::ChannelConnection, RpcResult};
+use tondi_notify::events::EVENT_TYPE_ARRAY;
+use tondi_notify::listener::{ListenerId, ListenerLifespan};
+use tondi_notify::notifier::{Notifier, Notify};
+use tondi_notify::scope::Scope;
+use tondi_notify::subscription::context::SubscriptionContext;
+use tondi_notify::subscription::{MutationPolicies, UtxosChangedMutationPolicy};
+use tondi_rpc_core::api::ctl::RpcCtl;
+use tondi_rpc_core::{api::connection::DynRpcConnection, api::rpc::RpcApi, *};
+use tondi_rpc_core::{notify::connection::ChannelConnection, RpcResult};
 use std::sync::Arc;
 
 pub type RpcCoreNotifier = Notifier<Notification, ChannelConnection>;
@@ -49,7 +49,7 @@ impl RpcCoreMock {
     }
 
     #[allow(dead_code)]
-    pub fn notify_new_block_template(&self) -> kaspa_notify::error::Result<()> {
+    pub fn notify_new_block_template(&self) -> tondi_notify::error::Result<()> {
         let notification = Notification::NewBlockTemplate(NewBlockTemplateNotification {});
         self.core_notifier.notify(notification)
     }
