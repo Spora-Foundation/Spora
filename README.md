@@ -44,7 +44,6 @@ It eliminates unnecessary complexity while maximizing composability and verifiab
 ## 🚀 Build Instructions
 
 ```bash
-git clone https://github.com/your-org/tondi-chain.git
-cd tondi-chain
+git clone https://github.com/AvatoLabs/Tondi.git
+cd Tondi
 cargo build --release
-./Tondid
