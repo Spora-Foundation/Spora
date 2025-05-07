@@ -335,6 +335,7 @@ impl<'a, T: VerifiableTransaction> Iterator for PopulatedInputIterator<'a, T> {
 impl<T: VerifiableTransaction> ExactSizeIterator for PopulatedInputIterator<'_, T> {}
 
 /// Represents a read-only referenced transaction along with fully populated UTXO entry data
+#[derive(Debug)]
 pub struct PopulatedTransaction<'a> {
     pub tx: &'a Transaction,
     pub entries: Vec<UtxoEntry>,

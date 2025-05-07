@@ -1381,6 +1381,12 @@ mod bitcoind_tests {
                     return Ok(());
                 }
             };
+            // Debugging output
+            println!("Testing sig_script: {}", sig_script);
+            println!("Testing script_pub_key: {}", script_pub_key);
+            println!("Expected result: {}", expected_result);
+            println!("kip10_enabled: {}", kip10_enabled);
+            println!("runtime_sig_op_counting: {}", runtime_sig_op_counting);
 
             let result = Self::run_test(sig_script, script_pub_key, kip10_enabled, runtime_sig_op_counting);
 
@@ -1389,21 +1395,48 @@ mod bitcoind_tests {
                 false => Err(TestError { expected_result, result }),
             }
         }
-
         fn run_test(
             sig_script: String,
             script_pub_key: String,
             kip10_enabled: bool,
             runtime_sig_op_counting: bool,
         ) -> Result<(), UnifiedError> {
-            let script_sig = opcodes::parse_short_form(sig_script).map_err(UnifiedError::ScriptBuilderError)?;
-            let script_pub_key =
-                ScriptPublicKey::from_vec(0, opcodes::parse_short_form(script_pub_key).map_err(UnifiedError::ScriptBuilderError)?);
+            // Log inputs
+            println!("Running test with:");
+            println!("sig_script: {}", sig_script);
+            println!("script_pub_key: {}", script_pub_key);
+            println!("kip10_enabled: {}", kip10_enabled);
+            println!("runtime_sig_op_counting: {}", runtime_sig_op_counting);
+
+            // Parse sig_script
+            let script_sig = match opcodes::parse_short_form(sig_script) {
+                Ok(parsed) => parsed,
+                Err(e) => {
+                    println!("Error parsing sig_script: {:?}", e);  // Debug: log the error
+                    return Err(UnifiedError::ScriptBuilderError(e));
+                }
+            };
+            println!("Parsed sig_script: {:?}", script_sig);
+
+            // Parse script_pub_key
+            let script_pub_key = match opcodes::parse_short_form(script_pub_key) {
+                Ok(parsed) => ScriptPublicKey::from_vec(0, parsed),
+                Err(e) => {
+                    println!("Error parsing script_pub_key: {:?}", e);  // Debug: log the error
+                    return Err(UnifiedError::ScriptBuilderError(e));
+                }
+            };
+            println!("Parsed script_pub_key: {:?}", script_pub_key);
 
             // Create transaction
             let tx = create_spending_transaction(script_sig, script_pub_key.clone());
+            println!("Created transaction: {:?}", tx);
+
             let entry = UtxoEntry::new(0, script_pub_key.clone(), 0, true);
+            println!("Created UtxoEntry: {:?}", entry);
+
             let populated_tx = PopulatedTransaction::new(&tx, vec![entry]);
+            println!("Populated transaction: {:?}", populated_tx);
 
             // Run transaction
             let sig_cache = Cache::new(10_000);
@@ -1418,8 +1451,19 @@ mod bitcoind_tests {
                 kip10_enabled,
                 runtime_sig_op_counting,
             );
-            vm.execute().map_err(UnifiedError::TxScriptError)
+
+            match vm.execute() {
+                Ok(_) => {
+                    println!("Transaction executed successfully");
+                    Ok(())
+                }
+                Err(e) => {
+                    println!("Error during script execution: {:?}", e);  // Debug: log the error
+                    Err(UnifiedError::TxScriptError(e))
+                }
+            }
         }
+
 
         /*
 

@@ -714,7 +714,6 @@ opcode_list! {
     // Replaced the Blake2b implementation with Blake3 hashing for better performance, but kept the result size constant (32 bytes).
     opcode OpBlake3<0xaa, 1>(self, vm) {
         let [last] = vm.dstack.pop_raw()?;
-        //let hash = blake2b(last.as_slice());
         let hash = blake3::hash(last.as_slice());
         vm.dstack.push(hash.as_bytes().to_vec());
         Ok(())
