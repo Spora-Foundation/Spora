@@ -18,16 +18,16 @@ use crate::caches::Cache;
 use crate::data_stack::{DataStack, Stack};
 use crate::opcodes::{deserialize_next_opcode, OpCodeImplementation};
 use itertools::Itertools;
+use log::trace;
+use opcodes::codes::OpReturn;
+use opcodes::{codes, to_small_int, OpCond};
+use script_class::ScriptClass;
 use tondi_consensus_core::hashing::sighash::{
     calc_ecdsa_signature_hash, calc_schnorr_signature_hash, SigHashReusedValues, SigHashReusedValuesUnsync,
 };
 use tondi_consensus_core::hashing::sighash_type::SigHashType;
 use tondi_consensus_core::tx::{ScriptPublicKey, TransactionInput, UtxoEntry, VerifiableTransaction};
 use tondi_txscript_errors::TxScriptError;
-use log::trace;
-use opcodes::codes::OpReturn;
-use opcodes::{codes, to_small_int, OpCond};
-use script_class::ScriptClass;
 
 pub mod prelude {
     pub use super::standard::*;
@@ -635,18 +635,18 @@ mod tests {
     use std::iter::once;
 
     use crate::opcodes::codes::{
-        OpBlake3, OpCheckMultiSig, OpCheckSig, OpCheckSigECDSA, OpCheckSigVerify, OpData1, OpData2, OpData32, OpDup, OpEndIf,
-        OpEqual, OpFalse, OpIf, OpPushData1, OpTrue, OpVerify,
+        OpBlake3, OpCheckMultiSig, OpCheckSig, OpCheckSigECDSA, OpCheckSigVerify, OpData1, OpData2, OpData32, OpDup, OpEndIf, OpEqual,
+        OpFalse, OpIf, OpPushData1, OpTrue, OpVerify,
     };
 
     use super::*;
     use crate::script_builder::{ScriptBuilder, ScriptBuilderResult};
+    use smallvec::SmallVec;
     use tondi_consensus_core::hashing::sighash::SigHashReusedValuesUnsync;
     use tondi_consensus_core::hashing::sighash_type::SIG_HASH_ALL;
     use tondi_consensus_core::tx::{
         MutableTransaction, PopulatedTransaction, ScriptPublicKey, Transaction, TransactionId, TransactionOutpoint, TransactionOutput,
     };
-    use smallvec::SmallVec;
 
     struct ScriptTestCase {
         script: &'static [u8],

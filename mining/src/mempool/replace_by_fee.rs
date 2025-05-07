@@ -4,8 +4,8 @@ use crate::mempool::{
     tx::RbfPolicy,
     Mempool,
 };
-use tondi_consensus_core::tx::{MutableTransaction, Transaction};
 use std::sync::Arc;
+use tondi_consensus_core::tx::{MutableTransaction, Transaction};
 
 impl Mempool {
     /// Returns the replace by fee (RBF) constraint fee/mass threshold for an incoming transaction and a policy.

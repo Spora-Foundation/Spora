@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use rocksdb::WriteBatch;
 use tondi_consensus_core::{BlockHashSet, BlockHasher};
 use tondi_database::prelude::CachePolicy;
 use tondi_database::prelude::StoreError;
@@ -7,7 +8,6 @@ use tondi_database::prelude::DB;
 use tondi_database::prelude::{BatchDbWriter, CachedDbAccess, DirectDbWriter};
 use tondi_database::registry::DatabaseStorePrefixes;
 use tondi_hashes::Hash;
-use rocksdb::WriteBatch;
 
 pub trait DaaStoreReader {
     fn get_mergeset_non_daa(&self, hash: Hash) -> Result<Arc<BlockHashSet>, StoreError>;

@@ -1,8 +1,8 @@
 use crate::BlockLevel;
 
 use super::{block::RuleError, tx::TxRuleError};
-use tondi_hashes::Hash;
 use thiserror::Error;
+use tondi_hashes::Hash;
 
 #[derive(Error, Debug, Clone)]
 pub enum PruningImportError {

@@ -1,11 +1,11 @@
 use crate::Policy;
-use tondi_consensus_core::{
-    block::TemplateTransactionSelector,
-    tx::{Transaction, TransactionId},
-};
 use std::{
     collections::{BTreeMap, HashMap},
     sync::Arc,
+};
+use tondi_consensus_core::{
+    block::TemplateTransactionSelector,
+    tx::{Transaction, TransactionId},
 };
 
 pub struct SequenceSelectorTransaction {

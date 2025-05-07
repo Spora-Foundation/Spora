@@ -1,3 +1,5 @@
+use rocksdb::WriteBatch;
+use std::sync::Arc;
 use tondi_consensus_core::BlockHashSet;
 use tondi_consensus_core::BlockHasher;
 use tondi_consensus_core::BlockLevel;
@@ -11,8 +13,6 @@ use tondi_database::prelude::StoreResult;
 use tondi_database::prelude::DB;
 use tondi_database::registry::DatabaseStorePrefixes;
 use tondi_hashes::Hash;
-use rocksdb::WriteBatch;
-use std::sync::Arc;
 
 pub trait ChildrenStoreReader {
     fn get(&self, hash: Hash) -> StoreResult<ReadLock<BlockHashSet>>;

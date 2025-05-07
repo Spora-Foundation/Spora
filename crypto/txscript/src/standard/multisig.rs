@@ -72,6 +72,9 @@ mod tests {
     use super::*;
     use crate::{caches::Cache, opcodes::codes::OpData65, pay_to_script_hash_script, TxScriptEngine};
     use core::str::FromStr;
+    use rand::thread_rng;
+    use secp256k1::Keypair;
+    use std::{iter, iter::empty};
     use tondi_consensus_core::{
         hashing::{
             sighash::{calc_ecdsa_signature_hash, calc_schnorr_signature_hash, SigHashReusedValuesUnsync},
@@ -80,9 +83,6 @@ mod tests {
         subnets::SubnetworkId,
         tx::*,
     };
-    use rand::thread_rng;
-    use secp256k1::Keypair;
-    use std::{iter, iter::empty};
 
     struct Input {
         kp: Keypair,

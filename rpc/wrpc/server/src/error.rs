@@ -1,7 +1,7 @@
-use tondi_notify::error::Error as NotifyError;
-use tondi_rpc_core::RpcError;
 use std::sync::PoisonError;
 use thiserror::Error;
+use tondi_notify::error::Error as NotifyError;
+use tondi_rpc_core::RpcError;
 use workflow_rpc::server::{error::Error as RpcServerError, WebSocketError};
 
 #[derive(Debug, Error)]

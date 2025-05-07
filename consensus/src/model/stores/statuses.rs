@@ -1,8 +1,8 @@
-use tondi_consensus_core::{blockstatus::BlockStatus, BlockHasher};
-use tondi_database::registry::DatabaseStorePrefixes;
 use parking_lot::{RwLock, RwLockWriteGuard};
 use rocksdb::WriteBatch;
 use std::sync::Arc;
+use tondi_consensus_core::{blockstatus::BlockStatus, BlockHasher};
+use tondi_database::registry::DatabaseStorePrefixes;
 
 use tondi_database::prelude::{BatchDbWriter, CachedDbAccess, DirectDbWriter};
 use tondi_database::prelude::{CachePolicy, DB};

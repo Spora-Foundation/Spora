@@ -1,5 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use itertools::Itertools;
+use rayon::prelude::*;
 use tondi_consensus_core::{
     muhash::MuHashExtensions,
     subnets::SUBNETWORK_ID_NATIVE,
@@ -8,7 +9,6 @@ use tondi_consensus_core::{
 use tondi_hashes::TransactionID;
 use tondi_muhash::MuHash;
 use tondi_utils::iter::parallelism_in_power_steps;
-use rayon::prelude::*;
 
 fn generate_transaction(ins: usize, outs: usize, randomness: u64) -> SignableTransaction {
     let mut tx = Transaction::new(0, vec![], vec![], 0, SUBNETWORK_ID_NATIVE, 0, vec![]);

@@ -1,4 +1,5 @@
 use derive_more::Display;
+use std::sync::Arc;
 use tondi_consensus_core::{acceptance_data::AcceptanceData, block::Block, utxo::utxo_diff::UtxoDiff};
 use tondi_hashes::Hash;
 use tondi_notify::{
@@ -11,7 +12,6 @@ use tondi_notify::{
         Subscription,
     },
 };
-use std::sync::Arc;
 
 full_featured! {
 #[derive(Clone, Debug, Display)]

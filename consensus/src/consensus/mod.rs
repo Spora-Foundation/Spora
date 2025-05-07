@@ -81,11 +81,11 @@ use crossbeam_channel::{
 use itertools::Itertools;
 use tondi_consensusmanager::{SessionLock, SessionReadGuard};
 
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use tondi_database::prelude::{StoreResultEmptyTuple, StoreResultExtensions};
 use tondi_hashes::Hash;
 use tondi_muhash::MuHash;
 use tondi_txscript::caches::TxScriptCacheCounters;
-use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 
 use std::{
     cmp::Reverse,

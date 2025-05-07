@@ -1,5 +1,5 @@
-use tondi_consensus_core::tx::Transaction;
 use std::sync::Arc;
+use tondi_consensus_core::tx::Transaction;
 
 #[derive(Debug)]
 pub struct TransactionInsertion {

@@ -5,13 +5,13 @@ pub mod u3072;
 mod u3072;
 
 use crate::u3072::U3072;
-use tondi_hashes::{Hash, Hasher, HasherBase, MuHashElementHash, MuHashFinalizeHash};
-use tondi_math::Uint3072;
 use rand_chacha::rand_core::{RngCore, SeedableRng};
 use rand_chacha::ChaCha20Rng;
 use serde::{Deserialize, Serialize};
 use std::error::Error;
 use std::fmt::Display;
+use tondi_hashes::{Hash, Hasher, HasherBase, MuHashElementHash, MuHashFinalizeHash};
+use tondi_math::Uint3072;
 
 pub const HASH_SIZE: usize = 32;
 pub const SERIALIZED_MUHASH_SIZE: usize = ELEMENT_BYTE_SIZE;
@@ -187,9 +187,9 @@ impl Default for MuHash {
 mod tests {
     use crate::OverflowError;
     use crate::{MuHash, EMPTY_MUHASH, U3072};
-    use tondi_hashes::Hash;
     use rand::{Rng, SeedableRng};
     use rand_chacha::ChaCha8Rng;
+    use tondi_hashes::Hash;
 
     struct TestVector {
         data: &'static [u8],

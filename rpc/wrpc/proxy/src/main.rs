@@ -2,16 +2,16 @@ mod error;
 mod result;
 
 use clap::Parser;
+use result::Result;
+use std::sync::Arc;
 use tondi_consensus_core::network::NetworkType;
 use tondi_rpc_core::api::ops::RpcApiOps;
 use tondi_wrpc_server::{
     connection::Connection,
     router::Router,
     server::Server,
-    service::{TondiRpcHandler, Options},
+    service::{Options, TondiRpcHandler},
 };
-use result::Result;
-use std::sync::Arc;
 use workflow_log::*;
 use workflow_rpc::server::prelude::*;
 use workflow_rpc::server::WebSocketCounters;

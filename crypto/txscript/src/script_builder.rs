@@ -6,8 +6,8 @@ use crate::{
     MAX_SCRIPTS_SIZE, MAX_SCRIPT_ELEMENT_SIZE,
 };
 use hexplay::{HexView, HexViewBuilder};
-use tondi_txscript_errors::SerializationError;
 use thiserror::Error;
+use tondi_txscript_errors::SerializationError;
 
 /// DEFAULT_SCRIPT_ALLOC is the default size used for the backing array
 /// for a script being built by the ScriptBuilder. The array will
@@ -297,7 +297,7 @@ mod tests {
             Test { name: "push OP_TRUE", opcodes: vec![OpTrue], expected: vec![OpTrue] },
             Test { name: "push OP_0", opcodes: vec![Op0], expected: vec![Op0] },
             Test { name: "push OP_1 OP_2", opcodes: vec![Op1, Op2], expected: vec![Op1, Op2] },
-            Test { name: "push OP_BLAKE2B OP_EQUAL", opcodes: vec![OpBlake3, OpEqual], expected: vec![OpBlake3, OpEqual] },
+            Test { name: "push OP_BLAKE3 OP_EQUAL", opcodes: vec![OpBlake3, OpEqual], expected: vec![OpBlake3, OpEqual] },
         ];
 
         // Run tests and individually add each op via AddOp.

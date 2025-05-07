@@ -3,12 +3,12 @@ use crate::{converter::Converter, notifier::DynNotify};
 use async_channel::{Receiver, Sender};
 use async_trait::async_trait;
 use core::fmt::Debug;
-use tondi_core::{debug, trace};
-use tondi_utils::{channel::Channel, triggers::SingleTrigger};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
+use tondi_core::{debug, trace};
+use tondi_utils::{channel::Channel, triggers::SingleTrigger};
 
 pub type CollectorNotificationChannel<T> = Channel<T>;
 pub type CollectorNotificationSender<T> = Sender<T>;

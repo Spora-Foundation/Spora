@@ -1,7 +1,7 @@
+use std::{str::FromStr, sync::Arc, time::Duration};
 use tondi_core::debug;
 use tondi_p2p_lib::echo::EchoFlowInitializer;
 use tondi_utils::networking::NetAddress;
-use std::{str::FromStr, sync::Arc, time::Duration};
 
 #[tokio::main]
 async fn main() {

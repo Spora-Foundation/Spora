@@ -1,3 +1,7 @@
+use std::{
+    fmt::{Debug, Display},
+    sync::{Arc, Mutex},
+};
 use tondi_grpc_client::{GrpcClient, GrpcClientNotify};
 use tondi_notify::{
     connection::Connection as ConnectionT,
@@ -7,10 +11,6 @@ use tondi_notify::{
     notifier::Notify,
 };
 use tondi_rpc_core::{api::ops::RpcApiOps, notify::mode::NotificationMode, Notification};
-use std::{
-    fmt::{Debug, Display},
-    sync::{Arc, Mutex},
-};
 use workflow_log::log_trace;
 use workflow_rpc::{
     server::{prelude::*, result::Result as WrpcResult},

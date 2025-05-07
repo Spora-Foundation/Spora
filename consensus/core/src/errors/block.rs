@@ -7,8 +7,8 @@ use crate::{
     BlueWorkType,
 };
 use itertools::Itertools;
-use tondi_hashes::Hash;
 use thiserror::Error;
+use tondi_hashes::Hash;
 
 #[derive(Clone, Debug)]
 pub struct VecDisplay<T: Display>(pub Vec<T>);

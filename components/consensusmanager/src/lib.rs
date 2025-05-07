@@ -1,8 +1,8 @@
 use itertools::Itertools;
-use tondi_consensus_core::api::{ConsensusApi, DynConsensus};
-use tondi_core::{core::Core, debug, service::Service};
 use parking_lot::RwLock;
 use std::{collections::VecDeque, ops::Deref, sync::Arc, thread::JoinHandle};
+use tondi_consensus_core::api::{ConsensusApi, DynConsensus};
+use tondi_core::{core::Core, debug, service::Service};
 
 mod batch;
 mod session;

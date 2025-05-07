@@ -9,18 +9,6 @@ use crate::{
     tasks::{block::group::MinerGroupTask, daemon::DaemonTask, tx::group::TxSenderGroupTask, Stopper, TasksRunner},
 };
 use futures_util::future::join_all;
-use tondi_addresses::Address;
-use tondi_consensus::params::Params;
-use tondi_consensus_core::{constants::SOMPI_PER_TONDI, network::NetworkType, tx::Transaction};
-use tondi_core::{debug, info};
-use tondi_notify::{
-    listener::ListenerId,
-    scope::{NewBlockTemplateScope, Scope},
-};
-use tondi_rpc_core::{api::rpc::RpcApi, Notification, RpcError};
-use tondi_txscript::pay_to_address_script;
-use tondi_utils::fd_budget;
-use tondid_lib::args::Args;
 use parking_lot::Mutex;
 use rand::thread_rng;
 use rand_distr::{Distribution, Exp};
@@ -33,6 +21,18 @@ use std::{
     time::{Duration, Instant},
 };
 use tokio::join;
+use tondi_addresses::Address;
+use tondi_consensus::params::Params;
+use tondi_consensus_core::{constants::SOMPI_PER_TONDI, network::NetworkType, tx::Transaction};
+use tondi_core::{debug, info};
+use tondi_notify::{
+    listener::ListenerId,
+    scope::{NewBlockTemplateScope, Scope},
+};
+use tondi_rpc_core::{api::rpc::RpcApi, Notification, RpcError};
+use tondi_txscript::pay_to_address_script;
+use tondi_utils::fd_budget;
+use tondid_lib::args::Args;
 
 /// Run this benchmark with the following command line:
 /// `cargo test --release --package tondi-testing-integration --lib --features devnet-prealloc -- mempool_benchmarks::bench_bbt_latency --exact --nocapture --ignored`

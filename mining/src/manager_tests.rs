@@ -15,6 +15,8 @@ mod tests {
         MiningCounters,
     };
     use itertools::Itertools;
+    use std::{iter::once, sync::Arc};
+    use tokio::sync::mpsc::{error::TryRecvError, unbounded_channel};
     use tondi_addresses::{Address, Prefix, Version};
     use tondi_consensus_core::{
         api::ConsensusApi,
@@ -37,8 +39,6 @@ mod tests {
         test_helpers::{create_transaction, create_transaction_with_change, op_true_script},
     };
     use tondi_utils::mem_size::MemSizeEstimator;
-    use std::{iter::once, sync::Arc};
-    use tokio::sync::mpsc::{error::TryRecvError, unbounded_channel};
 
     const TARGET_TIME_PER_BLOCK: u64 = 1_000;
     const MAX_BLOCK_MASS: u64 = 500_000;

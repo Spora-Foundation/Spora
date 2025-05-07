@@ -1,5 +1,6 @@
 use super::process_queue::ProcessQueue;
 use itertools::Itertools;
+use std::time::{Duration, Instant};
 use tondi_consensus_core::tx::TransactionId;
 use tondi_core::debug;
 use tondi_p2p_lib::{
@@ -7,7 +8,6 @@ use tondi_p2p_lib::{
     pb::{tondid_message::Payload, InvTransactionsMessage, TondidMessage},
     Hub,
 };
-use std::time::{Duration, Instant};
 
 /// Interval between mempool scanning tasks (in seconds)
 const SCANNING_TASK_INTERVAL: u64 = 10;

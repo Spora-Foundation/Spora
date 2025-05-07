@@ -1,8 +1,8 @@
 pub mod cpu_miner;
 pub mod error;
 pub mod imports;
-pub mod tondid;
 pub mod result;
+pub mod tondid;
 
 use std::fmt::Display;
 

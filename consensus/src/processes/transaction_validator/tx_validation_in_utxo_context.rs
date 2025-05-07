@@ -1,13 +1,13 @@
 use crate::constants::{MAX_SOMPI, SEQUENCE_LOCK_TIME_DISABLED, SEQUENCE_LOCK_TIME_MASK};
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
+use rayon::ThreadPool;
+use std::marker::Sync;
 use tondi_consensus_core::{
     hashing::sighash::{SigHashReusedValuesSync, SigHashReusedValuesUnsync},
     tx::{TransactionInput, VerifiableTransaction},
 };
 use tondi_txscript::{caches::Cache, get_sig_op_count_upper_bound, SigCacheKey, TxScriptEngine};
 use tondi_txscript_errors::TxScriptError;
-use rayon::iter::{IntoParallelIterator, ParallelIterator};
-use rayon::ThreadPool;
-use std::marker::Sync;
 
 use super::{
     errors::{TxResult, TxRuleError},
@@ -250,14 +250,14 @@ mod tests {
     use super::CHECK_SCRIPTS_PARALLELISM_THRESHOLD;
     use core::str::FromStr;
     use itertools::Itertools;
+    use secp256k1::Secp256k1;
+    use smallvec::SmallVec;
+    use std::iter::once;
     use tondi_consensus_core::sign::sign;
     use tondi_consensus_core::subnets::SubnetworkId;
     use tondi_consensus_core::tx::{MutableTransaction, PopulatedTransaction, ScriptVec, TransactionId, UtxoEntry};
     use tondi_consensus_core::tx::{ScriptPublicKey, Transaction, TransactionInput, TransactionOutpoint, TransactionOutput};
     use tondi_txscript_errors::TxScriptError;
-    use secp256k1::Secp256k1;
-    use smallvec::SmallVec;
-    use std::iter::once;
 
     use crate::{params::MAINNET_PARAMS, processes::transaction_validator::TransactionValidator};
 

@@ -209,7 +209,6 @@ pub fn blake3_hash(data: &[u8]) -> Secret {
     Secret::new(result.as_bytes().to_vec())
 }
 
-
 /// Produces `BLAKE3d` hash of the given data (double hash).
 #[inline]
 pub fn blake3d_hash(data: &[u8]) -> Secret {
@@ -217,10 +216,9 @@ pub fn blake3d_hash(data: &[u8]) -> Secret {
     blake3_hash(first.as_ref())
 }
 
-
 /// Produces `argon2blake3iv` hash of the given data.
 pub fn argon2_blake3iv_hash(data: &[u8], byte_length: usize) -> Result<Secret> {
-    let salt = blake3_hash(data);  // Replace blake3_hash with blake3_hash
+    let salt = blake3_hash(data); // Replace blake3_hash with blake3_hash
     let mut key = vec![0u8; byte_length];
     Argon2::default().hash_password_into(data, salt.as_ref(), &mut key)?;
     Ok(key.into())

@@ -1,6 +1,6 @@
+use std::{sync::Arc, time::Duration};
 use tondi_core::debug;
 use tondi_p2p_lib::echo::EchoFlowInitializer;
-use std::{sync::Arc, time::Duration};
 
 #[tokio::main]
 async fn main() {

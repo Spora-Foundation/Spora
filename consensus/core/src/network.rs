@@ -12,11 +12,11 @@
 #![allow(non_snake_case)]
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use tondi_addresses::Prefix;
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt::{Debug, Display, Formatter};
 use std::ops::Deref;
 use std::str::FromStr;
+use tondi_addresses::Prefix;
 use wasm_bindgen::convert::TryFromJsValue;
 use wasm_bindgen::prelude::*;
 use workflow_wasm::prelude::*;

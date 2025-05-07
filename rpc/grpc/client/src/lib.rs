@@ -7,11 +7,20 @@ use async_trait::async_trait;
 pub use client_pool::ClientPool;
 use connection_event::ConnectionEvent;
 use futures::{future::FutureExt, pin_mut, select};
+use regex::Regex;
+use std::{
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    time::Duration,
+};
+use tokio::sync::Mutex;
 use tondi_core::{debug, error, trace};
 use tondi_grpc_core::{
     channel::NotificationChannel,
     ops::TondidPayloadOps,
-    protowire::{tondid_request, rpc_client::RpcClient, GetInfoRequestMessage, TondidRequest, TondidResponse},
+    protowire::{rpc_client::RpcClient, tondid_request, GetInfoRequestMessage, TondidRequest, TondidResponse},
     RPC_MAX_MESSAGE_SIZE,
 };
 use tondi_notify::{
@@ -40,15 +49,6 @@ use tondi_utils_tower::{
     counters::TowerConnectionCounters,
     middleware::{BodyExt, CountBytesBody, MapRequestBodyLayer, MapResponseBodyLayer, ServiceBuilder},
 };
-use regex::Regex;
-use std::{
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
-    time::Duration,
-};
-use tokio::sync::Mutex;
 use tonic::codec::CompressionEncoding;
 use tonic::Streaming;
 

@@ -21,9 +21,9 @@ pub mod utxo_multisets;
 pub mod utxo_set;
 pub mod virtual_state;
 
+use std::fmt::Display;
 pub use tondi_database;
 pub use tondi_database::prelude::DB;
-use std::fmt::Display;
 
 #[derive(PartialEq, Eq, Clone, Copy, Hash)]
 pub(crate) struct U64Key([u8; size_of::<u64>()]);

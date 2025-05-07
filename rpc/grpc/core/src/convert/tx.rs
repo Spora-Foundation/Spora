@@ -1,7 +1,7 @@
 use crate::protowire;
 use crate::{from, try_from};
-use tondi_rpc_core::{FromRpcHex, RpcError, RpcHash, RpcResult, RpcScriptVec, ToRpcHex};
 use std::str::FromStr;
+use tondi_rpc_core::{FromRpcHex, RpcError, RpcHash, RpcResult, RpcScriptVec, ToRpcHex};
 
 // ----------------------------------------------------------------------------
 // rpc_core to protowire

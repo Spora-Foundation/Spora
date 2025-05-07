@@ -2,13 +2,13 @@ use super::GrpcClient;
 use async_channel::{SendError, Sender};
 use futures_util::Future;
 use itertools::Itertools;
-use tondi_core::trace;
-use tondi_utils::{any::type_name_short, channel::Channel, triggers::SingleTrigger};
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Arc,
 };
 use tokio::task::JoinHandle;
+use tondi_core::trace;
+use tondi_utils::{any::type_name_short, channel::Channel, triggers::SingleTrigger};
 
 pub struct ClientPool<T> {
     clients: Vec<Arc<GrpcClient>>,

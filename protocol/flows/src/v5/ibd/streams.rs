@@ -2,6 +2,8 @@
 //! Logical stream abstractions used throughout the IBD negotiation protocols
 //!
 
+use std::sync::Arc;
+use tokio::time::timeout;
 use tondi_consensus_core::{
     errors::consensus::ConsensusError,
     header::Header,
@@ -18,8 +20,6 @@ use tondi_p2p_lib::{
     },
     IncomingRoute, Router,
 };
-use std::sync::Arc;
-use tokio::time::timeout;
 
 pub const IBD_BATCH_SIZE: usize = 99;
 

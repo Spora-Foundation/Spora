@@ -2,6 +2,8 @@ use std::ops::Deref;
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
+use rocksdb::WriteBatch;
+use serde::{Deserialize, Serialize};
 use tondi_consensus_core::api::stats::VirtualStateStats;
 use tondi_consensus_core::{
     block::VirtualStateApproxId, coinbase::BlockRewardData, config::genesis::GenesisBlock, tx::TransactionId,
@@ -13,8 +15,6 @@ use tondi_database::prelude::{StoreError, DB};
 use tondi_database::registry::DatabaseStorePrefixes;
 use tondi_hashes::Hash;
 use tondi_muhash::MuHash;
-use rocksdb::WriteBatch;
-use serde::{Deserialize, Serialize};
 
 use super::ghostdag::GhostdagData;
 use super::utxo_set::DbUtxoSetStore;

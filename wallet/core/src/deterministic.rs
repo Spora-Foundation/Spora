@@ -6,9 +6,9 @@ pub use crate::account::{bip32, bip32watch, keypair, legacy, multisig};
 use crate::encryption::blake3_hash;
 use crate::imports::*;
 use crate::storage::PrvKeyDataId;
+use secp256k1::PublicKey;
 use tondi_hashes::Hash;
 use tondi_utils::as_slice::AsSlice;
-use secp256k1::PublicKey;
 
 /// Deterministic byte sequence derived from account data (can be used for auxiliary data storage encryption).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
@@ -109,7 +109,6 @@ where
     }
     hashes
 }
-
 
 /// Create deterministic hashes from BIP32 account data.
 pub fn from_bip32<const N: usize>(prv_key_data_id: &PrvKeyDataId, data: &bip32::Payload) -> [Hash; N] {

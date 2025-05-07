@@ -12,5 +12,5 @@ pub mod result;
 pub mod utils;
 mod wizards;
 
-pub use cli::{tondi_cli, TondiCli, Options, TerminalOptions, TerminalTarget};
+pub use cli::{tondi_cli, Options, TerminalOptions, TerminalTarget, TondiCli};
 pub use workflow_terminal::Terminal;

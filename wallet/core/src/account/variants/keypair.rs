@@ -4,8 +4,8 @@
 
 use crate::account::Inner;
 use crate::imports::*;
-use tondi_addresses::Version;
 use secp256k1::PublicKey;
+use tondi_addresses::Version;
 
 pub const KEYPAIR_ACCOUNT_KIND: &str = "tondi-keypair-standard";
 

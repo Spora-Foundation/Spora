@@ -1,3 +1,5 @@
+use secp256k1::{rand::thread_rng, Keypair};
+use std::{iter, str::FromStr};
 use tondi_consensus_core::{
     hashing::sighash::{calc_schnorr_signature_hash, SigHashReusedValuesUnsync},
     tx::{TransactionId, TransactionOutpoint, UtxoEntry},
@@ -6,8 +8,6 @@ use tondi_txscript::{multisig_redeem_script, opcodes::codes::OpData65, pay_to_sc
 use tondi_wallet_pskt::prelude::{
     Combiner, Creator, Extractor, Finalizer, Inner, InputBuilder, SignInputOk, Signature, Signer, Updater, PSKT,
 };
-use secp256k1::{rand::thread_rng, Keypair};
-use std::{iter, str::FromStr};
 
 fn main() {
     let kps = [Keypair::new(secp256k1::SECP256K1, &mut thread_rng()), Keypair::new(secp256k1::SECP256K1, &mut thread_rng())];

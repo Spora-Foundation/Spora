@@ -1,15 +1,15 @@
 use crate::derivation::traits::*;
 use crate::imports::*;
 use hmac::Mac;
+use ripemd::Ripemd160;
+use sha2::Digest;
+use std::fmt::Debug;
 use tondi_addresses::{Address, Prefix as AddressPrefix, Version as AddressVersion};
 use tondi_bip32::types::{ChainCode, HmacSha512, KeyFingerprint, PublicKeyBytes, KEY_SIZE};
 use tondi_bip32::{
     AddressType, ChildNumber, DerivationPath, ExtendedKey, ExtendedKeyAttrs, ExtendedPrivateKey, ExtendedPublicKey, Prefix,
     PrivateKey, PublicKey, SecretKey, SecretKeyExt,
 };
-use ripemd::Ripemd160;
-use sha2::Digest;
-use std::fmt::Debug;
 
 fn get_fingerprint<K>(private_key: &K) -> KeyFingerprint
 where

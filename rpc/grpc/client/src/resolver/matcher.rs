@@ -1,4 +1,4 @@
-use tondi_grpc_core::protowire::{tondid_request, tondid_response, TondidRequest,TondidResponse};
+use tondi_grpc_core::protowire::{tondid_request, tondid_response, TondidRequest, TondidResponse};
 
 pub(crate) trait Matcher<T> {
     fn is_matching(&self, response: T) -> bool;

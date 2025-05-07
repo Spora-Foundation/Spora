@@ -10,11 +10,11 @@ use crate::{
         window::WindowManager,
     },
 };
+use once_cell::unsync::Lazy;
+use std::sync::Arc;
 use tondi_consensus_core::{block::Block, errors::tx::TxRuleError};
 use tondi_database::prelude::StoreResultExtensions;
 use tondi_hashes::Hash;
-use once_cell::unsync::Lazy;
-use std::sync::Arc;
 
 impl BlockBodyProcessor {
     pub fn validate_body_in_context(self: &Arc<Self>, block: &Block) -> BlockProcessResult<()> {

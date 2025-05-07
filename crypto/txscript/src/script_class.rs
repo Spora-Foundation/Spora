@@ -1,13 +1,13 @@
 use crate::{opcodes, MAX_SCRIPT_PUBLIC_KEY_VERSION};
 use borsh::{BorshDeserialize, BorshSerialize};
-use tondi_addresses::Version;
-use tondi_consensus_core::tx::{ScriptPublicKey, ScriptPublicKeyVersion};
 use serde::{Deserialize, Serialize};
 use std::{
     fmt::{Display, Formatter},
     str::FromStr,
 };
 use thiserror::Error;
+use tondi_addresses::Version;
+use tondi_consensus_core::tx::{ScriptPublicKey, ScriptPublicKeyVersion};
 
 #[derive(Error, PartialEq, Eq, Debug, Clone)]
 pub enum Error {

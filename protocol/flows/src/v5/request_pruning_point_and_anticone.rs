@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use itertools::Itertools;
+use log::debug;
 use tondi_consensus_core::BlockHashMap;
 use tondi_p2p_lib::{
     common::ProtocolError,
@@ -11,7 +12,6 @@ use tondi_p2p_lib::{
     },
     IncomingRoute, Router,
 };
-use log::debug;
 
 use crate::{flow_context::FlowContext, flow_trait::Flow, v5::ibd::IBD_BATCH_SIZE};
 

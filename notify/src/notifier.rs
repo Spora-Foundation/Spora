@@ -21,7 +21,6 @@ use async_trait::async_trait;
 use core::fmt::Debug;
 use futures::future::join_all;
 use itertools::Itertools;
-use tondi_core::{debug, trace};
 use parking_lot::Mutex;
 use std::{
     collections::{hash_map::Entry, HashMap},
@@ -30,6 +29,7 @@ use std::{
         Arc,
     },
 };
+use tondi_core::{debug, trace};
 use workflow_core::channel::Channel;
 
 pub trait Notify<N>: Send + Sync + Debug

@@ -1,5 +1,5 @@
 use crate::protowire::{
-    tondid_response::Payload, BlockAddedNotificationMessage, TondidResponse, NewBlockTemplateNotificationMessage, RpcNotifyCommand,
+    tondid_response::Payload, BlockAddedNotificationMessage, NewBlockTemplateNotificationMessage, RpcNotifyCommand, TondidResponse,
 };
 use crate::protowire::{
     FinalityConflictNotificationMessage, FinalityConflictResolvedNotificationMessage, NotifyPruningPointUtxoSetOverrideRequestMessage,
@@ -10,10 +10,10 @@ use crate::protowire::{
     VirtualChainChangedNotificationMessage, VirtualDaaScoreChangedNotificationMessage,
 };
 use crate::{from, try_from};
-use tondi_notify::subscription::Command;
-use tondi_rpc_core::{Notification, RpcError, RpcHash};
 use std::str::FromStr;
 use std::sync::Arc;
+use tondi_notify::subscription::Command;
+use tondi_rpc_core::{Notification, RpcError, RpcHash};
 
 // ----------------------------------------------------------------------------
 // rpc_core to protowire

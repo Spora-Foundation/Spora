@@ -2,6 +2,7 @@ use std::{str::FromStr, sync::Arc, time::Duration};
 
 use crate::common::{client_notify::ChannelNotify, daemon::Daemon};
 use futures_util::future::try_join_all;
+use tokio::task::JoinHandle;
 use tondi_addresses::{Address, Prefix, Version};
 use tondi_consensus::params::SIMNET_GENESIS;
 use tondi_consensus_core::{constants::MAX_SOMPI, header::Header, subnets::SubnetworkId, tx::Transaction};
@@ -18,7 +19,6 @@ use tondi_notify::{
 use tondi_rpc_core::{api::rpc::RpcApi, model::*, Notification};
 use tondi_utils::{fd_budget, networking::ContextualNetAddress};
 use tondid_lib::args::Args;
-use tokio::task::JoinHandle;
 
 #[macro_export]
 macro_rules! tst {

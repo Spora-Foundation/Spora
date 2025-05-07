@@ -2,13 +2,13 @@ use crate::common::ProtocolError;
 use crate::core::hub::Hub;
 use crate::ConnectionError;
 use crate::{core::connection_handler::ConnectionHandler, Router};
-use tondi_utils::networking::NetAddress;
-use tondi_utils_tower::counters::TowerConnectionCounters;
 use std::ops::Deref;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc::channel as mpsc_channel;
 use tokio::sync::oneshot::Sender as OneshotSender;
+use tondi_utils::networking::NetAddress;
+use tondi_utils_tower::counters::TowerConnectionCounters;
 
 use super::peer::PeerKey;
 

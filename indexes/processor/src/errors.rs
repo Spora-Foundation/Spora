@@ -1,6 +1,6 @@
+use thiserror::Error;
 use tondi_notify::events::EventType;
 use tondi_utxoindex::errors::UtxoIndexError;
-use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum IndexError {

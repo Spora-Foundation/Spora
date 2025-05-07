@@ -1,6 +1,6 @@
-use tondi_grpc_core::ops::TondidPayloadOps;
 use thiserror::Error;
 use tokio::sync::mpsc::error::TrySendError;
+use tondi_grpc_core::ops::TondidPayloadOps;
 
 #[derive(Debug, Error)]
 pub enum GrpcServerError {

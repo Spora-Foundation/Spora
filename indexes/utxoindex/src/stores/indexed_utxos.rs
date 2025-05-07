@@ -1,5 +1,9 @@
 use crate::core::model::{CompactUtxoCollection, CompactUtxoEntry, UtxoSetByScriptPublicKey};
 
+use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
+use std::fmt::Display;
+use std::sync::Arc;
 use tondi_consensus_core::tx::{
     ScriptPublicKey, ScriptPublicKeyVersion, ScriptPublicKeys, ScriptVec, TransactionIndexType, TransactionOutpoint,
 };
@@ -8,10 +12,6 @@ use tondi_database::prelude::{CachePolicy, CachedDbAccess, DirectDbWriter, Store
 use tondi_database::registry::DatabaseStorePrefixes;
 use tondi_hashes::Hash;
 use tondi_index_core::indexed_utxos::BalanceByScriptPublicKey;
-use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
-use std::fmt::Display;
-use std::sync::Arc;
 
 pub const VERSION_TYPE_SIZE: usize = size_of::<ScriptPublicKeyVersion>(); // Const since we need to re-use this a few times.
 

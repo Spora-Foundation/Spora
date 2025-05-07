@@ -1,11 +1,11 @@
 use super::{error::ConversionError, option::TryIntoOptionEx};
 use crate::pb as protowire;
+use std::sync::Arc;
 use tondi_consensus_core::{
     trusted::{ExternalGhostdagData, TrustedGhostdagData, TrustedHeader},
     BlockHashMap, BlueWorkType, HashMapCustomHasher, KType,
 };
 use tondi_hashes::Hash;
-use std::sync::Arc;
 
 // ----------------------------------------------------------------------------
 // consensus_core to protowire

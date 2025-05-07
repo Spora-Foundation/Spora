@@ -1,12 +1,12 @@
 use crate::tasks::{subscription::submitter::SubscribeCommand, Task};
 use async_channel::Sender;
 use async_trait::async_trait;
+use std::{sync::Arc, time::Duration};
+use tokio::{sync::oneshot::channel, task::JoinHandle, time::sleep};
 use tondi_core::warn;
 use tondi_grpc_client::GrpcClient;
 use tondi_notify::scope::Scope;
 use tondi_utils::triggers::SingleTrigger;
-use std::{sync::Arc, time::Duration};
-use tokio::{sync::oneshot::channel, task::JoinHandle, time::sleep};
 
 pub struct BasicSubscriberTask {
     clients: Vec<Arc<GrpcClient>>,

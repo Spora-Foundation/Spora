@@ -1,5 +1,5 @@
-use tondi_consensus_core::{api::BlockValidationFuture, block::Block};
 use std::fmt::Debug;
+use tondi_consensus_core::{api::BlockValidationFuture, block::Block};
 
 pub struct BlockProcessingBatch {
     pub blocks: Vec<Block>,

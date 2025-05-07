@@ -3,6 +3,7 @@
 use crate::imports::*;
 use crate::parse::parse_host;
 use crate::{error::Error, node::NodeDescriptor};
+use std::fmt::Debug;
 use tondi_consensus_core::network::NetworkType;
 use tondi_notify::{
     listener::ListenerLifespan,
@@ -13,7 +14,6 @@ use tondi_rpc_core::{
     notify::collector::{RpcCoreCollector, RpcCoreConverter},
 };
 pub use tondi_rpc_macros::build_wrpc_client_interface;
-use std::fmt::Debug;
 use workflow_core::{channel::Multiplexer, runtime as application_runtime};
 use workflow_dom::utils::window;
 use workflow_rpc::client::Ctl as WrpcCtl;

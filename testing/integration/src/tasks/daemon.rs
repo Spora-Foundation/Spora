@@ -4,13 +4,13 @@ use crate::{
 };
 use async_trait::async_trait;
 use clap::Parser;
+use std::{iter::once, sync::Arc};
+use tokio::task::JoinHandle;
 use tondi_addresses::Address;
 use tondi_consensus_core::network::NetworkType;
 use tondi_core::{trace, warn};
 use tondi_utils::{fd_budget, triggers::SingleTrigger};
 use tondid_lib::args::Args;
-use std::{iter::once, sync::Arc};
-use tokio::task::JoinHandle;
 
 /// Arguments for configuring a [`DaemonTask`]
 #[derive(Parser, Debug)]

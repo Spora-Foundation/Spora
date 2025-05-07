@@ -4,6 +4,8 @@
 
 use crate::model::message::*;
 use derive_more::Display;
+use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use tondi_notify::{
     events::EventType,
     notification::{full_featured, Notification as NotificationTrait},
@@ -13,8 +15,6 @@ use tondi_notify::{
         Subscription,
     },
 };
-use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 use wasm_bindgen::JsValue;
 use workflow_serializer::prelude::*;
 use workflow_wasm::serde::to_value;

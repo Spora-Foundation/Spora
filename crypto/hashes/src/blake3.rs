@@ -19,6 +19,7 @@ pub fn blake3_256(data: &[u8]) -> [u8; 32] {
 /// - Block hash (chain PoW identifier)
 /// - Commitment ID hashing
 /// - UTXO ID or contract state anchors
+#[allow(dead_code)]
 pub fn blake3d(data: &[u8]) -> [u8; 32] {
     blake3_256(&blake3_256(data))
 }
@@ -31,6 +32,7 @@ pub fn blake3d(data: &[u8]) -> [u8; 32] {
 /// - Merkle tree hash construction
 /// - Incremental digest (e.g., block serialization)
 /// - Multi-part message signing
+#[allow(dead_code)]
 pub fn blake3_stream(data: &[&[u8]]) -> [u8; 32] {
     let mut hasher = Hasher::new();
     for chunk in data {

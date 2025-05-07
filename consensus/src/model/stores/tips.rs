@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use rocksdb::WriteBatch;
 use tondi_consensus_core::BlockHashSet;
 use tondi_consensus_core::BlockHasher;
 use tondi_database::prelude::CachedDbSetItem;
@@ -11,7 +12,6 @@ use tondi_database::prelude::DB;
 use tondi_database::prelude::{BatchDbWriter, DirectDbWriter};
 use tondi_database::registry::DatabaseStorePrefixes;
 use tondi_hashes::Hash;
-use rocksdb::WriteBatch;
 
 /// Reader API for `TipsStore`.
 pub trait TipsStoreReader {

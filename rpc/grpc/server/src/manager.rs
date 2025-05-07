@@ -1,6 +1,4 @@
 use crate::connection::{Connection, ConnectionId};
-use tondi_core::{debug, info, warn};
-use tondi_notify::connection::Connection as ConnectionT;
 use parking_lot::RwLock;
 use std::{
     collections::{hash_map::Entry::Occupied, HashMap, HashSet},
@@ -10,6 +8,8 @@ use std::{
 use thiserror::Error;
 use tokio::sync::oneshot::Sender as OneshotSender;
 use tokio::{sync::mpsc::Receiver as MpscReceiver, time::sleep};
+use tondi_core::{debug, info, warn};
+use tondi_notify::connection::Connection as ConnectionT;
 
 #[derive(Debug, Error)]
 pub(crate) enum RegistrationError {

@@ -1,3 +1,4 @@
+use rand::{rngs::SmallRng, seq::SliceRandom, Rng};
 use tondi_consensus_core::{
     block::Block,
     header::Header,
@@ -6,7 +7,6 @@ use tondi_consensus_core::{
     utxo::utxo_collection::UtxoCollection,
 };
 use tondi_hashes::{Hash, HASH_SIZE};
-use rand::{rngs::SmallRng, seq::SliceRandom, Rng};
 
 pub fn header_from_precomputed_hash(hash: Hash, parents: Vec<Hash>) -> Header {
     Header::from_precomputed_hash(hash, parents)

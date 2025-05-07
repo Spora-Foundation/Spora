@@ -6,6 +6,11 @@ use crate::{
     update_container::UtxoIndexChanges,
     IDENT,
 };
+use parking_lot::RwLock;
+use std::{
+    fmt::Debug,
+    sync::{Arc, Weak},
+};
 use tondi_consensus_core::{tx::ScriptPublicKeys, utxo::utxo_diff::UtxoDiff, BlockHashSet};
 use tondi_consensusmanager::{ConsensusManager, ConsensusResetHandler};
 use tondi_core::{info, trace};
@@ -13,11 +18,6 @@ use tondi_database::prelude::{StoreError, StoreResult, DB};
 use tondi_hashes::Hash;
 use tondi_index_core::indexed_utxos::BalanceByScriptPublicKey;
 use tondi_utils::arc::ArcExtensions;
-use parking_lot::RwLock;
-use std::{
-    fmt::Debug,
-    sync::{Arc, Weak},
-};
 
 const RESYNC_CHUNK_SIZE: usize = 2048; //Increased from 1k (used in go-Tondid), for quicker resets, while still having a low memory footprint.
 
@@ -223,6 +223,7 @@ impl ConsensusResetHandler for UtxoIndexConsensusResetHandler {
 #[cfg(test)]
 mod tests {
     use crate::{api::UtxoIndexApi, model::CirculatingSupply, testutils::virtual_change_emulator::VirtualChangeEmulator, UtxoIndex};
+    use std::{collections::HashSet, sync::Arc, time::Instant};
     use tondi_consensus::{
         config::Config,
         consensus::test_consensus::TestConsensus,
@@ -240,7 +241,6 @@ mod tests {
     use tondi_core::info;
     use tondi_database::create_temp_db;
     use tondi_database::prelude::ConnBuilder;
-    use std::{collections::HashSet, sync::Arc, time::Instant};
 
     /// TODO: use proper Simnet when implemented.
     #[test]

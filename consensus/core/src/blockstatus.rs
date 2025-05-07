@@ -1,5 +1,5 @@
-use tondi_utils::mem_size::MemSizeEstimator;
 use serde::{Deserialize, Serialize};
+use tondi_utils::mem_size::MemSizeEstimator;
 
 #[derive(Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub enum BlockStatus {

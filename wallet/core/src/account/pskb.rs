@@ -7,6 +7,9 @@ pub use crate::error::Error;
 use crate::imports::*;
 use crate::tx::PaymentOutputs;
 use futures::stream;
+use secp256k1::schnorr;
+use secp256k1::{Message, PublicKey};
+use std::iter;
 use tondi_bip32::{DerivationPath, KeyFingerprint, PrivateKey};
 use tondi_consensus_client::UtxoEntry as ClientUTXO;
 use tondi_consensus_core::hashing::sighash::{calc_schnorr_signature_hash, SigHashReusedValuesUnsync};
@@ -20,9 +23,6 @@ pub use tondi_wallet_pskt::bundle::Bundle;
 use tondi_wallet_pskt::prelude::KeySource;
 use tondi_wallet_pskt::prelude::{Finalizer, Inner, SignInputOk, Signature, Signer};
 pub use tondi_wallet_pskt::pskt::{Creator, PSKT};
-use secp256k1::schnorr;
-use secp256k1::{Message, PublicKey};
-use std::iter;
 
 struct PSKBSignerInner {
     keydata: PrvKeyData,

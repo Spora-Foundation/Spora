@@ -1,5 +1,6 @@
 use crate::indexed_utxos::{UtxoChanges, UtxoSetByScriptPublicKey};
 use derive_more::Display;
+use std::{collections::HashMap, sync::Arc};
 use tondi_notify::{
     events::EventType,
     full_featured,
@@ -10,7 +11,6 @@ use tondi_notify::{
         Subscription,
     },
 };
-use std::{collections::HashMap, sync::Arc};
 
 full_featured! {
 #[derive(Clone, Debug, Display)]

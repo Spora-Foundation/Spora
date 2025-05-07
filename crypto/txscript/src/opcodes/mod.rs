@@ -6,14 +6,14 @@ use crate::{
     ScriptSource, SpkEncoding, TxScriptEngine, TxScriptError, LOCK_TIME_THRESHOLD, MAX_TX_IN_SEQUENCE_NUM, NO_COST_OPCODE,
     SEQUENCE_LOCK_TIME_DISABLED, SEQUENCE_LOCK_TIME_MASK,
 };
-use tondi_consensus_core::hashing::sighash::SigHashReusedValues;
-use tondi_consensus_core::hashing::sighash_type::SigHashType;
-use tondi_consensus_core::tx::VerifiableTransaction;
 use sha2::{Digest, Sha256};
 use std::{
     fmt::{Debug, Formatter},
     num::TryFromIntError,
 };
+use tondi_consensus_core::hashing::sighash::SigHashReusedValues;
+use tondi_consensus_core::hashing::sighash_type::SigHashType;
+use tondi_consensus_core::tx::VerifiableTransaction;
 
 /// First value in the range formed by the "small integer" Op# opcodes
 pub const OP_SMALL_INT_MIN_VAL: u8 = 1;

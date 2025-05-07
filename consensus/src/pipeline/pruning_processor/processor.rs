@@ -24,6 +24,17 @@ use crate::{
 };
 use crossbeam_channel::Receiver as CrossbeamReceiver;
 use itertools::Itertools;
+use parking_lot::RwLockUpgradableReadGuard;
+use rocksdb::WriteBatch;
+use std::{
+    collections::{hash_map::Entry::Vacant, VecDeque},
+    ops::Deref,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    time::{Duration, Instant},
+};
 use tondi_consensus_core::{
     blockhash::ORIGIN,
     blockstatus::BlockStatus::StatusHeaderOnly,
@@ -39,17 +50,6 @@ use tondi_database::prelude::{BatchDbWriter, MemoryWriter, StoreResultExtensions
 use tondi_hashes::Hash;
 use tondi_muhash::MuHash;
 use tondi_utils::iter::IterExtensions;
-use parking_lot::RwLockUpgradableReadGuard;
-use rocksdb::WriteBatch;
-use std::{
-    collections::{hash_map::Entry::Vacant, VecDeque},
-    ops::Deref,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
-    time::{Duration, Instant},
-};
 
 pub enum PruningProcessingMessage {
     Exit,

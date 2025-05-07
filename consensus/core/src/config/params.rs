@@ -8,12 +8,12 @@ use crate::{
     network::{NetworkId, NetworkType},
     BlockLevel, KType,
 };
-use tondi_addresses::Prefix;
-use tondi_math::Uint256;
 use std::{
     cmp::min,
     time::{SystemTime, UNIX_EPOCH},
 };
+use tondi_addresses::Prefix;
+use tondi_math::Uint256;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ForkActivation(u64);

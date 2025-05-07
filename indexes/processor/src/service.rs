@@ -1,4 +1,5 @@
 use crate::{processor::Processor, IDENT};
+use std::sync::Arc;
 use tondi_consensus_notify::{
     connection::ConsensusChannelConnection, notification::Notification as ConsensusNotification, notifier::ConsensusNotifier,
 };
@@ -16,7 +17,6 @@ use tondi_notify::{
 };
 use tondi_utils::{channel::Channel, triggers::SingleTrigger};
 use tondi_utxoindex::api::UtxoIndexProxy;
-use std::sync::Arc;
 
 const INDEX_SERVICE: &str = IDENT;
 

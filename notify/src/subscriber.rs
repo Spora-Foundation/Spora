@@ -1,10 +1,10 @@
 use async_trait::async_trait;
 use core::fmt::Debug;
-use tondi_core::{debug, trace};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
+use tondi_core::{debug, trace};
 extern crate derive_more;
 use crate::events::{EventSwitches, EventType};
 

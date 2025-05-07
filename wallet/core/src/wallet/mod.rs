@@ -31,7 +31,7 @@ use tondi_notify::{
     scope::{Scope, VirtualDaaScoreChangedScope},
 };
 use tondi_wallet_keys::xpub::NetworkTaggedXpub;
-use tondi_wrpc_client::{TondiRpcClient, Resolver, WrpcEncoding};
+use tondi_wrpc_client::{Resolver, TondiRpcClient, WrpcEncoding};
 use workflow_core::task::spawn;
 
 pub type WalletGuard<'l> = AsyncMutexGuard<'l, ()>;

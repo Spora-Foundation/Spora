@@ -1,5 +1,12 @@
 use indexmap::IndexSet;
 use itertools::Itertools;
+use rand::rngs::ThreadRng;
+use rand::Rng;
+use rand_distr::{Distribution, Exp};
+use rayon::prelude::{IntoParallelIterator, ParallelIterator};
+use std::cmp::max;
+use std::iter::once;
+use std::sync::Arc;
 use tondi_consensus::consensus::Consensus;
 use tondi_consensus::model::stores::virtual_state::VirtualStateStoreReader;
 use tondi_consensus::params::Params;
@@ -15,13 +22,6 @@ use tondi_consensus_core::tx::{
 use tondi_consensus_core::utxo::utxo_view::UtxoView;
 use tondi_core::trace;
 use tondi_utils::sim::{Environment, Process, Resumption, Suspension};
-use rand::rngs::ThreadRng;
-use rand::Rng;
-use rand_distr::{Distribution, Exp};
-use rayon::prelude::{IntoParallelIterator, ParallelIterator};
-use std::cmp::max;
-use std::iter::once;
-use std::sync::Arc;
 
 struct OnetimeTxSelector {
     txs: Option<Vec<Transaction>>,

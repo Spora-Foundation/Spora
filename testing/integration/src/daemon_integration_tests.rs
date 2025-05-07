@@ -4,6 +4,8 @@ use crate::common::{
     daemon::Daemon,
     utils::{fetch_spendable_utxos, generate_tx, mine_block, wait_for},
 };
+use rand::thread_rng;
+use std::{sync::Arc, time::Duration};
 use tondi_addresses::Address;
 use tondi_alloc::init_allocator_with_default_settings;
 use tondi_consensus::params::SIMNET_PARAMS;
@@ -15,8 +17,6 @@ use tondi_notify::scope::{BlockAddedScope, UtxosChangedScope, VirtualDaaScoreCha
 use tondi_rpc_core::{api::rpc::RpcApi, Notification, RpcTransactionId};
 use tondi_txscript::pay_to_address_script;
 use tondid_lib::args::Args;
-use rand::thread_rng;
-use std::{sync::Arc, time::Duration};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn daemon_sanity_test() {

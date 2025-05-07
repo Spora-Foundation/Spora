@@ -1,12 +1,12 @@
 use super::{factory::MultiConsensusManagementStore, Consensus};
-use tondi_consensusmanager::ConsensusCtl;
-use tondi_database::prelude::DB;
 use parking_lot::RwLock;
 use std::{
     path::PathBuf,
     sync::{Arc, Weak},
     thread::JoinHandle,
 };
+use tondi_consensusmanager::ConsensusCtl;
+use tondi_database::prelude::DB;
 
 pub struct Ctl {
     management_store: Arc<RwLock<MultiConsensusManagementStore>>,

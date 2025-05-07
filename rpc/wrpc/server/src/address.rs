@@ -1,8 +1,8 @@
 use crate::service::WrpcEncoding;
-use tondi_consensus_core::network::NetworkType;
-use tondi_utils::networking::ContextualNetAddress;
 use serde::Deserialize;
 use std::{net::AddrParseError, str::FromStr};
+use tondi_consensus_core::network::NetworkType;
+use tondi_utils::networking::ContextualNetAddress;
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename = "lowercase")]

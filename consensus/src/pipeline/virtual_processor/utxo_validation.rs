@@ -45,11 +45,11 @@ use smallvec::{smallvec, SmallVec};
 use std::{iter::once, ops::Deref};
 
 pub(crate) mod crescendo {
-    use tondi_core::{info, log::CRESCENDO_KEYWORD};
     use std::sync::{
         atomic::{AtomicU8, Ordering},
         Arc,
     };
+    use tondi_core::{info, log::CRESCENDO_KEYWORD};
 
     #[derive(Clone)]
     pub(crate) struct CrescendoLogger {

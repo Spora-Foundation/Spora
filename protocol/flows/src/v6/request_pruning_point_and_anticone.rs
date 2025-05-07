@@ -4,6 +4,8 @@
 //!
 
 use itertools::Itertools;
+use log::debug;
+use std::sync::Arc;
 use tondi_p2p_lib::{
     common::ProtocolError,
     dequeue, dequeue_with_request_id, make_response,
@@ -13,8 +15,6 @@ use tondi_p2p_lib::{
     },
     IncomingRoute, Router,
 };
-use log::debug;
-use std::sync::Arc;
 
 use crate::{flow_context::FlowContext, flow_trait::Flow, v5::ibd::IBD_BATCH_SIZE};
 

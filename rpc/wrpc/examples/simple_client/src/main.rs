@@ -1,15 +1,15 @@
 // Example of simple client to connect with Tondi node using wRPC connection and collect some node and network basic data
 
+use std::process::ExitCode;
+use std::time::Duration;
 use tondi_rpc_core::{api::rpc::RpcApi, GetBlockDagInfoResponse, GetServerInfoResponse};
 use tondi_wrpc_client::{
     client::{ConnectOptions, ConnectStrategy},
     prelude::NetworkId,
     prelude::NetworkType,
     result::Result,
-    TondiRpcClient, Resolver, WrpcEncoding,
+    Resolver, TondiRpcClient, WrpcEncoding,
 };
-use std::process::ExitCode;
-use std::time::Duration;
 
 #[tokio::main]
 async fn main() -> ExitCode {

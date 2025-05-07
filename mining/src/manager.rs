@@ -21,6 +21,9 @@ use crate::{
     MempoolCountersSnapshot, MiningCounters, P2pTxCountSample,
 };
 use itertools::Itertools;
+use parking_lot::RwLock;
+use std::sync::Arc;
+use tokio::sync::mpsc::UnboundedSender;
 use tondi_consensus_core::{
     api::{
         args::{TransactionValidationArgs, TransactionValidationBatchArgs},
@@ -35,9 +38,6 @@ use tondi_consensus_core::{
 use tondi_consensusmanager::{spawn_blocking, ConsensusProxy};
 use tondi_core::{debug, error, info, time::Stopwatch, warn};
 use tondi_mining_errors::{manager::MiningManagerError, mempool::RuleError};
-use parking_lot::RwLock;
-use std::sync::Arc;
-use tokio::sync::mpsc::UnboundedSender;
 
 pub struct MiningManager {
     config: Arc<Config>,
@@ -1081,8 +1081,8 @@ fn feerate_stats(transactions: Vec<Transaction>, calculated_fees: Vec<u64>) -> O
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tondi_consensus_core::subnets;
     use std::iter::repeat;
+    use tondi_consensus_core::subnets;
 
     fn transactions(length: usize) -> Vec<Transaction> {
         let tx = || {

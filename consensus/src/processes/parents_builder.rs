@@ -1,9 +1,9 @@
 use indexmap::IndexSet;
 use itertools::Itertools;
-use tondi_consensus_core::{blockhash::ORIGIN, header::Header, BlockHashMap, BlockHasher, BlockLevel};
-use tondi_hashes::Hash;
 use smallvec::{smallvec, SmallVec};
 use std::sync::Arc;
+use tondi_consensus_core::{blockhash::ORIGIN, header::Header, BlockHashMap, BlockHasher, BlockLevel};
+use tondi_hashes::Hash;
 
 use crate::model::{
     services::reachability::{MTReachabilityService, ReachabilityService},
@@ -212,6 +212,7 @@ mod tests {
 
     use super::ParentsManager;
     use itertools::Itertools;
+    use parking_lot::RwLock;
     use tondi_consensus_core::{
         blockhash::{BlockHashes, ORIGIN},
         header::Header,
@@ -219,7 +220,6 @@ mod tests {
     };
     use tondi_database::prelude::{ReadLock, StoreError, StoreResult};
     use tondi_hashes::Hash;
-    use parking_lot::RwLock;
 
     struct HeaderStoreMock {
         map: RwLock<BlockHashMap<HeaderWithBlockLevel>>,
