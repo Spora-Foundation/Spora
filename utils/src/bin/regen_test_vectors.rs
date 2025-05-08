@@ -1,6 +1,5 @@
 use blake3::Hasher;
-use std::fs;
-use std::path::Path;
+
 
 fn hex_to_bytes(s: &str) -> Vec<u8> {
     hex::decode(s.trim()).expect("invalid hex")
