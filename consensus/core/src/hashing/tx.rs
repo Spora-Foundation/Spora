@@ -116,8 +116,8 @@ mod tests {
             // Test #1
             Test {
                 tx: Transaction::new(0, Vec::new(), Vec::new(), 0, SubnetworkId::from_byte(0), 0, Vec::new()),
-                expected_id: "2c18d5e59ca8fc4c23d9560da3bf738a8f40935c11c162017fbf2c907b7e665c",
-                expected_hash: "c9e29784564c269ce2faaffd3487cb4684383018ace11133de082dce4bb88b0b",
+                expected_id: "9ad6a3c5f9a91ef4e16cf1dda6e909ea270b9576e34fd8c40b9dbc2d44be6eab",
+                expected_hash: "5e74f83dbc70f84bede6d3ee101da4fc647d61af7e692e543af77e94e5a3e674",
             },
         ];
 
@@ -126,8 +126,8 @@ mod tests {
         // Test #2
         tests.push(Test {
             tx: Transaction::new(1, inputs.clone(), Vec::new(), 0, SubnetworkId::from_byte(0), 0, Vec::new()),
-            expected_id: "dafa415216d26130a899422203559c809d3efe72e20d48505fb2f08787bc4f49",
-            expected_hash: "e4045023768d98839c976918f80c9419c6a93003724eda97f7c61a5b68de851b",
+            expected_id: "b91f6377d9a0f84ce98886db3eb6b003bbade598cf99d7b4875798cfdb96e638",
+            expected_hash: "760cb11a9daa8d15fd58b0647452bf772982c892b2bc97d101753ab3f438039f",
         });
 
         let outputs = vec![TransactionOutput::new(1564, ScriptPublicKey::new(7, scriptvec![1, 2, 3, 4, 5]))];
@@ -135,15 +135,15 @@ mod tests {
         // Test #3
         tests.push(Test {
             tx: Transaction::new(1, inputs.clone(), outputs.clone(), 0, SubnetworkId::from_byte(0), 0, Vec::new()),
-            expected_id: "d1cd9dc1f26955832ccd12c27afaef4b71443aa7e7487804baf340952ca927e5",
-            expected_hash: "e5523c70f6b986cad9f6959e63f080e6ac5f93bc2a9e0e01a89ca9bf6908f51c",
+            expected_id: "97876e81cc43c1b7e3097ba606a953575eae1a83f375c1e5fe7b2b7615a7b3f5",
+            expected_hash: "54d9fe8b483c77761322ea703539c856b813d03fee265983935d9cac0f3b8ba0",
         });
 
         // Test #4
         tests.push(Test {
             tx: Transaction::new(2, inputs, outputs.clone(), 54, SubnetworkId::from_byte(0), 3, Vec::new()),
-            expected_id: "59b3d6dc6cdc660c389c3fdb5704c48c598d279cdf1bab54182db586a4c95dd5",
-            expected_hash: "b70f2f14c2f161a29b77b9a78997887a8e727bb57effca38cd246cb270b19cd5",
+            expected_id: "c3a195b936648a951c5d8437055eee93d6517278692460eadd68840989efcd1b",
+            expected_hash: "de99f46355d7ad26368b83e856d0cb741b7c1d4ca3a4d33988fc83ff2db9796b",
         });
 
         let inputs = vec![TransactionInput::new(
@@ -156,29 +156,29 @@ mod tests {
         // Test #5
         tests.push(Test {
             tx: Transaction::new(2, inputs.clone(), outputs.clone(), 54, SubnetworkId::from_byte(0), 3, Vec::new()),
-            expected_id: "9d106623860567915b19cea33af486286a31b4bfc68627c6d4d377287afb40ad",
-            expected_hash: "cd575e69fbf5f97fbfd4afb414feb56f8463b3948d6ac30f0ecdd9622672fab9",
+            expected_id: "6e7785715267573c7607444c9b8394a017b04a78e752c1b63e128c1f3cad7d58",
+            expected_hash: "c50894ec6563466e0b5f5f5830c3bcf30a2152235ba0bef56d434aafc3a920d7",
         });
 
         // Test #6
         tests.push(Test {
             tx: Transaction::new(2, inputs.clone(), outputs.clone(), 54, subnets::SUBNETWORK_ID_COINBASE, 3, Vec::new()),
-            expected_id: "3fad809b11bd5a4af027aa4ac3fbde97e40624fd40965ba3ee1ee1b57521ad10",
-            expected_hash: "b4eb5f0cab5060bf336af5dcfdeb2198cc088b693b35c87309bd3dda04f1cfb9",
+            expected_id: "ddd5d48eb159ad6f761b3edcaa60b05a9325f6688fde8303e28915e0577b1fdc",
+            expected_hash: "9dbb3e95c4d07b492bd385605fcf5f8ccb93e4fb1c1738cd9ffc9d14ea02288f",
         });
 
         // Test #7
         tests.push(Test {
             tx: Transaction::new(2, inputs.clone(), outputs.clone(), 54, subnets::SUBNETWORK_ID_REGISTRY, 3, Vec::new()),
-            expected_id: "c542a204ab9416df910b01540b0c51b85e6d4e1724e081e224ea199a9e54e1b3",
-            expected_hash: "31da267d5c34f0740c77b8c9ebde0845a01179ec68074578227b804bac306361",
+            expected_id: "4b6da5bd872acfd125b61824bbbcd0692b172c2fbb819a77c5b79cc60232f301",
+            expected_hash: "08b46a1d8966902767384329dabbcb8f2ad4cf21977bb7c212ff16b1d34f89d5",
         });
 
-        // Test #8, same as 7 but with a non-zero payload. The test checks id and hash are affected by payload change
+        // Test #8
         tests.push(Test {
             tx: Transaction::new(2, inputs.clone(), outputs.clone(), 54, subnets::SUBNETWORK_ID_REGISTRY, 3, vec![1, 2, 3]),
-            expected_id: "1f18b18ab004ff1b44dd915554b486d64d7ebc02c054e867cc44e3d746e80b3b",
-            expected_hash: "a2029ebd66d29d41aa7b0c40230c1bfa7fe8e026fb44b7815dda4e991b9a5fad",
+            expected_id: "0cc4328dda6da37d87851d016d37e96784033db35f3dae488207fe6b8519b87e",
+            expected_hash: "8f88bf6b299011c9fb0f8227c6163c4fffa1e87633edd54df013c65fe145e312",
         });
 
         for (i, test) in tests.iter().enumerate() {
