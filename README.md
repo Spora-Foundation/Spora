@@ -24,7 +24,7 @@ It eliminates unnecessary complexity while maximizing composability and verifiab
 | Component             | Description                                                                           |
 | --------------------- | ------------------------------------------------------------------------------------- |
 | 🧱 DAG Architecture   | Based on GhostDAG with cutoff optimization, enabling 10,000+ TPS and fast convergence |
-| 🔒 Taproot-Only Model | All outputs are P2TR; legacy script types and ScriptPath are fully disabled           |
+| 🔒 Taproot-Only Model | All outputs are P2TR; KeyPath ScriptPath are fully supported           |
 | ⚡ Schnorr Signatures  | Signatures are uniformly Schnorr-based with support for batch validation              |
 | 🔑 Anchor Obfuscation | RGB and commitment outputs are indistinguishable from native transfers                |
 | 🧠 Blake3 Hash Engine | Ultra-fast cryptographic hashing, replacing Blake2b/SHA256                            |
