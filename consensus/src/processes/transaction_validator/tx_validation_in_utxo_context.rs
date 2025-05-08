@@ -8,7 +8,6 @@ use tondi_txscript_errors::TxScriptError;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use rayon::ThreadPool;
 use std::marker::Sync;
-use hex;
 
 use super::{
     errors::{TxResult, TxRuleError},
@@ -249,25 +248,23 @@ fn map_script_err(script_err: TxScriptError, input: &TransactionInput) -> TxRule
 mod tests {
     use super::*;
     use crate::params::MAINNET_PARAMS;
-    use itertools::Itertools;
-    use std::iter::once;
     use std::str::FromStr;
     use tondi_consensus_core::{
-        sign::sign,
         subnets::SubnetworkId,
-        tx::{
-            MutableTransaction, PopulatedTransaction, ScriptPublicKey, ScriptVec,
-            Transaction, TransactionId, TransactionInput, TransactionOutpoint,
-            TransactionOutput, UtxoEntry, VerifiableTransaction,
+        tx::{PopulatedTransaction, ScriptPublicKey,
+             Transaction, TransactionId, TransactionInput, TransactionOutpoint,
+             TransactionOutput, UtxoEntry,
         },
     };
-    use secp256k1::Secp256k1;
     use smallvec::SmallVec;
 
     use super::super::errors::TxRuleError;
     use super::CHECK_SCRIPTS_PARALLELISM_THRESHOLD;
 
     /// Helper function to duplicate the last input
+    /// This is used to test transaction validation with multiple inputs
+    /// It creates a copy of the last input and its corresponding UTXO entry
+    /// This is useful for testing scenarios where we need to verify multiple inputs
     fn duplicate_input(tx: &Transaction, entries: &[UtxoEntry]) -> (Transaction, Vec<UtxoEntry>) {
         let mut tx2 = tx.clone();
         let mut entries2 = entries.to_owned();
@@ -278,6 +275,8 @@ mod tests {
 
     #[test]
     fn check_signature_test() {
+        // Initialize transaction validator with test parameters
+        // These parameters define the limits for transaction validation
         let mut params = MAINNET_PARAMS.clone();
         params.prior_max_tx_inputs = 10;
         params.prior_max_tx_outputs = 15;
@@ -291,20 +290,33 @@ mod tests {
             Default::default(),
         );
 
+        // Create a transaction ID from a predefined hex string
+        // This represents the previous transaction that we're spending from
         let prev_tx_id = TransactionId::from_str("880eb9819a31821d9d2399e2f35e2433b72637e393d71ecc9b8d0250f49153c3").unwrap();
 
+        // Decode the signature script from hex
+        // This script contains the signature and public key used to authorize the transaction
         let mut bytes = [0u8; 66];
         faster_hex::hex_decode("416f89f8cff3bcd89b7b0cc21d7beb1f6e79150106ca948cab17852b967eccb23014b1ea4cd974f2425e63defc5cb1fd9cf6861b6e97651574abaa66b8285065af01".as_bytes(), &mut bytes).unwrap();
         let signature_script = bytes.to_vec();
 
+        // Decode the first script public key from hex
+        // This is the locking script that specifies how the output can be spent
         let mut bytes = [0u8; 34];
         faster_hex::hex_decode("201703438685c8ee13f83ae549aa081447248ae69fb4e917470787f249572f2165ac".as_bytes(), &mut bytes).unwrap();
         let script_pub_key_1 = SmallVec::from(bytes.to_vec());
 
+        // Decode the second script public key from hex
+        // This is another locking script for a different output
         let mut bytes = [0u8; 34];
         faster_hex::hex_decode("201703438685c8ee13f83ae549aa081447248ae69fb4e917470787f249572f2165ac".as_bytes(), &mut bytes).unwrap();
         let script_pub_key_2 = SmallVec::from(bytes.to_vec());
 
+        // Create a new transaction with:
+        // - One input (spending from prev_tx_id)
+        // - Two outputs (each with 300 units)
+        // - A specific timestamp
+        // - A subnet ID
         let tx = Transaction::new(
             0,
             vec![
@@ -325,6 +337,8 @@ mod tests {
             vec![],
         );
 
+        // Create a populated transaction with UTXO entries
+        // This includes the input amount and script public key
         let populated_tx = PopulatedTransaction::new(
             &tx,
             vec![
@@ -337,11 +351,16 @@ mod tests {
             ],
         );
 
+        // Verify that the signature is valid
+        // This checks that the transaction is properly signed and authorized
         assert!(tv.check_scripts(&populated_tx, u64::MAX).is_ok(), "Signature check failed");
 
-        // Test a tx with 2 inputs to cover parallelism split points in inner script checking code
+        // Test with duplicated inputs to verify parallel processing
+        // This creates a transaction with two identical inputs
+        // The second input should fail because it uses the same signature
         let (tx2, entries2) = duplicate_input(&tx, &populated_tx.entries);
-        // Duplicated sigs should fail due to wrong sighash
+        // Verify that the duplicated signature fails validation
+        // This is expected because the same signature cannot be used for different inputs
         assert_eq!(
             tv.check_scripts(&PopulatedTransaction::new(&tx2, entries2), u64::MAX),
             Err(TxRuleError::SignatureInvalid(TxScriptError::EvalFalse))
