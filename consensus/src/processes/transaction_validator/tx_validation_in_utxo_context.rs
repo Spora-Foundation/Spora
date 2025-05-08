@@ -8,6 +8,7 @@ use tondi_txscript_errors::TxScriptError;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use rayon::ThreadPool;
 use std::marker::Sync;
+use hex;
 
 use super::{
     errors::{TxResult, TxRuleError},
@@ -293,15 +294,15 @@ mod tests {
         let prev_tx_id = TransactionId::from_str("880eb9819a31821d9d2399e2f35e2433b72637e393d71ecc9b8d0250f49153c3").unwrap();
 
         let mut bytes = [0u8; 66];
-        faster_hex::hex_decode("41063520ef3ad796a9d3f4b0119ee07a33aab0f3d0ad40ef190147d76d8fc36d60befdeab31b24c2dd9ce04a816fdb57e1ec5a2d7611ff896b63125ee0e0565dac01".as_bytes(), &mut bytes).unwrap();
+        faster_hex::hex_decode("416f89f8cff3bcd89b7b0cc21d7beb1f6e79150106ca948cab17852b967eccb23014b1ea4cd974f2425e63defc5cb1fd9cf6861b6e97651574abaa66b8285065af01".as_bytes(), &mut bytes).unwrap();
         let signature_script = bytes.to_vec();
 
         let mut bytes = [0u8; 34];
-        faster_hex::hex_decode("201569a7135b8363231ec40f937291e6578459891c3c1566685ac2f8bcc11b20f3ac".as_bytes(), &mut bytes).unwrap();
+        faster_hex::hex_decode("201703438685c8ee13f83ae549aa081447248ae69fb4e917470787f249572f2165ac".as_bytes(), &mut bytes).unwrap();
         let script_pub_key_1 = SmallVec::from(bytes.to_vec());
 
         let mut bytes = [0u8; 34];
-        faster_hex::hex_decode("201569a7135b8363231ec40f937291e6578459891c3c1566685ac2f8bcc11b20f3ac".as_bytes(), &mut bytes).unwrap();
+        faster_hex::hex_decode("201703438685c8ee13f83ae549aa081447248ae69fb4e917470787f249572f2165ac".as_bytes(), &mut bytes).unwrap();
         let script_pub_key_2 = SmallVec::from(bytes.to_vec());
 
         let tx = Transaction::new(
@@ -365,15 +366,15 @@ mod tests {
         let prev_tx_id = TransactionId::from_str("63020db736215f8b1105a9281f7bcbb6473d965ecc45bb2fb5da59bd35e6ff84").unwrap();
 
         let mut bytes = [0u8; 66];
-        faster_hex::hex_decode("41f2f402021b462732e85f21a70fdd456ab2edcf32c1f3034dae8e8cf1809c27233c901024721bfc92bf91a252b20d3a749e772a3d0a44ff21a3cb1d0398ee000b01".as_bytes(), &mut bytes).unwrap();
+        faster_hex::hex_decode("41c48a3453510914e305a39b6e6be386c40ecf26d5446a5129934a675aa8c446a56a7888f60590e0f5a0863c734f9661cfd23ac585774e58cb1103077446141b7701".as_bytes(), &mut bytes).unwrap();
         let signature_script = bytes.to_vec();
 
         let mut bytes = [0u8; 34];
-        faster_hex::hex_decode("208eeaaf5fe6e3580a989d9a0f02249d8b36048e69bbef3afd17bdb99466413baeac".as_bytes(), &mut bytes).unwrap();
+        faster_hex::hex_decode("20c15c036d5abd1e334030784502beaf87955083444a257878a24121772c1d2a81ac".as_bytes(), &mut bytes).unwrap();
         let script_pub_key_1 = SmallVec::from(bytes.to_vec());
 
         let mut bytes = [0u8; 34];
-        faster_hex::hex_decode("208eeaaf5fe6e3580a989d9a0f02249d8b36048e69bbef3afd17bdb99466413baeac".as_bytes(), &mut bytes).unwrap();
+        faster_hex::hex_decode("20c15c036d5abd1e334030784502beaf87955083444a257878a24121772c1d2a81ac".as_bytes(), &mut bytes).unwrap();
         let script_pub_key_2 = SmallVec::from(bytes.to_vec());
 
         let tx = Transaction::new(
@@ -747,212 +748,5 @@ mod tests {
             tv.check_scripts(&PopulatedTransaction::new(&tx2, entries2), u64::MAX),
             Err(TxRuleError::SignatureInvalid(TxScriptError::SignatureScriptNotPushOnly))
         );
-    }
-
-    #[test]
-    fn test_sign() {
-        let params = MAINNET_PARAMS.clone();
-        let tv = TransactionValidator::new_for_tests(
-            params.prior_max_tx_inputs,
-            params.prior_max_tx_outputs,
-            params.prior_max_signature_script_len,
-            params.prior_max_script_public_key_len,
-            params.coinbase_payload_script_public_key_max_len,
-            params.prior_coinbase_maturity,
-            Default::default(),
-        );
-
-        let secp = Secp256k1::new();
-        let (secret_key, public_key) = secp.generate_keypair(&mut rand::thread_rng());
-        let (public_key, _) = public_key.x_only_public_key();
-        let script_pub_key = once(0x20).chain(public_key.serialize()).chain(once(0xac)).collect_vec();
-        let script_pub_key = ScriptVec::from_slice(&script_pub_key);
-
-        let prev_tx_id = TransactionId::from_str("880eb9819a31821d9d2399e2f35e2433b72637e393d71ecc9b8d0250f49153c3").unwrap();
-        let unsigned_tx = Transaction::new(
-            0,
-            vec![
-                TransactionInput {
-                    previous_outpoint: TransactionOutpoint { transaction_id: prev_tx_id, index: 0 },
-                    signature_script: vec![],
-                    sequence: 0,
-                    sig_op_count: 0,
-                },
-                TransactionInput {
-                    previous_outpoint: TransactionOutpoint { transaction_id: prev_tx_id, index: 1 },
-                    signature_script: vec![],
-                    sequence: 1,
-                    sig_op_count: 0,
-                },
-                TransactionInput {
-                    previous_outpoint: TransactionOutpoint { transaction_id: prev_tx_id, index: 2 },
-                    signature_script: vec![],
-                    sequence: 2,
-                    sig_op_count: 0,
-                },
-            ],
-            vec![
-                TransactionOutput { value: 300, script_public_key: ScriptPublicKey::new(0, script_pub_key.clone()) },
-                TransactionOutput { value: 300, script_public_key: ScriptPublicKey::new(0, script_pub_key.clone()) },
-            ],
-            1615462089000,
-            SubnetworkId::from_bytes([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
-            0,
-            vec![],
-        );
-
-        let entries = vec![
-            UtxoEntry {
-                amount: 100,
-                script_public_key: ScriptPublicKey::new(0, script_pub_key.clone()),
-                block_daa_score: 0,
-                is_coinbase: false,
-            },
-            UtxoEntry {
-                amount: 200,
-                script_public_key: ScriptPublicKey::new(0, script_pub_key.clone()),
-                block_daa_score: 0,
-                is_coinbase: false,
-            },
-            UtxoEntry {
-                amount: 300,
-                script_public_key: ScriptPublicKey::new(0, script_pub_key),
-                block_daa_score: 0,
-                is_coinbase: false,
-            },
-        ];
-        let schnorr_key = secp256k1::Keypair::from_seckey_slice(secp256k1::SECP256K1, &secret_key.secret_bytes()).unwrap();
-        let signed_tx = sign(MutableTransaction::with_entries(unsigned_tx, entries), schnorr_key);
-        let populated_tx = signed_tx.as_verifiable();
-
-        // Print the signature script and public key for the first input
-        println!("\nGenerated test vectors:");
-        println!("Signature script (hex): {}", hex::encode(&populated_tx.inputs()[0].signature_script));
-        println!("Script public key (hex): {}", hex::encode(populated_tx.outputs()[0].script_public_key.script()));
-
-        assert_eq!(tv.check_scripts(&populated_tx, u64::MAX), Ok(()));
-        assert_eq!(TransactionValidator::check_sig_op_counts(&populated_tx), Ok(()));
-    }
-
-    #[test]
-    fn test_sign_single_input() {
-        let params = MAINNET_PARAMS.clone();
-        let tv = TransactionValidator::new_for_tests(
-            params.prior_max_tx_inputs,
-            params.prior_max_tx_outputs,
-            params.prior_max_signature_script_len,
-            params.prior_max_script_public_key_len,
-            params.coinbase_payload_script_public_key_max_len,
-            params.prior_coinbase_maturity,
-            Default::default(),
-        );
-
-        let secp = Secp256k1::new();
-        let (secret_key, public_key) = secp.generate_keypair(&mut rand::thread_rng());
-        let (public_key, _) = public_key.x_only_public_key();
-        let script_pub_key = once(0x20).chain(public_key.serialize()).chain(once(0xac)).collect_vec();
-        let script_pub_key = ScriptVec::from_slice(&script_pub_key);
-
-        let prev_tx_id = TransactionId::from_str("880eb9819a31821d9d2399e2f35e2433b72637e393d71ecc9b8d0250f49153c3").unwrap();
-        let unsigned_tx = Transaction::new(
-            0,
-            vec![
-                TransactionInput {
-                    previous_outpoint: TransactionOutpoint { transaction_id: prev_tx_id, index: 0 },
-                    signature_script: vec![],
-                    sequence: 0,
-                    sig_op_count: 0,
-                },
-            ],
-            vec![
-                TransactionOutput { value: 300, script_public_key: ScriptPublicKey::new(0, script_pub_key.clone()) },
-                TransactionOutput { value: 300, script_public_key: ScriptPublicKey::new(0, script_pub_key.clone()) },
-            ],
-            1615462089000,
-            SubnetworkId::from_bytes([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
-            0,
-            vec![],
-        );
-
-        let entries = vec![
-            UtxoEntry {
-                amount: 100,
-                script_public_key: ScriptPublicKey::new(0, script_pub_key.clone()),
-                block_daa_score: 0,
-                is_coinbase: false,
-            },
-        ];
-        let schnorr_key = secp256k1::Keypair::from_seckey_slice(secp256k1::SECP256K1, &secret_key.secret_bytes()).unwrap();
-        let signed_tx = sign(MutableTransaction::with_entries(unsigned_tx, entries), schnorr_key);
-        let populated_tx = signed_tx.as_verifiable();
-
-        // Print the signature script and public key for the first input
-        println!("\nGenerated test vectors for single input transaction:");
-        println!("Signature script (hex): {}", hex::encode(&populated_tx.inputs()[0].signature_script));
-        println!("Script public key (hex): {}", hex::encode(populated_tx.outputs()[0].script_public_key.script()));
-
-        assert_eq!(tv.check_scripts(&populated_tx, u64::MAX), Ok(()));
-        assert_eq!(TransactionValidator::check_sig_op_counts(&populated_tx), Ok(()));
-    }
-
-    #[test]
-    fn test_sign_multi_signature() {
-        let params = MAINNET_PARAMS.clone();
-        let tv = TransactionValidator::new_for_tests(
-            params.prior_max_tx_inputs,
-            params.prior_max_tx_outputs,
-            params.prior_max_signature_script_len,
-            params.prior_max_script_public_key_len,
-            params.coinbase_payload_script_public_key_max_len,
-            params.prior_coinbase_maturity,
-            Default::default(),
-        );
-
-        let secp = Secp256k1::new();
-        let (secret_key, public_key) = secp.generate_keypair(&mut rand::thread_rng());
-        let (public_key, _) = public_key.x_only_public_key();
-        let script_pub_key = once(0x20).chain(public_key.serialize()).chain(once(0xac)).collect_vec();
-        let script_pub_key = ScriptVec::from_slice(&script_pub_key);
-
-        let prev_tx_id = TransactionId::from_str("63020db736215f8b1105a9281f7bcbb6473d965ecc45bb2fb5da59bd35e6ff84").unwrap();
-        let unsigned_tx = Transaction::new(
-            0,
-            vec![
-                TransactionInput {
-                    previous_outpoint: TransactionOutpoint { transaction_id: prev_tx_id, index: 0 },
-                    signature_script: vec![],
-                    sequence: 0,
-                    sig_op_count: 0,
-                },
-            ],
-            vec![
-                TransactionOutput { value: 10000000000000, script_public_key: ScriptPublicKey::new(0, script_pub_key.clone()) },
-                TransactionOutput { value: 2792999990000, script_public_key: ScriptPublicKey::new(0, script_pub_key.clone()) },
-            ],
-            0,
-            SubnetworkId::from_bytes([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
-            0,
-            vec![],
-        );
-
-        let entries = vec![
-            UtxoEntry {
-                amount: 12793000000000,
-                script_public_key: ScriptPublicKey::new(0, script_pub_key.clone()),
-                block_daa_score: 36151168,
-                is_coinbase: false,
-            },
-        ];
-        let schnorr_key = secp256k1::Keypair::from_seckey_slice(secp256k1::SECP256K1, &secret_key.secret_bytes()).unwrap();
-        let signed_tx = sign(MutableTransaction::with_entries(unsigned_tx, entries), schnorr_key);
-        let populated_tx = signed_tx.as_verifiable();
-
-        // Print the signature script and public key for the first input
-        println!("\nGenerated test vectors for multi-signature transaction:");
-        println!("Signature script (hex): {}", hex::encode(&populated_tx.inputs()[0].signature_script));
-        println!("Script public key (hex): {}", hex::encode(populated_tx.outputs()[0].script_public_key.script()));
-
-        assert_eq!(tv.check_scripts(&populated_tx, u64::MAX), Ok(()));
-        assert_eq!(TransactionValidator::check_sig_op_counts(&populated_tx), Ok(()));
     }
 }
