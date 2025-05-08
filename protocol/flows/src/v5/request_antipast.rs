@@ -1,4 +1,5 @@
 use crate::{flow_context::FlowContext, flow_trait::Flow};
+use std::sync::Arc;
 use tondi_consensus_core::errors::consensus::ConsensusError;
 use tondi_core::debug;
 use tondi_hashes::Hash;
@@ -8,7 +9,6 @@ use tondi_p2p_lib::{
     pb::{tondid_message::Payload, BlockHeadersMessage, DoneHeadersMessage},
     IncomingRoute, Router,
 };
-use std::sync::Arc;
 
 pub struct HandleAntipastRequests {
     ctx: FlowContext,

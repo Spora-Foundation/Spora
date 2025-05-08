@@ -1,7 +1,7 @@
 use crate::error::Error;
 use crate::result::Result;
-use tondi_consensus_core::constants::SOMPI_PER_TONDI;
 use std::fmt::Display;
+use tondi_consensus_core::constants::SOMPI_PER_TONDI;
 
 pub fn try_parse_required_nonzero_tondi_as_sompi_u64<S: ToString + Display>(tondi_amount: Option<S>) -> Result<u64> {
     if let Some(tondi_amount) = tondi_amount {

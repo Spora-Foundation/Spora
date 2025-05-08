@@ -1,8 +1,8 @@
 use super::events::EventType;
 use borsh::{BorshDeserialize, BorshSerialize};
 use derive_more::Display;
-use tondi_addresses::Address;
 use serde::{Deserialize, Serialize};
+use tondi_addresses::Address;
 use workflow_serializer::prelude::*;
 
 macro_rules! scope_enum {

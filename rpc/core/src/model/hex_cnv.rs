@@ -1,6 +1,6 @@
-use tondi_consensus_core::BlueWorkType;
 use smallvec::{smallvec, SmallVec};
 use std::str;
+use tondi_consensus_core::BlueWorkType;
 
 // TODO combine this with tondi-utils::hex
 

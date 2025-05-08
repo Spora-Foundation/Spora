@@ -4,6 +4,8 @@ use std::{
 };
 
 use itertools::Itertools;
+use parking_lot::lock_api::RwLock;
+use rocksdb::WriteBatch;
 use tondi_consensus_core::{
     blockhash::{BlockHashExtensions, BlockHashes, ORIGIN},
     errors::pruning::{PruningImportError, PruningImportResult},
@@ -16,8 +18,6 @@ use tondi_database::prelude::{CachePolicy, ConnBuilder, StoreResultEmptyTuple, S
 use tondi_hashes::Hash;
 use tondi_pow::{calc_block_level, calc_block_level_check_pow};
 use tondi_utils::vec::VecExtensions;
-use parking_lot::lock_api::RwLock;
-use rocksdb::WriteBatch;
 
 use crate::{
     model::{

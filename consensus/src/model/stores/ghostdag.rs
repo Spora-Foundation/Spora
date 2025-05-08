@@ -10,11 +10,11 @@ use tondi_hashes::Hash;
 
 use itertools::EitherOrBoth::{Both, Left, Right};
 use itertools::Itertools;
-use tondi_utils::mem_size::MemSizeEstimator;
 use rocksdb::WriteBatch;
 use serde::{Deserialize, Serialize};
 use std::iter::once;
 use std::{cell::RefCell, sync::Arc};
+use tondi_utils::mem_size::MemSizeEstimator;
 
 /// Re-export for convenience
 pub use tondi_consensus_core::{HashKTypeMap, KType};

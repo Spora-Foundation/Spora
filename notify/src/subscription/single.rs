@@ -10,9 +10,6 @@ use crate::{
     },
 };
 use itertools::Itertools;
-use tondi_addresses::{Address, Prefix};
-use tondi_consensus_core::tx::ScriptPublicKey;
-use tondi_core::trace;
 use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::{
     collections::hash_set,
@@ -23,6 +20,9 @@ use std::{
         Arc,
     },
 };
+use tondi_addresses::{Address, Prefix};
+use tondi_consensus_core::tx::ScriptPublicKey;
+use tondi_core::trace;
 
 /// Subscription with a all or none scope.
 ///

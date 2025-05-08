@@ -1,7 +1,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
+use serde::{Deserialize, Serialize};
 use tondi_consensus_core::{header::Header, BlueWorkType};
 use tondi_hashes::Hash;
-use serde::{Deserialize, Serialize};
 use workflow_serializer::prelude::*;
 
 /// Raw Rpc header type - without a cached header hash.

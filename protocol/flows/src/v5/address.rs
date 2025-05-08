@@ -1,5 +1,7 @@
 use crate::{flow_context::FlowContext, flow_trait::Flow};
 use itertools::Itertools;
+use rand::seq::SliceRandom;
+use std::sync::Arc;
 use tondi_addressmanager::NetAddress;
 use tondi_p2p_lib::{
     common::ProtocolError,
@@ -8,8 +10,6 @@ use tondi_p2p_lib::{
     IncomingRoute, Router,
 };
 use tondi_utils::networking::IpAddress;
-use rand::seq::SliceRandom;
-use std::sync::Arc;
 
 /// The maximum number of addresses that are sent in a single tondi Addresses message.
 const MAX_ADDRESSES_SEND: usize = 1000;

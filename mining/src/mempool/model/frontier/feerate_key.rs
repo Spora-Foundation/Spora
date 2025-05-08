@@ -1,6 +1,6 @@
 use crate::{block_template::selector::ALPHA, mempool::model::tx::MempoolTransaction};
-use tondi_consensus_core::{mass::ContextualMasses, tx::Transaction};
 use std::sync::Arc;
+use tondi_consensus_core::{mass::ContextualMasses, tx::Transaction};
 
 #[derive(Clone, Debug)]
 pub struct FeerateTransactionKey {
@@ -91,12 +91,12 @@ impl From<&MempoolTransaction> for FeerateTransactionKey {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    use std::sync::Arc;
     use tondi_consensus_core::{
         subnets::SUBNETWORK_ID_NATIVE,
         tx::{Transaction, TransactionInput, TransactionOutpoint},
     };
     use tondi_hashes::{HasherBase, TransactionID};
-    use std::sync::Arc;
 
     fn generate_unique_tx(i: u64) -> Arc<Transaction> {
         let mut hasher = TransactionID::new();

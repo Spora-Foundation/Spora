@@ -1,5 +1,5 @@
-use tondi_consensus_core::tx::{MutableTransaction, ScriptPublicKey, TransactionId};
 use std::collections::{HashMap, HashSet};
+use tondi_consensus_core::tx::{MutableTransaction, ScriptPublicKey, TransactionId};
 
 use super::TransactionIdSet;
 

@@ -4911,17 +4911,14 @@ dependencies = [
 name = "tondi-hashes"
 version = "0.17.0"
 dependencies = [
- "blake2b_simd",
+ "blake3",
  "borsh",
  "cc",
  "criterion",
  "faster-hex",
- "js-sys",
  "keccak",
- "once_cell",
  "rand",
  "serde",
- "sha2",
  "sha3",
  "tondi-utils",
  "wasm-bindgen",
@@ -5341,6 +5338,7 @@ name = "tondi-txscript"
 version = "0.17.0"
 dependencies = [
  "blake2b_simd",
+ "blake3",
  "borsh",
  "cfg-if 1.0.0",
  "criterion",
@@ -5488,6 +5486,7 @@ dependencies = [
  "async-std",
  "async-trait",
  "base64",
+ "blake3",
  "borsh",
  "cfb-mode",
  "cfg-if 1.0.0",
@@ -5563,6 +5562,7 @@ name = "tondi-wallet-keys"
 version = "0.17.0"
 dependencies = [
  "async-trait",
+ "blake3",
  "borsh",
  "downcast",
  "faster-hex",

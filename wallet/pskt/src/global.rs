@@ -3,12 +3,12 @@
 use crate::pskt::{KeySource, Version};
 use crate::utils::combine_if_no_conflicts;
 use derive_builder::Builder;
-use tondi_consensus_core::tx::TransactionId;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{btree_map, BTreeMap},
     ops::Add,
 };
+use tondi_consensus_core::tx::TransactionId;
 
 type Xpub = tondi_bip32::ExtendedPublicKey<secp256k1::PublicKey>;
 

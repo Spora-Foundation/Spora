@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use crate::pb::{tondid_message::Payload, ReadyMessage, VerackMessage, VersionMessage};
 use crate::{common::ProtocolError, dequeue_with_timeout, make_message};
-use crate::{IncomingRoute, TondidMessagePayloadType, Router};
+use crate::{IncomingRoute, Router, TondidMessagePayloadType};
 use tondi_core::debug;
 
 /// Implements the Tondi peer-to-peer handshake protocol

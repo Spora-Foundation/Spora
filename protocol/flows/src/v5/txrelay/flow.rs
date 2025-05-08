@@ -3,6 +3,8 @@ use crate::{
     flow_trait::Flow,
     flowcontext::transactions::MAX_INV_PER_TX_INV_MSG,
 };
+use std::sync::Arc;
+use tokio::time::timeout;
 use tondi_consensus_core::tx::{Transaction, TransactionId};
 use tondi_consensusmanager::ConsensusProxy;
 use tondi_core::{time::unix_now, warn};
@@ -21,8 +23,6 @@ use tondi_p2p_lib::{
     pb::{tondid_message::Payload, RequestTransactionsMessage, TransactionNotFoundMessage},
     IncomingRoute, Router,
 };
-use std::sync::Arc;
-use tokio::time::timeout;
 
 pub(crate) const MAX_TPS_THRESHOLD: u64 = 3000;
 

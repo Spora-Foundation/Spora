@@ -3,6 +3,10 @@ use crate::{
     IDENT,
 };
 use async_trait::async_trait;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 use tondi_consensus_notify::{notification as consensus_notification, notification::Notification as ConsensusNotification};
 use tondi_core::{debug, trace};
 use tondi_index_core::notification::{Notification, PruningPointUtxoSetOverrideNotification, UtxosChangedNotification};
@@ -15,10 +19,6 @@ use tondi_notify::{
 };
 use tondi_utils::triggers::SingleTrigger;
 use tondi_utxoindex::api::UtxoIndexProxy;
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc,
-};
 
 /// Processor processes incoming consensus UtxosChanged and PruningPointUtxoSetOverride
 /// notifications submitting them to a UtxoIndex.
@@ -129,6 +129,8 @@ impl Collector<Notification> for Processor {
 mod tests {
     use super::*;
     use async_channel::{unbounded, Receiver, Sender};
+    use rand::{rngs::SmallRng, SeedableRng};
+    use std::sync::Arc;
     use tondi_consensus::{config::Config, consensus::test_consensus::TestConsensus, params::DEVNET_PARAMS, test_helpers::*};
     use tondi_consensus_core::utxo::{utxo_collection::UtxoCollection, utxo_diff::UtxoDiff};
     use tondi_consensusmanager::ConsensusManager;
@@ -137,8 +139,6 @@ mod tests {
     use tondi_database::utils::DbLifetime;
     use tondi_notify::notifier::test_helpers::NotifyMock;
     use tondi_utxoindex::UtxoIndex;
-    use rand::{rngs::SmallRng, SeedableRng};
-    use std::sync::Arc;
 
     // TODO: rewrite with Simnet, when possible.
 

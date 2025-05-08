@@ -6,13 +6,13 @@ pub use data::{Metric, MetricGroup, MetricsData, MetricsSnapshot};
 
 use crate::result::Result;
 use futures::{pin_mut, select, FutureExt, StreamExt};
-use tondi_rpc_core::api::rpc::RpcApi;
 use std::{
     future::Future,
     pin::Pin,
     sync::{Arc, Mutex},
     time::Duration,
 };
+use tondi_rpc_core::api::rpc::RpcApi;
 use workflow_core::channel::DuplexChannel;
 use workflow_core::task::interval;
 use workflow_core::task::spawn;

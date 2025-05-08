@@ -7,7 +7,7 @@ use tondi_consensus_core::{
 };
 use tondi_consensus_notify::{root::ConsensusNotificationRoot, service::NotifyService};
 use tondi_core::{core::Core, debug, info, trace};
-use tondi_core::{tondid_env::version, task::tick::TickService};
+use tondi_core::{task::tick::TickService, tondid_env::version};
 use tondi_database::{
     prelude::{CachePolicy, DbWriter, DirectDbWriter},
     registry::DatabaseStorePrefixes,

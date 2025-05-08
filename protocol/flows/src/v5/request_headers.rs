@@ -1,5 +1,6 @@
 use std::{cmp::max, sync::Arc};
 
+use log::debug;
 use tondi_consensus_core::api::ConsensusApi;
 use tondi_hashes::Hash;
 use tondi_p2p_lib::{
@@ -8,7 +9,6 @@ use tondi_p2p_lib::{
     pb::{self, tondid_message::Payload, BlockHeadersMessage, DoneHeadersMessage},
     IncomingRoute, Router,
 };
-use log::debug;
 
 use crate::{flow_context::FlowContext, flow_trait::Flow};
 

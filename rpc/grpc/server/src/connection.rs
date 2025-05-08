@@ -10,18 +10,6 @@ use crate::{
 };
 use async_channel::{bounded, Receiver as MpmcReceiver, Sender as MpmcSender, TrySendError as MpmcTrySendError};
 use itertools::Itertools;
-use tondi_core::{debug, info, trace, warn};
-use tondi_grpc_core::{
-    ops::TondidPayloadOps,
-    protowire::{TondidRequest, TondidResponse},
-};
-use tondi_notify::{
-    connection::Connection as ConnectionT,
-    error::Error as NotificationError,
-    listener::{ListenerId, ListenerLifespan},
-    notifier::Notifier,
-};
-use tondi_rpc_core::Notification;
 use parking_lot::Mutex;
 use std::{
     collections::{hash_map::Entry, HashMap},
@@ -36,6 +24,18 @@ use std::{
 use tokio::sync::mpsc::Sender as MpscSender;
 use tokio::sync::oneshot::{channel as oneshot_channel, Sender as OneshotSender};
 use tokio::{select, sync::mpsc::error::TrySendError};
+use tondi_core::{debug, info, trace, warn};
+use tondi_grpc_core::{
+    ops::TondidPayloadOps,
+    protowire::{TondidRequest, TondidResponse},
+};
+use tondi_notify::{
+    connection::Connection as ConnectionT,
+    error::Error as NotificationError,
+    listener::{ListenerId, ListenerLifespan},
+    notifier::Notifier,
+};
+use tondi_rpc_core::Notification;
 use tonic::Streaming;
 use uuid::Uuid;
 

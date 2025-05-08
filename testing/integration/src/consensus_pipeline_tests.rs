@@ -1,4 +1,7 @@
 use futures_util::future::try_join_all;
+use rand_distr::{Distribution, Poisson};
+use std::cmp::min;
+use tokio::join;
 use tondi_alloc::init_allocator_with_default_settings;
 use tondi_consensus::{
     config::ConfigBuilder, consensus::test_consensus::TestConsensus, params::MAINNET_PARAMS,
@@ -7,9 +10,6 @@ use tondi_consensus::{
 use tondi_consensus_core::{api::ConsensusApi, blockhash};
 use tondi_database::prelude::CachePolicy;
 use tondi_hashes::Hash;
-use rand_distr::{Distribution, Poisson};
-use std::cmp::min;
-use tokio::join;
 
 #[tokio::test]
 async fn test_concurrent_pipeline() {

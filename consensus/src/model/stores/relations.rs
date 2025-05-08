@@ -1,4 +1,9 @@
 use itertools::Itertools;
+use rocksdb::WriteBatch;
+use std::collections::hash_map::Entry;
+use std::collections::HashSet;
+use std::iter::once;
+use std::sync::Arc;
 use tondi_consensus_core::BlockHashSet;
 use tondi_consensus_core::{blockhash::BlockHashes, BlockHashMap, BlockHasher, BlockLevel};
 use tondi_database::prelude::{BatchDbWriter, CachePolicy, DbWriter};
@@ -8,11 +13,6 @@ use tondi_database::prelude::{ReadLock, StoreError};
 use tondi_database::prelude::{StoreResult, DB};
 use tondi_database::registry::{DatabaseStorePrefixes, SEPARATOR};
 use tondi_hashes::Hash;
-use rocksdb::WriteBatch;
-use std::collections::hash_map::Entry;
-use std::collections::HashSet;
-use std::iter::once;
-use std::sync::Arc;
 
 use super::children::{ChildrenStore, ChildrenStoreReader, DbChildrenStore};
 

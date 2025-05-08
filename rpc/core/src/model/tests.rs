@@ -2,6 +2,9 @@
 mod mockery {
 
     use crate::{model::*, RpcScriptClass};
+    use rand::Rng;
+    use std::net::{IpAddr, Ipv4Addr};
+    use std::sync::Arc;
     use tondi_addresses::{Prefix, Version};
     use tondi_consensus_core::api::BlockCount;
     use tondi_consensus_core::network::NetworkType;
@@ -12,9 +15,6 @@ mod mockery {
     use tondi_notify::subscription::Command;
     use tondi_rpc_macros::test_wrpc_serializer as test;
     use tondi_utils::networking::{ContextualNetAddress, IpAddress, NetAddress};
-    use rand::Rng;
-    use std::net::{IpAddr, Ipv4Addr};
-    use std::sync::Arc;
     use uuid::Uuid;
     use workflow_serializer::prelude::*;
 

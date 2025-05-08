@@ -1,6 +1,6 @@
 use crate::constants::{MAX_SOMPI, TX_VERSION};
-use tondi_consensus_core::tx::Transaction;
 use std::collections::HashSet;
+use tondi_consensus_core::tx::Transaction;
 
 use super::{
     errors::{TxResult, TxRuleError},

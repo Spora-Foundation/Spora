@@ -1,13 +1,13 @@
 use crate::{opcodes, MAX_SCRIPT_PUBLIC_KEY_VERSION};
 use borsh::{BorshDeserialize, BorshSerialize};
-use tondi_addresses::Version;
-use tondi_consensus_core::tx::{ScriptPublicKey, ScriptPublicKeyVersion};
 use serde::{Deserialize, Serialize};
 use std::{
     fmt::{Display, Formatter},
     str::FromStr,
 };
 use thiserror::Error;
+use tondi_addresses::Version;
+use tondi_consensus_core::tx::{ScriptPublicKey, ScriptPublicKeyVersion};
 
 #[derive(Error, PartialEq, Eq, Debug, Clone)]
 pub enum Error {
@@ -76,7 +76,7 @@ impl ScriptClass {
     #[inline(always)]
     pub fn is_pay_to_script_hash(script_public_key: &[u8]) -> bool {
         (script_public_key.len() == 35) && // 3 opcodes number + 32 data
-        (script_public_key[0] == opcodes::codes::OpBlake2b) &&
+        (script_public_key[0] == opcodes::codes::OpBlake3) &&
         (script_public_key[1] == opcodes::codes::OpData32) &&
         (script_public_key[34] == opcodes::codes::OpEqual)
     }

@@ -1,5 +1,6 @@
 use crate::matrix::Matrix;
 use js_sys::BigInt;
+use num::Float;
 use tondi_consensus_client::Header;
 use tondi_consensus_client::HeaderT;
 use tondi_consensus_core::hashing;
@@ -8,7 +9,6 @@ use tondi_hashes::PowHash;
 use tondi_math::Uint256;
 use tondi_utils::hex::FromHex;
 use tondi_utils::hex::ToHex;
-use num::Float;
 use wasm_bindgen::prelude::*;
 use workflow_wasm::convert::TryCastFromJs;
 use workflow_wasm::error::Error;

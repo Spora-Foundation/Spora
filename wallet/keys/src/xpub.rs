@@ -2,8 +2,8 @@
 //! Extended public key ([`XPub`]).
 //!
 
-use tondi_bip32::{ChainCode, KeyFingerprint, Prefix};
 use std::{fmt, str::FromStr};
+use tondi_bip32::{ChainCode, KeyFingerprint, Prefix};
 
 use crate::imports::*;
 

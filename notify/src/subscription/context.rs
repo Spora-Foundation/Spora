@@ -83,11 +83,11 @@ mod tests {
         subscription::SubscriptionContext,
     };
     use itertools::Itertools;
+    use std::collections::{HashMap, HashSet};
     use tondi_addresses::{Address, Prefix};
     use tondi_alloc::init_allocator_with_default_settings;
     use tondi_core::trace;
     use tondi_math::Uint256;
-    use std::collections::{HashMap, HashSet};
     use workflow_perf_monitor::mem::get_process_memory_info;
 
     fn create_addresses(count: usize) -> Vec<Address> {

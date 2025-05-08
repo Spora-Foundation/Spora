@@ -3,8 +3,8 @@
 //!
 
 use crate::imports::*;
-use tondi_addresses::Address;
 use serde::{Deserialize, Serialize};
+use tondi_addresses::Address;
 
 pub use tondi_consensus_core::tx::TransactionId;
 

@@ -1,12 +1,12 @@
 use crate::errors::BlockProcessResult;
-use tondi_consensus_core::{block::Block, blockstatus::BlockStatus};
-use tondi_hashes::Hash;
 use parking_lot::{Condvar, Mutex};
 use std::collections::{
     hash_map::Entry::{Occupied, Vacant},
     HashMap, VecDeque,
 };
 use tokio::sync::oneshot;
+use tondi_consensus_core::{block::Block, blockstatus::BlockStatus};
+use tondi_hashes::Hash;
 
 pub type BlockResultSender = oneshot::Sender<BlockProcessResult<BlockStatus>>;
 

@@ -4,12 +4,12 @@ use crate::{
     connection_handler::ServerContext,
     error::{GrpcServerError, GrpcServerResult},
 };
+use std::fmt::Debug;
+use std::{collections::HashMap, sync::Arc};
 use tondi_grpc_core::{
     ops::TondidPayloadOps,
     protowire::{TondidRequest, TondidResponse},
 };
-use std::fmt::Debug;
-use std::{collections::HashMap, sync::Arc};
 
 pub type TondidMethod = Method<ServerContext, Connection, TondidRequest, TondidResponse>;
 pub type DynTondidMethod = Arc<dyn MethodTrait<ServerContext, Connection, TondidRequest, TondidResponse>>;

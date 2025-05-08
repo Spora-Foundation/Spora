@@ -3,8 +3,8 @@ use crate::{
     trusted::{TrustedGhostdagData, TrustedHeader},
     BlueWorkType,
 };
-use tondi_hashes::Hash;
 use std::sync::Arc;
+use tondi_hashes::Hash;
 
 pub type PruningPointProof = Vec<Vec<Arc<Header>>>;
 

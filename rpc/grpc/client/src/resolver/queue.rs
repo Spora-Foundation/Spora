@@ -1,11 +1,6 @@
 use crate::{
     error::{Error, Result},
-    resolver::{matcher::Matcher, TondidMessageReceiver, TondidMessageSender, Resolver},
-};
-use tondi_core::trace;
-use tondi_grpc_core::{
-    ops::TondidPayloadOps,
-    protowire::{TondidRequest, TondidResponse},
+    resolver::{matcher::Matcher, Resolver, TondidMessageReceiver, TondidMessageSender},
 };
 use std::{
     collections::VecDeque,
@@ -13,6 +8,11 @@ use std::{
     time::Instant,
 };
 use tokio::sync::oneshot;
+use tondi_core::trace;
+use tondi_grpc_core::{
+    ops::TondidPayloadOps,
+    protowire::{TondidRequest, TondidResponse},
+};
 
 #[derive(Debug)]
 struct Pending {

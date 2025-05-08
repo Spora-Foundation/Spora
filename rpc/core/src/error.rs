@@ -2,10 +2,10 @@
 //! [`RpcError`] enum used by RPC primitives.
 //!
 
-use tondi_consensus_core::{subnets::SubnetworkConversionError, tx::TransactionId, utxo::utxo_inquirer::UtxoInquirerError};
-use tondi_utils::networking::IpAddress;
 use std::{net::AddrParseError, num::TryFromIntError};
 use thiserror::Error;
+use tondi_consensus_core::{subnets::SubnetworkConversionError, tx::TransactionId, utxo::utxo_inquirer::UtxoInquirerError};
+use tondi_utils::networking::IpAddress;
 use workflow_core::channel::ChannelError;
 
 use crate::{api::ctl::RpcState, RpcHash, RpcTransactionId, SubmitBlockRejectReason};

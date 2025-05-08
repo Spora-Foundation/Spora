@@ -1,3 +1,5 @@
+use rocksdb::WriteBatch;
+use std::{error::Error, fmt::Display, sync::Arc};
 use tondi_consensus_core::{
     tx::{TransactionIndexType, TransactionOutpoint, UtxoEntry},
     utxo::{
@@ -10,8 +12,6 @@ use tondi_database::prelude::DB;
 use tondi_database::prelude::{BatchDbWriter, CachedDbAccess, DirectDbWriter};
 use tondi_database::prelude::{CachePolicy, StoreError};
 use tondi_hashes::Hash;
-use rocksdb::WriteBatch;
-use std::{error::Error, fmt::Display, sync::Arc};
 
 type UtxoCollectionIterator<'a> = Box<dyn Iterator<Item = Result<(TransactionOutpoint, UtxoEntry), Box<dyn Error>>> + 'a>;
 

@@ -9,9 +9,9 @@ use tondi_consensus_core::network::{NetworkId, NetworkType};
 use tondi_consensus_core::tx::{ScriptPublicKey, TransactionOutpoint, UtxoEntry};
 
 use hex;
-use tondi_txscript::{extract_script_pub_key_address, pay_to_address_script, pay_to_script_hash_script};
 use serde::{Deserialize, Serialize};
 use std::ops::Deref;
+use tondi_txscript::{extract_script_pub_key_address, pay_to_address_script, pay_to_script_hash_script};
 
 ///
 /// Bundle is a [`PSKT`] bundle - a sequence of PSKT transactions
@@ -242,12 +242,12 @@ mod tests {
     use crate::prelude::*;
     use crate::role::Creator;
     use crate::role::*;
-    use tondi_consensus_core::tx::{TransactionId, TransactionOutpoint, UtxoEntry};
-    use tondi_txscript::{multisig_redeem_script, pay_to_script_hash_script};
     use secp256k1::Secp256k1;
     use secp256k1::{rand::thread_rng, Keypair};
     use std::str::FromStr;
     use std::sync::LazyLock;
+    use tondi_consensus_core::tx::{TransactionId, TransactionOutpoint, UtxoEntry};
+    use tondi_txscript::{multisig_redeem_script, pay_to_script_hash_script};
 
     static CONTEXT: LazyLock<Box<([Keypair; 2], Vec<u8>)>> = LazyLock::new(|| {
         let kps = [Keypair::new(&Secp256k1::new(), &mut thread_rng()), Keypair::new(&Secp256k1::new(), &mut thread_rng())];

@@ -19,6 +19,7 @@
 //! The SubmitBlockResponse is a notable exception to this general rule.
 
 use crate::protowire::{self, submit_block_response_message::RejectReason};
+use std::str::FromStr;
 use tondi_addresses::Address;
 use tondi_consensus_core::{network::NetworkId, Hash};
 use tondi_core::debug;
@@ -28,7 +29,6 @@ use tondi_rpc_core::{
     SubmitBlockRejectReason, SubmitBlockReport,
 };
 use tondi_utils::hex::*;
-use std::str::FromStr;
 
 macro_rules! from {
     // Response capture

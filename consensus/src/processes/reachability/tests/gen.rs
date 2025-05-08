@@ -1,7 +1,7 @@
-use tondi_utils::sim::{Environment, Process, Resumption, Simulation, Suspension};
 use rand::rngs::ThreadRng;
 use rand_distr::{Distribution, Exp};
 use std::{cell::RefCell, cmp::max, collections::HashSet, iter::once, rc::Rc};
+use tondi_utils::sim::{Environment, Process, Resumption, Simulation, Suspension};
 
 type Message = (u64, Vec<u64>);
 

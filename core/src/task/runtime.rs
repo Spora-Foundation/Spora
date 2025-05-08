@@ -1,14 +1,14 @@
 use crate::{signals::Shutdown, task::service::AsyncServiceResult};
 use futures_util::future::{select_all, try_join_all};
-use tondi_core::core::Core;
-use tondi_core::service::Service;
-use tondi_core::task::service::AsyncService;
-use tondi_core::trace;
 use std::{
     sync::{Arc, Mutex},
     thread::{self, JoinHandle as ThreadJoinHandle},
 };
 use tokio::task::JoinHandle as TaskJoinHandle;
+use tondi_core::core::Core;
+use tondi_core::service::Service;
+use tondi_core::task::service::AsyncService;
+use tondi_core::trace;
 
 /// AsyncRuntime registers async services and provides
 /// a tokio Runtime to run them.

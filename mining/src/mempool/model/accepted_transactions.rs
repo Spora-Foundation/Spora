@@ -1,7 +1,7 @@
 use crate::mempool::config::Config;
+use std::{collections::HashMap, sync::Arc};
 use tondi_consensus_core::tx::TransactionId;
 use tondi_core::{debug, time::unix_now};
-use std::{collections::HashMap, sync::Arc};
 
 pub(crate) struct AcceptedTransactions {
     /// Mempool config

@@ -1,7 +1,7 @@
 use super::error::ConversionError;
 use crate::pb as protowire;
-use tondi_consensus_core::header::Header;
 use std::sync::Arc;
+use tondi_consensus_core::header::Header;
 
 // ----------------------------------------------------------------------------
 // consensus_core to protowire

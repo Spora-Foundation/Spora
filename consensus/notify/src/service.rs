@@ -5,6 +5,7 @@ use crate::{
     root::ConsensusNotificationRoot,
 };
 use async_channel::Receiver;
+use std::sync::Arc;
 use tondi_core::{
     task::service::{AsyncService, AsyncServiceError, AsyncServiceFuture},
     trace, warn,
@@ -15,7 +16,6 @@ use tondi_notify::{
     subscription::{context::SubscriptionContext, MutationPolicies, UtxosChangedMutationPolicy},
 };
 use tondi_utils::triggers::SingleTrigger;
-use std::sync::Arc;
 
 const NOTIFY_SERVICE: &str = "notify-service";
 

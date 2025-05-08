@@ -2,6 +2,7 @@ use crate::imports::*;
 
 use async_channel::{unbounded, Receiver};
 use async_trait::async_trait;
+use std::sync::Arc;
 use tondi_notify::events::EVENT_TYPE_ARRAY;
 use tondi_notify::listener::{ListenerId, ListenerLifespan};
 use tondi_notify::notifier::{Notifier, Notify};
@@ -11,7 +12,6 @@ use tondi_notify::subscription::{MutationPolicies, UtxosChangedMutationPolicy};
 use tondi_rpc_core::api::ctl::RpcCtl;
 use tondi_rpc_core::{api::connection::DynRpcConnection, api::rpc::RpcApi, *};
 use tondi_rpc_core::{notify::connection::ChannelConnection, RpcResult};
-use std::sync::Arc;
 
 pub type RpcCoreNotifier = Notifier<Notification, ChannelConnection>;
 

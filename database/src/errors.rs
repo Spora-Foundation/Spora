@@ -1,6 +1,6 @@
 use crate::prelude::DbKey;
-use tondi_hashes::Hash;
 use thiserror::Error;
+use tondi_hashes::Hash;
 
 #[derive(Error, Debug)]
 pub enum StoreError {

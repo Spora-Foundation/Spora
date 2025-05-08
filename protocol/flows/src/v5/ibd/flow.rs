@@ -6,6 +6,11 @@ use crate::{
     },
 };
 use futures::future::{join_all, select, try_join_all, Either};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
+use tokio::time::sleep;
 use tondi_consensus_core::{
     api::BlockValidationFuture,
     block::Block,
@@ -28,11 +33,6 @@ use tondi_p2p_lib::{
     IncomingRoute, Router,
 };
 use tondi_utils::channel::JobReceiver;
-use std::{
-    sync::Arc,
-    time::{Duration, Instant},
-};
-use tokio::time::sleep;
 
 use super::{progress::ProgressReporter, HeadersChunk, PruningPointUtxosetChunkStream, IBD_BATCH_SIZE};
 

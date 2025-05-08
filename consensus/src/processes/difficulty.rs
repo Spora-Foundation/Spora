@@ -3,14 +3,6 @@ use crate::model::stores::{
     ghostdag::{GhostdagData, GhostdagStoreReader},
     headers::HeaderStoreReader,
 };
-use tondi_consensus_core::{
-    config::params::{ForkActivation, MAX_DIFFICULTY_TARGET_AS_F64},
-    errors::difficulty::{DifficultyError, DifficultyResult},
-    BlockHashSet, BlueWorkType, MAX_WORK_LEVEL,
-};
-use tondi_core::{info, log::CRESCENDO_KEYWORD};
-use tondi_hashes::Hash;
-use tondi_math::{Uint256, Uint320};
 use std::{
     cmp::{max, Ordering},
     iter::once_with,
@@ -20,6 +12,14 @@ use std::{
         Arc,
     },
 };
+use tondi_consensus_core::{
+    config::params::{ForkActivation, MAX_DIFFICULTY_TARGET_AS_F64},
+    errors::difficulty::{DifficultyError, DifficultyResult},
+    BlockHashSet, BlueWorkType, MAX_WORK_LEVEL,
+};
+use tondi_core::{info, log::CRESCENDO_KEYWORD};
+use tondi_hashes::Hash;
+use tondi_math::{Uint256, Uint320};
 
 use super::{ghostdag::ordering::SortableBlock, utils::CoinFlip};
 use itertools::Itertools;

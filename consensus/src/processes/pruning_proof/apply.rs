@@ -5,6 +5,7 @@ use std::{
 };
 
 use itertools::Itertools;
+use rocksdb::WriteBatch;
 use tondi_consensus_core::{
     blockhash::{BlockHashes, ORIGIN},
     errors::pruning::{PruningImportError, PruningImportResult},
@@ -17,7 +18,6 @@ use tondi_core::{debug, trace};
 use tondi_hashes::Hash;
 use tondi_pow::calc_block_level;
 use tondi_utils::{binary_heap::BinaryHeapExtensions, vec::VecExtensions};
-use rocksdb::WriteBatch;
 
 use crate::{
     model::{

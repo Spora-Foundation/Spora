@@ -1,7 +1,7 @@
 use crate::{block::Block, header::Header, BlockHashMap, BlueWorkType, KType};
-use tondi_hashes::Hash;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use tondi_hashes::Hash;
 
 /// Represents semi-trusted externally provided Ghostdag data (by a network peer)
 #[derive(Clone, Serialize, Deserialize)]

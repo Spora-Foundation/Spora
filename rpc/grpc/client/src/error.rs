@@ -1,6 +1,6 @@
+use thiserror::Error;
 use tondi_notify::error::Error as NotifyError;
 use tondi_rpc_core::RpcError;
-use thiserror::Error;
 
 pub type BoxedStdError = Box<(dyn std::error::Error + Sync + std::marker::Send + 'static)>;
 

@@ -1,8 +1,8 @@
 use crate::{hashing, BlueWorkType};
 use borsh::{BorshDeserialize, BorshSerialize};
+use serde::{Deserialize, Serialize};
 use tondi_hashes::Hash;
 use tondi_utils::mem_size::MemSizeEstimator;
-use serde::{Deserialize, Serialize};
 
 /// @category Consensus
 #[derive(Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
@@ -108,8 +108,8 @@ impl MemSizeEstimator for Header {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tondi_math::Uint192;
     use serde_json::Value;
+    use tondi_math::Uint192;
 
     #[test]
     fn test_header_ser() {

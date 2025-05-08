@@ -3,8 +3,8 @@
 //!
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use tondi_notify::events::EventType;
 use serde::{Deserialize, Serialize};
+use tondi_notify::events::EventType;
 use workflow_core::enums::Describe;
 
 /// API version. Change in this value should result

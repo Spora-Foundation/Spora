@@ -6,12 +6,12 @@ use crate::mempool::{
     },
     Mempool,
 };
+use std::{collections::HashSet, sync::atomic::Ordering};
 use tondi_consensus_core::{
     api::ConsensusApi,
     tx::{Transaction, TransactionId},
 };
 use tondi_core::time::Stopwatch;
-use std::{collections::HashSet, sync::atomic::Ordering};
 
 impl Mempool {
     pub(crate) fn handle_new_block_transactions(

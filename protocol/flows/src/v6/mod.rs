@@ -14,9 +14,9 @@ use crate::v5::{
 };
 use crate::{flow_context::FlowContext, flow_trait::Flow};
 
-use tondi_p2p_lib::{TondidMessagePayloadType, Router, SharedIncomingRoute};
-use tondi_utils::channel;
 use std::sync::Arc;
+use tondi_p2p_lib::{Router, SharedIncomingRoute, TondidMessagePayloadType};
+use tondi_utils::channel;
 
 use crate::v6::request_pruning_point_and_anticone::PruningPointAndItsAnticoneRequestsFlow;
 

@@ -1,9 +1,9 @@
 use crate::model::stores::relations::RelationsStoreReader;
+use parking_lot::RwLock;
+use std::sync::Arc;
 use tondi_consensus_core::BlockHashSet;
 use tondi_database::prelude::{ReadLock, StoreError, StoreResult};
 use tondi_hashes::Hash;
-use parking_lot::RwLock;
-use std::sync::Arc;
 
 /// Multi-threaded block-relations service imp
 #[derive(Clone)]

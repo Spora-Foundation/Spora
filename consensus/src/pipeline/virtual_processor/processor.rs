@@ -48,6 +48,7 @@ use crate::{
         window::WindowManager,
     },
 };
+use once_cell::unsync::Lazy;
 use tondi_consensus_core::{
     acceptance_data::AcceptanceData,
     api::args::{TransactionValidationArgs, TransactionValidationBatchArgs},
@@ -81,7 +82,6 @@ use tondi_database::prelude::{StoreError, StoreResultEmptyTuple, StoreResultExte
 use tondi_hashes::{Hash, ZERO_HASH};
 use tondi_muhash::MuHash;
 use tondi_notify::{events::EventType, notifier::Notify};
-use once_cell::unsync::Lazy;
 
 use super::{
     errors::{PruningImportError, PruningImportResult},
@@ -89,8 +89,6 @@ use super::{
 };
 use crossbeam_channel::{Receiver as CrossbeamReceiver, Sender as CrossbeamSender};
 use itertools::Itertools;
-use tondi_consensus_core::tx::ValidatedTransaction;
-use tondi_utils::binary_heap::BinaryHeapExtensions;
 use parking_lot::{RwLock, RwLockUpgradableReadGuard};
 use rand::{seq::SliceRandom, Rng};
 use rayon::{
@@ -104,6 +102,8 @@ use std::{
     ops::Deref,
     sync::{atomic::Ordering, Arc},
 };
+use tondi_consensus_core::tx::ValidatedTransaction;
+use tondi_utils::binary_heap::BinaryHeapExtensions;
 
 pub struct VirtualStateProcessor {
     // Channels

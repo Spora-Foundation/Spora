@@ -1,5 +1,5 @@
-use tondi_rpc_core::RpcError;
 use thiserror::Error;
+use tondi_rpc_core::RpcError;
 
 #[derive(Error, Debug)]
 pub enum Error {

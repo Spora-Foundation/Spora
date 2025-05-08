@@ -7,13 +7,13 @@ pub mod descriptor;
 pub mod kind;
 pub mod pskb;
 pub mod variants;
-use tondi_hashes::Hash;
-use tondi_wallet_pskt::bundle::Bundle;
 pub use kind::*;
 use pskb::{
     bundle_from_pskt_generator, bundle_to_finalizer_stream, pskb_signer_for_address, pskt_to_pending_transaction, PSKBSigner,
     PSKTGenerator,
 };
+use tondi_hashes::Hash;
+use tondi_wallet_pskt::bundle::Bundle;
 pub use variants::*;
 
 use crate::derivation::build_derivate_paths;
@@ -744,13 +744,13 @@ mod tests {
     use super::create_private_keys;
     use super::ExtendedPrivateKey;
     use crate::imports::LEGACY_ACCOUNT_KIND;
-    use tondi_addresses::{Address, Version};
+    use std::str::FromStr;
     use tondi_addresses::Prefix;
+    use tondi_addresses::{Address, Version};
     use tondi_bip32::secp256k1::SecretKey;
     use tondi_bip32::PrivateKey;
     use tondi_bip32::SecretKeyExt;
     use tondi_wallet_keys::derivation::gen0::PubkeyDerivationManagerV0;
-    use std::str::FromStr;
 
     fn gen0_receive_keys() -> Vec<&'static str> {
         vec![
@@ -776,7 +776,6 @@ mod tests {
             "f0af3b29f2074838d394288a4a3bcd1cd00dc045e8f15e70eb3e70b4d5856075",
         ]
     }
-
 
     fn gen0_change_keys() -> Vec<&'static str> {
         vec![
@@ -822,13 +821,9 @@ mod tests {
 
         let dummy = dummy_address();
 
-        let receive_addrs = (0u32..receive_keys.len() as u32)
-            .map(|i| (&dummy, i))
-            .collect::<Vec<(&Address, u32)>>();
+        let receive_addrs = (0u32..receive_keys.len() as u32).map(|i| (&dummy, i)).collect::<Vec<(&Address, u32)>>();
 
-        let change_addrs = (0u32..change_keys.len() as u32)
-            .map(|i| (&dummy, i))
-            .collect::<Vec<(&Address, u32)>>();
+        let change_addrs = (0u32..change_keys.len() as u32).map(|i| (&dummy, i)).collect::<Vec<(&Address, u32)>>();
 
         let receive_derived = create_private_keys(&LEGACY_ACCOUNT_KIND.into(), 0, 0, &xkey, &receive_addrs, &[]).unwrap();
         for (i, (_addr, key)) in receive_derived.iter().enumerate() {

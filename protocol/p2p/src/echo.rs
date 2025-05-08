@@ -3,10 +3,10 @@ use crate::{
     core::adaptor::ConnectionInitializer,
     handshake::TondidHandshake,
     pb::{self, VersionMessage},
-    IncomingRoute, TondidMessagePayloadType, Router,
+    IncomingRoute, Router, TondidMessagePayloadType,
 };
-use tondi_core::{debug, time::unix_now, trace, warn};
 use std::sync::Arc;
+use tondi_core::{debug, time::unix_now, trace, warn};
 use tonic::async_trait;
 use uuid::Uuid;
 

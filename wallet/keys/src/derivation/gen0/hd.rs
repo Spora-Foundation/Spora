@@ -1,15 +1,15 @@
 use crate::derivation::traits::*;
 use crate::imports::*;
 use hmac::Mac;
+use ripemd::Ripemd160;
+use sha2::Digest;
+use std::fmt::Debug;
 use tondi_addresses::{Address, Prefix as AddressPrefix, Version as AddressVersion};
 use tondi_bip32::types::{ChainCode, HmacSha512, KeyFingerprint, PublicKeyBytes, KEY_SIZE};
 use tondi_bip32::{
     AddressType, ChildNumber, DerivationPath, ExtendedKey, ExtendedKeyAttrs, ExtendedPrivateKey, ExtendedPublicKey, Prefix,
     PrivateKey, PublicKey, SecretKey, SecretKeyExt,
 };
-use ripemd::Ripemd160;
-use sha2::{Digest, Sha256};
-use std::fmt::Debug;
 
 fn get_fingerprint<K>(private_key: &K) -> KeyFingerprint
 where
@@ -17,7 +17,7 @@ where
 {
     let public_key_bytes = private_key.public_key().to_bytes();
 
-    let digest = Ripemd160::digest(Sha256::digest(public_key_bytes));
+    let digest = Ripemd160::digest(blake3::hash(&public_key_bytes).as_bytes());
     digest[..4].try_into().expect("digest truncated")
 }
 
@@ -373,7 +373,7 @@ impl WalletDerivationManagerV0 {
         child_number: ChildNumber,
     ) -> Result<(secp256k1::PublicKey, ExtendedKeyAttrs)> {
         //let fingerprint = public_key.fingerprint();
-        let digest = Ripemd160::digest(Sha256::digest(&public_key.to_bytes()[1..]));
+        let digest = Ripemd160::digest(blake3::hash(&public_key.to_bytes()[1..]).as_bytes());
         let fingerprint = digest[..4].try_into().expect("digest truncated");
 
         let mut hmac = HmacSha512::new_from_slice(&attrs.chain_code).map_err(tondi_bip32::Error::Hmac)?;

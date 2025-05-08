@@ -1,3 +1,5 @@
+use rand::thread_rng;
+use secp256k1::Keypair;
 use tondi_addresses::{Address, Prefix, Version};
 use tondi_consensus_core::{
     hashing::{
@@ -20,8 +22,6 @@ use tondi_txscript::{
     TxScriptEngine,
 };
 use tondi_txscript_errors::TxScriptError::{EvalFalse, VerifyError};
-use rand::thread_rng;
-use secp256k1::Keypair;
 
 /// Main function to execute all Tondi transaction script scenarios.
 ///

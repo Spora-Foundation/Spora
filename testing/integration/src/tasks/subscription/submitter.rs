@@ -2,12 +2,6 @@ use crate::tasks::Task;
 use async_channel::Sender;
 use async_trait::async_trait;
 use itertools::Itertools;
-use tondi_addresses::Address;
-use tondi_core::warn;
-use tondi_grpc_client::GrpcClient;
-use tondi_notify::scope::{Scope, UtxosChangedScope};
-use tondi_rpc_core::api::rpc::RpcApi;
-use tondi_utils::{channel::Channel, triggers::SingleTrigger};
 use parking_lot::Mutex;
 use rand::thread_rng;
 use rand_distr::{Distribution, Exp};
@@ -17,6 +11,12 @@ use tokio::{
     task::JoinHandle,
     time::sleep,
 };
+use tondi_addresses::Address;
+use tondi_core::warn;
+use tondi_grpc_client::GrpcClient;
+use tondi_notify::scope::{Scope, UtxosChangedScope};
+use tondi_rpc_core::api::rpc::RpcApi;
+use tondi_utils::{channel::Channel, triggers::SingleTrigger};
 
 pub type JobId = u64;
 pub type Count = usize;

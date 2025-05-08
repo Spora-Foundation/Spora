@@ -15,17 +15,17 @@ use crate::{
     },
 };
 use itertools::Itertools;
+use std::collections::{
+    hash_map::Entry::{Occupied, Vacant},
+    VecDeque,
+};
+use thiserror::Error;
 use tondi_consensus_core::{
     blockhash::{BlockHashExtensions, BlockHashes, ORIGIN},
     BlockHashMap, BlockHashSet,
 };
 use tondi_database::prelude::{DirectWriter, StoreError};
 use tondi_hashes::Hash;
-use std::collections::{
-    hash_map::Entry::{Occupied, Vacant},
-    VecDeque,
-};
-use thiserror::Error;
 
 #[cfg(test)]
 pub mod gen;

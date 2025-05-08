@@ -1,10 +1,10 @@
 use tondi_notify::{scope::Scope, subscription::Command};
 
 use crate::protowire::{
-    tondid_request, tondid_response, TondidRequest, TondidResponse, NotifyBlockAddedRequestMessage,
-    NotifyFinalityConflictRequestMessage, NotifyNewBlockTemplateRequestMessage, NotifyPruningPointUtxoSetOverrideRequestMessage,
-    NotifySinkBlueScoreChangedRequestMessage, NotifyUtxosChangedRequestMessage, NotifyVirtualChainChangedRequestMessage,
-    NotifyVirtualDaaScoreChangedRequestMessage,
+    tondid_request, tondid_response, NotifyBlockAddedRequestMessage, NotifyFinalityConflictRequestMessage,
+    NotifyNewBlockTemplateRequestMessage, NotifyPruningPointUtxoSetOverrideRequestMessage, NotifySinkBlueScoreChangedRequestMessage,
+    NotifyUtxosChangedRequestMessage, NotifyVirtualChainChangedRequestMessage, NotifyVirtualDaaScoreChangedRequestMessage,
+    TondidRequest, TondidResponse,
 };
 
 impl TondidRequest {

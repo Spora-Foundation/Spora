@@ -3,10 +3,10 @@
 //!
 
 use crate::result::Result;
+use separator::{separated_float, separated_int, separated_uint_with_output, Separatable};
 use tondi_addresses::Address;
 use tondi_consensus_core::constants::*;
 use tondi_consensus_core::network::NetworkType;
-use separator::{separated_float, separated_int, separated_uint_with_output, Separatable};
 use workflow_log::style;
 
 pub fn try_tondi_str_to_sompi<S: Into<String>>(s: S) -> Result<Option<u64>> {

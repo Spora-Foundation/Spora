@@ -1,14 +1,14 @@
 use crate::processes::ghostdag::ordering::SortableBlock;
-use tondi_consensus_core::BlockHasher;
-use tondi_database::prelude::{Cache, CachePolicy};
-use tondi_hashes::Hash;
-use tondi_utils::mem_size::MemSizeEstimator;
 use std::{
     cmp::Reverse,
     collections::BinaryHeap,
     ops::{Deref, DerefMut},
     sync::Arc,
 };
+use tondi_consensus_core::BlockHasher;
+use tondi_database::prelude::{Cache, CachePolicy};
+use tondi_hashes::Hash;
+use tondi_utils::mem_size::MemSizeEstimator;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WindowOrigin {

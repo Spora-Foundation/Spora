@@ -1,15 +1,15 @@
 use crate::address::error::{Error, Result};
 use indexmap::{map::Entry, IndexMap};
 use itertools::Itertools;
-use tondi_addresses::{Address, Prefix};
-use tondi_consensus_core::tx::ScriptPublicKey;
-use tondi_core::{debug, trace};
-use tondi_txscript::{extract_script_pub_key_address, pay_to_address_script};
 use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::{
     collections::{hash_map, hash_set, HashMap, HashSet},
     fmt::Display,
 };
+use tondi_addresses::{Address, Prefix};
+use tondi_consensus_core::tx::ScriptPublicKey;
+use tondi_core::{debug, trace};
+use tondi_txscript::{extract_script_pub_key_address, pay_to_address_script};
 
 pub trait Indexer {
     fn contains(&self, index: Index) -> bool;

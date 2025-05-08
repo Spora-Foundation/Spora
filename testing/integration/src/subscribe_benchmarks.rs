@@ -17,6 +17,8 @@ use crate::{
     },
 };
 use itertools::Itertools;
+use rand::thread_rng;
+use std::{sync::Arc, time::Duration};
 use tondi_addresses::Address;
 use tondi_alloc::init_allocator_with_default_settings;
 use tondi_consensus::params::Params;
@@ -26,8 +28,6 @@ use tondi_math::Uint256;
 use tondi_notify::scope::VirtualDaaScoreChangedScope;
 use tondi_rpc_core::api::rpc::RpcApi;
 use tondi_txscript::pay_to_address_script;
-use rand::thread_rng;
-use std::{sync::Arc, time::Duration};
 
 // Constants
 const BLOCK_COUNT: usize = usize::MAX;

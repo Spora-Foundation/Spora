@@ -1,8 +1,8 @@
+use thiserror::Error;
 use tondi_consensus_core::{
     errors::tx::TxRuleError,
     tx::{TransactionId, TransactionOutpoint},
 };
-use thiserror::Error;
 
 #[derive(Error, Debug, Clone, PartialEq, Eq)]
 pub enum RuleError {

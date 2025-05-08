@@ -18,16 +18,16 @@ use crate::caches::Cache;
 use crate::data_stack::{DataStack, Stack};
 use crate::opcodes::{deserialize_next_opcode, OpCodeImplementation};
 use itertools::Itertools;
+use log::trace;
+use opcodes::codes::OpReturn;
+use opcodes::{codes, to_small_int, OpCond};
+use script_class::ScriptClass;
 use tondi_consensus_core::hashing::sighash::{
     calc_ecdsa_signature_hash, calc_schnorr_signature_hash, SigHashReusedValues, SigHashReusedValuesUnsync,
 };
 use tondi_consensus_core::hashing::sighash_type::SigHashType;
 use tondi_consensus_core::tx::{ScriptPublicKey, TransactionInput, UtxoEntry, VerifiableTransaction};
 use tondi_txscript_errors::TxScriptError;
-use log::trace;
-use opcodes::codes::OpReturn;
-use opcodes::{codes, to_small_int, OpCond};
-use script_class::ScriptClass;
 
 pub mod prelude {
     pub use super::standard::*;
@@ -635,18 +635,18 @@ mod tests {
     use std::iter::once;
 
     use crate::opcodes::codes::{
-        OpBlake2b, OpCheckMultiSig, OpCheckSig, OpCheckSigECDSA, OpCheckSigVerify, OpData1, OpData2, OpData32, OpDup, OpEndIf,
-        OpEqual, OpFalse, OpIf, OpPushData1, OpTrue, OpVerify,
+        OpBlake3, OpCheckMultiSig, OpCheckSig, OpCheckSigECDSA, OpCheckSigVerify, OpData1, OpData2, OpData32, OpDup, OpEndIf, OpEqual,
+        OpFalse, OpIf, OpPushData1, OpTrue, OpVerify,
     };
 
     use super::*;
     use crate::script_builder::{ScriptBuilder, ScriptBuilderResult};
+    use smallvec::SmallVec;
     use tondi_consensus_core::hashing::sighash::SigHashReusedValuesUnsync;
     use tondi_consensus_core::hashing::sighash_type::SIG_HASH_ALL;
     use tondi_consensus_core::tx::{
         MutableTransaction, PopulatedTransaction, ScriptPublicKey, Transaction, TransactionId, TransactionOutpoint, TransactionOutput,
     };
-    use smallvec::SmallVec;
 
     struct ScriptTestCase {
         script: &'static [u8],
@@ -961,7 +961,7 @@ mod tests {
 
         let script_hash = hex::decode("433ec2ac1ffa1b7b7d027f564529c57197f9ae88").unwrap();
         let prev_script_pubkey_p2sh_script =
-            [OpBlake2b, OpData32].iter().copied().chain(script_hash.iter().copied()).chain(once(OpEqual));
+            [OpBlake3, OpData32].iter().copied().chain(script_hash.iter().copied()).chain(once(OpEqual));
         let prev_script_pubkey_p2sh = ScriptPublicKey::new(0, SmallVec::from_iter(prev_script_pubkey_p2sh_script));
 
         let tests = [
@@ -1381,6 +1381,12 @@ mod bitcoind_tests {
                     return Ok(());
                 }
             };
+            // Debugging output
+            println!("Testing sig_script: {}", sig_script);
+            println!("Testing script_pub_key: {}", script_pub_key);
+            println!("Expected result: {}", expected_result);
+            println!("kip10_enabled: {}", kip10_enabled);
+            println!("runtime_sig_op_counting: {}", runtime_sig_op_counting);
 
             let result = Self::run_test(sig_script, script_pub_key, kip10_enabled, runtime_sig_op_counting);
 
@@ -1389,21 +1395,48 @@ mod bitcoind_tests {
                 false => Err(TestError { expected_result, result }),
             }
         }
-
         fn run_test(
             sig_script: String,
             script_pub_key: String,
             kip10_enabled: bool,
             runtime_sig_op_counting: bool,
         ) -> Result<(), UnifiedError> {
-            let script_sig = opcodes::parse_short_form(sig_script).map_err(UnifiedError::ScriptBuilderError)?;
-            let script_pub_key =
-                ScriptPublicKey::from_vec(0, opcodes::parse_short_form(script_pub_key).map_err(UnifiedError::ScriptBuilderError)?);
+            // Log inputs
+            println!("Running test with:");
+            println!("sig_script: {}", sig_script);
+            println!("script_pub_key: {}", script_pub_key);
+            println!("kip10_enabled: {}", kip10_enabled);
+            println!("runtime_sig_op_counting: {}", runtime_sig_op_counting);
+
+            // Parse sig_script
+            let script_sig = match opcodes::parse_short_form(sig_script) {
+                Ok(parsed) => parsed,
+                Err(e) => {
+                    println!("Error parsing sig_script: {:?}", e);  // Debug: log the error
+                    return Err(UnifiedError::ScriptBuilderError(e));
+                }
+            };
+            println!("Parsed sig_script: {:?}", script_sig);
+
+            // Parse script_pub_key
+            let script_pub_key = match opcodes::parse_short_form(script_pub_key) {
+                Ok(parsed) => ScriptPublicKey::from_vec(0, parsed),
+                Err(e) => {
+                    println!("Error parsing script_pub_key: {:?}", e);  // Debug: log the error
+                    return Err(UnifiedError::ScriptBuilderError(e));
+                }
+            };
+            println!("Parsed script_pub_key: {:?}", script_pub_key);
 
             // Create transaction
             let tx = create_spending_transaction(script_sig, script_pub_key.clone());
+            println!("Created transaction: {:?}", tx);
+
             let entry = UtxoEntry::new(0, script_pub_key.clone(), 0, true);
+            println!("Created UtxoEntry: {:?}", entry);
+
             let populated_tx = PopulatedTransaction::new(&tx, vec![entry]);
+            println!("Populated transaction: {:?}", populated_tx);
 
             // Run transaction
             let sig_cache = Cache::new(10_000);
@@ -1418,8 +1451,19 @@ mod bitcoind_tests {
                 kip10_enabled,
                 runtime_sig_op_counting,
             );
-            vm.execute().map_err(UnifiedError::TxScriptError)
+
+            match vm.execute() {
+                Ok(_) => {
+                    println!("Transaction executed successfully");
+                    Ok(())
+                }
+                Err(e) => {
+                    println!("Error during script execution: {:?}", e);  // Debug: log the error
+                    Err(UnifiedError::TxScriptError(e))
+                }
+            }
         }
+
 
         /*
 

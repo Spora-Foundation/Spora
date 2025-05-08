@@ -1,7 +1,7 @@
 use tondi_consensus_core::subnets::SubnetworkId;
 use tondi_core::{
-    tondid_env::{name, version},
     time::unix_now,
+    tondid_env::{name, version},
 };
 use tondi_utils::networking::{NetAddress, PeerId};
 

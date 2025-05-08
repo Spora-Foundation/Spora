@@ -17,9 +17,9 @@ use crate::{
     },
 };
 use itertools::Itertools;
+use std::sync::{atomic::AtomicBool, Arc};
 use tondi_consensus_core::mass::MassCalculator;
 use tondi_txscript::caches::TxScriptCacheCounters;
-use std::sync::{atomic::AtomicBool, Arc};
 
 pub type DbGhostdagManager =
     GhostdagManager<DbGhostdagStore, MTRelationsService<DbRelationsStore>, MTReachabilityService<DbReachabilityStore>, DbHeadersStore>;

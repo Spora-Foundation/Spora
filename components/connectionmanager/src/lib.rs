@@ -9,10 +9,6 @@ use std::{
 use duration_string::DurationString;
 use futures_util::future::{join_all, try_join_all};
 use itertools::Itertools;
-use tondi_addressmanager::{AddressManager, NetAddress};
-use tondi_core::{debug, info, warn};
-use tondi_p2p_lib::{common::ProtocolError, ConnectionError, Peer};
-use tondi_utils::triggers::SingleTrigger;
 use parking_lot::Mutex as ParkingLotMutex;
 use rand::{seq::SliceRandom, thread_rng};
 use tokio::{
@@ -23,6 +19,10 @@ use tokio::{
     },
     time::{interval, MissedTickBehavior},
 };
+use tondi_addressmanager::{AddressManager, NetAddress};
+use tondi_core::{debug, info, warn};
+use tondi_p2p_lib::{common::ProtocolError, ConnectionError, Peer};
+use tondi_utils::triggers::SingleTrigger;
 
 pub struct ConnectionManager {
     p2p_adaptor: Arc<tondi_p2p_lib::Adaptor>,

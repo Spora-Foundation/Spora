@@ -41,6 +41,7 @@ smallvec.workspace = true
 thiserror.workspace = true
 wasm-bindgen.workspace = true
 workflow-wasm.workspace = true
+blake3 = "1.8.2"
 
 [dev-dependencies]
 criterion.workspace = true

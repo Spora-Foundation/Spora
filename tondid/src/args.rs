@@ -1,4 +1,8 @@
 use clap::{arg, Arg, ArgAction, Command};
+use serde::Deserialize;
+use serde_with::{serde_as, DisplayFromStr};
+use std::{ffi::OsString, fs};
+use toml::from_str;
 use tondi_consensus_core::{
     config::Config,
     network::{NetworkId, NetworkType},
@@ -7,19 +11,15 @@ use tondi_core::tondid_env::version;
 use tondi_notify::address::tracker::Tracker;
 use tondi_utils::networking::ContextualNetAddress;
 use tondi_wrpc_server::address::WrpcNetAddress;
-use serde::Deserialize;
-use serde_with::{serde_as, DisplayFromStr};
-use std::{ffi::OsString, fs};
-use toml::from_str;
 
+#[cfg(feature = "devnet-prealloc")]
+use std::sync::Arc;
 #[cfg(feature = "devnet-prealloc")]
 use tondi_addresses::Address;
 #[cfg(feature = "devnet-prealloc")]
 use tondi_consensus_core::tx::{TransactionOutpoint, UtxoEntry};
 #[cfg(feature = "devnet-prealloc")]
 use tondi_txscript::pay_to_address_script;
-#[cfg(feature = "devnet-prealloc")]
-use std::sync::Arc;
 
 #[serde_as]
 #[derive(Debug, Clone, Deserialize)]

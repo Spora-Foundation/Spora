@@ -1,3 +1,5 @@
+use rocksdb::WriteBatch;
+use std::sync::Arc;
 use tondi_consensus_core::BlockHasher;
 use tondi_database::prelude::CachePolicy;
 use tondi_database::prelude::StoreError;
@@ -7,8 +9,6 @@ use tondi_database::registry::DatabaseStorePrefixes;
 use tondi_hashes::Hash;
 use tondi_math::Uint3072;
 use tondi_muhash::MuHash;
-use rocksdb::WriteBatch;
-use std::sync::Arc;
 
 pub trait UtxoMultisetsStoreReader {
     fn get(&self, hash: Hash) -> Result<MuHash, StoreError>;

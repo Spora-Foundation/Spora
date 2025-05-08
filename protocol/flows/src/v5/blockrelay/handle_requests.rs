@@ -1,4 +1,5 @@
 use crate::{flow_context::FlowContext, flow_trait::Flow};
+use std::sync::Arc;
 use tondi_core::debug;
 use tondi_p2p_lib::{
     common::ProtocolError,
@@ -6,7 +7,6 @@ use tondi_p2p_lib::{
     pb::{tondid_message::Payload, InvRelayBlockMessage},
     IncomingRoute, Router,
 };
-use std::sync::Arc;
 
 pub struct HandleRelayBlockRequests {
     ctx: FlowContext,

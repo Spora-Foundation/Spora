@@ -19,7 +19,6 @@ pub use balance::Balance;
 pub use binding::UtxoContextBinding;
 pub use context::{UtxoContext, UtxoContextId};
 pub use iterator::UtxoIterator;
-pub use tondi_consensus_client::UtxoEntryId;
 pub use outgoing::OutgoingTransaction;
 pub use pending::PendingUtxoEntryReference;
 pub use processor::UtxoProcessor;
@@ -28,6 +27,7 @@ pub use scan::{Scan, ScanExtent};
 pub use settings::*;
 pub use stream::UtxoStream;
 pub use sync::SyncMonitor;
+pub use tondi_consensus_client::UtxoEntryId;
 
 #[cfg(test)]
 pub mod test;

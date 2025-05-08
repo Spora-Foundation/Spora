@@ -19,9 +19,9 @@
 
 use crate::imports::*;
 
-use tondi_consensus_core::network::NetworkType;
 use ripemd::{Digest, Ripemd160};
 use sha2::Sha256;
+use tondi_consensus_core::network::NetworkType;
 
 /// Data structure that envelopes a PublicKey.
 /// Only supports Schnorr-based addresses.

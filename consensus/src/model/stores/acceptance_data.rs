@@ -1,3 +1,7 @@
+use rocksdb::WriteBatch;
+use serde::Deserialize;
+use serde::Serialize;
+use std::sync::Arc;
 use tondi_consensus_core::acceptance_data::AcceptanceData;
 use tondi_consensus_core::acceptance_data::AcceptedTxEntry;
 use tondi_consensus_core::acceptance_data::MergesetBlockAcceptanceData;
@@ -9,10 +13,6 @@ use tondi_database::prelude::{BatchDbWriter, CachedDbAccess, DirectDbWriter};
 use tondi_database::registry::DatabaseStorePrefixes;
 use tondi_hashes::Hash;
 use tondi_utils::mem_size::MemSizeEstimator;
-use rocksdb::WriteBatch;
-use serde::Deserialize;
-use serde::Serialize;
-use std::sync::Arc;
 
 pub trait AcceptanceDataStoreReader {
     fn get(&self, hash: Hash) -> Result<Arc<AcceptanceData>, StoreError>;

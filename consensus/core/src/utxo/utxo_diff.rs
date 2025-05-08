@@ -3,9 +3,9 @@ use super::{
     utxo_error::{UtxoAlgebraError, UtxoResult},
 };
 use crate::tx::{TransactionOutpoint, UtxoEntry, VerifiableTransaction};
-use tondi_utils::mem_size::MemSizeEstimator;
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map::Entry::Vacant;
+use tondi_utils::mem_size::MemSizeEstimator;
 
 pub trait ImmutableUtxoDiff {
     fn added(&self) -> &UtxoCollection;

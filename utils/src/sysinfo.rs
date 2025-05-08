@@ -1,7 +1,6 @@
 use crate::fd_budget;
 use crate::git;
 use crate::hex::ToHex;
-use sha2::{Digest, Sha256};
 use std::fs::{read_to_string, File};
 use std::io::Read;
 use std::path::PathBuf;
@@ -90,9 +89,9 @@ impl SystemInfo {
             // 🤷
             return None;
         };
-        let mut sha256 = Sha256::default();
-        sha256.update(some_id.as_bytes());
-        Some(sha256.finalize().to_vec())
+        let mut blake3 = blake3::Hasher::new();
+        blake3.update(some_id.as_bytes());
+        Some(blake3.finalize().as_bytes().to_vec())
     }
 
     fn try_proxy_socket_limit_per_cpu_core() -> Option<u32> {

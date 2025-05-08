@@ -1,8 +1,8 @@
 use crate::{convert::error::ConversionError, core::peer::PeerKey, TondidMessagePayloadType};
-use tondi_consensus_core::errors::{block::RuleError, consensus::ConsensusError, pruning::PruningImportError};
-use tondi_mining_errors::manager::MiningManagerError;
 use std::time::Duration;
 use thiserror::Error;
+use tondi_consensus_core::errors::{block::RuleError, consensus::ConsensusError, pruning::PruningImportError};
+use tondi_mining_errors::manager::MiningManagerError;
 
 /// Default P2P communication timeout
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(120); // 2 minutes

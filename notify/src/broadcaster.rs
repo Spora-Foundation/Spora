@@ -12,7 +12,6 @@ use core::fmt::Debug;
 use derive_more::Deref;
 use futures::{future::FutureExt, select_biased};
 use indexmap::IndexMap;
-use tondi_core::{debug, trace};
 use std::{
     collections::HashMap,
     fmt::Display,
@@ -21,6 +20,7 @@ use std::{
         Arc,
     },
 };
+use tondi_core::{debug, trace};
 use workflow_core::channel::Channel;
 
 type ConnectionSet<T> = HashMap<ListenerId, T>;

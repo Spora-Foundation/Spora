@@ -3,8 +3,6 @@ use crate::pb::RejectMessage;
 use crate::pb::{tondid_message::Payload as TondidMessagePayload, TondidMessage};
 use crate::{common::ProtocolError, TondidMessagePayloadType};
 use crate::{make_message, Peer};
-use tondi_core::{debug, error, info, trace, warn};
-use tondi_utils::networking::PeerId;
 use parking_lot::{Mutex, RwLock};
 use seqlock::SeqLock;
 use std::fmt::{Debug, Display};
@@ -17,6 +15,8 @@ use tokio::select;
 use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::mpsc::{channel as mpsc_channel, Receiver as MpscReceiver, Sender as MpscSender};
 use tokio::sync::oneshot::{channel as oneshot_channel, Sender as OneshotSender};
+use tondi_core::{debug, error, info, trace, warn};
+use tondi_utils::networking::PeerId;
 use tonic::Streaming;
 
 use super::peer::{PeerKey, PeerProperties};

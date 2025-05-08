@@ -12,7 +12,6 @@ use tondi_database::{
 use tondi_hashes::Hash;
 
 use itertools::Itertools;
-use tondi_utils::mem_size::MemSizeEstimator;
 use parking_lot::{RwLockUpgradableReadGuard, RwLockWriteGuard};
 use rocksdb::WriteBatch;
 use serde::{Deserialize, Serialize};
@@ -21,6 +20,7 @@ use std::{
     iter::once,
     sync::Arc,
 };
+use tondi_utils::mem_size::MemSizeEstimator;
 
 #[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct ReachabilityData {

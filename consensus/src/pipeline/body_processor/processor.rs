@@ -23,6 +23,10 @@ use crate::{
     processes::{coinbase::CoinbaseManager, transaction_validator::TransactionValidator},
 };
 use crossbeam_channel::{Receiver, Sender};
+use parking_lot::RwLock;
+use rayon::ThreadPool;
+use rocksdb::WriteBatch;
+use std::sync::{atomic::Ordering, Arc};
 use tondi_consensus_core::{
     block::Block,
     blockstatus::BlockStatus::{self, StatusHeaderOnly, StatusInvalid},
@@ -41,10 +45,6 @@ use tondi_consensus_notify::{
 use tondi_consensusmanager::SessionLock;
 use tondi_hashes::Hash;
 use tondi_notify::notifier::Notify;
-use parking_lot::RwLock;
-use rayon::ThreadPool;
-use rocksdb::WriteBatch;
-use std::sync::{atomic::Ordering, Arc};
 
 pub struct BlockBodyProcessor {
     // Channels

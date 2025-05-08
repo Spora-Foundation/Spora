@@ -4,13 +4,13 @@ use crate::model::{
     stores::{children::ChildrenStore, relations::RelationsStore},
 };
 use itertools::Itertools;
+use rocksdb::WriteBatch;
 use tondi_consensus_core::{
     blockhash::{BlockHashIteratorExtensions, BlockHashes, ORIGIN},
     BlockHashSet,
 };
 use tondi_database::prelude::{BatchDbWriter, DbWriter, DirectWriter, StoreError};
 use tondi_hashes::Hash;
-use rocksdb::WriteBatch;
 
 /// Initializes this relations store with an `origin` root
 pub fn init<S: RelationsStore + ChildrenStore + ?Sized>(relations: &mut S) {
@@ -152,10 +152,10 @@ impl<S: RelationsStore + ChildrenStore + ?Sized> RelationsStoreExtensions for S 
 mod tests {
     use super::*;
     use crate::model::stores::relations::{DbRelationsStore, RelationsStoreReader, StagingRelationsStore};
+    use std::sync::Arc;
     use tondi_core::assert_match;
     use tondi_database::prelude::{CachePolicy, ConnBuilder};
     use tondi_database::{create_temp_db, prelude::MemoryWriter};
-    use std::sync::Arc;
 
     #[test]
     fn test_delete_level_relations_zero_cache() {

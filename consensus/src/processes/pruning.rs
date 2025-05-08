@@ -13,6 +13,7 @@ use crate::model::{
         reachability::ReachabilityStoreReader,
     },
 };
+use parking_lot::RwLock;
 use tondi_consensus_core::{
     blockhash::BlockHashExtensions,
     config::params::ForkedParam,
@@ -21,7 +22,6 @@ use tondi_consensus_core::{
 use tondi_core::{info, log::CRESCENDO_KEYWORD};
 use tondi_database::prelude::StoreResultEmptyTuple;
 use tondi_hashes::Hash;
-use parking_lot::RwLock;
 
 pub struct PruningPointReply {
     /// The most recent pruning sample from POV of the queried block (with distance up to ~F)

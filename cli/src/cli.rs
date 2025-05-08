@@ -9,7 +9,7 @@ use tondi_daemon::{DaemonEvent, DaemonKind, Daemons};
 use tondi_wallet_core::account::Account;
 use tondi_wallet_core::rpc::DynRpcApi;
 use tondi_wallet_core::storage::{IdT, PrvKeyDataInfo};
-use tondi_wrpc_client::{TondiRpcClient, Resolver};
+use tondi_wrpc_client::{Resolver, TondiRpcClient};
 use workflow_core::channel::*;
 use workflow_core::time::Instant;
 use workflow_log::*;

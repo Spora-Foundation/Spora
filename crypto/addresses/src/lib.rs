@@ -575,8 +575,8 @@ mod tests {
 
     #[test]
     fn address_roundtrip() {
-        use Version::*;
         use Prefix::*;
+        use Version::*;
 
         fn gen_payload(version: Version) -> Vec<u8> {
             vec![version as u8 + 1; version.public_key_len()]
@@ -626,7 +626,6 @@ mod tests {
         let result: Result<Address, _> = broken.parse();
         assert_eq!(result, Err(AddressError::BadChecksum));
     }
-
 
     #[cfg(target_arch = "wasm32")]
     use js_sys::Object;

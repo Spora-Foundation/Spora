@@ -1,8 +1,8 @@
+use parking_lot::RwLockWriteGuard;
+use rocksdb::WriteBatch;
 use tondi_consensus_core::blockstatus::BlockStatus;
 use tondi_consensus_core::ChainPath;
 use tondi_database::registry::DatabaseStorePrefixes;
-use parking_lot::RwLockWriteGuard;
-use rocksdb::WriteBatch;
 
 use std::sync::Arc;
 

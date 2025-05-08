@@ -1,17 +1,18 @@
+mod blake3;
 mod hashers;
 mod pow_hashers;
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use tondi_utils::{
-    hex::{FromHex, ToHex},
-    mem_size::MemSizeEstimator,
-    serde_impl_deser_fixed_bytes_ref, serde_impl_ser_fixed_bytes_ref,
-};
 use std::{
     array::TryFromSliceError,
     fmt::{Debug, Display, Formatter},
     hash::{Hash as StdHash, Hasher as StdHasher},
     str::{self, FromStr},
+};
+use tondi_utils::{
+    hex::{FromHex, ToHex},
+    mem_size::MemSizeEstimator,
+    serde_impl_deser_fixed_bytes_ref, serde_impl_ser_fixed_bytes_ref,
 };
 use wasm_bindgen::prelude::*;
 use workflow_wasm::prelude::*;

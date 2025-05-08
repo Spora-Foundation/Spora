@@ -80,6 +80,7 @@ include = [
 ]
 
 [workspace.dependencies]
+blake3 = { version = "1.8.2"}
 # tondi-testing-integration = { version = "0.17.0", path = "testing/integration" }
 tondi-addresses = { version = "0.17.0", path = "crypto/addresses" }
 tondi-addressmanager = { version = "0.17.0", path = "components/addressmanager" }

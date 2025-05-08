@@ -1,6 +1,6 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-use tondi_utils::networking::{ContextualNetAddress, IpAddress, NetAddress, PeerId};
 use serde::{Deserialize, Serialize};
+use tondi_utils::networking::{ContextualNetAddress, IpAddress, NetAddress, PeerId};
 
 pub type RpcNodeId = PeerId;
 pub type RpcIpAddress = IpAddress;

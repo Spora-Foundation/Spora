@@ -29,6 +29,10 @@ use crate::{
 };
 use crossbeam_channel::{Receiver, Sender};
 use itertools::Itertools;
+use parking_lot::RwLock;
+use rayon::ThreadPool;
+use rocksdb::WriteBatch;
+use std::sync::{atomic::Ordering, Arc};
 use tondi_consensus_core::{
     blockhash::{BlockHashes, ORIGIN},
     blockstatus::BlockStatus::{self, StatusHeaderOnly, StatusInvalid},
@@ -43,10 +47,6 @@ use tondi_consensusmanager::SessionLock;
 use tondi_database::prelude::{StoreResultEmptyTuple, StoreResultExtensions};
 use tondi_hashes::Hash;
 use tondi_utils::vec::VecExtensions;
-use parking_lot::RwLock;
-use rayon::ThreadPool;
-use rocksdb::WriteBatch;
-use std::sync::{atomic::Ordering, Arc};
 
 use super::super::ProcessingCounters;
 

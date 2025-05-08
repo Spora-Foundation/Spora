@@ -7,6 +7,13 @@ use crate::{
     },
     processes::ghostdag::ordering::SortableBlock,
 };
+use once_cell::unsync::Lazy;
+use std::{
+    cmp::Reverse,
+    iter::once,
+    ops::{Deref, DerefMut},
+    sync::Arc,
+};
 use tondi_consensus_core::{
     blockhash::{BlockHashExtensions, ORIGIN},
     config::{genesis::GenesisBlock, params::ForkActivation},
@@ -17,13 +24,6 @@ use tondi_core::{info, log::CRESCENDO_KEYWORD};
 use tondi_hashes::Hash;
 use tondi_math::Uint256;
 use tondi_utils::refs::Refs;
-use once_cell::unsync::Lazy;
-use std::{
-    cmp::Reverse,
-    iter::once,
-    ops::{Deref, DerefMut},
-    sync::Arc,
-};
 
 use super::{
     difficulty::{FullDifficultyManager, SampledDifficultyManager},

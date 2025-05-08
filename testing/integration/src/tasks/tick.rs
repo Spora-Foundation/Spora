@@ -1,9 +1,9 @@
 use crate::tasks::Task;
 use async_trait::async_trait;
-use tondi_core::{task::tick::TickService, warn};
-use tondi_utils::triggers::SingleTrigger;
 use std::sync::Arc;
 use tokio::task::JoinHandle;
+use tondi_core::{task::tick::TickService, warn};
+use tondi_utils::triggers::SingleTrigger;
 
 pub struct TickTask {
     tick_service: Arc<TickService>,

@@ -3,12 +3,12 @@
 //!
 
 pub use crate::account::{bip32, bip32watch, keypair, legacy, multisig};
-use crate::encryption::sha256_hash;
+use crate::encryption::blake3_hash;
 use crate::imports::*;
 use crate::storage::PrvKeyDataId;
+use secp256k1::PublicKey;
 use tondi_hashes::Hash;
 use tondi_utils::as_slice::AsSlice;
-use secp256k1::PublicKey;
 
 /// Deterministic byte sequence derived from account data (can be used for auxiliary data storage encryption).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
@@ -102,9 +102,10 @@ where
 {
     let mut hashes: [Hash; N] = [Hash::default(); N];
     let bytes = borsh::to_vec(&hashable).unwrap();
-    hashes[0] = Hash::from_slice(sha256_hash(&bytes).as_ref());
+
+    hashes[0] = Hash::from_slice(blake3_hash(&bytes).as_ref()); // 这里使用 blake3_hash
     for i in 1..N {
-        hashes[i] = Hash::from_slice(sha256_hash(&hashes[i - 1].as_bytes()).as_ref());
+        hashes[i] = Hash::from_slice(blake3_hash(&hashes[i - 1].as_bytes()).as_ref());
     }
     hashes
 }

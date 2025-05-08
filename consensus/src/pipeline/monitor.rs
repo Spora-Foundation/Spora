@@ -1,4 +1,8 @@
 use super::ProcessingCounters;
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 use tondi_core::{
     info,
     task::{
@@ -6,10 +10,6 @@ use tondi_core::{
         tick::{TickReason, TickService},
     },
     trace, warn,
-};
-use std::{
-    sync::Arc,
-    time::{Duration, Instant},
 };
 
 const MONITOR: &str = "consensus-monitor";

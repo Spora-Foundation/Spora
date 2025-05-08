@@ -1,11 +1,11 @@
 use super::rpc_core_mock::RpcCoreMock;
 use crate::{adaptor::Adaptor, manager::Manager};
+use std::sync::Arc;
 use tondi_core::info;
 use tondi_grpc_client::GrpcClient;
 use tondi_notify::scope::{NewBlockTemplateScope, Scope};
 use tondi_rpc_core::api::rpc::RpcApi;
 use tondi_utils::networking::{ContextualNetAddress, NetAddress};
-use std::sync::Arc;
 
 #[tokio::test]
 async fn test_client_server_sanity_check() {

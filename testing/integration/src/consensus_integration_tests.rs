@@ -52,6 +52,18 @@ use crate::common;
 use flate2::read::GzDecoder;
 use futures_util::future::try_join_all;
 use itertools::Itertools;
+use serde::{Deserialize, Serialize};
+use std::cmp::{max, Ordering};
+use std::collections::HashSet;
+use std::path::Path;
+use std::sync::Arc;
+use std::{
+    collections::HashMap,
+    fs::File,
+    future::Future,
+    io::{BufRead, BufReader},
+    str::{from_utf8, FromStr},
+};
 use tondi_consensus_core::errors::tx::TxRuleError;
 use tondi_consensus_core::hashing::sighash::calc_schnorr_signature_hash;
 use tondi_consensus_core::merkle::calc_hash_merkle_root;
@@ -71,18 +83,6 @@ use tondi_txscript::opcodes::codes::OpTrue;
 use tondi_txscript::script_builder::ScriptBuilderResult;
 use tondi_utxoindex::api::{UtxoIndexApi, UtxoIndexProxy};
 use tondi_utxoindex::UtxoIndex;
-use serde::{Deserialize, Serialize};
-use std::cmp::{max, Ordering};
-use std::collections::HashSet;
-use std::path::Path;
-use std::sync::Arc;
-use std::{
-    collections::HashMap,
-    fs::File,
-    future::Future,
-    io::{BufRead, BufReader},
-    str::{from_utf8, FromStr},
-};
 
 #[derive(Serialize, Deserialize, Debug)]
 struct JsonBlock {

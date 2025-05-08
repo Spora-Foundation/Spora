@@ -1,5 +1,5 @@
-use tondi_hashes::Hash;
 use std::num::Wrapping;
+use tondi_hashes::Hash;
 
 pub struct XoShiRo256PlusPlus {
     s0: Wrapping<u64>,
