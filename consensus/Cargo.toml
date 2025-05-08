@@ -43,6 +43,7 @@ serde.workspace = true
 smallvec.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
+hex = "0.4"
 
 rand = { workspace = true, features = ["small_rng"] }
 

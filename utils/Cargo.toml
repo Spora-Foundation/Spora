@@ -33,6 +33,8 @@ thiserror.workspace = true
 triggered.workspace = true
 uuid.workspace = true
 wasm-bindgen.workspace = true
+blake3 = "1.5"
+hex = "0.4"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 mac_address.workspace = true
@@ -50,6 +52,10 @@ rand.workspace = true
 [[bench]]
 name = "bench"
 harness = false
+
+[[bin]]
+name = "regen_test_vectors"
+path = "src/bin/regen_test_vectors.rs"
 
 [features]
 semaphore-trace = []
