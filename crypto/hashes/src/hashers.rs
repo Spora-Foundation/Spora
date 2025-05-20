@@ -10,6 +10,8 @@
 //! - Merkle tree hashing
 //! - PoW identifiersuse once_cell::sync::Lazy;
 use crate::blake3::blake3_256;
+use sha2::{Sha256, Digest};
+
 pub trait HasherBase {
     fn update<A: AsRef<[u8]>>(&mut self, data: A) -> &mut Self;
 }
@@ -100,6 +102,40 @@ blake3_hasher! {
     struct TransactionSigningHashECDSA => b"TransactionSigningHashECDSA",
 }
 
+// 为Schnorr签名添加专门的SHA256哈希器
+macro_rules! sha256_hasher {
+    ($(struct $name:ident => $domain_sep:literal),+ $(,)?) => {
+        $(
+            #[derive(Clone)]
+            pub struct $name(Vec<u8>);
+
+            impl $name {
+                #[inline(always)]
+                pub fn new() -> Self {
+                    let mut prefix = Vec::new();
+                    prefix.extend_from_slice($domain_sep);
+                    Self(prefix)
+                }
+
+                pub fn write<A: AsRef<[u8]>>(&mut self, data: A) {
+                    self.0.extend_from_slice(data.as_ref());
+                }
+
+                #[inline(always)]
+                pub fn finalize(self) -> crate::Hash {
+                    crate::Hash(sha256(&self.0))
+                }
+            }
+
+            impl_hasher! { struct $name }
+        )*
+    };
+}
+
+sha256_hasher! {
+    struct SchnorrSigningHash => b"SchnorrSigningHash",
+}
+
 use impl_hasher;
 
 #[cfg(test)]
@@ -123,4 +159,10 @@ mod tests {
         run_test_vector(&input_data, TransactionID::new);
         run_test_vector(&input_data, BlockHash::new);
     }
+}
+
+pub fn sha256(data: &[u8]) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(data);
+    hasher.finalize().into()
 }

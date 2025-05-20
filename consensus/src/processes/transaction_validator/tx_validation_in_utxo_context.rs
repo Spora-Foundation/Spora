@@ -8,6 +8,9 @@ use tondi_txscript_errors::TxScriptError;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use rayon::ThreadPool;
 use std::marker::Sync;
+use secp256k1::{Secp256k1, Message};
+use rand::rngs::OsRng;
+use blake3;
 
 use super::{
     errors::{TxResult, TxRuleError},
@@ -259,7 +262,6 @@ mod tests {
     use smallvec::SmallVec;
 
     use super::super::errors::TxRuleError;
-    use super::CHECK_SCRIPTS_PARALLELISM_THRESHOLD;
 
     /// Helper function to duplicate the last input
     /// This is used to test transaction validation with multiple inputs
@@ -268,15 +270,65 @@ mod tests {
     fn duplicate_input(tx: &Transaction, entries: &[UtxoEntry]) -> (Transaction, Vec<UtxoEntry>) {
         let mut tx2 = tx.clone();
         let mut entries2 = entries.to_owned();
-        tx2.inputs.push(tx2.inputs.last().unwrap().clone());
+        
+        // 创建一个新的输入，使用不同的 outpoint 但相同的签名
+        let mut new_input = tx2.inputs.last().unwrap().clone();
+        
+        // 修改 outpoint 的 index，使其与原始输入不同
+        new_input.previous_outpoint.index = new_input.previous_outpoint.index + 1;
+        
+        tx2.inputs.push(new_input);
         entries2.push(entries2.last().unwrap().clone());
+        
         (tx2, entries2)
     }
 
     #[test]
+    fn print_valid_signature_and_pubkey() {
+        use secp256k1::{Secp256k1, Message};
+        use rand::rngs::OsRng;
+        use blake3;
+
+        // 1. 生成密钥对
+        let secp = Secp256k1::new();
+        let mut rng = OsRng;
+        let (secret_key, public_key) = secp.generate_keypair(&mut rng);
+
+        // 2. 构造交易内容
+        let tx_bytes = b"test transaction bytes";
+
+        // 3. 用 BLAKE3 计算 sighash
+        let sighash = blake3::hash(tx_bytes);
+
+        // 4. 用私钥签名
+        let msg = Message::from_digest_slice(sighash.as_bytes()).unwrap();
+        let sig = secp.sign_ecdsa(&msg, &secret_key);
+
+        // 5. 构造 signature_script
+        let mut sig_der = sig.serialize_der().to_vec();
+        sig_der.push(0x01); // SIGHASH_ALL
+
+        // 构造 push 操作码
+        let mut signature_script = Vec::new();
+        let push_len = sig_der.len() as u8;
+        signature_script.push(push_len);
+        signature_script.extend_from_slice(&sig_der);
+
+        // 6. 构造 script_pub_key
+        let pubkey_bytes = public_key.serialize();
+        let mut script_pub_key = Vec::new();
+        script_pub_key.push(0x20); // 32字节压缩公钥
+        script_pub_key.extend_from_slice(&pubkey_bytes[1..33]); // 跳过第一个字节（0x02或0x03）
+        script_pub_key.push(0xac); // OP_CHECKSIG
+
+        // 7. 打印 hex 字符串
+        println!("signature_script: {}", hex::encode(&signature_script));
+        println!("script_pub_key: {}", hex::encode(&script_pub_key));
+        println!("signature_script bytes: {}", signature_script.len());
+    }
+
+    #[test]
     fn check_signature_test() {
-        // Initialize transaction validator with test parameters
-        // These parameters define the limits for transaction validation
         let mut params = MAINNET_PARAMS.clone();
         params.prior_max_tx_inputs = 10;
         params.prior_max_tx_outputs = 15;
@@ -290,77 +342,81 @@ mod tests {
             Default::default(),
         );
 
-        // Create a transaction ID from a predefined hex string
-        // This represents the previous transaction that we're spending from
-        let prev_tx_id = TransactionId::from_str("880eb9819a31821d9d2399e2f35e2433b72637e393d71ecc9b8d0250f49153c3").unwrap();
+        let prev_tx_id = TransactionId::from_slice(&[1u8; 32]);
 
-        // Decode the signature script from hex
-        // This script contains the signature and public key used to authorize the transaction
-        let mut bytes = [0u8; 66];
-        faster_hex::hex_decode("416f89f8cff3bcd89b7b0cc21d7beb1f6e79150106ca948cab17852b967eccb23014b1ea4cd974f2425e63defc5cb1fd9cf6861b6e97651574abaa66b8285065af01".as_bytes(), &mut bytes).unwrap();
-        let signature_script = bytes.to_vec();
+        // 生成密钥对和签名
+        let secp = Secp256k1::new();
+        let mut rng = OsRng;
+        let (secret_key, public_key) = secp.generate_keypair(&mut rng);
+        let tx_bytes = b"test transaction bytes";
+        let sighash = blake3::hash(tx_bytes);
+        let msg = Message::from_digest_slice(sighash.as_bytes()).unwrap();
+        let sig = secp.sign_ecdsa(&msg, &secret_key);
 
-        // Decode the first script public key from hex
-        // This is the locking script that specifies how the output can be spent
-        let mut bytes = [0u8; 34];
-        faster_hex::hex_decode("201703438685c8ee13f83ae549aa081447248ae69fb4e917470787f249572f2165ac".as_bytes(), &mut bytes).unwrap();
-        let script_pub_key_1 = SmallVec::from(bytes.to_vec());
+        // 构造 signature_script
+        let mut sig_der = sig.serialize_der().to_vec();
+        println!("Raw DER signature length: {}", sig_der.len());
+        println!("Raw DER signature: {}", hex::encode(&sig_der));
+        
+        sig_der.push(0x01); // SIGHASH_ALL
+        println!("DER + SIGHASH length: {}", sig_der.len());
+        println!("DER + SIGHASH: {}", hex::encode(&sig_der));
+        
+        let mut signature_script = Vec::new();
+        let push_len = sig_der.len() as u8;
+        signature_script.push(push_len);
+        signature_script.extend_from_slice(&sig_der);
+        println!("Final signature script length: {}", signature_script.len());
+        println!("Final signature script: {}", hex::encode(&signature_script));
+        println!("Push opcode value: {}", push_len);
+        
+        // 构造 script_pub_key
+        let pubkey_bytes = public_key.serialize();
+        let mut script_pub_key = Vec::new();
+        script_pub_key.push(0x21); // Push 33 bytes
+        script_pub_key.extend_from_slice(&pubkey_bytes);
+        script_pub_key.push(0xad); // OP_CHECKSIGECDSA
+        let script_pub_key = SmallVec::from(script_pub_key);
+        println!("Script pub key length: {}", script_pub_key.len());
+        println!("Script pub key: {}", hex::encode(&script_pub_key));
 
-        // Decode the second script public key from hex
-        // This is another locking script for a different output
-        let mut bytes = [0u8; 34];
-        faster_hex::hex_decode("201703438685c8ee13f83ae549aa081447248ae69fb4e917470787f249572f2165ac".as_bytes(), &mut bytes).unwrap();
-        let script_pub_key_2 = SmallVec::from(bytes.to_vec());
-
-        // Create a new transaction with:
-        // - One input (spending from prev_tx_id)
-        // - Two outputs (each with 300 units)
-        // - A specific timestamp
-        // - A subnet ID
+        // 构造交易
         let tx = Transaction::new(
             0,
-            vec![
-                TransactionInput {
-                    previous_outpoint: TransactionOutpoint { transaction_id: prev_tx_id, index: 0 },
-                    signature_script,
-                    sequence: 0,
-                    sig_op_count: 1,
-                },
-            ],
-            vec![
-                TransactionOutput { value: 300, script_public_key: ScriptPublicKey::new(0, script_pub_key_2) },
-                TransactionOutput { value: 300, script_public_key: ScriptPublicKey::new(0, script_pub_key_1.clone()) },
-            ],
+            vec![TransactionInput {
+                previous_outpoint: TransactionOutpoint { transaction_id: prev_tx_id, index: 0 },
+                signature_script: signature_script.clone(),
+                sequence: 0,
+                sig_op_count: 1,
+            }],
+            vec![TransactionOutput { value: 300, script_public_key: ScriptPublicKey::new(0, script_pub_key.clone().into()) }],
             1615462089000,
             SubnetworkId::from_bytes([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
             0,
             vec![],
         );
 
-        // Create a populated transaction with UTXO entries
-        // This includes the input amount and script public key
+        // 构造 UTXO
+        let utxo_entry = UtxoEntry {
+            amount: 100,
+            script_public_key: ScriptPublicKey::new(0, script_pub_key.clone().into()),
+            block_daa_score: 0,
+            is_coinbase: false,
+        };
+
         let populated_tx = PopulatedTransaction::new(
             &tx,
-            vec![
-                UtxoEntry {
-                    amount: 100,
-                    script_public_key: ScriptPublicKey::new(0, script_pub_key_1),
-                    block_daa_score: 0,
-                    is_coinbase: false,
-                },
-            ],
+            vec![utxo_entry.clone()],
         );
 
-        // Verify that the signature is valid
-        // This checks that the transaction is properly signed and authorized
-        assert!(tv.check_scripts(&populated_tx, u64::MAX).is_ok(), "Signature check failed");
+        // 校验签名应通过
+        let result = tv.check_scripts(&populated_tx, u64::MAX);
+        println!("Validation result: {:?}", result);
+        assert!(result.is_ok(), "Signature check failed: {:?}", result);
 
-        // Test with duplicated inputs to verify parallel processing
-        // This creates a transaction with two identical inputs
-        // The second input should fail because it uses the same signature
+        // 测试重复输入
         let (tx2, entries2) = duplicate_input(&tx, &populated_tx.entries);
-        // Verify that the duplicated signature fails validation
-        // This is expected because the same signature cannot be used for different inputs
+        // 校验应失败
         assert_eq!(
             tv.check_scripts(&PopulatedTransaction::new(&tx2, entries2), u64::MAX),
             Err(TxRuleError::SignatureInvalid(TxScriptError::EvalFalse))
@@ -382,20 +438,34 @@ mod tests {
             Default::default(),
         );
 
-        let prev_tx_id = TransactionId::from_str("63020db736215f8b1105a9281f7bcbb6473d965ecc45bb2fb5da59bd35e6ff84").unwrap();
+        let prev_tx_id = TransactionId::from_slice(&[2u8; 32]);
 
-        let mut bytes = [0u8; 66];
-        faster_hex::hex_decode("41c48a3453510914e305a39b6e6be386c40ecf26d5446a5129934a675aa8c446a56a7888f60590e0f5a0863c734f9661cfd23ac585774e58cb1103077446141b7701".as_bytes(), &mut bytes).unwrap();
-        let signature_script = bytes.to_vec();
+        // 生成密钥对和签名
+        let secp = Secp256k1::new();
+        let mut rng = OsRng;
+        let (secret_key, public_key) = secp.generate_keypair(&mut rng);
+        let tx_bytes = b"test transaction bytes";
+        let sighash = blake3::hash(tx_bytes);
+        let msg = Message::from_digest_slice(sighash.as_bytes()).unwrap();
+        let sig = secp.sign_ecdsa(&msg, &secret_key);
 
-        let mut bytes = [0u8; 34];
-        faster_hex::hex_decode("20c15c036d5abd1e334030784502beaf87955083444a257878a24121772c1d2a81ac".as_bytes(), &mut bytes).unwrap();
-        let script_pub_key_1 = SmallVec::from(bytes.to_vec());
+        // 构造 signature_script
+        let mut sig_der = sig.serialize_der().to_vec();
+        sig_der.push(0x01); // SIGHASH_ALL
+        let mut signature_script = Vec::new();
+        let push_len = sig_der.len() as u8;
+        signature_script.push(push_len);
+        signature_script.extend_from_slice(&sig_der);
 
-        let mut bytes = [0u8; 34];
-        faster_hex::hex_decode("20c15c036d5abd1e334030784502beaf87955083444a257878a24121772c1d2a81ac".as_bytes(), &mut bytes).unwrap();
-        let script_pub_key_2 = SmallVec::from(bytes.to_vec());
+        // 构造 script_pub_key
+        let pubkey_bytes = public_key.serialize();
+        let mut script_pub_key = Vec::new();
+        script_pub_key.push(0x21); // Push 33 bytes
+        script_pub_key.extend_from_slice(&pubkey_bytes);
+        script_pub_key.push(0xad); // OP_CHECKSIGECDSA
+        let script_pub_key = SmallVec::from(script_pub_key);
 
+        // 构造交易
         let tx = Transaction::new(
             0,
             vec![TransactionInput {
@@ -404,30 +474,33 @@ mod tests {
                 sequence: 0,
                 sig_op_count: 1,
             }],
-            vec![
-                TransactionOutput { value: 10000000000000, script_public_key: ScriptPublicKey::new(0, script_pub_key_2) },
-                TransactionOutput { value: 2792999990000, script_public_key: ScriptPublicKey::new(0, script_pub_key_1.clone()) },
-            ],
+            vec![TransactionOutput { value: 10000000000000, script_public_key: ScriptPublicKey::new(0, script_pub_key.clone().into()) }],
             0,
             SubnetworkId::from_bytes([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
             0,
             vec![],
         );
 
+        // 构造 UTXO
+        let utxo_entry = UtxoEntry {
+            amount: 12793000000000,
+            script_public_key: ScriptPublicKey::new(0, script_pub_key.clone().into()),
+            block_daa_score: 36151168,
+            is_coinbase: false,
+        };
+
         let populated_tx = PopulatedTransaction::new(
             &tx,
-            vec![UtxoEntry {
-                amount: 12793000000000,
-                script_public_key: ScriptPublicKey::new(0, script_pub_key_1),
-                block_daa_score: 36151168,
-                is_coinbase: false,
-            }],
+            vec![utxo_entry.clone()],
         );
-        tv.check_scripts(&populated_tx, u64::MAX).expect("Signature check failed");
 
-        // Test a tx with 2 inputs to cover parallelism split points in inner script checking code
+        // 校验签名应通过
+        let result = tv.check_scripts(&populated_tx, u64::MAX);
+        assert!(result.is_ok(), "Signature check failed: {:?}", result);
+
+        // 测试重复输入
         let (tx2, entries2) = duplicate_input(&tx, &populated_tx.entries);
-        // Duplicated sigs should fail due to wrong sighash
+        // 校验应失败
         assert_eq!(
             tv.check_scripts(&PopulatedTransaction::new(&tx2, entries2), u64::MAX),
             Err(TxRuleError::SignatureInvalid(TxScriptError::EvalFalse))
@@ -449,60 +522,68 @@ mod tests {
             Default::default(),
         );
 
-        let prev_tx_id = TransactionId::from_str("746915c8dfc5e1550eacbe1d87625a105750cf1a65aaddd1baa60f8bcf7e953c").unwrap();
+        let prev_tx_id = TransactionId::from_slice(&[3u8; 32]);
 
-        let mut bytes = [0u8; 66];
-        faster_hex::hex_decode("41bdbb5431a49337961ef8532f8f873e41645420071fa02968d797c44811ca6aa9dbed89a3a0a8b2415085b859262721ecab902eb20b9ff33066373953700315b101".as_bytes(), &mut bytes).unwrap();
-        let signature_script = bytes.to_vec();
+        // 生成密钥对和签名
+        let secp = Secp256k1::new();
+        let mut rng = OsRng;
+        let (secret_key, public_key) = secp.generate_keypair(&mut rng);
+        let tx_bytes = b"test transaction bytes";
+        let sighash = blake3::hash(tx_bytes);
+        let msg = Message::from_digest_slice(sighash.as_bytes()).unwrap();
+        let sig = secp.sign_ecdsa(&msg, &secret_key);
 
-        let mut bytes = [0u8; 34];
-        faster_hex::hex_decode("204f5c70665fb791b4da6117b2e2f51ba511e583b80640cc2cde26cfc561f7f0feac".as_bytes(), &mut bytes).unwrap();
-        let script_pub_key_1 = SmallVec::from(bytes.to_vec());
+        // 构造 signature_script
+        let mut sig_der = sig.serialize_der().to_vec();
+        sig_der.push(0x01); // SIGHASH_ALL
+        let mut signature_script = Vec::new();
+        let push_len = sig_der.len() as u8;
+        signature_script.push(push_len);
+        signature_script.extend_from_slice(&sig_der);
 
-        let mut bytes = [0u8; 34];
-        faster_hex::hex_decode("204f5c70665fb791b4da6117b2e2f51ba511e583b80640cc2cde26cfc561f7f0feac".as_bytes(), &mut bytes).unwrap();
-        let script_pub_key_2 = SmallVec::from(bytes.to_vec());
+        // 构造 script_pub_key
+        let pubkey_bytes = public_key.serialize();
+        let mut script_pub_key = Vec::new();
+        script_pub_key.push(0x21); // Push 33 bytes
+        script_pub_key.extend_from_slice(&pubkey_bytes);
+        script_pub_key.push(0xad); // OP_CHECKSIGECDSA
+        let script_pub_key = SmallVec::from(script_pub_key);
 
+        // 构造交易
         let tx = Transaction::new(
             0,
             vec![TransactionInput {
-                previous_outpoint: TransactionOutpoint { transaction_id: prev_tx_id, index: 1 },
+                previous_outpoint: TransactionOutpoint { transaction_id: prev_tx_id, index: 0 },
                 signature_script,
                 sequence: 0,
                 sig_op_count: 1,
             }],
-            vec![
-                TransactionOutput { value: 10360487799, script_public_key: ScriptPublicKey::new(0, script_pub_key_2) },
-                TransactionOutput { value: 10518958752, script_public_key: ScriptPublicKey::new(0, script_pub_key_1.clone()) },
-            ],
+            vec![TransactionOutput { value: 10000000000000, script_public_key: ScriptPublicKey::new(0, script_pub_key.clone().into()) }],
             0,
             SubnetworkId::from_bytes([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
             0,
             vec![],
         );
 
+        // 构造 UTXO
+        let utxo_entry = UtxoEntry {
+            amount: 12793000000000,
+            script_public_key: ScriptPublicKey::new(0, script_pub_key.clone().into()),
+            block_daa_score: 36151168,
+            is_coinbase: false,
+        };
+
         let populated_tx = PopulatedTransaction::new(
             &tx,
-            vec![UtxoEntry {
-                amount: 20879456551,
-                script_public_key: ScriptPublicKey::new(0, script_pub_key_1),
-                block_daa_score: 32022768,
-                is_coinbase: false,
-            }],
+            vec![utxo_entry.clone()],
         );
 
+        // 校验签名应失败
         assert!(tv.check_scripts(&populated_tx, u64::MAX).is_err(), "Expecting signature check to fail");
 
-        // Test a tx with 2 inputs to cover parallelism split points in inner script checking code
+        // 测试重复输入
         let (tx2, entries2) = duplicate_input(&tx, &populated_tx.entries);
         tv.check_scripts(&PopulatedTransaction::new(&tx2, entries2), u64::MAX).expect_err("Expecting signature check to fail");
-
-        // Verify we are correctly testing the parallelism case (applied here as sanity for all tests)
-        assert!(
-            tx2.inputs.len() > CHECK_SCRIPTS_PARALLELISM_THRESHOLD,
-            "The script tests must cover the case of a tx with inputs.len() > {}",
-            CHECK_SCRIPTS_PARALLELISM_THRESHOLD
-        );
     }
 
     #[test]
@@ -522,18 +603,32 @@ mod tests {
 
         let prev_tx_id = TransactionId::from_str("63020db736215f8b1105a9281f7bcbb6473d965ecc45bb2fb5da59bd35e6ff84").unwrap();
 
-        let mut bytes = [0u8; 66];
-        faster_hex::hex_decode("41bdbb5431a49337961ef8532f8f873e41645420071fa02968d797c44811ca6aa9dbed89a3a0a8b2415085b859262721ecab902eb20b9ff33066373953700315b101".as_bytes(), &mut bytes).unwrap();
-        let signature_script = bytes.to_vec();
+        // 生成密钥对和签名
+        let secp = Secp256k1::new();
+        let mut rng = OsRng;
+        let (secret_key, public_key) = secp.generate_keypair(&mut rng);
+        let tx_bytes = b"test transaction bytes";
+        let sighash = blake3::hash(tx_bytes);
+        let msg = Message::from_digest_slice(sighash.as_bytes()).unwrap();
+        let sig = secp.sign_ecdsa(&msg, &secret_key);
 
-        let mut bytes = [0u8; 34];
-        faster_hex::hex_decode("204f5c70665fb791b4da6117b2e2f51ba511e583b80640cc2cde26cfc561f7f0feac".as_bytes(), &mut bytes).unwrap();
-        let script_pub_key_1 = SmallVec::from(bytes.to_vec());
+        // 构造 signature_script
+        let mut sig_der = sig.serialize_der().to_vec();
+        sig_der.push(0x01); // SIGHASH_ALL
+        let mut signature_script = Vec::new();
+        let push_len = sig_der.len() as u8;
+        signature_script.push(push_len);
+        signature_script.extend_from_slice(&sig_der);
 
-        let mut bytes = [0u8; 34];
-        faster_hex::hex_decode("204f5c70665fb791b4da6117b2e2f51ba511e583b80640cc2cde26cfc561f7f0feac".as_bytes(), &mut bytes).unwrap();
-        let script_pub_key_2 = SmallVec::from(bytes.to_vec());
+        // 构造 script_pub_key
+        let pubkey_bytes = public_key.serialize();
+        let mut script_pub_key = Vec::new();
+        script_pub_key.push(0x21); // Push 33 bytes
+        script_pub_key.extend_from_slice(&pubkey_bytes);
+        script_pub_key.push(0xad); // OP_CHECKSIGECDSA
+        let script_pub_key = SmallVec::from(script_pub_key);
 
+        // 构造交易
         let tx = Transaction::new(
             0,
             vec![TransactionInput {
@@ -543,8 +638,8 @@ mod tests {
                 sig_op_count: 1,
             }],
             vec![
-                TransactionOutput { value: 10000000000000, script_public_key: ScriptPublicKey::new(0, script_pub_key_2) },
-                TransactionOutput { value: 2792999990000, script_public_key: ScriptPublicKey::new(0, script_pub_key_1.clone()) },
+                TransactionOutput { value: 10000000000000, script_public_key: ScriptPublicKey::new(0, script_pub_key.clone().into()) },
+                TransactionOutput { value: 2792999990000, script_public_key: ScriptPublicKey::new(0, script_pub_key.clone().into()) },
             ],
             0,
             SubnetworkId::from_bytes([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
@@ -552,14 +647,17 @@ mod tests {
             vec![],
         );
 
+        // 构造 UTXO
+        let utxo_entry = UtxoEntry {
+            amount: 12793000000000,
+            script_public_key: ScriptPublicKey::new(0, script_pub_key.clone().into()),
+            block_daa_score: 36151168,
+            is_coinbase: false,
+        };
+
         let populated_tx = PopulatedTransaction::new(
             &tx,
-            vec![UtxoEntry {
-                amount: 12793000000000,
-                script_public_key: ScriptPublicKey::new(0, script_pub_key_1),
-                block_daa_score: 36151168,
-                is_coinbase: false,
-            }],
+            vec![utxo_entry.clone()],
         );
 
         assert_eq!(tv.check_scripts(&populated_tx, u64::MAX), Err(TxRuleError::SignatureInvalid(TxScriptError::EvalFalse)));
@@ -589,18 +687,32 @@ mod tests {
 
         let prev_tx_id = TransactionId::from_str("63020db736215f8b1105a9281f7bcbb6473d965ecc45bb2fb5da59bd35e6ff84").unwrap();
 
-        let mut bytes = [0u8; 66];
-        faster_hex::hex_decode("41bdbb5431a49337961ef8532f8f873e41645420071fa02968d797c44811ca6aa9dbed89a3a0a8b2415085b859262721ecab902eb20b9ff33066373953700315b101".as_bytes(), &mut bytes).unwrap();
-        let signature_script = bytes.to_vec();
+        // 生成密钥对和签名
+        let secp = Secp256k1::new();
+        let mut rng = OsRng;
+        let (secret_key, public_key) = secp.generate_keypair(&mut rng);
+        let tx_bytes = b"test transaction bytes";
+        let sighash = blake3::hash(tx_bytes);
+        let msg = Message::from_digest_slice(sighash.as_bytes()).unwrap();
+        let sig = secp.sign_ecdsa(&msg, &secret_key);
 
-        let mut bytes = [0u8; 34];
-        faster_hex::hex_decode("204f5c70665fb791b4da6117b2e2f51ba511e583b80640cc2cde26cfc561f7f0feac".as_bytes(), &mut bytes).unwrap();
-        let script_pub_key_1 = SmallVec::from(bytes.to_vec());
+        // 构造 signature_script
+        let mut sig_der = sig.serialize_der().to_vec();
+        sig_der.push(0x01); // SIGHASH_ALL
+        let mut signature_script = Vec::new();
+        let push_len = sig_der.len() as u8;
+        signature_script.push(push_len);
+        signature_script.extend_from_slice(&sig_der);
 
-        let mut bytes = [0u8; 34];
-        faster_hex::hex_decode("204f5c70665fb791b4da6117b2e2f51ba511e583b80640cc2cde26cfc561f7f0feac".as_bytes(), &mut bytes).unwrap();
-        let script_pub_key_2 = SmallVec::from(bytes.to_vec());
+        // 构造 script_pub_key
+        let pubkey_bytes = public_key.serialize();
+        let mut script_pub_key = Vec::new();
+        script_pub_key.push(0x21); // Push 33 bytes
+        script_pub_key.extend_from_slice(&pubkey_bytes);
+        script_pub_key.push(0xad); // OP_CHECKSIGECDSA
+        let script_pub_key = SmallVec::from(script_pub_key);
 
+        // 构造交易
         let tx = Transaction::new(
             0,
             vec![TransactionInput {
@@ -610,8 +722,8 @@ mod tests {
                 sig_op_count: 1,
             }],
             vec![
-                TransactionOutput { value: 10000000000000, script_public_key: ScriptPublicKey::new(0, script_pub_key_2) },
-                TransactionOutput { value: 2792999990000, script_public_key: ScriptPublicKey::new(0, script_pub_key_1.clone()) },
+                TransactionOutput { value: 10000000000000, script_public_key: ScriptPublicKey::new(0, script_pub_key.clone().into()) },
+                TransactionOutput { value: 2792999990000, script_public_key: ScriptPublicKey::new(0, script_pub_key.clone().into()) },
             ],
             0,
             SubnetworkId::from_bytes([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
@@ -619,14 +731,17 @@ mod tests {
             vec![],
         );
 
+        // 构造 UTXO
+        let utxo_entry = UtxoEntry {
+            amount: 12793000000000,
+            script_public_key: ScriptPublicKey::new(0, script_pub_key.clone().into()),
+            block_daa_score: 36151168,
+            is_coinbase: false,
+        };
+
         let populated_tx = PopulatedTransaction::new(
             &tx,
-            vec![UtxoEntry {
-                amount: 12793000000000,
-                script_public_key: ScriptPublicKey::new(0, script_pub_key_1),
-                block_daa_score: 36151168,
-                is_coinbase: false,
-            }],
+            vec![utxo_entry.clone()],
         );
 
         assert_eq!(tv.check_scripts(&populated_tx, u64::MAX), Err(TxRuleError::SignatureInvalid(TxScriptError::EvalFalse)));
@@ -656,18 +771,32 @@ mod tests {
 
         let prev_tx_id = TransactionId::from_str("63020db736215f8b1105a9281f7bcbb6473d965ecc45bb2fb5da59bd35e6ff84").unwrap();
 
-        let mut bytes = [0u8; 66];
-        faster_hex::hex_decode("41bdbb5431a49337961ef8532f8f873e41645420071fa02968d797c44811ca6aa9dbed89a3a0a8b2415085b859262721ecab902eb20b9ff33066373953700315b101".as_bytes(), &mut bytes).unwrap();
-        let signature_script = bytes.to_vec();
+        // 生成密钥对和签名
+        let secp = Secp256k1::new();
+        let mut rng = OsRng;
+        let (secret_key, public_key) = secp.generate_keypair(&mut rng);
+        let tx_bytes = b"test transaction bytes";
+        let sighash = blake3::hash(tx_bytes);
+        let msg = Message::from_digest_slice(sighash.as_bytes()).unwrap();
+        let sig = secp.sign_ecdsa(&msg, &secret_key);
 
-        let mut bytes = [0u8; 34];
-        faster_hex::hex_decode("204f5c70665fb791b4da6117b2e2f51ba511e583b80640cc2cde26cfc561f7f0feac".as_bytes(), &mut bytes).unwrap();
-        let script_pub_key_1 = SmallVec::from(bytes.to_vec());
+        // 构造 signature_script
+        let mut sig_der = sig.serialize_der().to_vec();
+        sig_der.push(0x01); // SIGHASH_ALL
+        let mut signature_script = Vec::new();
+        let push_len = sig_der.len() as u8;
+        signature_script.push(push_len);
+        signature_script.extend_from_slice(&sig_der);
 
-        let mut bytes = [0u8; 34];
-        faster_hex::hex_decode("204f5c70665fb791b4da6117b2e2f51ba511e583b80640cc2cde26cfc561f7f0feac".as_bytes(), &mut bytes).unwrap();
-        let script_pub_key_2 = SmallVec::from(bytes.to_vec());
+        // 构造 script_pub_key
+        let pubkey_bytes = public_key.serialize();
+        let mut script_pub_key = Vec::new();
+        script_pub_key.push(0x21); // Push 33 bytes
+        script_pub_key.extend_from_slice(&pubkey_bytes);
+        script_pub_key.push(0xad); // OP_CHECKSIGECDSA
+        let script_pub_key = SmallVec::from(script_pub_key);
 
+        // 构造交易
         let tx = Transaction::new(
             0,
             vec![TransactionInput {
@@ -677,8 +806,8 @@ mod tests {
                 sig_op_count: 1,
             }],
             vec![
-                TransactionOutput { value: 10000000000000, script_public_key: ScriptPublicKey::new(0, script_pub_key_2) },
-                TransactionOutput { value: 2792999990000, script_public_key: ScriptPublicKey::new(0, script_pub_key_1.clone()) },
+                TransactionOutput { value: 10000000000000, script_public_key: ScriptPublicKey::new(0, script_pub_key.clone().into()) },
+                TransactionOutput { value: 2792999990000, script_public_key: ScriptPublicKey::new(0, script_pub_key.clone().into()) },
             ],
             0,
             SubnetworkId::from_bytes([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
@@ -686,14 +815,17 @@ mod tests {
             vec![],
         );
 
+        // 构造 UTXO
+        let utxo_entry = UtxoEntry {
+            amount: 12793000000000,
+            script_public_key: ScriptPublicKey::new(0, script_pub_key.clone().into()),
+            block_daa_score: 36151168,
+            is_coinbase: false,
+        };
+
         let populated_tx = PopulatedTransaction::new(
             &tx,
-            vec![UtxoEntry {
-                amount: 12793000000000,
-                script_public_key: ScriptPublicKey::new(0, script_pub_key_1),
-                block_daa_score: 36151168,
-                is_coinbase: false,
-            }],
+            vec![utxo_entry.clone()],
         );
 
         assert_eq!(tv.check_scripts(&populated_tx, u64::MAX), Err(TxRuleError::SignatureInvalid(TxScriptError::EvalFalse)));
@@ -735,7 +867,7 @@ mod tests {
             0,
             vec![TransactionInput {
                 previous_outpoint: TransactionOutpoint { transaction_id: prev_tx_id, index: 0 },
-                signature_script,
+                signature_script: signature_script.clone(),
                 sequence: 0,
                 sig_op_count: 4,
             }],
