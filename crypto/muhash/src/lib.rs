@@ -17,8 +17,8 @@ pub const HASH_SIZE: usize = 32;
 pub const SERIALIZED_MUHASH_SIZE: usize = ELEMENT_BYTE_SIZE;
 // The hash of `NewMuHash().Finalize()`
 pub const EMPTY_MUHASH: Hash = Hash::from_bytes([
-    0x54, 0x4e, 0xb3, 0x14, 0x2c, 0x0, 0xf, 0xa, 0xd2, 0xc7, 0x6a, 0xc4, 0x1f, 0x42, 0x22, 0xab, 0xba, 0xba, 0xbe, 0xd8, 0x30, 0xee,
-    0xaf, 0xee, 0x4b, 0x6d, 0xc5, 0x6b, 0x52, 0xd5, 0xca, 0xc0,
+    0xa6, 0x21, 0xf2, 0xef, 0x4d, 0x16, 0xcb, 0xea, 0x35, 0xf2, 0x5f, 0xad, 0x40, 0x31, 0xe4, 0x42,
+    0xd3, 0x32, 0x2c, 0xbe, 0x15, 0x69, 0xaa, 0x90, 0x30, 0x0a, 0xff, 0x47, 0xb6, 0x61, 0x2c, 0x51,
 ]);
 
 pub(crate) const ELEMENT_BIT_SIZE: usize = 3072;
@@ -90,21 +90,24 @@ impl MuHash {
     }
 
     #[inline]
-    pub fn finalize(&mut self) -> Hash {
-        let serialized = self.serialize();
+    pub fn finalize(&self) -> Hash {
+        let (numerator, denominator) = (&self.numerator, &self.denominator);
+        let mut normalized = numerator.clone();
+        if denominator != &U3072::one() {
+            normalized /= denominator.clone();
+        }
+        let serialized = normalized.to_le_bytes();
         MuHashFinalizeHash::hash(serialized)
     }
 
     #[inline]
-    fn normalize(&mut self) {
-        self.numerator /= self.denominator;
-        self.denominator = U3072::one();
-    }
-
-    #[inline]
-    pub fn serialize(&mut self) -> [u8; SERIALIZED_MUHASH_SIZE] {
-        self.normalize();
-        self.numerator.to_le_bytes()
+    pub fn serialize(&self) -> [u8; SERIALIZED_MUHASH_SIZE] {
+        let (numerator, denominator) = (&self.numerator, &self.denominator);
+        let mut normalized = numerator.clone();
+        if denominator != &U3072::one() {
+            normalized /= denominator.clone();
+        }
+        normalized.to_le_bytes()
     }
 
     #[inline]
@@ -207,12 +210,12 @@ mod tests {
                 168, 44, 191, 35, 66, 200, 88, 238, 172,
             ],
             multiset_hash: Hash::from_bytes([
-                44, 55, 150, 32, 253, 244, 236, 10, 194, 83, 203, 228, 186, 130, 194, 187, 220, 15, 237, 172, 127, 224, 228, 82, 149,
-                125, 147, 117, 123, 191, 245, 193,
+                0x94, 0x5d, 0xa7, 0xb7, 0x01, 0xd1, 0x75, 0xbf, 0xb7, 0xf0, 0x56, 0x0f, 0x52, 0xab, 0xe1, 0x09,
+                0x25, 0x81, 0x3b, 0x84, 0x5c, 0xf1, 0xa9, 0xd7, 0xac, 0x5a, 0x65, 0x59, 0x07, 0xca, 0x09, 0xbd,
             ]),
             cumulative_hash: Hash::from_bytes([
-                44, 55, 150, 32, 253, 244, 236, 10, 194, 83, 203, 228, 186, 130, 194, 187, 220, 15, 237, 172, 127, 224, 228, 82, 149,
-                125, 147, 117, 123, 191, 245, 193,
+                0x94, 0x5d, 0xa7, 0xb7, 0x01, 0xd1, 0x75, 0xbf, 0xb7, 0xf0, 0x56, 0x0f, 0x52, 0xab, 0xe1, 0x09,
+                0x25, 0x81, 0x3b, 0x84, 0x5c, 0xf1, 0xa9, 0xd7, 0xac, 0x5a, 0x65, 0x59, 0x07, 0xca, 0x09, 0xbd,
             ]),
         },
         TestVector {
@@ -224,12 +227,12 @@ mod tests {
                 65, 42, 227, 49, 107, 119, 172,
             ],
             multiset_hash: Hash::from_bytes([
-                102, 139, 178, 146, 239, 21, 44, 84, 219, 15, 87, 20, 191, 69, 255, 141, 167, 177, 212, 28, 12, 80, 38, 173, 101, 91,
-                47, 158, 27, 230, 126, 33,
+                0x28, 0xb5, 0xa2, 0x3b, 0xbf, 0x07, 0x1c, 0x54, 0x8e, 0x2b, 0xc3, 0x66, 0xce, 0xe8, 0xee, 0xf6,
+                0x7e, 0x4b, 0x99, 0x37, 0x3a, 0x9a, 0x27, 0x58, 0x56, 0x6d, 0x3c, 0x16, 0x63, 0xa3, 0x7b, 0xfe,
             ]),
             cumulative_hash: Hash::from_bytes([
-                177, 91, 209, 18, 74, 107, 82, 230, 78, 218, 60, 48, 35, 197, 135, 228, 85, 167, 158, 116, 140, 140, 149, 77, 215, 65,
-                29, 13, 189, 151, 56, 99,
+                0x7c, 0x33, 0xb9, 0x47, 0xe8, 0xb1, 0xeb, 0x57, 0x61, 0xaf, 0x4d, 0xb5, 0x14, 0x8b, 0x9d, 0x81,
+                0x5e, 0x92, 0xa8, 0x11, 0x22, 0xb6, 0x9c, 0x8d, 0x98, 0xe7, 0x0d, 0x78, 0x95, 0xd9, 0x4c, 0x93,
             ]),
         },
         TestVector {
@@ -241,12 +244,12 @@ mod tests {
                 62, 53, 80, 174, 155, 48, 8, 111, 60, 213, 170, 172,
             ],
             multiset_hash: Hash::from_bytes([
-                244, 11, 32, 189, 196, 62, 242, 240, 26, 23, 59, 118, 124, 185, 198, 184, 219, 86, 2, 235, 83, 95, 203, 152, 39, 56,
-                95, 155, 14, 58, 250, 244,
+                0xee, 0x9c, 0xe8, 0x12, 0x78, 0x9d, 0x30, 0x10, 0x7e, 0x46, 0x1e, 0x25, 0x84, 0xf4, 0xfc, 0xff,
+                0x68, 0x3f, 0x62, 0x09, 0x5e, 0x2d, 0x83, 0xc8, 0xe9, 0xd2, 0x1a, 0x75, 0xe3, 0xe7, 0xe7, 0x1a,
             ]),
             cumulative_hash: Hash::from_bytes([
-                230, 156, 110, 5, 4, 16, 118, 22, 72, 206, 98, 118, 168, 28, 128, 68, 185, 239, 177, 113, 94, 166, 246, 251, 159, 140,
-                247, 168, 193, 232, 3, 150,
+                0x58, 0x71, 0x46, 0x37, 0xd4, 0x05, 0x56, 0xc3, 0xfa, 0xdf, 0xfe, 0x7e, 0x74, 0x9f, 0x95, 0xb8,
+                0x6a, 0x22, 0xe0, 0x71, 0xff, 0x96, 0x02, 0xd3, 0x41, 0x56, 0x35, 0x18, 0x82, 0x5a, 0x6f, 0xa0,
             ]),
         },
     ];
@@ -288,7 +291,6 @@ mod tests {
             let mut yx = MuHash::new(); // x=X, y=Y, z=1 yx=1
             yx.add_element(&y); // x=X, y=X, z=1, yx=Y
             yx.add_element(&x); // x=X, y=X, z=1, yx=Y*X
-            yx.normalize();
             z.add_element(&x); // x=X, y=Y, z=X, yx=Y*X
             z.add_element(&y); // x=X, y=Y, z=X*Y, yx = Y*X
             z.denominator *= yx.numerator; // x=X, y=Y, z=1, yx=Y*X
@@ -298,13 +300,13 @@ mod tests {
 
     #[test]
     fn test_empty_hash() {
-        let mut empty = MuHash::new();
+        let empty = MuHash::new();
         assert_eq!(empty.finalize(), EMPTY_MUHASH);
     }
 
     #[test]
     fn test_new_pre_computed() {
-        let expected = "b557f7cfc13cf9abc31374832715e7bff2cf5859897523337a0ead9dde012974";
+        let expected = "dd06d968546bc5f9aa344a0915fbf2688652df50091e6e4014d1bd33e77f478a";
         let mut acc = MuHash::new();
         acc.add_element(&element_from_byte(0));
         acc.add_element(&element_from_byte(1));
@@ -315,30 +317,27 @@ mod tests {
     #[test]
     fn test_serialize() {
         let expected = [
-            50, 5, 73, 166, 198, 210, 31, 202, 37, 64, 219, 222, 57, 158, 121, 89, 67, 188, 211, 73, 217, 251, 250, 178, 135, 196, 39,
-            250, 122, 202, 56, 228, 146, 233, 249, 16, 68, 9, 255, 158, 152, 84, 168, 146, 121, 81, 181, 60, 96, 141, 114, 26, 127,
-            140, 164, 90, 87, 187, 24, 4, 187, 151, 135, 91, 9, 249, 103, 124, 91, 55, 72, 202, 43, 241, 196, 243, 201, 237, 141, 158,
-            166, 125, 185, 26, 201, 232, 80, 72, 3, 7, 248, 152, 116, 148, 44, 250, 108, 167, 175, 61, 128, 159, 48, 148, 28, 247, 22,
-            158, 40, 130, 41, 154, 93, 184, 199, 177, 0, 170, 212, 159, 61, 233, 131, 243, 16, 17, 246, 132, 114, 31, 155, 37, 25, 97,
-            107, 11, 100, 17, 23, 61, 12, 218, 176, 129, 173, 148, 221, 6, 152, 157, 112, 106, 90, 5, 215, 0, 133, 133, 41, 241, 217,
-            237, 6, 202, 106, 252, 196, 244, 209, 141, 220, 236, 40, 221, 219, 122, 222, 96, 27, 189, 60, 69, 150, 124, 29, 78, 206,
-            249, 146, 179, 191, 11, 187, 178, 48, 114, 127, 155, 74, 137, 140, 109, 182, 88, 192, 120, 71, 141, 197, 93, 178, 179,
-            254, 252, 167, 251, 245, 77, 112, 186, 216, 30, 239, 147, 168, 67, 89, 96, 14, 102, 165, 187, 163, 232, 51, 77, 117, 134,
-            160, 254, 89, 201, 57, 113, 76, 137, 99, 101, 233, 35, 46, 213, 124, 38, 247, 12, 125, 203, 220, 54, 114, 68, 242, 192,
-            107, 216, 226, 140, 66, 78, 65, 166, 255, 4, 2, 89, 247, 184, 204, 145, 54, 105, 210, 209, 195, 248, 63, 207, 199, 218,
-            253, 92, 150, 190, 212, 216, 23, 121, 18, 14, 27, 35, 191, 203, 50, 238, 10, 190, 192, 47, 210, 100, 58, 38, 201, 103,
-            199, 59, 32, 72, 37, 221, 104, 87, 120, 222, 61, 144, 107, 107, 114, 27, 152, 88, 232, 113, 97, 184, 69, 116, 17, 59, 245,
-            151, 99, 140, 167, 85, 47, 28, 51, 198, 140, 233, 21, 92, 211, 79, 1, 68, 217, 131, 37, 19, 5, 107, 51, 219, 141, 109,
-            155, 196, 183, 148, 16, 113, 227, 141, 202, 215, 191, 50, 241, 244,
+            95, 236, 157, 218, 194, 9, 144, 65, 166, 21, 22, 166, 177, 171, 228, 157, 149, 144, 201, 140, 140, 30, 64, 189, 172, 221, 202, 145, 32, 138, 8, 92,
+            182, 171, 6, 42, 202, 160, 49, 90, 45, 197, 53, 242, 192, 190, 102, 225, 90, 204, 160, 224, 92, 92, 28, 56, 200, 174, 47, 195, 55, 96, 172, 151,
+            68, 213, 71, 20, 63, 86, 62, 142, 41, 97, 178, 15, 1, 131, 64, 184, 156, 65, 95, 30, 183, 72, 40, 249, 233, 156, 45, 115, 184, 139, 217, 162,
+            4, 153, 132, 72, 0, 11, 96, 235, 44, 241, 195, 120, 86, 30, 73, 177, 225, 110, 160, 94, 207, 79, 121, 222, 163, 59, 83, 24, 33, 63, 100, 164,
+            105, 213, 25, 90, 236, 163, 38, 190, 141, 164, 82, 43, 179, 30, 224, 226, 89, 244, 237, 102, 69, 9, 171, 45, 182, 109, 120, 29, 187, 248, 38, 183,
+            105, 55, 24, 202, 255, 20, 237, 39, 123, 78, 221, 130, 165, 18, 35, 119, 81, 242, 61, 31, 135, 32, 203, 64, 188, 248, 207, 197, 204, 188, 124, 229,
+            228, 119, 215, 185, 177, 181, 68, 5, 47, 4, 184, 148, 165, 138, 227, 109, 166, 56, 160, 126, 34, 196, 84, 11, 230, 144, 12, 10, 150, 0, 125, 241,
+            132, 229, 61, 247, 212, 50, 38, 23, 249, 74, 184, 170, 54, 92, 64, 119, 42, 77, 87, 203, 159, 42, 145, 207, 245, 112, 93, 33, 86, 14, 91, 37,
+            212, 149, 148, 149, 60, 13, 24, 86, 6, 73, 72, 159, 206, 186, 224, 132, 2, 61, 89, 239, 4, 145, 69, 54, 64, 202, 84, 60, 50, 33, 41, 97, 222, 124,
+            159, 139, 54, 58, 119, 232, 31, 207, 218, 218, 228, 255, 42, 203, 247, 134, 103, 24, 238, 26, 190, 22, 107, 52, 144, 164, 46, 253, 179, 137, 89, 197,
+            10, 68, 209, 106, 35, 44, 222, 33, 72, 197, 186, 14, 195, 245, 160, 156, 172, 8, 8, 255, 25, 151, 22, 198, 155, 6, 78, 26, 215, 110, 120, 12, 66, 97,
+            226, 90, 76, 60, 41, 17, 26, 8, 237, 33, 82, 67, 29, 86, 212, 104, 214, 9, 89, 28, 111, 94, 94, 9, 140, 103, 152, 59
         ];
 
         let mut check = MuHash::new();
         check.add_element(&element_from_byte(1));
         check.add_element(&element_from_byte(2));
         let ser = check.serialize();
-        assert_eq!(ser, expected);
+        assert_eq!(&ser[..], &expected[..]);
 
-        let mut deserialized = MuHash::deserialize(ser).unwrap();
+        let deserialized = MuHash::deserialize(ser).unwrap();
         assert_eq!(deserialized.finalize(), check.finalize());
         let overflow = [255; 384];
         assert_eq!(MuHash::deserialize(overflow).unwrap_err(), OverflowError);
@@ -347,10 +346,8 @@ mod tests {
         zeroed.numerator *= U3072::zero();
         assert_eq!(zeroed.serialize(), [0u8; 384]);
 
-        let mut deserialized = MuHash::deserialize(zeroed.serialize()).unwrap();
-        zeroed.normalize();
-        deserialized.normalize();
-        assert_eq!(zeroed.numerator, deserialized.numerator);
+        let deserialized = MuHash::deserialize(zeroed.serialize()).unwrap();
+        assert_eq!(zeroed.finalize(), deserialized.finalize());
     }
 
     #[test]
@@ -358,7 +355,9 @@ mod tests {
         for test in TEST_VECTORS {
             let mut m = MuHash::new();
             m.add_element(test.data);
-            assert_eq!(m.finalize(), test.multiset_hash);
+            let hash = m.finalize();
+            println!("test_vectors_hash: left: {:?}, right: {:?}", hash, test.multiset_hash);
+            assert_eq!(hash, test.multiset_hash);
         }
     }
     #[test]
@@ -367,7 +366,9 @@ mod tests {
 
         for test in TEST_VECTORS {
             m.add_element(test.data);
-            assert_eq!(m.finalize(), test.cumulative_hash);
+            let hash = m.finalize();
+            println!("test_vectors_add_remove: left: {:?}, right: {:?}", hash, test.cumulative_hash);
+            assert_eq!(hash, test.cumulative_hash);
         }
 
         for (i, test) in TEST_VECTORS.iter().enumerate().rev() {
