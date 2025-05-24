@@ -55,6 +55,6 @@ fn write_utxo(writer: &mut impl HasherBase, entry: &UtxoEntry, outpoint: &Transa
         .update(entry.block_daa_score.to_le_bytes())
         .update(entry.amount.to_le_bytes())
         .write_bool(entry.is_coinbase)
-        .update(entry.script_public_key.version().to_le_bytes())
+        .update(entry.script_public_key.version().to_be_bytes())
         .write_var_bytes(entry.script_public_key.script());
 }

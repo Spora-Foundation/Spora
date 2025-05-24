@@ -2,13 +2,15 @@ use std::{collections::HashMap, fmt::Display};
 
 use crate::{
     constants,
-    errors::{coinbase::CoinbaseError, tx::TxRuleError},
+    errors::{coinbase::CoinbaseError, tx::TxRuleError, utxo::UtxoAlgebraError},
     tx::{TransactionId, TransactionOutpoint},
     BlueWorkType,
+    utxo::utxo_error::UtxoAlgebraError as CoreUtxoAlgebraError,
 };
 use itertools::Itertools;
 use thiserror::Error;
 use tondi_hashes::Hash;
+use tondi_database::prelude::StoreError;
 
 #[derive(Clone, Debug)]
 pub struct VecDisplay<T: Display>(pub Vec<T>);
@@ -157,6 +159,27 @@ pub enum RuleError {
     /// Currently this error is never created because it is impossible to submit such a block
     #[error("cannot add block body to a pruned block")]
     PrunedBlock,
+
+    #[error("store error: {0}")]
+    Store(String),
+
+    #[error("utxo algebra error: {0}")]
+    UtxoAlgebra(UtxoAlgebraError),
+
+    #[error("unexpected pruning point")]
+    UnexpectedPruningPoint,
+}
+
+impl From<StoreError> for RuleError {
+    fn from(err: StoreError) -> Self {
+        RuleError::Store(err.to_string())
+    }
+}
+
+impl From<CoreUtxoAlgebraError> for RuleError {
+    fn from(err: CoreUtxoAlgebraError) -> Self {
+        RuleError::UtxoAlgebra(UtxoAlgebraError::Core(err.to_string()))
+    }
 }
 
 pub type BlockProcessResult<T> = std::result::Result<T, RuleError>;

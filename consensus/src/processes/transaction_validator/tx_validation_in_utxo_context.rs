@@ -1,24 +1,33 @@
 use tondi_consensus_core::{
     constants::{MAX_SOMPI, SEQUENCE_LOCK_TIME_DISABLED, SEQUENCE_LOCK_TIME_MASK},
-    errors::tx::{TxRuleError, TxResult},
-    subnets::SUBNETWORK_ID_NATIVE,
-    tx::{
-        MutableTransaction, PopulatedTransaction, ScriptPublicKey, ScriptVec, Transaction, TransactionId, TransactionInput,
-        TransactionOutpoint, TransactionOutput, UtxoEntry, VerifiableTransaction,
-    },
+    errors::tx::TxRuleError,
     hashing::sighash::{SigHashReusedValuesSync, SigHashReusedValuesUnsync},
-    sign::sign,
-    config::params::MAINNET_PARAMS,
+    tx::{TransactionInput, VerifiableTransaction},
 };
-use tondi_txscript::{caches::Cache, get_sig_op_count_upper_bound, SigCacheKey, TxScriptEngine};
+
+use tondi_txscript::{
+    caches::Cache,
+    get_sig_op_count_upper_bound,
+    SigCacheKey,
+    TxScriptEngine,
+};
 use tondi_txscript_errors::TxScriptError;
-use rayon::iter::{IntoParallelIterator, ParallelIterator};
-use rayon::ThreadPool;
-use std::marker::Sync;
-use itertools::Itertools;
-use std::{error::Error, iter::once, str::FromStr};
-use secp256k1::{Secp256k1, Keypair, SecretKey};
-use crate::processes::transaction_validator::TransactionValidator;
+use rayon::{iter::{IntoParallelIterator, ParallelIterator}, ThreadPool};
+
+use crate::processes::transaction_validator::{errors::TxResult, TransactionValidator};
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum TxValidationFlags {
+    /// Perform full validation including script verification
+    Full,
+
+    /// Perform fee and sequence/maturity validations but skip script checks. This is usually
+    /// an optimization to be applied when it is known that scripts were already checked
+    SkipScriptChecks,
+
+    /// When validating mempool transactions, we just set this value ourselves
+    SkipMassCheck,
+}
 
 /// The threshold above which we apply parallelism to input script processing
 pub const CHECK_SCRIPTS_PARALLELISM_THRESHOLD: usize = 100;
@@ -34,19 +43,6 @@ impl TransactionValidatorInUtxoContext for TransactionValidator {
         self.validate_populated_transaction_and_get_fee(tx, u64::MAX, u64::MAX, TxValidationFlags::Full, None)?;
         Ok(())
     }
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum TxValidationFlags {
-    /// Perform full validation including script verification
-    Full,
-
-    /// Perform fee and sequence/maturity validations but skip script checks. This is usually
-    /// an optimization to be applied when it is known that scripts were already checked
-    SkipScriptChecks,
-
-    /// When validating mempool transactions, we just set this value ourselves
-    SkipMassCheck,
 }
 
 impl TransactionValidator {

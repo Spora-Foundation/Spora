@@ -1,3 +1,5 @@
+use tondi_core::error;
+
 pub mod cache_policy_builder;
 pub mod ctl;
 pub mod factory;
@@ -373,7 +375,14 @@ impl Consensus {
         vec![
             thread::Builder::new().name("header-processor".to_string()).spawn(move || header_processor.worker()).unwrap(),
             thread::Builder::new().name("body-processor".to_string()).spawn(move || body_processor.worker()).unwrap(),
-            thread::Builder::new().name("virtual-processor".to_string()).spawn(move || virtual_processor.worker()).unwrap(),
+            thread::Builder::new()
+                .name("virtual-processor".to_string())
+                .spawn(move || {
+                    if let Err(e) = virtual_processor.worker() {
+                        error!("Virtual processor error: {}", e);
+                    }
+                })
+                .unwrap(),
             thread::Builder::new().name("pruning-processor".to_string()).spawn(move || pruning_processor.worker()).unwrap(),
         ]
     }

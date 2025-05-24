@@ -26,6 +26,7 @@ itertools.workspace = true
 js-sys.workspace = true
 tondi-addresses.workspace = true
 tondi-core.workspace = true
+tondi-database.workspace = true
 tondi-hashes.workspace = true
 tondi-math.workspace = true
 tondi-merkle.workspace = true
