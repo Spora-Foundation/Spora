@@ -43,7 +43,10 @@ impl DbUtxoMultisetsStore {
     }
 
     pub fn set_batch(&self, batch: &mut WriteBatch, hash: Hash, multiset: MuHash) -> Result<(), StoreError> {
-        self.access.write(BatchDbWriter::new(batch), hash, multiset.try_into().expect("multiset is expected to be finalized"))?;
+        let normalized = multiset.finalize();
+        let mut normalized_muhash = MuHash::new();
+        normalized_muhash.add_element(&normalized.as_bytes());
+        self.access.write(BatchDbWriter::new(batch), hash, normalized_muhash.try_into().expect("multiset is expected to be finalized"))?;
         Ok(())
     }
 
@@ -63,7 +66,10 @@ impl UtxoMultisetsStore for DbUtxoMultisetsStore {
         if self.access.has(hash)? {
             return Err(StoreError::HashAlreadyExists(hash));
         }
-        self.access.write(DirectDbWriter::new(&self.db), hash, multiset.try_into().expect("multiset is expected to be finalized"))?;
+        let normalized = multiset.finalize();
+        let mut normalized_muhash = MuHash::new();
+        normalized_muhash.add_element(&normalized.as_bytes());
+        self.access.write(DirectDbWriter::new(&self.db), hash, normalized_muhash.try_into().expect("multiset is expected to be finalized"))?;
         Ok(())
     }
 
