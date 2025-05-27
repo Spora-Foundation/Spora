@@ -4,6 +4,7 @@ use crate::{
 };
 use tondi_hashes::HasherBase;
 use tondi_muhash::MuHash;
+use workflow_log::log_debug;
 
 pub trait MuHashExtensions {
     fn add_transaction(&mut self, tx: &impl VerifiableTransaction, block_daa_score: u64);
@@ -15,15 +16,22 @@ pub trait MuHashExtensions {
 impl MuHashExtensions for MuHash {
     fn add_transaction(&mut self, tx: &impl VerifiableTransaction, block_daa_score: u64) {
         let tx_id = tx.id();
+        log_debug!("[MuHash] Adding transaction {} to multiset", tx_id);
+        
         for (input, entry) in tx.populated_inputs() {
             let mut writer = self.remove_element_builder();
             write_utxo(&mut writer, entry, &input.previous_outpoint);
             writer.finalize();
+            log_debug!("[MuHash] Removed UTXO from multiset - Outpoint: {}, Amount: {}", 
+                input.previous_outpoint, entry.amount);
         }
+        
         for (i, output) in tx.outputs().iter().enumerate() {
             let outpoint = TransactionOutpoint::new(tx_id, i as u32);
             let entry = UtxoEntry::new(output.value, output.script_public_key.clone(), block_daa_score, tx.is_coinbase());
             self.add_utxo(&outpoint, &entry);
+            log_debug!("[MuHash] Added UTXO to multiset - Outpoint: {}, Amount: {}", 
+                outpoint, output.value);
         }
     }
 
@@ -31,6 +39,8 @@ impl MuHashExtensions for MuHash {
         let mut writer = self.add_element_builder();
         write_utxo(&mut writer, entry, outpoint);
         writer.finalize();
+        log_debug!("[MuHash] Added UTXO to multiset - Outpoint: {}, Amount: {}", 
+            outpoint, entry.amount);
     }
 
     fn from_transaction(tx: &impl VerifiableTransaction, block_daa_score: u64) -> Self {

@@ -111,6 +111,7 @@ tondi-muhash = { version = "0.17.0", path = "crypto/muhash" }
 tondi-notify = { version = "0.17.0", path = "notify" }
 tondi-p2p-flows = { version = "0.17.0", path = "protocol/flows" }
 tondi-p2p-lib = { version = "0.17.0", path = "protocol/p2p" }
+tondi-p2p-mining = { version = "0.17.0", path = "protocol/mining" }
 tondi-perf-monitor = { version = "0.17.0", path = "metrics/perf_monitor" }
 tondi-pow = { version = "0.17.0", path = "consensus/pow" }
 tondi-rpc-core = { version = "0.17.0", path = "rpc/core" }

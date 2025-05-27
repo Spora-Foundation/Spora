@@ -1,5 +1,3 @@
-use tondi_core::error;
-
 pub mod cache_policy_builder;
 pub mod ctl;
 pub mod factory;
@@ -67,6 +65,7 @@ use tondi_consensus_core::{
     header::Header,
     mass::{ContextualMasses, NonContextualMasses},
     merkle::calc_hash_merkle_root,
+    mining_rules::MiningRules,
     muhash::MuHashExtensions,
     network::NetworkType,
     pruning::{PruningPointProof, PruningPointTrustedData, PruningPointsList, PruningProofMetadata},
@@ -83,11 +82,11 @@ use crossbeam_channel::{
 use itertools::Itertools;
 use tondi_consensusmanager::{SessionLock, SessionReadGuard};
 
-use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use tondi_database::prelude::{StoreResultEmptyTuple, StoreResultExtensions};
 use tondi_hashes::Hash;
 use tondi_muhash::MuHash;
 use tondi_txscript::caches::TxScriptCacheCounters;
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 
 use std::{
     cmp::Reverse,
@@ -164,6 +163,7 @@ impl Consensus {
         counters: Arc<ProcessingCounters>,
         tx_script_cache_counters: Arc<TxScriptCacheCounters>,
         creation_timestamp: u64,
+        mining_rules: Arc<MiningRules>,
     ) -> Self {
         let params = &config.params;
         let perf_params = &config.perf;
@@ -268,6 +268,7 @@ impl Consensus {
             pruning_lock.clone(),
             notification_root.clone(),
             counters.clone(),
+            mining_rules,
         ));
 
         let pruning_processor = Arc::new(PruningProcessor::new(
@@ -309,11 +310,37 @@ impl Consensus {
             is_consensus_exiting,
         };
 
-        // TODO (post HF): remove the upgrade
-        // Database upgrade to include pruning samples
-        this.pruning_samples_database_upgrade();
+        // Run database upgrades if any
+        this.run_database_upgrades();
 
         this
+    }
+
+    /// A procedure for calling database upgrades which are self-contained (i.e., do not require knowing the DB version)
+    fn run_database_upgrades(&self) {
+        // Upgrade to initialize the new retention root field correctly
+        self.retention_root_database_upgrade();
+
+        // TODO (post HF): remove this upgrade
+        // Database upgrade to include pruning samples
+        self.pruning_samples_database_upgrade();
+    }
+
+    fn retention_root_database_upgrade(&self) {
+        let mut pruning_point_store = self.pruning_point_store.write();
+        if pruning_point_store.retention_period_root().unwrap_option().is_none() {
+            let mut batch = rocksdb::WriteBatch::default();
+            if self.config.is_archival {
+                // The retention checkpoint is what was previously known as history root
+                let retention_checkpoint = pruning_point_store.retention_checkpoint().unwrap();
+                pruning_point_store.set_retention_period_root(&mut batch, retention_checkpoint).unwrap();
+            } else {
+                // For non-archival nodes the retention root was the pruning point
+                let pruning_point = pruning_point_store.get().unwrap().pruning_point;
+                pruning_point_store.set_retention_period_root(&mut batch, pruning_point).unwrap();
+            }
+            self.db.write(batch).unwrap();
+        }
     }
 
     fn pruning_samples_database_upgrade(&self) {
@@ -375,14 +402,7 @@ impl Consensus {
         vec![
             thread::Builder::new().name("header-processor".to_string()).spawn(move || header_processor.worker()).unwrap(),
             thread::Builder::new().name("body-processor".to_string()).spawn(move || body_processor.worker()).unwrap(),
-            thread::Builder::new()
-                .name("virtual-processor".to_string())
-                .spawn(move || {
-                    if let Err(e) = virtual_processor.worker() {
-                        error!("Virtual processor error: {}", e);
-                    }
-                })
-                .unwrap(),
+            thread::Builder::new().name("virtual-processor".to_string()).spawn(move || virtual_processor.worker()).unwrap(),
             thread::Builder::new().name("pruning-processor".to_string()).spawn(move || pruning_processor.worker()).unwrap(),
         ]
     }
@@ -568,14 +588,20 @@ impl ConsensusApi for Consensus {
         self.headers_store.get_timestamp(self.get_sink()).unwrap()
     }
 
+    fn get_sink_daa_score_timestamp(&self) -> DaaScoreTimestamp {
+        let sink = self.get_sink();
+        let compact = self.headers_store.get_compact_header_data(sink).unwrap();
+        DaaScoreTimestamp { daa_score: compact.daa_score, timestamp: compact.timestamp }
+    }
+
     fn get_current_block_color(&self, hash: Hash) -> Option<bool> {
         let _guard = self.pruning_lock.blocking_read();
 
         // Verify the block exists and can be assumed to have relations and reachability data
         self.validate_block_exists(hash).ok()?;
 
-        // Verify that the block is in future(source), where Ghostdag data is complete
-        self.services.reachability_service.is_dag_ancestor_of(self.get_source(), hash).then_some(())?;
+        // Verify that the block is in future(retention root), where Ghostdag data is complete
+        self.services.reachability_service.is_dag_ancestor_of(self.get_retention_period_root(), hash).then_some(())?;
 
         let sink = self.get_sink();
 
@@ -630,39 +656,27 @@ impl ConsensusApi for Consensus {
         self.lkg_virtual_state.load().to_virtual_state_approx_id()
     }
 
-    fn get_source(&self) -> Hash {
-        if self.config.is_archival {
-            // we use the history root in archival cases.
-            return self.pruning_point_store.read().history_root().unwrap();
-        }
-        self.pruning_point_store.read().pruning_point().unwrap()
+    fn get_retention_period_root(&self) -> Hash {
+        self.pruning_point_store.read().retention_period_root().unwrap()
     }
 
-    /// Estimates number of blocks and headers stored in the node
+    /// Estimates the number of blocks and headers stored in the node database.
     ///
-    /// This is an estimation based on the daa score difference between the node's `source` and `sink`'s daa score,
+    /// This is an estimation based on the DAA score difference between the node's `retention root` and `virtual`'s DAA score,
     /// as such, it does not include non-daa blocks, and does not include headers stored as part of the pruning proof.  
     fn estimate_block_count(&self) -> BlockCount {
-        // PRUNE SAFETY: node is either archival or source is the pruning point which its header is kept permanently
-        let source_score = self.headers_store.get_compact_header_data(self.get_source()).unwrap().daa_score;
+        // PRUNE SAFETY: retention root is always a current or past pruning point which its header is kept permanently
+        let retention_period_root_score = self.headers_store.get_daa_score(self.get_retention_period_root()).unwrap();
         let virtual_score = self.get_virtual_daa_score();
         let header_count = self
             .headers_store
-            .get_compact_header_data(self.get_headers_selected_tip())
+            .get_daa_score(self.get_headers_selected_tip())
             .unwrap_option()
-            .map(|h| h.daa_score)
             .unwrap_or(virtual_score)
             .max(virtual_score)
-            - source_score;
-        let block_count = virtual_score - source_score;
+            - retention_period_root_score;
+        let block_count = virtual_score - retention_period_root_score;
         BlockCount { header_count, block_count }
-    }
-
-    fn is_nearly_synced(&self) -> bool {
-        // See comment within `config.is_nearly_synced`
-        let sink = self.get_sink();
-        let compact = self.headers_store.get_compact_header_data(sink).unwrap();
-        self.config.is_nearly_synced(compact.timestamp, compact.daa_score)
     }
 
     fn get_virtual_chain_from_block(&self, low: Hash, chain_path_added_limit: Option<usize>) -> ConsensusResult<ChainPath> {
@@ -677,12 +691,12 @@ impl ConsensusApi for Consensus {
         // Verify that the block exists
         self.validate_block_exists(low)?;
 
-        // Verify that source is on chain(block)
+        // Verify that retention root is on chain(block)
         self.services
             .reachability_service
-            .is_chain_ancestor_of(self.get_source(), low)
+            .is_chain_ancestor_of(self.get_retention_period_root(), low)
             .then_some(())
-            .ok_or(ConsensusError::General("the queried hash does not have source on its chain"))?;
+            .ok_or(ConsensusError::General("the queried hash does not have retention root on its chain"))?;
 
         Ok(self.services.dag_traversal_manager.calculate_chain_path(low, self.get_sink(), chain_path_added_limit))
     }
@@ -757,7 +771,7 @@ impl ConsensusApi for Consensus {
     fn get_populated_transaction(&self, txid: Hash, accepting_block_daa_score: u64) -> Result<SignableTransaction, UtxoInquirerError> {
         // We need consistency between the pruning_point_store, utxo_diffs_store, block_transactions_store, selected chain and headers store reads
         let _guard = self.pruning_lock.blocking_read();
-        self.virtual_processor.get_populated_transaction(txid, accepting_block_daa_score, self.get_source())
+        self.virtual_processor.get_populated_transaction(txid, accepting_block_daa_score, self.get_retention_period_root())
     }
 
     fn get_virtual_parents(&self) -> BlockHashSet {

@@ -47,6 +47,7 @@ hex = "0.4"
 
 rand = { workspace = true, features = ["small_rng"] }
 blake3 = "1.8.2"
+time = "0.3.41"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tokio = { workspace = true, features = ["rt", "macros"] }

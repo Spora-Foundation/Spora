@@ -48,7 +48,6 @@ use crate::{
         window::WindowManager,
     },
 };
-use once_cell::unsync::Lazy;
 use tondi_consensus_core::{
     acceptance_data::AcceptanceData,
     api::args::{TransactionValidationArgs, TransactionValidationBatchArgs},
@@ -61,6 +60,7 @@ use tondi_consensus_core::{
     },
     header::Header,
     merkle::calc_hash_merkle_root,
+    mining_rules::MiningRules,
     pruning::PruningPointsList,
     tx::{MutableTransaction, Transaction},
     utxo::{
@@ -78,10 +78,11 @@ use tondi_consensus_notify::{
 };
 use tondi_consensusmanager::SessionLock;
 use tondi_core::{debug, info, time::unix_now, trace, warn};
-use tondi_database::prelude::{StoreResultEmptyTuple, StoreResultExtensions};
+use tondi_database::prelude::{StoreError, StoreResultEmptyTuple, StoreResultExtensions};
 use tondi_hashes::{Hash, ZERO_HASH};
 use tondi_muhash::MuHash;
 use tondi_notify::{events::EventType, notifier::Notify};
+use once_cell::unsync::Lazy;
 
 use super::{
     errors::{PruningImportError, PruningImportResult},
@@ -89,6 +90,8 @@ use super::{
 };
 use crossbeam_channel::{Receiver as CrossbeamReceiver, Sender as CrossbeamSender};
 use itertools::Itertools;
+use tondi_consensus_core::tx::ValidatedTransaction;
+use tondi_utils::binary_heap::BinaryHeapExtensions;
 use parking_lot::{RwLock, RwLockUpgradableReadGuard};
 use rand::{seq::SliceRandom, Rng};
 use rayon::{
@@ -102,8 +105,6 @@ use std::{
     ops::Deref,
     sync::{atomic::Ordering, Arc},
 };
-use tondi_consensus_core::tx::ValidatedTransaction;
-use tondi_utils::binary_heap::BinaryHeapExtensions;
 
 pub struct VirtualStateProcessor {
     // Channels
@@ -175,6 +176,9 @@ pub struct VirtualStateProcessor {
 
     // Crescendo hardfork activation score (used here for activating KIPs 9,10)
     pub(crate) crescendo_activation: ForkActivation,
+
+    // Mining Rule
+    mining_rules: Arc<MiningRules>,
 }
 
 impl VirtualStateProcessor {
@@ -191,6 +195,7 @@ impl VirtualStateProcessor {
         pruning_lock: SessionLock,
         notification_root: Arc<ConsensusNotificationRoot>,
         counters: Arc<ProcessingCounters>,
+        mining_rules: Arc<MiningRules>,
     ) -> Self {
         Self {
             receiver,
@@ -240,10 +245,11 @@ impl VirtualStateProcessor {
             counters,
             crescendo_logger: CrescendoLogger::new(),
             crescendo_activation: params.crescendo_activation,
+            mining_rules,
         }
     }
 
-    pub fn worker(self: &Arc<Self>) -> Result<(), RuleError> {
+    pub fn worker(self: &Arc<Self>) {
         'outer: while let Ok(msg) = self.receiver.recv() {
             if msg.is_exit_message() {
                 break;
@@ -256,7 +262,7 @@ impl VirtualStateProcessor {
             let messages: Vec<VirtualStateProcessingMessage> = std::iter::once(msg).chain(self.receiver.try_iter()).collect();
             trace!("virtual processor received {} tasks", messages.len());
 
-            self.resolve_virtual()?;
+            self.resolve_virtual();
 
             let statuses_read = self.statuses_store.read();
             for msg in messages {
@@ -272,10 +278,9 @@ impl VirtualStateProcessor {
 
         // Pass the exit signal on to the following processor
         self.pruning_sender.send(PruningProcessingMessage::Exit).unwrap();
-        Ok(())
     }
 
-    fn resolve_virtual(self: &Arc<Self>) -> Result<(), RuleError> {
+    fn resolve_virtual(self: &Arc<Self>) {
         let pruning_point = self.pruning_point_store.read().pruning_point().unwrap();
         let virtual_read = self.virtual_stores.upgradable_read();
         let prev_state = virtual_read.state.get().unwrap();
@@ -304,14 +309,8 @@ impl VirtualStateProcessor {
         let prev_sink = prev_state.ghostdag_data.selected_parent;
         let mut accumulated_diff = prev_state.utxo_diff.clone().to_reversed();
 
-        let (new_sink, virtual_parent_candidates) = self.sink_search_algorithm(
-            &virtual_read,
-            &mut accumulated_diff,
-            prev_sink,
-            tips,
-            finality_point,
-            pruning_point,
-        )?;
+        let (new_sink, virtual_parent_candidates) =
+            self.sink_search_algorithm(&virtual_read, &mut accumulated_diff, prev_sink, tips, finality_point, pruning_point);
         let (virtual_parents, virtual_ghostdag_data) = self.pick_virtual_parents(new_sink, virtual_parent_candidates, pruning_point);
         assert_eq!(virtual_ghostdag_data.selected_parent, new_sink);
 
@@ -329,7 +328,8 @@ impl VirtualStateProcessor {
                 sink_multiset,
                 &mut accumulated_diff,
                 &chain_path,
-            )?;
+            )
+            .expect("all possible rule errors are unexpected here");
 
         let compact_sink_ghostdag_data = if let Some(sink_ghostdag_data) = Lazy::get(&sink_ghostdag_data) {
             // If we had to retrieve the full data, we convert it to compact
@@ -372,7 +372,6 @@ impl VirtualStateProcessor {
                 )))
                 .expect("expecting an open unbounded channel");
         }
-        Ok(())
     }
 
     pub(crate) fn virtual_finality_point(&self, virtual_ghostdag_data: &GhostdagData, pruning_point: Hash) -> Hash {
@@ -391,10 +390,10 @@ impl VirtualStateProcessor {
     /// The function returns the top-most UTXO-valid block on `chain(to)` which is ideally
     /// `to` itself (with the exception of returning `from` if `to` is already known to be UTXO disqualified).
     /// When returning it is guaranteed that `diff` holds the diff of the returned block from virtual
-    fn calculate_utxo_state_relatively(&self, _stores: &VirtualStores, diff: &mut UtxoDiff, from: Hash, to: Hash) -> Result<Hash, RuleError> {
+    fn calculate_utxo_state_relatively(&self, stores: &VirtualStores, diff: &mut UtxoDiff, from: Hash, to: Hash) -> Hash {
         // Avoid reorging if disqualified status is already known
-        if self.statuses_store.read().get(to)? == StatusDisqualifiedFromChain {
-            return Ok(from);
+        if self.statuses_store.read().get(to).unwrap() == StatusDisqualifiedFromChain {
+            return from;
         }
 
         let mut split_point: Option<Hash> = None;
@@ -406,12 +405,12 @@ impl VirtualStateProcessor {
                 break;
             }
 
-            let mergeset_diff = self.utxo_diffs_store.get(current)?;
+            let mergeset_diff = self.utxo_diffs_store.get(current).unwrap();
             // Apply the diff in reverse
-            diff.with_diff_in_place(&mergeset_diff.as_reversed())?;
+            diff.with_diff_in_place(&mergeset_diff.as_reversed()).unwrap();
         }
 
-        let split_point = split_point.ok_or_else(|| RuleError::UnexpectedPruningPoint)?;
+        let split_point = split_point.expect("chain iterator was expected to reach the reorg split point");
         debug!("VIRTUAL PROCESSOR, found split point: {split_point}");
 
         // A variable holding the most recent UTXO-valid block on `chain(to)` (note that it's maintained such
@@ -419,14 +418,14 @@ impl VirtualStateProcessor {
         let mut diff_point = split_point;
 
         // Walk back up to the new virtual selected parent candidate
-        let chain_block_counter = 0;
+        let mut chain_block_counter = 0;
         let mut chain_disqualified_counter = 0;
         for (selected_parent, current) in self.reachability_service.forward_chain_iterator(split_point, to, true).tuple_windows() {
             if selected_parent != diff_point {
                 // This indicates that the selected parent is disqualified, propagate up and continue
                 let statuses_guard = self.statuses_store.upgradable_read();
-                if statuses_guard.get(current)? != StatusDisqualifiedFromChain {
-                    RwLockUpgradableReadGuard::upgrade(statuses_guard).set(current, StatusDisqualifiedFromChain)?;
+                if statuses_guard.get(current).unwrap() != StatusDisqualifiedFromChain {
+                    RwLockUpgradableReadGuard::upgrade(statuses_guard).set(current, StatusDisqualifiedFromChain).unwrap();
                     chain_disqualified_counter += 1;
                 }
                 continue;
@@ -434,16 +433,51 @@ impl VirtualStateProcessor {
 
             match self.utxo_diffs_store.get(current) {
                 Ok(mergeset_diff) => {
-                    diff.with_diff_in_place(mergeset_diff.deref())?;
+                    diff.with_diff_in_place(mergeset_diff.deref()).unwrap();
                     diff_point = current;
                 }
-                Err(_err) => {
-                    if self.statuses_store.read().get(current)? == StatusDisqualifiedFromChain {
+                Err(StoreError::KeyNotFound(_)) => {
+                    if self.statuses_store.read().get(current).unwrap() == StatusDisqualifiedFromChain {
                         // Current block is already known to be disqualified
                         continue;
                     }
-                    diff_point = current;
+
+                    let header = self.headers_store.get_header(current).unwrap();
+                    let mergeset_data = self.ghostdag_store.get_data(current).unwrap();
+                    let pov_daa_score = header.daa_score;
+
+                    let selected_parent_multiset_hash = self.utxo_multisets_store.get(selected_parent).unwrap();
+                    let selected_parent_utxo_view = (&stores.utxo_set).compose(&*diff);
+
+                    let mut ctx = UtxoProcessingContext::new(mergeset_data.into(), selected_parent_multiset_hash);
+
+                    let _ = self.calculate_utxo_state(&mut ctx, &selected_parent_utxo_view, pov_daa_score);
+                    let res = self.verify_expected_utxo_state(&mut ctx, &selected_parent_utxo_view, &header);
+
+                    if let Err(rule_error) = res {
+                        info!("Block {} is disqualified from virtual chain: {}", current, rule_error);
+                        self.statuses_store.write().set(current, StatusDisqualifiedFromChain).unwrap();
+                        chain_disqualified_counter += 1;
+                    } else {
+                        debug!("VIRTUAL PROCESSOR, UTXO validated for {current}");
+
+                        // Accumulate the diff
+                        diff.with_diff_in_place(&ctx.mergeset_diff).unwrap();
+                        // Update the diff point
+                        diff_point = current;
+                        // Commit UTXO data for current chain block
+                        self.commit_utxo_state(
+                            current,
+                            ctx.mergeset_diff,
+                            ctx.multiset_hash,
+                            ctx.mergeset_acceptance_data,
+                            ctx.pruning_sample_from_pov.expect("verified"),
+                        );
+                        // Count the number of UTXO-processed chain blocks
+                        chain_block_counter += 1;
+                    }
                 }
+                Err(err) => panic!("unexpected error {err}"),
             }
         }
         // Report counters
@@ -452,7 +486,7 @@ impl VirtualStateProcessor {
             self.counters.chain_disqualified_counts.fetch_add(chain_disqualified_counter, Ordering::Relaxed);
         }
 
-        Ok(diff_point)
+        diff_point
     }
 
     fn commit_utxo_state(
@@ -512,10 +546,10 @@ impl VirtualStateProcessor {
         let virtual_past_median_time = self.window_manager.calc_past_median_time(&virtual_ghostdag_data)?.0;
 
         // Calc virtual UTXO state relative to selected parent
-        self.calculate_utxo_state(&mut ctx, &selected_parent_utxo_view, virtual_daa_window.daa_score)?;
+        let _ = self.calculate_utxo_state(&mut ctx, &selected_parent_utxo_view, virtual_daa_window.daa_score);
 
         // Update the accumulated diff
-        accumulated_diff.with_diff_in_place(&ctx.mergeset_diff)?;
+        accumulated_diff.with_diff_in_place(&ctx.mergeset_diff).unwrap();
 
         // Build the new virtual state
         Ok(Arc::new(VirtualState::new(
@@ -604,13 +638,13 @@ impl VirtualStateProcessor {
         tips: Vec<Hash>,
         finality_point: Hash,
         pruning_point: Hash,
-    ) -> Result<(Hash, VecDeque<Hash>), RuleError> {
+    ) -> (Hash, VecDeque<Hash>) {
         // TODO (relaxed): additional tests
 
         let mut heap = tips
             .into_iter()
-            .map(|block| Ok(SortableBlock { hash: block, blue_work: self.ghostdag_store.get_blue_work(block)? }))
-            .collect::<Result<BinaryHeap<_>, RuleError>>()?;
+            .map(|block| SortableBlock { hash: block, blue_work: self.ghostdag_store.get_blue_work(block).unwrap() })
+            .collect::<BinaryHeap<_>>();
 
         // The initial diff point is the previous sink
         let mut diff_point = prev_sink;
@@ -622,7 +656,7 @@ impl VirtualStateProcessor {
         loop {
             let candidate = heap.pop().expect("valid sink must exist").hash;
             if self.reachability_service.is_chain_ancestor_of(finality_point, candidate) {
-                diff_point = self.calculate_utxo_state_relatively(stores, diff, diff_point, candidate)?;
+                diff_point = self.calculate_utxo_state_relatively(stores, diff, diff_point, candidate);
                 if diff_point == candidate {
                     // This indicates that candidate has valid UTXO state and that `diff` represents its diff from virtual
 
@@ -630,12 +664,12 @@ impl VirtualStateProcessor {
                     // 1. not in its future (bcs blue work is monotonic),
                     // 2. will be removed eventually by the bounded merge check.
                     // Hence as an optimization we prefer removing such blocks in advance to allow valid tips to be considered.
-                    let filtering_root = self.depth_store.merge_depth_root(candidate)?;
+                    let filtering_root = self.depth_store.merge_depth_root(candidate).unwrap();
                     let filtering_blue_work = self.ghostdag_store.get_blue_work(filtering_root).unwrap_or_default();
-                    return Ok((
+                    return (
                         candidate,
                         heap.into_sorted_iter().take_while(|s| s.blue_work >= filtering_blue_work).map(|s| s.hash).collect(),
-                    ));
+                    );
                 } else {
                     debug!("Block candidate {} has invalid UTXO state and is ignored from Virtual chain.", candidate)
                 }
@@ -645,11 +679,11 @@ impl VirtualStateProcessor {
             }
             // PRUNE SAFETY: see comment within [`resolve_virtual`]
             let prune_guard = self.pruning_lock.blocking_read();
-            for parent in self.relations_service.get_parents(candidate)?.iter().copied() {
+            for parent in self.relations_service.get_parents(candidate).unwrap().iter().copied() {
                 if self.reachability_service.is_dag_ancestor_of(finality_point, parent)
                     && !self.reachability_service.is_dag_ancestor_of_any(parent, &mut heap.iter().map(|sb| sb.hash))
                 {
-                    heap.push(SortableBlock { hash: parent, blue_work: self.ghostdag_store.get_blue_work(parent)? });
+                    heap.push(SortableBlock { hash: parent, blue_work: self.ghostdag_store.get_blue_work(parent).unwrap() });
                 }
             }
             drop(prune_guard);
@@ -660,7 +694,7 @@ impl VirtualStateProcessor {
     /// Assumes:
     ///     1. `selected_parent` is a UTXO-valid block
     ///     2. `candidates` are an antichain ordered in descending blue work order
-    ///     3. `candidates` do not contain `selected_parent` and `selected_parent.blue work > max(candidates.blue_work)`  
+    ///     3. `candidates` do not contain `selected_parent` and `selected_parent.blue work > max(candidates.blue_work)`
     pub(super) fn pick_virtual_parents(
         &self,
         selected_parent: Hash,
@@ -1086,7 +1120,8 @@ impl VirtualStateProcessor {
             let mut batch = WriteBatch::default();
             self.past_pruning_points_store.insert_batch(&mut batch, 0, self.genesis.hash).unwrap_or_exists();
             pruning_point_write.set_batch(&mut batch, self.genesis.hash, self.genesis.hash, 0).unwrap();
-            pruning_point_write.set_history_root(&mut batch, self.genesis.hash).unwrap();
+            pruning_point_write.set_retention_checkpoint(&mut batch, self.genesis.hash).unwrap();
+            pruning_point_write.set_retention_period_root(&mut batch, self.genesis.hash).unwrap();
             pruning_utxoset_write.set_utxoset_position(&mut batch, self.genesis.hash).unwrap();
             self.db.write(batch).unwrap();
             drop(pruning_point_write);

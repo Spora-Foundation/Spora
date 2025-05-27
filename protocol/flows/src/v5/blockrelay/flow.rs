@@ -3,7 +3,6 @@ use crate::{
     flow_trait::Flow,
     flowcontext::orphans::OrphanOutput,
 };
-use std::{collections::VecDeque, sync::Arc};
 use tondi_consensus_core::{api::BlockValidationFutures, block::Block, blockstatus::BlockStatus, errors::block::RuleError};
 use tondi_consensusmanager::{BlockProcessingBatch, ConsensusProxy};
 use tondi_core::debug;
@@ -15,6 +14,7 @@ use tondi_p2p_lib::{
     IncomingRoute, Router, SharedIncomingRoute,
 };
 use tondi_utils::channel::{JobSender, JobTrySendError as TrySendError};
+use std::{collections::VecDeque, sync::Arc};
 
 pub struct RelayInvMessage {
     hash: Hash,
@@ -116,7 +116,7 @@ impl HandleRelayInvsFlow {
                 }
             }
 
-            if self.ctx.is_ibd_running() && !session.async_is_nearly_synced().await {
+            if self.ctx.is_ibd_running() && !self.ctx.should_mine(&session).await {
                 // Note: If the node is considered nearly synced we continue processing relay blocks even though an IBD is in progress.
                 // For instance this means that downloading a side-chain from a delayed node does not interop the normal flow of live blocks.
                 debug!("Got relay block {} while in IBD and the node is out of sync, continuing...", inv.hash);

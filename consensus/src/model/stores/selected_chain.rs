@@ -1,8 +1,8 @@
-use parking_lot::RwLockWriteGuard;
-use rocksdb::WriteBatch;
 use tondi_consensus_core::blockstatus::BlockStatus;
 use tondi_consensus_core::ChainPath;
 use tondi_database::registry::DatabaseStorePrefixes;
+use parking_lot::RwLockWriteGuard;
+use rocksdb::WriteBatch;
 
 use std::sync::Arc;
 
@@ -24,7 +24,7 @@ pub trait SelectedChainStoreReader {
 /// since chain index is not append-only and thus needs to be guarded.
 pub trait SelectedChainStore: SelectedChainStoreReader {
     fn apply_changes(&mut self, batch: &mut WriteBatch, changes: &ChainPath) -> StoreResult<()>;
-    fn prune_below_pruning_point(&mut self, writer: impl DbWriter, pruning_point: Hash) -> StoreResult<()>;
+    fn prune_below_point(&mut self, writer: impl DbWriter, block: Hash) -> StoreResult<()>;
     fn init_with_pruning_point(&mut self, batch: &mut WriteBatch, block: Hash) -> StoreResult<()>;
 }
 
@@ -99,8 +99,8 @@ impl SelectedChainStore for DbSelectedChainStore {
         Ok(())
     }
 
-    fn prune_below_pruning_point(&mut self, mut writer: impl DbWriter, pruning_point: Hash) -> StoreResult<()> {
-        let mut index = self.access_index_by_hash.read(pruning_point)?;
+    fn prune_below_point(&mut self, mut writer: impl DbWriter, block: Hash) -> StoreResult<()> {
+        let mut index = self.access_index_by_hash.read(block)?;
         while index > 0 {
             index -= 1;
             match self.access_hash_by_index.read(index.into()) {

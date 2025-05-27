@@ -1,0 +1,23 @@
+[package]
+name = "tondi-p2p-mining"
+description = "Tondi p2p mining"
+rust-version.workspace = true
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+include.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+tondi-core.workspace = true
+tondi-consensus-core.workspace = true
+tondi-consensusmanager.workspace = true
+tondi-mining-errors.workspace = true
+tondi-hashes.workspace = true
+tondi-math.workspace = true
+tondi-p2p-lib.workspace = true
+tondi-utils.workspace = true
+tondi-utils-tower.workspace = true
+log.workspace = true
+tokio.workspace = true

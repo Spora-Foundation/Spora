@@ -6,6 +6,7 @@ use crate::tx::{TransactionOutpoint, UtxoEntry, VerifiableTransaction};
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map::Entry::Vacant;
 use tondi_utils::mem_size::MemSizeEstimator;
+use workflow_log::log_debug;
 
 pub trait ImmutableUtxoDiff {
     fn added(&self) -> &UtxoCollection;
@@ -222,8 +223,12 @@ impl UtxoDiff {
     }
 
     pub fn add_transaction(&mut self, transaction: &impl VerifiableTransaction, block_daa_score: u64) -> UtxoResult<()> {
+        log_debug!("[UtxoDiff] Adding transaction {} to diff", transaction.id());
+        
         for (input, entry) in transaction.populated_inputs() {
             self.remove_entry(&input.previous_outpoint, entry)?;
+            log_debug!("[UtxoDiff] Removed UTXO from diff - Outpoint: {}, Amount: {}", 
+                input.previous_outpoint, entry.amount);
         }
 
         let is_coinbase = transaction.is_coinbase();
@@ -233,6 +238,8 @@ impl UtxoDiff {
             let outpoint = TransactionOutpoint::new(tx_id, i as u32);
             let entry = UtxoEntry::new(output.value, output.script_public_key.clone(), block_daa_score, is_coinbase);
             self.add_entry(outpoint, entry)?;
+            log_debug!("[UtxoDiff] Added UTXO to diff - Outpoint: {}, Amount: {}", 
+                outpoint, output.value);
         }
         Ok(())
     }
@@ -240,8 +247,10 @@ impl UtxoDiff {
     fn remove_entry(&mut self, outpoint: &TransactionOutpoint, entry: &UtxoEntry) -> UtxoResult<()> {
         if self.add.contains_with_daa_score(outpoint, entry.block_daa_score) {
             self.add.remove(outpoint);
+            log_debug!("[UtxoDiff] Removed UTXO from add set - Outpoint: {}", outpoint);
         } else if let Vacant(e) = self.remove.entry(*outpoint) {
             e.insert(entry.clone());
+            log_debug!("[UtxoDiff] Added UTXO to remove set - Outpoint: {}", outpoint);
         } else {
             return Err(UtxoAlgebraError::DoubleRemoveCall(*outpoint));
         }
@@ -251,8 +260,10 @@ impl UtxoDiff {
     fn add_entry(&mut self, outpoint: TransactionOutpoint, entry: UtxoEntry) -> UtxoResult<()> {
         if self.remove.contains_with_daa_score(&outpoint, entry.block_daa_score) {
             self.remove.remove(&outpoint);
+            log_debug!("[UtxoDiff] Removed UTXO from remove set - Outpoint: {}", outpoint);
         } else if let Vacant(e) = self.add.entry(outpoint) {
             e.insert(entry);
+            log_debug!("[UtxoDiff] Added UTXO to add set - Outpoint: {}", outpoint);
         } else {
             return Err(UtxoAlgebraError::DoubleAddCall(outpoint));
         }

@@ -14,7 +14,6 @@ use itertools::Itertools;
 use parking_lot::{Mutex, RwLock};
 use rocksdb::WriteBatch;
 
-use thiserror::Error;
 use tondi_consensus_core::{
     blockhash::{self, BlockHashExtensions},
     config::params::ForkedParam,
@@ -31,6 +30,7 @@ use tondi_core::info;
 use tondi_database::{prelude::StoreResultExtensions, utils::DbLifetime};
 use tondi_hashes::Hash;
 use tondi_pow::calc_block_level;
+use thiserror::Error;
 
 use crate::{
     consensus::{
@@ -224,7 +224,8 @@ impl PruningProofManager {
         let mut pruning_point_write = self.pruning_point_store.write();
         let mut batch = WriteBatch::default();
         pruning_point_write.set_batch(&mut batch, new_pruning_point, new_pruning_point, (pruning_points.len() - 1) as u64).unwrap();
-        pruning_point_write.set_history_root(&mut batch, new_pruning_point).unwrap();
+        pruning_point_write.set_retention_checkpoint(&mut batch, new_pruning_point).unwrap();
+        pruning_point_write.set_retention_period_root(&mut batch, new_pruning_point).unwrap();
         self.db.write(batch).unwrap();
         drop(pruning_point_write);
 
@@ -327,9 +328,9 @@ impl PruningProofManager {
                     let ghostdag = self.ghostdag_store.get_data(hash).unwrap();
                     e.insert((&*ghostdag).into());
 
-                    // We fill `ghostdag_blocks` only for Tondid-go legacy reasons, but the real set we
+                    // We fill `ghostdag_blocks` only for tondid-go legacy reasons, but the real set we
                     // send is `daa_window_blocks` which represents the full trusted sub-DAG in the antifuture
-                    // of the pruning point which Tondid-rust nodes expect to get when synced with headers proof
+                    // of the pruning point which tondid-rust nodes expect to get when synced with headers proof
                     if let Entry::Vacant(e) = daa_window_blocks.entry(hash) {
                         e.insert(TrustedHeader {
                             header: self.headers_store.get_header(hash).unwrap(),
@@ -383,6 +384,11 @@ impl PruningProofManager {
             }
         }
         let proof = Arc::new(self.build_pruning_point_proof(pp));
+        info!(
+            "Built headers proof with overall {} headers ({} unique)",
+            proof.iter().map(|l| l.len()).sum::<usize>(),
+            proof.iter().flatten().unique_by(|h| h.hash).count()
+        );
         cache_lock.replace(CachedPruningPointData { pruning_point: pp, data: proof.clone() });
         proof
     }

@@ -43,7 +43,7 @@ mod test {
     }
 
     #[tokio::test]
-    // NOTE: Test is expected to fail due to inconsistent network prefix (e.g., "tondi" vs "kaspa")
+    // NOTE: Test is expected to fail due to inconsistent network prefix (e.g., "tondi" vs "tondi")
     // Once BLAKE3 and HRP changes are finalized, this can be re-enabled
     #[ignore]
     async fn import_golang_single_wallet_test() {
@@ -83,7 +83,7 @@ mod test {
     }
 
     #[tokio::test]
-    // NOTE: Test is expected to fail due to inconsistent network prefix (e.g., "tondi" vs "kaspa")
+    // NOTE: Test is expected to fail due to inconsistent network prefix (e.g., "tondi" vs "tondi")
     // Once BLAKE3 and HRP changes are finalized, this can be re-enabled
     #[ignore]
     async fn import_golang_multisig_v1_wallet_test() {

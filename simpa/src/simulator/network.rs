@@ -1,8 +1,9 @@
 use async_channel::unbounded;
-use std::sync::Arc;
-use std::thread::JoinHandle;
+use tondi_consensus_core::mining_rules::MiningRules;
 use tondi_consensus_notify::root::ConsensusNotificationRoot;
 use tondi_core::time::unix_now;
+use std::sync::Arc;
+use std::thread::JoinHandle;
 
 use super::miner::Miner;
 
@@ -86,6 +87,7 @@ impl TondiNetworkSimulator {
                 Default::default(),
                 Default::default(),
                 unix_now(),
+                Arc::new(MiningRules::default()),
             ));
             let handles = consensus.run_processors();
             let (sk, pk) = secp.generate_keypair(&mut rng);

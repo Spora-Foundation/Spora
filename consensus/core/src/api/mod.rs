@@ -1,6 +1,6 @@
 use futures_util::future::BoxFuture;
-use std::sync::Arc;
 use tondi_muhash::MuHash;
+use std::sync::Arc;
 
 use crate::{
     acceptance_data::AcceptanceData,
@@ -135,6 +135,10 @@ pub trait ConsensusApi: Send + Sync {
         unimplemented!()
     }
 
+    fn get_sink_daa_score_timestamp(&self) -> DaaScoreTimestamp {
+        unimplemented!()
+    }
+
     fn get_current_block_color(&self, hash: Hash) -> Option<bool> {
         unimplemented!()
     }
@@ -143,19 +147,12 @@ pub trait ConsensusApi: Send + Sync {
         unimplemented!()
     }
 
-    /// source refers to the earliest block from which the current node has full header & block data  
-    fn get_source(&self) -> Hash {
+    /// retention period root refers to the earliest block from which the current node has full header & block data  
+    fn get_retention_period_root(&self) -> Hash {
         unimplemented!()
     }
 
     fn estimate_block_count(&self) -> BlockCount {
-        unimplemented!()
-    }
-
-    /// Returns whether this consensus is considered synced or close to being synced.
-    ///
-    /// This info is used to determine if it's ok to use a block template from this node for mining purposes.
-    fn is_nearly_synced(&self) -> bool {
         unimplemented!()
     }
 
@@ -340,13 +337,13 @@ pub trait ConsensusApi: Send + Sync {
         unimplemented!()
     }
 
-    // TODO: Delete this function once there's no need for go-Tondid backward compatibility.
+    // TODO: Delete this function once there's no need for go-tondid backward compatibility.
     fn get_daa_window(&self, hash: Hash) -> ConsensusResult<Vec<Hash>> {
         unimplemented!()
     }
 
     // TODO: Think of a better name.
-    // TODO: Delete this function once there's no need for go-Tondid backward compatibility.
+    // TODO: Delete this function once there's no need for go-tondid backward compatibility.
     fn get_trusted_block_associated_ghostdag_data_block_hashes(&self, hash: Hash) -> ConsensusResult<Vec<Hash>> {
         unimplemented!()
     }

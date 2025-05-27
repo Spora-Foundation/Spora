@@ -1,11 +1,49 @@
-use crate::flowcontext::{
-    orphans::{OrphanBlocksPool, OrphanOutput},
-    process_queue::ProcessQueue,
-    transactions::TransactionsSpread,
+use crate::{
+    flowcontext::{
+        orphans::{OrphanBlocksPool, OrphanOutput},
+        process_queue::ProcessQueue,
+        transactions::TransactionsSpread,
+    },
+    v7,
 };
 use crate::{v5, v6};
 use async_trait::async_trait;
 use futures::future::join_all;
+use tondi_addressmanager::AddressManager;
+use tondi_connectionmanager::ConnectionManager;
+use tondi_consensus_core::block::Block;
+use tondi_consensus_core::config::Config;
+use tondi_consensus_core::errors::block::RuleError;
+use tondi_consensus_core::tx::{Transaction, TransactionId};
+use tondi_consensus_core::{
+    api::{BlockValidationFuture, BlockValidationFutures},
+    network::NetworkType,
+};
+use tondi_consensus_notify::{
+    notification::{Notification, PruningPointUtxoSetOverrideNotification},
+    root::ConsensusNotificationRoot,
+};
+use tondi_consensusmanager::{BlockProcessingBatch, ConsensusInstance, ConsensusManager, ConsensusProxy, ConsensusSessionOwned};
+use tondi_core::{
+    debug, info,
+    tondid_env::{name, version},
+    task::tick::TickService,
+};
+use tondi_core::{time::unix_now, warn};
+use tondi_hashes::Hash;
+use tondi_mining::mempool::tx::{Orphan, Priority};
+use tondi_mining::{manager::MiningManagerProxy, mempool::tx::RbfPolicy};
+use tondi_notify::notifier::Notify;
+use tondi_p2p_lib::{
+    common::ProtocolError,
+    convert::model::version::Version,
+    make_message,
+    pb::{tondid_message::Payload, InvRelayBlockMessage},
+    ConnectionInitializer, Hub, TondidHandshake, PeerKey, PeerProperties, Router,
+};
+use tondi_p2p_mining::rule_engine::MiningRuleEngine;
+use tondi_utils::iter::IterExtensions;
+use tondi_utils::networking::PeerId;
 use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
 use std::time::Instant;
@@ -24,41 +62,10 @@ use tokio::sync::{
     RwLock as AsyncRwLock,
 };
 use tokio_stream::{wrappers::UnboundedReceiverStream, StreamExt};
-use tondi_addressmanager::AddressManager;
-use tondi_connectionmanager::ConnectionManager;
-use tondi_consensus_core::api::{BlockValidationFuture, BlockValidationFutures};
-use tondi_consensus_core::block::Block;
-use tondi_consensus_core::config::Config;
-use tondi_consensus_core::errors::block::RuleError;
-use tondi_consensus_core::tx::{Transaction, TransactionId};
-use tondi_consensus_notify::{
-    notification::{Notification, PruningPointUtxoSetOverrideNotification},
-    root::ConsensusNotificationRoot,
-};
-use tondi_consensusmanager::{BlockProcessingBatch, ConsensusInstance, ConsensusManager, ConsensusProxy};
-use tondi_core::{
-    debug, info,
-    task::tick::TickService,
-    tondid_env::{name, version},
-};
-use tondi_core::{time::unix_now, warn};
-use tondi_hashes::Hash;
-use tondi_mining::mempool::tx::{Orphan, Priority};
-use tondi_mining::{manager::MiningManagerProxy, mempool::tx::RbfPolicy};
-use tondi_notify::notifier::Notify;
-use tondi_p2p_lib::{
-    common::ProtocolError,
-    convert::model::version::Version,
-    make_message,
-    pb::{tondid_message::Payload, InvRelayBlockMessage},
-    ConnectionInitializer, Hub, PeerKey, PeerProperties, Router, TondidHandshake,
-};
-use tondi_utils::iter::IterExtensions;
-use tondi_utils::networking::PeerId;
 use uuid::Uuid;
 
-/// The P2P protocol version. Currently the only one supported.
-const PROTOCOL_VERSION: u32 = 6;
+/// The P2P protocol version.
+const PROTOCOL_VERSION: u32 = 7;
 
 /// See `check_orphan_resolution_range`
 const BASELINE_ORPHAN_RESOLUTION_RANGE: u32 = 5;
@@ -234,6 +241,9 @@ pub struct FlowContextInner {
     // Orphan parameters
     orphan_resolution_range: u32,
     max_orphans: usize,
+
+    // Mining rule engine
+    mining_rule_engine: Arc<MiningRuleEngine>,
 }
 
 #[derive(Clone)]
@@ -306,9 +316,9 @@ impl FlowContext {
         mining_manager: MiningManagerProxy,
         tick_service: Arc<TickService>,
         notification_root: Arc<ConsensusNotificationRoot>,
+        hub: Hub,
+        mining_rule_engine: Arc<MiningRuleEngine>,
     ) -> Self {
-        let hub = Hub::new();
-
         let bps_upper_bound = config.bps().upper_bound() as usize;
         let orphan_resolution_range = BASELINE_ORPHAN_RESOLUTION_RANGE + (bps_upper_bound as f64).log2().ceil() as u32;
 
@@ -337,6 +347,7 @@ impl FlowContext {
                 orphan_resolution_range,
                 max_orphans,
                 config,
+                mining_rule_engine,
             }),
         }
     }
@@ -549,7 +560,7 @@ impl FlowContext {
     /// Updates the mempool after a new block arrival, relays newly unorphaned transactions
     /// and possibly rebroadcast manually added transactions when not in IBD.
     ///
-    /// _GO-Tondid: OnNewBlock + broadcastTransactionsAfterBlockAdded_
+    /// _GO-KASPAD: OnNewBlock + broadcastTransactionsAfterBlockAdded_
     pub async fn on_new_block(
         &self,
         consensus: &ConsensusProxy,
@@ -585,8 +596,8 @@ impl FlowContext {
             }
         }
 
-        // Transaction relay is disabled if the node is out of sync and thus not mining
-        if !consensus.async_is_nearly_synced().await {
+        // Transaction relay is disabled if the node is out of sync
+        if !self.is_nearly_synced(consensus).await {
             return;
         }
 
@@ -625,6 +636,16 @@ impl FlowContext {
         }
     }
 
+    pub async fn is_nearly_synced(&self, session: &ConsensusSessionOwned) -> bool {
+        let sink_daa_score_and_timestamp = session.async_get_sink_daa_score_timestamp().await;
+        self.mining_rule_engine.is_nearly_synced(sink_daa_score_and_timestamp)
+    }
+
+    pub async fn should_mine(&self, session: &ConsensusSessionOwned) -> bool {
+        let sink_daa_score_and_timestamp = session.async_get_sink_daa_score_timestamp().await;
+        self.mining_rule_engine.should_mine(sink_daa_score_and_timestamp)
+    }
+
     /// Notifies that the UTXO set was reset due to pruning point change via IBD.
     pub fn on_pruning_point_utxoset_override(&self) {
         // Notifications from the flow context might be ignored if the inner channel is already closing
@@ -657,7 +678,7 @@ impl FlowContext {
             transaction_insertion.accepted.iter().map(|x| x.id()),
             false, // RPC transactions are considered high priority, so we don't want to throttle them
         )
-        .await;
+            .await;
         Ok(())
     }
 
@@ -682,7 +703,7 @@ impl FlowContext {
             transaction_insertion.accepted.iter().map(|x| x.id()),
             false, // RPC transactions are considered high priority, so we don't want to throttle them
         )
-        .await;
+            .await;
         // The combination of args above of Orphan::Forbidden and RbfPolicy::Mandatory should always result
         // in a removed transaction returned, however we prefer failing gracefully in case of future internal mempool changes
         transaction_insertion.removed.ok_or(ProtocolError::Other(
@@ -761,10 +782,20 @@ impl ConnectionInitializer for FlowContext {
         debug!("protocol versions - self: {}, peer: {}", PROTOCOL_VERSION, peer_version.protocol_version);
 
         // Register all flows according to version
-        let (flows, applied_protocol_version) = match peer_version.protocol_version {
-            v if v >= PROTOCOL_VERSION => (v6::register(self.clone(), router.clone()), PROTOCOL_VERSION),
-            5 => (v5::register(self.clone(), router.clone()), 5),
-            v => return Err(ProtocolError::VersionMismatch(PROTOCOL_VERSION, v)),
+        let connect_only_new_versions = self.config.net.network_type() != NetworkType::Testnet;
+
+        let (flows, applied_protocol_version) = if connect_only_new_versions {
+            match peer_version.protocol_version {
+                v if v >= PROTOCOL_VERSION => (v7::register(self.clone(), router.clone()), PROTOCOL_VERSION),
+                v => return Err(ProtocolError::VersionMismatch(PROTOCOL_VERSION, v)),
+            }
+        } else {
+            match peer_version.protocol_version {
+                v if v >= PROTOCOL_VERSION => (v7::register(self.clone(), router.clone()), PROTOCOL_VERSION),
+                6 => (v6::register(self.clone(), router.clone()), 6),
+                5 => (v5::register(self.clone(), router.clone()), 5),
+                v => return Err(ProtocolError::VersionMismatch(PROTOCOL_VERSION, v)),
+            }
         };
 
         // Build and register the peer properties

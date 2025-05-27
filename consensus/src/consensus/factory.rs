@@ -3,7 +3,7 @@ use super::utxo_set_override::{set_genesis_utxo_commitment_from_config, set_init
 use super::{ctl::Ctl, Consensus};
 use crate::{model::stores::U64Key, pipeline::ProcessingCounters};
 use itertools::Itertools;
-use tondi_consensus_core::config::Config;
+use tondi_consensus_core::{config::Config, mining_rules::MiningRules};
 use tondi_consensus_notify::root::ConsensusNotificationRoot;
 use tondi_consensusmanager::{ConsensusFactory, ConsensusInstance, DynConsensusCtl, SessionLock};
 use tondi_core::{debug, time::unix_now, warn};
@@ -14,12 +14,12 @@ use tondi_database::{
     registry::DatabaseStorePrefixes,
 };
 
+use tondi_txscript::caches::TxScriptCacheCounters;
+use tondi_utils::mem_size::MemSizeEstimator;
 use parking_lot::RwLock;
 use rocksdb::WriteBatch;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, error::Error, fs, path::PathBuf, sync::Arc};
-use tondi_txscript::caches::TxScriptCacheCounters;
-use tondi_utils::mem_size::MemSizeEstimator;
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct ConsensusEntry {
@@ -254,6 +254,7 @@ pub struct Factory {
     counters: Arc<ProcessingCounters>,
     tx_script_cache_counters: Arc<TxScriptCacheCounters>,
     fd_budget: i32,
+    mining_rules: Arc<MiningRules>,
 }
 
 impl Factory {
@@ -266,6 +267,7 @@ impl Factory {
         counters: Arc<ProcessingCounters>,
         tx_script_cache_counters: Arc<TxScriptCacheCounters>,
         fd_budget: i32,
+        mining_rules: Arc<MiningRules>,
     ) -> Self {
         assert!(fd_budget > 0, "fd_budget has to be positive");
         let mut config = config.clone();
@@ -283,6 +285,7 @@ impl Factory {
             counters,
             tx_script_cache_counters,
             fd_budget,
+            mining_rules,
         };
         factory.delete_inactive_consensus_entries();
         factory
@@ -325,6 +328,7 @@ impl ConsensusFactory for Factory {
             self.counters.clone(),
             self.tx_script_cache_counters.clone(),
             entry.creation_timestamp,
+            self.mining_rules.clone(),
         ));
 
         // We write the new active entry only once the instance was created successfully.
@@ -359,6 +363,7 @@ impl ConsensusFactory for Factory {
             self.counters.clone(),
             self.tx_script_cache_counters.clone(),
             entry.creation_timestamp,
+            self.mining_rules.clone(),
         ));
 
         (ConsensusInstance::new(session_lock, consensus.clone()), Arc::new(Ctl::new(self.management_store.clone(), db, consensus)))

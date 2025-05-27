@@ -1,8 +1,4 @@
 use clap::{arg, Arg, ArgAction, Command};
-use serde::Deserialize;
-use serde_with::{serde_as, DisplayFromStr};
-use std::{ffi::OsString, fs};
-use toml::from_str;
 use tondi_consensus_core::{
     config::Config,
     network::{NetworkId, NetworkType},
@@ -11,15 +7,19 @@ use tondi_core::tondid_env::version;
 use tondi_notify::address::tracker::Tracker;
 use tondi_utils::networking::ContextualNetAddress;
 use tondi_wrpc_server::address::WrpcNetAddress;
+use serde::Deserialize;
+use serde_with::{serde_as, DisplayFromStr};
+use std::{ffi::OsString, fs};
+use toml::from_str;
 
-#[cfg(feature = "devnet-prealloc")]
-use std::sync::Arc;
 #[cfg(feature = "devnet-prealloc")]
 use tondi_addresses::Address;
 #[cfg(feature = "devnet-prealloc")]
 use tondi_consensus_core::tx::{TransactionOutpoint, UtxoEntry};
 #[cfg(feature = "devnet-prealloc")]
 use tondi_txscript::pay_to_address_script;
+#[cfg(feature = "devnet-prealloc")]
+use std::sync::Arc;
 
 #[serde_as]
 #[derive(Debug, Clone, Deserialize)]
@@ -90,6 +90,7 @@ pub struct Args {
     #[serde(rename = "nogrpc")]
     pub disable_grpc: bool,
     pub ram_scale: f64,
+    pub retention_period_days: Option<f64>,
 }
 
 impl Default for Args {
@@ -140,6 +141,7 @@ impl Default for Args {
             disable_dns_seeding: false,
             disable_grpc: false,
             ram_scale: 1.0,
+            retention_period_days: None,
         }
     }
 }
@@ -159,6 +161,7 @@ impl Args {
         config.p2p_listen_address = self.listen.unwrap_or(ContextualNetAddress::unspecified());
         config.externalip = self.externalip.map(|v| v.normalize(config.default_p2p_port()));
         config.ram_scale = self.ram_scale;
+        config.retention_period_days = self.retention_period_days;
 
         #[cfg(feature = "devnet-prealloc")]
         if let Some(num_prealloc_utxos) = self.num_prealloc_utxos {
@@ -195,7 +198,7 @@ pub fn cli() -> Command {
     let defaults: Args = Default::default();
 
     #[allow(clippy::let_and_return)]
-    let cmd = Command::new("Tondid")
+    let cmd = Command::new("tondid")
         .about(format!("{} (rusty-tondi) v{}", env!("CARGO_PKG_DESCRIPTION"), version()))
         .version(env!("CARGO_PKG_VERSION"))
         .arg(arg!(-C --configfile <CONFIG_FILE> "Path of config file."))
@@ -317,8 +320,8 @@ pub fn cli() -> Command {
                 .require_equals(true)
                 .value_parser(clap::value_parser!(usize))
                 .help(format!("Max (preallocated) number of addresses being tracked for UTXO changed events (default: {}, maximum: {}). 
-Setting to 0 prevents the preallocation and sets the maximum to {}, leading to 0 memory footprint as long as unused but to sub-optimal footprint if used.", 
-0, Tracker::MAX_ADDRESS_UPPER_BOUND, Tracker::DEFAULT_MAX_ADDRESSES)),
+Setting to 0 prevents the preallocation and sets the maximum to {}, leading to 0 memory footprint as long as unused but to sub-optimal footprint if used.",
+                              0, Tracker::MAX_ADDRESS_UPPER_BOUND, Tracker::DEFAULT_MAX_ADDRESSES)),
         )
         .arg(arg!(--testnet "Use the test network"))
         .arg(
@@ -368,6 +371,13 @@ Setting to 0 prevents the preallocation and sets the maximum to {}, leading to 0
                 .value_parser(clap::value_parser!(f64))
                 .help("Apply a scale factor to memory allocation bounds. Nodes with limited RAM (~4-8GB) should set this to ~0.3-0.5 respectively. Nodes with
 a large RAM (~64GB) can set this value to ~3.0-4.0 and gain superior performance especially for syncing peers faster"),
+        )
+        .arg(
+            Arg::new("retention-period-days")
+                .long("retention-period-days")
+                .require_equals(true)
+                .value_parser(clap::value_parser!(f64))
+                .help("The number of total days of data to keep.")
         )
         ;
 
@@ -448,6 +458,7 @@ impl Args {
             disable_dns_seeding: arg_match_unwrap_or::<bool>(&m, "nodnsseed", defaults.disable_dns_seeding),
             disable_grpc: arg_match_unwrap_or::<bool>(&m, "nogrpc", defaults.disable_grpc),
             ram_scale: arg_match_unwrap_or::<f64>(&m, "ram-scale", defaults.ram_scale),
+            retention_period_days: m.get_one::<f64>("retention-period-days").cloned().or(defaults.retention_period_days),
 
             #[cfg(feature = "devnet-prealloc")]
             num_prealloc_utxos: m.get_one::<u64>("num-prealloc-utxos").cloned(),
@@ -482,7 +493,7 @@ fn arg_match_many_unwrap_or<T: Clone + Send + Sync + 'static>(m: &clap::ArgMatch
 
   -V, --version                             Display version information and exit
   -C, --configfile=                         Path to configuration file (default: /Users/aspect/Library/Application
-                                            Support/Tondid/Tondid.conf)
+                                            Support/Tondid/tondid.conf)
   -b, --appdir=                             Directory to store data (default: /Users/aspect/Library/Application
                                             Support/Tondid)
       --logdir=                             Directory to log output.
@@ -530,7 +541,7 @@ fn arg_match_many_unwrap_or<T: Clone + Send + Sync + 'static>(m: &clap::ArgMatch
                                             individual subsystems -- Use show to list available subsystems (default:
                                             info)
       --upnp                                Use UPnP to map our listening port outside of NAT
-      --minrelaytxfee=                      The minimum transaction fee in TND/kB to be considered a non-zero fee.
+      --minrelaytxfee=                      The minimum transaction fee in KAS/kB to be considered a non-zero fee.
                                             (default: 1e-05)
       --maxorphantx=                        Max number of orphan transactions to keep in memory (default: 100)
       --blockmaxmass=                       Maximum transaction mass to be used when creating a block (default:

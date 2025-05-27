@@ -2,7 +2,10 @@ use tondi_consensus_core::{
     constants::{MAX_SOMPI, SEQUENCE_LOCK_TIME_DISABLED, SEQUENCE_LOCK_TIME_MASK},
     errors::tx::TxRuleError,
     hashing::sighash::{SigHashReusedValuesSync, SigHashReusedValuesUnsync},
-    tx::{TransactionInput, VerifiableTransaction},
+    tx::{Transaction, TransactionInput, VerifiableTransaction, UtxoEntry, ScriptVec, TransactionId, TransactionOutpoint, TransactionOutput, ScriptPublicKey, PopulatedTransaction, MutableTransaction},
+    subnets::SUBNETWORK_ID_NATIVE,
+    sign::sign,
+    config::params::MAINNET_PARAMS,
 };
 
 use tondi_txscript::{
@@ -13,7 +16,7 @@ use tondi_txscript::{
 };
 use tondi_txscript_errors::TxScriptError;
 use rayon::{iter::{IntoParallelIterator, ParallelIterator}, ThreadPool};
-
+use std::error::Error;
 use crate::processes::transaction_validator::{errors::TxResult, TransactionValidator};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -263,6 +266,16 @@ fn map_script_err(script_err: TxScriptError, input: &TransactionInput) -> TxRule
 mod tests {
     use super::*;
     use crate::processes::transaction_validator::TransactionValidator;
+    use std::str::FromStr;
+    use tondi_consensus_core::{
+        tx::{Transaction, UtxoEntry, ScriptVec, TransactionId, TransactionOutpoint, TransactionOutput, ScriptPublicKey, PopulatedTransaction, MutableTransaction},
+        subnets::SUBNETWORK_ID_NATIVE,
+        sign::sign,
+        config::params::MAINNET_PARAMS,
+    };
+    use std::iter::once;
+    use itertools::Itertools;
+    use secp256k1::{Secp256k1, SecretKey, Keypair};
 
     /// Helper function to duplicate the last input
     fn duplicate_input(tx: &Transaction, entries: &[UtxoEntry]) -> (Transaction, Vec<UtxoEntry>) {

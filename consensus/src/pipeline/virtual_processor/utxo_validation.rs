@@ -346,15 +346,12 @@ impl VirtualStateProcessor {
     ) -> (SmallVec<[(ValidatedTransaction<'a>, u32); 2]>, MuHash) {
         self.thread_pool.install(|| {
             txs
-                .par_iter() // We can do this in parallel without complications since block body validation already ensured
-                            // that all txs within each block are independent
+                .par_iter()
                 .enumerate()
-                .skip(1) // Skip the coinbase tx.
                 .filter_map(|(i, tx)| self.validate_transaction_in_utxo_context(tx, &utxo_view, pov_daa_score, block_daa_score, flags).ok().map(|vtx| {
                     let mh = MuHash::from_transaction(&vtx, pov_daa_score);
                     (smallvec![(vtx, i as u32)], mh)
-                }
-                ))
+                }))
                 .reduce(
                     || (smallvec![], MuHash::new()),
                     |mut a, mut b| {

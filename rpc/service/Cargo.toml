@@ -22,6 +22,7 @@ tondi-mining.workspace = true
 tondi-notify.workspace = true
 tondi-p2p-flows.workspace = true
 tondi-p2p-lib.workspace = true
+tondi-p2p-mining.workspace = true
 tondi-perf-monitor.workspace = true
 tondi-rpc-core.workspace = true
 tondi-txscript.workspace = true

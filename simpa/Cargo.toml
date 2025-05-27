@@ -36,6 +36,8 @@ rand.workspace = true
 rayon.workspace = true
 secp256k1.workspace = true
 tokio = { workspace = true, features = ["rt", "macros", "rt-multi-thread"] }
+headers = "0.4.0"
+time = "0.3.41"
 
 [features]
 heap = ["dhat", "tondi-alloc/heap"]

@@ -3,17 +3,21 @@ use std::{fs, path::PathBuf, process::exit, sync::Arc, time::Duration};
 use async_channel::unbounded;
 use tondi_consensus_core::{
     config::ConfigBuilder,
+    constants::TRANSIENT_BYTE_TO_MASS_FACTOR,
     errors::config::{ConfigError, ConfigResult},
+    mining_rules::MiningRules,
 };
 use tondi_consensus_notify::{root::ConsensusNotificationRoot, service::NotifyService};
 use tondi_core::{core::Core, debug, info, trace};
-use tondi_core::{task::tick::TickService, tondid_env::version};
+use tondi_core::{tondid_env::version, task::tick::TickService};
 use tondi_database::{
     prelude::{CachePolicy, DbWriter, DirectDbWriter},
     registry::DatabaseStorePrefixes,
 };
 use tondi_grpc_server::service::GrpcService;
 use tondi_notify::{address::tracker::Tracker, subscription::context::SubscriptionContext};
+use tondi_p2p_lib::Hub;
+use tondi_p2p_mining::rule_engine::MiningRuleEngine;
 use tondi_rpc_service::service::RpcCoreService;
 use tondi_txscript::caches::TxScriptCacheCounters;
 use tondi_utils::git;
@@ -42,13 +46,18 @@ use tondi_utxoindex::{api::UtxoIndexProxy, UtxoIndex};
 use tondi_wrpc_server::service::{Options as WrpcServerOptions, WebSocketCounters as WrpcServerCounters, WrpcEncoding, WrpcService};
 
 /// Desired soft FD limit that needs to be configured
-/// for the Tondid process.
+/// for the tondid process.
 pub const DESIRED_DAEMON_SOFT_FD_LIMIT: u64 = 8 * 1024;
-/// Minimum acceptable soft FD limit for the Tondid
-/// process. (Rusty tondi will operate with the minimal
+/// Minimum acceptable soft FD limit for the tondid
+/// process. (Rusty Tondi will operate with the minimal
 /// acceptable limit of `4096`, but a setting below
 /// this value may impact the database performance).
 pub const MINIMUM_DAEMON_SOFT_FD_LIMIT: u64 = 4 * 1024;
+
+/// If set, the retention period days must be at least this value
+/// (otherwise it is meaningless since pruning periods are typically at least 2 days long)
+const MINIMUM_RETENTION_PERIOD_DAYS: f64 = 2.0;
+const ONE_GIGABYTE: f64 = 1_000_000_000.0;
 
 use crate::args::Args;
 
@@ -136,7 +145,7 @@ pub struct Runtime {
 
 /// Get the application directory from the supplied [`Args`].
 /// This function can be used to identify the location of
-/// the application folder that contains Tondid logs and the database.
+/// the application folder that contains tondid logs and the database.
 pub fn get_app_dir_from_args(args: &Args) -> PathBuf {
     let app_dir = args
         .appdir
@@ -233,8 +242,6 @@ pub fn create_core_with_runtime(runtime: &Runtime, args: &Args, fd_total_budget:
             .build(),
     );
 
-    // TODO: Validate `config` forms a valid set of properties
-
     let app_dir = get_app_dir_from_args(args);
     let db_dir = app_dir.join(network.to_prefixed()).join(DEFAULT_DATA_DIR);
 
@@ -275,6 +282,29 @@ do you confirm? (answer y/n or pass --yes to the Tondid command line to confirm 
         fs::create_dir_all(utxoindex_db_dir.as_path()).unwrap();
     }
 
+    if !args.archival && args.retention_period_days.is_some() {
+        let retention_period_days = args.retention_period_days.unwrap();
+        // Look only at post-fork values (which are the worst-case)
+        let finality_depth = config.finality_depth().after();
+        let target_time_per_block = config.target_time_per_block().after(); // in ms
+
+        let retention_period_milliseconds = (retention_period_days * 24.0 * 60.0 * 60.0 * 1000.0).ceil() as u64;
+        if MINIMUM_RETENTION_PERIOD_DAYS <= retention_period_days {
+            let total_blocks = retention_period_milliseconds / target_time_per_block;
+            // This worst case usage only considers block space. It does not account for usage of
+            // other stores (reachability, block status, mempool, etc.)
+            let worst_case_usage =
+                ((total_blocks + finality_depth) * (config.max_block_mass / TRANSIENT_BYTE_TO_MASS_FACTOR)) as f64 / ONE_GIGABYTE;
+
+            info!(
+                "Retention period is set to {} days. Disk usage may be up to {:.2} GB for block space required for this period.",
+                retention_period_days, worst_case_usage
+            );
+        } else {
+            panic!("Retention period ({}) must be at least {} days", retention_period_days, MINIMUM_RETENTION_PERIOD_DAYS);
+        }
+    }
+
     // DB used for addresses store and for multi-consensus management
     let mut meta_db = tondi_database::prelude::ConnBuilder::default()
         .with_db_path(meta_db_dir.clone())
@@ -300,25 +330,25 @@ do you confirm? (answer y/n or pass --yes to the Tondid command line to confirm 
                 let headers_store = DbHeadersStore::new(consensus_db, CachePolicy::Empty, CachePolicy::Empty);
 
                 if headers_store.has(config.genesis.hash).unwrap() {
-                    info!("Genesis is found in active consensus DB. No action needed.");
+                    debug!("Genesis is found in active consensus DB. No action needed.");
                 } else {
-                    let msg = "Genesis not found in active consensus DB. This happens when Testnet 11 is restarted and your database needs to be fully deleted. Do you confirm the delete? (y/n)";
+                    let msg = "Genesis not found in active consensus DB. This happens when Testnets are restarted and your database needs to be fully deleted. Do you confirm the delete? (y/n)";
                     get_user_approval_or_exit(msg, args.yes);
 
                     is_db_reset_needed = true;
                 }
             }
             None => {
-                info!("Consensus not initialized yet. Skipping genesis check.");
+                debug!("Consensus not initialized yet. Skipping genesis check.");
             }
         }
     }
 
-    // Reset Condition: Need to reset if we're upgrading from Tondid DB version
+    // Reset Condition: Need to reset if we're upgrading from tondid DB version
     // TEMP: upgrade from Alpha version or any version before this one
     if !is_db_reset_needed
         && (meta_db.get_pinned(b"multi-consensus-metadata-key").is_ok_and(|r| r.is_some())
-            || MultiConsensusManagementStore::new(meta_db.clone()).should_upgrade().unwrap())
+        || MultiConsensusManagementStore::new(meta_db.clone()).should_upgrade().unwrap())
     {
         let mut mcms = MultiConsensusManagementStore::new(meta_db.clone());
         let version = mcms.version().unwrap();
@@ -405,7 +435,7 @@ do you confirm? (answer y/n or pass --yes to the Tondid command line to confirm 
                 }
                 None => {
                     let msg =
-                    "Node database is from a different Tondid *DB* version and needs to be fully deleted, do you confirm the delete? (y/n)";
+                        "Node database is from a different Tondid *DB* version and needs to be fully deleted, do you confirm the delete? (y/n)";
                     get_user_approval_or_exit(msg, args.yes);
 
                     is_db_reset_needed = true;
@@ -454,8 +484,9 @@ do you confirm? (answer y/n or pass --yes to the Tondid command line to confirm 
     let connect_peers = args.connect_peers.iter().map(|x| x.normalize(config.default_p2p_port())).collect::<Vec<_>>();
     let add_peers = args.add_peers.iter().map(|x| x.normalize(config.default_p2p_port())).collect();
     let p2p_server_addr = args.listen.unwrap_or(ContextualNetAddress::unspecified()).normalize(config.default_p2p_port());
-    // connect_peers means no DNS seeding and no outbound peers
+    // connect_peers means no DNS seeding and no outbound/inbound peers
     let outbound_target = if connect_peers.is_empty() { args.outbound_target } else { 0 };
+    let inbound_limit = if connect_peers.is_empty() { args.inbound_limit } else { 0 };
     let dns_seeders = if connect_peers.is_empty() && !args.disable_dns_seeding { config.dns_seeders } else { &[] };
 
     let grpc_server_addr = args.rpclisten.unwrap_or(ContextualNetAddress::loopback()).normalize(config.default_rpc_port());
@@ -478,6 +509,7 @@ do you confirm? (answer y/n or pass --yes to the Tondid command line to confirm 
     let grpc_tower_counters = Arc::new(TowerConnectionCounters::default());
 
     // Use `num_cpus` background threads for the consensus database as recommended by rocksdb
+    let mining_rules = Arc::new(MiningRules::default());
     let consensus_db_parallelism = num_cpus::get();
     let consensus_factory = Arc::new(ConsensusFactory::new(
         meta_db.clone(),
@@ -488,6 +520,7 @@ do you confirm? (answer y/n or pass --yes to the Tondid command line to confirm 
         processing_counters.clone(),
         tx_script_cache_counters.clone(),
         fd_remaining,
+        mining_rules.clone(),
     ));
     let consensus_manager = Arc::new(ConsensusManager::new(consensus_factory));
     let consensus_monitor = Arc::new(ConsensusMonitor::new(processing_counters.clone(), tick_service.clone()));
@@ -542,6 +575,15 @@ do you confirm? (answer y/n or pass --yes to the Tondid command line to confirm 
         tick_service.clone(),
     ));
 
+    let hub = Hub::new();
+    let mining_rule_engine = Arc::new(MiningRuleEngine::new(
+        consensus_manager.clone(),
+        config.clone(),
+        processing_counters.clone(),
+        tick_service.clone(),
+        hub.clone(),
+        mining_rules,
+    ));
     let flow_context = Arc::new(FlowContext::new(
         consensus_manager.clone(),
         address_manager,
@@ -549,6 +591,8 @@ do you confirm? (answer y/n or pass --yes to the Tondid command line to confirm 
         mining_manager.clone(),
         tick_service.clone(),
         notification_root,
+        hub.clone(),
+        mining_rule_engine.clone(),
     ));
     let p2p_service = Arc::new(P2pService::new(
         flow_context.clone(),
@@ -556,7 +600,7 @@ do you confirm? (answer y/n or pass --yes to the Tondid command line to confirm 
         add_peers,
         p2p_server_addr,
         outbound_target,
-        args.inbound_limit,
+        inbound_limit,
         dns_seeders,
         config.default_p2p_port(),
         p2p_tower_counters.clone(),
@@ -579,6 +623,7 @@ do you confirm? (answer y/n or pass --yes to the Tondid command line to confirm 
         p2p_tower_counters.clone(),
         grpc_tower_counters.clone(),
         system_info,
+        mining_rule_engine.clone(),
     ));
     let grpc_service_broadcasters: usize = 3; // TODO: add a command line argument or derive from other arg/config/host-related fields
     let grpc_service = if !args.disable_grpc {
@@ -612,29 +657,31 @@ do you confirm? (answer y/n or pass --yes to the Tondid command line to confirm 
     async_runtime.register(consensus_monitor);
     async_runtime.register(mining_monitor);
     async_runtime.register(perf_monitor);
+    async_runtime.register(mining_rule_engine);
+
     let wrpc_service_tasks: usize = 2; // num_cpus::get() / 2;
-                                       // Register wRPC servers based on command line arguments
+    // Register wRPC servers based on command line arguments
     [
         (args.rpclisten_borsh.clone(), WrpcEncoding::Borsh, wrpc_borsh_counters),
         (args.rpclisten_json.clone(), WrpcEncoding::SerdeJson, wrpc_json_counters),
     ]
-    .into_iter()
-    .filter_map(|(listen_address, encoding, wrpc_server_counters)| {
-        listen_address.map(|listen_address| {
-            Arc::new(WrpcService::new(
-                wrpc_service_tasks,
-                Some(rpc_core_service.clone()),
-                &encoding,
-                wrpc_server_counters,
-                WrpcServerOptions {
-                    listen_address: listen_address.to_address(&network.network_type, &encoding).to_string(), // TODO: use a normalized ContextualNetAddress instead of a String
-                    verbose: args.wrpc_verbose,
-                    ..WrpcServerOptions::default()
-                },
-            ))
+        .into_iter()
+        .filter_map(|(listen_address, encoding, wrpc_server_counters)| {
+            listen_address.map(|listen_address| {
+                Arc::new(WrpcService::new(
+                    wrpc_service_tasks,
+                    Some(rpc_core_service.clone()),
+                    &encoding,
+                    wrpc_server_counters,
+                    WrpcServerOptions {
+                        listen_address: listen_address.to_address(&network.network_type, &encoding).to_string(), // TODO: use a normalized ContextualNetAddress instead of a String
+                        verbose: args.wrpc_verbose,
+                        ..WrpcServerOptions::default()
+                    },
+                ))
+            })
         })
-    })
-    .for_each(|server| async_runtime.register(server));
+        .for_each(|server| async_runtime.register(server));
 
     // Consensus must start first in order to init genesis in stores
     core.bind(consensus_manager);

@@ -2,7 +2,7 @@
 
 [English](./README.md) | [简体中文](./README.zh.md)
 
-**Tondi** is a high-throughput, privacy-first and Taproot-only DAG blockchain tailored for client-side smart contract anchoring and digital asset settlement. Built on a heavily refactored version of Kaspa, Tondi delivers Taproot-native confidentiality, extreme concurrency, and native compatibility with RGB and other zero-knowledge protocols — all without sacrificing simplicity or auditability.
+**Tondi** is a high-throughput, privacy-first and Taproot-only DAG blockchain tailored for client-side smart contract anchoring and digital asset settlement. Built on a heavily refactored version of Tondi, Tondi delivers Taproot-native confidentiality, extreme concurrency, and native compatibility with RGB and other zero-knowledge protocols — all without sacrificing simplicity or auditability.
 
 ---
 

@@ -32,6 +32,7 @@ use tondi_consensus_core::coinbase::MinerData;
 use tondi_consensus_core::constants::{BLOCK_VERSION, SOMPI_PER_TONDI, STORAGE_MASS_PARAMETER, TRANSIENT_BYTE_TO_MASS_FACTOR};
 use tondi_consensus_core::errors::block::{BlockProcessResult, RuleError};
 use tondi_consensus_core::header::Header;
+use tondi_consensus_core::mining_rules::MiningRules;
 use tondi_consensus_core::network::{NetworkId, NetworkType::Mainnet};
 use tondi_consensus_core::subnets::SubnetworkId;
 use tondi_consensus_core::trusted::{ExternalGhostdagData, TrustedBlock};
@@ -52,18 +53,6 @@ use crate::common;
 use flate2::read::GzDecoder;
 use futures_util::future::try_join_all;
 use itertools::Itertools;
-use serde::{Deserialize, Serialize};
-use std::cmp::{max, Ordering};
-use std::collections::HashSet;
-use std::path::Path;
-use std::sync::Arc;
-use std::{
-    collections::HashMap,
-    fs::File,
-    future::Future,
-    io::{BufRead, BufReader},
-    str::{from_utf8, FromStr},
-};
 use tondi_consensus_core::errors::tx::TxRuleError;
 use tondi_consensus_core::hashing::sighash::calc_schnorr_signature_hash;
 use tondi_consensus_core::merkle::calc_hash_merkle_root;
@@ -83,6 +72,18 @@ use tondi_txscript::opcodes::codes::OpTrue;
 use tondi_txscript::script_builder::ScriptBuilderResult;
 use tondi_utxoindex::api::{UtxoIndexApi, UtxoIndexProxy};
 use tondi_utxoindex::UtxoIndex;
+use serde::{Deserialize, Serialize};
+use std::cmp::{max, Ordering};
+use std::collections::HashSet;
+use std::path::Path;
+use std::sync::Arc;
+use std::{
+    collections::HashMap,
+    fs::File,
+    future::Future,
+    io::{BufRead, BufReader},
+    str::{from_utf8, FromStr},
+};
 
 #[derive(Serialize, Deserialize, Debug)]
 struct JsonBlock {
@@ -405,7 +406,7 @@ async fn block_window_test() {
 #[tokio::test]
 async fn header_in_isolation_validation_test() {
     init_allocator_with_default_settings();
-    let config = Config::new(MAINNET_PARAMS);
+    let config = ConfigBuilder::new(MAINNET_PARAMS).edit_consensus_params(|p| p.skip_proof_of_work = true).build();
     let consensus = TestConsensus::new(&config);
     let wait_handles = consensus.init();
     let block = consensus.build_block_with_parents(1.into(), vec![config.genesis.hash]);
@@ -456,7 +457,8 @@ async fn header_in_isolation_validation_test() {
     {
         let mut block = block.clone();
         block.header.hash = 4.into();
-        block.header.parents_by_level[0] = (5..(config.prior_max_block_parents + 6)).map(|x| (x as u64).into()).collect();
+        block.header.parents_by_level[0] =
+            std::iter::repeat_n(config.genesis.hash, config.prior_max_block_parents as usize + 1).collect();
         match consensus.validate_and_insert_block(block.to_immutable()).virtual_state_task.await {
             Err(RuleError::TooManyParents(num_parents, limit)) => {
                 assert_eq!((config.prior_max_block_parents + 1) as usize, num_parents);
@@ -1623,15 +1625,15 @@ async fn difficulty_test() {
             (tip_with_red_past.bits, tip_without_red_past.bits),
             (full_window_bits(&consensus, tip_with_red_past.hash), full_window_bits(&consensus, tip_without_red_past.hash)),
         ]
-        .iter()
-        .for_each(|(a, b)| {
-            assert_eq!(
-                compare_bits(*a, *b),
-                Ordering::Less,
-                "{}: we expect the red blocks to increase the difficulty of tip_with_red_past",
-                test.name
-            );
-        });
+            .iter()
+            .for_each(|(a, b)| {
+                assert_eq!(
+                    compare_bits(*a, *b),
+                    Ordering::Less,
+                    "{}: we expect the red blocks to increase the difficulty of tip_with_red_past",
+                    test.name
+                );
+            });
 
         // Stage 7
         // We repeat the test, but now we make the blue chain longer in order to filter
@@ -1654,10 +1656,10 @@ async fn difficulty_test() {
             (tip_with_red_past.bits, tip_without_red_past.bits),
             (full_window_bits(&consensus, tip_with_red_past.hash), full_window_bits(&consensus, tip_without_red_past.hash)),
         ]
-        .iter()
-        .for_each(|(a, b)| {
-            assert_eq!(*a, *b, "{}: we expect the red blocks to not affect the difficulty of tip_with_red_past", test.name);
-        });
+            .iter()
+            .for_each(|(a, b)| {
+                assert_eq!(*a, *b, "{}: we expect the red blocks to not affect the difficulty of tip_with_red_past", test.name);
+            });
 
         consensus.shutdown(wait_handles);
     }
@@ -1758,6 +1760,7 @@ async fn staging_consensus_test() {
         counters,
         tx_script_cache_counters,
         200,
+        Arc::new(MiningRules::default()),
     ));
     let consensus_manager = Arc::new(ConsensusManager::new(consensus_factory));
 
@@ -2081,7 +2084,7 @@ async fn runtime_sig_op_counting_test() {
             .add_op(OpEndIf)?
             .drain())
     }()
-    .unwrap();
+        .unwrap();
 
     let script_pub_key = tondi_txscript::pay_to_script_hash_script(&redeem_script);
 

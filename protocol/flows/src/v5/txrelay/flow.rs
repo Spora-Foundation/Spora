@@ -3,8 +3,6 @@ use crate::{
     flow_trait::Flow,
     flowcontext::transactions::MAX_INV_PER_TX_INV_MSG,
 };
-use std::sync::Arc;
-use tokio::time::timeout;
 use tondi_consensus_core::tx::{Transaction, TransactionId};
 use tondi_consensusmanager::ConsensusProxy;
 use tondi_core::{time::unix_now, warn};
@@ -23,6 +21,8 @@ use tondi_p2p_lib::{
     pb::{tondid_message::Payload, RequestTransactionsMessage, TransactionNotFoundMessage},
     IncomingRoute, Router,
 };
+use std::sync::Arc;
+use tokio::time::timeout;
 
 pub(crate) const MAX_TPS_THRESHOLD: u64 = 3000;
 
@@ -79,7 +79,7 @@ impl RelayTransactionsFlow {
 
     pub fn invs_channel_size() -> usize {
         // TODO: reevaluate when the node is fully functional and later when the network tx rate increases
-        // Note: in go-Tondid we have 10,000 for this channel combined with tx channel.
+        // Note: in go-tondid we have 10,000 for this channel combined with tx channel.
         4096
     }
 
@@ -115,8 +115,8 @@ impl RelayTransactionsFlow {
 
             let session = self.ctx.consensus().unguarded_session();
 
-            // Transaction relay is disabled if the node is out of sync and thus not mining
-            if !session.async_is_nearly_synced().await {
+            // Transaction relay is disabled if the node is out of sync
+            if !self.ctx.is_nearly_synced(&session).await {
                 continue;
             }
 
