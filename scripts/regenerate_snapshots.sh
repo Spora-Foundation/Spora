@@ -10,6 +10,8 @@ echo "清空旧快照文件..."
 for set in "${SNAPSHOT_SETS[@]}"; do
     dir="$SNAPSHOT_ROOT/$set"
     if [ -d "$dir" ]; then
+        # 清理 RocksDB 数据库文件
+        rm -f "$dir"/*.sst "$dir"/*.log "$dir"/CURRENT "$dir"/MANIFEST* "$dir"/OPTIONS* "$dir"/LOCK
         rm -rf "$dir"
         echo "已删除 $dir"
     fi

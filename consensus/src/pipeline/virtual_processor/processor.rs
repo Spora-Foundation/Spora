@@ -7,7 +7,7 @@ use crate::{
         storage::ConsensusStorage,
     },
     constants::BLOCK_VERSION,
-    errors::RuleError,
+    errors::{RuleError, BlockProcessResult},
     model::{
         services::{
             reachability::{MTReachabilityService, ReachabilityService},
@@ -451,7 +451,6 @@ impl VirtualStateProcessor {
 
                     let mut ctx = UtxoProcessingContext::new(mergeset_data.into(), selected_parent_multiset_hash);
 
-                    let _ = self.calculate_utxo_state(&mut ctx, &selected_parent_utxo_view, pov_daa_score);
                     let res = self.verify_expected_utxo_state(&mut ctx, &selected_parent_utxo_view, &header);
 
                     if let Err(rule_error) = res {

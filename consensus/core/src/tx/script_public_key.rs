@@ -2,6 +2,10 @@ use alloc::borrow::Cow;
 use borsh::{BorshDeserialize, BorshSerialize};
 use core::fmt::Formatter;
 use js_sys::Object;
+use tondi_utils::{
+    hex::{FromHex, ToHex},
+    serde_bytes::FromHexVisitor,
+};
 use serde::{
     de::{Error, Visitor},
     Deserialize, Deserializer, Serialize, Serializer,
@@ -10,10 +14,6 @@ use smallvec::SmallVec;
 use std::{
     collections::HashSet,
     str::{self, FromStr},
-};
-use tondi_utils::{
-    hex::{FromHex, ToHex},
-    serde_bytes::FromHexVisitor,
 };
 use wasm_bindgen::prelude::*;
 use workflow_wasm::prelude::*;
@@ -47,7 +47,7 @@ export interface IScriptPublicKey {
 }
 "#;
 
-/// Represents a Tondid ScriptPublicKey
+/// Represents a tondid ScriptPublicKey
 /// @category Consensus
 #[derive(Default, PartialEq, Eq, Clone, Hash, CastFromJs)]
 #[wasm_bindgen(inspectable)]
@@ -238,7 +238,7 @@ impl<'de> Deserialize<'de> for ScriptPublicKey {
                 pub enum Value<'a> {
                     U16(u16),
                     #[serde(borrow)]
-                    String(Cow<'a, String>),
+                    String(Cow<'a, str>),
                 }
                 impl From<Value<'_>> for u16 {
                     fn from(value: Value<'_>) -> Self {

@@ -1,12 +1,5 @@
 use indexmap::IndexSet;
 use itertools::Itertools;
-use rand::rngs::ThreadRng;
-use rand::Rng;
-use rand_distr::{Distribution, Exp};
-use rayon::prelude::{IntoParallelIterator, ParallelIterator};
-use std::cmp::max;
-use std::iter::once;
-use std::sync::Arc;
 use tondi_consensus::consensus::Consensus;
 use tondi_consensus::model::stores::virtual_state::VirtualStateStoreReader;
 use tondi_consensus::params::Params;
@@ -22,6 +15,13 @@ use tondi_consensus_core::tx::{
 use tondi_consensus_core::utxo::utxo_view::UtxoView;
 use tondi_core::trace;
 use tondi_utils::sim::{Environment, Process, Resumption, Suspension};
+use rand::rngs::ThreadRng;
+use rand::Rng;
+use rand_distr::{Distribution, Exp};
+use rayon::prelude::{IntoParallelIterator, ParallelIterator};
+use std::cmp::max;
+use std::iter::once;
+use std::sync::Arc;
 
 struct OnetimeTxSelector {
     txs: Option<Vec<Transaction>>,
@@ -180,7 +180,7 @@ impl Miner {
         let entry = utxo_view.get(&outpoint)?;
         if entry.amount < 2
             || (entry.is_coinbase
-                && (virtual_daa_score as i64 - entry.block_daa_score as i64) <= self.params.coinbase_maturity().upper_bound() as i64)
+            && (virtual_daa_score as i64 - entry.block_daa_score as i64) <= self.params.coinbase_maturity().upper_bound() as i64)
         {
             return None;
         }
