@@ -1,20 +1,4 @@
 use super::VirtualStateProcessor;
-use tondi_consensus_core::{
-    acceptance_data::{AcceptanceData, AcceptedTxEntry, MergesetBlockAcceptanceData},
-    api::args::TransactionValidationArgs,
-    coinbase::BlockRewardData,
-    hashing,
-    header::Header,
-    muhash::MuHashExtensions,
-    tx::{MutableTransaction, PopulatedTransaction, Transaction, TransactionId, ValidatedTransaction, VerifiableTransaction},
-    utxo::{
-        utxo_diff::UtxoDiff,
-        utxo_view::{UtxoView, UtxoViewComposition},
-    },
-    BlockHashMap as ConsensusBlockHashMap, BlockHashSet as ConsensusBlockHashSet, HashMapCustomHasher,
-    blockstatus::BlockStatus,
-};
-
 use crate::{
     errors::{
         BlockProcessResult,
@@ -28,7 +12,6 @@ use crate::{
         daa::DaaStoreReader,
         ghostdag::{CompactGhostdagData, GhostdagData},
         headers::HeaderStoreReader,
-        statuses::StatusesStore,
     },
     processes::{
         pruning::PruningPointReply,
@@ -38,7 +21,20 @@ use crate::{
         },
     },
 };
-
+use tondi_consensus_core::{
+    acceptance_data::{AcceptedTxEntry, MergesetBlockAcceptanceData},
+    api::args::TransactionValidationArgs,
+    coinbase::*,
+    hashing,
+    header::Header,
+    muhash::MuHashExtensions,
+    tx::{MutableTransaction, PopulatedTransaction, Transaction, TransactionId, ValidatedTransaction, VerifiableTransaction},
+    utxo::{
+        utxo_diff::UtxoDiff,
+        utxo_view::{UtxoView, UtxoViewComposition},
+    },
+    BlockHashMap, BlockHashSet, HashMapCustomHasher,
+};
 use tondi_core::{info, trace};
 use tondi_hashes::Hash;
 use tondi_muhash::MuHash;
@@ -47,15 +43,13 @@ use tondi_utils::refs::Refs;
 use rayon::prelude::*;
 use smallvec::{smallvec, SmallVec};
 use std::{iter::once, ops::Deref};
-use std::sync::Arc;
-use std::marker::PhantomData;
 
 pub(crate) mod crescendo {
+    use tondi_core::{info, log::CRESCENDO_KEYWORD};
     use std::sync::{
         atomic::{AtomicU8, Ordering},
         Arc,
     };
-    use tondi_core::{info, log::CRESCENDO_KEYWORD};
 
     #[derive(Clone)]
     pub(crate) struct CrescendoLogger {
@@ -82,36 +76,32 @@ pub(crate) mod crescendo {
 
 /// A context for processing the UTXO state of a block with respect to its selected parent.
 /// Note this can also be the virtual block.
-pub struct UtxoProcessingContext<'a> {
-    pub(super) mergeset_ghostdag_data: Arc<GhostdagData>,
-    pub(super) selected_parent_multiset: MuHash,
-    pub(super) multiset_hash: MuHash,
-    pub(super) mergeset_diff: UtxoDiff,
-    pub(super) mergeset_acceptance_data: AcceptanceData,
-    pub(super) mergeset_rewards: ConsensusBlockHashMap<BlockRewardData>,
-    pub(super) accepted_tx_ids: Vec<TransactionId>,
-    pub(super) pruning_sample_from_pov: Option<Hash>,
-    pub(super) _phantom: PhantomData<&'a ()>,
+pub(super) struct UtxoProcessingContext<'a> {
+    pub ghostdag_data: Refs<'a, GhostdagData>,
+    pub multiset_hash: MuHash,
+    pub mergeset_diff: UtxoDiff,
+    pub accepted_tx_ids: Vec<TransactionId>,
+    pub mergeset_acceptance_data: Vec<MergesetBlockAcceptanceData>,
+    pub mergeset_rewards: BlockHashMap<BlockRewardData>,
+    pub pruning_sample_from_pov: Option<Hash>,
 }
 
 impl<'a> UtxoProcessingContext<'a> {
     pub fn new(ghostdag_data: Refs<'a, GhostdagData>, selected_parent_multiset_hash: MuHash) -> Self {
         let mergeset_size = ghostdag_data.mergeset_size();
         Self {
-            mergeset_ghostdag_data: Arc::new(ghostdag_data.deref().clone()),
-            selected_parent_multiset: selected_parent_multiset_hash.clone(),
+            ghostdag_data,
             multiset_hash: selected_parent_multiset_hash,
             mergeset_diff: UtxoDiff::default(),
-            mergeset_acceptance_data: Vec::with_capacity(mergeset_size),
-            mergeset_rewards: ConsensusBlockHashMap::new(),
             accepted_tx_ids: Vec::with_capacity(1), // We expect at least the selected parent coinbase tx
+            mergeset_rewards: BlockHashMap::with_capacity(mergeset_size),
+            mergeset_acceptance_data: Vec::with_capacity(mergeset_size),
             pruning_sample_from_pov: Default::default(),
-            _phantom: PhantomData,
         }
     }
 
     pub fn selected_parent(&self) -> Hash {
-        self.mergeset_ghostdag_data.selected_parent
+        self.ghostdag_data.selected_parent
     }
 }
 
@@ -122,9 +112,13 @@ impl VirtualStateProcessor {
         ctx: &mut UtxoProcessingContext,
         selected_parent_utxo_view: &V,
         pov_daa_score: u64,
-    ) -> BlockProcessResult<()> {
+    ) {
         let selected_parent_transactions = self.block_transactions_store.get(ctx.selected_parent()).unwrap();
+        info!("Calculating UTXO state for block {} with {} transactions", 
+            ctx.selected_parent(), selected_parent_transactions.len());
+
         let validated_coinbase = ValidatedTransaction::new_coinbase(&selected_parent_transactions[0]);
+        info!("Processing coinbase transaction: {}", validated_coinbase.id());
 
         ctx.mergeset_diff.add_transaction(&validated_coinbase, pov_daa_score).unwrap();
         ctx.multiset_hash.add_transaction(&validated_coinbase, pov_daa_score);
@@ -133,13 +127,14 @@ impl VirtualStateProcessor {
 
         for (i, (merged_block, txs)) in once((ctx.selected_parent(), selected_parent_transactions))
             .chain(
-                ctx.mergeset_ghostdag_data
+                ctx.ghostdag_data
                     .consensus_ordered_mergeset_without_selected_parent(self.ghostdag_store.deref())
                     .map(|b| (b, self.block_transactions_store.get(b).unwrap())),
             )
             .enumerate()
         {
-            // Create a composed UTXO view from the selected parent UTXO view + the mergeset UTXO diff
+            info!("Processing block {} with {} transactions", merged_block, txs.len());
+            // Create a composed UTXO view from the selected parent
             let composed_view = selected_parent_utxo_view.compose(&ctx.mergeset_diff);
 
             // The first block in the mergeset is always the selected parent
@@ -155,8 +150,10 @@ impl VirtualStateProcessor {
                 self.headers_store.get_daa_score(merged_block).unwrap(),
                 validation_flags,
             );
+            info!("Validated {} transactions for block {}", validated_transactions.len(), merged_block);
 
             ctx.multiset_hash.combine(&inner_multiset);
+            info!("Current multiset hash after block {}: {}", merged_block, ctx.multiset_hash.finalize());
 
             let mut block_fee = 0u64;
             for (validated_tx, _) in validated_transactions.iter() {
@@ -164,12 +161,6 @@ impl VirtualStateProcessor {
                 ctx.accepted_tx_ids.push(validated_tx.id());
                 block_fee += validated_tx.calculated_fee;
             }
-
-            // Update block status to UTXO valid after successful validation
-            self.statuses_store.write().set(merged_block, BlockStatus::StatusUTXOValid).map_err(|e| {
-                info!("Failed to update block status: {}", e);
-                BadUTXOCommitment(merged_block, Hash::default(), Hash::default())
-            })?;
 
             ctx.mergeset_acceptance_data.push(MergesetBlockAcceptanceData {
                 block_hash: merged_block,
@@ -186,7 +177,10 @@ impl VirtualStateProcessor {
             });
 
             let coinbase_data = self.coinbase_manager.deserialize_coinbase_payload(&txs[0].payload).unwrap();
-            ctx.mergeset_rewards.insert(merged_block, BlockRewardData::new(coinbase_data.subsidy, block_fee, coinbase_data.miner_data.script_public_key));
+            ctx.mergeset_rewards.insert(
+                merged_block,
+                BlockRewardData::new(coinbase_data.subsidy, block_fee, coinbase_data.miner_data.script_public_key),
+            );
         }
 
         // Before crescendo HF:
@@ -198,7 +192,6 @@ impl VirtualStateProcessor {
             // set according to accepted_tx_ids, so we are consistent in activating via the correct score
             ctx.accepted_tx_ids.sort();
         }
-        Ok(())
     }
 
     /// Verify that the current block fully respects its own UTXO view. We define a block as
@@ -216,6 +209,8 @@ impl VirtualStateProcessor {
     ) -> BlockProcessResult<()> {
         // Verify header UTXO commitment
         let expected_commitment = ctx.multiset_hash.finalize();
+        info!("UTXO commitment verification for block {}: expected={}, actual={}", 
+            header.hash, expected_commitment, header.utxo_commitment);
         if expected_commitment != header.utxo_commitment {
             return Err(BadUTXOCommitment(header.hash, header.utxo_commitment, expected_commitment));
         }
@@ -235,13 +230,13 @@ impl VirtualStateProcessor {
         self.verify_coinbase_transaction(
             &txs[0],
             header.daa_score,
-            &ctx.mergeset_ghostdag_data,
+            &ctx.ghostdag_data,
             &ctx.mergeset_rewards,
             &self.daa_excluded_store.get_mergeset_non_daa(header.hash).unwrap(),
         )?;
 
         // Verify the header pruning point
-        let reply = self.verify_header_pruning_point(header, ctx.mergeset_ghostdag_data.to_compact())?;
+        let reply = self.verify_header_pruning_point(header, ctx.ghostdag_data.to_compact())?;
         ctx.pruning_sample_from_pov = Some(reply.pruning_sample);
 
         // Verify all transactions are valid in context
@@ -292,8 +287,8 @@ impl VirtualStateProcessor {
         coinbase: &Transaction,
         daa_score: u64,
         ghostdag_data: &GhostdagData,
-        mergeset_rewards: &ConsensusBlockHashMap<BlockRewardData>,
-        mergeset_non_daa: &ConsensusBlockHashSet,
+        mergeset_rewards: &BlockHashMap<BlockRewardData>,
+        mergeset_non_daa: &BlockHashSet,
     ) -> BlockProcessResult<()> {
         // Extract only miner data from the provided coinbase
         let miner_data = self.coinbase_manager.deserialize_coinbase_payload(&coinbase.payload).unwrap().miner_data;
@@ -326,7 +321,7 @@ impl VirtualStateProcessor {
         self.thread_pool.install(|| {
             txs
                 .par_iter() // We can do this in parallel without complications since block body validation already ensured
-                            // that all txs within each block are independent
+                // that all txs within each block are independent
                 .enumerate()
                 .skip(1) // Skip the coinbase tx.
                 .filter_map(|(i, tx)| self.validate_transaction_in_utxo_context(tx, &utxo_view, pov_daa_score, block_daa_score, flags).ok().map(|vtx| (vtx, i as u32)))
@@ -346,12 +341,15 @@ impl VirtualStateProcessor {
     ) -> (SmallVec<[(ValidatedTransaction<'a>, u32); 2]>, MuHash) {
         self.thread_pool.install(|| {
             txs
-                .par_iter()
+                .par_iter() // We can do this in parallel without complications since block body validation already ensured
+                // that all txs within each block are independent
                 .enumerate()
+                .skip(1) // Skip the coinbase tx.
                 .filter_map(|(i, tx)| self.validate_transaction_in_utxo_context(tx, &utxo_view, pov_daa_score, block_daa_score, flags).ok().map(|vtx| {
                     let mh = MuHash::from_transaction(&vtx, pov_daa_score);
                     (smallvec![(vtx, i as u32)], mh)
-                }))
+                }
+                ))
                 .reduce(
                     || (smallvec![], MuHash::new()),
                     |mut a, mut b| {

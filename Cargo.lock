@@ -4704,6 +4704,7 @@ dependencies = [
  "hex",
  "itertools 0.13.0",
  "js-sys",
+ "log",
  "rand",
  "secp256k1",
  "serde",

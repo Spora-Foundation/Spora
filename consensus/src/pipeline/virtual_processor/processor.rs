@@ -7,7 +7,7 @@ use crate::{
         storage::ConsensusStorage,
     },
     constants::BLOCK_VERSION,
-    errors::{RuleError, BlockProcessResult},
+    errors::RuleError,
     model::{
         services::{
             reachability::{MTReachabilityService, ReachabilityService},
@@ -451,6 +451,7 @@ impl VirtualStateProcessor {
 
                     let mut ctx = UtxoProcessingContext::new(mergeset_data.into(), selected_parent_multiset_hash);
 
+                    self.calculate_utxo_state(&mut ctx, &selected_parent_utxo_view, pov_daa_score);
                     let res = self.verify_expected_utxo_state(&mut ctx, &selected_parent_utxo_view, &header);
 
                     if let Err(rule_error) = res {
@@ -545,7 +546,7 @@ impl VirtualStateProcessor {
         let virtual_past_median_time = self.window_manager.calc_past_median_time(&virtual_ghostdag_data)?.0;
 
         // Calc virtual UTXO state relative to selected parent
-        let _ = self.calculate_utxo_state(&mut ctx, &selected_parent_utxo_view, virtual_daa_window.daa_score);
+        self.calculate_utxo_state(&mut ctx, &selected_parent_utxo_view, virtual_daa_window.daa_score);
 
         // Update the accumulated diff
         accumulated_diff.with_diff_in_place(&ctx.mergeset_diff).unwrap();
@@ -693,7 +694,7 @@ impl VirtualStateProcessor {
     /// Assumes:
     ///     1. `selected_parent` is a UTXO-valid block
     ///     2. `candidates` are an antichain ordered in descending blue work order
-    ///     3. `candidates` do not contain `selected_parent` and `selected_parent.blue work > max(candidates.blue_work)`
+    ///     3. `candidates` do not contain `selected_parent` and `selected_parent.blue work > max(candidates.blue_work)`  
     pub(super) fn pick_virtual_parents(
         &self,
         selected_parent: Hash,
@@ -1154,11 +1155,13 @@ impl VirtualStateProcessor {
     pub fn import_pruning_point_utxo_set(
         &self,
         new_pruning_point: Hash,
-        imported_utxo_multiset: MuHash,
+        mut imported_utxo_multiset: MuHash,
     ) -> PruningImportResult<()> {
         info!("Importing the UTXO set of the pruning point {}", new_pruning_point);
         let new_pruning_point_header = self.headers_store.get_header(new_pruning_point).unwrap();
         let imported_utxo_multiset_hash = imported_utxo_multiset.finalize();
+        info!("UTXO commitment verification for pruning point {}: imported={}, header={}", 
+            new_pruning_point, imported_utxo_multiset_hash, new_pruning_point_header.utxo_commitment);
         if imported_utxo_multiset_hash != new_pruning_point_header.utxo_commitment {
             return Err(PruningImportError::ImportedMultisetHashMismatch(
                 new_pruning_point_header.utxo_commitment,
@@ -1181,15 +1184,19 @@ impl VirtualStateProcessor {
             let mut virtual_write = self.virtual_stores.write();
 
             virtual_write.utxo_set.clear().unwrap();
+            let mut count = 0;
             for chunk in &pruning_utxoset_read.utxo_set.iterator().map(|iter_result| iter_result.unwrap()).chunks(1000) {
                 virtual_write.utxo_set.write_from_iterator_without_cache(chunk).unwrap();
+                count += 1;
             }
+            info!("Copied {} chunks of UTXO set from pruning point to virtual", count);
         }
 
         let virtual_read = self.virtual_stores.upgradable_read();
 
         // Validate transactions of the pruning point itself
         let new_pruning_point_transactions = self.block_transactions_store.get(new_pruning_point).unwrap();
+        info!("Validating {} transactions for pruning point {}", new_pruning_point_transactions.len(), new_pruning_point);
         let validated_transactions = self.validate_transactions_in_parallel(
             &new_pruning_point_transactions,
             &virtual_read.utxo_set,
@@ -1197,6 +1204,7 @@ impl VirtualStateProcessor {
             new_pruning_point_header.daa_score,
             TxValidationFlags::Full,
         );
+        info!("Validated {} transactions for pruning point", validated_transactions.len());
         if validated_transactions.len() < new_pruning_point_transactions.len() - 1 {
             // Some non-coinbase transactions are invalid
             return Err(PruningImportError::NewPruningPointTxErrors);

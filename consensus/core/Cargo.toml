@@ -24,6 +24,7 @@ futures-util.workspace = true
 getrandom.workspace = true
 itertools.workspace = true
 js-sys.workspace = true
+log.workspace = true
 tondi-addresses.workspace = true
 tondi-core.workspace = true
 tondi-database.workspace = true
