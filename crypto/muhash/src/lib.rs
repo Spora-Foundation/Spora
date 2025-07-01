@@ -17,8 +17,8 @@ pub const HASH_SIZE: usize = 32;
 pub const SERIALIZED_MUHASH_SIZE: usize = ELEMENT_BYTE_SIZE;
 // The hash of `NewMuHash().Finalize()`
 pub const EMPTY_MUHASH: Hash = Hash::from_bytes([
-    0x1c, 0x09, 0x2e, 0x3c, 0xfa, 0x6c, 0xbb, 0x3e, 0x77, 0x17, 0xf0, 0xd8, 0x93, 0x5f, 0x34, 0x08,
-    0x61, 0x8c, 0xd4, 0x18, 0x1e, 0xad, 0x0a, 0xad, 0xa5, 0x4c, 0x8e, 0x6e, 0x80, 0xbe, 0xdb, 0x91,
+    0xa6, 0x21, 0xf2, 0xef, 0x4d, 0x16, 0xcb, 0xea, 0x35, 0xf2, 0x5f, 0xad, 0x40, 0x31, 0xe4, 0x42, 0xd3, 0x32, 0x2c, 0xbe, 0x15,
+    0x69, 0xaa, 0x90, 0x30, 0x0a, 0xff, 0x47, 0xb6, 0x61, 0x2c, 0x51,
 ]);
 
 pub(crate) const ELEMENT_BIT_SIZE: usize = 3072;
@@ -90,24 +90,21 @@ impl MuHash {
     }
 
     #[inline]
-    pub fn finalize(&self) -> Hash {
-        let (numerator, denominator) = (&self.numerator, &self.denominator);
-        let mut normalized = numerator.clone();
-        if denominator != &U3072::one() {
-            normalized /= denominator.clone();
-        }
-        let serialized = normalized.to_le_bytes();
+    pub fn finalize(&mut self) -> Hash {
+        let serialized = self.serialize();
         MuHashFinalizeHash::hash(serialized)
     }
 
     #[inline]
-    pub fn serialize(&self) -> [u8; SERIALIZED_MUHASH_SIZE] {
-        let (numerator, denominator) = (&self.numerator, &self.denominator);
-        let mut normalized = numerator.clone();
-        if denominator != &U3072::one() {
-            normalized /= denominator.clone();
-        }
-        normalized.to_le_bytes()
+    fn normalize(&mut self) {
+        self.numerator /= self.denominator;
+        self.denominator = U3072::one();
+    }
+
+    #[inline]
+    pub fn serialize(&mut self) -> [u8; SERIALIZED_MUHASH_SIZE] {
+        self.normalize();
+        self.numerator.to_le_bytes()
     }
 
     #[inline]
@@ -299,8 +296,15 @@ mod tests {
     }
 
     #[test]
+    fn test_empty_hash_hex() {
+        let hash = MuHash::new().finalize();
+        let hexs: String = hash.as_bytes().into_iter().map(|b| format!("{b:#04x}, ")).collect();
+        insta::assert_snapshot!(hexs, @"0xa6, 0x21, 0xf2, 0xef, 0x4d, 0x16, 0xcb, 0xea, 0x35, 0xf2, 0x5f, 0xad, 0x40, 0x31, 0xe4, 0x42, 0xd3, 0x32, 0x2c, 0xbe, 0x15, 0x69, 0xaa, 0x90, 0x30, 0x0a, 0xff, 0x47, 0xb6, 0x61, 0x2c, 0x51,");
+    }
+
+    #[test]
     fn test_empty_hash() {
-        let empty = MuHash::new();
+        let mut empty = MuHash::new();
         assert_eq!(empty.finalize(), EMPTY_MUHASH);
     }
 
@@ -337,7 +341,7 @@ mod tests {
         let ser = check.serialize();
         assert_eq!(&ser[..], &expected[..]);
 
-        let deserialized = MuHash::deserialize(ser).unwrap();
+        let mut deserialized = MuHash::deserialize(ser).unwrap();
         assert_eq!(deserialized.finalize(), check.finalize());
         let overflow = [255; 384];
         assert_eq!(MuHash::deserialize(overflow).unwrap_err(), OverflowError);
@@ -346,7 +350,7 @@ mod tests {
         zeroed.numerator *= U3072::zero();
         assert_eq!(zeroed.serialize(), [0u8; 384]);
 
-        let deserialized = MuHash::deserialize(zeroed.serialize()).unwrap();
+        let mut deserialized = MuHash::deserialize(zeroed.serialize()).unwrap();
         assert_eq!(zeroed.finalize(), deserialized.finalize());
     }
 

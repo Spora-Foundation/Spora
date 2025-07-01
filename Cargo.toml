@@ -194,6 +194,7 @@ http-body = "1.0.1"
 http-body-util = "0.1.2"
 igd-next = { version = "0.14.2", features = ["aio_tokio"] }
 indexmap = "2.1.0"
+insta = { version = "1.43.1" }
 intertrait = "0.2.2"
 ipnet = "2.9.0"
 itertools = "0.13.0"

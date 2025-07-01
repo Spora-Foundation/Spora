@@ -28,6 +28,7 @@ keccak.workspace = true
 
 [dev-dependencies]
 criterion.workspace = true
+insta.workspace = true
 rand.workspace = true
 sha3.workspace = true
 

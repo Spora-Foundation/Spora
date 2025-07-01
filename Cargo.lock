@@ -2179,6 +2179,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "insta"
+version = "1.43.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "154934ea70c58054b556dd430b99a98c2a7ff5309ac9891597e339b5c28f4371"
+dependencies = [
+ "console",
+ "once_cell",
+ "similar",
+]
+
+[[package]]
 name = "instant"
 version = "0.1.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4008,6 +4019,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "similar"
+version = "2.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbbb5d9659141646ae647b42fe094daf6c6192d1620870b449d9557f748b2daa"
+
+[[package]]
 name = "simpa"
 version = "0.17.0"
 dependencies = [
@@ -4963,6 +4980,7 @@ dependencies = [
  "cc",
  "criterion",
  "faster-hex",
+ "insta",
  "keccak",
  "rand",
  "serde",
@@ -5104,6 +5122,7 @@ name = "tondi-muhash"
 version = "0.17.0"
 dependencies = [
  "criterion",
+ "insta",
  "rand",
  "rand_chacha",
  "rayon",

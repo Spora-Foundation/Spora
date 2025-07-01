@@ -9,18 +9,18 @@
 //! - Signing challenge hash
 //! - Merkle tree hashing
 //! - PoW identifiersuse once_cell::sync::Lazy;
-use crate::blake3::blake3_256;
-use sha2::{Sha256, Digest};
+use crate::{blake3::blake3_256, Hash};
+use sha2::{Digest, Sha256};
 
 pub trait HasherBase {
     fn update<A: AsRef<[u8]>>(&mut self, data: A) -> &mut Self;
 }
 
 pub trait Hasher: HasherBase + Clone + Default {
-    fn finalize(self) -> crate::Hash;
+    fn finalize(self) -> Hash;
     fn reset(&mut self);
     #[inline(always)]
-    fn hash<A: AsRef<[u8]>>(data: A) -> crate::Hash {
+    fn hash<A: AsRef<[u8]>>(data: A) -> Hash {
         let mut hasher = Self::default();
         hasher.update(data);
         hasher.finalize()
@@ -39,18 +39,18 @@ macro_rules! blake3_hasher {
             impl $name {
                 #[inline(always)]
                 pub fn new() -> Self {
-                    let mut prefix = Vec::new();
-                    prefix.extend_from_slice($domain_sep);
+                    let prefix = Vec::from($domain_sep);
                     Self(prefix)
                 }
 
                 pub fn write<A: AsRef<[u8]>>(&mut self, data: A) {
+                    // TODO: use update
                     self.0.extend_from_slice(data.as_ref());
                 }
 
                 #[inline(always)]
-                pub fn finalize(self) -> crate::Hash {
-                    crate::Hash(blake3_256(&self.0))
+                pub fn finalize(self) -> Hash {
+                    blake3_256(&self.0).into()
                 }
             }
 
@@ -70,7 +70,7 @@ macro_rules! impl_hasher {
         }
         impl Hasher for $name {
             #[inline(always)]
-            fn finalize(self) -> crate::Hash {
+            fn finalize(self) -> Hash {
                 // Call the method
                 $name::finalize(self)
             }
@@ -112,8 +112,7 @@ macro_rules! sha256_hasher {
             impl $name {
                 #[inline(always)]
                 pub fn new() -> Self {
-                    let mut prefix = Vec::new();
-                    prefix.extend_from_slice($domain_sep);
+                    let prefix = Vec::from($domain_sep);
                     Self(prefix)
                 }
 
@@ -122,8 +121,8 @@ macro_rules! sha256_hasher {
                 }
 
                 #[inline(always)]
-                pub fn finalize(self) -> crate::Hash {
-                    crate::Hash(sha256(&self.0))
+                pub fn finalize(self) -> Hash {
+                    sha256(&self.0).into()
                 }
             }
 
