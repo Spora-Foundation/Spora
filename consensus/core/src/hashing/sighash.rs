@@ -1,7 +1,7 @@
 use arc_swap::ArcSwapOption;
 use std::cell::Cell;
 use std::sync::Arc;
-use tondi_hashes::{Hash, Hasher, HasherBase, TransactionSigningHash, TransactionSigningHashECDSA, SchnorrSigningHash, ZERO_HASH};
+use tondi_hashes::{Hash, Hasher, HasherBase, SchnorrSigningHash, TransactionSigningHash, TransactionSigningHashECDSA, ZERO_HASH};
 
 use crate::tx::{ScriptPublicKey, Transaction, TransactionOutpoint, TransactionOutput, VerifiableTransaction};
 
@@ -404,7 +404,6 @@ mod tests {
             hash_type: SigHashType,
             input_index: usize,
             action: ModifyAction,
-            expected_hash: &'static str,
         }
 
         const SIG_HASH_ALL_ANYONE_CAN_PAY: SigHashType = SigHashType(SIG_HASH_ALL.0 | SIG_HASH_ANY_ONE_CAN_PAY.0);
@@ -419,7 +418,6 @@ mod tests {
                 hash_type: SIG_HASH_ALL,
                 input_index: 0,
                 action: ModifyAction::NoAction,
-                expected_hash: "2496bde1dabf3af3d2057cc77260d4e499935dcb80628b130ee536db6c1f65d9",
             },
             TestVector {
                 name: "native-all-0-modify-input-1",
@@ -427,7 +425,6 @@ mod tests {
                 hash_type: SIG_HASH_ALL,
                 input_index: 0,
                 action: ModifyAction::Input(1),
-                expected_hash: "8511a615713650b6fc026d77be22e5dac230660ad6b722609ef54565306717c8",
             },
             TestVector {
                 name: "native-all-0-modify-output-1",
@@ -435,7 +432,6 @@ mod tests {
                 hash_type: SIG_HASH_ALL,
                 input_index: 0,
                 action: ModifyAction::Output(1),
-                expected_hash: "a5e29a32fd70c8a5d50a48e3ef7542f6eb5eab974e63afba8972f200078e3c83",
             },
             TestVector {
                 name: "native-all-0-modify-sequence-1",
@@ -443,7 +439,6 @@ mod tests {
                 hash_type: SIG_HASH_ALL,
                 input_index: 0,
                 action: ModifyAction::Sequence(1),
-                expected_hash: "26ab27c86c04c72299b12a2882fbd1de8f460518afec77046297cf72de6fddd5",
             },
             TestVector {
                 name: "native-all-anyonecanpay-0",
@@ -451,7 +446,6 @@ mod tests {
                 hash_type: SIG_HASH_ALL_ANYONE_CAN_PAY,
                 input_index: 0,
                 action: ModifyAction::NoAction,
-                expected_hash: "b4cf020d9d353f9e251176243628028136e03042acde8b97c095f449959a3b9d",
             },
             TestVector {
                 name: "native-all-anyonecanpay-0-modify-input-0",
@@ -459,7 +453,6 @@ mod tests {
                 hash_type: SIG_HASH_ALL_ANYONE_CAN_PAY,
                 input_index: 0,
                 action: ModifyAction::Input(0),
-                expected_hash: "e06fe198aa43741d985e48cad5b3ccdc775c7fbde552867553f0610c87d6bc4a",
             },
             TestVector {
                 name: "native-all-anyonecanpay-0-modify-input-1",
@@ -467,7 +460,6 @@ mod tests {
                 hash_type: SIG_HASH_ALL_ANYONE_CAN_PAY,
                 input_index: 0,
                 action: ModifyAction::Input(1),
-                expected_hash: "b4cf020d9d353f9e251176243628028136e03042acde8b97c095f449959a3b9d",
             },
             TestVector {
                 name: "native-all-anyonecanpay-0-modify-sequence",
@@ -475,7 +467,6 @@ mod tests {
                 hash_type: SIG_HASH_ALL_ANYONE_CAN_PAY,
                 input_index: 0,
                 action: ModifyAction::Sequence(1),
-                expected_hash: "b4cf020d9d353f9e251176243628028136e03042acde8b97c095f449959a3b9d",
             },
             // SIG_HASH_NONE
             TestVector {
@@ -484,7 +475,6 @@ mod tests {
                 hash_type: SIG_HASH_NONE,
                 input_index: 0,
                 action: ModifyAction::NoAction,
-                expected_hash: "322aa93591edffb7a5e407bad8ebf7d7d151e28a83a62177dd7b8f776cc7ed22",
             },
             TestVector {
                 name: "native-none-0-modify-output-1",
@@ -492,7 +482,6 @@ mod tests {
                 hash_type: SIG_HASH_NONE,
                 input_index: 0,
                 action: ModifyAction::Output(1),
-                expected_hash: "322aa93591edffb7a5e407bad8ebf7d7d151e28a83a62177dd7b8f776cc7ed22",
             },
             TestVector {
                 name: "native-none-0-modify-sequence-0",
@@ -500,7 +489,6 @@ mod tests {
                 hash_type: SIG_HASH_NONE,
                 input_index: 0,
                 action: ModifyAction::Sequence(0),
-                expected_hash: "6e619e4771af34a2a13332b26e2ccfe79b90f215dbe37a8d5a9f52d45530aeb7",
             },
             TestVector {
                 name: "native-none-0-modify-sequence-1",
@@ -508,7 +496,6 @@ mod tests {
                 hash_type: SIG_HASH_NONE,
                 input_index: 0,
                 action: ModifyAction::Sequence(1),
-                expected_hash: "322aa93591edffb7a5e407bad8ebf7d7d151e28a83a62177dd7b8f776cc7ed22",
             },
             TestVector {
                 name: "native-none-anyonecanpay-0",
@@ -516,7 +503,6 @@ mod tests {
                 hash_type: SIG_HASH_NONE_ANYONE_CAN_PAY,
                 input_index: 0,
                 action: ModifyAction::NoAction,
-                expected_hash: "8c33dc5e5e1837ac150b7d761be4389afd706529fcc245366e5e8d160000ff87",
             },
             TestVector {
                 name: "native-none-anyonecanpay-0-modify-amount-spent",
@@ -524,7 +510,6 @@ mod tests {
                 hash_type: SIG_HASH_NONE_ANYONE_CAN_PAY,
                 input_index: 0,
                 action: ModifyAction::AmountSpent(0),
-                expected_hash: "f999c2a7c9c4750e1fc625a921ae4163da3d50a96d0b5db53862448d2905124a",
             },
             TestVector {
                 name: "native-none-anyonecanpay-0-modify-script-public-key",
@@ -532,7 +517,6 @@ mod tests {
                 hash_type: SIG_HASH_NONE_ANYONE_CAN_PAY,
                 input_index: 0,
                 action: ModifyAction::PrevScriptPublicKey(0),
-                expected_hash: "7cf976bb4175a61a94d01ae3005fc644d1c29370c0ae3110b1397bb722ad15c8",
             },
             // SIG_HASH_SINGLE
             TestVector {
@@ -541,7 +525,6 @@ mod tests {
                 hash_type: SIG_HASH_SINGLE,
                 input_index: 0,
                 action: ModifyAction::NoAction,
-                expected_hash: "edd5f0bb4011936e246e959e5537afbbca024ef81e00bdb880232090d77f8b74",
             },
             TestVector {
                 name: "native-single-0-modify-output-1",
@@ -549,7 +532,6 @@ mod tests {
                 hash_type: SIG_HASH_SINGLE,
                 input_index: 0,
                 action: ModifyAction::Output(1),
-                expected_hash: "edd5f0bb4011936e246e959e5537afbbca024ef81e00bdb880232090d77f8b74",
             },
             TestVector {
                 name: "native-single-0-modify-sequence-0",
@@ -557,7 +539,6 @@ mod tests {
                 hash_type: SIG_HASH_SINGLE,
                 input_index: 0,
                 action: ModifyAction::Sequence(0),
-                expected_hash: "ded7fe3f54cd163e1c8f9f695ebc89d89fa22935148824d68b5fa4682fcca98d",
             },
             TestVector {
                 name: "native-single-0-modify-sequence-1",
@@ -565,7 +546,6 @@ mod tests {
                 hash_type: SIG_HASH_SINGLE,
                 input_index: 0,
                 action: ModifyAction::Sequence(1),
-                expected_hash: "edd5f0bb4011936e246e959e5537afbbca024ef81e00bdb880232090d77f8b74",
             },
             TestVector {
                 name: "native-single-2-no-corresponding-output",
@@ -573,7 +553,6 @@ mod tests {
                 hash_type: SIG_HASH_SINGLE,
                 input_index: 2,
                 action: ModifyAction::NoAction,
-                expected_hash: "92fe49f75292d358d1ece29976d9b7bd3077bb91f85e76cafe3537707e812d31",
             },
             TestVector {
                 name: "native-single-2-no-corresponding-output-modify-output-1",
@@ -581,7 +560,6 @@ mod tests {
                 hash_type: SIG_HASH_SINGLE,
                 input_index: 2,
                 action: ModifyAction::Output(1),
-                expected_hash: "92fe49f75292d358d1ece29976d9b7bd3077bb91f85e76cafe3537707e812d31",
             },
             TestVector {
                 name: "native-single-anyonecanpay-0",
@@ -589,7 +567,6 @@ mod tests {
                 hash_type: SIG_HASH_SINGLE_ANYONE_CAN_PAY,
                 input_index: 0,
                 action: ModifyAction::NoAction,
-                expected_hash: "b56d9aabf3f41d68d0d66cd64ed3210d3d64a9b84d36bfd72d2dd31b9195d8a2",
             },
             TestVector {
                 name: "native-single-anyonecanpay-2-no-corresponding-output",
@@ -597,7 +574,6 @@ mod tests {
                 hash_type: SIG_HASH_SINGLE_ANYONE_CAN_PAY,
                 input_index: 2,
                 action: ModifyAction::NoAction,
-                expected_hash: "5e503c096052bda3318b9f424e9354a23493dc1a2d413590b68fc4402082372f",
             },
             TestVector {
                 name: "native-all-0-modify-payload",
@@ -605,7 +581,6 @@ mod tests {
                 hash_type: SIG_HASH_ALL,
                 input_index: 0,
                 action: ModifyAction::Payload,
-                expected_hash: "14a60aa00cd2bd03e304ab9bf1f86fade2a47e25cb8d4833b682136e15e47d93",
             },
             // subnetwork transaction
             TestVector {
@@ -614,7 +589,6 @@ mod tests {
                 hash_type: SIG_HASH_ALL,
                 input_index: 0,
                 action: ModifyAction::NoAction,
-                expected_hash: "7190a8e319375cb6a6af4f4532b69846452eeb7db344836c282d92ad747e4898",
             },
             TestVector {
                 name: "subnetwork-all-modify-payload",
@@ -622,7 +596,6 @@ mod tests {
                 hash_type: SIG_HASH_ALL,
                 input_index: 0,
                 action: ModifyAction::Payload,
-                expected_hash: "235cde3d553c6eea0e88c45010409fdbae9378b95b7f5366a3c0df0189031e74",
             },
             TestVector {
                 name: "subnetwork-all-modify-gas",
@@ -630,7 +603,6 @@ mod tests {
                 hash_type: SIG_HASH_ALL,
                 input_index: 0,
                 action: ModifyAction::Gas,
-                expected_hash: "5cad256a1e01e63347a72eb41b60ed340281a4a596ba364691a48d4b3dd30212",
             },
             TestVector {
                 name: "subnetwork-all-subnetwork-id",
@@ -638,10 +610,10 @@ mod tests {
                 hash_type: SIG_HASH_ALL,
                 input_index: 0,
                 action: ModifyAction::SubnetworkId,
-                expected_hash: "10dcfa634e5f1515d89e29592d18d0c8a2d4d358f418fe01a2d6148280c3425c",
             },
         ];
 
+        let mut expected_hashs = Vec::new();
         for test in tests {
             let mut tx = test.populated_tx.tx.clone();
             let mut entries = test.populated_tx.entries.clone();
@@ -673,7 +645,123 @@ mod tests {
             let populated_tx = PopulatedTransaction::new(&tx, entries);
             let reused_values = SigHashReusedValuesUnsync::new();
             let actual_hash = calc_schnorr_signature_hash(&populated_tx, test.input_index, test.hash_type, &reused_values);
-            assert_eq!(actual_hash.to_string(), test.expected_hash, "Test case {} failed", test.name);
+            expected_hashs.push((test.name, actual_hash));
         }
+        insta::assert_debug_snapshot!(expected_hashs, @r#"
+        [
+            (
+                "native-all-0",
+                2496bde1dabf3af3d2057cc77260d4e499935dcb80628b130ee536db6c1f65d9,
+            ),
+            (
+                "native-all-0-modify-input-1",
+                8511a615713650b6fc026d77be22e5dac230660ad6b722609ef54565306717c8,
+            ),
+            (
+                "native-all-0-modify-output-1",
+                a5e29a32fd70c8a5d50a48e3ef7542f6eb5eab974e63afba8972f200078e3c83,
+            ),
+            (
+                "native-all-0-modify-sequence-1",
+                26ab27c86c04c72299b12a2882fbd1de8f460518afec77046297cf72de6fddd5,
+            ),
+            (
+                "native-all-anyonecanpay-0",
+                b4cf020d9d353f9e251176243628028136e03042acde8b97c095f449959a3b9d,
+            ),
+            (
+                "native-all-anyonecanpay-0-modify-input-0",
+                e06fe198aa43741d985e48cad5b3ccdc775c7fbde552867553f0610c87d6bc4a,
+            ),
+            (
+                "native-all-anyonecanpay-0-modify-input-1",
+                b4cf020d9d353f9e251176243628028136e03042acde8b97c095f449959a3b9d,
+            ),
+            (
+                "native-all-anyonecanpay-0-modify-sequence",
+                b4cf020d9d353f9e251176243628028136e03042acde8b97c095f449959a3b9d,
+            ),
+            (
+                "native-none-0",
+                322aa93591edffb7a5e407bad8ebf7d7d151e28a83a62177dd7b8f776cc7ed22,
+            ),
+            (
+                "native-none-0-modify-output-1",
+                322aa93591edffb7a5e407bad8ebf7d7d151e28a83a62177dd7b8f776cc7ed22,
+            ),
+            (
+                "native-none-0-modify-sequence-0",
+                6e619e4771af34a2a13332b26e2ccfe79b90f215dbe37a8d5a9f52d45530aeb7,
+            ),
+            (
+                "native-none-0-modify-sequence-1",
+                322aa93591edffb7a5e407bad8ebf7d7d151e28a83a62177dd7b8f776cc7ed22,
+            ),
+            (
+                "native-none-anyonecanpay-0",
+                8c33dc5e5e1837ac150b7d761be4389afd706529fcc245366e5e8d160000ff87,
+            ),
+            (
+                "native-none-anyonecanpay-0-modify-amount-spent",
+                f999c2a7c9c4750e1fc625a921ae4163da3d50a96d0b5db53862448d2905124a,
+            ),
+            (
+                "native-none-anyonecanpay-0-modify-script-public-key",
+                7cf976bb4175a61a94d01ae3005fc644d1c29370c0ae3110b1397bb722ad15c8,
+            ),
+            (
+                "native-single-0",
+                edd5f0bb4011936e246e959e5537afbbca024ef81e00bdb880232090d77f8b74,
+            ),
+            (
+                "native-single-0-modify-output-1",
+                edd5f0bb4011936e246e959e5537afbbca024ef81e00bdb880232090d77f8b74,
+            ),
+            (
+                "native-single-0-modify-sequence-0",
+                ded7fe3f54cd163e1c8f9f695ebc89d89fa22935148824d68b5fa4682fcca98d,
+            ),
+            (
+                "native-single-0-modify-sequence-1",
+                edd5f0bb4011936e246e959e5537afbbca024ef81e00bdb880232090d77f8b74,
+            ),
+            (
+                "native-single-2-no-corresponding-output",
+                92fe49f75292d358d1ece29976d9b7bd3077bb91f85e76cafe3537707e812d31,
+            ),
+            (
+                "native-single-2-no-corresponding-output-modify-output-1",
+                92fe49f75292d358d1ece29976d9b7bd3077bb91f85e76cafe3537707e812d31,
+            ),
+            (
+                "native-single-anyonecanpay-0",
+                b56d9aabf3f41d68d0d66cd64ed3210d3d64a9b84d36bfd72d2dd31b9195d8a2,
+            ),
+            (
+                "native-single-anyonecanpay-2-no-corresponding-output",
+                5e503c096052bda3318b9f424e9354a23493dc1a2d413590b68fc4402082372f,
+            ),
+            (
+                "native-all-0-modify-payload",
+                14a60aa00cd2bd03e304ab9bf1f86fade2a47e25cb8d4833b682136e15e47d93,
+            ),
+            (
+                "subnetwork-all-0",
+                7190a8e319375cb6a6af4f4532b69846452eeb7db344836c282d92ad747e4898,
+            ),
+            (
+                "subnetwork-all-modify-payload",
+                235cde3d553c6eea0e88c45010409fdbae9378b95b7f5366a3c0df0189031e74,
+            ),
+            (
+                "subnetwork-all-modify-gas",
+                5cad256a1e01e63347a72eb41b60ed340281a4a596ba364691a48d4b3dd30212,
+            ),
+            (
+                "subnetwork-all-subnetwork-id",
+                10dcfa634e5f1515d89e29592d18d0c8a2d4d358f418fe01a2d6148280c3425c,
+            ),
+        ]
+        "#)
     }
 }
