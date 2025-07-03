@@ -1,0 +1,17 @@
+services:
+    tondi-dev:
+        container_name: tondi-dev
+        platform: linux/amd64
+        build:
+            context: .
+            args:
+                - SHELL=${SHELL}
+                - WORKDIR=${WORKDIR}
+                - DK_USER=${DK_USER}
+            network: host
+        tty: true
+        stdin_open: true
+        network_mode: host
+        userns_mode: keep-id
+        volumes:
+            - ../:${WORKDIR}/code:U
