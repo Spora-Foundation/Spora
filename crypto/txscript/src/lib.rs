@@ -1585,4 +1585,20 @@ mod bitcoind_tests {
             }
         }
     }
+
+    #[test]
+    fn test_blake3_opcode() -> Result<(), TestError> {
+        let row: JsonTestRow = serde_json::from_str(
+            r#"
+        [
+            "''",
+            "NOP BLAKE3 0x20 0xaf1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262 EQUAL",
+            "",
+            "OK"
+        ]
+        "#,
+        )
+        .expect("Failed Parsing {:?}");
+        row.test_row(true, true)
+    }
 }
