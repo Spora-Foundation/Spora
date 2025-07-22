@@ -7,6 +7,7 @@
 #![allow(non_snake_case)]
 
 mod script_public_key;
+pub mod taproot;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 pub use script_public_key::{
@@ -94,6 +95,9 @@ pub struct TransactionInput {
     #[serde(with = "serde_bytes")]
     pub signature_script: Vec<u8>, // TODO: Consider using SmallVec
     pub sequence: u64,
+
+    // TODO
+    // pub witness: Witness,
 
     // TODO: Since this field is used for calculating mass context free, and we already commit
     // to the mass in a dedicated field (on the tx level), it follows that this field is no longer
@@ -630,8 +634,8 @@ mod tests {
             13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42,
             43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72,
             73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 0, 0, 0, 0, 0,
-            0, 0, 0, 61, 188, 55, 192, 57, 96, 26, 206, 50, 63, 46, 214, 76, 28, 198, 69, 142, 39, 240, 188, 203, 112, 243, 237, 32, 9,
-            181, 135, 129, 178, 212, 47,
+            0, 0, 0, 61, 188, 55, 192, 57, 96, 26, 206, 50, 63, 46, 214, 76, 28, 198, 69, 142, 39, 240, 188, 203, 112, 243, 237, 32,
+            9, 181, 135, 129, 178, 212, 47,
         ];
         assert_eq!(expected_bts, bts);
         assert_eq!(tx, bincode::deserialize(&bts).unwrap());

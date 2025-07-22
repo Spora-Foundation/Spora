@@ -22,11 +22,13 @@ use log::trace;
 use opcodes::codes::OpReturn;
 use opcodes::{codes, to_small_int, OpCond};
 use script_class::ScriptClass;
+use secp256k1::Message;
 use tondi_consensus_core::hashing::sighash::{
     calc_ecdsa_signature_hash, calc_schnorr_signature_hash, SigHashReusedValues, SigHashReusedValuesUnsync,
 };
 use tondi_consensus_core::hashing::sighash_type::SigHashType;
-use tondi_consensus_core::tx::{ScriptPublicKey, TransactionInput, UtxoEntry, VerifiableTransaction};
+use tondi_consensus_core::tx::taproot::sighash::{Prevouts, SighashCache, TapSighashType};
+use tondi_consensus_core::tx::{ScriptPublicKey, TransactionInput, TransactionOutput, UtxoEntry, VerifiableTransaction};
 use tondi_txscript_errors::TxScriptError;
 
 pub mod prelude {
@@ -73,7 +75,7 @@ pub struct SigCacheKey {
 }
 
 enum ScriptSource<'a, T: VerifiableTransaction> {
-    TxInput { tx: &'a T, input: &'a TransactionInput, idx: usize, utxo_entry: &'a UtxoEntry, is_p2sh: bool },
+    TxInput { tx: &'a T, input: &'a TransactionInput, idx: usize, utxo_entry: &'a UtxoEntry },
     StandAloneScripts(Vec<&'a [u8]>),
 }
 
@@ -272,15 +274,11 @@ impl<'a, T: VerifiableTransaction, Reused: SigHashReusedValues> TxScriptEngine<'
         kip10_enabled: bool,
         runtime_sig_op_counting: bool,
     ) -> Self {
-        let script_public_key = utxo_entry.script_public_key.script();
-        // The script_public_key in P2SH is just validating the hash on the OpMultiSig script
-        // the user provides
-        let is_p2sh = ScriptClass::is_pay_to_script_hash(script_public_key);
         assert!(input_idx < tx.tx().inputs.len());
         Self {
             dstack: Default::default(),
             astack: Default::default(),
-            script_source: ScriptSource::TxInput { tx, input, idx: input_idx, utxo_entry, is_p2sh },
+            script_source: ScriptSource::TxInput { tx, input, idx: input_idx, utxo_entry },
             reused_values,
             sig_cache,
             cond_stack: Default::default(),
@@ -311,6 +309,11 @@ impl<'a, T: VerifiableTransaction, Reused: SigHashReusedValues> TxScriptEngine<'
     }
 
     #[inline]
+    pub fn is_tx_input_script(&self) -> bool {
+        matches!(self.script_source, ScriptSource::TxInput { .. })
+    }
+
+    #[inline]
     pub fn is_executing(&self) -> bool {
         self.cond_stack.is_empty() || *self.cond_stack.last().expect("Checked not empty") == OpCond::True
     }
@@ -337,7 +340,8 @@ impl<'a, T: VerifiableTransaction, Reused: SigHashReusedValues> TxScriptEngine<'
         }
     }
 
-    fn execute_script(&mut self, script: &[u8], verify_only_push: bool) -> Result<(), TxScriptError> {
+    fn execute_script(&mut self, idx: usize, script: &[u8]) -> Result<(), TxScriptError> {
+        let check_push_opcode = idx == 0 && self.is_tx_input_script();
         let script_result = parse_script(script).try_for_each(|opcode| {
             let opcode = opcode?;
             if opcode.is_disabled() {
@@ -348,7 +352,7 @@ impl<'a, T: VerifiableTransaction, Reused: SigHashReusedValues> TxScriptEngine<'
                 return Err(TxScriptError::OpcodeReserved(format!("{:?}", opcode)));
             }
 
-            if verify_only_push && !opcode.is_push_opcode() {
+            if check_push_opcode && !opcode.is_push_opcode() {
                 return Err(TxScriptError::SignatureScriptNotPushOnly);
             }
 
@@ -373,16 +377,59 @@ impl<'a, T: VerifiableTransaction, Reused: SigHashReusedValues> TxScriptEngine<'
         script_result
     }
 
+    fn execute_standard(&mut self, scripts: &[&[u8]]) -> Result<(), TxScriptError> {
+        scripts.iter().enumerate().filter(|(_, s)| !s.is_empty()).try_for_each(|(idx, script)| self.execute_script(idx, script))
+    }
+
+    fn execute_p2sh(&mut self, scripts: &[&[u8]]) -> Result<(), TxScriptError> {
+        let mut saved_stack: Option<Vec<Vec<u8>>> = None;
+        scripts.iter().enumerate().filter(|(_, s)| !s.is_empty()).try_for_each(|(idx, script)| {
+            if idx == 1 {
+                saved_stack = Some(self.dstack.clone());
+            }
+            self.execute_script(idx, script)
+        })?;
+
+        self.check_error_condition(false)?;
+        self.dstack = saved_stack.ok_or(TxScriptError::EmptyStack)?;
+        let script = self.dstack.pop().ok_or(TxScriptError::EmptyStack)?;
+        self.execute_script(1, script.as_slice())
+    }
+
+    fn execute_p2tr(&mut self) -> Result<(), TxScriptError> {
+        match self.script_source {
+            ScriptSource::TxInput { tx, input, idx, utxo_entry } => {
+                let script_public_key = utxo_entry.script_public_key.script();
+                let witness = Witness::try_from(&*input.signature_script).map_err(|_| TxScriptError::InvalidTaprootWitness)?;
+
+                let sighash_type = TapSighashType::Default;
+                let mut sighasher = SighashCache::new(tx.tx());
+                let vouts = tx
+                    .populated_inputs()
+                    .map(|(_, utxo)| TransactionOutput { value: utxo.amount, script_public_key: utxo.script_public_key.clone() })
+                    .collect::<Vec<_>>();
+                let prevouts = Prevouts::All(&vouts);
+                let sighash =
+                    sighasher.taproot_key_spend_signature_hash(idx, &prevouts, sighash_type).expect("failed to construct sighash");
+                let msg = Message::from(sighash);
+                let failed = witness.execute_taproot(&msg, &script_public_key[2..])?;
+                self.dstack.push_item(!failed)
+            }
+            _ => unreachable!("p2tr must be ScriptSource::TxInput"),
+        }
+    }
+
     pub fn execute(&mut self) -> Result<(), TxScriptError> {
-        let (scripts, is_p2sh) = match &self.script_source {
-            ScriptSource::TxInput { input, utxo_entry, is_p2sh, .. } => {
+        let (scripts, script_class) = match &self.script_source {
+            ScriptSource::TxInput { input, utxo_entry, .. } => {
                 if utxo_entry.script_public_key.version() > MAX_SCRIPT_PUBLIC_KEY_VERSION {
                     trace!("The version of the scriptPublicKey is higher than the known version - the Execute function returns true.");
                     return Ok(());
                 }
-                (vec![input.signature_script.as_slice(), utxo_entry.script_public_key.script()], *is_p2sh)
+                let script_class = ScriptClass::from(&utxo_entry.script_public_key);
+                (vec![input.signature_script.as_slice(), utxo_entry.script_public_key.script()], script_class)
             }
-            ScriptSource::StandAloneScripts(scripts) => (scripts.clone(), false),
+            ScriptSource::StandAloneScripts(scripts) => (scripts.clone(), ScriptClass::NonStandard),
         };
 
         // TODO: run all in same iterator?
@@ -401,28 +448,13 @@ impl<'a, T: VerifiableTransaction, Reused: SigHashReusedValues> TxScriptEngine<'
             return Err(TxScriptError::ScriptSize(s.len(), MAX_SCRIPTS_SIZE));
         }
 
-        let mut saved_stack: Option<Vec<Vec<u8>>> = None;
-        // try_for_each quits only if an error occurred. So, we always run over all scripts if
-        // each is successful
-        scripts.iter().enumerate().filter(|(_, s)| !s.is_empty()).try_for_each(|(idx, s)| {
-            let verify_only_push =
-                idx == 0 && matches!(self.script_source, ScriptSource::TxInput { tx: _, input: _, idx: _, utxo_entry: _, is_p2sh: _ });
-            // Save script in p2sh
-            if is_p2sh && idx == 1 {
-                saved_stack = Some(self.dstack.clone());
-            }
-            self.execute_script(s, verify_only_push)
-        })?;
+        match script_class {
+            ScriptClass::Taproot => self.execute_p2tr(),
+            ScriptClass::ScriptHash => self.execute_p2sh(&scripts),
+            _ => self.execute_standard(&scripts),
+        }?;
 
-        if is_p2sh {
-            self.check_error_condition(false)?;
-            self.dstack = saved_stack.ok_or(TxScriptError::EmptyStack)?;
-            let script = self.dstack.pop().ok_or(TxScriptError::EmptyStack)?;
-            self.execute_script(script.as_slice(), false)?
-        }
-
-        self.check_error_condition(true)?;
-        Ok(())
+        self.check_error_condition(true)
     }
 
     // check_error_condition is called whenever we finish a chunk of the scripts
@@ -1414,7 +1446,7 @@ mod bitcoind_tests {
             let script_sig = match opcodes::parse_short_form(sig_script) {
                 Ok(parsed) => parsed,
                 Err(e) => {
-                    println!("Error parsing sig_script: {:?}", e);  // Debug: log the error
+                    println!("Error parsing sig_script: {:?}", e); // Debug: log the error
                     return Err(UnifiedError::ScriptBuilderError(e));
                 }
             };
@@ -1424,7 +1456,7 @@ mod bitcoind_tests {
             let script_pub_key = match opcodes::parse_short_form(script_pub_key) {
                 Ok(parsed) => ScriptPublicKey::from_vec(0, parsed),
                 Err(e) => {
-                    println!("Error parsing script_pub_key: {:?}", e);  // Debug: log the error
+                    println!("Error parsing script_pub_key: {:?}", e); // Debug: log the error
                     return Err(UnifiedError::ScriptBuilderError(e));
                 }
             };
@@ -1460,12 +1492,11 @@ mod bitcoind_tests {
                     Ok(())
                 }
                 Err(e) => {
-                    println!("Error during script execution: {:?}", e);  // Debug: log the error
+                    println!("Error during script execution: {:?}", e); // Debug: log the error
                     Err(UnifiedError::TxScriptError(e))
                 }
             }
         }
-
 
         /*
 

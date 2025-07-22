@@ -92,7 +92,7 @@ impl Mempool {
                 return Err(NonStandardError::RejectScriptPublicKeyVersion(transaction_id, i));
             }
 
-            if ScriptClass::from_script(&output.script_public_key) == ScriptClass::NonStandard {
+            if ScriptClass::from(&output.script_public_key) == ScriptClass::NonStandard {
                 return Err(NonStandardError::RejectOutputScriptClass(transaction_id, i));
             }
 
@@ -180,7 +180,7 @@ impl Mempool {
             // they have already been checked prior to calling this
             // function.
             let entry = transaction.entries[i].as_ref().unwrap();
-            match ScriptClass::from_script(&entry.script_public_key) {
+            match ScriptClass::from(&entry.script_public_key) {
                 ScriptClass::NonStandard => {
                     return Err(NonStandardError::RejectInputScriptClass(transaction_id, i));
                 }
@@ -196,6 +196,7 @@ impl Mempool {
                         return Err(NonStandardError::RejectSignatureCount(transaction_id, i, num_sig_ops, MAX_STANDARD_P2SH_SIG_OPS));
                     }
                 }
+                ScriptClass::Taproot => {},
             }
 
             // TODO: For now, until wallets adapt, we only require minimum fee as function of compute mass (but the fee/mass ratio will

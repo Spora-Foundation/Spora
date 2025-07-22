@@ -149,6 +149,7 @@ async-trait = "0.1.74"
 base64 = "0.22.1"
 bincode = { version = "1.3.3", default-features = false }
 blake2b_simd = "1.0.2"
+bitcoin = { version = "0.32.6", git = "https://github.com/neomaxwell/rust-bitcoin.git", branch = "bitcoin-0.32.6" }
 borsh = { version = "1.5.1", features = ["derive", "rc"] }
 bs58 = { version = "0.5.0", features = ["check"], default-features = false }
 bytes = "1.7.1"

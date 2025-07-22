@@ -1,5 +1,5 @@
 use crate::{
-    opcodes::codes::{OpBlake3, OpCheckSig, OpCheckSigECDSA, OpData32, OpData33, OpEqual},
+    opcodes::codes::{OpBlake3, OpCheckSig, OpCheckSigECDSA, OpData32, OpData33, OpEqual, OpTrue},
     script_builder::{ScriptBuilder, ScriptBuilderResult},
     script_class::ScriptClass,
 };
@@ -11,14 +11,24 @@ use tondi_consensus_core::tx::{ScriptPublicKey, ScriptVec};
 use tondi_txscript_errors::TxScriptError;
 
 mod multisig;
+mod taproot;
 
 pub use multisig::{multisig_redeem_script, multisig_redeem_script_ecdsa, Error as MultisigCreateError};
+pub use taproot::witness::Witness;
 
 /// Creates a new script to pay a transaction output to a 32-byte pubkey.
 fn pay_to_pub_key(address_payload: &[u8]) -> ScriptVec {
     // TODO: use ScriptBuilder when add_op and add_data fns or equivalents are available
     assert_eq!(address_payload.len(), 32);
     SmallVec::from_iter(once(OpData32).chain(address_payload.iter().copied()).chain(once(OpCheckSig)))
+}
+
+/// Creates a new script to pay a transaction output to taproot.
+/// It is expected that the input is a valid taproot.
+fn pay_to_taproot(taproot: &[u8]) -> ScriptVec {
+    // TODO: use ScriptBuilder when add_op and add_data fns or equivalents are available
+    assert_eq!(taproot.len(), 32);
+    SmallVec::from_iter([OpTrue, OpData32].iter().copied().chain(taproot.iter().copied()))
 }
 
 /// Creates a new script to pay a transaction output to a 33-byte ECDSA pubkey.
@@ -42,6 +52,7 @@ pub fn pay_to_address_script(address: &Address) -> ScriptPublicKey {
         Version::PubKey => pay_to_pub_key(address.payload.as_slice()),
         Version::PubKeyECDSA => pay_to_pub_key_ecdsa(address.payload.as_slice()),
         Version::ScriptHash => pay_to_script_hash(address.payload.as_slice()),
+        Version::Taproot => pay_to_taproot(address.payload.as_slice()),
     };
     ScriptPublicKey::new(ScriptClass::from(address.version).version(), script)
 }
@@ -71,7 +82,7 @@ pub fn pay_to_script_hash_signature_script(redeem_script: Vec<u8>, signature: Ve
 ///    or use `address.version` directly instead, where address is the successfully
 ///    returned address.
 pub fn extract_script_pub_key_address(script_public_key: &ScriptPublicKey, prefix: Prefix) -> Result<Address, TxScriptError> {
-    let class = ScriptClass::from_script(script_public_key);
+    let class = ScriptClass::from(script_public_key);
     if script_public_key.version() > class.version() {
         return Err(TxScriptError::PubKeyFormat);
     }
@@ -81,6 +92,7 @@ pub fn extract_script_pub_key_address(script_public_key: &ScriptPublicKey, prefi
         ScriptClass::PubKey => Ok(Address::new(prefix, Version::PubKey, &script[1..33])),
         ScriptClass::PubKeyECDSA => Ok(Address::new(prefix, Version::PubKeyECDSA, &script[1..34])),
         ScriptClass::ScriptHash => Ok(Address::new(prefix, Version::ScriptHash, &script[2..34])),
+        ScriptClass::Taproot => Ok(Address::new(prefix, Version::Taproot, &script[2..34])),
     }
 }
 

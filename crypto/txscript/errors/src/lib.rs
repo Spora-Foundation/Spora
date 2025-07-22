@@ -75,6 +75,8 @@ pub enum TxScriptError {
     Serialization(#[from] SerializationError),
     #[error("sig op count exceeds passed limit of {0}")]
     ExceededSigOpLimit(u8),
+    #[error("InvalidTaprootWitness")]
+    InvalidTaprootWitness,
 }
 
 #[derive(Error, PartialEq, Eq, Debug, Clone, Copy)]

@@ -151,7 +151,7 @@ impl ConsensusConverter {
     }
 
     fn get_transaction_output(&self, output: &TransactionOutput) -> RpcTransactionOutput {
-        let script_public_key_type = ScriptClass::from_script(&output.script_public_key);
+        let script_public_key_type = ScriptClass::from(&output.script_public_key);
         let address = extract_script_pub_key_address(&output.script_public_key, self.config.prefix()).ok();
         let verbose_data =
             address.map(|address| RpcTransactionOutputVerboseData { script_public_key_type, script_public_key_address: address });
