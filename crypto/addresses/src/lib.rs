@@ -19,7 +19,10 @@ use workflow_wasm::{
     extensions::object::*,
 };
 
+#[cfg(feature = "bech32")]
 mod bech32;
+#[cfg(feature = "bech32m")]
+mod bech32m;
 
 /// Error type produced by [`Address`] operations.
 #[derive(Error, PartialEq, Eq, Debug, Clone)]
@@ -138,14 +141,15 @@ impl TryFrom<&str> for Prefix {
 #[borsh(use_discriminant = true)]
 #[wasm_bindgen(js_name = "AddressVersion")]
 pub enum Version {
-    /// PubKey addresses always have the version byte set to 0
+    /// PubKey addresses always have the version byte set to 0(0b00000_000)
     PubKey = 0,
-    /// PubKey ECDSA addresses always have the version byte set to 1
+    /// PubKey ECDSA addresses always have the version byte set to 1(0b00000_001)
     PubKeyECDSA = 1,
-    /// ScriptHash addresses always have the version byte set to 8
+    /// ScriptHash addresses always have the version byte set to 8(0b00001_000)
     ScriptHash = 8,
-    /// Taproot addresses always have the version byte set to 64
-    Taproot = 64,
+    /// Taproot addresses always have the version byte set to 88(0b01011_000)
+    /// Bech32 codec encode initial 5 bit `0b01011` to char 't'
+    Taproot = 88,
 }
 
 impl TryFrom<&str> for Version {
@@ -181,7 +185,7 @@ impl TryFrom<u8> for Version {
             0 => Ok(Version::PubKey),
             1 => Ok(Version::PubKeyECDSA),
             8 => Ok(Version::ScriptHash),
-            64 => Ok(Version::Taproot),
+            88 => Ok(Version::Taproot),
             _ => Err(AddressError::InvalidVersion(value)),
         }
     }
@@ -579,6 +583,11 @@ impl TryFrom<AddressOrStringArrayT> for Vec<Address> {
 mod tests {
     use super::*;
 
+    const XPUB: [u8; 32] = [
+        250, 47, 231, 218, 228, 80, 238, 252, 181, 104, 195, 80, 125, 159, 185, 89, 105, 53, 183, 246, 228, 22, 42, 247, 205, 84, 163,
+        10, 80, 28, 14, 182,
+    ];
+
     #[test]
     fn address_roundtrip() {
         use Prefix::*;
@@ -606,6 +615,18 @@ mod tests {
             assert_eq!(decoded, address, "Roundtrip mismatch: {encoded}");
         }
     }
+
+    #[test]
+    fn test_taproot_address() {
+        use Prefix::*;
+        use Version::*;
+        let address = Address::new(Mainnet, Taproot, &XPUB);
+        let encoded = String::from(&address);
+        assert_eq!(encoded, "tondi:trazle76u3gwal94drp4qlvlh9vkjddh7mjpv2hhe422xzjsrs8tvca30pn");
+        let decoded: Address = encoded.parse().expect("Address decode failed");
+        assert_eq!(address, decoded);
+    }
+
     #[test]
     fn invalid_prefix_should_fail() {
         let invalid = "wrongprefix:qpauqsvk7yf9...";

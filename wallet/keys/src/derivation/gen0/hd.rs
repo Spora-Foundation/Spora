@@ -656,15 +656,15 @@ mod tests {
 
     fn gen0_receive_addresses() -> Vec<&'static str> {
         vec![
-            "tondi:qqnklfz9safc78p30y5c9q6p2rvxhj35uhnh96uunklak0tjn2x5wl6w2qxpz",
-            "tondi:qrd9efkvg3pg34sgp6ztwyv3r569qlc43wa5w8nfs302532dzj47kc5paayyc",
+            "tondi:qqnklfz9safc78p30y5c9q6p2rvxhj35uhnh96uunklak0tjn2x5wqk0az7",
+            "tondi:qrd9efkvg3pg34sgp6ztwyv3r569qlc43wa5w8nfs302532dzj47kkepekv",
         ]
     }
 
     fn gen0_change_addresses() -> Vec<&'static str> {
         vec![
-            "tondi:qrp03wulr8z7cnr3lmwhpeuv5arthvnaydafgay8y3fg35fazclpc32aqqhd5",
-            "tondi:qpyum9jfp5ryf0wt9a36cpvp0tnj54kfnuqxjyad6eyn59qtg0cn6yj87kjwl",
+            "tondi:qrp03wulr8z7cnr3lmwhpeuv5arthvnaydafgay8y3fg35fazclpch9gtrt",
+            "tondi:qpyum9jfp5ryf0wt9a36cpvp0tnj54kfnuqxjyad6eyn59qtg0cn6lpwmt4",
         ]
     }
 
@@ -774,13 +774,13 @@ mod tests {
     #[tokio::test]
     async fn generate_tonditest_addresses() {
         let receive_addresses = [
-            "tonditest:qqz22l98sf8jun72rwh5rqe2tm8lhwtdxdmynrz4ypwak427qed5j4w5k854z",
-            "tonditest:qz880h6s4fwyumlslklt4jjwm7y5lcqyy8v5jc88gsncpuza0y76x4w5l0ve2",
+            "tonditest:qqz22l98sf8jun72rwh5rqe2tm8lhwtdxdmynrz4ypwak427qed5jum76ja",
+            "tonditest:qz880h6s4fwyumlslklt4jjwm7y5lcqyy8v5jc88gsncpuza0y76x0wmy6s",
         ];
 
         let change_addresses = vec![
-            "tonditest:qq3p8lvqyhzh37qgh2vf9u79l7h85pnmypg8z0tmp0tfl70zjm2cvr0hj935p",
-            "tonditest:qpl00d5thmm3c5w3lj9cwx94dejjjx667rh3ey4sp0tkrmhsyd7rgve46hne9",
+            "tonditest:qq3p8lvqyhzh37qgh2vf9u79l7h85pnmypg8z0tmp0tfl70zjm2cvawrn9a",
+            "tonditest:qpl00d5thmm3c5w3lj9cwx94dejjjx667rh3ey4sp0tkrmhsyd7rgf0345v",
         ];
 
         let master_xprv =

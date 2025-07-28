@@ -449,15 +449,15 @@ mod tests {
 
     fn gen1_receive_addresses() -> Vec<&'static str> {
         vec![
-            "tondi:qz7ulu4c25dh7fzec9zjyrmlhnkzrg4wmf89q7gzr3gfrsj3uz6xjjh364uw2",
-            "tondi:qzn3qjzf2nzyd3zj303nk4sgv0aae42v3ufutk5xsxckfels57dxje3raqps9",
+            "tondi:qz7ulu4c25dh7fzec9zjyrmlhnkzrg4wmf89q7gzr3gfrsj3uz6xjn7m3s2",
+            "tondi:qzn3qjzf2nzyd3zj303nk4sgv0aae42v3ufutk5xsxckfels57dxjq7h850",
         ]
     }
 
     fn gen1_change_addresses() -> Vec<&'static str> {
         vec![
-            "tondi:qrqrnyzdwh9ec2q05guzy3vv33f86nvdyw52qwlmk0mewzx3dgdss6f4sdh2f",
-            "tondi:qqx8jlz0hh0wun5ru4glt9za3v8wj3jn7v3w55a0lyud74ppetqfqcvmvhrga",
+            "tondi:qrqrnyzdwh9ec2q05guzy3vv33f86nvdyw52qwlmk0mewzx3dgdssnqnpnd",
+            "tondi:qqx8jlz0hh0wun5ru4glt9za3v8wj3jn7v3w55a0lyud74ppetqfqt04yze",
         ]
     }
 
@@ -528,7 +528,7 @@ mod tests {
 
         let key = wallet.derive_receive_pubkey(1).unwrap();
         let address = PubkeyDerivationManager::create_address(&key, Prefix::Testnet, false).unwrap().to_string();
-        assert_eq!(address, "tonditest:qrc2959g0pqda53glnfd238cdnmk24zxzkj8n5x83rkktx4h73dkcu9nakyrk")
+        assert_eq!(address, "tonditest:qrc2959g0pqda53glnfd238cdnmk24zxzkj8n5x83rkktx4h73dkc2g22wj")
     }
 
     #[tokio::test]
@@ -563,8 +563,8 @@ mod tests {
     #[tokio::test]
     async fn generate_tonditest_addresses() {
         let receive_addresses = [
-            "tonditest:qz7ulu4c25dh7fzec9zjyrmlhnkzrg4wmf89q7gzr3gfrsj3uz6xj3pxdk9hn",
-            "tonditest:qzn3qjzf2nzyd3zj303nk4sgv0aae42v3ufutk5xsxckfels57dxj6852rcfu",
+            "tonditest:qz7ulu4c25dh7fzec9zjyrmlhnkzrg4wmf89q7gzr3gfrsj3uz6xjdnleth",
+            "tonditest:qzn3qjzf2nzyd3zj303nk4sgv0aae42v3ufutk5xsxckfels57dxj7nn00j",
         ];
 
         let master_xprv =

@@ -4576,6 +4576,7 @@ dependencies = [
 name = "tondi-addresses"
 version = "0.17.0"
 dependencies = [
+ "bech32",
  "borsh",
  "criterion",
  "js-sys",

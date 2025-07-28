@@ -9,7 +9,14 @@ include.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+default = ["bech32m"]
+
+bech32 = []
+bech32m = []
+
 [dependencies]
+bech32.workspace = true
 borsh.workspace = true
 js-sys.workspace = true
 serde.workspace = true
