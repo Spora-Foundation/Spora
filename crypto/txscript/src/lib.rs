@@ -17,12 +17,15 @@ pub mod runtime_sig_op_counter;
 use crate::caches::Cache;
 use crate::data_stack::{DataStack, Stack};
 use crate::opcodes::{deserialize_next_opcode, OpCodeImplementation};
+use bitcoin::taproot::ControlBlock;
+use bitcoin::witness::P2TrSpend;
+use bitcoin::XOnlyPublicKey;
 use itertools::Itertools;
 use log::trace;
 use opcodes::codes::OpReturn;
 use opcodes::{codes, to_small_int, OpCond};
 use script_class::ScriptClass;
-use secp256k1::Message;
+use secp256k1::{Message, Secp256k1};
 use tondi_consensus_core::hashing::sighash::{
     calc_ecdsa_signature_hash, calc_schnorr_signature_hash, SigHashReusedValues, SigHashReusedValuesUnsync,
 };
@@ -94,6 +97,8 @@ pub struct TxScriptEngine<'a, T: VerifiableTransaction, Reused: SigHashReusedVal
     num_ops: i32,
     kip10_enabled: bool,
     runtime_sig_op_counter: Option<RuntimeSigOpCounter>,
+
+    check_push_opcode: bool,
 }
 
 fn parse_script<T: VerifiableTransaction, Reused: SigHashReusedValues>(
@@ -238,6 +243,7 @@ impl<'a, T: VerifiableTransaction, Reused: SigHashReusedValues> TxScriptEngine<'
             num_ops: 0,
             kip10_enabled,
             runtime_sig_op_counter: None,
+            check_push_opcode: false,
         }
     }
 
@@ -285,6 +291,7 @@ impl<'a, T: VerifiableTransaction, Reused: SigHashReusedValues> TxScriptEngine<'
             num_ops: 0,
             kip10_enabled,
             runtime_sig_op_counter: runtime_sig_op_counting.then_some(RuntimeSigOpCounter::new(input.sig_op_count)),
+            check_push_opcode: true,
         }
     }
 
@@ -305,6 +312,7 @@ impl<'a, T: VerifiableTransaction, Reused: SigHashReusedValues> TxScriptEngine<'
             kip10_enabled,
             // Runtime sig op counting is not needed for standalone scripts, only inputs have sig op count value
             runtime_sig_op_counter: None,
+            check_push_opcode: false,
         }
     }
 
@@ -340,8 +348,7 @@ impl<'a, T: VerifiableTransaction, Reused: SigHashReusedValues> TxScriptEngine<'
         }
     }
 
-    fn execute_script(&mut self, idx: usize, script: &[u8]) -> Result<(), TxScriptError> {
-        let check_push_opcode = idx == 0 && self.is_tx_input_script();
+    fn execute_script(&mut self, script: &[u8]) -> Result<(), TxScriptError> {
         let script_result = parse_script(script).try_for_each(|opcode| {
             let opcode = opcode?;
             if opcode.is_disabled() {
@@ -352,7 +359,7 @@ impl<'a, T: VerifiableTransaction, Reused: SigHashReusedValues> TxScriptEngine<'
                 return Err(TxScriptError::OpcodeReserved(format!("{:?}", opcode)));
             }
 
-            if check_push_opcode && !opcode.is_push_opcode() {
+            if self.check_push_opcode && !opcode.is_push_opcode() {
                 return Err(TxScriptError::SignatureScriptNotPushOnly);
             }
 
@@ -364,6 +371,8 @@ impl<'a, T: VerifiableTransaction, Reused: SigHashReusedValues> TxScriptEngine<'
             }
             Ok(())
         });
+
+        self.check_push_opcode = false;
 
         // Moving between scripts - we can't be inside an if
         if script_result.is_ok() && !self.cond_stack.is_empty() {
@@ -378,22 +387,22 @@ impl<'a, T: VerifiableTransaction, Reused: SigHashReusedValues> TxScriptEngine<'
     }
 
     fn execute_standard(&mut self, scripts: &[&[u8]]) -> Result<(), TxScriptError> {
-        scripts.iter().enumerate().filter(|(_, s)| !s.is_empty()).try_for_each(|(idx, script)| self.execute_script(idx, script))
+        scripts.iter().try_for_each(|script| self.execute_script(script))
     }
 
     fn execute_p2sh(&mut self, scripts: &[&[u8]]) -> Result<(), TxScriptError> {
         let mut saved_stack: Option<Vec<Vec<u8>>> = None;
-        scripts.iter().enumerate().filter(|(_, s)| !s.is_empty()).try_for_each(|(idx, script)| {
+        scripts.iter().enumerate().try_for_each(|(idx, script)| {
             if idx == 1 {
                 saved_stack = Some(self.dstack.clone());
             }
-            self.execute_script(idx, script)
+            self.execute_script(script)
         })?;
 
         self.check_error_condition(false)?;
         self.dstack = saved_stack.ok_or(TxScriptError::EmptyStack)?;
         let script = self.dstack.pop().ok_or(TxScriptError::EmptyStack)?;
-        self.execute_script(1, script.as_slice())
+        self.execute_script(script.as_slice())
     }
 
     fn execute_p2tr(&mut self) -> Result<(), TxScriptError> {
@@ -402,18 +411,46 @@ impl<'a, T: VerifiableTransaction, Reused: SigHashReusedValues> TxScriptEngine<'
                 let script_public_key = utxo_entry.script_public_key.script();
                 let witness = Witness::try_from(&*input.signature_script).map_err(|_| TxScriptError::InvalidTaprootWitness)?;
 
-                let sighash_type = TapSighashType::Default;
-                let mut sighasher = SighashCache::new(tx.tx());
-                let vouts = tx
-                    .populated_inputs()
-                    .map(|(_, utxo)| TransactionOutput { value: utxo.amount, script_public_key: utxo.script_public_key.clone() })
-                    .collect::<Vec<_>>();
-                let prevouts = Prevouts::All(&vouts);
-                let sighash =
-                    sighasher.taproot_key_spend_signature_hash(idx, &prevouts, sighash_type).expect("failed to construct sighash");
-                let msg = Message::from(sighash);
-                let failed = witness.execute_taproot(&msg, &script_public_key[2..])?;
-                self.dstack.push_item(!failed)
+                let xpub = XOnlyPublicKey::from_slice(&script_public_key[2..]).map_err(TxScriptError::InvalidSignature)?;
+
+                let p2tr = P2TrSpend::try_from(&witness)?;
+                match p2tr {
+                    P2TrSpend::Key { signature, annex } => {
+                        let sighash_type = TapSighashType::Default;
+                        let mut sighasher = SighashCache::new(tx.tx());
+                        let vouts = tx
+                            .populated_inputs()
+                            .map(|(_, utxo)| TransactionOutput {
+                                value: utxo.amount,
+                                script_public_key: utxo.script_public_key.clone(),
+                            })
+                            .collect::<Vec<_>>();
+                        let prevouts = Prevouts::All(&vouts);
+                        let sighash = sighasher
+                            .taproot_key_spend_signature_hash(idx, &prevouts, sighash_type)
+                            .expect("failed to construct sighash");
+                        let msg = Message::from(sighash);
+                        witness.verify(signature, &msg, &xpub).map_err(TxScriptError::InvalidSignature)?;
+                        self.dstack.push_item(true)
+                    }
+                    P2TrSpend::Script { input, leaf_script, control_block, annex } => {
+                        for data in input {
+                            match data {
+                                Some(d) => self.dstack.push(d.to_vec()),
+                                None => return Err(TxScriptError::InvalidTaprootWitness),
+                            }
+                        }
+
+                        let secp = Secp256k1::new();
+                        let control_block = ControlBlock::decode(control_block).map_err(|_| TxScriptError::InvalidTaprootWitness)?;
+                        let valid_script = control_block.verify_taproot_commitment(&secp, xpub, leaf_script);
+                        if !valid_script {
+                            return Err(TxScriptError::InvalidTaprootWitness);
+                        }
+                        self.check_push_opcode = false;
+                        self.execute_script(leaf_script.as_bytes())
+                    }
+                }
             }
             _ => unreachable!("p2tr must be ScriptSource::TxInput"),
         }
@@ -447,6 +484,11 @@ impl<'a, T: VerifiableTransaction, Reused: SigHashReusedValues> TxScriptEngine<'
         if let Some(s) = scripts.iter().find(|e| e.len() > MAX_SCRIPTS_SIZE) {
             return Err(TxScriptError::ScriptSize(s.len(), MAX_SCRIPTS_SIZE));
         }
+
+        if scripts[0].is_empty() {
+            self.check_push_opcode = false
+        }
+        let scripts = scripts.into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>();
 
         match script_class {
             ScriptClass::Taproot => self.execute_p2tr(),

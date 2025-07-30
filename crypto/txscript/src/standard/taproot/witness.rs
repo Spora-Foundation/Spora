@@ -8,6 +8,12 @@ pub struct Witness {
     inner: BtcWitness,
 }
 
+impl From<BtcWitness> for Witness {
+    fn from(inner: BtcWitness) -> Self {
+        Self { inner }
+    }
+}
+
 impl TryFrom<&[u8]> for Witness {
     type Error = std::io::Error;
 
@@ -45,20 +51,9 @@ impl Witness {
         Self { inner }
     }
 
-    pub fn execute_taproot(&self, msg: &Message, pk: &[u8]) -> Result<bool, TxScriptError> {
-        let p2tr = P2TrSpend::try_from(self)?;
-        let signature = match p2tr {
-            P2TrSpend::Key { signature, .. } => signature,
-            P2TrSpend::Script { .. } => todo!("taproot script path spend unsupported"),
-        };
-        self.verify(signature, msg, pk).map_err(TxScriptError::InvalidSignature)?;
-        Ok(false)
-    }
-
-    fn verify(&self, signature: &[u8], msg: &Message, pk: &[u8]) -> Result<(), secp256k1::Error> {
-        let xpub = XOnlyPublicKey::from_slice(pk)?;
-        let sig = Signature::from_slice(signature)?;
+    pub fn verify(&self, signature: &[u8], msg: &Message, xpub: &XOnlyPublicKey) -> Result<(), secp256k1::Error> {
         let secp = Secp256k1::new();
-        secp.verify_schnorr(&sig, &msg, &xpub)
+        let sig = Signature::from_slice(signature)?;
+        secp.verify_schnorr(&sig, &msg, xpub)
     }
 }
