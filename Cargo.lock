@@ -5431,66 +5431,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tondi-testing-integration"
-version = "0.17.0"
-dependencies = [
- "async-channel 2.3.1",
- "async-trait",
- "bincode",
- "chrono",
- "clap 4.5.19",
- "criterion",
- "crossbeam-channel",
- "dhat",
- "faster-hex",
- "flate2",
- "futures-util",
- "indexmap 2.6.0",
- "itertools 0.13.0",
- "log",
- "parking_lot",
- "rand",
- "rand_distr",
- "rayon",
- "rocksdb",
- "secp256k1",
- "serde",
- "serde_json",
- "smallvec",
- "tempfile",
- "thiserror",
- "tokio",
- "tondi-addresses",
- "tondi-alloc",
- "tondi-bip32",
- "tondi-consensus",
- "tondi-consensus-core",
- "tondi-consensus-notify",
- "tondi-consensusmanager",
- "tondi-core",
- "tondi-database",
- "tondi-grpc-client",
- "tondi-grpc-core",
- "tondi-grpc-server",
- "tondi-hashes",
- "tondi-index-processor",
- "tondi-math",
- "tondi-merkle",
- "tondi-muhash",
- "tondi-notify",
- "tondi-pow",
- "tondi-rpc-core",
- "tondi-rpc-service",
- "tondi-txscript",
- "tondi-txscript-errors",
- "tondi-utils",
- "tondi-utxoindex",
- "tondi-wrpc-server",
- "tondid",
- "workflow-perf-monitor",
-]
-
-[[package]]
 name = "tondi-txscript"
 version = "0.17.0"
 dependencies = [

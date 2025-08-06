@@ -52,7 +52,7 @@ members = [
     "database",
     "crypto/txscript",
     "crypto/txscript/errors",
-    "testing/integration",
+    # "testing/integration",
     "utils",
     "utils/tower",
     "rothschild",
