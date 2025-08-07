@@ -1,6 +1,9 @@
 #!/bin/bash
 set -e
 
+# FIX: https://github.com/rust-lang/rust/issues/141048
+export RUSTFLAGS=-Ctarget-cpu=mvp
+
 if [ "$1" == "--keygen" ]; then
     echo "building wasm32-keygen"
     wasm-pack build --weak-refs --target web --out-name tondi --out-dir web/tondi-keygen --features wasm32-keygen

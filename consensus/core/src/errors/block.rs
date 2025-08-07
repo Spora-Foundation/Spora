@@ -4,13 +4,12 @@ use crate::{
     constants,
     errors::{coinbase::CoinbaseError, tx::TxRuleError, utxo::UtxoAlgebraError},
     tx::{TransactionId, TransactionOutpoint},
-    BlueWorkType,
     utxo::utxo_error::UtxoAlgebraError as CoreUtxoAlgebraError,
+    BlueWorkType,
 };
 use itertools::Itertools;
 use thiserror::Error;
 use tondi_hashes::Hash;
-use tondi_database::prelude::StoreError;
 
 #[derive(Clone, Debug)]
 pub struct VecDisplay<T: Display>(pub Vec<T>);
@@ -168,12 +167,6 @@ pub enum RuleError {
 
     #[error("unexpected pruning point")]
     UnexpectedPruningPoint,
-}
-
-impl From<StoreError> for RuleError {
-    fn from(err: StoreError) -> Self {
-        RuleError::Store(err.to_string())
-    }
 }
 
 impl From<CoreUtxoAlgebraError> for RuleError {

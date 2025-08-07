@@ -4,6 +4,9 @@
 # make the script fail for any failed command
 set -e
 
+# FIX: https://github.com/rust-lang/rust/issues/141048
+export RUSTFLAGS=-Ctarget-cpu=mvp
+
 rm -rf release/*
 rm -rf web/*
 rm -rf nodejs/*

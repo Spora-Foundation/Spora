@@ -1,4 +1,7 @@
 #!/bin/bash
 set -e
 
+# FIX: https://github.com/rust-lang/rust/issues/141048
+export RUSTFLAGS=-Ctarget-cpu=mvp
+
 wasm-pack build --weak-refs --target nodejs --out-name tondi --out-dir nodejs/tondi --features wasm32-sdk
