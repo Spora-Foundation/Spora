@@ -52,6 +52,8 @@ use tondi_utils_tower::{
 use tonic::codec::CompressionEncoding;
 use tonic::Streaming;
 
+pub use tondi_rpc_core as rpc_core;
+
 mod connection_event;
 pub mod error;
 mod resolver;
