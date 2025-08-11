@@ -5,7 +5,7 @@ option go_package = "github.com/tondinet/Tondid/protowire";
 
 import "p2p.proto";
 
-message tondidMessage {
+message TondidMessage {
   uint32 response_id = 101;
   uint32 request_id = 102;
   oneof payload {
@@ -56,5 +56,5 @@ message tondidMessage {
 }
 
 service P2P {
-  rpc MessageStream (stream tondidMessage) returns (stream tondidMessage) {}
+  rpc MessageStream (stream TondidMessage) returns (stream TondidMessage) {}
 }
