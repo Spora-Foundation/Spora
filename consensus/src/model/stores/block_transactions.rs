@@ -13,6 +13,8 @@ use tondi_utils::mem_size::MemSizeEstimator;
 
 pub trait BlockTransactionsStoreReader {
     fn get(&self, hash: Hash) -> Result<Arc<Vec<Transaction>>, StoreError>;
+
+    fn get_transaction(&self, hash: Hash) -> Result<Transaction, StoreError>;
 }
 
 pub trait BlockTransactionsStore: BlockTransactionsStoreReader {
@@ -46,11 +48,16 @@ impl MemSizeEstimator for BlockBody {
 pub struct DbBlockTransactionsStore {
     db: Arc<DB>,
     access: CachedDbAccess<Hash, BlockBody, BlockHasher>,
+    txidxs: CachedDbAccess<Hash, Hash, BlockHasher>,
 }
 
 impl DbBlockTransactionsStore {
     pub fn new(db: Arc<DB>, cache_policy: CachePolicy) -> Self {
-        Self { db: Arc::clone(&db), access: CachedDbAccess::new(db, cache_policy, DatabaseStorePrefixes::BlockTransactions.into()) }
+        Self {
+            db: Arc::clone(&db),
+            access: CachedDbAccess::new(db.clone(), cache_policy, DatabaseStorePrefixes::BlockTransactions.into()),
+            txidxs: CachedDbAccess::new(db, cache_policy, DatabaseStorePrefixes::TransactionIndex.into()),
+        }
     }
 
     pub fn clone_with_new_cache(&self, cache_policy: CachePolicy) -> Self {
@@ -65,6 +72,9 @@ impl DbBlockTransactionsStore {
         if self.access.has(hash)? {
             return Err(StoreError::HashAlreadyExists(hash));
         }
+        for tx in transactions.iter() {
+            self.txidxs.write(BatchDbWriter::new(batch), hash, tx.id())?;
+        }
         self.access.write(BatchDbWriter::new(batch), hash, BlockBody(transactions))?;
         Ok(())
     }
@@ -78,12 +88,25 @@ impl BlockTransactionsStoreReader for DbBlockTransactionsStore {
     fn get(&self, hash: Hash) -> Result<Arc<Vec<Transaction>>, StoreError> {
         Ok(self.access.read(hash)?.0)
     }
+
+    fn get_transaction(&self, hash: Hash) -> Result<Transaction, StoreError> {
+        let block_hash = self.txidxs.read(hash)?;
+        let txs = self.access.read(block_hash)?.0;
+        let tx = txs.iter().find(|tx| tx.id() == hash);
+        match tx {
+            Some(tx) => Ok(tx.clone()),
+            None => Err(StoreError::DataInconsistency(format!("Tx hash: {hash}"))),
+        }
+    }
 }
 
 impl BlockTransactionsStore for DbBlockTransactionsStore {
     fn insert(&self, hash: Hash, transactions: Arc<Vec<Transaction>>) -> Result<(), StoreError> {
         if self.access.has(hash)? {
             return Err(StoreError::HashAlreadyExists(hash));
+        }
+        for tx in transactions.iter() {
+            self.txidxs.write(DirectDbWriter::new(&self.db), hash, tx.id())?;
         }
         self.access.write(DirectDbWriter::new(&self.db), hash, BlockBody(transactions))?;
         Ok(())

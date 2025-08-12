@@ -232,6 +232,18 @@ pub trait RpcApi: Sync + Send + AnySync {
     }
     async fn get_block_call(&self, connection: Option<&DynRpcConnection>, request: GetBlockRequest) -> RpcResult<GetBlockResponse>;
 
+    /// Requests information about a specific transaction.
+    async fn get_transaction(&self, hash: RpcHash) -> RpcResult<RpcTransaction> {
+        Ok(self.get_transaction_call(None, GetTransactionRequest::new(hash)).await?.transaction)
+    }
+    async fn get_transaction_call(
+        &self,
+        _connection: Option<&DynRpcConnection>,
+        _request: GetTransactionRequest,
+    ) -> RpcResult<GetTransactionResponse> {
+        unimplemented!()
+    }
+
     /// Requests information about a specific subnetwork.
     async fn get_subnetwork(&self, subnetwork_id: RpcSubnetworkId) -> RpcResult<GetSubnetworkResponse> {
         self.get_subnetwork_call(None, GetSubnetworkRequest::new(subnetwork_id)).await

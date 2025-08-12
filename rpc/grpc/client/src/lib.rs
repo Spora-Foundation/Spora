@@ -247,6 +247,7 @@ impl RpcApi for GrpcClient {
     route!(submit_block_call, SubmitBlock);
     route!(get_block_template_call, GetBlockTemplate);
     route!(get_block_call, GetBlock);
+    route!(get_transaction_call, GetTransaction);
     route!(get_info_call, GetInfo);
     route!(get_current_network_call, GetCurrentNetwork);
     route!(get_peer_addresses_call, GetPeerAddresses);

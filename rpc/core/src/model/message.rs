@@ -242,6 +242,55 @@ impl Deserializer for GetBlockResponse {
     }
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GetTransactionRequest {
+    pub hash: RpcHash,
+}
+impl GetTransactionRequest {
+    pub fn new(hash: RpcHash) -> Self {
+        Self { hash }
+    }
+}
+
+impl Serializer for GetTransactionRequest {
+    fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
+        store!(u16, &1, writer)?;
+        store!(RpcHash, &self.hash, writer)?;
+        Ok(())
+    }
+}
+
+impl Deserializer for GetTransactionRequest {
+    fn deserialize<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
+        let _version = load!(u16, reader)?;
+        let hash = load!(RpcHash, reader)?;
+        Ok(Self { hash })
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GetTransactionResponse {
+    pub transaction: RpcTransaction,
+}
+
+impl Serializer for GetTransactionResponse {
+    fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
+        store!(u16, &1, writer)?;
+        serialize!(RpcTransaction, &self.transaction, writer)?;
+        Ok(())
+    }
+}
+
+impl Deserializer for GetTransactionResponse {
+    fn deserialize<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
+        let _version = load!(u16, reader)?;
+        let transaction = deserialize!(RpcTransaction, reader)?;
+        Ok(Self { transaction })
+    }
+}
+
 /// GetInfoRequest returns info about the node.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

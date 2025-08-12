@@ -82,11 +82,11 @@ use crossbeam_channel::{
 use itertools::Itertools;
 use tondi_consensusmanager::{SessionLock, SessionReadGuard};
 
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use tondi_database::prelude::{StoreResultEmptyTuple, StoreResultExtensions};
 use tondi_hashes::Hash;
 use tondi_muhash::MuHash;
 use tondi_txscript::caches::TxScriptCacheCounters;
-use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 
 use std::{
     cmp::Reverse,
@@ -663,7 +663,7 @@ impl ConsensusApi for Consensus {
     /// Estimates the number of blocks and headers stored in the node database.
     ///
     /// This is an estimation based on the DAA score difference between the node's `retention root` and `virtual`'s DAA score,
-    /// as such, it does not include non-daa blocks, and does not include headers stored as part of the pruning proof.  
+    /// as such, it does not include non-daa blocks, and does not include headers stored as part of the pruning proof.
     fn estimate_block_count(&self) -> BlockCount {
         // PRUNE SAFETY: retention root is always a current or past pruning point which its header is kept permanently
         let retention_period_root_score = self.headers_store.get_daa_score(self.get_retention_period_root()).unwrap();
@@ -970,6 +970,14 @@ impl ConsensusApi for Consensus {
             header: self.headers_store.get_header(hash).unwrap_option().ok_or(ConsensusError::BlockNotFound(hash))?,
             transactions: self.block_transactions_store.get(hash).unwrap_option().ok_or(ConsensusError::BlockNotFound(hash))?,
         })
+    }
+
+    fn get_transaction(&self, hash: Hash) -> ConsensusResult<Transaction> {
+        let tx = self.block_transactions_store.get_transaction(hash).unwrap_option();
+        match tx {
+            Some(tx) => Ok(tx),
+            None => Err(ConsensusError::BlockNotFound(hash)),
+        }
     }
 
     fn get_block_even_if_header_only(&self, hash: Hash) -> ConsensusResult<Block> {

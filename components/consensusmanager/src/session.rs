@@ -2,6 +2,7 @@
 //!
 //! We use newtypes in order to simplify changing the underlying lock in the future
 
+use std::{ops::Deref, sync::Arc};
 use tondi_consensus_core::{
     acceptance_data::AcceptanceData,
     api::{BlockCount, BlockValidationFutures, ConsensusApi, ConsensusStats, DynConsensus},
@@ -18,7 +19,6 @@ use tondi_consensus_core::{
     BlockHashSet, BlueWorkType, ChainPath, Hash,
 };
 use tondi_utils::sync::rwlock::*;
-use std::{ops::Deref, sync::Arc};
 
 pub use tokio::task::spawn_blocking;
 
@@ -258,7 +258,7 @@ impl ConsensusSessionOwned {
         self.clone().spawn_blocking(move |c| c.get_current_block_color(hash)).await
     }
 
-    /// retention period root refers to the earliest block from which the current node has full header & block data  
+    /// retention period root refers to the earliest block from which the current node has full header & block data
     pub async fn async_get_retention_period_root(&self) -> Hash {
         self.clone().spawn_blocking(|c| c.get_retention_period_root()).await
     }
@@ -367,6 +367,10 @@ impl ConsensusSessionOwned {
 
     pub async fn async_get_block_even_if_header_only(&self, hash: Hash) -> ConsensusResult<Block> {
         self.clone().spawn_blocking(move |c| c.get_block_even_if_header_only(hash)).await
+    }
+
+    pub async fn async_get_transaction(&self, hash: Hash) -> ConsensusResult<Transaction> {
+        self.clone().spawn_blocking(move |c| c.get_transaction(hash)).await
     }
 
     pub async fn async_get_ghostdag_data(&self, hash: Hash) -> ConsensusResult<ExternalGhostdagData> {

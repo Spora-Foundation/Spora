@@ -4,6 +4,14 @@ use super::collector::{CollectorFromConsensus, CollectorFromIndex};
 use crate::converter::feerate_estimate::{FeeEstimateConverter, FeeEstimateVerboseConverter};
 use crate::converter::{consensus::ConsensusConverter, index::IndexConverter, protocol::ProtocolConverter};
 use async_trait::async_trait;
+use std::time::Duration;
+use std::{
+    collections::HashMap,
+    iter::once,
+    sync::{atomic::Ordering, Arc},
+    vec,
+};
+use tokio::join;
 use tondi_consensus_core::api::counters::ProcessingCounters;
 use tondi_consensus_core::daa_score_timestamp::DaaScoreTimestamp;
 use tondi_consensus_core::errors::block::RuleError;
@@ -26,10 +34,10 @@ use tondi_core::time::unix_now;
 use tondi_core::{
     core::Core,
     debug,
-    tondid_env::version,
     signals::Shutdown,
     task::service::{AsyncService, AsyncServiceError, AsyncServiceFuture},
     task::tick::TickService,
+    tondid_env::version,
     trace, warn,
 };
 use tondi_index_core::indexed_utxos::BalanceByScriptPublicKey;
@@ -72,14 +80,6 @@ use tondi_utils::sysinfo::SystemInfo;
 use tondi_utils::{channel::Channel, triggers::SingleTrigger};
 use tondi_utils_tower::counters::TowerConnectionCounters;
 use tondi_utxoindex::api::UtxoIndexProxy;
-use std::time::Duration;
-use std::{
-    collections::HashMap,
-    iter::once,
-    sync::{atomic::Ordering, Arc},
-    vec,
-};
-use tokio::join;
 use workflow_rpc::server::WebSocketCounters as WrpcServerCounters;
 
 /// A service implementing the Rpc API at tondi_rpc_core level.
@@ -324,13 +324,13 @@ impl RpcCoreService {
                     tx.outputs.iter().map(|o| o.into()),
                     self.config.storage_mass_parameter,
                 )
-                    .unwrap_or(u64::MAX);
+                .unwrap_or(u64::MAX);
 
                 // Despite being a lower bound, storage mass is still calculated to be positive, so we found our problem
                 if storage_mass_lower > 0 {
                     warn!("The RPC submitted block {} contains a transaction {} with mass = 0 while it should have been strictly positive.
 This indicates that the RPC conversion flow used by the miner does not preserve the mass values received from GetBlockTemplate.
-You must upgrade your miner flow to propagate the mass field correctly prior to the Crescendo hardfork activation. 
+You must upgrade your miner flow to propagate the mass field correctly prior to the Crescendo hardfork activation.
 Failure to do so will result in your blocks being considered invalid when Crescendo activates.",
                             block.hash(),
                             tx.id()
@@ -397,7 +397,7 @@ impl RpcApi for RpcCoreService {
             }
             Err(ProtocolError::RuleError(RuleError::BadMerkleRoot(h1, h2))) => {
                 warn!(
-                    "The RPC submitted block {} triggered a {} error: {}. 
+                    "The RPC submitted block {} triggered a {} error: {}.
 NOTE: This error usually indicates an RPC conversion error between the node and the miner. This is likely to reflect using a NON-SUPPORTED miner.",
                     hash,
                     stringify!(RuleError::BadMerkleRoot),
@@ -475,6 +475,17 @@ NOTE: This error usually indicates an RPC conversion error between the node and 
                 .get_block(&session, &block, request.include_transactions, request.include_transactions)
                 .await?,
         })
+    }
+
+    async fn get_transaction_call(
+        &self,
+        _connection: Option<&DynRpcConnection>,
+        request: GetTransactionRequest,
+    ) -> RpcResult<GetTransactionResponse> {
+        // TODO: test
+        let session = self.consensus_manager.consensus().session().await;
+        let tx = session.async_get_transaction(request.hash).await?;
+        Ok(GetTransactionResponse { transaction: self.consensus_converter.get_transaction(&session, &tx, None, false) })
     }
 
     async fn get_blocks_call(
