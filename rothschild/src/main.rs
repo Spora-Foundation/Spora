@@ -26,7 +26,7 @@ use tondi_txscript::pay_to_address_script;
 const DEFAULT_SEND_AMOUNT: u64 = 10 * SOMPI_PER_TONDI;
 const FEE_RATE: u64 = 10;
 const MILLIS_PER_TICK: u64 = 10;
-const ADDRESS_PREFIX: Prefix = Prefix::Testnet;
+const ADDRESS_PREFIX: Prefix = Prefix::Devnet;
 const ADDRESS_VERSION: Version = Version::PubKey;
 
 struct Stats {

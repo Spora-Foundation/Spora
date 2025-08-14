@@ -8,6 +8,9 @@ pub enum ConsensusError {
     #[error("cannot find full block {0}")]
     BlockNotFound(Hash),
 
+    #[error("Transaction Not Found: {0}")]
+    TransactionNotFound(String),
+
     #[error("cannot find header {0}")]
     HeaderNotFound(Hash),
 

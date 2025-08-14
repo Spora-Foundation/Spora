@@ -209,6 +209,10 @@ async fn sanity_test() {
                 })
             }
 
+            TondidPayloadOps::GetTransaction => {
+                todo!()
+            }
+
             TondidPayloadOps::GetBlocks => {
                 let rpc_client = client.clone();
                 tst!(op, {

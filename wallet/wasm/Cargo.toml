@@ -24,3 +24,8 @@ wasm-bindgen.workspace = true
 workflow-log.workspace = true
 workflow-terminal.workspace = true
 workflow-wasm.workspace = true
+
+# Workaround for Rust 1.87.0
+# https://github.com/rust-lang/rust/issues/141048
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = ["-O","--enable-bulk-memory"]

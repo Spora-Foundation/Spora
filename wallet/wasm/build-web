@@ -1,1 +1,4 @@
+# FIX: https://github.com/rust-lang/rust/issues/141048
+export RUSTFLAGS=-Ctarget-cpu=mvp
+
 wasm-pack build --target web --out-name tondi-wallet --out-dir web/tondi-wallet $@

@@ -973,10 +973,10 @@ impl ConsensusApi for Consensus {
     }
 
     fn get_transaction(&self, hash: Hash) -> ConsensusResult<Transaction> {
-        let tx = self.block_transactions_store.get_transaction(hash).unwrap_option();
+        let tx = self.block_transactions_store.get_transaction(hash);
         match tx {
-            Some(tx) => Ok(tx),
-            None => Err(ConsensusError::BlockNotFound(hash)),
+            Ok(tx) => Ok(tx),
+            Err(err) => Err(ConsensusError::TransactionNotFound(err.to_string())),
         }
     }
 
