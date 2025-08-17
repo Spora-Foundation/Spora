@@ -415,7 +415,7 @@ impl<'a, T: VerifiableTransaction, Reused: SigHashReusedValues> TxScriptEngine<'
 
                 let p2tr = P2TrSpend::try_from(&witness)?;
                 match p2tr {
-                    P2TrSpend::Key { signature, annex } => {
+                    P2TrSpend::Key { signature, .. } => {
                         let sighash_type = TapSighashType::Default;
                         let mut sighasher = SighashCache::new(tx.tx());
                         let vouts = tx
@@ -433,7 +433,7 @@ impl<'a, T: VerifiableTransaction, Reused: SigHashReusedValues> TxScriptEngine<'
                         witness.verify(signature, &msg, &xpub).map_err(TxScriptError::InvalidSignature)?;
                         self.dstack.push_item(true)
                     }
-                    P2TrSpend::Script { input, leaf_script, control_block, annex } => {
+                    P2TrSpend::Script { input, leaf_script, control_block, annex:_ } => {
                         for data in input {
                             match data {
                                 Some(d) => self.dstack.push(d.to_vec()),

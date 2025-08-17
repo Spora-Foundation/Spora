@@ -174,6 +174,7 @@ where
 }
 
 /// Common values cached between segwit and taproot inputs.
+#[allow(dead_code)]
 #[derive(Debug)]
 struct CommonCache {
     prevouts: sha256::Hash,
@@ -185,6 +186,7 @@ struct CommonCache {
 }
 
 /// Values cached for segwit inputs, equivalent to [`CommonCache`] plus another round of `sha256`.
+#[allow(dead_code)]
 #[derive(Debug)]
 struct SegwitCache {
     prevouts: sha256d::Hash,
@@ -193,6 +195,7 @@ struct SegwitCache {
 }
 
 /// Values cached for taproot inputs.
+#[allow(dead_code)]
 #[derive(Debug)]
 struct TaprootCache {
     amounts: sha256::Hash,
@@ -206,13 +209,11 @@ pub struct SighashCache<Tx: Borrow<Transaction>> {
     /// `T: Borrow<Transaction>` allows us to use borrowed and mutable borrowed types,
     /// the latter in particular is necessary for [`SighashCache::witness_mut`].
     tx: Tx,
-
     /// Common cache for taproot and segwit inputs, `None` for legacy inputs.
     common_cache: Option<CommonCache>,
-
+    #[allow(dead_code)]
     /// Cache for segwit v0 inputs (the result of another round of sha256 on `common_cache`).
     segwit_cache: Option<SegwitCache>,
-
     /// Cache for taproot v1 inputs.
     taproot_cache: Option<TaprootCache>,
 }
