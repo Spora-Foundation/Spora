@@ -527,7 +527,7 @@ dependencies = [
 [[package]]
 name = "bitcoin"
 version = "0.32.6"
-source = "git+https://github.com/neomaxwell/rust-bitcoin.git?branch=bitcoin-0.32.6#84a62d22883e9381b705e6010f8c21e77bb274e2"
+source = "git+https://github.com/neomaxwell/rust-bitcoin.git?branch=bitcoin-0.32.6#a4b9bae8500407fb0921b5e0a2c82567ee27a8a6"
 dependencies = [
  "base58ck",
  "bech32",
