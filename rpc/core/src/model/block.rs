@@ -64,6 +64,28 @@ impl Deserializer for RpcRawBlock {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct RpcBlockStatus {
+    pub status: u32,
+}
+
+impl Serializer for RpcBlockStatus {
+    fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
+        store!(u16, &1, writer)?;
+        store!(u32, &self.status, writer)?;
+        Ok(())
+    }
+}
+
+impl Deserializer for RpcBlockStatus {
+    fn deserialize<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
+        let _version = load!(u16, reader)?;
+        let status = load!(u32, reader)?;
+        Ok(Self { status })
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RpcBlockVerboseData {
     pub hash: RpcHash,
     pub difficulty: f64,
@@ -132,7 +154,7 @@ cfg_if::cfg_if! {
         const TS_BLOCK: &'static str = r#"
         /**
          * Interface defining the structure of a block.
-         * 
+         *
          * @category Consensus
          */
         export interface IBlock {
@@ -143,7 +165,7 @@ cfg_if::cfg_if! {
 
         /**
          * Interface defining the structure of a block verbose data.
-         * 
+         *
          * @category Node RPC
          */
         export interface IBlockVerboseData {
@@ -161,11 +183,11 @@ cfg_if::cfg_if! {
 
         /**
          * Interface defining the structure of a raw block.
-         * 
+         *
          * Raw block is a structure used by GetBlockTemplate and SubmitBlock RPCs
          * and differs from `IBlock` in that it does not include verbose data and carries
          * `IRawHeader` that does not include a cached block hash.
-         * 
+         *
          * @category Consensus
          */
         export interface IRawBlock {

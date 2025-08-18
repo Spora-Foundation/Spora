@@ -4,7 +4,7 @@ use crate::{
 };
 use tondi_hashes::HasherBase;
 use tondi_muhash::MuHash;
-use tondi_core::info;
+use tondi_core::{info, trace};
 
 pub trait MuHashExtensions {
     fn add_transaction(&mut self, tx: &impl VerifiableTransaction, block_daa_score: u64);
@@ -44,7 +44,7 @@ impl MuHashExtensions for MuHash {
         let mut writer = self.add_element_builder();
         write_utxo(&mut writer, entry, outpoint);
         writer.finalize();
-        info!("UTXO entry details: outpoint={}:{}, amount={}, is_coinbase={}, block_daa_score={}", 
+        trace!("UTXO entry details: outpoint={}:{}, amount={}, is_coinbase={}, block_daa_score={}", 
             outpoint.transaction_id, outpoint.index, entry.amount, entry.is_coinbase, entry.block_daa_score);
     }
 

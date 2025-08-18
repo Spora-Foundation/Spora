@@ -54,6 +54,10 @@ message RpcBlockVerboseData{
   bool isChainBlock = 20;
 }
 
+message RpcBlockStatus {
+  uint32 status = 1;
+}
+
 message RpcTransaction {
   uint32 version = 1;
   repeated RpcTransactionInput inputs = 2;
@@ -362,6 +366,16 @@ message GetBlockResponseMessage{
   RPCError error = 1000;
 }
 
+// GetBlockStatus
+message GetBlockStatusRequestMessage{
+  string hash = 1;
+}
+
+message GetBlockStatusResponseMessage{
+  RpcBlockStatus status = 1;
+  RPCError error = 1000;
+}
+
 // GetTransactionRequestMessage requests information about a specific transaction
 message GetTransactionRequestMessage{
   // The hash of the requested transaction
@@ -369,10 +383,9 @@ message GetTransactionRequestMessage{
 }
 
 message GetTransactionResponseMessage{
-  RpcTransaction transaction = 3;
+  RpcTransaction transaction = 1;
   RPCError error = 1000;
 }
-
 
 // GetSubnetworkRequestMessage requests information about a specific subnetwork
 //

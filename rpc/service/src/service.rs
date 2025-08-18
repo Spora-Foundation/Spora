@@ -477,12 +477,24 @@ NOTE: This error usually indicates an RPC conversion error between the node and 
         })
     }
 
+    async fn get_block_status_call(
+        &self,
+        _connection: Option<&DynRpcConnection>,
+        request: GetBlockStatusRequest,
+    ) -> RpcResult<GetBlockStatusResponse> {
+        let session = self.consensus_manager.consensus().session().await;
+        if let Some(status) = session.async_get_block_status(request.hash).await {
+            Ok(GetBlockStatusResponse { status: self.consensus_converter.get_block_status(&status) })
+        } else {
+            Err(RpcError::InvalidBlock(request.hash))
+        }
+    }
+
     async fn get_transaction_call(
         &self,
         _connection: Option<&DynRpcConnection>,
         request: GetTransactionRequest,
     ) -> RpcResult<GetTransactionResponse> {
-        // TODO: test
         let session = self.consensus_manager.consensus().session().await;
         let tx = session.async_get_transaction(request.hash).await?;
         Ok(GetTransactionResponse { transaction: self.consensus_converter.get_transaction(&session, &tx, None, false) })

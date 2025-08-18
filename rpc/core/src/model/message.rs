@@ -244,6 +244,55 @@ impl Deserializer for GetBlockResponse {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct GetBlockStatusRequest {
+    pub hash: RpcHash,
+}
+impl GetBlockStatusRequest {
+    pub fn new(hash: RpcHash) -> Self {
+        Self { hash }
+    }
+}
+
+impl Serializer for GetBlockStatusRequest {
+    fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
+        store!(u16, &1, writer)?;
+        store!(RpcHash, &self.hash, writer)?;
+        Ok(())
+    }
+}
+
+impl Deserializer for GetBlockStatusRequest {
+    fn deserialize<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
+        let _version = load!(u16, reader)?;
+        let hash = load!(RpcHash, reader)?;
+        Ok(Self { hash })
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GetBlockStatusResponse {
+    pub status: RpcBlockStatus,
+}
+
+impl Serializer for GetBlockStatusResponse {
+    fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
+        store!(u16, &1, writer)?;
+        serialize!(RpcBlockStatus, &self.status, writer)?;
+        Ok(())
+    }
+}
+
+impl Deserializer for GetBlockStatusResponse {
+    fn deserialize<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
+        let _version = load!(u16, reader)?;
+        let status = deserialize!(RpcBlockStatus, reader)?;
+        Ok(Self { status })
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GetTransactionRequest {
     pub hash: RpcHash,
 }

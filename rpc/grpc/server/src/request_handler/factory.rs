@@ -45,6 +45,7 @@ impl Factory {
                 GetBlockTemplate,
                 GetCurrentNetwork,
                 GetBlock,
+                GetBlockStatus,
                 GetTransaction,
                 GetBlocks,
                 GetInfo,

@@ -3,6 +3,7 @@ use std::{collections::HashMap, fmt::Debug, sync::Arc};
 use tondi_addresses::Address;
 use tondi_consensus_core::{
     block::Block,
+    blockstatus::BlockStatus,
     config::Config,
     hashing::tx::hash,
     header::Header,
@@ -15,9 +16,9 @@ use tondi_math::Uint256;
 use tondi_mining::model::{owner_txs::OwnerTransactions, TransactionIdSet};
 use tondi_notify::converter::Converter;
 use tondi_rpc_core::{
-    BlockAddedNotification, Notification, RpcAcceptedTransactionIds, RpcBlock, RpcBlockVerboseData, RpcHash, RpcMempoolEntry,
-    RpcMempoolEntryByAddress, RpcResult, RpcTransaction, RpcTransactionInput, RpcTransactionOutput, RpcTransactionOutputVerboseData,
-    RpcTransactionVerboseData,
+    BlockAddedNotification, Notification, RpcAcceptedTransactionIds, RpcBlock, RpcBlockStatus, RpcBlockVerboseData, RpcHash,
+    RpcMempoolEntry, RpcMempoolEntryByAddress, RpcResult, RpcTransaction, RpcTransactionInput, RpcTransactionOutput,
+    RpcTransactionOutputVerboseData, RpcTransactionVerboseData,
 };
 use tondi_txscript::{extract_script_pub_key_address, script_class::ScriptClass};
 
@@ -82,6 +83,10 @@ impl ConsensusConverter {
         };
 
         Ok(RpcBlock { header: block.header.as_ref().into(), transactions, verbose_data })
+    }
+
+    pub fn get_block_status(&self, status: &BlockStatus) -> RpcBlockStatus {
+        RpcBlockStatus { status: *status as u32 }
     }
 
     pub fn get_mempool_entry(&self, consensus: &ConsensusProxy, transaction: &MutableTransaction) -> RpcMempoolEntry {

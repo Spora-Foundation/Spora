@@ -232,6 +232,18 @@ pub trait RpcApi: Sync + Send + AnySync {
     }
     async fn get_block_call(&self, connection: Option<&DynRpcConnection>, request: GetBlockRequest) -> RpcResult<GetBlockResponse>;
 
+    async fn get_block_status(&self, hash: RpcHash) -> RpcResult<RpcBlockStatus> {
+        Ok(self.get_block_status_call(None, GetBlockStatusRequest::new(hash)).await?.status)
+    }
+
+    async fn get_block_status_call(
+        &self,
+        _connection: Option<&DynRpcConnection>,
+        _request: GetBlockStatusRequest,
+    ) -> RpcResult<GetBlockStatusResponse> {
+        unimplemented!()
+    }
+
     /// Requests information about a specific transaction.
     async fn get_transaction(&self, hash: RpcHash) -> RpcResult<RpcTransaction> {
         Ok(self.get_transaction_call(None, GetTransactionRequest::new(hash)).await?.transaction)

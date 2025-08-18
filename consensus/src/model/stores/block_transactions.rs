@@ -43,12 +43,30 @@ impl MemSizeEstimator for BlockBody {
     }
 }
 
+#[derive(Clone, Serialize, Deserialize)]
+struct TxIdx {
+    hash: Hash,
+    tidx: usize,
+}
+
+impl TxIdx {
+    pub const fn new(hash: Hash, tidx: usize) -> Self {
+        Self { hash, tidx }
+    }
+}
+
+impl MemSizeEstimator for TxIdx {
+    fn estimate_mem_bytes(&self) -> usize {
+        size_of::<Self>()
+    }
+}
+
 /// A DB + cache implementation of `BlockTransactionsStore` trait, with concurrency support.
 #[derive(Clone)]
 pub struct DbBlockTransactionsStore {
     db: Arc<DB>,
     access: CachedDbAccess<Hash, BlockBody, BlockHasher>,
-    txidxs: CachedDbAccess<Hash, Hash, BlockHasher>,
+    txidxs: CachedDbAccess<Hash, TxIdx, BlockHasher>,
 }
 
 impl DbBlockTransactionsStore {
@@ -72,8 +90,8 @@ impl DbBlockTransactionsStore {
         if self.access.has(hash)? {
             return Err(StoreError::HashAlreadyExists(hash));
         }
-        for tx in transactions.iter() {
-            self.txidxs.write(BatchDbWriter::new(batch), hash, tx.id())?;
+        for (tidx, tx) in transactions.iter().enumerate() {
+            self.txidxs.write(BatchDbWriter::new(batch), tx.id(), TxIdx::new(hash, tidx))?;
         }
         self.access.write(BatchDbWriter::new(batch), hash, BlockBody(transactions))?;
         Ok(())
@@ -90,13 +108,9 @@ impl BlockTransactionsStoreReader for DbBlockTransactionsStore {
     }
 
     fn get_transaction(&self, hash: Hash) -> Result<Transaction, StoreError> {
-        let block_hash = self.txidxs.read(hash)?;
-        let txs = self.access.read(block_hash)?.0;
-        let tx = txs.iter().find(|tx| tx.id() == hash);
-        match tx {
-            Some(tx) => Ok(tx.clone()),
-            None => Err(StoreError::DataInconsistency(format!("Tx hash: {hash}"))),
-        }
+        let TxIdx { hash, tidx } = self.txidxs.read(hash)?;
+        let txs = self.access.read(hash)?.0;
+        Ok(txs[tidx].clone())
     }
 }
 
@@ -105,8 +119,8 @@ impl BlockTransactionsStore for DbBlockTransactionsStore {
         if self.access.has(hash)? {
             return Err(StoreError::HashAlreadyExists(hash));
         }
-        for tx in transactions.iter() {
-            self.txidxs.write(DirectDbWriter::new(&self.db), hash, tx.id())?;
+        for (tidx, tx) in transactions.iter().enumerate() {
+            self.txidxs.write(DirectDbWriter::new(&self.db), tx.id(), TxIdx::new(hash, tidx))?;
         }
         self.access.write(DirectDbWriter::new(&self.db), hash, BlockBody(transactions))?;
         Ok(())

@@ -23,6 +23,10 @@ from!(item: &tondi_rpc_core::RpcRawBlock, protowire::RpcBlock, {
     }
 });
 
+from!(item: &tondi_rpc_core::RpcBlockStatus, protowire::RpcBlockStatus, {
+    Self { status: item.status }
+});
+
 from!(item: &tondi_rpc_core::RpcBlockVerboseData, protowire::RpcBlockVerboseData, {
     Self {
         hash: item.hash.to_string(),
@@ -63,6 +67,10 @@ try_from!(item: &protowire::RpcBlock, tondi_rpc_core::RpcRawBlock, {
             .try_into()?,
         transactions: item.transactions.iter().map(tondi_rpc_core::RpcTransaction::try_from).collect::<Result<Vec<_>, _>>()?,
     }
+});
+
+try_from!(item: &protowire::RpcBlockStatus, tondi_rpc_core::RpcBlockStatus, {
+    Self { status: item.status }
 });
 
 try_from!(item: &protowire::RpcBlockVerboseData, tondi_rpc_core::RpcBlockVerboseData, {

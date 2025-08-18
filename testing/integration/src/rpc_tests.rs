@@ -209,6 +209,10 @@ async fn sanity_test() {
                 })
             }
 
+            TondidPayloadOps::GetBlockStatus => {
+                todo!()
+            }
+
             TondidPayloadOps::GetTransaction => {
                 todo!()
             }

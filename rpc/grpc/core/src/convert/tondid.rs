@@ -26,6 +26,7 @@ pub mod tondid_request_convert {
     impl_into_tondid_request!(SubmitBlock);
     impl_into_tondid_request!(GetBlockTemplate);
     impl_into_tondid_request!(GetBlock);
+    impl_into_tondid_request!(GetBlockStatus);
     impl_into_tondid_request!(GetTransaction);
     impl_into_tondid_request!(GetInfo);
 
@@ -165,6 +166,7 @@ pub mod tondid_response_convert {
     impl_into_tondid_response!(SubmitBlock);
     impl_into_tondid_response!(GetBlockTemplate);
     impl_into_tondid_response!(GetBlock);
+    impl_into_tondid_response!(GetBlockStatus);
     impl_into_tondid_response!(GetTransaction);
     impl_into_tondid_response!(GetInfo);
     impl_into_tondid_response!(GetCurrentNetwork);

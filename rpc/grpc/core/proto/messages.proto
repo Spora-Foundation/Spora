@@ -67,6 +67,7 @@ message TondidRequest {
     GetCurrentBlockColorRequestMessage getCurrentBlockColorRequest = 1110;
     GetUtxoReturnAddressRequestMessage GetUtxoReturnAddressRequest = 1112;
     GetTransactionRequestMessage getTransactionRequest = 1114;
+    GetBlockStatusRequestMessage getBlockStatusRequest = 1116;
   }
 }
 
@@ -134,6 +135,7 @@ message TondidResponse {
     GetCurrentBlockColorResponseMessage getCurrentBlockColorResponse = 1111;
     GetUtxoReturnAddressResponseMessage GetUtxoReturnAddressResponse = 1113;
     GetTransactionResponseMessage getTransactionResponse = 1115;
+    GetBlockStatusResponseMessage getBlockStatusResponse = 1117;
   }
 }
 

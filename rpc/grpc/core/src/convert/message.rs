@@ -170,6 +170,13 @@ from!(item: RpcResult<&tondi_rpc_core::GetBlockResponse>, protowire::GetBlockRes
     Self { block: Some((&item.block).into()), error: None }
 });
 
+from!(item: &tondi_rpc_core::GetBlockStatusRequest, protowire::GetBlockStatusRequestMessage, {
+    Self { hash: item.hash.to_string() }
+});
+from!(item: RpcResult<&tondi_rpc_core::GetBlockStatusResponse>, protowire::GetBlockStatusResponseMessage, {
+    Self { status: Some((&item.status).into()), error: None }
+});
+
 from!(item: &tondi_rpc_core::GetTransactionRequest, protowire::GetTransactionRequestMessage, {
     Self { hash: item.hash.to_string() }
 });
@@ -639,6 +646,17 @@ try_from!(item: &protowire::GetBlockResponseMessage, RpcResult<tondi_rpc_core::G
             .as_ref()
             .ok_or_else(|| RpcError::MissingRpcFieldError("GetBlockResponseMessage".to_string(), "block".to_string()))?
             .try_into()?,
+    }
+});
+
+try_from!(item: &protowire::GetBlockStatusRequestMessage, tondi_rpc_core::GetBlockStatusRequest, {
+    Self { hash: RpcHash::from_str(&item.hash)? }
+});
+try_from!(item: &protowire::GetBlockStatusResponseMessage, RpcResult<tondi_rpc_core::GetBlockStatusResponse>, {
+    Self {
+        status: item.status.as_ref()
+        .ok_or_else(|| RpcError::MissingRpcFieldError("GetBlockStatusResponseMessage".into(),"status".into()))?
+        .try_into()?,
     }
 });
 

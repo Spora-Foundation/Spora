@@ -51,6 +51,7 @@ pub enum TondidPayloadOps {
     GetBlockTemplate,
     GetCurrentNetwork,
     GetBlock,
+    GetBlockStatus,
     GetTransaction,
     GetBlocks,
     GetInfo,
