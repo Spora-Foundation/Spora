@@ -335,6 +335,11 @@ pub trait RpcApi: Sync + Send + AnySync {
     }
     async fn shutdown_call(&self, connection: Option<&DynRpcConnection>, request: ShutdownRequest) -> RpcResult<ShutdownResponse>;
 
+    async fn get_header(&self, hash: RpcHash) -> RpcResult<RpcHeader> {
+        Ok(self.get_header_call(None, GetHeaderRequest::new(hash)).await?.header)
+    }
+    async fn get_header_call(&self, connection: Option<&DynRpcConnection>, request: GetHeaderRequest) -> RpcResult<GetHeaderResponse>;
+
     /// Requests headers between the given `start_hash` and the current virtual, up to the given limit.
     async fn get_headers(&self, start_hash: RpcHash, limit: u64, is_ascending: bool) -> RpcResult<Vec<RpcHeader>> {
         Ok(self.get_headers_call(None, GetHeadersRequest::new(start_hash, limit, is_ascending)).await?.headers)

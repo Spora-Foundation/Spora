@@ -266,6 +266,7 @@ impl RpcApi for GrpcClient {
     route!(get_block_dag_info_call, GetBlockDagInfo);
     route!(resolve_finality_conflict_call, ResolveFinalityConflict);
     route!(shutdown_call, Shutdown);
+    route!(get_header_call, GetHeader);
     route!(get_headers_call, GetHeaders);
     route!(get_utxos_by_addresses_call, GetUtxosByAddresses);
     route!(get_balance_by_address_call, GetBalanceByAddress);

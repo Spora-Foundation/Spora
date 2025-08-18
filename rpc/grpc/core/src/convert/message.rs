@@ -339,6 +339,16 @@ from!(_item: RpcResult<&tondi_rpc_core::ResolveFinalityConflictResponse>, protow
 from!(&tondi_rpc_core::ShutdownRequest, protowire::ShutdownRequestMessage);
 from!(RpcResult<&tondi_rpc_core::ShutdownResponse>, protowire::ShutdownResponseMessage);
 
+from!(item: &tondi_rpc_core::GetHeaderRequest, protowire::GetHeaderRequestMessage, {
+    Self { hash: item.hash.to_string() }
+});
+from!(item: RpcResult<&tondi_rpc_core::GetHeaderResponse>, protowire::GetHeaderResponseMessage, {
+    Self {
+        header: Some((&item.header).into()),
+        error: None
+    }
+});
+
 from!(item: &tondi_rpc_core::GetHeadersRequest, protowire::GetHeadersRequestMessage, {
     Self { start_hash: item.start_hash.to_string(), limit: item.limit, is_ascending: item.is_ascending }
 });
@@ -851,6 +861,17 @@ try_from!(&protowire::ResolveFinalityConflictResponseMessage, RpcResult<tondi_rp
 
 try_from!(&protowire::ShutdownRequestMessage, tondi_rpc_core::ShutdownRequest);
 try_from!(&protowire::ShutdownResponseMessage, RpcResult<tondi_rpc_core::ShutdownResponse>);
+
+try_from!(item: &protowire::GetHeaderRequestMessage, tondi_rpc_core::GetHeaderRequest, {
+    Self { hash: RpcHash::from_str(&item.hash)? }
+});
+try_from!(item: &protowire::GetHeaderResponseMessage, RpcResult<tondi_rpc_core::GetHeaderResponse>, {
+    Self {
+        header: item.header.as_ref()
+        .ok_or_else(|| RpcError::MissingRpcFieldError("GetHeaderResponseMessage".into(), "header".into()))?
+        .try_into()?
+    }
+});
 
 try_from!(item: &protowire::GetHeadersRequestMessage, tondi_rpc_core::GetHeadersRequest, {
     Self { start_hash: RpcHash::from_str(&item.start_hash)?, limit: item.limit, is_ascending: item.is_ascending }

@@ -63,6 +63,7 @@ impl Factory {
                 GetBlockCount,
                 GetBlockDagInfo,
                 ResolveFinalityConflict,
+                GetHeader,
                 GetHeaders,
                 GetUtxosByAddresses,
                 GetBalanceByAddress,

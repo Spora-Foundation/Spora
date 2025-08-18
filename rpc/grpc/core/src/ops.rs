@@ -69,6 +69,7 @@ pub enum TondidPayloadOps {
     GetBlockCount,
     GetBlockDagInfo,
     ResolveFinalityConflict,
+    GetHeader,
     GetHeaders,
     GetUtxosByAddresses,
     GetBalanceByAddress,

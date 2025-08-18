@@ -68,6 +68,7 @@ message TondidRequest {
     GetUtxoReturnAddressRequestMessage GetUtxoReturnAddressRequest = 1112;
     GetTransactionRequestMessage getTransactionRequest = 1114;
     GetBlockStatusRequestMessage getBlockStatusRequest = 1116;
+    GetHeaderRequestMessage getHeaderRequest = 1118;
   }
 }
 
@@ -136,6 +137,7 @@ message TondidResponse {
     GetUtxoReturnAddressResponseMessage GetUtxoReturnAddressResponse = 1113;
     GetTransactionResponseMessage getTransactionResponse = 1115;
     GetBlockStatusResponseMessage getBlockStatusResponse = 1117;
+    GetHeaderResponseMessage getHeaderResponse = 1119;
   }
 }
 

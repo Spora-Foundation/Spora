@@ -931,6 +931,16 @@ NOTE: This error usually indicates an RPC conversion error between the node and 
         Ok(PingResponse {})
     }
 
+    async fn get_header_call(
+        &self,
+        _connection: Option<&DynRpcConnection>,
+        request: GetHeaderRequest,
+    ) -> RpcResult<GetHeaderResponse> {
+        let session: tondi_consensusmanager::ConsensusSessionOwned = self.consensus_manager.consensus().session().await;
+        let header = session.async_get_header(request.hash).await?;
+        Ok(GetHeaderResponse { header: From::from(&*header) })
+    }
+
     async fn get_headers_call(
         &self,
         _connection: Option<&DynRpcConnection>,

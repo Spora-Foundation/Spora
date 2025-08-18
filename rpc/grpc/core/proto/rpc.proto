@@ -506,6 +506,15 @@ message ShutdownResponseMessage{
   RPCError error = 1000;
 }
 
+message GetHeaderRequestMessage{
+  string hash = 1;
+}
+
+message GetHeaderResponseMessage{
+  RpcBlockHeader header = 1;
+  RPCError error = 1000;
+}
+
 // GetHeadersRequestMessage requests headers between the given startHash and the
 // current virtual, up to the given limit.
 message GetHeadersRequestMessage{

@@ -1308,6 +1308,65 @@ impl Deserializer for ShutdownResponse {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct GetHeaderRequest {
+    pub hash: RpcHash,
+}
+
+impl GetHeaderRequest {
+    pub fn new(hash: RpcHash) -> Self {
+        Self { hash }
+    }
+}
+
+impl Serializer for GetHeaderRequest {
+    fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
+        store!(u16, &1, writer)?;
+        store!(RpcHash, &self.hash, writer)?;
+        Ok(())
+    }
+}
+
+impl Deserializer for GetHeaderRequest {
+    fn deserialize<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
+        let _version = load!(u16, reader)?;
+        let hash = load!(RpcHash, reader)?;
+
+        Ok(Self { hash })
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GetHeaderResponse {
+    pub header: RpcHeader,
+}
+
+impl GetHeaderResponse {
+    pub fn new(header: RpcHeader) -> Self {
+        Self { header }
+    }
+}
+
+impl Serializer for GetHeaderResponse {
+    fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
+        store!(u16, &1, writer)?;
+        store!(RpcHeader, &self.header, writer)?;
+
+        Ok(())
+    }
+}
+
+impl Deserializer for GetHeaderResponse {
+    fn deserialize<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
+        let _version = load!(u16, reader)?;
+        let header = load!(RpcHeader, reader)?;
+
+        Ok(Self { header })
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GetHeadersRequest {
     pub start_hash: RpcHash,
     pub limit: u64,

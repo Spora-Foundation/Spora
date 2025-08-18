@@ -45,6 +45,7 @@ pub mod tondid_request_convert {
     impl_into_tondid_request!(GetBlockCount);
     impl_into_tondid_request!(GetBlockDagInfo);
     impl_into_tondid_request!(ResolveFinalityConflict);
+    impl_into_tondid_request!(GetHeader);
     impl_into_tondid_request!(GetHeaders);
     impl_into_tondid_request!(GetUtxosByAddresses);
     impl_into_tondid_request!(GetBalanceByAddress);
@@ -185,6 +186,7 @@ pub mod tondid_response_convert {
     impl_into_tondid_response!(GetBlockCount);
     impl_into_tondid_response!(GetBlockDagInfo);
     impl_into_tondid_response!(ResolveFinalityConflict);
+    impl_into_tondid_response!(GetHeader);
     impl_into_tondid_response!(GetHeaders);
     impl_into_tondid_response!(GetUtxosByAddresses);
     impl_into_tondid_response!(GetBalanceByAddress);

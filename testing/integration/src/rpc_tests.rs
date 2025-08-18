@@ -397,6 +397,10 @@ async fn sanity_test() {
                 })
             }
 
+            TondidPayloadOps::GetHeader => {
+                todo!()
+            }
+
             TondidPayloadOps::GetHeaders => {
                 let rpc_client = client.clone();
                 tst!(op, {
