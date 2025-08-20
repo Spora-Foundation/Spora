@@ -8,7 +8,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/tondinet/rusty-tondi.git"
+    "url": "git+https://github.com/AvatoLabs/Tondi.git"
   },
   "keywords": [
     "tondi",
@@ -18,9 +18,9 @@
   "author": "Tondi developers",
   "license": "ISC",
   "bugs": {
-    "url": "https://github.com/tondinet/rusty-tondi/issues"
+    "url": "https://github.com/AvatoLabs/Tondi/issues"
   },
-  "homepage": "https://github.com/tondinet/rusty-tondi#readme",
+  "homepage": "https://github.com/AvatoLabs/Tondi#readme",
   "dependencies": {
     "websocket": "1.0.34",
     "tondi-wasm": "0.13.5"

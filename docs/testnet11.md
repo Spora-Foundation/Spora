@@ -32,7 +32,7 @@ Testnet11 uses a dedicated P2P port (16311) so that nodes from the usual testnet
 We reiterate that only the included miner should be used to maintain a level playing field.
 
 First, we set-up a node:
-1. Download and extract the [rusty-tondi binaries](https://github.com/tondinet/rusty-tondi/releases). Alternatively, you can compile it from source yourself by following the instructions [here](https://github.com/tondinet/rusty-tondi/blob/master/README.md). The rest of the instructions are written assuming the former option. If you choose to locally compile the code, replace any command of the form ``<program> <arguments>`` with ``cargo run --bin <program> --release -- <arguments>`` (see example in the next item). All actions described below should be performed on a command line window where you navigated to the directory into which the binaries were extracted.
+1. Download and extract the [tondi binaries](https://github.com/AvatoLabs/Tondi/releases). Alternatively, you can compile it from source yourself by following the instructions [here](https://github.com/AvatoLabs/Tondi/blob/master/README.md). The rest of the instructions are written assuming the former option. If you choose to locally compile the code, replace any command of the form ``<program> <arguments>`` with ``cargo run --bin <program> --release -- <arguments>`` (see example in the next item). All actions described below should be performed on a command line window where you navigated to the directory into which the binaries were extracted.
 2. Start the ``Tondid`` client with ``utxoindex`` enabled:
 
 ```

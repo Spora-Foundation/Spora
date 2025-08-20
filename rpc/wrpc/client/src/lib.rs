@@ -7,7 +7,7 @@
 //! meant to function as an IPC (Inter-Process Communication) mechanism for Rust applications.
 //!
 //! Rust examples on using wRPC client can be found in the
-//! [examples](https://github.com/tondinet/rusty-tondi/tree/master/rpc/wrpc/examples) folder.
+//! [examples](https://github.com/AvatoLabs/Tondi/tree/master/rpc/wrpc/examples) folder.
 //!
 //! WASM bindings for wRPC client can be found in the [`tondi-wrpc-wasm`](https://docs.rs/tondi-wrpc-wasm) crate.
 //!
