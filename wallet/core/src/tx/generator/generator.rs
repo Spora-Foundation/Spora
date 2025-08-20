@@ -496,7 +496,7 @@ impl Generator {
     }
 
     /// Mutable context used by the generator to track state
-    fn context(&self) -> MutexGuard<Context> {
+    fn context(&self) -> MutexGuard<'_, Context> {
         self.inner.context.lock().unwrap()
     }
 

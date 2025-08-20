@@ -74,7 +74,7 @@ impl Inner {
         Self::new(wallet, storage.id, storage.storage_key, storage.settings.clone())
     }
 
-    pub fn context(&self) -> MutexGuard<Context> {
+    pub fn context(&self) -> MutexGuard<'_, Context> {
         self.context.lock().unwrap()
     }
 
@@ -89,7 +89,7 @@ impl Inner {
 pub trait Account: AnySync + Send + Sync + 'static {
     fn inner(&self) -> &Arc<Inner>;
 
-    fn context(&self) -> MutexGuard<Context> {
+    fn context(&self) -> MutexGuard<'_, Context> {
         self.inner().context.lock().unwrap()
     }
 

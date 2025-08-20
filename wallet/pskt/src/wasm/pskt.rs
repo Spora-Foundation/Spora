@@ -126,7 +126,7 @@ impl PSKT {
         serde_wasm_bindgen::to_value(state.as_ref().unwrap()).unwrap()
     }
 
-    fn state(&self) -> MutexGuard<Option<State>> {
+    fn state(&self) -> MutexGuard<'_, Option<State>> {
         self.state.lock().unwrap()
     }
 

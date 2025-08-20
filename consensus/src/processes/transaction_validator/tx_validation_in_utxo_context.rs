@@ -2,10 +2,7 @@ use tondi_consensus_core::{
     constants::{MAX_SOMPI, SEQUENCE_LOCK_TIME_DISABLED, SEQUENCE_LOCK_TIME_MASK},
     errors::tx::TxRuleError,
     hashing::sighash::{SigHashReusedValuesSync, SigHashReusedValuesUnsync},
-    tx::{Transaction, TransactionInput, VerifiableTransaction, UtxoEntry, ScriptVec, TransactionId, TransactionOutpoint, TransactionOutput, ScriptPublicKey, PopulatedTransaction, MutableTransaction},
-    subnets::SUBNETWORK_ID_NATIVE,
-    sign::sign,
-    config::params::MAINNET_PARAMS,
+    tx::{TransactionInput, VerifiableTransaction},
 };
 
 use tondi_txscript::{
@@ -16,7 +13,6 @@ use tondi_txscript::{
 };
 use tondi_txscript_errors::TxScriptError;
 use rayon::{iter::{IntoParallelIterator, ParallelIterator}, ThreadPool};
-use std::error::Error;
 use crate::processes::transaction_validator::{errors::TxResult, TransactionValidator};
 
 #[derive(Clone, Copy, PartialEq, Eq)]

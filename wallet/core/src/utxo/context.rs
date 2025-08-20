@@ -178,7 +178,7 @@ impl UtxoContext {
         Self { inner: Arc::new(Inner::new_with_mature_entries(processor, binding, mature_entries)) }
     }
 
-    pub fn context(&self) -> MutexGuard<Context> {
+    pub fn context(&self) -> MutexGuard<'_, Context> {
         self.inner.context.lock().unwrap()
     }
 
