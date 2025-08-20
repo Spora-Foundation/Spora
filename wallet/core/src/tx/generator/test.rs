@@ -496,7 +496,7 @@
 // }
 //
 // #[test]
-// fn test_generator_compound_200k_10kas_transactions() -> Result<()> {
+// fn test_generator_compound_200k_10tondi_transactions() -> Result<()> {
 //     generator(test_network_id(), &[10.0; 200_000], &[], Fees::sender(Tondi(5.0)), [(output_address, Tondi(190_000.0))].as_slice())
 //         .unwrap()
 //         .harness()

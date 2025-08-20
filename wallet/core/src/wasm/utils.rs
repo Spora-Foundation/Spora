@@ -33,8 +33,8 @@ pub fn sompi_to_tondi_string(sompi: ISompiToTondi) -> Result<String> {
 
 ///
 /// Format a Sompi amount to a string representation of the amount in Tondi with a suffix
-/// based on the network type (e.g. `TND` for mainnet, `TKAS` for testnet,
-/// `SKAS` for simnet, `DKAS` for devnet).
+/// based on the network type (e.g. `TND` for mainnet, `TTONDI` for testnet,
+/// `STONDI` for simnet, `DTONDI` for devnet).
 ///
 /// @category Wallet SDK
 ///

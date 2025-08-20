@@ -30,7 +30,7 @@ pub fn try_parse_required_tondi_as_sompi_u64<S: ToString + Display>(tondi_amount
         let sompi_amount = tondi_amount
             .to_string()
             .parse::<f64>()
-            .map_err(|_| Error::custom(format!("Supplied Kasapa amount is not valid: '{tondi_amount}'")))?
+            .map_err(|_| Error::custom(format!("Supplied Tondi amount is not valid: '{tondi_amount}'")))?
             * SOMPI_PER_TONDI as f64;
         if sompi_amount < 0.0 {
             Err(Error::custom("Supplied Tondi amount is not valid: '{tondi_amount}'"))
@@ -47,7 +47,7 @@ pub fn try_parse_optional_tondi_as_sompi_i64<S: ToString + Display>(tondi_amount
         let sompi_amount = tondi_amount
             .to_string()
             .parse::<f64>()
-            .map_err(|_e| Error::custom(format!("Supplied Kasapa amount is not valid: '{tondi_amount}'")))?
+            .map_err(|_e| Error::custom(format!("Supplied Tondi amount is not valid: '{tondi_amount}'")))?
             * SOMPI_PER_TONDI as f64;
         if sompi_amount < 0.0 {
             Err(Error::custom("Supplied Tondi amount is not valid: '{tondi_amount}'"))

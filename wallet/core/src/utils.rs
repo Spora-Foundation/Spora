@@ -53,24 +53,24 @@ pub fn sompi_to_tondi_string_with_trailing_zeroes(sompi: u64) -> String {
 pub fn tondi_suffix(network_type: &NetworkType) -> &'static str {
     match network_type {
         NetworkType::Mainnet => "TND",
-        NetworkType::Testnet => "TKAS",
-        NetworkType::Simnet => "SKAS",
-        NetworkType::Devnet => "DKAS",
+        NetworkType::Testnet => "TTONDI",
+        NetworkType::Simnet => "STONDI",
+        NetworkType::Devnet => "DTONDI",
     }
 }
 
 #[inline]
 pub fn sompi_to_tondi_string_with_suffix(sompi: u64, network_type: &NetworkType) -> String {
-    let kas = sompi_to_tondi_string(sompi);
+    let tondi = sompi_to_tondi_string(sompi);
     let suffix = tondi_suffix(network_type);
-    format!("{kas} {suffix}")
+    format!("{tondi} {suffix}")
 }
 
 #[inline]
 pub fn sompi_to_tondi_string_with_trailing_zeroes_and_suffix(sompi: u64, network_type: &NetworkType) -> String {
-    let kas = sompi_to_tondi_string_with_trailing_zeroes(sompi);
+    let tondi = sompi_to_tondi_string_with_trailing_zeroes(sompi);
     let suffix = tondi_suffix(network_type);
-    format!("{kas} {suffix}")
+    format!("{tondi} {suffix}")
 }
 
 pub fn format_address_colors(address: &Address, range: Option<usize>) -> String {

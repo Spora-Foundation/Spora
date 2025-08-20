@@ -565,7 +565,7 @@ mod tests {
                 storage_mass_parameter: 10_u64.pow(12),
             },
             PluralityTestCase {
-                name: "1:3; output index=1, plurality=2; kas units",
+                name: "1:3; output index=1, plurality=2; tondi units",
                 inputs_tx1: &[1000 * SOMPI_PER_TONDI],
                 outputs_tx1: &[200 * SOMPI_PER_TONDI, 200 * SOMPI_PER_TONDI, 200 * SOMPI_PER_TONDI],
                 inputs_tx2: &[1000 * SOMPI_PER_TONDI],
@@ -576,7 +576,7 @@ mod tests {
                 storage_mass_parameter: 10_u64.pow(12),
             },
             PluralityTestCase {
-                name: "1:2; output index=0, plurality=2; kas units",
+                name: "1:2; output index=0, plurality=2; tondi units",
                 inputs_tx1: &[1000 * SOMPI_PER_TONDI],
                 outputs_tx1: &[200 * SOMPI_PER_TONDI, 200 * SOMPI_PER_TONDI],
                 inputs_tx2: &[1000 * SOMPI_PER_TONDI],
@@ -587,7 +587,7 @@ mod tests {
                 storage_mass_parameter: 10_u64.pow(12),
             },
             PluralityTestCase {
-                name: "2:2; output index=0, plurality=2; kas units",
+                name: "2:2; output index=0, plurality=2; tondi units",
                 inputs_tx1: &[350 * SOMPI_PER_TONDI, 500 * SOMPI_PER_TONDI],
                 outputs_tx1: &[200 * SOMPI_PER_TONDI, 200 * SOMPI_PER_TONDI],
                 inputs_tx2: &[350 * SOMPI_PER_TONDI, 500 * SOMPI_PER_TONDI],
@@ -598,7 +598,7 @@ mod tests {
                 storage_mass_parameter: 10_u64.pow(12),
             },
             PluralityTestCase {
-                name: "4:6; output index=0, plurality=3; kas units",
+                name: "4:6; output index=0, plurality=3; tondi units",
                 inputs_tx1: &[350 * SOMPI_PER_TONDI, 500 * SOMPI_PER_TONDI, 350 * SOMPI_PER_TONDI, 500 * SOMPI_PER_TONDI],
                 outputs_tx1: &[
                     200 * SOMPI_PER_TONDI,
