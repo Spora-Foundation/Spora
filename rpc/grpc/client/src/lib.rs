@@ -229,6 +229,10 @@ impl GrpcClient {
     pub fn notification_mode(&self) -> NotificationMode {
         self.notification_mode
     }
+
+    pub async fn call(&self, op: TondidPayloadOps, request: impl Into<TondidRequest>) -> Result<TondidResponse> {
+        self.inner.call(op, request).await
+    }
 }
 
 #[async_trait]
