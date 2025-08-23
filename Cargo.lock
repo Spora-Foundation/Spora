@@ -3683,6 +3683,7 @@ dependencies = [
  "secp256k1",
  "tokio",
  "tondi-addresses",
+ "tondi-bip32",
  "tondi-consensus-core",
  "tondi-core",
  "tondi-grpc-client",

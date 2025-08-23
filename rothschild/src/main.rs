@@ -217,7 +217,7 @@ async fn main() {
         None | Some(_) => TESTNET_PARAMS.coinbase_maturity().upper_bound(),
     };
     info!(
-        "Node block-DAG info: \n\tNetwork: {}, \n\tBlock count: {}, \n\tHeader count: {}, \n\tDifficulty: {}, 
+        "Node block-DAG info: \n\tNetwork: {}, \n\tBlock count: {}, \n\tHeader count: {}, \n\tDifficulty: {},
 \tMedian time: {}, \n\tDAA score: {}, \n\tPruning point: {}, \n\tTips: {}, \n\t{} virtual parents: ...{}, \n\tCoinbase maturity: {}",
         info.network,
         info.block_count,
@@ -562,4 +562,54 @@ fn select_utxos(
     }
 
     (vec![], 0)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::str::FromStr;
+
+    use secp256k1::{SecretKey, SECP256K1};
+    use tondi_bip32::{DerivationPath, ExtendedPrivateKey, Language, Mnemonic, WordCount};
+
+    use super::*;
+
+    #[test]
+    pub fn test_dev_address() {
+        let seed_words = "zero zero zero zero zero zero zero zero zero zero zero zoo";
+        let mnemonic = Mnemonic::new(seed_words, Language::English).unwrap();
+        let seed = mnemonic.to_seed("");
+        let extended_private_key = ExtendedPrivateKey::<SecretKey>::new(seed).unwrap();
+        let seed_secret = extended_private_key.private_key();
+        assert_eq!(format!("{}", seed_secret.display_secret()), "b086376aaec35dcab2d02ee45bd729112f9238bff92dbeb6340fda5b07062d83");
+
+        let derive_path = DerivationPath::from_str("m/44'/7890'/0'/0/0").unwrap();
+        let derive_private_key = extended_private_key.derive_path(&derive_path).unwrap();
+        let secret_key = derive_private_key.private_key();
+        assert_eq!(format!("{}", secret_key.display_secret()), "c99b1ccf1087af2a56ffedb885943962e0159a7705cac583eef3e9958cd035b3");
+
+        let xpub = secret_key.x_only_public_key(&SECP256K1).0;
+        assert_eq!(format!("{xpub}"), "757815720a73acd5a162c32a398b8ffdec534a4ced4445dc33032150d04ff976");
+        let addr = Address::new(Prefix::Devnet, ADDRESS_VERSION, &xpub.serialize());
+        assert_eq!(format!("{addr}"), "tondidev:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvw88ne6");
+    }
+
+    #[test]
+    pub fn test_dev_random_address() {
+        let mnemonic = Mnemonic::random(WordCount::Words12, Language::English).unwrap();
+
+        let seed = mnemonic.to_seed("");
+        let extended_private_key = ExtendedPrivateKey::<SecretKey>::new(seed).unwrap();
+        let seed_secret = extended_private_key.private_key();
+        println!("Seed Secret: {}", seed_secret.display_secret());
+
+        let derive_path = DerivationPath::from_str("m/44'/7890'/0'/0/0").unwrap();
+        let derive_private_key = extended_private_key.derive_path(&derive_path).unwrap();
+        let secret_key = derive_private_key.private_key();
+        println!("Secret Key: {}", secret_key.display_secret());
+
+        let xpub = secret_key.x_only_public_key(&SECP256K1).0;
+        println!("XOnlyPublicKey: {xpub}");
+        let addr = Address::new(Prefix::Devnet, ADDRESS_VERSION, &xpub.serialize());
+        println!("Address: {addr}");
+    }
 }

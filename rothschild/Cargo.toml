@@ -18,6 +18,7 @@ tondi-notify.workspace = true
 tondi-rpc-core.workspace = true
 tondi-txscript.workspace = true
 tondi-utils.workspace = true
+tondi-bip32.workspace = true
 
 async-channel.workspace = true
 clap.workspace = true
