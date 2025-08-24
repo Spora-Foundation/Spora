@@ -93,12 +93,6 @@ send tondi:qp0k0fsdj8qnwvj9tcljcrjvcj9s0qj5j 50
 history list
 ```
 
-
-
-
-
-
-
 ## Security Notes
 - Store mnemonic phrases securely offline
 - Use testnet for development
