@@ -5,15 +5,15 @@
 
 pub mod descriptor;
 pub mod kind;
-pub mod pskb;
+pub mod pstb;
 pub mod variants;
 pub use kind::*;
-use pskb::{
-    bundle_from_pskt_generator, bundle_to_finalizer_stream, pskb_signer_for_address, pskt_to_pending_transaction, PSKBSigner,
-    PSKTGenerator,
+use pstb::{
+    bundle_from_pstt_generator, bundle_to_finalizer_stream, pstb_signer_for_address, pstt_to_pending_transaction, PSTBSigner,
+    PSTTGenerator,
 };
 use tondi_hashes::Hash;
-use tondi_wallet_pskt::bundle::Bundle;
+use tondi_wallet_pstt::bundle::Bundle;
 pub use variants::*;
 
 use crate::derivation::build_derivate_paths;
@@ -363,7 +363,7 @@ pub trait Account: AnySync + Send + Sync + 'static {
         Ok((generator.summary(), ids))
     }
 
-    async fn pskb_from_send_generator(
+    async fn pstb_from_send_generator(
         self: Arc<Self>,
         destination: PaymentDestination,
         priority_fee_sompi: Fees,
@@ -374,13 +374,13 @@ pub trait Account: AnySync + Send + Sync + 'static {
     ) -> Result<Bundle, Error> {
         let settings = GeneratorSettings::try_new_with_account(self.clone().as_dyn_arc(), destination, priority_fee_sompi, payload)?;
         let keydata = self.prv_key_data(wallet_secret).await?;
-        let signer = Arc::new(PSKBSigner::new(self.clone().as_dyn_arc(), keydata, payment_secret));
+        let signer = Arc::new(PSTBSigner::new(self.clone().as_dyn_arc(), keydata, payment_secret));
         let generator = Generator::try_new(settings, None, Some(abortable))?;
-        let pskt_generator = PSKTGenerator::new(generator, signer, self.wallet().address_prefix()?);
-        bundle_from_pskt_generator(pskt_generator).await
+        let pstt_generator = PSTTGenerator::new(generator, signer, self.wallet().address_prefix()?);
+        bundle_from_pstt_generator(pstt_generator).await
     }
 
-    async fn pskb_sign(
+    async fn pstb_sign(
         self: Arc<Self>,
         bundle: &Bundle,
         wallet_secret: Secret,
@@ -388,7 +388,7 @@ pub trait Account: AnySync + Send + Sync + 'static {
         sign_for_address: Option<&Address>,
     ) -> Result<Bundle, Error> {
         let keydata = self.prv_key_data(wallet_secret).await?;
-        let signer = Arc::new(PSKBSigner::new(self.clone().as_dyn_arc(), keydata.clone(), payment_secret.clone()));
+        let signer = Arc::new(PSTBSigner::new(self.clone().as_dyn_arc(), keydata.clone(), payment_secret.clone()));
 
         let network_id = self.wallet().clone().network_id()?;
         let derivation = self.as_derivation_capable()?;
@@ -398,25 +398,25 @@ pub trait Account: AnySync + Send + Sync + 'static {
 
         let key_fingerprint = keydata.get_xprv(payment_secret.clone().as_ref())?.public_key().fingerprint();
 
-        match pskb_signer_for_address(bundle, signer, network_id, sign_for_address, derivation_path, key_fingerprint).await {
+        match pstb_signer_for_address(bundle, signer, network_id, sign_for_address, derivation_path, key_fingerprint).await {
             Ok(signer) => Ok(signer),
             Err(e) => Err(Error::from(e.to_string())),
         }
     }
 
-    async fn pskb_broadcast(self: Arc<Self>, bundle: &Bundle) -> Result<Vec<Hash>, Error> {
+    async fn pstb_broadcast(self: Arc<Self>, bundle: &Bundle) -> Result<Vec<Hash>, Error> {
         let mut ids = Vec::new();
         let mut stream = bundle_to_finalizer_stream(bundle);
 
         while let Some(result) = stream.next().await {
             match result {
-                Ok(pskt) => {
+                Ok(pstt) => {
                     let change = self.wallet().account()?.change_address()?;
-                    let transaction = pskt_to_pending_transaction(pskt, self.wallet().network_id()?, change)?;
+                    let transaction = pstt_to_pending_transaction(pstt, self.wallet().network_id()?, change)?;
                     ids.push(transaction.try_submit(&self.wallet().rpc_api()).await?);
                 }
                 Err(e) => {
-                    eprintln!("Error processing a PSKT from bundle: {:?}", e);
+                    eprintln!("Error processing a pstt from bundle: {:?}", e);
                 }
             }
         }

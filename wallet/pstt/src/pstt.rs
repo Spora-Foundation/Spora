@@ -1,5 +1,5 @@
 //!
-//! Partially Signed Tondi Transaction (PSKT)
+//! Partially Signed Tondi Transaction (PSTT)
 //!
 
 use serde::{Deserialize, Serialize};
@@ -82,9 +82,9 @@ impl Signature {
 }
 
 ///
-/// A Partially Signed Tondi Transaction (PSKT) is a standardized format
+/// A Partially Signed Tondi Transaction (PSTT) is a standardized format
 /// that allows multiple participants to collaborate in creating and signing
-/// a Tondi transaction. PSKT enables the exchange of incomplete transaction
+/// a Tondi transaction. PSTT enables the exchange of incomplete transaction
 /// data between different wallets or entities, allowing each participant
 /// to add their signature or inputs in stages. This facilitates more complex
 /// transaction workflows, such as multi-signature setups or hardware wallet
@@ -93,41 +93,41 @@ impl Signature {
 /// exposing private keys.
 ///
 /// Please note that due to transaction mass limits and potential of
-/// a wallet aggregating large UTXO sets, the PSKT [`Bundle`](crate::bundle::Bundle) primitive
-/// is used to represent a collection of PSKTs and should be used for
-/// PSKT serialization and transport. PSKT is an internal implementation
+/// a wallet aggregating large UTXO sets, the PSTT [`Bundle`](crate::bundle::Bundle) primitive
+/// is used to represent a collection of PSTTs and should be used for
+/// PSTT serialization and transport. PSTT is an internal implementation
 /// primitive that represents each transaction in the bundle.
 ///
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct PSKT<ROLE> {
+pub struct PSTT<ROLE> {
     #[serde(flatten)]
-    inner_pskt: Inner,
+    inner_pstt: Inner,
     #[serde(skip_serializing, default)]
     role: PhantomData<ROLE>,
 }
 
-impl<ROLE> From<Inner> for PSKT<ROLE> {
-    fn from(inner_pskt: Inner) -> Self {
-        PSKT { inner_pskt, role: Default::default() }
+impl<ROLE> From<Inner> for PSTT<ROLE> {
+    fn from(inner_pstt: Inner) -> Self {
+        PSTT { inner_pstt, role: Default::default() }
     }
 }
 
-impl<ROLE> Clone for PSKT<ROLE> {
+impl<ROLE> Clone for PSTT<ROLE> {
     fn clone(&self) -> Self {
-        PSKT { inner_pskt: self.inner_pskt.clone(), role: Default::default() }
+        PSTT { inner_pstt: self.inner_pstt.clone(), role: Default::default() }
     }
 }
 
-impl<ROLE> Deref for PSKT<ROLE> {
+impl<ROLE> Deref for PSTT<ROLE> {
     type Target = Inner;
 
     fn deref(&self) -> &Self::Target {
-        &self.inner_pskt
+        &self.inner_pstt
     }
 }
 
-impl<R> PSKT<R> {
+impl<R> PSTT<R> {
     fn unsigned_tx(&self) -> SignableTransaction {
         let tx = Transaction::new(
             self.global.tx_version,
@@ -165,108 +165,108 @@ impl<R> PSKT<R> {
     }
 
     pub fn to_hex(&self) -> Result<String, Error> {
-        Ok(format!("PSKT{}", hex::encode(serde_json::to_string(self)?)))
+        Ok(format!("PSTT{}", hex::encode(serde_json::to_string(self)?)))
     }
 
     pub fn from_hex(hex_data: &str) -> Result<Self, Error> {
-        if let Some(hex_data) = hex_data.strip_prefix("PSKT") {
+        if let Some(hex_data) = hex_data.strip_prefix("PSTT") {
             Ok(serde_json::from_slice(hex::decode(hex_data)?.as_slice())?)
         } else {
-            Err(Error::PsktPrefixError)
+            Err(Error::PSTTPrefixError)
         }
     }
 }
 
-impl Default for PSKT<Creator> {
+impl Default for PSTT<Creator> {
     fn default() -> Self {
-        PSKT { inner_pskt: Default::default(), role: Default::default() }
+        PSTT { inner_pstt: Default::default(), role: Default::default() }
     }
 }
 
-impl PSKT<Creator> {
+impl PSTT<Creator> {
     /// Sets the fallback lock time.
     pub fn fallback_lock_time(mut self, fallback: u64) -> Self {
-        self.inner_pskt.global.fallback_lock_time = Some(fallback);
+        self.inner_pstt.global.fallback_lock_time = Some(fallback);
         self
     }
 
     // todo generic const
     /// Sets the inputs modifiable bit in the transaction modifiable flags.
     pub fn inputs_modifiable(mut self) -> Self {
-        self.inner_pskt.global.inputs_modifiable = true;
+        self.inner_pstt.global.inputs_modifiable = true;
         self
     }
     // todo generic const
     /// Sets the outputs modifiable bit in the transaction modifiable flags.
     pub fn outputs_modifiable(mut self) -> Self {
-        self.inner_pskt.global.outputs_modifiable = true;
+        self.inner_pstt.global.outputs_modifiable = true;
         self
     }
 
-    pub fn constructor(self) -> PSKT<Constructor> {
-        PSKT { inner_pskt: self.inner_pskt, role: Default::default() }
-    }
+            pub fn constructor(self) -> PSTT<Constructor> {
+            PSTT { inner_pstt: self.inner_pstt, role: Default::default() }
+        }
 }
 
-impl PSKT<Constructor> {
+impl PSTT<Constructor> {
     // todo generic const
-    /// Marks that the `PSKT` can not have any more inputs added to it.
+    /// Marks that the `PSTT` can not have any more inputs added to it.
     pub fn no_more_inputs(mut self) -> Self {
-        self.inner_pskt.global.inputs_modifiable = false;
+        self.inner_pstt.global.inputs_modifiable = false;
         self
     }
     // todo generic const
-    /// Marks that the `PSKT` can not have any more outputs added to it.
+    /// Marks that the `PSTT` can not have any more outputs added to it.
     pub fn no_more_outputs(mut self) -> Self {
-        self.inner_pskt.global.outputs_modifiable = false;
+        self.inner_pstt.global.outputs_modifiable = false;
         self
     }
 
-    /// Adds an input to the PSKT.
+    /// Adds an input to the PSTT.
     pub fn input(mut self, input: Input) -> Self {
-        self.inner_pskt.inputs.push(input);
-        self.inner_pskt.global.input_count += 1;
+        self.inner_pstt.inputs.push(input);
+        self.inner_pstt.global.input_count += 1;
         self
     }
 
-    /// Adds an output to the PSKT.
+    /// Adds an output to the PSTT.
     pub fn output(mut self, output: Output) -> Self {
-        self.inner_pskt.outputs.push(output);
-        self.inner_pskt.global.output_count += 1;
+        self.inner_pstt.outputs.push(output);
+        self.inner_pstt.global.output_count += 1;
         self
     }
 
-    /// Returns a PSKT [`Updater`] once construction is completed.
-    pub fn updater(self) -> PSKT<Updater> {
-        let pskt = self.no_more_inputs().no_more_outputs();
-        PSKT { inner_pskt: pskt.inner_pskt, role: Default::default() }
+    /// Returns a PSTT [`Updater`] once construction is completed.
+    pub fn updater(self) -> PSTT<Updater> {
+        let pstt = self.no_more_inputs().no_more_outputs();
+        PSTT { inner_pstt: pstt.inner_pstt, role: Default::default() }
     }
 
-    pub fn signer(self) -> PSKT<Signer> {
+    pub fn signer(self) -> PSTT<Signer> {
         self.updater().signer()
     }
 
-    pub fn combiner(self) -> PSKT<Combiner> {
-        PSKT { inner_pskt: self.inner_pskt, role: Default::default() }
+    pub fn combiner(self) -> PSTT<Combiner> {
+        PSTT { inner_pstt: self.inner_pstt, role: Default::default() }
     }
 }
 
-impl PSKT<Updater> {
+impl PSTT<Updater> {
     pub fn set_sequence(mut self, n: u64, input_index: usize) -> Result<Self, Error> {
-        self.inner_pskt.inputs.get_mut(input_index).ok_or(Error::OutOfBounds)?.sequence = Some(n);
+        self.inner_pstt.inputs.get_mut(input_index).ok_or(Error::OutOfBounds)?.sequence = Some(n);
         Ok(self)
     }
 
-    pub fn signer(self) -> PSKT<Signer> {
-        PSKT { inner_pskt: self.inner_pskt, role: Default::default() }
+    pub fn signer(self) -> PSTT<Signer> {
+        PSTT { inner_pstt: self.inner_pstt, role: Default::default() }
     }
 
-    pub fn combiner(self) -> PSKT<Combiner> {
-        PSKT { inner_pskt: self.inner_pskt, role: Default::default() }
+    pub fn combiner(self) -> PSTT<Combiner> {
+        PSTT { inner_pstt: self.inner_pstt, role: Default::default() }
     }
 }
 
-impl PSKT<Signer> {
+impl PSTT<Signer> {
     // todo use iterator instead of vector
     pub fn pass_signature_sync<SignFn, E>(mut self, sign_fn: SignFn) -> Result<Self, E>
     where
@@ -275,7 +275,7 @@ impl PSKT<Signer> {
     {
         let unsigned_tx = self.unsigned_tx();
         let sighashes = self.inputs.iter().map(|input| input.sighash_type).collect();
-        self.inner_pskt.inputs.iter_mut().zip(sign_fn(unsigned_tx, sighashes)?).for_each(
+        self.inner_pstt.inputs.iter_mut().zip(sign_fn(unsigned_tx, sighashes)?).for_each(
             |(input, SignInputOk { signature, pub_key, key_source })| {
                 input.bip32_derivations.insert(pub_key, key_source);
                 input.partial_sigs.insert(pub_key, signature);
@@ -293,7 +293,7 @@ impl PSKT<Signer> {
     {
         let unsigned_tx = self.unsigned_tx();
         let sighashes = self.inputs.iter().map(|input| input.sighash_type).collect();
-        self.inner_pskt.inputs.iter_mut().zip(sign_fn(unsigned_tx, sighashes).await?).for_each(
+        self.inner_pstt.inputs.iter_mut().zip(sign_fn(unsigned_tx, sighashes).await?).for_each(
             |(input, SignInputOk { signature, pub_key, key_source })| {
                 input.bip32_derivations.insert(pub_key, key_source);
                 input.partial_sigs.insert(pub_key, signature);
@@ -306,12 +306,12 @@ impl PSKT<Signer> {
         self.calculate_id_internal()
     }
 
-    pub fn finalizer(self) -> PSKT<Finalizer> {
-        PSKT { inner_pskt: self.inner_pskt, role: Default::default() }
+    pub fn finalizer(self) -> PSTT<Finalizer> {
+        PSTT { inner_pstt: self.inner_pstt, role: Default::default() }
     }
 
-    pub fn combiner(self) -> PSKT<Combiner> {
-        PSKT { inner_pskt: self.inner_pskt, role: Default::default() }
+    pub fn combiner(self) -> PSTT<Combiner> {
+        PSTT { inner_pstt: self.inner_pstt, role: Default::default() }
     }
 }
 
@@ -323,11 +323,11 @@ pub struct SignInputOk {
     pub key_source: Option<KeySource>,
 }
 
-impl<R> std::ops::Add<PSKT<R>> for PSKT<Combiner> {
+impl<R> std::ops::Add<PSTT<R>> for PSTT<Combiner> {
     type Output = Result<Self, CombineError>;
 
-    fn add(mut self, mut rhs: PSKT<R>) -> Self::Output {
-        self.inner_pskt.global = (self.inner_pskt.global + rhs.inner_pskt.global)?;
+    fn add(mut self, mut rhs: PSTT<R>) -> Self::Output {
+        self.inner_pstt.global = (self.inner_pstt.global + rhs.inner_pstt.global)?;
         macro_rules! combine {
             ($left:expr, $right:expr, $err: ty) => {
                 if $left.len() > $right.len() {
@@ -346,22 +346,22 @@ impl<R> std::ops::Add<PSKT<R>> for PSKT<Combiner> {
             };
         }
         // todo add sort to build deterministic combination
-        self.inner_pskt.inputs = combine!(self.inner_pskt.inputs, rhs.inner_pskt.inputs, crate::input::CombineError);
-        self.inner_pskt.outputs = combine!(self.inner_pskt.outputs, rhs.inner_pskt.outputs, crate::output::CombineError);
+        self.inner_pstt.inputs = combine!(self.inner_pstt.inputs, rhs.inner_pstt.inputs, crate::input::CombineError);
+        self.inner_pstt.outputs = combine!(self.inner_pstt.outputs, rhs.inner_pstt.outputs, crate::output::CombineError);
         Ok(self)
     }
 }
 
-impl PSKT<Combiner> {
-    pub fn signer(self) -> PSKT<Signer> {
-        PSKT { inner_pskt: self.inner_pskt, role: Default::default() }
+impl PSTT<Combiner> {
+    pub fn signer(self) -> PSTT<Signer> {
+        PSTT { inner_pstt: self.inner_pstt, role: Default::default() }
     }
-    pub fn finalizer(self) -> PSKT<Finalizer> {
-        PSKT { inner_pskt: self.inner_pskt, role: Default::default() }
+    pub fn finalizer(self) -> PSTT<Finalizer> {
+        PSTT { inner_pstt: self.inner_pstt, role: Default::default() }
     }
 }
 
-impl PSKT<Finalizer> {
+impl PSTT<Finalizer> {
     pub fn finalize_sync<E: Display>(
         self,
         final_sig_fn: impl FnOnce(&Inner) -> Result<Vec<Vec<u8>>, E>,
@@ -384,11 +384,11 @@ impl PSKT<Finalizer> {
         self.global.id
     }
 
-    pub fn extractor(self) -> Result<PSKT<Extractor>, TxNotFinalized> {
+    pub fn extractor(self) -> Result<PSTT<Extractor>, TxNotFinalized> {
         if self.global.id.is_none() {
             Err(TxNotFinalized {})
         } else {
-            Ok(PSKT { inner_pskt: self.inner_pskt, role: Default::default() })
+            Ok(PSTT { inner_pstt: self.inner_pstt, role: Default::default() })
         }
     }
 
@@ -397,7 +397,7 @@ impl PSKT<Finalizer> {
         if sigs.len() != self.inputs.len() {
             return Err(FinalizeError::WrongFinalizedSigsCount { expected: self.inputs.len(), actual: sigs.len() });
         }
-        self.inner_pskt.inputs.iter_mut().enumerate().zip(sigs).try_for_each(|((idx, input), sig)| {
+        self.inner_pstt.inputs.iter_mut().enumerate().zip(sigs).try_for_each(|((idx, input), sig)| {
             if sig.is_empty() {
                 return Err(FinalizeError::EmptySignature(idx));
             }
@@ -405,17 +405,17 @@ impl PSKT<Finalizer> {
             input.final_script_sig = Some(sig);
             Ok(())
         })?;
-        self.inner_pskt.global.id = Some(self.calculate_id_internal());
+        self.inner_pstt.global.id = Some(self.calculate_id_internal());
         Ok(self)
     }
 }
 
-impl PSKT<Extractor> {
+impl PSTT<Extractor> {
     pub fn extract_tx_unchecked(self) -> Result<impl FnOnce(u64) -> (Transaction, Vec<Option<UtxoEntry>>), TxNotFinalized> {
         let tx = self.unsigned_tx();
         let entries = tx.entries;
         let mut tx = tx.tx;
-        tx.inputs.iter_mut().zip(self.inner_pskt.inputs).try_for_each(|(dest, src)| {
+        tx.inputs.iter_mut().zip(self.inner_pstt.inputs).try_for_each(|(dest, src)| {
             dest.signature_script = src.final_script_sig.ok_or(TxNotFinalized {})?;
             Ok(())
         })?;
@@ -450,7 +450,7 @@ impl PSKT<Extractor> {
     }
 }
 
-/// Error combining pskt.
+/// Error combining pstt.
 #[derive(thiserror::Error, Debug, Clone, PartialEq, Eq)]
 pub enum CombineError {
     #[error(transparent)]

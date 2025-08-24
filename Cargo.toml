@@ -10,7 +10,7 @@ members = [
     "wallet/wasm",
     "wallet/bip32",
     "wallet/keys",
-    "wallet/pskt",
+    "wallet/pstt",
     "consensus",
     "consensus/core",
     "consensus/client",
@@ -126,7 +126,7 @@ tondi-utxoindex = { version = "0.17.0", path = "indexes/utxoindex" }
 tondi-wallet = { version = "0.17.0", path = "wallet/native" }
 tondi-wallet-cli-wasm = { version = "0.17.0", path = "wallet/wasm" }
 tondi-wallet-keys = { version = "0.17.0", path = "wallet/keys" }
-tondi-wallet-pskt = { version = "0.17.0", path = "wallet/pskt" }
+tondi-wallet-pstt = { version = "0.17.0", path = "wallet/pstt" }
 tondi-wallet-core = { version = "0.17.0", path = "wallet/core" }
 tondi-wallet-macros = { version = "0.17.0", path = "wallet/macros" }
 tondi-wasm = { version = "0.17.0", path = "wasm" }

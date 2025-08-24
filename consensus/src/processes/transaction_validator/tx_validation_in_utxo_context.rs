@@ -263,6 +263,7 @@ mod tests {
     use super::*;
     use crate::processes::transaction_validator::TransactionValidator;
     use std::str::FromStr;
+    use std::error::Error;
     use tondi_consensus_core::{
         tx::{Transaction, UtxoEntry, ScriptVec, TransactionId, TransactionOutpoint, TransactionOutput, ScriptPublicKey, PopulatedTransaction, MutableTransaction},
         subnets::SUBNETWORK_ID_NATIVE,

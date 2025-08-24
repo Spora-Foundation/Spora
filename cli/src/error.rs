@@ -130,10 +130,10 @@ pub enum Error {
     TondiWalletKeys(#[from] tondi_wallet_keys::error::Error),
 
     #[error(transparent)]
-    PskbLockScriptSigError(#[from] tondi_wallet_pskt::error::Error),
+    PstbLockScriptSigError(#[from] tondi_wallet_pstt::error::Error),
 
     #[error("To hex serialization error")]
-    PskbSerializeToHexError,
+    PstbSerializeToHexError,
 }
 
 impl Error {

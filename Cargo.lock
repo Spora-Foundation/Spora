@@ -4668,7 +4668,7 @@ dependencies = [
  "tondi-utils",
  "tondi-wallet-core",
  "tondi-wallet-keys",
- "tondi-wallet-pskt",
+ "tondi-wallet-pstt",
  "tondi-wrpc-client",
  "wasm-bindgen",
  "web-sys",
@@ -5638,7 +5638,7 @@ dependencies = [
  "tondi-utils",
  "tondi-wallet-keys",
  "tondi-wallet-macros",
- "tondi-wallet-pskt",
+ "tondi-wallet-pstt",
  "tondi-wasm-core",
  "tondi-wrpc-client",
  "tondi-wrpc-wasm",
@@ -5703,7 +5703,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "tondi-wallet-pskt"
+name = "tondi-wallet-pstt"
 version = "0.17.0"
 dependencies = [
  "bincode",

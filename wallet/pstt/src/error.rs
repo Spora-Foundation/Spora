@@ -1,4 +1,4 @@
-//! Error types for the PSKT crate.
+//! Error types for the pstt crate.
 
 use tondi_txscript_errors::TxScriptError;
 
@@ -25,7 +25,7 @@ pub enum Error {
     #[error("Json deserialize error: {0}")]
     JsonDeserializeError(#[from] serde_json::Error),
     #[error("Serialize error")]
-    PskbSerializeError(String),
+    PSTBSerializeError(String),
     #[error("Unlock utxo error")]
     MultipleUnlockUtxoError(Vec<Error>),
     #[error("Unlock fees exceed available amount")]
@@ -36,12 +36,12 @@ pub enum Error {
     TxToInnerConversionInputBuildingError(#[source] InputBuilderError),
     #[error("P2SH extraction error")]
     P2SHExtractError(#[source] TxScriptError),
-    #[error("PSKB hex serialization error: {0}")]
-    PskbSerializeToHexError(String),
-    #[error("PSKB serialization requires 'PSKB' prefix")]
-    PskbPrefixError,
-    #[error("PSKT serialization requires 'PSKT' prefix")]
-    PsktPrefixError,
+    #[error("PSTB hex serialization error: {0}")]
+    PSTBSerializeToHexError(String),
+    #[error("PSTB serialization requires 'PSTB' prefix")]
+    PSTBPrefixError,
+    #[error("PSTT serialization requires 'PSTT' prefix")]
+    PSTTPrefixError,
 }
 #[derive(thiserror::Error, Debug)]
 pub enum ConstructorError {

@@ -337,10 +337,10 @@ pub enum Error {
     #[error("Connected node is not synced")]
     NotSynced,
     #[error(transparent)]
-    Pskt(#[from] tondi_wallet_pskt::error::Error),
+    PSTT(#[from] tondi_wallet_pstt::error::Error),
 
-    #[error("Error generating pending transaction from PSKT: {0}")]
-    PendingTransactionFromPSKTError(String),
+    #[error("Error generating pending transaction from PSTT: {0}")]
+    PendingTransactionFromPSTTError(String),
 }
 
 impl From<Aborted> for Error {

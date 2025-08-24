@@ -1,6 +1,6 @@
-//! Global PSKT data.
+//! Global pstt data.
 
-use crate::pskt::{KeySource, Version};
+use crate::pstt::{KeySource, Version};
 use crate::utils::combine_if_no_conflicts;
 use derive_builder::Builder;
 use serde::{Deserialize, Serialize};
@@ -16,7 +16,7 @@ type Xpub = tondi_bip32::ExtendedPublicKey<secp256k1::PublicKey>;
 #[serde(rename_all = "camelCase")]
 #[builder(default)]
 pub struct Global {
-    /// The version number of this PSKT.
+    /// The version number of this pstt.
     pub version: Version,
     /// The version number of the transaction being built.
     pub tx_version: u16,
@@ -27,9 +27,9 @@ pub struct Global {
     pub inputs_modifiable: bool,
     pub outputs_modifiable: bool,
 
-    /// The number of inputs in this PSKT.
+    /// The number of inputs in this pstt.
     pub input_count: usize,
-    /// The number of outputs in this PSKT.
+    /// The number of outputs in this pstt.
     pub output_count: usize,
     /// A map from xpub to the used key fingerprint and derivation path as defined by BIP 32.
     pub xpubs: BTreeMap<Xpub, KeySource>,
@@ -132,34 +132,34 @@ pub enum CombineError {
     #[error("The version numbers are not the same")]
     /// The version numbers are not the same.
     VersionMismatch {
-        /// Attempted to combine a PSKT with `this` version.
+        /// Attempted to combine a pstt with `this` version.
         this: Version,
-        /// Into a PSKT with `that` version.
+        /// Into a pstt with `that` version.
         that: Version,
     },
     #[error("The transaction version numbers are not the same")]
     TxVersionMismatch {
-        /// Attempted to combine a PSKT with `this` tx version.
+        /// Attempted to combine a pstt with `this` tx version.
         this: u16,
-        /// Into a PSKT with `that` tx version.
+        /// Into a pstt with `that` tx version.
         that: u16,
     },
     #[error("The transaction lock times are not the same")]
     LockTimeMismatch {
-        /// Attempted to combine a PSKT with `this` lock times.
+        /// Attempted to combine a pstt with `this` lock times.
         this: u64,
-        /// Into a PSKT with `that` lock times.
+        /// Into a pstt with `that` lock times.
         that: u64,
     },
     #[error("The transaction ids are not the same")]
     TransactionIdMismatch {
-        /// Attempted to combine a PSKT with `this` tx id.
+        /// Attempted to combine a pstt with `this` tx id.
         this: TransactionId,
-        /// Into a PSKT with `that` tx id.
+        /// Into a pstt with `that` tx id.
         that: TransactionId,
     },
 
-    #[error("combining PSKT, key-source conflict for xpub {0}")]
+    #[error("combining pstt, key-source conflict for xpub {0}")]
     /// Xpubs have inconsistent key sources.
     InconsistentKeySources(Xpub),
 

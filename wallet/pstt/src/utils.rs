@@ -1,4 +1,4 @@
-//! Utility functions for the PSKT module.
+//! Utility functions for the pstt module.
 
 use std::collections::BTreeMap;
 

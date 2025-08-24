@@ -1,6 +1,6 @@
 use crate::error::Error;
 use crate::prelude::*;
-use crate::pskt::{Inner as PSKTInner, PSKT};
+use crate::pstt::{Inner as PSTTInner, PSTT};
 // use crate::wasm::result;
 
 use tondi_addresses::{Address, Prefix};
@@ -14,23 +14,23 @@ use std::ops::Deref;
 use tondi_txscript::{extract_script_pub_key_address, pay_to_address_script, pay_to_script_hash_script};
 
 ///
-/// Bundle is a [`PSKT`] bundle - a sequence of PSKT transactions
+/// Bundle is a [`PSTT`] bundle - a sequence of PSTT transactions
 /// meant for batch processing and transport as a
 /// single serialized payload.
 ///
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Bundle(pub Vec<PSKTInner>);
+pub struct Bundle(pub Vec<PSTTInner>);
 
-impl<ROLE> From<PSKT<ROLE>> for Bundle {
-    fn from(pskt: PSKT<ROLE>) -> Self {
-        Bundle(vec![pskt.deref().clone()])
+impl<ROLE> From<PSTT<ROLE>> for Bundle {
+    fn from(pstt: PSTT<ROLE>) -> Self {
+        Bundle(vec![pstt.deref().clone()])
     }
 }
 
-impl<ROLE> From<Vec<PSKT<ROLE>>> for Bundle {
-    fn from(pskts: Vec<PSKT<ROLE>>) -> Self {
-        let inner_list = pskts.into_iter().map(|pskt| pskt.deref().clone()).collect();
+impl<ROLE> From<Vec<PSTT<ROLE>>> for Bundle {
+    fn from(pstts: Vec<PSTT<ROLE>>) -> Self {
+        let inner_list = pstts.into_iter().map(|pstt| pstt.deref().clone()).collect();
         Bundle(inner_list)
     }
 }
@@ -41,13 +41,13 @@ impl Bundle {
     }
 
     /// Adds an Inner instance to the bundle
-    pub fn add_inner(&mut self, inner: PSKTInner) {
+    pub fn add_inner(&mut self, inner: PSTTInner) {
         self.0.push(inner);
     }
 
-    /// Adds a PSKT instance to the bundle
-    pub fn add_pskt<ROLE>(&mut self, pskt: PSKT<ROLE>) {
-        self.0.push(pskt.deref().clone());
+    /// Adds a PSTT instance to the bundle
+    pub fn add_pstt<ROLE>(&mut self, pstt: PSTT<ROLE>) {
+        self.0.push(pstt.deref().clone());
     }
 
     /// Merges another bundle into the current bundle
@@ -57,20 +57,20 @@ impl Bundle {
         }
     }
 
-    /// Iterator over the inner PSKT instances
-    pub fn iter(&self) -> std::slice::Iter<'_, PSKTInner> {
+    /// Iterator over the inner PSTT instances
+    pub fn iter(&self) -> std::slice::Iter<'_, PSTTInner> {
         self.0.iter()
     }
 
     pub fn serialize(&self) -> Result<String, Error> {
-        Ok(format!("PSKB{}", hex::encode(serde_json::to_string(self)?)))
+        Ok(format!("PSTB{}", hex::encode(serde_json::to_string(self)?)))
     }
 
     pub fn deserialize(hex_data: &str) -> Result<Self, Error> {
-        if let Some(hex_data) = hex_data.strip_prefix("PSKB") {
+        if let Some(hex_data) = hex_data.strip_prefix("PSTB") {
             Ok(serde_json::from_slice(hex::decode(hex_data)?.as_slice())?)
         } else {
-            Err(Error::PskbPrefixError)
+            Err(Error::PSTBPrefixError)
         }
     }
 
@@ -80,12 +80,12 @@ impl Bundle {
     {
         let mut result = "".to_string();
 
-        for (pskt_index, bundle_inner) in self.0.iter().enumerate() {
-            let pskt: PSKT<Signer> = PSKT::<Signer>::from(bundle_inner.to_owned());
+        for (pstt_index, bundle_inner) in self.0.iter().enumerate() {
+            let pstt: PSTT<Signer> = PSTT::<Signer>::from(bundle_inner.to_owned());
 
-            result.push_str(&format!("\r\nPSKT #{:02}\r\n", pskt_index + 1));
+            result.push_str(&format!("\r\nPSTT #{:02}\r\n", pstt_index + 1));
 
-            for (key_inner, input) in pskt.clone().inputs.iter().enumerate() {
+            for (key_inner, input) in pstt.clone().inputs.iter().enumerate() {
                 result.push_str(&format!("Input #{:02}\r\n", key_inner + 1));
 
                 if let Some(utxo_entry) = &input.utxo_entry {
@@ -100,7 +100,7 @@ impl Bundle {
 
             result.push_str("---\r\n");
 
-            for (key_inner, output) in pskt.clone().outputs.iter().enumerate() {
+            for (key_inner, output) in pstt.clone().outputs.iter().enumerate() {
                 result.push_str(&format!("Output #{:02}\r\n", key_inner + 1));
                 result.push_str(&format!("  amount: {}\r\n", sompi_formatter(output.amount, &NetworkType::from(network_id))));
                 result.push_str(&format!(
@@ -113,8 +113,8 @@ impl Bundle {
     }
 }
 
-impl AsRef<[PSKTInner]> for Bundle {
-    fn as_ref(&self) -> &[PSKTInner] {
+impl AsRef<[PSTTInner]> for Bundle {
+    fn as_ref(&self) -> &[PSTTInner] {
         self.0.as_slice()
     }
 }
@@ -137,7 +137,7 @@ impl TryFrom<Bundle> for String {
     fn try_from(value: Bundle) -> Result<String, Error> {
         match Bundle::serialize(&value) {
             Ok(output) => Ok(output.to_owned()),
-            Err(e) => Err(Error::PskbSerializeError(e.to_string())),
+            Err(e) => Err(Error::PSTBSerializeError(e.to_string())),
         }
     }
 }
@@ -166,7 +166,7 @@ pub fn script_sig_to_address(script_sig: &[u8], prefix: tondi_addresses::Prefix)
     extract_script_pub_key_address(&pay_to_script_hash_script(script_sig), prefix).map_err(Error::P2SHExtractError)
 }
 
-pub fn unlock_utxos_as_pskb(
+pub fn unlock_utxos_as_pstb(
     utxo_references: Vec<(UtxoEntry, TransactionOutpoint)>,
     recipient: &Address,
     script_sig: Vec<u8>,
@@ -208,7 +208,7 @@ pub fn unlock_utxos_as_pskb(
     });
 
     match merged_bundle {
-        None => Err("Generating an empty PSKB".into()),
+        None => Err("Generating an empty pstb".into()),
         Some(bundle) => Ok(bundle),
     }
 }
@@ -232,8 +232,8 @@ pub fn unlock_utxo(
         .script_public_key(script_public_key.clone())
         .build()?;
 
-    let pskt: PSKT<Constructor> = PSKT::<Creator>::default().constructor().input(input).output(output);
-    Ok(pskt.into())
+    let pstt: PSTT<Constructor> = PSTT::<Creator>::default().constructor().input(input).output(output);
+    Ok(pstt.into())
 }
 
 #[cfg(test)]
@@ -261,10 +261,10 @@ mod tests {
         CONTEXT.as_ref()
     }
 
-    // Mock multisig PSKT from example
-    fn mock_pskt_constructor() -> PSKT<Constructor> {
+    // Mock multisig PSTT from example
+    fn mock_pstt_constructor() -> PSTT<Constructor> {
         let (_, redeem_script) = mock_context();
-        let pskt = PSKT::<Creator>::default().inputs_modifiable().outputs_modifiable();
+        let pstt = PSTT::<Creator>::default().inputs_modifiable().outputs_modifiable();
         let input_0 = InputBuilder::default()
             .utxo_entry(UtxoEntry {
                 amount: 12793000000000,
@@ -279,14 +279,14 @@ mod tests {
             .sig_op_count(2)
             .redeem_script(redeem_script.to_owned())
             .build()
-            .expect("Mock PSKT constructor");
+            .expect("Mock pstt constructor");
 
-        pskt.constructor().input(input_0)
+        pstt.constructor().input(input_0)
     }
 
     #[test]
-    fn test_pskb_serialization() {
-        let constructor = mock_pskt_constructor();
+    fn test_pstb_serialization() {
+        let constructor = mock_pstt_constructor();
         let bundle = Bundle::from(constructor.clone());
 
         println!("Bundle: {}", serde_json::to_string(&bundle).unwrap());
@@ -300,10 +300,10 @@ mod tests {
         match Bundle::deserialize(&serialized) {
             Ok(bundle_constructor_deser) => {
                 println!("Deserialized: {:?}", bundle_constructor_deser);
-                let pskt_constructor_deser: Option<PSKT<Constructor>> =
-                    bundle_constructor_deser.0.first().map(|inner| PSKT::from(inner.clone()));
-                match pskt_constructor_deser {
-                    Some(_) => println!("PSKT<Constructor> deserialized successfully"),
+                let pstt_constructor_deser: Option<PSTT<Constructor>> =
+                    bundle_constructor_deser.0.first().map(|inner| PSTT::from(inner.clone()));
+                match pstt_constructor_deser {
+                    Some(_) => println!("pstt<Constructor> deserialized successfully"),
                     None => println!("No elements in the inner list to deserialize"),
                 }
             }
@@ -315,33 +315,33 @@ mod tests {
     }
 
     #[test]
-    fn test_pskb_bundle_creation() {
+    fn test_pstb_bundle_creation() {
         let bundle = Bundle::new();
         assert!(bundle.0.is_empty());
     }
 
     #[test]
-    fn test_pskb_new_with_pskt() {
-        let pskt = PSKT::<Creator>::default();
-        let bundle = Bundle::from(pskt);
+    fn test_pstb_new_with_pstt() {
+        let pstt = PSTT::<Creator>::default();
+        let bundle = Bundle::from(pstt);
         assert_eq!(bundle.0.len(), 1);
     }
 
     #[test]
-    fn test_pskb_add_pskt() {
+    fn test_pstb_add_pstt() {
         let mut bundle = Bundle::new();
-        let pskt = PSKT::<Creator>::default();
-        bundle.add_pskt(pskt);
+        let pstt = PSTT::<Creator>::default();
+        bundle.add_pstt(pstt);
         assert_eq!(bundle.0.len(), 1);
     }
 
     #[test]
-    fn test_pskb_merge_bundles() {
+    fn test_pstb_merge_bundles() {
         let mut bundle1 = Bundle::new();
         let mut bundle2 = Bundle::new();
 
-        let inner1 = PSKTInner::default();
-        let inner2 = PSKTInner::default();
+        let inner1 = PSTTInner::default();
+        let inner2 = PSTTInner::default();
 
         bundle1.add_inner(inner1.clone());
         bundle2.add_inner(inner2.clone());

@@ -1,6 +1,6 @@
 [package]
-name = "tondi-wallet-pskt"
-keywords = ["tondi", "wallet", "pskt", "psbt", "bip-370"]
+name = "tondi-wallet-pstt"
+keywords = ["tondi", "wallet", "pstt", "pstb", "bip-370"]
 description = "Partially Signed Tondi Transaction"
 categories = ["cryptography::cryptocurrencies"]
 rust-version.workspace = true

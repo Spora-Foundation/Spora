@@ -3,17 +3,17 @@
 use crate::imports::*;
 use tondi_addresses::Prefix;
 use tondi_consensus_core::tx::{TransactionOutpoint, UtxoEntry};
-use tondi_wallet_core::account::pskb::finalize_pskt_one_or_more_sig_and_redeem_script;
-use tondi_wallet_pskt::{
-    prelude::{lock_script_sig_templating, script_sig_to_address, unlock_utxos_as_pskb, Bundle, Signer, PSKT},
-    pskt::Inner,
+use tondi_wallet_core::account::pstb::finalize_pstt_one_or_more_sig_and_redeem_script;
+use tondi_wallet_pstt::{
+    prelude::{lock_script_sig_templating, script_sig_to_address, unlock_utxos_as_pstb, Bundle, Signer, PSTT},
+    pstt::Inner,
 };
 
 #[derive(Default, Handler)]
 #[help("Send a Tondi transaction to a public address")]
-pub struct Pskb;
+pub struct Pstb;
 
-impl Pskb {
+impl Pstb {
     async fn main(self: Arc<Self>, ctx: &Arc<dyn Context>, mut argv: Vec<String>, _cmd: &str) -> Result<()> {
         let ctx = ctx.clone().downcast_arc::<TondiCli>()?;
 
@@ -43,7 +43,7 @@ impl Pskb {
 
                 let account: Arc<dyn Account> = ctx.wallet().account()?;
                 let signer = account
-                    .pskb_from_send_generator(
+                    .pstb_from_send_generator(
                         outputs.into(),
                         priority_fee_sompi.into(),
                         None,
@@ -93,7 +93,7 @@ impl Pskb {
                         let abortable = Abortable::default();
 
                         let signer = account
-                            .pskb_from_send_generator(
+                            .pstb_from_send_generator(
                                 outputs.into(),
                                 priority_fee_sompi.into(),
                                 None,
@@ -137,22 +137,22 @@ impl Pskb {
                         );
 
                         // Sweep UTXO set.
-                        match unlock_utxos_as_pskb(references, &receive_address, script_sig, priority_fee_sompi as u64) {
-                            Ok(pskb) => {
-                                let pskb_hex = pskb.serialize()?;
-                                tprintln!(ctx, "{pskb_hex}");
-                            }
-                            Err(e) => tprintln!(ctx, "Error generating unlock PSKB: {}", e.to_string()),
-                        }
+                                match unlock_utxos_as_pstb(references, &receive_address, script_sig, priority_fee_sompi as u64) {
+            Ok(pstb) => {
+                let pstb_hex = pstb.serialize()?;
+                tprintln!(ctx, "{pstb_hex}");
+            }
+            Err(e) => tprintln!(ctx, "Error generating unlock PSTB: {}", e.to_string()),
+        }
                     }
                     "sign" => {
-                        let pskb = Self::parse_input_pskb(argv.first().unwrap().as_str())?;
+                        let pstb = Self::parse_input_pstb(argv.first().unwrap().as_str())?;
 
-                        // Sign PSKB using the account's receiver address.
-                        match account.pskb_sign(&pskb, wallet_secret.clone(), payment_secret.clone(), Some(&receive_address)).await {
-                            Ok(signed_pskb) => {
-                                let pskb_pack = String::try_from(signed_pskb)?;
-                                tprintln!(ctx, "{pskb_pack}");
+                        // Sign PSTB using the account's receiver address.
+                        match account.pstb_sign(&pstb, wallet_secret.clone(), payment_secret.clone(), Some(&receive_address)).await {
+                            Ok(signed_pstb) => {
+                                let pstb_pack = String::try_from(signed_pstb)?;
+                                tprintln!(ctx, "{pstb_pack}");
                             }
                             Err(e) => terrorln!(ctx, "{}", e.to_string()),
                         }
@@ -171,12 +171,12 @@ impl Pskb {
                     return self.display_help(ctx, argv).await;
                 }
                 let (wallet_secret, payment_secret) = ctx.ask_wallet_secret(None).await?;
-                let pskb = Self::parse_input_pskb(argv.first().unwrap().as_str())?;
+                let pstb = Self::parse_input_pstb(argv.first().unwrap().as_str())?;
                 let account = ctx.wallet().account()?;
-                match account.pskb_sign(&pskb, wallet_secret.clone(), payment_secret.clone(), None).await {
-                    Ok(signed_pskb) => {
-                        let pskb_pack = String::try_from(signed_pskb)?;
-                        tprintln!(ctx, "{pskb_pack}");
+                match account.pstb_sign(&pstb, wallet_secret.clone(), payment_secret.clone(), None).await {
+                    Ok(signed_pstb) => {
+                        let pstb_pack = String::try_from(signed_pstb)?;
+                        tprintln!(ctx, "{pstb_pack}");
                     }
                     Err(e) => terrorln!(ctx, "{}", e.to_string()),
                 }
@@ -185,9 +185,9 @@ impl Pskb {
                 if argv.len() != 1 {
                     return self.display_help(ctx, argv).await;
                 }
-                let pskb = Self::parse_input_pskb(argv.first().unwrap().as_str())?;
+                let pstb = Self::parse_input_pstb(argv.first().unwrap().as_str())?;
                 let account = ctx.wallet().account()?;
-                match account.pskb_broadcast(&pskb).await {
+                match account.pstb_broadcast(&pstb).await {
                     Ok(sent) => tprintln!(ctx, "Sent transactions {:?}", sent),
                     Err(e) => terrorln!(ctx, "Send error {:?}", e),
                 }
@@ -196,36 +196,36 @@ impl Pskb {
                 if argv.len() != 1 {
                     return self.display_help(ctx, argv).await;
                 }
-                let pskb = Self::parse_input_pskb(argv.first().unwrap().as_str())?;
-                tprintln!(ctx, "{:?}", pskb);
+                let pstb = Self::parse_input_pstb(argv.first().unwrap().as_str())?;
+                tprintln!(ctx, "{:?}", pstb);
             }
             "parse" => {
                 if argv.len() != 1 {
                     return self.display_help(ctx, argv).await;
                 }
-                let pskb = Self::parse_input_pskb(argv.first().unwrap().as_str())?;
-                tprintln!(ctx, "{}", pskb.display_format(ctx.wallet().network_id()?, sompi_to_tondi_string_with_suffix));
+                let pstb = Self::parse_input_pstb(argv.first().unwrap().as_str())?;
+                tprintln!(ctx, "{}", pstb.display_format(ctx.wallet().network_id()?, sompi_to_tondi_string_with_suffix));
 
-                for (pskt_index, bundle_inner) in pskb.0.iter().enumerate() {
-                    tprintln!(ctx, "PSKT #{:03} finalized check:", pskt_index + 1);
-                    let pskt: PSKT<Signer> = PSKT::<Signer>::from(bundle_inner.to_owned());
+                for (pstt_index, bundle_inner) in pstb.0.iter().enumerate() {
+                    tprintln!(ctx, "PSTT #{:03} finalized check:", pstt_index + 1);
+                    let pstt: PSTT<Signer> = PSTT::<Signer>::from(bundle_inner.to_owned());
 
-                    let finalizer = pskt.finalizer();
+                    let finalizer = pstt.finalizer();
 
-                    if let Ok(pskt_finalizer) = finalize_pskt_one_or_more_sig_and_redeem_script(finalizer) {
+                    if let Ok(pstt_finalizer) = finalize_pstt_one_or_more_sig_and_redeem_script(finalizer) {
                         // Verify if extraction is possible.
-                        match pskt_finalizer.extractor() {
+                        match pstt_finalizer.extractor() {
                             Ok(ex) => match ex.extract_tx() {
                                 Ok(_) => tprintln!(
                                     ctx,
-                                    "  Transaction extracted successfully: PSKT is finalized with a valid script signature."
+                                    "  Transaction extracted successfully: PSTT is finalized with a valid script signature."
                                 ),
-                                Err(e) => terrorln!(ctx, "  PSKT transaction extraction error: {}", e.to_string()),
+                                Err(e) => terrorln!(ctx, "  PSTT transaction extraction error: {}", e.to_string()),
                             },
-                            Err(_) => twarnln!(ctx, "  PSKT not finalized"),
+                            Err(_) => twarnln!(ctx, "  PSTT not finalized"),
                         }
                     } else {
-                        twarnln!(ctx, "  PSKT not signed");
+                        twarnln!(ctx, "  PSTT not signed");
                     }
                 }
             }
@@ -237,26 +237,26 @@ impl Pskb {
         Ok(())
     }
 
-    fn parse_input_pskb(input: &str) -> Result<Bundle> {
+    fn parse_input_pstb(input: &str) -> Result<Bundle> {
         match Bundle::try_from(input) {
             Ok(bundle) => Ok(bundle),
-            Err(e) => Err(Error::custom(format!("Error while parsing input PSKB {}", e))),
+            Err(e) => Err(Error::custom(format!("Error while parsing input PSTB {}", e))),
         }
     }
 
     async fn display_help(self: Arc<Self>, ctx: Arc<TondiCli>, _argv: Vec<String>) -> Result<()> {
         ctx.term().help(
             &[
-                ("pskb create <address> <amount> <priority fee>", "Create a PSKB from single send transaction"),
-                ("pskb sign <pskb>", "Sign given PSKB"),
-                ("pskb send <pskb>", "Broadcast bundled transactions"),
-                ("pskb debug <payload>", "Print PSKB debug view"),
-                ("pskb parse <payload>", "Print PSKB formatted view"),
-                ("pskb script lock <payload> <amount> [priority fee]", "Generate a PSKB with one send transaction to given P2SH payload. Optional public key placeholder in payload: {{pubkey}}"),
-                ("pskb script unlock <payload> <fee>", "Generate a PSKB to unlock UTXOS one by one from given P2SH payload. Fee amount will be applied to every spent UTXO, meaning every transaction. Optional public key placeholder in payload: {{pubkey}}"),
-                ("pskb script sign <pskb>", "Sign all PSKB's P2SH locked inputs"),
-                ("pskb script sign <pskb>", "Sign all PSKB's P2SH locked inputs"),
-                ("pskb script address <pskb>", "Prints P2SH address"),
+                ("pstb create <address> <amount> <priority fee>", "Create a PSTB from single send transaction"),
+                ("pstb sign <pstb>", "Sign given PSTB"),
+                ("pstb send <pstb>", "Broadcast bundled transactions"),
+                ("pstb debug <payload>", "Print PSTB debug view"),
+                ("pstb parse <payload>", "Print PSTB formatted view"),
+                ("pstb script lock <payload> <amount> [priority fee]", "Generate a PSTB with one send transaction to given P2SH payload. Optional public key placeholder in payload: {{pubkey}}"),
+                ("pstb script unlock <payload> <fee>", "Generate a PSTB to unlock UTXOS one by one from given P2SH payload. Fee amount will be applied to every spent UTXO, meaning every transaction. Optional public key placeholder in payload: {{pubkey}}"),
+                ("pstb script sign <pstb>", "Sign all PSTB's P2SH locked inputs"),
+                ("pstb script sign <pstb>", "Sign all PSTB's P2SH locked inputs"),
+                ("pstb script address <pstb>", "Prints P2SH address"),
             ],
             None,
         )?;

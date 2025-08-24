@@ -1,6 +1,6 @@
-//! PSKT output structure.
+//! pstt output structure.
 
-use crate::pskt::KeySource;
+use crate::pstt::KeySource;
 use crate::utils::combine_if_no_conflicts;
 use derive_builder::Builder;
 use serde::{Deserialize, Serialize};
@@ -61,16 +61,16 @@ impl Add for Output {
 pub enum CombineError {
     #[error("The amounts are not the same")]
     AmountMismatch {
-        /// Attempted to combine a PSKT with `this` previous txid.
+        /// Attempted to combine a pstt with `this` previous txid.
         this: u64,
-        /// Into a PSKT with `that` previous txid.
+        /// Into a pstt with `that` previous txid.
         that: u64,
     },
     #[error("The script_pubkeys are not the same")]
     ScriptPubkeyMismatch {
-        /// Attempted to combine a PSKT with `this` script_pubkey.
+        /// Attempted to combine a pstt with `this` script_pubkey.
         this: ScriptPublicKey,
-        /// Into a PSKT with `that` script_pubkey.
+        /// Into a pstt with `that` script_pubkey.
         that: ScriptPublicKey,
     },
     #[error("Two different redeem scripts detected")]

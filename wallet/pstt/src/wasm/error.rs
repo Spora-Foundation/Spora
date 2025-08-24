@@ -1,4 +1,4 @@
-use super::pskt::State;
+use super::pstt::State;
 use thiserror::Error;
 use wasm_bindgen::prelude::*;
 
@@ -10,29 +10,29 @@ pub enum Error {
     #[error("Unexpected state: {0}")]
     State(String),
 
-    #[error("Constructor argument must be a valid payload, another PSKT instance, Transaction or undefined")]
+    #[error("Constructor argument must be a valid payload, another pstt instance, Transaction or undefined")]
     Ctor(String),
 
     #[error("Invalid payload")]
     InvalidPayload,
 
     #[error("Transaction not finalized")]
-    TxNotFinalized(#[from] crate::pskt::TxNotFinalized),
+    TxNotFinalized(#[from] crate::pstt::TxNotFinalized),
 
     #[error(transparent)]
     Wasm(#[from] workflow_wasm::error::Error),
 
-    #[error("Create state is not allowed for PSKT initialized from transaction or a payload")]
+    #[error("Create state is not allowed for PSTT initialized from transaction or a payload")]
     CreateNotAllowed,
 
-    #[error("PSKT must be initialized with a payload or CREATE role")]
+    #[error("pstt must be initialized with a payload or CREATE role")]
     NotInitialized,
 
     #[error(transparent)]
     ConsensusClient(#[from] tondi_consensus_client::error::Error),
 
     #[error(transparent)]
-    Pskt(#[from] crate::error::Error),
+    PSTT(#[from] crate::error::Error),
 }
 
 impl Error {

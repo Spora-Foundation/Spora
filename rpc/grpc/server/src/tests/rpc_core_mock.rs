@@ -274,6 +274,14 @@ impl RpcApi for RpcCoreMock {
         Err(RpcError::NotImplemented)
     }
 
+    async fn get_header_call(
+        &self,
+        _connection: Option<&DynRpcConnection>,
+        _request: GetHeaderRequest,
+    ) -> RpcResult<GetHeaderResponse> {
+        Err(RpcError::NotImplemented)
+    }
+
     async fn get_balance_by_address_call(
         &self,
         _connection: Option<&DynRpcConnection>,

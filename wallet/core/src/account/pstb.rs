@@ -1,5 +1,5 @@
 //!
-//! Tools for interfacing wallet accounts with PSKBs.
+//! Tools for interfacing wallet accounts with pstbs.
 //! (Partial Signed Tondi Transaction Bundles).
 //!
 
@@ -19,25 +19,25 @@ use tondi_txscript::extract_script_pub_key_address;
 use tondi_txscript::opcodes::codes::OpData65;
 use tondi_txscript::script_builder::ScriptBuilder;
 use tondi_wallet_core::tx::{Generator, GeneratorSettings, PaymentDestination, PendingTransaction};
-pub use tondi_wallet_pskt::bundle::Bundle;
-use tondi_wallet_pskt::prelude::KeySource;
-use tondi_wallet_pskt::prelude::{Finalizer, Inner, SignInputOk, Signature, Signer};
-pub use tondi_wallet_pskt::pskt::{Creator, PSKT};
+pub use tondi_wallet_pstt::bundle::Bundle;
+use tondi_wallet_pstt::prelude::KeySource;
+use tondi_wallet_pstt::prelude::{Finalizer, Inner, SignInputOk, Signature, Signer};
+pub use tondi_wallet_pstt::pstt::{Creator, PSTT};
 
-struct PSKBSignerInner {
+struct PSTBSignerInner {
     keydata: PrvKeyData,
     account: Arc<dyn Account>,
     payment_secret: Option<Secret>,
     keys: Mutex<AHashMap<Address, [u8; 32]>>,
 }
 
-pub struct PSKBSigner {
-    inner: Arc<PSKBSignerInner>,
+pub struct PSTBSigner {
+    inner: Arc<PSTBSignerInner>,
 }
 
-impl PSKBSigner {
+impl PSTBSigner {
     pub fn new(account: Arc<dyn Account>, keydata: PrvKeyData, payment_secret: Option<Secret>) -> Self {
-        Self { inner: Arc::new(PSKBSignerInner { keydata, account, payment_secret, keys: Mutex::new(AHashMap::new()) }) }
+        Self { inner: Arc::new(PSTBSignerInner { keydata, account, payment_secret, keys: Mutex::new(AHashMap::new()) }) }
     }
 
     pub fn ingest(&self, addresses: &[Address]) -> Result<()> {
@@ -63,7 +63,7 @@ impl PSKBSigner {
                 let kp = secp256k1::Keypair::from_seckey_slice(secp256k1::SECP256K1, private_key)?;
                 Ok(kp.public_key())
             }
-            None => Err(Error::from("PSKBSigner address coverage error")),
+            None => Err(Error::from("PSTBSigner address coverage error")),
         }
     }
 
@@ -74,42 +74,42 @@ impl PSKBSigner {
                 let schnorr_key = secp256k1::Keypair::from_seckey_slice(secp256k1::SECP256K1, private_key)?;
                 Ok(schnorr_key.sign_schnorr(message))
             }
-            None => Err(Error::from("PSKBSigner address coverage error")),
+            None => Err(Error::from("PSTBSigner address coverage error")),
         }
     }
 }
 
-pub struct PSKTGenerator {
+pub struct PSTTGenerator {
     generator: Generator,
-    signer: Arc<PSKBSigner>,
+    signer: Arc<PSTBSigner>,
     prefix: Prefix,
 }
 
-impl PSKTGenerator {
-    pub fn new(generator: Generator, signer: Arc<PSKBSigner>, prefix: Prefix) -> Self {
+impl PSTTGenerator {
+    pub fn new(generator: Generator, signer: Arc<PSTBSigner>, prefix: Prefix) -> Self {
         Self { generator, signer, prefix }
     }
 
-    pub fn stream(&self) -> impl Stream<Item = Result<PSKT<Signer>, Error>> {
-        PSKTStream::new(self.generator.clone(), self.signer.clone(), self.prefix)
+    pub fn stream(&self) -> impl Stream<Item = Result<PSTT<Signer>, Error>> {
+        PSTTStream::new(self.generator.clone(), self.signer.clone(), self.prefix)
     }
 }
 
-struct PSKTStream {
+struct PSTTStream {
     generator_stream: Pin<Box<dyn Stream<Item = Result<PendingTransaction, Error>> + Send>>,
-    signer: Arc<PSKBSigner>,
+    signer: Arc<PSTBSigner>,
     prefix: Prefix,
 }
 
-impl PSKTStream {
-    fn new(generator: Generator, signer: Arc<PSKBSigner>, prefix: Prefix) -> Self {
+impl PSTTStream {
+    fn new(generator: Generator, signer: Arc<PSTBSigner>, prefix: Prefix) -> Self {
         let generator_stream = generator.stream().map_err(Error::from);
         Self { generator_stream: Box::pin(generator_stream), signer, prefix }
     }
 }
 
-impl Stream for PSKTStream {
-    type Item = Result<PSKT<Signer>, Error>;
+impl Stream for PSTTStream {
+    type Item = Result<PSTT<Signer>, Error>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.as_ref();
@@ -119,8 +119,8 @@ impl Stream for PSKTStream {
 
         match self.get_mut().generator_stream.as_mut().poll_next(cx) {
             Poll::Ready(Some(Ok(pending_tx))) => {
-                let pskt = convert_pending_tx_to_pskt(pending_tx);
-                Poll::Ready(Some(pskt))
+                let pstt = convert_pending_tx_to_pstt(pending_tx);
+                Poll::Ready(Some(pstt))
             }
             Poll::Ready(Some(Err(e))) => Poll::Ready(Some(Err(e))),
             Poll::Ready(None) => Poll::Ready(None),
@@ -129,21 +129,21 @@ impl Stream for PSKTStream {
     }
 }
 
-fn convert_pending_tx_to_pskt(pending_tx: PendingTransaction) -> Result<PSKT<Signer>, Error> {
+fn convert_pending_tx_to_pstt(pending_tx: PendingTransaction) -> Result<PSTT<Signer>, Error> {
     let signable_tx = pending_tx.signable_transaction();
     let verifiable_tx = signable_tx.as_verifiable();
     let populated_inputs: Vec<(&TransactionInput, &UtxoEntry)> = verifiable_tx.populated_inputs().collect();
-    let pskt_inner = Inner::try_from((pending_tx.transaction(), populated_inputs.to_owned()))?;
-    Ok(PSKT::<Signer>::from(pskt_inner))
+    let pstt_inner = Inner::try_from((pending_tx.transaction(), populated_inputs.to_owned()))?;
+    Ok(PSTT::<Signer>::from(pstt_inner))
 }
 
-pub async fn bundle_from_pskt_generator(generator: PSKTGenerator) -> Result<Bundle, Error> {
+pub async fn bundle_from_pstt_generator(generator: PSTTGenerator) -> Result<Bundle, Error> {
     let mut bundle: Bundle = Bundle::new();
     let mut stream = generator.stream();
 
-    while let Some(pskt_result) = stream.next().await {
-        match pskt_result {
-            Ok(pskt) => bundle.add_pskt(pskt),
+    while let Some(pstt_result) = stream.next().await {
+        match pstt_result {
+            Ok(pstt) => bundle.add_pstt(pstt),
             Err(e) => return Err(e),
         }
     }
@@ -151,9 +151,9 @@ pub async fn bundle_from_pskt_generator(generator: PSKTGenerator) -> Result<Bund
     Ok(bundle)
 }
 
-pub async fn pskb_signer_for_address(
+pub async fn pstb_signer_for_address(
     bundle: &Bundle,
-    signer: Arc<PSKBSigner>,
+    signer: Arc<PSTBSigner>,
     network_id: NetworkId,
     sign_for_address: Option<&Address>,
     derivation_path: DerivationPath,
@@ -183,11 +183,11 @@ pub async fn pskb_signer_for_address(
     // Prepare the signer.
     signer.ingest(addresses.as_ref())?;
 
-    for pskt_inner in bundle.iter().cloned() {
-        let pskt: PSKT<Signer> = PSKT::from(pskt_inner);
+    for pstt_inner in bundle.iter().cloned() {
+        let pstt: PSTT<Signer> = PSTT::from(pstt_inner);
 
-        let sign = |signer_pskt: PSKT<Signer>| {
-            signer_pskt
+        let sign = |signer_pstt: PSTT<Signer>| {
+            signer_pstt
                 .pass_signature_sync(|tx, sighash| -> Result<Vec<SignInputOk>, String> {
                     tx.tx
                         .inputs
@@ -216,13 +216,13 @@ pub async fn pskb_signer_for_address(
                 })
                 .unwrap()
         };
-        signed_bundle.add_pskt(sign(pskt.clone()));
+        signed_bundle.add_pstt(sign(pstt.clone()));
     }
     Ok(signed_bundle)
 }
 
-pub fn finalize_pskt_one_or_more_sig_and_redeem_script(pskt: PSKT<Finalizer>) -> Result<PSKT<Finalizer>, Error> {
-    let result = pskt.finalize_sync(|inner: &Inner| -> Result<Vec<Vec<u8>>, String> {
+pub fn finalize_pstt_one_or_more_sig_and_redeem_script(pstt: PSTT<Finalizer>) -> Result<PSTT<Finalizer>, Error> {
+    let result = pstt.finalize_sync(|inner: &Inner| -> Result<Vec<Vec<u8>>, String> {
         Ok(inner
             .inputs
             .iter()
@@ -249,13 +249,13 @@ pub fn finalize_pskt_one_or_more_sig_and_redeem_script(pskt: PSKT<Finalizer>) ->
     });
 
     match result {
-        Ok(finalized_pskt) => Ok(finalized_pskt),
+        Ok(finalized_pstt) => Ok(finalized_pstt),
         Err(e) => Err(Error::from(e.to_string())),
     }
 }
 
-pub fn finalize_pskt_no_sig_and_redeem_script(pskt: PSKT<Finalizer>) -> Result<PSKT<Finalizer>, Error> {
-    let result = pskt.finalize_sync(|inner: &Inner| -> Result<Vec<Vec<u8>>, String> {
+pub fn finalize_pstt_no_sig_and_redeem_script(pstt: PSTT<Finalizer>) -> Result<PSTT<Finalizer>, Error> {
+    let result = pstt.finalize_sync(|inner: &Inner| -> Result<Vec<Vec<u8>>, String> {
         Ok(inner
             .inputs
             .iter()
@@ -270,36 +270,36 @@ pub fn finalize_pskt_no_sig_and_redeem_script(pskt: PSKT<Finalizer>) -> Result<P
     });
 
     match result {
-        Ok(finalized_pskt) => Ok(finalized_pskt),
+        Ok(finalized_pstt) => Ok(finalized_pstt),
         Err(e) => Err(Error::from(e.to_string())),
     }
 }
 
-pub fn bundle_to_finalizer_stream(bundle: &Bundle) -> impl Stream<Item = Result<PSKT<Finalizer>, Error>> + Send {
-    stream::iter(bundle.iter().cloned().collect::<Vec<_>>()).map(move |pskt_inner| {
-        let pskt: PSKT<Creator> = PSKT::from(pskt_inner);
-        let pskt_finalizer = pskt.constructor().updater().signer().finalizer();
-        finalize_pskt_one_or_more_sig_and_redeem_script(pskt_finalizer)
+pub fn bundle_to_finalizer_stream(bundle: &Bundle) -> impl Stream<Item = Result<PSTT<Finalizer>, Error>> + Send {
+    stream::iter(bundle.iter().cloned().collect::<Vec<_>>()).map(move |pstt_inner| {
+        let pstt: PSTT<Creator> = PSTT::from(pstt_inner);
+        let pstt_finalizer = pstt.constructor().updater().signer().finalizer();
+        finalize_pstt_one_or_more_sig_and_redeem_script(pstt_finalizer)
     })
 }
 
-pub fn pskt_to_pending_transaction(
-    finalized_pskt: PSKT<Finalizer>,
+pub fn pstt_to_pending_transaction(
+    finalized_pstt: PSTT<Finalizer>,
     network_id: NetworkId,
     change_address: Address,
 ) -> Result<PendingTransaction, Error> {
     let mass = 10;
-    let (signed_tx, _) = match finalized_pskt.clone().extractor() {
+    let (signed_tx, _) = match finalized_pstt.clone().extractor() {
         Ok(extractor) => match extractor.extract_tx() {
             Ok(once_mass) => once_mass(mass),
-            Err(e) => return Err(Error::PendingTransactionFromPSKTError(e.to_string())),
+            Err(e) => return Err(Error::PendingTransactionFromPSTTError(e.to_string())),
         },
-        Err(e) => return Err(Error::PendingTransactionFromPSKTError(e.to_string())),
+        Err(e) => return Err(Error::PendingTransactionFromPSTTError(e.to_string())),
     };
 
-    let inner_pskt = finalized_pskt.deref().clone();
+    let inner_pstt = finalized_pstt.deref().clone();
 
-    let utxo_entries_ref: Vec<UtxoEntryReference> = inner_pskt
+    let utxo_entries_ref: Vec<UtxoEntryReference> = inner_pstt
         .inputs
         .iter()
         .filter_map(|input| {

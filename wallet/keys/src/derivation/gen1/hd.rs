@@ -451,15 +451,15 @@ mod tests {
 
     fn gen1_receive_addresses() -> Vec<&'static str> {
         vec![
-            "tondi:qz7ulu4c25dh7fzec9zjyrmlhnkzrg4wmf89q7gzr3gfrsj3uz6xjn7m3s2",
-            "tondi:qzn3qjzf2nzyd3zj303nk4sgv0aae42v3ufutk5xsxckfels57dxjq7h850",
+            "tondi:qrgqpkue0tzhmqd77tljdhwjc757hc26uestam0gc4kycjx4k8uu6sjhh75",
+            "tondi:qqmquth4lyayewfl32pj8w9w9dpzqk6c9ngyp4xxmyqusxruhjm0j35eh9z",
         ]
     }
 
     fn gen1_change_addresses() -> Vec<&'static str> {
         vec![
-            "tondi:qrqrnyzdwh9ec2q05guzy3vv33f86nvdyw52qwlmk0mewzx3dgdssnqnpnd",
-            "tondi:qqx8jlz0hh0wun5ru4glt9za3v8wj3jn7v3w55a0lyud74ppetqfqt04yze",
+            "tondi:qrsr3glsc0sp8u32jfyx5cp4xg8jmem7nyhycwqfn5skqkmwpf0726g0f55",
+            "tondi:qz5a8zvn7hrgkxkz4tw8mxcnfdd7ttpxenpf5e3g9kyl9lj59nhfkxluz4j",
         ]
     }
 
@@ -501,7 +501,7 @@ mod tests {
         let xpub_str = wallet.to_string(Some(tondi_bip32::Prefix::KPUB)).to_string();
         assert_eq!(
             xpub_str,
-            "kpub2HtoTgsG6e1c7ixJ6JY49otNSzhEKkwnH6bsPHLAXUdYnfEuYw9LnhT7uRzaS4LSeit2rzutV6z8Fs9usdEGKnNe6p1JxfP71mK8rbUfYWo",
+            "kpub2KEVCyNMrJJhEBCRyGRahUxQE7zYAxaFugSN7kqpg6bVDR9LGRmxZMXtEBBsDqxuX6FcPaAvc2XVUw29daj4eF9VuPXgNQzfrLY4C8MgY7b",
             "drived kpub not matched"
         );
 
@@ -524,13 +524,13 @@ mod tests {
         let ktub_str = wallet.to_string(Some(tondi_bip32::Prefix::KTUB)).to_string();
         assert_eq!(
             ktub_str,
-            "ktub23beJLczbxoS4emYHxm5H2rPnXJPGTwjNLAc8JyjHnSFLPMJBj5h3U8oWbn1x1jayZRov6uhvGd4zUGrWH6PkYZMWsykUsQWYqjbLnHrzUE",
+            "ktub24CZsc3TJDbepJTDceoHX3c9rbQ7qZuggV27GtUebWfEXKBAjJQfH8feyP9bsmAQJNrMms1tDFakcUQS4XKUPuZwKR98stNaHb1hFHZU3kJ",
             "drived ktub not matched"
         );
 
         let key = wallet.derive_receive_pubkey(1).unwrap();
         let address = PubkeyDerivationManager::create_address(&key, Prefix::Testnet, false).unwrap().to_string();
-        assert_eq!(address, "tonditest:qrc2959g0pqda53glnfd238cdnmk24zxzkj8n5x83rkktx4h73dkc2g22wj")
+        assert_eq!(address, "tonditest:qpy7k0dt6esg0ud7l7mnytzn5zdwsuy2yf9td36s8qtwl6hdeufv6h5xxk4")
     }
 
     #[tokio::test]
@@ -565,8 +565,8 @@ mod tests {
     #[tokio::test]
     async fn generate_tonditest_addresses() {
         let receive_addresses = [
-            "tonditest:qz7ulu4c25dh7fzec9zjyrmlhnkzrg4wmf89q7gzr3gfrsj3uz6xjdnleth",
-            "tonditest:qzn3qjzf2nzyd3zj303nk4sgv0aae42v3ufutk5xsxckfels57dxj7nn00j",
+            "tonditest:qrgqpkue0tzhmqd77tljdhwjc757hc26uestam0gc4kycjx4k8uu6wlnl9f",
+            "tonditest:qqmquth4lyayewfl32pj8w9w9dpzqk6c9ngyp4xxmyqusxruhjm0j0eal7l",
         ];
 
         let master_xprv =

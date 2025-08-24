@@ -1,6 +1,6 @@
-//! PSKT input structure.
+//! pstt input structure.
 
-use crate::pskt::{KeySource, PartialSigs};
+use crate::pstt::{KeySource, PartialSigs};
 use crate::utils::{combine_if_no_conflicts, Error as CombineMapErr};
 use derive_builder::Builder;
 use serde::{Deserialize, Serialize};
@@ -142,16 +142,16 @@ impl Add for Input {
 pub enum CombineError {
     #[error("The previous txids are not the same")]
     PreviousTxidMismatch {
-        /// Attempted to combine a PSKT with `this` previous txid.
+        /// Attempted to combine a pstt with `this` previous txid.
         this: TransactionId,
-        /// Into a PSKT with `that` previous txid.
+        /// Into a pstt with `that` previous txid.
         that: TransactionId,
     },
     #[error("The spent output indexes are not the same")]
     SpentOutputIndexMismatch {
-        /// Attempted to combine a PSKT with `this` spent output index.
+        /// Attempted to combine a pstt with `this` spent output index.
         this: u32,
-        /// Into a PSKT with `that` spent output index.
+        /// Into a pstt with `that` spent output index.
         that: u32,
     },
     #[error("Two different redeem scripts detected")]
