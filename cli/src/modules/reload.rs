@@ -14,7 +14,11 @@ impl Reload {
         let guard = ctx.wallet().guard();
         let guard = guard.lock().await;
 
-        tprintln!(ctx, "{}", style("reloading wallet ...").magenta());
+        if ctx.pretty_enabled() {
+            tprintln!(ctx, "🔄 {}", style("Reloading wallet...").magenta());
+        } else {
+            tprintln!(ctx, "{}", style("Reloading wallet...").magenta());
+        }
         ctx.wallet().reload(true, &guard).await?;
 
         Ok(())

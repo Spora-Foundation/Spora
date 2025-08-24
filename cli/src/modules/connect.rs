@@ -13,11 +13,19 @@ impl Connect {
             let arg_or_server_address = argv.first().cloned().or_else(|| ctx.wallet().settings().get(WalletSettings::Server));
             let (is_public, url) = match arg_or_server_address.as_deref() {
                 Some("public") => {
-                    tprintln!(ctx, "Connecting to a public node");
+                    if ctx.pretty_enabled() {
+                        tprintln!(ctx, "🔌 Connecting to a public node...");
+                    } else {
+                        tprintln!(ctx, "Connecting to a public node...");
+                    }
                     (true, Resolver::default().get_url(WrpcEncoding::Borsh, network_id).await.map_err(|e| e.to_string())?)
                 }
                 None => {
-                    tprintln!(ctx, "No server set, connecting to a public node");
+                    if ctx.pretty_enabled() {
+                        tprintln!(ctx, "🔌 No server set, connecting to a public node...");
+                    } else {
+                        tprintln!(ctx, "No server set, connecting to a public node...");
+                    }
                     (true, Resolver::default().get_url(WrpcEncoding::Borsh, network_id).await.map_err(|e| e.to_string())?)
                 }
                 Some(url) => {

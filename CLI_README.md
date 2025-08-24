@@ -15,7 +15,7 @@ cargo build --release --package tondi-cli
 
 ### First Run
 1. Launch: `tondi-cli`
-2. Configure network: `network testnet-11`
+2. Configure network: `network devnet`
 3. Configure server: `server public`
 
 ### Basic Workflow
@@ -39,6 +39,15 @@ cargo build --release --package tondi-cli
 - `select <account-name>` - Select active account
 - `account name <name>` - Rename account
 
+### Quick Commands
+- `c` - Clear screen (alias for `clear`)
+- `ls` - List accounts (alias for `list`)
+
+### Display Customization
+- `pretty` - Toggle between emoji and ASCII display modes
+  - Emoji mode: 🟢 🌐 💼 🖥️ 🔄 💰
+  - ASCII mode: [+] N: W:+ D:+ S: B:
+
 ### Transactions
 - `send <address> <amount>` - Send funds
 - `transfer <account> <amount>` - Transfer between accounts
@@ -46,7 +55,7 @@ cargo build --release --package tondi-cli
 - `sweep` - Consolidate UTXOs
 
 ### Network Operations
-- `network <name>` - Switch networks (mainnet, testnet-10, testnet-11)
+- `network <name>` - Switch networks (mainnet, testnet-10, devnet)
 - `server <address>` - Configure server connection
 - `connect <address>` - Connect to node
 - `ping` - Test connection
@@ -64,11 +73,12 @@ cargo build --release --package tondi-cli
 - `reload` - Reload configuration
 - `clear` - Clear terminal screen
 
+
 ## Examples
 
 ### Setup Wallet
 ```bash
-network testnet-11
+network devnet
 server public
 wallet create mywallet
 open mywallet
@@ -82,6 +92,12 @@ estimate 50
 send tondi:qp0k0fsdj8qnwvj9tcljcrjvcj9s0qj5j 50
 history list
 ```
+
+
+
+
+
+
 
 ## Security Notes
 - Store mnemonic phrases securely offline

@@ -44,6 +44,7 @@ pub struct TondiCli {
     miner: Mutex<Option<Arc<Miner>>>,
     notifier: Notifier,
     sync_state: Mutex<Option<SyncState>>,
+    pretty_enabled: Arc<AtomicBool>,
 }
 
 impl From<&TondiCli> for Arc<Terminal> {
@@ -119,6 +120,7 @@ impl TondiCli {
             miner: Mutex::new(None),
             notifier: Notifier::try_new()?,
             sync_state: Mutex::new(None),
+            pretty_enabled: Arc::new(AtomicBool::new(false)), // Default to ASCII mode
         });
 
         let term = Arc::new(Terminal::try_new_with_options(tondi_cli.clone(), options.terminal)?);
@@ -183,6 +185,14 @@ impl TondiCli {
 
     pub fn flags(&self) -> &Flags {
         &self.flags
+    }
+
+    pub fn pretty_enabled(&self) -> bool {
+        self.pretty_enabled.load(Ordering::Relaxed)
+    }
+
+    pub fn set_pretty_enabled(&self, enabled: bool) {
+        self.pretty_enabled.store(enabled, Ordering::Relaxed);
     }
 
     pub fn toggle_mute(&self) -> &'static str {
@@ -833,27 +843,77 @@ impl Cli for TondiCli {
 
         let node_running = if let Some(node) = self.node.lock().unwrap().as_ref() { node.is_running() } else { false };
 
-        let _miner_running = if let Some(miner) = self.miner.lock().unwrap().as_ref() { miner.is_running() } else { false };
-
-        // match (node_running, miner_running) {
-        //     (true, true) => prompt.push(style("NM").green().to_string()),
-        //     (true, false) => prompt.push(style("N").green().to_string()),
-        //     (false, true) => prompt.push(style("M").green().to_string()),
-        //     _ => {}
-        // }
-
-        if (self.wallet.is_open() && !self.wallet.is_connected()) || (node_running && !self.wallet.is_connected()) {
-            prompt.push(style("N/C").red().to_string());
-        } else if self.wallet.is_connected() && !self.wallet.is_synced() {
-            if let Some(state) = self.sync_state() {
-                prompt.push(state);
+        // Connection status indicator
+        if self.wallet.is_connected() {
+            if self.pretty_enabled() {
+                prompt.push(style("🟢").green().to_string()); // Connected
+            } else {
+                prompt.push(style("[+]").green().to_string()); // Connected
+            }
+        } else {
+            if self.pretty_enabled() {
+                prompt.push(style("🔴").red().to_string()); // Disconnected
+            } else {
+                prompt.push(style("[-]").red().to_string()); // Disconnected
             }
         }
 
+        // Network type indicator (if available)
+        if let Ok(network_id) = self.wallet.network_id() {
+            let network_type = network_id.network_type();
+            let network_str = match network_type {
+                tondi_consensus_core::network::NetworkType::Mainnet => "mainnet",
+                tondi_consensus_core::network::NetworkType::Testnet => "testnet",
+                tondi_consensus_core::network::NetworkType::Devnet => "devnet",
+                tondi_consensus_core::network::NetworkType::Simnet => "simnet",
+            };
+            if self.pretty_enabled() {
+                prompt.push(style(format!("🌐{}", network_str)).yellow().to_string());
+            } else {
+                prompt.push(style(format!("N:{}", network_str)).yellow().to_string());
+            }
+        }
+
+        // Wallet status indicator
+        if self.wallet.is_open() {
+            if self.pretty_enabled() {
+                prompt.push(style("💼").blue().to_string()); // Wallet open
+            } else {
+                prompt.push(style("W:+").blue().to_string()); // Wallet open
+            }
+        } else {
+            if self.pretty_enabled() {
+                prompt.push(style("🔒").yellow().to_string()); // Wallet closed
+            } else {
+                prompt.push(style("W:-").yellow().to_string()); // Wallet closed
+            }
+        }
+
+        // Node status
+        if node_running {
+            if self.pretty_enabled() {
+                prompt.push(style("🖥️").green().to_string()); // Node running
+            } else {
+                prompt.push(style("D:+").green().to_string()); // Node running
+            }
+        }
+
+        // Sync status
+        if self.wallet.is_connected() && !self.wallet.is_synced() {
+            if let Some(state) = self.sync_state() {
+                if self.pretty_enabled() {
+                    prompt.push(style(format!("🔄{}", state)).yellow().to_string());
+                } else {
+                    prompt.push(style(format!("S:{}", state)).yellow().to_string());
+                }
+            }
+        }
+
+        // Wallet details
         if let Some(descriptor) = self.wallet.descriptor() {
             let title = descriptor.title.unwrap_or(descriptor.filename);
             if title.to_lowercase().as_str() != "tondi" {
-                prompt.push(title);
+                prompt.push(style(title).blue().to_string());
             }
 
             if let Ok(account) = self.wallet.account() {
@@ -861,17 +921,29 @@ impl Cli for TondiCli {
 
                 if let Ok(balance) = account.balance_as_strings(None) {
                     if let Some(pending) = balance.pending {
-                        prompt.push(format!("{} ({})", balance.mature, pending));
+                        if self.pretty_enabled() {
+                            prompt.push(style(format!("💰{}({})", balance.mature, pending)).green().to_string());
+                        } else {
+                            prompt.push(style(format!("B:{}({})", balance.mature, pending)).green().to_string());
+                        }
                     } else {
-                        prompt.push(balance.mature);
+                        if self.pretty_enabled() {
+                            prompt.push(style(format!("💰{}", balance.mature)).green().to_string());
+                        } else {
+                            prompt.push(style(format!("B:{}", balance.mature)).green().to_string());
+                        }
                     }
                 } else {
-                    prompt.push("N/A".to_string());
+                    if self.pretty_enabled() {
+                        prompt.push(style("💰N/A").yellow().to_string());
+                    } else {
+                        prompt.push(style("B:N/A").yellow().to_string());
+                    }
                 }
             }
         }
 
-        prompt.is_not_empty().then(|| prompt.join(" • ") + " $ ")
+        prompt.is_not_empty().then(|| prompt.join(" ") + " $ ")
     }
 }
 

@@ -25,7 +25,11 @@ impl Estimate {
         let destination = PaymentDestination::PaymentOutputs(PaymentOutputs::from((change_address.clone(), amount_sompi)));
         let estimate = account.estimate(destination, priority_fee_sompi.into(), None, &abortable).await?;
 
-        tprintln!(ctx, "Estimate - {estimate}");
+        if ctx.pretty_enabled() {
+            tprintln!(ctx, "💰 Fee estimate: {estimate}");
+        } else {
+            tprintln!(ctx, "Fee estimate: {estimate}");
+        }
 
         Ok(())
     }
