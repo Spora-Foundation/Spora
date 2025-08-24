@@ -360,7 +360,7 @@ impl TondiCli {
                                 } => {
 
                                     if let Some(hint) = hint {
-                                        tprintln!(this, "\nYour wallet hint is: {hint}\n");
+                                        tprintln!(this, "\n{}", style(format!("Your wallet hint is: {}", hint)).blue());
                                     }
 
                                 },
