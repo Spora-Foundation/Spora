@@ -62,6 +62,7 @@ cargo build --release --package tondi-cli
 - `guide` - Display usage guide
 - `exit` - Exit application
 - `reload` - Reload configuration
+- `clear` - Clear terminal screen
 
 ## Examples
 

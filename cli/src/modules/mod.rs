@@ -42,6 +42,7 @@ pub mod theme;
 pub mod track;
 pub mod transfer;
 pub mod wallet;
+pub mod clear;
 
 // this module is registered manually within
 // applications that support metrics
@@ -57,7 +58,7 @@ pub fn register_handlers(cli: &Arc<TondiCli>) -> Result<()> {
         cli,
         cli.handlers(),
         [
-            account, address, close, connect, details, disconnect, estimate, exit, export, guide, help, history, rpc, list, miner,
+            account, address, clear, close, connect, details, disconnect, estimate, exit, export, guide, help, history, rpc, list, miner,
             message, monitor, mute, network, node, open, ping, pskb, reload, select, send, server, settings, sweep, track, transfer,
             wallet,
             // halt,
