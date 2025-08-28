@@ -29,7 +29,7 @@ use tondi_consensus_core::block::Block;
 use tondi_consensus_core::blockhash::new_unique;
 use tondi_consensus_core::blockstatus::BlockStatus;
 use tondi_consensus_core::coinbase::MinerData;
-use tondi_consensus_core::constants::{BLOCK_VERSION, SOMPI_PER_TONDI, STORAGE_MASS_PARAMETER, TRANSIENT_BYTE_TO_MASS_FACTOR};
+use tondi_consensus_core::constants::{BLOCK_VERSION, SAU_PER_TONDI, STORAGE_MASS_PARAMETER, TRANSIENT_BYTE_TO_MASS_FACTOR};
 use tondi_consensus_core::errors::block::{BlockProcessResult, RuleError};
 use tondi_consensus_core::header::Header;
 use tondi_consensus_core::mining_rules::MiningRules;
@@ -1802,7 +1802,7 @@ async fn run_kip10_activation_test() {
     // Set up initial UTXO with our test script
     let initial_utxo_collection = [(
         TransactionOutpoint::new(1.into(), 0),
-        UtxoEntry { amount: SOMPI_PER_TONDI, script_public_key: spk.clone(), block_daa_score: 0, is_coinbase: false },
+        UtxoEntry { amount: SAU_PER_TONDI, script_public_key: spk.clone(), block_daa_score: 0, is_coinbase: false },
     )];
 
     // Initialize consensus with KIP-10 activation point
@@ -1953,7 +1953,7 @@ async fn payload_activation_test() {
     let initial_utxo_collection = [(
         TransactionOutpoint::new(1.into(), 0),
         UtxoEntry {
-            amount: SOMPI_PER_TONDI,
+            amount: SAU_PER_TONDI,
             script_public_key: ScriptPublicKey::from_vec(0, vec![OpTrue]),
             block_daa_score: 0,
             is_coinbase: false,
@@ -2091,7 +2091,7 @@ async fn runtime_sig_op_counting_test() {
     // Set up initial UTXO with P2SH script
     let initial_utxo_collection = [(
         TransactionOutpoint::new(1.into(), 0),
-        UtxoEntry { amount: SOMPI_PER_TONDI, script_public_key: script_pub_key.clone(), block_daa_score: 0, is_coinbase: false },
+        UtxoEntry { amount: SAU_PER_TONDI, script_public_key: script_pub_key.clone(), block_daa_score: 0, is_coinbase: false },
     )];
 
     let config = ConfigBuilder::new(DEVNET_PARAMS)

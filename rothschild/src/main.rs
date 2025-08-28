@@ -12,7 +12,7 @@ use tokio::time::{interval, Instant, MissedTickBehavior};
 use tondi_addresses::{Address, Prefix, Version};
 use tondi_consensus_core::{
     config::params::TESTNET_PARAMS,
-    constants::{SOMPI_PER_TONDI, TX_VERSION},
+    constants::{SAU_PER_TONDI, TX_VERSION},
     sign::sign,
     subnets::SUBNETWORK_ID_NATIVE,
     tx::{MutableTransaction, Transaction, TransactionInput, TransactionOutpoint, TransactionOutput, UtxoEntry},
@@ -23,7 +23,7 @@ use tondi_notify::subscription::context::SubscriptionContext;
 use tondi_rpc_core::{api::rpc::RpcApi, notify::mode::NotificationMode, RpcUtxoEntry};
 use tondi_txscript::pay_to_address_script;
 
-const DEFAULT_SEND_AMOUNT: u64 = 10 * SOMPI_PER_TONDI;
+const DEFAULT_SEND_AMOUNT: u64 = 10 * SAU_PER_TONDI;
 const FEE_RATE: u64 = 10;
 const MILLIS_PER_TICK: u64 = 10;
 const ADDRESS_PREFIX: Prefix = Prefix::Devnet;

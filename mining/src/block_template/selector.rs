@@ -262,7 +262,7 @@ mod tests {
     use itertools::Itertools;
     use std::{collections::HashSet, sync::Arc};
     use tondi_consensus_core::{
-        constants::{MAX_TX_IN_SEQUENCE_NUM, SOMPI_PER_TONDI, TX_VERSION},
+        constants::{MAX_TX_IN_SEQUENCE_NUM, SAU_PER_TONDI, TX_VERSION},
         mass::transaction_estimated_serialized_size,
         subnets::SUBNETWORK_ID_NATIVE,
         tx::{Transaction, TransactionId, TransactionInput, TransactionOutpoint, TransactionOutput},
@@ -282,7 +282,7 @@ mod tests {
         const TX_INITIAL_COUNT: usize = 1_000;
 
         // Create a vector of transactions differing by output value so they have unique ids
-        let transactions = (0..TX_INITIAL_COUNT).map(|i| create_transaction(SOMPI_PER_TONDI * (i + 1) as u64)).collect_vec();
+        let transactions = (0..TX_INITIAL_COUNT).map(|i| create_transaction(SAU_PER_TONDI * (i + 1) as u64)).collect_vec();
         let masses: HashMap<_, _> = transactions.iter().map(|tx| (tx.tx.id(), tx.calculated_mass)).collect();
         let sequence: SequenceSelectorInput =
             transactions.iter().map(|tx| SequenceSelectorTransaction::new(tx.tx.clone(), tx.calculated_mass)).collect();

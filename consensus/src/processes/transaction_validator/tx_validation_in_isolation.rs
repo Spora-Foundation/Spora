@@ -1,4 +1,4 @@
-use crate::constants::{MAX_SOMPI, TX_VERSION};
+use crate::constants::{MAX_SAU, TX_VERSION};
 use std::collections::HashSet;
 use tondi_consensus_core::tx::Transaction;
 
@@ -142,7 +142,7 @@ fn check_transaction_output_value_ranges(tx: &Transaction) -> TxResult<()> {
             return Err(TxRuleError::TxOutZero(i));
         }
 
-        if output.value > MAX_SOMPI {
+        if output.value > MAX_SAU {
             return Err(TxRuleError::TxOutTooHigh(i));
         }
 
@@ -152,7 +152,7 @@ fn check_transaction_output_value_ranges(tx: &Transaction) -> TxResult<()> {
             return Err(TxRuleError::OutputsValueOverflow);
         }
 
-        if total > MAX_SOMPI {
+        if total > MAX_SAU {
             return Err(TxRuleError::TotalTxOutTooHigh);
         }
     }

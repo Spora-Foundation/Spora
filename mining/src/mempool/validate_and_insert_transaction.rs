@@ -157,7 +157,7 @@ impl Mempool {
         let num_extra_outs = transaction.tx.outputs.len() as i64 - transaction.tx.inputs.len() as i64;
         if !has_coinbase_input
             && num_extra_outs > 2
-            && transaction.calculated_fee.unwrap() < num_extra_outs as u64 * tondi_consensus_core::constants::SOMPI_PER_TONDI
+            && transaction.calculated_fee.unwrap() < num_extra_outs as u64 * tondi_consensus_core::constants::SAU_PER_TONDI
         {
             tondi_core::trace!("Rejected spam tx {} from mempool ({} outputs)", transaction.id(), transaction.tx.outputs.len());
             return Err(RuleError::RejectSpamTransaction(transaction.id()));

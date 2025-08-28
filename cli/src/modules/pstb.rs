@@ -36,16 +36,16 @@ impl Pstb {
                 let _ = ctx.notifier().show(Notification::Processing).await;
 
                 let address = Address::try_from(argv.first().unwrap().as_str())?;
-                let amount_sompi = try_parse_required_nonzero_tondi_as_sompi_u64(argv.get(1))?;
-                let outputs = PaymentOutputs::from((address, amount_sompi));
-                let priority_fee_sompi = try_parse_optional_tondi_as_sompi_i64(argv.get(2))?.unwrap_or(0);
+                let amount_sau = try_parse_required_nonzero_tondi_as_sau_u64(argv.get(1))?;
+                let outputs = PaymentOutputs::from((address, amount_sau));
+                let priority_fee_sau = try_parse_optional_tondi_as_sau_i64(argv.get(2))?.unwrap_or(0);
                 let abortable = Abortable::default();
 
                 let account: Arc<dyn Account> = ctx.wallet().account()?;
                 let signer = account
                     .pstb_from_send_generator(
                         outputs.into(),
-                        priority_fee_sompi.into(),
+                        priority_fee_sau.into(),
                         None,
                         wallet_secret.clone(),
                         payment_secret.clone(),
@@ -87,15 +87,15 @@ impl Pstb {
 
                 match subcommand.as_str() {
                     "lock" => {
-                        let amount_sompi = try_parse_required_nonzero_tondi_as_sompi_u64(argv.first())?;
-                        let outputs = PaymentOutputs::from((script_p2sh, amount_sompi));
-                        let priority_fee_sompi = try_parse_optional_tondi_as_sompi_i64(argv.get(1))?.unwrap_or(0);
+                        let amount_sau = try_parse_required_nonzero_tondi_as_sau_u64(argv.first())?;
+                        let outputs = PaymentOutputs::from((script_p2sh, amount_sau));
+                        let priority_fee_sau = try_parse_optional_tondi_as_sau_i64(argv.get(1))?.unwrap_or(0);
                         let abortable = Abortable::default();
 
                         let signer = account
                             .pstb_from_send_generator(
                                 outputs.into(),
-                                priority_fee_sompi.into(),
+                                priority_fee_sau.into(),
                                 None,
                                 wallet_secret.clone(),
                                 payment_secret.clone(),
@@ -116,7 +116,7 @@ impl Pstb {
                         // Get locked UTXO set.
                         let spend_utxos: Vec<tondi_rpc_core::RpcUtxosByAddressesEntry> =
                             ctx.wallet().rpc_api().get_utxos_by_addresses(vec![script_p2sh.clone()]).await?;
-                        let priority_fee_sompi = try_parse_optional_tondi_as_sompi_i64(argv.first())?.unwrap_or(0) as u64;
+                        let priority_fee_sau = try_parse_optional_tondi_as_sau_i64(argv.first())?.unwrap_or(0) as u64;
 
                         if spend_utxos.is_empty() {
                             twarnln!(ctx, "No locked UTXO set found.");
@@ -126,18 +126,18 @@ impl Pstb {
                         let references: Vec<(UtxoEntry, TransactionOutpoint)> =
                             spend_utxos.iter().map(|entry| (entry.utxo_entry.clone().into(), entry.outpoint.into())).collect();
 
-                        let total_locked_sompi: u64 = spend_utxos.iter().map(|entry| entry.utxo_entry.amount).sum();
+                        let total_locked_sau: u64 = spend_utxos.iter().map(|entry| entry.utxo_entry.amount).sum();
 
                         tprintln!(
                             ctx,
                             "{} locked UTXO{} found with total amount of {} TND",
                             spend_utxos.len(),
                             if spend_utxos.len() == 1 { "" } else { "s" },
-                            sompi_to_tondi(total_locked_sompi)
+                            sau_to_tondi(total_locked_sau)
                         );
 
                         // Sweep UTXO set.
-                                match unlock_utxos_as_pstb(references, &receive_address, script_sig, priority_fee_sompi as u64) {
+                                match unlock_utxos_as_pstb(references, &receive_address, script_sig, priority_fee_sau as u64) {
             Ok(pstb) => {
                 let pstb_hex = pstb.serialize()?;
                 tprintln!(ctx, "{pstb_hex}");
@@ -204,7 +204,7 @@ impl Pstb {
                     return self.display_help(ctx, argv).await;
                 }
                 let pstb = Self::parse_input_pstb(argv.first().unwrap().as_str())?;
-                tprintln!(ctx, "{}", pstb.display_format(ctx.wallet().network_id()?, sompi_to_tondi_string_with_suffix));
+                tprintln!(ctx, "{}", pstb.display_format(ctx.wallet().network_id()?, sau_to_tondi_string_with_suffix));
 
                 for (pstt_index, bundle_inner) in pstb.0.iter().enumerate() {
                     tprintln!(ctx, "PSTT #{:03} finalized check:", pstt_index + 1);

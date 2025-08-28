@@ -415,7 +415,7 @@ from!(
 
 from!(&tondi_rpc_core::GetCoinSupplyRequest, protowire::GetCoinSupplyRequestMessage);
 from!(item: RpcResult<&tondi_rpc_core::GetCoinSupplyResponse>, protowire::GetCoinSupplyResponseMessage, {
-    Self { max_sompi: item.max_sompi, circulating_sompi: item.circulating_sompi, error: None }
+    Self { max_sau: item.max_sau, circulating_sau: item.circulating_sau, error: None }
 });
 
 from!(item: &tondi_rpc_core::GetDaaScoreTimestampEstimateRequest, protowire::GetDaaScoreTimestampEstimateRequestMessage, {
@@ -940,7 +940,7 @@ try_from!(
 
 try_from!(&protowire::GetCoinSupplyRequestMessage, tondi_rpc_core::GetCoinSupplyRequest);
 try_from!(item: &protowire::GetCoinSupplyResponseMessage, RpcResult<tondi_rpc_core::GetCoinSupplyResponse>, {
-    Self { max_sompi: item.max_sompi, circulating_sompi: item.circulating_sompi }
+    Self { max_sau: item.max_sau, circulating_sau: item.circulating_sau }
 });
 
 try_from!(item: &protowire::GetDaaScoreTimestampEstimateRequestMessage, tondi_rpc_core::GetDaaScoreTimestampEstimateRequest , {

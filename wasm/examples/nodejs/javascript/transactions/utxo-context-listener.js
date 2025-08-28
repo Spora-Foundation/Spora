@@ -9,7 +9,7 @@ const {
     Resolver,
     UtxoProcessor,
     UtxoContext,
-    tondiToSompi,
+    tondiToSau,
     createTransactions,
     initConsolePanicHook
 } = require('../../../../nodejs/tondi');

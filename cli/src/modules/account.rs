@@ -122,7 +122,7 @@ impl Account {
                                             tprintln!(
                                                 ctx_,
                                                 "Scan detected {} TND at index {}; transfer txid: {}",
-                                                sompi_to_tondi_string(balance),
+                                                sau_to_tondi_string(balance),
                                                 processed,
                                                 txid
                                             );
@@ -131,7 +131,7 @@ impl Account {
                                                 ctx_,
                                                 "Scanned {} derivations, found {} TND",
                                                 processed,
-                                                sompi_to_tondi_string(balance)
+                                                sau_to_tondi_string(balance)
                                             );
                                         } else {
                                             tprintln!(ctx_, "Please wait... scanning for account UTXOs...");
@@ -299,12 +299,12 @@ impl Account {
                         tprintln!(
                             ctx_,
                             "Scan detected {} TND at index {}; transfer txid: {}",
-                            sompi_to_tondi_string(balance),
+                            sau_to_tondi_string(balance),
                             processed,
                             txid
                         );
                     } else {
-                        tprintln!(ctx_, "Scanned {} derivations, found {} TND", processed, sompi_to_tondi_string(balance));
+                        tprintln!(ctx_, "Scanned {} derivations, found {} TND", processed, sau_to_tondi_string(balance));
                     }
                 })),
             )

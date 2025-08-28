@@ -22,7 +22,7 @@ export interface IPaymentOutput {
      */
     address: Address | string;
     /**
-     * Output amount in SOMPI.
+     * Output amount in SAU.
      */
     amount: bigint;
 }

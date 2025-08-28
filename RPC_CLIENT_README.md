@@ -178,7 +178,7 @@ The Tondi RPC API supports two main communication protocols:
 ### Address Operations
 - **`get_balance_by_address`** - Get balance for specified address
   - Parameters: `address` (RpcAddress) - Address
-  - Returns: Balance (sompi)
+  - Returns: Balance (sau)
   - Note: Requires `--utxoindex` option to be enabled
 
 - **`get_balances_by_addresses`** - Get balances for multiple addresses

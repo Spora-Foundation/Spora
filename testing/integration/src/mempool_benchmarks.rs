@@ -23,7 +23,7 @@ use std::{
 use tokio::join;
 use tondi_addresses::Address;
 use tondi_consensus::params::Params;
-use tondi_consensus_core::{constants::SOMPI_PER_TONDI, network::NetworkType, tx::Transaction};
+use tondi_consensus_core::{constants::SAU_PER_TONDI, network::NetworkType, tx::Transaction};
 use tondi_core::{debug, info};
 use tondi_notify::{
     listener::ListenerId,
@@ -87,7 +87,7 @@ async fn bench_bbt_latency() {
         enable_unsynced_mining: true,
         num_prealloc_utxos: Some(TX_LEVEL_WIDTH as u64 * CONTRACT_FACTOR),
         prealloc_address: Some(prealloc_address.to_string()),
-        prealloc_amount: 500 * SOMPI_PER_TONDI,
+        prealloc_amount: 500 * SAU_PER_TONDI,
         block_template_cache_lifetime: Some(0),
         ..Default::default()
     };

@@ -5,7 +5,7 @@ use futures_util::future::try_join_all;
 use tokio::task::JoinHandle;
 use tondi_addresses::{Address, Prefix, Version};
 use tondi_consensus::params::SIMNET_GENESIS;
-use tondi_consensus_core::{constants::MAX_SOMPI, header::Header, subnets::SubnetworkId, tx::Transaction};
+use tondi_consensus_core::{constants::MAX_SAU, header::Header, subnets::SubnetworkId, tx::Transaction};
 use tondi_core::{assert_match, info};
 use tondi_grpc_core::ops::TondidPayloadOps;
 use tondi_hashes::Hash;
@@ -500,8 +500,8 @@ async fn sanity_test() {
                 let rpc_client = client.clone();
                 tst!(op, {
                     let response = rpc_client.get_coin_supply_call(None, GetCoinSupplyRequest {}).await.unwrap();
-                    assert_eq!(response.circulating_sompi, 0);
-                    assert_eq!(response.max_sompi, MAX_SOMPI);
+                    assert_eq!(response.circulating_sau, 0);
+                    assert_eq!(response.max_sau, MAX_SAU);
                 })
             }
 

@@ -6,7 +6,7 @@ const {
     PrivateKey,
     Address,
     RpcClient,
-    tondiToSompi,
+    tondiToSau,
     createTransactions,
     initConsolePanicHook
 } = require('../../../../nodejs/tondi');
@@ -55,7 +55,7 @@ initConsolePanicHook();
 
         let { transactions, summary } = await createTransactions({
             entries,
-            outputs: [{ address : destinationAddress, amount : tondiToSompi("0.00012")}],
+            outputs: [{ address : destinationAddress, amount : tondiToSau("0.00012")}],
             priorityFee: 0n,
             changeAddress: sourceAddress,
         });

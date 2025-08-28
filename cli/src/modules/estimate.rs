@@ -16,14 +16,14 @@ impl Estimate {
             return Ok(());
         }
 
-        let amount_sompi = try_parse_required_nonzero_tondi_as_sompi_u64(argv.first())?;
-        let priority_fee_sompi = try_parse_optional_tondi_as_sompi_i64(argv.get(1))?.unwrap_or(0);
+        let amount_sau = try_parse_required_nonzero_tondi_as_sau_u64(argv.first())?;
+        let priority_fee_sau = try_parse_optional_tondi_as_sau_i64(argv.get(1))?.unwrap_or(0);
         let abortable = Abortable::default();
 
         // just use any address for an estimate (change address)
         let change_address = account.change_address()?;
-        let destination = PaymentDestination::PaymentOutputs(PaymentOutputs::from((change_address.clone(), amount_sompi)));
-        let estimate = account.estimate(destination, priority_fee_sompi.into(), None, &abortable).await?;
+        let destination = PaymentDestination::PaymentOutputs(PaymentOutputs::from((change_address.clone(), amount_sau)));
+        let estimate = account.estimate(destination, priority_fee_sau.into(), None, &abortable).await?;
 
         if ctx.pretty_enabled() {
             tprintln!(ctx, "💰 Fee estimate: {estimate}");

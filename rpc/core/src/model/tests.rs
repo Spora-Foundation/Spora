@@ -915,7 +915,7 @@ mod mockery {
 
     impl Mock for GetCoinSupplyResponse {
         fn mock() -> Self {
-            GetCoinSupplyResponse { max_sompi: mock(), circulating_sompi: mock() }
+            GetCoinSupplyResponse { max_sau: mock(), circulating_sau: mock() }
         }
     }
 

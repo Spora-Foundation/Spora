@@ -8,8 +8,8 @@ const tondi = require('../../../../nodejs/tondi');
 const {
     Wallet, setDefaultStorageFolder,
     AccountKind, Mnemonic, Resolver,
-    tondiToSompi,
-    sompiToTondiString,
+    tondiToSau,
+    sauToTondiString,
     Address
 } = tondi;
 
@@ -79,7 +79,7 @@ setDefaultStorageFolder(storageFolder);
             list.push({
                 Id: tx.id,
                 Type: tx.data.type,
-                Value: sompiToTondiString(value(tx)||0)
+                Value: sauToTondiString(value(tx)||0)
             });
             //console.log("tx.data", tx.id, tx.data)
         });
@@ -132,9 +132,9 @@ setDefaultStorageFolder(storageFolder);
                     Object.keys(balance).map(id=>{
                         list.push({
                             Account: id.substring(0, 5)+"...",
-                            Mature: sompiToTondiString(data.balance.mature),
-                            Pending: sompiToTondiString(data.balance.pending),
-                            Outgoing: sompiToTondiString(data.balance.outgoing),
+                            Mature: sauToTondiString(data.balance.mature),
+                            Pending: sauToTondiString(data.balance.pending),
+                            Outgoing: sauToTondiString(data.balance.outgoing),
                             MatureUtxo: data.balance.matureUtxoCount,
                             PendingUtxo: data.balance.pendingUtxoCount,
                             StasisUtxo: data.balance.stasisUtxoCount
@@ -232,10 +232,10 @@ setDefaultStorageFolder(storageFolder);
         let sendResult = await wallet.accountsSend({
             walletSecret,
             accountId: firstAccount.accountId,
-            priorityFeeSompi: tondiToSompi("0.001"),
+            priorityFeeSau: tondiToSau("0.001"),
             destination:[{
                 address: firstAccount.changeAddress,
-                amount: tondiToSompi("1.5")
+                amount: tondiToSau("1.5")
             }]
         });
         console.log("sendResult", sendResult);
@@ -245,7 +245,7 @@ setDefaultStorageFolder(storageFolder);
             walletSecret,
             sourceAccountId: firstAccount.accountId,
             destinationAccountId: firstAccount.accountId,
-            transferAmountSompi: tondiToSompi("2.4"),
+            transferAmountSau: tondiToSau("2.4"),
         });
         console.log("transferResult", transferResult);
 

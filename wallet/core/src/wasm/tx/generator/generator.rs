@@ -22,7 +22,7 @@ const TS_GENERATOR_SETTINGS_OBJECT: &'static str = r#"
  * transactions as a source for the "final" transaction.
  * 
  * @see 
- *      {@link tondiToSompi},
+ *      {@link tondiToSau},
  *      {@link Generator}, 
  *      {@link PendingTransaction}, 
  *      {@link UtxoContext}, 
@@ -43,7 +43,7 @@ interface IGeneratorSettingsObject {
      */
     changeAddress: Address | string;
     /** 
-     * Priority fee in SOMPI.
+     * Priority fee in SAU.
      * 
      * If supplying `bigint` value, it will be interpreted as a sender-pays fee.
      * Alternatively you can supply an object with `amount` and `source` properties
@@ -118,8 +118,8 @@ extern "C" {
 ///     utxoEntries : [...],
 ///     changeAddress : "tondi:...",
 ///     outputs : [
-///         { amount : tondiToSompi(10.0), address: "tondi:..."},
-///         { amount : tondiToSompi(20.0), address: "tondi:..."},
+///         { amount : tondiToSau(10.0), address: "tondi:..."},
+///         { amount : tondiToSau(20.0), address: "tondi:..."},
 ///         ...
 ///     ],
 ///     priorityFee : 1000n,

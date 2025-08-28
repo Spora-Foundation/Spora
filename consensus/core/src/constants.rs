@@ -9,19 +9,19 @@ pub const LOCK_TIME_THRESHOLD: u64 = 500_000_000_000;
 /// MAX_SCRIPT_PUBLIC_KEY_VERSION is the current latest supported public key script version.
 pub const MAX_SCRIPT_PUBLIC_KEY_VERSION: u16 = 0;
 
-/// SompiPerTondi is the number of sompi in one tondi (1 TND).
-pub const SOMPI_PER_TONDI: u64 = 100_000_000;
+/// SauPerTondi is the number of sau in one tondi (1 TND).
+pub const SAU_PER_TONDI: u64 = 100_000_000;
 
 /// The parameter for scaling inverse TND value to mass units (KIP-0009)
-pub const STORAGE_MASS_PARAMETER: u64 = SOMPI_PER_TONDI * 10_000;
+pub const STORAGE_MASS_PARAMETER: u64 = SAU_PER_TONDI * 10_000;
 
 /// The parameter defining how much mass per byte to charge for when calculating
 /// transient storage mass. Since normally the block mass limit is 500_000, this limits
 /// block body byte size to 125_000 (KIP-0013).
 pub const TRANSIENT_BYTE_TO_MASS_FACTOR: u64 = 4;
 
-/// MaxSompi is the maximum transaction amount allowed in sompi.
-pub const MAX_SOMPI: u64 = 29_000_000_000 * SOMPI_PER_TONDI;
+/// MaxSau is the maximum transaction amount allowed in sau.
+pub const MAX_SAU: u64 = 29_000_000_000 * SAU_PER_TONDI;
 
 // MAX_TX_IN_SEQUENCE_NUM is the maximum sequence number the sequence field
 // of a transaction input can be.

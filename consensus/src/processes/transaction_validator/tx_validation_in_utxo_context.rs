@@ -1,5 +1,5 @@
 use tondi_consensus_core::{
-    constants::{MAX_SOMPI, SEQUENCE_LOCK_TIME_DISABLED, SEQUENCE_LOCK_TIME_MASK},
+    constants::{MAX_SAU, SEQUENCE_LOCK_TIME_DISABLED, SEQUENCE_LOCK_TIME_MASK},
     errors::tx::TxRuleError,
     hashing::sighash::{SigHashReusedValuesSync, SigHashReusedValuesUnsync},
     tx::{TransactionInput, VerifiableTransaction},
@@ -121,7 +121,7 @@ impl TransactionValidator {
                 return Err(TxRuleError::InputAmountOverflow);
             }
 
-            if total > MAX_SOMPI {
+            if total > MAX_SAU {
                 return Err(TxRuleError::InputAmountTooHigh);
             }
         }

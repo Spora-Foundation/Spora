@@ -334,7 +334,7 @@ pub trait Account: AnySync + Send + Sync + 'static {
     async fn send(
         self: Arc<Self>,
         destination: PaymentDestination,
-        priority_fee_sompi: Fees,
+        priority_fee_sau: Fees,
         payload: Option<Vec<u8>>,
         wallet_secret: Secret,
         payment_secret: Option<Secret>,
@@ -344,7 +344,7 @@ pub trait Account: AnySync + Send + Sync + 'static {
         let keydata = self.prv_key_data(wallet_secret).await?;
         let signer = Arc::new(Signer::new(self.clone().as_dyn_arc(), keydata, payment_secret));
 
-        let settings = GeneratorSettings::try_new_with_account(self.clone().as_dyn_arc(), destination, priority_fee_sompi, payload)?;
+        let settings = GeneratorSettings::try_new_with_account(self.clone().as_dyn_arc(), destination, priority_fee_sau, payload)?;
 
         let generator = Generator::try_new(settings, Some(signer), Some(abortable))?;
 
@@ -366,13 +366,13 @@ pub trait Account: AnySync + Send + Sync + 'static {
     async fn pstb_from_send_generator(
         self: Arc<Self>,
         destination: PaymentDestination,
-        priority_fee_sompi: Fees,
+        priority_fee_sau: Fees,
         payload: Option<Vec<u8>>,
         wallet_secret: Secret,
         payment_secret: Option<Secret>,
         abortable: &Abortable,
     ) -> Result<Bundle, Error> {
-        let settings = GeneratorSettings::try_new_with_account(self.clone().as_dyn_arc(), destination, priority_fee_sompi, payload)?;
+        let settings = GeneratorSettings::try_new_with_account(self.clone().as_dyn_arc(), destination, priority_fee_sau, payload)?;
         let keydata = self.prv_key_data(wallet_secret).await?;
         let signer = Arc::new(PSTBSigner::new(self.clone().as_dyn_arc(), keydata, payment_secret));
         let generator = Generator::try_new(settings, None, Some(abortable))?;
@@ -427,8 +427,8 @@ pub trait Account: AnySync + Send + Sync + 'static {
     async fn transfer(
         self: Arc<Self>,
         destination_account_id: AccountId,
-        transfer_amount_sompi: u64,
-        priority_fee_sompi: Fees,
+        transfer_amount_sau: u64,
+        priority_fee_sau: Fees,
         wallet_secret: Secret,
         payment_secret: Option<Secret>,
         abortable: &Abortable,
@@ -445,13 +445,13 @@ pub trait Account: AnySync + Send + Sync + 'static {
             .ok_or_else(|| Error::AccountNotFound(destination_account_id))?;
 
         let destination_address = destination_account.receive_address()?;
-        let final_transaction_destination = PaymentDestination::from(PaymentOutput::new(destination_address, transfer_amount_sompi));
+        let final_transaction_destination = PaymentDestination::from(PaymentOutput::new(destination_address, transfer_amount_sau));
         let final_transaction_payload = None;
 
         let settings = GeneratorSettings::try_new_with_account(
             self.clone().as_dyn_arc(),
             final_transaction_destination,
-            priority_fee_sompi,
+            priority_fee_sau,
             final_transaction_payload,
         )?
         .utxo_context_transfer(destination_account.utxo_context());
@@ -476,11 +476,11 @@ pub trait Account: AnySync + Send + Sync + 'static {
     async fn estimate(
         self: Arc<Self>,
         destination: PaymentDestination,
-        priority_fee_sompi: Fees,
+        priority_fee_sau: Fees,
         payload: Option<Vec<u8>>,
         abortable: &Abortable,
     ) -> Result<GeneratorSummary> {
-        let settings = GeneratorSettings::try_new_with_account(self.as_dyn_arc(), destination, priority_fee_sompi, payload)?;
+        let settings = GeneratorSettings::try_new_with_account(self.as_dyn_arc(), destination, priority_fee_sau, payload)?;
 
         let generator = Generator::try_new(settings, None, Some(abortable))?;
 

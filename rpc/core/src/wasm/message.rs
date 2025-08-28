@@ -173,8 +173,8 @@ declare! {
      * @category Node RPC
      */
     export interface IGetCoinSupplyResponse {
-        maxSompi: bigint;
-        circulatingSompi: bigint;
+        maxSau: bigint;
+        circulatingSau: bigint;
     }
     "#,
 }
@@ -1557,7 +1557,7 @@ declare! {
         /**
          * *Top-priority* feerate bucket. Provides an estimation of the feerate required for sub-second DAG inclusion.
          *
-         * Note: for all buckets, feerate values represent fee/mass of a transaction in `sompi/gram` units.
+         * Note: for all buckets, feerate values represent fee/mass of a transaction in `sau/gram` units.
          * Given a feerate value recommendation, calculate the required fee by
          * taking the transaction mass and multiplying it by feerate: `fee = feerate * mass(tx)`
          */

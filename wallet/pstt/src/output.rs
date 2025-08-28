@@ -11,7 +11,7 @@ use tondi_consensus_core::tx::ScriptPublicKey;
 #[serde(rename_all = "camelCase")]
 #[builder(default)]
 pub struct Output {
-    /// The output's amount (serialized as sompi).
+    /// The output's amount (serialized as sau).
     pub amount: u64,
     /// The script for this output, also known as the scriptPubKey.
     pub script_public_key: ScriptPublicKey,

@@ -245,7 +245,7 @@ export interface ITransactionRecord {
      */
     unixtimeMsec?: bigint;
     /**
-     * Transaction value in SOMPI.
+     * Transaction value in SAU.
      */
     value: bigint;
     /**

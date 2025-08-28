@@ -6,7 +6,7 @@ const {
     PrivateKey,
     Generator,
     RpcClient,
-    tondiToSompi,
+    tondiToSau,
     initConsolePanicHook
 } = require('../../../../nodejs/tondi');
 
@@ -53,7 +53,7 @@ const { encoding, networkId } = require("../utils").parseArgs();
         // entries: an array of UtxoEntry
         // outputs: an array of [address, amount]
         //
-        // priorityFee: a priorityFee value in Sompi
+        // priorityFee: a priorityFee value in Sau
         // NOTE: The priorityFee applies only to the final transaction
         //
         // changeAddress: a change address
@@ -71,8 +71,8 @@ const { encoding, networkId } = require("../utils").parseArgs();
         // transaction according to the supplied outputs.
         let generator = new Generator({
             entries,
-            outputs: [{ address : sourceAddress, amount : tondiToSompi(0.2)}],
-            priorityFee: tondiToSompi(0.0001),
+            outputs: [{ address : sourceAddress, amount : tondiToSau(0.2)}],
+            priorityFee: tondiToSau(0.0001),
             changeAddress: sourceAddress,
         });
 

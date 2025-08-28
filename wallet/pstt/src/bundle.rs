@@ -74,7 +74,7 @@ impl Bundle {
         }
     }
 
-    pub fn display_format<F>(&self, network_id: NetworkId, sompi_formatter: F) -> String
+    pub fn display_format<F>(&self, network_id: NetworkId, sau_formatter: F) -> String
     where
         F: Fn(u64, &NetworkType) -> String,
     {
@@ -89,7 +89,7 @@ impl Bundle {
                 result.push_str(&format!("Input #{:02}\r\n", key_inner + 1));
 
                 if let Some(utxo_entry) = &input.utxo_entry {
-                    result.push_str(&format!("  amount: {}\r\n", sompi_formatter(utxo_entry.amount, &NetworkType::from(network_id))));
+                    result.push_str(&format!("  amount: {}\r\n", sau_formatter(utxo_entry.amount, &NetworkType::from(network_id))));
                     result.push_str(&format!(
                         "  address: {}\r\n",
                         extract_script_pub_key_address(&utxo_entry.script_public_key, Prefix::from(network_id))
@@ -102,7 +102,7 @@ impl Bundle {
 
             for (key_inner, output) in pstt.clone().outputs.iter().enumerate() {
                 result.push_str(&format!("Output #{:02}\r\n", key_inner + 1));
-                result.push_str(&format!("  amount: {}\r\n", sompi_formatter(output.amount, &NetworkType::from(network_id))));
+                result.push_str(&format!("  amount: {}\r\n", sau_formatter(output.amount, &NetworkType::from(network_id))));
                 result.push_str(&format!(
                     "  address: {}\r\n",
                     extract_script_pub_key_address(&output.script_public_key, Prefix::from(network_id)).expect("Input address")
@@ -170,14 +170,14 @@ pub fn unlock_utxos_as_pstb(
     utxo_references: Vec<(UtxoEntry, TransactionOutpoint)>,
     recipient: &Address,
     script_sig: Vec<u8>,
-    priority_fee_sompi_per_transaction: u64,
+    priority_fee_sau_per_transaction: u64,
 ) -> Result<Bundle, Error> {
     // Fee per transaction.
     // Check if each UTXO's amounts can cover priority fee.
     utxo_references
         .iter()
         .map(|(entry, _)| {
-            if entry.amount <= priority_fee_sompi_per_transaction {
+            if entry.amount <= priority_fee_sau_per_transaction {
                 return Err(Error::ExcessUnlockFeeError);
             }
             Ok(())
@@ -188,7 +188,7 @@ pub fn unlock_utxos_as_pstb(
     let (successes, errors): (Vec<_>, Vec<_>) = utxo_references
         .into_iter()
         .map(|(utxo_entry, outpoint)| {
-            unlock_utxo(&utxo_entry, &outpoint, &recipient_spk, &script_sig, priority_fee_sompi_per_transaction)
+            unlock_utxo(&utxo_entry, &outpoint, &recipient_spk, &script_sig, priority_fee_sau_per_transaction)
         })
         .partition(Result::is_ok);
 
@@ -218,7 +218,7 @@ pub fn unlock_utxo(
     outpoint: &TransactionOutpoint,
     script_public_key: &ScriptPublicKey,
     script_sig: &[u8],
-    priority_fee_sompi: u64,
+    priority_fee_sau: u64,
 ) -> Result<Bundle, Error> {
     let input = InputBuilder::default()
         .utxo_entry(utxo_entry.to_owned())
@@ -228,7 +228,7 @@ pub fn unlock_utxo(
         .build()?;
 
     let output = OutputBuilder::default()
-        .amount(utxo_entry.amount - priority_fee_sompi)
+        .amount(utxo_entry.amount - priority_fee_sau)
         .script_public_key(script_public_key.clone())
         .build()?;
 

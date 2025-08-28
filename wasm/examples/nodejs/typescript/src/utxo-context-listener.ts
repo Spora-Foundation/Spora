@@ -9,7 +9,7 @@ import {
     Resolver,
     UtxoProcessor,
     UtxoContext,
-    tondiToSompi,
+    tondiToSau,
     createTransactions,
     initConsolePanicHook,
     IUtxoProcessorEvent,

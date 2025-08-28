@@ -312,7 +312,7 @@ mod tests {
     use crate::params::MAINNET_PARAMS;
     use tondi_consensus_core::{
         config::params::{ForkActivation, Params, SIMNET_PARAMS},
-        constants::SOMPI_PER_TONDI,
+        constants::SAU_PER_TONDI,
         network::{NetworkId, NetworkType},
         tx::scriptvec,
     };
@@ -333,9 +333,9 @@ mod tests {
 
         let delta = total_high_bps_rewards as i64 - total_rewards as i64;
 
-        println!("Total rewards: {} sompi => {} TND", total_rewards, total_rewards / SOMPI_PER_TONDI);
-        println!("Total high bps rewards: {} sompi => {} TND", total_high_bps_rewards, total_high_bps_rewards / SOMPI_PER_TONDI);
-        println!("Delta: {} sompi => {} TND", delta, delta / SOMPI_PER_TONDI as i64);
+        println!("Total rewards: {} sau => {} TND", total_rewards, total_rewards / SAU_PER_TONDI);
+        println!("Total high bps rewards: {} sau => {} TND", total_high_bps_rewards, total_high_bps_rewards / SAU_PER_TONDI);
+        println!("Delta: {} sau => {} TND", delta, delta / SAU_PER_TONDI as i64);
     }
 
     #[test]
@@ -397,7 +397,7 @@ mod tests {
                 println!("BASELINE:\t{}\tepochs, total emission: {}", baseline_epochs, baseline_total);
                 println!("CRESCENDO:\t{}\tepochs, total emission: {}, activation: {}", new_epochs, new_total, activation);
 
-                let diff = (new_total as i64 - baseline_total as i64) / SOMPI_PER_TONDI as i64;
+                let diff = (new_total as i64 - baseline_total as i64) / SAU_PER_TONDI as i64;
                 assert!(diff.abs() <= 51, "activation: {}", activation);
                 println!("DIFF (TND): {}", diff);
             }
