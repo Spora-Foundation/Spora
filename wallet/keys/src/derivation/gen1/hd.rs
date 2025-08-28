@@ -142,7 +142,7 @@ impl PubkeyDerivationManagerTrait for PubkeyDerivationManager {
 
 #[derive(Clone)]
 pub struct WalletDerivationManager {
-    /// extended public key derived upto `m/<Purpose>'/111111'/<Account Index>'`
+    /// extended public key derived upto `m/<Purpose>'/7890'/<Account Index>'`
     extended_public_key: ExtendedPublicKey<secp256k1::PublicKey>,
 
     /// receive address wallet
