@@ -4254,22 +4254,22 @@
     "1",
     "RESERVED",
     "",
-    "BAD_OPCODE",
-    "OP_RESERVED is reserved"
+    "OK",
+    "OP_RESERVED is now OpSuccess"
   ],
   [
     "1",
     "RESERVED1",
     "",
-    "BAD_OPCODE",
-    "OP_RESERVED1 is reserved"
+    "OK",
+    "OP_RESERVED1 is now OpSuccess1"
   ],
   [
     "1",
     "RESERVED2",
     "",
-    "BAD_OPCODE",
-    "OP_RESERVED2 is reserved"
+    "OK",
+    "OP_RESERVED2 is now OpSuccess2"
   ],
   [
     "1",

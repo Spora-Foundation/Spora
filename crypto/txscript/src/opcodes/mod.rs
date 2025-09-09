@@ -355,7 +355,7 @@ opcode_list! {
 
     opcode Op1Negate<0x4f, 1>(self, vm) push_number(-1, vm)
 
-    opcode OpReserved<0x50, 1>(self, vm) Err(TxScriptError::OpcodeReserved(format!("{self:?}")))
+    opcode |OpReserved| OpSuccess<0x50, 1>(self, vm) Ok(())
 
     opcode |Op1| OpTrue<0x51, 1>(self, vm) push_number(1, vm)
     opcode Op2<0x52, 1>(self, vm) push_number(2, vm)
@@ -583,8 +583,8 @@ opcode_list! {
         }
     }
 
-    opcode OpReserved1<0x89, 1>(self, vm) Err(TxScriptError::OpcodeReserved(format!("{self:?}")))
-    opcode OpReserved2<0x8a, 1>(self, vm) Err(TxScriptError::OpcodeReserved(format!("{self:?}")))
+    opcode |OpReserved1| OpSuccess1<0x89, 1>(self, vm) Ok(())
+    opcode |OpReserved2| OpSuccess2<0x8a, 1>(self, vm) Ok(())
 
     // Numeric related opcodes.
     opcode Op1Add<0x8b, 1>(self, vm) {
@@ -1178,12 +1178,9 @@ mod test {
     #[test]
     fn test_opcode_reserved() {
         let tests: Vec<Box<dyn OpCodeImplementation<PopulatedTransaction, SigHashReusedValuesUnsync>>> = vec![
-            opcodes::OpReserved::empty().expect("Should accept empty"),
             opcodes::OpVer::empty().expect("Should accept empty"),
             opcodes::OpVerIf::empty().expect("Should accept empty"),
             opcodes::OpVerNotIf::empty().expect("Should accept empty"),
-            opcodes::OpReserved1::empty().expect("Should accept empty"),
-            opcodes::OpReserved2::empty().expect("Should accept empty"),
             opcodes::OpTxVersion::empty().expect("Should accept empty"),
             opcodes::OpTxLockTime::empty().expect("Should accept empty"),
             opcodes::OpTxSubnetId::empty().expect("Should accept empty"),
@@ -1205,6 +1202,26 @@ mod test {
             match pop.execute(&mut vm) {
                 Err(TxScriptError::OpcodeReserved(_)) => {}
                 _ => panic!("Opcode {pop:?} should be disabled"),
+            }
+        }
+    }
+
+    #[test]
+    fn test_opcode_success() {
+        let tests: Vec<Box<dyn OpCodeImplementation<PopulatedTransaction, SigHashReusedValuesUnsync>>> = vec![
+            opcodes::OpSuccess::empty().expect("Should accept empty"),
+            opcodes::OpSuccess1::empty().expect("Should accept empty"),
+            opcodes::OpSuccess2::empty().expect("Should accept empty"),
+        ];
+
+        let cache = Cache::new(10_000);
+        let reused_values = SigHashReusedValuesUnsync::new();
+        let mut vm = TxScriptEngine::new(&reused_values, &cache, false);
+
+        for pop in tests {
+            match pop.execute(&mut vm) {
+                Ok(()) => {} // OpSuccess should always succeed
+                _ => panic!("Opcode {pop:?} should succeed"),
             }
         }
     }

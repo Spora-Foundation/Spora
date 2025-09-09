@@ -155,6 +155,11 @@ macro_rules! opcode_list {
                     ){
                         builder.add_op($num)?;
                     }
+                    $(
+                        else if token.replace("_", "") == stringify!($alias).to_uppercase() {
+                            builder.add_op($num)?;
+                        }
+                    )?
                 )*
                 else {
                     panic!("Cannot parse {}", token);

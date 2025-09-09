@@ -89,7 +89,7 @@ pub enum Opcodes {
 
     Op1Negate = 0x4f,
 
-    OpReserved = 0x50,
+    OpSuccess = 0x50,
 
     OpTrue = 0x51,
 
@@ -159,8 +159,8 @@ pub enum Opcodes {
     OpEqual = 0x87,
     OpEqualVerify = 0x88,
 
-    OpReserved1 = 0x89,
-    OpReserved2 = 0x8a,
+    OpSuccess1 = 0x89,
+    OpSuccess2 = 0x8a,
 
     /// Numeric related opcodes.
     Op1Add = 0x8b,
