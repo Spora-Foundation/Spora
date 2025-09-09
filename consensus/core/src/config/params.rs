@@ -543,14 +543,8 @@ pub const MAINNET_PARAMS: Params = Params {
 
 pub const TESTNET_PARAMS: Params = Params {
     dns_seeders: &[
-        // This DNS seeder is run by Tiram
-        "seeder1-testnet.tondid.net",
-        // This DNS seeder is run by -gerri-
-        "dnsseeder-tondi-testnet.x-con.at",
-        // This DNS seeder is run by H@H
-        "ns-testnet10.tondi-dnsseeder.net",
-        // This DNS seeder is run by supertypo
-        "n-testnet-10.tondi.ws",
+        "discover.tondi.org",
+        "nodes.discover.tondi.org",
     ],
     net: NetworkId::with_suffix(NetworkType::Testnet, 10),
     genesis: TESTNET_GENESIS,
