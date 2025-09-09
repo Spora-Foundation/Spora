@@ -355,7 +355,7 @@ opcode_list! {
 
     opcode Op1Negate<0x4f, 1>(self, vm) push_number(-1, vm)
 
-    opcode |OpReserved| OpSuccess<0x50, 1>(self, vm) Ok(())
+    opcode OpSuccess<0x50, 1>(self, vm) Ok(())
 
     opcode |Op1| OpTrue<0x51, 1>(self, vm) push_number(1, vm)
     opcode Op2<0x52, 1>(self, vm) push_number(2, vm)
@@ -583,8 +583,8 @@ opcode_list! {
         }
     }
 
-    opcode |OpReserved1| OpSuccess1<0x89, 1>(self, vm) Ok(())
-    opcode |OpReserved2| OpSuccess2<0x8a, 1>(self, vm) Ok(())
+    opcode OpSuccess1<0x89, 1>(self, vm) Ok(())
+    opcode OpSuccess2<0x8a, 1>(self, vm) Ok(())
 
     // Numeric related opcodes.
     opcode Op1Add<0x8b, 1>(self, vm) {

@@ -163,10 +163,10 @@
   ],
   [
     "0",
-    "IF RESERVED RESERVED1 RESERVED2 ELSE 1 ENDIF",
+    "IF OP_SUCCESS OP_SUCCESS1 OP_SUCCESS2 ELSE 1 ENDIF",
     "",
     "OK",
-    "RESERVED ok in un-executed IF"
+    "OP_SUCCESS ok in un-executed IF"
   ],
   [
     "1",
@@ -1658,7 +1658,7 @@
     "IF 0x5050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050 ENDIF 1",
     "",
     "OK",
-    ">201 opcodes, but RESERVED (0x50) doesn't count towards opcode limit."
+    ">201 opcodes, but OP_SUCCESS (0x50) doesn't count towards opcode limit."
   ],
   [
     "",
@@ -2976,8 +2976,8 @@
     "1",
     "IF 0x50 ENDIF 1",
     "",
-    "BAD_OPCODE",
-    "0x50 is reserved"
+    "OK",
+    "0x50 is now OP_SUCCESS"
   ],
   [
     "0x52",
@@ -3692,8 +3692,8 @@
     "0x50",
     "1",
     "",
-    "BAD_OPCODE",
-    "opcode 0x50 is reserved"
+    "OK",
+    "opcode 0x50 is now OP_SUCCESS"
   ],
   [
     "1",
@@ -4284,24 +4284,24 @@
   ],
   [
     "1",
-    "RESERVED",
+    "OP_SUCCESS",
     "",
     "OK",
-    "OP_RESERVED is now OpSuccess"
+    "OP_SUCCESS succeeds"
   ],
   [
     "1",
-    "RESERVED1",
+    "OP_SUCCESS1",
     "",
     "OK",
-    "OP_RESERVED1 is now OpSuccess1"
+    "OP_SUCCESS1 succeeds"
   ],
   [
     "1",
-    "RESERVED2",
+    "OP_SUCCESS2",
     "",
     "OK",
-    "OP_RESERVED2 is now OpSuccess2"
+    "OP_SUCCESS2 succeeds"
   ],
   [
     "1",
@@ -4826,7 +4826,7 @@
     "BLAKE3 0x20 0xece424a6bb6ddf4db592c0faed60685047a361b1 EQUAL",
     "",
     "BAD_OPCODE",
-    "OP_RESERVED in P2SH should fail"
+    "OP_SUCCESS in P2SH should fail"
   ],
   [
     "0 0x01",
