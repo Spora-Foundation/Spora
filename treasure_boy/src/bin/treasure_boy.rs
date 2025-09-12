@@ -106,6 +106,15 @@ fn cli() -> Command {
                 .help("Randomize transaction priority fee"),
         )
         .arg(
+            Arg::new("amount")
+                .long("amount")
+                .short('A')
+                .value_name("amount")
+                .default_value(&format!("{}", DEFAULT_SEND_AMOUNT))
+                .value_parser(clap::value_parser!(u64))
+                .help("Amount to send per address in SAU (Smallest Atomic Unit)"),
+        )
+        .arg(
             Arg::new("generate-addresses")
                 .long("generate-addresses")
                 .short('g')
@@ -157,6 +166,7 @@ fn parse_args() -> Config {
         generate_addresses: m.get_one::<u32>("generate-addresses").cloned(),
         output_file: m.get_one::<String>("output-file").cloned(),
         network,
+        send_amount: m.get_one::<u64>("amount").cloned().unwrap_or(DEFAULT_SEND_AMOUNT),
     }
 }
 
@@ -327,7 +337,7 @@ async fn main() {
         // Single airdrop
         info!("Performing single airdrop to: {}", String::from(&target_addresses[0]));
 
-        match single_airdrop(schnorr_key, target_addresses[0].clone(), DEFAULT_SEND_AMOUNT, &rpc_client, &fee_config, args.network.clone()).await {
+        match single_airdrop(schnorr_key, target_addresses[0].clone(), args.send_amount, &rpc_client, &fee_config, args.network.clone()).await {
             Ok(tx) => {
                 info!("Single airdrop completed successfully");
                 info!("Transaction ID: {:?}", tx.id());
@@ -344,7 +354,7 @@ async fn main() {
         match batch_airdrop(
             schnorr_key,
             target_addresses,
-            DEFAULT_SEND_AMOUNT,
+            args.send_amount,
             args.outputs_per_tx,
             &rpc_client,
             &fee_config,

@@ -221,6 +221,8 @@ pub struct Config {
     pub output_file: Option<String>,
     /// Network type for address generation and operations
     pub network: NetworkType,
+    /// Amount to send per address in SAU (Smallest Atomic Unit)
+    pub send_amount: u64,
 }
 
 /// Configuration for transaction fees
@@ -308,9 +310,10 @@ pub async fn single_airdrop(
     let tx = generate_multi_output_tx(schnorr_key, &selected_utxos, selected_amount, &[&target_address]);
 
     // Send transaction
-    rpc_client.submit_transaction((&tx).into(), false).await?;
+    let tx_id = rpc_client.submit_transaction((&tx).into(), false).await?;
 
     info!("Single airdrop completed successfully");
+    info!("Transaction ID: {}", tx_id);
     Ok(tx)
 }
 
@@ -406,9 +409,10 @@ pub async fn batch_airdrop(
         for tx_option in txs {
             if let Some(tx) = tx_option {
                 match rpc_client.submit_transaction((&tx).into(), false).await {
-                    Ok(_) => {
+                    Ok(tx_id) => {
                         successful_txs.push(tx);
                         info!("Transaction submitted successfully");
+                        info!("Transaction ID: {}", tx_id);
                     }
                     Err(e) => {
                         warn!("Failed to submit transaction: {}", e);
@@ -862,6 +866,7 @@ mod tests {
             generate_addresses: None,
             output_file: None,
             network: NetworkType::Testnet,
+            send_amount: DEFAULT_SEND_AMOUNT,
         };
 
         assert_eq!(config.tps, 1);
@@ -870,6 +875,7 @@ mod tests {
         assert!(!config.unleashed);
         assert!(!config.randomize_fee);
         assert_eq!(config.network, NetworkType::Testnet);
+        assert_eq!(config.send_amount, DEFAULT_SEND_AMOUNT);
     }
 
     #[test]
