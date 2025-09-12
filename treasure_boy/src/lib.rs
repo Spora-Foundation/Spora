@@ -364,8 +364,8 @@ pub async fn batch_airdrop(
     let mut pending: HashMap<TransactionOutpoint, Instant> = HashMap::new();
     let mut next_available_utxo_index = 0;
 
-    // Set thread pool
-    rayon::ThreadPoolBuilder::new().num_threads(threads).build_global().unwrap();
+    // Set thread pool (ignore if already initialized)
+    let _ = rayon::ThreadPoolBuilder::new().num_threads(threads).build_global();
 
     // Batch process transactions
     let batch_size = 10; // Process 10 transactions per batch
@@ -497,7 +497,9 @@ pub fn generate_tx(
     let unsigned_tx = Transaction::new_non_finalized(TX_VERSION, inputs, outputs, 0, SUBNETWORK_ID_NATIVE, 0, vec![]);
     let signed_tx =
         sign(MutableTransaction::with_entries(unsigned_tx, utxos.iter().map(|(_, entry)| entry.clone()).collect_vec()), schnorr_key);
-    signed_tx.tx
+    let mut final_tx = signed_tx.tx;
+    final_tx.finalize();
+    final_tx
 }
 
 pub fn generate_multi_output_tx(
@@ -523,7 +525,9 @@ pub fn generate_multi_output_tx(
     let unsigned_tx = Transaction::new_non_finalized(TX_VERSION, inputs, outputs, 0, SUBNETWORK_ID_NATIVE, 0, vec![]);
     let signed_tx =
         sign(MutableTransaction::with_entries(unsigned_tx, utxos.iter().map(|(_, entry)| entry.clone()).collect_vec()), schnorr_key);
-    signed_tx.tx
+    let mut final_tx = signed_tx.tx;
+    final_tx.finalize();
+    final_tx
 }
 
 pub fn select_utxos(
