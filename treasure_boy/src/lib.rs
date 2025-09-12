@@ -29,8 +29,6 @@ pub const DEFAULT_SEND_AMOUNT: u64 = 10 * SAU_PER_TONDI;
 pub const FEE_RATE: u64 = 10;
 /// Milliseconds per tick for timing operations
 pub const MILLIS_PER_TICK: u64 = 10;
-/// Address prefix for generated addresses (devnet)
-pub const ADDRESS_PREFIX: Prefix = Prefix::Devnet;
 /// Address version for generated addresses
 pub const ADDRESS_VERSION: Version = Version::PubKey;
 
@@ -157,6 +155,43 @@ impl AddressDistributionTracker {
     }
 }
 
+/// Network type for treasure_boy operations
+#[derive(Debug, Clone, PartialEq)]
+pub enum NetworkType {
+    /// Mainnet network
+    Mainnet,
+    /// Testnet network (default)
+    Testnet,
+    /// Development network
+    Devnet,
+}
+
+impl Default for NetworkType {
+    fn default() -> Self {
+        NetworkType::Testnet
+    }
+}
+
+impl NetworkType {
+    /// Get the address prefix for this network type
+    pub fn address_prefix(&self) -> Prefix {
+        match self {
+            NetworkType::Mainnet => Prefix::Mainnet,
+            NetworkType::Testnet => Prefix::Testnet,
+            NetworkType::Devnet => Prefix::Devnet,
+        }
+    }
+    
+    /// Get the default RPC port for this network type
+    pub fn default_rpc_port(&self) -> u16 {
+        match self {
+            NetworkType::Mainnet => 16110,
+            NetworkType::Testnet => 16210,
+            NetworkType::Devnet => 16210,
+        }
+    }
+}
+
 /// Configuration for treasure_boy operations
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -184,6 +219,8 @@ pub struct Config {
     pub generate_addresses: Option<u32>,
     /// Output file for generated addresses
     pub output_file: Option<String>,
+    /// Network type for address generation and operations
+    pub network: NetworkType,
 }
 
 /// Configuration for transaction fees
@@ -236,11 +273,12 @@ pub async fn single_airdrop(
     amount: u64,
     rpc_client: &GrpcClient,
     fee_config: &TxsFeeConfig,
+    network: NetworkType,
 ) -> Result<Transaction, Box<dyn std::error::Error>> {
     info!("Starting single airdrop to: {}", String::from(&target_address));
 
     // Get UTXOs
-    let from_address = Address::new(ADDRESS_PREFIX, ADDRESS_VERSION, &schnorr_key.x_only_public_key().0.serialize());
+    let from_address = Address::new(network.address_prefix(), ADDRESS_VERSION, &schnorr_key.x_only_public_key().0.serialize());
     let rpc_utxos = rpc_client.get_utxos_by_addresses(vec![from_address.clone()]).await?;
 
     if rpc_utxos.is_empty() {
@@ -297,6 +335,7 @@ pub async fn batch_airdrop(
     rpc_client: &GrpcClient,
     fee_config: &TxsFeeConfig,
     threads: usize,
+    network: NetworkType,
 ) -> Result<Vec<Transaction>, Box<dyn std::error::Error>> {
     info!("Starting batch airdrop to {} addresses", target_addresses.len());
 
@@ -304,7 +343,7 @@ pub async fn batch_airdrop(
     let mut address_tracker = AddressDistributionTracker::new(target_addresses);
 
     // Get UTXOs
-    let from_address = Address::new(ADDRESS_PREFIX, ADDRESS_VERSION, &schnorr_key.x_only_public_key().0.serialize());
+    let from_address = Address::new(network.address_prefix(), ADDRESS_VERSION, &schnorr_key.x_only_public_key().0.serialize());
     let rpc_utxos = rpc_client.get_utxos_by_addresses(vec![from_address.clone()]).await?;
 
     // Convert UTXOs format
@@ -818,6 +857,7 @@ mod tests {
             randomize_fee: false,
             generate_addresses: None,
             output_file: None,
+            network: NetworkType::Testnet,
         };
 
         assert_eq!(config.tps, 1);
@@ -825,6 +865,29 @@ mod tests {
         assert_eq!(config.outputs_per_tx, 1);
         assert!(!config.unleashed);
         assert!(!config.randomize_fee);
+        assert_eq!(config.network, NetworkType::Testnet);
+    }
+
+    #[test]
+    fn test_network_type_functionality() {
+        // Test mainnet
+        let mainnet = NetworkType::Mainnet;
+        assert_eq!(mainnet.address_prefix(), Prefix::Mainnet);
+        assert_eq!(mainnet.default_rpc_port(), 16110);
+
+        // Test testnet
+        let testnet = NetworkType::Testnet;
+        assert_eq!(testnet.address_prefix(), Prefix::Testnet);
+        assert_eq!(testnet.default_rpc_port(), 16210);
+
+        // Test devnet
+        let devnet = NetworkType::Devnet;
+        assert_eq!(devnet.address_prefix(), Prefix::Devnet);
+        assert_eq!(devnet.default_rpc_port(), 16210);
+
+        // Test default
+        let default_network = NetworkType::default();
+        assert_eq!(default_network, NetworkType::Testnet);
     }
 
     #[test]

@@ -11,16 +11,16 @@ use tondi_rpc_core::notify::mode::NotificationMode;
 
 use std::fs;
 use treasure_boy::{
-    ask_batch_count, batch_airdrop, load_addresses_from_file, single_airdrop, AddressDistributionTracker, Config, Stats, TxsFeeConfig,
-    ADDRESS_PREFIX, ADDRESS_VERSION, DEFAULT_SEND_AMOUNT,
+    ask_batch_count, batch_airdrop, load_addresses_from_file, single_airdrop, AddressDistributionTracker, Config, Stats, TxsFeeConfig, NetworkType,
+    ADDRESS_VERSION, DEFAULT_SEND_AMOUNT,
 };
 
-fn generate_addresses(count: u32, output_file: Option<String>) -> Result<(), Box<dyn std::error::Error>> {
+fn generate_addresses(count: u32, output_file: Option<String>, network: NetworkType) -> Result<(), Box<dyn std::error::Error>> {
     let mut addresses = Vec::new();
 
     for _ in 0..count {
         let (_sk, pk) = secp256k1::generate_keypair(&mut thread_rng());
-        let address = Address::new(ADDRESS_PREFIX, ADDRESS_VERSION, &pk.x_only_public_key().0.serialize());
+        let address = Address::new(network.address_prefix(), ADDRESS_VERSION, &pk.x_only_public_key().0.serialize());
         addresses.push(format!("{}", String::from(&address)));
     }
 
@@ -120,10 +120,29 @@ fn cli() -> Command {
                 .value_name("file")
                 .help("Output file for generated addresses (used with --generate-addresses)"),
         )
+        .arg(
+            Arg::new("network")
+                .long("network")
+                .short('n')
+                .value_name("network")
+                .default_value("testnet")
+                .value_parser(["mainnet", "testnet", "devnet"])
+                .help("Network type: mainnet, testnet, or devnet"),
+        )
 }
 
 fn parse_args() -> Config {
     let m = cli().get_matches();
+    
+    // Parse network type
+    let network_str = m.get_one::<String>("network").unwrap();
+    let network = match network_str.as_str() {
+        "mainnet" => NetworkType::Mainnet,
+        "testnet" => NetworkType::Testnet,
+        "devnet" => NetworkType::Devnet,
+        _ => NetworkType::Testnet, // Default fallback
+    };
+    
     Config {
         private_key: m.get_one::<String>("private-key").cloned(),
         tps: m.get_one::<u64>("tps").cloned().unwrap(),
@@ -137,6 +156,7 @@ fn parse_args() -> Config {
         randomize_fee: m.get_one::<bool>("randomize-fee").cloned().unwrap_or(false),
         generate_addresses: m.get_one::<u32>("generate-addresses").cloned(),
         output_file: m.get_one::<String>("output-file").cloned(),
+        network,
     }
 }
 
@@ -147,7 +167,7 @@ async fn main() {
 
     // If address generation mode is specified, generate addresses and exit
     if let Some(count) = args.generate_addresses {
-        match generate_addresses(count, args.output_file) {
+        match generate_addresses(count, args.output_file, args.network.clone()) {
             Ok(_) => return,
             Err(e) => {
                 eprintln!("Error generating addresses: {}", e);
@@ -176,7 +196,7 @@ async fn main() {
         std::process::exit(1);
     };
 
-    let tondi_addr = Address::new(ADDRESS_PREFIX, ADDRESS_VERSION, &schnorr_key.x_only_public_key().0.serialize());
+    let tondi_addr = Address::new(args.network.address_prefix(), ADDRESS_VERSION, &schnorr_key.x_only_public_key().0.serialize());
 
     // Load addresses for batch airdrop
     let target_addresses = if let Some(address_file) = &args.address_file {
@@ -216,7 +236,7 @@ async fn main() {
                 match ask_batch_count() {
                     Ok(count) => {
                         let temp_file = format!("temp_addresses_{}.txt", std::process::id());
-                        if let Err(e) = generate_addresses(count, Some(temp_file.clone())) {
+                        if let Err(e) = generate_addresses(count, Some(temp_file.clone()), args.network.clone()) {
                             eprintln!("Error generating addresses: {}", e);
                             return;
                         }
@@ -307,7 +327,7 @@ async fn main() {
         // Single airdrop
         info!("Performing single airdrop to: {}", String::from(&target_addresses[0]));
 
-        match single_airdrop(schnorr_key, target_addresses[0].clone(), DEFAULT_SEND_AMOUNT, &rpc_client, &fee_config).await {
+        match single_airdrop(schnorr_key, target_addresses[0].clone(), DEFAULT_SEND_AMOUNT, &rpc_client, &fee_config, args.network.clone()).await {
             Ok(tx) => {
                 info!("Single airdrop completed successfully");
                 info!("Transaction ID: {:?}", tx.id());
@@ -329,6 +349,7 @@ async fn main() {
             &rpc_client,
             &fee_config,
             args.threads as usize,
+            args.network.clone(),
         )
         .await
         {

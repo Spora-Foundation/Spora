@@ -1,6 +1,6 @@
 use std::io::Write;
 use tempfile::NamedTempFile;
-use treasure_boy::{load_addresses_from_file, AddressDistributionTracker, Config, TxsFeeConfig};
+use treasure_boy::{load_addresses_from_file, AddressDistributionTracker, Config, TxsFeeConfig, NetworkType};
 
 #[test]
 fn test_load_addresses_from_file_success() {
@@ -110,6 +110,7 @@ fn test_config_validation() {
         randomize_fee: true,
         generate_addresses: None,
         output_file: None,
+        network: NetworkType::Testnet,
     };
 
     assert_eq!(config.tps, 10);
