@@ -38,7 +38,7 @@ fn test_cli_without_private_key() {
         .output()
         .expect("Failed to execute command");
     
-    // 应该显示生成的私钥和地址信息
+    // Should display generated private key and address information
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Generated private key"));
     assert!(stdout.contains("Send some funds to this address"));
@@ -46,9 +46,9 @@ fn test_cli_without_private_key() {
 
 #[test]
 fn test_cli_with_address_file() {
-    // 创建临时地址文件
+    // Create temporary address file
     let mut temp_file = NamedTempFile::new().unwrap();
-    let addresses_content = r#"# 测试地址
+    let addresses_content = r#"# Test addresses
 tondidev:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvw88ne6
 tondidev:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvw88ne6
 "#;
@@ -67,7 +67,7 @@ tondidev:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvw88ne6
         .output()
         .expect("Failed to execute command");
     
-    // 应该显示加载的地址信息
+    // Should display loaded addresses information
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Loaded 2 addresses from file"));
     assert!(stdout.contains("batch airdrop to 2 addresses"));
@@ -117,7 +117,7 @@ fn test_cli_invalid_arguments() {
         .output()
         .expect("Failed to execute command");
     
-    // 应该显示错误信息
+    // Should display error information
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("unexpected argument"));
@@ -134,9 +134,9 @@ fn test_cli_default_values() {
         .expect("Failed to execute command");
     
     let stdout = String::from_utf8_lossy(&output.stdout);
-    // 验证默认值
-    assert!(stdout.contains("localhost:16210")); // 默认 RPC 服务器
-    // 其他默认值会在日志中显示
+    // Validate default values
+    assert!(stdout.contains("localhost:16210")); // Default RPC server
+    // Other default values will be displayed in logs
 }
 
 #[test]
@@ -151,8 +151,8 @@ fn test_cli_unleashed_mode() {
         .output()
         .expect("Failed to execute command");
     
-    // unleashed 模式允许更高的 TPS
+    // unleashed mode allows higher TPS
     let stdout = String::from_utf8_lossy(&output.stdout);
-    // 应该能处理高 TPS 而不报错
+    // Should be able to handle high TPS without errors
     assert!(stdout.contains("treasure_boy") || stdout.contains("Generated private key"));
 }

@@ -6,12 +6,12 @@ use treasure_boy::load_addresses_from_file;
 #[test]
 fn test_load_addresses_with_comments() {
     let mut temp_file = NamedTempFile::new().unwrap();
-    let content = r#"# 这是注释行
-# 另一个注释
+    let content = r#"# This is a comment line
+# Another comment
 tondidev:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvw88ne6
-# 中间注释
+# Middle comment
 tondidev:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvw88ne6
-# 最后注释
+# Last comment
 "#;
     
     temp_file.write_all(content.as_bytes()).unwrap();
@@ -65,14 +65,14 @@ tondidev:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvw88ne6"#;
     temp_file.flush().unwrap();
     
     let addresses = load_addresses_from_file(temp_file.path().to_str().unwrap()).unwrap();
-    assert_eq!(addresses.len(), 3); // 只应该加载有效地址
+    assert_eq!(addresses.len(), 3); // Only load valid addresses
 }
 
 #[test]
 fn test_load_addresses_large_file() {
     let mut temp_file = NamedTempFile::new().unwrap();
     
-    // 创建包含1000个地址的大文件
+    // Create a file with 1000 addresses
     let mut content = String::new();
     for _i in 0..1000 {
         content.push_str(&format!("tondidev:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvw88ne6\n"));
@@ -88,11 +88,11 @@ fn test_load_addresses_large_file() {
 #[test]
 fn test_load_addresses_unicode_content() {
     let mut temp_file = NamedTempFile::new().unwrap();
-    let content = r#"# 中文注释
+    let content = r#"# Chinese comment
 # 日本語コメント
 # 한국어 주석
 tondidev:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvw88ne6
-# Arabic comment: تعليق عربي
+# Arabic comment: Arabic comment
 tondidev:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvw88ne6"#;
     
     temp_file.write_all(content.as_bytes()).unwrap();
@@ -104,11 +104,11 @@ tondidev:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvw88ne6"#;
 
 #[test]
 fn test_load_addresses_file_permissions() {
-    // 测试文件权限问题
+    // Test file permissions problem
     let temp_file = NamedTempFile::new().unwrap();
     let path = temp_file.path().to_str().unwrap();
     
-    // 写入一些内容
+    // Write some content
     fs::write(path, "tondidev:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvw88ne6\n").unwrap();
     
     let addresses = load_addresses_from_file(path).unwrap();
@@ -130,9 +130,9 @@ fn test_load_addresses_different_line_endings() {
 #[test]
 fn test_load_addresses_edge_cases() {
     let mut temp_file = NamedTempFile::new().unwrap();
-    let content = r#"# 只有注释的文件
-# 没有有效地址
-# 只有空行和注释
+    let content = r#"# File with only comments
+# No valid addresses
+# Only empty lines and comments
 "#;
     
     temp_file.write_all(content.as_bytes()).unwrap();

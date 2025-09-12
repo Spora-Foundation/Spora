@@ -415,7 +415,7 @@ pub async fn maybe_send_tx(
         .into_iter()
         .map(|utxo_option| {
             if let Some((selected_utxos, selected_amount)) = utxo_option {
-                // 获取目标地址（智能分发）
+                // Randomly select target addresses for this transaction
                 let target_addresses = if address_tracker.addresses.len() == 1 {
                     vec![&address_tracker.addresses[0]]
                 } else {
@@ -481,7 +481,7 @@ mod tests {
         
         let mut tracker = AddressDistributionTracker::new(addresses.clone());
         
-        // 测试获取下一个地址
+        // Test getting next addresses
         let selected = tracker.get_next_addresses(2);
         assert_eq!(selected.len(), 2);
         assert_eq!(tracker.current_index, 2);
@@ -489,7 +489,7 @@ mod tests {
         assert_eq!(tracker.distribution_counts[1], 1);
         assert_eq!(tracker.distribution_counts[2], 0);
         
-        // 测试循环
+        // Test looping
         let selected = tracker.get_next_addresses(2);
         assert_eq!(selected.len(), 2);
         assert_eq!(tracker.current_index, 1); // 2 + 2 = 4, 4 % 3 = 1
@@ -517,7 +517,7 @@ mod tests {
         
         let mut tracker = AddressDistributionTracker::new(addresses);
         
-        tracker.get_next_addresses(3); // 地址0: 2次, 地址1: 1次
+        tracker.get_next_addresses(3); // Address 0: 2 times, Address 1: 1 time
         
         let stats = tracker.get_distribution_stats();
         assert!(stats.contains("min=1"));
@@ -653,19 +653,19 @@ mod tests {
             is_coinbase: false,
         };
         
-        // 测试非 coinbase UTXO
-        assert!(is_utxo_spendable(&entry, 1020, 100)); // 需要10个确认
+        // Test non-coinbase UTXO
+        assert!(!is_utxo_spendable(&entry, 1020, 100)); // Confirmation insufficient
         
         entry.block_daa_score = 1015;
-        assert!(!is_utxo_spendable(&entry, 1020, 100)); // 确认不足
+        assert!(!is_utxo_spendable(&entry, 1020, 100)); // Confirmation insufficient
         
-        // 测试 coinbase UTXO
+        // Test coinbase UTXO
         entry.is_coinbase = true;
         entry.block_daa_score = 1000;
-        // coinbase 需要 coinbase_maturity * 2 = 200 个确认
-        // 1000 + 200 = 1200，所以 virtual_daa_score 需要 > 1200
-        assert!(is_utxo_spendable(&entry, 1201, 100)); // 需要 coinbase_maturity * 2 个确认
-        assert!(!is_utxo_spendable(&entry, 1200, 100)); // 确认不足
+        // coinbase needs coinbase_maturity * 2 = 200 confirmations
+        // 1000 + 200 = 1200, so virtual_daa_score needs > 1200
+        assert!(is_utxo_spendable(&entry, 1201, 100)); // Need coinbase_maturity * 2 confirmations
+        assert!(!is_utxo_spendable(&entry, 1200, 100)); // Confirmation insufficient
     }
 
     #[test]
@@ -729,7 +729,7 @@ mod tests {
         let addr = Address::new(Prefix::Devnet, ADDRESS_VERSION, &xpub.serialize());
         println!("Address: {addr}");
         
-        // 验证地址格式
+        // Validate address format
         assert!(format!("{addr}").starts_with("tondidev:"));
     }
 }

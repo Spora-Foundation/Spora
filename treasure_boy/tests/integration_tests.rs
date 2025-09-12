@@ -4,20 +4,20 @@ use treasure_boy::{load_addresses_from_file, AddressDistributionTracker, Config,
 
 #[test]
 fn test_load_addresses_from_file_success() {
-    // 创建临时文件
+    // Create temporary file
     let mut temp_file = NamedTempFile::new().unwrap();
-    let addresses_content = r#"# 测试地址文件
+    let addresses_content = r#"# Test address file
 tondidev:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvw88ne6
 tondidev:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvw88ne6
 
-# 另一个地址
+# Another address
 tondidev:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvw88ne6
 "#;
     
     temp_file.write_all(addresses_content.as_bytes()).unwrap();
     temp_file.flush().unwrap();
     
-    // 测试加载地址
+    // Test loading addresses
     let addresses = load_addresses_from_file(temp_file.path().to_str().unwrap()).unwrap();
     
     assert_eq!(addresses.len(), 3);
@@ -26,23 +26,23 @@ tondidev:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvw88ne6
 
 #[test]
 fn test_load_addresses_from_file_with_invalid_addresses() {
-    // 创建包含无效地址的临时文件
+    // Create temporary file with invalid addresses
     let mut temp_file = NamedTempFile::new().unwrap();
-    let addresses_content = r#"# 有效地址
+    let addresses_content = r#"# Valid addresses
 tondidev:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvw88ne6
 
-# 无效地址
+# Invalid addresses
 invalid_address_123
 another_invalid_address
 
-# 另一个有效地址
+# Another valid address
 tondidev:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvw88ne6
 "#;
     
     temp_file.write_all(addresses_content.as_bytes()).unwrap();
     temp_file.flush().unwrap();
     
-    // 测试加载地址（应该跳过无效地址）
+    // Test loading addresses (should skip invalid addresses)
     let addresses = load_addresses_from_file(temp_file.path().to_str().unwrap()).unwrap();
     
     assert_eq!(addresses.len(), 2);
@@ -51,7 +51,7 @@ tondidev:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvw88ne6
 
 #[test]
 fn test_load_addresses_from_file_empty() {
-    // 创建空文件
+    // Create empty file
     let temp_file = NamedTempFile::new().unwrap();
     
     let addresses = load_addresses_from_file(temp_file.path().to_str().unwrap()).unwrap();
@@ -78,21 +78,21 @@ fn test_address_distribution_tracker_integration() {
     
     let mut tracker = AddressDistributionTracker::new(addresses.clone());
     
-    // 模拟多轮分发
+    // Simulate multiple rounds of distribution
     for round in 0..5 {
         let selected = tracker.get_next_addresses(2);
         assert_eq!(selected.len(), 2);
         
-        // 验证分发统计
+        // Validate distribution stats
         let stats = tracker.get_distribution_stats();
         assert!(stats.contains("total="));
         
         println!("Round {}: {}", round, stats);
     }
     
-    // 验证最终分发统计
+    // Validate final distribution stats
     let final_stats = tracker.get_distribution_stats();
-    assert!(final_stats.contains("total=10")); // 5轮 * 2个地址 = 10次分发
+    assert!(final_stats.contains("total=10")); // 5 rounds * 2 addresses = 10 distributions
 }
 
 #[test]
@@ -148,7 +148,7 @@ fn test_address_distribution_fairness() {
     
     let mut tracker = AddressDistributionTracker::new(addresses);
     
-    // 分发100次，每次1个地址
+    // Distribute 100 times, once per address
     for _ in 0..100 {
         tracker.get_next_addresses(1);
     }
@@ -156,7 +156,7 @@ fn test_address_distribution_fairness() {
     let stats = tracker.get_distribution_stats();
     println!("Fairness test stats: {}", stats);
     
-    // 验证分发相对公平（每个地址应该收到接近50次）
+    // Validate distribution fairness (each address should receive approximately 50 times)
     assert!(stats.contains("min=50"));
     assert!(stats.contains("max=50"));
     assert!(stats.contains("total=100"));
@@ -174,11 +174,11 @@ fn test_address_distribution_with_large_outputs() {
     
     let mut tracker = AddressDistributionTracker::new(addresses);
     
-    // 测试每笔交易5个输出
+    // Test 5 outputs per transaction
     let selected = tracker.get_next_addresses(5);
     assert_eq!(selected.len(), 5);
     
-    // 验证分发统计
+    // Validate distribution stats
     let stats = tracker.get_distribution_stats();
-    assert!(stats.contains("total=5")); // 总共分发了5次
+    assert!(stats.contains("total=5")); // Total distributed 5 times
 }
