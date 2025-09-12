@@ -1,7 +1,11 @@
-use std::{collections::HashMap, fs, io::BufRead, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    fs,
+    io::{BufRead, Write},
+    time::Duration,
+};
 
 use itertools::Itertools;
-use parking_lot::Mutex;
 use secp256k1::{
     rand::{thread_rng, Rng},
     Keypair,
@@ -16,25 +20,36 @@ use tondi_consensus_core::{
 };
 use tondi_core::{info, warn};
 use tondi_grpc_client::GrpcClient;
-use tondi_notify::subscription::context::SubscriptionContext;
-use tondi_rpc_core::{api::rpc::RpcApi, notify::mode::NotificationMode, RpcUtxoEntry};
+use tondi_rpc_core::{api::rpc::RpcApi, RpcUtxoEntry};
 use tondi_txscript::pay_to_address_script;
 
+/// Default amount to send per address in SAU (Smallest Atomic Unit)
 pub const DEFAULT_SEND_AMOUNT: u64 = 10 * SAU_PER_TONDI;
+/// Base fee rate for transaction fees
 pub const FEE_RATE: u64 = 10;
+/// Milliseconds per tick for timing operations
 pub const MILLIS_PER_TICK: u64 = 10;
+/// Address prefix for generated addresses (devnet)
 pub const ADDRESS_PREFIX: Prefix = Prefix::Devnet;
+/// Address version for generated addresses
 pub const ADDRESS_VERSION: Version = Version::PubKey;
 
+/// Statistics tracking for transaction operations
 #[derive(Debug, Clone)]
 pub struct Stats {
+    /// Number of transactions processed
     pub num_txs: usize,
+    /// Number of UTXOs available
     pub num_utxos: usize,
+    /// Total amount of UTXOs in SAU
     pub utxos_amount: u64,
+    /// Number of outputs generated
     pub num_outs: usize,
+    /// Timestamp when stats were created
     pub since: u64,
 }
 
+/// Tracks address distribution for fair airdrop operations
 #[derive(Debug, Clone)]
 pub struct AddressDistributionTracker {
     addresses: Vec<Address>,
@@ -45,53 +60,81 @@ pub struct AddressDistributionTracker {
 impl AddressDistributionTracker {
     pub fn new(addresses: Vec<Address>) -> Self {
         let distribution_counts = vec![0; addresses.len()];
-        Self {
-            addresses,
-            distribution_counts,
-            current_index: 0,
-        }
+        Self { addresses, distribution_counts, current_index: 0 }
     }
 
     pub fn get_next_addresses(&mut self, count: usize) -> Vec<&Address> {
         let mut selected_addresses = Vec::new();
-        
+
         for _ in 0..count {
             if self.addresses.is_empty() {
                 break;
             }
-            
-            // 选择当前索引的地址
+
+            // Select address at current index
             let addr = &self.addresses[self.current_index];
             selected_addresses.push(addr);
-            
-            // 增加分发计数
+
+            // Increment distribution count
             self.distribution_counts[self.current_index] += 1;
-            
-            // 移动到下一个地址（循环）
+
+            // Move to next address (circular)
             self.current_index = (self.current_index + 1) % self.addresses.len();
         }
-        
+
         selected_addresses
+    }
+
+    /// Batch get addresses, optimize performance for large address pools
+    pub fn get_next_addresses_batch(&mut self, batch_size: usize, addresses_per_tx: usize) -> Vec<Vec<&Address>> {
+        let mut batches = Vec::new();
+
+        for _ in 0..batch_size {
+            let mut tx_addresses = Vec::new();
+
+            for _ in 0..addresses_per_tx {
+                if self.addresses.is_empty() {
+                    break;
+                }
+
+                let addr = &self.addresses[self.current_index];
+                tx_addresses.push(addr);
+
+                // Increase distribution count
+                self.distribution_counts[self.current_index] += 1;
+
+                // Move to next address (loop)
+                self.current_index = (self.current_index + 1) % self.addresses.len();
+            }
+
+            if !tx_addresses.is_empty() {
+                batches.push(tx_addresses);
+            }
+        }
+
+        batches
     }
 
     pub fn get_random_addresses(&mut self, count: usize) -> Vec<&Address> {
         let mut selected_addresses = Vec::new();
-        
+
         if self.addresses.is_empty() {
             return selected_addresses;
         }
-        
+
+        // Create RNG once for better performance
+        let mut rng = thread_rng();
+
         for _ in 0..count {
-            // 随机选择一个地址
-            let mut rng = thread_rng();
+            // Randomly select an address
             let index = rng.gen_range(0..self.addresses.len());
             let addr = &self.addresses[index];
             selected_addresses.push(addr);
-            
-            // 增加分发计数
+
+            // Increase distribution count
             self.distribution_counts[index] += 1;
         }
-        
+
         selected_addresses
     }
 
@@ -99,11 +142,11 @@ impl AddressDistributionTracker {
         if self.addresses.is_empty() {
             return "No addresses".to_string();
         }
-        
+
         let min_count = self.distribution_counts.iter().min().unwrap_or(&0);
         let max_count = self.distribution_counts.iter().max().unwrap_or(&0);
         let total_distributions: usize = self.distribution_counts.iter().sum();
-        
+
         format!(
             "Distribution: min={}, max={}, total={}, avg={:.1}",
             min_count,
@@ -114,40 +157,52 @@ impl AddressDistributionTracker {
     }
 }
 
+/// Configuration for treasure_boy operations
 #[derive(Debug, Clone)]
 pub struct Config {
+    /// Private key in hex format for transaction signing
     pub private_key: Option<String>,
+    /// Target transactions per second
     pub tps: u64,
+    /// RPC server address
     pub rpc_server: String,
+    /// Number of threads for parallel processing
     pub threads: u8,
+    /// Allow higher TPS (unleashed mode)
     pub unleashed: bool,
+    /// Single target address for transactions
     pub addr: Option<String>,
+    /// File containing addresses for batch airdrop
     pub address_file: Option<String>,
+    /// Number of outputs per transaction
     pub outputs_per_tx: u64,
+    /// Priority fee for transactions
     pub priority_fee: u64,
+    /// Randomize priority fee
     pub randomize_fee: bool,
+    /// Number of addresses to generate
+    pub generate_addresses: Option<u32>,
+    /// Output file for generated addresses
+    pub output_file: Option<String>,
 }
 
+/// Configuration for transaction fees
 #[derive(Debug, Clone)]
 pub struct TxsFeeConfig {
+    /// Priority fee amount
     pub priority_fee: u64,
+    /// Whether to randomize the priority fee
     pub randomize_fee: bool,
 }
 
-pub struct ClientPoolArg {
-    pub tx: Transaction,
-    pub stats: Arc<Mutex<Stats>>,
-    pub selected_utxos_len: usize,
-    pub selected_utxos_amount: u64,
-    pub pending_len: usize,
-    pub utxos_len: usize,
-}
-
+/// Load addresses from a text file, one address per line.
+/// Supports comments (lines starting with #) and empty lines.
+/// Invalid addresses are skipped with a warning.
 pub fn load_addresses_from_file(file_path: &str) -> Result<Vec<Address>, Box<dyn std::error::Error>> {
     let file = fs::File::open(file_path)?;
     let reader = std::io::BufReader::new(file);
     let mut addresses = Vec::new();
-    
+
     for line in reader.lines() {
         let line = line?;
         let trimmed = line.trim();
@@ -160,23 +215,220 @@ pub fn load_addresses_from_file(file_path: &str) -> Result<Vec<Address>, Box<dyn
             }
         }
     }
-    
+
     Ok(addresses)
 }
 
-pub async fn new_rpc_client(subscription_context: &SubscriptionContext, address: &str) -> GrpcClient {
-    GrpcClient::connect_with_args(
-        NotificationMode::Direct,
-        format!("grpc://{}", address),
-        Some(subscription_context.clone()),
-        true,
-        None,
+/// Perform a single airdrop transaction to one address.
+///
+/// # Arguments
+/// * `schnorr_key` - The private key for signing the transaction
+/// * `target_address` - The address to send funds to
+/// * `amount` - The amount to send in SAU
+/// * `rpc_client` - The RPC client for blockchain interaction
+/// * `fee_config` - Configuration for transaction fees
+///
+/// # Returns
+/// Returns the signed transaction on success, or an error on failure.
+pub async fn single_airdrop(
+    schnorr_key: Keypair,
+    target_address: Address,
+    amount: u64,
+    rpc_client: &GrpcClient,
+    fee_config: &TxsFeeConfig,
+) -> Result<Transaction, Box<dyn std::error::Error>> {
+    info!("Starting single airdrop to: {}", String::from(&target_address));
+
+    // Get UTXOs
+    let from_address = Address::new(ADDRESS_PREFIX, ADDRESS_VERSION, &schnorr_key.x_only_public_key().0.serialize());
+    let rpc_utxos = rpc_client.get_utxos_by_addresses(vec![from_address.clone()]).await?;
+
+    if rpc_utxos.is_empty() {
+        return Err("No UTXOs available for sending".into());
+    }
+
+    // Convert UTXOs format
+    let utxos: Vec<(TransactionOutpoint, UtxoEntry)> =
+        rpc_utxos.into_iter().map(|entry| (entry.outpoint.into(), entry.utxo_entry.into())).collect();
+
+    // Select UTXOs
+    let mut next_available_utxo_index = 0;
+    let (selected_utxos, selected_amount) = select_utxos(
+        &utxos,
+        amount,
+        1, // Single airdrop has only one output
         false,
-        Some(500_000),
-        Default::default(),
-    )
-    .await
-    .unwrap()
+        &mut next_available_utxo_index,
+        fee_config,
+    );
+
+    if selected_utxos.is_empty() {
+        return Err("Insufficient funds for transaction".into());
+    }
+
+    // Generate transaction
+    let tx = generate_multi_output_tx(schnorr_key, &selected_utxos, selected_amount, &[&target_address]);
+
+    // Send transaction
+    rpc_client.submit_transaction((&tx).into(), false).await?;
+
+    info!("Single airdrop completed successfully");
+    Ok(tx)
+}
+
+/// Perform batch airdrop transactions to multiple addresses.
+///
+/// # Arguments
+/// * `schnorr_key` - The private key for signing transactions
+/// * `target_addresses` - List of addresses to send funds to
+/// * `amount_per_address` - Amount to send to each address in SAU
+/// * `outputs_per_tx` - Number of outputs per transaction
+/// * `rpc_client` - The RPC client for blockchain interaction
+/// * `fee_config` - Configuration for transaction fees
+/// * `threads` - Number of threads for parallel processing
+///
+/// # Returns
+/// Returns a vector of successfully sent transactions, or an error on failure.
+pub async fn batch_airdrop(
+    schnorr_key: Keypair,
+    target_addresses: Vec<Address>,
+    amount_per_address: u64,
+    outputs_per_tx: u64,
+    rpc_client: &GrpcClient,
+    fee_config: &TxsFeeConfig,
+    threads: usize,
+) -> Result<Vec<Transaction>, Box<dyn std::error::Error>> {
+    info!("Starting batch airdrop to {} addresses", target_addresses.len());
+
+    // Create address distribution tracker
+    let mut address_tracker = AddressDistributionTracker::new(target_addresses);
+
+    // Get UTXOs
+    let from_address = Address::new(ADDRESS_PREFIX, ADDRESS_VERSION, &schnorr_key.x_only_public_key().0.serialize());
+    let rpc_utxos = rpc_client.get_utxos_by_addresses(vec![from_address.clone()]).await?;
+
+    // Convert UTXOs format
+    let utxos: Vec<(TransactionOutpoint, UtxoEntry)> =
+        rpc_utxos.into_iter().map(|entry| (entry.outpoint.into(), entry.utxo_entry.into())).collect();
+
+    if utxos.is_empty() {
+        return Err("No UTXOs available for sending".into());
+    }
+
+    // Calculate the number of transactions to send
+    let total_addresses = address_tracker.addresses.len();
+    let txs_needed = (total_addresses as f64 / outputs_per_tx as f64).ceil() as u64;
+
+    info!("Need to send {} transactions with {} outputs each", txs_needed, outputs_per_tx);
+
+    let mut successful_txs = Vec::new();
+    let mut pending: HashMap<TransactionOutpoint, Instant> = HashMap::new();
+    let mut next_available_utxo_index = 0;
+
+    // Set thread pool
+    rayon::ThreadPoolBuilder::new().num_threads(threads).build_global().unwrap();
+
+    // Batch process transactions
+    let batch_size = 10; // Process 10 transactions per batch
+    for batch_start in (0..txs_needed).step_by(batch_size as usize) {
+        let batch_end = (batch_start + batch_size).min(txs_needed);
+        let batch_txs = batch_end - batch_start;
+
+        info!("Processing batch: transactions {} to {}", batch_start + 1, batch_end);
+
+        // Pre-batch allocate addresses
+        let address_assignments = if address_tracker.addresses.len() == 1 {
+            (0..batch_txs).map(|_| vec![&address_tracker.addresses[0]]).collect::<Vec<_>>()
+        } else {
+            address_tracker.get_next_addresses_batch(batch_txs as usize, outputs_per_tx as usize)
+        };
+
+        // Generate transactions sequentially to avoid mutable borrowing issues
+        let mut txs = Vec::new();
+        for (_, target_addresses) in (0..batch_txs as usize).zip(address_assignments.iter()) {
+            let (selected_utxos, selected_amount) = select_utxos(
+                &utxos,
+                amount_per_address * outputs_per_tx,
+                outputs_per_tx,
+                false,
+                &mut next_available_utxo_index,
+                fee_config,
+            );
+
+            if !selected_utxos.is_empty() {
+                let tx = generate_multi_output_tx(schnorr_key, &selected_utxos, selected_amount, target_addresses);
+                txs.push(Some(tx));
+            } else {
+                txs.push(None);
+            }
+        }
+
+        // Send transactions
+        for tx_option in txs {
+            if let Some(tx) = tx_option {
+                match rpc_client.submit_transaction((&tx).into(), false).await {
+                    Ok(_) => {
+                        successful_txs.push(tx);
+                        info!("Transaction submitted successfully");
+                    }
+                    Err(e) => {
+                        warn!("Failed to submit transaction: {}", e);
+                    }
+                }
+            }
+        }
+
+        // Clean up used UTXOs
+        clean_old_pending_outpoints(&mut pending);
+    }
+
+    info!("Batch airdrop completed: {} transactions sent successfully", successful_txs.len());
+    Ok(successful_txs)
+}
+
+/// Interactive ask for batch airdrop count
+pub fn ask_batch_count() -> Result<u32, Box<dyn std::error::Error>> {
+    println!("How many addresses do you want to generate for batch airdrop?");
+    println!("Enter a number (or 'q' to quit):");
+
+    loop {
+        print!("> ");
+        std::io::stdout().flush()?;
+
+        let mut input = String::new();
+        std::io::stdin().read_line(&mut input)?;
+        let input = input.trim();
+
+        if input.to_lowercase() == "q" {
+            return Err("User cancelled".into());
+        }
+
+        match input.parse::<u32>() {
+            Ok(count) => {
+                if count == 0 {
+                    println!("Please enter a number greater than 0.");
+                    continue;
+                }
+                if count > 10000 {
+                    println!("Warning: Generating {} addresses may take a while. Continue? (y/n)", count);
+                    print!("> ");
+                    std::io::stdout().flush()?;
+
+                    let mut confirm = String::new();
+                    std::io::stdin().read_line(&mut confirm)?;
+
+                    if confirm.trim().to_lowercase() != "y" {
+                        continue;
+                    }
+                }
+                return Ok(count);
+            }
+            Err(_) => {
+                println!("Please enter a valid number.");
+                continue;
+            }
+        }
+    }
 }
 
 pub fn required_fee(num_utxos: usize, num_outs: u64) -> u64 {
@@ -220,18 +472,15 @@ pub fn generate_multi_output_tx(
         .map(|(op, _)| TransactionInput { previous_outpoint: *op, signature_script: vec![], sequence: 0, sig_op_count: 1 })
         .collect_vec();
 
-    // 为每个目标地址创建一个输出
+    // Create an output for each target address
     let outputs = target_addresses
         .iter()
         .map(|addr| {
             let script_public_key = pay_to_address_script(addr);
-            TransactionOutput { 
-                value: send_amount / target_addresses.len() as u64, 
-                script_public_key 
-            }
+            TransactionOutput { value: send_amount / target_addresses.len() as u64, script_public_key }
         })
         .collect_vec();
-    
+
     let unsigned_tx = Transaction::new_non_finalized(TX_VERSION, inputs, outputs, 0, SUBNETWORK_ID_NATIVE, 0, vec![]);
     let signed_tx =
         sign(MutableTransaction::with_entries(unsigned_tx, utxos.iter().map(|(_, entry)| entry.clone()).collect_vec()), schnorr_key);
@@ -286,173 +535,16 @@ pub fn is_utxo_spendable(entry: &RpcUtxoEntry, virtual_daa_score: u64, coinbase_
     entry.block_daa_score + needed_confs < virtual_daa_score
 }
 
-pub async fn populate_pending_outpoints_from_mempool(
-    rpc_client: &GrpcClient,
-    tondi_addr: Address,
-    pending_outpoints: &mut HashMap<TransactionOutpoint, Instant>,
-) {
-    let entries = rpc_client.get_mempool_entries_by_addresses(vec![tondi_addr], true, false).await.unwrap();
-    let now = Instant::now();
-
-    for entry in entries {
-        for entry in entry.sending {
-            for input in entry.transaction.inputs {
-                pending_outpoints.insert(input.previous_outpoint.into(), now);
-            }
-        }
-    }
-}
-
-pub async fn fetch_spendable_utxos(
-    rpc_client: &GrpcClient,
-    tondi_addr: Address,
-    coinbase_maturity: u64,
-    pending: &mut HashMap<TransactionOutpoint, Instant>,
-) -> Vec<(TransactionOutpoint, UtxoEntry)> {
-    let resp = rpc_client.get_utxos_by_addresses(vec![tondi_addr]).await.unwrap();
-    let dag_info = rpc_client.get_block_dag_info().await.unwrap();
-
-    let mut utxos = resp.into_iter()
-        .filter(|entry| {
-            is_utxo_spendable(&entry.utxo_entry, dag_info.virtual_daa_score, coinbase_maturity)
-        })
-        .map(|entry| (TransactionOutpoint::from(entry.outpoint), UtxoEntry::from(entry.utxo_entry)))
-        // Eliminates UTXOs we already tried to spend so we don't try to spend them again in this period
-        .filter(|(outpoint,_)| !pending.contains_key(outpoint))
-        .collect::<Vec<_>>();
-    utxos.sort_by(|a, b| b.1.amount.cmp(&a.1.amount));
-    utxos
-}
-
-pub async fn refresh_utxos(
-    rpc_client: &GrpcClient,
-    tondi_addr: Address,
-    pending: &mut HashMap<TransactionOutpoint, Instant>,
-    coinbase_maturity: u64,
-) -> Vec<(TransactionOutpoint, UtxoEntry)> {
-    populate_pending_outpoints_from_mempool(rpc_client, tondi_addr.clone(), pending).await;
-    fetch_spendable_utxos(rpc_client, tondi_addr, coinbase_maturity, pending).await
-}
-
 pub fn clean_old_pending_outpoints(pending: &mut HashMap<TransactionOutpoint, Instant>) {
     let now = Instant::now();
     pending.retain(|_, &mut time| now.duration_since(time) <= Duration::from_secs(3600));
 }
 
-pub fn should_maximize_inputs(
-    old_value: bool,
-    utxos: &[(TransactionOutpoint, UtxoEntry)],
-    pending: &HashMap<TransactionOutpoint, Instant>,
-) -> bool {
-    let estimated_utxos = if utxos.len() > pending.len() { utxos.len() - pending.len() } else { 0 };
-    if !old_value && estimated_utxos > 1_000_000 {
-        info!("Starting to maximize inputs");
-        true
-    } else if old_value && estimated_utxos < 500_000 {
-        info!("Stopping to maximize inputs");
-        false
-    } else {
-        old_value
-    }
-}
-
-pub async fn pause_if_mempool_is_full(rpc_client: &GrpcClient) {
-    loop {
-        let mempool_size = rpc_client.get_info().await.unwrap().mempool_size;
-        if mempool_size < 200_000 {
-            break;
-        }
-
-        const PAUSE_DURATION: u64 = 10;
-        info!("Mempool has {} entries. Pausing for {} seconds to reduce mempool pressure", mempool_size, PAUSE_DURATION);
-        tokio::time::sleep(Duration::from_secs(PAUSE_DURATION)).await;
-    }
-}
-
-pub async fn maybe_send_tx(
-    txs_to_send: u64,
-    tx_sender: &async_channel::Sender<ClientPoolArg>,
-    address_tracker: &mut AddressDistributionTracker,
-    utxos: &mut [(TransactionOutpoint, UtxoEntry)],
-    pending: &mut HashMap<TransactionOutpoint, Instant>,
-    schnorr_key: Keypair,
-    stats: Arc<Mutex<Stats>>,
-    maximize_inputs: bool,
-    next_available_utxo_index: &mut usize,
-    fee_config: &TxsFeeConfig,
-    outputs_per_tx: u64,
-) -> bool {
-    let num_outs = if maximize_inputs { 1 } else { outputs_per_tx };
-
-    let mut has_fund = false;
-
-    let selected_utxos_groups = (0..txs_to_send)
-        .map(|_| {
-            let (selected_utxos, selected_amount) =
-                select_utxos(utxos, DEFAULT_SEND_AMOUNT, num_outs, maximize_inputs, next_available_utxo_index, fee_config);
-            if selected_amount == 0 {
-                return None;
-            }
-
-            // If any iteration successfully selected UTXOs, we assume to still
-            // have funds in this tick
-            has_fund = true;
-
-            let now = Instant::now();
-            for input in selected_utxos.iter() {
-                pending.insert(input.0, now);
-            }
-
-            Some((selected_utxos, selected_amount))
-        })
-        .collect::<Vec<_>>();
-
-    if !has_fund {
-        return false;
-    }
-
-    let txs = selected_utxos_groups
-        .into_iter()
-        .map(|utxo_option| {
-            if let Some((selected_utxos, selected_amount)) = utxo_option {
-                // Randomly select target addresses for this transaction
-                let target_addresses = if address_tracker.addresses.len() == 1 {
-                    vec![&address_tracker.addresses[0]]
-                } else {
-                    address_tracker.get_next_addresses(num_outs as usize)
-                };
-                
-                let tx = generate_multi_output_tx(schnorr_key, &selected_utxos, selected_amount, &target_addresses);
-
-                return Some((tx, selected_utxos.len(), selected_utxos.into_iter().map(|(_, entry)| entry.amount).sum::<u64>()));
-            }
-
-            None
-        })
-        .collect::<Vec<_>>();
-
-    for (tx, selected_utxos_len, selected_utxos_amount) in txs.into_iter().flatten() {
-        tx_sender
-            .send(ClientPoolArg {
-                tx,
-                stats: stats.clone(),
-                selected_utxos_len,
-                selected_utxos_amount,
-                pending_len: pending.len(),
-                utxos_len: utxos.len(),
-            })
-            .await
-            .unwrap();
-    }
-
-    true
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::str::FromStr;
     use secp256k1::{SecretKey, SECP256K1};
+    use std::str::FromStr;
     use tondi_bip32::{DerivationPath, ExtendedPrivateKey, Language, Mnemonic, WordCount};
 
     #[test]
@@ -462,9 +554,9 @@ mod tests {
             Address::new(Prefix::Devnet, Version::PubKey, &[2; 32]),
             Address::new(Prefix::Devnet, Version::PubKey, &[3; 32]),
         ];
-        
+
         let tracker = AddressDistributionTracker::new(addresses.clone());
-        
+
         assert_eq!(tracker.addresses.len(), 3);
         assert_eq!(tracker.distribution_counts.len(), 3);
         assert_eq!(tracker.current_index, 0);
@@ -478,9 +570,9 @@ mod tests {
             Address::new(Prefix::Devnet, Version::PubKey, &[2; 32]),
             Address::new(Prefix::Devnet, Version::PubKey, &[3; 32]),
         ];
-        
+
         let mut tracker = AddressDistributionTracker::new(addresses.clone());
-        
+
         // Test getting next addresses
         let selected = tracker.get_next_addresses(2);
         assert_eq!(selected.len(), 2);
@@ -488,7 +580,7 @@ mod tests {
         assert_eq!(tracker.distribution_counts[0], 1);
         assert_eq!(tracker.distribution_counts[1], 1);
         assert_eq!(tracker.distribution_counts[2], 0);
-        
+
         // Test looping
         let selected = tracker.get_next_addresses(2);
         assert_eq!(selected.len(), 2);
@@ -500,25 +592,23 @@ mod tests {
     #[test]
     fn test_address_distribution_tracker_empty() {
         let mut tracker = AddressDistributionTracker::new(vec![]);
-        
+
         let selected = tracker.get_next_addresses(5);
         assert_eq!(selected.len(), 0);
-        
+
         let stats = tracker.get_distribution_stats();
         assert_eq!(stats, "No addresses");
     }
 
     #[test]
     fn test_address_distribution_tracker_stats() {
-        let addresses = vec![
-            Address::new(Prefix::Devnet, Version::PubKey, &[1; 32]),
-            Address::new(Prefix::Devnet, Version::PubKey, &[2; 32]),
-        ];
-        
+        let addresses =
+            vec![Address::new(Prefix::Devnet, Version::PubKey, &[1; 32]), Address::new(Prefix::Devnet, Version::PubKey, &[2; 32])];
+
         let mut tracker = AddressDistributionTracker::new(addresses);
-        
+
         tracker.get_next_addresses(3); // Address 0: 2 times, Address 1: 1 time
-        
+
         let stats = tracker.get_distribution_stats();
         assert!(stats.contains("min=1"));
         assert!(stats.contains("max=2"));
@@ -527,21 +617,77 @@ mod tests {
     }
 
     #[test]
+    fn test_address_distribution_tracker_batch() {
+        let addresses = vec![
+            Address::new(Prefix::Devnet, Version::PubKey, &[1; 32]),
+            Address::new(Prefix::Devnet, Version::PubKey, &[2; 32]),
+            Address::new(Prefix::Devnet, Version::PubKey, &[3; 32]),
+        ];
+
+        let mut tracker = AddressDistributionTracker::new(addresses.clone());
+
+        // Test batch allocation: 3 transactions, 2 addresses per transaction
+        let batches = tracker.get_next_addresses_batch(3, 2);
+
+        assert_eq!(batches.len(), 3);
+        assert_eq!(batches[0].len(), 2);
+        assert_eq!(batches[1].len(), 2);
+        assert_eq!(batches[2].len(), 2);
+
+        // Validate address allocation order
+        assert_eq!(batches[0][0], &addresses[0]);
+        assert_eq!(batches[0][1], &addresses[1]);
+        assert_eq!(batches[1][0], &addresses[2]);
+        assert_eq!(batches[1][1], &addresses[0]); // Loop back to first address
+        assert_eq!(batches[2][0], &addresses[1]);
+        assert_eq!(batches[2][1], &addresses[2]);
+
+        // Validate distribution count
+        assert_eq!(tracker.distribution_counts[0], 2); // Address 0 used 2 times
+        assert_eq!(tracker.distribution_counts[1], 2); // Address 1 used 2 times
+        assert_eq!(tracker.distribution_counts[2], 2); // Address 2 used 2 times
+    }
+
+    #[test]
+    fn test_address_distribution_tracker_large_batch() {
+        // Test performance with large address pool
+        let addresses: Vec<Address> = (0..1000).map(|i| Address::new(Prefix::Devnet, Version::PubKey, &[i as u8; 32])).collect();
+
+        let mut tracker = AddressDistributionTracker::new(addresses);
+
+        // Batch allocate 100 transactions, 3 addresses per transaction
+        let batches = tracker.get_next_addresses_batch(100, 3);
+
+        assert_eq!(batches.len(), 100);
+        for batch in &batches {
+            assert_eq!(batch.len(), 3);
+        }
+
+        // Validate all addresses are uniformly distributed
+        let total_distributions: usize = tracker.distribution_counts.iter().sum();
+        assert_eq!(total_distributions, 300); // 100 * 3 = 300
+
+        // Validate distribution stats
+        let stats = tracker.get_distribution_stats();
+        assert!(stats.contains("total=300"));
+    }
+
+    #[test]
     fn test_required_fee() {
-        // 测试费用计算
+        // Test fee calculation
         let fee1 = required_fee(1, 1);
         let fee2 = required_fee(2, 2);
-        
+
         assert!(fee2 > fee1);
         assert_eq!(fee1, FEE_RATE * estimated_mass(1, 1));
     }
 
     #[test]
     fn test_estimated_mass() {
-        // 测试质量估算
+        // Test quality estimation
         let mass1 = estimated_mass(1, 1);
         let mass2 = estimated_mass(2, 2);
-        
+
         assert!(mass2 > mass1);
         assert_eq!(mass1, 200 + 34 * 1 + 1000 * 1);
     }
@@ -551,12 +697,9 @@ mod tests {
         let (secret_key, public_key) = secp256k1::generate_keypair(&mut thread_rng());
         let keypair = Keypair::from_seckey_slice(secp256k1::SECP256K1, &secret_key.secret_bytes()).unwrap();
         let addr = Address::new(Prefix::Devnet, Version::PubKey, &public_key.x_only_public_key().0.serialize());
-        
+
         let utxos = vec![(
-            TransactionOutpoint {
-                transaction_id: tondi_consensus_core::Hash::from_bytes([0xFF; 32]),
-                index: 0,
-            },
+            TransactionOutpoint { transaction_id: tondi_consensus_core::Hash::from_bytes([0xFF; 32]), index: 0 },
             UtxoEntry {
                 amount: 1000000,
                 script_public_key: tondi_consensus_core::tx::ScriptPublicKey::from_vec(0, vec![0xff; 35]),
@@ -564,9 +707,9 @@ mod tests {
                 is_coinbase: false,
             },
         )];
-        
+
         let tx = generate_tx(keypair, &utxos, 100000, 2, &addr);
-        
+
         assert_eq!(tx.inputs.len(), 1);
         assert_eq!(tx.outputs.len(), 2);
         assert_eq!(tx.outputs[0].value, 50000);
@@ -579,12 +722,9 @@ mod tests {
         let keypair = Keypair::from_seckey_slice(secp256k1::SECP256K1, &secret_key.secret_bytes()).unwrap();
         let addr1 = Address::new(Prefix::Devnet, Version::PubKey, &public_key.x_only_public_key().0.serialize());
         let addr2 = Address::new(Prefix::Devnet, Version::PubKey, &[0x42; 32]);
-        
+
         let utxos = vec![(
-            TransactionOutpoint {
-                transaction_id: tondi_consensus_core::Hash::from_bytes([0xFF; 32]),
-                index: 0,
-            },
+            TransactionOutpoint { transaction_id: tondi_consensus_core::Hash::from_bytes([0xFF; 32]), index: 0 },
             UtxoEntry {
                 amount: 1000000,
                 script_public_key: tondi_consensus_core::tx::ScriptPublicKey::from_vec(0, vec![0xff; 35]),
@@ -592,10 +732,10 @@ mod tests {
                 is_coinbase: false,
             },
         )];
-        
+
         let target_addresses = vec![&addr1, &addr2];
         let tx = generate_multi_output_tx(keypair, &utxos, 100000, &target_addresses);
-        
+
         assert_eq!(tx.inputs.len(), 1);
         assert_eq!(tx.outputs.len(), 2);
         assert_eq!(tx.outputs[0].value, 50000);
@@ -606,10 +746,7 @@ mod tests {
     fn test_select_utxos() {
         let utxos = vec![
             (
-                TransactionOutpoint {
-                    transaction_id: tondi_consensus_core::Hash::from_bytes([0x01; 32]),
-                    index: 0,
-                },
+                TransactionOutpoint { transaction_id: tondi_consensus_core::Hash::from_bytes([0x01; 32]), index: 0 },
                 UtxoEntry {
                     amount: 100000,
                     script_public_key: tondi_consensus_core::tx::ScriptPublicKey::from_vec(0, vec![0xff; 35]),
@@ -618,10 +755,7 @@ mod tests {
                 },
             ),
             (
-                TransactionOutpoint {
-                    transaction_id: tondi_consensus_core::Hash::from_bytes([0x02; 32]),
-                    index: 0,
-                },
+                TransactionOutpoint { transaction_id: tondi_consensus_core::Hash::from_bytes([0x02; 32]), index: 0 },
                 UtxoEntry {
                     amount: 200000,
                     script_public_key: tondi_consensus_core::tx::ScriptPublicKey::from_vec(0, vec![0xff; 35]),
@@ -630,15 +764,12 @@ mod tests {
                 },
             ),
         ];
-        
-        let fee_config = TxsFeeConfig {
-            priority_fee: 0,
-            randomize_fee: false,
-        };
-        
+
+        let fee_config = TxsFeeConfig { priority_fee: 0, randomize_fee: false };
+
         let mut index = 0;
         let (selected, amount) = select_utxos(&utxos, 50000, 1, false, &mut index, &fee_config);
-        
+
         assert!(!selected.is_empty());
         assert!(amount > 0);
         assert!(index > 0);
@@ -652,13 +783,17 @@ mod tests {
             block_daa_score: 1000,
             is_coinbase: false,
         };
-        
+
         // Test non-coinbase UTXO
-        assert!(!is_utxo_spendable(&entry, 1020, 100)); // Confirmation insufficient
-        
+        // block_daa_score: 1000, needed_confs: 10, virtual_daa_score: 1020
+        // 1000 + 10 = 1010 < 1020, so it should be spendable
+        assert!(is_utxo_spendable(&entry, 1020, 100)); // Confirmation sufficient
+
         entry.block_daa_score = 1015;
+        // block_daa_score: 1015, needed_confs: 10, virtual_daa_score: 1020
+        // 1015 + 10 = 1025 > 1020, so it should not be spendable
         assert!(!is_utxo_spendable(&entry, 1020, 100)); // Confirmation insufficient
-        
+
         // Test coinbase UTXO
         entry.is_coinbase = true;
         entry.block_daa_score = 1000;
@@ -681,8 +816,10 @@ mod tests {
             outputs_per_tx: 1,
             priority_fee: 0,
             randomize_fee: false,
+            generate_addresses: None,
+            output_file: None,
         };
-        
+
         assert_eq!(config.tps, 1);
         assert_eq!(config.threads, 2);
         assert_eq!(config.outputs_per_tx, 1);
@@ -728,7 +865,7 @@ mod tests {
         println!("XOnlyPublicKey: {xpub}");
         let addr = Address::new(Prefix::Devnet, ADDRESS_VERSION, &xpub.serialize());
         println!("Address: {addr}");
-        
+
         // Validate address format
         assert!(format!("{addr}").starts_with("tondidev:"));
     }

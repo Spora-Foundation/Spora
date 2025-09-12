@@ -1,29 +1,44 @@
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::io::{self, Write};
+use std::sync::{Arc, Mutex};
 
 use clap::{Arg, ArgAction, Command};
-use parking_lot::Mutex;
-use rayon::prelude::*;
-use secp256k1::{
-    rand::thread_rng,
-    Keypair,
-};
-use tokio::time::{interval, Instant, MissedTickBehavior};
+use secp256k1::{rand::thread_rng, Keypair};
 use tondi_addresses::Address;
-use tondi_consensus_core::{
-    config::params::TESTNET_PARAMS,
-    tx::TransactionOutpoint,
-};
-use tondi_core::{info, time::unix_now, tondid_env::version, warn};
-use tondi_grpc_client::{ClientPool, GrpcClient};
+use tondi_core::{error, info, time::unix_now, tondid_env::version};
+use tondi_grpc_client::GrpcClient;
 use tondi_notify::subscription::context::SubscriptionContext;
-use tondi_rpc_core::{api::rpc::RpcApi, notify::mode::NotificationMode};
+use tondi_rpc_core::notify::mode::NotificationMode;
 
+use std::fs;
 use treasure_boy::{
-    load_addresses_from_file, new_rpc_client, pause_if_mempool_is_full, refresh_utxos,
-    should_maximize_inputs, clean_old_pending_outpoints, maybe_send_tx,
-    AddressDistributionTracker, Config, Stats, TxsFeeConfig, ClientPoolArg,
-    MILLIS_PER_TICK, ADDRESS_PREFIX, ADDRESS_VERSION,
+    ask_batch_count, batch_airdrop, load_addresses_from_file, single_airdrop, AddressDistributionTracker, Config, Stats, TxsFeeConfig,
+    ADDRESS_PREFIX, ADDRESS_VERSION, DEFAULT_SEND_AMOUNT,
 };
+
+fn generate_addresses(count: u32, output_file: Option<String>) -> Result<(), Box<dyn std::error::Error>> {
+    let mut addresses = Vec::new();
+
+    for _ in 0..count {
+        let (_sk, pk) = secp256k1::generate_keypair(&mut thread_rng());
+        let address = Address::new(ADDRESS_PREFIX, ADDRESS_VERSION, &pk.x_only_public_key().0.serialize());
+        addresses.push(format!("{}", String::from(&address)));
+    }
+
+    let content = addresses.join("\n");
+
+    match output_file {
+        Some(file_path) => {
+            fs::write(&file_path, content)?;
+            info!("Generated {} addresses and saved to: {}", count, file_path);
+        }
+        None => {
+            println!("Generated {} addresses:", count);
+            println!("{}", content);
+        }
+    }
+
+    Ok(())
+}
 
 fn cli() -> Command {
     Command::new("treasure_boy")
@@ -56,7 +71,13 @@ fn cli() -> Command {
         )
         .arg(Arg::new("unleashed").long("unleashed").action(ArgAction::SetTrue).hide(true).help("Allow higher TPS"))
         .arg(Arg::new("addr").long("to-addr").short('a').value_name("addr").help("address to send to"))
-        .arg(Arg::new("address-file").long("address-file").short('F').value_name("file").help("file containing addresses for batch airdrop (one address per line)"))
+        .arg(
+            Arg::new("address-file")
+                .long("address-file")
+                .short('F')
+                .value_name("file")
+                .help("file containing addresses for batch airdrop (one address per line)"),
+        )
         .arg(
             Arg::new("outputs-per-tx")
                 .long("outputs-per-tx")
@@ -84,6 +105,21 @@ fn cli() -> Command {
                 .default_value("false")
                 .help("Randomize transaction priority fee"),
         )
+        .arg(
+            Arg::new("generate-addresses")
+                .long("generate-addresses")
+                .short('g')
+                .value_name("count")
+                .value_parser(clap::value_parser!(u32))
+                .help("Generate specified number of random addresses and save to file"),
+        )
+        .arg(
+            Arg::new("output-file")
+                .long("output-file")
+                .short('O')
+                .value_name("file")
+                .help("Output file for generated addresses (used with --generate-addresses)"),
+        )
 }
 
 fn parse_args() -> Config {
@@ -99,6 +135,8 @@ fn parse_args() -> Config {
         outputs_per_tx: m.get_one::<u64>("outputs-per-tx").cloned().unwrap_or(1),
         priority_fee: m.get_one::<u64>("priority-fee").cloned().unwrap_or(0),
         randomize_fee: m.get_one::<bool>("randomize-fee").cloned().unwrap_or(false),
+        generate_addresses: m.get_one::<u32>("generate-addresses").cloned(),
+        output_file: m.get_one::<String>("output-file").cloned(),
     }
 }
 
@@ -106,39 +144,36 @@ fn parse_args() -> Config {
 async fn main() {
     tondi_core::log::init_logger(None, "");
     let args = parse_args();
-    let stats = Arc::new(Mutex::new(Stats { num_txs: 0, since: unix_now(), num_utxos: 0, utxos_amount: 0, num_outs: 0 }));
-    let subscription_context = SubscriptionContext::new();
-    let rpc_client = GrpcClient::connect_with_args(
-        NotificationMode::Direct,
-        format!("grpc://{}", args.rpc_server),
-        Some(subscription_context.clone()),
-        true,
-        None,
-        false,
-        Some(500_000),
-        Default::default(),
-    )
-    .await
-    .expect("Critical error: failed to connect to the RPC server.");
 
-    info!("Connected to RPC");
+    // If address generation mode is specified, generate addresses and exit
+    if let Some(count) = args.generate_addresses {
+        match generate_addresses(count, args.output_file) {
+            Ok(_) => return,
+            Err(e) => {
+                eprintln!("Error generating addresses: {}", e);
+                std::process::exit(1);
+            }
+        }
+    }
 
-    let mut pending: HashMap<TransactionOutpoint, Instant> = HashMap::new();
-
+    // Check private key, error if no private key provided
     let schnorr_key = if let Some(private_key_hex) = args.private_key {
         let mut private_key_bytes = [0u8; 32];
-        faster_hex::hex_decode(private_key_hex.as_bytes(), &mut private_key_bytes).unwrap();
-        Keypair::from_seckey_slice(secp256k1::SECP256K1, &private_key_bytes).unwrap()
+        if let Err(e) = faster_hex::hex_decode(private_key_hex.as_bytes(), &mut private_key_bytes) {
+            eprintln!("Error: Invalid hex format for private key: {}", e);
+            std::process::exit(1);
+        }
+        match Keypair::from_seckey_slice(secp256k1::SECP256K1, &private_key_bytes) {
+            Ok(keypair) => keypair,
+            Err(e) => {
+                eprintln!("Error: Invalid private key: {}", e);
+                std::process::exit(1);
+            }
+        }
     } else {
-        let (sk, pk) = &secp256k1::generate_keypair(&mut thread_rng());
-        let tondi_addr = Address::new(ADDRESS_PREFIX, ADDRESS_VERSION, &pk.x_only_public_key().0.serialize());
-        info!(
-            "Generated private key {} and address {}. Send some funds to this address and rerun treasure_boy with `--private-key {}`",
-            sk.display_secret(),
-            String::from(&tondi_addr),
-            sk.display_secret()
-        );
-        return;
+        eprintln!("Error: --private-key is required for transaction operations");
+        eprintln!("Use --generate-addresses to generate random addresses");
+        std::process::exit(1);
     };
 
     let tondi_addr = Address::new(ADDRESS_PREFIX, ADDRESS_VERSION, &schnorr_key.x_only_public_key().0.serialize());
@@ -155,24 +190,84 @@ async fn main() {
             }
         }
     } else if let Some(addr_str) = &args.addr {
-        vec![Address::try_from(addr_str.clone()).unwrap()]
+        match Address::try_from(addr_str.clone()) {
+            Ok(addr) => vec![addr],
+            Err(e) => {
+                eprintln!("Error: Invalid address '{}': {}", addr_str, e);
+                std::process::exit(1);
+            }
+        }
     } else {
-        vec![tondi_addr.clone()]
+        // If no target addresses specified, ask user to generate addresses
+        println!("No target addresses specified.");
+        println!("Options:");
+        println!("  1. Generate addresses for batch airdrop");
+        println!("  2. Use current address for single transaction");
+        println!("  3. Exit");
+        print!("Choose option (1-3): ");
+        io::stdout().flush().unwrap();
+
+        let mut input = String::new();
+        std::io::stdin().read_line(&mut input).unwrap();
+        let choice = input.trim();
+
+        match choice {
+            "1" => {
+                match ask_batch_count() {
+                    Ok(count) => {
+                        let temp_file = format!("temp_addresses_{}.txt", std::process::id());
+                        if let Err(e) = generate_addresses(count, Some(temp_file.clone())) {
+                            eprintln!("Error generating addresses: {}", e);
+                            return;
+                        }
+                        match load_addresses_from_file(&temp_file) {
+                            Ok(addresses) => {
+                                std::fs::remove_file(&temp_file).ok(); // Clean up temp file
+                                addresses
+                            }
+                            Err(e) => {
+                                eprintln!("Error loading generated addresses: {}", e);
+                                std::fs::remove_file(&temp_file).ok(); // Clean up temp file
+                                return;
+                            }
+                        }
+                    }
+                    Err(_) => {
+                        println!("Operation cancelled.");
+                        return;
+                    }
+                }
+            }
+            "2" => {
+                vec![tondi_addr.clone()]
+            }
+            "3" => {
+                println!("Exiting...");
+                return;
+            }
+            _ => {
+                println!("Invalid choice. Using current address for single transaction.");
+                vec![tondi_addr.clone()]
+            }
+        }
     };
 
     let fee_config = TxsFeeConfig { priority_fee: args.priority_fee, randomize_fee: args.randomize_fee };
-    
-    // 创建地址分发跟踪器
-    let mut address_tracker = AddressDistributionTracker::new(target_addresses.clone());
+
+    // Create address distribution tracker
+    let _address_tracker = AddressDistributionTracker::new(target_addresses.clone());
 
     rayon::ThreadPoolBuilder::new().num_threads(args.threads as usize).build_global().unwrap();
 
+    // Display configuration information (before connecting RPC)
     let mut log_message = format!(
         "Using Treasure Boy with:\n\
         \tprivate key: {}\n\
-        \tfrom address: {}",
+        \tfrom address: {}\n\
+        \trpc server: {}",
         schnorr_key.display_secret(),
-        String::from(&tondi_addr)
+        String::from(&tondi_addr),
+        args.rpc_server
     );
     if args.address_file.is_some() {
         log_message.push_str(&format!("\n\tbatch airdrop to {} addresses", target_addresses.len()));
@@ -189,125 +284,70 @@ async fn main() {
     }
     info!("{}", log_message);
 
-    let info = rpc_client.get_block_dag_info().await.expect("Failed to get block dag info.");
+    // Only connect RPC server if private key is specified
+    let _stats = Arc::new(Mutex::new(Stats { num_txs: 0, since: unix_now(), num_utxos: 0, utxos_amount: 0, num_outs: 0 }));
+    let subscription_context = SubscriptionContext::new();
+    let rpc_client = GrpcClient::connect_with_args(
+        NotificationMode::Direct,
+        format!("grpc://{}", args.rpc_server),
+        Some(subscription_context.clone()),
+        true,
+        None,
+        false,
+        Some(500_000),
+        Default::default(),
+    )
+    .await
+    .expect("Critical error: failed to connect to the RPC server.");
 
-    let coinbase_maturity = match info.network.suffix {
-        Some(11) => panic!("TN11 is not supported on this version"),
-        None | Some(_) => TESTNET_PARAMS.coinbase_maturity().upper_bound(),
-    };
-    info!(
-        "Node block-DAG info: \n\tNetwork: {}, \n\tBlock count: {}, \n\tHeader count: {}, \n\tDifficulty: {},
-\tMedian time: {}, \n\tDAA score: {}, \n\tPruning point: {}, \n\tTips: {}, \n\t{} virtual parents: ...{}, \n\tCoinbase maturity: {}",
-        info.network,
-        info.block_count,
-        info.header_count,
-        info.difficulty,
-        info.past_median_time,
-        info.virtual_daa_score,
-        info.pruning_point_hash,
-        info.tip_hashes.len(),
-        info.virtual_parent_hashes.len(),
-        info.virtual_parent_hashes.last().unwrap(),
-        coinbase_maturity,
-    );
+    info!("Connected to RPC");
 
-    const CLIENT_POOL_SIZE: usize = 8;
-    let mut rpc_clients = Vec::with_capacity(CLIENT_POOL_SIZE);
-    for _ in 0..CLIENT_POOL_SIZE {
-        rpc_clients.push(Arc::new(new_rpc_client(&subscription_context, &args.rpc_server).await));
-    }
+    // Determine whether to use single airdrop or batch airdrop based on address count
+    if target_addresses.len() == 1 {
+        // Single airdrop
+        info!("Performing single airdrop to: {}", String::from(&target_addresses[0]));
 
-    let submit_tx_pool = ClientPool::new(rpc_clients, 1000);
-    let _ = submit_tx_pool.start(|c, arg: ClientPoolArg| async move {
-        let ClientPoolArg { tx, stats, selected_utxos_len, selected_utxos_amount, pending_len, utxos_len } = arg;
-        match c.submit_transaction(tx.as_ref().into(), false).await {
-            Ok(_) => {
-                let mut stats = stats.lock();
-                stats.num_txs += 1;
-                stats.num_utxos += selected_utxos_len;
-                stats.utxos_amount += selected_utxos_amount;
-                stats.num_outs += tx.outputs.len();
-                let now = unix_now();
-                let time_past = now - stats.since;
-                if time_past > 10_000 {
-                    info!(
-                        "Tx rate: {:.1}/sec, avg UTXO amount: {}, avg UTXOs per tx: {}, avg outs per tx: {}, estimated available UTXOs: {}",
-                        1000f64 * (stats.num_txs as f64) / (time_past as f64),
-                        stats.utxos_amount / stats.num_utxos as u64,
-                        stats.num_utxos / stats.num_txs,
-                        stats.num_outs / stats.num_txs,
-                        utxos_len.saturating_sub(pending_len),
-                    );
-                    stats.since = now;
-                    stats.num_txs = 0;
-                    stats.num_utxos = 0;
-                    stats.utxos_amount = 0;
-                    stats.num_outs = 0;
+        match single_airdrop(schnorr_key, target_addresses[0].clone(), DEFAULT_SEND_AMOUNT, &rpc_client, &fee_config).await {
+            Ok(tx) => {
+                info!("Single airdrop completed successfully");
+                info!("Transaction ID: {:?}", tx.id());
+            }
+            Err(e) => {
+                error!("Single airdrop failed: {}", e);
+                std::process::exit(1);
+            }
+        }
+    } else {
+        // Batch airdrop
+        info!("Performing batch airdrop to {} addresses", target_addresses.len());
+
+        match batch_airdrop(
+            schnorr_key,
+            target_addresses,
+            DEFAULT_SEND_AMOUNT,
+            args.outputs_per_tx,
+            &rpc_client,
+            &fee_config,
+            args.threads as usize,
+        )
+        .await
+        {
+            Ok(txs) => {
+                info!("Batch airdrop completed successfully");
+                info!("Sent {} transactions", txs.len());
+
+                // Display first few transaction IDs
+                for (i, tx) in txs.iter().take(5).enumerate() {
+                    info!("Transaction {}: {:?}", i + 1, tx.id());
+                }
+                if txs.len() > 5 {
+                    info!("... and {} more transactions", txs.len() - 5);
                 }
             }
             Err(e) => {
-                let mut tx = tx;
-                tx.finalize();
-                warn!("RPC error when submitting {}: {}", tx.id(), e);
+                error!("Batch airdrop failed: {}", e);
+                std::process::exit(1);
             }
         }
-        false
-    });
-    let tx_sender = submit_tx_pool.sender();
-
-    let target_tps = args.tps.min(if args.unleashed { u64::MAX } else { 100 });
-    let should_tick_per_second = target_tps * MILLIS_PER_TICK / 1000 == 0;
-    let avg_txs_per_tick = if should_tick_per_second { target_tps } else { target_tps * MILLIS_PER_TICK / 1000 };
-    let mut utxos = refresh_utxos(&rpc_client, tondi_addr.clone(), &mut pending, coinbase_maturity).await;
-    let mut ticker = interval(Duration::from_millis(if should_tick_per_second { 1000 } else { MILLIS_PER_TICK }));
-    ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
-
-    let mut maximize_inputs = false;
-    let mut last_refresh = unix_now();
-    // This allows us to keep track of the UTXOs we already tried to use for this period
-    // until the UTXOs are refreshed. At that point, this will be reset as well.
-    let mut next_available_utxo_index = 0;
-    // Tracker so we can try to send as close as possible to the target TPS
-    let mut remaining_txs_in_interval = target_tps;
-
-    loop {
-        ticker.tick().await;
-        maximize_inputs = should_maximize_inputs(maximize_inputs, &utxos, &pending);
-        let txs_to_send = if remaining_txs_in_interval > avg_txs_per_tick * 2 {
-            remaining_txs_in_interval -= avg_txs_per_tick;
-            avg_txs_per_tick
-        } else {
-            let count = remaining_txs_in_interval;
-            remaining_txs_in_interval = target_tps;
-            count
-        };
-
-        let now = unix_now();
-        let has_funds = maybe_send_tx(
-            txs_to_send,
-            &tx_sender,
-            &mut address_tracker,
-            &mut utxos,
-            &mut pending,
-            schnorr_key,
-            stats.clone(),
-            maximize_inputs,
-            &mut next_available_utxo_index,
-            &fee_config,
-            args.outputs_per_tx,
-        )
-        .await;
-        if !has_funds {
-            info!("Has not enough funds");
-        }
-        if !has_funds || now - last_refresh > 60_000 {
-            info!("Refetching UTXO set");
-            tokio::time::sleep(Duration::from_millis(100)).await; // We don't want this operation to be too frequent since its heavy on the node, so we wait some time before executing it.
-            utxos = refresh_utxos(&rpc_client, tondi_addr.clone(), &mut pending, coinbase_maturity).await;
-            last_refresh = unix_now();
-            next_available_utxo_index = 0;
-            pause_if_mempool_is_full(&rpc_client).await;
-        }
-        clean_old_pending_outpoints(&mut pending);
     }
 }
