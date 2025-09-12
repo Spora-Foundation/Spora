@@ -1,0 +1,8 @@
+# Example addresses for batch airdrop
+# Each address should be on a separate line
+# Lines starting with # are comments and will be ignored
+
+# Test addresses (these are example addresses, replace with real ones)
+tondidev:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvw88ne6
+tondidev:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvw88ne6
+tondidev:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvw88ne6

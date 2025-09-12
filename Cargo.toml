@@ -55,7 +55,7 @@ members = [
     # "testing/integration",
     "utils",
     "utils/tower",
-    "rothschild",
+    "treasure_boy",
     "metrics/core",
     "metrics/perf_monitor",
     "utils/alloc",

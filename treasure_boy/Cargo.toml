@@ -1,5 +1,5 @@
 [package]
-name = "rothschild"
+name = "treasure_boy"
 description = "Tondi Transaction Generator"
 rust-version.workspace = true
 version.workspace = true
@@ -8,6 +8,10 @@ authors.workspace = true
 include.workspace = true
 license.workspace = true
 repository.workspace = true
+
+[[bin]]
+name = "treasure_boy"
+path = "src/bin/treasure_boy.rs"
 
 [dependencies]
 tondi-addresses.workspace = true
@@ -32,6 +36,7 @@ tokio = { workspace = true, features = ["rt", "macros", "rt-multi-thread"] }
 
 [dev-dependencies]
 criterion.workspace = true
+tempfile = "3.8.1"
 
 [[bench]]
 name = "bench"
