@@ -49,7 +49,7 @@ fn test_cli_generate_addresses() {
     // Should display generated addresses
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Generated 3 addresses:"));
-    assert!(stdout.contains("tondidev:"));
+    assert!(stdout.contains("tonditest:"));
 }
 
 #[test]
@@ -70,8 +70,8 @@ fn test_cli_generate_addresses_to_file() {
     let file_content = std::fs::read_to_string(temp_path).unwrap();
     let lines: Vec<&str> = file_content.lines().collect();
     assert_eq!(lines.len(), 2);
-    assert!(lines[0].starts_with("tondidev:"));
-    assert!(lines[1].starts_with("tondidev:"));
+    assert!(lines[0].starts_with("tonditest:"));
+    assert!(lines[1].starts_with("tonditest:"));
 }
 
 #[test]
@@ -79,8 +79,8 @@ fn test_cli_with_address_file() {
     // Create temporary address file
     let mut temp_file = NamedTempFile::new().unwrap();
     let addresses_content = r#"# Test addresses
-tondidev:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvw88ne6
-tondidev:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvw88ne6
+tonditest:qr556222uq03hzf3nvxfl45x3ek07lrh7tp88xw2eh6tpuw2m9qs5e8tzc8
+tonditest:qpl979v8dyhfw8v2d7x5rwre5ghph9d8jy0z8md06dnldkark3fs6wntgqx
 "#;
 
     temp_file.write_all(addresses_content.as_bytes()).unwrap();
@@ -93,7 +93,7 @@ tondidev:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvw88ne6
             "treasure_boy",
             "--",
             "--private-key",
-            "ce6cd3c38d45f749794796441d3208c37699030c5f62becf06b390242b95fb88",
+            "c99b1ccf1087af2a56ffedb885943962e0159a7705cac583eef3e9958cd035b3",
             "--address-file",
             temp_file.path().to_str().unwrap(),
             "--outputs-per-tx",
@@ -120,9 +120,9 @@ fn test_cli_with_single_address() {
             "treasure_boy",
             "--",
             "--private-key",
-            "ce6cd3c38d45f749794796441d3208c37699030c5f62becf06b390242b95fb88",
+            "c99b1ccf1087af2a56ffedb885943962e0159a7705cac583eef3e9958cd035b3",
             "--to-addr",
-            "tondidev:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvw88ne6",
+            "tonditest:qr556222uq03hzf3nvxfl45x3ek07lrh7tp88xw2eh6tpuw2m9qs5e8tzc8",
             "--tps",
             "5",
             "--threads",
@@ -132,7 +132,7 @@ fn test_cli_with_single_address() {
         .expect("Failed to execute command");
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("to address: tondidev:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvw88ne6"));
+    assert!(stdout.contains("to address: tonditest:qr556222uq03hzf3nvxfl45x3ek07lrh7tp88xw2eh6tpuw2m9qs5e8tzc8"));
 }
 
 #[test]
@@ -144,7 +144,7 @@ fn test_cli_with_priority_fee() {
             "treasure_boy",
             "--",
             "--private-key",
-            "ce6cd3c38d45f749794796441d3208c37699030c5f62becf06b390242b95fb88",
+            "c99b1ccf1087af2a56ffedb885943962e0159a7705cac583eef3e9958cd035b3",
             "--priority-fee",
             "1000",
             "--randomize-fee",
@@ -178,7 +178,7 @@ fn test_cli_default_values() {
             "treasure_boy",
             "--",
             "--private-key",
-            "ce6cd3c38d45f749794796441d3208c37699030c5f62becf06b390242b95fb88",
+            "c99b1ccf1087af2a56ffedb885943962e0159a7705cac583eef3e9958cd035b3",
         ])
         .output()
         .expect("Failed to execute command");
@@ -198,7 +198,7 @@ fn test_cli_unleashed_mode() {
             "treasure_boy",
             "--",
             "--private-key",
-            "ce6cd3c38d45f749794796441d3208c37699030c5f62becf06b390242b95fb88",
+            "c99b1ccf1087af2a56ffedb885943962e0159a7705cac583eef3e9958cd035b3",
             "--unleashed",
             "--tps",
             "1000",

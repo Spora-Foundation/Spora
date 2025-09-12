@@ -7,11 +7,11 @@ fn test_load_addresses_from_file_success() {
     // Create temporary file
     let mut temp_file = NamedTempFile::new().unwrap();
     let addresses_content = r#"# Test address file
-tondidev:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvw88ne6
-tondidev:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvw88ne6
+tonditest:qr556222uq03hzf3nvxfl45x3ek07lrh7tp88xw2eh6tpuw2m9qs5e8tzc8
+tonditest:qpl979v8dyhfw8v2d7x5rwre5ghph9d8jy0z8md06dnldkark3fs6wntgqx
 
 # Another address
-tondidev:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvw88ne6
+tonditest:qpfmfyce6qhzknxgwvsucpdjv9xe20tmn20yc8uclxw87sk858f0k6e72wy
 "#;
 
     temp_file.write_all(addresses_content.as_bytes()).unwrap();
@@ -21,7 +21,7 @@ tondidev:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvw88ne6
     let addresses = load_addresses_from_file(temp_file.path().to_str().unwrap()).unwrap();
 
     assert_eq!(addresses.len(), 3);
-    assert!(addresses.iter().all(|addr| format!("{addr}").starts_with("tondidev:")));
+    assert!(addresses.iter().all(|addr| format!("{addr}").starts_with("tonditest:")));
 }
 
 #[test]
@@ -29,14 +29,14 @@ fn test_load_addresses_from_file_with_invalid_addresses() {
     // Create temporary file with invalid addresses
     let mut temp_file = NamedTempFile::new().unwrap();
     let addresses_content = r#"# Valid addresses
-tondidev:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvw88ne6
+tonditest:qr556222uq03hzf3nvxfl45x3ek07lrh7tp88xw2eh6tpuw2m9qs5e8tzc8
 
 # Invalid addresses
 invalid_address_123
 another_invalid_address
 
 # Another valid address
-tondidev:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvw88ne6
+tonditest:qpl979v8dyhfw8v2d7x5rwre5ghph9d8jy0z8md06dnldkark3fs6wntgqx
 "#;
 
     temp_file.write_all(addresses_content.as_bytes()).unwrap();
@@ -46,7 +46,7 @@ tondidev:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvw88ne6
     let addresses = load_addresses_from_file(temp_file.path().to_str().unwrap()).unwrap();
 
     assert_eq!(addresses.len(), 2);
-    assert!(addresses.iter().all(|addr| format!("{addr}").starts_with("tondidev:")));
+    assert!(addresses.iter().all(|addr| format!("{addr}").starts_with("tonditest:")));
 }
 
 #[test]
@@ -71,9 +71,9 @@ fn test_address_distribution_tracker_integration() {
     use tondi_addresses::{Address, Prefix, Version};
 
     let addresses = vec![
-        Address::new(Prefix::Devnet, Version::PubKey, &[1; 32]),
-        Address::new(Prefix::Devnet, Version::PubKey, &[2; 32]),
-        Address::new(Prefix::Devnet, Version::PubKey, &[3; 32]),
+        Address::new(Prefix::Testnet, Version::PubKey, &[1; 32]),
+        Address::new(Prefix::Testnet, Version::PubKey, &[2; 32]),
+        Address::new(Prefix::Testnet, Version::PubKey, &[3; 32]),
     ];
 
     let mut tracker = AddressDistributionTracker::new(addresses.clone());
@@ -111,6 +111,7 @@ fn test_config_validation() {
         generate_addresses: None,
         output_file: None,
         network: NetworkType::Testnet,
+        send_amount: 1000000,
     };
 
     assert_eq!(config.tps, 10);
@@ -139,7 +140,7 @@ fn test_address_distribution_fairness() {
     use tondi_addresses::{Address, Prefix, Version};
 
     let addresses =
-        vec![Address::new(Prefix::Devnet, Version::PubKey, &[1; 32]), Address::new(Prefix::Devnet, Version::PubKey, &[2; 32])];
+        vec![Address::new(Prefix::Testnet, Version::PubKey, &[1; 32]), Address::new(Prefix::Testnet, Version::PubKey, &[2; 32])];
 
     let mut tracker = AddressDistributionTracker::new(addresses);
 
@@ -162,9 +163,9 @@ fn test_address_distribution_with_large_outputs() {
     use tondi_addresses::{Address, Prefix, Version};
 
     let addresses = vec![
-        Address::new(Prefix::Devnet, Version::PubKey, &[1; 32]),
-        Address::new(Prefix::Devnet, Version::PubKey, &[2; 32]),
-        Address::new(Prefix::Devnet, Version::PubKey, &[3; 32]),
+        Address::new(Prefix::Testnet, Version::PubKey, &[1; 32]),
+        Address::new(Prefix::Testnet, Version::PubKey, &[2; 32]),
+        Address::new(Prefix::Testnet, Version::PubKey, &[3; 32]),
     ];
 
     let mut tracker = AddressDistributionTracker::new(addresses);
