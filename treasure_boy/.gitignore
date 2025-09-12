@@ -1,0 +1,26 @@
+# Generated address files
+*.txt
+*.log
+generated_addresses.txt
+clean_addresses.txt
+valid_addresses.txt
+test_addresses.txt
+my_addresses.txt
+
+# Temporary files
+temp_*.txt
+test_*.txt
+
+# Build artifacts
+target/
+Cargo.lock
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
