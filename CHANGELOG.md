@@ -1,11 +1,5 @@
 # Changelog
-
-All notable changes to the Tondi project are documented in this file.
-
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-
-## [1.0.0] - 2024-12-19
+## [1.0.0] - 2025-09-14
 
 ### 🎉 Initial Release
 
@@ -26,27 +20,6 @@ This is the first major release of Tondi, a high-performance PoW programmable se
 - **Bech32m Address Support**: Native support for Bech32m address encoding
 - **Taproot Script Spend**: Support for Taproot script path spending
 - **Taproot Key Spend**: Support for Taproot key path spending
-
-#### Advanced Cryptographic Features
-- **MuSig2 Integration**: Native support for MuSig2 multisignature schemes
-- **Adaptor Signatures**: Implementation of adaptor signature protocols for enhanced privacy
-- **Schnorr Batch Signatures**: Parallel signature verification for improved performance
-- **Cross-Input Signature Aggregation (CISA)**: Reduces transaction size by 30-50%
-
-#### Layer 2 Infrastructure
-- **Channel Factories**: Multi-party channel support for reduced on-chain footprint
-- **Eltoo Protocol**: Simplified channel update mechanisms
-- **ANYPREVOUT (APO)**: Foundation for advanced channel operations
-- **PTLC Support**: Privacy-enhanced conditional payments
-- **Native Channel Extensions**: Built-in support for Layer 2 channel operations
-
-#### FUN20 Token Standard
-- **Dual Deployment Models**: Support for both Deploy-Mint and Deploy-Issue token types
-- **Deterministic CBOR Encoding**: Secure and efficient token data serialization
-- **CRS (Canonical Resolution Spec)**: Deterministic event ordering with MEV resistance
-- **Lightweight Governance**: Built-in token governance mechanisms
-- **Blacklist Support**: Policy-layer blacklisting capabilities
-- **Ecosystem Expansion**: Reserved fields for zk/bridge integration
 
 ### 🛠️ New Components
 
@@ -72,74 +45,14 @@ This is the first major release of Tondi, a high-performance PoW programmable se
 - **Address Management**: Improved address generation and management
 - **Enhanced CLI**: Better user experience with improved prompts and pretty mode
 
-### 🔧 Technical Improvements
-
-#### Consensus & Performance
-- **GHOSTDAG Optimization**: Enhanced parallel block processing
-- **Mempool Improvements**: Parallel mempool ordering and validation
-- **Database Upgrades**: Updated RocksDB version for better performance
-- **Memory Management**: Improved memory allocation and garbage collection
-
-#### Security & Compliance
-- **Domain-Separated Digests**: Enhanced cryptographic security
-- **Chain Isolation**: Improved chain separation and replay protection
-- **Selective Disclosure**: Support for privacy-preserving metadata
-- **Formal Verification**: Core parsers require formal verification (TLA+/Coq)
-
 #### Developer Experience
 - **Comprehensive Documentation**: Extensive API documentation and usage guides
 - **Test Coverage**: Comprehensive test suite with integration tests
 - **CLI Improvements**: Enhanced command-line interface with better UX
 - **Error Handling**: Improved error messages and handling throughout the codebase
 
-### 🌐 Network & Infrastructure
-
-#### Multi-Network Support
-- **Mainnet**: Production network with `tondi:` address prefix
-- **Testnet**: Development network with `tonditest:` address prefix  
-- **Devnet**: Development network with `tondidev:` address prefix
-- **DNS Seeders**: Updated DNS seeders for improved network discovery
-
-#### Address System
-- **Unified Address Format**: Consistent address encoding across all networks
-- **Dynamic Address Derivation**: Improved address generation and validation
-- **Checksum Validation**: Enhanced address validation and error handling
-
-### 📊 Metrics & Monitoring
-
-#### Performance Monitoring
-- **Built-in Metrics**: Comprehensive performance monitoring and metrics collection
-- **Performance Profiler**: Advanced profiling capabilities for optimization
-- **Resource Monitoring**: CPU, memory, and network resource tracking
-
-### 🔄 Migration & Compatibility
-
-#### From Kaspa
-- **Smooth Migration Path**: Clear migration guide from Kaspa to Tondi
-- **Backward Compatibility**: Maintained compatibility where possible
-- **Enhanced Features**: Significant improvements over original Kaspa implementation
-
-#### Bitcoin Ecosystem
-- **Taproot Native**: First protocol fully compatible with BTC Taproot ecosystem
-- **RGB Protocol Support**: Ideal hosting platform for RGB protocol maturation
-- **Bitcoin BIPs**: Experimental ground for unadopted Bitcoin BIPs (Copperfield Plan)
-
-### 🏗️ Architecture Decisions
-
-#### Design Philosophy
-- **Performance First**: Optimized for high-throughput scenarios
-- **Minimal Script**: No general-purpose VM, focused on state anchoring
-- **Channel-First**: Native support for Layer 2 channel operations
-- **Privacy by Design**: Built-in privacy features and selective disclosure
-
-#### Technical Stack
-- **Rust Implementation**: High-performance Rust implementation
-- **WASM Support**: WebAssembly support for browser and Node.js environments
-- **Cross-Platform**: Support for multiple operating systems and architectures
-- **Modular Design**: Clean separation of concerns with modular architecture
 
 ### 📈 Performance Benchmarks
-
 #### Throughput Comparison
 - **vs Bitcoin**: 15,000-25,000 TPS vs 7 TPS (2,000-3,500x improvement)
 - **vs Kaspa**: 1-2x improvement over original Kaspa implementation
@@ -151,23 +64,7 @@ This is the first major release of Tondi, a high-performance PoW programmable se
 - **Block Frequency**: Dynamic ≥10 blocks/second
 - **Latency**: Sub-second transaction confirmation
 
-### 🔮 Future Roadmap
-
-#### Copperfield Plan
-- **BIP Experimental Ground**: Testing unadopted Bitcoin BIPs
-- **Channel Innovations**: ANYPREVOUT, Channel Factories, CTV
-- **Privacy Enhancements**: PTLC, CISA, Native MuSig2
-- **Performance Optimizations**: UTreeXO, AssumeUTXO
-- **Smart Contracts**: OP_VAULT, OP_CAT, OP_CSFS
-
-#### Ecosystem Development
-- **RGB Integration**: Full RGB protocol support and optimization
-- **Cross-Chain Bridges**: EVM/zkRollup/DA integration
-- **Developer Tools**: Enhanced SDKs and development frameworks
-- **Enterprise Features**: Compliance and audit-ready features
-
 ### 🐛 Bug Fixes
-
 #### Core Fixes
 - Fixed coin type legacy issues
 - Resolved GRPC client call problems
@@ -195,12 +92,6 @@ This is the first major release of Tondi, a high-performance PoW programmable se
 - **Developer Guides**: Step-by-step development and integration guides
 - **CLI Documentation**: Complete command-line interface documentation
 - **Security Guidelines**: Security best practices and recommendations
-
-#### Community Resources
-- **README Files**: Comprehensive project overview and setup instructions
-- **Examples**: Code examples and usage patterns
-- **Tutorials**: Step-by-step tutorials for common use cases
-- **FAQ**: Frequently asked questions and troubleshooting
 
 ### 🏆 Acknowledgments
 
@@ -243,11 +134,11 @@ This release represents the culmination of extensive development work by the Ton
 
 ### Repository
 - **GitHub**: https://github.com/AvatoLabs/Tondi
-- **License**: ISC
+- **License**: MIT
 - **Authors**: Tondi developers
 
 ### Build Requirements
-- **Rust**: 1.82.0 or later
+- **Rust**: 1.89.0 or later
 - **Platform**: Linux, macOS, Windows
 - **Architecture**: x86_64, ARM64
 
@@ -269,7 +160,3 @@ cargo build --release
 # Generate transactions with Treasure Boy
 cargo run --package treasure_boy -- --help
 ```
-
----
-
-*This changelog is automatically generated and maintained by the Tondi development team. For the most up-to-date information, please refer to the project repository.*
