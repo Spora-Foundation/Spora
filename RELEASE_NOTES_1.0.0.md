@@ -1,250 +1,135 @@
-# Tondi 1.0.0 发布说明
+# Tondi Chain v1.0.0 Release Notes
 
-## 🎉 重大里程碑：Tondi 1.0.0 正式发布
+## Overview
 
-**发布日期**: 2025年1月15日  
-**版本类型**: 主要版本 (Major Release)  
-**代号**: "Foundation" - 奠定基础
+Tondi Chain v1.0.0 represents the first major release of the Tondi blockchain platform, featuring a comprehensive blockchain implementation with advanced cryptographic capabilities, modern wallet functionality, and robust consensus mechanisms.
 
----
+## Major Features
 
-## 📋 版本概述
+### 🏗️ Core Blockchain Infrastructure
+- **Complete blockchain implementation** with full consensus protocol
+- **Advanced cryptographic primitives** including BLAKE3 hashing, Schnorr signatures, and MuHash
+- **UTXO-based transaction model** with comprehensive validation
+- **Block validation and processing** with isolation and commitment mechanisms
+- **Merkle tree implementation** for efficient data verification
 
-Tondi 1.0.0 标志着项目从开发阶段正式进入生产就绪状态。这是首个稳定版本，为高性能PoW可编程结算层奠定了坚实的基础。本版本统一了所有workspace组件的版本号为1.0.0，确保了整个生态系统的版本一致性。
+### 🔐 Cryptographic Features
+- **BLAKE3 hash function** integration for enhanced security and performance
+- **Schnorr signature support** for modern cryptographic operations
+- **Taproot compatibility** with Bitcoin Taproot OP_SUCCESS opcodes
+- **Bech32m address support** for advanced address formats
+- **Multi-signature (multisig) support** for enhanced security
+- **HD wallet implementation** with BIP32/BIP44 standards
 
----
+### 💰 Wallet System
+- **Comprehensive wallet core** with native and WASM support
+- **HD wallet functionality** with proper key derivation
+- **PSTT (Private Send Transaction Token)** implementation
+- **Multi-network support** (mainnet, testnet, devnet)
+- **Advanced CLI wallet** with improved user experience
+- **WASM wallet support** for web applications
 
-## 🚀 核心特性
+### 🌐 Network & P2P
+- **Peer-to-peer networking** with robust connection management
+- **Protocol flows** for efficient blockchain synchronization
+- **Address management** with dynamic peer discovery
+- **Connection management** with automatic reconnection
+- **DNS seeders** for network bootstrap
 
-### 1. 高性能PoW DAG架构
-- **共识机制**: 基于GHOSTDAG，实现并行区块处理
-- **哈希算法**: 采用Blake3，性能远超SHA256
-- **吞吐量**: 峰值15,000-25,000 TPS
-- **确认时间**: 1-2秒快速确认
+### ⛏️ Mining & Consensus
+- **Proof-of-Work consensus** with optimized mining algorithms
+- **Block template generation** for miners
+- **Mempool management** with transaction prioritization
+- **Fee rate calculation** and optimization
+- **CPU mining support** with performance monitoring
 
-### 2. Bitcoin Taproot兼容性
-- ✅ **OP_SUCCESS兼容**: 实现Bitcoin Taproot OP_SUCCESS兼容性
-- ✅ **Taproot脚本支持**: 支持Taproot key spend和script spend
-- ✅ **Bech32m地址**: 原生支持Bech32m地址格式
-- ✅ **MuSig2支持**: 支持Taproot-MuSig2钱包功能
+### 🔌 RPC & API
+- **Comprehensive RPC API** with gRPC and wRPC support
+- **Block and transaction queries** (get_block_header, get_block_status, get_transaction)
+- **Real-time notifications** with subscription system
+- **Client SDK** for multiple platforms
+- **WebSocket support** for real-time data streaming
 
-### 3. 钱包与CLI系统
-- ✅ **HD钱包**: 支持分层确定性钱包，coin type 7890
-- ✅ **CLI界面**: 增强的用户体验，支持pretty模式切换
-- ✅ **命令系统**: 新增clear命令，改进提示显示
-- ✅ **多网络支持**: 支持主网、测试网等多种网络类型
+### 🛠️ Developer Tools
+- **CLI tool** with enhanced user experience and pretty mode
+- **Treasure Boy testing framework** for comprehensive validation
+- **Integration testing** with simulation capabilities
+- **Performance monitoring** and metrics collection
+- **Comprehensive logging** system
 
-### 4. RPC与API系统
-- ✅ **gRPC服务**: 完整的gRPC客户端和服务器实现
-- ✅ **wRPC协议**: 轻量级RPC协议支持
-- ✅ **API扩展**: 新增get_block_header、get_block_status、get_transaction等API
-- ✅ **客户端库**: 完善的RPC客户端API文档
+### 🌍 Multi-Platform Support
+- **Native Rust implementation** for maximum performance
+- **WASM support** for web applications
+- **Node.js bindings** for server-side applications
+- **Cross-platform compatibility** (Linux, macOS, Windows)
 
----
+## Technical Improvements
 
-## 🔧 技术改进
+### Performance Optimizations
+- **Optimized hash calculations** with BLAKE3 implementation
+- **Efficient UTXO management** with improved indexing
+- **Memory optimization** with better resource management
+- **Parallel processing** for consensus operations
 
-### 共识与挖矿
-- **挖矿优化**: 改进CPU挖矿器性能
-- **内存池**: 并行交易排序与验证
-- **难度调整**: 动态DAA算法优化
+### Security Enhancements
+- **Enhanced signature validation** with updated test vectors
+- **Improved cryptographic primitives** with modern algorithms
+- **Secure key derivation** with proper entropy handling
+- **Transaction validation** with comprehensive checks
 
-### 密码学与安全
-- **签名聚合**: Schnorr批签名支持
-- **哈希优化**: Blake3 SIMD加速
-- **密钥管理**: 改进的密钥派生路径
+### Code Quality
+- **Comprehensive test coverage** with integration tests
+- **Improved error handling** throughout the codebase
+- **Better documentation** with detailed API references
+- **Code refactoring** for maintainability and performance
 
-### 网络与协议
-- **P2P通信**: 优化的点对点网络协议
-- **DNS种子**: 修复测试网DNS种子节点
-- **连接管理**: 改进的连接管理器
+## Breaking Changes
 
----
+- **Unit change**: Satoshi unit renamed to 'sau' (Smallest Addressable Unit)
+- **Coin type**: Updated to 7890 for HD wallet compatibility
+- **Address format**: Support for Bech32m addresses
+- **API changes**: Some RPC endpoints have been updated for better consistency
 
-## 📦 组件更新
+## Migration Guide
 
-### 核心组件
-- **tondi-core**: 核心库功能完善
-- **tondi-consensus**: 共识机制优化
-- **tondi-daemon**: 守护进程改进
-- **tondi-cli**: 命令行界面增强
+### For Developers
+1. Update your dependencies to use the new Tondi crates
+2. Update address handling to support Bech32m format
+3. Update unit references from satoshi to sau
+4. Review RPC API changes for any breaking modifications
 
-### 钱包组件
-- **tondi-wallet**: 原生钱包实现
-- **tondi-wallet-core**: 钱包核心库
-- **tondi-wallet-keys**: 密钥管理
-- **tondi-bip32**: BIP32标准支持
+### For Users
+1. Update wallet software to the latest version
+2. Backup existing wallets before upgrading
+3. Test transactions on testnet before mainnet usage
 
-### 加密组件
-- **tondi-hashes**: 哈希算法库
-- **tondi-addresses**: 地址处理
-- **tondi-txscript**: 交易脚本引擎
-- **tondi-muhash**: MuHash实现
+## Dependencies
 
-### RPC组件
-- **tondi-rpc-core**: RPC核心库
-- **tondi-grpc-***: gRPC服务组件
-- **tondi-wrpc-***: wRPC协议组件
+- **Rust**: Minimum version 1.82.0
+- **RocksDB**: 0.24.0 for database operations
+- **Bitcoin**: Custom fork with Taproot support
+- **Secp256k1**: 0.29.0 for cryptographic operations
 
----
+## Contributors
 
-## 🆕 新增功能
+This release represents the collective effort of the Tondi development team, with contributions spanning:
+- Core blockchain implementation
+- Cryptographic primitives
+- Wallet functionality
+- Network protocols
+- Developer tools
+- Testing and validation
 
-### Treasure Boy库
-- **全新组件**: Treasure Boy测试和验证脚本库
-- **网络支持**: 多网络类型选择支持
-- **测试框架**: 完整的测试和验证脚本
-- **文档完善**: 英文和中文README文档
+## Future Roadmap
 
-### 开发工具
-- **集成测试**: 完整的集成测试套件
-- **性能监控**: 性能监控工具
-- **调试支持**: 增强的调试和日志功能
-
----
-
-## 🔄 重构与优化
-
-### 命名规范化
-- **项目重命名**: 从Kasapa/KAS统一重命名为Tondi/TONDI
-- **组件重命名**: PSKB/PSKT重命名为PSTB/PSTT
-- **清理遗留**: 移除'rusty-tondi'等遗留命名
-
-### 代码质量
-- **代码重构**: 改进代码质量和文档
-- **错误处理**: 统一的错误处理机制
-- **类型安全**: 增强的类型安全性
-
----
-
-## 📚 文档与资源
-
-### 文档更新
-- ✅ **README**: 更新项目信息文档
-- ✅ **API文档**: 完善的RPC客户端API文档
-- ✅ **CLI文档**: 详细的CLI使用文档
-- ✅ **中文文档**: 更新中文README
-
-### 开发资源
-- **示例代码**: 丰富的示例和测试用例
-- **SDK支持**: Rust/Go/TypeScript SDK
-- **工具链**: 完整的开发工具链
+- Enhanced scalability solutions
+- Advanced smart contract capabilities
+- Improved developer tooling
+- Cross-chain interoperability
+- Performance optimizations
 
 ---
 
-## 🐛 错误修复
-
-### 关键修复
-- **交易ID生成**: 修复交易ID生成问题
-- **钱包测试**: 修复HD钱包测试用例
-- **网络配置**: 修复测试网DNS种子节点
-- **构建系统**: 修复WASM SDK构建问题
-
-### 稳定性改进
-- **内存管理**: 改进内存使用效率
-- **并发处理**: 优化并发处理性能
-- **错误恢复**: 增强错误恢复机制
-
----
-
-## 🔮 技术路线图
-
-### Copperfield计划
-Tondi 1.0.0为Copperfield计划奠定了基础，该计划旨在将Tondi打造成比特币未采纳BIP的实验田：
-
-- **ANYPREVOUT (APO)**: Eltoo协议支持
-- **Channel Factories**: 多方通道工厂
-- **CISA**: 跨输入Schnorr聚合
-- **PTLC**: 隐私增强条件支付
-- **FUN20**: 轻量级代币标准
-
-### 未来版本
-- **v1.1.0**: 预计2025年Q2，重点优化性能
-- **v1.2.0**: 预计2025年Q3，新增Layer 2功能
-- **v2.0.0**: 预计2026年，FUN20主网激活
-
----
-
-## 🏗️ 架构亮点
-
-### 性能优势
-- **vs Bitcoin**: 吞吐量提升数千倍 (7 TPS → 15,000-25,000 TPS)
-- **vs Solana**: 无账户模型，硬件要求更低
-- **vs ETH L2**: 独立成本结构，专注状态锚定
-
-### 技术特色
-- **无状态UTXO**: 避免全局状态同步
-- **客户端验证**: 优先客户端验证架构
-- **硬件友好**: 极低运行门槛
-
----
-
-## 🎯 应用场景
-
-### 主要用例
-- **稳定币结算**: 低费用、高隐私的稳定币网络
-- **高频交易**: 支持DeFi撮合和内容支付
-- **BTC Layer 2**: RGB和Taproot资产的最佳锚定平台
-- **合规支付**: 支持选择性披露和零知识审计
-
----
-
-## 📈 性能指标
-
-| 指标 | 数值 |
-|------|------|
-| 峰值TPS | 15,000-25,000 |
-| 确认时间 | 1-2秒 |
-| 区块频率 | ≥10 blocks/sec |
-| 哈希算法 | Blake3 |
-| 共识机制 | GHOSTDAG |
-
----
-
-## 🔗 相关链接
-
-- **官网**: [tondi.org](https://tondi.org/)
-- **浏览器**: [explorer.tondi.org](https://explorer.tondi.org/)
-- **仪表盘**: [dashboard.tondi.org](https://dashboard.tondi.org/)
-- **研发博客**: [avato.hashnode.dev](https://avato.hashnode.dev/)
-
----
-
-## 👥 贡献者
-
-感谢所有为Tondi 1.0.0做出贡献的开发者和社区成员：
-
-- **yosei-tsukifune**: 核心开发，钱包系统，CLI界面
-- **Neo**: RPC系统，网络协议，测试网维护
-- **Avato Labs团队**: 架构设计，协议开发
-- **Tondi Foundation**: 项目治理，社区建设
-
----
-
-## 📝 升级指南
-
-### 从0.17.0升级
-1. 更新所有依赖到1.0.0版本
-2. 重新编译项目: `cargo build --release`
-3. 更新配置文件以使用新的网络参数
-4. 迁移钱包数据（如需要）
-
-### 兼容性说明
-- **向后兼容**: 与0.17.0版本保持向后兼容
-- **数据迁移**: 钱包数据格式保持兼容
-- **网络协议**: 网络协议向后兼容
-
----
-
-## 🎊 结语
-
-Tondi 1.0.0的发布标志着项目进入了一个新的阶段。作为高性能PoW可编程结算层，Tondi为未来的货币层解锁了性能与隐私的边界。
-
-这个版本不仅是一个技术里程碑，更是对Bitcoin生态未来发展的积极探索。通过Copperfield计划，Tondi将成为比特币未采纳BIP的实验田，为整个区块链生态的发展贡献力量。
-
-感谢所有支持Tondi发展的社区成员，让我们一起迎接高性能区块链的未来！
-
----
-
-**Tondi团队**  
-2025年1月15日
+**Release Date**: December 2024  
+**Repository**: https://github.com/AvatoLabs/Tondi  
+**License**: ISC
