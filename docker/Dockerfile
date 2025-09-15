@@ -26,13 +26,15 @@ RUN sudo apt-get install -y ca-certificates curl vim git git-lfs
 RUN sudo apt-get install -y build-essential cmake libssl-dev pkg-config
 
 # Rust toolchain
-RUN export RUSTUP_DIST_SERVER="https://rsproxy.cn"
-RUN export RUSTUP_UPDATE_ROOT="https://rsproxy.cn/rustup"
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- --default-toolchain stable -y
 
 # Build
 RUN sudo apt-get install -y protobuf-compiler libprotobuf-dev
 RUN sudo apt-get install -y libclang-dev
+
+RUN sudo apt-get install -y lsb-release wget software-properties-common gnupg
+RUN sudo bash -c "$(wget -O - https://apt.llvm.org/llvm.sh)"
+RUN sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-20 100
 
 ENV LANG=en_US.utf8
 ENV SHELL=${SHELL}

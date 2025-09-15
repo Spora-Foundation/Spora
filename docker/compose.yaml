@@ -1,7 +1,5 @@
 services:
     tondi-dev:
-        container_name: tondi-dev
-        platform: linux/amd64
         build:
             context: .
             args:
