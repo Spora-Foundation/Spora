@@ -127,7 +127,7 @@ impl Resolver {
         if self.inner.tls {
             "tls"
         } else {
-            "any"
+            "raw"
         }
     }
 

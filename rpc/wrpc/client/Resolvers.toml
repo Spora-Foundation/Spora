@@ -3,20 +3,20 @@ enable = false
 address = "http://127.0.0.1:8888"
 
 [[group]]
-template = "https://*.tondi.stream"
-nodes = ["eric","maxim","sean","troy"]
+template = "https://*.tondi.org"
+nodes = ["explorer"]
 
-[[group]]
-template = "https://*.tondi.red"
-nodes = ["john", "mike", "paul", "alex"]
+# [[group]]
+# template = "https://*.tondi.red"
+# nodes = ["john", "mike", "paul", "alex"]
 
-[[group]]
-template = "https://*.tondi.green"
-nodes = ["jake", "mark", "adam", "liam"]
+# [[group]]
+# template = "https://*.tondi.green"
+# nodes = ["jake", "mark", "adam", "liam"]
 
-[[group]]
-template = "https://*.tondi.blue"
-nodes = ["noah", "ryan", "jack", "luke"]
+# [[group]]
+# template = "https://*.tondi.blue"
+# nodes = ["noah", "ryan", "jack", "luke"]
 
 # [[group]]
 # enable = true
