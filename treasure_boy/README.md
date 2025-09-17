@@ -6,6 +6,8 @@ A high-performance transaction generator and airdrop tool for the Tondi blockcha
 
 - **High-Performance Transaction Generation**: Generate transactions at configurable TPS (Transactions Per Second)
 - **Batch Airdrop Operations**: Send tokens to multiple addresses efficiently
+- **Time Locked Contract (TLC) Airdrop**: Create time-locked transactions for delayed token distribution
+- **Hash Time Locked Contract (HTLC) Support**: Advanced conditional transactions with secret-based unlocking
 - **Address Generation**: Generate random addresses for different network types
 - **Multi-threaded Processing**: Parallel transaction processing for optimal performance
 - **Flexible Fee Management**: Configurable priority fees with optional randomization
@@ -85,6 +87,12 @@ cargo run --package treasure_boy -- \
 | `--output-file` | `-O` | Output file for generated addresses | |
 | `--network` | `-n` | Network type (mainnet/testnet/devnet) | testnet |
 | `--unleashed` | | Enable high TPS mode | false |
+| `--tlc-mode` | | Enable Time Locked Contract airdrop mode | false |
+| `--lock-time` | | Lock time for TLC (Unix timestamp or block height) | Required for TLC |
+| `--lock-time-type` | | Lock time type: timestamp or block | timestamp |
+| `--htlc-secret` | | Secret for HTLC (optional) | |
+| `--recipient-pubkey` | | Recipient's public key for HTLC (32 bytes hex) | |
+| `--sender-pubkey` | | Sender's public key for HTLC (32 bytes hex) | |
 
 ### Network Types
 
@@ -151,6 +159,48 @@ cargo run --package treasure_boy -- \
   --threads 8
 ```
 
+### Example 5: Time Locked Contract (TLC) Airdrop
+
+```bash
+# Simple time lock airdrop (unlockable after specific timestamp)
+cargo run --package treasure_boy -- \
+  --private-key c99b1ccf1087af2a56ffedb885943962e0159a7705cac583eef3e9958cd035b3 \
+  --address-file addresses.txt \
+  --tlc-mode \
+  --lock-time 1756684800 \
+  --lock-time-type timestamp \
+  --amount 1000000000
+```
+
+### Example 6: Hash Time Locked Contract (HTLC) Airdrop
+
+```bash
+# HTLC airdrop with secret-based unlocking
+cargo run --package treasure_boy -- \
+  --private-key c99b1ccf1087af2a56ffedb885943962e0159a7705cac583eef3e9958cd035b3 \
+  --address-file addresses.txt \
+  --tlc-mode \
+  --lock-time 1756684800 \
+  --lock-time-type timestamp \
+  --htlc-secret "my_secret_key" \
+  --recipient-pubkey 0101010101010101010101010101010101010101010101010101010101010101 \
+  --sender-pubkey 0202020202020202020202020202020202020202020202020202020202020202 \
+  --amount 1000000000
+```
+
+### Example 7: Block Height Time Lock
+
+```bash
+# Time lock based on block height
+cargo run --package treasure_boy -- \
+  --private-key c99b1ccf1087af2a56ffedb885943962e0159a7705cac583eef3e9958cd035b3 \
+  --address-file addresses.txt \
+  --tlc-mode \
+  --lock-time 100000 \
+  --lock-time-type block \
+  --amount 1000000000
+```
+
 ## Configuration
 
 ### Default Values
@@ -185,6 +235,9 @@ Transaction statistics including UTXO count, amounts, and timing.
 #### `NetworkType`
 Enum representing supported network types (Mainnet, Testnet, Devnet).
 
+#### `TlcAirdropConfig`
+Configuration structure for Time Locked Contract airdrop operations, including lock time, secret, and public keys for HTLC functionality.
+
 ### Key Functions
 
 #### `single_airdrop(config: Config) -> Result<(), Box<dyn Error>>`
@@ -198,6 +251,15 @@ Loads addresses from a text file.
 
 #### `generate_addresses(count: u32, network: NetworkType) -> Vec<String>`
 Generates random addresses for the specified network.
+
+#### `tlc_airdrop(config: Config) -> Result<(), Box<dyn Error>>`
+Performs TLC airdrop to multiple addresses with time-locked outputs.
+
+#### `generate_tlc_script(address: &Address, config: &TlcAirdropConfig) -> Result<ScriptPublicKey, Box<dyn Error>>`
+Generates a Time Locked Contract script for the specified address and configuration.
+
+#### `generate_tlc_airdrop_tx(keypair: Keypair, utxos: &[(TransactionOutpoint, UtxoEntry)], amount: u64, addresses: &[&Address], config: &TlcAirdropConfig) -> Result<Transaction, Box<dyn Error>>`
+Generates a transaction with TLC outputs for airdrop operations.
 
 ## Error Handling
 

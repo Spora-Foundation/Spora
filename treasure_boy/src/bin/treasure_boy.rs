@@ -11,7 +11,7 @@ use tondi_rpc_core::notify::mode::NotificationMode;
 
 use std::fs;
 use treasure_boy::{
-    ask_batch_count, batch_airdrop, load_addresses_from_file, single_airdrop, AddressDistributionTracker, Config, Stats, TxsFeeConfig, NetworkType,
+    ask_batch_count, batch_airdrop, load_addresses_from_file, single_airdrop, tlc_airdrop, AddressDistributionTracker, Config, Stats, TxsFeeConfig, TlcAirdropConfig, NetworkType,
     ADDRESS_VERSION, DEFAULT_SEND_AMOUNT,
 };
 
@@ -138,6 +138,45 @@ fn cli() -> Command {
                 .value_parser(["mainnet", "testnet", "devnet"])
                 .help("Network type: mainnet, testnet, or devnet"),
         )
+        .arg(
+            Arg::new("tlc-mode")
+                .long("tlc-mode")
+                .action(ArgAction::SetTrue)
+                .help("Enable Time Locked Contract (TLC) airdrop mode"),
+        )
+        .arg(
+            Arg::new("lock-time")
+                .long("lock-time")
+                .value_name("lock-time")
+                .value_parser(clap::value_parser!(u64))
+                .help("Lock time for TLC (Unix timestamp or block height)"),
+        )
+        .arg(
+            Arg::new("lock-time-type")
+                .long("lock-time-type")
+                .value_name("type")
+                .value_parser(["timestamp", "block"])
+                .default_value("timestamp")
+                .help("Lock time type: timestamp or block height"),
+        )
+        .arg(
+            Arg::new("htlc-secret")
+                .long("htlc-secret")
+                .value_name("secret")
+                .help("Secret for HTLC (optional, creates simple time lock if not provided)"),
+        )
+        .arg(
+            Arg::new("recipient-pubkey")
+                .long("recipient-pubkey")
+                .value_name("pubkey")
+                .help("Recipient's public key for HTLC (32 bytes hex)"),
+        )
+        .arg(
+            Arg::new("sender-pubkey")
+                .long("sender-pubkey")
+                .value_name("pubkey")
+                .help("Sender's public key for HTLC (32 bytes hex)"),
+        )
 }
 
 fn parse_args() -> Config {
@@ -150,6 +189,42 @@ fn parse_args() -> Config {
         "testnet" => NetworkType::Testnet,
         "devnet" => NetworkType::Devnet,
         _ => NetworkType::Testnet, // Default fallback
+    };
+    
+    // Parse TLC configuration
+    let tlc_mode = m.get_one::<bool>("tlc-mode").cloned().unwrap_or(false);
+    let tlc_config = if tlc_mode {
+        let lock_time = m.get_one::<u64>("lock-time").cloned().unwrap_or(0);
+        let lock_time_type_str = m.get_one::<String>("lock-time-type").unwrap();
+        let is_timestamp = lock_time_type_str == "timestamp";
+        
+        let secret = m.get_one::<String>("htlc-secret").map(|s| s.as_bytes().to_vec());
+        let recipient_pubkey = m.get_one::<String>("recipient-pubkey").and_then(|s| {
+            let mut bytes = [0u8; 32];
+            if faster_hex::hex_decode(s.as_bytes(), &mut bytes).is_ok() {
+                Some(bytes)
+            } else {
+                None
+            }
+        });
+        let sender_pubkey = m.get_one::<String>("sender-pubkey").and_then(|s| {
+            let mut bytes = [0u8; 32];
+            if faster_hex::hex_decode(s.as_bytes(), &mut bytes).is_ok() {
+                Some(bytes)
+            } else {
+                None
+            }
+        });
+        
+        Some(TlcAirdropConfig {
+            lock_time,
+            is_timestamp,
+            secret,
+            recipient_pubkey,
+            sender_pubkey,
+        })
+    } else {
+        None
     };
     
     Config {
@@ -167,6 +242,8 @@ fn parse_args() -> Config {
         output_file: m.get_one::<String>("output-file").cloned(),
         network,
         send_amount: m.get_one::<u64>("amount").cloned().unwrap_or(DEFAULT_SEND_AMOUNT),
+        tlc_mode,
+        tlc_config,
     }
 }
 
@@ -312,6 +389,20 @@ async fn main() {
             if fee_config.randomize_fee { "[randomize]" } else { "" }
         ));
     }
+    if args.tlc_mode {
+        if let Some(tlc_config) = &args.tlc_config {
+            log_message.push_str(&format!(
+                "\n\tTLC mode: enabled\n\tlock time: {} ({})",
+                tlc_config.lock_time,
+                if tlc_config.is_timestamp { "timestamp" } else { "block height" }
+            ));
+            if tlc_config.secret.is_some() {
+                log_message.push_str("\n\tHTLC: enabled with secret");
+            } else {
+                log_message.push_str("\n\tTLC: simple time lock");
+            }
+        }
+    }
     info!("{}", log_message);
 
     // Only connect RPC server if private key is specified
@@ -332,8 +423,47 @@ async fn main() {
 
     info!("Connected to RPC");
 
-    // Determine whether to use single airdrop or batch airdrop based on address count
-    if target_addresses.len() == 1 {
+    // Determine whether to use TLC airdrop, single airdrop, or batch airdrop
+    if args.tlc_mode {
+        // TLC airdrop
+        if let Some(tlc_config) = &args.tlc_config {
+            info!("Performing TLC airdrop to {} addresses", target_addresses.len());
+            
+            match tlc_airdrop(
+                schnorr_key,
+                target_addresses,
+                args.send_amount,
+                args.outputs_per_tx,
+                &rpc_client,
+                &fee_config,
+                tlc_config,
+                args.threads as usize,
+                args.network.clone(),
+            )
+            .await
+            {
+                Ok(txs) => {
+                    info!("TLC airdrop completed successfully");
+                    info!("Sent {} TLC transactions", txs.len());
+
+                    // Display first few transaction IDs
+                    for (i, tx) in txs.iter().take(5).enumerate() {
+                        info!("TLC Transaction {}: {:?}", i + 1, tx.id());
+                    }
+                    if txs.len() > 5 {
+                        info!("... and {} more TLC transactions", txs.len() - 5);
+                    }
+                }
+                Err(e) => {
+                    error!("TLC airdrop failed: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        } else {
+            error!("TLC mode enabled but no TLC configuration provided");
+            std::process::exit(1);
+        }
+    } else if target_addresses.len() == 1 {
         // Single airdrop
         info!("Performing single airdrop to: {}", String::from(&target_addresses[0]));
 

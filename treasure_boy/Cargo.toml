@@ -25,6 +25,7 @@ tondi-utils.workspace = true
 tondi-bip32.workspace = true
 
 async-channel.workspace = true
+blake3.workspace = true
 clap.workspace = true
 faster-hex.workspace = true
 itertools.workspace = true
