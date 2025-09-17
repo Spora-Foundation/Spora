@@ -58,6 +58,32 @@ pub fn pay_to_address_script(address: &Address) -> ScriptPublicKey {
 }
 
 /// Creates a new script to pay a transaction output to the specified address with lock time.
+/// 
+/// This function creates a Hash Time Locked Contract (HTLC) script that requires:
+/// 1. The transaction's lock time to be greater than or equal to the specified lock_time
+/// 2. A valid signature from the address owner
+/// 
+/// The lock_time can be either:
+/// - A block height (if < LOCK_TIME_THRESHOLD)
+/// - A Unix timestamp (if >= LOCK_TIME_THRESHOLD)
+/// 
+/// # Arguments
+/// * `address` - The address to pay to (must be PubKey version)
+/// * `lock_time` - The minimum lock time required to spend this output
+/// 
+/// # Returns
+/// * `Ok(ScriptPublicKey)` - The constructed script public key
+/// * `Err(ScriptBuilderError::InvalidAddressVersion)` - If address is not PubKey version
+/// 
+/// # Example
+/// ```
+/// use tondi_txscript::pay_to_address_script_with_lock_time;
+/// use tondi_addresses::Address;
+/// 
+/// let addr = Address::constructor("tonditest:qz8etv6sf8r8vsc05fgvu3pg07yt3sxhd9tzph0jtz5gdru30gd5k55pt6k");
+/// let lock_time = 1756684800; // Unix timestamp
+/// let script = pay_to_address_script_with_lock_time(&addr, lock_time).unwrap();
+/// ```
 pub fn pay_to_address_script_with_lock_time(address: &Address, lock_time: u64) -> ScriptBuilderResult<ScriptPublicKey> {
     if address.version != Version::PubKey {
         return Err(ScriptBuilderError::InvalidAddressVersion(address.version as u8));

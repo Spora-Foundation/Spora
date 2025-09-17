@@ -683,12 +683,12 @@ mod tests {
     use chrono::NaiveDateTime;
     use secp256k1::Message;
     use std::str::FromStr;
-    use tondi_consensus_core::tx::ScriptPublicKey;
-    use tondi_txscript::{opcodes::codes::OpCheckLockTimeVerify, pay_to_address_script_with_lock_time};
+    use tondi_addresses::{Address, Prefix, Version};
+    use tondi_txscript::pay_to_address_script_with_lock_time;
     use tondi_utils::hex::FromHex;
 
     #[test]
-    fn test_tlc_tansaction() {
+    fn test_htlc_transaction() {
         // Mnemonic: purpose carpet empower monkey hawk brush survey waste judge tide culture slight
         let addr = Address::constructor("tonditest:qz8etv6sf8r8vsc05fgvu3pg07yt3sxhd9tzph0jtz5gdru30gd5k55pt6k");
 
@@ -710,7 +710,7 @@ mod tests {
         let utxo_entry = UtxoEntry::new(amount, utxo_spk, 0, false);
 
         // Transaction
-        let mut raw_tx = Transaction::new(
+        let raw_tx = Transaction::new(
             0,
             vec![TransactionInput {
                 previous_outpoint: TransactionOutpoint { transaction_id: utxo_tx_id, index: 0 },
@@ -740,5 +740,27 @@ mod tests {
         let mut vm =
             TxScriptEngine::from_transaction_input(&tx, &tx.inputs()[0], 0, &utxo_entry, &reused_values, &sig_cache, true, false);
         vm.execute().unwrap();
+    }
+
+    #[test]
+    fn test_htlc_invalid_address_version() {
+        // Test with ScriptHash address version (should fail)
+        let addr = Address::new(Prefix::Testnet, Version::ScriptHash, &[0u8; 32]);
+        let result = pay_to_address_script_with_lock_time(&addr, 1756684800);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_htlc_zero_lock_time() {
+        let addr = Address::constructor("tonditest:qz8etv6sf8r8vsc05fgvu3pg07yt3sxhd9tzph0jtz5gdru30gd5k55pt6k");
+        let result = pay_to_address_script_with_lock_time(&addr, 0);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_htlc_max_lock_time() {
+        let addr = Address::constructor("tonditest:qz8etv6sf8r8vsc05fgvu3pg07yt3sxhd9tzph0jtz5gdru30gd5k55pt6k");
+        let result = pay_to_address_script_with_lock_time(&addr, u64::MAX);
+        assert!(result.is_ok());
     }
 }
