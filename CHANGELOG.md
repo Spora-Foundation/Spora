@@ -1,4 +1,61 @@
 # Changelog
+## [1.0.1] - 2025-09-17
+
+### 🚀 New Features
+
+#### Time Locked Contract (TLC) Implementation
+- **Complete TLC Functionality**: Implemented full Time Locked Contract structure with IF/ELSE branches
+- **Dual Spending Paths**: Support for both recipient (with secret) and sender (timeout) spending paths
+- **Multi-Signature Support**: Support for both Schnorr (32-byte) and ECDSA (33-byte) signature schemes
+- **Blake3 Integration**: Uses Blake3 hash algorithm for secret verification
+- **P2SH Structure**: Proper Pay-to-Script-Hash implementation for secure contract execution
+- **WASM Bindings**: JavaScript integration support for web applications
+
+#### Enhanced Transaction Scripts
+- **Lock Time Support**: Added `pay_to_address_with_lock_time` functionality
+- **Signature Script Generation**: 
+  - `htlc_signature_script_with_secret()` for recipient path
+  - `htlc_signature_script_with_timeout()` for sender path
+- **Comprehensive Testing**: 9 specialized test suites covering functionality, security, and edge cases
+
+### 🐛 Bug Fixes
+
+#### Infrastructure Fixes
+- **WRPC Resolver**: Fixed Tondi WRPC resolver configuration for improved network connectivity
+- **Docker Toolchain**: Fixed Docker clang toolchain configuration for better build reliability
+
+#### Code Quality Improvements
+- **Code Cleanup**: Removed unused imports and fixed compiler warnings
+- **Documentation**: Enhanced documentation with detailed explanations and examples
+- **Error Handling**: Improved error handling and input validation throughout TLC implementation
+
+### 🧪 Testing & Quality Assurance
+
+#### Comprehensive Test Coverage
+- **Basic Functionality Tests**: Creation, validation, and structure verification
+- **Security Validation Tests**: Script integrity and embedded data validation
+- **Edge Case Tests**: Boundary values and identical key scenarios
+- **Signature Script Security Tests**: Comprehensive security validation
+- **Error Condition Tests**: Invalid address version, zero lock time, and max lock time scenarios
+
+### 📈 Performance & Reliability
+
+#### Enhanced Stability
+- **Production-Ready Security**: Implemented security standards for production deployment
+- **Input Validation**: Comprehensive input validation and error handling
+- **Memory Safety**: Improved memory management and safety practices
+- **Build Reliability**: Enhanced Docker and build system reliability
+
+### 🔧 Technical Improvements
+
+#### Script Engine Enhancements
+- **Advanced Script Operations**: Enhanced script building capabilities
+- **Contract Execution**: Improved contract execution and validation
+- **Signature Verification**: Enhanced signature verification processes
+- **Hash Operations**: Optimized hash operations with Blake3 integration
+
+---
+
 ## [1.0.0] - 2025-09-14
 
 ### 🎉 Initial Release
