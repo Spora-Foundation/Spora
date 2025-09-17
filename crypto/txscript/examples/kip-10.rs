@@ -688,7 +688,7 @@ mod tests {
     use tondi_utils::hex::FromHex;
 
     #[test]
-    fn test_htlc_transaction() {
+    fn test_tlc_transaction() {
         // Mnemonic: purpose carpet empower monkey hawk brush survey waste judge tide culture slight
         let addr = Address::constructor("tonditest:qz8etv6sf8r8vsc05fgvu3pg07yt3sxhd9tzph0jtz5gdru30gd5k55pt6k");
 
@@ -743,7 +743,7 @@ mod tests {
     }
 
     #[test]
-    fn test_htlc_invalid_address_version() {
+    fn test_tlc_invalid_address_version() {
         // Test with ScriptHash address version (should fail)
         let addr = Address::new(Prefix::Testnet, Version::ScriptHash, &[0u8; 32]);
         let result = pay_to_address_script_with_lock_time(&addr, 1756684800);
@@ -751,14 +751,14 @@ mod tests {
     }
 
     #[test]
-    fn test_htlc_zero_lock_time() {
+    fn test_tlc_zero_lock_time() {
         let addr = Address::constructor("tonditest:qz8etv6sf8r8vsc05fgvu3pg07yt3sxhd9tzph0jtz5gdru30gd5k55pt6k");
         let result = pay_to_address_script_with_lock_time(&addr, 0);
         assert!(result.is_ok());
     }
 
     #[test]
-    fn test_htlc_max_lock_time() {
+    fn test_tlc_max_lock_time() {
         let addr = Address::constructor("tonditest:qz8etv6sf8r8vsc05fgvu3pg07yt3sxhd9tzph0jtz5gdru30gd5k55pt6k");
         let result = pay_to_address_script_with_lock_time(&addr, u64::MAX);
         assert!(result.is_ok());

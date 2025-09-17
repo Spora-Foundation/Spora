@@ -59,7 +59,7 @@ pub fn pay_to_address_script(address: &Address) -> ScriptPublicKey {
 
 /// Creates a new script to pay a transaction output to the specified address with lock time.
 /// 
-/// This function creates a Hash Time Locked Contract (HTLC) script that requires:
+/// This function creates a Time Locked Contract (TLC) script that requires:
 /// 1. The transaction's lock time to be greater than or equal to the specified lock_time
 /// 2. A valid signature from the address owner
 /// 
