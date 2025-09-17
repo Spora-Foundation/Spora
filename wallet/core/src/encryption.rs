@@ -172,7 +172,10 @@ impl Zeroize for Encrypted {
 
 impl std::fmt::Debug for Encrypted {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Encrypted").field("encryption_kind", &self.encryption_kind).field("payload", &self.payload.to_hex()).finish()
+        f.debug_struct("Encrypted")
+            .field("encryption_kind", &self.encryption_kind)
+            .field("payload", &"[REDACTED]") // Don't expose encrypted payload in debug output
+            .finish()
     }
 }
 
@@ -210,6 +213,7 @@ pub fn blake3_hash(data: &[u8]) -> Secret {
 }
 
 /// Produces `BLAKE3d` hash of the given data (double hash).
+/// This function is only used in WASM bindings and should not be used elsewhere.
 #[inline]
 pub fn blake3d_hash(data: &[u8]) -> Secret {
     let first = blake3_hash(data);
@@ -218,7 +222,7 @@ pub fn blake3d_hash(data: &[u8]) -> Secret {
 
 /// Produces `argon2blake3iv` hash of the given data.
 pub fn argon2_blake3iv_hash(data: &[u8], byte_length: usize) -> Result<Secret> {
-    let salt = blake3_hash(data); // Replace blake3_hash with blake3_hash
+    let salt = blake3_hash(data); // Use BLAKE3 hash as salt
     let mut key = vec![0u8; byte_length];
     Argon2::default().hash_password_into(data, salt.as_ref(), &mut key)?;
     Ok(key.into())
@@ -231,20 +235,26 @@ pub fn encrypt_xchacha20poly1305(data: &[u8], secret: &Secret) -> Result<Vec<u8>
     let cipher = XChaCha20Poly1305::new(key);
     let nonce = XChaCha20Poly1305::generate_nonce(&mut OsRng); // 96-bits; unique per message
     let mut buffer = data.to_vec();
-    buffer.reserve(16);
-    cipher.encrypt_in_place(&nonce, &[], &mut buffer)?;
+    buffer.reserve(16); // Reserve space for authentication tag
+    cipher.encrypt_in_place(&nonce, &[], &mut buffer)
+        .map_err(|e| Error::custom(format!("Encryption failed: {}", e)))?;
     buffer.splice(0..0, nonce.iter().cloned());
     Ok(buffer)
 }
 
 /// Decrypts the given data using `XChaCha20Poly1305` algorithm with BLAKE3.
 pub fn decrypt_xchacha20poly1305(data: &[u8], secret: &Secret) -> Result<Secret> {
+    if data.len() < 24 {
+        return Err(Error::custom("Encrypted data too short"));
+    }
+    
     let private_key_bytes = argon2_blake3iv_hash(secret.as_ref(), 32)?;
     let key = Key::from_slice(private_key_bytes.as_ref());
     let cipher = XChaCha20Poly1305::new(key);
     let nonce = &data[0..24];
     let mut buffer = data[24..].to_vec();
-    cipher.decrypt_in_place(nonce.into(), &[], &mut buffer)?;
+    cipher.decrypt_in_place(nonce.into(), &[], &mut buffer)
+        .map_err(|e| Error::custom(format!("Decryption failed: {}", e)))?;
     Ok(Secret::new(buffer))
 }
 

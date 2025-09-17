@@ -6078,6 +6078,7 @@ name = "treasure_boy"
 version = "1.0.1"
 dependencies = [
  "async-channel 2.3.1",
+ "blake3",
  "clap 4.5.19",
  "criterion",
  "faster-hex",

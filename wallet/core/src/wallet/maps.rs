@@ -6,6 +6,7 @@
 use crate::imports::*;
 
 /// A thread-safe map of [`AccountId`] to [`Account`] instances.
+/// Uses Mutex for stronger consistency guarantees.
 #[derive(Default, Clone)]
 pub struct ActiveAccountMap(Arc<Mutex<HashMap<AccountId, Arc<dyn Account>>>>);
 
@@ -40,7 +41,7 @@ impl ActiveAccountMap {
 
     pub fn extend(&self, accounts: Vec<Arc<dyn Account>>) {
         let mut map = self.inner();
-        let accounts = accounts.into_iter().map(|a| (*a.id(), a)); //.collect::<Vec<_>>();
+        let accounts = accounts.into_iter().map(|a| (*a.id(), a));
         map.extend(accounts);
     }
 

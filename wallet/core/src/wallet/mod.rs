@@ -16,8 +16,6 @@ pub use args::*;
 
 use crate::account::ScanNotifier;
 use crate::api::traits::WalletApi;
-use crate::compat::gen1::decrypt_mnemonic;
-use crate::error::Error::Custom;
 use crate::factory::try_load_account;
 use crate::imports::*;
 use crate::settings::{SettingsStore, WalletSettings};
@@ -36,53 +34,6 @@ use workflow_core::task::spawn;
 
 pub type WalletGuard<'l> = AsyncMutexGuard<'l, ()>;
 
-#[derive(Debug)]
-pub struct EncryptedMnemonic<T: AsRef<[u8]>> {
-    pub cipher: T, // raw
-    pub salt: T,   // raw
-}
-
-#[derive(Debug)]
-pub struct SingleWalletFileV0<'a, T: AsRef<[u8]>> {
-    pub num_threads: u32,
-    pub encrypted_mnemonic: EncryptedMnemonic<T>,
-    pub xpublic_key: &'a str,
-    pub ecdsa: bool,
-}
-
-#[derive(Debug)]
-pub struct SingleWalletFileV1<'a, T: AsRef<[u8]>> {
-    pub encrypted_mnemonic: EncryptedMnemonic<T>,
-    pub xpublic_key: &'a str,
-    pub ecdsa: bool,
-}
-
-impl<T: AsRef<[u8]>> SingleWalletFileV1<'_, T> {
-    const NUM_THREADS: u32 = 8;
-}
-
-#[derive(Debug)]
-pub struct MultisigWalletFileV0<'a, T: AsRef<[u8]>> {
-    pub num_threads: u32,
-    pub encrypted_mnemonics: Vec<EncryptedMnemonic<T>>,
-    pub xpublic_keys: Vec<&'a str>, // includes pub keys from encrypted
-    pub required_signatures: u16,
-    pub cosigner_index: u8,
-    pub ecdsa: bool,
-}
-
-#[derive(Debug)]
-pub struct MultisigWalletFileV1<'a, T: AsRef<[u8]>> {
-    pub encrypted_mnemonics: Vec<EncryptedMnemonic<T>>,
-    pub xpublic_keys: Vec<&'a str>, // includes pub keys from encrypted
-    pub required_signatures: u16,
-    pub cosigner_index: u8,
-    pub ecdsa: bool,
-}
-
-impl<T: AsRef<[u8]>> MultisigWalletFileV1<'_, T> {
-    const NUM_THREADS: u32 = 8;
-}
 
 #[derive(Clone)]
 pub enum WalletBusMessage {
@@ -122,8 +73,10 @@ pub struct Wallet {
 
 impl Default for Wallet {
     fn default() -> Self {
-        let storage = Wallet::local_store().expect("Unable to initialize local storage");
-        Wallet::try_new(storage, None, None).unwrap()
+        let storage = Wallet::local_store()
+            .expect("Unable to initialize local storage");
+        Wallet::try_new(storage, None, None)
+            .expect("Unable to create default wallet")
     }
 }
 
@@ -183,19 +136,19 @@ impl Wallet {
     }
 
     /// Helper fn for creating the wallet using a builder pattern.
-    pub fn with_network_id(self, network_id: NetworkId) -> Self {
-        self.set_network_id(&network_id).expect("Unable to set network id");
-        self
+    pub fn with_network_id(self, network_id: NetworkId) -> Result<Self> {
+        self.set_network_id(&network_id)?;
+        Ok(self)
     }
 
-    pub fn with_resolver(self, resolver: Resolver) -> Self {
-        self.wrpc_client().set_resolver(resolver).expect("Unable to set resolver");
-        self
+    pub fn with_resolver(self, resolver: Resolver) -> Result<Self> {
+        self.wrpc_client().set_resolver(resolver)?;
+        Ok(self)
     }
 
-    pub fn with_url(self, url: Option<&str>) -> Self {
-        self.wrpc_client().set_url(url).expect("Unable to set url");
-        self
+    pub fn with_url(self, url: Option<&str>) -> Result<Self> {
+        self.wrpc_client().set_url(url)?;
+        Ok(self)
     }
 
     //
@@ -246,6 +199,16 @@ impl Wallet {
 
         if clear_legacy_cache {
             self.legacy_accounts().clear();
+        }
+
+        // Clear retained contexts to prevent memory leaks
+        if let Ok(mut contexts) = self.inner.retained_contexts.lock() {
+            contexts.clear();
+        }
+        
+        // Clear estimation abortables
+        if let Ok(mut abortables) = self.inner.estimation_abortables.lock() {
+            abortables.clear();
         }
 
         Ok(())
@@ -1147,7 +1110,7 @@ impl Wallet {
     }
 
     pub async fn find_accounts_by_name_or_id(&self, pat: &str) -> Result<Vec<Arc<dyn Account>>> {
-        let active_accounts = self.active_accounts().inner().values().cloned().collect::<Vec<_>>();
+        let active_accounts = self.active_accounts().collect();
         let matches = active_accounts
             .into_iter()
             .filter(|account| {
@@ -1304,140 +1267,9 @@ impl Wallet {
     //     Ok(Box::pin(stream))
     // }
 
-    pub async fn import_tondiwallet_golang_single_v1<T: AsRef<[u8]>>(
-        self: &Arc<Wallet>,
-        import_secret: &Secret,
-        wallet_secret: &Secret,
-        file: SingleWalletFileV1<'_, T>,
-    ) -> Result<Arc<dyn Account>> {
-        if file.ecdsa {
-            return Err(Error::Custom("ecdsa currently not suppoerted".to_owned()));
-            // todo import_with_mnemonic should accept both
-        }
-        let mnemonic = decrypt_mnemonic(SingleWalletFileV1::<T>::NUM_THREADS, file.encrypted_mnemonic, import_secret.as_ref())?;
-        let mnemonic = Mnemonic::new(mnemonic.trim(), Language::English)?;
-        let prv_key_data = storage::PrvKeyData::try_new_from_mnemonic(mnemonic.clone(), None, self.store().encryption_kind()?)?;
-        let prefix = file.xpublic_key.split_at(tondi_bip32::Prefix::LENGTH).0;
-        let prefix = tondi_bip32::Prefix::try_from(prefix)?;
 
-        if prv_key_data.create_xpub(None, BIP32_ACCOUNT_KIND.into(), 0).await?.to_string(Some(prefix)) != file.xpublic_key {
-            return Err(Custom("imported xpub does not equal derived one".to_owned()));
-        }
-        self.import_with_mnemonic(wallet_secret, None, mnemonic, BIP32_ACCOUNT_KIND.into()).await
-    }
 
-    pub async fn import_tondiwallet_golang_single_v0<T: AsRef<[u8]>>(
-        self: &Arc<Wallet>,
-        import_secret: &Secret,
-        wallet_secret: &Secret,
-        file: SingleWalletFileV0<'_, T>,
-    ) -> Result<Arc<dyn Account>> {
-        if file.ecdsa {
-            return Err(Error::Custom("ecdsa currently not suppoerted".to_owned()));
-            // todo import_with_mnemonic should accept both
-        }
-        let mnemonic = decrypt_mnemonic(file.num_threads, file.encrypted_mnemonic, import_secret.as_ref())?;
-        let mnemonic = Mnemonic::new(mnemonic.trim(), Language::English)?;
-        let prv_key_data = storage::PrvKeyData::try_new_from_mnemonic(mnemonic.clone(), None, self.store().encryption_kind()?)?;
-        let prefix = file.xpublic_key.split_at(tondi_bip32::Prefix::LENGTH).0;
-        let prefix = tondi_bip32::Prefix::try_from(prefix)?;
-        if prv_key_data.create_xpub(None, BIP32_ACCOUNT_KIND.into(), 0).await.unwrap().to_string(Some(prefix)) != file.xpublic_key {
-            return Err(Custom("imported xpub does not equal derived one".to_owned()));
-        }
-        self.import_with_mnemonic(wallet_secret, None, mnemonic, BIP32_ACCOUNT_KIND.into()).await
-    }
 
-    pub async fn import_tondiwallet_golang_multisig_v0<T: AsRef<[u8]>>(
-        self: &Arc<Wallet>,
-        import_secret: &Secret,
-        wallet_secret: &Secret,
-        file: MultisigWalletFileV0<'_, T>,
-    ) -> Result<Arc<dyn Account>> {
-        if file.ecdsa {
-            return Err(Error::Custom("ecdsa currently not suppoerted".to_owned()));
-            // todo import_with_mnemonic should accept both
-        }
-        let Some(first_pub_key) = file.xpublic_keys.first() else {
-            return Err(Error::Custom("no public keys".to_owned()));
-        };
-        let prefix = first_pub_key.split_at(tondi_bip32::Prefix::LENGTH).0;
-        let prefix = tondi_bip32::Prefix::try_from(prefix)?;
-
-        let mnemonics_and_secrets: Vec<(Mnemonic, Option<Secret>)> = file
-            .encrypted_mnemonics
-            .into_iter()
-            .map(|mnemonic| {
-                decrypt_mnemonic(file.num_threads, mnemonic, import_secret.as_ref())
-                    .and_then(|decrypted| Mnemonic::new(decrypted.trim(), Language::English).map_err(Error::from))
-            })
-            .map(|r| r.map(|m| (m, <Option<Secret>>::None)))
-            .collect::<Result<Vec<(Mnemonic, Option<Secret>)>>>()?;
-
-        let mut all_pub_keys = file.xpublic_keys;
-        all_pub_keys.sort_unstable();
-
-        let mut pubkeys_from_mnemonics = Vec::with_capacity(mnemonics_and_secrets.len());
-        for (mnemonic, _) in mnemonics_and_secrets.iter() {
-            let priv_key = storage::PrvKeyData::try_new_from_mnemonic(mnemonic.clone(), None, self.store().encryption_kind()?)?;
-            let xpub_key = priv_key.create_xpub(None, BIP32_ACCOUNT_KIND.into(), 0).await.unwrap().to_string(Some(prefix));
-            pubkeys_from_mnemonics.push(xpub_key);
-        }
-        pubkeys_from_mnemonics.sort_unstable();
-        all_pub_keys.retain(|v| pubkeys_from_mnemonics.binary_search_by_key(v, |xpub| xpub.as_str()).is_err());
-        let additional_pub_keys = all_pub_keys.into_iter().map(String::from).collect();
-        self.import_multisig_with_mnemonic(wallet_secret, mnemonics_and_secrets, file.required_signatures, additional_pub_keys).await
-    }
-
-    pub async fn import_tondiwallet_golang_multisig_v1<T: AsRef<[u8]>>(
-        self: &Arc<Wallet>,
-        import_secret: &Secret,
-        wallet_secret: &Secret,
-        file: MultisigWalletFileV1<'_, T>,
-    ) -> Result<Arc<dyn Account>> {
-        if file.ecdsa {
-            return Err(Error::Custom("ecdsa currently not suppoerted".to_owned()));
-            // todo import_with_mnemonic should accept both
-        }
-        let Some(first_pub_key) = file.xpublic_keys.first() else {
-            return Err(Error::Custom("no public keys".to_owned()));
-        };
-        let prefix = first_pub_key.split_at(tondi_bip32::Prefix::LENGTH).0;
-        let prefix = tondi_bip32::Prefix::try_from(prefix)?;
-
-        let mnemonics_and_secrets: Vec<(Mnemonic, Option<Secret>)> = file
-            .encrypted_mnemonics
-            .into_iter()
-            .map(|mnemonic| {
-                decrypt_mnemonic(MultisigWalletFileV1::<T>::NUM_THREADS, mnemonic, import_secret.as_ref())
-                    .and_then(|decrypted| Mnemonic::new(decrypted.trim(), Language::English).map_err(Error::from))
-            })
-            .map(|r| r.map(|m| (m, <Option<Secret>>::None)))
-            .collect::<Result<Vec<(Mnemonic, Option<Secret>)>>>()?;
-
-        let mut all_pub_keys = file.xpublic_keys;
-        all_pub_keys.sort_unstable_by(|left, right| {
-            left.split_at(tondi_bip32::Prefix::LENGTH).1.cmp(right.split_at(tondi_bip32::Prefix::LENGTH).1)
-        });
-
-        let mut pubkeys_from_mnemonics = Vec::with_capacity(mnemonics_and_secrets.len());
-        for (mnemonic, _) in mnemonics_and_secrets.iter() {
-            let priv_key = storage::PrvKeyData::try_new_from_mnemonic(mnemonic.clone(), None, self.store().encryption_kind()?)?;
-            let xpub_key = priv_key.create_xpub(None, MULTISIG_ACCOUNT_KIND.into(), 0).await.unwrap().to_string(Some(prefix));
-            pubkeys_from_mnemonics.push(xpub_key);
-        }
-        pubkeys_from_mnemonics.sort_unstable_by(|left, right| {
-            left.split_at(tondi_bip32::Prefix::LENGTH).1.cmp(right.split_at(tondi_bip32::Prefix::LENGTH).1)
-        });
-        all_pub_keys.retain(|v| {
-            let found = pubkeys_from_mnemonics.binary_search_by_key(v, |xpub| xpub.as_str());
-            found.is_err()
-        });
-        let additional_pub_keys = all_pub_keys.into_iter().map(String::from).collect();
-        let acc = self
-            .import_multisig_with_mnemonic(wallet_secret, mnemonics_and_secrets, file.required_signatures, additional_pub_keys)
-            .await?;
-        Ok(acc)
-    }
 
     pub async fn import_legacy_keydata(
         self: &Arc<Wallet>,
@@ -1719,22 +1551,6 @@ impl Wallet {
     }
 }
 
-// fn decrypt_mnemonic<T: AsRef<[u8]>>(
-//     num_threads: u32,
-//     EncryptedMnemonic { cipher, salt }: EncryptedMnemonic<T>,
-//     pass: &[u8],
-// ) -> Result<String> {
-//     let params = argon2::ParamsBuilder::new().t_cost(1).m_cost(64 * 1024).p_cost(num_threads).output_len(32).build().unwrap();
-//     let mut key = [0u8; 32];
-//     argon2::Argon2::new(argon2::Algorithm::Argon2id, Default::default(), params)
-//         .hash_password_into(pass, salt.as_ref(), &mut key[..])
-//         .unwrap();
-//     let mut aead = chacha20poly1305::XChaCha20Poly1305::new(Key::from_slice(&key));
-//     let (nonce, ciphertext) = cipher.as_ref().split_at(24);
-
-//     let decrypted = aead.decrypt(nonce.into(), ciphertext).unwrap();
-//     Ok(unsafe { String::from_utf8_unchecked(decrypted) })
-// }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[cfg(test)]

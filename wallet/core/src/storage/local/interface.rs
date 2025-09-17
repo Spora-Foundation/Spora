@@ -412,10 +412,16 @@ impl Interface for LocalStore {
         let mut descriptors = vec![];
         for filename in wallets.into_iter() {
             let path = folder.join(format!("{}.wallet", filename));
-            // TODO - refactor on native to read directly from file (skip temporary buffer creation)
-            let wallet_data = fs::read(&path).await;
-            let title =
-                wallet_data.ok().and_then(|data| WalletStorage::try_from_slice(data.as_slice()).ok()).and_then(|wallet| wallet.title);
+            // Read only the header to get title, avoiding full file read
+            let title = match fs::read(&path).await {
+                Ok(data) => {
+                    // Try to parse only the header for title
+                    WalletStorage::try_from_slice(data.as_slice())
+                        .ok()
+                        .and_then(|wallet| wallet.title)
+                }
+                Err(_) => None,
+            };
             descriptors.push(WalletDescriptor { title, filename });
         }
 
