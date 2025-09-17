@@ -1,6 +1,6 @@
 use crate::{
-    opcodes::codes::{OpBlake3, OpCheckSig, OpCheckSigECDSA, OpData32, OpData33, OpEqual, OpTrue},
-    script_builder::{ScriptBuilder, ScriptBuilderResult},
+    opcodes::codes::{OpBlake3, OpCheckLockTimeVerify, OpCheckSig, OpCheckSigECDSA, OpData32, OpData33, OpEqual, OpTrue},
+    script_builder::{ScriptBuilder, ScriptBuilderError, ScriptBuilderResult},
     script_class::ScriptClass,
 };
 use blake3::hash;
@@ -55,6 +55,23 @@ pub fn pay_to_address_script(address: &Address) -> ScriptPublicKey {
         Version::Taproot => pay_to_taproot(address.payload.as_slice()),
     };
     ScriptPublicKey::new(ScriptClass::from(address.version).version(), script)
+}
+
+/// Creates a new script to pay a transaction output to the specified address with lock time.
+pub fn pay_to_address_script_with_lock_time(address: &Address, lock_time: u64) -> ScriptBuilderResult<ScriptPublicKey> {
+    if address.version != Version::PubKey {
+        return Err(ScriptBuilderError::InvalidAddressVersion(address.version as u8));
+    }
+
+    let script = ScriptBuilder::new()
+        .add_lock_time(lock_time)?
+        .add_op(OpCheckLockTimeVerify)?
+        .add_data(address.payload.as_slice())?
+        .add_op(OpCheckSig)?
+        .drain();
+
+    let version = ScriptClass::from(address.version).version();
+    Ok(ScriptPublicKey::from_vec(version, script))
 }
 
 /// Takes a script and returns an equivalent pay-to-script-hash script

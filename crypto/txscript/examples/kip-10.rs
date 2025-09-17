@@ -675,3 +675,70 @@ fn shared_secret_scenario() -> ScriptBuilderResult<()> {
     println!("[SHARED-SECRET] Shared secret scenario completed successfully");
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use chrono::NaiveDateTime;
+    use secp256k1::Message;
+    use std::str::FromStr;
+    use tondi_consensus_core::tx::ScriptPublicKey;
+    use tondi_txscript::{opcodes::codes::OpCheckLockTimeVerify, pay_to_address_script_with_lock_time};
+    use tondi_utils::hex::FromHex;
+
+    #[test]
+    fn test_tlc_tansaction() {
+        // Mnemonic: purpose carpet empower monkey hawk brush survey waste judge tide culture slight
+        let addr = Address::constructor("tonditest:qz8etv6sf8r8vsc05fgvu3pg07yt3sxhd9tzph0jtz5gdru30gd5k55pt6k");
+
+        let keypair = Keypair::from_seckey_slice(
+            secp256k1::SECP256K1,
+            &Vec::from_hex("9f2aff6167f8eb413d2e42f6727defb799448babe37e5a542e7500e34ee85768").unwrap(),
+        )
+        .unwrap();
+
+        let datetime = NaiveDateTime::parse_from_str("2025-09-01 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap();
+        let lock_time = datetime.and_utc().timestamp() as u64;
+        assert_eq!(lock_time, 1756684800);
+
+        let amount = 1_0000_0000;
+
+        // UTXO
+        let utxo_spk = pay_to_address_script_with_lock_time(&addr, lock_time).unwrap();
+        let utxo_tx_id = TransactionId::from_str("880eb9819a31821d9d2399e2f35e2433b72637e393d71ecc9b8d0250f49153c3").unwrap();
+        let utxo_entry = UtxoEntry::new(amount, utxo_spk, 0, false);
+
+        // Transaction
+        let mut raw_tx = Transaction::new(
+            0,
+            vec![TransactionInput {
+                previous_outpoint: TransactionOutpoint { transaction_id: utxo_tx_id, index: 0 },
+                signature_script: vec![],
+                sequence: 0,
+                sig_op_count: 0,
+            }],
+            vec![TransactionOutput { value: amount / 2, script_public_key: pay_to_address_script(&addr) }],
+            lock_time + 1,
+            Default::default(),
+            0,
+            vec![],
+        );
+
+        // Sign
+        let reused_values = SigHashReusedValuesUnsync::new();
+        let mut mutable_tx = MutableTransaction::with_entries(raw_tx, vec![utxo_entry.clone()]);
+        let hash_type = SIG_HASH_ALL;
+        let sig_hash = calc_schnorr_signature_hash(&mutable_tx.as_verifiable(), 0, hash_type, &reused_values);
+        let msg = Message::from_digest_slice(sig_hash.as_bytes().as_slice()).unwrap();
+        let sig = *keypair.sign_schnorr(msg).as_ref();
+        mutable_tx.tx.inputs[0].signature_script = std::iter::once(65u8).chain(sig).chain([hash_type.to_u8()]).collect();
+
+        // Execute
+        let sig_cache = Cache::new(10_000);
+        let tx = mutable_tx.as_verifiable();
+        let mut vm =
+            TxScriptEngine::from_transaction_input(&tx, &tx.inputs()[0], 0, &utxo_entry, &reused_values, &sig_cache, true, false);
+        vm.execute().unwrap();
+    }
+}

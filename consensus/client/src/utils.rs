@@ -23,6 +23,14 @@ pub fn pay_to_address_script(address: &AddressT) -> Result<ScriptPublicKey> {
     Ok(standard::pay_to_address_script(address.as_ref()))
 }
 
+/// Creates a new script to pay a transaction output to the specified address with lock time.
+/// @category Wallet SDK
+#[wasm_bindgen(js_name = payToAddressScriptWithLockTime)]
+pub fn pay_to_address_script_with_lock_time(address: &AddressT, lock_time: u64) -> Result<ScriptPublicKey> {
+    let address = Address::try_cast_from(address)?;
+    Ok(standard::pay_to_address_script_with_lock_time(address.as_ref(), lock_time)?)
+}
+
 /// Takes a script and returns an equivalent pay-to-script-hash script.
 /// @param redeem_script - The redeem script ({@link HexString} or Uint8Array).
 /// @category Wallet SDK

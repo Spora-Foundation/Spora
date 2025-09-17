@@ -35,7 +35,11 @@ pub enum ScriptBuilderError {
 
     #[error(transparent)]
     Serialization(#[from] SerializationError),
+
+    #[error("Invalid Address version: {0}")]
+    InvalidAddressVersion(u8),
 }
+
 pub type ScriptBuilderResult<T> = std::result::Result<T, ScriptBuilderError>;
 
 /// ScriptBuilder provides a facility for building custom scripts. It allows
