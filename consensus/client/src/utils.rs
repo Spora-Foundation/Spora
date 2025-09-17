@@ -93,3 +93,98 @@ pub fn is_script_pay_to_script_hash(script: BinaryT) -> Result<bool> {
     let script = script.try_as_vec_u8()?;
     Ok(ScriptClass::is_pay_to_script_hash(script.as_slice()))
 }
+
+/// Creates a Hash Time Locked Contract (HTLC) script.
+/// 
+/// This function creates an HTLC script that allows spending in two ways:
+/// 1. With the correct preimage (secret) and a valid signature from the recipient
+/// 2. With a valid signature from the sender after the lock time expires
+/// 
+/// @param secret_hash - The hash160 of the secret (20 bytes)
+/// @param recipient_pubkey - The recipient's public key (32 bytes for Schnorr)
+/// @param sender_pubkey - The sender's public key (32 bytes for Schnorr)
+/// @param lock_time - The minimum lock time required for sender to spend
+/// @category Wallet SDK
+#[wasm_bindgen(js_name = htlcScript)]
+pub fn htlc_script(
+    secret_hash: BinaryT,
+    recipient_pubkey: BinaryT,
+    sender_pubkey: BinaryT,
+    lock_time: u64,
+) -> Result<ScriptPublicKey> {
+    let secret_hash = secret_hash.try_as_vec_u8()?;
+    let recipient_pubkey = recipient_pubkey.try_as_vec_u8()?;
+    let sender_pubkey = sender_pubkey.try_as_vec_u8()?;
+    
+    Ok(standard::htlc_script(
+        secret_hash.as_slice(),
+        recipient_pubkey.as_slice(),
+        sender_pubkey.as_slice(),
+        lock_time,
+    )?)
+}
+
+/// Creates a Hash Time Locked Contract (HTLC) script with ECDSA signatures.
+/// 
+/// Similar to htlcScript but uses ECDSA signature verification instead of Schnorr.
+/// 
+/// @param secret_hash - The hash160 of the secret (20 bytes)
+/// @param recipient_pubkey - The recipient's ECDSA public key (33 bytes)
+/// @param sender_pubkey - The sender's ECDSA public key (33 bytes)
+/// @param lock_time - The minimum lock time required for sender to spend
+/// @category Wallet SDK
+#[wasm_bindgen(js_name = htlcScriptECDSA)]
+pub fn htlc_script_ecdsa(
+    secret_hash: BinaryT,
+    recipient_pubkey: BinaryT,
+    sender_pubkey: BinaryT,
+    lock_time: u64,
+) -> Result<ScriptPublicKey> {
+    let secret_hash = secret_hash.try_as_vec_u8()?;
+    let recipient_pubkey = recipient_pubkey.try_as_vec_u8()?;
+    let sender_pubkey = sender_pubkey.try_as_vec_u8()?;
+    
+    Ok(standard::htlc_script_ecdsa(
+        secret_hash.as_slice(),
+        recipient_pubkey.as_slice(),
+        sender_pubkey.as_slice(),
+        lock_time,
+    )?)
+}
+
+/// Generates a signature script for spending an HTLC with the secret (recipient path).
+/// 
+/// @param redeem_script - The HTLC redeem script
+/// @param secret - The secret preimage
+/// @param signature - The recipient's signature
+/// @category Wallet SDK
+#[wasm_bindgen(js_name = htlcSignatureScriptWithSecret)]
+pub fn htlc_signature_script_with_secret(
+    redeem_script: BinaryT,
+    secret: BinaryT,
+    signature: BinaryT,
+) -> Result<HexString> {
+    let redeem_script = redeem_script.try_as_vec_u8()?;
+    let secret = secret.try_as_vec_u8()?;
+    let signature = signature.try_as_vec_u8()?;
+    
+    let script = standard::htlc_signature_script_with_secret(redeem_script, secret, signature)?;
+    Ok(script.to_hex().into())
+}
+
+/// Generates a signature script for spending an HTLC after lock time expires (sender path).
+/// 
+/// @param redeem_script - The HTLC redeem script
+/// @param signature - The sender's signature
+/// @category Wallet SDK
+#[wasm_bindgen(js_name = htlcSignatureScriptWithTimeout)]
+pub fn htlc_signature_script_with_timeout(
+    redeem_script: BinaryT,
+    signature: BinaryT,
+) -> Result<HexString> {
+    let redeem_script = redeem_script.try_as_vec_u8()?;
+    let signature = signature.try_as_vec_u8()?;
+    
+    let script = standard::htlc_signature_script_with_timeout(redeem_script, signature)?;
+    Ok(script.to_hex().into())
+}
