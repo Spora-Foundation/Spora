@@ -1,4 +1,66 @@
 # Changelog
+## [1.0.2] - 2025-09-17
+
+### 🚀 New Features
+
+#### Time Locked Contract (TLC) Airdrop Functionality
+- **TLC Configuration**: Added `TlcAirdropConfig` struct for comprehensive TLC configuration management
+- **Script Generation**: Implemented `generate_tlc_script()` for creating time-locked contract scripts
+- **Transaction Generation**: Added `generate_tlc_airdrop_tx()` for TLC transaction creation
+- **Batch Operations**: Implemented `tlc_airdrop()` for efficient batch TLC airdrop operations
+- **HTLC Support**: Added Hash Time Locked Contract functionality with Blake3 secret hashing
+- **CLI Enhancements**: New CLI parameters for TLC operations:
+  - `--tlc-mode`: Enable TLC functionality
+  - `--lock-time`: Set lock time duration
+  - `--lock-time-type`: Specify lock time type (block height or timestamp)
+  - `--htlc-secret`: Configure HTLC secret for recipient path
+  - `--recipient-pubkey`: Set recipient public key
+  - `--sender-pubkey`: Set sender public key
+
+#### Enhanced Documentation and Examples
+- **Comprehensive README**: Updated Treasure Boy README with TLC usage examples and API documentation
+- **Example Documentation**: Added detailed TLC airdrop example in `tlc_airdrop_example.md`
+- **Integration Tests**: Enhanced integration test script with TLC testing functions
+
+### 🔧 Technical Improvements
+
+#### Security and Code Quality
+- **Legacy Code Removal**: Removed deprecated `gen1.rs` compatibility module and related legacy code
+- **Enhanced Security**: Improved encryption module security by hiding sensitive data in debug output
+- **Better Error Handling**: Enhanced error handling in encryption/decryption functions with improved validation
+- **Test Coverage**: Re-enabled message signing tests with updated test vectors for BLAKE3
+- **Performance Optimization**: Optimized wallet file reading in storage interface
+- **Code Cleanup**: Improved documentation and cleaned up code comments
+
+#### Dependency Updates
+- **Blake3 Integration**: Added Blake3 dependency for HTLC secret hashing
+- **Cargo Updates**: Updated Cargo.lock with latest dependency versions
+
+### 🧪 Testing & Quality Assurance
+
+#### Comprehensive Test Coverage
+- **Unit Tests**: Added 22 unit tests covering TLC functionality
+- **Integration Tests**: Implemented 9 integration tests for TLC operations
+- **Security Validation**: Enhanced security validation for TLC scripts and transactions
+- **Edge Case Testing**: Comprehensive testing of boundary conditions and error scenarios
+
+### 📈 Performance & Reliability
+
+#### Enhanced Stability
+- **Backward Compatibility**: Maintained full backward compatibility for all public APIs
+- **Memory Safety**: Improved memory management and safety practices
+- **Input Validation**: Enhanced input validation throughout TLC implementation
+- **Error Recovery**: Better error recovery and handling mechanisms
+
+### 🐛 Bug Fixes
+
+#### Infrastructure Fixes
+- **Storage Interface**: Fixed wallet file reading optimization issues
+- **Message Handling**: Improved message signing and validation
+- **Encryption Module**: Enhanced encryption/decryption error handling
+
+---
+
 ## [1.0.1] - 2025-09-17
 
 ### 🚀 New Features
