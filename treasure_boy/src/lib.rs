@@ -1,17 +1,23 @@
+pub mod error;
+
 use std::{
     collections::HashMap,
     fs,
     io::{BufRead, Write},
+    str::FromStr,
     time::Duration,
 };
 
+use crate::error::Result;
 use itertools::Itertools;
 use secp256k1::{
     rand::{thread_rng, Rng},
-    Keypair,
+    Keypair, SecretKey, SECP256K1,
 };
+use serde::{Deserialize, Serialize};
 use tokio::time::Instant;
 use tondi_addresses::{Address, Prefix, Version};
+use tondi_bip32::{DerivationPath, ExtendedPrivateKey, Language, Mnemonic, SecretKeyExt, WordCount};
 use tondi_consensus_core::{
     constants::{SAU_PER_TONDI, TX_VERSION},
     sign::sign,
@@ -21,16 +27,47 @@ use tondi_consensus_core::{
 use tondi_core::{info, warn};
 use tondi_grpc_client::GrpcClient;
 use tondi_rpc_core::{api::rpc::RpcApi, RpcUtxoEntry};
-use tondi_txscript::{pay_to_address_script, pay_to_address_script_with_lock_time, htlc_script};
+use tondi_txscript::{htlc_script, pay_to_address_script, pay_to_address_with_lock_time_script};
 
 /// Default amount to send per address in SAU (Smallest Atomic Unit)
-pub const DEFAULT_SEND_AMOUNT: u64 = 10 * SAU_PER_TONDI;
+pub const DEFAULT_SEND_AMOUNT: u64 = 1 * SAU_PER_TONDI;
 /// Base fee rate for transaction fees
 pub const FEE_RATE: u64 = 10;
 /// Milliseconds per tick for timing operations
 pub const MILLIS_PER_TICK: u64 = 10;
 /// Address version for generated addresses
 pub const ADDRESS_VERSION: Version = Version::PubKey;
+
+pub const DEFAULT_DERIVE_PATH: &str = "m/44'/7890'/0'/0/0";
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RandGenWallet {
+    pub address: String,
+    pub mnemonic: String,
+    pub secret_key: String,
+}
+
+impl RandGenWallet {
+    pub fn gen(prefix: Prefix) -> Result<Self> {
+        let mnemonic = Mnemonic::random(WordCount::Words12, Language::English)?;
+
+        let seed = mnemonic.to_seed("");
+        let extended_private_key = ExtendedPrivateKey::<SecretKey>::new(seed)?;
+
+        let derive_path = DerivationPath::from_str(DEFAULT_DERIVE_PATH)?;
+        let derive_private_key = extended_private_key.derive_path(&derive_path)?;
+        let secret_key = derive_private_key.private_key();
+
+        let xpub = secret_key.x_only_public_key(&SECP256K1).0;
+        let address = Address::new(prefix, ADDRESS_VERSION, &xpub.serialize());
+
+        Ok(Self {
+            address: address.address_to_string(),
+            mnemonic: mnemonic.phrase_string(),
+            secret_key: format!("{}", secret_key.display_secret()),
+        })
+    }
+}
 
 /// Statistics tracking for transaction operations
 #[derive(Debug, Clone)]
@@ -181,7 +218,7 @@ impl NetworkType {
             NetworkType::Devnet => Prefix::Devnet,
         }
     }
-    
+
     /// Get the default RPC port for this network type
     pub fn default_rpc_port(&self) -> u16 {
         match self {
@@ -249,7 +286,7 @@ pub struct TlcAirdropConfig {
     pub secret: Option<Vec<u8>>,
     /// Recipient's public key (32 bytes for Schnorr)
     pub recipient_pubkey: Option<[u8; 32]>,
-    /// Sender's public key (32 bytes for Schnorr) 
+    /// Sender's public key (32 bytes for Schnorr)
     pub sender_pubkey: Option<[u8; 32]>,
 }
 
@@ -607,13 +644,13 @@ pub fn clean_old_pending_outpoints(pending: &mut HashMap<TransactionOutpoint, In
 }
 
 /// Generate a Time Locked Contract script for airdrop
-/// 
+///
 /// This function creates either a simple time lock or an HTLC script based on the configuration.
-/// 
+///
 /// # Arguments
 /// * `address` - The target address for the airdrop
 /// * `config` - TLC configuration
-/// 
+///
 /// # Returns
 /// * `Ok(ScriptPublicKey)` - The constructed script public key
 /// * `Err(Box<dyn std::error::Error>)` - If script generation fails
@@ -621,9 +658,9 @@ pub fn generate_tlc_script(
     address: &Address,
     config: &TlcAirdropConfig,
 ) -> Result<tondi_consensus_core::tx::ScriptPublicKey, Box<dyn std::error::Error>> {
-    use tondi_consensus_core::constants::LOCK_TIME_THRESHOLD;
     use blake3::hash;
-    
+    use tondi_consensus_core::constants::LOCK_TIME_THRESHOLD;
+
     // Determine the actual lock time based on configuration
     let lock_time = if config.is_timestamp {
         // If it's a timestamp, ensure it's above the threshold
@@ -641,30 +678,31 @@ pub fn generate_tlc_script(
     };
 
     // Generate script based on configuration
-    if let (Some(secret), Some(recipient_pubkey), Some(sender_pubkey)) = 
-        (&config.secret, &config.recipient_pubkey, &config.sender_pubkey) {
+    if let (Some(secret), Some(recipient_pubkey), Some(sender_pubkey)) =
+        (&config.secret, &config.recipient_pubkey, &config.sender_pubkey)
+    {
         // Create HTLC script
         let secret_hash = hash(secret);
         htlc_script(secret_hash.as_bytes(), recipient_pubkey, sender_pubkey, lock_time)
             .map_err(|e| format!("Failed to create HTLC script: {:?}", e).into())
     } else {
         // Create simple time lock script
-        pay_to_address_script_with_lock_time(address, lock_time)
+        pay_to_address_with_lock_time_script(address, lock_time)
             .map_err(|e| format!("Failed to create time lock script: {:?}", e).into())
     }
 }
 
 /// Generate a transaction with TLC outputs for airdrop
-/// 
+///
 /// This function creates a transaction with time-locked outputs for each target address.
-/// 
+///
 /// # Arguments
 /// * `schnorr_key` - The private key for signing the transaction
 /// * `utxos` - Available UTXOs for the transaction
 /// * `send_amount` - Amount to send per address in SAU
 /// * `target_addresses` - List of addresses to send TLC outputs to
 /// * `tlc_config` - TLC configuration for the outputs
-/// 
+///
 /// # Returns
 /// * `Ok(Transaction)` - The signed transaction with TLC outputs
 /// * `Err(Box<dyn std::error::Error>)` - If transaction generation fails
@@ -677,12 +715,7 @@ pub fn generate_tlc_airdrop_tx(
 ) -> Result<Transaction, Box<dyn std::error::Error>> {
     let inputs = utxos
         .iter()
-        .map(|(op, _)| TransactionInput { 
-            previous_outpoint: *op, 
-            signature_script: vec![], 
-            sequence: 0, 
-            sig_op_count: 1 
-        })
+        .map(|(op, _)| TransactionInput { previous_outpoint: *op, signature_script: vec![], sequence: 0, sig_op_count: 1 })
         .collect_vec();
 
     // Create TLC outputs for each target address
@@ -690,40 +723,24 @@ pub fn generate_tlc_airdrop_tx(
         .iter()
         .map(|addr| {
             let script_public_key = generate_tlc_script(addr, tlc_config)?;
-            Ok(TransactionOutput { 
-                value: send_amount / target_addresses.len() as u64, 
-                script_public_key 
-            })
+            Ok(TransactionOutput { value: send_amount / target_addresses.len() as u64, script_public_key })
         })
         .collect::<Result<Vec<_>, Box<dyn std::error::Error>>>()?;
 
-    let unsigned_tx = Transaction::new_non_finalized(
-        TX_VERSION, 
-        inputs, 
-        outputs, 
-        0, 
-        SUBNETWORK_ID_NATIVE, 
-        0, 
-        vec![]
-    );
-    
-    let signed_tx = sign(
-        MutableTransaction::with_entries(
-            unsigned_tx, 
-            utxos.iter().map(|(_, entry)| entry.clone()).collect_vec()
-        ), 
-        schnorr_key
-    );
-    
+    let unsigned_tx = Transaction::new_non_finalized(TX_VERSION, inputs, outputs, 0, SUBNETWORK_ID_NATIVE, 0, vec![]);
+
+    let signed_tx =
+        sign(MutableTransaction::with_entries(unsigned_tx, utxos.iter().map(|(_, entry)| entry.clone()).collect_vec()), schnorr_key);
+
     let mut final_tx = signed_tx.tx;
     final_tx.finalize();
     Ok(final_tx)
 }
 
 /// Perform TLC airdrop to multiple addresses
-/// 
+///
 /// This function creates time-locked transactions for batch airdrop operations.
-/// 
+///
 /// # Arguments
 /// * `schnorr_key` - The private key for signing transactions
 /// * `target_addresses` - List of addresses to send TLC outputs to
@@ -734,7 +751,7 @@ pub fn generate_tlc_airdrop_tx(
 /// * `tlc_config` - TLC configuration for the outputs
 /// * `threads` - Number of threads for parallel processing
 /// * `network` - Network type for operations
-/// 
+///
 /// # Returns
 /// * `Ok(Vec<Transaction>)` - Vector of successfully sent transactions
 /// * `Err(Box<dyn std::error::Error>)` - If airdrop fails
@@ -750,10 +767,7 @@ pub async fn tlc_airdrop(
     network: NetworkType,
 ) -> Result<Vec<Transaction>, Box<dyn std::error::Error>> {
     info!("Starting TLC airdrop to {} addresses", target_addresses.len());
-    info!("Lock time: {} ({})", 
-        tlc_config.lock_time, 
-        if tlc_config.is_timestamp { "timestamp" } else { "block height" }
-    );
+    info!("Lock time: {} ({})", tlc_config.lock_time, if tlc_config.is_timestamp { "timestamp" } else { "block height" });
 
     // Create address distribution tracker
     let mut address_tracker = AddressDistributionTracker::new(target_addresses);
@@ -949,7 +963,12 @@ mod tests {
     #[test]
     fn test_address_distribution_tracker_large_batch() {
         // Test performance with large address pool
-        let addresses: Vec<Address> = (0..1000).map(|i| Address::new(Prefix::Devnet, Version::PubKey, &[i as u8; 32])).collect();
+        let addresses: Vec<Address> = (0..1000)
+            .map(|i| {
+                let i = (i % u8::MAX as usize) as u8;
+                Address::new(Prefix::Devnet, Version::PubKey, &[i; 32])
+            })
+            .collect();
 
         let mut tracker = AddressDistributionTracker::new(addresses);
 
@@ -1226,7 +1245,7 @@ mod tests {
 
         let result = generate_tlc_script(&addr, &config);
         assert!(result.is_ok(), "Simple TLC script generation should succeed");
-        
+
         let script = result.unwrap();
         assert_eq!(script.version(), 0); // ScriptHash version
     }
@@ -1244,7 +1263,7 @@ mod tests {
 
         let result = generate_tlc_script(&addr, &config);
         assert!(result.is_ok(), "HTLC script generation should succeed");
-        
+
         let script = result.unwrap();
         assert_eq!(script.version(), 0); // ScriptHash version
     }
@@ -1262,7 +1281,7 @@ mod tests {
 
         let result = generate_tlc_script(&addr, &config);
         assert!(result.is_ok(), "Block height TLC script generation should succeed");
-        
+
         let script = result.unwrap();
         assert_eq!(script.version(), 0); // ScriptHash version
     }
@@ -1271,7 +1290,7 @@ mod tests {
     fn test_generate_tlc_airdrop_tx() {
         let (secret_key, public_key) = secp256k1::generate_keypair(&mut thread_rng());
         let keypair = Keypair::from_seckey_slice(secp256k1::SECP256K1, &secret_key.secret_bytes()).unwrap();
-        
+
         let addr1 = Address::new(Prefix::Devnet, Version::PubKey, &public_key.x_only_public_key().0.serialize());
         let addr2 = Address::new(Prefix::Devnet, Version::PubKey, &[0x42; 32]);
 
@@ -1285,19 +1304,14 @@ mod tests {
             },
         )];
 
-        let tlc_config = TlcAirdropConfig {
-            lock_time: 1756684800,
-            is_timestamp: true,
-            secret: None,
-            recipient_pubkey: None,
-            sender_pubkey: None,
-        };
+        let tlc_config =
+            TlcAirdropConfig { lock_time: 1756684800, is_timestamp: true, secret: None, recipient_pubkey: None, sender_pubkey: None };
 
         let target_addresses = vec![&addr1, &addr2];
         let result = generate_tlc_airdrop_tx(keypair, &utxos, 100000, &target_addresses, &tlc_config);
 
         assert!(result.is_ok(), "TLC airdrop transaction generation should succeed");
-        
+
         let tx = result.unwrap();
         assert_eq!(tx.inputs.len(), 1);
         assert_eq!(tx.outputs.len(), 2);

@@ -67,7 +67,7 @@ fn test_cli_generate_addresses_to_file() {
     assert!(stdout.contains("Generated 2 addresses and saved to:"));
 
     // Check file contents
-    let file_content = std::fs::read_to_string(temp_path).unwrap();
+    let file_content = std::fs::read_to_string(format!("{temp_path}.addresses")).unwrap();
     let lines: Vec<&str> = file_content.lines().collect();
     assert_eq!(lines.len(), 2);
     assert!(lines[0].starts_with("tonditest:"));

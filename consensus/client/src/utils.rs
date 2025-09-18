@@ -25,10 +25,10 @@ pub fn pay_to_address_script(address: &AddressT) -> Result<ScriptPublicKey> {
 
 /// Creates a new script to pay a transaction output to the specified address with lock time.
 /// @category Wallet SDK
-#[wasm_bindgen(js_name = payToAddressScriptWithLockTime)]
-pub fn pay_to_address_script_with_lock_time(address: &AddressT, lock_time: u64) -> Result<ScriptPublicKey> {
+#[wasm_bindgen(js_name = payToAddressWithLockTimeScript)]
+pub fn pay_to_address_with_lock_time_script(address: &AddressT, lock_time: u64) -> Result<ScriptPublicKey> {
     let address = Address::try_cast_from(address)?;
-    Ok(standard::pay_to_address_script_with_lock_time(address.as_ref(), lock_time)?)
+    Ok(standard::pay_to_address_with_lock_time_script(address.as_ref(), lock_time)?)
 }
 
 /// Takes a script and returns an equivalent pay-to-script-hash script.
@@ -95,11 +95,11 @@ pub fn is_script_pay_to_script_hash(script: BinaryT) -> Result<bool> {
 }
 
 /// Creates a Hash Time Locked Contract (HTLC) script.
-/// 
+///
 /// This function creates an HTLC script that allows spending in two ways:
 /// 1. With the correct preimage (secret) and a valid signature from the recipient
 /// 2. With a valid signature from the sender after the lock time expires
-/// 
+///
 /// @param secret_hash - The hash160 of the secret (20 bytes)
 /// @param recipient_pubkey - The recipient's public key (32 bytes for Schnorr)
 /// @param sender_pubkey - The sender's public key (32 bytes for Schnorr)
@@ -115,19 +115,14 @@ pub fn htlc_script(
     let secret_hash = secret_hash.try_as_vec_u8()?;
     let recipient_pubkey = recipient_pubkey.try_as_vec_u8()?;
     let sender_pubkey = sender_pubkey.try_as_vec_u8()?;
-    
-    Ok(standard::htlc_script(
-        secret_hash.as_slice(),
-        recipient_pubkey.as_slice(),
-        sender_pubkey.as_slice(),
-        lock_time,
-    )?)
+
+    Ok(standard::htlc_script(secret_hash.as_slice(), recipient_pubkey.as_slice(), sender_pubkey.as_slice(), lock_time)?)
 }
 
 /// Creates a Hash Time Locked Contract (HTLC) script with ECDSA signatures.
-/// 
+///
 /// Similar to htlcScript but uses ECDSA signature verification instead of Schnorr.
-/// 
+///
 /// @param secret_hash - The hash160 of the secret (20 bytes)
 /// @param recipient_pubkey - The recipient's ECDSA public key (33 bytes)
 /// @param sender_pubkey - The sender's ECDSA public key (33 bytes)
@@ -143,48 +138,36 @@ pub fn htlc_script_ecdsa(
     let secret_hash = secret_hash.try_as_vec_u8()?;
     let recipient_pubkey = recipient_pubkey.try_as_vec_u8()?;
     let sender_pubkey = sender_pubkey.try_as_vec_u8()?;
-    
-    Ok(standard::htlc_script_ecdsa(
-        secret_hash.as_slice(),
-        recipient_pubkey.as_slice(),
-        sender_pubkey.as_slice(),
-        lock_time,
-    )?)
+
+    Ok(standard::htlc_script_ecdsa(secret_hash.as_slice(), recipient_pubkey.as_slice(), sender_pubkey.as_slice(), lock_time)?)
 }
 
 /// Generates a signature script for spending an HTLC with the secret (recipient path).
-/// 
+///
 /// @param redeem_script - The HTLC redeem script
 /// @param secret - The secret preimage
 /// @param signature - The recipient's signature
 /// @category Wallet SDK
 #[wasm_bindgen(js_name = htlcSignatureScriptWithSecret)]
-pub fn htlc_signature_script_with_secret(
-    redeem_script: BinaryT,
-    secret: BinaryT,
-    signature: BinaryT,
-) -> Result<HexString> {
+pub fn htlc_signature_script_with_secret(redeem_script: BinaryT, secret: BinaryT, signature: BinaryT) -> Result<HexString> {
     let redeem_script = redeem_script.try_as_vec_u8()?;
     let secret = secret.try_as_vec_u8()?;
     let signature = signature.try_as_vec_u8()?;
-    
+
     let script = standard::htlc_signature_script_with_secret(redeem_script, secret, signature)?;
     Ok(script.to_hex().into())
 }
 
 /// Generates a signature script for spending an HTLC after lock time expires (sender path).
-/// 
+///
 /// @param redeem_script - The HTLC redeem script
 /// @param signature - The sender's signature
 /// @category Wallet SDK
 #[wasm_bindgen(js_name = htlcSignatureScriptWithTimeout)]
-pub fn htlc_signature_script_with_timeout(
-    redeem_script: BinaryT,
-    signature: BinaryT,
-) -> Result<HexString> {
+pub fn htlc_signature_script_with_timeout(redeem_script: BinaryT, signature: BinaryT) -> Result<HexString> {
     let redeem_script = redeem_script.try_as_vec_u8()?;
     let signature = signature.try_as_vec_u8()?;
-    
+
     let script = standard::htlc_signature_script_with_timeout(redeem_script, signature)?;
     Ok(script.to_hex().into())
 }

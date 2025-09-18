@@ -3,7 +3,7 @@ use secp256k1::Keypair;
 use tondi_addresses::{Address, Prefix, Version};
 use tondi_consensus_core::{
     hashing::{
-        sighash::{calc_schnorr_signature_hash, calc_ecdsa_signature_hash, SigHashReusedValuesUnsync},
+        sighash::{calc_ecdsa_signature_hash, calc_schnorr_signature_hash, SigHashReusedValuesUnsync},
         sighash_type::SIG_HASH_ALL,
     },
     tx::{
@@ -684,13 +684,14 @@ mod tests {
     use secp256k1::Message;
     use std::str::FromStr;
     use tondi_addresses::{Address, Prefix, Version};
-    use tondi_txscript::pay_to_address_script_with_lock_time;
+    use tondi_txscript::{pay_to_address_with_lock_time_script, pay_to_pub_key_with_lock_time, pay_to_script_hash_signature_script};
     use tondi_utils::hex::FromHex;
 
     #[test]
     fn test_tlc_transaction() {
         // Mnemonic: purpose carpet empower monkey hawk brush survey waste judge tide culture slight
         let addr = Address::constructor("tonditest:qz8etv6sf8r8vsc05fgvu3pg07yt3sxhd9tzph0jtz5gdru30gd5k55pt6k");
+        let xpub = addr.payload.as_slice();
 
         let keypair = Keypair::from_seckey_slice(
             secp256k1::SECP256K1,
@@ -705,7 +706,7 @@ mod tests {
         let amount = 1_0000_0000;
 
         // UTXO
-        let utxo_spk = pay_to_address_script_with_lock_time(&addr, lock_time).unwrap();
+        let utxo_spk = pay_to_address_with_lock_time_script(&addr, lock_time).unwrap();
         let utxo_tx_id = TransactionId::from_str("880eb9819a31821d9d2399e2f35e2433b72637e393d71ecc9b8d0250f49153c3").unwrap();
         let utxo_entry = UtxoEntry::new(amount, utxo_spk, 0, false);
 
@@ -731,8 +732,12 @@ mod tests {
         let hash_type = SIG_HASH_ALL;
         let sig_hash = calc_schnorr_signature_hash(&mutable_tx.as_verifiable(), 0, hash_type, &reused_values);
         let msg = Message::from_digest_slice(sig_hash.as_bytes().as_slice()).unwrap();
-        let sig = *keypair.sign_schnorr(msg).as_ref();
-        mutable_tx.tx.inputs[0].signature_script = std::iter::once(65u8).chain(sig).chain([hash_type.to_u8()]).collect();
+        let sig = keypair.sign_schnorr(msg).as_ref().to_vec();
+        let signature = std::iter::once(65u8).chain(sig).chain([hash_type.to_u8()]).collect();
+        let redeem_script = pay_to_pub_key_with_lock_time(xpub, lock_time).unwrap();
+        let signature_script = pay_to_script_hash_signature_script(redeem_script, signature).unwrap();
+
+        mutable_tx.tx.inputs[0].signature_script = signature_script;
 
         // Execute
         let sig_cache = Cache::new(10_000);
@@ -746,89 +751,85 @@ mod tests {
     fn test_tlc_invalid_address_version() {
         // Test with ScriptHash address version (should fail)
         let addr = Address::new(Prefix::Testnet, Version::ScriptHash, &[0u8; 32]);
-        let result = pay_to_address_script_with_lock_time(&addr, 1756684800);
+        let result = pay_to_address_with_lock_time_script(&addr, 1756684800);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_tlc_zero_lock_time() {
         let addr = Address::constructor("tonditest:qz8etv6sf8r8vsc05fgvu3pg07yt3sxhd9tzph0jtz5gdru30gd5k55pt6k");
-        let result = pay_to_address_script_with_lock_time(&addr, 0);
+        let result = pay_to_address_with_lock_time_script(&addr, 0);
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_tlc_max_lock_time() {
         let addr = Address::constructor("tonditest:qz8etv6sf8r8vsc05fgvu3pg07yt3sxhd9tzph0jtz5gdru30gd5k55pt6k");
-        let result = pay_to_address_script_with_lock_time(&addr, u64::MAX);
+        let result = pay_to_address_with_lock_time_script(&addr, u64::MAX);
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_htlc_transaction() {
-        use tondi_txscript::{htlc_script_ecdsa, htlc_signature_script_with_secret, htlc_signature_script_with_timeout};
         use blake3::hash;
-        
+        use tondi_txscript::{htlc_script_ecdsa, htlc_signature_script_with_secret, htlc_signature_script_with_timeout};
+
         println!("[HTLC] Starting HTLC transaction test");
-        
+
         // Test data
         let secret = b"my_htlc_secret_key_12345";
         let secret_hash = hash(secret);
         let secret_hash_bytes = secret_hash.as_bytes(); // Use full 32 bytes for Blake3
         println!("Secret hash length: {}", secret_hash_bytes.len());
-        
+
         // Generate keypairs for recipient and sender
         let recipient_keypair = Keypair::from_seckey_slice(
             secp256k1::SECP256K1,
             &Vec::from_hex("9f2aff6167f8eb413d2e42f6727defb799448babe37e5a542e7500e34ee85768").unwrap(),
-        ).unwrap();
-        
+        )
+        .unwrap();
+
         let sender_keypair = Keypair::from_seckey_slice(
             secp256k1::SECP256K1,
             &Vec::from_hex("8e1aff6167f8eb413d2e42f6727defb799448babe37e5a542e7500e34ee85769").unwrap(),
-        ).unwrap();
-        
+        )
+        .unwrap();
+
         let recipient_pubkey = recipient_keypair.public_key().serialize();
         let sender_pubkey = sender_keypair.public_key().serialize();
         println!("Recipient pubkey length: {}", recipient_pubkey.len());
         println!("Sender pubkey length: {}", sender_pubkey.len());
-        
+
         // Create address for output
         let addr = Address::constructor("tonditest:qz8etv6sf8r8vsc05fgvu3pg07yt3sxhd9tzph0jtz5gdru30gd5k55pt6k");
-        
+
         let datetime = NaiveDateTime::parse_from_str("2025-09-01 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap();
         let lock_time = datetime.and_utc().timestamp() as u64;
         assert_eq!(lock_time, 1756684800);
-        
+
         let amount = 1_0000_0000;
-        
+
         // Create HTLC script (using ECDSA version since pubkeys are 33 bytes)
         let htlc_spk = htlc_script_ecdsa(secret_hash_bytes, &recipient_pubkey, &sender_pubkey, lock_time).unwrap();
         println!("HTLC script created successfully");
-        
+
         // Test HTLC script structure
         let script = htlc_spk.script();
         println!("HTLC script length: {}", script.len());
-        
+
         // Test signature script creation
         let test_signature = vec![0x01; 72]; // ECDSA signature (DER format)
         let test_secret = secret.to_vec();
-        
+
         // Test recipient path signature script
-        let sig_script_recipient = htlc_signature_script_with_secret(
-            script.to_vec(),
-            test_secret.clone(),
-            test_signature.clone(),
-        ).unwrap();
+        let sig_script_recipient =
+            htlc_signature_script_with_secret(script.to_vec(), test_secret.clone(), test_signature.clone()).unwrap();
         println!("Recipient signature script created successfully, length: {}", sig_script_recipient.len());
-        
+
         // Test sender path signature script
-        let sig_script_sender = htlc_signature_script_with_timeout(
-            script.to_vec(),
-            test_signature,
-        ).unwrap();
+        let sig_script_sender = htlc_signature_script_with_timeout(script.to_vec(), test_signature).unwrap();
         println!("Sender signature script created successfully, length: {}", sig_script_sender.len());
-        
+
         println!("[HTLC] All HTLC functionality tests passed successfully");
     }
 }

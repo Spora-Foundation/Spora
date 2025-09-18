@@ -2,7 +2,7 @@ use std::io::{self, Write};
 use std::sync::{Arc, Mutex};
 
 use clap::{Arg, ArgAction, Command};
-use secp256k1::{rand::thread_rng, Keypair};
+use secp256k1::Keypair;
 use tondi_addresses::Address;
 use tondi_core::{error, info, time::unix_now, tondid_env::version};
 use tondi_grpc_client::GrpcClient;
@@ -11,24 +11,23 @@ use tondi_rpc_core::notify::mode::NotificationMode;
 
 use std::fs;
 use treasure_boy::{
-    ask_batch_count, batch_airdrop, load_addresses_from_file, single_airdrop, tlc_airdrop, AddressDistributionTracker, Config, Stats, TxsFeeConfig, TlcAirdropConfig, NetworkType,
-    ADDRESS_VERSION, DEFAULT_SEND_AMOUNT,
+    ask_batch_count, batch_airdrop, load_addresses_from_file, single_airdrop, tlc_airdrop, AddressDistributionTracker, Config,
+    NetworkType, RandGenWallet, Stats, TlcAirdropConfig, TxsFeeConfig, ADDRESS_VERSION, DEFAULT_SEND_AMOUNT,
 };
 
 fn generate_addresses(count: u32, output_file: Option<String>, network: NetworkType) -> Result<(), Box<dyn std::error::Error>> {
-    let mut addresses = Vec::new();
-
+    let prefix = network.address_prefix();
+    let mut wallets = Vec::with_capacity(count as usize);
     for _ in 0..count {
-        let (_sk, pk) = secp256k1::generate_keypair(&mut thread_rng());
-        let address = Address::new(network.address_prefix(), ADDRESS_VERSION, &pk.x_only_public_key().0.serialize());
-        addresses.push(format!("{}", String::from(&address)));
+        wallets.push(RandGenWallet::gen(prefix)?);
     }
 
-    let content = addresses.join("\n");
-
+    let content = serde_json::to_string_pretty(&wallets)?;
     match output_file {
         Some(file_path) => {
             fs::write(&file_path, content)?;
+            let addresses = wallets.into_iter().map(|w| w.address).collect::<Vec<_>>();
+            fs::write(format!("{file_path}.addresses"), addresses.join("\n"))?;
             info!("Generated {} addresses and saved to: {}", count, file_path);
         }
         None => {
@@ -138,12 +137,7 @@ fn cli() -> Command {
                 .value_parser(["mainnet", "testnet", "devnet"])
                 .help("Network type: mainnet, testnet, or devnet"),
         )
-        .arg(
-            Arg::new("tlc-mode")
-                .long("tlc-mode")
-                .action(ArgAction::SetTrue)
-                .help("Enable Time Locked Contract (TLC) airdrop mode"),
-        )
+        .arg(Arg::new("tlc-mode").long("tlc-mode").action(ArgAction::SetTrue).help("Enable Time Locked Contract (TLC) airdrop mode"))
         .arg(
             Arg::new("lock-time")
                 .long("lock-time")
@@ -171,17 +165,12 @@ fn cli() -> Command {
                 .value_name("pubkey")
                 .help("Recipient's public key for HTLC (32 bytes hex)"),
         )
-        .arg(
-            Arg::new("sender-pubkey")
-                .long("sender-pubkey")
-                .value_name("pubkey")
-                .help("Sender's public key for HTLC (32 bytes hex)"),
-        )
+        .arg(Arg::new("sender-pubkey").long("sender-pubkey").value_name("pubkey").help("Sender's public key for HTLC (32 bytes hex)"))
 }
 
 fn parse_args() -> Config {
     let m = cli().get_matches();
-    
+
     // Parse network type
     let network_str = m.get_one::<String>("network").unwrap();
     let network = match network_str.as_str() {
@@ -190,14 +179,14 @@ fn parse_args() -> Config {
         "devnet" => NetworkType::Devnet,
         _ => NetworkType::Testnet, // Default fallback
     };
-    
+
     // Parse TLC configuration
     let tlc_mode = m.get_one::<bool>("tlc-mode").cloned().unwrap_or(false);
     let tlc_config = if tlc_mode {
         let lock_time = m.get_one::<u64>("lock-time").cloned().unwrap_or(0);
         let lock_time_type_str = m.get_one::<String>("lock-time-type").unwrap();
         let is_timestamp = lock_time_type_str == "timestamp";
-        
+
         let secret = m.get_one::<String>("htlc-secret").map(|s| s.as_bytes().to_vec());
         let recipient_pubkey = m.get_one::<String>("recipient-pubkey").and_then(|s| {
             let mut bytes = [0u8; 32];
@@ -215,18 +204,12 @@ fn parse_args() -> Config {
                 None
             }
         });
-        
-        Some(TlcAirdropConfig {
-            lock_time,
-            is_timestamp,
-            secret,
-            recipient_pubkey,
-            sender_pubkey,
-        })
+
+        Some(TlcAirdropConfig { lock_time, is_timestamp, secret, recipient_pubkey, sender_pubkey })
     } else {
         None
     };
-    
+
     Config {
         private_key: m.get_one::<String>("private-key").cloned(),
         tps: m.get_one::<u64>("tps").cloned().unwrap(),
@@ -428,7 +411,7 @@ async fn main() {
         // TLC airdrop
         if let Some(tlc_config) = &args.tlc_config {
             info!("Performing TLC airdrop to {} addresses", target_addresses.len());
-            
+
             match tlc_airdrop(
                 schnorr_key,
                 target_addresses,
@@ -467,7 +450,16 @@ async fn main() {
         // Single airdrop
         info!("Performing single airdrop to: {}", String::from(&target_addresses[0]));
 
-        match single_airdrop(schnorr_key, target_addresses[0].clone(), args.send_amount, &rpc_client, &fee_config, args.network.clone()).await {
+        match single_airdrop(
+            schnorr_key,
+            target_addresses[0].clone(),
+            args.send_amount,
+            &rpc_client,
+            &fee_config,
+            args.network.clone(),
+        )
+        .await
+        {
             Ok(tx) => {
                 info!("Single airdrop completed successfully");
                 info!("Transaction ID: {:?}", tx.id());

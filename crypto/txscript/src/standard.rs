@@ -1,5 +1,8 @@
 use crate::{
-    opcodes::codes::{OpBlake3, OpCheckLockTimeVerify, OpCheckSig, OpCheckSigECDSA, OpData32, OpData33, OpEqual, OpTrue, OpEqualVerify, OpDrop, OpIf, OpElse, OpEndIf, OpFalse},
+    opcodes::codes::{
+        OpBlake3, OpCheckLockTimeVerify, OpCheckSig, OpCheckSigECDSA, OpData32, OpData33, OpDrop, OpElse, OpEndIf, OpEqual,
+        OpEqualVerify, OpFalse, OpIf, OpTrue,
+    },
     script_builder::{ScriptBuilder, ScriptBuilderError, ScriptBuilderResult},
     script_class::ScriptClass,
 };
@@ -21,6 +24,17 @@ fn pay_to_pub_key(address_payload: &[u8]) -> ScriptVec {
     // TODO: use ScriptBuilder when add_op and add_data fns or equivalents are available
     assert_eq!(address_payload.len(), 32);
     SmallVec::from_iter(once(OpData32).chain(address_payload.iter().copied()).chain(once(OpCheckSig)))
+}
+
+pub fn pay_to_pub_key_with_lock_time(address_payload: &[u8], lock_time: u64) -> ScriptBuilderResult<Vec<u8>> {
+    assert_eq!(address_payload.len(), 32);
+    let script = ScriptBuilder::new()
+        .add_lock_time(lock_time)?
+        .add_op(OpCheckLockTimeVerify)?
+        .add_data(address_payload)?
+        .add_op(OpCheckSig)?
+        .drain();
+    Ok(script)
 }
 
 /// Creates a new script to pay a transaction output to taproot.
@@ -58,54 +72,48 @@ pub fn pay_to_address_script(address: &Address) -> ScriptPublicKey {
 }
 
 /// Creates a new script to pay a transaction output to the specified address with lock time.
-/// 
+///
 /// This function creates a Time Locked Contract (TLC) script that requires:
 /// 1. The transaction's lock time to be greater than or equal to the specified lock_time
 /// 2. A valid signature from the address owner
-/// 
+///
 /// The lock_time can be either:
 /// - A block height (if < LOCK_TIME_THRESHOLD)
 /// - A Unix timestamp (if >= LOCK_TIME_THRESHOLD)
-/// 
+///
 /// # Arguments
 /// * `address` - The address to pay to (must be PubKey version)
 /// * `lock_time` - The minimum lock time required to spend this output
-/// 
+///
 /// # Returns
 /// * `Ok(ScriptPublicKey)` - The constructed script public key
 /// * `Err(ScriptBuilderError::InvalidAddressVersion)` - If address is not PubKey version
-/// 
+///
 /// # Example
 /// ```
-/// use tondi_txscript::pay_to_address_script_with_lock_time;
+/// use tondi_txscript::pay_to_address_with_lock_time_script;
 /// use tondi_addresses::Address;
-/// 
+///
 /// let addr = Address::constructor("tonditest:qz8etv6sf8r8vsc05fgvu3pg07yt3sxhd9tzph0jtz5gdru30gd5k55pt6k");
 /// let lock_time = 1756684800; // Unix timestamp
-/// let script = pay_to_address_script_with_lock_time(&addr, lock_time).unwrap();
+/// let script = pay_to_address_with_lock_time_script(&addr, lock_time).unwrap();
 /// ```
-pub fn pay_to_address_script_with_lock_time(address: &Address, lock_time: u64) -> ScriptBuilderResult<ScriptPublicKey> {
+pub fn pay_to_address_with_lock_time_script(address: &Address, lock_time: u64) -> ScriptBuilderResult<ScriptPublicKey> {
     if address.version != Version::PubKey {
         return Err(ScriptBuilderError::InvalidAddressVersion(address.version as u8));
     }
 
-    let script = ScriptBuilder::new()
-        .add_lock_time(lock_time)?
-        .add_op(OpCheckLockTimeVerify)?
-        .add_data(address.payload.as_slice())?
-        .add_op(OpCheckSig)?
-        .drain();
-
-    let version = ScriptClass::from(address.version).version();
-    Ok(ScriptPublicKey::from_vec(version, script))
+    let xpub = address.payload.as_slice();
+    let redeem_script = pay_to_pub_key_with_lock_time(xpub, lock_time)?;
+    Ok(pay_to_script_hash_script(&redeem_script))
 }
 
 /// Creates a Hash Time Locked Contract (HTLC) script.
-/// 
+///
 /// This function creates an HTLC script that allows spending in two ways:
 /// 1. With the correct preimage (secret) and a valid signature from the recipient
 /// 2. With a valid signature from the sender after the lock time expires
-/// 
+///
 /// The HTLC script structure:
 /// ```
 /// OP_IF
@@ -116,28 +124,28 @@ pub fn pay_to_address_script_with_lock_time(address: &Address, lock_time: u64) -
 ///   <sender_pubkey> OP_CHECKSIG
 /// OP_ENDIF
 /// ```
-/// 
+///
 /// # Arguments
 /// * `secret_hash` - The Blake3 hash of the secret (32 bytes)
 /// * `recipient_pubkey` - The recipient's public key (32 bytes for Schnorr)
 /// * `sender_pubkey` - The sender's public key (32 bytes for Schnorr)
 /// * `lock_time` - The minimum lock time required for sender to spend
-/// 
+///
 /// # Returns
 /// * `Ok(ScriptPublicKey)` - The constructed HTLC script public key
 /// * `Err(ScriptBuilderError)` - If any parameter is invalid
-/// 
+///
 /// # Example
 /// ```
 /// use tondi_txscript::htlc_script;
 /// use blake3::hash;
-/// 
+///
 /// let secret = b"my_secret_key";
 /// let secret_hash = hash(secret);
 /// let recipient_pubkey = [0u8; 32]; // Replace with actual pubkey
 /// let sender_pubkey = [0u8; 32]; // Replace with actual pubkey
 /// let lock_time = 1756684800; // Unix timestamp
-/// 
+///
 /// let script = htlc_script(secret_hash.as_bytes(), &recipient_pubkey, &sender_pubkey, lock_time).unwrap();
 /// ```
 pub fn htlc_script(
@@ -189,15 +197,15 @@ pub fn htlc_script(
 }
 
 /// Creates a Hash Time Locked Contract (HTLC) script with ECDSA signatures.
-/// 
+///
 /// Similar to `htlc_script` but uses ECDSA signature verification instead of Schnorr.
-/// 
+///
 /// # Arguments
 /// * `secret_hash` - The hash160 of the secret (20 bytes)
 /// * `recipient_pubkey` - The recipient's ECDSA public key (33 bytes)
 /// * `sender_pubkey` - The sender's ECDSA public key (33 bytes)
 /// * `lock_time` - The minimum lock time required for sender to spend
-/// 
+///
 /// # Returns
 /// * `Ok(ScriptPublicKey)` - The constructed HTLC script public key
 /// * `Err(ScriptBuilderError)` - If any parameter is invalid
@@ -250,53 +258,37 @@ pub fn htlc_script_ecdsa(
 }
 
 /// Generates a signature script for spending an HTLC with the secret (recipient path).
-/// 
+///
 /// # Arguments
 /// * `redeem_script` - The HTLC redeem script
 /// * `secret` - The secret preimage
 /// * `signature` - The recipient's signature
-/// 
+///
 /// # Returns
 /// * `Ok(Vec<u8>)` - The signature script
 /// * `Err(ScriptBuilderError)` - If any parameter is invalid
-pub fn htlc_signature_script_with_secret(
-    redeem_script: Vec<u8>,
-    secret: Vec<u8>,
-    signature: Vec<u8>,
-) -> ScriptBuilderResult<Vec<u8>> {
+pub fn htlc_signature_script_with_secret(redeem_script: Vec<u8>, secret: Vec<u8>, signature: Vec<u8>) -> ScriptBuilderResult<Vec<u8>> {
     // Signature script structure: <signature> <secret> OP_TRUE <redeem_script>
     // OP_TRUE triggers the IF branch (recipient path)
-    let script = ScriptBuilder::new()
-        .add_data(&signature)?
-        .add_data(&secret)?
-        .add_op(OpTrue)?
-        .add_data(&redeem_script)?
-        .drain();
-    
+    let script = ScriptBuilder::new().add_data(&signature)?.add_data(&secret)?.add_op(OpTrue)?.add_data(&redeem_script)?.drain();
+
     Ok(script)
 }
 
 /// Generates a signature script for spending an HTLC after lock time expires (sender path).
-/// 
+///
 /// # Arguments
 /// * `redeem_script` - The HTLC redeem script
 /// * `signature` - The sender's signature
-/// 
+///
 /// # Returns
 /// * `Ok(Vec<u8>)` - The signature script
 /// * `Err(ScriptBuilderError)` - If any parameter is invalid
-pub fn htlc_signature_script_with_timeout(
-    redeem_script: Vec<u8>,
-    signature: Vec<u8>,
-) -> ScriptBuilderResult<Vec<u8>> {
+pub fn htlc_signature_script_with_timeout(redeem_script: Vec<u8>, signature: Vec<u8>) -> ScriptBuilderResult<Vec<u8>> {
     // Signature script structure: <signature> OP_FALSE <redeem_script>
     // OP_FALSE triggers the ELSE branch (sender timeout path)
-    let script = ScriptBuilder::new()
-        .add_data(&signature)?
-        .add_op(OpFalse)?
-        .add_data(&redeem_script)?
-        .drain();
-    
+    let script = ScriptBuilder::new().add_data(&signature)?.add_op(OpFalse)?.add_data(&redeem_script)?.drain();
+
     Ok(script)
 }
 
@@ -486,27 +478,27 @@ mod tests {
     #[test]
     fn test_htlc_script_creation() {
         use blake3::hash;
-        
+
         // Test data
         let secret = b"my_secret_key_12345";
         let secret_hash = hash(secret);
         let secret_hash_bytes = secret_hash.as_bytes(); // Use full 32 bytes for Blake3
-        
+
         let recipient_pubkey = [0x01; 32]; // 32-byte Schnorr pubkey
         let sender_pubkey = [0x02; 32]; // 32-byte Schnorr pubkey
         let lock_time = 1756684800; // Unix timestamp
-        
+
         // Test HTLC script creation
         let htlc_script = htlc_script(secret_hash_bytes, &recipient_pubkey, &sender_pubkey, lock_time);
         assert!(htlc_script.is_ok(), "HTLC script creation should succeed");
-        
+
         let script_pubkey = htlc_script.unwrap();
         assert_eq!(script_pubkey.version(), ScriptClass::ScriptHash.version(), "HTLC script should use ScriptHash version");
-        
+
         // Test ECDSA HTLC script creation
         let recipient_pubkey_ecdsa = [0x01; 33]; // 33-byte ECDSA pubkey
         let sender_pubkey_ecdsa = [0x02; 33]; // 33-byte ECDSA pubkey
-        
+
         let htlc_script_ecdsa = htlc_script_ecdsa(secret_hash_bytes, &recipient_pubkey_ecdsa, &sender_pubkey_ecdsa, lock_time);
         assert!(htlc_script_ecdsa.is_ok(), "ECDSA HTLC script creation should succeed");
     }
@@ -514,25 +506,25 @@ mod tests {
     #[test]
     fn test_htlc_script_validation() {
         use blake3::hash;
-        
+
         let secret = b"test_secret";
         let secret_hash = hash(secret);
         let secret_hash_bytes = secret_hash.as_bytes();
-        
+
         let recipient_pubkey = [0x01; 32];
         let sender_pubkey = [0x02; 32];
         let lock_time = 1756684800;
-        
+
         // Test with invalid secret hash length
         let invalid_secret_hash = &secret_hash.as_bytes()[..10]; // Too short
         let result = htlc_script(invalid_secret_hash, &recipient_pubkey, &sender_pubkey, lock_time);
         assert!(result.is_err(), "Should fail with invalid secret hash length");
-        
+
         // Test with invalid recipient pubkey length
         let invalid_recipient_pubkey = [0x01; 20]; // Too short
         let result = htlc_script(secret_hash_bytes, &invalid_recipient_pubkey, &sender_pubkey, lock_time);
         assert!(result.is_err(), "Should fail with invalid recipient pubkey length");
-        
+
         // Test with invalid sender pubkey length
         let invalid_sender_pubkey = [0x02; 20]; // Too short
         let result = htlc_script(secret_hash_bytes, &recipient_pubkey, &invalid_sender_pubkey, lock_time);
@@ -542,26 +534,26 @@ mod tests {
     #[test]
     fn test_htlc_signature_scripts() {
         use blake3::hash;
-        
+
         let secret = b"test_secret_for_signing";
         let secret_hash = hash(secret);
         let secret_hash_bytes = secret_hash.as_bytes();
-        
+
         let recipient_pubkey = [0x01; 32];
         let sender_pubkey = [0x02; 32];
         let lock_time = 1756684800;
-        
+
         // Create HTLC script
         let htlc_script_pubkey = htlc_script(secret_hash_bytes, &recipient_pubkey, &sender_pubkey, lock_time).unwrap();
         let redeem_script = htlc_script_pubkey.script().to_vec();
-        
+
         // Test signature script with secret (recipient path)
         let signature = vec![0x01; 64]; // 64-byte Schnorr signature
         let secret_bytes = secret.to_vec();
-        
+
         let sig_script_with_secret = htlc_signature_script_with_secret(redeem_script.clone(), secret_bytes, signature.clone());
         assert!(sig_script_with_secret.is_ok(), "Signature script with secret should succeed");
-        
+
         let script_with_secret = sig_script_with_secret.unwrap();
         // The signature script structure is: <signature> <secret> OP_TRUE <redeem_script>
         // OP_TRUE should be at position: signature_len + secret_len
@@ -569,11 +561,11 @@ mod tests {
         let secret_len = secret.len() + 1; // secret bytes + 1 byte length prefix
         let op_true_position = signature_len + secret_len;
         assert_eq!(script_with_secret[op_true_position], OpTrue, "OP_TRUE should be at correct position to trigger IF branch");
-        
+
         // Test signature script with timeout (sender path)
         let sig_script_with_timeout = htlc_signature_script_with_timeout(redeem_script, signature);
         assert!(sig_script_with_timeout.is_ok(), "Signature script with timeout should succeed");
-        
+
         let script_with_timeout = sig_script_with_timeout.unwrap();
         // The signature script structure is: <signature> OP_FALSE <redeem_script>
         // OP_FALSE should be at position: signature_len
@@ -584,26 +576,26 @@ mod tests {
     #[test]
     fn test_htlc_ecdsa_signature_scripts() {
         use blake3::hash;
-        
+
         let secret = b"test_secret_for_ecdsa_signing";
         let secret_hash = hash(secret);
         let secret_hash_bytes = secret_hash.as_bytes();
-        
+
         let recipient_pubkey = [0x01; 33]; // 33-byte ECDSA pubkey
         let sender_pubkey = [0x02; 33]; // 33-byte ECDSA pubkey
         let lock_time = 1756684800;
-        
+
         // Create ECDSA HTLC script
         let htlc_script_pubkey = htlc_script_ecdsa(secret_hash_bytes, &recipient_pubkey, &sender_pubkey, lock_time).unwrap();
         let redeem_script = htlc_script_pubkey.script().to_vec();
-        
+
         // Test signature script with secret (recipient path)
         let signature = vec![0x01; 72]; // ECDSA signature (DER format)
         let secret_bytes = secret.to_vec();
-        
+
         let sig_script_with_secret = htlc_signature_script_with_secret(redeem_script.clone(), secret_bytes, signature.clone());
         assert!(sig_script_with_secret.is_ok(), "ECDSA signature script with secret should succeed");
-        
+
         // Test signature script with timeout (sender path)
         let sig_script_with_timeout = htlc_signature_script_with_timeout(redeem_script, signature);
         assert!(sig_script_with_timeout.is_ok(), "ECDSA signature script with timeout should succeed");
@@ -612,19 +604,19 @@ mod tests {
     #[test]
     fn test_htlc_script_structure() {
         use blake3::hash;
-        
+
         let secret = b"structure_test_secret";
         let secret_hash = hash(secret);
         let secret_hash_bytes = secret_hash.as_bytes();
-        
+
         let recipient_pubkey = [0x01; 32];
         let sender_pubkey = [0x02; 32];
         let lock_time = 1756684800;
-        
+
         // Create HTLC script
         let htlc_script_pubkey = htlc_script(secret_hash_bytes, &recipient_pubkey, &sender_pubkey, lock_time).unwrap();
         let script = htlc_script_pubkey.script();
-        
+
         // Verify script structure contains expected opcodes
         assert!(script.contains(&OpIf), "Script should contain OP_IF");
         assert!(script.contains(&OpBlake3), "Script should contain OP_BLAKE3");
@@ -639,30 +631,30 @@ mod tests {
     #[test]
     fn test_htlc_security_validation() {
         use blake3::hash;
-        
+
         let secret = b"security_test_secret";
         let secret_hash = hash(secret);
         let secret_hash_bytes = secret_hash.as_bytes();
-        
+
         let recipient_pubkey = [0x01; 32];
         let sender_pubkey = [0x02; 32];
         let lock_time = 1756684800;
-        
+
         // Test 1: Verify script structure prevents unauthorized access
         let htlc_script_pubkey = htlc_script(secret_hash_bytes, &recipient_pubkey, &sender_pubkey, lock_time).unwrap();
         let script = htlc_script_pubkey.script();
-        
+
         // Verify that both paths require signatures
         // The script should have exactly 2 OP_CHECKSIG operations (one for each path)
         let checksig_count = script.iter().filter(|&&x| x == OpCheckSig).count();
         assert_eq!(checksig_count, 2, "HTLC script should have exactly 2 OP_CHECKSIG operations");
-        
+
         // Test 2: Verify lock time is properly embedded
         // The script should contain the lock time value (trimmed little-endian)
         let lock_time_bytes = lock_time.to_le_bytes();
         let trimmed_size = 8 - lock_time_bytes.iter().rev().position(|x| *x != 0u8).unwrap_or(8);
         let trimmed_lock_time = &lock_time_bytes[0..trimmed_size];
-        
+
         let mut found_lock_time = false;
         for window in script.windows(trimmed_lock_time.len()) {
             if window == trimmed_lock_time {
@@ -671,7 +663,7 @@ mod tests {
             }
         }
         assert!(found_lock_time, "HTLC script should contain the lock time value");
-        
+
         // Test 3: Verify secret hash is properly embedded
         let mut found_secret_hash = false;
         for window in script.windows(secret_hash_bytes.len()) {
@@ -681,7 +673,7 @@ mod tests {
             }
         }
         assert!(found_secret_hash, "HTLC script should contain the secret hash");
-        
+
         // Test 4: Verify public keys are properly embedded
         let mut found_recipient_pubkey = false;
         for window in script.windows(recipient_pubkey.len()) {
@@ -691,7 +683,7 @@ mod tests {
             }
         }
         assert!(found_recipient_pubkey, "HTLC script should contain the recipient public key");
-        
+
         let mut found_sender_pubkey = false;
         for window in script.windows(sender_pubkey.len()) {
             if window == sender_pubkey {
@@ -705,23 +697,23 @@ mod tests {
     #[test]
     fn test_htlc_edge_cases() {
         use blake3::hash;
-        
+
         // Test with minimum lock time
         let secret = b"edge_case_secret";
         let secret_hash = hash(secret);
         let secret_hash_bytes = secret_hash.as_bytes();
-        
+
         let recipient_pubkey = [0x01; 32];
         let sender_pubkey = [0x02; 32];
-        
+
         // Test with lock time = 0
         let htlc_script_zero = htlc_script(secret_hash_bytes, &recipient_pubkey, &sender_pubkey, 0);
         assert!(htlc_script_zero.is_ok(), "HTLC should work with lock time = 0");
-        
+
         // Test with maximum lock time
         let htlc_script_max = htlc_script(secret_hash_bytes, &recipient_pubkey, &sender_pubkey, u64::MAX);
         assert!(htlc_script_max.is_ok(), "HTLC should work with maximum lock time");
-        
+
         // Test with identical recipient and sender pubkeys (edge case)
         let htlc_script_same = htlc_script(secret_hash_bytes, &recipient_pubkey, &recipient_pubkey, 1756684800);
         assert!(htlc_script_same.is_ok(), "HTLC should work with identical recipient and sender pubkeys");
@@ -730,36 +722,36 @@ mod tests {
     #[test]
     fn test_htlc_signature_script_security() {
         use blake3::hash;
-        
+
         let secret = b"signature_security_test";
         let secret_hash = hash(secret);
         let secret_hash_bytes = secret_hash.as_bytes();
-        
+
         let recipient_pubkey = [0x01; 32];
         let sender_pubkey = [0x02; 32];
         let lock_time = 1756684800;
-        
+
         // Create HTLC script
         let htlc_script_pubkey = htlc_script(secret_hash_bytes, &recipient_pubkey, &sender_pubkey, lock_time).unwrap();
         let redeem_script = htlc_script_pubkey.script().to_vec();
-        
+
         // Test recipient path signature script
         let signature = vec![0x01; 64];
         let secret_bytes = secret.to_vec();
-        
+
         let sig_script_recipient = htlc_signature_script_with_secret(redeem_script.clone(), secret_bytes, signature.clone()).unwrap();
-        
+
         // Verify signature script structure
         // Should contain: <signature> <secret> OP_TRUE <redeem_script>
         assert!(sig_script_recipient.contains(&OpTrue), "Recipient signature script should contain OP_TRUE");
-        
+
         // Test sender path signature script
         let sig_script_sender = htlc_signature_script_with_timeout(redeem_script, signature).unwrap();
-        
+
         // Verify signature script structure
         // Should contain: <signature> OP_FALSE <redeem_script>
         assert!(sig_script_sender.contains(&OpFalse), "Sender signature script should contain OP_FALSE");
-        
+
         // Verify that recipient and sender scripts are different
         assert_ne!(sig_script_recipient, sig_script_sender, "Recipient and sender signature scripts should be different");
     }
@@ -767,33 +759,33 @@ mod tests {
     #[test]
     fn test_htlc_security_edge_cases() {
         use blake3::hash;
-        
+
         // Test with zero-length inputs (should fail)
         let empty_hash = [0u8; 0];
         let empty_pubkey = [0u8; 0];
         let result = htlc_script(&empty_hash, &empty_pubkey, &empty_pubkey, 0);
         assert!(result.is_err(), "HTLC should reject zero-length inputs");
-        
+
         // Test with all-zero inputs (edge case but valid)
         let zero_hash = [0u8; 32];
         let zero_pubkey = [0u8; 32];
         let result = htlc_script(&zero_hash, &zero_pubkey, &zero_pubkey, 0);
         assert!(result.is_ok(), "HTLC should accept all-zero inputs");
-        
+
         // Test with maximum values
         let max_hash = [0xFFu8; 32];
         let max_pubkey = [0xFFu8; 32];
         let result = htlc_script(&max_hash, &max_pubkey, &max_pubkey, u64::MAX);
         assert!(result.is_ok(), "HTLC should accept maximum values");
-        
+
         // Test signature script with empty inputs
         let empty_redeem_script = vec![];
         let empty_signature = vec![];
         let empty_secret = vec![];
-        
+
         let result = htlc_signature_script_with_secret(empty_redeem_script.clone(), empty_secret, empty_signature.clone());
         assert!(result.is_ok(), "Signature script should handle empty inputs gracefully");
-        
+
         let result = htlc_signature_script_with_timeout(empty_redeem_script, empty_signature);
         assert!(result.is_ok(), "Timeout signature script should handle empty inputs gracefully");
     }
