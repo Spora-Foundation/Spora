@@ -17,7 +17,7 @@ use secp256k1::{
 use serde::{Deserialize, Serialize};
 use tokio::time::Instant;
 use tondi_addresses::{Address, Prefix, Version};
-use tondi_bip32::{DerivationPath, ExtendedPrivateKey, Language, Mnemonic, SecretKeyExt, WordCount};
+use tondi_bip32::{DerivationPath, ExtendedPrivateKey, Language, Mnemonic, WordCount};
 use tondi_consensus_core::{
     constants::{SAU_PER_TONDI, TX_VERSION},
     sign::sign,
@@ -30,7 +30,7 @@ use tondi_rpc_core::{api::rpc::RpcApi, RpcUtxoEntry};
 use tondi_txscript::{htlc_script, pay_to_address_script, pay_to_address_with_lock_time_script};
 
 /// Default amount to send per address in SAU (Smallest Atomic Unit)
-pub const DEFAULT_SEND_AMOUNT: u64 = 1 * SAU_PER_TONDI;
+pub const DEFAULT_SEND_AMOUNT: u64 = SAU_PER_TONDI;
 /// Base fee rate for transaction fees
 pub const FEE_RATE: u64 = 10;
 /// Milliseconds per tick for timing operations
@@ -58,7 +58,7 @@ impl RandGenWallet {
         let derive_private_key = extended_private_key.derive_path(&derive_path)?;
         let secret_key = derive_private_key.private_key();
 
-        let xpub = secret_key.x_only_public_key(&SECP256K1).0;
+        let xpub = secret_key.x_only_public_key(SECP256K1).0;
         let address = Address::new(prefix, ADDRESS_VERSION, &xpub.serialize());
 
         Ok(Self {
@@ -194,20 +194,17 @@ impl AddressDistributionTracker {
 
 /// Network type for treasure_boy operations
 #[derive(Debug, Clone, PartialEq)]
+#[derive(Default)]
 pub enum NetworkType {
     /// Mainnet network
     Mainnet,
     /// Testnet network (default)
+    #[default]
     Testnet,
     /// Development network
     Devnet,
 }
 
-impl Default for NetworkType {
-    fn default() -> Self {
-        NetworkType::Testnet
-    }
-}
 
 impl NetworkType {
     /// Get the address prefix for this network type
@@ -462,17 +459,15 @@ pub async fn batch_airdrop(
         }
 
         // Send transactions
-        for tx_option in txs {
-            if let Some(tx) = tx_option {
-                match rpc_client.submit_transaction((&tx).into(), false).await {
-                    Ok(tx_id) => {
-                        successful_txs.push(tx);
-                        info!("Transaction submitted successfully");
-                        info!("Transaction ID: {}", tx_id);
-                    }
-                    Err(e) => {
-                        warn!("Failed to submit transaction: {}", e);
-                    }
+        for tx in txs.into_iter().flatten() {
+            match rpc_client.submit_transaction((&tx).into(), false).await {
+                Ok(tx_id) => {
+                    successful_txs.push(tx);
+                    info!("Transaction submitted successfully");
+                    info!("Transaction ID: {}", tx_id);
+                }
+                Err(e) => {
+                    warn!("Failed to submit transaction: {}", e);
                 }
             }
         }
@@ -832,17 +827,15 @@ pub async fn tlc_airdrop(
         }
 
         // Send transactions
-        for tx_option in txs {
-            if let Some(tx) = tx_option {
-                match rpc_client.submit_transaction((&tx).into(), false).await {
-                    Ok(tx_id) => {
-                        successful_txs.push(tx);
-                        info!("TLC transaction submitted successfully");
-                        info!("Transaction ID: {}", tx_id);
-                    }
-                    Err(e) => {
-                        warn!("Failed to submit TLC transaction: {}", e);
-                    }
+        for tx in txs.into_iter().flatten() {
+            match rpc_client.submit_transaction((&tx).into(), false).await {
+                Ok(tx_id) => {
+                    successful_txs.push(tx);
+                    info!("TLC transaction submitted successfully");
+                    info!("Transaction ID: {}", tx_id);
+                }
+                Err(e) => {
+                    warn!("Failed to submit TLC transaction: {}", e);
                 }
             }
         }

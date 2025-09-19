@@ -109,7 +109,7 @@ fn cli() -> Command {
                 .long("amount")
                 .short('A')
                 .value_name("amount")
-                .default_value(&format!("{}", DEFAULT_SEND_AMOUNT))
+                .default_value(format!("{}", DEFAULT_SEND_AMOUNT))
                 .value_parser(clap::value_parser!(u64))
                 .help("Amount to send per address in SAU (Smallest Atomic Unit)"),
         )

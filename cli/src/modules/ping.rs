@@ -13,12 +13,10 @@ impl Ping {
             } else {
                 tprintln!(ctx, "Ping successful - connection is working");
             }
+        } else if ctx.pretty_enabled() {
+            terrorln!(ctx, "❌ Ping failed - connection error");
         } else {
-            if ctx.pretty_enabled() {
-                terrorln!(ctx, "❌ Ping failed - connection error");
-            } else {
-                terrorln!(ctx, "Ping failed - connection error");
-            }
+            terrorln!(ctx, "Ping failed - connection error");
         }
         Ok(())
     }

@@ -797,7 +797,7 @@ impl TondiCli {
                 }
                 SyncState::UtxoResync => Some([style("SYNC").red().to_string(), style("UTXO").black().to_string()].join(" ")),
                 SyncState::NotSynced => Some([style("SYNC").red().to_string(), style("...").black().to_string()].join(" ")),
-                SyncState::Synced { .. } => None,
+                SyncState::Synced => None,
             }
         } else {
             Some(style("SYNC").red().to_string())
@@ -850,12 +850,10 @@ impl Cli for TondiCli {
             } else {
                 prompt.push(style("[+]").green().to_string()); // Connected
             }
+        } else if self.pretty_enabled() {
+            prompt.push(style("🔴").red().to_string()); // Disconnected
         } else {
-            if self.pretty_enabled() {
-                prompt.push(style("🔴").red().to_string()); // Disconnected
-            } else {
-                prompt.push(style("[-]").red().to_string()); // Disconnected
-            }
+            prompt.push(style("[-]").red().to_string()); // Disconnected
         }
 
         // Network type indicator (if available)
@@ -881,12 +879,10 @@ impl Cli for TondiCli {
             } else {
                 prompt.push(style("W:+").blue().to_string()); // Wallet open
             }
+        } else if self.pretty_enabled() {
+            prompt.push(style("🔒").yellow().to_string()); // Wallet closed
         } else {
-            if self.pretty_enabled() {
-                prompt.push(style("🔒").yellow().to_string()); // Wallet closed
-            } else {
-                prompt.push(style("W:-").yellow().to_string()); // Wallet closed
-            }
+            prompt.push(style("W:-").yellow().to_string()); // Wallet closed
         }
 
         // Node status
@@ -926,19 +922,15 @@ impl Cli for TondiCli {
                         } else {
                             prompt.push(style(format!("B:{}({})", balance.mature, pending)).green().to_string());
                         }
+                    } else if self.pretty_enabled() {
+                        prompt.push(style(format!("💰{}", balance.mature)).green().to_string());
                     } else {
-                        if self.pretty_enabled() {
-                            prompt.push(style(format!("💰{}", balance.mature)).green().to_string());
-                        } else {
-                            prompt.push(style(format!("B:{}", balance.mature)).green().to_string());
-                        }
+                        prompt.push(style(format!("B:{}", balance.mature)).green().to_string());
                     }
+                } else if self.pretty_enabled() {
+                    prompt.push(style("💰N/A").yellow().to_string());
                 } else {
-                    if self.pretty_enabled() {
-                        prompt.push(style("💰N/A").yellow().to_string());
-                    } else {
-                        prompt.push(style("B:N/A").yellow().to_string());
-                    }
+                    prompt.push(style("B:N/A").yellow().to_string());
                 }
             }
         }

@@ -54,6 +54,6 @@ impl Witness {
     pub fn verify(&self, signature: &[u8], msg: &Message, xpub: &XOnlyPublicKey) -> Result<(), secp256k1::Error> {
         let secp = Secp256k1::new();
         let sig = Signature::from_slice(signature)?;
-        secp.verify_schnorr(&sig, &msg, xpub)
+        secp.verify_schnorr(&sig, msg, xpub)
     }
 }
