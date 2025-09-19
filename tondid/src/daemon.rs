@@ -9,7 +9,7 @@ use tondi_consensus_core::{
 };
 use tondi_consensus_notify::{root::ConsensusNotificationRoot, service::NotifyService};
 use tondi_core::{core::Core, debug, info, trace};
-use tondi_core::{tondid_env::version, task::tick::TickService};
+use tondi_core::{task::tick::TickService, tondid_env::version};
 use tondi_database::{
     prelude::{CachePolicy, DbWriter, DirectDbWriter},
     registry::DatabaseStorePrefixes,
@@ -348,7 +348,7 @@ do you confirm? (answer y/n or pass --yes to the Tondid command line to confirm 
     // TEMP: upgrade from Alpha version or any version before this one
     if !is_db_reset_needed
         && (meta_db.get_pinned(b"multi-consensus-metadata-key").is_ok_and(|r| r.is_some())
-        || MultiConsensusManagementStore::new(meta_db.clone()).should_upgrade().unwrap())
+            || MultiConsensusManagementStore::new(meta_db.clone()).should_upgrade().unwrap())
     {
         let mut mcms = MultiConsensusManagementStore::new(meta_db.clone());
         let version = mcms.version().unwrap();
@@ -660,28 +660,28 @@ do you confirm? (answer y/n or pass --yes to the Tondid command line to confirm 
     async_runtime.register(mining_rule_engine);
 
     let wrpc_service_tasks: usize = 2; // num_cpus::get() / 2;
-    // Register wRPC servers based on command line arguments
+                                       // Register wRPC servers based on command line arguments
     [
         (args.rpclisten_borsh.clone(), WrpcEncoding::Borsh, wrpc_borsh_counters),
         (args.rpclisten_json.clone(), WrpcEncoding::SerdeJson, wrpc_json_counters),
     ]
-        .into_iter()
-        .filter_map(|(listen_address, encoding, wrpc_server_counters)| {
-            listen_address.map(|listen_address| {
-                Arc::new(WrpcService::new(
-                    wrpc_service_tasks,
-                    Some(rpc_core_service.clone()),
-                    &encoding,
-                    wrpc_server_counters,
-                    WrpcServerOptions {
-                        listen_address: listen_address.to_address(&network.network_type, &encoding).to_string(), // TODO: use a normalized ContextualNetAddress instead of a String
-                        verbose: args.wrpc_verbose,
-                        ..WrpcServerOptions::default()
-                    },
-                ))
-            })
+    .into_iter()
+    .filter_map(|(listen_address, encoding, wrpc_server_counters)| {
+        listen_address.map(|listen_address| {
+            Arc::new(WrpcService::new(
+                wrpc_service_tasks,
+                Some(rpc_core_service.clone()),
+                &encoding,
+                wrpc_server_counters,
+                WrpcServerOptions {
+                    listen_address: listen_address.to_address(&network.network_type, &encoding).to_string(), // TODO: use a normalized ContextualNetAddress instead of a String
+                    verbose: args.wrpc_verbose,
+                    ..WrpcServerOptions::default()
+                },
+            ))
         })
-        .for_each(|server| async_runtime.register(server));
+    })
+    .for_each(|server| async_runtime.register(server));
 
     // Consensus must start first in order to init genesis in stores
     core.bind(consensus_manager);

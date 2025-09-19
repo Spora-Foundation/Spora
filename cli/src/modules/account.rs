@@ -72,10 +72,7 @@ impl Account {
                     ctx.term().help(
                         &[
                             ("account import legacy-data", "Import KDX keydata file or tondinet web wallet data on the same domain"),
-                            (
-                                "account import mnemonic bip32",
-                                "Import Bip32 (12 or 24 word mnemonics used by tondiwallet.)",
-                            ),
+                            ("account import mnemonic bip32", "Import Bip32 (12 or 24 word mnemonics used by tondiwallet.)"),
                             (
                                 "account import mnemonic legacy",
                                 "Import accounts 12 word mnemonic used by legacy applications (KDX and tondinet web wallet)",

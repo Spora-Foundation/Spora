@@ -137,13 +137,13 @@ impl Pstb {
                         );
 
                         // Sweep UTXO set.
-                                match unlock_utxos_as_pstb(references, &receive_address, script_sig, priority_fee_sau as u64) {
-            Ok(pstb) => {
-                let pstb_hex = pstb.serialize()?;
-                tprintln!(ctx, "{pstb_hex}");
-            }
-            Err(e) => tprintln!(ctx, "Error generating unlock PSTB: {}", e.to_string()),
-        }
+                        match unlock_utxos_as_pstb(references, &receive_address, script_sig, priority_fee_sau as u64) {
+                            Ok(pstb) => {
+                                let pstb_hex = pstb.serialize()?;
+                                tprintln!(ctx, "{pstb_hex}");
+                            }
+                            Err(e) => tprintln!(ctx, "Error generating unlock PSTB: {}", e.to_string()),
+                        }
                     }
                     "sign" => {
                         let pstb = Self::parse_input_pstb(argv.first().unwrap().as_str())?;

@@ -1425,9 +1425,7 @@ mod tests {
     ) -> (Vec<Transaction>, Vec<Transaction>) {
         // Make the funding amounts always different so that funding txs have different ids
         (0..count)
-            .map(|i| {
-                create_parent_and_children_transactions(consensus, vec![500 * SAU_PER_TONDI, 3_000 * SAU_PER_TONDI + i as u64])
-            })
+            .map(|i| create_parent_and_children_transactions(consensus, vec![500 * SAU_PER_TONDI, 3_000 * SAU_PER_TONDI + i as u64]))
             .unzip()
     }
 

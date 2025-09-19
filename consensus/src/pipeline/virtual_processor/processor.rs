@@ -48,6 +48,7 @@ use crate::{
         window::WindowManager,
     },
 };
+use once_cell::unsync::Lazy;
 use tondi_consensus_core::{
     acceptance_data::AcceptanceData,
     api::args::{TransactionValidationArgs, TransactionValidationBatchArgs},
@@ -82,7 +83,6 @@ use tondi_database::prelude::{StoreError, StoreResultEmptyTuple, StoreResultExte
 use tondi_hashes::{Hash, ZERO_HASH};
 use tondi_muhash::MuHash;
 use tondi_notify::{events::EventType, notifier::Notify};
-use once_cell::unsync::Lazy;
 
 use super::{
     errors::{PruningImportError, PruningImportResult},
@@ -90,8 +90,6 @@ use super::{
 };
 use crossbeam_channel::{Receiver as CrossbeamReceiver, Sender as CrossbeamSender};
 use itertools::Itertools;
-use tondi_consensus_core::tx::ValidatedTransaction;
-use tondi_utils::binary_heap::BinaryHeapExtensions;
 use parking_lot::{RwLock, RwLockUpgradableReadGuard};
 use rand::{seq::SliceRandom, Rng};
 use rayon::{
@@ -105,6 +103,8 @@ use std::{
     ops::Deref,
     sync::{atomic::Ordering, Arc},
 };
+use tondi_consensus_core::tx::ValidatedTransaction;
+use tondi_utils::binary_heap::BinaryHeapExtensions;
 
 pub struct VirtualStateProcessor {
     // Channels
@@ -1160,8 +1160,10 @@ impl VirtualStateProcessor {
         info!("Importing the UTXO set of the pruning point {}", new_pruning_point);
         let new_pruning_point_header = self.headers_store.get_header(new_pruning_point).unwrap();
         let imported_utxo_multiset_hash = imported_utxo_multiset.finalize();
-        info!("UTXO commitment verification for pruning point {}: imported={}, header={}", 
-            new_pruning_point, imported_utxo_multiset_hash, new_pruning_point_header.utxo_commitment);
+        info!(
+            "UTXO commitment verification for pruning point {}: imported={}, header={}",
+            new_pruning_point, imported_utxo_multiset_hash, new_pruning_point_header.utxo_commitment
+        );
         if imported_utxo_multiset_hash != new_pruning_point_header.utxo_commitment {
             return Err(PruningImportError::ImportedMultisetHashMismatch(
                 new_pruning_point_header.utxo_commitment,

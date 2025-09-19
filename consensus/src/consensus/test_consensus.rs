@@ -1,4 +1,5 @@
 use async_channel::Sender;
+use parking_lot::RwLock;
 use tondi_consensus_core::coinbase::MinerData;
 use tondi_consensus_core::mining_rules::MiningRules;
 use tondi_consensus_core::tx::ScriptPublicKey;
@@ -12,7 +13,6 @@ use tondi_core::{core::Core, service::Service};
 use tondi_database::utils::DbLifetime;
 use tondi_hashes::Hash;
 use tondi_notify::subscription::context::SubscriptionContext;
-use parking_lot::RwLock;
 
 use super::services::{DbDagTraversalManager, DbGhostdagManager, DbWindowManager};
 use super::Consensus;
@@ -33,10 +33,10 @@ use crate::{
     pipeline::{body_processor::BlockBodyProcessor, virtual_processor::VirtualStateProcessor, ProcessingCounters},
     test_helpers::header_from_precomputed_hash,
 };
-use tondi_database::create_temp_db;
-use tondi_database::prelude::ConnBuilder;
 use std::future::Future;
 use std::{sync::Arc, thread::JoinHandle};
+use tondi_database::create_temp_db;
+use tondi_database::prelude::ConnBuilder;
 
 pub struct TestConsensus {
     params: Params,

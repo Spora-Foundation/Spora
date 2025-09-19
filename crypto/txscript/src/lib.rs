@@ -433,7 +433,7 @@ impl<'a, T: VerifiableTransaction, Reused: SigHashReusedValues> TxScriptEngine<'
                         witness.verify(signature, &msg, &xpub).map_err(TxScriptError::InvalidSignature)?;
                         self.dstack.push_item(true)
                     }
-                    P2TrSpend::Script { input, leaf_script, control_block, annex:_ } => {
+                    P2TrSpend::Script { input, leaf_script, control_block, annex: _ } => {
                         for data in input {
                             match data {
                                 Some(d) => self.dstack.push(d.to_vec()),

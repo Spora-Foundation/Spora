@@ -3,7 +3,7 @@ use secp256k1::Keypair;
 use tondi_addresses::{Address, Prefix, Version};
 use tondi_consensus_core::{
     hashing::{
-        sighash::{calc_ecdsa_signature_hash, calc_schnorr_signature_hash, SigHashReusedValuesUnsync},
+        sighash::{calc_schnorr_signature_hash, SigHashReusedValuesUnsync},
         sighash_type::SIG_HASH_ALL,
     },
     tx::{

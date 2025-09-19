@@ -1,6 +1,5 @@
 use blake3::Hasher;
 
-
 fn hex_to_bytes(s: &str) -> Vec<u8> {
     hex::decode(s.trim()).expect("invalid hex")
 }
@@ -50,7 +49,7 @@ fn main() {
 
     for (i, (sig_script, script_pub_key_1, script_pub_key_2)) in test_vectors.iter().enumerate() {
         println!("Test Vector #{}", i + 1);
-        
+
         // Hash signature script
         let sig_script_bytes = hex_to_bytes(sig_script);
         let mut hasher = Hasher::new();
@@ -78,4 +77,4 @@ fn main() {
 
         println!();
     }
-} 
+}

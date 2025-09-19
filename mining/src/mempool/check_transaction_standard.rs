@@ -3,7 +3,7 @@ use crate::mempool::{
     Mempool,
 };
 use tondi_consensus_core::{
-    constants::{MAX_SCRIPT_PUBLIC_KEY_VERSION, MAX_SAU},
+    constants::{MAX_SAU, MAX_SCRIPT_PUBLIC_KEY_VERSION},
     mass,
     tx::{MutableTransaction, PopulatedTransaction, TransactionOutput},
 };
@@ -196,7 +196,7 @@ impl Mempool {
                         return Err(NonStandardError::RejectSignatureCount(transaction_id, i, num_sig_ops, MAX_STANDARD_P2SH_SIG_OPS));
                     }
                 }
-                ScriptClass::Taproot => {},
+                ScriptClass::Taproot => {}
             }
 
             // TODO: For now, until wallets adapt, we only require minimum fee as function of compute mass (but the fee/mass ratio will

@@ -3,6 +3,7 @@ use crate::{
     flow_trait::Flow,
     flowcontext::orphans::OrphanOutput,
 };
+use std::{collections::VecDeque, sync::Arc};
 use tondi_consensus_core::{api::BlockValidationFutures, block::Block, blockstatus::BlockStatus, errors::block::RuleError};
 use tondi_consensusmanager::{BlockProcessingBatch, ConsensusProxy};
 use tondi_core::debug;
@@ -14,7 +15,6 @@ use tondi_p2p_lib::{
     IncomingRoute, Router, SharedIncomingRoute,
 };
 use tondi_utils::channel::{JobSender, JobTrySendError as TrySendError};
-use std::{collections::VecDeque, sync::Arc};
 
 pub struct RelayInvMessage {
     hash: Hash,

@@ -8,9 +8,9 @@ use crate::{
     network::{NetworkId, NetworkType},
     BlockLevel, KType,
 };
+use std::cmp::min;
 use tondi_addresses::Prefix;
 use tondi_math::Uint256;
-use std::cmp::min;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ForkActivation(u64);
@@ -542,10 +542,7 @@ pub const MAINNET_PARAMS: Params = Params {
 };
 
 pub const TESTNET_PARAMS: Params = Params {
-    dns_seeders: &[
-        "discover.tondi.org",
-        "nodes.discover.tondi.org",
-    ],
+    dns_seeders: &["discover.tondi.org", "nodes.discover.tondi.org"],
     net: NetworkId::with_suffix(NetworkType::Testnet, 10),
     genesis: TESTNET_GENESIS,
     prior_ghostdag_k: LEGACY_DEFAULT_GHOSTDAG_K,

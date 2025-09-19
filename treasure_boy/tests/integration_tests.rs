@@ -1,6 +1,6 @@
 use std::io::Write;
 use tempfile::NamedTempFile;
-use treasure_boy::{load_addresses_from_file, AddressDistributionTracker, Config, TxsFeeConfig, NetworkType};
+use treasure_boy::{load_addresses_from_file, AddressDistributionTracker, Config, NetworkType, TxsFeeConfig};
 
 #[test]
 fn test_load_addresses_from_file_success() {

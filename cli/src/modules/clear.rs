@@ -9,33 +9,32 @@ pub struct Clear;
 impl Clear {
     async fn main(self: Arc<Self>, ctx: &Arc<dyn Context>, argv: Vec<String>, _cmd: &str) -> Result<()> {
         let ctx = ctx.clone().downcast_arc::<TondiCli>()?;
-        
+
         // Check for clear command
-        if argv.is_empty() || 
-           argv.iter().any(|arg| arg.to_lowercase() == "clear") {
+        if argv.is_empty() || argv.iter().any(|arg| arg.to_lowercase() == "clear") {
             self.clear_screen(ctx).await?;
             return Ok(());
         }
-        
+
         // Show help if unknown arguments
         self.show_help(ctx).await
     }
-    
+
     async fn clear_screen(self: Arc<Self>, ctx: Arc<TondiCli>) -> Result<()> {
         // Use workflow_terminal's built-in clear screen functionality
         tprint!(ctx, "{}", ClearScreen);
         tprint!(ctx, "{}", Goto(1, 1));
-        
+
         // Optional: Show a brief message that screen was cleared
         if ctx.pretty_enabled() {
             tprintln!(ctx, "✅ Screen cleared successfully");
         } else {
             tprintln!(ctx, "Screen cleared successfully");
         }
-        
+
         Ok(())
     }
-    
+
     async fn show_help(self: Arc<Self>, ctx: Arc<TondiCli>) -> Result<()> {
         tprintln!(ctx, "Clear screen commands:");
         tprintln!(ctx, "  clear                     - Clear the terminal screen");

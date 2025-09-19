@@ -416,9 +416,7 @@ impl Interface for LocalStore {
             let title = match fs::read(&path).await {
                 Ok(data) => {
                     // Try to parse only the header for title
-                    WalletStorage::try_from_slice(data.as_slice())
-                        .ok()
-                        .and_then(|wallet| wallet.title)
+                    WalletStorage::try_from_slice(data.as_slice()).ok().and_then(|wallet| wallet.title)
                 }
                 Err(_) => None,
             };

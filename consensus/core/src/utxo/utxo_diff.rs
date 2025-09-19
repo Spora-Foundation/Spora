@@ -224,11 +224,10 @@ impl UtxoDiff {
 
     pub fn add_transaction(&mut self, transaction: &impl VerifiableTransaction, block_daa_score: u64) -> UtxoResult<()> {
         log_debug!("[UtxoDiff] Adding transaction {} to diff", transaction.id());
-        
+
         for (input, entry) in transaction.populated_inputs() {
             self.remove_entry(&input.previous_outpoint, entry)?;
-            log_debug!("[UtxoDiff] Removed UTXO from diff - Outpoint: {}, Amount: {}", 
-                input.previous_outpoint, entry.amount);
+            log_debug!("[UtxoDiff] Removed UTXO from diff - Outpoint: {}, Amount: {}", input.previous_outpoint, entry.amount);
         }
 
         let is_coinbase = transaction.is_coinbase();
@@ -238,8 +237,7 @@ impl UtxoDiff {
             let outpoint = TransactionOutpoint::new(tx_id, i as u32);
             let entry = UtxoEntry::new(output.value, output.script_public_key.clone(), block_daa_score, is_coinbase);
             self.add_entry(outpoint, entry)?;
-            log_debug!("[UtxoDiff] Added UTXO to diff - Outpoint: {}, Amount: {}", 
-                outpoint, output.value);
+            log_debug!("[UtxoDiff] Added UTXO to diff - Outpoint: {}, Amount: {}", outpoint, output.value);
         }
         Ok(())
     }

@@ -227,10 +227,8 @@ pub fn unlock_utxo(
         .redeem_script(script_sig.to_vec())
         .build()?;
 
-    let output = OutputBuilder::default()
-        .amount(utxo_entry.amount - priority_fee_sau)
-        .script_public_key(script_public_key.clone())
-        .build()?;
+    let output =
+        OutputBuilder::default().amount(utxo_entry.amount - priority_fee_sau).script_public_key(script_public_key.clone()).build()?;
 
     let pstt: PSTT<Constructor> = PSTT::<Creator>::default().constructor().input(input).output(output);
     Ok(pstt.into())

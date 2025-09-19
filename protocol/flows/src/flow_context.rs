@@ -9,41 +9,6 @@ use crate::{
 use crate::{v5, v6};
 use async_trait::async_trait;
 use futures::future::join_all;
-use tondi_addressmanager::AddressManager;
-use tondi_connectionmanager::ConnectionManager;
-use tondi_consensus_core::block::Block;
-use tondi_consensus_core::config::Config;
-use tondi_consensus_core::errors::block::RuleError;
-use tondi_consensus_core::tx::{Transaction, TransactionId};
-use tondi_consensus_core::{
-    api::{BlockValidationFuture, BlockValidationFutures},
-    network::NetworkType,
-};
-use tondi_consensus_notify::{
-    notification::{Notification, PruningPointUtxoSetOverrideNotification},
-    root::ConsensusNotificationRoot,
-};
-use tondi_consensusmanager::{BlockProcessingBatch, ConsensusInstance, ConsensusManager, ConsensusProxy, ConsensusSessionOwned};
-use tondi_core::{
-    debug, info,
-    tondid_env::{name, version},
-    task::tick::TickService,
-};
-use tondi_core::{time::unix_now, warn};
-use tondi_hashes::Hash;
-use tondi_mining::mempool::tx::{Orphan, Priority};
-use tondi_mining::{manager::MiningManagerProxy, mempool::tx::RbfPolicy};
-use tondi_notify::notifier::Notify;
-use tondi_p2p_lib::{
-    common::ProtocolError,
-    convert::model::version::Version,
-    make_message,
-    pb::{tondid_message::Payload, InvRelayBlockMessage},
-    ConnectionInitializer, Hub, TondidHandshake, PeerKey, PeerProperties, Router,
-};
-use tondi_p2p_mining::rule_engine::MiningRuleEngine;
-use tondi_utils::iter::IterExtensions;
-use tondi_utils::networking::PeerId;
 use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
 use std::time::Instant;
@@ -62,6 +27,41 @@ use tokio::sync::{
     RwLock as AsyncRwLock,
 };
 use tokio_stream::{wrappers::UnboundedReceiverStream, StreamExt};
+use tondi_addressmanager::AddressManager;
+use tondi_connectionmanager::ConnectionManager;
+use tondi_consensus_core::block::Block;
+use tondi_consensus_core::config::Config;
+use tondi_consensus_core::errors::block::RuleError;
+use tondi_consensus_core::tx::{Transaction, TransactionId};
+use tondi_consensus_core::{
+    api::{BlockValidationFuture, BlockValidationFutures},
+    network::NetworkType,
+};
+use tondi_consensus_notify::{
+    notification::{Notification, PruningPointUtxoSetOverrideNotification},
+    root::ConsensusNotificationRoot,
+};
+use tondi_consensusmanager::{BlockProcessingBatch, ConsensusInstance, ConsensusManager, ConsensusProxy, ConsensusSessionOwned};
+use tondi_core::{
+    debug, info,
+    task::tick::TickService,
+    tondid_env::{name, version},
+};
+use tondi_core::{time::unix_now, warn};
+use tondi_hashes::Hash;
+use tondi_mining::mempool::tx::{Orphan, Priority};
+use tondi_mining::{manager::MiningManagerProxy, mempool::tx::RbfPolicy};
+use tondi_notify::notifier::Notify;
+use tondi_p2p_lib::{
+    common::ProtocolError,
+    convert::model::version::Version,
+    make_message,
+    pb::{tondid_message::Payload, InvRelayBlockMessage},
+    ConnectionInitializer, Hub, PeerKey, PeerProperties, Router, TondidHandshake,
+};
+use tondi_p2p_mining::rule_engine::MiningRuleEngine;
+use tondi_utils::iter::IterExtensions;
+use tondi_utils::networking::PeerId;
 use uuid::Uuid;
 
 /// The P2P protocol version.
@@ -678,7 +678,7 @@ impl FlowContext {
             transaction_insertion.accepted.iter().map(|x| x.id()),
             false, // RPC transactions are considered high priority, so we don't want to throttle them
         )
-            .await;
+        .await;
         Ok(())
     }
 
@@ -703,7 +703,7 @@ impl FlowContext {
             transaction_insertion.accepted.iter().map(|x| x.id()),
             false, // RPC transactions are considered high priority, so we don't want to throttle them
         )
-            .await;
+        .await;
         // The combination of args above of Orphan::Forbidden and RbfPolicy::Mandatory should always result
         // in a removed transaction returned, however we prefer failing gracefully in case of future internal mempool changes
         transaction_insertion.removed.ok_or(ProtocolError::Other(

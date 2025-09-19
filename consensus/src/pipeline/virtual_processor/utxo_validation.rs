@@ -45,11 +45,11 @@ use smallvec::{smallvec, SmallVec};
 use std::{iter::once, ops::Deref};
 
 pub(crate) mod crescendo {
-    use tondi_core::{info, log::CRESCENDO_KEYWORD};
     use std::sync::{
         atomic::{AtomicU8, Ordering},
         Arc,
     };
+    use tondi_core::{info, log::CRESCENDO_KEYWORD};
 
     #[derive(Clone)]
     pub(crate) struct CrescendoLogger {
@@ -114,8 +114,7 @@ impl VirtualStateProcessor {
         pov_daa_score: u64,
     ) {
         let selected_parent_transactions = self.block_transactions_store.get(ctx.selected_parent()).unwrap();
-        info!("Calculating UTXO state for block {} with {} transactions", 
-            ctx.selected_parent(), selected_parent_transactions.len());
+        info!("Calculating UTXO state for block {} with {} transactions", ctx.selected_parent(), selected_parent_transactions.len());
 
         let validated_coinbase = ValidatedTransaction::new_coinbase(&selected_parent_transactions[0]);
         info!("Processing coinbase transaction: {}", validated_coinbase.id());
@@ -209,8 +208,10 @@ impl VirtualStateProcessor {
     ) -> BlockProcessResult<()> {
         // Verify header UTXO commitment
         let expected_commitment = ctx.multiset_hash.finalize();
-        info!("UTXO commitment verification for block {}: expected={}, actual={}", 
-            header.hash, expected_commitment, header.utxo_commitment);
+        info!(
+            "UTXO commitment verification for block {}: expected={}, actual={}",
+            header.hash, expected_commitment, header.utxo_commitment
+        );
         if expected_commitment != header.utxo_commitment {
             return Err(BadUTXOCommitment(header.hash, header.utxo_commitment, expected_commitment));
         }

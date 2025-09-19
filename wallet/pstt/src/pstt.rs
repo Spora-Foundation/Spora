@@ -203,9 +203,9 @@ impl PSTT<Creator> {
         self
     }
 
-            pub fn constructor(self) -> PSTT<Constructor> {
-            PSTT { inner_pstt: self.inner_pstt, role: Default::default() }
-        }
+    pub fn constructor(self) -> PSTT<Constructor> {
+        PSTT { inner_pstt: self.inner_pstt, role: Default::default() }
+    }
 }
 
 impl PSTT<Constructor> {

@@ -112,7 +112,7 @@ impl TryCastFromJs for PSTT {
 impl PSTT {
     #[wasm_bindgen(constructor)]
     pub fn new(payload: CtorT) -> Result<PSTT> {
-                    PSTT::try_owned_from(payload.unchecked_into::<JsValue>().as_ref()).map_err(|err| Error::Ctor(err.to_string()))
+        PSTT::try_owned_from(payload.unchecked_into::<JsValue>().as_ref()).map_err(|err| Error::Ctor(err.to_string()))
     }
 
     #[wasm_bindgen(getter, js_name = "role")]

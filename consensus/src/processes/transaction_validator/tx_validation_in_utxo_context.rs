@@ -5,15 +5,13 @@ use tondi_consensus_core::{
     tx::{TransactionInput, VerifiableTransaction},
 };
 
-use tondi_txscript::{
-    caches::Cache,
-    get_sig_op_count_upper_bound,
-    SigCacheKey,
-    TxScriptEngine,
-};
-use tondi_txscript_errors::TxScriptError;
-use rayon::{iter::{IntoParallelIterator, ParallelIterator}, ThreadPool};
 use crate::processes::transaction_validator::{errors::TxResult, TransactionValidator};
+use rayon::{
+    iter::{IntoParallelIterator, ParallelIterator},
+    ThreadPool,
+};
+use tondi_txscript::{caches::Cache, get_sig_op_count_upper_bound, SigCacheKey, TxScriptEngine};
+use tondi_txscript_errors::TxScriptError;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum TxValidationFlags {
@@ -262,17 +260,20 @@ fn map_script_err(script_err: TxScriptError, input: &TransactionInput) -> TxRule
 mod tests {
     use super::*;
     use crate::processes::transaction_validator::TransactionValidator;
-    use std::str::FromStr;
-    use std::error::Error;
-    use tondi_consensus_core::{
-        tx::{Transaction, UtxoEntry, ScriptVec, TransactionId, TransactionOutpoint, TransactionOutput, ScriptPublicKey, PopulatedTransaction, MutableTransaction},
-        subnets::SUBNETWORK_ID_NATIVE,
-        sign::sign,
-        config::params::MAINNET_PARAMS,
-    };
-    use std::iter::once;
     use itertools::Itertools;
-    use secp256k1::{Secp256k1, SecretKey, Keypair};
+    use secp256k1::{Keypair, Secp256k1, SecretKey};
+    use std::error::Error;
+    use std::iter::once;
+    use std::str::FromStr;
+    use tondi_consensus_core::{
+        config::params::MAINNET_PARAMS,
+        sign::sign,
+        subnets::SUBNETWORK_ID_NATIVE,
+        tx::{
+            MutableTransaction, PopulatedTransaction, ScriptPublicKey, ScriptVec, Transaction, TransactionId, TransactionOutpoint,
+            TransactionOutput, UtxoEntry,
+        },
+    };
 
     /// Helper function to duplicate the last input
     fn duplicate_input(tx: &Transaction, entries: &[UtxoEntry]) -> (Transaction, Vec<UtxoEntry>) {

@@ -236,8 +236,7 @@ pub fn encrypt_xchacha20poly1305(data: &[u8], secret: &Secret) -> Result<Vec<u8>
     let nonce = XChaCha20Poly1305::generate_nonce(&mut OsRng); // 96-bits; unique per message
     let mut buffer = data.to_vec();
     buffer.reserve(16); // Reserve space for authentication tag
-    cipher.encrypt_in_place(&nonce, &[], &mut buffer)
-        .map_err(|e| Error::custom(format!("Encryption failed: {}", e)))?;
+    cipher.encrypt_in_place(&nonce, &[], &mut buffer).map_err(|e| Error::custom(format!("Encryption failed: {}", e)))?;
     buffer.splice(0..0, nonce.iter().cloned());
     Ok(buffer)
 }
@@ -247,14 +246,13 @@ pub fn decrypt_xchacha20poly1305(data: &[u8], secret: &Secret) -> Result<Secret>
     if data.len() < 24 {
         return Err(Error::custom("Encrypted data too short"));
     }
-    
+
     let private_key_bytes = argon2_blake3iv_hash(secret.as_ref(), 32)?;
     let key = Key::from_slice(private_key_bytes.as_ref());
     let cipher = XChaCha20Poly1305::new(key);
     let nonce = &data[0..24];
     let mut buffer = data[24..].to_vec();
-    cipher.decrypt_in_place(nonce.into(), &[], &mut buffer)
-        .map_err(|e| Error::custom(format!("Decryption failed: {}", e)))?;
+    cipher.decrypt_in_place(nonce.into(), &[], &mut buffer).map_err(|e| Error::custom(format!("Decryption failed: {}", e)))?;
     Ok(Secret::new(buffer))
 }
 

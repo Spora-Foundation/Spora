@@ -119,9 +119,9 @@ mod tests {
     use std::sync::{atomic::AtomicBool, Arc};
 
     use crate::rules::{mining_rule::MiningRule, sync_rate_rule::SYNC_RATE_WINDOW_MAX_SIZE, ExtraData};
+    use std::sync::atomic::*;
     use tondi_consensus_core::api::counters::ProcessingCountersSnapshot;
     use tondi_core::time::unix_now;
-    use std::sync::atomic::*;
 
     use super::{SyncRateRule, SYNC_RATE_WINDOW_MIN_THRESHOLD};
 

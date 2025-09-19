@@ -34,7 +34,6 @@ use workflow_core::task::spawn;
 
 pub type WalletGuard<'l> = AsyncMutexGuard<'l, ()>;
 
-
 #[derive(Clone)]
 pub enum WalletBusMessage {
     Discovery { record: TransactionRecord },
@@ -73,10 +72,8 @@ pub struct Wallet {
 
 impl Default for Wallet {
     fn default() -> Self {
-        let storage = Wallet::local_store()
-            .expect("Unable to initialize local storage");
-        Wallet::try_new(storage, None, None)
-            .expect("Unable to create default wallet")
+        let storage = Wallet::local_store().expect("Unable to initialize local storage");
+        Wallet::try_new(storage, None, None).expect("Unable to create default wallet")
     }
 }
 
@@ -205,7 +202,7 @@ impl Wallet {
         if let Ok(mut contexts) = self.inner.retained_contexts.lock() {
             contexts.clear();
         }
-        
+
         // Clear estimation abortables
         if let Ok(mut abortables) = self.inner.estimation_abortables.lock() {
             abortables.clear();
@@ -1267,10 +1264,6 @@ impl Wallet {
     //     Ok(Box::pin(stream))
     // }
 
-
-
-
-
     pub async fn import_legacy_keydata(
         self: &Arc<Wallet>,
         import_secret: &Secret,
@@ -1550,7 +1543,6 @@ impl Wallet {
         NetworkTaggedXpub::from((xpub_key.clone(), self.network_id().unwrap())).to_string()
     }
 }
-
 
 #[cfg(not(target_arch = "wasm32"))]
 #[cfg(test)]

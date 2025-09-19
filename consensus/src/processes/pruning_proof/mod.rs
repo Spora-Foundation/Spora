@@ -14,6 +14,7 @@ use itertools::Itertools;
 use parking_lot::{Mutex, RwLock};
 use rocksdb::WriteBatch;
 
+use thiserror::Error;
 use tondi_consensus_core::{
     blockhash::{self, BlockHashExtensions},
     config::params::ForkedParam,
@@ -30,7 +31,6 @@ use tondi_core::info;
 use tondi_database::{prelude::StoreResultExtensions, utils::DbLifetime};
 use tondi_hashes::Hash;
 use tondi_pow::calc_block_level;
-use thiserror::Error;
 
 use crate::{
     consensus::{

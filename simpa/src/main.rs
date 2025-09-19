@@ -2,6 +2,8 @@ use async_channel::unbounded;
 use clap::Parser;
 use futures::{future::try_join_all, Future};
 use itertools::Itertools;
+use simulator::network::TondiNetworkSimulator;
+use std::{collections::VecDeque, sync::Arc, time::Duration};
 use tondi_alloc::init_allocator_with_default_settings;
 use tondi_consensus::{
     config::ConfigBuilder,
@@ -31,8 +33,6 @@ use tondi_database::{create_temp_db, load_existing_db};
 use tondi_hashes::Hash;
 use tondi_perf_monitor::{builder::Builder, counters::CountersSnapshot};
 use tondi_utils::fd_budget;
-use simulator::network::TondiNetworkSimulator;
-use std::{collections::VecDeque, sync::Arc, time::Duration};
 
 pub mod simulator;
 
