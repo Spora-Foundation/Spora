@@ -40,7 +40,8 @@ impl State {
     pub fn calculate_pow(&self, nonce: u64) -> Uint256 {
         // Hasher already contains PRE_POW_HASH || TIME || 32 zero byte padding; so only the NONCE is missing
         let hash = self.hasher.clone().finalize_with_nonce(nonce);
-        let hash = self.matrix.heavy_hash(hash);
+        // Use the new SwiftHeavy algorithm with nonce for vulnerability mitigation
+        let hash = self.matrix.swift_heavy_hash(hash, nonce);
         Uint256::from_le_bytes(hash.as_bytes())
     }
 

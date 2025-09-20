@@ -5320,9 +5320,11 @@ dependencies = [
 name = "tondi-pow"
 version = "1.0.2"
 dependencies = [
+ "blake3",
  "criterion",
  "js-sys",
  "num",
+ "sha3",
  "tondi-consensus-client",
  "tondi-consensus-core",
  "tondi-hashes",
