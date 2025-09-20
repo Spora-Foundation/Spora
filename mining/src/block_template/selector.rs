@@ -326,7 +326,7 @@ mod tests {
     fn create_transaction(value: u64) -> CandidateTransaction {
         let previous_outpoint = TransactionOutpoint::new(TransactionId::default(), 0);
         let (script_public_key, redeem_script) = op_true_script();
-        let signature_script = pay_to_script_hash_signature_script(redeem_script, vec![]).expect("the redeem script is canonical");
+        let signature_script = pay_to_script_hash_signature_script(&redeem_script, vec![]).expect("the redeem script is canonical");
 
         let input = TransactionInput::new(previous_outpoint, signature_script, MAX_TX_IN_SEQUENCE_NUM, 1);
         let output = TransactionOutput::new(value - DEFAULT_MINIMUM_RELAY_TRANSACTION_FEE, script_public_key);

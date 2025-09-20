@@ -142,6 +142,14 @@ impl PendingTransaction {
         }
     }
 
+    #[wasm_bindgen(js_name = signWithLockTime)]
+    pub fn sign_with_lock_time(&self, private_key: &PrivateKey, lock_time: u64) -> Result<()> {
+        let mut key = private_key.secret_bytes();
+        self.inner.try_sign_with_lock_time(&key, lock_time)?;
+        key.zeroize();
+        Ok(())
+    }
+
     /// Submit transaction to the supplied [`RpcClient`]
     /// **IMPORTANT:** This method will remove UTXOs from the associated
     /// {@link UtxoContext} if one was used to create the transaction

@@ -700,8 +700,8 @@ mod tests {
         .unwrap();
 
         let datetime = NaiveDateTime::parse_from_str("2025-09-01 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap();
-        let lock_time = datetime.and_utc().timestamp() as u64;
-        assert_eq!(lock_time, 1756684800);
+        let lock_time = datetime.and_utc().timestamp_millis() as u64;
+        assert_eq!(lock_time, 1756684800000);
 
         let amount = 1_0000_0000;
 
@@ -735,7 +735,7 @@ mod tests {
         let sig = keypair.sign_schnorr(msg).as_ref().to_vec();
         let signature = std::iter::once(65u8).chain(sig).chain([hash_type.to_u8()]).collect();
         let redeem_script = pay_to_pub_key_with_lock_time(xpub, lock_time).unwrap();
-        let signature_script = pay_to_script_hash_signature_script(redeem_script, signature).unwrap();
+        let signature_script = pay_to_script_hash_signature_script(&redeem_script, signature).unwrap();
 
         mutable_tx.tx.inputs[0].signature_script = signature_script;
 

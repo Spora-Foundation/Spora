@@ -193,8 +193,7 @@ impl AddressDistributionTracker {
 }
 
 /// Network type for treasure_boy operations
-#[derive(Debug, Clone, PartialEq)]
-#[derive(Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub enum NetworkType {
     /// Mainnet network
     Mainnet,
@@ -204,7 +203,6 @@ pub enum NetworkType {
     /// Development network
     Devnet,
 }
-
 
 impl NetworkType {
     /// Get the address prefix for this network type

@@ -48,7 +48,7 @@ pub fn pay_to_script_hash_script(redeem_script: BinaryT) -> Result<ScriptPublicK
 pub fn pay_to_script_hash_signature_script(redeem_script: BinaryT, signature: BinaryT) -> Result<HexString> {
     let redeem_script = redeem_script.try_as_vec_u8()?;
     let signature = signature.try_as_vec_u8()?;
-    let script = standard::pay_to_script_hash_signature_script(redeem_script, signature)?;
+    let script = standard::pay_to_script_hash_signature_script(&redeem_script, signature)?;
     Ok(script.to_hex().into())
 }
 

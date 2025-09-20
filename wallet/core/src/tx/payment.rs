@@ -9,9 +9,9 @@ use tondi_txscript::pay_to_address_script;
 #[wasm_bindgen(typescript_custom_section)]
 const TS_PAYMENT_OUTPUTS: &'static str = r#"
 /**
- * 
+ *
  * Defines a single payment output.
- * 
+ *
  * @see {@link IGeneratorSettingsObject}, {@link Generator}
  * @category Wallet SDK
  */
@@ -132,6 +132,10 @@ impl PaymentOutputs {
 
     pub fn iter(&self) -> impl Iterator<Item = &PaymentOutput> {
         self.outputs.iter()
+    }
+
+    pub fn len(&self) -> usize {
+        self.outputs.len()
     }
 }
 

@@ -301,9 +301,9 @@ pub fn pay_to_script_hash_script(redeem_script: &[u8]) -> ScriptPublicKey {
 }
 
 /// Generates a signature script that fits a pay-to-script-hash script
-pub fn pay_to_script_hash_signature_script(redeem_script: Vec<u8>, signature: Vec<u8>) -> ScriptBuilderResult<Vec<u8>> {
-    let redeem_script_as_data = ScriptBuilder::new().add_data(&redeem_script)?.drain();
-    Ok(Vec::from_iter(signature.iter().copied().chain(redeem_script_as_data.iter().copied())))
+pub fn pay_to_script_hash_signature_script(redeem_script: &[u8], signature: Vec<u8>) -> ScriptBuilderResult<Vec<u8>> {
+    let redeem_script_as_data = ScriptBuilder::new().add_data(redeem_script)?.drain();
+    Ok(Vec::from_iter(signature.into_iter().chain(redeem_script_as_data.into_iter())))
 }
 
 /// Returns the address encoded in a script public key.
@@ -353,7 +353,7 @@ pub mod test_helpers {
     /// Creates the value of the spent output minus provided `fee` (in sau).
     pub fn create_transaction(tx_to_spend: &Transaction, fee: u64) -> Transaction {
         let (script_public_key, redeem_script) = op_true_script();
-        let signature_script = pay_to_script_hash_signature_script(redeem_script, vec![]).expect("the script is canonical");
+        let signature_script = pay_to_script_hash_signature_script(&redeem_script, vec![]).expect("the script is canonical");
         let previous_outpoint = TransactionOutpoint::new(tx_to_spend.id(), 0);
         let input = TransactionInput::new(previous_outpoint, signature_script, MAX_TX_IN_SEQUENCE_NUM, 1);
         let output = TransactionOutput::new(tx_to_spend.outputs[0].value - fee, script_public_key);
@@ -374,7 +374,7 @@ pub mod test_helpers {
         fee: u64,
     ) -> Transaction {
         let (script_public_key, redeem_script) = op_true_script();
-        let signature_script = pay_to_script_hash_signature_script(redeem_script, vec![]).expect("the script is canonical");
+        let signature_script = pay_to_script_hash_signature_script(&redeem_script, vec![]).expect("the script is canonical");
         let mut inputs_value: u64 = 0;
         let mut inputs = vec![];
         for tx_to_spend in txs_to_spend {

@@ -69,7 +69,7 @@ use tondi_consensus_client::UtxoEntry;
 use tondi_consensus_core::constants::UNACCEPTED_DAA_SCORE;
 use tondi_consensus_core::subnets::SUBNETWORK_ID_NATIVE;
 use tondi_consensus_core::tx::{Transaction, TransactionInput, TransactionOutpoint, TransactionOutput};
-use tondi_txscript::pay_to_address_script;
+use tondi_txscript::{pay_to_address_script, pay_to_address_with_lock_time_script};
 
 use super::SignerT;
 
@@ -299,6 +299,8 @@ struct Inner {
     final_transaction_payload: Vec<u8>,
     // final transaction payload mass
     final_transaction_payload_mass: u64,
+    // final transaction lock time
+    final_transaction_lock_time: u64,
     // execution context
     context: Mutex<Context>,
 }
@@ -323,6 +325,7 @@ impl std::fmt::Debug for Inner {
             .field("final_transaction_outputs_compute_mass", &self.final_transaction_outputs_compute_mass)
             .field("final_transaction_payload", &self.final_transaction_payload)
             .field("final_transaction_payload_mass", &self.final_transaction_payload_mass)
+            .field("final_transaction_lock_time", &self.final_transaction_lock_time)
             // .field("context", &self.context)
             .finish()
     }
@@ -351,6 +354,7 @@ impl Generator {
             final_transaction_priority_fee,
             final_transaction_destination,
             final_transaction_payload,
+            final_transaction_lock_time,
             destination_utxo_context,
         } = settings;
 
@@ -381,13 +385,17 @@ impl Generator {
                     }
                 }
 
-                (
-                    outputs
-                        .iter()
-                        .map(|output| TransactionOutput::new(output.amount, pay_to_address_script(&output.address)))
-                        .collect(),
-                    Some(outputs.iter().map(|output| output.amount).sum()),
-                )
+                let mut tx_outputs = Vec::with_capacity(outputs.len());
+                for output in outputs.iter() {
+                    let spk = if final_transaction_lock_time == 0 {
+                        pay_to_address_script(&output.address)
+                    } else {
+                        pay_to_address_with_lock_time_script(&output.address, final_transaction_lock_time)?
+                    };
+                    tx_outputs.push(TransactionOutput::new(output.amount, spk));
+                }
+
+                (tx_outputs, Some(outputs.amount()))
             }
         };
 
@@ -459,6 +467,7 @@ impl Generator {
             final_transaction_outputs_compute_mass,
             final_transaction_payload,
             final_transaction_payload_mass,
+            final_transaction_lock_time,
             destination_utxo_context,
         };
 

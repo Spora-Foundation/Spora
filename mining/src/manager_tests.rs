@@ -594,7 +594,7 @@ mod tests {
         let result = mining_manager.handle_new_block_transactions(consensus.as_ref(), 3, &block_with_rest);
         assert!(
             result.is_ok(),
-            "the handling by the mempool of the transactions of a block accepted by the consensus should succeed but returned {result:?}"            
+            "the handling by the mempool of the transactions of a block accepted by the consensus should succeed but returned {result:?}"
         );
         for handled_tx_id in rest.iter().map(|x| x.id()) {
             assert!(
@@ -1339,7 +1339,7 @@ mod tests {
     fn create_transaction_with_utxo_entry(i: u32, block_daa_score: u64) -> MutableTransaction {
         let previous_outpoint = TransactionOutpoint::new(Hash::default(), i);
         let (script_public_key, redeem_script) = op_true_script();
-        let signature_script = pay_to_script_hash_signature_script(redeem_script, vec![]).expect("the redeem script is canonical");
+        let signature_script = pay_to_script_hash_signature_script(&redeem_script, vec![]).expect("the redeem script is canonical");
 
         let input = TransactionInput::new(previous_outpoint, signature_script, MAX_TX_IN_SEQUENCE_NUM, 1);
         let entry = UtxoEntry::new(SAU_PER_TONDI, script_public_key.clone(), block_daa_score, true);

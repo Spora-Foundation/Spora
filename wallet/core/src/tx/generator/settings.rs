@@ -34,6 +34,8 @@ pub struct GeneratorSettings {
     pub final_transaction_destination: PaymentDestination,
     // payload
     pub final_transaction_payload: Option<Vec<u8>>,
+    // lock time
+    pub final_transaction_lock_time: u64,
     // transaction is a transfer between accounts
     pub destination_utxo_context: Option<UtxoContext>,
 }
@@ -62,6 +64,7 @@ impl GeneratorSettings {
         final_transaction_destination: PaymentDestination,
         final_priority_fee: Fees,
         final_transaction_payload: Option<Vec<u8>>,
+        final_transaction_lock_time: u64,
     ) -> Result<Self> {
         let network_id = account.utxo_context().processor().network_id()?;
         let change_address = account.change_address()?;
@@ -84,6 +87,7 @@ impl GeneratorSettings {
             final_transaction_priority_fee: final_priority_fee,
             final_transaction_destination,
             final_transaction_payload,
+            final_transaction_lock_time,
             destination_utxo_context: None,
         };
 
@@ -99,6 +103,7 @@ impl GeneratorSettings {
         final_transaction_destination: PaymentDestination,
         final_priority_fee: Fees,
         final_transaction_payload: Option<Vec<u8>>,
+        final_transaction_lock_time: u64,
         multiplexer: Option<Multiplexer<Box<Events>>>,
     ) -> Result<Self> {
         let network_id = utxo_context.processor().network_id()?;
@@ -117,6 +122,7 @@ impl GeneratorSettings {
             final_transaction_priority_fee: final_priority_fee,
             final_transaction_destination,
             final_transaction_payload,
+            final_transaction_lock_time,
             destination_utxo_context: None,
         };
 
@@ -133,6 +139,7 @@ impl GeneratorSettings {
         final_transaction_destination: PaymentDestination,
         final_priority_fee: Fees,
         final_transaction_payload: Option<Vec<u8>>,
+        final_transaction_lock_time: u64,
         multiplexer: Option<Multiplexer<Box<Events>>>,
     ) -> Result<Self> {
         let settings = GeneratorSettings {
@@ -148,6 +155,7 @@ impl GeneratorSettings {
             final_transaction_priority_fee: final_priority_fee,
             final_transaction_destination,
             final_transaction_payload,
+            final_transaction_lock_time,
             destination_utxo_context: None,
         };
 

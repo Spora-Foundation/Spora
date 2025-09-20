@@ -14,47 +14,47 @@ const TS_GENERATOR_SETTINGS_OBJECT: &'static str = r#"
  * Configuration for the transaction {@link Generator}. This interface
  * allows you to specify UTXO sources, transaction outputs, change address,
  * priority fee, and other transaction parameters.
- * 
+ *
  * If the total number of UTXOs needed to satisfy the transaction outputs
  * exceeds maximum allowed number of UTXOs per transaction (limited by
- * the maximum transaction mass), the {@link Generator} will produce 
+ * the maximum transaction mass), the {@link Generator} will produce
  * multiple chained transactions to the change address and then used these
  * transactions as a source for the "final" transaction.
- * 
- * @see 
+ *
+ * @see
  *      {@link tondiToSau},
- *      {@link Generator}, 
- *      {@link PendingTransaction}, 
- *      {@link UtxoContext}, 
+ *      {@link Generator},
+ *      {@link PendingTransaction},
+ *      {@link UtxoContext},
  *      {@link UtxoEntry},
  *      {@link createTransactions},
  *      {@link estimateTransactions}
  * @category Wallet SDK
  */
 interface IGeneratorSettingsObject {
-    /** 
+    /**
      * Final transaction outputs (do not supply change transaction).
-     * 
+     *
      * Typical usage: { address: "tondi:...", amount: 1000n }
      */
     outputs: PaymentOutput | IPaymentOutput[];
-    /** 
-     * Address to be used for change, if any. 
+    /**
+     * Address to be used for change, if any.
      */
     changeAddress: Address | string;
-    /** 
+    /**
      * Priority fee in SAU.
-     * 
+     *
      * If supplying `bigint` value, it will be interpreted as a sender-pays fee.
      * Alternatively you can supply an object with `amount` and `source` properties
      * where `source` contains the {@link FeeSource} enum.
-     * 
+     *
      * **IMPORTANT:* When sending an outbound transaction (transaction that
      * contains outputs), the `priorityFee` must be set, even if it is zero.
      * However, if the transaction is missing outputs (and thus you are
      * creating a compound transaction against your change address),
      * `priorityFee` should not be set (i.e. it should be `undefined`).
-     * 
+     *
      * @see {@link IFees}, {@link FeeSource}
      */
     priorityFee?: IFees | bigint;
@@ -89,7 +89,11 @@ interface IGeneratorSettingsObject {
     /**
      * Optional NetworkId or network id as string (i.e. `mainnet` or `testnet-11`). Required when {@link IGeneratorSettingsObject.entries} is array
      */
-    networkId?: NetworkId | string
+    networkId?: NetworkId | string;
+    /**
+     * Transaction Lock Time(DAA score OR unix timestamp)
+    */
+    lockTime?: number;
 }
 "#;
 
@@ -164,6 +168,7 @@ impl Generator {
             sig_op_count,
             minimum_signatures,
             payload,
+            lock_time,
         } = settings;
 
         let settings = match source {
@@ -184,6 +189,7 @@ impl Generator {
                     final_transaction_destination,
                     final_priority_fee,
                     payload,
+                    lock_time,
                     multiplexer,
                 )?
             }
@@ -200,6 +206,7 @@ impl Generator {
                     final_transaction_destination,
                     final_priority_fee,
                     payload,
+                    lock_time,
                     multiplexer,
                 )?
             } // GeneratorSource::Account(account) => {
@@ -264,6 +271,7 @@ struct GeneratorSettings {
     pub sig_op_count: u8,
     pub minimum_signatures: u16,
     pub payload: Option<Vec<u8>>,
+    pub lock_time: u64,
 }
 
 impl TryFrom<IGeneratorSettingsObject> for GeneratorSettings {
@@ -303,6 +311,8 @@ impl TryFrom<IGeneratorSettingsObject> for GeneratorSettings {
 
         let payload = args.get_vec_u8("payload").ok();
 
+        let lock_time = if args.try_get_value("lockTime")?.is_some() { args.get_u64("lockTime")? } else { 0 };
+
         let settings = GeneratorSettings {
             network_id,
             source: generator_source,
@@ -314,6 +324,7 @@ impl TryFrom<IGeneratorSettingsObject> for GeneratorSettings {
             sig_op_count,
             minimum_signatures,
             payload,
+            lock_time,
         };
 
         Ok(settings)

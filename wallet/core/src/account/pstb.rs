@@ -341,6 +341,7 @@ pub fn pstt_to_pending_transaction(
         final_transaction_priority_fee: fee_u.into(),
         final_transaction_destination,
         final_transaction_payload: None,
+        final_transaction_lock_time: 0,
     };
 
     // Create the Generator
