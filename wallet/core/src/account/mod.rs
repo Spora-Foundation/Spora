@@ -505,9 +505,9 @@ pub trait Account: AnySync + Send + Sync + 'static {
     async fn transfer(
         self: Arc<Self>,
         destination_account_id: AccountId,
-        transfer_amount_sompi: u64,
+        transfer_amount_sau: u64,
         fee_rate: Option<f64>,
-        priority_fee_sompi: Fees,
+        priority_fee_sau: Fees,
         wallet_secret: Secret,
         payment_secret: Option<Secret>,
         abortable: &Abortable,
@@ -524,14 +524,14 @@ pub trait Account: AnySync + Send + Sync + 'static {
             .ok_or_else(|| Error::AccountNotFound(destination_account_id))?;
 
         let destination_address = destination_account.receive_address()?;
-        let final_transaction_destination = PaymentDestination::from(PaymentOutput::new(destination_address, transfer_amount_sompi));
+        let final_transaction_destination = PaymentDestination::from(PaymentOutput::new(destination_address, transfer_amount_sau));
         let final_transaction_payload = None;
 
         let settings = GeneratorSettings::try_new_with_account(
             self.clone().as_dyn_arc(),
             final_transaction_destination,
             fee_rate,
-            priority_fee_sompi,
+            priority_fee_sau,
             final_transaction_payload,
             0, // final_transaction_lock_time
         )?
