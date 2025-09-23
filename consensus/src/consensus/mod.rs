@@ -1154,3 +1154,4 @@ impl ConsensusApi for Consensus {
         self.virtual_processor.virtual_finality_point(&self.lkg_virtual_state.load().ghostdag_data, self.pruning_point())
     }
 }
+

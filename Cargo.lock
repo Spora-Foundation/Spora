@@ -4789,6 +4789,7 @@ dependencies = [
  "thiserror",
  "tondi-addresses",
  "tondi-core",
+ "tondi-database",
  "tondi-hashes",
  "tondi-math",
  "tondi-merkle",

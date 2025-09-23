@@ -1,5 +1,6 @@
 use thiserror::Error;
 use tondi_hashes::Hash;
+use tondi_database::prelude::StoreError;
 
 use super::{difficulty::DifficultyError, sync::SyncManagerError, traversal::TraversalError};
 
@@ -35,6 +36,9 @@ pub enum ConsensusError {
     #[error("difficulty error: {0}")]
     DifficultyError(#[from] DifficultyError),
 
+    #[error("store error: {0}")]
+    StoreError(String),
+
     #[error("{0}")]
     General(&'static str),
 
@@ -43,3 +47,9 @@ pub enum ConsensusError {
 }
 
 pub type ConsensusResult<T> = std::result::Result<T, ConsensusError>;
+
+impl From<StoreError> for ConsensusError {
+    fn from(err: StoreError) -> Self {
+        ConsensusError::StoreError(err.to_string())
+    }
+}

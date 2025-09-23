@@ -11,7 +11,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Example 1: Request without min confirmation count (default behavior)
     println!("1. Request without min confirmation count:");
-    let request_no_filter = GetVirtualChainFromBlockRequest {
+    let _request_no_filter = GetVirtualChainFromBlockRequest {
         start_hash: RpcHash::from([1u8; 32]),
         include_accepted_transaction_ids: false,
         min_confirmation_count: None,
@@ -22,7 +22,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Example 2: Request with min confirmation count of 0 (same as no filter)
     println!("\n2. Request with min confirmation count of 0:");
-    let request_zero_filter = GetVirtualChainFromBlockRequest {
+    let _request_zero_filter = GetVirtualChainFromBlockRequest {
         start_hash: RpcHash::from([2u8; 32]),
         include_accepted_transaction_ids: true,
         min_confirmation_count: Some(0),

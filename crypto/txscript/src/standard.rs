@@ -115,7 +115,7 @@ pub fn pay_to_address_with_lock_time_script(address: &Address, lock_time: u64) -
 /// 2. With a valid signature from the sender after the lock time expires
 ///
 /// The HTLC script structure:
-/// ```
+/// ```text
 /// OP_IF
 ///   OP_BLAKE3 <hash(secret)> OP_EQUALVERIFY
 ///   <recipient_pubkey> OP_CHECKSIG
@@ -758,7 +758,6 @@ mod tests {
 
     #[test]
     fn test_htlc_security_edge_cases() {
-        use blake3::hash;
 
         // Test with zero-length inputs (should fail)
         let empty_hash = [0u8; 0];

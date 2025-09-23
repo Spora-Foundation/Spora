@@ -281,7 +281,11 @@ from!(item: RpcResult<&tondi_rpc_core::GetSubnetworkResponse>, protowire::GetSub
 // ~~~
 
 from!(item: &tondi_rpc_core::GetVirtualChainFromBlockRequest, protowire::GetVirtualChainFromBlockRequestMessage, {
-    Self { start_hash: item.start_hash.to_string(), include_accepted_transaction_ids: item.include_accepted_transaction_ids }
+    Self { 
+        start_hash: item.start_hash.to_string(), 
+        include_accepted_transaction_ids: item.include_accepted_transaction_ids,
+        min_confirmation_count: item.min_confirmation_count
+    }
 });
 from!(item: RpcResult<&tondi_rpc_core::GetVirtualChainFromBlockResponse>, protowire::GetVirtualChainFromBlockResponseMessage, {
     Self {
