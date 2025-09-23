@@ -52,7 +52,7 @@ pub fn sau_to_tondi_string_with_trailing_zeroes(sau: u64) -> String {
 
 pub fn tondi_suffix(network_type: &NetworkType) -> &'static str {
     match network_type {
-        NetworkType::Mainnet => "TND",
+        NetworkType::Mainnet => "TONDI",
         NetworkType::Testnet => "TTONDI",
         NetworkType::Simnet => "STONDI",
         NetworkType::Devnet => "DTONDI",

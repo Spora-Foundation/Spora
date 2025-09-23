@@ -118,7 +118,7 @@ impl Account {
                                         if let Some(txid) = txid {
                                             tprintln!(
                                                 ctx_,
-                                                "Scan detected {} TND at index {}; transfer txid: {}",
+                                                "Scan detected {} TONDI at index {}; transfer txid: {}",
                                                 sau_to_tondi_string(balance),
                                                 processed,
                                                 txid
@@ -126,7 +126,7 @@ impl Account {
                                         } else if processed > 0 {
                                             tprintln!(
                                                 ctx_,
-                                                "Scanned {} derivations, found {} TND",
+                                                "Scanned {} derivations, found {} TONDI",
                                                 processed,
                                                 sau_to_tondi_string(balance)
                                             );
@@ -295,13 +295,13 @@ impl Account {
                     if let Some(txid) = txid {
                         tprintln!(
                             ctx_,
-                            "Scan detected {} TND at index {}; transfer txid: {}",
+                            "Scan detected {} TONDI at index {}; transfer txid: {}",
                             sau_to_tondi_string(balance),
                             processed,
                             txid
                         );
                     } else {
-                        tprintln!(ctx_, "Scanned {} derivations, found {} TND", processed, sau_to_tondi_string(balance));
+                        tprintln!(ctx_, "Scanned {} derivations, found {} TONDI", processed, sau_to_tondi_string(balance));
                     }
                 })),
             )

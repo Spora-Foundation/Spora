@@ -39,7 +39,7 @@ impl Send {
             .await?;
 
         tprintln!(ctx, "Send - {summary}");
-        tprintln!(ctx, "\nSending {} TND to {address}, tx ids:", sau_to_tondi_string(amount_sau));
+        tprintln!(ctx, "\nSending {} TONDI to {address}, tx ids:", sau_to_tondi_string(amount_sau));
         // tprintln!(ctx, "{}\n", ids.into_iter().map(|a| a.to_string()).collect::<Vec<_>>().join("\n"));
 
         Ok(())

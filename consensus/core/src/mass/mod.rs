@@ -124,7 +124,7 @@ impl UtxoPlurality for TransactionOutput {
 pub struct UtxoCell {
     /// The plurality (number of "storage units") for this UTXO
     pub plurality: u64,
-    /// The amount of TND (in saus) locked in this UTXO
+    /// The amount of TONDI (in saus) locked in this UTXO
     pub amount: u64,
 }
 

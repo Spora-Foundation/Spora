@@ -33,7 +33,7 @@ pub fn sau_to_tondi_string(sau: ISauToTondi) -> Result<String> {
 
 ///
 /// Format a Sau amount to a string representation of the amount in Tondi with a suffix
-/// based on the network type (e.g. `TND` for mainnet, `TTONDI` for testnet,
+/// based on the network type (e.g. `TONDI` for mainnet, `TTONDI` for testnet,
 /// `STONDI` for simnet, `DTONDI` for devnet).
 ///
 /// @category Wallet SDK

@@ -9,10 +9,10 @@ pub const LOCK_TIME_THRESHOLD: u64 = 500_000_000_000;
 /// MAX_SCRIPT_PUBLIC_KEY_VERSION is the current latest supported public key script version.
 pub const MAX_SCRIPT_PUBLIC_KEY_VERSION: u16 = 0;
 
-/// SauPerTondi is the number of sau in one tondi (1 TND).
+/// SauPerTondi is the number of sau in one tondi (1 TONDI).
 pub const SAU_PER_TONDI: u64 = 100_000_000;
 
-/// The parameter for scaling inverse TND value to mass units (KIP-0009)
+/// The parameter for scaling inverse TONDI value to mass units (KIP-0009)
 pub const STORAGE_MASS_PARAMETER: u64 = SAU_PER_TONDI * 10_000;
 
 /// The parameter defining how much mass per byte to charge for when calculating

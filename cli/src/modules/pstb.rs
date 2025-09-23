@@ -130,7 +130,7 @@ impl Pstb {
 
                         tprintln!(
                             ctx,
-                            "{} locked UTXO{} found with total amount of {} TND",
+                            "{} locked UTXO{} found with total amount of {} TONDI",
                             spend_utxos.len(),
                             if spend_utxos.len() == 1 { "" } else { "s" },
                             sau_to_tondi(total_locked_sau)
