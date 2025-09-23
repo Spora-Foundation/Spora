@@ -45,8 +45,9 @@ impl Pstb {
                 let signer = account
                     .pstb_from_send_generator(
                         outputs.into(),
-                        priority_fee_sau.into(),
-                        None,
+                        None, // fee_rate
+                        Fees::None, // priority_fee_sau
+                        None, // payload
                         wallet_secret.clone(),
                         payment_secret.clone(),
                         &abortable,
@@ -89,12 +90,14 @@ impl Pstb {
                     "lock" => {
                         let amount_sau = try_parse_required_nonzero_tondi_as_sau_u64(argv.first())?;
                         let outputs = PaymentOutputs::from((script_p2sh, amount_sau));
+                        let fee_rate = None;
                         let priority_fee_sau = try_parse_optional_tondi_as_sau_i64(argv.get(1))?.unwrap_or(0);
                         let abortable = Abortable::default();
 
                         let signer = account
                             .pstb_from_send_generator(
                                 outputs.into(),
+                                fee_rate,
                                 priority_fee_sau.into(),
                                 None,
                                 wallet_secret.clone(),
@@ -209,13 +212,13 @@ impl Pstb {
                 for (pstt_index, bundle_inner) in pstb.0.iter().enumerate() {
                     tprintln!(ctx, "PSTT #{:03} finalized check:", pstt_index + 1);
                     let pstt: PSTT<Signer> = PSTT::<Signer>::from(bundle_inner.to_owned());
-
+                    let params = ctx.wallet().network_id()?.into();
                     let finalizer = pstt.finalizer();
 
                     if let Ok(pstt_finalizer) = finalize_pstt_one_or_more_sig_and_redeem_script(finalizer) {
                         // Verify if extraction is possible.
                         match pstt_finalizer.extractor() {
-                            Ok(ex) => match ex.extract_tx() {
+                            Ok(ex) => match ex.extract_tx(&params) {
                                 Ok(_) => tprintln!(
                                     ctx,
                                     "  Transaction extracted successfully: PSTT is finalized with a valid script signature."

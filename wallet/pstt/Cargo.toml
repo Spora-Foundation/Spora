@@ -41,6 +41,9 @@ wasm-bindgen.workspace = true
 serde_json.workspace = true
 serde-wasm-bindgen.workspace = true
 workflow-wasm.workspace = true
+separator.workspace = true
+console_log.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true
+wasm-bindgen-test.workspace = true

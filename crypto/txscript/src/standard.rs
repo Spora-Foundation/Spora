@@ -758,7 +758,6 @@ mod tests {
 
     #[test]
     fn test_htlc_security_edge_cases() {
-
         // Test with zero-length inputs (should fail)
         let empty_hash = [0u8; 0];
         let empty_pubkey = [0u8; 0];

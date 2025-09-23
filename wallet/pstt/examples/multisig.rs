@@ -1,6 +1,7 @@
 use secp256k1::{rand::thread_rng, Keypair};
 use std::{iter, str::FromStr};
 use tondi_consensus_core::{
+    config::params::TESTNET_PARAMS,
     hashing::sighash::{calc_schnorr_signature_hash, SigHashReusedValuesUnsync},
     tx::{TransactionId, TransactionOutpoint, UtxoEntry},
 };
@@ -115,7 +116,8 @@ fn main() {
     println!("Finalized: {}", ser_finalized);
 
     let extractor_pstt: PSTT<Extractor> = serde_json::from_str(&ser_finalized).expect("Failed to deserialize");
-    let tx = extractor_pstt.extract_tx().unwrap()(10).0;
+    let params = TESTNET_PARAMS;
+    let tx = extractor_pstt.extract_tx(&params).unwrap().tx;
     let ser_tx = serde_json::to_string_pretty(&tx).unwrap();
     println!("Tx: {}", ser_tx);
 }

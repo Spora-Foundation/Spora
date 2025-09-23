@@ -375,7 +375,15 @@ pub trait WalletApi: Send + Sync + AnySync {
         request: AccountsEnsureDefaultRequest,
     ) -> Result<AccountsEnsureDefaultResponse>;
 
-    // TODO
+    /// Wrapper around [`accounts_import_call()`](Self::accounts_import_call)
+    async fn accounts_import(
+        self: Arc<Self>,
+        wallet_secret: Secret,
+        account_create_args: AccountCreateArgs,
+    ) -> Result<AccountDescriptor> {
+        Ok(self.accounts_import_call(AccountsImportRequest { wallet_secret, account_create_args }).await?.account_descriptor)
+    }
+
     async fn accounts_import_call(self: Arc<Self>, request: AccountsImportRequest) -> Result<AccountsImportResponse>;
 
     /// Get an [`AccountDescriptor`] for a specific account id.
@@ -407,12 +415,67 @@ pub trait WalletApi: Send + Sync + AnySync {
     /// well `transaction_ids` containing a list of submitted transaction ids.
     async fn accounts_send_call(self: Arc<Self>, request: AccountsSendRequest) -> Result<AccountsSendResponse>;
 
+    /// Wrapper around [`accounts_pstb_sign()`](Self::accounts_pstb_sign_call)
+    async fn accounts_pstb_sign(self: Arc<Self>, request: AccountsPstbSignRequest) -> Result<AccountsPstbSignResponse> {
+        self.accounts_pstb_sign_call(request).await
+    }
+
+    /// Sign a PSTB.
+    async fn accounts_pstb_sign_call(self: Arc<Self>, request: AccountsPstbSignRequest) -> Result<AccountsPstbSignResponse>;
+
+    /// Wrapper around [`accounts_pstb_broadcast()`](Self::accounts_pstb_broadcast_call)
+    async fn accounts_pstb_broadcast(self: Arc<Self>, request: AccountsPstbBroadcastRequest) -> Result<AccountsPstbBroadcastResponse> {
+        self.accounts_pstb_broadcast_call(request).await
+    }
+
+    /// Broadcast a PSTB.
+    async fn accounts_pstb_broadcast_call(
+        self: Arc<Self>,
+        request: AccountsPstbBroadcastRequest,
+    ) -> Result<AccountsPstbBroadcastResponse>;
+
+    /// Wrapper around [`accounts_pstb_send_call()`](Self::accounts_pstb_send_call)
+    async fn accounts_pstb_send(self: Arc<Self>, request: AccountsPstbSendRequest) -> Result<AccountsPstbSendResponse> {
+        self.accounts_pstb_send_call(request).await
+    }
+
+    /// Sign and broadcast a PSTB.
+    async fn accounts_pstb_send_call(self: Arc<Self>, request: AccountsPstbSendRequest) -> Result<AccountsPstbSendResponse>;
+
+    /// Wrapper around [`accounts_get_utxos_call()`](Self::accounts_get_utxos_call)
+    async fn accounts_get_utxos(self: Arc<Self>, request: AccountsGetUtxosRequest) -> Result<AccountsGetUtxosResponse> {
+        self.accounts_get_utxos_call(request).await
+    }
+
+    /// Get UTXOs for an account.
+    async fn accounts_get_utxos_call(self: Arc<Self>, request: AccountsGetUtxosRequest) -> Result<AccountsGetUtxosResponse>;
+
     /// Transfer funds to another account. Returns an [`AccountsTransferResponse`]
     /// struct that contains a [`GeneratorSummary`] as well `transaction_ids`
     /// containing a list of submitted transaction ids. Unlike funds sent to an
     /// external address, funds transferred between wallet accounts are
     /// available immediately upon transaction acceptance.
     async fn accounts_transfer_call(self: Arc<Self>, request: AccountsTransferRequest) -> Result<AccountsTransferResponse>;
+
+    /// Commit-reveal funds using provided [`PaymentDestination`] in
+    /// [`AccountsCommitRevealManualRequest`].
+    /// Returns an [`AccountsCommitRevealManualResponse`] struct that
+    /// contains transaction ids.
+    async fn accounts_commit_reveal_manual_call(
+        self: Arc<Self>,
+        request: AccountsCommitRevealManualRequest,
+    ) -> Result<AccountsCommitRevealManualResponse>;
+
+    /// Commit-reveal funds to P2SH of given script signature present in
+    /// [`AccountsCommitRevealRequest`] that provides a pubkey placeholder
+    /// used by given address type and address index looked up in derivation
+    /// manager.
+    /// Returns an [`AccountsCommitRevealResponse`] struct that contains
+    /// transaction ids.
+    async fn accounts_commit_reveal_call(
+        self: Arc<Self>,
+        request: AccountsCommitRevealRequest,
+    ) -> Result<AccountsCommitRevealResponse>;
 
     /// Performs a transaction estimate, returning [`AccountsEstimateResponse`]
     /// that contains [`GeneratorSummary`]. This call will estimate the total
@@ -422,6 +485,22 @@ pub trait WalletApi: Send + Sync + AnySync {
     /// running for the same account, the previous call will be aborted returning
     /// an error.
     async fn accounts_estimate_call(self: Arc<Self>, request: AccountsEstimateRequest) -> Result<AccountsEstimateResponse>;
+
+    async fn address_book_enumerate_call(
+        self: Arc<Self>,
+        _request: AddressBookEnumerateRequest,
+    ) -> Result<AddressBookEnumerateResponse> {
+        return Err(Error::NotImplemented);
+    }
+
+    async fn fee_rate_estimate_call(self: Arc<Self>, _request: FeeRateEstimateRequest) -> Result<FeeRateEstimateResponse>;
+
+    async fn fee_rate_poller_enable_call(self: Arc<Self>, request: FeeRatePollerEnableRequest) -> Result<FeeRatePollerEnableResponse>;
+
+    async fn fee_rate_poller_disable_call(
+        self: Arc<Self>,
+        _request: FeeRatePollerDisableRequest,
+    ) -> Result<FeeRatePollerDisableResponse>;
 
     /// Get a range of transaction records for a specific account id.
     /// Wrapper around [`transactions_data_get_call()`](Self::transactions_data_get_call).
@@ -459,12 +538,6 @@ pub trait WalletApi: Send + Sync + AnySync {
         self: Arc<Self>,
         request: TransactionsReplaceMetadataRequest,
     ) -> Result<TransactionsReplaceMetadataResponse>;
-
-    // TODO
-    async fn address_book_enumerate_call(
-        self: Arc<Self>,
-        request: AddressBookEnumerateRequest,
-    ) -> Result<AddressBookEnumerateResponse>;
 }
 
 /// alias for `Arc<dyn WalletApi + Send + Sync + 'static>`

@@ -3,11 +3,14 @@
 //!
 
 use crate::api::{message::*, traits::WalletApi};
+use crate::events::Events;
 use crate::imports::*;
 use crate::result::Result;
 use crate::storage::interface::TransactionRangeResult;
 use crate::storage::Binding;
 use crate::tx::Fees;
+use tondi_rpc_core::RpcFeeEstimate;
+use tondi_wallet_pstt::bundle::Bundle;
 use workflow_core::channel::Receiver;
 
 #[async_trait]
@@ -151,6 +154,7 @@ impl WalletApi for super::Wallet {
 
     async fn wallet_enumerate_call(self: Arc<Self>, _request: WalletEnumerateRequest) -> Result<WalletEnumerateResponse> {
         let wallet_descriptors = self.store().wallet_list().await?;
+        self.notify(Events::WalletHint { hint: None }).await.ok();
         Ok(WalletEnumerateResponse { wallet_descriptors })
     }
 
@@ -343,9 +347,19 @@ impl WalletApi for super::Wallet {
         Ok(AccountsEnsureDefaultResponse { account_descriptor })
     }
 
-    async fn accounts_import_call(self: Arc<Self>, _request: AccountsImportRequest) -> Result<AccountsImportResponse> {
-        // TODO handle account imports
-        return Err(Error::NotImplemented);
+    async fn accounts_import_call(self: Arc<Self>, request: AccountsImportRequest) -> Result<AccountsImportResponse> {
+        let AccountsImportRequest { wallet_secret, account_create_args } = request;
+
+        let guard = self.guard();
+        let guard = guard.lock().await;
+
+        let account = self.create_account(&wallet_secret, account_create_args, true, &guard).await?;
+        account.clone().scan(Some(100), Some(5000)).await?;
+        let account_descriptor = account.descriptor()?;
+        self.store().as_account_store()?.store_single(&account.to_storage()?, account.metadata()?.as_ref()).await?;
+        self.store().commit(&wallet_secret).await?;
+
+        Ok(AccountsImportResponse { account_descriptor })
     }
 
     async fn accounts_get_call(self: Arc<Self>, request: AccountsGetRequest) -> Result<AccountsGetResponse> {
@@ -371,15 +385,16 @@ impl WalletApi for super::Wallet {
         let account = self.get_account_by_id(&account_id, &guard).await?.ok_or(Error::AccountNotFound(account_id))?;
 
         let address = match kind {
-            NewAddressKind::Receive => account.as_derivation_capable()?.new_receive_address().await?,
-            NewAddressKind::Change => account.as_derivation_capable()?.new_change_address().await?,
+            NewAddressKind::Receive => account.as_derivation_capable()?.receive_address()?,
+            NewAddressKind::Change => account.as_derivation_capable()?.change_address()?,
         };
 
         Ok(AccountsCreateNewAddressResponse { address })
     }
 
     async fn accounts_send_call(self: Arc<Self>, request: AccountsSendRequest) -> Result<AccountsSendResponse> {
-        let AccountsSendRequest { account_id, wallet_secret, payment_secret, destination, priority_fee_sau, payload } = request;
+        let AccountsSendRequest { account_id, wallet_secret, payment_secret, destination, fee_rate, priority_fee_sau, payload } =
+            request;
 
         let guard = self.guard();
         let guard = guard.lock().await;
@@ -387,9 +402,58 @@ impl WalletApi for super::Wallet {
 
         let abortable = Abortable::new();
         let (generator_summary, transaction_ids) =
-            account.send(destination, priority_fee_sau, payload, wallet_secret, payment_secret, &abortable, None).await?;
+            account.send(destination, fee_rate, priority_fee_sau, payload, wallet_secret, payment_secret, &abortable, None).await?;
 
         Ok(AccountsSendResponse { generator_summary, transaction_ids })
+    }
+
+    async fn accounts_pstb_sign_call(self: Arc<Self>, request: AccountsPstbSignRequest) -> Result<AccountsPstbSignResponse> {
+        let AccountsPstbSignRequest { account_id, pstb, wallet_secret, payment_secret, sign_for_address } = request;
+        let pstb = Bundle::deserialize(&pstb)?;
+        let guard = self.guard();
+        let guard = guard.lock().await;
+
+        let account = self.get_account_by_id(&account_id, &guard).await?.ok_or(Error::AccountNotFound(account_id))?;
+        let pstb = account.pstb_sign(&pstb, wallet_secret, payment_secret, sign_for_address.as_ref()).await?;
+
+        Ok(AccountsPstbSignResponse { pstb: pstb.serialize()? })
+    }
+
+    async fn accounts_pstb_broadcast_call(
+        self: Arc<Self>,
+        request: AccountsPstbBroadcastRequest,
+    ) -> Result<AccountsPstbBroadcastResponse> {
+        let AccountsPstbBroadcastRequest { account_id, pstb } = request;
+        let pstb = Bundle::deserialize(&pstb)?;
+        let guard = self.guard();
+        let guard = guard.lock().await;
+
+        let account = self.get_account_by_id(&account_id, &guard).await?.ok_or(Error::AccountNotFound(account_id))?;
+        // PSTB broadcast is now handled by the Account trait default implementation
+        let transaction_ids = account.pstb_broadcast(&pstb).await?;
+        Ok(AccountsPstbBroadcastResponse { transaction_ids })
+    }
+
+    async fn accounts_get_utxos_call(self: Arc<Self>, request: AccountsGetUtxosRequest) -> Result<AccountsGetUtxosResponse> {
+        let AccountsGetUtxosRequest { account_id, addresses, min_amount_sau } = request;
+        let guard = self.guard();
+        let guard = guard.lock().await;
+        let account = self.get_account_by_id(&account_id, &guard).await?.ok_or(Error::AccountNotFound(account_id))?;
+        let utxos = account.get_utxos(addresses, min_amount_sau).await?;
+        Ok(AccountsGetUtxosResponse { utxos: utxos.into_iter().map(|entry| entry.into()).collect::<Vec<UtxoEntryWrapper>>() })
+    }
+
+    async fn accounts_pstb_send_call(self: Arc<Self>, request: AccountsPstbSendRequest) -> Result<AccountsPstbSendResponse> {
+        let AccountsPstbSendRequest { account_id, pstb, wallet_secret, payment_secret, sign_for_address } = request;
+        let pstb = Bundle::deserialize(&pstb)?;
+        let guard = self.guard();
+        let guard = guard.lock().await;
+
+        let account = self.get_account_by_id(&account_id, &guard).await?.ok_or(Error::AccountNotFound(account_id))?;
+        let pstb = account.clone().pstb_sign(&pstb, wallet_secret, payment_secret, sign_for_address.as_ref()).await?;
+        // PSTB broadcast is now handled by the Account trait default implementation
+        let transaction_ids = account.pstb_broadcast(&pstb).await?;
+        Ok(AccountsPstbSendResponse { transaction_ids })
     }
 
     async fn accounts_transfer_call(self: Arc<Self>, request: AccountsTransferRequest) -> Result<AccountsTransferResponse> {
@@ -398,6 +462,7 @@ impl WalletApi for super::Wallet {
             destination_account_id,
             wallet_secret,
             payment_secret,
+            fee_rate,
             priority_fee_sau,
             transfer_amount_sau,
         } = request;
@@ -413,6 +478,7 @@ impl WalletApi for super::Wallet {
             .transfer(
                 destination_account_id,
                 transfer_amount_sau,
+                fee_rate,
                 priority_fee_sau.unwrap_or(Fees::SenderPays(0)),
                 wallet_secret,
                 payment_secret,
@@ -424,9 +490,110 @@ impl WalletApi for super::Wallet {
 
         Ok(AccountsTransferResponse { generator_summary, transaction_ids })
     }
+    async fn accounts_commit_reveal_manual_call(
+        self: Arc<Self>,
+        request: AccountsCommitRevealManualRequest,
+    ) -> Result<AccountsCommitRevealManualResponse> {
+        let AccountsCommitRevealManualRequest {
+            account_id,
+            script_sig,
+            start_destination,
+            end_destination,
+            wallet_secret,
+            payment_secret,
+            fee_rate,
+            reveal_fee_sau,
+            payload,
+        } = request;
+
+        let guard = self.guard();
+        let guard = guard.lock().await;
+
+        let account = self.get_account_by_id(&account_id, &guard).await?.ok_or(Error::AccountNotFound(account_id))?;
+
+        let abortable = Abortable::new();
+
+        let bundle = account
+            .clone()
+            .commit_reveal_manual(
+                start_destination,
+                end_destination,
+                script_sig,
+                wallet_secret,
+                payment_secret,
+                fee_rate,
+                reveal_fee_sau,
+                payload,
+                &abortable,
+            )
+            .await?;
+
+        let transaction_ids = account.pstb_broadcast(&bundle).await?;
+        Ok(AccountsCommitRevealManualResponse { transaction_ids })
+    }
+
+    async fn accounts_commit_reveal_call(
+        self: Arc<Self>,
+        request: AccountsCommitRevealRequest,
+    ) -> Result<AccountsCommitRevealResponse> {
+        let AccountsCommitRevealRequest {
+            account_id,
+            address_type,
+            address_index,
+            script_sig,
+            commit_amount_sau,
+            wallet_secret,
+            payment_secret,
+            fee_rate,
+            reveal_fee_sau,
+            payload,
+        } = request;
+
+        let guard = self.guard();
+        let guard = guard.lock().await;
+
+        let account = self.get_account_by_id(&account_id, &guard).await?.ok_or(Error::AccountNotFound(account_id))?;
+
+        let address = match address_type {
+            CommitRevealAddressKind::Receive => {
+                if account.account_kind() == KEYPAIR_ACCOUNT_KIND {
+                    account.receive_address()?
+                } else {
+                    account.clone().as_derivation_capable()?.receive_address_at_index(address_index).await?
+                }
+            }
+            CommitRevealAddressKind::Change => {
+                if account.account_kind() == KEYPAIR_ACCOUNT_KIND {
+                    account.change_address()?
+                } else {
+                    account.clone().as_derivation_capable()?.change_address_at_index(address_index).await?
+                }
+            }
+        };
+
+        let abortable = Abortable::new();
+
+        let bundle = account
+            .clone()
+            .commit_reveal(
+                address,
+                script_sig,
+                wallet_secret,
+                payment_secret,
+                commit_amount_sau,
+                fee_rate,
+                reveal_fee_sau,
+                payload,
+                &abortable,
+            )
+            .await?;
+
+        let transaction_ids = account.pstb_broadcast(&bundle).await?;
+        Ok(AccountsCommitRevealResponse { transaction_ids })
+    }
 
     async fn accounts_estimate_call(self: Arc<Self>, request: AccountsEstimateRequest) -> Result<AccountsEstimateResponse> {
-        let AccountsEstimateRequest { account_id, destination, priority_fee_sau, payload } = request;
+        let AccountsEstimateRequest { account_id, destination, priority_fee_sau, payload, fee_rate } = request;
 
         let guard = self.guard();
         let guard = guard.lock().await;
@@ -445,7 +612,7 @@ impl WalletApi for super::Wallet {
 
         let abortable = Abortable::new();
         self.inner.estimation_abortables.lock().unwrap().insert(account_id, abortable.clone());
-        let result = account.estimate(destination, priority_fee_sau, payload, &abortable).await;
+        let result = account.estimate(destination, fee_rate, priority_fee_sau, payload, &abortable).await;
         self.inner.estimation_abortables.lock().unwrap().remove(&account_id);
 
         Ok(AccountsEstimateResponse { generator_summary: result? })
@@ -499,5 +666,29 @@ impl WalletApi for super::Wallet {
         _request: AddressBookEnumerateRequest,
     ) -> Result<AddressBookEnumerateResponse> {
         return Err(Error::NotImplemented);
+    }
+
+    async fn fee_rate_estimate_call(self: Arc<Self>, _request: FeeRateEstimateRequest) -> Result<FeeRateEstimateResponse> {
+        let RpcFeeEstimate { priority_bucket, normal_buckets, low_buckets } = self.rpc_api().get_fee_estimate().await?;
+
+        Ok(FeeRateEstimateResponse {
+            priority: priority_bucket.into(),
+            normal: normal_buckets.first().ok_or(Error::custom("missing normal feerate bucket"))?.into(),
+            low: low_buckets.first().ok_or(Error::custom("missing normal feerate bucket"))?.into(),
+        })
+    }
+
+    async fn fee_rate_poller_enable_call(self: Arc<Self>, request: FeeRatePollerEnableRequest) -> Result<FeeRatePollerEnableResponse> {
+        let FeeRatePollerEnableRequest { interval_seconds } = request;
+        self.utxo_processor().start_fee_rate_poller(Duration::from_secs(interval_seconds)).await?;
+        Ok(FeeRatePollerEnableResponse {})
+    }
+
+    async fn fee_rate_poller_disable_call(
+        self: Arc<Self>,
+        _request: FeeRatePollerDisableRequest,
+    ) -> Result<FeeRatePollerDisableResponse> {
+        self.utxo_processor().stop_fee_rate_poller().await?;
+        Ok(FeeRatePollerDisableResponse {})
     }
 }

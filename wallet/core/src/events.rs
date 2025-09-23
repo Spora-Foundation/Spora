@@ -4,6 +4,7 @@
 //! produced by the client RPC and the Tondi node monitoring subsystems.
 //!
 
+use crate::api::message::FeeRateEstimateBucket;
 use crate::imports::*;
 use crate::storage::{Hint, PrvKeyDataInfo, StorageDescriptor, TransactionRecord, WalletDescriptor};
 use crate::utxo::context::UtxoContextId;
@@ -55,6 +56,7 @@ impl SyncState {
 pub enum Events {
     WalletPing,
     /// Successful RPC connection
+    #[serde(rename_all = "camelCase")]
     Connect {
         #[serde(rename = "networkId")]
         network_id: NetworkId,
@@ -63,6 +65,7 @@ pub enum Events {
         url: Option<String>,
     },
     /// RPC disconnection
+    #[serde(rename_all = "camelCase")]
     Disconnect {
         #[serde(rename = "networkId")]
         network_id: NetworkId,
@@ -70,6 +73,7 @@ pub enum Events {
     },
     /// A special event emitted if the connected node
     /// does not have UTXO index enabled
+    #[serde(rename_all = "camelCase")]
     UtxoIndexNotEnabled {
         /// Node RPC url on which connection
         /// has been established
@@ -77,40 +81,53 @@ pub enum Events {
     },
     /// [`SyncState`] notification posted
     /// when the node sync state changes
+    #[serde(rename_all = "camelCase")]
     SyncState {
         #[serde(rename = "syncState")]
         sync_state: SyncState,
     },
+    /// Emitted on wallet enumerate response
+    #[serde(rename_all = "camelCase")]
+    WalletList {
+        wallet_descriptors: Vec<WalletDescriptor>,
+    },
     /// Emitted after the wallet has loaded and
     /// contains anti-phishing 'hint' set by the user.
+    #[serde(rename_all = "camelCase")]
     WalletHint {
         hint: Option<Hint>,
     },
     /// Wallet has opened
+    #[serde(rename_all = "camelCase")]
     WalletOpen {
         wallet_descriptor: Option<WalletDescriptor>,
         account_descriptors: Option<Vec<AccountDescriptor>>,
     },
+    #[serde(rename_all = "camelCase")]
     WalletCreate {
         wallet_descriptor: WalletDescriptor,
         storage_descriptor: StorageDescriptor,
     },
     /// Wallet reload initiated (development only)
+    #[serde(rename_all = "camelCase")]
     WalletReload {
         wallet_descriptor: Option<WalletDescriptor>,
         account_descriptors: Option<Vec<AccountDescriptor>>,
     },
     /// Wallet open failure
+    #[serde(rename_all = "camelCase")]
     WalletError {
         message: String,
     },
     /// Wallet has been closed
     WalletClose,
+    #[serde(rename_all = "camelCase")]
     PrvKeyDataCreate {
         #[serde(rename = "prvKeyDataInfo")]
         prv_key_data_info: PrvKeyDataInfo,
     },
     /// Accounts have been activated
+    #[serde(rename_all = "camelCase")]
     AccountActivation {
         ids: Vec<AccountId>,
     },
@@ -123,16 +140,19 @@ pub enum Events {
         id: Option<AccountId>,
     },
     /// Account has been created
+    #[serde(rename_all = "camelCase")]
     AccountCreate {
         account_descriptor: AccountDescriptor,
     },
     /// Account has been changed
     /// (emitted on new address generation)
+    #[serde(rename_all = "camelCase")]
     AccountUpdate {
         account_descriptor: AccountDescriptor,
     },
     /// Emitted after successful RPC connection
     /// after the initial state negotiation.
+    #[serde(rename_all = "camelCase")]
     ServerStatus {
         #[serde(rename = "networkId")]
         network_id: NetworkId,
@@ -160,6 +180,7 @@ pub enum Events {
         message: String,
     },
     /// DAA score change
+    #[serde(rename_all = "camelCase")]
     DaaScoreChange {
         #[serde(rename = "currentDaaScore")]
         current_daa_score: u64,
@@ -214,12 +235,18 @@ pub enum Events {
         id: UtxoContextId,
     },
     /// Periodic metrics updates (on-request)
+    #[serde(rename_all = "camelCase")]
     Metrics {
         #[serde(rename = "networkId")]
         network_id: NetworkId,
         // #[serde(rename = "metricsData")]
         // metrics_data: MetricsData,
         metrics: MetricsUpdate,
+    },
+    FeeRate {
+        priority: FeeRateEstimateBucket,
+        normal: FeeRateEstimateBucket,
+        low: FeeRateEstimateBucket,
     },
     /// A general wallet framework error, emitted when an unexpected
     /// error occurs within the wallet framework.
@@ -259,6 +286,7 @@ pub enum EventKind {
     Disconnect,
     UtxoIndexNotEnabled,
     SyncState,
+    WalletList,
     WalletStart,
     WalletHint,
     WalletOpen,
@@ -284,6 +312,7 @@ pub enum EventKind {
     Discovery,
     Balance,
     Metrics,
+    FeeRate,
     Error,
 }
 
@@ -296,6 +325,7 @@ impl From<&Events> for EventKind {
             Events::Disconnect { .. } => EventKind::Disconnect,
             Events::UtxoIndexNotEnabled { .. } => EventKind::UtxoIndexNotEnabled,
             Events::SyncState { .. } => EventKind::SyncState,
+            Events::WalletList { .. } => EventKind::WalletList,
             Events::WalletHint { .. } => EventKind::WalletHint,
             Events::WalletOpen { .. } => EventKind::WalletOpen,
             Events::WalletCreate { .. } => EventKind::WalletCreate,
@@ -320,6 +350,7 @@ impl From<&Events> for EventKind {
             Events::Discovery { .. } => EventKind::Discovery,
             Events::Balance { .. } => EventKind::Balance,
             Events::Metrics { .. } => EventKind::Metrics,
+            Events::FeeRate { .. } => EventKind::FeeRate,
             Events::Error { .. } => EventKind::Error,
         }
     }
@@ -334,6 +365,7 @@ impl FromStr for EventKind {
             "disconnect" => Ok(EventKind::Disconnect),
             "utxo-index-not-enabled" => Ok(EventKind::UtxoIndexNotEnabled),
             "sync-state" => Ok(EventKind::SyncState),
+            "wallet-list" => Ok(EventKind::WalletList),
             "wallet-start" => Ok(EventKind::WalletStart),
             "wallet-hint" => Ok(EventKind::WalletHint),
             "wallet-open" => Ok(EventKind::WalletOpen),
@@ -359,6 +391,7 @@ impl FromStr for EventKind {
             "discovery" => Ok(EventKind::Discovery),
             "balance" => Ok(EventKind::Balance),
             "metrics" => Ok(EventKind::Metrics),
+            "fee-rate" => Ok(EventKind::FeeRate),
             "error" => Ok(EventKind::Error),
             _ => Err(Error::custom("Invalid event kind")),
         }
@@ -382,6 +415,7 @@ impl std::fmt::Display for EventKind {
             EventKind::Disconnect => "disconnect",
             EventKind::UtxoIndexNotEnabled => "utxo-index-not-enabled",
             EventKind::SyncState => "sync-state",
+            EventKind::WalletList => "wallet-list",
             EventKind::WalletHint => "wallet-hint",
             EventKind::WalletOpen => "wallet-open",
             EventKind::WalletCreate => "wallet-create",
@@ -406,6 +440,7 @@ impl std::fmt::Display for EventKind {
             EventKind::Discovery => "discovery",
             EventKind::Balance => "balance",
             EventKind::Metrics => "metrics",
+            EventKind::FeeRate => "fee-rate",
             EventKind::Error => "error",
         };
 

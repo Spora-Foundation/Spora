@@ -6,14 +6,15 @@ use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 use std::{collections::BTreeMap, fmt::Display, fmt::Formatter, future::Future, marker::PhantomData, ops::Deref};
 use tondi_bip32::{secp256k1, DerivationPath, KeyFingerprint};
-use tondi_consensus_core::hashing::sighash::SigHashReusedValuesUnsync;
+use tondi_consensus_core::{hashing::sighash::SigHashReusedValuesUnsync, Hash};
 
 pub use crate::error::Error;
 pub use crate::global::{Global, GlobalBuilder};
 pub use crate::input::{Input, InputBuilder};
 pub use crate::output::{Output, OutputBuilder};
 pub use crate::role::{Combiner, Constructor, Creator, Extractor, Finalizer, Signer, Updater};
-use tondi_consensus_core::tx::UtxoEntry;
+use tondi_consensus_core::config::params::Params;
+use tondi_consensus_core::mass::{MassCalculator, NonContextualMasses};
 use tondi_consensus_core::{
     hashing::sighash_type::SigHashType,
     subnets::SUBNETWORK_ID_NATIVE,
@@ -331,9 +332,22 @@ impl PSTT<Signer> {
     pub fn combiner(self) -> PSTT<Combiner> {
         PSTT { inner_pstt: self.inner_pstt, role: Default::default() }
     }
-}
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+    // Unorphan batch transaction UTXO.
+    pub fn set_input_prev_transaction_id(self, transaction_id: Hash) -> PSTT<Signer> {
+        let mut new_inputs = self.inner_pstt.inputs.clone();
+
+        new_inputs.iter_mut().for_each(|input| {
+            input.previous_outpoint.transaction_id = transaction_id;
+        });
+
+        let mut updated_inner = self.inner_pstt.clone();
+        updated_inner.inputs = new_inputs;
+
+        PSTT { inner_pstt: updated_inner, role: Default::default() }
+    }
+}
+#[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SignInputOk {
     pub signature: Signature,
@@ -429,7 +443,7 @@ impl PSTT<Finalizer> {
 }
 
 impl PSTT<Extractor> {
-    pub fn extract_tx_unchecked(self) -> Result<impl FnOnce(u64) -> (Transaction, Vec<Option<UtxoEntry>>), TxNotFinalized> {
+    pub fn extract_tx_unchecked(self, params: &Params) -> Result<MutableTransaction<Transaction>, TxNotFinalized> {
         let tx = self.unsigned_tx();
         let entries = tx.entries;
         let mut tx = tx.tx;
@@ -437,16 +451,18 @@ impl PSTT<Extractor> {
             dest.signature_script = src.final_script_sig.ok_or(TxNotFinalized {})?;
             Ok(())
         })?;
-        Ok(move |mass| {
-            tx.set_mass(mass);
-            (tx, entries)
-        })
+        let tx = MutableTransaction { tx, entries, calculated_fee: None, calculated_non_contextual_masses: None };
+        let calculator = MassCalculator::new_with_consensus_params(params);
+        let storage_mass = calculator.calc_contextual_masses(&tx.as_verifiable()).map(|mass| mass.storage_mass).unwrap_or_default();
+        let NonContextualMasses { compute_mass, transient_mass } = calculator.calc_non_contextual_masses(&tx.tx);
+        let mass = storage_mass.max(compute_mass).max(transient_mass);
+        tx.tx.set_mass(mass);
+        Ok(tx)
     }
 
-    pub fn extract_tx(self) -> Result<impl FnOnce(u64) -> (Transaction, Vec<Option<UtxoEntry>>), ExtractError> {
-        let (tx, entries) = self.extract_tx_unchecked()?(0);
+    pub fn extract_tx(self, params: &Params) -> Result<MutableTransaction<Transaction>, ExtractError> {
+        let tx = self.extract_tx_unchecked(params)?;
 
-        let tx = MutableTransaction::with_entries(tx, entries.into_iter().flatten().collect());
         use tondi_consensus_core::tx::VerifiableTransaction;
         {
             let tx = tx.as_verifiable();
@@ -458,13 +474,7 @@ impl PSTT<Extractor> {
                 <Result<(), ExtractError>>::Ok(())
             })?;
         }
-        let entries = tx.entries;
-        let tx = tx.tx;
-        let closure = move |mass| {
-            tx.set_mass(mass);
-            (tx, entries)
-        };
-        Ok(closure)
+        Ok(tx)
     }
 }
 
@@ -508,10 +518,8 @@ mod tests {
     #[test]
     fn test_payload_version_zero() {
         // Test that payload cannot be set on Version::Zero
-        let pstt = PSTT::<Creator>::default()
-            .set_version(Version::Zero)
-            .constructor();
-        
+        let pstt = PSTT::<Creator>::default().set_version(Version::Zero).constructor();
+
         let result = pstt.payload(Some(vec![1, 2, 3]));
         assert!(result.is_err());
         match result.unwrap_err() {
@@ -525,14 +533,12 @@ mod tests {
     #[test]
     fn test_payload_version_one() {
         // Test that payload can be set on Version::One
-        let pstt = PSTT::<Creator>::default()
-            .set_version(Version::One)
-            .constructor();
-        
+        let pstt = PSTT::<Creator>::default().set_version(Version::One).constructor();
+
         let payload_data = vec![1, 2, 3, 4, 5];
         let result = pstt.payload(Some(payload_data.clone()));
         assert!(result.is_ok());
-        
+
         let pstt = result.unwrap();
         assert_eq!(pstt.global.payload, Some(payload_data));
     }
@@ -540,13 +546,11 @@ mod tests {
     #[test]
     fn test_payload_none() {
         // Test that None payload works on any version
-        let pstt = PSTT::<Creator>::default()
-            .set_version(Version::Zero)
-            .constructor();
-        
+        let pstt = PSTT::<Creator>::default().set_version(Version::Zero).constructor();
+
         let result = pstt.payload(None);
         assert!(result.is_ok());
-        
+
         let pstt = result.unwrap();
         assert_eq!(pstt.global.payload, None);
     }
@@ -555,23 +559,15 @@ mod tests {
     fn test_payload_combination_same() {
         // Test combining PSTTs with same payload
         let payload_data = vec![1, 2, 3];
-        
-        let pstt1 = PSTT::<Creator>::default()
-            .set_version(Version::One)
-            .constructor()
-            .payload(Some(payload_data.clone()))
-            .unwrap();
-        
-        let pstt2 = PSTT::<Creator>::default()
-            .set_version(Version::One)
-            .constructor()
-            .payload(Some(payload_data.clone()))
-            .unwrap();
-        
+
+        let pstt1 = PSTT::<Creator>::default().set_version(Version::One).constructor().payload(Some(payload_data.clone())).unwrap();
+
+        let pstt2 = PSTT::<Creator>::default().set_version(Version::One).constructor().payload(Some(payload_data.clone())).unwrap();
+
         let combiner1 = pstt1.combiner();
         let result = combiner1 + pstt2;
         assert!(result.is_ok());
-        
+
         let combined = result.unwrap();
         assert_eq!(combined.global.payload, Some(payload_data));
     }
@@ -581,19 +577,11 @@ mod tests {
         // Test combining PSTTs with different payloads should fail
         let payload1 = vec![1, 2, 3];
         let payload2 = vec![4, 5, 6];
-        
-        let pstt1 = PSTT::<Creator>::default()
-            .set_version(Version::One)
-            .constructor()
-            .payload(Some(payload1))
-            .unwrap();
-        
-        let pstt2 = PSTT::<Creator>::default()
-            .set_version(Version::One)
-            .constructor()
-            .payload(Some(payload2))
-            .unwrap();
-        
+
+        let pstt1 = PSTT::<Creator>::default().set_version(Version::One).constructor().payload(Some(payload1)).unwrap();
+
+        let pstt2 = PSTT::<Creator>::default().set_version(Version::One).constructor().payload(Some(payload2)).unwrap();
+
         let combiner1 = pstt1.combiner();
         let result = combiner1 + pstt2;
         assert!(result.is_err());
@@ -603,23 +591,15 @@ mod tests {
     fn test_payload_combination_one_none() {
         // Test combining PSTT with payload and PSTT without payload
         let payload_data = vec![1, 2, 3];
-        
-        let pstt1 = PSTT::<Creator>::default()
-            .set_version(Version::One)
-            .constructor()
-            .payload(Some(payload_data.clone()))
-            .unwrap();
-        
-        let pstt2 = PSTT::<Creator>::default()
-            .set_version(Version::One)
-            .constructor()
-            .payload(None)
-            .unwrap();
-        
+
+        let pstt1 = PSTT::<Creator>::default().set_version(Version::One).constructor().payload(Some(payload_data.clone())).unwrap();
+
+        let pstt2 = PSTT::<Creator>::default().set_version(Version::One).constructor().payload(None).unwrap();
+
         let combiner1 = pstt1.combiner();
         let result = combiner1 + pstt2;
         assert!(result.is_ok());
-        
+
         let combined = result.unwrap();
         assert_eq!(combined.global.payload, Some(payload_data));
     }

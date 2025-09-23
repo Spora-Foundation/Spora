@@ -3,6 +3,7 @@ use crate::storage::local::interface::LocalStore;
 use crate::storage::WalletDescriptor;
 use crate::wallet as native;
 use crate::wasm::notify::{WalletEventTarget, WalletNotificationCallback, WalletNotificationTypeOrCallback};
+use tondi_consensus_core::network::NetworkIdT;
 use tondi_wallet_macros::declare_typescript_wasm_interface as declare;
 use tondi_wasm_core::events::{get_event_targets, Sink};
 use tondi_wrpc_wasm::{IConnectOptions, Resolver, RpcClient, RpcConfig, WrpcEncoding};
@@ -264,6 +265,12 @@ impl Wallet {
         }
         Ok(())
     }
+}
+
+#[wasm_bindgen(js_name = "setNetworkId")]
+pub fn set_network_id(wallet: &Wallet, network_id: NetworkIdT) -> Result<()> {
+    wallet.inner.wallet.set_network_id(&network_id.try_into_owned()?)?;
+    Ok(())
 }
 
 impl Wallet {

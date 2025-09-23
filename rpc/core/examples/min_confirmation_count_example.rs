@@ -16,7 +16,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         include_accepted_transaction_ids: false,
         min_confirmation_count: None,
     };
-    
+
     println!("   ✓ Created request with no confirmation filter");
     println!("   ✓ Will return all blocks regardless of confirmation count");
 
@@ -27,7 +27,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         include_accepted_transaction_ids: true,
         min_confirmation_count: Some(0),
     };
-    
+
     println!("   ✓ Created request with min_confirmation_count = 0");
     println!("   ✓ Will return all blocks (same as no filter)");
 
@@ -38,29 +38,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         include_accepted_transaction_ids: true,
         min_confirmation_count: Some(5),
     };
-    
+
     println!("   ✓ Created request with min_confirmation_count = 5");
     println!("   ✓ Will only return blocks with at least 5 confirmations");
     println!("   ✓ Confirmation count = sink_blue_score - block_blue_score");
 
     // Example 4: Test serialization/deserialization
     println!("\n4. Testing serialization/deserialization:");
-    
+
     // Test version 2 serialization (with min_confirmation_count)
     let mut buffer = Vec::new();
     request_filtered.serialize(&mut buffer)?;
     println!("   ✓ Serialized request with min_confirmation_count");
-    
+
     // Test deserialization
-    let deserialized: GetVirtualChainFromBlockRequest = 
-        Deserializer::deserialize(&mut std::io::Cursor::new(&buffer))?;
-    
+    let deserialized: GetVirtualChainFromBlockRequest = Deserializer::deserialize(&mut std::io::Cursor::new(&buffer))?;
+
     println!("   ✓ Deserialized request successfully");
     println!("   ✓ min_confirmation_count preserved: {:?}", deserialized.min_confirmation_count);
 
     // Example 5: CLI usage example
     println!("\n5. CLI Usage Example:");
-    println!("   Command: tondi-cli rpc get-virtual-chain-from-block <startHash> <includeAcceptedTransactionIds> <minConfirmationCount>");
+    println!(
+        "   Command: tondi-cli rpc get-virtual-chain-from-block <startHash> <includeAcceptedTransactionIds> <minConfirmationCount>"
+    );
     println!("   Example: tondi-cli rpc get-virtual-chain-from-block 0x1234... false 10");
     println!("   ✓ This will only return blocks with at least 10 confirmations");
 

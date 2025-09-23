@@ -262,6 +262,7 @@ uuid = { version = "1.5.0", features = ["v4", "fast-rng", "serde"] }
 wasm-bindgen = { version = "0.2.100", features = ["serde-serialize"] }
 wasm-bindgen-futures = "0.4.43"
 wasm-bindgen-test = "0.3.50"
+console_log = "1.0.0"
 web-sys = "0.3.70"
 xxhash-rust = { version = "0.8.7", features = ["xxh3"] }
 zeroize = { version = "1.6.0", default-features = false, features = ["alloc"] }

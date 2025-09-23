@@ -3,15 +3,15 @@
 use super::extensions::*;
 use crate::account::descriptor::IAccountDescriptor;
 use crate::api::message::*;
+use crate::storage::keydata::data::PrvKeyDataVariantKind;
 use crate::imports::*;
 use crate::tx::{Fees, PaymentDestination, PaymentOutputs};
 use crate::wasm::tx::fees::IFees;
 use crate::wasm::tx::GeneratorSummary;
 use js_sys::Array;
 use serde_wasm_bindgen::from_value;
-use workflow_wasm::serde::to_value;
-
 use tondi_wallet_macros::declare_typescript_wasm_interface as declare;
+use workflow_wasm::serde::to_value;
 
 macro_rules! try_from {
     ($name:ident : $from_type:ty, $to_type:ty, $body:block) => {
@@ -764,7 +764,8 @@ try_from! ( args: IPrvKeyDataCreateRequest, PrvKeyDataCreateRequest, {
     let prv_key_data_args = PrvKeyDataCreateArgs {
         name,
         payment_secret,
-        mnemonic,
+        secret: mnemonic,
+        kind: PrvKeyDataVariantKind::Mnemonic,
     };
 
     Ok(PrvKeyDataCreateRequest { wallet_secret, prv_key_data_args })
@@ -1379,7 +1380,7 @@ declare! {
         /**
          * 
          */
-        payload? : Uint8Array | HexString;
+        payload: Some(payload)? : Uint8Array | HexString;
         /**
          * If not supplied, the destination will be the change address resulting in a UTXO compound transaction.
          */
@@ -1399,7 +1400,7 @@ try_from! ( args: IAccountsSendRequest, AccountsSendRequest, {
     let destination: PaymentDestination =
         if outputs.is_undefined() { PaymentDestination::Change } else { PaymentOutputs::try_owned_from(outputs)?.into() };
 
-    Ok(AccountsSendRequest { account_id, wallet_secret, payment_secret, priority_fee_sau, destination, payload })
+    Ok(AccountsSendRequest { account_id, wallet_secret, payment_secret, priority_fee_sau, destination, payload, fee_rate: None })
 });
 
 declare! {
@@ -1467,6 +1468,7 @@ try_from! ( args: IAccountsTransferRequest, AccountsTransferRequest, {
         payment_secret,
         priority_fee_sau,
         transfer_amount_sau,
+        fee_rate: None,
     })
 });
 
@@ -1506,7 +1508,7 @@ declare! {
         accountId : HexString;
         destination : IPaymentOutput[];
         priorityFeeSau : IFees | bigint;
-        payload? : Uint8Array | string;
+        payload: Some(payload)? : Uint8Array | string;
     }
     "#,
 }
@@ -1520,7 +1522,7 @@ try_from! ( args: IAccountsEstimateRequest, AccountsEstimateRequest, {
     let destination: PaymentDestination =
         if outputs.is_undefined() { PaymentDestination::Change } else { PaymentOutputs::try_owned_from(outputs)?.into() };
 
-    Ok(AccountsEstimateRequest { account_id, priority_fee_sau, destination, payload })
+    Ok(AccountsEstimateRequest { account_id, priority_fee_sau, destination, payload, fee_rate: None })
 });
 
 declare! {
@@ -1770,6 +1772,416 @@ declare! {
 
 try_from! ( _args: AddressBookEnumerateResponse, IAddressBookEnumerateResponse, {
     Err(Error::NotImplemented)
+});
+
+// ---
+
+declare! {
+    IAccountsPstbSignRequest,
+    r#"
+    /**
+     * 
+     *  
+     * @category Wallet API
+     */
+    export interface IAccountsPstbSignRequest {
+        /**
+         * Hex identifier of the account.
+         */
+        accountId : HexString;
+        /**
+         * Wallet encryption secret.
+         */
+        walletSecret : string;
+        /**
+         * Optional key encryption secret or BIP39 passphrase.
+         */
+        paymentSecret? : string;
+
+        /**
+         * PSTB to sign.
+         */
+        pstb : string;
+
+        /**
+         * Address to sign for.
+         */
+        signForAddress? : Address | string;
+    }
+    "#,
+}
+
+try_from! ( args: IAccountsPstbSignRequest, AccountsPstbSignRequest, {
+    let account_id = args.get_account_id("accountId")?;
+    let wallet_secret = args.get_secret("walletSecret")?;
+    let payment_secret = args.try_get_secret("paymentSecret")?;
+    let pstb = args.get_string("pstb")?;
+    let sign_for_address = match args.try_get_value("signForAddress")? {
+        Some(v) => Some(Address::try_cast_from(&v)?.into_owned()),
+        None => None,
+    };
+    Ok(AccountsPstbSignRequest { account_id, wallet_secret, payment_secret, pstb, sign_for_address })
+});
+
+declare! {
+    IAccountsPstbSignResponse,
+    r#"
+    /**
+     * 
+     *  
+     * @category Wallet API
+     */
+    export interface IAccountsPstbSignResponse {
+        pstb : string;
+    }
+    "#,
+}
+
+try_from!(args: AccountsPstbSignResponse, IAccountsPstbSignResponse, {
+    Ok(to_value(&args)?.into())
+});
+
+declare! {
+    IAccountsPstbBroadcastRequest,
+    r#"
+    /**
+     * 
+     *  
+     * @category Wallet API
+     */
+    export interface IAccountsPstbBroadcastRequest {
+        accountId : HexString;
+        pstb : string;
+    }
+    "#,
+}
+
+try_from! ( args: IAccountsPstbBroadcastRequest, AccountsPstbBroadcastRequest, {
+    let account_id = args.get_account_id("accountId")?;
+    let pstb = args.get_string("pstb")?;
+    Ok(AccountsPstbBroadcastRequest { account_id, pstb })
+});
+
+declare! {
+    IAccountsPstbBroadcastResponse,
+    r#"
+    /**
+     * 
+     *  
+     * @category Wallet API
+     */
+    export interface IAccountsPstbBroadcastResponse {
+        transactionIds : HexString[];
+    }
+    "#,
+}
+
+try_from! ( args: AccountsPstbBroadcastResponse, IAccountsPstbBroadcastResponse, {
+    Ok(to_value(&args)?.into())
+});
+
+declare! {
+    IAccountsPstbSendRequest,
+    r#"
+    /**
+     * 
+     *  
+     * @category Wallet API
+     */
+    export interface IAccountsPstbSendRequest {
+        /**
+         * Hex identifier of the account.
+         */
+        accountId : HexString;
+        /**
+         * Wallet encryption secret.
+         */
+        walletSecret : string;
+        /**
+         * Optional key encryption secret or BIP39 passphrase.
+         */
+        paymentSecret? : string;
+
+        /**
+         * PSTB to sign.
+         */
+        pstb : string;
+
+        /**
+         * Address to sign for.
+         */
+        signForAddress? : Address | string;
+    }
+    "#,
+}
+
+try_from! ( args: IAccountsPstbSendRequest, AccountsPstbSendRequest, {
+    let account_id = args.get_account_id("accountId")?;
+    let wallet_secret = args.get_secret("walletSecret")?;
+    let payment_secret = args.try_get_secret("paymentSecret")?;
+    let pstb = args.get_string("pstb")?;
+    let sign_for_address = match args.try_get_value("signForAddress")? {
+        Some(v) => Some(Address::try_cast_from(&v)?.into_owned()),
+        None => None,
+    };
+    Ok(AccountsPstbSendRequest { account_id, wallet_secret, payment_secret, pstb, sign_for_address })
+});
+
+declare! {
+    IAccountsPstbSendResponse,
+    r#"
+    /**
+     * 
+     *  
+     * @category Wallet API
+     */
+    export interface IAccountsPstbSendResponse {
+        transactionIds : HexString[];
+    }
+    "#,
+}
+
+try_from! ( args: AccountsPstbSendResponse, IAccountsPstbSendResponse, {
+    Ok(to_value(&args)?.into())
+});
+
+declare! {
+    IAccountsGetUtxosRequest,
+    r#"
+    /**
+     * 
+     *  
+     * @category Wallet API
+     */
+    export interface IAccountsGetUtxosRequest {
+        accountId : HexString;
+        addresses : Address[] | string[];
+        minAmountSau? : bigint;
+    }
+    "#,
+}
+
+try_from! ( args: IAccountsGetUtxosRequest, AccountsGetUtxosRequest, {
+    let account_id = args.get_account_id("accountId")?;
+    let addresses = args.try_get_addresses("addresses")?;
+    let min_amount_sau = args.get_u64("minAmountSau").ok();
+    Ok(AccountsGetUtxosRequest { account_id, addresses, min_amount_sau })
+});
+
+declare! {
+    IAccountsGetUtxosResponse,
+    r#"
+    /**
+     * 
+     *  
+     * @category Wallet API
+     */
+    export interface IAccountsGetUtxosResponse {
+        utxos : UtxoEntry[];
+    }
+    "#,
+}
+
+try_from! ( args: AccountsGetUtxosResponse, IAccountsGetUtxosResponse, {
+    let response = IAccountsGetUtxosResponse::default();
+    let utxos = args.utxos.into_iter().map(|entry| entry.to_js_object()).collect::<Result<Vec<js_sys::Object>>>()?;
+    let utxos = js_sys::Array::from_iter(utxos.into_iter());
+    response.set("utxos", &utxos)?;
+    Ok(response)
+});
+
+declare! {
+    IFeeRateEstimateBucket,
+    r#"
+    export interface IFeeRateEstimateBucket {
+        feeRate : number;
+        seconds : number;
+    }
+    "#,
+}
+
+declare! {
+    IFeeRateEstimateRequest,
+    r#"
+    export interface IFeeRateEstimateRequest { }
+    "#,
+}
+
+try_from! ( _args: IFeeRateEstimateRequest, FeeRateEstimateRequest, {
+    Ok(FeeRateEstimateRequest { })
+});
+
+declare! {
+    IFeeRateEstimateResponse,
+    r#"
+    export interface IFeeRateEstimateResponse {
+        priority : IFeeRateEstimateBucket,
+        normal : IFeeRateEstimateBucket,
+        low : IFeeRateEstimateBucket,
+    }
+    "#,
+}
+
+try_from! ( args: FeeRateEstimateResponse, IFeeRateEstimateResponse, {
+    Ok(to_value(&args)?.into())
+});
+
+declare! {
+    IFeeRatePollerEnableRequest,
+    r#"
+    export interface IFeeRatePollerEnableRequest {
+        intervalSeconds : number;
+    }
+    "#,
+}
+
+try_from! ( args: IFeeRatePollerEnableRequest, FeeRatePollerEnableRequest, {
+    let interval_seconds = args.get_u64("intervalSeconds")?;
+    Ok(FeeRatePollerEnableRequest { interval_seconds })
+});
+
+declare! {
+    IFeeRatePollerEnableResponse,
+    r#"
+    export interface IFeeRatePollerEnableResponse { }
+    "#,
+}
+
+try_from! ( _args: FeeRatePollerEnableResponse, IFeeRatePollerEnableResponse, {
+    Ok(IFeeRatePollerEnableResponse::default())
+});
+
+declare! {
+    IFeeRatePollerDisableRequest,
+    r#"
+    export interface IFeeRatePollerDisableRequest { }
+    "#,
+}
+
+try_from! ( _args: IFeeRatePollerDisableRequest, FeeRatePollerDisableRequest, {
+    Ok(FeeRatePollerDisableRequest { })
+});
+
+declare! {
+    IFeeRatePollerDisableResponse,
+    r#"
+    export interface IFeeRatePollerDisableResponse { }
+    "#,
+}
+
+try_from! ( _args: FeeRatePollerDisableResponse, IFeeRatePollerDisableResponse, {
+    Ok(IFeeRatePollerDisableResponse::default())
+});
+
+declare! {
+    IAccountsCommitRevealRequest,
+    r#"
+    export interface IAccountsCommitRevealRequest {
+        accountId : HexString;
+        addressType : string;
+        addressIndex : number;
+        scriptSig : Uint8Array | HexString;
+        walletSecret : string;
+        commitAmountSau : bigint;
+        paymentSecret? : string;
+        feeRate? : number;
+        revealFeeSau : bigint;
+        payload: Some(payload)? : Uint8Array | HexString;
+    }
+    "#,
+}
+
+try_from! ( args: IAccountsCommitRevealRequest, AccountsCommitRevealRequest, {
+    let account_id = args.get_account_id("accountId")?;
+    let address_type = args.get_string("addressType")?;
+    let address_index = args.get_u32("addressIndex")?;
+    let script_sig = args.get_vec_u8("scriptSig")?;
+    let wallet_secret = args.get_secret("walletSecret")?;
+    let commit_amount_sau = args.get_u64("commitAmountSau")?;
+    let payment_secret = args.try_get_secret("paymentSecret")?;
+    let fee_rate = args.get_f64("feeRate").ok();
+    let reveal_fee_sau = args.get_u64("revealFeeSau")?;
+      let payload = args.get_vec_u8("payload")?;
+    Ok(AccountsCommitRevealRequest {
+        account_id,
+        address_type: address_type.parse().unwrap_or(CommitRevealAddressKind::Receive),
+        address_index,
+        script_sig,
+        wallet_secret,
+        commit_amount_sau,
+        payment_secret,
+        fee_rate,
+        reveal_fee_sau,
+        payload: Some(payload)
+    })
+});
+
+declare! {
+    IAccountsCommitRevealResponse,
+    r#"
+    export interface IAccountsCommitRevealResponse {
+        commitTransactionId : HexString;
+        revealTransactionId : HexString;
+    }
+    "#,
+}
+
+try_from! ( args: AccountsCommitRevealResponse, IAccountsCommitRevealResponse, {
+    Ok(to_value(&args)?.into())
+});
+
+declare! {
+    IAccountsCommitRevealManualRequest,
+    r#"
+    export interface IAccountsCommitRevealManualRequest {
+        accountId : HexString;
+        commitDestination : Address | string;
+        revealDestination : Address | string;
+        walletSecret : string;
+        commitAmountSau : bigint;
+        paymentSecret? : string;
+        feeRate? : number;
+        revealFeeSau : bigint;
+        payload: Some(payload)? : Uint8Array | HexString;
+    }
+    "#,
+}
+
+try_from! ( args: IAccountsCommitRevealManualRequest, AccountsCommitRevealManualRequest, {
+    let account_id = args.get_account_id("accountId")?;
+      let commit_destination = args.try_get_addresses("commitDestination")?.unwrap_or_default();
+      let reveal_destination = args.try_get_addresses("revealDestination")?.unwrap_or_default();
+    let wallet_secret = args.get_secret("walletSecret")?;
+    let commit_amount_sau = args.get_u64("commitAmountSau")?;
+    let payment_secret = args.try_get_secret("paymentSecret")?;
+    let fee_rate = args.get_f64("feeRate").ok();
+    let reveal_fee_sau = args.get_u64("revealFeeSau")?;
+      let payload = args.get_vec_u8("payload")?;
+    Ok(AccountsCommitRevealManualRequest {
+        account_id,
+        start_destination: PaymentDestination::PaymentOutputs(PaymentOutputs::from(&[(commit_destination[0].clone(), 0u64)] as &[(Address, u64)])),
+        end_destination: PaymentDestination::PaymentOutputs(PaymentOutputs::from(&[(reveal_destination[0].clone(), 0u64)] as &[(Address, u64)])),
+        script_sig: vec![], // Default empty script_sig
+        wallet_secret,
+        payment_secret,
+        fee_rate,
+        reveal_fee_sau,
+        payload: Some(payload)
+    })
+});
+
+declare! {
+    IAccountsCommitRevealManualResponse,
+    r#"
+    export interface IAccountsCommitRevealManualResponse {
+        commitTransactionId : HexString;
+        revealTransactionId : HexString;
+    }
+    "#,
+}
+
+try_from! ( args: AccountsCommitRevealManualResponse, IAccountsCommitRevealManualResponse, {
+    Ok(to_value(&args)?.into())
 });
 
 // ---

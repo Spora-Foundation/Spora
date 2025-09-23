@@ -310,6 +310,9 @@ pub enum Error {
     #[error("Mass calculation error")]
     MassCalculationError,
 
+    #[error("Transaction fees are too high")]
+    TransactionFeesAreTooHigh,
+
     #[error("Invalid argument: {0}")]
     InvalidArgument(String),
 
@@ -341,6 +344,36 @@ pub enum Error {
 
     #[error("Error generating pending transaction from PSTT: {0}")]
     PendingTransactionFromPSTTError(String),
+
+    #[error("Address not found")]
+    AddressNotFound,
+
+    #[error("Invalid payment destination: expected PaymentOutputs, found Change")]
+    CommitRevealInvalidPaymentDestination,
+
+    #[error("No payment outputs found in destination")]
+    CommitRevealEmptyPaymentOutputs,
+
+    #[error("Failed to generate redeem script")]
+    RevealRedeemScriptTemplateError,
+
+    #[error("Failed to generate PSTT: {0}")]
+    PSTTGenerationError(String),
+
+    #[error("Failed to sign commit transaction")]
+    CommitTransactionSigningError,
+
+    #[error("Failed to finalize PSTT")]
+    PSTTFinalizationError,
+
+    #[error("Failed to extract transaction ID from PSTT")]
+    CommitTransactionIdExtractionError,
+
+    #[error("No valid reveal address found for signing")]
+    NoQualifiedRevealSignerFound,
+
+    #[error("Failed to merge bundles")]
+    CommitRevealBundleMergeError,
 }
 
 impl From<Aborted> for Error {

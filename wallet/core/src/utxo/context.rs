@@ -15,8 +15,8 @@ use crate::utxo::{
     UtxoEntryReferenceExtension, UtxoProcessor,
 };
 use sorted_insert::SortedInsertBinaryByKey;
+use tondi_consensus_client::UtxoEntry;
 use tondi_hashes::Hash;
-
 static UTXO_CONTEXT_ID_SEQUENCER: AtomicU64 = AtomicU64::new(0);
 fn next_utxo_context_id() -> Hash {
     let id = UTXO_CONTEXT_ID_SEQUENCER.fetch_add(1, Ordering::SeqCst);
@@ -324,6 +324,33 @@ impl UtxoContext {
         }
     }
 
+    pub async fn update(&self, utxo_entry: UtxoEntryReference, _current_daa_score: u64, _force_maturity: bool) -> Result<bool> {
+        let mut context = self.context();
+        if context.map.get(&utxo_entry.id()).is_some() {
+            // if old_entry.block_daa_score() > utxo_entry.block_daa_score() {
+            //     return Ok(false);
+            // }
+            let id = utxo_entry.id();
+            let entry = PendingUtxoEntryReference::new(utxo_entry.clone(), self.clone());
+
+            context.stasis.entry(id.clone()).and_modify(|e| *e = utxo_entry.clone());
+            self.processor().stasis().entry(id.clone()).and_modify(|e| *e = entry.clone());
+
+            context.pending.entry(id.clone()).and_modify(|e| *e = utxo_entry.clone());
+            self.processor().pending().entry(id.clone()).and_modify(|e| *e = entry.clone());
+
+            if let Some(entry) = context.mature.iter_mut().find(|entry| entry.id() == id) {
+                *entry = utxo_entry.clone();
+            }
+
+            context.map.entry(id.clone()).and_modify(|e| *e = utxo_entry);
+
+            return Ok(true);
+        }
+
+        Ok(false)
+    }
+
     pub async fn remove(&self, utxos: Vec<UtxoEntryReference>) -> Result<Vec<UtxoEntryVariant>> {
         let mut context = self.context();
         let mut removed = vec![];
@@ -518,6 +545,32 @@ impl UtxoContext {
         Balance::new(mature, pending, outgoing_without_batch_tx, context.mature.len(), context.pending.len(), context.stasis.len())
     }
 
+    pub(crate) async fn update_utxos(&self, utxos: Vec<UtxoEntryReference>, current_daa_score: u64) -> Result<()> {
+        if utxos.is_empty() {
+            return Ok(());
+        }
+
+        let utxos = HashMap::group_from(utxos.into_iter().map(|utxo| (utxo.transaction_id(), utxo)));
+        for (txid, utxos) in utxos.into_iter() {
+            // get outgoing transaction from the processor in case the transaction
+            // originates from a different [`Account`] represented by a different [`UtxoContext`].
+            let outgoing_transaction = self.processor().outgoing().get(&txid);
+            let force_maturity_if_outgoing = outgoing_transaction.is_some();
+            let is_batch = outgoing_transaction.as_ref().map_or_else(|| false, |tx| tx.is_batch());
+            if !is_batch {
+                for utxo in utxos.iter() {
+                    if let Err(err) = self.update(utxo.clone(), current_daa_score, force_maturity_if_outgoing).await {
+                        // TODO - remove `Result<>` from insert at a later date once
+                        // we are confident that the insert will never result in an error.
+                        log_error!("{}", err);
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     pub(crate) async fn handle_utxo_added(&self, utxos: Vec<UtxoEntryReference>, current_daa_score: u64) -> Result<()> {
         // add UTXOs to account set
 
@@ -701,6 +754,57 @@ impl UtxoContext {
         self.extend_from_scan(refs, current_daa_score).await?;
         self.update_balance().await?;
         Ok(())
+    }
+
+    pub async fn get_utxos(&self, addresses: Option<Vec<Address>>, min_amount_sau: Option<u64>) -> Result<Vec<UtxoEntry>> {
+        let utxos = &self.context().mature;
+        let mut amount = 0;
+        if let Some(addresses) = &addresses {
+            if let Some(min_amount_sau) = min_amount_sau {
+                let mut amount = 0;
+                let filtered_utxos = utxos
+                    .iter()
+                    .filter_map(|utxo| {
+                        if let Some(address) = utxo.address() {
+                            if addresses.contains(&address) && amount < min_amount_sau {
+                                amount += utxo.amount();
+                                return Some(utxo.entry().clone());
+                            }
+                        }
+
+                        None
+                    })
+                    .collect();
+                return Ok(filtered_utxos);
+            } else {
+                let filtered_utxos = utxos
+                    .iter()
+                    .filter_map(|utxo| {
+                        if let Some(address) = utxo.address() {
+                            if addresses.contains(&address) {
+                                return Some(utxo.entry().clone());
+                            }
+                        }
+                        None
+                    })
+                    .collect();
+                return Ok(filtered_utxos);
+            }
+        }
+        if let Some(min_amount_sau) = min_amount_sau {
+            let filtered_utxos = utxos
+                .iter()
+                .filter_map(|utxo| {
+                    if amount < min_amount_sau {
+                        amount += utxo.amount();
+                        return Some(utxo.entry().clone());
+                    }
+                    None
+                })
+                .collect();
+            return Ok(filtered_utxos);
+        }
+        Ok(utxos.iter().map(|utxo| utxo.entry().clone()).collect())
     }
 }
 

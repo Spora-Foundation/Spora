@@ -208,6 +208,7 @@ cfg_if::cfg_if! {
         pub use tondi_consensus_wasm::*;
         pub use tondi_wallet_keys::prelude::*;
         pub use tondi_wallet_core::wasm::*;
+        pub use tondi_bip32::wasm::*;
 
     } else if #[cfg(feature = "wasm32-rpc")] {
 
@@ -225,6 +226,7 @@ cfg_if::cfg_if! {
         pub use tondi_wallet_keys::prelude::*;
         pub use tondi_bip32::*;
         pub use tondi_wasm_core::types::*;
+        pub use tondi_bip32::wasm::*;
 
     }
 }

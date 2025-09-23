@@ -5,12 +5,12 @@ use crate::pstt::{Inner as PSTTInner, PSTT};
 
 use tondi_addresses::{Address, Prefix};
 // use tondi_bip32::Prefix;
-use tondi_consensus_core::network::{NetworkId, NetworkType};
-use tondi_consensus_core::tx::{ScriptPublicKey, TransactionOutpoint, UtxoEntry};
-
 use hex;
 use serde::{Deserialize, Serialize};
 use std::ops::Deref;
+use tondi_consensus_core::constants::UNACCEPTED_DAA_SCORE;
+use tondi_consensus_core::network::{NetworkId, NetworkType};
+use tondi_consensus_core::tx::{ScriptPublicKey, TransactionOutpoint, UtxoEntry};
 use tondi_txscript::{extract_script_pub_key_address, pay_to_address_script, pay_to_script_hash_script};
 
 ///
@@ -149,7 +149,12 @@ impl Default for Bundle {
 }
 
 pub fn lock_script_sig_templating(payload: String, pubkey_bytes: Option<&[u8]>) -> Result<Vec<u8>, Error> {
-    let mut payload_bytes: Vec<u8> = hex::decode(payload)?;
+    let payload_bytes: Vec<u8> = hex::decode(payload)?;
+    lock_script_sig_templating_bytes(payload_bytes.to_vec(), pubkey_bytes)
+}
+
+pub fn lock_script_sig_templating_bytes(payload: Vec<u8>, pubkey_bytes: Option<&[u8]>) -> Result<Vec<u8>, Error> {
+    let mut payload_bytes = payload;
 
     if let Some(pubkey) = pubkey_bytes {
         let placeholder = b"{{pubkey}}";
@@ -231,6 +236,33 @@ pub fn unlock_utxo(
         OutputBuilder::default().amount(utxo_entry.amount - priority_fee_sau).script_public_key(script_public_key.clone()).build()?;
 
     let pstt: PSTT<Constructor> = PSTT::<Creator>::default().constructor().input(input).output(output);
+    Ok(pstt.into())
+}
+
+// Build UTXO spending PSTB with custom input and multiple outputs
+// to be used in atomic transaction batch.
+pub fn unlock_utxo_outputs_as_batch_transaction_pstb(
+    amount: u64,
+    start_address: &Address,
+    script_sig: &[u8],
+    destination_outputs: Vec<(Address, u64)>,
+) -> Result<Bundle, Error> {
+    let origin_spk = pay_to_address_script(start_address);
+
+    let utxo_entry = UtxoEntry { amount, script_public_key: origin_spk, block_daa_score: UNACCEPTED_DAA_SCORE, is_coinbase: false };
+
+    let input =
+        InputBuilder::default().utxo_entry(utxo_entry.to_owned()).sig_op_count(1).redeem_script(script_sig.to_vec()).build()?;
+
+    let outputs: Vec<Output> = destination_outputs
+        .iter()
+        .filter_map(|(address, amount)| {
+            OutputBuilder::default().amount(*amount).script_public_key(pay_to_address_script(address)).build().ok()
+        })
+        .collect();
+
+    let pstt: PSTT<Constructor> =
+        outputs.into_iter().fold(PSTT::<Creator>::default().constructor().input(input), |pstt, output| pstt.output(output));
     Ok(pstt.into())
 }
 

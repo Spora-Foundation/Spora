@@ -6,8 +6,8 @@
 //! 3. How to combine PSTTs with payload
 //! 4. Error handling
 
-use tondi_wallet_pstt::prelude::*;
 use tondi_wallet_pstt::global::CombineError as GlobalCombineError;
+use tondi_wallet_pstt::prelude::*;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== PSTT Payload functionality example ===\n");
@@ -15,23 +15,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Example 1: Create a PSTT with payload
     println!("1. Create a PSTT with payload:");
     let payload_data = b"Hello, Tondi!".to_vec();
-    
+
     let pstt_with_payload = PSTT::<Creator>::default()
         .set_version(Version::One)  // Set version to One to support payload
         .constructor()
-        .payload(Some(payload_data.clone()))?;  // Add payload data
-    
+        .payload(Some(payload_data.clone()))?; // Add payload data
+
     println!("   ✓ Successfully created a PSTT with payload");
     println!("   ✓ Payload数据: {:?}", pstt_with_payload.global.payload);
     println!("   ✓ PSTT版本: {:?}", pstt_with_payload.global.version);
 
     // Example 2: Try to set payload on Version::Zero (should fail)
     println!("\n2. Try to set payload on Version::Zero:");
-    let result = PSTT::<Creator>::default()
-        .set_version(Version::Zero)
-        .constructor()
-        .payload(Some(vec![1, 2, 3]));
-    
+    let result = PSTT::<Creator>::default().set_version(Version::Zero).constructor().payload(Some(vec![1, 2, 3]));
+
     match result {
         Err(Error::PayloadRequiresVersion1(version)) => {
             println!("   ✓ Correctly captured error: Payload requires version 1 or higher, but current version is {:?}", version);
@@ -43,19 +40,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Example 3: Combine two PSTTs with the same payload
     println!("\n3. Combine two PSTTs with the same payload:");
-    let pstt1 = PSTT::<Creator>::default()
-        .set_version(Version::One)
-        .constructor()
-        .payload(Some(payload_data.clone()))?;
-    
-    let pstt2 = PSTT::<Creator>::default()
-        .set_version(Version::One)
-        .constructor()
-        .payload(Some(payload_data.clone()))?;
-    
+    let pstt1 = PSTT::<Creator>::default().set_version(Version::One).constructor().payload(Some(payload_data.clone()))?;
+
+    let pstt2 = PSTT::<Creator>::default().set_version(Version::One).constructor().payload(Some(payload_data.clone()))?;
+
     let combiner = pstt1.combiner();
     let combined_result = combiner + pstt2;
-    
+
     match combined_result {
         Ok(combined) => {
             println!("   ✓ Successfully combined PSTT");
@@ -68,19 +59,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Example 4: Try to combine PSTTs with different payloads (should fail)
     println!("\n4. Try to combine PSTTs with different payloads:");
-    let pstt3 = PSTT::<Creator>::default()
-        .set_version(Version::One)
-        .constructor()
-        .payload(Some(vec![1, 2, 3]))?;
-    
-    let pstt4 = PSTT::<Creator>::default()
-        .set_version(Version::One)
-        .constructor()
-        .payload(Some(vec![4, 5, 6]))?;
-    
+    let pstt3 = PSTT::<Creator>::default().set_version(Version::One).constructor().payload(Some(vec![1, 2, 3]))?;
+
+    let pstt4 = PSTT::<Creator>::default().set_version(Version::One).constructor().payload(Some(vec![4, 5, 6]))?;
+
     let combiner3 = pstt3.combiner();
     let different_payload_result = combiner3 + pstt4;
-    
+
     match different_payload_result {
         Err(CombineError::Global(GlobalCombineError::PayloadMismatch { this, that })) => {
             println!("   ✓ Correctly captured payload mismatch error");
@@ -97,19 +82,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Example 5: Combine a PSTT with payload and one without payload
     println!("\n5. Combine a PSTT with payload and one without payload:");
-    let pstt_with_payload = PSTT::<Creator>::default()
-        .set_version(Version::One)
-        .constructor()
-        .payload(Some(payload_data.clone()))?;
-    
-    let pstt_without_payload = PSTT::<Creator>::default()
-        .set_version(Version::One)
-        .constructor()
-        .payload(None)?;
-    
+    let pstt_with_payload = PSTT::<Creator>::default().set_version(Version::One).constructor().payload(Some(payload_data.clone()))?;
+
+    let pstt_without_payload = PSTT::<Creator>::default().set_version(Version::One).constructor().payload(None)?;
+
     let combiner_with = pstt_with_payload.combiner();
     let mixed_result = combiner_with + pstt_without_payload;
-    
+
     match mixed_result {
         Ok(combined) => {
             println!("   ✓ Successfully combined PSTT");

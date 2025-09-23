@@ -1,11 +1,11 @@
 # Tondi Chain Whitepaper
 ## I. Project Overview: Unlocking the Performance Boundaries of Future Money
 
-**Tondi** is a next-generation high-performance transaction settlement and Layer 2 anchoring base chain jointly developed by **Avato Labs** and the **Tondi Foundation**. It inherits the DAG architecture of Kaspa (the world’s fastest PoW chain), achieving breakthroughs in throughput, privacy protection, security, and compliance.
+**Tondi** is a next-generation high-performance transaction settlement and Layer 2 anchoring base chain jointly developed by **Avato Labs** and the **Tondi Foundation**. It inherits the DAG architecture of Tondi (the world’s fastest PoW chain), achieving breakthroughs in throughput, privacy protection, security, and compliance.
 
 Tondi is defined as a **“High-Performance PoW Programmable Settlement Layer”**, designed specifically for high-frequency trading, stablecoin settlement, compliant privacy payments, and **off-chain state anchoring and channel extensions** in core Web3 scenarios.
 
-It is not an extension of BTC or Kaspa solutions, but a brand-new architecture: built on a high-speed PoW DAG base layer, combined with **Eltoo, Channel Factories, CISA, PTLC, and APO**, forming a next-generation scalable settlement paradigm for the Bitcoin ecosystem.
+It is not an extension of BTC or Tondi solutions, but a brand-new architecture: built on a high-speed PoW DAG base layer, combined with **Eltoo, Channel Factories, CISA, PTLC, and APO**, forming a next-generation scalable settlement paradigm for the Bitcoin ecosystem.
 
 It is not only a high-performance base layer chain but also the ideal hosting platform for the maturation of the RGB protocol, natively supporting BTC Taproot-based Layer 2 contract structures. It is the first protocol fully compatible with the BTC Taproot ecosystem, significantly surpassing its performance and privacy limitations.
 
@@ -78,7 +78,7 @@ This means:
 
 #### 1. High-Speed Settlement Layer
 
-- **Consensus**: Based on GHOSTDAG, throughput performance is **1–2× Kaspa**.
+- **Consensus**: Based on GHOSTDAG, throughput performance is **1–2× Tondi**.
 - **Hashing**: Uses Blake3, throughput far beyond SHA256.
 - **TPS**: Peak 15,000–25,000, confirmation latency 1–2 seconds.
 - **Model**: Maintains stateless UTXO structure, avoiding global account bloat.
@@ -391,7 +391,7 @@ Frontier is not a one-off testnet, but a **never-reset experimental chain**:
 
 - All features must run ≥1 epoch on Frontier before mainnet.
     
-- Frontier adopts Kaspa improvements, Bitcoin proposals, Tondi’s own experiments first.
+- Frontier adopts Tondi improvements, Bitcoin proposals, Tondi’s own experiments first.
     
 - Frontier has low incentives → reduced risk.
     
@@ -408,7 +408,7 @@ Not all innovations will enter mainnet. Some may be abandoned after Frontier tes
 
 ## VII. Strategic Positioning & Competitive Landscape
 
-|Dimension|Tondi|Kaspa|Solana|BTC|ETH L2|
+|Dimension|Tondi|Tondi|Solana|BTC|ETH L2|
 |---|---|---|---|---|---|
 |Consensus|GHOSTDAG (pruning+parallel)|GHOSTDAG|PoS+BFT|PoW (longest chain)|PoS / ZK|
 |State model|Stateless (UTXO+commitments)|Stateless (pure UTXO)|Stateful (accounts)|Stateless|Stateful (sync required)|

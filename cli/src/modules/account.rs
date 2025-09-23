@@ -231,8 +231,9 @@ impl Account {
                 count = count.max(1);
 
                 let sweep = action.eq("sweep");
-
-                self.derivation_scan(&ctx, start, count, window, sweep).await?;
+                // TODO fee_rate
+                let fee_rate = None;
+                self.derivation_scan(&ctx, start, count, window, sweep, fee_rate).await?;
             }
             v => {
                 tprintln!(ctx, "unknown command: '{v}'\r\n");
@@ -273,6 +274,7 @@ impl Account {
         count: usize,
         window: usize,
         sweep: bool,
+        fee_rate: Option<f64>,
     ) -> Result<()> {
         let account = ctx.account().await?;
         let (wallet_secret, payment_secret) = ctx.ask_wallet_secret(Some(&account)).await?;
@@ -290,7 +292,9 @@ impl Account {
                 start + count,
                 window,
                 sweep,
+                fee_rate,
                 &abortable,
+                true,
                 Some(Arc::new(move |processed: usize, _, balance, txid| {
                     if let Some(txid) = txid {
                         tprintln!(

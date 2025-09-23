@@ -2,7 +2,7 @@
 //! Legacy (KDX, tondinet.io Web Wallet) account implementation
 //!
 
-use crate::account::{AsLegacyAccount, Inner};
+use crate::account::{create_private_keys, AsLegacyAccount, DerivationCapableAccount, Inner};
 use crate::derivation::{AddressDerivationManager, AddressDerivationManagerTrait};
 use crate::imports::*;
 use tondi_bip32::{ExtendedPrivateKey, Prefix, SecretKey};
@@ -166,6 +166,23 @@ impl Account for Legacy {
     fn change_address(&self) -> Result<Address> {
         self.derivation.change_address_manager().current_address()
     }
+    // default account address (receive[0])
+    fn default_address(&self) -> Result<Address> {
+        // TODO @surinder
+        let addresses = self.derivation.receive_address_manager().get_range_with_args(0..1, false)?;
+        addresses.first().cloned().ok_or(Error::AddressNotFound)
+    }
+
+    // all addresses in the account (receive + change up to and including the last used index)
+    fn account_addresses(&self) -> Result<Vec<Address>> {
+        let meta = self.derivation.address_derivation_meta();
+        let receive = meta.receive();
+        let change = meta.change();
+        let mut addresses = self.derivation.receive_address_manager().get_range_with_args(0..receive, false)?;
+        let change_addresses = self.derivation.change_address_manager().get_range_with_args(0..change, false)?;
+        addresses.extend(change_addresses);
+        Ok(addresses)
+    }
 
     fn to_storage(&self) -> Result<AccountStorage> {
         let settings = self.context().settings.clone();
@@ -196,6 +213,7 @@ impl Account for Legacy {
             self.prv_key_data_id.into(),
             self.receive_address().ok(),
             self.change_address().ok(),
+            self.account_addresses().ok(),
         )
         .with_property(AccountDescriptorProperty::DerivationMeta, self.derivation.address_derivation_meta().into());
 
@@ -234,5 +252,21 @@ impl DerivationCapableAccount for Legacy {
     // legacy accounts do not support bip44
     fn account_index(&self) -> u64 {
         0
+    }
+
+    fn cosigner_index(&self) -> u32 {
+        0
+    }
+
+    fn create_private_keys<'l>(
+        &self,
+        payload: &PrvKeyData,
+        payment_secret: &Option<Secret>,
+        receive: &[(&'l Address, u32)],
+        change: &[(&'l Address, u32)],
+    ) -> Result<Vec<(&'l Address, secp256k1::SecretKey)>> {
+        let decrypted_payload = payload.payload.decrypt(payment_secret.as_ref())?;
+        let xkey = decrypted_payload.get_xprv(payment_secret.as_ref())?;
+        create_private_keys(&self.account_kind(), self.cosigner_index(), self.account_index(), &xkey, receive, change)
     }
 }

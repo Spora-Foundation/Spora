@@ -2,7 +2,7 @@
 //! MultiSig account implementation.
 //!
 
-use crate::account::Inner;
+use crate::account::{create_private_keys, DerivationCapableAccount, Inner};
 use crate::derivation::{AddressDerivationManager, AddressDerivationManagerTrait};
 use crate::imports::*;
 
@@ -236,6 +236,7 @@ impl Account for MultiSig {
             self.prv_key_data_ids.clone().try_into()?,
             self.receive_address().ok(),
             self.change_address().ok(),
+            None,
         )
         .with_property(AccountDescriptorProperty::XpubKeys, self.xpub_keys.clone().into())
         .with_property(AccountDescriptorProperty::Ecdsa, self.ecdsa.into())
@@ -256,6 +257,22 @@ impl DerivationCapableAccount for MultiSig {
 
     fn account_index(&self) -> u64 {
         0
+    }
+
+    fn cosigner_index(&self) -> u32 {
+        self.cosigner_index.unwrap_or(0) as u32
+    }
+
+    fn create_private_keys<'l>(
+        &self,
+        payload: &PrvKeyData,
+        payment_secret: &Option<Secret>,
+        receive: &[(&'l Address, u32)],
+        change: &[(&'l Address, u32)],
+    ) -> Result<Vec<(&'l Address, secp256k1::SecretKey)>> {
+        let decrypted_payload = payload.payload.decrypt(payment_secret.as_ref())?;
+        let xkey = decrypted_payload.get_xprv(payment_secret.as_ref())?;
+        create_private_keys(&self.account_kind(), self.cosigner_index(), self.account_index(), &xkey, receive, change)
     }
 }
 

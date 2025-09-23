@@ -2,7 +2,7 @@
 //! BIP32 & BIP44 account implementation
 //!
 
-use crate::account::Inner;
+use crate::account::{create_private_keys, DerivationCapableAccount, Inner};
 use crate::derivation::{AddressDerivationManager, AddressDerivationManagerTrait};
 use crate::imports::*;
 
@@ -196,19 +196,35 @@ impl Account for Bip32 {
         self.derivation.change_address_manager().current_address()
     }
 
+    // default account address (receive[0])
+    fn default_address(&self) -> Result<Address> {
+        // TODO @surinder
+        let addresses = self.derivation.receive_address_manager().get_range_with_args(0..1, false)?;
+        addresses.first().cloned().ok_or(Error::AddressNotFound)
+    }
+
+    // all addresses in the account (receive + change up to and including the last used index)
+    fn account_addresses(&self) -> Result<Vec<Address>> {
+        let meta = self.derivation.address_derivation_meta();
+        let receive = meta.receive();
+        let change = meta.change();
+        let mut addresses = self.derivation.receive_address_manager().get_range_with_args(0..receive, false)?;
+        let change_addresses = self.derivation.change_address_manager().get_range_with_args(0..change, false)?;
+        addresses.extend(change_addresses);
+        Ok(addresses)
+    }
+
     fn to_storage(&self) -> Result<AccountStorage> {
         let settings = self.context().settings.clone();
         let storable = Payload::new(self.account_index, self.xpub_keys.clone(), self.ecdsa);
-        let storage = AccountStorage::try_new(
-            BIP32_ACCOUNT_KIND.into(),
-            self.id(),
-            self.storage_key(),
-            self.prv_key_data_id.into(),
+        Ok(AccountStorage {
+            kind: BIP32_ACCOUNT_KIND.into(),
+            id: *self.id(),
+            storage_key: *self.storage_key(),
+            prv_key_data_ids: self.prv_key_data_id.into(),
             settings,
-            storable,
-        )?;
-
-        Ok(storage)
+            serialized: borsh::to_vec(&storable)?,
+        })
     }
 
     fn metadata(&self) -> Result<Option<AccountMetadata>> {
@@ -225,6 +241,7 @@ impl Account for Bip32 {
             self.prv_key_data_id.into(),
             self.receive_address().ok(),
             self.change_address().ok(),
+            self.account_addresses().ok(),
         )
         .with_property(AccountDescriptorProperty::AccountIndex, self.account_index.into())
         .with_property(AccountDescriptorProperty::XpubKeys, self.xpub_keys.clone().into())
@@ -246,6 +263,24 @@ impl DerivationCapableAccount for Bip32 {
 
     fn account_index(&self) -> u64 {
         self.account_index
+    }
+
+    fn cosigner_index(&self) -> u32 {
+        0
+    }
+
+
+
+    fn create_private_keys<'l>(
+        &self,
+        payload: &PrvKeyData,
+        payment_secret: &Option<Secret>,
+        receive: &[(&'l Address, u32)],
+        change: &[(&'l Address, u32)],
+    ) -> Result<Vec<(&'l Address, secp256k1::SecretKey)>> {
+        let decrypted_payload = payload.payload.decrypt(payment_secret.as_ref())?;
+        let xkey = decrypted_payload.get_xprv(payment_secret.as_ref())?;
+        create_private_keys(&self.account_kind(), self.cosigner_index(), self.account_index(), &xkey, receive, change)
     }
 }
 

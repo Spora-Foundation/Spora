@@ -4,10 +4,11 @@
 //! Each Wallet API `xxx_call()` method has a corresponding
 //! `XxxRequest` and `XxxResponse` message.
 //!
-
 use crate::imports::*;
 use crate::tx::{Fees, GeneratorSummary, PaymentDestination};
 use tondi_addresses::Address;
+use tondi_consensus_core::tx::{TransactionOutpoint, UtxoEntry};
+use tondi_rpc_core::RpcFeerateBucket;
 
 #[derive(Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 #[serde(rename_all = "camelCase")]
@@ -401,12 +402,16 @@ pub struct AccountsEnsureDefaultResponse {
 // TODO
 #[derive(Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct AccountsImportRequest {}
+pub struct AccountsImportRequest {
+    pub wallet_secret: Secret,
+    pub account_create_args: AccountCreateArgs,
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct AccountsImportResponse {}
-
+pub struct AccountsImportResponse {
+    pub account_descriptor: AccountDescriptor,
+}
 #[derive(Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AccountsSelectRequest {
@@ -493,6 +498,7 @@ pub struct AccountsSendRequest {
     pub wallet_secret: Secret,
     pub payment_secret: Option<Secret>,
     pub destination: PaymentDestination,
+    pub fee_rate: Option<f64>,
     pub priority_fee_sau: Fees,
     pub payload: Option<Vec<u8>>,
 }
@@ -506,12 +512,146 @@ pub struct AccountsSendResponse {
 
 #[derive(Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct AccountsPstbSignRequest {
+    pub account_id: AccountId,
+    pub pstb: String,
+    pub wallet_secret: Secret,
+    pub payment_secret: Option<Secret>,
+    pub sign_for_address: Option<Address>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountsPstbSignResponse {
+    pub pstb: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountsPstbBroadcastRequest {
+    pub account_id: AccountId,
+    pub pstb: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountsPstbBroadcastResponse {
+    pub transaction_ids: Vec<TransactionId>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountsPstbSendRequest {
+    pub account_id: AccountId,
+    pub pstb: String,
+    pub wallet_secret: Secret,
+    pub payment_secret: Option<Secret>,
+    pub sign_for_address: Option<Address>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountsPstbSendResponse {
+    pub transaction_ids: Vec<TransactionId>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountsGetUtxosRequest {
+    pub account_id: AccountId,
+    pub addresses: Option<Vec<Address>>,
+    pub min_amount_sau: Option<u64>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountsGetUtxosResponse {
+    pub utxos: Vec<UtxoEntryWrapper>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UtxoEntryWrapper {
+    pub address: Option<Address>,
+    pub outpoint: TransactionOutpointWrapper,
+    pub amount: u64,
+    pub script_public_key: ScriptPublicKey,
+    pub block_daa_score: u64,
+    pub is_coinbase: bool,
+}
+impl UtxoEntryWrapper {
+    pub fn to_js_object(&self) -> Result<js_sys::Object> {
+        let obj = js_sys::Object::new();
+        if let Some(address) = &self.address {
+            obj.set("address", &address.to_string().into())?;
+        }
+
+        let outpoint = js_sys::Object::new();
+        outpoint.set("transactionId", &self.outpoint.transaction_id.to_string().into())?;
+        outpoint.set("index", &self.outpoint.index.into())?;
+
+        obj.set("amount", &self.amount.to_string().into())?;
+        obj.set("outpoint", &outpoint.into())?;
+        obj.set("scriptPublicKey", &workflow_wasm::serde::to_value(&self.script_public_key)?)?;
+        obj.set("blockDaaScore", &self.block_daa_score.to_string().into())?;
+        obj.set("isCoinbase", &self.is_coinbase.into())?;
+
+        Ok(obj)
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TransactionOutpointWrapper {
+    pub transaction_id: TransactionId,
+    pub index: TransactionIndexType,
+}
+
+impl From<TransactionOutpoint> for TransactionOutpointWrapper {
+    fn from(outpoint: TransactionOutpoint) -> Self {
+        Self { transaction_id: outpoint.transaction_id, index: outpoint.index }
+    }
+}
+
+impl From<TransactionOutpointWrapper> for TransactionOutpoint {
+    fn from(outpoint: TransactionOutpointWrapper) -> Self {
+        Self::new(outpoint.transaction_id, outpoint.index)
+    }
+}
+
+impl From<UtxoEntryWrapper> for UtxoEntry {
+    fn from(entry: UtxoEntryWrapper) -> Self {
+        Self {
+            amount: entry.amount,
+            script_public_key: entry.script_public_key,
+            block_daa_score: entry.block_daa_score,
+            is_coinbase: entry.is_coinbase,
+        }
+    }
+}
+
+impl From<UtxoEntry> for UtxoEntryWrapper {
+    fn from(entry: UtxoEntry) -> Self {
+        Self {
+            address: None,                                                 // UtxoEntry doesn't have address field
+            outpoint: TransactionOutpointWrapper { transaction_id: tondi_hashes::Hash::default(), index: 0 }, // UtxoEntry doesn't have outpoint field
+            amount: entry.amount,
+            script_public_key: entry.script_public_key,
+            block_daa_score: entry.block_daa_score,
+            is_coinbase: entry.is_coinbase,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AccountsTransferRequest {
     pub source_account_id: AccountId,
     pub destination_account_id: AccountId,
     pub wallet_secret: Secret,
     pub payment_secret: Option<Secret>,
     pub transfer_amount_sau: u64,
+    pub fee_rate: Option<f64>,
     pub priority_fee_sau: Option<Fees>,
     // pub priority_fee_sau: Fees,
 }
@@ -530,6 +670,7 @@ pub struct AccountsTransferResponse {
 pub struct AccountsEstimateRequest {
     pub account_id: AccountId,
     pub destination: PaymentDestination,
+    pub fee_rate: Option<f64>,
     pub priority_fee_sau: Fees,
     pub payload: Option<Vec<u8>>,
 }
@@ -539,6 +680,55 @@ pub struct AccountsEstimateRequest {
 pub struct AccountsEstimateResponse {
     pub generator_summary: GeneratorSummary,
 }
+
+#[derive(Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FeeRateEstimateBucket {
+    feerate: f64,
+    seconds: f64,
+}
+
+impl From<RpcFeerateBucket> for FeeRateEstimateBucket {
+    fn from(bucket: RpcFeerateBucket) -> Self {
+        Self { feerate: bucket.feerate, seconds: bucket.estimated_seconds }
+    }
+}
+
+impl From<&RpcFeerateBucket> for FeeRateEstimateBucket {
+    fn from(bucket: &RpcFeerateBucket) -> Self {
+        Self { feerate: bucket.feerate, seconds: bucket.estimated_seconds }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FeeRateEstimateRequest {}
+
+#[derive(Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FeeRateEstimateResponse {
+    pub priority: FeeRateEstimateBucket,
+    pub normal: FeeRateEstimateBucket,
+    pub low: FeeRateEstimateBucket,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FeeRatePollerEnableRequest {
+    pub interval_seconds: u64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FeeRatePollerEnableResponse {}
+
+#[derive(Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FeeRatePollerDisableRequest {}
+
+#[derive(Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FeeRatePollerDisableResponse {}
 
 #[derive(Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 #[serde(rename_all = "camelCase")]
@@ -610,3 +800,69 @@ pub struct AddressBookEnumerateResponse {}
 #[derive(Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WalletNotification {}
+
+#[derive(Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountsCommitRevealManualRequest {
+    pub account_id: AccountId,
+    pub script_sig: Vec<u8>,
+    pub start_destination: PaymentDestination,
+    pub end_destination: PaymentDestination,
+    pub wallet_secret: Secret,
+    pub payment_secret: Option<Secret>,
+    pub fee_rate: Option<f64>,
+    pub reveal_fee_sau: u64,
+    pub payload: Option<Vec<u8>>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountsCommitRevealManualResponse {
+    pub transaction_ids: Vec<TransactionId>,
+}
+
+/// Specifies the type of an account address to be used in
+/// commit reveal redeem script and also to spend reveal
+/// operation to.
+///
+/// @category Wallet API
+#[derive(Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize, CastFromJs)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "wasm32-sdk", wasm_bindgen)]
+pub enum CommitRevealAddressKind {
+    Receive,
+    Change,
+}
+
+impl FromStr for CommitRevealAddressKind {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self> {
+        match s {
+            "receive" => Ok(CommitRevealAddressKind::Receive),
+            "change" => Ok(CommitRevealAddressKind::Change),
+            _ => Err(Error::custom(format!("Invalid address kind: {s}"))),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountsCommitRevealRequest {
+    pub account_id: AccountId,
+    pub address_type: CommitRevealAddressKind,
+    pub address_index: u32,
+    pub script_sig: Vec<u8>,
+    pub wallet_secret: Secret,
+    pub commit_amount_sau: u64,
+    pub payment_secret: Option<Secret>,
+    pub fee_rate: Option<f64>,
+    pub reveal_fee_sau: u64,
+    pub payload: Option<Vec<u8>>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountsCommitRevealResponse {
+    pub transaction_ids: Vec<TransactionId>,
+}

@@ -1,10 +1,13 @@
-use crate::pstt::PSTT as Native;
+use crate::pstt::{Input, PSTT as Native};
 use crate::role::*;
+use tondi_consensus_core::network::NetworkType;
 use tondi_consensus_core::tx::TransactionId;
+
 use wasm_bindgen::prelude::*;
 // use js_sys::Object;
 use crate::pstt::Inner;
 use serde::{Deserialize, Serialize};
+use std::str::FromStr;
 use std::sync::MutexGuard;
 use std::sync::{Arc, Mutex};
 use tondi_consensus_client::{Transaction, TransactionInput, TransactionInputT, TransactionOutput, TransactionOutputT};
@@ -95,7 +98,9 @@ impl TryCastFromJs for PSTT {
         R: AsRef<JsValue> + 'a,
     {
         Self::resolve(value, || {
-            if let Some(data) = value.as_ref().as_string() {
+            if JsValue::is_undefined(value.as_ref()) {
+                Ok(PSTT::from(State::Creator(Native::<Creator>::default())))
+            } else if let Some(data) = value.as_ref().as_string() {
                 let pstt_inner: Inner = serde_json::from_str(&data).map_err(|_| Error::InvalidPayload)?;
                 Ok(PSTT::from(State::NoOp(Some(pstt_inner))))
             } else if let Ok(transaction) = Transaction::try_owned_from(value) {
@@ -123,7 +128,12 @@ impl PSTT {
     #[wasm_bindgen(getter, js_name = "payload")]
     pub fn payload_getter(&self) -> JsValue {
         let state = self.state();
-        serde_wasm_bindgen::to_value(state.as_ref().unwrap()).unwrap()
+        workflow_wasm::serde::to_value(state.as_ref().unwrap()).unwrap()
+    }
+
+    pub fn serialize(&self) -> String {
+        let state = self.state();
+        serde_json::to_string(state.as_ref().unwrap()).unwrap()
     }
 
     fn state(&self) -> MutexGuard<'_, Option<State>> {
@@ -147,7 +157,7 @@ impl PSTT {
                 None => State::Creator(Native::default()),
                 Some(_) => Err(Error::CreateNotAllowed)?,
             },
-            state => Err(Error::state(state))?,
+            _ => Err(Error::expected_state("Creator"))?,
         };
 
         self.replace(state)
@@ -159,7 +169,7 @@ impl PSTT {
         let state = match self.take() {
             State::NoOp(inner) => State::Constructor(inner.ok_or(Error::NotInitialized)?.into()),
             State::Creator(pstt) => State::Constructor(pstt.constructor()),
-            state => Err(Error::state(state))?,
+            _ => Err(Error::expected_state("Creator"))?,
         };
 
         self.replace(state)
@@ -171,7 +181,7 @@ impl PSTT {
         let state = match self.take() {
             State::NoOp(inner) => State::Updater(inner.ok_or(Error::NotInitialized)?.into()),
             State::Constructor(constructor) => State::Updater(constructor.updater()),
-            state => Err(Error::state(state))?,
+            _ => Err(Error::expected_state("Creator"))?,
         };
 
         self.replace(state)
@@ -185,7 +195,7 @@ impl PSTT {
             State::Constructor(pstt) => State::Signer(pstt.signer()),
             State::Updater(pstt) => State::Signer(pstt.signer()),
             State::Combiner(pstt) => State::Signer(pstt.signer()),
-            state => Err(Error::state(state))?,
+            _ => Err(Error::expected_state("Creator"))?,
         };
 
         self.replace(state)
@@ -199,7 +209,7 @@ impl PSTT {
             State::Constructor(pstt) => State::Combiner(pstt.combiner()),
             State::Updater(pstt) => State::Combiner(pstt.combiner()),
             State::Signer(pstt) => State::Combiner(pstt.combiner()),
-            state => Err(Error::state(state))?,
+            _ => Err(Error::expected_state("Creator"))?,
         };
 
         self.replace(state)
@@ -211,7 +221,7 @@ impl PSTT {
         let state = match self.take() {
             State::NoOp(inner) => State::Finalizer(inner.ok_or(Error::NotInitialized)?.into()),
             State::Combiner(pstt) => State::Finalizer(pstt.finalizer()),
-            state => Err(Error::state(state))?,
+            _ => Err(Error::expected_state("Creator"))?,
         };
 
         self.replace(state)
@@ -223,7 +233,7 @@ impl PSTT {
         let state = match self.take() {
             State::NoOp(inner) => State::Extractor(inner.ok_or(Error::NotInitialized)?.into()),
             State::Finalizer(pstt) => State::Extractor(pstt.extractor()?),
-            state => Err(Error::state(state))?,
+            _ => Err(Error::expected_state("Creator"))?,
         };
 
         self.replace(state)
@@ -233,7 +243,7 @@ impl PSTT {
     pub fn fallback_lock_time(&self, lock_time: u64) -> Result<PSTT> {
         let state = match self.take() {
             State::Creator(pstt) => State::Creator(pstt.fallback_lock_time(lock_time)),
-            state => Err(Error::state(state))?,
+            _ => Err(Error::expected_state("Creator"))?,
         };
 
         self.replace(state)
@@ -243,7 +253,7 @@ impl PSTT {
     pub fn inputs_modifiable(&self) -> Result<PSTT> {
         let state = match self.take() {
             State::Creator(pstt) => State::Creator(pstt.inputs_modifiable()),
-            state => Err(Error::state(state))?,
+            _ => Err(Error::expected_state("Creator"))?,
         };
 
         self.replace(state)
@@ -253,7 +263,7 @@ impl PSTT {
     pub fn outputs_modifiable(&self) -> Result<PSTT> {
         let state = match self.take() {
             State::Creator(pstt) => State::Creator(pstt.outputs_modifiable()),
-            state => Err(Error::state(state))?,
+            _ => Err(Error::expected_state("Creator"))?,
         };
 
         self.replace(state)
@@ -263,7 +273,7 @@ impl PSTT {
     pub fn no_more_inputs(&self) -> Result<PSTT> {
         let state = match self.take() {
             State::Constructor(pstt) => State::Constructor(pstt.no_more_inputs()),
-            state => Err(Error::state(state))?,
+            _ => Err(Error::expected_state("Creator"))?,
         };
 
         self.replace(state)
@@ -273,7 +283,27 @@ impl PSTT {
     pub fn no_more_outputs(&self) -> Result<PSTT> {
         let state = match self.take() {
             State::Constructor(pstt) => State::Constructor(pstt.no_more_outputs()),
-            state => Err(Error::state(state))?,
+            _ => Err(Error::expected_state("Constructor"))?,
+        };
+
+        self.replace(state)
+    }
+
+    #[wasm_bindgen(js_name = inputAndRedeemScript)]
+    pub fn input_with_redeem(&self, input: &TransactionInputT, data: &JsValue) -> Result<PSTT> {
+        let obj = js_sys::Object::from(data.clone());
+
+        let input = TransactionInput::try_owned_from(input)?;
+        let mut input: Input = input.try_into()?;
+        let redeem_script = js_sys::Reflect::get(&obj, &"redeemScript".into())
+            .expect("Missing redeemscript field")
+            .as_string()
+            .expect("redeemscript must be a string");
+        input.redeem_script =
+            Some(hex::decode(redeem_script).map_err(|e| Error::custom(format!("Redeem script is not a hex string: {}", e)))?);
+        let state = match self.take() {
+            State::Constructor(pstt) => State::Constructor(pstt.input(input)),
+            _ => Err(Error::expected_state("Constructor"))?,
         };
 
         self.replace(state)
@@ -283,7 +313,7 @@ impl PSTT {
         let input = TransactionInput::try_owned_from(input)?;
         let state = match self.take() {
             State::Constructor(pstt) => State::Constructor(pstt.input(input.try_into()?)),
-            state => Err(Error::state(state))?,
+            _ => Err(Error::expected_state("Creator"))?,
         };
 
         self.replace(state)
@@ -293,7 +323,7 @@ impl PSTT {
         let output = TransactionOutput::try_owned_from(output)?;
         let state = match self.take() {
             State::Constructor(pstt) => State::Constructor(pstt.output(output.try_into()?)),
-            state => Err(Error::state(state))?,
+            _ => Err(Error::expected_state("Creator"))?,
         };
 
         self.replace(state)
@@ -303,7 +333,7 @@ impl PSTT {
     pub fn set_sequence(&self, n: u64, input_index: usize) -> Result<PSTT> {
         let state = match self.take() {
             State::Updater(pstt) => State::Updater(pstt.set_sequence(n, input_index)?),
-            state => Err(Error::state(state))?,
+            _ => Err(Error::expected_state("Creator"))?,
         };
 
         self.replace(state)
@@ -314,7 +344,45 @@ impl PSTT {
         let state = self.state();
         match state.as_ref().unwrap() {
             State::Signer(pstt) => Ok(pstt.calculate_id()),
-            state => Err(Error::state(state))?,
+            _ => Err(Error::expected_state("Creator"))?,
         }
+    }
+
+    #[wasm_bindgen(js_name = calculateMass)]
+    pub fn calculate_mass(&self, data: &JsValue) -> Result<u64> {
+        let obj = js_sys::Object::from(data.clone());
+        let network_id = js_sys::Reflect::get(&obj, &"networkId".into())
+            .map_err(|_| Error::custom("networkId is missing"))?
+            .as_string()
+            .ok_or_else(|| Error::custom("networkId must be a string"))?;
+
+        let network_id = NetworkType::from_str(&network_id).map_err(|e| Error::custom(format!("Invalid networkId: {}", e)))?;
+
+        let cloned_pstt = self.clone();
+
+        let extractor = {
+            let finalizer = cloned_pstt.finalizer()?;
+
+            let finalizer_state = finalizer.state().clone().unwrap();
+
+            match finalizer_state {
+                State::Finalizer(pstt) => {
+                    for input in pstt.inputs.iter() {
+                        if input.redeem_script.is_some() {
+                            return Err(Error::custom("Mass calculation is not supported for inputs with redeem scripts"));
+                        }
+                    }
+                    let pstt = pstt
+                        .finalize_sync(|inner: &Inner| -> Result<Vec<Vec<u8>>> { Ok(vec![vec![0u8, 65]; inner.inputs.len()]) })
+                        .map_err(|e| Error::custom(format!("Failed to finalize PSTT: {e}")))?;
+                    pstt.extractor()?
+                }
+                _ => panic!("Finalizer state is not valid"),
+            }
+        };
+        let tx = extractor
+            .extract_tx_unchecked(&network_id.into())
+            .map_err(|e| Error::custom(format!("Failed to extract transaction: {e}")))?;
+        Ok(tx.tx.mass())
     }
 }

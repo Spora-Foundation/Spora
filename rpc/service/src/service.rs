@@ -707,12 +707,12 @@ NOTE: This error usually indicates an RPC conversion error between the node and 
         // Note: batch_size does not bound removed chain blocks, only added chain blocks.
         let batch_size = (self.config.mergeset_size_limit().upper_bound() * 10) as usize;
         let mut virtual_chain_batch = session.async_get_virtual_chain_from_block(request.start_hash, Some(batch_size)).await?;
-        
+
         // Apply min confirmation count filter if specified
         if let Some(min_confirmation_count) = request.min_confirmation_count {
             if min_confirmation_count > 0 {
                 let sink_blue_score = session.async_get_sink_blue_score().await;
-                
+
                 // Collect blue scores for all blocks first
                 let mut filtered_blocks = Vec::new();
                 for &block_hash in &virtual_chain_batch.added {
@@ -726,7 +726,7 @@ NOTE: This error usually indicates an RPC conversion error between the node and 
                 virtual_chain_batch.added = filtered_blocks;
             }
         }
-        
+
         let accepted_transaction_ids = if request.include_accepted_transaction_ids {
             let accepted_transaction_ids = self
                 .consensus_converter

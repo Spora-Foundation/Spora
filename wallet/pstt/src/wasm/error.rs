@@ -16,6 +16,9 @@ pub enum Error {
     #[error("Invalid payload")]
     InvalidPayload,
 
+    #[error("Expected state: {0}")]
+    ExpectedState(String),
+
     #[error("Transaction not finalized")]
     TxNotFinalized(#[from] crate::pstt::TxNotFinalized),
 
@@ -42,6 +45,10 @@ impl Error {
 
     pub fn state(state: impl AsRef<State>) -> Self {
         Error::State(state.as_ref().display().to_string())
+    }
+
+    pub fn expected_state(state: impl Into<String>) -> Self {
+        Error::ExpectedState(state.into())
     }
 }
 

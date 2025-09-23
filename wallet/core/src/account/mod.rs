@@ -9,13 +9,12 @@ pub mod pstb;
 pub mod variants;
 pub use kind::*;
 use pstb::{
-    bundle_from_pstt_generator, bundle_to_finalizer_stream, pstb_signer_for_address, pstt_to_pending_transaction, PSTBSigner,
-    PSTTGenerator,
+    bundle_from_pstt_generator, bundle_to_finalizer_stream, commit_reveal_batch_bundle, pstb_signer_for_address,
+    pstt_to_pending_transaction, PSTBSigner, PSTTGenerator,
 };
-use tondi_hashes::Hash;
 use tondi_wallet_pstt::bundle::Bundle;
 pub use variants::*;
-
+use tondi_bip32::PrivateKey;
 use crate::derivation::build_derivate_paths;
 use crate::derivation::AddressDerivationManagerTrait;
 use crate::imports::*;
@@ -23,11 +22,13 @@ use crate::storage::account::AccountSettings;
 use crate::storage::AccountMetadata;
 use crate::storage::{PrvKeyData, PrvKeyDataId};
 use crate::tx::PaymentOutput;
-use crate::tx::{Fees, Generator, GeneratorSettings, GeneratorSummary, PaymentDestination, PendingTransaction, Signer};
+use crate::tx::{
+    Fees, Generator, GeneratorSettings, GeneratorSummary, PaymentDestination, PendingTransaction, Signer,
+};
 use crate::utxo::balance::{AtomicBalance, BalanceStrings};
 use crate::utxo::UtxoContextBinding;
-use tondi_bip32::{ChildNumber, ExtendedPrivateKey, PrivateKey};
-use tondi_consensus_client::UtxoEntryReference;
+use tondi_bip32::{ChildNumber, ExtendedPrivateKey};
+use tondi_consensus_core::tx::UtxoEntry;
 use tondi_wallet_keys::derivation::gen0::WalletDerivationManagerV0;
 use workflow_core::abortable::Abortable;
 
@@ -265,6 +266,16 @@ pub trait Account: AnySync + Send + Sync + 'static {
 
     fn minimum_signatures(&self) -> u16;
 
+    // default account address (receive[0])
+    fn default_address(&self) -> Result<Address> {
+        Err(Error::NotImplemented)
+    }
+
+    // all addresses in the account (receive + change up to and including the last used index)
+    fn account_addresses(&self) -> Result<Vec<Address>> {
+        Err(Error::NotImplemented)
+    }
+
     fn receive_address(&self) -> Result<Address>;
 
     fn change_address(&self) -> Result<Address>;
@@ -305,13 +316,22 @@ pub trait Account: AnySync + Send + Sync + 'static {
         self: Arc<Self>,
         wallet_secret: Secret,
         payment_secret: Option<Secret>,
+        fee_rate: Option<f64>,
         abortable: &Abortable,
         notifier: Option<GenerationNotifier>,
     ) -> Result<(GeneratorSummary, Vec<tondi_hashes::Hash>)> {
         let keydata = self.prv_key_data(wallet_secret).await?;
         let signer = Arc::new(Signer::new(self.clone().as_dyn_arc(), keydata, payment_secret));
-        let settings =
-            GeneratorSettings::try_new_with_account(self.clone().as_dyn_arc(), PaymentDestination::Change, Fees::None, None, 0)?;
+
+        let settings = GeneratorSettings::try_new_with_account(
+            self.clone().as_dyn_arc(),
+            PaymentDestination::Change,
+            fee_rate,
+            Fees::None,
+            None,
+            0, // final_transaction_lock_time
+        )?;
+
         let generator = Generator::try_new(settings, Some(signer), Some(abortable))?;
 
         let mut stream = generator.stream();
@@ -334,6 +354,7 @@ pub trait Account: AnySync + Send + Sync + 'static {
     async fn send(
         self: Arc<Self>,
         destination: PaymentDestination,
+        fee_rate: Option<f64>,
         priority_fee_sau: Fees,
         payload: Option<Vec<u8>>,
         wallet_secret: Secret,
@@ -344,7 +365,8 @@ pub trait Account: AnySync + Send + Sync + 'static {
         let keydata = self.prv_key_data(wallet_secret).await?;
         let signer = Arc::new(Signer::new(self.clone().as_dyn_arc(), keydata, payment_secret));
 
-        let settings = GeneratorSettings::try_new_with_account(self.clone().as_dyn_arc(), destination, priority_fee_sau, payload, 0)?;
+        let settings =
+            GeneratorSettings::try_new_with_account(self.clone().as_dyn_arc(), destination, fee_rate, priority_fee_sau, payload, 0)?;
 
         let generator = Generator::try_new(settings, Some(signer), Some(abortable))?;
 
@@ -363,21 +385,89 @@ pub trait Account: AnySync + Send + Sync + 'static {
         Ok((generator.summary(), ids))
     }
 
+    async fn commit_reveal_manual(
+        self: Arc<Self>,
+        start_destination: PaymentDestination,
+        end_destination: PaymentDestination,
+        script_sig: Vec<u8>,
+        wallet_secret: Secret,
+        payment_secret: Option<Secret>,
+        fee_rate: Option<f64>,
+        reveal_fee_sau: u64,
+        payload: Option<Vec<u8>>,
+        abortable: &Abortable,
+    ) -> Result<Bundle, Error> {
+        commit_reveal_batch_bundle(
+            pstb::CommitRevealBatchKind::Manual { hop_payment: start_destination, destination_payment: end_destination },
+            reveal_fee_sau,
+            script_sig,
+            payload,
+            fee_rate,
+            self.clone().as_dyn_arc(),
+            wallet_secret,
+            payment_secret,
+            abortable,
+        )
+        .await
+    }
+
+    async fn commit_reveal(
+        self: Arc<Self>,
+        address: Address,
+        script_sig: Vec<u8>,
+        wallet_secret: Secret,
+        payment_secret: Option<Secret>,
+        commit_amount_sau: u64,
+        fee_rate: Option<f64>,
+        reveal_fee_sau: u64,
+        payload: Option<Vec<u8>>,
+        abortable: &Abortable,
+    ) -> Result<Bundle, Error> {
+        commit_reveal_batch_bundle(
+            pstb::CommitRevealBatchKind::Parameterized { address, commit_amount_sau },
+            reveal_fee_sau,
+            script_sig,
+            payload,
+            fee_rate,
+            self.clone().as_dyn_arc(),
+            wallet_secret,
+            payment_secret,
+            abortable,
+        )
+        .await
+    }
+
     async fn pstb_from_send_generator(
         self: Arc<Self>,
         destination: PaymentDestination,
+        fee_rate: Option<f64>,
         priority_fee_sau: Fees,
         payload: Option<Vec<u8>>,
         wallet_secret: Secret,
         payment_secret: Option<Secret>,
         abortable: &Abortable,
     ) -> Result<Bundle, Error> {
-        let settings = GeneratorSettings::try_new_with_account(self.clone().as_dyn_arc(), destination, priority_fee_sau, payload, 0)?;
+        let settings =
+            GeneratorSettings::try_new_with_account(self.clone().as_dyn_arc(), destination, fee_rate, priority_fee_sau, payload, 0)?;
         let keydata = self.prv_key_data(wallet_secret).await?;
         let signer = Arc::new(PSTBSigner::new(self.clone().as_dyn_arc(), keydata, payment_secret));
         let generator = Generator::try_new(settings, None, Some(abortable))?;
-        let pstt_generator = PSTTGenerator::new(generator, signer, self.wallet().address_prefix()?);
-        bundle_from_pstt_generator(pstt_generator).await
+
+        let bundle = bundle_from_pstt_generator(PSTTGenerator::new(generator, signer, self.wallet().address_prefix()?)).await?;
+        Ok(bundle)
+    }
+
+    async fn get_utxos(self: Arc<Self>, addresses: Option<Vec<Address>>, min_amount_sau: Option<u64>) -> Result<Vec<UtxoEntry>> {
+        let utxos = self.utxo_context().get_utxos(addresses, min_amount_sau).await?;
+        Ok(utxos
+            .into_iter()
+            .map(|utxo| tondi_consensus_core::tx::UtxoEntry {
+                amount: utxo.amount,
+                script_public_key: utxo.script_public_key,
+                block_daa_score: utxo.block_daa_score,
+                is_coinbase: utxo.is_coinbase,
+            })
+            .collect())
     }
 
     async fn pstb_sign(
@@ -391,12 +481,19 @@ pub trait Account: AnySync + Send + Sync + 'static {
         let signer = Arc::new(PSTBSigner::new(self.clone().as_dyn_arc(), keydata.clone(), payment_secret.clone()));
 
         let network_id = self.wallet().clone().network_id()?;
-        let derivation = self.as_derivation_capable()?;
+        let (derivation_path, key_fingerprint) = if self.account_kind() == KEYPAIR_ACCOUNT_KIND {
+            // let secret_key = keydata.as_secret_key(payment_secret.as_ref())?.ok_or(Error::Custom(format!("Private key not found for account")))?;
+            // (None, secp256k1::PublicKey::from_secret_key_global(&secret_key).fingerprint())
+            (None, None)
+        } else {
+            let derivation = self.as_derivation_capable()?;
 
-        let (derivation_path, _) =
-            build_derivate_paths(&derivation.account_kind(), derivation.account_index(), derivation.cosigner_index())?;
+            let (derivation_path, _) =
+                build_derivate_paths(&derivation.account_kind(), derivation.account_index(), derivation.cosigner_index())?;
 
-        let key_fingerprint = keydata.get_xprv(payment_secret.clone().as_ref())?.public_key().fingerprint();
+            let key_fingerprint = keydata.get_xprv(payment_secret.clone().as_ref())?.public_key().fingerprint();
+            (Some(derivation_path), Some(key_fingerprint))
+        };
 
         match pstb_signer_for_address(bundle, signer, network_id, sign_for_address, derivation_path, key_fingerprint).await {
             Ok(signer) => Ok(signer),
@@ -404,31 +501,13 @@ pub trait Account: AnySync + Send + Sync + 'static {
         }
     }
 
-    async fn pstb_broadcast(self: Arc<Self>, bundle: &Bundle) -> Result<Vec<Hash>, Error> {
-        let mut ids = Vec::new();
-        let mut stream = bundle_to_finalizer_stream(bundle);
-
-        while let Some(result) = stream.next().await {
-            match result {
-                Ok(pstt) => {
-                    let change = self.wallet().account()?.change_address()?;
-                    let transaction = pstt_to_pending_transaction(pstt, self.wallet().network_id()?, change)?;
-                    ids.push(transaction.try_submit(&self.wallet().rpc_api()).await?);
-                }
-                Err(e) => {
-                    eprintln!("Error processing a pstt from bundle: {:?}", e);
-                }
-            }
-        }
-        Ok(ids)
-    }
-
     /// Execute a transfer to another wallet account.
     async fn transfer(
         self: Arc<Self>,
         destination_account_id: AccountId,
-        transfer_amount_sau: u64,
-        priority_fee_sau: Fees,
+        transfer_amount_sompi: u64,
+        fee_rate: Option<f64>,
+        priority_fee_sompi: Fees,
         wallet_secret: Secret,
         payment_secret: Option<Secret>,
         abortable: &Abortable,
@@ -445,15 +524,16 @@ pub trait Account: AnySync + Send + Sync + 'static {
             .ok_or_else(|| Error::AccountNotFound(destination_account_id))?;
 
         let destination_address = destination_account.receive_address()?;
-        let final_transaction_destination = PaymentDestination::from(PaymentOutput::new(destination_address, transfer_amount_sau));
+        let final_transaction_destination = PaymentDestination::from(PaymentOutput::new(destination_address, transfer_amount_sompi));
         let final_transaction_payload = None;
 
         let settings = GeneratorSettings::try_new_with_account(
             self.clone().as_dyn_arc(),
             final_transaction_destination,
-            priority_fee_sau,
+            fee_rate,
+            priority_fee_sompi,
             final_transaction_payload,
-            0,
+            0, // final_transaction_lock_time
         )?
         .utxo_context_transfer(destination_account.utxo_context());
 
@@ -477,11 +557,13 @@ pub trait Account: AnySync + Send + Sync + 'static {
     async fn estimate(
         self: Arc<Self>,
         destination: PaymentDestination,
+        fee_rate: Option<f64>,
         priority_fee_sau: Fees,
         payload: Option<Vec<u8>>,
         abortable: &Abortable,
     ) -> Result<GeneratorSummary> {
-        let settings = GeneratorSettings::try_new_with_account(self.as_dyn_arc(), destination, priority_fee_sau, payload, 0)?;
+        let settings =
+            GeneratorSettings::try_new_with_account(self.as_dyn_arc(), destination, fee_rate, priority_fee_sau, payload, 0)?;
 
         let generator = Generator::try_new(settings, None, Some(abortable))?;
 
@@ -500,6 +582,39 @@ pub trait Account: AnySync + Send + Sync + 'static {
     fn as_legacy_account(self: Arc<Self>) -> Result<Arc<dyn AsLegacyAccount>> {
         Err(Error::InvalidAccountKind)
     }
+
+    fn create_address_private_keys<'l>(
+        self: Arc<Self>,
+        key_data: &PrvKeyData,
+        payment_secret: &Option<Secret>,
+        addresses: &[&'l Address],
+    ) -> Result<Vec<(Address, secp256k1::SecretKey)>> {
+        let account = self.clone().as_derivation_capable().expect("expecting derivation capable account");
+        let (receive, change) = account.derivation().addresses_indexes(addresses)?;
+        let private_keys = account.create_private_keys(key_data, payment_secret, &receive, &change)?;
+        Ok(private_keys.into_iter().map(|(addr, key)| (addr.clone(), key)).collect())
+    }
+
+    async fn pstb_broadcast(self: Arc<Self>, bundle: &Bundle) -> Result<Vec<tondi_hashes::Hash>> {
+        let mut ids = Vec::new();
+        let mut stream = bundle_to_finalizer_stream(bundle);
+
+        while let Some(result) = stream.next().await {
+            match result {
+                Ok(pstt) => {
+                    let change = self.change_address()?;
+                    let transaction =
+                        pstt_to_pending_transaction(pstt, self.wallet().network_id()?, change, self.utxo_context().clone().into())?;
+                    ids.push(transaction.try_submit(&self.wallet().rpc_api()).await?);
+                }
+                Err(e) => {
+                    eprintln!("Error processing a PSTT from bundle: {:?}", e);
+                }
+            }
+        }
+
+        Ok(ids)
+    }
 }
 
 downcast_sync!(dyn Account);
@@ -516,8 +631,7 @@ pub trait AsLegacyAccount: Account {
 
     async fn clear_private_context(&self) -> Result<()>;
 }
-
-/// Account trait used by derivation capable account types (BIP32, MultiSig, etc.)
+#[allow(clippy::too_many_arguments)]
 #[async_trait]
 pub trait DerivationCapableAccount: Account {
     fn derivation(&self) -> Arc<dyn AddressDerivationManagerTrait>;
@@ -532,7 +646,9 @@ pub trait DerivationCapableAccount: Account {
         extent: usize,
         window: usize,
         sweep: bool,
+        fee_rate: Option<f64>,
         abortable: &Abortable,
+        update_address_indexes: bool,
         notifier: Option<ScanNotifier>,
     ) -> Result<()> {
         if let Ok(legacy_account) = self.clone().as_legacy_account() {
@@ -559,6 +675,8 @@ pub trait DerivationCapableAccount: Account {
         let mut last_notification = 0;
         let mut aggregate_balance = 0;
         let mut aggregate_utxo_count = 0;
+        let mut last_change_address_index = change_address_index;
+        let mut last_receive_address_index = receive_address_manager.index();
 
         let change_address = change_address_keypair[0].0.clone();
 
@@ -568,8 +686,8 @@ pub trait DerivationCapableAccount: Account {
             index = last as usize;
 
             let (mut keys, addresses) = if sweep {
-                let mut keypairs = derivation.get_range_with_keys(false, first..last, false, &xkey).await?;
-                let change_keypairs = derivation.get_range_with_keys(true, first..last, false, &xkey).await?;
+                let mut keypairs = derivation.get_range_with_keys(false, first..last, true, &xkey).await?;
+                let change_keypairs = derivation.get_range_with_keys(true, first..last, true, &xkey).await?;
                 keypairs.extend(change_keypairs);
                 let mut keys = vec![];
                 let addresses = keypairs
@@ -582,22 +700,40 @@ pub trait DerivationCapableAccount: Account {
                 keys.push(change_address_keypair[0].1.to_bytes());
                 (keys, addresses)
             } else {
-                let mut addresses = receive_address_manager.get_range_with_args(first..last, false)?;
-                let change_addresses = change_address_manager.get_range_with_args(first..last, false)?;
+                let mut addresses = receive_address_manager.get_range_with_args(first..last, true)?;
+                let change_addresses = change_address_manager.get_range_with_args(first..last, true)?;
                 addresses.extend(change_addresses);
                 (vec![], addresses)
             };
 
             let utxos = rpc.get_utxos_by_addresses(addresses.clone()).await?;
-            let balance = utxos.iter().map(|utxo| utxo.utxo_entry.amount).sum::<u64>();
+            let mut balance = 0;
+            let utxos = utxos
+                .iter()
+                .map(|utxo| {
+                    let utxo_ref = UtxoEntryReference::from(utxo);
+                    if let Some(address) = utxo_ref.utxo.address.as_ref() {
+                        if let Some(address_index) = receive_address_manager.inner().address_to_index_map.get(address) {
+                            if last_receive_address_index < *address_index {
+                                last_receive_address_index = *address_index;
+                            }
+                        } else if let Some(address_index) = change_address_manager.inner().address_to_index_map.get(address) {
+                            if last_change_address_index < *address_index {
+                                last_change_address_index = *address_index;
+                            }
+                        } else {
+                            panic!("Account::derivation_scan() has received an unknown address: `{address}`");
+                        }
+                    }
+                    balance += utxo_ref.utxo.amount;
+                    utxo_ref
+                })
+                .collect::<Vec<_>>();
             aggregate_utxo_count += utxos.len();
 
             if balance > 0 {
                 aggregate_balance += balance;
-
                 if sweep {
-                    let utxos = utxos.into_iter().map(UtxoEntryReference::from).collect::<Vec<_>>();
-
                     let settings = GeneratorSettings::try_new_with_iterator(
                         self.wallet().network_id()?,
                         Box::new(utxos.into_iter()),
@@ -606,9 +742,10 @@ pub trait DerivationCapableAccount: Account {
                         1,
                         1,
                         PaymentDestination::Change,
+                        fee_rate,
                         Fees::None,
                         None,
-                        0,
+                        0, // final_transaction_lock_time
                         None,
                     )?;
 
@@ -648,6 +785,18 @@ pub trait DerivationCapableAccount: Account {
             }
         }
 
+        // update address manager with the last used index
+        if update_address_indexes {
+            receive_address_manager.set_index(last_receive_address_index)?;
+            change_address_manager.set_index(last_change_address_index)?;
+
+            let metadata = self.metadata()?.expect("derivation accounts must provide metadata");
+            let store = self.wallet().store().as_account_store()?;
+            store.update_metadata(vec![metadata]).await?;
+            self.clone().scan(None, None).await?;
+            self.wallet().notify(Events::AccountUpdate { account_descriptor: self.descriptor()? }).await?;
+        }
+
         if let Ok(legacy_account) = self.as_legacy_account() {
             legacy_account.clear_private_context().await?;
         }
@@ -657,7 +806,7 @@ pub trait DerivationCapableAccount: Account {
 
     async fn new_receive_address(self: Arc<Self>) -> Result<Address> {
         let address = self.derivation().receive_address_manager().new_address()?;
-        self.utxo_context().register_addresses(&[address.clone()]).await?;
+        self.utxo_context().register_addresses(std::slice::from_ref(&address)).await?;
 
         let metadata = self.metadata()?.expect("derivation accounts must provide metadata");
         let store = self.wallet().store().as_account_store()?;
@@ -670,7 +819,7 @@ pub trait DerivationCapableAccount: Account {
 
     async fn new_change_address(self: Arc<Self>) -> Result<Address> {
         let address = self.derivation().change_address_manager().new_address()?;
-        self.utxo_context().register_addresses(&[address.clone()]).await?;
+        self.utxo_context().register_addresses(std::slice::from_ref(&address)).await?;
 
         let metadata = self.metadata()?.expect("derivation accounts must provide metadata");
         let store = self.wallet().store().as_account_store()?;
@@ -695,6 +844,18 @@ pub trait DerivationCapableAccount: Account {
         let payload = key_data.payload.decrypt(payment_secret.as_ref())?;
         let xkey = payload.get_xprv(payment_secret.as_ref())?;
         create_private_keys(&self.account_kind(), self.cosigner_index(), self.account_index(), &xkey, receive, change)
+    }
+
+    // Retrieve receive address by index.
+    async fn receive_address_at_index(self: Arc<Self>, index: u32) -> Result<Address> {
+        let address = self.derivation().receive_address_manager().get_range(index..index + 1)?.first().unwrap().clone();
+        Ok(address)
+    }
+
+    // Retrieve change address by index.
+    async fn change_address_at_index(self: Arc<Self>, index: u32) -> Result<Address> {
+        let address = self.derivation().change_address_manager().get_range(index..index + 1)?.first().unwrap().clone();
+        Ok(address)
     }
 }
 

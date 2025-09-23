@@ -638,15 +638,15 @@ mod mockery {
 
     test!(GetSubnetworkResponse);
 
-impl Mock for GetVirtualChainFromBlockRequest {
-    fn mock() -> Self {
-        GetVirtualChainFromBlockRequest {
-            start_hash: mock(),
-            include_accepted_transaction_ids: mock(),
-            min_confirmation_count: mock(),
+    impl Mock for GetVirtualChainFromBlockRequest {
+        fn mock() -> Self {
+            GetVirtualChainFromBlockRequest {
+                start_hash: mock(),
+                include_accepted_transaction_ids: mock(),
+                min_confirmation_count: mock(),
+            }
         }
     }
-}
 
     test!(GetVirtualChainFromBlockRequest);
 
@@ -666,7 +666,7 @@ impl Mock for GetVirtualChainFromBlockRequest {
         // Serialize version 1
         let mut buffer = Vec::new();
         request_v1.serialize(&mut buffer).unwrap();
-        
+
         // Deserialize should work and set min_confirmation_count to None
         let deserialized = GetVirtualChainFromBlockRequest::deserialize(&mut Cursor::new(&buffer)).unwrap();
         assert_eq!(deserialized.start_hash, request_v1.start_hash);
@@ -683,7 +683,7 @@ impl Mock for GetVirtualChainFromBlockRequest {
         // Serialize version 2
         let mut buffer_v2 = Vec::new();
         request_v2.serialize(&mut buffer_v2).unwrap();
-        
+
         // Deserialize should work and preserve min_confirmation_count
         let deserialized_v2 = GetVirtualChainFromBlockRequest::deserialize(&mut Cursor::new(&buffer_v2)).unwrap();
         assert_eq!(deserialized_v2.start_hash, request_v2.start_hash);

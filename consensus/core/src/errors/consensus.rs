@@ -1,6 +1,6 @@
 use thiserror::Error;
-use tondi_hashes::Hash;
 use tondi_database::prelude::StoreError;
+use tondi_hashes::Hash;
 
 use super::{difficulty::DifficultyError, sync::SyncManagerError, traversal::TraversalError};
 

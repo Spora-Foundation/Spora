@@ -122,12 +122,12 @@
 
 ### 🎉 Initial Release
 
-This is the first major release of Tondi, a high-performance PoW programmable settlement layer forked from Kaspa. Tondi represents a next-generation blockchain architecture designed for high-frequency trading, stablecoin settlement, and Layer 2 anchoring.
+This is the first major release of Tondi, a high-performance PoW programmable settlement layer forked from Tondi. Tondi represents a next-generation blockchain architecture designed for high-frequency trading, stablecoin settlement, and Layer 2 anchoring.
 
 ### 🚀 Major Features
 
 #### Core Architecture
-- **High-Performance PoW DAG**: Inherited and enhanced Kaspa's GHOSTDAG consensus mechanism
+- **High-Performance PoW DAG**: Inherited and enhanced Tondi's GHOSTDAG consensus mechanism
 - **Blake3 Hashing**: Upgraded from SHA256 to Blake3 for superior performance and SIMD support
 - **Dynamic Block Frequency**: Achieves ≥10 blocks/second with automatic adjustment
 - **Parallel Transaction Processing**: Supports 15,000-25,000 TPS with 1-2 second confirmation latency
@@ -159,7 +159,7 @@ This is the first major release of Tondi, a high-performance PoW programmable se
 
 #### Wallet Enhancements
 - **HD Wallet Support**: Hierarchical deterministic wallet with coin type 7890
-- **PSTB/PSTT Support**: Renamed from PSKB/PSKT for Tondi-specific standards
+- **PSTB/PSTT Support**: Renamed from PSTB/PSTT for Tondi-specific standards
 - **Multi-signature Wallets**: Enhanced multisig support with MuSig2
 - **Address Management**: Improved address generation and management
 - **Enhanced CLI**: Better user experience with improved prompts and pretty mode
@@ -174,7 +174,7 @@ This is the first major release of Tondi, a high-performance PoW programmable se
 ### 📈 Performance Benchmarks
 #### Throughput Comparison
 - **vs Bitcoin**: 15,000-25,000 TPS vs 7 TPS (2,000-3,500x improvement)
-- **vs Kaspa**: 1-2x improvement over original Kaspa implementation
+- **vs Tondi**: 1-2x improvement over original Tondi implementation
 - **vs Solana**: Comparable performance with decentralized PoW architecture
 - **vs ETH Rollups**: Independent cost structure and optimized for settlement
 
@@ -214,18 +214,18 @@ This is the first major release of Tondi, a high-performance PoW programmable se
 
 ### 🏆 Acknowledgments
 
-This release represents the culmination of extensive development work by the Tondi development team, building upon the solid foundation provided by the Kaspa project while introducing significant innovations in performance, privacy, and Layer 2 capabilities.
+This release represents the culmination of extensive development work by the Tondi development team, building upon the solid foundation provided by the Tondi project while introducing significant innovations in performance, privacy, and Layer 2 capabilities.
 
 ### 📝 Breaking Changes
 
 #### Address Format Changes
-- Changed from Kaspa address format to Tondi-specific format
+- Changed from Tondi address format to Tondi-specific format
 - Updated address prefixes: `tondi:`, `tonditest:`, `tondidev:`
 - Modified address validation and checksum algorithms
 
 #### Wallet Format Changes
-- Updated HD wallet coin type from Kaspa's to 7890
-- Renamed PSKB/PSKT to PSTB/PSTT for Tondi standards
+- Updated HD wallet coin type from Tondi's to 7890
+- Renamed PSTB/PSTT to PSTB/PSTT for Tondi standards
 - Changed satoshi unit to SAU (Smallest Addressable Unit)
 
 #### API Changes

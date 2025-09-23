@@ -21,6 +21,8 @@ impl Transfer {
             return Err("Cannot transfer to the same account".into());
         }
         let amount_sau = try_parse_required_nonzero_tondi_as_sau_u64(argv.get(1))?;
+        // TODO fee_rate
+        let fee_rate: Option<f64> = None;
         let priority_fee_sau = try_parse_optional_tondi_as_sau_i64(argv.get(2))?.unwrap_or(0);
         let target_address = target_account.receive_address()?;
         let (wallet_secret, payment_secret) = ctx.ask_wallet_secret(Some(&account)).await?;
@@ -32,6 +34,7 @@ impl Transfer {
         let (summary, _ids) = account
             .send(
                 outputs.into(),
+                fee_rate,
                 priority_fee_sau.into(),
                 None,
                 wallet_secret,

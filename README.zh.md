@@ -1,10 +1,10 @@
 ## 一、项目概述：解锁未来货币的性能边界
 
-**Tondi** 是由 **Avato Labs** 和 **Tondi Foundation** 联合开发的新一代高性能交易结算与 Layer 2 锚定基础链，继承了 Kaspa（全球最快 PoW 链）的 DAG 架构，在吞吐能力、隐私保护、安全性与合规性方面实现多项突破。
+**Tondi** 是由 **Avato Labs** 和 **Tondi Foundation** 联合开发的新一代高性能交易结算与 Layer 2 锚定基础链，继承了 Tondi（全球最快 PoW 链）的 DAG 架构，在吞吐能力、隐私保护、安全性与合规性方面实现多项突破。
 
 Tondi 被定义为一条 **“高性能PoW可编程结算层（High-Performance** **PoW Programmable Settlement Layer）”**，专为高频交易、稳定币结算、合规隐私支付以及核心 Web3 场景中的 **链下状态锚定与通道扩展** 而设计。
 
-它并非 BTC 或者 Kaspa 方案的延伸，而是一个全新的架构：以高速 PoW DAG 为基础层，结合 **Eltoo、Channel Factories、CISA、PTLC 与 APO**，形成下一代比特币生态的可扩展结算范式。
+它并非 BTC 或者 Tondi 方案的延伸，而是一个全新的架构：以高速 PoW DAG 为基础层，结合 **Eltoo、Channel Factories、CISA、PTLC 与 APO**，形成下一代比特币生态的可扩展结算范式。
 
 它不仅是一条性能强悍的底层链，更是 RGB 协议成熟化的理想承载平台，原生支持基于 BTC Taproot 的 Layer 2 合约结构，是首个全面兼容 BTC Taproot 生态、并显著超越其性能与隐私限制的协议。
 
@@ -77,7 +77,7 @@ Tondi 的战略目标，是以 **高速 PoW DAG 公链** 为骨架，结合 **�
 
 #### 1. 高速基础层（High-Speed Settlement Layer）
 
-- **共识**：基于 GHOSTDAG，吞吐性能为 Kaspa 的 **1～2 倍**。
+- **共识**：基于 GHOSTDAG，吞吐性能为 Tondi 的 **1～2 倍**。
     
 - **哈希**：采用 Blake3，吞吐远超 SHA256。
     
@@ -383,7 +383,7 @@ Frontier 并非一次性测试网，而是一条 **永不重置的实验网络**
 
 - 所有新特性必须先在 Frontier 运行至少一个完整周期，才能进入主网；
     
-- Frontier 会率先引入 **Kaspa 的改进、Bitcoin 社区的提案、以及 Tondi 自己的实验性功能**；
+- Frontier 会率先引入 **Tondi 的改进、Bitcoin 社区的提案、以及 Tondi 自己的实验性功能**；
     
 - Frontier 的经济激励较小，从而降低实验风险；
     
@@ -398,7 +398,7 @@ Frontier 并非一次性测试网，而是一条 **永不重置的实验网络**
 
 ## 七、战略定位与竞争对比
 
-|维度|Tondi|Kaspa|Solana|BTC|ETH L2|
+|维度|Tondi|Tondi|Solana|BTC|ETH L2|
 |---|---|---|---|---|---|
 |共识机制|GHOSTDAG（修剪+并行）|GHOSTDAG|PoS + BFT|PoW（最长链）|PoS / ZK|
 |状态结构|无状态（UTXO + 承诺）|无状态（纯 UTXO）|有状态（账户）|无状态|有状态（需同步）|

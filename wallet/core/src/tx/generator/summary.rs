@@ -17,12 +17,27 @@ pub struct GeneratorSummary {
     pub network_id: NetworkId,
     pub aggregated_utxos: usize,
     pub aggregated_fees: u64,
+    pub aggregated_mass: u64,
     pub number_of_generated_transactions: usize,
+    pub number_of_generated_stages: usize,
     pub final_transaction_amount: Option<u64>,
     pub final_transaction_id: Option<TransactionId>,
 }
 
 impl GeneratorSummary {
+    pub fn new(network_id: NetworkId) -> Self {
+        Self {
+            network_id,
+            aggregated_utxos: 0,
+            aggregated_fees: 0,
+            aggregated_mass: 0,
+            number_of_generated_transactions: 0,
+            number_of_generated_stages: 0,
+            final_transaction_amount: None,
+            final_transaction_id: None,
+        }
+    }
+
     pub fn network_type(&self) -> NetworkType {
         self.network_id.into()
     }
@@ -35,12 +50,20 @@ impl GeneratorSummary {
         self.aggregated_utxos
     }
 
-    pub fn aggregated_fees(&self) -> u64 {
+    pub fn aggregate_mass(&self) -> u64 {
+        self.aggregated_mass
+    }
+
+    pub fn aggregate_fees(&self) -> u64 {
         self.aggregated_fees
     }
 
     pub fn number_of_generated_transactions(&self) -> usize {
         self.number_of_generated_transactions
+    }
+
+    pub fn number_of_generated_stages(&self) -> usize {
+        self.number_of_generated_stages
     }
 
     pub fn final_transaction_amount(&self) -> Option<u64> {
