@@ -537,8 +537,8 @@ pub const MAINNET_PARAMS: Params = Params {
     pruning_proof_m: 1000,
 
     crescendo: CRESCENDO,
-    // Roughly 2025-05-05 1500 UTC
-    crescendo_activation: ForkActivation::new(110_165_000),
+    // KIP 10 activation at DAA score 0
+    crescendo_activation: ForkActivation::new(0),
 };
 
 pub const TESTNET_PARAMS: Params = Params {
@@ -589,8 +589,8 @@ pub const TESTNET_PARAMS: Params = Params {
     pruning_proof_m: 1000,
 
     crescendo: CRESCENDO,
-    // 18:30 UTC, March 6, 2025
-    crescendo_activation: ForkActivation::new(88_657_000),
+    // KIP 10 activation at DAA score 0
+    crescendo_activation: ForkActivation::new(0),
 };
 
 pub const SIMNET_PARAMS: Params = Params {
@@ -639,7 +639,8 @@ pub const SIMNET_PARAMS: Params = Params {
     pruning_proof_m: PRUNING_PROOF_M,
 
     crescendo: CRESCENDO,
-    crescendo_activation: ForkActivation::always(),
+    // KIP 10 activation at DAA score 0
+    crescendo_activation: ForkActivation::new(0),
 };
 
 pub const DEVNET_PARAMS: Params = Params {
@@ -691,6 +692,6 @@ pub const DEVNET_PARAMS: Params = Params {
     pruning_proof_m: 1000,
 
     crescendo: CRESCENDO,
-    // TODO: Set this to always after the fork
-    crescendo_activation: ForkActivation::never(),
+    // KIP 10 activation at DAA score 0
+    crescendo_activation: ForkActivation::new(0),
 };
