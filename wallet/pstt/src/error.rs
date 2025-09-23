@@ -42,6 +42,8 @@ pub enum Error {
     PSTBPrefixError,
     #[error("PSTT serialization requires 'PSTT' prefix")]
     PSTTPrefixError,
+    #[error("Cannot set payload on PSTT version {0}, payload requires version 1 or higher")]
+    PayloadRequiresVersion1(crate::pstt::Version),
 }
 #[derive(thiserror::Error, Debug)]
 pub enum ConstructorError {

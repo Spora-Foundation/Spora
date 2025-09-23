@@ -594,6 +594,14 @@ impl ConsensusApi for Consensus {
         DaaScoreTimestamp { daa_score: compact.daa_score, timestamp: compact.timestamp }
     }
 
+    fn get_sink_blue_score(&self) -> u64 {
+        self.ghostdag_store.get_blue_score(self.get_sink()).unwrap()
+    }
+
+    fn get_block_blue_score(&self, hash: Hash) -> ConsensusResult<u64> {
+        Ok(self.ghostdag_store.get_blue_score(hash)?)
+    }
+
     fn get_current_block_color(&self, hash: Hash) -> Option<bool> {
         let _guard = self.pruning_lock.blocking_read();
 

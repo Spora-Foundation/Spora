@@ -250,6 +250,14 @@ impl ConsensusSessionOwned {
         self.clone().spawn_blocking(|c| c.get_sink_timestamp()).await
     }
 
+    pub async fn async_get_sink_blue_score(&self) -> u64 {
+        self.clone().spawn_blocking(|c| c.get_sink_blue_score()).await
+    }
+
+    pub async fn async_get_block_blue_score(&self, hash: Hash) -> ConsensusResult<u64> {
+        self.clone().spawn_blocking(move |c| c.get_block_blue_score(hash)).await
+    }
+
     pub async fn async_get_sink_daa_score_timestamp(&self) -> DaaScoreTimestamp {
         self.clone().spawn_blocking(|c| c.get_sink_daa_score_timestamp()).await
     }

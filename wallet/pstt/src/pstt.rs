@@ -32,17 +32,19 @@ pub struct Inner {
     pub outputs: Vec<Output>,
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Serialize_repr, Deserialize_repr)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize_repr, Deserialize_repr)]
 #[repr(u8)]
 pub enum Version {
     #[default]
     Zero = 0,
+    One = 1,
 }
 
 impl Display for Version {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Version::Zero => write!(f, "{}", Version::Zero as u8),
+            Version::One => write!(f, "{}", Version::One as u8),
         }
     }
 }
@@ -150,7 +152,8 @@ impl<R> PSTT<R> {
             self.determine_lock_time(),
             SUBNETWORK_ID_NATIVE,
             0,
-            vec![],
+            // Only include payload if version supports it (Version::One or higher)
+            if self.global.version >= Version::One { self.global.payload.clone().unwrap_or_default() } else { vec![] },
         );
         let entries = self.inputs.iter().filter_map(|Input { utxo_entry, .. }| utxo_entry.clone()).collect();
         SignableTransaction::with_entries(tx, entries)
@@ -187,6 +190,12 @@ impl PSTT<Creator> {
     /// Sets the fallback lock time.
     pub fn fallback_lock_time(mut self, fallback: u64) -> Self {
         self.inner_pstt.global.fallback_lock_time = Some(fallback);
+        self
+    }
+
+    /// Sets the PSTT version.
+    pub fn set_version(mut self, version: Version) -> Self {
+        self.inner_pstt.global.version = version;
         self
     }
 
@@ -234,6 +243,15 @@ impl PSTT<Constructor> {
         self.inner_pstt.outputs.push(output);
         self.inner_pstt.global.output_count += 1;
         self
+    }
+
+    pub fn payload(mut self, payload: Option<Vec<u8>>) -> Result<Self, Error> {
+        // Only allow setting payload if version is One or greater
+        if payload.is_some() && self.inner_pstt.global.version < Version::One {
+            return Err(Error::PayloadRequiresVersion1(self.inner_pstt.global.version));
+        }
+        self.inner_pstt.global.payload = payload;
+        Ok(self)
     }
 
     /// Returns a PSTT [`Updater`] once construction is completed.
@@ -485,10 +503,124 @@ pub struct TxNotFinalized {}
 
 #[cfg(test)]
 mod tests {
+    use super::*;
 
-    // #[test]
-    // fn it_works() {
-    //     let result = add(2, 2);
-    //     assert_eq!(result, 4);
-    // }
+    #[test]
+    fn test_payload_version_zero() {
+        // Test that payload cannot be set on Version::Zero
+        let pstt = PSTT::<Creator>::default()
+            .set_version(Version::Zero)
+            .constructor();
+        
+        let result = pstt.payload(Some(vec![1, 2, 3]));
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            Error::PayloadRequiresVersion1(version) => {
+                assert_eq!(version, Version::Zero);
+            }
+            _ => panic!("Expected PayloadRequiresVersion1 error"),
+        }
+    }
+
+    #[test]
+    fn test_payload_version_one() {
+        // Test that payload can be set on Version::One
+        let pstt = PSTT::<Creator>::default()
+            .set_version(Version::One)
+            .constructor();
+        
+        let payload_data = vec![1, 2, 3, 4, 5];
+        let result = pstt.payload(Some(payload_data.clone()));
+        assert!(result.is_ok());
+        
+        let pstt = result.unwrap();
+        assert_eq!(pstt.global.payload, Some(payload_data));
+    }
+
+    #[test]
+    fn test_payload_none() {
+        // Test that None payload works on any version
+        let pstt = PSTT::<Creator>::default()
+            .set_version(Version::Zero)
+            .constructor();
+        
+        let result = pstt.payload(None);
+        assert!(result.is_ok());
+        
+        let pstt = result.unwrap();
+        assert_eq!(pstt.global.payload, None);
+    }
+
+    #[test]
+    fn test_payload_combination_same() {
+        // Test combining PSTTs with same payload
+        let payload_data = vec![1, 2, 3];
+        
+        let pstt1 = PSTT::<Creator>::default()
+            .set_version(Version::One)
+            .constructor()
+            .payload(Some(payload_data.clone()))
+            .unwrap();
+        
+        let pstt2 = PSTT::<Creator>::default()
+            .set_version(Version::One)
+            .constructor()
+            .payload(Some(payload_data.clone()))
+            .unwrap();
+        
+        let combiner1 = pstt1.combiner();
+        let result = combiner1 + pstt2;
+        assert!(result.is_ok());
+        
+        let combined = result.unwrap();
+        assert_eq!(combined.global.payload, Some(payload_data));
+    }
+
+    #[test]
+    fn test_payload_combination_different() {
+        // Test combining PSTTs with different payloads should fail
+        let payload1 = vec![1, 2, 3];
+        let payload2 = vec![4, 5, 6];
+        
+        let pstt1 = PSTT::<Creator>::default()
+            .set_version(Version::One)
+            .constructor()
+            .payload(Some(payload1))
+            .unwrap();
+        
+        let pstt2 = PSTT::<Creator>::default()
+            .set_version(Version::One)
+            .constructor()
+            .payload(Some(payload2))
+            .unwrap();
+        
+        let combiner1 = pstt1.combiner();
+        let result = combiner1 + pstt2;
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_payload_combination_one_none() {
+        // Test combining PSTT with payload and PSTT without payload
+        let payload_data = vec![1, 2, 3];
+        
+        let pstt1 = PSTT::<Creator>::default()
+            .set_version(Version::One)
+            .constructor()
+            .payload(Some(payload_data.clone()))
+            .unwrap();
+        
+        let pstt2 = PSTT::<Creator>::default()
+            .set_version(Version::One)
+            .constructor()
+            .payload(None)
+            .unwrap();
+        
+        let combiner1 = pstt1.combiner();
+        let result = combiner1 + pstt2;
+        assert!(result.is_ok());
+        
+        let combined = result.unwrap();
+        assert_eq!(combined.global.payload, Some(payload_data));
+    }
 }

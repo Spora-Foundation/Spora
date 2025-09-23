@@ -638,13 +638,58 @@ mod mockery {
 
     test!(GetSubnetworkResponse);
 
-    impl Mock for GetVirtualChainFromBlockRequest {
-        fn mock() -> Self {
-            GetVirtualChainFromBlockRequest { start_hash: mock(), include_accepted_transaction_ids: mock() }
+impl Mock for GetVirtualChainFromBlockRequest {
+    fn mock() -> Self {
+        GetVirtualChainFromBlockRequest {
+            start_hash: mock(),
+            include_accepted_transaction_ids: mock(),
+            min_confirmation_count: mock(),
         }
     }
+}
 
     test!(GetVirtualChainFromBlockRequest);
+
+    #[test]
+    fn test_get_virtual_chain_from_block_request_version_handling() {
+        use crate::model::message::GetVirtualChainFromBlockRequest;
+        use crate::model::RpcHash;
+        use std::io::Cursor;
+
+        // Test version 1 (without min_confirmation_count)
+        let request_v1 = GetVirtualChainFromBlockRequest {
+            start_hash: RpcHash::from([1u8; 32]),
+            include_accepted_transaction_ids: true,
+            min_confirmation_count: None,
+        };
+
+        // Serialize version 1
+        let mut buffer = Vec::new();
+        request_v1.serialize(&mut buffer).unwrap();
+        
+        // Deserialize should work and set min_confirmation_count to None
+        let deserialized = GetVirtualChainFromBlockRequest::deserialize(&mut Cursor::new(&buffer)).unwrap();
+        assert_eq!(deserialized.start_hash, request_v1.start_hash);
+        assert_eq!(deserialized.include_accepted_transaction_ids, request_v1.include_accepted_transaction_ids);
+        assert_eq!(deserialized.min_confirmation_count, None);
+
+        // Test version 2 (with min_confirmation_count)
+        let request_v2 = GetVirtualChainFromBlockRequest {
+            start_hash: RpcHash::from([2u8; 32]),
+            include_accepted_transaction_ids: false,
+            min_confirmation_count: Some(5),
+        };
+
+        // Serialize version 2
+        let mut buffer_v2 = Vec::new();
+        request_v2.serialize(&mut buffer_v2).unwrap();
+        
+        // Deserialize should work and preserve min_confirmation_count
+        let deserialized_v2 = GetVirtualChainFromBlockRequest::deserialize(&mut Cursor::new(&buffer_v2)).unwrap();
+        assert_eq!(deserialized_v2.start_hash, request_v2.start_hash);
+        assert_eq!(deserialized_v2.include_accepted_transaction_ids, request_v2.include_accepted_transaction_ids);
+        assert_eq!(deserialized_v2.min_confirmation_count, Some(5));
+    }
 
     impl Mock for RpcAcceptedTransactionIds {
         fn mock() -> Self {

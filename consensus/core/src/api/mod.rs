@@ -139,6 +139,14 @@ pub trait ConsensusApi: Send + Sync {
         unimplemented!()
     }
 
+    fn get_sink_blue_score(&self) -> u64 {
+        unimplemented!()
+    }
+
+    fn get_block_blue_score(&self, hash: Hash) -> ConsensusResult<u64> {
+        unimplemented!()
+    }
+
     fn get_current_block_color(&self, hash: Hash) -> Option<bool> {
         unimplemented!()
     }

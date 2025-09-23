@@ -805,7 +805,11 @@ try_from!(item: &protowire::GetSubnetworkResponseMessage, RpcResult<tondi_rpc_co
 });
 
 try_from!(item: &protowire::GetVirtualChainFromBlockRequestMessage, tondi_rpc_core::GetVirtualChainFromBlockRequest, {
-    Self { start_hash: RpcHash::from_str(&item.start_hash)?, include_accepted_transaction_ids: item.include_accepted_transaction_ids }
+    Self { 
+        start_hash: RpcHash::from_str(&item.start_hash)?, 
+        include_accepted_transaction_ids: item.include_accepted_transaction_ids,
+        min_confirmation_count: item.min_confirmation_count,
+    }
 });
 try_from!(item: &protowire::GetVirtualChainFromBlockResponseMessage, RpcResult<tondi_rpc_core::GetVirtualChainFromBlockResponse>, {
     Self {
