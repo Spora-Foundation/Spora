@@ -599,7 +599,7 @@ impl ConsensusApi for Consensus {
     }
 
     fn get_block_blue_score(&self, hash: Hash) -> ConsensusResult<u64> {
-        Ok(self.ghostdag_store.get_blue_score(hash)?)
+        Ok(self.ghostdag_store.get_blue_score(hash).map_err(|err| ConsensusError::GeneralOwned(format!("StoreError: {err}")))?)
     }
 
     fn get_current_block_color(&self, hash: Hash) -> Option<bool> {

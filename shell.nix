@@ -1,16 +1,18 @@
 {
   pkgs ? import <nixpkgs> { },
 }:
-pkgs.mkShell {
+
+with pkgs;
+mkShell {
   shellHook = ''
-    export LIBCLANG_PATH="${pkgs.libclang.lib}/lib"
+    export LIBCLANG_PATH="${libclang.lib}/lib"
   '';
 
-  nativeBuildInputs = with pkgs; [
+  nativeBuildInputs = [
     pkg-config
   ];
 
-  buildInputs = with pkgs; [
+  buildInputs = [
     glib
     clang
     openssl
