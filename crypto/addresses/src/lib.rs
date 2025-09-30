@@ -148,15 +148,17 @@ pub enum Version {
     /// ScriptHash addresses always have the version byte set to 8(0b00001_000)
     ScriptHash = 8,
     /// Taproot addresses always have the version byte set to 88(0b01011_000)
-    /// Bech32 codec encode initial 5 bit `0b01011` to char 't'
+    /// Bech32m codec encode initial 5 bit `0b01011` to char 't'
     Taproot = 88,
-    /// CopperootMerkle addresses always have the version byte set to 2
+    /// CopperootMerkle addresses always have the version byte set to 192(0b11000_000)
+    /// Bech32m codec encode initial 5 bit `0b11000` to char 'c'
     /// CopperootMerkle (Pay-to-Copperoot-Merkle) addresses for Tondi Copperoot with Merkle trees
-    CopperootMerkle = 2,
-    /// CopperootVerkle addresses always have the version byte set to 3
+    CopperootMerkle = 192,
+    /// CopperootVerkle addresses always have the version byte set to 193(0b11000_001)
+    /// Bech32m codec encode initial 5 bit `0b11000` to char 'c'
     /// CopperootVerkle (Pay-to-Copperoot-Verkle) addresses for Tondi Copperoot with Verkle trees
     /// NOTE: Currently disabled for mainnet launch - reserved for future activation
-    CopperootVerkle = 3,
+    CopperootVerkle = 193,
 }
 
 impl TryFrom<&str> for Version {
@@ -195,10 +197,10 @@ impl TryFrom<u8> for Version {
         match value {
             0 => Ok(Version::PubKey),
             1 => Ok(Version::PubKeyECDSA),
-            2 => Ok(Version::CopperootMerkle),
-            3 => Err(AddressError::InvalidVersion(value)), // CopperootVerkle disabled for mainnet launch
             8 => Ok(Version::ScriptHash),
             88 => Ok(Version::Taproot),
+            192 => Ok(Version::CopperootMerkle),
+            193 => Err(AddressError::InvalidVersion(value)), // CopperootVerkle disabled for mainnet launch
             _ => Err(AddressError::InvalidVersion(value)),
         }
     }
@@ -652,6 +654,107 @@ mod tests {
         assert_eq!(encoded, "tondi:trazle76u3gwal94drp4qlvlh9vkjddh7mjpv2hhe422xzjsrs8tvca30pn");
         let decoded: Address = encoded.parse().expect("Address decode failed");
         assert_eq!(address, decoded);
+    }
+
+    #[test]
+    fn test_copperoot_merkle_address_prefix() {
+        use Prefix::*;
+        use Version::*;
+        
+        // Test that CopperootMerkle addresses start with 'c' after the prefix
+        let address = Address::new(Mainnet, CopperootMerkle, &XPUB);
+        let encoded = String::from(&address);
+        
+        // Verify the address after "tondi:" starts with 'c'
+        let after_prefix = encoded.strip_prefix("tondi:").expect("Should have tondi: prefix");
+        assert!(after_prefix.starts_with('c'), "CopperootMerkle address should start with 'c', got: {}", after_prefix);
+        
+        // Test round-trip encoding/decoding
+        let decoded: Address = encoded.parse().expect("Failed to decode CopperootMerkle address");
+        assert_eq!(decoded.version, CopperootMerkle);
+        assert_eq!(decoded.payload.as_slice(), &XPUB);
+        assert_eq!(decoded.prefix, Mainnet);
+    }
+
+    #[test]
+    fn test_copperoot_verkle_disabled() {
+        use Prefix::*;
+        use Version::*;
+        
+        // CopperootVerkle (version 193) should be rejected during decoding
+        let address = Address::new(Mainnet, CopperootVerkle, &XPUB);
+        let encoded = String::from(&address);
+        
+        // Decoding should fail because version 193 is disabled
+        let result: Result<Address, _> = encoded.parse();
+        assert!(result.is_err(), "CopperootVerkle addresses should be rejected");
+        assert!(matches!(result, Err(AddressError::InvalidVersion(193))));
+    }
+
+    #[test]
+    fn test_copperoot_real_key_generation() {
+        use Prefix::*;
+        use Version::*;
+        use secp256k1::{Secp256k1, SecretKey};
+        
+        let secp = Secp256k1::new();
+        let secret_key = SecretKey::from_slice(&[
+            0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8,
+            0x9, 0xa, 0xb, 0xc, 0xd, 0xe, 0xf, 0x10,
+            0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18,
+            0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x20,
+        ]).expect("Valid secret key");
+        
+        let public_key = secp256k1::PublicKey::from_secret_key(&secp, &secret_key);
+        let xonly_pubkey = public_key.x_only_public_key().0;
+        
+        // Create CopperootMerkle address
+        let address = Address::new(Mainnet, CopperootMerkle, &xonly_pubkey.serialize());
+        let encoded = address.to_string();
+        
+        // Verify address starts with 'c' after the network prefix
+        let after_prefix = encoded.strip_prefix("tondi:").expect("Should have tondi: prefix");
+        assert!(after_prefix.starts_with('c'), "Real CopperootMerkle address should start with 'c', got: {}", after_prefix);
+        
+        // Verify round-trip
+        let decoded: Address = encoded.parse().expect("Failed to decode");
+        assert_eq!(decoded.version, CopperootMerkle);
+        assert_eq!(decoded.payload.as_slice(), &xonly_pubkey.serialize());
+        
+        // Test different networks all use 'c' prefix
+        for prefix in [Testnet, Simnet, Devnet] {
+            let addr = Address::new(prefix, CopperootMerkle, &xonly_pubkey.serialize());
+            let enc = addr.to_string();
+            let after_net_prefix = enc.split(':').nth(1).expect("Should have network prefix");
+            assert!(after_net_prefix.starts_with('c'), "Network {:?} should also start with 'c', got: {}", prefix, after_net_prefix);
+        }
+    }
+
+    #[test]
+    fn test_address_version_byte_encoding() {
+        use Prefix::*;
+        use Version::*;
+        
+        // Test that version bytes encode to expected first characters
+        let test_key = [0u8; 32];
+        
+        // Taproot = 88 = 0b01011_000 -> first 5 bits = 0b01011 = 11 -> 't' in bech32
+        let taproot = Address::new(Mainnet, Taproot, &test_key);
+        let taproot_enc = taproot.to_string();
+        let taproot_data = taproot_enc.strip_prefix("tondi:").unwrap();
+        assert!(taproot_data.starts_with('t'), "Taproot should start with 't', got: {}", taproot_data);
+        
+        // CopperootMerkle = 192 = 0b11000_000 -> first 5 bits = 0b11000 = 24 -> 'c' in bech32  
+        let copperoot = Address::new(Mainnet, CopperootMerkle, &test_key);
+        let copperoot_enc = copperoot.to_string();
+        let copperoot_data = copperoot_enc.strip_prefix("tondi:").unwrap();
+        assert!(copperoot_data.starts_with('c'), "CopperootMerkle should start with 'c', got: {}", copperoot_data);
+
+        // CopperootVerkle = 193 = 0b11000_001 -> first 5 bits = 0b11000 = 24 -> 'c' in bech32
+        let copperoot_verkle = Address::new(Mainnet, CopperootVerkle, &test_key);
+        let copperoot_verkle_enc = copperoot_verkle.to_string();
+        let copperoot_verkle_data = copperoot_verkle_enc.strip_prefix("tondi:").unwrap();
+        assert!(copperoot_verkle_data.starts_with('c'), "CopperootVerkle should start with 'c', got: {}", copperoot_verkle_data);
     }
 
     #[test]

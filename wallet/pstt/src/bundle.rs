@@ -223,7 +223,7 @@ pub fn unlock_utxo(
     outpoint: &TransactionOutpoint,
     script_public_key: &ScriptPublicKey,
     script_sig: &[u8],
-    priority_fee_sau: u64,
+    _priority_fee_sau: u64,
 ) -> Result<Bundle, Error> {
     let input = InputBuilder::default()
         .utxo_entry(utxo_entry.to_owned())
@@ -233,7 +233,7 @@ pub fn unlock_utxo(
         .build()?;
 
     let output =
-        OutputBuilder::default().amount(utxo_entry.amount - priority_fee_sau).script_public_key(script_public_key.clone()).build()?;
+        OutputBuilder::default().amount(utxo_entry.amount - _priority_fee_sau).script_public_key(script_public_key.clone()).build()?;
 
     let pstt: PSTT<Constructor> = PSTT::<Creator>::default().constructor().input(input).output(output);
     Ok(pstt.into())

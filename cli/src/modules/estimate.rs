@@ -19,13 +19,13 @@ impl Estimate {
         let amount_sau = try_parse_required_nonzero_tondi_as_sau_u64(argv.first())?;
         // TODO fee_rate
         let fee_rate = None;
-        let priority_fee_sau = try_parse_optional_tondi_as_sau_i64(argv.get(1))?.unwrap_or(0);
+        let _priority_fee_sau = try_parse_optional_tondi_as_sau_i64(argv.get(1))?.unwrap_or(0);
         let abortable = Abortable::default();
 
         // just use any address for an estimate (change address)
         let change_address = account.change_address()?;
         let destination = PaymentDestination::PaymentOutputs(PaymentOutputs::from((change_address.clone(), amount_sau)));
-        let estimate = account.estimate(destination, fee_rate, priority_fee_sau.into(), None, &abortable).await?;
+        let estimate = account.estimate(destination, fee_rate, _priority_fee_sau.into(), None, &abortable).await?;
 
         if ctx.pretty_enabled() {
             tprintln!(ctx, "💰 Fee estimate: {estimate}");

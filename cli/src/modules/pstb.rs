@@ -38,7 +38,7 @@ impl Pstb {
                 let address = Address::try_from(argv.first().unwrap().as_str())?;
                 let amount_sau = try_parse_required_nonzero_tondi_as_sau_u64(argv.get(1))?;
                 let outputs = PaymentOutputs::from((address, amount_sau));
-                let priority_fee_sau = try_parse_optional_tondi_as_sau_i64(argv.get(2))?.unwrap_or(0);
+                let _priority_fee_sau = try_parse_optional_tondi_as_sau_i64(argv.get(2))?.unwrap_or(0);
                 let abortable = Abortable::default();
 
                 let account: Arc<dyn Account> = ctx.wallet().account()?;
@@ -46,7 +46,7 @@ impl Pstb {
                     .pstb_from_send_generator(
                         outputs.into(),
                         None, // fee_rate
-                        Fees::None, // priority_fee_sau
+                        Fees::None, // _priority_fee_sau
                         None, // payload
                         wallet_secret.clone(),
                         payment_secret.clone(),
@@ -91,14 +91,14 @@ impl Pstb {
                         let amount_sau = try_parse_required_nonzero_tondi_as_sau_u64(argv.first())?;
                         let outputs = PaymentOutputs::from((script_p2sh, amount_sau));
                         let fee_rate = None;
-                        let priority_fee_sau = try_parse_optional_tondi_as_sau_i64(argv.get(1))?.unwrap_or(0);
+                        let _priority_fee_sau = try_parse_optional_tondi_as_sau_i64(argv.get(1))?.unwrap_or(0);
                         let abortable = Abortable::default();
 
                         let signer = account
                             .pstb_from_send_generator(
                                 outputs.into(),
                                 fee_rate,
-                                priority_fee_sau.into(),
+                                _priority_fee_sau.into(),
                                 None,
                                 wallet_secret.clone(),
                                 payment_secret.clone(),
@@ -119,7 +119,7 @@ impl Pstb {
                         // Get locked UTXO set.
                         let spend_utxos: Vec<tondi_rpc_core::RpcUtxosByAddressesEntry> =
                             ctx.wallet().rpc_api().get_utxos_by_addresses(vec![script_p2sh.clone()]).await?;
-                        let priority_fee_sau = try_parse_optional_tondi_as_sau_i64(argv.first())?.unwrap_or(0) as u64;
+                        let _priority_fee_sau = try_parse_optional_tondi_as_sau_i64(argv.first())?.unwrap_or(0) as u64;
 
                         if spend_utxos.is_empty() {
                             twarnln!(ctx, "No locked UTXO set found.");
@@ -140,7 +140,7 @@ impl Pstb {
                         );
 
                         // Sweep UTXO set.
-                        match unlock_utxos_as_pstb(references, &receive_address, script_sig, priority_fee_sau as u64) {
+                        match unlock_utxos_as_pstb(references, &receive_address, script_sig, _priority_fee_sau as u64) {
                             Ok(pstb) => {
                                 let pstb_hex = pstb.serialize()?;
                                 tprintln!(ctx, "{pstb_hex}");

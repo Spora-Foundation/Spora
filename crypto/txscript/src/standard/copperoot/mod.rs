@@ -27,7 +27,7 @@ use crate::standard::copperoot::witness::{CopperootWitness, P2CrSpend, Copperoot
 /// Abstract trait for Taproot-like execution semantics
 /// This allows us to reuse the execution flow while parameterizing
 /// the specific hash functions, control block formats, and verification logic
-pub trait TapLike {
+pub trait ScriptVariant {
     /// Witness structure for this Taproot-like variant
     type Witness;
     
@@ -56,10 +56,10 @@ pub trait TapLike {
     ) -> Result<(Vec<Vec<u8>>, Vec<u8>, Vec<u8>), TxScriptError>;
 }
 
-/// Copperoot implementation of TapLike trait
-pub struct CopperootTapLike;
+/// Copperoot implementation of ScriptVariant trait
+pub struct CopperootVariant;
 
-impl TapLike for CopperootTapLike {
+impl ScriptVariant for CopperootVariant {
     type Witness = CopperootWitness;
 
     fn parse_witness(sig_script: &[u8]) -> Result<Self::Witness, TxScriptError> {
@@ -175,7 +175,7 @@ fn verify_merkle_commitment(
         root = compute_copperoot_node_hash(&root, sibling);
     }
 
-    // 5) Compute Copperoot TapTweak = BLAKE3("CopperTweak" || P || root || [proof_type])
+    // 5) Compute Copperoot Tweak = BLAKE3("CopperTweak" || P || root || [proof_type])
     //    Note: tweak must be passed as scalar to add_tweak; if >= n will return Err → reject directly
     let mut tweak_hasher = Hasher::new();
     tweak_hasher.update(b"CopperTweak");
@@ -331,7 +331,7 @@ mod tests {
             .expect("Failed to parse Copperoot witness");
         
         // Extract and verify key spend signature
-        let sig_bytes = CopperootTapLike::extract_key_spend_signature(&witness)
+        let sig_bytes = CopperootVariant::extract_key_spend_signature(&witness)
             .expect("Failed to extract key spend signature");
         
         let secp = Secp256k1::new();
@@ -339,7 +339,7 @@ mod tests {
             .expect("Invalid signature format");
         
         let populated_tx = PopulatedTransaction::new(&tx, vec![entry.clone()]);
-        let msg = CopperootTapLike::key_spend_sighash(&populated_tx, input_index)
+        let msg = CopperootVariant::key_spend_sighash(&populated_tx, input_index)
             .expect("Failed to compute sighash");
         
         secp.verify_schnorr(&sig, &msg, &xonly_pubkey)
@@ -368,7 +368,7 @@ mod tests {
         let merkle_path = vec![];
         let merkle_root = leaf_hash;
         
-        // Compute Copperoot TapTweak
+        // Compute Copperoot Tweak
         let mut tweak_hasher = Hasher::new();
         tweak_hasher.update(b"CopperTweak");
         tweak_hasher.update(&internal_key.serialize());

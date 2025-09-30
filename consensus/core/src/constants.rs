@@ -7,13 +7,13 @@ pub const TX_VERSION: u16 = 0;
 pub const LOCK_TIME_THRESHOLD: u64 = 500_000_000_000;
 
 /// MAX_SCRIPT_PUBLIC_KEY_VERSION is the current latest supported public key script version.
-pub const MAX_SCRIPT_PUBLIC_KEY_VERSION: u16 = 3;
+pub const MAX_SCRIPT_PUBLIC_KEY_VERSION: u16 = 193;
 
 // Script version constants for different script types
 pub const SCRIPT_VER_CLASSIC: u16 = 0;       // Legacy script types (PubKey, ScriptHash, etc.)
 pub const SCRIPT_VER_TAPROOT: u16 = 1;      // Taproot (BIP341/SHA256)
-pub const SCRIPT_VER_COPPEROOT_MERKLE: u16 = 2;         // Pay-to-Copperoot-Merkle (BLAKE3)
-pub const SCRIPT_VER_COPPEROOT_VERKLE: u16 = 3;        // Pay-to-Copperoot-Verkle (BLAKE3) - Reserved
+pub const SCRIPT_VER_COPPEROOT_MERKLE: u16 = 192;       // Pay-to-Copperoot-Merkle (BLAKE3) - Address starts with 'c'
+pub const SCRIPT_VER_COPPEROOT_VERKLE: u16 = 193;       // Pay-to-Copperoot-Verkle (BLAKE3) - Reserved
 
 // Backward compatibility aliases
 pub const SCRIPT_VER_P2CR: u16 = SCRIPT_VER_COPPEROOT_MERKLE;

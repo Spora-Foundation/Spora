@@ -29,6 +29,7 @@ pub struct GeneratorSettings {
     // change address
     pub change_address: Address,
     // fee rate
+    #[allow(dead_code)]
     pub fee_rate: Option<f64>,
     // applies only to the final transaction
     pub final_transaction_priority_fee: Fees,
@@ -64,7 +65,7 @@ impl GeneratorSettings {
     pub fn try_new_with_account(
         account: Arc<dyn Account>,
         final_transaction_destination: PaymentDestination,
-        fee_rate: Option<f64>,
+        _fee_rate: Option<f64>,
         final_priority_fee: Fees,
         final_transaction_payload: Option<Vec<u8>>,
         final_transaction_lock_time: u64,
@@ -141,7 +142,7 @@ impl GeneratorSettings {
         sig_op_count: u8,
         minimum_signatures: u16,
         final_transaction_destination: PaymentDestination,
-        fee_rate: Option<f64>,
+        _fee_rate: Option<f64>,
         final_priority_fee: Fees,
         final_transaction_payload: Option<Vec<u8>>,
         final_transaction_lock_time: u64,
@@ -156,7 +157,7 @@ impl GeneratorSettings {
             utxo_iterator: Box::new(utxo_iterator),
             source_utxo_context: None,
             priority_utxo_entries,
-            fee_rate,
+            fee_rate: _fee_rate,
             final_transaction_priority_fee: final_priority_fee,
             final_transaction_destination,
             final_transaction_payload,

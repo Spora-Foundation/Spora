@@ -355,7 +355,7 @@ pub trait Account: AnySync + Send + Sync + 'static {
         self: Arc<Self>,
         destination: PaymentDestination,
         fee_rate: Option<f64>,
-        priority_fee_sau: Fees,
+        _priority_fee_sau: Fees,
         payload: Option<Vec<u8>>,
         wallet_secret: Secret,
         payment_secret: Option<Secret>,
@@ -366,7 +366,7 @@ pub trait Account: AnySync + Send + Sync + 'static {
         let signer = Arc::new(Signer::new(self.clone().as_dyn_arc(), keydata, payment_secret));
 
         let settings =
-            GeneratorSettings::try_new_with_account(self.clone().as_dyn_arc(), destination, fee_rate, priority_fee_sau, payload, 0)?;
+            GeneratorSettings::try_new_with_account(self.clone().as_dyn_arc(), destination, fee_rate, _priority_fee_sau, payload, 0)?;
 
         let generator = Generator::try_new(settings, Some(signer), Some(abortable))?;
 
@@ -441,14 +441,14 @@ pub trait Account: AnySync + Send + Sync + 'static {
         self: Arc<Self>,
         destination: PaymentDestination,
         fee_rate: Option<f64>,
-        priority_fee_sau: Fees,
+        _priority_fee_sau: Fees,
         payload: Option<Vec<u8>>,
         wallet_secret: Secret,
         payment_secret: Option<Secret>,
         abortable: &Abortable,
     ) -> Result<Bundle, Error> {
         let settings =
-            GeneratorSettings::try_new_with_account(self.clone().as_dyn_arc(), destination, fee_rate, priority_fee_sau, payload, 0)?;
+            GeneratorSettings::try_new_with_account(self.clone().as_dyn_arc(), destination, fee_rate, _priority_fee_sau, payload, 0)?;
         let keydata = self.prv_key_data(wallet_secret).await?;
         let signer = Arc::new(PSTBSigner::new(self.clone().as_dyn_arc(), keydata, payment_secret));
         let generator = Generator::try_new(settings, None, Some(abortable))?;
@@ -507,7 +507,7 @@ pub trait Account: AnySync + Send + Sync + 'static {
         destination_account_id: AccountId,
         transfer_amount_sau: u64,
         fee_rate: Option<f64>,
-        priority_fee_sau: Fees,
+        _priority_fee_sau: Fees,
         wallet_secret: Secret,
         payment_secret: Option<Secret>,
         abortable: &Abortable,
@@ -531,7 +531,7 @@ pub trait Account: AnySync + Send + Sync + 'static {
             self.clone().as_dyn_arc(),
             final_transaction_destination,
             fee_rate,
-            priority_fee_sau,
+            _priority_fee_sau,
             final_transaction_payload,
             0, // final_transaction_lock_time
         )?
@@ -558,12 +558,12 @@ pub trait Account: AnySync + Send + Sync + 'static {
         self: Arc<Self>,
         destination: PaymentDestination,
         fee_rate: Option<f64>,
-        priority_fee_sau: Fees,
+        _priority_fee_sau: Fees,
         payload: Option<Vec<u8>>,
         abortable: &Abortable,
     ) -> Result<GeneratorSummary> {
         let settings =
-            GeneratorSettings::try_new_with_account(self.as_dyn_arc(), destination, fee_rate, priority_fee_sau, payload, 0)?;
+            GeneratorSettings::try_new_with_account(self.as_dyn_arc(), destination, fee_rate, _priority_fee_sau, payload, 0)?;
 
         let generator = Generator::try_new(settings, None, Some(abortable))?;
 

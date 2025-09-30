@@ -6,27 +6,96 @@ Copperoot is an advanced Taproot variant that enhances Bitcoin's Taproot protoco
 
 ## Script Version Architecture
 
-Copperoot introduces a new script version system that replaces the legacy "ScriptHash version" terminology with more descriptive names:
+Copperoot introduces a new script version system that uses distinct version bytes designed to create human-readable address prefixes:
 
 - **SCRIPT_VER_CLASSIC (0)**: Classic script types (PubKey, PubKeyECDSA, ScriptHash)
-- **SCRIPT_VER_TAPROOT (1)**: Taproot (BIP341/SHA256)
-- **SCRIPT_VER_COPPEROOT_MERKLE (2)**: Pay-to-Copperoot-Merkle (BLAKE3)
-- **SCRIPT_VER_COPPEROOT_VERKLE (3)**: Pay-to-Copperoot-Verkle (BLAKE3) - Reserved
+- **SCRIPT_VER_TAPROOT (88)**: Taproot (BIP341/SHA256) - Addresses start with 't' (0b01011_000)
+- **SCRIPT_VER_COPPEROOT_MERKLE (192)**: Pay-to-Copperoot-Merkle (BLAKE3) - Addresses start with 'c' (0b11000_000)
+- **SCRIPT_VER_COPPEROOT_VERKLE (193)**: Pay-to-Copperoot-Verkle (BLAKE3) - Reserved, Addresses start with 'c' (0b11000_001)
+
+### Address Prefix Design
+
+The script version numbers are specifically chosen to create intuitive address prefixes:
+
+**Bech32m Character Mapping:**
+- Version byte's first 5 bits are encoded as a Bech32m character
+- Taproot: `88 = 0b01011_000` → `0b01011 = 11` → 't' in Bech32m charset
+- Copperoot: `192 = 0b11000_000` → `0b11000 = 24` → 'c' in Bech32m charset
+
+**Example Addresses:**
+```
+Taproot (version 88):
+  tondi:trazle76u3gwal94drp4qlvlh9vkjddh7mjpv2hhe422xzjsrs8tvca30pn
+  └─────┘└─ 't' prefix from version 88
+
+CopperootMerkle (version 192):
+  tondi:crazle76u3gwal94drp4qlvlh9vkjddh7mjpv2hhe422xzjsrs8tvv5jz65
+  └─────┘└─ 'c' prefix from version 192
+
+CopperootVerkle (version 193 - currently disabled):
+  tondi:cr... (starts with 'c' after prefix)
+```
 
 ### Version Validation and Security
 
 The implementation enforces strict version validation with format checking:
 
-1. **Unknown Version Rejection**: Scripts with versions > MAX_SCRIPT_PUBLIC_KEY_VERSION are rejected
+1. **MAX_SCRIPT_PUBLIC_KEY_VERSION (193)**: Hard limit for supported script versions
+   - Enforced at consensus layer (transaction validation)
+   - Enforced at mempool layer (policy checks)
+   - Scripts with versions > 193 are immediately rejected
+   - Prevents future version confusion and ensures network-wide consistency
+
 2. **Version-Based Classification**: ScriptClass determination uses version number for initial dispatch
+
 3. **Format Validation**: Each script version requires specific byte pattern validation:
    - **Taproot**: Must match `OP_1 <32-byte x-only pubkey>` format
    - **CopperootMerkle**: Must match `OP_1 <32-byte x-only pubkey>` format  
-   - **CopperootVerkle**: Must match `OP_1 <32-byte x-only pubkey>` format
+   - **CopperootVerkle**: Must match `OP_1 <32-byte x-only pubkey>` format (currently disabled)
    - **Classic**: Legacy format validation for PubKey, PubKeyECDSA, ScriptHash
+
 4. **NonStandard Classification**: Scripts with correct version but wrong format are classified as NonStandard
+
 5. **Control Block Consistency**: Control block TLV extensions must match script versions (ProofType 0x00 for Merkle, 0x01 for Verkle)
+
 6. **Mempool Policy**: Unknown versions and NonStandard scripts are rejected at the mempool level
+
+### Why MAX_SCRIPT_PUBLIC_KEY_VERSION is Essential
+
+`MAX_SCRIPT_PUBLIC_KEY_VERSION` serves multiple critical purposes:
+
+**Consensus Safety:**
+- Prevents accidental acceptance of future script versions
+- Ensures all nodes reject unknown script types consistently
+- Avoids consensus splits from version number overflow
+
+**Mempool Protection:**
+- Rejects transactions with unknown versions before they enter mempool
+- Prevents DOS attacks using invalid script versions
+- Ensures clean mempool state with only valid transaction types
+
+**Network Consistency:**
+- All nodes enforce the same maximum version
+- Future version activations require coordinated network upgrade
+- Clear boundary between supported and unsupported versions
+
+**Implementation Use Cases:**
+```rust
+// Consensus validation - reject unknown versions
+if utxo_entry.script_public_key.version() > MAX_SCRIPT_PUBLIC_KEY_VERSION {
+    return Err(TxScriptError::InvalidScriptPublicKeyVersion(...));
+}
+
+// Mempool policy - reject non-standard versions
+if output.script_public_key.version() > MAX_SCRIPT_PUBLIC_KEY_VERSION {
+    return Err(NonStandardError::RejectScriptPublicKeyVersion(...));
+}
+
+// Testing - create valid transaction outputs
+ScriptPublicKey::new(MAX_SCRIPT_PUBLIC_KEY_VERSION, script)
+```
+
+Currently: `MAX_SCRIPT_PUBLIC_KEY_VERSION = 193` (CopperootVerkle reserved but disabled)
 
 ## Current Implementation Status
 
@@ -36,15 +105,15 @@ Copperoot is currently implemented with the following features:
 - ✅ **Merkle Tree Support**: 8-layer depth limit with consensus validation and complete tweak verification
 - ✅ **MuSig2 Integration**: Complete two-round protocol implementation with wrapper API and session management
 - ✅ **Safe MuSig2 Interface**: Multiple witness creation methods with validation to prevent misuse
-- ✅ **Address System**: CopperootMerkle address type with bech32m encoding
+- ✅ **Address System**: CopperootMerkle (version 192) and Taproot (version 88) with human-readable 'c' and 't' prefixes
 - ✅ **Witness Structure**: Key-path and script-path spending with annex support
 - ✅ **Control Blocks**: Merkle proof support with strict validation and enhanced security
 - ✅ **Transaction Validation**: Mempool policy checks and standard transaction validation with strict script format checking
-- ✅ **TapLike Trait**: Abstract execution semantics for Copperoot implementation
-- ✅ **Test Suite**: Comprehensive test coverage including key spend, script spend validation, and MuSig2 wrapper functionality
+- ✅ **ScriptVariant Trait**: Abstract execution semantics for Copperoot implementation
+- ✅ **Test Suite**: Comprehensive test coverage including address generation, key spend, script spend validation, and MuSig2 functionality
 - ✅ **Script Classification**: Version-based dispatch with format validation for all script types
 - ✅ **Enhanced Security**: Comprehensive constraint checking, error handling, and misuse prevention
-- ⚠️ **Verkle Trees**: Reserved for future activation (currently disabled for mainnet)
+- ⚠️ **Verkle Trees**: Reserved for future activation (version 193 currently disabled for mainnet)
 
 ## Key Features
 
@@ -605,16 +674,18 @@ The TLV framework provides a smooth migration path from Merkle to Verkle trees:
 - Maximum privacy and scalability
 - L2 integration and cross-chain compatibility
 
-### 7. TapLike Trait Implementation
+### 7. ScriptVariant Trait Implementation
 
-Copperoot implements the `TapLike` trait to provide abstract execution semantics:
+Copperoot implements the `ScriptVariant` trait to provide abstract execution semantics:
 
 - **Abstract Interface**: Reusable execution flow while parameterizing hash functions and verification logic
 - **Witness Parsing**: Automatic witness structure parsing from signature scripts
 - **Commitment Verification**: Script path spending with Merkle proof validation
 - **Sighash Computation**: Key spend signature hash computation using BLAKE3-256
 - **Component Extraction**: Automatic extraction of signatures and script components from witnesses
-- **Type Safety**: Generic implementation supporting different Taproot-like variants
+- **Type Safety**: Generic implementation supporting different Taproot-like script variants
+
+Note: Previously named `TapLike`, renamed to `ScriptVariant` to avoid confusion with Bitcoin's Taproot implementation.
 
 ## Technical Implementation
 
@@ -778,7 +849,7 @@ Copperoot maintains full backward compatibility with existing Taproot:
 - ✅ MuSig2 misuse prevention and safety features
 - ✅ Mempool policy checks and standard transaction validation
 - ✅ Strict script format validation for all script versions
-- ✅ TapLike trait implementation for abstract execution semantics
+- ✅ ScriptVariant trait implementation for abstract execution semantics
 - ✅ Version-based script classification with format checking
 - ✅ Enhanced Merkle commitment verification with parity bit validation
 - ✅ P2CrSpend enum for structured witness parsing
@@ -1234,7 +1305,7 @@ tondi-cli sendtoaddress "tondi1crv..." 1.0
   - 8-layer depth limit with consensus validation
   - Annex support with strict validation (0x50 prefix, position as second-to-last witness item)
   - Mempool policy checks and standard transaction validation
-  - TapLike trait implementation for execution semantics
+  - ScriptVariant trait implementation for execution semantics
 
 - 🔒 **CopperootVerkle (Verkle)**: Reserved but inactive
   - Witness version v3 (decimal 3) - RESERVED
@@ -1285,7 +1356,7 @@ Copperoot uses domain-separated hash functions to prevent cross-protocol attacks
 const COPPEROOT_SIGHASH_TAG: &[u8] = b"CopperootSighash";
 const COPPEROOT_LEAF_TAG: &[u8] = b"CopperootLeaf";
 const COPPEROOT_NODE_TAG: &[u8] = b"CopperootNode";
-const COPPEROOT_TAP_TWEAK_TAG: &[u8] = b"CopperTweak";
+const COPPEROOT_TWEAK_TAG: &[u8] = b"CopperTweak";
 
 // Chain-specific domain separation (prevents cross-chain replay)
 const CHAIN_ID_TAG: &[u8] = b"TondiChainID";
@@ -1457,10 +1528,10 @@ Copperoot represents a significant advancement in Bitcoin's Taproot protocol, pr
 - **Backward Compatibility**: Seamless integration with existing systems
 - **Production-Ready**: Mempool validation, standard transaction checks, and comprehensive testing
 - **Robust Testing**: Full test coverage with proper error handling and edge case validation
-- **Abstract Execution**: TapLike trait implementation for reusable execution semantics
+- **Abstract Execution**: ScriptVariant trait implementation for reusable execution semantics
 - **Enhanced Security**: Comprehensive constraint checking, error handling, and misuse prevention
 
-The implementation is production-ready for CopperootMerkle functionality and provides a solid foundation for next-generation Bitcoin applications requiring high performance, scalability, and advanced cryptographic features. The complete MuSig2 implementation with wrapper API and session management ensures robust multi-signature operations while maintaining backward compatibility. The strict script format validation and enhanced Merkle commitment verification prevent misclassification and ensure security. The TapLike trait provides abstract execution semantics that enable code reuse across different Taproot-like variants. CopperootVerkle functionality is reserved for future activation, with the Verkle tree implementation already in place but disabled for mainnet launch.
+The implementation is production-ready for CopperootMerkle functionality and provides a solid foundation for next-generation Bitcoin applications requiring high performance, scalability, and advanced cryptographic features. The complete MuSig2 implementation with wrapper API and session management ensures robust multi-signature operations while maintaining backward compatibility. The strict script format validation and enhanced Merkle commitment verification prevent misclassification and ensure security. The ScriptVariant trait provides abstract execution semantics that enable code reuse across different Taproot-like variants. CopperootVerkle functionality is reserved for future activation, with the Verkle tree implementation already in place but disabled for mainnet launch.
 
 ### Key Protocol Improvements
 

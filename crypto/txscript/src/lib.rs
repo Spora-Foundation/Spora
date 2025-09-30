@@ -21,7 +21,6 @@ use bitcoin::taproot::ControlBlock;
 use bitcoin::witness::P2TrSpend;
 use bitcoin::XOnlyPublicKey;
 use itertools::Itertools;
-use log::trace;
 use opcodes::codes::OpReturn;
 use opcodes::{codes, to_small_int, OpCond};
 use script_class::ScriptClass;
@@ -46,13 +45,13 @@ pub use standard::copperoot::{
     MuSig2KeyAgg, MuSig2Nonce, MuSig2Session, MuSig2Signature, EncryptedSignature, MuSig2Error
 };
 
-pub const MAX_SCRIPT_PUBLIC_KEY_VERSION: u16 = 3;
+pub const MAX_SCRIPT_PUBLIC_KEY_VERSION: u16 = 193;
 
 // Script version constants for different script types
 pub const SCRIPT_VER_CLASSIC: u16 = 0;       // Legacy script types (PubKey, ScriptHash, etc.)
 pub const SCRIPT_VER_TAPROOT: u16 = 1;      // Taproot (BIP341/SHA256)
-pub const SCRIPT_VER_COPPEROOT_MERKLE: u16 = 2;         // Pay-to-Copperoot-Merkle (BLAKE3)
-pub const SCRIPT_VER_COPPEROOT_VERKLE: u16 = 3;        // Pay-to-Copperoot-Verkle (BLAKE3) - Reserved
+pub const SCRIPT_VER_COPPEROOT_MERKLE: u16 = 192;       // Pay-to-Copperoot-Merkle (BLAKE3) - Address starts with 'c'
+pub const SCRIPT_VER_COPPEROOT_VERKLE: u16 = 193;       // Pay-to-Copperoot-Verkle (BLAKE3) - Reserved
 
 // Backward compatibility aliases
 pub const SCRIPT_VER_P2CR: u16 = SCRIPT_VER_COPPEROOT_MERKLE;
@@ -472,8 +471,8 @@ impl<'a, T: VerifiableTransaction, Reused: SigHashReusedValues> TxScriptEngine<'
         }
     }
 
-    /// Generic Taproot-like execution using the TapLike trait
-    fn execute_taplike<TL: crate::standard::copperoot::TapLike>(&mut self) -> Result<(), TxScriptError> {
+    /// Generic Taproot-like execution using the ScriptVariant trait
+    fn execute_taplike<TL: crate::standard::copperoot::ScriptVariant>(&mut self) -> Result<(), TxScriptError> {
         match self.script_source {
             ScriptSource::TxInput { tx, input, idx, utxo_entry } => {
                 let script_public_key = utxo_entry.script_public_key.script();
@@ -552,7 +551,7 @@ impl<'a, T: VerifiableTransaction, Reused: SigHashReusedValues> TxScriptEngine<'
         match script_class {
             ScriptClass::Taproot => self.execute_p2tr(),
             ScriptClass::ScriptHash => self.execute_p2sh(&scripts),
-            ScriptClass::CopperootMerkle => self.execute_taplike::<crate::standard::copperoot::CopperootTapLike>(),
+            ScriptClass::CopperootMerkle => self.execute_taplike::<crate::standard::copperoot::CopperootVariant>(),
             ScriptClass::CopperootVerkle => {
                 // P2CRV is disabled for mainnet launch - reject as invalid
                 return Err(TxScriptError::OpcodeDisabled("P2CRV (CopperootVerkle) is disabled for mainnet launch".to_string()));

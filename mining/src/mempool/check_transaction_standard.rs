@@ -37,8 +37,10 @@ const MAXIMUM_STANDARD_SIGNATURE_SCRIPT_SIZE: u64 = 1650;
 /// are considered standard and will therefore be relayed and considered for mining.
 const MAXIMUM_STANDARD_TRANSACTION_MASS: u64 = 100_000;
 
-/// Policy limits for tap-like witnesses
+/// Unactivated Policy limits for tap-like witnesses
+#[allow(dead_code)]
 const MAX_TAPLIKE_CONTROL_BLOCK_SIZE: usize = 1536; // 1.5 KB
+#[allow(dead_code)]
 const MAX_TAPLIKE_LEAF_SCRIPT_SIZE: usize = 10240;  // 10 KB
 const MAX_TAPLIKE_WITNESS_TOTAL_SIZE: usize = 102400; // 100 KB
 const MAX_TAPLIKE_SINGLE_ELEMENT_SIZE: usize = 65536; // 64 KB

@@ -10,7 +10,7 @@ use tondi_hashes::Hash;
 pub const COPPEROOT_SIGHASH_TAG: &[u8] = b"CopperootSighash";
 pub const COPPEROOT_LEAF_TAG: &[u8] = b"CopperootLeaf";
 pub const COPPEROOT_NODE_TAG: &[u8] = b"CopperootNode";
-pub const COPPEROOT_TAP_TWEAK_TAG: &[u8] = b"CopperTweak";
+pub const COPPEROOT_TWEAK_TAG: &[u8] = b"CopperTweak";
 pub const COPPEROOT_SCRIPT_PATH_TAG: &[u8] = b"CopperootScriptPath";
 pub const COPPEROOT_KEY_PATH_TAG: &[u8] = b"CopperootKeyPath";
 
@@ -34,9 +34,9 @@ pub fn tagged_hash(tag: &[u8], data: &[u8]) -> Hash {
 }
 
 /// Copperoot tap tweak hash
-pub fn copperoot_tap_tweak(internal_key: &[u8], merkle_root: Option<&[u8]>) -> Hash {
+pub fn copperoot_tweak(internal_key: &[u8], merkle_root: Option<&[u8]>) -> Hash {
     let mut hasher = Hasher::new();
-    hasher.update(COPPEROOT_TAP_TWEAK_TAG);
+    hasher.update(COPPEROOT_TWEAK_TAG);
     hasher.update(internal_key);
     if let Some(root) = merkle_root {
         hasher.update(root);
@@ -124,10 +124,10 @@ mod tests {
     }
 
     #[test]
-    fn test_copperoot_tap_tweak() {
+    fn test_copperoot_tweak() {
         let internal_key = b"internal_key_32_bytes_long_test_data";
         let merkle_root = b"merkle_root_32_bytes_long_test_data";
-        let hash = copperoot_tap_tweak(internal_key, Some(merkle_root));
+        let hash = copperoot_tweak(internal_key, Some(merkle_root));
         assert_eq!(hash.as_bytes().len(), 32);
     }
 
