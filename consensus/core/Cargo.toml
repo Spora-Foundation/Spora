@@ -18,6 +18,7 @@ default = []
 arc-swap.workspace = true
 async-trait.workspace = true
 bitcoin.workspace = true
+blake3.workspace = true
 borsh.workspace = true
 cfg-if.workspace = true
 faster-hex.workspace = true

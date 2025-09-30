@@ -4778,6 +4778,7 @@ dependencies = [
  "async-trait",
  "bincode",
  "bitcoin",
+ "blake3",
  "borsh",
  "cfg-if 1.0.0",
  "criterion",

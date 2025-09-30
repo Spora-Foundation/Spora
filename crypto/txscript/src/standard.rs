@@ -15,9 +15,11 @@ use tondi_txscript_errors::TxScriptError;
 
 mod multisig;
 mod taproot;
+mod copperoot;
 
 pub use multisig::{multisig_redeem_script, multisig_redeem_script_ecdsa, Error as MultisigCreateError};
 pub use taproot::witness::Witness;
+pub use copperoot::witness::CopperootWitness;
 
 /// Creates a new script to pay a transaction output to a 32-byte pubkey.
 fn pay_to_pub_key(address_payload: &[u8]) -> ScriptVec {
