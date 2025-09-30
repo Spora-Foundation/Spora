@@ -314,8 +314,8 @@ pub fn htlc_signature_script_with_timeout(redeem_script: Vec<u8>, signature: Vec
 
 /// Takes a script and returns an equivalent pay-to-script-hash script
 pub fn pay_to_script_hash_script(redeem_script: &[u8]) -> ScriptPublicKey {
-    // 使用 Blake3 替代 Blake2b
-    let redeem_script_hash = hash(redeem_script); // Blake3 的默认输出是 32 字节
+    // Use Blake3 instead of Blake2b
+    let redeem_script_hash = hash(redeem_script); // Blake3 default output is 32 bytes
     let script = pay_to_script_hash(redeem_script_hash.as_bytes());
     ScriptPublicKey::new(SCRIPT_VER_CLASSIC, script)
 }
@@ -473,7 +473,7 @@ mod tests {
             Test {
                 name: "Mainnet script with unknown version",
                 script_pub_key: ScriptPublicKey::new(
-                    SCRIPT_VER_COPPEROOT_VERKLE + 1, // 使用真正的未知版本
+                    SCRIPT_VER_COPPEROOT_VERKLE + 1, // Use a truly unknown version
                     ScriptVec::from_slice(
                         &hex::decode("207bc04196f1125e4f2676cd09ed14afb77223b1f62177da5488346323eaa91a69ac").unwrap(),
                     ),

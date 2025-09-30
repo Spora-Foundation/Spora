@@ -109,7 +109,7 @@ impl CopperootSighashType {
         use CopperootSighashType::*;
 
         match self {
-            Default => (All, false), // 关键修复：Default 语义等于 All
+            Default => (All, false), // Critical fix: Default semantics equals All
             All => (All, false),
             None => (None, false),
             Single => (Single, false),

@@ -15,12 +15,18 @@ Copperoot introduces a new script version system that replaces the legacy "Scrip
 
 ### Version Validation and Security
 
-The implementation enforces strict version validation:
+The implementation enforces strict version validation with format checking:
 
 1. **Unknown Version Rejection**: Scripts with versions > MAX_SCRIPT_PUBLIC_KEY_VERSION are rejected
-2. **Version-Based Classification**: ScriptClass determination is based solely on script version, not byte patterns
-3. **Control Block Consistency**: Control block versions must match script versions (0xC1 for Merkle, 0xC2 for Verkle)
-4. **Mempool Policy**: Unknown versions are rejected at the mempool level
+2. **Version-Based Classification**: ScriptClass determination uses version number for initial dispatch
+3. **Format Validation**: Each script version requires specific byte pattern validation:
+   - **Taproot**: Must match `OP_1 OP_DATA_32 <32B>` format
+   - **CopperootMerkle**: Must match `OP_1 OP_DATA_32 <32B>` format  
+   - **CopperootVerkle**: Must match `OP_1 OP_DATA_32 <32B>` format
+   - **Classic**: Legacy format validation for PubKey, PubKeyECDSA, ScriptHash
+4. **NonStandard Classification**: Scripts with correct version but wrong format are classified as NonStandard
+5. **Control Block Consistency**: Control block versions must match script versions (0xC1 for Merkle, 0xC2 for Verkle)
+6. **Mempool Policy**: Unknown versions and NonStandard scripts are rejected at the mempool level
 
 ## Current Implementation Status
 
@@ -28,11 +34,11 @@ Copperoot is currently implemented with the following features:
 
 - ✅ **BLAKE3-256 Hashing**: Complete implementation with domain separation
 - ✅ **Merkle Tree Support**: 8-layer depth limit with consensus validation
-- ✅ **MuSig2 Integration**: Standard musig2 crate integration with safety features
+- ✅ **MuSig2 Integration**: Complete two-round protocol implementation with wrapper API
 - ✅ **Address System**: CopperootMerkle address type with bech32m encoding
 - ✅ **Witness Structure**: Key-path and script-path spending with annex support
 - ✅ **Control Blocks**: Merkle proof support with strict validation
-- ✅ **Transaction Validation**: Mempool policy checks and standard transaction validation
+- ✅ **Transaction Validation**: Mempool policy checks and standard transaction validation with strict script format checking
 - ✅ **Test Suite**: Comprehensive test coverage including key spend and script spend validation
 - ⚠️ **Verkle Trees**: Reserved for future activation (currently disabled for mainnet)
 
@@ -100,14 +106,15 @@ Root (Level 0)
 - **Efficient Verification**: Faster proof verification compared to traditional Merkle trees
 - **Scalability**: Better performance for large script trees
 
-### 3. Standard MuSig2 Implementation
+### 3. Complete MuSig2 Implementation
 
-Copperoot uses the standard `musig2` crate for multi-signature functionality:
+Copperoot provides a complete MuSig2 implementation with a wrapper API that maintains compatibility while offering full two-round protocol functionality:
 
 - **Key Aggregation**: Combines multiple public keys into a single aggregated key
-- **Two-Round Protocol**: Standard MuSig2 signing protocol implementation
+- **Two-Round Protocol**: Complete MuSig2 signing protocol implementation with session management
+- **Wrapper API**: `MuSig2Session` and `MuSig2Round2` provide a clean interface over the underlying `musig2` crate
 - **BIP340 Compatibility**: Uses SHA256 for MuSig2 operations (BIP340 compliant)
-- **Standard Implementation**: Uses the well-tested `musig2` crate
+- **Session Management**: Built-in first round handling with nonce exchange
 - **Address Integration**: `Address::address_from_xonly()` for creating CopperootMerkle addresses from MuSig2 aggregated keys
 - **Safe Witness Support**: Multiple witness creation methods with validation
 - **Type Safety**: Automatic handling of secp256k1 version differences between musig2 and project dependencies
@@ -115,9 +122,12 @@ Copperoot uses the standard `musig2` crate for multi-signature functionality:
 #### MuSig2 Workflow
 
 1. **Key Aggregation**: Combine participant public keys using `KeyAggContext`
-2. **First Round**: Generate nonces and exchange public nonces
-3. **Second Round**: Create partial signatures and aggregate them
-4. **Verification**: Verify the final aggregated signature using BIP340 Schnorr
+2. **Session Creation**: Create `MuSig2Session` with built-in first round handling
+3. **Nonce Exchange**: Exchange public nonces between participants
+4. **Round 2 Transition**: Use `finalize_round2()` to enter second round
+5. **Partial Signature Exchange**: Exchange partial signatures
+6. **Finalization**: Use `finalize()` to get the aggregated signature
+7. **Verification**: Verify the final aggregated signature using BIP340 Schnorr
 
 #### Safe MuSig2 Interface
 
@@ -336,7 +346,7 @@ Copperoot maintains full backward compatibility with existing Taproot:
 
 - ✅ BLAKE3-256 hashing with domain separation
 - ✅ Merkle tree implementation (8-layer depth limit with consensus validation)
-- ✅ Standard MuSig2 implementation with address integration
+- ✅ Complete MuSig2 implementation with wrapper API and two-round protocol
 - ✅ Safe MuSig2 witness creation with validation
 - ✅ Enhanced control block structure with strict validation
 - ✅ Backward compatibility with Taproot
@@ -346,6 +356,7 @@ Copperoot maintains full backward compatibility with existing Taproot:
 - ✅ Comprehensive test coverage
 - ✅ MuSig2 misuse prevention and safety features
 - ✅ Mempool policy checks and standard transaction validation
+- ✅ Strict script format validation for all script versions
 - ✅ TapLike trait implementation for execution semantics
 
 ### Reserved Features (Future Activation)
@@ -418,8 +429,22 @@ let agg_xonly = XOnlyPublicKey::from_slice(&agg_pk.x_only_public_key().0.seriali
 let address = Address::address_from_xonly(Prefix::Mainnet, &agg_xonly.serialize())?;
 
 // 3. MuSig2 signing process (two rounds)
-// ... (MuSig2 protocol implementation)
-let sig: CompactSignature = r2_i.finalize()?;
+// Create sessions with built-in first round
+let mut s1 = MuSig2Session::new(key_agg.clone(), 0, &sk1, msg, NonceSeed([0; 32]))?;
+let mut s2 = MuSig2Session::new(key_agg.clone(), 1, &sk2, msg, NonceSeed([1; 32]))?;
+
+// Exchange nonces
+s1.receive_nonce(1, s2.our_public_nonce())?;
+s2.receive_nonce(0, s1.our_public_nonce())?;
+
+// Enter round 2 and exchange partial signatures
+let (mut r2_1, part1) = s1.finalize_round2(&sk1, msg)?;
+let (mut r2_2, part2) = s2.finalize_round2(&sk2, msg)?;
+
+if let Some(p2) = part2 { r2_1.receive_signature(1, p2)?; }
+if let Some(p1) = part1 { r2_2.receive_signature(0, p1)?; }
+
+let sig: CompactSignature = r2_1.finalize()?;
 
 // 4. Create witness with validation (RECOMMENDED)
 let msg32 = copperoot_sighash.to_byte_array();
@@ -744,14 +769,15 @@ Copperoot represents a significant advancement in Bitcoin's Taproot protocol, pr
 
 - **Modern Cryptography**: BLAKE3-256 for superior performance with domain separation
 - **Advanced Tree Structures**: Verkle trees for efficient proofs (reserved for future activation)
-- **Standard Multi-Signature**: MuSig2 using the standard `musig2` crate with safety features
+- **Complete Multi-Signature**: MuSig2 with full two-round protocol implementation and wrapper API
 - **Safe MuSig2 Interface**: Multiple witness creation methods with validation to prevent misuse
+- **Strict Validation**: Version-based script classification with format checking for all script types
 - **Dual Address Types**: CopperootMerkle (active) and CopperootVerkle (reserved) for clear protocol separation
 - **Backward Compatibility**: Seamless integration with existing systems
 - **Production-Ready**: Mempool validation, standard transaction checks, and comprehensive testing
 - **Robust Testing**: Full test coverage with proper error handling and edge case validation
 
-The implementation is production-ready for CopperootMerkle functionality and provides a solid foundation for next-generation Bitcoin applications requiring high performance, scalability, and advanced cryptographic features. The MuSig2 safety features ensure robust multi-signature operations while maintaining backward compatibility. CopperootVerkle functionality is reserved for future activation, with the Verkle tree implementation already in place but disabled for mainnet launch.
+The implementation is production-ready for CopperootMerkle functionality and provides a solid foundation for next-generation Bitcoin applications requiring high performance, scalability, and advanced cryptographic features. The complete MuSig2 implementation with wrapper API ensures robust multi-signature operations while maintaining backward compatibility. The strict script format validation prevents misclassification and ensures security. CopperootVerkle functionality is reserved for future activation, with the Verkle tree implementation already in place but disabled for mainnet launch.
 
 ## References
 

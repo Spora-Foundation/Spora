@@ -60,7 +60,7 @@ impl TryFrom<&[u8]> for CopperootWitness {
         let mut cur = Cursor::new(bytes);
         let inner = BtcWitness::consensus_decode(&mut cur)
             .map_err(|_| TxScriptError::InvalidTaprootWitness)?;
-        // 要求完整消耗
+        // Require complete consumption
         let mut rest = Vec::new();
         cur.read_to_end(&mut rest).map_err(|_| TxScriptError::InvalidTaprootWitness)?;
         if !rest.is_empty() {
@@ -191,7 +191,7 @@ impl CopperootWitness {
         if annex.first().copied() != Some(0x50) {
             return Err(TxScriptError::InvalidAnnexPrefix);
         }
-        // key-path + annex 的 witness 形状： [sig{+type?}], [annex] (annex at the end)
+        // key-path + annex witness shape: [sig{+type?}], [annex] (annex at the end)
         let tap = BtcTaprootSignature { signature, sighash_type: sighash_type.into() };
         let mut inner = BtcWitness::new();
         inner.push(tap.to_vec()); // bitcoin::taproot::Signature implements Encodable → to_vec()

@@ -91,6 +91,13 @@ impl ScriptClass {
         (script_public_key[1] == opcodes::codes::OpData32)
     }
 
+    /// pay-to-copperoot-verkle (P2CRV) format, false otherwise.
+    #[inline(always)]
+    pub fn is_pay_to_copperoot_verkle(script_public_key: &[u8]) -> bool {
+        (script_public_key.len() == 34) && // 2 opcodes number + 32 data
+        (script_public_key[0] == opcodes::codes::OpTrue) &&
+        (script_public_key[1] == opcodes::codes::OpData32)
+    }
 
     fn as_str(&self) -> &'static str {
         match self {
@@ -106,7 +113,7 @@ impl ScriptClass {
 
     pub fn version(&self) -> ScriptPublicKeyVersion {
         match self {
-            ScriptClass::NonStandard => 0,
+            ScriptClass::NonStandard => SCRIPT_VER_CLASSIC, // Avoid bare 0, use explicit constant
             ScriptClass::PubKey => SCRIPT_VER_CLASSIC,
             ScriptClass::PubKeyECDSA => SCRIPT_VER_CLASSIC,
             ScriptClass::ScriptHash => SCRIPT_VER_CLASSIC,
@@ -165,11 +172,11 @@ impl From<&ScriptPublicKey> for ScriptClass {
     fn from(script_public_key: &ScriptPublicKey) -> Self {
         let version = script_public_key.version();
         
-        // 严禁默许未知脚本版本 - 只基于版本号分派，不再检查字节模式
+        // Strictly reject unknown script versions - dispatch based on version number only, no byte pattern checking
         match version {
             SCRIPT_VER_CLASSIC => {
                 // Legacy script types (PubKey, PubKeyECDSA, ScriptHash)
-                // 对于Legacy版本，仍然需要检查字节模式来区分具体类型
+                // For Legacy versions, still need to check byte patterns to distinguish specific types
                 let script = script_public_key.script();
                 if Self::is_pay_to_pubkey(script) {
                     ScriptClass::PubKey
@@ -181,10 +188,34 @@ impl From<&ScriptPublicKey> for ScriptClass {
                     ScriptClass::NonStandard
                 }
             }
-            SCRIPT_VER_TAPROOT => ScriptClass::Taproot,
-            SCRIPT_VER_COPPEROOT_MERKLE => ScriptClass::CopperootMerkle,
-            SCRIPT_VER_COPPEROOT_VERKLE => ScriptClass::CopperootVerkle,
-            _ => ScriptClass::NonStandard, // 未知版本直接标记为非标准
+            SCRIPT_VER_TAPROOT => {
+                // Validate Taproot script format
+                let script = script_public_key.script();
+                if Self::is_pay_to_taproot(script) {
+                    ScriptClass::Taproot
+                } else {
+                    ScriptClass::NonStandard
+                }
+            }
+            SCRIPT_VER_COPPEROOT_MERKLE => {
+                // Validate Copperoot Merkle script format
+                let script = script_public_key.script();
+                if Self::is_pay_to_copperoot_merkle(script) {
+                    ScriptClass::CopperootMerkle
+                } else {
+                    ScriptClass::NonStandard
+                }
+            }
+            SCRIPT_VER_COPPEROOT_VERKLE => {
+                // Validate Copperoot Verkle script format
+                let script = script_public_key.script();
+                if Self::is_pay_to_copperoot_verkle(script) {
+                    ScriptClass::CopperootVerkle
+                } else {
+                    ScriptClass::NonStandard
+                }
+            }
+            _ => ScriptClass::NonStandard, // Unknown versions are directly marked as non-standard
         }
     }
 }
@@ -239,7 +270,7 @@ mod tests {
             Test {
                 name: "non standard script (unexpected version)",
                 script: hex::decode("204a23f5eef4b2dead811c7efb4f1afbd8df845e804b6c36a4001fc096e13f8151ac").unwrap(),
-                version: SCRIPT_VER_COPPEROOT_VERKLE + 1, // 使用真正的未知版本
+                version: SCRIPT_VER_COPPEROOT_VERKLE + 1, // Use a truly unknown version
                 class: ScriptClass::NonStandard,
             },
             Test {
@@ -252,6 +283,24 @@ mod tests {
                 name: "non standard script (unexpected final check sig op)",
                 script: hex::decode("204a23f5eef4b2dead811c7efb4f1afbd8df845e804b6c36a4001fc096e13f8151ad").unwrap(),
                 version: SCRIPT_VER_CLASSIC,
+                class: ScriptClass::NonStandard,
+            },
+            Test {
+                name: "non standard taproot script (wrong format)",
+                script: hex::decode("204a23f5eef4b2dead811c7efb4f1afbd8df845e804b6c36a4001fc096e13f8151ac").unwrap(), // Wrong format for taproot
+                version: SCRIPT_VER_TAPROOT,
+                class: ScriptClass::NonStandard,
+            },
+            Test {
+                name: "non standard copperoot merkle script (wrong format)",
+                script: hex::decode("204a23f5eef4b2dead811c7efb4f1afbd8df845e804b6c36a4001fc096e13f8151ac").unwrap(), // Wrong format for copperoot merkle
+                version: SCRIPT_VER_COPPEROOT_MERKLE,
+                class: ScriptClass::NonStandard,
+            },
+            Test {
+                name: "non standard copperoot verkle script (wrong format)",
+                script: hex::decode("204a23f5eef4b2dead811c7efb4f1afbd8df845e804b6c36a4001fc096e13f8151ac").unwrap(), // Wrong format for copperoot verkle
+                version: SCRIPT_VER_COPPEROOT_VERKLE,
                 class: ScriptClass::NonStandard,
             },
         ];

@@ -22,8 +22,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .payload(Some(payload_data.clone()))?; // Add payload data
 
     println!("   ✓ Successfully created a PSTT with payload");
-    println!("   ✓ Payload数据: {:?}", pstt_with_payload.global.payload);
-    println!("   ✓ PSTT版本: {:?}", pstt_with_payload.global.version);
+    println!("   ✓ Payload data: {:?}", pstt_with_payload.global.payload);
+    println!("   ✓ PSTT version: {:?}", pstt_with_payload.global.version);
 
     // Example 2: Try to set payload on Version::Zero (should fail)
     println!("\n2. Try to set payload on Version::Zero:");

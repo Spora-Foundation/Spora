@@ -102,7 +102,7 @@ blake3_hasher! {
     struct TransactionSigningHashECDSA => b"TransactionSigningHashECDSA",
 }
 
-// 为Schnorr签名添加专门的SHA256哈希器
+// Add dedicated SHA256 hasher for Schnorr signatures
 macro_rules! sha256_hasher {
     ($(struct $name:ident => $domain_sep:literal),+ $(,)?) => {
         $(

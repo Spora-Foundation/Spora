@@ -200,10 +200,10 @@ impl Mempool {
                     return Err(NonStandardError::RejectInputScriptClass(transaction_id, i));
                 }
                 ScriptClass::PubKey | ScriptClass::PubKeyECDSA => {
-                    // 标准脚本类型，直接通过
+                    // Standard script types, pass directly
                 }
                 ScriptClass::ScriptHash => {
-                    // P2SH sigops 上限检查
+                    // P2SH sigops upper limit check
                     let num_sig_ops = get_sig_op_count_upper_bound::<PopulatedTransaction, SigHashReusedValuesUnsync>(
                         &input.signature_script,
                         &entry.script_public_key,
@@ -213,7 +213,7 @@ impl Mempool {
                     }
                 }
                 ScriptClass::Taproot => {
-                    // Taproot 见证层策略检查
+                    // Taproot witness layer policy check
                     if let Err(e) = self.policy_check_taplike_witness(&input.signature_script, false) {
                         return Err(match e {
                             NonStandardError::RejectWitnessParse(_, _) => NonStandardError::RejectWitnessParse(transaction_id, i),
@@ -224,7 +224,7 @@ impl Mempool {
                     }
                 }
                 ScriptClass::CopperootMerkle => {
-                    // P2CRM 见证层策略检查
+                    // P2CRM witness layer policy check
                     if let Err(e) = self.policy_check_taplike_witness(&input.signature_script, true) {
                         return Err(match e {
                             NonStandardError::RejectWitnessParse(_, _) => NonStandardError::RejectWitnessParse(transaction_id, i),
@@ -235,7 +235,7 @@ impl Mempool {
                     }
                 }
                 ScriptClass::CopperootVerkle => {
-                    // P2CRV 主网未启用：直接拒绝
+                    // P2CRV not enabled on mainnet: reject directly
                     return Err(NonStandardError::RejectInputScriptClass(transaction_id, i));
                 }
             }

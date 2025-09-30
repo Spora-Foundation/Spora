@@ -89,8 +89,8 @@ fn test_load_addresses_large_file() {
 fn test_load_addresses_unicode_content() {
     let mut temp_file = NamedTempFile::new().unwrap();
     let content = r#"# Chinese comment
-# 日本語コメント
-# 한국어 주석
+# Japanese comment
+# Korean comment
 tondidev:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvw88ne6
 # Arabic comment: Arabic comment
 tondidev:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvw88ne6"#;

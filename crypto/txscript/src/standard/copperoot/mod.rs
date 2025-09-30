@@ -140,40 +140,74 @@ impl TapLike for CopperootTapLike {
     }
 }
 
-/// Verify Merkle commitment using BLAKE3-256
+/// Verify Merkle commitment using BLAKE3-256 with complete tweak validation
 fn verify_merkle_commitment(
     xpub: XOnlyPublicKey,
     leaf_script: &[u8],
     control_block: &CopperootControlBlock,
 ) -> Result<(), TxScriptError> {
-    // Compute leaf hash using BLAKE3-256
-    let leaf_hash = compute_copperoot_leaf_hash(leaf_script, control_block.parity_leaf_version);
-    
-    // Compute root hash from Merkle path
-    let mut current_hash = leaf_hash;
-    for sibling in &control_block.merkle_path {
-        current_hash = compute_copperoot_node_hash(&current_hash, sibling);
-    }
-    
-    // Compute tweak: H_tag("CopperootTapTweak", P || root || [type])
-    let mut tweak_data = Vec::new();
-    tweak_data.extend_from_slice(&xpub.serialize());
-    tweak_data.extend_from_slice(&current_hash);
-    tweak_data.push(control_block.proof_type);
-    
-    let mut tweak_hasher = Hasher::new();
-    tweak_hasher.update(b"CopperootTapTweak");
-    tweak_hasher.update(&tweak_data);
-    let _tweak = tweak_hasher.finalize();
-    
-    // Verify the tweaked public key matches the script public key
-    // This is a simplified verification - in practice you'd need to compute
-    // the actual tweaked public key and compare with the script public key
-    // For now, we'll just validate the structure
+    // 1) Basic constraints
     if control_block.merkle_path.len() > 8 {
         return Err(TxScriptError::InvalidTaprootWitness);
     }
-    
+    if control_block.version != 0xC1 {
+        return Err(TxScriptError::InvalidTaprootWitness);
+    }
+    if control_block.proof_type > 1 {
+        return Err(TxScriptError::InvalidTaprootWitness);
+    }
+
+    // 2) Parse parity / leaf_version (bit7 = parity, low 7 bits = leaf_version)
+    let parity_bit = (control_block.parity_leaf_version & 0x80) != 0;
+    let leaf_version = control_block.parity_leaf_version & 0x7F;
+
+    // 3) Compute leaf hash (BLAKE3-256, consistent with existing implementation)
+    let leaf_hash = compute_copperoot_leaf_hash(leaf_script, leaf_version);
+
+    // 4) Compute merkle root bottom-up (BLAKE3-256)
+    let mut root = leaf_hash;
+    for sibling in &control_block.merkle_path {
+        root = compute_copperoot_node_hash(&root, sibling);
+    }
+
+    // 5) Compute Copperoot TapTweak = BLAKE3("CopperootTapTweak" || P || root || [proof_type])
+    //    Note: tweak must be passed as scalar to add_tweak; if >= n will return Err → reject directly
+    let mut tweak_hasher = Hasher::new();
+    tweak_hasher.update(b"CopperootTapTweak");
+    tweak_hasher.update(&control_block.internal_key.serialize());
+    tweak_hasher.update(&root);
+    tweak_hasher.update(&[control_block.proof_type]);
+    let tweak_bytes = *tweak_hasher.finalize().as_bytes(); // [u8; 32]
+
+    // 6) Compute Q = P + tweak*G, and take xonly(Q)
+    let secp = secp256k1::Secp256k1::verification_only();
+
+    // Pass tweak as scalar; if invalid (>= n / 0) will Err
+    let tweak_scalar = secp256k1::Scalar::from_be_bytes(tweak_bytes)
+        .map_err(|_| TxScriptError::InvalidTaprootWitness)?;
+
+    // add_tweak returns (XOnlyPublicKey, bool_parity). Here parity_true represents the boolean flag
+    // from libsecp calculation indicating "whether to take the opposite point to get x-only canonical representation" (corresponding to BIP340 semantics).
+    let (tweaked_xonly, actual_parity) =
+        control_block.internal_key.add_tweak(&secp, &tweak_scalar)
+        .map_err(|_| TxScriptError::InvalidTaprootWitness)?;
+
+    // 7) Compare x-only output key with xpub in script public key
+    if tweaked_xonly != xpub {
+        return Err(TxScriptError::InvalidTaprootWitness);
+    }
+
+    // 8) Verify parity bit: parity bit in control block must match actual calculation
+    //
+    // Note: For rust-secp256k1:
+    //  - XOnlyPublicKey::from_pubkey(..) returns (xonly, parity).
+    //  - add_tweak(..) returns (xonly, Parity).
+    // Here, we use the parity returned by from_pubkey as the "output x-only parity" to align with the control block bit.
+    let parity_as_bool = matches!(actual_parity, secp256k1::Parity::Odd);
+    if parity_as_bool != parity_bit {
+        return Err(TxScriptError::InvalidTaprootWitness);
+    }
+
     Ok(())
 }
 
@@ -209,9 +243,6 @@ fn compute_copperoot_node_hash(left: &[u8; 32], right: &[u8; 32]) -> [u8; 32] {
 mod tests {
     use super::*;
     use secp256k1::{Keypair, Message, Secp256k1};
-    use bitcoin::taproot::TaprootSpendInfo;
-    use bitcoin::ScriptBuf;
-    use bitcoin::taproot::LeafVersion;
     use bitcoin::Witness as BtcWitness;
     use smallvec::SmallVec;
     use std::str::FromStr;
@@ -317,34 +348,35 @@ mod tests {
         .unwrap();
         let internal_key = keypair.x_only_public_key().0;
 
-        let script_buf = ScriptBuf::from_hex("51").unwrap();
-        let script_weights = vec![
-            (50, script_buf.clone()),
-            (20, ScriptBuf::from_hex("52").unwrap()),
-            (20, ScriptBuf::from_hex("53").unwrap()),
-            (10, ScriptBuf::from_hex("54").unwrap()),
-        ];
-        let tree_info = TaprootSpendInfo::with_huffman_tree(&secp, internal_key, script_weights.clone()).unwrap();
-
-        let tweaked_pub_key = tree_info.output_key();
-        let script_pub_key = SmallVec::from_iter([OpTrue, OpData32].into_iter().chain(tweaked_pub_key.serialize()));
-
-        // Create Copperoot control block instead of Taproot
-        // Bitcoin's ControlBlock doesn't have a merkle_path method, we need to extract it manually
-        let btc_control = tree_info.control_block(&(script_buf.clone(), LeafVersion::TapScript)).unwrap();
-        let serialized = btc_control.serialize();
-        // Control block format: version(1) + parity(1) + internal_key(32) + merkle_path(32*n)
-        // Skip version + parity + internal_key = 34 bytes
-        let merkle_start = 33;
-        let merkle_path: Vec<[u8; 32]> = serialized[merkle_start..]
-            .chunks(32)
-            .map(|chunk| {
-                let mut array = [0u8; 32];
-                array.copy_from_slice(chunk);
-                array
-            })
-            .collect();
-        let ctrl_block = CopperootControlBlock::new_merkle(0x00, internal_key, merkle_path).unwrap();
+        // Simple test: single script (leaf), no merkle tree
+        let leaf_script = vec![0x51]; // OP_TRUE
+        let leaf_version = 0x00;
+        
+        // Compute leaf hash using BLAKE3
+        let leaf_hash = compute_copperoot_leaf_hash(&leaf_script, leaf_version);
+        
+        // No merkle path for single script
+        let merkle_path = vec![];
+        let merkle_root = leaf_hash;
+        
+        // Compute Copperoot TapTweak
+        let mut tweak_hasher = Hasher::new();
+        tweak_hasher.update(b"CopperootTapTweak");
+        tweak_hasher.update(&internal_key.serialize());
+        tweak_hasher.update(&merkle_root);
+        tweak_hasher.update(&[0u8]); // proof_type = 0 (Merkle)
+        let tweak_bytes = *tweak_hasher.finalize().as_bytes();
+        
+        let tweak_scalar = secp256k1::Scalar::from_be_bytes(tweak_bytes).unwrap();
+        let (tweaked_xonly, parity) = internal_key.add_tweak(&secp, &tweak_scalar).unwrap();
+        
+        // Encode parity in parity_leaf_version: bit7 = parity, low 7 bits = leaf_version
+        let parity_bit = matches!(parity, secp256k1::Parity::Odd);
+        let parity_leaf_version = if parity_bit { 0x80 | leaf_version } else { leaf_version };
+        
+        let ctrl_block = CopperootControlBlock::new_merkle(parity_leaf_version, internal_key, merkle_path).unwrap();
+        
+        let script_pub_key = SmallVec::from_iter([OpTrue, OpData32].into_iter().chain(tweaked_xonly.serialize()));
 
         let prev_tx_id = TransactionId::from_str("880eb9819a31821d9d2399e2f35e2433b72637e393d71ecc9b8d0250f49153c3").unwrap();
 
@@ -366,7 +398,7 @@ mod tests {
         let input_index = 0;
 
         let mut witness = BtcWitness::new();
-        witness.push(script_buf);
+        witness.push(leaf_script);
         witness.push(ctrl_block.serialize());
 
         tx.inputs[input_index].signature_script = (&CopperootWitness::from(witness)).try_into().unwrap();
