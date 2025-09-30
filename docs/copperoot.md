@@ -20,12 +20,12 @@ The implementation enforces strict version validation with format checking:
 1. **Unknown Version Rejection**: Scripts with versions > MAX_SCRIPT_PUBLIC_KEY_VERSION are rejected
 2. **Version-Based Classification**: ScriptClass determination uses version number for initial dispatch
 3. **Format Validation**: Each script version requires specific byte pattern validation:
-   - **Taproot**: Must match `OP_1 OP_DATA_32 <32B>` format
-   - **CopperootMerkle**: Must match `OP_1 OP_DATA_32 <32B>` format  
-   - **CopperootVerkle**: Must match `OP_1 OP_DATA_32 <32B>` format
+   - **Taproot**: Must match `OP_1 <32-byte x-only pubkey>` format
+   - **CopperootMerkle**: Must match `OP_1 <32-byte x-only pubkey>` format  
+   - **CopperootVerkle**: Must match `OP_1 <32-byte x-only pubkey>` format
    - **Classic**: Legacy format validation for PubKey, PubKeyECDSA, ScriptHash
 4. **NonStandard Classification**: Scripts with correct version but wrong format are classified as NonStandard
-5. **Control Block Consistency**: Control block versions must match script versions (0xC1 for Merkle, 0xC2 for Verkle)
+5. **Control Block Consistency**: Control block TLV extensions must match script versions (ProofType 0x00 for Merkle, 0x01 for Verkle)
 6. **Mempool Policy**: Unknown versions and NonStandard scripts are rejected at the mempool level
 
 ## Current Implementation Status
@@ -64,7 +64,7 @@ Copperoot replaces SHA256 with BLAKE3-256 for all cryptographic operations, prov
 CopperootSighash(data)     // For signature hash computation
 CopperootLeaf(version, script)  // For script leaf hashing
 CopperootNode(left, right)      // For Merkle tree nodes
-CopperootTapTweak(internal_key, merkle_root)  // For key tweaking
+CopperTweak(internal_key, merkle_root)  // For key tweaking
 
 // Additional domain separation tags for sighash computation
 Amounts(data)              // For input amounts encoding
@@ -87,12 +87,13 @@ Copperoot implements Merkle tree functionality with:
 
 ### 4. Verkle Tree Support (Future)
 
-Copperoot introduces Verkle tree functionality with:
+Copperoot introduces Verkle tree functionality with TLV-based version isolation for future protocol extensions:
 
 - **8-Layer Depth Limit**: Prevents excessive tree depth while maintaining flexibility
 - **256-ary Branching**: Each node can have up to 256 children
 - **IPA Commitments**: Uses Inner Product Argument (IPA) for efficient proof generation
 - **secp256k1 Compatibility**: Fully compatible with Bitcoin's elliptic curve
+- **TLV Version Isolation**: Clear separation from Merkle trees using TLV ProofType
 - **Mainnet Disabled**: Currently disabled for mainnet launch, reserved for future activation
 
 #### Verkle Tree Structure
@@ -106,11 +107,60 @@ Root (Level 0)
 └── ... (up to 256 children per node)
 ```
 
+#### TLV-Based Version Isolation
+
+Verkle trees use TLV extensions to provide clear version isolation and future extensibility:
+
+**Control Block TLV for Verkle**:
+```
+Control Block Structure (Verkle):
+- Parity + Leaf Version (1 byte): BIP341 compatible layout
+- Internal Public Key (32 bytes)
+- TLV Extensions (variable length):
+  - Type 0x01: ProofType = 0x01 (Verkle) - RESERVED
+  - Type 0x02: HashScheme = 0x01 (BLAKE3)
+  - Type 0x03: TreeScheme = 0x01 (Verkle) - RESERVED
+  - Type 0x11: VerkleProof (variable) - Path length + commitments + leaf data
+  - Type 0x12-0x1F: Reserved for future Verkle proof types
+```
+
+**Future Extensibility**:
+- **v4 CopperootKZG**: Potential future version using KZG commitments
+- **v5 CopperootPlonk**: Potential future version using PLONK proofs
+- **TLV Type Expansion**: New proof types can be added without breaking existing functionality
+- **Cross-Chain Isolation**: ChainID/GenesisHash TLV prevents cross-chain replay attacks
+
 #### Benefits
 
 - **Compact Proofs**: Verkle proofs are much smaller than Merkle proofs
 - **Efficient Verification**: Faster proof verification compared to traditional Merkle trees
 - **Scalability**: Better performance for large script trees
+- **Version Isolation**: TLV-based separation prevents confusion between Merkle and Verkle
+- **Future-Proof**: Extensible design supports future proof systems without breaking changes
+
+#### When Verkle Trees Become Essential
+
+Verkle trees provide significant advantages over Merkle trees in specific scenarios where Copperoot needs to scale beyond basic Taproot functionality:
+
+**Large State / Contract Storage (Account/VM/RGBX Client State)**:
+- **Key-Value Mass Storage**: Verkle's flattened key paths + aggregated proofs enable efficient batch queries (multiple keys proven simultaneously) with reduced volume and easier stateless synchronization
+- **Contract Storage**: If Tondi needs to support contract storage or large-scale asset mappings, Verkle trees provide significant value
+- **RGBX Client State**: Large RGB state trees benefit from Verkle's compact proofs and efficient verification
+
+**Stateless / Light Client Architecture**:
+- **Stateless Execution Design**: Blocks only provide Verkle witnesses for changed keys, allowing full nodes to verify without persisting complete state
+- **Client Verification + Anchoring**: Particularly friendly for RGBX/Nexus patterns where mobile light wallets need faster synchronization
+- **Reduced Storage Requirements**: Light clients can verify state transitions without downloading entire state trees
+
+**Multi-Proof Aggregation (Batch Spending / Multi-Contract Same Block)**:
+- **Proof Deduplication**: Verkle trees can deduplicate/aggregate multiple leaf proofs under the same parent node, resulting in smaller block witnesses
+- **Batch Operations**: Suitable for large-scale multi-party multi-contract same-block settlements (exchange custody deposits/withdrawals, rollup settlements, batch channel closures)
+- **Cross-Contract Aggregation**: Multiple contracts can share proof components, reducing overall witness size
+
+**Future ZK Integration**:
+- **KZG Commitments**: Potential integration with KZG commitments or IPA outer layer + ZK recursion to compress "state correctness" into short proofs
+- **L2 Assertion + Main Chain Sampling**: Combination of "L2 assertions + main chain sampling" provides more scalability potential than pure Merkle trees
+- **ZK Recursive Proofs**: Verkle structure naturally supports ZK recursive proof systems for enhanced privacy and scalability
 
 ### 5. Complete MuSig2 Implementation
 
@@ -213,25 +263,347 @@ The `p2cr_key_spend_from_musig2_checked` function prevents common misuse pattern
 4. **Sighash Mismatch**: Sighash type must match the message used for signing
 5. **Version Conflicts**: Automatic handling of secp256k1 version differences
 
-### 6. Enhanced Control Block Structure
+### 6. TLV (Type-Length-Value) Extensibility Framework
 
-Copperoot extends the control block to support both Merkle and Verkle proofs:
+Copperoot introduces a comprehensive TLV framework that provides forward compatibility and extensibility for future protocol enhancements. While TLV is not required for basic Taproot functionality, it becomes essential for Copperoot's advanced features and future extensions like Verkle trees and RGB integration.
+
+#### Why TLV is Essential for Copperoot
+
+**Extensibility and Future-Proofing**:
+- Taproot's witness and control block formats are fixed, with BIP341 providing no reserved fields for future upgrades
+- Adding new proof types (Verkle), additional commitments (RGB roots), chain ID isolation, or DA reference hashes without TLV would require hardcoding in fixed byte positions, leading to conflicts
+- TLV enables graceful handling: unknown fields are ignored, known fields are strictly validated, allowing mainnet upgrades where old nodes "compatibly reject" while new nodes "fully validate" without causing forks
+
+**Version Isolation**:
+- Current versions include v2 CopperootMerkle and v3 CopperootVerkle, with potential future v4 CopperootKZG
+- Using "first byte differentiation" becomes increasingly complex and error-prone
+- TLV allows clear specification in control blocks: `type=ProofType, value=Merkle/Verkle/KZG`, while also carrying `SchemeID`, `RootHash`, and `Namespace` information
+
+**Cross-Layer Information Carrying (RGB Integration)**:
+- RGB commitments need to be attached to transactions, but transaction scripts only understand "Taproot spending"
+- TLV provides a clean mechanism to inform clients that a transaction anchors `RGBX_ROOT = blake3(...)`
+- Wallets and light clients can read TLV to quickly identify RGB transactions and fetch proofs from indexers or P2P networks
+- Nodes that don't support RGB can ignore unknown TLV fields while still validating Merkle/Taproot components
+
+**Security and Future-Proofing**:
+- TLV is inherently a parse-safe format: read type, then length, then value, making errors easily detectable
+- Prevents data misalignment where fields are incorrectly interpreted as other components
+- Future extensions like annex enhancements, Verkle proofs, or batch proof pointers can be added by defining new types without polluting original fields
+
+#### Enhanced Control Block Structure
+
+Copperoot extends the control block to support both Merkle and Verkle proofs with TLV extensions:
 
 ```
-Control Block Structure:
-- Version (1 byte): 0xC1 (Copperoot identifier)
-- Parity + Leaf Version (1 byte)
+Control Block Structure (TLV Format):
+- Parity + Leaf Version (1 byte): BIP341 compatible layout
 - Internal Public Key (32 bytes)
-- Proof Type (1 byte): 0x00 (Merkle) or 0x01 (Verkle proof - RESERVED)
-- Proof Data (variable length):
-  - Merkle: Path length (1 byte) + sibling hashes (32 bytes each)
-  - Verkle: Path length (1 byte) + commitments (33 bytes each) + leaf data
+- TLV Extensions (variable length):
+  - Type 0x01: ProofType (1 byte) - 0x00 (Merkle) or 0x01 (Verkle - RESERVED)
+  - Type 0x02: HashScheme (1 byte) - 0x00 (SHA256) or 0x01 (BLAKE3)
+  - Type 0x03: TreeScheme (1 byte) - 0x00 (Merkle) or 0x01 (Verkle - RESERVED)
+  - Type 0x04: ChainID/GenesisHash (32 bytes) - Cross-chain replay protection
+  - Type 0x10: MerkleProof (variable) - Path length + sibling hashes
+  - Type 0x11: VerkleProof (variable) - Path length + commitments + leaf data
+  - Type 0x12-0x1F: Reserved for future proof types
+  - Unknown TLV types must be ignored (forward compatibility)
 ```
 
 **Mainnet Launch Status**:
 - Proof Type 0x00: Active for CopperootMerkle (Merkle tree)
 - Proof Type 0x01: Reserved for CopperootVerkle (Verkle tree) - INACTIVE
 - Annex Type V: Reserved for Verkle proofs - INACTIVE
+
+#### TLV Encoding Specification
+
+The TLV (Type-Length-Value) format provides forward compatibility and extensibility:
+
+```
+TLV Structure:
+- Type (1 byte): TLV type identifier
+- Length (varint): Length of value field
+- Value (variable): TLV payload
+
+Control Block TLV Types:
+- 0x01: ProofType (1 byte) - 0x00=Merkle, 0x01=Verkle(RESERVED)
+- 0x02: HashScheme (1 byte) - 0x00=SHA256, 0x01=BLAKE3
+- 0x03: TreeScheme (1 byte) - 0x00=Merkle, 0x01=Verkle(RESERVED)
+- 0x04: ChainID/GenesisHash (32 bytes) - Cross-chain replay protection
+- 0x10: MerkleProof (variable) - Path length (1 byte) + sibling hashes (32 bytes each)
+- 0x11: VerkleProof (variable) - Path length (1 byte) + commitments (33 bytes each) + leaf data
+- 0x12-0x1F: Reserved for future proof types
+- Unknown types: Must be ignored (forward compatibility)
+```
+
+#### Annex TLV Extensions
+
+The BIP341 annex provides a "free zone" for additional data that doesn't affect consensus validation. Copperoot leverages this for RGB integration and other cross-layer information:
+
+```
+Annex TLV Structure (BIP341 Annex):
+- Annex Marker: 0x50 (required prefix)
+- TLV Extensions (variable length):
+  - Type 0x20: RGBX_ROOT (32 bytes) - RGB commitment root hash
+  - Type 0x21: RGBX_PROOF_REF (variable) - Cartridge CID/hash reference
+  - Type 0x22: StateEpoch (8 bytes) - RGB state epoch identifier
+  - Type 0x23: Namespace (variable) - RGB namespace identifier
+  - Type 0x24: BatchProofRef (variable) - Reference to batch proof data
+  - Type 0x25: DAHash (32 bytes) - Data availability reference hash
+  - Type 0x26-0x2F: Reserved for RGB extensions
+  - Type 0x30-0x3F: Reserved for future protocol extensions
+  - Unknown types: Must be ignored (forward compatibility)
+```
+
+#### Witness TLV Extensions
+
+Witness TLV extensions can carry additional parameters after script input parameters:
+
+```
+Witness TLV Structure (after script inputs):
+- Type 0x40: MultiSigAggParams (variable) - Multi-signature aggregation parameters
+- Type 0x41: VersionFlags (4 bytes) - Version and feature flags
+- Type 0x42: ProofFragments (variable) - Aggregated proof fragments
+- Type 0x43: BatchCommitment (32 bytes) - Batch operation commitment
+- Type 0x44-0x4F: Reserved for witness extensions
+- Unknown types: Must be ignored (forward compatibility)
+```
+
+#### Test Vectors
+
+**Test Vector 1: CopperootMerkle Key Spend**
+```
+ScriptPubKey: 5120<32-byte x-only pubkey>
+Witness: [64-byte signature]
+Address: tondi1cr... (v2 witness version)
+```
+
+**Test Vector 2: CopperootMerkle Script Spend with Merkle Proof**
+```
+ScriptPubKey: 5120<32-byte x-only pubkey>
+Witness: [input_items..., script, control_block]
+Control Block: [parity_leaf_version(1)] [internal_key(32)] [TLV_extensions...]
+TLV Extensions:
+  - Type 0x01, Length 1, Value 0x00 (Merkle)
+  - Type 0x02, Length 1, Value 0x01 (BLAKE3)
+  - Type 0x10, Length 65, Value [path_len(1)] [sibling_hashes(32*2)]
+```
+
+**Test Vector 3: CopperootMerkle with Annex**
+```
+Witness: [signature, annex]
+Annex: [0x50, ...] (must start with 0x50, positioned as second-to-last)
+```
+
+**Test Vector 4: Unknown TLV Ignored (Forward Compatibility)**
+```
+Control Block: [parity_leaf_version(1)] [internal_key(32)] [TLV_extensions...]
+TLV Extensions:
+  - Type 0x01, Length 1, Value 0x00 (Merkle) - recognized
+  - Type 0xFF, Length 4, Value [0x12, 0x34, 0x56, 0x78] - ignored
+  - Type 0x10, Length 33, Value [path_len(1)] [sibling_hash(32)] - recognized
+```
+
+**Test Vector 5: Invalid Control Block (Missing Required TLV)**
+```
+Control Block: [parity_leaf_version(1)] [internal_key(32)] [TLV_extensions...]
+TLV Extensions:
+  - Type 0x02, Length 1, Value 0x01 (BLAKE3) - missing ProofType
+Result: INVALID (ProofType 0x01 is required)
+```
+
+**Test Vector 6: RGB Integration with Annex TLV**
+```
+Witness: [signature, annex]
+Annex: [0x50, TLV_extensions...]
+TLV Extensions:
+  - Type 0x20, Length 32, Value [RGBX_ROOT_HASH] - RGB commitment root
+  - Type 0x22, Length 8, Value [STATE_EPOCH] - RGB state epoch
+  - Type 0x23, Length 16, Value [NAMESPACE_ID] - RGB namespace
+Result: VALID - RGB-aware nodes process RGB data, others ignore TLV
+```
+
+**Test Vector 7: Forward Compatibility with Unknown TLV**
+```
+Control Block: [parity_leaf_version(1)] [internal_key(32)] [TLV_extensions...]
+TLV Extensions:
+  - Type 0x01, Length 1, Value 0x00 (Merkle) - recognized
+  - Type 0xFF, Length 4, Value [0x12, 0x34, 0x56, 0x78] - unknown, ignored
+  - Type 0x10, Length 33, Value [path_len(1)] [sibling_hash(32)] - recognized
+Result: VALID - unknown TLV types are ignored for forward compatibility
+```
+
+### 7. RGB Integration with TLV Framework
+
+Copperoot's TLV framework provides a clean mechanism for RGB (Red-Green-Blue) protocol integration, enabling cross-layer information carrying without modifying Tondi's consensus rules.
+
+#### RGB on Tondi Integration Points
+
+**Key RGB Requirements**:
+- Multi-asset and multi-state key commitments (batch transfers, AMM, NFT)
+- Light client synchronization (stateless verification)
+- Cross-contract aggregated proofs
+- Clean separation from Bitcoin/Taproot consensus
+
+**Copperoot TLV Solution**:
+- **Merkle Trees**: Small state (single transfers) → short proofs, suitable for TLV-carrying RGBX_ROOT, mainnet only anchors the root
+- **Verkle Trees**: Large state (AMM, batch withdrawals) → aggregatable proofs, TLV carries RGBX_ROOT + ProofType=Verkle, client-side validation
+- **TLV Value**: RGB can attach commitments and proof references without changing Tondi consensus rules, providing clean isolation without polluting BTC/Taproot core
+
+#### RGB TLV Usage Examples
+
+**Small State RGB Transaction (Merkle)**:
+```
+Control Block TLV:
+  - Type 0x01: ProofType = 0x00 (Merkle)
+  - Type 0x02: HashScheme = 0x01 (BLAKE3)
+  - Type 0x10: MerkleProof = [path_len, sibling_hashes...]
+
+Annex TLV:
+  - Type 0x20: RGBX_ROOT = blake3(rgb_state_root)
+  - Type 0x22: StateEpoch = current_epoch
+  - Type 0x23: Namespace = rgb_contract_namespace
+
+Result: Mainnet validates Merkle proof, RGB clients process RGB data
+```
+
+**Large State RGB Transaction (Verkle - Future)**:
+```
+Control Block TLV:
+  - Type 0x01: ProofType = 0x01 (Verkle) - RESERVED
+  - Type 0x02: HashScheme = 0x01 (BLAKE3)
+  - Type 0x11: VerkleProof = [path_len, commitments, leaf_data...]
+
+Annex TLV:
+  - Type 0x20: RGBX_ROOT = blake3(aggregated_rgb_state)
+  - Type 0x21: RGBX_PROOF_REF = cartridge_cid
+  - Type 0x24: BatchProofRef = batch_proof_identifier
+
+Result: Verkle-aware nodes validate proofs, RGB clients process batch data
+```
+
+#### RGB Client Integration
+
+**Wallet/Light Client Workflow**:
+1. **Transaction Detection**: Parse TLV to identify RGB transactions
+2. **RGB Data Extraction**: Extract RGBX_ROOT, StateEpoch, Namespace from annex TLV
+3. **Proof Fetching**: Use RGBX_PROOF_REF to fetch proofs from RGB indexers or P2P networks
+4. **State Validation**: Verify RGB state transitions against RGBX_ROOT commitment
+5. **Cross-Layer Verification**: Ensure RGB state consistency with Copperoot proof validation
+
+**Node Compatibility**:
+- **RGB-Unaware Nodes**: Ignore unknown TLV types, validate only Merkle/Taproot components
+- **RGB-Aware Nodes**: Process RGB TLV data, perform cross-layer validation
+- **RGB-Only Clients**: Focus on RGB TLV data, rely on nodes for Copperoot validation
+
+#### RGB Protocol Benefits
+
+**Clean Separation**:
+- RGB commitments don't affect Tondi consensus validation
+- RGB proofs can be fetched and validated independently
+- RGB state transitions are isolated from Bitcoin/Taproot logic
+
+**Scalability**:
+- Small RGB operations use Merkle trees with TLV-carried roots
+- Large RGB operations use Verkle trees with aggregatable proofs
+- Batch RGB operations can reference external proof data
+
+**Future Extensibility**:
+- New RGB features can be added via new TLV types
+- RGB protocol upgrades don't require Tondi consensus changes
+- Multiple RGB implementations can coexist using different TLV types
+
+#### Future Scenarios: When Verkle Trees Become Essential
+
+The TLV framework enables Copperoot to evolve from Merkle-based proofs to Verkle-based proofs when specific scalability requirements emerge:
+
+**Scenario 1: Large-Scale RGB State Management**
+```
+Current (Merkle): Single RGB transfer
+- Control Block: ProofType=0x00 (Merkle), MerkleProof=[path, siblings]
+- Annex: RGBX_ROOT=blake3(single_transfer_state)
+- Proof Size: ~1KB for single transfer
+
+Future (Verkle): Batch RGB operations
+- Control Block: ProofType=0x01 (Verkle), VerkleProof=[path, commitments, leaf_data]
+- Annex: RGBX_ROOT=blake3(batch_state), BatchProofRef=batch_id
+- Proof Size: ~2KB for 100+ transfers (10-100x more efficient)
+```
+
+**Scenario 2: Contract Storage and Account State**
+```
+Current (Merkle): Simple script execution
+- Control Block: ProofType=0x00 (Merkle), MerkleProof=[path, siblings]
+- Witness: Script inputs, control block
+- State: Minimal, script-local
+
+Future (Verkle): Contract account state
+- Control Block: ProofType=0x01 (Verkle), VerkleProof=[path, commitments, leaf_data]
+- Annex: AccountState=blake3(contract_storage), StateEpoch=current_epoch
+- State: Large key-value storage with efficient batch updates
+```
+
+**Scenario 3: Stateless Light Client Synchronization**
+```
+Current (Merkle): Full state download required
+- Light Client: Must download entire Merkle tree for verification
+- Storage: O(n) where n = total state size
+- Sync Time: Hours for large state
+
+Future (Verkle): Stateless verification
+- Light Client: Only downloads changed key witnesses
+- Storage: O(k) where k = number of changed keys
+- Sync Time: Minutes for large state changes
+```
+
+**Scenario 4: Multi-Contract Batch Settlement**
+```
+Current (Merkle): Individual contract proofs
+- Exchange Settlement: 1000 individual Merkle proofs
+- Total Proof Size: 1000 × 1KB = 1MB
+- Verification: 1000 individual verifications
+
+Future (Verkle): Aggregated batch proofs
+- Exchange Settlement: 1 aggregated Verkle proof
+- Total Proof Size: 10KB (100x reduction)
+- Verification: 1 aggregated verification
+```
+
+**Scenario 5: ZK-Enhanced State Verification**
+```
+Current (Merkle): Direct proof verification
+- Verification: Direct Merkle path verification
+- Privacy: No privacy guarantees
+- Scalability: Linear with state size
+
+Future (Verkle + ZK): Compressed state proofs
+- Verification: ZK proof of Verkle path correctness
+- Privacy: Zero-knowledge state transitions
+- Scalability: Constant proof size regardless of state size
+```
+
+#### Migration Path: Merkle to Verkle
+
+The TLV framework provides a smooth migration path from Merkle to Verkle trees:
+
+**Phase 1: Merkle-Only (Current)**
+- All transactions use ProofType=0x00 (Merkle)
+- Simple RGB operations with TLV-carried roots
+- Standard Taproot-compatible verification
+
+**Phase 2: Hybrid Support (Future)**
+- Nodes support both Merkle and Verkle proofs
+- TLV-based proof type selection
+- Backward compatibility maintained
+
+**Phase 3: Verkle-Dominant (Future)**
+- Large-scale operations default to Verkle
+- Merkle reserved for simple operations
+- Optimized for batch and contract operations
+
+**Phase 4: ZK-Enhanced (Future)**
+- ZK proofs over Verkle commitments
+- Maximum privacy and scalability
+- L2 integration and cross-chain compatibility
 
 ### 7. TapLike Trait Implementation
 
@@ -400,7 +772,7 @@ Copperoot maintains full backward compatibility with existing Taproot:
 - ✅ Enhanced control block structure with strict validation
 - ✅ Backward compatibility with Taproot
 - ✅ CopperootMerkle address support with bech32m encoding
-- ✅ Annex support with strict validation (0x50 prefix, position at index 1)
+- ✅ Annex support with strict validation (0x50 prefix, position as second-to-last witness item)
 - ✅ Key-path and script-path spending
 - ✅ Comprehensive test coverage including MuSig2 wrapper functionality
 - ✅ MuSig2 misuse prevention and safety features
@@ -425,6 +797,81 @@ Copperoot maintains full backward compatibility with existing Taproot:
 - 🔄 Additional MuSig2 optimizations
 - 🔄 Performance benchmarking
 - 🔄 Security audit and formal verification
+
+### Future Scenarios and Use Cases
+
+#### Large-Scale State Management
+
+**Contract Storage and Account State**:
+- **Current**: Simple script execution with minimal state
+- **Future**: Large key-value storage with efficient batch updates using Verkle trees
+- **Benefits**: 10-100x more efficient proof generation for contract state changes
+- **Use Cases**: DeFi protocols, NFT marketplaces, gaming contracts
+
+**RGB State Management**:
+- **Current**: Single RGB transfers with Merkle proofs (~1KB per transfer)
+- **Future**: Batch RGB operations with Verkle proofs (~2KB for 100+ transfers)
+- **Benefits**: Massive reduction in proof size for batch operations
+- **Use Cases**: Exchange settlements, payment processors, batch asset transfers
+
+#### Stateless Architecture
+
+**Light Client Synchronization**:
+- **Current**: Full state download required (O(n) storage, hours sync time)
+- **Future**: Stateless verification with changed key witnesses only (O(k) storage, minutes sync time)
+- **Benefits**: Mobile wallets can sync quickly without downloading entire state
+- **Use Cases**: Mobile RGB wallets, IoT devices, embedded systems
+
+**Client Verification + Anchoring**:
+- **Current**: Full node dependency for state verification
+- **Future**: Light clients can verify state transitions independently
+- **Benefits**: Reduced infrastructure requirements, improved decentralization
+- **Use Cases**: RGBX/Nexus patterns, cross-chain bridges, L2 state verification
+
+#### Batch Operations and Aggregation
+
+**Multi-Contract Batch Settlement**:
+- **Current**: Individual contract proofs (1000 × 1KB = 1MB total)
+- **Future**: Aggregated batch proofs (10KB total, 100x reduction)
+- **Benefits**: Massive reduction in block space usage for batch operations
+- **Use Cases**: Exchange custody deposits/withdrawals, rollup settlements, batch channel closures
+
+**Cross-Contract Aggregation**:
+- **Current**: Each contract requires separate proof verification
+- **Future**: Multiple contracts can share proof components
+- **Benefits**: Reduced verification overhead, improved block throughput
+- **Use Cases**: Multi-protocol DeFi operations, cross-contract interactions
+
+#### ZK Integration and Privacy
+
+**ZK-Enhanced State Verification**:
+- **Current**: Direct proof verification with no privacy guarantees
+- **Future**: ZK proofs of Verkle path correctness with zero-knowledge state transitions
+- **Benefits**: Privacy-preserving state transitions with constant proof size
+- **Use Cases**: Private DeFi, confidential transactions, privacy-preserving smart contracts
+
+**L2 Assertion + Main Chain Sampling**:
+- **Current**: Linear scalability with state size
+- **Future**: Constant proof size regardless of state size with L2 integration
+- **Benefits**: Unlimited scalability with main chain security guarantees
+- **Use Cases**: High-throughput L2s, cross-chain state synchronization, enterprise applications
+
+#### Performance and Scalability
+
+**Proof Size Comparison**:
+- **Merkle**: ~1KB per proof, linear scaling with tree depth
+- **Verkle**: ~2KB for 100+ operations, logarithmic scaling with tree size
+- **ZK-Verkle**: ~5KB constant size regardless of state size
+
+**Verification Speed**:
+- **Merkle**: O(log n) verification time
+- **Verkle**: O(log n) verification time with better constants
+- **ZK-Verkle**: O(1) verification time with precomputed parameters
+
+**Storage Requirements**:
+- **Merkle**: Full state tree required for verification
+- **Verkle**: Only changed key witnesses required
+- **ZK-Verkle**: Only commitment and proof required
 
 ## Getting Started
 
@@ -566,11 +1013,11 @@ The ScriptPubKey format is identical to Bitcoin's Taproot, but the witness versi
 
 #### Witness Versions
 
-- **CopperootMerkle Version**: `0x12` (decimal 18) - Pay-to-Copperoot-Merkle (ACTIVE)
-- **CopperootVerkle Version**: `0x13` (decimal 19) - Pay-to-Copperoot-Verkle (RESERVED - INACTIVE)
+- **CopperootMerkle Version**: `v2` (decimal 2) - Pay-to-Copperoot-Merkle (ACTIVE)
+- **CopperootVerkle Version**: `v3` (decimal 3) - Pay-to-Copperoot-Verkle (RESERVED - INACTIVE)
 - **Reserved for**: Tondi Copperoot protocol
 - **Separation**: Ensures no overlap with Bitcoin Taproot (v1) or other protocols
-- **Mainnet Launch**: Only CopperootMerkle (0x12) is active; CopperootVerkle (0x13) is reserved for future activation
+- **Mainnet Launch**: Only CopperootMerkle (v2) is active; CopperootVerkle (v3) is reserved for future activation
 
 #### Address Encoding
 
@@ -580,7 +1027,7 @@ The ScriptPubKey format is identical to Bitcoin's Taproot, but the witness versi
   - Testnet: `tonditest`
   - Simnet: `tondisim`
   - Devnet: `tondidev`
-- **Data Part**: `0x12` (CopperootMerkle) or `0x13` (CopperootVerkle) + 32-byte x-only public key
+- **Data Part**: `v2` (CopperootMerkle) or `v3` (CopperootVerkle) + 32-byte x-only public key
 - **Checksum**: Bech32m checksum algorithm
 
 **Example Addresses**:
@@ -696,7 +1143,7 @@ pub struct CopperootVerkleScriptWitness {
 
 #### Cross-Chain Protection
 
-- **Version Isolation**: Witness versions 0x12 (CopperootMerkle) and 0x13 (CopperootVerkle) prevent confusion with Bitcoin Taproot (v1)
+- **Version Isolation**: Witness versions v2 (CopperootMerkle) and v3 (CopperootVerkle) prevent confusion with Bitcoin Taproot (v1)
 - **Hash Function Separation**: BLAKE3-256 vs SHA256 ensures different validation paths
 - **Tree Structure Differences**: Merkle vs Verkle trees prevent script compatibility
 - **Type Separation**: CopperootMerkle and CopperootVerkle are completely isolated, preventing cross-type confusion
@@ -745,7 +1192,7 @@ match detect_address_type("tondi1cr...")? {
   "address": "tondi1cr...",
   "type": "p2cr",
   "script_type": "pay_to_copperoot_merkle",
-  "witness_version": 18,
+  "witness_version": 2,
   "public_key": "02...",
   "network": "mainnet"
 }
@@ -754,7 +1201,7 @@ match detect_address_type("tondi1cr...")? {
   "address": "tondi1crv...",
   "type": "p2crv",
   "script_type": "pay_to_copperoot_verkle",
-  "witness_version": 19,
+  "witness_version": 3,
   "public_key": "02...",
   "network": "mainnet"
 }
@@ -781,16 +1228,16 @@ tondi-cli sendtoaddress "tondi1crv..." 1.0
 **Copperoot Mainnet Launch - Phase 1**:
 
 - ✅ **CopperootMerkle (Merkle)**: Fully active and operational
-  - Witness version 0x12 (decimal 18)
+  - Witness version v2 (decimal 2)
   - BLAKE3-256 hashing with domain separation
   - MuSig2 support with safety features
   - 8-layer depth limit with consensus validation
-  - Annex support with strict validation (0x50 prefix, position at index 1)
+  - Annex support with strict validation (0x50 prefix, position as second-to-last witness item)
   - Mempool policy checks and standard transaction validation
   - TapLike trait implementation for execution semantics
 
 - 🔒 **CopperootVerkle (Verkle)**: Reserved but inactive
-  - Witness version 0x13 (decimal 19) - RESERVED
+  - Witness version v3 (decimal 3) - RESERVED
   - Control block type=1 - RESERVED
   - Annex type=V - RESERVED
   - All CopperootVerkle transactions are rejected as invalid
@@ -800,10 +1247,10 @@ tondi-cli sendtoaddress "tondi1crv..." 1.0
 
 ### ScriptPubKey Format Compatibility
 
-Copperoot and Taproot share identical ScriptPubKey format (`OP_TRUE + OP_DATA32 + 32-byte public key`), which creates a challenge for automatic script type detection. The implementation handles this by:
+Copperoot and Taproot share identical ScriptPubKey format (`OP_1 <32-byte x-only pubkey>`), which creates a challenge for automatic script type detection. The implementation handles this by:
 
-- **Address Version Distinction**: Copperoot uses address version 18 (0x12) vs Taproot's version 88 (0x58)
-- **Control Block Differences**: Copperoot control blocks use version 0xC1 with different proof types
+- **Address Version Distinction**: Copperoot uses address version v2 (2) vs Taproot's version v1 (1)
+- **Control Block Differences**: Copperoot control blocks use TLV extensions with different proof types
 - **Hash Function Separation**: Copperoot uses BLAKE3-256 vs Taproot's SHA256 for all operations
 - **Test Strategy**: Direct validation bypasses automatic detection for testing scenarios
 
@@ -816,6 +1263,186 @@ The test suite includes comprehensive coverage for both key spend and script spe
 - **Witness Parsing**: Annex detection and BIP341-compliant witness structure validation
 - **Error Handling**: Proper error propagation for invalid signatures and malformed witnesses
 
+## Protocol Consistency and Implementation Notes
+
+### Version Mapping Table
+
+| Component | CopperootMerkle | CopperootVerkle | Bitcoin Taproot |
+|-----------|----------------|-----------------|-----------------|
+| Script Version | 2 | 3 | 1 |
+| Witness Version | v2 (2) | v3 (3) | v1 (1) |
+| Control Block | TLV Extensions | TLV Extensions | BIP341 Standard |
+| Hash Function | BLAKE3-256 | BLAKE3-256 | SHA256 |
+| Tree Structure | Merkle | Verkle (RESERVED) | Merkle |
+| Proof Type | 0x00 (Active) | 0x01 (RESERVED) | N/A |
+
+### Domain Separation Constants
+
+Copperoot uses domain-separated hash functions to prevent cross-protocol attacks:
+
+```rust
+// Copperoot-specific domain separation tags
+const COPPEROOT_SIGHASH_TAG: &[u8] = b"CopperootSighash";
+const COPPEROOT_LEAF_TAG: &[u8] = b"CopperootLeaf";
+const COPPEROOT_NODE_TAG: &[u8] = b"CopperootNode";
+const COPPEROOT_TAP_TWEAK_TAG: &[u8] = b"CopperTweak";
+
+// Chain-specific domain separation (prevents cross-chain replay)
+const CHAIN_ID_TAG: &[u8] = b"TondiChainID";
+const GENESIS_HASH_TAG: &[u8] = b"TondiGenesisHash";
+```
+
+### Forward Compatibility Strategy
+
+Copperoot's TLV framework provides comprehensive forward compatibility through multiple mechanisms:
+
+#### 1. TLV Extensions with Unknown Type Handling
+
+**Unknown TLV Type Processing**:
+```
+Control Block: [parity_leaf_version(1)] [internal_key(32)] [TLV_extensions...]
+TLV Extensions:
+  - Type 0x01, Length 1, Value 0x00 (Merkle) - recognized and processed
+  - Type 0xFF, Length 4, Value [0x12, 0x34, 0x56, 0x78] - unknown, ignored
+  - Type 0x10, Length 33, Value [path_len(1)] [sibling_hash(32)] - recognized and processed
+
+Result: VALID - unknown TLV types are safely ignored
+```
+
+**Forward Compatibility Benefits**:
+- Old nodes can process transactions with new TLV types without errors
+- New nodes can add functionality without breaking existing transactions
+- Protocol upgrades can be deployed gradually without hard forks
+
+#### 2. Versioned Control Blocks with BIP341 Compatibility
+
+**Base Structure Compatibility**:
+```
+BIP341 Control Block (Base):
+- Parity + Leaf Version (1 byte)
+- Internal Public Key (32 bytes)
+
+Copperoot Control Block (Extended):
+- Parity + Leaf Version (1 byte) - BIP341 compatible
+- Internal Public Key (32 bytes) - BIP341 compatible
+- TLV Extensions (variable) - Copperoot extensions
+```
+
+**Compatibility Guarantees**:
+- BIP341-compatible base structure ensures existing Taproot parsers can extract basic information
+- TLV extensions provide additional functionality without breaking base structure
+- Graceful degradation allows old parsers to work with new control blocks
+
+#### 3. Reserved Features with Future Activation
+
+**Current Reserved Features**:
+- **CopperootVerkle (v3)**: Verkle tree functionality reserved but disabled
+- **Annex Type V**: Verkle proof annex type reserved
+- **TLV Types 0x12-0x1F**: Reserved for future proof types
+- **TLV Types 0x26-0x2F**: Reserved for RGB extensions
+- **TLV Types 0x30-0x3F**: Reserved for future protocol extensions
+
+**Future Activation Strategy**:
+- Reserved features can be activated through soft fork mechanisms
+- TLV type ranges provide clear namespace for future extensions
+- Version isolation prevents conflicts between different proof systems
+
+#### 4. Cross-Chain Protection and Isolation
+
+**Chain ID Isolation**:
+```
+Control Block TLV:
+  - Type 0x04: ChainID/GenesisHash (32 bytes)
+  - Value: Tondi genesis block hash or chain identifier
+
+Purpose: Prevents cross-chain transaction replay attacks
+```
+
+**Domain Separation**:
+```
+Hash Function Tags:
+- CopperootSighash(data) - Tondi-specific sighash
+- CopperootLeaf(version, script) - Tondi-specific leaf hashing
+- CopperootNode(left, right) - Tondi-specific node hashing
+- CopperTweak(internal_key, merkle_root) - Tondi-specific key tweaking
+```
+
+#### 5. Graceful Degradation Examples
+
+**Old Node Processing New Transaction**:
+```
+Input: Control block with unknown TLV types
+Processing:
+  1. Extract BIP341-compatible base structure
+  2. Validate Merkle proof (if present)
+  3. Ignore unknown TLV types
+  4. Accept transaction as valid
+
+Result: Transaction accepted, unknown features ignored
+```
+
+**New Node Processing Old Transaction**:
+```
+Input: Control block without TLV extensions
+Processing:
+  1. Extract BIP341-compatible base structure
+  2. Validate Merkle proof (if present)
+  3. Process with default TLV values
+  4. Accept transaction as valid
+
+Result: Transaction accepted, default behavior applied
+```
+
+#### 6. Future Protocol Extension Examples
+
+**Example 1: Adding KZG Commitments (v4)**:
+```
+Control Block TLV:
+  - Type 0x01: ProofType = 0x02 (KZG) - new type
+  - Type 0x02: HashScheme = 0x01 (BLAKE3)
+  - Type 0x13: KZGProof (variable) - new proof type
+  - Type 0x04: ChainID/GenesisHash (32 bytes)
+
+Compatibility: Old nodes ignore unknown types, new nodes process KZG proofs
+```
+
+**Example 2: Adding Batch Proof Support**:
+```
+Annex TLV:
+  - Type 0x20: RGBX_ROOT (32 bytes) - existing
+  - Type 0x24: BatchProofRef (variable) - new type
+  - Type 0x25: DAHash (32 bytes) - new type
+
+Compatibility: RGB-unaware nodes ignore RGB TLV, RGB-aware nodes process batch data
+```
+
+#### 7. Implementation Guidelines
+
+**TLV Parser Requirements**:
+- Must ignore unknown TLV types without error
+- Must validate known TLV types strictly
+- Must preserve TLV data for future processing
+- Must handle malformed TLV gracefully
+
+**Node Upgrade Strategy**:
+- Phase 1: Deploy TLV parser with unknown type handling
+- Phase 2: Add support for new TLV types
+- Phase 3: Activate new functionality through soft fork
+- Phase 4: Deprecate old functionality (if needed)
+
+**Testing Requirements**:
+- Test unknown TLV type handling
+- Test malformed TLV recovery
+- Test cross-version compatibility
+- Test forward compatibility scenarios
+
+### Security Considerations
+
+1. **Cross-Chain Protection**: Domain separation prevents transaction replay across chains
+2. **Version Isolation**: Different witness versions prevent confusion with Bitcoin Taproot
+3. **Hash Function Separation**: BLAKE3 vs SHA256 ensures different validation paths
+4. **TLV Validation**: Strict validation of required TLV types prevents malformed control blocks
+
 ## Conclusion
 
 Copperoot represents a significant advancement in Bitcoin's Taproot protocol, providing:
@@ -826,6 +1453,7 @@ Copperoot represents a significant advancement in Bitcoin's Taproot protocol, pr
 - **Safe MuSig2 Interface**: Multiple witness creation methods with validation to prevent misuse
 - **Strict Validation**: Version-based script classification with format checking for all script types
 - **Dual Address Types**: CopperootMerkle (active) and CopperootVerkle (reserved) for clear protocol separation
+- **TLV Extensions**: Forward-compatible control block format with extensible proof types
 - **Backward Compatibility**: Seamless integration with existing systems
 - **Production-Ready**: Mempool validation, standard transaction checks, and comprehensive testing
 - **Robust Testing**: Full test coverage with proper error handling and edge case validation
@@ -833,6 +1461,15 @@ Copperoot represents a significant advancement in Bitcoin's Taproot protocol, pr
 - **Enhanced Security**: Comprehensive constraint checking, error handling, and misuse prevention
 
 The implementation is production-ready for CopperootMerkle functionality and provides a solid foundation for next-generation Bitcoin applications requiring high performance, scalability, and advanced cryptographic features. The complete MuSig2 implementation with wrapper API and session management ensures robust multi-signature operations while maintaining backward compatibility. The strict script format validation and enhanced Merkle commitment verification prevent misclassification and ensure security. The TapLike trait provides abstract execution semantics that enable code reuse across different Taproot-like variants. CopperootVerkle functionality is reserved for future activation, with the Verkle tree implementation already in place but disabled for mainnet launch.
+
+### Key Protocol Improvements
+
+1. **Witness Version Compliance**: Uses v2/v3 instead of 0x12/0x13 for Bech32m compatibility
+2. **Annex Position Correctness**: Annex positioned as second-to-last witness item per BIP341
+3. **TLV Control Blocks**: Forward-compatible control block format with extensible proof types
+4. **Script Format Consistency**: Standardized `OP_1 <32-byte x-only pubkey>` format description
+5. **Domain Separation**: Comprehensive domain separation prevents cross-protocol attacks
+6. **Test Vector Coverage**: Complete test vectors for all major use cases and edge cases
 
 ## References
 

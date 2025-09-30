@@ -25,7 +25,7 @@ impl CopperootSighash {
     /// Create a new BLAKE3 engine for sighash computation
     pub fn engine() -> Hasher {
         let mut hasher = Hasher::new();
-        hasher.update(b"CopperootSighash");
+        hasher.update(crate::standard::copperoot::hasher::COPPEROOT_SIGHASH_TAG);
         hasher
     }
 
@@ -286,9 +286,9 @@ impl<Tx: Borrow<Transaction>> SighashCache<Tx> {
     fn copperoot_cache<TxOut: Borrow<TransactionOutput>>(&mut self, prevouts: &[TxOut]) -> &CopperootCache {
         self.copperoot_cache.get_or_insert_with(|| {
             let mut enc_amounts = Hasher::new();
-            enc_amounts.update(b"CAmt"); // Domain separation prefix
+            enc_amounts.update(crate::standard::copperoot::hasher::AMOUNTS_TAG); // Domain separation prefix
             let mut enc_script_pubkeys = Hasher::new();
-            enc_script_pubkeys.update(b"CSpk"); // Domain separation prefix
+            enc_script_pubkeys.update(crate::standard::copperoot::hasher::SCRIPT_PUBKEYS_TAG); // Domain separation prefix
             for prevout in prevouts {
                 let txout = prevout.borrow();
                 // Serialize to bytes first, then update hasher
@@ -310,9 +310,9 @@ impl<Tx: Borrow<Transaction>> SighashCache<Tx> {
     fn common_cache_minimal_borrow<'a>(common_cache: &'a mut Option<CommonCache>, tx: &Transaction) -> &'a CommonCache {
         common_cache.get_or_insert_with(|| {
             let mut enc_prevouts = Hasher::new();
-            enc_prevouts.update(b"CPrv"); // Domain separation prefix
+            enc_prevouts.update(crate::standard::copperoot::hasher::PREVOUTS_TAG); // Domain separation prefix
             let mut enc_sequences = Hasher::new();
-            enc_sequences.update(b"CSeq"); // Domain separation prefix
+            enc_sequences.update(crate::standard::copperoot::hasher::SEQUENCES_TAG); // Domain separation prefix
             for txin in tx.inputs.iter() {
                 // Serialize to bytes first, then update hasher
                 let mut prevout_bytes = Vec::new();
@@ -328,7 +328,7 @@ impl<Tx: Borrow<Transaction>> SighashCache<Tx> {
                 sequences: enc_sequences.finalize().into(),
                 outputs: {
                     let mut enc = Hasher::new();
-                    enc.update(b"COut"); // Domain separation prefix
+                    enc.update(crate::standard::copperoot::hasher::OUTPUTS_TAG); // Domain separation prefix
                     for txout in tx.outputs.iter() {
                         let mut output_bytes = Vec::new();
                         txout.consensus_encode(&mut output_bytes).unwrap();

@@ -150,13 +150,13 @@ pub enum Version {
     /// Taproot addresses always have the version byte set to 88(0b01011_000)
     /// Bech32 codec encode initial 5 bit `0b01011` to char 't'
     Taproot = 88,
-    /// CopperootMerkle addresses always have the version byte set to 18(0x12)
+    /// CopperootMerkle addresses always have the version byte set to 2
     /// CopperootMerkle (Pay-to-Copperoot-Merkle) addresses for Tondi Copperoot with Merkle trees
-    CopperootMerkle = 18,
-    /// CopperootVerkle addresses always have the version byte set to 19(0x13)
+    CopperootMerkle = 2,
+    /// CopperootVerkle addresses always have the version byte set to 3
     /// CopperootVerkle (Pay-to-Copperoot-Verkle) addresses for Tondi Copperoot with Verkle trees
     /// NOTE: Currently disabled for mainnet launch - reserved for future activation
-    CopperootVerkle = 19,
+    CopperootVerkle = 3,
 }
 
 impl TryFrom<&str> for Version {
@@ -195,9 +195,9 @@ impl TryFrom<u8> for Version {
         match value {
             0 => Ok(Version::PubKey),
             1 => Ok(Version::PubKeyECDSA),
+            2 => Ok(Version::CopperootMerkle),
+            3 => Err(AddressError::InvalidVersion(value)), // CopperootVerkle disabled for mainnet launch
             8 => Ok(Version::ScriptHash),
-            18 => Ok(Version::CopperootMerkle),
-            19 => Err(AddressError::InvalidVersion(value)), // CopperootVerkle disabled for mainnet launch
             88 => Ok(Version::Taproot),
             _ => Err(AddressError::InvalidVersion(value)),
         }

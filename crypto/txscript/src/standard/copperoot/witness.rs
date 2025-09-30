@@ -444,22 +444,48 @@ impl CopperootWitness {
     }
 }
 
-/// Control block for Copperoot script path spending
+/// TLV entry for control block extensions
+#[derive(Debug, Clone)]
+pub struct TlvEntry {
+    /// TLV type identifier
+    pub tlv_type: u8,
+    /// TLV value
+    pub value: Vec<u8>,
+}
+
+/// Control block for Copperoot script path spending (TLV format)
 #[derive(Debug, Clone)]
 pub struct CopperootControlBlock {
-    /// Control block version (0xC1 for Copperoot)
-    pub version: u8,
-    /// Parity bit and leaf version
+    /// Parity bit and leaf version (BIP341 compatible)
     pub parity_leaf_version: u8,
     /// Internal public key
     pub internal_key: XOnlyPublicKey,
-    /// Proof type (0 for Merkle, 1 for Verkle proof)
-    pub proof_type: u8,
+    /// TLV extensions
+    pub tlv_extensions: Vec<TlvEntry>,
     /// Verkle proof (if present)
     pub verkle_proof: Option<VerkleProof>,
     /// Merkle path (sibling hashes, max 8 levels)
     pub merkle_path: Vec<[u8; 32]>,
 }
+
+/// TLV type constants
+pub const TLV_TYPE_PROOF_TYPE: u8 = 0x01;
+pub const TLV_TYPE_HASH_SCHEME: u8 = 0x02;
+pub const TLV_TYPE_TREE_SCHEME: u8 = 0x03;
+pub const TLV_TYPE_MERKLE_PROOF: u8 = 0x10;
+pub const TLV_TYPE_VERKLE_PROOF: u8 = 0x11;
+
+/// Proof type values
+pub const PROOF_TYPE_MERKLE: u8 = 0x00;
+pub const PROOF_TYPE_VERKLE: u8 = 0x01;
+
+/// Hash scheme values
+pub const HASH_SCHEME_SHA256: u8 = 0x00;
+pub const HASH_SCHEME_BLAKE3: u8 = 0x01;
+
+/// Tree scheme values
+pub const TREE_SCHEME_MERKLE: u8 = 0x00;
+pub const TREE_SCHEME_VERKLE: u8 = 0x01;
 
 impl CopperootControlBlock {
     /// Create a new control block for Merkle tree
@@ -472,11 +498,39 @@ impl CopperootControlBlock {
             return Err(ControlBlockError::InvalidLength);
         }
         
+        let mut tlv_extensions = Vec::new();
+        
+        // Add required TLV entries
+        tlv_extensions.push(TlvEntry {
+            tlv_type: TLV_TYPE_PROOF_TYPE,
+            value: vec![PROOF_TYPE_MERKLE],
+        });
+        
+        tlv_extensions.push(TlvEntry {
+            tlv_type: TLV_TYPE_HASH_SCHEME,
+            value: vec![HASH_SCHEME_BLAKE3],
+        });
+        
+        tlv_extensions.push(TlvEntry {
+            tlv_type: TLV_TYPE_TREE_SCHEME,
+            value: vec![TREE_SCHEME_MERKLE],
+        });
+        
+        // Add Merkle proof data
+        let mut merkle_proof_data = Vec::new();
+        merkle_proof_data.push(merkle_path.len() as u8);
+        for sibling in &merkle_path {
+            merkle_proof_data.extend_from_slice(sibling);
+        }
+        tlv_extensions.push(TlvEntry {
+            tlv_type: TLV_TYPE_MERKLE_PROOF,
+            value: merkle_proof_data,
+        });
+        
         Ok(Self {
-            version: 0xC1, // Copperoot version
             parity_leaf_version,
             internal_key,
-            proof_type: 0, // Merkle proof
+            tlv_extensions,
             verkle_proof: None,
             merkle_path,
         })
@@ -489,146 +543,194 @@ impl CopperootControlBlock {
         verkle_proof: VerkleProof,
     ) -> Self {
         assert!(verkle_proof.path.len() <= u8::MAX as usize, "verkle path too long");
+        
+        let mut tlv_extensions = Vec::new();
+        
+        // Add required TLV entries
+        tlv_extensions.push(TlvEntry {
+            tlv_type: TLV_TYPE_PROOF_TYPE,
+            value: vec![PROOF_TYPE_VERKLE],
+        });
+        
+        tlv_extensions.push(TlvEntry {
+            tlv_type: TLV_TYPE_HASH_SCHEME,
+            value: vec![HASH_SCHEME_BLAKE3],
+        });
+        
+        tlv_extensions.push(TlvEntry {
+            tlv_type: TLV_TYPE_TREE_SCHEME,
+            value: vec![TREE_SCHEME_VERKLE],
+        });
+        
+        // Add Verkle proof data
+        let mut verkle_proof_data = Vec::new();
+        verkle_proof_data.push(verkle_proof.path.len() as u8);
+        for commitment in &verkle_proof.path {
+            verkle_proof_data.extend_from_slice(&commitment.serialize());
+        }
+        verkle_proof_data.extend_from_slice(&(verkle_proof.leaf_data.len() as u32).to_le_bytes());
+        verkle_proof_data.extend_from_slice(&verkle_proof.leaf_data);
+        tlv_extensions.push(TlvEntry {
+            tlv_type: TLV_TYPE_VERKLE_PROOF,
+            value: verkle_proof_data,
+        });
+        
         Self {
-            version: 0xC1, // Copperoot version
             parity_leaf_version,
             internal_key,
-            proof_type: 1, // Verkle proof
+            tlv_extensions,
             verkle_proof: Some(verkle_proof),
             merkle_path: Vec::new(),
         }
     }
 
-    /// Serialize the control block
+    /// Serialize the control block (TLV format)
     pub fn serialize(&self) -> Vec<u8> {
         let mut data = Vec::new();
-        data.push(self.version);
+        
+        // BIP341 compatible base structure
         data.push(self.parity_leaf_version);
         data.extend_from_slice(&self.internal_key.serialize());
-        data.push(self.proof_type);
         
-        if self.proof_type == 0 {
-            // Merkle proof: serialize path length and sibling hashes (use u8 for consistency)
-            data.push(self.merkle_path.len() as u8);
-            for sibling in &self.merkle_path {
-                data.extend_from_slice(sibling);
+        // Serialize TLV extensions
+        for tlv in &self.tlv_extensions {
+            data.push(tlv.tlv_type);
+            // Use varint encoding for length
+            let length = tlv.value.len();
+            if length < 0xFD {
+                data.push(length as u8);
+            } else if length <= 0xFFFF {
+                data.push(0xFD);
+                data.extend_from_slice(&(length as u16).to_le_bytes());
+            } else {
+                data.push(0xFE);
+                data.extend_from_slice(&(length as u32).to_le_bytes());
             }
-        } else if let Some(proof) = &self.verkle_proof {
-            // Verkle proof: serialize path length and commitments (use u8 for consistency)
-            data.push(proof.path.len() as u8);
-            for commitment in &proof.path {
-                data.extend_from_slice(&commitment.serialize());
-            }
-            data.extend_from_slice(&(proof.leaf_data.len() as u32).to_le_bytes());
-            data.extend_from_slice(&proof.leaf_data);
+            data.extend_from_slice(&tlv.value);
         }
         
         data
     }
 
-    /// Deserialize a control block
+    /// Deserialize a control block (TLV format)
     pub fn deserialize(data: &[u8]) -> Result<Self, ControlBlockError> {
-        if data.len() < 35 {
+        if data.len() < 33 {
             return Err(ControlBlockError::InvalidLength);
         }
         
-        let version = data[0];
-        if version != 0xC1 {
-            return Err(ControlBlockError::InvalidVersion);
-        }
+        // Parse BIP341 compatible base structure
+        let parity_leaf_version = data[0];
+        let internal_key = XOnlyPublicKey::from_slice(&data[1..33])?;
         
-        let parity_leaf_version = data[1];
-        let internal_key = XOnlyPublicKey::from_slice(&data[2..34])?;
-        let proof_type = data[34];
+        let mut offset = 33;
+        let mut tlv_extensions = Vec::new();
+        let mut merkle_path = Vec::new();
+        let mut verkle_proof = None;
         
-        let mut offset = 35;
-        
-        if proof_type == 0 {
-            // Merkle proof
-            if offset + 1 > data.len() {
+        // Parse TLV extensions
+        while offset < data.len() {
+            if offset + 2 > data.len() {
                 return Err(ControlBlockError::InvalidLength);
             }
-            let path_len = data[offset] as usize;
+            
+            let tlv_type = data[offset];
             offset += 1;
             
-            if path_len > 8 {
-                return Err(ControlBlockError::InvalidLength);
-            }
-            
-            // Validate expected length: 35 (header) + 1 (path_len) + path_len*32
-            let expected_len = 35 + 1 + path_len * 32;
-            if data.len() != expected_len {
-                return Err(ControlBlockError::InvalidLength);
-            }
-            
-            let mut merkle_path = Vec::new();
-            for _ in 0..path_len {
-                if offset + 32 > data.len() {
+            // Parse varint length
+            let (length, length_bytes) = if data[offset] < 0xFD {
+                (data[offset] as usize, 1)
+            } else if data[offset] == 0xFD {
+                if offset + 3 > data.len() {
                     return Err(ControlBlockError::InvalidLength);
                 }
-                let mut sibling = [0u8; 32];
-                sibling.copy_from_slice(&data[offset..offset + 32]);
-                merkle_path.push(sibling);
-                offset += 32;
-            }
-            
-            Ok(Self {
-                version,
-                parity_leaf_version,
-                internal_key,
-                proof_type,
-                verkle_proof: None,
-                merkle_path,
-            })
-        } else if proof_type == 1 {
-            // Verkle proof
-            if offset + 1 > data.len() {
-                return Err(ControlBlockError::InvalidLength);
-            }
-            let path_len = data[offset] as usize;
-            offset += 1;
-            
-            // Read path commitments
-            let mut path = Vec::new();
-            for _ in 0..path_len {
-                if offset + 33 > data.len() {
+                (u16::from_le_bytes([data[offset + 1], data[offset + 2]]) as usize, 3)
+            } else if data[offset] == 0xFE {
+                if offset + 5 > data.len() {
                     return Err(ControlBlockError::InvalidLength);
                 }
-                let commitment = secp256k1::PublicKey::from_slice(&data[offset..offset + 33])?;
-                path.push(commitment);
-                offset += 33;
-            }
-            
-            // Read leaf data length
-            if offset + 4 > data.len() {
+                (u32::from_le_bytes([data[offset + 1], data[offset + 2], data[offset + 3], data[offset + 4]]) as usize, 5)
+            } else {
                 return Err(ControlBlockError::InvalidLength);
-            }
-            let leaf_data_len = u32::from_le_bytes([data[offset], data[offset + 1], data[offset + 2], data[offset + 3]]) as usize;
-            offset += 4;
+            };
             
-            // Validate expected length: 35 (header) + 1 (path_len) + path_len*33 + 4 (leaf_data_len) + leaf_data_len
-            let expected_len = 35 + 1 + path_len * 33 + 4 + leaf_data_len;
-            if data.len() != expected_len {
+            offset += length_bytes;
+            
+            if offset + length > data.len() {
                 return Err(ControlBlockError::InvalidLength);
             }
             
-            // Read leaf data
-            if offset + leaf_data_len > data.len() {
-                return Err(ControlBlockError::InvalidLength);
-            }
-            let leaf_data = data[offset..offset + leaf_data_len].to_vec();
+            let value = data[offset..offset + length].to_vec();
+            offset += length;
             
-            Ok(Self {
-                version,
-                parity_leaf_version,
-                internal_key,
-                proof_type,
-                verkle_proof: Some(VerkleProof { path, leaf_data }),
-                merkle_path: Vec::new(),
-            })
-        } else {
-            Err(ControlBlockError::InvalidProofType)
+            // Process known TLV types
+            match tlv_type {
+                TLV_TYPE_MERKLE_PROOF => {
+                    if value.is_empty() {
+                        return Err(ControlBlockError::InvalidLength);
+                    }
+                    let path_len = value[0] as usize;
+                    if path_len > 8 {
+                        return Err(ControlBlockError::InvalidLength);
+                    }
+                    if value.len() != 1 + path_len * 32 {
+                        return Err(ControlBlockError::InvalidLength);
+                    }
+                    
+                    for i in 0..path_len {
+                        let start = 1 + i * 32;
+                        let mut sibling = [0u8; 32];
+                        sibling.copy_from_slice(&value[start..start + 32]);
+                        merkle_path.push(sibling);
+                    }
+                }
+                TLV_TYPE_VERKLE_PROOF => {
+                    if value.len() < 5 {
+                        return Err(ControlBlockError::InvalidLength);
+                    }
+                    let path_len = value[0] as usize;
+                    let mut path = Vec::new();
+                    let mut proof_offset = 1;
+                    
+                    for _ in 0..path_len {
+                        if proof_offset + 33 > value.len() {
+                            return Err(ControlBlockError::InvalidLength);
+                        }
+                        let commitment = secp256k1::PublicKey::from_slice(&value[proof_offset..proof_offset + 33])?;
+                        path.push(commitment);
+                        proof_offset += 33;
+                    }
+                    
+                    if proof_offset + 4 > value.len() {
+                        return Err(ControlBlockError::InvalidLength);
+                    }
+                    let leaf_data_len = u32::from_le_bytes([
+                        value[proof_offset], value[proof_offset + 1], 
+                        value[proof_offset + 2], value[proof_offset + 3]
+                    ]) as usize;
+                    proof_offset += 4;
+                    
+                    if proof_offset + leaf_data_len != value.len() {
+                        return Err(ControlBlockError::InvalidLength);
+                    }
+                    let leaf_data = value[proof_offset..].to_vec();
+                    
+                    verkle_proof = Some(VerkleProof { path, leaf_data });
+                }
+                _ => {
+                    // Unknown TLV types are ignored for forward compatibility
+                }
+            }
+            
+            tlv_extensions.push(TlvEntry { tlv_type, value });
         }
+        
+        Ok(Self {
+            parity_leaf_version,
+            internal_key,
+            tlv_extensions,
+            verkle_proof,
+            merkle_path,
+        })
     }
 }
 
@@ -637,8 +739,10 @@ impl CopperootControlBlock {
 pub enum ControlBlockError {
     #[error("Invalid control block length")]
     InvalidLength,
-    #[error("Invalid control block version")]
-    InvalidVersion,
+    #[error("Invalid TLV format")]
+    InvalidTlvFormat,
+    #[error("Missing required TLV type")]
+    MissingRequiredTlv,
     #[error("Invalid proof type")]
     InvalidProofType,
     #[error("Secp256k1 error: {0}")]
@@ -665,9 +769,15 @@ mod tests {
     #[test]
     fn test_copperoot_witness_script_spend() {
         let script = vec![0x51]; // OP_1
-        let control_block = vec![0xC1, 0x00]; // Copperoot version + leaf version
+        let secp = Secp256k1::new();
+        let keypair = Keypair::new(&secp, &mut secp256k1::rand::thread_rng());
+        let internal_key = keypair.x_only_public_key().0;
         
-        let witness = CopperootWitness::p2tr_script_spend(script, control_block);
+        let control_block = CopperootControlBlock::new_merkle(0x00, internal_key, vec![])
+            .expect("Valid control block");
+        let control_block_bytes = control_block.serialize();
+        
+        let witness = CopperootWitness::p2tr_script_spend(script, control_block_bytes);
         assert!(!witness.has_verkle_proof());
     }
 
@@ -680,16 +790,22 @@ mod tests {
         let merkle_path = vec![[0u8; 32], [1u8; 32]];
         let control_block = CopperootControlBlock::new_merkle(0x00, internal_key, merkle_path.clone())
             .expect("Valid control block");
-        assert_eq!(control_block.version, 0xC1);
-        assert_eq!(control_block.proof_type, 0);
+        assert_eq!(control_block.parity_leaf_version, 0x00);
         assert_eq!(control_block.merkle_path, merkle_path);
+        
+        // Check TLV extensions
+        assert!(!control_block.tlv_extensions.is_empty());
+        let proof_type_tlv = control_block.tlv_extensions.iter()
+            .find(|tlv| tlv.tlv_type == TLV_TYPE_PROOF_TYPE)
+            .expect("ProofType TLV should be present");
+        assert_eq!(proof_type_tlv.value, vec![PROOF_TYPE_MERKLE]);
         
         let serialized = control_block.serialize();
         let deserialized = CopperootControlBlock::deserialize(&serialized)
             .expect("Valid deserialization");
-        assert_eq!(control_block.version, deserialized.version);
-        assert_eq!(control_block.proof_type, deserialized.proof_type);
+        assert_eq!(control_block.parity_leaf_version, deserialized.parity_leaf_version);
         assert_eq!(control_block.merkle_path, deserialized.merkle_path);
+        assert_eq!(control_block.tlv_extensions.len(), deserialized.tlv_extensions.len());
     }
 
     #[test]
@@ -718,7 +834,14 @@ mod tests {
     #[test]
     fn test_copperoot_witness_script_path_with_annex() {
         let script = vec![0x51]; // OP_1
-        let control_block = vec![0xC1, 0x00]; // Copperoot version + leaf version
+        let secp = Secp256k1::new();
+        let keypair = Keypair::new(&secp, &mut secp256k1::rand::thread_rng());
+        let internal_key = keypair.x_only_public_key().0;
+        
+        let control_block = CopperootControlBlock::new_merkle(0x00, internal_key, vec![])
+            .expect("Valid control block");
+        let control_block_bytes = control_block.serialize();
+        
         let input_items = vec![vec![0x01], vec![0x02]]; // Two input items
         let annex = Some(vec![0x50, 0x01, 0x02, 0x03]); // Annex starting with 0x50
         
@@ -726,7 +849,7 @@ mod tests {
         let witness = CopperootWitness::p2cr_script_spend_with_inputs(
             input_items.clone(),
             script.clone(),
-            control_block.clone(),
+            control_block_bytes.clone(),
             annex.clone(),
         );
         
@@ -736,7 +859,7 @@ mod tests {
         match spend {
             P2CrSpend::Script { input, leaf_script, control_block: parsed_control, annex: parsed_annex } => {
                 assert_eq!(leaf_script, script);
-                assert_eq!(parsed_control, control_block);
+                assert_eq!(parsed_control, control_block_bytes);
                 assert_eq!(parsed_annex, annex);
                 
                 // Check that input items are correctly parsed (annex should be skipped)
@@ -805,7 +928,7 @@ mod tests {
         // Should succeed as annex is at the end (BIP341 alignment)
         assert!(result.is_ok());
         if let Ok(P2CrSpend::Key { .. }) = result {
-            // Key path spend with annex at end - this is valid
+            // Key path spend with annex at the end - this is valid
         } else {
             panic!("Expected key path spend");
         }
@@ -815,15 +938,15 @@ mod tests {
         let mut inner = BtcWitness::new();
         inner.push(vec![0x01, 0x02, 0x03, 0x04]); // Input item at index 0
         inner.push(vec![0x51]); // Leaf script at index 1
-        inner.push(vec![0x50, 0x01, 0x02]); // 0x50 prefix but not at end (control block)
+        inner.push(vec![0x50, 0x01, 0x02]); // 0x50 prefix but not at the end (control block)
         inner.push(vec![0x01, 0x02, 0x03, 0x04]); // Some other data at end
         let witness = CopperootWitness { inner, verkle_proof: None };
 
         let result = P2CrSpend::try_from(&witness);
-        // Should succeed but annex should be None (not at end)
+        // Should succeed but annex should be None (not at the end)
         assert!(result.is_ok());
         if let Ok(P2CrSpend::Script { annex, .. }) = result {
-            assert!(annex.is_none()); // Annex not at end, so should be None
+            assert!(annex.is_none()); // Annex not at the end, so should be None
         } else {
             panic!("Expected script path spend");
         }
@@ -982,7 +1105,14 @@ mod tests {
     #[test]
     fn test_copperoot_witness_script_path_annex_no_inputs() {
         let script = vec![0x51]; // OP_1
-        let control_block = vec![0xC1, 0x00]; // Copperoot version + leaf version
+        let secp = Secp256k1::new();
+        let keypair = Keypair::new(&secp, &mut secp256k1::rand::thread_rng());
+        let internal_key = keypair.x_only_public_key().0;
+        
+        let control_block = CopperootControlBlock::new_merkle(0x00, internal_key, vec![])
+            .expect("Valid control block");
+        let control_block_bytes = control_block.serialize();
+        
         let input_items = vec![]; // No input items
         let annex = Some(vec![0x50, 0x01, 0x02, 0x03]); // Annex starting with 0x50
         
@@ -990,7 +1120,7 @@ mod tests {
         let witness = CopperootWitness::p2cr_script_spend_with_inputs(
             input_items,
             script.clone(),
-            control_block.clone(),
+            control_block_bytes.clone(),
             annex.clone(),
         );
         
@@ -1000,7 +1130,7 @@ mod tests {
         match spend {
             P2CrSpend::Script { input, leaf_script, control_block: parsed_control, annex: parsed_annex } => {
                 assert_eq!(leaf_script, script);
-                assert_eq!(parsed_control, control_block);
+                assert_eq!(parsed_control, control_block_bytes);
                 assert_eq!(parsed_annex, annex);
                 
                 // Check that input items are correctly parsed (should be empty or contain only None)
@@ -1008,5 +1138,93 @@ mod tests {
             }
             _ => panic!("Expected script path spend"),
         }
+    }
+
+    #[test]
+    fn test_tlv_control_block_serialization() {
+        let secp = Secp256k1::new();
+        let keypair = Keypair::new(&secp, &mut secp256k1::rand::thread_rng());
+        let internal_key = keypair.x_only_public_key().0;
+        
+        let merkle_path = vec![[0u8; 32], [1u8; 32]];
+        let control_block = CopperootControlBlock::new_merkle(0x00, internal_key, merkle_path.clone())
+            .expect("Valid control block");
+        
+        // Test serialization
+        let serialized = control_block.serialize();
+        assert!(serialized.len() > 33); // At least base structure + TLV extensions
+        
+        // Test deserialization
+        let deserialized = CopperootControlBlock::deserialize(&serialized)
+            .expect("Valid deserialization");
+        
+        // Verify TLV extensions are preserved
+        assert_eq!(control_block.tlv_extensions.len(), deserialized.tlv_extensions.len());
+        
+        // Verify required TLV types are present
+        let proof_type_present = deserialized.tlv_extensions.iter()
+            .any(|tlv| tlv.tlv_type == TLV_TYPE_PROOF_TYPE);
+        assert!(proof_type_present, "ProofType TLV should be present");
+        
+        let hash_scheme_present = deserialized.tlv_extensions.iter()
+            .any(|tlv| tlv.tlv_type == TLV_TYPE_HASH_SCHEME);
+        assert!(hash_scheme_present, "HashScheme TLV should be present");
+        
+        let merkle_proof_present = deserialized.tlv_extensions.iter()
+            .any(|tlv| tlv.tlv_type == TLV_TYPE_MERKLE_PROOF);
+        assert!(merkle_proof_present, "MerkleProof TLV should be present");
+    }
+
+    #[test]
+    fn test_tlv_unknown_types_ignored() {
+        let secp = Secp256k1::new();
+        let keypair = Keypair::new(&secp, &mut secp256k1::rand::thread_rng());
+        let internal_key = keypair.x_only_public_key().0;
+        
+        // Create a control block with unknown TLV types
+        let mut control_block = CopperootControlBlock::new_merkle(0x00, internal_key, vec![])
+            .expect("Valid control block");
+        
+        // Add unknown TLV type
+        control_block.tlv_extensions.push(TlvEntry {
+            tlv_type: 0xFF, // Unknown type
+            value: vec![0x12, 0x34, 0x56, 0x78],
+        });
+        
+        // Serialize and deserialize
+        let serialized = control_block.serialize();
+        let deserialized = CopperootControlBlock::deserialize(&serialized)
+            .expect("Valid deserialization");
+        
+        // Unknown TLV should be preserved but ignored during processing
+        let unknown_tlv_present = deserialized.tlv_extensions.iter()
+            .any(|tlv| tlv.tlv_type == 0xFF);
+        assert!(unknown_tlv_present, "Unknown TLV should be preserved");
+        
+        // Merkle path should still be empty (unknown TLV ignored)
+        assert!(deserialized.merkle_path.is_empty());
+    }
+
+    #[test]
+    fn test_tlv_control_block_invalid_format() {
+        let secp = Secp256k1::new();
+        let keypair = Keypair::new(&secp, &mut secp256k1::rand::thread_rng());
+        let internal_key = keypair.x_only_public_key().0;
+        
+        // Test with invalid data length
+        let invalid_data = vec![0x00]; // Too short
+        let result = CopperootControlBlock::deserialize(&invalid_data);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), ControlBlockError::InvalidLength));
+        
+        // Test with valid base structure but invalid TLV
+        let mut invalid_tlv_data = Vec::new();
+        invalid_tlv_data.push(0x00); // parity_leaf_version
+        invalid_tlv_data.extend_from_slice(&internal_key.serialize()); // internal_key
+        invalid_tlv_data.push(0x01); // TLV type
+        // Missing length and value
+        let result = CopperootControlBlock::deserialize(&invalid_tlv_data);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), ControlBlockError::InvalidLength));
     }
 }

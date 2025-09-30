@@ -283,7 +283,12 @@ impl Mempool {
                         // Parse control block, count merkle_path length
                         if let Ok(cb) = tondi_txscript::standard::copperoot::witness::CopperootControlBlock::deserialize(&control_block) {
                             // For P2CR (Merkle type) apply depth limit; Verkle type currently rejected (existing rules)
-                            if cb.proof_type == 0 {
+                            let proof_type = cb.tlv_extensions.iter()
+                                .find(|tlv| tlv.tlv_type == tondi_txscript::standard::copperoot::witness::TLV_TYPE_PROOF_TYPE)
+                                .and_then(|tlv| tlv.value.first().copied())
+                                .unwrap_or(0);
+                            
+                            if proof_type == 0 {
                                 let depth = cb.merkle_path.len() as u8;
                                 if depth > MAX_TAPLIKE_MERKLE_DEPTH {
                                     return Err(NonStandardError::RejectTaplikeControlBlockDepth(Default::default(), 0, depth, MAX_TAPLIKE_MERKLE_DEPTH));

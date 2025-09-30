@@ -74,17 +74,18 @@ impl TapLike for CopperootTapLike {
         let control_block = CopperootControlBlock::deserialize(control_block)
             .map_err(|_| TxScriptError::InvalidTaprootWitness)?;
 
-        // Verify control block version - must be 0xC1 for Copperoot
-        if control_block.version != 0xC1 {
-            return Err(TxScriptError::InvalidTaprootWitness);
-        }
+        // Verify TLV extensions contain required proof type
+        let proof_type = control_block.tlv_extensions.iter()
+            .find(|tlv| tlv.tlv_type == crate::standard::copperoot::witness::TLV_TYPE_PROOF_TYPE)
+            .and_then(|tlv| tlv.value.first().copied())
+            .ok_or(TxScriptError::InvalidTaprootWitness)?;
 
         // Verify proof type (0 for Merkle, 1 for Verkle)
-        if control_block.proof_type > 1 {
+        if proof_type > 1 {
             return Err(TxScriptError::InvalidTaprootWitness);
         }
 
-        if control_block.proof_type == 0 {
+        if proof_type == 0 {
             // Merkle proof verification
             verify_merkle_commitment(xpub, leaf_script, &control_block)
         } else {
@@ -150,10 +151,14 @@ fn verify_merkle_commitment(
     if control_block.merkle_path.len() > 8 {
         return Err(TxScriptError::InvalidTaprootWitness);
     }
-    if control_block.version != 0xC1 {
-        return Err(TxScriptError::InvalidTaprootWitness);
-    }
-    if control_block.proof_type > 1 {
+    
+    // Verify TLV extensions contain required proof type
+    let proof_type = control_block.tlv_extensions.iter()
+        .find(|tlv| tlv.tlv_type == crate::standard::copperoot::witness::TLV_TYPE_PROOF_TYPE)
+        .and_then(|tlv| tlv.value.first().copied())
+        .ok_or(TxScriptError::InvalidTaprootWitness)?;
+    
+    if proof_type > 1 {
         return Err(TxScriptError::InvalidTaprootWitness);
     }
 
@@ -170,13 +175,13 @@ fn verify_merkle_commitment(
         root = compute_copperoot_node_hash(&root, sibling);
     }
 
-    // 5) Compute Copperoot TapTweak = BLAKE3("CopperootTapTweak" || P || root || [proof_type])
+    // 5) Compute Copperoot TapTweak = BLAKE3("CopperTweak" || P || root || [proof_type])
     //    Note: tweak must be passed as scalar to add_tweak; if >= n will return Err → reject directly
     let mut tweak_hasher = Hasher::new();
-    tweak_hasher.update(b"CopperootTapTweak");
+    tweak_hasher.update(b"CopperTweak");
     tweak_hasher.update(&control_block.internal_key.serialize());
     tweak_hasher.update(&root);
-    tweak_hasher.update(&[control_block.proof_type]);
+    tweak_hasher.update(&[proof_type]);
     let tweak_bytes = *tweak_hasher.finalize().as_bytes(); // [u8; 32]
 
     // 6) Compute Q = P + tweak*G, and take xonly(Q)
@@ -365,7 +370,7 @@ mod tests {
         
         // Compute Copperoot TapTweak
         let mut tweak_hasher = Hasher::new();
-        tweak_hasher.update(b"CopperootTapTweak");
+        tweak_hasher.update(b"CopperTweak");
         tweak_hasher.update(&internal_key.serialize());
         tweak_hasher.update(&merkle_root);
         tweak_hasher.update(&[0u8]); // proof_type = 0 (Merkle)

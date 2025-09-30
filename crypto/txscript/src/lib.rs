@@ -501,30 +501,8 @@ impl<'a, T: VerifiableTransaction, Reused: SigHashReusedValues> TxScriptEngine<'
                         self.dstack.push(item);
                     }
 
-                    // Control block and script version consistency check
-                    // Ensure control block version matches script version
-                    if let ScriptSource::TxInput { utxo_entry, .. } = &self.script_source {
-                        let script_version = utxo_entry.script_public_key.version();
-                        // For CopperootMerkle (SCRIPT_VER_COPPEROOT_MERKLE), control block version must be 0xC1
-                        // For CopperootVerkle (SCRIPT_VER_COPPEROOT_VERKLE), control block version must be 0xC2
-                        match script_version {
-                            crate::SCRIPT_VER_COPPEROOT_MERKLE => {
-                                // Verify control block version is 0xC1
-                                if control_block.len() > 0 && control_block[0] != 0xC1 {
-                                    return Err(TxScriptError::InvalidTaprootWitness);
-                                }
-                            }
-                            crate::SCRIPT_VER_COPPEROOT_VERKLE => {
-                                // Verify control block version is 0xC2
-                                if control_block.len() > 0 && control_block[0] != 0xC2 {
-                                    return Err(TxScriptError::InvalidTaprootWitness);
-                                }
-                            }
-                            _ => {
-                                return Err(TxScriptError::InvalidTaprootWitness);
-                            }
-                        }
-                    }
+                    // Control block validation is now done in TL::verify_commitment
+                    // which parses the TLV format and validates proof type
 
                     TL::verify_commitment(xpub, &leaf_script, &control_block)?;
                     self.check_push_opcode = false;

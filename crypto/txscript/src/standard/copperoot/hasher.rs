@@ -6,6 +6,25 @@
 use blake3::Hasher;
 use tondi_hashes::Hash;
 
+/// Domain separation constants for Copperoot
+pub const COPPEROOT_SIGHASH_TAG: &[u8] = b"CopperootSighash";
+pub const COPPEROOT_LEAF_TAG: &[u8] = b"CopperootLeaf";
+pub const COPPEROOT_NODE_TAG: &[u8] = b"CopperootNode";
+pub const COPPEROOT_TAP_TWEAK_TAG: &[u8] = b"CopperTweak";
+pub const COPPEROOT_SCRIPT_PATH_TAG: &[u8] = b"CopperootScriptPath";
+pub const COPPEROOT_KEY_PATH_TAG: &[u8] = b"CopperootKeyPath";
+
+/// Chain-specific domain separation constants (prevents cross-chain replay)
+pub const CHAIN_ID_TAG: &[u8] = b"TondiChainID";
+pub const GENESIS_HASH_TAG: &[u8] = b"TondiGenesisHash";
+
+/// Sighash domain separation constants
+pub const AMOUNTS_TAG: &[u8] = b"Amounts";
+pub const SCRIPT_PUBKEYS_TAG: &[u8] = b"ScriptPubKeys";
+pub const PREVOUTS_TAG: &[u8] = b"Prevouts";
+pub const SEQUENCES_TAG: &[u8] = b"Sequences";
+pub const OUTPUTS_TAG: &[u8] = b"Outputs";
+
 /// Copperoot tagged hash function using BLAKE3-256
 pub fn tagged_hash(tag: &[u8], data: &[u8]) -> Hash {
     let mut hasher = Hasher::new();
@@ -17,7 +36,7 @@ pub fn tagged_hash(tag: &[u8], data: &[u8]) -> Hash {
 /// Copperoot tap tweak hash
 pub fn copperoot_tap_tweak(internal_key: &[u8], merkle_root: Option<&[u8]>) -> Hash {
     let mut hasher = Hasher::new();
-    hasher.update(b"CopperootTapTweak");
+    hasher.update(COPPEROOT_TAP_TWEAK_TAG);
     hasher.update(internal_key);
     if let Some(root) = merkle_root {
         hasher.update(root);
@@ -28,7 +47,7 @@ pub fn copperoot_tap_tweak(internal_key: &[u8], merkle_root: Option<&[u8]>) -> H
 /// Copperoot leaf hash
 pub fn copperoot_leaf(leaf_version: u8, script: &[u8]) -> Hash {
     let mut hasher = Hasher::new();
-    hasher.update(b"CopperootLeaf");
+    hasher.update(COPPEROOT_LEAF_TAG);
     hasher.update(&[leaf_version]);
     hasher.update(script);
     Hash::from_slice(hasher.finalize().as_bytes())
@@ -37,7 +56,7 @@ pub fn copperoot_leaf(leaf_version: u8, script: &[u8]) -> Hash {
 /// Copperoot node hash
 pub fn copperoot_node(left: &[u8], right: &[u8]) -> Hash {
     let mut hasher = Hasher::new();
-    hasher.update(b"CopperootNode");
+    hasher.update(COPPEROOT_NODE_TAG);
     hasher.update(left);
     hasher.update(right);
     Hash::from_slice(hasher.finalize().as_bytes())
@@ -46,7 +65,7 @@ pub fn copperoot_node(left: &[u8], right: &[u8]) -> Hash {
 /// Copperoot script path hash
 pub fn copperoot_script_path(leaf_hash: &[u8], path: &[&[u8]]) -> Hash {
     let mut hasher = Hasher::new();
-    hasher.update(b"CopperootScriptPath");
+    hasher.update(COPPEROOT_SCRIPT_PATH_TAG);
     hasher.update(leaf_hash);
     for node in path {
         hasher.update(node);
@@ -57,7 +76,7 @@ pub fn copperoot_script_path(leaf_hash: &[u8], path: &[&[u8]]) -> Hash {
 /// Copperoot key path hash
 pub fn copperoot_key_path(internal_key: &[u8], merkle_root: Option<&[u8]>) -> Hash {
     let mut hasher = Hasher::new();
-    hasher.update(b"CopperootKeyPath");
+    hasher.update(COPPEROOT_KEY_PATH_TAG);
     hasher.update(internal_key);
     if let Some(root) = merkle_root {
         hasher.update(root);
@@ -98,7 +117,7 @@ mod tests {
 
     #[test]
     fn test_tagged_hash() {
-        let tag = b"CopperootTapTweak";
+        let tag = b"CopperTweak";
         let data = b"test data";
         let hash = tagged_hash(tag, data);
         assert_eq!(hash.as_bytes().len(), 32);
