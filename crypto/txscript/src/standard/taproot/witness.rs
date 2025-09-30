@@ -56,4 +56,8 @@ impl Witness {
         let sig = Signature::from_slice(signature)?;
         secp.verify_schnorr(&sig, msg, xpub)
     }
+
+    pub fn into_inner(self) -> BtcWitness {
+        self.inner
+    }
 }

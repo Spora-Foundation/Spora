@@ -9,7 +9,6 @@
 use blake3::Hasher;
 use secp256k1::{PublicKey, Secp256k1, SecretKey};
 use std::collections::HashMap;
-use tondi_hashes::Hash;
 
 /// Maximum depth of the Verkle tree (8 layers)
 pub const MAX_VERKLE_DEPTH: usize = 8;
@@ -78,7 +77,7 @@ impl VerkleNode {
         
         for (idx, child) in sorted_children {
             hasher.update(&[*idx]);
-            hasher.update(child.commitment.serialize());
+            hasher.update(&child.commitment.serialize());
         }
         
         let hash = hasher.finalize();
@@ -122,7 +121,8 @@ impl VerkleTree {
         }
 
         let path = self.key_to_path(key);
-        self.root = Some(self.insert_recursive(self.root.take(), &path, value, 0)?);
+        let root = self.root.take();
+        self.root = Some(self.insert_recursive(root, &path, value, 0)?);
         self.leaf_count += 1;
         Ok(())
     }
@@ -215,7 +215,7 @@ impl VerkleTree {
     }
 
     /// Recursive get
-    fn get_recursive(&self, node: Option<&VerkleNode>, path: &[u8]) -> Option<&Vec<u8>> {
+    fn get_recursive<'a>(&self, node: Option<&'a VerkleNode>, path: &[u8]) -> Option<&'a Vec<u8>> {
         let node = node?;
         
         if node.is_leaf() {
@@ -262,9 +262,9 @@ impl VerkleTree {
     /// Recursive verify
     fn verify_recursive(
         &self,
-        path: &[u8],
-        value: &[u8],
-        proof: &VerkleProof,
+        _path: &[u8],
+        _value: &[u8],
+        _proof: &VerkleProof,
         depth: usize,
     ) -> bool {
         if depth >= MAX_VERKLE_DEPTH {

@@ -150,6 +150,13 @@ pub enum Version {
     /// Taproot addresses always have the version byte set to 88(0b01011_000)
     /// Bech32 codec encode initial 5 bit `0b01011` to char 't'
     Taproot = 88,
+    /// CopperootMerkle addresses always have the version byte set to 18(0x12)
+    /// CopperootMerkle (Pay-to-Copperoot-Merkle) addresses for Tondi Copperoot with Merkle trees
+    CopperootMerkle = 18,
+    /// CopperootVerkle addresses always have the version byte set to 19(0x13)
+    /// CopperootVerkle (Pay-to-Copperoot-Verkle) addresses for Tondi Copperoot with Verkle trees
+    /// NOTE: Currently disabled for mainnet launch - reserved for future activation
+    CopperootVerkle = 19,
 }
 
 impl TryFrom<&str> for Version {
@@ -161,6 +168,8 @@ impl TryFrom<&str> for Version {
             "PubKeyECDSA" => Ok(Version::PubKeyECDSA),
             "ScriptHash" => Ok(Version::ScriptHash),
             "Taproot" => Ok(Version::Taproot),
+            "CopperootMerkle" => Ok(Version::CopperootMerkle),
+            "CopperootVerkle" => Ok(Version::CopperootVerkle),
             _ => Err(AddressError::InvalidVersionString(value.to_owned())),
         }
     }
@@ -173,6 +182,8 @@ impl Version {
             Version::PubKeyECDSA => 33,
             Version::ScriptHash => 32,
             Version::Taproot => 32,
+            Version::CopperootMerkle => 32,
+            Version::CopperootVerkle => 32,
         }
     }
 }
@@ -185,6 +196,8 @@ impl TryFrom<u8> for Version {
             0 => Ok(Version::PubKey),
             1 => Ok(Version::PubKeyECDSA),
             8 => Ok(Version::ScriptHash),
+            18 => Ok(Version::CopperootMerkle),
+            19 => Err(AddressError::InvalidVersion(value)), // CopperootVerkle disabled for mainnet launch
             88 => Ok(Version::Taproot),
             _ => Err(AddressError::InvalidVersion(value)),
         }
@@ -198,6 +211,8 @@ impl Display for Version {
             Version::PubKeyECDSA => write!(f, "PubKeyECDSA"),
             Version::ScriptHash => write!(f, "ScriptHash"),
             Version::Taproot => write!(f, "Taproot"),
+            Version::CopperootMerkle => write!(f, "CopperootMerkle"),
+            Version::CopperootVerkle => write!(f, "CopperootVerkle"),
         }
     }
 }
@@ -241,6 +256,18 @@ impl Address {
             assert_eq!(payload.len(), version.public_key_len());
         }
         Self { prefix, payload: PayloadVec::from_slice(payload), version }
+    }
+
+    /// Create a P2CR address from an x-only public key
+    /// 
+    /// This function creates a P2CR address with the provided x-only public key as the payload.
+    /// For MuSig2 aggregated keys, the aggregation should be done externally and the result
+    /// passed to this function.
+    pub fn address_from_xonly(prefix: Prefix, xonly_pubkey: &[u8; 32]) -> Result<Self, AddressError> {
+        if xonly_pubkey.len() != 32 {
+            return Err(AddressError::InvalidAddress);
+        }
+        Ok(Address::new(prefix, Version::CopperootMerkle, xonly_pubkey))
     }
 }
 
@@ -653,15 +680,6 @@ mod tests {
         let result: Result<Address, _> = broken.parse();
         assert_eq!(result, Err(AddressError::BadChecksum));
     }
-
-    #[cfg(target_arch = "wasm32")]
-    use js_sys::Object;
-    #[cfg(target_arch = "wasm32")]
-    use wasm_bindgen::{JsValue, __rt::IntoJsResult};
-    #[cfg(target_arch = "wasm32")]
-    use wasm_bindgen_test::wasm_bindgen_test;
-    #[cfg(target_arch = "wasm32")]
-    use workflow_wasm::{extensions::ObjectExtension, serde::from_value, serde::to_value};
 
     #[cfg(target_arch = "wasm32")]
     use js_sys::Object;

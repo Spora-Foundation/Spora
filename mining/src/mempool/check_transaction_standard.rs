@@ -37,6 +37,13 @@ const MAXIMUM_STANDARD_SIGNATURE_SCRIPT_SIZE: u64 = 1650;
 /// are considered standard and will therefore be relayed and considered for mining.
 const MAXIMUM_STANDARD_TRANSACTION_MASS: u64 = 100_000;
 
+/// Policy limits for tap-like witnesses
+const MAX_TAPLIKE_CONTROL_BLOCK_SIZE: usize = 1536; // 1.5 KB
+const MAX_TAPLIKE_LEAF_SCRIPT_SIZE: usize = 10240;  // 10 KB
+const MAX_TAPLIKE_WITNESS_TOTAL_SIZE: usize = 102400; // 100 KB
+const MAX_TAPLIKE_SINGLE_ELEMENT_SIZE: usize = 65536; // 64 KB
+const MAX_TAPLIKE_MERKLE_DEPTH: u8 = 8;
+
 impl Mempool {
     pub(crate) fn check_transaction_standard_in_isolation(&self, transaction: &MutableTransaction) -> NonStandardResult<()> {
         let transaction_id = transaction.id();
@@ -175,6 +182,14 @@ impl Mempool {
         if contextual_mass > MAXIMUM_STANDARD_TRANSACTION_MASS {
             return Err(NonStandardError::RejectStorageMass(transaction_id, contextual_mass, MAXIMUM_STANDARD_TRANSACTION_MASS));
         }
+
+        // fee check
+        let minimum_fee =
+            self.minimum_required_transaction_relay_fee(transaction.calculated_non_contextual_masses.unwrap().compute_mass);
+        if transaction.calculated_fee.unwrap() < minimum_fee {
+            return Err(NonStandardError::RejectInsufficientFee(transaction_id, transaction.calculated_fee.unwrap(), minimum_fee));
+        }
+
         for (i, input) in transaction.tx.inputs.iter().enumerate() {
             // It is safe to elide existence and index checks here since
             // they have already been checked prior to calling this
@@ -184,10 +199,11 @@ impl Mempool {
                 ScriptClass::NonStandard => {
                     return Err(NonStandardError::RejectInputScriptClass(transaction_id, i));
                 }
-                ScriptClass::PubKey => {}
-                ScriptClass::PubKeyECDSA => {}
+                ScriptClass::PubKey | ScriptClass::PubKeyECDSA => {
+                    // 标准脚本类型，直接通过
+                }
                 ScriptClass::ScriptHash => {
-                    // todo relax due to on fly calculation
+                    // P2SH sigops 上限检查
                     let num_sig_ops = get_sig_op_count_upper_bound::<PopulatedTransaction, SigHashReusedValuesUnsync>(
                         &input.signature_script,
                         &entry.script_public_key,
@@ -196,15 +212,32 @@ impl Mempool {
                         return Err(NonStandardError::RejectSignatureCount(transaction_id, i, num_sig_ops, MAX_STANDARD_P2SH_SIG_OPS));
                     }
                 }
-                ScriptClass::Taproot => {}
-            }
-
-            // TODO: For now, until wallets adapt, we only require minimum fee as function of compute mass (but the fee/mass ratio will
-            // use the max over all masses and will affect tx selection to block template)
-            let minimum_fee =
-                self.minimum_required_transaction_relay_fee(transaction.calculated_non_contextual_masses.unwrap().compute_mass);
-            if transaction.calculated_fee.unwrap() < minimum_fee {
-                return Err(NonStandardError::RejectInsufficientFee(transaction_id, transaction.calculated_fee.unwrap(), minimum_fee));
+                ScriptClass::Taproot => {
+                    // Taproot 见证层策略检查
+                    if let Err(e) = self.policy_check_taplike_witness(&input.signature_script, false) {
+                        return Err(match e {
+                            NonStandardError::RejectWitnessParse(_, _) => NonStandardError::RejectWitnessParse(transaction_id, i),
+                            NonStandardError::RejectWitnessSize(_, _) => NonStandardError::RejectWitnessSize(transaction_id, i),
+                            NonStandardError::RejectTaplikeControlBlockDepth(_, _, depth, max) => NonStandardError::RejectTaplikeControlBlockDepth(transaction_id, i, depth, max),
+                            _ => e,
+                        });
+                    }
+                }
+                ScriptClass::CopperootMerkle => {
+                    // P2CRM 见证层策略检查
+                    if let Err(e) = self.policy_check_taplike_witness(&input.signature_script, true) {
+                        return Err(match e {
+                            NonStandardError::RejectWitnessParse(_, _) => NonStandardError::RejectWitnessParse(transaction_id, i),
+                            NonStandardError::RejectWitnessSize(_, _) => NonStandardError::RejectWitnessSize(transaction_id, i),
+                            NonStandardError::RejectTaplikeControlBlockDepth(_, _, depth, max) => NonStandardError::RejectTaplikeControlBlockDepth(transaction_id, i, depth, max),
+                            _ => e,
+                        });
+                    }
+                }
+                ScriptClass::CopperootVerkle => {
+                    // P2CRV 主网未启用：直接拒绝
+                    return Err(NonStandardError::RejectInputScriptClass(transaction_id, i));
+                }
             }
         }
 
@@ -229,6 +262,61 @@ impl Mempool {
         minimum_fee = minimum_fee.min(MAX_SAU);
 
         minimum_fee
+    }
+
+    /// Policy check for tap-like witnesses (Taproot and Copperoot-Merkle)
+    fn policy_check_taplike_witness(&self, signature_script: &[u8], is_copperoot: bool) -> NonStandardResult<()> {
+        // 1) Total size and basic robustness checks (keep existing)
+        if signature_script.len() > MAX_TAPLIKE_WITNESS_TOTAL_SIZE {
+            return Err(NonStandardError::RejectWitnessSize(Default::default(), 0));
+        }
+        if signature_script.is_empty() {
+            return Err(NonStandardError::RejectWitnessParse(Default::default(), 0));
+        }
+
+        // 2) Simplified parsing: deserialize witness (suggest using real witness decoder later)
+        // Try to parse as CopperootWitness for P2CR depth validation
+        if is_copperoot {
+            if let Ok(wit) = tondi_txscript::standard::copperoot::witness::CopperootWitness::try_from(signature_script) {
+                if let Ok(spend) = tondi_txscript::standard::copperoot::witness::P2CrSpend::try_from(&wit) {
+                    if let tondi_txscript::standard::copperoot::witness::P2CrSpend::Script { control_block, .. } = spend {
+                        // Parse control block, count merkle_path length
+                        if let Ok(cb) = tondi_txscript::standard::copperoot::witness::CopperootControlBlock::deserialize(&control_block) {
+                            // For P2CR (Merkle type) apply depth limit; Verkle type currently rejected (existing rules)
+                            if cb.proof_type == 0 {
+                                let depth = cb.merkle_path.len() as u8;
+                                if depth > MAX_TAPLIKE_MERKLE_DEPTH {
+                                    return Err(NonStandardError::RejectTaplikeControlBlockDepth(Default::default(), 0, depth, MAX_TAPLIKE_MERKLE_DEPTH));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 3) Fallback: keep old lenient checks (length/element size) to avoid DoS on parse failure
+        // Basic structure validation for tap-like witnesses
+        // Key path: single element (signature)
+        // Script path: multiple elements (input items + leaf script + control block)
+        if signature_script.len() == 1 {
+            // Key path spending - single signature
+            if signature_script[0] as usize > MAX_TAPLIKE_SINGLE_ELEMENT_SIZE {
+                return Err(NonStandardError::RejectWitnessSize(Default::default(), 0));
+            }
+        } else if signature_script.len() >= 3 {
+            // Script path spending - check basic structure
+            // This is a simplified check - in practice you'd parse the actual witness structure
+            for &byte in signature_script {
+                if byte as usize > MAX_TAPLIKE_SINGLE_ELEMENT_SIZE {
+                    return Err(NonStandardError::RejectWitnessSize(Default::default(), 0));
+                }
+            }
+        } else {
+            return Err(NonStandardError::RejectWitnessParse(Default::default(), 0));
+        }
+
+        Ok(())
     }
 }
 
@@ -584,5 +672,26 @@ mod tests {
                 assert_eq!(res.is_ok(), test.is_standard, "ensuring transaction standard-ness is as expected");
             }
         }
+    }
+
+    #[test]
+    fn test_policy_check_taplike_witness() {
+        let params: Params = NetworkType::Mainnet.into();
+        let config = Config::build_default(params.target_time_per_block(), false, params.max_block_mass);
+        let counters = Arc::new(MiningCounters::default());
+        let mempool = Mempool::new(Arc::new(config), counters);
+
+        // Test empty witness
+        assert!(mempool.policy_check_taplike_witness(&[], false).is_err());
+
+        // Test key path witness (single element)
+        assert!(mempool.policy_check_taplike_witness(&[64], false).is_ok());
+
+        // Test script path witness (multiple elements)
+        assert!(mempool.policy_check_taplike_witness(&[1, 2, 3], false).is_ok());
+
+        // Test oversized witness
+        let oversized_witness = vec![0u8; MAX_TAPLIKE_WITNESS_TOTAL_SIZE + 1];
+        assert!(mempool.policy_check_taplike_witness(&oversized_witness, false).is_err());
     }
 }

@@ -30,14 +30,19 @@ pub enum ScriptClass {
     ScriptHash,
     /// Pay to Taproot
     Taproot,
+    /// Pay to Copperoot Merkle (P2CR)
+    CopperootMerkle,
+    /// Pay to Copperoot Verkle (P2CRV) - Currently disabled for mainnet launch
+    CopperootVerkle,
 }
 
 const NON_STANDARD: &str = "nonstandard";
 const PUB_KEY: &str = "pubkey";
 const PUB_KEY_ECDSA: &str = "pubkeyecdsa";
 const SCRIPT_HASH: &str = "scripthash";
-
 const TAPROOT: &str = "taproot";
+const COPPEROOT_MERKLE: &str = "copperootmerkle";
+const COPPEROOT_VERKLE: &str = "copperootverkle";
 
 impl ScriptClass {
     // Returns true if the script passed is a pay-to-pubkey
@@ -77,6 +82,7 @@ impl ScriptClass {
         (script_public_key[1] == opcodes::codes::OpData32)
     }
 
+
     fn as_str(&self) -> &'static str {
         match self {
             ScriptClass::NonStandard => NON_STANDARD,
@@ -84,6 +90,8 @@ impl ScriptClass {
             ScriptClass::PubKeyECDSA => PUB_KEY_ECDSA,
             ScriptClass::ScriptHash => SCRIPT_HASH,
             ScriptClass::Taproot => TAPROOT,
+            ScriptClass::CopperootMerkle => COPPEROOT_MERKLE,
+            ScriptClass::CopperootVerkle => COPPEROOT_VERKLE,
         }
     }
 
@@ -94,6 +102,8 @@ impl ScriptClass {
             ScriptClass::PubKeyECDSA => MAX_SCRIPT_PUBLIC_KEY_VERSION,
             ScriptClass::ScriptHash => MAX_SCRIPT_PUBLIC_KEY_VERSION,
             ScriptClass::Taproot => MAX_SCRIPT_PUBLIC_KEY_VERSION,
+            ScriptClass::CopperootMerkle => MAX_SCRIPT_PUBLIC_KEY_VERSION,
+            ScriptClass::CopperootVerkle => MAX_SCRIPT_PUBLIC_KEY_VERSION,
         }
     }
 }
@@ -114,6 +124,8 @@ impl FromStr for ScriptClass {
             PUB_KEY_ECDSA => Ok(ScriptClass::PubKeyECDSA),
             SCRIPT_HASH => Ok(ScriptClass::ScriptHash),
             TAPROOT => Ok(ScriptClass::Taproot),
+            COPPEROOT_MERKLE => Ok(ScriptClass::CopperootMerkle),
+            COPPEROOT_VERKLE => Ok(ScriptClass::CopperootVerkle),
             _ => Err(Error::InvalidScriptClass(script_class.to_string())),
         }
     }
@@ -134,6 +146,8 @@ impl From<Version> for ScriptClass {
             Version::PubKeyECDSA => ScriptClass::PubKeyECDSA,
             Version::ScriptHash => ScriptClass::ScriptHash,
             Version::Taproot => ScriptClass::Taproot,
+            Version::CopperootMerkle => ScriptClass::CopperootMerkle,
+            Version::CopperootVerkle => ScriptClass::CopperootVerkle,
         }
     }
 }

@@ -14,4 +14,7 @@ pub enum CopperootError {
 
     #[error("InvalidSighashTypeError")]
     InvalidSighashTypeError,
+
+    #[error("InvalidAnnex")]
+    InvalidAnnex,
 }

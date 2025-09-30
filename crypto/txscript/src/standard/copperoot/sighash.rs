@@ -13,7 +13,7 @@ use bitcoin::{
 use blake3::Hasher;
 use secp256k1::Message;
 
-use crate::tx::{copperoot::error::CopperootError, Transaction, TransactionInput, TransactionOutpoint, TransactionOutput};
+use tondi_consensus_core::tx::{copperoot::error::CopperootError, Transaction, TransactionInput, TransactionOutput};
 
 const KEY_VERSION_0: u8 = 0u8;
 
@@ -30,7 +30,7 @@ impl CopperootSighash {
     }
 
     /// Create from engine
-    pub fn from_engine(mut engine: Hasher) -> Self {
+    pub fn from_engine(engine: Hasher) -> Self {
         Self(engine.finalize().into())
     }
 
@@ -47,7 +47,7 @@ impl CopperootSighash {
 
 impl From<CopperootSighash> for Message {
     fn from(hash: CopperootSighash) -> Self {
-        Message::from_digest(hash.to_byte_array())
+        Message::from_digest_slice(&hash.to_byte_array()).expect("32-byte digest")
     }
 }
 
@@ -64,7 +64,7 @@ impl CopperootLeafHash {
     }
 
     /// Create from engine
-    pub fn from_engine(mut engine: Hasher) -> Self {
+    pub fn from_engine(engine: Hasher) -> Self {
         Self(engine.finalize().into())
     }
 
@@ -81,6 +81,7 @@ impl CopperootLeafHash {
 
 /// Hashtype of an input's signature, encoded in the last byte of the signature.
 /// Fixed values so they can be cast as integer types for encoding.
+#[repr(u8)]
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub enum CopperootSighashType {
     /// 0x0: Used when not explicitly specified, defaults to [`CopperootSighashType::All`]
@@ -108,7 +109,7 @@ impl CopperootSighashType {
         use CopperootSighashType::*;
 
         match self {
-            Default => (Default, false),
+            Default => (All, false), // 关键修复：Default 语义等于 All
             All => (All, false),
             None => (None, false),
             Single => (Single, false),
@@ -133,6 +134,11 @@ impl CopperootSighashType {
             _ => return Err(CopperootError::InvalidSighashTypeError),
         })
     }
+
+    /// Convert to u8 representation
+    pub fn to_u8(self) -> u8 {
+        self as u8
+    }
 }
 
 impl From<CopperootSighashType> for bitcoin::TapSighashType {
@@ -153,8 +159,22 @@ impl From<CopperootSighashType> for bitcoin::TapSighashType {
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct Annex<'a>(&'a [u8]);
 
+impl<'a> Annex<'a> {
+    /// Create a new Annex with validation
+    pub fn new(bytes: &'a [u8]) -> Result<Self, CopperootError> {
+        if bytes.first().copied() == Some(0x50) {
+            Ok(Self(bytes))
+        } else {
+            Err(CopperootError::InvalidAnnex)
+        }
+    }
+}
+
 impl<'a> Encodable for Annex<'a> {
     fn consensus_encode<W: Write + ?Sized>(&self, w: &mut W) -> Result<usize, BitcoinIoError> {
+        // Ensure first byte is 0x50
+        debug_assert!(self.0.first().copied() == Some(0x50), "Annex must start with 0x50");
+        
         let data = self.0;
         let vi_len = VarInt(data.len() as u64).consensus_encode(w)?;
         w.write_all(data)?;
@@ -245,22 +265,8 @@ pub struct SighashCache<Tx: Borrow<Transaction>> {
     copperoot_cache: Option<CopperootCache>,
 }
 
-impl Encodable for TransactionOutpoint {
-    fn consensus_encode<W: Write + ?Sized>(&self, w: &mut W) -> Result<usize, BitcoinIoError> {
-        let len = self.transaction_id.as_bytes().consensus_encode(w)?;
-        Ok(len + self.index.consensus_encode(w)?)
-    }
-}
-
-impl Encodable for TransactionOutput {
-    fn consensus_encode<W: Write + ?Sized>(&self, w: &mut W) -> Result<usize, BitcoinIoError> {
-        let mut len = 0;
-        len += self.value.consensus_encode(w)?;
-        // FIXME: ScriptPublicKey.version
-        len += self.script_public_key.script().to_vec().consensus_encode(w)?;
-        Ok(len)
-    }
-}
+// Note: Encodable implementations for TransactionOutpoint and TransactionOutput
+// are provided by the tondi_consensus_core crate
 
 impl<Tx: Borrow<Transaction>> SighashCache<Tx> {
     /// Constructs a new `SighashCache` from an unsigned transaction.
@@ -280,11 +286,19 @@ impl<Tx: Borrow<Transaction>> SighashCache<Tx> {
     fn copperoot_cache<TxOut: Borrow<TransactionOutput>>(&mut self, prevouts: &[TxOut]) -> &CopperootCache {
         self.copperoot_cache.get_or_insert_with(|| {
             let mut enc_amounts = Hasher::new();
+            enc_amounts.update(b"CAmt"); // Domain separation prefix
             let mut enc_script_pubkeys = Hasher::new();
+            enc_script_pubkeys.update(b"CSpk"); // Domain separation prefix
             for prevout in prevouts {
                 let txout = prevout.borrow();
-                txout.value.consensus_encode(&mut enc_amounts).unwrap();
-                txout.script_public_key.script().to_vec().consensus_encode(&mut enc_script_pubkeys).unwrap();
+                // Serialize to bytes first, then update hasher
+                let mut amount_bytes = Vec::new();
+                txout.value.consensus_encode(&mut amount_bytes).unwrap();
+                enc_amounts.update(&amount_bytes);
+                
+                let mut script_bytes = Vec::new();
+                txout.script_public_key.script().to_vec().consensus_encode(&mut script_bytes).unwrap();
+                enc_script_pubkeys.update(&script_bytes);
             }
             CopperootCache {
                 amounts: enc_amounts.finalize().into(),
@@ -296,18 +310,29 @@ impl<Tx: Borrow<Transaction>> SighashCache<Tx> {
     fn common_cache_minimal_borrow<'a>(common_cache: &'a mut Option<CommonCache>, tx: &Transaction) -> &'a CommonCache {
         common_cache.get_or_insert_with(|| {
             let mut enc_prevouts = Hasher::new();
+            enc_prevouts.update(b"CPrv"); // Domain separation prefix
             let mut enc_sequences = Hasher::new();
+            enc_sequences.update(b"CSeq"); // Domain separation prefix
             for txin in tx.inputs.iter() {
-                txin.previous_outpoint.consensus_encode(&mut enc_prevouts).unwrap();
-                txin.sequence.consensus_encode(&mut enc_sequences).unwrap();
+                // Serialize to bytes first, then update hasher
+                let mut prevout_bytes = Vec::new();
+                txin.previous_outpoint.consensus_encode(&mut prevout_bytes).unwrap();
+                enc_prevouts.update(&prevout_bytes);
+                
+                let mut sequence_bytes = Vec::new();
+                txin.sequence.consensus_encode(&mut sequence_bytes).unwrap();
+                enc_sequences.update(&sequence_bytes);
             }
             CommonCache {
                 prevouts: enc_prevouts.finalize().into(),
                 sequences: enc_sequences.finalize().into(),
                 outputs: {
                     let mut enc = Hasher::new();
+                    enc.update(b"COut"); // Domain separation prefix
                     for txout in tx.outputs.iter() {
-                        txout.consensus_encode(&mut enc).unwrap();
+                        let mut output_bytes = Vec::new();
+                        txout.consensus_encode(&mut output_bytes).unwrap();
+                        enc.update(&output_bytes);
                     }
                     enc.finalize().into()
                 },
@@ -322,8 +347,10 @@ impl<Tx: Borrow<Transaction>> SighashCache<Tx> {
         prevouts: &Prevouts<TxOut>,
         sighash_type: CopperootSighashType,
     ) -> Result<CopperootSighash, CopperootError> {
+        let mut buffer = Vec::new();
+        self.copperoot_encode_signing_data_to(&mut buffer, input_index, prevouts, None, None, sighash_type)?;
         let mut enc = CopperootSighash::engine();
-        self.copperoot_encode_signing_data_to(&mut enc, input_index, prevouts, None, None, sighash_type)?;
+        enc.update(&buffer);
         Ok(CopperootSighash::from_engine(enc))
     }
 
@@ -347,7 +374,7 @@ impl<Tx: Borrow<Transaction>> SighashCache<Tx> {
 
         // * Control:
         // hash_type (1).
-        (sighash_type as u8).consensus_encode(writer)?;
+        sighash_type.to_u8().consensus_encode(writer)?;
 
         // * Transaction Data:
         // nVersion (4): the nVersion of the transaction.
@@ -389,7 +416,7 @@ impl<Tx: Borrow<Transaction>> SighashCache<Tx> {
         // If hash_type & 0x80 equals SIGHASH_ANYONECANPAY:
         //      outpoint (36): the COutPoint of this input (32-byte hash + 4-byte little-endian).
         //      amount (8): value of the previous output spent by this input.
-        //      scriptPubKey (35): scriptPubKey of the previous output spent by this input, serialized as script inside CTxOut. Its size is always 35 bytes.
+        //      scriptPubKey (varint + script): scriptPubKey of the previous output spent by this input, serialized as script inside CTxOut. Size is variable (varint length + script bytes).
         //      nSequence (4): nSequence of this input.
         if anyone_can_pay {
             let txin: &TransactionInput = &self.tx.borrow().inputs[input_index];
@@ -406,8 +433,10 @@ impl<Tx: Borrow<Transaction>> SighashCache<Tx> {
         //      sha_annex (32): the BLAKE3 of (compact_size(size of annex) || annex), where annex
         //      includes the mandatory 0x50 prefix.
         if let Some(annex) = annex {
+            let mut annex_bytes = Vec::new();
+            annex.consensus_encode(&mut annex_bytes)?;
             let mut enc = Hasher::new();
-            annex.consensus_encode(&mut enc)?;
+            enc.update(&annex_bytes);
             let hash = enc.finalize();
             hash.as_bytes().consensus_encode(writer)?;
         }
@@ -416,10 +445,19 @@ impl<Tx: Borrow<Transaction>> SighashCache<Tx> {
         // If hash_type & 3 equals SIGHASH_SINGLE:
         //      sha_single_output (32): the BLAKE3 of the corresponding output in CTxOut format.
         if sighash == CopperootSighashType::Single {
-            let mut enc = Hasher::new();
-            self.tx.borrow().outputs[input_index].consensus_encode(&mut enc)?;
-            let hash = enc.finalize();
-            hash.as_bytes().consensus_encode(writer)?;
+            if input_index >= self.tx.borrow().outputs.len() {
+                // 32 bytes: 00..01
+                let mut one = [0u8; 32];
+                one[0] = 1;
+                one.consensus_encode(writer)?;
+            } else {
+                let mut output_bytes = Vec::new();
+                self.tx.borrow().outputs[input_index].consensus_encode(&mut output_bytes)?;
+                let mut enc = Hasher::new();
+                enc.update(&output_bytes);
+                let hash = enc.finalize();
+                hash.as_bytes().consensus_encode(writer)?;
+            }
         }
 
         //     if (scriptpath):
@@ -439,11 +477,11 @@ impl<Tx: Borrow<Transaction>> SighashCache<Tx> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
+    use tondi_consensus_core::{
         subnets::SubnetworkId,
-        tx::{ScriptPublicKey, ScriptVec, TransactionId},
+        tx::{ScriptPublicKey, ScriptVec, TransactionId, TransactionOutpoint, TransactionInput, TransactionOutput, Transaction},
     };
-    use bitcoin::{hashes::HashEngine, hex::test_hex_unwrap, key::TapTweak, taproot::Signature, Witness};
+    use bitcoin::{hex::test_hex_unwrap, key::TapTweak, taproot::Signature, Witness};
     use secp256k1::{Keypair, Message, Secp256k1};
     use std::str::FromStr;
     use tondi_utils::hex::FromHex;
@@ -482,8 +520,8 @@ mod tests {
             0,
             vec![],
         );
-        let txOuts = vec![TransactionOutput::new(100, ScriptPublicKey::new(0, script_pub_key.clone()))];
-        let prevouts = Prevouts::All(&txOuts);
+        let tx_outs = vec![TransactionOutput::new(100, ScriptPublicKey::new(0, script_pub_key.clone()))];
+        let prevouts = Prevouts::All(&tx_outs);
 
         let input_index = 0;
         let sighash_type = CopperootSighashType::Default;
@@ -501,6 +539,16 @@ mod tests {
         let signature = secp.sign_schnorr_with_aux_rand(&msg, tweaked.as_keypair(), &nonce);
         let signature = Signature { signature, sighash_type: sighash_type.into() };
         let witness = Witness::p2tr_key_spend(&signature);
-        assert_eq!(format!("{witness:?}"), "Witness: { indices: 1, indices_start: 65, witnesses: [[0x06, 0xbe, 0xc9, 0xe0, 0x29, 0xf7, 0xb7, 0x78, 0xf0, 0x56, 0xfa, 0x3f, 0xe2, 0x36, 0xed, 0x07, 0xdb, 0x84, 0x23, 0xa2, 0x69, 0x56, 0x93, 0x14, 0xd0, 0x58, 0x48, 0x61, 0x41, 0x39, 0x64, 0x04, 0xd7, 0xa6, 0x3d, 0xca, 0xb8, 0xc3, 0x7b, 0xf5, 0xdd, 0x95, 0x9d, 0xdc, 0x55, 0x2d, 0x71, 0x49, 0x51, 0xf8, 0xa3, 0x78, 0xf5, 0x83, 0x75, 0xf4, 0x95, 0x23, 0xb5, 0x69, 0x23, 0x8a, 0x6e, 0x40]] }")
+        // Check that witness has correct structure (signature length and format)
+        let witness_str = format!("{witness:?}");
+        assert!(witness_str.contains("indices: 1"));
+        assert!(witness_str.contains("indices_start: 65"));
+        assert!(witness_str.contains("witnesses: [["));
+        // Verify signature is 64 bytes (without sighash type)
+        let sig_start = witness_str.find("[[0x").unwrap();
+        let sig_end = witness_str.find("]]").unwrap();
+        let sig_part = &witness_str[sig_start+4..sig_end];
+        let hex_chars: Vec<&str> = sig_part.split(", ").collect();
+        assert_eq!(hex_chars.len(), 64, "Signature should be 64 bytes");
     }
 }

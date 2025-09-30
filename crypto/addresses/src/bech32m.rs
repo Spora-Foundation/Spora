@@ -112,6 +112,13 @@ impl Address {
             return Err(AddressError::InvalidAddress);
         }
         let version = Version::try_from(data[0])?;
-        Ok(Address::new(prefix, version, &data[1..]))
+        let payload = &data[1..];
+        
+        // Validate payload length for non-test prefixes
+        if !prefix.is_test() && payload.len() != version.public_key_len() {
+            return Err(AddressError::BadPayload);
+        }
+        
+        Ok(Address::new(prefix, version, payload))
     }
 }

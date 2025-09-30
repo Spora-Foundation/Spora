@@ -132,6 +132,15 @@ pub enum NonStandardError {
 
     #[error("transaction input #{1} has {2} signature operations which is more than the allowed max amount of {3}")]
     RejectSignatureCount(TransactionId, usize, u64, u8),
+
+    #[error("transaction input #{1}: tap-like witness control block depth {2} exceeds maximum allowed depth of {3}")]
+    RejectTaplikeControlBlockDepth(TransactionId, usize, u8, u8),
+
+    #[error("transaction input #{1}: tap-like witness size exceeds policy limits")]
+    RejectWitnessSize(TransactionId, usize),
+
+    #[error("transaction input #{1}: failed to parse tap-like witness")]
+    RejectWitnessParse(TransactionId, usize),
 }
 
 impl NonStandardError {
@@ -148,6 +157,9 @@ impl NonStandardError {
             NonStandardError::RejectInputScriptClass(id, _) => id,
             NonStandardError::RejectInsufficientFee(id, _, _) => id,
             NonStandardError::RejectSignatureCount(id, _, _, _) => id,
+            NonStandardError::RejectTaplikeControlBlockDepth(id, _, _, _) => id,
+            NonStandardError::RejectWitnessSize(id, _) => id,
+            NonStandardError::RejectWitnessParse(id, _) => id,
         }
     }
 }

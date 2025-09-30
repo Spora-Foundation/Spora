@@ -40,6 +40,12 @@ pub mod prelude {
 use crate::runtime_sig_op_counter::{RuntimeSigOpCounter, SigOpConsumer};
 pub use standard::*;
 
+// Re-export MuSig2 types for easier access
+#[cfg(feature = "musig2")]
+pub use standard::copperoot::{
+    MuSig2KeyAgg, MuSig2Nonce, MuSig2Session, MuSig2Signature, EncryptedSignature, MuSig2Error
+};
+
 pub const MAX_SCRIPT_PUBLIC_KEY_VERSION: u16 = 0;
 pub const MAX_STACK_SIZE: usize = 244;
 pub const MAX_SCRIPTS_SIZE: usize = 10_000;
@@ -456,6 +462,46 @@ impl<'a, T: VerifiableTransaction, Reused: SigHashReusedValues> TxScriptEngine<'
         }
     }
 
+    /// Generic Taproot-like execution using the TapLike trait
+    fn execute_taplike<TL: crate::standard::copperoot::TapLike>(&mut self) -> Result<(), TxScriptError> {
+        match self.script_source {
+            ScriptSource::TxInput { tx, input, idx, utxo_entry } => {
+                let script_public_key = utxo_entry.script_public_key.script();
+                let witness = TL::parse_witness(&*input.signature_script)?;
+                let xpub = XOnlyPublicKey::from_slice(&script_public_key[2..]).map_err(TxScriptError::InvalidSignature)?;
+
+                // Try key path spending first
+                if let Ok(signature) = TL::extract_key_spend_signature(&witness) {
+                    let msg = TL::key_spend_sighash(tx, idx)?;
+                    let secp = Secp256k1::new();
+                    let sig = match secp256k1::schnorr::Signature::from_slice(&signature) {
+                        Ok(sig) => sig,
+                        Err(e) => return Err(TxScriptError::InvalidSignature(e)),
+                    };
+                    if let Err(e) = secp.verify_schnorr(&sig, &msg, &xpub) {
+                        return Err(TxScriptError::InvalidSignature(e));
+                    }
+                    let _ = self.dstack.push_item(true);
+                    return Ok(());
+                }
+
+                // Try script path spending
+                if let Ok((input_items, leaf_script, control_block)) = TL::extract_script_spend_components(&witness) {
+                    for item in input_items {
+                        self.dstack.push(item);
+                    }
+
+                    TL::verify_commitment(xpub, &leaf_script, &control_block)?;
+                    self.check_push_opcode = false;
+                    self.execute_script(&leaf_script)
+                } else {
+                    Err(TxScriptError::InvalidTaprootWitness)
+                }
+            }
+            _ => unreachable!("taplike must be ScriptSource::TxInput"),
+        }
+    }
+
     pub fn execute(&mut self) -> Result<(), TxScriptError> {
         let (scripts, script_class) = match &self.script_source {
             ScriptSource::TxInput { input, utxo_entry, .. } => {
@@ -493,6 +539,11 @@ impl<'a, T: VerifiableTransaction, Reused: SigHashReusedValues> TxScriptEngine<'
         match script_class {
             ScriptClass::Taproot => self.execute_p2tr(),
             ScriptClass::ScriptHash => self.execute_p2sh(&scripts),
+            ScriptClass::CopperootMerkle => self.execute_taplike::<crate::standard::copperoot::CopperootTapLike>(),
+            ScriptClass::CopperootVerkle => {
+                // P2CRV is disabled for mainnet launch - reject as invalid
+                return Err(TxScriptError::OpcodeDisabled("P2CRV (CopperootVerkle) is disabled for mainnet launch".to_string()));
+            }
             _ => self.execute_standard(&scripts),
         }?;
 

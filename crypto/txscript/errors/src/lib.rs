@@ -77,6 +77,18 @@ pub enum TxScriptError {
     ExceededSigOpLimit(u8),
     #[error("InvalidTaprootWitness")]
     InvalidTaprootWitness,
+    #[error("Invalid witness length: expected {0}, got {1}")]
+    InvalidWitnessLength(usize, usize),
+    #[error("Invalid annex format")]
+    InvalidAnnex,
+    #[error("Invalid signature length: expected 64 or 65 bytes, got {0}")]
+    InvalidSignatureLength(usize),
+    #[error("Invalid control block length: expected at least {0}, got {1}")]
+    InvalidControlBlockLength(usize, usize),
+    #[error("Invalid annex prefix: must start with 0x50")]
+    InvalidAnnexPrefix,
+    #[error("Invalid annex position: annex must be at index 1")]
+    InvalidAnnexPosition,
 }
 
 #[derive(Error, PartialEq, Eq, Debug, Clone, Copy)]

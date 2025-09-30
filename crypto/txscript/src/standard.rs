@@ -15,7 +15,7 @@ use tondi_txscript_errors::TxScriptError;
 
 mod multisig;
 mod taproot;
-mod copperoot;
+pub mod copperoot;
 
 pub use multisig::{multisig_redeem_script, multisig_redeem_script_ecdsa, Error as MultisigCreateError};
 pub use taproot::witness::Witness;
@@ -39,12 +39,27 @@ pub fn pay_to_pub_key_with_lock_time(address_payload: &[u8], lock_time: u64) -> 
     Ok(script)
 }
 
-/// Creates a new script to pay a transaction output to taproot.
 /// It is expected that the input is a valid taproot.
 fn pay_to_taproot(taproot: &[u8]) -> ScriptVec {
     // TODO: use ScriptBuilder when add_op and add_data fns or equivalents are available
     assert_eq!(taproot.len(), 32);
     SmallVec::from_iter([OpTrue, OpData32].iter().copied().chain(taproot.iter().copied()))
+}
+
+/// Creates a new script to pay a transaction output to P2CR (Pay-to-Copperoot-Merkle).
+/// It is expected that the input is a valid copperoot x-only public key.
+fn pay_to_p2cr(p2cr: &[u8]) -> ScriptVec {
+    // TODO: use ScriptBuilder when add_op and add_data fns or equivalents are available
+    assert_eq!(p2cr.len(), 32);
+    SmallVec::from_iter([OpTrue, OpData32].iter().copied().chain(p2cr.iter().copied()))
+}
+
+/// Creates a new script to pay a transaction output to P2CRV (Pay-to-Copperoot-Verkle).
+/// It is expected that the input is a valid copperoot x-only public key.
+fn pay_to_p2crv(p2crv: &[u8]) -> ScriptVec {
+    // TODO: use ScriptBuilder when add_op and add_data fns or equivalents are available
+    assert_eq!(p2crv.len(), 32);
+    SmallVec::from_iter([OpTrue, OpData32].iter().copied().chain(p2crv.iter().copied()))
 }
 
 /// Creates a new script to pay a transaction output to a 33-byte ECDSA pubkey.
@@ -69,6 +84,8 @@ pub fn pay_to_address_script(address: &Address) -> ScriptPublicKey {
         Version::PubKeyECDSA => pay_to_pub_key_ecdsa(address.payload.as_slice()),
         Version::ScriptHash => pay_to_script_hash(address.payload.as_slice()),
         Version::Taproot => pay_to_taproot(address.payload.as_slice()),
+        Version::CopperootMerkle => pay_to_p2cr(address.payload.as_slice()),
+        Version::CopperootVerkle => pay_to_p2crv(address.payload.as_slice()),
     };
     ScriptPublicKey::new(ScriptClass::from(address.version).version(), script)
 }
@@ -203,7 +220,7 @@ pub fn htlc_script(
 /// Similar to `htlc_script` but uses ECDSA signature verification instead of Schnorr.
 ///
 /// # Arguments
-/// * `secret_hash` - The hash160 of the secret (20 bytes)
+/// * `secret_hash` - The BLAKE3-256 hash of the secret (32 bytes)
 /// * `recipient_pubkey` - The recipient's ECDSA public key (33 bytes)
 /// * `sender_pubkey` - The sender's ECDSA public key (33 bytes)
 /// * `lock_time` - The minimum lock time required for sender to spend
@@ -330,6 +347,8 @@ pub fn extract_script_pub_key_address(script_public_key: &ScriptPublicKey, prefi
         ScriptClass::PubKeyECDSA => Ok(Address::new(prefix, Version::PubKeyECDSA, &script[1..34])),
         ScriptClass::ScriptHash => Ok(Address::new(prefix, Version::ScriptHash, &script[2..34])),
         ScriptClass::Taproot => Ok(Address::new(prefix, Version::Taproot, &script[2..34])),
+        ScriptClass::CopperootMerkle => Ok(Address::new(prefix, Version::CopperootMerkle, &script[2..34])),
+        ScriptClass::CopperootVerkle => Err(TxScriptError::PubKeyFormat), // P2CRV disabled for mainnet launch
     }
 }
 

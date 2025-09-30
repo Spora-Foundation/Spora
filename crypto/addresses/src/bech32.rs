@@ -138,6 +138,14 @@ impl Address {
         }
 
         let payload_u8 = conv5to8(payload_u5);
-        Ok(Self::new(prefix, payload_u8[0].try_into()?, payload_u8[1..].into()))
+        let version = payload_u8[0].try_into()?;
+        let payload = &payload_u8[1..];
+        
+        // Validate payload length for non-test prefixes
+        if !prefix.is_test() && payload.len() != version.public_key_len() {
+            return Err(AddressError::BadPayload);
+        }
+        
+        Ok(Self::new(prefix, version, payload.into()))
     }
 }
