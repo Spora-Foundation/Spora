@@ -7,7 +7,17 @@ pub const TX_VERSION: u16 = 0;
 pub const LOCK_TIME_THRESHOLD: u64 = 500_000_000_000;
 
 /// MAX_SCRIPT_PUBLIC_KEY_VERSION is the current latest supported public key script version.
-pub const MAX_SCRIPT_PUBLIC_KEY_VERSION: u16 = 0;
+pub const MAX_SCRIPT_PUBLIC_KEY_VERSION: u16 = 3;
+
+// Script version constants for different script types
+pub const SCRIPT_VER_CLASSIC: u16 = 0;       // Legacy script types (PubKey, ScriptHash, etc.)
+pub const SCRIPT_VER_TAPROOT: u16 = 1;      // Taproot (BIP341/SHA256)
+pub const SCRIPT_VER_COPPEROOT_MERKLE: u16 = 2;         // Pay-to-Copperoot-Merkle (BLAKE3)
+pub const SCRIPT_VER_COPPEROOT_VERKLE: u16 = 3;        // Pay-to-Copperoot-Verkle (BLAKE3) - Reserved
+
+// 保持向后兼容的别名
+pub const SCRIPT_VER_P2CR: u16 = SCRIPT_VER_COPPEROOT_MERKLE;
+pub const SCRIPT_VER_P2CRV: u16 = SCRIPT_VER_COPPEROOT_VERKLE;
 
 /// SauPerTondi is the number of sau in one tondi (1 TONDI).
 pub const SAU_PER_TONDI: u64 = 100_000_000;

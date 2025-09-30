@@ -4,6 +4,24 @@
 
 Copperoot is an advanced Taproot variant that enhances Bitcoin's Taproot protocol with modern cryptographic primitives and improved performance. It maintains full backward compatibility with existing Taproot functionality while introducing significant improvements in hashing, tree structures, and multi-signature capabilities.
 
+## Script Version Architecture
+
+Copperoot introduces a new script version system that replaces the legacy "ScriptHash version" terminology with more descriptive names:
+
+- **SCRIPT_VER_CLASSIC (0)**: Classic script types (PubKey, PubKeyECDSA, ScriptHash)
+- **SCRIPT_VER_TAPROOT (1)**: Taproot (BIP341/SHA256)
+- **SCRIPT_VER_COPPEROOT_MERKLE (2)**: Pay-to-Copperoot-Merkle (BLAKE3)
+- **SCRIPT_VER_COPPEROOT_VERKLE (3)**: Pay-to-Copperoot-Verkle (BLAKE3) - Reserved
+
+### Version Validation and Security
+
+The implementation enforces strict version validation:
+
+1. **Unknown Version Rejection**: Scripts with versions > MAX_SCRIPT_PUBLIC_KEY_VERSION are rejected
+2. **Version-Based Classification**: ScriptClass determination is based solely on script version, not byte patterns
+3. **Control Block Consistency**: Control block versions must match script versions (0xC1 for Merkle, 0xC2 for Verkle)
+4. **Mempool Policy**: Unknown versions are rejected at the mempool level
+
 ## Current Implementation Status
 
 Copperoot is currently implemented with the following features:
@@ -11,7 +29,7 @@ Copperoot is currently implemented with the following features:
 - ✅ **BLAKE3-256 Hashing**: Complete implementation with domain separation
 - ✅ **Merkle Tree Support**: 8-layer depth limit with consensus validation
 - ✅ **MuSig2 Integration**: Standard musig2 crate integration with safety features
-- ✅ **Address System**: P2CR (CopperootMerkle) address type with bech32m encoding
+- ✅ **Address System**: CopperootMerkle address type with bech32m encoding
 - ✅ **Witness Structure**: Key-path and script-path spending with annex support
 - ✅ **Control Blocks**: Merkle proof support with strict validation
 - ✅ **Transaction Validation**: Mempool policy checks and standard transaction validation
@@ -90,7 +108,7 @@ Copperoot uses the standard `musig2` crate for multi-signature functionality:
 - **Two-Round Protocol**: Standard MuSig2 signing protocol implementation
 - **BIP340 Compatibility**: Uses SHA256 for MuSig2 operations (BIP340 compliant)
 - **Standard Implementation**: Uses the well-tested `musig2` crate
-- **Address Integration**: `Address::address_from_xonly()` for creating P2CR addresses from MuSig2 aggregated keys
+- **Address Integration**: `Address::address_from_xonly()` for creating CopperootMerkle addresses from MuSig2 aggregated keys
 - **Safe Witness Support**: Multiple witness creation methods with validation
 - **Type Safety**: Automatic handling of secp256k1 version differences between musig2 and project dependencies
 
@@ -163,8 +181,8 @@ Control Block Structure:
 ```
 
 **Mainnet Launch Status**:
-- Proof Type 0x00: Active for P2CR (Merkle tree)
-- Proof Type 0x01: Reserved for P2CRV (Verkle tree) - INACTIVE
+- Proof Type 0x00: Active for CopperootMerkle (Merkle tree)
+- Proof Type 0x01: Reserved for CopperootVerkle (Verkle tree) - INACTIVE
 - Annex Type V: Reserved for Verkle proofs - INACTIVE
 
 ## Technical Implementation
@@ -322,7 +340,7 @@ Copperoot maintains full backward compatibility with existing Taproot:
 - ✅ Safe MuSig2 witness creation with validation
 - ✅ Enhanced control block structure with strict validation
 - ✅ Backward compatibility with Taproot
-- ✅ P2CR (CopperootMerkle) address support with bech32m encoding
+- ✅ CopperootMerkle address support with bech32m encoding
 - ✅ Annex support with strict validation (0x50 prefix, position at index 1)
 - ✅ Key-path and script-path spending
 - ✅ Comprehensive test coverage
@@ -332,13 +350,13 @@ Copperoot maintains full backward compatibility with existing Taproot:
 
 ### Reserved Features (Future Activation)
 
-- ⚠️ P2CRV (CopperootVerkle) address support (disabled for mainnet)
+- ⚠️ CopperootVerkle address support (disabled for mainnet)
 - ⚠️ Verkle tree implementation (reserved for future activation)
 - ⚠️ Verkle proof support in control blocks
 
 ### Future Enhancements
 
-- 🔄 P2CRV (Verkle) activation for mainnet
+- 🔄 CopperootVerkle (Verkle) activation for mainnet
 - 🔄 Advanced Verkle tree optimizations
 - 🔄 Additional MuSig2 optimizations
 - 🔄 Performance benchmarking
@@ -354,7 +372,7 @@ use tondi_consensus_core::tx::copperoot::sighash::CopperootSighashType;
 use tondi_addresses::{Address, Prefix};
 use secp256k1::{Secp256k1, Keypair, Message};
 
-// Create a P2CR address from x-only public key
+// Create a CopperootMerkle address from x-only public key
 let secp = Secp256k1::new();
 let keypair = Keypair::new(&secp, &mut secp256k1::rand::thread_rng());
 let xonly_pubkey = keypair.x_only_public_key().0;
@@ -396,7 +414,7 @@ let key_agg = KeyAggContext::new(pubkeys)?;
 let agg_pk = key_agg.aggregated_pubkey();
 let agg_xonly = XOnlyPublicKey::from_slice(&agg_pk.x_only_public_key().0.serialize())?;
 
-// 2. Create P2CR address from aggregated key
+// 2. Create CopperootMerkle address from aggregated key
 let address = Address::address_from_xonly(Prefix::Mainnet, &agg_xonly.serialize())?;
 
 // 3. MuSig2 signing process (two rounds)
@@ -441,14 +459,14 @@ let witness = CopperootWitness::p2cr_key_spend_from_musig2(
 );
 ```
 
-## P2CR and P2CRV Address Specifications
+## CopperootMerkle and CopperootVerkle Address Specifications
 
 ### Overview
 
 Copperoot introduces two distinct address types to ensure clear protocol separation and optimal performance:
 
-- **P2CR (CopperootMerkle)**: Uses traditional Merkle trees for script verification - **ACTIVE**
-- **P2CRV (CopperootVerkle)**: Uses Verkle trees for efficient proof generation - **RESERVED FOR FUTURE**
+- **CopperootMerkle**: Uses traditional Merkle trees for script verification - **ACTIVE**
+- **CopperootVerkle**: Uses Verkle trees for efficient proof generation - **RESERVED FOR FUTURE**
 
 This separation provides:
 
@@ -474,7 +492,7 @@ The ScriptPubKey format is identical to Bitcoin's Taproot, but the witness versi
 - **CopperootVerkle Version**: `0x13` (decimal 19) - Pay-to-Copperoot-Verkle (RESERVED - INACTIVE)
 - **Reserved for**: Tondi Copperoot protocol
 - **Separation**: Ensures no overlap with Bitcoin Taproot (v1) or other protocols
-- **Mainnet Launch**: Only P2CR (0x12) is active; P2CRV (0x13) is reserved for future activation
+- **Mainnet Launch**: Only CopperootMerkle (0x12) is active; CopperootVerkle (0x13) is reserved for future activation
 
 #### Address Encoding
 
@@ -489,18 +507,18 @@ The ScriptPubKey format is identical to Bitcoin's Taproot, but the witness versi
 
 **Example Addresses**:
 ```
-CopperootMerkle (P2CR) - ACTIVE:
+CopperootMerkle - ACTIVE:
 Mainnet:  tondi1cr... (CopperootMerkle addresses will contain 'cr' hint in checksum)
 Testnet:  tonditest1cr...
 Simnet:   tondisim1cr...
 Devnet:   tondidev1cr...
 
-CopperootVerkle (P2CRV) - RESERVED (INACTIVE):
+CopperootVerkle - RESERVED (INACTIVE):
 Mainnet:  tondi1crv... (CopperootVerkle addresses will contain 'crv' hint in checksum)
 Testnet:  tonditest1crv...
 Simnet:   tondisim1crv...
 Devnet:   tondidev1crv...
-NOTE: P2CRV addresses are reserved but currently invalid for mainnet launch
+NOTE: CopperootVerkle addresses are reserved but currently invalid for mainnet launch
 ```
 
 ### Address Type Mapping
@@ -510,8 +528,8 @@ NOTE: P2CRV addresses are reserved but currently invalid for mainnet launch
 | **P2PKH** | Legacy | SHA256 | N/A | Legacy key spends |
 | **P2WPKH** | SegWit v0 | SHA256 | N/A | SegWit key spends |
 | **P2TR** | Bitcoin Taproot | SHA256 | Merkle Tree | Bitcoin Taproot |
-| **P2CR** | Tondi Copperoot | BLAKE3-256 | Merkle Tree | Tondi Copperoot (Merkle) |
-| **P2CRV** | Tondi Copperoot | BLAKE3-256 | Verkle Tree | Tondi Copperoot (Verkle) - RESERVED |
+| **CopperootMerkle** | Tondi Copperoot | BLAKE3-256 | Merkle Tree | Tondi Copperoot (Merkle) |
+| **CopperootVerkle** | Tondi Copperoot | BLAKE3-256 | Verkle Tree | Tondi Copperoot (Verkle) - RESERVED |
 
 ### Implementation Details
 
@@ -520,7 +538,7 @@ NOTE: P2CRV addresses are reserved but currently invalid for mainnet launch
 ```rust
 use tondi_addresses::{Address, AddressError};
 
-// P2CR address validation
+// CopperootMerkle address validation
 pub fn validate_p2cr_address(address: &str) -> Result<Address, AddressError> {
     let addr = Address::try_from(address)?;
     if addr.version != Version::CopperootMerkle {
@@ -529,13 +547,13 @@ pub fn validate_p2cr_address(address: &str) -> Result<Address, AddressError> {
     Ok(addr)
 }
 
-// P2CRV address validation (currently disabled)
+// CopperootVerkle address validation (currently disabled)
 pub fn validate_p2crv_address(address: &str) -> Result<Address, AddressError> {
     let addr = Address::try_from(address)?;
     if addr.version != Version::CopperootVerkle {
         return Err(AddressError::InvalidVersion(addr.version as u8));
     }
-    // P2CRV is disabled for mainnet launch
+    // CopperootVerkle is disabled for mainnet launch
     Err(AddressError::InvalidVersion(addr.version as u8))
 }
 ```
@@ -546,7 +564,7 @@ pub fn validate_p2crv_address(address: &str) -> Result<Address, AddressError> {
 use tondi_txscript::{Script, opcodes::codes::OP_1};
 use secp256k1::XOnlyPublicKey;
 
-// Generate P2CR ScriptPubKey
+// Generate CopperootMerkle ScriptPubKey
 pub fn create_p2cr_scriptpubkey(public_key: &XOnlyPublicKey) -> Script {
     let mut script = Script::new();
     script.push_opcode(OP_1);
@@ -554,7 +572,7 @@ pub fn create_p2cr_scriptpubkey(public_key: &XOnlyPublicKey) -> Script {
     script
 }
 
-// Generate P2CRV ScriptPubKey (reserved for future)
+// Generate CopperootVerkle ScriptPubKey (reserved for future)
 pub fn create_p2crv_scriptpubkey(public_key: &XOnlyPublicKey) -> Script {
     let mut script = Script::new();
     script.push_opcode(OP_1);
@@ -570,26 +588,26 @@ use tondi_txscript::standard::copperoot::{CopperootWitness, CopperootControlBloc
 use tondi_consensus_core::tx::copperoot::sighash::CopperootSighashType;
 use secp256k1::schnorr::Signature;
 
-// P2CR witness for key path spending
-pub struct P2CRWitness {
+// CopperootMerkle witness for key path spending
+pub struct CopperootMerkleWitness {
     signature: Signature,
     sighash_type: CopperootSighashType,
 }
 
-// P2CR witness for script path spending (Merkle tree)
-pub struct P2CRScriptWitness {
+// CopperootMerkle witness for script path spending (Merkle tree)
+pub struct CopperootMerkleScriptWitness {
     script: Vec<u8>,
     control_block: CopperootControlBlock,
 }
 
-// P2CRV witness for key path spending (reserved)
-pub struct P2CRVWitness {
+// CopperootVerkle witness for key path spending (reserved)
+pub struct CopperootVerkleWitness {
     signature: Signature,
     sighash_type: CopperootSighashType,
 }
 
-// P2CRV witness for script path spending (Verkle tree - reserved)
-pub struct P2CRVScriptWitness {
+// CopperootVerkle witness for script path spending (Verkle tree - reserved)
+pub struct CopperootVerkleScriptWitness {
     script: Vec<u8>,
     control_block: CopperootControlBlock,
     verkle_proof: VerkleProof,
@@ -600,10 +618,10 @@ pub struct P2CRVScriptWitness {
 
 #### Cross-Chain Protection
 
-- **Version Isolation**: Witness versions 0x12 (P2CR) and 0x13 (P2CRV) prevent confusion with Bitcoin Taproot (v1)
+- **Version Isolation**: Witness versions 0x12 (CopperootMerkle) and 0x13 (CopperootVerkle) prevent confusion with Bitcoin Taproot (v1)
 - **Hash Function Separation**: BLAKE3-256 vs SHA256 ensures different validation paths
 - **Tree Structure Differences**: Merkle vs Verkle trees prevent script compatibility
-- **Type Separation**: P2CR and P2CRV are completely isolated, preventing cross-type confusion
+- **Type Separation**: CopperootMerkle and CopperootVerkle are completely isolated, preventing cross-type confusion
 
 #### Address Validation
 
@@ -616,9 +634,9 @@ pub struct P2CRVScriptWitness {
 #### Backward Compatibility
 
 - **Existing Taproot**: Bitcoin Taproot addresses continue to work as P2TR
-- **Gradual Migration**: New addresses can use P2CR or P2CRV for Copperoot features
-- **Hybrid Support**: Nodes support P2TR, P2CR, and P2CRV simultaneously
-- **Type Selection**: Users can choose between Merkle (P2CR) and Verkle (P2CRV) based on their needs
+- **Gradual Migration**: New addresses can use CopperootMerkle or CopperootVerkle for Copperoot features
+- **Hybrid Support**: Nodes support P2TR, CopperootMerkle, and CopperootVerkle simultaneously
+- **Type Selection**: Users can choose between Merkle (CopperootMerkle) and Verkle (CopperootVerkle) based on their needs
 
 #### Wallet Integration
 
@@ -633,8 +651,8 @@ pub fn detect_address_type(address: &str) -> Result<Version, AddressError> {
 
 // Example usage
 match detect_address_type("tondi1cr...")? {
-    Version::CopperootMerkle => println!("P2CR address"),
-    Version::CopperootVerkle => println!("P2CRV address (disabled)"),
+    Version::CopperootMerkle => println!("CopperootMerkle address"),
+    Version::CopperootVerkle => println!("CopperootVerkle address (disabled)"),
     Version::Taproot => println!("P2TR address"),
     _ => println!("Other address type"),
 }
@@ -667,16 +685,16 @@ match detect_address_type("tondi1cr...")? {
 #### Transaction Creation
 
 ```bash
-# Create P2CR address (Merkle tree)
+# Create CopperootMerkle address (Merkle tree)
 tondi-cli getnewaddress "" p2cr
 
-# Create P2CRV address (Verkle tree)
+# Create CopperootVerkle address (Verkle tree)
 tondi-cli getnewaddress "" p2crv
 
-# Send to P2CR address
+# Send to CopperootMerkle address
 tondi-cli sendtoaddress "tondi1cr..." 1.0
 
-# Send to P2CRV address
+# Send to CopperootVerkle address
 tondi-cli sendtoaddress "tondi1crv..." 1.0
 ```
 
@@ -684,7 +702,7 @@ tondi-cli sendtoaddress "tondi1crv..." 1.0
 
 **Copperoot Mainnet Launch - Phase 1**:
 
-- ✅ **P2CR (Merkle)**: Fully active and operational
+- ✅ **CopperootMerkle (Merkle)**: Fully active and operational
   - Witness version 0x12 (decimal 18)
   - BLAKE3-256 hashing with domain separation
   - MuSig2 support with safety features
@@ -693,11 +711,11 @@ tondi-cli sendtoaddress "tondi1crv..." 1.0
   - Mempool policy checks and standard transaction validation
   - TapLike trait implementation for execution semantics
 
-- 🔒 **P2CRV (Verkle)**: Reserved but inactive
+- 🔒 **CopperootVerkle (Verkle)**: Reserved but inactive
   - Witness version 0x13 (decimal 19) - RESERVED
   - Control block type=1 - RESERVED
   - Annex type=V - RESERVED
-  - All P2CRV transactions are rejected as invalid
+  - All CopperootVerkle transactions are rejected as invalid
   - Verkle tree implementation exists but is disabled for mainnet
 
 ## Implementation Notes
@@ -728,12 +746,12 @@ Copperoot represents a significant advancement in Bitcoin's Taproot protocol, pr
 - **Advanced Tree Structures**: Verkle trees for efficient proofs (reserved for future activation)
 - **Standard Multi-Signature**: MuSig2 using the standard `musig2` crate with safety features
 - **Safe MuSig2 Interface**: Multiple witness creation methods with validation to prevent misuse
-- **Dual Address Types**: P2CR (active) and P2CRV (reserved) for clear protocol separation
+- **Dual Address Types**: CopperootMerkle (active) and CopperootVerkle (reserved) for clear protocol separation
 - **Backward Compatibility**: Seamless integration with existing systems
 - **Production-Ready**: Mempool validation, standard transaction checks, and comprehensive testing
 - **Robust Testing**: Full test coverage with proper error handling and edge case validation
 
-The implementation is production-ready for P2CR functionality and provides a solid foundation for next-generation Bitcoin applications requiring high performance, scalability, and advanced cryptographic features. The MuSig2 safety features ensure robust multi-signature operations while maintaining backward compatibility. P2CRV functionality is reserved for future activation, with the Verkle tree implementation already in place but disabled for mainnet launch.
+The implementation is production-ready for CopperootMerkle functionality and provides a solid foundation for next-generation Bitcoin applications requiring high performance, scalability, and advanced cryptographic features. The MuSig2 safety features ensure robust multi-signature operations while maintaining backward compatibility. CopperootVerkle functionality is reserved for future activation, with the Verkle tree implementation already in place but disabled for mainnet launch.
 
 ## References
 

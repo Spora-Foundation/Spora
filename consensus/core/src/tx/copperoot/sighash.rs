@@ -482,6 +482,7 @@ impl<Tx: Borrow<Transaction>> SighashCache<Tx> {
 mod tests {
     use super::*;
     use crate::{
+        constants::SCRIPT_VER_P2CR,
         subnets::SubnetworkId,
         tx::{ScriptPublicKey, ScriptVec, TransactionId, TransactionOutpoint},
     };
@@ -518,13 +519,13 @@ mod tests {
                 sequence: 0,
                 sig_op_count: 0,
             }],
-            vec![TransactionOutput { value: 100, script_public_key: ScriptPublicKey::new(0, script_pub_key.clone()) }],
+            vec![TransactionOutput { value: 100, script_public_key: ScriptPublicKey::new(SCRIPT_VER_P2CR, script_pub_key.clone()) }],
             1615462089000,
             SubnetworkId::from_bytes([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
             0,
             vec![],
         );
-        let txOuts = vec![TransactionOutput::new(100, ScriptPublicKey::new(0, script_pub_key.clone()))];
+        let txOuts = vec![TransactionOutput::new(100, ScriptPublicKey::new(SCRIPT_VER_P2CR, script_pub_key.clone()))];
         let prevouts = Prevouts::All(&txOuts);
 
         let input_index = 0;
@@ -580,15 +581,15 @@ mod tests {
                     sig_op_count: 0,
                 },
             ],
-            vec![TransactionOutput { value: 100, script_public_key: ScriptPublicKey::new(0, script_pub_key.clone()) }], // Only 1 output
+            vec![TransactionOutput { value: 100, script_public_key: ScriptPublicKey::new(SCRIPT_VER_P2CR, script_pub_key.clone()) }], // Only 1 output
             1615462089000,
             SubnetworkId::from_bytes([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
             0,
             vec![],
         );
         let tx_outs = vec![
-            TransactionOutput::new(100, ScriptPublicKey::new(0, script_pub_key.clone())),
-            TransactionOutput::new(200, ScriptPublicKey::new(0, script_pub_key.clone())),
+            TransactionOutput::new(100, ScriptPublicKey::new(SCRIPT_VER_P2CR, script_pub_key.clone())),
+            TransactionOutput::new(200, ScriptPublicKey::new(SCRIPT_VER_P2CR, script_pub_key.clone())),
         ];
         let prevouts = Prevouts::All(&tx_outs);
 

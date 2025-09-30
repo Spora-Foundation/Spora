@@ -89,6 +89,8 @@ pub enum TxScriptError {
     InvalidAnnexPrefix,
     #[error("Invalid annex position: annex must be at index 1")]
     InvalidAnnexPosition,
+    #[error("Invalid script public key version: {0}")]
+    InvalidScriptPublicKeyVersion(u16),
 }
 
 #[derive(Error, PartialEq, Eq, Debug, Clone, Copy)]

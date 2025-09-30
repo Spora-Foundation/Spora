@@ -6,6 +6,7 @@
 use bitcoin::{taproot::Signature as BtcTaprootSignature, Witness as BtcWitness};
 use bitcoin::consensus::{Decodable, Encodable};
 use secp256k1::{schnorr::Signature, Message, Secp256k1, XOnlyPublicKey};
+use std::io::{Cursor, Read};
 use tondi_txscript_errors::{TxScriptError, SerializationError};
 use tondi_consensus_core::tx::copperoot::sighash::CopperootSighashType;
 
@@ -56,9 +57,15 @@ impl TryFrom<&[u8]> for CopperootWitness {
     type Error = TxScriptError;
 
     fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
-        let mut cursor = std::io::Cursor::new(bytes);
-        let inner = BtcWitness::consensus_decode(&mut cursor)
+        let mut cur = Cursor::new(bytes);
+        let inner = BtcWitness::consensus_decode(&mut cur)
             .map_err(|_| TxScriptError::InvalidTaprootWitness)?;
+        // 要求完整消耗
+        let mut rest = Vec::new();
+        cur.read_to_end(&mut rest).map_err(|_| TxScriptError::InvalidTaprootWitness)?;
+        if !rest.is_empty() {
+            return Err(TxScriptError::InvalidTaprootWitness);
+        }
         Ok(Self { inner, verkle_proof: None })
     }
 }
@@ -67,10 +74,10 @@ impl TryFrom<&CopperootWitness> for Vec<u8> {
     type Error = TxScriptError;
 
     fn try_from(witness: &CopperootWitness) -> Result<Self, Self::Error> {
-        let mut out = Vec::new();
-        witness.inner.consensus_encode(&mut out)
+        let mut v = Vec::new();
+        witness.inner.consensus_encode(&mut v)
             .map_err(|_| TxScriptError::Serialization(SerializationError::NumberTooLong(0)))?;
-        Ok(out)
+        Ok(v)
     }
 }
 
@@ -382,15 +389,20 @@ impl CopperootWitness {
     /// 
     /// # Example
     /// ```rust
-    /// use musig2::CompactSignature;
+    /// use tondi_txscript::standard::copperoot::witness::CopperootWitness;
+    /// use tondi_consensus_core::tx::copperoot::sighash::CopperootSighashType;
+    /// use secp256k1::schnorr::Signature;
     /// 
-    /// let sig: CompactSignature = /* from MuSig2 finalize() */;
-    /// let schnorr_sig = sig.to_schnorr();
+    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// // Assume you have a valid signature from MuSig2 finalize()
+    /// let sig: Signature = Signature::from_slice(&[0u8; 64])?;
     /// 
     /// // Only use this if you've already validated the signature elsewhere
     /// let witness = CopperootWitness::p2cr_key_spend_from_musig2_unchecked(
-    ///     schnorr_sig, CopperootSighashType::All
+    ///     sig, CopperootSighashType::All
     /// );
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn p2cr_key_spend_from_musig2_unchecked(
         signature: Signature, 

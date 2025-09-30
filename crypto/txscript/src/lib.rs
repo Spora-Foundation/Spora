@@ -46,7 +46,17 @@ pub use standard::copperoot::{
     MuSig2KeyAgg, MuSig2Nonce, MuSig2Session, MuSig2Signature, EncryptedSignature, MuSig2Error
 };
 
-pub const MAX_SCRIPT_PUBLIC_KEY_VERSION: u16 = 0;
+pub const MAX_SCRIPT_PUBLIC_KEY_VERSION: u16 = 3;
+
+// Script version constants for different script types
+pub const SCRIPT_VER_CLASSIC: u16 = 0;       // Legacy script types (PubKey, ScriptHash, etc.)
+pub const SCRIPT_VER_TAPROOT: u16 = 1;      // Taproot (BIP341/SHA256)
+pub const SCRIPT_VER_COPPEROOT_MERKLE: u16 = 2;         // Pay-to-Copperoot-Merkle (BLAKE3)
+pub const SCRIPT_VER_COPPEROOT_VERKLE: u16 = 3;        // Pay-to-Copperoot-Verkle (BLAKE3) - Reserved
+
+// 保持向后兼容的别名
+pub const SCRIPT_VER_P2CR: u16 = SCRIPT_VER_COPPEROOT_MERKLE;
+pub const SCRIPT_VER_P2CRV: u16 = SCRIPT_VER_COPPEROOT_VERKLE;
 pub const MAX_STACK_SIZE: usize = 244;
 pub const MAX_SCRIPTS_SIZE: usize = 10_000;
 pub const MAX_SCRIPT_ELEMENT_SIZE: usize = 520;
@@ -491,6 +501,31 @@ impl<'a, T: VerifiableTransaction, Reused: SigHashReusedValues> TxScriptEngine<'
                         self.dstack.push(item);
                     }
 
+                    // 控制块与脚本版本的一致性校验
+                    // 确保控制块版本与脚本版本匹配
+                    if let ScriptSource::TxInput { utxo_entry, .. } = &self.script_source {
+                        let script_version = utxo_entry.script_public_key.version();
+                        // 对于CopperootMerkle (SCRIPT_VER_COPPEROOT_MERKLE)，控制块版本必须是0xC1
+                        // 对于CopperootVerkle (SCRIPT_VER_COPPEROOT_VERKLE)，控制块版本必须是0xC2
+                        match script_version {
+                            crate::SCRIPT_VER_COPPEROOT_MERKLE => {
+                                // 验证控制块版本为0xC1
+                                if control_block.len() > 0 && control_block[0] != 0xC1 {
+                                    return Err(TxScriptError::InvalidTaprootWitness);
+                                }
+                            }
+                            crate::SCRIPT_VER_COPPEROOT_VERKLE => {
+                                // 验证控制块版本为0xC2
+                                if control_block.len() > 0 && control_block[0] != 0xC2 {
+                                    return Err(TxScriptError::InvalidTaprootWitness);
+                                }
+                            }
+                            _ => {
+                                return Err(TxScriptError::InvalidTaprootWitness);
+                            }
+                        }
+                    }
+
                     TL::verify_commitment(xpub, &leaf_script, &control_block)?;
                     self.check_push_opcode = false;
                     self.execute_script(&leaf_script)
@@ -505,9 +540,9 @@ impl<'a, T: VerifiableTransaction, Reused: SigHashReusedValues> TxScriptEngine<'
     pub fn execute(&mut self) -> Result<(), TxScriptError> {
         let (scripts, script_class) = match &self.script_source {
             ScriptSource::TxInput { input, utxo_entry, .. } => {
+                // 严禁默许未知脚本版本 - 拒绝未知版本
                 if utxo_entry.script_public_key.version() > MAX_SCRIPT_PUBLIC_KEY_VERSION {
-                    trace!("The version of the scriptPublicKey is higher than the known version - the Execute function returns true.");
-                    return Ok(());
+                    return Err(TxScriptError::InvalidScriptPublicKeyVersion(utxo_entry.script_public_key.version()));
                 }
                 let script_class = ScriptClass::from(&utxo_entry.script_public_key);
                 (vec![input.signature_script.as_slice(), utxo_entry.script_public_key.script()], script_class)

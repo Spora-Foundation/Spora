@@ -1,4 +1,4 @@
-use crate::{opcodes, MAX_SCRIPT_PUBLIC_KEY_VERSION};
+use crate::{opcodes, SCRIPT_VER_CLASSIC, SCRIPT_VER_TAPROOT, SCRIPT_VER_COPPEROOT_MERKLE, SCRIPT_VER_COPPEROOT_VERKLE};
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -107,12 +107,12 @@ impl ScriptClass {
     pub fn version(&self) -> ScriptPublicKeyVersion {
         match self {
             ScriptClass::NonStandard => 0,
-            ScriptClass::PubKey => MAX_SCRIPT_PUBLIC_KEY_VERSION,
-            ScriptClass::PubKeyECDSA => MAX_SCRIPT_PUBLIC_KEY_VERSION,
-            ScriptClass::ScriptHash => MAX_SCRIPT_PUBLIC_KEY_VERSION,
-            ScriptClass::Taproot => MAX_SCRIPT_PUBLIC_KEY_VERSION,
-            ScriptClass::CopperootMerkle => MAX_SCRIPT_PUBLIC_KEY_VERSION,
-            ScriptClass::CopperootVerkle => MAX_SCRIPT_PUBLIC_KEY_VERSION,
+            ScriptClass::PubKey => SCRIPT_VER_CLASSIC,
+            ScriptClass::PubKeyECDSA => SCRIPT_VER_CLASSIC,
+            ScriptClass::ScriptHash => SCRIPT_VER_CLASSIC,
+            ScriptClass::Taproot => SCRIPT_VER_TAPROOT,
+            ScriptClass::CopperootMerkle => SCRIPT_VER_COPPEROOT_MERKLE,
+            ScriptClass::CopperootVerkle => SCRIPT_VER_COPPEROOT_VERKLE,
         }
     }
 }
@@ -163,24 +163,28 @@ impl From<Version> for ScriptClass {
 
 impl From<&ScriptPublicKey> for ScriptClass {
     fn from(script_public_key: &ScriptPublicKey) -> Self {
-        if script_public_key.version() == MAX_SCRIPT_PUBLIC_KEY_VERSION {
-            let script = script_public_key.script();
-            if Self::is_pay_to_pubkey(script) {
-                ScriptClass::PubKey
-            } else if Self::is_pay_to_pubkey_ecdsa(script) {
-                Self::PubKeyECDSA
-            } else if Self::is_pay_to_script_hash(script) {
-                Self::ScriptHash
-            } else if Self::is_pay_to_taproot(script) {
-                // NOTE: Taproot and Copperoot share identical ScriptPubKey format
-                // Default to Taproot for backward compatibility
-                // Copperoot detection requires additional context (e.g., witness version)
-                Self::Taproot
-            } else {
-                ScriptClass::NonStandard
+        let version = script_public_key.version();
+        
+        // 严禁默许未知脚本版本 - 只基于版本号分派，不再检查字节模式
+        match version {
+            SCRIPT_VER_CLASSIC => {
+                // Legacy script types (PubKey, PubKeyECDSA, ScriptHash)
+                // 对于Legacy版本，仍然需要检查字节模式来区分具体类型
+                let script = script_public_key.script();
+                if Self::is_pay_to_pubkey(script) {
+                    ScriptClass::PubKey
+                } else if Self::is_pay_to_pubkey_ecdsa(script) {
+                    Self::PubKeyECDSA
+                } else if Self::is_pay_to_script_hash(script) {
+                    Self::ScriptHash
+                } else {
+                    ScriptClass::NonStandard
+                }
             }
-        } else {
-            ScriptClass::NonStandard
+            SCRIPT_VER_TAPROOT => ScriptClass::Taproot,
+            SCRIPT_VER_COPPEROOT_MERKLE => ScriptClass::CopperootMerkle,
+            SCRIPT_VER_COPPEROOT_VERKLE => ScriptClass::CopperootVerkle,
+            _ => ScriptClass::NonStandard, // 未知版本直接标记为非标准
         }
     }
 }
@@ -205,37 +209,49 @@ mod tests {
             Test {
                 name: "valid pubkey script",
                 script: hex::decode("204a23f5eef4b2dead811c7efb4f1afbd8df845e804b6c36a4001fc096e13f8151ac").unwrap(),
-                version: 0,
+                version: SCRIPT_VER_CLASSIC,
                 class: ScriptClass::PubKey,
             },
             Test {
                 name: "valid pubkey ecdsa script",
                 script: hex::decode("21fd4a23f5eef4b2dead811c7efb4f1afbd8df845e804b6c36a4001fc096e13f8151ab").unwrap(),
-                version: 0,
+                version: SCRIPT_VER_CLASSIC,
                 class: ScriptClass::PubKeyECDSA,
             },
             Test {
                 name: "valid scripthash script",
                 script: hex::decode("aa204a23f5eef4b2dead811c7efb4f1afbd8df845e804b6c36a4001fc096e13f815187").unwrap(),
-                version: 0,
+                version: SCRIPT_VER_CLASSIC,
                 class: ScriptClass::ScriptHash,
+            },
+            Test {
+                name: "valid taproot script",
+                script: hex::decode("51204a23f5eef4b2dead811c7efb4f1afbd8df845e804b6c36a4001fc096e13f8151").unwrap(),
+                version: SCRIPT_VER_TAPROOT,
+                class: ScriptClass::Taproot,
+            },
+            Test {
+                name: "valid copperoot merkle script",
+                script: hex::decode("51204a23f5eef4b2dead811c7efb4f1afbd8df845e804b6c36a4001fc096e13f8151").unwrap(),
+                version: SCRIPT_VER_COPPEROOT_MERKLE,
+                class: ScriptClass::CopperootMerkle,
             },
             Test {
                 name: "non standard script (unexpected version)",
                 script: hex::decode("204a23f5eef4b2dead811c7efb4f1afbd8df845e804b6c36a4001fc096e13f8151ac").unwrap(),
-                version: MAX_SCRIPT_PUBLIC_KEY_VERSION + 1,
+                version: SCRIPT_VER_COPPEROOT_VERKLE + 1, // 使用真正的未知版本
                 class: ScriptClass::NonStandard,
             },
             Test {
                 name: "non standard script (unexpected key len)",
                 script: hex::decode("1f4a23f5eef4b2dead811c7efb4f1afbd8df845e804b6c36a4001fc096e13f81ac").unwrap(),
-                version: 0,
+                version: SCRIPT_VER_CLASSIC,
                 class: ScriptClass::NonStandard,
             },
             Test {
                 name: "non standard script (unexpected final check sig op)",
                 script: hex::decode("204a23f5eef4b2dead811c7efb4f1afbd8df845e804b6c36a4001fc096e13f8151ad").unwrap(),
-                version: 0,
+                version: SCRIPT_VER_CLASSIC,
                 class: ScriptClass::NonStandard,
             },
         ];

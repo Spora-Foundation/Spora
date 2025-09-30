@@ -23,7 +23,6 @@ use tondi_consensus_core::tx::VerifiableTransaction;
 use blake3::Hasher;
 use crate::standard::copperoot::sighash::CopperootLeafHash;
 use crate::standard::copperoot::witness::{CopperootWitness, P2CrSpend, CopperootControlBlock};
-use crate::Witness;
 
 /// Abstract trait for Taproot-like execution semantics
 /// This allows us to reuse the execution flow while parameterizing
@@ -75,7 +74,7 @@ impl TapLike for CopperootTapLike {
         let control_block = CopperootControlBlock::deserialize(control_block)
             .map_err(|_| TxScriptError::InvalidTaprootWitness)?;
 
-        // Verify control block version
+        // Verify control block version - must be 0xC1 for Copperoot
         if control_block.version != 0xC1 {
             return Err(TxScriptError::InvalidTaprootWitness);
         }
@@ -222,7 +221,7 @@ mod tests {
         hashing::sighash::SigHashReusedValuesUnsync,
     };
     use hex;
-    use crate::{Cache, TxScriptEngine, MAX_SCRIPT_PUBLIC_KEY_VERSION};
+    use crate::{Cache, TxScriptEngine, MAX_SCRIPT_PUBLIC_KEY_VERSION, SCRIPT_VER_P2CR};
     use crate::standard::copperoot::sighash::{Prevouts, SighashCache, CopperootSighashType};
     use crate::standard::{OpTrue, OpData32};
 
@@ -330,11 +329,22 @@ mod tests {
         let tweaked_pub_key = tree_info.output_key();
         let script_pub_key = SmallVec::from_iter([OpTrue, OpData32].into_iter().chain(tweaked_pub_key.serialize()));
 
-        let ver_script = (script_buf.clone(), LeafVersion::TapScript);
-        let ctrl_block = tree_info.control_block(&ver_script).unwrap();
-
-        let valid = ctrl_block.verify_taproot_commitment(&secp, tweaked_pub_key.to_x_only_public_key(), &script_buf);
-        assert!(valid);
+        // Create Copperoot control block instead of Taproot
+        // Bitcoin's ControlBlock doesn't have a merkle_path method, we need to extract it manually
+        let btc_control = tree_info.control_block(&(script_buf.clone(), LeafVersion::TapScript)).unwrap();
+        let serialized = btc_control.serialize();
+        // Control block format: version(1) + parity(1) + internal_key(32) + merkle_path(32*n)
+        // Skip version + parity + internal_key = 34 bytes
+        let merkle_start = 33;
+        let merkle_path: Vec<[u8; 32]> = serialized[merkle_start..]
+            .chunks(32)
+            .map(|chunk| {
+                let mut array = [0u8; 32];
+                array.copy_from_slice(chunk);
+                array
+            })
+            .collect();
+        let ctrl_block = CopperootControlBlock::new_merkle(0x00, internal_key, merkle_path).unwrap();
 
         let prev_tx_id = TransactionId::from_str("880eb9819a31821d9d2399e2f35e2433b72637e393d71ecc9b8d0250f49153c3").unwrap();
 
@@ -346,7 +356,7 @@ mod tests {
                 sequence: 0,
                 sig_op_count: 0,
             }],
-            vec![TransactionOutput { value: 100, script_public_key: ScriptPublicKey::new(0, script_pub_key.clone()) }],
+            vec![TransactionOutput { value: 100, script_public_key: ScriptPublicKey::new(SCRIPT_VER_P2CR, script_pub_key.clone()) }],
             1615462089000,
             SubnetworkId::from_bytes([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
             0,
@@ -359,11 +369,11 @@ mod tests {
         witness.push(script_buf);
         witness.push(ctrl_block.serialize());
 
-        tx.inputs[input_index].signature_script = (&Witness::from(witness)).try_into().unwrap();
+        tx.inputs[input_index].signature_script = (&CopperootWitness::from(witness)).try_into().unwrap();
 
         let entry = UtxoEntry {
             amount: 100,
-            script_public_key: ScriptPublicKey::new(0, script_pub_key.clone()),
+            script_public_key: ScriptPublicKey::new(SCRIPT_VER_P2CR, script_pub_key.clone()),
             block_daa_score: 36151168,
             is_coinbase: false,
         };
@@ -381,6 +391,9 @@ mod tests {
             false,
             false,
         );
-        assert!(engine.execute().is_ok());
+        let result = engine.execute();
+        if let Err(e) = result {
+            panic!("Engine execution failed: {:?}", e);
+        }
     }
 }

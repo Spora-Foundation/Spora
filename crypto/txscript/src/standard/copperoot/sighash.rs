@@ -477,6 +477,7 @@ impl<Tx: Borrow<Transaction>> SighashCache<Tx> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::SCRIPT_VER_P2CR;
     use tondi_consensus_core::{
         subnets::SubnetworkId,
         tx::{ScriptPublicKey, ScriptVec, TransactionId, TransactionOutpoint, TransactionInput, TransactionOutput, Transaction},
@@ -514,13 +515,13 @@ mod tests {
                 sequence: 0,
                 sig_op_count: 0,
             }],
-            vec![TransactionOutput { value: 100, script_public_key: ScriptPublicKey::new(0, script_pub_key.clone()) }],
+            vec![TransactionOutput { value: 100, script_public_key: ScriptPublicKey::new(SCRIPT_VER_P2CR, script_pub_key.clone()) }],
             1615462089000,
             SubnetworkId::from_bytes([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
             0,
             vec![],
         );
-        let tx_outs = vec![TransactionOutput::new(100, ScriptPublicKey::new(0, script_pub_key.clone()))];
+        let tx_outs = vec![TransactionOutput::new(100, ScriptPublicKey::new(SCRIPT_VER_P2CR, script_pub_key.clone()))];
         let prevouts = Prevouts::All(&tx_outs);
 
         let input_index = 0;
