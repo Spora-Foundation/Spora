@@ -82,6 +82,15 @@ impl ScriptClass {
         (script_public_key[1] == opcodes::codes::OpData32)
     }
 
+    /// Returns true if the script is in the standard
+    /// pay-to-copperoot-merkle (P2CR) format, false otherwise.
+    #[inline(always)]
+    pub fn is_pay_to_copperoot_merkle(script_public_key: &[u8]) -> bool {
+        (script_public_key.len() == 34) && // 2 opcodes number + 32 data
+        (script_public_key[0] == opcodes::codes::OpTrue) &&
+        (script_public_key[1] == opcodes::codes::OpData32)
+    }
+
 
     fn as_str(&self) -> &'static str {
         match self {
@@ -163,6 +172,9 @@ impl From<&ScriptPublicKey> for ScriptClass {
             } else if Self::is_pay_to_script_hash(script) {
                 Self::ScriptHash
             } else if Self::is_pay_to_taproot(script) {
+                // NOTE: Taproot and Copperoot share identical ScriptPubKey format
+                // Default to Taproot for backward compatibility
+                // Copperoot detection requires additional context (e.g., witness version)
                 Self::Taproot
             } else {
                 ScriptClass::NonStandard
