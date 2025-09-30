@@ -261,14 +261,16 @@ mod tests {
         let secp = Secp256k1::new();
         let keypair = Keypair::from_seckey_slice(
             secp256k1::SECP256K1,
-            &hex::decode("1d99c236b1f37b3b845336e6c568ba37e9ced4769d83b7a096eec446b940d160").unwrap(),
+            &hex::decode("1d99c236b1f37b3b845336e6c568ba37e9ced4769d83b7a096eec446b940d160")
+                .expect("Valid hex string"),
         )
-        .unwrap();
+        .expect("Valid private key");
         // Use Copperoot P2CR script generation
         let xonly_pubkey = keypair.x_only_public_key().0;
         let script_pub_key = SmallVec::from_iter([OpTrue, OpData32].into_iter().chain(xonly_pubkey.serialize()));
 
-        let prev_tx_id = TransactionId::from_str("880eb9819a31821d9d2399e2f35e2433b72637e393d71ecc9b8d0250f49153c3").unwrap();
+        let prev_tx_id = TransactionId::from_str("880eb9819a31821d9d2399e2f35e2433b72637e393d71ecc9b8d0250f49153c3")
+            .expect("Valid transaction ID");
 
         let mut tx = Transaction::new(
             0,
@@ -308,7 +310,8 @@ mod tests {
             CopperootSighashType::NonePlusAnyoneCanPay => tondi_consensus_core::tx::copperoot::sighash::CopperootSighashType::NonePlusAnyoneCanPay,
             CopperootSighashType::SinglePlusAnyoneCanPay => tondi_consensus_core::tx::copperoot::sighash::CopperootSighashType::SinglePlusAnyoneCanPay,
         });
-        tx.inputs[input_index].signature_script = (&witness).try_into().unwrap();
+        tx.inputs[input_index].signature_script = (&witness).try_into()
+            .expect("Valid witness conversion");
 
         let entry = UtxoEntry {
             amount: 100,
@@ -343,9 +346,10 @@ mod tests {
         let secp = Secp256k1::new();
         let keypair = Keypair::from_seckey_slice(
             secp256k1::SECP256K1,
-            &hex::decode("1d99c236b1f37b3b845336e6c568ba37e9ced4769d83b7a096eec446b940d160").unwrap(),
+            &hex::decode("1d99c236b1f37b3b845336e6c568ba37e9ced4769d83b7a096eec446b940d160")
+                .expect("Valid hex string"),
         )
-        .unwrap();
+        .expect("Valid private key");
         let internal_key = keypair.x_only_public_key().0;
 
         // Simple test: single script (leaf), no merkle tree
@@ -367,18 +371,22 @@ mod tests {
         tweak_hasher.update(&[0u8]); // proof_type = 0 (Merkle)
         let tweak_bytes = *tweak_hasher.finalize().as_bytes();
         
-        let tweak_scalar = secp256k1::Scalar::from_be_bytes(tweak_bytes).unwrap();
-        let (tweaked_xonly, parity) = internal_key.add_tweak(&secp, &tweak_scalar).unwrap();
+        let tweak_scalar = secp256k1::Scalar::from_be_bytes(tweak_bytes)
+            .expect("Valid tweak scalar");
+        let (tweaked_xonly, parity) = internal_key.add_tweak(&secp, &tweak_scalar)
+            .expect("Valid tweak operation");
         
         // Encode parity in parity_leaf_version: bit7 = parity, low 7 bits = leaf_version
         let parity_bit = matches!(parity, secp256k1::Parity::Odd);
         let parity_leaf_version = if parity_bit { 0x80 | leaf_version } else { leaf_version };
         
-        let ctrl_block = CopperootControlBlock::new_merkle(parity_leaf_version, internal_key, merkle_path).unwrap();
+        let ctrl_block = CopperootControlBlock::new_merkle(parity_leaf_version, internal_key, merkle_path)
+            .expect("Valid control block");
         
         let script_pub_key = SmallVec::from_iter([OpTrue, OpData32].into_iter().chain(tweaked_xonly.serialize()));
 
-        let prev_tx_id = TransactionId::from_str("880eb9819a31821d9d2399e2f35e2433b72637e393d71ecc9b8d0250f49153c3").unwrap();
+        let prev_tx_id = TransactionId::from_str("880eb9819a31821d9d2399e2f35e2433b72637e393d71ecc9b8d0250f49153c3")
+            .expect("Valid transaction ID");
 
         let mut tx = Transaction::new(
             0,
@@ -401,7 +409,8 @@ mod tests {
         witness.push(leaf_script);
         witness.push(ctrl_block.serialize());
 
-        tx.inputs[input_index].signature_script = (&CopperootWitness::from(witness)).try_into().unwrap();
+        tx.inputs[input_index].signature_script = (&CopperootWitness::from(witness)).try_into()
+            .expect("Valid witness conversion");
 
         let entry = UtxoEntry {
             amount: 100,

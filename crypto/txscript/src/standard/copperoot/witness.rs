@@ -363,14 +363,29 @@ impl CopperootWitness {
         let message = Message::from_digest_slice(msg32)
             .map_err(|e| TxScriptError::InvalidSignature(e))?;
         
+        // SAFETY: Ensure the signature conversion is safe and validated
         let musig2_schnorr_sig = musig2::secp256k1::schnorr::Signature::from(sig.clone());
         
-        // Convert to our secp256k1 types for verification
-        let our_schnorr_sig = secp256k1::schnorr::Signature::from_slice(&musig2_schnorr_sig.to_byte_array())
+        // Convert to our secp256k1 types for verification with additional validation
+        let sig_bytes = musig2_schnorr_sig.to_byte_array();
+        
+        // Validate signature length before conversion
+        if sig_bytes.len() != 64 {
+            return Err(TxScriptError::InvalidSignatureLength(sig_bytes.len()));
+        }
+        
+        let our_schnorr_sig = secp256k1::schnorr::Signature::from_slice(&sig_bytes)
             .map_err(|e| TxScriptError::InvalidSignature(e))?;
         
+        // CRITICAL: Verify signature before constructing witness
+        // This prevents signature verification bypass
         secp.verify_schnorr(&our_schnorr_sig, &message, agg_x)
             .map_err(|e| TxScriptError::InvalidSignature(e))?;
+        
+        // Additional validation: ensure the signature is not all zeros or invalid
+        if sig_bytes.iter().all(|&b| b == 0) {
+            return Err(TxScriptError::InvalidSignature(secp256k1::Error::InvalidSignature));
+        }
         
         // Signature is valid, construct witness
         Ok(Self::p2cr_key_spend(our_schnorr_sig, sighash_type))
@@ -639,7 +654,8 @@ mod tests {
     fn test_copperoot_witness_key_spend() {
         let secp = Secp256k1::new();
         let keypair = Keypair::new(&secp, &mut secp256k1::rand::thread_rng());
-        let message = Message::from_digest_slice(&[0u8; 32]).unwrap();
+        let message = Message::from_digest_slice(&[0u8; 32])
+            .expect("Valid message");
         let signature = secp.sign_schnorr(&message, &keypair);
         
         let witness = CopperootWitness::p2tr_key_spend(signature, CopperootSighashType::Default);
@@ -662,13 +678,15 @@ mod tests {
         let internal_key = keypair.x_only_public_key().0;
         
         let merkle_path = vec![[0u8; 32], [1u8; 32]];
-        let control_block = CopperootControlBlock::new_merkle(0x00, internal_key, merkle_path.clone()).unwrap();
+        let control_block = CopperootControlBlock::new_merkle(0x00, internal_key, merkle_path.clone())
+            .expect("Valid control block");
         assert_eq!(control_block.version, 0xC1);
         assert_eq!(control_block.proof_type, 0);
         assert_eq!(control_block.merkle_path, merkle_path);
         
         let serialized = control_block.serialize();
-        let deserialized = CopperootControlBlock::deserialize(&serialized).unwrap();
+        let deserialized = CopperootControlBlock::deserialize(&serialized)
+            .expect("Valid deserialization");
         assert_eq!(control_block.version, deserialized.version);
         assert_eq!(control_block.proof_type, deserialized.proof_type);
         assert_eq!(control_block.merkle_path, deserialized.merkle_path);
@@ -678,7 +696,8 @@ mod tests {
     fn test_copperoot_witness_key_path_non_default_sighash() {
         let secp = Secp256k1::new();
         let keypair = Keypair::new(&secp, &mut secp256k1::rand::thread_rng());
-        let message = Message::from_digest_slice(&[0u8; 32]).unwrap();
+        let message = Message::from_digest_slice(&[0u8; 32])
+            .expect("Valid message");
         let signature = secp.sign_schnorr(&message, &keypair);
         
         // Test with non-default sighash type
@@ -686,7 +705,8 @@ mod tests {
         let witness = CopperootWitness::p2cr_key_spend(signature, sighash_type);
         
         // Parse the witness back
-        let spend = P2CrSpend::try_from(&witness).unwrap();
+        let spend = P2CrSpend::try_from(&witness)
+            .expect("Valid spend conversion");
         match spend {
             P2CrSpend::Key { sighash_type: parsed_sighash, .. } => {
                 assert_eq!(parsed_sighash, sighash_type);
@@ -711,7 +731,8 @@ mod tests {
         );
         
         // Parse the witness back
-        let spend = P2CrSpend::try_from(&witness).unwrap();
+        let spend = P2CrSpend::try_from(&witness)
+            .expect("Valid spend conversion");
         match spend {
             P2CrSpend::Script { input, leaf_script, control_block: parsed_control, annex: parsed_annex } => {
                 assert_eq!(leaf_script, script);
@@ -731,12 +752,15 @@ mod tests {
     fn test_copperoot_keypath_with_annex_roundtrip() {
         let secp = Secp256k1::new();
         let kp = secp256k1::Keypair::new(&secp, &mut secp256k1::rand::thread_rng());
-        let msg = Message::from_digest_slice(&[0u8; 32]).unwrap();
+        let msg = Message::from_digest_slice(&[0u8; 32])
+            .expect("Valid message");
         let sig = secp.sign_schnorr(&msg, &kp);
         let annex = vec![0x50, 0xAA, 0xBB];
 
-        let wit = CopperootWitness::p2cr_key_spend_with_annex(sig, CopperootSighashType::All, annex.clone()).unwrap();
-        let spend = P2CrSpend::try_from(&wit).unwrap();
+        let wit = CopperootWitness::p2cr_key_spend_with_annex(sig, CopperootSighashType::All, annex.clone())
+            .expect("Valid witness with annex");
+        let spend = P2CrSpend::try_from(&wit)
+            .expect("Valid spend conversion");
         match spend {
             P2CrSpend::Key { sighash_type, .. } => assert_eq!(sighash_type, CopperootSighashType::All),
             _ => panic!("expected key spend"),
@@ -747,7 +771,8 @@ mod tests {
     fn test_annex_validation() {
         let secp = Secp256k1::new();
         let kp = secp256k1::Keypair::new(&secp, &mut secp256k1::rand::thread_rng());
-        let msg = Message::from_digest_slice(&[0u8; 32]).unwrap();
+        let msg = Message::from_digest_slice(&[0u8; 32])
+            .expect("Valid message");
         let sig = secp.sign_schnorr(&msg, &kp);
 
         // Test valid annex
@@ -767,7 +792,8 @@ mod tests {
         // Create a valid key-path witness with annex at the end (correct position per BIP341)
         let secp = Secp256k1::new();
         let kp = secp256k1::Keypair::new(&secp, &mut secp256k1::rand::thread_rng());
-        let msg = Message::from_digest_slice(&[0u8; 32]).unwrap();
+        let msg = Message::from_digest_slice(&[0u8; 32])
+            .expect("Valid message");
         let sig = secp.sign_schnorr(&msg, &kp);
         
         let mut inner = BtcWitness::new();
@@ -808,7 +834,8 @@ mod tests {
         let secp = Secp256k1::new();
         let kp = secp256k1::Keypair::new(&secp, &mut secp256k1::rand::thread_rng());
         let xpub = kp.x_only_public_key().0;
-        let msg = Message::from_digest_slice(&[0u8; 32]).unwrap();
+        let msg = Message::from_digest_slice(&[0u8; 32])
+            .expect("Valid message");
         let sig = secp.sign_schnorr(&msg, &kp);
 
         let witness = CopperootWitness::p2cr_key_spend(sig, CopperootSighashType::All);
@@ -816,7 +843,8 @@ mod tests {
         assert!(result.is_ok());
 
         // Test with wrong message
-        let wrong_msg = Message::from_digest_slice(&[1u8; 32]).unwrap();
+        let wrong_msg = Message::from_digest_slice(&[1u8; 32])
+            .expect("Valid message");
         let result = witness.verify_keypath_sig(&wrong_msg, &xpub);
         assert!(result.is_err());
     }
@@ -866,38 +894,49 @@ mod tests {
         let nonce_seed1 = [0u8; 32];
         let nonce_seed2 = [1u8; 32];
 
-        let mut fr1 = FirstRound::new(key_agg.clone(), nonce_seed1, 0, spices1).unwrap();
-        let mut fr2 = FirstRound::new(key_agg.clone(), nonce_seed2, 1, spices2).unwrap();
+        let mut fr1 = FirstRound::new(key_agg.clone(), nonce_seed1, 0, spices1)
+            .expect("Valid first round");
+        let mut fr2 = FirstRound::new(key_agg.clone(), nonce_seed2, 1, spices2)
+            .expect("Valid first round");
 
         // Exchange nonces
         let pubnonce1 = fr1.our_public_nonce();
         let pubnonce2 = fr2.our_public_nonce();
 
-        fr1.receive_nonce(1, pubnonce2).unwrap();
-        fr2.receive_nonce(0, pubnonce1).unwrap();
+        fr1.receive_nonce(1, pubnonce2)
+            .expect("Valid nonce exchange");
+        fr2.receive_nonce(0, pubnonce1)
+            .expect("Valid nonce exchange");
 
         // Second round: sign
-        let r2_1 = fr1.finalize(kp1.secret_key(), msg).unwrap();
-        let r2_2 = fr2.finalize(kp2.secret_key(), msg).unwrap();
+        let r2_1 = fr1.finalize(kp1.secret_key(), msg)
+            .expect("Valid finalize");
+        let r2_2 = fr2.finalize(kp2.secret_key(), msg)
+            .expect("Valid finalize");
 
         let partial2: Option<musig2::secp::Scalar> = r2_2.our_signature();
 
         // Finalize signatures
         let mut r2_1_final = r2_1;
         if let Some(p2) = partial2 {
-            r2_1_final.receive_signature(1, p2).unwrap();
+            r2_1_final.receive_signature(1, p2)
+                .expect("Valid signature reception");
         }
-        let sig: CompactSignature = r2_1_final.finalize().unwrap();
+        let sig: CompactSignature = r2_1_final.finalize()
+            .expect("Valid signature finalization");
 
         // Test the checked function - convert types to match our interface
         let _our_secp = secp256k1::Secp256k1::new();
-        let _our_agg_x = secp256k1::XOnlyPublicKey::from_slice(&agg_xonly.serialize()).unwrap();
-        let our_sig = secp256k1::schnorr::Signature::from_slice(&sig.serialize()).unwrap();
+        let _our_agg_x = secp256k1::XOnlyPublicKey::from_slice(&agg_xonly.serialize())
+            .expect("Valid public key");
+        let our_sig = secp256k1::schnorr::Signature::from_slice(&sig.serialize())
+            .expect("Valid signature");
         
         let witness = CopperootWitness::p2cr_key_spend(our_sig, CopperootSighashType::All);
 
         // Verify the witness can be parsed back
-        let spend = P2CrSpend::try_from(&witness).unwrap();
+        let spend = P2CrSpend::try_from(&witness)
+            .expect("Valid spend conversion");
         match spend {
             P2CrSpend::Key { sighash_type, .. } => {
                 assert_eq!(sighash_type, CopperootSighashType::All);
@@ -929,11 +968,14 @@ mod tests {
 
         // Test with invalid signature - convert types to match our interface
         let our_secp = secp256k1::Secp256k1::new();
-        let our_agg_x = secp256k1::XOnlyPublicKey::from_slice(&agg_xonly.serialize()).unwrap();
-        let our_sig = secp256k1::schnorr::Signature::from_slice(&sig.serialize()).unwrap();
+        let our_agg_x = secp256k1::XOnlyPublicKey::from_slice(&agg_xonly.serialize())
+            .expect("Valid public key");
+        let our_sig = secp256k1::schnorr::Signature::from_slice(&sig.serialize())
+            .expect("Valid signature");
         
         // This should fail because the signature is random and doesn't match the public key
-        let result = our_secp.verify_schnorr(&our_sig, &Message::from_digest_slice(&msg32).unwrap(), &our_agg_x);
+        let result = our_secp.verify_schnorr(&our_sig, &Message::from_digest_slice(&msg32)
+            .expect("Valid message"), &our_agg_x);
         assert!(result.is_err());
     }
 
@@ -953,7 +995,8 @@ mod tests {
         );
         
         // Parse the witness back
-        let spend = P2CrSpend::try_from(&witness).unwrap();
+        let spend = P2CrSpend::try_from(&witness)
+            .expect("Valid spend conversion");
         match spend {
             P2CrSpend::Script { input, leaf_script, control_block: parsed_control, annex: parsed_annex } => {
                 assert_eq!(leaf_script, script);
