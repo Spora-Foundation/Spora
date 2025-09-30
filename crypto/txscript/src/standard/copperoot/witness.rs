@@ -117,7 +117,7 @@ impl TryFrom<&CopperootWitness> for P2CrSpend {
 
         // Script-path: [...inputs] [leaf_script] [control_block] [+ annex?]
         let (n, end) = if tail_is_annex { (stack.len(), stack.len() - 1) } else { (stack.len(), stack.len()) };
-        if n >= 3 + (tail_is_annex as usize) {
+        if n >= 2 + (tail_is_annex as usize) {
             // Last (or second-to-last) is control_block, previous one is leaf_script
             let control_block = stack[end - 1].clone();
             let leaf_script = stack[end - 2].clone();
@@ -752,15 +752,43 @@ mod tests {
 
     #[test]
     fn test_annex_position_validation() {
-        // Create a witness with annex at wrong position (index 0 instead of 1)
+        // Create a valid key-path witness with annex at the end (correct position per BIP341)
+        let secp = Secp256k1::new();
+        let kp = secp256k1::Keypair::new(&secp, &mut secp256k1::rand::thread_rng());
+        let msg = Message::from_digest_slice(&[0u8; 32]).unwrap();
+        let sig = secp.sign_schnorr(&msg, &kp);
+        
         let mut inner = BtcWitness::new();
-        inner.push(vec![0x50, 0x01, 0x02]); // Annex at index 0 (wrong)
-        inner.push(vec![0x01, 0x02, 0x03, 0x04]); // Some other data at index 1
+        inner.push(sig.serialize().to_vec()); // Valid signature at index 0
+        inner.push(vec![0x50, 0x01, 0x02]); // Annex at index 1 (last position, correct)
         let witness = CopperootWitness { inner, verkle_proof: None };
 
         let result = P2CrSpend::try_from(&witness);
-        assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), TxScriptError::InvalidAnnexPosition));
+        // Should succeed as annex is at the end (BIP341 alignment)
+        assert!(result.is_ok());
+        if let Ok(P2CrSpend::Key { .. }) = result {
+            // Key path spend with annex at end - this is valid
+        } else {
+            panic!("Expected key path spend");
+        }
+        
+        // Test with annex in middle position (should not be treated as annex)
+        // This creates a script-path spend since we have 3 elements
+        let mut inner = BtcWitness::new();
+        inner.push(vec![0x01, 0x02, 0x03, 0x04]); // Input item at index 0
+        inner.push(vec![0x51]); // Leaf script at index 1
+        inner.push(vec![0x50, 0x01, 0x02]); // 0x50 prefix but not at end (control block)
+        inner.push(vec![0x01, 0x02, 0x03, 0x04]); // Some other data at end
+        let witness = CopperootWitness { inner, verkle_proof: None };
+
+        let result = P2CrSpend::try_from(&witness);
+        // Should succeed but annex should be None (not at end)
+        assert!(result.is_ok());
+        if let Ok(P2CrSpend::Script { annex, .. }) = result {
+            assert!(annex.is_none()); // Annex not at end, so should be None
+        } else {
+            panic!("Expected script path spend");
+        }
     }
 
     #[test]
