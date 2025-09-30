@@ -18,22 +18,36 @@ Copperoot introduces a new script version system that uses distinct version byte
 The script version numbers are specifically chosen to create intuitive address prefixes:
 
 **Bech32m Character Mapping:**
-- Version byte's first 5 bits are encoded as a Bech32m character
-- Taproot: `88 = 0b01011_000` → `0b01011 = 11` → 't' in Bech32m charset
-- Copperoot: `192 = 0b11000_000` → `0b11000 = 24` → 'c' in Bech32m charset
+- Version byte's **first 5 bits** are encoded as the **first character** after HRP
+- Taproot: `88 = 0b01011_000` → `0b01011 = 11` → **'t'** in Bech32m charset
+- Copperoot: `192 = 0b11000_000` → `0b11000 = 24` → **'c'** in Bech32m charset
+
+**Important Note on Second Character:**
+The second character is **not controlled by the version byte alone**. It depends on:
+- Version byte's last 3 bits (000 for both 88 and 192)
+- Public key's first 2 bits
+
+This means Taproot addresses start with 't' but the second character varies (e.g., 'tq', 'tr', 'tp', 'tz'), and Copperoot addresses start with 'c' with similar variation.
 
 **Example Addresses:**
 ```
 Taproot (version 88):
   tondi:trazle76u3gwal94drp4qlvlh9vkjddh7mjpv2hhe422xzjsrs8tvca30pn
-  └─────┘└─ 't' prefix from version 88
+  └─────┘└┬┘
+         │└─ 'razle...' = public key data (Bech32m encoded)
+         └── 't' = version 88 (first 5 bits: 0b01011)
 
 CopperootMerkle (version 192):
   tondi:crazle76u3gwal94drp4qlvlh9vkjddh7mjpv2hhe422xzjsrs8tvv5jz65
-  └─────┘└─ 'c' prefix from version 192
+  └─────┘└┬┘
+         │└─ 'razle...' = same public key data (Bech32m encoded)
+         └── 'c' = version 192 (first 5 bits: 0b11000)
+
+Note: The 'razle...' portion is identical because both examples use the same public key.
+      Different public keys will produce different encodings.
 
 CopperootVerkle (version 193 - currently disabled):
-  tondi:cr... (starts with 'c' after prefix)
+  tondi:c... (starts with 'c', second character varies by public key)
 ```
 
 ### Version Validation and Security
