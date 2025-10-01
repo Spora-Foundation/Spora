@@ -15,21 +15,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "adaptor"
-version = "1.0.2"
-dependencies = [
- "generic-array",
- "hex",
- "k256",
- "rand",
- "rand_core",
- "secp256k1",
- "serde",
- "sha2",
- "thiserror",
-]
-
-[[package]]
 name = "addr2line"
 version = "0.24.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4728,6 +4713,21 @@ dependencies = [
  "serde_spanned",
  "toml_datetime",
  "winnow",
+]
+
+[[package]]
+name = "tondi-adaptor"
+version = "1.0.2"
+dependencies = [
+ "generic-array",
+ "hex",
+ "k256",
+ "rand",
+ "rand_core",
+ "secp256k1",
+ "serde",
+ "sha2",
+ "thiserror",
 ]
 
 [[package]]

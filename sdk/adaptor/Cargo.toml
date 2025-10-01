@@ -1,5 +1,5 @@
 [package]
-name = "adaptor"
+name = "tondi-adaptor"
 version = "1.0.2"
 edition = "2021"
 publish = false
