@@ -59,6 +59,7 @@ members = [
     "metrics/core",
     "metrics/perf_monitor",
     "utils/alloc",
+    "sdk/adaptor",
 ]
 
 [workspace.package]
@@ -136,6 +137,7 @@ tondi-wrpc-server = { version = "1.0.2", path = "rpc/wrpc/server" }
 tondi-wrpc-wasm = { version = "1.0.2", path = "rpc/wrpc/wasm" }
 tondid = { version = "1.0.2", path = "tondid" }
 tondi-alloc = { version = "1.0.2", path = "utils/alloc" }
+tondi-adaptor = { version = "1.0.2", path = "sdk/adaptor" }
 
 # external
 aes = "0.8.3"
