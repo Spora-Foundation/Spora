@@ -18,7 +18,7 @@ use crate::caches::Cache;
 use crate::data_stack::{DataStack, Stack};
 use crate::opcodes::{deserialize_next_opcode, OpCodeImplementation};
 use bitcoin::taproot::ControlBlock;
-use bitcoin::witness::P2TrSpend;
+// P2TrSpend is now private in official bitcoin crate, we'll use Witness methods instead
 use bitcoin::XOnlyPublicKey;
 use itertools::Itertools;
 use log::trace;
@@ -409,47 +409,72 @@ impl<'a, T: VerifiableTransaction, Reused: SigHashReusedValues> TxScriptEngine<'
         match self.script_source {
             ScriptSource::TxInput { tx, input, idx, utxo_entry } => {
                 let script_public_key = utxo_entry.script_public_key.script();
+                // Parse signature_script as Borsh-serialized witness data
                 let witness = Witness::try_from(&*input.signature_script).map_err(|_| TxScriptError::InvalidTaprootWitness)?;
 
                 let xpub = XOnlyPublicKey::from_slice(&script_public_key[2..]).map_err(TxScriptError::InvalidSignature)?;
 
-                let p2tr = P2TrSpend::try_from(&witness)?;
-                match p2tr {
-                    P2TrSpend::Key { signature, .. } => {
-                        let sighash_type = TapSighashType::Default;
-                        let mut sighasher = SighashCache::new(tx.tx());
-                        let vouts = tx
-                            .populated_inputs()
-                            .map(|(_, utxo)| TransactionOutput {
-                                value: utxo.amount,
-                                script_public_key: utxo.script_public_key.clone(),
-                            })
-                            .collect::<Vec<_>>();
-                        let prevouts = Prevouts::All(&vouts);
-                        let sighash = sighasher
-                            .taproot_key_spend_signature_hash(idx, &prevouts, sighash_type)
-                            .expect("failed to construct sighash");
-                        let msg = Message::from(sighash);
-                        witness.verify(signature, &msg, &xpub).map_err(TxScriptError::InvalidSignature)?;
-                        self.dstack.push_item(true)
-                    }
-                    P2TrSpend::Script { input, leaf_script, control_block, annex: _ } => {
-                        for data in input {
-                            match data {
-                                Some(d) => self.dstack.push(d.to_vec()),
-                                None => return Err(TxScriptError::InvalidTaprootWitness),
+                // Use Witness methods to determine taproot spend type
+                if witness.len() == 1 || (witness.len() == 2 && witness.last().map_or(false, |last| last.starts_with(&[0x50]))) {
+                    // Key spend
+                    let signature = if witness.len() == 1 {
+                        witness.nth(0).ok_or(TxScriptError::InvalidTaprootWitness)?
+                    } else {
+                        witness.nth(0).ok_or(TxScriptError::InvalidTaprootWitness)?
+                    };
+                    
+                    let sighash_type = TapSighashType::Default;
+                    let mut sighasher = SighashCache::new(tx.tx());
+                    let vouts = tx
+                        .populated_inputs()
+                        .map(|(_, utxo)| TransactionOutput {
+                            value: utxo.amount,
+                            script_public_key: utxo.script_public_key.clone(),
+                        })
+                        .collect::<Vec<_>>();
+                    let prevouts = Prevouts::All(&vouts);
+                    let sighash = sighasher
+                        .taproot_key_spend_signature_hash(idx, &prevouts, sighash_type)
+                        .expect("failed to construct sighash");
+                    let msg = Message::from(sighash);
+                    // Verify signature using secp256k1 directly
+                    let secp = Secp256k1::new();
+                    let sig = secp256k1::schnorr::Signature::from_slice(signature).map_err(TxScriptError::InvalidSignature)?;
+                    secp.verify_schnorr(&sig, &msg, &xpub).map_err(TxScriptError::InvalidSignature)?;
+                    self.dstack.push_item(true)
+                } else {
+                    // Script spend
+                    let leaf_script = witness.taproot_leaf_script().ok_or(TxScriptError::InvalidTaprootWitness)?;
+                    let control_block_bytes = witness.taproot_control_block().ok_or(TxScriptError::InvalidTaprootWitness)?;
+                    
+                    // Push input data to stack (excluding leaf script, control block, and annex)
+                    let mut input_data = Vec::new();
+                    for i in 0..witness.len() {
+                        if let Some(data) = witness.nth(i) {
+                            // Skip the last element if it's an annex (starts with 0x50)
+                            if i == witness.len() - 1 && data.starts_with(&[0x50]) {
+                                continue;
                             }
+                            // Skip control block and leaf script
+                            if i == witness.len() - 1 || (i == witness.len() - 2 && !data.starts_with(&[0x50])) {
+                                continue;
+                            }
+                            input_data.push(data.to_vec());
                         }
-
-                        let secp = Secp256k1::new();
-                        let control_block = ControlBlock::decode(control_block).map_err(|_| TxScriptError::InvalidTaprootWitness)?;
-                        let valid_script = control_block.verify_taproot_commitment(&secp, xpub, leaf_script);
-                        if !valid_script {
-                            return Err(TxScriptError::InvalidTaprootWitness);
-                        }
-                        self.check_push_opcode = false;
-                        self.execute_script(leaf_script.as_bytes())
                     }
+                    
+                    for data in input_data {
+                        self.dstack.push(data);
+                    }
+
+                    let secp = Secp256k1::new();
+                    let control_block = ControlBlock::decode(control_block_bytes).map_err(|_| TxScriptError::InvalidTaprootWitness)?;
+                    let valid_script = control_block.verify_taproot_commitment(&secp, xpub, &leaf_script.script);
+                    if !valid_script {
+                        return Err(TxScriptError::InvalidTaprootWitness);
+                    }
+                    self.check_push_opcode = false;
+                    self.execute_script(leaf_script.script.as_bytes())
                 }
             }
             _ => unreachable!("p2tr must be ScriptSource::TxInput"),

@@ -547,8 +547,9 @@ dependencies = [
 
 [[package]]
 name = "bitcoin"
-version = "0.32.6"
-source = "git+https://github.com/neomaxwell/rust-bitcoin.git?branch=bitcoin-0.32.6#a4b9bae8500407fb0921b5e0a2c82567ee27a8a6"
+version = "0.32.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0fda569d741b895131a88ee5589a467e73e9c4718e958ac9308e4f7dc44b6945"
 dependencies = [
  "base58ck",
  "bech32",

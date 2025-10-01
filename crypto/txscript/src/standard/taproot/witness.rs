@@ -1,7 +1,7 @@
-use bitcoin::{taproot::Signature as BtcTaprootSignature, witness::P2TrSpend, TapSighashType, Witness as BtcWitness};
+use bitcoin::{taproot::Signature as BtcTaprootSignature, TapSighashType, Witness as BtcWitness};
 use borsh::BorshDeserialize;
 use secp256k1::{schnorr::Signature, Message, Secp256k1, XOnlyPublicKey};
-use tondi_txscript_errors::TxScriptError;
+// TxScriptError import removed as it's no longer used
 
 #[derive(Debug)]
 pub struct Witness {
@@ -33,16 +33,8 @@ impl TryFrom<&Witness> for Vec<u8> {
     }
 }
 
-impl<'a> TryFrom<&'a Witness> for P2TrSpend<'a> {
-    type Error = TxScriptError;
-
-    fn try_from(witness: &'a Witness) -> Result<Self, Self::Error> {
-        match P2TrSpend::from_witness(&witness.inner) {
-            Some(p2tr) => Ok(p2tr),
-            None => Err(TxScriptError::InvalidTaprootWitness),
-        }
-    }
-}
+// P2TrSpend is now private in official bitcoin crate
+// This implementation is no longer needed as we use Witness methods directly
 
 impl Witness {
     pub fn p2tr_key_spend(signature: Signature, sighash_type: TapSighashType) -> Self {
@@ -55,5 +47,26 @@ impl Witness {
         let secp = Secp256k1::new();
         let sig = Signature::from_slice(signature)?;
         secp.verify_schnorr(&sig, msg, xpub)
+    }
+
+    // Delegate methods to inner BtcWitness
+    pub fn len(&self) -> usize {
+        self.inner.len()
+    }
+
+    pub fn last(&self) -> Option<&[u8]> {
+        self.inner.last()
+    }
+
+    pub fn nth(&self, index: usize) -> Option<&[u8]> {
+        self.inner.nth(index)
+    }
+
+    pub fn taproot_leaf_script(&self) -> Option<bitcoin::taproot::LeafScript<&bitcoin::Script>> {
+        self.inner.taproot_leaf_script()
+    }
+
+    pub fn taproot_control_block(&self) -> Option<&[u8]> {
+        self.inner.taproot_control_block()
     }
 }
