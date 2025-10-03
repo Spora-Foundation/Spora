@@ -11,7 +11,7 @@ Copperoot introduces a new script version system that uses distinct version byte
 - **SCRIPT_VER_CLASSIC (0)**: Classic script types (PubKey, PubKeyECDSA, ScriptHash)
 - **SCRIPT_VER_TAPROOT (88)**: Taproot (BIP341/SHA256) - Addresses start with 't' (0b01011_000)
 - **SCRIPT_VER_COPPEROOT_MERKLE (192)**: Pay-to-Copperoot-Merkle (BLAKE3) - Addresses start with 'c' (0b11000_000)
-- **SCRIPT_VER_COPPEROOT_VERKLE (193)**: Pay-to-Copperoot-Verkle (BLAKE3) - Reserved, Addresses start with 'c' (0b11000_001)
+- **SCRIPT_VER_COPPEROOT_VERKLE (96)**: Pay-to-Copperoot-Verkle (BLAKE3) - Reserved, Addresses start with 'v' (0b01100_000)
 
 ### Address Prefix Design
 
@@ -20,14 +20,15 @@ The script version numbers are specifically chosen to create intuitive address p
 **Bech32m Character Mapping:**
 - Version byte's **first 5 bits** are encoded as the **first character** after HRP
 - Taproot: `88 = 0b01011_000` → `0b01011 = 11` → **'t'** in Bech32m charset
-- Copperoot: `192 = 0b11000_000` → `0b11000 = 24` → **'c'** in Bech32m charset
+- CopperootMerkle: `192 = 0b11000_000` → `0b11000 = 24` → **'c'** in Bech32m charset
+- CopperootVerkle: `96 = 0b01100_000` → `0b01100 = 12` → **'v'** in Bech32m charset
 
 **Important Note on Second Character:**
 The second character is **not controlled by the version byte alone**. It depends on:
-- Version byte's last 3 bits (000 for both 88 and 192)
+- Version byte's last 3 bits (000 for 88, 192, and 96)
 - Public key's first 2 bits
 
-This means Taproot addresses start with 't' but the second character varies (e.g., 'tq', 'tr', 'tp', 'tz'), and Copperoot addresses start with 'c' with similar variation.
+This means Taproot addresses start with 't' but the second character varies (e.g., 'tq', 'tr', 'tp', 'tz'), CopperootMerkle addresses start with 'c' and CopperootVerkle addresses start with 'v' with similar variation.
 
 **Example Addresses:**
 ```
@@ -1124,10 +1125,10 @@ Simnet:   tondisim1cr...
 Devnet:   tondidev1cr...
 
 CopperootVerkle - RESERVED (INACTIVE):
-Mainnet:  tondi1crv... (CopperootVerkle addresses will contain 'crv' hint in checksum)
-Testnet:  tonditest1crv...
-Simnet:   tondisim1crv...
-Devnet:   tondidev1crv...
+Mainnet:  tondi1vr... (CopperootVerkle addresses will contain 'vr' hint in checksum)
+Testnet:  tonditest1vr...
+Simnet:   tondisim1vr...
+Devnet:   tondidev1vr...
 NOTE: CopperootVerkle addresses are reserved but currently invalid for mainnet launch
 ```
 

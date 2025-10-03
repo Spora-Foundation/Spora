@@ -154,11 +154,11 @@ pub enum Version {
     /// Bech32m codec encode initial 5 bit `0b11000` to char 'c'
     /// CopperootMerkle (Pay-to-Copperoot-Merkle) addresses for Tondi Copperoot with Merkle trees
     CopperootMerkle = 192,
-    /// CopperootVerkle addresses always have the version byte set to 193(0b11000_001)
-    /// Bech32m codec encode initial 5 bit `0b11000` to char 'c'
+    /// CopperootVerkle addresses always have the version byte set to 96(0b01100_000)
+    /// Bech32m codec encode initial 5 bit `0b01100` to char 'v'
     /// CopperootVerkle (Pay-to-Copperoot-Verkle) addresses for Tondi Copperoot with Verkle trees
     /// NOTE: Currently disabled for mainnet launch - reserved for future activation
-    CopperootVerkle = 193,
+    CopperootVerkle = 96,
 }
 
 impl TryFrom<&str> for Version {
@@ -200,7 +200,7 @@ impl TryFrom<u8> for Version {
             8 => Ok(Version::ScriptHash),
             88 => Ok(Version::Taproot),
             192 => Ok(Version::CopperootMerkle),
-            193 => Err(AddressError::InvalidVersion(value)), // CopperootVerkle disabled for mainnet launch
+            96 => Err(AddressError::InvalidVersion(value)), // CopperootVerkle disabled for mainnet launch
             _ => Err(AddressError::InvalidVersion(value)),
         }
     }
