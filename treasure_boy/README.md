@@ -312,7 +312,6 @@ For issues and questions:
 
 ## Version History
 
-- **v0.17.0**: Current version with full feature set
 - Support for all network types
 - Comprehensive test coverage
 - Performance optimizations

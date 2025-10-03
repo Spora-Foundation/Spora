@@ -3,3 +3,4 @@ target/
 .idea/
 check
 check.ps1
+logs/

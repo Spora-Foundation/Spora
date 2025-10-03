@@ -22,9 +22,20 @@ tondi-utils.workspace = true
 wasm-bindgen.workspace = true
 workflow-wasm.workspace = true
 num.workspace = true
+blake3.workspace = true
+sha3.workspace = true
 
 [dev-dependencies]
 criterion.workspace = true
+
+
+# Benchmark profile with maximum optimization
+[profile.bench]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+overflow-checks = false
 
 [[bench]]
 name = "bench"
