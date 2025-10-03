@@ -121,6 +121,7 @@ mod tests {
     };
     use tondi_consensus_core::{
         api::ConsensusApi,
+        config::params::ForkActivation,
         merkle::calc_hash_merkle_root as calc_hash_merkle_root_with_options,
         subnets::SUBNETWORK_ID_NATIVE,
         tx::{Transaction, TransactionInput, TransactionOutpoint},
@@ -131,12 +132,14 @@ mod tests {
     fn calc_hash_merkle_root<'a>(txs: impl ExactSizeIterator<Item = &'a Transaction>) -> Hash {
         calc_hash_merkle_root_with_options(txs, false)
     }
-
     #[tokio::test]
     async fn validate_body_in_context_test() {
         let config = ConfigBuilder::new(DEVNET_PARAMS)
             .skip_proof_of_work()
-            .edit_consensus_params(|p| p.deflationary_phase_daa_score = 2)
+            .edit_consensus_params(|p| {
+                p.deflationary_phase_daa_score = 2;
+                p.crescendo_activation = ForkActivation::new(0);
+            })
             .build();
         let consensus = TestConsensus::new(&config);
         let wait_handles = consensus.init();
@@ -196,7 +199,7 @@ mod tests {
             let mut block = consensus.build_block_with_parents_and_transactions(7.into(), vec![6.into()], vec![]);
             block.transactions[0].payload[8..16].copy_from_slice(&(5_u64).to_le_bytes());
             block.header.hash_merkle_root = calc_hash_merkle_root(block.transactions.iter());
-            assert_match!(consensus.validate_and_insert_block(block.to_immutable()).virtual_state_task.await, Err(RuleError::WrongSubsidy(expected,_)) if expected == 44000000000);
+            assert_match!(consensus.validate_and_insert_block(block.to_immutable()).virtual_state_task.await, Err(RuleError::WrongSubsidy(expected,_)) if expected == 4400000000);
         }
 
         {

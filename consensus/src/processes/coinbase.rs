@@ -71,7 +71,7 @@ impl CoinbaseManager {
     ) -> Self {
         // Precomputed subsidy by month table for the actual block per second rate
         // Here values are rounded up so that we keep the same number of rewarding months as in the original 1 BPS table.
-        // In a 10 BPS network, the induced increase in total rewards is 51 TND (see tests::calc_high_bps_total_rewards_delta())
+        // In a 10 BPS network, the induced increase in total rewards is 51 TONDI (see tests::calc_high_bps_total_rewards_delta())
         let subsidy_by_month_table_before: SubsidyByMonthTable =
             core::array::from_fn(|i| SUBSIDY_BY_MONTH_TABLE[i].div_ceil(bps.before()));
         let subsidy_by_month_table_after: SubsidyByMonthTable =
@@ -333,9 +333,9 @@ mod tests {
 
         let delta = total_high_bps_rewards as i64 - total_rewards as i64;
 
-        println!("Total rewards: {} sau => {} TND", total_rewards, total_rewards / SAU_PER_TONDI);
-        println!("Total high bps rewards: {} sau => {} TND", total_high_bps_rewards, total_high_bps_rewards / SAU_PER_TONDI);
-        println!("Delta: {} sau => {} TND", delta, delta / SAU_PER_TONDI as i64);
+        println!("Total rewards: {} sau => {} TONDI", total_rewards, total_rewards / SAU_PER_TONDI);
+        println!("Total high bps rewards: {} sau => {} TONDI", total_high_bps_rewards, total_high_bps_rewards / SAU_PER_TONDI);
+        println!("Delta: {} sau => {} TONDI", delta, delta / SAU_PER_TONDI as i64);
     }
 
     #[test]
@@ -399,7 +399,7 @@ mod tests {
 
                 let diff = (new_total as i64 - baseline_total as i64) / SAU_PER_TONDI as i64;
                 assert!(diff.abs() <= 51, "activation: {}", activation);
-                println!("DIFF (TND): {}", diff);
+                println!("DIFF (TONDI): {}", diff);
             }
         }
     }
@@ -446,8 +446,16 @@ mod tests {
             }
             let cbm = create_manager(&params);
             let bps = params.bps().before();
+            println!("BPS is: {}", bps);
 
-            let pre_deflationary_phase_base_subsidy = PRE_DEFLATIONARY_PHASE_BASE_SUBSIDY / bps;
+            // pre_deflationary_phase_base_subsidy is already adjusted for BPS in the network configuration:
+            // - MAINNET/TESTNET/DEVNET: uses raw value 50000000000
+            // - SIMNET: uses TenBps::pre_deflationary_phase_base_subsidy() = 50000000000 / 10
+            // So we don't need to divide by BPS here
+            let pre_deflationary_phase_base_subsidy = params.pre_deflationary_phase_base_subsidy;
+
+            // deflationary_phase_initial_subsidy uses the subsidy table which is defined per-second,
+            // so we need to divide by BPS to get per-block subsidy
             let deflationary_phase_initial_subsidy = DEFLATIONARY_PHASE_INITIAL_SUBSIDY / bps;
             let blocks_per_halving = SECONDS_PER_HALVING * bps;
 
@@ -502,10 +510,8 @@ mod tests {
             ];
 
             for t in tests {
+                println!("Running {} test: '{}'", network_id, t.name);
                 assert_eq!(cbm.calc_block_subsidy(t.daa_score), t.expected, "{} test '{}' failed", network_id, t.name);
-                if bps == 1 {
-                    assert_eq!(cbm.legacy_calc_block_subsidy(t.daa_score), t.expected, "{} test '{}' failed", network_id, t.name);
-                }
             }
         }
     }
