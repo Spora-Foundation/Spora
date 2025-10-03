@@ -681,14 +681,14 @@ mod tests {
         use Prefix::*;
         use Version::*;
         
-        // CopperootVerkle (version 193) should be rejected during decoding
+        // CopperootVerkle (version 96) should be rejected during decoding
         let address = Address::new(Mainnet, CopperootVerkle, &XPUB);
         let encoded = String::from(&address);
         
-        // Decoding should fail because version 193 is disabled
+        // Decoding should fail because version 96 is disabled
         let result: Result<Address, _> = encoded.parse();
         assert!(result.is_err(), "CopperootVerkle addresses should be rejected");
-        assert!(matches!(result, Err(AddressError::InvalidVersion(193))));
+        assert!(matches!(result, Err(AddressError::InvalidVersion(96))));
     }
 
     #[test]
@@ -750,11 +750,11 @@ mod tests {
         let copperoot_data = copperoot_enc.strip_prefix("tondi:").unwrap();
         assert!(copperoot_data.starts_with('c'), "CopperootMerkle should start with 'c', got: {}", copperoot_data);
 
-        // CopperootVerkle = 193 = 0b11000_001 -> first 5 bits = 0b11000 = 24 -> 'c' in bech32
+        // CopperootVerkle = 96 = 0b01100_000 -> first 5 bits = 0b01100 = 12 -> 'v' in bech32
         let copperoot_verkle = Address::new(Mainnet, CopperootVerkle, &test_key);
         let copperoot_verkle_enc = copperoot_verkle.to_string();
         let copperoot_verkle_data = copperoot_verkle_enc.strip_prefix("tondi:").unwrap();
-        assert!(copperoot_verkle_data.starts_with('c'), "CopperootVerkle should start with 'c', got: {}", copperoot_verkle_data);
+        assert!(copperoot_verkle_data.starts_with('v'), "CopperootVerkle should start with 'v', got: {}", copperoot_verkle_data);
     }
 
     #[test]

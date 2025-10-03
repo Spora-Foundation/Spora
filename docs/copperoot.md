@@ -47,18 +47,18 @@ CopperootMerkle (version 192):
 Note: The 'razle...' portion is identical because both examples use the same public key.
       Different public keys will produce different encodings.
 
-CopperootVerkle (version 193 - currently disabled):
-  tondi:c... (starts with 'c', second character varies by public key)
+CopperootVerkle (version 96 - currently disabled):
+  tondi:v... (starts with 'v', second character varies by public key)
 ```
 
 ### Version Validation and Security
 
 The implementation enforces strict version validation with format checking:
 
-1. **MAX_SCRIPT_PUBLIC_KEY_VERSION (193)**: Hard limit for supported script versions
+1. **MAX_SCRIPT_PUBLIC_KEY_VERSION (192)**: Hard limit for supported script versions
    - Enforced at consensus layer (transaction validation)
    - Enforced at mempool layer (policy checks)
-   - Scripts with versions > 193 are immediately rejected
+   - Scripts with versions > 192 are immediately rejected
    - Prevents future version confusion and ensures network-wide consistency
 
 2. **Version-Based Classification**: ScriptClass determination uses version number for initial dispatch
@@ -110,7 +110,7 @@ if output.script_public_key.version() > MAX_SCRIPT_PUBLIC_KEY_VERSION {
 ScriptPublicKey::new(MAX_SCRIPT_PUBLIC_KEY_VERSION, script)
 ```
 
-Currently: `MAX_SCRIPT_PUBLIC_KEY_VERSION = 193` (CopperootVerkle reserved but disabled)
+Currently: `MAX_SCRIPT_PUBLIC_KEY_VERSION = 192` (CopperootVerkle reserved but disabled)
 
 ## Current Implementation Status
 
@@ -128,7 +128,7 @@ Copperoot is currently implemented with the following features:
 - ✅ **Test Suite**: Comprehensive test coverage including address generation, key spend, script spend validation, and MuSig2 functionality
 - ✅ **Script Classification**: Version-based dispatch with format validation for all script types
 - ✅ **Enhanced Security**: Comprehensive constraint checking, error handling, and misuse prevention
-- ⚠️ **Verkle Trees**: Reserved for future activation (version 193 currently disabled for mainnet)
+- ⚠️ **Verkle Trees**: Reserved for future activation (version 96 currently disabled for mainnet)
 
 ## Key Features
 
@@ -458,7 +458,7 @@ Witness TLV Structure (after script inputs):
 ```
 ScriptPubKey: 5120<32-byte x-only pubkey>
 Witness: [64-byte signature]
-Address: tondi1cr... (v2 witness version)
+Address: tondi:c... (v2 witness version)
 ```
 
 **Test Vector 2: CopperootMerkle Script Spend with Merkle Proof**
@@ -1119,16 +1119,16 @@ The ScriptPubKey format is identical to Bitcoin's Taproot, but the witness versi
 **Example Addresses**:
 ```
 CopperootMerkle - ACTIVE:
-Mainnet:  tondi1cr... (CopperootMerkle addresses will contain 'cr' hint in checksum)
-Testnet:  tonditest1cr...
-Simnet:   tondisim1cr...
-Devnet:   tondidev1cr...
+Mainnet:  tondi:c... (CopperootMerkle addresses start with 'c' after HRP)
+Testnet:  tonditest:c...
+Simnet:   tondisim:c...
+Devnet:   tondidev:c...
 
 CopperootVerkle - RESERVED (INACTIVE):
-Mainnet:  tondi1vr... (CopperootVerkle addresses will contain 'vr' hint in checksum)
-Testnet:  tonditest1vr...
-Simnet:   tondisim1vr...
-Devnet:   tondidev1vr...
+Mainnet:  tondi:v... (CopperootVerkle addresses start with 'v' after HRP)
+Testnet:  tonditest:v...
+Simnet:   tondisim:v...
+Devnet:   tondidev:v...
 NOTE: CopperootVerkle addresses are reserved but currently invalid for mainnet launch
 ```
 
@@ -1261,7 +1261,7 @@ pub fn detect_address_type(address: &str) -> Result<Version, AddressError> {
 }
 
 // Example usage
-match detect_address_type("tondi1cr...")? {
+match detect_address_type("tondi:c...")? {
     Version::CopperootMerkle => println!("CopperootMerkle address"),
     Version::CopperootVerkle => println!("CopperootVerkle address (disabled)"),
     Version::Taproot => println!("P2TR address"),
@@ -1275,7 +1275,7 @@ match detect_address_type("tondi1cr...")? {
 
 ```json
 {
-  "address": "tondi1cr...",
+  "address": "tondi:c...",
   "type": "p2cr",
   "script_type": "pay_to_copperoot_merkle",
   "witness_version": 2,
@@ -1284,7 +1284,7 @@ match detect_address_type("tondi1cr...")? {
 }
 
 {
-  "address": "tondi1crv...",
+  "address": "tondi:v...",
   "type": "p2crv",
   "script_type": "pay_to_copperoot_verkle",
   "witness_version": 3,
@@ -1303,10 +1303,10 @@ tondi-cli getnewaddress "" p2cr
 tondi-cli getnewaddress "" p2crv
 
 # Send to CopperootMerkle address
-tondi-cli sendtoaddress "tondi1cr..." 1.0
+tondi-cli sendtoaddress "tondi:c..." 1.0
 
 # Send to CopperootVerkle address
-tondi-cli sendtoaddress "tondi1crv..." 1.0
+tondi-cli sendtoaddress "tondi:v..." 1.0
 ```
 
 ## Mainnet Launch Status
@@ -1323,7 +1323,7 @@ tondi-cli sendtoaddress "tondi1crv..." 1.0
   - ScriptVariant trait implementation for execution semantics
 
 - 🔒 **CopperootVerkle (Verkle)**: Reserved but inactive
-  - Witness version v3 (decimal 3) - RESERVED
+  - Witness version v2 (decimal 2) - RESERVED 
   - Control block type=1 - RESERVED
   - Annex type=V - RESERVED
   - All CopperootVerkle transactions are rejected as invalid
@@ -1355,8 +1355,8 @@ The test suite includes comprehensive coverage for both key spend and script spe
 
 | Component | CopperootMerkle | CopperootVerkle | Bitcoin Taproot |
 |-----------|----------------|-----------------|-----------------|
-| Script Version | 2 | 3 | 1 |
-| Witness Version | v2 (2) | v3 (3) | v1 (1) |
+| Script Version | 192 | 96 | 88 |
+| Witness Version | v2 (2) | v2 (2) | v1 (1) |
 | Control Block | TLV Extensions | TLV Extensions | BIP341 Standard |
 | Hash Function | BLAKE3-256 | BLAKE3-256 | SHA256 |
 | Tree Structure | Merkle | Verkle (RESERVED) | Merkle |
