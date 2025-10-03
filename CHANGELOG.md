@@ -1,6 +1,122 @@
 # Changelog
 
-## [1.10.0] - 2025-01-06
+## [1.20.0] - 2025-01-13
+
+### 🚀 Major Features
+
+#### Copperoot: Advanced Taproot Variant Implementation
+- **BLAKE3-256 Hashing**: Complete implementation with domain separation for superior performance over SHA256
+- **Bech32m Address Support**: CopperootMerkle addresses (version 192) with 'c' prefix for human-readable identification
+- **Merkle Tree Support**: 8-layer depth limit with consensus validation and complete tweak verification
+- **Complete MuSig2 Integration**: Full two-round protocol implementation with wrapper API and session management
+- **Safe MuSig2 Interface**: Multiple witness creation methods with validation to prevent misuse patterns
+- **TLV Framework**: Forward-compatible Type-Length-Value extensions for RGB integration and future protocol enhancements
+- **ScriptVariant Trait**: Abstract execution semantics for reusable execution flow across Taproot-like variants
+
+### 🔧 Technical Improvements
+
+#### Advanced Cryptographic Features
+- **Domain-Separated Hash Functions**: CopperootSighash, CopperootLeaf, CopperootNode, CopperTweak with enhanced security
+- **Enhanced Control Block Structure**: TLV-based control blocks with Merkle proof support and strict validation
+- **Annex Support**: BIP341-compliant annex handling with strict 0x50 prefix validation
+- **Witness Structure**: Key-path and script-path spending with comprehensive validation
+- **Cross-Chain Protection**: Chain ID isolation preventing cross-chain transaction replay attacks
+
+#### Wallet and Transaction Enhancements
+- **Address Type Detection**: Automatic identification of CopperootMerkle vs Bitcoin Taproot addresses
+- **Script Classification**: Version-based dispatch with format validation for all script types
+- **Enhanced Security**: Comprehensive constraint checking, error handling, and misuse prevention
+- **Mempool Policy**: Strict script version validation with NonStandard classification for unknown formats
+
+#### Consensus and Validation
+- **Strict Version Validation**: MAX_SCRIPT_PUBLIC_KEY_VERSION constraint preventing future version confusion
+- **Script Format Validation**: Standardized OP_1 <32-byte x-only pubkey> format for all script versions
+- **Complete Merkle Commitment Verification**: Full tweak verification with parity bit validation
+- **Production-Ready Validation**: Mempool policy checks and standard transaction validation
+
+### 🎯 Reserved Features (Future Activation)
+
+#### Verkle Tree Infrastructure
+- **CopperootVerkle Support**: Reserved for future activation (version 193 currently disabled)
+- **Verkle Proof Framework**: TLV-based proof system for scalable state management
+- **Proof Aggregation**: Batch operation support for large-scale applications
+- **Advanced Verification**: Inner Product Argument (IPA) commitments for efficient proof generation
+- **Future ZK Integration**: Framework ready for zero-knowledge proof integration
+
+#### RGB Protocol Integration
+- **RGB Commitment Support**: TLV-based RGB root anchoring without consensus changes
+- **Cross-Layer Information**: Annex TLV extensions for RGB state epoch and namespace identification
+- **Light Client Optimization**: Stateless verification framework for mobile wallet synchronization
+- **Batch RGB Operations**: Support for multi-asset and multi-state operations
+
+### 📊 Performance Benefits
+
+#### Computational Improvements
+- **BLAKE3 vs SHA256**: 2-4x faster hashing on modern hardware with SIMD optimization
+- **Parallel Processing**: BLAKE3 tree structure enables parallel hashing of large inputs
+- **Memory Efficiency**: Reduced memory footprint for tree operations
+- **SIMD Acceleration**: Additional 2-3x speedup on supported CPU architectures
+
+#### Scalability Enhancements
+- **Merkle Tree Verification**: O(log n) verification with enhanced constants
+- **Proof Size Optimization**: Consistent proof sizes with comprehensive validation
+- **Batch Operations**: Efficient multi-signature and multi-contract support
+- **Future Verkle Trees**: 10-100x more efficient than Merkle proofs for large state
+
+### 🔒 Security Enhancements
+
+#### Cryptographic Security
+- **256-bit Security Level**: BLAKE3-256 maintains same security as SHA256 with better performance
+- **Domain Separation**: Comprehensive tagged hashing prevents cross-protocol attacks
+- **Constant-Time Operations**: All cryptographic operations implement constant-time algorithms
+- **Input Validation**: Comprehensive validation prevents malformed input attacks
+
+#### Implementation Security
+- **Memory Safety**: Rust's memory safety guarantees for all cryptographic operations
+- **Type Safety**: Automatic handling of secp256k1 version differences between libraries
+- **Error Handling**: Clear error messages for validation failures and misuse prevention
+- **Misuse Prevention**: Signature validation prevents common MuSig2 misuse patterns
+
+### 📋 Backward Compatibility
+
+#### Seamless Integration
+- **Full Taproot Compatibility**: Existing Bitcoin Taproot addresses continue to work without modification
+- **Gradual Migration Path**: New addresses can use Copperoot features while maintaining compatibility
+- **Hybrid Support**: Nodes support both Taproot and Copperoot simultaneously
+- **Version Isolation**: Clear separation between Bitcoin Taproot (v1) and Copperoot variants
+
+### 🧪 Testing and Validation
+
+#### Comprehensive Test Coverage
+- **Key Spend Tests**: Direct signature verification using Copperoot-specific sighash computation
+- **Script Spend Tests**: Full script path validation with Merkle proof verification
+- **MuSig2 Testing**: Complete wrapper functionality testing and session management
+- **Witness Parsing**: Annex detection and BIP341-compliant witness structure validation
+- **Edge Case Handling**: Proper error propagation for invalid signatures and malformed witnesses
+
+### 🌟 Future Roadmap
+
+#### Phase 1: Current Status (CopperootMerkle Active)
+- ✅ Production-ready CopperootMerkle implementation
+- ✅ Complete MuSig2 integration with safety features
+- ✅ BLAKE3-256 hashing with domain separation
+- ✅ TLV framework for future extensions
+
+#### Phase 2: Future Enhancements (CopperootVerkle Activation)
+- 🔄 Verkle tree activation for large-scale applications
+- 🔄 Advanced proof aggregation for batch operations
+- 🔄 ZK-proof integration for privacy-preserving transactions
+- 🔄 RGB protocol deep integration
+
+### 📚 Documentation and Resources
+
+- **Comprehensive Documentation**: Complete implementation guide in docs/copperoot.md
+- **API Reference**: Detailed API documentation for all Copperoot features
+- **Test Vectors**: Complete test vectors for validation and compatibility testing
+- **Migration Guide**: Step-by-step migration path from Taproot to Copperoot
+- **Security Audit**: Formal security consideration documentation
+
+## [1.10.0] - 2025-10-02
 
 ### 🚀 Major Features
 

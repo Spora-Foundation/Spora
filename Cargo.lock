@@ -4648,7 +4648,7 @@ checksum = "bbbb5d9659141646ae647b42fe094daf6c6192d1620870b449d9557f748b2daa"
 
 [[package]]
 name = "simpa"
-version = "1.10.0"
+version = "1.20.0"
 dependencies = [
  "async-channel 2.5.0",
  "cfg-if 1.0.3",
@@ -5204,7 +5204,7 @@ dependencies = [
 
 [[package]]
 name = "tondi-addresses"
-version = "1.10.0"
+version = "1.20.0"
 dependencies = [
  "bech32",
  "borsh",
@@ -5223,7 +5223,7 @@ dependencies = [
 
 [[package]]
 name = "tondi-addressmanager"
-version = "1.10.0"
+version = "1.20.0"
 dependencies = [
  "borsh",
  "igd-next",
@@ -5245,14 +5245,14 @@ dependencies = [
 
 [[package]]
 name = "tondi-alloc"
-version = "1.10.0"
+version = "1.20.0"
 dependencies = [
  "mimalloc",
 ]
 
 [[package]]
 name = "tondi-bip32"
-version = "1.10.0"
+version = "1.20.0"
 dependencies = [
  "borsh",
  "bs58",
@@ -5279,7 +5279,7 @@ dependencies = [
 
 [[package]]
 name = "tondi-cli"
-version = "1.10.0"
+version = "1.20.0"
 dependencies = [
  "async-trait",
  "borsh",
@@ -5326,7 +5326,7 @@ dependencies = [
 
 [[package]]
 name = "tondi-connectionmanager"
-version = "1.10.0"
+version = "1.20.0"
 dependencies = [
  "duration-string",
  "futures-util",
@@ -5343,7 +5343,7 @@ dependencies = [
 
 [[package]]
 name = "tondi-consensus"
-version = "1.10.0"
+version = "1.20.0"
 dependencies = [
  "arc-swap",
  "async-channel 2.5.0",
@@ -5390,7 +5390,7 @@ dependencies = [
 
 [[package]]
 name = "tondi-consensus-client"
-version = "1.10.0"
+version = "1.20.0"
 dependencies = [
  "ahash",
  "cfg-if 1.0.3",
@@ -5418,7 +5418,7 @@ dependencies = [
 
 [[package]]
 name = "tondi-consensus-core"
-version = "1.10.0"
+version = "1.20.0"
 dependencies = [
  "arc-swap",
  "async-trait",
@@ -5463,7 +5463,7 @@ dependencies = [
 
 [[package]]
 name = "tondi-consensus-notify"
-version = "1.10.0"
+version = "1.20.0"
 dependencies = [
  "async-channel 2.5.0",
  "cfg-if 1.0.3",
@@ -5482,7 +5482,7 @@ dependencies = [
 
 [[package]]
 name = "tondi-consensus-wasm"
-version = "1.10.0"
+version = "1.20.0"
 dependencies = [
  "cfg-if 1.0.3",
  "faster-hex",
@@ -5506,7 +5506,7 @@ dependencies = [
 
 [[package]]
 name = "tondi-consensusmanager"
-version = "1.10.0"
+version = "1.20.0"
 dependencies = [
  "duration-string",
  "futures",
@@ -5525,7 +5525,7 @@ dependencies = [
 
 [[package]]
 name = "tondi-core"
-version = "1.10.0"
+version = "1.20.0"
 dependencies = [
  "anyhow",
  "cfg-if 1.0.3",
@@ -5544,7 +5544,7 @@ dependencies = [
 
 [[package]]
 name = "tondi-daemon"
-version = "1.10.0"
+version = "1.20.0"
 dependencies = [
  "async-trait",
  "borsh",
@@ -5566,7 +5566,7 @@ dependencies = [
 
 [[package]]
 name = "tondi-database"
-version = "1.10.0"
+version = "1.20.0"
 dependencies = [
  "bincode",
  "enum-primitive-derive",
@@ -5588,7 +5588,7 @@ dependencies = [
 
 [[package]]
 name = "tondi-grpc-client"
-version = "1.10.0"
+version = "1.20.0"
 dependencies = [
  "async-channel 2.5.0",
  "async-stream",
@@ -5620,7 +5620,7 @@ dependencies = [
 
 [[package]]
 name = "tondi-grpc-core"
-version = "1.10.0"
+version = "1.20.0"
 dependencies = [
  "async-channel 2.5.0",
  "async-stream",
@@ -5650,7 +5650,7 @@ dependencies = [
 
 [[package]]
 name = "tondi-grpc-server"
-version = "1.10.0"
+version = "1.20.0"
 dependencies = [
  "async-channel 2.5.0",
  "async-stream",
@@ -5686,7 +5686,7 @@ dependencies = [
 
 [[package]]
 name = "tondi-hashes"
-version = "1.10.0"
+version = "1.20.0"
 dependencies = [
  "blake3",
  "borsh",
@@ -5706,7 +5706,7 @@ dependencies = [
 
 [[package]]
 name = "tondi-index-core"
-version = "1.10.0"
+version = "1.20.0"
 dependencies = [
  "async-channel 2.5.0",
  "async-trait",
@@ -5725,7 +5725,7 @@ dependencies = [
 
 [[package]]
 name = "tondi-index-processor"
-version = "1.10.0"
+version = "1.20.0"
 dependencies = [
  "async-channel 2.5.0",
  "async-trait",
@@ -5753,7 +5753,7 @@ dependencies = [
 
 [[package]]
 name = "tondi-math"
-version = "1.10.0"
+version = "1.20.0"
 dependencies = [
  "borsh",
  "criterion",
@@ -5774,14 +5774,14 @@ dependencies = [
 
 [[package]]
 name = "tondi-merkle"
-version = "1.10.0"
+version = "1.20.0"
 dependencies = [
  "tondi-hashes",
 ]
 
 [[package]]
 name = "tondi-metrics-core"
-version = "1.10.0"
+version = "1.20.0"
 dependencies = [
  "async-trait",
  "borsh",
@@ -5797,7 +5797,7 @@ dependencies = [
 
 [[package]]
 name = "tondi-mining"
-version = "1.10.0"
+version = "1.20.0"
 dependencies = [
  "criterion",
  "futures-util",
@@ -5824,7 +5824,7 @@ dependencies = [
 
 [[package]]
 name = "tondi-mining-errors"
-version = "1.10.0"
+version = "1.20.0"
 dependencies = [
  "thiserror 1.0.69",
  "tondi-consensus-core",
@@ -5832,7 +5832,7 @@ dependencies = [
 
 [[package]]
 name = "tondi-muhash"
-version = "1.10.0"
+version = "1.20.0"
 dependencies = [
  "criterion",
  "insta",
@@ -5846,7 +5846,7 @@ dependencies = [
 
 [[package]]
 name = "tondi-notify"
-version = "1.10.0"
+version = "1.20.0"
 dependencies = [
  "async-channel 2.5.0",
  "async-trait",
@@ -5882,7 +5882,7 @@ dependencies = [
 
 [[package]]
 name = "tondi-p2p-flows"
-version = "1.10.0"
+version = "1.20.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -5915,7 +5915,7 @@ dependencies = [
 
 [[package]]
 name = "tondi-p2p-lib"
-version = "1.10.0"
+version = "1.20.0"
 dependencies = [
  "borsh",
  "ctrlc",
@@ -5946,7 +5946,7 @@ dependencies = [
 
 [[package]]
 name = "tondi-p2p-mining"
-version = "1.10.0"
+version = "1.20.0"
 dependencies = [
  "log",
  "tokio",
@@ -5963,7 +5963,7 @@ dependencies = [
 
 [[package]]
 name = "tondi-perf-monitor"
-version = "1.10.0"
+version = "1.20.0"
 dependencies = [
  "log",
  "portable-atomic",
@@ -5975,7 +5975,7 @@ dependencies = [
 
 [[package]]
 name = "tondi-pow"
-version = "1.10.0"
+version = "1.20.0"
 dependencies = [
  "blake3",
  "criterion",
@@ -5993,7 +5993,7 @@ dependencies = [
 
 [[package]]
 name = "tondi-rpc-core"
-version = "1.10.0"
+version = "1.20.0"
 dependencies = [
  "async-channel 2.5.0",
  "async-trait",
@@ -6035,7 +6035,7 @@ dependencies = [
 
 [[package]]
 name = "tondi-rpc-macros"
-version = "1.10.0"
+version = "1.20.0"
 dependencies = [
  "convert_case 0.6.0",
  "proc-macro-error",
@@ -6047,7 +6047,7 @@ dependencies = [
 
 [[package]]
 name = "tondi-rpc-service"
-version = "1.10.0"
+version = "1.20.0"
 dependencies = [
  "async-trait",
  "log",
@@ -6077,7 +6077,7 @@ dependencies = [
 
 [[package]]
 name = "tondi-txscript"
-version = "1.10.0"
+version = "1.20.0"
 dependencies = [
  "bitcoin",
  "blake2b_simd",
@@ -6113,7 +6113,7 @@ dependencies = [
 
 [[package]]
 name = "tondi-txscript-errors"
-version = "1.10.0"
+version = "1.20.0"
 dependencies = [
  "secp256k1 0.29.1",
  "thiserror 1.0.69",
@@ -6121,7 +6121,7 @@ dependencies = [
 
 [[package]]
 name = "tondi-utils"
-version = "1.10.0"
+version = "1.20.0"
 dependencies = [
  "arc-swap",
  "async-channel 2.5.0",
@@ -6159,7 +6159,7 @@ dependencies = [
 
 [[package]]
 name = "tondi-utils-tower"
-version = "1.10.0"
+version = "1.20.0"
 dependencies = [
  "bytes",
  "cfg-if 1.0.3",
@@ -6175,7 +6175,7 @@ dependencies = [
 
 [[package]]
 name = "tondi-utxoindex"
-version = "1.10.0"
+version = "1.20.0"
 dependencies = [
  "futures",
  "log",
@@ -6196,7 +6196,7 @@ dependencies = [
 
 [[package]]
 name = "tondi-wallet"
-version = "1.10.0"
+version = "1.20.0"
 dependencies = [
  "async-std",
  "async-trait",
@@ -6208,7 +6208,7 @@ dependencies = [
 
 [[package]]
 name = "tondi-wallet-cli-wasm"
-version = "1.10.0"
+version = "1.20.0"
 dependencies = [
  "async-trait",
  "js-sys",
@@ -6222,7 +6222,7 @@ dependencies = [
 
 [[package]]
 name = "tondi-wallet-core"
-version = "1.10.0"
+version = "1.20.0"
 dependencies = [
  "aes",
  "ahash",
@@ -6304,7 +6304,7 @@ dependencies = [
 
 [[package]]
 name = "tondi-wallet-keys"
-version = "1.10.0"
+version = "1.20.0"
 dependencies = [
  "async-trait",
  "blake3",
@@ -6338,7 +6338,7 @@ dependencies = [
 
 [[package]]
 name = "tondi-wallet-macros"
-version = "1.10.0"
+version = "1.20.0"
 dependencies = [
  "convert_case 0.5.0",
  "proc-macro-error",
@@ -6351,7 +6351,7 @@ dependencies = [
 
 [[package]]
 name = "tondi-wallet-pstt"
-version = "1.10.0"
+version = "1.20.0"
 dependencies = [
  "bincode",
  "console_log",
@@ -6381,7 +6381,7 @@ dependencies = [
 
 [[package]]
 name = "tondi-wasm"
-version = "1.10.0"
+version = "1.20.0"
 dependencies = [
  "cfg-if 1.0.3",
  "js-sys",
@@ -6409,7 +6409,7 @@ dependencies = [
 
 [[package]]
 name = "tondi-wasm-core"
-version = "1.10.0"
+version = "1.20.0"
 dependencies = [
  "faster-hex",
  "hexplay",
@@ -6420,7 +6420,7 @@ dependencies = [
 
 [[package]]
 name = "tondi-wrpc-client"
-version = "1.10.0"
+version = "1.20.0"
 dependencies = [
  "async-std",
  "async-trait",
@@ -6456,7 +6456,7 @@ dependencies = [
 
 [[package]]
 name = "tondi-wrpc-example-subscriber"
-version = "1.10.0"
+version = "1.20.0"
 dependencies = [
  "ctrlc",
  "futures",
@@ -6471,7 +6471,7 @@ dependencies = [
 
 [[package]]
 name = "tondi-wrpc-proxy"
-version = "1.10.0"
+version = "1.20.0"
 dependencies = [
  "async-trait",
  "clap 4.5.48",
@@ -6490,7 +6490,7 @@ dependencies = [
 
 [[package]]
 name = "tondi-wrpc-server"
-version = "1.10.0"
+version = "1.20.0"
 dependencies = [
  "async-trait",
  "borsh",
@@ -6518,7 +6518,7 @@ dependencies = [
 
 [[package]]
 name = "tondi-wrpc-simple-client-example"
-version = "1.10.0"
+version = "1.20.0"
 dependencies = [
  "futures",
  "tokio",
@@ -6528,7 +6528,7 @@ dependencies = [
 
 [[package]]
 name = "tondi-wrpc-wasm"
-version = "1.10.0"
+version = "1.20.0"
 dependencies = [
  "ahash",
  "async-std",
@@ -6558,7 +6558,7 @@ dependencies = [
 
 [[package]]
 name = "tondid"
-version = "1.10.0"
+version = "1.20.0"
 dependencies = [
  "async-channel 2.5.0",
  "cfg-if 1.0.3",
@@ -6768,7 +6768,7 @@ dependencies = [
 
 [[package]]
 name = "treasure_boy"
-version = "1.10.0"
+version = "1.20.0"
 dependencies = [
  "async-channel 2.5.0",
  "blake3",
