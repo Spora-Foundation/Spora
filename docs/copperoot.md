@@ -9,9 +9,9 @@ Copperoot is an advanced Taproot variant that enhances Bitcoin's Taproot protoco
 Copperoot introduces a new script version system that uses distinct version bytes designed to create human-readable address prefixes:
 
 - **SCRIPT_VER_CLASSIC (0)**: Classic script types (PubKey, PubKeyECDSA, ScriptHash)
-- **SCRIPT_VER_TAPROOT (88)**: Taproot (BIP341/SHA256) - Addresses start with 't' (0b01011_000)
-- **SCRIPT_VER_COPPEROOT_MERKLE (192)**: Pay-to-Copperoot-Merkle (BLAKE3) - Addresses start with 'c' (0b11000_000)
-- **SCRIPT_VER_COPPEROOT_VERKLE (96)**: Pay-to-Copperoot-Verkle (BLAKE3) - Reserved, Addresses start with 'v' (0b01100_000)
+- **SCRIPT_VER_TAPROOT (1)**: Taproot (BIP341/SHA256) - Script version 1, Address version 88
+- **SCRIPT_VER_COPPEROOT_MERKLE (2)**: Pay-to-Copperoot-Merkle (BLAKE3) - Script version 2, Address version 192
+- **SCRIPT_VER_COPPEROOT_VERKLE (3)**: Pay-to-Copperoot-Verkle (BLAKE3) - Script version 3, Address version 96
 
 ### Address Prefix Design
 
@@ -19,35 +19,35 @@ The script version numbers are specifically chosen to create intuitive address p
 
 **Bech32m Character Mapping:**
 - Version byte's **first 5 bits** are encoded as the **first character** after HRP
-- Taproot: `88 = 0b01011_000` → `0b01011 = 11` → **'t'** in Bech32m charset
-- CopperootMerkle: `192 = 0b11000_000` → `0b11000 = 24` → **'c'** in Bech32m charset
-- CopperootVerkle: `96 = 0b01100_000` → `0b01100 = 12` → **'v'** in Bech32m charset
+- Taproot: Script version 1, Address version 88 = 0b01011_000 → `0b01011 = 11` → **'t'** in Bech32m charset
+- CopperootMerkle: Script version 2, Address version 192 = 0b11000_000 → `0b11000 = 24` → **'c'** in Bech32m charset
+- CopperootVerkle: Script version 3, Address version 96 = 0b01100_000 → `0b01100 = 12` → **'v'** in Bech32m charset
 
 **Important Note on Second Character:**
 The second character is **not controlled by the version byte alone**. It depends on:
-- Version byte's last 3 bits (000 for 88, 192, and 96)
+- Version byte's last 3 bits (000 for address versions 88, 192, and 96)
 - Public key's first 2 bits
 
 This means Taproot addresses start with 't' but the second character varies (e.g., 'tq', 'tr', 'tp', 'tz'), CopperootMerkle addresses start with 'c' and CopperootVerkle addresses start with 'v' with similar variation.
 
 **Example Addresses:**
 ```
-Taproot (version 88):
+Taproot (script version 1, address version 88):
   tondi:trazle76u3gwal94drp4qlvlh9vkjddh7mjpv2hhe422xzjsrs8tvca30pn
   └─────┘└┬┘
          │└─ 'razle...' = public key data (Bech32m encoded)
-         └── 't' = version 88 (first 5 bits: 0b01011)
+         └── 't' = address version 88 (first 5 bits: 0b01011)
 
-CopperootMerkle (version 192):
+CopperootMerkle (script version 2, address version 192):
   tondi:crazle76u3gwal94drp4qlvlh9vkjddh7mjpv2hhe422xzjsrs8tvv5jz65
   └─────┘└┬┘
          │└─ 'razle...' = same public key data (Bech32m encoded)
-         └── 'c' = version 192 (first 5 bits: 0b11000)
+         └── 'c' = address version 192 (first 5 bits: 0b11000)
 
 Note: The 'razle...' portion is identical because both examples use the same public key.
       Different public keys will produce different encodings.
 
-CopperootVerkle (version 96 - currently disabled):
+CopperootVerkle (script version 3, address version 96 - currently disabled):
   tondi:v... (starts with 'v', second character varies by public key)
 ```
 
@@ -120,7 +120,7 @@ Copperoot is currently implemented with the following features:
 - ✅ **Merkle Tree Support**: 8-layer depth limit with consensus validation and complete tweak verification
 - ✅ **MuSig2 Integration**: Complete two-round protocol implementation with wrapper API and session management
 - ✅ **Safe MuSig2 Interface**: Multiple witness creation methods with validation to prevent misuse
-- ✅ **Address System**: CopperootMerkle (version 192) and Taproot (version 88) with human-readable 'c' and 't' prefixes
+- ✅ **Address System**: CopperootMerkle (script version 2, address version 192) and Taproot (script version 1, address version 88) with human-readable 'c' and 't' prefixes
 - ✅ **Witness Structure**: Key-path and script-path spending with annex support
 - ✅ **Control Blocks**: Merkle proof support with strict validation and enhanced security
 - ✅ **Transaction Validation**: Mempool policy checks and standard transaction validation with strict script format checking
@@ -1355,7 +1355,7 @@ The test suite includes comprehensive coverage for both key spend and script spe
 
 | Component | CopperootMerkle | CopperootVerkle | Bitcoin Taproot |
 |-----------|----------------|-----------------|-----------------|
-| Script Version | 2 | 3 | 88 |
+| Script Version | 2 | 3 | 1 |
 | Address Version | 192 | 96 | 88 |
 | Witness Version | v2 (2) | v2 (2) | v1 (1) |
 | Control Block | TLV Extensions | TLV Extensions | BIP341 Standard |

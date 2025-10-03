@@ -196,7 +196,7 @@ fn generate_limited_time_script(owner: &Keypair, threshold: i64, output_spk: Vec
 // Helper function to create P2PK script as a vector
 fn p2pk_as_vec(owner: &Keypair) -> Vec<u8> {
     let p2pk =
-        pay_to_address_script(&Address::new(Prefix::Mainnet, Version::PubKey, owner.x_only_public_key().0.serialize().as_slice()));
+        pay_to_address_script(&Address::new(Prefix::Mainnet, Version::PubKey, owner.x_only_public_key().0.serialize().as_slice()).expect("Valid address"));
     let version = p2pk.version.to_be_bytes();
     let script = p2pk.script();
     let mut v = Vec::with_capacity(version.len() + script.len());
@@ -238,7 +238,7 @@ fn threshold_scenario_limited_one_time() -> ScriptBuilderResult<()> {
     let threshold: i64 = 100;
 
     let p2pk =
-        pay_to_address_script(&Address::new(Prefix::Mainnet, Version::PubKey, owner.x_only_public_key().0.serialize().as_slice()));
+        pay_to_address_script(&Address::new(Prefix::Mainnet, Version::PubKey, owner.x_only_public_key().0.serialize().as_slice()).expect("Valid address"));
     let p2pk_vec = p2pk_as_vec(&owner);
     let script = generate_limited_time_script(&owner, threshold, p2pk_vec.clone())?;
 
@@ -332,11 +332,11 @@ fn threshold_scenario_limited_one_time() -> ScriptBuilderResult<()> {
         println!("[ONE-TIME] Checking borrower branch with output going to wrong address");
         // Create a new key pair for a different address
         let wrong_recipient = Keypair::new(secp256k1::SECP256K1, &mut thread_rng());
-        let wrong_p2pk = pay_to_address_script(&Address::new(
+          let wrong_p2pk = pay_to_address_script(&Address::new(
             Prefix::Mainnet,
             Version::PubKey,
             wrong_recipient.x_only_public_key().0.serialize().as_slice(),
-        ));
+        ).expect("Valid address"));
 
         // Create a new transaction with the wrong output address
         let mut wrong_tx = tx.clone();
@@ -496,11 +496,11 @@ fn threshold_scenario_limited_2_times() -> ScriptBuilderResult<()> {
         println!("[TWO-TIMES] Checking borrower branch with output going to wrong address");
         // Create a new key pair for a different address
         let wrong_recipient = Keypair::new(secp256k1::SECP256K1, &mut thread_rng());
-        let wrong_p2pk = pay_to_address_script(&Address::new(
+          let wrong_p2pk = pay_to_address_script(&Address::new(
             Prefix::Mainnet,
             Version::PubKey,
             wrong_recipient.x_only_public_key().0.serialize().as_slice(),
-        ));
+        ).expect("Valid address"));
 
         // Create a new transaction with the wrong output address
         let mut wrong_tx = tx.clone();

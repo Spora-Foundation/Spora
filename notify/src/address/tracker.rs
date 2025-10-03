@@ -614,7 +614,7 @@ mod tests {
 
     fn create_addresses(start: usize, count: usize) -> Vec<Address> {
         (start..start + count)
-            .map(|i| Address::new(Prefix::Mainnet, tondi_addresses::Version::PubKey, &Uint256::from_u64(i as u64).to_le_bytes()))
+            .map(|i| Address::new(Prefix::Mainnet, tondi_addresses::Version::PubKey, &Uint256::from_u64(i as u64).to_le_bytes()).expect("Valid address"))
             .collect()
     }
 

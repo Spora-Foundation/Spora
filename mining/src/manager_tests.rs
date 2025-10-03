@@ -1482,7 +1482,7 @@ mod tests {
         let secp = secp256k1::Secp256k1::new();
         let mut rng = rand::thread_rng();
         let (_sk, pk) = secp.generate_keypair(&mut rng);
-        let address = Address::new(prefix, Version::PubKeyECDSA, &pk.serialize());
+        let address = Address::new(prefix, Version::PubKeyECDSA, &pk.serialize()).expect("Valid address");
         let script = pay_to_address_script(&address);
         MinerData::new(script, vec![])
     }

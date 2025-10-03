@@ -25,6 +25,9 @@ pub enum Error {
     #[error("Poison error -> {0}")]
     PoisonError(String),
 
+    #[error("Address -> {0}")]
+    AddressError(#[from] tondi_addresses::AddressError),
+
     #[error("Secp256k1 -> {0}")]
     Secp256k1Error(#[from] secp256k1::Error),
 

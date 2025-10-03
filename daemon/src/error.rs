@@ -23,8 +23,11 @@ pub enum Error {
     #[error(transparent)]
     NodeJs(#[from] workflow_node::error::Error),
 
+    #[error("Mining address is not specified")]
+    MiningAddressNotSpecified,
+
     #[error(transparent)]
-    Ipc(#[from] workflow_nw::ipc::error::Error),
+    AddressError(#[from] tondi_addresses::AddressError),
 }
 
 impl Error {

@@ -1692,7 +1692,7 @@ mod test {
         let xkey = xkey.derive_child(ChildNumber::new(0, false)?)?;
 
         // address test
-        let address_test = Address::new(Prefix::Testnet, Version::PubKey, &xkey.public_key().to_bytes()[1..]);
+        let address_test = Address::new(Prefix::Testnet, Version::PubKey, &xkey.public_key().to_bytes()[1..]).expect("Valid test address");
         let address_str: String = address_test.clone().into();
         assert_eq!(address, address_test, "Addresses don't match");
         println!("address: {address_str}");

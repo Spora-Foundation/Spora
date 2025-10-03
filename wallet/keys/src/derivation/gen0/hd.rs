@@ -183,7 +183,7 @@ impl PubkeyDerivationManagerV0 {
         let payload = &key.to_bytes()[1..];
         let address = Address::new(prefix, AddressVersion::PubKey, payload);
 
-        Ok(address)
+        Ok(address?)
     }
 
     pub fn public_key(&self) -> ExtendedPublicKey<secp256k1::PublicKey> {

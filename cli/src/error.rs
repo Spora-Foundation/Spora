@@ -60,8 +60,8 @@ pub enum Error {
     #[error("please open a wallet")]
     WalletIsNotOpen,
 
-    #[error("unrecognized argument '{0}', accepted arguments are: {1}")]
-    UnrecognizedArgument(String, String),
+    #[error("missing required parameter: {0}")]
+    MissingParameter(String),
 
     #[error("multiple matches for argument '{0}'; please be more specific.")]
     MultipleMatches(String),

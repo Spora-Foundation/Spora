@@ -329,7 +329,7 @@ async fn main() {
                 }
             }
             "2" => {
-                vec![tondi_addr.clone()]
+                vec![tondi_addr.clone().expect("Valid address")]
             }
             "3" => {
                 println!("Exiting...");
@@ -337,7 +337,7 @@ async fn main() {
             }
             _ => {
                 println!("Invalid choice. Using current address for single transaction.");
-                vec![tondi_addr.clone()]
+                vec![tondi_addr.clone().expect("Valid address")]
             }
         }
     };
@@ -356,7 +356,7 @@ async fn main() {
         \tfrom address: {}\n\
         \trpc server: {}",
         schnorr_key.display_secret(),
-        String::from(&tondi_addr),
+        String::from(&tondi_addr.expect("Valid address")),
         args.rpc_server
     );
     if args.address_file.is_some() {

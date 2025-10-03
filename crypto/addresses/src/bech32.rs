@@ -143,9 +143,13 @@ impl Address {
         
         // Validate payload length for non-test prefixes
         if !prefix.is_test() && payload.len() != version.public_key_len() {
-            return Err(AddressError::BadPayload);
+            return Err(AddressError::BadPayload { 
+                expected: version.public_key_len(), 
+                actual: payload.len(), 
+                version: version as u8 
+            });
         }
         
-        Ok(Self::new(prefix, version, payload.into()))
+        Ok(Self::new(prefix, version, payload.into())?)
     }
 }

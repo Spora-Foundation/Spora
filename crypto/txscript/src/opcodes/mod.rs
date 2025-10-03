@@ -2845,7 +2845,7 @@ mod test {
         let dummy_tx_input = TransactionInput::new(dummy_prev_out, dummy_sig_script, 10, 1);
         let addr_hash = vec![1u8; 32];
 
-        let addr = Address::new(Prefix::Testnet, Version::PubKey, &addr_hash);
+        let addr = Address::new(Prefix::Testnet, Version::PubKey, &addr_hash).expect("Valid test address");
         let dummy_script_public_key = pay_to_address_script(&addr);
         let dummy_tx_out = TransactionOutput::new(SAU_PER_TONDI, dummy_script_public_key);
 
@@ -3044,7 +3044,7 @@ mod test {
 
         fn create_mock_spk(value: u8) -> ScriptPublicKey {
             let pub_key = vec![value; 32];
-            let addr = Address::new(Prefix::Testnet, Version::PubKey, &pub_key);
+            let addr = Address::new(Prefix::Testnet, Version::PubKey, &pub_key).expect("Valid test address");
             pay_to_address_script(&addr)
         }
 

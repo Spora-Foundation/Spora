@@ -81,7 +81,9 @@ impl AddressManager {
     }
 
     pub fn inner(&self) -> MutexGuard<'_, Inner> {
-        self.inner.lock().unwrap()
+        self.inner.lock().unwrap_or_else(|e| {
+            panic!("Failed to acquire address manager lock: {}", e)
+        })
     }
 
     pub fn new_address(&self) -> Result<Address> {
@@ -353,7 +355,7 @@ impl AddressDerivationManager {
             } else if let Some(index) = change_map.get(*address) {
                 change_indexes.push((*address, *index));
             } else {
-                return Err(Error::Custom(format!("Address ({address}) index not found.")));
+                return Err(Error::AddressNotFound);
             }
         }
 
@@ -371,7 +373,7 @@ impl AddressDerivationManager {
         let map = &manager.inner().address_to_index_map;
         let mut indexes = vec![];
         for address in addresses {
-            let index = map.get(address).ok_or(Error::Custom(format!("Address ({address}) index not found.")))?;
+            let index = map.get(address).ok_or(Error::AddressNotFound)?;
             indexes.push(*index);
         }
 
@@ -394,7 +396,10 @@ impl AddressDerivationManager {
     }
 
     pub fn address_derivation_meta(&self) -> AddressDerivationMeta {
-        AddressDerivationMeta::new(self.receive_address_manager.index(), self.change_address_manager.index())
+        AddressDerivationMeta::new(
+            self.receive_address_manager.index(), 
+            self.change_address_manager.index()
+        )
     }
 }
 

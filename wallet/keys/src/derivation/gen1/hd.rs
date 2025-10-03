@@ -70,7 +70,7 @@ impl PubkeyDerivationManager {
             Address::new(prefix, AddressVersion::PubKey, payload)
         };
 
-        Ok(address)
+        Ok(address?)
     }
 
     pub fn public_key(&self) -> ExtendedPublicKey<secp256k1::PublicKey> {

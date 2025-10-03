@@ -71,9 +71,9 @@ fn test_address_distribution_tracker_integration() {
     use tondi_addresses::{Address, Prefix, Version};
 
     let addresses = vec![
-        Address::new(Prefix::Testnet, Version::PubKey, &[1; 32]),
-        Address::new(Prefix::Testnet, Version::PubKey, &[2; 32]),
-        Address::new(Prefix::Testnet, Version::PubKey, &[3; 32]),
+        Address::new(Prefix::Testnet, Version::PubKey, &[1; 32]).expect("Valid address"),
+        Address::new(Prefix::Testnet, Version::PubKey, &[2; 32]).expect("Valid address"),
+        Address::new(Prefix::Testnet, Version::PubKey, &[3; 32]).expect("Valid address"),
     ];
 
     let mut tracker = AddressDistributionTracker::new(addresses.clone());
@@ -142,7 +142,7 @@ fn test_address_distribution_fairness() {
     use tondi_addresses::{Address, Prefix, Version};
 
     let addresses =
-        vec![Address::new(Prefix::Testnet, Version::PubKey, &[1; 32]), Address::new(Prefix::Testnet, Version::PubKey, &[2; 32])];
+        vec![Address::new(Prefix::Testnet, Version::PubKey, &[1; 32]).expect("Valid address"), Address::new(Prefix::Testnet, Version::PubKey, &[2; 32]).expect("Valid address")];
 
     let mut tracker = AddressDistributionTracker::new(addresses);
 
@@ -165,9 +165,9 @@ fn test_address_distribution_with_large_outputs() {
     use tondi_addresses::{Address, Prefix, Version};
 
     let addresses = vec![
-        Address::new(Prefix::Testnet, Version::PubKey, &[1; 32]),
-        Address::new(Prefix::Testnet, Version::PubKey, &[2; 32]),
-        Address::new(Prefix::Testnet, Version::PubKey, &[3; 32]),
+        Address::new(Prefix::Testnet, Version::PubKey, &[1; 32]).expect("Valid address"),
+        Address::new(Prefix::Testnet, Version::PubKey, &[2; 32]).expect("Valid address"),
+        Address::new(Prefix::Testnet, Version::PubKey, &[3; 32]).expect("Valid address"),
     ];
 
     let mut tracker = AddressDistributionTracker::new(addresses);

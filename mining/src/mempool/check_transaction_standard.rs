@@ -498,7 +498,7 @@ mod tests {
         let dummy_tx_input = TransactionInput::new(dummy_prev_out, dummy_sig_script, MAX_TX_IN_SEQUENCE_NUM, 1);
         let addr_hash = vec![1u8; 32];
 
-        let addr = Address::new(Prefix::Testnet, Version::PubKey, &addr_hash);
+        let addr = Address::new(Prefix::Testnet, Version::PubKey, &addr_hash).expect("Valid test address");
         let dummy_script_public_key = tondi_txscript::pay_to_address_script(&addr);
         let dummy_tx_out = TransactionOutput::new(SAU_PER_TONDI, dummy_script_public_key);
 

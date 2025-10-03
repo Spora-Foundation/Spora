@@ -369,7 +369,8 @@ impl WalletApi for super::Wallet {
         let guard = guard.lock().await;
 
         let account = self.get_account_by_id(&account_id, &guard).await?.ok_or(Error::AccountNotFound(account_id))?;
-        let account_descriptor = account.descriptor().unwrap();
+        let account_descriptor = account.descriptor()
+            .map_err(|e| Error::Custom(format!("Account descriptor not available: {}", e)))?;
         Ok(AccountsGetResponse { account_descriptor })
     }
 

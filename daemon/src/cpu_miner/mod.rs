@@ -72,7 +72,7 @@ impl TryFrom<CpuMinerConfig> for Vec<String> {
         argv.push(server.as_str());
 
         if args.address.is_none() {
-            return Err(Error::Custom("no address is specified".to_string()));
+            return Err(Error::MiningAddressNotSpecified);
         }
         let address = args.address.unwrap();
         let address = format!("--mining-address={address}");

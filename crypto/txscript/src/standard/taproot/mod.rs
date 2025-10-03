@@ -90,7 +90,10 @@ mod tests {
             false,
             false,
         );
-        assert!(engine.execute().is_ok());
+        let result = engine.execute();
+        if let Err(e) = result {
+            panic!("Engine execution failed: {:?}", e);
+        }
     }
 
     #[test]
@@ -166,6 +169,9 @@ mod tests {
             false,
             false,
         );
-        assert!(engine.execute().is_ok());
+        let result = engine.execute();
+        if let Err(e) = result {
+            panic!("Engine execution failed: {:?}", e);
+        }
     }
 }

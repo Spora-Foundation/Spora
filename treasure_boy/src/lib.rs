@@ -62,7 +62,7 @@ impl RandGenWallet {
         let address = Address::new(prefix, ADDRESS_VERSION, &xpub.serialize());
 
         Ok(Self {
-            address: address.address_to_string(),
+            address: address?.address_to_string(),
             mnemonic: mnemonic.phrase_string(),
             secret_key: format!("{}", secret_key.display_secret()),
         })
@@ -331,7 +331,7 @@ pub async fn single_airdrop(
     info!("Starting single airdrop to: {}", String::from(&target_address));
 
     // Get UTXOs
-    let from_address = Address::new(network.address_prefix(), ADDRESS_VERSION, &schnorr_key.x_only_public_key().0.serialize());
+    let from_address = Address::new(network.address_prefix(), ADDRESS_VERSION, &schnorr_key.x_only_public_key().0.serialize())?;
     let rpc_utxos = rpc_client.get_utxos_by_addresses(vec![from_address.clone()]).await?;
 
     if rpc_utxos.is_empty() {
@@ -397,7 +397,7 @@ pub async fn batch_airdrop(
     let mut address_tracker = AddressDistributionTracker::new(target_addresses);
 
     // Get UTXOs
-    let from_address = Address::new(network.address_prefix(), ADDRESS_VERSION, &schnorr_key.x_only_public_key().0.serialize());
+    let from_address = Address::new(network.address_prefix(), ADDRESS_VERSION, &schnorr_key.x_only_public_key().0.serialize())?;
     let rpc_utxos = rpc_client.get_utxos_by_addresses(vec![from_address.clone()]).await?;
 
     // Convert UTXOs format
@@ -766,7 +766,7 @@ pub async fn tlc_airdrop(
     let mut address_tracker = AddressDistributionTracker::new(target_addresses);
 
     // Get UTXOs
-    let from_address = Address::new(network.address_prefix(), ADDRESS_VERSION, &schnorr_key.x_only_public_key().0.serialize());
+    let from_address = Address::new(network.address_prefix(), ADDRESS_VERSION, &schnorr_key.x_only_public_key().0.serialize())?;
     let rpc_utxos = rpc_client.get_utxos_by_addresses(vec![from_address.clone()]).await?;
 
     // Convert UTXOs format
@@ -853,9 +853,9 @@ mod tests {
     #[test]
     fn test_address_distribution_tracker_new() {
         let addresses = vec![
-            Address::new(Prefix::Devnet, Version::PubKey, &[1; 32]),
-            Address::new(Prefix::Devnet, Version::PubKey, &[2; 32]),
-            Address::new(Prefix::Devnet, Version::PubKey, &[3; 32]),
+            Address::new(Prefix::Devnet, Version::PubKey, &[1; 32]).expect("Valid address"),
+            Address::new(Prefix::Devnet, Version::PubKey, &[2; 32]).expect("Valid address"),
+            Address::new(Prefix::Devnet, Version::PubKey, &[3; 32]).expect("Valid address"),
         ];
 
         let tracker = AddressDistributionTracker::new(addresses.clone());
@@ -869,9 +869,9 @@ mod tests {
     #[test]
     fn test_address_distribution_tracker_get_next_addresses() {
         let addresses = vec![
-            Address::new(Prefix::Devnet, Version::PubKey, &[1; 32]),
-            Address::new(Prefix::Devnet, Version::PubKey, &[2; 32]),
-            Address::new(Prefix::Devnet, Version::PubKey, &[3; 32]),
+            Address::new(Prefix::Devnet, Version::PubKey, &[1; 32]).expect("Valid address"),
+            Address::new(Prefix::Devnet, Version::PubKey, &[2; 32]).expect("Valid address"),
+            Address::new(Prefix::Devnet, Version::PubKey, &[3; 32]).expect("Valid address"),
         ];
 
         let mut tracker = AddressDistributionTracker::new(addresses.clone());
@@ -906,7 +906,7 @@ mod tests {
     #[test]
     fn test_address_distribution_tracker_stats() {
         let addresses =
-            vec![Address::new(Prefix::Devnet, Version::PubKey, &[1; 32]), Address::new(Prefix::Devnet, Version::PubKey, &[2; 32])];
+            vec![Address::new(Prefix::Devnet, Version::PubKey, &[1; 32]).expect("Valid address"), Address::new(Prefix::Devnet, Version::PubKey, &[2; 32]).expect("Valid address")];
 
         let mut tracker = AddressDistributionTracker::new(addresses);
 
@@ -922,9 +922,9 @@ mod tests {
     #[test]
     fn test_address_distribution_tracker_batch() {
         let addresses = vec![
-            Address::new(Prefix::Devnet, Version::PubKey, &[1; 32]),
-            Address::new(Prefix::Devnet, Version::PubKey, &[2; 32]),
-            Address::new(Prefix::Devnet, Version::PubKey, &[3; 32]),
+            Address::new(Prefix::Devnet, Version::PubKey, &[1; 32]).expect("Valid address"),
+            Address::new(Prefix::Devnet, Version::PubKey, &[2; 32]).expect("Valid address"),
+            Address::new(Prefix::Devnet, Version::PubKey, &[3; 32]).expect("Valid address"),
         ];
 
         let mut tracker = AddressDistributionTracker::new(addresses.clone());
@@ -957,7 +957,7 @@ mod tests {
         let addresses: Vec<Address> = (0..1000)
             .map(|i| {
                 let i = (i % u8::MAX as usize) as u8;
-                Address::new(Prefix::Devnet, Version::PubKey, &[i; 32])
+                Address::new(Prefix::Devnet, Version::PubKey, &[i; 32]).expect("Valid address")
             })
             .collect();
 
@@ -1004,7 +1004,7 @@ mod tests {
     fn test_generate_tx() {
         let (secret_key, public_key) = secp256k1::generate_keypair(&mut thread_rng());
         let keypair = Keypair::from_seckey_slice(secp256k1::SECP256K1, &secret_key.secret_bytes()).unwrap();
-        let addr = Address::new(Prefix::Devnet, Version::PubKey, &public_key.x_only_public_key().0.serialize());
+        let addr = Address::new(Prefix::Devnet, Version::PubKey, &public_key.x_only_public_key().0.serialize()).expect("Valid address");
 
         let utxos = vec![(
             TransactionOutpoint { transaction_id: tondi_consensus_core::Hash::from_bytes([0xFF; 32]), index: 0 },
@@ -1028,8 +1028,8 @@ mod tests {
     fn test_generate_multi_output_tx() {
         let (secret_key, public_key) = secp256k1::generate_keypair(&mut thread_rng());
         let keypair = Keypair::from_seckey_slice(secp256k1::SECP256K1, &secret_key.secret_bytes()).unwrap();
-        let addr1 = Address::new(Prefix::Devnet, Version::PubKey, &public_key.x_only_public_key().0.serialize());
-        let addr2 = Address::new(Prefix::Devnet, Version::PubKey, &[0x42; 32]);
+        let addr1 = Address::new(Prefix::Devnet, Version::PubKey, &public_key.x_only_public_key().0.serialize()).expect("Valid address");
+        let addr2 = Address::new(Prefix::Devnet, Version::PubKey, &[0x42; 32]).expect("Valid address");
 
         let utxos = vec![(
             TransactionOutpoint { transaction_id: tondi_consensus_core::Hash::from_bytes([0xFF; 32]), index: 0 },
@@ -1179,7 +1179,7 @@ mod tests {
 
         let xpub = secret_key.x_only_public_key(&SECP256K1).0;
         assert_eq!(format!("{xpub}"), "757815720a73acd5a162c32a398b8ffdec534a4ced4445dc33032150d04ff976");
-        let addr = Address::new(Prefix::Devnet, ADDRESS_VERSION, &xpub.serialize());
+        let addr = Address::new(Prefix::Devnet, ADDRESS_VERSION, &xpub.serialize()).expect("Valid address");
         assert_eq!(format!("{addr}"), "tondidev:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvw88ne6");
     }
 
@@ -1199,7 +1199,7 @@ mod tests {
 
         let xpub = secret_key.x_only_public_key(&SECP256K1).0;
         println!("XOnlyPublicKey: {xpub}");
-        let addr = Address::new(Prefix::Devnet, ADDRESS_VERSION, &xpub.serialize());
+        let addr = Address::new(Prefix::Devnet, ADDRESS_VERSION, &xpub.serialize()).expect("Valid address");
         println!("Address: {addr}");
 
         // Validate address format
@@ -1225,7 +1225,7 @@ mod tests {
 
     #[test]
     fn test_generate_tlc_script_simple() {
-        let addr = Address::new(Prefix::Devnet, Version::PubKey, &[0x42; 32]);
+        let addr = Address::new(Prefix::Devnet, Version::PubKey, &[0x42; 32]).expect("Valid address");
         let config = TlcAirdropConfig {
             lock_time: 1756684800, // Unix timestamp
             is_timestamp: true,
@@ -1243,7 +1243,7 @@ mod tests {
 
     #[test]
     fn test_generate_tlc_script_htlc() {
-        let addr = Address::new(Prefix::Devnet, Version::PubKey, &[0x42; 32]);
+        let addr = Address::new(Prefix::Devnet, Version::PubKey, &[0x42; 32]).expect("Valid address");
         let config = TlcAirdropConfig {
             lock_time: 1756684800, // Unix timestamp
             is_timestamp: true,
@@ -1261,7 +1261,7 @@ mod tests {
 
     #[test]
     fn test_generate_tlc_script_block_height() {
-        let addr = Address::new(Prefix::Devnet, Version::PubKey, &[0x42; 32]);
+        let addr = Address::new(Prefix::Devnet, Version::PubKey, &[0x42; 32]).expect("Valid address");
         let config = TlcAirdropConfig {
             lock_time: 1000, // Block height
             is_timestamp: false,
@@ -1282,8 +1282,8 @@ mod tests {
         let (secret_key, public_key) = secp256k1::generate_keypair(&mut thread_rng());
         let keypair = Keypair::from_seckey_slice(secp256k1::SECP256K1, &secret_key.secret_bytes()).unwrap();
 
-        let addr1 = Address::new(Prefix::Devnet, Version::PubKey, &public_key.x_only_public_key().0.serialize());
-        let addr2 = Address::new(Prefix::Devnet, Version::PubKey, &[0x42; 32]);
+        let addr1 = Address::new(Prefix::Devnet, Version::PubKey, &public_key.x_only_public_key().0.serialize()).expect("Valid address");
+        let addr2 = Address::new(Prefix::Devnet, Version::PubKey, &[0x42; 32]).expect("Valid address");
 
         let utxos = vec![(
             TransactionOutpoint { transaction_id: tondi_consensus_core::Hash::from_bytes([0xFF; 32]), index: 0 },
@@ -1313,7 +1313,7 @@ mod tests {
     #[test]
     fn test_tlc_config_validation() {
         // Test invalid block height (too high)
-        let addr = Address::new(Prefix::Devnet, Version::PubKey, &[0x42; 32]);
+        let addr = Address::new(Prefix::Devnet, Version::PubKey, &[0x42; 32]).expect("Valid address");
         let config = TlcAirdropConfig {
             lock_time: 500_000_000_001, // Above LOCK_TIME_THRESHOLD
             is_timestamp: false,

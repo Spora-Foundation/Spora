@@ -131,7 +131,7 @@ mod mockery {
 
     impl Mock for RpcAddress {
         fn mock() -> Self {
-            RpcAddress::new(Prefix::Mainnet, Version::PubKey, Hash::mock().as_bytes().as_slice())
+            RpcAddress::new(Prefix::Mainnet, Version::PubKey, Hash::mock().as_bytes().as_slice()).expect("Valid mock address")
         }
     }
 

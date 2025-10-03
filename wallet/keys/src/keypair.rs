@@ -66,7 +66,7 @@ impl Keypair {
     pub fn to_address(&self, network: &NetworkTypeT) -> Result<Address> {
         let payload = &self.xonly_public_key.serialize();
         let address = Address::new(network.try_into()?, AddressVersion::PubKey, payload);
-        Ok(address)
+        Ok(address?)
     }
 
     /// Get `ECDSA` [`Address`] of this Keypair's [`PublicKey`].
@@ -77,7 +77,7 @@ impl Keypair {
     pub fn to_address_ecdsa(&self, network: &NetworkTypeT) -> Result<Address> {
         let payload = &self.public_key.serialize();
         let address = Address::new(network.try_into()?, AddressVersion::PubKeyECDSA, payload);
-        Ok(address)
+        Ok(address?)
     }
 
     /// Create a new random [`Keypair`].

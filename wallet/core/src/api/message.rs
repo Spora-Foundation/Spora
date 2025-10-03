@@ -472,7 +472,7 @@ impl FromStr for NewAddressKind {
         match s {
             "receive" => Ok(Self::Receive),
             "change" => Ok(Self::Change),
-            _ => Err(Error::custom(format!("Invalid address kind: {s}"))),
+            _ => Err(tondi_addresses::AddressError::InvalidVersionString(s.to_string()).into()),
         }
     }
 }
@@ -841,7 +841,7 @@ impl FromStr for CommitRevealAddressKind {
         match s {
             "receive" => Ok(CommitRevealAddressKind::Receive),
             "change" => Ok(CommitRevealAddressKind::Change),
-            _ => Err(Error::custom(format!("Invalid address kind: {s}"))),
+            _ => Err(tondi_addresses::AddressError::InvalidVersionString(s.to_string()).into()),
         }
     }
 }

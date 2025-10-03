@@ -246,7 +246,7 @@ impl MiningManager {
                 prefix,
                 tondi_addresses::Version::PubKey,
                 &[0u8; 32],
-            ));
+            ).expect("Valid test address"));
             let miner_data: MinerData = MinerData::new(script_public_key, vec![]);
 
             let BlockTemplate { block: tondi_consensus_core::block::MutableBlock { transactions, .. }, calculated_fees, .. } =

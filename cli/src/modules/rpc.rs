@@ -168,7 +168,7 @@ impl Rpc {
             // }
             RpcApiOps::GetUtxosByAddresses => {
                 if argv.is_empty() {
-                    return Err(Error::custom("Please specify at least one address"));
+                    return Err(Error::MissingParameter("address".to_string()));
                 }
                 let addresses = argv.iter().map(|s| Address::try_from(s.as_str())).collect::<std::result::Result<Vec<_>, _>>()?;
                 let result = rpc.get_utxos_by_addresses_call(None, GetUtxosByAddressesRequest { addresses }).await?;
@@ -176,7 +176,7 @@ impl Rpc {
             }
             RpcApiOps::GetBalanceByAddress => {
                 if argv.is_empty() {
-                    return Err(Error::custom("Please specify at least one address"));
+                    return Err(Error::MissingParameter("address".to_string()));
                 }
                 let addresses = argv.iter().map(|s| Address::try_from(s.as_str())).collect::<std::result::Result<Vec<_>, _>>()?;
                 for address in addresses {
@@ -186,7 +186,7 @@ impl Rpc {
             }
             RpcApiOps::GetBalancesByAddresses => {
                 if argv.is_empty() {
-                    return Err(Error::custom("Please specify at least one address"));
+                    return Err(Error::MissingParameter("address".to_string()));
                 }
                 let addresses = argv.iter().map(|s| Address::try_from(s.as_str())).collect::<std::result::Result<Vec<_>, _>>()?;
                 let result = rpc.get_balances_by_addresses_call(None, GetBalancesByAddressesRequest { addresses }).await?;
@@ -198,7 +198,7 @@ impl Rpc {
             }
             RpcApiOps::Ban => {
                 if argv.is_empty() {
-                    return Err(Error::custom("Please specify peer IP address"));
+                    return Err(Error::MissingParameter("peer IP address".to_string()));
                 }
                 let ip: RpcIpAddress = argv.remove(0).parse()?;
                 let result = rpc.ban_call(None, BanRequest { ip }).await?;
@@ -206,7 +206,7 @@ impl Rpc {
             }
             RpcApiOps::Unban => {
                 if argv.is_empty() {
-                    return Err(Error::custom("Please specify peer IP address"));
+                    return Err(Error::MissingParameter("peer IP address".to_string()));
                 }
                 let ip: RpcIpAddress = argv.remove(0).parse()?;
                 let result = rpc.unban_call(None, UnbanRequest { ip }).await?;
@@ -222,7 +222,7 @@ impl Rpc {
             // }
             RpcApiOps::GetMempoolEntriesByAddresses => {
                 if argv.is_empty() {
-                    return Err(Error::custom("Please specify at least one address"));
+                    return Err(Error::MissingParameter("address".to_string()));
                 }
                 let addresses = argv.iter().map(|s| Address::try_from(s.as_str())).collect::<std::result::Result<Vec<_>, _>>()?;
                 let include_orphan_pool = true;

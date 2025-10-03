@@ -83,7 +83,7 @@ impl Message {
     async fn sign(self: Arc<Self>, ctx: Arc<TondiCli>, tondi_address: &str, message: &str) -> Result<()> {
         let tondi_address = Address::try_from(tondi_address)?;
         if tondi_address.version != Version::PubKey {
-            return Err(Error::custom("Address not supported for message signing. Only supports PubKey addresses"));
+            return Err(tondi_addresses::AddressError::InvalidVersion(tondi_address.version as u8).into());
         }
 
         let pm = PersonalMessage(message);
@@ -105,7 +105,7 @@ impl Message {
     async fn verify(self: Arc<Self>, ctx: Arc<TondiCli>, tondi_address: &str, signature: &str, message: &str) -> Result<()> {
         let tondi_address = Address::try_from(tondi_address)?;
         if tondi_address.version != Version::PubKey {
-            return Err(Error::custom("Address not supported for message signing. Only supports PubKey addresses"));
+            return Err(tondi_addresses::AddressError::InvalidVersion(tondi_address.version as u8).into());
         }
 
         let pubkey = XOnlyPublicKey::from_slice(&tondi_address.payload[0..32]).unwrap();
@@ -145,7 +145,7 @@ impl Message {
                     }
                 }
 
-                Err(Error::custom("Could not find address in any derivation path in account"))
+                Err(tondi_wallet_core::error::Error::AddressNotFound.into())
             }
             KEYPAIR_ACCOUNT_KIND => {
                 let (wallet_secret, payment_secret) = ctx.ask_wallet_secret(Some(&account)).await?;

@@ -56,12 +56,12 @@ impl Account for Resident {
 
     fn receive_address(&self) -> Result<Address> {
         let (xonly_public_key, _) = self.public_key.x_only_public_key();
-        Ok(Address::new(self.inner().wallet.network_id()?.into(), Version::PubKey, &xonly_public_key.serialize()))
+        Ok(Address::new(self.inner().wallet.network_id()?.into(), Version::PubKey, &xonly_public_key.serialize())?)
     }
 
     fn change_address(&self) -> Result<Address> {
         let (xonly_public_key, _) = self.public_key.x_only_public_key();
-        Ok(Address::new(self.inner().wallet.network_id()?.into(), Version::PubKey, &xonly_public_key.serialize()))
+        Ok(Address::new(self.inner().wallet.network_id()?.into(), Version::PubKey, &xonly_public_key.serialize())?)
     }
 
     fn to_storage(&self) -> Result<AccountStorage> {

@@ -347,11 +347,11 @@ pub fn extract_script_pub_key_address(script_public_key: &ScriptPublicKey, prefi
     
     match class {
         ScriptClass::NonStandard => Err(TxScriptError::PubKeyFormat),
-        ScriptClass::PubKey => Ok(Address::new(prefix, Version::PubKey, &script[1..33])),
-        ScriptClass::PubKeyECDSA => Ok(Address::new(prefix, Version::PubKeyECDSA, &script[1..34])),
-        ScriptClass::ScriptHash => Ok(Address::new(prefix, Version::ScriptHash, &script[2..34])),
-        ScriptClass::Taproot => Ok(Address::new(prefix, Version::Taproot, &script[2..34])),
-        ScriptClass::CopperootMerkle => Ok(Address::new(prefix, Version::CopperootMerkle, &script[2..34])),
+        ScriptClass::PubKey => Address::new(prefix, Version::PubKey, &script[1..33]).map_err(|_| TxScriptError::PubKeyFormat),
+        ScriptClass::PubKeyECDSA => Address::new(prefix, Version::PubKeyECDSA, &script[1..34]).map_err(|_| TxScriptError::PubKeyFormat),
+        ScriptClass::ScriptHash => Address::new(prefix, Version::ScriptHash, &script[2..34]).map_err(|_| TxScriptError::PubKeyFormat),
+        ScriptClass::Taproot => Address::new(prefix, Version::Taproot, &script[2..34]).map_err(|_| TxScriptError::PubKeyFormat),
+        ScriptClass::CopperootMerkle => Address::new(prefix, Version::CopperootMerkle, &script[2..34]).map_err(|_| TxScriptError::PubKeyFormat),
         ScriptClass::CopperootVerkle => Err(TxScriptError::PubKeyFormat), // P2CRV disabled for mainnet launch
     }
 }

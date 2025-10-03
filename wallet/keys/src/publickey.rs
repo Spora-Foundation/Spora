@@ -88,7 +88,7 @@ impl PublicKey {
     #[inline]
     pub fn to_address(&self, network_type: NetworkType) -> Result<Address> {
         let payload = &self.xonly_public_key.serialize();
-        let address = Address::new(network_type.into(), AddressVersion::PubKey, payload);
+        let address = Address::new(network_type.into(), AddressVersion::PubKey, payload)?;
         Ok(address)
     }
 
@@ -96,7 +96,7 @@ impl PublicKey {
     pub fn to_address_ecdsa(&self, network_type: NetworkType) -> Result<Address> {
         if let Some(public_key) = self.public_key.as_ref() {
             let payload = &public_key.serialize();
-            let address = Address::new(network_type.into(), AddressVersion::PubKeyECDSA, payload);
+            let address = Address::new(network_type.into(), AddressVersion::PubKeyECDSA, payload)?;
             Ok(address)
         } else {
             Err(Error::InvalidXOnlyPublicKeyForECDSA)
@@ -221,7 +221,7 @@ impl XOnlyPublicKey {
     #[wasm_bindgen(js_name = toAddress)]
     pub fn to_address(&self, network: &NetworkTypeT) -> Result<Address> {
         let payload = &self.inner.serialize();
-        let address = Address::new(network.try_into()?, AddressVersion::PubKey, payload);
+        let address = Address::new(network.try_into()?, AddressVersion::PubKey, payload)?;
         Ok(address)
     }
 
@@ -231,7 +231,7 @@ impl XOnlyPublicKey {
     #[wasm_bindgen(js_name = toAddressECDSA)]
     pub fn to_address_ecdsa(&self, network: &NetworkTypeT) -> Result<Address> {
         let payload = &self.inner.serialize();
-        let address = Address::new(network.try_into()?, AddressVersion::PubKeyECDSA, payload);
+        let address = Address::new(network.try_into()?, AddressVersion::PubKeyECDSA, payload)?;
         Ok(address)
     }
 

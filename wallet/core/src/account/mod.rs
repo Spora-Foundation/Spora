@@ -971,7 +971,7 @@ mod tests {
         unsafe { std::str::from_utf8_unchecked(&hex) }.to_string()
     }
     fn dummy_address() -> Address {
-        Address::new(Prefix::Testnet, Version::PubKey, &[0u8; 32])
+        Address::new(Prefix::Testnet, Version::PubKey, &[0u8; 32]).expect("Valid dummy address")
     }
 
     #[tokio::test]

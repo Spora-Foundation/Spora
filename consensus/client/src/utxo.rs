@@ -463,7 +463,7 @@ impl TryCastFromJs for UtxoEntryReference {
 impl UtxoEntryReference {
     pub fn simulated(amount: u64) -> Self {
         use tondi_addresses::{Prefix, Version};
-        let address = Address::new(Prefix::Testnet, Version::PubKey, &rand::random::<[u8; 32]>());
+        let address = Address::new(Prefix::Testnet, Version::PubKey, &rand::random::<[u8; 32]>()).expect("Valid test address");
         Self::simulated_with_address(amount, &address)
     }
 
