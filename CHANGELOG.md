@@ -1,4 +1,67 @@
 # Changelog
+
+## [1.10.0] - 2025-01-06
+
+### 🚀 Major Features
+
+#### SwiftHash Algorithm Upgrade
+- **Algorithm Replacement**: Replaced KHeavyHash with SwiftHeavy algorithm
+- **Nonce-Hardened Matrix**: Implemented nonce-hardened matrix with improved mining efficiency
+- **Performance Optimization**: Significant improvements in hash calculation and mining speed
+
+#### Enhanced Wallet Time-Locked Functionality
+- **pay_to_address_with_lock_time_script**: Added support for time-locked address scripts
+- **Enhanced Lock Time Support**: Improved payment public key time locking capabilities
+- **Account Transfer Improvements**: Renamed sompi unit to SAU (Smallest Addressable Unit)
+
+#### SDK Adapter Signature Integration
+- **Official Dependency**: Integrated adapter signature crate from official crates.io
+- **Official Bitcoin Library**: Replaced unofficial rust-bitcoin with official version
+- **Enhanced Security**: Improved overall encryption module security and reliability
+
+### 🔧 Technical Improvements
+
+#### RPC API Enhancements
+- **GetVirtualChainFromBlockRequest**: Added minimum confirmation count support
+- **Enhanced Virtual Chain Operations**: Improved request handling and functionality
+
+#### Consensus and Mining Optimizations
+- **KIP 10 Activation**: Set DAA activation score to 0 for all networks
+- **UTXO Index Improvements**: Fixed rare file descriptor overflow issues
+- **Test Stability**: Resolved coinbase subsidy test and body validation issues
+
+#### Code Quality and Stability
+- **Cargo Test Fixes**: Improved test stability and resolved test failures
+- **Subsidy Calculation**: Fixed subsidy calculation tests and txscript doctests
+- **WASM Build Restrictions**: Resolved WASM build limitation issues
+- **Public COIN_TYPE**: Fixed accessibility of tondi COIN_TYPE
+
+### 🐛 Bug Fixes
+
+#### Infrastructure Fixes
+- **File Descriptor Overflow**: Resolved rare overflow fix with utxoindex
+- **Cargo Test Stability**: Fixed multiple cargo test failures
+- **Build System**: Improved WASM build restrictions and compatibility
+
+#### Wallet and Transaction Fixes
+- **Account Transfer**: Fixed sompi to SAU renaming in account transfer functionality
+- **Payment Scripts**: Resolved payment public key time locking issues
+- **Transaction Validation**: Fixed coinbase subsidy and body validation tests
+
+### 📈 Performance & Reliability
+
+#### Enhanced Performance
+- **Hash Algorithm**: Superior performance with SwiftHash and BLAKE3
+- **Mining Efficiency**: Improved mining performance with nonce-hardened matrix
+- **Memory Management**: Better memory usage and optimization
+
+#### Reliability Improvements
+- **Test Coverage**: Enhanced test stability and coverage
+- **Error Handling**: Improved error handling throughout the codebase
+- **Dependency Management**: Upgraded to official dependencies for better reliability
+
+---
+
 ## [1.0.2] - 2025-09-17
 
 ### 🚀 New Features
