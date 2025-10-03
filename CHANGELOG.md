@@ -43,7 +43,7 @@
 - **Advanced Verification**: Inner Product Argument (IPA) commitments for efficient proof generation
 - **Future ZK Integration**: Framework ready for zero-knowledge proof integration
 
-#### RGB Protocol Integration
+#### RGB Protocol Integration Preparation
 - **RGB Commitment Support**: TLV-based RGB root anchoring without consensus changes
 - **Cross-Layer Information**: Annex TLV extensions for RGB state epoch and namespace identification
 - **Light Client Optimization**: Stateless verification framework for mobile wallet synchronization
