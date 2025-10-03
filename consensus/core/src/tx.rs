@@ -8,6 +8,7 @@
 
 mod script_public_key;
 pub mod taproot;
+pub mod copperoot;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 pub use script_public_key::{

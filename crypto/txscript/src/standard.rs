@@ -5,6 +5,7 @@ use crate::{
     },
     script_builder::{ScriptBuilder, ScriptBuilderError, ScriptBuilderResult},
     script_class::ScriptClass,
+    SCRIPT_VER_CLASSIC, SCRIPT_VER_TAPROOT, SCRIPT_VER_COPPEROOT_MERKLE, SCRIPT_VER_COPPEROOT_VERKLE,
 };
 use blake3::hash;
 use smallvec::SmallVec;
@@ -15,9 +16,11 @@ use tondi_txscript_errors::TxScriptError;
 
 mod multisig;
 mod taproot;
+pub mod copperoot;
 
 pub use multisig::{multisig_redeem_script, multisig_redeem_script_ecdsa, Error as MultisigCreateError};
 pub use taproot::witness::Witness;
+pub use copperoot::witness::CopperootWitness;
 
 /// Creates a new script to pay a transaction output to a 32-byte pubkey.
 fn pay_to_pub_key(address_payload: &[u8]) -> ScriptVec {
@@ -37,12 +40,27 @@ pub fn pay_to_pub_key_with_lock_time(address_payload: &[u8], lock_time: u64) -> 
     Ok(script)
 }
 
-/// Creates a new script to pay a transaction output to taproot.
 /// It is expected that the input is a valid taproot.
 fn pay_to_taproot(taproot: &[u8]) -> ScriptVec {
     // TODO: use ScriptBuilder when add_op and add_data fns or equivalents are available
     assert_eq!(taproot.len(), 32);
     SmallVec::from_iter([OpTrue, OpData32].iter().copied().chain(taproot.iter().copied()))
+}
+
+/// Creates a new script to pay a transaction output to P2CR (Pay-to-Copperoot-Merkle).
+/// It is expected that the input is a valid copperoot x-only public key.
+fn pay_to_p2cr(p2cr: &[u8]) -> ScriptVec {
+    // TODO: use ScriptBuilder when add_op and add_data fns or equivalents are available
+    assert_eq!(p2cr.len(), 32);
+    SmallVec::from_iter([OpTrue, OpData32].iter().copied().chain(p2cr.iter().copied()))
+}
+
+/// Creates a new script to pay a transaction output to P2CRV (Pay-to-Copperoot-Verkle).
+/// It is expected that the input is a valid copperoot x-only public key.
+fn pay_to_p2crv(p2crv: &[u8]) -> ScriptVec {
+    // TODO: use ScriptBuilder when add_op and add_data fns or equivalents are available
+    assert_eq!(p2crv.len(), 32);
+    SmallVec::from_iter([OpTrue, OpData32].iter().copied().chain(p2crv.iter().copied()))
 }
 
 /// Creates a new script to pay a transaction output to a 33-byte ECDSA pubkey.
@@ -62,13 +80,15 @@ fn pay_to_script_hash(script_hash: &[u8]) -> ScriptVec {
 
 /// Creates a new script to pay a transaction output to the specified address.
 pub fn pay_to_address_script(address: &Address) -> ScriptPublicKey {
-    let script = match address.version {
-        Version::PubKey => pay_to_pub_key(address.payload.as_slice()),
-        Version::PubKeyECDSA => pay_to_pub_key_ecdsa(address.payload.as_slice()),
-        Version::ScriptHash => pay_to_script_hash(address.payload.as_slice()),
-        Version::Taproot => pay_to_taproot(address.payload.as_slice()),
+    let (script, version) = match address.version {
+        Version::PubKey => (pay_to_pub_key(address.payload.as_slice()), SCRIPT_VER_CLASSIC),
+        Version::PubKeyECDSA => (pay_to_pub_key_ecdsa(address.payload.as_slice()), SCRIPT_VER_CLASSIC),
+        Version::ScriptHash => (pay_to_script_hash(address.payload.as_slice()), SCRIPT_VER_CLASSIC),
+        Version::Taproot => (pay_to_taproot(address.payload.as_slice()), SCRIPT_VER_TAPROOT),
+        Version::CopperootMerkle => (pay_to_p2cr(address.payload.as_slice()), SCRIPT_VER_COPPEROOT_MERKLE),
+        Version::CopperootVerkle => (pay_to_p2crv(address.payload.as_slice()), SCRIPT_VER_COPPEROOT_VERKLE),
     };
-    ScriptPublicKey::new(ScriptClass::from(address.version).version(), script)
+    ScriptPublicKey::new(version, script)
 }
 
 /// Creates a new script to pay a transaction output to the specified address with lock time.
@@ -191,8 +211,8 @@ pub fn htlc_script(
         .add_op(OpEndIf)?
         .drain();
 
-    // Use ScriptHash version for HTLC scripts
-    let version = ScriptClass::ScriptHash.version();
+    // Use Legacy version for HTLC scripts
+    let version = SCRIPT_VER_CLASSIC;
     Ok(ScriptPublicKey::from_vec(version, script))
 }
 
@@ -201,7 +221,7 @@ pub fn htlc_script(
 /// Similar to `htlc_script` but uses ECDSA signature verification instead of Schnorr.
 ///
 /// # Arguments
-/// * `secret_hash` - The hash160 of the secret (20 bytes)
+/// * `secret_hash` - The BLAKE3-256 hash of the secret (32 bytes)
 /// * `recipient_pubkey` - The recipient's ECDSA public key (33 bytes)
 /// * `sender_pubkey` - The sender's ECDSA public key (33 bytes)
 /// * `lock_time` - The minimum lock time required for sender to spend
@@ -252,8 +272,8 @@ pub fn htlc_script_ecdsa(
         .add_op(OpEndIf)?
         .drain();
 
-    // Use ScriptHash version for HTLC scripts
-    let version = ScriptClass::ScriptHash.version();
+    // Use Legacy version for HTLC scripts
+    let version = SCRIPT_VER_CLASSIC;
     Ok(ScriptPublicKey::from_vec(version, script))
 }
 
@@ -294,10 +314,10 @@ pub fn htlc_signature_script_with_timeout(redeem_script: Vec<u8>, signature: Vec
 
 /// Takes a script and returns an equivalent pay-to-script-hash script
 pub fn pay_to_script_hash_script(redeem_script: &[u8]) -> ScriptPublicKey {
-    // 使用 Blake3 替代 Blake2b
-    let redeem_script_hash = hash(redeem_script); // Blake3 的默认输出是 32 字节
+    // Use Blake3 instead of Blake2b
+    let redeem_script_hash = hash(redeem_script); // Blake3 default output is 32 bytes
     let script = pay_to_script_hash(redeem_script_hash.as_bytes());
-    ScriptPublicKey::new(ScriptClass::ScriptHash.version(), script)
+    ScriptPublicKey::new(SCRIPT_VER_CLASSIC, script)
 }
 
 /// Generates a signature script that fits a pay-to-script-hash script
@@ -318,16 +338,21 @@ pub fn pay_to_script_hash_signature_script(redeem_script: &[u8], signature: Vec<
 ///    returned address.
 pub fn extract_script_pub_key_address(script_public_key: &ScriptPublicKey, prefix: Prefix) -> Result<Address, TxScriptError> {
     let class = ScriptClass::from(script_public_key);
-    if script_public_key.version() > class.version() {
+    let script = script_public_key.script();
+    
+    // Version consistency check: script version must match expected version for the script class
+    if script_public_key.version() != class.version() {
         return Err(TxScriptError::PubKeyFormat);
     }
-    let script = script_public_key.script();
+    
     match class {
         ScriptClass::NonStandard => Err(TxScriptError::PubKeyFormat),
         ScriptClass::PubKey => Ok(Address::new(prefix, Version::PubKey, &script[1..33])),
         ScriptClass::PubKeyECDSA => Ok(Address::new(prefix, Version::PubKeyECDSA, &script[1..34])),
         ScriptClass::ScriptHash => Ok(Address::new(prefix, Version::ScriptHash, &script[2..34])),
         ScriptClass::Taproot => Ok(Address::new(prefix, Version::Taproot, &script[2..34])),
+        ScriptClass::CopperootMerkle => Ok(Address::new(prefix, Version::CopperootMerkle, &script[2..34])),
+        ScriptClass::CopperootVerkle => Err(TxScriptError::PubKeyFormat), // P2CRV disabled for mainnet launch
     }
 }
 
@@ -415,7 +440,7 @@ mod tests {
             Test {
                 name: "Mainnet PubKey script",
                 script_pub_key: ScriptPublicKey::new(
-                    ScriptClass::PubKey.version(),
+                    SCRIPT_VER_CLASSIC,
                     ScriptVec::from_slice(
                         &hex::decode("207bc04196f1125e4f2676cd09ed14afb77223b1f62177da5488346323eaa91a69ac").unwrap(),
                     ),
@@ -426,7 +451,7 @@ mod tests {
             Test {
                 name: "Testnet PubKeyECDSA script",
                 script_pub_key: ScriptPublicKey::new(
-                    ScriptClass::PubKeyECDSA.version(),
+                    SCRIPT_VER_CLASSIC,
                     ScriptVec::from_slice(
                         &hex::decode("21ba01fc5f4e9d9879599c69a3dafdb835a7255e5f2e934e9322ecd3af190ab0f60eab").unwrap(),
                     ),
@@ -437,7 +462,7 @@ mod tests {
             Test {
                 name: "Testnet non standard script",
                 script_pub_key: ScriptPublicKey::new(
-                    ScriptClass::PubKey.version(),
+                    SCRIPT_VER_CLASSIC,
                     ScriptVec::from_slice(
                         &hex::decode("2001fc5f4e9d9879599c69a3dafdb835a7255e5f2e934e9322ecd3af190ab0f60eab").unwrap(),
                     ),
@@ -448,7 +473,7 @@ mod tests {
             Test {
                 name: "Mainnet script with unknown version",
                 script_pub_key: ScriptPublicKey::new(
-                    ScriptClass::PubKey.version() + 1,
+                    SCRIPT_VER_COPPEROOT_VERKLE + 1, // Use a truly unknown version
                     ScriptVec::from_slice(
                         &hex::decode("207bc04196f1125e4f2676cd09ed14afb77223b1f62177da5488346323eaa91a69ac").unwrap(),
                     ),
@@ -493,7 +518,7 @@ mod tests {
         assert!(htlc_script.is_ok(), "HTLC script creation should succeed");
 
         let script_pubkey = htlc_script.unwrap();
-        assert_eq!(script_pubkey.version(), ScriptClass::ScriptHash.version(), "HTLC script should use ScriptHash version");
+        assert_eq!(script_pubkey.version(), SCRIPT_VER_CLASSIC, "HTLC script should use Legacy version");
 
         // Test ECDSA HTLC script creation
         let recipient_pubkey_ecdsa = [0x01; 33]; // 33-byte ECDSA pubkey

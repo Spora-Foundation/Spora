@@ -1,22 +1,22 @@
-# TLC空投功能使用示例
+# TLC Airdrop Feature Usage Example
 
-## 概述
+## Overview
 
-Treasure Boy现在支持Time Locked Contract (TLC)空投功能，允许创建时间锁定的交易，在指定时间后才能解锁。
+Treasure Boy now supports Time Locked Contract (TLC) airdrop functionality, allowing creation of time-locked transactions that can only be unlocked after a specified time.
 
-## 功能特性
+## Features
 
-1. **简单时间锁定**: 基于时间戳或区块高度的简单时间锁定
-2. **HTLC支持**: 支持Hash Time Locked Contract，包含秘密解锁机制
-3. **批量空投**: 支持向多个地址进行TLC空投
-4. **灵活配置**: 支持多种网络类型和参数配置
+1. **Simple Time Locking**: Simple time locking based on timestamp or block height
+2. **HTLC Support**: Supports Hash Time Locked Contract with secret unlock mechanism
+3. **Batch Airdrop**: Supports TLC airdrop to multiple addresses
+4. **Flexible Configuration**: Supports multiple network types and parameter configurations
 
-## 使用示例
+## Usage Examples
 
-### 1. 简单时间锁定空投
+### 1. Simple Time-Locked Airdrop
 
 ```bash
-# 创建时间戳锁定的空投（2025年8月1日解锁）
+# Create timestamp-locked airdrop (unlocks on August 1, 2025)
 cargo run --package treasure_boy -- \
   --private-key YOUR_PRIVATE_KEY \
   --address-file addresses.txt \
@@ -27,10 +27,10 @@ cargo run --package treasure_boy -- \
   --outputs-per-tx 10
 ```
 
-### 2. 区块高度锁定空投
+### 2. Block Height-Locked Airdrop
 
 ```bash
-# 创建区块高度锁定的空投（区块100000后解锁）
+# Create block height-locked airdrop (unlocks after block 100000)
 cargo run --package treasure_boy -- \
   --private-key YOUR_PRIVATE_KEY \
   --address-file addresses.txt \
@@ -40,10 +40,10 @@ cargo run --package treasure_boy -- \
   --amount 1000000000
 ```
 
-### 3. HTLC空投（带秘密）
+### 3. HTLC Airdrop (with Secret)
 
 ```bash
-# 创建HTLC空投，支持秘密解锁
+# Create HTLC airdrop with secret unlock support
 cargo run --package treasure_boy -- \
   --private-key YOUR_PRIVATE_KEY \
   --address-file addresses.txt \
@@ -56,34 +56,34 @@ cargo run --package treasure_boy -- \
   --amount 1000000000
 ```
 
-## 参数说明
+## Parameter Description
 
-- `--tlc-mode`: 启用TLC空投模式
-- `--lock-time`: 锁定时间（Unix时间戳或区块高度）
-- `--lock-time-type`: 锁定时间类型（timestamp或block）
-- `--htlc-secret`: HTLC秘密（可选）
-- `--recipient-pubkey`: 接收方公钥（32字节十六进制）
-- `--sender-pubkey`: 发送方公钥（32字节十六进制）
+- `--tlc-mode`: Enable TLC airdrop mode
+- `--lock-time`: Lock time (Unix timestamp or block height)
+- `--lock-time-type`: Lock time type (timestamp or block)
+- `--htlc-secret`: HTLC secret (optional)
+- `--recipient-pubkey`: Recipient public key (32-byte hexadecimal)
+- `--sender-pubkey`: Sender public key (32-byte hexadecimal)
 
-## 注意事项
+## Important Notes
 
-1. **时间戳**: 必须大于500,000,000,000（LOCK_TIME_THRESHOLD）
-2. **区块高度**: 必须小于500,000,000,000
-3. **公钥格式**: 必须是32字节的十六进制字符串
-4. **网络支持**: 支持mainnet、testnet、devnet
+1. **Timestamp**: Must be greater than 500,000,000,000 (LOCK_TIME_THRESHOLD)
+2. **Block Height**: Must be less than 500,000,000,000
+3. **Public Key Format**: Must be a 32-byte hexadecimal string
+4. **Network Support**: Supports mainnet, testnet, devnet
 
-## 解锁机制
+## Unlock Mechanism
 
-### 简单时间锁定
-- 在指定时间后，地址所有者可以使用私钥解锁
+### Simple Time Locking
+- After the specified time, the address owner can unlock using their private key
 
 ### HTLC
-- **接收方路径**: 提供正确的秘密和签名即可解锁
-- **发送方路径**: 在锁定时间到期后，发送方可以使用自己的私钥解锁
+- **Recipient Path**: Provide the correct secret and signature to unlock
+- **Sender Path**: After the lock time expires, the sender can unlock using their own private key
 
-## 安全考虑
+## Security Considerations
 
-1. 确保私钥安全存储
-2. 验证网络类型正确
-3. 检查锁定时间设置合理
-4. 对于HTLC，确保秘密和公钥正确
+1. Ensure private keys are stored securely
+2. Verify network type is correct
+3. Check that lock time settings are reasonable
+4. For HTLC, ensure secrets and public keys are correct

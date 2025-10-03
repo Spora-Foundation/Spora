@@ -5,7 +5,7 @@ mod tests {
     use crate::{
         caches::Cache,
         opcodes::codes::{OpData32, OpTrue},
-        TxScriptEngine, Witness,
+        TxScriptEngine, Witness, SCRIPT_VER_TAPROOT,
     };
     use bitcoin::{
         key::{TapTweak, TweakedPublicKey},
@@ -48,14 +48,14 @@ mod tests {
                 sequence: 0,
                 sig_op_count: 0,
             }],
-            vec![TransactionOutput { value: 100, script_public_key: ScriptPublicKey::new(0, script_pub_key.clone()) }],
+            vec![TransactionOutput { value: 100, script_public_key: ScriptPublicKey::new(SCRIPT_VER_TAPROOT, script_pub_key.clone()) }],
             1615462089000,
             SubnetworkId::from_bytes([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
             0,
             vec![],
         );
 
-        let utxos = vec![TransactionOutput::new(100, ScriptPublicKey::new(0, script_pub_key.clone()))];
+        let utxos = vec![TransactionOutput::new(100, ScriptPublicKey::new(SCRIPT_VER_TAPROOT, script_pub_key.clone()))];
         let prevouts = Prevouts::All(&utxos);
         let input_index = 0;
         let sighash_type = TapSighashType::Default;
@@ -72,7 +72,7 @@ mod tests {
 
         let entry = UtxoEntry {
             amount: 100,
-            script_public_key: ScriptPublicKey::new(0, script_pub_key.clone()),
+            script_public_key: ScriptPublicKey::new(SCRIPT_VER_TAPROOT, script_pub_key.clone()),
             block_daa_score: 36151168,
             is_coinbase: false,
         };
@@ -131,7 +131,7 @@ mod tests {
                 sequence: 0,
                 sig_op_count: 0,
             }],
-            vec![TransactionOutput { value: 100, script_public_key: ScriptPublicKey::new(0, script_pub_key.clone()) }],
+            vec![TransactionOutput { value: 100, script_public_key: ScriptPublicKey::new(SCRIPT_VER_TAPROOT, script_pub_key.clone()) }],
             1615462089000,
             SubnetworkId::from_bytes([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
             0,
@@ -148,7 +148,7 @@ mod tests {
 
         let entry = UtxoEntry {
             amount: 100,
-            script_public_key: ScriptPublicKey::new(0, script_pub_key.clone()),
+            script_public_key: ScriptPublicKey::new(SCRIPT_VER_TAPROOT, script_pub_key.clone()),
             block_daa_score: 36151168,
             is_coinbase: false,
         };

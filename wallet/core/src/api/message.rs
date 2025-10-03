@@ -499,7 +499,7 @@ pub struct AccountsSendRequest {
     pub payment_secret: Option<Secret>,
     pub destination: PaymentDestination,
     pub fee_rate: Option<f64>,
-    pub priority_fee_sau: Fees,
+    pub _priority_fee_sau: Fees,
     pub payload: Option<Vec<u8>>,
 }
 
@@ -652,8 +652,8 @@ pub struct AccountsTransferRequest {
     pub payment_secret: Option<Secret>,
     pub transfer_amount_sau: u64,
     pub fee_rate: Option<f64>,
-    pub priority_fee_sau: Option<Fees>,
-    // pub priority_fee_sau: Fees,
+    pub _priority_fee_sau: Option<Fees>,
+    // pub _priority_fee_sau: Fees,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
@@ -671,7 +671,7 @@ pub struct AccountsEstimateRequest {
     pub account_id: AccountId,
     pub destination: PaymentDestination,
     pub fee_rate: Option<f64>,
-    pub priority_fee_sau: Fees,
+    pub _priority_fee_sau: Fees,
     pub payload: Option<Vec<u8>>,
 }
 

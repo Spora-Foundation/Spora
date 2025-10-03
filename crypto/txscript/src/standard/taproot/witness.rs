@@ -49,6 +49,10 @@ impl Witness {
         secp.verify_schnorr(&sig, msg, xpub)
     }
 
+    pub fn into_inner(self) -> BtcWitness {
+        self.inner
+    }
+
     // Delegate methods to inner BtcWitness
     pub fn len(&self) -> usize {
         self.inner.len()

@@ -21,7 +21,6 @@ use bitcoin::taproot::ControlBlock;
 // P2TrSpend is now private in official bitcoin crate, we'll use Witness methods instead
 use bitcoin::XOnlyPublicKey;
 use itertools::Itertools;
-use log::trace;
 use opcodes::codes::OpReturn;
 use opcodes::{codes, to_small_int, OpCond};
 use script_class::ScriptClass;
@@ -40,7 +39,23 @@ pub mod prelude {
 use crate::runtime_sig_op_counter::{RuntimeSigOpCounter, SigOpConsumer};
 pub use standard::*;
 
-pub const MAX_SCRIPT_PUBLIC_KEY_VERSION: u16 = 0;
+// Re-export MuSig2 types for easier access
+#[cfg(feature = "musig2")]
+pub use standard::copperoot::{
+    MuSig2KeyAgg, MuSig2Nonce, MuSig2Session, MuSig2Signature, EncryptedSignature, MuSig2Error
+};
+
+pub const MAX_SCRIPT_PUBLIC_KEY_VERSION: u16 = 193;
+
+// Script version constants for different script types
+pub const SCRIPT_VER_CLASSIC: u16 = 0;       // Legacy script types (PubKey, ScriptHash, etc.)
+pub const SCRIPT_VER_TAPROOT: u16 = 1;      // Taproot (BIP341/SHA256)
+pub const SCRIPT_VER_COPPEROOT_MERKLE: u16 = 192;       // Pay-to-Copperoot-Merkle (BLAKE3) - Address starts with 'c'
+pub const SCRIPT_VER_COPPEROOT_VERKLE: u16 = 193;       // Pay-to-Copperoot-Verkle (BLAKE3) - Reserved
+
+// Backward compatibility aliases
+pub const SCRIPT_VER_P2CR: u16 = SCRIPT_VER_COPPEROOT_MERKLE;
+pub const SCRIPT_VER_P2CRV: u16 = SCRIPT_VER_COPPEROOT_VERKLE;
 pub const MAX_STACK_SIZE: usize = 244;
 pub const MAX_SCRIPTS_SIZE: usize = 10_000;
 pub const MAX_SCRIPT_ELEMENT_SIZE: usize = 520;
@@ -481,12 +496,55 @@ impl<'a, T: VerifiableTransaction, Reused: SigHashReusedValues> TxScriptEngine<'
         }
     }
 
+    /// Generic Taproot-like execution using the ScriptVariant trait
+    fn execute_taplike<TL: crate::standard::copperoot::ScriptVariant>(&mut self) -> Result<(), TxScriptError> {
+        match self.script_source {
+            ScriptSource::TxInput { tx, input, idx, utxo_entry } => {
+                let script_public_key = utxo_entry.script_public_key.script();
+                let witness = TL::parse_witness(&*input.signature_script)?;
+                let xpub = XOnlyPublicKey::from_slice(&script_public_key[2..]).map_err(TxScriptError::InvalidSignature)?;
+
+                // Try key path spending first
+                if let Ok(signature) = TL::extract_key_spend_signature(&witness) {
+                    let msg = TL::key_spend_sighash(tx, idx)?;
+                    let secp = Secp256k1::new();
+                    let sig = match secp256k1::schnorr::Signature::from_slice(&signature) {
+                        Ok(sig) => sig,
+                        Err(e) => return Err(TxScriptError::InvalidSignature(e)),
+                    };
+                    if let Err(e) = secp.verify_schnorr(&sig, &msg, &xpub) {
+                        return Err(TxScriptError::InvalidSignature(e));
+                    }
+                    let _ = self.dstack.push_item(true);
+                    return Ok(());
+                }
+
+                // Try script path spending
+                if let Ok((input_items, leaf_script, control_block)) = TL::extract_script_spend_components(&witness) {
+                    for item in input_items {
+                        self.dstack.push(item);
+                    }
+
+                    // Control block validation is now done in TL::verify_commitment
+                    // which parses the TLV format and validates proof type
+
+                    TL::verify_commitment(xpub, &leaf_script, &control_block)?;
+                    self.check_push_opcode = false;
+                    self.execute_script(&leaf_script)
+                } else {
+                    Err(TxScriptError::InvalidTaprootWitness)
+                }
+            }
+            _ => unreachable!("taplike must be ScriptSource::TxInput"),
+        }
+    }
+
     pub fn execute(&mut self) -> Result<(), TxScriptError> {
         let (scripts, script_class) = match &self.script_source {
             ScriptSource::TxInput { input, utxo_entry, .. } => {
+                // Strictly reject unknown script versions - refuse unknown versions
                 if utxo_entry.script_public_key.version() > MAX_SCRIPT_PUBLIC_KEY_VERSION {
-                    trace!("The version of the scriptPublicKey is higher than the known version - the Execute function returns true.");
-                    return Ok(());
+                    return Err(TxScriptError::InvalidScriptPublicKeyVersion(utxo_entry.script_public_key.version()));
                 }
                 let script_class = ScriptClass::from(&utxo_entry.script_public_key);
                 (vec![input.signature_script.as_slice(), utxo_entry.script_public_key.script()], script_class)
@@ -518,6 +576,11 @@ impl<'a, T: VerifiableTransaction, Reused: SigHashReusedValues> TxScriptEngine<'
         match script_class {
             ScriptClass::Taproot => self.execute_p2tr(),
             ScriptClass::ScriptHash => self.execute_p2sh(&scripts),
+            ScriptClass::CopperootMerkle => self.execute_taplike::<crate::standard::copperoot::CopperootVariant>(),
+            ScriptClass::CopperootVerkle => {
+                // P2CRV is disabled for mainnet launch - reject as invalid
+                return Err(TxScriptError::OpcodeDisabled("P2CRV (CopperootVerkle) is disabled for mainnet launch".to_string()));
+            }
             _ => self.execute_standard(&scripts),
         }?;
 

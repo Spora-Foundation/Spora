@@ -2802,13 +2802,13 @@ mod test {
             TestCase {
                 code: opcodes::OpBlake3::empty().expect("Should accept empty"),
                 init: vec![b"".to_vec()],
-                // 使用空字符串的 Blake3 哈希值
+                // Use Blake3 hash of empty string
                 dstack: vec![hex::decode("af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262").unwrap()],
             },
             TestCase {
                 code: opcodes::OpBlake3::empty().expect("Should accept empty"),
                 init: vec![b"abc".to_vec()],
-                // 使用字符串 "abc" 的 Blake3 哈希值
+                // Use Blake3 hash of string "abc"
                 dstack: vec![hex::decode("6437b3ac38465133ffb63b75273a8db548c558465d79db03fd359c6cd5bd9d85").unwrap()],
             },
         ]);

@@ -103,7 +103,7 @@ where
     let mut hashes: [Hash; N] = [Hash::default(); N];
     let bytes = borsh::to_vec(&hashable).unwrap();
 
-    hashes[0] = Hash::from_slice(blake3_hash(&bytes).as_ref()); // 这里使用 blake3_hash
+    hashes[0] = Hash::from_slice(blake3_hash(&bytes).as_ref()); // Use blake3_hash here
     for i in 1..N {
         hashes[i] = Hash::from_slice(blake3_hash(&hashes[i - 1].as_bytes()).as_ref());
     }

@@ -1393,14 +1393,14 @@ try_from! ( args: IAccountsSendRequest, AccountsSendRequest, {
     let account_id = args.get_account_id("accountId")?;
     let wallet_secret = args.get_secret("walletSecret")?;
     let payment_secret = args.try_get_secret("paymentSecret")?;
-    let priority_fee_sau = args.get::<IFees>("priorityFeeSau")?.try_into()?;
+    let _priority_fee_sau = args.get::<IFees>("priorityFeeSau")?.try_into()?;
     let payload = args.try_get_value("payload")?.map(|v| v.try_as_vec_u8()).transpose()?;
 
     let outputs = args.get_value("destination")?;
     let destination: PaymentDestination =
         if outputs.is_undefined() { PaymentDestination::Change } else { PaymentOutputs::try_owned_from(outputs)?.into() };
 
-    Ok(AccountsSendRequest { account_id, wallet_secret, payment_secret, priority_fee_sau, destination, payload, fee_rate: None })
+    Ok(AccountsSendRequest { account_id, wallet_secret, payment_secret, _priority_fee_sau, destination, payload, fee_rate: None })
 });
 
 declare! {
@@ -1458,7 +1458,7 @@ try_from! ( args: IAccountsTransferRequest, AccountsTransferRequest, {
     let destination_account_id = args.get_account_id("destinationAccountId")?;
     let wallet_secret = args.get_secret("walletSecret")?;
     let payment_secret = args.try_get_secret("paymentSecret")?;
-    let priority_fee_sau = args.try_get::<IFees>("priorityFeeSau")?.map(Fees::try_from).transpose()?;
+    let _priority_fee_sau = args.try_get::<IFees>("priorityFeeSau")?.map(Fees::try_from).transpose()?;
     let transfer_amount_sau = args.get_u64("transferAmountSau")?;
 
     Ok(AccountsTransferRequest {
@@ -1466,7 +1466,7 @@ try_from! ( args: IAccountsTransferRequest, AccountsTransferRequest, {
         destination_account_id,
         wallet_secret,
         payment_secret,
-        priority_fee_sau,
+        _priority_fee_sau,
         transfer_amount_sau,
         fee_rate: None,
     })
@@ -1515,14 +1515,14 @@ declare! {
 
 try_from! ( args: IAccountsEstimateRequest, AccountsEstimateRequest, {
     let account_id = args.get_account_id("accountId")?;
-    let priority_fee_sau = args.get::<IFees>("priorityFeeSau")?.try_into()?;
+    let _priority_fee_sau = args.get::<IFees>("priorityFeeSau")?.try_into()?;
     let payload = args.try_get_value("payload")?.map(|v| v.try_as_vec_u8()).transpose()?;
 
     let outputs = args.get_value("destination")?;
     let destination: PaymentDestination =
         if outputs.is_undefined() { PaymentDestination::Change } else { PaymentOutputs::try_owned_from(outputs)?.into() };
 
-    Ok(AccountsEstimateRequest { account_id, priority_fee_sau, destination, payload, fee_rate: None })
+    Ok(AccountsEstimateRequest { account_id, _priority_fee_sau, destination, payload, fee_rate: None })
 });
 
 declare! {
@@ -2097,7 +2097,7 @@ try_from! ( args: IAccountsCommitRevealRequest, AccountsCommitRevealRequest, {
     let address_index = args.get_u32("addressIndex")?;
     let script_sig = args.get_vec_u8("scriptSig")?;
     let wallet_secret = args.get_secret("walletSecret")?;
-    let commit_amount_sau = args.get_u64("commitAmountSau")?;
+    let _commit_amount_sau = args.get_u64("commitAmountSau")?;
     let payment_secret = args.try_get_secret("paymentSecret")?;
     let fee_rate = args.get_f64("feeRate").ok();
     let reveal_fee_sau = args.get_u64("revealFeeSau")?;
@@ -2108,7 +2108,7 @@ try_from! ( args: IAccountsCommitRevealRequest, AccountsCommitRevealRequest, {
         address_index,
         script_sig,
         wallet_secret,
-        commit_amount_sau,
+        commit_amount_sau: _commit_amount_sau,
         payment_secret,
         fee_rate,
         reveal_fee_sau,
@@ -2152,7 +2152,7 @@ try_from! ( args: IAccountsCommitRevealManualRequest, AccountsCommitRevealManual
       let commit_destination = args.try_get_addresses("commitDestination")?.unwrap_or_default();
       let reveal_destination = args.try_get_addresses("revealDestination")?.unwrap_or_default();
     let wallet_secret = args.get_secret("walletSecret")?;
-    let commit_amount_sau = args.get_u64("commitAmountSau")?;
+    let _commit_amount_sau = args.get_u64("commitAmountSau")?;
     let payment_secret = args.try_get_secret("paymentSecret")?;
     let fee_rate = args.get_f64("feeRate").ok();
     let reveal_fee_sau = args.get_u64("revealFeeSau")?;

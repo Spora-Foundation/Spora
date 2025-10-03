@@ -24,7 +24,7 @@ BLUE='\033[0;34m'
 CYAN='\033[0;36m'
 NC='\033[0m'
 
-# 日志函数
+# Logging function
 log() {
     echo -e "${BLUE}[$(date '+%H:%M:%S')]${NC} $1"
 }
