@@ -47,8 +47,8 @@ CopperootMerkle (version 192):
 Note: The 'razle...' portion is identical because both examples use the same public key.
       Different public keys will produce different encodings.
 
-CopperootVerkle (version 96 - currently disabled):
-  tondi:v... (starts with 'v', second character varies by public key)
+CopperootVerkle (version 2 - currently disabled):
+  tondi:q... (starts with 'q', second character varies by public key)
 ```
 
 ### Version Validation and Security
@@ -128,7 +128,7 @@ Copperoot is currently implemented with the following features:
 - ✅ **Test Suite**: Comprehensive test coverage including address generation, key spend, script spend validation, and MuSig2 functionality
 - ✅ **Script Classification**: Version-based dispatch with format validation for all script types
 - ✅ **Enhanced Security**: Comprehensive constraint checking, error handling, and misuse prevention
-- ⚠️ **Verkle Trees**: Reserved for future activation (version 96 currently disabled for mainnet)
+- ⚠️ **Verkle Trees**: Reserved for future activation (version 2 currently disabled for mainnet)
 
 ## Key Features
 
@@ -1125,10 +1125,10 @@ Simnet:   tondisim:c...
 Devnet:   tondidev:c...
 
 CopperootVerkle - RESERVED (INACTIVE):
-Mainnet:  tondi:v... (CopperootVerkle addresses start with 'v' after HRP)
-Testnet:  tonditest:v...
-Simnet:   tondisim:v...
-Devnet:   tondidev:v...
+Mainnet:  tondi:q... (CopperootVerkle addresses start with 'q' after HRP)
+Testnet:  tonditest:q...
+Simnet:   tondisim:q...
+Devnet:   tondidev:q...
 NOTE: CopperootVerkle addresses are reserved but currently invalid for mainnet launch
 ```
 
@@ -1284,10 +1284,10 @@ match detect_address_type("tondi:c...")? {
 }
 
 {
-  "address": "tondi:v...",
+  "address": "tondi:q...",
   "type": "p2crv",
   "script_type": "pay_to_copperoot_verkle",
-  "witness_version": 3,
+  "witness_version": 2,
   "public_key": "02...",
   "network": "mainnet"
 }
@@ -1306,7 +1306,7 @@ tondi-cli getnewaddress "" p2crv
 tondi-cli sendtoaddress "tondi:c..." 1.0
 
 # Send to CopperootVerkle address
-tondi-cli sendtoaddress "tondi:v..." 1.0
+tondi-cli sendtoaddress "tondi:q..." 1.0
 ```
 
 ## Mainnet Launch Status
@@ -1355,7 +1355,7 @@ The test suite includes comprehensive coverage for both key spend and script spe
 
 | Component | CopperootMerkle | CopperootVerkle | Bitcoin Taproot |
 |-----------|----------------|-----------------|-----------------|
-| Script Version | 192 | 96 | 88 |
+| Script Version | 192 | 2 | 88 |
 | Witness Version | v2 (2) | v2 (2) | v1 (1) |
 | Control Block | TLV Extensions | TLV Extensions | BIP341 Standard |
 | Hash Function | BLAKE3-256 | BLAKE3-256 | SHA256 |

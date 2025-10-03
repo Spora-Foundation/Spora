@@ -45,13 +45,13 @@ pub use standard::copperoot::{
     MuSig2KeyAgg, MuSig2Nonce, MuSig2Session, MuSig2Signature, EncryptedSignature, MuSig2Error
 };
 
-pub const MAX_SCRIPT_PUBLIC_KEY_VERSION: u16 = 192;
+pub const MAX_SCRIPT_PUBLIC_KEY_VERSION: u16 = 3;
 
 // Script version constants for different script types
 pub const SCRIPT_VER_CLASSIC: u16 = 0;       // Legacy script types (PubKey, ScriptHash, etc.)
 pub const SCRIPT_VER_TAPROOT: u16 = 88;      // Taproot (BIP341/SHA256) - Address starts with 't'
 pub const SCRIPT_VER_COPPEROOT_MERKLE: u16 = 192;       // Pay-to-Copperoot-Merkle (BLAKE3) - Address starts with 'c'
-pub const SCRIPT_VER_COPPEROOT_VERKLE: u16 = 96;       // Pay-to-Copperoot-Verkle (BLAKE3) - Reserved, Address starts with 'v'
+pub const SCRIPT_VER_COPPEROOT_VERKLE: u16 = 2;       // Pay-to-Copperoot-Verkle (BLAKE3) - Reserved, Address starts with 'v'
 
 // Backward compatibility aliases
 pub const SCRIPT_VER_P2CR: u16 = SCRIPT_VER_COPPEROOT_MERKLE;
