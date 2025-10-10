@@ -11,12 +11,16 @@ use std::{
     fmt::Debug,
     sync::{Arc, Weak},
 };
-use tondi_consensus_core::{tx::ScriptPublicKeys, utxo::utxo_diff::UtxoDiff, BlockHashSet};
+use tondi_consensus_core::{
+    tx::{ScriptPublicKey, ScriptPublicKeys},
+    utxo::utxo_diff::UtxoDiff,
+    BlockHashSet,
+};
 use tondi_consensusmanager::{ConsensusManager, ConsensusResetHandler};
 use tondi_core::{info, trace};
 use tondi_database::prelude::{StoreError, StoreResult, DB};
 use tondi_hashes::Hash;
-use tondi_index_core::indexed_utxos::BalanceByScriptPublicKey;
+use tondi_index_core::indexed_utxos::{BalanceByScriptPublicKey, CompactUtxoCollection};
 use tondi_utils::arc::ArcExtensions;
 
 const RESYNC_CHUNK_SIZE: usize = 2048; //Increased from 1k (used in go-Tondid), for quicker resets, while still having a low memory footprint.
@@ -57,11 +61,16 @@ impl UtxoIndexApi for UtxoIndex {
         Ok(self.monotonic_circulating_supply)
     }
 
+    /// Retrieve utxos by script public key from the utxoindex db.
+    fn get_utxos_by_script_public_key(&self, spk: ScriptPublicKey, start: u64, limit: u32) -> StoreResult<CompactUtxoCollection> {
+        self.store.get_utxos_by_script_public_key(spk, start, limit)
+    }
+
     /// Retrieve utxos by script public keys from the utxoindex db.
     fn get_utxos_by_script_public_keys(&self, script_public_keys: ScriptPublicKeys) -> StoreResult<UtxoSetByScriptPublicKey> {
         trace!("[{0}] retrieving utxos from {1} script public keys", IDENT, script_public_keys.len());
 
-        self.store.get_utxos_by_script_public_key(script_public_keys)
+        self.store.get_utxos_by_script_public_keys(script_public_keys)
     }
 
     /// Retrieve utxos by script public keys from the utxoindex db.

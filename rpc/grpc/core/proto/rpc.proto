@@ -577,6 +577,19 @@ message StopNotifyingUtxosChangedResponseMessage {
   RPCError error = 1000;
 }
 
+message GetUtxosByAddressRequestMessage {
+  string address = 1;
+  uint64 start = 2;
+  uint32 limit = 3;
+}
+
+message GetUtxosByAddressResponseMessage {
+  repeated RpcUtxosByAddressesEntry entries =1;
+  uint64 total = 2;
+
+  RPCError error = 1000;
+}
+
 // GetUtxosByAddressesRequestMessage requests all current UTXOs for the given Tondid addresses
 //
 // This call is only available when this Tondid was started with `--utxoindex`

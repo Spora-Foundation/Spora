@@ -65,6 +65,7 @@ impl Factory {
                 ResolveFinalityConflict,
                 GetHeader,
                 GetHeaders,
+                GetUtxosByAddress,
                 GetUtxosByAddresses,
                 GetBalanceByAddress,
                 GetBalancesByAddresses,

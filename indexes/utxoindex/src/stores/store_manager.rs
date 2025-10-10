@@ -1,12 +1,12 @@
 use std::{collections::HashSet, sync::Arc};
 
 use tondi_consensus_core::{
-    tx::{ScriptPublicKeys, TransactionOutpoint},
+    tx::{ScriptPublicKey, ScriptPublicKeys, TransactionOutpoint},
     BlockHashSet,
 };
 use tondi_core::trace;
 use tondi_database::prelude::{CachePolicy, StoreResult, DB};
-use tondi_index_core::indexed_utxos::BalanceByScriptPublicKey;
+use tondi_index_core::indexed_utxos::{BalanceByScriptPublicKey, CompactUtxoCollection};
 
 use crate::{
     model::UtxoSetByScriptPublicKey,
@@ -34,7 +34,11 @@ impl Store {
         }
     }
 
-    pub fn get_utxos_by_script_public_key(&self, script_public_keys: ScriptPublicKeys) -> StoreResult<UtxoSetByScriptPublicKey> {
+    pub fn get_utxos_by_script_public_key(&self, spk: ScriptPublicKey, start: u64, limit: u32) -> StoreResult<CompactUtxoCollection> {
+        self.utxos_by_script_public_key_store.get_utxos_from_script_public_key(spk, start, limit)
+    }
+
+    pub fn get_utxos_by_script_public_keys(&self, script_public_keys: ScriptPublicKeys) -> StoreResult<UtxoSetByScriptPublicKey> {
         self.utxos_by_script_public_key_store.get_utxos_from_script_public_keys(script_public_keys)
     }
 

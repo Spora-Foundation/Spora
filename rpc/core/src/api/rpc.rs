@@ -372,6 +372,16 @@ pub trait RpcApi: Sync + Send + AnySync {
         request: GetBalancesByAddressesRequest,
     ) -> RpcResult<GetBalancesByAddressesResponse>;
 
+    async fn get_utxos_by_address(&self, address: RpcAddress, start: u64, limit: u32) -> RpcResult<GetUtxosByAddressResponse> {
+        self.get_utxos_by_address_call(None, GetUtxosByAddressRequest::new(address, start, limit)).await
+    }
+
+    async fn get_utxos_by_address_call(
+        &self,
+        connection: Option<&DynRpcConnection>,
+        request: GetUtxosByAddressRequest,
+    ) -> RpcResult<GetUtxosByAddressResponse>;
+
     /// Requests all current UTXOs for the given node addresses.
     ///
     /// This call is only available when this node was started with `--utxoindex`.

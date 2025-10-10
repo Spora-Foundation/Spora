@@ -413,6 +413,10 @@ async fn sanity_test() {
                 })
             }
 
+            TondidPayloadOps::GetUtxosByAddress => {
+                todo!()
+            }
+
             TondidPayloadOps::GetUtxosByAddresses => {
                 let rpc_client = client.clone();
                 tst!(op, {

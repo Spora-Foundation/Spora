@@ -167,6 +167,25 @@ where
         Ok(())
     }
 
+    pub fn seek_pagination<TBucket>(&self, bucket: TBucket, start: u64, limit: u32) -> impl Iterator<Item = KeyDataResult<TData>> + '_
+    where
+        TBucket: AsRef<[u8]>,
+        TData: DeserializeOwned,
+    {
+        let db_key = DbKey::new_with_bucket(&self.prefix, bucket, []);
+
+        let mut read_opts = ReadOptions::default();
+        read_opts.set_iterate_range(rocksdb::PrefixRange(db_key.as_ref()));
+
+        self.db.iterator_opt(IteratorMode::Start, read_opts).skip(start as usize).take(limit as usize).map(move |item| match item {
+            Ok((key_bytes, value_bytes)) => match bincode::deserialize::<TData>(value_bytes.as_ref()) {
+                Ok(value) => Ok((key_bytes[db_key.prefix_len()..].into(), value)),
+                Err(err) => Err(err.into()),
+            },
+            Err(err) => Err(err.into()),
+        })
+    }
+
     /// A dynamic iterator that can iterate through a specific prefix / bucket, or from a certain start point.
     //TODO: loop and chain iterators for multi-prefix / bucket iterator.
     pub fn seek_iterator(

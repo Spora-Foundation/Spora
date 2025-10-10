@@ -1,14 +1,14 @@
 use parking_lot::RwLock;
 use std::{collections::HashSet, fmt::Debug, sync::Arc};
 use tondi_consensus_core::{
-    tx::{ScriptPublicKeys, TransactionOutpoint},
+    tx::{ScriptPublicKey, ScriptPublicKeys, TransactionOutpoint},
     utxo::utxo_diff::UtxoDiff,
     BlockHashSet,
 };
 use tondi_consensusmanager::spawn_blocking;
 use tondi_database::prelude::StoreResult;
 use tondi_hashes::Hash;
-use tondi_index_core::indexed_utxos::BalanceByScriptPublicKey;
+use tondi_index_core::indexed_utxos::{BalanceByScriptPublicKey, CompactUtxoCollection};
 
 use crate::{
     errors::UtxoIndexResult,
@@ -21,6 +21,11 @@ pub trait UtxoIndexApi: Send + Sync + Debug {
     ///
     /// Note: Use a read lock when accessing this method
     fn get_circulating_supply(&self) -> StoreResult<u64>;
+
+    /// Retrieve utxos by script public key supply from the utxoindex db.
+    ///
+    /// Note: Use a read lock when accessing this method
+    fn get_utxos_by_script_public_key(&self, spk: ScriptPublicKey, start: u64, limit: u32) -> StoreResult<CompactUtxoCollection>;
 
     /// Retrieve utxos by script public keys supply from the utxoindex db.
     ///
@@ -41,7 +46,7 @@ pub trait UtxoIndexApi: Send + Sync + Debug {
     ///
     /// Note:
     /// 1) Use a read lock when accessing this method
-    /// 2) due to potential sync-gaps is_synced is unreliable while consensus is actively resolving virtual states.  
+    /// 2) due to potential sync-gaps is_synced is unreliable while consensus is actively resolving virtual states.
     fn is_synced(&self) -> UtxoIndexResult<bool>;
 
     /// Update the utxoindex with the given utxo_diff, and tips.
@@ -68,6 +73,15 @@ impl UtxoIndexProxy {
 
     pub async fn get_circulating_supply(self) -> StoreResult<u64> {
         spawn_blocking(move || self.inner.read().get_circulating_supply()).await.unwrap()
+    }
+
+    pub async fn get_utxos_by_script_public_key(
+        self,
+        spk: ScriptPublicKey,
+        start: u64,
+        limit: u32,
+    ) -> StoreResult<CompactUtxoCollection> {
+        spawn_blocking(move || self.inner.read().get_utxos_by_script_public_key(spk, start, limit)).await.unwrap()
     }
 
     pub async fn get_utxos_by_script_public_keys(self, script_public_keys: ScriptPublicKeys) -> StoreResult<UtxoSetByScriptPublicKey> {

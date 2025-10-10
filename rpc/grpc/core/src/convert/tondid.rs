@@ -47,6 +47,7 @@ pub mod tondid_request_convert {
     impl_into_tondid_request!(ResolveFinalityConflict);
     impl_into_tondid_request!(GetHeader);
     impl_into_tondid_request!(GetHeaders);
+    impl_into_tondid_request!(GetUtxosByAddress);
     impl_into_tondid_request!(GetUtxosByAddresses);
     impl_into_tondid_request!(GetBalanceByAddress);
     impl_into_tondid_request!(GetBalancesByAddresses);
@@ -188,6 +189,7 @@ pub mod tondid_response_convert {
     impl_into_tondid_response!(ResolveFinalityConflict);
     impl_into_tondid_response!(GetHeader);
     impl_into_tondid_response!(GetHeaders);
+    impl_into_tondid_response!(GetUtxosByAddress);
     impl_into_tondid_response!(GetUtxosByAddresses);
     impl_into_tondid_response!(GetBalanceByAddress);
     impl_into_tondid_response!(GetBalancesByAddresses);

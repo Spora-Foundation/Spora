@@ -16,6 +16,7 @@ use tondi_consensus_core::api::counters::ProcessingCounters;
 use tondi_consensus_core::daa_score_timestamp::DaaScoreTimestamp;
 use tondi_consensus_core::errors::block::RuleError;
 use tondi_consensus_core::mass::{calc_storage_mass, UtxoCell};
+use tondi_consensus_core::tx::ScriptPublicKey;
 use tondi_consensus_core::utxo::utxo_inquirer::UtxoInquirerError;
 use tondi_consensus_core::{
     block::Block,
@@ -64,6 +65,7 @@ use tondi_p2p_flows::flow_context::FlowContext;
 use tondi_p2p_lib::common::ProtocolError;
 use tondi_p2p_mining::rule_engine::MiningRuleEngine;
 use tondi_perf_monitor::{counters::CountersSnapshot, Monitor as PerfMonitor};
+use tondi_rpc_core::utxo_map_into_rpc;
 use tondi_rpc_core::{
     api::{
         connection::DynRpcConnection,
@@ -80,6 +82,7 @@ use tondi_utils::sysinfo::SystemInfo;
 use tondi_utils::{channel::Channel, triggers::SingleTrigger};
 use tondi_utils_tower::counters::TowerConnectionCounters;
 use tondi_utxoindex::api::UtxoIndexProxy;
+use tondi_utxoindex::model::CompactUtxoCollection;
 use workflow_rpc::server::WebSocketCounters as WrpcServerCounters;
 
 /// A service implementing the Rpc API at tondi_rpc_core level.
@@ -254,7 +257,11 @@ impl RpcCoreService {
         self.core_shutdown_request.listener.clone()
     }
 
-    async fn get_utxo_set_by_script_public_key<'a>(
+    async fn get_utxo_set_by_script_public_key(&self, spk: ScriptPublicKey, start: u64, limit: u32) -> CompactUtxoCollection {
+        self.utxoindex.clone().unwrap().get_utxos_by_script_public_key(spk, start, limit).await.unwrap_or_default()
+    }
+
+    async fn get_utxo_set_by_script_public_keys<'a>(
         &self,
         addresses: impl Iterator<Item = &'a RpcAddress>,
     ) -> UtxoSetByScriptPublicKey {
@@ -266,7 +273,10 @@ impl RpcCoreService {
             .unwrap_or_default()
     }
 
-    async fn get_balance_by_script_public_key<'a>(&self, addresses: impl Iterator<Item = &'a RpcAddress>) -> BalanceByScriptPublicKey {
+    async fn get_balance_by_script_public_keys<'a>(
+        &self,
+        addresses: impl Iterator<Item = &'a RpcAddress>,
+    ) -> BalanceByScriptPublicKey {
         self.utxoindex
             .clone()
             .unwrap()
@@ -749,6 +759,19 @@ NOTE: This error usually indicates an RPC conversion error between the node and 
         Ok(self.consensus_manager.consensus().unguarded_session().async_estimate_block_count().await)
     }
 
+    async fn get_utxos_by_address_call(
+        &self,
+        _connection: Option<&DynRpcConnection>,
+        request: GetUtxosByAddressRequest,
+    ) -> RpcResult<GetUtxosByAddressResponse> {
+        let GetUtxosByAddressRequest { address, start, limit } = request;
+        let spk = pay_to_address_script(&address);
+        let utxo_collection = self.get_utxo_set_by_script_public_key(spk.clone(), start, limit).await;
+        let entries = utxo_map_into_rpc(&spk, &utxo_collection);
+        // TODO: Get total by rocksdb.estimate-num-keys
+        Ok(GetUtxosByAddressResponse { entries, total: 0 })
+    }
+
     async fn get_utxos_by_addresses_call(
         &self,
         _connection: Option<&DynRpcConnection>,
@@ -759,7 +782,7 @@ NOTE: This error usually indicates an RPC conversion error between the node and 
         }
         // TODO: discuss if the entry order is part of the method requirements
         //       (the current impl does not retain an entry order matching the request addresses order)
-        let entry_map = self.get_utxo_set_by_script_public_key(request.addresses.iter()).await;
+        let entry_map = self.get_utxo_set_by_script_public_keys(request.addresses.iter()).await;
         Ok(GetUtxosByAddressesResponse::new(self.index_converter.get_utxos_by_addresses_entries(&entry_map)))
     }
 
@@ -771,7 +794,7 @@ NOTE: This error usually indicates an RPC conversion error between the node and 
         if !self.config.utxoindex {
             return Err(RpcError::NoUtxoIndex);
         }
-        let entry_map = self.get_balance_by_script_public_key(once(&request.address)).await;
+        let entry_map = self.get_balance_by_script_public_keys(once(&request.address)).await;
         let balance = entry_map.values().sum();
         Ok(GetBalanceByAddressResponse::new(balance))
     }
@@ -784,7 +807,7 @@ NOTE: This error usually indicates an RPC conversion error between the node and 
         if !self.config.utxoindex {
             return Err(RpcError::NoUtxoIndex);
         }
-        let entry_map = self.get_balance_by_script_public_key(request.addresses.iter()).await;
+        let entry_map = self.get_balance_by_script_public_keys(request.addresses.iter()).await;
         let entries = request
             .addresses
             .iter()

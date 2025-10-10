@@ -360,6 +360,18 @@ from!(item: RpcResult<&tondi_rpc_core::GetHeadersResponse>, protowire::GetHeader
     Self { headers: item.headers.iter().map(|x| x.hash.to_string()).collect(), error: None }
 });
 
+from!(item: &tondi_rpc_core::GetUtxosByAddressRequest, protowire::GetUtxosByAddressRequestMessage, {
+    Self { address: (&item.address).into(), start: item.start, limit: item.limit }
+});
+from!(item: RpcResult<&tondi_rpc_core::GetUtxosByAddressResponse>, protowire::GetUtxosByAddressResponseMessage, {
+    debug!("GRPC, Creating GetUtxosByAddress message with {} entries", item.entries.len());
+    Self {
+        entries: item.entries.iter().map(|x| x.into()).collect(),
+        total: item.total,
+        error: None,
+    }
+});
+
 from!(item: &tondi_rpc_core::GetUtxosByAddressesRequest, protowire::GetUtxosByAddressesRequestMessage, {
     Self { addresses: item.addresses.iter().map(|x| x.into()).collect() }
 });
@@ -887,6 +899,16 @@ try_from!(item: &protowire::GetHeadersRequestMessage, tondi_rpc_core::GetHeaders
 try_from!(item: &protowire::GetHeadersResponseMessage, RpcResult<tondi_rpc_core::GetHeadersResponse>, {
     // TODO
     Self { headers: vec![] }
+});
+
+try_from!(item: &protowire::GetUtxosByAddressRequestMessage, tondi_rpc_core::GetUtxosByAddressRequest, {
+    Self { address: item.address.as_str().try_into()?, start: item.start, limit: item.limit }
+});
+try_from!(item: &protowire::GetUtxosByAddressResponseMessage, RpcResult<tondi_rpc_core::GetUtxosByAddressResponse>, {
+    Self {
+        entries: item.entries.iter().map(|x| x.try_into()).collect::<Result<Vec<_>, _>>()?,
+        total: item.total,
+    }
 });
 
 try_from!(item: &protowire::GetUtxosByAddressesRequestMessage, tondi_rpc_core::GetUtxosByAddressesRequest, {

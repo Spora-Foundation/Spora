@@ -1605,6 +1605,71 @@ impl Deserializer for GetSinkBlueScoreResponse {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct GetUtxosByAddressRequest {
+    pub address: RpcAddress,
+    pub start: u64,
+    pub limit: u32,
+}
+
+impl GetUtxosByAddressRequest {
+    pub fn new(address: RpcAddress, start: u64, limit: u32) -> Self {
+        Self { address, start, limit }
+    }
+}
+
+impl Serializer for GetUtxosByAddressRequest {
+    fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
+        store!(u16, &1, writer)?;
+        store!(RpcAddress, &self.address, writer)?;
+        store!(u64, &self.start, writer)?;
+        store!(u32, &self.limit, writer)?;
+        Ok(())
+    }
+}
+
+impl Deserializer for GetUtxosByAddressRequest {
+    fn deserialize<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
+        let _version = load!(u16, reader)?;
+        let address = load!(RpcAddress, reader)?;
+        let start = load!(u64, reader)?;
+        let limit = load!(u32, reader)?;
+        Ok(Self { address, start, limit })
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GetUtxosByAddressResponse {
+    pub entries: Vec<RpcUtxosByAddressesEntry>,
+    pub total: u64,
+}
+
+impl GetUtxosByAddressResponse {
+    pub fn new(entries: Vec<RpcUtxosByAddressesEntry>, total: u64) -> Self {
+        Self { entries, total }
+    }
+}
+
+impl Serializer for GetUtxosByAddressResponse {
+    fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
+        store!(u16, &1, writer)?;
+        serialize!(Vec<RpcUtxosByAddressesEntry>, &self.entries, writer)?;
+        store!(u64, &self.total, writer)?;
+        Ok(())
+    }
+}
+
+impl Deserializer for GetUtxosByAddressResponse {
+    fn deserialize<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
+        let _version = load!(u16, reader)?;
+        let entries = deserialize!(Vec<RpcUtxosByAddressesEntry>, reader)?;
+        let total = load!(u64, reader)?;
+        Ok(Self { entries, total })
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GetUtxosByAddressesRequest {
     pub addresses: Vec<RpcAddress>,
 }

@@ -141,6 +141,7 @@ pub enum RpcApiOps {
     GetTransaction = 151,
     GetBlockStatus = 152,
     GetHeader = 153,
+    GetUtxosByAddress = 154,
 }
 
 impl RpcApiOps {

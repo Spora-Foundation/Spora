@@ -1,4 +1,5 @@
 use crate::prelude::DbKey;
+use std::error::Error as StdError;
 use thiserror::Error;
 use tondi_hashes::Hash;
 
@@ -23,6 +24,9 @@ pub enum StoreError {
 
     #[error("bincode error {0}")]
     DeserializationError(#[from] Box<bincode::ErrorKind>),
+
+    #[error("StoreError: {0}")]
+    Generic(String),
 }
 
 pub type StoreResult<T> = std::result::Result<T, StoreError>;
@@ -39,6 +43,12 @@ impl<T> StoreResultExtensions<T> for StoreResult<T> {
             Err(StoreError::KeyNotFound(_)) => None,
             Err(err) => panic!("Unexpected store error: {err:?}"),
         }
+    }
+}
+
+impl From<Box<dyn StdError>> for StoreError {
+    fn from(err: Box<dyn StdError>) -> Self {
+        Self::Generic(format!("{err}"))
     }
 }
 

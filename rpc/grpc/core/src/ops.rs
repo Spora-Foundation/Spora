@@ -71,6 +71,7 @@ pub enum TondidPayloadOps {
     ResolveFinalityConflict,
     GetHeader,
     GetHeaders,
+    GetUtxosByAddress,
     GetUtxosByAddresses,
     GetBalanceByAddress,
     GetBalancesByAddresses,

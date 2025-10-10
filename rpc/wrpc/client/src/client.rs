@@ -648,6 +648,7 @@ impl RpcApi for TondiRpcClient {
             GetSyncStatus,
             GetSystemInfo,
             GetUtxoReturnAddress,
+            GetUtxosByAddress,
             GetUtxosByAddresses,
             GetVirtualChainFromBlock,
             ResolveFinalityConflict,

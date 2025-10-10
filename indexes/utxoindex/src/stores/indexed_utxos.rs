@@ -121,6 +121,7 @@ impl AsRef<[u8]> for UtxoEntryFullAccessKey {
 // Traits:
 
 pub trait UtxoSetByScriptPublicKeyStoreReader {
+    fn get_utxos_from_script_public_key(&self, spk: ScriptPublicKey, start: u64, limit: u32) -> StoreResult<CompactUtxoCollection>;
     /// Get [UtxoSetByScriptPublicKey] set by queried [ScriptPublicKeys],
     fn get_utxos_from_script_public_keys(&self, script_public_keys: ScriptPublicKeys) -> StoreResult<UtxoSetByScriptPublicKey>;
     fn get_balance_from_script_public_keys(&self, script_public_keys: ScriptPublicKeys) -> StoreResult<BalanceByScriptPublicKey>;
@@ -153,6 +154,17 @@ impl DbUtxoSetByScriptPublicKeyStore {
 }
 
 impl UtxoSetByScriptPublicKeyStoreReader for DbUtxoSetByScriptPublicKeyStore {
+    fn get_utxos_from_script_public_key(&self, spk: ScriptPublicKey, start: u64, limit: u32) -> StoreResult<CompactUtxoCollection> {
+        let spk_bucket = ScriptPublicKeyBucket::from(&spk);
+        self.access
+            .seek_pagination(spk_bucket, start, limit)
+            .map(|item| {
+                let (key, entry) = item?;
+                Ok((TransactionOutpointKey(<[u8; TRANSACTION_OUTPOINT_KEY_SIZE]>::try_from(&key[..]).unwrap()).into(), entry))
+            })
+            .collect()
+    }
+
     // compared to go-Tondid this gets transaction outpoints from multiple script public keys at once.
     // TODO: probably ideal way to retrieve is to return a chained iterator which can be used to chunk results and propagate utxo entries
     // to the rpc via pagination, this would alleviate the memory footprint of script public keys with large amount of utxos.

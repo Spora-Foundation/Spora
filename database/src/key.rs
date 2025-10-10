@@ -19,7 +19,7 @@ impl DbKey {
     pub fn new_with_bucket<TKey, TBucket>(prefix: &[u8], bucket: TBucket, key: TKey) -> Self
     where
         TKey: Clone + AsRef<[u8]>,
-        TBucket: Copy + AsRef<[u8]>,
+        TBucket: AsRef<[u8]>,
     {
         let mut db_key = Self::prefix_only(prefix);
         db_key.add_bucket(bucket);
@@ -34,7 +34,7 @@ impl DbKey {
     /// add a bucket to the DBkey, this adds to the prefix length
     pub fn add_bucket<TBucket>(&mut self, bucket: TBucket)
     where
-        TBucket: Copy + AsRef<[u8]>,
+        TBucket: AsRef<[u8]>,
     {
         self.path.extend(bucket.as_ref().iter().copied());
         self.prefix_len += bucket.as_ref().len();
