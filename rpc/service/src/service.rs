@@ -413,7 +413,7 @@ NOTE: This error usually indicates an RPC conversion error between the node and 
                     stringify!(RuleError::BadMerkleRoot),
                     RuleError::BadMerkleRoot(h1, h2)
                 );
-                if self.config.net.is_mainnet() {
+                if matches!(self.config.net.network_type, NetworkType::Mainnet | NetworkType::Testnet) {
                     warn!("Printing the full block for debug purposes:\n{:?}", block);
                 }
                 Ok(SubmitBlockResponse { report: SubmitBlockReport::Reject(SubmitBlockRejectReason::BlockInvalid) })
