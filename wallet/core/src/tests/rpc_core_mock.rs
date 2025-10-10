@@ -307,6 +307,14 @@ impl RpcApi for RpcCoreMock {
         Err(RpcError::NotImplemented)
     }
 
+    async fn get_utxos_by_address_call(
+        &self,
+        _connection: Option<&DynRpcConnection>,
+        _request: GetUtxosByAddressRequest,
+    ) -> RpcResult<GetUtxosByAddressResponse> {
+        Err(RpcError::NotImplemented)
+    }
+
     async fn get_utxos_by_addresses_call(
         &self,
         _connection: Option<&DynRpcConnection>,
