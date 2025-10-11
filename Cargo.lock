@@ -5258,6 +5258,7 @@ dependencies = [
  "bs58",
  "faster-hex",
  "getrandom 0.2.16",
+ "getrandom 0.3.3",
  "hmac",
  "js-sys",
  "once_cell",

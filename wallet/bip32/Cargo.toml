@@ -35,3 +35,7 @@ tondi-consensus-core.workspace = true
 
 [dev-dependencies]
 faster-hex.workspace = true
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# FIX getrandom wasm build
+getrandom_v3 = { package = "getrandom", version = "0.3", features = ["wasm_js"] }

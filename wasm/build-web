@@ -2,7 +2,7 @@
 set -e
 
 # FIX: https://github.com/rust-lang/rust/issues/141048
-export RUSTFLAGS=-Ctarget-cpu=mvp
+export RUSTFLAGS='-Ctarget-cpu=mvp --cfg getrandom_backend="wasm_js"'
 
 if [ "$1" == "--keygen" ]; then
     echo "building wasm32-keygen"
