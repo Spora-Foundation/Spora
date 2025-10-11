@@ -16,7 +16,7 @@
 //! ## Supported Address Types
 //!
 //! - **PubKey** (v0): Standard public key addresses
-//! - **PubKeyECDSA** (v1): ECDSA-compatible public key addresses  
+//! - **PubKeyECDSA** (v1): ECDSA-compatible public key addresses
 //! - **ScriptHash** (v8): Pay-to-script-hash addresses
 //! - **Taproot** (v1): BIP341 Taproot addresses (starts with 't')
 //! - **CopperootMerkle** (v192): Copperoot Merkle tree addresses (starts with 'c')
@@ -30,18 +30,18 @@
 //! // Create a new address
 //! let payload = [0u8; 32];
 //! let address = Address::new(Prefix::Mainnet, Version::PubKey, &payload).expect("Valid address");
-//! 
+//!
 //! // Parse from string
 //! // let address: Address = "tondi:qz0s...t8cv".parse().expect("Valid address");
-//! 
+//!
 //! // Validate address
 //! // let is_valid = Address::validate("tondi:qz0s...t8cv");
-//! 
+//!
 //! // Use convenience constructors
 //! let pubkey_addr = Address::new_pubkey(Prefix::Mainnet, &[0u8; 32]).expect("Valid address");
 //! let taproot_addr = Address::new_taproot(Prefix::Mainnet, &[0u8; 32]).expect("Valid address");
 //! let copperoot_addr = Address::new_copperoot_merkle(Prefix::Mainnet, &[0u8; 32]).expect("Valid address");
-//! 
+//!
 //! // Get address information
 //! let info = address.info();
 //! println!("Address type: {}", info.version.type_name());
@@ -94,7 +94,9 @@ pub enum AddressError {
     InvalidVersion(u8),
 
     /// The address has an invalid version string
-    #[error("Invalid version string '{0}'. Expected one of: PubKey, PubKeyECDSA, ScriptHash, Taproot, CopperootMerkle, CopperootVerkle")]
+    #[error(
+        "Invalid version string '{0}'. Expected one of: PubKey, PubKeyECDSA, ScriptHash, Taproot, CopperootMerkle, CopperootVerkle"
+    )]
     InvalidVersionString(String),
 
     /// The address contains an invalid character in the encoded payload
@@ -207,7 +209,7 @@ impl Address {
 ///
 /// Each prefix corresponds to a specific Tondi network configuration:
 /// - `Mainnet`: Production network (`tondi`)
-/// - `Testnet`: Public test network (`tonditest`) 
+/// - `Testnet`: Public test network (`tonditest`)
 /// - `Simnet`: Simulation network (`tondisim`)
 /// - `Devnet`: Development network (`tondidev`)
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Debug, Hash, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
@@ -217,7 +219,7 @@ pub enum Prefix {
     #[serde(rename = "tondi")]
     Mainnet,
     /// Testnet - Public testing network
-    #[serde(rename = "tonditest")]
+    #[serde(rename = "tondi0")]
     Testnet,
     /// Simnet - Simulation network for testing
     #[serde(rename = "tondisim")]
@@ -237,7 +239,7 @@ impl Prefix {
     pub fn as_str(&self) -> &'static str {
         match self {
             Prefix::Mainnet => "tondi",
-            Prefix::Testnet => "tonditest",
+            Prefix::Testnet => "tondi0",
             Prefix::Simnet => "tondisim",
             Prefix::Devnet => "tondidev",
             #[cfg(test)]
@@ -271,7 +273,7 @@ impl Prefix {
     pub fn network_name(&self) -> &'static str {
         match self {
             Prefix::Mainnet => "Mainnet",
-            Prefix::Testnet => "Testnet", 
+            Prefix::Testnet => "Testnet",
             Prefix::Simnet => "Simnet",
             Prefix::Devnet => "Devnet",
             #[cfg(test)]
@@ -294,7 +296,7 @@ impl TryFrom<&str> for Prefix {
     fn try_from(prefix: &str) -> Result<Self, Self::Error> {
         match prefix {
             "tondi" => Ok(Prefix::Mainnet),
-            "tonditest" => Ok(Prefix::Testnet),
+            "tondi0" => Ok(Prefix::Testnet),
             "tondisim" => Ok(Prefix::Simnet),
             "tondidev" => Ok(Prefix::Devnet),
             #[cfg(test)]
@@ -310,7 +312,7 @@ impl TryFrom<&str> for Prefix {
 ///
 /// Each version corresponds to a specific address type with different characteristics:
 /// - **PubKey** (v0): Standard 32-byte public key addresses
-/// - **PubKeyECDSA** (v1): ECDSA-compatible 33-byte public key addresses  
+/// - **PubKeyECDSA** (v1): ECDSA-compatible 33-byte public key addresses
 /// - **ScriptHash** (v8): Pay-to-script-hash addresses with 32-byte script hash
 /// - **Taproot** (v1): BIP341 Taproot addresses with 32-byte x-only public key (starts with 't')
 /// - **CopperootMerkle** (v192): Copperoot Merkle tree addresses with 32-byte key (starts with 'c')
@@ -376,7 +378,7 @@ impl Version {
     }
 
     /// Get the expected payload length in bytes for this address version
-    /// 
+    ///
     /// This is an alias for `payload_len()` for backward compatibility
     #[inline(always)]
     pub fn public_key_len(&self) -> usize {
@@ -417,7 +419,7 @@ impl Version {
     pub fn all() -> &'static [Version] {
         &[
             Version::PubKey,
-            Version::PubKeyECDSA, 
+            Version::PubKeyECDSA,
             Version::ScriptHash,
             Version::Taproot,
             Version::CopperootMerkle,
@@ -435,7 +437,7 @@ impl TryFrom<u8> for Version {
             1 => Ok(Version::PubKeyECDSA),
             8 => Ok(Version::ScriptHash),
             88 => Ok(Version::Taproot),
-            192 => Ok(Version::CopperootMerkle), // Address version for 'c' prefix
+            192 => Ok(Version::CopperootMerkle),            // Address version for 'c' prefix
             96 => Err(AddressError::InvalidVersion(value)), // CopperootVerkle disabled for mainnet launch
             _ => Err(AddressError::InvalidVersion(value)),
         }
@@ -526,17 +528,9 @@ impl Address {
     pub fn new(prefix: Prefix, version: Version, payload: &[u8]) -> Result<Self, AddressError> {
         let expected_len = version.payload_len();
         if !prefix.is_test() && payload.len() != expected_len {
-            return Err(AddressError::BadPayload { 
-                expected: expected_len, 
-                actual: payload.len(), 
-                version: version as u8 
-            });
+            return Err(AddressError::BadPayload { expected: expected_len, actual: payload.len(), version: version as u8 });
         }
-        Ok(Self { 
-            prefix, 
-            payload: PayloadVec::from_slice(payload), 
-            version 
-        })
+        Ok(Self { prefix, payload: PayloadVec::from_slice(payload), version })
     }
 
     /// Create a new address with the specified prefix, version, and payload (unchecked)
@@ -545,17 +539,13 @@ impl Address {
     /// This function does not validate payload length. Use `new()` for safe construction.
     #[inline(always)]
     pub fn new_unchecked(prefix: Prefix, version: Version, payload: &[u8]) -> Self {
-        Self { 
-            prefix, 
-            payload: PayloadVec::from_slice(payload), 
-            version 
-        }
+        Self { prefix, payload: PayloadVec::from_slice(payload), version }
     }
 
     /// Create a Copperoot Merkle address from an x-only public key
-    /// 
-    /// This function creates a P2CR (Pay-to-Copperoot-Merkle) address with the provided 
-    /// x-only public key as the payload. For MuSig2 aggregated keys, the aggregation 
+    ///
+    /// This function creates a P2CR (Pay-to-Copperoot-Merkle) address with the provided
+    /// x-only public key as the payload. For MuSig2 aggregated keys, the aggregation
     /// should be done externally and the result passed to this function.
     ///
     /// # Arguments
@@ -648,10 +638,7 @@ impl Address {
         if chars == 0 {
             return format!("{}:{}", self.prefix, payload);
         }
-        format!("{}:{}....{}", 
-                self.prefix, 
-                &payload[0..chars], 
-                &payload[payload.len() - chars..])
+        format!("{}:{}....{}", self.prefix, &payload[0..chars], &payload[payload.len() - chars..])
     }
 
     /// Get detailed information about this address
@@ -678,9 +665,7 @@ impl Address {
     /// Panics if the address string is invalid. Use `validate()` to check validity first.
     #[wasm_bindgen(constructor)]
     pub fn constructor(address: &str) -> Address {
-        address.try_into().unwrap_or_else(|err| {
-            panic!("Address::constructor() - invalid address '{}': {}", address, err)
-        })
+        address.try_into().unwrap_or_else(|err| panic!("Address::constructor() - invalid address '{}': {}", address, err))
     }
 
     /// Validate an address string without creating an Address object
@@ -722,9 +707,8 @@ impl Address {
     /// Panics if the prefix string is invalid
     #[wasm_bindgen(setter, js_name = "setPrefix")]
     pub fn set_prefix_from_str(&mut self, prefix: &str) {
-        self.prefix = Prefix::try_from(prefix).unwrap_or_else(|err| {
-            panic!("Address::set_prefix_from_str() - invalid prefix '{}': {}", prefix, err)
-        });
+        self.prefix = Prefix::try_from(prefix)
+            .unwrap_or_else(|err| panic!("Address::set_prefix_from_str() - invalid prefix '{}': {}", prefix, err));
     }
 
     /// Get the encoded payload as a string
@@ -1123,15 +1107,15 @@ mod tests {
     fn test_copperoot_merkle_address_prefix() {
         use Prefix::*;
         use Version::*;
-        
+
         // Test that CopperootMerkle addresses start with 'c' after the prefix
         let address = Address::new(Mainnet, CopperootMerkle, &XPUB).expect("Valid address");
         let encoded = String::from(&address);
-        
+
         // Verify the address after "tondi:" starts with 'c'
         let after_prefix = encoded.strip_prefix("tondi:").expect("Should have tondi: prefix");
         assert!(after_prefix.starts_with('c'), "CopperootMerkle address should start with 'c', got: {}", after_prefix);
-        
+
         // Test round-trip encoding/decoding
         let decoded: Address = encoded.parse().expect("Failed to decode CopperootMerkle address");
         assert_eq!(decoded.version, CopperootMerkle);
@@ -1143,11 +1127,11 @@ mod tests {
     fn test_copperoot_verkle_disabled() {
         use Prefix::*;
         use Version::*;
-        
+
         // CopperootVerkle (version 96) should be rejected during decoding
         let address = Address::new_unchecked(Mainnet, CopperootVerkle, &XPUB);
         let encoded = String::from(&address);
-        
+
         // Decoding should fail because version 96 is disabled
         let result: Result<Address, _> = encoded.parse();
         assert!(result.is_err(), "CopperootVerkle addresses should be rejected");
@@ -1156,34 +1140,33 @@ mod tests {
 
     #[test]
     fn test_copperoot_real_key_generation() {
+        use secp256k1::{Secp256k1, SecretKey};
         use Prefix::*;
         use Version::*;
-        use secp256k1::{Secp256k1, SecretKey};
-        
+
         let secp = Secp256k1::new();
         let secret_key = SecretKey::from_slice(&[
-            0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8,
-            0x9, 0xa, 0xb, 0xc, 0xd, 0xe, 0xf, 0x10,
-            0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18,
-            0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x20,
-        ]).expect("Valid secret key");
-        
+            0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xa, 0xb, 0xc, 0xd, 0xe, 0xf, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
+            0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x20,
+        ])
+        .expect("Valid secret key");
+
         let public_key = secp256k1::PublicKey::from_secret_key(&secp, &secret_key);
         let xonly_pubkey = public_key.x_only_public_key().0;
-        
+
         // Create CopperootMerkle address
         let address = Address::new(Mainnet, CopperootMerkle, &xonly_pubkey.serialize()).expect("Valid address");
         let encoded = address.to_string();
-        
+
         // Verify address starts with 'c' after the network prefix
         let after_prefix = encoded.strip_prefix("tondi:").expect("Should have tondi: prefix");
         assert!(after_prefix.starts_with('c'), "Real CopperootMerkle address should start with 'c', got: {}", after_prefix);
-        
+
         // Verify round-trip
         let decoded: Address = encoded.parse().expect("Failed to decode");
         assert_eq!(decoded.version, CopperootMerkle);
         assert_eq!(decoded.payload.as_slice(), &xonly_pubkey.serialize());
-        
+
         // Test different networks all use 'c' prefix
         for prefix in [Testnet, Simnet, Devnet] {
             let addr = Address::new(prefix, CopperootMerkle, &xonly_pubkey.serialize()).expect("Valid address");
@@ -1196,23 +1179,23 @@ mod tests {
     #[test]
     fn test_address_convenience_constructors() {
         use Prefix::*;
-        
+
         let payload32 = [0u8; 32];
         let payload33 = [0u8; 33];
-        
+
         // Test convenience constructors
         let pubkey_addr = Address::new_pubkey(Mainnet, &payload32).expect("Valid pubkey address");
         assert_eq!(pubkey_addr.version(), Version::PubKey);
-        
+
         let ecdsa_addr = Address::new_pubkey_ecdsa(Mainnet, &payload33).expect("Valid ecdsa address");
         assert_eq!(ecdsa_addr.version(), Version::PubKeyECDSA);
-        
+
         let script_addr = Address::new_script_hash(Mainnet, &payload32).expect("Valid script hash address");
         assert_eq!(script_addr.version(), Version::ScriptHash);
-        
+
         let taproot_addr = Address::new_taproot(Mainnet, &payload32).expect("Valid taproot address");
         assert_eq!(taproot_addr.version(), Version::Taproot);
-        
+
         let copperoot_addr = Address::new_copperoot_merkle(Mainnet, &payload32).expect("Valid copperoot address");
         assert_eq!(copperoot_addr.version(), Version::CopperootMerkle);
     }
@@ -1220,10 +1203,10 @@ mod tests {
     #[test]
     fn test_address_info_and_methods() {
         use Prefix::*;
-        
+
         let payload = [0u8; 32];
         let address = Address::new(Mainnet, Version::CopperootMerkle, &payload).expect("Valid address");
-        
+
         // Test info method
         let info = address.info();
         assert_eq!(info.prefix, Mainnet);
@@ -1232,14 +1215,14 @@ mod tests {
         assert!(info.is_enabled);
         assert!(info.is_copperoot);
         assert!(info.is_taproot_compatible);
-        
+
         // Test convenience methods
         assert!(address.is_enabled());
         assert!(address.is_copperoot());
         assert!(address.is_taproot_compatible());
         assert!(address.is_mainnet());
         assert!(!address.is_test_network());
-        
+
         // Test short display
         let short = address.short_display(4);
         assert!(short.contains("tondi:"));
@@ -1249,17 +1232,17 @@ mod tests {
     #[test]
     fn test_improved_error_handling() {
         use Prefix::*;
-        
+
         // Test payload length validation
         let wrong_payload = [0u8; 16]; // Too short for PubKeyECDSA
         let result = Address::new(Mainnet, Version::PubKeyECDSA, &wrong_payload);
         assert!(matches!(result, Err(AddressError::BadPayload { expected: 33, actual: 16, version: 1 })));
-        
+
         // Test detailed validation
         let invalid_address = "invalid:address";
         let result = Address::validate_detailed(invalid_address);
         assert!(result.is_err());
-        
+
         // Test parse with detailed error
         let result = Address::parse("tondi:invalid");
         assert!(result.is_err());
@@ -1272,18 +1255,18 @@ mod tests {
         assert!(!Prefix::Testnet.is_mainnet());
         assert_eq!(Prefix::Mainnet.network_name(), "Mainnet");
         assert_eq!(Prefix::Testnet.network_name(), "Testnet");
-        
+
         let all_prefixes = Prefix::all();
         assert!(all_prefixes.contains(&Prefix::Mainnet));
         assert!(all_prefixes.contains(&Prefix::Testnet));
-        
+
         // Test Version methods
         assert!(Version::PubKey.is_enabled());
         assert!(!Version::CopperootVerkle.is_enabled());
         assert!(Version::CopperootMerkle.is_copperoot());
         assert!(Version::Taproot.is_taproot_compatible());
         assert_eq!(Version::PubKey.type_name(), "Public Key");
-        
+
         let all_versions = Version::all();
         assert!(all_versions.contains(&Version::PubKey));
         assert!(!all_versions.contains(&Version::CopperootVerkle)); // Disabled
@@ -1293,17 +1276,17 @@ mod tests {
     fn test_address_version_byte_encoding() {
         use Prefix::*;
         use Version::*;
-        
+
         // Test that version bytes encode to expected first characters
         let test_key = [0u8; 32];
-        
+
         // Taproot = 1 = 0b00001_000 -> first 5 bits = 0b00001 = 1 -> 't' in bech32
         let taproot = Address::new(Mainnet, Taproot, &test_key).expect("Valid address");
         let taproot_enc = taproot.to_string();
         let taproot_data = taproot_enc.strip_prefix("tondi:").unwrap();
         assert!(taproot_data.starts_with('t'), "Taproot should start with 't', got: {}", taproot_data);
-        
-        // CopperootMerkle = 192 = 0b11000_000 -> first 5 bits = 0b11000 = 24 -> 'c' in bech32  
+
+        // CopperootMerkle = 192 = 0b11000_000 -> first 5 bits = 0b11000 = 24 -> 'c' in bech32
         let copperoot = Address::new(Mainnet, CopperootMerkle, &test_key).expect("Valid address");
         let copperoot_enc = copperoot.to_string();
         let copperoot_data = copperoot_enc.strip_prefix("tondi:").unwrap();

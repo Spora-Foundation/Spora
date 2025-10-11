@@ -774,13 +774,13 @@ mod tests {
     #[tokio::test]
     async fn generate_tonditest_addresses() {
         let receive_addresses = [
-            "tonditest:qqz22l98sf8jun72rwh5rqe2tm8lhwtdxdmynrz4ypwak427qed5jum76ja",
-            "tonditest:qz880h6s4fwyumlslklt4jjwm7y5lcqyy8v5jc88gsncpuza0y76x0wmy6s",
+            "tondi0:qqz22l98sf8jun72rwh5rqe2tm8lhwtdxdmynrz4ypwak427qed5ja43uev",
+            "tondi0:qz880h6s4fwyumlslklt4jjwm7y5lcqyy8v5jc88gsncpuza0y76xwq5z3p",
         ];
 
         let change_addresses = vec![
-            "tonditest:qq3p8lvqyhzh37qgh2vf9u79l7h85pnmypg8z0tmp0tfl70zjm2cvawrn9a",
-            "tonditest:qpl00d5thmm3c5w3lj9cwx94dejjjx667rh3ey4sp0tkrmhsyd7rgf0345v",
+            "tondi0:qq3p8lvqyhzh37qgh2vf9u79l7h85pnmypg8z0tmp0tfl70zjm2cvuqv4wv",
+            "tondi0:qpl00d5thmm3c5w3lj9cwx94dejjjx667rh3ey4sp0tkrmhsyd7rggp7nla",
         ];
 
         let master_xprv =

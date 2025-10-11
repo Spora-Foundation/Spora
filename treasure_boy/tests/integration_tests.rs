@@ -7,11 +7,11 @@ fn test_load_addresses_from_file_success() {
     // Create temporary file
     let mut temp_file = NamedTempFile::new().unwrap();
     let addresses_content = r#"# Test address file
-tonditest:qr556222uq03hzf3nvxfl45x3ek07lrh7tp88xw2eh6tpuw2m9qs5e8tzc8
-tonditest:qpl979v8dyhfw8v2d7x5rwre5ghph9d8jy0z8md06dnldkark3fs6wntgqx
+tondi0:qrgqpkue0tzhmqd77tljdhwjc757hc26uestam0gc4kycjx4k8uu603uewc
+tondi0:qqmquth4lyayewfl32pj8w9w9dpzqk6c9ngyp4xxmyqusxruhjm0jwhje4w
 
 # Another address
-tonditest:qpfmfyce6qhzknxgwvsucpdjv9xe20tmn20yc8uclxw87sk858f0k6e72wy
+tondi0:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvp55hu9
 "#;
 
     temp_file.write_all(addresses_content.as_bytes()).unwrap();
@@ -21,7 +21,7 @@ tonditest:qpfmfyce6qhzknxgwvsucpdjv9xe20tmn20yc8uclxw87sk858f0k6e72wy
     let addresses = load_addresses_from_file(temp_file.path().to_str().unwrap()).unwrap();
 
     assert_eq!(addresses.len(), 3);
-    assert!(addresses.iter().all(|addr| format!("{addr}").starts_with("tonditest:")));
+    assert!(addresses.iter().all(|addr| format!("{addr}").starts_with("tondi0:")));
 }
 
 #[test]
@@ -29,14 +29,14 @@ fn test_load_addresses_from_file_with_invalid_addresses() {
     // Create temporary file with invalid addresses
     let mut temp_file = NamedTempFile::new().unwrap();
     let addresses_content = r#"# Valid addresses
-tonditest:qr556222uq03hzf3nvxfl45x3ek07lrh7tp88xw2eh6tpuw2m9qs5e8tzc8
+tondi0:qrgqpkue0tzhmqd77tljdhwjc757hc26uestam0gc4kycjx4k8uu603uewc
 
 # Invalid addresses
 invalid_address_123
 another_invalid_address
 
 # Another valid address
-tonditest:qpl979v8dyhfw8v2d7x5rwre5ghph9d8jy0z8md06dnldkark3fs6wntgqx
+tondi0:qqmquth4lyayewfl32pj8w9w9dpzqk6c9ngyp4xxmyqusxruhjm0jwhje4w
 "#;
 
     temp_file.write_all(addresses_content.as_bytes()).unwrap();
@@ -46,7 +46,7 @@ tonditest:qpl979v8dyhfw8v2d7x5rwre5ghph9d8jy0z8md06dnldkark3fs6wntgqx
     let addresses = load_addresses_from_file(temp_file.path().to_str().unwrap()).unwrap();
 
     assert_eq!(addresses.len(), 2);
-    assert!(addresses.iter().all(|addr| format!("{addr}").starts_with("tonditest:")));
+    assert!(addresses.iter().all(|addr| format!("{addr}").starts_with("tondi0:")));
 }
 
 #[test]
@@ -141,8 +141,10 @@ fn test_txs_fee_config() {
 fn test_address_distribution_fairness() {
     use tondi_addresses::{Address, Prefix, Version};
 
-    let addresses =
-        vec![Address::new(Prefix::Testnet, Version::PubKey, &[1; 32]).expect("Valid address"), Address::new(Prefix::Testnet, Version::PubKey, &[2; 32]).expect("Valid address")];
+    let addresses = vec![
+        Address::new(Prefix::Testnet, Version::PubKey, &[1; 32]).expect("Valid address"),
+        Address::new(Prefix::Testnet, Version::PubKey, &[2; 32]).expect("Valid address"),
+    ];
 
     let mut tracker = AddressDistributionTracker::new(addresses);
 

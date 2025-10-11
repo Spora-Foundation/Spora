@@ -19,7 +19,7 @@ A high-performance transaction generator and airdrop tool for the Tondi blockcha
 
 ### Prerequisites
 
-- Rust 1.70+ 
+- Rust 1.70+
 - Access to a Tondi RPC node
 
 ### Build from Source
@@ -52,7 +52,7 @@ Send tokens to a single address:
 ```bash
 cargo run --package treasure_boy -- \
   --private-key YOUR_PRIVATE_KEY \
-  --to-addr tonditest:qr556222uq03hzf3nvxfl45x3ek07lrh7tp88xw2eh6tpuw2m9qs5e8tzc8 \
+  --to-addr tondi0:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvp55hu9 \
   --tps 5 \
   --amount 1000000000
 ```
@@ -96,8 +96,8 @@ cargo run --package treasure_boy -- \
 
 ### Network Types
 
-- **testnet**: Uses `tonditest:` prefix (default)
-- **mainnet**: Uses `tondi:` prefix  
+- **testnet**: Uses `tondi0:` prefix (default)
+- **mainnet**: Uses `tondi:` prefix
 - **devnet**: Uses `tondidev:` prefix
 
 ### Address File Format
@@ -105,9 +105,9 @@ cargo run --package treasure_boy -- \
 Create a text file with one address per line:
 ```
 # Comments are supported
-tonditest:qr556222uq03hzf3nvxfl45x3ek07lrh7tp88xw2eh6tpuw2m9qs5e8tzc8
-tonditest:qpl979v8dyhfw8v2d7x5rwre5ghph9d8jy0z8md06dnldkark3fs6wntgqx
-tonditest:qpfmfyce6qhzknxgwvsucpdjv9xe20tmn20yc8uclxw87sk858f0k6e72wy
+tondi0:qrgqpkue0tzhmqd77tljdhwjc757hc26uestam0gc4kycjx4k8uu603uewc
+tondi0:qqmquth4lyayewfl32pj8w9w9dpzqk6c9ngyp4xxmyqusxruhjm0jwhje4w
+tondi0:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvp55hu9
 ```
 
 ## Examples
@@ -128,7 +128,7 @@ cargo run --package treasure_boy -- --generate-addresses 100 --network mainnet -
 # Send 1 TONDI to a single address at 10 TPS
 cargo run --package treasure_boy -- \
   --private-key c99b1ccf1087af2a56ffedb885943962e0159a7705cac583eef3e9958cd035b3 \
-  --to-addr tonditest:qr556222uq03hzf3nvxfl45x3ek07lrh7tp88xw2eh6tpuw2m9qs5e8tzc8 \
+  --to-addr tondi0:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvp55hu9 \
   --tps 10 \
   --amount 1000000000
 ```

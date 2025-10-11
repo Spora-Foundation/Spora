@@ -905,8 +905,10 @@ mod tests {
 
     #[test]
     fn test_address_distribution_tracker_stats() {
-        let addresses =
-            vec![Address::new(Prefix::Devnet, Version::PubKey, &[1; 32]).expect("Valid address"), Address::new(Prefix::Devnet, Version::PubKey, &[2; 32]).expect("Valid address")];
+        let addresses = vec![
+            Address::new(Prefix::Devnet, Version::PubKey, &[1; 32]).expect("Valid address"),
+            Address::new(Prefix::Devnet, Version::PubKey, &[2; 32]).expect("Valid address"),
+        ];
 
         let mut tracker = AddressDistributionTracker::new(addresses);
 
@@ -1004,7 +1006,8 @@ mod tests {
     fn test_generate_tx() {
         let (secret_key, public_key) = secp256k1::generate_keypair(&mut thread_rng());
         let keypair = Keypair::from_seckey_slice(secp256k1::SECP256K1, &secret_key.secret_bytes()).unwrap();
-        let addr = Address::new(Prefix::Devnet, Version::PubKey, &public_key.x_only_public_key().0.serialize()).expect("Valid address");
+        let addr =
+            Address::new(Prefix::Devnet, Version::PubKey, &public_key.x_only_public_key().0.serialize()).expect("Valid address");
 
         let utxos = vec![(
             TransactionOutpoint { transaction_id: tondi_consensus_core::Hash::from_bytes([0xFF; 32]), index: 0 },
@@ -1028,7 +1031,8 @@ mod tests {
     fn test_generate_multi_output_tx() {
         let (secret_key, public_key) = secp256k1::generate_keypair(&mut thread_rng());
         let keypair = Keypair::from_seckey_slice(secp256k1::SECP256K1, &secret_key.secret_bytes()).unwrap();
-        let addr1 = Address::new(Prefix::Devnet, Version::PubKey, &public_key.x_only_public_key().0.serialize()).expect("Valid address");
+        let addr1 =
+            Address::new(Prefix::Devnet, Version::PubKey, &public_key.x_only_public_key().0.serialize()).expect("Valid address");
         let addr2 = Address::new(Prefix::Devnet, Version::PubKey, &[0x42; 32]).expect("Valid address");
 
         let utxos = vec![(
@@ -1282,7 +1286,8 @@ mod tests {
         let (secret_key, public_key) = secp256k1::generate_keypair(&mut thread_rng());
         let keypair = Keypair::from_seckey_slice(secp256k1::SECP256K1, &secret_key.secret_bytes()).unwrap();
 
-        let addr1 = Address::new(Prefix::Devnet, Version::PubKey, &public_key.x_only_public_key().0.serialize()).expect("Valid address");
+        let addr1 =
+            Address::new(Prefix::Devnet, Version::PubKey, &public_key.x_only_public_key().0.serialize()).expect("Valid address");
         let addr2 = Address::new(Prefix::Devnet, Version::PubKey, &[0x42; 32]).expect("Valid address");
 
         let utxos = vec![(

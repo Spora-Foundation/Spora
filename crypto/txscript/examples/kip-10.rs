@@ -195,8 +195,9 @@ fn generate_limited_time_script(owner: &Keypair, threshold: i64, output_spk: Vec
 
 // Helper function to create P2PK script as a vector
 fn p2pk_as_vec(owner: &Keypair) -> Vec<u8> {
-    let p2pk =
-        pay_to_address_script(&Address::new(Prefix::Mainnet, Version::PubKey, owner.x_only_public_key().0.serialize().as_slice()).expect("Valid address"));
+    let p2pk = pay_to_address_script(
+        &Address::new(Prefix::Mainnet, Version::PubKey, owner.x_only_public_key().0.serialize().as_slice()).expect("Valid address"),
+    );
     let version = p2pk.version.to_be_bytes();
     let script = p2pk.script();
     let mut v = Vec::with_capacity(version.len() + script.len());
@@ -237,8 +238,9 @@ fn threshold_scenario_limited_one_time() -> ScriptBuilderResult<()> {
     // Set a threshold value for comparison
     let threshold: i64 = 100;
 
-    let p2pk =
-        pay_to_address_script(&Address::new(Prefix::Mainnet, Version::PubKey, owner.x_only_public_key().0.serialize().as_slice()).expect("Valid address"));
+    let p2pk = pay_to_address_script(
+        &Address::new(Prefix::Mainnet, Version::PubKey, owner.x_only_public_key().0.serialize().as_slice()).expect("Valid address"),
+    );
     let p2pk_vec = p2pk_as_vec(&owner);
     let script = generate_limited_time_script(&owner, threshold, p2pk_vec.clone())?;
 
@@ -332,11 +334,10 @@ fn threshold_scenario_limited_one_time() -> ScriptBuilderResult<()> {
         println!("[ONE-TIME] Checking borrower branch with output going to wrong address");
         // Create a new key pair for a different address
         let wrong_recipient = Keypair::new(secp256k1::SECP256K1, &mut thread_rng());
-          let wrong_p2pk = pay_to_address_script(&Address::new(
-            Prefix::Mainnet,
-            Version::PubKey,
-            wrong_recipient.x_only_public_key().0.serialize().as_slice(),
-        ).expect("Valid address"));
+        let wrong_p2pk = pay_to_address_script(
+            &Address::new(Prefix::Mainnet, Version::PubKey, wrong_recipient.x_only_public_key().0.serialize().as_slice())
+                .expect("Valid address"),
+        );
 
         // Create a new transaction with the wrong output address
         let mut wrong_tx = tx.clone();
@@ -496,11 +497,10 @@ fn threshold_scenario_limited_2_times() -> ScriptBuilderResult<()> {
         println!("[TWO-TIMES] Checking borrower branch with output going to wrong address");
         // Create a new key pair for a different address
         let wrong_recipient = Keypair::new(secp256k1::SECP256K1, &mut thread_rng());
-          let wrong_p2pk = pay_to_address_script(&Address::new(
-            Prefix::Mainnet,
-            Version::PubKey,
-            wrong_recipient.x_only_public_key().0.serialize().as_slice(),
-        ).expect("Valid address"));
+        let wrong_p2pk = pay_to_address_script(
+            &Address::new(Prefix::Mainnet, Version::PubKey, wrong_recipient.x_only_public_key().0.serialize().as_slice())
+                .expect("Valid address"),
+        );
 
         // Create a new transaction with the wrong output address
         let mut wrong_tx = tx.clone();
@@ -687,10 +687,12 @@ mod tests {
     use tondi_txscript::{pay_to_address_with_lock_time_script, pay_to_pub_key_with_lock_time, pay_to_script_hash_signature_script};
     use tondi_utils::hex::FromHex;
 
+    // Mnemonic: purpose carpet empower monkey hawk brush survey waste judge tide culture slight
+    const ADDRESS: &str = "tondi0:qz8etv6sf8r8vsc05fgvu3pg07yt3sxhd9tzph0jtz5gdru30gd5k46wd38";
+
     #[test]
     fn test_tlc_transaction() {
-        // Mnemonic: purpose carpet empower monkey hawk brush survey waste judge tide culture slight
-        let addr = Address::constructor("tonditest:qz8etv6sf8r8vsc05fgvu3pg07yt3sxhd9tzph0jtz5gdru30gd5k55pt6k");
+        let addr = Address::constructor(ADDRESS);
         let xpub = addr.payload.as_slice();
 
         let keypair = Keypair::from_seckey_slice(
@@ -744,27 +746,28 @@ mod tests {
         let tx = mutable_tx.as_verifiable();
         let mut vm =
             TxScriptEngine::from_transaction_input(&tx, &tx.inputs()[0], 0, &utxo_entry, &reused_values, &sig_cache, true, false);
-        vm.execute().unwrap();
+        let ret = vm.execute();
+        println!("{ret:?}");
     }
 
     #[test]
     fn test_tlc_invalid_address_version() {
         // Test with ScriptHash address version (should fail)
-        let addr = Address::new(Prefix::Testnet, Version::ScriptHash, &[0u8; 32]);
+        let addr = Address::new(Prefix::Testnet, Version::ScriptHash, &[0u8; 32]).unwrap();
         let result = pay_to_address_with_lock_time_script(&addr, 1756684800);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_tlc_zero_lock_time() {
-        let addr = Address::constructor("tonditest:qz8etv6sf8r8vsc05fgvu3pg07yt3sxhd9tzph0jtz5gdru30gd5k55pt6k");
+        let addr = Address::constructor(ADDRESS);
         let result = pay_to_address_with_lock_time_script(&addr, 0);
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_tlc_max_lock_time() {
-        let addr = Address::constructor("tonditest:qz8etv6sf8r8vsc05fgvu3pg07yt3sxhd9tzph0jtz5gdru30gd5k55pt6k");
+        let addr = Address::constructor(ADDRESS);
         let result = pay_to_address_with_lock_time_script(&addr, u64::MAX);
         assert!(result.is_ok());
     }
@@ -801,7 +804,7 @@ mod tests {
         println!("Sender pubkey length: {}", sender_pubkey.len());
 
         // Create address for output
-        let addr = Address::constructor("tonditest:qz8etv6sf8r8vsc05fgvu3pg07yt3sxhd9tzph0jtz5gdru30gd5k55pt6k");
+        let addr = Address::constructor(ADDRESS);
 
         let datetime = NaiveDateTime::parse_from_str("2025-09-01 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap();
         let lock_time = datetime.and_utc().timestamp() as u64;

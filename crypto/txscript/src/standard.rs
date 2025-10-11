@@ -5,7 +5,7 @@ use crate::{
     },
     script_builder::{ScriptBuilder, ScriptBuilderError, ScriptBuilderResult},
     script_class::ScriptClass,
-    SCRIPT_VER_CLASSIC, SCRIPT_VER_TAPROOT, SCRIPT_VER_COPPEROOT_MERKLE, SCRIPT_VER_COPPEROOT_VERKLE,
+    SCRIPT_VER_CLASSIC, SCRIPT_VER_COPPEROOT_MERKLE, SCRIPT_VER_COPPEROOT_VERKLE, SCRIPT_VER_TAPROOT,
 };
 use blake3::hash;
 use smallvec::SmallVec;
@@ -14,13 +14,13 @@ use tondi_addresses::{Address, Prefix, Version};
 use tondi_consensus_core::tx::{ScriptPublicKey, ScriptVec};
 use tondi_txscript_errors::TxScriptError;
 
+pub mod copperoot;
 mod multisig;
 mod taproot;
-pub mod copperoot;
 
+pub use copperoot::witness::CopperootWitness;
 pub use multisig::{multisig_redeem_script, multisig_redeem_script_ecdsa, Error as MultisigCreateError};
 pub use taproot::witness::Witness;
-pub use copperoot::witness::CopperootWitness;
 
 /// Creates a new script to pay a transaction output to a 32-byte pubkey.
 fn pay_to_pub_key(address_payload: &[u8]) -> ScriptVec {
@@ -114,7 +114,7 @@ pub fn pay_to_address_script(address: &Address) -> ScriptPublicKey {
 /// use tondi_txscript::pay_to_address_with_lock_time_script;
 /// use tondi_addresses::Address;
 ///
-/// let addr = Address::constructor("tonditest:qz8etv6sf8r8vsc05fgvu3pg07yt3sxhd9tzph0jtz5gdru30gd5k55pt6k");
+/// let addr = Address::constructor("tondi0:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvp55hu9");
 /// let lock_time = 1756684800; // Unix timestamp
 /// let script = pay_to_address_with_lock_time_script(&addr, lock_time).unwrap();
 /// ```
@@ -339,19 +339,23 @@ pub fn pay_to_script_hash_signature_script(redeem_script: &[u8], signature: Vec<
 pub fn extract_script_pub_key_address(script_public_key: &ScriptPublicKey, prefix: Prefix) -> Result<Address, TxScriptError> {
     let class = ScriptClass::from(script_public_key);
     let script = script_public_key.script();
-    
+
     // Version consistency check: script version must match expected version for the script class
     if script_public_key.version() != class.version() {
         return Err(TxScriptError::PubKeyFormat);
     }
-    
+
     match class {
         ScriptClass::NonStandard => Err(TxScriptError::PubKeyFormat),
         ScriptClass::PubKey => Address::new(prefix, Version::PubKey, &script[1..33]).map_err(|_| TxScriptError::PubKeyFormat),
-        ScriptClass::PubKeyECDSA => Address::new(prefix, Version::PubKeyECDSA, &script[1..34]).map_err(|_| TxScriptError::PubKeyFormat),
+        ScriptClass::PubKeyECDSA => {
+            Address::new(prefix, Version::PubKeyECDSA, &script[1..34]).map_err(|_| TxScriptError::PubKeyFormat)
+        }
         ScriptClass::ScriptHash => Address::new(prefix, Version::ScriptHash, &script[2..34]).map_err(|_| TxScriptError::PubKeyFormat),
         ScriptClass::Taproot => Address::new(prefix, Version::Taproot, &script[2..34]).map_err(|_| TxScriptError::PubKeyFormat),
-        ScriptClass::CopperootMerkle => Address::new(prefix, Version::CopperootMerkle, &script[2..34]).map_err(|_| TxScriptError::PubKeyFormat),
+        ScriptClass::CopperootMerkle => {
+            Address::new(prefix, Version::CopperootMerkle, &script[2..34]).map_err(|_| TxScriptError::PubKeyFormat)
+        }
         ScriptClass::CopperootVerkle => Err(TxScriptError::PubKeyFormat), // P2CRV disabled for mainnet launch
     }
 }

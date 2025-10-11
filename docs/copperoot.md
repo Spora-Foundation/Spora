@@ -65,7 +65,7 @@ The implementation enforces strict version validation with format checking:
 
 3. **Format Validation**: Each script version requires specific byte pattern validation:
    - **Taproot**: Must match `OP_1 <32-byte x-only pubkey>` format
-   - **CopperootMerkle**: Must match `OP_1 <32-byte x-only pubkey>` format  
+   - **CopperootMerkle**: Must match `OP_1 <32-byte x-only pubkey>` format
    - **CopperootVerkle**: Must match `OP_1 <32-byte x-only pubkey>` format (currently disabled)
    - **Classic**: Legacy format validation for PubKey, PubKeyECDSA, ScriptHash
 
@@ -731,18 +731,18 @@ pub struct CopperootWitness {
 impl CopperootWitness {
     pub fn p2cr_key_spend(signature: Signature, sighash_type: CopperootSighashType) -> Self
     pub fn p2cr_key_spend_with_annex(signature: Signature, sighash_type: CopperootSighashType, annex: Vec<u8>) -> Result<Self, TxScriptError>
-    
+
     // MuSig2 witness creation methods (with safety features)
     pub fn p2cr_key_spend_from_musig2_checked(
-        secp: &Secp256k1<All>, 
-        agg_x: &XOnlyPublicKey, 
-        msg32: &[u8; 32], 
-        sig: &musig2::CompactSignature, 
+        secp: &Secp256k1<All>,
+        agg_x: &XOnlyPublicKey,
+        msg32: &[u8; 32],
+        sig: &musig2::CompactSignature,
         sighash_type: CopperootSighashType
     ) -> Result<Self, TxScriptError>
     pub fn p2cr_key_spend_from_musig2_unchecked(signature: Signature, sighash_type: CopperootSighashType) -> Self
     #[deprecated] pub fn p2cr_key_spend_from_musig2(signature: Signature, sighash_type: CopperootSighashType) -> Self
-    
+
     pub fn verify_keypath_sig(&self, msg: &Message, xpub: &XOnlyPublicKey) -> Result<(), secp256k1::Error>
 }
 
@@ -1110,7 +1110,7 @@ The ScriptPubKey format is identical to Bitcoin's Taproot, but the witness versi
 **Bech32m Encoding**:
 - **HRP (Human Readable Part)**:
   - Mainnet: `tondi`
-  - Testnet: `tonditest`
+  - Testnet: `tondi0`
   - Simnet: `tondisim`
   - Devnet: `tondidev`
 - **Data Part**: `v2` (CopperootMerkle) or `v3` (CopperootVerkle) + 32-byte x-only public key
@@ -1120,13 +1120,13 @@ The ScriptPubKey format is identical to Bitcoin's Taproot, but the witness versi
 ```
 CopperootMerkle - ACTIVE:
 Mainnet:  tondi:c... (CopperootMerkle addresses start with 'c' after HRP)
-Testnet:  tonditest:c...
+Testnet:  tondi0:c...
 Simnet:   tondisim:c...
 Devnet:   tondidev:c...
 
 CopperootVerkle - RESERVED (INACTIVE):
 Mainnet:  tondi:v... (CopperootVerkle addresses start with 'v' after HRP)
-Testnet:  tonditest:v...
+Testnet:  tondi0:v...
 Simnet:   tondisim:v...
 Devnet:   tondidev:v...
 NOTE: CopperootVerkle addresses are reserved but currently invalid for mainnet launch
@@ -1323,7 +1323,7 @@ tondi-cli sendtoaddress "tondi:v..." 1.0
   - ScriptVariant trait implementation for execution semantics
 
 - 🔒 **CopperootVerkle (Verkle)**: Reserved but inactive
-  - Witness version v2 (decimal 2) - RESERVED 
+  - Witness version v2 (decimal 2) - RESERVED
   - Control block type=1 - RESERVED
   - Annex type=V - RESERVED
   - All CopperootVerkle transactions are rejected as invalid
