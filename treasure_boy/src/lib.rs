@@ -262,7 +262,7 @@ pub struct Config {
 }
 
 /// Configuration for transaction fees
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TxsFeeConfig {
     /// Priority fee amount
     pub priority_fee: u64,
@@ -271,7 +271,7 @@ pub struct TxsFeeConfig {
 }
 
 /// Configuration for Time Locked Contract (TLC) airdrop
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TlcAirdropConfig {
     /// Lock time in seconds (Unix timestamp) or block height
     pub lock_time: u64,
