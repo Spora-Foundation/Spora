@@ -27,6 +27,12 @@ pub type TenBps = Bps<10>;
 /// computing various constants which are functions of the BPS value
 pub struct Bps<const BPS: u64>;
 
+// Deflationary phase score is the seconds which the pre-deflationary period
+// switches to the deflationary period. This number is calculated as follows:
+// We define a year as 365.25 days
+// a quarter in seconds = 365.25 / 4 * 24 * 60 * 60 = 7889400
+pub const DEFLATIONARY_PHASE_SCORE: u64 = 7889400;
+
 impl<const BPS: u64> Bps<BPS> {
     pub const fn bps() -> u64 {
         BPS
@@ -133,11 +139,11 @@ impl<const BPS: u64> Bps<BPS> {
     /// - The network was down for three days shortly after launch
     /// - Three days in seconds = 3 * 24 * 60 * 60 = 259200
     pub const fn deflationary_phase_daa_score() -> u64 {
-        BPS * (15778800 - 259200)
+        BPS * DEFLATIONARY_PHASE_SCORE
     }
 
     pub const fn pre_deflationary_phase_base_subsidy() -> u64 {
-        50000000000 / BPS
+        114000000000 / BPS
     }
 }
 
