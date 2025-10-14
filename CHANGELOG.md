@@ -1,5 +1,135 @@
 # Changelog
 
+## [1.21.0] - 2025-10-14
+
+### 🚀 Major Features
+
+#### Enhanced RPC API
+- **New UTXO Query Endpoint**: Added `get_utxos_by_address` RPC endpoint for efficient UTXO retrieval by address
+- **Improved Database Access**: Enhanced database access layer with better UTXO indexing and query capabilities
+- **GRPC Integration**: Full GRPC support for the new UTXO query functionality across all client libraries
+
+#### Economic Model Updates
+- **Total Rewards Adjustment**: Updated total rewards to 300 billion SAU for improved economic sustainability
+- **Consensus Parameter Updates**: Refined consensus parameters to support the new reward structure
+- **Coinbase Processing**: Enhanced coinbase transaction processing with updated reward calculations
+
+### 🔧 Technical Improvements
+
+#### Address System Enhancements
+- **Testnet Address Prefix**: Updated testnet address prefix to `tondi0` for better network identification
+- **Script Version Decoupling**: Separated script execution versions from address encoding versions for clearer architecture
+- **Enhanced Error Handling**: Comprehensive AddressError handling across all address-related modules
+- **Improved Documentation**: Updated Copperoot documentation with clearer version-to-prefix mapping
+
+#### Script System Improvements
+- **Version Constants Update**:
+  - `SCRIPT_VER_TAPROOT`: Updated from 88 to 1
+  - `MAX_SCRIPT_PUBLIC_KEY_VERSION`: Updated from 3 to 193
+- **Copperoot Version Separation**:
+  - `SCRIPT_VER_COPPEROOT_MERKLE = 2`
+  - `SCRIPT_VER_COPPEROOT_VERKLE = 3`
+- **Address Version Mapping**:
+  - CopperootMerkle = 192 ('c' prefix)
+  - CopperootVerkle = 96 ('v' prefix)
+
+#### Configuration and Serialization
+- **Serde Integration**: Added Serde derive support for airdrop configuration structures
+- **Enhanced Serialization**: Improved configuration serialization for better API compatibility
+
+### 🐛 Bug Fixes
+
+#### Build System Fixes
+- **WASM Build Support**: Fixed WASM build issues with proper dependency management
+- **BIP32 Dependencies**: Added missing BIP32 dependencies for WASM compatibility
+- **Build Script Updates**: Improved build scripts for better cross-platform support
+
+#### Network and Consensus Fixes
+- **Genesis Timestamp**: Fixed TESTNET_GENESIS timestamp for proper network initialization
+- **RPC Mock Testing**: Improved RPC core mock testing for better test reliability
+- **Address Validation**: Enhanced address validation with proper error propagation
+
+#### Code Quality Improvements
+- **Error Propagation**: Fixed Address::new() error propagation with proper ? operator usage
+- **Lock Handling**: Improved lock handling with better error messages
+- **Test Coverage**: Enhanced integration tests with proper error handling
+
+### 📈 Performance & Reliability
+
+#### Database Optimizations
+- **UTXO Indexing**: Improved UTXO indexing performance with better data structures
+- **Query Optimization**: Enhanced database query performance for UTXO operations
+- **Memory Management**: Better memory usage in address and script processing
+
+#### Network Improvements
+- **Address Processing**: Faster address validation and processing
+- **Script Execution**: Optimized script version handling and execution
+- **Error Recovery**: Better error recovery mechanisms throughout the codebase
+
+### 🔒 Security Enhancements
+
+#### Address Security
+- **Version Validation**: Enhanced address version validation with proper error handling
+- **Script Security**: Improved script version security with clear separation of concerns
+- **Input Validation**: Better input validation for address and script operations
+
+#### Error Handling
+- **Comprehensive Error Types**: Added AddressError types for better error reporting
+- **Error Consistency**: Improved error message consistency across modules
+- **Security Validation**: Enhanced security validation for address operations
+
+### 📚 Documentation Updates
+
+#### API Documentation
+- **RPC API**: Updated RPC API documentation with new UTXO query endpoints
+- **Address System**: Enhanced address system documentation with version mappings
+- **Copperoot Guide**: Updated Copperoot documentation with clearer version information
+
+#### Code Documentation
+- **Inline Documentation**: Improved inline documentation throughout address and script modules
+- **Error Documentation**: Enhanced error documentation with clear examples
+- **Integration Examples**: Updated integration test examples with proper error handling
+
+### 🧪 Testing & Quality Assurance
+
+#### Enhanced Test Coverage
+- **Integration Tests**: Improved integration tests with better error handling
+- **Address Tests**: Enhanced address validation tests with comprehensive scenarios
+- **RPC Tests**: Added tests for new UTXO query functionality
+- **Error Handling Tests**: Comprehensive error handling test coverage
+
+#### Test Stability
+- **Mock Improvements**: Better RPC mock testing for reliable test execution
+- **Test Data**: Updated test data with proper address formats and versions
+- **Cross-Platform Testing**: Improved cross-platform test compatibility
+
+### 🔄 Breaking Changes
+
+#### Address Format Changes
+- **Testnet Prefix**: Changed testnet address prefix from previous format to `tondi0`
+- **Version Constants**: Updated script version constants (breaking change for custom implementations)
+- **Error Handling**: Address::new() now returns Result type (breaking change for error handling)
+
+#### API Changes
+- **RPC Endpoints**: Added new `get_utxos_by_address` endpoint
+- **Database Interface**: Enhanced database access interface (may require updates for custom implementations)
+- **Configuration**: Updated configuration structures with Serde support
+
+### 📋 Migration Guide
+
+#### For Developers
+1. **Address Handling**: Update address validation code to handle new error types
+2. **Script Versions**: Update any hardcoded script version constants
+3. **Testnet Addresses**: Update testnet address generation to use `tondi0` prefix
+4. **RPC Integration**: Utilize new `get_utxos_by_address` endpoint for UTXO queries
+
+#### For Node Operators
+1. **Configuration**: No configuration changes required
+2. **Database**: Database will automatically handle new UTXO indexing
+3. **Network**: Testnet addresses will use new `tondi0` prefix
+
+---
+
 ## [1.20.0] - 2025-01-13
 
 ### 🚀 Major Features
@@ -254,7 +384,7 @@
 
 #### Enhanced Transaction Scripts
 - **Lock Time Support**: Added `pay_to_address_with_lock_time` functionality
-- **Signature Script Generation**: 
+- **Signature Script Generation**:
   - `htlc_signature_script_with_secret()` for recipient path
   - `htlc_signature_script_with_timeout()` for sender path
 - **Comprehensive Testing**: 9 specialized test suites covering functionality, security, and edge cases

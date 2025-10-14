@@ -64,7 +64,7 @@ members = [
 
 [workspace.package]
 rust-version = "1.82.0"
-version = "1.20.0"
+version = "1.21.0"
 authors = ["Tondi developers"]
 license = "ISC"
 repository = "https://github.com/AvatoLabs/Tondi"
@@ -83,61 +83,61 @@ include = [
 [workspace.dependencies]
 blake3 = { version = "1.8.2"}
 log = "0.4.20"
-# tondi-testing-integration = { version = "1.20.0", path = "testing/integration" }
-tondi-addresses = { version = "1.20.0", path = "crypto/addresses" }
-tondi-addressmanager = { version = "1.20.0", path = "components/addressmanager" }
-tondi-bip32 = { version = "1.20.0", path = "wallet/bip32" }
-tondi-cli = { version = "1.20.0", path = "cli" }
-tondi-connectionmanager = { version = "1.20.0", path = "components/connectionmanager" }
-tondi-consensus = { version = "1.20.0", path = "consensus" }
-tondi-consensus-core = { version = "1.20.0", path = "consensus/core" }
-tondi-consensus-client = { version = "1.20.0", path = "consensus/client" }
-tondi-consensus-notify = { version = "1.20.0", path = "consensus/notify" }
-tondi-consensus-wasm = { version = "1.20.0", path = "consensus/wasm" }
-tondi-consensusmanager = { version = "1.20.0", path = "components/consensusmanager" }
-tondi-core = { version = "1.20.0", path = "core" }
-tondi-daemon = { version = "1.20.0", path = "daemon" }
-tondi-database = { version = "1.20.0", path = "database" }
-tondi-grpc-client = { version = "1.20.0", path = "rpc/grpc/client" }
-tondi-grpc-core = { version = "1.20.0", path = "rpc/grpc/core" }
-tondi-grpc-server = { version = "1.20.0", path = "rpc/grpc/server" }
-tondi-hashes = { version = "1.20.0", path = "crypto/hashes" }
-tondi-index-core = { version = "1.20.0", path = "indexes/core" }
-tondi-index-processor = { version = "1.20.0", path = "indexes/processor" }
-tondi-math = { version = "1.20.0", path = "math" }
-tondi-merkle = { version = "1.20.0", path = "crypto/merkle" }
-tondi-metrics-core = { version = "1.20.0", path = "metrics/core" }
-tondi-mining = { version = "1.20.0", path = "mining" }
-tondi-mining-errors = { version = "1.20.0", path = "mining/errors" }
-tondi-muhash = { version = "1.20.0", path = "crypto/muhash" }
-tondi-notify = { version = "1.20.0", path = "notify" }
-tondi-p2p-flows = { version = "1.20.0", path = "protocol/flows" }
-tondi-p2p-lib = { version = "1.20.0", path = "protocol/p2p" }
-tondi-p2p-mining = { version = "1.20.0", path = "protocol/mining" }
-tondi-perf-monitor = { version = "1.20.0", path = "metrics/perf_monitor" }
-tondi-pow = { version = "1.20.0", path = "consensus/pow" }
-tondi-rpc-core = { version = "1.20.0", path = "rpc/core" }
-tondi-rpc-macros = { version = "1.20.0", path = "rpc/macros" }
-tondi-rpc-service = { version = "1.20.0", path = "rpc/service" }
-tondi-txscript = { version = "1.20.0", path = "crypto/txscript" }
-tondi-txscript-errors = { version = "1.20.0", path = "crypto/txscript/errors" }
-tondi-utils = { version = "1.20.0", path = "utils" }
-tondi-utils-tower = { version = "1.20.0", path = "utils/tower" }
-tondi-utxoindex = { version = "1.20.0", path = "indexes/utxoindex" }
-tondi-wallet = { version = "1.20.0", path = "wallet/native" }
-tondi-wallet-cli-wasm = { version = "1.20.0", path = "wallet/wasm" }
-tondi-wallet-keys = { version = "1.20.0", path = "wallet/keys" }
-tondi-wallet-pstt = { version = "1.20.0", path = "wallet/pstt" }
-tondi-wallet-core = { version = "1.20.0", path = "wallet/core" }
-tondi-wallet-macros = { version = "1.20.0", path = "wallet/macros" }
-tondi-wasm = { version = "1.20.0", path = "wasm" }
-tondi-wasm-core = { version = "1.20.0", path = "wasm/core" }
-tondi-wrpc-client = { version = "1.20.0", path = "rpc/wrpc/client" }
-tondi-wrpc-server = { version = "1.20.0", path = "rpc/wrpc/server" }
-tondi-wrpc-wasm = { version = "1.20.0", path = "rpc/wrpc/wasm" }
-tondid = { version = "1.20.0", path = "tondid" }
-tondi-alloc = { version = "1.20.0", path = "utils/alloc" }
-tondi-adaptor = { version = "1.20.0", path = "sdk/adaptor" }
+# tondi-testing-integration = { version = "1.21.0", path = "testing/integration" }
+tondi-addresses = { version = "1.21.0", path = "crypto/addresses" }
+tondi-addressmanager = { version = "1.21.0", path = "components/addressmanager" }
+tondi-bip32 = { version = "1.21.0", path = "wallet/bip32" }
+tondi-cli = { version = "1.21.0", path = "cli" }
+tondi-connectionmanager = { version = "1.21.0", path = "components/connectionmanager" }
+tondi-consensus = { version = "1.21.0", path = "consensus" }
+tondi-consensus-core = { version = "1.21.0", path = "consensus/core" }
+tondi-consensus-client = { version = "1.21.0", path = "consensus/client" }
+tondi-consensus-notify = { version = "1.21.0", path = "consensus/notify" }
+tondi-consensus-wasm = { version = "1.21.0", path = "consensus/wasm" }
+tondi-consensusmanager = { version = "1.21.0", path = "components/consensusmanager" }
+tondi-core = { version = "1.21.0", path = "core" }
+tondi-daemon = { version = "1.21.0", path = "daemon" }
+tondi-database = { version = "1.21.0", path = "database" }
+tondi-grpc-client = { version = "1.21.0", path = "rpc/grpc/client" }
+tondi-grpc-core = { version = "1.21.0", path = "rpc/grpc/core" }
+tondi-grpc-server = { version = "1.21.0", path = "rpc/grpc/server" }
+tondi-hashes = { version = "1.21.0", path = "crypto/hashes" }
+tondi-index-core = { version = "1.21.0", path = "indexes/core" }
+tondi-index-processor = { version = "1.21.0", path = "indexes/processor" }
+tondi-math = { version = "1.21.0", path = "math" }
+tondi-merkle = { version = "1.21.0", path = "crypto/merkle" }
+tondi-metrics-core = { version = "1.21.0", path = "metrics/core" }
+tondi-mining = { version = "1.21.0", path = "mining" }
+tondi-mining-errors = { version = "1.21.0", path = "mining/errors" }
+tondi-muhash = { version = "1.21.0", path = "crypto/muhash" }
+tondi-notify = { version = "1.21.0", path = "notify" }
+tondi-p2p-flows = { version = "1.21.0", path = "protocol/flows" }
+tondi-p2p-lib = { version = "1.21.0", path = "protocol/p2p" }
+tondi-p2p-mining = { version = "1.21.0", path = "protocol/mining" }
+tondi-perf-monitor = { version = "1.21.0", path = "metrics/perf_monitor" }
+tondi-pow = { version = "1.21.0", path = "consensus/pow" }
+tondi-rpc-core = { version = "1.21.0", path = "rpc/core" }
+tondi-rpc-macros = { version = "1.21.0", path = "rpc/macros" }
+tondi-rpc-service = { version = "1.21.0", path = "rpc/service" }
+tondi-txscript = { version = "1.21.0", path = "crypto/txscript" }
+tondi-txscript-errors = { version = "1.21.0", path = "crypto/txscript/errors" }
+tondi-utils = { version = "1.21.0", path = "utils" }
+tondi-utils-tower = { version = "1.21.0", path = "utils/tower" }
+tondi-utxoindex = { version = "1.21.0", path = "indexes/utxoindex" }
+tondi-wallet = { version = "1.21.0", path = "wallet/native" }
+tondi-wallet-cli-wasm = { version = "1.21.0", path = "wallet/wasm" }
+tondi-wallet-keys = { version = "1.21.0", path = "wallet/keys" }
+tondi-wallet-pstt = { version = "1.21.0", path = "wallet/pstt" }
+tondi-wallet-core = { version = "1.21.0", path = "wallet/core" }
+tondi-wallet-macros = { version = "1.21.0", path = "wallet/macros" }
+tondi-wasm = { version = "1.21.0", path = "wasm" }
+tondi-wasm-core = { version = "1.21.0", path = "wasm/core" }
+tondi-wrpc-client = { version = "1.21.0", path = "rpc/wrpc/client" }
+tondi-wrpc-server = { version = "1.21.0", path = "rpc/wrpc/server" }
+tondi-wrpc-wasm = { version = "1.21.0", path = "rpc/wrpc/wasm" }
+tondid = { version = "1.21.0", path = "tondid" }
+tondi-alloc = { version = "1.21.0", path = "utils/alloc" }
+tondi-adaptor = { version = "1.21.0", path = "sdk/adaptor" }
 
 # external
 aes = "0.8.3"
@@ -170,7 +170,6 @@ dashmap = "6.0.1"
 derivative = "2.2.0"
 derive_builder = "0.20.0"
 derive_more = "0.99.17"
-# derive_more = { version = "1.20.0", features = ["full"] }
 dhat = "0.3.2"
 dirs = "5.0.1"
 downcast = "0.11.0"
