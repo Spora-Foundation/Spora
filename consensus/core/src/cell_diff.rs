@@ -5,7 +5,7 @@
 
 use crate::tx::TransactionOutpoint;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use tondi_utils::mem_size::MemSizeEstimator;
 
 /// Cell metadata (simplified for diff tracking)
@@ -24,7 +24,9 @@ pub struct CellMeta {
 }
 
 /// Collection of cells (OutPoint → CellMeta)
-pub type CellCollection = HashMap<TransactionOutpoint, CellMeta>;
+/// 
+/// **Determinism**: BTreeMap ensures deterministic iteration order for consensus
+pub type CellCollection = BTreeMap<TransactionOutpoint, CellMeta>;
 
 /// Cell state difference
 ///
@@ -55,11 +57,13 @@ impl CellDiff {
         Self::default()
     }
 
-    /// Create a diff with capacity
-    pub fn with_capacity(add_capacity: usize, remove_capacity: usize) -> Self {
+    /// Create a diff with capacity hint
+    /// 
+    /// Note: BTreeMap doesn't have with_capacity, this is kept for API compatibility
+    pub fn with_capacity(_add_capacity: usize, _remove_capacity: usize) -> Self {
         Self {
-            add: HashMap::with_capacity(add_capacity),
-            remove: HashMap::with_capacity(remove_capacity),
+            add: BTreeMap::new(),
+            remove: BTreeMap::new(),
         }
     }
 
@@ -251,7 +255,7 @@ mod tests {
 
     #[test]
     fn test_apply_diff() {
-        let mut base = CellCollection::new();
+        let mut base = BTreeMap::new();
         let outpoint1 = create_test_outpoint(0);
         let outpoint2 = create_test_outpoint(1);
         
@@ -270,8 +274,8 @@ mod tests {
 
     #[test]
     fn test_from_collections() {
-        let mut old = CellCollection::new();
-        let mut new = CellCollection::new();
+        let mut old = BTreeMap::new();
+        let mut new = BTreeMap::new();
 
         let outpoint1 = create_test_outpoint(0);
         let outpoint2 = create_test_outpoint(1);
