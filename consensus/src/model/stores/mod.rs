@@ -16,9 +16,11 @@ pub mod relations;
 pub mod selected_chain;
 pub mod statuses;
 pub mod tips;
-pub mod utxo_diffs;
-pub mod utxo_multisets;
-pub mod utxo_set;
+pub mod utxo_diffs;  // Deprecated
+pub mod utxo_multisets;  // Deprecated
+pub mod utxo_set;  // Deprecated
+pub mod cell_diffs;  // NEW: Cell model
+pub mod cell_roots;  // NEW: Cell model
 pub mod virtual_state;
 
 use std::fmt::Display;

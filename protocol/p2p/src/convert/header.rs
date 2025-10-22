@@ -16,7 +16,7 @@ impl From<&Header> for protowire::BlockHeader {
             parents: item.parents_by_level.iter().map(protowire::BlockLevelParents::from).collect(),
             hash_merkle_root: Some(item.hash_merkle_root.into()),
             accepted_id_merkle_root: Some(item.accepted_id_merkle_root.into()),
-            utxo_commitment: Some(item.utxo_commitment.into()),
+            cell_commitment: Some(item.cell_commitment.into()),
             timestamp: item.timestamp.try_into().expect("timestamp is always convertible to i64"),
             bits: item.bits,
             nonce: item.nonce,
@@ -42,12 +42,14 @@ impl From<&Vec<Hash>> for protowire::BlockLevelParents {
 impl TryFrom<protowire::BlockHeader> for Header {
     type Error = ConversionError;
     fn try_from(item: protowire::BlockHeader) -> Result<Self, Self::Error> {
+        use tondi_hashes::ZERO_HASH;
         Ok(Self::new_finalized(
             item.version.try_into()?,
             item.parents.into_iter().map(Vec::<Hash>::try_from).collect::<Result<Vec<Vec<Hash>>, ConversionError>>()?,
             item.hash_merkle_root.try_into_ex()?,
             item.accepted_id_merkle_root.try_into_ex()?,
-            item.utxo_commitment.try_into_ex()?,
+            item.cell_commitment.try_into_ex()?,
+            ZERO_HASH, // TODO(spora): Add cell_root to protowire
             item.timestamp.try_into()?,
             item.bits,
             item.nonce,

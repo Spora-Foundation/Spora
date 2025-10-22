@@ -202,6 +202,7 @@ mod tests {
                 ]),
                 Default::default(),
                 Default::default(),
+                Default::default(), // cell_root
                 0x17305aa654a,
                 0x207fffff,
                 1,

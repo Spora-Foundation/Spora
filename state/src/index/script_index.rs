@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ISC
-// Copyright (C) 2024 Tondi developers
+// Copyright (C) 2025Tondi developers
 //
 // ScriptIndex: lock_hash/type_hash → Cells (for wallet queries)
 

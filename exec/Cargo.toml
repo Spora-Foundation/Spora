@@ -28,8 +28,8 @@ indexmap = "2.2"
 rayon = "1.10"
 parking_lot = "0.12"
 
-# Optional: CKB-VM integration (will be added in phase 3)
-# ckb-vm = { version = "0.24", optional = true }
+# CKB-VM integration for script execution
+ckb-vm = { version = "0.24", features = ["asm", "detect-asm"], optional = true }
 
 [dev-dependencies]
 # Testing
@@ -38,6 +38,6 @@ criterion = "0.5"
 
 [features]
 default = []
-# vm = ["ckb-vm"]  # Will enable in phase 3
+vm = ["ckb-vm"]  # VM integration enabled
 
 

@@ -81,12 +81,11 @@ use tondi_consensusmanager::SessionLock;
 use tondi_core::{debug, info, time::unix_now, trace, warn};
 use tondi_database::prelude::{StoreError, StoreResultEmptyTuple, StoreResultExtensions};
 use tondi_hashes::{Hash, ZERO_HASH};
-use tondi_muhash::MuHash;
 use tondi_notify::{events::EventType, notifier::Notify};
 
 use super::{
     errors::{PruningImportError, PruningImportResult},
-    utxo_validation::crescendo::CrescendoLogger,
+    cell_processing::CellProcessingContext,
 };
 use crossbeam_channel::{Receiver as CrossbeamReceiver, Sender as CrossbeamSender};
 use itertools::Itertools;
@@ -461,16 +460,17 @@ impl VirtualStateProcessor {
                     } else {
                         debug!("VIRTUAL PROCESSOR, UTXO validated for {current}");
 
-                        // Accumulate the diff
-                        diff.with_diff_in_place(&ctx.mergeset_diff).unwrap();
+                        // Accumulate the diff (Cell model)
+                        diff.merge(ctx.mergeset_cell_diff.clone());
                         // Update the diff point
                         diff_point = current;
-                        // Commit UTXO data for current chain block
-                        self.commit_utxo_state(
+                        // Commit Cell state data for current chain block
+                        let cell_root = ctx.get_cell_root();
+                        self.commit_cell_state(
                             current,
-                            ctx.mergeset_diff,
-                            ctx.multiset_hash,
-                            ctx.mergeset_acceptance_data,
+                            ctx.mergeset_cell_diff.clone(),
+                            cell_root,
+                            ctx.mergeset_acceptance_data.clone(),
                             ctx.pruning_sample_from_pov.expect("verified"),
                         );
                         // Count the number of UTXO-processed chain blocks
@@ -545,20 +545,23 @@ impl VirtualStateProcessor {
         let virtual_bits = self.window_manager.calculate_difficulty_bits(&virtual_ghostdag_data, &virtual_daa_window);
         let virtual_past_median_time = self.window_manager.calc_past_median_time(&virtual_ghostdag_data)?.0;
 
-        // Calc virtual UTXO state relative to selected parent
-        self.calculate_utxo_state(&mut ctx, &selected_parent_utxo_view, virtual_daa_window.daa_score);
+        // Calc virtual Cell state relative to selected parent
+        self.calculate_cell_state(&mut ctx, virtual_daa_window.daa_score);
 
         // Update the accumulated diff
-        accumulated_diff.with_diff_in_place(&ctx.mergeset_diff).unwrap();
+        accumulated_diff.merge(ctx.mergeset_cell_diff.clone());
 
-        // Build the new virtual state
+        // Build the new virtual state with Cell model
+        let mut cell_state_tree = ctx.cell_state_tree.clone();
+        let cell_diff = ctx.mergeset_cell_diff.clone();
+        
         Ok(Arc::new(VirtualState::new(
             virtual_parents,
             virtual_daa_window.daa_score,
             virtual_bits,
             virtual_past_median_time,
-            ctx.multiset_hash,
-            ctx.mergeset_diff,
+            cell_state_tree,
+            cell_diff,
             ctx.accepted_tx_ids,
             ctx.mergeset_rewards,
             virtual_daa_window.mergeset_non_daa,
@@ -1080,7 +1083,12 @@ impl VirtualStateProcessor {
             virtual_state.accepted_tx_ids.iter().copied(),
             virtual_state.ghostdag_data.selected_parent,
         );
-        let utxo_commitment = virtual_state.multiset.clone().finalize();
+        // Compute cell_root from Cell state tree
+        let cell_root = virtual_state.cell_state_tree.root();
+        
+        // v0: cell_commitment = cell_root (simplified for initial implementation)
+        // v1: cell_commitment = H("tondi/cell_commitment/v1" || cell_root || segment_root || ...)
+        let cell_commitment = cell_root;
         // Past median time is the exclusive lower bound for valid block time, so we increase by 1 to get the valid min
         let min_block_time = virtual_state.past_median_time + 1;
         let header = Header::new_finalized(
@@ -1088,7 +1096,8 @@ impl VirtualStateProcessor {
             parents_by_level,
             hash_merkle_root,
             accepted_id_merkle_root,
-            utxo_commitment,
+            cell_commitment,
+            cell_root,
             u64::max(min_block_time, unix_now()),
             virtual_state.bits,
             0,
@@ -1129,11 +1138,20 @@ impl VirtualStateProcessor {
         }
     }
 
-    /// Initializes UTXO state of genesis and points virtual at genesis.
+    /// Initializes Cell state of genesis and points virtual at genesis.
     /// Note that pruning point-related stores are initialized by `init`
     pub fn process_genesis(self: &Arc<Self>) {
-        // Write the UTXO state of genesis
-        self.commit_utxo_state(self.genesis.hash, UtxoDiff::default(), MuHash::new(), AcceptanceData::default(), ZERO_HASH);
+        use tondi_consensus_core::cell_diff::CellDiff;
+        use tondi_hashes::ZERO_HASH;
+        
+        // Write the Cell state of genesis (empty state)
+        self.commit_cell_state(
+            self.genesis.hash,
+            CellDiff::default(),
+            ZERO_HASH,  // Genesis has no cells yet
+            vec![],
+            ZERO_HASH,
+        );
 
         // Init the virtual selected chain store
         let mut batch = WriteBatch::default();
@@ -1161,12 +1179,12 @@ impl VirtualStateProcessor {
         let new_pruning_point_header = self.headers_store.get_header(new_pruning_point).unwrap();
         let imported_utxo_multiset_hash = imported_utxo_multiset.finalize();
         info!(
-            "UTXO commitment verification for pruning point {}: imported={}, header={}",
-            new_pruning_point, imported_utxo_multiset_hash, new_pruning_point_header.utxo_commitment
+            "Cell commitment verification for pruning point {}: imported={}, header={}",
+            new_pruning_point, imported_utxo_multiset_hash, new_pruning_point_header.cell_commitment
         );
-        if imported_utxo_multiset_hash != new_pruning_point_header.utxo_commitment {
+        if imported_utxo_multiset_hash != new_pruning_point_header.cell_commitment {
             return Err(PruningImportError::ImportedMultisetHashMismatch(
-                new_pruning_point_header.utxo_commitment,
+                new_pruning_point_header.cell_commitment,
                 imported_utxo_multiset_hash,
             ));
         }

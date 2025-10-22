@@ -2,9 +2,9 @@ use std::{collections::HashMap, fmt::Display};
 
 use crate::{
     constants,
-    errors::{coinbase::CoinbaseError, tx::TxRuleError, utxo::UtxoAlgebraError},
+    errors::{coinbase::CoinbaseError, tx::TxRuleError},
     tx::{TransactionId, TransactionOutpoint},
-    utxo::utxo_error::UtxoAlgebraError as CoreUtxoAlgebraError,
+    // utxo::utxo_error::UtxoAlgebraError as CoreUtxoAlgebraError, // UTXO deprecated
     BlueWorkType,
 };
 use itertools::Itertools;
@@ -162,17 +162,8 @@ pub enum RuleError {
     #[error("store error: {0}")]
     Store(String),
 
-    #[error("utxo algebra error: {0}")]
-    UtxoAlgebra(UtxoAlgebraError),
-
     #[error("unexpected pruning point")]
     UnexpectedPruningPoint,
-}
-
-impl From<CoreUtxoAlgebraError> for RuleError {
-    fn from(err: CoreUtxoAlgebraError) -> Self {
-        RuleError::UtxoAlgebra(UtxoAlgebraError::Core(err.to_string()))
-    }
 }
 
 pub type BlockProcessResult<T> = std::result::Result<T, RuleError>;

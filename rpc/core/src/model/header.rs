@@ -13,7 +13,7 @@ pub struct RpcRawHeader {
     pub parents_by_level: Vec<Vec<Hash>>,
     pub hash_merkle_root: Hash,
     pub accepted_id_merkle_root: Hash,
-    pub utxo_commitment: Hash,
+    pub cell_commitment: Hash,
     /// Timestamp is in milliseconds
     pub timestamp: u64,
     pub bits: u32,
@@ -33,7 +33,7 @@ pub struct RpcHeader {
     pub parents_by_level: Vec<Vec<Hash>>,
     pub hash_merkle_root: Hash,
     pub accepted_id_merkle_root: Hash,
-    pub utxo_commitment: Hash,
+    pub cell_commitment: Hash,
     /// Timestamp is in milliseconds
     pub timestamp: u64,
     pub bits: u32,
@@ -68,7 +68,7 @@ impl From<Header> for RpcHeader {
             parents_by_level: header.parents_by_level,
             hash_merkle_root: header.hash_merkle_root,
             accepted_id_merkle_root: header.accepted_id_merkle_root,
-            utxo_commitment: header.utxo_commitment,
+            cell_commitment: header.cell_commitment,
             timestamp: header.timestamp,
             bits: header.bits,
             nonce: header.nonce,
@@ -88,7 +88,7 @@ impl From<&Header> for RpcHeader {
             parents_by_level: header.parents_by_level.clone(),
             hash_merkle_root: header.hash_merkle_root,
             accepted_id_merkle_root: header.accepted_id_merkle_root,
-            utxo_commitment: header.utxo_commitment,
+            cell_commitment: header.cell_commitment,
             timestamp: header.timestamp,
             bits: header.bits,
             nonce: header.nonce,
@@ -108,7 +108,7 @@ impl From<RpcHeader> for Header {
             parents_by_level: header.parents_by_level,
             hash_merkle_root: header.hash_merkle_root,
             accepted_id_merkle_root: header.accepted_id_merkle_root,
-            utxo_commitment: header.utxo_commitment,
+            cell_commitment: header.cell_commitment,
             timestamp: header.timestamp,
             bits: header.bits,
             nonce: header.nonce,
@@ -128,7 +128,7 @@ impl From<&RpcHeader> for Header {
             parents_by_level: header.parents_by_level.clone(),
             hash_merkle_root: header.hash_merkle_root,
             accepted_id_merkle_root: header.accepted_id_merkle_root,
-            utxo_commitment: header.utxo_commitment,
+            cell_commitment: header.cell_commitment,
             timestamp: header.timestamp,
             bits: header.bits,
             nonce: header.nonce,
@@ -149,7 +149,7 @@ impl Serializer for RpcHeader {
         store!(Vec<Vec<Hash>>, &self.parents_by_level, writer)?;
         store!(Hash, &self.hash_merkle_root, writer)?;
         store!(Hash, &self.accepted_id_merkle_root, writer)?;
-        store!(Hash, &self.utxo_commitment, writer)?;
+        store!(Hash, &self.cell_commitment, writer)?;
         store!(u64, &self.timestamp, writer)?;
         store!(u32, &self.bits, writer)?;
         store!(u64, &self.nonce, writer)?;
@@ -171,7 +171,7 @@ impl Deserializer for RpcHeader {
         let parents_by_level = load!(Vec<Vec<Hash>>, reader)?;
         let hash_merkle_root = load!(Hash, reader)?;
         let accepted_id_merkle_root = load!(Hash, reader)?;
-        let utxo_commitment = load!(Hash, reader)?;
+        let cell_commitment = load!(Hash, reader)?;
         let timestamp = load!(u64, reader)?;
         let bits = load!(u32, reader)?;
         let nonce = load!(u64, reader)?;
@@ -186,7 +186,7 @@ impl Deserializer for RpcHeader {
             parents_by_level,
             hash_merkle_root,
             accepted_id_merkle_root,
-            utxo_commitment,
+            cell_commitment,
             timestamp,
             bits,
             nonce,
@@ -205,7 +205,7 @@ impl From<RpcRawHeader> for Header {
             header.parents_by_level,
             header.hash_merkle_root,
             header.accepted_id_merkle_root,
-            header.utxo_commitment,
+            header.cell_commitment,
             header.timestamp,
             header.bits,
             header.nonce,
@@ -224,7 +224,7 @@ impl From<&RpcRawHeader> for Header {
             header.parents_by_level.clone(),
             header.hash_merkle_root,
             header.accepted_id_merkle_root,
-            header.utxo_commitment,
+            header.cell_commitment,
             header.timestamp,
             header.bits,
             header.nonce,
@@ -243,7 +243,7 @@ impl From<&Header> for RpcRawHeader {
             parents_by_level: header.parents_by_level.clone(),
             hash_merkle_root: header.hash_merkle_root,
             accepted_id_merkle_root: header.accepted_id_merkle_root,
-            utxo_commitment: header.utxo_commitment,
+            cell_commitment: header.cell_commitment,
             timestamp: header.timestamp,
             bits: header.bits,
             nonce: header.nonce,
@@ -262,7 +262,7 @@ impl From<Header> for RpcRawHeader {
             parents_by_level: header.parents_by_level,
             hash_merkle_root: header.hash_merkle_root,
             accepted_id_merkle_root: header.accepted_id_merkle_root,
-            utxo_commitment: header.utxo_commitment,
+            cell_commitment: header.cell_commitment,
             timestamp: header.timestamp,
             bits: header.bits,
             nonce: header.nonce,
@@ -282,7 +282,7 @@ impl Serializer for RpcRawHeader {
         store!(Vec<Vec<Hash>>, &self.parents_by_level, writer)?;
         store!(Hash, &self.hash_merkle_root, writer)?;
         store!(Hash, &self.accepted_id_merkle_root, writer)?;
-        store!(Hash, &self.utxo_commitment, writer)?;
+        store!(Hash, &self.cell_commitment, writer)?;
         store!(u64, &self.timestamp, writer)?;
         store!(u32, &self.bits, writer)?;
         store!(u64, &self.nonce, writer)?;
@@ -303,7 +303,7 @@ impl Deserializer for RpcRawHeader {
         let parents_by_level = load!(Vec<Vec<Hash>>, reader)?;
         let hash_merkle_root = load!(Hash, reader)?;
         let accepted_id_merkle_root = load!(Hash, reader)?;
-        let utxo_commitment = load!(Hash, reader)?;
+        let cell_commitment = load!(Hash, reader)?;
         let timestamp = load!(u64, reader)?;
         let bits = load!(u32, reader)?;
         let nonce = load!(u64, reader)?;
@@ -317,7 +317,7 @@ impl Deserializer for RpcRawHeader {
             parents_by_level,
             hash_merkle_root,
             accepted_id_merkle_root,
-            utxo_commitment,
+            cell_commitment,
             timestamp,
             bits,
             nonce,

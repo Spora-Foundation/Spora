@@ -9,7 +9,7 @@ pub mod pruning_proof;
 pub mod reachability;
 pub mod relations;
 pub mod sync;
-pub mod transaction_validator;
+// pub mod transaction_validator; // UTXO deprecated - use cell_validator
 pub mod traversal_manager;
 pub(crate) mod utils;
 pub mod window;

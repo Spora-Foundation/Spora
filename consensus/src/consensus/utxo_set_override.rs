@@ -11,13 +11,13 @@ mod utxo_set_override_inner {
 
     use crate::consensus::Consensus;
 
-    pub fn set_genesis_utxo_commitment_from_config(config: &mut Config) {
+    pub fn set_genesis_cell_commitment_from_config(config: &mut Config) {
         let mut genesis_multiset = MuHash::new();
         for (outpoint, entry) in config.initial_utxo_set.iter() {
             genesis_multiset.add_utxo(outpoint, entry);
         }
 
-        config.params.genesis.utxo_commitment = genesis_multiset.finalize();
+        config.params.genesis.cell_commitment = genesis_multiset.finalize();
         let genesis_header: Header = (&config.params.genesis).into();
         config.params.genesis.hash = genesis_header.hash;
     }

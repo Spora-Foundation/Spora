@@ -18,6 +18,8 @@ pub mod api;
 pub mod block;
 pub mod blockhash;
 pub mod blockstatus;
+pub mod cell_state;
+pub mod cell_diff;
 pub mod coinbase;
 pub mod config;
 pub mod constants;
@@ -36,11 +38,9 @@ pub mod subnets;
 pub mod trusted;
 pub mod tx;
 
-// UTXO model deprecated - moved to utxo.deprecated/
+// UTXO model deprecated - completely removed
 // Use Cell model instead (see exec/ and state/ crates)
-#[allow(dead_code)]
-#[path = "utxo.deprecated"]
-mod utxo_deprecated;
+// Old UTXO code preserved in git history (before-utxo-removal tag)
 
 /// Integer type for accumulated PoW of blue blocks. We expect no more than
 /// 2^128 work in a single block (btc has ~2^80), and no more than 2^64

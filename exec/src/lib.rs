@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ISC
-// Copyright (C) 2024 Tondi developers
+// Copyright (C) 2025Tondi developers
 //
 // This file is part of Tondi, a DAG-based blockchain with Cell model.
 // Portions adapted from Nervos CKB (MIT License).
@@ -18,8 +18,11 @@
 pub mod celltx;
 /// Parallel transaction scheduler
 pub mod scheduler;
-// pub mod vm;         // Phase 3
-// pub mod scripts;    // Phase 3
+/// VM integration for script execution (CKB-VM based)
+#[cfg(feature = "vm")]
+pub mod vm;
+/// Standard scripts (secp256k1 lock, capacity type)
+pub mod scripts;
 
 pub use celltx::{CellTx, CellRef, CellOut, ScriptRef, OutPoint, CellDep, DepType};
 

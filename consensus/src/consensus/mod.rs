@@ -26,7 +26,7 @@ use crate::{
             relations::RelationsStoreReader,
             statuses::StatusesStoreReader,
             tips::TipsStoreReader,
-            utxo_set::{UtxoSetStore, UtxoSetStoreReader},
+            // utxo_set::{UtxoSetStore, UtxoSetStoreReader}, // UTXO deprecated
             DB,
         },
     },
@@ -71,7 +71,7 @@ use tondi_consensus_core::{
     pruning::{PruningPointProof, PruningPointTrustedData, PruningPointsList, PruningProofMetadata},
     trusted::{ExternalGhostdagData, TrustedBlock},
     tx::{MutableTransaction, SignableTransaction, Transaction, TransactionOutpoint, UtxoEntry},
-    utxo::utxo_inquirer::UtxoInquirerError,
+    // utxo::utxo_inquirer::UtxoInquirerError, // UTXO deprecated - use Cell validation
     BlockHashSet, BlueWorkType, ChainPath, HashMapCustomHasher,
 };
 use tondi_consensus_notify::root::ConsensusNotificationRoot;

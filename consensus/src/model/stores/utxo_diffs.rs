@@ -1,7 +1,12 @@
+// UTXO diffs store deprecated - use Cell model instead
+// This file is temporarily disabled during UTXO -> Cell migration
+
+/*
 use std::sync::Arc;
 
 use rocksdb::WriteBatch;
-use tondi_consensus_core::{utxo::utxo_diff::UtxoDiff, BlockHasher};
+use tondi_consensus_core::BlockHasher;
+// use tondi_consensus_core::{utxo::utxo_diff::UtxoDiff, BlockHasher}; // UTXO deprecated
 use tondi_database::prelude::CachePolicy;
 use tondi_database::prelude::StoreError;
 use tondi_database::prelude::DB;
@@ -71,3 +76,4 @@ impl UtxoDiffsStore for DbUtxoDiffsStore {
         self.access.delete(DirectDbWriter::new(&self.db), hash)
     }
 }
+*/

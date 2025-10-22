@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ISC
-// Copyright (C) 2024 Tondi developers
+// Copyright (C) 2025Tondi developers
 //
 // Cell state management and data availability storage
 
@@ -15,9 +15,11 @@
 
 pub mod index;
 pub mod store;
+pub mod cell_tree;
 
 pub use index::{CellDB, CellMeta as IndexedCellMeta, ScriptIndex};
 pub use store::{SegmentWriter, SegmentReader, SegmentMeta, SegmentProof};
+pub use cell_tree::{CellStateTree, CellEntry};
 
 /// Cell state errors
 #[derive(Debug, thiserror::Error)]

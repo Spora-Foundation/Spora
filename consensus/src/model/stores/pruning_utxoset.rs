@@ -8,7 +8,7 @@ use tondi_database::prelude::{BatchDbWriter, CachedDbItem};
 use tondi_database::registry::DatabaseStorePrefixes;
 use tondi_hashes::Hash;
 
-use super::utxo_set::DbUtxoSetStore;
+// use super::utxo_set::DbUtxoSetStore; // UTXO deprecated
 
 /// Used in order to group stores related to the pruning point utxoset under a single lock
 pub struct PruningUtxosetStores {

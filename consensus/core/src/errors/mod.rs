@@ -7,4 +7,5 @@ pub mod pruning;
 pub mod sync;
 pub mod traversal;
 pub mod tx;
-pub mod utxo;
+// UTXO errors deprecated - use Cell validation errors instead
+// pub mod utxo;

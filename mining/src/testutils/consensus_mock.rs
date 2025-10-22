@@ -93,6 +93,7 @@ impl ConsensusApi for ConsensusMock {
             hash_merkle_root,
             ZERO_HASH,
             ZERO_HASH,
+            ZERO_HASH, // cell_root
             now,
             123456789u32,
             0,

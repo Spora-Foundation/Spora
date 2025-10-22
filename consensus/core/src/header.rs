@@ -14,7 +14,11 @@ pub struct Header {
     pub parents_by_level: Vec<Vec<Hash>>,
     pub hash_merkle_root: Hash,
     pub accepted_id_merkle_root: Hash,
-    pub utxo_commitment: Hash,
+    /// Cell commitment - versioned commitment to execution-related state (v0: H(domain || cell_root))
+    #[serde(alias = "utxo_commitment")]
+    pub cell_commitment: Hash,
+    /// Cell state root - Merkle root of all live cells (for state proofs)
+    pub cell_root: Hash,
     /// Timestamp is in milliseconds
     pub timestamp: u64,
     pub bits: u32,
@@ -32,7 +36,8 @@ impl Header {
         parents_by_level: Vec<Vec<Hash>>,
         hash_merkle_root: Hash,
         accepted_id_merkle_root: Hash,
-        utxo_commitment: Hash,
+        cell_commitment: Hash,
+        cell_root: Hash,
         timestamp: u64,
         bits: u32,
         nonce: u64,
@@ -47,7 +52,8 @@ impl Header {
             parents_by_level,
             hash_merkle_root,
             accepted_id_merkle_root,
-            utxo_commitment,
+            cell_commitment,
+            cell_root,
             nonce,
             timestamp,
             daa_score,
@@ -81,7 +87,8 @@ impl Header {
             parents_by_level: vec![parents],
             hash_merkle_root: Default::default(),
             accepted_id_merkle_root: Default::default(),
-            utxo_commitment: Default::default(),
+            cell_commitment: Default::default(),
+            cell_root: Default::default(),
             nonce: 0,
             timestamp: 0,
             daa_score: 0,
@@ -119,6 +126,7 @@ mod tests {
             Default::default(),
             Default::default(),
             Default::default(),
+            Default::default(), // cell_root
             234,
             23,
             567,

@@ -207,12 +207,12 @@ impl Header {
 
     #[wasm_bindgen(getter = utxoCommitment)]
     pub fn get_utxo_commitment_as_hex(&self) -> String {
-        self.inner().utxo_commitment.to_hex()
+        self.inner().cell_commitment.to_hex()
     }
 
     #[wasm_bindgen(setter = utxoCommitment)]
     pub fn set_utxo_commitment_from_js_value(&mut self, js_value: JsValue) {
-        self.inner_mut().utxo_commitment = Hash::from_slice(&js_value.try_as_vec_u8().expect("utxo commitment"));
+        self.inner_mut().cell_commitment = Hash::from_slice(&js_value.try_as_vec_u8().expect("utxo commitment"));
     }
 
     #[wasm_bindgen(getter = pruningPoint)]
@@ -296,7 +296,7 @@ impl TryCastFromJs for Header {
                         .get_value("acceptedIdMerkleRoot")?
                         .try_into_owned()
                         .map_err(|err| Error::convert("acceptedIdMerkleRoot", err))?,
-                    utxo_commitment: object
+                    cell_commitment: object
                         .get_value("utxoCommitment")?
                         .try_into_owned()
                         .map_err(|err| Error::convert("utxoCommitment", err))?,

@@ -21,7 +21,7 @@ use crate::{
     pruning::{PruningPointProof, PruningPointTrustedData, PruningPointsList, PruningProofMetadata},
     trusted::{ExternalGhostdagData, TrustedBlock},
     tx::{MutableTransaction, SignableTransaction, Transaction, TransactionOutpoint, UtxoEntry},
-    utxo::utxo_inquirer::UtxoInquirerError,
+    // utxo::utxo_inquirer::UtxoInquirerError, // UTXO deprecated - use Cell validation
     BlockHashSet, BlueWorkType, ChainPath,
 };
 use tondi_hashes::Hash;
@@ -179,7 +179,7 @@ pub trait ConsensusApi: Send + Sync {
 
     /// Returns the fully populated transaction with the given txid which was accepted at the provided accepting_block_daa_score.
     /// The argument `accepting_block_daa_score` is expected to be the DAA score of the accepting chain block of `txid`.
-    fn get_populated_transaction(&self, txid: Hash, accepting_block_daa_score: u64) -> Result<SignableTransaction, UtxoInquirerError> {
+    fn get_populated_transaction(&self, txid: Hash, accepting_block_daa_score: u64) -> Result<SignableTransaction, String> {
         unimplemented!()
     }
 

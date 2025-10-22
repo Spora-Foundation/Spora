@@ -15,7 +15,7 @@ use tondi_consensus_core::{
     pruning::{PruningPointProof, PruningPointTrustedData, PruningPointsList},
     trusted::{ExternalGhostdagData, TrustedBlock},
     tx::{MutableTransaction, SignableTransaction, Transaction, TransactionOutpoint, UtxoEntry},
-    utxo::utxo_inquirer::UtxoInquirerError,
+    // utxo::utxo_inquirer::UtxoInquirerError, // UTXO deprecated - use Cell validation
     BlockHashSet, BlueWorkType, ChainPath, Hash,
 };
 use tondi_utils::sync::rwlock::*;
@@ -324,7 +324,7 @@ impl ConsensusSessionOwned {
         &self,
         txid: Hash,
         accepting_block_daa_score: u64,
-    ) -> Result<SignableTransaction, UtxoInquirerError> {
+    ) -> Result<SignableTransaction, String> {
         self.clone().spawn_blocking(move |c| c.get_populated_transaction(txid, accepting_block_daa_score)).await
     }
 

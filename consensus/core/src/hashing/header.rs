@@ -17,7 +17,8 @@ pub fn hash_override_nonce_time(header: &Header, nonce: u64, timestamp: u64) -> 
     hasher
         .update(header.hash_merkle_root)
         .update(header.accepted_id_merkle_root)
-        .update(header.utxo_commitment)
+        .update(header.cell_commitment)
+        .update(header.cell_root)
         .update(timestamp.to_le_bytes())
         .update(header.bits.to_le_bytes())
         .update(nonce.to_le_bytes())
@@ -47,6 +48,7 @@ mod tests {
             Default::default(),
             Default::default(),
             Default::default(),
+            Default::default(), // cell_root
             234,
             23,
             567,

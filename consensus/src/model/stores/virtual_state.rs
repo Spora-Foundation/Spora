@@ -6,31 +6,54 @@ use rocksdb::WriteBatch;
 use serde::{Deserialize, Serialize};
 use tondi_consensus_core::api::stats::VirtualStateStats;
 use tondi_consensus_core::{
-    block::VirtualStateApproxId, coinbase::BlockRewardData, config::genesis::GenesisBlock, tx::TransactionId,
-    utxo::utxo_diff::UtxoDiff, BlockHashMap, BlockHashSet, HashMapCustomHasher,
+    block::VirtualStateApproxId,
+    cell_diff::CellDiff,
+    coinbase::BlockRewardData,
+    config::genesis::GenesisBlock,
+    tx::TransactionId,
+    BlockHashMap, BlockHashSet, HashMapCustomHasher,
 };
 use tondi_database::prelude::{BatchDbWriter, CachedDbItem, DirectDbWriter, StoreResultExtensions};
 use tondi_database::prelude::{CachePolicy, StoreResult};
 use tondi_database::prelude::{StoreError, DB};
 use tondi_database::registry::DatabaseStorePrefixes;
 use tondi_hashes::Hash;
-use tondi_muhash::MuHash;
+use tondi_state::CellStateTree;
 
 use super::ghostdag::GhostdagData;
-use super::utxo_set::DbUtxoSetStore;
 
-#[derive(Clone, Serialize, Deserialize, Default)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct VirtualState {
     pub parents: Vec<Hash>,
     pub ghostdag_data: GhostdagData,
     pub daa_score: u64,
     pub bits: u32,
     pub past_median_time: u64,
-    pub multiset: MuHash,
-    pub utxo_diff: UtxoDiff, // This is the UTXO diff from the selected tip to the virtual. i.e., if this diff is applied on the past UTXO of the selected tip, we'll get the virtual UTXO set.
-    pub accepted_tx_ids: Vec<TransactionId>, // TODO: consider saving `accepted_id_merkle_root` directly
+    /// Cell state tree (replaces multiset/MuHash from UTXO model)
+    #[serde(skip)]
+    pub cell_state_tree: CellStateTree,
+    /// Cell diff from selected tip to virtual (replaces utxo_diff)
+    pub cell_diff: CellDiff,
+    pub accepted_tx_ids: Vec<TransactionId>,
     pub mergeset_rewards: BlockHashMap<BlockRewardData>,
     pub mergeset_non_daa: BlockHashSet,
+}
+
+impl Default for VirtualState {
+    fn default() -> Self {
+        Self {
+            parents: Vec::new(),
+            ghostdag_data: GhostdagData::default(),
+            daa_score: 0,
+            bits: 0,
+            past_median_time: 0,
+            cell_state_tree: CellStateTree::new(),
+            cell_diff: CellDiff::new(),
+            accepted_tx_ids: Vec::new(),
+            mergeset_rewards: BlockHashMap::new(),
+            mergeset_non_daa: BlockHashSet::new(),
+        }
+    }
 }
 
 impl VirtualState {
@@ -39,8 +62,8 @@ impl VirtualState {
         daa_score: u64,
         bits: u32,
         past_median_time: u64,
-        multiset: MuHash,
-        utxo_diff: UtxoDiff,
+        cell_state_tree: CellStateTree,
+        cell_diff: CellDiff,
         accepted_tx_ids: Vec<TransactionId>,
         mergeset_rewards: BlockHashMap<BlockRewardData>,
         mergeset_non_daa: BlockHashSet,
@@ -52,8 +75,8 @@ impl VirtualState {
             daa_score,
             bits,
             past_median_time,
-            multiset,
-            utxo_diff,
+            cell_state_tree,
+            cell_diff,
             accepted_tx_ids,
             mergeset_rewards,
             mergeset_non_daa,
@@ -67,8 +90,8 @@ impl VirtualState {
             daa_score: genesis.daa_score,
             bits: genesis.bits,
             past_median_time: genesis.timestamp,
-            multiset: MuHash::new(),
-            utxo_diff: UtxoDiff::default(), // Virtual diff is initially empty since genesis receives no reward
+            cell_state_tree: CellStateTree::new(),
+            cell_diff: CellDiff::new(), // Virtual diff is initially empty since genesis receives no reward
             accepted_tx_ids: genesis.build_genesis_transactions().into_iter().map(|tx| tx.id()).collect(),
             mergeset_rewards: BlockHashMap::new(),
             mergeset_non_daa: BlockHashSet::from_iter(std::iter::once(genesis.hash)),

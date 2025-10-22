@@ -1,11 +1,15 @@
+// UTXO set store deprecated - use Cell model instead
+// This file is temporarily disabled during UTXO -> Cell migration
+
+/*
 use rocksdb::WriteBatch;
 use std::{error::Error, fmt::Display, sync::Arc};
 use tondi_consensus_core::{
     tx::{TransactionIndexType, TransactionOutpoint, UtxoEntry},
-    utxo::{
-        utxo_diff::{ImmutableUtxoDiff, UtxoDiff},
-        utxo_view::UtxoView,
-    },
+    // utxo::{ // UTXO deprecated - use Cell model
+    //     utxo_diff::{ImmutableUtxoDiff, UtxoDiff},
+    //     utxo_view::UtxoView,
+    // },
 };
 use tondi_database::prelude::StoreResultExtensions;
 use tondi_database::prelude::DB;
@@ -194,3 +198,4 @@ mod tests {
         });
     }
 }
+*/

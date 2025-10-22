@@ -18,7 +18,7 @@ use crate::{
         selected_chain::DbSelectedChainStore,
         statuses::DbStatusesStore,
         tips::DbTipsStore,
-        utxo_diffs::DbUtxoDiffsStore,
+        // utxo_diffs::DbUtxoDiffsStore, // UTXO deprecated
         utxo_multisets::DbUtxoMultisetsStore,
         virtual_state::{LkgVirtualState, VirtualStores},
         DB,

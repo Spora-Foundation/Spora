@@ -1133,6 +1133,7 @@ fn rpc_header_to_header(rpc_header: &RPCBlockHeader) -> Header {
         Hash::from_str(&rpc_header.HashMerkleRoot).unwrap(),
         Hash::from_str(&rpc_header.AcceptedIDMerkleRoot).unwrap(),
         Hash::from_str(&rpc_header.UTXOCommitment).unwrap(),
+        Hash::from_str("0000000000000000000000000000000000000000000000000000000000000000").unwrap(), // cell_root (legacy data)
         rpc_header.Timestamp,
         rpc_header.Bits,
         rpc_header.Nonce,
@@ -1466,7 +1467,7 @@ async fn difficulty_test() {
             parents_by_level: vec![],
             hash_merkle_root: 0.into(),
             accepted_id_merkle_root: 0.into(),
-            utxo_commitment: 0.into(),
+            cell_commitment: 0.into(),
             timestamp: 0,
             bits: 0,
             nonce: 0,
@@ -1813,7 +1814,7 @@ async fn run_kip10_activation_test() {
             initial_utxo_collection.iter().for_each(|(outpoint, utxo)| {
                 genesis_multiset.add_utxo(outpoint, utxo);
             });
-            cfg.params.genesis.utxo_commitment = genesis_multiset.finalize();
+            cfg.params.genesis.cell_commitment = genesis_multiset.finalize();
             let genesis_header: Header = (&cfg.params.genesis).into();
             cfg.params.genesis.hash = genesis_header.hash;
         })
@@ -1968,7 +1969,7 @@ async fn payload_activation_test() {
             initial_utxo_collection.iter().for_each(|(outpoint, utxo)| {
                 genesis_multiset.add_utxo(outpoint, utxo);
             });
-            cfg.params.genesis.utxo_commitment = genesis_multiset.finalize();
+            cfg.params.genesis.cell_commitment = genesis_multiset.finalize();
             let genesis_header: Header = (&cfg.params.genesis).into();
             cfg.params.genesis.hash = genesis_header.hash;
         })
@@ -2101,7 +2102,7 @@ async fn runtime_sig_op_counting_test() {
             initial_utxo_collection.iter().for_each(|(outpoint, utxo)| {
                 genesis_multiset.add_utxo(outpoint, utxo);
             });
-            cfg.params.genesis.utxo_commitment = genesis_multiset.finalize();
+            cfg.params.genesis.cell_commitment = genesis_multiset.finalize();
             let genesis_header: Header = (&cfg.params.genesis).into();
             cfg.params.genesis.hash = genesis_header.hash;
         })

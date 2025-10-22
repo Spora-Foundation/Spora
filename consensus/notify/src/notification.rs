@@ -1,6 +1,7 @@
 use derive_more::Display;
 use std::sync::Arc;
-use tondi_consensus_core::{acceptance_data::AcceptanceData, block::Block, utxo::utxo_diff::UtxoDiff};
+use tondi_consensus_core::{acceptance_data::AcceptanceData, block::Block};
+// utxo::utxo_diff::UtxoDiff deprecated - use Cell model
 use tondi_hashes::Hash;
 use tondi_notify::{
     events::EventType,
@@ -28,8 +29,9 @@ pub enum Notification {
     #[display(fmt = "FinalityConflict notification: violating block hash {}", "_0.finality_block_hash")]
     FinalityConflictResolved(FinalityConflictResolvedNotification),
 
-    #[display(fmt = "UtxosChanged notification")]
-    UtxosChanged(UtxosChangedNotification),
+    // UTXO notifications deprecated - use Cell model
+    // #[display(fmt = "UtxosChanged notification")]
+    // UtxosChanged(UtxosChangedNotification),
 
     #[display(fmt = "SinkBlueScoreChanged notification: virtual selected parent blue score {}", "_0.sink_blue_score")]
     SinkBlueScoreChanged(SinkBlueScoreChangedNotification),
@@ -141,18 +143,19 @@ impl FinalityConflictResolvedNotification {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct UtxosChangedNotification {
-    /// Accumulated UTXO diff between the last virtual state and the current virtual state
-    pub accumulated_utxo_diff: Arc<UtxoDiff>,
-    pub virtual_parents: Arc<Vec<Hash>>,
-}
-
-impl UtxosChangedNotification {
-    pub fn new(accumulated_utxo_diff: Arc<UtxoDiff>, virtual_parents: Arc<Vec<Hash>>) -> Self {
-        Self { accumulated_utxo_diff, virtual_parents }
-    }
-}
+// UTXO notifications deprecated - use Cell model
+// #[derive(Debug, Clone)]
+// pub struct UtxosChangedNotification {
+//     /// Accumulated UTXO diff between the last virtual state and the current virtual state
+//     pub accumulated_utxo_diff: Arc<UtxoDiff>,
+//     pub virtual_parents: Arc<Vec<Hash>>,
+// }
+//
+// impl UtxosChangedNotification {
+//     pub fn new(accumulated_utxo_diff: Arc<UtxoDiff>, virtual_parents: Arc<Vec<Hash>>) -> Self {
+//         Self { accumulated_utxo_diff, virtual_parents }
+//     }
+// }
 
 #[derive(Debug, Clone)]
 pub struct SinkBlueScoreChangedNotification {

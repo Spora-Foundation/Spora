@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ISC
-// Copyright (C) 2024 Tondi developers
+// Copyright (C) 2025Tondi developers
 //
 // Cell validation errors
 
@@ -16,9 +16,28 @@ pub enum CellValidationError {
     #[error("Cell not found: {0:?}")]
     CellNotFound([u8; 32]),
     
+    /// Cell dependency not found
+    #[error("Cell dependency not found: {0:?}")]
+    DepCellNotFound([u8; 32]),
+    
     /// Cell already spent
     #[error("Cell already spent: {0:?}")]
     CellAlreadySpent([u8; 32]),
+    
+    /// Cell not yet created (reorg scenario)
+    #[error("Cell not yet created: created at DAA {created_daa}, spent at DAA {spent_at_daa}")]
+    CellNotYetCreated {
+        created_daa: u64,
+        spent_at_daa: u64,
+    },
+    
+    /// Cellbase not mature
+    #[error("Cellbase not mature: created at DAA {created_daa}, current DAA {current_daa}, required DAA {required_daa}")]
+    CellbaseNotMature {
+        created_daa: u64,
+        current_daa: u64,
+        required_daa: u64,
+    },
     
     /// Capacity overflow
     #[error("Capacity overflow")]

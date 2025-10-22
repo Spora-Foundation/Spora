@@ -235,22 +235,22 @@ impl PruningProcessor {
         drop(pruning_utxoset_write);
 
         if self.config.enable_sanity_checks {
-            info!("Performing a sanity check that the new UTXO set has the expected UTXO commitment");
-            self.assert_utxo_commitment(new_pruning_point);
+            info!("Performing a sanity check that the new UTXO set has the expected cell commitment");
+            self.assert_cell_commitment(new_pruning_point);
         }
         true
     }
 
-    fn assert_utxo_commitment(&self, pruning_point: Hash) {
-        info!("Verifying the new pruning point UTXO commitment (sanity test)");
-        let commitment = self.headers_store.get_header(pruning_point).unwrap().utxo_commitment;
+    fn assert_cell_commitment(&self, pruning_point: Hash) {
+        info!("Verifying the new pruning point cell commitment (sanity test)");
+        let commitment = self.headers_store.get_header(pruning_point).unwrap().cell_commitment;
         let mut multiset = MuHash::new();
         let pruning_utxoset_read = self.pruning_utxoset_stores.read();
         for (outpoint, entry) in pruning_utxoset_read.utxo_set.iterator().map(|r| r.unwrap()) {
             multiset.add_utxo(&outpoint, &entry);
         }
-        assert_eq!(multiset.finalize(), commitment, "Updated pruning point utxo set does not match the header utxo commitment");
-        info!("Pruning point UTXO commitment was verified correctly (sanity test)");
+        assert_eq!(multiset.finalize(), commitment, "Updated pruning point utxo set does not match the header cell commitment");
+        info!("Pruning point cell commitment was verified correctly (sanity test)");
     }
 
     fn prune(&self, new_pruning_point: Hash, retention_period_root: Hash) {

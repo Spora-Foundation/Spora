@@ -1,5 +1,5 @@
 #[cfg(feature = "devnet-prealloc")]
-use super::utxo_set_override::{set_genesis_utxo_commitment_from_config, set_initial_utxo_set};
+use super::utxo_set_override::{set_genesis_cell_commitment_from_config, set_initial_utxo_set};
 use super::{ctl::Ctl, Consensus};
 use crate::{model::stores::U64Key, pipeline::ProcessingCounters};
 use itertools::Itertools;
@@ -272,7 +272,7 @@ impl Factory {
         assert!(fd_budget > 0, "fd_budget has to be positive");
         let mut config = config.clone();
         #[cfg(feature = "devnet-prealloc")]
-        set_genesis_utxo_commitment_from_config(&mut config);
+        set_genesis_cell_commitment_from_config(&mut config);
         config.process_genesis = false;
         let management_store = Arc::new(RwLock::new(MultiConsensusManagementStore::new(management_db)));
         management_store.write().set_is_archival_node(config.is_archival);

@@ -13,7 +13,8 @@ use crate::{
     processes::{
         block_depth::BlockDepthManager, coinbase::CoinbaseManager, ghostdag::protocol::GhostdagManager,
         parents_builder::ParentsManager, pruning::PruningPointManager, pruning_proof::PruningProofManager, sync::SyncManager,
-        transaction_validator::TransactionValidator, traversal_manager::DagTraversalManager, window::DualWindowManager,
+        // transaction_validator::TransactionValidator, // UTXO deprecated - use cell_validator
+        traversal_manager::DagTraversalManager, window::DualWindowManager,
     },
 };
 use itertools::Itertools;

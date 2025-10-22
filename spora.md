@@ -4240,7 +4240,7 @@ jobs:
 
 ```rust
 // SPDX-License-Identifier: ISC
-// Copyright (C) 2024 Tondi developers
+// Copyright (C) 2025Tondi developers
 //
 // This file is part of Tondi, a DAG-based blockchain with Cell model.
 // Portions adapted from Nervos CKB (MIT License).
