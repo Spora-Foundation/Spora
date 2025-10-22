@@ -12,7 +12,7 @@ use tondi_notify::{
     connection::ChannelType,
     events::{EventSwitches, EventType},
     listener::ListenerLifespan,
-    scope::{PruningPointUtxoSetOverrideScope, UtxosChangedScope},
+    scope::{CellsChangedScope, PruningPointUtxoSetOverrideScope, UtxosChangedScope},
     subscription::{context::SubscriptionContext, MutationPolicies, UtxosChangedMutationPolicy},
 };
 use tondi_utils::{channel::Channel, triggers::SingleTrigger};
@@ -43,14 +43,21 @@ impl IndexService {
         );
 
         // Prepare the index-processor notifier
-        // TODO(spora): Replace EventType::UtxosChanged with EventType::CellsChanged
-        let events: EventSwitches = [EventType::UtxosChanged, EventType::PruningPointUtxoSetOverride].as_ref().into();
+        // Subscribe to both UtxosChanged (legacy) and CellsChanged (new)
+        let events: EventSwitches = [
+            EventType::UtxosChanged,
+            EventType::CellsChanged,
+            EventType::PruningPointUtxoSetOverride,
+        ].as_ref().into();
         let collector = Arc::new(Processor::new(cellindex.clone(), consensus_notify_channel.receiver()));
         let notifier = Arc::new(IndexNotifier::new(INDEX_SERVICE, events, vec![collector], vec![], subscription_context, 1, policies));
 
-        // TODO(spora): Update to Cells subscription scopes
+        // Subscribe to both legacy UTXO and new Cell notifications
         consensus_notifier
             .try_start_notify(consensus_notify_listener_id, UtxosChangedScope::default().into())
+            .expect("the subscription always succeeds");
+        consensus_notifier
+            .try_start_notify(consensus_notify_listener_id, CellsChangedScope::default().into())
             .expect("the subscription always succeeds");
         consensus_notifier
             .try_start_notify(consensus_notify_listener_id, PruningPointUtxoSetOverrideScope::default().into())

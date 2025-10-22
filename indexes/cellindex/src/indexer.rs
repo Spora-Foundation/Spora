@@ -170,6 +170,36 @@ impl CellIndexer {
         Ok(self.cell_db.is_spent(out_point)?)
     }
     
+    /// Update Cell index with a diff (CKB-style incremental update)
+    /// 
+    /// GHOSTDAG-aware: processes Cell diff from virtual state changes.
+    /// Reference: CKB's indexer update logic
+    pub fn update_with_diff(&self, diff: &tondi_consensus_core::cell_diff::CellDiff) -> Result<()> {
+        // STEP 1: Remove consumed Cells
+        for (outpoint, _meta) in diff.remove.iter() {
+            let exec_outpoint = OutPoint {
+                tx_hash: outpoint.transaction_id.as_bytes().clone(),
+                index: outpoint.index,
+            };
+            
+            // Get Cell metadata before removal
+            if let Some(cell_meta) = self.cell_db.get(&exec_outpoint)? {
+                let lock_hash = cell_meta.cell_output.lock.hash();
+                self.script_index.remove_lock(&lock_hash, &exec_outpoint)?;
+                
+                if let Some(ref type_script) = cell_meta.cell_output.type_ {
+                    let type_hash = type_script.hash();
+                    self.script_index.remove_type(&type_hash, &exec_outpoint)?;
+                }
+            }
+            
+            self.cell_db.spend(&exec_outpoint, 0)?;
+        }
+        
+        // STEP 2: Add created Cells - TODO: needs full transaction data
+        Ok(())
+    }
+    
     /// Get indexer statistics
     pub fn stats(&self) -> IndexerStats {
         self.stats.read().clone()

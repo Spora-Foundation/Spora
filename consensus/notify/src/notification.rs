@@ -1,6 +1,10 @@
 use derive_more::Display;
 use std::sync::Arc;
-use tondi_consensus_core::{acceptance_data::AcceptanceData, block::Block};
+use tondi_consensus_core::{
+    acceptance_data::AcceptanceData,
+    block::Block,
+    cell_diff::CellDiff,
+};
 // utxo::utxo_diff::UtxoDiff deprecated - use Cell model
 use tondi_hashes::Hash;
 use tondi_notify::{
@@ -32,6 +36,9 @@ pub enum Notification {
     // UTXO notifications deprecated - use Cell model
     // #[display(fmt = "UtxosChanged notification")]
     // UtxosChanged(UtxosChangedNotification),
+    
+    #[display(fmt = "CellsChanged notification")]
+    CellsChanged(CellsChangedNotification),
 
     #[display(fmt = "SinkBlueScoreChanged notification: virtual selected parent blue score {}", "_0.sink_blue_score")]
     SinkBlueScoreChanged(SinkBlueScoreChangedNotification),
@@ -156,6 +163,27 @@ impl FinalityConflictResolvedNotification {
 //         Self { accumulated_utxo_diff, virtual_parents }
 //     }
 // }
+
+/// CellsChanged notification - Cell model replacement for UtxosChanged
+///
+/// Notifies subscribers about changes in the Cell state between virtual state updates.
+/// This is GHOSTDAG-aware and includes the accumulated Cell diff and virtual parents.
+#[derive(Debug, Clone)]
+pub struct CellsChangedNotification {
+    /// Accumulated Cell diff between the last virtual state and the current virtual state
+    pub accumulated_cell_diff: Arc<CellDiff>,
+    /// Virtual parents of the current virtual state
+    pub virtual_parents: Arc<Vec<Hash>>,
+}
+
+impl CellsChangedNotification {
+    pub fn new(accumulated_cell_diff: Arc<CellDiff>, virtual_parents: Arc<Vec<Hash>>) -> Self {
+        Self {
+            accumulated_cell_diff,
+            virtual_parents,
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct SinkBlueScoreChangedNotification {

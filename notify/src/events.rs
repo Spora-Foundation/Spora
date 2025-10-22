@@ -47,6 +47,7 @@ event_type_enum! {
         FinalityConflict,
         FinalityConflictResolved,
         UtxosChanged,
+        CellsChanged,
         SinkBlueScoreChanged,
         VirtualDaaScoreChanged,
         PruningPointUtxoSetOverride,
@@ -54,7 +55,7 @@ event_type_enum! {
     }
 }
 
-pub const EVENT_COUNT: usize = 9;
+pub const EVENT_COUNT: usize = 10;
 
 impl FromStr for EventType {
     type Err = Error;

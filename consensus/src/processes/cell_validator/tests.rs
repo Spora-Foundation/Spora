@@ -9,14 +9,15 @@ mod tests {
     use crate::processes::cell_validator::{
         CellValidator, CellConsensusParams, CellValidationError,
         cell_validation_in_isolation, cell_validation_in_context, cell_validation_in_dag,
-        CellStateProvider, DagCellProvider, CellMeta
+        CellStateProvider, DagCellProvider
     };
+    use tondi_consensus_core::cell_metadata::CellMetadata;
     use tondi_exec::{CellTx, CellRef, CellOut, ScriptRef, OutPoint};
     use std::collections::HashMap;
     use std::sync::Arc;
 
     struct MockProvider {
-        cells: HashMap<OutPoint, (bool, u64, CellMeta)>, // (available, capacity, meta)
+        cells: HashMap<OutPoint, (bool, u64, CellMetadata)>, // (available, capacity, meta)
     }
 
     impl CellStateProvider for MockProvider {
@@ -30,18 +31,12 @@ mod tests {
     }
 
     impl DagCellProvider for MockProvider {
-        fn get_cell_meta(&self, out_point: &OutPoint) -> Result<Option<CellMeta>, String> {
+        fn get_cell_metadata(&self, out_point: &OutPoint) -> Result<Option<CellMetadata>, String> {
             Ok(self.cells.get(out_point).map(|(_, _, m)| m.clone()))
         }
-    }
-
-    impl Clone for CellMeta {
-        fn clone(&self) -> Self {
-            Self {
-                created_daa: self.created_daa,
-                is_cellbase: self.is_cellbase,
-                block_hash: self.block_hash,
-            }
+        
+        fn get_cell_at_daa(&self, out_point: &OutPoint, _daa: u64) -> Result<Option<CellMetadata>, String> {
+            Ok(self.cells.get(out_point).map(|(_, _, m)| m.clone()))
         }
     }
 
@@ -74,10 +69,17 @@ mod tests {
         provider.cells.insert(out_point.clone(), (
             true,
             100000,
-            CellMeta {
-                created_daa: 50,
+            CellMetadata {
+                capacity: 100000,
+                lock_hash: [0; 32],
+                type_hash: None,
+                data_hash: [0; 32],
+                block_daa_score: 50,
                 is_cellbase: false,
-                block_hash: [0; 32],
+                block_hash: tondi_hashes::Hash::from_bytes([0; 32]),
+                lock_code_hash: None,
+                type_code_hash: None,
+                data: None,
             },
         ));
         
@@ -98,10 +100,17 @@ mod tests {
         provider.cells.insert(out_point.clone(), (
             true,
             100000,
-            CellMeta {
-                created_daa: 50,
+            CellMetadata {
+                capacity: 100000,
+                lock_hash: [0; 32],
+                type_hash: None,
+                data_hash: [0; 32],
+                block_daa_score: 50,
                 is_cellbase: true,
-                block_hash: [0; 32],
+                block_hash: tondi_hashes::Hash::from_bytes([0; 32]),
+                lock_code_hash: None,
+                type_code_hash: None,
+                data: None,
             },
         ));
         

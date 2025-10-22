@@ -16,7 +16,10 @@ use ckb_vm::{
     registers::{A0, A3, A4, A7},
 };
 
-/// Cell metadata with data
+/// Cell metadata with data (SYSCALL-LOCAL)
+/// 
+/// ⚠️ NOTE: This is a module-local `CellMeta`, not exported.
+/// Used only within load_cell_data syscall.
 #[derive(Debug, Clone)]
 pub struct CellMeta {
     pub out_point: OutPoint,

@@ -6,21 +6,15 @@
 use super::errors::CellValidationError;
 use super::cell_validation_in_context::CellStateProvider;
 use tondi_exec::{CellTx, OutPoint};
-
-/// Cell metadata (DAG-aware)
-pub struct CellMeta {
-    /// DAA score when Cell was created
-    pub created_daa: u64,
-    /// Whether this Cell is from a cellbase transaction
-    pub is_cellbase: bool,
-    /// Block hash containing this Cell
-    pub block_hash: [u8; 32],
-}
+use tondi_consensus_core::cell_metadata::CellMetadata;
 
 /// Extended state provider for DAG validation
 pub trait DagCellProvider: CellStateProvider {
     /// Get Cell metadata
-    fn get_cell_meta(&self, out_point: &OutPoint) -> Result<Option<CellMeta>, String>;
+    fn get_cell_metadata(&self, out_point: &OutPoint) -> Result<Option<CellMetadata>, String>;
+    
+    /// GHOSTDAG-aware: query Cell state at a specific DAA score
+    fn get_cell_at_daa(&self, out_point: &OutPoint, daa: u64) -> Result<Option<CellMetadata>, String>;
 }
 
 /// Validate cellbase maturity
@@ -35,16 +29,16 @@ pub fn validate_cellbase_maturity<P: DagCellProvider>(
 ) -> Result<(), CellValidationError> {
     for input in &tx.inputs {
         // Get Cell metadata
-        let meta = provider.get_cell_meta(&input.out_point)
+        let meta = provider.get_cell_metadata(&input.out_point)
             .map_err(|e| CellValidationError::InvalidFormat(e))?
             .ok_or_else(|| CellValidationError::CellNotFound([0; 32]))?;
         
         // Check cellbase maturity
         if meta.is_cellbase {
-            let maturity_daa = meta.created_daa + maturity;
+            let maturity_daa = meta.block_daa_score + maturity;
             if current_daa < maturity_daa {
                 return Err(CellValidationError::CellbaseNotMature {
-                    created_daa: meta.created_daa,
+                    created_daa: meta.block_daa_score,
                     current_daa,
                     required_daa: maturity_daa,
                 });
@@ -101,14 +95,14 @@ pub fn validate_in_reorg_context<P: DagCellProvider>(
     
     // Check each input was valid at that time
     for input in &tx.inputs {
-        let meta = provider.get_cell_meta(&input.out_point)
+        let meta = provider.get_cell_metadata(&input.out_point)
             .map_err(|e| CellValidationError::InvalidFormat(e))?
             .ok_or_else(|| CellValidationError::CellNotFound([0; 32]))?;
         
         // Cell must have been created before or at this block
-        if meta.created_daa > block_daa {
+        if meta.block_daa_score > block_daa {
             return Err(CellValidationError::CellNotYetCreated {
-                created_daa: meta.created_daa,
+                created_daa: meta.block_daa_score,
                 spent_at_daa: block_daa,
             });
         }
@@ -124,7 +118,7 @@ mod tests {
     use std::collections::HashMap;
 
     struct MockDagProvider {
-        cells: HashMap<OutPoint, (bool, u64, CellMeta)>, // (available, capacity, meta)
+        cells: HashMap<OutPoint, (bool, u64, CellMetadata)>, // (available, capacity, meta)
     }
 
     impl CellStateProvider for MockDagProvider {
@@ -138,18 +132,13 @@ mod tests {
     }
 
     impl DagCellProvider for MockDagProvider {
-        fn get_cell_meta(&self, out_point: &OutPoint) -> Result<Option<CellMeta>, String> {
+        fn get_cell_metadata(&self, out_point: &OutPoint) -> Result<Option<CellMetadata>, String> {
             Ok(self.cells.get(out_point).map(|(_, _, m)| m.clone()))
         }
-    }
-
-    impl Clone for CellMeta {
-        fn clone(&self) -> Self {
-            Self {
-                created_daa: self.created_daa,
-                is_cellbase: self.is_cellbase,
-                block_hash: self.block_hash,
-            }
+        
+        fn get_cell_at_daa(&self, out_point: &OutPoint, _daa: u64) -> Result<Option<CellMetadata>, String> {
+            // Simple implementation: just return the cell if it exists
+            Ok(self.cells.get(out_point).map(|(_, _, m)| m.clone()))
         }
     }
 
@@ -164,10 +153,17 @@ mod tests {
         provider.cells.insert(out_point.clone(), (
             true,
             100000,
-            CellMeta {
-                created_daa: 50,
+            CellMetadata {
+                capacity: 100000,
+                lock_hash: [0; 32],
+                type_hash: None,
+                data_hash: [0; 32],
+                block_daa_score: 50,
                 is_cellbase: true,
-                block_hash: [0; 32],
+                block_hash: tondi_hashes::Hash::from_bytes([0; 32]),
+                lock_code_hash: None,
+                type_code_hash: None,
+                data: None,
             },
         ));
         
@@ -201,10 +197,17 @@ mod tests {
         provider.cells.insert(out_point.clone(), (
             true,
             100000,
-            CellMeta {
-                created_daa: 50,
+            CellMetadata {
+                capacity: 100000,
+                lock_hash: [0; 32],
+                type_hash: None,
+                data_hash: [0; 32],
+                block_daa_score: 50,
                 is_cellbase: false,
-                block_hash: [0; 32],
+                block_hash: tondi_hashes::Hash::from_bytes([0; 32]),
+                lock_code_hash: None,
+                type_code_hash: None,
+                data: None,
             },
         ));
         
@@ -232,10 +235,17 @@ mod tests {
         provider.cells.insert(out_point.clone(), (
             true,
             100000,
-            CellMeta {
-                created_daa: 100,
+            CellMetadata {
+                capacity: 100000,
+                lock_hash: [0; 32],
+                type_hash: None,
+                data_hash: [0; 32],
+                block_daa_score: 100,
                 is_cellbase: false,
-                block_hash: [0; 32],
+                block_hash: tondi_hashes::Hash::from_bytes([0; 32]),
+                lock_code_hash: None,
+                type_code_hash: None,
+                data: None,
             },
         ));
         

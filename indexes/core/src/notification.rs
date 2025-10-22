@@ -1,6 +1,8 @@
 use crate::indexed_utxos::{UtxoChanges, UtxoSetByScriptPublicKey};
 use derive_more::Display;
 use std::{collections::HashMap, sync::Arc};
+use tondi_consensus_core::cell_diff::CellDiff;
+use tondi_hashes::Hash;
 use tondi_notify::{
     events::EventType,
     full_featured,
@@ -17,6 +19,9 @@ full_featured! {
 pub enum Notification {
     #[display(fmt = "UtxosChanged notification")]
     UtxosChanged(UtxosChangedNotification),
+
+    #[display(fmt = "CellsChanged notification")]
+    CellsChanged(CellsChangedNotification),
 
     #[display(fmt = "PruningPointUtxoSetOverride notification")]
     PruningPointUtxoSetOverride(PruningPointUtxoSetOverrideNotification),
@@ -124,5 +129,26 @@ impl UtxosChangedNotification {
             });
         }
         result
+    }
+}
+
+/// CellsChanged notification for index layer
+/// 
+/// This is the index-layer version of consensus CellsChangedNotification.
+/// It contains the accumulated Cell diff from virtual state updates.
+#[derive(Debug, Clone)]
+pub struct CellsChangedNotification {
+    /// Accumulated Cell diff
+    pub accumulated_cell_diff: Arc<CellDiff>,
+    /// Virtual parents
+    pub virtual_parents: Arc<Vec<Hash>>,
+}
+
+impl CellsChangedNotification {
+    pub fn new(accumulated_cell_diff: Arc<CellDiff>, virtual_parents: Arc<Vec<Hash>>) -> Self {
+        Self {
+            accumulated_cell_diff,
+            virtual_parents,
+        }
     }
 }

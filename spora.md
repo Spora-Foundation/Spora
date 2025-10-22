@@ -1,4 +1,4 @@
-# CURSOR_RULES.md — Spora Fork Rules (CKB-inspired)
+#  Spora Fork Rules (CKB-inspired)
 
 > **⚠️ 重要警告：这是一次不可逆的架构重写**
 > 

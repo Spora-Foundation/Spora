@@ -17,7 +17,10 @@ use ckb_vm::{
     registers::{A0, A3, A4, A5, A7},
 };
 
-/// Cell metadata for VM access
+/// Cell metadata for VM access (SYSCALL-LOCAL)
+/// 
+/// ⚠️ NOTE: This is a module-local `CellMeta`, not exported.
+/// Different from consensus and state layer CellMeta variants.
 #[derive(Debug, Clone)]
 pub struct CellMeta {
     pub cell_output: CellOut,

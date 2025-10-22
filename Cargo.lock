@@ -5557,6 +5557,7 @@ dependencies = [
  "tempfile",
  "thiserror 1.0.69",
  "tokio",
+ "tondi-consensus-core",
  "tondi-exec",
  "tondi-state",
 ]

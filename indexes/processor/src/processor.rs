@@ -9,7 +9,7 @@ use std::sync::{
 };
 use tondi_consensus_notify::{notification as consensus_notification, notification::Notification as ConsensusNotification};
 use tondi_core::{debug, trace};
-use tondi_index_core::notification::{Notification, PruningPointUtxoSetOverrideNotification, UtxosChangedNotification};
+use tondi_index_core::notification::{CellsChangedNotification, Notification, PruningPointUtxoSetOverrideNotification, UtxosChangedNotification};
 use tondi_notify::{
     collector::{Collector, CollectorNotificationReceiver},
     error::Result,
@@ -80,8 +80,8 @@ impl Processor {
 
     async fn process_notification(self: &Arc<Self>, notification: ConsensusNotification) -> IndexResult<Notification> {
         match notification {
-            ConsensusNotification::UtxosChanged(utxos_changed) => {
-                Ok(Notification::UtxosChanged(self.process_utxos_changed(utxos_changed).await?))
+            ConsensusNotification::CellsChanged(cells_changed) => {
+                Ok(Notification::CellsChanged(self.process_cells_changed(cells_changed).await?))
             }
             ConsensusNotification::PruningPointUtxoSetOverride(_) => {
                 Ok(Notification::PruningPointUtxoSetOverride(PruningPointUtxoSetOverrideNotification {}))
@@ -90,19 +90,34 @@ impl Processor {
         }
     }
 
-    // TODO(spora): Replace with process_cells_changed when CellsChanged notifications are implemented
-    async fn process_utxos_changed(
+    
+    /// Process CellsChanged notification from consensus
+    /// 
+    /// GHOSTDAG-aware: processes accumulated Cell diff and updates CellIndex
+    async fn process_cells_changed(
         self: &Arc<Self>,
-        notification: consensus_notification::UtxosChangedNotification,
-    ) -> IndexResult<UtxosChangedNotification> {
-        trace!("[{IDENT}]: processing {:?} (STUB - needs Cell implementation)", notification);
-        // STUB: Cell indexing not yet implemented for notification processing
-        // if let Some(cellindex) = self.cellindex.clone() {
-        //     // TODO: Implement cell diff processing
-        //     let converted_notification: CellsChangedNotification = ...;
-        //     return Ok(converted_notification);
-        // };
-        Err(IndexError::NotSupported(EventType::UtxosChanged))
+        notification: consensus_notification::CellsChangedNotification,
+    ) -> IndexResult<CellsChangedNotification> {
+        trace!("[{IDENT}]: processing CellsChanged notification with {} added, {} removed cells",
+            notification.accumulated_cell_diff.num_added(),
+            notification.accumulated_cell_diff.num_removed()
+        );
+        
+        // Update cellindex if present
+        if let Some(cellindex) = self.cellindex.clone() {
+            cellindex
+                .update_with_diff(notification.accumulated_cell_diff.as_ref())
+                .await
+                .map_err(|e| IndexError::CellIndexError(e))?;
+        }
+        
+        // Convert to index notification format
+        let converted = CellsChangedNotification {
+            accumulated_cell_diff: notification.accumulated_cell_diff.clone(),
+            virtual_parents: notification.virtual_parents.clone(),
+        };
+        
+        Ok(converted)
     }
 
     async fn join_collecting_task(&self) -> Result<()> {

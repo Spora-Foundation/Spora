@@ -19,6 +19,7 @@ pub mod tests;
 
 pub use errors::CellValidationError;
 pub use cell_validation_in_context::CellStateProvider;
+pub use cell_validation_in_dag::DagCellProvider;
 
 use std::sync::Arc;
 

@@ -25,6 +25,10 @@ pub enum CellIndexError {
     /// Not found
     #[error("Cell not found")]
     NotFound,
+    
+    /// Internal error
+    #[error("Internal error: {0}")]
+    Internal(String),
 }
 
 /// Result type for Cell indexing operations

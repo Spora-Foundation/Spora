@@ -5,3 +5,5 @@ pub use processor::*;
 pub mod test_block_builder;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod cell_tests;

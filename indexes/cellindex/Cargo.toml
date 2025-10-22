@@ -7,6 +7,7 @@ description = "Cell indexing service with RPC API"
 
 [dependencies]
 # Core dependencies
+tondi-consensus-core = { path = "../../consensus/core", version = "1.21.0" }
 tondi-exec = { path = "../../exec", version = "1.21.0" }
 tondi-state = { path = "../../state", version = "1.21.0" }
 

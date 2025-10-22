@@ -110,6 +110,27 @@ impl CellIndexProxy {
     pub fn get_cell(&self, out_point: &OutPoint) -> crate::Result<Option<CellMeta>> {
         self.indexer.get_cell(out_point)
     }
+    
+    /// Update index with Cell diff (async version)
+    /// 
+    /// GHOSTDAG-aware: processes accumulated Cell diff from consensus notifications
+    pub async fn update_with_diff(&self, diff: &tondi_consensus_core::cell_diff::CellDiff) -> crate::Result<()> {
+        // Run in blocking thread pool since DB operations are sync
+        let indexer = self.indexer.clone();
+        let diff = diff.clone();
+        
+        tokio::task::spawn_blocking(move || {
+            indexer.update_with_diff(&diff)
+        })
+        .await
+        .map_err(|e| crate::errors::CellIndexError::Internal(format!("Async task error: {}", e)))?
+    }
+}
+
+impl std::fmt::Debug for CellIndexProxy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CellIndexProxy").finish()
+    }
 }
 
 #[cfg(test)]

@@ -74,8 +74,9 @@ use tondi_consensus_core::{
 // UTXO imports removed - fully replaced by Cell model
 use tondi_consensus_notify::{
     notification::{
-        NewBlockTemplateNotification, Notification, SinkBlueScoreChangedNotification,
-        VirtualChainChangedNotification, VirtualDaaScoreChangedNotification,
+        CellsChangedNotification, NewBlockTemplateNotification, Notification, SinkBlueScoreChangedNotification,
+        VirtualChainChangedNotification, VirtualDaaScoreChangedNotification, FinalityConflictNotification,
+        FinalityConflictResolvedNotification,
     },
     root::ConsensusNotificationRoot,
 };
@@ -345,15 +346,18 @@ impl VirtualStateProcessor {
         self.pruning_sender.send(PruningProcessingMessage::Process { sink_ghostdag_data: compact_sink_ghostdag_data }).unwrap();
 
         // Emit notifications
-        let accumulated_diff = Arc::new(accumulated_diff);
+        let accumulated_cell_diff = Arc::new(new_virtual_state.cell_diff.clone());
         let virtual_parents = Arc::new(new_virtual_state.parents.clone());
         self.notification_root
             .notify(Notification::NewBlockTemplate(NewBlockTemplateNotification {}))
             .expect("expecting an open unbounded channel");
-        // TODO(cell-model): Add CellsChanged notification to replace UtxosChanged
-        // self.notification_root
-        //     .notify(Notification::CellsChanged(CellsChangedNotification::new(accumulated_diff, virtual_parents)))
-        //     .expect("expecting an open unbounded channel");
+        // CellsChanged notification - GHOSTDAG-aware
+        self.notification_root
+            .notify(Notification::CellsChanged(CellsChangedNotification::new(
+                accumulated_cell_diff,
+                virtual_parents.clone(),
+            )))
+            .expect("expecting an open unbounded channel");
         self.notification_root
             .notify(Notification::SinkBlueScoreChanged(SinkBlueScoreChangedNotification::new(compact_sink_ghostdag_data.blue_score)))
             .expect("expecting an open unbounded channel");
@@ -446,12 +450,22 @@ impl VirtualStateProcessor {
                     let mergeset_data = self.ghostdag_store.get_data(current).unwrap();
                     let pov_daa_score = header.daa_score;
 
-                    let selected_parent_cell_root = self.cell_roots_store.get(selected_parent).unwrap();
-                    // Compose the cell state tree by applying the diff
-                    let virtual_state = stores.state.get().unwrap();
-                    let mut selected_parent_cell_tree = virtual_state.cell_state_tree.clone();
-                    // TODO(cell-model): Implement proper diff→tree application
-                    selected_parent_cell_tree.apply_diff_placeholder();
+                    // Get selected parent's cell state tree
+                    // Try to load from cell_roots_store, fallback to virtual state
+                    let selected_parent_cell_tree = match self.cell_roots_store.get(selected_parent) {
+                        Ok(_cell_root) => {
+                            // TODO: Reconstruct tree from cell_root
+                            // For now, use virtual state tree
+                            let virtual_state = stores.state.get().unwrap();
+                            virtual_state.cell_state_tree.clone()
+                        }
+                        Err(StoreError::KeyNotFound(_)) => {
+                            // Fallback: use virtual state tree
+                            let virtual_state = stores.state.get().unwrap();
+                            virtual_state.cell_state_tree.clone()
+                        }
+                        Err(e) => panic!("unexpected cell_roots_store error: {}", e),
+                    };
 
                     let mut ctx = CellProcessingContext::new(mergeset_data.into(), selected_parent_cell_tree);
 
