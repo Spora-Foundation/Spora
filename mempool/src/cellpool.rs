@@ -25,10 +25,48 @@ pub struct PoolEntry {
     pub fee: u64,
     /// Estimated cycles
     pub cycles: u64,
+    /// Blue preference score (for tie-breaking)
+    pub blue_score: Option<u64>,
     /// Dependencies (parent wtxids)
     pub dependencies: Vec<[u8; 32]>,
     /// Dependents (child wtxids)
     pub dependents: Vec<[u8; 32]>,
+}
+
+/// Deterministic conflict resolution key
+///
+/// Priority order:
+/// 1. fee_density (higher better) - descending
+/// 2. blue_score (higher better) - descending  
+/// 3. wtxid (lexicographic) - ascending (tie-breaker)
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ConflictKey {
+    /// Negative fee density (for descending order)
+    /// Uses fixed-point: multiply by 10^9 for precision
+    pub neg_fee_density: u64,
+    /// Negative blue score (for descending order)
+    pub neg_blue_score: u64,
+    /// WTxID (ascending order for determinism)
+    pub wtxid: [u8; 32],
+}
+
+impl ConflictKey {
+    /// Create conflict key from pool entry
+    pub fn from_entry(entry: &PoolEntry) -> Self {
+        // Convert fee_density to fixed-point u64 (multiply by 10^9)
+        let fee_density_fp = (entry.score.fee_density * 1_000_000_000.0) as u64;
+        
+        Self {
+            neg_fee_density: u64::MAX - fee_density_fp, // Negate for descending order
+            neg_blue_score: u64::MAX - entry.blue_score.unwrap_or(0),
+            wtxid: entry.wtxid,
+        }
+    }
+    
+    /// Check if this key is better than another (higher priority)
+    pub fn is_better_than(&self, other: &Self) -> bool {
+        self < other  // Lower ConflictKey = higher priority (due to negation)
+    }
 }
 
 /// Cell transaction memory pool
@@ -85,7 +123,9 @@ impl CellPool {
     }
     
     /// Add a transaction to the pool
-    pub fn add(&self, tx: CellTx, fee: u64, cycles: u64) -> Result<[u8; 32]> {
+    ///
+    /// Optional blue_score for GhostDAG tie-breaking (higher = more confirmed)
+    pub fn add_with_blue_score(&self, tx: CellTx, fee: u64, cycles: u64, blue_score: Option<u64>) -> Result<[u8; 32]> {
         let wtxid = tondi_exec::celltx::sighash::compute_wtxid(&tx);
         
         // Check if already exists
@@ -101,12 +141,12 @@ impl CellPool {
         // Check for conflicts (double-spend)
         let conflicts = self.check_conflicts(&tx)?;
         if !conflicts.is_empty() {
-            // Try RBF
-            return self.try_replace_by_fee(&tx, wtxid, fee, cycles, &conflicts);
+            // Try RBF with deterministic conflict resolution
+            return self.try_replace_by_fee(&tx, wtxid, fee, cycles, blue_score, &conflicts);
         }
         
         // Compute score
-        let score = self.scorer.compute_score(&tx, fee, cycles, None);
+        let score = self.scorer.compute_score(&tx, fee, cycles, blue_score);
         
         // Build dependencies
         let dependencies = self.find_dependencies(&tx);
@@ -119,6 +159,7 @@ impl CellPool {
             timestamp: Self::current_timestamp(),
             fee,
             cycles,
+            blue_score,
             dependencies: dependencies.clone(),
             dependents: Vec::new(),
         };
@@ -217,39 +258,67 @@ impl CellPool {
     }
     
     /// Try to replace by fee (RBF)
+    /// Try to replace conflicting transactions with RBF
+    ///
+    /// Uses deterministic conflict resolution:
+    /// Priority: fee_density (desc) → blue_score (desc) → wtxid (asc)
     fn try_replace_by_fee(
         &self,
         tx: &CellTx,
-        _wtxid: [u8; 32],
+        wtxid: [u8; 32],
         fee: u64,
         cycles: u64,
+        blue_score: Option<u64>,
         conflicts: &[[u8; 32]],
     ) -> Result<[u8; 32]> {
         let txs = self.txs.read();
         
-        // Check if all conflicts allow RBF
+        // Compute score for new transaction
+        let new_score = self.scorer.compute_score(tx, fee, cycles, blue_score);
+        
+        // Create conflict key for new transaction
+        let new_entry_temp = PoolEntry {
+            tx: tx.clone(),
+            wtxid,
+            score: new_score,
+            timestamp: Self::current_timestamp(),
+            fee,
+            cycles,
+            blue_score,
+            dependencies: Vec::new(),
+            dependents: Vec::new(),
+        };
+        let new_key = ConflictKey::from_entry(&new_entry_temp);
+        
+        // Check if new transaction beats ALL conflicts
         for conflict_id in conflicts {
             let conflict = txs.get(conflict_id)
                 .ok_or(MempoolError::TxNotFound(*conflict_id))?;
             
-            // RBF rule: new fee must be higher
-            if fee <= conflict.fee {
-                return Err(MempoolError::RBFFailed(
-                    "New fee must be higher".to_string()
-                ));
+            let conflict_key = ConflictKey::from_entry(conflict);
+            
+            // New transaction must be better than conflict
+            if !new_key.is_better_than(&conflict_key) {
+                return Err(MempoolError::RBFFailed(format!(
+                    "New transaction (fee_density={:.2}, blue={:?}) does not beat conflict (fee_density={:.2}, blue={:?})",
+                    new_score.fee_density,
+                    blue_score,
+                    conflict.score.fee_density,
+                    conflict.blue_score,
+                )));
             }
         }
         
         drop(txs);
         
-        // Remove conflicts
+        // Remove all conflicts
         for conflict_id in conflicts {
             self.remove(conflict_id)?;
         }
         
         // Add new transaction
         self.stats.write().rbf_count += 1;
-        self.add(tx.clone(), fee, cycles)
+        self.add_with_blue_score(tx.clone(), fee, cycles, blue_score)
     }
     
     /// Find dependencies (parent transactions in pool)
