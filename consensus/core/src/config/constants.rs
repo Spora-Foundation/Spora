@@ -96,6 +96,18 @@ pub mod consensus {
     pub const PRUNING_PROOF_M: u64 = 1000;
 
     //
+    // ~~~~~~~~~~~~~~~~~~~ Coinbase & Cell Maturity ~~~~~~~~~~~~~~~~~~~
+    //
+
+    /// Cellbase maturity in DAA scores (CKB uses 4 epochs ≈ 16 hours)
+    ///
+    /// Cellbase outputs (mining rewards) cannot be spent until this many DAA scores have passed.
+    /// This prevents miners from spending rewards that may be invalidated by reorgs.
+    ///
+    /// Default: 100 DAA scores (~7 minutes at 1 BPS, ~1.6 minutes at 10 BPS)
+    pub const CELLBASE_MATURITY: u64 = 100;
+
+    //
     // ~~~~~~~~~~~~~~~~~~~ Coinbase ~~~~~~~~~~~~~~~~~~~
     //
 
