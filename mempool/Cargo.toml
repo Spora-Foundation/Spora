@@ -1,0 +1,9 @@
+[package]
+name = "tondi-mempool"
+version = "1.21.0"
+edition = "2021"
+license = "ISC"
+
+[dependencies]
+# Placeholder - will be implemented in phase 6
+

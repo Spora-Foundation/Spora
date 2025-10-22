@@ -1,0 +1,42 @@
+[package]
+name = "tondi-exec"
+version = "1.21.0"
+edition = "2021"
+authors = ["Tondi developers"]
+license = "ISC"
+description = "Cell execution layer for Tondi DAG blockchain"
+
+[dependencies]
+# Serialization
+borsh = { version = "1.5", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"] }
+
+# Hashing (unified blake3)
+blake3 = "1.5"
+
+# Crypto
+secp256k1 = { version = "0.29", features = ["recovery", "global-context"] }
+
+# Errors
+thiserror = "1.0"
+anyhow = "1.0"
+
+# Collections
+indexmap = "2.2"
+
+# Parallel execution
+rayon = "1.10"
+parking_lot = "0.12"
+
+# Optional: CKB-VM integration (will be added in phase 3)
+# ckb-vm = { version = "0.24", optional = true }
+
+[dev-dependencies]
+# Testing
+proptest = "1.4"
+criterion = "0.5"
+
+[features]
+default = []
+# vm = ["ckb-vm"]  # Will enable in phase 3
+
