@@ -8,18 +8,11 @@ use crate::celltx::types::CellTx;
 use rayon::prelude::*;
 
 /// Parallel executor for Cell transactions
+#[derive(Default)]
 pub struct ParallelExecutor {
     /// Thread pool size (0 = auto)
     #[allow(dead_code)]
     thread_pool_size: usize,
-}
-
-impl Default for ParallelExecutor {
-    fn default() -> Self {
-        Self {
-            thread_pool_size: 0, // Auto-detect
-        }
-    }
 }
 
 impl ParallelExecutor {
@@ -181,7 +174,7 @@ impl ExecutionResult {
 }
 
 /// Execution receipt (simplified for now)
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ExecutionReceipt {
     /// Cycles consumed
     pub cycles: u64,
@@ -189,16 +182,6 @@ pub struct ExecutionReceipt {
     pub gas_used: u64,
     /// Output logs (for debugging)
     pub logs: Vec<String>,
-}
-
-impl Default for ExecutionReceipt {
-    fn default() -> Self {
-        Self {
-            cycles: 0,
-            gas_used: 0,
-            logs: Vec::new(),
-        }
-    }
 }
 
 /// Execution statistics

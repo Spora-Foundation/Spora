@@ -122,6 +122,11 @@ impl CellPool {
         }
     }
     
+    /// Add a transaction to the pool (convenience method without blue_score)
+    pub fn add(&self, tx: CellTx, fee: u64, cycles: u64) -> Result<[u8; 32]> {
+        self.add_with_blue_score(tx, fee, cycles, None)
+    }
+    
     /// Add a transaction to the pool
     ///
     /// Optional blue_score for GhostDAG tie-breaking (higher = more confirmed)
@@ -446,6 +451,100 @@ mod tests {
         // Should be sorted by score (fee density)
         assert!(sorted[0].fee >= sorted[1].fee);
         assert!(sorted[1].fee >= sorted[2].fee);
+    }
+
+    #[test]
+    fn test_rbf_higher_fee() {
+        let pool = CellPool::new(100);
+        
+        let out_point = OutPoint::new([0x42; 32], 0);
+        
+        // Create two transactions spending the same output
+        let tx1 = create_test_tx(vec![out_point.clone()], 1000);
+        let tx2 = create_test_tx(vec![out_point], 2000);
+        
+        // Add first transaction with low fee density
+        let wtxid1 = pool.add(tx1.clone(), 100, 1000).unwrap(); // fee_density = 100/1000 = 0.1
+        assert!(pool.get(&wtxid1).is_some());
+        
+        // Try to add second transaction with higher fee density - should replace via RBF
+        let wtxid2 = pool.add(tx2.clone(), 250, 1000).unwrap(); // fee_density = 250/1000 = 0.25
+        
+        // First transaction should be removed
+        assert!(pool.get(&wtxid1).is_none());
+        // Second transaction should be present
+        assert!(pool.get(&wtxid2).is_some());
+        
+        // RBF counter should be incremented
+        let stats = pool.stats();
+        assert_eq!(stats.rbf_count, 1);
+        assert_eq!(stats.total_txs, 1);
+    }
+
+    #[test]
+    fn test_blue_score_tiebreak() {
+        let pool = CellPool::new(100);
+        
+        let out_point = OutPoint::new([0x99; 32], 0);
+        
+        // Create two transactions with identical fee density but different blue scores
+        let tx1 = create_test_tx(vec![out_point.clone()], 1000);
+        let tx2 = create_test_tx(vec![out_point], 2000);
+        
+        // Add first transaction with same fee_density but lower blue score
+        let wtxid1 = pool.add_with_blue_score(tx1.clone(), 100, 1000, Some(50)).unwrap();
+        assert!(pool.get(&wtxid1).is_some());
+        
+        // Try to add second transaction with same fee_density but higher blue score
+        // fee_density: both = 100/1000 = 0.1
+        // blue_score: tx1=50, tx2=100 (higher is better)
+        let wtxid2 = pool.add_with_blue_score(tx2.clone(), 100, 1000, Some(100)).unwrap();
+        
+        // First transaction should be replaced (higher blue score wins)
+        assert!(pool.get(&wtxid1).is_none());
+        assert!(pool.get(&wtxid2).is_some());
+        
+        // RBF counter should be incremented
+        let stats = pool.stats();
+        assert_eq!(stats.rbf_count, 1);
+    }
+
+    #[test]
+    fn test_cpfp_chain() {
+        let pool = CellPool::new(100);
+        
+        // Create a parent transaction
+        let parent_tx = create_test_tx(vec![], 1000);
+        let parent_wtxid = pool.add(parent_tx.clone(), 50, 1000).unwrap(); // Low fee
+        
+        // Compute parent's output hash
+        let parent_hash = tondi_exec::celltx::sighash::compute_wtxid(&parent_tx);
+        
+        // Create a child transaction spending parent's output
+        let child_out_point = OutPoint::new(parent_hash, 0);
+        let child_tx = create_test_tx(vec![child_out_point], 2000);
+        let child_wtxid = pool.add(child_tx.clone(), 300, 1000).unwrap(); // High fee (pays for parent)
+        
+        // Both should be in pool
+        assert!(pool.get(&parent_wtxid).is_some());
+        assert!(pool.get(&child_wtxid).is_some());
+        
+        // Verify dependency tracking
+        let parent_entry = pool.get(&parent_wtxid).unwrap();
+        let child_entry = pool.get(&child_wtxid).unwrap();
+        
+        // Child should have parent as dependency
+        assert_eq!(child_entry.dependencies.len(), 1);
+        assert_eq!(child_entry.dependencies[0], parent_wtxid);
+        
+        // Parent should have child as dependent
+        assert_eq!(parent_entry.dependents.len(), 1);
+        assert_eq!(parent_entry.dependents[0], child_wtxid);
+        
+        // Pool stats
+        let stats = pool.stats();
+        assert_eq!(stats.total_txs, 2);
+        assert_eq!(stats.total_fee, 350); // 50 + 300
     }
 }
 

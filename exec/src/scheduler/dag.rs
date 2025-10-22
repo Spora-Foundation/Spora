@@ -74,11 +74,11 @@ impl CellDAG {
                 if let Some(&producer_id) = producers.get(&input.out_point) {
                     // Dependency: producer → consumer
                     edges.entry(producer_id)
-                        .or_insert_with(Vec::new)
+                        .or_default()
                         .push((consumer_id, DagEdge::Dependency));
                     
                     reverse_edges.entry(consumer_id)
-                        .or_insert_with(Vec::new)
+                        .or_default()
                         .push(producer_id);
                 } else {
                     // External Cell (not in this DAG)
@@ -87,7 +87,7 @@ impl CellDAG {
                 
                 // Track conflicts (multiple consumers for same Cell)
                 conflicts.entry(input.out_point.clone())
-                    .or_insert_with(Vec::new)
+                    .or_default()
                     .push(consumer_id);
             }
             
@@ -95,11 +95,11 @@ impl CellDAG {
             for dep in &tx.deps {
                 if let Some(&producer_id) = producers.get(&dep.out_point) {
                     edges.entry(producer_id)
-                        .or_insert_with(Vec::new)
+                        .or_default()
                         .push((consumer_id, DagEdge::ReadDep));
                     
                     reverse_edges.entry(consumer_id)
-                        .or_insert_with(Vec::new)
+                        .or_default()
                         .push(producer_id);
                 }
             }
@@ -134,9 +134,9 @@ impl CellDAG {
         let mut current_layer = Vec::new();
         
         // Compute in-degrees
-        for node in 0..node_count {
-            in_degree[node] = reverse_edges.get(&node).map_or(0, |preds| preds.len());
-            if in_degree[node] == 0 {
+        for (node, degree) in in_degree.iter_mut().enumerate().take(node_count) {
+            *degree = reverse_edges.get(&node).map_or(0, |preds| preds.len());
+            if *degree == 0 {
                 current_layer.push(node);
             }
         }

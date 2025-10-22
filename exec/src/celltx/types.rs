@@ -299,7 +299,7 @@ pub struct TransactionInfo {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CellStatus {
     /// Cell exists and is unspent
-    Live(CellMeta),
+    Live(Box<CellMeta>),
     /// Cell has been spent (at given DAA score)
     Dead(u64),
     /// Cell not found in index

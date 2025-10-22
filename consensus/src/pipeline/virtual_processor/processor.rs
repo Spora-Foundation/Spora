@@ -270,20 +270,20 @@ impl VirtualStateProcessor {
                     VirtualStateProcessingMessage::Exit => break 'outer,
                     VirtualStateProcessingMessage::Process(task, virtual_state_result_transmitter) => {
                         // We don't care if receivers were dropped
-                        let _ = virtual_state_result_transmitter.send(Ok(statuses_read.get(task.block().hash()).unwrap()));
+                        let _ = virtual_state_result_transmitter.send(Ok(statuses_read.get(task.block().hash()).expect("block status must exist in store")));
                     }
                 };
             }
         }
 
         // Pass the exit signal on to the following processor
-        self.pruning_sender.send(PruningProcessingMessage::Exit).unwrap();
+        self.pruning_sender.send(PruningProcessingMessage::Exit).expect("pruning receiver should be alive");
     }
 
     fn resolve_virtual(self: &Arc<Self>) {
-        let pruning_point = self.pruning_point_store.read().pruning_point().unwrap();
+        let pruning_point = self.pruning_point_store.read().pruning_point().expect("pruning point must exist");
         let virtual_read = self.virtual_stores.upgradable_read();
-        let prev_state = virtual_read.state.get().unwrap();
+        let prev_state = virtual_read.state.get().expect("virtual state must exist");
         let finality_point = self.virtual_finality_point(&prev_state.ghostdag_data, pruning_point);
 
         // PRUNE SAFETY: in order to avoid locking the prune lock throughout virtual resolving we make sure
@@ -299,7 +299,7 @@ impl VirtualStateProcessor {
             .body_tips_store
             .read()
             .get()
-            .unwrap()
+            .expect("body tips must exist")
             .read()
             .iter()
             .copied()
@@ -314,9 +314,9 @@ impl VirtualStateProcessor {
         let (virtual_parents, virtual_ghostdag_data) = self.pick_virtual_parents(new_sink, virtual_parent_candidates, pruning_point);
         assert_eq!(virtual_ghostdag_data.selected_parent, new_sink);
 
-        let sink_cell_root = self.cell_roots_store.get(new_sink).unwrap();
+        let sink_cell_root = self.cell_roots_store.get(new_sink).expect("sink cell root must exist in store");
         let chain_path = self.dag_traversal_manager.calculate_chain_path(prev_sink, new_sink, None);
-        let sink_ghostdag_data = Lazy::new(|| self.ghostdag_store.get_data(new_sink).unwrap());
+        let sink_ghostdag_data = Lazy::new(|| self.ghostdag_store.get_data(new_sink).expect("sink ghostdag data must exist"));
         // Cache the DAA and Median time windows of the sink for future use, as well as prepare for virtual's window calculations
         self.cache_sink_windows(new_sink, prev_sink, &sink_ghostdag_data);
 
@@ -336,14 +336,14 @@ impl VirtualStateProcessor {
             sink_ghostdag_data.to_compact()
         } else {
             // Else we query the compact data directly.
-            self.ghostdag_store.get_compact_data(new_sink).unwrap()
+            self.ghostdag_store.get_compact_data(new_sink).expect("compact ghostdag data must exist")
         };
 
         // Update the pruning processor about the virtual state change
         // Empty the channel before sending the new message. If pruning processor is busy, this step makes sure
         // the internal channel does not grow with no need (since we only care about the most recent message)
         let _consume = self.pruning_receiver.try_iter().count();
-        self.pruning_sender.send(PruningProcessingMessage::Process { sink_ghostdag_data: compact_sink_ghostdag_data }).unwrap();
+        self.pruning_sender.send(PruningProcessingMessage::Process { sink_ghostdag_data: compact_sink_ghostdag_data }).expect("pruning receiver should be alive");
 
         // Emit notifications
         let accumulated_cell_diff = Arc::new(new_virtual_state.cell_diff.clone());
@@ -367,7 +367,7 @@ impl VirtualStateProcessor {
         if self.notification_root.has_subscription(EventType::VirtualChainChanged) {
             // check for subscriptions before the heavy lifting
             let added_chain_blocks_acceptance_data =
-                chain_path.added.iter().copied().map(|added| self.acceptance_data_store.get(added).unwrap()).collect_vec();
+                chain_path.added.iter().copied().map(|added| self.acceptance_data_store.get(added).expect("acceptance data must exist for chain block")).collect_vec();
             self.notification_root
                 .notify(Notification::VirtualChainChanged(VirtualChainChangedNotification::new(
                     chain_path.added.into(),
@@ -396,7 +396,7 @@ impl VirtualStateProcessor {
     /// When returning it is guaranteed that `diff` holds the diff of the returned block from virtual
     fn calculate_cell_state_relatively(&self, stores: &VirtualStores, diff: &mut CellDiff, from: Hash, to: Hash) -> Hash {
         // Avoid reorging if disqualified status is already known
-        if self.statuses_store.read().get(to).unwrap() == StatusDisqualifiedFromChain {
+        if self.statuses_store.read().get(to).expect("block status must exist") == StatusDisqualifiedFromChain {
             return from;
         }
 
@@ -409,9 +409,9 @@ impl VirtualStateProcessor {
                 break;
             }
 
-            let mergeset_diff = self.cell_diffs_store.get(current).unwrap();
+            let mergeset_diff = self.cell_diffs_store.get(current).expect("cell diff must exist for cell-valid block");
             // Apply the diff in reverse (Cell model)
-            diff.with_diff_in_place(&mergeset_diff.as_reversed()).unwrap();
+            diff.with_diff_in_place(&mergeset_diff.as_reversed()).expect("cell diff reversal must be valid");
         }
 
         let split_point = split_point.expect("chain iterator was expected to reach the reorg split point");
@@ -428,8 +428,8 @@ impl VirtualStateProcessor {
             if selected_parent != diff_point {
                 // This indicates that the selected parent is disqualified, propagate up and continue
                 let statuses_guard = self.statuses_store.upgradable_read();
-                if statuses_guard.get(current).unwrap() != StatusDisqualifiedFromChain {
-                    RwLockUpgradableReadGuard::upgrade(statuses_guard).set(current, StatusDisqualifiedFromChain).unwrap();
+                if statuses_guard.get(current).expect("block status must exist") != StatusDisqualifiedFromChain {
+                    RwLockUpgradableReadGuard::upgrade(statuses_guard).set(current, StatusDisqualifiedFromChain).expect("status store write must succeed");
                     chain_disqualified_counter += 1;
                 }
                 continue;
@@ -437,17 +437,17 @@ impl VirtualStateProcessor {
 
             match self.cell_diffs_store.get(current) {
                 Ok(mergeset_diff) => {
-                    diff.with_diff_in_place(mergeset_diff.deref()).unwrap();
+                    diff.with_diff_in_place(mergeset_diff.deref()).expect("cell diff application must be valid");
                     diff_point = current;
                 }
                 Err(StoreError::KeyNotFound(_)) => {
-                    if self.statuses_store.read().get(current).unwrap() == StatusDisqualifiedFromChain {
+                    if self.statuses_store.read().get(current).expect("block status must exist") == StatusDisqualifiedFromChain {
                         // Current block is already known to be disqualified
                         continue;
                     }
 
-                    let header = self.headers_store.get_header(current).unwrap();
-                    let mergeset_data = self.ghostdag_store.get_data(current).unwrap();
+                    let header = self.headers_store.get_header(current).expect("block header must exist");
+                    let mergeset_data = self.ghostdag_store.get_data(current).expect("ghostdag data must exist");
                     let pov_daa_score = header.daa_score;
 
                     // Get selected parent's cell state tree
@@ -456,12 +456,12 @@ impl VirtualStateProcessor {
                         Ok(_cell_root) => {
                             // TODO: Reconstruct tree from cell_root
                             // For now, use virtual state tree
-                            let virtual_state = stores.state.get().unwrap();
+                            let virtual_state = stores.state.get().expect("virtual state must exist");
                             virtual_state.cell_state_tree.clone()
                         }
                         Err(StoreError::KeyNotFound(_)) => {
                             // Fallback: use virtual state tree
-                            let virtual_state = stores.state.get().unwrap();
+                            let virtual_state = stores.state.get().expect("virtual state must exist");
                             virtual_state.cell_state_tree.clone()
                         }
                         Err(e) => panic!("unexpected cell_roots_store error: {}", e),
@@ -474,7 +474,7 @@ impl VirtualStateProcessor {
 
                     if let Err(rule_error) = res {
                         info!("Block {} is disqualified from virtual chain: {}", current, rule_error);
-                        self.statuses_store.write().set(current, StatusDisqualifiedFromChain).unwrap();
+                        self.statuses_store.write().set(current, StatusDisqualifiedFromChain).expect("status store write must succeed");
                         chain_disqualified_counter += 1;
                     } else {
                         debug!("VIRTUAL PROCESSOR, UTXO validated for {current}");
@@ -552,7 +552,7 @@ impl VirtualStateProcessor {
         accumulated_diff: &mut CellDiff,
     ) -> Result<Arc<VirtualState>, RuleError> {
         // Get the virtual state and compose the cell tree
-        let virtual_state = virtual_stores.state.get().unwrap();
+        let virtual_state = virtual_stores.state.get().expect("virtual state must exist");
         let mut selected_parent_cell_tree = virtual_state.cell_state_tree.clone();
         // TODO(cell-model): Implement proper diff→tree application
         selected_parent_cell_tree.apply_diff_placeholder();
@@ -603,13 +603,13 @@ impl VirtualStateProcessor {
         // The cell_state_tree in new_virtual_state already contains the updated state
 
         // Update virtual state
-        virtual_write.state.set_batch(&mut batch, new_virtual_state).unwrap();
+        virtual_write.state.set_batch(&mut batch, new_virtual_state).expect("virtual state write must succeed");
 
         // Update the virtual selected chain
-        selected_chain_write.apply_changes(&mut batch, chain_path).unwrap();
+        selected_chain_write.apply_changes(&mut batch, chain_path).expect("selected chain write must succeed");
 
         // Flush the batch changes
-        self.db.write(batch).unwrap();
+        self.db.write(batch).expect("database write must succeed");
 
         // Calling the drops explicitly after the batch is written in order to avoid possible errors.
         drop(virtual_write);
@@ -626,12 +626,12 @@ impl VirtualStateProcessor {
             // this occurs because we cannot rely on header processing to pre-cache in this scenario.
             if !self.block_window_cache_for_difficulty.contains_key(&new_sink) {
                 self.block_window_cache_for_difficulty
-                    .insert(new_sink, self.window_manager.block_daa_window(sink_ghostdag_data.deref()).unwrap().window);
+                    .insert(new_sink, self.window_manager.block_daa_window(sink_ghostdag_data.deref()).expect("DAA window calculation must succeed").window);
             };
 
             if !self.block_window_cache_for_past_median_time.contains_key(&new_sink) {
                 self.block_window_cache_for_past_median_time
-                    .insert(new_sink, self.window_manager.calc_past_median_time(sink_ghostdag_data.deref()).unwrap().1);
+                    .insert(new_sink, self.window_manager.calc_past_median_time(sink_ghostdag_data.deref()).expect("median time calculation must succeed").1);
             };
         }
     }
@@ -665,7 +665,7 @@ impl VirtualStateProcessor {
 
         let mut heap = tips
             .into_iter()
-            .map(|block| SortableBlock { hash: block, blue_work: self.ghostdag_store.get_blue_work(block).unwrap() })
+            .map(|block| SortableBlock { hash: block, blue_work: self.ghostdag_store.get_blue_work(block).expect("blue work must exist for tip") })
             .collect::<BinaryHeap<_>>();
 
         // The initial diff point is the previous sink
@@ -686,7 +686,7 @@ impl VirtualStateProcessor {
                     // 1. not in its future (bcs blue work is monotonic),
                     // 2. will be removed eventually by the bounded merge check.
                     // Hence as an optimization we prefer removing such blocks in advance to allow valid tips to be considered.
-                    let filtering_root = self.depth_store.merge_depth_root(candidate).unwrap();
+                    let filtering_root = self.depth_store.merge_depth_root(candidate).expect("merge depth root must exist");
                     let filtering_blue_work = self.ghostdag_store.get_blue_work(filtering_root).unwrap_or_default();
                     return (
                         candidate,
@@ -701,11 +701,11 @@ impl VirtualStateProcessor {
             }
             // PRUNE SAFETY: see comment within [`resolve_virtual`]
             let prune_guard = self.pruning_lock.blocking_read();
-            for parent in self.relations_service.get_parents(candidate).unwrap().iter().copied() {
+            for parent in self.relations_service.get_parents(candidate).expect("parents must exist for candidate").iter().copied() {
                 if self.reachability_service.is_dag_ancestor_of(finality_point, parent)
                     && !self.reachability_service.is_dag_ancestor_of_any(parent, &mut heap.iter().map(|sb| sb.hash))
                 {
-                    heap.push(SortableBlock { hash: parent, blue_work: self.ghostdag_store.get_blue_work(parent).unwrap() });
+                    heap.push(SortableBlock { hash: parent, blue_work: self.ghostdag_store.get_blue_work(parent).expect("parent blue work must exist") });
                 }
             }
             drop(prune_guard);
@@ -731,7 +731,7 @@ impl VirtualStateProcessor {
         // we might touch such data prior to validating the bounded merge rule. All in all, this function is short
         // enough so we avoid making further optimizations
         let _prune_guard = self.pruning_lock.blocking_read();
-        let selected_parent_daa_score = self.headers_store.get_daa_score(selected_parent).unwrap();
+        let selected_parent_daa_score = self.headers_store.get_daa_score(selected_parent).expect("selected parent DAA score must exist");
         let max_block_parents = self.max_block_parents.get(selected_parent_daa_score) as usize;
         let mergeset_size_limit = self.mergeset_size_limit.get(selected_parent_daa_score);
         let max_candidates = self.max_virtual_parent_candidates(max_block_parents);
@@ -794,7 +794,7 @@ impl VirtualStateProcessor {
             sure the increase in mergeset size is within the available budget
         */
 
-        let candidate_parents = self.relations_service.get_parents(candidate).unwrap();
+        let candidate_parents = self.relations_service.get_parents(candidate).expect("candidate parents must exist");
         let mut queue: VecDeque<_> = candidate_parents.iter().copied().collect();
         let mut visited: BlockHashSet = queue.iter().copied().collect();
         let mut mergeset_increase = 1u64; // Starts with 1 to count for the candidate itself
@@ -808,7 +808,7 @@ impl VirtualStateProcessor {
                 return MergesetIncreaseResult::Rejected { new_candidate: current };
             }
 
-            let current_parents = self.relations_service.get_parents(current).unwrap();
+            let current_parents = self.relations_service.get_parents(current).expect("current parents must exist");
             for &parent in current_parents.iter() {
                 if visited.insert(parent) {
                     queue.push_back(parent);
@@ -841,7 +841,7 @@ impl VirtualStateProcessor {
             if kosherizing_blues.is_none() {
                 kosherizing_blues = Some(self.depth_manager.kosherizing_blues(&ghostdag_data, merge_depth_root).collect());
             }
-            if !self.reachability_service.is_dag_ancestor_of_any(red, &mut kosherizing_blues.as_ref().unwrap().iter().copied()) {
+            if !self.reachability_service.is_dag_ancestor_of_any(red, &mut kosherizing_blues.as_ref().expect("kosherizing blues must be initialized").iter().copied()) {
                 bad_reds.push(red);
             }
         }
@@ -932,7 +932,7 @@ impl VirtualStateProcessor {
         let mut txs = tx_selector.select_transactions();
         let mut calculated_fees = Vec::with_capacity(txs.len());
         let virtual_read = self.virtual_stores.read();
-        let virtual_state = virtual_read.state.get().unwrap();
+        let virtual_state = virtual_read.state.get().expect("virtual state must exist");
 
         // TODO(cell-model): Simplified - full Cell validation pending
         // For now, accept all transactions with assumed fee
@@ -987,7 +987,7 @@ impl VirtualStateProcessor {
         // [`calc_block_parents`] can use deep blocks below the pruning point for this calculation, so we
         // need to hold the pruning lock.
         let _prune_guard = self.pruning_lock.blocking_read();
-        let pruning_info = self.pruning_point_store.read().get().unwrap();
+        let pruning_info = self.pruning_point_store.read().get().expect("pruning info must exist");
         let header_pruning_point =
             self.pruning_point_manager.expected_header_pruning_point_v2(virtual_state.ghostdag_data.to_compact()).pruning_point;
         let coinbase = self
@@ -999,7 +999,7 @@ impl VirtualStateProcessor {
                 &virtual_state.mergeset_rewards,
                 &virtual_state.mergeset_non_daa,
             )
-            .unwrap();
+            .expect("coinbase transaction creation must succeed");
         txs.insert(0, coinbase.tx);
         let version = BLOCK_VERSION;
         let parents_by_level = self.parents_manager.calc_block_parents(pruning_info.pruning_point, &virtual_state.parents);
@@ -1036,8 +1036,8 @@ impl VirtualStateProcessor {
             header_pruning_point,
         );
         let selected_parent_hash = virtual_state.ghostdag_data.selected_parent;
-        let selected_parent_timestamp = self.headers_store.get_timestamp(selected_parent_hash).unwrap();
-        let selected_parent_daa_score = self.headers_store.get_daa_score(selected_parent_hash).unwrap();
+        let selected_parent_timestamp = self.headers_store.get_timestamp(selected_parent_hash).expect("selected parent timestamp must exist");
+        let selected_parent_daa_score = self.headers_store.get_daa_score(selected_parent_hash).expect("selected parent DAA score must exist");
         Ok(BlockTemplate::new(
             MutableBlock::new(header, txs),
             miner_data,
@@ -1056,11 +1056,11 @@ impl VirtualStateProcessor {
             let mut pruning_point_write = RwLockUpgradableReadGuard::upgrade(pruning_point_read);
             let mut batch = WriteBatch::default();
             self.past_pruning_points_store.insert_batch(&mut batch, 0, self.genesis.hash).unwrap_or_exists();
-            pruning_point_write.set_batch(&mut batch, self.genesis.hash, self.genesis.hash, 0).unwrap();
-            pruning_point_write.set_retention_checkpoint(&mut batch, self.genesis.hash).unwrap();
-            pruning_point_write.set_retention_period_root(&mut batch, self.genesis.hash).unwrap();
+            pruning_point_write.set_batch(&mut batch, self.genesis.hash, self.genesis.hash, 0).expect("pruning point initialization must succeed");
+            pruning_point_write.set_retention_checkpoint(&mut batch, self.genesis.hash).expect("retention checkpoint write must succeed");
+            pruning_point_write.set_retention_period_root(&mut batch, self.genesis.hash).expect("retention period root write must succeed");
             // pruning_utxoset_position removed - Cell state tracked in VirtualState
-            self.db.write(batch).unwrap();
+            self.db.write(batch).expect("database write must succeed");
             drop(pruning_point_write);
         }
     }
@@ -1083,8 +1083,8 @@ impl VirtualStateProcessor {
         // Init the virtual selected chain store
         let mut batch = WriteBatch::default();
         let mut selected_chain_write = self.selected_chain_store.write();
-        selected_chain_write.init_with_pruning_point(&mut batch, self.genesis.hash).unwrap();
-        self.db.write(batch).unwrap();
+        selected_chain_write.init_with_pruning_point(&mut batch, self.genesis.hash).expect("selected chain initialization must succeed");
+        self.db.write(batch).expect("database write must succeed");
         drop(selected_chain_write);
 
         // Init virtual state
@@ -1103,7 +1103,7 @@ impl VirtualStateProcessor {
         mut imported_utxo_multiset: MuHash,
     ) -> PruningImportResult<()> {
         info!("Importing the UTXO set of the pruning point {}", new_pruning_point);
-        let new_pruning_point_header = self.headers_store.get_header(new_pruning_point).unwrap();
+        let new_pruning_point_header = self.headers_store.get_header(new_pruning_point).expect("pruning point header must exist");
         let imported_utxo_multiset_hash = imported_utxo_multiset.finalize();
         info!(
             "Cell commitment verification for pruning point {}: imported={}, header={}",
@@ -1124,7 +1124,7 @@ impl VirtualStateProcessor {
         let virtual_read = self.virtual_stores.upgradable_read();
 
         // Validate transactions of the pruning point itself
-        let new_pruning_point_transactions = self.block_transactions_store.get(new_pruning_point).unwrap();
+        let new_pruning_point_transactions = self.block_transactions_store.get(new_pruning_point).expect("pruning point transactions must exist");
         info!("Validating {} transactions for pruning point {}", new_pruning_point_transactions.len(), new_pruning_point);
         // TODO(cell-model): Transaction validation needs Cell model reimplementation
         // For now, assume all transactions are valid (simplified)
@@ -1137,10 +1137,10 @@ impl VirtualStateProcessor {
             let mut batch = WriteBatch::default();
             // TODO(cell-model): Store imported cell_root instead of multiset
             // For now, use a placeholder cell root
-            self.cell_roots_store.insert_batch(&mut batch, new_pruning_point, ZERO_HASH).unwrap();
+            self.cell_roots_store.insert_batch(&mut batch, new_pruning_point, ZERO_HASH).expect("cell root insertion must succeed");
 
-            let statuses_write = self.statuses_store.set_batch(&mut batch, new_pruning_point, StatusUTXOValid).unwrap();
-            self.db.write(batch).unwrap();
+            let statuses_write = self.statuses_store.set_batch(&mut batch, new_pruning_point, StatusUTXOValid).expect("status write must succeed");
+            self.db.write(batch).expect("database write must succeed");
             drop(statuses_write);
         }
 
@@ -1170,9 +1170,9 @@ impl VirtualStateProcessor {
         // above the current finality point, and in this case `lkp` will be a few blocks above the
         // finality_point.finality_point), meaning this function can only detect finality violations
         // in depth of 2*finality_depth, and can give false negatives for smaller finality violations.
-        let current_pp = self.pruning_point_store.read().pruning_point().unwrap();
+        let current_pp = self.pruning_point_store.read().pruning_point().expect("pruning point must exist");
         let vf = self.virtual_finality_point(&self.lkg_virtual_state.load().ghostdag_data, current_pp);
-        let vff = self.depth_manager.calc_finality_point(&self.ghostdag_store.get_data(vf).unwrap(), current_pp);
+        let vff = self.depth_manager.calc_finality_point(&self.ghostdag_store.get_data(vf).expect("finality point ghostdag data must exist"), current_pp);
 
         let last_known_pp = pp_list.iter().rev().find(|pp| match self.statuses_store.read().get(pp.hash).unwrap_option() {
             Some(status) => status.is_valid(),
