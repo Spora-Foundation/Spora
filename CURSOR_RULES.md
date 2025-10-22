@@ -7,8 +7,6 @@
 > - **不可逆删除**：UTXO 相关代码将被直接删除（保留 git 历史）
 > - **彻底重写**：这不是渐进式迁移，而是从 Cell 模型重新开始
 > 
-> 如需保留 UTXO 功能，请在 `ingot` 或其他分支上工作。
-
 ---
 
 ## 0. 目标/边界
@@ -205,25 +203,147 @@ rg -n "utxo|UTXO|UtxoEntry|script_pub_key|ScriptPublicKey" \
 
 ---
 
-## 4. 关键类型（伪码）
+## 4. 关键类型（从 CKB 学习，DAG 适配）
+
+### 4.1 Cell 模型核心（参考 CKB util/types/src/core/cell.rs）
 
 ```rust
 // exec/celltx/types.rs
-pub struct CellRef { pub id: [32]; pub since: u64 }          // 支持高度/时间锁
-pub struct ScriptRef { pub code_hash: [32]; pub hash_type: u8; pub args: Vec<u8> }
-pub struct CellOut {
-  pub lock: ScriptRef,
-  pub type_: Option<ScriptRef>,
-  pub capacity: u64,  // 以字节/单位表示的资源上限
-  pub data: Vec<u8>,  // TLV 编码
+
+/// Cell 引用（输入）
+/// 参考 CKB OutPoint + since
+pub struct CellRef {
+    /// Cell 的唯一标识：tx_hash || output_index
+    pub out_point: OutPoint,
+    /// 时间锁：支持相对/绝对时间或 DAA 分数
+    /// 高位标志位：0x80=相对锁，0x40=DAA分数（vs时间戳），0x20=区块锁
+    pub since: u64,
 }
+
+/// OutPoint：指向某个交易的某个输出
+#[derive(Hash, Eq, PartialEq, Clone)]
+pub struct OutPoint {
+    pub tx_hash: [u8; 32],       // 交易哈希
+    pub index: u32,              // 输出索引（0-based）
+}
+
+/// 脚本引用（CKB Script）
+/// 参考 CKB packed::Script
+pub struct ScriptRef {
+    /// 脚本代码的哈希（指向一个 Cell 的 data）
+    pub code_hash: [u8; 32],
+    /// 哈希类型：0=Data, 1=Type, 2=Data1（新版），3=Data2
+    pub hash_type: u8,
+    /// 脚本参数（传递给 VM）
+    pub args: Vec<u8>,
+}
+
+/// Cell 输出（类似 CKB CellOutput + data）
+pub struct CellOut {
+    /// 锁脚本：定义谁能花费此 Cell
+    pub lock: ScriptRef,
+    /// 类型脚本（可选）：定义状态转移约束
+    pub type_: Option<ScriptRef>,
+    /// 容量（CKB 用 shannons，Tondi 用 saus）
+    /// 必须 >= Cell 占用的存储空间（防止状态爆炸）
+    pub capacity: u64,
+    /// Cell 数据（任意字节，TLV 或其他编码）
+    pub data: Vec<u8>,
+}
+
+/// Cell 交易（完整交易结构）
 pub struct CellTx {
-  pub ver: u16,       // = 0xC001
-  pub inputs: Vec<CellRef>,
-  pub deps: Vec<CellRef>,     // 只读依赖
-  pub outputs: Vec<CellOut>,
-  pub fee: u64,
-  pub sigs: Vec<Vec<u8>>,     // Schnorr/BLS 可聚合（后续）
+    /// 交易版本：0xC001（Cell v1）
+    pub ver: u16,
+    /// 输入：花费的 Cells
+    pub inputs: Vec<CellRef>,
+    /// 依赖：只读 Cells（如脚本代码 Cell）
+    pub deps: Vec<CellDep>,
+    /// 输出：创建的新 Cells
+    pub outputs: Vec<CellOut>,
+    /// 输出数据（与 outputs 一一对应）
+    /// 注：CKB 分离 outputs 和 data，优化验证
+    pub outputs_data: Vec<Vec<u8>>,
+    /// 见证数据（签名、多签脚本等）
+    pub witnesses: Vec<Vec<u8>>,
+}
+
+/// Cell 依赖（CKB CellDep）
+pub struct CellDep {
+    pub out_point: OutPoint,
+    /// 依赖类型：Code=脚本代码，DepGroup=依赖组
+    pub dep_type: DepType,
+}
+
+#[repr(u8)]
+pub enum DepType {
+    /// 单个 Cell 作为代码
+    Code = 0,
+    /// DepGroup：一个 Cell 包含多个 OutPoint（批量依赖）
+    DepGroup = 1,
+}
+
+/// Cell 元数据（参考 CKB CellMeta）
+pub struct CellMeta {
+    pub cell_output: CellOut,
+    pub out_point: OutPoint,
+    /// DAG 特有：Cell 所在的交易信息
+    pub transaction_info: Option<TransactionInfo>,
+    pub data_bytes: u64,
+    /// 内存缓存的 data 和 data_hash
+    pub mem_cell_data: Option<Vec<u8>>,
+    pub mem_cell_data_hash: Option<[u8; 32]>,
+}
+
+/// DAG 交易信息（区别于 CKB 的 BlockNumber）
+pub struct TransactionInfo {
+    /// 交易哈希
+    pub tx_hash: [u8; 32],
+    /// DAA 分数（区块蓝分，GhostDAG）
+    pub daa_score: u64,
+    /// 区块哈希（可能在多个区块中）
+    pub block_hash: [u8; 32],
+    /// 是否是 cellbase（挖矿奖励交易）
+    pub is_cellbase: bool,
+}
+
+/// Cell 状态（参考 CKB CellStatus）
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CellStatus {
+    /// Cell 存在且未被花费
+    Live(CellMeta),
+    /// Cell 已被花费（在某个 DAA 分数后）
+    Dead(u64),  // 花费时的 DAA 分数
+    /// Cell 不在索引中（可能在孤儿块）
+    Unknown,
+}
+```
+
+### 4.2 DAG-Aware 扩展
+
+```rust
+// consensus/core/src/dag_cell.rs
+
+/// 已解析的 Cell 交易（参考 CKB ResolvedTransaction）
+pub struct ResolvedCellTx {
+    pub transaction: CellTx,
+    /// 已解析的输入 Cells
+    pub resolved_inputs: Vec<CellMeta>,
+    /// 已解析的依赖 Cells
+    pub resolved_deps: Vec<CellMeta>,
+}
+
+/// DAG Cell Provider（CellStatus 查询接口）
+pub trait DagCellProvider {
+    /// 查询 Cell 状态
+    /// at_daa_score: 在某个 DAA 分数时的状态（处理重组）
+    fn cell(&self, out_point: &OutPoint, at_daa_score: Option<u64>) -> CellStatus;
+    
+    /// 批量查询（优化性能）
+    fn cells(&self, out_points: &[OutPoint], at_daa_score: Option<u64>) -> Vec<CellStatus>;
+    
+    /// 检查 Cell 是否活着（快速路径）
+    fn is_live(&self, out_point: &OutPoint, at_daa_score: Option<u64>) -> bool;
 }
 ```
 
@@ -243,15 +363,262 @@ pub struct CellTx {
 
 ---
 
-## 6. VM 与脚本接口（CKB 风格）
+## 6. VM 与脚本接口（完整 CKB 风格）
 
-* `lock`：花费条件（签名/时间锁/多签）
-* `type`：状态转移约束（容量守恒/白名单/数值关系）
-* VM 选项：
+### 6.1 脚本验证架构（参考 CKB script/verify.rs）
 
-  * 直接集成 **CKB-VM（RISC-V）** 作为 `exec/vm/ckbvm/`
-  * 或先做 **WASM/AluVM** 适配层，接口一致
-* 资源计量：`steps|max`, `mem|max`, `io|max`；超限 → `EXEC_VM_EXCEEDED`
+```rust
+// exec/vm/verifier.rs
+
+/// 交易脚本验证器（参考 CKB TransactionScriptsVerifier）
+pub struct CellTxVerifier<DL: CellDataProvider> {
+    /// 已解析的交易
+    pub rtx: Arc<ResolvedCellTx>,
+    /// Cell 数据加载器（从存储读取）
+    pub data_loader: DL,
+    /// 共识参数
+    pub consensus: Arc<Consensus>,
+    /// DAG 验证环境
+    pub tx_env: Arc<DagTxEnv>,
+}
+
+/// DAG 交易验证环境
+pub struct DagTxEnv {
+    /// 当前 DAA 分数（用于 cellbase 成熟度检查）
+    pub current_daa_score: u64,
+    /// 父块集合（GhostDAG 父集）
+    pub parent_hashes: Vec<[u8; 32]>,
+    /// 区块时间戳
+    pub block_timestamp: u64,
+}
+
+impl<DL: CellDataProvider> CellTxVerifier<DL> {
+    /// 验证所有脚本
+    pub fn verify(&self, max_cycles: Cycle) -> Result<Cycle, ScriptError> {
+        // 1. 分组脚本（按 code_hash + hash_type + args 分组）
+        let script_groups = self.group_scripts()?;
+        
+        // 2. 并行验证各组（如果 > 阈值）
+        if script_groups.len() > PARALLEL_THRESHOLD {
+            self.verify_parallel(script_groups, max_cycles)
+        } else {
+            self.verify_sequential(script_groups, max_cycles)
+        }
+    }
+    
+    /// 脚本分组（CKB 优化：相同脚本只运行一次）
+    fn group_scripts(&self) -> Result<Vec<ScriptGroup>, Error> {
+        let mut groups = Vec::new();
+        
+        // Lock scripts（每个 input 必验证）
+        for (i, input) in self.rtx.resolved_inputs.iter().enumerate() {
+            let script = &input.cell_output.lock;
+            groups.push(ScriptGroup {
+                script: script.clone(),
+                group_type: ScriptGroupType::Lock,
+                input_indices: vec![i],
+                output_indices: vec![],
+            });
+        }
+        
+        // Type scripts（按 code_hash 分组）
+        for (i, output) in self.rtx.transaction.outputs.iter().enumerate() {
+            if let Some(type_script) = &output.type_ {
+                // 找到所有相同 type script 的输入/输出
+                let (inputs, outputs) = self.find_same_type_cells(type_script);
+                groups.push(ScriptGroup {
+                    script: type_script.clone(),
+                    group_type: ScriptGroupType::Type,
+                    input_indices: inputs,
+                    output_indices: outputs,
+                });
+            }
+        }
+        
+        Ok(groups)
+    }
+}
+
+/// 脚本组
+pub struct ScriptGroup {
+    pub script: ScriptRef,
+    pub group_type: ScriptGroupType,
+    /// 关联的输入索引
+    pub input_indices: Vec<usize>,
+    /// 关联的输出索引（type script）
+    pub output_indices: Vec<usize>,
+}
+
+pub enum ScriptGroupType {
+    /// Lock script：验证 input 的花费权限
+    Lock,
+    /// Type script：验证状态转移规则
+    Type,
+}
+```
+
+### 6.2 CKB-VM 集成（参考 CKB script/syscalls/）
+
+```rust
+// exec/vm/ckbvm.rs
+
+use ckb_vm::{
+    DefaultMachineBuilder, SupportMachine, Syscalls,
+    machine::asm::{AsmCoreMachine, AsmMachine},
+};
+
+/// CKB-VM 机器（RISC-V）
+pub type CellVM = AsmMachine;
+
+/// 系统调用生成器
+pub fn generate_cell_syscalls<DL: CellDataProvider>(
+    data_loader: &DL,
+    rtx: &ResolvedCellTx,
+    group: &ScriptGroup,
+) -> Vec<Box<dyn Syscalls<CellVM>>> {
+    vec![
+        // 加载当前脚本
+        Box::new(LoadScript::new(group.script.clone())),
+        // 加载交易哈希
+        Box::new(LoadTxHash::new(rtx.transaction.hash())),
+        // 加载 Cell（input/output）
+        Box::new(LoadCell::new(rtx.clone(), data_loader.clone())),
+        // 加载 Cell Data
+        Box::new(LoadCellData::new(rtx.clone(), data_loader.clone())),
+        // 加载见证
+        Box::new(LoadWitness::new(rtx.transaction.witnesses.clone())),
+        // 加载 Header（DAG 父块头）
+        Box::new(LoadHeader::new(data_loader.clone())),
+        // VM 调试打印
+        Box::new(Debugger::new()),
+        // 获取当前 cycles
+        Box::new(CurrentCycles),
+        // Exec（动态加载脚本，CKB 高级特性）
+        Box::new(Exec::new(rtx.clone(), data_loader.clone())),
+    ]
+}
+
+/// LoadCell 系统调用（参考 CKB syscalls/load_cell.rs）
+pub struct LoadCell<DL> {
+    rtx: Arc<ResolvedCellTx>,
+    data_loader: DL,
+}
+
+impl<DL: CellDataProvider> Syscalls<CellVM> for LoadCell<DL> {
+    fn invoke(&mut self, id: u64, args: &[u64]) -> Result<u64, VMError> {
+        // id: 系统调用号（如 2071）
+        // args[0]: 目标地址
+        // args[1]: 长度
+        // args[2]: offset
+        // args[3]: source（0=input, 1=output, 2=deps）
+        // args[4]: index
+        
+        let source = args[3];
+        let index = args[4] as usize;
+        
+        let cell = match source {
+            0 => self.rtx.resolved_inputs.get(index),
+            1 => self.rtx.transaction.outputs.get(index).map(|_| {
+                // 构造输出 Cell（未写入存储）
+                unimplemented!()
+            }),
+            2 => self.rtx.resolved_deps.get(index),
+            _ => return Err(VMError::InvalidSource),
+        }?;
+        
+        // 序列化 CellMeta，写入 VM 内存
+        let serialized = self.serialize_cell(cell);
+        self.write_to_vm(args[0], &serialized, args[2] as usize)?;
+        
+        Ok(serialized.len() as u64)
+    }
+}
+```
+
+### 6.3 标准锁脚本（Secp256k1）
+
+```rust
+// exec/scripts/secp256k1_lock.rs
+
+/// Secp256k1 锁脚本（参考 CKB secp256k1_blake160）
+/// 脚本参数：20 字节公钥哈希（blake2b(pubkey)[0..20]）
+/// 见证：65 字节签名（r + s + v）
+pub fn verify_secp256k1_lock(
+    script: &ScriptRef,
+    tx: &CellTx,
+    input_index: usize,
+) -> Result<(), ScriptError> {
+    // 1. 从 script.args 提取公钥哈希（20 字节）
+    if script.args.len() != 20 {
+        return Err(ScriptError::InvalidArgs);
+    }
+    let pubkey_hash = &script.args[..20];
+    
+    // 2. 从 witnesses[input_index] 提取签名
+    let witness = tx.witnesses.get(input_index)
+        .ok_or(ScriptError::MissingWitness)?;
+    if witness.len() < 65 {
+        return Err(ScriptError::InvalidWitness);
+    }
+    let signature = &witness[..65];
+    
+    // 3. 计算 sighash（签名消息）
+    let sighash = compute_cell_sighash(tx, input_index)?;
+    
+    // 4. 恢复公钥
+    let pubkey = secp256k1_recover(signature, &sighash)?;
+    
+    // 5. 验证公钥哈希
+    let recovered_hash = blake2b_160(&pubkey);
+    if recovered_hash != pubkey_hash {
+        return Err(ScriptError::SignatureVerificationFailed);
+    }
+    
+    Ok(())
+}
+```
+
+### 6.4 资源计量与限制
+
+```rust
+// exec/vm/limits.rs
+
+/// VM 资源限制（防 DoS）
+pub struct VmLimits {
+    /// 最大执行周期（参考 CKB：70_000_000）
+    pub max_cycles: Cycle,
+    /// 最大内存（8MB）
+    pub max_memory: usize,
+    /// 最大脚本大小（500KB）
+    pub max_script_size: usize,
+}
+
+/// Cycle 计算（CKB 方式）
+pub fn calculate_cycles(
+    tx: &CellTx,
+    script_groups: &[ScriptGroup],
+) -> Cycle {
+    let mut total = 0;
+    
+    // 基础 cycles：交易大小相关
+    total += (tx.serialized_size() / 1024) * 1000;
+    
+    // 每个脚本组的 cycles（VM 实际执行）
+    for group in script_groups {
+        total += group.consumed_cycles;
+    }
+    
+    total
+}
+
+/// 错误码
+pub enum VmError {
+    ExceededMaxCycles(Cycle),
+    ExceededMaxMemory(usize),
+    InvalidSource,
+    IndexOutOfBound,
+}
+```
 
 ---
 
@@ -278,26 +645,616 @@ pub struct CellTx {
 
 ---
 
-## 9. mempool 与打包
+## 9. CellPool（Mempool）设计（参考 CKB tx-pool）
 
-* `cellpool/`：独立评分器：`score = fee_density·α + unlockability·β + deps_width·γ`
-* 包中继：父子打分绑定；RBF/CPFP 规则文档化
-* 禁止与 UTXO 队列混放（已放弃 UTXO，但保留接口桩便于回归）
+### 9.1 CellPool 架构
+
+```rust
+// mempool/src/cellpool.rs
+
+/// Cell 交易池（参考 CKB TxPool）
+pub struct CellPool {
+    /// 池内交易（多索引：id, score, status）
+    entries: MultiIndexCellEntryMap,
+    /// Cell 依赖关系（edges）
+    edges: CellEdges,
+    /// 父子关系（links）
+    links: TxLinksMap,
+    /// 配置
+    config: CellPoolConfig,
+}
+
+/// Cell 池条目（参考 CKB TxEntry）
+pub struct CellEntry {
+    pub rtx: Arc<ResolvedCellTx>,
+    pub cycles: Cycle,
+    pub size: usize,
+    pub fee: Capacity,
+    /// 祖先统计（CPFP）
+    pub ancestors_size: usize,
+    pub ancestors_fee: Capacity,
+    pub ancestors_cycles: Cycle,
+    pub ancestors_count: usize,
+    /// 后代统计（RBF）
+    pub descendants_fee: Capacity,
+    pub descendants_size: usize,
+    pub descendants_cycles: Cycle,
+    pub descendants_count: usize,
+    pub timestamp: u64,
+}
+
+/// Cell 边（依赖关系）
+pub struct CellEdges {
+    /// OutPoint -> 消费此 Cell 的交易
+    inputs: HashMap<OutPoint, HashSet<TxHash>>,
+    /// OutPoint -> 依赖此 Cell 的交易（deps）
+    deps: HashMap<OutPoint, HashSet<TxHash>>,
+    /// 头依赖（DAG 父块）
+    header_deps: HashMap<[u8; 32], HashSet<TxHash>>,
+}
+
+impl CellPool {
+    /// 添加交易到池
+    pub fn add_tx(&mut self, tx: CellTx) -> Result<(), PoolError> {
+        // 1. 预验证（基本规则）
+        self.pre_verify(&tx)?;
+        
+        // 2. 解析交易（加载 Cells）
+        let rtx = self.resolve_tx(&tx)?;
+        
+        // 3. 全验证（脚本 + 冲突）
+        self.full_verify(&rtx)?;
+        
+        // 4. 计算 cycles 和 fee
+        let cycles = self.estimate_cycles(&rtx)?;
+        let fee = self.calculate_fee(&rtx)?;
+        
+        // 5. 检查冲突（双花）
+        self.check_conflicts(&rtx)?;
+        
+        // 6. 构建 entry
+        let entry = CellEntry::new(Arc::new(rtx), cycles, fee, tx.serialized_size());
+        
+        // 7. 更新祖先/后代
+        self.update_ancestors_descendants(&entry)?;
+        
+        // 8. 插入池
+        self.entries.insert(entry);
+        self.update_edges(&tx);
+        
+        Ok(())
+    }
+    
+    /// 获取最优交易（打包用）
+    pub fn get_top_transactions(
+        &self,
+        max_size: usize,
+        max_cycles: Cycle,
+    ) -> Vec<CellTx> {
+        let mut selected = Vec::new();
+        let mut total_size = 0;
+        let mut total_cycles = 0;
+        
+        // 按 ancestors_score 排序（fee_rate + 祖先）
+        for entry in self.entries.iter_by_score_desc() {
+            if total_size + entry.ancestors_size > max_size {
+                continue;
+            }
+            if total_cycles + entry.ancestors_cycles > max_cycles {
+                continue;
+            }
+            
+            // 检查所有祖先是否已选
+            if !self.all_ancestors_selected(&entry, &selected) {
+                continue;
+            }
+            
+            selected.push(entry.rtx.transaction.clone());
+            total_size += entry.size;
+            total_cycles += entry.cycles;
+        }
+        
+        selected
+    }
+    
+    /// RBF（Replace-By-Fee）
+    pub fn replace_tx(
+        &mut self,
+        new_tx: CellTx,
+        conflicts: Vec<TxHash>,
+    ) -> Result<(), PoolError> {
+        // RBF 规则（参考 BIP 125）
+        // 1. 新交易必须花费至少一个与冲突交易相同的 Cell
+        // 2. 新交易 fee_rate 必须更高
+        // 3. 新交易绝对 fee 必须高于所有被替换交易的总和
+        
+        let new_fee = self.calculate_fee_for_tx(&new_tx)?;
+        let conflict_total_fee = conflicts.iter()
+            .map(|hash| self.entries.get(hash).map(|e| e.fee).unwrap_or(0))
+            .sum::<u64>();
+        
+        if new_fee <= conflict_total_fee {
+            return Err(PoolError::InsufficientFee);
+        }
+        
+        // 移除冲突交易
+        for conflict_hash in conflicts {
+            self.remove_tx(&conflict_hash)?;
+        }
+        
+        // 添加新交易
+        self.add_tx(new_tx)
+    }
+}
+```
+
+### 9.2 评分系统
+
+```rust
+// mempool/src/scorer.rs
+
+/// 交易评分（影响打包顺序）
+pub fn compute_ancestors_score(entry: &CellEntry) -> f64 {
+    // 祖先费率（CPFP：子交易带动父交易）
+    let ancestors_fee_rate = entry.ancestors_fee as f64 / entry.ancestors_size as f64;
+    
+    // cycles 归一化
+    let cycles_factor = 1.0 - (entry.ancestors_cycles as f64 / MAX_BLOCK_CYCLES as f64);
+    
+    // 时间因子（等待越久，优先级越高）
+    let age_factor = 1.0 + (current_time() - entry.timestamp) as f64 / 3600000.0;  // 每小时 +1
+    
+    ancestors_fee_rate * cycles_factor * age_factor
+}
+
+/// 驱逐键（内存满时踢出低优先级交易）
+pub fn compute_evict_key(entry: &CellEntry) -> EvictKey {
+    // 后代费率（RBF：包含所有后代）
+    let descendants_fee_rate = entry.descendants_fee as f64 / entry.descendants_size as f64;
+    
+    EvictKey {
+        fee_rate: descendants_fee_rate,
+        timestamp: entry.timestamp,
+    }
+}
+```
+
+### 9.3 冲突检测与裁决（DAG 特有）
+
+```rust
+// mempool/src/conflicts.rs
+
+/// Cell 冲突检测器（DAG-aware）
+pub struct ConflictDetector {
+    /// OutPoint -> TxHash（追踪 Cell 的消费者）
+    cell_spenders: HashMap<OutPoint, TxHash>,
+}
+
+impl ConflictDetector {
+    /// 检查新交易是否与池内交易冲突
+    pub fn detect_conflicts(&self, tx: &CellTx) -> Vec<TxHash> {
+        let mut conflicts = Vec::new();
+        
+        for input in &tx.inputs {
+            if let Some(existing_spender) = self.cell_spenders.get(&input.out_point) {
+                conflicts.push(*existing_spender);
+            }
+        }
+        
+        conflicts
+    }
+    
+    /// 裁决冲突（选择保留哪个交易）
+    /// 规则：fee_rate ↓ → blue_pref ↑ → first_seen ↑
+    pub fn resolve_conflict(
+        &self,
+        tx1: &CellEntry,
+        tx2: &CellEntry,
+    ) -> ConflictResolution {
+        // 1. 费率比较
+        let fee_rate1 = tx1.fee as f64 / tx1.size as f64;
+        let fee_rate2 = tx2.fee as f64 / tx2.size as f64;
+        
+        if (fee_rate1 - fee_rate2).abs() > 0.01 {
+            return if fee_rate1 > fee_rate2 {
+                ConflictResolution::KeepFirst
+            } else {
+                ConflictResolution::KeepSecond
+            };
+        }
+        
+        // 2. 蓝色偏好（可选：依赖更多蓝块的交易优先）
+        // TODO: 实现 blue_preference 计算
+        
+        // 3. 先到先得（时间戳）
+        if tx1.timestamp < tx2.timestamp {
+            ConflictResolution::KeepFirst
+        } else {
+            ConflictResolution::KeepSecond
+        }
+    }
+}
+
+pub enum ConflictResolution {
+    KeepFirst,
+    KeepSecond,
+    KeepBoth,  // 不冲突
+}
+```
 
 ---
 
-## 10. 共识/切换挂载
+## 10. POW 共识层 + Cell 验证（DAG-Aware）
 
-* `consensus/iface.go`：
+### 10.1 GhostDAG + Cell 集成
 
-  ```go
-  type Consensus interface {
-    Order(*Block) (BlueScore, Meta)
-    Validate(*Block) error
-    Weight(*Block) float64 // Spora 用
-  }
-  ```
-* 现用 `ghostdag` 实现；`spora/` 放接口与打分骨架（拓扑质量、DA 抽样、执行证明）
+```rust
+// consensus/src/processes/ghostdag/mod.rs
+
+/// GhostDAG 共识（保持不变，但块验证改为 Cell）
+pub struct GhostdagManager {
+    pub k: u64,  // 参数 K（父块数量上限）
+    pub genesis_hash: [u8; 32],
+}
+
+impl GhostdagManager {
+    /// 计算区块的蓝分（Blue Score）
+    pub fn ghostdag(&self, block_hash: &[u8; 32], store: &impl BlockStore) -> GhostdagData {
+        // GhostDAG 算法（不变）
+        // 返回：blue_score, blue_set, red_set, selected_parent
+    }
+}
+
+/// GhostDAG 数据（每个块的共识信息）
+pub struct GhostdagData {
+    pub blue_score: u64,
+    pub blue_work: u128,
+    pub selected_parent: [u8; 32],
+    pub mergeset_blues: Vec<[u8; 32]>,
+    pub mergeset_reds: Vec<[u8; 32]>,
+}
+```
+
+### 10.2 块验证流程（Cell 化）
+
+```rust
+// consensus/src/processes/block_validator.rs
+
+pub struct BlockValidator {
+    ghostdag_manager: Arc<GhostdagManager>,
+    cell_provider: Arc<dyn DagCellProvider>,
+    consensus_params: Arc<ConsensusParams>,
+}
+
+impl BlockValidator {
+    /// 验证区块（Cell 版本）
+    pub fn validate_block(&self, block: &Block) -> Result<BlockStatus, ValidationError> {
+        // 1. 验证 PoW（保持不变）
+        self.validate_pow(block)?;
+        
+        // 2. 验证区块头（包含 cell_root）
+        self.validate_header(block)?;
+        
+        // 3. 验证 cellbase 交易（挖矿奖励）
+        let cellbase = block.transactions.first()
+            .ok_or(ValidationError::MissingCellbase)?;
+        self.validate_cellbase(cellbase, block)?;
+        
+        // 4. 验证所有普通交易（Cell 交易）
+        for tx in block.transactions.iter().skip(1) {
+            self.validate_cell_transaction(tx, block)?;
+        }
+        
+        // 5. 验证 cell_root 承诺（DAG 的 Cell 状态根）
+        self.validate_cell_root(block)?;
+        
+        // 6. GhostDAG 排序（确定蓝/红集合）
+        let ghostdag_data = self.ghostdag_manager.ghostdag(&block.hash(), self)?;
+        
+        Ok(BlockStatus::Valid(ghostdag_data))
+    }
+    
+    /// 验证 Cell 交易（在 DAG 上下文）
+    fn validate_cell_transaction(
+        &self,
+        tx: &CellTx,
+        block: &Block,
+    ) -> Result<(), ValidationError> {
+        // 1. 解析交易：加载所有输入 Cells
+        let rtx = self.resolve_transaction(tx, block.daa_score())?;
+        
+        // 2. 验证基础规则
+        self.validate_cell_tx_basic(&rtx)?;
+        
+        // 3. 验证 Cell 可用性（未被花费）
+        self.validate_cell_availability(&rtx, block.daa_score())?;
+        
+        // 4. 验证容量守恒
+        self.validate_capacity_conservation(&rtx)?;
+        
+        // 5. 验证脚本（Lock + Type）
+        let verifier = CellTxVerifier::new(
+            Arc::new(rtx),
+            self.cell_provider.clone(),
+            self.consensus_params.clone(),
+            Arc::new(DagTxEnv {
+                current_daa_score: block.daa_score(),
+                parent_hashes: block.parent_hashes().to_vec(),
+                block_timestamp: block.timestamp(),
+            }),
+        );
+        verifier.verify(self.consensus_params.max_block_cycles)?;
+        
+        Ok(())
+    }
+    
+    /// 解析交易（DAG 版本）
+    fn resolve_transaction(
+        &self,
+        tx: &CellTx,
+        at_daa_score: u64,
+    ) -> Result<ResolvedCellTx, Error> {
+        let mut resolved_inputs = Vec::with_capacity(tx.inputs.len());
+        let mut resolved_deps = Vec::with_capacity(tx.deps.len());
+        
+        // 解析 inputs（必须是 Live）
+        for input in &tx.inputs {
+            let status = self.cell_provider.cell(&input.out_point, Some(at_daa_score));
+            match status {
+                CellStatus::Live(meta) => {
+                    // 检查 cellbase 成熟度
+                    if meta.is_cellbase() {
+                        let maturity_daa = meta.transaction_info.unwrap().daa_score
+                            + self.consensus_params.cellbase_maturity;
+                        if at_daa_score < maturity_daa {
+                            return Err(Error::CellbaseNotMature);
+                        }
+                    }
+                    resolved_inputs.push(meta);
+                }
+                CellStatus::Dead(spent_at) => {
+                    return Err(Error::CellAlreadySpent { spent_at });
+                }
+                CellStatus::Unknown => {
+                    return Err(Error::CellNotFound);
+                }
+            }
+        }
+        
+        // 解析 deps（只读依赖）
+        for dep in &tx.deps {
+            let status = self.cell_provider.cell(&dep.out_point, Some(at_daa_score));
+            if let CellStatus::Live(meta) = status {
+                resolved_deps.push(meta);
+            } else {
+                return Err(Error::DepCellNotFound);
+            }
+        }
+        
+        Ok(ResolvedCellTx {
+            transaction: tx.clone(),
+            resolved_inputs,
+            resolved_deps,
+        })
+    }
+    
+    /// 验证 cell_root 承诺（DAG 状态根）
+    fn validate_cell_root(&self, block: &Block) -> Result<(), Error> {
+        // 1. 计算块内所有交易创建/花费的 Cells
+        let mut cell_changes = Vec::new();
+        for tx in &block.transactions {
+            for input in &tx.inputs {
+                cell_changes.push(CellChange::Spent(input.out_point.clone()));
+            }
+            for (i, output) in tx.outputs.iter().enumerate() {
+                let out_point = OutPoint {
+                    tx_hash: tx.hash(),
+                    index: i as u32,
+                };
+                cell_changes.push(CellChange::Created(out_point, output.clone()));
+            }
+        }
+        
+        // 2. 应用变更到父块的 cell_root
+        let parent_cell_root = self.get_parent_cell_root(block.selected_parent_hash())?;
+        let new_cell_root = self.apply_cell_changes(parent_cell_root, &cell_changes)?;
+        
+        // 3. 验证与块头的 cell_root 一致
+        if new_cell_root != block.header.cell_root {
+            return Err(Error::CellRootMismatch {
+                expected: new_cell_root,
+                actual: block.header.cell_root,
+            });
+        }
+        
+        Ok(())
+    }
+}
+
+/// Cell 变更
+pub enum CellChange {
+    Created(OutPoint, CellOut),
+    Spent(OutPoint),
+}
+```
+
+### 10.3 Cellbase 交易（挖矿奖励）
+
+```rust
+// consensus/src/processes/cellbase_builder.rs
+
+pub struct CellbaseBuilder {
+    consensus: Arc<ConsensusParams>,
+}
+
+impl CellbaseBuilder {
+    /// 构建 cellbase 交易（Cell 版本）
+    pub fn build_cellbase(
+        &self,
+        block_daa_score: u64,
+        miner_lock_script: ScriptRef,
+        mergeset_rewards: &[(u64, ScriptRef)],  // (daa_score, miner_lock) from red blocks
+    ) -> CellTx {
+        let block_reward = self.calculate_block_reward(block_daa_score);
+        
+        let mut outputs = Vec::new();
+        
+        // 主矿工奖励
+        outputs.push(CellOut {
+            lock: miner_lock_script.clone(),
+            type_: None,
+            capacity: block_reward,
+            data: vec![],
+        });
+        
+        // Mergeset 奖励（DAG 特有：红块矿工也获得部分奖励）
+        for (red_daa, red_miner_lock) in mergeset_rewards {
+            let red_reward = block_reward / 2;  // 红块奖励减半
+            outputs.push(CellOut {
+                lock: red_miner_lock.clone(),
+                type_: None,
+                capacity: red_reward,
+                data: vec![],
+            });
+        }
+        
+        CellTx {
+            ver: 0xC001,
+            inputs: vec![],  // cellbase 无输入
+            deps: vec![],
+            outputs,
+            outputs_data: vec![vec![]; outputs.len()],
+            witnesses: vec![],
+        }
+    }
+}
+```
+
+### 10.4 交易打包（Cell Pool → Block）
+
+```rust
+// mining/src/block_template.rs
+
+pub struct BlockTemplateBuilder {
+    cell_pool: Arc<CellPool>,
+    ghostdag_manager: Arc<GhostdagManager>,
+    cell_provider: Arc<dyn DagCellProvider>,
+}
+
+impl BlockTemplateBuilder {
+    /// 生成区块模板（Cell 版本）
+    pub fn build_template(
+        &self,
+        miner_lock: ScriptRef,
+        parent_hashes: Vec<[u8; 32]>,
+    ) -> Result<BlockTemplate, Error> {
+        // 1. 从 CellPool 选择交易（按 fee rate 排序）
+        let candidates = self.cell_pool.get_top_transactions(
+            self.consensus.max_block_size,
+            self.consensus.max_block_cycles,
+        )?;
+        
+        // 2. 构建交易 DAG（检测冲突）
+        let tx_dag = self.build_transaction_dag(&candidates)?;
+        
+        // 3. 拓扑排序 + 裁决冲突
+        let selected_txs = self.select_transactions(tx_dag)?;
+        
+        // 4. 构建 cellbase
+        let cellbase = self.build_cellbase_for_template(miner_lock, &parent_hashes)?;
+        
+        // 5. 计算 cell_root
+        let cell_root = self.calculate_cell_root(&cellbase, &selected_txs)?;
+        
+        // 6. 组装区块头
+        let header = BlockHeader {
+            version: 1,
+            timestamp: current_timestamp(),
+            parent_hashes,
+            cell_root,
+            tx_root: self.calculate_tx_merkle_root(&selected_txs)?,
+            nonce: 0,  // 待矿工填充
+            bits: self.calculate_target_bits()?,
+        };
+        
+        Ok(BlockTemplate {
+            header,
+            cellbase,
+            transactions: selected_txs,
+        })
+    }
+    
+    /// 构建交易 DAG（检测 Cell 冲突）
+    fn build_transaction_dag(&self, txs: &[CellTx]) -> Result<TxDag, Error> {
+        let mut dag = TxDag::new();
+        let mut cell_producers = HashMap::new();  // OutPoint -> TxIndex
+        
+        for (i, tx) in txs.iter().enumerate() {
+            // 记录此交易产生的 Cells
+            for (j, _) in tx.outputs.iter().enumerate() {
+                let out_point = OutPoint {
+                    tx_hash: tx.hash(),
+                    index: j as u32,
+                };
+                cell_producers.insert(out_point, i);
+            }
+            
+            // 检查依赖
+            for input in &tx.inputs {
+                if let Some(&producer_idx) = cell_producers.get(&input.out_point) {
+                    // 依赖关系：producer -> consumer
+                    dag.add_edge(producer_idx, i);
+                } else {
+                    // 依赖块外的 Cell（从状态读取）
+                    if !self.cell_provider.is_live(&input.out_point, None) {
+                        return Err(Error::CellNotAvailable);
+                    }
+                }
+            }
+            
+            // 检查冲突（双花）
+            for input in &tx.inputs {
+                if let Some(conflict_tx) = dag.find_conflict(&input.out_point) {
+                    dag.add_conflict(i, conflict_tx);
+                }
+            }
+        }
+        
+        Ok(dag)
+    }
+}
+```
+
+### 10.5 Spora 共识接口（预留）
+
+```rust
+// consensus/spora/src/interface.rs
+
+/// Spora 共识接口（扩展 GhostDAG）
+pub trait SporaConsensus {
+    /// 计算块权重（Spora：DA + 执行 + 拓扑）
+    fn compute_weight(&self, block: &Block) -> f64 {
+        let da_weight = self.da_quality_weight(block);
+        let exec_weight = self.execution_proof_weight(block);
+        let topo_weight = self.topology_quality_weight(block);
+        
+        da_weight * 0.4 + exec_weight * 0.4 + topo_weight * 0.2
+    }
+    
+    /// DA 质量权重（NMT 抽样成功率）
+    fn da_quality_weight(&self, block: &Block) -> f64;
+    
+    /// 执行证明权重（zkSNARK / Fraud Proof）
+    fn execution_proof_weight(&self, block: &Block) -> f64;
+    
+    /// 拓扑质量权重（蓝色比例）
+    fn topology_quality_weight(&self, block: &Block) -> f64 {
+        let ghostdag_data = self.get_ghostdag_data(&block.hash());
+        ghostdag_data.mergeset_blues.len() as f64 
+            / (ghostdag_data.mergeset_blues.len() + ghostdag_data.mergeset_reds.len()) as f64
+    }
+}
+```
 
 ---
 
@@ -743,13 +1700,199 @@ git push origin spora
 
 ---
 
-## 16. 术语速查
+## 16. 从 CKB 学习到的核心概念（完整总结）
+
+### 16.1 Cell 模型精髓（vs UTXO）
+
+**CKB Cell 的三要素**：
+1. **Lock Script**：谁能花费（类似 UTXO 的 ScriptPubKey）
+2. **Type Script**（可选）：状态转移约束（UTXO 没有）
+3. **Data**：任意数据（UTXO 只有金额）
+
+**关键差异**：
+- UTXO：`value + scriptPubKey`（简单）
+- Cell：`capacity + lock + type + data`（图灵完备）
+- Cell 的 `capacity` 包含存储成本（防状态爆炸）
+
+### 16.2 脚本验证范式
+
+**CKB 验证流程**：
+1. **脚本分组**：相同 `code_hash + args` 的 Cell 合并验证（优化）
+2. **Lock Script**：验证每个 input 的花费权限
+3. **Type Script**：验证输入输出的状态转移（如 UDT 总量守恒）
+4. **CKB-VM**：RISC-V 虚拟机，通过系统调用访问交易数据
+
+**系统调用关键**：
+- `LoadCell`：加载 input/output/deps Cells
+- `LoadCellData`：加载 Cell data
+- `LoadWitness`：加载见证数据（签名）
+- `LoadHeader`：加载区块头（时间锁验证）
+- `Exec`：动态加载脚本（组合性）
+
+### 16.3 依赖机制（CellDep）
+
+**两种依赖类型**：
+1. **Code**：单个 Cell 作为脚本代码
+2. **DepGroup**：一个 Cell 包含多个 OutPoint（批量依赖优化）
+
+**为何需要 deps**：
+- 脚本代码本身也是 Cell（链上代码）
+- 避免每次交易都携带完整脚本
+- 支持脚本升级（改变 code_hash）
+
+### 16.4 Capacity 机制（状态租金）
+
+```rust
+// CKB 的核心约束
+cell.capacity >= occupied_capacity(cell)
+
+occupied_capacity(cell) = 
+    size_of(cell.capacity) +
+    size_of(cell.lock) +
+    size_of(cell.type) +
+    size_of(cell.data)
+```
+
+**意义**：
+- 每个 Cell 必须付费占用链上存储
+- 防止状态爆炸攻击
+- 激励状态回收（销毁 Cell 释放 capacity）
+
+### 16.5 交易池（TxPool）设计
+
+**CKB TxPool 特性**：
+1. **多索引结构**：按 id, score, status 索引
+2. **Edges 追踪**：inputs, deps, header_deps 依赖关系
+3. **祖先/后代统计**：CPFP（Child Pays For Parent）
+4. **RBF**：Replace-By-Fee（费率必须更高）
+5. **驱逐策略**：内存满时踢出低费率交易
+
+**评分公式**：
+```rust
+ancestors_score = ancestors_fee / ancestors_size * cycles_factor * age_factor
+```
+
+### 16.6 DAG 适配要点（Tondi 特有）
+
+**1. DAA 分数（vs BlockNumber）**：
+- CKB 用 `block_number` 表示高度
+- Tondi 用 `daa_score`（GhostDAG 蓝分）
+- 所有成熟度检查改用 DAA 分数
+
+**2. Cell 状态查询**：
+```rust
+// DAG 重组感知
+fn cell(&self, out_point: &OutPoint, at_daa_score: Option<u64>) -> CellStatus;
+```
+
+**3. Cellbase 处理**：
+- 蓝块矿工：全额奖励
+- 红块矿工：减半奖励（或部分比例）
+- Mergeset 机制（DAG 特有）
+
+**4. Cell Root 承诺**：
+- CKB：线性累积（简单）
+- Tondi：DAG 状态树（需选择父块状态）
+
+**5. 交易打包**：
+- CKB：顺序打包（拓扑排序）
+- Tondi：DAG 冲突检测 + 裁决
+
+### 16.7 性能优化（从 CKB 借鉴）
+
+**1. 脚本分组**：
+- 相同脚本只运行一次
+- 减少 VM 初始化开销
+
+**2. 并行验证**：
+- 不同脚本组并行执行
+- 阈值：100+ inputs 才并行
+
+**3. 缓存策略**：
+- Cell data 内存缓存（`mem_cell_data`）
+- Data hash 缓存（`mem_cell_data_hash`）
+- 签名验证缓存（secp256k1）
+
+**4. Freezer（归档）**：
+- 古老区块数据移到 cold storage
+- 索引保留，数据按需加载
+
+### 16.8 安全考量
+
+**1. DoS 防护**：
+- 最大 cycles 限制（70M）
+- 最大脚本大小（500KB）
+- 最大内存（8MB）
+- 超时机制（VM 执行）
+
+**2. Capacity 验证**：
+```rust
+sum(inputs.capacity) >= sum(outputs.capacity) + fee
+每个 output.capacity >= occupied_capacity(output)
+```
+
+**3. 双花检测**：
+- CellPool 追踪所有 OutPoint
+- 冲突交易触发 RBF 或拒绝
+
+**4. 时间锁**：
+```rust
+since 字段：
+  bit 63: 相对锁(1) vs 绝对锁(0)
+  bit 62: DAA分数(1) vs 时间戳(0)
+  bit 61-0: 锁定值
+```
+
+### 16.9 术语对照表
+
+| CKB | Tondi-Cell | UTXO (旧) | 说明 |
+|-----|-----------|----------|------|
+| Cell | Cell | UTXO | 基本状态单元 |
+| OutPoint | OutPoint | OutPoint | 引用（tx_hash + index） |
+| Lock Script | Lock Script | ScriptPubKey | 花费条件 |
+| Type Script | Type Script | - | 状态转移约束 |
+| CellDep | CellDep | - | 只读依赖 |
+| Capacity | Capacity | Value | 金额 + 存储费 |
+| Block Number | DAA Score | Block Height | 区块序号 |
+| Cellbase | Cellbase | Coinbase | 挖矿奖励 |
+| TxPool | CellPool | Mempool | 交易池 |
+| ResolvedTransaction | ResolvedCellTx | - | 已解析交易 |
+| CKB-VM | CellVM | Script Engine | 虚拟机 |
+
+### 16.10 关键文件参考（CKB 源码）
+
+**必读文件**：
+1. `ckb/util/types/src/core/cell.rs` - Cell 核心定义
+2. `ckb/script/src/verify.rs` - 脚本验证器
+3. `ckb/tx-pool/src/component/pool_map.rs` - 交易池实现
+4. `ckb/script/src/syscalls/` - 系统调用实现
+5. `ckb/store/src/transaction.rs` - 存储接口
+6. `ckb/traits/src/` - 核心 trait 定义
+
+**推荐阅读**：
+- CKB RFC 文档：https://github.com/nervosnetwork/rfcs
+- 特别关注：RFC-0002（交易结构），RFC-0004（VM），RFC-0022（交易池）
+
+---
+
+## 17. 术语速查
 
 * **CellTx**：新交易；`ver=0xC001`
+* **OutPoint**：`tx_hash || index`，唯一标识一个 Cell
+* **Lock Script**：谁能花费（签名验证）
+* **Type Script**：状态转移约束（可选）
+* **CellDep**：只读依赖（脚本代码）
+* **Capacity**：金额 + 存储租金
+* **DAA Score**：GhostDAG 蓝分（替代区块高度）
+* **Cellbase**：挖矿奖励交易（DAG 支持 mergeset 奖励）
+* **ResolvedCellTx**：已解析交易（输入 Cells 已加载）
+* **CellProvider**：查询 Cell 状态的接口（Live/Dead/Unknown）
 * **RW-Set**：`inputs/deps/outputs` 声明
 * **CellDAG**：依赖图；拓扑分层并行
 * **ns-root**：命名空间根承诺（`cell_root`）
 * **segment/chunk**：DA 段/块；NMT/KZG 承诺
+* **CPFP**：Child Pays For Parent（子交易带动父交易）
+* **RBF**：Replace-By-Fee（替换交易）
 
 ---
 
