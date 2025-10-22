@@ -1,11 +1,11 @@
 use thiserror::Error;
 use tondi_notify::events::EventType;
-use tondi_utxoindex::errors::UtxoIndexError;
+use tondi_cellindex::errors::CellIndexError;
 
 #[derive(Error, Debug)]
 pub enum IndexError {
     #[error("{0}")]
-    UtxoIndexError(#[from] UtxoIndexError),
+    CellIndexError(#[from] CellIndexError),
 
     #[error("event type {0:?} is not supported")]
     NotSupported(EventType),

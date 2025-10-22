@@ -4,7 +4,7 @@
 // Cell State Tree - Merkle tree for live cells
 // Provides state root for lightweight client verification
 
-use tondi_hashes::{Blake3Hasher, Hash, Hasher};
+use tondi_hashes::{Hash, HasherBase, MerkleBranchHash};
 use std::collections::BTreeMap;
 
 /// Cell state entry in the tree
@@ -39,18 +39,18 @@ impl CellEntry {
         bytes.extend_from_slice(&self.capacity.to_le_bytes());
         
         // Lock hash (32 bytes)
-        bytes.extend_from_slice(self.lock_hash.as_bytes());
+        bytes.extend_from_slice(&self.lock_hash.as_bytes());
         
         // Type hash (1 byte flag + 32 bytes if present)
         if let Some(ref type_hash) = self.type_hash {
             bytes.push(1);
-            bytes.extend_from_slice(type_hash.as_bytes());
+            bytes.extend_from_slice(&type_hash.as_bytes());
         } else {
             bytes.push(0);
         }
         
         // Data hash (32 bytes)
-        bytes.extend_from_slice(self.data_hash.as_bytes());
+        bytes.extend_from_slice(&self.data_hash.as_bytes());
         
         bytes
     }
@@ -58,7 +58,7 @@ impl CellEntry {
     /// Hash the cell entry
     pub fn hash(&self) -> Hash {
         let serialized = self.serialize();
-        let mut hasher = Blake3Hasher::new();
+        let mut hasher = MerkleBranchHash::new();
         hasher.update(b"tondi-cell/entry");  // Domain separation
         hasher.update(&serialized);
         hasher.finalize()
@@ -75,9 +75,10 @@ impl CellEntry {
 /// - Incremental updates (add/remove cells)
 /// - Efficient state root calculation
 /// - Support for Merkle proofs
+#[derive(Clone)]
 pub struct CellStateTree {
-    /// Cells indexed by outpoint hash
-    cells: BTreeMap<Hash, CellEntry>,
+    /// Cells indexed by outpoint hash (public for consensus layer access)
+    pub cells: BTreeMap<Hash, CellEntry>,
     
     /// Cached root (invalidated on updates)
     cached_root: Option<Hash>,
@@ -122,6 +123,14 @@ impl CellStateTree {
         self.cells.is_empty()
     }
 
+    /// Apply a Cell diff to this tree
+    /// Note: This is a placeholder - needs proper implementation with OutPoint → Hash conversion
+    pub fn apply_diff_placeholder(&mut self) {
+        // TODO(cell-model): Implement proper diff application
+        // This requires converting TransactionOutpoint to Hash for tree indexing
+        self.cached_root = None; // Invalidate cache on any update
+    }
+
     /// Calculate the Merkle root of the cell tree
     /// 
     /// For now, we use a simple approach:
@@ -153,10 +162,10 @@ impl CellStateTree {
             .into_iter()
             .map(|(outpoint, cell_hash)| {
                 // Leaf = H("tondi-cell/leaf" || outpoint || cell_hash)
-                let mut hasher = Blake3Hasher::new();
+                let mut hasher = MerkleBranchHash::new();
                 hasher.update(b"tondi-cell/leaf");
-                hasher.update(outpoint.as_bytes());
-                hasher.update(cell_hash.as_bytes());
+                hasher.update(&outpoint.as_bytes());
+                hasher.update(&cell_hash.as_bytes());
                 hasher.finalize()
             })
             .collect();
@@ -168,10 +177,10 @@ impl CellStateTree {
             for chunk in current_level.chunks(2) {
                 let hash = if chunk.len() == 2 {
                     // Internal node = H("tondi-cell/node" || left || right)
-                    let mut hasher = Blake3Hasher::new();
+                    let mut hasher = MerkleBranchHash::new();
                     hasher.update(b"tondi-cell/node");
-                    hasher.update(chunk[0].as_bytes());
-                    hasher.update(chunk[1].as_bytes());
+                    hasher.update(&chunk[0].as_bytes());
+                    hasher.update(&chunk[1].as_bytes());
                     hasher.finalize()
                 } else {
                     // Odd number, promote the single node

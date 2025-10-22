@@ -1,5 +1,6 @@
 use super::storage::ConsensusStorage;
 use crate::{
+    processes::transaction_validator::TransactionValidator,
     config::Config,
     model::{
         services::{reachability::MTReachabilityService, relations::MTRelationsService, statuses::MTStatusesService},

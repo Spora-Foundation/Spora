@@ -5,15 +5,20 @@
 // Replaces UTXO processing logic with pure Cell model
 
 use crate::{
-    model::stores::ghostdag::GhostdagData,
+    model::stores::{
+        block_transactions::BlockTransactionsStoreReader,
+        ghostdag::GhostdagData,
+        statuses::StatusesStoreBatchExtensions,
+    },
 };
 use tondi_consensus_core::{
     acceptance_data::MergesetBlockAcceptanceData,
     cell_diff::CellDiff,
     coinbase::BlockRewardData,
     tx::TransactionId,
-    BlockHashMap,
+    BlockHashMap, HashMapCustomHasher,
 };
+use tondi_database::prelude::StoreResultEmptyTuple;
 use tondi_hashes::Hash;
 use tondi_state::CellStateTree;
 use tondi_utils::refs::Refs;
@@ -49,12 +54,23 @@ impl<'a> CellProcessingContext<'a> {
 
     /// Apply the current mergeset diff to the cell state tree
     pub fn apply_diff(&mut self) {
-        self.mergeset_cell_diff.apply_to(&mut self.cell_state_tree.cells);
+        // TODO(cell-model): Implement proper diff→tree application
+        self.cell_state_tree.apply_diff_placeholder();
     }
 
     /// Get the current cell root
     pub fn get_cell_root(&mut self) -> Hash {
         self.cell_state_tree.root()
+    }
+
+    /// Verify that the calculated cell root matches expected
+    pub fn verify_cell_root(&mut self, expected_root: Hash) -> Result<(), String> {
+        let calculated_root = self.get_cell_root();
+        if calculated_root == expected_root {
+            Ok(())
+        } else {
+            Err(format!("Cell root mismatch: expected {:?}, got {:?}", expected_root, calculated_root))
+        }
     }
 }
 
@@ -120,8 +136,8 @@ impl VirtualStateProcessor {
     pub(super) fn commit_cell_state(
         &self,
         hash: Hash,
-        cell_diff: CellDiff,
-        cell_root: Hash,
+        _cell_diff: CellDiff,
+        _cell_root: Hash,
         acceptance_data: Vec<MergesetBlockAcceptanceData>,
         pruning_sample: Hash,
     ) {
@@ -143,7 +159,7 @@ impl VirtualStateProcessor {
         // self.cell_roots_store.insert_batch(&mut batch, hash, cell_root).unwrap();
         
         // Store acceptance data (unchanged)
-        self.acceptance_data_store.insert_batch(&mut batch, hash, Arc::new(AcceptanceData { acceptance_data })).unwrap();
+        self.acceptance_data_store.insert_batch(&mut batch, hash, Arc::new(acceptance_data)).unwrap();
         
         // Store pruning sample (unchanged)
         self.pruning_samples_store.insert_batch(&mut batch, hash, pruning_sample).unwrap_or_exists();

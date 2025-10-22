@@ -26,7 +26,8 @@ impl From<&consensus_notify::Notification> for Notification {
             consensus_notify::Notification::VirtualChainChanged(msg) => Notification::VirtualChainChanged(msg.into()),
             consensus_notify::Notification::FinalityConflict(msg) => Notification::FinalityConflict(msg.into()),
             consensus_notify::Notification::FinalityConflictResolved(msg) => Notification::FinalityConflictResolved(msg.into()),
-            consensus_notify::Notification::UtxosChanged(msg) => Notification::UtxosChanged(msg.into()),
+            // TODO(spora): Re-enable after CellsChanged notification is implemented
+            // consensus_notify::Notification::UtxosChanged(msg) => Notification::UtxosChanged(msg.into()),
             consensus_notify::Notification::SinkBlueScoreChanged(msg) => Notification::SinkBlueScoreChanged(msg.into()),
             consensus_notify::Notification::VirtualDaaScoreChanged(msg) => Notification::VirtualDaaScoreChanged(msg.into()),
             consensus_notify::Notification::PruningPointUtxoSetOverride(msg) => Notification::PruningPointUtxoSetOverride(msg.into()),
@@ -81,12 +82,12 @@ impl From<&consensus_notify::FinalityConflictResolvedNotification> for FinalityC
     }
 }
 
-impl From<&consensus_notify::UtxosChangedNotification> for UtxosChangedNotification {
-    fn from(_: &consensus_notify::UtxosChangedNotification) -> Self {
-        // TODO: investigate if this conversion is possible
-        UtxosChangedNotification::default()
-    }
-}
+// TODO(spora): Implement CellsChangedNotification conversion
+// impl From<&consensus_notify::UtxosChangedNotification> for UtxosChangedNotification {
+//     fn from(_: &consensus_notify::UtxosChangedNotification) -> Self {
+//         UtxosChangedNotification::default()
+//     }
+// }
 
 impl From<&consensus_notify::SinkBlueScoreChangedNotification> for SinkBlueScoreChangedNotification {
     fn from(item: &consensus_notify::SinkBlueScoreChangedNotification) -> Self {

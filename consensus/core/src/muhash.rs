@@ -4,7 +4,9 @@ use crate::{
 };
 use tondi_core::{info, trace};
 use tondi_hashes::HasherBase;
-use tondi_muhash::MuHash;
+
+// Re-export MuHash for public use
+pub use tondi_muhash::MuHash;
 
 pub trait MuHashExtensions {
     fn add_transaction(&mut self, tx: &impl VerifiableTransaction, block_daa_score: u64);

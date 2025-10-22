@@ -10,6 +10,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+tondi-cellindex = { path = "../cellindex", version = "1.21.0" }
 tondi-consensus-core.workspace = true
 tondi-consensus-notify.workspace = true
 tondi-consensusmanager.workspace = true

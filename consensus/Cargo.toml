@@ -13,6 +13,7 @@ repository.workspace = true
 arc-swap.workspace = true
 async-channel.workspace = true
 bincode.workspace = true
+borsh.workspace = true
 crossbeam-channel.workspace = true
 faster-hex.workspace = true
 futures-util.workspace = true
@@ -24,7 +25,9 @@ tondi-consensus-notify.workspace = true
 tondi-consensusmanager.workspace = true
 tondi-core.workspace = true
 tondi-database.workspace = true
+tondi-exec = { path = "../exec", version = "1.21.0" }
 tondi-hashes.workspace = true
+tondi-state = { path = "../state", version = "1.21.0" }
 tondi-math.workspace = true
 tondi-merkle.workspace = true
 tondi-muhash.workspace = true

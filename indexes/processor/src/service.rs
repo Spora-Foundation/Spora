@@ -16,12 +16,12 @@ use tondi_notify::{
     subscription::{context::SubscriptionContext, MutationPolicies, UtxosChangedMutationPolicy},
 };
 use tondi_utils::{channel::Channel, triggers::SingleTrigger};
-use tondi_utxoindex::api::UtxoIndexProxy;
+use tondi_cellindex::api::CellIndexProxy;
 
 const INDEX_SERVICE: &str = IDENT;
 
 pub struct IndexService {
-    utxoindex: Option<UtxoIndexProxy>,
+    cellindex: Option<CellIndexProxy>,  // Replaced utxoindex with cellindex
     notifier: Arc<IndexNotifier>,
     shutdown: SingleTrigger,
 }
@@ -30,9 +30,9 @@ impl IndexService {
     pub fn new(
         consensus_notifier: &Arc<ConsensusNotifier>,
         subscription_context: SubscriptionContext,
-        utxoindex: Option<UtxoIndexProxy>,
+        cellindex: Option<CellIndexProxy>,  // Changed from utxoindex to cellindex
     ) -> Self {
-        // This notifier UTXOs subscription granularity to consensus notifier
+        // TODO(spora): Update to Cells subscription granularity
         let policies = MutationPolicies::new(UtxosChangedMutationPolicy::Wildcard);
 
         // Prepare consensus-notify objects
@@ -43,12 +43,12 @@ impl IndexService {
         );
 
         // Prepare the index-processor notifier
-        // No subscriber is defined here because the subscription are manually created during the construction and never changed after that.
+        // TODO(spora): Replace EventType::UtxosChanged with EventType::CellsChanged
         let events: EventSwitches = [EventType::UtxosChanged, EventType::PruningPointUtxoSetOverride].as_ref().into();
-        let collector = Arc::new(Processor::new(utxoindex.clone(), consensus_notify_channel.receiver()));
+        let collector = Arc::new(Processor::new(cellindex.clone(), consensus_notify_channel.receiver()));
         let notifier = Arc::new(IndexNotifier::new(INDEX_SERVICE, events, vec![collector], vec![], subscription_context, 1, policies));
 
-        // Manually subscribe to index-processor related event types
+        // TODO(spora): Update to Cells subscription scopes
         consensus_notifier
             .try_start_notify(consensus_notify_listener_id, UtxosChangedScope::default().into())
             .expect("the subscription always succeeds");
@@ -56,15 +56,15 @@ impl IndexService {
             .try_start_notify(consensus_notify_listener_id, PruningPointUtxoSetOverrideScope::default().into())
             .expect("the subscription always succeeds");
 
-        Self { utxoindex, notifier, shutdown: SingleTrigger::default() }
+        Self { cellindex, notifier, shutdown: SingleTrigger::default() }
     }
 
     pub fn notifier(&self) -> Arc<IndexNotifier> {
         self.notifier.clone()
     }
 
-    pub fn utxoindex(&self) -> Option<UtxoIndexProxy> {
-        self.utxoindex.clone()
+    pub fn cellindex(&self) -> Option<CellIndexProxy> {
+        self.cellindex.clone()
     }
 }
 

@@ -4,8 +4,10 @@
 // Cell query API
 
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use tondi_exec::OutPoint;
-use tondi_state::CellMeta;
+use tondi_state::index::CellMeta;
+use crate::indexer::CellIndexer;
 
 /// Cell query request
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -82,6 +84,31 @@ impl CellQuery {
         self.min_capacity = min;
         self.max_capacity = max;
         self
+    }
+}
+
+/// Cell index proxy for async operations
+/// 
+/// Provides a thread-safe wrapper around CellIndexer for use in services
+#[derive(Clone)]
+pub struct CellIndexProxy {
+    indexer: Arc<CellIndexer>,
+}
+
+impl CellIndexProxy {
+    /// Create a new Cell index proxy
+    pub fn new(indexer: Arc<CellIndexer>) -> Self {
+        Self { indexer }
+    }
+    
+    /// Query cells
+    pub fn query(&self, query: &CellQuery) -> crate::Result<CellQueryResult> {
+        self.indexer.query(query)
+    }
+    
+    /// Get a single cell by OutPoint
+    pub fn get_cell(&self, out_point: &OutPoint) -> crate::Result<Option<CellMeta>> {
+        self.indexer.get_cell(out_point)
     }
 }
 

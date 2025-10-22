@@ -5,7 +5,7 @@
 
 use crate::{Result, StateError};
 use parking_lot::RwLock;
-use rocksdb::{ColumnFamilyDescriptor, Options, WriteBatch, DB};
+use rocksdb::{ColumnFamilyDescriptor, Options, DB};
 use std::collections::BTreeSet;
 use std::path::Path;
 use std::sync::Arc;

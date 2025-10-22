@@ -14,25 +14,12 @@
 
 pub mod api;
 pub mod indexer;
+pub mod errors;
 
-pub use api::{CellQuery, CellQueryResult, CellFilter};
+pub use api::{CellQuery, CellQueryResult, CellFilter, CellIndexProxy};
 pub use indexer::CellIndexer;
+pub use errors::{CellIndexError, Result};
 
-/// Cell index errors
-#[derive(Debug, thiserror::Error)]
-pub enum IndexError {
-    /// State error
-    #[error("State error: {0}")]
-    State(#[from] tondi_state::StateError),
-    
-    /// Query failed
-    #[error("Query failed: {0}")]
-    QueryFailed(String),
-    
-    /// Invalid filter
-    #[error("Invalid filter: {0}")]
-    InvalidFilter(String),
-}
-
-/// Result type for indexing operations
-pub type Result<T> = std::result::Result<T, IndexError>;
+/// Cell index errors (re-export from errors module)
+#[deprecated(note = "Use errors::CellIndexError instead")]
+pub type IndexError = CellIndexError;

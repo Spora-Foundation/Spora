@@ -14,7 +14,7 @@ from!(item: &tondi_rpc_core::RpcHeader, protowire::RpcBlockHeader, {
         parents: item.parents_by_level.iter().map(protowire::RpcBlockLevelParents::from).collect(),
         hash_merkle_root: item.hash_merkle_root.to_string(),
         accepted_id_merkle_root: item.accepted_id_merkle_root.to_string(),
-        utxo_commitment: item.cell_commitment.to_string(),
+        cell_commitment: item.cell_commitment.to_string(),  
         timestamp: item.timestamp.try_into().expect("timestamp is always convertible to i64"),
         bits: item.bits,
         nonce: item.nonce,
@@ -31,7 +31,7 @@ from!(item: &tondi_rpc_core::RpcRawHeader, protowire::RpcBlockHeader, {
         parents: item.parents_by_level.iter().map(protowire::RpcBlockLevelParents::from).collect(),
         hash_merkle_root: item.hash_merkle_root.to_string(),
         accepted_id_merkle_root: item.accepted_id_merkle_root.to_string(),
-        utxo_commitment: item.cell_commitment.to_string(),
+        cell_commitment: item.cell_commitment.to_string(),  // Changed from utxo_commitment
         timestamp: item.timestamp.try_into().expect("timestamp is always convertible to i64"),
         bits: item.bits,
         nonce: item.nonce,

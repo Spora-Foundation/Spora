@@ -4,6 +4,8 @@ use crate::{
         acceptance_data::DbAcceptanceDataStore,
         block_transactions::DbBlockTransactionsStore,
         block_window_cache::BlockWindowCacheStore,
+        cell_diffs::DbCellDiffsStore,  // Replaced utxo_diffs with cell_diffs
+        cell_roots::DbCellRootsStore,   // Replaced utxo_multisets with cell_roots
         daa::DbDaaStore,
         depth::DbDepthStore,
         ghostdag::{CompactGhostdagData, DbGhostdagStore},
@@ -12,14 +14,12 @@ use crate::{
         past_pruning_points::DbPastPruningPointsStore,
         pruning::DbPruningStore,
         pruning_samples::DbPruningSamplesStore,
-        pruning_utxoset::PruningUtxosetStores,
+        // pruning_utxoset removed - Cell state in VirtualState
         reachability::{DbReachabilityStore, ReachabilityData},
         relations::DbRelationsStore,
         selected_chain::DbSelectedChainStore,
         statuses::DbStatusesStore,
         tips::DbTipsStore,
-        // utxo_diffs::DbUtxoDiffsStore, // UTXO deprecated
-        utxo_multisets::DbUtxoMultisetsStore,
         virtual_state::{LkgVirtualState, VirtualStores},
         DB,
     },
@@ -46,7 +46,6 @@ pub struct ConsensusStorage {
     pub pruning_point_store: Arc<RwLock<DbPruningStore>>,
     pub headers_selected_tip_store: Arc<RwLock<DbHeadersSelectedTipStore>>,
     pub body_tips_store: Arc<RwLock<DbTipsStore>>,
-    pub pruning_utxoset_stores: Arc<RwLock<PruningUtxosetStores>>,
     pub virtual_stores: Arc<RwLock<VirtualStores>>,
     pub selected_chain_store: Arc<RwLock<DbSelectedChainStore>>,
 
@@ -59,9 +58,9 @@ pub struct ConsensusStorage {
     pub depth_store: Arc<DbDepthStore>,
     pub pruning_samples_store: Arc<DbPruningSamplesStore>,
 
-    // Utxo-related stores
-    pub utxo_diffs_store: Arc<DbUtxoDiffsStore>,
-    pub utxo_multisets_store: Arc<DbUtxoMultisetsStore>,
+    // Cell model stores
+    pub cell_diffs_store: Arc<DbCellDiffsStore>,
+    pub cell_roots_store: Arc<DbCellRootsStore>,
     pub acceptance_data_store: Arc<DbAcceptanceDataStore>,
 
     // Block window caches
@@ -211,13 +210,15 @@ impl ConsensusStorage {
         // Pruning
         let pruning_point_store = Arc::new(RwLock::new(DbPruningStore::new(db.clone())));
         let past_pruning_points_store = Arc::new(DbPastPruningPointsStore::new(db.clone(), past_pruning_points_builder.build()));
-        let pruning_utxoset_stores = Arc::new(RwLock::new(PruningUtxosetStores::new(db.clone(), utxo_set_builder.build())));
+        // pruning_utxoset_stores removed - Cell state in VirtualState
         let pruning_samples_store = Arc::new(DbPruningSamplesStore::new(db.clone(), header_data_builder.build()));
 
-        // Txs
+        // Txs and state stores
         let block_transactions_store = Arc::new(DbBlockTransactionsStore::new(db.clone(), transactions_builder.build()));
-        let utxo_diffs_store = Arc::new(DbUtxoDiffsStore::new(db.clone(), utxo_diffs_builder.build()));
-        let utxo_multisets_store = Arc::new(DbUtxoMultisetsStore::new(db.clone(), block_data_builder.build()));
+        
+        // Cell model stores  
+        let cell_diffs_store = Arc::new(DbCellDiffsStore::new(db.clone(), utxo_diffs_builder.build()));
+        let cell_roots_store = Arc::new(DbCellRootsStore::new(db.clone(), block_data_builder.build()));
         let acceptance_data_store = Arc::new(DbAcceptanceDataStore::new(db.clone(), acceptance_data_builder.build()));
 
         // Tips
@@ -249,7 +250,7 @@ impl ConsensusStorage {
             body_tips_store,
             headers_store,
             block_transactions_store,
-            pruning_utxoset_stores,
+            // pruning_utxoset_stores removed
             virtual_stores,
             selected_chain_store,
             acceptance_data_store,
@@ -257,8 +258,8 @@ impl ConsensusStorage {
             daa_excluded_store,
             depth_store,
             pruning_samples_store,
-            utxo_diffs_store,
-            utxo_multisets_store,
+            cell_diffs_store,
+            cell_roots_store,
             block_window_cache_for_difficulty,
             block_window_cache_for_past_median_time,
             lkg_virtual_state,

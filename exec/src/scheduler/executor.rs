@@ -235,7 +235,6 @@ pub enum ExecutionError {
 mod tests {
     use super::*;
     use crate::celltx::types::{CellRef, CellOut, ScriptRef, OutPoint};
-    use crate::scheduler::dag::CellDAG;
     
     fn create_test_tx(inputs: Vec<OutPoint>) -> CellTx {
         let lock = ScriptRef::new([0x00; 32], 0, vec![]);

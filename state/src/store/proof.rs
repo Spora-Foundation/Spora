@@ -3,7 +3,7 @@
 //
 // Data availability proofs: NMT/KZG sampling (simplified version)
 
-use crate::{Result, StateError};
+use crate::Result;
 use borsh::{BorshDeserialize, BorshSerialize};
 
 /// Segment proof (Merkle proof for DA sampling)

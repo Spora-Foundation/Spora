@@ -104,7 +104,7 @@ impl SegmentWriter {
     
     /// Seal current segment (finalize and compute commitment)
     pub fn seal(&self) -> Result<SegmentMeta> {
-        let mut file_guard = self.current_file.lock();
+        let file_guard = self.current_file.lock();
         let offset_guard = self.current_offset.lock();
         
         if file_guard.is_none() {

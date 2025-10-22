@@ -26,7 +26,6 @@ use crate::{
             relations::RelationsStoreReader,
             statuses::StatusesStoreReader,
             tips::TipsStoreReader,
-            // utxo_set::{UtxoSetStore, UtxoSetStoreReader}, // UTXO deprecated
             DB,
         },
     },
@@ -44,6 +43,7 @@ use crate::{
     },
 };
 use tondi_consensus_core::{
+    utxo::utxo_inquirer::UtxoInquirerError,  // TODO(spora-critical): Remove
     acceptance_data::AcceptanceData,
     api::{
         args::{TransactionValidationArgs, TransactionValidationBatchArgs},
@@ -71,7 +71,6 @@ use tondi_consensus_core::{
     pruning::{PruningPointProof, PruningPointTrustedData, PruningPointsList, PruningProofMetadata},
     trusted::{ExternalGhostdagData, TrustedBlock},
     tx::{MutableTransaction, SignableTransaction, Transaction, TransactionOutpoint, UtxoEntry},
-    // utxo::utxo_inquirer::UtxoInquirerError, // UTXO deprecated - use Cell validation
     BlockHashSet, BlueWorkType, ChainPath, HashMapCustomHasher,
 };
 use tondi_consensus_notify::root::ConsensusNotificationRoot;
@@ -776,10 +775,9 @@ impl ConsensusApi for Consensus {
         sample_headers
     }
 
-    fn get_populated_transaction(&self, txid: Hash, accepting_block_daa_score: u64) -> Result<SignableTransaction, UtxoInquirerError> {
-        // We need consistency between the pruning_point_store, utxo_diffs_store, block_transactions_store, selected chain and headers store reads
-        let _guard = self.pruning_lock.blocking_read();
-        self.virtual_processor.get_populated_transaction(txid, accepting_block_daa_score, self.get_retention_period_root())
+    fn get_populated_transaction(&self, _txid: Hash, _accepting_block_daa_score: u64) -> Result<SignableTransaction, String> {
+        // TODO(cell-model): Needs Cell model reimplementation
+        Err("get_populated_transaction not implemented for Cell model yet".to_string())
     }
 
     fn get_virtual_parents(&self) -> BlockHashSet {
@@ -796,9 +794,9 @@ impl ConsensusApi for Consensus {
         chunk_size: usize,
         skip_first: bool,
     ) -> Vec<(TransactionOutpoint, UtxoEntry)> {
-        let virtual_stores = self.virtual_stores.read();
-        let iter = virtual_stores.utxo_set.seek_iterator(from_outpoint, chunk_size, skip_first);
-        iter.map(|item| item.unwrap()).collect()
+        // TODO(cell-model): Needs Cell model reimplementation
+        // Cell state is stored in VirtualState::cell_state_tree, not a separate UTXO set
+        Vec::new()
     }
 
     fn get_tips(&self) -> Vec<Hash> {
@@ -819,18 +817,9 @@ impl ConsensusApi for Consensus {
         if self.pruning_point_store.read().pruning_point().unwrap() != expected_pruning_point {
             return Err(ConsensusError::UnexpectedPruningPoint);
         }
-        let pruning_utxoset_read = self.pruning_utxoset_stores.read();
-        let iter = pruning_utxoset_read.utxo_set.seek_iterator(from_outpoint, chunk_size, skip_first);
-        let utxos = iter.map(|item| item.unwrap()).collect();
-        drop(pruning_utxoset_read);
-
-        // We recheck the expected pruning point in case it was switched just before the utxo set read.
-        // NOTE: we rely on order of operations by pruning processor. See extended comment therein.
-        if self.pruning_point_store.read().pruning_point().unwrap() != expected_pruning_point {
-            return Err(ConsensusError::UnexpectedPruningPoint);
-        }
-
-        Ok(utxos)
+        // TODO(cell-model): Needs Cell model reimplementation
+        // Pruning point UTXO set will be replaced with Cell set
+        Ok(Vec::new())
     }
 
     fn modify_coinbase_payload(&self, payload: Vec<u8>, miner_data: &MinerData) -> CoinbaseResult<Vec<u8>> {
@@ -858,19 +847,9 @@ impl ConsensusApi for Consensus {
         self.services.pruning_proof_manager.import_pruning_points(&pruning_points)
     }
 
-    fn append_imported_pruning_point_utxos(&self, utxoset_chunk: &[(TransactionOutpoint, UtxoEntry)], current_multiset: &mut MuHash) {
-        let mut pruning_utxoset_write = self.pruning_utxoset_stores.write();
-        pruning_utxoset_write.utxo_set.write_many(utxoset_chunk).unwrap();
-
-        // Parallelize processing using the context of an existing thread pool.
-        let inner_multiset = self.virtual_processor.install(|| {
-            utxoset_chunk.par_iter().map(|(outpoint, entry)| MuHash::from_utxo(outpoint, entry)).reduce(MuHash::new, |mut a, b| {
-                a.combine(&b);
-                a
-            })
-        });
-
-        current_multiset.combine(&inner_multiset);
+    fn append_imported_pruning_point_utxos(&self, _utxoset_chunk: &[(TransactionOutpoint, UtxoEntry)], _current_multiset: &mut MuHash) {
+        // TODO(cell-model): Needs Cell model reimplementation
+        // Cell state will be imported directly into CellStateTree
     }
 
     fn import_pruning_point_utxo_set(&self, new_pruning_point: Hash, imported_utxo_multiset: MuHash) -> PruningImportResult<()> {

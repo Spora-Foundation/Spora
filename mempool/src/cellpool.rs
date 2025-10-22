@@ -157,7 +157,7 @@ impl CellPool {
         let mut spent = self.spent_outputs.write();
         let mut stats = self.stats.write();
         
-        let entry = txs.remove(wtxid)
+        let entry = txs.shift_remove(wtxid)
             .ok_or(MempoolError::TxNotFound(*wtxid))?;
         
         // Remove from spent outputs
@@ -220,7 +220,7 @@ impl CellPool {
     fn try_replace_by_fee(
         &self,
         tx: &CellTx,
-        wtxid: [u8; 32],
+        _wtxid: [u8; 32],
         fee: u64,
         cycles: u64,
         conflicts: &[[u8; 32]],

@@ -176,7 +176,7 @@ pub enum ConflictResolution {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::celltx::types::{CellRef, CellOut, ScriptRef, OutPoint};
+    use crate::celltx::types::{CellOut, ScriptRef};
     
     fn create_test_tx(capacity: u64) -> CellTx {
         let lock = ScriptRef::new([0x00; 32], 0, vec![]);
@@ -277,7 +277,7 @@ mod tests {
         let resolver = ConflictResolver::new(100.0);
         
         let tx = create_test_tx(1000);
-        let size = tx.serialized_size() as f64;
+        let _size = tx.serialized_size() as f64;
         
         // High cycles → effective size dominated by cycles
         let key_high_cycles = resolver.compute_key(&tx, 1000, 100000, None);

@@ -9,7 +9,7 @@ use std::sync::Arc;
 use rocksdb::WriteBatch;
 use tondi_consensus_core::{cell_diff::CellDiff, BlockHasher};
 use tondi_database::{
-    prelude::{CachePolicy, CachedDbAccess, DirectDbWriter, StoreError, StoreResult, StoreResultExtensions, DB},
+    prelude::{BatchDbWriter, CachePolicy, CachedDbAccess, DirectDbWriter, StoreError, StoreResult, StoreResultExtensions, DB},
     registry::DatabaseStorePrefixes,
 };
 use tondi_hashes::Hash;
@@ -39,6 +39,10 @@ impl DbCellDiffsStore {
 
     pub fn insert_batch(&self, batch: &mut WriteBatch, hash: Hash, cell_diff: Arc<CellDiff>) -> StoreResult<()> {
         self.access.write(BatchDbWriter::new(batch), hash, cell_diff)
+    }
+
+    pub fn delete_batch(&self, batch: &mut WriteBatch, hash: Hash) -> StoreResult<()> {
+        self.access.delete(BatchDbWriter::new(batch), hash)
     }
 }
 

@@ -294,7 +294,7 @@ mod tests {
     fn test_domain_separation() {
         // txid and wtxid should use different domains
         let tx = create_test_tx();
-        let txid = compute_txid(&tx);
+        let _txid = compute_txid(&tx);
         
         // Manually compute with wrong domain
         let mut hasher = blake3::Hasher::new();

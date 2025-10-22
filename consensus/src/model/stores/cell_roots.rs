@@ -9,7 +9,7 @@ use std::sync::Arc;
 use rocksdb::WriteBatch;
 use tondi_consensus_core::BlockHasher;
 use tondi_database::{
-    prelude::{CachePolicy, CachedDbAccess, DirectDbWriter, StoreError, StoreResult, StoreResultExtensions, DB},
+    prelude::{BatchDbWriter, CachePolicy, CachedDbAccess, DirectDbWriter, StoreError, StoreResult, StoreResultExtensions, DB},
     registry::DatabaseStorePrefixes,
 };
 use tondi_hashes::Hash;
@@ -39,6 +39,10 @@ impl DbCellRootsStore {
 
     pub fn insert_batch(&self, batch: &mut WriteBatch, hash: Hash, cell_root: Hash) -> StoreResult<()> {
         self.access.write(BatchDbWriter::new(batch), hash, cell_root)
+    }
+
+    pub fn delete_batch(&self, batch: &mut WriteBatch, hash: Hash) -> StoreResult<()> {
+        self.access.delete(BatchDbWriter::new(batch), hash)
     }
 }
 

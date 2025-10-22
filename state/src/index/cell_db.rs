@@ -7,6 +7,7 @@ use crate::{Result, StateError};
 use borsh::{BorshDeserialize, BorshSerialize};
 use parking_lot::RwLock;
 use rocksdb::{ColumnFamilyDescriptor, Options, WriteBatch, DB};
+use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::Arc;
 use tondi_exec::{CellOut, OutPoint};
@@ -18,7 +19,7 @@ const CF_SPENT: &str = "spent";
 /// Cell metadata (stored in CellDB)
 ///
 /// Maps OutPoint → CellMeta for quick Cell lookups
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
 pub struct CellMeta {
     /// Cell output structure
     pub cell_output: CellOut,
@@ -35,7 +36,7 @@ pub struct CellMeta {
 }
 
 /// Segment storage information
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
 pub struct SegmentInfo {
     /// Segment ID
     pub segment_id: u32,

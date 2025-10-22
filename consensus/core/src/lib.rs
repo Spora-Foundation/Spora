@@ -38,9 +38,12 @@ pub mod subnets;
 pub mod trusted;
 pub mod tx;
 
-// UTXO model deprecated - completely removed
-// Use Cell model instead (see exec/ and state/ crates)
-// Old UTXO code preserved in git history (before-utxo-removal tag)
+// UTXO model temporarily enabled for compilation compatibility
+// TODO(spora-critical): Remove after virtual_processor and mining refactoring to Cell model
+// This is DEPRECATED and scheduled for removal
+#[deprecated(note = "UTXO model is deprecated. Use Cell model (exec/state crates) instead")]
+#[path = "utxo.deprecated/mod.rs"]
+pub mod utxo;
 
 /// Integer type for accumulated PoW of blue blocks. We expect no more than
 /// 2^128 work in a single block (btc has ~2^80), and no more than 2^64

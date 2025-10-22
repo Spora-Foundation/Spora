@@ -5633,6 +5633,7 @@ dependencies = [
  "async-channel 2.5.0",
  "bincode",
  "blake3",
+ "borsh",
  "criterion",
  "crossbeam-channel",
  "faster-hex",
@@ -5661,12 +5662,14 @@ dependencies = [
  "tondi-consensusmanager",
  "tondi-core",
  "tondi-database",
+ "tondi-exec",
  "tondi-hashes",
  "tondi-math",
  "tondi-merkle",
  "tondi-muhash",
  "tondi-notify",
  "tondi-pow",
+ "tondi-state",
  "tondi-txscript",
  "tondi-txscript-errors",
  "tondi-utils",
@@ -6039,6 +6042,7 @@ dependencies = [
  "rand 0.8.5",
  "thiserror 1.0.69",
  "tokio",
+ "tondi-cellindex",
  "tondi-consensus",
  "tondi-consensus-core",
  "tondi-consensus-notify",
@@ -6413,6 +6417,7 @@ dependencies = [
  "tempfile",
  "thiserror 1.0.69",
  "tondi-exec",
+ "tondi-hashes",
 ]
 
 [[package]]

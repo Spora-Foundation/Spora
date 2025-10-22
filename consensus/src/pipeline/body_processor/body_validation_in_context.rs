@@ -3,10 +3,7 @@ use crate::{
     errors::{BlockProcessResult, RuleError},
     model::stores::{ghostdag::GhostdagStoreReader, headers::HeaderStoreReader, statuses::StatusesStoreReader},
     processes::{
-        // transaction_validator::{ // UTXO deprecated - use cell_validator
-            tx_validation_in_header_context::{LockTimeArg, LockTimeType},
-            TransactionValidator,
-        },
+        transaction_validator::{tx_validation_in_header_context::{LockTimeArg, LockTimeType}, TransactionValidator},
         window::WindowManager,
     },
 };

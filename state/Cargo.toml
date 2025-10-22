@@ -8,6 +8,7 @@ description = "Cell state management and data availability storage"
 [dependencies]
 # Core dependencies
 tondi-exec = { path = "../exec", version = "1.21.0" }
+tondi-hashes = { path = "../crypto/hashes", version = "1.21.0" }
 
 # Database
 rocksdb = { version = "0.24", default-features = false, features = ["snappy"] }

@@ -18,6 +18,7 @@ use tondi_database::prelude::{CachePolicy, StoreResult};
 use tondi_database::prelude::{StoreError, DB};
 use tondi_database::registry::DatabaseStorePrefixes;
 use tondi_hashes::Hash;
+
 use tondi_state::CellStateTree;
 
 use super::ghostdag::GhostdagData;
@@ -151,16 +152,15 @@ impl LkgVirtualState {
 }
 
 /// Used in order to group virtual related stores under a single lock
+/// Cell model note: cell_state_tree is stored directly in VirtualState, no separate store needed
 pub struct VirtualStores {
     pub state: DbVirtualStateStore,
-    pub utxo_set: DbUtxoSetStore,
 }
 
 impl VirtualStores {
-    pub fn new(db: Arc<DB>, lkg_virtual_state: LkgVirtualState, utxoset_cache_policy: CachePolicy) -> Self {
+    pub fn new(db: Arc<DB>, lkg_virtual_state: LkgVirtualState, _cache_policy: CachePolicy) -> Self {
         Self {
-            state: DbVirtualStateStore::new(db.clone(), lkg_virtual_state),
-            utxo_set: DbUtxoSetStore::new(db, utxoset_cache_policy, DatabaseStorePrefixes::VirtualUtxoset.into()),
+            state: DbVirtualStateStore::new(db, lkg_virtual_state),
         }
     }
 }

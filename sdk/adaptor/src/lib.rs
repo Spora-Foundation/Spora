@@ -11,7 +11,7 @@ pub use types::{
 };
 
 use k256::{
-    elliptic_curve::{generic_array::GenericArray, ops::Reduce, PrimeField},
+    elliptic_curve::{ops::Reduce, PrimeField},
     Scalar as KScalar, U256,
 };
 use secp256k1::{
@@ -21,7 +21,7 @@ use sha2::{Digest, Sha256};
 
 // --- Helper functions ---
 fn kscalar_from_bytes(bytes: &[u8; 32]) -> KScalar {
-    <KScalar as Reduce<U256>>::reduce_bytes(&GenericArray::from(*bytes))
+    <KScalar as Reduce<U256>>::reduce_bytes(&(*bytes).into())
 }
 
 fn kscalar_to_bytes(scalar: &KScalar) -> [u8; 32] {

@@ -27,7 +27,7 @@ message RpcBlockHeader {
   repeated RpcBlockLevelParents parents = 12;
   string hashMerkleRoot = 3;
   string acceptedIdMerkleRoot = 4;
-  string utxoCommitment = 5;
+  string cellCommitment = 5;  // Replaced utxoCommitment with cellCommitment (SPORA Cell model)
   int64 timestamp = 6;
   uint32 bits = 7;
   uint64 nonce = 8;

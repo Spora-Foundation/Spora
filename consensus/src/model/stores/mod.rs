@@ -10,17 +10,15 @@ pub mod headers_selected_tip;
 pub mod past_pruning_points;
 pub mod pruning;
 pub mod pruning_samples;
-pub mod pruning_utxoset;
+// pruning_utxoset removed - Cell state managed directly in VirtualState
 pub mod reachability;
 pub mod relations;
 pub mod selected_chain;
 pub mod statuses;
 pub mod tips;
-pub mod utxo_diffs;  // Deprecated
-pub mod utxo_multisets;  // Deprecated
-pub mod utxo_set;  // Deprecated
-pub mod cell_diffs;  // NEW: Cell model
-pub mod cell_roots;  // NEW: Cell model
+// Cell model stores
+pub mod cell_diffs;
+pub mod cell_roots;
 pub mod virtual_state;
 
 use std::fmt::Display;

@@ -3,12 +3,13 @@
 //
 // Cell indexer service
 
-use crate::{Result, IndexError, CellQuery, CellQueryResult, CellFilter};
+use crate::{Result, CellQuery, CellQueryResult, CellFilter};
 use parking_lot::RwLock;
 use std::path::Path;
 use std::sync::Arc;
 use tondi_exec::{CellTx, OutPoint};
-use tondi_state::{CellDB, ScriptIndex, CellMeta};
+use tondi_state::{CellDB, ScriptIndex};
+use tondi_state::index::CellMeta;
 
 /// Cell indexer service
 ///
@@ -152,9 +153,10 @@ impl CellIndexer {
         // Update stats
         self.stats.write().queries_served += 1;
         
+        let total_count = cells.len();
         Ok(CellQueryResult {
             cells,
-            total_count: cells.len(),
+            total_count,
         })
     }
     

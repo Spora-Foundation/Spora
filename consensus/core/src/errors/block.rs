@@ -83,6 +83,9 @@ pub enum RuleError {
     #[error("invalid merkle root: header indicates {0} but calculated value is {1}")]
     BadMerkleRoot(Hash, Hash),
 
+    #[error("invalid cell root: {0}")]
+    BadCellRoot(String),
+
     #[error("block has no transactions")]
     NoTransactions,
 

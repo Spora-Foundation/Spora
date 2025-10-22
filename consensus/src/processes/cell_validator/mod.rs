@@ -113,7 +113,10 @@ impl<P: CellStateProvider> CellValidator<P> {
         &self,
         tx: &tondi_exec::CellTx,
         daa_score: u64,
-    ) -> Result<(), CellValidationError> {
+    ) -> Result<(), CellValidationError> 
+    where
+        P: cell_validation_in_dag::DagCellProvider,
+    {
         // First validate in context
         self.validate_in_context(tx, daa_score)?;
         
@@ -131,7 +134,10 @@ impl<P: CellStateProvider> CellValidator<P> {
         &self,
         tx: &tondi_exec::CellTx,
         daa_score: u64,
-    ) -> Result<(), CellValidationError> {
+    ) -> Result<(), CellValidationError>
+    where
+        P: cell_validation_in_dag::DagCellProvider,
+    {
         self.validate_in_isolation(tx)?;
         self.validate_in_dag(tx, daa_score)?;
         Ok(())

@@ -169,12 +169,12 @@ impl<T: HeaderStoreReader> DifficultyManagerExtension for FullDifficultyManager<
 }
 
 #[derive(Clone)]
-struct CrescendoLogger {
+pub(crate) struct CrescendoLogger {
     steps: Arc<AtomicU8>,
 }
 
 impl CrescendoLogger {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self { steps: Arc::new(AtomicU8::new(Self::ACTIVATE)) }
     }
 
