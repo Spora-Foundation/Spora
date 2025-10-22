@@ -19,7 +19,6 @@ tondi-hashes.workspace = true
 tondi-index-core.workspace = true
 tondi-notify.workspace = true
 tondi-utils.workspace = true
-tondi-utxoindex.workspace = true
 
 async-channel.workspace = true
 async-trait.workspace = true

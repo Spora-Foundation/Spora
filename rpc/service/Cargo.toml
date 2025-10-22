@@ -28,7 +28,6 @@ tondi-rpc-core.workspace = true
 tondi-txscript.workspace = true
 tondi-utils.workspace = true
 tondi-utils-tower.workspace = true
-tondi-utxoindex.workspace = true
 
 async-trait.workspace = true
 log.workspace = true

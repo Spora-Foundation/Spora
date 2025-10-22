@@ -39,7 +39,6 @@ tondi-rpc-service.workspace = true
 tondi-txscript.workspace = true
 tondi-utils.workspace = true
 tondi-utils-tower.workspace = true
-tondi-utxoindex.workspace = true
 tondi-wrpc-server.workspace = true
 
 async-channel.workspace = true

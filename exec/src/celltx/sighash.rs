@@ -5,9 +5,11 @@
 
 use super::types::CellTx;
 
-/// Domain constants (for domain separation)
+/// Domain constant for TXID hashing
 pub const CELL_TXID_DOMAIN: &[u8] = b"tondi-cell/txid";
+/// Domain constant for WTXID hashing
 pub const CELL_WTXID_DOMAIN: &[u8] = b"tondi-cell/wtxid";
+/// Domain constant for signature hashing
 pub const CELL_SIG_DOMAIN: &[u8] = b"tondi-cell/sig";
 
 /// Compute txid (without witnesses)

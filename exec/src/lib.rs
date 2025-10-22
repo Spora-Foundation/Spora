@@ -14,8 +14,10 @@
 
 #![warn(missing_docs)]
 
+/// Cell transaction types and operations
 pub mod celltx;
-// pub mod scheduler;  // Phase 2
+/// Parallel transaction scheduler
+pub mod scheduler;
 // pub mod vm;         // Phase 3
 // pub mod scripts;    // Phase 3
 

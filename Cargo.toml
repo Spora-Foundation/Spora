@@ -29,7 +29,6 @@ members = [
     "notify",
     "indexes/core",
     "indexes/processor",
-    "indexes/utxoindex",
     "indexes/cellindex",
     "exec",
     "state",
@@ -128,7 +127,6 @@ tondi-txscript = { version = "1.21.0", path = "crypto/txscript" }
 tondi-txscript-errors = { version = "1.21.0", path = "crypto/txscript/errors" }
 tondi-utils = { version = "1.21.0", path = "utils" }
 tondi-utils-tower = { version = "1.21.0", path = "utils/tower" }
-tondi-utxoindex = { version = "1.21.0", path = "indexes/utxoindex" }
 tondi-wallet = { version = "1.21.0", path = "wallet/native" }
 tondi-wallet-cli-wasm = { version = "1.21.0", path = "wallet/wasm" }
 tondi-wallet-keys = { version = "1.21.0", path = "wallet/keys" }

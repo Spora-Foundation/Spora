@@ -3,7 +3,30 @@ name = "tondi-cellindex"
 version = "1.21.0"
 edition = "2021"
 license = "ISC"
+description = "Cell indexing service with RPC API"
 
 [dependencies]
-# Placeholder - will be implemented in phase 4
+# Core dependencies
+tondi-exec = { path = "../../exec", version = "1.21.0" }
+tondi-state = { path = "../../state", version = "1.21.0" }
+
+# Async runtime
+tokio = { version = "1.36", features = ["full"] }
+
+# Concurrency
+parking_lot = "0.12"
+
+# Errors
+thiserror = "1.0"
+anyhow = "1.0"
+
+# Logging
+log = "0.4"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+
+[dev-dependencies]
+tempfile = "3.10"
+
 

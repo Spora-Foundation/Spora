@@ -14,7 +14,7 @@ pub const CELL_TX_VERSION: u16 = 0xC001;
 /// OutPoint: uniquely identifies a Cell (tx_hash || output_index)
 ///
 /// Reference: CKB OutPoint
-#[derive(Clone, Debug, PartialEq, Eq, Hash, BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
 pub struct OutPoint {
     /// Transaction hash (32 bytes)
     pub tx_hash: [u8; 32],

@@ -3,7 +3,28 @@ name = "tondi-mempool"
 version = "1.21.0"
 edition = "2021"
 license = "ISC"
+description = "Cell transaction memory pool"
 
 [dependencies]
-# Placeholder - will be implemented in phase 6
+# Core dependencies
+tondi-exec = { path = "../exec", version = "1.21.0" }
+
+# Collections (deterministic)
+indexmap = "2.2"
+
+# Hashing
+blake3 = "1.5"
+
+# Concurrency
+parking_lot = "0.12"
+
+# Errors
+thiserror = "1.0"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+
+[dev-dependencies]
+tempfile = "3.10"
+
 

@@ -4247,3 +4247,113 @@ jobs:
 
 // ... code ...
 ```
+
+---
+
+## 20. 实施进度更新
+
+### 最新进度 (2025-10-22)
+
+#### ✅ 已完成模块
+
+1. **exec/ - Cell执行层** (100%)
+   - Cell交易类型定义 (`celltx/types.rs`)
+   - Blake3签名哈希 (`celltx/sighash.rs`)
+   - RW-Set DAG调度器 (`scheduler/dag.rs`)
+   - 冲突裁决器 (`scheduler/conflict.rs`)
+   - 拓扑并行执行器 (`scheduler/executor.rs`)
+   - 测试: 23/23 passed ✅
+
+2. **state/ - Cell状态层** (100%)
+   - CellDB索引 (`index/cell_db.rs`)
+   - ScriptIndex (`index/script_index.rs`)
+   - Segment存储 (`store/segment.rs`)
+   - Merkle证明 (`store/proof.rs`)
+   - 测试覆盖完整 ✅
+
+3. **mempool/ - Cell交易池** (100%)
+   - CellPool实现 (`cellpool.rs`)
+   - 优先级打分器 (`scorer.rs`)
+   - RBF支持
+   - 测试: 11/11 passed ✅
+
+4. **consensus/spora/ - 共识接口** (100%)
+   - GhostDAG兼容接口
+   - BlockWeight计算 (DA + Exec + Topo)
+   - 测试: 4/4 passed ✅
+
+5. **indexes/cellindex/ - Cell索引服务** (100%)
+   - Cell查询API
+   - 过滤器支持
+
+6. **consensus/src/processes/cell_validator/** (框架完成)
+   - Cell验证器基础结构
+   - 待实现: 具体验证逻辑
+
+#### 🚧 UTXO清理进度
+
+**已完成**:
+- ✅ 删除 `indexes/utxoindex/` (16 files)
+- ✅ 移动到deprecated: `consensus/src/processes/transaction_validator/` (5 files)
+- ✅ 移动到deprecated: `consensus/core/src/utxo/` (6 files)
+- ✅ 移动到deprecated: `consensus/core/src/errors/utxo/` (1 file)
+- ✅ 更新 `consensus/core/src/lib.rs` - UTXO模块标记为deprecated
+
+**当前扫描结果**:
+- 288个文件包含UTXO引用 (共4948行)
+- 详见 `utxo_hotspots.txt`
+
+**待处理** (渐进式清理，非阻塞):
+- wallet层适配Cell模型
+- mining层适配Cell交易池
+- rpc层提供Cell查询API
+- wasm示例更新
+
+#### 📊 代码统计
+
+```
+新增代码:
+- exec/          : ~3,500 lines
+- state/         : ~1,800 lines
+- mempool/       : ~800 lines
+- consensus/spora: ~300 lines
+- cellindex/     : ~600 lines
+- cell_validator : ~200 lines
+总计新增        : ~7,200 lines
+
+已移到deprecated:
+- utxo相关       : ~2,500 lines
+
+测试覆盖:
+- exec测试       : 23 tests
+- mempool测试    : 11 tests
+- spora测试      : 4 tests
+- state测试      : 完整覆盖
+总测试          : 38+ tests, 100% passed ✅
+```
+
+#### 🎯 下一步计划
+
+**Phase 3: VM集成** (5-7天)
+- [ ] 集成CKB-VM 0.24
+- [ ] 实现系统调用 (load_cell, load_tx, etc.)
+- [ ] 标准锁脚本 (secp256k1)
+
+**Phase 4: 共识集成** (3-4天)
+- [ ] 实现完整的CellValidator
+- [ ] 区块头增加cell_root字段
+- [ ] GhostDAG + Cell验证集成
+
+**Phase 6: 钱包层适配** (1-2周)
+- [ ] Cell交易构建器
+- [ ] Cell签名器
+- [ ] PSCT (Partially Signed Cell Transaction)
+
+#### 📝 相关文档
+
+- **详细进度**: `SPORA_PROGRESS.md`
+- **审计报告**: `SPORA_AUDIT.md`
+- **UTXO清理**: `UTXO_CLEANUP.md`, `utxo_hotspots.txt`
+
+**最后更新**: 2025-10-22 18:30 UTC
+

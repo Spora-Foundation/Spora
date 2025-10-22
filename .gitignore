@@ -1,6 +1,25 @@
-*.log\n*.tmp\n/target\n/coverage
-target/
+# Compiled files
+/target/
+**/*.rs.bk
+*.pdb
+
+# IDEs
 .idea/
-check
-check.ps1
-logs/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Cargo
+Cargo.lock
+
+# Documentation
+/target/doc/
+
+# Temporary files
+*.tmp
+*.bak
+
+# UTXO hotspots tracking (generated file)
+utxo_hotspots.txt

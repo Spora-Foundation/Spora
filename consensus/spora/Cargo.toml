@@ -3,7 +3,13 @@ name = "tondi-spora"
 version = "1.21.0"
 edition = "2021"
 license = "ISC"
+description = "Spora consensus interface for Tondi DAG"
 
 [dependencies]
-# Placeholder - will be implemented in phase 5
+# Errors
+thiserror = "1.0"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+
 
