@@ -275,6 +275,7 @@ impl CellPool {
         
         // Compute score for new transaction
         let new_score = self.scorer.compute_score(tx, fee, cycles, blue_score);
+        let new_fee_density = new_score.fee_density; // Store for error message
         
         // Create conflict key for new transaction
         let new_entry_temp = PoolEntry {
@@ -301,7 +302,7 @@ impl CellPool {
             if !new_key.is_better_than(&conflict_key) {
                 return Err(MempoolError::RBFFailed(format!(
                     "New transaction (fee_density={:.2}, blue={:?}) does not beat conflict (fee_density={:.2}, blue={:?})",
-                    new_score.fee_density,
+                    new_fee_density,
                     blue_score,
                     conflict.score.fee_density,
                     conflict.blue_score,
