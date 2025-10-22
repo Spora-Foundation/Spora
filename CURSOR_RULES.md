@@ -1,17 +1,33 @@
 # CURSOR_RULES.md — Spora Fork Rules (CKB-inspired)
 
+> **⚠️ 重要警告：这是一次不可逆的架构重写**
+> 
+> 本分支 `spora` 将**完全放弃 UTXO 模型**，不保留任何兼容层或过渡代码。
+> - **不向后兼容**：现有 UTXO 交易将无法在新系统中验证
+> - **不可逆删除**：UTXO 相关代码将被直接删除（保留 git 历史）
+> - **彻底重写**：这不是渐进式迁移，而是从 Cell 模型重新开始
+> 
+> 如需保留 UTXO 功能，请在 `ingot` 或其他分支上工作。
+
+---
+
 ## 0. 目标/边界
 
-* **目标**：在新分支 `spora` 中，**移除 UTXO 模型**，引入 **Cell 模型（lock/type/data + RW-Set）**，保持 **DAG 共识骨架**，先用 **GhostDAG**，为后续 **Spora 共识**预留挂载点。
+* **目标**：在新分支 `spora` 中，**完全放弃 UTXO 模型**，全面引入 **Cell 模型（lock/type/data + RW-Set）**，保持 **DAG 共识骨架**，先用 **GhostDAG**，为后续 **Spora 共识**预留挂载点。
 * **参照**：CKB 的 **Cell 语义/脚本接口/CKB-VM 交互模式**，而**不复制**其线性链/NC-Max 共识。
   * **CKB 源码位置**：`/home/arthur/RustRoverProjects/ckb/` （可直接参考）
   * 重点参考：`ckb/script/`, `ckb/traits/`, `ckb/tx-pool/`, `ckb/store/`
-* **一次性 fork**：不考虑与原 UTXO 的共存；保留少量过渡脚手架仅用于构建通过和回归测试替身。
+* **⚠️ 重要决策：完全放弃 UTXO**
+  * **不保留任何 UTXO 代码**（包括兼容层、过渡脚手架）
+  * **不考虑向后兼容**
+  * **这是一次彻底的架构重写**，不是渐进式迁移
+  * 所有 UTXO 相关模块将被**直接删除**，而非标记 deprecated
 
 **当前代码基础（Tondi v1.21.0）**：
 - 语言：**Rust** (edition 2021, rustc 1.82.0)
-- 共识：GhostDAG + UTXO
-- 现有模块：`consensus/`, `indexes/utxoindex/`, `crypto/txscript/`, `database/`, `mining/`, `mempool/`（未独立）
+- 共识：GhostDAG + UTXO（**将被完全替换为 GhostDAG + Cell**）
+- 待删除模块：`indexes/utxoindex/`, `consensus/*/tx_validation_in_utxo_context.rs`, UTXO 相关验证逻辑
+- 保留模块：`consensus/core/`（DAG 部分）, `database/`, `protocol/p2p/`（底层）
 
 ---
 
@@ -22,7 +38,7 @@
 ```
 Tondi/
 ├── consensus/
-│   ├── core/           # 现有：保留 DAG/GhostDAG 核心
+│   ├── core/           # 现有：保留 DAG/GhostDAG 核心，删除所有 UTXO 类型
 │   ├── spora/          # 新增 crate：Spora 共识接口与权重打分
 │   │   ├── Cargo.toml
 │   │   └── src/
@@ -30,12 +46,12 @@ Tondi/
 │   │       ├── weight.rs      # DA/执行证明/拓扑权重
 │   │       └── interface.rs   # 共识切换接口
 │   └── processes/
-│       ├── cell_validator/    # 新增：替代 transaction_validator
-│       │   ├── mod.rs
-│       │   ├── cell_validation_in_isolation.rs
-│       │   ├── cell_validation_in_context.rs
-│       │   └── errors.rs
-│       └── transaction_validator/  # 保留但标记 deprecated
+│       └── cell_validator/    # 新增：完全替代 transaction_validator
+│           ├── mod.rs
+│           ├── cell_validation_in_isolation.rs
+│           ├── cell_validation_in_context.rs
+│           ├── cell_validation_in_dag.rs
+│           └── errors.rs
 │
 ├── exec/               # 新增顶层 crate：Cell 执行层
 │   ├── Cargo.toml
@@ -70,8 +86,9 @@ Tondi/
 │           └── writer.rs      # 顺序写入器
 │
 ├── indexes/
-│   ├── utxoindex/      # 现有：标记 deprecated
-│   └── cellindex/      # 新增：Cell 索引服务
+│   ├── core/           # 现有：保留索引核心抽象
+│   ├── processor/      # 现有：保留处理器
+│   └── cellindex/      # 新增：Cell 索引服务（替代 utxoindex）
 │       ├── Cargo.toml
 │       └── src/
 │           ├── lib.rs
@@ -111,14 +128,17 @@ Tondi/
 
 ## 2. 废弃/替换清单（Agent 首轮 PR 必做）
 
-**待封存/标记 deprecated 的模块**：
+**⚠️ 完全删除（不保留任何代码）**：
 
-* `indexes/utxoindex/` → 整个 crate 标记 `#[deprecated]`
-* `consensus/src/processes/transaction_validator/tx_validation_in_utxo_context.rs` → 封存
-* `consensus/core/src/utxo/` (如果存在) → 封存
-* `crypto/txscript/` 中的 UTXO 特定逻辑 → 保留通用脚本引擎，移除 UTXO 假设
+* `indexes/utxoindex/` → **整个 crate 直接删除**
+* `consensus/src/processes/transaction_validator/tx_validation_in_utxo_context.rs` → **删除**
+* `consensus/src/processes/transaction_validator/tx_validation_in_isolation.rs` → **删除或彻底重写**
+* `consensus/src/processes/transaction_validator/tx_validation_in_header_context.rs` → **删除或彻底重写**
+* `consensus/core/src/utxo/` (如果存在) → **删除**
+* `consensus/core/src/tx.rs` 中的 `VerifiableTransaction` → **删除**，替换为 `VerifiableCellTx`
+* `crypto/txscript/` 中的 UTXO 特定逻辑 → **移除所有 UTXO 假设**
 
-**扫描并标记待移除的关键词**（第一阶段不删除，只注释标记）：
+**扫描待删除的代码（直接删除，不注释）**：
 
 ```bash
 # 在 consensus/ 和 mining/ 中扫描
@@ -126,13 +146,23 @@ rg -n "utxo|UTXO|UtxoEntry|script_pub_key|ScriptPublicKey" \
   consensus/src/ consensus/core/src/ mining/src/
 ```
 
-**需要扫描的具体文件**（已知含 UTXO 逻辑）：
+**待删除的具体文件和目录（扫描确认后全部删除）**：
 
-1. `consensus/src/processes/transaction_validator/tx_validation_in_utxo_context.rs` (361行)
-2. `consensus/src/processes/transaction_validator/tx_validation_in_isolation.rs`
-3. `consensus/core/src/tx.rs` - `VerifiableTransaction` trait
-4. `indexes/utxoindex/` 整个目录
-5. `wallet/` 相关 UTXO 假设（延后处理）
+1. **✗ 删除**：`indexes/utxoindex/` - 整个目录（包括 Cargo.toml）
+2. **✗ 删除**：`consensus/src/processes/transaction_validator/tx_validation_in_utxo_context.rs` (361行)
+3. **✗ 删除**：`consensus/src/processes/transaction_validator/tx_validation_in_isolation.rs`
+4. **✗ 删除**：`consensus/src/processes/transaction_validator/tx_validation_in_header_context.rs`
+5. **✗ 删除**：`consensus/core/src/tx.rs` 中的所有 UTXO 相关 trait 和类型
+6. **✗ 删除**：`consensus/core/src/utxo/` (如果存在)
+7. **⚠️ 延后处理**：`wallet/` 相关 UTXO 假设（等 Cell 交易类型稳定后重写钱包）
+
+**从 Cargo.toml 移除的 crate**：
+
+```toml
+# workspace members 中删除：
+"indexes/utxoindex",
+"tondi-utxoindex",
+```
 
 **替换为（新建模块）**：
 
@@ -284,42 +314,92 @@ pub struct CellTx {
 
 ## 12. 提交/PR 规范（Cursor 重要）
 
-* **commit 前缀**：`cell(exec|state|vm|scheduler|proto|p2p|test): ...`
-* **禁止**提交：对 `utxo*` 的"临时兼容层"以外的改动
-* **PR 必带**：
+* **commit 前缀**：`cell(exec|state|vm|scheduler|proto|p2p|test|cleanup): ...`
+  * `cell(cleanup)`: 删除 UTXO 相关代码
+  * `cell(exec)`: 执行层实现
+  * `cell(state)`: 状态层实现
+  * `cell(vm)`: VM 集成
+  * `cell(test)`: 测试向量
+  
+* **⚠️ 重要规则**：
+  * **禁止**保留任何 UTXO 代码（包括注释掉的代码）
+  * **禁止**创建 UTXO 兼容层或过渡方案
+  * 删除代码时**必须**同步更新 Cargo.toml 和文档
+  * 每个 PR **必须**能通过编译（即使功能未完成）
 
+* **PR 必带**：
   * 结构图/时序图（/docs/ 内）
   * bench：并行层宽、P50/P99 验证时延、吞吐
   * testvectors 通过截图/日志
-* **CI Gate**：`go test ./...` 或 `cargo test` + `testvectors all green`
+  * 删除清单（如果涉及删除）
+  
+* **CI Gate**：`cargo test --workspace` + `testvectors all green` + `cargo clippy -- -D warnings`
 
 ---
 
 ## 13. 逐步执行脚本（Cursor Task List）
 
-### 阶段 0：准备与扫描（1-2 天）
+### 阶段 0：准备与清理（1-2 天）
 
-**任务 0.1：UTXO 依赖扫描**
+**任务 0.1：UTXO 依赖全面扫描**
 ```bash
 cd /home/arthur/RustRoverProjects/Tondi
 # 扫描所有 UTXO 相关代码
 rg -n "utxo|UTXO|UtxoEntry|script_pub_key|ScriptPublicKey" \
-  --type rust consensus/ mining/ indexes/ > utxo_scan.txt
+  --type rust consensus/ mining/ indexes/ > utxo_scan_full.txt
 
-# 统计文件分布
+# 统计文件分布（决定删除顺序）
 rg --type rust -c "UTXO|utxo" consensus/ | sort -t: -k2 -rn | head -20
+
+# 找出所有依赖 utxoindex 的地方
+rg "tondi-utxoindex|use.*utxo" --type rust -l
 ```
 
-**任务 0.2：创建工作分支结构**
+**任务 0.2：删除 UTXO 模块（不可逆操作，谨慎执行）**
 ```bash
-# 创建占位目录
+# ⚠️ 确认你在 spora 分支！
+git branch --show-current  # 应该输出 spora
+
+# 1. 删除 utxoindex 整个目录
+rm -rf indexes/utxoindex
+
+# 2. 删除 UTXO 验证器
+rm -f consensus/src/processes/transaction_validator/tx_validation_in_utxo_context.rs
+
+# 3. 从 workspace 移除
+# 编辑 Cargo.toml，删除以下行：
+#   "indexes/utxoindex",
+# 以及 [workspace.dependencies] 中的：
+#   tondi-utxoindex = { ... }
+
+# 4. 提交删除（保留 git 历史）
+git add -A
+git commit -m "cell(cleanup): Remove UTXO model completely
+
+- Delete indexes/utxoindex crate
+- Remove UTXO validation logic
+- Remove from workspace dependencies
+
+BREAKING CHANGE: UTXO model is no longer supported"
+```
+
+**任务 0.3：创建 Cell 工作目录骨架**
+```bash
+# 创建新模块目录
 mkdir -p exec/src/{celltx,scheduler,vm,scripts}
 mkdir -p state/src/{index,store}
 mkdir -p mempool/src
+mkdir -p consensus/spora/src
+mkdir -p indexes/cellindex/src
 mkdir -p testvectors/{s1_serialization,s2_concurrency,s3_reorg,s4_vm,s5_da,s6_errors}
+
+# 创建占位 README
+echo "# Cell Execution Layer" > exec/README.md
+echo "# Cell State Management" > state/README.md
+echo "# Cell Memory Pool" > mempool/README.md
 ```
 
-**任务 0.3：研究 CKB 参考实现**
+**任务 0.4：研究 CKB 参考实现**
 ```bash
 # 查看 CKB Cell 定义
 cat /home/arthur/RustRoverProjects/ckb/util/types/src/core/cell.rs
@@ -677,33 +757,71 @@ git push origin spora
 
 ## 17. 立即行动指南
 
-### 第一步：了解现状（今天）
+### 第一步：清理 UTXO（今天，必须完成）
 
-**A. 扫描 UTXO 依赖**
+**A. 扫描 UTXO 依赖（全面盘点）**
 ```bash
 cd /home/arthur/RustRoverProjects/Tondi
+# 扫描所有 UTXO 引用
 rg -n "utxo|UTXO" --type rust -c consensus/ indexes/ mining/ | sort -t: -k2 -rn > utxo_hotspots.txt
 cat utxo_hotspots.txt
+
+# 找出依赖 utxoindex 的模块
+rg "tondi-utxoindex" --type toml
+rg "use.*utxo" --type rust -l > utxo_imports.txt
 ```
 
-**B. 研究 CKB Cell 结构**
+**B. 删除 UTXO 模块（⚠️ 不可逆操作）**
+```bash
+cd /home/arthur/RustRoverProjects/Tondi
+
+# 确认在正确分支
+git branch --show-current  # 必须是 spora
+
+# 备份当前状态（可选）
+git tag before-utxo-removal
+
+# 删除 utxoindex
+rm -rf indexes/utxoindex
+
+# 删除 UTXO 验证器
+rm -f consensus/src/processes/transaction_validator/tx_validation_in_utxo_context.rs
+
+# 编辑 Cargo.toml 移除引用（手动或用 sed）
+# 删除 members 中的 "indexes/utxoindex"
+# 删除 workspace.dependencies 中的 tondi-utxoindex
+
+# 提交删除
+git add -A
+git commit -m "cell(cleanup): Remove UTXO model completely
+
+BREAKING CHANGE: UTXO model is no longer supported"
+```
+
+**C. 研究 CKB Cell 结构**
 ```bash
 # Cell 定义
-bat /home/arthur/RustRoverProjects/ckb/util/types/src/core/cell.rs
+bat /home/arthur/RustRoverProjects/ckb/util/types/src/core/cell.rs | head -100
 # 交易验证
-bat /home/arthur/RustRoverProjects/ckb/script/src/verify.rs
+bat /home/arthur/RustRoverProjects/ckb/script/src/verify.rs | head -150
 # 交易池
 ls -la /home/arthur/RustRoverProjects/ckb/tx-pool/src/
 ```
 
-**C. 创建工作目录骨架**
+**D. 创建 Cell 工作目录骨架**
 ```bash
 cd /home/arthur/RustRoverProjects/Tondi
 mkdir -p exec/src/{celltx,scheduler,vm,scripts}
 mkdir -p state/src/{index,store}
 mkdir -p mempool/src
 mkdir -p consensus/spora/src
+mkdir -p indexes/cellindex/src
 mkdir -p testvectors/{s1_serialization,s2_concurrency,s3_reorg,s4_vm,s5_da,s6_errors}
+
+# 创建占位 README
+echo "# Cell Execution Layer - CKB-inspired Cell model implementation" > exec/README.md
+echo "# Cell State Management - DA storage with NMT/KZG proofs" > state/README.md
+echo "# Cell Memory Pool - Parallel scheduler with RW-Set DAG" > mempool/README.md
 ```
 
 ### 第二步：实施阶段 1（2-3 天）
@@ -762,26 +880,53 @@ mkdir -p testvectors/{s1_serialization,s2_concurrency,s3_reorg,s4_vm,s5_da,s6_er
 | DA 存储性能差 | +4 天 | 中 | 先用简单追加，NMT 可选 |
 | 测试覆盖不足 | +7 天 | 高 | 每阶段强制 TDD，不欠技术债 |
 
-### 下一步行动（建议优先级）
+### 下一步行动（按优先级执行）
 
-**立即执行（今天）**：
+**🔴 优先级 P0：立即执行（今天，2-3 小时）**
 ```bash
-# 1. 运行 UTXO 扫描
 cd /home/arthur/RustRoverProjects/Tondi
-rg -n "utxo|UTXO" --type rust consensus/ indexes/ > utxo_scan.txt
 
-# 2. 查看 CKB Cell 定义
+# 1. 确认分支
+git branch --show-current  # 必须是 spora
+
+# 2. 全面扫描 UTXO 依赖
+rg -n "utxo|UTXO" --type rust -c consensus/ indexes/ mining/ | sort -t: -k2 -rn > utxo_hotspots.txt
+rg "tondi-utxoindex" --type toml > utxo_cargo_deps.txt
+
+# 3. 备份并删除
+git tag before-utxo-removal
+rm -rf indexes/utxoindex
+rm -f consensus/src/processes/transaction_validator/tx_validation_in_utxo_context.rs
+
+# 4. 查看需要手动修改的文件
+cat utxo_cargo_deps.txt  # 需要手动编辑这些 Cargo.toml
+
+# 5. 研究 CKB Cell 结构（学习参考）
 bat /home/arthur/RustRoverProjects/ckb/util/types/src/core/cell.rs | head -100
-
-# 3. 创建 exec crate
-mkdir exec && cd exec
-cargo init --lib
 ```
 
-**明天开始**：
-- 实现 `exec/src/celltx/types.rs`
+**🟡 优先级 P1：今天完成（2-3 小时）**
+```bash
+# 1. 手动编辑 Cargo.toml
+#    删除 "indexes/utxoindex" 和 tondi-utxoindex 依赖
+
+# 2. 创建 Cell 工作目录
+mkdir -p exec/src/{celltx,scheduler,vm,scripts}
+mkdir -p state/src/{index,store}
+mkdir -p mempool/src
+
+# 3. 提交删除
+git add -A
+git commit -m "cell(cleanup): Remove UTXO model completely
+
+BREAKING CHANGE: UTXO model is no longer supported"
+```
+
+**🟢 优先级 P2：明天开始（阶段 1）**
+- 创建 `exec/Cargo.toml` 并添加依赖
+- 实现 `exec/src/celltx/types.rs`（参考 CKB）
 - 编写第一个单元测试
-- 参考 CKB 和 CURSOR_RULES.md § 4 的类型定义
+- 实现 `exec/src/celltx/sighash.rs`（blake3）
 
 ---
 
