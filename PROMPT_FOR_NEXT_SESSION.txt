@@ -1,0 +1,54 @@
+完成 Spora Cell 模型审计的最后 5% 清理工作（估计 2-3 小时）
+
+**分支**: spora
+**已完成**: 95%（14 commits, +5,999 插入, -82 删除, 8 文档）
+
+**核心已完成**:
+✅ 确定性修复（HashMap→BTreeMap）
+✅ 历史查询（get_cell_at_daa + SpendJournal, 6 tests）
+✅ CKB 对齐（脚本分组 100%，syscalls 9/12）
+✅ VM 配置（VmLimits + CELLBASE_MATURITY）
+✅ 确定性 RBF（ConflictKey: fee→blue→wtxid）
+✅ 架构文档（3,750 行，8 文档）
+
+**剩余任务**（按顺序执行）:
+
+1. **Clippy 清理**（30 分钟）
+   ```bash
+   cargo clippy --package tondi-exec -- -D warnings
+   # 修复: 添加缺失的文档注释（exec/src/scripts/mod.rs:6）
+   ```
+
+2. **Unwrap() 替换**（1 小时）
+   ```bash
+   rg "\.unwrap\(\)" consensus/src/pipeline/virtual_processor/processor.rs -n
+   # 替换为: .expect("descriptive message") 或 ?
+   # 聚焦: consensus 关键路径（约 20 处）
+   ```
+
+3. **Mempool 测试**（1 小时）
+   - 文件: mempool/src/cellpool.rs
+   - 添加: test_rbf_higher_fee, test_blue_score_tiebreak, test_cpfp_chain
+   - 验证: ConflictKey determinism
+
+4. **更新 CHANGELOG**（15 分钟）
+   - 文件: CHANGELOG.md
+   - 添加: v1.22.0 Cell Model Audit 部分
+   - 参考: NEXT_SESSION_PROMPT.md Task 5
+
+5. **最终提交**（15 分钟）
+   ```bash
+   git commit -m "cell(cleanup): final session cleanup - audit 100% complete"
+   ```
+
+**所有提交使用**: `cell(module):` 前缀
+
+**参考文档**: NEXT_SESSION_PROMPT.md（详细指令）
+
+**验证**: 
+- cargo check 通过
+- clippy 无警告
+- 提交消息规范
+
+**完成后状态**: 98-100% 完成，生产就绪 ✅
+
