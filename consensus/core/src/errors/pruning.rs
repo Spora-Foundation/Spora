@@ -1,8 +1,8 @@
 use crate::BlockLevel;
 
 use super::{block::RuleError, tx::TxRuleError};
-use thiserror::Error;
 use spora_hashes::Hash;
+use thiserror::Error;
 
 #[derive(Error, Debug, Clone)]
 pub enum PruningImportError {

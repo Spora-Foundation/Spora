@@ -81,9 +81,7 @@ impl AddressManager {
     }
 
     pub fn inner(&self) -> MutexGuard<'_, Inner> {
-        self.inner.lock().unwrap_or_else(|e| {
-            panic!("Failed to acquire address manager lock: {}", e)
-        })
+        self.inner.lock().unwrap_or_else(|e| panic!("Failed to acquire address manager lock: {}", e))
     }
 
     pub fn new_address(&self) -> Result<Address> {
@@ -396,10 +394,7 @@ impl AddressDerivationManager {
     }
 
     pub fn address_derivation_meta(&self) -> AddressDerivationMeta {
-        AddressDerivationMeta::new(
-            self.receive_address_manager.index(), 
-            self.change_address_manager.index()
-        )
+        AddressDerivationMeta::new(self.receive_address_manager.index(), self.change_address_manager.index())
     }
 }
 

@@ -1,12 +1,14 @@
 use futures_util::future::BoxFuture;
 use std::sync::Arc;
-use spora_muhash::MuHash;
+// MuHash removed - replaced by CellStateTree
+// use spora_muhash::MuHash;
 
 use crate::{
     acceptance_data::AcceptanceData,
     api::args::{TransactionValidationArgs, TransactionValidationBatchArgs},
     block::{Block, BlockTemplate, TemplateBuildMode, TemplateTransactionSelector, VirtualStateApproxId},
     blockstatus::BlockStatus,
+    cell_diff::CellMeta,
     coinbase::MinerData,
     daa_score_timestamp::DaaScoreTimestamp,
     errors::{
@@ -22,9 +24,12 @@ use crate::{
     trusted::{ExternalGhostdagData, TrustedBlock},
     tx::{MutableTransaction, SignableTransaction, Transaction, TransactionOutpoint, UtxoEntry},
     // utxo::utxo_inquirer::UtxoInquirerError, // UTXO deprecated - use Cell validation
-    BlockHashSet, BlueWorkType, ChainPath,
+    BlockHashSet,
+    BlueWorkType,
+    ChainPath,
 };
 use spora_hashes::Hash;
+use spora_state::CellStateTree;
 
 pub use self::stats::{BlockCount, ConsensusStats};
 
@@ -229,12 +234,21 @@ pub trait ConsensusApi: Send + Sync {
         unimplemented!()
     }
 
-    fn append_imported_pruning_point_utxos(&self, utxoset_chunk: &[(TransactionOutpoint, UtxoEntry)], current_multiset: &mut MuHash) {
-        // TODO(cell-model): Replace with append_imported_pruning_point_cells
+    /// Append imported cells to the pruning point cell state tree
+    ///
+    /// Cell model: Replaces append_imported_pruning_point_utxos
+    fn append_imported_pruning_point_cells(
+        &self,
+        cellset_chunk: &[(TransactionOutpoint, CellMeta)],
+        current_tree: &mut CellStateTree,
+    ) {
         unimplemented!()
     }
 
-    fn import_pruning_point_utxo_set(&self, new_pruning_point: Hash, imported_utxo_multiset: MuHash) -> PruningImportResult<()> {
+    /// Import the pruning point cell set
+    ///
+    /// Cell model: Replaces import_pruning_point_utxo_set
+    fn import_pruning_point_cell_set(&self, new_pruning_point: Hash, imported_cell_tree: CellStateTree) -> PruningImportResult<()> {
         unimplemented!()
     }
 

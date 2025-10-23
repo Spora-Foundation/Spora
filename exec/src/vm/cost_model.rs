@@ -57,4 +57,3 @@ mod tests {
         assert_eq!(syscall_cycles(100), 550);
     }
 }
-

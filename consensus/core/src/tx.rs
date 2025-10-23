@@ -6,9 +6,9 @@
 
 #![allow(non_snake_case)]
 
+pub mod copperoot;
 mod script_public_key;
 pub mod taproot;
-pub mod copperoot;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 pub use script_public_key::{
@@ -17,7 +17,10 @@ pub use script_public_key::{
 use serde::{Deserialize, Serialize};
 
 // Re-export CellTx from spora-exec (Cell model)
-pub use spora_exec::celltx::{CellTx, CellRef, CellOut, OutPoint, ScriptRef, CellDep, DepType};
+pub use spora_exec::celltx::{CellDep, CellOut, CellRef, CellTx, DepType, OutPoint, ScriptRef};
+use spora_utils::hex::ToHex;
+use spora_utils::mem_size::MemSizeEstimator;
+use spora_utils::{serde_bytes, serde_bytes_fixed_ref};
 use std::collections::HashSet;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering::SeqCst;
@@ -26,9 +29,6 @@ use std::{
     ops::Range,
     str::{self},
 };
-use spora_utils::hex::ToHex;
-use spora_utils::mem_size::MemSizeEstimator;
-use spora_utils::{serde_bytes, serde_bytes_fixed_ref};
 use wasm_bindgen::prelude::*;
 
 use crate::mass::{ContextualMasses, NonContextualMasses};
@@ -71,7 +71,9 @@ impl MemSizeEstimator for UtxoEntry {}
 pub type TransactionIndexType = u32;
 
 /// Represents a Spora transaction outpoint
-#[derive(Eq, Default, Hash, PartialEq, PartialOrd, Ord, Debug, Copy, Clone, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+#[derive(
+    Eq, Default, Hash, PartialEq, PartialOrd, Ord, Debug, Copy, Clone, Serialize, Deserialize, BorshSerialize, BorshDeserialize,
+)]
 #[serde(rename_all = "camelCase")]
 pub struct TransactionOutpoint {
     #[serde(with = "serde_bytes_fixed_ref")]

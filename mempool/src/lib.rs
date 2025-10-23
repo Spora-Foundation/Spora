@@ -19,7 +19,7 @@ pub mod cellpool;
 pub mod scorer;
 
 pub use cellpool::{CellPool, PoolEntry, PoolStats};
-pub use scorer::{TransactionScorer, TransactionScore};
+pub use scorer::{TransactionScore, TransactionScorer};
 
 /// Mempool errors
 #[derive(Debug, thiserror::Error)]
@@ -27,23 +27,23 @@ pub enum MempoolError {
     /// Transaction already exists
     #[error("Transaction already exists: {0:?}")]
     TxExists([u8; 32]),
-    
+
     /// Transaction not found
     #[error("Transaction not found: {0:?}")]
     TxNotFound([u8; 32]),
-    
+
     /// Invalid transaction
     #[error("Invalid transaction: {0}")]
     InvalidTx(String),
-    
+
     /// Mempool full
     #[error("Mempool full (max: {0})")]
     MempoolFull(usize),
-    
+
     /// Dependency not found
     #[error("Dependency not found: {0:?}")]
     DependencyNotFound([u8; 32]),
-    
+
     /// RBF failed
     #[error("RBF failed: {0}")]
     RBFFailed(String),

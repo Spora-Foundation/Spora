@@ -12,5 +12,5 @@ pub mod result;
 pub mod utils;
 mod wizards;
 
-pub use cli::{spora_cli, Options, TerminalOptions, TerminalTarget, SporaCli};
+pub use cli::{spora_cli, Options, SporaCli, TerminalOptions, TerminalTarget};
 pub use workflow_terminal::Terminal;

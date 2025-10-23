@@ -9,10 +9,6 @@ pub use cfg_if::cfg_if;
 pub use futures::*;
 pub use js_sys::Function;
 pub use serde::{Deserialize, Serialize};
-pub use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc, Mutex,
-};
 pub use spora_consensus_core::network::{NetworkId, NetworkIdT};
 pub use spora_notify::{
     error::{Error as NotifyError, Result as NotifyResult},
@@ -28,6 +24,10 @@ pub use spora_rpc_core::{
     error::RpcResult,
     notify::{connection::ChannelConnection, mode::NotificationMode},
     prelude::*,
+};
+pub use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex,
 };
 pub use wasm_bindgen::prelude::*;
 pub use workflow_core::{

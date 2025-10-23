@@ -7,19 +7,14 @@ use crate::{
     model::{
         services::reachability::MTReachabilityService,
         stores::{
-            block_transactions::BlockTransactionsStoreReader,
-            cell_diffs::CellDiffsStoreReader,
-            cell_roots::CellRootsStoreReader,
-            ghostdag::GhostdagStoreReader,
-            headers::HeaderStoreReader,
-            reachability::ReachabilityStoreReader,
+            block_transactions::BlockTransactionsStoreReader, cell_diffs::CellDiffsStoreReader, cell_roots::CellRootsStoreReader,
+            ghostdag::GhostdagStoreReader, headers::HeaderStoreReader, reachability::ReachabilityStoreReader,
             statuses::StatusesStoreReader,
         },
     },
     processes::{CellStateProvider, DagCellProvider},
 };
 use parking_lot::RwLock;
-use std::sync::Arc;
 use spora_consensus_core::{
     cell_diff::{CellDiff, CellMeta},
     cell_metadata::CellMetadata,
@@ -27,9 +22,10 @@ use spora_consensus_core::{
 };
 use spora_exec::OutPoint;
 use spora_hashes::Hash;
+use std::sync::Arc;
 
 /// Consensus Cell Provider
-/// 
+///
 /// Provides Cell state queries with GHOSTDAG awareness:
 /// - Current Cell availability
 /// - Historical Cell state at specific DAA scores
@@ -53,14 +49,14 @@ pub struct ConsensusCellProvider<
 }
 
 impl<
-    T: GhostdagStoreReader,
-    U: ReachabilityStoreReader,
-    V: HeaderStoreReader,
-    W: CellDiffsStoreReader,
-    X: CellRootsStoreReader,
-    Y: BlockTransactionsStoreReader,
-    Z: StatusesStoreReader,
-> ConsensusCellProvider<T, U, V, W, X, Y, Z>
+        T: GhostdagStoreReader,
+        U: ReachabilityStoreReader,
+        V: HeaderStoreReader,
+        W: CellDiffsStoreReader,
+        X: CellRootsStoreReader,
+        Y: BlockTransactionsStoreReader,
+        Z: StatusesStoreReader,
+    > ConsensusCellProvider<T, U, V, W, X, Y, Z>
 {
     /// Create a new consensus cell provider
     #[allow(clippy::too_many_arguments)]
@@ -85,48 +81,41 @@ impl<
     }
 
     /// Find the block that created this Cell
-    /// 
+    ///
     /// Searches through the DAG to find the transaction output.
     /// Returns (block_hash, tx_index, output_index)
-    fn find_cell_creator(
-        &self,
-        outpoint: &TransactionOutpoint,
-    ) -> Result<Option<(Hash, usize, usize)>, String> {
+    fn find_cell_creator(&self, outpoint: &TransactionOutpoint) -> Result<Option<(Hash, usize, usize)>, String> {
         // TODO: Implement efficient cell creator lookup
         // For now, return None (would need transaction index)
         Ok(None)
     }
 
     /// Check if a Cell exists in the DAG's past
-    /// 
+    ///
     /// GHOSTDAG-aware: verifies the creating block is in the past
     #[allow(dead_code)]
-    fn is_cell_in_dag_past(
-        &self,
-        cell_block: Hash,
-        current_tip: Hash,
-    ) -> Result<bool, String> {
+    fn is_cell_in_dag_past(&self, cell_block: Hash, current_tip: Hash) -> Result<bool, String> {
         // Check reachability: is cell_block in the past of current_tip?
         // Use the reachability service's chain iterator to verify
         let mut iter = self.reachability_service.backward_chain_iterator(current_tip, cell_block, true);
-        
+
         // If we can iterate from current_tip back to cell_block, it's in the past
         Ok(iter.any(|h| h == cell_block))
     }
 }
 
 impl<
-    T: GhostdagStoreReader,
-    U: ReachabilityStoreReader,
-    V: HeaderStoreReader,
-    W: CellDiffsStoreReader,
-    X: CellRootsStoreReader,
-    Y: BlockTransactionsStoreReader,
-    Z: StatusesStoreReader,
-> CellStateProvider for ConsensusCellProvider<T, U, V, W, X, Y, Z>
+        T: GhostdagStoreReader,
+        U: ReachabilityStoreReader,
+        V: HeaderStoreReader,
+        W: CellDiffsStoreReader,
+        X: CellRootsStoreReader,
+        Y: BlockTransactionsStoreReader,
+        Z: StatusesStoreReader,
+    > CellStateProvider for ConsensusCellProvider<T, U, V, W, X, Y, Z>
 {
     /// Check if a Cell is available (exists and unspent) at given DAA score
-    /// 
+    ///
     /// GHOSTDAG-aware implementation:
     /// 1. Find the block that created this Cell
     /// 2. Check if that block is in the past of the virtual tip at this DAA
@@ -140,7 +129,7 @@ impl<
 
         // Find the block that created this Cell
         let creator_info = self.find_cell_creator(&outpoint)?;
-        
+
         if creator_info.is_none() {
             // Cell not found in DAG
             return Ok(false);
@@ -149,9 +138,8 @@ impl<
         let (creator_block, _tx_idx, _out_idx) = creator_info.unwrap();
 
         // Get the creator block's DAA score
-        let creator_header = self.headers_store.get_header(creator_block)
-            .map_err(|e| format!("Header lookup error: {}", e))?;
-        
+        let creator_header = self.headers_store.get_header(creator_block).map_err(|e| format!("Header lookup error: {}", e))?;
+
         // Cell must have been created before or at the query DAA
         if creator_header.daa_score > daa {
             return Ok(false);
@@ -165,7 +153,7 @@ impl<
     }
 
     /// Get Cell capacity
-    /// 
+    ///
     /// Looks up the Cell in the transaction outputs
     fn get_cell_capacity(&self, out_point: &OutPoint) -> Result<Option<u64>, String> {
         // Convert to TransactionOutpoint
@@ -183,8 +171,7 @@ impl<
         let (creator_block, tx_idx, out_idx) = creator_info.unwrap();
 
         // Get the transaction
-        let transactions = self.block_transactions_store.get(creator_block)
-            .map_err(|e| format!("Transaction lookup error: {}", e))?;
+        let transactions = self.block_transactions_store.get(creator_block).map_err(|e| format!("Transaction lookup error: {}", e))?;
 
         if tx_idx >= transactions.len() {
             return Ok(None);
@@ -200,17 +187,17 @@ impl<
 }
 
 impl<
-    T: GhostdagStoreReader,
-    U: ReachabilityStoreReader,
-    V: HeaderStoreReader,
-    W: CellDiffsStoreReader,
-    X: CellRootsStoreReader,
-    Y: BlockTransactionsStoreReader,
-    Z: StatusesStoreReader,
-> DagCellProvider for ConsensusCellProvider<T, U, V, W, X, Y, Z>
+        T: GhostdagStoreReader,
+        U: ReachabilityStoreReader,
+        V: HeaderStoreReader,
+        W: CellDiffsStoreReader,
+        X: CellRootsStoreReader,
+        Y: BlockTransactionsStoreReader,
+        Z: StatusesStoreReader,
+    > DagCellProvider for ConsensusCellProvider<T, U, V, W, X, Y, Z>
 {
     /// Get complete Cell metadata
-    /// 
+    ///
     /// Includes DAG-specific information (is_cellbase, block_hash)
     fn get_cell_metadata(&self, out_point: &OutPoint) -> Result<Option<CellMetadata>, String> {
         // Convert to TransactionOutpoint
@@ -228,8 +215,7 @@ impl<
         let (creator_block, tx_idx, out_idx) = creator_info.unwrap();
 
         // Get the transaction
-        let transactions = self.block_transactions_store.get(creator_block)
-            .map_err(|e| format!("Transaction lookup error: {}", e))?;
+        let transactions = self.block_transactions_store.get(creator_block).map_err(|e| format!("Transaction lookup error: {}", e))?;
 
         if tx_idx >= transactions.len() {
             return Ok(None);
@@ -241,17 +227,24 @@ impl<
         }
 
         let output = &tx.outputs[out_idx];
-        
+
         // Get block header for DAA score
-        let header = self.headers_store.get_header(creator_block)
-            .map_err(|e| format!("Header lookup error: {}", e))?;
+        let header = self.headers_store.get_header(creator_block).map_err(|e| format!("Header lookup error: {}", e))?;
 
         // Build CellMetadata
+        // Convert OutPoint to TransactionOutpoint
+        let tx_outpoint = spora_consensus_core::tx::TransactionOutpoint {
+            transaction_id: out_point.tx_hash.into(),
+            index: out_point.index,
+        };
+        
         let metadata = CellMetadata {
+            out_point: tx_outpoint,
             capacity: output.capacity,
-            lock_hash: output.lock.hash(),  // CellOut uses ScriptRef.hash()
-            type_hash: None, // TODO: Extract from script if present
-            data_hash: [0u8; 32], // TODO: Hash output data
+            data_bytes: 0,                 // TODO: Get actual data size from transaction data
+            lock_hash: output.lock.hash(), // CellOut uses ScriptRef.hash()
+            type_hash: None,               // TODO: Extract from script if present
+            data_hash: [0u8; 32],          // TODO: Hash output data
             block_daa_score: header.daa_score,
             is_cellbase: tx_idx == 0, // First tx in block is coinbase
             block_hash: creator_block,
@@ -264,13 +257,13 @@ impl<
     }
 
     /// Get Cell state at a specific DAA score (GHOSTDAG-aware)
-    /// 
+    ///
     /// This is the key method for reorg-safe queries.
     /// Returns the Cell metadata as it existed at the given DAA score.
     fn get_cell_at_daa(&self, out_point: &OutPoint, target_daa: u64) -> Result<Option<CellMetadata>, String> {
         // First check if cell exists
         let metadata = self.get_cell_metadata(out_point)?;
-        
+
         if metadata.is_none() {
             return Ok(None);
         }
@@ -292,24 +285,24 @@ impl<
 }
 
 impl<
-    T: GhostdagStoreReader,
-    U: ReachabilityStoreReader,
-    V: HeaderStoreReader,
-    W: CellDiffsStoreReader,
-    X: CellRootsStoreReader,
-    Y: BlockTransactionsStoreReader,
-    Z: StatusesStoreReader,
-> ConsensusCellProvider<T, U, V, W, X, Y, Z>
+        T: GhostdagStoreReader,
+        U: ReachabilityStoreReader,
+        V: HeaderStoreReader,
+        W: CellDiffsStoreReader,
+        X: CellRootsStoreReader,
+        Y: BlockTransactionsStoreReader,
+        Z: StatusesStoreReader,
+    > ConsensusCellProvider<T, U, V, W, X, Y, Z>
 {
     /// Compute lock script hash from ScriptPublicKey
     fn compute_lock_hash(script_public_key: &spora_consensus_core::tx::ScriptPublicKey) -> [u8; 32] {
         use blake3::Hasher;
-        
+
         let mut hasher = Hasher::new();
         hasher.update(b"spora-cell/lock"); // Domain separation
         hasher.update(&script_public_key.version().to_le_bytes());
         hasher.update(script_public_key.script());
-        
+
         *hasher.finalize().as_bytes()
     }
 }
@@ -317,15 +310,15 @@ impl<
 #[cfg(test)]
 mod tests {
     use super::*;
-    use spora_consensus_core::tx::ScriptPublicKey;
-    use crate::model::stores::ghostdag::DbGhostdagStore;
-    use crate::model::stores::reachability::DbReachabilityStore;
-    use crate::model::stores::headers::DbHeadersStore;
+    use crate::model::stores::block_transactions::DbBlockTransactionsStore;
     use crate::model::stores::cell_diffs::DbCellDiffsStore;
     use crate::model::stores::cell_roots::DbCellRootsStore;
-    use crate::model::stores::block_transactions::DbBlockTransactionsStore;
+    use crate::model::stores::ghostdag::DbGhostdagStore;
+    use crate::model::stores::headers::DbHeadersStore;
+    use crate::model::stores::reachability::DbReachabilityStore;
     use crate::model::stores::statuses::DbStatusesStore;
-    
+    use spora_consensus_core::tx::ScriptPublicKey;
+
     // Type alias for the full provider type
     type TestProvider = ConsensusCellProvider<
         DbGhostdagStore,
@@ -336,17 +329,16 @@ mod tests {
         DbBlockTransactionsStore,
         DbStatusesStore,
     >;
-    
+
     // Note: Full integration tests require mock stores
     // Unit tests focus on logic verification
-    
+
     #[test]
     fn test_compute_lock_hash_deterministic() {
         let script = ScriptPublicKey::from_vec(0, vec![0x76, 0xa9, 0x14]); // Example P2PKH prefix
         let hash1 = TestProvider::compute_lock_hash(&script);
         let hash2 = TestProvider::compute_lock_hash(&script);
-        
+
         assert_eq!(hash1, hash2, "Lock hash should be deterministic");
     }
 }
-

@@ -4,11 +4,11 @@ use crate::pstt::{KeySource, PartialSigs};
 use crate::utils::{combine_if_no_conflicts, Error as CombineMapErr};
 use derive_builder::Builder;
 use serde::{Deserialize, Serialize};
-use std::{collections::BTreeMap, marker::PhantomData, ops::Add};
 use spora_consensus_core::{
     hashing::sighash_type::{SigHashType, SIG_HASH_ALL},
     tx::{TransactionId, TransactionOutpoint, UtxoEntry},
 };
+use std::{collections::BTreeMap, marker::PhantomData, ops::Add};
 
 // todo add unknown field? combine them by deduplicating, if there are different values - return error?
 #[derive(Builder, Serialize, Deserialize, Debug, Clone)]

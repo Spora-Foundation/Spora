@@ -15,12 +15,12 @@ use itertools::{
 };
 use local_ip_address::list_afinet_netifas;
 use parking_lot::Mutex;
-use stores::banned_address_store::{BannedAddressesStore, BannedAddressesStoreReader, ConnectionBanTimestamp, DbBannedAddressesStore};
-use thiserror::Error;
 use spora_consensus_core::config::Config;
 use spora_core::{debug, info, task::tick::TickService, time::unix_now, warn};
 use spora_database::prelude::{CachePolicy, StoreResultExtensions, DB};
 use spora_utils::networking::IpAddress;
+use stores::banned_address_store::{BannedAddressesStore, BannedAddressesStoreReader, ConnectionBanTimestamp, DbBannedAddressesStore};
+use thiserror::Error;
 
 pub use stores::NetAddress;
 
@@ -516,12 +516,12 @@ mod address_store_with_cache {
         use super::*;
         use address_manager::AddressManager;
         use rv::{dist::Uniform, misc::ks_test as one_way_ks_test, traits::Cdf};
-        use std::net::{IpAddr, Ipv6Addr};
         use spora_consensus_core::config::{params::SIMNET_PARAMS, Config};
         use spora_core::task::tick::TickService;
         use spora_database::create_temp_db;
         use spora_database::prelude::ConnBuilder;
         use spora_utils::networking::IpAddress;
+        use std::net::{IpAddr, Ipv6Addr};
 
         #[test]
         fn test_weighted_iterator() {

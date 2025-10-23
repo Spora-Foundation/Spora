@@ -1,14 +1,14 @@
 use crate::processes::ghostdag::ordering::SortableBlock;
+use spora_consensus_core::BlockHasher;
+use spora_database::prelude::{Cache, CachePolicy};
+use spora_hashes::Hash;
+use spora_utils::mem_size::MemSizeEstimator;
 use std::{
     cmp::Reverse,
     collections::BinaryHeap,
     ops::{Deref, DerefMut},
     sync::Arc,
 };
-use spora_consensus_core::BlockHasher;
-use spora_database::prelude::{Cache, CachePolicy};
-use spora_hashes::Hash;
-use spora_utils::mem_size::MemSizeEstimator;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WindowOrigin {

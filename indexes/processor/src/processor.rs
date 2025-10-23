@@ -3,13 +3,12 @@ use crate::{
     IDENT,
 };
 use async_trait::async_trait;
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc,
-};
+use spora_cellindex::api::CellIndexProxy;
 use spora_consensus_notify::{notification as consensus_notification, notification::Notification as ConsensusNotification};
 use spora_core::{debug, trace};
-use spora_index_core::notification::{CellsChangedNotification, Notification, PruningPointUtxoSetOverrideNotification, UtxosChangedNotification};
+use spora_index_core::notification::{
+    CellsChangedNotification, Notification, PruningPointUtxoSetOverrideNotification, UtxosChangedNotification,
+};
 use spora_notify::{
     collector::{Collector, CollectorNotificationReceiver},
     error::Result,
@@ -18,14 +17,17 @@ use spora_notify::{
     notifier::DynNotify,
 };
 use spora_utils::triggers::SingleTrigger;
-use spora_cellindex::api::CellIndexProxy;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 
 /// Processor processes incoming consensus CellsChanged notifications
 /// submitting them to a CellIndex.
 ///
 /// It also acts as a [`Collector`], converting the incoming consensus notifications
 /// into their pending local versions and relaying them to a local notifier.
-/// 
+///
 /// TODO(spora): Update to process CellsChanged instead of UtxosChanged
 #[derive(Debug)]
 pub struct Processor {
@@ -90,19 +92,19 @@ impl Processor {
         }
     }
 
-    
     /// Process CellsChanged notification from consensus
-    /// 
+    ///
     /// GHOSTDAG-aware: processes accumulated Cell diff and updates CellIndex
     async fn process_cells_changed(
         self: &Arc<Self>,
         notification: consensus_notification::CellsChangedNotification,
     ) -> IndexResult<CellsChangedNotification> {
-        trace!("[{IDENT}]: processing CellsChanged notification with {} added, {} removed cells",
+        trace!(
+            "[{IDENT}]: processing CellsChanged notification with {} added, {} removed cells",
             notification.accumulated_cell_diff.num_added(),
             notification.accumulated_cell_diff.num_removed()
         );
-        
+
         // Update cellindex if present
         if let Some(cellindex) = self.cellindex.clone() {
             cellindex
@@ -110,13 +112,13 @@ impl Processor {
                 .await
                 .map_err(|e| IndexError::CellIndexError(e))?;
         }
-        
+
         // Convert to index notification format
         let converted = CellsChangedNotification {
             accumulated_cell_diff: notification.accumulated_cell_diff.clone(),
             virtual_parents: notification.virtual_parents.clone(),
         };
-        
+
         Ok(converted)
     }
 
@@ -146,7 +148,6 @@ mod tests {
     use super::*;
     use async_channel::{unbounded, Receiver, Sender};
     use rand::{rngs::SmallRng, SeedableRng};
-    use std::sync::Arc;
     use spora_consensus::{config::Config, consensus::test_consensus::TestConsensus, params::DEVNET_PARAMS, test_helpers::*};
     use spora_consensus_core::utxo::{utxo_collection::UtxoCollection, utxo_diff::UtxoDiff};
     use spora_consensusmanager::ConsensusManager;
@@ -155,6 +156,7 @@ mod tests {
     use spora_database::utils::DbLifetime;
     use spora_notify::notifier::test_helpers::NotifyMock;
     use spora_utxoindex::UtxoIndex;
+    use std::sync::Arc;
 
     // TODO: rewrite with Simnet, when possible.
 

@@ -2,7 +2,6 @@
 //!
 //! We use newtypes in order to simplify changing the underlying lock in the future
 
-use std::{ops::Deref, sync::Arc};
 use spora_consensus_core::{
     acceptance_data::AcceptanceData,
     api::{BlockCount, BlockValidationFutures, ConsensusApi, ConsensusStats, DynConsensus},
@@ -16,9 +15,13 @@ use spora_consensus_core::{
     trusted::{ExternalGhostdagData, TrustedBlock},
     tx::{MutableTransaction, SignableTransaction, Transaction, TransactionOutpoint, UtxoEntry},
     // utxo::utxo_inquirer::UtxoInquirerError, // UTXO deprecated - use Cell validation
-    BlockHashSet, BlueWorkType, ChainPath, Hash,
+    BlockHashSet,
+    BlueWorkType,
+    ChainPath,
+    Hash,
 };
 use spora_utils::sync::rwlock::*;
+use std::{ops::Deref, sync::Arc};
 
 pub use tokio::task::spawn_blocking;
 

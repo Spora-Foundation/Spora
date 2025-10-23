@@ -5,7 +5,6 @@ use crate::{
     root::ConsensusNotificationRoot,
 };
 use async_channel::Receiver;
-use std::sync::Arc;
 use spora_core::{
     task::service::{AsyncService, AsyncServiceError, AsyncServiceFuture},
     trace, warn,
@@ -16,6 +15,7 @@ use spora_notify::{
     subscription::{context::SubscriptionContext, MutationPolicies, UtxosChangedMutationPolicy},
 };
 use spora_utils::triggers::SingleTrigger;
+use std::sync::Arc;
 
 const NOTIFY_SERVICE: &str = "notify-service";
 

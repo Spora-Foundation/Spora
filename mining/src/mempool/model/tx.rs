@@ -1,10 +1,10 @@
 use crate::mempool::tx::{Priority, RbfPolicy};
+use spora_consensus_core::tx::{MutableTransaction, Transaction, TransactionId, TransactionOutpoint};
+use spora_mining_errors::mempool::RuleError;
 use std::{
     fmt::{Display, Formatter},
     sync::Arc,
 };
-use spora_consensus_core::tx::{MutableTransaction, Transaction, TransactionId, TransactionOutpoint};
-use spora_mining_errors::mempool::RuleError;
 
 pub(crate) struct MempoolTransaction {
     pub(crate) mtx: MutableTransaction,

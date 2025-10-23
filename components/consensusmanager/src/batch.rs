@@ -1,5 +1,5 @@
-use std::fmt::Debug;
 use spora_consensus_core::{api::BlockValidationFuture, block::Block};
+use std::fmt::Debug;
 
 pub struct BlockProcessingBatch {
     pub blocks: Vec<Block>,

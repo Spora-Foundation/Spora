@@ -11,8 +11,8 @@ fn nibbles_from_hash(hash: &Hash) -> [u8; 64] {
     for i in 0..32 {
         let b = bytes[i];
         unsafe {
-            *out.get_unchecked_mut(2*i)     = b >> 4;
-            *out.get_unchecked_mut(2*i + 1) = b & 0x0F;
+            *out.get_unchecked_mut(2 * i) = b >> 4;
+            *out.get_unchecked_mut(2 * i + 1) = b & 0x0F;
         }
     }
     out
@@ -23,7 +23,6 @@ fn nibbles_from_hash(hash: &Hash) -> [u8; 64] {
 pub struct Matrix([[u16; 64]; 64]);
 
 impl Matrix {
-
     #[inline(always)]
     pub fn generate(hash: Hash) -> Self {
         let mut generator = XoShiRo256PlusPlus::new(hash);
@@ -91,8 +90,6 @@ impl Matrix {
         rank
     }
 
-
-
     /// SwiftHeavy algorithm: Blake3+Matrix - Simplified version without memory-hardness
     /// This is the simplified PoW algorithm that combines:
     /// - Blake3 hashing for better performance
@@ -103,7 +100,7 @@ impl Matrix {
     pub fn swift_heavy_hash(&self, hash: Hash, nonce: u64) -> Hash {
         // Single matrix operation with nonce as seed to prevent 0x51 attack
         let matrix_result = self.matrix_vector_multiply_with_seed(hash, nonce);
-        
+
         // Merged Blake3 hash with additional nonce obfuscation
         use blake3::Hasher;
         let mut hasher = Hasher::new();
@@ -111,7 +108,6 @@ impl Matrix {
         hasher.update(&nonce.to_le_bytes()); // Additional obfuscation
         Hash::from_bytes(hasher.finalize().into())
     }
-
 
     /// Matrix-vector multiplication with seed for vulnerability mitigation
     /// This version prevents the 0x51 attack by using dynamic shifting and additional obfuscation
@@ -131,34 +127,34 @@ impl Matrix {
             let mut s2: u32 = 0;
 
             // unroll by 8
-            let row_a = &m[2*i];
-            let row_b = &m[2*i + 1];
+            let row_a = &m[2 * i];
+            let row_b = &m[2 * i + 1];
             let mut j = 0;
             while j < 64 {
                 unsafe {
                     s1 += (*row_a.get_unchecked(j) as u32) * (*vec.get_unchecked(j) as u32);
                     s2 += (*row_b.get_unchecked(j) as u32) * (*vec.get_unchecked(j) as u32);
 
-                    s1 += (*row_a.get_unchecked(j+1) as u32) * (*vec.get_unchecked(j+1) as u32);
-                    s2 += (*row_b.get_unchecked(j+1) as u32) * (*vec.get_unchecked(j+1) as u32);
+                    s1 += (*row_a.get_unchecked(j + 1) as u32) * (*vec.get_unchecked(j + 1) as u32);
+                    s2 += (*row_b.get_unchecked(j + 1) as u32) * (*vec.get_unchecked(j + 1) as u32);
 
-                    s1 += (*row_a.get_unchecked(j+2) as u32) * (*vec.get_unchecked(j+2) as u32);
-                    s2 += (*row_b.get_unchecked(j+2) as u32) * (*vec.get_unchecked(j+2) as u32);
+                    s1 += (*row_a.get_unchecked(j + 2) as u32) * (*vec.get_unchecked(j + 2) as u32);
+                    s2 += (*row_b.get_unchecked(j + 2) as u32) * (*vec.get_unchecked(j + 2) as u32);
 
-                    s1 += (*row_a.get_unchecked(j+3) as u32) * (*vec.get_unchecked(j+3) as u32);
-                    s2 += (*row_b.get_unchecked(j+3) as u32) * (*vec.get_unchecked(j+3) as u32);
+                    s1 += (*row_a.get_unchecked(j + 3) as u32) * (*vec.get_unchecked(j + 3) as u32);
+                    s2 += (*row_b.get_unchecked(j + 3) as u32) * (*vec.get_unchecked(j + 3) as u32);
 
-                    s1 += (*row_a.get_unchecked(j+4) as u32) * (*vec.get_unchecked(j+4) as u32);
-                    s2 += (*row_b.get_unchecked(j+4) as u32) * (*vec.get_unchecked(j+4) as u32);
+                    s1 += (*row_a.get_unchecked(j + 4) as u32) * (*vec.get_unchecked(j + 4) as u32);
+                    s2 += (*row_b.get_unchecked(j + 4) as u32) * (*vec.get_unchecked(j + 4) as u32);
 
-                    s1 += (*row_a.get_unchecked(j+5) as u32) * (*vec.get_unchecked(j+5) as u32);
-                    s2 += (*row_b.get_unchecked(j+5) as u32) * (*vec.get_unchecked(j+5) as u32);
+                    s1 += (*row_a.get_unchecked(j + 5) as u32) * (*vec.get_unchecked(j + 5) as u32);
+                    s2 += (*row_b.get_unchecked(j + 5) as u32) * (*vec.get_unchecked(j + 5) as u32);
 
-                    s1 += (*row_a.get_unchecked(j+6) as u32) * (*vec.get_unchecked(j+6) as u32);
-                    s2 += (*row_b.get_unchecked(j+6) as u32) * (*vec.get_unchecked(j+6) as u32);
+                    s1 += (*row_a.get_unchecked(j + 6) as u32) * (*vec.get_unchecked(j + 6) as u32);
+                    s2 += (*row_b.get_unchecked(j + 6) as u32) * (*vec.get_unchecked(j + 6) as u32);
 
-                    s1 += (*row_a.get_unchecked(j+7) as u32) * (*vec.get_unchecked(j+7) as u32);
-                    s2 += (*row_b.get_unchecked(j+7) as u32) * (*vec.get_unchecked(j+7) as u32);
+                    s1 += (*row_a.get_unchecked(j + 7) as u32) * (*vec.get_unchecked(j + 7) as u32);
+                    s2 += (*row_b.get_unchecked(j + 7) as u32) * (*vec.get_unchecked(j + 7) as u32);
                 }
                 j += 8;
             }
@@ -166,7 +162,7 @@ impl Matrix {
             // dynamic shift
             let shift = 10 + ((seed + i as u64) % 3) as u32;
             let high = ((s1 >> shift) & 0x0Fu32) as u8;
-            let low  = ((s2 >> shift) & 0x0Fu32) as u8;
+            let low = ((s2 >> shift) & 0x0Fu32) as u8;
             product[i] = (high << 4) | low;
         }
 
@@ -177,10 +173,7 @@ impl Matrix {
 
         Hash::from_bytes(product)
     }
-
-
 }
-
 
 pub fn array_from_fn<F, T, const N: usize>(mut cb: F) -> [T; N]
 where
@@ -225,20 +218,20 @@ mod tests {
             82, 46, 212, 218, 28, 192, 143, 92, 213, 66, 86, 63, 245, 241, 155, 189, 73, 159, 229, 180, 202, 105, 159, 166, 109, 172,
             128, 136, 169, 195, 97, 41,
         ]);
-        
+
         let result = test_matrix.swift_heavy_hash(hash, 12345);
-        
+
         // Verify the result is a valid hash (32 bytes)
         assert_eq!(result.as_bytes().len(), 32);
-        
+
         // Verify deterministic behavior with same nonce
         let result2 = test_matrix.swift_heavy_hash(hash, 12345);
         assert_eq!(result, result2);
-        
+
         // Verify different nonces produce different outputs (vulnerability mitigation)
         let different_result = test_matrix.swift_heavy_hash(hash, 54321);
         assert_ne!(result, different_result);
-        
+
         // Verify different inputs produce different outputs
         let different_hash = Hash::from_bytes([1; 32]);
         let different_result2 = test_matrix.swift_heavy_hash(different_hash, 12345);
@@ -250,13 +243,13 @@ mod tests {
         // Compare algorithms to ensure they produce different results
         let test_matrix = Matrix::generate(Hash::from_bytes([42; 32]));
         let hash = Hash::from_bytes([123; 32]);
-        
+
         let new_result = test_matrix.swift_heavy_hash(hash, 1); // Use nonce=1
         let new_result_different = test_matrix.swift_heavy_hash(hash, 2);
-        
+
         // Different nonces should produce different results
         assert_ne!(new_result, new_result_different);
-        
+
         // Both should be valid 32-byte hashes
         assert_eq!(new_result.as_bytes().len(), 32);
         assert_eq!(new_result_different.as_bytes().len(), 32);
@@ -266,32 +259,32 @@ mod tests {
         // Test that the 0x51 attack vulnerability is fixed
         let test_matrix = Matrix::generate(Hash::from_bytes([42; 32]));
         let hash = Hash::from_bytes([0x51; 32]); // Use 0x51 pattern that triggers the vulnerability
-        
+
         // Test with different nonces to ensure output varies
         let result1 = test_matrix.swift_heavy_hash(hash, 0);
         let result2 = test_matrix.swift_heavy_hash(hash, 1);
         let result3 = test_matrix.swift_heavy_hash(hash, 0x51);
-        
+
         // All results should be different (no predictable patterns)
         assert_ne!(result1, result2);
         assert_ne!(result2, result3);
         assert_ne!(result1, result3);
-        
+
         // Test matrix_vector_multiply_with_seed directly
         let matrix_result1 = test_matrix.matrix_vector_multiply_with_seed(hash, 0);
         let matrix_result2 = test_matrix.matrix_vector_multiply_with_seed(hash, 1);
         let matrix_result3 = test_matrix.matrix_vector_multiply_with_seed(hash, 0x51);
-        
+
         // Matrix results should also be different
         assert_ne!(matrix_result1, matrix_result2);
         assert_ne!(matrix_result2, matrix_result3);
         assert_ne!(matrix_result1, matrix_result3);
-        
+
         // Test that deterministic behavior is maintained for same seed
         let matrix_result1_again = test_matrix.matrix_vector_multiply_with_seed(hash, 0);
         assert_eq!(matrix_result1, matrix_result1_again);
     }
-    
+
     #[test]
     fn test_matrix_vector_multiply_consistency() {
         // Test that heavy and swift_heavy use the same matrix-vector multiplication
@@ -301,23 +294,23 @@ mod tests {
             82, 46, 212, 218, 28, 192, 143, 92, 213, 66, 86, 63, 245, 241, 155, 189, 73, 159, 229, 180, 202, 105, 159, 166, 109, 172,
             128, 136, 169, 195, 97, 41,
         ]);
-        
+
         // Test matrix-vector multiplication with seed=1
         let matrix_result_heavy = test_matrix.matrix_vector_multiply_with_seed(hash, 1);
-        
+
         // Test matrix-vector multiplication with seed=1 (same as swift_heavy_hash with nonce=1)
         let matrix_result_swift = test_matrix.matrix_vector_multiply_with_seed(hash, 1);
-        
+
         // The matrix-vector multiplication should be identical when using same seed
         assert_eq!(matrix_result_heavy, matrix_result_swift);
-        
+
         // Test with different seeds to ensure they produce different results
         let matrix_result_seed0 = test_matrix.matrix_vector_multiply_with_seed(hash, 0);
         let matrix_result_seed2 = test_matrix.matrix_vector_multiply_with_seed(hash, 2);
-        
+
         assert_ne!(matrix_result_heavy, matrix_result_seed0);
         assert_ne!(matrix_result_seed0, matrix_result_seed2);
-        
+
         // Verify deterministic behavior
         let matrix_result_heavy_again = test_matrix.matrix_vector_multiply_with_seed(hash, 1);
         assert_eq!(matrix_result_heavy, matrix_result_heavy_again);
@@ -328,28 +321,28 @@ mod tests {
         // Test to verify that nonce randomness affects output and performance
         let test_matrix = Matrix::generate(Hash::from_bytes([42; 32]));
         let hash = Hash::from_bytes([0x51; 32]); // Use 0x51 pattern for vulnerability testing
-        
+
         // Test with nonce=0
         let swift_result_nonce0 = test_matrix.swift_heavy_hash(hash, 0);
         let swift_result_nonce1 = test_matrix.swift_heavy_hash(hash, 1);
-        
+
         // Results should be different due to different nonces
         assert_ne!(swift_result_nonce0, swift_result_nonce1);
         let swift_result_nonce2 = test_matrix.swift_heavy_hash(hash, 2);
-        
+
         // All results should be different
         assert_ne!(swift_result_nonce0, swift_result_nonce1);
         assert_ne!(swift_result_nonce1, swift_result_nonce2);
         assert_ne!(swift_result_nonce0, swift_result_nonce2);
-        
+
         // Verify deterministic behavior with same nonce
         let swift_result_nonce0_again = test_matrix.swift_heavy_hash(hash, 0);
         assert_eq!(swift_result_nonce0, swift_result_nonce0_again);
-        
+
         // Test matrix-vector multiplication consistency
         let matrix_result_nonce0 = test_matrix.matrix_vector_multiply_with_seed(hash, 0);
         let matrix_result_nonce1 = test_matrix.matrix_vector_multiply_with_seed(hash, 1);
-        
+
         // Matrix results should be different due to different seeds
         assert_ne!(matrix_result_nonce0, matrix_result_nonce1);
     }

@@ -1,9 +1,9 @@
 use indexmap::IndexSet;
 use itertools::Itertools;
 use smallvec::{smallvec, SmallVec};
-use std::sync::Arc;
 use spora_consensus_core::{blockhash::ORIGIN, header::Header, BlockHashMap, BlockHasher, BlockLevel};
 use spora_hashes::Hash;
+use std::sync::Arc;
 
 use crate::model::{
     services::reachability::{MTReachabilityService, ReachabilityService},
@@ -482,7 +482,7 @@ mod tests {
                         hash_merkle_root: 1.into(),
                         accepted_id_merkle_root: 1.into(),
                         cell_commitment: 1.into(),
-                    cell_root: Default::default(),
+                        cell_root: Default::default(),
                         timestamp: 0,
                         bits: 0,
                         nonce: 0,
@@ -587,7 +587,7 @@ mod tests {
                         hash_merkle_root: 1.into(),
                         accepted_id_merkle_root: 1.into(),
                         cell_commitment: 1.into(),
-                    cell_root: Default::default(),
+                        cell_root: Default::default(),
                         timestamp: 0,
                         bits: 0,
                         nonce: 0,

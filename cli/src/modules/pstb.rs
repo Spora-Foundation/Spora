@@ -45,9 +45,9 @@ impl Pstb {
                 let signer = account
                     .pstb_from_send_generator(
                         outputs.into(),
-                        None, // fee_rate
+                        None,       // fee_rate
                         Fees::None, // _priority_fee_sau
-                        None, // payload
+                        None,       // payload
                         wallet_secret.clone(),
                         payment_secret.clone(),
                         &abortable,

@@ -10,7 +10,6 @@ use crate::tx::PaymentOutputs;
 use futures::stream;
 use secp256k1::schnorr;
 use secp256k1::{Message, PublicKey};
-use std::iter;
 use spora_bip32::{DerivationPath, KeyFingerprint, PrivateKey};
 use spora_consensus_client::UtxoEntry as ClientUTXO;
 use spora_consensus_core::hashing::sighash::{calc_schnorr_signature_hash, SigHashReusedValuesUnsync};
@@ -24,6 +23,7 @@ pub use spora_wallet_pstt::bundle::Bundle;
 use spora_wallet_pstt::bundle::{script_sig_to_address, unlock_utxo_outputs_as_batch_transaction_pstb};
 use spora_wallet_pstt::prelude::{lock_script_sig_templating_bytes, Finalizer, Inner, KeySource, SignInputOk, Signature, Signer};
 pub use spora_wallet_pstt::pstt::{Creator, PSTT};
+use std::iter;
 
 struct PSTBSignerInner {
     keydata: PrvKeyData,

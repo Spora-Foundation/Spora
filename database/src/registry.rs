@@ -32,9 +32,9 @@ pub enum DatabaseStorePrefixes {
     ChainHighestIndex = 22,
     Statuses = 23,
     Tips = 24,
-    UtxoDiffs = 25,  // Deprecated - use CellDiffs
+    UtxoDiffs = 25,      // Deprecated - use CellDiffs
     UtxoMultisets = 26,  // Deprecated - use CellRoots
-    VirtualUtxoset = 27,  // Deprecated
+    VirtualUtxoset = 27, // Deprecated
     VirtualState = 28,
     PruningSamples = 29,
 
@@ -62,8 +62,8 @@ pub enum DatabaseStorePrefixes {
     UtxoIndexTips = 193,
     CirculatingSupply = 194,
     TransactionIndex = 195,
-    CellDiffs = 196,  // Cell state diffs
-    CellRoots = 197,  // Cell state Merkle roots
+    CellDiffs = 196, // Cell state diffs
+    CellRoots = 197, // Cell state Merkle roots
 
     // ---- Separator ----
     /// Reserved as a separator

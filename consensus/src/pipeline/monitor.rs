@@ -1,8 +1,4 @@
 use super::ProcessingCounters;
-use std::{
-    sync::Arc,
-    time::{Duration, Instant},
-};
 use spora_core::{
     info,
     task::{
@@ -10,6 +6,10 @@ use spora_core::{
         tick::{TickReason, TickService},
     },
     trace, warn,
+};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
 };
 
 const MONITOR: &str = "consensus-monitor";

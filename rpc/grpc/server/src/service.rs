@@ -1,5 +1,4 @@
 use crate::{adaptor::Adaptor, manager::Manager};
-use std::sync::Arc;
 use spora_consensus_core::config::Config;
 use spora_core::{
     debug,
@@ -9,6 +8,7 @@ use spora_core::{
 use spora_rpc_service::service::RpcCoreService;
 use spora_utils::{networking::NetAddress, triggers::SingleTrigger};
 use spora_utils_tower::counters::TowerConnectionCounters;
+use std::sync::Arc;
 use triggered::Listener;
 
 pub struct GrpcService {

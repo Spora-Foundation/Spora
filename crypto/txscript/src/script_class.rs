@@ -1,13 +1,13 @@
-use crate::{opcodes, SCRIPT_VER_CLASSIC, SCRIPT_VER_TAPROOT, SCRIPT_VER_COPPEROOT_MERKLE, SCRIPT_VER_COPPEROOT_VERKLE};
+use crate::{opcodes, SCRIPT_VER_CLASSIC, SCRIPT_VER_COPPEROOT_MERKLE, SCRIPT_VER_COPPEROOT_VERKLE, SCRIPT_VER_TAPROOT};
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
+use spora_addresses::Version;
+use spora_consensus_core::tx::{ScriptPublicKey, ScriptPublicKeyVersion};
 use std::{
     fmt::{Display, Formatter},
     str::FromStr,
 };
 use thiserror::Error;
-use spora_addresses::Version;
-use spora_consensus_core::tx::{ScriptPublicKey, ScriptPublicKeyVersion};
 
 #[derive(Error, PartialEq, Eq, Debug, Clone)]
 pub enum Error {
@@ -171,7 +171,7 @@ impl From<Version> for ScriptClass {
 impl From<&ScriptPublicKey> for ScriptClass {
     fn from(script_public_key: &ScriptPublicKey) -> Self {
         let version = script_public_key.version();
-        
+
         // Strictly reject unknown script versions - dispatch based on version number only, no byte pattern checking
         match version {
             SCRIPT_VER_CLASSIC => {

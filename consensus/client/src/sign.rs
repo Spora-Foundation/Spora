@@ -5,7 +5,6 @@
 use crate::transaction::Transaction;
 use core::iter::once;
 use itertools::Itertools;
-use std::collections::BTreeMap;
 use spora_consensus_core::{
     hashing::{
         sighash::{calc_schnorr_signature_hash, SigHashReusedValuesUnsync},
@@ -14,6 +13,7 @@ use spora_consensus_core::{
     tx::PopulatedTransaction,
     //sign::Signed,
 };
+use std::collections::BTreeMap;
 
 /// A wrapper enum that represents the transaction signed state. A transaction
 /// contained by this enum can be either fully signed or partially signed.

@@ -9,8 +9,8 @@ use crate::{
         TransactionIdSet,
     },
 };
-use std::collections::{hash_set::Iter, HashMap, HashSet, VecDeque};
 use spora_consensus_core::tx::{MutableTransaction, TransactionId};
+use std::collections::{hash_set::Iter, HashMap, HashSet, VecDeque};
 
 pub(crate) type TransactionsEdges = HashMap<TransactionId, TransactionIdSet>;
 

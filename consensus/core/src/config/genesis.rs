@@ -27,7 +27,7 @@ impl GenesisBlock {
         // Coinbase rewards are handled differently in GhostDAG mergeset
         vec![]
     }
-    
+
     /// Build legacy genesis transactions (deprecated, for migration compatibility)
     #[deprecated(note = "Use build_genesis_transactions() which returns CellTx")]
     pub fn build_genesis_transactions_legacy(&self) -> Vec<Transaction> {

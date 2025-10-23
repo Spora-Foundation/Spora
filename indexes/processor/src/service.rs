@@ -1,5 +1,5 @@
 use crate::{processor::Processor, IDENT};
-use std::sync::Arc;
+use spora_cellindex::api::CellIndexProxy;
 use spora_consensus_notify::{
     connection::ConsensusChannelConnection, notification::Notification as ConsensusNotification, notifier::ConsensusNotifier,
 };
@@ -16,12 +16,12 @@ use spora_notify::{
     subscription::{context::SubscriptionContext, MutationPolicies, UtxosChangedMutationPolicy},
 };
 use spora_utils::{channel::Channel, triggers::SingleTrigger};
-use spora_cellindex::api::CellIndexProxy;
+use std::sync::Arc;
 
 const INDEX_SERVICE: &str = IDENT;
 
 pub struct IndexService {
-    cellindex: Option<CellIndexProxy>,  // Replaced utxoindex with cellindex
+    cellindex: Option<CellIndexProxy>, // Replaced utxoindex with cellindex
     notifier: Arc<IndexNotifier>,
     shutdown: SingleTrigger,
 }
@@ -30,7 +30,7 @@ impl IndexService {
     pub fn new(
         consensus_notifier: &Arc<ConsensusNotifier>,
         subscription_context: SubscriptionContext,
-        cellindex: Option<CellIndexProxy>,  // Changed from utxoindex to cellindex
+        cellindex: Option<CellIndexProxy>, // Changed from utxoindex to cellindex
     ) -> Self {
         // TODO(spora): Update to Cells subscription granularity
         let policies = MutationPolicies::new(UtxosChangedMutationPolicy::Wildcard);
@@ -44,11 +44,8 @@ impl IndexService {
 
         // Prepare the index-processor notifier
         // Subscribe to both UtxosChanged (legacy) and CellsChanged (new)
-        let events: EventSwitches = [
-            EventType::UtxosChanged,
-            EventType::CellsChanged,
-            EventType::PruningPointUtxoSetOverride,
-        ].as_ref().into();
+        let events: EventSwitches =
+            [EventType::UtxosChanged, EventType::CellsChanged, EventType::PruningPointUtxoSetOverride].as_ref().into();
         let collector = Arc::new(Processor::new(cellindex.clone(), consensus_notify_channel.receiver()));
         let notifier = Arc::new(IndexNotifier::new(INDEX_SERVICE, events, vec![collector], vec![], subscription_context, 1, policies));
 

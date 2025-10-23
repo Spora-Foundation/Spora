@@ -23,20 +23,12 @@ pub struct VerifyResult {
 impl VerifyResult {
     /// Create a successful result
     pub fn success(cycles: u64) -> Self {
-        Self {
-            cycles,
-            success: true,
-            error: None,
-        }
+        Self { cycles, success: true, error: None }
     }
 
     /// Create a failed result
     pub fn fail(cycles: u64, error: String) -> Self {
-        Self {
-            cycles,
-            success: false,
-            error: Some(error),
-        }
+        Self { cycles, success: false, error: Some(error) }
     }
 }
 

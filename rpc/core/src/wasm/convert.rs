@@ -3,8 +3,8 @@
 //!
 
 use crate::model::*;
-use std::sync::Arc;
 use spora_consensus_client::*;
+use std::sync::Arc;
 
 impl From<RpcUtxosByAddressesEntry> for UtxoEntry {
     fn from(entry: RpcUtxosByAddressesEntry) -> UtxoEntry {

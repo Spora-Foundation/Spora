@@ -15,9 +15,9 @@ use self::{
 };
 use crate::{flow_context::FlowContext, flow_trait::Flow};
 
-use std::sync::Arc;
 use spora_p2p_lib::{Router, SharedIncomingRoute, SporadMessagePayloadType};
 use spora_utils::channel;
+use std::sync::Arc;
 
 pub(crate) mod address;
 pub(crate) mod blockrelay;

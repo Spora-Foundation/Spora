@@ -269,8 +269,6 @@ impl DerivationCapableAccount for Bip32 {
         0
     }
 
-
-
     fn create_private_keys<'l>(
         &self,
         payload: &PrvKeyData,

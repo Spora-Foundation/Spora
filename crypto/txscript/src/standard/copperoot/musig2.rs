@@ -5,15 +5,13 @@
 
 // Re-export types from musig2 crate
 pub use musig2::{
-    KeyAggContext as MuSig2KeyAgg,
-    FirstRound, SecondRound, PartialSignature, CompactSignature,
     errors::{KeyAggError, SigningError, VerifyError},
-    NonceSeed, SecNonceSpices, PubNonce,
+    CompactSignature, FirstRound, KeyAggContext as MuSig2KeyAgg, NonceSeed, PartialSignature, PubNonce, SecNonceSpices, SecondRound,
 };
 
-use secp256k1::{Keypair, Secp256k1, XOnlyPublicKey, All, SecretKey};
-use std::collections::HashMap;
+use secp256k1::{All, Keypair, Secp256k1, SecretKey, XOnlyPublicKey};
 use spora_hashes::Hash;
+use std::collections::HashMap;
 
 /// MuSig2 nonce wrapper (for compatibility)
 #[derive(Debug, Clone)]
@@ -29,8 +27,7 @@ pub struct MuSig2Round2 {
 
 impl MuSig2Round2 {
     pub fn receive_signature(&mut self, peer_idx: usize, sig: musig2::secp::Scalar) -> Result<(), MuSig2Error> {
-        self.inner.receive_signature(peer_idx, sig)
-            .map_err(|_| MuSig2Error::SigningFailed)
+        self.inner.receive_signature(peer_idx, sig).map_err(|_| MuSig2Error::SigningFailed)
     }
 
     pub fn finalize(self) -> Result<CompactSignature, MuSig2Error> {
@@ -74,11 +71,8 @@ impl MuSig2Nonce {
         msg: &[u8],
         nonce_seed: NonceSeed,
     ) -> Result<Self, MuSig2Error> {
-        let spices = SecNonceSpices::new()
-            .with_seckey(seckey)
-            .with_message(msg);
-        let fr = FirstRound::new(key_agg.clone(), nonce_seed, my_index, spices)
-            .map_err(|_| MuSig2Error::NonceGenerationFailed)?;
+        let spices = SecNonceSpices::new().with_seckey(seckey).with_message(msg);
+        let fr = FirstRound::new(key_agg.clone(), nonce_seed, my_index, spices).map_err(|_| MuSig2Error::NonceGenerationFailed)?;
         Ok(Self { public_nonce: fr.our_public_nonce() })
     }
 }
@@ -93,12 +87,10 @@ impl MuSig2Session {
         msg: &[u8],
         nonce_seed: NonceSeed,
     ) -> Result<Self, MuSig2Error> {
-        let spices = SecNonceSpices::new()
-            .with_seckey(seckey)
-            .with_message(msg);
+        let spices = SecNonceSpices::new().with_seckey(seckey).with_message(msg);
 
-        let first_round = FirstRound::new(key_agg.clone(), nonce_seed, my_index, spices)
-            .map_err(|_| MuSig2Error::SessionCreationFailed)?;
+        let first_round =
+            FirstRound::new(key_agg.clone(), nonce_seed, my_index, spices).map_err(|_| MuSig2Error::SessionCreationFailed)?;
 
         let mut nonces = HashMap::new();
         nonces.insert(my_index, MuSig2Nonce { public_nonce: first_round.our_public_nonce() });
@@ -119,9 +111,7 @@ impl MuSig2Session {
 
     /// Receive a nonce from a peer
     pub fn receive_nonce(&mut self, peer_idx: usize, pubnonce: PubNonce) -> Result<(), MuSig2Error> {
-        self.first_round
-            .receive_nonce(peer_idx, pubnonce)
-            .map_err(|_| MuSig2Error::SessionCreationFailed)?;
+        self.first_round.receive_nonce(peer_idx, pubnonce).map_err(|_| MuSig2Error::SessionCreationFailed)?;
         self.nonces.insert(peer_idx, MuSig2Nonce { public_nonce: pubnonce });
         Ok(())
     }
@@ -132,14 +122,12 @@ impl MuSig2Session {
         my_seckey: &SecretKey,
         msg: &[u8],
     ) -> Result<(MuSig2Round2, Option<musig2::secp::Scalar>), MuSig2Error> {
-        let r2 = self.first_round
-            .finalize(my_seckey, msg)
-            .map_err(|_| MuSig2Error::SigningFailed)?;
+        let r2 = self.first_round.finalize(my_seckey, msg).map_err(|_| MuSig2Error::SigningFailed)?;
         let ours = r2.our_signature(); // Option<Scalar>
         Ok((MuSig2Round2 { inner: r2 }, ours))
     }
 
-    /// Convenience method: when **all peer nonces and partial signatures** are collected, 
+    /// Convenience method: when **all peer nonces and partial signatures** are collected,
     /// produce aggregated signature in one step
     ///
     /// `peers_partials`: list of (peer_idx, Scalar)
@@ -166,10 +154,7 @@ impl MuSig2Session {
         let agg_pk = self.key_agg.aggregated_pubkey();
         let agg_x = agg_pk.x_only_public_key().0;
 
-        Ok(MuSig2Signature { 
-            inner: compact, 
-            aggregated_key: XOnlyPublicKey::from_slice(&agg_x.serialize())? 
-        })
+        Ok(MuSig2Signature { inner: compact, aggregated_key: XOnlyPublicKey::from_slice(&agg_x.serialize())? })
     }
 }
 
@@ -201,20 +186,20 @@ mod tests {
 
     #[test]
     fn test_musig2_key_aggregation() {
-        use musig2::secp256k1::{Secp256k1 as MuSecp, Keypair, PublicKey as MuPubKey, SecretKey};
+        use musig2::secp256k1::{Keypair, PublicKey as MuPubKey, Secp256k1 as MuSecp, SecretKey};
         use musig2::KeyAggContext;
-        use secp256k1::rand;
         use rand::Rng;
+        use secp256k1::rand;
 
         let secp = MuSecp::new();
         let mut rng = rand::thread_rng();
-        
+
         // Create secret keys and keypairs
         let mut sk1_bytes = [0u8; 32];
         let mut sk2_bytes = [0u8; 32];
         rng.fill(&mut sk1_bytes);
         rng.fill(&mut sk2_bytes);
-        
+
         let sk1 = SecretKey::from_byte_array(sk1_bytes).expect("valid secret key");
         let sk2 = SecretKey::from_byte_array(sk2_bytes).expect("valid secret key");
         let kp1 = Keypair::from_secret_key(&secp, &sk1);
@@ -230,10 +215,10 @@ mod tests {
 
     #[test]
     fn test_musig2_wrapper_two_party_sign() {
-        use musig2::secp256k1::{Secp256k1 as MuSecp, Keypair, PublicKey as MuPubKey, SecretKey};
+        use musig2::secp256k1::{Keypair, PublicKey as MuPubKey, Secp256k1 as MuSecp, SecretKey};
         use musig2::{KeyAggContext, NonceSeed};
-        use secp256k1::rand;
         use rand::Rng;
+        use secp256k1::rand;
 
         let secp = MuSecp::new();
         let mut rng = rand::thread_rng();
@@ -243,7 +228,7 @@ mod tests {
         let mut sk2_bytes = [0u8; 32];
         rng.fill(&mut sk1_bytes);
         rng.fill(&mut sk2_bytes);
-        
+
         let sk1 = SecretKey::from_byte_array(sk1_bytes).expect("valid secret key");
         let sk2 = SecretKey::from_byte_array(sk2_bytes).expect("valid secret key");
         let kp1 = Keypair::from_secret_key(&secp, &sk1);
@@ -269,11 +254,11 @@ mod tests {
         let (mut r2_2, part2) = s2.finalize_round2(&sk2, msg).expect("round 2 failed");
 
         // Exchange partial signatures
-        if let Some(p2) = part2 { 
-            r2_1.receive_signature(1, p2).expect("signature exchange failed"); 
+        if let Some(p2) = part2 {
+            r2_1.receive_signature(1, p2).expect("signature exchange failed");
         }
-        if let Some(p1) = part1 { 
-            r2_2.receive_signature(0, p1).expect("signature exchange failed"); 
+        if let Some(p1) = part1 {
+            r2_2.receive_signature(0, p1).expect("signature exchange failed");
         }
 
         // Get final aggregated signature
@@ -286,12 +271,10 @@ mod tests {
 
     #[test]
     fn test_musig2_two_party_sign() {
-        use musig2::secp256k1::{
-            Secp256k1 as MuSecp, Keypair, PublicKey as MuPubKey, SecretKey
-        };
-        use musig2::{KeyAggContext, FirstRound, SecNonceSpices};
-        use secp256k1::rand;
+        use musig2::secp256k1::{Keypair, PublicKey as MuPubKey, Secp256k1 as MuSecp, SecretKey};
+        use musig2::{FirstRound, KeyAggContext, SecNonceSpices};
         use rand::Rng;
+        use secp256k1::rand;
 
         let secp = MuSecp::new();
         let mut rng = rand::thread_rng();
@@ -301,7 +284,7 @@ mod tests {
         let mut sk2_bytes = [0u8; 32];
         rng.fill(&mut sk1_bytes);
         rng.fill(&mut sk2_bytes);
-        
+
         let sk1 = SecretKey::from_byte_array(sk1_bytes).expect("valid secret key");
         let sk2 = SecretKey::from_byte_array(sk2_bytes).expect("valid secret key");
         let kp1 = Keypair::from_secret_key(&secp, &sk1);
@@ -316,12 +299,8 @@ mod tests {
         let msg = b"test message for musig2";
 
         // First round: generate nonces
-        let spices1 = SecNonceSpices::new()
-            .with_seckey(kp1.secret_key())
-            .with_message(msg);
-        let spices2 = SecNonceSpices::new()
-            .with_seckey(kp2.secret_key())
-            .with_message(msg);
+        let spices1 = SecNonceSpices::new().with_seckey(kp1.secret_key()).with_message(msg);
+        let spices2 = SecNonceSpices::new().with_seckey(kp2.secret_key()).with_message(msg);
 
         // Create nonce seeds
         let nonce_seed1 = [0u8; 32];

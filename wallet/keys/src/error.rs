@@ -2,9 +2,9 @@
 //! Error types used by the wallet framework.
 //!
 
+use spora_bip32::Error as BIP32Error;
 use std::sync::PoisonError;
 use thiserror::Error;
-use spora_bip32::Error as BIP32Error;
 use wasm_bindgen::JsValue;
 use workflow_core::sendable::*;
 use workflow_wasm::jserror::*;

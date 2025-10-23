@@ -8,6 +8,8 @@ use crate::{
     model::{
         services::reachability::{MTReachabilityService, ReachabilityService},
         stores::{
+            cell_diffs::CellDiffsStoreReader,
+            cell_roots::CellRootsStoreReader,
             ghostdag::{CompactGhostdagData, GhostdagStoreReader},
             headers::HeaderStoreReader,
             past_pruning_points::PastPruningPointsStoreReader,
@@ -18,8 +20,6 @@ use crate::{
             selected_chain::{SelectedChainStore, SelectedChainStoreReader},
             statuses::StatusesStoreReader,
             tips::{TipsStore, TipsStoreReader},
-            cell_diffs::CellDiffsStoreReader,
-            cell_roots::CellRootsStoreReader,
         },
     },
     processes::{pruning_proof::PruningProofManager, reachability::inquirer as reachability, relations},
@@ -28,15 +28,6 @@ use crossbeam_channel::Receiver as CrossbeamReceiver;
 use itertools::Itertools;
 use parking_lot::RwLockUpgradableReadGuard;
 use rocksdb::WriteBatch;
-use std::{
-    collections::{hash_map::Entry::Vacant, VecDeque},
-    ops::Deref,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
-    time::{Duration, Instant},
-};
 use spora_consensus_core::{
     blockhash::ORIGIN,
     blockstatus::BlockStatus::StatusHeaderOnly,
@@ -52,6 +43,15 @@ use spora_database::prelude::{BatchDbWriter, MemoryWriter, StoreResultExtensions
 use spora_hashes::Hash;
 use spora_muhash::MuHash;
 use spora_utils::iter::IterExtensions;
+use std::{
+    collections::{hash_map::Entry::Vacant, VecDeque},
+    ops::Deref,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    time::{Duration, Instant},
+};
 
 pub enum PruningProcessingMessage {
     Exit,
@@ -240,13 +240,11 @@ impl PruningProcessor {
         info!("Verifying the new pruning point cell commitment (sanity test)");
         let header = self.headers_store.get_header(pruning_point).unwrap();
         let expected_commitment = header.cell_commitment;
-        
+
         // Get the stored cell root for this block
-        let stored_cell_root = self.cell_roots_store.get(pruning_point)
-            .expect("pruning point should have cell root");
-        
-        assert_eq!(stored_cell_root, expected_commitment, 
-            "Pruning point cell root does not match header cell_commitment");
+        let stored_cell_root = self.cell_roots_store.get(pruning_point).expect("pruning point should have cell root");
+
+        assert_eq!(stored_cell_root, expected_commitment, "Pruning point cell root does not match header cell_commitment");
         info!("Pruning point cell commitment was verified correctly (sanity test)");
     }
 

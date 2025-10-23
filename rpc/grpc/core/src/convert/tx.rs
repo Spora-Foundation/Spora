@@ -1,7 +1,7 @@
 use crate::protowire;
 use crate::{from, try_from};
-use std::str::FromStr;
 use spora_rpc_core::{FromRpcHex, RpcError, RpcHash, RpcResult, RpcScriptVec, ToRpcHex};
+use std::str::FromStr;
 
 // ----------------------------------------------------------------------------
 // rpc_core to protowire

@@ -5,26 +5,41 @@
 
 use crate::tx::TransactionOutpoint;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 use spora_utils::mem_size::MemSizeEstimator;
+use std::collections::BTreeMap;
 
-/// Cell metadata (simplified for diff tracking)
+/// Cell metadata (for diff tracking and state commitment)
+///
+/// **CKB Compatibility**: Aligned with CKB's CellMeta while adapted for GhostDAG
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CellMeta {
+    /// OutPoint: uniquely identifies this cell
+    /// Added for CKB compatibility - essential for cell identification
+    pub out_point: TransactionOutpoint,
+    
     /// Cell capacity in saus
     pub capacity: u64,
-    /// Lock script code hash
+    
+    /// Data length in bytes
+    /// Added for CKB compatibility - needed for occupied_capacity calculation
+    pub data_bytes: u64,
+    
+    /// Lock script hash
     pub lock_hash: [u8; 32],
-    /// Type script code hash (if present)
+    
+    /// Type script hash (if present)
     pub type_hash: Option<[u8; 32]>,
+    
     /// Data hash
     pub data_hash: [u8; 32],
+    
     /// Block DAA score where this cell was created
+    /// GhostDAG extension: replaces block_number for DAG compatibility
     pub block_daa_score: u64,
 }
 
 /// Collection of cells (OutPoint → CellMeta)
-/// 
+///
 /// **Determinism**: BTreeMap ensures deterministic iteration order for consensus
 pub type CellCollection = BTreeMap<TransactionOutpoint, CellMeta>;
 
@@ -43,11 +58,34 @@ pub struct CellDiff {
     pub remove: CellCollection,
 }
 
+impl CellMeta {
+    /// Calculate occupied capacity (minimum required)
+    /// Aligned with CKB's occupied_capacity calculation
+    pub fn occupied_capacity(&self) -> u64 {
+        let mut size = 8; // capacity field (u64)
+        size += 32; // lock_hash
+        if self.type_hash.is_some() {
+            size += 32; // type_hash
+        }
+        size += 32; // data_hash
+        size += self.data_bytes as usize; // actual data
+        size as u64
+    }
+
+    /// Verify capacity is sufficient
+    pub fn verify_capacity(&self) -> Result<(), &'static str> {
+        let occupied = self.occupied_capacity();
+        if self.capacity < occupied {
+            return Err("Insufficient capacity");
+        }
+        Ok(())
+    }
+}
+
 impl MemSizeEstimator for CellDiff {
     fn estimate_mem_bytes(&self) -> usize {
         std::mem::size_of::<Self>()
-            + (self.add.len() + self.remove.len())
-                * (std::mem::size_of::<TransactionOutpoint>() + std::mem::size_of::<CellMeta>())
+            + (self.add.len() + self.remove.len()) * (std::mem::size_of::<TransactionOutpoint>() + std::mem::size_of::<CellMeta>())
     }
 }
 
@@ -58,13 +96,10 @@ impl CellDiff {
     }
 
     /// Create a diff with capacity hint
-    /// 
+    ///
     /// Note: BTreeMap doesn't have with_capacity, this is kept for API compatibility
     pub fn with_capacity(_add_capacity: usize, _remove_capacity: usize) -> Self {
-        Self {
-            add: BTreeMap::new(),
-            remove: BTreeMap::new(),
-        }
+        Self { add: BTreeMap::new(), remove: BTreeMap::new() }
     }
 
     /// Add a cell creation
@@ -100,10 +135,7 @@ impl CellDiff {
 
     /// Reverse the diff (swap add and remove)
     pub fn reverse(self) -> Self {
-        Self {
-            add: self.remove,
-            remove: self.add,
-        }
+        Self { add: self.remove, remove: self.add }
     }
 
     /// Apply this diff to a cell collection (in-place)
@@ -112,7 +144,7 @@ impl CellDiff {
         for outpoint in self.remove.keys() {
             base.remove(outpoint);
         }
-        
+
         // Then add new cells
         base.extend(self.add.clone());
     }
@@ -150,10 +182,7 @@ impl CellDiff {
     /// Create a reversed view of this diff (non-consuming)
     /// Similar to UtxoDiff::as_reversed
     pub fn as_reversed(&self) -> Self {
-        Self {
-            add: self.remove.clone(),
-            remove: self.add.clone(),
-        }
+        Self { add: self.remove.clone(), remove: self.add.clone() }
     }
 
     /// Get total capacity change (added - removed)
@@ -189,9 +218,11 @@ impl CellDiff {
 mod tests {
     use super::*;
 
-    fn create_test_cell(capacity: u64) -> CellMeta {
+    fn create_test_cell(capacity: u64, index: u32) -> CellMeta {
         CellMeta {
+            out_point: create_test_outpoint(index),
             capacity,
+            data_bytes: 0,
             lock_hash: [1u8; 32],
             type_hash: None,
             data_hash: [2u8; 32],
@@ -200,10 +231,7 @@ mod tests {
     }
 
     fn create_test_outpoint(index: u32) -> TransactionOutpoint {
-        TransactionOutpoint {
-            transaction_id: [3u8; 32].into(),
-            index,
-        }
+        TransactionOutpoint { transaction_id: [3u8; 32].into(), index }
     }
 
     #[test]
@@ -219,8 +247,8 @@ mod tests {
         let mut diff = CellDiff::new();
         let outpoint1 = create_test_outpoint(0);
         let outpoint2 = create_test_outpoint(1);
-        let cell1 = create_test_cell(1000);
-        let cell2 = create_test_cell(2000);
+        let cell1 = create_test_cell(1000, 0);
+        let cell2 = create_test_cell(2000, 1);
 
         diff.add_cell(outpoint1.clone(), cell1);
         diff.remove_cell(outpoint2.clone(), cell2);
@@ -235,8 +263,8 @@ mod tests {
         let mut diff1 = CellDiff::new();
         let mut diff2 = CellDiff::new();
 
-        diff1.add_cell(create_test_outpoint(0), create_test_cell(1000));
-        diff2.add_cell(create_test_outpoint(1), create_test_cell(2000));
+        diff1.add_cell(create_test_outpoint(0), create_test_cell(1000, 0));
+        diff2.add_cell(create_test_outpoint(1), create_test_cell(2000, 1));
 
         diff1.merge(diff2);
         assert_eq!(diff1.num_added(), 2);
@@ -245,8 +273,8 @@ mod tests {
     #[test]
     fn test_reverse_diff() {
         let mut diff = CellDiff::new();
-        diff.add_cell(create_test_outpoint(0), create_test_cell(1000));
-        diff.remove_cell(create_test_outpoint(1), create_test_cell(2000));
+        diff.add_cell(create_test_outpoint(0), create_test_cell(1000, 0));
+        diff.remove_cell(create_test_outpoint(1), create_test_cell(2000, 1));
 
         let reversed = diff.reverse();
         assert_eq!(reversed.num_added(), 1);
@@ -258,12 +286,12 @@ mod tests {
         let mut base = BTreeMap::new();
         let outpoint1 = create_test_outpoint(0);
         let outpoint2 = create_test_outpoint(1);
-        
-        base.insert(outpoint1.clone(), create_test_cell(1000));
+
+        base.insert(outpoint1.clone(), create_test_cell(1000, 0));
 
         let mut diff = CellDiff::new();
-        diff.remove_cell(outpoint1.clone(), create_test_cell(1000));
-        diff.add_cell(outpoint2.clone(), create_test_cell(2000));
+        diff.remove_cell(outpoint1.clone(), create_test_cell(1000, 0));
+        diff.add_cell(outpoint2.clone(), create_test_cell(2000, 1));
 
         diff.apply_to(&mut base);
 
@@ -280,8 +308,8 @@ mod tests {
         let outpoint1 = create_test_outpoint(0);
         let outpoint2 = create_test_outpoint(1);
 
-        old.insert(outpoint1.clone(), create_test_cell(1000));
-        new.insert(outpoint2.clone(), create_test_cell(2000));
+        old.insert(outpoint1.clone(), create_test_cell(1000, 0));
+        new.insert(outpoint2.clone(), create_test_cell(2000, 1));
 
         let diff = CellDiff::from_collections(&old, &new);
 
@@ -299,12 +327,12 @@ mod tests {
         let outpoint3 = create_test_outpoint(2);
 
         // diff1: add outpoint1, remove outpoint2
-        diff1.add_cell(outpoint1.clone(), create_test_cell(1000));
-        diff1.remove_cell(outpoint2.clone(), create_test_cell(2000));
+        diff1.add_cell(outpoint1.clone(), create_test_cell(1000, 0));
+        diff1.remove_cell(outpoint2.clone(), create_test_cell(2000, 1));
 
         // diff2: remove outpoint1 (cancels add), add outpoint3
-        diff2.remove_cell(outpoint1.clone(), create_test_cell(1000));
-        diff2.add_cell(outpoint3.clone(), create_test_cell(3000));
+        diff2.remove_cell(outpoint1.clone(), create_test_cell(1000, 0));
+        diff2.add_cell(outpoint3.clone(), create_test_cell(3000, 2));
 
         diff1.with_diff_in_place(&diff2).unwrap();
 
@@ -321,11 +349,11 @@ mod tests {
     #[test]
     fn test_as_reversed() {
         let mut diff = CellDiff::new();
-        diff.add_cell(create_test_outpoint(0), create_test_cell(1000));
-        diff.remove_cell(create_test_outpoint(1), create_test_cell(2000));
+        diff.add_cell(create_test_outpoint(0), create_test_cell(1000, 0));
+        diff.remove_cell(create_test_outpoint(1), create_test_cell(2000, 1));
 
         let reversed = diff.as_reversed();
-        
+
         assert_eq!(reversed.num_added(), 1);
         assert_eq!(reversed.num_removed(), 1);
         assert!(reversed.add.contains_key(&create_test_outpoint(1)));
@@ -335,10 +363,30 @@ mod tests {
     #[test]
     fn test_capacity_delta() {
         let mut diff = CellDiff::new();
-        diff.add_cell(create_test_outpoint(0), create_test_cell(5000));
-        diff.remove_cell(create_test_outpoint(1), create_test_cell(2000));
+        diff.add_cell(create_test_outpoint(0), create_test_cell(5000, 0));
+        diff.remove_cell(create_test_outpoint(1), create_test_cell(2000, 1));
 
         assert_eq!(diff.capacity_delta(), 3000); // 5000 - 2000
     }
-}
 
+    #[test]
+    fn test_occupied_capacity() {
+        let cell = create_test_cell(10000, 0);
+        let occupied = cell.occupied_capacity();
+        // 8 (capacity) + 32 (lock) + 32 (data_hash) + 0 (data_bytes) = 72
+        assert_eq!(occupied, 72);
+    }
+
+    #[test]
+    fn test_verify_capacity() {
+        let mut cell = create_test_cell(1000, 0);
+        cell.data_bytes = 100;
+        
+        // Should pass: 1000 >= occupied (72 + 100 = 172)
+        assert!(cell.verify_capacity().is_ok());
+        
+        // Should fail: insufficient capacity
+        cell.capacity = 50;
+        assert!(cell.verify_capacity().is_err());
+    }
+}

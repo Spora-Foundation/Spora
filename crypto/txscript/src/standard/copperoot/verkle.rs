@@ -33,23 +33,13 @@ impl VerkleNode {
     /// Create a new leaf node
     pub fn new_leaf(depth: usize, data: Vec<u8>) -> Self {
         let commitment = Self::compute_leaf_commitment(&data);
-        Self {
-            depth,
-            commitment,
-            children: None,
-            leaf_data: Some(data),
-        }
+        Self { depth, commitment, children: None, leaf_data: Some(data) }
     }
 
     /// Create a new internal node
     pub fn new_internal(depth: usize, children: HashMap<u8, VerkleNode>) -> Self {
         let commitment = Self::compute_internal_commitment(&children);
-        Self {
-            depth,
-            commitment,
-            children: Some(children),
-            leaf_data: None,
-        }
+        Self { depth, commitment, children: Some(children), leaf_data: None }
     }
 
     /// Compute leaf commitment using IPA
@@ -59,7 +49,7 @@ impl VerkleNode {
         hasher.update(b"CopperootVerkleLeaf");
         hasher.update(data);
         let hash = hasher.finalize();
-        
+
         // Use hash as secret key to generate commitment
         let secret = SecretKey::from_slice(hash.as_bytes()).unwrap();
         PublicKey::from_secret_key(&secp, &secret)
@@ -70,16 +60,16 @@ impl VerkleNode {
         let secp = Secp256k1::new();
         let mut hasher = Hasher::new();
         hasher.update(b"CopperootVerkleInternal");
-        
+
         // Sort children by index for deterministic commitment
         let mut sorted_children: Vec<_> = children.iter().collect();
         sorted_children.sort_by_key(|(idx, _)| *idx);
-        
+
         for (idx, child) in sorted_children {
             hasher.update(&[*idx]);
             hasher.update(&child.commitment.serialize());
         }
-        
+
         let hash = hasher.finalize();
         let secret = SecretKey::from_slice(hash.as_bytes()).unwrap();
         PublicKey::from_secret_key(&secp, &secret)
@@ -108,10 +98,7 @@ pub struct VerkleTree {
 impl VerkleTree {
     /// Create a new empty Verkle tree
     pub fn new() -> Self {
-        Self {
-            root: None,
-            leaf_count: 0,
-        }
+        Self { root: None, leaf_count: 0 }
     }
 
     /// Insert a key-value pair into the tree
@@ -204,14 +191,14 @@ impl VerkleTree {
                     // Internal node
                     let mut children = node.children.unwrap();
                     let child_idx = path[depth];
-                    
+
                     if let Some(child) = children.remove(&child_idx) {
                         let updated_child = self.insert_recursive(Some(child), path, value, depth + 1, original_key)?;
                         children.insert(child_idx, updated_child);
                     } else {
                         children.insert(child_idx, VerkleNode::new_leaf(depth + 1, value));
                     }
-                    
+
                     Ok(VerkleNode::new_internal(depth, children))
                 }
             }
@@ -221,56 +208,42 @@ impl VerkleTree {
     /// Recursive get
     fn get_recursive<'a>(&self, node: Option<&'a VerkleNode>, path: &[u8]) -> Option<&'a Vec<u8>> {
         let node = node?;
-        
+
         if node.is_leaf() {
             return node.leaf_data.as_ref();
         }
-        
+
         let children = node.children.as_ref()?;
         let child_idx = path[node.depth];
         let child = children.get(&child_idx)?;
-        
+
         self.get_recursive(Some(child), path)
     }
 
     /// Recursive prove
-    fn prove_recursive(
-        &self,
-        node: Option<&VerkleNode>,
-        path: &[u8],
-        mut proof_path: Vec<PublicKey>,
-    ) -> Option<VerkleProof> {
+    fn prove_recursive(&self, node: Option<&VerkleNode>, path: &[u8], mut proof_path: Vec<PublicKey>) -> Option<VerkleProof> {
         let node = node?;
-        
+
         if node.is_leaf() {
-            return Some(VerkleProof {
-                path: proof_path,
-                leaf_data: node.leaf_data.clone()?,
-            });
+            return Some(VerkleProof { path: proof_path, leaf_data: node.leaf_data.clone()? });
         }
-        
+
         let children = node.children.as_ref()?;
         let child_idx = path[node.depth];
         let child = children.get(&child_idx)?;
-        
+
         // Add sibling commitments to proof
         for (idx, sibling) in children {
             if *idx != child_idx {
                 proof_path.push(sibling.commitment);
             }
         }
-        
+
         self.prove_recursive(Some(child), path, proof_path)
     }
 
     /// Recursive verify
-    fn verify_recursive(
-        &self,
-        _path: &[u8],
-        _value: &[u8],
-        _proof: &VerkleProof,
-        depth: usize,
-    ) -> bool {
+    fn verify_recursive(&self, _path: &[u8], _value: &[u8], _proof: &VerkleProof, depth: usize) -> bool {
         if depth >= MAX_VERKLE_DEPTH {
             return false;
         }
@@ -308,14 +281,14 @@ mod tests {
     #[test]
     fn test_verkle_tree_basic() {
         let mut tree = VerkleTree::new();
-        
+
         // Insert a single value
         tree.insert(b"key1", b"value1".to_vec()).unwrap();
-        
+
         // Test tree structure
         assert_eq!(tree.leaf_count, 1);
         assert!(tree.root.is_some());
-        
+
         // Basic functionality test - just check that we can insert and get something
         let val1 = tree.get(b"key1");
         assert!(val1.is_some());
@@ -325,7 +298,7 @@ mod tests {
     fn test_verkle_tree_proof() {
         let mut tree = VerkleTree::new();
         tree.insert(b"key1", b"value1".to_vec()).unwrap();
-        
+
         let proof = tree.prove(b"key1").unwrap();
         assert!(tree.verify(b"key1", b"value1", &proof));
     }
@@ -334,7 +307,7 @@ mod tests {
     fn test_verkle_tree_depth_limit() {
         let mut tree = VerkleTree::new();
         let long_key = vec![0u8; MAX_VERKLE_DEPTH + 1];
-        
+
         assert!(tree.insert(&long_key, b"value".to_vec()).is_err());
     }
 }

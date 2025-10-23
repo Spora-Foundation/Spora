@@ -1,7 +1,6 @@
 use crate::{flow_context::FlowContext, flow_trait::Flow};
 use itertools::Itertools;
 use rand::seq::SliceRandom;
-use std::sync::Arc;
 use spora_addressmanager::NetAddress;
 use spora_p2p_lib::{
     common::ProtocolError,
@@ -10,6 +9,7 @@ use spora_p2p_lib::{
     IncomingRoute, Router,
 };
 use spora_utils::networking::IpAddress;
+use std::sync::Arc;
 
 /// The maximum number of addresses that are sent in a single spora Addresses message.
 const MAX_ADDRESSES_SEND: usize = 1000;

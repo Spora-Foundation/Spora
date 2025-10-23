@@ -8,10 +8,10 @@ use crate::u3072::U3072;
 use rand_chacha::rand_core::{RngCore, SeedableRng};
 use rand_chacha::ChaCha20Rng;
 use serde::{Deserialize, Serialize};
-use std::error::Error;
-use std::fmt::Display;
 use spora_hashes::{Hash, Hasher, HasherBase, MuHashElementHash, MuHashFinalizeHash};
 use spora_math::Uint3072;
+use std::error::Error;
+use std::fmt::Display;
 
 pub const HASH_SIZE: usize = 32;
 pub const SERIALIZED_MUHASH_SIZE: usize = ELEMENT_BYTE_SIZE;

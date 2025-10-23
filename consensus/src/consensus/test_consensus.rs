@@ -4,8 +4,13 @@ use spora_consensus_core::coinbase::MinerData;
 use spora_consensus_core::mining_rules::MiningRules;
 use spora_consensus_core::tx::ScriptPublicKey;
 use spora_consensus_core::{
-    api::ConsensusApi, block::MutableBlock, blockstatus::BlockStatus, header::Header, merkle::calc_hash_merkle_root,
-    subnets::SUBNETWORK_ID_COINBASE, tx::{Transaction, CellTx},
+    api::ConsensusApi,
+    block::MutableBlock,
+    blockstatus::BlockStatus,
+    header::Header,
+    merkle::calc_hash_merkle_root,
+    subnets::SUBNETWORK_ID_COINBASE,
+    tx::{CellTx, Transaction},
 };
 use spora_consensus_notify::{notification::Notification, root::ConsensusNotificationRoot};
 use spora_consensusmanager::{ConsensusFactory, ConsensusInstance, DynConsensusCtl};
@@ -33,10 +38,10 @@ use crate::{
     pipeline::{body_processor::BlockBodyProcessor, virtual_processor::VirtualStateProcessor, ProcessingCounters},
     test_helpers::header_from_precomputed_hash,
 };
-use std::future::Future;
-use std::{sync::Arc, thread::JoinHandle};
 use spora_database::create_temp_db;
 use spora_database::prelude::ConnBuilder;
+use std::future::Future;
+use std::{sync::Arc, thread::JoinHandle};
 
 pub struct TestConsensus {
     params: Params,
@@ -190,7 +195,7 @@ impl TestConsensus {
 
         // TODO(cell-model): Convert to CellTx coinbase
         // For now, create empty block
-        let cell_txs: Vec<CellTx> = vec![];  // Empty for now
+        let cell_txs: Vec<CellTx> = vec![]; // Empty for now
         header.hash_merkle_root = spora_consensus_core::merkle::calc_hash_merkle_root_cell(cell_txs.iter(), false);
         MutableBlock::new(header, cell_txs)
     }

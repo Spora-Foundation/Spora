@@ -4,9 +4,6 @@ use rand::rngs::ThreadRng;
 use rand::Rng;
 use rand_distr::{Distribution, Exp};
 use rayon::prelude::{IntoParallelIterator, ParallelIterator};
-use std::cmp::max;
-use std::iter::once;
-use std::sync::Arc;
 use spora_consensus::consensus::Consensus;
 use spora_consensus::model::stores::virtual_state::VirtualStateStoreReader;
 use spora_consensus::params::Params;
@@ -17,8 +14,12 @@ use spora_consensus_core::mass::MassCalculator;
 use spora_consensus_core::sign::sign;
 use spora_consensus_core::subnets::SUBNETWORK_ID_NATIVE;
 use spora_consensus_core::tx::{
-    MutableTransaction, ScriptPublicKey, ScriptVec, Transaction, TransactionInput, TransactionOutpoint, TransactionOutput, UtxoEntry, CellTx,
+    CellTx, MutableTransaction, ScriptPublicKey, ScriptVec, Transaction, TransactionInput, TransactionOutpoint, TransactionOutput,
+    UtxoEntry,
 };
+use std::cmp::max;
+use std::iter::once;
+use std::sync::Arc;
 // use spora_consensus_core::utxo::utxo_view::UtxoView;  // TODO(cell-model): UTXO removed
 use spora_core::trace;
 use spora_utils::sim::{Environment, Process, Resumption, Suspension};
@@ -36,7 +37,7 @@ impl OnetimeTxSelector {
 impl TemplateTransactionSelector for OnetimeTxSelector {
     fn select_transactions(&mut self) -> Vec<CellTx> {
         // TODO(cell-model): Convert Transaction to CellTx
-        vec![]  // Empty for now
+        vec![] // Empty for now
     }
 
     fn reject_selection(&mut self, _tx_id: spora_consensus_core::tx::TransactionId) {
@@ -144,10 +145,10 @@ impl Miner {
         // let virtual_utxo_view = &virtual_read.utxo_set; // REMOVED: Cell model migration
         let multiple_outputs = self.possible_unspent_outpoints.len() < 5_000;
         let schnorr_key = secp256k1::Keypair::from_seckey_slice(secp256k1::SECP256K1, &self.secret_key.secret_bytes()).unwrap();
-        
+
         // STUB: Cell model transaction building not yet implemented
         // Return empty vector as temporary stub
-        
+
         /* UTXO-based logic - needs Cell model reimplementation:
         let txs = self
             .possible_unspent_outpoints
@@ -178,7 +179,7 @@ impl Miner {
         }
         txs
         */
-        
+
         vec![] // Temporary stub - return empty transactions
     }
 
@@ -235,7 +236,8 @@ impl Miner {
                 // STUB: Need to compare lock hash with miner's lock in Cell model
                 // if output.lock.hash().eq(&self.miner_data.script_public_key.hash()) {
                 // For now, skip this logic during migration
-                if false { // Temporary stub
+                if false {
+                    // Temporary stub
                     if self.possible_unspent_outpoints.len() == self.max_cached_outpoints {
                         self.possible_unspent_outpoints.swap_remove_index(self.rng.gen_range(0..self.max_cached_outpoints));
                     }

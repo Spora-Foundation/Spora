@@ -5,9 +5,9 @@ use crate::{
     NewBlockTemplateNotification, Notification, PruningPointUtxoSetOverrideNotification, RpcAcceptedTransactionIds,
     SinkBlueScoreChangedNotification, UtxosChangedNotification, VirtualChainChangedNotification, VirtualDaaScoreChangedNotification,
 };
-use std::sync::Arc;
 use spora_consensus_notify::notification as consensus_notify;
 use spora_index_core::notification as index_notify;
+use std::sync::Arc;
 
 // ----------------------------------------------------------------------------
 // consensus_core to rpc_core
@@ -30,8 +30,8 @@ impl From<&consensus_notify::Notification> for Notification {
             // consensus_notify::Notification::UtxosChanged(msg) => Notification::UtxosChanged(msg.into()),
             consensus_notify::Notification::CellsChanged(_msg) => {
                 // TODO(cell-model): Implement CellsChanged notification conversion
-                Notification::UtxosChanged(Default::default())  // Temporary stub
-            },
+                Notification::UtxosChanged(Default::default()) // Temporary stub
+            }
             consensus_notify::Notification::SinkBlueScoreChanged(msg) => Notification::SinkBlueScoreChanged(msg.into()),
             consensus_notify::Notification::VirtualDaaScoreChanged(msg) => Notification::VirtualDaaScoreChanged(msg.into()),
             consensus_notify::Notification::PruningPointUtxoSetOverride(msg) => Notification::PruningPointUtxoSetOverride(msg.into()),
@@ -133,8 +133,8 @@ impl From<&index_notify::Notification> for Notification {
             index_notify::Notification::UtxosChanged(msg) => Notification::UtxosChanged(msg.into()),
             index_notify::Notification::CellsChanged(_msg) => {
                 // TODO(cell-model): Implement CellsChanged notification conversion
-                Notification::UtxosChanged(Default::default())  // Temporary stub
-            },
+                Notification::UtxosChanged(Default::default()) // Temporary stub
+            }
             index_notify::Notification::PruningPointUtxoSetOverride(msg) => Notification::PruningPointUtxoSetOverride(msg.into()),
         }
     }

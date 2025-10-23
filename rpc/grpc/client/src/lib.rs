@@ -8,14 +8,6 @@ pub use client_pool::ClientPool;
 use connection_event::ConnectionEvent;
 use futures::{future::FutureExt, pin_mut, select};
 use regex::Regex;
-use std::{
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
-    time::Duration,
-};
-use tokio::sync::Mutex;
 use spora_core::{debug, error, trace};
 use spora_grpc_core::{
     channel::NotificationChannel,
@@ -49,6 +41,14 @@ use spora_utils_tower::{
     counters::TowerConnectionCounters,
     middleware::{BodyExt, CountBytesBody, MapRequestBodyLayer, MapResponseBodyLayer, ServiceBuilder},
 };
+use std::{
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    time::Duration,
+};
+use tokio::sync::Mutex;
 use tonic::codec::CompressionEncoding;
 use tonic::Streaming;
 

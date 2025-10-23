@@ -4,11 +4,10 @@
 // Load transaction hash syscall
 // Reference: ckb/script/src/syscalls/load_tx.rs
 
-use super::utils::{store_data, SUCCESS, INDEX_OUT_OF_BOUND};
+use super::utils::{store_data, INDEX_OUT_OF_BOUND, SUCCESS};
 use ckb_vm::{
-    Register, Syscalls, SupportMachine,
-    Error as VMError,
     registers::{A0, A7},
+    Error as VMError, Register, SupportMachine, Syscalls,
 };
 
 /// Syscall: Load Transaction Hash
@@ -33,7 +32,7 @@ impl<M: SupportMachine> Syscalls<M> for LoadTx {
 
     fn ecall(&mut self, machine: &mut M) -> Result<bool, VMError> {
         let syscall_number = machine.registers()[A7].to_u64();
-        
+
         // LOAD_TX_HASH = 2061
         if syscall_number != 2061 {
             return Ok(false);
@@ -43,7 +42,7 @@ impl<M: SupportMachine> Syscalls<M> for LoadTx {
         // It reads A0, A1, A2 from registers internally
         store_data(machine, &self.tx_hash)?;
         machine.set_register(A0, M::REG::from_u8(SUCCESS));
-        
+
         Ok(true)
     }
 }
@@ -51,8 +50,8 @@ impl<M: SupportMachine> Syscalls<M> for LoadTx {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::celltx::{CellTx, CellRef, CellOut, ScriptRef, OutPoint};
-    
+    use crate::celltx::{CellOut, CellRef, CellTx, OutPoint, ScriptRef};
+
     #[test]
     fn test_load_tx_creation() {
         let tx_hash = [0x42u8; 32];

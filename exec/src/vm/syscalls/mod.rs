@@ -4,29 +4,29 @@
 // VM system calls
 // Adapted from CKB script/src/syscalls/
 
-pub mod utils;
-pub mod load_tx;
-pub mod load_cell;
-pub mod load_cell_data;
-pub mod load_input;
-pub mod load_header;
-pub mod load_witness;
-pub mod load_script;
+pub mod blake3;
 pub mod current_cycles;
 pub mod debugger;
-pub mod blake3;  // Spora-specific: blake3 hash syscall
+pub mod load_cell;
+pub mod load_cell_data;
+pub mod load_header;
+pub mod load_input;
+pub mod load_script;
+pub mod load_tx;
+pub mod load_witness;
+pub mod utils; // Spora-specific: blake3 hash syscall
 
-pub use utils::*;
-pub use load_tx::LoadTx;
-pub use load_cell::LoadCell;
-pub use load_cell_data::LoadCellData;
-pub use load_input::LoadInput;
-pub use load_header::LoadHeader;
-pub use load_witness::LoadWitness;
-pub use load_script::LoadScript;
+pub use blake3::Blake3Hash;
 pub use current_cycles::CurrentCycles;
 pub use debugger::Debugger;
-pub use blake3::Blake3Hash;
+pub use load_cell::LoadCell;
+pub use load_cell_data::LoadCellData;
+pub use load_header::LoadHeader;
+pub use load_input::LoadInput;
+pub use load_script::LoadScript;
+pub use load_tx::LoadTx;
+pub use load_witness::LoadWitness;
+pub use utils::*;
 
 /// System call numbers (aligned with CKB)
 pub const LOAD_TX_HASH_SYSCALL_NUMBER: u64 = 2061;
@@ -191,4 +191,3 @@ mod tests {
         assert_eq!(CellField::parse(99), None);
     }
 }
-

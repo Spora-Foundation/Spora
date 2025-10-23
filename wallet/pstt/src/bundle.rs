@@ -7,11 +7,11 @@ use spora_addresses::{Address, Prefix};
 // use spora_bip32::Prefix;
 use hex;
 use serde::{Deserialize, Serialize};
-use std::ops::Deref;
 use spora_consensus_core::constants::UNACCEPTED_DAA_SCORE;
 use spora_consensus_core::network::{NetworkId, NetworkType};
 use spora_consensus_core::tx::{ScriptPublicKey, TransactionOutpoint, UtxoEntry};
 use spora_txscript::{extract_script_pub_key_address, pay_to_address_script, pay_to_script_hash_script};
+use std::ops::Deref;
 
 ///
 /// Bundle is a [`PSTT`] bundle - a sequence of PSTT transactions
@@ -274,10 +274,10 @@ mod tests {
     use crate::role::*;
     use secp256k1::Secp256k1;
     use secp256k1::{rand::thread_rng, Keypair};
-    use std::str::FromStr;
-    use std::sync::LazyLock;
     use spora_consensus_core::tx::{TransactionId, TransactionOutpoint, UtxoEntry};
     use spora_txscript::{multisig_redeem_script, pay_to_script_hash_script};
+    use std::str::FromStr;
+    use std::sync::LazyLock;
 
     static CONTEXT: LazyLock<Box<([Keypair; 2], Vec<u8>)>> = LazyLock::new(|| {
         let kps = [Keypair::new(&Secp256k1::new(), &mut thread_rng()), Keypair::new(&Secp256k1::new(), &mut thread_rng())];

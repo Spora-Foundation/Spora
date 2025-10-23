@@ -1,8 +1,8 @@
 use parking_lot::{RwLock, RwLockWriteGuard};
 use rocksdb::WriteBatch;
-use std::sync::Arc;
 use spora_consensus_core::{blockstatus::BlockStatus, BlockHasher};
 use spora_database::registry::DatabaseStorePrefixes;
+use std::sync::Arc;
 
 use spora_database::prelude::{BatchDbWriter, CachedDbAccess, DirectDbWriter};
 use spora_database::prelude::{CachePolicy, DB};

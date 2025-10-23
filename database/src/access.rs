@@ -3,8 +3,8 @@ use crate::{cache::CachePolicy, db::DB, errors::StoreError};
 use super::prelude::{Cache, DbKey, DbWriter};
 use rocksdb::{Direction, IterateBounds, IteratorMode, ReadOptions};
 use serde::{de::DeserializeOwned, Serialize};
-use std::{collections::hash_map::RandomState, error::Error, hash::BuildHasher, sync::Arc};
 use spora_utils::mem_size::MemSizeEstimator;
+use std::{collections::hash_map::RandomState, error::Error, hash::BuildHasher, sync::Arc};
 
 /// A concurrent DB store access with typed caching.
 #[derive(Clone)]

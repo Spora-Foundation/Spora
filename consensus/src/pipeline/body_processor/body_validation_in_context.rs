@@ -8,10 +8,10 @@ use crate::{
     },
 };
 use once_cell::unsync::Lazy;
-use std::sync::Arc;
 use spora_consensus_core::{block::Block, errors::tx::TxRuleError};
 use spora_database::prelude::StoreResultExtensions;
 use spora_hashes::Hash;
+use std::sync::Arc;
 
 impl BlockBodyProcessor {
     pub fn validate_body_in_context(self: &Arc<Self>, block: &Block) -> BlockProcessResult<()> {
@@ -22,24 +22,55 @@ impl BlockBodyProcessor {
     }
 
     fn check_block_transactions_in_context(self: &Arc<Self>, block: &Block) -> BlockProcessResult<()> {
-        // TODO(cell-model): Time lock validation moved to CellValidator/VM execution
-        // Cell model validates time locks during script execution, not here
-        // CellRef.since field contains time lock information
-        
-        // Basic sanity checks only
-        for tx in block.transactions.iter() {
-            // Skip coinbase
-            if tx.is_coinbase() {
-                continue;
-            }
-            
-            // Basic validation - cell model specific checks will be in CellValidator
-            // TODO(cell-model): Define proper CellTx validation errors
-            if tx.inputs.is_empty() {
-                // Skip this check for now - will be handled in CellValidator
-                // return Err(RuleError::InvalidTransaction);
+        // Cell model validation with VM script verification
+        #[cfg(feature = "vm")]
+        {
+            use crate::processes::cell_validator::{CellConsensusParams, CellValidator};
+            use std::sync::Arc;
+
+            // Create cell validator with consensus parameters
+            let params = Arc::new(CellConsensusParams::default());
+
+            // TODO: Use real CellStateProvider from consensus storage
+            // For now, we validate isolation and format only
+            // Full validation (with state) happens in virtual processor
+
+            for tx in block.transactions.iter() {
+                // Skip coinbase (has no inputs)
+                if tx.is_coinbase() {
+                    continue;
+                }
+
+                // Isolation validation (format, capacity, size)
+                // This is stateless and safe to do here
+                use crate::processes::cell_validator::cell_validation_in_isolation::validate_cell_tx_in_isolation;
+                validate_cell_tx_in_isolation(tx)
+                    .map_err(|e| RuleError::CellValidationError(format!("Isolation validation failed: {:?}", e)))?;
+
+                // Note: Full validation (context + DAG + scripts) happens in:
+                // 1. Virtual processor for mempool transactions
+                // 2. Block processor for block acceptance
+                // We don't duplicate it here to avoid double validation
             }
         }
+
+        #[cfg(not(feature = "vm"))]
+        {
+            // Without VM feature, only basic checks
+            for tx in block.transactions.iter() {
+                if tx.is_coinbase() {
+                    continue;
+                }
+
+                if tx.inputs.is_empty() {
+                    return Err(RuleError::InvalidTransaction);
+                }
+                if tx.outputs.is_empty() {
+                    return Err(RuleError::InvalidTransaction);
+                }
+            }
+        }
+
         Ok(())
     }
 

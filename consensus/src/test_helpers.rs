@@ -89,7 +89,7 @@ pub fn generate_random_block(
     // TODO(cell-model): Replace with generate_random_cell_transactions
     Block::new(
         generate_random_header(rng, parent_amount),
-        vec![],  // Empty transactions for now
+        vec![], // Empty transactions for now
     )
 }
 

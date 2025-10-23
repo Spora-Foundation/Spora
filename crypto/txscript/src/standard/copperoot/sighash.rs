@@ -174,7 +174,7 @@ impl<'a> Encodable for Annex<'a> {
     fn consensus_encode<W: Write + ?Sized>(&self, w: &mut W) -> Result<usize, BitcoinIoError> {
         // Ensure first byte is 0x50
         debug_assert!(self.0.first().copied() == Some(0x50), "Annex must start with 0x50");
-        
+
         let data = self.0;
         let vi_len = VarInt(data.len() as u64).consensus_encode(w)?;
         w.write_all(data)?;
@@ -295,15 +295,12 @@ impl<Tx: Borrow<Transaction>> SighashCache<Tx> {
                 let mut amount_bytes = Vec::new();
                 txout.value.consensus_encode(&mut amount_bytes).unwrap();
                 enc_amounts.update(&amount_bytes);
-                
+
                 let mut script_bytes = Vec::new();
                 txout.script_public_key.script().to_vec().consensus_encode(&mut script_bytes).unwrap();
                 enc_script_pubkeys.update(&script_bytes);
             }
-            CopperootCache {
-                amounts: enc_amounts.finalize().into(),
-                script_pubkeys: enc_script_pubkeys.finalize().into(),
-            }
+            CopperootCache { amounts: enc_amounts.finalize().into(), script_pubkeys: enc_script_pubkeys.finalize().into() }
         })
     }
 
@@ -318,7 +315,7 @@ impl<Tx: Borrow<Transaction>> SighashCache<Tx> {
                 let mut prevout_bytes = Vec::new();
                 txin.previous_outpoint.consensus_encode(&mut prevout_bytes).unwrap();
                 enc_prevouts.update(&prevout_bytes);
-                
+
                 let mut sequence_bytes = Vec::new();
                 txin.sequence.consensus_encode(&mut sequence_bytes).unwrap();
                 enc_sequences.update(&sequence_bytes);
@@ -478,14 +475,14 @@ impl<Tx: Borrow<Transaction>> SighashCache<Tx> {
 mod tests {
     use super::*;
     use crate::SCRIPT_VER_P2CR;
-    use spora_consensus_core::{
-        subnets::SubnetworkId,
-        tx::{ScriptPublicKey, ScriptVec, TransactionId, TransactionOutpoint, TransactionInput, TransactionOutput, Transaction},
-    };
     use bitcoin::{hex::test_hex_unwrap, key::TapTweak, taproot::Signature, Witness};
     use secp256k1::{Keypair, Message, Secp256k1};
-    use std::str::FromStr;
+    use spora_consensus_core::{
+        subnets::SubnetworkId,
+        tx::{ScriptPublicKey, ScriptVec, Transaction, TransactionId, TransactionInput, TransactionOutpoint, TransactionOutput},
+    };
     use spora_utils::hex::FromHex;
+    use std::str::FromStr;
 
     #[test]
     fn test_copperoot_sighash_hash() {
@@ -548,7 +545,7 @@ mod tests {
         // Verify signature is 64 bytes (without sighash type)
         let sig_start = witness_str.find("[[0x").unwrap();
         let sig_end = witness_str.find("]]").unwrap();
-        let sig_part = &witness_str[sig_start+4..sig_end];
+        let sig_part = &witness_str[sig_start + 4..sig_end];
         let hex_chars: Vec<&str> = sig_part.split(", ").collect();
         assert_eq!(hex_chars.len(), 64, "Signature should be 64 bytes");
     }

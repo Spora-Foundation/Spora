@@ -3,8 +3,6 @@ use crate::{
     flow_trait::Flow,
     flowcontext::transactions::MAX_INV_PER_TX_INV_MSG,
 };
-use std::sync::Arc;
-use tokio::time::timeout;
 use spora_consensus_core::tx::{Transaction, TransactionId};
 use spora_consensusmanager::ConsensusProxy;
 use spora_core::{time::unix_now, warn};
@@ -23,6 +21,8 @@ use spora_p2p_lib::{
     pb::{sporad_message::Payload, RequestTransactionsMessage, TransactionNotFoundMessage},
     IncomingRoute, Router,
 };
+use std::sync::Arc;
+use tokio::time::timeout;
 
 pub(crate) const MAX_TPS_THRESHOLD: u64 = 3000;
 

@@ -1,6 +1,6 @@
 use smallvec::{smallvec, SmallVec};
-use std::str;
 use spora_consensus_core::BlueWorkType;
+use std::str;
 
 // TODO combine this with spora-utils::hex
 

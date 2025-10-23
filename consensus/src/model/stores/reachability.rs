@@ -15,12 +15,12 @@ use itertools::Itertools;
 use parking_lot::{RwLockUpgradableReadGuard, RwLockWriteGuard};
 use rocksdb::WriteBatch;
 use serde::{Deserialize, Serialize};
+use spora_utils::mem_size::MemSizeEstimator;
 use std::{
     collections::hash_map::Entry::{Occupied, Vacant},
     iter::once,
     sync::Arc,
 };
-use spora_utils::mem_size::MemSizeEstimator;
 
 #[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct ReachabilityData {

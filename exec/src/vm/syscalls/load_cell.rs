@@ -4,12 +4,11 @@
 // Load cell syscall
 // Reference: ckb/script/src/syscalls/load_cell.rs
 
-use super::utils::{store_data, SUCCESS, INDEX_OUT_OF_BOUND, ITEM_MISSING};
-use crate::celltx::{CellTx, CellOut, ScriptRef};
+use super::utils::{store_data, INDEX_OUT_OF_BOUND, ITEM_MISSING, SUCCESS};
+use crate::celltx::{CellOut, CellTx, ScriptRef};
 use ckb_vm::{
-    Register, Syscalls, SupportMachine,
-    Error as VMError,
     registers::{A0, A2, A3, A4, A5, A7},
+    Error as VMError, Register, SupportMachine, Syscalls,
 };
 use std::sync::Arc;
 
@@ -48,16 +47,8 @@ pub struct LoadCell {
 }
 
 impl LoadCell {
-    pub fn new(
-        tx: Arc<CellTx>,
-        group_input_indices: Vec<usize>,
-        group_output_indices: Vec<usize>,
-    ) -> Self {
-        Self {
-            tx,
-            group_input_indices,
-            group_output_indices,
-        }
+    pub fn new(tx: Arc<CellTx>, group_input_indices: Vec<usize>, group_output_indices: Vec<usize>) -> Self {
+        Self { tx, group_input_indices, group_output_indices }
     }
 
     fn get_cell_output(&self, source: u64, index: usize) -> Option<&CellOut> {
@@ -73,16 +64,14 @@ impl LoadCell {
             }
             0x0100 => {
                 // GroupInput
-                self.group_input_indices.get(index)
-                    .and_then(|&idx| {
-                        // TODO: resolve input cell
-                        None
-                    })
+                self.group_input_indices.get(index).and_then(|&idx| {
+                    // TODO: resolve input cell
+                    None
+                })
             }
             0x0200 => {
                 // GroupOutput
-                self.group_output_indices.get(index)
-                    .and_then(|&idx| self.tx.outputs.get(idx))
+                self.group_output_indices.get(index).and_then(|&idx| self.tx.outputs.get(idx))
             }
             _ => None,
         }
@@ -141,7 +130,7 @@ impl<M: SupportMachine> Syscalls<M> for LoadCell {
 
     fn ecall(&mut self, machine: &mut M) -> Result<bool, VMError> {
         let syscall_number = machine.registers()[A7].to_u64();
-        
+
         // LOAD_CELL = 2071 or LOAD_CELL_BY_FIELD = 2081
         if syscall_number != 2071 && syscall_number != 2081 {
             return Ok(false);
@@ -190,7 +179,7 @@ impl<M: SupportMachine> Syscalls<M> for LoadCell {
         // Store data using CKB-style store_data
         store_data(machine, &data)?;
         machine.set_register(A0, M::REG::from_u8(SUCCESS));
-        
+
         Ok(true)
     }
 }
@@ -198,7 +187,7 @@ impl<M: SupportMachine> Syscalls<M> for LoadCell {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::celltx::{CellTx, CellOut, ScriptRef};
+    use crate::celltx::{CellOut, CellTx, ScriptRef};
 
     #[test]
     fn test_load_cell_creation() {
@@ -206,13 +195,7 @@ mod tests {
             ver: 0xC001,
             inputs: vec![],
             deps: vec![],
-            outputs: vec![
-                CellOut {
-                    capacity: 1000,
-                    lock: ScriptRef::new([1u8; 32], 0, vec![]),
-                    type_: None,
-                }
-            ],
+            outputs: vec![CellOut { capacity: 1000, lock: ScriptRef::new([1u8; 32], 0, vec![]), type_: None }],
             outputs_data: vec![vec![0xAA; 10]],
             witnesses: vec![],
         });

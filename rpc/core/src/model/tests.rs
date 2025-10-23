@@ -3,8 +3,6 @@ mod mockery {
 
     use crate::{model::*, RpcScriptClass};
     use rand::Rng;
-    use std::net::{IpAddr, Ipv4Addr};
-    use std::sync::Arc;
     use spora_addresses::{Prefix, Version};
     use spora_consensus_core::api::BlockCount;
     use spora_consensus_core::network::NetworkType;
@@ -15,6 +13,8 @@ mod mockery {
     use spora_notify::subscription::Command;
     use spora_rpc_macros::test_wrpc_serializer as test;
     use spora_utils::networking::{ContextualNetAddress, IpAddress, NetAddress};
+    use std::net::{IpAddr, Ipv4Addr};
+    use std::sync::Arc;
     use uuid::Uuid;
     use workflow_serializer::prelude::*;
 

@@ -1,5 +1,5 @@
-use thiserror::Error;
 use spora_hashes::Hash;
+use thiserror::Error;
 
 use super::{difficulty::DifficultyError, sync::SyncManagerError, traversal::TraversalError};
 

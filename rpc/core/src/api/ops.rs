@@ -179,7 +179,7 @@ impl From<EventType> for RpcApiOps {
             EventType::FinalityConflict => RpcApiOps::FinalityConflictNotification,
             EventType::FinalityConflictResolved => RpcApiOps::FinalityConflictResolvedNotification,
             EventType::UtxosChanged => RpcApiOps::UtxosChangedNotification,
-            EventType::CellsChanged => RpcApiOps::UtxosChangedNotification,  // TODO(cell-model): Use CellsChangedNotification
+            EventType::CellsChanged => RpcApiOps::UtxosChangedNotification, // TODO(cell-model): Use CellsChangedNotification
             EventType::SinkBlueScoreChanged => RpcApiOps::SinkBlueScoreChangedNotification,
             EventType::VirtualDaaScoreChanged => RpcApiOps::VirtualDaaScoreChangedNotification,
             EventType::PruningPointUtxoSetOverride => RpcApiOps::PruningPointUtxoSetOverrideNotification,

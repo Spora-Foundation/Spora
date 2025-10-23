@@ -2,9 +2,9 @@ use super::protocol::GhostdagManager;
 use crate::model::stores::ghostdag::GhostdagStoreReader;
 use crate::model::stores::relations::RelationsStoreReader;
 use crate::model::{services::reachability::ReachabilityService, stores::headers::HeaderStoreReader};
-use std::collections::VecDeque;
 use spora_consensus_core::{BlockHashSet, HashMapCustomHasher};
 use spora_hashes::Hash;
+use std::collections::VecDeque;
 
 pub fn unordered_mergeset_without_selected_parent<S: RelationsStoreReader + ?Sized, U: ReachabilityService + ?Sized>(
     relations: &S,

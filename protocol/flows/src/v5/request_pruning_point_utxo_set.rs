@@ -1,6 +1,5 @@
 use crate::{flow_context::FlowContext, flow_trait::Flow, v5::ibd::IBD_BATCH_SIZE};
 use itertools::Itertools;
-use std::sync::Arc;
 use spora_consensus_core::errors::consensus::ConsensusError;
 use spora_core::debug;
 use spora_hashes::Hash;
@@ -12,6 +11,7 @@ use spora_p2p_lib::{
     },
     IncomingRoute, Router,
 };
+use std::sync::Arc;
 
 pub struct RequestPruningPointUtxoSetFlow {
     ctx: FlowContext,

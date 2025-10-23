@@ -251,7 +251,6 @@ impl DerivationCapableAccount for Bip32Watch {
     fn cosigner_index(&self) -> u32 {
         0
     }
-
 }
 
 #[cfg(test)]

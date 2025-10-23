@@ -1,6 +1,6 @@
 use rand::Rng;
-use std::collections::HashMap;
 use spora_core::{time::Stopwatch, trace};
+use std::collections::HashMap;
 
 use crate::model::candidate_tx::CandidateTransaction;
 
@@ -11,7 +11,7 @@ use super::{
 use spora_consensus_core::{
     block::TemplateTransactionSelector,
     subnets::SubnetworkId,
-    tx::{Transaction, TransactionId, CellTx},
+    tx::{CellTx, Transaction, TransactionId},
 };
 
 /// ALPHA is a coefficient that defines how uniform the distribution of
@@ -262,7 +262,6 @@ impl TemplateTransactionSelector for RebalancingWeightedTransactionSelector {
 mod tests {
     use super::*;
     use itertools::Itertools;
-    use std::{collections::HashSet, sync::Arc};
     use spora_consensus_core::{
         constants::{MAX_TX_IN_SEQUENCE_NUM, SAU_PER_TONDI, TX_VERSION},
         mass::transaction_estimated_serialized_size,
@@ -270,6 +269,7 @@ mod tests {
         tx::{Transaction, TransactionId, TransactionInput, TransactionOutpoint, TransactionOutput},
     };
     use spora_txscript::{pay_to_script_hash_signature_script, test_helpers::op_true_script};
+    use std::{collections::HashSet, sync::Arc};
 
     use crate::{
         mempool::{

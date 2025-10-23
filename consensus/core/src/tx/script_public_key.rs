@@ -7,13 +7,13 @@ use serde::{
     Deserialize, Deserializer, Serialize, Serializer,
 };
 use smallvec::SmallVec;
-use std::{
-    collections::HashSet,
-    str::{self, FromStr},
-};
 use spora_utils::{
     hex::{FromHex, ToHex},
     serde_bytes::FromHexVisitor,
+};
+use std::{
+    collections::HashSet,
+    str::{self, FromStr},
 };
 use wasm_bindgen::prelude::*;
 use workflow_wasm::prelude::*;

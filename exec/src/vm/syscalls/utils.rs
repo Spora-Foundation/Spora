@@ -5,8 +5,8 @@
 // Reference: ckb/script/src/syscalls/utils.rs
 
 use ckb_vm::{
-    Error as VMError, Memory, Register, SupportMachine,
     registers::{A0, A1, A2},
+    Error as VMError, Memory, Register, SupportMachine,
 };
 use std::cmp;
 
@@ -31,12 +31,8 @@ pub fn store_data<Mac: SupportMachine>(machine: &mut Mac, data: &[u8]) -> Result
     let size = machine.memory_mut().load64(&size_addr)?.to_u64();
     let full_size = data_len - offset;
     let real_size = cmp::min(size, full_size);
-    machine
-        .memory_mut()
-        .store64(&size_addr, &Mac::REG::from_u64(full_size))?;
-    machine
-        .memory_mut()
-        .store_bytes(addr, &data[offset as usize..(offset + real_size) as usize])?;
+    machine.memory_mut().store64(&size_addr, &Mac::REG::from_u64(full_size))?;
+    machine.memory_mut().store_bytes(addr, &data[offset as usize..(offset + real_size) as usize])?;
     Ok(real_size)
 }
 

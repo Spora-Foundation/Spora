@@ -21,11 +21,11 @@ pub enum SporaError {
     /// Invalid block weight
     #[error("Invalid block weight: {0}")]
     InvalidWeight(String),
-    
+
     /// DA verification failed
     #[error("DA verification failed: {0}")]
     DAVerificationFailed(String),
-    
+
     /// Execution verification failed
     #[error("Execution verification failed: {0}")]
     ExecutionVerificationFailed(String),
@@ -48,13 +48,13 @@ pub type Result<T> = std::result::Result<T, SporaError>;
 pub struct BlockWeight {
     /// Data availability score (0.0 - 1.0)
     pub da_score: f64,
-    
+
     /// Execution weight (normalized cycles)
     pub exec_weight: f64,
-    
+
     /// Topological score (GhostDAG blue score)
     pub topo_score: u64,
-    
+
     /// Combined weight
     pub total_weight: f64,
 }
@@ -69,35 +69,21 @@ impl BlockWeight {
     /// - `alpha`: DA weight coefficient (default: 0.4)
     /// - `beta`: Execution weight coefficient (default: 0.3)
     /// - `gamma`: Topology weight coefficient (default: 0.3)
-    pub fn new(
-        da_score: f64,
-        exec_weight: f64,
-        topo_score: u64,
-        alpha: f64,
-        beta: f64,
-        gamma: f64,
-    ) -> Self {
-        let total_weight = alpha * da_score 
-            + beta * exec_weight 
-            + gamma * (topo_score as f64);
-        
-        Self {
-            da_score,
-            exec_weight,
-            topo_score,
-            total_weight,
-        }
+    pub fn new(da_score: f64, exec_weight: f64, topo_score: u64, alpha: f64, beta: f64, gamma: f64) -> Self {
+        let total_weight = alpha * da_score + beta * exec_weight + gamma * (topo_score as f64);
+
+        Self { da_score, exec_weight, topo_score, total_weight }
     }
-    
+
     /// Create with default coefficients (α=0.4, β=0.3, γ=0.3)
     pub fn with_defaults(da_score: f64, exec_weight: f64, topo_score: u64) -> Self {
         Self::new(da_score, exec_weight, topo_score, 0.4, 0.3, 0.3)
     }
-    
+
     /// Create from GhostDAG only (fallback mode)
     pub fn from_ghostdag(topo_score: u64) -> Self {
         Self {
-            da_score: 1.0, // Assume full DA
+            da_score: 1.0,    // Assume full DA
             exec_weight: 1.0, // Assume valid execution
             topo_score,
             total_weight: topo_score as f64,
@@ -114,13 +100,13 @@ impl BlockWeight {
 pub trait SporaConsensus {
     /// Compute block weight
     fn compute_weight(&self, block_meta: &BlockMeta) -> Result<BlockWeight>;
-    
+
     /// Verify DA proof
     fn verify_da(&self, block_meta: &BlockMeta) -> Result<bool>;
-    
+
     /// Verify execution receipts
     fn verify_execution(&self, block_meta: &BlockMeta) -> Result<bool>;
-    
+
     /// Get consensus parameters
     fn params(&self) -> &SporaParams;
 }
@@ -132,19 +118,19 @@ pub trait SporaConsensus {
 pub struct BlockMeta {
     /// Block hash
     pub hash: [u8; 32],
-    
+
     /// DAA score (GhostDAG blue score)
     pub daa_score: u64,
-    
+
     /// Number of transactions
     pub tx_count: u32,
-    
+
     /// Total execution cycles
     pub total_cycles: u64,
-    
+
     /// DA commitment (Merkle root)
     pub da_root: [u8; 32],
-    
+
     /// Cell state root
     pub cell_root: [u8; 32],
 }
@@ -154,16 +140,16 @@ pub struct BlockMeta {
 pub struct SporaParams {
     /// DA weight coefficient (α)
     pub alpha: f64,
-    
+
     /// Execution weight coefficient (β)
     pub beta: f64,
-    
+
     /// Topology weight coefficient (γ)
     pub gamma: f64,
-    
+
     /// Minimum DA sampling rate (0.0 - 1.0)
     pub min_da_rate: f64,
-    
+
     /// Maximum cycles per block
     pub max_cycles: u64,
 }
@@ -204,29 +190,21 @@ impl SporaConsensus for DefaultSpora {
     fn compute_weight(&self, block_meta: &BlockMeta) -> Result<BlockWeight> {
         // Placeholder: assume full DA and valid execution
         let da_score = 1.0;
-        let exec_weight = (block_meta.total_cycles as f64) 
-            / (self.params.max_cycles as f64);
-        
-        Ok(BlockWeight::new(
-            da_score,
-            exec_weight,
-            block_meta.daa_score,
-            self.params.alpha,
-            self.params.beta,
-            self.params.gamma,
-        ))
+        let exec_weight = (block_meta.total_cycles as f64) / (self.params.max_cycles as f64);
+
+        Ok(BlockWeight::new(da_score, exec_weight, block_meta.daa_score, self.params.alpha, self.params.beta, self.params.gamma))
     }
-    
+
     fn verify_da(&self, _block_meta: &BlockMeta) -> Result<bool> {
         // Placeholder: always pass
         Ok(true)
     }
-    
+
     fn verify_execution(&self, _block_meta: &BlockMeta) -> Result<bool> {
         // Placeholder: always pass
         Ok(true)
     }
-    
+
     fn params(&self) -> &SporaParams {
         &self.params
     }
@@ -239,7 +217,7 @@ mod tests {
     #[test]
     fn test_block_weight_calculation() {
         let weight = BlockWeight::with_defaults(1.0, 0.5, 100);
-        
+
         // W = 0.4*1.0 + 0.3*0.5 + 0.3*100 = 0.4 + 0.15 + 30 = 30.55
         assert!((weight.total_weight - 30.55).abs() < 0.01);
     }
@@ -247,7 +225,7 @@ mod tests {
     #[test]
     fn test_block_weight_from_ghostdag() {
         let weight = BlockWeight::from_ghostdag(200);
-        
+
         assert_eq!(weight.da_score, 1.0);
         assert_eq!(weight.exec_weight, 1.0);
         assert_eq!(weight.topo_score, 200);
@@ -257,7 +235,7 @@ mod tests {
     #[test]
     fn test_default_spora() {
         let spora = DefaultSpora::default();
-        
+
         let block_meta = BlockMeta {
             hash: [0x42; 32],
             daa_score: 100,
@@ -266,10 +244,10 @@ mod tests {
             da_root: [0x01; 32],
             cell_root: [0x02; 32],
         };
-        
+
         let weight = spora.compute_weight(&block_meta).unwrap();
         assert!(weight.total_weight > 0.0);
-        
+
         assert!(spora.verify_da(&block_meta).unwrap());
         assert!(spora.verify_execution(&block_meta).unwrap());
     }
@@ -277,7 +255,7 @@ mod tests {
     #[test]
     fn test_spora_params() {
         let params = SporaParams::default();
-        
+
         assert_eq!(params.alpha + params.beta + params.gamma, 1.0);
         assert!(params.min_da_rate >= 0.0 && params.min_da_rate <= 1.0);
         assert!(params.max_cycles > 0);

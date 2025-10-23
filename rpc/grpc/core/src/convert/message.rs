@@ -19,7 +19,6 @@
 //! The SubmitBlockResponse is a notable exception to this general rule.
 
 use crate::protowire::{self, submit_block_response_message::RejectReason};
-use std::str::FromStr;
 use spora_addresses::Address;
 use spora_consensus_core::{network::NetworkId, Hash};
 use spora_core::debug;
@@ -29,6 +28,7 @@ use spora_rpc_core::{
     SubmitBlockRejectReason, SubmitBlockReport,
 };
 use spora_utils::hex::*;
+use std::str::FromStr;
 
 macro_rules! from {
     // Response capture

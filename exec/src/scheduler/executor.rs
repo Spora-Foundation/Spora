@@ -20,7 +20,7 @@ impl ParallelExecutor {
     pub fn new(thread_pool_size: usize) -> Self {
         Self { thread_pool_size }
     }
-    
+
     /// Execute transactions in parallel according to DAG topology
     ///
     /// # Algorithm
@@ -30,24 +30,16 @@ impl ParallelExecutor {
     ///
     /// # Returns
     /// Execution results in the same order as input transactions
-    pub fn execute<F>(
-        &self,
-        dag: &CellDAG,
-        txs: &[CellTx],
-        executor_fn: F,
-    ) -> Result<Vec<ExecutionResult>, ExecutionError>
+    pub fn execute<F>(&self, dag: &CellDAG, txs: &[CellTx], executor_fn: F) -> Result<Vec<ExecutionResult>, ExecutionError>
     where
         F: Fn(&CellTx, NodeId) -> Result<ExecutionReceipt, String> + Send + Sync,
     {
         if txs.len() != dag.node_count {
-            return Err(ExecutionError::TxCountMismatch {
-                expected: dag.node_count,
-                actual: txs.len(),
-            });
+            return Err(ExecutionError::TxCountMismatch { expected: dag.node_count, actual: txs.len() });
         }
-        
+
         let mut results = vec![None; txs.len()];
-        
+
         // Execute layer by layer
         for (layer_idx, layer) in dag.layers.iter().enumerate() {
             // Execute transactions in this layer in parallel
@@ -58,80 +50,50 @@ impl ParallelExecutor {
                     (node_id, result)
                 })
                 .collect();
-            
+
             // Store results (deterministic order maintained by NodeId)
             for (node_id, result) in layer_results {
                 results[node_id] = Some(match result {
-                    Ok(receipt) => ExecutionResult::Success {
-                        node_id,
-                        layer: layer_idx,
-                        receipt,
-                    },
-                    Err(error) => ExecutionResult::Failed {
-                        node_id,
-                        layer: layer_idx,
-                        error,
-                    },
+                    Ok(receipt) => ExecutionResult::Success { node_id, layer: layer_idx, receipt },
+                    Err(error) => ExecutionResult::Failed { node_id, layer: layer_idx, error },
                 });
             }
         }
-        
+
         // Unwrap all results (all should be Some)
-        results.into_iter()
-            .map(|r| r.ok_or(ExecutionError::MissingResult))
-            .collect()
+        results.into_iter().map(|r| r.ok_or(ExecutionError::MissingResult)).collect()
     }
-    
+
     /// Execute transactions sequentially (for testing)
-    pub fn execute_sequential<F>(
-        &self,
-        txs: &[CellTx],
-        mut executor_fn: F,
-    ) -> Result<Vec<ExecutionResult>, ExecutionError>
+    pub fn execute_sequential<F>(&self, txs: &[CellTx], mut executor_fn: F) -> Result<Vec<ExecutionResult>, ExecutionError>
     where
         F: FnMut(&CellTx, NodeId) -> Result<ExecutionReceipt, String>,
     {
         txs.iter()
             .enumerate()
-            .map(|(node_id, tx)| {
-                match executor_fn(tx, node_id) {
-                    Ok(receipt) => Ok(ExecutionResult::Success {
-                        node_id,
-                        layer: 0,
-                        receipt,
-                    }),
-                    Err(error) => Ok(ExecutionResult::Failed {
-                        node_id,
-                        layer: 0,
-                        error,
-                    }),
-                }
+            .map(|(node_id, tx)| match executor_fn(tx, node_id) {
+                Ok(receipt) => Ok(ExecutionResult::Success { node_id, layer: 0, receipt }),
+                Err(error) => Ok(ExecutionResult::Failed { node_id, layer: 0, error }),
             })
             .collect()
     }
-    
+
     /// Get execution statistics
     pub fn get_stats(results: &[ExecutionResult]) -> ExecutionStats {
         let total = results.len();
-        let successful = results.iter()
-            .filter(|r| matches!(r, ExecutionResult::Success { .. }))
-            .count();
+        let successful = results.iter().filter(|r| matches!(r, ExecutionResult::Success { .. })).count();
         let failed = total - successful;
-        
-        let max_layer = results.iter()
+
+        let max_layer = results
+            .iter()
             .map(|r| match r {
                 ExecutionResult::Success { layer, .. } => *layer,
                 ExecutionResult::Failed { layer, .. } => *layer,
             })
             .max()
             .unwrap_or(0);
-        
-        ExecutionStats {
-            total_txs: total,
-            successful_txs: successful,
-            failed_txs: failed,
-            max_layer_depth: max_layer + 1,
-        }
+
+        ExecutionStats { total_txs: total, successful_txs: successful, failed_txs: failed, max_layer_depth: max_layer + 1 }
     }
 }
 
@@ -166,7 +128,7 @@ impl ExecutionResult {
             Self::Failed { node_id, .. } => *node_id,
         }
     }
-    
+
     /// Check if successful
     pub fn is_success(&self) -> bool {
         matches!(self, Self::Success { .. })
@@ -208,7 +170,7 @@ pub enum ExecutionError {
         /// Actual count
         actual: usize,
     },
-    
+
     /// Missing execution result
     #[error("Missing execution result for transaction")]
     MissingResult,
@@ -217,102 +179,70 @@ pub enum ExecutionError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::celltx::types::{CellRef, CellOut, ScriptRef, OutPoint};
-    
+    use crate::celltx::types::{CellOut, CellRef, OutPoint, ScriptRef};
+
     fn create_test_tx(inputs: Vec<OutPoint>) -> CellTx {
         let lock = ScriptRef::new([0x00; 32], 0, vec![]);
         let inputs = inputs.into_iter().map(|op| CellRef::new(op, 0)).collect();
-        CellTx::new(
-            inputs,
-            vec![],
-            vec![CellOut { lock, type_: None, capacity: 1000 }],
-            vec![vec![]],
-            vec![],
-        ).unwrap()
+        CellTx::new(inputs, vec![], vec![CellOut { lock, type_: None, capacity: 1000 }], vec![vec![]], vec![]).unwrap()
     }
-    
+
     #[test]
     fn test_parallel_execution() {
         let executor = ParallelExecutor::default();
-        
+
         // Create independent transactions (no dependencies)
         let tx0 = create_test_tx(vec![]);
         let tx1 = create_test_tx(vec![]);
         let tx2 = create_test_tx(vec![]);
-        
+
         let txs = vec![tx0, tx1, tx2];
-        
+
         // Use sequential execution for simplicity
-        let results = executor.execute_sequential(
-            &txs,
-            |_tx, node_id| {
-                Ok(ExecutionReceipt {
-                    cycles: 1000,
-                    gas_used: 100,
-                    logs: vec![format!("Executed tx {}", node_id)],
-                })
-            },
-        ).unwrap();
-        
+        let results = executor
+            .execute_sequential(&txs, |_tx, node_id| {
+                Ok(ExecutionReceipt { cycles: 1000, gas_used: 100, logs: vec![format!("Executed tx {}", node_id)] })
+            })
+            .unwrap();
+
         assert_eq!(results.len(), 3);
         assert!(results.iter().all(|r| r.is_success()));
     }
-    
+
     #[test]
     fn test_execution_stats() {
         let results = vec![
-            ExecutionResult::Success {
-                node_id: 0,
-                layer: 0,
-                receipt: ExecutionReceipt::default(),
-            },
-            ExecutionResult::Success {
-                node_id: 1,
-                layer: 1,
-                receipt: ExecutionReceipt::default(),
-            },
-            ExecutionResult::Failed {
-                node_id: 2,
-                layer: 1,
-                error: "Test error".to_string(),
-            },
+            ExecutionResult::Success { node_id: 0, layer: 0, receipt: ExecutionReceipt::default() },
+            ExecutionResult::Success { node_id: 1, layer: 1, receipt: ExecutionReceipt::default() },
+            ExecutionResult::Failed { node_id: 2, layer: 1, error: "Test error".to_string() },
         ];
-        
+
         let stats = ParallelExecutor::get_stats(&results);
-        
+
         assert_eq!(stats.total_txs, 3);
         assert_eq!(stats.successful_txs, 2);
         assert_eq!(stats.failed_txs, 1);
         assert_eq!(stats.max_layer_depth, 2);
     }
-    
+
     #[test]
     fn test_sequential_execution() {
         let executor = ParallelExecutor::default();
-        
-        let txs = vec![
-            create_test_tx(vec![]),
-            create_test_tx(vec![]),
-        ];
-        
-        let results = executor.execute_sequential(&txs, |_tx, node_id| {
-            Ok(ExecutionReceipt {
-                cycles: node_id as u64 * 100,
-                gas_used: 0,
-                logs: vec![],
-            })
-        }).unwrap();
-        
+
+        let txs = vec![create_test_tx(vec![]), create_test_tx(vec![])];
+
+        let results = executor
+            .execute_sequential(&txs, |_tx, node_id| Ok(ExecutionReceipt { cycles: node_id as u64 * 100, gas_used: 0, logs: vec![] }))
+            .unwrap();
+
         assert_eq!(results.len(), 2);
-        
+
         if let ExecutionResult::Success { receipt, .. } = &results[0] {
             assert_eq!(receipt.cycles, 0);
         }
-        
+
         if let ExecutionResult::Success { receipt, .. } = &results[1] {
             assert_eq!(receipt.cycles, 100);
         }
     }
 }
-
-

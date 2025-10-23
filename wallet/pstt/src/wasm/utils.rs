@@ -126,25 +126,25 @@ mod tests {
         let original_sau = 123_456_789;
         let spora = sau_to_spora(original_sau);
         let converted_sau = spora_to_sau(spora);
-        
+
         // Allow for small floating point precision errors (within 1 SAU)
-        let diff = if converted_sau > original_sau {
-            converted_sau - original_sau
-        } else {
-            original_sau - converted_sau
-        };
-        assert!(diff <= 1, "Conversion roundtrip error too large: {} -> {} (diff: {})", 
-                original_sau, converted_sau, diff);
+        let diff = if converted_sau > original_sau { converted_sau - original_sau } else { original_sau - converted_sau };
+        assert!(diff <= 1, "Conversion roundtrip error too large: {} -> {} (diff: {})", original_sau, converted_sau, diff);
 
         // Test with fractional values - use approximate equality for floating point
         let original_spora = 0.12345678;
         let sau = spora_to_sau(original_spora);
         let converted_spora = sau_to_spora(sau);
-        
+
         // Allow for small floating point precision errors
         let diff = (original_spora - converted_spora).abs();
-        assert!(diff < 1e-8, "Fractional conversion roundtrip error too large: {} -> {} (diff: {})", 
-                original_spora, converted_spora, diff);
+        assert!(
+            diff < 1e-8,
+            "Fractional conversion roundtrip error too large: {} -> {} (diff: {})",
+            original_spora,
+            converted_spora,
+            diff
+        );
     }
 
     #[test]

@@ -204,14 +204,7 @@ impl CellTx {
         if outputs.len() != outputs_data.len() {
             return Err("outputs and outputs_data length mismatch");
         }
-        Ok(Self {
-            ver: CELL_TX_VERSION,
-            inputs,
-            deps,
-            outputs,
-            outputs_data,
-            witnesses,
-        })
+        Ok(Self { ver: CELL_TX_VERSION, inputs, deps, outputs, outputs_data, witnesses })
     }
 
     /// Get transaction ID (same as compute_txid)
@@ -220,21 +213,21 @@ impl CellTx {
     pub fn id(&self) -> [u8; 32] {
         crate::celltx::compute_txid(self)
     }
-    
+
     /// Get transaction version
     ///
     /// This is for compatibility with Transaction interface
     pub fn version(&self) -> u16 {
         self.ver
     }
-    
+
     /// Check if this is a cellbase (coinbase) transaction
     ///
     /// Cellbase transactions have no inputs (mining reward)
     pub fn is_coinbase(&self) -> bool {
         self.inputs.is_empty()
     }
-    
+
     /// Get mass (storage weight) of the transaction
     ///
     /// In Cell model, mass = serialized_size for now
@@ -242,7 +235,7 @@ impl CellTx {
     pub fn mass(&self) -> u64 {
         self.serialized_size() as u64
     }
-    
+
     /// Get cellbase payload (first output data for coinbase tx)
     ///
     /// This is for compatibility with old Transaction.payload field
@@ -254,14 +247,16 @@ impl CellTx {
             None
         }
     }
-    
+
     /// Estimate serialized size (approximate)
     pub fn serialized_size(&self) -> usize {
         // Simplified estimation
         let mut size = 2; // ver
         size += 4 + self.inputs.len() * 40; // inputs
         size += 4 + self.deps.len() * 37; // deps
-        size += 4 + self.outputs.iter()
+        size += 4 + self
+            .outputs
+            .iter()
             .map(|o| 8 + 33 + o.lock.args.len() + o.type_.as_ref().map_or(0, |t| 33 + t.args.len()))
             .sum::<usize>();
         size += 4 + self.outputs_data.iter().map(|d| d.len()).sum::<usize>();
@@ -307,10 +302,7 @@ pub struct CellMeta {
 impl CellMeta {
     /// Check if this is a cellbase (mining reward)
     pub fn is_cellbase(&self) -> bool {
-        self.transaction_info
-            .as_ref()
-            .map(|info| info.is_cellbase)
-            .unwrap_or(false)
+        self.transaction_info.as_ref().map(|info| info.is_cellbase).unwrap_or(false)
     }
 
     /// Get capacity
@@ -398,11 +390,7 @@ mod tests {
     #[test]
     fn test_cell_out_capacity() {
         let lock = ScriptRef::new([0x00; 32], 0, vec![0; 20]);
-        let cell = CellOut {
-            lock,
-            type_: None,
-            capacity: 1000,
-        };
+        let cell = CellOut { lock, type_: None, capacity: 1000 };
         let occupied = cell.occupied_capacity(100);
         assert!(occupied > 0);
         assert!(cell.verify_capacity(100).is_ok());
@@ -434,4 +422,3 @@ mod tests {
         assert_eq!(tx.ver, CELL_TX_VERSION);
     }
 }
-

@@ -1,9 +1,9 @@
-use std::sync::Arc;
 use spora_consensus_core::{
     blockhash::{BlockHashExtensions, ORIGIN},
     config::params::ForkedParam,
 };
 use spora_hashes::Hash;
+use std::sync::Arc;
 
 use crate::model::{
     services::reachability::{MTReachabilityService, ReachabilityService},

@@ -419,8 +419,8 @@ mod tests {
     };
     use bitcoin::{hashes::HashEngine, hex::test_hex_unwrap, key::TapTweak, taproot::Signature, Witness};
     use secp256k1::{Keypair, Message, Secp256k1};
-    use std::str::FromStr;
     use spora_utils::hex::FromHex;
+    use std::str::FromStr;
 
     #[test]
     fn test_tap_sighash_hash() {
@@ -451,7 +451,10 @@ mod tests {
                 sequence: 0,
                 sig_op_count: 0,
             }],
-            vec![TransactionOutput { value: 100, script_public_key: ScriptPublicKey::new(SCRIPT_VER_TAPROOT, script_pub_key.clone()) }],
+            vec![TransactionOutput {
+                value: 100,
+                script_public_key: ScriptPublicKey::new(SCRIPT_VER_TAPROOT, script_pub_key.clone()),
+            }],
             1615462089000,
             SubnetworkId::from_bytes([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
             0,

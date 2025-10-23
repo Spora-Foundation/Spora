@@ -8,8 +8,8 @@ use crate::{
     BlueWorkType,
 };
 use itertools::Itertools;
-use thiserror::Error;
 use spora_hashes::Hash;
+use thiserror::Error;
 
 #[derive(Clone, Debug)]
 pub struct VecDisplay<T: Display>(pub Vec<T>);
@@ -85,7 +85,7 @@ pub enum RuleError {
 
     #[error("invalid cell root: {0}")]
     BadCellRoot(String),
-    
+
     #[error("invalid cell commitment: {0}")]
     BadCellCommitment(String),
 
@@ -170,6 +170,13 @@ pub enum RuleError {
 
     #[error("unexpected pruning point")]
     UnexpectedPruningPoint,
+
+    // Cell model validation errors
+    #[error("cell validation error: {0}")]
+    CellValidationError(String),
+
+    #[error("invalid transaction")]
+    InvalidTransaction,
 }
 
 pub type BlockProcessResult<T> = std::result::Result<T, RuleError>;

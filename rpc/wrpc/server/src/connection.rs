@@ -1,7 +1,3 @@
-use std::{
-    fmt::{Debug, Display},
-    sync::{Arc, Mutex},
-};
 use spora_grpc_client::{GrpcClient, GrpcClientNotify};
 use spora_notify::{
     connection::Connection as ConnectionT,
@@ -11,6 +7,10 @@ use spora_notify::{
     notifier::Notify,
 };
 use spora_rpc_core::{api::ops::RpcApiOps, notify::mode::NotificationMode, Notification};
+use std::{
+    fmt::{Debug, Display},
+    sync::{Arc, Mutex},
+};
 use workflow_log::log_trace;
 use workflow_rpc::{
     server::{prelude::*, result::Result as WrpcResult},

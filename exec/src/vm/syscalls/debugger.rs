@@ -4,9 +4,8 @@
 // Debug print syscall
 
 use ckb_vm::{
-    Memory, Register, Syscalls, SupportMachine,
-    Error as VMError,
     registers::{A0, A1, A7},
+    Error as VMError, Memory, Register, SupportMachine, Syscalls,
 };
 
 /// Syscall: Debug Print
@@ -31,7 +30,7 @@ impl<M: SupportMachine> Syscalls<M> for Debugger {
 
     fn ecall(&mut self, machine: &mut M) -> Result<bool, VMError> {
         let syscall_number = machine.registers()[A7].to_u64();
-        
+
         // DEBUG_PRINT = 2177
         if syscall_number != 2177 {
             return Ok(false);
@@ -48,16 +47,12 @@ impl<M: SupportMachine> Syscalls<M> for Debugger {
         #[cfg(debug_assertions)]
         {
             let msg_str = String::from_utf8_lossy(&message);
-            log::debug!(
-                "Script {:?} DEBUG: {}",
-                hex::encode(&self.script_hash[..8]),
-                msg_str
-            );
+            log::debug!("Script {:?} DEBUG: {}", hex::encode(&self.script_hash[..8]), msg_str);
         }
 
         // Return success
         machine.set_register(A0, M::REG::from_u8(0));
-        
+
         Ok(true)
     }
 }

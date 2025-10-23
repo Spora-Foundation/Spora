@@ -1,5 +1,4 @@
 use crate::{flow_context::FlowContext, flow_trait::Flow};
-use std::sync::Arc;
 use spora_consensus_core::errors::consensus::ConsensusError;
 use spora_core::debug;
 use spora_hashes::Hash;
@@ -9,6 +8,7 @@ use spora_p2p_lib::{
     pb::{sporad_message::Payload, BlockHeadersMessage, DoneHeadersMessage},
     IncomingRoute, Router,
 };
+use std::sync::Arc;
 
 pub struct HandleAntipastRequests {
     ctx: FlowContext,

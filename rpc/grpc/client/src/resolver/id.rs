@@ -2,17 +2,17 @@ use crate::{
     error::{Error, Result},
     resolver::{Resolver, SporadMessageReceiver, SporadMessageSender},
 };
+use spora_core::trace;
+use spora_grpc_core::{
+    ops::SporadPayloadOps,
+    protowire::{SporadRequest, SporadResponse},
+};
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
     time::Instant,
 };
 use tokio::sync::oneshot;
-use spora_core::trace;
-use spora_grpc_core::{
-    ops::SporadPayloadOps,
-    protowire::{SporadRequest, SporadResponse},
-};
 
 #[derive(Debug)]
 struct Pending {

@@ -1,5 +1,5 @@
-use std::collections::{HashMap, HashSet};
 use spora_consensus_core::tx::{MutableTransaction, ScriptPublicKey, TransactionId};
+use std::collections::{HashMap, HashSet};
 
 use super::TransactionIdSet;
 

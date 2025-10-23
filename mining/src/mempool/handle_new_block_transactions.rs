@@ -6,12 +6,12 @@ use crate::mempool::{
     },
     Mempool,
 };
-use std::{collections::HashSet, sync::atomic::Ordering};
 use spora_consensus_core::{
     api::ConsensusApi,
-    tx::{Transaction, TransactionId, CellTx},
+    tx::{CellTx, Transaction, TransactionId},
 };
 use spora_core::time::Stopwatch;
+use std::{collections::HashSet, sync::atomic::Ordering};
 
 impl Mempool {
     pub(crate) fn handle_new_block_transactions(
@@ -26,10 +26,10 @@ impl Mempool {
         let mut output_counts = 0;
         for transaction in block_transactions[1..].iter() {
             let transaction_id = transaction.id().into(); // CellTx::id() returns [u8; 32], convert to Hash
-            // Rust rewrite: This behavior does differ from golang implementation.
-            // If the transaction got accepted via a peer but is still an orphan here, do not remove
-            // its redeemers in the orphan pool. We give those a chance to be unorphaned and included
-            // in the next block template.
+                                                          // Rust rewrite: This behavior does differ from golang implementation.
+                                                          // If the transaction got accepted via a peer but is still an orphan here, do not remove
+                                                          // its redeemers in the orphan pool. We give those a chance to be unorphaned and included
+                                                          // in the next block template.
             if !self.orphan_pool.has(&transaction_id) {
                 self.remove_transaction(&transaction_id, false, TxRemovalReason::Accepted, "")?;
             }

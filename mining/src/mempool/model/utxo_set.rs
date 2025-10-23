@@ -21,9 +21,9 @@ pub(crate) struct MempoolUtxoSet {
 
 impl MempoolUtxoSet {
     pub(crate) fn new() -> Self {
-        Self { 
+        Self {
             // pool_unspent_outputs: UtxoCollection::default(),  // UTXO removed
-            outpoint_owner_id: OutpointIndex::default() 
+            outpoint_owner_id: OutpointIndex::default(),
         }
     }
 

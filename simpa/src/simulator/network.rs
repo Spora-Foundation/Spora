@@ -1,9 +1,9 @@
 use async_channel::unbounded;
-use std::sync::Arc;
-use std::thread::JoinHandle;
 use spora_consensus_core::mining_rules::MiningRules;
 use spora_consensus_notify::root::ConsensusNotificationRoot;
 use spora_core::time::unix_now;
+use std::sync::Arc;
+use std::thread::JoinHandle;
 
 use super::miner::Miner;
 

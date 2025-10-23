@@ -1,4 +1,3 @@
-use std::convert::TryInto;
 use spora_consensus_core::{
     coinbase::*,
     config::params::ForkedParam,
@@ -7,6 +6,7 @@ use spora_consensus_core::{
     tx::{ScriptPublicKey, ScriptVec, Transaction, TransactionOutput},
     BlockHashMap, BlockHashSet,
 };
+use std::convert::TryInto;
 
 use crate::{constants, model::stores::ghostdag::GhostdagData};
 

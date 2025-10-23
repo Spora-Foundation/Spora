@@ -1,5 +1,5 @@
-use thiserror::Error;
 use spora_consensus_core::subnets::SubnetworkConversionError;
+use thiserror::Error;
 
 #[derive(Clone, Debug, Error)]
 pub enum ConversionError {

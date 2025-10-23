@@ -14,6 +14,7 @@ spora-core.workspace = true
 spora-consensus-core.workspace = true
 spora-consensus-notify.workspace = true
 spora-p2p-lib.workspace = true
+spora-state.workspace = true
 spora-p2p-mining.workspace = true
 spora-utils.workspace = true
 spora-utils-tower.workspace = true

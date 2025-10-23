@@ -83,16 +83,19 @@ mod tests {
         subscription::SubscriptionContext,
     };
     use itertools::Itertools;
-    use std::collections::{HashMap, HashSet};
     use spora_addresses::{Address, Prefix};
     use spora_alloc::init_allocator_with_default_settings;
     use spora_core::trace;
     use spora_math::Uint256;
+    use std::collections::{HashMap, HashSet};
     use workflow_perf_monitor::mem::get_process_memory_info;
 
     fn create_addresses(count: usize) -> Vec<Address> {
         (0..count)
-            .map(|i| Address::new(Prefix::Mainnet, spora_addresses::Version::PubKey, &Uint256::from_u64(i as u64).to_le_bytes()).expect("Valid address"))
+            .map(|i| {
+                Address::new(Prefix::Mainnet, spora_addresses::Version::PubKey, &Uint256::from_u64(i as u64).to_le_bytes())
+                    .expect("Valid address")
+            })
             .collect()
     }
 

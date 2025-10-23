@@ -1,5 +1,4 @@
 use crate::{consensus::test_consensus::TestConsensus, model::services::reachability::ReachabilityService};
-use std::{collections::VecDeque, thread::JoinHandle};
 use spora_consensus_core::{
     api::ConsensusApi,
     block::{Block, BlockTemplate, MutableBlock, TemplateBuildMode, TemplateTransactionSelector},
@@ -11,6 +10,7 @@ use spora_consensus_core::{
     BlockHashSet,
 };
 use spora_hashes::Hash;
+use std::{collections::VecDeque, thread::JoinHandle};
 
 struct OnetimeTxSelector {
     txs: Option<Vec<Transaction>>,

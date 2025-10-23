@@ -1,8 +1,6 @@
 use clap::{arg, Arg, ArgAction, Command};
 use serde::Deserialize;
 use serde_with::{serde_as, DisplayFromStr};
-use std::{ffi::OsString, fs};
-use toml::from_str;
 use spora_consensus_core::{
     config::Config,
     network::{NetworkId, NetworkType},
@@ -11,15 +9,17 @@ use spora_core::sporad_env::version;
 use spora_notify::address::tracker::Tracker;
 use spora_utils::networking::ContextualNetAddress;
 use spora_wrpc_server::address::WrpcNetAddress;
+use std::{ffi::OsString, fs};
+use toml::from_str;
 
-#[cfg(feature = "devnet-prealloc")]
-use std::sync::Arc;
 #[cfg(feature = "devnet-prealloc")]
 use spora_addresses::Address;
 #[cfg(feature = "devnet-prealloc")]
 use spora_consensus_core::tx::{TransactionOutpoint, UtxoEntry};
 #[cfg(feature = "devnet-prealloc")]
 use spora_txscript::pay_to_address_script;
+#[cfg(feature = "devnet-prealloc")]
+use std::sync::Arc;
 
 #[serde_as]
 #[derive(Debug, Clone, Deserialize)]

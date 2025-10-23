@@ -1,6 +1,6 @@
 use super::tx::MempoolTransaction;
-use std::collections::HashMap;
 use spora_consensus_core::tx::{TransactionId, TransactionOutpoint};
+use std::collections::HashMap;
 
 /// MempoolTransactionCollection maps a transaction id to a mempool transaction
 pub(crate) type MempoolTransactionCollection = HashMap<TransactionId, MempoolTransaction>;

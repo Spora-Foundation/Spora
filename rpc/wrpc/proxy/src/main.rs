@@ -3,7 +3,6 @@ mod result;
 
 use clap::Parser;
 use result::Result;
-use std::sync::Arc;
 use spora_consensus_core::network::NetworkType;
 use spora_rpc_core::api::ops::RpcApiOps;
 use spora_wrpc_server::{
@@ -12,6 +11,7 @@ use spora_wrpc_server::{
     server::Server,
     service::{Options, SporaRpcHandler},
 };
+use std::sync::Arc;
 use workflow_log::*;
 use workflow_rpc::server::prelude::*;
 use workflow_rpc::server::WebSocketCounters;

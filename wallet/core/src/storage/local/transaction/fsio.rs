@@ -7,11 +7,11 @@ use crate::imports::*;
 use crate::storage::interface::{StorageStream, TransactionRangeResult};
 use crate::storage::TransactionRecord;
 use crate::storage::{Binding, TransactionKind, TransactionRecordStore};
+use spora_utils::hex::ToHex;
 use std::{
     collections::VecDeque,
     path::{Path, PathBuf},
 };
-use spora_utils::hex::ToHex;
 use workflow_store::fs;
 
 pub struct Inner {

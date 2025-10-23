@@ -4,8 +4,8 @@ use crate::{
         acceptance_data::DbAcceptanceDataStore,
         block_transactions::DbBlockTransactionsStore,
         block_window_cache::BlockWindowCacheStore,
-        cell_diffs::DbCellDiffsStore,  // Replaced utxo_diffs with cell_diffs
-        cell_roots::DbCellRootsStore,   // Replaced utxo_multisets with cell_roots
+        cell_diffs::DbCellDiffsStore, // Replaced utxo_diffs with cell_diffs
+        cell_roots::DbCellRootsStore, // Replaced utxo_multisets with cell_roots
         daa::DbDaaStore,
         depth::DbDepthStore,
         ghostdag::{CompactGhostdagData, DbGhostdagStore},
@@ -29,10 +29,10 @@ use crate::{
 use super::cache_policy_builder::CachePolicyBuilder as PolicyBuilder;
 use itertools::Itertools;
 use parking_lot::RwLock;
-use std::{ops::DerefMut, sync::Arc};
 use spora_consensus_core::{blockstatus::BlockStatus, BlockHashSet};
 use spora_database::registry::DatabaseStorePrefixes;
 use spora_hashes::Hash;
+use std::{ops::DerefMut, sync::Arc};
 
 pub struct ConsensusStorage {
     // DB
@@ -215,8 +215,8 @@ impl ConsensusStorage {
 
         // Txs and state stores
         let block_transactions_store = Arc::new(DbBlockTransactionsStore::new(db.clone(), transactions_builder.build()));
-        
-        // Cell model stores  
+
+        // Cell model stores
         let cell_diffs_store = Arc::new(DbCellDiffsStore::new(db.clone(), utxo_diffs_builder.build()));
         let cell_roots_store = Arc::new(DbCellRootsStore::new(db.clone(), block_data_builder.build()));
         let acceptance_data_store = Arc::new(DbAcceptanceDataStore::new(db.clone(), acceptance_data_builder.build()));

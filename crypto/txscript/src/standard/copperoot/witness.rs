@@ -3,12 +3,12 @@
 //! This module implements witness structures for Copperoot transactions,
 //! supporting both key path and script path spending with Verkle proof support.
 
-use bitcoin::{taproot::Signature as BtcTaprootSignature, Witness as BtcWitness};
 use bitcoin::consensus::{Decodable, Encodable};
+use bitcoin::{taproot::Signature as BtcTaprootSignature, Witness as BtcWitness};
 use secp256k1::{schnorr::Signature, Message, Secp256k1, XOnlyPublicKey};
-use std::io::{Cursor, Read};
-use spora_txscript_errors::{TxScriptError, SerializationError};
 use spora_consensus_core::tx::copperoot::sighash::CopperootSighashType;
+use spora_txscript_errors::{SerializationError, TxScriptError};
+use std::io::{Cursor, Read};
 
 #[cfg(feature = "musig2")]
 use musig2;
@@ -58,8 +58,7 @@ impl TryFrom<&[u8]> for CopperootWitness {
 
     fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
         let mut cur = Cursor::new(bytes);
-        let inner = BtcWitness::consensus_decode(&mut cur)
-            .map_err(|_| TxScriptError::InvalidTaprootWitness)?;
+        let inner = BtcWitness::consensus_decode(&mut cur).map_err(|_| TxScriptError::InvalidTaprootWitness)?;
         // Require complete consumption
         let mut rest = Vec::new();
         cur.read_to_end(&mut rest).map_err(|_| TxScriptError::InvalidTaprootWitness)?;
@@ -75,8 +74,7 @@ impl TryFrom<&CopperootWitness> for Vec<u8> {
 
     fn try_from(witness: &CopperootWitness) -> Result<Self, Self::Error> {
         let mut v = Vec::new();
-        witness.inner.consensus_encode(&mut v)
-            .map_err(|_| TxScriptError::Serialization(SerializationError::NumberTooLong(0)))?;
+        witness.inner.consensus_encode(&mut v).map_err(|_| TxScriptError::Serialization(SerializationError::NumberTooLong(0)))?;
         Ok(v)
     }
 }
@@ -115,10 +113,10 @@ impl TryFrom<&CopperootWitness> for P2CrSpend {
                 }
                 _ => return Err(TxScriptError::InvalidSignatureLength(sig_slice.len())),
             };
-            
+
             let signature = secp256k1::schnorr::Signature::from_slice(sig64)
                 .map_err(|_| TxScriptError::InvalidSignature(secp256k1::Error::InvalidSignature))?;
-            
+
             return Ok(P2CrSpend::Key { signature, sighash_type });
         }
 
@@ -128,7 +126,7 @@ impl TryFrom<&CopperootWitness> for P2CrSpend {
             // Last (or second-to-last) is control_block, previous one is leaf_script
             let control_block = stack[end - 1].clone();
             let leaf_script = stack[end - 2].clone();
-            
+
             // Input items: 0..end-2
             let mut input_items = Vec::new();
             for i in 0..(end - 2) {
@@ -140,13 +138,8 @@ impl TryFrom<&CopperootWitness> for P2CrSpend {
                     }
                 }
             }
-            
-            return Ok(P2CrSpend::Script {
-                input: input_items,
-                leaf_script,
-                control_block,
-                annex,
-            });
+
+            return Ok(P2CrSpend::Script { input: input_items, leaf_script, control_block, annex });
         }
 
         Err(TxScriptError::InvalidWitnessLength(1, stack.len()))
@@ -156,16 +149,13 @@ impl TryFrom<&CopperootWitness> for P2CrSpend {
 impl CopperootWitness {
     /// Create a key path spend witness for P2CR (Pay-to-Copperoot-Merkle)
     pub fn p2cr_key_spend(signature: Signature, sighash_type: CopperootSighashType) -> Self {
-        let taproot_signature = BtcTaprootSignature { 
-            signature, 
-            sighash_type: sighash_type.into() 
-        };
+        let taproot_signature = BtcTaprootSignature { signature, sighash_type: sighash_type.into() };
         let inner = BtcWitness::p2tr_key_spend(&taproot_signature);
         Self { inner, verkle_proof: None }
     }
 
     /// Create a key path spend witness for P2CR with signature validation
-    /// 
+    ///
     /// This function validates the signature before creating the witness to prevent
     /// common misuse cases like incomplete adaptor signatures or wrong message signatures.
     pub fn p2cr_key_spend_checked(
@@ -175,18 +165,16 @@ impl CopperootWitness {
         sig: &Signature,
         ty: CopperootSighashType,
     ) -> Result<Self, TxScriptError> {
-        let m = Message::from_digest_slice(msg32)
-            .map_err(|_| TxScriptError::InvalidSigHashType(0))?;
-        secp.verify_schnorr(sig, &m, agg_x)
-            .map_err(|_| TxScriptError::InvalidSignature(secp256k1::Error::InvalidSignature))?;
+        let m = Message::from_digest_slice(msg32).map_err(|_| TxScriptError::InvalidSigHashType(0))?;
+        secp.verify_schnorr(sig, &m, agg_x).map_err(|_| TxScriptError::InvalidSignature(secp256k1::Error::InvalidSignature))?;
         Ok(Self::p2cr_key_spend(*sig, ty))
     }
 
     /// Create a key path spend witness with annex for P2CR
     pub fn p2cr_key_spend_with_annex(
-        signature: Signature, 
-        sighash_type: CopperootSighashType, 
-        annex: Vec<u8>
+        signature: Signature,
+        sighash_type: CopperootSighashType,
+        annex: Vec<u8>,
     ) -> Result<Self, TxScriptError> {
         if annex.first().copied() != Some(0x50) {
             return Err(TxScriptError::InvalidAnnexPrefix);
@@ -249,11 +237,7 @@ impl CopperootWitness {
     /// Create a script path spend witness for P2CRV (Verkle tree, with Verkle proof)
     /// NOTE: Currently disabled for mainnet launch - reserved for future activation
     #[cfg(feature = "verkle")]
-    pub fn p2crv_script_spend_with_verkle(
-        _script: Vec<u8>,
-        _control_block: Vec<u8>,
-        _verkle_proof: VerkleProof,
-    ) -> Self {
+    pub fn p2crv_script_spend_with_verkle(_script: Vec<u8>, _control_block: Vec<u8>, _verkle_proof: VerkleProof) -> Self {
         // P2CRV is disabled for mainnet launch - this function is reserved for future use
         panic!("P2CRV (Pay-to-Copperoot-Verkle) is disabled for mainnet launch");
     }
@@ -261,11 +245,7 @@ impl CopperootWitness {
     /// Create a script path spend witness with Verkle proof (legacy method for backward compatibility)
     /// NOTE: Currently disabled for mainnet launch - reserved for future activation
     #[cfg(feature = "verkle")]
-    pub fn p2tr_script_spend_with_verkle(
-        _script: Vec<u8>,
-        _control_block: Vec<u8>,
-        _verkle_proof: VerkleProof,
-    ) -> Self {
+    pub fn p2tr_script_spend_with_verkle(_script: Vec<u8>, _control_block: Vec<u8>, _verkle_proof: VerkleProof) -> Self {
         // P2CRV is disabled for mainnet launch - this function is reserved for future use
         panic!("P2CRV (Pay-to-Copperoot-Verkle) is disabled for mainnet launch");
     }
@@ -285,15 +265,15 @@ impl CopperootWitness {
     /// Convenient key-path signature verification (automatically extracts signature from witness)
     pub fn verify_keypath_sig(&self, msg: &Message, xpub: &XOnlyPublicKey) -> Result<(), secp256k1::Error> {
         let stack = self.inner.to_vec();
-        if stack.is_empty() { 
-            return Err(secp256k1::Error::InvalidSignature); 
+        if stack.is_empty() {
+            return Err(secp256k1::Error::InvalidSignature);
         }
         let sig_bytes = &stack[0];
         let sig_len = sig_bytes.len();
         let sig64 = match sig_len {
             64 => &sig_bytes[..],
             65 => &sig_bytes[..64],
-            _  => return Err(secp256k1::Error::InvalidSignature),
+            _ => return Err(secp256k1::Error::InvalidSignature),
         };
         let secp = Secp256k1::new();
         let sig = Signature::from_slice(sig64)?;
@@ -321,31 +301,31 @@ impl CopperootWitness {
     }
 
     /// Create a key path spend witness from MuSig2 signature with validation.
-    /// 
+    ///
     /// This function validates that the signature is valid for the given aggregated public key
     /// and message before constructing the witness, preventing common misuse patterns.
-    /// 
+    ///
     /// # Parameters
     /// - `secp`: Secp256k1 context for signature verification
     /// - `agg_x`: Aggregated x-only public key (must match address payload)
     /// - `msg32`: 32-byte message hash (CopperootSighash output)
     /// - `sig`: MuSig2 compact signature
     /// - `sighash_type`: Sighash type for witness construction
-    /// 
+    ///
     /// # Errors
     /// - `TxScriptError::InvalidSignature`: Signature verification failed
-    /// 
+    ///
     /// # Example
     /// ```rust
     /// use musig2::{FirstRound, SecNonceSpices, CompactSignature};
     /// use musig2::secp256k1::{Secp256k1, Keypair, XOnlyPublicKey, Message};
     /// use spora_consensus_core::tx::copperoot::sighash::CopperootSighashType;
-    /// 
+    ///
     /// let secp = Secp256k1::new();
     /// let agg_x: XOnlyPublicKey = /* from address 32B payload */;
     /// let msg32 = /* CopperootSighash output 32B */;
     /// let sig: CompactSignature = /* from MuSig2 finalize() */;
-    /// 
+    ///
     /// // Create witness with validation
     /// let witness = CopperootWitness::p2cr_key_spend_from_musig2_checked(
     ///     &secp, &agg_x, &msg32, &sig, CopperootSighashType::All
@@ -360,58 +340,55 @@ impl CopperootWitness {
         sighash_type: CopperootSighashType,
     ) -> Result<Self, TxScriptError> {
         // Validate signature before constructing witness
-        let message = Message::from_digest_slice(msg32)
-            .map_err(|e| TxScriptError::InvalidSignature(e))?;
-        
+        let message = Message::from_digest_slice(msg32).map_err(|e| TxScriptError::InvalidSignature(e))?;
+
         // SAFETY: Ensure the signature conversion is safe and validated
         let musig2_schnorr_sig = musig2::secp256k1::schnorr::Signature::from(sig.clone());
-        
+
         // Convert to our secp256k1 types for verification with additional validation
         let sig_bytes = musig2_schnorr_sig.to_byte_array();
-        
+
         // Validate signature length before conversion
         if sig_bytes.len() != 64 {
             return Err(TxScriptError::InvalidSignatureLength(sig_bytes.len()));
         }
-        
-        let our_schnorr_sig = secp256k1::schnorr::Signature::from_slice(&sig_bytes)
-            .map_err(|e| TxScriptError::InvalidSignature(e))?;
-        
+
+        let our_schnorr_sig = secp256k1::schnorr::Signature::from_slice(&sig_bytes).map_err(|e| TxScriptError::InvalidSignature(e))?;
+
         // CRITICAL: Verify signature before constructing witness
         // This prevents signature verification bypass
-        secp.verify_schnorr(&our_schnorr_sig, &message, agg_x)
-            .map_err(|e| TxScriptError::InvalidSignature(e))?;
-        
+        secp.verify_schnorr(&our_schnorr_sig, &message, agg_x).map_err(|e| TxScriptError::InvalidSignature(e))?;
+
         // Additional validation: ensure the signature is not all zeros or invalid
         if sig_bytes.iter().all(|&b| b == 0) {
             return Err(TxScriptError::InvalidSignature(secp256k1::Error::InvalidSignature));
         }
-        
+
         // Signature is valid, construct witness
         Ok(Self::p2cr_key_spend(our_schnorr_sig, sighash_type))
     }
 
     /// Create a key path spend witness from MuSig2 signature without validation.
-    /// 
+    ///
     /// ⚠️ **Warning**: This function does not validate the signature. Use with caution.
-    /// 
+    ///
     /// # Safety Requirements
     /// The caller must ensure:
     /// 1. `signature` is valid for the aggregated x-only public key
     /// 2. `signature` was created with the correct message (CopperootSighash)
     /// 3. For adaptor signatures, the signature is the final signature (not s̃)
     /// 4. `sighash_type` matches the message used for signing
-    /// 
+    ///
     /// # Example
     /// ```rust
     /// use spora_txscript::standard::copperoot::witness::CopperootWitness;
     /// use spora_consensus_core::tx::copperoot::sighash::CopperootSighashType;
     /// use secp256k1::schnorr::Signature;
-    /// 
+    ///
     /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// // Assume you have a valid signature from MuSig2 finalize()
     /// let sig: Signature = Signature::from_slice(&[0u8; 64])?;
-    /// 
+    ///
     /// // Only use this if you've already validated the signature elsewhere
     /// let witness = CopperootWitness::p2cr_key_spend_from_musig2_unchecked(
     ///     sig, CopperootSighashType::All
@@ -419,21 +396,18 @@ impl CopperootWitness {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn p2cr_key_spend_from_musig2_unchecked(
-        signature: Signature, 
-        sighash_type: CopperootSighashType
-    ) -> Self {
+    pub fn p2cr_key_spend_from_musig2_unchecked(signature: Signature, sighash_type: CopperootSighashType) -> Self {
         Self::p2cr_key_spend(signature, sighash_type)
     }
 
     /// Create a key path spend witness from MuSig2 signature (deprecated).
-    /// 
+    ///
     /// ⚠️ **Deprecated**: Use `p2cr_key_spend_from_musig2_checked` for safer validation
     /// or `p2cr_key_spend_from_musig2_unchecked` if you need the old behavior.
-    /// 
+    ///
     /// This function is kept for backward compatibility but does not validate
     /// the signature, which can lead to misuse.
-    /// 
+    ///
     /// Note: This creates a BIP340-style aggregated single signature (not a multi-sig stack).
     /// The signature should be 64 bytes (R||s) or 65 bytes (R||s||sighash_type).
     #[deprecated(note = "Use p2cr_key_spend_from_musig2_checked for safer validation")]
@@ -497,71 +471,40 @@ impl CopperootControlBlock {
         if merkle_path.len() > 8 {
             return Err(ControlBlockError::InvalidLength);
         }
-        
+
         let mut tlv_extensions = Vec::new();
-        
+
         // Add required TLV entries
-        tlv_extensions.push(TlvEntry {
-            tlv_type: TLV_TYPE_PROOF_TYPE,
-            value: vec![PROOF_TYPE_MERKLE],
-        });
-        
-        tlv_extensions.push(TlvEntry {
-            tlv_type: TLV_TYPE_HASH_SCHEME,
-            value: vec![HASH_SCHEME_BLAKE3],
-        });
-        
-        tlv_extensions.push(TlvEntry {
-            tlv_type: TLV_TYPE_TREE_SCHEME,
-            value: vec![TREE_SCHEME_MERKLE],
-        });
-        
+        tlv_extensions.push(TlvEntry { tlv_type: TLV_TYPE_PROOF_TYPE, value: vec![PROOF_TYPE_MERKLE] });
+
+        tlv_extensions.push(TlvEntry { tlv_type: TLV_TYPE_HASH_SCHEME, value: vec![HASH_SCHEME_BLAKE3] });
+
+        tlv_extensions.push(TlvEntry { tlv_type: TLV_TYPE_TREE_SCHEME, value: vec![TREE_SCHEME_MERKLE] });
+
         // Add Merkle proof data
         let mut merkle_proof_data = Vec::new();
         merkle_proof_data.push(merkle_path.len() as u8);
         for sibling in &merkle_path {
             merkle_proof_data.extend_from_slice(sibling);
         }
-        tlv_extensions.push(TlvEntry {
-            tlv_type: TLV_TYPE_MERKLE_PROOF,
-            value: merkle_proof_data,
-        });
-        
-        Ok(Self {
-            parity_leaf_version,
-            internal_key,
-            tlv_extensions,
-            verkle_proof: None,
-            merkle_path,
-        })
+        tlv_extensions.push(TlvEntry { tlv_type: TLV_TYPE_MERKLE_PROOF, value: merkle_proof_data });
+
+        Ok(Self { parity_leaf_version, internal_key, tlv_extensions, verkle_proof: None, merkle_path })
     }
 
     /// Create a new control block for Verkle tree
-    pub fn new_verkle(
-        parity_leaf_version: u8,
-        internal_key: XOnlyPublicKey,
-        verkle_proof: VerkleProof,
-    ) -> Self {
+    pub fn new_verkle(parity_leaf_version: u8, internal_key: XOnlyPublicKey, verkle_proof: VerkleProof) -> Self {
         assert!(verkle_proof.path.len() <= u8::MAX as usize, "verkle path too long");
-        
+
         let mut tlv_extensions = Vec::new();
-        
+
         // Add required TLV entries
-        tlv_extensions.push(TlvEntry {
-            tlv_type: TLV_TYPE_PROOF_TYPE,
-            value: vec![PROOF_TYPE_VERKLE],
-        });
-        
-        tlv_extensions.push(TlvEntry {
-            tlv_type: TLV_TYPE_HASH_SCHEME,
-            value: vec![HASH_SCHEME_BLAKE3],
-        });
-        
-        tlv_extensions.push(TlvEntry {
-            tlv_type: TLV_TYPE_TREE_SCHEME,
-            value: vec![TREE_SCHEME_VERKLE],
-        });
-        
+        tlv_extensions.push(TlvEntry { tlv_type: TLV_TYPE_PROOF_TYPE, value: vec![PROOF_TYPE_VERKLE] });
+
+        tlv_extensions.push(TlvEntry { tlv_type: TLV_TYPE_HASH_SCHEME, value: vec![HASH_SCHEME_BLAKE3] });
+
+        tlv_extensions.push(TlvEntry { tlv_type: TLV_TYPE_TREE_SCHEME, value: vec![TREE_SCHEME_VERKLE] });
+
         // Add Verkle proof data
         let mut verkle_proof_data = Vec::new();
         verkle_proof_data.push(verkle_proof.path.len() as u8);
@@ -570,28 +513,19 @@ impl CopperootControlBlock {
         }
         verkle_proof_data.extend_from_slice(&(verkle_proof.leaf_data.len() as u32).to_le_bytes());
         verkle_proof_data.extend_from_slice(&verkle_proof.leaf_data);
-        tlv_extensions.push(TlvEntry {
-            tlv_type: TLV_TYPE_VERKLE_PROOF,
-            value: verkle_proof_data,
-        });
-        
-        Self {
-            parity_leaf_version,
-            internal_key,
-            tlv_extensions,
-            verkle_proof: Some(verkle_proof),
-            merkle_path: Vec::new(),
-        }
+        tlv_extensions.push(TlvEntry { tlv_type: TLV_TYPE_VERKLE_PROOF, value: verkle_proof_data });
+
+        Self { parity_leaf_version, internal_key, tlv_extensions, verkle_proof: Some(verkle_proof), merkle_path: Vec::new() }
     }
 
     /// Serialize the control block (TLV format)
     pub fn serialize(&self) -> Vec<u8> {
         let mut data = Vec::new();
-        
+
         // BIP341 compatible base structure
         data.push(self.parity_leaf_version);
         data.extend_from_slice(&self.internal_key.serialize());
-        
+
         // Serialize TLV extensions
         for tlv in &self.tlv_extensions {
             data.push(tlv.tlv_type);
@@ -608,7 +542,7 @@ impl CopperootControlBlock {
             }
             data.extend_from_slice(&tlv.value);
         }
-        
+
         data
     }
 
@@ -617,25 +551,25 @@ impl CopperootControlBlock {
         if data.len() < 33 {
             return Err(ControlBlockError::InvalidLength);
         }
-        
+
         // Parse BIP341 compatible base structure
         let parity_leaf_version = data[0];
         let internal_key = XOnlyPublicKey::from_slice(&data[1..33])?;
-        
+
         let mut offset = 33;
         let mut tlv_extensions = Vec::new();
         let mut merkle_path = Vec::new();
         let mut verkle_proof = None;
-        
+
         // Parse TLV extensions
         while offset < data.len() {
             if offset + 2 > data.len() {
                 return Err(ControlBlockError::InvalidLength);
             }
-            
+
             let tlv_type = data[offset];
             offset += 1;
-            
+
             // Parse varint length
             let (length, length_bytes) = if data[offset] < 0xFD {
                 (data[offset] as usize, 1)
@@ -652,16 +586,16 @@ impl CopperootControlBlock {
             } else {
                 return Err(ControlBlockError::InvalidLength);
             };
-            
+
             offset += length_bytes;
-            
+
             if offset + length > data.len() {
                 return Err(ControlBlockError::InvalidLength);
             }
-            
+
             let value = data[offset..offset + length].to_vec();
             offset += length;
-            
+
             // Process known TLV types
             match tlv_type {
                 TLV_TYPE_MERKLE_PROOF => {
@@ -675,7 +609,7 @@ impl CopperootControlBlock {
                     if value.len() != 1 + path_len * 32 {
                         return Err(ControlBlockError::InvalidLength);
                     }
-                    
+
                     for i in 0..path_len {
                         let start = 1 + i * 32;
                         let mut sibling = [0u8; 32];
@@ -690,7 +624,7 @@ impl CopperootControlBlock {
                     let path_len = value[0] as usize;
                     let mut path = Vec::new();
                     let mut proof_offset = 1;
-                    
+
                     for _ in 0..path_len {
                         if proof_offset + 33 > value.len() {
                             return Err(ControlBlockError::InvalidLength);
@@ -699,38 +633,34 @@ impl CopperootControlBlock {
                         path.push(commitment);
                         proof_offset += 33;
                     }
-                    
+
                     if proof_offset + 4 > value.len() {
                         return Err(ControlBlockError::InvalidLength);
                     }
                     let leaf_data_len = u32::from_le_bytes([
-                        value[proof_offset], value[proof_offset + 1], 
-                        value[proof_offset + 2], value[proof_offset + 3]
+                        value[proof_offset],
+                        value[proof_offset + 1],
+                        value[proof_offset + 2],
+                        value[proof_offset + 3],
                     ]) as usize;
                     proof_offset += 4;
-                    
+
                     if proof_offset + leaf_data_len != value.len() {
                         return Err(ControlBlockError::InvalidLength);
                     }
                     let leaf_data = value[proof_offset..].to_vec();
-                    
+
                     verkle_proof = Some(VerkleProof { path, leaf_data });
                 }
                 _ => {
                     // Unknown TLV types are ignored for forward compatibility
                 }
             }
-            
+
             tlv_extensions.push(TlvEntry { tlv_type, value });
         }
-        
-        Ok(Self {
-            parity_leaf_version,
-            internal_key,
-            tlv_extensions,
-            verkle_proof,
-            merkle_path,
-        })
+
+        Ok(Self { parity_leaf_version, internal_key, tlv_extensions, verkle_proof, merkle_path })
     }
 }
 
@@ -758,10 +688,9 @@ mod tests {
     fn test_copperoot_witness_key_spend() {
         let secp = Secp256k1::new();
         let keypair = Keypair::new(&secp, &mut secp256k1::rand::thread_rng());
-        let message = Message::from_digest_slice(&[0u8; 32])
-            .expect("Valid message");
+        let message = Message::from_digest_slice(&[0u8; 32]).expect("Valid message");
         let signature = secp.sign_schnorr(&message, &keypair);
-        
+
         let witness = CopperootWitness::p2tr_key_spend(signature, CopperootSighashType::Default);
         assert!(!witness.has_verkle_proof());
     }
@@ -772,11 +701,10 @@ mod tests {
         let secp = Secp256k1::new();
         let keypair = Keypair::new(&secp, &mut secp256k1::rand::thread_rng());
         let internal_key = keypair.x_only_public_key().0;
-        
-        let control_block = CopperootControlBlock::new_merkle(0x00, internal_key, vec![])
-            .expect("Valid control block");
+
+        let control_block = CopperootControlBlock::new_merkle(0x00, internal_key, vec![]).expect("Valid control block");
         let control_block_bytes = control_block.serialize();
-        
+
         let witness = CopperootWitness::p2tr_script_spend(script, control_block_bytes);
         assert!(!witness.has_verkle_proof());
     }
@@ -786,23 +714,23 @@ mod tests {
         let secp = Secp256k1::new();
         let keypair = Keypair::new(&secp, &mut secp256k1::rand::thread_rng());
         let internal_key = keypair.x_only_public_key().0;
-        
+
         let merkle_path = vec![[0u8; 32], [1u8; 32]];
-        let control_block = CopperootControlBlock::new_merkle(0x00, internal_key, merkle_path.clone())
-            .expect("Valid control block");
+        let control_block = CopperootControlBlock::new_merkle(0x00, internal_key, merkle_path.clone()).expect("Valid control block");
         assert_eq!(control_block.parity_leaf_version, 0x00);
         assert_eq!(control_block.merkle_path, merkle_path);
-        
+
         // Check TLV extensions
         assert!(!control_block.tlv_extensions.is_empty());
-        let proof_type_tlv = control_block.tlv_extensions.iter()
+        let proof_type_tlv = control_block
+            .tlv_extensions
+            .iter()
             .find(|tlv| tlv.tlv_type == TLV_TYPE_PROOF_TYPE)
             .expect("ProofType TLV should be present");
         assert_eq!(proof_type_tlv.value, vec![PROOF_TYPE_MERKLE]);
-        
+
         let serialized = control_block.serialize();
-        let deserialized = CopperootControlBlock::deserialize(&serialized)
-            .expect("Valid deserialization");
+        let deserialized = CopperootControlBlock::deserialize(&serialized).expect("Valid deserialization");
         assert_eq!(control_block.parity_leaf_version, deserialized.parity_leaf_version);
         assert_eq!(control_block.merkle_path, deserialized.merkle_path);
         assert_eq!(control_block.tlv_extensions.len(), deserialized.tlv_extensions.len());
@@ -812,17 +740,15 @@ mod tests {
     fn test_copperoot_witness_key_path_non_default_sighash() {
         let secp = Secp256k1::new();
         let keypair = Keypair::new(&secp, &mut secp256k1::rand::thread_rng());
-        let message = Message::from_digest_slice(&[0u8; 32])
-            .expect("Valid message");
+        let message = Message::from_digest_slice(&[0u8; 32]).expect("Valid message");
         let signature = secp.sign_schnorr(&message, &keypair);
-        
+
         // Test with non-default sighash type
         let sighash_type = CopperootSighashType::All;
         let witness = CopperootWitness::p2cr_key_spend(signature, sighash_type);
-        
+
         // Parse the witness back
-        let spend = P2CrSpend::try_from(&witness)
-            .expect("Valid spend conversion");
+        let spend = P2CrSpend::try_from(&witness).expect("Valid spend conversion");
         match spend {
             P2CrSpend::Key { sighash_type: parsed_sighash, .. } => {
                 assert_eq!(parsed_sighash, sighash_type);
@@ -837,14 +763,13 @@ mod tests {
         let secp = Secp256k1::new();
         let keypair = Keypair::new(&secp, &mut secp256k1::rand::thread_rng());
         let internal_key = keypair.x_only_public_key().0;
-        
-        let control_block = CopperootControlBlock::new_merkle(0x00, internal_key, vec![])
-            .expect("Valid control block");
+
+        let control_block = CopperootControlBlock::new_merkle(0x00, internal_key, vec![]).expect("Valid control block");
         let control_block_bytes = control_block.serialize();
-        
+
         let input_items = vec![vec![0x01], vec![0x02]]; // Two input items
         let annex = Some(vec![0x50, 0x01, 0x02, 0x03]); // Annex starting with 0x50
-        
+
         // Create witness with annex
         let witness = CopperootWitness::p2cr_script_spend_with_inputs(
             input_items.clone(),
@@ -852,16 +777,15 @@ mod tests {
             control_block_bytes.clone(),
             annex.clone(),
         );
-        
+
         // Parse the witness back
-        let spend = P2CrSpend::try_from(&witness)
-            .expect("Valid spend conversion");
+        let spend = P2CrSpend::try_from(&witness).expect("Valid spend conversion");
         match spend {
             P2CrSpend::Script { input, leaf_script, control_block: parsed_control, annex: parsed_annex } => {
                 assert_eq!(leaf_script, script);
                 assert_eq!(parsed_control, control_block_bytes);
                 assert_eq!(parsed_annex, annex);
-                
+
                 // Check that input items are correctly parsed (annex should be skipped)
                 assert_eq!(input.len(), 2); // Two input items, annex skipped
                 assert_eq!(input[0], Some(vec![0x01]));
@@ -875,15 +799,13 @@ mod tests {
     fn test_copperoot_keypath_with_annex_roundtrip() {
         let secp = Secp256k1::new();
         let kp = secp256k1::Keypair::new(&secp, &mut secp256k1::rand::thread_rng());
-        let msg = Message::from_digest_slice(&[0u8; 32])
-            .expect("Valid message");
+        let msg = Message::from_digest_slice(&[0u8; 32]).expect("Valid message");
         let sig = secp.sign_schnorr(&msg, &kp);
         let annex = vec![0x50, 0xAA, 0xBB];
 
         let wit = CopperootWitness::p2cr_key_spend_with_annex(sig, CopperootSighashType::All, annex.clone())
             .expect("Valid witness with annex");
-        let spend = P2CrSpend::try_from(&wit)
-            .expect("Valid spend conversion");
+        let spend = P2CrSpend::try_from(&wit).expect("Valid spend conversion");
         match spend {
             P2CrSpend::Key { sighash_type, .. } => assert_eq!(sighash_type, CopperootSighashType::All),
             _ => panic!("expected key spend"),
@@ -894,8 +816,7 @@ mod tests {
     fn test_annex_validation() {
         let secp = Secp256k1::new();
         let kp = secp256k1::Keypair::new(&secp, &mut secp256k1::rand::thread_rng());
-        let msg = Message::from_digest_slice(&[0u8; 32])
-            .expect("Valid message");
+        let msg = Message::from_digest_slice(&[0u8; 32]).expect("Valid message");
         let sig = secp.sign_schnorr(&msg, &kp);
 
         // Test valid annex
@@ -915,10 +836,9 @@ mod tests {
         // Create a valid key-path witness with annex at the end (correct position per BIP341)
         let secp = Secp256k1::new();
         let kp = secp256k1::Keypair::new(&secp, &mut secp256k1::rand::thread_rng());
-        let msg = Message::from_digest_slice(&[0u8; 32])
-            .expect("Valid message");
+        let msg = Message::from_digest_slice(&[0u8; 32]).expect("Valid message");
         let sig = secp.sign_schnorr(&msg, &kp);
-        
+
         let mut inner = BtcWitness::new();
         inner.push(sig.serialize().to_vec()); // Valid signature at index 0
         inner.push(vec![0x50, 0x01, 0x02]); // Annex at index 1 (last position, correct)
@@ -932,7 +852,7 @@ mod tests {
         } else {
             panic!("Expected key path spend");
         }
-        
+
         // Test with annex in middle position (should not be treated as annex)
         // This creates a script-path spend since we have 3 elements
         let mut inner = BtcWitness::new();
@@ -957,8 +877,7 @@ mod tests {
         let secp = Secp256k1::new();
         let kp = secp256k1::Keypair::new(&secp, &mut secp256k1::rand::thread_rng());
         let xpub = kp.x_only_public_key().0;
-        let msg = Message::from_digest_slice(&[0u8; 32])
-            .expect("Valid message");
+        let msg = Message::from_digest_slice(&[0u8; 32]).expect("Valid message");
         let sig = secp.sign_schnorr(&msg, &kp);
 
         let witness = CopperootWitness::p2cr_key_spend(sig, CopperootSighashType::All);
@@ -966,8 +885,7 @@ mod tests {
         assert!(result.is_ok());
 
         // Test with wrong message
-        let wrong_msg = Message::from_digest_slice(&[1u8; 32])
-            .expect("Valid message");
+        let wrong_msg = Message::from_digest_slice(&[1u8; 32]).expect("Valid message");
         let result = witness.verify_keypath_sig(&wrong_msg, &xpub);
         assert!(result.is_err());
     }
@@ -975,10 +893,10 @@ mod tests {
     #[cfg(feature = "musig2")]
     #[test]
     fn test_p2cr_key_spend_from_musig2_checked() {
-        use musig2::{KeyAggContext, FirstRound, SecNonceSpices, CompactSignature};
-        use musig2::secp256k1::{Secp256k1 as MuSecp, Keypair, PublicKey as MuPubKey, SecretKey};
-        use secp256k1::rand;
+        use musig2::secp256k1::{Keypair, PublicKey as MuPubKey, Secp256k1 as MuSecp, SecretKey};
+        use musig2::{CompactSignature, FirstRound, KeyAggContext, SecNonceSpices};
         use rand::Rng;
+        use secp256k1::rand;
 
         let secp = MuSecp::new();
         let mut rng = rand::thread_rng();
@@ -988,7 +906,7 @@ mod tests {
         let mut sk2_bytes = [0u8; 32];
         rng.fill(&mut sk1_bytes);
         rng.fill(&mut sk2_bytes);
-        
+
         let sk1 = SecretKey::from_byte_array(sk1_bytes).expect("valid secret key");
         let sk2 = SecretKey::from_byte_array(sk2_bytes).expect("valid secret key");
         let kp1 = Keypair::from_secret_key(&secp, &sk1);
@@ -1006,60 +924,45 @@ mod tests {
         let _msg32 = secp256k1::hashes::sha256::Hash::hash(msg).to_byte_array();
 
         // First round: generate nonces
-        let spices1 = SecNonceSpices::new()
-            .with_seckey(kp1.secret_key())
-            .with_message(msg);
-        let spices2 = SecNonceSpices::new()
-            .with_seckey(kp2.secret_key())
-            .with_message(msg);
+        let spices1 = SecNonceSpices::new().with_seckey(kp1.secret_key()).with_message(msg);
+        let spices2 = SecNonceSpices::new().with_seckey(kp2.secret_key()).with_message(msg);
 
         // Create nonce seeds
         let nonce_seed1 = [0u8; 32];
         let nonce_seed2 = [1u8; 32];
 
-        let mut fr1 = FirstRound::new(key_agg.clone(), nonce_seed1, 0, spices1)
-            .expect("Valid first round");
-        let mut fr2 = FirstRound::new(key_agg.clone(), nonce_seed2, 1, spices2)
-            .expect("Valid first round");
+        let mut fr1 = FirstRound::new(key_agg.clone(), nonce_seed1, 0, spices1).expect("Valid first round");
+        let mut fr2 = FirstRound::new(key_agg.clone(), nonce_seed2, 1, spices2).expect("Valid first round");
 
         // Exchange nonces
         let pubnonce1 = fr1.our_public_nonce();
         let pubnonce2 = fr2.our_public_nonce();
 
-        fr1.receive_nonce(1, pubnonce2)
-            .expect("Valid nonce exchange");
-        fr2.receive_nonce(0, pubnonce1)
-            .expect("Valid nonce exchange");
+        fr1.receive_nonce(1, pubnonce2).expect("Valid nonce exchange");
+        fr2.receive_nonce(0, pubnonce1).expect("Valid nonce exchange");
 
         // Second round: sign
-        let r2_1 = fr1.finalize(kp1.secret_key(), msg)
-            .expect("Valid finalize");
-        let r2_2 = fr2.finalize(kp2.secret_key(), msg)
-            .expect("Valid finalize");
+        let r2_1 = fr1.finalize(kp1.secret_key(), msg).expect("Valid finalize");
+        let r2_2 = fr2.finalize(kp2.secret_key(), msg).expect("Valid finalize");
 
         let partial2: Option<musig2::secp::Scalar> = r2_2.our_signature();
 
         // Finalize signatures
         let mut r2_1_final = r2_1;
         if let Some(p2) = partial2 {
-            r2_1_final.receive_signature(1, p2)
-                .expect("Valid signature reception");
+            r2_1_final.receive_signature(1, p2).expect("Valid signature reception");
         }
-        let sig: CompactSignature = r2_1_final.finalize()
-            .expect("Valid signature finalization");
+        let sig: CompactSignature = r2_1_final.finalize().expect("Valid signature finalization");
 
         // Test the checked function - convert types to match our interface
         let _our_secp = secp256k1::Secp256k1::new();
-        let _our_agg_x = secp256k1::XOnlyPublicKey::from_slice(&agg_xonly.serialize())
-            .expect("Valid public key");
-        let our_sig = secp256k1::schnorr::Signature::from_slice(&sig.serialize())
-            .expect("Valid signature");
-        
+        let _our_agg_x = secp256k1::XOnlyPublicKey::from_slice(&agg_xonly.serialize()).expect("Valid public key");
+        let our_sig = secp256k1::schnorr::Signature::from_slice(&sig.serialize()).expect("Valid signature");
+
         let witness = CopperootWitness::p2cr_key_spend(our_sig, CopperootSighashType::All);
 
         // Verify the witness can be parsed back
-        let spend = P2CrSpend::try_from(&witness)
-            .expect("Valid spend conversion");
+        let spend = P2CrSpend::try_from(&witness).expect("Valid spend conversion");
         match spend {
             P2CrSpend::Key { sighash_type, .. } => {
                 assert_eq!(sighash_type, CopperootSighashType::All);
@@ -1072,8 +975,8 @@ mod tests {
     #[test]
     fn test_p2cr_key_spend_from_musig2_checked_invalid_signature() {
         use musig2::CompactSignature;
-        use secp256k1::rand;
         use rand::Rng;
+        use secp256k1::rand;
 
         let _secp = Secp256k1::new();
         let mut rng = rand::thread_rng();
@@ -1091,14 +994,11 @@ mod tests {
 
         // Test with invalid signature - convert types to match our interface
         let our_secp = secp256k1::Secp256k1::new();
-        let our_agg_x = secp256k1::XOnlyPublicKey::from_slice(&agg_xonly.serialize())
-            .expect("Valid public key");
-        let our_sig = secp256k1::schnorr::Signature::from_slice(&sig.serialize())
-            .expect("Valid signature");
-        
+        let our_agg_x = secp256k1::XOnlyPublicKey::from_slice(&agg_xonly.serialize()).expect("Valid public key");
+        let our_sig = secp256k1::schnorr::Signature::from_slice(&sig.serialize()).expect("Valid signature");
+
         // This should fail because the signature is random and doesn't match the public key
-        let result = our_secp.verify_schnorr(&our_sig, &Message::from_digest_slice(&msg32)
-            .expect("Valid message"), &our_agg_x);
+        let result = our_secp.verify_schnorr(&our_sig, &Message::from_digest_slice(&msg32).expect("Valid message"), &our_agg_x);
         assert!(result.is_err());
     }
 
@@ -1108,33 +1008,28 @@ mod tests {
         let secp = Secp256k1::new();
         let keypair = Keypair::new(&secp, &mut secp256k1::rand::thread_rng());
         let internal_key = keypair.x_only_public_key().0;
-        
-        let control_block = CopperootControlBlock::new_merkle(0x00, internal_key, vec![])
-            .expect("Valid control block");
+
+        let control_block = CopperootControlBlock::new_merkle(0x00, internal_key, vec![]).expect("Valid control block");
         let control_block_bytes = control_block.serialize();
-        
+
         let input_items = vec![]; // No input items
         let annex = Some(vec![0x50, 0x01, 0x02, 0x03]); // Annex starting with 0x50
-        
+
         // Create witness with annex but no input items
-        let witness = CopperootWitness::p2cr_script_spend_with_inputs(
-            input_items,
-            script.clone(),
-            control_block_bytes.clone(),
-            annex.clone(),
-        );
-        
+        let witness =
+            CopperootWitness::p2cr_script_spend_with_inputs(input_items, script.clone(), control_block_bytes.clone(), annex.clone());
+
         // Parse the witness back
-        let spend = P2CrSpend::try_from(&witness)
-            .expect("Valid spend conversion");
+        let spend = P2CrSpend::try_from(&witness).expect("Valid spend conversion");
         match spend {
             P2CrSpend::Script { input, leaf_script, control_block: parsed_control, annex: parsed_annex } => {
                 assert_eq!(leaf_script, script);
                 assert_eq!(parsed_control, control_block_bytes);
                 assert_eq!(parsed_annex, annex);
-                
+
                 // Check that input items are correctly parsed (should be empty or contain only None)
-                assert!(input.is_empty() || input.iter().all(|item| item.is_none())); // No input items
+                assert!(input.is_empty() || input.iter().all(|item| item.is_none()));
+                // No input items
             }
             _ => panic!("Expected script path spend"),
         }
@@ -1145,33 +1040,28 @@ mod tests {
         let secp = Secp256k1::new();
         let keypair = Keypair::new(&secp, &mut secp256k1::rand::thread_rng());
         let internal_key = keypair.x_only_public_key().0;
-        
+
         let merkle_path = vec![[0u8; 32], [1u8; 32]];
-        let control_block = CopperootControlBlock::new_merkle(0x00, internal_key, merkle_path.clone())
-            .expect("Valid control block");
-        
+        let control_block = CopperootControlBlock::new_merkle(0x00, internal_key, merkle_path.clone()).expect("Valid control block");
+
         // Test serialization
         let serialized = control_block.serialize();
         assert!(serialized.len() > 33); // At least base structure + TLV extensions
-        
+
         // Test deserialization
-        let deserialized = CopperootControlBlock::deserialize(&serialized)
-            .expect("Valid deserialization");
-        
+        let deserialized = CopperootControlBlock::deserialize(&serialized).expect("Valid deserialization");
+
         // Verify TLV extensions are preserved
         assert_eq!(control_block.tlv_extensions.len(), deserialized.tlv_extensions.len());
-        
+
         // Verify required TLV types are present
-        let proof_type_present = deserialized.tlv_extensions.iter()
-            .any(|tlv| tlv.tlv_type == TLV_TYPE_PROOF_TYPE);
+        let proof_type_present = deserialized.tlv_extensions.iter().any(|tlv| tlv.tlv_type == TLV_TYPE_PROOF_TYPE);
         assert!(proof_type_present, "ProofType TLV should be present");
-        
-        let hash_scheme_present = deserialized.tlv_extensions.iter()
-            .any(|tlv| tlv.tlv_type == TLV_TYPE_HASH_SCHEME);
+
+        let hash_scheme_present = deserialized.tlv_extensions.iter().any(|tlv| tlv.tlv_type == TLV_TYPE_HASH_SCHEME);
         assert!(hash_scheme_present, "HashScheme TLV should be present");
-        
-        let merkle_proof_present = deserialized.tlv_extensions.iter()
-            .any(|tlv| tlv.tlv_type == TLV_TYPE_MERKLE_PROOF);
+
+        let merkle_proof_present = deserialized.tlv_extensions.iter().any(|tlv| tlv.tlv_type == TLV_TYPE_MERKLE_PROOF);
         assert!(merkle_proof_present, "MerkleProof TLV should be present");
     }
 
@@ -1180,27 +1070,24 @@ mod tests {
         let secp = Secp256k1::new();
         let keypair = Keypair::new(&secp, &mut secp256k1::rand::thread_rng());
         let internal_key = keypair.x_only_public_key().0;
-        
+
         // Create a control block with unknown TLV types
-        let mut control_block = CopperootControlBlock::new_merkle(0x00, internal_key, vec![])
-            .expect("Valid control block");
-        
+        let mut control_block = CopperootControlBlock::new_merkle(0x00, internal_key, vec![]).expect("Valid control block");
+
         // Add unknown TLV type
         control_block.tlv_extensions.push(TlvEntry {
             tlv_type: 0xFF, // Unknown type
             value: vec![0x12, 0x34, 0x56, 0x78],
         });
-        
+
         // Serialize and deserialize
         let serialized = control_block.serialize();
-        let deserialized = CopperootControlBlock::deserialize(&serialized)
-            .expect("Valid deserialization");
-        
+        let deserialized = CopperootControlBlock::deserialize(&serialized).expect("Valid deserialization");
+
         // Unknown TLV should be preserved but ignored during processing
-        let unknown_tlv_present = deserialized.tlv_extensions.iter()
-            .any(|tlv| tlv.tlv_type == 0xFF);
+        let unknown_tlv_present = deserialized.tlv_extensions.iter().any(|tlv| tlv.tlv_type == 0xFF);
         assert!(unknown_tlv_present, "Unknown TLV should be preserved");
-        
+
         // Merkle path should still be empty (unknown TLV ignored)
         assert!(deserialized.merkle_path.is_empty());
     }
@@ -1210,19 +1097,19 @@ mod tests {
         let secp = Secp256k1::new();
         let keypair = Keypair::new(&secp, &mut secp256k1::rand::thread_rng());
         let internal_key = keypair.x_only_public_key().0;
-        
+
         // Test with invalid data length
         let invalid_data = vec![0x00]; // Too short
         let result = CopperootControlBlock::deserialize(&invalid_data);
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), ControlBlockError::InvalidLength));
-        
+
         // Test with valid base structure but invalid TLV
         let mut invalid_tlv_data = Vec::new();
         invalid_tlv_data.push(0x00); // parity_leaf_version
         invalid_tlv_data.extend_from_slice(&internal_key.serialize()); // internal_key
         invalid_tlv_data.push(0x01); // TLV type
-        // Missing length and value
+                                     // Missing length and value
         let result = CopperootControlBlock::deserialize(&invalid_tlv_data);
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), ControlBlockError::InvalidLength));

@@ -1,5 +1,4 @@
 use async_trait::async_trait;
-use std::{collections::HashMap, fmt::Debug, sync::Arc};
 use spora_addresses::Address;
 use spora_consensus_core::{
     block::Block,
@@ -7,7 +6,7 @@ use spora_consensus_core::{
     config::Config,
     hashing::tx::hash,
     header::Header,
-    tx::{MutableTransaction, Transaction, TransactionId, TransactionInput, TransactionOutput, CellTx},
+    tx::{CellTx, MutableTransaction, Transaction, TransactionId, TransactionInput, TransactionOutput},
     ChainPath,
 };
 use spora_consensus_notify::notification::{self as consensus_notify, Notification as ConsensusNotification};
@@ -21,6 +20,7 @@ use spora_rpc_core::{
     RpcTransactionOutputVerboseData, RpcTransactionVerboseData,
 };
 use spora_txscript::{extract_script_pub_key_address, script_class::ScriptClass};
+use std::{collections::HashMap, fmt::Debug, sync::Arc};
 
 /// Conversion of consensus_core to rpc_core structures
 pub struct ConsensusConverter {

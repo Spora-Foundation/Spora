@@ -1,7 +1,7 @@
 use crate::{block::Block, header::Header, BlockHashMap, BlueWorkType, KType};
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 use spora_hashes::Hash;
+use std::sync::Arc;
 
 /// Represents semi-trusted externally provided Ghostdag data (by a network peer)
 #[derive(Clone, Serialize, Deserialize)]

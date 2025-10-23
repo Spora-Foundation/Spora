@@ -11,6 +11,10 @@ use futures_util::future::{join_all, try_join_all};
 use itertools::Itertools;
 use parking_lot::Mutex as ParkingLotMutex;
 use rand::{seq::SliceRandom, thread_rng};
+use spora_addressmanager::{AddressManager, NetAddress};
+use spora_core::{debug, info, warn};
+use spora_p2p_lib::{common::ProtocolError, ConnectionError, Peer};
+use spora_utils::triggers::SingleTrigger;
 use tokio::{
     select,
     sync::{
@@ -19,10 +23,6 @@ use tokio::{
     },
     time::{interval, MissedTickBehavior},
 };
-use spora_addressmanager::{AddressManager, NetAddress};
-use spora_core::{debug, info, warn};
-use spora_p2p_lib::{common::ProtocolError, ConnectionError, Peer};
-use spora_utils::triggers::SingleTrigger;
 
 pub struct ConnectionManager {
     p2p_adaptor: Arc<spora_p2p_lib::Adaptor>,

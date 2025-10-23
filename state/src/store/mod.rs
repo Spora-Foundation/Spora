@@ -3,9 +3,8 @@
 //
 // Data availability storage: segments and proofs
 
-pub mod segment;
 pub mod proof;
+pub mod segment;
 
-pub use segment::{SegmentWriter, SegmentReader, SegmentMeta};
-pub use proof::{SegmentProof, ProofVerifier};
-
+pub use proof::{ProofVerifier, SegmentProof};
+pub use segment::{SegmentMeta, SegmentReader, SegmentWriter};

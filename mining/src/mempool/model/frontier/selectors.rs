@@ -1,11 +1,11 @@
 use crate::Policy;
+use spora_consensus_core::{
+    block::TemplateTransactionSelector,
+    tx::{CellTx, Transaction, TransactionId},
+};
 use std::{
     collections::{BTreeMap, HashMap},
     sync::Arc,
-};
-use spora_consensus_core::{
-    block::TemplateTransactionSelector,
-    tx::{Transaction, TransactionId, CellTx},
 };
 
 pub struct SequenceSelectorTransaction {

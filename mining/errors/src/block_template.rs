@@ -1,5 +1,5 @@
-use thiserror::Error;
 use spora_consensus_core::errors::{block::RuleError, coinbase::CoinbaseError};
+use thiserror::Error;
 
 #[derive(Error, Debug, Clone)]
 pub enum BuilderError {

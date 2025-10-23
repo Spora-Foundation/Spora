@@ -15,7 +15,6 @@ use secp256k1::{
     Keypair, SecretKey, SECP256K1,
 };
 use serde::{Deserialize, Serialize};
-use tokio::time::Instant;
 use spora_addresses::{Address, Prefix, Version};
 use spora_bip32::{DerivationPath, ExtendedPrivateKey, Language, Mnemonic, WordCount};
 use spora_consensus_core::{
@@ -28,6 +27,7 @@ use spora_core::{info, warn};
 use spora_grpc_client::GrpcClient;
 use spora_rpc_core::{api::rpc::RpcApi, RpcUtxoEntry};
 use spora_txscript::{htlc_script, pay_to_address_script, pay_to_address_with_lock_time_script};
+use tokio::time::Instant;
 
 /// Default amount to send per address in SAU (Smallest Atomic Unit)
 pub const DEFAULT_SEND_AMOUNT: u64 = SAU_PER_TONDI;
@@ -847,8 +847,8 @@ pub async fn tlc_airdrop(
 mod tests {
     use super::*;
     use secp256k1::{SecretKey, SECP256K1};
-    use std::str::FromStr;
     use spora_bip32::{DerivationPath, ExtendedPrivateKey, Language, Mnemonic, WordCount};
+    use std::str::FromStr;
 
     #[test]
     fn test_address_distribution_tracker_new() {

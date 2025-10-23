@@ -6,9 +6,8 @@
 
 use super::error::VMError;
 use ckb_vm::{
-    DefaultMachineRunner, SupportMachine, Syscalls,
-    ISA_B, ISA_IMC, ISA_MOP,
     machine::{VERSION0, VERSION1, VERSION2},
+    DefaultMachineRunner, SupportMachine, Syscalls, ISA_B, ISA_IMC, ISA_MOP,
 };
 
 /// CKB-VM ISA type
@@ -69,9 +68,7 @@ impl ScriptVersion {
 /// Default machine type
 /// For simplicity, we use TraceMachine with SparseMemory
 /// ASM optimization can be added later via feature flags
-pub type Machine = ckb_vm::TraceMachine<
-    ckb_vm::DefaultCoreMachine<u64, ckb_vm::WXorXMemory<ckb_vm::SparseMemory<u64>>>,
->;
+pub type Machine = ckb_vm::TraceMachine<ckb_vm::DefaultCoreMachine<u64, ckb_vm::WXorXMemory<ckb_vm::SparseMemory<u64>>>>;
 
 /// VM context for execution
 pub struct VmContext {
@@ -107,14 +104,14 @@ pub fn run_script(
     // TODO: Implement full CKB-VM execution
     // For now, return success with placeholder cycles
     // This allows compilation and testing of other components
-    
+
     // The proper implementation requires:
     // 1. Create Scheduler (see ckb/script/src/scheduler.rs)
     // 2. Load program into machine
     // 3. Register syscalls
     // 4. Run with cycle limits
     // 5. Handle suspension/resumption
-    
+
     Ok(1000) // Placeholder cycles
 }
 

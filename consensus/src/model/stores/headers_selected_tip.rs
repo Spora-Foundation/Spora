@@ -1,10 +1,10 @@
 use crate::processes::ghostdag::ordering::SortableBlock;
 use rocksdb::WriteBatch;
-use std::sync::Arc;
 use spora_database::prelude::StoreResult;
 use spora_database::prelude::DB;
 use spora_database::prelude::{BatchDbWriter, CachedDbItem, DirectDbWriter};
 use spora_database::registry::DatabaseStorePrefixes;
+use std::sync::Arc;
 
 /// Reader API for `SelectedTipStore`.
 pub trait HeadersSelectedTipStoreReader {

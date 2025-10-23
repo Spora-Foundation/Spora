@@ -6,7 +6,7 @@ pub mod params;
 use spora_utils::networking::{ContextualNetAddress, NetAddress};
 
 #[cfg(feature = "devnet-prealloc")]
-use crate::utxo::utxo_collection::UtxoCollection;
+use crate::cell_diff::CellCollection;
 #[cfg(feature = "devnet-prealloc")]
 use std::sync::Arc;
 
@@ -62,7 +62,7 @@ pub struct Config {
     pub block_template_cache_lifetime: Option<u64>,
 
     #[cfg(feature = "devnet-prealloc")]
-    pub initial_utxo_set: Arc<UtxoCollection>,
+    pub initial_cell_set: Arc<CellCollection>,
 
     pub disable_upnp: bool,
 
@@ -95,7 +95,7 @@ impl Config {
             block_template_cache_lifetime: None,
 
             #[cfg(feature = "devnet-prealloc")]
-            initial_utxo_set: Default::default(),
+            initial_cell_set: Default::default(),
             disable_upnp: false,
             ram_scale: 1.0,
             retention_period_days: None,

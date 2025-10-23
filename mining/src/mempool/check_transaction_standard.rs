@@ -41,7 +41,7 @@ const MAXIMUM_STANDARD_TRANSACTION_MASS: u64 = 100_000;
 #[allow(dead_code)]
 const MAX_TAPLIKE_CONTROL_BLOCK_SIZE: usize = 1536; // 1.5 KB
 #[allow(dead_code)]
-const MAX_TAPLIKE_LEAF_SCRIPT_SIZE: usize = 10240;  // 10 KB
+const MAX_TAPLIKE_LEAF_SCRIPT_SIZE: usize = 10240; // 10 KB
 const MAX_TAPLIKE_WITNESS_TOTAL_SIZE: usize = 102400; // 100 KB
 const MAX_TAPLIKE_SINGLE_ELEMENT_SIZE: usize = 65536; // 64 KB
 const MAX_TAPLIKE_MERKLE_DEPTH: u8 = 8;
@@ -220,7 +220,9 @@ impl Mempool {
                         return Err(match e {
                             NonStandardError::RejectWitnessParse(_, _) => NonStandardError::RejectWitnessParse(transaction_id, i),
                             NonStandardError::RejectWitnessSize(_, _) => NonStandardError::RejectWitnessSize(transaction_id, i),
-                            NonStandardError::RejectTaplikeControlBlockDepth(_, _, depth, max) => NonStandardError::RejectTaplikeControlBlockDepth(transaction_id, i, depth, max),
+                            NonStandardError::RejectTaplikeControlBlockDepth(_, _, depth, max) => {
+                                NonStandardError::RejectTaplikeControlBlockDepth(transaction_id, i, depth, max)
+                            }
                             _ => e,
                         });
                     }
@@ -231,7 +233,9 @@ impl Mempool {
                         return Err(match e {
                             NonStandardError::RejectWitnessParse(_, _) => NonStandardError::RejectWitnessParse(transaction_id, i),
                             NonStandardError::RejectWitnessSize(_, _) => NonStandardError::RejectWitnessSize(transaction_id, i),
-                            NonStandardError::RejectTaplikeControlBlockDepth(_, _, depth, max) => NonStandardError::RejectTaplikeControlBlockDepth(transaction_id, i, depth, max),
+                            NonStandardError::RejectTaplikeControlBlockDepth(_, _, depth, max) => {
+                                NonStandardError::RejectTaplikeControlBlockDepth(transaction_id, i, depth, max)
+                            }
                             _ => e,
                         });
                     }
@@ -283,17 +287,26 @@ impl Mempool {
                 if let Ok(spend) = spora_txscript::standard::copperoot::witness::P2CrSpend::try_from(&wit) {
                     if let spora_txscript::standard::copperoot::witness::P2CrSpend::Script { control_block, .. } = spend {
                         // Parse control block, count merkle_path length
-                        if let Ok(cb) = spora_txscript::standard::copperoot::witness::CopperootControlBlock::deserialize(&control_block) {
+                        if let Ok(cb) =
+                            spora_txscript::standard::copperoot::witness::CopperootControlBlock::deserialize(&control_block)
+                        {
                             // For P2CR (Merkle type) apply depth limit; Verkle type currently rejected (existing rules)
-                            let proof_type = cb.tlv_extensions.iter()
+                            let proof_type = cb
+                                .tlv_extensions
+                                .iter()
                                 .find(|tlv| tlv.tlv_type == spora_txscript::standard::copperoot::witness::TLV_TYPE_PROOF_TYPE)
                                 .and_then(|tlv| tlv.value.first().copied())
                                 .unwrap_or(0);
-                            
+
                             if proof_type == 0 {
                                 let depth = cb.merkle_path.len() as u8;
                                 if depth > MAX_TAPLIKE_MERKLE_DEPTH {
-                                    return Err(NonStandardError::RejectTaplikeControlBlockDepth(Default::default(), 0, depth, MAX_TAPLIKE_MERKLE_DEPTH));
+                                    return Err(NonStandardError::RejectTaplikeControlBlockDepth(
+                                        Default::default(),
+                                        0,
+                                        depth,
+                                        MAX_TAPLIKE_MERKLE_DEPTH,
+                                    ));
                                 }
                             }
                         }
@@ -335,7 +348,6 @@ mod tests {
         MiningCounters,
     };
     use smallvec::smallvec;
-    use std::sync::Arc;
     use spora_addresses::{Address, Prefix, Version};
     use spora_consensus_core::{
         config::params::Params,
@@ -349,6 +361,7 @@ mod tests {
         opcodes::codes::{OpReturn, OpTrue},
         script_builder::ScriptBuilder,
     };
+    use std::sync::Arc;
 
     #[test]
     fn test_calc_min_required_tx_relay_fee() {

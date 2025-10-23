@@ -99,7 +99,7 @@ impl BlockTemplateBuilder {
         // TODO(cell-model): Coinbase modification needs migration to CellTx
         // CellTx uses outputs_data instead of payload field
         // For now, skip coinbase modification as mining is being migrated
-        /* 
+        /*
         let coinbase_tx = &mut block_template.block.transactions[COINBASE_TRANSACTION_INDEX];
         let new_payload = consensus.modify_coinbase_payload(coinbase_tx.payload().unwrap_or(&[]).to_vec(), new_miner_data)?;
         // coinbase_tx.outputs_data[0] = new_payload;  // Need mutable access
@@ -111,7 +111,7 @@ impl BlockTemplateBuilder {
         // TODO(cell-model): Update hash merkle root for CellTx
         // Temporarily skip this as we're not modifying coinbase anymore
         /* block_template.block.header.hash_merkle_root =
-            consensus.calc_transaction_hash_merkle_root(&block_template.block.transactions, block_template.block.header.daa_score); */
+        consensus.calc_transaction_hash_merkle_root(&block_template.block.transactions, block_template.block.header.daa_score); */
         let new_timestamp = unix_now();
         if new_timestamp > block_template.block.header.timestamp {
             // Only if new time stamp is later than current, update the header. Otherwise,

@@ -13,12 +13,12 @@
 #![warn(missing_docs)]
 
 pub mod api;
-pub mod indexer;
 pub mod errors;
+pub mod indexer;
 
-pub use api::{CellQuery, CellQueryResult, CellFilter, CellIndexProxy};
-pub use indexer::CellIndexer;
+pub use api::{CellFilter, CellIndexProxy, CellQuery, CellQueryResult};
 pub use errors::{CellIndexError, Result};
+pub use indexer::CellIndexer;
 
 /// Cell index errors (re-export from errors module)
 #[deprecated(note = "Use errors::CellIndexError instead")]

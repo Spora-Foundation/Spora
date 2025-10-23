@@ -4,6 +4,11 @@ use super::collector::{CollectorFromConsensus, CollectorFromIndex};
 use crate::converter::feerate_estimate::{FeeEstimateConverter, FeeEstimateVerboseConverter};
 use crate::converter::{consensus::ConsensusConverter, index::IndexConverter, protocol::ProtocolConverter};
 use async_trait::async_trait;
+use spora_consensus_core::api::counters::ProcessingCounters;
+use spora_consensus_core::daa_score_timestamp::DaaScoreTimestamp;
+use spora_consensus_core::errors::block::RuleError;
+use spora_consensus_core::mass::{calc_storage_mass, UtxoCell};
+use spora_consensus_core::tx::ScriptPublicKey;
 use std::time::Duration;
 use std::{
     collections::HashMap,
@@ -12,11 +17,6 @@ use std::{
     vec,
 };
 use tokio::join;
-use spora_consensus_core::api::counters::ProcessingCounters;
-use spora_consensus_core::daa_score_timestamp::DaaScoreTimestamp;
-use spora_consensus_core::errors::block::RuleError;
-use spora_consensus_core::mass::{calc_storage_mass, UtxoCell};
-use spora_consensus_core::tx::ScriptPublicKey;
 // TODO(cell-model): UTXO-specific error, needs Cell model replacement
 // use spora_consensus_core::utxo::utxo_inquirer::UtxoInquirerError;
 use spora_consensus_core::{
@@ -37,9 +37,9 @@ use spora_core::{
     core::Core,
     debug,
     signals::Shutdown,
+    sporad_env::version,
     task::service::{AsyncService, AsyncServiceError, AsyncServiceFuture},
     task::tick::TickService,
-    sporad_env::version,
     trace, warn,
 };
 use spora_index_core::indexed_utxos::BalanceByScriptPublicKey;
@@ -327,7 +327,7 @@ impl RpcCoreService {
                 }
 
                 let avg_ins_lower = sum_outs / num_ins; // >= 1
-                // TODO(cell-model): Update calc_storage_mass for Cell model
+                                                        // TODO(cell-model): Update calc_storage_mass for Cell model
                 let storage_mass_lower = calc_storage_mass(
                     tx.is_coinbase(),
                     tx.inputs.iter().map(|_| UtxoCell { plurality: 1, amount: avg_ins_lower }),
@@ -451,7 +451,9 @@ NOTE: This error usually indicates an RPC conversion error between the node and 
 
         // Check coinbase tx payload length
         // TODO(cell-model): CellTx payload access needs update
-        if block_template.block.transactions[COINBASE_TRANSACTION_INDEX].payload().map_or(0, |p| p.len()) > self.config.max_coinbase_payload_len {
+        if block_template.block.transactions[COINBASE_TRANSACTION_INDEX].payload().map_or(0, |p| p.len())
+            > self.config.max_coinbase_payload_len
+        {
             return Err(RpcError::CoinbasePayloadLengthAboveMax(self.config.max_coinbase_payload_len));
         }
 
@@ -771,7 +773,7 @@ NOTE: This error usually indicates an RPC conversion error between the node and 
         let _utxo_collection = self.get_utxo_set_by_script_public_key(_spk.clone(), start, limit).await;
         // TODO(cell-model): Implement proper Cell-based UTXO query and conversion
         let entries = vec![]; // Temporary stub: return empty entries
-        // TODO: Get total by rocksdb.estimate-num-keys
+                              // TODO: Get total by rocksdb.estimate-num-keys
         Ok(GetUtxosByAddressResponse { entries, total: 0 })
     }
 
@@ -956,7 +958,7 @@ NOTE: This error usually indicates an RPC conversion error between the node and 
                 // TODO(cell-model): UTXO-specific logic, needs Cell model implementation
                 // Temporary stub: return error for all queries
                 return Err(RpcError::General("GetUtxoReturnAddress not yet implemented for Cell model".to_string()));
-                
+
                 /* Original UTXO-based code:
                 if tx.tx.inputs.is_empty() || tx.entries.is_empty() {
                     return Err(RpcError::UtxoReturnAddressNotFound(UtxoInquirerError::TxFromCoinbase));

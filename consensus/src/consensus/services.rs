@@ -12,16 +12,22 @@ use crate::{
         },
     },
     processes::{
-        block_depth::BlockDepthManager, coinbase::CoinbaseManager, ghostdag::protocol::GhostdagManager,
-        parents_builder::ParentsManager, pruning::PruningPointManager, pruning_proof::PruningProofManager, sync::SyncManager,
+        block_depth::BlockDepthManager,
+        coinbase::CoinbaseManager,
+        ghostdag::protocol::GhostdagManager,
+        parents_builder::ParentsManager,
+        pruning::PruningPointManager,
+        pruning_proof::PruningProofManager,
+        sync::SyncManager,
         // transaction_validator::TransactionValidator, // UTXO deprecated - use cell_validator
-        traversal_manager::DagTraversalManager, window::DualWindowManager,
+        traversal_manager::DagTraversalManager,
+        window::DualWindowManager,
     },
 };
 use itertools::Itertools;
-use std::sync::{atomic::AtomicBool, Arc};
 use spora_consensus_core::mass::MassCalculator;
 use spora_txscript::caches::TxScriptCacheCounters;
+use std::sync::{atomic::AtomicBool, Arc};
 
 pub type DbGhostdagManager =
     GhostdagManager<DbGhostdagStore, MTRelationsService<DbRelationsStore>, MTReachabilityService<DbReachabilityStore>, DbHeadersStore>;

@@ -64,12 +64,12 @@ use crate::tx::{
     PendingTransactionStream,
 };
 use crate::utxo::{NetworkParams, UtxoContext, UtxoEntryReference};
-use std::collections::VecDeque;
 use spora_consensus_client::UtxoEntry;
 use spora_consensus_core::constants::UNACCEPTED_DAA_SCORE;
 use spora_consensus_core::subnets::SUBNETWORK_ID_NATIVE;
 use spora_consensus_core::tx::{Transaction, TransactionInput, TransactionOutpoint, TransactionOutput};
 use spora_txscript::{pay_to_address_script, pay_to_address_with_lock_time_script};
+use std::collections::VecDeque;
 
 use super::SignerT;
 

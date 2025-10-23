@@ -1,5 +1,5 @@
-use std::num::Wrapping;
 use spora_hashes::Hash;
+use std::num::Wrapping;
 
 pub struct XoShiRo256PlusPlus {
     s0: Wrapping<u64>,

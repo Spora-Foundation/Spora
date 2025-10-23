@@ -1,9 +1,9 @@
+pub mod cell_processing;
 pub mod errors;
-pub mod processor;
-pub mod cell_processing;  // Cell model processing
+pub mod processor; // Cell model processing
 pub use processor::*;
+#[cfg(test)]
+mod cell_tests;
 pub mod test_block_builder;
 #[cfg(test)]
 mod tests;
-#[cfg(test)]
-mod cell_tests;

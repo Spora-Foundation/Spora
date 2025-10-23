@@ -1,8 +1,8 @@
 use itertools::Itertools;
 use parking_lot::RwLock;
-use std::{collections::VecDeque, ops::Deref, sync::Arc, thread::JoinHandle};
 use spora_consensus_core::api::{ConsensusApi, DynConsensus};
 use spora_core::{core::Core, debug, service::Service};
+use std::{collections::VecDeque, ops::Deref, sync::Arc, thread::JoinHandle};
 
 mod batch;
 mod session;

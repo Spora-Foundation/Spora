@@ -3,8 +3,8 @@
 //
 // Deterministic conflict resolution
 
-use crate::celltx::types::CellTx;
 use crate::celltx::sighash::compute_wtxid;
+use crate::celltx::types::CellTx;
 use std::cmp::Ordering;
 
 /// Conflict resolution key (deterministic ordering)
@@ -85,7 +85,7 @@ impl ConflictResolver {
     pub fn new(cycles_per_byte: f64) -> Self {
         Self { cycles_per_byte }
     }
-    
+
     /// Compute conflict key for a transaction
     ///
     /// # Parameters
@@ -93,30 +93,16 @@ impl ConflictResolver {
     /// - `fee`: Transaction fee (input_capacity - output_capacity)
     /// - `cycles`: Estimated execution cycles
     /// - `blue_score`: Optional blue score (for DAG preference)
-    pub fn compute_key(
-        &self,
-        tx: &CellTx,
-        fee: u64,
-        cycles: u64,
-        blue_score: Option<u64>,
-    ) -> ConflictKey {
+    pub fn compute_key(&self, tx: &CellTx, fee: u64, cycles: u64, blue_score: Option<u64>) -> ConflictKey {
         let size = tx.serialized_size() as f64;
         let cycles_size = cycles as f64 / self.cycles_per_byte;
         let effective_size = size.max(cycles_size);
-        
-        let fee_density = if effective_size > 0.0 {
-            fee as f64 / effective_size
-        } else {
-            0.0
-        };
-        
-        ConflictKey {
-            fee_density: OrderedFloat(fee_density),
-            blue_preference: blue_score.unwrap_or(0),
-            wtxid: compute_wtxid(tx),
-        }
+
+        let fee_density = if effective_size > 0.0 { fee as f64 / effective_size } else { 0.0 };
+
+        ConflictKey { fee_density: OrderedFloat(fee_density), blue_preference: blue_score.unwrap_or(0), wtxid: compute_wtxid(tx) }
     }
-    
+
     /// Resolve conflict between two transactions
     ///
     /// Returns the winner (transaction with higher priority)
@@ -133,14 +119,14 @@ impl ConflictResolver {
     ) -> ConflictResolution {
         let key1 = self.compute_key(tx1, fee1, cycles1, blue1);
         let key2 = self.compute_key(tx2, fee2, cycles2, blue2);
-        
+
         match key1.cmp(&key2) {
-            Ordering::Less => ConflictResolution::KeepFirst, // key1 wins (higher priority)
+            Ordering::Less => ConflictResolution::KeepFirst,     // key1 wins (higher priority)
             Ordering::Greater => ConflictResolution::KeepSecond, // key2 wins (higher priority)
-            Ordering::Equal => ConflictResolution::KeepFirst, // Should never happen
+            Ordering::Equal => ConflictResolution::KeepFirst,    // Should never happen
         }
     }
-    
+
     /// Select winners from a set of conflicting transactions
     ///
     /// Returns indices of transactions to keep (sorted by priority)
@@ -148,17 +134,12 @@ impl ConflictResolver {
         &self,
         txs: &[(CellTx, u64, u64, Option<u64>)], // (tx, fee, cycles, blue_score)
     ) -> Vec<usize> {
-        let mut entries: Vec<(usize, ConflictKey)> = txs
-            .iter()
-            .enumerate()
-            .map(|(i, (tx, fee, cycles, blue))| {
-                (i, self.compute_key(tx, *fee, *cycles, *blue))
-            })
-            .collect();
-        
+        let mut entries: Vec<(usize, ConflictKey)> =
+            txs.iter().enumerate().map(|(i, (tx, fee, cycles, blue))| (i, self.compute_key(tx, *fee, *cycles, *blue))).collect();
+
         // Sort by conflict key (highest priority first)
         entries.sort_by(|(_, k1), (_, k2)| k1.cmp(k2));
-        
+
         // Return indices in priority order
         entries.into_iter().map(|(i, _)| i).collect()
     }
@@ -177,117 +158,109 @@ pub enum ConflictResolution {
 mod tests {
     use super::*;
     use crate::celltx::types::{CellOut, ScriptRef};
-    
+
     fn create_test_tx(capacity: u64) -> CellTx {
         let lock = ScriptRef::new([0x00; 32], 0, vec![]);
-        CellTx::new(
-            vec![],
-            vec![],
-            vec![CellOut { lock, type_: None, capacity }],
-            vec![vec![]],
-            vec![],
-        ).unwrap()
+        CellTx::new(vec![], vec![], vec![CellOut { lock, type_: None, capacity }], vec![vec![]], vec![]).unwrap()
     }
-    
+
     #[test]
     fn test_conflict_key_ordering() {
         let resolver = ConflictResolver::default();
-        
+
         // tx1: higher fee density
         let tx1 = create_test_tx(1000);
         let key1 = resolver.compute_key(&tx1, 1000, 1000, None);
-        
+
         // tx2: lower fee density
         let tx2 = create_test_tx(1000);
         let key2 = resolver.compute_key(&tx2, 500, 1000, None);
-        
+
         // key1 should win (higher fee density)
         assert!(key1 < key2); // Note: < because we want descending order
     }
-    
+
     #[test]
     fn test_blue_preference_tiebreak() {
         let resolver = ConflictResolver::default();
-        
+
         let tx = create_test_tx(1000);
-        
+
         // Same fee density, different blue scores
         let key1 = resolver.compute_key(&tx, 1000, 1000, Some(100));
         let key2 = resolver.compute_key(&tx, 1000, 1000, Some(50));
-        
+
         // key1 should win (higher blue score)
         assert!(key1 < key2);
     }
-    
+
     #[test]
     fn test_wtxid_tiebreak() {
         let resolver = ConflictResolver::default();
-        
+
         let tx1 = create_test_tx(1000);
         let tx2 = create_test_tx(1001); // Different capacity → different wtxid
-        
+
         // Same fee and cycles, no blue score
         let key1 = resolver.compute_key(&tx1, 1000, 1000, None);
         let key2 = resolver.compute_key(&tx2, 1000, 1000, None);
-        
+
         // Should be deterministically ordered by wtxid
         assert_ne!(key1, key2);
         assert!(key1 < key2 || key2 < key1);
     }
-    
+
     #[test]
     fn test_resolve_conflict() {
         let resolver = ConflictResolver::default();
-        
+
         let tx1 = create_test_tx(1000);
         let tx2 = create_test_tx(1001); // Different capacity to get different wtxid
-        
+
         // tx1 has MUCH higher fee (to dominate wtxid tiebreaker)
         let result = resolver.resolve(
-            &tx1, 10000, 1000, None,  // Very high fee
-            &tx2, 1000, 1000, None,   // Low fee
+            &tx1, 10000, 1000, None, // Very high fee
+            &tx2, 1000, 1000, None, // Low fee
         );
-        
+
         // tx1 should win due to much higher fee density
         assert_eq!(result, ConflictResolution::KeepFirst);
     }
-    
+
     #[test]
     fn test_select_winners() {
         let resolver = ConflictResolver::default();
-        
+
         let tx1 = create_test_tx(1000);
         let tx2 = create_test_tx(1001);
         let tx3 = create_test_tx(1002);
-        
+
         let txs = vec![
             (tx1, 500, 1000, None),  // Lowest fee
             (tx2, 2000, 1000, None), // Highest fee
             (tx3, 1000, 1000, None), // Middle fee
         ];
-        
+
         let winners = resolver.select_winners(&txs);
-        
+
         // Should be sorted by priority: tx2 (idx 1), tx3 (idx 2), tx1 (idx 0)
         assert_eq!(winners[0], 1); // tx2 wins
     }
-    
+
     #[test]
     fn test_effective_size_with_cycles() {
         let resolver = ConflictResolver::new(100.0);
-        
+
         let tx = create_test_tx(1000);
         let _size = tx.serialized_size() as f64;
-        
+
         // High cycles → effective size dominated by cycles
         let key_high_cycles = resolver.compute_key(&tx, 1000, 100000, None);
-        
+
         // Low cycles → effective size dominated by serialized size
         let key_low_cycles = resolver.compute_key(&tx, 1000, 100, None);
-        
+
         // High cycles tx should have lower fee density (larger effective size)
         assert!(key_high_cycles.fee_density.0 < key_low_cycles.fee_density.0);
     }
 }
-
-

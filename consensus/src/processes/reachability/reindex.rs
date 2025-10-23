@@ -1,8 +1,8 @@
 use super::{extensions::ReachabilityStoreIntervalExtensions, inquirer::get_next_chain_ancestor_unchecked, interval::Interval, *};
 use crate::model::stores::reachability::ReachabilityStore;
-use std::collections::VecDeque;
 use spora_consensus_core::{blockhash::BlockHashExtensions, BlockHashMap, HashMapCustomHasher};
 use spora_hashes::Hash;
+use std::collections::VecDeque;
 
 /// A struct used during reindex operations. It represents a temporary context
 /// for caching subtree information during the *current* reindex operation only

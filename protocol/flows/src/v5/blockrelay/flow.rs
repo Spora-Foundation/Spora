@@ -3,7 +3,6 @@ use crate::{
     flow_trait::Flow,
     flowcontext::orphans::OrphanOutput,
 };
-use std::{collections::VecDeque, sync::Arc};
 use spora_consensus_core::{api::BlockValidationFutures, block::Block, blockstatus::BlockStatus, errors::block::RuleError};
 use spora_consensusmanager::{BlockProcessingBatch, ConsensusProxy};
 use spora_core::debug;
@@ -15,6 +14,7 @@ use spora_p2p_lib::{
     IncomingRoute, Router, SharedIncomingRoute,
 };
 use spora_utils::channel::{JobSender, JobTrySendError as TrySendError};
+use std::{collections::VecDeque, sync::Arc};
 
 pub struct RelayInvMessage {
     hash: Hash,

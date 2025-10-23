@@ -3,7 +3,6 @@ use clap::Parser;
 use futures::{future::try_join_all, Future};
 use itertools::Itertools;
 use simulator::network::SporaNetworkSimulator;
-use std::{collections::VecDeque, sync::Arc, time::Duration};
 use spora_alloc::init_allocator_with_default_settings;
 use spora_consensus::{
     config::ConfigBuilder,
@@ -33,6 +32,7 @@ use spora_database::{create_temp_db, load_existing_db};
 use spora_hashes::Hash;
 use spora_perf_monitor::{builder::Builder, counters::CountersSnapshot};
 use spora_utils::fd_budget;
+use std::{collections::VecDeque, sync::Arc, time::Duration};
 
 pub mod simulator;
 

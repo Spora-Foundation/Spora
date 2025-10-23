@@ -1,7 +1,7 @@
 use crate::model::stores::{block_window_cache::BlockWindowHeap, headers::HeaderStoreReader};
-use std::sync::Arc;
 use spora_consensus_core::errors::block::RuleError;
 use spora_hashes::Hash;
+use std::sync::Arc;
 
 /// A past median manager conforming to the legacy golang implementation
 /// based on full, hence un-sampled, windows

@@ -1,6 +1,6 @@
 use crate::{BlockHashSet, HashMapCustomHasher};
-use std::sync::Arc;
 use spora_hashes::{Hash, HASH_SIZE};
+use std::sync::Arc;
 
 pub type BlockHashes = Arc<Vec<Hash>>;
 

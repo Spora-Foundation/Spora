@@ -1,11 +1,11 @@
 use super::rpc_core_mock::RpcCoreMock;
 use crate::{adaptor::Adaptor, manager::Manager};
-use std::sync::Arc;
 use spora_core::info;
 use spora_grpc_client::GrpcClient;
 use spora_notify::scope::{NewBlockTemplateScope, Scope};
 use spora_rpc_core::api::rpc::RpcApi;
 use spora_utils::networking::{ContextualNetAddress, NetAddress};
+use std::sync::Arc;
 
 #[tokio::test]
 async fn test_client_server_sanity_check() {

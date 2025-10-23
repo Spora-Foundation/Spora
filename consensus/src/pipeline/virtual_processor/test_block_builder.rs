@@ -1,11 +1,7 @@
 use std::{ops::Deref, sync::Arc};
 
-use crate::model::stores::{
-    cell_roots::CellRootsStoreReader, pruning::PruningStoreReader, virtual_state::VirtualStateStoreReader,
-};
-use spora_consensus_core::{
-    block::BlockTemplate, blockhash::ORIGIN, coinbase::MinerData, errors::block::RuleError, tx::Transaction,
-};
+use crate::model::stores::{cell_roots::CellRootsStoreReader, pruning::PruningStoreReader, virtual_state::VirtualStateStoreReader};
+use spora_consensus_core::{block::BlockTemplate, blockhash::ORIGIN, coinbase::MinerData, errors::block::RuleError, tx::Transaction};
 use spora_hashes::Hash;
 
 use super::VirtualStateProcessor;

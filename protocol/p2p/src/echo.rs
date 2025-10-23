@@ -5,8 +5,8 @@ use crate::{
     pb::{self, VersionMessage},
     IncomingRoute, Router, SporadMessagePayloadType,
 };
-use std::sync::Arc;
 use spora_core::{debug, time::unix_now, trace, warn};
+use std::sync::Arc;
 use tonic::async_trait;
 use uuid::Uuid;
 

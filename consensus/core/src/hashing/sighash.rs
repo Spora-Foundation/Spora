@@ -1,7 +1,7 @@
 use arc_swap::ArcSwapOption;
+use spora_hashes::{Hash, Hasher, HasherBase, SchnorrSigningHash, TransactionSigningHash, TransactionSigningHashECDSA, ZERO_HASH};
 use std::cell::Cell;
 use std::sync::Arc;
-use spora_hashes::{Hash, Hasher, HasherBase, SchnorrSigningHash, TransactionSigningHash, TransactionSigningHashECDSA, ZERO_HASH};
 
 use crate::tx::{ScriptPublicKey, Transaction, TransactionOutpoint, TransactionOutput, VerifiableTransaction};
 

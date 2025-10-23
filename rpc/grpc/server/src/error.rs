@@ -1,6 +1,6 @@
+use spora_grpc_core::ops::SporadPayloadOps;
 use thiserror::Error;
 use tokio::sync::mpsc::error::TrySendError;
-use spora_grpc_core::ops::SporadPayloadOps;
 
 #[derive(Debug, Error)]
 pub enum GrpcServerError {

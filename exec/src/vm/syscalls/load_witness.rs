@@ -3,12 +3,11 @@
 //
 // Load witness syscall
 
-use super::utils::{store_data, SUCCESS, INDEX_OUT_OF_BOUND};
+use super::utils::{store_data, INDEX_OUT_OF_BOUND, SUCCESS};
 use crate::celltx::CellTx;
 use ckb_vm::{
-    Register, Syscalls, SupportMachine,
-    Error as VMError,
     registers::{A0, A2, A3, A4, A7},
+    Error as VMError, Register, SupportMachine, Syscalls,
 };
 use std::sync::Arc;
 
@@ -33,8 +32,7 @@ impl LoadWitness {
             }
             0x0100 => {
                 // GroupInput witnesses
-                self.group_input_indices.get(index)
-                    .and_then(|&idx| self.tx.witnesses.get(idx).map(|w| w.as_slice()))
+                self.group_input_indices.get(index).and_then(|&idx| self.tx.witnesses.get(idx).map(|w| w.as_slice()))
             }
             _ => None,
         }
@@ -48,7 +46,7 @@ impl<M: SupportMachine> Syscalls<M> for LoadWitness {
 
     fn ecall(&mut self, machine: &mut M) -> Result<bool, VMError> {
         let syscall_number = machine.registers()[A7].to_u64();
-        
+
         // LOAD_WITNESS = 2074
         if syscall_number != 2074 {
             return Ok(false);
@@ -75,7 +73,7 @@ impl<M: SupportMachine> Syscalls<M> for LoadWitness {
         // Store data using CKB-style store_data
         store_data(machine, witness)?;
         machine.set_register(A0, M::REG::from_u8(SUCCESS));
-        
+
         Ok(true)
     }
 }

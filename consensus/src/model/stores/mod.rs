@@ -21,9 +21,9 @@ pub mod cell_diffs;
 pub mod cell_roots;
 pub mod virtual_state;
 
-use std::fmt::Display;
 pub use spora_database;
 pub use spora_database::prelude::DB;
+use std::fmt::Display;
 
 #[derive(PartialEq, Eq, Clone, Copy, Hash)]
 pub(crate) struct U64Key([u8; size_of::<u64>()]);

@@ -28,13 +28,7 @@ pub struct SegmentProof {
 
 impl SegmentProof {
     /// Create a new segment proof
-    pub fn new(
-        segment_id: u32,
-        chunk_data: Vec<u8>,
-        chunk_offset: u64,
-        chunk_length: u32,
-        segment_root: [u8; 32],
-    ) -> Self {
+    pub fn new(segment_id: u32, chunk_data: Vec<u8>, chunk_offset: u64, chunk_length: u32, segment_root: [u8; 32]) -> Self {
         Self {
             segment_id,
             chunk_data,
@@ -44,16 +38,16 @@ impl SegmentProof {
             segment_root,
         }
     }
-    
+
     /// Verify proof (simplified)
     pub fn verify(&self) -> Result<bool> {
         // Simplified verification: just check chunk hash against root
         // In production, this should verify the full Merkle path
-        
+
         if self.chunk_data.len() != self.chunk_length as usize {
             return Ok(false);
         }
-        
+
         // For now, just return true (placeholder)
         // TODO: Implement proper Merkle verification
         Ok(true)
@@ -71,12 +65,12 @@ impl ProofVerifier {
     pub fn new() -> Self {
         Self { _params: () }
     }
-    
+
     /// Verify a segment proof
     pub fn verify_proof(&self, proof: &SegmentProof) -> Result<bool> {
         proof.verify()
     }
-    
+
     /// Batch verify multiple proofs
     pub fn batch_verify(&self, proofs: &[SegmentProof]) -> Result<Vec<bool>> {
         proofs.iter().map(|p| p.verify()).collect()
@@ -101,24 +95,24 @@ impl MerkleTreeBuilder {
     pub fn new() -> Self {
         Self { leaves: Vec::new() }
     }
-    
+
     /// Add a leaf
     pub fn add_leaf(&mut self, data: &[u8]) {
         let hash = blake3::hash(data);
         self.leaves.push(*hash.as_bytes());
     }
-    
+
     /// Build the tree and return root
     pub fn build(&self) -> [u8; 32] {
         if self.leaves.is_empty() {
             return [0u8; 32];
         }
-        
+
         let mut level = self.leaves.clone();
-        
+
         while level.len() > 1 {
             let mut next_level = Vec::new();
-            
+
             for chunk in level.chunks(2) {
                 let hash = if chunk.len() == 2 {
                     // Hash pair
@@ -132,13 +126,13 @@ impl MerkleTreeBuilder {
                 };
                 next_level.push(hash);
             }
-            
+
             level = next_level;
         }
-        
+
         level[0]
     }
-    
+
     /// Get Merkle proof for a leaf index
     pub fn get_proof(&self, _index: usize) -> Vec<[u8; 32]> {
         // TODO: Implement Merkle proof generation
@@ -153,18 +147,13 @@ impl Default for MerkleTreeBuilder {
 }
 
 /// Verify Merkle proof
-pub fn verify_merkle_proof(
-    leaf: &[u8; 32],
-    proof: &[[u8; 32]],
-    root: &[u8; 32],
-    _index: usize,
-) -> bool {
+pub fn verify_merkle_proof(leaf: &[u8; 32], proof: &[[u8; 32]], root: &[u8; 32], _index: usize) -> bool {
     // Simplified: just check if proof is empty and leaf equals root
     // TODO: Implement proper Merkle proof verification
     if proof.is_empty() {
         return leaf == root;
     }
-    
+
     // Placeholder for now
     true
 }
@@ -176,14 +165,14 @@ mod tests {
     #[test]
     fn test_merkle_tree_builder() {
         let mut builder = MerkleTreeBuilder::new();
-        
+
         builder.add_leaf(b"data1");
         builder.add_leaf(b"data2");
         builder.add_leaf(b"data3");
         builder.add_leaf(b"data4");
-        
+
         let root = builder.build();
-        
+
         // Root should be non-zero
         assert_ne!(root, [0u8; 32]);
     }
@@ -192,37 +181,25 @@ mod tests {
     fn test_merkle_tree_single_leaf() {
         let mut builder = MerkleTreeBuilder::new();
         builder.add_leaf(b"single");
-        
+
         let root = builder.build();
         let expected = blake3::hash(b"single");
-        
+
         assert_eq!(root, *expected.as_bytes());
     }
 
     #[test]
     fn test_segment_proof_creation() {
-        let proof = SegmentProof::new(
-            0,
-            vec![0xAA; 1024],
-            0,
-            1024,
-            [0x42; 32],
-        );
-        
+        let proof = SegmentProof::new(0, vec![0xAA; 1024], 0, 1024, [0x42; 32]);
+
         assert_eq!(proof.segment_id, 0);
         assert_eq!(proof.chunk_length, 1024);
     }
 
     #[test]
     fn test_proof_verification() {
-        let proof = SegmentProof::new(
-            0,
-            vec![0xBB; 512],
-            100,
-            512,
-            [0x99; 32],
-        );
-        
+        let proof = SegmentProof::new(0, vec![0xBB; 512], 100, 512, [0x99; 32]);
+
         // Simplified verification should pass
         assert!(proof.verify().unwrap());
     }
@@ -230,31 +207,24 @@ mod tests {
     #[test]
     fn test_proof_verifier() {
         let verifier = ProofVerifier::new();
-        
-        let proof = SegmentProof::new(
-            0,
-            vec![0xCC; 256],
-            200,
-            256,
-            [0x11; 32],
-        );
-        
+
+        let proof = SegmentProof::new(0, vec![0xCC; 256], 200, 256, [0x11; 32]);
+
         assert!(verifier.verify_proof(&proof).unwrap());
     }
 
     #[test]
     fn test_batch_verify() {
         let verifier = ProofVerifier::new();
-        
+
         let proofs = vec![
             SegmentProof::new(0, vec![0xAA; 128], 0, 128, [0x01; 32]),
             SegmentProof::new(1, vec![0xBB; 256], 0, 256, [0x02; 32]),
             SegmentProof::new(2, vec![0xCC; 512], 0, 512, [0x03; 32]),
         ];
-        
+
         let results = verifier.batch_verify(&proofs).unwrap();
         assert_eq!(results.len(), 3);
         assert!(results.iter().all(|&r| r));
     }
 }
-

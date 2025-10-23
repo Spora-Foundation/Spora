@@ -48,8 +48,7 @@ impl CopperootSighash {
 
 impl From<CopperootSighash> for Message {
     fn from(hash: CopperootSighash) -> Self {
-        Message::from_digest_slice(&hash.to_byte_array())
-            .expect("digest is 32 bytes; infallible here")
+        Message::from_digest_slice(&hash.to_byte_array()).expect("digest is 32 bytes; infallible here")
     }
 }
 
@@ -170,10 +169,10 @@ pub struct Annex<'a>(&'a [u8]);
 impl<'a> TryFrom<&'a [u8]> for Annex<'a> {
     type Error = CopperootError;
     fn try_from(s: &'a [u8]) -> Result<Self, Self::Error> {
-        if s.first().copied() == Some(0x50) { 
-            Ok(Annex(s)) 
-        } else { 
-            Err(CopperootError::InvalidAnnex) 
+        if s.first().copied() == Some(0x50) {
+            Ok(Annex(s))
+        } else {
+            Err(CopperootError::InvalidAnnex)
         }
     }
 }
@@ -299,15 +298,12 @@ impl<Tx: Borrow<Transaction>> SighashCache<Tx> {
                 let mut amount_bytes = Vec::new();
                 txout.value.consensus_encode(&mut amount_bytes).unwrap();
                 enc_amounts.update(&amount_bytes);
-                
+
                 let mut script_bytes = Vec::new();
                 txout.script_public_key.script().to_vec().consensus_encode(&mut script_bytes).unwrap();
                 enc_script_pubkeys.update(&script_bytes);
             }
-            CopperootCache {
-                amounts: enc_amounts.finalize().into(),
-                script_pubkeys: enc_script_pubkeys.finalize().into(),
-            }
+            CopperootCache { amounts: enc_amounts.finalize().into(), script_pubkeys: enc_script_pubkeys.finalize().into() }
         })
     }
 
@@ -322,7 +318,7 @@ impl<Tx: Borrow<Transaction>> SighashCache<Tx> {
                 let mut prevout_bytes = Vec::new();
                 txin.previous_outpoint.consensus_encode(&mut prevout_bytes).unwrap();
                 enc_prevouts.update(&prevout_bytes);
-                
+
                 let mut sequence_bytes = Vec::new();
                 txin.sequence.consensus_encode(&mut sequence_bytes).unwrap();
                 enc_sequences.update(&sequence_bytes);
@@ -488,8 +484,8 @@ mod tests {
     };
     use bitcoin::{hex::test_hex_unwrap, key::TapTweak, taproot::Signature, Witness};
     use secp256k1::{Keypair, Message, Secp256k1};
-    use std::str::FromStr;
     use spora_utils::hex::FromHex;
+    use std::str::FromStr;
 
     #[test]
     fn test_copperoot_sighash_hash() {
@@ -602,11 +598,12 @@ mod tests {
 
         // The sighash should be deterministic and not panic
         assert_eq!(sighash.to_byte_array().len(), 32);
-        
+
         // Test that the sighash is different from a normal case
         let input_index_normal = 0;
-        let sighash_normal =
-            sighasher.copperoot_key_spend_signature_hash(input_index_normal, &prevouts, sighash_type).expect("failed to construct sighash");
+        let sighash_normal = sighasher
+            .copperoot_key_spend_signature_hash(input_index_normal, &prevouts, sighash_type)
+            .expect("failed to construct sighash");
         assert_ne!(sighash.to_byte_array(), sighash_normal.to_byte_array());
     }
 
@@ -637,10 +634,10 @@ mod tests {
 
     #[test]
     fn test_copperoot_sighash_display() {
-        let bytes = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
-                     0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10,
-                     0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18,
-                     0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x20];
+        let bytes = [
+            0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14,
+            0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x20,
+        ];
         let sighash = CopperootSighash(bytes);
         let display_str = format!("{}", sighash);
         assert_eq!(display_str, "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20");

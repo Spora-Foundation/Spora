@@ -1,6 +1,5 @@
 use async_channel::{unbounded, Receiver};
 use async_trait::async_trait;
-use std::sync::Arc;
 use spora_notify::events::EVENT_TYPE_ARRAY;
 use spora_notify::listener::{ListenerId, ListenerLifespan};
 use spora_notify::notifier::{Notifier, Notify};
@@ -9,6 +8,7 @@ use spora_notify::subscription::context::SubscriptionContext;
 use spora_notify::subscription::{MutationPolicies, UtxosChangedMutationPolicy};
 use spora_rpc_core::{api::connection::DynRpcConnection, api::rpc::RpcApi, *};
 use spora_rpc_core::{notify::connection::ChannelConnection, RpcResult};
+use std::sync::Arc;
 
 pub(super) type RpcCoreNotifier = Notifier<Notification, ChannelConnection>;
 

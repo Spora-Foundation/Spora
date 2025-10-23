@@ -22,8 +22,6 @@ use crate::{
 };
 use itertools::Itertools;
 use parking_lot::RwLock;
-use std::sync::Arc;
-use tokio::sync::mpsc::UnboundedSender;
 use spora_consensus_core::{
     api::{
         args::{TransactionValidationArgs, TransactionValidationBatchArgs},
@@ -33,11 +31,13 @@ use spora_consensus_core::{
     coinbase::MinerData,
     config::params::ForkedParam,
     errors::{block::RuleError as BlockRuleError, tx::TxRuleError},
-    tx::{MutableTransaction, Transaction, TransactionId, TransactionOutput, CellTx},
+    tx::{CellTx, MutableTransaction, Transaction, TransactionId, TransactionOutput},
 };
 use spora_consensusmanager::{spawn_blocking, ConsensusProxy};
 use spora_core::{debug, error, info, time::Stopwatch, warn};
 use spora_mining_errors::{manager::MiningManagerError, mempool::RuleError};
+use std::sync::Arc;
+use tokio::sync::mpsc::UnboundedSender;
 
 pub struct MiningManager {
     config: Arc<Config>,
@@ -242,11 +242,9 @@ impl MiningManager {
         };
         // calculate next_block_template_feerate_xxx
         {
-            let script_public_key = spora_txscript::pay_to_address_script(&spora_addresses::Address::new(
-                prefix,
-                spora_addresses::Version::PubKey,
-                &[0u8; 32],
-            ).expect("Valid test address"));
+            let script_public_key = spora_txscript::pay_to_address_script(
+                &spora_addresses::Address::new(prefix, spora_addresses::Version::PubKey, &[0u8; 32]).expect("Valid test address"),
+            );
             let miner_data: MinerData = MinerData::new(script_public_key, vec![]);
 
             let BlockTemplate { block: spora_consensus_core::block::MutableBlock { transactions, .. }, calculated_fees, .. } =
@@ -1082,8 +1080,8 @@ fn feerate_stats(transactions: Vec<CellTx>, calculated_fees: Vec<u64>) -> Option
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::iter::repeat;
     use spora_consensus_core::subnets;
+    use std::iter::repeat;
 
     fn transactions(length: usize) -> Vec<Transaction> {
         let tx = || {

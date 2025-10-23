@@ -7,14 +7,6 @@ pub mod descriptor;
 pub mod kind;
 pub mod pstb;
 pub mod variants;
-pub use kind::*;
-use pstb::{
-    bundle_from_pstt_generator, bundle_to_finalizer_stream, commit_reveal_batch_bundle, pstb_signer_for_address,
-    pstt_to_pending_transaction, PSTBSigner, PSTTGenerator,
-};
-use spora_wallet_pstt::bundle::Bundle;
-pub use variants::*;
-use spora_bip32::PrivateKey;
 use crate::derivation::build_derivate_paths;
 use crate::derivation::AddressDerivationManagerTrait;
 use crate::imports::*;
@@ -22,14 +14,20 @@ use crate::storage::account::AccountSettings;
 use crate::storage::AccountMetadata;
 use crate::storage::{PrvKeyData, PrvKeyDataId};
 use crate::tx::PaymentOutput;
-use crate::tx::{
-    Fees, Generator, GeneratorSettings, GeneratorSummary, PaymentDestination, PendingTransaction, Signer,
-};
+use crate::tx::{Fees, Generator, GeneratorSettings, GeneratorSummary, PaymentDestination, PendingTransaction, Signer};
 use crate::utxo::balance::{AtomicBalance, BalanceStrings};
 use crate::utxo::UtxoContextBinding;
+pub use kind::*;
+use pstb::{
+    bundle_from_pstt_generator, bundle_to_finalizer_stream, commit_reveal_batch_bundle, pstb_signer_for_address,
+    pstt_to_pending_transaction, PSTBSigner, PSTTGenerator,
+};
+use spora_bip32::PrivateKey;
 use spora_bip32::{ChildNumber, ExtendedPrivateKey};
 use spora_consensus_core::tx::UtxoEntry;
 use spora_wallet_keys::derivation::gen0::WalletDerivationManagerV0;
+use spora_wallet_pstt::bundle::Bundle;
+pub use variants::*;
 use workflow_core::abortable::Abortable;
 
 /// Notification callback type used by [`Account::sweep`] and [`Account::send`].
@@ -907,13 +905,13 @@ mod tests {
     use super::create_private_keys;
     use super::ExtendedPrivateKey;
     use crate::imports::LEGACY_ACCOUNT_KIND;
-    use std::str::FromStr;
     use spora_addresses::Prefix;
     use spora_addresses::{Address, Version};
     use spora_bip32::secp256k1::SecretKey;
     use spora_bip32::PrivateKey;
     use spora_bip32::SecretKeyExt;
     use spora_wallet_keys::derivation::gen0::PubkeyDerivationManagerV0;
+    use std::str::FromStr;
 
     fn gen0_receive_keys() -> Vec<&'static str> {
         vec![

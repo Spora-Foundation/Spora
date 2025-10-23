@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use spora_consensus_core::tx::{ScriptPublicKey, TransactionOutpoint, UtxoEntry};
 use spora_utils::mem_size::MemSizeEstimator;
+use std::collections::HashMap;
 
 // TODO: explore potential optimization via custom TransactionOutpoint hasher for below,
 // One possible implementation: u64 of transaction id xor'd with 4 bytes of transaction index.

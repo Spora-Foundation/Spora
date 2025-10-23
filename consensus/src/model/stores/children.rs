@@ -1,5 +1,4 @@
 use rocksdb::WriteBatch;
-use std::sync::Arc;
 use spora_consensus_core::BlockHashSet;
 use spora_consensus_core::BlockHasher;
 use spora_consensus_core::BlockLevel;
@@ -13,6 +12,7 @@ use spora_database::prelude::StoreResult;
 use spora_database::prelude::DB;
 use spora_database::registry::DatabaseStorePrefixes;
 use spora_hashes::Hash;
+use std::sync::Arc;
 
 pub trait ChildrenStoreReader {
     fn get(&self, hash: Hash) -> StoreResult<ReadLock<BlockHashSet>>;

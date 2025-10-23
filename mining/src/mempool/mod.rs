@@ -12,12 +12,12 @@ use self::{
     model::{accepted_transactions::AcceptedTransactions, orphan_pool::OrphanPool, pool::Pool, transactions_pool::TransactionsPool},
     tx::Priority,
 };
-use std::sync::Arc;
 use spora_consensus_core::{
     block::TemplateTransactionSelector,
     tx::{MutableTransaction, TransactionId},
 };
 use spora_core::time::Stopwatch;
+use std::sync::Arc;
 
 pub(crate) mod check_transaction_standard;
 pub mod config;

@@ -53,6 +53,7 @@ use spora_consensus_core::{
     block::{Block, BlockTemplate, TemplateBuildMode, TemplateTransactionSelector, VirtualStateApproxId},
     blockhash::BlockHashExtensions,
     blockstatus::BlockStatus,
+    cell_diff::CellMeta,
     coinbase::MinerData,
     daa_score_timestamp::DaaScoreTimestamp,
     errors::{
@@ -70,10 +71,11 @@ use spora_consensus_core::{
     network::NetworkType,
     pruning::{PruningPointProof, PruningPointTrustedData, PruningPointsList, PruningProofMetadata},
     trusted::{ExternalGhostdagData, TrustedBlock},
-    tx::{MutableTransaction, SignableTransaction, Transaction, TransactionOutpoint, CellTx, UtxoEntry},
+    tx::{CellTx, MutableTransaction, SignableTransaction, Transaction, TransactionOutpoint, UtxoEntry},
     BlockHashSet, BlueWorkType, ChainPath, HashMapCustomHasher,
 };
 use spora_consensus_notify::root::ConsensusNotificationRoot;
+use spora_state::CellStateTree;
 
 use crossbeam_channel::{
     bounded as bounded_crossbeam, unbounded as unbounded_crossbeam, Receiver as CrossbeamReceiver, Sender as CrossbeamSender,
@@ -848,13 +850,16 @@ impl ConsensusApi for Consensus {
         self.services.pruning_proof_manager.import_pruning_points(&pruning_points)
     }
 
-    fn append_imported_pruning_point_utxos(&self, _utxoset_chunk: &[(TransactionOutpoint, UtxoEntry)], _current_multiset: &mut MuHash) {
-        // TODO(cell-model): Needs Cell model reimplementation
-        // Cell state will be imported directly into CellStateTree
+    fn append_imported_pruning_point_cells(
+        &self,
+        cellset_chunk: &[(TransactionOutpoint, CellMeta)],
+        current_tree: &mut CellStateTree,
+    ) {
+        self.virtual_processor.append_imported_pruning_point_cells(cellset_chunk, current_tree)
     }
 
-    fn import_pruning_point_utxo_set(&self, new_pruning_point: Hash, imported_utxo_multiset: MuHash) -> PruningImportResult<()> {
-        self.virtual_processor.import_pruning_point_utxo_set(new_pruning_point, imported_utxo_multiset)
+    fn import_pruning_point_cell_set(&self, new_pruning_point: Hash, imported_cell_tree: CellStateTree) -> PruningImportResult<()> {
+        self.virtual_processor.import_pruning_point_cell_set(new_pruning_point, imported_cell_tree)
     }
 
     fn validate_pruning_points(&self, syncer_virtual_selected_parent: Hash) -> ConsensusResult<()> {

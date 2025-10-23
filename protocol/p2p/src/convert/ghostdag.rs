@@ -1,11 +1,11 @@
 use super::{error::ConversionError, option::TryIntoOptionEx};
 use crate::pb as protowire;
-use std::sync::Arc;
 use spora_consensus_core::{
     trusted::{ExternalGhostdagData, TrustedGhostdagData, TrustedHeader},
     BlockHashMap, BlueWorkType, HashMapCustomHasher, KType,
 };
 use spora_hashes::Hash;
+use std::sync::Arc;
 
 // ----------------------------------------------------------------------------
 // consensus_core to protowire

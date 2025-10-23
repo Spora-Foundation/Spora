@@ -1,7 +1,5 @@
 // Example of simple client to connect with Spora node using wRPC connection and collect some node and network basic data
 
-use std::process::ExitCode;
-use std::time::Duration;
 use spora_rpc_core::{api::rpc::RpcApi, GetBlockDagInfoResponse, GetServerInfoResponse};
 use spora_wrpc_client::{
     client::{ConnectOptions, ConnectStrategy},
@@ -10,6 +8,8 @@ use spora_wrpc_client::{
     result::Result,
     Resolver, SporaRpcClient, WrpcEncoding,
 };
+use std::process::ExitCode;
+use std::time::Duration;
 
 #[tokio::main]
 async fn main() -> ExitCode {

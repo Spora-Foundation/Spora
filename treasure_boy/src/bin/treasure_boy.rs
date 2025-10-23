@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use clap::{Arg, ArgAction, Command};
 use secp256k1::Keypair;
 use spora_addresses::Address;
-use spora_core::{error, info, time::unix_now, sporad_env::version};
+use spora_core::{error, info, sporad_env::version, time::unix_now};
 use spora_grpc_client::GrpcClient;
 use spora_notify::subscription::context::SubscriptionContext;
 use spora_rpc_core::notify::mode::NotificationMode;

@@ -8,9 +8,9 @@ use crate::{
     network::{NetworkId, NetworkType},
     BlockLevel, KType,
 };
-use std::cmp::min;
 use spora_addresses::Prefix;
 use spora_math::Uint256;
+use std::cmp::min;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ForkActivation(u64);

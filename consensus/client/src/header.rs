@@ -300,11 +300,7 @@ impl TryCastFromJs for Header {
                         .get_value("utxoCommitment")?
                         .try_into_owned()
                         .map_err(|err| Error::convert("utxoCommitment", err))?,
-                    cell_root: object
-                        .get_value("cellRoot")
-                        .ok()
-                        .and_then(|v| v.try_into_owned().ok())
-                        .unwrap_or_default(),  // Default to zero hash if not present (backward compatibility)
+                    cell_root: object.get_value("cellRoot").ok().and_then(|v| v.try_into_owned().ok()).unwrap_or_default(), // Default to zero hash if not present (backward compatibility)
                     nonce: object.get_u64("nonce")?,
                     timestamp: object.get_u64("timestamp")?,
                     daa_score: object.get_u64("daaScore")?,

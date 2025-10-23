@@ -1,9 +1,9 @@
 use crate::model::stores::relations::RelationsStoreReader;
 use parking_lot::RwLock;
-use std::sync::Arc;
 use spora_consensus_core::BlockHashSet;
 use spora_database::prelude::{ReadLock, StoreError, StoreResult};
 use spora_hashes::Hash;
+use std::sync::Arc;
 
 /// Multi-threaded block-relations service imp
 #[derive(Clone)]

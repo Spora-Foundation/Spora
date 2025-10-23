@@ -109,7 +109,7 @@ impl From<RpcHeader> for Header {
             hash_merkle_root: header.hash_merkle_root,
             accepted_id_merkle_root: header.accepted_id_merkle_root,
             cell_commitment: header.cell_commitment,
-            cell_root: Default::default(),  // TODO(spora): Add cell_root to RpcHeader
+            cell_root: Default::default(), // TODO(spora): Add cell_root to RpcHeader
             timestamp: header.timestamp,
             bits: header.bits,
             nonce: header.nonce,
@@ -130,7 +130,7 @@ impl From<&RpcHeader> for Header {
             hash_merkle_root: header.hash_merkle_root,
             accepted_id_merkle_root: header.accepted_id_merkle_root,
             cell_commitment: header.cell_commitment,
-            cell_root: Default::default(),  // TODO(spora): Add cell_root to RpcHeader
+            cell_root: Default::default(), // TODO(spora): Add cell_root to RpcHeader
             timestamp: header.timestamp,
             bits: header.bits,
             nonce: header.nonce,
@@ -208,7 +208,7 @@ impl From<RpcRawHeader> for Header {
             header.hash_merkle_root,
             header.accepted_id_merkle_root,
             header.cell_commitment,
-            Default::default(),  // cell_root - TODO(spora): Add to RpcRawHeader
+            Default::default(), // cell_root - TODO(spora): Add to RpcRawHeader
             header.timestamp,
             header.bits,
             header.nonce,
@@ -228,7 +228,7 @@ impl From<&RpcRawHeader> for Header {
             header.hash_merkle_root,
             header.accepted_id_merkle_root,
             header.cell_commitment,
-            Default::default(),  // cell_root - TODO(spora): Add to RpcRawHeader
+            Default::default(), // cell_root - TODO(spora): Add to RpcRawHeader
             header.timestamp,
             header.bits,
             header.nonce,

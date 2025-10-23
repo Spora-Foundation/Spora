@@ -1,6 +1,9 @@
 use super::{error::ConversionError, option::TryIntoOptionEx};
 use crate::pb as protowire;
-use spora_consensus_core::{block::Block, tx::{Transaction, CellTx}};
+use spora_consensus_core::{
+    block::Block,
+    tx::{CellTx, Transaction},
+};
 
 // ----------------------------------------------------------------------------
 // consensus_core to protowire
@@ -26,7 +29,7 @@ impl TryFrom<protowire::BlockMessage> for Block {
         // For now, accept empty transactions
         Ok(Self::new(
             block.header.try_into_ex()?,
-            vec![],  // Empty CellTx vector for now
+            vec![], // Empty CellTx vector for now
         ))
     }
 }

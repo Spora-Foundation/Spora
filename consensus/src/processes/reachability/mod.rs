@@ -5,8 +5,8 @@ mod reindex;
 pub mod tests;
 mod tree;
 
-use thiserror::Error;
 use spora_database::prelude::StoreError;
+use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum ReachabilityError {

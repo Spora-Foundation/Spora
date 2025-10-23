@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use spora_consensus_core::tx::Transaction;
+use std::sync::Arc;
 
 #[derive(Debug)]
 pub struct TransactionInsertion {

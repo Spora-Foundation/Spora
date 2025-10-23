@@ -1,6 +1,5 @@
 use super::MiningCounters;
 use crate::manager::MiningManagerProxy;
-use std::{sync::Arc, time::Duration};
 use spora_consensusmanager::ConsensusManager;
 use spora_core::{
     debug, info,
@@ -11,6 +10,7 @@ use spora_core::{
     trace,
 };
 use spora_txscript::caches::TxScriptCacheCounters;
+use std::{sync::Arc, time::Duration};
 
 const MONITOR: &str = "mempool-monitor";
 

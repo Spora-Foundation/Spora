@@ -5,6 +5,8 @@ use crate::{common::ProtocolError, SporadMessagePayloadType};
 use crate::{make_message, Peer};
 use parking_lot::{Mutex, RwLock};
 use seqlock::SeqLock;
+use spora_core::{debug, error, info, trace, warn};
+use spora_utils::networking::PeerId;
 use std::fmt::{Debug, Display};
 use std::net::SocketAddr;
 use std::ops::{Deref, DerefMut};
@@ -15,8 +17,6 @@ use tokio::select;
 use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::mpsc::{channel as mpsc_channel, Receiver as MpscReceiver, Sender as MpscSender};
 use tokio::sync::oneshot::{channel as oneshot_channel, Sender as OneshotSender};
-use spora_core::{debug, error, info, trace, warn};
-use spora_utils::networking::PeerId;
 use tonic::Streaming;
 
 use super::peer::{PeerKey, PeerProperties};

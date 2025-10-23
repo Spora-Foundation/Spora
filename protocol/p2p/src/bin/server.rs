@@ -1,7 +1,7 @@
-use std::{str::FromStr, sync::Arc, time::Duration};
 use spora_core::debug;
 use spora_p2p_lib::echo::EchoFlowInitializer;
 use spora_utils::networking::NetAddress;
+use std::{str::FromStr, sync::Arc, time::Duration};
 
 #[tokio::main]
 async fn main() {

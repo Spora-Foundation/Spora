@@ -5,11 +5,11 @@
 // Reference: ckb/script/src/verify.rs
 
 use super::error::{ScriptError, ScriptResult, VMError};
-use super::machine::{Machine, ScriptVersion, VmContext, run_script};
-use super::syscalls::{LoadTx};
+use super::machine::{run_script, Machine, ScriptVersion, VmContext};
+use super::syscalls::LoadTx;
 use crate::celltx::{CellTx, ScriptRef};
-use std::sync::Arc;
 use ckb_vm::{DefaultMachineRunner, Syscalls};
+use std::sync::Arc;
 
 /// Script group type
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -37,7 +37,7 @@ pub struct ScriptGroup {
 pub trait CellDataProvider {
     /// Load cell data by script code hash
     fn load_cell_data(&self, code_hash: &[u8; 32]) -> Option<Vec<u8>>;
-    
+
     /// Load cell by outpoint (for deps)
     fn load_cell_by_outpoint(&self, tx_hash: &[u8; 32], index: u32) -> Option<Vec<u8>>;
 }
@@ -56,10 +56,7 @@ pub struct TransactionScriptVerifier<D: CellDataProvider> {
 
 impl<D: CellDataProvider> TransactionScriptVerifier<D> {
     /// Create a new verifier
-    pub fn new(
-        tx: Arc<CellTx>,
-        data_provider: Arc<D>,
-    ) -> Self {
+    pub fn new(tx: Arc<CellTx>, data_provider: Arc<D>) -> Self {
         Self {
             tx,
             data_provider,
@@ -83,7 +80,7 @@ impl<D: CellDataProvider> TransactionScriptVerifier<D> {
     /// Extract script groups from transaction
     pub fn extract_script_groups(&self) -> Vec<ScriptGroup> {
         use std::collections::HashMap;
-        
+
         let mut lock_groups: HashMap<[u8; 32], ScriptGroup> = HashMap::new();
         let mut type_groups: HashMap<[u8; 32], ScriptGroup> = HashMap::new();
 
@@ -92,37 +89,39 @@ impl<D: CellDataProvider> TransactionScriptVerifier<D> {
         // For now, we'll work with outputs which we have direct access to
         for (i, output) in self.tx.outputs.iter().enumerate() {
             let lock_hash = output.lock.hash();
-            
-            lock_groups.entry(lock_hash)
+
+            lock_groups
+                .entry(lock_hash)
                 .or_insert_with(|| ScriptGroup {
                     script: output.lock.clone(),
                     group_type: ScriptGroupType::Lock,
                     input_indices: vec![],
                     output_indices: vec![],
                 })
-                .output_indices.push(i);
+                .output_indices
+                .push(i);
         }
 
         // Group by type script
         for (i, output) in self.tx.outputs.iter().enumerate() {
             if let Some(ref type_script) = output.type_ {
                 let type_hash = type_script.hash();
-                
-                type_groups.entry(type_hash)
+
+                type_groups
+                    .entry(type_hash)
                     .or_insert_with(|| ScriptGroup {
                         script: type_script.clone(),
                         group_type: ScriptGroupType::Type,
                         input_indices: vec![],
                         output_indices: vec![],
                     })
-                    .output_indices.push(i);
+                    .output_indices
+                    .push(i);
             }
         }
 
         // Combine all groups
-        lock_groups.into_values()
-            .chain(type_groups.into_values())
-            .collect()
+        lock_groups.into_values().chain(type_groups.into_values()).collect()
     }
 
     /// Verify all scripts in the transaction
@@ -140,7 +139,8 @@ impl<D: CellDataProvider> TransactionScriptVerifier<D> {
     /// Verify a single script group
     fn verify_script_group(&self, group: &ScriptGroup) -> ScriptResult<()> {
         // Load script code from data provider
-        let script_code = self.data_provider
+        let script_code = self
+            .data_provider
             .load_cell_data(&group.script.code_hash)
             .ok_or_else(|| ScriptError::ScriptNotFound(group.script.code_hash))?;
 
@@ -154,18 +154,9 @@ impl<D: CellDataProvider> TransactionScriptVerifier<D> {
         let context = VmContext::new(self.version, self.max_cycles);
 
         // Run script
-        let cycles = run_script(
-            &script_code,
-            &args,
-            syscalls,
-            &context,
-        ).map_err(ScriptError::VM)?;
+        let cycles = run_script(&script_code, &args, syscalls, &context).map_err(ScriptError::VM)?;
 
-        log::debug!(
-            "Script group {:?} verified successfully, cycles: {}",
-            group.group_type,
-            cycles
-        );
+        log::debug!("Script group {:?} verified successfully, cycles: {}", group.group_type, cycles);
 
         Ok(())
     }
@@ -173,33 +164,18 @@ impl<D: CellDataProvider> TransactionScriptVerifier<D> {
     /// Build syscalls for a script group
     fn build_syscalls(&self, group: &ScriptGroup) -> Vec<Box<dyn Syscalls<<Machine as DefaultMachineRunner>::Inner>>> {
         use super::syscalls::*;
-        
+
         let mut syscalls: Vec<Box<dyn Syscalls<<Machine as DefaultMachineRunner>::Inner>>> = Vec::new();
 
         // CKB standard syscalls
         // Compute tx hash using our sighash function
         let tx_hash = crate::celltx::compute_txid(&self.tx);
         syscalls.push(Box::new(LoadTx::new(tx_hash)));
-        syscalls.push(Box::new(LoadCell::new(
-            Arc::clone(&self.tx),
-            group.input_indices.clone(),
-            group.output_indices.clone(),
-        )));
-        syscalls.push(Box::new(LoadCellData::new(
-            Arc::clone(&self.tx),
-            group.output_indices.clone(),
-        )));
-        syscalls.push(Box::new(LoadInput::new(
-            Arc::clone(&self.tx),
-            group.input_indices.clone(),
-        )));
-        syscalls.push(Box::new(LoadWitness::new(
-            Arc::clone(&self.tx),
-            group.input_indices.clone(),
-        )));
-        syscalls.push(Box::new(LoadScript::new(
-            Arc::new(group.script.clone()),
-        )));
+        syscalls.push(Box::new(LoadCell::new(Arc::clone(&self.tx), group.input_indices.clone(), group.output_indices.clone())));
+        syscalls.push(Box::new(LoadCellData::new(Arc::clone(&self.tx), group.output_indices.clone())));
+        syscalls.push(Box::new(LoadInput::new(Arc::clone(&self.tx), group.input_indices.clone())));
+        syscalls.push(Box::new(LoadWitness::new(Arc::clone(&self.tx), group.input_indices.clone())));
+        syscalls.push(Box::new(LoadScript::new(Arc::new(group.script.clone()))));
         syscalls.push(Box::new(LoadHeader::new()));
         syscalls.push(Box::new(CurrentCycles::new()));
         syscalls.push(Box::new(Debugger::new(group.script.code_hash)));
@@ -218,9 +194,7 @@ pub struct SimpleDataProvider {
 
 impl SimpleDataProvider {
     pub fn new() -> Self {
-        Self {
-            scripts: std::collections::HashMap::new(),
-        }
+        Self { scripts: std::collections::HashMap::new() }
     }
 
     pub fn add_script(&mut self, code_hash: [u8; 32], code: Vec<u8>) {
@@ -241,18 +215,12 @@ impl CellDataProvider for SimpleDataProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::celltx::{CellTx, CellRef, CellOut, OutPoint};
+    use crate::celltx::{CellOut, CellRef, CellTx, OutPoint};
 
     #[test]
     fn test_verifier_creation() {
-        let tx = Arc::new(CellTx {
-            ver: 0xC001,
-            inputs: vec![],
-            deps: vec![],
-            outputs: vec![],
-            outputs_data: vec![],
-            witnesses: vec![],
-        });
+        let tx =
+            Arc::new(CellTx { ver: 0xC001, inputs: vec![], deps: vec![], outputs: vec![], outputs_data: vec![], witnesses: vec![] });
 
         let provider = Arc::new(SimpleDataProvider::new());
         let verifier = TransactionScriptVerifier::new(tx, provider);
@@ -261,4 +229,3 @@ mod tests {
         assert_eq!(verifier.max_cycles, 10_000_000);
     }
 }
-

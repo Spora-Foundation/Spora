@@ -2,8 +2,8 @@
 //! Extended public key ([`XPub`]).
 //!
 
-use std::{fmt, str::FromStr};
 use spora_bip32::{ChainCode, KeyFingerprint, Prefix};
+use std::{fmt, str::FromStr};
 
 use crate::imports::*;
 

@@ -111,12 +111,12 @@ mod tests {
     use super::*;
     use crate::pstt::Finalizer;
     use crate::pstt::PSTT as Native;
+    use console_log;
     use serde_json::json;
-    use std::str::FromStr;
     use spora_consensus_core::tx::ScriptPublicKey;
+    use std::str::FromStr;
     use wasm_bindgen_test::wasm_bindgen_test;
     use wasm_bindgen_test::*;
-    use console_log;
     #[wasm_bindgen_test]
     fn _test_pstt_bundle_creation() {
         let bundle = PSTB::new().expect("Failed to create PSTB");

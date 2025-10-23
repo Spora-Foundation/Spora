@@ -14,7 +14,6 @@ use itertools::Itertools;
 use parking_lot::{Mutex, RwLock};
 use rocksdb::WriteBatch;
 
-use thiserror::Error;
 use spora_consensus_core::{
     blockhash::{self, BlockHashExtensions},
     config::params::ForkedParam,
@@ -31,6 +30,7 @@ use spora_core::info;
 use spora_database::{prelude::StoreResultExtensions, utils::DbLifetime};
 use spora_hashes::Hash;
 use spora_pow::calc_block_level;
+use thiserror::Error;
 
 use crate::{
     consensus::{

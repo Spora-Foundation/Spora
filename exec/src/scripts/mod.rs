@@ -15,8 +15,8 @@
 /// Returns: exit code 0 (always succeeds)
 pub const ALWAYS_SUCCESS_SCRIPT: &[u8] = &[
     // RISC-V: addi a0, zero, 0; ret
-    0x13, 0x05, 0x00, 0x00,  // addi a0, zero, 0
-    0x67, 0x80, 0x00, 0x00,  // ret
+    0x13, 0x05, 0x00, 0x00, // addi a0, zero, 0
+    0x67, 0x80, 0x00, 0x00, // ret
 ];
 
 /// Always-success lock script code hash
@@ -64,7 +64,7 @@ mod tests {
     fn test_always_success_code_hash() {
         let hash = always_success_code_hash();
         assert_eq!(hash.len(), 32);
-        
+
         // Verify it's deterministic
         let hash2 = always_success_code_hash();
         assert_eq!(hash, hash2);

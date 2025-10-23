@@ -32,7 +32,6 @@ use itertools::Itertools;
 use parking_lot::RwLock;
 use rayon::ThreadPool;
 use rocksdb::WriteBatch;
-use std::sync::{atomic::Ordering, Arc};
 use spora_consensus_core::{
     blockhash::{BlockHashes, ORIGIN},
     blockstatus::BlockStatus::{self, StatusHeaderOnly, StatusInvalid},
@@ -47,6 +46,7 @@ use spora_consensusmanager::SessionLock;
 use spora_database::prelude::{StoreResultEmptyTuple, StoreResultExtensions};
 use spora_hashes::Hash;
 use spora_utils::vec::VecExtensions;
+use std::sync::{atomic::Ordering, Arc};
 
 use super::super::ProcessingCounters;
 

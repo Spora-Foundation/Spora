@@ -8,12 +8,6 @@ use crate::{
     processes::ghostdag::ordering::SortableBlock,
 };
 use once_cell::unsync::Lazy;
-use std::{
-    cmp::Reverse,
-    iter::once,
-    ops::{Deref, DerefMut},
-    sync::Arc,
-};
 use spora_consensus_core::{
     blockhash::{BlockHashExtensions, ORIGIN},
     config::{genesis::GenesisBlock, params::ForkActivation},
@@ -24,6 +18,12 @@ use spora_core::{info, log::CRESCENDO_KEYWORD};
 use spora_hashes::Hash;
 use spora_math::Uint256;
 use spora_utils::refs::Refs;
+use std::{
+    cmp::Reverse,
+    iter::once,
+    ops::{Deref, DerefMut},
+    sync::Arc,
+};
 
 use super::{
     difficulty::{FullDifficultyManager, SampledDifficultyManager},

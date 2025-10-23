@@ -4,12 +4,12 @@ use crate::{
     connection_handler::ServerContext,
     error::{GrpcServerError, GrpcServerResult},
 };
-use std::fmt::Debug;
-use std::{collections::HashMap, sync::Arc};
 use spora_grpc_core::{
     ops::SporadPayloadOps,
     protowire::{SporadRequest, SporadResponse},
 };
+use std::fmt::Debug;
+use std::{collections::HashMap, sync::Arc};
 
 pub type SporadMethod = Method<ServerContext, Connection, SporadRequest, SporadResponse>;
 pub type DynSporadMethod = Arc<dyn MethodTrait<ServerContext, Connection, SporadRequest, SporadResponse>>;

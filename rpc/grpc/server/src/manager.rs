@@ -1,5 +1,7 @@
 use crate::connection::{Connection, ConnectionId};
 use parking_lot::RwLock;
+use spora_core::{debug, info, warn};
+use spora_notify::connection::Connection as ConnectionT;
 use std::{
     collections::{hash_map::Entry::Occupied, HashMap, HashSet},
     sync::Arc,
@@ -8,8 +10,6 @@ use std::{
 use thiserror::Error;
 use tokio::sync::oneshot::Sender as OneshotSender;
 use tokio::{sync::mpsc::Receiver as MpscReceiver, time::sleep};
-use spora_core::{debug, info, warn};
-use spora_notify::connection::Connection as ConnectionT;
 
 #[derive(Debug, Error)]
 pub(crate) enum RegistrationError {

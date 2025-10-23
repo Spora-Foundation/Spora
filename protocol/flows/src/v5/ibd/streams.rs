@@ -2,13 +2,7 @@
 //! Logical stream abstractions used throughout the IBD negotiation protocols
 //!
 
-use std::sync::Arc;
-use tokio::time::timeout;
-use spora_consensus_core::{
-    errors::consensus::ConsensusError,
-    header::Header,
-    tx::{TransactionOutpoint, UtxoEntry},
-};
+use spora_consensus_core::{cell_diff::CellMeta, errors::consensus::ConsensusError, header::Header, tx::TransactionOutpoint};
 use spora_core::{debug, info};
 use spora_p2p_lib::{
     common::{ProtocolError, DEFAULT_TIMEOUT},
@@ -20,6 +14,8 @@ use spora_p2p_lib::{
     },
     IncomingRoute, Router,
 };
+use std::sync::Arc;
+use tokio::time::timeout;
 
 pub const IBD_BATCH_SIZE: usize = 99;
 
@@ -134,29 +130,49 @@ impl<'a, 'b> HeadersChunkStream<'a, 'b> {
     }
 }
 
-/// A chunk of UTXOs
-pub type UtxosetChunk = Vec<(TransactionOutpoint, UtxoEntry)>;
+/// A chunk of Cells (Cell model)
+pub type CellsetChunk = Vec<(TransactionOutpoint, CellMeta)>;
 
-pub struct PruningPointUtxosetChunkStream<'a, 'b> {
+pub struct PruningPointCellsetChunkStream<'a, 'b> {
     router: &'a Router,
     incoming_route: &'b mut IncomingRoute,
     i: usize, // Chunk index
-    utxo_count: usize,
+    cell_count: usize,
 }
 
-impl<'a, 'b> PruningPointUtxosetChunkStream<'a, 'b> {
+impl<'a, 'b> PruningPointCellsetChunkStream<'a, 'b> {
     pub fn new(router: &'a Router, incoming_route: &'b mut IncomingRoute) -> Self {
-        Self { router, incoming_route, i: 0, utxo_count: 0 }
+        Self { router, incoming_route, i: 0, cell_count: 0 }
     }
 
-    pub async fn next(&mut self) -> Result<Option<UtxosetChunk>, ProtocolError> {
-        let res: Result<Option<UtxosetChunk>, ProtocolError> = match timeout(DEFAULT_TIMEOUT, self.incoming_route.recv()).await {
+    pub async fn next(&mut self) -> Result<Option<CellsetChunk>, ProtocolError> {
+        let res: Result<Option<CellsetChunk>, ProtocolError> = match timeout(DEFAULT_TIMEOUT, self.incoming_route.recv()).await {
             Ok(op) => {
                 if let Some(msg) = op {
                     match msg.payload {
-                        Some(Payload::PruningPointUtxoSetChunk(payload)) => Ok(Some(payload.try_into()?)),
+                        Some(Payload::PruningPointUtxoSetChunk(payload)) => {
+                            // Protocol still uses UTXO naming for backward compatibility
+                            // But we convert to Cell model here
+                            let utxo_chunk: Vec<(TransactionOutpoint, spora_consensus_core::tx::UtxoEntry)> = payload.try_into()?;
+                            let cell_chunk: Vec<_> = utxo_chunk
+                                .into_iter()
+                                .map(|(outpoint, utxo_entry)| {
+                                    let cell_meta = CellMeta {
+                                        out_point: outpoint.clone(),
+                                        capacity: utxo_entry.amount,
+                                        data_bytes: 0, // TODO: Extract actual data size from script_public_key
+                                        lock_hash: [0u8; 32], // TODO: Extract from script_public_key
+                                        type_hash: None,
+                                        data_hash: [0u8; 32], // TODO: Derive from data
+                                        block_daa_score: utxo_entry.block_daa_score,
+                                    };
+                                    (outpoint, cell_meta)
+                                })
+                                .collect();
+                            Ok(Some(cell_chunk))
+                        }
                         Some(Payload::DonePruningPointUtxoSetChunks(_)) => {
-                            info!("Finished receiving the UTXO set. Total UTXOs: {}", self.utxo_count);
+                            info!("Finished receiving the Cell set. Total Cells: {}", self.cell_count);
                             Ok(None)
                         }
                         Some(Payload::UnexpectedPruningPoint(_)) => {
@@ -183,9 +199,9 @@ impl<'a, 'b> PruningPointUtxosetChunkStream<'a, 'b> {
         // Request the next batch only if the stream is still live
         if let Ok(Some(chunk)) = res {
             self.i += 1;
-            self.utxo_count += chunk.len();
+            self.cell_count += chunk.len();
             if self.i % IBD_BATCH_SIZE == 0 {
-                info!("Received {} UTXO set chunks so far, totaling in {} UTXOs", self.i, self.utxo_count);
+                info!("Received {} Cell set chunks so far, totaling in {} Cells", self.i, self.cell_count);
                 self.router
                     .enqueue(make_message!(
                         Payload::RequestNextPruningPointUtxoSetChunk,

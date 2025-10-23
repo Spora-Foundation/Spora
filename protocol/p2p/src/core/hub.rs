@@ -1,11 +1,11 @@
 use crate::{common::ProtocolError, pb::SporadMessage, ConnectionInitializer, Peer, Router};
 use parking_lot::RwLock;
+use spora_core::{debug, info, warn};
 use std::{
     collections::{hash_map::Entry::Occupied, HashMap},
     sync::Arc,
 };
 use tokio::sync::mpsc::Receiver as MpscReceiver;
-use spora_core::{debug, info, warn};
 
 use super::peer::PeerKey;
 use rand::prelude::IteratorRandom;

@@ -7,13 +7,13 @@ use crate::{
     SEQUENCE_LOCK_TIME_DISABLED, SEQUENCE_LOCK_TIME_MASK,
 };
 use sha2::{Digest, Sha256};
+use spora_consensus_core::hashing::sighash::SigHashReusedValues;
+use spora_consensus_core::hashing::sighash_type::SigHashType;
+use spora_consensus_core::tx::VerifiableTransaction;
 use std::{
     fmt::{Debug, Formatter},
     num::TryFromIntError,
 };
-use spora_consensus_core::hashing::sighash::SigHashReusedValues;
-use spora_consensus_core::hashing::sighash_type::SigHashType;
-use spora_consensus_core::tx::VerifiableTransaction;
 
 /// First value in the range formed by the "small integer" Op# opcodes
 pub const OP_SMALL_INT_MIN_VAL: u8 = 1;

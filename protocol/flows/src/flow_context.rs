@@ -10,23 +10,6 @@ use crate::{v5, v6};
 use async_trait::async_trait;
 use futures::future::join_all;
 use parking_lot::{Mutex, RwLock};
-use std::collections::HashMap;
-use std::time::Instant;
-use std::{collections::hash_map::Entry, fmt::Display};
-use std::{
-    iter::once,
-    ops::Deref,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
-    time::Duration,
-};
-use tokio::sync::{
-    mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
-    RwLock as AsyncRwLock,
-};
-use tokio_stream::{wrappers::UnboundedReceiverStream, StreamExt};
 use spora_addressmanager::AddressManager;
 use spora_connectionmanager::ConnectionManager;
 use spora_consensus_core::block::Block;
@@ -44,8 +27,8 @@ use spora_consensus_notify::{
 use spora_consensusmanager::{BlockProcessingBatch, ConsensusInstance, ConsensusManager, ConsensusProxy, ConsensusSessionOwned};
 use spora_core::{
     debug, info,
-    task::tick::TickService,
     sporad_env::{name, version},
+    task::tick::TickService,
 };
 use spora_core::{time::unix_now, warn};
 use spora_hashes::Hash;
@@ -62,6 +45,23 @@ use spora_p2p_lib::{
 use spora_p2p_mining::rule_engine::MiningRuleEngine;
 use spora_utils::iter::IterExtensions;
 use spora_utils::networking::PeerId;
+use std::collections::HashMap;
+use std::time::Instant;
+use std::{collections::hash_map::Entry, fmt::Display};
+use std::{
+    iter::once,
+    ops::Deref,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    time::Duration,
+};
+use tokio::sync::{
+    mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
+    RwLock as AsyncRwLock,
+};
+use tokio_stream::{wrappers::UnboundedReceiverStream, StreamExt};
 use uuid::Uuid;
 
 /// The P2P protocol version.
@@ -647,7 +647,7 @@ impl FlowContext {
     }
 
     /// Notifies that the UTXO set was reset due to pruning point change via IBD.
-    pub fn on_pruning_point_utxoset_override(&self) {
+    pub fn on_pruning_point_cellset_override(&self) {
         // Notifications from the flow context might be ignored if the inner channel is already closing
         // due to global shutdown, hence we ignore the possible error
         let _ = self.notification_root.notify(Notification::PruningPointUtxoSetOverride(PruningPointUtxoSetOverrideNotification {}));

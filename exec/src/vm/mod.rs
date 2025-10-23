@@ -4,28 +4,28 @@
 // VM integration for Cell script execution
 
 #[cfg(feature = "vm")]
+pub mod cost_model;
+#[cfg(feature = "vm")]
 pub mod error;
 #[cfg(feature = "vm")]
 pub mod machine;
 #[cfg(feature = "vm")]
-pub mod syscalls;
-#[cfg(feature = "vm")]
-pub mod cost_model;
-#[cfg(feature = "vm")]
 pub mod scheduler;
+#[cfg(feature = "vm")]
+pub mod syscalls;
 #[cfg(feature = "vm")]
 pub mod verifier;
 
+#[cfg(feature = "vm")]
+pub use cost_model::*;
 #[cfg(feature = "vm")]
 pub use error::*;
 #[cfg(feature = "vm")]
 pub use machine::*;
 #[cfg(feature = "vm")]
-pub use syscalls::*;
-#[cfg(feature = "vm")]
-pub use cost_model::*;
-#[cfg(feature = "vm")]
 pub use scheduler::*;
+#[cfg(feature = "vm")]
+pub use syscalls::*;
 #[cfg(feature = "vm")]
 pub use verifier::*;
 
@@ -93,26 +93,14 @@ impl VmLimits {
         max_memory: usize,
         cycles_per_byte: u64,
     ) -> Self {
-        Self {
-            max_tx_cycles,
-            max_block_cycles,
-            max_script_size,
-            max_memory,
-            cycles_per_byte,
-        }
+        Self { max_tx_cycles, max_block_cycles, max_script_size, max_memory, cycles_per_byte }
     }
-    
+
     /// CKB-compatible defaults
     pub const fn ckb_defaults() -> Self {
-        Self::new(
-            MAX_TX_CYCLES,
-            MAX_BLOCK_CYCLES,
-            MAX_SCRIPT_SIZE,
-            MAX_VM_MEMORY,
-            DEFAULT_CYCLES_PER_BYTE,
-        )
+        Self::new(MAX_TX_CYCLES, MAX_BLOCK_CYCLES, MAX_SCRIPT_SIZE, MAX_VM_MEMORY, DEFAULT_CYCLES_PER_BYTE)
     }
-    
+
     /// Calculate effective transaction size (for fee density)
     ///
     /// effective_size = max(serialized_size, cycles / cycles_per_byte)

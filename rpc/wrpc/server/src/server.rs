@@ -4,13 +4,6 @@ use crate::{
     result::Result,
     service::Options,
 };
-use std::{
-    collections::HashMap,
-    sync::{
-        atomic::{AtomicU64, Ordering},
-        Arc, Mutex,
-    },
-};
 use spora_grpc_client::GrpcClient;
 use spora_notify::{
     connection::ChannelType,
@@ -27,6 +20,13 @@ use spora_rpc_core::{
     Notification, RpcResult,
 };
 use spora_rpc_service::service::RpcCoreService;
+use std::{
+    collections::HashMap,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc, Mutex,
+    },
+};
 use workflow_log::*;
 use workflow_rpc::server::prelude::*;
 

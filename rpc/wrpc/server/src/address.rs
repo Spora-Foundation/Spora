@@ -1,8 +1,8 @@
 use crate::service::WrpcEncoding;
 use serde::Deserialize;
-use std::{net::AddrParseError, str::FromStr};
 use spora_consensus_core::network::NetworkType;
 use spora_utils::networking::ContextualNetAddress;
+use std::{net::AddrParseError, str::FromStr};
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename = "lowercase")]

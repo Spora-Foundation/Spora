@@ -8,13 +8,13 @@ use crate::mempool::{
     },
     tx::Priority,
 };
-use std::sync::Arc;
 use spora_consensus_core::{
     tx::MutableTransaction,
     tx::{TransactionId, TransactionOutpoint},
 };
 use spora_core::{debug, warn};
 use spora_utils::iter::IterExtensions;
+use std::sync::Arc;
 
 /// Pool of orphan transactions depending on some missing utxo entries
 ///

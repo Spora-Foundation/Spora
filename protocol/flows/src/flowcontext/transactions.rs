@@ -1,6 +1,5 @@
 use super::process_queue::ProcessQueue;
 use itertools::Itertools;
-use std::time::{Duration, Instant};
 use spora_consensus_core::tx::TransactionId;
 use spora_core::debug;
 use spora_p2p_lib::{
@@ -8,6 +7,7 @@ use spora_p2p_lib::{
     pb::{sporad_message::Payload, InvTransactionsMessage, SporadMessage},
     Hub,
 };
+use std::time::{Duration, Instant};
 
 /// Interval between mempool scanning tasks (in seconds)
 const SCANNING_TASK_INTERVAL: u64 = 10;

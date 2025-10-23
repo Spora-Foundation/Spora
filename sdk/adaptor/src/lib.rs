@@ -6,17 +6,13 @@ pub mod error;
 pub mod types;
 
 pub use error::AdaptorError;
-pub use types::{
-    AdaptorPartialSignature, AdaptorPoint, AdaptorProof, AdaptorSecret, Scalar32,
-};
+pub use types::{AdaptorPartialSignature, AdaptorPoint, AdaptorProof, AdaptorSecret, Scalar32};
 
 use k256::{
     elliptic_curve::{ops::Reduce, PrimeField},
     Scalar as KScalar, U256,
 };
-use secp256k1::{
-    self, rand::rngs::OsRng, All, Keypair, Scalar, Secp256k1, SecretKey,
-};
+use secp256k1::{self, rand::rngs::OsRng, All, Keypair, Scalar, Secp256k1, SecretKey};
 use sha2::{Digest, Sha256};
 
 // --- Helper functions ---
@@ -49,11 +45,7 @@ pub fn create_secret_and_point(secp: &Secp256k1<All>) -> (AdaptorSecret, Adaptor
     (AdaptorSecret(secret_key.secret_bytes()), point_y)
 }
 
-pub fn create_proof(
-    secp: &Secp256k1<All>,
-    secret_x_bytes: &Scalar32,
-    point_y: &AdaptorPoint,
-) -> Result<AdaptorProof, AdaptorError> {
+pub fn create_proof(secp: &Secp256k1<All>, secret_x_bytes: &Scalar32, point_y: &AdaptorPoint) -> Result<AdaptorProof, AdaptorError> {
     let mut rng = OsRng;
     let x = kscalar_from_bytes(secret_x_bytes);
 
@@ -74,11 +66,7 @@ pub fn create_proof(
     Ok(AdaptorProof { t: t_xonly, z: z_bytes })
 }
 
-pub fn verify_proof(
-    secp: &Secp256k1<All>,
-    point_y: &AdaptorPoint,
-    proof: &AdaptorProof,
-) -> Result<(), AdaptorError> {
+pub fn verify_proof(secp: &Secp256k1<All>, point_y: &AdaptorPoint, proof: &AdaptorProof) -> Result<(), AdaptorError> {
     let y_point = point_y.0.public_key(secp256k1::Parity::Even);
 
     let mut hasher = Sha256::new();
@@ -99,35 +87,28 @@ pub fn verify_proof(
     let lhs_point = zg_point.combine(&neg_ey_point)?;
     let (lhs_xonly, _) = lhs_point.x_only_public_key();
 
-    if lhs_xonly == proof.t { Ok(()) }
-    else { Err(AdaptorError::ProofVerificationFailed) }
+    if lhs_xonly == proof.t {
+        Ok(())
+    } else {
+        Err(AdaptorError::ProofVerificationFailed)
+    }
 }
 
-
-pub fn make_partial_signature(
-    s_scalar: &Scalar,
-    x_bytes: &Scalar32,
-) -> Result<AdaptorPartialSignature, AdaptorError> {
+pub fn make_partial_signature(s_scalar: &Scalar, x_bytes: &Scalar32) -> Result<AdaptorPartialSignature, AdaptorError> {
     let s_k = kscalar_from_bytes(&s_scalar.to_be_bytes());
     let x_k = kscalar_from_bytes(x_bytes);
     let s_prime_k = s_k - x_k;
     Ok(AdaptorPartialSignature(kscalar_to_bytes(&s_prime_k)))
 }
 
-pub fn complete_signature(
-    s_prime_bytes: &Scalar32,
-    x_bytes: &Scalar32,
-) -> Result<Scalar, AdaptorError> {
+pub fn complete_signature(s_prime_bytes: &Scalar32, x_bytes: &Scalar32) -> Result<Scalar, AdaptorError> {
     let s_prime_k = kscalar_from_bytes(s_prime_bytes);
     let x_k = kscalar_from_bytes(x_bytes);
     let s_k = s_prime_k + x_k;
     secp_scalar_from_bytes(&kscalar_to_bytes(&s_k))
 }
 
-pub fn recover_secret(
-    s_bytes: &Scalar32,
-    s_prime_bytes: &Scalar32,
-) -> Result<Scalar32, AdaptorError> {
+pub fn recover_secret(s_bytes: &Scalar32, s_prime_bytes: &Scalar32) -> Result<Scalar32, AdaptorError> {
     let s_k = kscalar_from_bytes(s_bytes);
     let s_prime_k = kscalar_from_bytes(s_prime_bytes);
     let x_k = s_k - s_prime_k;
@@ -135,11 +116,7 @@ pub fn recover_secret(
 }
 /// Verifies that a recovered secret `x` corresponds to the adaptor point `Y`.
 /// Checks `x * G == Y`.
-pub fn verify_secret(
-    secp: &Secp256k1<All>,
-    secret_x: &AdaptorSecret,
-    point_y: &AdaptorPoint,
-) -> bool {
+pub fn verify_secret(secp: &Secp256k1<All>, secret_x: &AdaptorSecret, point_y: &AdaptorPoint) -> bool {
     // 从秘密字节创建私钥
     if let Ok(sk) = SecretKey::from_slice(&secret_x.0) {
         // 计算 x * G
@@ -157,7 +134,6 @@ pub fn multiply_scalars(a: &Scalar, b: &Scalar) -> Result<Scalar, AdaptorError> 
     let result_k = a_k * b_k;
     secp_scalar_from_bytes(&kscalar_to_bytes(&result_k))
 }
-
 
 #[cfg(test)]
 mod tests {

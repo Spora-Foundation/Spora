@@ -682,10 +682,10 @@ mod tests {
 
     use chrono::NaiveDateTime;
     use secp256k1::Message;
-    use std::str::FromStr;
     use spora_addresses::{Address, Prefix, Version};
     use spora_txscript::{pay_to_address_with_lock_time_script, pay_to_pub_key_with_lock_time, pay_to_script_hash_signature_script};
     use spora_utils::hex::FromHex;
+    use std::str::FromStr;
 
     // Mnemonic: purpose carpet empower monkey hawk brush survey waste judge tide culture slight
     const ADDRESS: &str = "spora0:qz8etv6sf8r8vsc05fgvu3pg07yt3sxhd9tzph0jtz5gdru30gd5k46wd38";

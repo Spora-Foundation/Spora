@@ -1,6 +1,5 @@
 use crate::indexed_utxos::{UtxoChanges, UtxoSetByScriptPublicKey};
 use derive_more::Display;
-use std::{collections::HashMap, sync::Arc};
 use spora_consensus_core::cell_diff::CellDiff;
 use spora_hashes::Hash;
 use spora_notify::{
@@ -13,6 +12,7 @@ use spora_notify::{
         Subscription,
     },
 };
+use std::{collections::HashMap, sync::Arc};
 
 full_featured! {
 #[derive(Clone, Debug, Display)]
@@ -133,7 +133,7 @@ impl UtxosChangedNotification {
 }
 
 /// CellsChanged notification for index layer
-/// 
+///
 /// This is the index-layer version of consensus CellsChangedNotification.
 /// It contains the accumulated Cell diff from virtual state updates.
 #[derive(Debug, Clone)]
@@ -146,9 +146,6 @@ pub struct CellsChangedNotification {
 
 impl CellsChangedNotification {
     pub fn new(accumulated_cell_diff: Arc<CellDiff>, virtual_parents: Arc<Vec<Hash>>) -> Self {
-        Self {
-            accumulated_cell_diff,
-            virtual_parents,
-        }
+        Self { accumulated_cell_diff, virtual_parents }
     }
 }

@@ -7,12 +7,11 @@
 mod tests {
     use super::*;
     use crate::processes::cell_validator::{
-        CellValidator, CellConsensusParams, CellValidationError,
-        cell_validation_in_isolation, cell_validation_in_context, cell_validation_in_dag,
-        CellStateProvider, DagCellProvider
+        cell_validation_in_context, cell_validation_in_dag, cell_validation_in_isolation, CellConsensusParams, CellStateProvider,
+        CellValidationError, CellValidator, DagCellProvider,
     };
     use spora_consensus_core::cell_metadata::CellMetadata;
-    use spora_exec::{CellTx, CellRef, CellOut, ScriptRef, OutPoint};
+    use spora_exec::{CellOut, CellRef, CellTx, OutPoint, ScriptRef};
     use std::collections::HashMap;
     use std::sync::Arc;
 
@@ -24,7 +23,7 @@ mod tests {
         fn is_cell_available(&self, out_point: &OutPoint, _daa: u64) -> Result<bool, String> {
             Ok(self.cells.get(out_point).map(|(a, _, _)| *a).unwrap_or(false))
         }
-        
+
         fn get_cell_capacity(&self, out_point: &OutPoint) -> Result<Option<u64>, String> {
             Ok(self.cells.get(out_point).map(|(_, c, _)| *c))
         }
@@ -34,7 +33,7 @@ mod tests {
         fn get_cell_metadata(&self, out_point: &OutPoint) -> Result<Option<CellMetadata>, String> {
             Ok(self.cells.get(out_point).map(|(_, _, m)| m.clone()))
         }
-        
+
         fn get_cell_at_daa(&self, out_point: &OutPoint, _daa: u64) -> Result<Option<CellMetadata>, String> {
             Ok(self.cells.get(out_point).map(|(_, _, m)| m.clone()))
         }
@@ -48,7 +47,8 @@ mod tests {
             vec![CellOut { lock, type_: None, capacity: 10000 }],
             vec![vec![]],
             vec![],
-        ).unwrap()
+        )
+        .unwrap()
     }
 
     #[test]
@@ -60,81 +60,79 @@ mod tests {
     #[test]
     fn test_context_validation() {
         let tx = create_test_tx();
-        let mut provider = MockProvider {
-            cells: HashMap::new(),
-        };
-        
+        let mut provider = MockProvider { cells: HashMap::new() };
+
         // Add a Cell
         let out_point = OutPoint::new([0; 32], 0);
-        provider.cells.insert(out_point.clone(), (
-            true,
-            100000,
-            CellMetadata {
-                capacity: 100000,
-                lock_hash: [0; 32],
-                type_hash: None,
-                data_hash: [0; 32],
-                block_daa_score: 50,
-                is_cellbase: false,
-                block_hash: spora_hashes::Hash::from_bytes([0; 32]),
-                lock_code_hash: None,
-                type_code_hash: None,
-                data: None,
-            },
-        ));
-        
-        assert!(cell_validation_in_context::validate_cell_tx_in_context(
-            &tx, 100, &provider
-        ).is_ok());
+        provider.cells.insert(
+            out_point.clone(),
+            (
+                true,
+                100000,
+                CellMetadata {
+                    out_point: out_point.clone(),
+                    capacity: 100000,
+                    data_bytes: 0,
+                    lock_hash: [0; 32],
+                    type_hash: None,
+                    data_hash: [0; 32],
+                    block_daa_score: 50,
+                    is_cellbase: false,
+                    block_hash: spora_hashes::Hash::from_bytes([0; 32]),
+                    lock_code_hash: None,
+                    type_code_hash: None,
+                    data: None,
+                },
+            ),
+        );
+
+        assert!(cell_validation_in_context::validate_cell_tx_in_context(&tx, 100, &provider).is_ok());
     }
 
     #[test]
     fn test_dag_validation() {
         let tx = create_test_tx();
-        let mut provider = MockProvider {
-            cells: HashMap::new(),
-        };
-        
+        let mut provider = MockProvider { cells: HashMap::new() };
+
         // Add a cellbase Cell
         let out_point = OutPoint::new([0; 32], 0);
-        provider.cells.insert(out_point.clone(), (
-            true,
-            100000,
-            CellMetadata {
-                capacity: 100000,
-                lock_hash: [0; 32],
-                type_hash: None,
-                data_hash: [0; 32],
-                block_daa_score: 50,
-                is_cellbase: true,
-                block_hash: spora_hashes::Hash::from_bytes([0; 32]),
-                lock_code_hash: None,
-                type_code_hash: None,
-                data: None,
-            },
-        ));
-        
+        provider.cells.insert(
+            out_point.clone(),
+            (
+                true,
+                100000,
+                CellMetadata {
+                    out_point: out_point.clone(),
+                    capacity: 100000,
+                    data_bytes: 0,
+                    lock_hash: [0; 32],
+                    type_hash: None,
+                    data_hash: [0; 32],
+                    block_daa_score: 50,
+                    is_cellbase: true,
+                    block_hash: spora_hashes::Hash::from_bytes([0; 32]),
+                    lock_code_hash: None,
+                    type_code_hash: None,
+                    data: None,
+                },
+            ),
+        );
+
         // Should fail: cellbase not mature (created at 50, current 100, maturity 100)
-        assert!(cell_validation_in_dag::validate_cellbase_maturity(
-            &tx, 100, 100, &provider
-        ).is_err());
-        
+        assert!(cell_validation_in_dag::validate_cellbase_maturity(&tx, 100, 100, &provider).is_err());
+
         // Should succeed: cellbase mature (created at 50, current 200, maturity 100)
-        assert!(cell_validation_in_dag::validate_cellbase_maturity(
-            &tx, 200, 100, &provider
-        ).is_ok());
+        assert!(cell_validation_in_dag::validate_cellbase_maturity(&tx, 200, 100, &provider).is_ok());
     }
 
     #[test]
     fn test_cell_validator_integration() {
         let params = Arc::new(CellConsensusParams::default());
-        let provider = Arc::new(MockProvider {
-            cells: HashMap::new(),
-        });
-        
+        let provider = Arc::new(MockProvider { cells: HashMap::new() });
+
         let validator = CellValidator::new(params, provider);
         let tx = create_test_tx();
-        
+
         // Test isolation validation
         assert!(validator.validate_in_isolation(&tx).is_ok());
     }

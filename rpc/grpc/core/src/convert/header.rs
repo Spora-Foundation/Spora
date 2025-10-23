@@ -1,8 +1,8 @@
 use crate::protowire;
 use crate::{from, try_from};
-use std::str::FromStr;
 use spora_consensus_core::header::Header;
 use spora_rpc_core::{FromRpcHex, RpcError, RpcHash, RpcResult, ToRpcHex};
+use std::str::FromStr;
 
 // ----------------------------------------------------------------------------
 // rpc_core to protowire
@@ -14,7 +14,7 @@ from!(item: &spora_rpc_core::RpcHeader, protowire::RpcBlockHeader, {
         parents: item.parents_by_level.iter().map(protowire::RpcBlockLevelParents::from).collect(),
         hash_merkle_root: item.hash_merkle_root.to_string(),
         accepted_id_merkle_root: item.accepted_id_merkle_root.to_string(),
-        cell_commitment: item.cell_commitment.to_string(),  
+        cell_commitment: item.cell_commitment.to_string(),
         timestamp: item.timestamp.try_into().expect("timestamp is always convertible to i64"),
         bits: item.bits,
         nonce: item.nonce,

@@ -14,7 +14,7 @@ impl From<&Block> for RpcBlock {
         // TODO(cell-model): Implement CellTx to RpcTransaction conversion
         Self {
             header: item.header.as_ref().into(),
-            transactions: vec![],  // Empty for now - Cell model migration
+            transactions: vec![], // Empty for now - Cell model migration
             verbose_data: None,
         }
     }
@@ -32,7 +32,7 @@ impl From<&MutableBlock> for RpcBlock {
         // TODO(cell-model): Implement CellTx to RpcTransaction conversion
         Self {
             header: item.header.as_ref().into(),
-            transactions: vec![],  // Empty for now - Cell model migration
+            transactions: vec![], // Empty for now - Cell model migration
             verbose_data: None,
         }
     }
@@ -62,7 +62,7 @@ impl TryFrom<RpcBlock> for Block {
         // TODO(cell-model): Implement RpcTransaction to CellTx conversion
         Ok(Self {
             header: Arc::new(item.header.into()),
-            transactions: Arc::new(vec![]),  // Empty for now - Cell model migration
+            transactions: Arc::new(vec![]), // Empty for now - Cell model migration
         })
     }
 }
@@ -73,7 +73,7 @@ impl TryFrom<RpcRawBlock> for Block {
         // TODO(cell-model): Implement RpcTransaction to CellTx conversion
         Ok(Self {
             header: Arc::new(item.header.into()),
-            transactions: Arc::new(vec![]),  // Empty for now - Cell model migration
+            transactions: Arc::new(vec![]), // Empty for now - Cell model migration
         })
     }
 }

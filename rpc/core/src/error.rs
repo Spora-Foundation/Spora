@@ -2,9 +2,9 @@
 //! [`RpcError`] enum used by RPC primitives.
 //!
 
+use spora_consensus_core::{subnets::SubnetworkConversionError, tx::TransactionId};
 use std::{net::AddrParseError, num::TryFromIntError};
 use thiserror::Error;
-use spora_consensus_core::{subnets::SubnetworkConversionError, tx::TransactionId};
 // use spora_consensus_core::utxo::utxo_inquirer::UtxoInquirerError;  // TODO(cell-model): UTXO removed
 use spora_utils::networking::IpAddress;
 use workflow_core::channel::ChannelError;
@@ -135,7 +135,6 @@ pub enum RpcError {
 
     #[error(transparent)]
     ConsensusClient(#[from] spora_consensus_client::error::Error),
-
     // TODO(cell-model): UTXO-related errors removed - use Cell equivalents
 }
 

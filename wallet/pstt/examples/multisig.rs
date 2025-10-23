@@ -1,5 +1,4 @@
 use secp256k1::{rand::thread_rng, Keypair};
-use std::{iter, str::FromStr};
 use spora_consensus_core::{
     config::params::TESTNET_PARAMS,
     hashing::sighash::{calc_schnorr_signature_hash, SigHashReusedValuesUnsync},
@@ -9,6 +8,7 @@ use spora_txscript::{multisig_redeem_script, opcodes::codes::OpData65, pay_to_sc
 use spora_wallet_pstt::prelude::{
     Combiner, Creator, Extractor, Finalizer, Inner, InputBuilder, SignInputOk, Signature, Signer, Updater, PSTT,
 };
+use std::{iter, str::FromStr};
 
 fn main() {
     let kps = [Keypair::new(secp256k1::SECP256K1, &mut thread_rng()), Keypair::new(secp256k1::SECP256K1, &mut thread_rng())];

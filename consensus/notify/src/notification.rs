@@ -1,10 +1,6 @@
 use derive_more::Display;
+use spora_consensus_core::{acceptance_data::AcceptanceData, block::Block, cell_diff::CellDiff};
 use std::sync::Arc;
-use spora_consensus_core::{
-    acceptance_data::AcceptanceData,
-    block::Block,
-    cell_diff::CellDiff,
-};
 // utxo::utxo_diff::UtxoDiff deprecated - use Cell model
 use spora_hashes::Hash;
 use spora_notify::{
@@ -36,7 +32,7 @@ pub enum Notification {
     // UTXO notifications deprecated - use Cell model
     // #[display(fmt = "UtxosChanged notification")]
     // UtxosChanged(UtxosChangedNotification),
-    
+
     #[display(fmt = "CellsChanged notification")]
     CellsChanged(CellsChangedNotification),
 
@@ -178,10 +174,7 @@ pub struct CellsChangedNotification {
 
 impl CellsChangedNotification {
     pub fn new(accumulated_cell_diff: Arc<CellDiff>, virtual_parents: Arc<Vec<Hash>>) -> Self {
-        Self {
-            accumulated_cell_diff,
-            virtual_parents,
-        }
+        Self { accumulated_cell_diff, virtual_parents }
     }
 }
 

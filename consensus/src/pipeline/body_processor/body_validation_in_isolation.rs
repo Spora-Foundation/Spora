@@ -127,10 +127,7 @@ impl BlockBodyProcessor {
         let mut existing = HashSet::new();
         for input in block.transactions.iter().flat_map(|tx| &tx.inputs) {
             // Convert OutPoint to TransactionOutpoint
-            let txout = TransactionOutpoint { 
-                transaction_id: input.out_point.tx_hash.into(), 
-                index: input.out_point.index 
-            };
+            let txout = TransactionOutpoint { transaction_id: input.out_point.tx_hash.into(), index: input.out_point.index };
             if !existing.insert(txout.clone()) {
                 return Err(RuleError::DoubleSpendInSameBlock(txout));
             }
@@ -148,10 +145,7 @@ impl BlockBodyProcessor {
 
         for input in block.transactions.iter().flat_map(|tx| &tx.inputs) {
             // Convert OutPoint to TransactionOutpoint
-            let txout = TransactionOutpoint { 
-                transaction_id: input.out_point.tx_hash.into(), 
-                index: input.out_point.index 
-            };
+            let txout = TransactionOutpoint { transaction_id: input.out_point.tx_hash.into(), index: input.out_point.index };
             if block_created_outpoints.contains(&txout) {
                 return Err(RuleError::ChainedTransaction(txout));
             }

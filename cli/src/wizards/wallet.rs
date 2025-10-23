@@ -3,7 +3,7 @@ use crate::imports::*;
 use crate::result::Result;
 use spora_bip32::{Language, Mnemonic, WordCount};
 use spora_wallet_core::{
-    storage::{make_filename, Hint, keydata::PrvKeyDataVariantKind},
+    storage::{keydata::PrvKeyDataVariantKind, make_filename, Hint},
     wallet::WalletGuard,
 };
 

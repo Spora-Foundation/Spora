@@ -633,7 +633,7 @@ impl From<UtxoEntryWrapper> for UtxoEntry {
 impl From<UtxoEntry> for UtxoEntryWrapper {
     fn from(entry: UtxoEntry) -> Self {
         Self {
-            address: None,                                                 // UtxoEntry doesn't have address field
+            address: None, // UtxoEntry doesn't have address field
             outpoint: TransactionOutpointWrapper { transaction_id: spora_hashes::Hash::default(), index: 0 }, // UtxoEntry doesn't have outpoint field
             amount: entry.amount,
             script_public_key: entry.script_public_key,

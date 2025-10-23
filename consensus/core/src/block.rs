@@ -1,12 +1,7 @@
-use crate::{
-    coinbase::MinerData,
-    header::Header,
-    tx::TransactionId,
-    BlueWorkType,
-};
-use std::sync::Arc;
+use crate::{coinbase::MinerData, header::Header, tx::TransactionId, BlueWorkType};
 use spora_hashes::Hash;
 use spora_utils::mem_size::MemSizeEstimator;
+use std::sync::Arc;
 
 // Cell model: Use CellTx instead of UTXO Transaction
 use spora_exec::CellTx;
@@ -82,13 +77,17 @@ impl MemSizeEstimator for Block {
         size_of::<Self>()
             + self.header.estimate_mem_bytes()
             + size_of::<Vec<CellTx>>()
-            + self.transactions.iter().map(|tx| {
-                // Estimate CellTx size
-                std::mem::size_of::<CellTx>() + 
-                tx.inputs.len() * 64 + 
-                tx.outputs.len() * 128 +
-                tx.outputs_data.iter().map(|d| d.len()).sum::<usize>()
-            }).sum::<usize>()
+            + self
+                .transactions
+                .iter()
+                .map(|tx| {
+                    // Estimate CellTx size
+                    std::mem::size_of::<CellTx>()
+                        + tx.inputs.len() * 64
+                        + tx.outputs.len() * 128
+                        + tx.outputs_data.iter().map(|d| d.len()).sum::<usize>()
+                })
+                .sum::<usize>()
     }
 }
 

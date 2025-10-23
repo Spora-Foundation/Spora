@@ -20,7 +20,7 @@ pub mod blockhash;
 pub mod blockstatus;
 pub mod cell_diff;
 pub mod cell_metadata;
-pub mod cell_state;
+// cell_state module removed - use spora_state::CellStateTree instead
 pub mod coinbase;
 pub mod config;
 pub mod constants;
@@ -141,8 +141,8 @@ pub type BlockLevel = u8;
 #[cfg(test)]
 mod tests {
     use super::BlockHasher;
-    use std::hash::{Hash as _, Hasher as _};
     use spora_hashes::Hash;
+    use std::hash::{Hash as _, Hasher as _};
     #[test]
     fn test_block_hasher() {
         let hash = Hash::from_le_u64([1, 2, 3, 4]);

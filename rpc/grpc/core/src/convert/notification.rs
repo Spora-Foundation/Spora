@@ -10,10 +10,10 @@ use crate::protowire::{
     VirtualChainChangedNotificationMessage, VirtualDaaScoreChangedNotificationMessage,
 };
 use crate::{from, try_from};
-use std::str::FromStr;
-use std::sync::Arc;
 use spora_notify::subscription::Command;
 use spora_rpc_core::{Notification, RpcError, RpcHash};
+use std::str::FromStr;
+use std::sync::Arc;
 
 // ----------------------------------------------------------------------------
 // rpc_core to protowire

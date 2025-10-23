@@ -10,15 +10,13 @@
 //! - **Conflict Resolution**: Deterministic ordering (fee_density, blue_pref, wtxid)
 //! - **Parallel Execution**: Topological layering with Rayon
 
-/// DAG construction module
-pub mod dag;
 /// Conflict resolution module
 pub mod conflict;
+/// DAG construction module
+pub mod dag;
 /// Parallel executor module
 pub mod executor;
 
-pub use dag::{CellDAG, DagNode, DagEdge};
-pub use conflict::{ConflictResolver, ConflictKey, ConflictResolution};
-pub use executor::{ParallelExecutor, ExecutionResult, ExecutionReceipt};
-
-
+pub use conflict::{ConflictKey, ConflictResolution, ConflictResolver};
+pub use dag::{CellDAG, DagEdge, DagNode};
+pub use executor::{ExecutionReceipt, ExecutionResult, ParallelExecutor};

@@ -1,12 +1,12 @@
 use super::{factory::MultiConsensusManagementStore, Consensus};
 use parking_lot::RwLock;
+use spora_consensusmanager::ConsensusCtl;
+use spora_database::prelude::DB;
 use std::{
     path::PathBuf,
     sync::{Arc, Weak},
     thread::JoinHandle,
 };
-use spora_consensusmanager::ConsensusCtl;
-use spora_database::prelude::DB;
 
 pub struct Ctl {
     management_store: Arc<RwLock<MultiConsensusManagementStore>>,

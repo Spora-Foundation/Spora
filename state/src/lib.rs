@@ -13,13 +13,13 @@
 
 #![warn(missing_docs)]
 
+pub mod cell_tree;
 pub mod index;
 pub mod store;
-pub mod cell_tree;
 
+pub use cell_tree::{CellEntry, CellStateTree};
 pub use index::{CellDB, CellMeta as IndexedCellMeta, ScriptIndex};
-pub use store::{SegmentWriter, SegmentReader, SegmentMeta, SegmentProof};
-pub use cell_tree::{CellStateTree, CellEntry};
+pub use store::{SegmentMeta, SegmentProof, SegmentReader, SegmentWriter};
 
 /// Cell state errors
 #[derive(Debug, thiserror::Error)]
@@ -27,23 +27,23 @@ pub enum StateError {
     /// Database error
     #[error("Database error: {0}")]
     Database(String),
-    
+
     /// Cell not found
     #[error("Cell not found: {0:?}")]
     CellNotFound([u8; 32]),
-    
+
     /// Segment not found
     #[error("Segment not found: {0}")]
     SegmentNotFound(u32),
-    
+
     /// Invalid proof
     #[error("Invalid proof: {0}")]
     InvalidProof(String),
-    
+
     /// I/O error
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
-    
+
     /// Serialization error
     #[error("Serialization error: {0}")]
     Serialization(String),

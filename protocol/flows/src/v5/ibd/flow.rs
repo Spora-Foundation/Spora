@@ -6,14 +6,10 @@ use crate::{
     },
 };
 use futures::future::{join_all, select, try_join_all, Either};
-use std::{
-    sync::Arc,
-    time::{Duration, Instant},
-};
-use tokio::time::sleep;
 use spora_consensus_core::{
     api::BlockValidationFuture,
     block::Block,
+    cell_diff::CellMeta,
     header::Header,
     pruning::{PruningPointProof, PruningPointsList, PruningProofMetadata},
     BlockHashSet,
@@ -21,7 +17,6 @@ use spora_consensus_core::{
 use spora_consensusmanager::{spawn_blocking, ConsensusProxy, StagingConsensus};
 use spora_core::{debug, info, time::unix_now, warn};
 use spora_hashes::Hash;
-use spora_muhash::MuHash;
 use spora_p2p_lib::{
     common::ProtocolError,
     convert::model::trusted::TrustedDataPackage,
@@ -32,9 +27,15 @@ use spora_p2p_lib::{
     },
     IncomingRoute, Router,
 };
+use spora_state::CellStateTree;
 use spora_utils::channel::JobReceiver;
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
+use tokio::time::sleep;
 
-use super::{progress::ProgressReporter, HeadersChunk, PruningPointUtxosetChunkStream, IBD_BATCH_SIZE};
+use super::{progress::ProgressReporter, HeadersChunk, PruningPointCellsetChunkStream, IBD_BATCH_SIZE};
 
 /// Flow for managing IBD - Initial Block Download
 pub struct IbdFlow {
@@ -122,7 +123,7 @@ impl IbdFlow {
                             "Header download stage of IBD with headers proof completed successfully from {}. Committed staging consensus.",
                             self.router
                         );
-                        self.ctx.on_pruning_point_utxoset_override();
+                        self.ctx.on_pruning_point_cellset_override();
                         // This will reobtain the freshly committed staging consensus
                         session = self.ctx.consensus().session().await;
                     }
@@ -235,7 +236,7 @@ impl IbdFlow {
         self.sync_headers(&staging_session, syncer_virtual_selected_parent, pruning_point, relay_block).await?;
         staging_session.async_validate_pruning_points(syncer_virtual_selected_parent).await?;
         self.validate_staging_timestamps(&self.ctx.consensus().session().await, &staging_session).await?;
-        self.sync_pruning_point_utxoset(&staging_session, pruning_point).await?;
+        self.sync_pruning_point_cellset(&staging_session, pruning_point).await?;
         Ok(())
     }
 
@@ -501,25 +502,29 @@ staging selected tip ({}) is too small or negative. Aborting IBD...",
         }
     }
 
-    async fn sync_pruning_point_utxoset(&mut self, consensus: &ConsensusProxy, pruning_point: Hash) -> Result<(), ProtocolError> {
+    async fn sync_pruning_point_cellset(&mut self, consensus: &ConsensusProxy, pruning_point: Hash) -> Result<(), ProtocolError> {
+        // Protocol message still uses UTXO naming for backward compatibility
         self.router
             .enqueue(make_message!(
                 Payload::RequestPruningPointUtxoSet,
                 RequestPruningPointUtxoSetMessage { pruning_point_hash: Some(pruning_point.into()) }
             ))
             .await?;
-        let mut chunk_stream = PruningPointUtxosetChunkStream::new(&self.router, &mut self.incoming_route);
-        let mut multiset = MuHash::new();
-        while let Some(chunk) = chunk_stream.next().await? {
-            multiset = consensus
+
+        // But internally we work with Cell model
+        let mut chunk_stream = PruningPointCellsetChunkStream::new(&self.router, &mut self.incoming_route);
+        let mut cell_tree = CellStateTree::new();
+        while let Some(cell_chunk) = chunk_stream.next().await? {
+            // Chunk is already converted to CellMeta in the stream
+            cell_tree = consensus
                 .clone()
                 .spawn_blocking(move |c| {
-                    c.append_imported_pruning_point_utxos(&chunk, &mut multiset);
-                    multiset
+                    c.append_imported_pruning_point_cells(&cell_chunk, &mut cell_tree);
+                    cell_tree
                 })
                 .await;
         }
-        consensus.clone().spawn_blocking(move |c| c.import_pruning_point_utxo_set(pruning_point, multiset)).await?;
+        consensus.clone().spawn_blocking(move |c| c.import_pruning_point_cell_set(pruning_point, cell_tree)).await?;
         Ok(())
     }
 

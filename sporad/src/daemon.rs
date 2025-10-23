@@ -9,7 +9,7 @@ use spora_consensus_core::{
 };
 use spora_consensus_notify::{root::ConsensusNotificationRoot, service::NotifyService};
 use spora_core::{core::Core, debug, info, trace};
-use spora_core::{task::tick::TickService, sporad_env::version};
+use spora_core::{sporad_env::version, task::tick::TickService};
 use spora_database::{
     prelude::{CachePolicy, DbWriter, DirectDbWriter},
     registry::DatabaseStorePrefixes,

@@ -7,22 +7,22 @@
 //! - Maintains compatibility with existing Taproot functionality
 
 pub mod hasher;
-pub mod verkle;
 #[cfg(feature = "musig2")]
 pub mod musig2;
-pub mod witness;
 pub mod sighash;
+pub mod verkle;
+pub mod witness;
 
 // Re-export MuSig2 types for easier access
 #[cfg(feature = "musig2")]
-pub use musig2::{MuSig2KeyAgg, MuSig2Nonce, MuSig2Session, MuSig2Signature, EncryptedSignature, MuSig2Error};
+pub use musig2::{EncryptedSignature, MuSig2Error, MuSig2KeyAgg, MuSig2Nonce, MuSig2Session, MuSig2Signature};
 
+use crate::standard::copperoot::sighash::CopperootLeafHash;
+use crate::standard::copperoot::witness::{CopperootControlBlock, CopperootWitness, P2CrSpend};
 use crate::TxScriptError;
+use blake3::Hasher;
 use secp256k1::XOnlyPublicKey;
 use spora_consensus_core::tx::VerifiableTransaction;
-use blake3::Hasher;
-use crate::standard::copperoot::sighash::CopperootLeafHash;
-use crate::standard::copperoot::witness::{CopperootWitness, P2CrSpend, CopperootControlBlock};
 
 /// Abstract trait for Taproot-like execution semantics
 /// This allows us to reuse the execution flow while parameterizing
@@ -30,30 +30,21 @@ use crate::standard::copperoot::witness::{CopperootWitness, P2CrSpend, Copperoot
 pub trait ScriptVariant {
     /// Witness structure for this Taproot-like variant
     type Witness;
-    
+
     /// Parse witness from signature script
     fn parse_witness(sig_script: &[u8]) -> Result<Self::Witness, TxScriptError>;
-    
+
     /// Verify commitment for script path spending
-    fn verify_commitment(
-        xpub: XOnlyPublicKey, 
-        leaf_script: &[u8], 
-        control_block: &[u8]
-    ) -> Result<(), TxScriptError>;
-    
+    fn verify_commitment(xpub: XOnlyPublicKey, leaf_script: &[u8], control_block: &[u8]) -> Result<(), TxScriptError>;
+
     /// Compute key spend signature hash
-    fn key_spend_sighash<T: VerifiableTransaction>(
-        tx: &T, 
-        idx: usize
-    ) -> Result<secp256k1::Message, TxScriptError>;
-    
+    fn key_spend_sighash<T: VerifiableTransaction>(tx: &T, idx: usize) -> Result<secp256k1::Message, TxScriptError>;
+
     /// Extract signature from key spend witness
     fn extract_key_spend_signature(witness: &Self::Witness) -> Result<Vec<u8>, TxScriptError>;
-    
+
     /// Extract script path components from witness
-    fn extract_script_spend_components(
-        witness: &Self::Witness
-    ) -> Result<(Vec<Vec<u8>>, Vec<u8>, Vec<u8>), TxScriptError>;
+    fn extract_script_spend_components(witness: &Self::Witness) -> Result<(Vec<Vec<u8>>, Vec<u8>, Vec<u8>), TxScriptError>;
 }
 
 /// Copperoot implementation of ScriptVariant trait
@@ -66,16 +57,13 @@ impl ScriptVariant for CopperootVariant {
         CopperootWitness::try_from(sig_script)
     }
 
-    fn verify_commitment(
-        xpub: XOnlyPublicKey,
-        leaf_script: &[u8],
-        control_block: &[u8],
-    ) -> Result<(), TxScriptError> {
-        let control_block = CopperootControlBlock::deserialize(control_block)
-            .map_err(|_| TxScriptError::InvalidTaprootWitness)?;
+    fn verify_commitment(xpub: XOnlyPublicKey, leaf_script: &[u8], control_block: &[u8]) -> Result<(), TxScriptError> {
+        let control_block = CopperootControlBlock::deserialize(control_block).map_err(|_| TxScriptError::InvalidTaprootWitness)?;
 
         // Verify TLV extensions contain required proof type
-        let proof_type = control_block.tlv_extensions.iter()
+        let proof_type = control_block
+            .tlv_extensions
+            .iter()
             .find(|tlv| tlv.tlv_type == crate::standard::copperoot::witness::TLV_TYPE_PROOF_TYPE)
             .and_then(|tlv| tlv.value.first().copied())
             .ok_or(TxScriptError::InvalidTaprootWitness)?;
@@ -94,12 +82,9 @@ impl ScriptVariant for CopperootVariant {
         }
     }
 
-    fn key_spend_sighash<T: VerifiableTransaction>(
-        tx: &T,
-        idx: usize,
-    ) -> Result<secp256k1::Message, TxScriptError> {
-        use crate::standard::copperoot::sighash::{SighashCache, Prevouts, CopperootSighashType};
-        
+    fn key_spend_sighash<T: VerifiableTransaction>(tx: &T, idx: usize) -> Result<secp256k1::Message, TxScriptError> {
+        use crate::standard::copperoot::sighash::{CopperootSighashType, Prevouts, SighashCache};
+
         let mut sighasher = SighashCache::new(tx.tx());
         let vouts = tx
             .populated_inputs()
@@ -109,8 +94,7 @@ impl ScriptVariant for CopperootVariant {
             })
             .collect::<Vec<_>>();
         let prevouts = Prevouts::All(&vouts);
-        let sighash = match sighasher
-            .copperoot_key_spend_signature_hash(idx, &prevouts, CopperootSighashType::Default) {
+        let sighash = match sighasher.copperoot_key_spend_signature_hash(idx, &prevouts, CopperootSighashType::Default) {
             Ok(sighash) => sighash,
             Err(_) => return Err(TxScriptError::InvalidSignature(secp256k1::Error::InvalidSignature)),
         };
@@ -125,15 +109,11 @@ impl ScriptVariant for CopperootVariant {
         }
     }
 
-    fn extract_script_spend_components(
-        witness: &Self::Witness,
-    ) -> Result<(Vec<Vec<u8>>, Vec<u8>, Vec<u8>), TxScriptError> {
+    fn extract_script_spend_components(witness: &Self::Witness) -> Result<(Vec<Vec<u8>>, Vec<u8>, Vec<u8>), TxScriptError> {
         let p2cr = P2CrSpend::try_from(witness)?;
         match p2cr {
             P2CrSpend::Script { input, leaf_script, control_block, .. } => {
-                let input_items = input.into_iter()
-                    .map(|item| item.unwrap_or_default())
-                    .collect();
+                let input_items = input.into_iter().map(|item| item.unwrap_or_default()).collect();
                 Ok((input_items, leaf_script, control_block))
             }
             _ => Err(TxScriptError::InvalidTaprootWitness),
@@ -151,13 +131,15 @@ fn verify_merkle_commitment(
     if control_block.merkle_path.len() > 8 {
         return Err(TxScriptError::InvalidTaprootWitness);
     }
-    
+
     // Verify TLV extensions contain required proof type
-    let proof_type = control_block.tlv_extensions.iter()
+    let proof_type = control_block
+        .tlv_extensions
+        .iter()
         .find(|tlv| tlv.tlv_type == crate::standard::copperoot::witness::TLV_TYPE_PROOF_TYPE)
         .and_then(|tlv| tlv.value.first().copied())
         .ok_or(TxScriptError::InvalidTaprootWitness)?;
-    
+
     if proof_type > 1 {
         return Err(TxScriptError::InvalidTaprootWitness);
     }
@@ -188,14 +170,12 @@ fn verify_merkle_commitment(
     let secp = secp256k1::Secp256k1::verification_only();
 
     // Pass tweak as scalar; if invalid (>= n / 0) will Err
-    let tweak_scalar = secp256k1::Scalar::from_be_bytes(tweak_bytes)
-        .map_err(|_| TxScriptError::InvalidTaprootWitness)?;
+    let tweak_scalar = secp256k1::Scalar::from_be_bytes(tweak_bytes).map_err(|_| TxScriptError::InvalidTaprootWitness)?;
 
     // add_tweak returns (XOnlyPublicKey, bool_parity). Here parity_true represents the boolean flag
     // from libsecp calculation indicating "whether to take the opposite point to get x-only canonical representation" (corresponding to BIP340 semantics).
     let (tweaked_xonly, actual_parity) =
-        control_block.internal_key.add_tweak(&secp, &tweak_scalar)
-        .map_err(|_| TxScriptError::InvalidTaprootWitness)?;
+        control_block.internal_key.add_tweak(&secp, &tweak_scalar).map_err(|_| TxScriptError::InvalidTaprootWitness)?;
 
     // 7) Compare x-only output key with xpub in script public key
     if tweaked_xonly != xpub {
@@ -229,7 +209,7 @@ fn compute_copperoot_leaf_hash(script: &[u8], leaf_version: u8) -> [u8; 32] {
 fn compute_copperoot_node_hash(left: &[u8; 32], right: &[u8; 32]) -> [u8; 32] {
     let mut hasher = Hasher::new();
     hasher.update(b"CopperootNode");
-    
+
     // Sort the hashes for deterministic ordering
     if left < right {
         hasher.update(left);
@@ -238,7 +218,7 @@ fn compute_copperoot_node_hash(left: &[u8; 32], right: &[u8; 32]) -> [u8; 32] {
         hasher.update(right);
         hasher.update(left);
     }
-    
+
     hasher.finalize().into()
 }
 
@@ -247,35 +227,37 @@ fn compute_copperoot_node_hash(left: &[u8; 32], right: &[u8; 32]) -> [u8; 32] {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use secp256k1::{Keypair, Message, Secp256k1};
-    use bitcoin::Witness as BtcWitness;
-    use smallvec::SmallVec;
-    use std::str::FromStr;
-    use spora_consensus_core::{
-        subnets::SubnetworkId,
-        tx::{ScriptPublicKey, TransactionId, TransactionOutpoint, TransactionInput, TransactionOutput, Transaction, UtxoEntry, PopulatedTransaction},
-        hashing::sighash::SigHashReusedValuesUnsync,
-    };
-    use hex;
+    use crate::standard::copperoot::sighash::{CopperootSighashType, Prevouts, SighashCache};
+    use crate::standard::{OpData32, OpTrue};
     use crate::{Cache, TxScriptEngine, MAX_SCRIPT_PUBLIC_KEY_VERSION, SCRIPT_VER_P2CR};
-    use crate::standard::copperoot::sighash::{Prevouts, SighashCache, CopperootSighashType};
-    use crate::standard::{OpTrue, OpData32};
+    use bitcoin::Witness as BtcWitness;
+    use hex;
+    use secp256k1::{Keypair, Message, Secp256k1};
+    use smallvec::SmallVec;
+    use spora_consensus_core::{
+        hashing::sighash::SigHashReusedValuesUnsync,
+        subnets::SubnetworkId,
+        tx::{
+            PopulatedTransaction, ScriptPublicKey, Transaction, TransactionId, TransactionInput, TransactionOutpoint,
+            TransactionOutput, UtxoEntry,
+        },
+    };
+    use std::str::FromStr;
 
     #[test]
     fn test_copperoot_key_spend() {
         let secp = Secp256k1::new();
         let keypair = Keypair::from_seckey_slice(
             secp256k1::SECP256K1,
-            &hex::decode("1d99c236b1f37b3b845336e6c568ba37e9ced4769d83b7a096eec446b940d160")
-                .expect("Valid hex string"),
+            &hex::decode("1d99c236b1f37b3b845336e6c568ba37e9ced4769d83b7a096eec446b940d160").expect("Valid hex string"),
         )
         .expect("Valid private key");
         // Use Copperoot P2CR script generation
         let xonly_pubkey = keypair.x_only_public_key().0;
         let script_pub_key = SmallVec::from_iter([OpTrue, OpData32].into_iter().chain(xonly_pubkey.serialize()));
 
-        let prev_tx_id = TransactionId::from_str("880eb9819a31821d9d2399e2f35e2433b72637e393d71ecc9b8d0250f49153c3")
-            .expect("Valid transaction ID");
+        let prev_tx_id =
+            TransactionId::from_str("880eb9819a31821d9d2399e2f35e2433b72637e393d71ecc9b8d0250f49153c3").expect("Valid transaction ID");
 
         let mut tx = Transaction::new(
             0,
@@ -285,7 +267,10 @@ mod tests {
                 sequence: 0,
                 sig_op_count: 0,
             }],
-            vec![TransactionOutput { value: 100, script_public_key: ScriptPublicKey::new(MAX_SCRIPT_PUBLIC_KEY_VERSION, script_pub_key.clone()) }],
+            vec![TransactionOutput {
+                value: 100,
+                script_public_key: ScriptPublicKey::new(MAX_SCRIPT_PUBLIC_KEY_VERSION, script_pub_key.clone()),
+            }],
             1615462089000,
             SubnetworkId::from_bytes([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
             0,
@@ -306,17 +291,25 @@ mod tests {
 
         let msg = Message::from(sighash);
         let signature = secp.sign_schnorr(&msg, &keypair);
-        let witness = CopperootWitness::p2cr_key_spend(signature, match sighash_type {
-            CopperootSighashType::Default => spora_consensus_core::tx::copperoot::sighash::CopperootSighashType::Default,
-            CopperootSighashType::All => spora_consensus_core::tx::copperoot::sighash::CopperootSighashType::All,
-            CopperootSighashType::None => spora_consensus_core::tx::copperoot::sighash::CopperootSighashType::None,
-            CopperootSighashType::Single => spora_consensus_core::tx::copperoot::sighash::CopperootSighashType::Single,
-            CopperootSighashType::AllPlusAnyoneCanPay => spora_consensus_core::tx::copperoot::sighash::CopperootSighashType::AllPlusAnyoneCanPay,
-            CopperootSighashType::NonePlusAnyoneCanPay => spora_consensus_core::tx::copperoot::sighash::CopperootSighashType::NonePlusAnyoneCanPay,
-            CopperootSighashType::SinglePlusAnyoneCanPay => spora_consensus_core::tx::copperoot::sighash::CopperootSighashType::SinglePlusAnyoneCanPay,
-        });
-        tx.inputs[input_index].signature_script = (&witness).try_into()
-            .expect("Valid witness conversion");
+        let witness = CopperootWitness::p2cr_key_spend(
+            signature,
+            match sighash_type {
+                CopperootSighashType::Default => spora_consensus_core::tx::copperoot::sighash::CopperootSighashType::Default,
+                CopperootSighashType::All => spora_consensus_core::tx::copperoot::sighash::CopperootSighashType::All,
+                CopperootSighashType::None => spora_consensus_core::tx::copperoot::sighash::CopperootSighashType::None,
+                CopperootSighashType::Single => spora_consensus_core::tx::copperoot::sighash::CopperootSighashType::Single,
+                CopperootSighashType::AllPlusAnyoneCanPay => {
+                    spora_consensus_core::tx::copperoot::sighash::CopperootSighashType::AllPlusAnyoneCanPay
+                }
+                CopperootSighashType::NonePlusAnyoneCanPay => {
+                    spora_consensus_core::tx::copperoot::sighash::CopperootSighashType::NonePlusAnyoneCanPay
+                }
+                CopperootSighashType::SinglePlusAnyoneCanPay => {
+                    spora_consensus_core::tx::copperoot::sighash::CopperootSighashType::SinglePlusAnyoneCanPay
+                }
+            },
+        );
+        tx.inputs[input_index].signature_script = (&witness).try_into().expect("Valid witness conversion");
 
         let entry = UtxoEntry {
             amount: 100,
@@ -327,23 +320,19 @@ mod tests {
 
         // Direct Copperoot verification (bypass ScriptClass detection since
         // Taproot and Copperoot share identical ScriptPubKey format)
-        let witness = CopperootWitness::try_from(tx.inputs[input_index].signature_script.as_slice())
-            .expect("Failed to parse Copperoot witness");
-        
+        let witness =
+            CopperootWitness::try_from(tx.inputs[input_index].signature_script.as_slice()).expect("Failed to parse Copperoot witness");
+
         // Extract and verify key spend signature
-        let sig_bytes = CopperootVariant::extract_key_spend_signature(&witness)
-            .expect("Failed to extract key spend signature");
-        
+        let sig_bytes = CopperootVariant::extract_key_spend_signature(&witness).expect("Failed to extract key spend signature");
+
         let secp = Secp256k1::new();
-        let sig = secp256k1::schnorr::Signature::from_slice(&sig_bytes)
-            .expect("Invalid signature format");
-        
+        let sig = secp256k1::schnorr::Signature::from_slice(&sig_bytes).expect("Invalid signature format");
+
         let populated_tx = PopulatedTransaction::new(&tx, vec![entry.clone()]);
-        let msg = CopperootVariant::key_spend_sighash(&populated_tx, input_index)
-            .expect("Failed to compute sighash");
-        
-        secp.verify_schnorr(&sig, &msg, &xonly_pubkey)
-            .expect("Signature verification failed");
+        let msg = CopperootVariant::key_spend_sighash(&populated_tx, input_index).expect("Failed to compute sighash");
+
+        secp.verify_schnorr(&sig, &msg, &xonly_pubkey).expect("Signature verification failed");
     }
 
     #[test]
@@ -351,8 +340,7 @@ mod tests {
         let secp = Secp256k1::new();
         let keypair = Keypair::from_seckey_slice(
             secp256k1::SECP256K1,
-            &hex::decode("1d99c236b1f37b3b845336e6c568ba37e9ced4769d83b7a096eec446b940d160")
-                .expect("Valid hex string"),
+            &hex::decode("1d99c236b1f37b3b845336e6c568ba37e9ced4769d83b7a096eec446b940d160").expect("Valid hex string"),
         )
         .expect("Valid private key");
         let internal_key = keypair.x_only_public_key().0;
@@ -360,14 +348,14 @@ mod tests {
         // Simple test: single script (leaf), no merkle tree
         let leaf_script = vec![0x51]; // OP_TRUE
         let leaf_version = 0x00;
-        
+
         // Compute leaf hash using BLAKE3
         let leaf_hash = compute_copperoot_leaf_hash(&leaf_script, leaf_version);
-        
+
         // No merkle path for single script
         let merkle_path = vec![];
         let merkle_root = leaf_hash;
-        
+
         // Compute Copperoot Tweak
         let mut tweak_hasher = Hasher::new();
         tweak_hasher.update(b"CopperTweak");
@@ -375,23 +363,21 @@ mod tests {
         tweak_hasher.update(&merkle_root);
         tweak_hasher.update(&[0u8]); // proof_type = 0 (Merkle)
         let tweak_bytes = *tweak_hasher.finalize().as_bytes();
-        
-        let tweak_scalar = secp256k1::Scalar::from_be_bytes(tweak_bytes)
-            .expect("Valid tweak scalar");
-        let (tweaked_xonly, parity) = internal_key.add_tweak(&secp, &tweak_scalar)
-            .expect("Valid tweak operation");
-        
+
+        let tweak_scalar = secp256k1::Scalar::from_be_bytes(tweak_bytes).expect("Valid tweak scalar");
+        let (tweaked_xonly, parity) = internal_key.add_tweak(&secp, &tweak_scalar).expect("Valid tweak operation");
+
         // Encode parity in parity_leaf_version: bit7 = parity, low 7 bits = leaf_version
         let parity_bit = matches!(parity, secp256k1::Parity::Odd);
         let parity_leaf_version = if parity_bit { 0x80 | leaf_version } else { leaf_version };
-        
-        let ctrl_block = CopperootControlBlock::new_merkle(parity_leaf_version, internal_key, merkle_path)
-            .expect("Valid control block");
-        
+
+        let ctrl_block =
+            CopperootControlBlock::new_merkle(parity_leaf_version, internal_key, merkle_path).expect("Valid control block");
+
         let script_pub_key = SmallVec::from_iter([OpTrue, OpData32].into_iter().chain(tweaked_xonly.serialize()));
 
-        let prev_tx_id = TransactionId::from_str("880eb9819a31821d9d2399e2f35e2433b72637e393d71ecc9b8d0250f49153c3")
-            .expect("Valid transaction ID");
+        let prev_tx_id =
+            TransactionId::from_str("880eb9819a31821d9d2399e2f35e2433b72637e393d71ecc9b8d0250f49153c3").expect("Valid transaction ID");
 
         let mut tx = Transaction::new(
             0,
@@ -414,8 +400,7 @@ mod tests {
         witness.push(leaf_script);
         witness.push(ctrl_block.serialize());
 
-        tx.inputs[input_index].signature_script = (&CopperootWitness::from(witness)).try_into()
-            .expect("Valid witness conversion");
+        tx.inputs[input_index].signature_script = (&CopperootWitness::from(witness)).try_into().expect("Valid witness conversion");
 
         let entry = UtxoEntry {
             amount: 100,

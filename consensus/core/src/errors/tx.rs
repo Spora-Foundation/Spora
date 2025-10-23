@@ -1,8 +1,8 @@
 use crate::constants::MAX_SAU;
 use crate::subnets::SubnetworkId;
 use crate::tx::TransactionOutpoint;
-use thiserror::Error;
 use spora_txscript_errors::TxScriptError;
+use thiserror::Error;
 
 #[derive(Error, Debug, Clone, PartialEq, Eq)]
 pub enum TxRuleError {

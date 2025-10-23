@@ -27,7 +27,6 @@ use crossbeam_channel::{Receiver, Sender};
 use parking_lot::RwLock;
 use rayon::ThreadPool;
 use rocksdb::WriteBatch;
-use std::sync::{atomic::Ordering, Arc};
 use spora_consensus_core::{
     block::Block,
     blockstatus::BlockStatus::{self, StatusHeaderOnly, StatusInvalid},
@@ -36,7 +35,7 @@ use spora_consensus_core::{
         params::{ForkActivation, ForkedParam, Params},
     },
     mass::{Mass, MassCalculator, MassOps},
-    tx::{CellTx, Transaction},  // Transaction is alias for CellTx
+    tx::{CellTx, Transaction}, // Transaction is alias for CellTx
     KType,
 };
 use spora_consensus_notify::{
@@ -46,6 +45,7 @@ use spora_consensus_notify::{
 use spora_consensusmanager::SessionLock;
 use spora_hashes::Hash;
 use spora_notify::notifier::Notify;
+use std::sync::{atomic::Ordering, Arc};
 
 pub struct BlockBodyProcessor {
     // Channels

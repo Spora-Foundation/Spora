@@ -5,9 +5,8 @@
 
 use super::utils::INDEX_OUT_OF_BOUND;
 use ckb_vm::{
-    Register, Syscalls, SupportMachine,
-    Error as VMError,
     registers::{A0, A7},
+    Error as VMError, Register, SupportMachine, Syscalls,
 };
 
 /// Syscall: Load Header
@@ -31,7 +30,7 @@ impl<M: SupportMachine> Syscalls<M> for LoadHeader {
 
     fn ecall(&mut self, machine: &mut M) -> Result<bool, VMError> {
         let syscall_number = machine.registers()[A7].to_u64();
-        
+
         // LOAD_HEADER = 2072
         if syscall_number != 2072 {
             return Ok(false);
@@ -40,9 +39,9 @@ impl<M: SupportMachine> Syscalls<M> for LoadHeader {
         // TODO: Implement header loading
         // In DAG, this needs access to block headers by hash
         // For now, return INDEX_OUT_OF_BOUND
-        
+
         machine.set_register(A0, M::REG::from_u8(INDEX_OUT_OF_BOUND));
-        
+
         Ok(true)
     }
 }

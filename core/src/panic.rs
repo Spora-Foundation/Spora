@@ -1,5 +1,5 @@
-use std::{panic, process, thread};
 use spora_core::error;
+use std::{panic, process, thread};
 
 /// Configures the panic hook to exit the program on every panic
 pub fn configure_panic() {

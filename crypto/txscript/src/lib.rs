@@ -41,17 +41,15 @@ pub use standard::*;
 
 // Re-export MuSig2 types for easier access
 #[cfg(feature = "musig2")]
-pub use standard::copperoot::{
-    MuSig2KeyAgg, MuSig2Nonce, MuSig2Session, MuSig2Signature, EncryptedSignature, MuSig2Error
-};
+pub use standard::copperoot::{EncryptedSignature, MuSig2Error, MuSig2KeyAgg, MuSig2Nonce, MuSig2Session, MuSig2Signature};
 
 pub const MAX_SCRIPT_PUBLIC_KEY_VERSION: u16 = 193;
 
 // Script version constants for different script types
-pub const SCRIPT_VER_CLASSIC: u16 = 0;       // Legacy script types (PubKey, ScriptHash, etc.)
-pub const SCRIPT_VER_TAPROOT: u16 = 1;      // Taproot (BIP341/SHA256)
-pub const SCRIPT_VER_COPPEROOT_MERKLE: u16 = 2;       // Pay-to-Copperoot-Merkle (BLAKE3) - Address starts with 'c'
-pub const SCRIPT_VER_COPPEROOT_VERKLE: u16 = 3;       // Pay-to-Copperoot-Verkle (BLAKE3) - Reserved
+pub const SCRIPT_VER_CLASSIC: u16 = 0; // Legacy script types (PubKey, ScriptHash, etc.)
+pub const SCRIPT_VER_TAPROOT: u16 = 1; // Taproot (BIP341/SHA256)
+pub const SCRIPT_VER_COPPEROOT_MERKLE: u16 = 2; // Pay-to-Copperoot-Merkle (BLAKE3) - Address starts with 'c'
+pub const SCRIPT_VER_COPPEROOT_VERKLE: u16 = 3; // Pay-to-Copperoot-Verkle (BLAKE3) - Reserved
 
 // Backward compatibility aliases
 pub const SCRIPT_VER_P2CR: u16 = SCRIPT_VER_COPPEROOT_MERKLE;
@@ -437,20 +435,16 @@ impl<'a, T: VerifiableTransaction, Reused: SigHashReusedValues> TxScriptEngine<'
                     } else {
                         witness.nth(0).ok_or(TxScriptError::InvalidTaprootWitness)?
                     };
-                    
+
                     let sighash_type = TapSighashType::Default;
                     let mut sighasher = SighashCache::new(tx.tx());
                     let vouts = tx
                         .populated_inputs()
-                        .map(|(_, utxo)| TransactionOutput {
-                            value: utxo.amount,
-                            script_public_key: utxo.script_public_key.clone(),
-                        })
+                        .map(|(_, utxo)| TransactionOutput { value: utxo.amount, script_public_key: utxo.script_public_key.clone() })
                         .collect::<Vec<_>>();
                     let prevouts = Prevouts::All(&vouts);
-                    let sighash = sighasher
-                        .taproot_key_spend_signature_hash(idx, &prevouts, sighash_type)
-                        .expect("failed to construct sighash");
+                    let sighash =
+                        sighasher.taproot_key_spend_signature_hash(idx, &prevouts, sighash_type).expect("failed to construct sighash");
                     let msg = Message::from(sighash);
                     // Verify signature using secp256k1 directly
                     let secp = Secp256k1::new();
@@ -461,7 +455,7 @@ impl<'a, T: VerifiableTransaction, Reused: SigHashReusedValues> TxScriptEngine<'
                     // Script spend
                     let leaf_script = witness.taproot_leaf_script().ok_or(TxScriptError::InvalidTaprootWitness)?;
                     let control_block_bytes = witness.taproot_control_block().ok_or(TxScriptError::InvalidTaprootWitness)?;
-                    
+
                     // Push input data to stack (excluding leaf script, control block, and annex)
                     let mut input_data = Vec::new();
                     for i in 0..witness.len() {
@@ -477,7 +471,7 @@ impl<'a, T: VerifiableTransaction, Reused: SigHashReusedValues> TxScriptEngine<'
                             input_data.push(data.to_vec());
                         }
                     }
-                    
+
                     for data in input_data {
                         self.dstack.push(data);
                     }

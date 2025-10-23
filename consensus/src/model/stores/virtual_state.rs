@@ -6,11 +6,7 @@ use rocksdb::WriteBatch;
 use serde::{Deserialize, Serialize};
 use spora_consensus_core::api::stats::VirtualStateStats;
 use spora_consensus_core::{
-    block::VirtualStateApproxId,
-    cell_diff::CellDiff,
-    coinbase::BlockRewardData,
-    config::genesis::GenesisBlock,
-    tx::TransactionId,
+    block::VirtualStateApproxId, cell_diff::CellDiff, coinbase::BlockRewardData, config::genesis::GenesisBlock, tx::TransactionId,
     BlockHashMap, BlockHashSet, HashMapCustomHasher,
 };
 use spora_database::prelude::{BatchDbWriter, CachedDbItem, DirectDbWriter, StoreResultExtensions};
@@ -159,9 +155,7 @@ pub struct VirtualStores {
 
 impl VirtualStores {
     pub fn new(db: Arc<DB>, lkg_virtual_state: LkgVirtualState, _cache_policy: CachePolicy) -> Self {
-        Self {
-            state: DbVirtualStateStore::new(db, lkg_virtual_state),
-        }
+        Self { state: DbVirtualStateStore::new(db, lkg_virtual_state) }
     }
 }
 

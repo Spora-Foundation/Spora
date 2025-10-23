@@ -1,10 +1,10 @@
 use crate::TxScriptError;
 use core::fmt::Debug;
 use core::iter;
+use spora_txscript_errors::SerializationError;
 use std::cmp::Ordering;
 use std::num::TryFromIntError;
 use std::ops::Deref;
-use spora_txscript_errors::SerializationError;
 
 #[derive(PartialEq, Eq, Debug, Default, PartialOrd, Ord)]
 pub(crate) struct SizedEncodeInt<const LEN: usize>(pub(crate) i64);

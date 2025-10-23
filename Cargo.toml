@@ -124,6 +124,7 @@ spora-pow = { version = "1.21.0", path = "consensus/pow" }
 spora-rpc-core = { version = "1.21.0", path = "rpc/core" }
 spora-rpc-macros = { version = "1.21.0", path = "rpc/macros" }
 spora-rpc-service = { version = "1.21.0", path = "rpc/service" }
+spora-state = { version = "1.21.0", path = "state" }
 spora-txscript = { version = "1.21.0", path = "crypto/txscript" }
 spora-txscript-errors = { version = "1.21.0", path = "crypto/txscript/errors" }
 spora-utils = { version = "1.21.0", path = "utils" }

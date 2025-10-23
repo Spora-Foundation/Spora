@@ -3,12 +3,11 @@
 //
 // Load cell data syscall
 
-use super::utils::{store_data, SUCCESS, INDEX_OUT_OF_BOUND};
+use super::utils::{store_data, INDEX_OUT_OF_BOUND, SUCCESS};
 use crate::celltx::CellTx;
 use ckb_vm::{
-    Register, Syscalls, SupportMachine,
-    Error as VMError,
     registers::{A0, A2, A3, A4, A7},
+    Error as VMError, Register, SupportMachine, Syscalls,
 };
 use std::sync::Arc;
 
@@ -33,8 +32,7 @@ impl LoadCellData {
             }
             0x0200 => {
                 // GroupOutput
-                self.group_output_indices.get(index)
-                    .and_then(|&idx| self.tx.outputs_data.get(idx).map(|d| d.as_slice()))
+                self.group_output_indices.get(index).and_then(|&idx| self.tx.outputs_data.get(idx).map(|d| d.as_slice()))
             }
             _ => None,
         }
@@ -48,7 +46,7 @@ impl<M: SupportMachine> Syscalls<M> for LoadCellData {
 
     fn ecall(&mut self, machine: &mut M) -> Result<bool, VMError> {
         let syscall_number = machine.registers()[A7].to_u64();
-        
+
         // LOAD_CELL_DATA = 2092
         if syscall_number != 2092 {
             return Ok(false);
@@ -68,16 +66,12 @@ impl<M: SupportMachine> Syscalls<M> for LoadCellData {
         };
 
         // Handle offset (for partial reads)
-        let data_to_store = if (offset as usize) < cell_data.len() {
-            &cell_data[(offset as usize)..]
-        } else {
-            &[]
-        };
+        let data_to_store = if (offset as usize) < cell_data.len() { &cell_data[(offset as usize)..] } else { &[] };
 
         // Store data using CKB-style store_data
         store_data(machine, data_to_store)?;
         machine.set_register(A0, M::REG::from_u8(SUCCESS));
-        
+
         Ok(true)
     }
 }

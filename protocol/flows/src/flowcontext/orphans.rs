@@ -1,9 +1,5 @@
 use indexmap::{map::Entry::Occupied, IndexMap};
 use rand::Rng;
-use std::{
-    collections::{HashMap, HashSet, VecDeque},
-    iter::once,
-};
 use spora_consensus_core::{
     api::{BlockValidationFuture, BlockValidationFutures},
     block::Block,
@@ -11,6 +7,10 @@ use spora_consensus_core::{
 use spora_consensusmanager::{BlockProcessingBatch, ConsensusProxy};
 use spora_core::debug;
 use spora_hashes::Hash;
+use std::{
+    collections::{HashMap, HashSet, VecDeque},
+    iter::once,
+};
 
 use super::process_queue::ProcessQueue;
 
@@ -283,7 +283,6 @@ mod tests {
     use super::*;
     use futures::future::try_join_all;
     use parking_lot::RwLock;
-    use std::sync::Arc;
     use spora_consensus_core::{
         api::{BlockValidationFutures, ConsensusApi},
         blockstatus::BlockStatus,
@@ -291,6 +290,7 @@ mod tests {
     };
     use spora_consensusmanager::{ConsensusInstance, SessionLock};
     use spora_core::assert_match;
+    use std::sync::Arc;
 
     #[derive(Default)]
     struct MockProcessor {

@@ -4,11 +4,11 @@ use crate::pstt::{KeySource, Version};
 use crate::utils::combine_if_no_conflicts;
 use derive_builder::Builder;
 use serde::{Deserialize, Serialize};
+use spora_consensus_core::tx::TransactionId;
 use std::{
     collections::{btree_map, BTreeMap},
     ops::Add,
 };
-use spora_consensus_core::tx::TransactionId;
 
 type Xpub = spora_bip32::ExtendedPublicKey<secp256k1::PublicKey>;
 

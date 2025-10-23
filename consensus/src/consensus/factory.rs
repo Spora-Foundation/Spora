@@ -1,5 +1,5 @@
 #[cfg(feature = "devnet-prealloc")]
-use super::utxo_set_override::{set_genesis_cell_commitment_from_config, set_initial_utxo_set};
+use super::utxo_set_override::{set_genesis_cell_commitment_from_config, set_initial_cell_set};
 use super::{ctl::Ctl, Consensus};
 use crate::{model::stores::U64Key, pipeline::ProcessingCounters};
 use itertools::Itertools;
@@ -17,9 +17,9 @@ use spora_database::{
 use parking_lot::RwLock;
 use rocksdb::WriteBatch;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, error::Error, fs, path::PathBuf, sync::Arc};
 use spora_txscript::caches::TxScriptCacheCounters;
 use spora_utils::mem_size::MemSizeEstimator;
+use std::{collections::HashMap, error::Error, fs, path::PathBuf, sync::Arc};
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct ConsensusEntry {
@@ -335,7 +335,7 @@ impl ConsensusFactory for Factory {
         // This way we can safely avoid processing genesis in future process runs
         if is_new_consensus {
             #[cfg(feature = "devnet-prealloc")]
-            set_initial_utxo_set(&self.config.initial_utxo_set, consensus.clone(), self.config.params.genesis.hash);
+            set_initial_cell_set(&self.config.initial_cell_set, consensus.clone(), self.config.params.genesis.hash);
             self.management_store.write().save_new_active_consensus(entry).unwrap();
         }
 

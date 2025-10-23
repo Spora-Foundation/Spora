@@ -1,4 +1,7 @@
-use crate::{hashing, tx::{Transaction, CellTx}};
+use crate::{
+    hashing,
+    tx::{CellTx, Transaction},
+};
 use spora_hashes::Hash;
 use spora_merkle::calc_merkle_root;
 

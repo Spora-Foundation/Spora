@@ -5,16 +5,13 @@
 
 //! Cell transaction types module
 
-/// Cell transaction core types
-pub mod types;
 /// Signature hashing functions
 pub mod sighash;
+/// Cell transaction core types
+pub mod types;
 // pub mod codec;  // Phase 1.5 - Molecule serialization
 
+pub use sighash::{compute_sighash, compute_txid, compute_wtxid, pubkey_hash};
 pub use types::{
-    CellTx, CellRef, CellOut, ScriptRef, OutPoint, CellDep, DepType,
-    CellMeta, ResolvedCellTx, TransactionInfo, CellStatus,
+    CellDep, CellMeta, CellOut, CellRef, CellStatus, CellTx, DepType, OutPoint, ResolvedCellTx, ScriptRef, TransactionInfo,
 };
-pub use sighash::{compute_txid, compute_wtxid, compute_sighash, pubkey_hash};
-
-

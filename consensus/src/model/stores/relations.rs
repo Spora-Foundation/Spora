@@ -1,9 +1,5 @@
 use itertools::Itertools;
 use rocksdb::WriteBatch;
-use std::collections::hash_map::Entry;
-use std::collections::HashSet;
-use std::iter::once;
-use std::sync::Arc;
 use spora_consensus_core::BlockHashSet;
 use spora_consensus_core::{blockhash::BlockHashes, BlockHashMap, BlockHasher, BlockLevel};
 use spora_database::prelude::{BatchDbWriter, CachePolicy, DbWriter};
@@ -13,6 +9,10 @@ use spora_database::prelude::{ReadLock, StoreError};
 use spora_database::prelude::{StoreResult, DB};
 use spora_database::registry::{DatabaseStorePrefixes, SEPARATOR};
 use spora_hashes::Hash;
+use std::collections::hash_map::Entry;
+use std::collections::HashSet;
+use std::iter::once;
+use std::sync::Arc;
 
 use super::children::{ChildrenStore, ChildrenStoreReader, DbChildrenStore};
 

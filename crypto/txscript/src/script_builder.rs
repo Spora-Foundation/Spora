@@ -6,8 +6,8 @@ use crate::{
     MAX_SCRIPTS_SIZE, MAX_SCRIPT_ELEMENT_SIZE,
 };
 use hexplay::{HexView, HexViewBuilder};
-use thiserror::Error;
 use spora_txscript_errors::SerializationError;
+use thiserror::Error;
 
 /// DEFAULT_SCRIPT_ALLOC is the default size used for the backing array
 /// for a script being built by the ScriptBuilder. The array will

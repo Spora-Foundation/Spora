@@ -9,10 +9,10 @@ use crate::{
 };
 use blake3::hash;
 use smallvec::SmallVec;
-use std::iter::once;
 use spora_addresses::{Address, Prefix, Version};
 use spora_consensus_core::tx::{ScriptPublicKey, ScriptVec};
 use spora_txscript_errors::TxScriptError;
+use std::iter::once;
 
 pub mod copperoot;
 mod multisig;

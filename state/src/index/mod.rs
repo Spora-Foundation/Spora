@@ -8,4 +8,3 @@ pub mod script_index;
 
 pub use cell_db::{CellDB, CellMeta};
 pub use script_index::ScriptIndex;
-

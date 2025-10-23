@@ -2,18 +2,10 @@ pub mod block_depth;
 pub mod cell_validator;
 
 // Re-export cell validator types
-pub use cell_validator::{
-    CellValidator,
-    CellStateProvider,
-    DagCellProvider,
-    CellConsensusParams,
-};
+pub use cell_validator::{CellConsensusParams, CellStateProvider, CellValidator, DagCellProvider};
 
 // Re-export from consensus-core
-pub use spora_consensus_core::{
-    cell_diff::CellMeta,
-    cell_metadata::CellMetadata,
-};
+pub use spora_consensus_core::{cell_diff::CellMeta, cell_metadata::CellMetadata};
 pub mod coinbase;
 pub mod difficulty;
 pub mod ghostdag;

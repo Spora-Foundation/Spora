@@ -4,8 +4,8 @@ use crate::mempool::{
     tx::RbfPolicy,
     Mempool,
 };
-use std::sync::Arc;
 use spora_consensus_core::tx::{MutableTransaction, Transaction};
+use std::sync::Arc;
 
 impl Mempool {
     /// Returns the replace by fee (RBF) constraint fee/mass threshold for an incoming transaction and a policy.

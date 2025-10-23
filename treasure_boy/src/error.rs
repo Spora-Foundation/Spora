@@ -1,5 +1,5 @@
-use spora_bip32::Error as SporaBip32Error;
 use spora_addresses::AddressError;
+use spora_bip32::Error as SporaBip32Error;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {

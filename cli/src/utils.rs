@@ -1,7 +1,7 @@
 use crate::error::Error;
 use crate::result::Result;
-use std::fmt::Display;
 use spora_consensus_core::constants::SAU_PER_TONDI;
+use std::fmt::Display;
 
 pub fn try_parse_required_nonzero_spora_as_sau_u64<S: ToString + Display>(spora_amount: Option<S>) -> Result<u64> {
     if let Some(spora_amount) = spora_amount {

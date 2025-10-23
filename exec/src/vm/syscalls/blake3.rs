@@ -6,9 +6,8 @@
 // This syscall is NOT in CKB, it's our addition for Spora
 
 use ckb_vm::{
-    Memory, Register, Syscalls, SupportMachine,
-    Error as VMError,
     registers::{A0, A2, A3, A7},
+    Error as VMError, Memory, Register, SupportMachine, Syscalls,
 };
 
 /// Syscall: Blake3 Hash
@@ -40,7 +39,7 @@ impl<M: SupportMachine> Syscalls<M> for Blake3Hash {
 
     fn ecall(&mut self, machine: &mut M) -> Result<bool, VMError> {
         let syscall_number = machine.registers()[A7].to_u64();
-        
+
         // BLAKE3_HASH = 3001 (Spora extension)
         if syscall_number != 3001 {
             return Ok(false);
@@ -62,14 +61,14 @@ impl<M: SupportMachine> Syscalls<M> for Blake3Hash {
         // For this syscall, we set A2=0 (no offset for hash output)
         let saved_a2 = machine.registers()[A2].clone();
         machine.set_register(A2, M::REG::from_u64(0));
-        
+
         // Use internal store mechanism
         super::utils::store_data(machine, hash.as_bytes())?;
-        
+
         // Restore A2
         machine.set_register(A2, saved_a2);
         machine.set_register(A0, M::REG::from_u8(0)); // SUCCESS
-        
+
         Ok(true)
     }
 }
@@ -90,10 +89,9 @@ mod tests {
         let data = b"hello world";
         let hash = blake3::hash(data);
         assert_eq!(hash.as_bytes().len(), 32);
-        
+
         // Known blake3("hello world")
         let expected = "d74981efa70a0c880b8d8c1985d075dbcbf679b99a5f9914e5aaf96b831a9e24";
         assert_eq!(hex::encode(hash.as_bytes()), expected);
     }
 }
-

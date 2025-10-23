@@ -4,12 +4,11 @@
 // Load input syscall
 // Reference: ckb/script/src/syscalls/load_input.rs
 
-use super::utils::{store_data, SUCCESS, INDEX_OUT_OF_BOUND};
-use crate::celltx::{CellTx, CellRef};
+use super::utils::{store_data, INDEX_OUT_OF_BOUND, SUCCESS};
+use crate::celltx::{CellRef, CellTx};
 use ckb_vm::{
-    Register, Syscalls, SupportMachine,
-    Error as VMError,
     registers::{A0, A2, A3, A4, A5, A7},
+    Error as VMError, Register, SupportMachine, Syscalls,
 };
 use std::sync::Arc;
 
@@ -41,8 +40,7 @@ impl LoadInput {
             }
             0x0100 => {
                 // GroupInput
-                self.group_input_indices.get(index)
-                    .and_then(|&idx| self.tx.inputs.get(idx))
+                self.group_input_indices.get(index).and_then(|&idx| self.tx.inputs.get(idx))
             }
             _ => None,
         }
@@ -73,7 +71,7 @@ impl<M: SupportMachine> Syscalls<M> for LoadInput {
 
     fn ecall(&mut self, machine: &mut M) -> Result<bool, VMError> {
         let syscall_number = machine.registers()[A7].to_u64();
-        
+
         // LOAD_INPUT = 2073 or LOAD_INPUT_BY_FIELD = 2083
         if syscall_number != 2073 && syscall_number != 2083 {
             return Ok(false);
@@ -120,7 +118,7 @@ impl<M: SupportMachine> Syscalls<M> for LoadInput {
         // Store data using CKB-style store_data
         store_data(machine, &data)?;
         machine.set_register(A0, M::REG::from_u8(SUCCESS));
-        
+
         Ok(true)
     }
 }

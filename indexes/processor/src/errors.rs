@@ -1,6 +1,6 @@
-use thiserror::Error;
-use spora_notify::events::EventType;
 use spora_cellindex::errors::CellIndexError;
+use spora_notify::events::EventType;
+use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum IndexError {

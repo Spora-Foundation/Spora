@@ -1,6 +1,4 @@
 use serde::{Deserialize, Serialize};
-use std::net::Ipv6Addr;
-use std::{error::Error, fmt::Display, sync::Arc};
 use spora_database::{
     prelude::DB,
     prelude::{CachePolicy, StoreError, StoreResult},
@@ -8,6 +6,8 @@ use spora_database::{
     registry::DatabaseStorePrefixes,
 };
 use spora_utils::mem_size::MemSizeEstimator;
+use std::net::Ipv6Addr;
+use std::{error::Error, fmt::Display, sync::Arc};
 
 use super::AddressKey;
 use crate::NetAddress;

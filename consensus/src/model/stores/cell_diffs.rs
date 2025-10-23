@@ -62,4 +62,3 @@ mod tests {
         // In practice, this will be tested as part of consensus integration tests
     }
 }
-

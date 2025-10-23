@@ -1,7 +1,7 @@
 use rand::rngs::ThreadRng;
 use rand_distr::{Distribution, Exp};
-use std::{cell::RefCell, cmp::max, collections::HashSet, iter::once, rc::Rc};
 use spora_utils::sim::{Environment, Process, Resumption, Simulation, Suspension};
+use std::{cell::RefCell, cmp::max, collections::HashSet, iter::once, rc::Rc};
 
 type Message = (u64, Vec<u64>);
 

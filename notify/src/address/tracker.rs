@@ -2,14 +2,14 @@ use crate::address::error::{Error, Result};
 use indexmap::{map::Entry, IndexMap};
 use itertools::Itertools;
 use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
-use std::{
-    collections::{hash_map, hash_set, HashMap, HashSet},
-    fmt::Display,
-};
 use spora_addresses::{Address, Prefix};
 use spora_consensus_core::tx::ScriptPublicKey;
 use spora_core::{debug, trace};
 use spora_txscript::{extract_script_pub_key_address, pay_to_address_script};
+use std::{
+    collections::{hash_map, hash_set, HashMap, HashSet},
+    fmt::Display,
+};
 
 pub trait Indexer {
     fn contains(&self, index: Index) -> bool;
@@ -614,7 +614,10 @@ mod tests {
 
     fn create_addresses(start: usize, count: usize) -> Vec<Address> {
         (start..start + count)
-            .map(|i| Address::new(Prefix::Mainnet, spora_addresses::Version::PubKey, &Uint256::from_u64(i as u64).to_le_bytes()).expect("Valid address"))
+            .map(|i| {
+                Address::new(Prefix::Mainnet, spora_addresses::Version::PubKey, &Uint256::from_u64(i as u64).to_le_bytes())
+                    .expect("Valid address")
+            })
             .collect()
     }
 

@@ -1,8 +1,8 @@
 use rocksdb::WriteBatch;
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
-use spora_consensus_core::tx::{TransactionInput, TransactionOutput, CellTx};
+use spora_consensus_core::tx::{CellTx, TransactionInput, TransactionOutput};
 use spora_consensus_core::{tx::Transaction, BlockHasher};
+use std::sync::Arc;
 
 // TODO(cell-model): Transaction is now aliased to CellTx
 type TransactionType = CellTx;

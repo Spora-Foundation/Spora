@@ -18,13 +18,13 @@
 pub mod celltx;
 /// Parallel transaction scheduler
 pub mod scheduler;
+/// Standard scripts (secp256k1 lock, capacity type)
+pub mod scripts;
 /// VM integration for script execution (CKB-VM based)
 #[cfg(feature = "vm")]
 pub mod vm;
-/// Standard scripts (secp256k1 lock, capacity type)
-pub mod scripts;
 
-pub use celltx::{CellTx, CellRef, CellOut, ScriptRef, OutPoint, CellDep, DepType};
+pub use celltx::{CellDep, CellOut, CellRef, CellTx, DepType, OutPoint, ScriptRef};
 
 /// Cell transaction version
 pub const CELL_TX_VERSION: u16 = 0xC001;
@@ -63,4 +63,3 @@ impl NetworkId {
         }
     }
 }
-

@@ -28,16 +28,16 @@ pub enum DagEdge {
 pub struct CellDAG {
     /// Number of nodes (transactions)
     pub node_count: usize,
-    
+
     /// Adjacency list: node → [(successor, edge_type)]
     pub edges: BTreeMap<NodeId, Vec<(NodeId, DagEdge)>>,
-    
+
     /// Reverse adjacency: node → [predecessors]
     pub reverse_edges: BTreeMap<NodeId, Vec<NodeId>>,
-    
+
     /// Conflict groups: OutPoint → [NodeIds competing for it]
     pub conflicts: BTreeMap<OutPoint, Vec<NodeId>>,
-    
+
     /// Topological layers (for parallel execution)
     pub layers: Vec<Vec<NodeId>>,
 }
@@ -56,7 +56,7 @@ impl CellDAG {
         let mut edges: BTreeMap<NodeId, Vec<(NodeId, DagEdge)>> = BTreeMap::new();
         let mut reverse_edges: BTreeMap<NodeId, Vec<NodeId>> = BTreeMap::new();
         let mut conflicts: BTreeMap<OutPoint, Vec<NodeId>> = BTreeMap::new();
-        
+
         // Step 1: Build producers map (OutPoint → NodeId)
         let mut producers: BTreeMap<OutPoint, NodeId> = BTreeMap::new();
         for (node_id, tx) in txs.iter().enumerate() {
@@ -66,73 +66,54 @@ impl CellDAG {
                 producers.insert(out_point, node_id);
             }
         }
-        
+
         // Step 2: Detect dependencies and conflicts
         for (consumer_id, tx) in txs.iter().enumerate() {
             // Check inputs (consume edges)
             for input in &tx.inputs {
                 if let Some(&producer_id) = producers.get(&input.out_point) {
                     // Dependency: producer → consumer
-                    edges.entry(producer_id)
-                        .or_default()
-                        .push((consumer_id, DagEdge::Dependency));
-                    
-                    reverse_edges.entry(consumer_id)
-                        .or_default()
-                        .push(producer_id);
+                    edges.entry(producer_id).or_default().push((consumer_id, DagEdge::Dependency));
+
+                    reverse_edges.entry(consumer_id).or_default().push(producer_id);
                 } else {
                     // External Cell (not in this DAG)
                     // Will be resolved from state layer
                 }
-                
+
                 // Track conflicts (multiple consumers for same Cell)
-                conflicts.entry(input.out_point.clone())
-                    .or_default()
-                    .push(consumer_id);
+                conflicts.entry(input.out_point.clone()).or_default().push(consumer_id);
             }
-            
+
             // Check deps (read-only edges)
             for dep in &tx.deps {
                 if let Some(&producer_id) = producers.get(&dep.out_point) {
-                    edges.entry(producer_id)
-                        .or_default()
-                        .push((consumer_id, DagEdge::ReadDep));
-                    
-                    reverse_edges.entry(consumer_id)
-                        .or_default()
-                        .push(producer_id);
+                    edges.entry(producer_id).or_default().push((consumer_id, DagEdge::ReadDep));
+
+                    reverse_edges.entry(consumer_id).or_default().push(producer_id);
                 }
             }
         }
-        
+
         // Step 3: Filter conflicts (keep only actual conflicts)
         conflicts.retain(|_, consumers| consumers.len() > 1);
-        
+
         // Step 4: Compute topological layers
         let layers = Self::compute_layers(node_count, &reverse_edges)?;
-        
-        Ok(CellDAG {
-            node_count,
-            edges,
-            reverse_edges,
-            conflicts,
-            layers,
-        })
+
+        Ok(CellDAG { node_count, edges, reverse_edges, conflicts, layers })
     }
-    
+
     /// Compute topological layers for parallel execution
     ///
     /// Uses Kahn's algorithm with layer tracking:
     /// - Layer 0: nodes with no predecessors
     /// - Layer N: nodes whose all predecessors are in layers < N
-    fn compute_layers(
-        node_count: usize,
-        reverse_edges: &BTreeMap<NodeId, Vec<NodeId>>,
-    ) -> Result<Vec<Vec<NodeId>>, DagError> {
+    fn compute_layers(node_count: usize, reverse_edges: &BTreeMap<NodeId, Vec<NodeId>>) -> Result<Vec<Vec<NodeId>>, DagError> {
         let mut in_degree = vec![0usize; node_count];
         let mut layers = Vec::new();
         let mut current_layer = Vec::new();
-        
+
         // Compute in-degrees
         for (node, degree) in in_degree.iter_mut().enumerate().take(node_count) {
             *degree = reverse_edges.get(&node).map_or(0, |preds| preds.len());
@@ -140,43 +121,41 @@ impl CellDAG {
                 current_layer.push(node);
             }
         }
-        
+
         // If no nodes have in-degree 0, put all in one layer
         if current_layer.is_empty() {
             layers.push((0..node_count).collect());
         } else {
             layers.push(current_layer);
         }
-        
+
         Ok(layers)
     }
-    
+
     /// Get all conflicts in the DAG
     pub fn get_conflicts(&self) -> Vec<(&OutPoint, &[NodeId])> {
-        self.conflicts.iter()
-            .map(|(op, nodes)| (op, nodes.as_slice()))
-            .collect()
+        self.conflicts.iter().map(|(op, nodes)| (op, nodes.as_slice())).collect()
     }
-    
+
     /// Get successors of a node
     pub fn successors(&self, node: NodeId) -> Option<&[(NodeId, DagEdge)]> {
         self.edges.get(&node).map(|v| v.as_slice())
     }
-    
+
     /// Get predecessors of a node
     pub fn predecessors(&self, node: NodeId) -> Option<&[NodeId]> {
         self.reverse_edges.get(&node).map(|v| v.as_slice())
     }
-    
+
     /// Check if there's a dependency path from A to B
     pub fn has_path(&self, from: NodeId, to: NodeId) -> bool {
         if from == to {
             return true;
         }
-        
+
         let mut visited = BTreeSet::new();
         let mut stack = vec![from];
-        
+
         while let Some(node) = stack.pop() {
             if node == to {
                 return true;
@@ -189,7 +168,7 @@ impl CellDAG {
                 }
             }
         }
-        
+
         false
     }
 }
@@ -211,7 +190,7 @@ pub enum DagError {
     /// Cycle detected in dependency graph
     #[error("Cycle detected in transaction DAG")]
     CycleDetected,
-    
+
     /// Invalid RW-Set (missing declarations)
     #[error("Invalid RW-Set: {0}")]
     InvalidRWSet(String),
@@ -220,37 +199,34 @@ pub enum DagError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::celltx::types::{CellRef, CellOut, ScriptRef};
-    
+    use crate::celltx::types::{CellOut, CellRef, ScriptRef};
+
     fn create_test_tx(inputs: Vec<OutPoint>, outputs_count: usize) -> CellTx {
         let lock = ScriptRef::new([0x00; 32], 0, vec![]);
         let inputs = inputs.into_iter().map(|op| CellRef::new(op, 0)).collect();
-        let outputs = vec![
-            CellOut { lock: lock.clone(), type_: None, capacity: 1000 };
-            outputs_count
-        ];
+        let outputs = vec![CellOut { lock: lock.clone(), type_: None, capacity: 1000 }; outputs_count];
         let outputs_data = vec![vec![]; outputs_count];
         CellTx::new(inputs, vec![], outputs, outputs_data, vec![]).unwrap()
     }
-    
+
     #[test]
     fn test_dag_simple_chain() {
         // tx0 → tx1 → tx2 (simple chain)
         let tx0 = create_test_tx(vec![], 1);
         let tx0_hash = crate::celltx::sighash::compute_wtxid(&tx0);
-        
+
         let tx1 = create_test_tx(vec![OutPoint::new(tx0_hash, 0)], 1);
         let tx1_hash = crate::celltx::sighash::compute_wtxid(&tx1);
-        
+
         let tx2 = create_test_tx(vec![OutPoint::new(tx1_hash, 0)], 1);
-        
+
         let dag = CellDAG::build(&[tx0, tx1, tx2]).unwrap();
-        
+
         assert_eq!(dag.node_count, 3);
         assert!(dag.has_path(0, 2));
         assert!(!dag.has_path(2, 0));
     }
-    
+
     #[test]
     fn test_dag_conflict_detection() {
         // tx0 produces Cell
@@ -258,18 +234,18 @@ mod tests {
         let tx0 = create_test_tx(vec![], 1);
         let tx0_hash = crate::celltx::sighash::compute_wtxid(&tx0);
         let out = OutPoint::new(tx0_hash, 0);
-        
+
         let tx1 = create_test_tx(vec![out.clone()], 1);
         let tx2 = create_test_tx(vec![out.clone()], 1);
-        
+
         let dag = CellDAG::build(&[tx0, tx1, tx2]).unwrap();
-        
+
         // Should detect conflict between tx1 and tx2
         let conflicts = dag.get_conflicts();
         assert_eq!(conflicts.len(), 1);
         assert_eq!(conflicts[0].1.len(), 2); // tx1 and tx2
     }
-    
+
     #[test]
     fn test_dag_parallel_branches() {
         // tx0 produces 2 outputs
@@ -278,20 +254,18 @@ mod tests {
         // (parallel, no conflict)
         let tx0 = create_test_tx(vec![], 2);
         let tx0_hash = crate::celltx::sighash::compute_wtxid(&tx0);
-        
+
         let tx1 = create_test_tx(vec![OutPoint::new(tx0_hash, 0)], 1);
         let tx2 = create_test_tx(vec![OutPoint::new(tx0_hash, 1)], 1);
-        
+
         let dag = CellDAG::build(&[tx0, tx1, tx2]).unwrap();
-        
+
         // No conflicts (different outputs)
         assert!(dag.conflicts.is_empty());
-        
+
         // Both tx1 and tx2 depend on tx0
         assert!(dag.has_path(0, 1));
         assert!(dag.has_path(0, 2));
         assert!(!dag.has_path(1, 2)); // tx1 and tx2 are independent
     }
 }
-
-

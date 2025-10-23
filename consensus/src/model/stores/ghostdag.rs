@@ -12,9 +12,9 @@ use itertools::EitherOrBoth::{Both, Left, Right};
 use itertools::Itertools;
 use rocksdb::WriteBatch;
 use serde::{Deserialize, Serialize};
+use spora_utils::mem_size::MemSizeEstimator;
 use std::iter::once;
 use std::{cell::RefCell, sync::Arc};
-use spora_utils::mem_size::MemSizeEstimator;
 
 /// Re-export for convenience
 pub use spora_consensus_core::{HashKTypeMap, KType};
