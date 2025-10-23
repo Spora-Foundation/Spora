@@ -1,7 +1,7 @@
 //!
-//! # Tondi wallet runtime implementation.
+//! # Spora wallet runtime implementation.
 //!
-//! This module contains a Rust implementation of the Tondi wallet that
+//! This module contains a Rust implementation of the Spora wallet that
 //! can be used in native Rust as well as WASM32 (Browser, NodeJs, Bun)
 //! environments.
 //!
@@ -24,13 +24,13 @@ use crate::storage::local::interface::LocalStore;
 use crate::storage::local::Storage;
 use crate::wallet::keydata::PrvKeyDataVariantKind;
 use crate::wallet::maps::ActiveAccountMap;
-use tondi_bip32::{ExtendedKey, Language, Mnemonic, Prefix as KeyPrefix, WordCount};
-use tondi_notify::{
+use spora_bip32::{ExtendedKey, Language, Mnemonic, Prefix as KeyPrefix, WordCount};
+use spora_notify::{
     listener::ListenerId,
     scope::{Scope, VirtualDaaScoreChangedScope},
 };
-use tondi_wallet_keys::xpub::NetworkTaggedXpub;
-use tondi_wrpc_client::{Resolver, TondiRpcClient, WrpcEncoding};
+use spora_wallet_keys::xpub::NetworkTaggedXpub;
+use spora_wrpc_client::{Resolver, SporaRpcClient, WrpcEncoding};
 use workflow_core::task::spawn;
 
 pub type WalletGuard<'l> = AsyncMutexGuard<'l, ()>;
@@ -93,7 +93,7 @@ impl Wallet {
 
     pub fn try_with_wrpc(store: Arc<dyn Interface>, resolver: Option<Resolver>, network_id: Option<NetworkId>) -> Result<Wallet> {
         let rpc_client =
-            Arc::new(TondiRpcClient::new_with_args(WrpcEncoding::Borsh, Some("wrpc://127.0.0.1:17110"), resolver, network_id, None)?);
+            Arc::new(SporaRpcClient::new_with_args(WrpcEncoding::Borsh, Some("wrpc://127.0.0.1:17110"), resolver, network_id, None)?);
 
         let rpc_ctl = rpc_client.ctl().clone();
         let rpc_api: Arc<DynRpcApi> = rpc_client;
@@ -478,12 +478,12 @@ impl Wallet {
         Ok(self.get_prv_key_info(account).await?.map(|info| info.is_encrypted()))
     }
 
-    pub fn try_wrpc_client(&self) -> Option<Arc<TondiRpcClient>> {
-        self.try_rpc_api().and_then(|api| api.clone().downcast_arc::<TondiRpcClient>().ok())
+    pub fn try_wrpc_client(&self) -> Option<Arc<SporaRpcClient>> {
+        self.try_rpc_api().and_then(|api| api.clone().downcast_arc::<SporaRpcClient>().ok())
     }
 
-    pub fn wrpc_client(&self) -> Arc<TondiRpcClient> {
-        self.try_rpc_api().and_then(|api| api.clone().downcast_arc::<TondiRpcClient>().ok()).unwrap()
+    pub fn wrpc_client(&self) -> Arc<SporaRpcClient> {
+        self.try_rpc_api().and_then(|api| api.clone().downcast_arc::<SporaRpcClient>().ok()).unwrap()
     }
 
     pub fn rpc_api(&self) -> Arc<DynRpcApi> {
@@ -614,7 +614,7 @@ impl Wallet {
         self.utxo_processor().network_id()
     }
 
-    pub fn address_prefix(&self) -> Result<tondi_addresses::Prefix> {
+    pub fn address_prefix(&self) -> Result<spora_addresses::Prefix> {
         Ok(self.network_id()?.into())
     }
 
@@ -1487,7 +1487,7 @@ impl Wallet {
                     xpub.to_string()
                 })
             })
-            .collect::<Result<Vec<_>, tondi_bip32::Error>>()?;
+            .collect::<Result<Vec<_>, spora_bip32::Error>>()?;
 
         let mut generated_xpubs = Vec::with_capacity(mnemonics_secrets.len());
         let mut prv_key_data_ids = Vec::with_capacity(mnemonics_secrets.len());
@@ -1596,18 +1596,18 @@ mod test {
     // use hex_literal::hex;
 
     // use super::*;
-    // use tondi_addresses::Address;
+    // use spora_addresses::Address;
 
     /*
     use workflow_rpc::client::ConnectOptions;
     use std::{str::FromStr, thread::sleep, time};
     use crate::derivation::gen1;
     use crate::utxo::{UtxoContext, UtxoContextBinding, UtxoIterator};
-    use tondi_addresses::{Prefix, Version};
-    use tondi_bip32::{ChildNumber, ExtendedPrivateKey, SecretKey};
-    use tondi_consensus_core::subnets::SUBNETWORK_ID_NATIVE;
-    use tondi_consensus_wasm::{sign_transaction, SignableTransaction, Transaction, TransactionInput, TransactionOutput};
-    use tondi_txscript::pay_to_address_script;
+    use spora_addresses::{Prefix, Version};
+    use spora_bip32::{ChildNumber, ExtendedPrivateKey, SecretKey};
+    use spora_consensus_core::subnets::SUBNETWORK_ID_NATIVE;
+    use spora_consensus_wasm::{sign_transaction, SignableTransaction, Transaction, TransactionInput, TransactionOutput};
+    use spora_txscript::pay_to_address_script;
 
     async fn create_utxos_context_with_addresses(
         rpc: Arc<DynRpcApi>,
@@ -1683,7 +1683,7 @@ mod test {
         let mtx = SignableTransaction::new(tx, (*entries).clone().into());
 
         let derivation_path =
-            gen1::WalletDerivationManager::build_derivate_path(false, 0, None, Some(tondi_bip32::AddressType::Receive))?;
+            gen1::WalletDerivationManager::build_derivate_path(false, 0, None, Some(spora_bip32::AddressType::Receive))?;
 
         let xprv = "kprv5y2qurMHCsXYrNfU3GCihuwG3vMqFji7PZXajMEqyBkNh9UZUJgoHYBLTKu1eM4MvUtomcXPQ3Sw9HZ5ebbM4byoUciHo1zrPJBQfqpLorQ";
 

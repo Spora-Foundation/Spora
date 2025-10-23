@@ -1,6 +1,6 @@
 [package]
-name = "tondi-txscript"
-description = "Tondi txscript engine library"
+name = "spora-txscript"
+description = "Spora txscript engine library"
 rust-version.workspace = true
 version.workspace = true
 edition.workspace = true
@@ -26,12 +26,12 @@ cfg-if.workspace = true
 hexplay.workspace = true
 indexmap.workspace = true
 itertools.workspace = true
-tondi-addresses.workspace = true
-tondi-consensus-core.workspace = true
-tondi-hashes.workspace = true
-tondi-txscript-errors.workspace = true
-tondi-utils.workspace = true
-tondi-wasm-core.workspace = true
+spora-addresses.workspace = true
+spora-consensus-core.workspace = true
+spora-hashes.workspace = true
+spora-txscript-errors.workspace = true
+spora-utils.workspace = true
+spora-wasm-core.workspace = true
 log.workspace = true
 parking_lot.workspace = true
 rand.workspace = true

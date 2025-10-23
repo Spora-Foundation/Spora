@@ -20,8 +20,8 @@ use crate::{
 };
 use itertools::Itertools;
 use std::sync::{atomic::AtomicBool, Arc};
-use tondi_consensus_core::mass::MassCalculator;
-use tondi_txscript::caches::TxScriptCacheCounters;
+use spora_consensus_core::mass::MassCalculator;
+use spora_txscript::caches::TxScriptCacheCounters;
 
 pub type DbGhostdagManager =
     GhostdagManager<DbGhostdagStore, MTRelationsService<DbRelationsStore>, MTReachabilityService<DbReachabilityStore>, DbHeadersStore>;

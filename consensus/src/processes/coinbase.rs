@@ -1,5 +1,5 @@
 use std::convert::TryInto;
-use tondi_consensus_core::{
+use spora_consensus_core::{
     coinbase::*,
     config::params::ForkedParam,
     errors::coinbase::{CoinbaseError, CoinbaseResult},
@@ -71,7 +71,7 @@ impl CoinbaseManager {
     ) -> Self {
         // Precomputed subsidy by month table for the actual block per second rate
         // Here values are rounded up so that we keep the same number of rewarding months as in the original 1 BPS table.
-        // In a 10 BPS network, the induced increase in total rewards is 51 TONDI (see tests::calc_high_bps_total_rewards_delta())
+        // In a 10 BPS network, the induced increase in total rewards is 51 SPORA (see tests::calc_high_bps_total_rewards_delta())
         let subsidy_by_month_table_before: SubsidyByMonthTable =
             core::array::from_fn(|i| SUBSIDY_BY_MONTH_TABLE[i].div_ceil(bps.before()));
         let subsidy_by_month_table_after: SubsidyByMonthTable =
@@ -280,7 +280,7 @@ impl CoinbaseManager {
 }
 
 /*
-    This table was pre-calculated by calling `calcDeflationaryPeriodBlockSubsidyFloatCalc` (in Tondid-go) for all months until reaching 0 subsidy.
+    This table was pre-calculated by calling `calcDeflationaryPeriodBlockSubsidyFloatCalc` (in Sporad-go) for all months until reaching 0 subsidy.
     To regenerate this table, run `TestBuildSubsidyTable` in coinbasemanager_test.go (note the `deflationaryPhaseBaseSubsidy` therein).
     These values represent the reward per second for each month (= reward per block for 1 BPS).
 */
@@ -328,7 +328,7 @@ const SUBSIDY_BY_MONTH_TABLE: [u64; 426] = [
 mod tests {
     use super::*;
     use crate::params::MAINNET_PARAMS;
-    use tondi_consensus_core::{
+    use spora_consensus_core::{
         config::params::{ForkActivation, Params, SIMNET_PARAMS, TESTNET_PARAMS},
         constants::SAU_PER_TONDI,
         network::{NetworkId, NetworkType},
@@ -366,9 +366,9 @@ mod tests {
 
         println!("Subsidy Table :{subsidy_table:?}");
         println!("Pre Deflationary Rewards :{pre_deflationary_rewards}");
-        println!("Total rewards: {} sau => {} TONDI", total_rewards, total_rewards / SAU_PER_TONDI);
-        println!("Total high bps rewards: {} sau => {} TONDI", total_high_bps_rewards, total_high_bps_rewards / SAU_PER_TONDI);
-        println!("Delta: {} sau => {} TONDI", delta, delta / SAU_PER_TONDI as i64);
+        println!("Total rewards: {} sau => {} SPORA", total_rewards, total_rewards / SAU_PER_TONDI);
+        println!("Total high bps rewards: {} sau => {} SPORA", total_high_bps_rewards, total_high_bps_rewards / SAU_PER_TONDI);
+        println!("Delta: {} sau => {} SPORA", delta, delta / SAU_PER_TONDI as i64);
     }
 
     #[test]
@@ -387,9 +387,9 @@ mod tests {
 
         let delta = total_high_bps_rewards as i64 - total_rewards as i64;
 
-        println!("Total rewards: {} sau => {} TONDI", total_rewards, total_rewards / SAU_PER_TONDI);
-        println!("Total high bps rewards: {} sau => {} TONDI", total_high_bps_rewards, total_high_bps_rewards / SAU_PER_TONDI);
-        println!("Delta: {} sau => {} TONDI", delta, delta / SAU_PER_TONDI as i64);
+        println!("Total rewards: {} sau => {} SPORA", total_rewards, total_rewards / SAU_PER_TONDI);
+        println!("Total high bps rewards: {} sau => {} SPORA", total_high_bps_rewards, total_high_bps_rewards / SAU_PER_TONDI);
+        println!("Delta: {} sau => {} SPORA", delta, delta / SAU_PER_TONDI as i64);
     }
 
     #[test]
@@ -421,7 +421,7 @@ mod tests {
     }
 
     /// Takes over 60 seconds, run with the following command line:
-    /// `cargo test --release --package tondi-consensus --lib -- processes::coinbase::tests::verify_crescendo_emission_schedule --exact --nocapture --ignored`
+    /// `cargo test --release --package spora-consensus --lib -- processes::coinbase::tests::verify_crescendo_emission_schedule --exact --nocapture --ignored`
     #[test]
     #[ignore = "long"]
     fn verify_crescendo_emission_schedule() {
@@ -453,7 +453,7 @@ mod tests {
 
                 let diff = (new_total as i64 - baseline_total as i64) / SAU_PER_TONDI as i64;
                 assert!(diff.abs() <= 51, "activation: {}", activation);
-                println!("DIFF (TONDI): {}", diff);
+                println!("DIFF (SPORA): {}", diff);
             }
         }
     }

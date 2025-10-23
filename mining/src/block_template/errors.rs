@@ -1,2 +1,2 @@
 /// Re-export errors
-pub use tondi_mining_errors::block_template::*;
+pub use spora_mining_errors::block_template::*;

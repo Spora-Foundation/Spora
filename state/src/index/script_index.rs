@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ISC
-// Copyright (C) 2025Tondi developers
+// Copyright (C) 2025 Spora developers
 //
 // ScriptIndex: lock_hash/type_hash → Cells (for wallet queries)
 
@@ -9,7 +9,7 @@ use rocksdb::{ColumnFamilyDescriptor, Options, DB};
 use std::collections::BTreeSet;
 use std::path::Path;
 use std::sync::Arc;
-use tondi_exec::OutPoint;
+use spora_exec::OutPoint;
 
 /// Column families for script indexing
 const CF_LOCK_INDEX: &str = "lock_index";

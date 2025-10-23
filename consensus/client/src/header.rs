@@ -8,10 +8,10 @@ use crate::error::Error;
 use js_sys::{Array, Object};
 use serde::{Deserialize, Serialize};
 use serde_wasm_bindgen::*;
-use tondi_consensus_core::hashing;
-use tondi_consensus_core::header as native;
-use tondi_hashes::Hash;
-use tondi_utils::hex::ToHex;
+use spora_consensus_core::hashing;
+use spora_consensus_core::header as native;
+use spora_hashes::Hash;
+use spora_utils::hex::ToHex;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::prelude::{JsError, JsValue};
 use workflow_wasm::prelude::*;
@@ -72,7 +72,7 @@ extern "C" {
     pub type HeaderT;
 }
 
-/// Tondi Block Header
+/// Spora Block Header
 ///
 /// @category Consensus
 #[derive(Clone, Debug, Serialize, Deserialize, CastFromJs)]

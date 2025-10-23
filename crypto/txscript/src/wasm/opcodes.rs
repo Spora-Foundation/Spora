@@ -1,6 +1,6 @@
 pub use wasm_bindgen::prelude::*;
 
-/// Tondi Transaction Script Opcodes
+/// Spora Transaction Script Opcodes
 /// @see {@link ScriptBuilder}
 /// @category Consensus
 #[wasm_bindgen]

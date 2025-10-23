@@ -7,10 +7,10 @@ use base64::DecodeError;
 use downcast::DowncastError;
 use std::sync::PoisonError;
 use thiserror::Error;
-use tondi_bip32::Error as BIP32Error;
-use tondi_consensus_core::sign::Error as CoreSignError;
-use tondi_rpc_core::RpcError as TondiRpcError;
-use tondi_wrpc_client::error::Error as TondiWorkflowRpcError;
+use spora_bip32::Error as BIP32Error;
+use spora_consensus_core::sign::Error as CoreSignError;
+use spora_rpc_core::RpcError as SporaRpcError;
+use spora_wrpc_client::error::Error as SporaWorkflowRpcError;
 use wasm_bindgen::JsValue;
 use workflow_core::abortable::Aborted;
 use workflow_core::channel::{RecvError, SendError, TrySendError};
@@ -26,19 +26,19 @@ pub enum Error {
     Custom(String),
 
     #[error(transparent)]
-    WalletKeys(#[from] tondi_wallet_keys::error::Error),
+    WalletKeys(#[from] spora_wallet_keys::error::Error),
 
     #[error("please select an account")]
     AccountSelection,
 
     #[error("{0}")]
-    TondiRpcClientResult(#[from] TondiRpcError),
+    SporaRpcClientResult(#[from] SporaRpcError),
 
     #[error("wRPC -> {0}")]
     RpcError(#[from] RpcError),
 
     #[error("Wallet wRPC -> {0}")]
-    TondiWorkflowRpcError(#[from] TondiWorkflowRpcError),
+    SporaWorkflowRpcError(#[from] SporaWorkflowRpcError),
 
     #[error("The wallet RPC client is not wRPC")]
     NotWrpcClient,
@@ -101,10 +101,10 @@ pub enum Error {
     NetworkTypeConnected,
 
     #[error("{0}")]
-    NetworkType(#[from] tondi_consensus_core::network::NetworkTypeError),
+    NetworkType(#[from] spora_consensus_core::network::NetworkTypeError),
 
     #[error("{0}")]
-    NetworkId(#[from] tondi_consensus_core::network::NetworkIdError),
+    NetworkId(#[from] spora_consensus_core::network::NetworkIdError),
 
     #[error("The server UTXO index is not enabled")]
     MissingUtxoIndex,
@@ -128,7 +128,7 @@ pub enum Error {
     WorkflowStore(#[from] workflow_store::error::Error),
 
     #[error(transparent)]
-    Address(#[from] tondi_addresses::AddressError),
+    Address(#[from] spora_addresses::AddressError),
 
     #[error("Serde WASM bindgen -> {0}")]
     SerdeWasmBindgen(Sendable<Printable>),
@@ -149,7 +149,7 @@ pub enum Error {
     FromUtf8Error(#[from] std::string::FromUtf8Error),
 
     #[error(transparent)]
-    ScriptBuilderError(#[from] tondi_txscript::script_builder::ScriptBuilderError),
+    ScriptBuilderError(#[from] spora_txscript::script_builder::ScriptBuilderError),
 
     #[error("argon2 -> {0}")]
     Argon2(argon2::Error),
@@ -248,10 +248,10 @@ pub enum Error {
     DowncastError(String),
 
     #[error(transparent)]
-    ConsensusClient(#[from] tondi_consensus_client::error::Error),
+    ConsensusClient(#[from] spora_consensus_client::error::Error),
 
     #[error(transparent)]
-    ConsensusWasm(#[from] tondi_consensus_wasm::error::Error),
+    ConsensusWasm(#[from] spora_consensus_wasm::error::Error),
 
     #[error("Fees::SenderPays or Fees::ReceiverPays are not allowed in sweep transactions")]
     GeneratorFeesInSweepTransaction,
@@ -284,10 +284,10 @@ pub enum Error {
     InvalidRange(u64, u64),
 
     #[error(transparent)]
-    MultisigCreateError(#[from] tondi_txscript::MultisigCreateError),
+    MultisigCreateError(#[from] spora_txscript::MultisigCreateError),
 
     #[error(transparent)]
-    TxScriptError(#[from] tondi_txscript_errors::TxScriptError),
+    TxScriptError(#[from] spora_txscript_errors::TxScriptError),
 
     #[error("Legacy account is not initialized")]
     LegacyAccountNotInitialized,
@@ -335,12 +335,12 @@ pub enum Error {
     InvalidPublicKeyLength,
 
     #[error(transparent)]
-    Metrics(#[from] tondi_metrics_core::error::Error),
+    Metrics(#[from] spora_metrics_core::error::Error),
 
     #[error("Connected node is not synced")]
     NotSynced,
     #[error(transparent)]
-    PSTT(#[from] tondi_wallet_pstt::error::Error),
+    PSTT(#[from] spora_wallet_pstt::error::Error),
 
     #[error("Error generating pending transaction from PSTT: {0}")]
     PendingTransactionFromPSTTError(String),

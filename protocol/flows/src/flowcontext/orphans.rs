@@ -4,13 +4,13 @@ use std::{
     collections::{HashMap, HashSet, VecDeque},
     iter::once,
 };
-use tondi_consensus_core::{
+use spora_consensus_core::{
     api::{BlockValidationFuture, BlockValidationFutures},
     block::Block,
 };
-use tondi_consensusmanager::{BlockProcessingBatch, ConsensusProxy};
-use tondi_core::debug;
-use tondi_hashes::Hash;
+use spora_consensusmanager::{BlockProcessingBatch, ConsensusProxy};
+use spora_core::debug;
+use spora_hashes::Hash;
 
 use super::process_queue::ProcessQueue;
 
@@ -284,13 +284,13 @@ mod tests {
     use futures::future::try_join_all;
     use parking_lot::RwLock;
     use std::sync::Arc;
-    use tondi_consensus_core::{
+    use spora_consensus_core::{
         api::{BlockValidationFutures, ConsensusApi},
         blockstatus::BlockStatus,
         errors::block::BlockProcessResult,
     };
-    use tondi_consensusmanager::{ConsensusInstance, SessionLock};
-    use tondi_core::assert_match;
+    use spora_consensusmanager::{ConsensusInstance, SessionLock};
+    use spora_core::assert_match;
 
     #[derive(Default)]
     struct MockProcessor {

@@ -1,6 +1,6 @@
 //!
 //! Transaction generator implementation used to construct
-//! Tondi transactions.
+//! Spora transactions.
 //!
 
 #[allow(clippy::module_inception)]

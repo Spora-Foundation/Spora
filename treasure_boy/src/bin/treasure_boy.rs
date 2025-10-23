@@ -3,11 +3,11 @@ use std::sync::{Arc, Mutex};
 
 use clap::{Arg, ArgAction, Command};
 use secp256k1::Keypair;
-use tondi_addresses::Address;
-use tondi_core::{error, info, time::unix_now, tondid_env::version};
-use tondi_grpc_client::GrpcClient;
-use tondi_notify::subscription::context::SubscriptionContext;
-use tondi_rpc_core::notify::mode::NotificationMode;
+use spora_addresses::Address;
+use spora_core::{error, info, time::unix_now, tondid_env::version};
+use spora_grpc_client::GrpcClient;
+use spora_notify::subscription::context::SubscriptionContext;
+use spora_rpc_core::notify::mode::NotificationMode;
 
 use std::fs;
 use treasure_boy::{
@@ -232,7 +232,7 @@ fn parse_args() -> Config {
 
 #[tokio::main]
 async fn main() {
-    tondi_core::log::init_logger(None, "");
+    spora_core::log::init_logger(None, "");
     let args = parse_args();
 
     // If address generation mode is specified, generate addresses and exit

@@ -1,6 +1,6 @@
 use thiserror::Error;
-use tondi_notify::error::Error as NotifyError;
-use tondi_rpc_core::RpcError;
+use spora_notify::error::Error as NotifyError;
+use spora_rpc_core::RpcError;
 
 pub type BoxedStdError = Box<(dyn std::error::Error + Sync + std::marker::Send + 'static)>;
 
@@ -23,7 +23,7 @@ pub enum Error {
     EndpointConnectionError(#[from] tonic::transport::Error),
 
     #[error("Notify error: {0}")]
-    NotifyError(#[from] tondi_notify::error::Error),
+    NotifyError(#[from] spora_notify::error::Error),
 
     #[error("RPC: channel receive error")]
     ChannelRecvError,

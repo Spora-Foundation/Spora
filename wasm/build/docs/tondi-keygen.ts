@@ -1,1 +1,1 @@
-export * from "../../web/tondi-keygen";
+export * from "../../web/spora-keygen";

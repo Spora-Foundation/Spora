@@ -1,4 +1,4 @@
-extern crate self as tondi_core;
+extern crate self as spora_core;
 
 pub mod assert;
 pub mod console;

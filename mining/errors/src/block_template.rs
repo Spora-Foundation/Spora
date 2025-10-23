@@ -1,5 +1,5 @@
 use thiserror::Error;
-use tondi_consensus_core::errors::{block::RuleError, coinbase::CoinbaseError};
+use spora_consensus_core::errors::{block::RuleError, coinbase::CoinbaseError};
 
 #[derive(Error, Debug, Clone)]
 pub enum BuilderError {

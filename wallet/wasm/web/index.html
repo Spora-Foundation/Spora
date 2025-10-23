@@ -1,9 +1,9 @@
 <html>
     <head>
         <script type="module">
-            import * as tondi from './tondi-wallet/tondi-wallet.js';
+            import * as spora from './spora-wallet/spora-wallet.js';
             (async () => {
-                const wasm = await tondi.default('./tondi-wallet/tondi-wallet_bg.wasm');
+                const wasm = await spora.default('./spora-wallet/spora-wallet_bg.wasm');
                 await wasm.load_tondi_wallet_cli();
             })();
         </script>

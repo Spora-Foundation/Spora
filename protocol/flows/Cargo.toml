@@ -1,6 +1,6 @@
 [package]
-name = "tondi-p2p-flows"
-description = "Tondi p2p flows"
+name = "spora-p2p-flows"
+description = "Spora p2p flows"
 rust-version.workspace = true
 version.workspace = true
 edition.workspace = true
@@ -10,20 +10,20 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-tondi-core.workspace = true
-tondi-consensus-core.workspace = true
-tondi-consensus-notify.workspace = true
-tondi-p2p-lib.workspace = true
-tondi-p2p-mining.workspace = true
-tondi-utils.workspace = true
-tondi-utils-tower.workspace = true
-tondi-hashes.workspace = true
-tondi-muhash.workspace = true
-tondi-connectionmanager.workspace = true
-tondi-addressmanager.workspace = true
-tondi-consensusmanager.workspace = true
-tondi-mining.workspace = true
-tondi-notify.workspace = true
+spora-core.workspace = true
+spora-consensus-core.workspace = true
+spora-consensus-notify.workspace = true
+spora-p2p-lib.workspace = true
+spora-p2p-mining.workspace = true
+spora-utils.workspace = true
+spora-utils-tower.workspace = true
+spora-hashes.workspace = true
+spora-muhash.workspace = true
+spora-connectionmanager.workspace = true
+spora-addressmanager.workspace = true
+spora-consensusmanager.workspace = true
+spora-mining.workspace = true
+spora-notify.workspace = true
 
 async-trait.workspace = true
 futures = { workspace = true, features = ["alloc"] }

@@ -3,8 +3,8 @@ use std::str::{self, FromStr};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use thiserror::Error;
-use tondi_utils::hex::{FromHex, ToHex};
-use tondi_utils::{serde_impl_deser_fixed_bytes_ref, serde_impl_ser_fixed_bytes_ref};
+use spora_utils::hex::{FromHex, ToHex};
+use spora_utils::{serde_impl_deser_fixed_bytes_ref, serde_impl_ser_fixed_bytes_ref};
 
 /// The size of the array used to store subnetwork IDs.
 pub const SUBNETWORK_ID_SIZE: usize = 20;

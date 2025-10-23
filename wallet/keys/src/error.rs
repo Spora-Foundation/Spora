@@ -4,7 +4,7 @@
 
 use std::sync::PoisonError;
 use thiserror::Error;
-use tondi_bip32::Error as BIP32Error;
+use spora_bip32::Error as BIP32Error;
 use wasm_bindgen::JsValue;
 use workflow_core::sendable::*;
 use workflow_wasm::jserror::*;
@@ -26,7 +26,7 @@ pub enum Error {
     PoisonError(String),
 
     #[error("Address -> {0}")]
-    AddressError(#[from] tondi_addresses::AddressError),
+    AddressError(#[from] spora_addresses::AddressError),
 
     #[error("Secp256k1 -> {0}")]
     Secp256k1Error(#[from] secp256k1::Error),
@@ -62,10 +62,10 @@ pub enum Error {
     InvalidPublicKeyArray,
 
     #[error(transparent)]
-    NetworkId(#[from] tondi_consensus_core::network::NetworkIdError),
+    NetworkId(#[from] spora_consensus_core::network::NetworkIdError),
 
     #[error(transparent)]
-    NetworkType(#[from] tondi_consensus_core::network::NetworkTypeError),
+    NetworkType(#[from] spora_consensus_core::network::NetworkTypeError),
 
     #[error("Invalid UTF-8 sequence")]
     Utf8(#[from] std::str::Utf8Error),

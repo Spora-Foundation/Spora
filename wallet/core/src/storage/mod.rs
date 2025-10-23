@@ -38,7 +38,7 @@ mod tests {
     use crate::imports::*;
     use crate::storage::local::Payload;
     use crate::storage::local::WalletStorage;
-    use tondi_bip32::{Language, Mnemonic};
+    use spora_bip32::{Language, Mnemonic};
 
     #[tokio::test]
     async fn test_storage_wallet_store_load() -> Result<()> {

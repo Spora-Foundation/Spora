@@ -1,6 +1,6 @@
 use async_channel::Sender;
-use tondi_notify::notifier::Notify;
-use tondi_rpc_core::Notification;
+use spora_notify::notifier::Notify;
+use spora_rpc_core::Notification;
 
 #[derive(Debug)]
 pub struct ChannelNotify {
@@ -14,7 +14,7 @@ impl ChannelNotify {
 }
 
 impl Notify<Notification> for ChannelNotify {
-    fn notify(&self, notification: Notification) -> tondi_notify::error::Result<()> {
+    fn notify(&self, notification: Notification) -> spora_notify::error::Result<()> {
         self.sender.try_send(notification)?;
         Ok(())
     }

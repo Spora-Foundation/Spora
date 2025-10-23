@@ -6,7 +6,7 @@ use crate::account::{create_private_keys, DerivationCapableAccount, Inner};
 use crate::derivation::{AddressDerivationManager, AddressDerivationManagerTrait};
 use crate::imports::*;
 
-pub const MULTISIG_ACCOUNT_KIND: &str = "tondi-multisig-standard";
+pub const MULTISIG_ACCOUNT_KIND: &str = "spora-multisig-standard";
 
 pub struct Ctor {}
 
@@ -17,7 +17,7 @@ impl Factory for Ctor {
     }
 
     fn description(&self) -> String {
-        "Tondi Core Multi-Signature Account".to_string()
+        "Spora Core Multi-Signature Account".to_string()
     }
 
     async fn try_load(

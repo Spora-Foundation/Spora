@@ -6,10 +6,10 @@ use std::{
     time::{Duration, Instant},
 };
 use tokio::{sync::oneshot::channel, task::JoinHandle, time::sleep};
-use tondi_addresses::Address;
-use tondi_core::warn;
-use tondi_grpc_client::GrpcClient;
-use tondi_utils::triggers::SingleTrigger;
+use spora_addresses::Address;
+use spora_core::warn;
+use spora_grpc_client::GrpcClient;
+use spora_utils::triggers::SingleTrigger;
 
 pub struct AddressSubscriberTask {
     clients: Vec<Arc<GrpcClient>>,

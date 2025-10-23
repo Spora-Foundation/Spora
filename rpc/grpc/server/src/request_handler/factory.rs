@@ -3,7 +3,7 @@ use std::sync::Arc;
 use super::{
     handler::RequestHandler,
     handler_trait::Handler,
-    interface::{Interface, TondidMethod, TondidRoutingPolicy},
+    interface::{Interface, SporadMethod, SporadRoutingPolicy},
     method::Method,
 };
 use crate::{
@@ -11,17 +11,17 @@ use crate::{
     connection_handler::ServerContext,
     error::GrpcServerError,
 };
-use tondi_grpc_core::protowire::{tondid_request::Payload, *};
-use tondi_grpc_core::{ops::TondidPayloadOps, protowire::NotifyFinalityConflictResponseMessage};
-use tondi_notify::{scope::FinalityConflictResolvedScope, subscriber::SubscriptionManager};
-use tondi_rpc_core::{SubmitBlockRejectReason, SubmitBlockReport, SubmitBlockResponse};
-use tondi_rpc_macros::build_grpc_server_interface;
+use spora_grpc_core::protowire::{tondid_request::Payload, *};
+use spora_grpc_core::{ops::SporadPayloadOps, protowire::NotifyFinalityConflictResponseMessage};
+use spora_notify::{scope::FinalityConflictResolvedScope, subscriber::SubscriptionManager};
+use spora_rpc_core::{SubmitBlockRejectReason, SubmitBlockReport, SubmitBlockResponse};
+use spora_rpc_macros::build_grpc_server_interface;
 
 pub struct Factory {}
 
 impl Factory {
     pub fn new_handler(
-        rpc_op: TondidPayloadOps,
+        rpc_op: SporadPayloadOps,
         incoming_route: IncomingRoute,
         server_context: ServerContext,
         interface: &Interface,
@@ -32,14 +32,14 @@ impl Factory {
 
     pub fn new_interface(server_ctx: ServerContext, network_bps: u64) -> Interface {
         // The array as last argument in the macro call below must exactly match the full set of
-        // TondidPayloadOps variants.
+        // SporadPayloadOps variants.
         let mut interface = build_grpc_server_interface!(
             server_ctx.clone(),
             ServerContext,
             Connection,
-            TondidRequest,
-            TondidResponse,
-            TondidPayloadOps,
+            SporadRequest,
+            SporadResponse,
+            SporadPayloadOps,
             [
                 SubmitBlock,
                 GetBlockTemplate,
@@ -101,11 +101,11 @@ impl Factory {
 
         // Manually reimplementing the NotifyFinalityConflictRequest method so subscription
         // gets mirrored to FinalityConflictResolved notifications as well.
-        let method: TondidMethod = Method::new(|server_ctx: ServerContext, connection: Connection, request: TondidRequest| {
+        let method: SporadMethod = Method::new(|server_ctx: ServerContext, connection: Connection, request: SporadRequest| {
             Box::pin(async move {
-                let mut response: TondidResponse = match request.payload {
+                let mut response: SporadResponse = match request.payload {
                     Some(Payload::NotifyFinalityConflictRequest(ref request)) => {
-                        match tondi_rpc_core::NotifyFinalityConflictRequest::try_from(request) {
+                        match spora_rpc_core::NotifyFinalityConflictRequest::try_from(request) {
                             Ok(request) => {
                                 let listener_id = connection.get_or_register_listener_id()?;
                                 let command = request.command;
@@ -138,15 +138,15 @@ impl Factory {
                 Ok(response)
             })
         });
-        interface.replace_method(TondidPayloadOps::NotifyFinalityConflict, method);
+        interface.replace_method(SporadPayloadOps::NotifyFinalityConflict, method);
 
         // Methods with special properties
         let network_bps = network_bps as usize;
         interface.set_method_properties(
-            TondidPayloadOps::SubmitBlock,
+            SporadPayloadOps::SubmitBlock,
             network_bps,
             10.max(network_bps * 2),
-            TondidRoutingPolicy::DropIfFull(Arc::new(Box::new(|_: &TondidRequest| {
+            SporadRoutingPolicy::DropIfFull(Arc::new(Box::new(|_: &SporadRequest| {
                 Ok(Ok(SubmitBlockResponse { report: SubmitBlockReport::Reject(SubmitBlockRejectReason::RouteIsFull) }).into())
             }))),
         );

@@ -4,7 +4,7 @@ use futures_util::future::join_all;
 use itertools::Itertools;
 use std::sync::Arc;
 use tokio::task::JoinHandle;
-use tondi_utils::triggers::SingleTrigger;
+use spora_utils::triggers::SingleTrigger;
 
 pub mod block;
 pub mod daemon;

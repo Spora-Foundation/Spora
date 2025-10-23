@@ -1,6 +1,6 @@
 globalThis.WebSocket = require('websocket').w3cwebsocket; // W3C WebSocket module shim
 
-const tondi = require('../tondi/tondi_wasm');
+const spora = require('../spora/spora_wasm');
 const { parseArgs, guardRpcIsSynced } = require("../utils");
 const {
     RpcClient, UtxoSet, Address, Encoding, UtxoOrdering,
@@ -15,8 +15,8 @@ const {
     minimumTransactionFee,
     adjustTransactionForFee,
     Sequence,
-} = tondi;
-tondi.init_console_panic_hook();
+} = spora;
+spora.init_console_panic_hook();
 
 (async () => {
     const {
@@ -37,7 +37,7 @@ tondi.init_console_panic_hook();
 
     // let res = await rpc.getBlockTemplate({
     //     extraData:[],
-    //     payAddress:"tondi:qrwee7xc2qw5whq8qzv82qjld6zunwy46lsy3hueej5kvgfwvamhswy03lsyh"
+    //     payAddress:"spora:qrwee7xc2qw5whq8qzv82qjld6zunwy46lsy3hueej5kvgfwvamhswy03lsyh"
     // });
     // console.log("res", res.block.header.blueWork);
 
@@ -104,10 +104,10 @@ tondi.init_console_panic_hook();
     console.log("utxoEntries:", utxoEntries.items);
 
     // let outputs = [
-    //     new tondi.TransactionOutput(300n, new tondi.ScriptPublicKey(0, keypair3.publicKey)),
+    //     new spora.TransactionOutput(300n, new spora.ScriptPublicKey(0, keypair3.publicKey)),
     //     {
     //         value: 300n,
-    //         scriptPublicKey : new tondi.ScriptPublicKey(0, keypair3.publicKey)
+    //         scriptPublicKey : new spora.ScriptPublicKey(0, keypair3.publicKey)
     //     },
     // ];
 

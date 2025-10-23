@@ -1,4 +1,4 @@
-use tondi_grpc_core::protowire::{tondid_request, tondid_response, TondidRequest, TondidResponse};
+use spora_grpc_core::protowire::{tondid_request, tondid_response, SporadRequest, SporadResponse};
 
 pub(crate) trait Matcher<T> {
     fn is_matching(&self, response: T) -> bool;
@@ -29,8 +29,8 @@ impl Matcher<&tondid_response::Payload> for tondid_request::Payload {
     }
 }
 
-impl Matcher<&TondidResponse> for TondidRequest {
-    fn is_matching(&self, response: &TondidResponse) -> bool {
+impl Matcher<&SporadResponse> for SporadRequest {
+    fn is_matching(&self, response: &SporadResponse) -> bool {
         if let Some(ref response) = response.payload {
             if let Some(ref request) = self.payload {
                 return request.is_matching(response);

@@ -1,2 +1,2 @@
-const { version } = require('../../../nodejs/tondi');
+const { version } = require('../../../nodejs/spora');
 console.log("version:", version());

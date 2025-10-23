@@ -13,11 +13,11 @@ use std::{
     time::Duration,
 };
 use tokio::{task::JoinHandle, time::sleep};
-use tondi_addresses::Address;
-use tondi_core::warn;
-use tondi_grpc_client::GrpcClient;
-use tondi_rpc_core::{api::rpc::RpcApi, GetBlockTemplateResponse, RpcRawBlock};
-use tondi_utils::triggers::SingleTrigger;
+use spora_addresses::Address;
+use spora_core::warn;
+use spora_grpc_client::GrpcClient;
+use spora_rpc_core::{api::rpc::RpcApi, GetBlockTemplateResponse, RpcRawBlock};
+use spora_utils::triggers::SingleTrigger;
 
 pub const COMMUNICATION_DELAY: u64 = 1_000;
 

@@ -1,15 +1,15 @@
 use std::{cmp::Reverse, collections::BinaryHeap, sync::Arc};
 
 use itertools::Itertools;
-use tondi_consensus_core::{
+use spora_consensus_core::{
     blockhash::{BlockHashExtensions, BlockHashes},
     header::Header,
     pruning::PruningPointProof,
     BlockHashSet, BlockLevel, HashMapCustomHasher, KType,
 };
-use tondi_core::debug;
-use tondi_database::prelude::{CachePolicy, ConnBuilder, StoreError, StoreResult, StoreResultEmptyTuple, StoreResultExtensions, DB};
-use tondi_hashes::Hash;
+use spora_core::debug;
+use spora_database::prelude::{CachePolicy, ConnBuilder, StoreError, StoreResult, StoreResultEmptyTuple, StoreResultExtensions, DB};
+use spora_hashes::Hash;
 
 use crate::{
     model::{
@@ -36,13 +36,13 @@ struct RelationsStoreInFutureOfRoot<T: RelationsStoreReader, U: ReachabilityServ
 }
 
 impl<T: RelationsStoreReader, U: ReachabilityService> RelationsStoreReader for RelationsStoreInFutureOfRoot<T, U> {
-    fn get_parents(&self, hash: Hash) -> Result<BlockHashes, tondi_database::prelude::StoreError> {
+    fn get_parents(&self, hash: Hash) -> Result<BlockHashes, spora_database::prelude::StoreError> {
         self.relations_store.get_parents(hash).map(|hashes| {
             Arc::new(hashes.iter().copied().filter(|h| self.reachability_service.is_dag_ancestor_of(self.root, *h)).collect_vec())
         })
     }
 
-    fn get_children(&self, hash: Hash) -> StoreResult<tondi_database::prelude::ReadLock<BlockHashSet>> {
+    fn get_children(&self, hash: Hash) -> StoreResult<spora_database::prelude::ReadLock<BlockHashSet>> {
         // We assume hash is in future of root
         assert!(self.reachability_service.is_dag_ancestor_of(self.root, hash));
         self.relations_store.get_children(hash)
@@ -56,7 +56,7 @@ impl<T: RelationsStoreReader, U: ReachabilityService> RelationsStoreReader for R
         }
     }
 
-    fn counts(&self) -> Result<(usize, usize), tondi_database::prelude::StoreError> {
+    fn counts(&self) -> Result<(usize, usize), spora_database::prelude::StoreError> {
         unimplemented!()
     }
 }
@@ -67,7 +67,7 @@ impl PruningProofManager {
             return vec![];
         }
 
-        let (_db_lifetime, temp_db) = tondi_database::create_temp_db!(ConnBuilder::default().with_files_limit(10));
+        let (_db_lifetime, temp_db) = spora_database::create_temp_db!(ConnBuilder::default().with_files_limit(10));
         let pp_header = self.headers_store.get_header_with_block_level(pp).unwrap();
         let (ghostdag_stores, selected_tip_by_level, roots_by_level) = self.calc_gd_for_all_levels(&pp_header, temp_db);
 

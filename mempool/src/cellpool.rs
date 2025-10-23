@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ISC
-// Copyright (C) 2025Tondi developers
+// Copyright (C) 2025 Spora developers
 //
 // CellPool: Cell transaction memory pool
 
@@ -8,7 +8,7 @@ use indexmap::IndexMap;
 use parking_lot::RwLock;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
-use tondi_exec::{CellTx, OutPoint};
+use spora_exec::{CellTx, OutPoint};
 
 /// Pool entry metadata
 #[derive(Clone, Debug)]
@@ -131,7 +131,7 @@ impl CellPool {
     ///
     /// Optional blue_score for GhostDAG tie-breaking (higher = more confirmed)
     pub fn add_with_blue_score(&self, tx: CellTx, fee: u64, cycles: u64, blue_score: Option<u64>) -> Result<[u8; 32]> {
-        let wtxid = tondi_exec::celltx::sighash::compute_wtxid(&tx);
+        let wtxid = spora_exec::celltx::sighash::compute_wtxid(&tx);
         
         // Check if already exists
         if self.txs.read().contains_key(&wtxid) {
@@ -335,7 +335,7 @@ impl CellPool {
         for input in &tx.inputs {
             // Check if input is produced by a transaction in pool
             for (parent_wtxid, parent_entry) in txs.iter() {
-                let parent_hash = tondi_exec::celltx::sighash::compute_wtxid(&parent_entry.tx);
+                let parent_hash = spora_exec::celltx::sighash::compute_wtxid(&parent_entry.tx);
                 if input.out_point.tx_hash == parent_hash {
                     deps.insert(*parent_wtxid);
                 }
@@ -357,7 +357,7 @@ impl CellPool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tondi_exec::{CellRef, CellOut, ScriptRef};
+    use spora_exec::{CellRef, CellOut, ScriptRef};
 
     fn create_test_tx(inputs: Vec<OutPoint>, capacity: u64) -> CellTx {
         let lock = ScriptRef::new([0x00; 32], 0, vec![0; 20]);
@@ -518,7 +518,7 @@ mod tests {
         let parent_wtxid = pool.add(parent_tx.clone(), 50, 1000).unwrap(); // Low fee
         
         // Compute parent's output hash
-        let parent_hash = tondi_exec::celltx::sighash::compute_wtxid(&parent_tx);
+        let parent_hash = spora_exec::celltx::sighash::compute_wtxid(&parent_tx);
         
         // Create a child transaction spending parent's output
         let child_out_point = OutPoint::new(parent_hash, 0);

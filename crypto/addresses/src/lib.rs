@@ -1,16 +1,16 @@
 //!
-//! Tondi [`Address`] implementation.
+//! Spora [`Address`] implementation.
 //!
-//! This module provides a comprehensive address system for the Tondi blockchain,
+//! This module provides a comprehensive address system for the Spora blockchain,
 //! supporting multiple address types and network configurations.
 //!
 //! ## Address Format
 //!
-//! Tondi addresses are represented as `bech32`-encoded strings with the format:
+//! Spora addresses are represented as `bech32`-encoded strings with the format:
 //! `{network_prefix}:{encoded_payload}`
 //!
 //! Where:
-//! - `network_prefix`: Network identifier (`tondi`, `tonditest`, `tondisim`, `tondidev`)
+//! - `network_prefix`: Network identifier (`spora`, `tonditest`, `tondisim`, `tondidev`)
 //! - `encoded_payload`: Bech32/Bech32m encoded data containing version byte and payload
 //!
 //! ## Supported Address Types
@@ -25,17 +25,17 @@
 //! ## Examples
 //!
 //! ```rust
-//! use tondi_addresses::{Address, Prefix, Version};
+//! use spora_addresses::{Address, Prefix, Version};
 //!
 //! // Create a new address
 //! let payload = [0u8; 32];
 //! let address = Address::new(Prefix::Mainnet, Version::PubKey, &payload).expect("Valid address");
 //!
 //! // Parse from string
-//! // let address: Address = "tondi:qz0s...t8cv".parse().expect("Valid address");
+//! // let address: Address = "spora:qz0s...t8cv".parse().expect("Valid address");
 //!
 //! // Validate address
-//! // let is_valid = Address::validate("tondi:qz0s...t8cv");
+//! // let is_valid = Address::validate("spora:qz0s...t8cv");
 //!
 //! // Use convenience constructors
 //! let pubkey_addr = Address::new_pubkey(Prefix::Mainnet, &[0u8; 32]).expect("Valid address");
@@ -82,7 +82,7 @@ mod bech32m;
 #[derive(Error, PartialEq, Eq, Debug, Clone)]
 pub enum AddressError {
     /// The address has an invalid network prefix
-    #[error("Invalid network prefix '{0}'. Expected one of: tondi, tonditest, tondisim, tondidev")]
+    #[error("Invalid network prefix '{0}'. Expected one of: spora, tonditest, tondisim, tondidev")]
     InvalidPrefix(String),
 
     /// The address is missing the required network prefix
@@ -207,8 +207,8 @@ impl Address {
 
 /// Network prefix identifying the blockchain network type.
 ///
-/// Each prefix corresponds to a specific Tondi network configuration:
-/// - `Mainnet`: Production network (`tondi`)
+/// Each prefix corresponds to a specific Spora network configuration:
+/// - `Mainnet`: Production network (`spora`)
 /// - `Testnet`: Public test network (`tonditest`)
 /// - `Simnet`: Simulation network (`tondisim`)
 /// - `Devnet`: Development network (`tondidev`)
@@ -216,7 +216,7 @@ impl Address {
 #[borsh(use_discriminant = true)]
 pub enum Prefix {
     /// Mainnet - Production blockchain network
-    #[serde(rename = "tondi")]
+    #[serde(rename = "spora")]
     Mainnet,
     /// Testnet - Public testing network
     #[serde(rename = "tondi0")]
@@ -238,7 +238,7 @@ impl Prefix {
     #[inline(always)]
     pub fn as_str(&self) -> &'static str {
         match self {
-            Prefix::Mainnet => "tondi",
+            Prefix::Mainnet => "spora",
             Prefix::Testnet => "tondi0",
             Prefix::Simnet => "tondisim",
             Prefix::Devnet => "tondidev",
@@ -295,7 +295,7 @@ impl TryFrom<&str> for Prefix {
 
     fn try_from(prefix: &str) -> Result<Self, Self::Error> {
         match prefix {
-            "tondi" => Ok(Prefix::Mainnet),
+            "spora" => Ok(Prefix::Mainnet),
             "tondi0" => Ok(Prefix::Testnet),
             "tondisim" => Ok(Prefix::Simnet),
             "tondidev" => Ok(Prefix::Devnet),
@@ -483,7 +483,7 @@ pub struct AddressInfo {
     pub is_taproot_compatible: bool,
 }
 
-/// Tondi [`Address`] struct that serializes to and from an address format string: `tondi:qz0s...t8cv`.
+/// Spora [`Address`] struct that serializes to and from an address format string: `spora:qz0s...t8cv`.
 ///
 /// @category Address
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Hash, CastFromJs)]
@@ -520,7 +520,7 @@ impl Address {
     ///
     /// # Examples
     /// ```rust
-    /// use tondi_addresses::{Address, Prefix, Version};
+    /// use spora_addresses::{Address, Prefix, Version};
     ///
     /// let payload = [0u8; 32];
     /// let address = Address::new(Prefix::Mainnet, Version::PubKey, &payload);
@@ -557,7 +557,7 @@ impl Address {
     ///
     /// # Examples
     /// ```rust
-    /// use tondi_addresses::{Address, Prefix};
+    /// use spora_addresses::{Address, Prefix};
     ///
     /// let pubkey = [0u8; 32];
     /// let address = Address::from_copperoot_xonly(Prefix::Mainnet, &pubkey).expect("Valid address");
@@ -627,10 +627,10 @@ impl Address {
     ///
     /// # Examples
     /// ```rust
-    /// use tondi_addresses::{Address, Prefix, Version};
+    /// use spora_addresses::{Address, Prefix, Version};
     /// let address = Address::new(Prefix::Mainnet, Version::PubKey, &[0u8; 32]).expect("Valid address");
     /// let short = address.short_display(4);
-    /// // Returns: "tondi:qz0s....t8cv"
+    /// // Returns: "spora:qz0s....t8cv"
     /// ```
     pub fn short_display(&self, chars: usize) -> String {
         let payload = self.encode_payload();
@@ -1098,7 +1098,7 @@ mod tests {
         use Version::*;
         let address = Address::new(Mainnet, Taproot, &XPUB).expect("Valid address");
         let encoded = String::from(&address);
-        assert_eq!(encoded, "tondi:trazle76u3gwal94drp4qlvlh9vkjddh7mjpv2hhe422xzjsrs8tvca30pn");
+        assert_eq!(encoded, "spora:trazle76u3gwal94drp4qlvlh9vkjddh7mjpv2hhe422xzjsrs8tvca30pn");
         let decoded: Address = encoded.parse().expect("Address decode failed");
         assert_eq!(address, decoded);
     }
@@ -1112,8 +1112,8 @@ mod tests {
         let address = Address::new(Mainnet, CopperootMerkle, &XPUB).expect("Valid address");
         let encoded = String::from(&address);
 
-        // Verify the address after "tondi:" starts with 'c'
-        let after_prefix = encoded.strip_prefix("tondi:").expect("Should have tondi: prefix");
+        // Verify the address after "spora:" starts with 'c'
+        let after_prefix = encoded.strip_prefix("spora:").expect("Should have spora: prefix");
         assert!(after_prefix.starts_with('c'), "CopperootMerkle address should start with 'c', got: {}", after_prefix);
 
         // Test round-trip encoding/decoding
@@ -1159,7 +1159,7 @@ mod tests {
         let encoded = address.to_string();
 
         // Verify address starts with 'c' after the network prefix
-        let after_prefix = encoded.strip_prefix("tondi:").expect("Should have tondi: prefix");
+        let after_prefix = encoded.strip_prefix("spora:").expect("Should have spora: prefix");
         assert!(after_prefix.starts_with('c'), "Real CopperootMerkle address should start with 'c', got: {}", after_prefix);
 
         // Verify round-trip
@@ -1225,7 +1225,7 @@ mod tests {
 
         // Test short display
         let short = address.short_display(4);
-        assert!(short.contains("tondi:"));
+        assert!(short.contains("spora:"));
         assert!(short.contains("...."));
     }
 
@@ -1244,7 +1244,7 @@ mod tests {
         assert!(result.is_err());
 
         // Test parse with detailed error
-        let result = Address::parse("tondi:invalid");
+        let result = Address::parse("spora:invalid");
         assert!(result.is_err());
     }
 
@@ -1283,19 +1283,19 @@ mod tests {
         // Taproot = 1 = 0b00001_000 -> first 5 bits = 0b00001 = 1 -> 't' in bech32
         let taproot = Address::new(Mainnet, Taproot, &test_key).expect("Valid address");
         let taproot_enc = taproot.to_string();
-        let taproot_data = taproot_enc.strip_prefix("tondi:").unwrap();
+        let taproot_data = taproot_enc.strip_prefix("spora:").unwrap();
         assert!(taproot_data.starts_with('t'), "Taproot should start with 't', got: {}", taproot_data);
 
         // CopperootMerkle = 192 = 0b11000_000 -> first 5 bits = 0b11000 = 24 -> 'c' in bech32
         let copperoot = Address::new(Mainnet, CopperootMerkle, &test_key).expect("Valid address");
         let copperoot_enc = copperoot.to_string();
-        let copperoot_data = copperoot_enc.strip_prefix("tondi:").unwrap();
+        let copperoot_data = copperoot_enc.strip_prefix("spora:").unwrap();
         assert!(copperoot_data.starts_with('c'), "CopperootMerkle should start with 'c', got: {}", copperoot_data);
 
         // CopperootVerkle = 96 = 0b01100_000 -> first 5 bits = 0b01100 = 12 -> 'v' in bech32
         let copperoot_verkle = Address::new_unchecked(Mainnet, CopperootVerkle, &test_key);
         let copperoot_verkle_enc = copperoot_verkle.to_string();
-        let copperoot_verkle_data = copperoot_verkle_enc.strip_prefix("tondi:").unwrap();
+        let copperoot_verkle_data = copperoot_verkle_enc.strip_prefix("spora:").unwrap();
         assert!(copperoot_verkle_data.starts_with('v'), "CopperootVerkle should start with 'v', got: {}", copperoot_verkle_data);
     }
 

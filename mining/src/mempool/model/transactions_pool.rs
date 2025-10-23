@@ -19,11 +19,11 @@ use std::{
     iter::once,
     sync::Arc,
 };
-use tondi_consensus_core::{
+use spora_consensus_core::{
     block::TemplateTransactionSelector,
     tx::{MutableTransaction, TransactionId, TransactionOutpoint},
 };
-use tondi_core::{debug, time::unix_now, trace};
+use spora_core::{debug, time::unix_now, trace};
 
 use super::frontier::Frontier;
 

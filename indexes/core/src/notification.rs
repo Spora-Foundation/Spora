@@ -1,9 +1,9 @@
 use crate::indexed_utxos::{UtxoChanges, UtxoSetByScriptPublicKey};
 use derive_more::Display;
 use std::{collections::HashMap, sync::Arc};
-use tondi_consensus_core::cell_diff::CellDiff;
-use tondi_hashes::Hash;
-use tondi_notify::{
+use spora_consensus_core::cell_diff::CellDiff;
+use spora_hashes::Hash;
+use spora_notify::{
     events::EventType,
     full_featured,
     notification::Notification as NotificationTrait,

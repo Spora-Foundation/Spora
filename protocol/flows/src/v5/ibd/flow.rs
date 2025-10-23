@@ -11,18 +11,18 @@ use std::{
     time::{Duration, Instant},
 };
 use tokio::time::sleep;
-use tondi_consensus_core::{
+use spora_consensus_core::{
     api::BlockValidationFuture,
     block::Block,
     header::Header,
     pruning::{PruningPointProof, PruningPointsList, PruningProofMetadata},
     BlockHashSet,
 };
-use tondi_consensusmanager::{spawn_blocking, ConsensusProxy, StagingConsensus};
-use tondi_core::{debug, info, time::unix_now, warn};
-use tondi_hashes::Hash;
-use tondi_muhash::MuHash;
-use tondi_p2p_lib::{
+use spora_consensusmanager::{spawn_blocking, ConsensusProxy, StagingConsensus};
+use spora_core::{debug, info, time::unix_now, warn};
+use spora_hashes::Hash;
+use spora_muhash::MuHash;
+use spora_p2p_lib::{
     common::ProtocolError,
     convert::model::trusted::TrustedDataPackage,
     dequeue_with_timeout, make_message,
@@ -32,7 +32,7 @@ use tondi_p2p_lib::{
     },
     IncomingRoute, Router,
 };
-use tondi_utils::channel::JobReceiver;
+use spora_utils::channel::JobReceiver;
 
 use super::{progress::ProgressReporter, HeadersChunk, PruningPointUtxosetChunkStream, IBD_BATCH_SIZE};
 

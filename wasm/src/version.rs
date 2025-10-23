@@ -1,6 +1,6 @@
 use wasm_bindgen::prelude::*;
 
-/// Returns the version of the Rusty Tondi framework.
+/// Returns the version of the Rusty Spora framework.
 /// @category General
 #[wasm_bindgen]
 pub fn version() -> String {

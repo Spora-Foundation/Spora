@@ -3,7 +3,7 @@
 //! This example shows how to use the new min_confirmation_count parameter to filter
 //! blocks by their confirmation count (distance from virtual chain tip).
 
-use tondi_rpc_core::model::{GetVirtualChainFromBlockRequest, RpcHash};
+use spora_rpc_core::model::{GetVirtualChainFromBlockRequest, RpcHash};
 use workflow_serializer::prelude::*;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -60,9 +60,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Example 5: CLI usage example
     println!("\n5. CLI Usage Example:");
     println!(
-        "   Command: tondi-cli rpc get-virtual-chain-from-block <startHash> <includeAcceptedTransactionIds> <minConfirmationCount>"
+        "   Command: spora-cli rpc get-virtual-chain-from-block <startHash> <includeAcceptedTransactionIds> <minConfirmationCount>"
     );
-    println!("   Example: tondi-cli rpc get-virtual-chain-from-block 0x1234... false 10");
+    println!("   Example: spora-cli rpc get-virtual-chain-from-block 0x1234... false 10");
     println!("   ✓ This will only return blocks with at least 10 confirmations");
 
     // Example 6: WASM/TypeScript usage

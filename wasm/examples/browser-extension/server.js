@@ -1,1 +1,1 @@
-// TODO - NodeJs HTTP server with Tondi Wallet and a client-facing WebSocket (example backend that receives payments)
+// TODO - NodeJs HTTP server with Spora Wallet and a client-facing WebSocket (example backend that receives payments)

@@ -13,7 +13,7 @@ use bitcoin::{
 use blake3::Hasher;
 use secp256k1::Message;
 
-use tondi_consensus_core::tx::{copperoot::error::CopperootError, Transaction, TransactionInput, TransactionOutput};
+use spora_consensus_core::tx::{copperoot::error::CopperootError, Transaction, TransactionInput, TransactionOutput};
 
 const KEY_VERSION_0: u8 = 0u8;
 
@@ -266,7 +266,7 @@ pub struct SighashCache<Tx: Borrow<Transaction>> {
 }
 
 // Note: Encodable implementations for TransactionOutpoint and TransactionOutput
-// are provided by the tondi_consensus_core crate
+// are provided by the spora_consensus_core crate
 
 impl<Tx: Borrow<Transaction>> SighashCache<Tx> {
     /// Constructs a new `SighashCache` from an unsigned transaction.
@@ -478,14 +478,14 @@ impl<Tx: Borrow<Transaction>> SighashCache<Tx> {
 mod tests {
     use super::*;
     use crate::SCRIPT_VER_P2CR;
-    use tondi_consensus_core::{
+    use spora_consensus_core::{
         subnets::SubnetworkId,
         tx::{ScriptPublicKey, ScriptVec, TransactionId, TransactionOutpoint, TransactionInput, TransactionOutput, Transaction},
     };
     use bitcoin::{hex::test_hex_unwrap, key::TapTweak, taproot::Signature, Witness};
     use secp256k1::{Keypair, Message, Secp256k1};
     use std::str::FromStr;
-    use tondi_utils::hex::FromHex;
+    use spora_utils::hex::FromHex;
 
     #[test]
     fn test_copperoot_sighash_hash() {

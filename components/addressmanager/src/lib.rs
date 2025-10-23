@@ -17,10 +17,10 @@ use local_ip_address::list_afinet_netifas;
 use parking_lot::Mutex;
 use stores::banned_address_store::{BannedAddressesStore, BannedAddressesStoreReader, ConnectionBanTimestamp, DbBannedAddressesStore};
 use thiserror::Error;
-use tondi_consensus_core::config::Config;
-use tondi_core::{debug, info, task::tick::TickService, time::unix_now, warn};
-use tondi_database::prelude::{CachePolicy, StoreResultExtensions, DB};
-use tondi_utils::networking::IpAddress;
+use spora_consensus_core::config::Config;
+use spora_core::{debug, info, task::tick::TickService, time::unix_now, warn};
+use spora_database::prelude::{CachePolicy, StoreResultExtensions, DB};
+use spora_utils::networking::IpAddress;
 
 pub use stores::NetAddress;
 
@@ -31,7 +31,7 @@ const UPNP_DEADLINE_SEC: u64 = 2 * 60;
 const UPNP_EXTEND_PERIOD: u64 = UPNP_DEADLINE_SEC / 2;
 
 /// The name used as description when registering the UPnP service
-pub(crate) const UPNP_REGISTRATION_NAME: &str = "tondi";
+pub(crate) const UPNP_REGISTRATION_NAME: &str = "spora";
 
 struct ExtendHelper {
     gateway: Gateway,
@@ -341,8 +341,8 @@ mod address_store_with_cache {
         distributions::{WeightedError, WeightedIndex},
         prelude::Distribution,
     };
-    use tondi_database::prelude::{CachePolicy, DB};
-    use tondi_utils::networking::PrefixBucket;
+    use spora_database::prelude::{CachePolicy, DB};
+    use spora_utils::networking::PrefixBucket;
 
     use crate::{
         stores::{
@@ -517,11 +517,11 @@ mod address_store_with_cache {
         use address_manager::AddressManager;
         use rv::{dist::Uniform, misc::ks_test as one_way_ks_test, traits::Cdf};
         use std::net::{IpAddr, Ipv6Addr};
-        use tondi_consensus_core::config::{params::SIMNET_PARAMS, Config};
-        use tondi_core::task::tick::TickService;
-        use tondi_database::create_temp_db;
-        use tondi_database::prelude::ConnBuilder;
-        use tondi_utils::networking::IpAddress;
+        use spora_consensus_core::config::{params::SIMNET_PARAMS, Config};
+        use spora_core::task::tick::TickService;
+        use spora_database::create_temp_db;
+        use spora_database::prelude::ConnBuilder;
+        use spora_utils::networking::IpAddress;
 
         #[test]
         fn test_weighted_iterator() {
@@ -537,7 +537,7 @@ mod address_store_with_cache {
 
         #[test]
         fn test_network_distribution_weighting() {
-            tondi_core::log::try_init_logger("info");
+            spora_core::log::try_init_logger("info");
 
             // Variables to initialize ip generation with.
             let largest_bucket: u16 = 2048;
@@ -613,7 +613,7 @@ mod address_store_with_cache {
             let significance = 0.10;
 
             // Display and assert the result
-            tondi_core::info!(
+            spora_core::info!(
                 "Kolmogorov–Smirnov test result for weighted network distribution uniformity: p = {0:.4} (p < {1})",
                 adjusted_p,
                 significance

@@ -29,7 +29,7 @@ use std::{
         Arc,
     },
 };
-use tondi_core::{debug, trace};
+use spora_core::{debug, trace};
 use workflow_core::channel::Channel;
 
 pub trait Notify<N>: Send + Sync + Debug
@@ -986,21 +986,21 @@ mod tests {
 
     #[tokio::test]
     async fn test_overall() {
-        tondi_core::log::try_init_logger("trace,tondi_notify=trace");
+        spora_core::log::try_init_logger("trace,spora_notify=trace");
         let test = Test::new("BlockAdded broadcast (OverallSubscription type)", 2, overall_test_steps(SUBSCRIPTION_MANAGER_ID));
         test.run().await;
     }
 
     #[tokio::test]
     async fn test_virtual_chain_changed() {
-        tondi_core::log::try_init_logger("trace,tondi_notify=trace");
+        spora_core::log::try_init_logger("trace,spora_notify=trace");
         let test = Test::new("VirtualChainChanged broadcast", 2, virtual_chain_changed_test_steps(SUBSCRIPTION_MANAGER_ID));
         test.run().await;
     }
 
     #[tokio::test]
     async fn test_utxos_changed() {
-        tondi_core::log::try_init_logger("trace,tondi_notify=trace");
+        spora_core::log::try_init_logger("trace,spora_notify=trace");
         let test = Test::new("UtxosChanged broadcast", 3, utxos_changed_test_steps(SUBSCRIPTION_MANAGER_ID));
         test.run().await;
     }

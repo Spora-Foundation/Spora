@@ -1,8 +1,8 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use smallvec::smallvec;
 use std::time::{Duration, Instant};
-use tondi_consensus_core::subnets::SUBNETWORK_ID_COINBASE;
-use tondi_consensus_core::tx::{
+use spora_consensus_core::subnets::SUBNETWORK_ID_COINBASE;
+use spora_consensus_core::tx::{
     ScriptPublicKey, Transaction, TransactionId, TransactionInput, TransactionOutpoint, TransactionOutput,
 };
 

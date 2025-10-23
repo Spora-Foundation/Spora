@@ -5,9 +5,9 @@
 use crate::account::Inner;
 use crate::imports::*;
 use secp256k1::{PublicKey, SecretKey};
-use tondi_addresses::Version;
+use spora_addresses::Version;
 
-pub const RESIDENT_ACCOUNT_KIND: &str = "tondi-resident-standard";
+pub const RESIDENT_ACCOUNT_KIND: &str = "spora-resident-standard";
 
 pub struct Resident {
     inner: Arc<Inner>,

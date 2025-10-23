@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: ISC
-// Copyright (C) 2025Tondi developers
+// Copyright (C) 2025 Spora developers
 //
 // Cell transaction validation specific to DAG consensus
 
 use super::errors::CellValidationError;
 use super::cell_validation_in_context::CellStateProvider;
-use tondi_exec::{CellTx, OutPoint};
-use tondi_consensus_core::cell_metadata::CellMetadata;
+use spora_exec::{CellTx, OutPoint};
+use spora_consensus_core::cell_metadata::CellMetadata;
 
 /// Extended state provider for DAG validation
 pub trait DagCellProvider: CellStateProvider {
@@ -114,7 +114,7 @@ pub fn validate_in_reorg_context<P: DagCellProvider>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tondi_exec::{CellRef, ScriptRef, CellOut};
+    use spora_exec::{CellRef, ScriptRef, CellOut};
     use std::collections::HashMap;
 
     struct MockDagProvider {
@@ -160,7 +160,7 @@ mod tests {
                 data_hash: [0; 32],
                 block_daa_score: 50,
                 is_cellbase: true,
-                block_hash: tondi_hashes::Hash::from_bytes([0; 32]),
+                block_hash: spora_hashes::Hash::from_bytes([0; 32]),
                 lock_code_hash: None,
                 type_code_hash: None,
                 data: None,
@@ -204,7 +204,7 @@ mod tests {
                 data_hash: [0; 32],
                 block_daa_score: 50,
                 is_cellbase: false,
-                block_hash: tondi_hashes::Hash::from_bytes([0; 32]),
+                block_hash: spora_hashes::Hash::from_bytes([0; 32]),
                 lock_code_hash: None,
                 type_code_hash: None,
                 data: None,
@@ -242,7 +242,7 @@ mod tests {
                 data_hash: [0; 32],
                 block_daa_score: 100,
                 is_cellbase: false,
-                block_hash: tondi_hashes::Hash::from_bytes([0; 32]),
+                block_hash: spora_hashes::Hash::from_bytes([0; 32]),
                 lock_code_hash: None,
                 type_code_hash: None,
                 data: None,

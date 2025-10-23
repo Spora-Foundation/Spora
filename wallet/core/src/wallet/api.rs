@@ -9,8 +9,8 @@ use crate::result::Result;
 use crate::storage::interface::TransactionRangeResult;
 use crate::storage::Binding;
 use crate::tx::Fees;
-use tondi_rpc_core::RpcFeeEstimate;
-use tondi_wallet_pstt::bundle::Bundle;
+use spora_rpc_core::RpcFeeEstimate;
+use spora_wallet_pstt::bundle::Bundle;
 use workflow_core::channel::Receiver;
 
 #[async_trait]

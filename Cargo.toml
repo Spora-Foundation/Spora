@@ -69,9 +69,9 @@ members = [
 [workspace.package]
 rust-version = "1.82.0"
 version = "1.21.0"
-authors = ["Tondi developers"]
+authors = ["Spora developers"]
 license = "ISC"
-repository = "https://github.com/AvatoLabs/Tondi"
+repository = "https://github.com/AvatoLabs/Spora"
 edition = "2021"
 include = [
     "src/**/*.rs",
@@ -87,61 +87,61 @@ include = [
 [workspace.dependencies]
 blake3 = { version = "1.8.2"}
 log = "0.4.20"
-# tondi-testing-integration = { version = "1.21.0", path = "testing/integration" }
-tondi-addresses = { version = "1.21.0", path = "crypto/addresses" }
-tondi-addressmanager = { version = "1.21.0", path = "components/addressmanager" }
-tondi-bip32 = { version = "1.21.0", path = "wallet/bip32" }
-tondi-cli = { version = "1.21.0", path = "cli" }
-tondi-connectionmanager = { version = "1.21.0", path = "components/connectionmanager" }
-tondi-consensus = { version = "1.21.0", path = "consensus" }
-tondi-consensus-core = { version = "1.21.0", path = "consensus/core" }
-tondi-consensus-client = { version = "1.21.0", path = "consensus/client" }
-tondi-consensus-notify = { version = "1.21.0", path = "consensus/notify" }
-tondi-consensus-wasm = { version = "1.21.0", path = "consensus/wasm" }
-tondi-consensusmanager = { version = "1.21.0", path = "components/consensusmanager" }
-tondi-core = { version = "1.21.0", path = "core" }
-tondi-daemon = { version = "1.21.0", path = "daemon" }
-tondi-database = { version = "1.21.0", path = "database" }
-tondi-exec = { version = "1.21.0", path = "exec" }
-tondi-grpc-client = { version = "1.21.0", path = "rpc/grpc/client" }
-tondi-grpc-core = { version = "1.21.0", path = "rpc/grpc/core" }
-tondi-grpc-server = { version = "1.21.0", path = "rpc/grpc/server" }
-tondi-hashes = { version = "1.21.0", path = "crypto/hashes" }
-tondi-index-core = { version = "1.21.0", path = "indexes/core" }
-tondi-index-processor = { version = "1.21.0", path = "indexes/processor" }
-tondi-math = { version = "1.21.0", path = "math" }
-tondi-merkle = { version = "1.21.0", path = "crypto/merkle" }
-tondi-metrics-core = { version = "1.21.0", path = "metrics/core" }
-tondi-mining = { version = "1.21.0", path = "mining" }
-tondi-mining-errors = { version = "1.21.0", path = "mining/errors" }
-tondi-muhash = { version = "1.21.0", path = "crypto/muhash" }
-tondi-notify = { version = "1.21.0", path = "notify" }
-tondi-p2p-flows = { version = "1.21.0", path = "protocol/flows" }
-tondi-p2p-lib = { version = "1.21.0", path = "protocol/p2p" }
-tondi-p2p-mining = { version = "1.21.0", path = "protocol/mining" }
-tondi-perf-monitor = { version = "1.21.0", path = "metrics/perf_monitor" }
-tondi-pow = { version = "1.21.0", path = "consensus/pow" }
-tondi-rpc-core = { version = "1.21.0", path = "rpc/core" }
-tondi-rpc-macros = { version = "1.21.0", path = "rpc/macros" }
-tondi-rpc-service = { version = "1.21.0", path = "rpc/service" }
-tondi-txscript = { version = "1.21.0", path = "crypto/txscript" }
-tondi-txscript-errors = { version = "1.21.0", path = "crypto/txscript/errors" }
-tondi-utils = { version = "1.21.0", path = "utils" }
-tondi-utils-tower = { version = "1.21.0", path = "utils/tower" }
-tondi-wallet = { version = "1.21.0", path = "wallet/native" }
-tondi-wallet-cli-wasm = { version = "1.21.0", path = "wallet/wasm" }
-tondi-wallet-keys = { version = "1.21.0", path = "wallet/keys" }
-tondi-wallet-pstt = { version = "1.21.0", path = "wallet/pstt" }
-tondi-wallet-core = { version = "1.21.0", path = "wallet/core" }
-tondi-wallet-macros = { version = "1.21.0", path = "wallet/macros" }
-tondi-wasm = { version = "1.21.0", path = "wasm" }
-tondi-wasm-core = { version = "1.21.0", path = "wasm/core" }
-tondi-wrpc-client = { version = "1.21.0", path = "rpc/wrpc/client" }
-tondi-wrpc-server = { version = "1.21.0", path = "rpc/wrpc/server" }
-tondi-wrpc-wasm = { version = "1.21.0", path = "rpc/wrpc/wasm" }
+# spora-testing-integration = { version = "1.21.0", path = "testing/integration" }
+spora-addresses = { version = "1.21.0", path = "crypto/addresses" }
+spora-addressmanager = { version = "1.21.0", path = "components/addressmanager" }
+spora-bip32 = { version = "1.21.0", path = "wallet/bip32" }
+spora-cli = { version = "1.21.0", path = "cli" }
+spora-connectionmanager = { version = "1.21.0", path = "components/connectionmanager" }
+spora-consensus = { version = "1.21.0", path = "consensus" }
+spora-consensus-core = { version = "1.21.0", path = "consensus/core" }
+spora-consensus-client = { version = "1.21.0", path = "consensus/client" }
+spora-consensus-notify = { version = "1.21.0", path = "consensus/notify" }
+spora-consensus-wasm = { version = "1.21.0", path = "consensus/wasm" }
+spora-consensusmanager = { version = "1.21.0", path = "components/consensusmanager" }
+spora-core = { version = "1.21.0", path = "core" }
+spora-daemon = { version = "1.21.0", path = "daemon" }
+spora-database = { version = "1.21.0", path = "database" }
+spora-exec = { version = "1.21.0", path = "exec" }
+spora-grpc-client = { version = "1.21.0", path = "rpc/grpc/client" }
+spora-grpc-core = { version = "1.21.0", path = "rpc/grpc/core" }
+spora-grpc-server = { version = "1.21.0", path = "rpc/grpc/server" }
+spora-hashes = { version = "1.21.0", path = "crypto/hashes" }
+spora-index-core = { version = "1.21.0", path = "indexes/core" }
+spora-index-processor = { version = "1.21.0", path = "indexes/processor" }
+spora-math = { version = "1.21.0", path = "math" }
+spora-merkle = { version = "1.21.0", path = "crypto/merkle" }
+spora-metrics-core = { version = "1.21.0", path = "metrics/core" }
+spora-mining = { version = "1.21.0", path = "mining" }
+spora-mining-errors = { version = "1.21.0", path = "mining/errors" }
+spora-muhash = { version = "1.21.0", path = "crypto/muhash" }
+spora-notify = { version = "1.21.0", path = "notify" }
+spora-p2p-flows = { version = "1.21.0", path = "protocol/flows" }
+spora-p2p-lib = { version = "1.21.0", path = "protocol/p2p" }
+spora-p2p-mining = { version = "1.21.0", path = "protocol/mining" }
+spora-perf-monitor = { version = "1.21.0", path = "metrics/perf_monitor" }
+spora-pow = { version = "1.21.0", path = "consensus/pow" }
+spora-rpc-core = { version = "1.21.0", path = "rpc/core" }
+spora-rpc-macros = { version = "1.21.0", path = "rpc/macros" }
+spora-rpc-service = { version = "1.21.0", path = "rpc/service" }
+spora-txscript = { version = "1.21.0", path = "crypto/txscript" }
+spora-txscript-errors = { version = "1.21.0", path = "crypto/txscript/errors" }
+spora-utils = { version = "1.21.0", path = "utils" }
+spora-utils-tower = { version = "1.21.0", path = "utils/tower" }
+spora-wallet = { version = "1.21.0", path = "wallet/native" }
+spora-wallet-cli-wasm = { version = "1.21.0", path = "wallet/wasm" }
+spora-wallet-keys = { version = "1.21.0", path = "wallet/keys" }
+spora-wallet-pstt = { version = "1.21.0", path = "wallet/pstt" }
+spora-wallet-core = { version = "1.21.0", path = "wallet/core" }
+spora-wallet-macros = { version = "1.21.0", path = "wallet/macros" }
+spora-wasm = { version = "1.21.0", path = "wasm" }
+spora-wasm-core = { version = "1.21.0", path = "wasm/core" }
+spora-wrpc-client = { version = "1.21.0", path = "rpc/wrpc/client" }
+spora-wrpc-server = { version = "1.21.0", path = "rpc/wrpc/server" }
+spora-wrpc-wasm = { version = "1.21.0", path = "rpc/wrpc/wasm" }
 tondid = { version = "1.21.0", path = "tondid" }
-tondi-alloc = { version = "1.21.0", path = "utils/alloc" }
-tondi-adaptor = { version = "1.21.0", path = "sdk/adaptor" }
+spora-alloc = { version = "1.21.0", path = "utils/alloc" }
+spora-adaptor = { version = "1.21.0", path = "sdk/adaptor" }
 
 # external
 aes = "0.8.3"

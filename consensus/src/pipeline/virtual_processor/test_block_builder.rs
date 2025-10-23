@@ -3,10 +3,10 @@ use std::{ops::Deref, sync::Arc};
 use crate::model::stores::{
     cell_roots::CellRootsStoreReader, pruning::PruningStoreReader, virtual_state::VirtualStateStoreReader,
 };
-use tondi_consensus_core::{
+use spora_consensus_core::{
     block::BlockTemplate, blockhash::ORIGIN, coinbase::MinerData, errors::block::RuleError, tx::Transaction,
 };
-use tondi_hashes::Hash;
+use spora_hashes::Hash;
 
 use super::VirtualStateProcessor;
 

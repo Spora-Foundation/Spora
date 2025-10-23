@@ -195,7 +195,7 @@ pub fn blake2b_256(data: &[u8]) -> [u8; 32] {
 **SPORA (Blake3)**:
 ```rust
 // exec/src/celltx/sighash.rs
-pub const CELL_TXID_DOMAIN: &[u8] = b"tondi-cell/txid";
+pub const CELL_TXID_DOMAIN: &[u8] = b"spora-cell/txid";
 
 pub fn compute_txid(tx: &CellTx) -> [u8; 32] {
     let mut hasher = blake3::Hasher::new();
@@ -262,7 +262,7 @@ pub struct Header {
 **字段职责**：
 - **`cell_commitment`**: 共识层验证的"整体状态绑定"
   - v0 实现：当前使用 `multiset_hash`（过渡期）
-  - v1 目标：`H("tondi/cell_commitment/v1" || cell_root || segment_root || ...)`
+  - v1 目标：`H("spora/cell_commitment/v1" || cell_root || segment_root || ...)`
   - 用于：区块验证、pruning point 校验、重组检测
   
 - **`cell_root`**: 纯粹的 "live cells 状态根"

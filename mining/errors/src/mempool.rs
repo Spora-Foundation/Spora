@@ -1,5 +1,5 @@
 use thiserror::Error;
-use tondi_consensus_core::{
+use spora_consensus_core::{
     errors::tx::TxRuleError,
     tx::{TransactionId, TransactionOutpoint},
 };

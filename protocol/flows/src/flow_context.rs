@@ -27,41 +27,41 @@ use tokio::sync::{
     RwLock as AsyncRwLock,
 };
 use tokio_stream::{wrappers::UnboundedReceiverStream, StreamExt};
-use tondi_addressmanager::AddressManager;
-use tondi_connectionmanager::ConnectionManager;
-use tondi_consensus_core::block::Block;
-use tondi_consensus_core::config::Config;
-use tondi_consensus_core::errors::block::RuleError;
-use tondi_consensus_core::tx::{Transaction, TransactionId};
-use tondi_consensus_core::{
+use spora_addressmanager::AddressManager;
+use spora_connectionmanager::ConnectionManager;
+use spora_consensus_core::block::Block;
+use spora_consensus_core::config::Config;
+use spora_consensus_core::errors::block::RuleError;
+use spora_consensus_core::tx::{Transaction, TransactionId};
+use spora_consensus_core::{
     api::{BlockValidationFuture, BlockValidationFutures},
     network::NetworkType,
 };
-use tondi_consensus_notify::{
+use spora_consensus_notify::{
     notification::{Notification, PruningPointUtxoSetOverrideNotification},
     root::ConsensusNotificationRoot,
 };
-use tondi_consensusmanager::{BlockProcessingBatch, ConsensusInstance, ConsensusManager, ConsensusProxy, ConsensusSessionOwned};
-use tondi_core::{
+use spora_consensusmanager::{BlockProcessingBatch, ConsensusInstance, ConsensusManager, ConsensusProxy, ConsensusSessionOwned};
+use spora_core::{
     debug, info,
     task::tick::TickService,
     tondid_env::{name, version},
 };
-use tondi_core::{time::unix_now, warn};
-use tondi_hashes::Hash;
-use tondi_mining::mempool::tx::{Orphan, Priority};
-use tondi_mining::{manager::MiningManagerProxy, mempool::tx::RbfPolicy};
-use tondi_notify::notifier::Notify;
-use tondi_p2p_lib::{
+use spora_core::{time::unix_now, warn};
+use spora_hashes::Hash;
+use spora_mining::mempool::tx::{Orphan, Priority};
+use spora_mining::{manager::MiningManagerProxy, mempool::tx::RbfPolicy};
+use spora_notify::notifier::Notify;
+use spora_p2p_lib::{
     common::ProtocolError,
     convert::model::version::Version,
     make_message,
     pb::{tondid_message::Payload, InvRelayBlockMessage},
-    ConnectionInitializer, Hub, PeerKey, PeerProperties, Router, TondidHandshake,
+    ConnectionInitializer, Hub, PeerKey, PeerProperties, Router, SporadHandshake,
 };
-use tondi_p2p_mining::rule_engine::MiningRuleEngine;
-use tondi_utils::iter::IterExtensions;
-use tondi_utils::networking::PeerId;
+use spora_p2p_mining::rule_engine::MiningRuleEngine;
+use spora_utils::iter::IterExtensions;
+use spora_utils::networking::PeerId;
 use uuid::Uuid;
 
 /// The P2P protocol version.
@@ -560,7 +560,7 @@ impl FlowContext {
     /// Updates the mempool after a new block arrival, relays newly unorphaned transactions
     /// and possibly rebroadcast manually added transactions when not in IBD.
     ///
-    /// _GO-TondiD: OnNewBlock + broadcastTransactionsAfterBlockAdded_
+    /// _GO-SporaD: OnNewBlock + broadcastTransactionsAfterBlockAdded_
     pub async fn on_new_block(
         &self,
         consensus: &ConsensusProxy,
@@ -743,7 +743,7 @@ impl FlowContext {
 impl ConnectionInitializer for FlowContext {
     async fn initialize_connection(&self, router: Arc<Router>) -> Result<(), ProtocolError> {
         // Build the handshake object and subscribe to handshake messages
-        let mut handshake = TondidHandshake::new(&router);
+        let mut handshake = SporadHandshake::new(&router);
 
         // We start the router receive loop only after we registered to handshake routes
         router.start();

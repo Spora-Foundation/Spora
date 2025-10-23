@@ -4,18 +4,18 @@
 
 use crate::imports::*;
 use crate::result::Result;
-use tondi_consensus_core::hashing::sighash::SigHashReusedValues;
-use tondi_consensus_core::hashing::*;
-use tondi_consensus_core::hashing::sighash_type::{SigHashType, SIG_HASH_ALL};
-use tondi_consensus_core::subnets::SUBNETWORK_ID_NATIVE;
-use tondi_consensus_core::tx::{TransactionOutpoint, TransactionOutput, VerifiableTransaction};
-// use tondi_hashes::{Hash, Hasher, HasherBase, TransactionSigningHash};
+use spora_consensus_core::hashing::sighash::SigHashReusedValues;
+use spora_consensus_core::hashing::*;
+use spora_consensus_core::hashing::sighash_type::{SigHashType, SIG_HASH_ALL};
+use spora_consensus_core::subnets::SUBNETWORK_ID_NATIVE;
+use spora_consensus_core::tx::{TransactionOutpoint, TransactionOutput, VerifiableTransaction};
+// use spora_hashes::{Hash, Hasher, HasherBase, TransactionSigningHash};
 use crate::transaction::{Transaction,ITransaction};
 use crate::input::{ITransactionInput, TransactionInput};
 use crate::utxo::{IUtxoEntry,UtxoEntryReference};
-use tondi_hashes::{Hash, Hasher, HasherBase, TransactionSigningHash, TransactionSigningHashECDSA, ZERO_HASH};
-use tondi_consensus_core::hashing::HasherExtensions;
-use tondi_consensus_core::hashing::sighash::*;
+use spora_hashes::{Hash, Hasher, HasherBase, TransactionSigningHash, TransactionSigningHashECDSA, ZERO_HASH};
+use spora_consensus_core::hashing::HasherExtensions;
+use spora_consensus_core::hashing::sighash::*;
 
 #[derive(Default)]
 #[wasm_bindgen]

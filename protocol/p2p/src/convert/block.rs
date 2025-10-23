@@ -1,6 +1,6 @@
 use super::{error::ConversionError, option::TryIntoOptionEx};
 use crate::pb as protowire;
-use tondi_consensus_core::{block::Block, tx::{Transaction, CellTx}};
+use spora_consensus_core::{block::Block, tx::{Transaction, CellTx}};
 
 // ----------------------------------------------------------------------------
 // consensus_core to protowire

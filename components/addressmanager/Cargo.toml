@@ -1,6 +1,6 @@
 [package]
-name = "tondi-addressmanager"
-description = "Tondi address manager"
+name = "spora-addressmanager"
+description = "Spora address manager"
 rust-version.workspace = true
 version.workspace = true
 edition.workspace = true
@@ -13,10 +13,10 @@ repository.workspace = true
 borsh.workspace = true
 igd-next.workspace = true
 itertools.workspace = true
-tondi-consensus-core.workspace = true
-tondi-core.workspace = true
-tondi-database.workspace = true
-tondi-utils.workspace = true
+spora-consensus-core.workspace = true
+spora-core.workspace = true
+spora-database.workspace = true
+spora-utils.workspace = true
 local-ip-address.workspace = true
 log.workspace = true
 parking_lot.workspace = true

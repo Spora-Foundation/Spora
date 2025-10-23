@@ -48,18 +48,18 @@ macro_rules! full_featured {
             $($(#[$variant_meta])* $variant_name($field_name)),*
         }
 
-        impl std::convert::From<&$name> for tondi_notify::events::EventType {
+        impl std::convert::From<&$name> for spora_notify::events::EventType {
             fn from(value: &$name) -> Self {
                 match value {
-                    $($name::$variant_name(_) => tondi_notify::events::EventType::$variant_name),*
+                    $($name::$variant_name(_) => spora_notify::events::EventType::$variant_name),*
                 }
             }
         }
 
-        impl std::convert::From<&$name> for tondi_notify::scope::Scope {
+        impl std::convert::From<&$name> for spora_notify::scope::Scope {
             fn from(value: &$name) -> Self {
                 match value {
-                    $($name::$variant_name(_) => tondi_notify::scope::Scope::$variant_name(tondi_notify::scope::[<$variant_name Scope>]::default())),*
+                    $($name::$variant_name(_) => spora_notify::scope::Scope::$variant_name(spora_notify::scope::[<$variant_name Scope>]::default())),*
                 }
             }
         }
@@ -81,8 +81,8 @@ pub mod test_helpers {
     use super::*;
     use derive_more::Display;
     use std::sync::Arc;
-    use tondi_addresses::Address;
-    use tondi_core::trace;
+    use spora_addresses::Address;
+    use spora_core::trace;
 
     #[derive(Clone, Debug, Default, PartialEq, Eq)]
     pub struct BlockAddedNotification {

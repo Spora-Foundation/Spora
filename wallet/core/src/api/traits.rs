@@ -1,5 +1,5 @@
 //!
-//! API trait for interfacing with the Tondi wallet subsystem.
+//! API trait for interfacing with the Spora wallet subsystem.
 //!
 //! The wallet API is a high-level API that allows applications to perform
 //! wallet operations such as creating a wallet, opening a wallet, creating
@@ -14,7 +14,7 @@ use crate::tx::GeneratorSummary;
 use workflow_core::channel::Receiver;
 
 ///
-///  API trait for interfacing with the Tondi wallet subsystem.
+///  API trait for interfacing with the Spora wallet subsystem.
 ///
 #[async_trait]
 pub trait WalletApi: Send + Sync + AnySync {
@@ -163,7 +163,7 @@ pub trait WalletApi: Send + Sync + AnySync {
 
     /// Opens a wallet. A wallet is opened by it's `filename`, which is available
     /// as a part of the `WalletDescriptor` struct returned during the `wallet_enumerate_call()` call.
-    /// If the `filename` is `None`, the wallet opens the default wallet named `tondi`.
+    /// If the `filename` is `None`, the wallet opens the default wallet named `spora`.
     ///
     /// If `account_descriptors` is true, this call will return `Some(Vec<AccountDescriptor>)`
     /// for all accounts in the wallet.

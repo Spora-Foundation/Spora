@@ -204,7 +204,7 @@ impl<D: CellDataProvider> TransactionScriptVerifier<D> {
         syscalls.push(Box::new(CurrentCycles::new()));
         syscalls.push(Box::new(Debugger::new(group.script.code_hash)));
 
-        // Tondi extensions
+        // Spora extensions
         syscalls.push(Box::new(Blake3Hash::new()));
 
         syscalls

@@ -10,12 +10,12 @@ use crate::rpc::DynRpcApi;
 use crate::tx::{DataKind, Generator, MAXIMUM_STANDARD_TRANSACTION_MASS};
 use crate::utxo::{UtxoContext, UtxoEntryId, UtxoEntryReference};
 use secp256k1::Message;
-use tondi_consensus_core::hashing::sighash::{calc_schnorr_signature_hash, SigHashReusedValuesUnsync};
-use tondi_consensus_core::hashing::sighash_type::{SigHashType, SIG_HASH_ALL};
-use tondi_consensus_core::sign::{sign_input, sign_with_multiple_v2, Signed};
-use tondi_consensus_core::tx::{SignableTransaction, Transaction, TransactionId, TransactionInput, TransactionOutput};
-use tondi_rpc_core::{RpcTransaction, RpcTransactionId};
-use tondi_txscript::{pay_to_pub_key_with_lock_time, pay_to_script_hash_signature_script};
+use spora_consensus_core::hashing::sighash::{calc_schnorr_signature_hash, SigHashReusedValuesUnsync};
+use spora_consensus_core::hashing::sighash_type::{SigHashType, SIG_HASH_ALL};
+use spora_consensus_core::sign::{sign_input, sign_with_multiple_v2, Signed};
+use spora_consensus_core::tx::{SignableTransaction, Transaction, TransactionId, TransactionInput, TransactionOutput};
+use spora_rpc_core::{RpcTransaction, RpcTransactionId};
+use spora_txscript::{pay_to_pub_key_with_lock_time, pay_to_script_hash_signature_script};
 
 pub(crate) struct PendingTransactionInner {
     /// Generator that produced the transaction

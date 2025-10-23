@@ -3,7 +3,7 @@ use std::{
     collections::{BTreeMap, HashMap},
     sync::Arc,
 };
-use tondi_consensus_core::{
+use spora_consensus_core::{
     block::TemplateTransactionSelector,
     tx::{Transaction, TransactionId, CellTx},
 };

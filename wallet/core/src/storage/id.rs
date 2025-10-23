@@ -5,8 +5,8 @@
 use std::cmp::Eq;
 use std::fmt::Debug;
 use std::hash::Hash;
-use tondi_consensus_core::tx::TransactionId;
-use tondi_utils::hex::ToHex;
+use spora_consensus_core::tx::TransactionId;
+use spora_utils::hex::ToHex;
 
 use crate::deterministic::AccountId;
 use crate::storage::{AccountStorage, PrvKeyData, PrvKeyDataId, PrvKeyDataInfo, TransactionRecord};

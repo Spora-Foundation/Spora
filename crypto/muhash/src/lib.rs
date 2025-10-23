@@ -10,8 +10,8 @@ use rand_chacha::ChaCha20Rng;
 use serde::{Deserialize, Serialize};
 use std::error::Error;
 use std::fmt::Display;
-use tondi_hashes::{Hash, Hasher, HasherBase, MuHashElementHash, MuHashFinalizeHash};
-use tondi_math::Uint3072;
+use spora_hashes::{Hash, Hasher, HasherBase, MuHashElementHash, MuHashFinalizeHash};
+use spora_math::Uint3072;
 
 pub const HASH_SIZE: usize = 32;
 pub const SERIALIZED_MUHASH_SIZE: usize = ELEMENT_BYTE_SIZE;
@@ -189,7 +189,7 @@ mod tests {
     use crate::{MuHash, EMPTY_MUHASH, U3072};
     use rand::{Rng, SeedableRng};
     use rand_chacha::ChaCha8Rng;
-    use tondi_hashes::Hash;
+    use spora_hashes::Hash;
 
     struct TestVector {
         data: &'static [u8],

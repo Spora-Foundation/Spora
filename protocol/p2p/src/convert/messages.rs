@@ -7,13 +7,13 @@ use super::{
     option::TryIntoOptionEx,
 };
 use crate::pb as protowire;
-use tondi_consensus_core::{
+use spora_consensus_core::{
     header::Header,
     pruning::{PruningPointProof, PruningPointsList},
     tx::{TransactionId, TransactionOutpoint, UtxoEntry},
 };
-use tondi_hashes::Hash;
-use tondi_utils::networking::{IpAddress, PeerId};
+use spora_hashes::Hash;
+use spora_utils::networking::{IpAddress, PeerId};
 
 use std::sync::Arc;
 

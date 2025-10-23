@@ -1,5 +1,5 @@
 /// Re-export errors
-pub use tondi_mining_errors::mempool::*;
+pub use spora_mining_errors::mempool::*;
 
 use crate::model::topological_index::TopologicalIndexError;
 

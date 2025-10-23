@@ -4,7 +4,7 @@ use core::iter;
 use std::cmp::Ordering;
 use std::num::TryFromIntError;
 use std::ops::Deref;
-use tondi_txscript_errors::SerializationError;
+use spora_txscript_errors::SerializationError;
 
 #[derive(PartialEq, Eq, Debug, Default, PartialOrd, Ord)]
 pub(crate) struct SizedEncodeInt<const LEN: usize>(pub(crate) i64);
@@ -345,7 +345,7 @@ impl DataStack for Stack {
 mod tests {
     use super::{Kip10I64, OpcodeData};
     use crate::data_stack::SizedEncodeInt;
-    use tondi_txscript_errors::{SerializationError, TxScriptError};
+    use spora_txscript_errors::{SerializationError, TxScriptError};
 
     // TestScriptNumBytes
     #[test]

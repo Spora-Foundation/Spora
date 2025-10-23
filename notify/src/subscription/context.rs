@@ -9,7 +9,7 @@ use crate::{
 use std::{ops::Deref, sync::Arc};
 
 #[cfg(test)]
-use tondi_addresses::Address;
+use spora_addresses::Address;
 
 #[derive(Debug)]
 pub struct SubscriptionContextInner {
@@ -84,15 +84,15 @@ mod tests {
     };
     use itertools::Itertools;
     use std::collections::{HashMap, HashSet};
-    use tondi_addresses::{Address, Prefix};
-    use tondi_alloc::init_allocator_with_default_settings;
-    use tondi_core::trace;
-    use tondi_math::Uint256;
+    use spora_addresses::{Address, Prefix};
+    use spora_alloc::init_allocator_with_default_settings;
+    use spora_core::trace;
+    use spora_math::Uint256;
     use workflow_perf_monitor::mem::get_process_memory_info;
 
     fn create_addresses(count: usize) -> Vec<Address> {
         (0..count)
-            .map(|i| Address::new(Prefix::Mainnet, tondi_addresses::Version::PubKey, &Uint256::from_u64(i as u64).to_le_bytes()).expect("Valid address"))
+            .map(|i| Address::new(Prefix::Mainnet, spora_addresses::Version::PubKey, &Uint256::from_u64(i as u64).to_le_bytes()).expect("Valid address"))
             .collect()
     }
 
@@ -137,7 +137,7 @@ mod tests {
         length_and_capacity: F2,
     ) -> Vec<T> {
         init_allocator_with_default_settings();
-        tondi_core::log::try_init_logger("INFO,tondi_notify::subscription::context=trace");
+        spora_core::log::try_init_logger("INFO,spora_notify::subscription::context=trace");
         measure_consumed_memory(item_len, num_items, ctor, length_and_capacity)
     }
 
@@ -161,7 +161,7 @@ mod tests {
         const NUM_ITEMS: usize = 5;
 
         init_allocator_with_default_settings();
-        tondi_core::log::try_init_logger("INFO,tondi_notify::subscription::context=trace");
+        spora_core::log::try_init_logger("INFO,spora_notify::subscription::context=trace");
 
         trace!("Creating addresses...");
         let addresses = create_addresses(ITEM_LEN);
@@ -392,7 +392,7 @@ mod tests {
     //     const NUM_ITEMS: usize = 1_000_000;
 
     //     init_allocator_with_default_settings();
-    //     tondi_core::log::try_init_logger("INFO,tondi_notify::subscription::context=trace");
+    //     spora_core::log::try_init_logger("INFO,spora_notify::subscription::context=trace");
 
     //     let before = get_process_memory_info().unwrap();
     //     trace!("Creating sets...");

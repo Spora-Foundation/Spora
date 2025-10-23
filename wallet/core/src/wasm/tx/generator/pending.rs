@@ -2,12 +2,12 @@ use crate::imports::*;
 use crate::result::Result;
 use crate::tx::generator as native;
 use crate::wasm::PrivateKeyArrayT;
-use tondi_consensus_client::{numeric, string};
-use tondi_consensus_client::{Transaction, TransactionT};
-use tondi_consensus_core::hashing::wasm::SighashType;
-use tondi_wallet_keys::privatekey::PrivateKey;
-use tondi_wasm_core::types::{BinaryT, HexString};
-use tondi_wrpc_wasm::RpcClient;
+use spora_consensus_client::{numeric, string};
+use spora_consensus_client::{Transaction, TransactionT};
+use spora_consensus_core::hashing::wasm::SighashType;
+use spora_wallet_keys::privatekey::PrivateKey;
+use spora_wasm_core::types::{BinaryT, HexString};
+use spora_wrpc_wasm::RpcClient;
 
 /// @category Wallet SDK
 #[wasm_bindgen(inspectable)]
@@ -132,7 +132,7 @@ impl PendingTransaction {
             let keys = keys
                 .iter()
                 .map(PrivateKey::try_owned_from)
-                .collect::<std::result::Result<Vec<_>, tondi_wallet_keys::error::Error>>()?;
+                .collect::<std::result::Result<Vec<_>, spora_wallet_keys::error::Error>>()?;
             let mut keys = keys.iter().map(|key| key.secret_bytes()).collect::<Vec<_>>();
             self.inner.try_sign_with_keys(&keys, check_fully_signed)?;
             keys.zeroize();

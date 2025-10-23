@@ -1,6 +1,6 @@
 use crate::{
     error::{Error, Result},
-    resolver::{Resolver, TondidMessageReceiver, TondidMessageSender},
+    resolver::{Resolver, SporadMessageReceiver, SporadMessageSender},
 };
 use std::{
     collections::HashMap,
@@ -8,20 +8,20 @@ use std::{
     time::Instant,
 };
 use tokio::sync::oneshot;
-use tondi_core::trace;
-use tondi_grpc_core::{
-    ops::TondidPayloadOps,
-    protowire::{TondidRequest, TondidResponse},
+use spora_core::trace;
+use spora_grpc_core::{
+    ops::SporadPayloadOps,
+    protowire::{SporadRequest, SporadResponse},
 };
 
 #[derive(Debug)]
 struct Pending {
     timestamp: Instant,
-    sender: TondidMessageSender,
+    sender: SporadMessageSender,
 }
 
 impl Pending {
-    fn new(sender: TondidMessageSender) -> Self {
+    fn new(sender: SporadMessageSender) -> Self {
         Self { timestamp: Instant::now(), sender }
     }
 }
@@ -38,8 +38,8 @@ impl IdResolver {
 }
 
 impl Resolver for IdResolver {
-    fn register_request(&self, _: TondidPayloadOps, request: &TondidRequest) -> TondidMessageReceiver {
-        let (sender, receiver) = oneshot::channel::<Result<TondidResponse>>();
+    fn register_request(&self, _: SporadPayloadOps, request: &SporadRequest) -> SporadMessageReceiver {
+        let (sender, receiver) = oneshot::channel::<Result<SporadResponse>>();
         {
             let mut pending_calls = self.pending_calls.lock().unwrap();
             pending_calls.insert(request.id, Pending::new(sender));
@@ -48,7 +48,7 @@ impl Resolver for IdResolver {
         receiver
     }
 
-    fn handle_response(&self, response: TondidResponse) {
+    fn handle_response(&self, response: SporadResponse) {
         match self.pending_calls.lock().unwrap().remove(&response.id) {
             Some(pending) => {
                 trace!("[Resolver] handle_response has matching request with id {}", response.id);

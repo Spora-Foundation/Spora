@@ -1,14 +1,14 @@
 // @ts-ignore
 globalThis.WebSocket = require('websocket').w3cwebsocket; // W3C WebSocket module shim
 
-const tondi = require('../../../../nodejs/tondi');
+const spora = require('../../../../nodejs/spora');
 const { parseArgs } = require("../utils");
 const {
     RpcClient,
     Resolver,
-} = tondi;
+} = spora;
 
-tondi.initConsolePanicHook();
+spora.initConsolePanicHook();
 
 const {
     networkId,
@@ -27,8 +27,8 @@ const {
     await rpc.connect();
     console.log(`Connecting to ${rpc.url}`)
 
-    const info = await rpc.getBalancesByAddresses({ addresses : ["tondi:qpamkvhgh0kzx50gwvvp5xs8ktmqutcy3dfs9dc3w7lm9rq0zs76vf959mmrp"]});
-    // const info = await rpc.getBalancesByAddresses(["tondi:qpamkvhgh0kzx50gwvvp5xs8ktmqutcy3dfs9dc3w7lm9rq0zs76vf959mmrp"]);
+    const info = await rpc.getBalancesByAddresses({ addresses : ["spora:qpamkvhgh0kzx50gwvvp5xs8ktmqutcy3dfs9dc3w7lm9rq0zs76vf959mmrp"]});
+    // const info = await rpc.getBalancesByAddresses(["spora:qpamkvhgh0kzx50gwvvp5xs8ktmqutcy3dfs9dc3w7lm9rq0zs76vf959mmrp"]);
     console.log("GetBalancesByAddresses response:", info);
 
     await rpc.disconnect();

@@ -1,5 +1,5 @@
 //!
-//! Tondi core wallet account variant implementations.
+//! Spora core wallet account variant implementations.
 //!
 
 pub mod bip32;

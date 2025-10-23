@@ -6,12 +6,12 @@ use async_trait::async_trait;
 use parking_lot::Mutex;
 use std::sync::Arc;
 use tokio::task::JoinHandle;
-use tondi_addresses::Address;
-use tondi_core::warn;
-use tondi_grpc_client::GrpcClient;
-use tondi_notify::{listener::ListenerId, scope::NewBlockTemplateScope};
-use tondi_rpc_core::{api::rpc::RpcApi, GetBlockTemplateResponse, Notification};
-use tondi_utils::{channel::Channel, triggers::SingleTrigger};
+use spora_addresses::Address;
+use spora_core::warn;
+use spora_grpc_client::GrpcClient;
+use spora_notify::{listener::ListenerId, scope::NewBlockTemplateScope};
+use spora_rpc_core::{api::rpc::RpcApi, GetBlockTemplateResponse, Notification};
+use spora_utils::{channel::Channel, triggers::SingleTrigger};
 
 pub struct BlockTemplateReceiverTask {
     client: Arc<GrpcClient>,

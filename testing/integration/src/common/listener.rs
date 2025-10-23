@@ -1,7 +1,7 @@
 use async_channel::Receiver;
-use tondi_grpc_client::GrpcClient;
-use tondi_notify::{connection::ChannelType, events::EventType, listener::ListenerId, scope::Scope, subscription::Command};
-use tondi_rpc_core::{api::rpc::RpcApi, notify::connection::ChannelConnection, Notification, RpcResult};
+use spora_grpc_client::GrpcClient;
+use spora_notify::{connection::ChannelType, events::EventType, listener::ListenerId, scope::Scope, subscription::Command};
+use spora_rpc_core::{api::rpc::RpcApi, notify::connection::ChannelConnection, Notification, RpcResult};
 
 /// An event type bound notification listener
 #[derive(Clone)]

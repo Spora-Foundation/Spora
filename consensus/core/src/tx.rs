@@ -16,8 +16,8 @@ pub use script_public_key::{
 };
 use serde::{Deserialize, Serialize};
 
-// Re-export CellTx from tondi-exec (Cell model)
-pub use tondi_exec::celltx::{CellTx, CellRef, CellOut, OutPoint, ScriptRef, CellDep, DepType};
+// Re-export CellTx from spora-exec (Cell model)
+pub use spora_exec::celltx::{CellTx, CellRef, CellOut, OutPoint, ScriptRef, CellDep, DepType};
 use std::collections::HashSet;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering::SeqCst;
@@ -26,9 +26,9 @@ use std::{
     ops::Range,
     str::{self},
 };
-use tondi_utils::hex::ToHex;
-use tondi_utils::mem_size::MemSizeEstimator;
-use tondi_utils::{serde_bytes, serde_bytes_fixed_ref};
+use spora_utils::hex::ToHex;
+use spora_utils::mem_size::MemSizeEstimator;
+use spora_utils::{serde_bytes, serde_bytes_fixed_ref};
 use wasm_bindgen::prelude::*;
 
 use crate::mass::{ContextualMasses, NonContextualMasses};
@@ -39,8 +39,8 @@ use crate::{
 
 /// COINBASE_TRANSACTION_INDEX is the index of the coinbase transaction in every block
 pub const COINBASE_TRANSACTION_INDEX: usize = 0;
-/// A 32-byte Tondi transaction identifier.
-pub type TransactionId = tondi_hashes::Hash;
+/// A 32-byte Spora transaction identifier.
+pub type TransactionId = spora_hashes::Hash;
 
 /// Holds details about an individual transaction output in a utxo
 /// set such as whether or not it was contained in a coinbase tx, the daa
@@ -70,7 +70,7 @@ impl MemSizeEstimator for UtxoEntry {}
 
 pub type TransactionIndexType = u32;
 
-/// Represents a Tondi transaction outpoint
+/// Represents a Spora transaction outpoint
 #[derive(Eq, Default, Hash, PartialEq, PartialOrd, Ord, Debug, Copy, Clone, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TransactionOutpoint {
@@ -91,7 +91,7 @@ impl Display for TransactionOutpoint {
     }
 }
 
-/// Represents a Tondi transaction input
+/// Represents a Spora transaction input
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TransactionInput {
@@ -126,7 +126,7 @@ impl std::fmt::Debug for TransactionInput {
     }
 }
 
-/// Represents a Tondid transaction output
+/// Represents a Sporad transaction output
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TransactionOutput {
@@ -170,7 +170,7 @@ impl BorshSerialize for TransactionMass {
     }
 }
 
-/// Represents a Tondi transaction
+/// Represents a Spora transaction
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Transaction {
@@ -622,7 +622,7 @@ mod tests {
         let tx = test_transaction();
         let bts = bincode::serialize(&tx).unwrap();
 
-        // standard, based on https://github.com/AvatoLabs/Tondi/commit/7e947a06d2434daf4bc7064d4cd87dc1984b56fe
+        // standard, based on https://github.com/AvatoLabs/Spora/commit/7e947a06d2434daf4bc7064d4cd87dc1984b56fe
         let expected_bts = vec![
             1, 0, 2, 0, 0, 0, 0, 0, 0, 0, 22, 94, 56, 232, 179, 145, 69, 149, 217, 198, 65, 243, 184, 238, 194, 243, 70, 17, 137, 107,
             130, 26, 104, 59, 122, 78, 222, 254, 44, 0, 0, 0, 250, 255, 255, 255, 32, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8,
@@ -725,7 +725,7 @@ mod tests {
     // use wasm_bindgen_test::wasm_bindgen_test;
     // #[wasm_bindgen_test]
     // pub fn test_wasm_serde_spk_constructor() {
-    //     let str = "tondi:qpauqsvk7yf9unexwmxsnmg547mhyga37csh0kj53q6xxgl24ydxjsgzthw5j";
+    //     let str = "spora:qpauqsvk7yf9unexwmxsnmg547mhyga37csh0kj53q6xxgl24ydxjsgzthw5j";
     //     let a = Address::constructor(str);
     //     let value = to_value(&a).unwrap();
     //
@@ -736,14 +736,14 @@ mod tests {
     //
     // #[wasm_bindgen_test]
     // pub fn test_wasm_js_serde_spk_object() {
-    //     let expected = Address::constructor("tondi:qpauqsvk7yf9unexwmxsnmg547mhyga37csh0kj53q6xxgl24ydxjsgzthw5j");
+    //     let expected = Address::constructor("spora:qpauqsvk7yf9unexwmxsnmg547mhyga37csh0kj53q6xxgl24ydxjsgzthw5j");
     //
     //     use web_sys::console;
     //     console::log_4(&"address: ".into(), &expected.version().into(), &expected.prefix().into(), &expected.payload().into());
     //
     //     let obj = Object::new();
     //     obj.set("version", &JsValue::from_str("PubKey")).unwrap();
-    //     obj.set("prefix", &JsValue::from_str("tondi")).unwrap();
+    //     obj.set("prefix", &JsValue::from_str("spora")).unwrap();
     //     obj.set("payload", &JsValue::from_str("qpauqsvk7yf9unexwmxsnmg547mhyga37csh0kj53q6xxgl24ydxjsgzthw5j")).unwrap();
     //
     //     assert_eq!(JsValue::from_str("object"), obj.js_typeof());
@@ -757,7 +757,7 @@ mod tests {
     // pub fn test_wasm_serde_spk_object() {
     //     use wasm_bindgen::convert::IntoWasmAbi;
     //
-    //     let expected = Address::constructor("tondi:qpauqsvk7yf9unexwmxsnmg547mhyga37csh0kj53q6xxgl24ydxjsgzthw5j");
+    //     let expected = Address::constructor("spora:qpauqsvk7yf9unexwmxsnmg547mhyga37csh0kj53q6xxgl24ydxjsgzthw5j");
     //     let wasm_js_value: JsValue = expected.clone().into_abi().into();
     //
     //     // use web_sys::console;

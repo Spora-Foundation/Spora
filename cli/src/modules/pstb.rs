@@ -1,21 +1,21 @@
 #![allow(unused_imports)]
 
 use crate::imports::*;
-use tondi_addresses::Prefix;
-use tondi_consensus_core::tx::{TransactionOutpoint, UtxoEntry};
-use tondi_wallet_core::account::pstb::finalize_pstt_one_or_more_sig_and_redeem_script;
-use tondi_wallet_pstt::{
+use spora_addresses::Prefix;
+use spora_consensus_core::tx::{TransactionOutpoint, UtxoEntry};
+use spora_wallet_core::account::pstb::finalize_pstt_one_or_more_sig_and_redeem_script;
+use spora_wallet_pstt::{
     prelude::{lock_script_sig_templating, script_sig_to_address, unlock_utxos_as_pstb, Bundle, Signer, PSTT},
     pstt::Inner,
 };
 
 #[derive(Default, Handler)]
-#[help("Send a Tondi transaction to a public address")]
+#[help("Send a Spora transaction to a public address")]
 pub struct Pstb;
 
 impl Pstb {
     async fn main(self: Arc<Self>, ctx: &Arc<dyn Context>, mut argv: Vec<String>, _cmd: &str) -> Result<()> {
-        let ctx = ctx.clone().downcast_arc::<TondiCli>()?;
+        let ctx = ctx.clone().downcast_arc::<SporaCli>()?;
 
         if !ctx.wallet().is_open() {
             return Err(Error::WalletIsNotOpen);
@@ -117,7 +117,7 @@ impl Pstb {
                         }
 
                         // Get locked UTXO set.
-                        let spend_utxos: Vec<tondi_rpc_core::RpcUtxosByAddressesEntry> =
+                        let spend_utxos: Vec<spora_rpc_core::RpcUtxosByAddressesEntry> =
                             ctx.wallet().rpc_api().get_utxos_by_addresses(vec![script_p2sh.clone()]).await?;
                         let _priority_fee_sau = try_parse_optional_tondi_as_sau_i64(argv.first())?.unwrap_or(0) as u64;
 
@@ -133,7 +133,7 @@ impl Pstb {
 
                         tprintln!(
                             ctx,
-                            "{} locked UTXO{} found with total amount of {} TONDI",
+                            "{} locked UTXO{} found with total amount of {} SPORA",
                             spend_utxos.len(),
                             if spend_utxos.len() == 1 { "" } else { "s" },
                             sau_to_tondi(total_locked_sau)
@@ -247,7 +247,7 @@ impl Pstb {
         }
     }
 
-    async fn display_help(self: Arc<Self>, ctx: Arc<TondiCli>, _argv: Vec<String>) -> Result<()> {
+    async fn display_help(self: Arc<Self>, ctx: Arc<SporaCli>, _argv: Vec<String>) -> Result<()> {
         ctx.term().help(
             &[
                 ("pstb create <address> <amount> <priority fee>", "Create a PSTB from single send transaction"),

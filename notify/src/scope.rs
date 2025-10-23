@@ -2,7 +2,7 @@ use super::events::EventType;
 use borsh::{BorshDeserialize, BorshSerialize};
 use derive_more::Display;
 use serde::{Deserialize, Serialize};
-use tondi_addresses::Address;
+use spora_addresses::Address;
 use workflow_serializer::prelude::*;
 
 macro_rules! scope_enum {
@@ -18,7 +18,7 @@ macro_rules! scope_enum {
             impl std::convert::From<EventType> for $name {
                 fn from(value: EventType) -> Self {
                     match value {
-                        $(EventType::$variant_name => $name::$variant_name(tondi_notify::scope::[<$variant_name Scope>]::default())),*
+                        $(EventType::$variant_name => $name::$variant_name(spora_notify::scope::[<$variant_name Scope>]::default())),*
                     }
                 }
             }

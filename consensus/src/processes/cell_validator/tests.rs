@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ISC
-// Copyright (C) 2025Tondi developers
+// Copyright (C) 2025 Spora developers
 //
 // Cell validator tests
 
@@ -11,8 +11,8 @@ mod tests {
         cell_validation_in_isolation, cell_validation_in_context, cell_validation_in_dag,
         CellStateProvider, DagCellProvider
     };
-    use tondi_consensus_core::cell_metadata::CellMetadata;
-    use tondi_exec::{CellTx, CellRef, CellOut, ScriptRef, OutPoint};
+    use spora_consensus_core::cell_metadata::CellMetadata;
+    use spora_exec::{CellTx, CellRef, CellOut, ScriptRef, OutPoint};
     use std::collections::HashMap;
     use std::sync::Arc;
 
@@ -76,7 +76,7 @@ mod tests {
                 data_hash: [0; 32],
                 block_daa_score: 50,
                 is_cellbase: false,
-                block_hash: tondi_hashes::Hash::from_bytes([0; 32]),
+                block_hash: spora_hashes::Hash::from_bytes([0; 32]),
                 lock_code_hash: None,
                 type_code_hash: None,
                 data: None,
@@ -107,7 +107,7 @@ mod tests {
                 data_hash: [0; 32],
                 block_daa_score: 50,
                 is_cellbase: true,
-                block_hash: tondi_hashes::Hash::from_bytes([0; 32]),
+                block_hash: spora_hashes::Hash::from_bytes([0; 32]),
                 lock_code_hash: None,
                 type_code_hash: None,
                 data: None,

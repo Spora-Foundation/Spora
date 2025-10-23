@@ -1,6 +1,6 @@
-use tondi_wallet_core::account::BIP32_ACCOUNT_KIND;
-use tondi_wallet_core::account::LEGACY_ACCOUNT_KIND;
-use tondi_wallet_core::account::MULTISIG_ACCOUNT_KIND;
+use spora_wallet_core::account::BIP32_ACCOUNT_KIND;
+use spora_wallet_core::account::LEGACY_ACCOUNT_KIND;
+use spora_wallet_core::account::MULTISIG_ACCOUNT_KIND;
 
 use crate::imports::*;
 use crate::wizards;
@@ -11,7 +11,7 @@ pub struct Account;
 
 impl Account {
     async fn main(self: Arc<Self>, ctx: &Arc<dyn Context>, mut argv: Vec<String>, _cmd: &str) -> Result<()> {
-        let ctx = ctx.clone().downcast_arc::<TondiCli>()?;
+        let ctx = ctx.clone().downcast_arc::<SporaCli>()?;
         let wallet = ctx.wallet();
 
         if !wallet.is_open() {
@@ -71,11 +71,11 @@ impl Account {
                     tprintln!(ctx, "");
                     ctx.term().help(
                         &[
-                            ("account import legacy-data", "Import KDX keydata file or tondinet web wallet data on the same domain"),
-                            ("account import mnemonic bip32", "Import Bip32 (12 or 24 word mnemonics used by tondiwallet.)"),
+                            ("account import legacy-data", "Import KDX keydata file or sporanet web wallet data on the same domain"),
+                            ("account import mnemonic bip32", "Import Bip32 (12 or 24 word mnemonics used by sporawallet.)"),
                             (
                                 "account import mnemonic legacy",
-                                "Import accounts 12 word mnemonic used by legacy applications (KDX and tondinet web wallet)",
+                                "Import accounts 12 word mnemonic used by legacy applications (KDX and sporanet web wallet)",
                             ),
                             (
                                 "account import mnemonic multisig [additional keys]",
@@ -118,7 +118,7 @@ impl Account {
                                         if let Some(txid) = txid {
                                             tprintln!(
                                                 ctx_,
-                                                "Scan detected {} TONDI at index {}; transfer txid: {}",
+                                                "Scan detected {} SPORA at index {}; transfer txid: {}",
                                                 sau_to_tondi_string(balance),
                                                 processed,
                                                 txid
@@ -126,7 +126,7 @@ impl Account {
                                         } else if processed > 0 {
                                             tprintln!(
                                                 ctx_,
-                                                "Scanned {} derivations, found {} TONDI",
+                                                "Scanned {} derivations, found {} SPORA",
                                                 processed,
                                                 sau_to_tondi_string(balance)
                                             );
@@ -146,7 +146,7 @@ impl Account {
                         if argv.is_empty() {
                             tprintln!(ctx, "usage: 'account import mnemonic <bip32|legacy|multisig>'");
                             tprintln!(ctx, "please specify the mnemonic type");
-                            tprintln!(ctx, "please use 'legacy' for 12-word KDX and tondinet web wallet mnemonics\r\n");
+                            tprintln!(ctx, "please use 'legacy' for 12-word KDX and sporanet web wallet mnemonics\r\n");
                             return Ok(());
                         }
 
@@ -244,14 +244,14 @@ impl Account {
         Ok(())
     }
 
-    async fn display_help(self: Arc<Self>, ctx: Arc<TondiCli>, _argv: Vec<String>) -> Result<()> {
+    async fn display_help(self: Arc<Self>, ctx: Arc<SporaCli>, _argv: Vec<String>) -> Result<()> {
         ctx.term().help(
             &[
                 ("create [<type>] [<name>]", "Create a new account (types: 'bip32' (default), 'legacy', 'multisig')"),
                 (
                     "import <import-type> [<key-type> [extra keys]]",
                     "Import accounts from a private key using 24 or 12 word mnemonic or legacy data \
-                (KDX and tondinet web wallet). Use 'account import' for additional help.",
+                (KDX and sporanet web wallet). Use 'account import' for additional help.",
                 ),
                 ("name <name>", "Name or rename the selected account (use 'remove' to remove the name"),
                 ("scan [<derivations>] or scan [<start>] [<derivations>]", "Scan extended address derivation chain (legacy accounts)"),
@@ -269,7 +269,7 @@ impl Account {
 
     async fn derivation_scan(
         self: &Arc<Self>,
-        ctx: &Arc<TondiCli>,
+        ctx: &Arc<SporaCli>,
         start: usize,
         count: usize,
         window: usize,
@@ -299,13 +299,13 @@ impl Account {
                     if let Some(txid) = txid {
                         tprintln!(
                             ctx_,
-                            "Scan detected {} TONDI at index {}; transfer txid: {}",
+                            "Scan detected {} SPORA at index {}; transfer txid: {}",
                             sau_to_tondi_string(balance),
                             processed,
                             txid
                         );
                     } else {
-                        tprintln!(ctx_, "Scanned {} derivations, found {} TONDI", processed, sau_to_tondi_string(balance));
+                        tprintln!(ctx_, "Scanned {} derivations, found {} SPORA", processed, sau_to_tondi_string(balance));
                     }
                 })),
             )

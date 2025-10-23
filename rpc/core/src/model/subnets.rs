@@ -1,1 +1,1 @@
-pub type RpcSubnetworkId = tondi_consensus_core::subnets::SubnetworkId;
+pub type RpcSubnetworkId = spora_consensus_core::subnets::SubnetworkId;

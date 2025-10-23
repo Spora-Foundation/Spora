@@ -3,7 +3,7 @@
 //! We use newtypes in order to simplify changing the underlying lock in the future
 
 use std::{ops::Deref, sync::Arc};
-use tondi_consensus_core::{
+use spora_consensus_core::{
     acceptance_data::AcceptanceData,
     api::{BlockCount, BlockValidationFutures, ConsensusApi, ConsensusStats, DynConsensus},
     block::Block,
@@ -18,7 +18,7 @@ use tondi_consensus_core::{
     // utxo::utxo_inquirer::UtxoInquirerError, // UTXO deprecated - use Cell validation
     BlockHashSet, BlueWorkType, ChainPath, Hash,
 };
-use tondi_utils::sync::rwlock::*;
+use spora_utils::sync::rwlock::*;
 
 pub use tokio::task::spawn_blocking;
 

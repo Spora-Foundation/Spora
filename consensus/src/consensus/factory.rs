@@ -3,11 +3,11 @@ use super::utxo_set_override::{set_genesis_cell_commitment_from_config, set_init
 use super::{ctl::Ctl, Consensus};
 use crate::{model::stores::U64Key, pipeline::ProcessingCounters};
 use itertools::Itertools;
-use tondi_consensus_core::{config::Config, mining_rules::MiningRules};
-use tondi_consensus_notify::root::ConsensusNotificationRoot;
-use tondi_consensusmanager::{ConsensusFactory, ConsensusInstance, DynConsensusCtl, SessionLock};
-use tondi_core::{debug, time::unix_now, warn};
-use tondi_database::{
+use spora_consensus_core::{config::Config, mining_rules::MiningRules};
+use spora_consensus_notify::root::ConsensusNotificationRoot;
+use spora_consensusmanager::{ConsensusFactory, ConsensusInstance, DynConsensusCtl, SessionLock};
+use spora_core::{debug, time::unix_now, warn};
+use spora_database::{
     prelude::{
         BatchDbWriter, CachePolicy, CachedDbAccess, CachedDbItem, DirectDbWriter, StoreError, StoreResult, StoreResultExtensions, DB,
     },
@@ -18,8 +18,8 @@ use parking_lot::RwLock;
 use rocksdb::WriteBatch;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, error::Error, fs, path::PathBuf, sync::Arc};
-use tondi_txscript::caches::TxScriptCacheCounters;
-use tondi_utils::mem_size::MemSizeEstimator;
+use spora_txscript::caches::TxScriptCacheCounters;
+use spora_utils::mem_size::MemSizeEstimator;
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct ConsensusEntry {
@@ -312,7 +312,7 @@ impl ConsensusFactory for Factory {
         };
 
         let dir = self.db_root_dir.join(entry.directory_name.clone());
-        let db = tondi_database::prelude::ConnBuilder::default()
+        let db = spora_database::prelude::ConnBuilder::default()
             .with_db_path(dir)
             .with_parallelism(self.db_parallelism)
             .with_files_limit(self.fd_budget / 2) // active and staging consensuses should have equal budgets
@@ -347,7 +347,7 @@ impl ConsensusFactory for Factory {
 
         let entry = self.management_store.write().new_staging_consensus_entry().unwrap();
         let dir = self.db_root_dir.join(entry.directory_name);
-        let db = tondi_database::prelude::ConnBuilder::default()
+        let db = spora_database::prelude::ConnBuilder::default()
             .with_db_path(dir)
             .with_parallelism(self.db_parallelism)
             .with_files_limit(self.fd_budget / 2) // active and staging consensuses should have equal budgets

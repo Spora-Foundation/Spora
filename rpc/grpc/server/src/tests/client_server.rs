@@ -1,15 +1,15 @@
 use super::rpc_core_mock::RpcCoreMock;
 use crate::{adaptor::Adaptor, manager::Manager};
 use std::sync::Arc;
-use tondi_core::info;
-use tondi_grpc_client::GrpcClient;
-use tondi_notify::scope::{NewBlockTemplateScope, Scope};
-use tondi_rpc_core::api::rpc::RpcApi;
-use tondi_utils::networking::{ContextualNetAddress, NetAddress};
+use spora_core::info;
+use spora_grpc_client::GrpcClient;
+use spora_notify::scope::{NewBlockTemplateScope, Scope};
+use spora_rpc_core::api::rpc::RpcApi;
+use spora_utils::networking::{ContextualNetAddress, NetAddress};
 
 #[tokio::test]
 async fn test_client_server_sanity_check() {
-    tondi_core::log::try_init_logger("info, tondi_grpc_core=trace, tondi_grpc_server=trace, tondi_grpc_client=trace");
+    spora_core::log::try_init_logger("info, spora_grpc_core=trace, spora_grpc_server=trace, spora_grpc_client=trace");
 
     // Create and start a fake core service
     let rpc_core_service = Arc::new(RpcCoreMock::new());
@@ -139,7 +139,7 @@ async fn test_client_server_connections() {
         },
     ];
 
-    tondi_core::log::try_init_logger("info, tondi_grpc_core=trace, tondi_grpc_server=trace, tondi_grpc_client=trace");
+    spora_core::log::try_init_logger("info, spora_grpc_core=trace, spora_grpc_server=trace, spora_grpc_client=trace");
     for test in tests {
         test.execute().await;
     }
@@ -150,7 +150,7 @@ async fn test_client_server_connections() {
 
 #[tokio::test]
 async fn test_client_server_notifications() {
-    tondi_core::log::try_init_logger("info, tondi_grpc_core=trace, tondi_grpc_server=trace, tondi_grpc_client=trace");
+    spora_core::log::try_init_logger("info, spora_grpc_core=trace, spora_grpc_server=trace, spora_grpc_client=trace");
 
     // Create and start a fake core service
     let rpc_core_service = Arc::new(RpcCoreMock::new());

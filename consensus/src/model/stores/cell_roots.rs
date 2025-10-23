@@ -7,12 +7,12 @@
 use std::sync::Arc;
 
 use rocksdb::WriteBatch;
-use tondi_consensus_core::BlockHasher;
-use tondi_database::{
+use spora_consensus_core::BlockHasher;
+use spora_database::{
     prelude::{BatchDbWriter, CachePolicy, CachedDbAccess, DirectDbWriter, StoreError, StoreResult, StoreResultExtensions, DB},
     registry::DatabaseStorePrefixes,
 };
-use tondi_hashes::Hash;
+use spora_hashes::Hash;
 
 /// Reader API for `CellRootsStore`
 pub trait CellRootsStoreReader {

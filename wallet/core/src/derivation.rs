@@ -2,21 +2,21 @@
 //!  Module handling bip32 address derivation (bip32+bip44 and legacy accounts)
 //!
 
-use tondi_wallet_keys::derivation::gen0::{PubkeyDerivationManagerV0, WalletDerivationManagerV0};
-use tondi_wallet_keys::derivation::gen1::{PubkeyDerivationManager, WalletDerivationManager};
+use spora_wallet_keys::derivation::gen0::{PubkeyDerivationManagerV0, WalletDerivationManagerV0};
+use spora_wallet_keys::derivation::gen1::{PubkeyDerivationManager, WalletDerivationManager};
 
-pub use tondi_wallet_keys::derivation::traits::*;
-use tondi_wallet_keys::publickey::{PublicKey, PublicKeyArrayT, PublicKeyT};
-pub use tondi_wallet_keys::types::*;
+pub use spora_wallet_keys::derivation::traits::*;
+use spora_wallet_keys::publickey::{PublicKey, PublicKeyArrayT, PublicKeyT};
+pub use spora_wallet_keys::types::*;
 
 use crate::account::create_private_keys;
 use crate::account::AccountKind;
 use crate::error::Error;
 use crate::imports::*;
 use crate::result::Result;
-use tondi_bip32::{AddressType, DerivationPath, ExtendedPrivateKey, ExtendedPublicKey, Language, Mnemonic, SecretKeyExt};
-use tondi_consensus_core::network::{NetworkType, NetworkTypeT};
-use tondi_txscript::{
+use spora_bip32::{AddressType, DerivationPath, ExtendedPrivateKey, ExtendedPublicKey, Language, Mnemonic, SecretKeyExt};
+use spora_consensus_core::network::{NetworkType, NetworkTypeT};
+use spora_txscript::{
     extract_script_pub_key_address, multisig_redeem_script, multisig_redeem_script_ecdsa, pay_to_script_hash_script,
 };
 
@@ -95,7 +95,7 @@ impl AddressManager {
         let list = self.pubkey_managers.iter().map(|m| m.current_pubkey());
 
         // let keys = join_all(list).await.into_iter().collect::<Result<Vec<_>>>()?;
-        let keys = list.into_iter().collect::<tondi_wallet_keys::result::Result<Vec<_>>>()?;
+        let keys = list.into_iter().collect::<spora_wallet_keys::result::Result<Vec<_>>>()?;
         let address = self.create_address(keys)?;
 
         self.update_address_to_index_map(self.index(), &[address.clone()])?;
@@ -128,7 +128,7 @@ impl AddressManager {
 
         let list = self.pubkey_managers.iter().map(|m| m.get_range(indexes.clone()));
 
-        let manager_keys = list.into_iter().collect::<tondi_wallet_keys::result::Result<Vec<_>>>()?;
+        let manager_keys = list.into_iter().collect::<spora_wallet_keys::result::Result<Vec<_>>>()?;
 
         let is_multisig = manager_length > 1;
 

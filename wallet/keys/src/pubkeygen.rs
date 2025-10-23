@@ -5,15 +5,15 @@
 use crate::derivation::gen1::WalletDerivationManager;
 use crate::derivation::traits::WalletDerivationManagerTrait;
 use crate::imports::*;
-use tondi_addresses::AddressArrayT;
-use tondi_consensus_core::network::NetworkType;
+use spora_addresses::AddressArrayT;
+use spora_consensus_core::network::NetworkType;
 // use crate::xprv::XPrv;
 
 ///
 /// Helper class to generate public keys from an extended public key (XPub)
 /// that has been derived up to the co-signer index.
 ///
-/// Please note that in Tondi master public keys use `kpub` prefix.
+/// Please note that in Spora master public keys use `kpub` prefix.
 ///
 /// @see {@link PrivateKeyGenerator}, {@link XPub}, {@link XPrv}, {@link Mnemonic}
 /// @category Wallet SDK

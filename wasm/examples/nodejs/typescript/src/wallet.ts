@@ -1,4 +1,4 @@
-import {version, Wallet} from "../../../../nodejs/tondi";
+import {version, Wallet} from "../../../../nodejs/spora";
 
 import {w3cwebsocket} from "websocket";
 (globalThis.WebSocket as any) = w3cwebsocket;

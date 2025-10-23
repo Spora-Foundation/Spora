@@ -1,22 +1,22 @@
 use crate::{processor::Processor, IDENT};
 use std::sync::Arc;
-use tondi_consensus_notify::{
+use spora_consensus_notify::{
     connection::ConsensusChannelConnection, notification::Notification as ConsensusNotification, notifier::ConsensusNotifier,
 };
-use tondi_core::{
+use spora_core::{
     task::service::{AsyncService, AsyncServiceError, AsyncServiceFuture},
     trace, warn,
 };
-use tondi_index_core::notifier::IndexNotifier;
-use tondi_notify::{
+use spora_index_core::notifier::IndexNotifier;
+use spora_notify::{
     connection::ChannelType,
     events::{EventSwitches, EventType},
     listener::ListenerLifespan,
     scope::{CellsChangedScope, PruningPointUtxoSetOverrideScope, UtxosChangedScope},
     subscription::{context::SubscriptionContext, MutationPolicies, UtxosChangedMutationPolicy},
 };
-use tondi_utils::{channel::Channel, triggers::SingleTrigger};
-use tondi_cellindex::api::CellIndexProxy;
+use spora_utils::{channel::Channel, triggers::SingleTrigger};
+use spora_cellindex::api::CellIndexProxy;
 
 const INDEX_SERVICE: &str = IDENT;
 

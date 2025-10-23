@@ -1,16 +1,16 @@
 use std::{str::FromStr, sync::Arc, time::Duration};
-use tondi_core::debug;
-use tondi_p2p_lib::echo::EchoFlowInitializer;
-use tondi_utils::networking::NetAddress;
+use spora_core::debug;
+use spora_p2p_lib::echo::EchoFlowInitializer;
+use spora_utils::networking::NetAddress;
 
 #[tokio::main]
 async fn main() {
     // [-] - init logger
-    tondi_core::log::init_logger(None, "debug");
+    spora_core::log::init_logger(None, "debug");
     // [0] - init p2p-adaptor - server side
     let ip_port = NetAddress::from_str("[::1]:50051").unwrap();
     let initializer = Arc::new(EchoFlowInitializer::new());
-    let adaptor = tondi_p2p_lib::Adaptor::bidirectional(ip_port, tondi_p2p_lib::Hub::new(), initializer, Default::default()).unwrap();
+    let adaptor = spora_p2p_lib::Adaptor::bidirectional(ip_port, spora_p2p_lib::Hub::new(), initializer, Default::default()).unwrap();
     // [1] - connect to a few peers
     let ip_port = String::from("[::1]:16111");
     for i in 0..1 {

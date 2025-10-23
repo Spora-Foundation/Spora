@@ -1,28 +1,28 @@
 {
-  "name": "tondi",
+  "name": "spora",
   "version": "0.13.5",
-  "description": "Tondi SDK",
+  "description": "Spora SDK",
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/AvatoLabs/Tondi.git"
+    "url": "git+https://github.com/AvatoLabs/Spora.git"
   },
   "keywords": [
-    "tondi",
+    "spora",
     "wasm",
     "sdk"
   ],
-  "author": "Tondi developers",
+  "author": "Spora developers",
   "license": "ISC",
   "bugs": {
-    "url": "https://github.com/AvatoLabs/Tondi/issues"
+    "url": "https://github.com/AvatoLabs/Spora/issues"
   },
-  "homepage": "https://github.com/AvatoLabs/Tondi#readme",
+  "homepage": "https://github.com/AvatoLabs/Spora#readme",
   "dependencies": {
     "websocket": "1.0.34",
-    "tondi-wasm": "0.13.5"
+    "spora-wasm": "0.13.5"
   }
 }

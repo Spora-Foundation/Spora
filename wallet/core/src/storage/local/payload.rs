@@ -4,7 +4,7 @@
 
 use crate::imports::*;
 use crate::storage::{AddressBookEntry, PrvKeyData, PrvKeyDataId};
-use tondi_bip32::Mnemonic;
+use spora_bip32::Mnemonic;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]

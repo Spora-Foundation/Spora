@@ -1,6 +1,6 @@
 [package]
-name = "tondi-wallet"
-description = "Tondi wallet"
+name = "spora-wallet"
+description = "Spora wallet"
 rust-version.workspace = true
 version.workspace = true
 edition.workspace = true
@@ -15,7 +15,7 @@ default = []
 [dependencies]
 async-std.workspace = true
 async-trait.workspace = true
-tondi-cli.workspace = true
+spora-cli.workspace = true
 tokio.workspace = true
 workflow-log.workspace = true
 workflow-terminal.workspace = true

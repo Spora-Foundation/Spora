@@ -14,14 +14,14 @@ pub use crate::settings::WalletSettings;
 pub use crate::storage::{IdT, Interface, PrvKeyDataId, PrvKeyDataInfo, TransactionId, TransactionRecord, WalletDescriptor};
 pub use crate::tx::{Fees, PaymentDestination, PaymentOutput, PaymentOutputs};
 pub use crate::utils::{
-    sau_to_tondi, sau_to_tondi_string, sau_to_tondi_string_with_suffix, tondi_suffix, tondi_to_sau, try_tondi_str_to_sau,
+    sau_to_tondi, sau_to_tondi_string, sau_to_tondi_string_with_suffix, spora_suffix, tondi_to_sau, try_tondi_str_to_sau,
     try_tondi_str_to_sau_i64,
 };
 pub use crate::utxo::balance::{Balance, BalanceStrings};
 pub use crate::wallet::args::*;
 pub use crate::wallet::Wallet;
 pub use async_std::sync::{Mutex as AsyncMutex, MutexGuard as AsyncMutexGuard};
-pub use tondi_addresses::{Address, Prefix as AddressPrefix};
-pub use tondi_bip32::{Language, Mnemonic, WordCount};
-pub use tondi_wallet_keys::secret::Secret;
-pub use tondi_wrpc_client::{TondiRpcClient, WrpcEncoding};
+pub use spora_addresses::{Address, Prefix as AddressPrefix};
+pub use spora_bip32::{Language, Mnemonic, WordCount};
+pub use spora_wallet_keys::secret::Secret;
+pub use spora_wrpc_client::{SporaRpcClient, WrpcEncoding};

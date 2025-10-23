@@ -1,6 +1,6 @@
-const tondi = require('../../../../nodejs/tondi');
+const spora = require('../../../../nodejs/spora');
 const {parseArgs} = require("../utils");
-tondi.initConsolePanicHook();
+spora.initConsolePanicHook();
 
 (async () => {
     const {} = parseArgs();
@@ -11,7 +11,7 @@ tondi.initConsolePanicHook();
         "b000000000000002" +
         "c000000000000003");
     console.log("blueWork:", blueWork);
-    const header = new tondi.Header({
+    const header = new spora.Header({
         version: 0,
         parentsByLevel: [["0000000000000000000000000000000000000000000000000000000000000000"]],
         hashMerkleRoot: "5510d0c31d6ae3491d6ce8af8e1048c3f287d9c47e4361bd21a9a5fb033a0c1a",
@@ -33,7 +33,7 @@ tondi.initConsolePanicHook();
     console.log("header.blueWork.toString(16):", header.blueWork.toString(16));
 
     console.log("creating PoW");
-    const pow = new tondi.PoW(header);
+    const pow = new spora.PoW(header);
     const nonce = BigInt("0xffffffffffffffff");
     console.log("nonce:", nonce);
     const [a, v] = pow.checkWork(nonce);

@@ -4,7 +4,7 @@ use crate::{
     subnets::SUBNETWORK_ID_SIZE,
     tx::{ScriptPublicKey, Transaction, TransactionInput, TransactionOutput, UtxoEntry, VerifiableTransaction},
 };
-use tondi_hashes::HASH_SIZE;
+use spora_hashes::HASH_SIZE;
 
 // transaction_estimated_serialized_size is the estimated size of a transaction in some
 // serialization. This has to be deterministic, but not necessarily accurate, since
@@ -124,7 +124,7 @@ impl UtxoPlurality for TransactionOutput {
 pub struct UtxoCell {
     /// The plurality (number of "storage units") for this UTXO
     pub plurality: u64,
-    /// The amount of TONDI (in saus) locked in this UTXO
+    /// The amount of SPORA (in saus) locked in this UTXO
     pub amount: u64,
 }
 
@@ -219,7 +219,7 @@ impl MassOps for Mass {
 
 // Note: consensus mass calculator operates on signed transactions.
 // To calculate mass for unsigned transactions, please use
-// `tondi_wallet_core::tx::mass::MassCalculator`
+// `spora_wallet_core::tx::mass::MassCalculator`
 #[derive(Clone)]
 pub struct MassCalculator {
     mass_per_tx_byte: u64,
@@ -565,7 +565,7 @@ mod tests {
                 storage_mass_parameter: 10_u64.pow(12),
             },
             PluralityTestCase {
-                name: "1:3; output index=1, plurality=2; tondi units",
+                name: "1:3; output index=1, plurality=2; spora units",
                 inputs_tx1: &[1000 * SAU_PER_TONDI],
                 outputs_tx1: &[200 * SAU_PER_TONDI, 200 * SAU_PER_TONDI, 200 * SAU_PER_TONDI],
                 inputs_tx2: &[1000 * SAU_PER_TONDI],
@@ -576,7 +576,7 @@ mod tests {
                 storage_mass_parameter: 10_u64.pow(12),
             },
             PluralityTestCase {
-                name: "1:2; output index=0, plurality=2; tondi units",
+                name: "1:2; output index=0, plurality=2; spora units",
                 inputs_tx1: &[1000 * SAU_PER_TONDI],
                 outputs_tx1: &[200 * SAU_PER_TONDI, 200 * SAU_PER_TONDI],
                 inputs_tx2: &[1000 * SAU_PER_TONDI],
@@ -587,7 +587,7 @@ mod tests {
                 storage_mass_parameter: 10_u64.pow(12),
             },
             PluralityTestCase {
-                name: "2:2; output index=0, plurality=2; tondi units",
+                name: "2:2; output index=0, plurality=2; spora units",
                 inputs_tx1: &[350 * SAU_PER_TONDI, 500 * SAU_PER_TONDI],
                 outputs_tx1: &[200 * SAU_PER_TONDI, 200 * SAU_PER_TONDI],
                 inputs_tx2: &[350 * SAU_PER_TONDI, 500 * SAU_PER_TONDI],
@@ -598,7 +598,7 @@ mod tests {
                 storage_mass_parameter: 10_u64.pow(12),
             },
             PluralityTestCase {
-                name: "4:6; output index=0, plurality=3; tondi units",
+                name: "4:6; output index=0, plurality=3; spora units",
                 inputs_tx1: &[350 * SAU_PER_TONDI, 500 * SAU_PER_TONDI, 350 * SAU_PER_TONDI, 500 * SAU_PER_TONDI],
                 outputs_tx1: &[
                     200 * SAU_PER_TONDI,

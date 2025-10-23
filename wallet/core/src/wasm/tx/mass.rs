@@ -1,11 +1,11 @@
 use crate::result::Result;
 use crate::tx::{mass, MAXIMUM_STANDARD_TRANSACTION_MASS};
 use js_sys::Array;
-use tondi_consensus_client::*;
-use tondi_consensus_core::config::params::Params;
-use tondi_consensus_core::mass::{calc_storage_mass, UtxoCell};
+use spora_consensus_client::*;
+use spora_consensus_core::config::params::Params;
+use spora_consensus_core::mass::{calc_storage_mass, UtxoCell};
 
-use tondi_consensus_core::network::{NetworkId, NetworkIdT};
+use spora_consensus_core::network::{NetworkId, NetworkIdT};
 use wasm_bindgen::prelude::*;
 use workflow_wasm::convert::*;
 

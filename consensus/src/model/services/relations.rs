@@ -1,9 +1,9 @@
 use crate::model::stores::relations::RelationsStoreReader;
 use parking_lot::RwLock;
 use std::sync::Arc;
-use tondi_consensus_core::BlockHashSet;
-use tondi_database::prelude::{ReadLock, StoreError, StoreResult};
-use tondi_hashes::Hash;
+use spora_consensus_core::BlockHashSet;
+use spora_database::prelude::{ReadLock, StoreError, StoreResult};
+use spora_hashes::Hash;
 
 /// Multi-threaded block-relations service imp
 #[derive(Clone)]
@@ -19,7 +19,7 @@ impl<T: RelationsStoreReader> MTRelationsService<T> {
 }
 
 impl<T: RelationsStoreReader> RelationsStoreReader for MTRelationsService<T> {
-    fn get_parents(&self, hash: Hash) -> Result<tondi_consensus_core::blockhash::BlockHashes, StoreError> {
+    fn get_parents(&self, hash: Hash) -> Result<spora_consensus_core::blockhash::BlockHashes, StoreError> {
         self.store.read()[self.level].get_parents(hash)
     }
 

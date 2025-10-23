@@ -4,10 +4,10 @@ use crate::imports::*;
 use crate::result::Result;
 use crate::utxo as native;
 use crate::wasm::notify::{UtxoProcessorEventTarget, UtxoProcessorNotificationCallback, UtxoProcessorNotificationTypeOrCallback};
-use tondi_consensus_core::network::NetworkIdT;
-use tondi_wallet_macros::declare_typescript_wasm_interface as declare;
-use tondi_wasm_core::events::{get_event_targets, Sink};
-use tondi_wrpc_wasm::RpcClient;
+use spora_consensus_core::network::NetworkIdT;
+use spora_wallet_macros::declare_typescript_wasm_interface as declare;
+use spora_wasm_core::events::{get_event_targets, Sink};
+use spora_wrpc_wasm::RpcClient;
 use workflow_log::log_error;
 
 declare! {
@@ -79,7 +79,7 @@ cfg_if! {
 ///
 /// UtxoProcessor class is the main coordinator that manages UTXO processing
 /// between multiple UtxoContext instances. It acts as a bridge between the
-/// Tondi node RPC connection, address subscriptions and UtxoContext instances.
+/// Spora node RPC connection, address subscriptions and UtxoContext instances.
 ///
 /// @see {@link IUtxoProcessorArgs},
 /// {@link UtxoContext},

@@ -4,7 +4,7 @@
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
-use tondi_notify::events::EventType;
+use spora_notify::events::EventType;
 use workflow_core::enums::Describe;
 
 /// API version. Change in this value should result
@@ -68,13 +68,13 @@ pub enum RpcApiOps {
     GetServerInfo = 114,
     /// Get the current sync status of the node
     GetSyncStatus = 115,
-    /// Returns the network this Tondid is connected to (Mainnet, Testnet)
+    /// Returns the network this Sporad is connected to (Mainnet, Testnet)
     GetCurrentNetwork = 116,
     /// Extracts a block out of the request message and attempts to add it to the DAG Returns an empty response or an error message
     SubmitBlock = 117,
     /// Returns a "template" by which a miner can mine a new block
     GetBlockTemplate = 118,
-    /// Returns a list of all the addresses (IP, port) this Tondid knows and a list of all addresses that are currently banned by this Tondid
+    /// Returns a list of all the addresses (IP, port) this Sporad knows and a list of all addresses that are currently banned by this Sporad
     GetPeerAddresses = 119,
     /// Returns the hash of the current selected tip block of the DAG
     GetSink = 120,
@@ -82,9 +82,9 @@ pub enum RpcApiOps {
     GetMempoolEntry = 121,
     /// Get a snapshot of the node's mempool
     GetMempoolEntries = 122,
-    /// Returns a list of the peers currently connected to this Tondid, along with some statistics on them
+    /// Returns a list of the peers currently connected to this Sporad, along with some statistics on them
     GetConnectedPeerInfo = 123,
-    /// Instructs Tondid to connect to a given IP address.
+    /// Instructs Sporad to connect to a given IP address.
     AddPeer = 124,
     /// Extracts a transaction out of the request message and attempts to add it to the mempool Returns an empty response or an error message
     SubmitTransaction = 125,

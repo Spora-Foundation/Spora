@@ -6,10 +6,10 @@ use async_channel::Sender;
 use async_trait::async_trait;
 use std::{sync::Arc, time::Duration};
 use tokio::{task::JoinHandle, time::sleep};
-use tondi_core::warn;
-use tondi_grpc_client::ClientPool;
-use tondi_rpc_core::{api::rpc::RpcApi, RpcRawBlock};
-use tondi_utils::triggers::SingleTrigger;
+use spora_core::warn;
+use spora_grpc_client::ClientPool;
+use spora_rpc_core::{api::rpc::RpcApi, RpcRawBlock};
+use spora_utils::triggers::SingleTrigger;
 
 pub struct BlockSubmitterTask {
     pool: ClientPool<RpcRawBlock>,
@@ -39,7 +39,7 @@ impl Task for BlockSubmitterTask {
             loop {
                 match c.submit_block(block.clone(), false).await {
                     Ok(response) => {
-                        assert_eq!(response.report, tondi_rpc_core::SubmitBlockReport::Success);
+                        assert_eq!(response.report, spora_rpc_core::SubmitBlockReport::Success);
                         break;
                     }
                     Err(_) => {

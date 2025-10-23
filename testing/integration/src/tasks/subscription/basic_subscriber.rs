@@ -3,10 +3,10 @@ use async_channel::Sender;
 use async_trait::async_trait;
 use std::{sync::Arc, time::Duration};
 use tokio::{sync::oneshot::channel, task::JoinHandle, time::sleep};
-use tondi_core::warn;
-use tondi_grpc_client::GrpcClient;
-use tondi_notify::scope::Scope;
-use tondi_utils::triggers::SingleTrigger;
+use spora_core::warn;
+use spora_grpc_client::GrpcClient;
+use spora_notify::scope::Scope;
+use spora_utils::triggers::SingleTrigger;
 
 pub struct BasicSubscriberTask {
     clients: Vec<Arc<GrpcClient>>,

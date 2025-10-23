@@ -16,18 +16,18 @@ use secp256k1::{
 };
 use serde::{Deserialize, Serialize};
 use tokio::time::Instant;
-use tondi_addresses::{Address, Prefix, Version};
-use tondi_bip32::{DerivationPath, ExtendedPrivateKey, Language, Mnemonic, WordCount};
-use tondi_consensus_core::{
+use spora_addresses::{Address, Prefix, Version};
+use spora_bip32::{DerivationPath, ExtendedPrivateKey, Language, Mnemonic, WordCount};
+use spora_consensus_core::{
     constants::{SAU_PER_TONDI, TX_VERSION},
     sign::sign,
     subnets::SUBNETWORK_ID_NATIVE,
     tx::{MutableTransaction, Transaction, TransactionInput, TransactionOutpoint, TransactionOutput, UtxoEntry},
 };
-use tondi_core::{info, warn};
-use tondi_grpc_client::GrpcClient;
-use tondi_rpc_core::{api::rpc::RpcApi, RpcUtxoEntry};
-use tondi_txscript::{htlc_script, pay_to_address_script, pay_to_address_with_lock_time_script};
+use spora_core::{info, warn};
+use spora_grpc_client::GrpcClient;
+use spora_rpc_core::{api::rpc::RpcApi, RpcUtxoEntry};
+use spora_txscript::{htlc_script, pay_to_address_script, pay_to_address_with_lock_time_script};
 
 /// Default amount to send per address in SAU (Smallest Atomic Unit)
 pub const DEFAULT_SEND_AMOUNT: u64 = SAU_PER_TONDI;
@@ -650,9 +650,9 @@ pub fn clean_old_pending_outpoints(pending: &mut HashMap<TransactionOutpoint, In
 pub fn generate_tlc_script(
     address: &Address,
     config: &TlcAirdropConfig,
-) -> Result<tondi_consensus_core::tx::ScriptPublicKey, Box<dyn std::error::Error>> {
+) -> Result<spora_consensus_core::tx::ScriptPublicKey, Box<dyn std::error::Error>> {
     use blake3::hash;
-    use tondi_consensus_core::constants::LOCK_TIME_THRESHOLD;
+    use spora_consensus_core::constants::LOCK_TIME_THRESHOLD;
 
     // Determine the actual lock time based on configuration
     let lock_time = if config.is_timestamp {
@@ -848,7 +848,7 @@ mod tests {
     use super::*;
     use secp256k1::{SecretKey, SECP256K1};
     use std::str::FromStr;
-    use tondi_bip32::{DerivationPath, ExtendedPrivateKey, Language, Mnemonic, WordCount};
+    use spora_bip32::{DerivationPath, ExtendedPrivateKey, Language, Mnemonic, WordCount};
 
     #[test]
     fn test_address_distribution_tracker_new() {
@@ -1010,10 +1010,10 @@ mod tests {
             Address::new(Prefix::Devnet, Version::PubKey, &public_key.x_only_public_key().0.serialize()).expect("Valid address");
 
         let utxos = vec![(
-            TransactionOutpoint { transaction_id: tondi_consensus_core::Hash::from_bytes([0xFF; 32]), index: 0 },
+            TransactionOutpoint { transaction_id: spora_consensus_core::Hash::from_bytes([0xFF; 32]), index: 0 },
             UtxoEntry {
                 amount: 1000000,
-                script_public_key: tondi_consensus_core::tx::ScriptPublicKey::from_vec(0, vec![0xff; 35]),
+                script_public_key: spora_consensus_core::tx::ScriptPublicKey::from_vec(0, vec![0xff; 35]),
                 block_daa_score: 1000,
                 is_coinbase: false,
             },
@@ -1036,10 +1036,10 @@ mod tests {
         let addr2 = Address::new(Prefix::Devnet, Version::PubKey, &[0x42; 32]).expect("Valid address");
 
         let utxos = vec![(
-            TransactionOutpoint { transaction_id: tondi_consensus_core::Hash::from_bytes([0xFF; 32]), index: 0 },
+            TransactionOutpoint { transaction_id: spora_consensus_core::Hash::from_bytes([0xFF; 32]), index: 0 },
             UtxoEntry {
                 amount: 1000000,
-                script_public_key: tondi_consensus_core::tx::ScriptPublicKey::from_vec(0, vec![0xff; 35]),
+                script_public_key: spora_consensus_core::tx::ScriptPublicKey::from_vec(0, vec![0xff; 35]),
                 block_daa_score: 1000,
                 is_coinbase: false,
             },
@@ -1058,19 +1058,19 @@ mod tests {
     fn test_select_utxos() {
         let utxos = vec![
             (
-                TransactionOutpoint { transaction_id: tondi_consensus_core::Hash::from_bytes([0x01; 32]), index: 0 },
+                TransactionOutpoint { transaction_id: spora_consensus_core::Hash::from_bytes([0x01; 32]), index: 0 },
                 UtxoEntry {
                     amount: 100000,
-                    script_public_key: tondi_consensus_core::tx::ScriptPublicKey::from_vec(0, vec![0xff; 35]),
+                    script_public_key: spora_consensus_core::tx::ScriptPublicKey::from_vec(0, vec![0xff; 35]),
                     block_daa_score: 1000,
                     is_coinbase: false,
                 },
             ),
             (
-                TransactionOutpoint { transaction_id: tondi_consensus_core::Hash::from_bytes([0x02; 32]), index: 0 },
+                TransactionOutpoint { transaction_id: spora_consensus_core::Hash::from_bytes([0x02; 32]), index: 0 },
                 UtxoEntry {
                     amount: 200000,
-                    script_public_key: tondi_consensus_core::tx::ScriptPublicKey::from_vec(0, vec![0xff; 35]),
+                    script_public_key: spora_consensus_core::tx::ScriptPublicKey::from_vec(0, vec![0xff; 35]),
                     block_daa_score: 1000,
                     is_coinbase: false,
                 },
@@ -1091,7 +1091,7 @@ mod tests {
     fn test_is_utxo_spendable() {
         let mut entry = RpcUtxoEntry {
             amount: 100000,
-            script_public_key: tondi_consensus_core::tx::ScriptPublicKey::from_vec(0, vec![0xff; 35]),
+            script_public_key: spora_consensus_core::tx::ScriptPublicKey::from_vec(0, vec![0xff; 35]),
             block_daa_score: 1000,
             is_coinbase: false,
         };
@@ -1291,10 +1291,10 @@ mod tests {
         let addr2 = Address::new(Prefix::Devnet, Version::PubKey, &[0x42; 32]).expect("Valid address");
 
         let utxos = vec![(
-            TransactionOutpoint { transaction_id: tondi_consensus_core::Hash::from_bytes([0xFF; 32]), index: 0 },
+            TransactionOutpoint { transaction_id: spora_consensus_core::Hash::from_bytes([0xFF; 32]), index: 0 },
             UtxoEntry {
                 amount: 1000000,
-                script_public_key: tondi_consensus_core::tx::ScriptPublicKey::from_vec(0, vec![0xff; 35]),
+                script_public_key: spora_consensus_core::tx::ScriptPublicKey::from_vec(0, vec![0xff; 35]),
                 block_daa_score: 1000,
                 is_coinbase: false,
             },

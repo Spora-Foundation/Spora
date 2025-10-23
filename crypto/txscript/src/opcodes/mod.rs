@@ -11,9 +11,9 @@ use std::{
     fmt::{Debug, Formatter},
     num::TryFromIntError,
 };
-use tondi_consensus_core::hashing::sighash::SigHashReusedValues;
-use tondi_consensus_core::hashing::sighash_type::SigHashType;
-use tondi_consensus_core::tx::VerifiableTransaction;
+use spora_consensus_core::hashing::sighash::SigHashReusedValues;
+use spora_consensus_core::hashing::sighash_type::SigHashType;
+use spora_consensus_core::tx::VerifiableTransaction;
 
 /// First value in the range formed by the "small integer" Op# opcodes
 pub const OP_SMALL_INT_MIN_VAL: u8 = 1;
@@ -382,7 +382,7 @@ opcode_list! {
         let mut cond = OpCond::Skip;
         if vm.is_executing() {
             // This code seems identical to pop_bool, but was written this way to preserve
-            // the similar flow of go-Tondid
+            // the similar flow of go-Sporad
             if let Some(mut cond_buf) = vm.dstack.pop() {
                 if cond_buf.len() > 1 {
                     return Err(TxScriptError::InvalidState("expected boolean".to_string()));
@@ -1090,11 +1090,11 @@ mod test {
     use crate::data_stack::Stack;
     use crate::opcodes::{OpCodeExecution, OpCodeImplementation};
     use crate::{opcodes, pay_to_address_script, TxScriptEngine, TxScriptError, LOCK_TIME_THRESHOLD};
-    use tondi_addresses::{Address, Prefix, Version};
-    use tondi_consensus_core::constants::{SAU_PER_TONDI, TX_VERSION};
-    use tondi_consensus_core::hashing::sighash::SigHashReusedValuesUnsync;
-    use tondi_consensus_core::subnets::SUBNETWORK_ID_NATIVE;
-    use tondi_consensus_core::tx::{
+    use spora_addresses::{Address, Prefix, Version};
+    use spora_consensus_core::constants::{SAU_PER_TONDI, TX_VERSION};
+    use spora_consensus_core::hashing::sighash::SigHashReusedValuesUnsync;
+    use spora_consensus_core::subnets::SUBNETWORK_ID_NATIVE;
+    use spora_consensus_core::tx::{
         PopulatedTransaction, ScriptPublicKey, Transaction, TransactionInput, TransactionOutpoint, TransactionOutput, UtxoEntry,
         VerifiableTransaction,
     };
@@ -2840,7 +2840,7 @@ mod test {
     }
 
     fn make_mock_transaction(lock_time: u64) -> (VerifiableTransactionMock, TransactionInput, UtxoEntry) {
-        let dummy_prev_out = TransactionOutpoint::new(tondi_hashes::Hash::from_u64_word(1), 1);
+        let dummy_prev_out = TransactionOutpoint::new(spora_hashes::Hash::from_u64_word(1), 1);
         let dummy_sig_script = vec![0u8; 65];
         let dummy_tx_input = TransactionInput::new(dummy_prev_out, dummy_sig_script, 10, 1);
         let addr_hash = vec![1u8; 32];
@@ -3034,7 +3034,7 @@ mod test {
             script_builder::ScriptBuilder,
             SpkEncoding,
         };
-        use tondi_consensus_core::tx::MutableTransaction;
+        use spora_consensus_core::tx::MutableTransaction;
 
         #[derive(Clone, Debug)]
         struct Kip10Mock {
@@ -3049,7 +3049,7 @@ mod test {
         }
 
         fn kip_10_tx_mock(inputs: Vec<Kip10Mock>, outputs: Vec<Kip10Mock>) -> (Transaction, Vec<UtxoEntry>) {
-            let dummy_prev_out = TransactionOutpoint::new(tondi_hashes::Hash::from_u64_word(1), 1);
+            let dummy_prev_out = TransactionOutpoint::new(spora_hashes::Hash::from_u64_word(1), 1);
             let dummy_sig_script = vec![0u8; 65];
             let (utxos, tx_inputs) = inputs
                 .into_iter()
@@ -3330,7 +3330,7 @@ mod test {
             }
         }
         fn create_mock_tx(input_count: usize, output_count: usize) -> (Transaction, Vec<UtxoEntry>) {
-            let dummy_prev_out = TransactionOutpoint::new(tondi_hashes::Hash::from_u64_word(1), 1);
+            let dummy_prev_out = TransactionOutpoint::new(spora_hashes::Hash::from_u64_word(1), 1);
             let dummy_sig_script = vec![0u8; 65];
 
             // Create inputs with different SPKs and amounts

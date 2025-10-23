@@ -1,7 +1,7 @@
 use rand::thread_rng;
 use secp256k1::Keypair;
-use tondi_addresses::{Address, Prefix, Version};
-use tondi_consensus_core::{
+use spora_addresses::{Address, Prefix, Version};
+use spora_consensus_core::{
     hashing::{
         sighash::{calc_schnorr_signature_hash, SigHashReusedValuesUnsync},
         sighash_type::SIG_HASH_ALL,
@@ -11,7 +11,7 @@ use tondi_consensus_core::{
         TransactionOutput, UtxoEntry, VerifiableTransaction,
     },
 };
-use tondi_txscript::{
+use spora_txscript::{
     caches::Cache,
     opcodes::codes::{
         OpCheckSig, OpCheckSigVerify, OpDup, OpElse, OpEndIf, OpEqualVerify, OpFalse, OpGreaterThanOrEqual, OpIf, OpSub, OpTrue,
@@ -21,9 +21,9 @@ use tondi_txscript::{
     script_builder::{ScriptBuilder, ScriptBuilderResult},
     TxScriptEngine,
 };
-use tondi_txscript_errors::TxScriptError::{EvalFalse, VerifyError};
+use spora_txscript_errors::TxScriptError::{EvalFalse, VerifyError};
 
-/// Main function to execute all Tondi transaction script scenarios.
+/// Main function to execute all Spora transaction script scenarios.
 ///
 /// # Returns
 ///
@@ -38,7 +38,7 @@ fn main() -> ScriptBuilderResult<()> {
 
 /// # Standard Threshold Scenario
 ///
-/// This scenario demonstrates the use of custom opcodes and script execution within the Tondi blockchain ecosystem.
+/// This scenario demonstrates the use of custom opcodes and script execution within the Spora blockchain ecosystem.
 /// There are two main cases:
 ///
 /// 1. **Owner case:** The script checks if the input is used by the owner and verifies the owner's signature.
@@ -528,7 +528,7 @@ fn threshold_scenario_limited_2_times() -> ScriptBuilderResult<()> {
 
 /// # Shared Secret Scenario
 ///
-/// This scenario demonstrates the use of a shared secret within the Tondi blockchain ecosystem.
+/// This scenario demonstrates the use of a shared secret within the Spora blockchain ecosystem.
 /// Instead of using a threshold value, it checks the shared secret and the signature associated with it.
 ///
 /// ## Key Features:
@@ -683,9 +683,9 @@ mod tests {
     use chrono::NaiveDateTime;
     use secp256k1::Message;
     use std::str::FromStr;
-    use tondi_addresses::{Address, Prefix, Version};
-    use tondi_txscript::{pay_to_address_with_lock_time_script, pay_to_pub_key_with_lock_time, pay_to_script_hash_signature_script};
-    use tondi_utils::hex::FromHex;
+    use spora_addresses::{Address, Prefix, Version};
+    use spora_txscript::{pay_to_address_with_lock_time_script, pay_to_pub_key_with_lock_time, pay_to_script_hash_signature_script};
+    use spora_utils::hex::FromHex;
 
     // Mnemonic: purpose carpet empower monkey hawk brush survey waste judge tide culture slight
     const ADDRESS: &str = "tondi0:qz8etv6sf8r8vsc05fgvu3pg07yt3sxhd9tzph0jtz5gdru30gd5k46wd38";
@@ -775,7 +775,7 @@ mod tests {
     #[test]
     fn test_htlc_transaction() {
         use blake3::hash;
-        use tondi_txscript::{htlc_script_ecdsa, htlc_signature_script_with_secret, htlc_signature_script_with_timeout};
+        use spora_txscript::{htlc_script_ecdsa, htlc_signature_script_with_secret, htlc_signature_script_with_timeout};
 
         println!("[HTLC] Starting HTLC transaction test");
 

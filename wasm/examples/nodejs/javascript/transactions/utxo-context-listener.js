@@ -9,10 +9,10 @@ const {
     Resolver,
     UtxoProcessor,
     UtxoContext,
-    tondiToSau,
+    sporaToSau,
     createTransactions,
     initConsolePanicHook
-} = require('../../../../nodejs/tondi');
+} = require('../../../../nodejs/spora');
 
 initConsolePanicHook();
 

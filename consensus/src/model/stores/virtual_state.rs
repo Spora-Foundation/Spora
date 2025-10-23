@@ -4,8 +4,8 @@ use std::sync::Arc;
 use arc_swap::ArcSwap;
 use rocksdb::WriteBatch;
 use serde::{Deserialize, Serialize};
-use tondi_consensus_core::api::stats::VirtualStateStats;
-use tondi_consensus_core::{
+use spora_consensus_core::api::stats::VirtualStateStats;
+use spora_consensus_core::{
     block::VirtualStateApproxId,
     cell_diff::CellDiff,
     coinbase::BlockRewardData,
@@ -13,13 +13,13 @@ use tondi_consensus_core::{
     tx::TransactionId,
     BlockHashMap, BlockHashSet, HashMapCustomHasher,
 };
-use tondi_database::prelude::{BatchDbWriter, CachedDbItem, DirectDbWriter, StoreResultExtensions};
-use tondi_database::prelude::{CachePolicy, StoreResult};
-use tondi_database::prelude::{StoreError, DB};
-use tondi_database::registry::DatabaseStorePrefixes;
-use tondi_hashes::Hash;
+use spora_database::prelude::{BatchDbWriter, CachedDbItem, DirectDbWriter, StoreResultExtensions};
+use spora_database::prelude::{CachePolicy, StoreResult};
+use spora_database::prelude::{StoreError, DB};
+use spora_database::registry::DatabaseStorePrefixes;
+use spora_hashes::Hash;
 
-use tondi_state::CellStateTree;
+use spora_state::CellStateTree;
 
 use super::ghostdag::GhostdagData;
 

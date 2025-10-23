@@ -7,7 +7,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tokio::{task::JoinHandle, time::sleep};
-use tondi_utils::triggers::SingleTrigger;
+use spora_utils::triggers::SingleTrigger;
 use workflow_perf_monitor::mem::{get_process_memory_info, ProcessMemoryInfo};
 
 pub struct StatRecorderTask {
@@ -41,11 +41,11 @@ impl Task for StatRecorderTask {
         let file_name = self.file_name();
         let tick = self.tick;
         let task = tokio::spawn(async move {
-            tondi_core::warn!("Stat recorder task starting...");
+            spora_core::warn!("Stat recorder task starting...");
             std::fs::create_dir_all(PathBuf::from(&folder)).unwrap();
             {
                 let file_path = PathBuf::from(&folder).join(file_name).into_os_string();
-                tondi_core::warn!("Recording memory metrics into file {}", file_path.to_str().unwrap());
+                spora_core::warn!("Recording memory metrics into file {}", file_path.to_str().unwrap());
                 let f = std::fs::File::create(file_path).unwrap();
                 let mut f = BufWriter::new(f);
                 let start_time = Instant::now();
@@ -54,7 +54,7 @@ impl Task for StatRecorderTask {
                     tokio::select! {
                         biased;
                         _ = stop_signal.listener.clone() => {
-                            tondi_core::trace!("Leaving stat recorder loop");
+                            spora_core::trace!("Leaving stat recorder loop");
                             break;
                         }
                         _ = sleep(stopwatch + tick - Instant::now()) => {}
@@ -65,7 +65,7 @@ impl Task for StatRecorderTask {
                     f.flush().unwrap();
                 }
             }
-            tondi_core::warn!("Stat recorder task exited");
+            spora_core::warn!("Stat recorder task exited");
         });
         vec![task]
     }

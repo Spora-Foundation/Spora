@@ -3,8 +3,8 @@ use std::{
     fmt::{Display, Formatter},
     sync::Arc,
 };
-use tondi_consensus_core::tx::{MutableTransaction, Transaction, TransactionId, TransactionOutpoint};
-use tondi_mining_errors::mempool::RuleError;
+use spora_consensus_core::tx::{MutableTransaction, Transaction, TransactionId, TransactionOutpoint};
+use spora_mining_errors::mempool::RuleError;
 
 pub(crate) struct MempoolTransaction {
     pub(crate) mtx: MutableTransaction,

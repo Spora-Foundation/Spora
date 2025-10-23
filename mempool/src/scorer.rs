@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: ISC
-// Copyright (C) 2025Tondi developers
+// Copyright (C) 2025 Spora developers
 //
 // Transaction scorer: priority computation
 
-use tondi_exec::CellTx;
+use spora_exec::CellTx;
 
 /// Transaction score components
 #[derive(Clone, Debug, PartialEq)]
@@ -147,7 +147,7 @@ impl TransactionScorer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tondi_exec::{CellRef, CellOut, ScriptRef, OutPoint};
+    use spora_exec::{CellRef, CellOut, ScriptRef, OutPoint};
 
     fn create_test_tx(num_inputs: usize, num_deps: usize) -> CellTx {
         let lock = ScriptRef::new([0x00; 32], 0, vec![0; 20]);
@@ -155,9 +155,9 @@ mod tests {
             .map(|i| CellRef::new(OutPoint::new([i as u8; 32], 0), 0))
             .collect();
         let deps = (0..num_deps)
-            .map(|i| tondi_exec::CellDep {
+            .map(|i| spora_exec::CellDep {
                 out_point: OutPoint::new([100 + i as u8; 32], 0),
-                dep_type: tondi_exec::DepType::Code,
+                dep_type: spora_exec::DepType::Code,
             })
             .collect();
         

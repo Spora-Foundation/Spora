@@ -12,7 +12,7 @@ use std::{
     sync::{Arc, Mutex},
     time::Duration,
 };
-use tondi_rpc_core::api::rpc::RpcApi;
+use spora_rpc_core::api::rpc::RpcApi;
 use workflow_core::channel::DuplexChannel;
 use workflow_core::task::interval;
 use workflow_core::task::spawn;

@@ -4,14 +4,14 @@ globalThis.WebSocket = require('websocket').w3cwebsocket; // W3C WebSocket modul
 
 const path = require('path');
 const fs = require('fs');
-const tondi = require('../../../../nodejs/tondi');
+const spora = require('../../../../nodejs/spora');
 const {
     Wallet, setDefaultStorageFolder,
     AccountKind, Mnemonic, Resolver,
-    tondiToSau,
-    sauToTondiString,
+    sporaToSau,
+    sauToSporaString,
     Address
-} = tondi;
+} = spora;
 
 let storageFolder = path.join(__dirname, '../../../data/wallets').normalize();
 if (!fs.existsSync(storageFolder)) {
@@ -79,7 +79,7 @@ setDefaultStorageFolder(storageFolder);
             list.push({
                 Id: tx.id,
                 Type: tx.data.type,
-                Value: sauToTondiString(value(tx)||0)
+                Value: sauToSporaString(value(tx)||0)
             });
             //console.log("tx.data", tx.id, tx.data)
         });
@@ -132,9 +132,9 @@ setDefaultStorageFolder(storageFolder);
                     Object.keys(balance).map(id=>{
                         list.push({
                             Account: id.substring(0, 5)+"...",
-                            Mature: sauToTondiString(data.balance.mature),
-                            Pending: sauToTondiString(data.balance.pending),
-                            Outgoing: sauToTondiString(data.balance.outgoing),
+                            Mature: sauToSporaString(data.balance.mature),
+                            Pending: sauToSporaString(data.balance.pending),
+                            Outgoing: sauToSporaString(data.balance.outgoing),
                             MatureUtxo: data.balance.matureUtxoCount,
                             PendingUtxo: data.balance.pendingUtxoCount,
                             StasisUtxo: data.balance.stasisUtxoCount
@@ -228,24 +228,24 @@ setDefaultStorageFolder(storageFolder);
         // });
         // console.log("sweepResult", sweepResult)
 
-        // Send tondi to address
+        // Send spora to address
         let sendResult = await wallet.accountsSend({
             walletSecret,
             accountId: firstAccount.accountId,
-            priorityFeeSau: tondiToSau("0.001"),
+            priorityFeeSau: sporaToSau("0.001"),
             destination:[{
                 address: firstAccount.changeAddress,
-                amount: tondiToSau("1.5")
+                amount: sporaToSau("1.5")
             }]
         });
         console.log("sendResult", sendResult);
 
-        // Transfer tondi between accounts
+        // Transfer spora between accounts
         let transferResult = await wallet.accountsTransfer({
             walletSecret,
             sourceAccountId: firstAccount.accountId,
             destinationAccountId: firstAccount.accountId,
-            transferAmountSau: tondiToSau("2.4"),
+            transferAmountSau: sporaToSau("2.4"),
         });
         console.log("transferResult", transferResult);
 

@@ -1,8 +1,8 @@
 use super::interval::Interval;
 use super::{tree::*, *};
 use crate::model::stores::reachability::{ReachabilityStore, ReachabilityStoreReader};
-use tondi_consensus_core::blockhash;
-use tondi_hashes::Hash;
+use spora_consensus_core::blockhash;
+use spora_hashes::Hash;
 
 /// Init the reachability store to match the state required by the algorithmic layer.
 /// The function first checks the store for possibly being initialized already.
@@ -270,9 +270,9 @@ mod tests {
     use rand::seq::IteratorRandom;
     use rocksdb::WriteBatch;
     use std::{iter::once, ops::Deref};
-    use tondi_consensus_core::blockhash::ORIGIN;
-    use tondi_database::prelude::ConnBuilder;
-    use tondi_database::{create_temp_db, prelude::CachePolicy};
+    use spora_consensus_core::blockhash::ORIGIN;
+    use spora_database::prelude::ConnBuilder;
+    use spora_database::{create_temp_db, prelude::CachePolicy};
 
     #[test]
     fn test_add_tree_blocks() {

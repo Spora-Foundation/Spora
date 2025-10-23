@@ -1,6 +1,6 @@
 [package]
-name = "tondi-mining"
-description = "Tondi mining"
+name = "spora-mining"
+description = "Spora mining"
 rust-version.workspace = true
 version.workspace = true
 edition.workspace = true
@@ -10,15 +10,15 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-tondi-addresses.workspace = true
-tondi-consensus-core.workspace = true
-tondi-consensusmanager.workspace = true
-tondi-core.workspace = true
-tondi-hashes.workspace = true
-tondi-mining-errors.workspace = true
-tondi-muhash.workspace = true
-tondi-txscript.workspace = true
-tondi-utils.workspace = true
+spora-addresses.workspace = true
+spora-consensus-core.workspace = true
+spora-consensusmanager.workspace = true
+spora-core.workspace = true
+spora-hashes.workspace = true
+spora-mining-errors.workspace = true
+spora-muhash.workspace = true
+spora-txscript.workspace = true
+spora-utils.workspace = true
 
 futures-util.workspace = true
 itertools.workspace = true
@@ -32,7 +32,7 @@ thiserror.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal"] }
 
 [dev-dependencies]
-tondi-txscript.workspace = true
+spora-txscript.workspace = true
 criterion.workspace = true
 secp256k1.workspace = true
 

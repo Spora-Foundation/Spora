@@ -11,8 +11,8 @@ use crate::{
 };
 use ahash::AHashMap;
 use cctx::VerifiableTransaction;
-use tondi_addresses::Address;
-use tondi_consensus_core::subnets::SubnetworkId;
+use spora_addresses::Address;
+use spora_consensus_core::subnets::SubnetworkId;
 use workflow_wasm::serde::{from_value, to_value};
 
 pub type SignedTransactionIndexType = u32;

@@ -4,9 +4,9 @@ use hmac::Mac;
 use ripemd::Ripemd160;
 use sha2::{Digest, Sha256};
 use std::fmt::Debug;
-use tondi_addresses::{Address, Prefix as AddressPrefix, Version as AddressVersion};
-use tondi_bip32::types::{ChainCode, HmacSha512, KeyFingerprint, PublicKeyBytes, KEY_SIZE};
-use tondi_bip32::{
+use spora_addresses::{Address, Prefix as AddressPrefix, Version as AddressVersion};
+use spora_bip32::types::{ChainCode, HmacSha512, KeyFingerprint, PublicKeyBytes, KEY_SIZE};
+use spora_bip32::{
     AddressType, ChildNumber, DerivationPath, ExtendedKey, ExtendedKeyAttrs, ExtendedPrivateKey, ExtendedPublicKey, Prefix,
     PrivateKey, PublicKey, SecretKey, SecretKeyExt,
 };
@@ -226,7 +226,7 @@ impl WalletDerivationManager {
 
         public_key = public_key.derive_child(ChildNumber::new(address_type.index(), false)?)?;
 
-        let mut hmac = HmacSha512::new_from_slice(&public_key.attrs().chain_code).map_err(tondi_bip32::Error::Hmac)?;
+        let mut hmac = HmacSha512::new_from_slice(&public_key.attrs().chain_code).map_err(spora_bip32::Error::Hmac)?;
         hmac.update(&public_key.to_bytes());
 
         PubkeyDerivationManager::new(*public_key.public_key(), public_key.attrs().clone(), public_key.fingerprint(), hmac, 0)
@@ -239,12 +239,12 @@ impl WalletDerivationManager {
     ) -> Result<(secp256k1::PublicKey, ExtendedKeyAttrs)> {
         let fingerprint = public_key.fingerprint();
 
-        let mut hmac = HmacSha512::new_from_slice(&attrs.chain_code).map_err(tondi_bip32::Error::Hmac)?;
+        let mut hmac = HmacSha512::new_from_slice(&attrs.chain_code).map_err(spora_bip32::Error::Hmac)?;
         hmac.update(&public_key.to_bytes());
 
         let (key, chain_code) = Self::derive_public_key_child(public_key, index, hmac)?;
 
-        let depth = attrs.depth.checked_add(1).ok_or(tondi_bip32::Error::Depth)?;
+        let depth = attrs.depth.checked_add(1).ok_or(spora_bip32::Error::Depth)?;
 
         let attrs =
             ExtendedKeyAttrs { parent_fingerprint: fingerprint, child_number: ChildNumber::new(index, false)?, chain_code, depth };
@@ -288,7 +288,7 @@ impl WalletDerivationManager {
 
         let (private_key, chain_code) = Self::derive_key(private_key, child_number, hmac)?;
 
-        let depth = attrs.depth.checked_add(1).ok_or(tondi_bip32::Error::Depth)?;
+        let depth = attrs.depth.checked_add(1).ok_or(spora_bip32::Error::Depth)?;
 
         let attrs = ExtendedKeyAttrs { parent_fingerprint: fingerprint, child_number, chain_code, depth };
 
@@ -319,7 +319,7 @@ impl WalletDerivationManager {
     where
         K: PrivateKey<PublicKey = secp256k1::PublicKey>,
     {
-        let mut hmac = HmacSha512::new_from_slice(&attrs.chain_code).map_err(tondi_bip32::Error::Hmac)?;
+        let mut hmac = HmacSha512::new_from_slice(&attrs.chain_code).map_err(spora_bip32::Error::Hmac)?;
         if hardened {
             hmac.update(&[0]);
             hmac.update(&private_key.to_bytes());
@@ -447,19 +447,19 @@ impl WalletDerivationManagerTrait for WalletDerivationManager {
 #[cfg(test)]
 mod tests {
     use super::{PubkeyDerivationManager, WalletDerivationManager, WalletDerivationManagerTrait};
-    use tondi_addresses::Prefix;
+    use spora_addresses::Prefix;
 
     fn gen1_receive_addresses() -> Vec<&'static str> {
         vec![
-            "tondi:qrgqpkue0tzhmqd77tljdhwjc757hc26uestam0gc4kycjx4k8uu6sjhh75",
-            "tondi:qqmquth4lyayewfl32pj8w9w9dpzqk6c9ngyp4xxmyqusxruhjm0j35eh9z",
+            "spora:qrgqpkue0tzhmqd77tljdhwjc757hc26uestam0gc4kycjx4k8uu6sjhh75",
+            "spora:qqmquth4lyayewfl32pj8w9w9dpzqk6c9ngyp4xxmyqusxruhjm0j35eh9z",
         ]
     }
 
     fn gen1_change_addresses() -> Vec<&'static str> {
         vec![
-            "tondi:qrsr3glsc0sp8u32jfyx5cp4xg8jmem7nyhycwqfn5skqkmwpf0726g0f55",
-            "tondi:qz5a8zvn7hrgkxkz4tw8mxcnfdd7ttpxenpf5e3g9kyl9lj59nhfkxluz4j",
+            "spora:qrsr3glsc0sp8u32jfyx5cp4xg8jmem7nyhycwqfn5skqkmwpf0726g0f55",
+            "spora:qz5a8zvn7hrgkxkz4tw8mxcnfdd7ttpxenpf5e3g9kyl9lj59nhfkxluz4j",
         ]
     }
 
@@ -488,9 +488,9 @@ mod tests {
     #[tokio::test]
     async fn wallet_from_mnemonic() {
         let mnemonic = "fringe ceiling crater inject pilot travel gas nurse bulb bullet horn segment snack harbor dice laugh vital cigar push couple plastic into slender worry";
-        let mnemonic = tondi_bip32::Mnemonic::new(mnemonic, tondi_bip32::Language::English).unwrap();
-        let xprv = tondi_bip32::ExtendedPrivateKey::<tondi_bip32::SecretKey>::new(mnemonic.to_seed("")).unwrap();
-        let xprv_str = xprv.to_string(tondi_bip32::Prefix::KPRV).to_string();
+        let mnemonic = spora_bip32::Mnemonic::new(mnemonic, spora_bip32::Language::English).unwrap();
+        let xprv = spora_bip32::ExtendedPrivateKey::<spora_bip32::SecretKey>::new(mnemonic.to_seed("")).unwrap();
+        let xprv_str = xprv.to_string(spora_bip32::Prefix::KPRV).to_string();
         assert_eq!(
             xprv_str,
             "kprv5y2qurMHCsXYrpeDB395BY2DPKYHUGaCMpFAYRi1cmhwin1bWRyUXVbtTyy54FCGxPnnEvbK9WaiaQgkGS9ngGxmHy1bubZYY6MTokeYP2Q",
@@ -498,7 +498,7 @@ mod tests {
         );
 
         let wallet = WalletDerivationManager::from_master_xprv(&xprv_str, false, 0, None).unwrap();
-        let xpub_str = wallet.to_string(Some(tondi_bip32::Prefix::KPUB)).to_string();
+        let xpub_str = wallet.to_string(Some(spora_bip32::Prefix::KPUB)).to_string();
         assert_eq!(
             xpub_str,
             "kpub2KEVCyNMrJJhEBCRyGRahUxQE7zYAxaFugSN7kqpg6bVDR9LGRmxZMXtEBBsDqxuX6FcPaAvc2XVUw29daj4eF9VuPXgNQzfrLY4C8MgY7b",
@@ -511,9 +511,9 @@ mod tests {
     #[tokio::test]
     async fn address_test_by_ktrv() {
         let mnemonic = "hunt bitter praise lift buyer topic crane leopard uniform network inquiry over grain pass match crush marine strike doll relax fortune trumpet sunny silk";
-        let mnemonic = tondi_bip32::Mnemonic::new(mnemonic, tondi_bip32::Language::English).unwrap();
-        let xprv = tondi_bip32::ExtendedPrivateKey::<tondi_bip32::SecretKey>::new(mnemonic.to_seed("")).unwrap();
-        let ktrv_str = xprv.to_string(tondi_bip32::Prefix::KTRV).to_string();
+        let mnemonic = spora_bip32::Mnemonic::new(mnemonic, spora_bip32::Language::English).unwrap();
+        let xprv = spora_bip32::ExtendedPrivateKey::<spora_bip32::SecretKey>::new(mnemonic.to_seed("")).unwrap();
+        let ktrv_str = xprv.to_string(spora_bip32::Prefix::KTRV).to_string();
         assert_eq!(
             ktrv_str,
             "ktrv5himbbCxArFU2CHiEQyVHP1ABS1tA1SY88CwePzGeM8gHfWmkNBXehhKsESH7UwcxpjpDdMNbwtBfyPoZ7W59kYfVnUXKRgv8UguDns2FQb",
@@ -521,7 +521,7 @@ mod tests {
         );
 
         let wallet = WalletDerivationManager::from_master_xprv(&ktrv_str, false, 0, None).unwrap();
-        let ktub_str = wallet.to_string(Some(tondi_bip32::Prefix::KTUB)).to_string();
+        let ktub_str = wallet.to_string(Some(spora_bip32::Prefix::KTUB)).to_string();
         assert_eq!(
             ktub_str,
             "ktub24CZsc3TJDbepJTDceoHX3c9rbQ7qZuggV27GtUebWfEXKBAjJQfH8feyP9bsmAQJNrMms1tDFakcUQS4XKUPuZwKR98stNaHb1hFHZU3kJ",
@@ -581,7 +581,7 @@ mod tests {
 
         for index in 0..2 {
             let key = hd_wallet.derive_receive_pubkey(index).unwrap();
-            //let address = Address::new(Prefix::Testnet, tondi_addresses::Version::PubKey, key.to_bytes());
+            //let address = Address::new(Prefix::Testnet, spora_addresses::Version::PubKey, key.to_bytes());
             let address = PubkeyDerivationManager::create_address(&key, Prefix::Testnet, false).unwrap();
             //receive_addresses.push(String::from(address));
             assert_eq!(receive_addresses[index as usize], address.to_string(), "receive address at {index} failed");

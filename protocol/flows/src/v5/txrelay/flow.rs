@@ -5,10 +5,10 @@ use crate::{
 };
 use std::sync::Arc;
 use tokio::time::timeout;
-use tondi_consensus_core::tx::{Transaction, TransactionId};
-use tondi_consensusmanager::ConsensusProxy;
-use tondi_core::{time::unix_now, warn};
-use tondi_mining::{
+use spora_consensus_core::tx::{Transaction, TransactionId};
+use spora_consensusmanager::ConsensusProxy;
+use spora_core::{time::unix_now, warn};
+use spora_mining::{
     errors::MiningManagerError,
     mempool::{
         errors::RuleError,
@@ -17,7 +17,7 @@ use tondi_mining::{
     model::tx_query::TransactionQuery,
     P2pTxCountSample,
 };
-use tondi_p2p_lib::{
+use spora_p2p_lib::{
     common::{ProtocolError, DEFAULT_TIMEOUT},
     dequeue, make_message,
     pb::{tondid_message::Payload, RequestTransactionsMessage, TransactionNotFoundMessage},
@@ -232,7 +232,7 @@ impl RelayTransactionsFlow {
                 Err(MiningManagerError::MempoolError(RuleError::RejectNonStandard(..))) => {
                     self.spam_counter += 1;
                     if self.spam_counter % 100 == 0 {
-                        tondi_core::warn!("Peer {} has shared {} spam/non-standard txs ({:?})", self.router, self.spam_counter, res);
+                        spora_core::warn!("Peer {} has shared {} spam/non-standard txs ({:?})", self.router, self.spam_counter, res);
                     }
                 }
                 Err(_) => {}

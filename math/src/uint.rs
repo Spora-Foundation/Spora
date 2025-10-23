@@ -443,26 +443,26 @@ macro_rules! construct_uint {
 
         }
 
-        impl tondi_utils::mem_size::MemSizeEstimator for $name {
+        impl spora_utils::mem_size::MemSizeEstimator for $name {
             fn estimate_mem_units(&self) -> usize {
                 1
 
             }
         }
 
-        impl tondi_utils::hex::ToHex for $name {
+        impl spora_utils::hex::ToHex for $name {
             fn to_hex(&self) -> String {
                 self.to_be_bytes().as_slice().to_hex()
             }
         }
 
-        impl tondi_utils::hex::ToHex for &$name {
+        impl spora_utils::hex::ToHex for &$name {
             fn to_hex(&self) -> String {
                 self.to_be_bytes().as_slice().to_hex()
             }
         }
 
-        impl tondi_utils::hex::FromHex for $name {
+        impl spora_utils::hex::FromHex for $name {
             type Error = $crate::Error;
             fn from_hex(hex: &str) -> Result<$name, Self::Error> {
                 Ok($name::from_hex(hex)?)

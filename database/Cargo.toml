@@ -1,6 +1,6 @@
 [package]
-name = "tondi-database"
-description = "Tondi database"
+name = "spora-database"
+description = "Spora database"
 rust-version.workspace = true
 version.workspace = true
 edition.workspace = true
@@ -15,8 +15,8 @@ enum-primitive-derive.workspace = true
 faster-hex.workspace = true
 indexmap.workspace = true
 itertools.workspace = true
-tondi-hashes.workspace = true
-tondi-utils.workspace = true
+spora-hashes.workspace = true
+spora-utils.workspace = true
 num_cpus.workspace = true
 num-traits.workspace = true
 parking_lot.workspace = true

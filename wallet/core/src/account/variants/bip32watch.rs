@@ -6,7 +6,7 @@ use crate::account::{DerivationCapableAccount, Inner};
 use crate::derivation::{AddressDerivationManager, AddressDerivationManagerTrait};
 use crate::imports::*;
 
-pub const BIP32_WATCH_ACCOUNT_KIND: &str = "tondi-bip32-watch-standard";
+pub const BIP32_WATCH_ACCOUNT_KIND: &str = "spora-bip32-watch-standard";
 
 pub struct Ctor {}
 
@@ -17,7 +17,7 @@ impl Factory for Ctor {
     }
 
     fn description(&self) -> String {
-        "Tondi Core bip32-watch Account".to_string()
+        "Spora Core bip32-watch Account".to_string()
     }
 
     async fn try_load(

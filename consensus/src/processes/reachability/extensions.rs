@@ -1,7 +1,7 @@
 use super::interval::Interval;
 use crate::model::stores::reachability::ReachabilityStoreReader;
-use tondi_database::prelude::StoreResult;
-use tondi_hashes::Hash;
+use spora_database::prelude::StoreResult;
+use spora_hashes::Hash;
 
 pub(super) trait ReachabilityStoreIntervalExtensions {
     fn interval_children_capacity(&self, block: Hash) -> StoreResult<Interval>;

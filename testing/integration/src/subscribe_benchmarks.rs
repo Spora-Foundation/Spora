@@ -19,15 +19,15 @@ use crate::{
 use itertools::Itertools;
 use rand::thread_rng;
 use std::{sync::Arc, time::Duration};
-use tondi_addresses::Address;
-use tondi_alloc::init_allocator_with_default_settings;
-use tondi_consensus::params::Params;
-use tondi_consensus_core::network::{NetworkId, NetworkType};
-use tondi_core::{info, task::tick::TickService, trace};
-use tondi_math::Uint256;
-use tondi_notify::scope::VirtualDaaScoreChangedScope;
-use tondi_rpc_core::api::rpc::RpcApi;
-use tondi_txscript::pay_to_address_script;
+use spora_addresses::Address;
+use spora_alloc::init_allocator_with_default_settings;
+use spora_consensus::params::Params;
+use spora_consensus_core::network::{NetworkId, NetworkType};
+use spora_core::{info, task::tick::TickService, trace};
+use spora_math::Uint256;
+use spora_notify::scope::VirtualDaaScoreChangedScope;
+use spora_rpc_core::api::rpc::RpcApi;
+use spora_txscript::pay_to_address_script;
 
 // Constants
 const BLOCK_COUNT: usize = usize::MAX;
@@ -66,20 +66,20 @@ fn create_client_addresses(index: usize, network_id: &NetworkId) -> Vec<Address>
         max_address.max(WALLET_ADDRESSES) - WALLET_ADDRESSES
     };
     (min_address..max_address)
-        .map(|x| Address::new((*network_id).into(), tondi_addresses::Version::PubKey, &Uint256::from_u64(x as u64).to_le_bytes()))
+        .map(|x| Address::new((*network_id).into(), spora_addresses::Version::PubKey, &Uint256::from_u64(x as u64).to_le_bytes()))
         .collect_vec()
 }
 
-/// `cargo test --package tondi-testing-integration --lib --features devnet-prealloc -- subscribe_benchmarks::utxos_changed_subscriptions_sanity_check --exact --nocapture --ignored`
+/// `cargo test --package spora-testing-integration --lib --features devnet-prealloc -- subscribe_benchmarks::utxos_changed_subscriptions_sanity_check --exact --nocapture --ignored`
 #[tokio::test]
 #[ignore = "bmk"]
 async fn utxos_changed_subscriptions_sanity_check() {
     init_allocator_with_default_settings();
-    tondi_core::log::try_init_logger(
-        "INFO, tondi_core::time=debug, tondi_rpc_core=debug, tondi_grpc_client=debug, tondi_notify=info, tondi_notify::address::tracker=debug, tondi_notify::listener=debug, tondi_notify::subscription::single=debug, tondi_mining::monitor=debug, tondi_testing_integration::subscribe_benchmarks=trace",
+    spora_core::log::try_init_logger(
+        "INFO, spora_core::time=debug, spora_rpc_core=debug, spora_grpc_client=debug, spora_notify=info, spora_notify::address::tracker=debug, spora_notify::listener=debug, spora_notify::subscription::single=debug, spora_mining::monitor=debug, tondi_testing_integration::subscribe_benchmarks=trace",
     );
     // As we log the panic, we want to set it up after the logger
-    tondi_core::panic::configure_panic();
+    spora_core::panic::configure_panic();
 
     let (prealloc_sk, _) = secp256k1::generate_keypair(&mut thread_rng());
     let args = ArgsBuilder::simnet(TX_LEVEL_WIDTH as u64 * CONTRACT_FACTOR, PREALLOC_AMOUNT)
@@ -114,17 +114,17 @@ async fn utxos_changed_subscriptions_sanity_check() {
     //
     // Fold-up
     //
-    tondi_core::info!("Signal the daemon to shutdown");
+    spora_core::info!("Signal the daemon to shutdown");
     client.shutdown().await.unwrap();
-    tondi_core::warn!("Disconnect the main client");
+    spora_core::warn!("Disconnect the main client");
     client.disconnect().await.unwrap();
     drop(client);
 
-    tondi_core::warn!("Waiting for the daemon to exit...");
+    spora_core::warn!("Waiting for the daemon to exit...");
     daemon_process.wait().await.expect("failed to wait for the daemon process");
 }
 
-/// `cargo test --package tondi-testing-integration --lib --features devnet-prealloc -- subscribe_benchmarks::bench_utxos_changed_subscriptions_daemon --exact --nocapture --ignored -- --rpc=16610 --p2p=16611 --private-key=a2760251adb5b6e8d4514d23397f1631893e168c33f92ff8a7a24f397d355d62 --max-tracked-addresses=1000000 --utxoindex`
+/// `cargo test --package spora-testing-integration --lib --features devnet-prealloc -- subscribe_benchmarks::bench_utxos_changed_subscriptions_daemon --exact --nocapture --ignored -- --rpc=16610 --p2p=16611 --private-key=a2760251adb5b6e8d4514d23397f1631893e168c33f92ff8a7a24f397d355d62 --max-tracked-addresses=1000000 --utxoindex`
 ///
 /// This test is designed to be run as a child process, with the parent process eventually shutting it down.
 /// Do not run it directly.
@@ -132,11 +132,11 @@ async fn utxos_changed_subscriptions_sanity_check() {
 #[ignore = "bmk"]
 async fn bench_utxos_changed_subscriptions_daemon() {
     init_allocator_with_default_settings();
-    tondi_core::log::try_init_logger(
-        "INFO, tondi_core::core=trace, tondi_core::time=debug, tondi_rpc_core=debug, tondi_grpc_client=debug, tondi_notify=info, tondi_notify::address::tracker=debug, tondi_notify::listener=debug, tondi_notify::subscription::single=debug, tondi_mining::monitor=debug, tondi_testing_integration::subscribe_benchmarks=trace",
+    spora_core::log::try_init_logger(
+        "INFO, spora_core::core=trace, spora_core::time=debug, spora_rpc_core=debug, spora_grpc_client=debug, spora_notify=info, spora_notify::address::tracker=debug, spora_notify::listener=debug, spora_notify::subscription::single=debug, spora_mining::monitor=debug, tondi_testing_integration::subscribe_benchmarks=trace",
     );
     // As we log the panic, we want to set it up after the logger
-    tondi_core::panic::configure_panic();
+    spora_core::panic::configure_panic();
 
     let daemon_args = DaemonArgs::from_env_args();
     let args = ArgsBuilder::simnet(TX_LEVEL_WIDTH as u64 * CONTRACT_FACTOR, PREALLOC_AMOUNT).apply_daemon_args(&daemon_args).build();
@@ -159,11 +159,11 @@ async fn bench_utxos_changed_subscriptions_daemon() {
 
 async fn utxos_changed_subscriptions_client(address_cycle_seconds: u64, address_max_cycles: usize) {
     init_allocator_with_default_settings();
-    tondi_core::log::try_init_logger(
-        "INFO, tondi_core::time=debug, tondi_rpc_core=debug, tondi_grpc_client=debug, tondi_notify=info, tondi_notify::address::tracker=debug, tondi_notify::listener=debug, tondi_notify::subscription::single=debug, tondi_mining::monitor=debug, tondi_testing_integration::subscribe_benchmarks=trace",
+    spora_core::log::try_init_logger(
+        "INFO, spora_core::time=debug, spora_rpc_core=debug, spora_grpc_client=debug, spora_notify=info, spora_notify::address::tracker=debug, spora_notify::listener=debug, spora_notify::subscription::single=debug, spora_mining::monitor=debug, tondi_testing_integration::subscribe_benchmarks=trace",
     );
     // As we log the panic, we want to set it up after the logger
-    tondi_core::panic::configure_panic();
+    spora_core::panic::configure_panic();
 
     assert!(address_cycle_seconds >= 60);
     if TX_COUNT < TX_LEVEL_WIDTH {
@@ -175,7 +175,7 @@ async fn utxos_changed_subscriptions_client(address_cycle_seconds: u64, address_
     //
     let (prealloc_sk, prealloc_pk) = secp256k1::generate_keypair(&mut thread_rng());
     let prealloc_address =
-        Address::new(NetworkType::Simnet.into(), tondi_addresses::Version::PubKey, &prealloc_pk.x_only_public_key().0.serialize());
+        Address::new(NetworkType::Simnet.into(), spora_addresses::Version::PubKey, &prealloc_pk.x_only_public_key().0.serialize());
     let schnorr_key = secp256k1::Keypair::from_secret_key(secp256k1::SECP256K1, &prealloc_sk);
     let spk = pay_to_address_script(&prealloc_address);
 
@@ -273,17 +273,17 @@ async fn utxos_changed_subscriptions_client(address_cycle_seconds: u64, address_
     //
     // Fold-up
     //
-    tondi_core::info!("Signal the daemon to shutdown");
+    spora_core::info!("Signal the daemon to shutdown");
     client.shutdown().await.unwrap();
-    tondi_core::warn!("Disconnect the main client");
+    spora_core::warn!("Disconnect the main client");
     client.disconnect().await.unwrap();
     drop(client);
 
-    tondi_core::warn!("Waiting for the daemon to exit...");
+    spora_core::warn!("Waiting for the daemon to exit...");
     daemon_process.wait().await.expect("failed to wait for the daemon process");
 }
 
-/// `cargo test --package tondi-testing-integration --lib --features devnet-prealloc -- subscribe_benchmarks::bench_utxos_changed_subscriptions_footprint_a --exact --nocapture --ignored`
+/// `cargo test --package spora-testing-integration --lib --features devnet-prealloc -- subscribe_benchmarks::bench_utxos_changed_subscriptions_footprint_a --exact --nocapture --ignored`
 #[tokio::test]
 #[ignore = "bmk"]
 async fn bench_utxos_changed_subscriptions_footprint_a() {
@@ -291,7 +291,7 @@ async fn bench_utxos_changed_subscriptions_footprint_a() {
     utxos_changed_subscriptions_client(1200, 0).await;
 }
 
-/// `cargo test --package tondi-testing-integration --lib --features devnet-prealloc -- subscribe_benchmarks::bench_utxos_changed_subscriptions_footprint_b --exact --nocapture --ignored`
+/// `cargo test --package spora-testing-integration --lib --features devnet-prealloc -- subscribe_benchmarks::bench_utxos_changed_subscriptions_footprint_b --exact --nocapture --ignored`
 #[tokio::test]
 #[ignore = "bmk"]
 async fn bench_utxos_changed_subscriptions_footprint_b() {
@@ -299,7 +299,7 @@ async fn bench_utxos_changed_subscriptions_footprint_b() {
     utxos_changed_subscriptions_client(60, 1).await;
 }
 
-/// `cargo test --package tondi-testing-integration --lib --features devnet-prealloc -- subscribe_benchmarks::bench_utxos_changed_subscriptions_footprint_c --exact --nocapture --ignored`
+/// `cargo test --package spora-testing-integration --lib --features devnet-prealloc -- subscribe_benchmarks::bench_utxos_changed_subscriptions_footprint_c --exact --nocapture --ignored`
 #[tokio::test]
 #[ignore = "bmk"]
 async fn bench_utxos_changed_subscriptions_footprint_c() {
@@ -307,7 +307,7 @@ async fn bench_utxos_changed_subscriptions_footprint_c() {
     utxos_changed_subscriptions_client(7200, usize::MAX).await;
 }
 
-/// `cargo test --package tondi-testing-integration --lib --features devnet-prealloc -- subscribe_benchmarks::bench_utxos_changed_subscriptions_footprint_d --exact --nocapture --ignored`
+/// `cargo test --package spora-testing-integration --lib --features devnet-prealloc -- subscribe_benchmarks::bench_utxos_changed_subscriptions_footprint_d --exact --nocapture --ignored`
 #[tokio::test]
 #[ignore = "bmk"]
 async fn bench_utxos_changed_subscriptions_footprint_d() {
@@ -315,7 +315,7 @@ async fn bench_utxos_changed_subscriptions_footprint_d() {
     utxos_changed_subscriptions_client(1800, usize::MAX).await;
 }
 
-/// `cargo test --package tondi-testing-integration --lib --features devnet-prealloc -- subscribe_benchmarks::bench_utxos_changed_subscriptions_footprint_e --exact --nocapture --ignored`
+/// `cargo test --package spora-testing-integration --lib --features devnet-prealloc -- subscribe_benchmarks::bench_utxos_changed_subscriptions_footprint_e --exact --nocapture --ignored`
 #[tokio::test]
 #[ignore = "bmk"]
 async fn bench_utxos_changed_subscriptions_footprint_e() {

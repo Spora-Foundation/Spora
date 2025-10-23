@@ -17,8 +17,8 @@ mod tests {
     use itertools::Itertools;
     use std::{iter::once, sync::Arc};
     use tokio::sync::mpsc::{error::TryRecvError, unbounded_channel};
-    use tondi_addresses::{Address, Prefix, Version};
-    use tondi_consensus_core::{
+    use spora_addresses::{Address, Prefix, Version};
+    use spora_consensus_core::{
         api::ConsensusApi,
         block::TemplateBuildMode,
         coinbase::MinerData,
@@ -32,13 +32,13 @@ mod tests {
             TransactionOutput, UtxoEntry,
         },
     };
-    use tondi_hashes::Hash;
-    use tondi_mining_errors::mempool::RuleResult;
-    use tondi_txscript::{
+    use spora_hashes::Hash;
+    use spora_mining_errors::mempool::RuleResult;
+    use spora_txscript::{
         pay_to_address_script, pay_to_script_hash_signature_script,
         test_helpers::{create_transaction, create_transaction_with_change, op_true_script},
     };
-    use tondi_utils::mem_size::MemSizeEstimator;
+    use spora_utils::mem_size::MemSizeEstimator;
 
     const TARGET_TIME_PER_BLOCK: u64 = 1_000;
     const MAX_BLOCK_MASS: u64 = 500_000;
@@ -1326,8 +1326,8 @@ mod tests {
 
     fn generate_new_coinbase(address_prefix: Prefix, op: OpType) -> MinerData {
         match op {
-            OpType::Usual => get_miner_data(address_prefix), // TODO: use lib_tondi_wallet.CreateKeyPair, util.NewAddressPublicKeyECDSA equivalents
-            OpType::Edcsa => get_miner_data(address_prefix), // TODO: use lib_tondi_wallet.CreateKeyPair, util.NewAddressPublicKey equivalents
+            OpType::Usual => get_miner_data(address_prefix), // TODO: use lib_spora_wallet.CreateKeyPair, util.NewAddressPublicKeyECDSA equivalents
+            OpType::Edcsa => get_miner_data(address_prefix), // TODO: use lib_spora_wallet.CreateKeyPair, util.NewAddressPublicKey equivalents
             OpType::True => {
                 let (script, _) = op_true_script();
                 MinerData::new(script, vec![])

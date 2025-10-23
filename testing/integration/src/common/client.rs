@@ -3,9 +3,9 @@ use std::{
     collections::{hash_map::Entry, HashMap},
     ops::Deref,
 };
-use tondi_grpc_client::GrpcClient;
-use tondi_notify::{events::EventType, scope::Scope, subscription::Command};
-use tondi_rpc_core::RpcResult;
+use spora_grpc_client::GrpcClient;
+use spora_notify::{events::EventType, scope::Scope, subscription::Command};
+use spora_rpc_core::RpcResult;
 
 /// A multi-listener gRPC client with event type dedicated listeners
 pub struct ListeningClient {

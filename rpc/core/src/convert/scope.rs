@@ -5,7 +5,7 @@ use crate::{
     NotifySinkBlueScoreChangedRequest, NotifyUtxosChangedRequest, NotifyVirtualChainChangedRequest,
     NotifyVirtualDaaScoreChangedRequest,
 };
-use tondi_notify::scope::*;
+use spora_notify::scope::*;
 
 macro_rules! into_scope {
     ($variant:tt) => {

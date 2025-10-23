@@ -1,4 +1,4 @@
-//! Tondi wRPC Server (AsyncService) module
+//! Spora wRPC Server (AsyncService) module
 pub mod address;
 pub mod collector;
 pub mod connection;

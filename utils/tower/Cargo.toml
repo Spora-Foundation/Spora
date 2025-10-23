@@ -1,6 +1,6 @@
 [package]
-name = "tondi-utils-tower"
-description = "Tondi utilities and middleware for Tower HTTP"
+name = "spora-utils-tower"
+description = "Spora utilities and middleware for Tower HTTP"
 rust-version.workspace = true
 version.workspace = true
 edition.workspace = true

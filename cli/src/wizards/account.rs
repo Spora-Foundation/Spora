@@ -1,15 +1,15 @@
-use crate::cli::TondiCli;
+use crate::cli::SporaCli;
 use crate::imports::*;
 use crate::result::Result;
-use tondi_bip32::{Language, Mnemonic, WordCount};
-use tondi_wallet_core::account::MULTISIG_ACCOUNT_KIND;
-use tondi_wallet_core::storage::keydata::PrvKeyDataVariantKind;
-// use tondi_wallet_core::runtime::wallet::AccountCreateArgsBip32;
-// use tondi_wallet_core::runtime::{PrvKeyDataArgs, PrvKeyDataCreateArgs};
-// use tondi_wallet_core::storage::AccountKind;
+use spora_bip32::{Language, Mnemonic, WordCount};
+use spora_wallet_core::account::MULTISIG_ACCOUNT_KIND;
+use spora_wallet_core::storage::keydata::PrvKeyDataVariantKind;
+// use spora_wallet_core::runtime::wallet::AccountCreateArgsBip32;
+// use spora_wallet_core::runtime::{PrvKeyDataArgs, PrvKeyDataCreateArgs};
+// use spora_wallet_core::storage::AccountKind;
 
 pub(crate) async fn create(
-    ctx: &Arc<TondiCli>,
+    ctx: &Arc<SporaCli>,
     prv_key_data_info: Arc<PrvKeyDataInfo>,
     account_kind: AccountKind,
     name: Option<&str>,
@@ -55,7 +55,7 @@ pub(crate) async fn create(
     Ok(())
 }
 
-async fn create_multisig(ctx: &Arc<TondiCli>, account_name: Option<String>, mnemonic_phrase_word_count: WordCount) -> Result<()> {
+async fn create_multisig(ctx: &Arc<SporaCli>, account_name: Option<String>, mnemonic_phrase_word_count: WordCount) -> Result<()> {
     let term = ctx.term();
     let wallet = ctx.wallet();
     let (wallet_secret, _) = ctx.ask_wallet_secret(None).await?;
@@ -87,7 +87,7 @@ async fn create_multisig(ctx: &Arc<TondiCli>, account_name: Option<String>, mnem
     Ok(())
 }
 
-pub(crate) async fn bip32_watch(ctx: &Arc<TondiCli>, name: Option<&str>) -> Result<()> {
+pub(crate) async fn bip32_watch(ctx: &Arc<SporaCli>, name: Option<&str>) -> Result<()> {
     let term = ctx.term();
     let wallet = ctx.wallet();
 
@@ -114,7 +114,7 @@ pub(crate) async fn bip32_watch(ctx: &Arc<TondiCli>, name: Option<&str>) -> Resu
     Ok(())
 }
 
-pub(crate) async fn multisig_watch(ctx: &Arc<TondiCli>, name: Option<&str>) -> Result<()> {
+pub(crate) async fn multisig_watch(ctx: &Arc<SporaCli>, name: Option<&str>) -> Result<()> {
     let term = ctx.term();
 
     let account_name = if let Some(name) = name {

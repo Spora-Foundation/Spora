@@ -1,10 +1,10 @@
-use tondi_bip32::Error as TondiBip32Error;
-use tondi_addresses::AddressError;
+use spora_bip32::Error as SporaBip32Error;
+use spora_addresses::AddressError;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error(transparent)]
-    TondiBip32Error(#[from] TondiBip32Error),
+    SporaBip32Error(#[from] SporaBip32Error),
 
     #[error(transparent)]
     AddressError(#[from] AddressError),

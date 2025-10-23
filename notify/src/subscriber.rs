@@ -4,7 +4,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
-use tondi_core::{debug, trace};
+use spora_core::{debug, trace};
 extern crate derive_more;
 use crate::events::{EventSwitches, EventType};
 

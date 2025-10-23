@@ -1,9 +1,9 @@
 use crate::result::Result;
-use tondi_consensus_core::hashing::sighash::{calc_schnorr_signature_hash, SigHashReusedValuesUnsync};
-use tondi_consensus_core::hashing::sighash_type::SIG_HASH_ALL;
-use tondi_consensus_core::tx;
+use spora_consensus_core::hashing::sighash::{calc_schnorr_signature_hash, SigHashReusedValuesUnsync};
+use spora_consensus_core::hashing::sighash_type::SIG_HASH_ALL;
+use spora_consensus_core::tx;
 
-pub fn script_hashes(mut mutable_tx: tx::SignableTransaction) -> Result<Vec<tondi_hashes::Hash>> {
+pub fn script_hashes(mut mutable_tx: tx::SignableTransaction) -> Result<Vec<spora_hashes::Hash>> {
     let mut list = vec![];
     for i in 0..mutable_tx.tx.inputs.len() {
         mutable_tx.tx.inputs[i].sig_op_count = 1;

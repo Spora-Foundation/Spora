@@ -3,15 +3,15 @@ use crate::prelude::*;
 use crate::pstt::{Inner as PSTTInner, PSTT};
 // use crate::wasm::result;
 
-use tondi_addresses::{Address, Prefix};
-// use tondi_bip32::Prefix;
+use spora_addresses::{Address, Prefix};
+// use spora_bip32::Prefix;
 use hex;
 use serde::{Deserialize, Serialize};
 use std::ops::Deref;
-use tondi_consensus_core::constants::UNACCEPTED_DAA_SCORE;
-use tondi_consensus_core::network::{NetworkId, NetworkType};
-use tondi_consensus_core::tx::{ScriptPublicKey, TransactionOutpoint, UtxoEntry};
-use tondi_txscript::{extract_script_pub_key_address, pay_to_address_script, pay_to_script_hash_script};
+use spora_consensus_core::constants::UNACCEPTED_DAA_SCORE;
+use spora_consensus_core::network::{NetworkId, NetworkType};
+use spora_consensus_core::tx::{ScriptPublicKey, TransactionOutpoint, UtxoEntry};
+use spora_txscript::{extract_script_pub_key_address, pay_to_address_script, pay_to_script_hash_script};
 
 ///
 /// Bundle is a [`PSTT`] bundle - a sequence of PSTT transactions
@@ -167,7 +167,7 @@ pub fn lock_script_sig_templating_bytes(payload: Vec<u8>, pubkey_bytes: Option<&
     Ok(payload_bytes)
 }
 
-pub fn script_sig_to_address(script_sig: &[u8], prefix: tondi_addresses::Prefix) -> Result<Address, Error> {
+pub fn script_sig_to_address(script_sig: &[u8], prefix: spora_addresses::Prefix) -> Result<Address, Error> {
     extract_script_pub_key_address(&pay_to_script_hash_script(script_sig), prefix).map_err(Error::P2SHExtractError)
 }
 
@@ -276,8 +276,8 @@ mod tests {
     use secp256k1::{rand::thread_rng, Keypair};
     use std::str::FromStr;
     use std::sync::LazyLock;
-    use tondi_consensus_core::tx::{TransactionId, TransactionOutpoint, UtxoEntry};
-    use tondi_txscript::{multisig_redeem_script, pay_to_script_hash_script};
+    use spora_consensus_core::tx::{TransactionId, TransactionOutpoint, UtxoEntry};
+    use spora_txscript::{multisig_redeem_script, pay_to_script_hash_script};
 
     static CONTEXT: LazyLock<Box<([Keypair; 2], Vec<u8>)>> = LazyLock::new(|| {
         let kps = [Keypair::new(&Secp256k1::new(), &mut thread_rng()), Keypair::new(&Secp256k1::new(), &mut thread_rng())];

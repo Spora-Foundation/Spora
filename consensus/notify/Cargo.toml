@@ -1,6 +1,6 @@
 [package]
-name = "tondi-consensus-notify"
-description = "Tondi consensus notifier"
+name = "spora-consensus-notify"
+description = "Spora consensus notifier"
 rust-version.workspace = true
 version.workspace = true
 edition.workspace = true
@@ -14,11 +14,11 @@ async-channel.workspace = true
 cfg-if.workspace = true
 derive_more.workspace = true
 futures.workspace = true
-tondi-consensus-core.workspace = true
-tondi-core.workspace = true
-tondi-hashes.workspace = true
-tondi-notify.workspace = true
-tondi-utils.workspace = true
+spora-consensus-core.workspace = true
+spora-core.workspace = true
+spora-hashes.workspace = true
+spora-notify.workspace = true
+spora-utils.workspace = true
 log.workspace = true
 paste.workspace = true
 thiserror.workspace = true

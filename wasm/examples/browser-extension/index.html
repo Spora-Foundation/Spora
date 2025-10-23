@@ -5,14 +5,14 @@
         <script type="module">
             // import { log, stringify, currentNetwork } from './resources/utils.js';
 
-            // import * as tondi from '../../web/tondi/tondi.js';
-            // let { Resolver, RpcClient, Encoding, tondiToSau } = tondi;
+            // import * as spora from '../../web/spora/spora.js';
+            // let { Resolver, RpcClient, Encoding, sporaToSau } = spora;
 
             (async () => {
-                //await tondi.default('../../web/tondi/tondi_bg.wasm');
+                //await spora.default('../../web/spora/tondi_bg.wasm');
 
                 // let networkId = currentNetwork();
-                // log(`Connecting to Tondi network...`);
+                // log(`Connecting to Spora network...`);
                 // log(`Selected network is ${networkId}...`);
                 
                 // const rpc = new RpcClient({
@@ -81,10 +81,10 @@
 
                     // let input = document.getElementById("amount");
                     // let amount = input.value;
-                    // //let sau = tondiToSau(amount);
+                    // //let sau = sporaToSau(amount);
                     // // TODO ... request payment
                     // input.value = "";
-                    // Tondi.send({address: "xxxx", amount:13.4});
+                    // Spora.send({address: "xxxx", amount:13.4});
                 });
 
             })();

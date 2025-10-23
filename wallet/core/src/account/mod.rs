@@ -12,9 +12,9 @@ use pstb::{
     bundle_from_pstt_generator, bundle_to_finalizer_stream, commit_reveal_batch_bundle, pstb_signer_for_address,
     pstt_to_pending_transaction, PSTBSigner, PSTTGenerator,
 };
-use tondi_wallet_pstt::bundle::Bundle;
+use spora_wallet_pstt::bundle::Bundle;
 pub use variants::*;
-use tondi_bip32::PrivateKey;
+use spora_bip32::PrivateKey;
 use crate::derivation::build_derivate_paths;
 use crate::derivation::AddressDerivationManagerTrait;
 use crate::imports::*;
@@ -27,9 +27,9 @@ use crate::tx::{
 };
 use crate::utxo::balance::{AtomicBalance, BalanceStrings};
 use crate::utxo::UtxoContextBinding;
-use tondi_bip32::{ChildNumber, ExtendedPrivateKey};
-use tondi_consensus_core::tx::UtxoEntry;
-use tondi_wallet_keys::derivation::gen0::WalletDerivationManagerV0;
+use spora_bip32::{ChildNumber, ExtendedPrivateKey};
+use spora_consensus_core::tx::UtxoEntry;
+use spora_wallet_keys::derivation::gen0::WalletDerivationManagerV0;
 use workflow_core::abortable::Abortable;
 
 /// Notification callback type used by [`Account::sweep`] and [`Account::send`].
@@ -319,7 +319,7 @@ pub trait Account: AnySync + Send + Sync + 'static {
         fee_rate: Option<f64>,
         abortable: &Abortable,
         notifier: Option<GenerationNotifier>,
-    ) -> Result<(GeneratorSummary, Vec<tondi_hashes::Hash>)> {
+    ) -> Result<(GeneratorSummary, Vec<spora_hashes::Hash>)> {
         let keydata = self.prv_key_data(wallet_secret).await?;
         let signer = Arc::new(Signer::new(self.clone().as_dyn_arc(), keydata, payment_secret));
 
@@ -361,7 +361,7 @@ pub trait Account: AnySync + Send + Sync + 'static {
         payment_secret: Option<Secret>,
         abortable: &Abortable,
         notifier: Option<GenerationNotifier>,
-    ) -> Result<(GeneratorSummary, Vec<tondi_hashes::Hash>)> {
+    ) -> Result<(GeneratorSummary, Vec<spora_hashes::Hash>)> {
         let keydata = self.prv_key_data(wallet_secret).await?;
         let signer = Arc::new(Signer::new(self.clone().as_dyn_arc(), keydata, payment_secret));
 
@@ -461,7 +461,7 @@ pub trait Account: AnySync + Send + Sync + 'static {
         let utxos = self.utxo_context().get_utxos(addresses, min_amount_sau).await?;
         Ok(utxos
             .into_iter()
-            .map(|utxo| tondi_consensus_core::tx::UtxoEntry {
+            .map(|utxo| spora_consensus_core::tx::UtxoEntry {
                 amount: utxo.amount,
                 script_public_key: utxo.script_public_key,
                 block_daa_score: utxo.block_daa_score,
@@ -513,7 +513,7 @@ pub trait Account: AnySync + Send + Sync + 'static {
         abortable: &Abortable,
         notifier: Option<GenerationNotifier>,
         guard: &WalletGuard,
-    ) -> Result<(GeneratorSummary, Vec<tondi_hashes::Hash>)> {
+    ) -> Result<(GeneratorSummary, Vec<spora_hashes::Hash>)> {
         let keydata = self.prv_key_data(wallet_secret).await?;
         let signer = Arc::new(Signer::new(self.clone().as_dyn_arc(), keydata, payment_secret));
 
@@ -595,7 +595,7 @@ pub trait Account: AnySync + Send + Sync + 'static {
         Ok(private_keys.into_iter().map(|(addr, key)| (addr.clone(), key)).collect())
     }
 
-    async fn pstb_broadcast(self: Arc<Self>, bundle: &Bundle) -> Result<Vec<tondi_hashes::Hash>> {
+    async fn pstb_broadcast(self: Arc<Self>, bundle: &Bundle) -> Result<Vec<spora_hashes::Hash>> {
         let mut ids = Vec::new();
         let mut stream = bundle_to_finalizer_stream(bundle);
 
@@ -908,12 +908,12 @@ mod tests {
     use super::ExtendedPrivateKey;
     use crate::imports::LEGACY_ACCOUNT_KIND;
     use std::str::FromStr;
-    use tondi_addresses::Prefix;
-    use tondi_addresses::{Address, Version};
-    use tondi_bip32::secp256k1::SecretKey;
-    use tondi_bip32::PrivateKey;
-    use tondi_bip32::SecretKeyExt;
-    use tondi_wallet_keys::derivation::gen0::PubkeyDerivationManagerV0;
+    use spora_addresses::Prefix;
+    use spora_addresses::{Address, Version};
+    use spora_bip32::secp256k1::SecretKey;
+    use spora_bip32::PrivateKey;
+    use spora_bip32::SecretKeyExt;
+    use spora_wallet_keys::derivation::gen0::PubkeyDerivationManagerV0;
 
     fn gen0_receive_keys() -> Vec<&'static str> {
         vec![

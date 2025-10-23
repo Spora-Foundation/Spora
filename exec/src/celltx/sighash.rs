@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: ISC
-// Copyright (C) 2025Tondi developers
+// Copyright (C) 2025 Spora developers
 //
 // Cell transaction signature hashing (blake3 with domain separation)
 
 use super::types::CellTx;
 
 /// Domain constant for TXID hashing
-pub const CELL_TXID_DOMAIN: &[u8] = b"tondi-cell/txid";
+pub const CELL_TXID_DOMAIN: &[u8] = b"spora-cell/txid";
 /// Domain constant for WTXID hashing
-pub const CELL_WTXID_DOMAIN: &[u8] = b"tondi-cell/wtxid";
+pub const CELL_WTXID_DOMAIN: &[u8] = b"spora-cell/wtxid";
 /// Domain constant for signature hashing
-pub const CELL_SIG_DOMAIN: &[u8] = b"tondi-cell/sig";
+pub const CELL_SIG_DOMAIN: &[u8] = b"spora-cell/sig";
 
 /// Compute txid (without witnesses)
 ///
@@ -303,9 +303,9 @@ mod tests {
         // ... (same serialization as txid)
         
         // This would produce a different hash due to domain separation
-        assert_eq!(CELL_TXID_DOMAIN, b"tondi-cell/txid");
-        assert_eq!(CELL_WTXID_DOMAIN, b"tondi-cell/wtxid");
-        assert_eq!(CELL_SIG_DOMAIN, b"tondi-cell/sig");
+        assert_eq!(CELL_TXID_DOMAIN, b"spora-cell/txid");
+        assert_eq!(CELL_WTXID_DOMAIN, b"spora-cell/wtxid");
+        assert_eq!(CELL_SIG_DOMAIN, b"spora-cell/sig");
     }
 }
 

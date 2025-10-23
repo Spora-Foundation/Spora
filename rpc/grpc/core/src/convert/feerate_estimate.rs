@@ -1,19 +1,19 @@
 use crate::protowire;
 use crate::{from, try_from};
-use tondi_rpc_core::RpcError;
+use spora_rpc_core::RpcError;
 
 // ----------------------------------------------------------------------------
 // rpc_core to protowire
 // ----------------------------------------------------------------------------
 
-from!(item: &tondi_rpc_core::RpcFeerateBucket, protowire::RpcFeerateBucket, {
+from!(item: &spora_rpc_core::RpcFeerateBucket, protowire::RpcFeerateBucket, {
     Self {
         feerate: item.feerate,
         estimated_seconds: item.estimated_seconds,
     }
 });
 
-from!(item: &tondi_rpc_core::RpcFeeEstimate, protowire::RpcFeeEstimate, {
+from!(item: &spora_rpc_core::RpcFeeEstimate, protowire::RpcFeeEstimate, {
     Self {
         priority_bucket: Some((&item.priority_bucket).into()),
         normal_buckets: item.normal_buckets.iter().map(|b| b.into()).collect(),
@@ -21,7 +21,7 @@ from!(item: &tondi_rpc_core::RpcFeeEstimate, protowire::RpcFeeEstimate, {
     }
 });
 
-from!(item: &tondi_rpc_core::RpcFeeEstimateVerboseExperimentalData, protowire::RpcFeeEstimateVerboseExperimentalData, {
+from!(item: &spora_rpc_core::RpcFeeEstimateVerboseExperimentalData, protowire::RpcFeeEstimateVerboseExperimentalData, {
     Self {
         network_mass_per_second: item.network_mass_per_second,
         mempool_ready_transactions_count: item.mempool_ready_transactions_count,
@@ -36,14 +36,14 @@ from!(item: &tondi_rpc_core::RpcFeeEstimateVerboseExperimentalData, protowire::R
 // protowire to rpc_core
 // ----------------------------------------------------------------------------
 
-try_from!(item: &protowire::RpcFeerateBucket, tondi_rpc_core::RpcFeerateBucket, {
+try_from!(item: &protowire::RpcFeerateBucket, spora_rpc_core::RpcFeerateBucket, {
     Self {
         feerate: item.feerate,
         estimated_seconds: item.estimated_seconds,
     }
 });
 
-try_from!(item: &protowire::RpcFeeEstimate, tondi_rpc_core::RpcFeeEstimate, {
+try_from!(item: &protowire::RpcFeeEstimate, spora_rpc_core::RpcFeeEstimate, {
     Self {
         priority_bucket: item.priority_bucket
             .as_ref()
@@ -54,7 +54,7 @@ try_from!(item: &protowire::RpcFeeEstimate, tondi_rpc_core::RpcFeeEstimate, {
     }
 });
 
-try_from!(item: &protowire::RpcFeeEstimateVerboseExperimentalData, tondi_rpc_core::RpcFeeEstimateVerboseExperimentalData, {
+try_from!(item: &protowire::RpcFeeEstimateVerboseExperimentalData, spora_rpc_core::RpcFeeEstimateVerboseExperimentalData, {
     Self {
         network_mass_per_second: item.network_mass_per_second,
         mempool_ready_transactions_count: item.mempool_ready_transactions_count,

@@ -2,11 +2,11 @@ use std::sync::Arc;
 
 use rocksdb::WriteBatch;
 use serde::{Deserialize, Serialize};
-use tondi_database::prelude::StoreResult;
-use tondi_database::prelude::DB;
-use tondi_database::prelude::{BatchDbWriter, CachedDbItem, DirectDbWriter};
-use tondi_database::registry::DatabaseStorePrefixes;
-use tondi_hashes::Hash;
+use spora_database::prelude::StoreResult;
+use spora_database::prelude::DB;
+use spora_database::prelude::{BatchDbWriter, CachedDbItem, DirectDbWriter};
+use spora_database::registry::DatabaseStorePrefixes;
+use spora_hashes::Hash;
 
 #[derive(Clone, Copy, Serialize, Deserialize)]
 pub struct PruningPointInfo {

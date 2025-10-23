@@ -2,11 +2,11 @@
 
 use crate::RpcUtxoEntry;
 use crate::RpcUtxosByAddressesEntry;
-use tondi_addresses::Prefix;
-use tondi_consensus_core::tx::ScriptPublicKey;
-use tondi_index_core::indexed_utxos::CompactUtxoCollection;
-use tondi_index_core::indexed_utxos::UtxoSetByScriptPublicKey;
-use tondi_txscript::extract_script_pub_key_address;
+use spora_addresses::Prefix;
+use spora_consensus_core::tx::ScriptPublicKey;
+use spora_index_core::indexed_utxos::CompactUtxoCollection;
+use spora_index_core::indexed_utxos::UtxoSetByScriptPublicKey;
+use spora_txscript::extract_script_pub_key_address;
 
 // ----------------------------------------------------------------------------
 // index to rpc_core

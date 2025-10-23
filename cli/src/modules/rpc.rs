@@ -1,13 +1,13 @@
 use crate::imports::*;
 use convert_case::{Case, Casing};
-use tondi_rpc_core::api::ops::RpcApiOps;
+use spora_rpc_core::api::ops::RpcApiOps;
 
 #[derive(Default, Handler)]
-#[help("Execute RPC commands against the connected Tondi node")]
+#[help("Execute RPC commands against the connected Spora node")]
 pub struct Rpc;
 
 impl Rpc {
-    fn println<T>(&self, ctx: &Arc<TondiCli>, v: T)
+    fn println<T>(&self, ctx: &Arc<SporaCli>, v: T)
     where
         T: core::fmt::Debug,
     {
@@ -15,7 +15,7 @@ impl Rpc {
     }
 
     async fn main(self: Arc<Self>, ctx: &Arc<dyn Context>, mut argv: Vec<String>, cmd: &str) -> Result<()> {
-        let ctx = ctx.clone().downcast_arc::<TondiCli>()?;
+        let ctx = ctx.clone().downcast_arc::<SporaCli>()?;
         let rpc = ctx.wallet().rpc_api().clone();
         // tprintln!(ctx, "{response}");
 
@@ -302,7 +302,7 @@ impl Rpc {
         Ok(())
     }
 
-    async fn display_help(self: Arc<Self>, ctx: Arc<TondiCli>, _argv: Vec<String>) -> Result<()> {
+    async fn display_help(self: Arc<Self>, ctx: Arc<SporaCli>, _argv: Vec<String>) -> Result<()> {
         // RpcApiOps that do not contain docs are not displayed
         let help = RpcApiOps::into_iter()
             .filter_map(|op| op.rustdoc().is_not_empty().then_some((op.as_str().to_case(Case::Kebab).to_string(), op.rustdoc())))

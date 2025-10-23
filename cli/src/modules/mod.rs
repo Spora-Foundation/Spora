@@ -55,7 +55,7 @@ pub mod metrics;
 // create-unsigned-tx
 // sign
 
-pub fn register_handlers(cli: &Arc<TondiCli>) -> Result<()> {
+pub fn register_handlers(cli: &Arc<SporaCli>) -> Result<()> {
     register_handlers!(
         cli,
         cli.handlers(),

@@ -1,29 +1,29 @@
 use super::{
     handler_trait::Handler,
-    interface::{DynTondidMethod, Interface},
+    interface::{DynSporadMethod, Interface},
 };
 use crate::{
     connection::{Connection, IncomingRoute},
     connection_handler::ServerContext,
     error::GrpcServerResult,
 };
-use tondi_core::debug;
-use tondi_grpc_core::{
-    ops::TondidPayloadOps,
-    protowire::{TondidRequest, TondidResponse},
+use spora_core::debug;
+use spora_grpc_core::{
+    ops::SporadPayloadOps,
+    protowire::{SporadRequest, SporadResponse},
 };
 
 pub struct RequestHandler {
-    rpc_op: TondidPayloadOps,
+    rpc_op: SporadPayloadOps,
     incoming_route: IncomingRoute,
     server_ctx: ServerContext,
-    method: DynTondidMethod,
+    method: DynSporadMethod,
     connection: Connection,
 }
 
 impl RequestHandler {
     pub fn new(
-        rpc_op: TondidPayloadOps,
+        rpc_op: SporadPayloadOps,
         incoming_route: IncomingRoute,
         server_context: ServerContext,
         interface: &Interface,
@@ -33,7 +33,7 @@ impl RequestHandler {
         Self { rpc_op, incoming_route, server_ctx: server_context, method, connection }
     }
 
-    pub async fn handle_request(&self, request: TondidRequest) -> GrpcServerResult<TondidResponse> {
+    pub async fn handle_request(&self, request: SporadRequest) -> GrpcServerResult<SporadResponse> {
         let id = request.id;
         let mut response = self.method.call(self.server_ctx.clone(), self.connection.clone(), request).await?;
         response.id = id;

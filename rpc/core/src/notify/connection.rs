@@ -1,4 +1,4 @@
 use crate::Notification;
 
-pub type ChannelConnection = tondi_notify::connection::ChannelConnection<Notification>;
-pub use tondi_notify::connection::ChannelType;
+pub type ChannelConnection = spora_notify::connection::ChannelConnection<Notification>;
+pub use spora_notify::connection::ChannelType;

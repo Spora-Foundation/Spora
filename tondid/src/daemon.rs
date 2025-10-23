@@ -1,56 +1,56 @@
 use std::{fs, path::PathBuf, process::exit, sync::Arc, time::Duration};
 
 use async_channel::unbounded;
-use tondi_consensus_core::{
+use spora_consensus_core::{
     config::ConfigBuilder,
     constants::TRANSIENT_BYTE_TO_MASS_FACTOR,
     errors::config::{ConfigError, ConfigResult},
     mining_rules::MiningRules,
 };
-use tondi_consensus_notify::{root::ConsensusNotificationRoot, service::NotifyService};
-use tondi_core::{core::Core, debug, info, trace};
-use tondi_core::{task::tick::TickService, tondid_env::version};
-use tondi_database::{
+use spora_consensus_notify::{root::ConsensusNotificationRoot, service::NotifyService};
+use spora_core::{core::Core, debug, info, trace};
+use spora_core::{task::tick::TickService, tondid_env::version};
+use spora_database::{
     prelude::{CachePolicy, DbWriter, DirectDbWriter},
     registry::DatabaseStorePrefixes,
 };
-use tondi_grpc_server::service::GrpcService;
-use tondi_notify::{address::tracker::Tracker, subscription::context::SubscriptionContext};
-use tondi_p2p_lib::Hub;
-use tondi_p2p_mining::rule_engine::MiningRuleEngine;
-use tondi_rpc_service::service::RpcCoreService;
-use tondi_txscript::caches::TxScriptCacheCounters;
-use tondi_utils::git;
-use tondi_utils::networking::ContextualNetAddress;
-use tondi_utils::sysinfo::SystemInfo;
-use tondi_utils_tower::counters::TowerConnectionCounters;
+use spora_grpc_server::service::GrpcService;
+use spora_notify::{address::tracker::Tracker, subscription::context::SubscriptionContext};
+use spora_p2p_lib::Hub;
+use spora_p2p_mining::rule_engine::MiningRuleEngine;
+use spora_rpc_service::service::RpcCoreService;
+use spora_txscript::caches::TxScriptCacheCounters;
+use spora_utils::git;
+use spora_utils::networking::ContextualNetAddress;
+use spora_utils::sysinfo::SystemInfo;
+use spora_utils_tower::counters::TowerConnectionCounters;
 
-use tondi_addressmanager::AddressManager;
-use tondi_consensus::{consensus::factory::Factory as ConsensusFactory, pipeline::ProcessingCounters};
-use tondi_consensus::{
+use spora_addressmanager::AddressManager;
+use spora_consensus::{consensus::factory::Factory as ConsensusFactory, pipeline::ProcessingCounters};
+use spora_consensus::{
     consensus::factory::MultiConsensusManagementStore, model::stores::headers::DbHeadersStore, pipeline::monitor::ConsensusMonitor,
 };
-use tondi_consensusmanager::ConsensusManager;
-use tondi_core::task::runtime::AsyncRuntime;
-use tondi_index_processor::service::IndexService;
-use tondi_mining::{
+use spora_consensusmanager::ConsensusManager;
+use spora_core::task::runtime::AsyncRuntime;
+use spora_index_processor::service::IndexService;
+use spora_mining::{
     manager::{MiningManager, MiningManagerProxy},
     monitor::MiningMonitor,
     MiningCounters,
 };
-use tondi_p2p_flows::{flow_context::FlowContext, service::P2pService};
+use spora_p2p_flows::{flow_context::FlowContext, service::P2pService};
 
 use itertools::Itertools;
-use tondi_perf_monitor::{builder::Builder as PerfMonitorBuilder, counters::CountersSnapshot};
+use spora_perf_monitor::{builder::Builder as PerfMonitorBuilder, counters::CountersSnapshot};
 // TODO(cell-model): UTXO index needs Cell model replacement
 // use tondi_utxoindex::{api::UtxoIndexProxy, UtxoIndex};
-use tondi_wrpc_server::service::{Options as WrpcServerOptions, WebSocketCounters as WrpcServerCounters, WrpcEncoding, WrpcService};
+use spora_wrpc_server::service::{Options as WrpcServerOptions, WebSocketCounters as WrpcServerCounters, WrpcEncoding, WrpcService};
 
 /// Desired soft FD limit that needs to be configured
 /// for the tondid process.
 pub const DESIRED_DAEMON_SOFT_FD_LIMIT: u64 = 8 * 1024;
 /// Minimum acceptable soft FD limit for the tondid
-/// process. (Rusty Tondi will operate with the minimal
+/// process. (Rusty Spora will operate with the minimal
 /// acceptable limit of `4096`, but a setting below
 /// this value may impact the database performance).
 pub const MINIMUM_DAEMON_SOFT_FD_LIMIT: u64 = 4 * 1024;
@@ -79,9 +79,9 @@ fn get_home_dir() -> PathBuf {
 /// Get the default application directory.
 pub fn get_app_dir() -> PathBuf {
     #[cfg(target_os = "windows")]
-    return get_home_dir().join("tondi");
+    return get_home_dir().join("spora");
     #[cfg(not(target_os = "windows"))]
-    return get_home_dir().join(".tondi");
+    return get_home_dir().join(".spora");
 }
 
 pub fn validate_args(args: &Args) -> ConfigResult<()> {
@@ -179,15 +179,15 @@ impl Runtime {
         // Initialize the logger
         cfg_if::cfg_if! {
             if #[cfg(feature = "semaphore-trace")] {
-                tondi_core::log::init_logger(log_dir.as_deref(), &format!("{},{}=debug", args.log_level, tondi_utils::sync::semaphore_module_path()));
+                spora_core::log::init_logger(log_dir.as_deref(), &format!("{},{}=debug", args.log_level, spora_utils::sync::semaphore_module_path()));
             } else {
-                tondi_core::log::init_logger(log_dir.as_deref(), &args.log_level);
+                spora_core::log::init_logger(log_dir.as_deref(), &args.log_level);
             }
         };
 
         // Configure the panic behavior
         // As we log the panic, we want to set it up after the logger
-        tondi_core::panic::configure_panic();
+        spora_core::panic::configure_panic();
 
         Self { log_dir: log_dir.map(|log_dir| log_dir.to_owned()) }
     }
@@ -270,7 +270,7 @@ pub fn create_core_with_runtime(runtime: &Runtime, args: &Args, fd_total_budget:
     // Reset Condition: User explicitly requested a reset
     if is_db_reset_needed && db_dir.exists() {
         let msg = "Reset DB was requested -- this means the current databases will be fully deleted,
-do you confirm? (answer y/n or pass --yes to the Tondid command line to confirm all interactive questions)";
+do you confirm? (answer y/n or pass --yes to the Sporad command line to confirm all interactive questions)";
         get_user_approval_or_exit(msg, args.yes);
         info!("Deleting databases");
         fs::remove_dir_all(&db_dir).unwrap();
@@ -307,7 +307,7 @@ do you confirm? (answer y/n or pass --yes to the Tondid command line to confirm 
     }
 
     // DB used for addresses store and for multi-consensus management
-    let mut meta_db = tondi_database::prelude::ConnBuilder::default()
+    let mut meta_db = spora_database::prelude::ConnBuilder::default()
         .with_db_path(meta_db_dir.clone())
         .with_files_limit(META_DB_FILE_LIMIT)
         .build()
@@ -322,7 +322,7 @@ do you confirm? (answer y/n or pass --yes to the Tondid command line to confirm 
 
         match active_consensus_dir_name {
             Some(dir_name) => {
-                let consensus_db = tondi_database::prelude::ConnBuilder::default()
+                let consensus_db = spora_database::prelude::ConnBuilder::default()
                     .with_db_path(consensus_db_dir.clone().join(dir_name))
                     .with_files_limit(1)
                     .build()
@@ -364,7 +364,7 @@ do you confirm? (answer y/n or pass --yes to the Tondid command line to confirm 
                 Some(current_consensus_db) => {
                     // Apply soft upgrade logic: delete GD data from higher levels
                     // and then update DB version to 4
-                    let consensus_db = tondi_database::prelude::ConnBuilder::default()
+                    let consensus_db = spora_database::prelude::ConnBuilder::default()
                         .with_db_path(consensus_db_dir.clone().join(current_consensus_db))
                         .with_files_limit(1)
                         .build()
@@ -436,7 +436,7 @@ do you confirm? (answer y/n or pass --yes to the Tondid command line to confirm 
                 }
                 None => {
                     let msg =
-                        "Node database is from a different Tondid *DB* version and needs to be fully deleted, do you confirm the delete? (y/n)";
+                        "Node database is from a different Sporad *DB* version and needs to be fully deleted, do you confirm the delete? (y/n)";
                     get_user_approval_or_exit(msg, args.yes);
 
                     is_db_reset_needed = true;
@@ -444,10 +444,10 @@ do you confirm? (answer y/n or pass --yes to the Tondid command line to confirm 
             }
         } else {
             let msg =
-                "Node database is from a different Tondid *DB* version and needs to be fully deleted, do you confirm the delete? (y/n)";
+                "Node database is from a different Sporad *DB* version and needs to be fully deleted, do you confirm the delete? (y/n)";
             get_user_approval_or_exit(msg, args.yes);
 
-            info!("Deleting databases from previous Tondid version");
+            info!("Deleting databases from previous Sporad version");
 
             is_db_reset_needed = true;
         }
@@ -471,7 +471,7 @@ do you confirm? (answer y/n or pass --yes to the Tondid command line to confirm 
         }
 
         // Reopen the DB
-        meta_db = tondi_database::prelude::ConnBuilder::default()
+        meta_db = spora_database::prelude::ConnBuilder::default()
             .with_db_path(meta_db_dir)
             .with_files_limit(META_DB_FILE_LIMIT)
             .build()
@@ -531,10 +531,10 @@ do you confirm? (answer y/n or pass --yes to the Tondid command line to confirm 
         .with_tick_service(tick_service.clone());
     let perf_monitor = if args.perf_metrics {
         let cb = move |counters: CountersSnapshot| {
-            debug!("[{}] {}", tondi_perf_monitor::SERVICE_NAME, counters.to_process_metrics_display());
-            debug!("[{}] {}", tondi_perf_monitor::SERVICE_NAME, counters.to_io_metrics_display());
+            debug!("[{}] {}", spora_perf_monitor::SERVICE_NAME, counters.to_process_metrics_display());
+            debug!("[{}] {}", spora_perf_monitor::SERVICE_NAME, counters.to_io_metrics_display());
             #[cfg(feature = "heap")]
-            debug!("[{}] heap stats: {:?}", tondi_perf_monitor::SERVICE_NAME, dhat::HeapStats::get());
+            debug!("[{}] heap stats: {:?}", spora_perf_monitor::SERVICE_NAME, dhat::HeapStats::get());
         };
         Arc::new(perf_monitor_builder.with_fetch_cb(cb).build())
     } else {
@@ -547,7 +547,7 @@ do you confirm? (answer y/n or pass --yes to the Tondid command line to confirm 
     // TODO(cell-model): Replace UTXO index with Cell index
     let index_service: Option<Arc<IndexService>> = if args.utxoindex {
         // Use only a single thread for none-consensus databases
-        let _utxoindex_db = tondi_database::prelude::ConnBuilder::default()
+        let _utxoindex_db = spora_database::prelude::ConnBuilder::default()
             .with_db_path(utxoindex_db_dir)
             .with_files_limit(utxo_files_limit)
             .build()

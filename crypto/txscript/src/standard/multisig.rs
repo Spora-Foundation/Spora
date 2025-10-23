@@ -75,7 +75,7 @@ mod tests {
     use rand::thread_rng;
     use secp256k1::Keypair;
     use std::{iter, iter::empty};
-    use tondi_consensus_core::{
+    use spora_consensus_core::{
         hashing::{
             sighash::{calc_ecdsa_signature_hash, calc_schnorr_signature_hash, SigHashReusedValuesUnsync},
             sighash_type::SIG_HASH_ALL,

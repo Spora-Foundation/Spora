@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use itertools::Itertools;
 use log::debug;
-use tondi_consensus_core::BlockHashMap;
-use tondi_p2p_lib::{
+use spora_consensus_core::BlockHashMap;
+use spora_p2p_lib::{
     common::ProtocolError,
     dequeue, dequeue_with_request_id, make_response,
     pb::{

@@ -6,8 +6,8 @@ use std::{
     },
 };
 
-use tondi_consensus_core::api::counters::ProcessingCountersSnapshot;
-use tondi_core::{time::unix_now, trace, warn};
+use spora_consensus_core::api::counters::ProcessingCountersSnapshot;
+use spora_core::{time::unix_now, trace, warn};
 
 use crate::rule_engine::SNAPSHOT_INTERVAL;
 
@@ -120,8 +120,8 @@ mod tests {
 
     use crate::rules::{mining_rule::MiningRule, sync_rate_rule::SYNC_RATE_WINDOW_MAX_SIZE, ExtraData};
     use std::sync::atomic::*;
-    use tondi_consensus_core::api::counters::ProcessingCountersSnapshot;
-    use tondi_core::time::unix_now;
+    use spora_consensus_core::api::counters::ProcessingCountersSnapshot;
+    use spora_core::time::unix_now;
 
     use super::{SyncRateRule, SYNC_RATE_WINDOW_MIN_THRESHOLD};
 

@@ -1,8 +1,8 @@
 //!
-//! PSTT is a crate for working with Partially Signed Tondi Transactions (PSTTs).
+//! PSTT is a crate for working with Partially Signed Spora Transactions (PSTTs).
 //! This crate provides following primitives: `PSTT`, `PSTTBuilder` and `Bundle`.
 //! The `Bundle` struct is used for PSTT exchange payload serialization and carries
-//! multiple `PSTT` instances allowing for exchange of Tondi sweep transactions.
+//! multiple `PSTT` instances allowing for exchange of Spora sweep transactions.
 //!
 
 pub mod bundle;

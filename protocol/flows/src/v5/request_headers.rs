@@ -1,9 +1,9 @@
 use std::{cmp::max, sync::Arc};
 
 use log::debug;
-use tondi_consensus_core::api::ConsensusApi;
-use tondi_hashes::Hash;
-use tondi_p2p_lib::{
+use spora_consensus_core::api::ConsensusApi;
+use spora_hashes::Hash;
+use spora_p2p_lib::{
     common::ProtocolError,
     dequeue, dequeue_with_request_id, make_response,
     pb::{self, tondid_message::Payload, BlockHeadersMessage, DoneHeadersMessage},

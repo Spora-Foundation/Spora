@@ -1,6 +1,6 @@
 use rand::Rng;
-use tondi_database::prelude::CachePolicy;
-use tondi_utils::mem_size::MemMode;
+use spora_database::prelude::CachePolicy;
+use spora_utils::mem_size::MemMode;
 
 /// Adds stochastic noise to cache sizes to avoid predictable and equal sizes across all network nodes
 fn noise(size: usize, magnitude: usize) -> usize {

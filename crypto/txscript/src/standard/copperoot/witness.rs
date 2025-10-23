@@ -7,8 +7,8 @@ use bitcoin::{taproot::Signature as BtcTaprootSignature, Witness as BtcWitness};
 use bitcoin::consensus::{Decodable, Encodable};
 use secp256k1::{schnorr::Signature, Message, Secp256k1, XOnlyPublicKey};
 use std::io::{Cursor, Read};
-use tondi_txscript_errors::{TxScriptError, SerializationError};
-use tondi_consensus_core::tx::copperoot::sighash::CopperootSighashType;
+use spora_txscript_errors::{TxScriptError, SerializationError};
+use spora_consensus_core::tx::copperoot::sighash::CopperootSighashType;
 
 #[cfg(feature = "musig2")]
 use musig2;
@@ -339,7 +339,7 @@ impl CopperootWitness {
     /// ```rust
     /// use musig2::{FirstRound, SecNonceSpices, CompactSignature};
     /// use musig2::secp256k1::{Secp256k1, Keypair, XOnlyPublicKey, Message};
-    /// use tondi_consensus_core::tx::copperoot::sighash::CopperootSighashType;
+    /// use spora_consensus_core::tx::copperoot::sighash::CopperootSighashType;
     /// 
     /// let secp = Secp256k1::new();
     /// let agg_x: XOnlyPublicKey = /* from address 32B payload */;
@@ -404,8 +404,8 @@ impl CopperootWitness {
     /// 
     /// # Example
     /// ```rust
-    /// use tondi_txscript::standard::copperoot::witness::CopperootWitness;
-    /// use tondi_consensus_core::tx::copperoot::sighash::CopperootSighashType;
+    /// use spora_txscript::standard::copperoot::witness::CopperootWitness;
+    /// use spora_consensus_core::tx::copperoot::sighash::CopperootSighashType;
     /// use secp256k1::schnorr::Signature;
     /// 
     /// # fn example() -> Result<(), Box<dyn std::error::Error>> {

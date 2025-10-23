@@ -2,11 +2,11 @@ use std::ops::Deref;
 use std::sync::Arc;
 
 use parking_lot::RwLock;
-use tondi_consensus_core::blockhash;
+use spora_consensus_core::blockhash;
 
 use crate::model::stores::reachability::ReachabilityStoreReader;
 use crate::processes::reachability::{inquirer, Result};
-use tondi_hashes::Hash;
+use spora_hashes::Hash;
 
 pub trait ReachabilityService {
     /// Checks if `this` block is a chain ancestor of `queried` block (i.e., `this ∈ chain(queried) ∪ {queried}`).

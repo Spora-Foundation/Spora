@@ -1,7 +1,7 @@
 use crate::{flow_context::FlowContext, flow_trait::Flow};
 use std::sync::Arc;
-use tondi_core::debug;
-use tondi_p2p_lib::{
+use spora_core::debug;
+use spora_p2p_lib::{
     common::ProtocolError,
     dequeue_with_request_id, make_message, make_response,
     pb::{tondid_message::Payload, InvRelayBlockMessage},
@@ -33,7 +33,7 @@ impl HandleRelayBlockRequests {
     async fn start_impl(&mut self) -> Result<(), ProtocolError> {
         // We begin by sending the current sink to the new peer. This is to help nodes to exchange
         // state even if no new blocks arrive for some reason.
-        // Note: in go-Tondid this was done via a dedicated one-time flow.
+        // Note: in go-Sporad this was done via a dedicated one-time flow.
         self.send_sink().await?;
         loop {
             let (msg, request_id) = dequeue_with_request_id!(self.incoming_route, Payload::RequestRelayBlocks)?;

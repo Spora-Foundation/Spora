@@ -2,8 +2,8 @@ use indexmap::IndexSet;
 use itertools::Itertools;
 use smallvec::{smallvec, SmallVec};
 use std::sync::Arc;
-use tondi_consensus_core::{blockhash::ORIGIN, header::Header, BlockHashMap, BlockHasher, BlockLevel};
-use tondi_hashes::Hash;
+use spora_consensus_core::{blockhash::ORIGIN, header::Header, BlockHashMap, BlockHasher, BlockLevel};
+use spora_hashes::Hash;
 
 use crate::model::{
     services::reachability::{MTReachabilityService, ReachabilityService},
@@ -213,13 +213,13 @@ mod tests {
     use super::ParentsManager;
     use itertools::Itertools;
     use parking_lot::RwLock;
-    use tondi_consensus_core::{
+    use spora_consensus_core::{
         blockhash::{BlockHashes, ORIGIN},
         header::Header,
         BlockHashSet, HashMapCustomHasher,
     };
-    use tondi_database::prelude::{ReadLock, StoreError, StoreResult};
-    use tondi_hashes::Hash;
+    use spora_database::prelude::{ReadLock, StoreError, StoreResult};
+    use spora_hashes::Hash;
 
     struct HeaderStoreMock {
         map: RwLock<BlockHashMap<HeaderWithBlockLevel>>,
@@ -233,34 +233,34 @@ mod tests {
 
     #[allow(unused_variables)]
     impl HeaderStoreReader for HeaderStoreMock {
-        fn get_daa_score(&self, hash: tondi_hashes::Hash) -> Result<u64, StoreError> {
+        fn get_daa_score(&self, hash: spora_hashes::Hash) -> Result<u64, StoreError> {
             unimplemented!()
         }
 
-        fn get_timestamp(&self, hash: tondi_hashes::Hash) -> Result<u64, StoreError> {
+        fn get_timestamp(&self, hash: spora_hashes::Hash) -> Result<u64, StoreError> {
             unimplemented!()
         }
 
-        fn get_bits(&self, hash: tondi_hashes::Hash) -> Result<u32, StoreError> {
+        fn get_bits(&self, hash: spora_hashes::Hash) -> Result<u32, StoreError> {
             unimplemented!()
         }
 
-        fn get_header(&self, hash: tondi_hashes::Hash) -> Result<Arc<Header>, StoreError> {
+        fn get_header(&self, hash: spora_hashes::Hash) -> Result<Arc<Header>, StoreError> {
             Ok(self.map.read().get(&hash).unwrap().header.clone())
         }
 
         fn get_compact_header_data(
             &self,
-            hash: tondi_hashes::Hash,
+            hash: spora_hashes::Hash,
         ) -> Result<crate::model::stores::headers::CompactHeaderData, StoreError> {
             unimplemented!()
         }
 
-        fn get_blue_score(&self, hash: tondi_hashes::Hash) -> Result<u64, StoreError> {
+        fn get_blue_score(&self, hash: spora_hashes::Hash) -> Result<u64, StoreError> {
             unimplemented!()
         }
 
-        fn get_header_with_block_level(&self, hash: tondi_hashes::Hash) -> Result<HeaderWithBlockLevel, StoreError> {
+        fn get_header_with_block_level(&self, hash: spora_hashes::Hash) -> Result<HeaderWithBlockLevel, StoreError> {
             Ok(self.map.read().get(&hash).unwrap().clone())
         }
     }
@@ -271,7 +271,7 @@ mod tests {
 
     #[allow(unused_variables)]
     impl RelationsStoreReader for RelationsStoreMock {
-        fn get_parents(&self, hash: Hash) -> Result<tondi_consensus_core::blockhash::BlockHashes, StoreError> {
+        fn get_parents(&self, hash: Hash) -> Result<spora_consensus_core::blockhash::BlockHashes, StoreError> {
             unimplemented!()
         }
 

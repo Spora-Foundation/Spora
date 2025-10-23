@@ -1,7 +1,7 @@
 use crate::{block::Block, header::Header, subnets::SUBNETWORK_ID_COINBASE, tx::Transaction};
-use tondi_exec::CellTx;
-use tondi_hashes::{Hash, ZERO_HASH};
-use tondi_muhash::EMPTY_MUHASH;
+use spora_exec::CellTx;
+use spora_hashes::{Hash, ZERO_HASH};
+use spora_muhash::EMPTY_MUHASH;
 
 /// The constants uniquely representing the genesis block
 #[derive(Clone, Debug)]
@@ -152,7 +152,7 @@ pub const TESTNET_GENESIS: GenesisBlock = GenesisBlock {
         0x00, 0x00, // Script version
         0x01,                                                                         // Varint
         0x00,                                                                         // OP-FALSE
-        0x6b, 0x61, 0x73, 0x70, 0x61, 0x2d, 0x74, 0x65, 0x73, 0x74, 0x6e, 0x65, 0x74, // tondi-testnet
+        0x6b, 0x61, 0x73, 0x70, 0x61, 0x2d, 0x74, 0x65, 0x73, 0x74, 0x6e, 0x65, 0x74, // spora-testnet
     ],
 };
 
@@ -174,7 +174,7 @@ pub const TESTNET11_GENESIS: GenesisBlock = GenesisBlock {
         0x00, 0x00, // Script version
         0x01,                                                                         // Varint
         0x00,                                                                         // OP-FALSE
-        0x6b, 0x61, 0x73, 0x70, 0x61, 0x2d, 0x74, 0x65, 0x73, 0x74, 0x6e, 0x65, 0x74, // tondi-testnet
+        0x6b, 0x61, 0x73, 0x70, 0x61, 0x2d, 0x74, 0x65, 0x73, 0x74, 0x6e, 0x65, 0x74, // spora-testnet
         11, 4                                                                         // TN11, Relaunch 4
     ],
     ..TESTNET_GENESIS
@@ -202,7 +202,7 @@ pub const SIMNET_GENESIS: GenesisBlock = GenesisBlock {
         0x00, 0x00, // Script version
         0x01,                                                                   // Varint
         0x00,                                                                   // OP-FALSE
-        0x6b, 0x61, 0x73, 0x70, 0x61, 0x2d, 0x73, 0x69, 0x6d, 0x6e, 0x65, 0x74, // tondi-simnet
+        0x6b, 0x61, 0x73, 0x70, 0x61, 0x2d, 0x73, 0x69, 0x6d, 0x6e, 0x65, 0x74, // spora-simnet
     ],
 };
 
@@ -228,7 +228,7 @@ pub const DEVNET_GENESIS: GenesisBlock = GenesisBlock {
         0x00, 0x00, // Script version
         0x01,                                                                   // Varint
         0x00,                                                                   // OP-FALSE
-        0x6b, 0x61, 0x73, 0x70, 0x61, 0x2d, 0x64, 0x65, 0x76, 0x6e, 0x65, 0x74, // tondi-devnet
+        0x6b, 0x61, 0x73, 0x70, 0x61, 0x2d, 0x64, 0x65, 0x76, 0x6e, 0x65, 0x74, // spora-devnet
     ],
 };
 
@@ -252,7 +252,7 @@ mod tests {
     fn gen_testnet11_genesis() {
         let bps = TenBps::bps();
         let mut genesis = TESTNET_GENESIS;
-        let target = tondi_math::Uint256::from_compact_target_bits(genesis.bits);
+        let target = spora_math::Uint256::from_compact_target_bits(genesis.bits);
         let scaled_target = target * bps / 100;
         let scaled_bits = scaled_target.compact_target_bits();
         genesis.bits = scaled_bits;

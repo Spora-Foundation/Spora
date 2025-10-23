@@ -1,4 +1,4 @@
-extern crate self as tondi_cli;
+extern crate self as spora_cli;
 
 mod cli;
 pub mod error;
@@ -12,5 +12,5 @@ pub mod result;
 pub mod utils;
 mod wizards;
 
-pub use cli::{tondi_cli, Options, TerminalOptions, TerminalTarget, TondiCli};
+pub use cli::{spora_cli, Options, TerminalOptions, TerminalTarget, SporaCli};
 pub use workflow_terminal::Terminal;

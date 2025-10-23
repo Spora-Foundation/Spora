@@ -7,8 +7,8 @@ use crate::encryption::blake3_hash;
 use crate::imports::*;
 use crate::storage::PrvKeyDataId;
 use secp256k1::PublicKey;
-use tondi_hashes::Hash;
-use tondi_utils::as_slice::AsSlice;
+use spora_hashes::Hash;
+use spora_utils::as_slice::AsSlice;
 
 /// Deterministic byte sequence derived from account data (can be used for auxiliary data storage encryption).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]

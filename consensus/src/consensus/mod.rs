@@ -43,7 +43,7 @@ use crate::{
         window::{WindowManager, WindowType},
     },
 };
-use tondi_consensus_core::{
+use spora_consensus_core::{
     acceptance_data::AcceptanceData,
     api::{
         args::{TransactionValidationArgs, TransactionValidationBatchArgs},
@@ -73,19 +73,19 @@ use tondi_consensus_core::{
     tx::{MutableTransaction, SignableTransaction, Transaction, TransactionOutpoint, CellTx, UtxoEntry},
     BlockHashSet, BlueWorkType, ChainPath, HashMapCustomHasher,
 };
-use tondi_consensus_notify::root::ConsensusNotificationRoot;
+use spora_consensus_notify::root::ConsensusNotificationRoot;
 
 use crossbeam_channel::{
     bounded as bounded_crossbeam, unbounded as unbounded_crossbeam, Receiver as CrossbeamReceiver, Sender as CrossbeamSender,
 };
 use itertools::Itertools;
-use tondi_consensusmanager::{SessionLock, SessionReadGuard};
+use spora_consensusmanager::{SessionLock, SessionReadGuard};
 
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
-use tondi_database::prelude::{StoreResultEmptyTuple, StoreResultExtensions};
-use tondi_hashes::Hash;
-use tondi_muhash::MuHash;
-use tondi_txscript::caches::TxScriptCacheCounters;
+use spora_database::prelude::{StoreResultEmptyTuple, StoreResultExtensions};
+use spora_hashes::Hash;
+use spora_muhash::MuHash;
+use spora_txscript::caches::TxScriptCacheCounters;
 
 use std::{
     cmp::Reverse,
@@ -369,7 +369,7 @@ impl Consensus {
         // We walk up via reachability tree children so that we only iterate blocks B s.t. pruning point ∈ chain(B)
         let mut queue = VecDeque::<Hash>::from_iter(reachability.get_children(pruning_point).unwrap().iter().copied());
         let mut processed = 0;
-        tondi_core::info!("Upgrading database to include and populate the pruning samples store");
+        spora_core::info!("Upgrading database to include and populate the pruning samples store");
         while let Some(current) = queue.pop_front() {
             if !self.get_block_status(current).is_some_and(|s| s == BlockStatus::StatusUTXOValid) {
                 // Skip branches of the tree which are not chain qualified.
@@ -388,7 +388,7 @@ impl Consensus {
             self.pruning_samples_store.insert(current, pruning_sample_from_pov).unwrap_or_exists();
         }
 
-        tondi_core::info!("Done upgrading database (populated {} entries)", processed);
+        spora_core::info!("Done upgrading database (populated {} entries)", processed);
     }
 
     pub fn run_processors(&self) -> Vec<JoinHandle<()>> {
@@ -641,7 +641,7 @@ impl ConsensusApi for Consensus {
                 // Note: because we are doing a topological BFS up (from `hash` towards virtual), the first chain block
                 // found must also be our merging block, so hash will be either in blues or in reds, rendering this line
                 // unreachable.
-                tondi_core::warn!("DAG topology inconsistency: {decedent} is expected to be a merging block of {hash}");
+                spora_core::warn!("DAG topology inconsistency: {decedent} is expected to be a merging block of {hash}");
                 // TODO: we should consider the option of returning Result<Option<bool>> from this method
                 return None;
             }
@@ -724,8 +724,8 @@ impl ConsensusApi for Consensus {
         // Part 1: Add samples from pruning point headers:
         if self.config.net.network_type == NetworkType::Mainnet {
             // For mainnet, we add extra data (16 pp headers) from before checkpoint genesis.
-            // Source: https://github.com/tondigang/tondid-py-explorer/blob/main/src/tx_timestamp_estimation.ipynb
-            // For context see also: https://github.com/tondigang/tondid-py-explorer/blob/main/src/genesis_proof.ipynb
+            // Source: https://github.com/sporagang/sporad-py-explorer/blob/main/src/tx_timestamp_estimation.ipynb
+            // For context see also: https://github.com/sporagang/sporad-py-explorer/blob/main/src/genesis_proof.ipynb
             const POINTS: &[DaaScoreTimestamp] = &[
                 DaaScoreTimestamp { daa_score: 0, timestamp: 1636298787842 },
                 DaaScoreTimestamp { daa_score: 87133, timestamp: 1636386662010 },
@@ -793,7 +793,7 @@ impl ConsensusApi for Consensus {
         _from_outpoint: Option<TransactionOutpoint>,
         _chunk_size: usize,
         _skip_first: bool,
-    ) -> Vec<(TransactionOutpoint, tondi_consensus_core::Hash)> {
+    ) -> Vec<(TransactionOutpoint, spora_consensus_core::Hash)> {
         // TODO(cell-model): Needs Cell model reimplementation
         // Cell state is stored in VirtualState::cell_state_tree, not a separate UTXO set
         // Return empty vec for now - this will be replaced with get_virtual_cells()

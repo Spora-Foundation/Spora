@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: ISC
 // Copyright (C) 2025 Spora developers
 //
-// Standard scripts for Tondi
+// Standard scripts for Spora
 
 //! Standard lock and type scripts
 //!

@@ -1,6 +1,6 @@
 [package]
-name = "tondi-connectionmanager"
-description = "Tondi connection manager"
+name = "spora-connectionmanager"
+description = "Spora connection manager"
 rust-version.workspace = true
 version.workspace = true
 edition.workspace = true
@@ -13,10 +13,10 @@ repository.workspace = true
 duration-string.workspace = true
 futures-util.workspace = true
 itertools.workspace = true
-tondi-addressmanager.workspace = true
-tondi-core.workspace = true
-tondi-p2p-lib.workspace = true
-tondi-utils.workspace = true
+spora-addressmanager.workspace = true
+spora-core.workspace = true
+spora-p2p-lib.workspace = true
+spora-utils.workspace = true
 log.workspace = true
 parking_lot.workspace = true
 rand.workspace = true

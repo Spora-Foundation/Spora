@@ -1,9 +1,9 @@
-use tondi_consensus_core::subnets::SubnetworkId;
-use tondi_core::{
+use spora_consensus_core::subnets::SubnetworkId;
+use spora_core::{
     time::unix_now,
     tondid_env::{name, version},
 };
-use tondi_utils::networking::{NetAddress, PeerId};
+use spora_utils::networking::{NetAddress, PeerId};
 
 /// Maximum allowed length for the user agent field in a version message `VersionMessage`.
 pub const MAX_USER_AGENT_LEN: usize = 256;

@@ -1,24 +1,24 @@
 use async_channel::unbounded;
 use std::sync::Arc;
 use std::thread::JoinHandle;
-use tondi_consensus_core::mining_rules::MiningRules;
-use tondi_consensus_notify::root::ConsensusNotificationRoot;
-use tondi_core::time::unix_now;
+use spora_consensus_core::mining_rules::MiningRules;
+use spora_consensus_notify::root::ConsensusNotificationRoot;
+use spora_core::time::unix_now;
 
 use super::miner::Miner;
 
-use tondi_consensus::config::Config;
-use tondi_consensus::consensus::Consensus;
-use tondi_consensus_core::block::Block;
-use tondi_database::prelude::ConnBuilder;
-use tondi_database::utils::DbLifetime;
-use tondi_database::{create_permanent_db, create_temp_db};
-use tondi_utils::fd_budget;
-use tondi_utils::sim::Simulation;
+use spora_consensus::config::Config;
+use spora_consensus::consensus::Consensus;
+use spora_consensus_core::block::Block;
+use spora_database::prelude::ConnBuilder;
+use spora_database::utils::DbLifetime;
+use spora_database::{create_permanent_db, create_temp_db};
+use spora_utils::fd_budget;
+use spora_utils::sim::Simulation;
 
 type ConsensusWrapper = (Arc<Consensus>, Vec<JoinHandle<()>>, DbLifetime);
 
-pub struct TondiNetworkSimulator {
+pub struct SporaNetworkSimulator {
     // Internal simulation env
     pub(super) simulation: Simulation<Block>,
 
@@ -31,7 +31,7 @@ pub struct TondiNetworkSimulator {
     output_dir: Option<String>, // Possible permanent output directory
 }
 
-impl TondiNetworkSimulator {
+impl SporaNetworkSimulator {
     pub fn new(delay: f64, bps: f64, target_blocks: Option<u64>, config: Arc<Config>, output_dir: Option<String>) -> Self {
         Self {
             simulation: Simulation::with_start_time((delay * 1000.0) as u64, config.genesis.timestamp),

@@ -11,12 +11,12 @@ use tokio::{
     task::JoinHandle,
     time::sleep,
 };
-use tondi_addresses::Address;
-use tondi_core::warn;
-use tondi_grpc_client::GrpcClient;
-use tondi_notify::scope::{Scope, UtxosChangedScope};
-use tondi_rpc_core::api::rpc::RpcApi;
-use tondi_utils::{channel::Channel, triggers::SingleTrigger};
+use spora_addresses::Address;
+use spora_core::warn;
+use spora_grpc_client::GrpcClient;
+use spora_notify::scope::{Scope, UtxosChangedScope};
+use spora_rpc_core::api::rpc::RpcApi;
+use spora_utils::{channel::Channel, triggers::SingleTrigger};
 
 pub type JobId = u64;
 pub type Count = usize;

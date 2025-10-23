@@ -1,14 +1,14 @@
 use crate::protowire;
 use crate::{from, try_from};
 use std::str::FromStr;
-use tondi_consensus_core::header::Header;
-use tondi_rpc_core::{FromRpcHex, RpcError, RpcHash, RpcResult, ToRpcHex};
+use spora_consensus_core::header::Header;
+use spora_rpc_core::{FromRpcHex, RpcError, RpcHash, RpcResult, ToRpcHex};
 
 // ----------------------------------------------------------------------------
 // rpc_core to protowire
 // ----------------------------------------------------------------------------
 
-from!(item: &tondi_rpc_core::RpcHeader, protowire::RpcBlockHeader, {
+from!(item: &spora_rpc_core::RpcHeader, protowire::RpcBlockHeader, {
     Self {
         version: item.version.into(),
         parents: item.parents_by_level.iter().map(protowire::RpcBlockLevelParents::from).collect(),
@@ -25,7 +25,7 @@ from!(item: &tondi_rpc_core::RpcHeader, protowire::RpcBlockHeader, {
     }
 });
 
-from!(item: &tondi_rpc_core::RpcRawHeader, protowire::RpcBlockHeader, {
+from!(item: &spora_rpc_core::RpcRawHeader, protowire::RpcBlockHeader, {
     Self {
         version: item.version.into(),
         parents: item.parents_by_level.iter().map(protowire::RpcBlockLevelParents::from).collect(),
@@ -48,7 +48,7 @@ from!(item: &Vec<RpcHash>, protowire::RpcBlockLevelParents, { Self { parent_hash
 // protowire to rpc_core
 // ----------------------------------------------------------------------------
 
-try_from!(item: &protowire::RpcBlockHeader, tondi_rpc_core::RpcHeader, {
+try_from!(item: &protowire::RpcBlockHeader, spora_rpc_core::RpcHeader, {
     // We re-hash the block to remain as most trustless as possible
     let header = Header::new_finalized(
         item.version.try_into()?,
@@ -61,7 +61,7 @@ try_from!(item: &protowire::RpcBlockHeader, tondi_rpc_core::RpcHeader, {
         item.bits,
         item.nonce,
         item.daa_score,
-        tondi_rpc_core::RpcBlueWorkType::from_rpc_hex(&item.blue_work)?,
+        spora_rpc_core::RpcBlueWorkType::from_rpc_hex(&item.blue_work)?,
         item.blue_score,
         RpcHash::from_str(&item.pruning_point)?,
     );
@@ -69,7 +69,7 @@ try_from!(item: &protowire::RpcBlockHeader, tondi_rpc_core::RpcHeader, {
     header.into()
 });
 
-try_from!(item: &protowire::RpcBlockHeader, tondi_rpc_core::RpcRawHeader, {
+try_from!(item: &protowire::RpcBlockHeader, spora_rpc_core::RpcRawHeader, {
     Self {
         version: item.version.try_into()?,
         parents_by_level: item.parents.iter().map(Vec::<RpcHash>::try_from).collect::<RpcResult<Vec<Vec<RpcHash>>>>()?,
@@ -80,7 +80,7 @@ try_from!(item: &protowire::RpcBlockHeader, tondi_rpc_core::RpcRawHeader, {
         bits: item.bits,
         nonce: item.nonce,
         daa_score: item.daa_score,
-        blue_work: tondi_rpc_core::RpcBlueWorkType::from_rpc_hex(&item.blue_work)?,
+        blue_work: spora_rpc_core::RpcBlueWorkType::from_rpc_hex(&item.blue_work)?,
         blue_score: item.blue_score,
         pruning_point: RpcHash::from_str(&item.pruning_point)?,
     }
@@ -93,8 +93,8 @@ try_from!(item: &protowire::RpcBlockLevelParents, Vec<RpcHash>, {
 #[cfg(test)]
 mod tests {
     use crate::protowire;
-    use tondi_consensus_core::{block::Block, header::Header};
-    use tondi_rpc_core::{RpcBlock, RpcHash, RpcHeader};
+    use spora_consensus_core::{block::Block, header::Header};
+    use spora_rpc_core::{RpcBlock, RpcHash, RpcHeader};
 
     fn new_unique() -> RpcHash {
         use std::sync::atomic::{AtomicU64, Ordering};

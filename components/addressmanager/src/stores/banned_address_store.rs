@@ -1,12 +1,12 @@
 use serde::{Deserialize, Serialize};
 use std::net::{IpAddr, Ipv6Addr};
 use std::{error::Error, fmt::Display, sync::Arc};
-use tondi_database::{
+use spora_database::{
     prelude::{CachePolicy, StoreError, StoreResult},
     prelude::{CachedDbAccess, DirectDbWriter, DB},
     registry::DatabaseStorePrefixes,
 };
-use tondi_utils::mem_size::MemSizeEstimator;
+use spora_utils::mem_size::MemSizeEstimator;
 
 #[derive(Clone, Copy, Serialize, Deserialize)]
 pub struct ConnectionBanTimestamp(pub u64);

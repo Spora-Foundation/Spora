@@ -5,5 +5,5 @@ RED='\033[0;31m'
 NC='\033[0m' # No Color
 
 echo -e "${RED}WARNING: do not use resulting WASM binaries in production!${NC}"
-# wasm-pack build --weak-refs --dev --target nodejs --out-name tondi --out-dir nodejs/tondi-dev --features wasm32-sdk $@
-wasm-pack build --weak-refs --dev --target nodejs --out-name tondi --out-dir nodejs/tondi-dev --features wasm32-sdk $@
+# wasm-pack build --weak-refs --dev --target nodejs --out-name spora --out-dir nodejs/spora-dev --features wasm32-sdk $@
+wasm-pack build --weak-refs --dev --target nodejs --out-name spora --out-dir nodejs/spora-dev --features wasm32-sdk $@

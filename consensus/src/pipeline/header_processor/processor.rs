@@ -33,7 +33,7 @@ use parking_lot::RwLock;
 use rayon::ThreadPool;
 use rocksdb::WriteBatch;
 use std::sync::{atomic::Ordering, Arc};
-use tondi_consensus_core::{
+use spora_consensus_core::{
     blockhash::{BlockHashes, ORIGIN},
     blockstatus::BlockStatus::{self, StatusHeaderOnly, StatusInvalid},
     config::{
@@ -43,10 +43,10 @@ use tondi_consensus_core::{
     header::Header,
     BlockHashSet, BlockLevel,
 };
-use tondi_consensusmanager::SessionLock;
-use tondi_database::prelude::{StoreResultEmptyTuple, StoreResultExtensions};
-use tondi_hashes::Hash;
-use tondi_utils::vec::VecExtensions;
+use spora_consensusmanager::SessionLock;
+use spora_database::prelude::{StoreResultEmptyTuple, StoreResultExtensions};
+use spora_hashes::Hash;
+use spora_utils::vec::VecExtensions;
 
 use super::super::ProcessingCounters;
 

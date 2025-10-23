@@ -1,20 +1,20 @@
-# Tondi CLI - Command Line Interface
+# Spora CLI - Command Line Interface
 
-Tondi CLI is a comprehensive command-line interface for managing Tondi wallets, accounts, and interacting with the Tondi network.
+Spora CLI is a comprehensive command-line interface for managing Spora wallets, accounts, and interacting with the Spora network.
 
 ## Installation
 
 ### Build from Source
 ```bash
 git clone <repository-url>
-cd Tondi
-cargo build --release --package tondi-cli
+cd Spora
+cargo build --release --package spora-cli
 ```
 
 ## Getting Started
 
 ### First Run
-1. Launch: `tondi-cli`
+1. Launch: `spora-cli`
 2. Configure network: `network devnet`
 3. Configure server: `server public`
 
@@ -89,7 +89,7 @@ select primary
 ### Send Transaction
 ```bash
 estimate 50
-send tondi:qp0k0fsdj8qnwvj9tcljcrjvcj9s0qj5j 50
+send spora:qp0k0fsdj8qnwvj9tcljcrjvcj9s0qj5j 50
 history list
 ```
 

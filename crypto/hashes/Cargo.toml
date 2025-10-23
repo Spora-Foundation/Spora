@@ -1,6 +1,6 @@
 [package]
-name = "tondi-hashes"
-description = "Tondi hashing functions"
+name = "spora-hashes"
+description = "Spora hashing functions"
 rust-version.workspace = true
 version.workspace = true
 edition.workspace = true
@@ -15,7 +15,7 @@ no-asm = ["keccak"]
 [dependencies]
 borsh.workspace = true
 faster-hex.workspace = true
-tondi-utils.workspace = true
+spora-utils.workspace = true
 keccak = { workspace = true, optional = true }
 serde.workspace = true
 wasm-bindgen.workspace = true

@@ -6,7 +6,7 @@ use crate::bundle::Bundle as Inner;
 use crate::pstt::Inner as PSTTInner;
 use crate::wasm::pstt::*;
 use crate::wasm::utils::sau_to_tondi_string_with_suffix;
-use tondi_consensus_core::network::{NetworkId, NetworkIdT};
+use spora_consensus_core::network::{NetworkId, NetworkIdT};
 use wasm_bindgen::prelude::*;
 use workflow_wasm::convert::TryCastFromJs;
 
@@ -113,7 +113,7 @@ mod tests {
     use crate::pstt::PSTT as Native;
     use serde_json::json;
     use std::str::FromStr;
-    use tondi_consensus_core::tx::ScriptPublicKey;
+    use spora_consensus_core::tx::ScriptPublicKey;
     use wasm_bindgen_test::wasm_bindgen_test;
     use wasm_bindgen_test::*;
     use console_log;

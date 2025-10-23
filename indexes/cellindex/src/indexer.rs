@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ISC
-// Copyright (C) 2025Tondi developers
+// Copyright (C) 2025 Spora developers
 //
 // Cell indexer service
 
@@ -7,9 +7,9 @@ use crate::{Result, CellQuery, CellQueryResult, CellFilter};
 use parking_lot::RwLock;
 use std::path::Path;
 use std::sync::Arc;
-use tondi_exec::{CellTx, OutPoint};
-use tondi_state::{CellDB, ScriptIndex};
-use tondi_state::index::CellMeta;
+use spora_exec::{CellTx, OutPoint};
+use spora_state::{CellDB, ScriptIndex};
+use spora_state::index::CellMeta;
 
 /// Cell indexer service
 ///
@@ -64,7 +64,7 @@ impl CellIndexer {
         block_hash: [u8; 32],
         is_cellbase: bool,
     ) -> Result<()> {
-        let tx_hash = tondi_exec::celltx::sighash::compute_wtxid(tx);
+        let tx_hash = spora_exec::celltx::sighash::compute_wtxid(tx);
         
         // Index outputs (new Cells)
         for (idx, output) in tx.outputs.iter().enumerate() {
@@ -174,7 +174,7 @@ impl CellIndexer {
     /// 
     /// GHOSTDAG-aware: processes Cell diff from virtual state changes.
     /// Reference: CKB's indexer update logic
-    pub fn update_with_diff(&self, diff: &tondi_consensus_core::cell_diff::CellDiff) -> Result<()> {
+    pub fn update_with_diff(&self, diff: &spora_consensus_core::cell_diff::CellDiff) -> Result<()> {
         // STEP 1: Remove consumed Cells
         for (outpoint, _meta) in diff.remove.iter() {
             let exec_outpoint = OutPoint {
@@ -210,7 +210,7 @@ impl CellIndexer {
 mod tests {
     use super::*;
     use tempfile::TempDir;
-    use tondi_exec::{CellRef, CellOut, ScriptRef};
+    use spora_exec::{CellRef, CellOut, ScriptRef};
 
     fn create_test_tx() -> CellTx {
         let lock = ScriptRef::new([0x00; 32], 0, vec![0; 20]);

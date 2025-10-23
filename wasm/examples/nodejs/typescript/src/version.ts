@@ -1,3 +1,3 @@
-import { version } from "../../../../nodejs/tondi";
+import { version } from "../../../../nodejs/spora";
 
 console.log("version:", version());

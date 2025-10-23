@@ -1,10 +1,10 @@
 use crate::error::Error;
 use crate::imports::*;
 use crate::result::Result;
-use crate::TondiCli;
+use crate::SporaCli;
 use std::sync::Arc;
-use tondi_bip32::{Language, Mnemonic};
-use tondi_wallet_core::account::{BIP32_ACCOUNT_KIND, LEGACY_ACCOUNT_KIND, MULTISIG_ACCOUNT_KIND};
+use spora_bip32::{Language, Mnemonic};
+use spora_wallet_core::account::{BIP32_ACCOUNT_KIND, LEGACY_ACCOUNT_KIND, MULTISIG_ACCOUNT_KIND};
 
 pub async fn prompt_for_mnemonic(term: &Arc<Terminal>) -> Result<Vec<String>> {
     let mut words: Vec<String> = vec![];
@@ -38,7 +38,7 @@ pub async fn prompt_for_mnemonic(term: &Arc<Terminal>) -> Result<Vec<String>> {
     }
 }
 
-pub(crate) async fn import_with_mnemonic(ctx: &Arc<TondiCli>, account_kind: AccountKind, additional_xpubs: &[String]) -> Result<()> {
+pub(crate) async fn import_with_mnemonic(ctx: &Arc<SporaCli>, account_kind: AccountKind, additional_xpubs: &[String]) -> Result<()> {
     let wallet = ctx.wallet();
 
     if !wallet.is_open() {

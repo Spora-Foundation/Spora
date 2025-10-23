@@ -7,21 +7,21 @@ use rayon::prelude::{IntoParallelIterator, ParallelIterator};
 use std::cmp::max;
 use std::iter::once;
 use std::sync::Arc;
-use tondi_consensus::consensus::Consensus;
-use tondi_consensus::model::stores::virtual_state::VirtualStateStoreReader;
-use tondi_consensus::params::Params;
-use tondi_consensus_core::api::ConsensusApi;
-use tondi_consensus_core::block::{Block, TemplateBuildMode, TemplateTransactionSelector};
-use tondi_consensus_core::coinbase::MinerData;
-use tondi_consensus_core::mass::MassCalculator;
-use tondi_consensus_core::sign::sign;
-use tondi_consensus_core::subnets::SUBNETWORK_ID_NATIVE;
-use tondi_consensus_core::tx::{
+use spora_consensus::consensus::Consensus;
+use spora_consensus::model::stores::virtual_state::VirtualStateStoreReader;
+use spora_consensus::params::Params;
+use spora_consensus_core::api::ConsensusApi;
+use spora_consensus_core::block::{Block, TemplateBuildMode, TemplateTransactionSelector};
+use spora_consensus_core::coinbase::MinerData;
+use spora_consensus_core::mass::MassCalculator;
+use spora_consensus_core::sign::sign;
+use spora_consensus_core::subnets::SUBNETWORK_ID_NATIVE;
+use spora_consensus_core::tx::{
     MutableTransaction, ScriptPublicKey, ScriptVec, Transaction, TransactionInput, TransactionOutpoint, TransactionOutput, UtxoEntry, CellTx,
 };
-// use tondi_consensus_core::utxo::utxo_view::UtxoView;  // TODO(cell-model): UTXO removed
-use tondi_core::trace;
-use tondi_utils::sim::{Environment, Process, Resumption, Suspension};
+// use spora_consensus_core::utxo::utxo_view::UtxoView;  // TODO(cell-model): UTXO removed
+use spora_core::trace;
+use spora_utils::sim::{Environment, Process, Resumption, Suspension};
 
 struct OnetimeTxSelector {
     txs: Option<Vec<Transaction>>,
@@ -39,7 +39,7 @@ impl TemplateTransactionSelector for OnetimeTxSelector {
         vec![]  // Empty for now
     }
 
-    fn reject_selection(&mut self, _tx_id: tondi_consensus_core::tx::TransactionId) {
+    fn reject_selection(&mut self, _tx_id: spora_consensus_core::tx::TransactionId) {
         unimplemented!()
     }
 

@@ -6,7 +6,7 @@ use crate::model::message::*;
 use derive_more::Display;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tondi_notify::{
+use spora_notify::{
     events::EventType,
     notification::{full_featured, Notification as NotificationTrait},
     subscription::{

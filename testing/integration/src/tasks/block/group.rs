@@ -10,10 +10,10 @@ use itertools::chain;
 use rand::thread_rng;
 use std::sync::Arc;
 use tokio::task::JoinHandle;
-use tondi_addresses::Address;
-use tondi_consensus_core::network::NetworkId;
-use tondi_core::debug;
-use tondi_utils::triggers::SingleTrigger;
+use spora_addresses::Address;
+use spora_consensus_core::network::NetworkId;
+use spora_core::debug;
+use spora_utils::triggers::SingleTrigger;
 
 pub struct MinerGroupTask {
     submitter: Arc<BlockSubmitterTask>,
@@ -40,7 +40,7 @@ impl MinerGroupTask {
         // Mining key and address
         let (sk, pk) = &secp256k1::generate_keypair(&mut thread_rng());
         let pay_address =
-            Address::new(network.network_type().into(), tondi_addresses::Version::PubKey, &pk.x_only_public_key().0.serialize());
+            Address::new(network.network_type().into(), spora_addresses::Version::PubKey, &pk.x_only_public_key().0.serialize());
         debug!("Generated private key {} and address {}", sk.display_secret(), pay_address);
 
         // Block template receiver

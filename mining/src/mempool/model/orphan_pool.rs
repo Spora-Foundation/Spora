@@ -9,12 +9,12 @@ use crate::mempool::{
     tx::Priority,
 };
 use std::sync::Arc;
-use tondi_consensus_core::{
+use spora_consensus_core::{
     tx::MutableTransaction,
     tx::{TransactionId, TransactionOutpoint},
 };
-use tondi_core::{debug, warn};
-use tondi_utils::iter::IterExtensions;
+use spora_core::{debug, warn};
+use spora_utils::iter::IterExtensions;
 
 /// Pool of orphan transactions depending on some missing utxo entries
 ///

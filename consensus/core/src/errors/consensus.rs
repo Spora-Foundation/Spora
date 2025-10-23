@@ -1,5 +1,5 @@
 use thiserror::Error;
-use tondi_hashes::Hash;
+use spora_hashes::Hash;
 
 use super::{difficulty::DifficultyError, sync::SyncManagerError, traversal::TraversalError};
 

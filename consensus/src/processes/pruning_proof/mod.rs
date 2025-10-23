@@ -15,7 +15,7 @@ use parking_lot::{Mutex, RwLock};
 use rocksdb::WriteBatch;
 
 use thiserror::Error;
-use tondi_consensus_core::{
+use spora_consensus_core::{
     blockhash::{self, BlockHashExtensions},
     config::params::ForkedParam,
     errors::{
@@ -27,10 +27,10 @@ use tondi_consensus_core::{
     trusted::{TrustedGhostdagData, TrustedHeader},
     BlockHashMap, BlockHashSet, BlockLevel, HashMapCustomHasher, KType,
 };
-use tondi_core::info;
-use tondi_database::{prelude::StoreResultExtensions, utils::DbLifetime};
-use tondi_hashes::Hash;
-use tondi_pow::calc_block_level;
+use spora_core::info;
+use spora_database::{prelude::StoreResultExtensions, utils::DbLifetime};
+use spora_hashes::Hash;
+use spora_pow::calc_block_level;
 
 use crate::{
     consensus::{

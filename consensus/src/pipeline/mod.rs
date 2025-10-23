@@ -6,4 +6,4 @@ pub mod pruning_processor;
 pub mod virtual_processor;
 
 /// Re-export from consensus core
-pub use tondi_consensus_core::api::counters::{ProcessingCounters, ProcessingCountersSnapshot};
+pub use spora_consensus_core::api::counters::{ProcessingCounters, ProcessingCountersSnapshot};

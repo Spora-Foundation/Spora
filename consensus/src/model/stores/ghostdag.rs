@@ -1,12 +1,12 @@
 use crate::processes::ghostdag::ordering::SortableBlock;
-use tondi_consensus_core::trusted::ExternalGhostdagData;
-use tondi_consensus_core::{blockhash::BlockHashes, BlueWorkType};
-use tondi_consensus_core::{BlockHashMap, BlockHasher, BlockLevel, HashMapCustomHasher};
-use tondi_database::prelude::DB;
-use tondi_database::prelude::{BatchDbWriter, CachedDbAccess, DbKey};
-use tondi_database::prelude::{CachePolicy, StoreError};
-use tondi_database::registry::{DatabaseStorePrefixes, SEPARATOR};
-use tondi_hashes::Hash;
+use spora_consensus_core::trusted::ExternalGhostdagData;
+use spora_consensus_core::{blockhash::BlockHashes, BlueWorkType};
+use spora_consensus_core::{BlockHashMap, BlockHasher, BlockLevel, HashMapCustomHasher};
+use spora_database::prelude::DB;
+use spora_database::prelude::{BatchDbWriter, CachedDbAccess, DbKey};
+use spora_database::prelude::{CachePolicy, StoreError};
+use spora_database::registry::{DatabaseStorePrefixes, SEPARATOR};
+use spora_hashes::Hash;
 
 use itertools::EitherOrBoth::{Both, Left, Right};
 use itertools::Itertools;
@@ -14,10 +14,10 @@ use rocksdb::WriteBatch;
 use serde::{Deserialize, Serialize};
 use std::iter::once;
 use std::{cell::RefCell, sync::Arc};
-use tondi_utils::mem_size::MemSizeEstimator;
+use spora_utils::mem_size::MemSizeEstimator;
 
 /// Re-export for convenience
-pub use tondi_consensus_core::{HashKTypeMap, KType};
+pub use spora_consensus_core::{HashKTypeMap, KType};
 
 #[derive(Clone, Serialize, Deserialize, Default)]
 pub struct GhostdagData {
@@ -517,7 +517,7 @@ impl GhostdagStoreReader for MemoryGhostdagStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tondi_consensus_core::BlockHashSet;
+    use spora_consensus_core::BlockHashSet;
 
     #[test]
     fn test_mergeset_iterators() {

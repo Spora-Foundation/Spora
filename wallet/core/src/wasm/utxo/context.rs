@@ -4,10 +4,10 @@ use crate::utxo as native;
 use crate::utxo::{UtxoContextBinding, UtxoContextId};
 use crate::wasm::utxo::UtxoProcessor;
 use crate::wasm::{Balance, BalanceStrings};
-use tondi_addresses::AddressOrStringArrayT;
-use tondi_consensus_client::UtxoEntryReferenceArrayT;
-use tondi_hashes::Hash;
-use tondi_wallet_macros::declare_typescript_wasm_interface as declare;
+use spora_addresses::AddressOrStringArrayT;
+use spora_consensus_client::UtxoEntryReferenceArrayT;
+use spora_hashes::Hash;
+use spora_wallet_macros::declare_typescript_wasm_interface as declare;
 
 declare! {
     IUtxoContextArgs,
@@ -38,7 +38,7 @@ declare! {
 
 ///
 /// UtxoContext is a class that provides a way to track addresses activity
-/// on the Tondi network.  When an address is registered with UtxoContext
+/// on the Spora network.  When an address is registered with UtxoContext
 /// it aggregates all UTXO entries for that address and emits events when
 /// any activity against these addresses occurs.
 ///

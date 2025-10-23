@@ -3,7 +3,7 @@ use std::{
     collections::{HashMap, HashSet, VecDeque},
     iter::{FusedIterator, Map},
 };
-use tondi_consensus_core::tx::Transaction;
+use spora_consensus_core::tx::Transaction;
 
 type IndexSet = HashSet<usize>;
 

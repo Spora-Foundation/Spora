@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use std::{collections::HashMap, fmt::Debug, sync::Arc};
-use tondi_addresses::Address;
-use tondi_consensus_core::{
+use spora_addresses::Address;
+use spora_consensus_core::{
     block::Block,
     blockstatus::BlockStatus,
     config::Config,
@@ -10,17 +10,17 @@ use tondi_consensus_core::{
     tx::{MutableTransaction, Transaction, TransactionId, TransactionInput, TransactionOutput, CellTx},
     ChainPath,
 };
-use tondi_consensus_notify::notification::{self as consensus_notify, Notification as ConsensusNotification};
-use tondi_consensusmanager::{ConsensusManager, ConsensusProxy};
-use tondi_math::Uint256;
-use tondi_mining::model::{owner_txs::OwnerTransactions, TransactionIdSet};
-use tondi_notify::converter::Converter;
-use tondi_rpc_core::{
+use spora_consensus_notify::notification::{self as consensus_notify, Notification as ConsensusNotification};
+use spora_consensusmanager::{ConsensusManager, ConsensusProxy};
+use spora_math::Uint256;
+use spora_mining::model::{owner_txs::OwnerTransactions, TransactionIdSet};
+use spora_notify::converter::Converter;
+use spora_rpc_core::{
     BlockAddedNotification, Notification, RpcAcceptedTransactionIds, RpcBlock, RpcBlockStatus, RpcBlockVerboseData, RpcHash,
     RpcMempoolEntry, RpcMempoolEntryByAddress, RpcResult, RpcTransaction, RpcTransactionInput, RpcTransactionOutput,
     RpcTransactionOutputVerboseData, RpcTransactionVerboseData,
 };
-use tondi_txscript::{extract_script_pub_key_address, script_class::ScriptClass};
+use spora_txscript::{extract_script_pub_key_address, script_class::ScriptClass};
 
 /// Conversion of consensus_core to rpc_core structures
 pub struct ConsensusConverter {
@@ -46,7 +46,7 @@ impl ConsensusConverter {
 
     /// Converts a consensus [`Block`] into an [`RpcBlock`], optionally including transaction verbose data.
     ///
-    /// _GO-Tondid: PopulateBlockWithVerboseData_
+    /// _GO-Sporad: PopulateBlockWithVerboseData_
     pub async fn get_block(
         &self,
         consensus: &ConsensusProxy,
@@ -123,7 +123,7 @@ impl ConsensusConverter {
 
     /// Converts a consensus [`Transaction`] into an [`RpcTransaction`], optionally including verbose data.
     ///
-    /// _GO-Tondid: PopulateTransactionWithVerboseData
+    /// _GO-Sporad: PopulateTransactionWithVerboseData
     pub fn get_transaction(
         &self,
         consensus: &ConsensusProxy,

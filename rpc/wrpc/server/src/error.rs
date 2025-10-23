@@ -1,7 +1,7 @@
 use std::sync::PoisonError;
 use thiserror::Error;
-use tondi_notify::error::Error as NotifyError;
-use tondi_rpc_core::RpcError;
+use spora_notify::error::Error as NotifyError;
+use spora_rpc_core::RpcError;
 use workflow_rpc::server::{error::Error as RpcServerError, WebSocketError};
 
 #[derive(Debug, Error)]

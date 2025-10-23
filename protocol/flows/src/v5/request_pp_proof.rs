@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use log::debug;
-use tondi_p2p_lib::{
+use spora_p2p_lib::{
     common::ProtocolError,
     dequeue_with_request_id, make_response,
     pb::{tondid_message::Payload, PruningPointProofMessage},

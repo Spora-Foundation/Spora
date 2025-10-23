@@ -184,7 +184,7 @@ fn test_cell_root_verification() {
 ```rust
 #[test]
 fn test_cell_commitment_v0() {
-    // Verify cell_commitment = H("tondi/cell_commitment/v0" || cell_root)
+    // Verify cell_commitment = H("spora/cell_commitment/v0" || cell_root)
     // Test with known vectors
 }
 ```
@@ -202,7 +202,7 @@ fn test_cell_commitment_v0() {
 - [ ] Update current_cycles.rs (register only)
 - [ ] Update debugger.rs (no store_data)
 - [ ] Update load_header.rs (placeholder)
-- [ ] Run `cargo check --package tondi-exec --features vm`
+- [ ] Run `cargo check --package spora-exec --features vm`
 - [ ] Verify 0 errors
 
 ### CellValidator Integration
@@ -211,13 +211,13 @@ fn test_cell_commitment_v0() {
 - [ ] Initialize cell_validator in new()
 - [ ] Replace transaction_validator calls
 - [ ] Remove old transaction_validator field
-- [ ] Run `cargo check --package tondi-consensus`
+- [ ] Run `cargo check --package spora-consensus`
 - [ ] Verify compilation
 
 ### Testing
 - [ ] Implement 6 test scenarios above
 - [ ] Add edge case tests
-- [ ] Run `cargo test --package tondi-consensus`
+- [ ] Run `cargo test --package spora-consensus`
 - [ ] Verify all pass
 
 ### Final Verification

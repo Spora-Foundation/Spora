@@ -6,14 +6,14 @@
 
 use crate::imports::*;
 use crate::result::Result;
-use tondi_addresses::*;
-use tondi_consensus_core::{
+use spora_addresses::*;
+use spora_consensus_core::{
     network::{NetworkType, NetworkTypeT},
     tx::ScriptPublicKeyT,
 };
-use tondi_txscript::{script_class::ScriptClass, standard};
-use tondi_utils::hex::ToHex;
-use tondi_wasm_core::types::{BinaryT, HexString};
+use spora_txscript::{script_class::ScriptClass, standard};
+use spora_utils::hex::ToHex;
+use spora_wasm_core::types::{BinaryT, HexString};
 
 /// Creates a new script to pay a transaction output to the specified address.
 /// @category Wallet SDK

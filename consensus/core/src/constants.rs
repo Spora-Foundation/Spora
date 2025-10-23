@@ -19,10 +19,10 @@ pub const SCRIPT_VER_COPPEROOT_VERKLE: u16 = 193;       // Pay-to-Copperoot-Verk
 pub const SCRIPT_VER_P2CR: u16 = SCRIPT_VER_COPPEROOT_MERKLE;
 pub const SCRIPT_VER_P2CRV: u16 = SCRIPT_VER_COPPEROOT_VERKLE;
 
-/// SauPerTondi is the number of sau in one tondi (1 TONDI).
+/// SauPerSpora is the number of sau in one spora (1 SPORA).
 pub const SAU_PER_TONDI: u64 = 100_000_000;
 
-/// The parameter for scaling inverse TONDI value to mass units (KIP-0009)
+/// The parameter for scaling inverse SPORA value to mass units (KIP-0009)
 pub const STORAGE_MASS_PARAMETER: u64 = SAU_PER_TONDI * 10_000;
 
 /// The parameter defining how much mass per byte to charge for when calculating

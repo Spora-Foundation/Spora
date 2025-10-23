@@ -3,8 +3,8 @@ use crate::model::stores::ghostdag::GhostdagStoreReader;
 use crate::model::stores::relations::RelationsStoreReader;
 use crate::model::{services::reachability::ReachabilityService, stores::headers::HeaderStoreReader};
 use std::collections::VecDeque;
-use tondi_consensus_core::{BlockHashSet, HashMapCustomHasher};
-use tondi_hashes::Hash;
+use spora_consensus_core::{BlockHashSet, HashMapCustomHasher};
+use spora_hashes::Hash;
 
 pub fn unordered_mergeset_without_selected_parent<S: RelationsStoreReader + ?Sized, U: ReachabilityService + ?Sized>(
     relations: &S,

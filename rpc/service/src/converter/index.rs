@@ -1,10 +1,10 @@
 use async_trait::async_trait;
 use std::sync::Arc;
-use tondi_consensus_core::config::Config;
-use tondi_index_core::indexed_utxos::UtxoSetByScriptPublicKey;
-use tondi_index_core::notification::{self as index_notify, Notification as IndexNotification};
-use tondi_notify::converter::Converter;
-use tondi_rpc_core::{utxo_set_into_rpc, Notification, RpcUtxosByAddressesEntry, UtxosChangedNotification};
+use spora_consensus_core::config::Config;
+use spora_index_core::indexed_utxos::UtxoSetByScriptPublicKey;
+use spora_index_core::notification::{self as index_notify, Notification as IndexNotification};
+use spora_notify::converter::Converter;
+use spora_rpc_core::{utxo_set_into_rpc, Notification, RpcUtxosByAddressesEntry, UtxosChangedNotification};
 
 /// Conversion of consensus_core to rpc_core structures
 #[derive(Debug)]

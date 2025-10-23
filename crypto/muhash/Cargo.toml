@@ -1,6 +1,6 @@
 [package]
-name = "tondi-muhash"
-description = "Tondi Muhash library"
+name = "spora-muhash"
+description = "Spora Muhash library"
 rust-version.workspace = true
 version.workspace = true
 edition.workspace = true
@@ -10,8 +10,8 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-tondi-hashes.workspace = true
-tondi-math.workspace = true
+spora-hashes.workspace = true
+spora-math.workspace = true
 rand_chacha.workspace = true
 serde.workspace = true
 

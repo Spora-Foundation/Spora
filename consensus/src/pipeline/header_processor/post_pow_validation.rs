@@ -3,8 +3,8 @@ use crate::errors::{BlockProcessResult, RuleError, TwoDimVecDisplay};
 use crate::model::services::reachability::ReachabilityService;
 use crate::processes::window::WindowManager;
 use std::collections::HashSet;
-use tondi_consensus_core::header::Header;
-use tondi_hashes::Hash;
+use spora_consensus_core::header::Header;
+use spora_hashes::Hash;
 
 impl HeaderProcessor {
     pub fn post_pow_validation(&self, ctx: &mut HeaderProcessingContext, header: &Header) -> BlockProcessResult<()> {

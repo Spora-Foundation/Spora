@@ -50,10 +50,10 @@ mod test {
     use super::*;
 
     /// Unit test for `blake3_256()`. Verifies hash length is 32 bytes.
-    /// Replace "tondi" with a test vector if needed.
+    /// Replace "spora" with a test vector if needed.
     #[test]
     fn test_blake3_256() {
-        let hash = blake3_256(b"tondi");
+        let hash = blake3_256(b"spora");
         assert_eq!(hash.len(), 32);
     }
 

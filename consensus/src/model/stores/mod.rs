@@ -22,8 +22,8 @@ pub mod cell_roots;
 pub mod virtual_state;
 
 use std::fmt::Display;
-pub use tondi_database;
-pub use tondi_database::prelude::DB;
+pub use spora_database;
+pub use spora_database::prelude::DB;
 
 #[derive(PartialEq, Eq, Clone, Copy, Hash)]
 pub(crate) struct U64Key([u8; size_of::<u64>()]);

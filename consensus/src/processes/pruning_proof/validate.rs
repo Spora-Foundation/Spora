@@ -6,18 +6,18 @@ use std::{
 use itertools::Itertools;
 use parking_lot::lock_api::RwLock;
 use rocksdb::WriteBatch;
-use tondi_consensus_core::{
+use spora_consensus_core::{
     blockhash::{BlockHashExtensions, BlockHashes, ORIGIN},
     errors::pruning::{PruningImportError, PruningImportResult},
     header::Header,
     pruning::{PruningPointProof, PruningProofMetadata},
     BlockLevel,
 };
-use tondi_core::info;
-use tondi_database::prelude::{CachePolicy, ConnBuilder, StoreResultEmptyTuple, StoreResultExtensions};
-use tondi_hashes::Hash;
-use tondi_pow::{calc_block_level, calc_block_level_check_pow};
-use tondi_utils::vec::VecExtensions;
+use spora_core::info;
+use spora_database::prelude::{CachePolicy, ConnBuilder, StoreResultEmptyTuple, StoreResultExtensions};
+use spora_hashes::Hash;
+use spora_pow::{calc_block_level, calc_block_level_check_pow};
+use spora_utils::vec::VecExtensions;
 
 use crate::{
     model::{
@@ -179,7 +179,7 @@ impl PruningProofManager {
 
         let headers_estimate = self.estimate_proof_unique_size(proof);
 
-        let (db_lifetime, db) = tondi_database::create_temp_db!(ConnBuilder::default().with_files_limit(10));
+        let (db_lifetime, db) = spora_database::create_temp_db!(ConnBuilder::default().with_files_limit(10));
         let cache_policy = CachePolicy::Count(2 * self.pruning_proof_m as usize);
         let headers_store =
             Arc::new(DbHeadersStore::new(db.clone(), CachePolicy::Count(headers_estimate), CachePolicy::Count(headers_estimate)));

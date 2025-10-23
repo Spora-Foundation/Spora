@@ -9,8 +9,8 @@ use async_trait::async_trait;
 use itertools::chain;
 use std::sync::Arc;
 use tokio::task::JoinHandle;
-use tondi_consensus_core::tx::Transaction;
-use tondi_utils::triggers::SingleTrigger;
+use spora_consensus_core::tx::Transaction;
+use spora_utils::triggers::SingleTrigger;
 
 pub struct TxSenderGroupTask {
     submitter: Arc<TransactionSubmitterTask>,

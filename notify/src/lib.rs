@@ -1,4 +1,4 @@
-extern crate self as tondi_notify;
+extern crate self as spora_notify;
 
 pub mod address;
 pub(crate) mod broadcaster;

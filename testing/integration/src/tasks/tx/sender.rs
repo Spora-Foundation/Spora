@@ -6,11 +6,11 @@ use tokio::{
     task::JoinHandle,
     time::{sleep, Instant},
 };
-use tondi_consensus_core::tx::Transaction;
-use tondi_core::{info, warn};
-use tondi_grpc_client::GrpcClient;
-use tondi_rpc_core::api::rpc::RpcApi;
-use tondi_utils::triggers::SingleTrigger;
+use spora_consensus_core::tx::Transaction;
+use spora_core::{info, warn};
+use spora_grpc_client::GrpcClient;
+use spora_rpc_core::api::rpc::RpcApi;
+use spora_utils::triggers::SingleTrigger;
 
 pub struct TransactionSenderTask {
     client: Arc<GrpcClient>,
@@ -96,7 +96,7 @@ impl Task for TransactionSenderTask {
                 match sender.send((i, tx)).await {
                     Ok(_) => {}
                     Err(err) => {
-                        tondi_core::error!("Tx sender channel returned error {err}");
+                        spora_core::error!("Tx sender channel returned error {err}");
                         break;
                     }
                 }
@@ -105,7 +105,7 @@ impl Task for TransactionSenderTask {
                 }
             }
 
-            tondi_core::warn!("Tx sender task, waiting for mempool to drain..");
+            spora_core::warn!("Tx sender task, waiting for mempool to drain..");
             let mut prev_mempool_size = u64::MAX;
             loop {
                 let mempool_size = client.get_info().await.unwrap().mempool_size;

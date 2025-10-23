@@ -1,13 +1,13 @@
 <html>
     <head>
         <script type="module">
-            import * as tondi from './tondi/tondi_wasm.js';
-            let {PublicKeyGenerator, createAddress, NetworkType, Mnemonic, XPrv} = tondi;
+            import * as spora from './spora/spora_wasm.js';
+            let {PublicKeyGenerator, createAddress, NetworkType, Mnemonic, XPrv} = spora;
             window.XPublicKey = PublicKeyGenerator;
             (async () => {
-                const wasm = await tondi.default('./tondi/tondi_wasm_bg.wasm');
-                console.log("tondi", tondi);
-                console.log("version", tondi.version());
+                const wasm = await spora.default('./spora/spora_wasm_bg.wasm');
+                console.log("spora", spora);
+                console.log("version", spora.version());
                 tests();
             })();
 

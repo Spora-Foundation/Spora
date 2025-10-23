@@ -3,13 +3,13 @@ use crate::constants;
 use crate::errors::{BlockProcessResult, RuleError};
 use crate::model::services::reachability::ReachabilityService;
 use crate::model::stores::statuses::StatusesStoreReader;
-use tondi_consensus_core::blockhash::BlockHashExtensions;
-use tondi_consensus_core::blockstatus::BlockStatus::StatusInvalid;
-use tondi_consensus_core::header::Header;
-use tondi_consensus_core::BlockLevel;
-use tondi_core::time::unix_now;
-use tondi_database::prelude::StoreResultExtensions;
-use tondi_pow::calc_level_from_pow;
+use spora_consensus_core::blockhash::BlockHashExtensions;
+use spora_consensus_core::blockstatus::BlockStatus::StatusInvalid;
+use spora_consensus_core::header::Header;
+use spora_consensus_core::BlockLevel;
+use spora_core::time::unix_now;
+use spora_database::prelude::StoreResultExtensions;
+use spora_pow::calc_level_from_pow;
 
 impl HeaderProcessor {
     /// Validates the header in isolation including pow check against header declared bits.
@@ -102,7 +102,7 @@ impl HeaderProcessor {
     }
 
     fn check_pow_and_calc_block_level(&self, header: &Header) -> BlockProcessResult<BlockLevel> {
-        let state = tondi_pow::State::new(header);
+        let state = spora_pow::State::new(header);
         let (passed, pow) = state.check_pow(header.nonce);
         if passed || self.skip_proof_of_work {
             Ok(calc_level_from_pow(pow, self.max_block_level))

@@ -10,9 +10,9 @@ use crate::{
 use blake3::hash;
 use smallvec::SmallVec;
 use std::iter::once;
-use tondi_addresses::{Address, Prefix, Version};
-use tondi_consensus_core::tx::{ScriptPublicKey, ScriptVec};
-use tondi_txscript_errors::TxScriptError;
+use spora_addresses::{Address, Prefix, Version};
+use spora_consensus_core::tx::{ScriptPublicKey, ScriptVec};
+use spora_txscript_errors::TxScriptError;
 
 pub mod copperoot;
 mod multisig;
@@ -111,8 +111,8 @@ pub fn pay_to_address_script(address: &Address) -> ScriptPublicKey {
 ///
 /// # Example
 /// ```
-/// use tondi_txscript::pay_to_address_with_lock_time_script;
-/// use tondi_addresses::Address;
+/// use spora_txscript::pay_to_address_with_lock_time_script;
+/// use spora_addresses::Address;
 ///
 /// let addr = Address::constructor("tondi0:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvp55hu9");
 /// let lock_time = 1756684800; // Unix timestamp
@@ -157,7 +157,7 @@ pub fn pay_to_address_with_lock_time_script(address: &Address, lock_time: u64) -
 ///
 /// # Example
 /// ```
-/// use tondi_txscript::htlc_script;
+/// use spora_txscript::htlc_script;
 /// use blake3::hash;
 ///
 /// let secret = b"my_secret_key";
@@ -363,7 +363,7 @@ pub fn extract_script_pub_key_address(script_public_key: &ScriptPublicKey, prefi
 pub mod test_helpers {
     use super::*;
     use crate::{opcodes::codes::OpTrue, MAX_TX_IN_SEQUENCE_NUM};
-    use tondi_consensus_core::{
+    use spora_consensus_core::{
         constants::TX_VERSION,
         subnets::SUBNETWORK_ID_NATIVE,
         tx::{Transaction, TransactionInput, TransactionOutpoint, TransactionOutput},

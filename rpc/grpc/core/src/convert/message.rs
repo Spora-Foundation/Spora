@@ -20,15 +20,15 @@
 
 use crate::protowire::{self, submit_block_response_message::RejectReason};
 use std::str::FromStr;
-use tondi_addresses::Address;
-use tondi_consensus_core::{network::NetworkId, Hash};
-use tondi_core::debug;
-use tondi_notify::subscription::Command;
-use tondi_rpc_core::{
+use spora_addresses::Address;
+use spora_consensus_core::{network::NetworkId, Hash};
+use spora_core::debug;
+use spora_notify::subscription::Command;
+use spora_rpc_core::{
     RpcContextualPeerAddress, RpcError, RpcExtraData, RpcHash, RpcIpAddress, RpcNetworkType, RpcPeerAddress, RpcResult,
     SubmitBlockRejectReason, SubmitBlockReport,
 };
-use tondi_utils::hex::*;
+use spora_utils::hex::*;
 
 macro_rules! from {
     // Response capture
@@ -127,70 +127,70 @@ macro_rules! try_from {
 // rpc_core to protowire
 // ----------------------------------------------------------------------------
 
-from!(item: &tondi_rpc_core::SubmitBlockReport, RejectReason, {
+from!(item: &spora_rpc_core::SubmitBlockReport, RejectReason, {
     match item {
-        tondi_rpc_core::SubmitBlockReport::Success => RejectReason::None,
-        tondi_rpc_core::SubmitBlockReport::Reject(tondi_rpc_core::SubmitBlockRejectReason::BlockInvalid) => RejectReason::BlockInvalid,
-        tondi_rpc_core::SubmitBlockReport::Reject(tondi_rpc_core::SubmitBlockRejectReason::IsInIBD) => RejectReason::IsInIbd,
+        spora_rpc_core::SubmitBlockReport::Success => RejectReason::None,
+        spora_rpc_core::SubmitBlockReport::Reject(spora_rpc_core::SubmitBlockRejectReason::BlockInvalid) => RejectReason::BlockInvalid,
+        spora_rpc_core::SubmitBlockReport::Reject(spora_rpc_core::SubmitBlockRejectReason::IsInIBD) => RejectReason::IsInIbd,
         // The conversion of RouteIsFull falls back to None since there exist no such variant in the original protowire version
         // and we do not want to break backwards compatibility
-        tondi_rpc_core::SubmitBlockReport::Reject(tondi_rpc_core::SubmitBlockRejectReason::RouteIsFull) => RejectReason::None,
+        spora_rpc_core::SubmitBlockReport::Reject(spora_rpc_core::SubmitBlockRejectReason::RouteIsFull) => RejectReason::None,
     }
 });
 
-from!(item: &tondi_rpc_core::SubmitBlockRequest, protowire::SubmitBlockRequestMessage, {
+from!(item: &spora_rpc_core::SubmitBlockRequest, protowire::SubmitBlockRequestMessage, {
     Self { block: Some((&item.block).into()), allow_non_daa_blocks: item.allow_non_daa_blocks }
 });
 // This conversion breaks the general conversion convention (see file header) since the message may
 // contain both a non default reject_reason and a matching error message. In the RouteIsFull case
 // reject_reason is None (because this reason has no variant in protowire) but a specific error
 // message is provided.
-from!(item: RpcResult<&tondi_rpc_core::SubmitBlockResponse>, protowire::SubmitBlockResponseMessage, {
+from!(item: RpcResult<&spora_rpc_core::SubmitBlockResponse>, protowire::SubmitBlockResponseMessage, {
     let error: Option<protowire::RpcError> = match item.report {
-        tondi_rpc_core::SubmitBlockReport::Success => None,
-        tondi_rpc_core::SubmitBlockReport::Reject(reason) => Some(RpcError::SubmitBlockError(reason).into())
+        spora_rpc_core::SubmitBlockReport::Success => None,
+        spora_rpc_core::SubmitBlockReport::Reject(reason) => Some(RpcError::SubmitBlockError(reason).into())
     };
     Self { reject_reason: RejectReason::from(&item.report) as i32, error }
 });
 
-from!(item: &tondi_rpc_core::GetBlockTemplateRequest, protowire::GetBlockTemplateRequestMessage, {
+from!(item: &spora_rpc_core::GetBlockTemplateRequest, protowire::GetBlockTemplateRequestMessage, {
     Self {
         pay_address: (&item.pay_address).into(),
         extra_data: String::from_utf8(item.extra_data.clone()).expect("extra data has to be valid UTF-8"),
     }
 });
-from!(item: RpcResult<&tondi_rpc_core::GetBlockTemplateResponse>, protowire::GetBlockTemplateResponseMessage, {
+from!(item: RpcResult<&spora_rpc_core::GetBlockTemplateResponse>, protowire::GetBlockTemplateResponseMessage, {
     Self { block: Some((&item.block).into()), is_synced: item.is_synced, error: None }
 });
 
-from!(item: &tondi_rpc_core::GetBlockRequest, protowire::GetBlockRequestMessage, {
+from!(item: &spora_rpc_core::GetBlockRequest, protowire::GetBlockRequestMessage, {
     Self { hash: item.hash.to_string(), include_transactions: item.include_transactions }
 });
-from!(item: RpcResult<&tondi_rpc_core::GetBlockResponse>, protowire::GetBlockResponseMessage, {
+from!(item: RpcResult<&spora_rpc_core::GetBlockResponse>, protowire::GetBlockResponseMessage, {
     Self { block: Some((&item.block).into()), error: None }
 });
 
-from!(item: &tondi_rpc_core::GetBlockStatusRequest, protowire::GetBlockStatusRequestMessage, {
+from!(item: &spora_rpc_core::GetBlockStatusRequest, protowire::GetBlockStatusRequestMessage, {
     Self { hash: item.hash.to_string() }
 });
-from!(item: RpcResult<&tondi_rpc_core::GetBlockStatusResponse>, protowire::GetBlockStatusResponseMessage, {
+from!(item: RpcResult<&spora_rpc_core::GetBlockStatusResponse>, protowire::GetBlockStatusResponseMessage, {
     Self { status: Some((&item.status).into()), error: None }
 });
 
-from!(item: &tondi_rpc_core::GetTransactionRequest, protowire::GetTransactionRequestMessage, {
+from!(item: &spora_rpc_core::GetTransactionRequest, protowire::GetTransactionRequestMessage, {
     Self { hash: item.hash.to_string() }
 });
-from!(item: RpcResult<&tondi_rpc_core::GetTransactionResponse>, protowire::GetTransactionResponseMessage, {
+from!(item: RpcResult<&spora_rpc_core::GetTransactionResponse>, protowire::GetTransactionResponseMessage, {
     Self { transaction: Some((&item.transaction).into()), error: None }
 });
 
-from!(item: &tondi_rpc_core::NotifyBlockAddedRequest, protowire::NotifyBlockAddedRequestMessage, {
+from!(item: &spora_rpc_core::NotifyBlockAddedRequest, protowire::NotifyBlockAddedRequestMessage, {
     Self { command: item.command.into() }
 });
-from!(RpcResult<&tondi_rpc_core::NotifyBlockAddedResponse>, protowire::NotifyBlockAddedResponseMessage);
+from!(RpcResult<&spora_rpc_core::NotifyBlockAddedResponse>, protowire::NotifyBlockAddedResponseMessage);
 
-from!(&tondi_rpc_core::GetInfoRequest, protowire::GetInfoRequestMessage);
-from!(item: RpcResult<&tondi_rpc_core::GetInfoResponse>, protowire::GetInfoResponseMessage, {
+from!(&spora_rpc_core::GetInfoRequest, protowire::GetInfoRequestMessage);
+from!(item: RpcResult<&spora_rpc_core::GetInfoResponse>, protowire::GetInfoResponseMessage, {
     Self {
         p2p_id: item.p2p_id.clone(),
         mempool_size: item.mempool_size,
@@ -203,20 +203,20 @@ from!(item: RpcResult<&tondi_rpc_core::GetInfoResponse>, protowire::GetInfoRespo
     }
 });
 
-from!(item: &tondi_rpc_core::NotifyNewBlockTemplateRequest, protowire::NotifyNewBlockTemplateRequestMessage, {
+from!(item: &spora_rpc_core::NotifyNewBlockTemplateRequest, protowire::NotifyNewBlockTemplateRequestMessage, {
     Self { command: item.command.into() }
 });
-from!(RpcResult<&tondi_rpc_core::NotifyNewBlockTemplateResponse>, protowire::NotifyNewBlockTemplateResponseMessage);
+from!(RpcResult<&spora_rpc_core::NotifyNewBlockTemplateResponse>, protowire::NotifyNewBlockTemplateResponseMessage);
 
 // ~~~
 
-from!(&tondi_rpc_core::GetCurrentNetworkRequest, protowire::GetCurrentNetworkRequestMessage);
-from!(item: RpcResult<&tondi_rpc_core::GetCurrentNetworkResponse>, protowire::GetCurrentNetworkResponseMessage, {
+from!(&spora_rpc_core::GetCurrentNetworkRequest, protowire::GetCurrentNetworkRequestMessage);
+from!(item: RpcResult<&spora_rpc_core::GetCurrentNetworkResponse>, protowire::GetCurrentNetworkResponseMessage, {
     Self { current_network: item.network.to_string(), error: None }
 });
 
-from!(&tondi_rpc_core::GetPeerAddressesRequest, protowire::GetPeerAddressesRequestMessage);
-from!(item: RpcResult<&tondi_rpc_core::GetPeerAddressesResponse>, protowire::GetPeerAddressesResponseMessage, {
+from!(&spora_rpc_core::GetPeerAddressesRequest, protowire::GetPeerAddressesRequestMessage);
+from!(item: RpcResult<&spora_rpc_core::GetPeerAddressesResponse>, protowire::GetPeerAddressesResponseMessage, {
     Self {
         addresses: item.known_addresses.iter().map(|x| x.into()).collect(),
         banned_addresses: item.banned_addresses.iter().map(|x| x.into()).collect(),
@@ -224,70 +224,70 @@ from!(item: RpcResult<&tondi_rpc_core::GetPeerAddressesResponse>, protowire::Get
     }
 });
 
-from!(&tondi_rpc_core::GetSinkRequest, protowire::GetSinkRequestMessage);
-from!(item: RpcResult<&tondi_rpc_core::GetSinkResponse>, protowire::GetSinkResponseMessage, {
+from!(&spora_rpc_core::GetSinkRequest, protowire::GetSinkRequestMessage);
+from!(item: RpcResult<&spora_rpc_core::GetSinkResponse>, protowire::GetSinkResponseMessage, {
     Self { sink: item.sink.to_string(), error: None }
 });
 
-from!(item: &tondi_rpc_core::GetMempoolEntryRequest, protowire::GetMempoolEntryRequestMessage, {
+from!(item: &spora_rpc_core::GetMempoolEntryRequest, protowire::GetMempoolEntryRequestMessage, {
     Self {
         tx_id: item.transaction_id.to_string(),
         include_orphan_pool: item.include_orphan_pool,
         filter_transaction_pool: item.filter_transaction_pool,
     }
 });
-from!(item: RpcResult<&tondi_rpc_core::GetMempoolEntryResponse>, protowire::GetMempoolEntryResponseMessage, {
+from!(item: RpcResult<&spora_rpc_core::GetMempoolEntryResponse>, protowire::GetMempoolEntryResponseMessage, {
     Self { entry: Some((&item.mempool_entry).into()), error: None }
 });
 
-from!(item: &tondi_rpc_core::GetMempoolEntriesRequest, protowire::GetMempoolEntriesRequestMessage, {
+from!(item: &spora_rpc_core::GetMempoolEntriesRequest, protowire::GetMempoolEntriesRequestMessage, {
     Self { include_orphan_pool: item.include_orphan_pool, filter_transaction_pool: item.filter_transaction_pool }
 });
-from!(item: RpcResult<&tondi_rpc_core::GetMempoolEntriesResponse>, protowire::GetMempoolEntriesResponseMessage, {
+from!(item: RpcResult<&spora_rpc_core::GetMempoolEntriesResponse>, protowire::GetMempoolEntriesResponseMessage, {
     Self { entries: item.mempool_entries.iter().map(|x| x.into()).collect(), error: None }
 });
 
-from!(&tondi_rpc_core::GetConnectedPeerInfoRequest, protowire::GetConnectedPeerInfoRequestMessage);
-from!(item: RpcResult<&tondi_rpc_core::GetConnectedPeerInfoResponse>, protowire::GetConnectedPeerInfoResponseMessage, {
+from!(&spora_rpc_core::GetConnectedPeerInfoRequest, protowire::GetConnectedPeerInfoRequestMessage);
+from!(item: RpcResult<&spora_rpc_core::GetConnectedPeerInfoResponse>, protowire::GetConnectedPeerInfoResponseMessage, {
     Self { infos: item.peer_info.iter().map(|x| x.into()).collect(), error: None }
 });
 
-from!(item: &tondi_rpc_core::AddPeerRequest, protowire::AddPeerRequestMessage, {
+from!(item: &spora_rpc_core::AddPeerRequest, protowire::AddPeerRequestMessage, {
     Self { address: item.peer_address.to_string(), is_permanent: item.is_permanent }
 });
-from!(RpcResult<&tondi_rpc_core::AddPeerResponse>, protowire::AddPeerResponseMessage);
+from!(RpcResult<&spora_rpc_core::AddPeerResponse>, protowire::AddPeerResponseMessage);
 
-from!(item: &tondi_rpc_core::SubmitTransactionRequest, protowire::SubmitTransactionRequestMessage, {
+from!(item: &spora_rpc_core::SubmitTransactionRequest, protowire::SubmitTransactionRequestMessage, {
     Self { transaction: Some((&item.transaction).into()), allow_orphan: item.allow_orphan }
 });
-from!(item: RpcResult<&tondi_rpc_core::SubmitTransactionResponse>, protowire::SubmitTransactionResponseMessage, {
+from!(item: RpcResult<&spora_rpc_core::SubmitTransactionResponse>, protowire::SubmitTransactionResponseMessage, {
     Self { transaction_id: item.transaction_id.to_string(), error: None }
 });
 
-from!(item: &tondi_rpc_core::SubmitTransactionReplacementRequest, protowire::SubmitTransactionReplacementRequestMessage, {
+from!(item: &spora_rpc_core::SubmitTransactionReplacementRequest, protowire::SubmitTransactionReplacementRequestMessage, {
     Self { transaction: Some((&item.transaction).into()) }
 });
-from!(item: RpcResult<&tondi_rpc_core::SubmitTransactionReplacementResponse>, protowire::SubmitTransactionReplacementResponseMessage, {
+from!(item: RpcResult<&spora_rpc_core::SubmitTransactionReplacementResponse>, protowire::SubmitTransactionReplacementResponseMessage, {
     Self { transaction_id: item.transaction_id.to_string(), replaced_transaction: Some((&item.replaced_transaction).into()), error: None }
 });
 
-from!(item: &tondi_rpc_core::GetSubnetworkRequest, protowire::GetSubnetworkRequestMessage, {
+from!(item: &spora_rpc_core::GetSubnetworkRequest, protowire::GetSubnetworkRequestMessage, {
     Self { subnetwork_id: item.subnetwork_id.to_string() }
 });
-from!(item: RpcResult<&tondi_rpc_core::GetSubnetworkResponse>, protowire::GetSubnetworkResponseMessage, {
+from!(item: RpcResult<&spora_rpc_core::GetSubnetworkResponse>, protowire::GetSubnetworkResponseMessage, {
     Self { gas_limit: item.gas_limit, error: None }
 });
 
 // ~~~
 
-from!(item: &tondi_rpc_core::GetVirtualChainFromBlockRequest, protowire::GetVirtualChainFromBlockRequestMessage, {
+from!(item: &spora_rpc_core::GetVirtualChainFromBlockRequest, protowire::GetVirtualChainFromBlockRequestMessage, {
     Self {
         start_hash: item.start_hash.to_string(),
         include_accepted_transaction_ids: item.include_accepted_transaction_ids,
         min_confirmation_count: item.min_confirmation_count
     }
 });
-from!(item: RpcResult<&tondi_rpc_core::GetVirtualChainFromBlockResponse>, protowire::GetVirtualChainFromBlockResponseMessage, {
+from!(item: RpcResult<&spora_rpc_core::GetVirtualChainFromBlockResponse>, protowire::GetVirtualChainFromBlockResponseMessage, {
     Self {
         removed_chain_block_hashes: item.removed_chain_block_hashes.iter().map(|x| x.to_string()).collect(),
         added_chain_block_hashes: item.added_chain_block_hashes.iter().map(|x| x.to_string()).collect(),
@@ -296,14 +296,14 @@ from!(item: RpcResult<&tondi_rpc_core::GetVirtualChainFromBlockResponse>, protow
     }
 });
 
-from!(item: &tondi_rpc_core::GetBlocksRequest, protowire::GetBlocksRequestMessage, {
+from!(item: &spora_rpc_core::GetBlocksRequest, protowire::GetBlocksRequestMessage, {
     Self {
         low_hash: item.low_hash.map_or(Default::default(), |x| x.to_string()),
         include_blocks: item.include_blocks,
         include_transactions: item.include_transactions,
     }
 });
-from!(item: RpcResult<&tondi_rpc_core::GetBlocksResponse>, protowire::GetBlocksResponseMessage, {
+from!(item: RpcResult<&spora_rpc_core::GetBlocksResponse>, protowire::GetBlocksResponseMessage, {
     Self {
         block_hashes: item.block_hashes.iter().map(|x| x.to_string()).collect::<Vec<_>>(),
         blocks: item.blocks.iter().map(|x| x.into()).collect::<Vec<_>>(),
@@ -311,13 +311,13 @@ from!(item: RpcResult<&tondi_rpc_core::GetBlocksResponse>, protowire::GetBlocksR
     }
 });
 
-from!(&tondi_rpc_core::GetBlockCountRequest, protowire::GetBlockCountRequestMessage);
-from!(item: RpcResult<&tondi_rpc_core::GetBlockCountResponse>, protowire::GetBlockCountResponseMessage, {
+from!(&spora_rpc_core::GetBlockCountRequest, protowire::GetBlockCountRequestMessage);
+from!(item: RpcResult<&spora_rpc_core::GetBlockCountResponse>, protowire::GetBlockCountResponseMessage, {
     Self { block_count: item.block_count, header_count: item.header_count, error: None }
 });
 
-from!(&tondi_rpc_core::GetBlockDagInfoRequest, protowire::GetBlockDagInfoRequestMessage);
-from!(item: RpcResult<&tondi_rpc_core::GetBlockDagInfoResponse>, protowire::GetBlockDagInfoResponseMessage, {
+from!(&spora_rpc_core::GetBlockDagInfoRequest, protowire::GetBlockDagInfoRequestMessage);
+from!(item: RpcResult<&spora_rpc_core::GetBlockDagInfoResponse>, protowire::GetBlockDagInfoResponseMessage, {
     Self {
         network_name: item.network.to_prefixed(),
         block_count: item.block_count,
@@ -333,37 +333,37 @@ from!(item: RpcResult<&tondi_rpc_core::GetBlockDagInfoResponse>, protowire::GetB
     }
 });
 
-from!(item: &tondi_rpc_core::ResolveFinalityConflictRequest, protowire::ResolveFinalityConflictRequestMessage, {
+from!(item: &spora_rpc_core::ResolveFinalityConflictRequest, protowire::ResolveFinalityConflictRequestMessage, {
     Self { finality_block_hash: item.finality_block_hash.to_string() }
 });
-from!(_item: RpcResult<&tondi_rpc_core::ResolveFinalityConflictResponse>, protowire::ResolveFinalityConflictResponseMessage, {
+from!(_item: RpcResult<&spora_rpc_core::ResolveFinalityConflictResponse>, protowire::ResolveFinalityConflictResponseMessage, {
     Self { error: None }
 });
 
-from!(&tondi_rpc_core::ShutdownRequest, protowire::ShutdownRequestMessage);
-from!(RpcResult<&tondi_rpc_core::ShutdownResponse>, protowire::ShutdownResponseMessage);
+from!(&spora_rpc_core::ShutdownRequest, protowire::ShutdownRequestMessage);
+from!(RpcResult<&spora_rpc_core::ShutdownResponse>, protowire::ShutdownResponseMessage);
 
-from!(item: &tondi_rpc_core::GetHeaderRequest, protowire::GetHeaderRequestMessage, {
+from!(item: &spora_rpc_core::GetHeaderRequest, protowire::GetHeaderRequestMessage, {
     Self { hash: item.hash.to_string() }
 });
-from!(item: RpcResult<&tondi_rpc_core::GetHeaderResponse>, protowire::GetHeaderResponseMessage, {
+from!(item: RpcResult<&spora_rpc_core::GetHeaderResponse>, protowire::GetHeaderResponseMessage, {
     Self {
         header: Some((&item.header).into()),
         error: None
     }
 });
 
-from!(item: &tondi_rpc_core::GetHeadersRequest, protowire::GetHeadersRequestMessage, {
+from!(item: &spora_rpc_core::GetHeadersRequest, protowire::GetHeadersRequestMessage, {
     Self { start_hash: item.start_hash.to_string(), limit: item.limit, is_ascending: item.is_ascending }
 });
-from!(item: RpcResult<&tondi_rpc_core::GetHeadersResponse>, protowire::GetHeadersResponseMessage, {
+from!(item: RpcResult<&spora_rpc_core::GetHeadersResponse>, protowire::GetHeadersResponseMessage, {
     Self { headers: item.headers.iter().map(|x| x.hash.to_string()).collect(), error: None }
 });
 
-from!(item: &tondi_rpc_core::GetUtxosByAddressRequest, protowire::GetUtxosByAddressRequestMessage, {
+from!(item: &spora_rpc_core::GetUtxosByAddressRequest, protowire::GetUtxosByAddressRequestMessage, {
     Self { address: (&item.address).into(), start: item.start, limit: item.limit }
 });
-from!(item: RpcResult<&tondi_rpc_core::GetUtxosByAddressResponse>, protowire::GetUtxosByAddressResponseMessage, {
+from!(item: RpcResult<&spora_rpc_core::GetUtxosByAddressResponse>, protowire::GetUtxosByAddressResponseMessage, {
     debug!("GRPC, Creating GetUtxosByAddress message with {} entries", item.entries.len());
     Self {
         entries: item.entries.iter().map(|x| x.into()).collect(),
@@ -372,51 +372,51 @@ from!(item: RpcResult<&tondi_rpc_core::GetUtxosByAddressResponse>, protowire::Ge
     }
 });
 
-from!(item: &tondi_rpc_core::GetUtxosByAddressesRequest, protowire::GetUtxosByAddressesRequestMessage, {
+from!(item: &spora_rpc_core::GetUtxosByAddressesRequest, protowire::GetUtxosByAddressesRequestMessage, {
     Self { addresses: item.addresses.iter().map(|x| x.into()).collect() }
 });
-from!(item: RpcResult<&tondi_rpc_core::GetUtxosByAddressesResponse>, protowire::GetUtxosByAddressesResponseMessage, {
+from!(item: RpcResult<&spora_rpc_core::GetUtxosByAddressesResponse>, protowire::GetUtxosByAddressesResponseMessage, {
     debug!("GRPC, Creating GetUtxosByAddresses message with {} entries", item.entries.len());
     Self { entries: item.entries.iter().map(|x| x.into()).collect(), error: None }
 });
 
-from!(item: &tondi_rpc_core::GetBalanceByAddressRequest, protowire::GetBalanceByAddressRequestMessage, {
+from!(item: &spora_rpc_core::GetBalanceByAddressRequest, protowire::GetBalanceByAddressRequestMessage, {
     Self { address: (&item.address).into() }
 });
-from!(item: RpcResult<&tondi_rpc_core::GetBalanceByAddressResponse>, protowire::GetBalanceByAddressResponseMessage, {
+from!(item: RpcResult<&spora_rpc_core::GetBalanceByAddressResponse>, protowire::GetBalanceByAddressResponseMessage, {
     debug!("GRPC, Creating GetBalanceByAddress messages");
     Self { balance: item.balance, error: None }
 });
 
-from!(item: &tondi_rpc_core::GetBalancesByAddressesRequest, protowire::GetBalancesByAddressesRequestMessage, {
+from!(item: &spora_rpc_core::GetBalancesByAddressesRequest, protowire::GetBalancesByAddressesRequestMessage, {
     Self { addresses: item.addresses.iter().map(|x| x.into()).collect() }
 });
-from!(item: RpcResult<&tondi_rpc_core::GetBalancesByAddressesResponse>, protowire::GetBalancesByAddressesResponseMessage, {
+from!(item: RpcResult<&spora_rpc_core::GetBalancesByAddressesResponse>, protowire::GetBalancesByAddressesResponseMessage, {
     debug!("GRPC, Creating GetUtxosByAddresses message with {} entries", item.entries.len());
     Self { entries: item.entries.iter().map(|x| x.into()).collect(), error: None }
 });
 
-from!(&tondi_rpc_core::GetSinkBlueScoreRequest, protowire::GetSinkBlueScoreRequestMessage);
-from!(item: RpcResult<&tondi_rpc_core::GetSinkBlueScoreResponse>, protowire::GetSinkBlueScoreResponseMessage, {
+from!(&spora_rpc_core::GetSinkBlueScoreRequest, protowire::GetSinkBlueScoreRequestMessage);
+from!(item: RpcResult<&spora_rpc_core::GetSinkBlueScoreResponse>, protowire::GetSinkBlueScoreResponseMessage, {
     Self { blue_score: item.blue_score, error: None }
 });
 
-from!(item: &tondi_rpc_core::BanRequest, protowire::BanRequestMessage, { Self { ip: item.ip.to_string() } });
-from!(_item: RpcResult<&tondi_rpc_core::BanResponse>, protowire::BanResponseMessage, { Self { error: None } });
+from!(item: &spora_rpc_core::BanRequest, protowire::BanRequestMessage, { Self { ip: item.ip.to_string() } });
+from!(_item: RpcResult<&spora_rpc_core::BanResponse>, protowire::BanResponseMessage, { Self { error: None } });
 
-from!(item: &tondi_rpc_core::UnbanRequest, protowire::UnbanRequestMessage, { Self { ip: item.ip.to_string() } });
-from!(_item: RpcResult<&tondi_rpc_core::UnbanResponse>, protowire::UnbanResponseMessage, { Self { error: None } });
+from!(item: &spora_rpc_core::UnbanRequest, protowire::UnbanRequestMessage, { Self { ip: item.ip.to_string() } });
+from!(_item: RpcResult<&spora_rpc_core::UnbanResponse>, protowire::UnbanResponseMessage, { Self { error: None } });
 
-from!(item: &tondi_rpc_core::EstimateNetworkHashesPerSecondRequest, protowire::EstimateNetworkHashesPerSecondRequestMessage, {
+from!(item: &spora_rpc_core::EstimateNetworkHashesPerSecondRequest, protowire::EstimateNetworkHashesPerSecondRequestMessage, {
     Self { window_size: item.window_size, start_hash: item.start_hash.map_or(Default::default(), |x| x.to_string()) }
 });
 from!(
-    item: RpcResult<&tondi_rpc_core::EstimateNetworkHashesPerSecondResponse>,
+    item: RpcResult<&spora_rpc_core::EstimateNetworkHashesPerSecondResponse>,
     protowire::EstimateNetworkHashesPerSecondResponseMessage,
     { Self { network_hashes_per_second: item.network_hashes_per_second, error: None } }
 );
 
-from!(item: &tondi_rpc_core::GetMempoolEntriesByAddressesRequest, protowire::GetMempoolEntriesByAddressesRequestMessage, {
+from!(item: &spora_rpc_core::GetMempoolEntriesByAddressesRequest, protowire::GetMempoolEntriesByAddressesRequestMessage, {
     Self {
         addresses: item.addresses.iter().map(|x| x.into()).collect(),
         include_orphan_pool: item.include_orphan_pool,
@@ -424,37 +424,37 @@ from!(item: &tondi_rpc_core::GetMempoolEntriesByAddressesRequest, protowire::Get
     }
 });
 from!(
-    item: RpcResult<&tondi_rpc_core::GetMempoolEntriesByAddressesResponse>,
+    item: RpcResult<&spora_rpc_core::GetMempoolEntriesByAddressesResponse>,
     protowire::GetMempoolEntriesByAddressesResponseMessage,
     { Self { entries: item.entries.iter().map(|x| x.into()).collect(), error: None } }
 );
 
-from!(&tondi_rpc_core::GetCoinSupplyRequest, protowire::GetCoinSupplyRequestMessage);
-from!(item: RpcResult<&tondi_rpc_core::GetCoinSupplyResponse>, protowire::GetCoinSupplyResponseMessage, {
+from!(&spora_rpc_core::GetCoinSupplyRequest, protowire::GetCoinSupplyRequestMessage);
+from!(item: RpcResult<&spora_rpc_core::GetCoinSupplyResponse>, protowire::GetCoinSupplyResponseMessage, {
     Self { max_sau: item.max_sau, circulating_sau: item.circulating_sau, error: None }
 });
 
-from!(item: &tondi_rpc_core::GetDaaScoreTimestampEstimateRequest, protowire::GetDaaScoreTimestampEstimateRequestMessage, {
+from!(item: &spora_rpc_core::GetDaaScoreTimestampEstimateRequest, protowire::GetDaaScoreTimestampEstimateRequestMessage, {
     Self {
         daa_scores: item.daa_scores.clone()
     }
 });
-from!(item: RpcResult<&tondi_rpc_core::GetDaaScoreTimestampEstimateResponse>, protowire::GetDaaScoreTimestampEstimateResponseMessage, {
+from!(item: RpcResult<&spora_rpc_core::GetDaaScoreTimestampEstimateResponse>, protowire::GetDaaScoreTimestampEstimateResponseMessage, {
     Self { timestamps: item.timestamps.clone(), error: None }
 });
 
 // Fee estimate API
 
-from!(&tondi_rpc_core::GetFeeEstimateRequest, protowire::GetFeeEstimateRequestMessage);
-from!(item: RpcResult<&tondi_rpc_core::GetFeeEstimateResponse>, protowire::GetFeeEstimateResponseMessage, {
+from!(&spora_rpc_core::GetFeeEstimateRequest, protowire::GetFeeEstimateRequestMessage);
+from!(item: RpcResult<&spora_rpc_core::GetFeeEstimateResponse>, protowire::GetFeeEstimateResponseMessage, {
     Self { estimate: Some((&item.estimate).into()), error: None }
 });
-from!(item: &tondi_rpc_core::GetFeeEstimateExperimentalRequest, protowire::GetFeeEstimateExperimentalRequestMessage, {
+from!(item: &spora_rpc_core::GetFeeEstimateExperimentalRequest, protowire::GetFeeEstimateExperimentalRequestMessage, {
     Self {
         verbose: item.verbose
     }
 });
-from!(item: RpcResult<&tondi_rpc_core::GetFeeEstimateExperimentalResponse>, protowire::GetFeeEstimateExperimentalResponseMessage, {
+from!(item: RpcResult<&spora_rpc_core::GetFeeEstimateExperimentalResponse>, protowire::GetFeeEstimateExperimentalResponseMessage, {
     Self {
         estimate: Some((&item.estimate).into()),
         verbose: item.verbose.as_ref().map(|x| x.into()),
@@ -462,29 +462,29 @@ from!(item: RpcResult<&tondi_rpc_core::GetFeeEstimateExperimentalResponse>, prot
     }
 });
 
-from!(item: &tondi_rpc_core::GetCurrentBlockColorRequest, protowire::GetCurrentBlockColorRequestMessage, {
+from!(item: &spora_rpc_core::GetCurrentBlockColorRequest, protowire::GetCurrentBlockColorRequestMessage, {
     Self {
         hash: item.hash.to_string()
     }
 });
-from!(item: RpcResult<&tondi_rpc_core::GetCurrentBlockColorResponse>, protowire::GetCurrentBlockColorResponseMessage, {
+from!(item: RpcResult<&spora_rpc_core::GetCurrentBlockColorResponse>, protowire::GetCurrentBlockColorResponseMessage, {
     Self { blue: item.blue, error: None }
 });
 
-from!(item: &tondi_rpc_core::GetUtxoReturnAddressRequest, protowire::GetUtxoReturnAddressRequestMessage, {
+from!(item: &spora_rpc_core::GetUtxoReturnAddressRequest, protowire::GetUtxoReturnAddressRequestMessage, {
     Self {
         txid: item.txid.to_string(),
         accepting_block_daa_score: item.accepting_block_daa_score
     }
 });
-from!(item: RpcResult<&tondi_rpc_core::GetUtxoReturnAddressResponse>, protowire::GetUtxoReturnAddressResponseMessage, {
+from!(item: RpcResult<&spora_rpc_core::GetUtxoReturnAddressResponse>, protowire::GetUtxoReturnAddressResponseMessage, {
     Self { return_address: item.return_address.address_to_string(), error: None }
 });
 
-from!(&tondi_rpc_core::PingRequest, protowire::PingRequestMessage);
-from!(RpcResult<&tondi_rpc_core::PingResponse>, protowire::PingResponseMessage);
+from!(&spora_rpc_core::PingRequest, protowire::PingRequestMessage);
+from!(RpcResult<&spora_rpc_core::PingResponse>, protowire::PingResponseMessage);
 
-from!(item: &tondi_rpc_core::GetMetricsRequest, protowire::GetMetricsRequestMessage, {
+from!(item: &spora_rpc_core::GetMetricsRequest, protowire::GetMetricsRequestMessage, {
     Self {
         process_metrics: item.process_metrics,
         connection_metrics: item.connection_metrics,
@@ -494,7 +494,7 @@ from!(item: &tondi_rpc_core::GetMetricsRequest, protowire::GetMetricsRequestMess
         custom_metrics: item.custom_metrics,
     }
 });
-from!(item: RpcResult<&tondi_rpc_core::GetMetricsResponse>, protowire::GetMetricsResponseMessage, {
+from!(item: RpcResult<&spora_rpc_core::GetMetricsResponse>, protowire::GetMetricsResponseMessage, {
     Self {
         server_time: item.server_time,
         process_metrics: item.process_metrics.as_ref().map(|x| x.into()),
@@ -508,12 +508,12 @@ from!(item: RpcResult<&tondi_rpc_core::GetMetricsResponse>, protowire::GetMetric
     }
 });
 
-from!(item: &tondi_rpc_core::GetConnectionsRequest, protowire::GetConnectionsRequestMessage, {
+from!(item: &spora_rpc_core::GetConnectionsRequest, protowire::GetConnectionsRequestMessage, {
     Self {
         include_profile_data : item.include_profile_data,
     }
 });
-from!(item: RpcResult<&tondi_rpc_core::GetConnectionsResponse>, protowire::GetConnectionsResponseMessage, {
+from!(item: RpcResult<&spora_rpc_core::GetConnectionsResponse>, protowire::GetConnectionsResponseMessage, {
     Self {
         clients: item.clients,
         peers: item.peers as u32,
@@ -522,8 +522,8 @@ from!(item: RpcResult<&tondi_rpc_core::GetConnectionsResponse>, protowire::GetCo
     }
 });
 
-from!(&tondi_rpc_core::GetSystemInfoRequest, protowire::GetSystemInfoRequestMessage);
-from!(item: RpcResult<&tondi_rpc_core::GetSystemInfoResponse>, protowire::GetSystemInfoResponseMessage, {
+from!(&spora_rpc_core::GetSystemInfoRequest, protowire::GetSystemInfoRequestMessage);
+from!(item: RpcResult<&spora_rpc_core::GetSystemInfoResponse>, protowire::GetSystemInfoResponseMessage, {
     Self {
         version : item.version.clone(),
         system_id : item.system_id.as_ref().map(|system_id|system_id.to_hex()).unwrap_or_default(),
@@ -536,8 +536,8 @@ from!(item: RpcResult<&tondi_rpc_core::GetSystemInfoResponse>, protowire::GetSys
     }
 });
 
-from!(&tondi_rpc_core::GetServerInfoRequest, protowire::GetServerInfoRequestMessage);
-from!(item: RpcResult<&tondi_rpc_core::GetServerInfoResponse>, protowire::GetServerInfoResponseMessage, {
+from!(&spora_rpc_core::GetServerInfoRequest, protowire::GetServerInfoRequestMessage);
+from!(item: RpcResult<&spora_rpc_core::GetServerInfoResponse>, protowire::GetServerInfoResponseMessage, {
     Self {
         rpc_api_version: item.rpc_api_version as u32,
         rpc_api_revision: item.rpc_api_revision as u32,
@@ -550,69 +550,69 @@ from!(item: RpcResult<&tondi_rpc_core::GetServerInfoResponse>, protowire::GetSer
     }
 });
 
-from!(&tondi_rpc_core::GetSyncStatusRequest, protowire::GetSyncStatusRequestMessage);
-from!(item: RpcResult<&tondi_rpc_core::GetSyncStatusResponse>, protowire::GetSyncStatusResponseMessage, {
+from!(&spora_rpc_core::GetSyncStatusRequest, protowire::GetSyncStatusRequestMessage);
+from!(item: RpcResult<&spora_rpc_core::GetSyncStatusResponse>, protowire::GetSyncStatusResponseMessage, {
     Self {
         is_synced: item.is_synced,
         error: None,
     }
 });
 
-from!(item: &tondi_rpc_core::NotifyUtxosChangedRequest, protowire::NotifyUtxosChangedRequestMessage, {
+from!(item: &spora_rpc_core::NotifyUtxosChangedRequest, protowire::NotifyUtxosChangedRequestMessage, {
     Self { addresses: item.addresses.iter().map(|x| x.into()).collect(), command: item.command.into() }
 });
-from!(item: &tondi_rpc_core::NotifyUtxosChangedRequest, protowire::StopNotifyingUtxosChangedRequestMessage, {
+from!(item: &spora_rpc_core::NotifyUtxosChangedRequest, protowire::StopNotifyingUtxosChangedRequestMessage, {
     Self { addresses: item.addresses.iter().map(|x| x.into()).collect() }
 });
-from!(RpcResult<&tondi_rpc_core::NotifyUtxosChangedResponse>, protowire::NotifyUtxosChangedResponseMessage);
-from!(RpcResult<&tondi_rpc_core::NotifyUtxosChangedResponse>, protowire::StopNotifyingUtxosChangedResponseMessage);
+from!(RpcResult<&spora_rpc_core::NotifyUtxosChangedResponse>, protowire::NotifyUtxosChangedResponseMessage);
+from!(RpcResult<&spora_rpc_core::NotifyUtxosChangedResponse>, protowire::StopNotifyingUtxosChangedResponseMessage);
 
-from!(item: &tondi_rpc_core::NotifyPruningPointUtxoSetOverrideRequest, protowire::NotifyPruningPointUtxoSetOverrideRequestMessage, {
+from!(item: &spora_rpc_core::NotifyPruningPointUtxoSetOverrideRequest, protowire::NotifyPruningPointUtxoSetOverrideRequestMessage, {
     Self { command: item.command.into() }
 });
-from!(&tondi_rpc_core::NotifyPruningPointUtxoSetOverrideRequest, protowire::StopNotifyingPruningPointUtxoSetOverrideRequestMessage);
+from!(&spora_rpc_core::NotifyPruningPointUtxoSetOverrideRequest, protowire::StopNotifyingPruningPointUtxoSetOverrideRequestMessage);
 from!(
-    RpcResult<&tondi_rpc_core::NotifyPruningPointUtxoSetOverrideResponse>,
+    RpcResult<&spora_rpc_core::NotifyPruningPointUtxoSetOverrideResponse>,
     protowire::NotifyPruningPointUtxoSetOverrideResponseMessage
 );
 from!(
-    RpcResult<&tondi_rpc_core::NotifyPruningPointUtxoSetOverrideResponse>,
+    RpcResult<&spora_rpc_core::NotifyPruningPointUtxoSetOverrideResponse>,
     protowire::StopNotifyingPruningPointUtxoSetOverrideResponseMessage
 );
 
-from!(item: &tondi_rpc_core::NotifyFinalityConflictRequest, protowire::NotifyFinalityConflictRequestMessage, {
+from!(item: &spora_rpc_core::NotifyFinalityConflictRequest, protowire::NotifyFinalityConflictRequestMessage, {
     Self { command: item.command.into() }
 });
-from!(RpcResult<&tondi_rpc_core::NotifyFinalityConflictResponse>, protowire::NotifyFinalityConflictResponseMessage);
+from!(RpcResult<&spora_rpc_core::NotifyFinalityConflictResponse>, protowire::NotifyFinalityConflictResponseMessage);
 
-from!(item: &tondi_rpc_core::NotifyVirtualDaaScoreChangedRequest, protowire::NotifyVirtualDaaScoreChangedRequestMessage, {
+from!(item: &spora_rpc_core::NotifyVirtualDaaScoreChangedRequest, protowire::NotifyVirtualDaaScoreChangedRequestMessage, {
     Self { command: item.command.into() }
 });
-from!(RpcResult<&tondi_rpc_core::NotifyVirtualDaaScoreChangedResponse>, protowire::NotifyVirtualDaaScoreChangedResponseMessage);
+from!(RpcResult<&spora_rpc_core::NotifyVirtualDaaScoreChangedResponse>, protowire::NotifyVirtualDaaScoreChangedResponseMessage);
 
-from!(item: &tondi_rpc_core::NotifyVirtualChainChangedRequest, protowire::NotifyVirtualChainChangedRequestMessage, {
+from!(item: &spora_rpc_core::NotifyVirtualChainChangedRequest, protowire::NotifyVirtualChainChangedRequestMessage, {
     Self { include_accepted_transaction_ids: item.include_accepted_transaction_ids, command: item.command.into() }
 });
-from!(RpcResult<&tondi_rpc_core::NotifyVirtualChainChangedResponse>, protowire::NotifyVirtualChainChangedResponseMessage);
+from!(RpcResult<&spora_rpc_core::NotifyVirtualChainChangedResponse>, protowire::NotifyVirtualChainChangedResponseMessage);
 
-from!(item: &tondi_rpc_core::NotifySinkBlueScoreChangedRequest, protowire::NotifySinkBlueScoreChangedRequestMessage, {
+from!(item: &spora_rpc_core::NotifySinkBlueScoreChangedRequest, protowire::NotifySinkBlueScoreChangedRequestMessage, {
     Self { command: item.command.into() }
 });
-from!(RpcResult<&tondi_rpc_core::NotifySinkBlueScoreChangedResponse>, protowire::NotifySinkBlueScoreChangedResponseMessage);
+from!(RpcResult<&spora_rpc_core::NotifySinkBlueScoreChangedResponse>, protowire::NotifySinkBlueScoreChangedResponseMessage);
 
 // ----------------------------------------------------------------------------
 // protowire to rpc_core
 // ----------------------------------------------------------------------------
 
-from!(item: RejectReason, tondi_rpc_core::SubmitBlockReport, {
+from!(item: RejectReason, spora_rpc_core::SubmitBlockReport, {
     match item {
-        RejectReason::None => tondi_rpc_core::SubmitBlockReport::Success,
-        RejectReason::BlockInvalid => tondi_rpc_core::SubmitBlockReport::Reject(tondi_rpc_core::SubmitBlockRejectReason::BlockInvalid),
-        RejectReason::IsInIbd => tondi_rpc_core::SubmitBlockReport::Reject(tondi_rpc_core::SubmitBlockRejectReason::IsInIBD),
+        RejectReason::None => spora_rpc_core::SubmitBlockReport::Success,
+        RejectReason::BlockInvalid => spora_rpc_core::SubmitBlockReport::Reject(spora_rpc_core::SubmitBlockRejectReason::BlockInvalid),
+        RejectReason::IsInIbd => spora_rpc_core::SubmitBlockReport::Reject(spora_rpc_core::SubmitBlockRejectReason::IsInIBD),
     }
 });
 
-try_from!(item: &protowire::SubmitBlockRequestMessage, tondi_rpc_core::SubmitBlockRequest, {
+try_from!(item: &protowire::SubmitBlockRequestMessage, spora_rpc_core::SubmitBlockRequest, {
     Self {
         block: item
             .block
@@ -622,7 +622,7 @@ try_from!(item: &protowire::SubmitBlockRequestMessage, tondi_rpc_core::SubmitBlo
         allow_non_daa_blocks: item.allow_non_daa_blocks,
     }
 });
-impl TryFrom<&protowire::SubmitBlockResponseMessage> for tondi_rpc_core::SubmitBlockResponse {
+impl TryFrom<&protowire::SubmitBlockResponseMessage> for spora_rpc_core::SubmitBlockResponse {
     type Error = RpcError;
     // This conversion breaks the general conversion convention (see file header) since the message may
     // contain both a non-None reject_reason and a matching error message. Things get even challenging
@@ -648,10 +648,10 @@ impl TryFrom<&protowire::SubmitBlockResponseMessage> for tondi_rpc_core::SubmitB
     }
 }
 
-try_from!(item: &protowire::GetBlockTemplateRequestMessage, tondi_rpc_core::GetBlockTemplateRequest, {
+try_from!(item: &protowire::GetBlockTemplateRequestMessage, spora_rpc_core::GetBlockTemplateRequest, {
     Self { pay_address: item.pay_address.clone().try_into()?, extra_data: RpcExtraData::from_iter(item.extra_data.bytes()) }
 });
-try_from!(item: &protowire::GetBlockTemplateResponseMessage, RpcResult<tondi_rpc_core::GetBlockTemplateResponse>, {
+try_from!(item: &protowire::GetBlockTemplateResponseMessage, RpcResult<spora_rpc_core::GetBlockTemplateResponse>, {
     Self {
         block: item
             .block
@@ -662,10 +662,10 @@ try_from!(item: &protowire::GetBlockTemplateResponseMessage, RpcResult<tondi_rpc
     }
 });
 
-try_from!(item: &protowire::GetBlockRequestMessage, tondi_rpc_core::GetBlockRequest, {
+try_from!(item: &protowire::GetBlockRequestMessage, spora_rpc_core::GetBlockRequest, {
     Self { hash: RpcHash::from_str(&item.hash)?, include_transactions: item.include_transactions }
 });
-try_from!(item: &protowire::GetBlockResponseMessage, RpcResult<tondi_rpc_core::GetBlockResponse>, {
+try_from!(item: &protowire::GetBlockResponseMessage, RpcResult<spora_rpc_core::GetBlockResponse>, {
     Self {
         block: item
             .block
@@ -675,10 +675,10 @@ try_from!(item: &protowire::GetBlockResponseMessage, RpcResult<tondi_rpc_core::G
     }
 });
 
-try_from!(item: &protowire::GetBlockStatusRequestMessage, tondi_rpc_core::GetBlockStatusRequest, {
+try_from!(item: &protowire::GetBlockStatusRequestMessage, spora_rpc_core::GetBlockStatusRequest, {
     Self { hash: RpcHash::from_str(&item.hash)? }
 });
-try_from!(item: &protowire::GetBlockStatusResponseMessage, RpcResult<tondi_rpc_core::GetBlockStatusResponse>, {
+try_from!(item: &protowire::GetBlockStatusResponseMessage, RpcResult<spora_rpc_core::GetBlockStatusResponse>, {
     Self {
         status: item.status.as_ref()
         .ok_or_else(|| RpcError::MissingRpcFieldError("GetBlockStatusResponseMessage".into(),"status".into()))?
@@ -686,10 +686,10 @@ try_from!(item: &protowire::GetBlockStatusResponseMessage, RpcResult<tondi_rpc_c
     }
 });
 
-try_from!(item: &protowire::GetTransactionRequestMessage, tondi_rpc_core::GetTransactionRequest, {
+try_from!(item: &protowire::GetTransactionRequestMessage, spora_rpc_core::GetTransactionRequest, {
     Self { hash: RpcHash::from_str(&item.hash)? }
 });
-try_from!(item: &protowire::GetTransactionResponseMessage, RpcResult<tondi_rpc_core::GetTransactionResponse>, {
+try_from!(item: &protowire::GetTransactionResponseMessage, RpcResult<spora_rpc_core::GetTransactionResponse>, {
     Self {
         transaction: item
             .transaction
@@ -699,13 +699,13 @@ try_from!(item: &protowire::GetTransactionResponseMessage, RpcResult<tondi_rpc_c
     }
 });
 
-try_from!(item: &protowire::NotifyBlockAddedRequestMessage, tondi_rpc_core::NotifyBlockAddedRequest, {
+try_from!(item: &protowire::NotifyBlockAddedRequestMessage, spora_rpc_core::NotifyBlockAddedRequest, {
     Self { command: item.command.into() }
 });
-try_from!(&protowire::NotifyBlockAddedResponseMessage, RpcResult<tondi_rpc_core::NotifyBlockAddedResponse>);
+try_from!(&protowire::NotifyBlockAddedResponseMessage, RpcResult<spora_rpc_core::NotifyBlockAddedResponse>);
 
-try_from!(&protowire::GetInfoRequestMessage, tondi_rpc_core::GetInfoRequest);
-try_from!(item: &protowire::GetInfoResponseMessage, RpcResult<tondi_rpc_core::GetInfoResponse>, {
+try_from!(&protowire::GetInfoRequestMessage, spora_rpc_core::GetInfoRequest);
+try_from!(item: &protowire::GetInfoResponseMessage, RpcResult<spora_rpc_core::GetInfoResponse>, {
     Self {
         p2p_id: item.p2p_id.clone(),
         mempool_size: item.mempool_size,
@@ -717,42 +717,42 @@ try_from!(item: &protowire::GetInfoResponseMessage, RpcResult<tondi_rpc_core::Ge
     }
 });
 
-try_from!(item: &protowire::NotifyNewBlockTemplateRequestMessage, tondi_rpc_core::NotifyNewBlockTemplateRequest, {
+try_from!(item: &protowire::NotifyNewBlockTemplateRequestMessage, spora_rpc_core::NotifyNewBlockTemplateRequest, {
     Self { command: item.command.into() }
 });
-try_from!(&protowire::NotifyNewBlockTemplateResponseMessage, RpcResult<tondi_rpc_core::NotifyNewBlockTemplateResponse>);
+try_from!(&protowire::NotifyNewBlockTemplateResponseMessage, RpcResult<spora_rpc_core::NotifyNewBlockTemplateResponse>);
 
 // ~~~
 
-try_from!(&protowire::GetCurrentNetworkRequestMessage, tondi_rpc_core::GetCurrentNetworkRequest);
-try_from!(item: &protowire::GetCurrentNetworkResponseMessage, RpcResult<tondi_rpc_core::GetCurrentNetworkResponse>, {
+try_from!(&protowire::GetCurrentNetworkRequestMessage, spora_rpc_core::GetCurrentNetworkRequest);
+try_from!(item: &protowire::GetCurrentNetworkResponseMessage, RpcResult<spora_rpc_core::GetCurrentNetworkResponse>, {
     // Note that current_network is first converted to lowercase because the golang implementation
     // returns a "human readable" version with a capital first letter while the rusty version
     // is fully lowercase.
     Self { network: RpcNetworkType::from_str(&item.current_network.to_lowercase())? }
 });
 
-try_from!(&protowire::GetPeerAddressesRequestMessage, tondi_rpc_core::GetPeerAddressesRequest);
-try_from!(item: &protowire::GetPeerAddressesResponseMessage, RpcResult<tondi_rpc_core::GetPeerAddressesResponse>, {
+try_from!(&protowire::GetPeerAddressesRequestMessage, spora_rpc_core::GetPeerAddressesRequest);
+try_from!(item: &protowire::GetPeerAddressesResponseMessage, RpcResult<spora_rpc_core::GetPeerAddressesResponse>, {
     Self {
         known_addresses: item.addresses.iter().map(RpcPeerAddress::try_from).collect::<Result<Vec<_>, _>>()?,
         banned_addresses: item.banned_addresses.iter().map(RpcIpAddress::try_from).collect::<Result<Vec<_>, _>>()?,
     }
 });
 
-try_from!(&protowire::GetSinkRequestMessage, tondi_rpc_core::GetSinkRequest);
-try_from!(item: &protowire::GetSinkResponseMessage, RpcResult<tondi_rpc_core::GetSinkResponse>, {
+try_from!(&protowire::GetSinkRequestMessage, spora_rpc_core::GetSinkRequest);
+try_from!(item: &protowire::GetSinkResponseMessage, RpcResult<spora_rpc_core::GetSinkResponse>, {
     Self { sink: RpcHash::from_str(&item.sink)? }
 });
 
-try_from!(item: &protowire::GetMempoolEntryRequestMessage, tondi_rpc_core::GetMempoolEntryRequest, {
+try_from!(item: &protowire::GetMempoolEntryRequestMessage, spora_rpc_core::GetMempoolEntryRequest, {
     Self {
-        transaction_id: tondi_rpc_core::RpcTransactionId::from_str(&item.tx_id)?,
+        transaction_id: spora_rpc_core::RpcTransactionId::from_str(&item.tx_id)?,
         include_orphan_pool: item.include_orphan_pool,
         filter_transaction_pool: item.filter_transaction_pool,
     }
 });
-try_from!(item: &protowire::GetMempoolEntryResponseMessage, RpcResult<tondi_rpc_core::GetMempoolEntryResponse>, {
+try_from!(item: &protowire::GetMempoolEntryResponseMessage, RpcResult<spora_rpc_core::GetMempoolEntryResponse>, {
     Self {
         mempool_entry: item
             .entry
@@ -762,24 +762,24 @@ try_from!(item: &protowire::GetMempoolEntryResponseMessage, RpcResult<tondi_rpc_
     }
 });
 
-try_from!(item: &protowire::GetMempoolEntriesRequestMessage, tondi_rpc_core::GetMempoolEntriesRequest, {
+try_from!(item: &protowire::GetMempoolEntriesRequestMessage, spora_rpc_core::GetMempoolEntriesRequest, {
     Self { include_orphan_pool: item.include_orphan_pool, filter_transaction_pool: item.filter_transaction_pool }
 });
-try_from!(item: &protowire::GetMempoolEntriesResponseMessage, RpcResult<tondi_rpc_core::GetMempoolEntriesResponse>, {
-    Self { mempool_entries: item.entries.iter().map(tondi_rpc_core::RpcMempoolEntry::try_from).collect::<Result<Vec<_>, _>>()? }
+try_from!(item: &protowire::GetMempoolEntriesResponseMessage, RpcResult<spora_rpc_core::GetMempoolEntriesResponse>, {
+    Self { mempool_entries: item.entries.iter().map(spora_rpc_core::RpcMempoolEntry::try_from).collect::<Result<Vec<_>, _>>()? }
 });
 
-try_from!(&protowire::GetConnectedPeerInfoRequestMessage, tondi_rpc_core::GetConnectedPeerInfoRequest);
-try_from!(item: &protowire::GetConnectedPeerInfoResponseMessage, RpcResult<tondi_rpc_core::GetConnectedPeerInfoResponse>, {
-    Self { peer_info: item.infos.iter().map(tondi_rpc_core::RpcPeerInfo::try_from).collect::<Result<Vec<_>, _>>()? }
+try_from!(&protowire::GetConnectedPeerInfoRequestMessage, spora_rpc_core::GetConnectedPeerInfoRequest);
+try_from!(item: &protowire::GetConnectedPeerInfoResponseMessage, RpcResult<spora_rpc_core::GetConnectedPeerInfoResponse>, {
+    Self { peer_info: item.infos.iter().map(spora_rpc_core::RpcPeerInfo::try_from).collect::<Result<Vec<_>, _>>()? }
 });
 
-try_from!(item: &protowire::AddPeerRequestMessage, tondi_rpc_core::AddPeerRequest, {
+try_from!(item: &protowire::AddPeerRequestMessage, spora_rpc_core::AddPeerRequest, {
     Self { peer_address: RpcContextualPeerAddress::from_str(&item.address)?, is_permanent: item.is_permanent }
 });
-try_from!(&protowire::AddPeerResponseMessage, RpcResult<tondi_rpc_core::AddPeerResponse>);
+try_from!(&protowire::AddPeerResponseMessage, RpcResult<spora_rpc_core::AddPeerResponse>);
 
-try_from!(item: &protowire::SubmitTransactionRequestMessage, tondi_rpc_core::SubmitTransactionRequest, {
+try_from!(item: &protowire::SubmitTransactionRequestMessage, spora_rpc_core::SubmitTransactionRequest, {
     Self {
         transaction: item
             .transaction
@@ -789,11 +789,11 @@ try_from!(item: &protowire::SubmitTransactionRequestMessage, tondi_rpc_core::Sub
         allow_orphan: item.allow_orphan,
     }
 });
-try_from!(item: &protowire::SubmitTransactionResponseMessage, RpcResult<tondi_rpc_core::SubmitTransactionResponse>, {
+try_from!(item: &protowire::SubmitTransactionResponseMessage, RpcResult<spora_rpc_core::SubmitTransactionResponse>, {
     Self { transaction_id: RpcHash::from_str(&item.transaction_id)? }
 });
 
-try_from!(item: &protowire::SubmitTransactionReplacementRequestMessage, tondi_rpc_core::SubmitTransactionReplacementRequest, {
+try_from!(item: &protowire::SubmitTransactionReplacementRequestMessage, spora_rpc_core::SubmitTransactionReplacementRequest, {
     Self {
         transaction: item
             .transaction
@@ -802,7 +802,7 @@ try_from!(item: &protowire::SubmitTransactionReplacementRequestMessage, tondi_rp
             .try_into()?,
     }
 });
-try_from!(item: &protowire::SubmitTransactionReplacementResponseMessage, RpcResult<tondi_rpc_core::SubmitTransactionReplacementResponse>, {
+try_from!(item: &protowire::SubmitTransactionReplacementResponseMessage, RpcResult<spora_rpc_core::SubmitTransactionReplacementResponse>, {
     Self {
         transaction_id: RpcHash::from_str(&item.transaction_id)?,
         replaced_transaction: item
@@ -813,21 +813,21 @@ try_from!(item: &protowire::SubmitTransactionReplacementResponseMessage, RpcResu
     }
 });
 
-try_from!(item: &protowire::GetSubnetworkRequestMessage, tondi_rpc_core::GetSubnetworkRequest, {
-    Self { subnetwork_id: tondi_rpc_core::RpcSubnetworkId::from_str(&item.subnetwork_id)? }
+try_from!(item: &protowire::GetSubnetworkRequestMessage, spora_rpc_core::GetSubnetworkRequest, {
+    Self { subnetwork_id: spora_rpc_core::RpcSubnetworkId::from_str(&item.subnetwork_id)? }
 });
-try_from!(item: &protowire::GetSubnetworkResponseMessage, RpcResult<tondi_rpc_core::GetSubnetworkResponse>, {
+try_from!(item: &protowire::GetSubnetworkResponseMessage, RpcResult<spora_rpc_core::GetSubnetworkResponse>, {
     Self { gas_limit: item.gas_limit }
 });
 
-try_from!(item: &protowire::GetVirtualChainFromBlockRequestMessage, tondi_rpc_core::GetVirtualChainFromBlockRequest, {
+try_from!(item: &protowire::GetVirtualChainFromBlockRequestMessage, spora_rpc_core::GetVirtualChainFromBlockRequest, {
     Self {
         start_hash: RpcHash::from_str(&item.start_hash)?,
         include_accepted_transaction_ids: item.include_accepted_transaction_ids,
         min_confirmation_count: item.min_confirmation_count,
     }
 });
-try_from!(item: &protowire::GetVirtualChainFromBlockResponseMessage, RpcResult<tondi_rpc_core::GetVirtualChainFromBlockResponse>, {
+try_from!(item: &protowire::GetVirtualChainFromBlockResponseMessage, RpcResult<spora_rpc_core::GetVirtualChainFromBlockResponse>, {
     Self {
         removed_chain_block_hashes: item
             .removed_chain_block_hashes
@@ -839,29 +839,29 @@ try_from!(item: &protowire::GetVirtualChainFromBlockResponseMessage, RpcResult<t
     }
 });
 
-try_from!(item: &protowire::GetBlocksRequestMessage, tondi_rpc_core::GetBlocksRequest, {
+try_from!(item: &protowire::GetBlocksRequestMessage, spora_rpc_core::GetBlocksRequest, {
     Self {
         low_hash: if item.low_hash.is_empty() { None } else { Some(RpcHash::from_str(&item.low_hash)?) },
         include_blocks: item.include_blocks,
         include_transactions: item.include_transactions,
     }
 });
-try_from!(item: &protowire::GetBlocksResponseMessage, RpcResult<tondi_rpc_core::GetBlocksResponse>, {
+try_from!(item: &protowire::GetBlocksResponseMessage, RpcResult<spora_rpc_core::GetBlocksResponse>, {
     Self {
         block_hashes: item.block_hashes.iter().map(|x| RpcHash::from_str(x)).collect::<Result<Vec<_>, _>>()?,
         blocks: item.blocks.iter().map(|x| x.try_into()).collect::<Result<Vec<_>, _>>()?,
     }
 });
 
-try_from!(&protowire::GetBlockCountRequestMessage, tondi_rpc_core::GetBlockCountRequest);
-try_from!(item: &protowire::GetBlockCountResponseMessage, RpcResult<tondi_rpc_core::GetBlockCountResponse>, {
+try_from!(&protowire::GetBlockCountRequestMessage, spora_rpc_core::GetBlockCountRequest);
+try_from!(item: &protowire::GetBlockCountResponseMessage, RpcResult<spora_rpc_core::GetBlockCountResponse>, {
     Self { header_count: item.header_count, block_count: item.block_count }
 });
 
-try_from!(&protowire::GetBlockDagInfoRequestMessage, tondi_rpc_core::GetBlockDagInfoRequest);
-try_from!(item: &protowire::GetBlockDagInfoResponseMessage, RpcResult<tondi_rpc_core::GetBlockDagInfoResponse>, {
+try_from!(&protowire::GetBlockDagInfoRequestMessage, spora_rpc_core::GetBlockDagInfoRequest);
+try_from!(item: &protowire::GetBlockDagInfoResponseMessage, RpcResult<spora_rpc_core::GetBlockDagInfoResponse>, {
     Self {
-        network: tondi_rpc_core::RpcNetworkId::from_prefixed(&item.network_name)?,
+        network: spora_rpc_core::RpcNetworkId::from_prefixed(&item.network_name)?,
         block_count: item.block_count,
         header_count: item.header_count,
         tip_hashes: item.tip_hashes.iter().map(|x| RpcHash::from_str(x)).collect::<Result<Vec<_>, _>>()?,
@@ -874,18 +874,18 @@ try_from!(item: &protowire::GetBlockDagInfoResponseMessage, RpcResult<tondi_rpc_
     }
 });
 
-try_from!(item: &protowire::ResolveFinalityConflictRequestMessage, tondi_rpc_core::ResolveFinalityConflictRequest, {
+try_from!(item: &protowire::ResolveFinalityConflictRequestMessage, spora_rpc_core::ResolveFinalityConflictRequest, {
     Self { finality_block_hash: RpcHash::from_str(&item.finality_block_hash)? }
 });
-try_from!(&protowire::ResolveFinalityConflictResponseMessage, RpcResult<tondi_rpc_core::ResolveFinalityConflictResponse>);
+try_from!(&protowire::ResolveFinalityConflictResponseMessage, RpcResult<spora_rpc_core::ResolveFinalityConflictResponse>);
 
-try_from!(&protowire::ShutdownRequestMessage, tondi_rpc_core::ShutdownRequest);
-try_from!(&protowire::ShutdownResponseMessage, RpcResult<tondi_rpc_core::ShutdownResponse>);
+try_from!(&protowire::ShutdownRequestMessage, spora_rpc_core::ShutdownRequest);
+try_from!(&protowire::ShutdownResponseMessage, RpcResult<spora_rpc_core::ShutdownResponse>);
 
-try_from!(item: &protowire::GetHeaderRequestMessage, tondi_rpc_core::GetHeaderRequest, {
+try_from!(item: &protowire::GetHeaderRequestMessage, spora_rpc_core::GetHeaderRequest, {
     Self { hash: RpcHash::from_str(&item.hash)? }
 });
-try_from!(item: &protowire::GetHeaderResponseMessage, RpcResult<tondi_rpc_core::GetHeaderResponse>, {
+try_from!(item: &protowire::GetHeaderResponseMessage, RpcResult<spora_rpc_core::GetHeaderResponse>, {
     Self {
         header: item.header.as_ref()
         .ok_or_else(|| RpcError::MissingRpcFieldError("GetHeaderResponseMessage".into(), "header".into()))?
@@ -893,57 +893,57 @@ try_from!(item: &protowire::GetHeaderResponseMessage, RpcResult<tondi_rpc_core::
     }
 });
 
-try_from!(item: &protowire::GetHeadersRequestMessage, tondi_rpc_core::GetHeadersRequest, {
+try_from!(item: &protowire::GetHeadersRequestMessage, spora_rpc_core::GetHeadersRequest, {
     Self { start_hash: RpcHash::from_str(&item.start_hash)?, limit: item.limit, is_ascending: item.is_ascending }
 });
-try_from!(item: &protowire::GetHeadersResponseMessage, RpcResult<tondi_rpc_core::GetHeadersResponse>, {
+try_from!(item: &protowire::GetHeadersResponseMessage, RpcResult<spora_rpc_core::GetHeadersResponse>, {
     // TODO
     Self { headers: vec![] }
 });
 
-try_from!(item: &protowire::GetUtxosByAddressRequestMessage, tondi_rpc_core::GetUtxosByAddressRequest, {
+try_from!(item: &protowire::GetUtxosByAddressRequestMessage, spora_rpc_core::GetUtxosByAddressRequest, {
     Self { address: item.address.as_str().try_into()?, start: item.start, limit: item.limit }
 });
-try_from!(item: &protowire::GetUtxosByAddressResponseMessage, RpcResult<tondi_rpc_core::GetUtxosByAddressResponse>, {
+try_from!(item: &protowire::GetUtxosByAddressResponseMessage, RpcResult<spora_rpc_core::GetUtxosByAddressResponse>, {
     Self {
         entries: item.entries.iter().map(|x| x.try_into()).collect::<Result<Vec<_>, _>>()?,
         total: item.total,
     }
 });
 
-try_from!(item: &protowire::GetUtxosByAddressesRequestMessage, tondi_rpc_core::GetUtxosByAddressesRequest, {
+try_from!(item: &protowire::GetUtxosByAddressesRequestMessage, spora_rpc_core::GetUtxosByAddressesRequest, {
     Self { addresses: item.addresses.iter().map(|x| x.as_str().try_into()).collect::<Result<Vec<_>, _>>()? }
 });
-try_from!(item: &protowire::GetUtxosByAddressesResponseMessage, RpcResult<tondi_rpc_core::GetUtxosByAddressesResponse>, {
+try_from!(item: &protowire::GetUtxosByAddressesResponseMessage, RpcResult<spora_rpc_core::GetUtxosByAddressesResponse>, {
     Self { entries: item.entries.iter().map(|x| x.try_into()).collect::<Result<Vec<_>, _>>()? }
 });
 
-try_from!(item: &protowire::GetBalanceByAddressRequestMessage, tondi_rpc_core::GetBalanceByAddressRequest, {
+try_from!(item: &protowire::GetBalanceByAddressRequestMessage, spora_rpc_core::GetBalanceByAddressRequest, {
     Self { address: item.address.as_str().try_into()? }
 });
-try_from!(item: &protowire::GetBalanceByAddressResponseMessage, RpcResult<tondi_rpc_core::GetBalanceByAddressResponse>, {
+try_from!(item: &protowire::GetBalanceByAddressResponseMessage, RpcResult<spora_rpc_core::GetBalanceByAddressResponse>, {
     Self { balance: item.balance }
 });
 
-try_from!(item: &protowire::GetBalancesByAddressesRequestMessage, tondi_rpc_core::GetBalancesByAddressesRequest, {
+try_from!(item: &protowire::GetBalancesByAddressesRequestMessage, spora_rpc_core::GetBalancesByAddressesRequest, {
     Self { addresses: item.addresses.iter().map(|x| x.as_str().try_into()).collect::<Result<Vec<_>, _>>()? }
 });
-try_from!(item: &protowire::GetBalancesByAddressesResponseMessage, RpcResult<tondi_rpc_core::GetBalancesByAddressesResponse>, {
+try_from!(item: &protowire::GetBalancesByAddressesResponseMessage, RpcResult<spora_rpc_core::GetBalancesByAddressesResponse>, {
     Self { entries: item.entries.iter().map(|x| x.try_into()).collect::<Result<Vec<_>, _>>()? }
 });
 
-try_from!(&protowire::GetSinkBlueScoreRequestMessage, tondi_rpc_core::GetSinkBlueScoreRequest);
-try_from!(item: &protowire::GetSinkBlueScoreResponseMessage, RpcResult<tondi_rpc_core::GetSinkBlueScoreResponse>, {
+try_from!(&protowire::GetSinkBlueScoreRequestMessage, spora_rpc_core::GetSinkBlueScoreRequest);
+try_from!(item: &protowire::GetSinkBlueScoreResponseMessage, RpcResult<spora_rpc_core::GetSinkBlueScoreResponse>, {
     Self { blue_score: item.blue_score }
 });
 
-try_from!(item: &protowire::BanRequestMessage, tondi_rpc_core::BanRequest, { Self { ip: RpcIpAddress::from_str(&item.ip)? } });
-try_from!(&protowire::BanResponseMessage, RpcResult<tondi_rpc_core::BanResponse>);
+try_from!(item: &protowire::BanRequestMessage, spora_rpc_core::BanRequest, { Self { ip: RpcIpAddress::from_str(&item.ip)? } });
+try_from!(&protowire::BanResponseMessage, RpcResult<spora_rpc_core::BanResponse>);
 
-try_from!(item: &protowire::UnbanRequestMessage, tondi_rpc_core::UnbanRequest, { Self { ip: RpcIpAddress::from_str(&item.ip)? } });
-try_from!(&protowire::UnbanResponseMessage, RpcResult<tondi_rpc_core::UnbanResponse>);
+try_from!(item: &protowire::UnbanRequestMessage, spora_rpc_core::UnbanRequest, { Self { ip: RpcIpAddress::from_str(&item.ip)? } });
+try_from!(&protowire::UnbanResponseMessage, RpcResult<spora_rpc_core::UnbanResponse>);
 
-try_from!(item: &protowire::EstimateNetworkHashesPerSecondRequestMessage, tondi_rpc_core::EstimateNetworkHashesPerSecondRequest, {
+try_from!(item: &protowire::EstimateNetworkHashesPerSecondRequestMessage, spora_rpc_core::EstimateNetworkHashesPerSecondRequest, {
     Self {
         window_size: item.window_size,
         start_hash: if item.start_hash.is_empty() { None } else { Some(RpcHash::from_str(&item.start_hash)?) },
@@ -951,11 +951,11 @@ try_from!(item: &protowire::EstimateNetworkHashesPerSecondRequestMessage, tondi_
 });
 try_from!(
     item: &protowire::EstimateNetworkHashesPerSecondResponseMessage,
-    RpcResult<tondi_rpc_core::EstimateNetworkHashesPerSecondResponse>,
+    RpcResult<spora_rpc_core::EstimateNetworkHashesPerSecondResponse>,
     { Self { network_hashes_per_second: item.network_hashes_per_second } }
 );
 
-try_from!(item: &protowire::GetMempoolEntriesByAddressesRequestMessage, tondi_rpc_core::GetMempoolEntriesByAddressesRequest, {
+try_from!(item: &protowire::GetMempoolEntriesByAddressesRequestMessage, spora_rpc_core::GetMempoolEntriesByAddressesRequest, {
     Self {
         addresses: item.addresses.iter().map(|x| x.as_str().try_into()).collect::<Result<Vec<_>, _>>()?,
         include_orphan_pool: item.include_orphan_pool,
@@ -964,26 +964,26 @@ try_from!(item: &protowire::GetMempoolEntriesByAddressesRequestMessage, tondi_rp
 });
 try_from!(
     item: &protowire::GetMempoolEntriesByAddressesResponseMessage,
-    RpcResult<tondi_rpc_core::GetMempoolEntriesByAddressesResponse>,
+    RpcResult<spora_rpc_core::GetMempoolEntriesByAddressesResponse>,
     { Self { entries: item.entries.iter().map(|x| x.try_into()).collect::<Result<Vec<_>, _>>()? } }
 );
 
-try_from!(&protowire::GetCoinSupplyRequestMessage, tondi_rpc_core::GetCoinSupplyRequest);
-try_from!(item: &protowire::GetCoinSupplyResponseMessage, RpcResult<tondi_rpc_core::GetCoinSupplyResponse>, {
+try_from!(&protowire::GetCoinSupplyRequestMessage, spora_rpc_core::GetCoinSupplyRequest);
+try_from!(item: &protowire::GetCoinSupplyResponseMessage, RpcResult<spora_rpc_core::GetCoinSupplyResponse>, {
     Self { max_sau: item.max_sau, circulating_sau: item.circulating_sau }
 });
 
-try_from!(item: &protowire::GetDaaScoreTimestampEstimateRequestMessage, tondi_rpc_core::GetDaaScoreTimestampEstimateRequest , {
+try_from!(item: &protowire::GetDaaScoreTimestampEstimateRequestMessage, spora_rpc_core::GetDaaScoreTimestampEstimateRequest , {
     Self {
         daa_scores: item.daa_scores.clone()
     }
 });
-try_from!(item: &protowire::GetDaaScoreTimestampEstimateResponseMessage, RpcResult<tondi_rpc_core::GetDaaScoreTimestampEstimateResponse>, {
+try_from!(item: &protowire::GetDaaScoreTimestampEstimateResponseMessage, RpcResult<spora_rpc_core::GetDaaScoreTimestampEstimateResponse>, {
     Self { timestamps: item.timestamps.clone() }
 });
 
-try_from!(&protowire::GetFeeEstimateRequestMessage, tondi_rpc_core::GetFeeEstimateRequest);
-try_from!(item: &protowire::GetFeeEstimateResponseMessage, RpcResult<tondi_rpc_core::GetFeeEstimateResponse>, {
+try_from!(&protowire::GetFeeEstimateRequestMessage, spora_rpc_core::GetFeeEstimateRequest);
+try_from!(item: &protowire::GetFeeEstimateResponseMessage, RpcResult<spora_rpc_core::GetFeeEstimateResponse>, {
     Self {
         estimate: item.estimate
             .as_ref()
@@ -991,12 +991,12 @@ try_from!(item: &protowire::GetFeeEstimateResponseMessage, RpcResult<tondi_rpc_c
             .try_into()?
     }
 });
-try_from!(item: &protowire::GetFeeEstimateExperimentalRequestMessage, tondi_rpc_core::GetFeeEstimateExperimentalRequest, {
+try_from!(item: &protowire::GetFeeEstimateExperimentalRequestMessage, spora_rpc_core::GetFeeEstimateExperimentalRequest, {
     Self {
         verbose: item.verbose
     }
 });
-try_from!(item: &protowire::GetFeeEstimateExperimentalResponseMessage, RpcResult<tondi_rpc_core::GetFeeEstimateExperimentalResponse>, {
+try_from!(item: &protowire::GetFeeEstimateExperimentalResponseMessage, RpcResult<spora_rpc_core::GetFeeEstimateExperimentalResponse>, {
     Self {
         estimate: item.estimate
             .as_ref()
@@ -1006,30 +1006,30 @@ try_from!(item: &protowire::GetFeeEstimateExperimentalResponseMessage, RpcResult
     }
 });
 
-try_from!(item: &protowire::GetCurrentBlockColorRequestMessage, tondi_rpc_core::GetCurrentBlockColorRequest, {
+try_from!(item: &protowire::GetCurrentBlockColorRequestMessage, spora_rpc_core::GetCurrentBlockColorRequest, {
     Self {
         hash: RpcHash::from_str(&item.hash)?
     }
 });
-try_from!(item: &protowire::GetCurrentBlockColorResponseMessage, RpcResult<tondi_rpc_core::GetCurrentBlockColorResponse>, {
+try_from!(item: &protowire::GetCurrentBlockColorResponseMessage, RpcResult<spora_rpc_core::GetCurrentBlockColorResponse>, {
     Self {
         blue: item.blue
     }
 });
-try_from!(item: &protowire::GetUtxoReturnAddressRequestMessage, tondi_rpc_core::GetUtxoReturnAddressRequest , {
+try_from!(item: &protowire::GetUtxoReturnAddressRequestMessage, spora_rpc_core::GetUtxoReturnAddressRequest , {
     Self {
         txid: Hash::from_str(&item.txid).unwrap_or_default(),
         accepting_block_daa_score: item.accepting_block_daa_score
     }
 });
-try_from!(item: &protowire::GetUtxoReturnAddressResponseMessage, RpcResult<tondi_rpc_core::GetUtxoReturnAddressResponse>, {
+try_from!(item: &protowire::GetUtxoReturnAddressResponseMessage, RpcResult<spora_rpc_core::GetUtxoReturnAddressResponse>, {
     Self { return_address: Address::try_from(item.return_address.clone())? }
 });
 
-try_from!(&protowire::PingRequestMessage, tondi_rpc_core::PingRequest);
-try_from!(&protowire::PingResponseMessage, RpcResult<tondi_rpc_core::PingResponse>);
+try_from!(&protowire::PingRequestMessage, spora_rpc_core::PingRequest);
+try_from!(&protowire::PingResponseMessage, RpcResult<spora_rpc_core::PingResponse>);
 
-try_from!(item: &protowire::GetMetricsRequestMessage, tondi_rpc_core::GetMetricsRequest, {
+try_from!(item: &protowire::GetMetricsRequestMessage, spora_rpc_core::GetMetricsRequest, {
     Self {
         process_metrics: item.process_metrics,
         connection_metrics: item.connection_metrics,
@@ -1039,7 +1039,7 @@ try_from!(item: &protowire::GetMetricsRequestMessage, tondi_rpc_core::GetMetrics
         custom_metrics : item.custom_metrics,
     }
 });
-try_from!(item: &protowire::GetMetricsResponseMessage, RpcResult<tondi_rpc_core::GetMetricsResponse>, {
+try_from!(item: &protowire::GetMetricsResponseMessage, RpcResult<spora_rpc_core::GetMetricsResponse>, {
     Self {
         server_time: item.server_time,
         process_metrics: item.process_metrics.as_ref().map(|x| x.try_into()).transpose()?,
@@ -1052,10 +1052,10 @@ try_from!(item: &protowire::GetMetricsResponseMessage, RpcResult<tondi_rpc_core:
     }
 });
 
-try_from!(item: &protowire::GetConnectionsRequestMessage, tondi_rpc_core::GetConnectionsRequest, {
+try_from!(item: &protowire::GetConnectionsRequestMessage, spora_rpc_core::GetConnectionsRequest, {
     Self { include_profile_data : item.include_profile_data }
 });
-try_from!(item: &protowire::GetConnectionsResponseMessage, RpcResult<tondi_rpc_core::GetConnectionsResponse>, {
+try_from!(item: &protowire::GetConnectionsResponseMessage, RpcResult<spora_rpc_core::GetConnectionsResponse>, {
     Self {
         clients: item.clients,
         peers: item.peers as u16,
@@ -1063,8 +1063,8 @@ try_from!(item: &protowire::GetConnectionsResponseMessage, RpcResult<tondi_rpc_c
     }
 });
 
-try_from!(&protowire::GetSystemInfoRequestMessage, tondi_rpc_core::GetSystemInfoRequest);
-try_from!(item: &protowire::GetSystemInfoResponseMessage, RpcResult<tondi_rpc_core::GetSystemInfoResponse>, {
+try_from!(&protowire::GetSystemInfoRequestMessage, spora_rpc_core::GetSystemInfoRequest);
+try_from!(item: &protowire::GetSystemInfoResponseMessage, RpcResult<spora_rpc_core::GetSystemInfoResponse>, {
     Self {
         version: item.version.clone(),
         system_id: (!item.system_id.is_empty()).then(|| FromHex::from_hex(&item.system_id)).transpose()?,
@@ -1076,8 +1076,8 @@ try_from!(item: &protowire::GetSystemInfoResponseMessage, RpcResult<tondi_rpc_co
     }
 });
 
-try_from!(&protowire::GetServerInfoRequestMessage, tondi_rpc_core::GetServerInfoRequest);
-try_from!(item: &protowire::GetServerInfoResponseMessage, RpcResult<tondi_rpc_core::GetServerInfoResponse>, {
+try_from!(&protowire::GetServerInfoRequestMessage, spora_rpc_core::GetServerInfoRequest);
+try_from!(item: &protowire::GetServerInfoResponseMessage, RpcResult<spora_rpc_core::GetServerInfoResponse>, {
     Self {
         rpc_api_version: item.rpc_api_version as u16,
         rpc_api_revision: item.rpc_api_revision as u16,
@@ -1089,66 +1089,66 @@ try_from!(item: &protowire::GetServerInfoResponseMessage, RpcResult<tondi_rpc_co
     }
 });
 
-try_from!(&protowire::GetSyncStatusRequestMessage, tondi_rpc_core::GetSyncStatusRequest);
-try_from!(item: &protowire::GetSyncStatusResponseMessage, RpcResult<tondi_rpc_core::GetSyncStatusResponse>, {
+try_from!(&protowire::GetSyncStatusRequestMessage, spora_rpc_core::GetSyncStatusRequest);
+try_from!(item: &protowire::GetSyncStatusResponseMessage, RpcResult<spora_rpc_core::GetSyncStatusResponse>, {
     Self {
         is_synced: item.is_synced,
     }
 });
 
-try_from!(item: &protowire::NotifyUtxosChangedRequestMessage, tondi_rpc_core::NotifyUtxosChangedRequest, {
+try_from!(item: &protowire::NotifyUtxosChangedRequestMessage, spora_rpc_core::NotifyUtxosChangedRequest, {
     Self {
         addresses: item.addresses.iter().map(|x| x.as_str().try_into()).collect::<Result<Vec<_>, _>>()?,
         command: item.command.into(),
     }
 });
-try_from!(item: &protowire::StopNotifyingUtxosChangedRequestMessage, tondi_rpc_core::NotifyUtxosChangedRequest, {
+try_from!(item: &protowire::StopNotifyingUtxosChangedRequestMessage, spora_rpc_core::NotifyUtxosChangedRequest, {
     Self {
         addresses: item.addresses.iter().map(|x| x.as_str().try_into()).collect::<Result<Vec<_>, _>>()?,
         command: Command::Stop,
     }
 });
-try_from!(&protowire::NotifyUtxosChangedResponseMessage, RpcResult<tondi_rpc_core::NotifyUtxosChangedResponse>);
-try_from!(&protowire::StopNotifyingUtxosChangedResponseMessage, RpcResult<tondi_rpc_core::NotifyUtxosChangedResponse>);
+try_from!(&protowire::NotifyUtxosChangedResponseMessage, RpcResult<spora_rpc_core::NotifyUtxosChangedResponse>);
+try_from!(&protowire::StopNotifyingUtxosChangedResponseMessage, RpcResult<spora_rpc_core::NotifyUtxosChangedResponse>);
 
 try_from!(
     item: &protowire::NotifyPruningPointUtxoSetOverrideRequestMessage,
-    tondi_rpc_core::NotifyPruningPointUtxoSetOverrideRequest,
+    spora_rpc_core::NotifyPruningPointUtxoSetOverrideRequest,
     { Self { command: item.command.into() } }
 );
 try_from!(
     _item: &protowire::StopNotifyingPruningPointUtxoSetOverrideRequestMessage,
-    tondi_rpc_core::NotifyPruningPointUtxoSetOverrideRequest,
+    spora_rpc_core::NotifyPruningPointUtxoSetOverrideRequest,
     { Self { command: Command::Stop } }
 );
 try_from!(
     &protowire::NotifyPruningPointUtxoSetOverrideResponseMessage,
-    RpcResult<tondi_rpc_core::NotifyPruningPointUtxoSetOverrideResponse>
+    RpcResult<spora_rpc_core::NotifyPruningPointUtxoSetOverrideResponse>
 );
 try_from!(
     &protowire::StopNotifyingPruningPointUtxoSetOverrideResponseMessage,
-    RpcResult<tondi_rpc_core::NotifyPruningPointUtxoSetOverrideResponse>
+    RpcResult<spora_rpc_core::NotifyPruningPointUtxoSetOverrideResponse>
 );
 
-try_from!(item: &protowire::NotifyFinalityConflictRequestMessage, tondi_rpc_core::NotifyFinalityConflictRequest, {
+try_from!(item: &protowire::NotifyFinalityConflictRequestMessage, spora_rpc_core::NotifyFinalityConflictRequest, {
     Self { command: item.command.into() }
 });
-try_from!(&protowire::NotifyFinalityConflictResponseMessage, RpcResult<tondi_rpc_core::NotifyFinalityConflictResponse>);
+try_from!(&protowire::NotifyFinalityConflictResponseMessage, RpcResult<spora_rpc_core::NotifyFinalityConflictResponse>);
 
-try_from!(item: &protowire::NotifyVirtualDaaScoreChangedRequestMessage, tondi_rpc_core::NotifyVirtualDaaScoreChangedRequest, {
+try_from!(item: &protowire::NotifyVirtualDaaScoreChangedRequestMessage, spora_rpc_core::NotifyVirtualDaaScoreChangedRequest, {
     Self { command: item.command.into() }
 });
-try_from!(&protowire::NotifyVirtualDaaScoreChangedResponseMessage, RpcResult<tondi_rpc_core::NotifyVirtualDaaScoreChangedResponse>);
+try_from!(&protowire::NotifyVirtualDaaScoreChangedResponseMessage, RpcResult<spora_rpc_core::NotifyVirtualDaaScoreChangedResponse>);
 
-try_from!(item: &protowire::NotifyVirtualChainChangedRequestMessage, tondi_rpc_core::NotifyVirtualChainChangedRequest, {
+try_from!(item: &protowire::NotifyVirtualChainChangedRequestMessage, spora_rpc_core::NotifyVirtualChainChangedRequest, {
     Self { include_accepted_transaction_ids: item.include_accepted_transaction_ids, command: item.command.into() }
 });
-try_from!(&protowire::NotifyVirtualChainChangedResponseMessage, RpcResult<tondi_rpc_core::NotifyVirtualChainChangedResponse>);
+try_from!(&protowire::NotifyVirtualChainChangedResponseMessage, RpcResult<spora_rpc_core::NotifyVirtualChainChangedResponse>);
 
-try_from!(item: &protowire::NotifySinkBlueScoreChangedRequestMessage, tondi_rpc_core::NotifySinkBlueScoreChangedRequest, {
+try_from!(item: &protowire::NotifySinkBlueScoreChangedRequestMessage, spora_rpc_core::NotifySinkBlueScoreChangedRequest, {
     Self { command: item.command.into() }
 });
-try_from!(&protowire::NotifySinkBlueScoreChangedResponseMessage, RpcResult<tondi_rpc_core::NotifySinkBlueScoreChangedResponse>);
+try_from!(&protowire::NotifySinkBlueScoreChangedResponseMessage, RpcResult<spora_rpc_core::NotifySinkBlueScoreChangedResponse>);
 
 // ----------------------------------------------------------------------------
 // Unit tests
@@ -1158,19 +1158,19 @@ try_from!(&protowire::NotifySinkBlueScoreChangedResponseMessage, RpcResult<tondi
 
 #[cfg(test)]
 mod tests {
-    use tondi_rpc_core::{RpcError, RpcResult, SubmitBlockRejectReason, SubmitBlockReport, SubmitBlockResponse};
+    use spora_rpc_core::{RpcError, RpcResult, SubmitBlockRejectReason, SubmitBlockReport, SubmitBlockResponse};
 
     use crate::protowire::{self, submit_block_response_message::RejectReason, SubmitBlockResponseMessage};
 
     #[test]
     fn test_submit_block_response() {
         struct Test {
-            rpc_core: RpcResult<tondi_rpc_core::SubmitBlockResponse>,
+            rpc_core: RpcResult<spora_rpc_core::SubmitBlockResponse>,
             protowire: protowire::SubmitBlockResponseMessage,
         }
         impl Test {
             fn new(
-                rpc_core: RpcResult<tondi_rpc_core::SubmitBlockResponse>,
+                rpc_core: RpcResult<spora_rpc_core::SubmitBlockResponse>,
                 protowire: protowire::SubmitBlockResponseMessage,
             ) -> Self {
                 Self { rpc_core, protowire }

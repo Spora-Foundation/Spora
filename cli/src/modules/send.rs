@@ -1,13 +1,13 @@
 use crate::imports::*;
 
 #[derive(Default, Handler)]
-#[help("Send a Tondi transaction to a public address")]
+#[help("Send a Spora transaction to a public address")]
 pub struct Send;
 
 impl Send {
     async fn main(self: Arc<Self>, ctx: &Arc<dyn Context>, argv: Vec<String>, _cmd: &str) -> Result<()> {
         // address, amount, priority fee
-        let ctx = ctx.clone().downcast_arc::<TondiCli>()?;
+        let ctx = ctx.clone().downcast_arc::<SporaCli>()?;
 
         let account = ctx.wallet().account()?;
 
@@ -42,7 +42,7 @@ impl Send {
             .await?;
 
         tprintln!(ctx, "Send - {summary}");
-        tprintln!(ctx, "\nSending {} TONDI to {address}, tx ids:", sau_to_tondi_string(amount_sau));
+        tprintln!(ctx, "\nSending {} SPORA to {address}, tx ids:", sau_to_tondi_string(amount_sau));
         // tprintln!(ctx, "{}\n", ids.into_iter().map(|a| a.to_string()).collect::<Vec<_>>().join("\n"));
 
         Ok(())

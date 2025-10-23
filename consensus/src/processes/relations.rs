@@ -5,12 +5,12 @@ use crate::model::{
 };
 use itertools::Itertools;
 use rocksdb::WriteBatch;
-use tondi_consensus_core::{
+use spora_consensus_core::{
     blockhash::{BlockHashIteratorExtensions, BlockHashes, ORIGIN},
     BlockHashSet,
 };
-use tondi_database::prelude::{BatchDbWriter, DbWriter, DirectWriter, StoreError};
-use tondi_hashes::Hash;
+use spora_database::prelude::{BatchDbWriter, DbWriter, DirectWriter, StoreError};
+use spora_hashes::Hash;
 
 /// Initializes this relations store with an `origin` root
 pub fn init<S: RelationsStore + ChildrenStore + ?Sized>(relations: &mut S) {
@@ -153,9 +153,9 @@ mod tests {
     use super::*;
     use crate::model::stores::relations::{DbRelationsStore, RelationsStoreReader, StagingRelationsStore};
     use std::sync::Arc;
-    use tondi_core::assert_match;
-    use tondi_database::prelude::{CachePolicy, ConnBuilder};
-    use tondi_database::{create_temp_db, prelude::MemoryWriter};
+    use spora_core::assert_match;
+    use spora_database::prelude::{CachePolicy, ConnBuilder};
+    use spora_database::{create_temp_db, prelude::MemoryWriter};
 
     #[test]
     fn test_delete_level_relations_zero_cache() {

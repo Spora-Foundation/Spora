@@ -1,6 +1,6 @@
 [package]
-name = "tondi-core"
-description = "Tondi core"
+name = "spora-core"
+description = "Spora core"
 rust-version.workspace = true
 version.workspace = true
 edition.workspace = true

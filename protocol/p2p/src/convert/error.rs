@@ -1,5 +1,5 @@
 use thiserror::Error;
-use tondi_consensus_core::subnets::SubnetworkConversionError;
+use spora_consensus_core::subnets::SubnetworkConversionError;
 
 #[derive(Clone, Debug, Error)]
 pub enum ConversionError {
@@ -16,7 +16,7 @@ pub enum ConversionError {
     ArrayBytesSizeError(#[from] std::array::TryFromSliceError),
 
     #[error("Bytes size mismatch error {0}")]
-    UintBytesSizeError(#[from] tondi_math::uint::TryFromSliceError),
+    UintBytesSizeError(#[from] spora_math::uint::TryFromSliceError),
 
     #[error("Integer parsing error: {0}")]
     IntCastingError(#[from] std::num::TryFromIntError),

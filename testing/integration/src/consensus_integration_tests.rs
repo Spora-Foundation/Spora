@@ -3,73 +3,73 @@
 //!
 
 use async_channel::unbounded;
-use tondi_alloc::init_allocator_with_default_settings;
-use tondi_consensus::config::genesis::GENESIS;
-use tondi_consensus::config::{Config, ConfigBuilder};
-use tondi_consensus::consensus::factory::Factory as ConsensusFactory;
-use tondi_consensus::consensus::test_consensus::{TestConsensus, TestConsensusFactory};
-use tondi_consensus::model::stores::block_transactions::{
+use spora_alloc::init_allocator_with_default_settings;
+use spora_consensus::config::genesis::GENESIS;
+use spora_consensus::config::{Config, ConfigBuilder};
+use spora_consensus::consensus::factory::Factory as ConsensusFactory;
+use spora_consensus::consensus::test_consensus::{TestConsensus, TestConsensusFactory};
+use spora_consensus::model::stores::block_transactions::{
     BlockTransactionsStore, BlockTransactionsStoreReader, DbBlockTransactionsStore,
 };
-use tondi_consensus::model::stores::ghostdag::{GhostdagStoreReader, KType as GhostdagKType};
-use tondi_consensus::model::stores::headers::HeaderStoreReader;
-use tondi_consensus::model::stores::reachability::DbReachabilityStore;
-use tondi_consensus::model::stores::relations::DbRelationsStore;
-use tondi_consensus::model::stores::selected_chain::SelectedChainStoreReader;
-use tondi_consensus::params::{
+use spora_consensus::model::stores::ghostdag::{GhostdagStoreReader, KType as GhostdagKType};
+use spora_consensus::model::stores::headers::HeaderStoreReader;
+use spora_consensus::model::stores::reachability::DbReachabilityStore;
+use spora_consensus::model::stores::relations::DbRelationsStore;
+use spora_consensus::model::stores::selected_chain::SelectedChainStoreReader;
+use spora_consensus::params::{
     ForkActivation, Params, CRESCENDO, DEVNET_PARAMS, MAINNET_PARAMS, MAX_DIFFICULTY_TARGET, MAX_DIFFICULTY_TARGET_AS_F64,
 };
-use tondi_consensus::pipeline::monitor::ConsensusMonitor;
-use tondi_consensus::pipeline::ProcessingCounters;
-use tondi_consensus::processes::reachability::tests::{DagBlock, DagBuilder, StoreValidationExtensions};
-use tondi_consensus::processes::window::{WindowManager, WindowType};
-use tondi_consensus_core::api::args::TransactionValidationArgs;
-use tondi_consensus_core::api::{BlockValidationFutures, ConsensusApi};
-use tondi_consensus_core::block::Block;
-use tondi_consensus_core::blockhash::new_unique;
-use tondi_consensus_core::blockstatus::BlockStatus;
-use tondi_consensus_core::coinbase::MinerData;
-use tondi_consensus_core::constants::{BLOCK_VERSION, SAU_PER_TONDI, STORAGE_MASS_PARAMETER, TRANSIENT_BYTE_TO_MASS_FACTOR};
-use tondi_consensus_core::errors::block::{BlockProcessResult, RuleError};
-use tondi_consensus_core::header::Header;
-use tondi_consensus_core::mining_rules::MiningRules;
-use tondi_consensus_core::network::{NetworkId, NetworkType::Mainnet};
-use tondi_consensus_core::subnets::SubnetworkId;
-use tondi_consensus_core::trusted::{ExternalGhostdagData, TrustedBlock};
-use tondi_consensus_core::tx::{
+use spora_consensus::pipeline::monitor::ConsensusMonitor;
+use spora_consensus::pipeline::ProcessingCounters;
+use spora_consensus::processes::reachability::tests::{DagBlock, DagBuilder, StoreValidationExtensions};
+use spora_consensus::processes::window::{WindowManager, WindowType};
+use spora_consensus_core::api::args::TransactionValidationArgs;
+use spora_consensus_core::api::{BlockValidationFutures, ConsensusApi};
+use spora_consensus_core::block::Block;
+use spora_consensus_core::blockhash::new_unique;
+use spora_consensus_core::blockstatus::BlockStatus;
+use spora_consensus_core::coinbase::MinerData;
+use spora_consensus_core::constants::{BLOCK_VERSION, SAU_PER_TONDI, STORAGE_MASS_PARAMETER, TRANSIENT_BYTE_TO_MASS_FACTOR};
+use spora_consensus_core::errors::block::{BlockProcessResult, RuleError};
+use spora_consensus_core::header::Header;
+use spora_consensus_core::mining_rules::MiningRules;
+use spora_consensus_core::network::{NetworkId, NetworkType::Mainnet};
+use spora_consensus_core::subnets::SubnetworkId;
+use spora_consensus_core::trusted::{ExternalGhostdagData, TrustedBlock};
+use spora_consensus_core::tx::{
     MutableTransaction, ScriptPublicKey, Transaction, TransactionInput, TransactionOutpoint, TransactionOutput, UtxoEntry,
 };
-use tondi_consensus_core::{blockhash, hashing, BlockHashMap, BlueWorkType};
-use tondi_consensus_notify::root::ConsensusNotificationRoot;
-use tondi_consensus_notify::service::NotifyService;
-use tondi_consensusmanager::ConsensusManager;
-use tondi_core::task::tick::TickService;
-use tondi_core::time::unix_now;
-use tondi_database::utils::get_tondi_tempdir;
-use tondi_hashes::Hash;
-use tondi_utils::arc::ArcExtensions;
+use spora_consensus_core::{blockhash, hashing, BlockHashMap, BlueWorkType};
+use spora_consensus_notify::root::ConsensusNotificationRoot;
+use spora_consensus_notify::service::NotifyService;
+use spora_consensusmanager::ConsensusManager;
+use spora_core::task::tick::TickService;
+use spora_core::time::unix_now;
+use spora_database::utils::get_tondi_tempdir;
+use spora_hashes::Hash;
+use spora_utils::arc::ArcExtensions;
 
 use crate::common;
 use flate2::read::GzDecoder;
 use futures_util::future::try_join_all;
 use itertools::Itertools;
-use tondi_consensus_core::errors::tx::TxRuleError;
-use tondi_consensus_core::hashing::sighash::calc_schnorr_signature_hash;
-use tondi_consensus_core::merkle::calc_hash_merkle_root;
-use tondi_consensus_core::muhash::MuHashExtensions;
-use tondi_core::core::Core;
-use tondi_core::signals::Shutdown;
-use tondi_core::task::runtime::AsyncRuntime;
-use tondi_core::{assert_match, info};
-use tondi_database::create_temp_db;
-use tondi_database::prelude::{CachePolicy, ConnBuilder};
-use tondi_index_processor::service::IndexService;
-use tondi_math::Uint256;
-use tondi_muhash::MuHash;
-use tondi_notify::subscription::context::SubscriptionContext;
-use tondi_txscript::caches::TxScriptCacheCounters;
-use tondi_txscript::opcodes::codes::OpTrue;
-use tondi_txscript::script_builder::ScriptBuilderResult;
+use spora_consensus_core::errors::tx::TxRuleError;
+use spora_consensus_core::hashing::sighash::calc_schnorr_signature_hash;
+use spora_consensus_core::merkle::calc_hash_merkle_root;
+use spora_consensus_core::muhash::MuHashExtensions;
+use spora_core::core::Core;
+use spora_core::signals::Shutdown;
+use spora_core::task::runtime::AsyncRuntime;
+use spora_core::{assert_match, info};
+use spora_database::create_temp_db;
+use spora_database::prelude::{CachePolicy, ConnBuilder};
+use spora_index_processor::service::IndexService;
+use spora_math::Uint256;
+use spora_muhash::MuHash;
+use spora_notify::subscription::context::SubscriptionContext;
+use spora_txscript::caches::TxScriptCacheCounters;
+use spora_txscript::opcodes::codes::OpTrue;
+use spora_txscript::script_builder::ScriptBuilderResult;
 use tondi_utxoindex::api::{UtxoIndexApi, UtxoIndexProxy};
 use tondi_utxoindex::UtxoIndex;
 use serde::{Deserialize, Serialize};
@@ -787,7 +787,7 @@ struct RPCUTXOEntry {
 
 #[allow(non_snake_case)]
 #[derive(Deserialize, Debug)]
-struct TondidGoParams {
+struct SporadGoParams {
     K: GhostdagKType,
     TimestampDeviationTolerance: u64,
     TargetTimePerBlock: u64,
@@ -809,7 +809,7 @@ struct TondidGoParams {
     PruningProofM: u64,
 }
 
-impl TondidGoParams {
+impl SporadGoParams {
     fn into_params(self) -> Params {
         let finality_depth = self.FinalityDuration / self.TargetTimePerBlock;
         Params {
@@ -918,13 +918,13 @@ fn gzip_file_lines(path: &Path) -> impl Iterator<Item = String> {
 }
 
 async fn json_test(file_path: &str, concurrency: bool) {
-    tondi_core::log::try_init_logger("info");
+    spora_core::log::try_init_logger("info");
     let main_path = Path::new(file_path);
     let proof_exists = common::file_exists(&main_path.join("proof.json.gz"));
 
     let mut lines = gzip_file_lines(&main_path.join("blocks.json.gz"));
     let first_line = lines.next().unwrap();
-    let go_params_res: Result<TondidGoParams, _> = serde_json::from_str(&first_line);
+    let go_params_res: Result<SporadGoParams, _> = serde_json::from_str(&first_line);
     let params = if let Ok(go_params) = go_params_res {
         let mut params = go_params.into_params();
         if !proof_exists {
@@ -1453,7 +1453,7 @@ async fn difficulty_test() {
         },
     ];
 
-    tondi_core::log::try_init_logger("info");
+    spora_core::log::try_init_logger("info");
     for test in tests.iter().filter(|x| x.enabled) {
         let consensus = TestConsensus::new(&test.config);
         let wait_handles = consensus.init();
@@ -1669,7 +1669,7 @@ async fn difficulty_test() {
 #[tokio::test]
 async fn selected_chain_test() {
     init_allocator_with_default_settings();
-    tondi_core::log::try_init_logger("info");
+    spora_core::log::try_init_logger("info");
 
     let config = ConfigBuilder::new(MAINNET_PARAMS)
         .skip_proof_of_work()
@@ -1745,7 +1745,7 @@ async fn staging_consensus_test() {
     let consensus_db_dir = db_path.join("consensus");
     let meta_db_dir = db_path.join("meta");
 
-    let meta_db = tondi_database::prelude::ConnBuilder::default().with_db_path(meta_db_dir).with_files_limit(5).build().unwrap();
+    let meta_db = spora_database::prelude::ConnBuilder::default().with_db_path(meta_db_dir).with_files_limit(5).build().unwrap();
 
     let (notification_send, _notification_recv) = unbounded();
     let notification_root = Arc::new(ConsensusNotificationRoot::new(notification_send));
@@ -1782,10 +1782,10 @@ async fn staging_consensus_test() {
 /// Uses OpInputSpk opcode as an example
 #[tokio::test]
 async fn run_kip10_activation_test() {
-    use tondi_consensus_core::subnets::SUBNETWORK_ID_NATIVE;
-    use tondi_txscript::opcodes::codes::{Op0, OpTxInputSpk};
-    use tondi_txscript::pay_to_script_hash_script;
-    use tondi_txscript::script_builder::ScriptBuilder;
+    use spora_consensus_core::subnets::SUBNETWORK_ID_NATIVE;
+    use spora_txscript::opcodes::codes::{Op0, OpTxInputSpk};
+    use spora_txscript::pay_to_script_hash_script;
+    use spora_txscript::script_builder::ScriptBuilder;
 
     // KIP-10 activates at DAA score 3 in this test
     const KIP10_ACTIVATION_DAA_SCORE: u64 = 3;
@@ -1943,7 +1943,7 @@ async fn payload_test() {
 
 #[tokio::test]
 async fn payload_activation_test() {
-    use tondi_consensus_core::subnets::SUBNETWORK_ID_NATIVE;
+    use spora_consensus_core::subnets::SUBNETWORK_ID_NATIVE;
 
     // Set payload activation at DAA score 3 for this test
     const PAYLOAD_ACTIVATION_DAA_SCORE: u64 = 3;
@@ -2053,10 +2053,10 @@ async fn payload_activation_test() {
 
 #[tokio::test]
 async fn runtime_sig_op_counting_test() {
-    use tondi_consensus_core::{
+    use spora_consensus_core::{
         hashing::sighash::SigHashReusedValuesUnsync, hashing::sighash_type::SIG_HASH_ALL, subnets::SUBNETWORK_ID_NATIVE,
     };
-    use tondi_txscript::{opcodes::codes::*, script_builder::ScriptBuilder};
+    use spora_txscript::{opcodes::codes::*, script_builder::ScriptBuilder};
 
     // Runtime sig op counting activates at DAA score 3
     const RUNTIME_SIGOP_ACTIVATION_DAA_SCORE: u64 = 3;
@@ -2087,7 +2087,7 @@ async fn runtime_sig_op_counting_test() {
     }()
         .unwrap();
 
-    let script_pub_key = tondi_txscript::pay_to_script_hash_script(&redeem_script);
+    let script_pub_key = spora_txscript::pay_to_script_hash_script(&redeem_script);
 
     // Set up initial UTXO with P2SH script
     let initial_utxo_collection = [(

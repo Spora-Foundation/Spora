@@ -20,15 +20,15 @@ use tokio::{
     time::timeout,
 };
 use tokio_stream::{wrappers::ReceiverStream, StreamExt};
-use tondi_core::{debug, info, warn};
-use tondi_grpc_core::{
+use spora_core::{debug, info, warn};
+use spora_grpc_core::{
     protowire::{
         rpc_server::{Rpc, RpcServer},
-        TondidRequest, TondidResponse,
+        SporadRequest, SporadResponse,
     },
     RPC_MAX_MESSAGE_SIZE,
 };
-use tondi_notify::{
+use spora_notify::{
     connection::ChannelType,
     events::EVENT_TYPE_ARRAY,
     listener::ListenerLifespan,
@@ -36,13 +36,13 @@ use tondi_notify::{
     subscriber::Subscriber,
     subscription::{context::SubscriptionContext, MutationPolicies, UtxosChangedMutationPolicy},
 };
-use tondi_rpc_core::{
+use spora_rpc_core::{
     api::rpc::DynRpcService,
     notify::{channel::NotificationChannel, connection::ChannelConnection},
     Notification, RpcResult,
 };
-use tondi_utils::networking::NetAddress;
-use tondi_utils_tower::{
+use spora_utils::networking::NetAddress;
+use spora_utils_tower::{
     counters::TowerConnectionCounters,
     middleware::{BodyExt, CountBytesBody, MapRequestBodyLayer, MapResponseBodyLayer},
 };
@@ -235,12 +235,12 @@ impl Drop for ConnectionHandler {
 
 #[tonic::async_trait]
 impl Rpc for ConnectionHandler {
-    type MessageStreamStream = Pin<Box<dyn Stream<Item = Result<TondidResponse, tonic::Status>> + Send + Sync + 'static>>;
+    type MessageStreamStream = Pin<Box<dyn Stream<Item = Result<SporadResponse, tonic::Status>> + Send + Sync + 'static>>;
 
     /// Handle the new arriving client connection
     async fn message_stream(
         &self,
-        request: Request<tonic::Streaming<TondidRequest>>,
+        request: Request<tonic::Streaming<SporadRequest>>,
     ) -> Result<Response<Self::MessageStreamStream>, tonic::Status> {
         const SERVICE_IS_DOWN: &str = "The gRPC service is down";
 

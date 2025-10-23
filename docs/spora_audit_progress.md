@@ -49,9 +49,9 @@
 **Status**: Already correctly implemented
 
 **Verification**:
-- ✅ `compute_txid()`: Uses `b"tondi-cell/txid"` domain prefix
-- ✅ `compute_wtxid()`: Uses `b"tondi-cell/wtxid"` domain prefix  
-- ✅ `compute_sighash()`: Uses `b"tondi-cell/sig"` domain prefix
+- ✅ `compute_txid()`: Uses `b"spora-cell/txid"` domain prefix
+- ✅ `compute_wtxid()`: Uses `b"spora-cell/wtxid"` domain prefix  
+- ✅ `compute_sighash()`: Uses `b"spora-cell/sig"` domain prefix
 - ✅ Network ID: u32 (4 bytes) properly encoded
 - ✅ Anti-malleability: Witness segregation implemented
 - ✅ All tests pass (9/9)

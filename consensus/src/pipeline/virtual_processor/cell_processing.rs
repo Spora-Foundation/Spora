@@ -11,17 +11,17 @@ use crate::{
         statuses::StatusesStoreBatchExtensions,
     },
 };
-use tondi_consensus_core::{
+use spora_consensus_core::{
     acceptance_data::MergesetBlockAcceptanceData,
     cell_diff::CellDiff,
     coinbase::BlockRewardData,
     tx::TransactionId,
     BlockHashMap, HashMapCustomHasher,
 };
-use tondi_database::prelude::StoreResultEmptyTuple;
-use tondi_hashes::Hash;
-use tondi_state::CellStateTree;
-use tondi_utils::refs::Refs;
+use spora_database::prelude::StoreResultEmptyTuple;
+use spora_hashes::Hash;
+use spora_state::CellStateTree;
+use spora_utils::refs::Refs;
 
 /// A context for processing the Cell state of a block with respect to its selected parent.
 /// This replaces UtxoProcessingContext with pure Cell model.
@@ -56,7 +56,7 @@ impl<'a> CellProcessingContext<'a> {
     /// 
     /// GHOSTDAG-aware: applies accumulated diff from processing mergeset blues
     pub fn apply_diff(&mut self) {
-        use tondi_state::CellEntry;
+        use spora_state::CellEntry;
         
         // Remove consumed cells
         for outpoint in self.mergeset_cell_diff.remove.keys() {
@@ -101,11 +101,11 @@ impl<'a> CellProcessingContext<'a> {
 }
 
 /// Convert TransactionOutpoint to Hash for tree indexing (helper function)
-fn outpoint_to_hash(outpoint: &tondi_consensus_core::tx::TransactionOutpoint) -> Hash {
+fn outpoint_to_hash(outpoint: &spora_consensus_core::tx::TransactionOutpoint) -> Hash {
     use blake3::Hasher;
     
     let mut hasher = Hasher::new();
-    hasher.update(b"tondi-cell/outpoint"); // Domain separation
+    hasher.update(b"spora-cell/outpoint"); // Domain separation
     hasher.update(&outpoint.transaction_id.as_bytes());
     hasher.update(&outpoint.index.to_le_bytes());
     
@@ -133,7 +133,7 @@ impl VirtualStateProcessor {
         pov_daa_score: u64,
     ) {
         use std::collections::HashSet;
-        use tondi_consensus_core::{
+        use spora_consensus_core::{
             cell_diff::CellMeta,
             tx::{TransactionId, TransactionOutpoint},
         };
@@ -263,11 +263,11 @@ impl VirtualStateProcessor {
     }
     
     /// Compute lock script hash from ScriptPublicKey
-    fn compute_lock_hash(&self, script_public_key: &tondi_consensus_core::tx::ScriptPublicKey) -> [u8; 32] {
+    fn compute_lock_hash(&self, script_public_key: &spora_consensus_core::tx::ScriptPublicKey) -> [u8; 32] {
         use blake3::Hasher;
         
         let mut hasher = Hasher::new();
-        hasher.update(b"tondi-cell/lock"); // Domain separation
+        hasher.update(b"spora-cell/lock"); // Domain separation
         hasher.update(&script_public_key.version().to_le_bytes());
         hasher.update(script_public_key.script());
         
@@ -278,7 +278,7 @@ impl VirtualStateProcessor {
     /// 
     /// In Cell model, outputs may have both lock and type scripts
     /// ScriptPublicKey version byte may indicate presence of type script
-    fn extract_type_hash(&self, script_public_key: &tondi_consensus_core::tx::ScriptPublicKey) -> Option<[u8; 32]> {
+    fn extract_type_hash(&self, script_public_key: &spora_consensus_core::tx::ScriptPublicKey) -> Option<[u8; 32]> {
         // For now, we don't have type scripts in Transaction outputs
         // This will be properly implemented when migrating to CellTx
         // Type scripts are a Cell model feature not present in UTXO Transaction
@@ -296,7 +296,7 @@ impl VirtualStateProcessor {
             use blake3::Hasher;
             
             let mut hasher = Hasher::new();
-            hasher.update(b"tondi-cell/data"); // Domain separation
+            hasher.update(b"spora-cell/data"); // Domain separation
             hasher.update(data);
             
             *hasher.finalize().as_bytes()
@@ -317,8 +317,8 @@ impl VirtualStateProcessor {
     ) {
         use rocksdb::WriteBatch;
         use std::sync::Arc;
-        use tondi_consensus_core::acceptance_data::AcceptanceData;
-        use tondi_consensus_core::blockstatus::BlockStatus::StatusUTXOValid;
+        use spora_consensus_core::acceptance_data::AcceptanceData;
+        use spora_consensus_core::blockstatus::BlockStatus::StatusUTXOValid;
         
         let mut batch = WriteBatch::default();
         

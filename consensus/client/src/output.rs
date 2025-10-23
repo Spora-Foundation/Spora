@@ -56,7 +56,7 @@ pub struct TransactionOutputInner {
     pub script_public_key: ScriptPublicKey,
 }
 
-/// Represents a Tondid transaction output
+/// Represents a Sporad transaction output
 /// @category Consensus
 #[derive(Clone, Debug, Serialize, Deserialize, CastFromJs)]
 #[serde(rename_all = "camelCase")]

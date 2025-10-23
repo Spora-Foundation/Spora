@@ -3,7 +3,7 @@ package protowire;
 
 import "rpc.proto";
 
-message TondidRequest {
+message SporadRequest {
   uint64 id = 101;
   oneof payload {
     GetCurrentNetworkRequestMessage getCurrentNetworkRequest = 1001;
@@ -73,7 +73,7 @@ message TondidRequest {
   }
 }
 
-message TondidResponse {
+message SporadResponse {
   uint64 id = 101;
   oneof payload {
     GetCurrentNetworkResponseMessage getCurrentNetworkResponse = 1002;
@@ -144,5 +144,5 @@ message TondidResponse {
 }
 
 service RPC {
-  rpc MessageStream (stream TondidRequest) returns (stream TondidResponse) {}
+  rpc MessageStream (stream SporadRequest) returns (stream SporadResponse) {}
 }

@@ -1,5 +1,5 @@
 use crate::imports::*;
-use tondi_daemon::TondidConfig;
+use spora_daemon::SporadConfig;
 use workflow_core::task::sleep;
 use workflow_node::process;
 pub use workflow_node::process::Event;
@@ -7,7 +7,7 @@ use workflow_store::fs;
 
 #[derive(Describe, Debug, Clone, Serialize, Deserialize, Hash, Eq, PartialEq, Ord, PartialOrd)]
 #[serde(rename_all = "lowercase")]
-pub enum TondidSettings {
+pub enum SporadSettings {
     #[describe("Binary location")]
     Location,
     #[describe("Mute logs")]
@@ -15,12 +15,12 @@ pub enum TondidSettings {
 }
 
 #[async_trait]
-impl DefaultSettings for TondidSettings {
+impl DefaultSettings for SporadSettings {
     async fn defaults() -> Vec<(Self, Value)> {
         let mut settings = vec![(Self::Mute, to_value(true).unwrap())];
 
         let root = nw_sys::app::folder();
-        if let Ok(binaries) = tondi_daemon::locate_binaries(&root, "Tondid").await {
+        if let Ok(binaries) = spora_daemon::locate_binaries(&root, "Sporad").await {
             if let Some(path) = binaries.first() {
                 settings.push((Self::Location, to_value(path.to_string_lossy().to_string()).unwrap()));
             }
@@ -31,7 +31,7 @@ impl DefaultSettings for TondidSettings {
 }
 
 pub struct Node {
-    settings: SettingsStore<TondidSettings>,
+    settings: SettingsStore<SporadSettings>,
     mute: Arc<AtomicBool>,
     is_running: Arc<AtomicBool>,
 }
@@ -39,7 +39,7 @@ pub struct Node {
 impl Default for Node {
     fn default() -> Self {
         Node {
-            settings: SettingsStore::try_new("Tondid").expect("Failed to create node settings store"),
+            settings: SettingsStore::try_new("Sporad").expect("Failed to create node settings store"),
             mute: Arc::new(AtomicBool::new(true)),
             is_running: Arc::new(AtomicBool::new(false)),
         }
@@ -49,7 +49,7 @@ impl Default for Node {
 #[async_trait]
 impl Handler for Node {
     fn verb(&self, ctx: &Arc<dyn Context>) -> Option<&'static str> {
-        if let Ok(ctx) = ctx.clone().downcast_arc::<TondiCli>() {
+        if let Ok(ctx) = ctx.clone().downcast_arc::<SporaCli>() {
             ctx.daemons().clone().tondid.as_ref().map(|_| "node")
         } else {
             None
@@ -57,19 +57,19 @@ impl Handler for Node {
     }
 
     fn help(&self, _ctx: &Arc<dyn Context>) -> &'static str {
-        "Manage the local Tondi node instance"
+        "Manage the local Spora node instance"
     }
 
     async fn start(self: Arc<Self>, _ctx: &Arc<dyn Context>) -> cli::Result<()> {
         self.settings.try_load().await.ok();
-        if let Some(mute) = self.settings.get(TondidSettings::Mute) {
+        if let Some(mute) = self.settings.get(SporadSettings::Mute) {
             self.mute.store(mute, Ordering::Relaxed);
         }
         Ok(())
     }
 
     async fn handle(self: Arc<Self>, ctx: &Arc<dyn Context>, argv: Vec<String>, cmd: &str) -> cli::Result<()> {
-        let ctx = ctx.clone().downcast_arc::<TondiCli>()?;
+        let ctx = ctx.clone().downcast_arc::<SporaCli>()?;
         self.main(ctx, argv, cmd).await.map_err(|e| e.into())
     }
 }
@@ -79,20 +79,20 @@ impl Node {
         self.is_running.load(Ordering::SeqCst)
     }
 
-    async fn create_config(&self, ctx: &Arc<TondiCli>) -> Result<TondidConfig> {
+    async fn create_config(&self, ctx: &Arc<SporaCli>) -> Result<SporadConfig> {
         let location: String = self
             .settings
-            .get(TondidSettings::Location)
+            .get(SporadSettings::Location)
             .ok_or_else(|| Error::Custom("No miner binary specified, please use `miner select` to select a binary.".into()))?;
         let network_id = ctx.wallet().network_id()?;
         // disabled for prompt update (until progress events are implemented)
         // let mute = self.mute.load(Ordering::SeqCst);
         let mute = false;
-        let config = TondidConfig::new(location.as_str(), network_id, mute);
+        let config = SporadConfig::new(location.as_str(), network_id, mute);
         Ok(config)
     }
 
-    async fn main(self: Arc<Self>, ctx: Arc<TondiCli>, mut argv: Vec<String>, cmd: &str) -> Result<()> {
+    async fn main(self: Arc<Self>, ctx: Arc<SporaCli>, mut argv: Vec<String>, cmd: &str) -> Result<()> {
         if argv.is_empty() {
             return self.display_help(ctx, argv).await;
         }
@@ -101,9 +101,9 @@ impl Node {
             "start" => {
                 let mute = self.mute.load(Ordering::SeqCst);
                 if mute {
-                    tprintln!(ctx, "starting tondi node... {}", style("(logs are muted, use 'node mute' to toggle)").dim());
+                    tprintln!(ctx, "starting spora node... {}", style("(logs are muted, use 'node mute' to toggle)").dim());
                 } else {
-                    tprintln!(ctx, "starting tondi node... {}", style("(use 'node mute' to mute logging)").dim());
+                    tprintln!(ctx, "starting spora node... {}", style("(use 'node mute' to mute logging)").dim());
                 }
 
                 let wrpc_client = ctx.wallet().try_wrpc_client().ok_or(Error::custom("Unable to start node with non-wRPC client"))?;
@@ -155,8 +155,8 @@ impl Node {
                 } else {
                     tprintln!(ctx, "{}", style("node is unmuted").dim());
                 }
-                // Tondid.mute(mute).await?;
-                self.settings.set(TondidSettings::Mute, mute).await?;
+                // Sporad.mute(mute).await?;
+                self.settings.set(SporadSettings::Mute, mute).await?;
             }
             "status" => {
                 let status = tondid.status().await?;
@@ -182,16 +182,16 @@ impl Node {
         Ok(())
     }
 
-    async fn display_help(self: Arc<Self>, ctx: Arc<TondiCli>, _argv: Vec<String>) -> Result<()> {
+    async fn display_help(self: Arc<Self>, ctx: Arc<SporaCli>, _argv: Vec<String>) -> Result<()> {
         ctx.term().help(
             &[
-                ("select", "Select Tondid executable (binary) location"),
-                ("version", "Display Tondid executable version"),
-                ("start", "Start the local Tondi node instance"),
-                ("stop", "Stop the local Tondi node instance"),
-                ("restart", "Restart the local Tondi node instance"),
-                ("kill", "Kill the local Tondi node instance"),
-                ("status", "Get the status of the local Tondi node instance"),
+                ("select", "Select Sporad executable (binary) location"),
+                ("version", "Display Sporad executable version"),
+                ("start", "Start the local Spora node instance"),
+                ("stop", "Stop the local Spora node instance"),
+                ("restart", "Restart the local Spora node instance"),
+                ("kill", "Kill the local Spora node instance"),
+                ("status", "Get the status of the local Spora node instance"),
                 ("mute", "Toggle log output"),
             ],
             None,
@@ -200,20 +200,20 @@ impl Node {
         Ok(())
     }
 
-    async fn select(self: Arc<Self>, ctx: Arc<TondiCli>, path: Option<String>) -> Result<()> {
+    async fn select(self: Arc<Self>, ctx: Arc<SporaCli>, path: Option<String>) -> Result<()> {
         let root = nw_sys::app::folder();
 
         match path {
             None => {
-                let binaries = tondi_daemon::locate_binaries(root.as_str(), "Tondid").await?;
+                let binaries = spora_daemon::locate_binaries(root.as_str(), "Sporad").await?;
 
                 if binaries.is_empty() {
-                    tprintln!(ctx, "No Tondid binaries found");
+                    tprintln!(ctx, "No Sporad binaries found");
                 } else {
                     let binaries = binaries.iter().map(|p| p.display().to_string()).collect::<Vec<_>>();
-                    if let Some(selection) = ctx.term().select("Please select a Tondid binary", &binaries).await? {
+                    if let Some(selection) = ctx.term().select("Please select a Sporad binary", &binaries).await? {
                         tprintln!(ctx, "selecting: {}", selection);
-                        self.settings.set(TondidSettings::Location, selection.as_str()).await?;
+                        self.settings.set(SporadSettings::Location, selection.as_str()).await?;
                     } else {
                         tprintln!(ctx, "no selection is made");
                     }
@@ -224,10 +224,10 @@ impl Node {
                     let version = process::version(&path).await?;
                     tprintln!(ctx, "detected binary version: {}", version);
                     tprintln!(ctx, "selecting: {path}");
-                    self.settings.set(TondidSettings::Location, path.as_str()).await?;
+                    self.settings.set(SporadSettings::Location, path.as_str()).await?;
                 } else {
                     twarnln!(ctx, "destination binary not found, please specify full path including the binary name");
-                    twarnln!(ctx, "example: 'node select /home/user/testnet/Tondid'");
+                    twarnln!(ctx, "example: 'node select /home/user/testnet/Sporad'");
                     tprintln!(ctx, "no selection is made");
                 }
             }
@@ -236,7 +236,7 @@ impl Node {
         Ok(())
     }
 
-    pub async fn handle_event(&self, ctx: &Arc<TondiCli>, event: Event) -> Result<()> {
+    pub async fn handle_event(&self, ctx: &Arc<SporaCli>, event: Event) -> Result<()> {
         let term = ctx.term();
 
         match event {
@@ -245,12 +245,12 @@ impl Node {
                 term.refresh_prompt();
             }
             Event::Exit(_code) => {
-                tprintln!(ctx, "Tondid has exited");
+                tprintln!(ctx, "Sporad has exited");
                 self.is_running.store(false, Ordering::SeqCst);
                 term.refresh_prompt();
             }
             Event::Error(error) => {
-                tprintln!(ctx, "{}", style(format!("Tondid error: {error}")).red());
+                tprintln!(ctx, "{}", style(format!("Sporad error: {error}")).red());
                 self.is_running.store(false, Ordering::SeqCst);
                 term.refresh_prompt();
             }

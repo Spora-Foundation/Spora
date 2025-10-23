@@ -1,1 +1,1 @@
-wasm-pack build --target nodejs --out-name tondi-wallet --out-dir nodejs/tondi-wallet $@
+wasm-pack build --target nodejs --out-name spora-wallet --out-dir nodejs/spora-wallet $@

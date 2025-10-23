@@ -4,7 +4,7 @@
 
 use crate::model::*;
 use std::sync::Arc;
-use tondi_consensus_client::*;
+use spora_consensus_client::*;
 
 impl From<RpcUtxosByAddressesEntry> for UtxoEntry {
     fn from(entry: RpcUtxosByAddressesEntry) -> UtxoEntry {

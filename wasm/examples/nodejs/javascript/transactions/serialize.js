@@ -6,7 +6,7 @@ const {
     XPrv,
     PrivateKeyGenerator,
     payToAddressScript,
-} = require('../../../../nodejs/tondi');
+} = require('../../../../nodejs/spora');
 
 
 (async () => {
@@ -33,7 +33,7 @@ const {
     const { transactions, summary } = await createTransactions({
         entries,
         outputs: [{
-            address: 'tondi:qpamkvhgh0kzx50gwvvp5xs8ktmqutcy3dfs9dc3w7lm9rq0zs76vf959mmrp',
+            address: 'spora:qpamkvhgh0kzx50gwvvp5xs8ktmqutcy3dfs9dc3w7lm9rq0zs76vf959mmrp',
             amount: 400000000n
         }],
         changeAddress: address,

@@ -1,5 +1,5 @@
 use crate::Notification;
-use tondi_notify::{collector::CollectorFrom, converter::ConverterFrom};
+use spora_notify::{collector::CollectorFrom, converter::ConverterFrom};
 
 pub type RpcCoreConverter = ConverterFrom<Notification, Notification>;
 

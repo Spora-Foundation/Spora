@@ -4,13 +4,13 @@ pub enum Error {
     Other(String),
 
     #[error(transparent)]
-    GrpcApi(#[from] tondi_rpc_core::error::RpcError),
+    GrpcApi(#[from] spora_rpc_core::error::RpcError),
 
     #[error(transparent)]
-    GrpcClient(#[from] tondi_grpc_client::error::Error),
+    GrpcClient(#[from] spora_grpc_client::error::Error),
 
     #[error(transparent)]
-    Wrpc(#[from] tondi_wrpc_server::error::Error),
+    Wrpc(#[from] spora_wrpc_server::error::Error),
 
     #[error(transparent)]
     WebSocket(#[from] workflow_rpc::server::WebSocketError),

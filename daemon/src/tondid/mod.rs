@@ -6,7 +6,7 @@ use crate::imports::*;
 use wasm::{version, Process, ProcessEvent, ProcessOptions};
 
 #[derive(Debug, Clone, BorshDeserialize, BorshSerialize, Serialize, Deserialize)]
-pub struct TondidConfig {
+pub struct SporadConfig {
     pub mute: bool,
     pub path: Option<String>,
     pub network: Option<NetworkId>,
@@ -29,13 +29,13 @@ pub struct TondidConfig {
     // ---
 }
 
-impl TondidConfig {
+impl SporadConfig {
     pub fn new(path: &str, network_id: NetworkId, mute: bool) -> Self {
         Self { path: Some(path.to_string()), network: Some(network_id), mute, ..Default::default() }
     }
 }
 
-impl Default for TondidConfig {
+impl Default for SporadConfig {
     fn default() -> Self {
         Self {
             mute: false,
@@ -63,13 +63,13 @@ impl Default for TondidConfig {
     }
 }
 
-impl TryFrom<TondidConfig> for Vec<String> {
+impl TryFrom<SporadConfig> for Vec<String> {
     type Error = Error;
-    fn try_from(args: TondidConfig) -> Result<Vec<String>> {
+    fn try_from(args: SporadConfig) -> Result<Vec<String>> {
         let mut argv = Vec::new();
 
         if args.path.is_none() {
-            return Err(Error::Custom("no Tondid path is specified".to_string()));
+            return Err(Error::Custom("no Sporad path is specified".to_string()));
         }
 
         if args.network.is_none() {
@@ -151,7 +151,7 @@ impl TryFrom<TondidConfig> for Vec<String> {
 
 struct Inner {
     process: Option<Arc<Process>>,
-    config: Mutex<TondidConfig>,
+    config: Mutex<SporadConfig>,
 }
 
 impl Default for Inner {
@@ -160,20 +160,20 @@ impl Default for Inner {
     }
 }
 
-pub struct Tondid {
+pub struct Sporad {
     inner: Arc<Mutex<Inner>>,
     mute: Arc<AtomicBool>,
     events: Channel<ProcessEvent>,
 }
 
-impl Default for Tondid {
+impl Default for Sporad {
     fn default() -> Self {
         Self { inner: Arc::new(Mutex::new(Inner::default())), mute: Arc::new(AtomicBool::new(false)), events: Channel::unbounded() }
     }
 }
 
-impl Tondid {
-    pub fn new(args: TondidConfig) -> Self {
+impl Sporad {
+    pub fn new(args: SporadConfig) -> Self {
         Self {
             mute: Arc::new(AtomicBool::new(args.mute)),
             inner: Arc::new(Mutex::new(Inner { config: Mutex::new(args), ..Default::default() })),
@@ -181,7 +181,7 @@ impl Tondid {
         }
     }
 
-    pub fn configure(&self, config: TondidConfig) -> Result<()> {
+    pub fn configure(&self, config: SporadConfig) -> Result<()> {
         self.mute.store(config.mute, Ordering::SeqCst);
         *self.inner().config.lock().unwrap() = config;
         Ok(())
@@ -215,7 +215,7 @@ impl Tondid {
         let process = self.process();
         if let Some(process) = process {
             if process.is_running() {
-                return Err(Error::Custom("tondi node is already running.".to_string()));
+                return Err(Error::Custom("spora node is already running.".to_string()));
             }
         }
 
@@ -308,15 +308,15 @@ impl Tondid {
         if let Some(path) = path {
             Ok(version(path.as_str()).await?.to_string())
         } else {
-            Ok("Tondid binary is not configured. Please use 'node select' command.".to_string())
+            Ok("Sporad binary is not configured. Please use 'node select' command.".to_string())
         }
     }
 }
 
 #[async_trait]
-pub trait TondidCtl {
+pub trait SporadCtl {
     async fn version(&self) -> Result<String>;
-    async fn configure(&self, config: TondidConfig) -> Result<()>;
+    async fn configure(&self, config: SporadConfig) -> Result<()>;
     async fn start(&self) -> Result<()>;
     async fn stop(&self) -> Result<()>;
     async fn join(&self) -> Result<()>;

@@ -3,8 +3,8 @@
 use crate::encryption::*;
 use crate::imports::*;
 use base64::{engine::general_purpose, Engine as _};
-use tondi_wasm_core::types::BinaryT;
-use tondi_wasm_core::types::HexString;
+use spora_wasm_core::types::BinaryT;
+use spora_wasm_core::types::HexString;
 
 /// WASM32 binding for `encryptXChaCha20Poly1305` function.
 /// @returns The encrypted text as a base64 string.

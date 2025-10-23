@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
 use rocksdb::WriteBatch;
-use tondi_database::prelude::{BatchDbWriter, CachedDbAccess, DirectDbWriter};
-use tondi_database::prelude::{CachePolicy, DB};
-use tondi_database::prelude::{StoreError, StoreResult};
-use tondi_database::registry::DatabaseStorePrefixes;
-use tondi_hashes::Hash;
+use spora_database::prelude::{BatchDbWriter, CachedDbAccess, DirectDbWriter};
+use spora_database::prelude::{CachePolicy, DB};
+use spora_database::prelude::{StoreError, StoreResult};
+use spora_database::registry::DatabaseStorePrefixes;
+use spora_hashes::Hash;
 
 use super::U64Key;
 

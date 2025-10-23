@@ -3,8 +3,8 @@
 //!
 
 use crate::imports::*;
-use tondi_bip32::PrivateKey;
-use tondi_consensus_core::{sign::sign_with_multiple_v2, tx::SignableTransaction};
+use spora_bip32::PrivateKey;
+use spora_consensus_core::{sign::sign_with_multiple_v2, tx::SignableTransaction};
 
 pub trait SignerT: Send + Sync + 'static {
     fn try_sign(&self, transaction: SignableTransaction, addresses: &[Address]) -> Result<SignableTransaction>;

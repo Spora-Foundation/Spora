@@ -5,9 +5,9 @@
 // use crate::tx::{Fees, MassCalculator, PaymentDestination};
 // use crate::utxo::UtxoEntryReference;
 // use crate::{tx::PaymentOutputs, utils::tondi_to_sau};
-// use tondi_addresses::Address;
-// use tondi_consensus_core::network::{NetworkId, NetworkType};
-// use tondi_consensus_core::tx::Transaction;
+// use spora_addresses::Address;
+// use spora_consensus_core::network::{NetworkId, NetworkType};
+// use spora_consensus_core::tx::Transaction;
 // use rand::prelude::*;
 // use std::cell::RefCell;
 // use std::fmt::Debug;
@@ -23,24 +23,24 @@
 // pub(crate) struct Sau(u64);
 //
 // #[derive(Clone, Copy)]
-// struct Tondi(f64);
+// struct Spora(f64);
 //
-// impl Debug for Tondi {
+// impl Debug for Spora {
 //     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 //         let sau: Sau = self.into();
 //         write!(f, "{}", sau.0)
 //     }
 // }
 //
-// impl From<Tondi> for Sau {
-//     fn from(tondi: Tondi) -> Self {
-//         Sau(tondi_to_sau(tondi.0))
+// impl From<Spora> for Sau {
+//     fn from(spora: Spora) -> Self {
+//         Sau(tondi_to_sau(spora.0))
 //     }
 // }
 //
-// impl From<&Tondi> for Sau {
-//     fn from(tondi: &Tondi) -> Self {
-//         Sau(tondi_to_sau(tondi.0))
+// impl From<&Spora> for Sau {
+//     fn from(spora: &Spora) -> Self {
+//         Sau(tondi_to_sau(spora.0))
 //     }
 // }
 //
@@ -437,7 +437,7 @@
 //
 // pub(crate) fn change_address(network_type: NetworkType) -> Address {
 //     match network_type {
-//         NetworkType::Mainnet => Address::try_from("tondi:qpauqsvk7yf9unexwmxsnmg547mhyga37csh0kj53q6xxgl24ydxjsgzthw5j").unwrap(),
+//         NetworkType::Mainnet => Address::try_from("spora:qpauqsvk7yf9unexwmxsnmg547mhyga37csh0kj53q6xxgl24ydxjsgzthw5j").unwrap(),
 //         NetworkType::Testnet => Address::try_from("tonditest:qqz22l98sf8jun72rwh5rqe2tm8lhwtdxdmynrz4ypwak427qed5juktjt7ju").unwrap(),
 //         _ => unreachable!("network type not supported"),
 //     }
@@ -445,7 +445,7 @@
 //
 // pub(crate) fn output_address(network_type: NetworkType) -> Address {
 //     match network_type {
-//         NetworkType::Mainnet => Address::try_from("tondi:qrd9efkvg3pg34sgp6ztwyv3r569qlc43wa5w8nfs302532dzj47knu04aftm").unwrap(),
+//         NetworkType::Mainnet => Address::try_from("spora:qrd9efkvg3pg34sgp6ztwyv3r569qlc43wa5w8nfs302532dzj47knu04aftm").unwrap(),
 //         NetworkType::Testnet => Address::try_from("tonditest:qqrewmx4gpuekvk8grenkvj2hp7xt0c35rxgq383f6gy223c4ud5s58ptm6er").unwrap(),
 //         _ => unreachable!("network type not supported"),
 //     }
@@ -476,7 +476,7 @@
 //         .fetch(&Expected {
 //             is_final: true,
 //             input_count: 2,
-//             aggregate_input_value: Tondi(20.0),
+//             aggregate_input_value: Spora(20.0),
 //             output_count: 1,
 //             priority_fees: FeesExpected::None,
 //         })
@@ -487,7 +487,7 @@
 // #[test]
 // fn test_generator_sweep_two_utxos_with_priority_fees_rejection() -> Result<()> {
 //     let generator =
-//         make_generator(test_network_id(), &[10.0, 10.0], &[], Fees::sender(Tondi(5.0)), change_address, PaymentDestination::Change);
+//         make_generator(test_network_id(), &[10.0, 10.0], &[], Fees::sender(Spora(5.0)), change_address, PaymentDestination::Change);
 //     match generator {
 //         Err(Error::GeneratorFeesInSweepTransaction) => {}
 //         _ => panic!("merge 2 UTXOs with fees must fail generator creation"),
@@ -497,7 +497,7 @@
 //
 // #[test]
 // fn test_generator_compound_200k_10tondi_transactions() -> Result<()> {
-//     generator(test_network_id(), &[10.0; 200_000], &[], Fees::sender(Tondi(5.0)), [(output_address, Tondi(190_000.0))].as_slice())
+//     generator(test_network_id(), &[10.0; 200_000], &[], Fees::sender(Spora(5.0)), [(output_address, Spora(190_000.0))].as_slice())
 //         .unwrap()
 //         .harness()
 //         .validate()
@@ -511,8 +511,8 @@
 //     let mut rng = StdRng::seed_from_u64(0);
 //     let inputs: Vec<f64> = (0..100_000).map(|_| rng.gen_range(0.001..10.0)).collect();
 //     let total = inputs.iter().sum::<f64>();
-//     let outputs = [(output_address, Tondi(total - 10.0))];
-//     generator(test_network_id(), &inputs, &[], Fees::sender(Tondi(5.0)), outputs.as_slice()).unwrap().harness().validate().finalize();
+//     let outputs = [(output_address, Spora(total - 10.0))];
+//     generator(test_network_id(), &inputs, &[], Fees::sender(Spora(5.0)), outputs.as_slice()).unwrap().harness().validate().finalize();
 //
 //     Ok(())
 // }
@@ -522,9 +522,9 @@
 //     let mut rng = StdRng::seed_from_u64(0);
 //     let outputs: Vec<f64> = (0..30).map(|_| rng.gen_range(1.0..10.0)).collect();
 //     let total = outputs.iter().sum::<f64>();
-//     let outputs: Vec<_> = outputs.into_iter().map(|v| (output_address, Tondi(v))).collect();
+//     let outputs: Vec<_> = outputs.into_iter().map(|v| (output_address, Spora(v))).collect();
 //
-//     generator(test_network_id(), &[total + 100.0], &[], Fees::sender(Tondi(5.0)), outputs.as_slice())
+//     generator(test_network_id(), &[total + 100.0], &[], Fees::sender(Spora(5.0)), outputs.as_slice())
 //         .unwrap()
 //         .harness()
 //         .validate()
@@ -539,17 +539,17 @@
 //         test_network_id(),
 //         &[10.0; 20],
 //         &[],
-//         Fees::sender(Tondi(5.0)),
-//         [(output_address, Tondi(1.0)), (output_address, Tondi(1.0))].as_slice(),
+//         Fees::sender(Spora(5.0)),
+//         [(output_address, Spora(1.0)), (output_address, Spora(1.0))].as_slice(),
 //     )
 //     .unwrap()
 //     .harness()
 //     .fetch(&Expected {
 //         is_final: true,
 //         input_count: 4,
-//         aggregate_input_value: Tondi(40.0),
+//         aggregate_input_value: Spora(40.0),
 //         output_count: 3,
-//         priority_fees: FeesExpected::sender(Tondi(5.0)),
+//         priority_fees: FeesExpected::sender(Spora(5.0)),
 //     })
 //     .finalize();
 //
@@ -562,17 +562,17 @@
 //         test_network_id(),
 //         &[10.0; 2],
 //         &[],
-//         Fees::sender(Tondi(5.0)),
-//         [(output_address, Tondi(10.0)), (output_address, Tondi(1.0))].as_slice(),
+//         Fees::sender(Spora(5.0)),
+//         [(output_address, Spora(10.0)), (output_address, Spora(1.0))].as_slice(),
 //     )
 //     .unwrap()
 //     .harness()
 //     .fetch(&Expected {
 //         is_final: true,
 //         input_count: 2,
-//         aggregate_input_value: Tondi(20.0),
+//         aggregate_input_value: Spora(20.0),
 //         output_count: 3,
-//         priority_fees: FeesExpected::sender(Tondi(5.0)),
+//         priority_fees: FeesExpected::sender(Spora(5.0)),
 //     })
 //     .finalize();
 //
@@ -581,21 +581,21 @@
 //
 // #[test]
 // fn test_generator_inputs_100_outputs_1_fees_exclude_success() -> Result<()> {
-//     // generator(test_network_id(), &[10.0; 100], &[], Fees::sender(Tondi(5.0)), [(output_address, Tondi(990.0))].as_slice())
-//     generator(test_network_id(), &[10.0; 100], &[], Fees::sender(Tondi(0.0)), [(output_address, Tondi(990.0))].as_slice())
+//     // generator(test_network_id(), &[10.0; 100], &[], Fees::sender(Spora(5.0)), [(output_address, Spora(990.0))].as_slice())
+//     generator(test_network_id(), &[10.0; 100], &[], Fees::sender(Spora(0.0)), [(output_address, Spora(990.0))].as_slice())
 //         .unwrap()
 //         .harness()
 //         .fetch(&Expected {
 //             is_final: false,
 //             input_count: 88,
-//             aggregate_input_value: Tondi(880.0),
+//             aggregate_input_value: Spora(880.0),
 //             output_count: 1,
 //             priority_fees: FeesExpected::None,
 //         })
 //         .fetch(&Expected {
 //             is_final: false,
 //             input_count: 12,
-//             aggregate_input_value: Tondi(120.0),
+//             aggregate_input_value: Spora(120.0),
 //             output_count: 1,
 //             priority_fees: FeesExpected::None,
 //         })
@@ -604,8 +604,8 @@
 //             input_count: 2,
 //             aggregate_input_value: Sau(999_99886576),
 //             output_count: 2,
-//             // priority_fees: FeesExpected::sender(Tondi(5.0)),
-//             priority_fees: FeesExpected::sender(Tondi(0.0)),
+//             // priority_fees: FeesExpected::sender(Spora(5.0)),
+//             priority_fees: FeesExpected::sender(Spora(0.0)),
 //         })
 //         .finalize();
 //
@@ -618,23 +618,23 @@
 //         test_network_id(),
 //         &[1.0; 100],
 //         &[],
-//         Fees::receiver(Tondi(5.0)),
-//         // [(output_address, Tondi(100.0))].as_slice(),
-//         [(output_address, Tondi(100.0))].as_slice(),
+//         Fees::receiver(Spora(5.0)),
+//         // [(output_address, Spora(100.0))].as_slice(),
+//         [(output_address, Spora(100.0))].as_slice(),
 //     )
 //     .unwrap()
 //     .harness()
 //     .fetch(&Expected {
 //         is_final: false,
 //         input_count: 88,
-//         aggregate_input_value: Tondi(88.0),
+//         aggregate_input_value: Spora(88.0),
 //         output_count: 1,
 //         priority_fees: FeesExpected::None,
 //     })
 //     .fetch(&Expected {
 //         is_final: false,
 //         input_count: 12,
-//         aggregate_input_value: Tondi(12.0),
+//         aggregate_input_value: Spora(12.0),
 //         output_count: 1,
 //         priority_fees: FeesExpected::None,
 //     })
@@ -643,7 +643,7 @@
 //         input_count: 2,
 //         aggregate_input_value: Sau(99_99886576),
 //         output_count: 1,
-//         priority_fees: FeesExpected::receiver(Tondi(5.0)),
+//         priority_fees: FeesExpected::receiver(Spora(5.0)),
 //     })
 //     .finalize();
 //
@@ -652,13 +652,13 @@
 //
 // #[test]
 // fn test_generator_inputs_100_outputs_1_fees_exclude_insufficient_funds() -> Result<()> {
-//     generator(test_network_id(), &[10.0; 100], &[], Fees::sender(Tondi(5.0)), [(output_address, Tondi(1000.0))].as_slice())
+//     generator(test_network_id(), &[10.0; 100], &[], Fees::sender(Spora(5.0)), [(output_address, Spora(1000.0))].as_slice())
 //         .unwrap()
 //         .harness()
 //         .fetch(&Expected {
 //             is_final: false,
 //             input_count: 88,
-//             aggregate_input_value: Tondi(880.0),
+//             aggregate_input_value: Spora(880.0),
 //             output_count: 1,
 //             priority_fees: FeesExpected::None,
 //         })
@@ -669,7 +669,7 @@
 //
 // #[test]
 // fn test_generator_inputs_1k_outputs_2_fees_exclude() -> Result<()> {
-//     generator(test_network_id(), &[10.0; 1_000], &[], Fees::sender(Tondi(5.0)), [(output_address, Tondi(9_000.0))].as_slice())
+//     generator(test_network_id(), &[10.0; 1_000], &[], Fees::sender(Spora(5.0)), [(output_address, Spora(9_000.0))].as_slice())
 //         .unwrap()
 //         .harness()
 //         .drain(
@@ -677,7 +677,7 @@
 //             &Expected {
 //                 is_final: false,
 //                 input_count: 88,
-//                 aggregate_input_value: Tondi(880.0),
+//                 aggregate_input_value: Spora(880.0),
 //                 output_count: 1,
 //                 priority_fees: FeesExpected::None,
 //             },
@@ -685,7 +685,7 @@
 //         .fetch(&Expected {
 //             is_final: false,
 //             input_count: 21,
-//             aggregate_input_value: Tondi(210.0),
+//             aggregate_input_value: Spora(210.0),
 //             output_count: 1,
 //             priority_fees: FeesExpected::None,
 //         })
@@ -694,7 +694,7 @@
 //             input_count: 11,
 //             aggregate_input_value: Sau(9009_98981896),
 //             output_count: 2,
-//             priority_fees: FeesExpected::receiver(Tondi(5.0)),
+//             priority_fees: FeesExpected::receiver(Spora(5.0)),
 //         })
 //         .finalize();
 //
@@ -708,8 +708,8 @@
 //         test_network_id(),
 //         &[f; 32_747],
 //         &[],
-//         Fees::sender(Tondi(10_000.0)),
-//         [(output_address, Tondi(f * 32_747.0 - 10_001.0))].as_slice(),
+//         Fees::sender(Spora(10_000.0)),
+//         [(output_address, Spora(f * 32_747.0 - 10_001.0))].as_slice(),
 //     )
 //     .unwrap()
 //     .harness()

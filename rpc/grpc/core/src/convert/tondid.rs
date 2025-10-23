@@ -1,18 +1,18 @@
-use crate::protowire::{tondid_request, TondidRequest, TondidResponse};
+use crate::protowire::{tondid_request, SporadRequest, SporadResponse};
 
-impl From<tondid_request::Payload> for TondidRequest {
+impl From<tondid_request::Payload> for SporadRequest {
     fn from(item: tondid_request::Payload) -> Self {
-        TondidRequest { id: 0, payload: Some(item) }
+        SporadRequest { id: 0, payload: Some(item) }
     }
 }
 
-impl AsRef<TondidRequest> for TondidRequest {
+impl AsRef<SporadRequest> for SporadRequest {
     fn as_ref(&self) -> &Self {
         self
     }
 }
 
-impl AsRef<TondidResponse> for TondidResponse {
+impl AsRef<SporadResponse> for SporadResponse {
     fn as_ref(&self) -> &Self {
         self
     }
@@ -20,7 +20,7 @@ impl AsRef<TondidResponse> for TondidResponse {
 
 pub mod tondid_request_convert {
     use crate::protowire::*;
-    use tondi_rpc_core::{RpcError, RpcResult};
+    use spora_rpc_core::{RpcError, RpcResult};
 
     impl_into_tondid_request!(Shutdown);
     impl_into_tondid_request!(SubmitBlock);
@@ -81,7 +81,7 @@ pub mod tondid_request_convert {
     macro_rules! impl_into_tondid_request {
         ($name:tt) => {
             paste::paste! {
-                impl_into_tondid_request_ex!(tondi_rpc_core::[<$name Request>],[<$name RequestMessage>],[<$name Request>]);
+                impl_into_tondid_request_ex!(spora_rpc_core::[<$name Request>],[<$name RequestMessage>],[<$name Request>]);
             }
         };
     }
@@ -101,7 +101,7 @@ pub mod tondid_request_convert {
                 }
             }
 
-            impl From<&$core_struct> for TondidRequest {
+            impl From<&$core_struct> for SporadRequest {
                 fn from(item: &$core_struct) -> Self {
                     Self { id: 0, payload: Some(item.into()) }
                 }
@@ -113,7 +113,7 @@ pub mod tondid_request_convert {
                 }
             }
 
-            impl From<$core_struct> for TondidRequest {
+            impl From<$core_struct> for SporadRequest {
                 fn from(item: $core_struct) -> Self {
                     Self { id: 0, payload: Some((&item).into()) }
                 }
@@ -134,17 +134,17 @@ pub mod tondid_request_convert {
                 }
             }
 
-            impl TryFrom<&TondidRequest> for $core_struct {
+            impl TryFrom<&SporadRequest> for $core_struct {
                 type Error = RpcError;
-                fn try_from(item: &TondidRequest) -> RpcResult<Self> {
+                fn try_from(item: &SporadRequest) -> RpcResult<Self> {
                     item.payload
                         .as_ref()
-                        .ok_or(RpcError::MissingRpcFieldError("TondiRequest".to_string(), "Payload".to_string()))?
+                        .ok_or(RpcError::MissingRpcFieldError("SporaRequest".to_string(), "Payload".to_string()))?
                         .try_into()
                 }
             }
 
-            impl From<$protowire_struct> for TondidRequest {
+            impl From<$protowire_struct> for SporadRequest {
                 fn from(item: $protowire_struct) -> Self {
                     Self { id: 0, payload: Some(tondid_request::Payload::$variant(item)) }
                 }
@@ -162,7 +162,7 @@ pub mod tondid_request_convert {
 
 pub mod tondid_response_convert {
     use crate::protowire::*;
-    use tondi_rpc_core::{RpcError, RpcResult};
+    use spora_rpc_core::{RpcError, RpcResult};
 
     impl_into_tondid_response!(Shutdown);
     impl_into_tondid_response!(SubmitBlock);
@@ -226,12 +226,12 @@ pub mod tondid_response_convert {
     macro_rules! impl_into_tondid_response {
         ($name:tt) => {
             paste::paste! {
-                impl_into_tondid_response_ex!(tondi_rpc_core::[<$name Response>],[<$name ResponseMessage>],[<$name Response>]);
+                impl_into_tondid_response_ex!(spora_rpc_core::[<$name Response>],[<$name ResponseMessage>],[<$name Response>]);
             }
         };
         ($core_name:tt, $protowire_name:tt) => {
             paste::paste! {
-                impl_into_tondid_response_base!(tondi_rpc_core::[<$core_name Response>],[<$protowire_name ResponseMessage>],[<$protowire_name Response>]);
+                impl_into_tondid_response_base!(spora_rpc_core::[<$core_name Response>],[<$protowire_name ResponseMessage>],[<$protowire_name Response>]);
             }
         };
     }
@@ -262,7 +262,7 @@ pub mod tondid_response_convert {
                 }
             }
 
-            impl From<$protowire_struct> for TondidResponse {
+            impl From<$protowire_struct> for SporadResponse {
                 fn from(item: $protowire_struct) -> Self {
                     Self { id: 0, payload: Some(tondid_response::Payload::$variant(item)) }
                 }
@@ -283,7 +283,7 @@ pub mod tondid_response_convert {
                 }
             }
 
-            impl From<RpcResult<&$core_struct>> for TondidResponse {
+            impl From<RpcResult<&$core_struct>> for SporadResponse {
                 fn from(item: RpcResult<&$core_struct>) -> Self {
                     Self { id: 0, payload: Some(item.into()) }
                 }
@@ -295,7 +295,7 @@ pub mod tondid_response_convert {
                 }
             }
 
-            impl From<RpcResult<$core_struct>> for TondidResponse {
+            impl From<RpcResult<$core_struct>> for SporadResponse {
                 fn from(item: RpcResult<$core_struct>) -> Self {
                     Self { id: 0, payload: Some(item.into()) }
                 }
@@ -318,12 +318,12 @@ pub mod tondid_response_convert {
                 }
             }
 
-            impl TryFrom<&TondidResponse> for $core_struct {
+            impl TryFrom<&SporadResponse> for $core_struct {
                 type Error = RpcError;
-                fn try_from(item: &TondidResponse) -> RpcResult<Self> {
+                fn try_from(item: &SporadResponse) -> RpcResult<Self> {
                     item.payload
                         .as_ref()
-                        .ok_or(RpcError::MissingRpcFieldError("TondiResponse".to_string(), "Payload".to_string()))?
+                        .ok_or(RpcError::MissingRpcFieldError("SporaResponse".to_string(), "Payload".to_string()))?
                         .try_into()
                 }
             }
@@ -336,14 +336,14 @@ pub mod tondid_response_convert {
             impl_into_tondid_response!($name);
 
             paste::paste! {
-                impl_into_tondid_notify_response_ex!(tondi_rpc_core::[<$name Response>],[<$name ResponseMessage>]);
+                impl_into_tondid_notify_response_ex!(spora_rpc_core::[<$name Response>],[<$name ResponseMessage>]);
             }
         };
         ($core_name:tt, $protowire_name:tt) => {
             impl_into_tondid_response!($core_name, $protowire_name);
 
             paste::paste! {
-                impl_into_tondid_notify_response_ex!(tondi_rpc_core::[<$core_name Response>],[<$protowire_name ResponseMessage>]);
+                impl_into_tondid_notify_response_ex!(spora_rpc_core::[<$core_name Response>],[<$protowire_name ResponseMessage>]);
             }
         };
     }

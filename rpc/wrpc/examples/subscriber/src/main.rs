@@ -1,4 +1,4 @@
-// Basic example of a Tondi wRPC client that connects to a node
+// Basic example of a Spora wRPC client that connects to a node
 // and subscribes to notifications. This example demonstrates
 // how to handle RPC connection events, perform subscriptions,
 // handle subscription notifications etc.
@@ -13,18 +13,18 @@ use workflow_core::channel::{oneshot, Channel, DuplexChannel};
 use workflow_core::task::spawn;
 use workflow_log::prelude::*;
 
-// Tondi RPC primitives
-use tondi_wrpc_client::prelude::*;
+// Spora RPC primitives
+use spora_wrpc_client::prelude::*;
 // reuse wRPC Result type for convenience
-use tondi_wrpc_client::result::Result;
+use spora_wrpc_client::result::Result;
 
 struct Inner {
     // task control duplex channel - a pair of channels where sender
     // is used to signal an async task termination request and receiver
     // is used to signal task termination completion.
     task_ctl: DuplexChannel<()>,
-    // Tondi wRPC client instance
-    client: Arc<TondiRpcClient>,
+    // Spora wRPC client instance
+    client: Arc<SporaRpcClient>,
     // our own view on the connection state
     is_connected: AtomicBool,
     // channel supplied to the notification subsystem
@@ -50,8 +50,8 @@ impl Listener {
         // obtain the public node rpc endpoint
         let (resolver, url) = if let Some(url) = url { (None, Some(url)) } else { (Some(Resolver::default()), None) };
 
-        // Create a basic Tondi RPC client instance using Borsh encoding.
-        let client = Arc::new(TondiRpcClient::new_with_args(WrpcEncoding::Borsh, url.as_deref(), resolver, Some(network_id), None)?);
+        // Create a basic Spora RPC client instance using Borsh encoding.
+        let client = Arc::new(SporaRpcClient::new_with_args(WrpcEncoding::Borsh, url.as_deref(), resolver, Some(network_id), None)?);
 
         let inner = Inner {
             task_ctl: DuplexChannel::oneshot(),
@@ -103,7 +103,7 @@ impl Listener {
         Ok(())
     }
 
-    pub fn client(&self) -> &Arc<TondiRpcClient> {
+    pub fn client(&self) -> &Arc<SporaRpcClient> {
         &self.inner.client
     }
 
@@ -186,7 +186,7 @@ impl Listener {
         // channels where sender acts as a trigger signaling termination
         // and the receiver is used to signal termination completion.
         // (this is a common pattern used for channel lifetime management
-        // in the rusty tondi framework)
+        // in the rusty spora framework)
         let task_ctl_receiver = self.inner.task_ctl.request.receiver.clone();
         let task_ctl_sender = self.inner.task_ctl.response.sender.clone();
 

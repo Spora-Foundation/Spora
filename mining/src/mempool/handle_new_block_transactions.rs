@@ -7,11 +7,11 @@ use crate::mempool::{
     Mempool,
 };
 use std::{collections::HashSet, sync::atomic::Ordering};
-use tondi_consensus_core::{
+use spora_consensus_core::{
     api::ConsensusApi,
     tx::{Transaction, TransactionId, CellTx},
 };
-use tondi_core::time::Stopwatch;
+use spora_core::time::Stopwatch;
 
 impl Mempool {
     pub(crate) fn handle_new_block_transactions(

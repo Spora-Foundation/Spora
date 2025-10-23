@@ -43,13 +43,13 @@ impl Drop for DbLifetime {
 
 pub fn get_tondi_tempdir() -> TempDir {
     let global_tempdir = std::env::temp_dir();
-    let tondi_tempdir = global_tempdir.join("tondi");
+    let tondi_tempdir = global_tempdir.join("spora");
     std::fs::create_dir_all(tondi_tempdir.as_path()).unwrap();
     let db_tempdir = tempfile::tempdir_in(tondi_tempdir.as_path()).unwrap();
     db_tempdir
 }
 
-/// Creates a DB within a temp directory under `<OS SPECIFIC TEMP DIR>/tondi-rust`
+/// Creates a DB within a temp directory under `<OS SPECIFIC TEMP DIR>/spora-rust`
 /// Callers must keep the `TempDbLifetime` guard for as long as they wish the DB to exist.
 #[macro_export]
 macro_rules! create_temp_db {

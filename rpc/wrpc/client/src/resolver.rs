@@ -1,5 +1,5 @@
 //!
-//! Module implementing [`Resolver`] client for obtaining public Tondi wRPC endpoints.
+//! Module implementing [`Resolver`] client for obtaining public Spora wRPC endpoints.
 //!
 
 use std::sync::OnceLock;
@@ -82,12 +82,12 @@ impl Inner {
 }
 
 ///
-/// # Resolver - a client for obtaining public Tondi wRPC endpoints.
+/// # Resolver - a client for obtaining public Spora wRPC endpoints.
 ///
-/// This client operates against [Tondi Resolver](https://github.com/aspectron/tondi-resolver) service
-/// that provides load-balancing and failover capabilities for Tondi wRPC endpoints. The default
-/// configuration allows access to public Tondi nodes, while custom configurations can be supplied
-/// if you are running your own custom Tondi node cluster.
+/// This client operates against [Spora Resolver](https://github.com/aspectron/spora-resolver) service
+/// that provides load-balancing and failover capabilities for Spora wRPC endpoints. The default
+/// configuration allows access to public Spora nodes, while custom configurations can be supplied
+/// if you are running your own custom Spora node cluster.
 ///
 #[derive(Debug, Clone)]
 pub struct Resolver {
@@ -152,7 +152,7 @@ impl Resolver {
             }
         });
 
-        format!("{url}/v{CURRENT_VERSION}/tondi/{network_id}/{tls}/wrpc/{encoding}")
+        format!("{url}/v{CURRENT_VERSION}/spora/{network_id}/{tls}/wrpc/{encoding}")
     }
 
     // query a single resolver service
@@ -178,12 +178,12 @@ impl Resolver {
         Err(Error::Custom(format!("Failed to connect: {:?}", errors)))
     }
 
-    /// Obtain a Tondi p2p [`NodeDescriptor`] from the resolver based on the supplied [`Encoding`] and [`NetworkId`].
+    /// Obtain a Spora p2p [`NodeDescriptor`] from the resolver based on the supplied [`Encoding`] and [`NetworkId`].
     pub async fn get_node(&self, encoding: Encoding, network_id: NetworkId) -> Result<NodeDescriptor> {
         self.fetch(encoding, network_id).await
     }
 
-    /// Returns a Tondi wRPC URL from the resolver based on the supplied [`Encoding`] and [`NetworkId`].
+    /// Returns a Spora wRPC URL from the resolver based on the supplied [`Encoding`] and [`NetworkId`].
     pub async fn get_url(&self, encoding: Encoding, network_id: NetworkId) -> Result<String> {
         let nodes = self.fetch(encoding, network_id).await?;
         Ok(nodes.url.clone())

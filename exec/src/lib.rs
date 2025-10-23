@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: ISC
-// Copyright (C) 2025Tondi developers
+// Copyright (C) 2025 Spora developers
 //
-// This file is part of Tondi, a DAG-based blockchain with Cell model.
+// This file is part of Spora, a DAG-based blockchain with Cell model.
 // Portions adapted from Nervos CKB (MIT License).
 
 //! Cell Execution Layer

@@ -1,9 +1,9 @@
 use crate::model::stores::statuses::StatusesStoreReader;
 use parking_lot::RwLock;
 use std::sync::Arc;
-use tondi_consensus_core::blockstatus::BlockStatus;
-use tondi_database::prelude::StoreError;
-use tondi_hashes::Hash;
+use spora_consensus_core::blockstatus::BlockStatus;
+use spora_database::prelude::StoreError;
+use spora_hashes::Hash;
 
 /// Multi-threaded block-statuses service imp
 #[derive(Clone)]

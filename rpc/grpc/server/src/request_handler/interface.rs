@@ -6,38 +6,38 @@ use crate::{
 };
 use std::fmt::Debug;
 use std::{collections::HashMap, sync::Arc};
-use tondi_grpc_core::{
-    ops::TondidPayloadOps,
-    protowire::{TondidRequest, TondidResponse},
+use spora_grpc_core::{
+    ops::SporadPayloadOps,
+    protowire::{SporadRequest, SporadResponse},
 };
 
-pub type TondidMethod = Method<ServerContext, Connection, TondidRequest, TondidResponse>;
-pub type DynTondidMethod = Arc<dyn MethodTrait<ServerContext, Connection, TondidRequest, TondidResponse>>;
-pub type TondidDropFn = DropFn<TondidRequest, TondidResponse>;
-pub type TondidRoutingPolicy = RoutingPolicy<TondidRequest, TondidResponse>;
+pub type SporadMethod = Method<ServerContext, Connection, SporadRequest, SporadResponse>;
+pub type DynSporadMethod = Arc<dyn MethodTrait<ServerContext, Connection, SporadRequest, SporadResponse>>;
+pub type SporadDropFn = DropFn<SporadRequest, SporadResponse>;
+pub type SporadRoutingPolicy = RoutingPolicy<SporadRequest, SporadResponse>;
 
 /// An interface providing methods implementations and a fallback "not implemented" method
 /// actually returning a message with a "not implemented" error.
 ///
-/// The interface can provide a method clone for every [`TondidPayloadOps`] variant for later
+/// The interface can provide a method clone for every [`SporadPayloadOps`] variant for later
 /// processing of related requests.
 ///
 /// It is also possible to directly let the interface itself process a request by invoking
 /// the `call()` method.
 pub struct Interface {
     server_ctx: ServerContext,
-    methods: HashMap<TondidPayloadOps, DynTondidMethod>,
-    method_not_implemented: DynTondidMethod,
+    methods: HashMap<SporadPayloadOps, DynSporadMethod>,
+    method_not_implemented: DynSporadMethod,
 }
 
 impl Interface {
     pub fn new(server_ctx: ServerContext) -> Self {
-        let method_not_implemented = Arc::new(Method::new(|_, _, tondid_request: TondidRequest| {
+        let method_not_implemented = Arc::new(Method::new(|_, _, tondid_request: SporadRequest| {
             Box::pin(async move {
                 match tondid_request.payload {
-                    Some(ref request) => Ok(TondidResponse {
+                    Some(ref request) => Ok(SporadResponse {
                         id: tondid_request.id,
-                        payload: Some(TondidPayloadOps::from(request).to_error_response(GrpcServerError::MethodNotImplemented.into())),
+                        payload: Some(SporadPayloadOps::from(request).to_error_response(GrpcServerError::MethodNotImplemented.into())),
                     }),
                     None => Err(GrpcServerError::InvalidRequestPayload),
                 }
@@ -46,43 +46,43 @@ impl Interface {
         Self { server_ctx, methods: Default::default(), method_not_implemented }
     }
 
-    pub fn method(&mut self, op: TondidPayloadOps, method: TondidMethod) {
-        let method: DynTondidMethod = Arc::new(method);
+    pub fn method(&mut self, op: SporadPayloadOps, method: SporadMethod) {
+        let method: DynSporadMethod = Arc::new(method);
         if self.methods.insert(op, method).is_some() {
             panic!("RPC method {op:?} is declared multiple times")
         }
     }
 
-    pub fn replace_method(&mut self, op: TondidPayloadOps, method: TondidMethod) {
-        let method: DynTondidMethod = Arc::new(method);
+    pub fn replace_method(&mut self, op: SporadPayloadOps, method: SporadMethod) {
+        let method: DynSporadMethod = Arc::new(method);
         let _ = self.methods.insert(op, method);
     }
 
     pub fn set_method_properties(
         &mut self,
-        op: TondidPayloadOps,
+        op: SporadPayloadOps,
         tasks: usize,
         queue_size: usize,
-        routing_policy: TondidRoutingPolicy,
+        routing_policy: SporadRoutingPolicy,
     ) {
         self.methods.entry(op).and_modify(|x| {
-            let method: Method<ServerContext, Connection, TondidRequest, TondidResponse> =
+            let method: Method<ServerContext, Connection, SporadRequest, SporadResponse> =
                 Method::with_properties(x.method_fn(), tasks, queue_size, routing_policy);
-            let method: Arc<dyn MethodTrait<ServerContext, Connection, TondidRequest, TondidResponse>> = Arc::new(method);
+            let method: Arc<dyn MethodTrait<ServerContext, Connection, SporadRequest, SporadResponse>> = Arc::new(method);
             *x = method;
         });
     }
 
     pub async fn call(
         &self,
-        op: &TondidPayloadOps,
+        op: &SporadPayloadOps,
         connection: Connection,
-        request: TondidRequest,
-    ) -> GrpcServerResult<TondidResponse> {
+        request: SporadRequest,
+    ) -> GrpcServerResult<SporadResponse> {
         self.methods.get(op).unwrap_or(&self.method_not_implemented).call(self.server_ctx.clone(), connection, request).await
     }
 
-    pub fn get_method(&self, op: &TondidPayloadOps) -> DynTondidMethod {
+    pub fn get_method(&self, op: &SporadPayloadOps) -> DynSporadMethod {
         self.methods.get(op).unwrap_or(&self.method_not_implemented).clone()
     }
 }

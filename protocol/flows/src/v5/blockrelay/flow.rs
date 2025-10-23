@@ -4,17 +4,17 @@ use crate::{
     flowcontext::orphans::OrphanOutput,
 };
 use std::{collections::VecDeque, sync::Arc};
-use tondi_consensus_core::{api::BlockValidationFutures, block::Block, blockstatus::BlockStatus, errors::block::RuleError};
-use tondi_consensusmanager::{BlockProcessingBatch, ConsensusProxy};
-use tondi_core::debug;
-use tondi_hashes::Hash;
-use tondi_p2p_lib::{
+use spora_consensus_core::{api::BlockValidationFutures, block::Block, blockstatus::BlockStatus, errors::block::RuleError};
+use spora_consensusmanager::{BlockProcessingBatch, ConsensusProxy};
+use spora_core::debug;
+use spora_hashes::Hash;
+use spora_p2p_lib::{
     common::ProtocolError,
     dequeue, dequeue_with_timeout, make_message, make_request,
     pb::{tondid_message::Payload, InvRelayBlockMessage, RequestBlockLocatorMessage, RequestRelayBlocksMessage},
     IncomingRoute, Router, SharedIncomingRoute,
 };
-use tondi_utils::channel::{JobSender, JobTrySendError as TrySendError};
+use spora_utils::channel::{JobSender, JobTrySendError as TrySendError};
 
 pub struct RelayInvMessage {
     hash: Hash,
@@ -343,7 +343,7 @@ impl HandleRelayInvsFlow {
         let msg = dequeue_with_timeout!(self.msg_route, Payload::BlockLocator)?;
         let locator_hashes: Vec<Hash> = msg.try_into()?;
         // Locator hashes are sent from later to earlier, so it makes sense to query consensus in reverse. Technically
-        // with current syncer-side implementations (in both go-tondi and this codebase) we could query only the last one,
+        // with current syncer-side implementations (in both go-spora and this codebase) we could query only the last one,
         // but we prefer not relying on such details for correctness
         //
         // The current syncer-side implementation sends a full locator even though it suffices to only send the

@@ -20,12 +20,12 @@ use std::collections::{
     VecDeque,
 };
 use thiserror::Error;
-use tondi_consensus_core::{
+use spora_consensus_core::{
     blockhash::{BlockHashExtensions, BlockHashes, ORIGIN},
     BlockHashMap, BlockHashSet,
 };
-use tondi_database::prelude::{DirectWriter, StoreError};
-use tondi_hashes::Hash;
+use spora_database::prelude::{DirectWriter, StoreError};
+use spora_hashes::Hash;
 
 #[cfg(test)]
 pub mod gen;

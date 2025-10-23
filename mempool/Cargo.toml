@@ -1,5 +1,5 @@
 [package]
-name = "tondi-mempool"
+name = "spora-mempool"
 version = "1.21.0"
 edition = "2021"
 license = "ISC"
@@ -7,7 +7,7 @@ description = "Cell transaction memory pool"
 
 [dependencies]
 # Core dependencies
-tondi-exec = { path = "../exec", version = "1.21.0" }
+spora-exec = { path = "../exec", version = "1.21.0" }
 
 # Collections (deterministic)
 indexmap = "2.2"

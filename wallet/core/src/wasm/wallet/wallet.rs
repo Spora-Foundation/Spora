@@ -3,10 +3,10 @@ use crate::storage::local::interface::LocalStore;
 use crate::storage::WalletDescriptor;
 use crate::wallet as native;
 use crate::wasm::notify::{WalletEventTarget, WalletNotificationCallback, WalletNotificationTypeOrCallback};
-use tondi_consensus_core::network::NetworkIdT;
-use tondi_wallet_macros::declare_typescript_wasm_interface as declare;
-use tondi_wasm_core::events::{get_event_targets, Sink};
-use tondi_wrpc_wasm::{IConnectOptions, Resolver, RpcClient, RpcConfig, WrpcEncoding};
+use spora_consensus_core::network::NetworkIdT;
+use spora_wallet_macros::declare_typescript_wasm_interface as declare;
+use spora_wasm_core::events::{get_event_targets, Sink};
+use spora_wrpc_wasm::{IConnectOptions, Resolver, RpcClient, RpcConfig, WrpcEncoding};
 
 declare! {
     IWalletConfig,
@@ -88,7 +88,7 @@ impl Inner {
 /// between the integrated Wallet subsystem providing a high-level interface
 /// for wallet key and account management.
 ///
-/// The Rusty Tondi is developed in Rust, and the Wallet class is a Rust implementation
+/// The Rusty Spora is developed in Rust, and the Wallet class is a Rust implementation
 /// exposed to the JavaScript/TypeScript environment using the WebAssembly (WASM32) interface.
 /// As such, the Wallet implementation can be powered up using native Rust or built
 /// as a WebAssembly module and used in the browser or Node.js environment.

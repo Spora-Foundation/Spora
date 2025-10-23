@@ -1,4 +1,4 @@
-use tondi_consensus_core::api::counters::ProcessingCountersSnapshot;
+use spora_consensus_core::api::counters::ProcessingCountersSnapshot;
 
 use super::ExtraData;
 

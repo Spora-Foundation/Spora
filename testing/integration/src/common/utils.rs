@@ -9,8 +9,8 @@ use std::{
     time::Duration,
 };
 use tokio::time::timeout;
-use tondi_addresses::Address;
-use tondi_consensus_core::{
+use spora_addresses::Address;
+use spora_consensus_core::{
     constants::TX_VERSION,
     header::Header,
     sign::sign,
@@ -24,10 +24,10 @@ use tondi_consensus_core::{
         utxo_diff::UtxoDiff,
     },
 };
-use tondi_core::info;
-use tondi_grpc_client::GrpcClient;
-use tondi_rpc_core::{api::rpc::RpcApi, BlockAddedNotification, Notification, RpcUtxoEntry, VirtualDaaScoreChangedNotification};
-use tondi_txscript::pay_to_address_script;
+use spora_core::info;
+use spora_grpc_client::GrpcClient;
+use spora_rpc_core::{api::rpc::RpcApi, BlockAddedNotification, Notification, RpcUtxoEntry, VirtualDaaScoreChangedNotification};
+use spora_txscript::pay_to_address_script;
 
 pub(crate) const EXPAND_FACTOR: u64 = 1;
 pub(crate) const CONTRACT_FACTOR: u64 = 1;

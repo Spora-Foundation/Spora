@@ -4,7 +4,7 @@ use super::prelude::{Cache, DbKey, DbWriter};
 use rocksdb::{Direction, IterateBounds, IteratorMode, ReadOptions};
 use serde::{de::DeserializeOwned, Serialize};
 use std::{collections::hash_map::RandomState, error::Error, hash::BuildHasher, sync::Arc};
-use tondi_utils::mem_size::MemSizeEstimator;
+use spora_utils::mem_size::MemSizeEstimator;
 
 /// A concurrent DB store access with typed caching.
 #[derive(Clone)]
@@ -244,7 +244,7 @@ mod tests {
         prelude::{BatchDbWriter, ConnBuilder, DirectDbWriter},
     };
     use rocksdb::WriteBatch;
-    use tondi_hashes::Hash;
+    use spora_hashes::Hash;
 
     #[test]
     fn test_delete_all() {

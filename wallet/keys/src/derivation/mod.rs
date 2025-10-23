@@ -1,5 +1,5 @@
 //!
-//! Derivation utilities used by the integrated Tondi Wallet API.
+//! Derivation utilities used by the integrated Spora Wallet API.
 //!
 
 pub mod gen0;

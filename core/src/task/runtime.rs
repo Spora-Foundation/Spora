@@ -5,10 +5,10 @@ use std::{
     thread::{self, JoinHandle as ThreadJoinHandle},
 };
 use tokio::task::JoinHandle as TaskJoinHandle;
-use tondi_core::core::Core;
-use tondi_core::service::Service;
-use tondi_core::task::service::AsyncService;
-use tondi_core::trace;
+use spora_core::core::Core;
+use spora_core::service::Service;
+use spora_core::task::service::AsyncService;
+use spora_core::trace;
 
 /// AsyncRuntime registers async services and provides
 /// a tokio Runtime to run them.

@@ -1,4 +1,4 @@
-use tondi_txscript_errors::TxScriptError;
+use spora_txscript_errors::TxScriptError;
 
 /// RuntimeSigOpCounter represents the state tracking of signature operations during script execution.
 /// Unlike the static counting approach which counts all possible signature operations,
@@ -28,7 +28,7 @@ impl RuntimeSigOpCounter {
     ///
     /// # Example
     /// ```
-    /// let mut counter = tondi_txscript::runtime_sig_op_counter::RuntimeSigOpCounter::new(1);
+    /// let mut counter = spora_txscript::runtime_sig_op_counter::RuntimeSigOpCounter::new(1);
     ///
     /// // Consume 1 operation
     /// counter.consume_sig_op().unwrap(); // Ok(())

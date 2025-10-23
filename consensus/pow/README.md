@@ -58,8 +58,8 @@ SwiftHeavy vs Original Algorithm:
 ## Usage
 
 ```rust
-use tondi_pow::matrix::Matrix;
-use tondi_hashes::Hash;
+use spora_pow::matrix::Matrix;
+use spora_hashes::Hash;
 
 let matrix = Matrix::generate(Hash::from_bytes([42; 32]));
 let hash = Hash::from_bytes([123; 32]);
@@ -70,12 +70,12 @@ let result = matrix.swift_heavy_hash(hash);
 
 Run the test suite:
 ```bash
-cargo test -p tondi-pow
+cargo test -p spora-pow
 ```
 
 Run benchmarks:
 ```bash
-cargo bench -p tondi-pow
+cargo bench -p spora-pow
 ```
 
 ## WASM Support

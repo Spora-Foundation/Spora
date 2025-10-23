@@ -4,13 +4,13 @@ mod result;
 use clap::Parser;
 use result::Result;
 use std::sync::Arc;
-use tondi_consensus_core::network::NetworkType;
-use tondi_rpc_core::api::ops::RpcApiOps;
-use tondi_wrpc_server::{
+use spora_consensus_core::network::NetworkType;
+use spora_rpc_core::api::ops::RpcApiOps;
+use spora_wrpc_server::{
     connection::Connection,
     router::Router,
     server::Server,
-    service::{Options, TondiRpcHandler},
+    service::{Options, SporaRpcHandler},
 };
 use workflow_log::*;
 use workflow_rpc::server::prelude::*;
@@ -82,7 +82,7 @@ async fn main() -> Result<()> {
 
     let counters = Arc::new(WebSocketCounters::default());
     let tasks = threads.unwrap_or_else(num_cpus::get);
-    let rpc_handler = Arc::new(TondiRpcHandler::new(tasks, encoding, None, options.clone()));
+    let rpc_handler = Arc::new(SporaRpcHandler::new(tasks, encoding, None, options.clone()));
 
     let router = Arc::new(Router::new(rpc_handler.server.clone()));
     let server = RpcServer::new_with_encoding::<Server, Connection, RpcApiOps, Id64>(
@@ -93,7 +93,7 @@ async fn main() -> Result<()> {
         false,
     );
 
-    log_info!("Tondi wRPC server is listening on {}", options.listen_address);
+    log_info!("Spora wRPC server is listening on {}", options.listen_address);
     log_info!("Using `{encoding}` protocol encoding");
 
     let config = WebSocketConfig { max_message_size: Some(1024 * 1024 * 1024), ..Default::default() };

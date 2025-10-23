@@ -8,8 +8,8 @@ use std::{
 use thiserror::Error;
 use tokio::sync::oneshot::Sender as OneshotSender;
 use tokio::{sync::mpsc::Receiver as MpscReceiver, time::sleep};
-use tondi_core::{debug, info, warn};
-use tondi_notify::connection::Connection as ConnectionT;
+use spora_core::{debug, info, warn};
+use spora_notify::connection::Connection as ConnectionT;
 
 #[derive(Debug, Error)]
 pub(crate) enum RegistrationError {

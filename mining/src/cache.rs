@@ -1,7 +1,7 @@
 use parking_lot::{Mutex, MutexGuard};
 use std::sync::Arc;
-use tondi_consensus_core::block::{BlockTemplate, VirtualStateApproxId};
-use tondi_core::time::unix_now;
+use spora_consensus_core::block::{BlockTemplate, VirtualStateApproxId};
+use spora_core::time::unix_now;
 
 /// CACHE_LIFETIME indicates the default duration in milliseconds after which the cached data expires.
 const DEFAULT_CACHE_LIFETIME: u64 = 1_000;

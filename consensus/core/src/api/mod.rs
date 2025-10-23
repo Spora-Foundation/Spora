@@ -1,6 +1,6 @@
 use futures_util::future::BoxFuture;
 use std::sync::Arc;
-use tondi_muhash::MuHash;
+use spora_muhash::MuHash;
 
 use crate::{
     acceptance_data::AcceptanceData,
@@ -24,7 +24,7 @@ use crate::{
     // utxo::utxo_inquirer::UtxoInquirerError, // UTXO deprecated - use Cell validation
     BlockHashSet, BlueWorkType, ChainPath,
 };
-use tondi_hashes::Hash;
+use spora_hashes::Hash;
 
 pub use self::stats::{BlockCount, ConsensusStats};
 

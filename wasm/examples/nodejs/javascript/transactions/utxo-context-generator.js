@@ -9,10 +9,10 @@ const {
     Generator,
     UtxoProcessor,
     UtxoContext,
-    tondiToSau,
+    sporaToSau,
     createTransactions,
     initConsolePanicHook
-} = require('../../../../nodejs/tondi');
+} = require('../../../../nodejs/spora');
 
 initConsolePanicHook();
 
@@ -66,13 +66,13 @@ const { encoding, networkId, address : destinationAddress } = require("../utils"
     await context.trackAddresses([sourceAddress]);
 
     // 7) Check balance, if there are enough funds, send a transaction
-    if (context.balance.mature > tondiToSau(0.2) + 1000n) {
+    if (context.balance.mature > sporaToSau(0.2) + 1000n) {
         console.log("Sending transaction");
 
         let generator = new Generator({
             entries : context,
-            outputs: [{address, amount : tondiToSau(0.2)}],
-            priorityFee: tondiToSau(0.0001),
+            outputs: [{address, amount : sporaToSau(0.2)}],
+            priorityFee: sporaToSau(0.0001),
             changeAddress: sourceAddress,
         });
 

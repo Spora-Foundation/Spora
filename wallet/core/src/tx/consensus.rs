@@ -3,8 +3,8 @@
 //! on the network type or address prefix.
 //!
 
-use tondi_addresses::{Address, Prefix};
-use tondi_consensus_core::{
+use spora_addresses::{Address, Prefix};
+use spora_consensus_core::{
     config::params::{Params, DEVNET_PARAMS, MAINNET_PARAMS, SIMNET_PARAMS, TESTNET_PARAMS},
     network::NetworkType,
 };

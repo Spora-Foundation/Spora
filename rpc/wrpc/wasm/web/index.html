@@ -1,10 +1,10 @@
 <html>
     <head>
         <script type="module">
-            import * as tondi from './tondi-rpc/tondi-rpc.js';
+            import * as spora from './spora-rpc/spora-rpc.js';
             (async () => {
-                await tondi.default('./tondi-rpc/tondi-rpc_bg.wasm');
-                console.log(tondi.version());
+                await spora.default('./spora-rpc/spora-rpc_bg.wasm');
+                console.log(spora.version());
             })();
         </script>
     </head>

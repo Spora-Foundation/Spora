@@ -1,14 +1,14 @@
 use crate::{adaptor::Adaptor, manager::Manager};
 use std::sync::Arc;
-use tondi_consensus_core::config::Config;
-use tondi_core::{
+use spora_consensus_core::config::Config;
+use spora_core::{
     debug,
     task::service::{AsyncService, AsyncServiceFuture},
     trace, warn,
 };
-use tondi_rpc_service::service::RpcCoreService;
-use tondi_utils::{networking::NetAddress, triggers::SingleTrigger};
-use tondi_utils_tower::counters::TowerConnectionCounters;
+use spora_rpc_service::service::RpcCoreService;
+use spora_utils::{networking::NetAddress, triggers::SingleTrigger};
+use spora_utils_tower::counters::TowerConnectionCounters;
 use triggered::Listener;
 
 pub struct GrpcService {

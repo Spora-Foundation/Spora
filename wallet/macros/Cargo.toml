@@ -1,5 +1,5 @@
 [package]
-name = "tondi-wallet-macros"
+name = "spora-wallet-macros"
 rust-version.workspace = true
 authors.workspace = true
 edition.workspace = true
@@ -10,7 +10,7 @@ keywords = ["rpc"]
 categories = []
 exclude = ["/.*", "/test"]
 description = """
-Macros for the Tondi Wallet infrastructure
+Macros for the Spora Wallet infrastructure
 """
 
 [lib]

@@ -1,5 +1,5 @@
 use super::coinbase_mock::CoinbaseManagerMock;
-use tondi_consensus_core::{
+use spora_consensus_core::{
     api::{
         args::{TransactionValidationArgs, TransactionValidationBatchArgs},
         ConsensusApi,
@@ -18,8 +18,8 @@ use tondi_consensus_core::{
     tx::{MutableTransaction, Transaction, TransactionId, TransactionOutpoint, UtxoEntry},
     utxo::utxo_collection::UtxoCollection,
 };
-use tondi_core::time::unix_now;
-use tondi_hashes::{Hash, ZERO_HASH};
+use spora_core::time::unix_now;
+use spora_hashes::{Hash, ZERO_HASH};
 
 use parking_lot::RwLock;
 use std::{collections::HashMap, sync::Arc};

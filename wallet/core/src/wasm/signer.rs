@@ -2,14 +2,14 @@ use crate::imports::*;
 use crate::result::Result;
 use js_sys::Array;
 use serde_wasm_bindgen::from_value;
-use tondi_consensus_client::{sign_with_multiple_v3, Transaction};
-use tondi_consensus_core::hashing::wasm::SighashType;
-use tondi_consensus_core::sign::sign_input;
-use tondi_consensus_core::tx::PopulatedTransaction;
-use tondi_consensus_core::{hashing::sighash_type::SIG_HASH_ALL, sign::verify};
-use tondi_hashes::Hash;
-use tondi_wallet_keys::privatekey::PrivateKey;
-use tondi_wasm_core::types::HexString;
+use spora_consensus_client::{sign_with_multiple_v3, Transaction};
+use spora_consensus_core::hashing::wasm::SighashType;
+use spora_consensus_core::sign::sign_input;
+use spora_consensus_core::tx::PopulatedTransaction;
+use spora_consensus_core::{hashing::sighash_type::SIG_HASH_ALL, sign::verify};
+use spora_hashes::Hash;
+use spora_wallet_keys::privatekey::PrivateKey;
+use spora_wasm_core::types::HexString;
 
 #[wasm_bindgen]
 extern "C" {

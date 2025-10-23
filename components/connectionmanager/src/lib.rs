@@ -19,13 +19,13 @@ use tokio::{
     },
     time::{interval, MissedTickBehavior},
 };
-use tondi_addressmanager::{AddressManager, NetAddress};
-use tondi_core::{debug, info, warn};
-use tondi_p2p_lib::{common::ProtocolError, ConnectionError, Peer};
-use tondi_utils::triggers::SingleTrigger;
+use spora_addressmanager::{AddressManager, NetAddress};
+use spora_core::{debug, info, warn};
+use spora_p2p_lib::{common::ProtocolError, ConnectionError, Peer};
+use spora_utils::triggers::SingleTrigger;
 
 pub struct ConnectionManager {
-    p2p_adaptor: Arc<tondi_p2p_lib::Adaptor>,
+    p2p_adaptor: Arc<spora_p2p_lib::Adaptor>,
     outbound_target: usize,
     inbound_limit: usize,
     dns_seeders: &'static [&'static str],
@@ -51,7 +51,7 @@ impl ConnectionRequest {
 
 impl ConnectionManager {
     pub fn new(
-        p2p_adaptor: Arc<tondi_p2p_lib::Adaptor>,
+        p2p_adaptor: Arc<spora_p2p_lib::Adaptor>,
         outbound_target: usize,
         inbound_limit: usize,
         dns_seeders: &'static [&'static str],
@@ -160,7 +160,7 @@ impl ConnectionManager {
     }
 
     async fn handle_outbound_connections(self: &Arc<Self>, peer_by_address: &HashMap<SocketAddr, Peer>) {
-        let active_outbound: HashSet<tondi_addressmanager::NetAddress> =
+        let active_outbound: HashSet<spora_addressmanager::NetAddress> =
             peer_by_address.values().filter(|peer| peer.is_outbound()).map(|peer| peer.net_address().into()).collect();
         if active_outbound.len() >= self.outbound_target {
             return;
@@ -310,7 +310,7 @@ impl ConnectionManager {
 
     /// Bans the given IP and disconnects from all the peers with that IP.
     ///
-    /// _GO-Tondid: BanByIP_
+    /// _GO-Sporad: BanByIP_
     pub async fn ban(&self, ip: IpAddr) {
         if self.ip_has_permanent_connection(ip).await {
             return;

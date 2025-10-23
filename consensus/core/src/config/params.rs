@@ -9,8 +9,8 @@ use crate::{
     BlockLevel, KType,
 };
 use std::cmp::min;
-use tondi_addresses::Prefix;
-use tondi_math::Uint256;
+use spora_addresses::Prefix;
+use spora_math::Uint256;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ForkActivation(u64);
@@ -241,7 +241,7 @@ pub struct Params {
     pub mass_per_sig_op: u64,
     pub max_block_mass: u64,
 
-    /// The parameter for scaling inverse TONDI value to mass units (KIP-0009)
+    /// The parameter for scaling inverse SPORA value to mass units (KIP-0009)
     pub storage_mass_parameter: u64,
 
     /// DAA score after which the pre-deflationary period switches to the deflationary period
@@ -381,7 +381,7 @@ impl Params {
     }
 
     /// Returns the depth at which the anticone of a chain block is final (i.e., is a permanently closed set).
-    /// Based on the analysis at <https://github.com/tondinet/docs/blob/main/Reference/prunality/Prunality.pdf>
+    /// Based on the analysis at <https://github.com/sporanet/docs/blob/main/Reference/prunality/Prunality.pdf>
     /// and on the decomposition of merge depth (rule R-I therein) from finality depth (φ)
     pub fn anticone_finalization_depth(&self) -> ForkedParam<u64> {
         let prior_anticone_finalization_depth = self.prior_finality_depth
@@ -484,11 +484,11 @@ pub const MAINNET_PARAMS: Params = Params {
         // This DNS seeder is run by Tim
         "tondidns.tondicalc.net",
         // This DNS seeder is run by supertypo
-        "n-mainnet.tondi.ws",
+        "n-mainnet.spora.ws",
         // This DNS seeder is run by -gerri-
-        "dnsseeder-tondi-mainnet.x-con.at",
+        "dnsseeder-spora-mainnet.x-con.at",
         // This DNS seeder is run by H@H
-        "ns-mainnet.tondi-dnsseeder.net",
+        "ns-mainnet.spora-dnsseeder.net",
     ],
     net: NetworkId::new(NetworkType::Mainnet),
     genesis: GENESIS,
@@ -536,7 +536,7 @@ pub const MAINNET_PARAMS: Params = Params {
 };
 
 pub const TESTNET_PARAMS: Params = Params {
-    dns_seeders: &["discover.tondi.org", "nodes.discover.tondi.org"],
+    dns_seeders: &["discover.spora.org", "nodes.discover.spora.org"],
     net: NetworkId::with_suffix(NetworkType::Testnet, 10),
     genesis: TESTNET_GENESIS,
     prior_ghostdag_k: LEGACY_DEFAULT_GHOSTDAG_K,

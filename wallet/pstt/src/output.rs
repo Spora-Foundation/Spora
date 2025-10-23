@@ -5,7 +5,7 @@ use crate::utils::combine_if_no_conflicts;
 use derive_builder::Builder;
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, ops::Add};
-use tondi_consensus_core::tx::ScriptPublicKey;
+use spora_consensus_core::tx::ScriptPublicKey;
 
 #[derive(Builder, Default, Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -16,7 +16,7 @@ pub struct Output {
     /// The script for this output, also known as the scriptPubKey.
     pub script_public_key: ScriptPublicKey,
     #[builder(setter(strip_option))]
-    #[serde(with = "tondi_utils::serde_bytes_optional")]
+    #[serde(with = "spora_utils::serde_bytes_optional")]
     /// The redeem script for this output.
     pub redeem_script: Option<Vec<u8>>,
     /// A map from public keys needed to spend this output to their

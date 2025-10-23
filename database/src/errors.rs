@@ -1,7 +1,7 @@
 use crate::prelude::DbKey;
 use std::error::Error as StdError;
 use thiserror::Error;
-use tondi_hashes::Hash;
+use spora_hashes::Hash;
 
 #[derive(Error, Debug)]
 pub enum StoreError {

@@ -1,6 +1,6 @@
 #![allow(non_snake_case)]
 use cfg_if::cfg_if;
-use tondi_wallet_macros::declare_typescript_wasm_interface as declare;
+use spora_wallet_macros::declare_typescript_wasm_interface as declare;
 use wasm_bindgen::prelude::*;
 
 cfg_if! {
@@ -478,8 +478,8 @@ declare! {
     r#"
     /**
      * Emitted by {@link UtxoProcessor} after successfully opening an RPC
-     * connection to the Tondi node. This event contains general information
-     * about the Tondi node.
+     * connection to the Spora node. This event contains general information
+     * about the Spora node.
      * 
      * @category Wallet Events
      */

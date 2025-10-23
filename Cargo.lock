@@ -4932,17 +4932,17 @@ dependencies = [
  "rand_distr",
  "rayon",
  "secp256k1 0.29.1",
+ "spora-alloc",
+ "spora-consensus",
+ "spora-consensus-core",
+ "spora-consensus-notify",
+ "spora-core",
+ "spora-database",
+ "spora-hashes",
+ "spora-perf-monitor",
+ "spora-utils",
  "time",
  "tokio",
- "tondi-alloc",
- "tondi-consensus",
- "tondi-consensus-core",
- "tondi-consensus-notify",
- "tondi-core",
- "tondi-database",
- "tondi-hashes",
- "tondi-perf-monitor",
- "tondi-utils",
 ]
 
 [[package]]
@@ -5019,6 +5019,1437 @@ checksum = "d91ed6c858b01f942cd56b37a94b3e0a1798290327d1236e4d9cf4eaca44d29d"
 dependencies = [
  "base64ct",
  "der",
+]
+
+[[package]]
+name = "spora-adaptor"
+version = "1.0.2"
+dependencies = [
+ "generic-array",
+ "hex",
+ "k256",
+ "rand 0.8.5",
+ "rand_core 0.6.4",
+ "secp256k1 0.29.1",
+ "serde",
+ "sha2",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "spora-addresses"
+version = "1.21.0"
+dependencies = [
+ "bech32",
+ "borsh",
+ "criterion",
+ "js-sys",
+ "secp256k1 0.29.1",
+ "serde",
+ "smallvec",
+ "thiserror 1.0.69",
+ "wasm-bindgen",
+ "wasm-bindgen-test",
+ "web-sys",
+ "workflow-log",
+ "workflow-wasm",
+]
+
+[[package]]
+name = "spora-addressmanager"
+version = "1.21.0"
+dependencies = [
+ "borsh",
+ "igd-next",
+ "itertools 0.13.0",
+ "local-ip-address",
+ "log",
+ "parking_lot",
+ "rand 0.8.5",
+ "rocksdb",
+ "rv",
+ "serde",
+ "spora-consensus-core",
+ "spora-core",
+ "spora-database",
+ "spora-utils",
+ "thiserror 1.0.69",
+ "tokio",
+]
+
+[[package]]
+name = "spora-alloc"
+version = "1.21.0"
+dependencies = [
+ "mimalloc",
+]
+
+[[package]]
+name = "spora-bip32"
+version = "1.21.0"
+dependencies = [
+ "borsh",
+ "bs58",
+ "faster-hex",
+ "getrandom 0.2.16",
+ "getrandom 0.3.3",
+ "hmac",
+ "js-sys",
+ "once_cell",
+ "pbkdf2",
+ "rand 0.8.5",
+ "rand_core 0.6.4",
+ "ripemd",
+ "secp256k1 0.29.1",
+ "serde",
+ "sha2",
+ "spora-consensus-core",
+ "spora-utils",
+ "subtle",
+ "thiserror 1.0.69",
+ "wasm-bindgen",
+ "workflow-wasm",
+ "zeroize",
+]
+
+[[package]]
+name = "spora-cellindex"
+version = "1.21.0"
+dependencies = [
+ "anyhow",
+ "log",
+ "parking_lot",
+ "serde",
+ "spora-consensus-core",
+ "spora-exec",
+ "spora-state",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tokio",
+]
+
+[[package]]
+name = "spora-cli"
+version = "1.21.0"
+dependencies = [
+ "async-trait",
+ "borsh",
+ "cfg-if 1.0.3",
+ "convert_case 0.6.0",
+ "dashmap",
+ "downcast",
+ "faster-hex",
+ "futures",
+ "hex",
+ "js-sys",
+ "nw-sys",
+ "pad",
+ "regex",
+ "separator",
+ "serde",
+ "serde_json",
+ "spora-addresses",
+ "spora-bip32",
+ "spora-consensus-core",
+ "spora-core",
+ "spora-daemon",
+ "spora-metrics-core",
+ "spora-rpc-core",
+ "spora-utils",
+ "spora-wallet-core",
+ "spora-wallet-keys",
+ "spora-wallet-pstt",
+ "spora-wrpc-client",
+ "textwrap 0.16.2",
+ "thiserror 1.0.69",
+ "tokio",
+ "wasm-bindgen",
+ "web-sys",
+ "workflow-core",
+ "workflow-dom",
+ "workflow-log",
+ "workflow-node",
+ "workflow-nw",
+ "workflow-store",
+ "workflow-terminal",
+ "workflow-wasm",
+]
+
+[[package]]
+name = "spora-connectionmanager"
+version = "1.21.0"
+dependencies = [
+ "duration-string",
+ "futures-util",
+ "itertools 0.13.0",
+ "log",
+ "parking_lot",
+ "rand 0.8.5",
+ "spora-addressmanager",
+ "spora-core",
+ "spora-p2p-lib",
+ "spora-utils",
+ "tokio",
+]
+
+[[package]]
+name = "spora-consensus"
+version = "1.21.0"
+dependencies = [
+ "arc-swap",
+ "async-channel 2.5.0",
+ "bincode",
+ "blake3",
+ "borsh",
+ "criterion",
+ "crossbeam-channel",
+ "faster-hex",
+ "flate2",
+ "futures-util",
+ "hex",
+ "indexmap 2.11.4",
+ "itertools 0.13.0",
+ "log",
+ "once_cell",
+ "parking_lot",
+ "rand 0.8.5",
+ "rand_distr",
+ "rayon",
+ "rocksdb",
+ "secp256k1 0.29.1",
+ "serde",
+ "serde_json",
+ "smallvec",
+ "spora-addresses",
+ "spora-consensus-core",
+ "spora-consensus-notify",
+ "spora-consensusmanager",
+ "spora-core",
+ "spora-database",
+ "spora-exec",
+ "spora-hashes",
+ "spora-math",
+ "spora-merkle",
+ "spora-muhash",
+ "spora-notify",
+ "spora-pow",
+ "spora-state",
+ "spora-txscript",
+ "spora-txscript-errors",
+ "spora-utils",
+ "thiserror 1.0.69",
+ "time",
+ "tokio",
+]
+
+[[package]]
+name = "spora-consensus-client"
+version = "1.21.0"
+dependencies = [
+ "ahash",
+ "cfg-if 1.0.3",
+ "faster-hex",
+ "hex",
+ "itertools 0.13.0",
+ "js-sys",
+ "rand 0.8.5",
+ "secp256k1 0.29.1",
+ "serde",
+ "serde-wasm-bindgen",
+ "serde_json",
+ "spora-addresses",
+ "spora-consensus-core",
+ "spora-hashes",
+ "spora-math",
+ "spora-txscript",
+ "spora-utils",
+ "spora-wasm-core",
+ "thiserror 1.0.69",
+ "wasm-bindgen",
+ "workflow-log",
+ "workflow-wasm",
+]
+
+[[package]]
+name = "spora-consensus-core"
+version = "1.21.0"
+dependencies = [
+ "arc-swap",
+ "async-trait",
+ "bincode",
+ "bitcoin",
+ "blake3",
+ "borsh",
+ "cfg-if 1.0.3",
+ "criterion",
+ "faster-hex",
+ "futures-util",
+ "getrandom 0.2.16",
+ "hex",
+ "insta",
+ "itertools 0.13.0",
+ "js-sys",
+ "log",
+ "rand 0.8.5",
+ "secp256k1 0.29.1",
+ "serde",
+ "serde-wasm-bindgen",
+ "serde_bytes",
+ "serde_json",
+ "smallvec",
+ "spora-addresses",
+ "spora-core",
+ "spora-exec",
+ "spora-hashes",
+ "spora-math",
+ "spora-merkle",
+ "spora-muhash",
+ "spora-txscript-errors",
+ "spora-utils",
+ "thiserror 1.0.69",
+ "wasm-bindgen",
+ "wasm-bindgen-test",
+ "web-sys",
+ "workflow-core",
+ "workflow-log",
+ "workflow-serializer",
+ "workflow-wasm",
+]
+
+[[package]]
+name = "spora-consensus-notify"
+version = "1.21.0"
+dependencies = [
+ "async-channel 2.5.0",
+ "cfg-if 1.0.3",
+ "derive_more 0.99.20",
+ "futures",
+ "log",
+ "paste",
+ "spora-consensus-core",
+ "spora-core",
+ "spora-hashes",
+ "spora-notify",
+ "spora-utils",
+ "thiserror 1.0.69",
+ "triggered",
+]
+
+[[package]]
+name = "spora-consensus-wasm"
+version = "1.21.0"
+dependencies = [
+ "cfg-if 1.0.3",
+ "faster-hex",
+ "js-sys",
+ "rand 0.8.5",
+ "secp256k1 0.29.1",
+ "serde",
+ "serde-wasm-bindgen",
+ "serde_json",
+ "spora-addresses",
+ "spora-consensus-client",
+ "spora-consensus-core",
+ "spora-hashes",
+ "spora-txscript",
+ "spora-utils",
+ "thiserror 1.0.69",
+ "wasm-bindgen",
+ "workflow-log",
+ "workflow-wasm",
+]
+
+[[package]]
+name = "spora-consensusmanager"
+version = "1.21.0"
+dependencies = [
+ "duration-string",
+ "futures",
+ "futures-util",
+ "itertools 0.13.0",
+ "log",
+ "parking_lot",
+ "rand 0.8.5",
+ "spora-addresses",
+ "spora-consensus-core",
+ "spora-consensus-notify",
+ "spora-core",
+ "spora-utils",
+ "tokio",
+]
+
+[[package]]
+name = "spora-core"
+version = "1.21.0"
+dependencies = [
+ "anyhow",
+ "cfg-if 1.0.3",
+ "ctrlc",
+ "futures-util",
+ "intertrait",
+ "log",
+ "log4rs",
+ "num_cpus",
+ "thiserror 1.0.69",
+ "tokio",
+ "triggered",
+ "wasm-bindgen",
+ "workflow-log",
+]
+
+[[package]]
+name = "spora-daemon"
+version = "1.21.0"
+dependencies = [
+ "async-trait",
+ "borsh",
+ "cfg-if 1.0.3",
+ "downcast-rs",
+ "futures",
+ "nw-sys",
+ "serde",
+ "spora-addresses",
+ "spora-consensus-core",
+ "spora-wallet-core",
+ "thiserror 1.0.69",
+ "workflow-core",
+ "workflow-log",
+ "workflow-node",
+ "workflow-nw",
+ "workflow-store",
+]
+
+[[package]]
+name = "spora-database"
+version = "1.21.0"
+dependencies = [
+ "bincode",
+ "enum-primitive-derive",
+ "faster-hex",
+ "indexmap 2.11.4",
+ "itertools 0.13.0",
+ "num-traits",
+ "num_cpus",
+ "parking_lot",
+ "rand 0.8.5",
+ "rocksdb",
+ "serde",
+ "smallvec",
+ "spora-hashes",
+ "spora-utils",
+ "tempfile",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "spora-exec"
+version = "1.21.0"
+dependencies = [
+ "anyhow",
+ "blake3",
+ "borsh",
+ "byteorder",
+ "ckb-vm",
+ "criterion",
+ "hex",
+ "indexmap 2.11.4",
+ "log",
+ "parking_lot",
+ "proptest",
+ "rayon",
+ "secp256k1 0.29.1",
+ "serde",
+ "spora-hashes",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "spora-grpc-client"
+version = "1.21.0"
+dependencies = [
+ "async-channel 2.5.0",
+ "async-stream",
+ "async-trait",
+ "faster-hex",
+ "futures",
+ "futures-util",
+ "h2 0.4.12",
+ "itertools 0.13.0",
+ "log",
+ "parking_lot",
+ "paste",
+ "prost",
+ "rand 0.8.5",
+ "regex",
+ "rustls",
+ "spora-core",
+ "spora-grpc-core",
+ "spora-notify",
+ "spora-rpc-core",
+ "spora-utils",
+ "spora-utils-tower",
+ "thiserror 1.0.69",
+ "tokio",
+ "tokio-stream",
+ "tonic",
+ "triggered",
+]
+
+[[package]]
+name = "spora-grpc-core"
+version = "1.21.0"
+dependencies = [
+ "async-channel 2.5.0",
+ "async-stream",
+ "async-trait",
+ "faster-hex",
+ "futures",
+ "h2 0.4.12",
+ "log",
+ "paste",
+ "prost",
+ "rand 0.8.5",
+ "regex",
+ "spora-addresses",
+ "spora-consensus-core",
+ "spora-core",
+ "spora-notify",
+ "spora-rpc-core",
+ "spora-utils",
+ "thiserror 1.0.69",
+ "tokio",
+ "tokio-stream",
+ "tonic",
+ "tonic-build",
+ "triggered",
+ "workflow-core",
+]
+
+[[package]]
+name = "spora-grpc-server"
+version = "1.21.0"
+dependencies = [
+ "async-channel 2.5.0",
+ "async-stream",
+ "async-trait",
+ "faster-hex",
+ "futures",
+ "h2 0.4.12",
+ "itertools 0.13.0",
+ "log",
+ "once_cell",
+ "parking_lot",
+ "paste",
+ "prost",
+ "rand 0.8.5",
+ "rustls",
+ "spora-consensus-core",
+ "spora-core",
+ "spora-grpc-client",
+ "spora-grpc-core",
+ "spora-notify",
+ "spora-rpc-core",
+ "spora-rpc-macros",
+ "spora-rpc-service",
+ "spora-utils",
+ "spora-utils-tower",
+ "thiserror 1.0.69",
+ "tokio",
+ "tokio-stream",
+ "tonic",
+ "triggered",
+ "uuid 1.18.1",
+]
+
+[[package]]
+name = "spora-hashes"
+version = "1.21.0"
+dependencies = [
+ "blake3",
+ "borsh",
+ "cc",
+ "criterion",
+ "faster-hex",
+ "insta",
+ "keccak",
+ "rand 0.8.5",
+ "serde",
+ "sha2",
+ "sha3",
+ "spora-utils",
+ "wasm-bindgen",
+ "workflow-wasm",
+]
+
+[[package]]
+name = "spora-index-core"
+version = "1.21.0"
+dependencies = [
+ "async-channel 2.5.0",
+ "async-trait",
+ "derive_more 0.99.20",
+ "futures",
+ "log",
+ "paste",
+ "serde",
+ "spora-consensus-core",
+ "spora-hashes",
+ "spora-notify",
+ "spora-utils",
+ "thiserror 1.0.69",
+ "triggered",
+]
+
+[[package]]
+name = "spora-index-processor"
+version = "1.21.0"
+dependencies = [
+ "async-channel 2.5.0",
+ "async-trait",
+ "derive_more 0.99.20",
+ "futures",
+ "log",
+ "parking_lot",
+ "paste",
+ "rand 0.8.5",
+ "spora-cellindex",
+ "spora-consensus",
+ "spora-consensus-core",
+ "spora-consensus-notify",
+ "spora-consensusmanager",
+ "spora-core",
+ "spora-database",
+ "spora-hashes",
+ "spora-index-core",
+ "spora-notify",
+ "spora-utils",
+ "thiserror 1.0.69",
+ "tokio",
+ "triggered",
+]
+
+[[package]]
+name = "spora-math"
+version = "1.21.0"
+dependencies = [
+ "borsh",
+ "criterion",
+ "faster-hex",
+ "js-sys",
+ "malachite-base",
+ "malachite-nz",
+ "rand_chacha 0.3.1",
+ "serde",
+ "serde-wasm-bindgen",
+ "spora-utils",
+ "thiserror 1.0.69",
+ "wasm-bindgen",
+ "workflow-core",
+ "workflow-log",
+ "workflow-wasm",
+]
+
+[[package]]
+name = "spora-mempool"
+version = "1.21.0"
+dependencies = [
+ "blake3",
+ "indexmap 2.11.4",
+ "parking_lot",
+ "serde",
+ "spora-exec",
+ "tempfile",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "spora-merkle"
+version = "1.21.0"
+dependencies = [
+ "spora-hashes",
+]
+
+[[package]]
+name = "spora-metrics-core"
+version = "1.21.0"
+dependencies = [
+ "async-trait",
+ "borsh",
+ "futures",
+ "separator",
+ "serde",
+ "spora-core",
+ "spora-rpc-core",
+ "thiserror 1.0.69",
+ "workflow-core",
+ "workflow-log",
+]
+
+[[package]]
+name = "spora-mining"
+version = "1.21.0"
+dependencies = [
+ "criterion",
+ "futures-util",
+ "itertools 0.13.0",
+ "log",
+ "parking_lot",
+ "rand 0.8.5",
+ "secp256k1 0.29.1",
+ "serde",
+ "smallvec",
+ "spora-addresses",
+ "spora-consensus-core",
+ "spora-consensusmanager",
+ "spora-core",
+ "spora-hashes",
+ "spora-mining-errors",
+ "spora-muhash",
+ "spora-txscript",
+ "spora-utils",
+ "sweep-bptree",
+ "thiserror 1.0.69",
+ "tokio",
+]
+
+[[package]]
+name = "spora-mining-errors"
+version = "1.21.0"
+dependencies = [
+ "spora-consensus-core",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "spora-muhash"
+version = "1.21.0"
+dependencies = [
+ "criterion",
+ "insta",
+ "rand 0.8.5",
+ "rand_chacha 0.3.1",
+ "rayon",
+ "serde",
+ "spora-hashes",
+ "spora-math",
+]
+
+[[package]]
+name = "spora-notify"
+version = "1.21.0"
+dependencies = [
+ "async-channel 2.5.0",
+ "async-trait",
+ "borsh",
+ "criterion",
+ "derive_more 0.99.20",
+ "futures",
+ "futures-util",
+ "indexmap 2.11.4",
+ "itertools 0.13.0",
+ "log",
+ "parking_lot",
+ "paste",
+ "rand 0.8.5",
+ "serde",
+ "spora-addresses",
+ "spora-alloc",
+ "spora-consensus-core",
+ "spora-core",
+ "spora-hashes",
+ "spora-math",
+ "spora-txscript",
+ "spora-txscript-errors",
+ "spora-utils",
+ "thiserror 1.0.69",
+ "tokio",
+ "triggered",
+ "workflow-core",
+ "workflow-log",
+ "workflow-perf-monitor",
+ "workflow-serializer",
+]
+
+[[package]]
+name = "spora-p2p-flows"
+version = "1.21.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "futures",
+ "indexmap 2.11.4",
+ "itertools 0.13.0",
+ "log",
+ "parking_lot",
+ "rand 0.8.5",
+ "spora-addressmanager",
+ "spora-connectionmanager",
+ "spora-consensus-core",
+ "spora-consensus-notify",
+ "spora-consensusmanager",
+ "spora-core",
+ "spora-hashes",
+ "spora-mining",
+ "spora-muhash",
+ "spora-notify",
+ "spora-p2p-lib",
+ "spora-p2p-mining",
+ "spora-utils",
+ "spora-utils-tower",
+ "thiserror 1.0.69",
+ "time",
+ "tokio",
+ "tokio-stream",
+ "uuid 1.18.1",
+]
+
+[[package]]
+name = "spora-p2p-lib"
+version = "1.21.0"
+dependencies = [
+ "borsh",
+ "ctrlc",
+ "futures",
+ "h2 0.4.12",
+ "hex",
+ "itertools 0.13.0",
+ "log",
+ "parking_lot",
+ "prost",
+ "rand 0.8.5",
+ "seqlock",
+ "serde",
+ "spora-consensus-core",
+ "spora-core",
+ "spora-hashes",
+ "spora-math",
+ "spora-mining-errors",
+ "spora-utils",
+ "spora-utils-tower",
+ "thiserror 1.0.69",
+ "tokio",
+ "tokio-stream",
+ "tonic",
+ "tonic-build",
+ "uuid 1.18.1",
+]
+
+[[package]]
+name = "spora-p2p-mining"
+version = "1.21.0"
+dependencies = [
+ "log",
+ "spora-consensus-core",
+ "spora-consensusmanager",
+ "spora-core",
+ "spora-hashes",
+ "spora-math",
+ "spora-mining-errors",
+ "spora-p2p-lib",
+ "spora-utils",
+ "spora-utils-tower",
+ "tokio",
+]
+
+[[package]]
+name = "spora-perf-monitor"
+version = "1.21.0"
+dependencies = [
+ "log",
+ "portable-atomic",
+ "spora-core",
+ "thiserror 1.0.69",
+ "tokio",
+ "workflow-perf-monitor",
+]
+
+[[package]]
+name = "spora-pow"
+version = "1.21.0"
+dependencies = [
+ "blake3",
+ "criterion",
+ "js-sys",
+ "num",
+ "sha3",
+ "spora-consensus-client",
+ "spora-consensus-core",
+ "spora-hashes",
+ "spora-math",
+ "spora-utils",
+ "wasm-bindgen",
+ "workflow-wasm",
+]
+
+[[package]]
+name = "spora-rpc-core"
+version = "1.21.0"
+dependencies = [
+ "async-channel 2.5.0",
+ "async-trait",
+ "borsh",
+ "cfg-if 1.0.3",
+ "derive_more 0.99.20",
+ "downcast",
+ "faster-hex",
+ "hex",
+ "js-sys",
+ "log",
+ "paste",
+ "rand 0.8.5",
+ "serde",
+ "serde-wasm-bindgen",
+ "serde_json",
+ "smallvec",
+ "spora-addresses",
+ "spora-consensus-client",
+ "spora-consensus-core",
+ "spora-consensus-notify",
+ "spora-consensus-wasm",
+ "spora-core",
+ "spora-hashes",
+ "spora-index-core",
+ "spora-math",
+ "spora-mining-errors",
+ "spora-notify",
+ "spora-rpc-macros",
+ "spora-txscript",
+ "spora-utils",
+ "thiserror 1.0.69",
+ "uuid 1.18.1",
+ "wasm-bindgen",
+ "workflow-core",
+ "workflow-serializer",
+ "workflow-wasm",
+]
+
+[[package]]
+name = "spora-rpc-macros"
+version = "1.21.0"
+dependencies = [
+ "convert_case 0.6.0",
+ "proc-macro-error",
+ "proc-macro2",
+ "quote",
+ "regex",
+ "syn 1.0.109",
+]
+
+[[package]]
+name = "spora-rpc-service"
+version = "1.21.0"
+dependencies = [
+ "async-trait",
+ "log",
+ "spora-addresses",
+ "spora-consensus-core",
+ "spora-consensus-notify",
+ "spora-consensusmanager",
+ "spora-core",
+ "spora-hashes",
+ "spora-index-core",
+ "spora-math",
+ "spora-mining",
+ "spora-notify",
+ "spora-p2p-flows",
+ "spora-p2p-lib",
+ "spora-p2p-mining",
+ "spora-perf-monitor",
+ "spora-rpc-core",
+ "spora-txscript",
+ "spora-utils",
+ "spora-utils-tower",
+ "tokio",
+ "triggered",
+ "workflow-rpc",
+]
+
+[[package]]
+name = "spora-spora"
+version = "1.21.0"
+dependencies = [
+ "serde",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "spora-state"
+version = "1.21.0"
+dependencies = [
+ "anyhow",
+ "blake3",
+ "borsh",
+ "indexmap 2.11.4",
+ "lru 0.12.5",
+ "memmap2",
+ "parking_lot",
+ "proptest",
+ "rocksdb",
+ "serde",
+ "spora-exec",
+ "spora-hashes",
+ "tempfile",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "spora-txscript"
+version = "1.21.0"
+dependencies = [
+ "bitcoin",
+ "blake2b_simd",
+ "blake3",
+ "borsh",
+ "cfg-if 1.0.3",
+ "chrono",
+ "criterion",
+ "hex",
+ "hexplay",
+ "indexmap 2.11.4",
+ "itertools 0.13.0",
+ "log",
+ "musig2",
+ "parking_lot",
+ "rand 0.8.5",
+ "secp256k1 0.29.1",
+ "serde",
+ "serde-wasm-bindgen",
+ "serde_json",
+ "sha2",
+ "smallvec",
+ "spora-addresses",
+ "spora-consensus-core",
+ "spora-hashes",
+ "spora-txscript-errors",
+ "spora-utils",
+ "spora-wasm-core",
+ "thiserror 1.0.69",
+ "wasm-bindgen",
+ "workflow-wasm",
+]
+
+[[package]]
+name = "spora-txscript-errors"
+version = "1.21.0"
+dependencies = [
+ "secp256k1 0.29.1",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "spora-utils"
+version = "1.21.0"
+dependencies = [
+ "arc-swap",
+ "async-channel 2.5.0",
+ "async-trait",
+ "bincode",
+ "blake3",
+ "borsh",
+ "cfg-if 1.0.3",
+ "criterion",
+ "duct",
+ "event-listener 2.5.3",
+ "faster-hex",
+ "futures-util",
+ "hex",
+ "ipnet",
+ "itertools 0.13.0",
+ "log",
+ "mac_address",
+ "num_cpus",
+ "once_cell",
+ "parking_lot",
+ "rand 0.8.5",
+ "rlimit",
+ "serde",
+ "serde_json",
+ "sha2",
+ "smallvec",
+ "sysinfo",
+ "thiserror 1.0.69",
+ "tokio",
+ "triggered",
+ "uuid 1.18.1",
+ "wasm-bindgen",
+]
+
+[[package]]
+name = "spora-utils-tower"
+version = "1.21.0"
+dependencies = [
+ "bytes",
+ "cfg-if 1.0.3",
+ "futures",
+ "http-body 1.0.1",
+ "http-body-util",
+ "log",
+ "pin-project-lite",
+ "tokio",
+ "tower 0.5.2",
+ "tower-http 0.5.2",
+]
+
+[[package]]
+name = "spora-wallet"
+version = "1.21.0"
+dependencies = [
+ "async-std",
+ "async-trait",
+ "spora-cli",
+ "tokio",
+ "workflow-log",
+ "workflow-terminal",
+]
+
+[[package]]
+name = "spora-wallet-cli-wasm"
+version = "1.21.0"
+dependencies = [
+ "async-trait",
+ "js-sys",
+ "spora-cli",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "workflow-log",
+ "workflow-terminal",
+ "workflow-wasm",
+]
+
+[[package]]
+name = "spora-wallet-core"
+version = "1.21.0"
+dependencies = [
+ "aes",
+ "ahash",
+ "argon2",
+ "async-channel 2.5.0",
+ "async-std",
+ "async-trait",
+ "base64",
+ "blake3",
+ "borsh",
+ "cfb-mode",
+ "cfg-if 1.0.3",
+ "chacha20poly1305",
+ "convert_case 0.6.0",
+ "crypto_box",
+ "dashmap",
+ "derivative",
+ "downcast",
+ "evpkdf",
+ "faster-hex",
+ "fixedstr",
+ "futures",
+ "heapless",
+ "hex-literal",
+ "hmac",
+ "home",
+ "indexed_db_futures",
+ "itertools 0.13.0",
+ "js-sys",
+ "md-5",
+ "pad",
+ "pbkdf2",
+ "rand 0.8.5",
+ "regex",
+ "ripemd",
+ "secp256k1 0.29.1",
+ "separator",
+ "serde",
+ "serde-wasm-bindgen",
+ "serde_json",
+ "serde_repr",
+ "sha1",
+ "sha2",
+ "slugify-rs",
+ "sorted-insert",
+ "spora-addresses",
+ "spora-bip32",
+ "spora-consensus-client",
+ "spora-consensus-core",
+ "spora-consensus-wasm",
+ "spora-core",
+ "spora-hashes",
+ "spora-metrics-core",
+ "spora-notify",
+ "spora-rpc-core",
+ "spora-txscript",
+ "spora-txscript-errors",
+ "spora-utils",
+ "spora-wallet-keys",
+ "spora-wallet-macros",
+ "spora-wallet-pstt",
+ "spora-wasm-core",
+ "spora-wrpc-client",
+ "spora-wrpc-wasm",
+ "thiserror 1.0.69",
+ "tokio",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+ "workflow-core",
+ "workflow-log",
+ "workflow-node",
+ "workflow-rpc",
+ "workflow-store",
+ "workflow-wasm",
+ "xxhash-rust",
+ "zeroize",
+]
+
+[[package]]
+name = "spora-wallet-keys"
+version = "1.21.0"
+dependencies = [
+ "async-trait",
+ "blake3",
+ "borsh",
+ "downcast",
+ "faster-hex",
+ "hmac",
+ "js-sys",
+ "rand 0.8.5",
+ "ripemd",
+ "secp256k1 0.29.1",
+ "serde",
+ "serde-wasm-bindgen",
+ "serde_json",
+ "sha2",
+ "spora-addresses",
+ "spora-bip32",
+ "spora-consensus-core",
+ "spora-txscript",
+ "spora-txscript-errors",
+ "spora-utils",
+ "spora-wasm-core",
+ "thiserror 1.0.69",
+ "tokio",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "workflow-core",
+ "workflow-wasm",
+ "zeroize",
+]
+
+[[package]]
+name = "spora-wallet-macros"
+version = "1.21.0"
+dependencies = [
+ "convert_case 0.5.0",
+ "proc-macro-error",
+ "proc-macro2",
+ "quote",
+ "regex",
+ "syn 1.0.109",
+ "xxhash-rust",
+]
+
+[[package]]
+name = "spora-wallet-pstt"
+version = "1.21.0"
+dependencies = [
+ "bincode",
+ "console_log",
+ "derive_builder",
+ "futures",
+ "hex",
+ "js-sys",
+ "secp256k1 0.29.1",
+ "separator",
+ "serde",
+ "serde-value",
+ "serde-wasm-bindgen",
+ "serde_json",
+ "serde_repr",
+ "spora-addresses",
+ "spora-bip32",
+ "spora-consensus-client",
+ "spora-consensus-core",
+ "spora-txscript",
+ "spora-txscript-errors",
+ "spora-utils",
+ "thiserror 1.0.69",
+ "wasm-bindgen",
+ "wasm-bindgen-test",
+ "workflow-wasm",
+]
+
+[[package]]
+name = "spora-wasm"
+version = "1.21.0"
+dependencies = [
+ "cfg-if 1.0.3",
+ "js-sys",
+ "num",
+ "spora-addresses",
+ "spora-bip32",
+ "spora-consensus-core",
+ "spora-consensus-wasm",
+ "spora-core",
+ "spora-math",
+ "spora-pow",
+ "spora-rpc-core",
+ "spora-txscript",
+ "spora-utils",
+ "spora-wallet-core",
+ "spora-wallet-keys",
+ "spora-wasm-core",
+ "spora-wrpc-client",
+ "spora-wrpc-wasm",
+ "wasm-bindgen",
+ "workflow-core",
+ "workflow-log",
+ "workflow-wasm",
+]
+
+[[package]]
+name = "spora-wasm-core"
+version = "1.21.0"
+dependencies = [
+ "faster-hex",
+ "hexplay",
+ "js-sys",
+ "wasm-bindgen",
+ "workflow-wasm",
+]
+
+[[package]]
+name = "spora-wrpc-client"
+version = "1.21.0"
+dependencies = [
+ "async-std",
+ "async-trait",
+ "borsh",
+ "cfg-if 1.0.3",
+ "futures",
+ "js-sys",
+ "paste",
+ "rand 0.8.5",
+ "regex",
+ "rustls",
+ "serde",
+ "serde-wasm-bindgen",
+ "serde_json",
+ "spora-addresses",
+ "spora-consensus-core",
+ "spora-consensus-wasm",
+ "spora-notify",
+ "spora-rpc-core",
+ "spora-rpc-macros",
+ "thiserror 1.0.69",
+ "toml",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "workflow-core",
+ "workflow-dom",
+ "workflow-http",
+ "workflow-log",
+ "workflow-rpc",
+ "workflow-serializer",
+ "workflow-wasm",
+]
+
+[[package]]
+name = "spora-wrpc-example-subscriber"
+version = "1.21.0"
+dependencies = [
+ "ctrlc",
+ "futures",
+ "spora-consensus-core",
+ "spora-notify",
+ "spora-rpc-core",
+ "spora-wrpc-client",
+ "tokio",
+ "workflow-core",
+ "workflow-log",
+]
+
+[[package]]
+name = "spora-wrpc-proxy"
+version = "1.21.0"
+dependencies = [
+ "async-trait",
+ "clap 4.5.49",
+ "num_cpus",
+ "spora-consensus-core",
+ "spora-grpc-client",
+ "spora-rpc-core",
+ "spora-rpc-macros",
+ "spora-wrpc-server",
+ "thiserror 1.0.69",
+ "tokio",
+ "workflow-core",
+ "workflow-log",
+ "workflow-rpc",
+]
+
+[[package]]
+name = "spora-wrpc-server"
+version = "1.21.0"
+dependencies = [
+ "async-trait",
+ "borsh",
+ "futures",
+ "log",
+ "num_cpus",
+ "paste",
+ "rustls",
+ "serde",
+ "spora-consensus-core",
+ "spora-core",
+ "spora-grpc-client",
+ "spora-notify",
+ "spora-rpc-core",
+ "spora-rpc-macros",
+ "spora-rpc-service",
+ "spora-utils",
+ "thiserror 1.0.69",
+ "tokio",
+ "workflow-core",
+ "workflow-log",
+ "workflow-rpc",
+ "workflow-serializer",
+]
+
+[[package]]
+name = "spora-wrpc-simple-client-example"
+version = "1.21.0"
+dependencies = [
+ "futures",
+ "spora-rpc-core",
+ "spora-wrpc-client",
+ "tokio",
+]
+
+[[package]]
+name = "spora-wrpc-wasm"
+version = "1.21.0"
+dependencies = [
+ "ahash",
+ "async-std",
+ "cfg-if 1.0.3",
+ "futures",
+ "js-sys",
+ "ring",
+ "serde",
+ "serde-wasm-bindgen",
+ "serde_json",
+ "spora-addresses",
+ "spora-consensus-client",
+ "spora-consensus-core",
+ "spora-consensus-wasm",
+ "spora-notify",
+ "spora-rpc-core",
+ "spora-rpc-macros",
+ "spora-wasm-core",
+ "spora-wrpc-client",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "workflow-core",
+ "workflow-log",
+ "workflow-rpc",
+ "workflow-wasm",
 ]
 
 [[package]]
@@ -5456,1437 +6887,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5d99f8c9a7727884afe522e9bd5edbfc91a3312b36a77b5fb8926e4c31a41801"
 
 [[package]]
-name = "tondi-adaptor"
-version = "1.0.2"
-dependencies = [
- "generic-array",
- "hex",
- "k256",
- "rand 0.8.5",
- "rand_core 0.6.4",
- "secp256k1 0.29.1",
- "serde",
- "sha2",
- "thiserror 1.0.69",
-]
-
-[[package]]
-name = "tondi-addresses"
-version = "1.21.0"
-dependencies = [
- "bech32",
- "borsh",
- "criterion",
- "js-sys",
- "secp256k1 0.29.1",
- "serde",
- "smallvec",
- "thiserror 1.0.69",
- "wasm-bindgen",
- "wasm-bindgen-test",
- "web-sys",
- "workflow-log",
- "workflow-wasm",
-]
-
-[[package]]
-name = "tondi-addressmanager"
-version = "1.21.0"
-dependencies = [
- "borsh",
- "igd-next",
- "itertools 0.13.0",
- "local-ip-address",
- "log",
- "parking_lot",
- "rand 0.8.5",
- "rocksdb",
- "rv",
- "serde",
- "thiserror 1.0.69",
- "tokio",
- "tondi-consensus-core",
- "tondi-core",
- "tondi-database",
- "tondi-utils",
-]
-
-[[package]]
-name = "tondi-alloc"
-version = "1.21.0"
-dependencies = [
- "mimalloc",
-]
-
-[[package]]
-name = "tondi-bip32"
-version = "1.21.0"
-dependencies = [
- "borsh",
- "bs58",
- "faster-hex",
- "getrandom 0.2.16",
- "getrandom 0.3.3",
- "hmac",
- "js-sys",
- "once_cell",
- "pbkdf2",
- "rand 0.8.5",
- "rand_core 0.6.4",
- "ripemd",
- "secp256k1 0.29.1",
- "serde",
- "sha2",
- "subtle",
- "thiserror 1.0.69",
- "tondi-consensus-core",
- "tondi-utils",
- "wasm-bindgen",
- "workflow-wasm",
- "zeroize",
-]
-
-[[package]]
-name = "tondi-cellindex"
-version = "1.21.0"
-dependencies = [
- "anyhow",
- "log",
- "parking_lot",
- "serde",
- "tempfile",
- "thiserror 1.0.69",
- "tokio",
- "tondi-consensus-core",
- "tondi-exec",
- "tondi-state",
-]
-
-[[package]]
-name = "tondi-cli"
-version = "1.21.0"
-dependencies = [
- "async-trait",
- "borsh",
- "cfg-if 1.0.3",
- "convert_case 0.6.0",
- "dashmap",
- "downcast",
- "faster-hex",
- "futures",
- "hex",
- "js-sys",
- "nw-sys",
- "pad",
- "regex",
- "separator",
- "serde",
- "serde_json",
- "textwrap 0.16.2",
- "thiserror 1.0.69",
- "tokio",
- "tondi-addresses",
- "tondi-bip32",
- "tondi-consensus-core",
- "tondi-core",
- "tondi-daemon",
- "tondi-metrics-core",
- "tondi-rpc-core",
- "tondi-utils",
- "tondi-wallet-core",
- "tondi-wallet-keys",
- "tondi-wallet-pstt",
- "tondi-wrpc-client",
- "wasm-bindgen",
- "web-sys",
- "workflow-core",
- "workflow-dom",
- "workflow-log",
- "workflow-node",
- "workflow-nw",
- "workflow-store",
- "workflow-terminal",
- "workflow-wasm",
-]
-
-[[package]]
-name = "tondi-connectionmanager"
-version = "1.21.0"
-dependencies = [
- "duration-string",
- "futures-util",
- "itertools 0.13.0",
- "log",
- "parking_lot",
- "rand 0.8.5",
- "tokio",
- "tondi-addressmanager",
- "tondi-core",
- "tondi-p2p-lib",
- "tondi-utils",
-]
-
-[[package]]
-name = "tondi-consensus"
-version = "1.21.0"
-dependencies = [
- "arc-swap",
- "async-channel 2.5.0",
- "bincode",
- "blake3",
- "borsh",
- "criterion",
- "crossbeam-channel",
- "faster-hex",
- "flate2",
- "futures-util",
- "hex",
- "indexmap 2.11.4",
- "itertools 0.13.0",
- "log",
- "once_cell",
- "parking_lot",
- "rand 0.8.5",
- "rand_distr",
- "rayon",
- "rocksdb",
- "secp256k1 0.29.1",
- "serde",
- "serde_json",
- "smallvec",
- "thiserror 1.0.69",
- "time",
- "tokio",
- "tondi-addresses",
- "tondi-consensus-core",
- "tondi-consensus-notify",
- "tondi-consensusmanager",
- "tondi-core",
- "tondi-database",
- "tondi-exec",
- "tondi-hashes",
- "tondi-math",
- "tondi-merkle",
- "tondi-muhash",
- "tondi-notify",
- "tondi-pow",
- "tondi-state",
- "tondi-txscript",
- "tondi-txscript-errors",
- "tondi-utils",
-]
-
-[[package]]
-name = "tondi-consensus-client"
-version = "1.21.0"
-dependencies = [
- "ahash",
- "cfg-if 1.0.3",
- "faster-hex",
- "hex",
- "itertools 0.13.0",
- "js-sys",
- "rand 0.8.5",
- "secp256k1 0.29.1",
- "serde",
- "serde-wasm-bindgen",
- "serde_json",
- "thiserror 1.0.69",
- "tondi-addresses",
- "tondi-consensus-core",
- "tondi-hashes",
- "tondi-math",
- "tondi-txscript",
- "tondi-utils",
- "tondi-wasm-core",
- "wasm-bindgen",
- "workflow-log",
- "workflow-wasm",
-]
-
-[[package]]
-name = "tondi-consensus-core"
-version = "1.21.0"
-dependencies = [
- "arc-swap",
- "async-trait",
- "bincode",
- "bitcoin",
- "blake3",
- "borsh",
- "cfg-if 1.0.3",
- "criterion",
- "faster-hex",
- "futures-util",
- "getrandom 0.2.16",
- "hex",
- "insta",
- "itertools 0.13.0",
- "js-sys",
- "log",
- "rand 0.8.5",
- "secp256k1 0.29.1",
- "serde",
- "serde-wasm-bindgen",
- "serde_bytes",
- "serde_json",
- "smallvec",
- "thiserror 1.0.69",
- "tondi-addresses",
- "tondi-core",
- "tondi-exec",
- "tondi-hashes",
- "tondi-math",
- "tondi-merkle",
- "tondi-muhash",
- "tondi-txscript-errors",
- "tondi-utils",
- "wasm-bindgen",
- "wasm-bindgen-test",
- "web-sys",
- "workflow-core",
- "workflow-log",
- "workflow-serializer",
- "workflow-wasm",
-]
-
-[[package]]
-name = "tondi-consensus-notify"
-version = "1.21.0"
-dependencies = [
- "async-channel 2.5.0",
- "cfg-if 1.0.3",
- "derive_more 0.99.20",
- "futures",
- "log",
- "paste",
- "thiserror 1.0.69",
- "tondi-consensus-core",
- "tondi-core",
- "tondi-hashes",
- "tondi-notify",
- "tondi-utils",
- "triggered",
-]
-
-[[package]]
-name = "tondi-consensus-wasm"
-version = "1.21.0"
-dependencies = [
- "cfg-if 1.0.3",
- "faster-hex",
- "js-sys",
- "rand 0.8.5",
- "secp256k1 0.29.1",
- "serde",
- "serde-wasm-bindgen",
- "serde_json",
- "thiserror 1.0.69",
- "tondi-addresses",
- "tondi-consensus-client",
- "tondi-consensus-core",
- "tondi-hashes",
- "tondi-txscript",
- "tondi-utils",
- "wasm-bindgen",
- "workflow-log",
- "workflow-wasm",
-]
-
-[[package]]
-name = "tondi-consensusmanager"
-version = "1.21.0"
-dependencies = [
- "duration-string",
- "futures",
- "futures-util",
- "itertools 0.13.0",
- "log",
- "parking_lot",
- "rand 0.8.5",
- "tokio",
- "tondi-addresses",
- "tondi-consensus-core",
- "tondi-consensus-notify",
- "tondi-core",
- "tondi-utils",
-]
-
-[[package]]
-name = "tondi-core"
-version = "1.21.0"
-dependencies = [
- "anyhow",
- "cfg-if 1.0.3",
- "ctrlc",
- "futures-util",
- "intertrait",
- "log",
- "log4rs",
- "num_cpus",
- "thiserror 1.0.69",
- "tokio",
- "triggered",
- "wasm-bindgen",
- "workflow-log",
-]
-
-[[package]]
-name = "tondi-daemon"
-version = "1.21.0"
-dependencies = [
- "async-trait",
- "borsh",
- "cfg-if 1.0.3",
- "downcast-rs",
- "futures",
- "nw-sys",
- "serde",
- "thiserror 1.0.69",
- "tondi-addresses",
- "tondi-consensus-core",
- "tondi-wallet-core",
- "workflow-core",
- "workflow-log",
- "workflow-node",
- "workflow-nw",
- "workflow-store",
-]
-
-[[package]]
-name = "tondi-database"
-version = "1.21.0"
-dependencies = [
- "bincode",
- "enum-primitive-derive",
- "faster-hex",
- "indexmap 2.11.4",
- "itertools 0.13.0",
- "num-traits",
- "num_cpus",
- "parking_lot",
- "rand 0.8.5",
- "rocksdb",
- "serde",
- "smallvec",
- "tempfile",
- "thiserror 1.0.69",
- "tondi-hashes",
- "tondi-utils",
-]
-
-[[package]]
-name = "tondi-exec"
-version = "1.21.0"
-dependencies = [
- "anyhow",
- "blake3",
- "borsh",
- "byteorder",
- "ckb-vm",
- "criterion",
- "hex",
- "indexmap 2.11.4",
- "log",
- "parking_lot",
- "proptest",
- "rayon",
- "secp256k1 0.29.1",
- "serde",
- "thiserror 1.0.69",
- "tondi-hashes",
-]
-
-[[package]]
-name = "tondi-grpc-client"
-version = "1.21.0"
-dependencies = [
- "async-channel 2.5.0",
- "async-stream",
- "async-trait",
- "faster-hex",
- "futures",
- "futures-util",
- "h2 0.4.12",
- "itertools 0.13.0",
- "log",
- "parking_lot",
- "paste",
- "prost",
- "rand 0.8.5",
- "regex",
- "rustls",
- "thiserror 1.0.69",
- "tokio",
- "tokio-stream",
- "tondi-core",
- "tondi-grpc-core",
- "tondi-notify",
- "tondi-rpc-core",
- "tondi-utils",
- "tondi-utils-tower",
- "tonic",
- "triggered",
-]
-
-[[package]]
-name = "tondi-grpc-core"
-version = "1.21.0"
-dependencies = [
- "async-channel 2.5.0",
- "async-stream",
- "async-trait",
- "faster-hex",
- "futures",
- "h2 0.4.12",
- "log",
- "paste",
- "prost",
- "rand 0.8.5",
- "regex",
- "thiserror 1.0.69",
- "tokio",
- "tokio-stream",
- "tondi-addresses",
- "tondi-consensus-core",
- "tondi-core",
- "tondi-notify",
- "tondi-rpc-core",
- "tondi-utils",
- "tonic",
- "tonic-build",
- "triggered",
- "workflow-core",
-]
-
-[[package]]
-name = "tondi-grpc-server"
-version = "1.21.0"
-dependencies = [
- "async-channel 2.5.0",
- "async-stream",
- "async-trait",
- "faster-hex",
- "futures",
- "h2 0.4.12",
- "itertools 0.13.0",
- "log",
- "once_cell",
- "parking_lot",
- "paste",
- "prost",
- "rand 0.8.5",
- "rustls",
- "thiserror 1.0.69",
- "tokio",
- "tokio-stream",
- "tondi-consensus-core",
- "tondi-core",
- "tondi-grpc-client",
- "tondi-grpc-core",
- "tondi-notify",
- "tondi-rpc-core",
- "tondi-rpc-macros",
- "tondi-rpc-service",
- "tondi-utils",
- "tondi-utils-tower",
- "tonic",
- "triggered",
- "uuid 1.18.1",
-]
-
-[[package]]
-name = "tondi-hashes"
-version = "1.21.0"
-dependencies = [
- "blake3",
- "borsh",
- "cc",
- "criterion",
- "faster-hex",
- "insta",
- "keccak",
- "rand 0.8.5",
- "serde",
- "sha2",
- "sha3",
- "tondi-utils",
- "wasm-bindgen",
- "workflow-wasm",
-]
-
-[[package]]
-name = "tondi-index-core"
-version = "1.21.0"
-dependencies = [
- "async-channel 2.5.0",
- "async-trait",
- "derive_more 0.99.20",
- "futures",
- "log",
- "paste",
- "serde",
- "thiserror 1.0.69",
- "tondi-consensus-core",
- "tondi-hashes",
- "tondi-notify",
- "tondi-utils",
- "triggered",
-]
-
-[[package]]
-name = "tondi-index-processor"
-version = "1.21.0"
-dependencies = [
- "async-channel 2.5.0",
- "async-trait",
- "derive_more 0.99.20",
- "futures",
- "log",
- "parking_lot",
- "paste",
- "rand 0.8.5",
- "thiserror 1.0.69",
- "tokio",
- "tondi-cellindex",
- "tondi-consensus",
- "tondi-consensus-core",
- "tondi-consensus-notify",
- "tondi-consensusmanager",
- "tondi-core",
- "tondi-database",
- "tondi-hashes",
- "tondi-index-core",
- "tondi-notify",
- "tondi-utils",
- "triggered",
-]
-
-[[package]]
-name = "tondi-math"
-version = "1.21.0"
-dependencies = [
- "borsh",
- "criterion",
- "faster-hex",
- "js-sys",
- "malachite-base",
- "malachite-nz",
- "rand_chacha 0.3.1",
- "serde",
- "serde-wasm-bindgen",
- "thiserror 1.0.69",
- "tondi-utils",
- "wasm-bindgen",
- "workflow-core",
- "workflow-log",
- "workflow-wasm",
-]
-
-[[package]]
-name = "tondi-mempool"
-version = "1.21.0"
-dependencies = [
- "blake3",
- "indexmap 2.11.4",
- "parking_lot",
- "serde",
- "tempfile",
- "thiserror 1.0.69",
- "tondi-exec",
-]
-
-[[package]]
-name = "tondi-merkle"
-version = "1.21.0"
-dependencies = [
- "tondi-hashes",
-]
-
-[[package]]
-name = "tondi-metrics-core"
-version = "1.21.0"
-dependencies = [
- "async-trait",
- "borsh",
- "futures",
- "separator",
- "serde",
- "thiserror 1.0.69",
- "tondi-core",
- "tondi-rpc-core",
- "workflow-core",
- "workflow-log",
-]
-
-[[package]]
-name = "tondi-mining"
-version = "1.21.0"
-dependencies = [
- "criterion",
- "futures-util",
- "itertools 0.13.0",
- "log",
- "parking_lot",
- "rand 0.8.5",
- "secp256k1 0.29.1",
- "serde",
- "smallvec",
- "sweep-bptree",
- "thiserror 1.0.69",
- "tokio",
- "tondi-addresses",
- "tondi-consensus-core",
- "tondi-consensusmanager",
- "tondi-core",
- "tondi-hashes",
- "tondi-mining-errors",
- "tondi-muhash",
- "tondi-txscript",
- "tondi-utils",
-]
-
-[[package]]
-name = "tondi-mining-errors"
-version = "1.21.0"
-dependencies = [
- "thiserror 1.0.69",
- "tondi-consensus-core",
-]
-
-[[package]]
-name = "tondi-muhash"
-version = "1.21.0"
-dependencies = [
- "criterion",
- "insta",
- "rand 0.8.5",
- "rand_chacha 0.3.1",
- "rayon",
- "serde",
- "tondi-hashes",
- "tondi-math",
-]
-
-[[package]]
-name = "tondi-notify"
-version = "1.21.0"
-dependencies = [
- "async-channel 2.5.0",
- "async-trait",
- "borsh",
- "criterion",
- "derive_more 0.99.20",
- "futures",
- "futures-util",
- "indexmap 2.11.4",
- "itertools 0.13.0",
- "log",
- "parking_lot",
- "paste",
- "rand 0.8.5",
- "serde",
- "thiserror 1.0.69",
- "tokio",
- "tondi-addresses",
- "tondi-alloc",
- "tondi-consensus-core",
- "tondi-core",
- "tondi-hashes",
- "tondi-math",
- "tondi-txscript",
- "tondi-txscript-errors",
- "tondi-utils",
- "triggered",
- "workflow-core",
- "workflow-log",
- "workflow-perf-monitor",
- "workflow-serializer",
-]
-
-[[package]]
-name = "tondi-p2p-flows"
-version = "1.21.0"
-dependencies = [
- "async-trait",
- "chrono",
- "futures",
- "indexmap 2.11.4",
- "itertools 0.13.0",
- "log",
- "parking_lot",
- "rand 0.8.5",
- "thiserror 1.0.69",
- "time",
- "tokio",
- "tokio-stream",
- "tondi-addressmanager",
- "tondi-connectionmanager",
- "tondi-consensus-core",
- "tondi-consensus-notify",
- "tondi-consensusmanager",
- "tondi-core",
- "tondi-hashes",
- "tondi-mining",
- "tondi-muhash",
- "tondi-notify",
- "tondi-p2p-lib",
- "tondi-p2p-mining",
- "tondi-utils",
- "tondi-utils-tower",
- "uuid 1.18.1",
-]
-
-[[package]]
-name = "tondi-p2p-lib"
-version = "1.21.0"
-dependencies = [
- "borsh",
- "ctrlc",
- "futures",
- "h2 0.4.12",
- "hex",
- "itertools 0.13.0",
- "log",
- "parking_lot",
- "prost",
- "rand 0.8.5",
- "seqlock",
- "serde",
- "thiserror 1.0.69",
- "tokio",
- "tokio-stream",
- "tondi-consensus-core",
- "tondi-core",
- "tondi-hashes",
- "tondi-math",
- "tondi-mining-errors",
- "tondi-utils",
- "tondi-utils-tower",
- "tonic",
- "tonic-build",
- "uuid 1.18.1",
-]
-
-[[package]]
-name = "tondi-p2p-mining"
-version = "1.21.0"
-dependencies = [
- "log",
- "tokio",
- "tondi-consensus-core",
- "tondi-consensusmanager",
- "tondi-core",
- "tondi-hashes",
- "tondi-math",
- "tondi-mining-errors",
- "tondi-p2p-lib",
- "tondi-utils",
- "tondi-utils-tower",
-]
-
-[[package]]
-name = "tondi-perf-monitor"
-version = "1.21.0"
-dependencies = [
- "log",
- "portable-atomic",
- "thiserror 1.0.69",
- "tokio",
- "tondi-core",
- "workflow-perf-monitor",
-]
-
-[[package]]
-name = "tondi-pow"
-version = "1.21.0"
-dependencies = [
- "blake3",
- "criterion",
- "js-sys",
- "num",
- "sha3",
- "tondi-consensus-client",
- "tondi-consensus-core",
- "tondi-hashes",
- "tondi-math",
- "tondi-utils",
- "wasm-bindgen",
- "workflow-wasm",
-]
-
-[[package]]
-name = "tondi-rpc-core"
-version = "1.21.0"
-dependencies = [
- "async-channel 2.5.0",
- "async-trait",
- "borsh",
- "cfg-if 1.0.3",
- "derive_more 0.99.20",
- "downcast",
- "faster-hex",
- "hex",
- "js-sys",
- "log",
- "paste",
- "rand 0.8.5",
- "serde",
- "serde-wasm-bindgen",
- "serde_json",
- "smallvec",
- "thiserror 1.0.69",
- "tondi-addresses",
- "tondi-consensus-client",
- "tondi-consensus-core",
- "tondi-consensus-notify",
- "tondi-consensus-wasm",
- "tondi-core",
- "tondi-hashes",
- "tondi-index-core",
- "tondi-math",
- "tondi-mining-errors",
- "tondi-notify",
- "tondi-rpc-macros",
- "tondi-txscript",
- "tondi-utils",
- "uuid 1.18.1",
- "wasm-bindgen",
- "workflow-core",
- "workflow-serializer",
- "workflow-wasm",
-]
-
-[[package]]
-name = "tondi-rpc-macros"
-version = "1.21.0"
-dependencies = [
- "convert_case 0.6.0",
- "proc-macro-error",
- "proc-macro2",
- "quote",
- "regex",
- "syn 1.0.109",
-]
-
-[[package]]
-name = "tondi-rpc-service"
-version = "1.21.0"
-dependencies = [
- "async-trait",
- "log",
- "tokio",
- "tondi-addresses",
- "tondi-consensus-core",
- "tondi-consensus-notify",
- "tondi-consensusmanager",
- "tondi-core",
- "tondi-hashes",
- "tondi-index-core",
- "tondi-math",
- "tondi-mining",
- "tondi-notify",
- "tondi-p2p-flows",
- "tondi-p2p-lib",
- "tondi-p2p-mining",
- "tondi-perf-monitor",
- "tondi-rpc-core",
- "tondi-txscript",
- "tondi-utils",
- "tondi-utils-tower",
- "triggered",
- "workflow-rpc",
-]
-
-[[package]]
-name = "tondi-spora"
-version = "1.21.0"
-dependencies = [
- "serde",
- "thiserror 1.0.69",
-]
-
-[[package]]
-name = "tondi-state"
-version = "1.21.0"
-dependencies = [
- "anyhow",
- "blake3",
- "borsh",
- "indexmap 2.11.4",
- "lru 0.12.5",
- "memmap2",
- "parking_lot",
- "proptest",
- "rocksdb",
- "serde",
- "tempfile",
- "thiserror 1.0.69",
- "tondi-exec",
- "tondi-hashes",
-]
-
-[[package]]
-name = "tondi-txscript"
-version = "1.21.0"
-dependencies = [
- "bitcoin",
- "blake2b_simd",
- "blake3",
- "borsh",
- "cfg-if 1.0.3",
- "chrono",
- "criterion",
- "hex",
- "hexplay",
- "indexmap 2.11.4",
- "itertools 0.13.0",
- "log",
- "musig2",
- "parking_lot",
- "rand 0.8.5",
- "secp256k1 0.29.1",
- "serde",
- "serde-wasm-bindgen",
- "serde_json",
- "sha2",
- "smallvec",
- "thiserror 1.0.69",
- "tondi-addresses",
- "tondi-consensus-core",
- "tondi-hashes",
- "tondi-txscript-errors",
- "tondi-utils",
- "tondi-wasm-core",
- "wasm-bindgen",
- "workflow-wasm",
-]
-
-[[package]]
-name = "tondi-txscript-errors"
-version = "1.21.0"
-dependencies = [
- "secp256k1 0.29.1",
- "thiserror 1.0.69",
-]
-
-[[package]]
-name = "tondi-utils"
-version = "1.21.0"
-dependencies = [
- "arc-swap",
- "async-channel 2.5.0",
- "async-trait",
- "bincode",
- "blake3",
- "borsh",
- "cfg-if 1.0.3",
- "criterion",
- "duct",
- "event-listener 2.5.3",
- "faster-hex",
- "futures-util",
- "hex",
- "ipnet",
- "itertools 0.13.0",
- "log",
- "mac_address",
- "num_cpus",
- "once_cell",
- "parking_lot",
- "rand 0.8.5",
- "rlimit",
- "serde",
- "serde_json",
- "sha2",
- "smallvec",
- "sysinfo",
- "thiserror 1.0.69",
- "tokio",
- "triggered",
- "uuid 1.18.1",
- "wasm-bindgen",
-]
-
-[[package]]
-name = "tondi-utils-tower"
-version = "1.21.0"
-dependencies = [
- "bytes",
- "cfg-if 1.0.3",
- "futures",
- "http-body 1.0.1",
- "http-body-util",
- "log",
- "pin-project-lite",
- "tokio",
- "tower 0.5.2",
- "tower-http 0.5.2",
-]
-
-[[package]]
-name = "tondi-wallet"
-version = "1.21.0"
-dependencies = [
- "async-std",
- "async-trait",
- "tokio",
- "tondi-cli",
- "workflow-log",
- "workflow-terminal",
-]
-
-[[package]]
-name = "tondi-wallet-cli-wasm"
-version = "1.21.0"
-dependencies = [
- "async-trait",
- "js-sys",
- "tondi-cli",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "workflow-log",
- "workflow-terminal",
- "workflow-wasm",
-]
-
-[[package]]
-name = "tondi-wallet-core"
-version = "1.21.0"
-dependencies = [
- "aes",
- "ahash",
- "argon2",
- "async-channel 2.5.0",
- "async-std",
- "async-trait",
- "base64",
- "blake3",
- "borsh",
- "cfb-mode",
- "cfg-if 1.0.3",
- "chacha20poly1305",
- "convert_case 0.6.0",
- "crypto_box",
- "dashmap",
- "derivative",
- "downcast",
- "evpkdf",
- "faster-hex",
- "fixedstr",
- "futures",
- "heapless",
- "hex-literal",
- "hmac",
- "home",
- "indexed_db_futures",
- "itertools 0.13.0",
- "js-sys",
- "md-5",
- "pad",
- "pbkdf2",
- "rand 0.8.5",
- "regex",
- "ripemd",
- "secp256k1 0.29.1",
- "separator",
- "serde",
- "serde-wasm-bindgen",
- "serde_json",
- "serde_repr",
- "sha1",
- "sha2",
- "slugify-rs",
- "sorted-insert",
- "thiserror 1.0.69",
- "tokio",
- "tondi-addresses",
- "tondi-bip32",
- "tondi-consensus-client",
- "tondi-consensus-core",
- "tondi-consensus-wasm",
- "tondi-core",
- "tondi-hashes",
- "tondi-metrics-core",
- "tondi-notify",
- "tondi-rpc-core",
- "tondi-txscript",
- "tondi-txscript-errors",
- "tondi-utils",
- "tondi-wallet-keys",
- "tondi-wallet-macros",
- "tondi-wallet-pstt",
- "tondi-wasm-core",
- "tondi-wrpc-client",
- "tondi-wrpc-wasm",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "web-sys",
- "workflow-core",
- "workflow-log",
- "workflow-node",
- "workflow-rpc",
- "workflow-store",
- "workflow-wasm",
- "xxhash-rust",
- "zeroize",
-]
-
-[[package]]
-name = "tondi-wallet-keys"
-version = "1.21.0"
-dependencies = [
- "async-trait",
- "blake3",
- "borsh",
- "downcast",
- "faster-hex",
- "hmac",
- "js-sys",
- "rand 0.8.5",
- "ripemd",
- "secp256k1 0.29.1",
- "serde",
- "serde-wasm-bindgen",
- "serde_json",
- "sha2",
- "thiserror 1.0.69",
- "tokio",
- "tondi-addresses",
- "tondi-bip32",
- "tondi-consensus-core",
- "tondi-txscript",
- "tondi-txscript-errors",
- "tondi-utils",
- "tondi-wasm-core",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "workflow-core",
- "workflow-wasm",
- "zeroize",
-]
-
-[[package]]
-name = "tondi-wallet-macros"
-version = "1.21.0"
-dependencies = [
- "convert_case 0.5.0",
- "proc-macro-error",
- "proc-macro2",
- "quote",
- "regex",
- "syn 1.0.109",
- "xxhash-rust",
-]
-
-[[package]]
-name = "tondi-wallet-pstt"
-version = "1.21.0"
-dependencies = [
- "bincode",
- "console_log",
- "derive_builder",
- "futures",
- "hex",
- "js-sys",
- "secp256k1 0.29.1",
- "separator",
- "serde",
- "serde-value",
- "serde-wasm-bindgen",
- "serde_json",
- "serde_repr",
- "thiserror 1.0.69",
- "tondi-addresses",
- "tondi-bip32",
- "tondi-consensus-client",
- "tondi-consensus-core",
- "tondi-txscript",
- "tondi-txscript-errors",
- "tondi-utils",
- "wasm-bindgen",
- "wasm-bindgen-test",
- "workflow-wasm",
-]
-
-[[package]]
-name = "tondi-wasm"
-version = "1.21.0"
-dependencies = [
- "cfg-if 1.0.3",
- "js-sys",
- "num",
- "tondi-addresses",
- "tondi-bip32",
- "tondi-consensus-core",
- "tondi-consensus-wasm",
- "tondi-core",
- "tondi-math",
- "tondi-pow",
- "tondi-rpc-core",
- "tondi-txscript",
- "tondi-utils",
- "tondi-wallet-core",
- "tondi-wallet-keys",
- "tondi-wasm-core",
- "tondi-wrpc-client",
- "tondi-wrpc-wasm",
- "wasm-bindgen",
- "workflow-core",
- "workflow-log",
- "workflow-wasm",
-]
-
-[[package]]
-name = "tondi-wasm-core"
-version = "1.21.0"
-dependencies = [
- "faster-hex",
- "hexplay",
- "js-sys",
- "wasm-bindgen",
- "workflow-wasm",
-]
-
-[[package]]
-name = "tondi-wrpc-client"
-version = "1.21.0"
-dependencies = [
- "async-std",
- "async-trait",
- "borsh",
- "cfg-if 1.0.3",
- "futures",
- "js-sys",
- "paste",
- "rand 0.8.5",
- "regex",
- "rustls",
- "serde",
- "serde-wasm-bindgen",
- "serde_json",
- "thiserror 1.0.69",
- "toml",
- "tondi-addresses",
- "tondi-consensus-core",
- "tondi-consensus-wasm",
- "tondi-notify",
- "tondi-rpc-core",
- "tondi-rpc-macros",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "workflow-core",
- "workflow-dom",
- "workflow-http",
- "workflow-log",
- "workflow-rpc",
- "workflow-serializer",
- "workflow-wasm",
-]
-
-[[package]]
-name = "tondi-wrpc-example-subscriber"
-version = "1.21.0"
-dependencies = [
- "ctrlc",
- "futures",
- "tokio",
- "tondi-consensus-core",
- "tondi-notify",
- "tondi-rpc-core",
- "tondi-wrpc-client",
- "workflow-core",
- "workflow-log",
-]
-
-[[package]]
-name = "tondi-wrpc-proxy"
-version = "1.21.0"
-dependencies = [
- "async-trait",
- "clap 4.5.49",
- "num_cpus",
- "thiserror 1.0.69",
- "tokio",
- "tondi-consensus-core",
- "tondi-grpc-client",
- "tondi-rpc-core",
- "tondi-rpc-macros",
- "tondi-wrpc-server",
- "workflow-core",
- "workflow-log",
- "workflow-rpc",
-]
-
-[[package]]
-name = "tondi-wrpc-server"
-version = "1.21.0"
-dependencies = [
- "async-trait",
- "borsh",
- "futures",
- "log",
- "num_cpus",
- "paste",
- "rustls",
- "serde",
- "thiserror 1.0.69",
- "tokio",
- "tondi-consensus-core",
- "tondi-core",
- "tondi-grpc-client",
- "tondi-notify",
- "tondi-rpc-core",
- "tondi-rpc-macros",
- "tondi-rpc-service",
- "tondi-utils",
- "workflow-core",
- "workflow-log",
- "workflow-rpc",
- "workflow-serializer",
-]
-
-[[package]]
-name = "tondi-wrpc-simple-client-example"
-version = "1.21.0"
-dependencies = [
- "futures",
- "tokio",
- "tondi-rpc-core",
- "tondi-wrpc-client",
-]
-
-[[package]]
-name = "tondi-wrpc-wasm"
-version = "1.21.0"
-dependencies = [
- "ahash",
- "async-std",
- "cfg-if 1.0.3",
- "futures",
- "js-sys",
- "ring",
- "serde",
- "serde-wasm-bindgen",
- "serde_json",
- "tondi-addresses",
- "tondi-consensus-client",
- "tondi-consensus-core",
- "tondi-consensus-wasm",
- "tondi-notify",
- "tondi-rpc-core",
- "tondi-rpc-macros",
- "tondi-wasm-core",
- "tondi-wrpc-client",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "workflow-core",
- "workflow-log",
- "workflow-rpc",
- "workflow-wasm",
-]
-
-[[package]]
 name = "tondid"
 version = "1.21.0"
 dependencies = [
@@ -6904,34 +6904,34 @@ dependencies = [
  "rocksdb",
  "serde",
  "serde_with",
+ "spora-addresses",
+ "spora-addressmanager",
+ "spora-alloc",
+ "spora-consensus",
+ "spora-consensus-core",
+ "spora-consensus-notify",
+ "spora-consensusmanager",
+ "spora-core",
+ "spora-database",
+ "spora-grpc-server",
+ "spora-hashes",
+ "spora-index-processor",
+ "spora-mining",
+ "spora-notify",
+ "spora-p2p-flows",
+ "spora-p2p-lib",
+ "spora-p2p-mining",
+ "spora-perf-monitor",
+ "spora-rpc-core",
+ "spora-rpc-service",
+ "spora-txscript",
+ "spora-utils",
+ "spora-utils-tower",
+ "spora-wrpc-server",
  "tempfile",
  "thiserror 1.0.69",
  "tokio",
  "toml",
- "tondi-addresses",
- "tondi-addressmanager",
- "tondi-alloc",
- "tondi-consensus",
- "tondi-consensus-core",
- "tondi-consensus-notify",
- "tondi-consensusmanager",
- "tondi-core",
- "tondi-database",
- "tondi-grpc-server",
- "tondi-hashes",
- "tondi-index-processor",
- "tondi-mining",
- "tondi-notify",
- "tondi-p2p-flows",
- "tondi-p2p-lib",
- "tondi-p2p-mining",
- "tondi-perf-monitor",
- "tondi-rpc-core",
- "tondi-rpc-service",
- "tondi-txscript",
- "tondi-utils",
- "tondi-utils-tower",
- "tondi-wrpc-server",
  "workflow-log",
 ]
 
@@ -7111,18 +7111,18 @@ dependencies = [
  "secp256k1 0.29.1",
  "serde",
  "serde_json",
+ "spora-addresses",
+ "spora-bip32",
+ "spora-consensus-core",
+ "spora-core",
+ "spora-grpc-client",
+ "spora-notify",
+ "spora-rpc-core",
+ "spora-txscript",
+ "spora-utils",
  "tempfile",
  "thiserror 1.0.69",
  "tokio",
- "tondi-addresses",
- "tondi-bip32",
- "tondi-consensus-core",
- "tondi-core",
- "tondi-grpc-client",
- "tondi-notify",
- "tondi-rpc-core",
- "tondi-txscript",
- "tondi-utils",
 ]
 
 [[package]]

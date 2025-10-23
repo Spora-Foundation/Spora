@@ -2,15 +2,15 @@ use std::{
     fmt::{Debug, Display},
     sync::{Arc, Mutex},
 };
-use tondi_grpc_client::{GrpcClient, GrpcClientNotify};
-use tondi_notify::{
+use spora_grpc_client::{GrpcClient, GrpcClientNotify};
+use spora_notify::{
     connection::Connection as ConnectionT,
     error::{Error as NotifyError, Result as NotifyResult},
     listener::ListenerId,
     notification::Notification as NotificationT,
     notifier::Notify,
 };
-use tondi_rpc_core::{api::ops::RpcApiOps, notify::mode::NotificationMode, Notification};
+use spora_rpc_core::{api::ops::RpcApiOps, notify::mode::NotificationMode, Notification};
 use workflow_log::log_trace;
 use workflow_rpc::{
     server::{prelude::*, result::Result as WrpcResult},
@@ -150,7 +150,7 @@ impl ConnectionT for Connection {
     type Notification = Notification;
     type Message = Message;
     type Encoding = NotifyEncoding;
-    type Error = tondi_notify::error::Error;
+    type Error = spora_notify::error::Error;
 
     fn encoding(&self) -> Self::Encoding {
         self.messenger().encoding().into()

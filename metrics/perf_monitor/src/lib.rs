@@ -1,4 +1,4 @@
-use tondi_core::{
+use spora_core::{
     error,
     task::{
         service::{AsyncService, AsyncServiceFuture},
@@ -123,7 +123,7 @@ mod tests {
 
     #[tokio::test]
     async fn monitor_works() {
-        tondi_core::log::try_init_logger("info, tondi_perf_monitor=trace");
+        spora_core::log::try_init_logger("info, spora_perf_monitor=trace");
 
         let ts = Arc::new(TickService::new());
         let call_count = Arc::new(AtomicUsize::new(0));

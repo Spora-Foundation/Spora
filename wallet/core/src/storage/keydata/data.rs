@@ -5,8 +5,8 @@
 use crate::derivation::create_xpub_from_xprv;
 use crate::imports::*;
 use secp256k1::SecretKey;
-use tondi_bip32::{ExtendedPrivateKey, ExtendedPublicKey, Language, Mnemonic};
-use tondi_utils::hex::ToHex;
+use spora_bip32::{ExtendedPrivateKey, ExtendedPublicKey, Language, Mnemonic};
+use spora_utils::hex::ToHex;
 use xxhash_rust::xxh3::xxh3_64;
 
 #[derive(Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]

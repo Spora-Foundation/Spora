@@ -6,17 +6,17 @@
             import { log, logToId, randomId, stringify, currentNetwork, disconnectHandler } from './resources/utils.js';
 
             // import WASM32 SDK
-            import * as tondi from '../../web/tondi-rpc/tondi.js';
-            let { Resolver, RpcClient, Encoding } = tondi;
+            import * as spora from '../../web/spora-rpc/spora.js';
+            let { Resolver, RpcClient, Encoding } = spora;
 
             (async () => {
                 // load WASM32 SDK binaries 
-                await tondi.default('../../web/tondi-rpc/tondi_bg.wasm');
+                await spora.default('../../web/spora-rpc/tondi_bg.wasm');
 
                 // try {
                     
                     let networkId = currentNetwork();
-                    log(`Connecting to Tondi network...`);
+                    log(`Connecting to Spora network...`);
                     log(`Selected network is ${networkId.class("network")}...`);
                     
                     const rpc = new RpcClient({

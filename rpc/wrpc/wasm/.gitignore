@@ -1,6 +1,6 @@
 /target
 /Cargo.lock
-/web/tondi-rpc
-/nodejs/tondi-rpc
+/web/spora-rpc
+/nodejs/spora-rpc
 /nodejs/node_modules
 /nodejs/package-lock.json

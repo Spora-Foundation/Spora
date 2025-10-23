@@ -6,10 +6,10 @@ use async_trait::async_trait;
 use clap::Parser;
 use std::{iter::once, sync::Arc};
 use tokio::task::JoinHandle;
-use tondi_addresses::Address;
-use tondi_consensus_core::network::NetworkType;
-use tondi_core::{trace, warn};
-use tondi_utils::{fd_budget, triggers::SingleTrigger};
+use spora_addresses::Address;
+use spora_consensus_core::network::NetworkType;
+use spora_core::{trace, warn};
+use spora_utils::{fd_budget, triggers::SingleTrigger};
 use tondid_lib::args::Args;
 
 /// Arguments for configuring a [`DaemonTask`]
@@ -66,7 +66,7 @@ impl DaemonArgs {
         let mut args = vec![
             "test".to_owned(),
             "--package".to_owned(),
-            "tondi-testing-integration".to_owned(),
+            "spora-testing-integration".to_owned(),
             "--lib".to_owned(),
             "--features".to_owned(),
             "devnet-prealloc".to_owned(),
@@ -101,7 +101,7 @@ impl DaemonArgs {
         let schnorr_key = secp256k1::Keypair::from_seckey_slice(secp256k1::SECP256K1, &private_key_bytes).unwrap();
         Address::new(
             NetworkType::Simnet.into(),
-            tondi_addresses::Version::PubKey,
+            spora_addresses::Version::PubKey,
             &schnorr_key.public_key().x_only_public_key().0.serialize(),
         )
     }

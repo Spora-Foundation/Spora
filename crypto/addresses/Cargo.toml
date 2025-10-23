@@ -1,6 +1,6 @@
 [package]
-name = "tondi-addresses"
-description = "Tondi address"
+name = "spora-addresses"
+description = "Spora address"
 rust-version.workspace = true
 version.workspace = true
 edition.workspace = true

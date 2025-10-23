@@ -1,7 +1,7 @@
 //!
-//! # Tondi Wallet Keys
+//! # Spora Wallet Keys
 //!
-//! This crate provides tools for creating and managing Tondi wallet keys.
+//! This crate provides tools for creating and managing Spora wallet keys.
 //! This includes extended key generation and derivation.
 //!
 

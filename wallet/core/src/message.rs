@@ -3,7 +3,7 @@
 //!
 
 use secp256k1::{Error, XOnlyPublicKey};
-use tondi_hashes::{Hash, PersonalMessageSigningHash};
+use spora_hashes::{Hash, PersonalMessageSigningHash};
 
 /// A personal message (text) that can be signed.
 #[derive(Clone)]
@@ -78,7 +78,7 @@ mod tests {
 
     #[test]
     fn test_basic_sign_and_verify_sign() {
-        let pm = PersonalMessage("Hello Tondi!");
+        let pm = PersonalMessage("Hello Spora!");
         let privkey: [u8; 32] = [
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03,
@@ -99,7 +99,7 @@ mod tests {
 
     #[test]
     fn test_basic_sign_without_rand_twice_should_get_same_signature() {
-        let pm = PersonalMessage("Hello Tondi!");
+        let pm = PersonalMessage("Hello Spora!");
         let privkey: [u8; 32] = [
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03,
@@ -159,7 +159,7 @@ Ut omnis magnam et accusamus earum rem impedit provident eum commodi repellat qu
 
     #[test]
     fn test_fail_verify() {
-        let pm = PersonalMessage("Not Hello Tondi!");
+        let pm = PersonalMessage("Not Hello Spora!");
         let pubkey = XOnlyPublicKey::from_slice(&[
             0xF9, 0x30, 0x8A, 0x01, 0x92, 0x58, 0xC3, 0x10, 0x49, 0x34, 0x4F, 0x85, 0xF8, 0x9D, 0x52, 0x29, 0xB5, 0x31, 0xC8, 0x45,
             0x83, 0x6F, 0x99, 0xB0, 0x86, 0x01, 0xF1, 0x13, 0xBC, 0xE0, 0x36, 0xF9,
@@ -179,11 +179,11 @@ Ut omnis magnam et accusamus earum rem impedit provident eum commodi repellat qu
 
     #[test]
     // NOTE: This test performs exact byte comparison of the signature output.
-    // Since the domain separator or hash algorithm (e.g., switching to "tondi" or BLAKE3) affects the hash,
+    // Since the domain separator or hash algorithm (e.g., switching to "spora" or BLAKE3) affects the hash,
     // the output signature will differ from the original test vector.
     // Marked as #[ignore] to avoid false negatives during transition.
     fn test_sign_and_verify_test_case_0() {
-        let pm = PersonalMessage("Hello Tondi!");
+        let pm = PersonalMessage("Hello Spora!");
         let privkey: [u8; 32] = [
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03,
@@ -213,11 +213,11 @@ Ut omnis magnam et accusamus earum rem impedit provident eum commodi repellat qu
 
     #[test]
     // NOTE: This test performs exact byte comparison of the signature output.
-    // Since the domain separator or hash algorithm (e.g., switching to "tondi" or BLAKE3) affects the hash,
+    // Since the domain separator or hash algorithm (e.g., switching to "spora" or BLAKE3) affects the hash,
     // the output signature will differ from the original test vector.
     // Marked as #[ignore] to avoid false negatives during transition.
     fn test_sign_and_verify_test_case_1() {
-        let pm = PersonalMessage("Hello Tondi!");
+        let pm = PersonalMessage("Hello Spora!");
         let privkey: [u8; 32] = [
             0xB7, 0xE1, 0x51, 0x62, 0x8A, 0xED, 0x2A, 0x6A, 0xBF, 0x71, 0x58, 0x80, 0x9C, 0xF4, 0xF3, 0xC7, 0x62, 0xE7, 0x16, 0x0F,
             0x38, 0xB4, 0xDA, 0x56, 0xA7, 0x84, 0xD9, 0x04, 0x51, 0x90, 0xCF, 0xEF,
@@ -247,7 +247,7 @@ Ut omnis magnam et accusamus earum rem impedit provident eum commodi repellat qu
 
     #[test]
     // NOTE: This test performs exact byte comparison of the signature output.
-    // Since the domain separator or hash algorithm (e.g., switching to "tondi" or BLAKE3) affects the hash,
+    // Since the domain separator or hash algorithm (e.g., switching to "spora" or BLAKE3) affects the hash,
     // the output signature will differ from the original test vector.
     // Marked as #[ignore] to avoid false negatives during transition.
     fn test_sign_and_verify_test_case_2() {
@@ -281,7 +281,7 @@ Ut omnis magnam et accusamus earum rem impedit provident eum commodi repellat qu
 
     #[test]
     // NOTE: This test performs exact byte comparison of the signature output.
-    // Since the domain separator or hash algorithm (e.g., switching to "tondi" or BLAKE3) affects the hash,
+    // Since the domain separator or hash algorithm (e.g., switching to "spora" or BLAKE3) affects the hash,
     // the output signature will differ from the original test vector.
     // Marked as #[ignore] to avoid false negatives during transition.
     fn test_sign_and_verify_test_case_3() {

@@ -10,7 +10,7 @@ use crate::wasm::tx::fees::IFees;
 use crate::wasm::tx::GeneratorSummary;
 use js_sys::Array;
 use serde_wasm_bindgen::from_value;
-use tondi_wallet_macros::declare_typescript_wasm_interface as declare;
+use spora_wallet_macros::declare_typescript_wasm_interface as declare;
 use workflow_wasm::serde::to_value;
 
 macro_rules! try_from {
@@ -28,7 +28,7 @@ macro_rules! try_from {
 const TS_CATEGORY_WALLET: &'static str = r#"
 /**
  * @categoryDescription Wallet API
- * Wallet API for interfacing with Rusty Tondi Wallet implementation.
+ * Wallet API for interfacing with Rusty Spora Wallet implementation.
  */
 "#;
 
@@ -380,7 +380,7 @@ declare! {
      * 
      * If filename is not supplied, the filename will be derived from the wallet title.
      * If both wallet title and filename are not supplied, the wallet will be create
-     * with the default filename `tondi`.
+     * with the default filename `spora`.
      * 
      * @category Wallet API
      */

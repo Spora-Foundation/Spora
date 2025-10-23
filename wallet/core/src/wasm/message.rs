@@ -1,8 +1,8 @@
 use crate::imports::*;
 use crate::message::*;
-use tondi_wallet_keys::privatekey::PrivateKey;
-use tondi_wallet_keys::publickey::PublicKey;
-use tondi_wasm_core::types::HexString;
+use spora_wallet_keys::privatekey::PrivateKey;
+use spora_wallet_keys::publickey::PublicKey;
+use spora_wasm_core::types::HexString;
 
 #[wasm_bindgen(typescript_custom_section)]
 const TS_MESSAGE_TYPES: &'static str = r#"

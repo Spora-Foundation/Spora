@@ -1,4 +1,4 @@
-use tondi_consensus_core::trusted::{TrustedGhostdagData, TrustedHeader};
+use spora_consensus_core::trusted::{TrustedGhostdagData, TrustedHeader};
 
 use crate::pb as protowire;
 

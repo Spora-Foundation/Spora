@@ -1,6 +1,6 @@
 [package]
-name = "tondi-merkle"
-description = "Tondi merkle tree library"
+name = "spora-merkle"
+description = "Spora merkle tree library"
 rust-version.workspace = true
 version.workspace = true
 edition.workspace = true
@@ -10,4 +10,4 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-tondi-hashes.workspace = true
+spora-hashes.workspace = true

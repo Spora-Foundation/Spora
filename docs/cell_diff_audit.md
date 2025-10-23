@@ -280,18 +280,18 @@ OutPoint {
 
 | Use Case | CKB (Blake2b) | Spora (Blake3) | Domain Prefix |
 |----------|---------------|----------------|---------------|
-| TxID | `blake2b(tx)` | `blake3("tondi-cell/txid" \|\| tx)` | ✅ Yes |
-| WTxID | `blake2b(tx+wit)` | `blake3("tondi-cell/wtxid" \|\| tx+wit)` | ✅ Yes |
-| SigHash | `blake2b(...)` | `blake3("tondi-cell/sig" \|\| network_id \|\| wtxid \|\| ...)` | ✅ Yes |
+| TxID | `blake2b(tx)` | `blake3("spora-cell/txid" \|\| tx)` | ✅ Yes |
+| WTxID | `blake2b(tx+wit)` | `blake3("spora-cell/wtxid" \|\| tx+wit)` | ✅ Yes |
+| SigHash | `blake2b(...)` | `blake3("spora-cell/sig" \|\| network_id \|\| wtxid \|\| ...)` | ✅ Yes |
 | ScriptHash | `blake2b(script)` | `blake3(code_hash \|\| hash_type \|\| args)` | ❌ **No** (direct) |
 | PubkeyHash | `blake2b(pubkey)[0..20]` | `blake3(pubkey)[0..20]` | ❌ No (direct) |
 | CellDataHash | `blake2b(data)` | `blake3(data)` | ❌ No (direct) |
 
 **Domain Constants** (Spora):
 ```rust
-pub const CELL_TXID_DOMAIN: &[u8] = b"tondi-cell/txid";
-pub const CELL_WTXID_DOMAIN: &[u8] = b"tondi-cell/wtxid";
-pub const CELL_SIG_DOMAIN: &[u8] = b"tondi-cell/sig";
+pub const CELL_TXID_DOMAIN: &[u8] = b"spora-cell/txid";
+pub const CELL_WTXID_DOMAIN: &[u8] = b"spora-cell/wtxid";
+pub const CELL_SIG_DOMAIN: &[u8] = b"spora-cell/sig";
 ```
 
 **Why Blake3?**
@@ -316,8 +316,8 @@ wtxid = blake2b(txid || witnesses_root)
 **Spora**:
 ```rust
 // Same principle, different encoding
-txid = blake3("tondi-cell/txid" || ver || inputs || deps || outputs || outputs_data)
-wtxid = blake3("tondi-cell/wtxid" || ver || inputs || deps || outputs || outputs_data || witnesses)
+txid = blake3("spora-cell/txid" || ver || inputs || deps || outputs || outputs_data)
+wtxid = blake3("spora-cell/wtxid" || ver || inputs || deps || outputs || outputs_data || witnesses)
 ```
 
 **Verdict**: ✅ **Both implement witness segregation correctly**. Domain prefix adds extra safety.

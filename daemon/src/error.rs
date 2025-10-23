@@ -1,5 +1,5 @@
 // use downcast::DowncastError;
-// use tondi_wallet_core::error::Error as WalletError;
+// use spora_wallet_core::error::Error as WalletError;
 use workflow_core::channel::ChannelError;
 // use workflow_terminal::error::Error as TerminalError;
 
@@ -27,7 +27,7 @@ pub enum Error {
     MiningAddressNotSpecified,
 
     #[error(transparent)]
-    AddressError(#[from] tondi_addresses::AddressError),
+    AddressError(#[from] spora_addresses::AddressError),
 }
 
 impl Error {

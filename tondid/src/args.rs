@@ -3,23 +3,23 @@ use serde::Deserialize;
 use serde_with::{serde_as, DisplayFromStr};
 use std::{ffi::OsString, fs};
 use toml::from_str;
-use tondi_consensus_core::{
+use spora_consensus_core::{
     config::Config,
     network::{NetworkId, NetworkType},
 };
-use tondi_core::tondid_env::version;
-use tondi_notify::address::tracker::Tracker;
-use tondi_utils::networking::ContextualNetAddress;
-use tondi_wrpc_server::address::WrpcNetAddress;
+use spora_core::tondid_env::version;
+use spora_notify::address::tracker::Tracker;
+use spora_utils::networking::ContextualNetAddress;
+use spora_wrpc_server::address::WrpcNetAddress;
 
 #[cfg(feature = "devnet-prealloc")]
 use std::sync::Arc;
 #[cfg(feature = "devnet-prealloc")]
-use tondi_addresses::Address;
+use spora_addresses::Address;
 #[cfg(feature = "devnet-prealloc")]
-use tondi_consensus_core::tx::{TransactionOutpoint, UtxoEntry};
+use spora_consensus_core::tx::{TransactionOutpoint, UtxoEntry};
 #[cfg(feature = "devnet-prealloc")]
-use tondi_txscript::pay_to_address_script;
+use spora_txscript::pay_to_address_script;
 
 #[serde_as]
 #[derive(Debug, Clone, Deserialize)]
@@ -170,7 +170,7 @@ impl Args {
     }
 
     #[cfg(feature = "devnet-prealloc")]
-    pub fn generate_prealloc_utxos(&self, num_prealloc_utxos: u64) -> tondi_consensus_core::utxo::utxo_collection::UtxoCollection {
+    pub fn generate_prealloc_utxos(&self, num_prealloc_utxos: u64) -> spora_consensus_core::utxo::utxo_collection::UtxoCollection {
         let addr = Address::try_from(&self.prealloc_address.as_ref().unwrap()[..]).unwrap();
         let spk = pay_to_address_script(&addr);
         (1..=num_prealloc_utxos)
@@ -199,7 +199,7 @@ pub fn cli() -> Command {
 
     #[allow(clippy::let_and_return)]
     let cmd = Command::new("tondid")
-        .about(format!("{} (tondi) v{}", env!("CARGO_PKG_DESCRIPTION"), version()))
+        .about(format!("{} (spora) v{}", env!("CARGO_PKG_DESCRIPTION"), version()))
         .version(env!("CARGO_PKG_VERSION"))
         .arg(arg!(-C --configfile <CONFIG_FILE> "Path of config file."))
         .arg(arg!(-b --appdir <DATA_DIR> "Directory to store data."))
@@ -493,9 +493,9 @@ fn arg_match_many_unwrap_or<T: Clone + Send + Sync + 'static>(m: &clap::ArgMatch
 
   -V, --version                             Display version information and exit
   -C, --configfile=                         Path to configuration file (default: /Users/aspect/Library/Application
-                                            Support/Tondid/tondid.conf)
+                                            Support/Sporad/tondid.conf)
   -b, --appdir=                             Directory to store data (default: /Users/aspect/Library/Application
-                                            Support/Tondid)
+                                            Support/Sporad)
       --logdir=                             Directory to log output.
   -a, --addpeer=                            Add a peer to connect with at startup
       --connect=                            Connect only to the specified peers at startup
@@ -516,9 +516,9 @@ fn arg_match_many_unwrap_or<T: Clone + Send + Sync + 'static>(m: &clap::ArgMatch
       --rpclisten=                          Add an interface/port to listen for RPC connections (default port: 16110,
                                             testnet: 16210)
       --rpccert=                            File containing the certificate file (default:
-                                            /Users/aspect/Library/Application Support/Tondid/rpc.cert)
+                                            /Users/aspect/Library/Application Support/Sporad/rpc.cert)
       --rpckey=                             File containing the certificate key (default:
-                                            /Users/aspect/Library/Application Support/Tondid/rpc.key)
+                                            /Users/aspect/Library/Application Support/Sporad/rpc.key)
       --rpcmaxclients=                      Max number of RPC clients for standard connections (default: 128)
       --rpcmaxwebsockets=                   Max number of RPC websocket connections (default: 25)
       --rpcmaxconcurrentreqs=               Max number of concurrent RPC requests that may be processed concurrently
@@ -541,7 +541,7 @@ fn arg_match_many_unwrap_or<T: Clone + Send + Sync + 'static>(m: &clap::ArgMatch
                                             individual subsystems -- Use show to list available subsystems (default:
                                             info)
       --upnp                                Use UPnP to map our listening port outside of NAT
-      --minrelaytxfee=                      The minimum transaction fee in TONDI/kB to be considered a non-zero fee.
+      --minrelaytxfee=                      The minimum transaction fee in SPORA/kB to be considered a non-zero fee.
                                             (default: 1e-05)
       --maxorphantx=                        Max number of orphan transactions to keep in memory (default: 100)
       --blockmaxmass=                       Maximum transaction mass to be used when creating a block (default:

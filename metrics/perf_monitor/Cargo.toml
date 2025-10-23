@@ -1,6 +1,6 @@
 [package]
-name = "tondi-perf-monitor"
-description = "Tondi process performance monitoring tools"
+name = "spora-perf-monitor"
+description = "Spora process performance monitoring tools"
 rust-version.workspace = true
 version.workspace = true
 authors.workspace = true
@@ -10,7 +10,7 @@ include.workspace = true
 repository.workspace = true
 
 [dependencies]
-tondi-core.workspace = true
+spora-core.workspace = true
 log.workspace = true
 portable-atomic.workspace = true
 thiserror.workspace = true

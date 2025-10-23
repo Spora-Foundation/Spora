@@ -2,13 +2,13 @@ use crate::mempool::{
     errors::{NonStandardError, NonStandardResult},
     Mempool,
 };
-use tondi_consensus_core::{
+use spora_consensus_core::{
     constants::{MAX_SAU, MAX_SCRIPT_PUBLIC_KEY_VERSION},
     mass,
     tx::{MutableTransaction, PopulatedTransaction, TransactionOutput},
 };
-use tondi_consensus_core::{hashing::sighash::SigHashReusedValuesUnsync, mass::NonContextualMasses};
-use tondi_txscript::{get_sig_op_count_upper_bound, is_unspendable, script_class::ScriptClass};
+use spora_consensus_core::{hashing::sighash::SigHashReusedValuesUnsync, mass::NonContextualMasses};
+use spora_txscript::{get_sig_op_count_upper_bound, is_unspendable, script_class::ScriptClass};
 
 /// MAX_STANDARD_P2SH_SIG_OPS is the maximum number of signature operations
 /// that are considered standard in a pay-to-script-hash script.
@@ -53,7 +53,7 @@ impl Mempool {
         // The transaction must be a currently supported version.
         //
         // This check is currently mirrored in consensus.
-        // However, in a later version of Tondi the consensus-valid transaction version range might diverge from the
+        // However, in a later version of Spora the consensus-valid transaction version range might diverge from the
         // standard transaction version range, and thus the validation should happen in both levels.
         if transaction.tx.version > self.config.maximum_standard_transaction_version
             || transaction.tx.version < self.config.minimum_standard_transaction_version
@@ -279,14 +279,14 @@ impl Mempool {
         // 2) Simplified parsing: deserialize witness (suggest using real witness decoder later)
         // Try to parse as CopperootWitness for P2CR depth validation
         if is_copperoot {
-            if let Ok(wit) = tondi_txscript::standard::copperoot::witness::CopperootWitness::try_from(signature_script) {
-                if let Ok(spend) = tondi_txscript::standard::copperoot::witness::P2CrSpend::try_from(&wit) {
-                    if let tondi_txscript::standard::copperoot::witness::P2CrSpend::Script { control_block, .. } = spend {
+            if let Ok(wit) = spora_txscript::standard::copperoot::witness::CopperootWitness::try_from(signature_script) {
+                if let Ok(spend) = spora_txscript::standard::copperoot::witness::P2CrSpend::try_from(&wit) {
+                    if let spora_txscript::standard::copperoot::witness::P2CrSpend::Script { control_block, .. } = spend {
                         // Parse control block, count merkle_path length
-                        if let Ok(cb) = tondi_txscript::standard::copperoot::witness::CopperootControlBlock::deserialize(&control_block) {
+                        if let Ok(cb) = spora_txscript::standard::copperoot::witness::CopperootControlBlock::deserialize(&control_block) {
                             // For P2CR (Merkle type) apply depth limit; Verkle type currently rejected (existing rules)
                             let proof_type = cb.tlv_extensions.iter()
-                                .find(|tlv| tlv.tlv_type == tondi_txscript::standard::copperoot::witness::TLV_TYPE_PROOF_TYPE)
+                                .find(|tlv| tlv.tlv_type == spora_txscript::standard::copperoot::witness::TLV_TYPE_PROOF_TYPE)
                                 .and_then(|tlv| tlv.value.first().copied())
                                 .unwrap_or(0);
                             
@@ -336,8 +336,8 @@ mod tests {
     };
     use smallvec::smallvec;
     use std::sync::Arc;
-    use tondi_addresses::{Address, Prefix, Version};
-    use tondi_consensus_core::{
+    use spora_addresses::{Address, Prefix, Version};
+    use spora_consensus_core::{
         config::params::Params,
         constants::{MAX_TX_IN_SEQUENCE_NUM, SAU_PER_TONDI, TX_VERSION},
         mass::NonContextualMasses,
@@ -345,7 +345,7 @@ mod tests {
         subnets::SUBNETWORK_ID_NATIVE,
         tx::{ScriptPublicKey, ScriptVec, Transaction, TransactionInput, TransactionOutpoint, TransactionOutput},
     };
-    use tondi_txscript::{
+    use spora_txscript::{
         opcodes::codes::{OpReturn, OpTrue},
         script_builder::ScriptBuilder,
     };
@@ -493,13 +493,13 @@ mod tests {
     #[test]
     fn test_check_transaction_standard_in_isolation() {
         // Create some dummy, but otherwise standard, data for transactions.
-        let dummy_prev_out = TransactionOutpoint::new(tondi_hashes::Hash::from_u64_word(1), 1);
+        let dummy_prev_out = TransactionOutpoint::new(spora_hashes::Hash::from_u64_word(1), 1);
         let dummy_sig_script = vec![0u8; 65];
         let dummy_tx_input = TransactionInput::new(dummy_prev_out, dummy_sig_script, MAX_TX_IN_SEQUENCE_NUM, 1);
         let addr_hash = vec![1u8; 32];
 
         let addr = Address::new(Prefix::Testnet, Version::PubKey, &addr_hash).expect("Valid test address");
-        let dummy_script_public_key = tondi_txscript::pay_to_address_script(&addr);
+        let dummy_script_public_key = spora_txscript::pay_to_address_script(&addr);
         let dummy_tx_out = TransactionOutput::new(SAU_PER_TONDI, dummy_script_public_key);
 
         struct Test {

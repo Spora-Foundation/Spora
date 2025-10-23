@@ -1,6 +1,6 @@
 # Treasure Boy
 
-A high-performance transaction generator and airdrop tool for the Tondi blockchain network. Treasure Boy enables efficient batch transactions, address generation, and automated airdrop operations with configurable transaction rates and fee management.
+A high-performance transaction generator and airdrop tool for the Spora blockchain network. Treasure Boy enables efficient batch transactions, address generation, and automated airdrop operations with configurable transaction rates and fee management.
 
 ## Features
 
@@ -20,13 +20,13 @@ A high-performance transaction generator and airdrop tool for the Tondi blockcha
 ### Prerequisites
 
 - Rust 1.70+
-- Access to a Tondi RPC node
+- Access to a Spora RPC node
 
 ### Build from Source
 
 ```bash
 git clone <repository-url>
-cd Tondi/treasure_boy
+cd Spora/treasure_boy
 cargo build --release
 ```
 
@@ -97,7 +97,7 @@ cargo run --package treasure_boy -- \
 ### Network Types
 
 - **testnet**: Uses `tondi0:` prefix (default)
-- **mainnet**: Uses `tondi:` prefix
+- **mainnet**: Uses `spora:` prefix
 - **devnet**: Uses `tondidev:` prefix
 
 ### Address File Format
@@ -125,7 +125,7 @@ cargo run --package treasure_boy -- --generate-addresses 100 --network mainnet -
 ### Example 2: Single Transaction
 
 ```bash
-# Send 1 TONDI to a single address at 10 TPS
+# Send 1 SPORA to a single address at 10 TPS
 cargo run --package treasure_boy -- \
   --private-key c99b1ccf1087af2a56ffedb885943962e0159a7705cac583eef3e9958cd035b3 \
   --to-addr tondi0:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvp55hu9 \
@@ -205,7 +205,7 @@ cargo run --package treasure_boy -- \
 
 ### Default Values
 
-- **Default Send Amount**: 1 TONDI (1,000,000,000 SAU)
+- **Default Send Amount**: 1 SPORA (1,000,000,000 SAU)
 - **Default TPS**: 1 transaction per second
 - **Default Network**: testnet
 - **Default RPC Server**: localhost:16210
@@ -301,7 +301,7 @@ cargo test --package treasure_boy --test integration_tests
 
 ## License
 
-This project is licensed under the same license as the Tondi project.
+This project is licensed under the same license as the Spora project.
 
 ## Support
 

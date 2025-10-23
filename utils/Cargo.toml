@@ -1,6 +1,6 @@
 [package]
-name = "tondi-utils"
-description = "Tondi utilities"
+name = "spora-utils"
+description = "Spora utilities"
 rust-version.workspace = true
 version.workspace = true
 edition.workspace = true

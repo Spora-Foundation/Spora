@@ -7,7 +7,7 @@ use crate::{
 };
 use hexplay::{HexView, HexViewBuilder};
 use thiserror::Error;
-use tondi_txscript_errors::SerializationError;
+use spora_txscript_errors::SerializationError;
 
 /// DEFAULT_SCRIPT_ALLOC is the default size used for the backing array
 /// for a script being built by the ScriptBuilder. The array will
@@ -54,8 +54,8 @@ pub type ScriptBuilderResult<T> = std::result::Result<T, ScriptBuilderError>;
 /// better choice to generate the script):
 ///
 /// ```
-/// use tondi_txscript::opcodes::codes::*;
-/// use tondi_txscript::script_builder::{ScriptBuilderResult, ScriptBuilder};
+/// use spora_txscript::opcodes::codes::*;
+/// use spora_txscript::script_builder::{ScriptBuilderResult, ScriptBuilder};
 /// fn build_multisig_script(pub_key1: &[u8], pub_key2: &[u8], pub_key3: &[u8]) -> ScriptBuilderResult<Vec<u8>> {
 ///     Ok(ScriptBuilder::new()
 ///         .add_op(Op2)?

@@ -11,7 +11,7 @@ use std::{
     collections::VecDeque,
     path::{Path, PathBuf},
 };
-use tondi_utils::hex::ToHex;
+use spora_utils::hex::ToHex;
 use workflow_store::fs;
 
 pub struct Inner {

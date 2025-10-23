@@ -21,7 +21,7 @@
   * **这是一次彻底的架构重写**，不是渐进式迁移
   * 所有 UTXO 相关模块将被**直接删除**，而非标记 deprecated
 
-**当前代码基础（Tondi v1.21.0）**：
+**当前代码基础（Spora v1.21.0）**：
 - 语言：**Rust** (edition 2021, rustc 1.82.0)
 - 共识：GhostDAG + UTXO（**将被完全替换为 GhostDAG + Cell**）
 - 待删除模块：`indexes/utxoindex/`, `consensus/*/tx_validation_in_utxo_context.rs`, UTXO 相关验证逻辑
@@ -31,10 +31,10 @@
 
 ## 1. 目录与模块落点（请按此新建/重构）
 
-**新增 Crate 结构（基于 Tondi workspace）**：
+**新增 Crate 结构（基于 Spora workspace）**：
 
 ```
-Tondi/
+Spora/
 ├── consensus/
 │   ├── core/           # 现有：保留 DAG/GhostDAG 核心，删除所有 UTXO 类型
 │   ├── spora/          # 新增 crate：Spora 共识接口与权重打分
@@ -160,7 +160,7 @@ rg -n "utxo|UTXO|UtxoEntry|script_pub_key|ScriptPublicKey" \
 ```toml
 # workspace members 中删除：
 "indexes/utxoindex",
-"tondi-utxoindex",
+"spora-utxoindex",
 ```
 
 **替换为（新建模块）**：
@@ -206,9 +206,9 @@ rg -n "utxo|UTXO|UtxoEntry|script_pub_key|ScriptPublicKey" \
 **⚠️ 重要决策：统一使用 blake3**
 
 * **域常量**（用于域分离）：
-  * `CELL_TXID_DOMAIN = b"tondi-cell/txid"`（不含见证）
-  * `CELL_WTXID_DOMAIN = b"tondi-cell/wtxid"`（含见证）
-  * `CELL_SIG_DOMAIN = b"tondi-cell/sig"`（签名消息）
+  * `CELL_TXID_DOMAIN = b"spora-cell/txid"`（不含见证）
+  * `CELL_WTXID_DOMAIN = b"spora-cell/wtxid"`（含见证）
+  * `CELL_SIG_DOMAIN = b"spora-cell/sig"`（签名消息）
 
 * **标准哈希接口**（写入 `exec/celltx/sighash.rs`）：
   ```rust
@@ -334,7 +334,7 @@ pub struct CellOut {
     pub lock: ScriptRef,
     /// 类型脚本（可选）：定义状态转移约束
     pub type_: Option<ScriptRef>,
-    /// 容量（CKB 用 shannons，Tondi 用 saus）
+    /// 容量（CKB 用 shannons，Spora 用 saus）
     /// 必须 >= occupied_capacity(output, outputs_data[i])
     pub capacity: u64,
     // ⚠️ 无 data 字段！数据存储在 CellTx.outputs_data
@@ -737,9 +737,9 @@ impl<DL: CellDataProvider> Syscalls<CellVM> for LoadCellByField<DL> {
 }
 ```
 
-**兼容性映射（CKB → Tondi-DAG）**：
+**兼容性映射（CKB → Spora-DAG）**：
 
-| CKB 概念 | Tondi-Cell 对应 | 映射说明 |
+| CKB 概念 | Spora-Cell 对应 | 映射说明 |
 |---------|---------------|--------|
 | `block_number` | `daa_score` | 时间锁、成熟度检查改用 DAA 分数 |
 | `block_hash` | `selected_parent_hash` | 引用父块改为引用 selected parent |
@@ -862,7 +862,7 @@ pub enum VmError {
 - **数据分离**：Cell 元数据与 Cell data 完全分离（参考 CKB COLUMN_CELL/COLUMN_CELL_DATA）
 - **可重组**：`attach_block_cell` / `detach_block_cell` + SpendJournal 支持回滚
 
-**Tondi DAG 适配**：
+**Spora DAG 适配**：
 - **状态继承**：从 selected parent 的 `cell_root` 继承
 - **K内回滚**：SpendJournal 保留最近 K 层的 CellChange
 - **DAA 视图查询**：`created_daa <= at_daa && (spent_at > at_daa || spent_at.is_none())`
@@ -1442,7 +1442,7 @@ impl SpendJournal {
  *  - COLUMN_CELL: CellEntry（元数据）
  *  - COLUMN_CELL_DATA: CellDataEntry（实际数据）
  *
- * Tondi 适配（DA 层分离）：
+ * Spora 适配（DA 层分离）：
  *  - cf::CELLS: CellIndexEntry（元数据 + Segment 指针）
  *  - Segment 文件：实际 Cell data（mmap，不进 DB）
  */
@@ -2041,7 +2041,7 @@ impl ReorgManager {
 **⚠️ Schema 文件：`exec/celltx/types.mol`**
 
 ```mol
-// Tondi Cell Transaction Schema (Molecule)
+// Spora Cell Transaction Schema (Molecule)
 // 与 CKB 对齐，扩展 DAG 特性
 
 // 基础类型
@@ -2272,7 +2272,7 @@ fn test_molecule_compatibility_with_ckb() {
     // Molecule 兼容性：可以解析 CKB 交易
     let mol_tx = molecule::Transaction::from_slice(ckb_tx_bytes).unwrap();
     
-    // 转换为 Tondi CellTx（版本检查会失败，但结构兼容）
+    // 转换为 Spora CellTx（版本检查会失败，但结构兼容）
     // 注：实际使用需要版本适配层
 }
 
@@ -3015,7 +3015,7 @@ pub trait SporaConsensus {
 
 **任务 0.1：UTXO 依赖全面扫描**
 ```bash
-cd /home/arthur/RustRoverProjects/Tondi
+cd /home/arthur/RustRoverProjects/Spora
 # 扫描所有 UTXO 相关代码
 rg -n "utxo|UTXO|UtxoEntry|script_pub_key|ScriptPublicKey" \
   --type rust consensus/ mining/ indexes/ > utxo_scan_full.txt
@@ -3024,7 +3024,7 @@ rg -n "utxo|UTXO|UtxoEntry|script_pub_key|ScriptPublicKey" \
 rg --type rust -c "UTXO|utxo" consensus/ | sort -t: -k2 -rn | head -20
 
 # 找出所有依赖 utxoindex 的地方
-rg "tondi-utxoindex|use.*utxo" --type rust -l
+rg "spora-utxoindex|use.*utxo" --type rust -l
 ```
 
 **任务 0.2：删除 UTXO 模块（不可逆操作，谨慎执行）**
@@ -3042,7 +3042,7 @@ rm -f consensus/src/processes/transaction_validator/tx_validation_in_utxo_contex
 # 编辑 Cargo.toml，删除以下行：
 #   "indexes/utxoindex",
 # 以及 [workspace.dependencies] 中的：
-#   tondi-utxoindex = { ... }
+#   spora-utxoindex = { ... }
 
 # 4. 提交删除（保留 git 历史）
 git add -A
@@ -3659,11 +3659,11 @@ occupied_capacity(cell) =
 ancestors_score = ancestors_fee / ancestors_size * cycles_factor * age_factor
 ```
 
-### 16.6 DAG 适配要点（Tondi 特有）
+### 16.6 DAG 适配要点（Spora 特有）
 
 **1. DAA 分数（vs BlockNumber）**：
 - CKB 用 `block_number` 表示高度
-- Tondi 用 `daa_score`（GhostDAG 蓝分）
+- Spora 用 `daa_score`（GhostDAG 蓝分）
 - 所有成熟度检查改用 DAA 分数
 
 **2. Cell 状态查询**：
@@ -3679,11 +3679,11 @@ fn cell(&self, out_point: &OutPoint, at_daa_score: Option<u64>) -> CellStatus;
 
 **4. Cell Root 承诺**：
 - CKB：线性累积（简单）
-- Tondi：DAG 状态树（需选择父块状态）
+- Spora：DAG 状态树（需选择父块状态）
 
 **5. 交易打包**：
 - CKB：顺序打包（拓扑排序）
-- Tondi：DAG 冲突检测 + 裁决
+- Spora：DAG 冲突检测 + 裁决
 
 ### 16.7 性能优化（从 CKB 借鉴）
 
@@ -3732,7 +3732,7 @@ since 字段：
 
 ### 16.9 术语对照表
 
-| CKB | Tondi-Cell | UTXO (旧) | 说明 |
+| CKB | Spora-Cell | UTXO (旧) | 说明 |
 |-----|-----------|----------|------|
 | Cell | Cell | UTXO | 基本状态单元 |
 | OutPoint | OutPoint | OutPoint | 引用（tx_hash + index） |
@@ -3791,19 +3791,19 @@ since 字段：
 
 **A. 扫描 UTXO 依赖（全面盘点）**
 ```bash
-cd /home/arthur/RustRoverProjects/Tondi
+cd /home/arthur/RustRoverProjects/Spora
 # 扫描所有 UTXO 引用
 rg -n "utxo|UTXO" --type rust -c consensus/ indexes/ mining/ | sort -t: -k2 -rn > utxo_hotspots.txt
 cat utxo_hotspots.txt
 
 # 找出依赖 utxoindex 的模块
-rg "tondi-utxoindex" --type toml
+rg "spora-utxoindex" --type toml
 rg "use.*utxo" --type rust -l > utxo_imports.txt
 ```
 
 **B. 删除 UTXO 模块（⚠️ 不可逆操作）**
 ```bash
-cd /home/arthur/RustRoverProjects/Tondi
+cd /home/arthur/RustRoverProjects/Spora
 
 # 确认在正确分支
 git branch --show-current  # 必须是 spora
@@ -3819,7 +3819,7 @@ rm -f consensus/src/processes/transaction_validator/tx_validation_in_utxo_contex
 
 # 编辑 Cargo.toml 移除引用（手动或用 sed）
 # 删除 members 中的 "indexes/utxoindex"
-# 删除 workspace.dependencies 中的 tondi-utxoindex
+# 删除 workspace.dependencies 中的 spora-utxoindex
 
 # 提交删除
 git add -A
@@ -3840,7 +3840,7 @@ ls -la /home/arthur/RustRoverProjects/ckb/tx-pool/src/
 
 **D. 创建 Cell 工作目录骨架**
 ```bash
-cd /home/arthur/RustRoverProjects/Tondi
+cd /home/arthur/RustRoverProjects/Spora
 mkdir -p exec/src/{celltx,scheduler,vm,scripts}
 mkdir -p state/src/{index,store}
 mkdir -p mempool/src
@@ -3914,14 +3914,14 @@ echo "# Cell Memory Pool - Parallel scheduler with RW-Set DAG" > mempool/README.
 
 **🔴 优先级 P0：立即执行（今天，2-3 小时）**
 ```bash
-cd /home/arthur/RustRoverProjects/Tondi
+cd /home/arthur/RustRoverProjects/Spora
 
 # 1. 确认分支
 git branch --show-current  # 必须是 spora
 
 # 2. 全面扫描 UTXO 依赖
 rg -n "utxo|UTXO" --type rust -c consensus/ indexes/ mining/ | sort -t: -k2 -rn > utxo_hotspots.txt
-rg "tondi-utxoindex" --type toml > utxo_cargo_deps.txt
+rg "spora-utxoindex" --type toml > utxo_cargo_deps.txt
 
 # 3. 备份并删除
 git tag before-utxo-removal
@@ -3938,7 +3938,7 @@ bat /home/arthur/RustRoverProjects/ckb/util/types/src/core/cell.rs | head -100
 **🟡 优先级 P1：今天完成（2-3 小时）**
 ```bash
 # 1. 手动编辑 Cargo.toml
-#    删除 "indexes/utxoindex" 和 tondi-utxoindex 依赖
+#    删除 "indexes/utxoindex" 和 spora-utxoindex 依赖
 
 # 2. 创建 Cell 工作目录
 mkdir -p exec/src/{celltx,scheduler,vm,scripts}
@@ -4090,7 +4090,7 @@ pub fn verify_nmt_proof(
 
 ### 19.2 变更说明
 
-**Tondi-Cell 对 CKB 的修改**：
+**Spora-Cell 对 CKB 的修改**：
 
 1. **DAG 适配**：
    - 用 `daa_score` 替代 `block_number`
@@ -4100,7 +4100,7 @@ pub fn verify_nmt_proof(
 
 2. **哈希算法**：
    - 统一使用 `blake3`（CKB 用 `blake2b`）
-   - 域前缀：`tondi-cell/*`
+   - 域前缀：`spora-cell/*`
 
 3. **序列化**：
    - **使用 Molecule**（与 CKB 相同）
@@ -4180,9 +4180,9 @@ Nervos CKB (Common Knowledge Base).
 
 ### Referenced Components
 
-The following Tondi components are inspired by or adapted from CKB:
+The following Spora components are inspired by or adapted from CKB:
 
-| Tondi Module | CKB Reference | Modifications |
+| Spora Module | CKB Reference | Modifications |
 |--------------|---------------|---------------|
 | `exec/celltx/types.rs` | `util/types/src/core/cell.rs` | Added DAG-aware fields |
 | `exec/vm/ckbvm.rs` | `script/src/verify.rs` | Syscalls adapted for DAG |
@@ -4194,7 +4194,7 @@ The following Tondi components are inspired by or adapted from CKB:
 1. **Consensus**: GhostDAG (vs. NC-Max in CKB)
 2. **Hashing**: blake3 (vs. blake2b in CKB)
 3. **Serialization**: **Molecule (same as CKB)** - Full compatibility
-4. **DA Layer**: NMT sampling (new in Tondi)
+4. **DA Layer**: NMT sampling (new in Spora)
 5. **DAG Adaptations**: `daa_score`, mergeset rewards, reorg logs
 
 ## Other Dependencies
@@ -4240,9 +4240,9 @@ jobs:
 
 ```rust
 // SPDX-License-Identifier: ISC
-// Copyright (C) 2025Tondi developers
+// Copyright (C) 2025Spora developers
 //
-// This file is part of Tondi, a DAG-based blockchain with Cell model.
+// This file is part of Spora, a DAG-based blockchain with Cell model.
 // Portions adapted from Nervos CKB (MIT License).
 
 // ... code ...
@@ -4319,7 +4319,7 @@ jobs:
      - LoadTx, LoadCell, LoadCellData ✅
      - LoadInput, LoadWitness, LoadScript ✅
      - LoadHeader, CurrentCycles, Debugger ✅
-     - **Blake3Hash (3001) - Tondi扩展** ✅
+     - **Blake3Hash (3001) - Spora扩展** ✅
    - TransactionScriptVerifier框架 ✅
    - Script grouping逻辑 ✅
    - **编译通过（0错误）** ✅
@@ -4575,7 +4575,7 @@ pub(super) transaction_validator: TransactionValidator,
    - Type scripts execution ✅
 4. [x] 实现Syscalls (syscalls/*.rs) ✅
    - LoadCell, LoadInput, LoadTx等 ✅ (10 syscalls)
-   - Blake3 syscall (3001) ✅ (Tondi创新)
+   - Blake3 syscall (3001) ✅ (Spora创新)
    - 集成到VM ✅
 5. [x] 集成到CellValidator ✅
    - verify_lock_scripts ✅
@@ -4718,11 +4718,11 @@ pub(super) transaction_validator: TransactionValidator,
 **下一步行动**:
 ```bash
 # 1. 清理编译错误（现在进行中）
-cargo check --package tondi-consensus
+cargo check --package spora-consensus
 
 # 2. 补全CellTx方法
 # 3. 运行测试
-cargo test --package tondi-consensus
+cargo test --package spora-consensus
 
 # 4. 继续开发
 ```

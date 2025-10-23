@@ -6,16 +6,16 @@ use crate::{
 };
 use async_channel::Receiver;
 use std::sync::Arc;
-use tondi_core::{
+use spora_core::{
     task::service::{AsyncService, AsyncServiceError, AsyncServiceFuture},
     trace, warn,
 };
-use tondi_notify::{
+use spora_notify::{
     events::{EventSwitches, EVENT_TYPE_ARRAY},
     subscriber::Subscriber,
     subscription::{context::SubscriptionContext, MutationPolicies, UtxosChangedMutationPolicy},
 };
-use tondi_utils::triggers::SingleTrigger;
+use spora_utils::triggers::SingleTrigger;
 
 const NOTIFY_SERVICE: &str = "notify-service";
 

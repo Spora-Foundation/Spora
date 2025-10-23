@@ -420,7 +420,7 @@ mod tests {
     use bitcoin::{hashes::HashEngine, hex::test_hex_unwrap, key::TapTweak, taproot::Signature, Witness};
     use secp256k1::{Keypair, Message, Secp256k1};
     use std::str::FromStr;
-    use tondi_utils::hex::FromHex;
+    use spora_utils::hex::FromHex;
 
     #[test]
     fn test_tap_sighash_hash() {

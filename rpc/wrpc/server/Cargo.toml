@@ -1,6 +1,6 @@
 [package]
-name = "tondi-wrpc-server"
-description = "Tondi wRPC server"
+name = "spora-wrpc-server"
+description = "Spora wRPC server"
 rust-version.workspace = true
 version.workspace = true
 edition.workspace = true
@@ -16,14 +16,14 @@ crate-type = ["cdylib", "lib"]
 async-trait.workspace = true
 borsh = { workspace = true, features = ["rc"] }
 futures.workspace = true
-tondi-consensus-core.workspace = true
-tondi-core.workspace = true
-tondi-grpc-client.workspace = true
-tondi-notify.workspace = true
-tondi-rpc-core.workspace = true
-tondi-rpc-macros.workspace = true
-tondi-rpc-service.workspace = true
-tondi-utils.workspace = true
+spora-consensus-core.workspace = true
+spora-core.workspace = true
+spora-grpc-client.workspace = true
+spora-notify.workspace = true
+spora-rpc-core.workspace = true
+spora-rpc-macros.workspace = true
+spora-rpc-service.workspace = true
+spora-utils.workspace = true
 log.workspace = true
 num_cpus.workspace = true
 paste.workspace = true

@@ -9,7 +9,7 @@ use crate::{
 };
 use itertools::Itertools;
 use thiserror::Error;
-use tondi_hashes::Hash;
+use spora_hashes::Hash;
 
 #[derive(Clone, Debug)]
 pub struct VecDisplay<T: Display>(pub Vec<T>);

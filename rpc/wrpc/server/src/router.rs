@@ -1,15 +1,15 @@
 use crate::{connection::*, server::*};
 use std::sync::Arc;
-use tondi_notify::scope::Scope;
-use tondi_rpc_core::{api::ops::RpcApiOps, prelude::*};
-use tondi_rpc_macros::build_wrpc_server_interface;
+use spora_notify::scope::Scope;
+use spora_rpc_core::{api::ops::RpcApiOps, prelude::*};
+use spora_rpc_macros::build_wrpc_server_interface;
 use workflow_rpc::server::prelude::*;
 use workflow_serializer::prelude::*;
 
 /// A wrapper that creates an [`Interface`] instance and initializes
 /// RPC methods and notifications against this interface. The interface
 /// is later given to the RpcServer.  This wrapper exists to allow
-/// a single initialization location for both the Tondid Server and
+/// a single initialization location for both the Sporad Server and
 /// the GRPC Proxy.
 pub struct Router {
     pub interface: Arc<Interface<Server, Connection, RpcApiOps>>,

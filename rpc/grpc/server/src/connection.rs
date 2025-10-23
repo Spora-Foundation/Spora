@@ -4,7 +4,7 @@ use crate::{
     manager::ManagerEvent,
     request_handler::{
         factory::Factory,
-        interface::{Interface, TondidRoutingPolicy},
+        interface::{Interface, SporadRoutingPolicy},
         method::RoutingPolicy,
     },
 };
@@ -24,24 +24,24 @@ use std::{
 use tokio::sync::mpsc::Sender as MpscSender;
 use tokio::sync::oneshot::{channel as oneshot_channel, Sender as OneshotSender};
 use tokio::{select, sync::mpsc::error::TrySendError};
-use tondi_core::{debug, info, trace, warn};
-use tondi_grpc_core::{
-    ops::TondidPayloadOps,
-    protowire::{TondidRequest, TondidResponse},
+use spora_core::{debug, info, trace, warn};
+use spora_grpc_core::{
+    ops::SporadPayloadOps,
+    protowire::{SporadRequest, SporadResponse},
 };
-use tondi_notify::{
+use spora_notify::{
     connection::Connection as ConnectionT,
     error::Error as NotificationError,
     listener::{ListenerId, ListenerLifespan},
     notifier::Notifier,
 };
-use tondi_rpc_core::Notification;
+use spora_rpc_core::Notification;
 use tonic::Streaming;
 use uuid::Uuid;
 
-pub type IncomingRoute = MpmcReceiver<TondidRequest>;
+pub type IncomingRoute = MpmcReceiver<SporadRequest>;
 pub type GrpcNotifier = Notifier<Notification, Connection>;
-pub type GrpcSender = MpscSender<TondidResponse>;
+pub type GrpcSender = MpscSender<SporadResponse>;
 pub type StatusResult<T> = Result<T, tonic::Status>;
 pub type ConnectionId = Uuid;
 
@@ -92,16 +92,16 @@ impl Drop for Inner {
     }
 }
 
-type RequestSender = MpmcSender<TondidRequest>;
+type RequestSender = MpmcSender<SporadRequest>;
 
 #[derive(Clone)]
 struct Route {
     sender: RequestSender,
-    policy: TondidRoutingPolicy,
+    policy: SporadRoutingPolicy,
 }
 
 impl Route {
-    fn new(sender: RequestSender, policy: TondidRoutingPolicy) -> Self {
+    fn new(sender: RequestSender, policy: SporadRoutingPolicy) -> Self {
         Self { sender, policy }
     }
 }
@@ -114,7 +114,7 @@ impl Deref for Route {
     }
 }
 
-type RoutingMap = HashMap<TondidPayloadOps, Route>;
+type RoutingMap = HashMap<SporadPayloadOps, Route>;
 
 struct Router {
     /// Routing map for mapping messages to RPC op handlers
@@ -132,7 +132,7 @@ impl Router {
         Self { routing_map: Default::default(), server_context, interface }
     }
 
-    fn get_or_subscribe(&mut self, connection: &Connection, rpc_op: TondidPayloadOps) -> &Route {
+    fn get_or_subscribe(&mut self, connection: &Connection, rpc_op: SporadPayloadOps) -> &Route {
         match self.routing_map.entry(rpc_op) {
             Entry::Vacant(entry) => {
                 let method = self.interface.get_method(&rpc_op);
@@ -170,7 +170,7 @@ impl Router {
         self.routing_map.get(&rpc_op).unwrap()
     }
 
-    async fn route_to_handler(&mut self, connection: &Connection, request: TondidRequest) -> GrpcServerResult<()> {
+    async fn route_to_handler(&mut self, connection: &Connection, request: SporadRequest) -> GrpcServerResult<()> {
         if request.payload.is_none() {
             debug!("GRPC, Route to handler got empty payload, client: {}", connection);
             return Err(GrpcServerError::InvalidRequestPayload);
@@ -218,7 +218,7 @@ impl Connection {
         server_context: ServerContext,
         interface: Arc<Interface>,
         manager_sender: MpscSender<ManagerEvent>,
-        mut incoming_stream: Streaming<TondidRequest>,
+        mut incoming_stream: Streaming<SporadRequest>,
         outgoing_route: GrpcSender,
     ) -> Self {
         let (shutdown_sender, mut shutdown_receiver) = oneshot_channel();
@@ -343,7 +343,7 @@ impl Connection {
     }
 
     /// Enqueues a response to be sent to the client
-    pub async fn enqueue(&self, response: TondidResponse) -> GrpcServerResult<()> {
+    pub async fn enqueue(&self, response: SporadResponse) -> GrpcServerResult<()> {
         assert!(response.payload.is_some(), "tondid gRPC message should always have a value");
         match self.inner.outgoing_route.try_send(response) {
             Ok(_) => Ok(()),
@@ -401,7 +401,7 @@ pub enum GrpcEncoding {
 #[async_trait::async_trait]
 impl ConnectionT for Connection {
     type Notification = Notification;
-    type Message = Arc<TondidResponse>;
+    type Message = Arc<SporadResponse>;
     type Encoding = GrpcEncoding;
     type Error = super::error::GrpcServerError;
 
@@ -409,7 +409,7 @@ impl ConnectionT for Connection {
         GrpcEncoding::ProtowireResponse
     }
 
-    fn into_message(notification: &tondi_rpc_core::Notification, _: &Self::Encoding) -> Self::Message {
+    fn into_message(notification: &spora_rpc_core::Notification, _: &Self::Encoding) -> Self::Message {
         Arc::new((notification).into())
     }
 

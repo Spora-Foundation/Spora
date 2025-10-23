@@ -20,13 +20,13 @@ use crate::{
 };
 use parking_lot::RwLock;
 use std::sync::Arc;
-use tondi_consensus_core::{
+use spora_consensus_core::{
     cell_diff::{CellDiff, CellMeta},
     cell_metadata::CellMetadata,
     tx::TransactionOutpoint,
 };
-use tondi_exec::OutPoint;
-use tondi_hashes::Hash;
+use spora_exec::OutPoint;
+use spora_hashes::Hash;
 
 /// Consensus Cell Provider
 /// 
@@ -134,7 +134,7 @@ impl<
     fn is_cell_available(&self, out_point: &OutPoint, daa: u64) -> Result<bool, String> {
         // Convert exec::OutPoint to consensus-core::TransactionOutpoint
         let outpoint = TransactionOutpoint {
-            transaction_id: tondi_consensus_core::Hash::from_bytes(out_point.tx_hash).into(),
+            transaction_id: spora_consensus_core::Hash::from_bytes(out_point.tx_hash).into(),
             index: out_point.index,
         };
 
@@ -170,7 +170,7 @@ impl<
     fn get_cell_capacity(&self, out_point: &OutPoint) -> Result<Option<u64>, String> {
         // Convert to TransactionOutpoint
         let outpoint = TransactionOutpoint {
-            transaction_id: tondi_consensus_core::Hash::from_bytes(out_point.tx_hash).into(),
+            transaction_id: spora_consensus_core::Hash::from_bytes(out_point.tx_hash).into(),
             index: out_point.index,
         };
 
@@ -215,7 +215,7 @@ impl<
     fn get_cell_metadata(&self, out_point: &OutPoint) -> Result<Option<CellMetadata>, String> {
         // Convert to TransactionOutpoint
         let outpoint = TransactionOutpoint {
-            transaction_id: tondi_consensus_core::Hash::from_bytes(out_point.tx_hash).into(),
+            transaction_id: spora_consensus_core::Hash::from_bytes(out_point.tx_hash).into(),
             index: out_point.index,
         };
 
@@ -302,11 +302,11 @@ impl<
 > ConsensusCellProvider<T, U, V, W, X, Y, Z>
 {
     /// Compute lock script hash from ScriptPublicKey
-    fn compute_lock_hash(script_public_key: &tondi_consensus_core::tx::ScriptPublicKey) -> [u8; 32] {
+    fn compute_lock_hash(script_public_key: &spora_consensus_core::tx::ScriptPublicKey) -> [u8; 32] {
         use blake3::Hasher;
         
         let mut hasher = Hasher::new();
-        hasher.update(b"tondi-cell/lock"); // Domain separation
+        hasher.update(b"spora-cell/lock"); // Domain separation
         hasher.update(&script_public_key.version().to_le_bytes());
         hasher.update(script_public_key.script());
         
@@ -317,7 +317,7 @@ impl<
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tondi_consensus_core::tx::ScriptPublicKey;
+    use spora_consensus_core::tx::ScriptPublicKey;
     use crate::model::stores::ghostdag::DbGhostdagStore;
     use crate::model::stores::reachability::DbReachabilityStore;
     use crate::model::stores::headers::DbHeadersStore;

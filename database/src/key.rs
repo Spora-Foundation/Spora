@@ -114,7 +114,7 @@ impl Debug for DbKey {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tondi_hashes::{Hash, HASH_SIZE};
+    use spora_hashes::{Hash, HASH_SIZE};
     use DatabaseStorePrefixes::*;
 
     #[test]

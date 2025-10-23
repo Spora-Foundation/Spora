@@ -15,8 +15,8 @@ use crate::utxo::{
     UtxoEntryReferenceExtension, UtxoProcessor,
 };
 use sorted_insert::SortedInsertBinaryByKey;
-use tondi_consensus_client::UtxoEntry;
-use tondi_hashes::Hash;
+use spora_consensus_client::UtxoEntry;
+use spora_hashes::Hash;
 static UTXO_CONTEXT_ID_SEQUENCER: AtomicU64 = AtomicU64::new(0);
 fn next_utxo_context_id() -> Hash {
     let id = UTXO_CONTEXT_ID_SEQUENCER.fetch_add(1, Ordering::SeqCst);

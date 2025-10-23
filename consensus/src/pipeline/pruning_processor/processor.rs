@@ -37,7 +37,7 @@ use std::{
     },
     time::{Duration, Instant},
 };
-use tondi_consensus_core::{
+use spora_consensus_core::{
     blockhash::ORIGIN,
     blockstatus::BlockStatus::StatusHeaderOnly,
     config::Config,
@@ -46,12 +46,12 @@ use tondi_consensus_core::{
     trusted::ExternalGhostdagData,
     BlockHashMap, BlockHashSet, BlockLevel,
 };
-use tondi_consensusmanager::SessionLock;
-use tondi_core::{debug, info, trace, warn};
-use tondi_database::prelude::{BatchDbWriter, MemoryWriter, StoreResultExtensions, DB};
-use tondi_hashes::Hash;
-use tondi_muhash::MuHash;
-use tondi_utils::iter::IterExtensions;
+use spora_consensusmanager::SessionLock;
+use spora_core::{debug, info, trace, warn};
+use spora_database::prelude::{BatchDbWriter, MemoryWriter, StoreResultExtensions, DB};
+use spora_hashes::Hash;
+use spora_muhash::MuHash;
+use spora_utils::iter::IterExtensions;
 
 pub enum PruningProcessingMessage {
     Exit,

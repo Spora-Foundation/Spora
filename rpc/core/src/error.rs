@@ -4,9 +4,9 @@
 
 use std::{net::AddrParseError, num::TryFromIntError};
 use thiserror::Error;
-use tondi_consensus_core::{subnets::SubnetworkConversionError, tx::TransactionId};
-// use tondi_consensus_core::utxo::utxo_inquirer::UtxoInquirerError;  // TODO(cell-model): UTXO removed
-use tondi_utils::networking::IpAddress;
+use spora_consensus_core::{subnets::SubnetworkConversionError, tx::TransactionId};
+// use spora_consensus_core::utxo::utxo_inquirer::UtxoInquirerError;  // TODO(cell-model): UTXO removed
+use spora_utils::networking::IpAddress;
 use workflow_core::channel::ChannelError;
 
 use crate::{api::ctl::RpcState, RpcHash, RpcTransactionId, SubmitBlockRejectReason};
@@ -89,25 +89,25 @@ pub enum RpcError {
     SubmitBlockError(SubmitBlockRejectReason),
 
     #[error(transparent)]
-    AddressError(#[from] tondi_addresses::AddressError),
+    AddressError(#[from] spora_addresses::AddressError),
 
     #[error(transparent)]
-    NetworkTypeError(#[from] tondi_consensus_core::network::NetworkTypeError),
+    NetworkTypeError(#[from] spora_consensus_core::network::NetworkTypeError),
 
     #[error(transparent)]
-    NetworkIdError(#[from] tondi_consensus_core::network::NetworkIdError),
+    NetworkIdError(#[from] spora_consensus_core::network::NetworkIdError),
 
     #[error(transparent)]
-    NotificationError(#[from] tondi_notify::error::Error),
+    NotificationError(#[from] spora_notify::error::Error),
 
     #[error(transparent)]
-    MiningManagerError(#[from] tondi_mining_errors::manager::MiningManagerError),
+    MiningManagerError(#[from] spora_mining_errors::manager::MiningManagerError),
 
     #[error(transparent)]
-    ConsensusError(#[from] tondi_consensus_core::errors::consensus::ConsensusError),
+    ConsensusError(#[from] spora_consensus_core::errors::consensus::ConsensusError),
 
     #[error(transparent)]
-    ScriptClassError(#[from] tondi_txscript::script_class::Error),
+    ScriptClassError(#[from] spora_txscript::script_class::Error),
 
     #[error(transparent)]
     NodeIdError(#[from] uuid::Error),
@@ -134,7 +134,7 @@ pub enum RpcError {
     SerdeWasmBindgen(String),
 
     #[error(transparent)]
-    ConsensusClient(#[from] tondi_consensus_client::error::Error),
+    ConsensusClient(#[from] spora_consensus_client::error::Error),
 
     // TODO(cell-model): UTXO-related errors removed - use Cell equivalents
 }

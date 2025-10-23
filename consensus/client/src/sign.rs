@@ -6,7 +6,7 @@ use crate::transaction::Transaction;
 use core::iter::once;
 use itertools::Itertools;
 use std::collections::BTreeMap;
-use tondi_consensus_core::{
+use spora_consensus_core::{
     hashing::{
         sighash::{calc_schnorr_signature_hash, SigHashReusedValuesUnsync},
         sighash_type::SIG_HASH_ALL,

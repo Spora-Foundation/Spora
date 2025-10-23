@@ -1,4 +1,4 @@
-import { ScriptBuilder, Opcodes, addressFromScriptPublicKey, NetworkType } from "../../../../nodejs/tondi"
+import { ScriptBuilder, Opcodes, addressFromScriptPublicKey, NetworkType } from "../../../../nodejs/spora"
 
 // An OpTrue is an always spendable script
 const myScript = new ScriptBuilder()

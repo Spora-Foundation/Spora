@@ -13,7 +13,7 @@ pub use musig2::{
 
 use secp256k1::{Keypair, Secp256k1, XOnlyPublicKey, All, SecretKey};
 use std::collections::HashMap;
-use tondi_hashes::Hash;
+use spora_hashes::Hash;
 
 /// MuSig2 nonce wrapper (for compatibility)
 #[derive(Debug, Clone)]

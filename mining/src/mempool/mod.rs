@@ -13,11 +13,11 @@ use self::{
     tx::Priority,
 };
 use std::sync::Arc;
-use tondi_consensus_core::{
+use spora_consensus_core::{
     block::TemplateTransactionSelector,
     tx::{MutableTransaction, TransactionId},
 };
-use tondi_core::time::Stopwatch;
+use spora_core::time::Stopwatch;
 
 pub(crate) mod check_transaction_standard;
 pub mod config;

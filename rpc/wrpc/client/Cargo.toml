@@ -1,6 +1,6 @@
 [package]
-name = "tondi-wrpc-client"
-description = "Tondi wRPC client"
+name = "spora-wrpc-client"
+description = "Spora wRPC client"
 rust-version.workspace = true
 version.workspace = true
 edition.workspace = true
@@ -10,7 +10,7 @@ license.workspace = true
 repository.workspace = true
 
 [features]
-wasm32-sdk = ["tondi-consensus-wasm/wasm32-sdk","tondi-rpc-core/wasm32-sdk","workflow-rpc/wasm32-sdk"]
+wasm32-sdk = ["spora-consensus-wasm/wasm32-sdk","spora-rpc-core/wasm32-sdk","workflow-rpc/wasm32-sdk"]
 default = []
 
 [lib]
@@ -23,12 +23,12 @@ borsh.workspace = true
 cfg-if.workspace = true
 futures.workspace = true
 js-sys.workspace = true
-tondi-addresses.workspace = true
-tondi-consensus-core.workspace = true
-tondi-consensus-wasm.workspace = true
-tondi-notify.workspace = true
-tondi-rpc-core.workspace = true
-tondi-rpc-macros.workspace = true
+spora-addresses.workspace = true
+spora-consensus-core.workspace = true
+spora-consensus-wasm.workspace = true
+spora-notify.workspace = true
+spora-rpc-core.workspace = true
+spora-rpc-macros.workspace = true
 paste.workspace = true
 rand.workspace = true
 regex.workspace = true

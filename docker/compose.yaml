@@ -1,5 +1,5 @@
 services:
-    tondi-dev:
+    spora-dev:
         build:
             context: .
             args:

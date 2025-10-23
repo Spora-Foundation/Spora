@@ -1,24 +1,24 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion, SamplingMode};
 use rand::{thread_rng, Rng};
 use secp256k1::Keypair;
-use tondi_addresses::{Address, Prefix, Version};
-use tondi_consensus::processes::transaction_validator::tx_validation_in_utxo_context::{
+use spora_addresses::{Address, Prefix, Version};
+use spora_consensus::processes::transaction_validator::tx_validation_in_utxo_context::{
     check_scripts_par_iter, check_scripts_par_iter_pool, check_scripts_sequential,
 };
-use tondi_consensus_core::hashing::sighash::{calc_schnorr_signature_hash, SigHashReusedValuesUnsync};
-use tondi_consensus_core::hashing::sighash_type::SIG_HASH_ALL;
-use tondi_consensus_core::subnets::SubnetworkId;
-use tondi_consensus_core::tx::{MutableTransaction, Transaction, TransactionInput, TransactionOutpoint, UtxoEntry};
-use tondi_txscript::caches::Cache;
-use tondi_txscript::pay_to_address_script;
-use tondi_utils::iter::parallelism_in_power_steps;
+use spora_consensus_core::hashing::sighash::{calc_schnorr_signature_hash, SigHashReusedValuesUnsync};
+use spora_consensus_core::hashing::sighash_type::SIG_HASH_ALL;
+use spora_consensus_core::subnets::SubnetworkId;
+use spora_consensus_core::tx::{MutableTransaction, Transaction, TransactionInput, TransactionOutpoint, UtxoEntry};
+use spora_txscript::caches::Cache;
+use spora_txscript::pay_to_address_script;
+use spora_utils::iter::parallelism_in_power_steps;
 
 fn mock_tx_with_payload(inputs_count: usize, non_uniq_signatures: usize, payload_size: usize) -> (Transaction, Vec<UtxoEntry>) {
     let mut payload = vec![0u8; payload_size];
     thread_rng().fill(&mut payload[..]);
 
     let reused_values = SigHashReusedValuesUnsync::new();
-    let dummy_prev_out = TransactionOutpoint::new(tondi_hashes::Hash::from_u64_word(1), 1);
+    let dummy_prev_out = TransactionOutpoint::new(spora_hashes::Hash::from_u64_word(1), 1);
     let mut tx = Transaction::new(
         0,
         vec![],

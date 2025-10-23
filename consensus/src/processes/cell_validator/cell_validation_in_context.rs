@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: ISC
-// Copyright (C) 2025Tondi developers
+// Copyright (C) 2025 Spora developers
 //
 // Cell transaction validation in DAG context (requires state)
 
 use super::errors::CellValidationError;
-use tondi_exec::{CellTx, OutPoint};
+use spora_exec::{CellTx, OutPoint};
 
 /// Cell state provider trait
 ///

@@ -1,26 +1,26 @@
 //!
-//! Partially Signed Tondi Transaction (PSTT)
+//! Partially Signed Spora Transaction (PSTT)
 //!
 
 use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 use std::{collections::BTreeMap, fmt::Display, fmt::Formatter, future::Future, marker::PhantomData, ops::Deref};
-use tondi_bip32::{secp256k1, DerivationPath, KeyFingerprint};
-use tondi_consensus_core::{hashing::sighash::SigHashReusedValuesUnsync, Hash};
+use spora_bip32::{secp256k1, DerivationPath, KeyFingerprint};
+use spora_consensus_core::{hashing::sighash::SigHashReusedValuesUnsync, Hash};
 
 pub use crate::error::Error;
 pub use crate::global::{Global, GlobalBuilder};
 pub use crate::input::{Input, InputBuilder};
 pub use crate::output::{Output, OutputBuilder};
 pub use crate::role::{Combiner, Constructor, Creator, Extractor, Finalizer, Signer, Updater};
-use tondi_consensus_core::config::params::Params;
-use tondi_consensus_core::mass::{MassCalculator, NonContextualMasses};
-use tondi_consensus_core::{
+use spora_consensus_core::config::params::Params;
+use spora_consensus_core::mass::{MassCalculator, NonContextualMasses};
+use spora_consensus_core::{
     hashing::sighash_type::SigHashType,
     subnets::SUBNETWORK_ID_NATIVE,
     tx::{MutableTransaction, SignableTransaction, Transaction, TransactionId, TransactionInput, TransactionOutput},
 };
-use tondi_txscript::{caches::Cache, TxScriptEngine};
+use spora_txscript::{caches::Cache, TxScriptEngine};
 
 #[derive(Debug, Default, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -55,7 +55,7 @@ impl Display for Version {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct KeySource {
-    #[serde(with = "tondi_utils::serde_bytes_fixed")]
+    #[serde(with = "spora_utils::serde_bytes_fixed")]
     pub key_fingerprint: KeyFingerprint,
     pub derivation_path: DerivationPath,
 }
@@ -85,9 +85,9 @@ impl Signature {
 }
 
 ///
-/// A Partially Signed Tondi Transaction (PSTT) is a standardized format
+/// A Partially Signed Spora Transaction (PSTT) is a standardized format
 /// that allows multiple participants to collaborate in creating and signing
-/// a Tondi transaction. PSTT enables the exchange of incomplete transaction
+/// a Spora transaction. PSTT enables the exchange of incomplete transaction
 /// data between different wallets or entities, allowing each participant
 /// to add their signature or inputs in stages. This facilitates more complex
 /// transaction workflows, such as multi-signature setups or hardware wallet
@@ -463,7 +463,7 @@ impl PSTT<Extractor> {
     pub fn extract_tx(self, params: &Params) -> Result<MutableTransaction<Transaction>, ExtractError> {
         let tx = self.extract_tx_unchecked(params)?;
 
-        use tondi_consensus_core::tx::VerifiableTransaction;
+        use spora_consensus_core::tx::VerifiableTransaction;
         {
             let tx = tx.as_verifiable();
             let cache = Cache::new(10_000);
@@ -502,7 +502,7 @@ pub enum FinalizeError<E> {
 #[derive(thiserror::Error, Debug, Clone, PartialEq, Eq)]
 pub enum ExtractError {
     #[error(transparent)]
-    TxScriptError(#[from] tondi_txscript_errors::TxScriptError),
+    TxScriptError(#[from] spora_txscript_errors::TxScriptError),
     #[error(transparent)]
     TxNotFinalized(#[from] TxNotFinalized),
 }

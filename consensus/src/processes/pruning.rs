@@ -14,14 +14,14 @@ use crate::model::{
     },
 };
 use parking_lot::RwLock;
-use tondi_consensus_core::{
+use spora_consensus_core::{
     blockhash::BlockHashExtensions,
     config::params::ForkedParam,
     errors::pruning::{PruningImportError, PruningImportResult},
 };
-use tondi_core::{info, log::CRESCENDO_KEYWORD};
-use tondi_database::prelude::StoreResultEmptyTuple;
-use tondi_hashes::Hash;
+use spora_core::{info, log::CRESCENDO_KEYWORD};
+use spora_database::prelude::StoreResultEmptyTuple;
+use spora_hashes::Hash;
 
 pub struct PruningPointReply {
     /// The most recent pruning sample from POV of the queried block (with distance up to ~F)
@@ -327,7 +327,7 @@ impl<
             This means we can safely begin the search from C even in the few moments post the fork (i.e., there's no fear of needing to "pull" C back)
 
             Note that overall this search is guaranteed to provide the desired monotonicity described in KIP-14:
-            https://github.com/tondinet/kips/blob/master/kip-0014.md#pruning-point-adjustment
+            https://github.com/sporanet/kips/blob/master/kip-0014.md#pruning-point-adjustment
         */
         for selected_child in self.reachability_service.forward_chain_iterator(current_candidate, ghostdag_data.selected_parent, true)
         {
@@ -571,7 +571,7 @@ impl<
 
 #[cfg(test)]
 mod tests {
-    use tondi_consensus_core::{config::params::Params, network::NetworkType};
+    use spora_consensus_core::{config::params::Params, network::NetworkType};
 
     #[test]
     fn assert_pruning_depth_consistency() {

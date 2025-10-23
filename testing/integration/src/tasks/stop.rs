@@ -2,8 +2,8 @@ use crate::tasks::Task;
 use async_trait::async_trait;
 use std::sync::Arc;
 use tokio::task::JoinHandle;
-use tondi_core::{trace, warn};
-use tondi_utils::triggers::SingleTrigger;
+use spora_core::{trace, warn};
+use spora_utils::triggers::SingleTrigger;
 
 pub(super) struct StopTask {
     main_stop_signal: SingleTrigger,

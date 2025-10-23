@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: ISC
-// Copyright (C) 2025Tondi developers
+// Copyright (C) 2025 Spora developers
 //
 // Cell query API
 
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tondi_exec::OutPoint;
-use tondi_state::index::CellMeta;
+use spora_exec::OutPoint;
+use spora_state::index::CellMeta;
 use crate::indexer::CellIndexer;
 
 /// Cell query request
@@ -114,7 +114,7 @@ impl CellIndexProxy {
     /// Update index with Cell diff (async version)
     /// 
     /// GHOSTDAG-aware: processes accumulated Cell diff from consensus notifications
-    pub async fn update_with_diff(&self, diff: &tondi_consensus_core::cell_diff::CellDiff) -> crate::Result<()> {
+    pub async fn update_with_diff(&self, diff: &spora_consensus_core::cell_diff::CellDiff) -> crate::Result<()> {
         // Run in blocking thread pool since DB operations are sync
         let indexer = self.indexer.clone();
         let diff = diff.clone();

@@ -3,34 +3,34 @@ enable = false
 address = "http://127.0.0.1:8888"
 
 [[group]]
-template = "https://*.tondi.org"
+template = "https://*.spora.org"
 nodes = ["explorer"]
 
 # [[group]]
-# template = "https://*.tondi.red"
+# template = "https://*.spora.red"
 # nodes = ["john", "mike", "paul", "alex"]
 
 # [[group]]
-# template = "https://*.tondi.green"
+# template = "https://*.spora.green"
 # nodes = ["jake", "mark", "adam", "liam"]
 
 # [[group]]
-# template = "https://*.tondi.blue"
+# template = "https://*.spora.blue"
 # nodes = ["noah", "ryan", "jack", "luke"]
 
 # [[group]]
 # enable = true
-# template = "https://*.tondi-ng.org"
+# template = "https://*.spora-ng.org"
 # nodes = ["cole", "ivan", "oscar", "zane"]
 
 # [[group]]
 # enable = true
-# template = "https://*.tondi-ng.io"
+# template = "https://*.spora-ng.io"
 # nodes = ["gary", "hugo", "finn", "evan"]
 
 # [[group]]
 # enable = true
-# template = "https://*.tondi-ng.net"
+# template = "https://*.spora-ng.net"
 # nodes = ["neil", "dave", "kyle", "toby"]
 
 # ---

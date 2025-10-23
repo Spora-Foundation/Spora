@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ISC
-// Copyright (C) 2025Tondi developers
+// Copyright (C) 2025 Spora developers
 //
 // Cell transaction validator (replaces UTXO transaction validator)
 
@@ -24,7 +24,7 @@ pub use cell_validation_in_dag::DagCellProvider;
 use std::sync::Arc;
 
 #[cfg(feature = "vm")]
-use tondi_exec::vm::{TransactionScriptVerifier, SimpleDataProvider, ScriptError};
+use spora_exec::vm::{TransactionScriptVerifier, SimpleDataProvider, ScriptError};
 
 /// Consensus parameters for Cell validation
 #[derive(Clone, Debug)]
@@ -70,7 +70,7 @@ impl<P: CellStateProvider> CellValidator<P> {
     /// - Size limits
     pub fn validate_in_isolation(
         &self,
-        tx: &tondi_exec::CellTx,
+        tx: &spora_exec::CellTx,
     ) -> Result<(), CellValidationError> {
         cell_validation_in_isolation::validate_cell_tx_in_isolation(tx)?;
         
@@ -97,7 +97,7 @@ impl<P: CellStateProvider> CellValidator<P> {
     /// - Time locks (since field)
     pub fn validate_in_context(
         &self,
-        tx: &tondi_exec::CellTx,
+        tx: &spora_exec::CellTx,
         daa_score: u64,
     ) -> Result<(), CellValidationError> {
         cell_validation_in_context::validate_cell_tx_in_context(
@@ -115,7 +115,7 @@ impl<P: CellStateProvider> CellValidator<P> {
     /// - DAG-specific constraints
     pub fn validate_in_dag(
         &self,
-        tx: &tondi_exec::CellTx,
+        tx: &spora_exec::CellTx,
         daa_score: u64,
     ) -> Result<(), CellValidationError> 
     where
@@ -136,7 +136,7 @@ impl<P: CellStateProvider> CellValidator<P> {
     /// Full validation (isolation + context + DAG)
     pub fn validate_full(
         &self,
-        tx: &tondi_exec::CellTx,
+        tx: &spora_exec::CellTx,
         daa_score: u64,
     ) -> Result<(), CellValidationError>
     where
@@ -153,7 +153,7 @@ impl<P: CellStateProvider> CellValidator<P> {
     #[cfg(feature = "vm")]
     pub fn verify_scripts(
         &self,
-        tx: &tondi_exec::CellTx,
+        tx: &spora_exec::CellTx,
     ) -> Result<(), CellValidationError> {
         // Create data provider
         // TODO: Use real data provider from consensus storage
@@ -176,7 +176,7 @@ impl<P: CellStateProvider> CellValidator<P> {
     #[cfg(feature = "vm")]
     pub fn validate_full_with_scripts(
         &self,
-        tx: &tondi_exec::CellTx,
+        tx: &spora_exec::CellTx,
         daa_score: u64,
     ) -> Result<(), CellValidationError>
     where

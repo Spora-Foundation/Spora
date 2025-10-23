@@ -3,8 +3,8 @@
 //!
 
 use crate::imports::*;
-use tondi_consensus_client::{TransactionOutput, TransactionOutputInner};
-use tondi_txscript::pay_to_address_script;
+use spora_consensus_client::{TransactionOutput, TransactionOutputInner};
+use spora_txscript::pay_to_address_script;
 
 #[wasm_bindgen(typescript_custom_section)]
 const TS_PAYMENT_OUTPUTS: &'static str = r#"
@@ -18,7 +18,7 @@ const TS_PAYMENT_OUTPUTS: &'static str = r#"
 export interface IPaymentOutput {
     /**
      * Destination address. The address prefix must match the network
-     * you are transacting on (e.g. `tondi:` for mainnet, `tonditest:` for testnet, etc).
+     * you are transacting on (e.g. `spora:` for mainnet, `tonditest:` for testnet, etc).
      */
     address: Address | string;
     /**

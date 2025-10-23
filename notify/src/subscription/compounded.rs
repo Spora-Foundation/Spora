@@ -5,7 +5,7 @@ use crate::{
     subscription::{context::SubscriptionContext, Command, Compounded, Mutation, Subscription},
 };
 use itertools::Itertools;
-use tondi_addresses::{Address, Prefix};
+use spora_addresses::{Address, Prefix};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OverallSubscription {
@@ -247,7 +247,7 @@ impl Subscription for UtxosChangedSubscription {
 
 #[cfg(test)]
 mod tests {
-    use tondi_core::trace;
+    use spora_core::trace;
 
     use super::super::*;
     use super::*;
@@ -356,7 +356,7 @@ mod tests {
     #[test]
     #[allow(clippy::redundant_clone)]
     fn test_utxos_changed_compounding() {
-        tondi_core::log::try_init_logger("trace,tondi_notify=trace");
+        spora_core::log::try_init_logger("trace,spora_notify=trace");
         let a_stock = get_3_addresses(true);
 
         let a = |indexes: &[usize]| indexes.iter().map(|idx| (a_stock[*idx]).clone()).collect::<Vec<_>>();

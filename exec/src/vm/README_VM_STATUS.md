@@ -21,7 +21,7 @@
 
 3. **Syscalls Definition** ✅ 100%
    - 10 syscalls defined
-   - Blake3 syscall (3001) - Tondi extension
+   - Blake3 syscall (3001) - Spora extension
    - All CKB standard syscalls (2000-2999)
 
 4. **Script Examples** ✅ 100%

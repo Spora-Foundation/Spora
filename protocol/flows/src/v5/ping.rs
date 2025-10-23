@@ -4,8 +4,8 @@ use std::{
     sync::{Arc, Weak},
     time::{Duration, Instant},
 };
-use tondi_core::{debug, task::tick::TickReason};
-use tondi_p2p_lib::{
+use spora_core::{debug, task::tick::TickReason};
+use spora_p2p_lib::{
     common::ProtocolError,
     dequeue, dequeue_with_timeout, make_message,
     pb::{tondid_message::Payload, PingMessage, PongMessage},

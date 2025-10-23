@@ -4,9 +4,9 @@ use hmac::Mac;
 use ripemd::Ripemd160;
 use sha2::Digest;
 use std::fmt::Debug;
-use tondi_addresses::{Address, Prefix as AddressPrefix, Version as AddressVersion};
-use tondi_bip32::types::{ChainCode, HmacSha512, KeyFingerprint, PublicKeyBytes, KEY_SIZE};
-use tondi_bip32::{
+use spora_addresses::{Address, Prefix as AddressPrefix, Version as AddressVersion};
+use spora_bip32::types::{ChainCode, HmacSha512, KeyFingerprint, PublicKeyBytes, KEY_SIZE};
+use spora_bip32::{
     AddressType, ChildNumber, DerivationPath, ExtendedKey, ExtendedKeyAttrs, ExtendedPrivateKey, ExtendedPublicKey, Prefix,
     PrivateKey, PublicKey, SecretKey, SecretKeyExt,
 };
@@ -376,12 +376,12 @@ impl WalletDerivationManagerV0 {
         let digest = Ripemd160::digest(blake3::hash(&public_key.to_bytes()[1..]).as_bytes());
         let fingerprint = digest[..4].try_into().expect("digest truncated");
 
-        let mut hmac = HmacSha512::new_from_slice(&attrs.chain_code).map_err(tondi_bip32::Error::Hmac)?;
+        let mut hmac = HmacSha512::new_from_slice(&attrs.chain_code).map_err(spora_bip32::Error::Hmac)?;
         hmac.update(&public_key.to_bytes());
 
         let (key, chain_code) = Self::derive_public_key_child(public_key, child_number, hmac)?;
 
-        let depth = attrs.depth.checked_add(1).ok_or(tondi_bip32::Error::Depth)?;
+        let depth = attrs.depth.checked_add(1).ok_or(spora_bip32::Error::Depth)?;
 
         let attrs = ExtendedKeyAttrs { parent_fingerprint: fingerprint, child_number, chain_code, depth };
 
@@ -436,7 +436,7 @@ impl WalletDerivationManagerV0 {
 
         let (private_key, chain_code) = Self::derive_key(private_key, child_number, hmac)?;
 
-        let depth = attrs.depth.checked_add(1).ok_or(tondi_bip32::Error::Depth)?;
+        let depth = attrs.depth.checked_add(1).ok_or(spora_bip32::Error::Depth)?;
 
         let attrs = ExtendedKeyAttrs { parent_fingerprint: fingerprint, child_number, chain_code, depth };
 
@@ -467,7 +467,7 @@ impl WalletDerivationManagerV0 {
     where
         K: PrivateKey<PublicKey = secp256k1::PublicKey>,
     {
-        let mut hmac = HmacSha512::new_from_slice(&attrs.chain_code).map_err(tondi_bip32::Error::Hmac)?;
+        let mut hmac = HmacSha512::new_from_slice(&attrs.chain_code).map_err(spora_bip32::Error::Hmac)?;
         if hardened {
             hmac.update(&[0]);
             hmac.update(&private_key.to_bytes());
@@ -652,19 +652,19 @@ impl WalletDerivationManagerTrait for WalletDerivationManagerV0 {
 mod tests {
     //use super::hd_;
     use super::{PubkeyDerivationManagerV0, WalletDerivationManagerTrait, WalletDerivationManagerV0};
-    use tondi_addresses::Prefix;
+    use spora_addresses::Prefix;
 
     fn gen0_receive_addresses() -> Vec<&'static str> {
         vec![
-            "tondi:qqnklfz9safc78p30y5c9q6p2rvxhj35uhnh96uunklak0tjn2x5wqk0az7",
-            "tondi:qrd9efkvg3pg34sgp6ztwyv3r569qlc43wa5w8nfs302532dzj47kkepekv",
+            "spora:qqnklfz9safc78p30y5c9q6p2rvxhj35uhnh96uunklak0tjn2x5wqk0az7",
+            "spora:qrd9efkvg3pg34sgp6ztwyv3r569qlc43wa5w8nfs302532dzj47kkepekv",
         ]
     }
 
     fn gen0_change_addresses() -> Vec<&'static str> {
         vec![
-            "tondi:qrp03wulr8z7cnr3lmwhpeuv5arthvnaydafgay8y3fg35fazclpch9gtrt",
-            "tondi:qpyum9jfp5ryf0wt9a36cpvp0tnj54kfnuqxjyad6eyn59qtg0cn6lpwmt4",
+            "spora:qrp03wulr8z7cnr3lmwhpeuv5arthvnaydafgay8y3fg35fazclpch9gtrt",
+            "spora:qpyum9jfp5ryf0wt9a36cpvp0tnj54kfnuqxjyad6eyn59qtg0cn6lpwmt4",
         ]
     }
 
@@ -792,7 +792,7 @@ mod tests {
 
         for index in 0..2 {
             let key = hd_wallet.derive_receive_pubkey(index).unwrap();
-            //let address = Address::new(Prefix::Testnet, tondi_addresses::Version::PubKey, key.to_bytes());
+            //let address = Address::new(Prefix::Testnet, spora_addresses::Version::PubKey, key.to_bytes());
             let address = PubkeyDerivationManagerV0::create_address(&key, Prefix::Testnet, false).unwrap();
             //receive_addresses.push(String::from(address));
             assert_eq!(receive_addresses[index as usize], address.to_string(), "receive address at {index} failed");

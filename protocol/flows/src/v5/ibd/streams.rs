@@ -4,13 +4,13 @@
 
 use std::sync::Arc;
 use tokio::time::timeout;
-use tondi_consensus_core::{
+use spora_consensus_core::{
     errors::consensus::ConsensusError,
     header::Header,
     tx::{TransactionOutpoint, UtxoEntry},
 };
-use tondi_core::{debug, info};
-use tondi_p2p_lib::{
+use spora_core::{debug, info};
+use spora_p2p_lib::{
     common::{ProtocolError, DEFAULT_TIMEOUT},
     convert::model::trusted::TrustedDataEntry,
     make_message,

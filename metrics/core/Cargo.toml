@@ -1,6 +1,6 @@
 [package]
-name = "tondi-metrics-core"
-description = "Tools for collecting and reporting Tondi p2p node metrics"
+name = "spora-metrics-core"
+description = "Tools for collecting and reporting Spora p2p node metrics"
 rust-version.workspace = true
 version.workspace = true
 authors.workspace = true
@@ -13,8 +13,8 @@ repository.workspace = true
 async-trait.workspace = true
 borsh.workspace = true
 futures.workspace = true
-tondi-core.workspace = true
-tondi-rpc-core.workspace = true
+spora-core.workspace = true
+spora-rpc-core.workspace = true
 separator.workspace = true
 serde.workspace = true
 thiserror.workspace = true

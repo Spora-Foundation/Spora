@@ -1,6 +1,6 @@
 use crate::tasks::daemon::DaemonArgs;
 #[cfg(feature = "devnet-prealloc")]
-use tondi_addresses::Address;
+use spora_addresses::Address;
 use tondid_lib::args::Args;
 
 pub struct ArgsBuilder {
@@ -15,7 +15,7 @@ impl ArgsBuilder {
             disable_upnp: true, // UPnP registration might take some time and is not needed for this test
             enable_unsynced_mining: true,
             num_prealloc_utxos: Some(num_prealloc_utxos),
-            prealloc_amount: prealloc_amount * tondi_consensus_core::constants::SAU_PER_TONDI,
+            prealloc_amount: prealloc_amount * spora_consensus_core::constants::SAU_PER_TONDI,
             block_template_cache_lifetime: Some(0),
             rpc_max_clients: 2500,
             unsafe_rpc: true,

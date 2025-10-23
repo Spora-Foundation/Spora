@@ -2,8 +2,8 @@ pub mod error;
 pub mod tracker;
 
 pub mod test_helpers {
-    use tondi_addresses::Address;
-    use tondi_addresses::{Prefix, Version};
+    use spora_addresses::Address;
+    use spora_addresses::{Prefix, Version};
 
     pub const ADDRESS_PREFIX: Prefix = Prefix::Mainnet;
 

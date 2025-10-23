@@ -34,8 +34,8 @@ As an illustration, let's pretend that we add a new `submit_block` method.
 3. In `rpc\grpc\src\convert\message.rs`, implement converters to handle rpc-core <-> rpc-grpc.
 4. If appropriate, implement a matcher in `tondi_grpc_client::resolver::matcher`.
 5. Complete the `Matcher` trait implementation for `tondid_request::Payload`.
-6. In `rpc\grpc\src\convert\Tondid.rs`, complete the `From` implementations for `RpcApiOps`.
-7. In `rpc\grpc\src\convert\Tondid.rs`, add calls to `impl_into_tondid_request!` and `impl_into_tondid_response!`
+6. In `rpc\grpc\src\convert\Sporad.rs`, complete the `From` implementations for `RpcApiOps`.
+7. In `rpc\grpc\src\convert\Sporad.rs`, add calls to `impl_into_tondid_request!` and `impl_into_tondid_response!`
    (ie. `impl_into_tondid_request!(tondi_rpc_core::SubmitBlockRequest, SubmitBlockRequestMessage, SubmitBlockRequest);` and
    `impl_into_tondid_response!(tondi_rpc_core::SubmitBlockResponse, SubmitBlockResponseMessage, SubmitBlockResponse);`).
 8. Implement the function having a `_call` suffix into `tondi_grpc_client::GrpcClient`.

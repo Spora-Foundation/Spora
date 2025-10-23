@@ -3,11 +3,11 @@ use std::ops::{Deref, DerefMut};
 use std::path::PathBuf;
 
 pub use conn_builder::ConnBuilder;
-use tondi_utils::fd_budget::FDGuard;
+use spora_utils::fd_budget::FDGuard;
 
 mod conn_builder;
 
-/// The DB type used for Tondid stores
+/// The DB type used for Sporad stores
 pub struct DB {
     inner: DBWithThreadMode<MultiThreaded>,
     _fd_guard: FDGuard,

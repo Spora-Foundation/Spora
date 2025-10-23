@@ -1,16 +1,16 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
-use tondi_addresses::Address;
-use tondi_consensus_core::tx::{
+use spora_addresses::Address;
+use spora_consensus_core::tx::{
     ScriptPublicKey, ScriptVec, TransactionId, TransactionIndexType, TransactionInput, TransactionOutpoint, TransactionOutput,
     UtxoEntry,
 };
-use tondi_utils::{hex::ToHex, serde_bytes_fixed_ref};
+use spora_utils::{hex::ToHex, serde_bytes_fixed_ref};
 use workflow_serializer::prelude::*;
 
 use crate::prelude::{RpcHash, RpcScriptClass, RpcSubnetworkId};
 
-/// Represents the ID of a Tondi transaction
+/// Represents the ID of a Spora transaction
 pub type RpcTransactionId = TransactionId;
 
 pub type RpcScriptVec = ScriptVec;
@@ -77,7 +77,7 @@ impl Deserializer for RpcUtxoEntry {
     }
 }
 
-/// Represents a Tondi transaction outpoint
+/// Represents a Spora transaction outpoint
 #[derive(Eq, Hash, PartialEq, Debug, Copy, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RpcTransactionOutpoint {
@@ -98,13 +98,13 @@ impl From<RpcTransactionOutpoint> for TransactionOutpoint {
     }
 }
 
-impl From<tondi_consensus_client::TransactionOutpoint> for RpcTransactionOutpoint {
-    fn from(outpoint: tondi_consensus_client::TransactionOutpoint) -> Self {
+impl From<spora_consensus_client::TransactionOutpoint> for RpcTransactionOutpoint {
+    fn from(outpoint: spora_consensus_client::TransactionOutpoint) -> Self {
         TransactionOutpoint::from(outpoint).into()
     }
 }
 
-impl From<RpcTransactionOutpoint> for tondi_consensus_client::TransactionOutpoint {
+impl From<RpcTransactionOutpoint> for spora_consensus_client::TransactionOutpoint {
     fn from(outpoint: RpcTransactionOutpoint) -> Self {
         TransactionOutpoint::from(outpoint).into()
     }
@@ -130,7 +130,7 @@ impl Deserializer for RpcTransactionOutpoint {
     }
 }
 
-/// Represents a Tondi transaction input
+/// Represents a Spora transaction input
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RpcTransactionInput {
@@ -198,7 +198,7 @@ impl Deserializer for RpcTransactionInput {
     }
 }
 
-/// Represent Tondi transaction input verbose data
+/// Represent Spora transaction input verbose data
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RpcTransactionInputVerboseData {}
@@ -217,7 +217,7 @@ impl Deserializer for RpcTransactionInputVerboseData {
     }
 }
 
-/// Represents a Tondid transaction output
+/// Represents a Sporad transaction output
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RpcTransactionOutput {
@@ -260,7 +260,7 @@ impl Deserializer for RpcTransactionOutput {
     }
 }
 
-/// Represent Tondi transaction output verbose data
+/// Represent Spora transaction output verbose data
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RpcTransactionOutputVerboseData {
@@ -288,7 +288,7 @@ impl Deserializer for RpcTransactionOutputVerboseData {
     }
 }
 
-/// Represents a Tondi transaction
+/// Represents a Spora transaction
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RpcTransaction {
@@ -354,7 +354,7 @@ impl Deserializer for RpcTransaction {
     }
 }
 
-/// Represent Tondi transaction verbose data
+/// Represent Spora transaction verbose data
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RpcTransactionVerboseData {

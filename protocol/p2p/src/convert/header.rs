@@ -1,6 +1,6 @@
 use crate::pb as protowire;
-use tondi_consensus_core::{header::Header, BlueWorkType};
-use tondi_hashes::Hash;
+use spora_consensus_core::{header::Header, BlueWorkType};
+use spora_hashes::Hash;
 
 use super::error::ConversionError;
 use super::option::TryIntoOptionEx;
@@ -42,7 +42,7 @@ impl From<&Vec<Hash>> for protowire::BlockLevelParents {
 impl TryFrom<protowire::BlockHeader> for Header {
     type Error = ConversionError;
     fn try_from(item: protowire::BlockHeader) -> Result<Self, Self::Error> {
-        use tondi_hashes::ZERO_HASH;
+        use spora_hashes::ZERO_HASH;
         Ok(Self::new_finalized(
             item.version.try_into()?,
             item.parents.into_iter().map(Vec::<Hash>::try_from).collect::<Result<Vec<Vec<Hash>>, ConversionError>>()?,

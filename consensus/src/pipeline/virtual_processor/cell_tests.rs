@@ -6,15 +6,15 @@
 
 use super::*;
 use crate::model::stores::ghostdag::GhostdagData;
-use tondi_consensus_core::{
+use spora_consensus_core::{
     block::{Block, MutableBlock},
     cell_diff::{CellDiff, CellMeta},
     header::Header,
     tx::{Transaction, TransactionInput, TransactionOutput, TransactionOutpoint},
 };
-use tondi_exec::CellTx;
-use tondi_hashes::{Hash, ZERO_HASH};
-use tondi_state::CellStateTree;
+use spora_exec::CellTx;
+use spora_hashes::{Hash, ZERO_HASH};
+use spora_state::CellStateTree;
 
 #[cfg(test)]
 mod tests {
@@ -159,7 +159,7 @@ mod tests {
         assert_eq!(tree.root(), ZERO_HASH);
         
         // b) Single cell
-        use tondi_state::CellEntry;
+        use spora_state::CellEntry;
         let entry1 = CellEntry::new(
             1000,
             Hash::from_bytes([1u8; 32]),
@@ -179,7 +179,7 @@ mod tests {
 
     /// Test 7: Cell Commitment V0
     /// 
-    /// Verify: cell_commitment = H("tondi/cell_commitment/v0" || cell_root)
+    /// Verify: cell_commitment = H("spora/cell_commitment/v0" || cell_root)
     #[test]
     fn test_cell_commitment_v0() {
         use blake3::Hasher;
@@ -188,13 +188,13 @@ mod tests {
         
         // Compute commitment
         let mut hasher = Hasher::new();
-        hasher.update(b"tondi/cell_commitment/v0");
+        hasher.update(b"spora/cell_commitment/v0");
         hasher.update(cell_root.as_bytes());
         let commitment = Hash::from_bytes(*hasher.finalize().as_bytes());
         
         // Verify it's deterministic
         let mut hasher2 = Hasher::new();
-        hasher2.update(b"tondi/cell_commitment/v0");
+        hasher2.update(b"spora/cell_commitment/v0");
         hasher2.update(cell_root.as_bytes());
         let commitment2 = Hash::from_bytes(*hasher2.finalize().as_bytes());
         
@@ -220,7 +220,7 @@ mod tests {
     /// Verify BTreeMap ensures deterministic iteration
     #[test]
     fn test_cell_state_tree_determinism() {
-        use tondi_state::{CellEntry, CellStateTree};
+        use spora_state::{CellEntry, CellStateTree};
         
         let mut tree1 = CellStateTree::new();
         let mut tree2 = CellStateTree::new();

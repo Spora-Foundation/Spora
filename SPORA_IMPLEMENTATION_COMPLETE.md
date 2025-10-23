@@ -32,7 +32,7 @@
 
 3. **CKB-VM**: ✅ **95% Complete**
    - 10 syscalls fully implemented
-   - Blake3 syscall (3001) - Tondi innovation
+   - Blake3 syscall (3001) - Spora innovation
    - TransactionScriptVerifier framework
    - exec package compiles (0 errors)
    - VM execution: placeholder (ready for full implementation)
@@ -80,8 +80,8 @@
 
 ### 1. Blake3 Syscall Innovation ✅
 
-**Problem**: Tondi uses blake3, CKB uses blake2b  
-**Solution**: Blake3 Syscall (3001) - Tondi-specific extension  
+**Problem**: Spora uses blake3, CKB uses blake2b  
+**Solution**: Blake3 Syscall (3001) - Spora-specific extension  
 **Result**: 
 - 100x faster than VM-internal blake3
 - Maintains CKB compatibility (2000-2999 range untouched)
@@ -224,9 +224,9 @@
 ## ✅ Final Verification
 
 ### Compilation Status
-- ✅ tondi-exec: 0 errors, 75 warnings
-- ✅ tondi-consensus-core: 0 errors
-- ⚠️ tondi-consensus: 41 errors (TransactionValidator cleanup)
+- ✅ spora-exec: 0 errors, 75 warnings
+- ✅ spora-consensus-core: 0 errors
+- ⚠️ spora-consensus: 41 errors (TransactionValidator cleanup)
 - **Overall**: Framework compiles, cleanup needed
 
 ### Implementation Completeness
@@ -257,7 +257,7 @@
 
 2. **Blake3 Innovation**
    - First DAG blockchain with blake3 in CKB-VM
-   - Syscall 3001 - Tondi extension
+   - Syscall 3001 - Spora extension
    - 100x performance improvement
 
 3. **GhostDAG + Cell Integration**

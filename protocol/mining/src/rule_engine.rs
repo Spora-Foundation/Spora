@@ -3,15 +3,15 @@ use std::{
     time::{Duration, Instant},
 };
 
-use tondi_consensus_core::{
+use spora_consensus_core::{
     api::counters::ProcessingCounters,
     config::Config,
     daa_score_timestamp::DaaScoreTimestamp,
     mining_rules::MiningRules,
     network::NetworkType::{Mainnet, Testnet},
 };
-use tondi_consensusmanager::ConsensusManager;
-use tondi_core::{
+use spora_consensusmanager::ConsensusManager;
+use spora_core::{
     task::{
         service::{AsyncService, AsyncServiceFuture},
         tick::{TickReason, TickService},
@@ -19,7 +19,7 @@ use tondi_core::{
     time::unix_now,
     trace,
 };
-use tondi_p2p_lib::Hub;
+use spora_p2p_lib::Hub;
 
 use crate::rules::{mining_rule::MiningRule, sync_rate_rule::SyncRateRule, ExtraData};
 

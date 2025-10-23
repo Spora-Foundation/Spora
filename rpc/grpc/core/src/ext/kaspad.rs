@@ -1,15 +1,15 @@
-use tondi_notify::{scope::Scope, subscription::Command};
+use spora_notify::{scope::Scope, subscription::Command};
 
 use crate::protowire::{
-    tondid_request, tondid_response, TondidRequest, TondidResponse, NotifyBlockAddedRequestMessage,
+    tondid_request, tondid_response, SporadRequest, SporadResponse, NotifyBlockAddedRequestMessage,
     NotifyFinalityConflictRequestMessage, NotifyNewBlockTemplateRequestMessage, NotifyPruningPointUtxoSetOverrideRequestMessage,
     NotifySinkBlueScoreChangedRequestMessage, NotifyUtxosChangedRequestMessage, NotifyVirtualChainChangedRequestMessage,
     NotifyVirtualDaaScoreChangedRequestMessage,
 };
 
-impl TondidRequest {
+impl SporadRequest {
     pub fn from_notification_type(scope: &Scope, command: Command) -> Self {
-        TondidRequest { id: 0, payload: Some(tondid_request::Payload::from_notification_type(scope, command)) }
+        SporadRequest { id: 0, payload: Some(tondid_request::Payload::from_notification_type(scope, command)) }
     }
 
     pub fn is_subscription(&self) -> bool {
@@ -85,7 +85,7 @@ impl tondid_request::Payload {
     }
 }
 
-impl TondidResponse {
+impl SporadResponse {
     pub fn is_notification(&self) -> bool {
         match self.payload {
             Some(ref payload) => payload.is_notification(),

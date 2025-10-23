@@ -16,14 +16,14 @@ use std::{
     time::Duration,
 };
 use tokio::sync::Mutex;
-use tondi_core::{debug, error, trace};
-use tondi_grpc_core::{
+use spora_core::{debug, error, trace};
+use spora_grpc_core::{
     channel::NotificationChannel,
-    ops::TondidPayloadOps,
-    protowire::{rpc_client::RpcClient, tondid_request, GetInfoRequestMessage, TondidRequest, TondidResponse},
+    ops::SporadPayloadOps,
+    protowire::{rpc_client::RpcClient, tondid_request, GetInfoRequestMessage, SporadRequest, SporadResponse},
     RPC_MAX_MESSAGE_SIZE,
 };
-use tondi_notify::{
+use spora_notify::{
     collector::{Collector, CollectorFrom},
     error::{Error as NotifyError, Result as NotifyResult},
     events::{EventArray, EventType, EVENT_TYPE_ARRAY},
@@ -36,7 +36,7 @@ use tondi_notify::{
         UtxosChangedMutationPolicy,
     },
 };
-use tondi_rpc_core::{
+use spora_rpc_core::{
     api::rpc::RpcApi,
     error::RpcError,
     error::RpcResult,
@@ -44,15 +44,15 @@ use tondi_rpc_core::{
     notify::{collector::RpcCoreConverter, connection::ChannelConnection, mode::NotificationMode},
     Notification,
 };
-use tondi_utils::{channel::Channel, triggers::DuplexTrigger};
-use tondi_utils_tower::{
+use spora_utils::{channel::Channel, triggers::DuplexTrigger};
+use spora_utils_tower::{
     counters::TowerConnectionCounters,
     middleware::{BodyExt, CountBytesBody, MapRequestBodyLayer, MapResponseBodyLayer, ServiceBuilder},
 };
 use tonic::codec::CompressionEncoding;
 use tonic::Streaming;
 
-pub use tondi_rpc_core as rpc_core;
+pub use spora_rpc_core as rpc_core;
 
 mod connection_event;
 pub mod error;
@@ -230,7 +230,7 @@ impl GrpcClient {
         self.notification_mode
     }
 
-    pub async fn call(&self, op: TondidPayloadOps, request: impl Into<TondidRequest>) -> Result<TondidResponse> {
+    pub async fn call(&self, op: SporadPayloadOps, request: impl Into<SporadRequest>) -> Result<SporadResponse> {
         self.inner.call(op, request).await
     }
 }
@@ -239,7 +239,7 @@ impl GrpcClient {
 impl RpcApi for GrpcClient {
     // this example illustrates the body of the function created by the route!() macro
     // async fn submit_block_call(&self, request: SubmitBlockRequest) -> RpcResult<SubmitBlockResponse> {
-    //     self.inner.call(TondidPayloadOps::SubmitBlock, request).await?.as_ref().try_into()
+    //     self.inner.call(SporadPayloadOps::SubmitBlock, request).await?.as_ref().try_into()
     // }
 
     route!(ping_call, Ping);
@@ -368,8 +368,8 @@ pub const REQUEST_TIMEOUT_DURATION: u64 = 5_000;
 pub const TIMEOUT_MONITORING_INTERVAL: u64 = 10_000;
 pub const RECONNECT_INTERVAL: u64 = 2_000;
 
-type TondidRequestSender = async_channel::Sender<TondidRequest>;
-type TondidRequestReceiver = async_channel::Receiver<TondidRequest>;
+type SporadRequestSender = async_channel::Sender<SporadRequest>;
+type SporadRequestReceiver = async_channel::Receiver<SporadRequest>;
 
 #[derive(Debug, Default)]
 struct ServerFeatures {
@@ -383,7 +383,7 @@ struct ServerFeatures {
 ///
 /// Data flow:
 /// ```
-/// //   TondidRequest -> request_send -> stream -> TondidResponse
+/// //   SporadRequest -> request_send -> stream -> SporadResponse
 /// ```
 ///
 /// Execution flow:
@@ -420,8 +420,8 @@ struct Inner {
     notification_channel: NotificationChannel,
 
     // Sending to server
-    request_sender: TondidRequestSender,
-    request_receiver: TondidRequestReceiver,
+    request_sender: SporadRequestSender,
+    request_receiver: SporadRequestReceiver,
 
     // Receiving from server
     receiver_is_running: AtomicBool,
@@ -455,8 +455,8 @@ impl Inner {
     fn new(
         url: String,
         server_features: ServerFeatures,
-        request_sender: TondidRequestSender,
-        request_receiver: TondidRequestReceiver,
+        request_sender: SporadRequestSender,
+        request_receiver: SporadRequestReceiver,
         connection_event_sender: Option<Sender<ConnectionEvent>>,
         override_handle_stop_notify: bool,
         timeout_duration: u64,
@@ -530,11 +530,11 @@ impl Inner {
     #[allow(unused_variables)]
     async fn try_connect(
         url: String,
-        request_sender: TondidRequestSender,
-        request_receiver: TondidRequestReceiver,
+        request_sender: SporadRequestSender,
+        request_receiver: SporadRequestReceiver,
         request_timeout: u64,
         counters: Arc<TowerConnectionCounters>,
-    ) -> Result<(Streaming<TondidResponse>, ServerFeatures)> {
+    ) -> Result<(Streaming<SporadResponse>, ServerFeatures)> {
         // gRPC endpoint
         #[cfg(not(feature = "heap"))]
         let channel =
@@ -582,8 +582,8 @@ impl Inner {
             }
         };
 
-        // Actual TondidRequest to TondidResponse stream
-        let mut stream: Streaming<TondidResponse> = client.message_stream(request_stream).await?.into_inner();
+        // Actual SporadRequest to SporadResponse stream
+        let mut stream: Streaming<SporadResponse> = client.message_stream(request_stream).await?.into_inner();
 
         // Collect server capabilities as stated in GetInfoResponse
         let mut server_features = ServerFeatures::default();
@@ -691,11 +691,11 @@ impl Inner {
         self.resolver.clone()
     }
 
-    async fn call(&self, op: TondidPayloadOps, request: impl Into<TondidRequest>) -> Result<TondidResponse> {
+    async fn call(&self, op: SporadPayloadOps, request: impl Into<SporadRequest>) -> Result<SporadResponse> {
         // Calls are only allowed if the client is connected to the server
         if self.is_connected() {
             let id = u64::from_le_bytes(rand::random::<[u8; 8]>());
-            let mut request: TondidRequest = request.into();
+            let mut request: SporadRequest = request.into();
             request.id = id;
 
             trace!("GRPC client: resolver call: {:?}", request);
@@ -749,7 +749,7 @@ impl Inner {
     }
 
     /// Launch a task receiving and handling response messages sent by the server.
-    fn spawn_response_receiver_task(self: Arc<Self>, mut stream: Streaming<TondidResponse>) {
+    fn spawn_response_receiver_task(self: Arc<Self>, mut stream: Streaming<SporadResponse>) {
         // Note: self is a cloned Arc here so that it can be used in the spawned task.
 
         // The task can only be spawned once
@@ -865,7 +865,7 @@ impl Inner {
         });
     }
 
-    fn handle_response(&self, response: TondidResponse) {
+    fn handle_response(&self, response: SporadResponse) {
         if response.is_notification() {
             trace!("GRPC client: handle_response received a notification");
             match Notification::try_from(&response) {

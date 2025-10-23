@@ -201,7 +201,7 @@ mod tests {
         prelude::{BatchDbWriter, ConnBuilder, DirectDbWriter},
     };
     use rocksdb::WriteBatch;
-    use tondi_hashes::Hash;
+    use spora_hashes::Hash;
 
     #[test]
     fn test_delete_bucket() {

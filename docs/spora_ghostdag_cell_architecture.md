@@ -220,7 +220,7 @@ pub struct Header {
     pub cell_root: Hash,
     
     /// cell_commitment: Versioned commitment (evolution path)
-    /// - v0: H("tondi/cell_commitment/v0" || cell_root)
+    /// - v0: H("spora/cell_commitment/v0" || cell_root)
     /// - v1: H(cell_root || history_root) [future]
     /// - Allows backward-compatible upgrades
     pub cell_commitment: Hash,
@@ -251,7 +251,7 @@ block.cell_root = tree.merkle_root()
 
 **Version 0 (Current)**:
 ```rust
-cell_commitment = H("tondi/cell_commitment/v0" || cell_root)
+cell_commitment = H("spora/cell_commitment/v0" || cell_root)
 ```
 - Simple wrapper around cell_root
 - Allows future extension
@@ -539,7 +539,7 @@ pub struct CellStateTree {
 impl CellStateTree {
     pub fn root(&mut self) -> Hash {
         // Binary Merkle tree from sorted cells
-        // H("tondi-cell/node" || left || right)
+        // H("spora-cell/node" || left || right)
     }
 }
 ```

@@ -5,9 +5,9 @@
 use crate::account::Inner;
 use crate::imports::*;
 use secp256k1::PublicKey;
-use tondi_addresses::Version;
+use spora_addresses::Version;
 
-pub const KEYPAIR_ACCOUNT_KIND: &str = "tondi-keypair-standard";
+pub const KEYPAIR_ACCOUNT_KIND: &str = "spora-keypair-standard";
 
 pub struct Ctor {}
 

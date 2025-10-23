@@ -12,9 +12,9 @@ use async_trait::async_trait;
 use itertools::{chain, Itertools};
 use std::sync::Arc;
 use tokio::task::JoinHandle;
-use tondi_addresses::Address;
-use tondi_notify::scope::Scope;
-use tondi_utils::triggers::SingleTrigger;
+use spora_addresses::Address;
+use spora_notify::scope::Scope;
+use spora_utils::triggers::SingleTrigger;
 
 pub struct SubscriberGroupTask {
     submitter: Arc<SubscriptionSubmitterTask>,

@@ -1,18 +1,18 @@
 use async_channel::Sender;
 use parking_lot::RwLock;
-use tondi_consensus_core::coinbase::MinerData;
-use tondi_consensus_core::mining_rules::MiningRules;
-use tondi_consensus_core::tx::ScriptPublicKey;
-use tondi_consensus_core::{
+use spora_consensus_core::coinbase::MinerData;
+use spora_consensus_core::mining_rules::MiningRules;
+use spora_consensus_core::tx::ScriptPublicKey;
+use spora_consensus_core::{
     api::ConsensusApi, block::MutableBlock, blockstatus::BlockStatus, header::Header, merkle::calc_hash_merkle_root,
     subnets::SUBNETWORK_ID_COINBASE, tx::{Transaction, CellTx},
 };
-use tondi_consensus_notify::{notification::Notification, root::ConsensusNotificationRoot};
-use tondi_consensusmanager::{ConsensusFactory, ConsensusInstance, DynConsensusCtl};
-use tondi_core::{core::Core, service::Service};
-use tondi_database::utils::DbLifetime;
-use tondi_hashes::Hash;
-use tondi_notify::subscription::context::SubscriptionContext;
+use spora_consensus_notify::{notification::Notification, root::ConsensusNotificationRoot};
+use spora_consensusmanager::{ConsensusFactory, ConsensusInstance, DynConsensusCtl};
+use spora_core::{core::Core, service::Service};
+use spora_database::utils::DbLifetime;
+use spora_hashes::Hash;
+use spora_notify::subscription::context::SubscriptionContext;
 
 use super::services::{DbDagTraversalManager, DbGhostdagManager, DbWindowManager};
 use super::Consensus;
@@ -35,8 +35,8 @@ use crate::{
 };
 use std::future::Future;
 use std::{sync::Arc, thread::JoinHandle};
-use tondi_database::create_temp_db;
-use tondi_database::prelude::ConnBuilder;
+use spora_database::create_temp_db;
+use spora_database::prelude::ConnBuilder;
 
 pub struct TestConsensus {
     params: Params,
@@ -145,7 +145,7 @@ impl TestConsensus {
     /// # Panics
     ///
     /// Panics if block builder validation rules are violated.
-    /// See `tondi_consensus_core::errors::block::RuleError` for the complete list of possible validation rules.
+    /// See `spora_consensus_core::errors::block::RuleError` for the complete list of possible validation rules.
     pub fn add_utxo_valid_block_with_parents(
         &self,
         hash: Hash,
@@ -162,7 +162,7 @@ impl TestConsensus {
     /// # Panics
     ///
     /// Panics if block builder validation rules are violated.
-    /// See `tondi_consensus_core::errors::block::RuleError` for the complete list of possible validation rules.
+    /// See `spora_consensus_core::errors::block::RuleError` for the complete list of possible validation rules.
     pub fn build_utxo_valid_block_with_parents(
         &self,
         hash: Hash,
@@ -191,7 +191,7 @@ impl TestConsensus {
         // TODO(cell-model): Convert to CellTx coinbase
         // For now, create empty block
         let cell_txs: Vec<CellTx> = vec![];  // Empty for now
-        header.hash_merkle_root = tondi_consensus_core::merkle::calc_hash_merkle_root_cell(cell_txs.iter(), false);
+        header.hash_merkle_root = spora_consensus_core::merkle::calc_hash_merkle_root_cell(cell_txs.iter(), false);
         MutableBlock::new(header, cell_txs)
     }
 

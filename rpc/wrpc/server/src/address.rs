@@ -1,8 +1,8 @@
 use crate::service::WrpcEncoding;
 use serde::Deserialize;
 use std::{net::AddrParseError, str::FromStr};
-use tondi_consensus_core::network::NetworkType;
-use tondi_utils::networking::ContextualNetAddress;
+use spora_consensus_core::network::NetworkType;
+use spora_utils::networking::ContextualNetAddress;
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename = "lowercase")]
@@ -76,7 +76,7 @@ impl TryFrom<String> for WrpcNetAddress {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tondi_utils::networking::IpAddress;
+    use spora_utils::networking::IpAddress;
 
     #[test]
     fn test_wrpc_net_address_from_str() {

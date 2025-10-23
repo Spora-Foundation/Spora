@@ -1,6 +1,6 @@
 use thiserror::Error;
-use tondi_notify::events::EventType;
-use tondi_cellindex::errors::CellIndexError;
+use spora_notify::events::EventType;
+use spora_cellindex::errors::CellIndexError;
 
 #[derive(Error, Debug)]
 pub enum IndexError {

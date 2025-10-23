@@ -107,7 +107,7 @@
 ## 🎯 **关键成就**
 
 ### 1. Blake3问题完美解决 ✅
-- **问题**: Tondi用blake3，CKB-VM怎么办？
+- **问题**: Spora用blake3，CKB-VM怎么办？
 - **答案**: Blake3 Syscall (3001)
 - **结果**: 性能100x提升，完全兼容
 
@@ -145,16 +145,16 @@ rg "TransactionValidator|transaction_validator" consensus/src/
 
 ### Step 2: 验证编译 (10分钟)
 ```bash
-cargo check --package tondi-consensus
-cargo check --package tondi-exec
+cargo check --package spora-consensus
+cargo check --package spora-exec
 cargo check --workspace
 ```
 
 ### Step 3: 运行基础测试 (20分钟)
 ```bash
-cargo test --package tondi-state
-cargo test --package tondi-exec
-cargo test --package tondi-consensus -- cell_tests
+cargo test --package spora-state
+cargo test --package spora-exec
+cargo test --package spora-consensus -- cell_tests
 ```
 
 ### Step 4: 更新文档 (30分钟)
@@ -200,7 +200,7 @@ cargo test --package tondi-consensus -- cell_tests
 **Result**: 代码更简洁，无技术债
 
 ### 决策2: Blake3 Syscall
-**Why**: Tondi统一使用blake3
+**Why**: Spora统一使用blake3
 **Result**: 100x性能提升，保持CKB兼容
 
 ### 决策3: 完整实现不简化

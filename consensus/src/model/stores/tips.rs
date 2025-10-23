@@ -1,17 +1,17 @@
 use std::sync::Arc;
 
 use rocksdb::WriteBatch;
-use tondi_consensus_core::BlockHashSet;
-use tondi_consensus_core::BlockHasher;
-use tondi_database::prelude::CachedDbSetItem;
-use tondi_database::prelude::DbWriter;
-use tondi_database::prelude::ReadLock;
-use tondi_database::prelude::StoreResult;
-use tondi_database::prelude::StoreResultExtensions;
-use tondi_database::prelude::DB;
-use tondi_database::prelude::{BatchDbWriter, DirectDbWriter};
-use tondi_database::registry::DatabaseStorePrefixes;
-use tondi_hashes::Hash;
+use spora_consensus_core::BlockHashSet;
+use spora_consensus_core::BlockHasher;
+use spora_database::prelude::CachedDbSetItem;
+use spora_database::prelude::DbWriter;
+use spora_database::prelude::ReadLock;
+use spora_database::prelude::StoreResult;
+use spora_database::prelude::StoreResultExtensions;
+use spora_database::prelude::DB;
+use spora_database::prelude::{BatchDbWriter, DirectDbWriter};
+use spora_database::registry::DatabaseStorePrefixes;
+use spora_hashes::Hash;
 
 /// Reader API for `TipsStore`.
 pub trait TipsStoreReader {
@@ -99,7 +99,7 @@ impl TipsStore for DbTipsStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tondi_database::{create_temp_db, prelude::ConnBuilder};
+    use spora_database::{create_temp_db, prelude::ConnBuilder};
 
     #[test]
     fn test_update_tips() {

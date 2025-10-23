@@ -1,9 +1,9 @@
-const tondi = require('../../../../nodejs/tondi');
+const spora = require('../../../../nodejs/spora');
 const {
     Mnemonic,
-} = tondi;
+} = spora;
 
-tondi.initConsolePanicHook();
+spora.initConsolePanicHook();
 
 (async () => {
 

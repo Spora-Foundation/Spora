@@ -1,12 +1,12 @@
 use std::sync::Arc;
 
-use tondi_consensus_core::{
+use spora_consensus_core::{
     blockhash::{self, BlockHashExtensions, BlockHashes},
     config::params::ForkedParam,
     BlockHashMap, BlockLevel, BlueWorkType, HashMapCustomHasher,
 };
-use tondi_hashes::Hash;
-use tondi_utils::refs::Refs;
+use spora_hashes::Hash;
+use spora_utils::refs::Refs;
 
 use crate::{
     model::{

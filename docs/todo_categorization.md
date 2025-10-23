@@ -116,7 +116,7 @@
 
 #### consensus/src/test_helpers.rs
 ```rust
-// Line 158: TODO: create assert_eq_<tondi-struct>!() helper macros
+// Line 158: TODO: create assert_eq_<spora-struct>!() helper macros
 ```
 **Status**: ✅ **Test utility**  
 **Action**: Convert to GitHub issue  

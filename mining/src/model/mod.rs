@@ -1,5 +1,5 @@
 use std::collections::HashSet;
-use tondi_consensus_core::tx::TransactionId;
+use spora_consensus_core::tx::TransactionId;
 
 pub mod candidate_tx;
 pub mod owner_txs;

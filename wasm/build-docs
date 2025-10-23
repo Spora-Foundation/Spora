@@ -5,24 +5,24 @@ set -e
 
 if [ "$1" == "--keygen" ]; then
     echo "building keygen"
-    typedoc --name "Tondi WASM32 SDK - Key Generation" --sourceLinkExternal --readme ./README.md --options ./build/docs/ --out ./docs/tondi-keygen ./build/docs/tondi-keygen.ts
+    typedoc --name "Spora WASM32 SDK - Key Generation" --sourceLinkExternal --readme ./README.md --options ./build/docs/ --out ./docs/spora-keygen ./build/docs/spora-keygen.ts
 elif [ "$1" == "--rpc" ]; then
     echo "building rpc"
-    typedoc --name "Tondi WASM32 SDK - RPC" --sourceLinkExternal --readme ./README.md --options ./build/docs/ --out ./docs/tondi-rpc ./build/docs/tondi-rpc.ts
+    typedoc --name "Spora WASM32 SDK - RPC" --sourceLinkExternal --readme ./README.md --options ./build/docs/ --out ./docs/spora-rpc ./build/docs/spora-rpc.ts
 elif [ "$1" == "--core" ]; then
     echo "building core"
-    typedoc --name "Tondi WASM32 SDK - Core" --sourceLinkExternal --readme ./README.md --options ./build/docs/ --out ./docs/tondi-core ./build/docs/tondi-core.ts
+    typedoc --name "Spora WASM32 SDK - Core" --sourceLinkExternal --readme ./README.md --options ./build/docs/ --out ./docs/spora-core ./build/docs/spora-core.ts
 elif [ "$1" == "--sdk" ]; then
     echo "building full"
-    typedoc --name "Tondi WASM32 SDK" --sourceLinkExternal --readme ./README.md --options ./build/docs/ --out ./docs/tondi ./build/docs/tondi.ts
+    typedoc --name "Spora WASM32 SDK" --sourceLinkExternal --readme ./README.md --options ./build/docs/ --out ./docs/spora ./build/docs/spora.ts
 else
     echo "building keygen"
-    typedoc --name "Tondi WASM32 SDK - Key Generation" --sourceLinkExternal --readme ./README.md --options ./build/docs/ --out ./docs/tondi-keygen ./build/docs/tondi-keygen.ts
+    typedoc --name "Spora WASM32 SDK - Key Generation" --sourceLinkExternal --readme ./README.md --options ./build/docs/ --out ./docs/spora-keygen ./build/docs/spora-keygen.ts
     echo "building rpc"
-    typedoc --name "Tondi WASM32 SDK - RPC" --sourceLinkExternal --readme ./README.md --options ./build/docs/ --out ./docs/tondi-rpc ./build/docs/tondi-rpc.ts
+    typedoc --name "Spora WASM32 SDK - RPC" --sourceLinkExternal --readme ./README.md --options ./build/docs/ --out ./docs/spora-rpc ./build/docs/spora-rpc.ts
     echo "building core"
-    typedoc --name "Tondi WASM32 SDK - Core" --sourceLinkExternal --readme ./README.md --options ./build/docs/ --out ./docs/tondi-core ./build/docs/tondi-core.ts
+    typedoc --name "Spora WASM32 SDK - Core" --sourceLinkExternal --readme ./README.md --options ./build/docs/ --out ./docs/spora-core ./build/docs/spora-core.ts
     echo "building full"
-    typedoc --name "Tondi WASM32 SDK" --sourceLinkExternal --readme ./README.md --options ./build/docs/ --out ./docs/tondi ./build/docs/tondi.ts
+    typedoc --name "Spora WASM32 SDK" --sourceLinkExternal --readme ./README.md --options ./build/docs/ --out ./docs/spora ./build/docs/spora.ts
 
 fi

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ISC
-// Copyright (C) 2025Tondi developers
+// Copyright (C) 2025 Spora developers
 //
 // VM system calls
 // Adapted from CKB script/src/syscalls/
@@ -14,7 +14,7 @@ pub mod load_witness;
 pub mod load_script;
 pub mod current_cycles;
 pub mod debugger;
-pub mod blake3;  // Tondi-specific: blake3 hash syscall
+pub mod blake3;  // Spora-specific: blake3 hash syscall
 
 pub use utils::*;
 pub use load_tx::LoadTx;
@@ -43,7 +43,7 @@ pub const LOAD_CELL_DATA_SYSCALL_NUMBER: u64 = 2092;
 pub const CURRENT_CYCLES_SYSCALL_NUMBER: u64 = 2042;
 pub const DEBUG_PRINT_SYSCALL_NUMBER: u64 = 2177;
 
-/// Tondi-specific syscall numbers (3000+ range to avoid conflicts)
+/// Spora-specific syscall numbers (3000+ range to avoid conflicts)
 pub const BLAKE3_HASH_SYSCALL_NUMBER: u64 = 3001;
 pub const EXEC_SYSCALL_NUMBER: u64 = 2043;
 

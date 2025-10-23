@@ -9,9 +9,9 @@ use crate::{
 };
 use once_cell::unsync::Lazy;
 use std::sync::Arc;
-use tondi_consensus_core::{block::Block, errors::tx::TxRuleError};
-use tondi_database::prelude::StoreResultExtensions;
-use tondi_hashes::Hash;
+use spora_consensus_core::{block::Block, errors::tx::TxRuleError};
+use spora_database::prelude::StoreResultExtensions;
+use spora_hashes::Hash;
 
 impl BlockBodyProcessor {
     pub fn validate_body_in_context(self: &Arc<Self>, block: &Block) -> BlockProcessResult<()> {
@@ -122,15 +122,15 @@ mod tests {
         params::DEVNET_PARAMS,
         processes::{transaction_validator::errors::TxRuleError, window::WindowManager},
     };
-    use tondi_consensus_core::{
+    use spora_consensus_core::{
         api::ConsensusApi,
         config::params::ForkActivation,
         merkle::calc_hash_merkle_root as calc_hash_merkle_root_with_options,
         subnets::SUBNETWORK_ID_NATIVE,
         tx::{Transaction, TransactionInput, TransactionOutpoint},
     };
-    use tondi_core::assert_match;
-    use tondi_hashes::Hash;
+    use spora_core::assert_match;
+    use spora_hashes::Hash;
 
     fn calc_hash_merkle_root<'a>(txs: impl ExactSizeIterator<Item = &'a Transaction>) -> Hash {
         calc_hash_merkle_root_with_options(txs, false)

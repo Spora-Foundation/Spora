@@ -1,7 +1,7 @@
 use crate::pstt::{Input, PSTT as Native};
 use crate::role::*;
-use tondi_consensus_core::network::NetworkType;
-use tondi_consensus_core::tx::TransactionId;
+use spora_consensus_core::network::NetworkType;
+use spora_consensus_core::tx::TransactionId;
 
 use wasm_bindgen::prelude::*;
 // use js_sys::Object;
@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use std::sync::MutexGuard;
 use std::sync::{Arc, Mutex};
-use tondi_consensus_client::{Transaction, TransactionInput, TransactionInputT, TransactionOutput, TransactionOutputT};
+use spora_consensus_client::{Transaction, TransactionInput, TransactionInputT, TransactionOutput, TransactionOutputT};
 use workflow_wasm::{
     convert::{Cast, CastFromJs, TryCastFromJs},
     // extensions::object::*,

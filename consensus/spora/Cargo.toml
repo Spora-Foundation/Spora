@@ -1,9 +1,9 @@
 [package]
-name = "tondi-spora"
+name = "spora-spora"
 version = "1.21.0"
 edition = "2021"
 license = "ISC"
-description = "Spora consensus interface for Tondi DAG"
+description = "Spora consensus interface for Spora DAG"
 
 [dependencies]
 # Errors

@@ -5,11 +5,11 @@
 use crate::account::{create_private_keys, AsLegacyAccount, DerivationCapableAccount, Inner};
 use crate::derivation::{AddressDerivationManager, AddressDerivationManagerTrait};
 use crate::imports::*;
-use tondi_bip32::{ExtendedPrivateKey, Prefix, SecretKey};
+use spora_bip32::{ExtendedPrivateKey, Prefix, SecretKey};
 
 const CACHE_ADDRESS_OFFSET: u32 = 2048;
 
-pub const LEGACY_ACCOUNT_KIND: &str = "tondi-legacy-standard";
+pub const LEGACY_ACCOUNT_KIND: &str = "spora-legacy-standard";
 
 pub struct Ctor {}
 
@@ -20,7 +20,7 @@ impl Factory for Ctor {
     }
 
     fn description(&self) -> String {
-        "Tondi Legacy Account (KDX, tondinet.io Web Wallet)".to_string()
+        "Spora Legacy Account (KDX, tondinet.io Web Wallet)".to_string()
     }
 
     async fn try_load(

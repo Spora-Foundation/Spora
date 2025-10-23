@@ -6,9 +6,9 @@ const {
     PrivateKey,
     Generator,
     RpcClient,
-    tondiToSau,
+    sporaToSau,
     initConsolePanicHook
-} = require('../../../../nodejs/tondi');
+} = require('../../../../nodejs/spora');
 
 initConsolePanicHook();
 
@@ -22,7 +22,7 @@ const { encoding, networkId } = require("../utils").parseArgs();
     const privateKey = new PrivateKey('b7e151628aed2a6abf7158809cf4f3c762e7160f38b4da56a784d9045190cfef');
 
     const sourceAddress = privateKey.toKeypair().toAddress(networkId);
-    console.info(`Full tondi address: ${sourceAddress}`);
+    console.info(`Full spora address: ${sourceAddress}`);
 
     const rpc = new RpcClient({
         url : "127.0.0.1",
@@ -63,7 +63,7 @@ const { encoding, networkId } = require("../utils").parseArgs();
         // is reached. The remaining amount will be sent 
         // to the change address.
         //
-        // If the requested amount is greater than the Tondi
+        // If the requested amount is greater than the Spora
         // transaction mass, the Generator will create multiple
         // transactions where each transaction will forward
         // UTXOs to the change address, until the requested
@@ -71,8 +71,8 @@ const { encoding, networkId } = require("../utils").parseArgs();
         // transaction according to the supplied outputs.
         let generator = new Generator({
             entries,
-            outputs: [{ address : sourceAddress, amount : tondiToSau(0.2)}],
-            priorityFee: tondiToSau(0.0001),
+            outputs: [{ address : sourceAddress, amount : sporaToSau(0.2)}],
+            priorityFee: sporaToSau(0.0001),
             changeAddress: sourceAddress,
         });
 

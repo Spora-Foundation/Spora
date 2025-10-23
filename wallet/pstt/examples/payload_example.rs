@@ -6,15 +6,15 @@
 //! 3. How to combine PSTTs with payload
 //! 4. Error handling
 
-use tondi_wallet_pstt::global::CombineError as GlobalCombineError;
-use tondi_wallet_pstt::prelude::*;
+use spora_wallet_pstt::global::CombineError as GlobalCombineError;
+use spora_wallet_pstt::prelude::*;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== PSTT Payload functionality example ===\n");
 
     // Example 1: Create a PSTT with payload
     println!("1. Create a PSTT with payload:");
-    let payload_data = b"Hello, Tondi!".to_vec();
+    let payload_data = b"Hello, Spora!".to_vec();
 
     let pstt_with_payload = PSTT::<Creator>::default()
         .set_version(Version::One)  // Set version to One to support payload

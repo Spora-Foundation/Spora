@@ -2,7 +2,7 @@
 mod utils;
 
 use core::ops::{Add, BitAnd, BitOr, BitXor, Div, Mul, Rem};
-use tondi_math::construct_uint;
+use spora_math::construct_uint;
 use libfuzzer_sys::fuzz_target;
 use num_bigint::{BigInt, BigUint};
 use num_integer::Integer;

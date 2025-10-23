@@ -7,8 +7,8 @@ use std::sync::{
     Arc,
 };
 use tokio::task::JoinHandle;
-use tondi_core::trace;
-use tondi_utils::{any::type_name_short, channel::Channel, triggers::SingleTrigger};
+use spora_core::trace;
+use spora_utils::{any::type_name_short, channel::Channel, triggers::SingleTrigger};
 
 pub struct ClientPool<T> {
     clients: Vec<Arc<GrpcClient>>,

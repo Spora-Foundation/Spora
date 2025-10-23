@@ -6,9 +6,9 @@ const {
     PrivateKey,
     RpcClient,
     Generator,
-    tondiToSau,
+    sporaToSau,
     initConsolePanicHook
-} = require('../../../../nodejs/tondi');
+} = require('../../../../nodejs/spora');
 
 initConsolePanicHook();
 
@@ -66,7 +66,7 @@ const { encoding, networkId, address : destinationAddress } = require("../utils"
         // is reached. The remaining amount will be sent 
         // to the change address.
         //
-        // If the requested amount is greater than the Tondi
+        // If the requested amount is greater than the Spora
         // transaction mass, the Generator will create multiple
         // transactions where each transaction will forward
         // UTXOs to the change address, until the requested
@@ -74,15 +74,15 @@ const { encoding, networkId, address : destinationAddress } = require("../utils"
         // transaction according to the supplied outputs.
         let generator = new Generator({
             entries,
-            outputs: [{address, amount : tondiToSau(0.2)}],
+            outputs: [{address, amount : sporaToSau(0.2)}],
             // priorityFee: 1000n,
-            priorityFee: tondiToSau(0.0001),
+            priorityFee: sporaToSau(0.0001),
             changeAddress: sourceAddress,
         });
 
         // transaction generator creates a 
         // sequence of transactions
-        // for a requested amount of TONDI.
+        // for a requested amount of SPORA.
         // sign and submit these transactions
         let pending;
         while (pending = await generator.next()) {

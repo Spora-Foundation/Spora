@@ -1,18 +1,18 @@
 use parking_lot::RwLock;
 use std::{ops::Deref, sync::Arc, time::Duration};
 use tempfile::TempDir;
-use tondi_consensus_core::network::NetworkId;
-use tondi_core::{core::Core, signals::Shutdown, task::runtime::AsyncRuntime};
-use tondi_database::utils::get_tondi_tempdir;
-use tondi_grpc_client::GrpcClient;
-use tondi_grpc_server::service::GrpcService;
-use tondi_notify::subscription::context::SubscriptionContext;
-use tondi_rpc_core::notify::mode::NotificationMode;
-use tondi_rpc_service::service::RpcCoreService;
-use tondi_utils::triggers::Listener;
+use spora_consensus_core::network::NetworkId;
+use spora_core::{core::Core, signals::Shutdown, task::runtime::AsyncRuntime};
+use spora_database::utils::get_tondi_tempdir;
+use spora_grpc_client::GrpcClient;
+use spora_grpc_server::service::GrpcService;
+use spora_notify::subscription::context::SubscriptionContext;
+use spora_rpc_core::notify::mode::NotificationMode;
+use spora_rpc_service::service::RpcCoreService;
+use spora_utils::triggers::Listener;
 use tondid_lib::{args::Args, daemon::create_core_with_runtime};
 
-use tondi_grpc_client::ClientPool;
+use spora_grpc_client::ClientPool;
 
 pub struct ClientManager {
     pub args: RwLock<Args>,

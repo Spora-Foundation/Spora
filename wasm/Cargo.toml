@@ -1,6 +1,6 @@
 [package]
-name = "tondi-wasm"
-description = "tondi WASM bindings"
+name = "spora-wasm"
+description = "spora WASM bindings"
 rust-version.workspace = true
 version.workspace = true
 edition.workspace = true
@@ -17,21 +17,21 @@ crate-type = ["cdylib"]
 [dependencies]
 cfg-if.workspace = true
 js-sys.workspace = true
-tondi-addresses.workspace = true
-tondi-bip32.workspace = true
-tondi-consensus-core.workspace = true
-tondi-consensus-wasm.workspace = true
-tondi-core.workspace = true
-tondi-math.workspace = true
-tondi-pow.workspace = true
-tondi-txscript.workspace = true
-tondi-rpc-core.workspace = true
-tondi-utils.workspace = true
-tondi-wasm-core.workspace = true
-tondi-wallet-core.workspace = true
-tondi-wallet-keys.workspace = true
-tondi-wrpc-client.workspace = true
-tondi-wrpc-wasm.workspace = true
+spora-addresses.workspace = true
+spora-bip32.workspace = true
+spora-consensus-core.workspace = true
+spora-consensus-wasm.workspace = true
+spora-core.workspace = true
+spora-math.workspace = true
+spora-pow.workspace = true
+spora-txscript.workspace = true
+spora-rpc-core.workspace = true
+spora-utils.workspace = true
+spora-wasm-core.workspace = true
+spora-wallet-core.workspace = true
+spora-wallet-keys.workspace = true
+spora-wrpc-client.workspace = true
+spora-wrpc-wasm.workspace = true
 num.workspace = true
 wasm-bindgen.workspace = true
 workflow-log.workspace = true
@@ -40,20 +40,20 @@ workflow-wasm.workspace = true
 
 [features] 
 wasm32-sdk = [
-    "tondi-wallet-core/wasm32-sdk",
-    "tondi-pow/wasm32-sdk",
-    "tondi-txscript/wasm32-sdk",
+    "spora-wallet-core/wasm32-sdk",
+    "spora-pow/wasm32-sdk",
+    "spora-txscript/wasm32-sdk",
 ]
 wasm32-core = [
-    "tondi-wallet-core/wasm32-core",
-    "tondi-pow/wasm32-sdk",
-    "tondi-txscript/wasm32-sdk",
+    "spora-wallet-core/wasm32-core",
+    "spora-pow/wasm32-sdk",
+    "spora-txscript/wasm32-sdk",
 ]
 wasm32-rpc = [
-    "tondi-consensus-core/wasm32-sdk",
-    "tondi-consensus-wasm/wasm32-sdk",
-    "tondi-wrpc-client/wasm32-sdk",
-    "tondi-wrpc-wasm/wasm32-sdk",
+    "spora-consensus-core/wasm32-sdk",
+    "spora-consensus-wasm/wasm32-sdk",
+    "spora-wrpc-client/wasm32-sdk",
+    "spora-wrpc-wasm/wasm32-sdk",
 ]
 wasm32-keygen = []
 default = []
@@ -63,8 +63,8 @@ targets = ["wasm32-unknown-unknown"]
 
 [package.metadata.emanate.wasm]
 targets = [
-    { target = "nodejs", out-dir = "nodejs/tondi" },
-    { target = "web", out-dir = "web/tondi" }
+    { target = "nodejs", out-dir = "nodejs/spora" },
+    { target = "web", out-dir = "web/spora" }
 ]
 folder = "setup"
 

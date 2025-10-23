@@ -1,12 +1,12 @@
 use secp256k1::{rand::thread_rng, Keypair};
 use std::{iter, str::FromStr};
-use tondi_consensus_core::{
+use spora_consensus_core::{
     config::params::TESTNET_PARAMS,
     hashing::sighash::{calc_schnorr_signature_hash, SigHashReusedValuesUnsync},
     tx::{TransactionId, TransactionOutpoint, UtxoEntry},
 };
-use tondi_txscript::{multisig_redeem_script, opcodes::codes::OpData65, pay_to_script_hash_script, script_builder::ScriptBuilder};
-use tondi_wallet_pstt::prelude::{
+use spora_txscript::{multisig_redeem_script, opcodes::codes::OpData65, pay_to_script_hash_script, script_builder::ScriptBuilder};
+use spora_wallet_pstt::prelude::{
     Combiner, Creator, Extractor, Finalizer, Inner, InputBuilder, SignInputOk, Signature, Signer, Updater, PSTT,
 };
 

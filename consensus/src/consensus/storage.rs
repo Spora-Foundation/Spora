@@ -30,9 +30,9 @@ use super::cache_policy_builder::CachePolicyBuilder as PolicyBuilder;
 use itertools::Itertools;
 use parking_lot::RwLock;
 use std::{ops::DerefMut, sync::Arc};
-use tondi_consensus_core::{blockstatus::BlockStatus, BlockHashSet};
-use tondi_database::registry::DatabaseStorePrefixes;
-use tondi_hashes::Hash;
+use spora_consensus_core::{blockstatus::BlockStatus, BlockHashSet};
+use spora_database::registry::DatabaseStorePrefixes;
+use spora_hashes::Hash;
 
 pub struct ConsensusStorage {
     // DB

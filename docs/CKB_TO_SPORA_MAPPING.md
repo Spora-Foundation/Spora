@@ -21,9 +21,9 @@
 
 | 用途 | CKB (Blake2b) | SPORA (Blake3) | 差异 |
 |------|---------------|----------------|------|
-| TxID | `blake2b(tx)` | `blake3("tondi-cell/txid" \|\| tx)` | ⚠️ 域前缀 |
-| WTxID | `blake2b(tx+wit)` | `blake3("tondi-cell/wtxid" \|\| tx+wit)` | ⚠️ 域前缀 |
-| SigHash | `blake2b(...)` | `blake3("tondi-cell/sig" \|\| ...)` | ⚠️ 域前缀 |
+| TxID | `blake2b(tx)` | `blake3("spora-cell/txid" \|\| tx)` | ⚠️ 域前缀 |
+| WTxID | `blake2b(tx+wit)` | `blake3("spora-cell/wtxid" \|\| tx+wit)` | ⚠️ 域前缀 |
+| SigHash | `blake2b(...)` | `blake3("spora-cell/sig" \|\| ...)` | ⚠️ 域前缀 |
 | PubkeyHash | `blake2b(pubkey)[0..20]` | `blake3(pubkey)[0..20]` | ⚠️ 哈希函数 |
 | ScriptHash | `blake2b(script)` | `blake3(script)` | ⚠️ 哈希函数 |
 
@@ -37,7 +37,7 @@ let hash = blake3::hash(data);  // ✅ 更简单
 
 // 或带域分离:
 let mut hasher = blake3::Hasher::new();
-hasher.update(b"tondi-domain");
+hasher.update(b"spora-domain");
 hasher.update(data);
 let hash = *hasher.finalize().as_bytes();
 ```
@@ -257,7 +257,7 @@ cp ckb/script/src/syscalls/spawn.rs exec/src/vm/syscalls/spawn.rs  # ⏳ 待实�
 
 2. **复制到 SPORA**
    ```bash
-   cp ckb/script/src/syscalls/load_witness.rs Tondi/exec/src/vm/syscalls/load_witness.rs
+   cp ckb/script/src/syscalls/load_witness.rs Spora/exec/src/vm/syscalls/load_witness.rs
    ```
 
 3. **修改哈希（如需要）**
@@ -280,7 +280,7 @@ cp ckb/script/src/syscalls/spawn.rs exec/src/vm/syscalls/spawn.rs  # ⏳ 待实�
 
 5. **测试**
    ```bash
-   cargo test --package tondi-exec --lib syscalls::load_witness
+   cargo test --package spora-exec --lib syscalls::load_witness
    ```
 
 ---
@@ -290,12 +290,12 @@ cp ckb/script/src/syscalls/spawn.rs exec/src/vm/syscalls/spawn.rs  # ⏳ 待实�
 | CKB Crate | SPORA Crate | 说明 |
 |-----------|-------------|------|
 | `ckb-vm` | `ckb-vm` (依赖) | ✅ 完全相同 |
-| `ckb-types` | `tondi-exec` | ⚠️ 自己实现 |
+| `ckb-types` | `spora-exec` | ⚠️ 自己实现 |
 | `ckb-hash` | `blake3` (依赖) | ⚠️ 不同哈希 |
-| `ckb-traits` | `tondi-consensus` | ⚠️ 自己实现 |
-| `ckb-script` | `tondi-exec::vm` | ⚠️ 基于 CKB 修改 |
-| `ckb-store` | `tondi-state` | ⚠️ DAG 适配 |
-| `ckb-tx-pool` | `tondi-mempool` | ⚠️ DAG 适配 |
+| `ckb-traits` | `spora-consensus` | ⚠️ 自己实现 |
+| `ckb-script` | `spora-exec::vm` | ⚠️ 基于 CKB 修改 |
+| `ckb-store` | `spora-state` | ⚠️ DAG 适配 |
+| `ckb-tx-pool` | `spora-mempool` | ⚠️ DAG 适配 |
 
 ---
 

@@ -1,12 +1,12 @@
-const tondi = require('../../../../nodejs/tondi');
+const spora = require('../../../../nodejs/spora');
 
-tondi.initConsolePanicHook();
+spora.initConsolePanicHook();
 
 (async () => {
 
-    let encrypted = tondi.encryptXChaCha20Poly1305("my message", "my_password");
+    let encrypted = spora.encryptXChaCha20Poly1305("my message", "my_password");
     console.log("encrypted:", encrypted);
-    let decrypted = tondi.decryptXChaCha20Poly1305(encrypted, "my_password");
+    let decrypted = spora.decryptXChaCha20Poly1305(encrypted, "my_password");
     console.log("decrypted:", decrypted);
 
 })();

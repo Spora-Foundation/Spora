@@ -14,16 +14,16 @@ use std::{
     ops::{Deref, DerefMut},
     sync::Arc,
 };
-use tondi_consensus_core::{
+use spora_consensus_core::{
     blockhash::{BlockHashExtensions, ORIGIN},
     config::{genesis::GenesisBlock, params::ForkActivation},
     errors::{block::RuleError, difficulty::DifficultyResult},
     BlockHashSet, BlueWorkType, HashMapCustomHasher,
 };
-use tondi_core::{info, log::CRESCENDO_KEYWORD};
-use tondi_hashes::Hash;
-use tondi_math::Uint256;
-use tondi_utils::refs::Refs;
+use spora_core::{info, log::CRESCENDO_KEYWORD};
+use spora_hashes::Hash;
+use spora_math::Uint256;
+use spora_utils::refs::Refs;
 
 use super::{
     difficulty::{FullDifficultyManager, SampledDifficultyManager},
@@ -292,7 +292,7 @@ enum SampledBlock {
     NonDaa(Hash),
 }
 
-/// A sampled window manager implementing [KIP-0004](https://github.com/tondinet/kips/blob/master/kip-0004.md)
+/// A sampled window manager implementing [KIP-0004](https://github.com/sporanet/kips/blob/master/kip-0004.md)
 #[derive(Clone)]
 pub struct SampledWindowManager<
     T: GhostdagStoreReader,
@@ -408,7 +408,7 @@ impl<T: GhostdagStoreReader, U: BlockWindowCacheReader + BlockWindowCacheWriter,
             Crescendo extended explanation
 
             Background: for the post-activation window we filter all previously non activated blocks.
-            See https://github.com/tondinet/kips/blob/master/kip-0014.md#handling-difficulty-adjustment-during-the-transition
+            See https://github.com/sporanet/kips/blob/master/kip-0014.md#handling-difficulty-adjustment-during-the-transition
 
             We consider a block C to be not activated from the pov of this block (B) if either:
                 1. C's selected parent DAA score is below the activation threshold

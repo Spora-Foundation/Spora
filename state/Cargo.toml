@@ -1,5 +1,5 @@
 [package]
-name = "tondi-state"
+name = "spora-state"
 version = "1.21.0"
 edition = "2021"
 license = "ISC"
@@ -7,8 +7,8 @@ description = "Cell state management and data availability storage"
 
 [dependencies]
 # Core dependencies
-tondi-exec = { path = "../exec", version = "1.21.0" }
-tondi-hashes = { path = "../crypto/hashes", version = "1.21.0" }
+spora-exec = { path = "../exec", version = "1.21.0" }
+spora-hashes = { path = "../crypto/hashes", version = "1.21.0" }
 
 # Database
 rocksdb = { version = "0.24", default-features = false, features = ["snappy"] }

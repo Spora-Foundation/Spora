@@ -1,5 +1,5 @@
-use tondi_mining::feerate::{FeeEstimateVerbose, FeerateBucket, FeerateEstimations};
-use tondi_rpc_core::{
+use spora_mining::feerate::{FeeEstimateVerbose, FeerateBucket, FeerateEstimations};
+use spora_rpc_core::{
     message::GetFeeEstimateExperimentalResponse as RpcFeeEstimateVerboseResponse, RpcFeeEstimate,
     RpcFeeEstimateVerboseExperimentalData as RpcFeeEstimateVerbose, RpcFeerateBucket,
 };

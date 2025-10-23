@@ -1,4 +1,4 @@
-use tondi_wallet_core::tests::keys::make_xpub;
+use spora_wallet_core::tests::keys::make_xpub;
 
 fn main() {
     match make_xpub() {

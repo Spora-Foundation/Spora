@@ -1,14 +1,14 @@
 use async_channel::{unbounded, Receiver};
 use async_trait::async_trait;
 use std::sync::Arc;
-use tondi_notify::events::EVENT_TYPE_ARRAY;
-use tondi_notify::listener::{ListenerId, ListenerLifespan};
-use tondi_notify::notifier::{Notifier, Notify};
-use tondi_notify::scope::Scope;
-use tondi_notify::subscription::context::SubscriptionContext;
-use tondi_notify::subscription::{MutationPolicies, UtxosChangedMutationPolicy};
-use tondi_rpc_core::{api::connection::DynRpcConnection, api::rpc::RpcApi, *};
-use tondi_rpc_core::{notify::connection::ChannelConnection, RpcResult};
+use spora_notify::events::EVENT_TYPE_ARRAY;
+use spora_notify::listener::{ListenerId, ListenerLifespan};
+use spora_notify::notifier::{Notifier, Notify};
+use spora_notify::scope::Scope;
+use spora_notify::subscription::context::SubscriptionContext;
+use spora_notify::subscription::{MutationPolicies, UtxosChangedMutationPolicy};
+use spora_rpc_core::{api::connection::DynRpcConnection, api::rpc::RpcApi, *};
+use spora_rpc_core::{notify::connection::ChannelConnection, RpcResult};
 
 pub(super) type RpcCoreNotifier = Notifier<Notification, ChannelConnection>;
 
@@ -44,7 +44,7 @@ impl RpcCoreMock {
     }
 
     #[allow(dead_code)]
-    pub(super) fn notify_new_block_template(&self) -> tondi_notify::error::Result<()> {
+    pub(super) fn notify_new_block_template(&self) -> spora_notify::error::Result<()> {
         let notification = Notification::NewBlockTemplate(NewBlockTemplateNotification {});
         self.core_notifier.notify(notification)
     }

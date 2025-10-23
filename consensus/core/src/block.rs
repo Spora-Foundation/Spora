@@ -5,11 +5,11 @@ use crate::{
     BlueWorkType,
 };
 use std::sync::Arc;
-use tondi_hashes::Hash;
-use tondi_utils::mem_size::MemSizeEstimator;
+use spora_hashes::Hash;
+use spora_utils::mem_size::MemSizeEstimator;
 
 // Cell model: Use CellTx instead of UTXO Transaction
-use tondi_exec::CellTx;
+use spora_exec::CellTx;
 
 /// A mutable block structure where header and transactions within can still be mutated.
 #[derive(Debug, Clone)]

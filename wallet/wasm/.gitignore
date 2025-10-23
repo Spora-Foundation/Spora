@@ -1,6 +1,6 @@
 /target
 /Cargo.lock
 /web/node_modules
-/nodejs/tondi-wallet
+/nodejs/spora-wallet
 /nodejs/node_modules
 /nodejs/package-lock.json

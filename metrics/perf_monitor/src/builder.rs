@@ -1,6 +1,6 @@
 use crate::{CountersSnapshot, Monitor};
 use std::time::Duration;
-use tondi_core::task::tick::TickService;
+use spora_core::task::tick::TickService;
 
 pub struct Unspecified {}
 

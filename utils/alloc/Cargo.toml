@@ -1,6 +1,6 @@
 [package]
-name = "tondi-alloc"
-description = "Tondi allocator wrapper"
+name = "spora-alloc"
+description = "Spora allocator wrapper"
 rust-version.workspace = true
 version.workspace = true
 authors.workspace = true

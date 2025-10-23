@@ -1,6 +1,6 @@
 [package]
-name = "tondi-consensus-wasm"
-description = "Tondi consensus core WASM bindings"
+name = "spora-consensus-wasm"
+description = "Spora consensus core WASM bindings"
 rust-version.workspace = true
 version.workspace = true
 edition.workspace = true
@@ -14,12 +14,12 @@ wasm32-sdk = []
 wasm32-types = []
 
 [dependencies]
-tondi-consensus-core.workspace = true
-tondi-consensus-client.workspace = true
-tondi-addresses.workspace = true
-tondi-txscript.workspace = true
-tondi-hashes.workspace = true
-tondi-utils.workspace = true
+spora-consensus-core.workspace = true
+spora-consensus-client.workspace = true
+spora-addresses.workspace = true
+spora-txscript.workspace = true
+spora-hashes.workspace = true
+spora-utils.workspace = true
 
 cfg-if.workspace = true
 faster-hex.workspace = true

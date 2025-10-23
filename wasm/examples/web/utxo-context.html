@@ -5,16 +5,16 @@
         <script type="module">
             import { log, stringify, currentNetwork } from './resources/utils.js';
 
-            import * as tondi from '../../web/tondi-core/tondi.js';
-            let { Resolver, RpcClient, Encoding, UtxoProcessor, UtxoContext } = tondi;
+            import * as spora from '../../web/spora-core/spora.js';
+            let { Resolver, RpcClient, Encoding, UtxoProcessor, UtxoContext } = spora;
 
             window.monitor = {};
 
             (async () => {
-                await tondi.default('../../web/tondi-core/tondi_bg.wasm');
+                await spora.default('../../web/spora-core/tondi_bg.wasm');
 
                 let network = currentNetwork();
-                log(`Connecting to Tondi network...`);
+                log(`Connecting to Spora network...`);
                 log(`Selected network is ${network.class("network")}...`);
                 
                 const resolver = new Resolver();
@@ -41,8 +41,8 @@
                     events += 1;
                 });
 
-                // tondi:qpamkvhgh0kzx50gwvvp5xs8ktmqutcy3dfs9dc3w7lm9rq0zs76vf959mmrp
-                // tondi:qzeln8eue9nnrz85kn7x47smxhfqudyz6urv2wpquuvslq7ck4umys8gkt5x8
+                // spora:qpamkvhgh0kzx50gwvvp5xs8ktmqutcy3dfs9dc3w7lm9rq0zs76vf959mmrp
+                // spora:qzeln8eue9nnrz85kn7x47smxhfqudyz6urv2wpquuvslq7ck4umys8gkt5x8
 
                 log("");
                 log("Please note that some addresses may have thousands of UTXOs which makes it");

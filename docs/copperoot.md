@@ -33,13 +33,13 @@ This means Taproot addresses start with 't' but the second character varies (e.g
 **Example Addresses:**
 ```
 Taproot (script version 1, address version 88):
-  tondi:trazle76u3gwal94drp4qlvlh9vkjddh7mjpv2hhe422xzjsrs8tvca30pn
+  spora:trazle76u3gwal94drp4qlvlh9vkjddh7mjpv2hhe422xzjsrs8tvca30pn
   └─────┘└┬┘
          │└─ 'razle...' = public key data (Bech32m encoded)
          └── 't' = address version 88 (first 5 bits: 0b01011)
 
 CopperootMerkle (script version 2, address version 192):
-  tondi:crazle76u3gwal94drp4qlvlh9vkjddh7mjpv2hhe422xzjsrs8tvv5jz65
+  spora:crazle76u3gwal94drp4qlvlh9vkjddh7mjpv2hhe422xzjsrs8tvv5jz65
   └─────┘└┬┘
          │└─ 'razle...' = same public key data (Bech32m encoded)
          └── 'c' = address version 192 (first 5 bits: 0b11000)
@@ -48,7 +48,7 @@ Note: The 'razle...' portion is identical because both examples use the same pub
       Different public keys will produce different encodings.
 
 CopperootVerkle (script version 3, address version 96 - currently disabled):
-  tondi:v... (starts with 'v', second character varies by public key)
+  spora:v... (starts with 'v', second character varies by public key)
 ```
 
 ### Version Validation and Security
@@ -228,7 +228,7 @@ Verkle trees provide significant advantages over Merkle trees in specific scenar
 
 **Large State / Contract Storage (Account/VM/RGBX Client State)**:
 - **Key-Value Mass Storage**: Verkle's flattened key paths + aggregated proofs enable efficient batch queries (multiple keys proven simultaneously) with reduced volume and easier stateless synchronization
-- **Contract Storage**: If Tondi needs to support contract storage or large-scale asset mappings, Verkle trees provide significant value
+- **Contract Storage**: If Spora needs to support contract storage or large-scale asset mappings, Verkle trees provide significant value
 - **RGBX Client State**: Large RGB state trees benefit from Verkle's compact proofs and efficient verification
 
 **Stateless / Light Client Architecture**:
@@ -458,7 +458,7 @@ Witness TLV Structure (after script inputs):
 ```
 ScriptPubKey: 5120<32-byte x-only pubkey>
 Witness: [64-byte signature]
-Address: tondi:c... (v2 witness version)
+Address: spora:c... (v2 witness version)
 ```
 
 **Test Vector 2: CopperootMerkle Script Spend with Merkle Proof**
@@ -518,9 +518,9 @@ Result: VALID - unknown TLV types are ignored for forward compatibility
 
 ### 7. RGB Integration with TLV Framework
 
-Copperoot's TLV framework provides a clean mechanism for RGB (Red-Green-Blue) protocol integration, enabling cross-layer information carrying without modifying Tondi's consensus rules.
+Copperoot's TLV framework provides a clean mechanism for RGB (Red-Green-Blue) protocol integration, enabling cross-layer information carrying without modifying Spora's consensus rules.
 
-#### RGB on Tondi Integration Points
+#### RGB on Spora Integration Points
 
 **Key RGB Requirements**:
 - Multi-asset and multi-state key commitments (batch transfers, AMM, NFT)
@@ -531,7 +531,7 @@ Copperoot's TLV framework provides a clean mechanism for RGB (Red-Green-Blue) pr
 **Copperoot TLV Solution**:
 - **Merkle Trees**: Small state (single transfers) → short proofs, suitable for TLV-carrying RGBX_ROOT, mainnet only anchors the root
 - **Verkle Trees**: Large state (AMM, batch withdrawals) → aggregatable proofs, TLV carries RGBX_ROOT + ProofType=Verkle, client-side validation
-- **TLV Value**: RGB can attach commitments and proof references without changing Tondi consensus rules, providing clean isolation without polluting BTC/Taproot core
+- **TLV Value**: RGB can attach commitments and proof references without changing Spora consensus rules, providing clean isolation without polluting BTC/Taproot core
 
 #### RGB TLV Usage Examples
 
@@ -582,7 +582,7 @@ Result: Verkle-aware nodes validate proofs, RGB clients process batch data
 #### RGB Protocol Benefits
 
 **Clean Separation**:
-- RGB commitments don't affect Tondi consensus validation
+- RGB commitments don't affect Spora consensus validation
 - RGB proofs can be fetched and validated independently
 - RGB state transitions are isolated from Bitcoin/Taproot logic
 
@@ -593,7 +593,7 @@ Result: Verkle-aware nodes validate proofs, RGB clients process batch data
 
 **Future Extensibility**:
 - New RGB features can be added via new TLV types
-- RGB protocol upgrades don't require Tondi consensus changes
+- RGB protocol upgrades don't require Spora consensus changes
 - Multiple RGB implementations can coexist using different TLV types
 
 #### Future Scenarios: When Verkle Trees Become Essential
@@ -1101,7 +1101,7 @@ The ScriptPubKey format is identical to Bitcoin's Taproot, but the witness versi
 
 - **CopperootMerkle Version**: `v2` (decimal 2) - Pay-to-Copperoot-Merkle (ACTIVE)
 - **CopperootVerkle Version**: `v3` (decimal 3) - Pay-to-Copperoot-Verkle (RESERVED - INACTIVE)
-- **Reserved for**: Tondi Copperoot protocol
+- **Reserved for**: Spora Copperoot protocol
 - **Separation**: Ensures no overlap with Bitcoin Taproot (v1) or other protocols
 - **Mainnet Launch**: Only CopperootMerkle (v2) is active; CopperootVerkle (v3) is reserved for future activation
 
@@ -1109,7 +1109,7 @@ The ScriptPubKey format is identical to Bitcoin's Taproot, but the witness versi
 
 **Bech32m Encoding**:
 - **HRP (Human Readable Part)**:
-  - Mainnet: `tondi`
+  - Mainnet: `spora`
   - Testnet: `tondi0`
   - Simnet: `tondisim`
   - Devnet: `tondidev`
@@ -1119,13 +1119,13 @@ The ScriptPubKey format is identical to Bitcoin's Taproot, but the witness versi
 **Example Addresses**:
 ```
 CopperootMerkle - ACTIVE:
-Mainnet:  tondi:c... (CopperootMerkle addresses start with 'c' after HRP)
+Mainnet:  spora:c... (CopperootMerkle addresses start with 'c' after HRP)
 Testnet:  tondi0:c...
 Simnet:   tondisim:c...
 Devnet:   tondidev:c...
 
 CopperootVerkle - RESERVED (INACTIVE):
-Mainnet:  tondi:v... (CopperootVerkle addresses start with 'v' after HRP)
+Mainnet:  spora:v... (CopperootVerkle addresses start with 'v' after HRP)
 Testnet:  tondi0:v...
 Simnet:   tondisim:v...
 Devnet:   tondidev:v...
@@ -1139,8 +1139,8 @@ NOTE: CopperootVerkle addresses are reserved but currently invalid for mainnet l
 | **P2PKH** | Legacy | SHA256 | N/A | Legacy key spends |
 | **P2WPKH** | SegWit v0 | SHA256 | N/A | SegWit key spends |
 | **P2TR** | Bitcoin Taproot | SHA256 | Merkle Tree | Bitcoin Taproot |
-| **CopperootMerkle** | Tondi Copperoot | BLAKE3-256 | Merkle Tree | Tondi Copperoot (Merkle) |
-| **CopperootVerkle** | Tondi Copperoot | BLAKE3-256 | Verkle Tree | Tondi Copperoot (Verkle) - RESERVED |
+| **CopperootMerkle** | Spora Copperoot | BLAKE3-256 | Merkle Tree | Spora Copperoot (Merkle) |
+| **CopperootVerkle** | Spora Copperoot | BLAKE3-256 | Verkle Tree | Spora Copperoot (Verkle) - RESERVED |
 
 ### Implementation Details
 
@@ -1261,7 +1261,7 @@ pub fn detect_address_type(address: &str) -> Result<Version, AddressError> {
 }
 
 // Example usage
-match detect_address_type("tondi:c...")? {
+match detect_address_type("spora:c...")? {
     Version::CopperootMerkle => println!("CopperootMerkle address"),
     Version::CopperootVerkle => println!("CopperootVerkle address (disabled)"),
     Version::Taproot => println!("P2TR address"),
@@ -1275,7 +1275,7 @@ match detect_address_type("tondi:c...")? {
 
 ```json
 {
-  "address": "tondi:c...",
+  "address": "spora:c...",
   "type": "p2cr",
   "script_type": "pay_to_copperoot_merkle",
   "witness_version": 2,
@@ -1284,7 +1284,7 @@ match detect_address_type("tondi:c...")? {
 }
 
 {
-  "address": "tondi:v...",
+  "address": "spora:v...",
   "type": "p2crv",
   "script_type": "pay_to_copperoot_verkle",
   "witness_version": 2,
@@ -1297,16 +1297,16 @@ match detect_address_type("tondi:c...")? {
 
 ```bash
 # Create CopperootMerkle address (Merkle tree)
-tondi-cli getnewaddress "" p2cr
+spora-cli getnewaddress "" p2cr
 
 # Create CopperootVerkle address (Verkle tree)
-tondi-cli getnewaddress "" p2crv
+spora-cli getnewaddress "" p2crv
 
 # Send to CopperootMerkle address
-tondi-cli sendtoaddress "tondi:c..." 1.0
+spora-cli sendtoaddress "spora:c..." 1.0
 
 # Send to CopperootVerkle address
-tondi-cli sendtoaddress "tondi:v..." 1.0
+spora-cli sendtoaddress "spora:v..." 1.0
 ```
 
 ## Mainnet Launch Status
@@ -1375,8 +1375,8 @@ const COPPEROOT_NODE_TAG: &[u8] = b"CopperootNode";
 const COPPEROOT_TWEAK_TAG: &[u8] = b"CopperTweak";
 
 // Chain-specific domain separation (prevents cross-chain replay)
-const CHAIN_ID_TAG: &[u8] = b"TondiChainID";
-const GENESIS_HASH_TAG: &[u8] = b"TondiGenesisHash";
+const CHAIN_ID_TAG: &[u8] = b"SporaChainID";
+const GENESIS_HASH_TAG: &[u8] = b"SporaGenesisHash";
 ```
 
 ### Forward Compatibility Strategy
@@ -1440,7 +1440,7 @@ Copperoot Control Block (Extended):
 ```
 Control Block TLV:
   - Type 0x04: ChainID/GenesisHash (32 bytes)
-  - Value: Tondi genesis block hash or chain identifier
+  - Value: Spora genesis block hash or chain identifier
 
 Purpose: Prevents cross-chain transaction replay attacks
 ```
@@ -1448,10 +1448,10 @@ Purpose: Prevents cross-chain transaction replay attacks
 **Domain Separation**:
 ```
 Hash Function Tags:
-- CopperootSighash(data) - Tondi-specific sighash
-- CopperootLeaf(version, script) - Tondi-specific leaf hashing
-- CopperootNode(left, right) - Tondi-specific node hashing
-- CopperTweak(internal_key, merkle_root) - Tondi-specific key tweaking
+- CopperootSighash(data) - Spora-specific sighash
+- CopperootLeaf(version, script) - Spora-specific leaf hashing
+- CopperootNode(left, right) - Spora-specific node hashing
+- CopperTweak(internal_key, merkle_root) - Spora-specific key tweaking
 ```
 
 #### 5. Graceful Degradation Examples
@@ -1564,4 +1564,4 @@ The implementation is production-ready for CopperootMerkle functionality and pro
 - [Verkle Trees](https://dankradfeist.de/ethereum/2021/06/18/verkle-trie-for-eth1.html)
 - [MuSig2 Paper](https://eprint.iacr.org/2020/1261)
 - [Taproot BIP](https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki)
-- [Tondi Documentation](https://tondi.aspectron.org/docs/)
+- [Spora Documentation](https://spora.aspectron.org/docs/)

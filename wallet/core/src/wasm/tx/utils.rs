@@ -2,10 +2,10 @@ use crate::imports::*;
 use crate::result::Result;
 use crate::tx::{IPaymentOutputArray, PaymentOutputs};
 use crate::wasm::tx::generator::*;
-use tondi_consensus_client::*;
-use tondi_consensus_core::subnets::SUBNETWORK_ID_NATIVE;
-use tondi_wallet_macros::declare_typescript_wasm_interface as declare;
-use tondi_wasm_core::types::BinaryT;
+use spora_consensus_client::*;
+use spora_consensus_core::subnets::SUBNETWORK_ID_NATIVE;
+use spora_wallet_macros::declare_typescript_wasm_interface as declare;
+use spora_wasm_core::types::BinaryT;
 use workflow_core::runtime::is_web;
 
 /// Create a basic transaction without any mass limit checks.

@@ -1,2 +1,2 @@
 /// Re-export errors
-pub use tondi_mining_errors::manager::*;
+pub use spora_mining_errors::manager::*;

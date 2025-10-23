@@ -1,6 +1,6 @@
 use separator::{separated_float, separated_int, separated_uint_with_output, Separatable};
-use tondi_consensus_core::constants::*;
-use tondi_consensus_core::network::NetworkType;
+use spora_consensus_core::constants::*;
+use spora_consensus_core::network::NetworkType;
 
 #[inline]
 pub fn sau_to_tondi(sau: u64) -> f64 {
@@ -8,8 +8,8 @@ pub fn sau_to_tondi(sau: u64) -> f64 {
 }
 
 #[inline]
-pub fn tondi_to_sau(tondi: f64) -> u64 {
-    (tondi * SAU_PER_TONDI as f64) as u64
+pub fn tondi_to_sau(spora: f64) -> u64 {
+    (spora * SAU_PER_TONDI as f64) as u64
 }
 
 #[inline]
@@ -22,21 +22,21 @@ pub fn sau_to_tondi_string_with_trailing_zeroes(sau: u64) -> String {
     separated_float!(format!("{:.8}", sau_to_tondi(sau)))
 }
 
-pub fn tondi_suffix(network_type: &NetworkType) -> &'static str {
+pub fn spora_suffix(network_type: &NetworkType) -> &'static str {
     match network_type {
-        NetworkType::Mainnet => "TONDI",
+        NetworkType::Mainnet => "SPORA",
         NetworkType::Testnet => "TTONDI",
         NetworkType::Simnet => "STONDI",
         NetworkType::Devnet => "DTONDI",
     }
 }
 
-/// Convert sau to Tondi string with suffix
+/// Convert sau to Spora string with suffix
 #[inline]
 pub fn sau_to_tondi_string_with_suffix(sau: u64, network_type: &NetworkType) -> String {
-    let tondi = sau_to_tondi_string(sau);
-    let suffix = tondi_suffix(network_type);
-    format!("{tondi} {suffix}")
+    let spora = sau_to_tondi_string(sau);
+    let suffix = spora_suffix(network_type);
+    format!("{spora} {suffix}")
 }
 
 #[cfg(test)]
@@ -98,34 +98,34 @@ mod tests {
     }
 
     #[test]
-    fn test_tondi_suffix() {
+    fn test_spora_suffix() {
         // Test suffix for different network types
-        assert_eq!(tondi_suffix(&NetworkType::Mainnet), "TONDI");
-        assert_eq!(tondi_suffix(&NetworkType::Testnet), "TTONDI");
-        assert_eq!(tondi_suffix(&NetworkType::Simnet), "STONDI");
-        assert_eq!(tondi_suffix(&NetworkType::Devnet), "DTONDI");
+        assert_eq!(spora_suffix(&NetworkType::Mainnet), "SPORA");
+        assert_eq!(spora_suffix(&NetworkType::Testnet), "TTONDI");
+        assert_eq!(spora_suffix(&NetworkType::Simnet), "STONDI");
+        assert_eq!(spora_suffix(&NetworkType::Devnet), "DTONDI");
     }
 
     #[test]
     fn test_sau_to_tondi_string_with_suffix() {
         // Test conversion with suffix for different network types
-        assert_eq!(sau_to_tondi_string_with_suffix(100_000_000, &NetworkType::Mainnet), "1 TONDI");
+        assert_eq!(sau_to_tondi_string_with_suffix(100_000_000, &NetworkType::Mainnet), "1 SPORA");
         assert_eq!(sau_to_tondi_string_with_suffix(50_000_000, &NetworkType::Testnet), "0.5 TTONDI");
         assert_eq!(sau_to_tondi_string_with_suffix(200_000_000, &NetworkType::Simnet), "2 STONDI");
         assert_eq!(sau_to_tondi_string_with_suffix(0, &NetworkType::Devnet), "0 DTONDI");
 
         // Test with larger values
-        assert_eq!(sau_to_tondi_string_with_suffix(100_000_000_000, &NetworkType::Mainnet), "1,000 TONDI");
+        assert_eq!(sau_to_tondi_string_with_suffix(100_000_000_000, &NetworkType::Mainnet), "1,000 SPORA");
         assert_eq!(sau_to_tondi_string_with_suffix(12_345_678, &NetworkType::Testnet), "0.12345678 TTONDI");
     }
 
     #[test]
     fn test_conversion_roundtrip() {
-        // Test that converting from sau to tondi and back gives approximately the same result
+        // Test that converting from sau to spora and back gives approximately the same result
         // Note: Due to floating point precision limitations, exact equality may not be possible
         let original_sau = 123_456_789;
-        let tondi = sau_to_tondi(original_sau);
-        let converted_sau = tondi_to_sau(tondi);
+        let spora = sau_to_tondi(original_sau);
+        let converted_sau = tondi_to_sau(spora);
         
         // Allow for small floating point precision errors (within 1 SAU)
         let diff = if converted_sau > original_sau {

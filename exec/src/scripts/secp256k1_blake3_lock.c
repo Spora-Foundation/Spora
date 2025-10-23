@@ -13,7 +13,7 @@
 #include <stddef.h>
 
 // ============================================================================
-// Tondi Syscall Definitions
+// Spora Syscall Definitions
 // ============================================================================
 
 #define LOAD_TX_HASH_SYSCALL     2061
@@ -22,7 +22,7 @@
 #define LOAD_INPUT_SYSCALL       2073
 #define LOAD_WITNESS_SYSCALL     2074
 #define LOAD_SCRIPT_SYSCALL      2075
-#define BLAKE3_HASH_SYSCALL      3001  // ← Tondi extension!
+#define BLAKE3_HASH_SYSCALL      3001  // ← Spora extension!
 
 #define SUCCESS              0
 #define INDEX_OUT_OF_BOUND   1
@@ -86,7 +86,7 @@ static inline int load_script(
     return syscall(LOAD_SCRIPT_SYSCALL, (uint64_t)buf, (uint64_t)len, offset, 0, 0, 0);
 }
 
-// Blake3 hash (Tondi-specific!)
+// Blake3 hash (Spora-specific!)
 static inline int blake3_hash(
     uint8_t* output,
     const uint8_t* input,

@@ -1,6 +1,6 @@
 use rand::Rng;
 use std::collections::HashMap;
-use tondi_core::{time::Stopwatch, trace};
+use spora_core::{time::Stopwatch, trace};
 
 use crate::model::candidate_tx::CandidateTransaction;
 
@@ -8,7 +8,7 @@ use super::{
     model::tx::{CandidateList, SelectableTransaction, SelectableTransactions, TransactionIndex},
     policy::Policy,
 };
-use tondi_consensus_core::{
+use spora_consensus_core::{
     block::TemplateTransactionSelector,
     subnets::SubnetworkId,
     tx::{Transaction, TransactionId, CellTx},
@@ -263,13 +263,13 @@ mod tests {
     use super::*;
     use itertools::Itertools;
     use std::{collections::HashSet, sync::Arc};
-    use tondi_consensus_core::{
+    use spora_consensus_core::{
         constants::{MAX_TX_IN_SEQUENCE_NUM, SAU_PER_TONDI, TX_VERSION},
         mass::transaction_estimated_serialized_size,
         subnets::SUBNETWORK_ID_NATIVE,
         tx::{Transaction, TransactionId, TransactionInput, TransactionOutpoint, TransactionOutput},
     };
-    use tondi_txscript::{pay_to_script_hash_signature_script, test_helpers::op_true_script};
+    use spora_txscript::{pay_to_script_hash_signature_script, test_helpers::op_true_script};
 
     use crate::{
         mempool::{

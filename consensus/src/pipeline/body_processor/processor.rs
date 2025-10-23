@@ -28,7 +28,7 @@ use parking_lot::RwLock;
 use rayon::ThreadPool;
 use rocksdb::WriteBatch;
 use std::sync::{atomic::Ordering, Arc};
-use tondi_consensus_core::{
+use spora_consensus_core::{
     block::Block,
     blockstatus::BlockStatus::{self, StatusHeaderOnly, StatusInvalid},
     config::{
@@ -39,13 +39,13 @@ use tondi_consensus_core::{
     tx::{CellTx, Transaction},  // Transaction is alias for CellTx
     KType,
 };
-use tondi_consensus_notify::{
+use spora_consensus_notify::{
     notification::{BlockAddedNotification, Notification},
     root::ConsensusNotificationRoot,
 };
-use tondi_consensusmanager::SessionLock;
-use tondi_hashes::Hash;
-use tondi_notify::notifier::Notify;
+use spora_consensusmanager::SessionLock;
+use spora_hashes::Hash;
+use spora_notify::notifier::Notify;
 
 pub struct BlockBodyProcessor {
     // Channels

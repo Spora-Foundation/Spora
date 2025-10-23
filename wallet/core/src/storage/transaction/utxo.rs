@@ -4,9 +4,9 @@
 
 use crate::imports::*;
 use serde::{Deserialize, Serialize};
-use tondi_addresses::Address;
+use spora_addresses::Address;
 
-pub use tondi_consensus_core::tx::TransactionId;
+pub use spora_consensus_core::tx::TransactionId;
 
 /// [`UtxoRecord`] represents an incoming transaction UTXO entry
 /// stored within [`TransactionRecord`].

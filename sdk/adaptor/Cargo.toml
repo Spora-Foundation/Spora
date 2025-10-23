@@ -1,11 +1,11 @@
 [package]
-name = "tondi-adaptor"
+name = "spora-adaptor"
 version = "1.0.2"
 edition = "2021"
 publish = false
-authors = ["Tondi developers"]
+authors = ["Spora developers"]
 license = "ISC"
-repository = "https://github.com/AvatoLabs/Tondi"
+repository = "https://github.com/AvatoLabs/Spora"
 
 [dependencies]
 k256 = { version = "0.13", features = ["arithmetic", "ecdsa"] }

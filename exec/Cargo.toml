@@ -1,10 +1,10 @@
 [package]
-name = "tondi-exec"
+name = "spora-exec"
 version = "1.21.0"
 edition = "2021"
-authors = ["Tondi developers"]
+authors = ["Spora developers"]
 license = "ISC"
-description = "Cell execution layer for Tondi DAG blockchain"
+description = "Cell execution layer for Spora DAG blockchain"
 
 [dependencies]
 # Serialization
@@ -32,8 +32,8 @@ parking_lot = "0.12"
 ckb-vm = { version = "0.24", features = ["asm", "detect-asm"], optional = true }
 byteorder = { version = "1.5", optional = true }
 
-# Tondi dependencies
-tondi-hashes = { path = "../crypto/hashes", version = "1.21.0" }
+# Spora dependencies
+spora-hashes = { path = "../crypto/hashes", version = "1.21.0" }
 
 # Logging
 log = "0.4"

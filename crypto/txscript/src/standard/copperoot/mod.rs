@@ -19,7 +19,7 @@ pub use musig2::{MuSig2KeyAgg, MuSig2Nonce, MuSig2Session, MuSig2Signature, Encr
 
 use crate::TxScriptError;
 use secp256k1::XOnlyPublicKey;
-use tondi_consensus_core::tx::VerifiableTransaction;
+use spora_consensus_core::tx::VerifiableTransaction;
 use blake3::Hasher;
 use crate::standard::copperoot::sighash::CopperootLeafHash;
 use crate::standard::copperoot::witness::{CopperootWitness, P2CrSpend, CopperootControlBlock};
@@ -103,7 +103,7 @@ impl ScriptVariant for CopperootVariant {
         let mut sighasher = SighashCache::new(tx.tx());
         let vouts = tx
             .populated_inputs()
-            .map(|(_, utxo)| tondi_consensus_core::tx::TransactionOutput {
+            .map(|(_, utxo)| spora_consensus_core::tx::TransactionOutput {
                 value: utxo.amount,
                 script_public_key: utxo.script_public_key.clone(),
             })
@@ -251,7 +251,7 @@ mod tests {
     use bitcoin::Witness as BtcWitness;
     use smallvec::SmallVec;
     use std::str::FromStr;
-    use tondi_consensus_core::{
+    use spora_consensus_core::{
         subnets::SubnetworkId,
         tx::{ScriptPublicKey, TransactionId, TransactionOutpoint, TransactionInput, TransactionOutput, Transaction, UtxoEntry, PopulatedTransaction},
         hashing::sighash::SigHashReusedValuesUnsync,
@@ -307,13 +307,13 @@ mod tests {
         let msg = Message::from(sighash);
         let signature = secp.sign_schnorr(&msg, &keypair);
         let witness = CopperootWitness::p2cr_key_spend(signature, match sighash_type {
-            CopperootSighashType::Default => tondi_consensus_core::tx::copperoot::sighash::CopperootSighashType::Default,
-            CopperootSighashType::All => tondi_consensus_core::tx::copperoot::sighash::CopperootSighashType::All,
-            CopperootSighashType::None => tondi_consensus_core::tx::copperoot::sighash::CopperootSighashType::None,
-            CopperootSighashType::Single => tondi_consensus_core::tx::copperoot::sighash::CopperootSighashType::Single,
-            CopperootSighashType::AllPlusAnyoneCanPay => tondi_consensus_core::tx::copperoot::sighash::CopperootSighashType::AllPlusAnyoneCanPay,
-            CopperootSighashType::NonePlusAnyoneCanPay => tondi_consensus_core::tx::copperoot::sighash::CopperootSighashType::NonePlusAnyoneCanPay,
-            CopperootSighashType::SinglePlusAnyoneCanPay => tondi_consensus_core::tx::copperoot::sighash::CopperootSighashType::SinglePlusAnyoneCanPay,
+            CopperootSighashType::Default => spora_consensus_core::tx::copperoot::sighash::CopperootSighashType::Default,
+            CopperootSighashType::All => spora_consensus_core::tx::copperoot::sighash::CopperootSighashType::All,
+            CopperootSighashType::None => spora_consensus_core::tx::copperoot::sighash::CopperootSighashType::None,
+            CopperootSighashType::Single => spora_consensus_core::tx::copperoot::sighash::CopperootSighashType::Single,
+            CopperootSighashType::AllPlusAnyoneCanPay => spora_consensus_core::tx::copperoot::sighash::CopperootSighashType::AllPlusAnyoneCanPay,
+            CopperootSighashType::NonePlusAnyoneCanPay => spora_consensus_core::tx::copperoot::sighash::CopperootSighashType::NonePlusAnyoneCanPay,
+            CopperootSighashType::SinglePlusAnyoneCanPay => spora_consensus_core::tx::copperoot::sighash::CopperootSighashType::SinglePlusAnyoneCanPay,
         });
         tx.inputs[input_index].signature_script = (&witness).try_into()
             .expect("Valid witness conversion");

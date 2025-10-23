@@ -68,7 +68,7 @@ fn test_load_addresses_from_file_nonexistent() {
 
 #[test]
 fn test_address_distribution_tracker_integration() {
-    use tondi_addresses::{Address, Prefix, Version};
+    use spora_addresses::{Address, Prefix, Version};
 
     let addresses = vec![
         Address::new(Prefix::Testnet, Version::PubKey, &[1; 32]).expect("Valid address"),
@@ -139,7 +139,7 @@ fn test_txs_fee_config() {
 
 #[test]
 fn test_address_distribution_fairness() {
-    use tondi_addresses::{Address, Prefix, Version};
+    use spora_addresses::{Address, Prefix, Version};
 
     let addresses = vec![
         Address::new(Prefix::Testnet, Version::PubKey, &[1; 32]).expect("Valid address"),
@@ -164,7 +164,7 @@ fn test_address_distribution_fairness() {
 
 #[test]
 fn test_address_distribution_with_large_outputs() {
-    use tondi_addresses::{Address, Prefix, Version};
+    use spora_addresses::{Address, Prefix, Version};
 
     let addresses = vec![
         Address::new(Prefix::Testnet, Version::PubKey, &[1; 32]).expect("Valid address"),

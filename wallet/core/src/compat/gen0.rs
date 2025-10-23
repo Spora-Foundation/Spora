@@ -13,7 +13,7 @@ use pbkdf2::{hmac::Hmac, pbkdf2};
 use serde::{Deserialize, Serialize};
 use sha1::Sha1;
 use std::path::PathBuf;
-use tondi_bip32::{ExtendedPrivateKey, Language, Mnemonic, Prefix, SecretKey};
+use spora_bip32::{ExtendedPrivateKey, Language, Mnemonic, Prefix, SecretKey};
 #[allow(unused_imports)]
 use workflow_core::env;
 use workflow_core::runtime;
@@ -134,7 +134,7 @@ fn aes_decrypt_v0(key: &[u8], iv: &[u8], content: &mut [u8]) -> Result<String> {
 }
 
 // ---
-// {"type":"tondi-wallet","encryption":"default","version":1,"generator":"pwa","wallet":{"mnemonic":"hex"}}
+// {"type":"spora-wallet","encryption":"default","version":1,"generator":"pwa","wallet":{"mnemonic":"hex"}}
 
 #[derive(Deserialize)]
 struct Wallet {
@@ -155,14 +155,14 @@ struct Envelope {
 fn legacy_v0_keydata_location() -> Result<(PathBuf, Options)> {
     let filename = if runtime::is_windows() {
         let appdata = env::var("APPDATA")?;
-        fs::resolve_path(&format!("{appdata}/Tondi/tondi.kpk"))?
+        fs::resolve_path(&format!("{appdata}/Spora/spora.kpk"))?
     } else if runtime::is_macos() {
-        fs::resolve_path("~/Library/Application Support/Tondi/tondi.kpk")?
+        fs::resolve_path("~/Library/Application Support/Spora/spora.kpk")?
     } else {
-        fs::resolve_path("~/.tondi/tondi.kpk")?
+        fs::resolve_path("~/.spora/spora.kpk")?
     };
 
-    let options = workflow_store::fs::Options::with_local_storage_key("tondi-wallet");
+    let options = workflow_store::fs::Options::with_local_storage_key("spora-wallet");
 
     Ok((filename, options))
 }

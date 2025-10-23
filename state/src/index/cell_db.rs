@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ISC
-// Copyright (C) 2025Tondi developers
+// Copyright (C) 2025 Spora developers
 //
 // CellDB: Cell indexing database (OutPoint → CellMeta)
 
@@ -10,7 +10,7 @@ use rocksdb::{ColumnFamilyDescriptor, Options, WriteBatch, DB};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::Arc;
-use tondi_exec::{CellOut, OutPoint};
+use spora_exec::{CellOut, OutPoint};
 
 /// Column families
 const CF_CELLS: &str = "cells";
@@ -384,7 +384,7 @@ pub struct CellDBStats {
 mod tests {
     use super::*;
     use tempfile::TempDir;
-    use tondi_exec::{ScriptRef, CellOut};
+    use spora_exec::{ScriptRef, CellOut};
 
     fn create_test_cell_meta(capacity: u64, daa: u64) -> CellMeta {
         let lock = ScriptRef::new([0x00; 32], 0, vec![0; 20]);

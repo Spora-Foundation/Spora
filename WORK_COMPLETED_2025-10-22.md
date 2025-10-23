@@ -120,7 +120,7 @@ pub struct Block {
 - Result: Cleaner code, no technical debt
 
 ### 2. Blake3 via Syscall
-- Problem: Tondi uses blake3, CKB uses blake2b
+- Problem: Spora uses blake3, CKB uses blake2b
 - Solution: Blake3 Syscall (3001)
 - Result: 100x faster than VM-internal implementation
 
@@ -190,7 +190,7 @@ pub struct Block {
 
 4. **VM Framework Complete** ✅
    - 10 syscalls implemented
-   - Blake3 syscall (Tondi innovation)
+   - Blake3 syscall (Spora innovation)
    - TransactionScriptVerifier framework
    - Script grouping logic
 

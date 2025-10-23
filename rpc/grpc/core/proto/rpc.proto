@@ -122,7 +122,7 @@ enum RpcNotifyCommand {
   NOTIFY_STOP = 1;
 }
 
-// GetCurrentNetworkRequestMessage requests the network Tondid is currently running against.
+// GetCurrentNetworkRequestMessage requests the network Sporad is currently running against.
 //
 // Possible networks are: Mainnet, Testnet, Simnet, Devnet
 message GetCurrentNetworkRequestMessage{
@@ -157,7 +157,7 @@ message SubmitBlockResponseMessage{
 //
 // See: SubmitBlockRequestMessage
 message GetBlockTemplateRequestMessage{
-  // Which tondi address should the coinbase block reward transaction pay into
+  // Which spora address should the coinbase block reward transaction pay into
   string payAddress = 1;
   string extraData = 2;
 }
@@ -165,9 +165,9 @@ message GetBlockTemplateRequestMessage{
 message GetBlockTemplateResponseMessage{
   RpcBlock block = 3;
 
-  // Whether Tondid thinks that it's synced.
-  // Callers are discouraged (but not forbidden) from solving blocks when Tondid is not synced.
-  // That is because when Tondid isn't in sync with the rest of the network there's a high
+  // Whether Sporad thinks that it's synced.
+  // Callers are discouraged (but not forbidden) from solving blocks when Sporad is not synced.
+  // That is because when Sporad isn't in sync with the rest of the network there's a high
   // chance the block will never be accepted, thus the solving effort would have been wasted.
   bool isSynced = 2;
 
@@ -193,7 +193,7 @@ message BlockAddedNotificationMessage{
   RpcBlock block = 3;
 }
 
-// GetPeerAddressesRequestMessage requests the list of known Tondid addresses in the
+// GetPeerAddressesRequestMessage requests the list of known Sporad addresses in the
 // current network. (mainnet, testnet, etc.)
 message GetPeerAddressesRequestMessage{
 }
@@ -253,7 +253,7 @@ message RpcMempoolEntry{
 }
 
 // GetConnectedPeerInfoRequestMessage requests information about all the p2p peers
-// currently connected to this Tondid.
+// currently connected to this Sporad.
 message GetConnectedPeerInfoRequestMessage{
 }
 
@@ -269,7 +269,7 @@ message GetConnectedPeerInfoMessage{
   // How long did the last ping/pong exchange take
   int64 lastPingDuration = 3;
 
-  // Whether this Tondid initiated the connection
+  // Whether this Sporad initiated the connection
   bool isOutbound = 6;
   int64 timeOffset = 7;
   string userAgent = 8;
@@ -277,15 +277,15 @@ message GetConnectedPeerInfoMessage{
   // The protocol version that this peer claims to support
   uint32 advertisedProtocolVersion = 9;
 
-  // The timestamp of when this peer connected to this Tondid
+  // The timestamp of when this peer connected to this Sporad
   int64 timeConnected = 10;
 
   // Whether this peer is the IBD peer (if IBD is running)
   bool isIbdPeer = 11;
 }
 
-// AddPeerRequestMessage adds a peer to Tondid's outgoing connection list.
-// This will, in most cases, result in Tondid connecting to said peer.
+// AddPeerRequestMessage adds a peer to Sporad's outgoing connection list.
+// This will, in most cases, result in Sporad connecting to said peer.
 message AddPeerRequestMessage{
   string address = 1;
 
@@ -400,7 +400,7 @@ message GetSubnetworkResponseMessage{
 }
 
 /// GetVirtualChainFromBlockRequestMessage requests the virtual selected
-/// parent chain from some startHash to this Tondid's current virtual
+/// parent chain from some startHash to this Sporad's current virtual
 /// Note:
 ///     this call batches the response to:
 ///         a. the network's `mergeset size limit * 10` amount of added chain blocks, if `includeAcceptedTransactionIds = false`
@@ -432,7 +432,7 @@ message GetVirtualChainFromBlockResponseMessage{
 }
 
 // GetBlocksRequestMessage requests blocks between a certain block lowHash up to this
-// Tondid's current virtual.
+// Sporad's current virtual.
 message GetBlocksRequestMessage{
   string lowHash = 1;
   bool includeBlocks = 2;
@@ -445,7 +445,7 @@ message GetBlocksResponseMessage{
   RPCError error = 1000;
 }
 
-// GetBlockCountRequestMessage requests the current number of blocks in this Tondid.
+// GetBlockCountRequestMessage requests the current number of blocks in this Sporad.
 // Note that this number may decrease as pruning occurs.
 message GetBlockCountRequestMessage{
 }
@@ -457,7 +457,7 @@ message GetBlockCountResponseMessage{
 }
 
 // GetBlockDagInfoRequestMessage requests general information about the current state
-// of this Tondid's DAG.
+// of this Sporad's DAG.
 message GetBlockDagInfoRequestMessage{
 }
 
@@ -499,7 +499,7 @@ message FinalityConflictResolvedNotificationMessage{
   string finalityBlockHash = 1;
 }
 
-// ShutdownRequestMessage shuts down this Tondid.
+// ShutdownRequestMessage shuts down this Sporad.
 message ShutdownRequestMessage{
 }
 
@@ -532,7 +532,7 @@ message GetHeadersResponseMessage{
 // NotifyUtxosChangedRequestMessage registers this connection for utxoChanged notifications
 // for the given addresses.
 //
-// This call is only available when this Tondid was started with `--utxoindex`
+// This call is only available when this Sporad was started with `--utxoindex`
 //
 // See: UtxosChangedNotificationMessage
 message NotifyUtxosChangedRequestMessage {
@@ -563,11 +563,11 @@ message RpcUtxosByAddressesEntry {
 // StopNotifyingUtxosChangedRequestMessage unregisters this connection for utxoChanged notifications
 // for the given addresses.
 //
-// This call is only available when this Tondid was started with `--utxoindex`
+// This call is only available when this Sporad was started with `--utxoindex`
 //
 // See: UtxosChangedNotificationMessage
 //
-// This message only exists for backward compatibility reason with Tondid and is deprecated.
+// This message only exists for backward compatibility reason with Sporad and is deprecated.
 // Use instead UtxosChangedNotificationMessage with command = NOTIFY_STOP.
 message StopNotifyingUtxosChangedRequestMessage {
   repeated string addresses = 1;
@@ -590,9 +590,9 @@ message GetUtxosByAddressResponseMessage {
   RPCError error = 1000;
 }
 
-// GetUtxosByAddressesRequestMessage requests all current UTXOs for the given Tondid addresses
+// GetUtxosByAddressesRequestMessage requests all current UTXOs for the given Sporad addresses
 //
-// This call is only available when this Tondid was started with `--utxoindex`
+// This call is only available when this Sporad was started with `--utxoindex`
 message GetUtxosByAddressesRequestMessage {
   repeated string addresses = 1;
 }
@@ -605,7 +605,7 @@ message GetUtxosByAddressesResponseMessage {
 
 // GetBalanceByAddressRequest returns the total balance in unspent transactions towards a given address
 //
-// This call is only available when this Tondid was started with `--utxoindex`
+// This call is only available when this Sporad was started with `--utxoindex`
 message GetBalanceByAddressRequestMessage {
   string address = 1;
 }
@@ -687,7 +687,7 @@ message VirtualDaaScoreChangedNotificationMessage {
 // NotifyPruningPointUtxoSetOverrideRequestMessage registers this connection for
 // pruning point UTXO set override notifications.
 //
-// This call is only available when this Tondid was started with `--utxoindex`
+// This call is only available when this Sporad was started with `--utxoindex`
 //
 // See: NotifyPruningPointUtxoSetOverrideResponseMessage
 message NotifyPruningPointUtxoSetOverrideRequestMessage {
@@ -709,11 +709,11 @@ message PruningPointUtxoSetOverrideNotificationMessage {
 // StopNotifyingPruningPointUtxoSetOverrideRequestMessage unregisters this connection for
 // pruning point UTXO set override notifications.
 //
-// This call is only available when this Tondid was started with `--utxoindex`
+// This call is only available when this Sporad was started with `--utxoindex`
 //
 // See: PruningPointUtxoSetOverrideNotificationMessage
 //
-// This message only exists for backward compatibility reason with Tondid and is deprecated.
+// This message only exists for backward compatibility reason with Sporad and is deprecated.
 // Use instead NotifyPruningPointUtxoSetOverrideRequestMessage with command = NOTIFY_STOP.
 message StopNotifyingPruningPointUtxoSetOverrideRequestMessage {
 }

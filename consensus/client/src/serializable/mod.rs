@@ -1,8 +1,8 @@
 //!
-//! # Standardized JSON serialization and deserialization of Tondi transactions.
+//! # Standardized JSON serialization and deserialization of Spora transactions.
 //!
 //! This module provides standardized JSON serialization and deserialization of
-//! Tondi transactions. There are two sub-modules: `numeric` and `string`.
+//! Spora transactions. There are two sub-modules: `numeric` and `string`.
 //!
 //! The `numeric` module provides serialization and deserialization of transactions
 //! with all large integer values as `bigint` types in WASM or numerical values that
@@ -13,7 +13,7 @@
 //! via JSON in JavaScript environments and later conversion to `bigint` types.
 //!
 //! These data structures can be used for manual transport of transactions using JSON.
-//! For more advanced use cases, please refer to `pstt` in the [`tondi_wallet_pstt`](https://docs.rs/tondi_wallet_pstt)
+//! For more advanced use cases, please refer to `pstt` in the [`spora_wallet_pstt`](https://docs.rs/spora_wallet_pstt)
 //! crate.
 //!
 

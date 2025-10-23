@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: ISC
-// Copyright (C) 2024 Tondi developers
+// Copyright (C) 2024 Spora developers
 //
 // Cell State Tree - Merkle tree for live cells
 // Provides state root for lightweight client verification
 
-use tondi_hashes::{Hash, HasherBase, MerkleBranchHash};
+use spora_hashes::{Hash, HasherBase, MerkleBranchHash};
 use std::collections::BTreeMap;
 
 /// Cell state entry in the tree
@@ -59,7 +59,7 @@ impl CellEntry {
     pub fn hash(&self) -> Hash {
         let serialized = self.serialize();
         let mut hasher = MerkleBranchHash::new();
-        hasher.update(b"tondi-cell/entry");  // Domain separation
+        hasher.update(b"spora-cell/entry");  // Domain separation
         hasher.update(&serialized);
         hasher.finalize()
     }
@@ -161,9 +161,9 @@ impl CellStateTree {
         let mut current_level: Vec<Hash> = entries
             .into_iter()
             .map(|(outpoint, cell_hash)| {
-                // Leaf = H("tondi-cell/leaf" || outpoint || cell_hash)
+                // Leaf = H("spora-cell/leaf" || outpoint || cell_hash)
                 let mut hasher = MerkleBranchHash::new();
-                hasher.update(b"tondi-cell/leaf");
+                hasher.update(b"spora-cell/leaf");
                 hasher.update(&outpoint.as_bytes());
                 hasher.update(&cell_hash.as_bytes());
                 hasher.finalize()
@@ -176,9 +176,9 @@ impl CellStateTree {
             
             for chunk in current_level.chunks(2) {
                 let hash = if chunk.len() == 2 {
-                    // Internal node = H("tondi-cell/node" || left || right)
+                    // Internal node = H("spora-cell/node" || left || right)
                     let mut hasher = MerkleBranchHash::new();
-                    hasher.update(b"tondi-cell/node");
+                    hasher.update(b"spora-cell/node");
                     hasher.update(&chunk[0].as_bytes());
                     hasher.update(&chunk[1].as_bytes());
                     hasher.finalize()

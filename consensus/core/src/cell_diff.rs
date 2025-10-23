@@ -6,7 +6,7 @@
 use crate::tx::TransactionOutpoint;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use tondi_utils::mem_size::MemSizeEstimator;
+use spora_utils::mem_size::MemSizeEstimator;
 
 /// Cell metadata (simplified for diff tracking)
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

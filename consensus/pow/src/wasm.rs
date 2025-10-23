@@ -1,14 +1,14 @@
 use crate::matrix::Matrix;
 use js_sys::BigInt;
 use num::Float;
-use tondi_consensus_client::Header;
-use tondi_consensus_client::HeaderT;
-use tondi_consensus_core::hashing;
-use tondi_hashes::Hash;
-use tondi_hashes::PowHash;
-use tondi_math::Uint256;
-use tondi_utils::hex::FromHex;
-use tondi_utils::hex::ToHex;
+use spora_consensus_client::Header;
+use spora_consensus_client::HeaderT;
+use spora_consensus_core::hashing;
+use spora_hashes::Hash;
+use spora_hashes::PowHash;
+use spora_math::Uint256;
+use spora_utils::hex::FromHex;
+use spora_utils::hex::ToHex;
 use wasm_bindgen::prelude::*;
 use workflow_wasm::convert::TryCastFromJs;
 use workflow_wasm::error::Error;
@@ -20,7 +20,7 @@ extern "C" {
     pub type WorkT;
 }
 
-/// Represents a Tondi header PoW manager
+/// Represents a Spora header PoW manager
 /// @category Mining
 #[wasm_bindgen(inspectable)]
 pub struct PoW {
@@ -91,11 +91,11 @@ impl PoW {
     }
 }
 
-// https://github.com/tmrlvi/tondi-miner/blob/bf361d02a46c580f55f46b5dfa773477634a5753/src/client/stratum.rs#L36
+// https://github.com/tmrlvi/spora-miner/blob/bf361d02a46c580f55f46b5dfa773477634a5753/src/client/stratum.rs#L36
 const DIFFICULTY_1_TARGET: (u64, i16) = (0xffffu64, 208); // 0xffff 2^208
 
 /// Calculates target from difficulty, based on set_difficulty function on
-/// <https://github.com/tmrlvi/tondi-miner/blob/bf361d02a46c580f55f46b5dfa773477634a5753/src/client/stratum.rs#L375>
+/// <https://github.com/tmrlvi/spora-miner/blob/bf361d02a46c580f55f46b5dfa773477634a5753/src/client/stratum.rs#L375>
 /// @category Mining
 #[wasm_bindgen(js_name = calculateTarget)]
 pub fn calculate_target(difficulty: f32) -> Result<BigInt> {

@@ -11,8 +11,8 @@ pub use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, Mutex,
 };
-pub use tondi_consensus_core::network::{NetworkId, NetworkIdError, NetworkIdT};
-pub use tondi_notify::{
+pub use spora_consensus_core::network::{NetworkId, NetworkIdError, NetworkIdT};
+pub use spora_notify::{
     error::{Error as NotifyError, Result as NotifyResult},
     events::EVENT_TYPE_ARRAY,
     listener::ListenerId,
@@ -20,16 +20,16 @@ pub use tondi_notify::{
     scope::*,
     subscriber::{Subscriber, SubscriptionManager},
 };
-pub use tondi_rpc_core::{
+pub use spora_rpc_core::{
     api::ops::RpcApiOps,
     api::rpc::RpcApi,
     error::RpcResult,
     notify::{connection::ChannelConnection, mode::NotificationMode},
     prelude::*,
 };
-pub use tondi_wrpc_client::client::*;
-pub use tondi_wrpc_client::error::Error;
-pub use tondi_wrpc_client::result::Result;
+pub use spora_wrpc_client::client::*;
+pub use spora_wrpc_client::error::Error;
+pub use spora_wrpc_client::result::Result;
 pub use wasm_bindgen::prelude::*;
 pub use workflow_core::{
     channel::{Channel, DuplexChannel, Receiver},

@@ -1,6 +1,6 @@
 # Cell Execution Layer
 
-CKB-inspired Cell model implementation for Tondi DAG blockchain.
+CKB-inspired Cell model implementation for Spora DAG blockchain.
 
 ## Overview
 
@@ -36,7 +36,7 @@ exec/
 
 - CKB Cell Model: `/home/arthur/RustRoverProjects/ckb/util/types/src/core/cell.rs`
 - CKB Script Verifier: `/home/arthur/RustRoverProjects/ckb/script/src/verify.rs`
-- Spec: `/home/arthur/RustRoverProjects/Tondi/spora.md` Section 4-6
+- Spec: `/home/arthur/RustRoverProjects/Spora/spora.md` Section 4-6
 
 ## Status
 

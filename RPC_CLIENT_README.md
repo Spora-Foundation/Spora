@@ -1,10 +1,10 @@
-# Tondi RPC Client API Reference
+# Spora RPC Client API Reference
 
-The Tondi RPC client provides a complete interface for communicating with Tondi nodes. This document details all available RPC endpoints, parameters, and return values.
+The Spora RPC client provides a complete interface for communicating with Spora nodes. This document details all available RPC endpoints, parameters, and return values.
 
 ## Overview
 
-The Tondi RPC API supports two main communication protocols:
+The Spora RPC API supports two main communication protocols:
 - **gRPC**: High-performance binary protocol
 - **wRPC**: WebSocket and HTTP protocols
 
@@ -200,7 +200,7 @@ The Tondi RPC API supports two main communication protocols:
 ## Network Management Endpoints
 
 ### Peer Management
-- **`get_peer_addresses`** - Get list of known Tondi addresses
+- **`get_peer_addresses`** - Get list of known Spora addresses
   - Parameters: None
   - Returns: Known addresses and banned addresses list
 

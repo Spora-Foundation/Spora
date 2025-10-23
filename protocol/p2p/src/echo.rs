@@ -1,12 +1,12 @@
 use crate::{
     common::ProtocolError,
     core::adaptor::ConnectionInitializer,
-    handshake::TondidHandshake,
+    handshake::SporadHandshake,
     pb::{self, VersionMessage},
-    IncomingRoute, Router, TondidMessagePayloadType,
+    IncomingRoute, Router, SporadMessagePayloadType,
 };
 use std::sync::Arc;
-use tondi_core::{debug, time::unix_now, trace, warn};
+use spora_core::{debug, time::unix_now, trace, warn};
 use tonic::async_trait;
 use uuid::Uuid;
 
@@ -21,49 +21,49 @@ impl EchoFlow {
         // Subscribe to messages
         trace!("EchoFlow, subscribe to all p2p messages");
         let receiver = router.subscribe(vec![
-            TondidMessagePayloadType::Addresses,
-            TondidMessagePayloadType::Block,
-            TondidMessagePayloadType::Transaction,
-            TondidMessagePayloadType::BlockLocator,
-            TondidMessagePayloadType::RequestAddresses,
-            TondidMessagePayloadType::RequestRelayBlocks,
-            TondidMessagePayloadType::RequestTransactions,
-            TondidMessagePayloadType::IbdBlock,
-            TondidMessagePayloadType::InvRelayBlock,
-            TondidMessagePayloadType::InvTransactions,
-            TondidMessagePayloadType::Ping,
-            TondidMessagePayloadType::Pong,
-            // TondidMessagePayloadType::Verack,
-            // TondidMessagePayloadType::Version,
-            // TondidMessagePayloadType::Ready,
-            TondidMessagePayloadType::TransactionNotFound,
-            TondidMessagePayloadType::Reject,
-            TondidMessagePayloadType::PruningPointUtxoSetChunk,
-            TondidMessagePayloadType::RequestIbdBlocks,
-            TondidMessagePayloadType::UnexpectedPruningPoint,
-            TondidMessagePayloadType::IbdBlockLocator,
-            TondidMessagePayloadType::IbdBlockLocatorHighestHash,
-            TondidMessagePayloadType::RequestNextPruningPointUtxoSetChunk,
-            TondidMessagePayloadType::DonePruningPointUtxoSetChunks,
-            TondidMessagePayloadType::IbdBlockLocatorHighestHashNotFound,
-            TondidMessagePayloadType::BlockWithTrustedData,
-            TondidMessagePayloadType::DoneBlocksWithTrustedData,
-            TondidMessagePayloadType::RequestPruningPointAndItsAnticone,
-            TondidMessagePayloadType::BlockHeaders,
-            TondidMessagePayloadType::RequestNextHeaders,
-            TondidMessagePayloadType::DoneHeaders,
-            TondidMessagePayloadType::RequestPruningPointUtxoSet,
-            TondidMessagePayloadType::RequestHeaders,
-            TondidMessagePayloadType::RequestBlockLocator,
-            TondidMessagePayloadType::PruningPoints,
-            TondidMessagePayloadType::RequestPruningPointProof,
-            TondidMessagePayloadType::PruningPointProof,
-            TondidMessagePayloadType::BlockWithTrustedDataV4,
-            TondidMessagePayloadType::TrustedData,
-            TondidMessagePayloadType::RequestIbdChainBlockLocator,
-            TondidMessagePayloadType::IbdChainBlockLocator,
-            TondidMessagePayloadType::RequestAntipast,
-            TondidMessagePayloadType::RequestNextPruningPointAndItsAnticoneBlocks,
+            SporadMessagePayloadType::Addresses,
+            SporadMessagePayloadType::Block,
+            SporadMessagePayloadType::Transaction,
+            SporadMessagePayloadType::BlockLocator,
+            SporadMessagePayloadType::RequestAddresses,
+            SporadMessagePayloadType::RequestRelayBlocks,
+            SporadMessagePayloadType::RequestTransactions,
+            SporadMessagePayloadType::IbdBlock,
+            SporadMessagePayloadType::InvRelayBlock,
+            SporadMessagePayloadType::InvTransactions,
+            SporadMessagePayloadType::Ping,
+            SporadMessagePayloadType::Pong,
+            // SporadMessagePayloadType::Verack,
+            // SporadMessagePayloadType::Version,
+            // SporadMessagePayloadType::Ready,
+            SporadMessagePayloadType::TransactionNotFound,
+            SporadMessagePayloadType::Reject,
+            SporadMessagePayloadType::PruningPointUtxoSetChunk,
+            SporadMessagePayloadType::RequestIbdBlocks,
+            SporadMessagePayloadType::UnexpectedPruningPoint,
+            SporadMessagePayloadType::IbdBlockLocator,
+            SporadMessagePayloadType::IbdBlockLocatorHighestHash,
+            SporadMessagePayloadType::RequestNextPruningPointUtxoSetChunk,
+            SporadMessagePayloadType::DonePruningPointUtxoSetChunks,
+            SporadMessagePayloadType::IbdBlockLocatorHighestHashNotFound,
+            SporadMessagePayloadType::BlockWithTrustedData,
+            SporadMessagePayloadType::DoneBlocksWithTrustedData,
+            SporadMessagePayloadType::RequestPruningPointAndItsAnticone,
+            SporadMessagePayloadType::BlockHeaders,
+            SporadMessagePayloadType::RequestNextHeaders,
+            SporadMessagePayloadType::DoneHeaders,
+            SporadMessagePayloadType::RequestPruningPointUtxoSet,
+            SporadMessagePayloadType::RequestHeaders,
+            SporadMessagePayloadType::RequestBlockLocator,
+            SporadMessagePayloadType::PruningPoints,
+            SporadMessagePayloadType::RequestPruningPointProof,
+            SporadMessagePayloadType::PruningPointProof,
+            SporadMessagePayloadType::BlockWithTrustedDataV4,
+            SporadMessagePayloadType::TrustedData,
+            SporadMessagePayloadType::RequestIbdChainBlockLocator,
+            SporadMessagePayloadType::IbdChainBlockLocator,
+            SporadMessagePayloadType::RequestAntipast,
+            SporadMessagePayloadType::RequestNextPruningPointAndItsAnticoneBlocks,
         ]);
         let mut echo_flow = EchoFlow { router, receiver };
         debug!("EchoFlow, start app-layer receiving loop");
@@ -79,7 +79,7 @@ impl EchoFlow {
         });
     }
 
-    async fn call(&self, msg: pb::TondidMessage) -> bool {
+    async fn call(&self, msg: pb::SporadMessage) -> bool {
         // echo
         trace!("EchoFlow, got message:{:?}", msg);
         self.router.enqueue(msg).await.is_ok()
@@ -100,7 +100,7 @@ fn build_dummy_version_message() -> VersionMessage {
         user_agent: String::new(),
         disable_relay_tx: false,
         subnetwork_id: None,
-        network: "tondi-mainnet".to_string(),
+        network: "spora-mainnet".to_string(),
     }
 }
 
@@ -114,11 +114,11 @@ impl EchoFlowInitializer {
 impl ConnectionInitializer for EchoFlowInitializer {
     async fn initialize_connection(&self, router: Arc<Router>) -> Result<(), ProtocolError> {
         //
-        // Example code to illustrate tondi P2P handshaking
+        // Example code to illustrate spora P2P handshaking
         //
 
         // Build the handshake object and subscribe to handshake messages
-        let mut handshake = TondidHandshake::new(&router);
+        let mut handshake = SporadHandshake::new(&router);
 
         // We start the router receive loop only after we registered to handshake routes
         router.start();
@@ -149,12 +149,12 @@ mod tests {
 
     use super::*;
     use crate::{Adaptor, Hub};
-    use tondi_core::debug;
-    use tondi_utils::networking::NetAddress;
+    use spora_core::debug;
+    use spora_utils::networking::NetAddress;
 
     #[tokio::test]
     async fn test_handshake() {
-        tondi_core::log::try_init_logger("debug");
+        spora_core::log::try_init_logger("debug");
 
         let address1 = NetAddress::from_str("[::1]:50053").unwrap();
         let adaptor1 = Adaptor::bidirectional(address1, Hub::new(), Arc::new(EchoFlowInitializer::new()), Default::default()).unwrap();

@@ -1,5 +1,5 @@
 [package]
-name = "tondi-testing-integration"
+name = "spora-testing-integration"
 publish = false
 rust-version.workspace = true
 version.workspace = true
@@ -10,32 +10,32 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-tondi-alloc.workspace = true            # This changes the global allocator for all of the next dependencies so should be kept first
+spora-alloc.workspace = true            # This changes the global allocator for all of the next dependencies so should be kept first
 
-tondi-addresses.workspace = true
-tondi-bip32.workspace = true
-tondi-consensus-core.workspace = true
-tondi-consensus-notify.workspace = true
-tondi-consensus.workspace = true
-tondi-consensusmanager.workspace = true
-tondi-core.workspace = true
-tondi-database.workspace = true
-tondi-grpc-client.workspace = true
-tondi-grpc-core.workspace = true
-tondi-grpc-server.workspace = true
-tondi-hashes.workspace = true
-tondi-index-processor.workspace = true
-tondi-math.workspace = true
-tondi-merkle.workspace = true
-tondi-muhash.workspace = true
-tondi-notify.workspace = true
-tondi-pow.workspace = true
-tondi-rpc-core.workspace = true
-tondi-rpc-service.workspace = true
-tondi-txscript.workspace = true
-tondi-utils.workspace = true
-tondi-utxoindex.workspace = true
-tondi-wrpc-server.workspace = true
+spora-addresses.workspace = true
+spora-bip32.workspace = true
+spora-consensus-core.workspace = true
+spora-consensus-notify.workspace = true
+spora-consensus.workspace = true
+spora-consensusmanager.workspace = true
+spora-core.workspace = true
+spora-database.workspace = true
+spora-grpc-client.workspace = true
+spora-grpc-core.workspace = true
+spora-grpc-server.workspace = true
+spora-hashes.workspace = true
+spora-index-processor.workspace = true
+spora-math.workspace = true
+spora-merkle.workspace = true
+spora-muhash.workspace = true
+spora-notify.workspace = true
+spora-pow.workspace = true
+spora-rpc-core.workspace = true
+spora-rpc-service.workspace = true
+spora-txscript.workspace = true
+spora-utils.workspace = true
+spora-utxoindex.workspace = true
+spora-wrpc-server.workspace = true
 tondid.workspace = true
 
 async-channel.workspace = true
@@ -69,7 +69,7 @@ workflow-perf-monitor.workspace = true
 criterion.workspace = true
 rand = { workspace = true, features = ["small_rng"] }
 tokio = { workspace = true, features = ["rt", "macros", "process"] }
-tondi-txscript-errors.workspace = true
+spora-txscript-errors.workspace = true
 
 [features]
 heap = ["dhat"]

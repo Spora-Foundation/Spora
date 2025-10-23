@@ -20,9 +20,9 @@ use std::{
         Arc,
     },
 };
-use tondi_addresses::{Address, Prefix};
-use tondi_consensus_core::tx::ScriptPublicKey;
-use tondi_core::trace;
+use spora_addresses::{Address, Prefix};
+use spora_consensus_core::tx::ScriptPublicKey;
+use spora_core::trace;
 
 /// Subscription with a all or none scope.
 ///

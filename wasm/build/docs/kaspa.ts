@@ -1,1 +1,1 @@
-export * from "../../web/tondi";
+export * from "../../web/spora";

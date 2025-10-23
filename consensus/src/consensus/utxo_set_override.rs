@@ -3,11 +3,11 @@ mod utxo_set_override_inner {
     use std::sync::Arc;
 
     use itertools::Itertools;
-    use tondi_consensus_core::{
+    use spora_consensus_core::{
         api::ConsensusApi, config::Config, header::Header, muhash::MuHashExtensions, utxo::utxo_collection::UtxoCollection,
     };
-    use tondi_hashes::Hash;
-    use tondi_muhash::MuHash;
+    use spora_hashes::Hash;
+    use spora_muhash::MuHash;
 
     use crate::consensus::Consensus;
 

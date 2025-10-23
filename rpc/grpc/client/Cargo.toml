@@ -1,6 +1,6 @@
 [package]
-name = "tondi-grpc-client"
-description = "Tondi gRPC client"
+name = "spora-grpc-client"
+description = "Spora gRPC client"
 rust-version.workspace = true
 version.workspace = true
 edition.workspace = true
@@ -10,12 +10,12 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-tondi-core.workspace = true
-tondi-grpc-core.workspace = true
-tondi-notify.workspace = true
-tondi-rpc-core.workspace = true
-tondi-utils.workspace = true
-tondi-utils-tower.workspace = true
+spora-core.workspace = true
+spora-grpc-core.workspace = true
+spora-notify.workspace = true
+spora-rpc-core.workspace = true
+spora-utils.workspace = true
+spora-utils-tower.workspace = true
 
 async-channel.workspace = true
 async-stream.workspace = true

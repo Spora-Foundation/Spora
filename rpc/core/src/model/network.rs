@@ -1,4 +1,4 @@
-use tondi_consensus_core::network::{NetworkId, NetworkType};
+use spora_consensus_core::network::{NetworkId, NetworkType};
 
 pub type RpcNetworkType = NetworkType;
 pub type RpcNetworkId = NetworkId;

@@ -9,7 +9,7 @@ use std::fmt::Display;
 use crate::imports::*;
 pub use crate::result::Result;
 pub use cpu_miner::{CpuMiner, CpuMinerConfig, CpuMinerCtl};
-pub use tondid::{Tondid, TondidConfig, TondidCtl};
+pub use tondid::{Sporad, SporadConfig, SporadCtl};
 use workflow_core::runtime;
 use workflow_node::process::Event as ProcessEvent;
 use workflow_store::fs::*;
@@ -18,8 +18,8 @@ pub static LOCATIONS: &[&str] = &[
     "bin",
     "../target/release",
     "../target/debug",
-    "../../tondi-cpu-miner/target/debug",
-    "../../tondi-cpu-miner/target/release",
+    "../../spora-cpu-miner/target/debug",
+    "../../spora-cpu-miner/target/release",
     "bin/windows-x64",
     "bin/linux-ia32",
     "bin/linux-x64",
@@ -54,13 +54,13 @@ pub async fn locate_binaries(root: &str, name: &str) -> Result<Vec<PathBuf>> {
 
 #[derive(Debug, Clone, BorshDeserialize, BorshSerialize, Serialize, Deserialize)]
 pub enum DaemonKind {
-    Tondid,
+    Sporad,
     CpuMiner,
 }
 
 #[derive(Default)]
 pub struct Daemons {
-    pub tondid: Option<Arc<dyn TondidCtl + Send + Sync + 'static>>,
+    pub tondid: Option<Arc<dyn SporadCtl + Send + Sync + 'static>>,
     // pub tondid_automute : Arc<
     pub cpu_miner: Option<Arc<dyn CpuMinerCtl + Send + Sync + 'static>>,
 }
@@ -70,7 +70,7 @@ impl Daemons {
         Self { tondid: None, cpu_miner: None }
     }
 
-    pub fn with_tondid(mut self, tondid: Arc<dyn TondidCtl + Send + Sync + 'static>) -> Self {
+    pub fn with_tondid(mut self, tondid: Arc<dyn SporadCtl + Send + Sync + 'static>) -> Self {
         self.tondid = Some(tondid);
         self
     }
@@ -80,11 +80,11 @@ impl Daemons {
         self
     }
 
-    pub fn tondid(&self) -> Arc<dyn TondidCtl + Send + Sync + 'static> {
-        self.tondid.as_ref().expect("accessing Daemons::Tondid while Tondid option is None").clone()
+    pub fn tondid(&self) -> Arc<dyn SporadCtl + Send + Sync + 'static> {
+        self.tondid.as_ref().expect("accessing Daemons::Sporad while Sporad option is None").clone()
     }
 
-    pub fn try_tondid(&self) -> Option<Arc<dyn TondidCtl + Send + Sync + 'static>> {
+    pub fn try_tondid(&self) -> Option<Arc<dyn SporadCtl + Send + Sync + 'static>> {
         self.tondid.clone()
     }
 

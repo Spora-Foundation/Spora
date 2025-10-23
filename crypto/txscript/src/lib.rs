@@ -25,13 +25,13 @@ use opcodes::codes::OpReturn;
 use opcodes::{codes, to_small_int, OpCond};
 use script_class::ScriptClass;
 use secp256k1::{Message, Secp256k1};
-use tondi_consensus_core::hashing::sighash::{
+use spora_consensus_core::hashing::sighash::{
     calc_ecdsa_signature_hash, calc_schnorr_signature_hash, SigHashReusedValues, SigHashReusedValuesUnsync,
 };
-use tondi_consensus_core::hashing::sighash_type::SigHashType;
-use tondi_consensus_core::tx::taproot::sighash::{Prevouts, SighashCache, TapSighashType};
-use tondi_consensus_core::tx::{ScriptPublicKey, TransactionInput, TransactionOutput, UtxoEntry, VerifiableTransaction};
-use tondi_txscript_errors::TxScriptError;
+use spora_consensus_core::hashing::sighash_type::SigHashType;
+use spora_consensus_core::tx::taproot::sighash::{Prevouts, SighashCache, TapSighashType};
+use spora_consensus_core::tx::{ScriptPublicKey, TransactionInput, TransactionOutput, UtxoEntry, VerifiableTransaction};
+use spora_txscript_errors::TxScriptError;
 
 pub mod prelude {
     pub use super::standard::*;
@@ -342,7 +342,7 @@ impl<'a, T: VerifiableTransaction, Reused: SigHashReusedValues> TxScriptEngine<'
     }
 
     fn execute_opcode(&mut self, opcode: DynOpcodeImplementation<T, Reused>) -> Result<(), TxScriptError> {
-        // Different from Tondid: Illegal and disabled opcode are checked on execute instead
+        // Different from Sporad: Illegal and disabled opcode are checked on execute instead
         // Note that this includes OP_RESERVED which counts as a push operation.
         if !opcode.is_push_opcode() {
             self.num_ops += 1;
@@ -806,9 +806,9 @@ mod tests {
     use super::*;
     use crate::script_builder::{ScriptBuilder, ScriptBuilderResult};
     use smallvec::SmallVec;
-    use tondi_consensus_core::hashing::sighash::SigHashReusedValuesUnsync;
-    use tondi_consensus_core::hashing::sighash_type::SIG_HASH_ALL;
-    use tondi_consensus_core::tx::{
+    use spora_consensus_core::hashing::sighash::SigHashReusedValuesUnsync;
+    use spora_consensus_core::hashing::sighash_type::SIG_HASH_ALL;
+    use spora_consensus_core::tx::{
         MutableTransaction, PopulatedTransaction, ScriptPublicKey, Transaction, TransactionId, TransactionOutpoint, TransactionOutput,
     };
 
@@ -1474,9 +1474,9 @@ mod bitcoind_tests {
 
     use super::*;
     use crate::script_builder::ScriptBuilderError;
-    use tondi_consensus_core::constants::MAX_TX_IN_SEQUENCE_NUM;
-    use tondi_consensus_core::hashing::sighash::SigHashReusedValuesUnsync;
-    use tondi_consensus_core::tx::{
+    use spora_consensus_core::constants::MAX_TX_IN_SEQUENCE_NUM;
+    use spora_consensus_core::hashing::sighash::SigHashReusedValuesUnsync;
+    use spora_consensus_core::tx::{
         PopulatedTransaction, ScriptPublicKey, Transaction, TransactionId, TransactionOutpoint, TransactionOutput,
     };
 

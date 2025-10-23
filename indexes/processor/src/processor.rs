@@ -7,18 +7,18 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
-use tondi_consensus_notify::{notification as consensus_notification, notification::Notification as ConsensusNotification};
-use tondi_core::{debug, trace};
-use tondi_index_core::notification::{CellsChangedNotification, Notification, PruningPointUtxoSetOverrideNotification, UtxosChangedNotification};
-use tondi_notify::{
+use spora_consensus_notify::{notification as consensus_notification, notification::Notification as ConsensusNotification};
+use spora_core::{debug, trace};
+use spora_index_core::notification::{CellsChangedNotification, Notification, PruningPointUtxoSetOverrideNotification, UtxosChangedNotification};
+use spora_notify::{
     collector::{Collector, CollectorNotificationReceiver},
     error::Result,
     events::EventType,
     notification::Notification as NotificationTrait,
     notifier::DynNotify,
 };
-use tondi_utils::triggers::SingleTrigger;
-use tondi_cellindex::api::CellIndexProxy;
+use spora_utils::triggers::SingleTrigger;
+use spora_cellindex::api::CellIndexProxy;
 
 /// Processor processes incoming consensus CellsChanged notifications
 /// submitting them to a CellIndex.
@@ -147,13 +147,13 @@ mod tests {
     use async_channel::{unbounded, Receiver, Sender};
     use rand::{rngs::SmallRng, SeedableRng};
     use std::sync::Arc;
-    use tondi_consensus::{config::Config, consensus::test_consensus::TestConsensus, params::DEVNET_PARAMS, test_helpers::*};
-    use tondi_consensus_core::utxo::{utxo_collection::UtxoCollection, utxo_diff::UtxoDiff};
-    use tondi_consensusmanager::ConsensusManager;
-    use tondi_database::create_temp_db;
-    use tondi_database::prelude::ConnBuilder;
-    use tondi_database::utils::DbLifetime;
-    use tondi_notify::notifier::test_helpers::NotifyMock;
+    use spora_consensus::{config::Config, consensus::test_consensus::TestConsensus, params::DEVNET_PARAMS, test_helpers::*};
+    use spora_consensus_core::utxo::{utxo_collection::UtxoCollection, utxo_diff::UtxoDiff};
+    use spora_consensusmanager::ConsensusManager;
+    use spora_database::create_temp_db;
+    use spora_database::prelude::ConnBuilder;
+    use spora_database::utils::DbLifetime;
+    use spora_notify::notifier::test_helpers::NotifyMock;
     use tondi_utxoindex::UtxoIndex;
 
     // TODO: rewrite with Simnet, when possible.

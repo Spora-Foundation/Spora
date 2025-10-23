@@ -6,9 +6,9 @@
 //!
 use crate::imports::*;
 use crate::tx::{Fees, GeneratorSummary, PaymentDestination};
-use tondi_addresses::Address;
-use tondi_consensus_core::tx::{TransactionOutpoint, UtxoEntry};
-use tondi_rpc_core::RpcFeerateBucket;
+use spora_addresses::Address;
+use spora_consensus_core::tx::{TransactionOutpoint, UtxoEntry};
+use spora_rpc_core::RpcFeerateBucket;
 
 #[derive(Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 #[serde(rename_all = "camelCase")]
@@ -472,7 +472,7 @@ impl FromStr for NewAddressKind {
         match s {
             "receive" => Ok(Self::Receive),
             "change" => Ok(Self::Change),
-            _ => Err(tondi_addresses::AddressError::InvalidVersionString(s.to_string()).into()),
+            _ => Err(spora_addresses::AddressError::InvalidVersionString(s.to_string()).into()),
         }
     }
 }
@@ -634,7 +634,7 @@ impl From<UtxoEntry> for UtxoEntryWrapper {
     fn from(entry: UtxoEntry) -> Self {
         Self {
             address: None,                                                 // UtxoEntry doesn't have address field
-            outpoint: TransactionOutpointWrapper { transaction_id: tondi_hashes::Hash::default(), index: 0 }, // UtxoEntry doesn't have outpoint field
+            outpoint: TransactionOutpointWrapper { transaction_id: spora_hashes::Hash::default(), index: 0 }, // UtxoEntry doesn't have outpoint field
             amount: entry.amount,
             script_public_key: entry.script_public_key,
             block_daa_score: entry.block_daa_score,
@@ -841,7 +841,7 @@ impl FromStr for CommitRevealAddressKind {
         match s {
             "receive" => Ok(CommitRevealAddressKind::Receive),
             "change" => Ok(CommitRevealAddressKind::Change),
-            _ => Err(tondi_addresses::AddressError::InvalidVersionString(s.to_string()).into()),
+            _ => Err(spora_addresses::AddressError::InvalidVersionString(s.to_string()).into()),
         }
     }
 }

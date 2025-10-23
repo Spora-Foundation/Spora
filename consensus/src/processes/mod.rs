@@ -10,7 +10,7 @@ pub use cell_validator::{
 };
 
 // Re-export from consensus-core
-pub use tondi_consensus_core::{
+pub use spora_consensus_core::{
     cell_diff::CellMeta,
     cell_metadata::CellMetadata,
 };

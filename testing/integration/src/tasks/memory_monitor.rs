@@ -2,12 +2,12 @@ use crate::tasks::Task;
 use async_trait::async_trait;
 use std::{sync::Arc, time::Duration};
 use tokio::task::JoinHandle;
-use tondi_core::{
+use spora_core::{
     info,
     task::tick::{TickReason, TickService},
     warn,
 };
-use tondi_utils::triggers::SingleTrigger;
+use spora_utils::triggers::SingleTrigger;
 use workflow_perf_monitor::mem::{get_process_memory_info, ProcessMemoryInfo};
 
 pub struct MemoryMonitorTask {
@@ -28,7 +28,7 @@ impl MemoryMonitorTask {
 
     async fn worker(&self) {
         #[cfg(feature = "heap")]
-        let _profiler = dhat::Profiler::builder().file_name("Tondid-heap.json").build();
+        let _profiler = dhat::Profiler::builder().file_name("Sporad-heap.json").build();
 
         warn!(
             "Starting Memory monitor {} with fetch interval of {} and maximum memory of {}",
@@ -76,7 +76,7 @@ impl Task for MemoryMonitorTask {
         let max_memory = self.max_memory;
         let task = tokio::spawn(async move {
             #[cfg(feature = "heap")]
-            let _profiler = dhat::Profiler::builder().file_name("Tondid-heap.json").build();
+            let _profiler = dhat::Profiler::builder().file_name("Sporad-heap.json").build();
 
             warn!(
                 "Starting Memory monitor task {} with fetch interval of {} and maximum memory of {}",

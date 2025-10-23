@@ -3,7 +3,7 @@
 //!
 
 use std::{fmt, str::FromStr};
-use tondi_bip32::{ChainCode, KeyFingerprint, Prefix};
+use spora_bip32::{ChainCode, KeyFingerprint, Prefix};
 
 use crate::imports::*;
 
@@ -13,7 +13,7 @@ use crate::imports::*;
 /// This class allows accepts another XPub and and provides
 /// functions for derivation of dependent child public keys.
 ///
-/// Please note that Tondi extended public keys use `kpub` prefix.
+/// Please note that Spora extended public keys use `kpub` prefix.
 ///
 /// @see {@link PrivateKeyGenerator}, {@link PublicKeyGenerator}, {@link XPrv}, {@link Mnemonic}
 /// @category Wallet SDK

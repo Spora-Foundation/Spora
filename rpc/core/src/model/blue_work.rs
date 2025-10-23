@@ -1,1 +1,1 @@
-pub type RpcBlueWorkType = tondi_consensus_core::BlueWorkType;
+pub type RpcBlueWorkType = spora_consensus_core::BlueWorkType;

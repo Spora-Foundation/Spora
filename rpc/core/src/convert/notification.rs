@@ -6,8 +6,8 @@ use crate::{
     SinkBlueScoreChangedNotification, UtxosChangedNotification, VirtualChainChangedNotification, VirtualDaaScoreChangedNotification,
 };
 use std::sync::Arc;
-use tondi_consensus_notify::notification as consensus_notify;
-use tondi_index_core::notification as index_notify;
+use spora_consensus_notify::notification as consensus_notify;
+use spora_index_core::notification as index_notify;
 
 // ----------------------------------------------------------------------------
 // consensus_core to rpc_core
@@ -148,7 +148,7 @@ impl From<&index_notify::PruningPointUtxoSetOverrideNotification> for PruningPoi
 
 impl From<&index_notify::UtxosChangedNotification> for UtxosChangedNotification {
     // This is not intended to be ever called because no address prefix is available.
-    // Use tondi_rpc_service::converter::index::IndexConverter instead.
+    // Use spora_rpc_service::converter::index::IndexConverter instead.
     fn from(item: &index_notify::UtxosChangedNotification) -> Self {
         Self { added: Arc::new(utxo_set_into_rpc(&item.added, None)), removed: Arc::new(utxo_set_into_rpc(&item.removed, None)) }
     }

@@ -2,14 +2,14 @@ use crate::{connection::*, router::*, server::*};
 use async_trait::async_trait;
 use std::sync::Arc;
 use tokio::sync::oneshot::{channel as oneshot_channel, Sender as OneshotSender};
-use tondi_core::{
+use spora_core::{
     info,
     task::service::{AsyncService, AsyncServiceError, AsyncServiceFuture},
     trace, warn,
 };
-use tondi_rpc_core::api::ops::RpcApiOps;
-use tondi_rpc_service::service::RpcCoreService;
-use tondi_utils::triggers::SingleTrigger;
+use spora_rpc_core::api::ops::RpcApiOps;
+use spora_rpc_service::service::RpcCoreService;
+use spora_utils::triggers::SingleTrigger;
 use workflow_rpc::server::prelude::*;
 pub use workflow_rpc::server::{Encoding as WrpcEncoding, WebSocketConfig, WebSocketCounters};
 
@@ -28,9 +28,9 @@ impl Default for Options {
     }
 }
 
-/// ### TondiRpcHandler
+/// ### SporaRpcHandler
 ///
-/// [`TondiRpcHandler`] is a handler struct that implements the [`RpcHandler`] trait
+/// [`SporaRpcHandler`] is a handler struct that implements the [`RpcHandler`] trait
 /// allowing it to receive [`connect()`](RpcHandler::connect),
 /// [`disconnect()`](RpcHandler::disconnect) and [`handshake()`](RpcHandler::handshake)
 /// calls invoked by the [`RpcServer`].
@@ -43,24 +43,24 @@ impl Default for Options {
 ///
 /// RPC method handling is implemented in the [`Router`].
 ///
-pub struct TondiRpcHandler {
+pub struct SporaRpcHandler {
     pub server: Server,
     pub options: Arc<Options>,
 }
 
-impl TondiRpcHandler {
+impl SporaRpcHandler {
     pub fn new(
         tasks: usize,
         encoding: WrpcEncoding,
         core_service: Option<Arc<RpcCoreService>>,
         options: Arc<Options>,
-    ) -> TondiRpcHandler {
-        TondiRpcHandler { server: Server::new(tasks, encoding, core_service, options.clone()), options }
+    ) -> SporaRpcHandler {
+        SporaRpcHandler { server: Server::new(tasks, encoding, core_service, options.clone()), options }
     }
 }
 
 #[async_trait]
-impl RpcHandler for TondiRpcHandler {
+impl RpcHandler for SporaRpcHandler {
     type Context = Connection;
 
     async fn handshake(
@@ -75,7 +75,7 @@ impl RpcHandler for TondiRpcHandler {
         //     std::time::Duration::from_millis(3000),
         //     sender,
         //     receiver,
-        //     Box::pin(|msg| if msg != "tondi" { Err(WebSocketError::NegotiationFailure) } else { Ok(()) }),
+        //     Box::pin(|msg| if msg != "spora" { Err(WebSocketError::NegotiationFailure) } else { Ok(()) }),
         // )
         // .await
 
@@ -98,7 +98,7 @@ pub struct WrpcService {
     // TODO: see if tha Adapter/ConnectionHandler design of P2P and gRPC can be applied here too
     options: Arc<Options>,
     server: RpcServer,
-    rpc_handler: Arc<TondiRpcHandler>,
+    rpc_handler: Arc<SporaRpcHandler>,
     shutdown: SingleTrigger,
 }
 
@@ -113,7 +113,7 @@ impl WrpcService {
     ) -> Self {
         let options = Arc::new(options);
         // Create handle to manage connections
-        let rpc_handler = Arc::new(TondiRpcHandler::new(tasks, *encoding, core_service, options.clone()));
+        let rpc_handler = Arc::new(SporaRpcHandler::new(tasks, *encoding, core_service, options.clone()));
 
         // Create router (initializes Interface registering RPC method and notification handlers)
         let router = Arc::new(Router::new(rpc_handler.server.clone()));

@@ -32,7 +32,7 @@ pub enum Error {
     NotInitialized,
 
     #[error(transparent)]
-    ConsensusClient(#[from] tondi_consensus_client::error::Error),
+    ConsensusClient(#[from] spora_consensus_client::error::Error),
 
     #[error(transparent)]
     PSTT(#[from] crate::error::Error),

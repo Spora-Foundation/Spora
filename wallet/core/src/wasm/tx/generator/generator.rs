@@ -35,7 +35,7 @@ interface IGeneratorSettingsObject {
     /**
      * Final transaction outputs (do not supply change transaction).
      *
-     * Typical usage: { address: "tondi:...", amount: 1000n }
+     * Typical usage: { address: "spora:...", amount: 1000n }
      */
     outputs: PaymentOutput | IPaymentOutput[];
     /**
@@ -128,10 +128,10 @@ extern "C" {
 ///
 /// let generator = new Generator({
 ///     utxoEntries : [...],
-///     changeAddress : "tondi:...",
+///     changeAddress : "spora:...",
 ///     outputs : [
-///         { amount : tondiToSau(10.0), address: "tondi:..."},
-///         { amount : tondiToSau(20.0), address: "tondi:..."},
+///         { amount : tondiToSau(10.0), address: "spora:..."},
+///         { amount : tondiToSau(20.0), address: "spora:..."},
 ///         ...
 ///     ],
 ///     priorityFee : 1000n,

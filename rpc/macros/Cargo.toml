@@ -1,5 +1,5 @@
 [package]
-name = "tondi-rpc-macros"
+name = "spora-rpc-macros"
 rust-version.workspace = true
 authors.workspace = true
 edition.workspace = true
@@ -10,7 +10,7 @@ keywords = ["rpc"]
 categories = []
 exclude = ["/.*", "/test"]
 description = """
-Macros for the Tondi RPC infrastructure
+Macros for the Spora RPC infrastructure
 """
 
 [lib]

@@ -6,10 +6,10 @@ const {
     PrivateKey,
     Address,
     RpcClient,
-    tondiToSau,
+    sporaToSau,
     createTransactions,
     initConsolePanicHook
-} = require('../../../../nodejs/tondi');
+} = require('../../../../nodejs/spora');
 
 const { encoding, networkId, address: destinationAddressArg } = require("../utils").parseArgs();
 
@@ -55,7 +55,7 @@ initConsolePanicHook();
 
         let { transactions, summary } = await createTransactions({
             entries,
-            outputs: [{ address : destinationAddress, amount : tondiToSau("0.00012")}],
+            outputs: [{ address : destinationAddress, amount : sporaToSau("0.00012")}],
             priorityFee: 0n,
             changeAddress: sourceAddress,
         });

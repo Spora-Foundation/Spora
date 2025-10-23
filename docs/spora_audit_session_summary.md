@@ -202,7 +202,7 @@ impl CellStateTree {
 
 **Features**:
 - Binary Merkle tree construction
-- Domain-separated hashing (`b"tondi-cell/leaf"`, `b"tondi-cell/node"`)
+- Domain-separated hashing (`b"spora-cell/leaf"`, `b"spora-cell/node"`)
 - Cached root with invalidation
 - 11 unit tests passing
 

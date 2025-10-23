@@ -1,6 +1,6 @@
 [package]
-name = "tondi-consensus-client"
-description = "Tondi consensus client data structures"
+name = "spora-consensus-client"
+description = "Spora consensus client data structures"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -13,13 +13,13 @@ wasm32-sdk = []
 wasm32-types = []
 
 [dependencies]
-tondi-addresses.workspace = true
-tondi-consensus-core.workspace = true
-tondi-hashes.workspace = true
-tondi-math.workspace = true
-tondi-txscript.workspace = true
-tondi-utils.workspace = true
-tondi-wasm-core.workspace = true
+spora-addresses.workspace = true
+spora-consensus-core.workspace = true
+spora-hashes.workspace = true
+spora-math.workspace = true
+spora-txscript.workspace = true
+spora-utils.workspace = true
+spora-wasm-core.workspace = true
 
 ahash.workspace = true
 cfg-if.workspace = true

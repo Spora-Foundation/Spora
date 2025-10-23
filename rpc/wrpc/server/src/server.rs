@@ -11,8 +11,8 @@ use std::{
         Arc, Mutex,
     },
 };
-use tondi_grpc_client::GrpcClient;
-use tondi_notify::{
+use spora_grpc_client::GrpcClient;
+use spora_notify::{
     connection::ChannelType,
     events::EVENT_TYPE_ARRAY,
     listener::ListenerLifespan,
@@ -21,12 +21,12 @@ use tondi_notify::{
     subscriber::Subscriber,
     subscription::{MutationPolicies, UtxosChangedMutationPolicy},
 };
-use tondi_rpc_core::{
+use spora_rpc_core::{
     api::rpc::{DynRpcService, RpcApi},
     notify::{channel::NotificationChannel, connection::ChannelConnection, mode::NotificationMode},
     Notification, RpcResult,
 };
-use tondi_rpc_service::service::RpcCoreService;
+use spora_rpc_service::service::RpcCoreService;
 use workflow_log::*;
 use workflow_rpc::server::prelude::*;
 

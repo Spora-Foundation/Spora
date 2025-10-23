@@ -1,12 +1,12 @@
 //!
 //! In v6 of the P2P protocol we dropped the filling of DAA and GHOSTDAG indices for each trusted entry
-//! since the syncee no longer uses them in the tondi design where the full sub-DAG is sent
+//! since the syncee no longer uses them in the spora design where the full sub-DAG is sent
 //!
 
 use itertools::Itertools;
 use log::debug;
 use std::sync::Arc;
-use tondi_p2p_lib::{
+use spora_p2p_lib::{
     common::ProtocolError,
     dequeue, dequeue_with_request_id, make_response,
     pb::{

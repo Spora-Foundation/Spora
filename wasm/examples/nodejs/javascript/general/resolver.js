@@ -1,15 +1,15 @@
 // @ts-ignore
 globalThis.WebSocket = require('websocket').w3cwebsocket; // W3C WebSocket module shim
 
-const tondi = require('../../../../nodejs/tondi');
+const spora = require('../../../../nodejs/spora');
 const { parseArgs } = require("../utils");
 const {
     Resolver,
     Encoding,
     RpcClient,
-} = tondi;
+} = spora;
 
-tondi.initConsolePanicHook();
+spora.initConsolePanicHook();
 
 const {
     networkId,

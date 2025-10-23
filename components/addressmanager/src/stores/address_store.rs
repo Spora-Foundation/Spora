@@ -1,13 +1,13 @@
 use serde::{Deserialize, Serialize};
 use std::net::Ipv6Addr;
 use std::{error::Error, fmt::Display, sync::Arc};
-use tondi_database::{
+use spora_database::{
     prelude::DB,
     prelude::{CachePolicy, StoreError, StoreResult},
     prelude::{CachedDbAccess, DirectDbWriter},
     registry::DatabaseStorePrefixes,
 };
-use tondi_utils::mem_size::MemSizeEstimator;
+use spora_utils::mem_size::MemSizeEstimator;
 
 use super::AddressKey;
 use crate::NetAddress;

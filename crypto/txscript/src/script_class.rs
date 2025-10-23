@@ -6,8 +6,8 @@ use std::{
     str::FromStr,
 };
 use thiserror::Error;
-use tondi_addresses::Version;
-use tondi_consensus_core::tx::{ScriptPublicKey, ScriptPublicKeyVersion};
+use spora_addresses::Version;
+use spora_consensus_core::tx::{ScriptPublicKey, ScriptPublicKeyVersion};
 
 #[derive(Error, PartialEq, Eq, Debug, Clone)]
 pub enum Error {
@@ -222,7 +222,7 @@ impl From<&ScriptPublicKey> for ScriptClass {
 
 #[cfg(test)]
 mod tests {
-    use tondi_consensus_core::tx::ScriptVec;
+    use spora_consensus_core::tx::ScriptVec;
 
     use super::*;
 

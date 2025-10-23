@@ -1,6 +1,6 @@
 [package]
-name = "tondi-p2p-lib"
-description = "Tondi p2p library"
+name = "spora-p2p-lib"
+description = "Spora p2p library"
 rust-version.workspace = true
 version.workspace = true
 edition.workspace = true
@@ -13,21 +13,21 @@ repository.workspace = true
 path = "./src/lib.rs"
 
 [[bin]]
-name = "tondi_p2p_client"
+name = "spora_p2p_client"
 path = "./src/bin/client.rs"
 
 [[bin]]
-name = "tondi_p2p_server"
+name = "spora_p2p_server"
 path = "./src/bin/server.rs"
 
 [dependencies]
-tondi-core.workspace = true
-tondi-consensus-core.workspace = true
-tondi-mining-errors.workspace = true
-tondi-hashes.workspace = true
-tondi-math.workspace = true
-tondi-utils.workspace = true
-tondi-utils-tower.workspace = true
+spora-core.workspace = true
+spora-consensus-core.workspace = true
+spora-mining-errors.workspace = true
+spora-hashes.workspace = true
+spora-math.workspace = true
+spora-utils.workspace = true
+spora-utils-tower.workspace = true
 
 borsh.workspace = true
 ctrlc.workspace = true

@@ -11,7 +11,7 @@ use std::{
     collections::HashSet,
     str::{self, FromStr},
 };
-use tondi_utils::{
+use spora_utils::{
     hex::{FromHex, ToHex},
     serde_bytes::FromHexVisitor,
 };
@@ -126,7 +126,7 @@ impl<'de> Deserialize<'de> for ScriptPublicKey {
             // as serialization will never produce objects.
             // - review multiple integer mappings (are they all needed?)
             // - consider manual marshaling of RPC data structures
-            // (which is now possible due to the introduction of the tondi-consensus-wasm crate)
+            // (which is now possible due to the introduction of the spora-consensus-wasm crate)
             #[cfg(target_arch = "wasm32")]
             fn visit_i32<E>(self, v: i32) -> Result<Self::Value, E>
             where

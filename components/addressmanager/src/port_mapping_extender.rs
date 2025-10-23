@@ -1,6 +1,6 @@
 use igd_next::{aio::tokio::Tokio, AddPortError};
 use std::{net::SocketAddr, sync::Arc, time::Duration};
-use tondi_core::{
+use spora_core::{
     debug, error, info,
     task::{
         service::{AsyncService, AsyncServiceFuture},

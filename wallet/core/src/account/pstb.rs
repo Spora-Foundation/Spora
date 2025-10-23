@@ -1,6 +1,6 @@
 //!
 //! Tools for interfacing wallet accounts with pstbs.
-//! (Partial Signed Tondi Transaction Bundles).
+//! (Partial Signed Spora Transaction Bundles).
 //!
 
 pub use crate::error::Error;
@@ -11,19 +11,19 @@ use futures::stream;
 use secp256k1::schnorr;
 use secp256k1::{Message, PublicKey};
 use std::iter;
-use tondi_bip32::{DerivationPath, KeyFingerprint, PrivateKey};
-use tondi_consensus_client::UtxoEntry as ClientUTXO;
-use tondi_consensus_core::hashing::sighash::{calc_schnorr_signature_hash, SigHashReusedValuesUnsync};
-use tondi_consensus_core::tx::VerifiableTransaction;
-use tondi_consensus_core::tx::{TransactionInput, UtxoEntry};
-use tondi_txscript::extract_script_pub_key_address;
-use tondi_txscript::opcodes::codes::OpData65;
-use tondi_txscript::script_builder::ScriptBuilder;
-use tondi_wallet_core::tx::{DataKind, Generator, GeneratorSettings, PaymentDestination, PendingTransaction};
-pub use tondi_wallet_pstt::bundle::Bundle;
-use tondi_wallet_pstt::bundle::{script_sig_to_address, unlock_utxo_outputs_as_batch_transaction_pstb};
-use tondi_wallet_pstt::prelude::{lock_script_sig_templating_bytes, Finalizer, Inner, KeySource, SignInputOk, Signature, Signer};
-pub use tondi_wallet_pstt::pstt::{Creator, PSTT};
+use spora_bip32::{DerivationPath, KeyFingerprint, PrivateKey};
+use spora_consensus_client::UtxoEntry as ClientUTXO;
+use spora_consensus_core::hashing::sighash::{calc_schnorr_signature_hash, SigHashReusedValuesUnsync};
+use spora_consensus_core::tx::VerifiableTransaction;
+use spora_consensus_core::tx::{TransactionInput, UtxoEntry};
+use spora_txscript::extract_script_pub_key_address;
+use spora_txscript::opcodes::codes::OpData65;
+use spora_txscript::script_builder::ScriptBuilder;
+use spora_wallet_core::tx::{DataKind, Generator, GeneratorSettings, PaymentDestination, PendingTransaction};
+pub use spora_wallet_pstt::bundle::Bundle;
+use spora_wallet_pstt::bundle::{script_sig_to_address, unlock_utxo_outputs_as_batch_transaction_pstb};
+use spora_wallet_pstt::prelude::{lock_script_sig_templating_bytes, Finalizer, Inner, KeySource, SignInputOk, Signature, Signer};
+pub use spora_wallet_pstt::pstt::{Creator, PSTT};
 
 struct PSTBSignerInner {
     keydata: PrvKeyData,
@@ -346,7 +346,7 @@ pub fn pstt_to_pending_transaction(
         },
         Err(e) => return Err(Error::PendingTransactionFromPSTTError(e.to_string())),
     };
-    let output: &Vec<tondi_consensus_core::tx::TransactionOutput> = &signed_tx.outputs;
+    let output: &Vec<spora_consensus_core::tx::TransactionOutput> = &signed_tx.outputs;
     if output.is_empty() {
         return Err(Error::Custom("0 outputs pstt is not supported".to_string()));
         // todo support 0 outputs

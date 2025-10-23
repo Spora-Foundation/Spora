@@ -1,6 +1,6 @@
 [package]
-name = "tondi-wallet-cli-wasm"
-description = "Tondi CLI wallet for WASM"
+name = "spora-wallet-cli-wasm"
+description = "Spora CLI wallet for WASM"
 rust-version.workspace = true
 version.workspace = true
 edition.workspace = true
@@ -18,7 +18,7 @@ crate-type = ["cdylib", "lib"]
 [dependencies]
 async-trait.workspace = true
 js-sys.workspace = true
-tondi-cli.workspace = true
+spora-cli.workspace = true
 wasm-bindgen-futures.workspace = true
 wasm-bindgen.workspace = true
 workflow-log.workspace = true

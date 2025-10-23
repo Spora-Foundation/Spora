@@ -52,10 +52,10 @@ use crate::{
 };
 
 // Type aliases for migration compatibility
-use tondi_consensus_core::errors::tx::TxRuleError;
+use spora_consensus_core::errors::tx::TxRuleError;
 pub type TxResult<T> = Result<T, TxRuleError>;
 use once_cell::unsync::Lazy;
-use tondi_consensus_core::{
+use spora_consensus_core::{
     acceptance_data::AcceptanceData,
     api::args::{TransactionValidationArgs, TransactionValidationBatchArgs},
     block::{BlockTemplate, MutableBlock, TemplateBuildMode, TemplateTransactionSelector},
@@ -75,7 +75,7 @@ use tondi_consensus_core::{
     BlockHashSet, ChainPath,
 };
 // UTXO imports removed - fully replaced by Cell model
-use tondi_consensus_notify::{
+use spora_consensus_notify::{
     notification::{
         CellsChangedNotification, NewBlockTemplateNotification, Notification, SinkBlueScoreChangedNotification,
         VirtualChainChangedNotification, VirtualDaaScoreChangedNotification, FinalityConflictNotification,
@@ -83,11 +83,11 @@ use tondi_consensus_notify::{
     },
     root::ConsensusNotificationRoot,
 };
-use tondi_consensusmanager::SessionLock;
-use tondi_core::{debug, info, time::unix_now, trace, warn};
-use tondi_database::prelude::{StoreError, StoreResultEmptyTuple, StoreResultExtensions};
-use tondi_hashes::{Hash, ZERO_HASH};
-use tondi_notify::{events::EventType, notifier::Notify};
+use spora_consensusmanager::SessionLock;
+use spora_core::{debug, info, time::unix_now, trace, warn};
+use spora_database::prelude::{StoreError, StoreResultEmptyTuple, StoreResultExtensions};
+use spora_hashes::{Hash, ZERO_HASH};
+use spora_notify::{events::EventType, notifier::Notify};
 
 use super::{
     errors::{PruningImportError, PruningImportResult},
@@ -108,8 +108,8 @@ use std::{
     ops::Deref,
     sync::{atomic::Ordering, Arc},
 };
-use tondi_consensus_core::tx::ValidatedTransaction;
-use tondi_utils::binary_heap::BinaryHeapExtensions;
+use spora_consensus_core::tx::ValidatedTransaction;
+use spora_utils::binary_heap::BinaryHeapExtensions;
 
 pub struct VirtualStateProcessor {
     // Channels
@@ -542,7 +542,7 @@ impl VirtualStateProcessor {
             return Err(RuleError::BadCellRoot(error_msg));
         }
         
-        // Verify cell_commitment (v0: H("tondi/cell_commitment/v0" || cell_root))
+        // Verify cell_commitment (v0: H("spora/cell_commitment/v0" || cell_root))
         let calculated_commitment = self.compute_cell_commitment_v0(calculated_cell_root);
         let expected_commitment = header.cell_commitment;
         
@@ -566,12 +566,12 @@ impl VirtualStateProcessor {
     
     /// Compute cell_commitment version 0
     /// 
-    /// V0 format: H("tondi/cell_commitment/v0" || cell_root)
+    /// V0 format: H("spora/cell_commitment/v0" || cell_root)
     fn compute_cell_commitment_v0(&self, cell_root: Hash) -> Hash {
         use blake3::Hasher;
         
         let mut hasher = Hasher::new();
-        hasher.update(b"tondi/cell_commitment/v0");
+        hasher.update(b"spora/cell_commitment/v0");
         hasher.update(cell_root.as_bytes().as_ref());
         
         Hash::from_bytes(*hasher.finalize().as_bytes())
@@ -1119,7 +1119,7 @@ impl VirtualStateProcessor {
         // Hash according to hardfork activation
         let storage_mass_activated = self.crescendo_activation.is_active(virtual_state.daa_score);
         // Hash merkle root (CellTx version)
-        use tondi_consensus_core::merkle::calc_hash_merkle_root_cell;
+        use spora_consensus_core::merkle::calc_hash_merkle_root_cell;
         let hash_merkle_root = calc_hash_merkle_root_cell(txs.iter(), storage_mass_activated);
 
         // TODO(cell-model): calc_accepted_id_merkle_root needs proper reimplementation
@@ -1130,7 +1130,7 @@ impl VirtualStateProcessor {
         let cell_root = cell_tree_clone.root();
         
         // v0: cell_commitment = cell_root (simplified for initial implementation)
-        // v1: cell_commitment = H("tondi/cell_commitment/v1" || cell_root || segment_root || ...)
+        // v1: cell_commitment = H("spora/cell_commitment/v1" || cell_root || segment_root || ...)
         let cell_commitment = cell_root;
         // Past median time is the exclusive lower bound for valid block time, so we increase by 1 to get the valid min
         let min_block_time = virtual_state.past_median_time + 1;
@@ -1182,8 +1182,8 @@ impl VirtualStateProcessor {
     /// Initializes Cell state of genesis and points virtual at genesis.
     /// Note that pruning point-related stores are initialized by `init`
     pub fn process_genesis(self: &Arc<Self>) {
-        use tondi_consensus_core::cell_diff::CellDiff;
-        use tondi_hashes::ZERO_HASH;
+        use spora_consensus_core::cell_diff::CellDiff;
+        use spora_hashes::ZERO_HASH;
         
         // Write the Cell state of genesis (empty state)
         self.commit_cell_state(

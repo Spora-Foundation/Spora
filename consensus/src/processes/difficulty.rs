@@ -12,14 +12,14 @@ use std::{
         Arc,
     },
 };
-use tondi_consensus_core::{
+use spora_consensus_core::{
     config::params::{ForkActivation, MAX_DIFFICULTY_TARGET_AS_F64},
     errors::difficulty::{DifficultyError, DifficultyResult},
     BlockHashSet, BlueWorkType, MAX_WORK_LEVEL,
 };
-use tondi_core::{info, log::CRESCENDO_KEYWORD};
-use tondi_hashes::Hash;
-use tondi_math::{Uint256, Uint320};
+use spora_core::{info, log::CRESCENDO_KEYWORD};
+use spora_hashes::Hash;
+use spora_math::{Uint256, Uint320};
 
 use super::{ghostdag::ordering::SortableBlock, utils::CoinFlip};
 use itertools::Itertools;
@@ -234,7 +234,7 @@ fn difficulty_desc(target: Uint320) -> String {
     format!("{:.2} {}", rate, suffix)
 }
 
-/// A difficulty manager implementing [KIP-0004](https://github.com/tondinet/kips/blob/master/kip-0004.md),
+/// A difficulty manager implementing [KIP-0004](https://github.com/sporanet/kips/blob/master/kip-0004.md),
 /// so based on sampled windows
 #[derive(Clone)]
 pub struct SampledDifficultyManager<T: HeaderStoreReader, U: GhostdagStoreReader> {
@@ -458,12 +458,12 @@ impl Ord for DifficultyBlock {
 
 #[cfg(test)]
 mod tests {
-    use tondi_consensus_core::{BlockLevel, BlueWorkType, MAX_WORK_LEVEL};
-    use tondi_math::{Uint256, Uint320};
-    use tondi_pow::calc_level_from_pow;
+    use spora_consensus_core::{BlockLevel, BlueWorkType, MAX_WORK_LEVEL};
+    use spora_math::{Uint256, Uint320};
+    use spora_pow::calc_level_from_pow;
 
     use crate::processes::difficulty::{calc_work, level_work};
-    use tondi_utils::hex::ToHex;
+    use spora_utils::hex::ToHex;
 
     #[test]
     fn test_target_levels() {

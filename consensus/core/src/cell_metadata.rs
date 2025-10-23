@@ -4,7 +4,7 @@
 // Complete Cell metadata for validation and querying (GHOSTDAG-aware)
 
 use crate::cell_diff::CellMeta;
-use tondi_hashes::Hash;
+use spora_hashes::Hash;
 use serde::{Deserialize, Serialize};
 
 /// Complete Cell metadata (用于验证器和查询)

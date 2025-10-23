@@ -52,17 +52,17 @@ const TS_BALANCE: &'static str = r#"
  */
 export interface IBalance {
     /**
-     * Total amount of Tondi (in SAU) available for 
+     * Total amount of Spora (in SAU) available for 
      * spending.
      */
     mature: bigint;
     /**
-     * Total amount of Tondi (in SAU) that has been 
+     * Total amount of Spora (in SAU) that has been 
      * received and is pending confirmation.
      */
     pending: bigint;
     /**
-     * Total amount of Tondi (in SAU) currently 
+     * Total amount of Spora (in SAU) currently 
      * being sent as a part of the outgoing transaction
      * but has not yet been accepted by the network.
      */
@@ -188,7 +188,7 @@ pub struct BalanceStrings {
 
 impl From<(Option<&Balance>, &NetworkType, Option<usize>)> for BalanceStrings {
     fn from((balance, network_type, padding): (Option<&Balance>, &NetworkType, Option<usize>)) -> Self {
-        let suffix = utils::tondi_suffix(network_type);
+        let suffix = utils::spora_suffix(network_type);
         if let Some(balance) = balance {
             let mut mature = utils::sau_to_tondi_string(balance.mature);
             let mut pending = if balance.pending > 0 { Some(utils::sau_to_tondi_string(balance.pending)) } else { None };

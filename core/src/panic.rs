@@ -1,5 +1,5 @@
 use std::{panic, process, thread};
-use tondi_core::error;
+use spora_core::error;
 
 /// Configures the panic hook to exit the program on every panic
 pub fn configure_panic() {

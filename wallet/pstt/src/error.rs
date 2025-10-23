@@ -1,6 +1,6 @@
 //! Error types for the pstt crate.
 
-use tondi_txscript_errors::TxScriptError;
+use spora_txscript_errors::TxScriptError;
 
 use crate::input::InputBuilderError;
 

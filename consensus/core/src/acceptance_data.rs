@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use tondi_hashes::Hash;
+use spora_hashes::Hash;
 
 use crate::tx::TransactionId;
 

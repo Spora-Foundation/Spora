@@ -7,8 +7,8 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
-use tondi_core::{debug, trace};
-use tondi_utils::{channel::Channel, triggers::SingleTrigger};
+use spora_core::{debug, trace};
+use spora_utils::{channel::Channel, triggers::SingleTrigger};
 
 pub type CollectorNotificationChannel<T> = Channel<T>;
 pub type CollectorNotificationSender<T> = Sender<T>;

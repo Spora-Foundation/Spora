@@ -1,4 +1,4 @@
-use tondi_hashes::{Hash, Hasher, HasherBase, ZERO_HASH};
+use spora_hashes::{Hash, Hasher, HasherBase, ZERO_HASH};
 
 /// Cell state tree for computing cell_root
 /// This is a Merkle tree of all live cells in the state
@@ -131,7 +131,7 @@ impl CellStateHash {
 
     #[inline(always)]
     fn finalize(self) -> Hash {
-        // Use blake3 directly since tondi_hashes::blake3 is private
+        // Use blake3 directly since spora_hashes::blake3 is private
         (*blake3::hash(&self.0).as_bytes()).into()
     }
 }

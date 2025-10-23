@@ -1,5 +1,5 @@
 use crate::xoshiro::XoShiRo256PlusPlus;
-use tondi_hashes::Hash;
+use spora_hashes::Hash;
 
 /// Branchless nibble extraction from hash bytes
 /// Avoids bounds checks and MaybeUninit complexity
@@ -198,7 +198,7 @@ where
 mod tests {
     use super::Matrix;
     use crate::xoshiro::XoShiRo256PlusPlus;
-    use tondi_hashes::Hash;
+    use spora_hashes::Hash;
 
     #[test]
     fn test_compute_rank() {

@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
-use tondi_p2p_flows::flow_context::FlowContext;
-use tondi_p2p_lib::{Peer, PeerKey};
-use tondi_rpc_core::RpcPeerInfo;
+use spora_p2p_flows::flow_context::FlowContext;
+use spora_p2p_lib::{Peer, PeerKey};
+use spora_rpc_core::RpcPeerInfo;
 
 pub struct ProtocolConverter {
     flow_context: Arc<FlowContext>,

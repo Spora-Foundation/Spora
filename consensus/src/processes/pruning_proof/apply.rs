@@ -6,7 +6,7 @@ use std::{
 
 use itertools::Itertools;
 use rocksdb::WriteBatch;
-use tondi_consensus_core::{
+use spora_consensus_core::{
     blockhash::{BlockHashes, ORIGIN},
     errors::pruning::{PruningImportError, PruningImportResult},
     header::Header,
@@ -14,10 +14,10 @@ use tondi_consensus_core::{
     trusted::TrustedBlock,
     BlockHashMap, BlockHashSet, BlockLevel, HashMapCustomHasher,
 };
-use tondi_core::{debug, trace};
-use tondi_hashes::Hash;
-use tondi_pow::calc_block_level;
-use tondi_utils::{binary_heap::BinaryHeapExtensions, vec::VecExtensions};
+use spora_core::{debug, trace};
+use spora_hashes::Hash;
+use spora_pow::calc_block_level;
+use spora_utils::{binary_heap::BinaryHeapExtensions, vec::VecExtensions};
 
 use crate::{
     model::{

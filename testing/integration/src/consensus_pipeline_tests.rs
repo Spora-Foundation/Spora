@@ -2,14 +2,14 @@ use futures_util::future::try_join_all;
 use rand_distr::{Distribution, Poisson};
 use std::cmp::min;
 use tokio::join;
-use tondi_alloc::init_allocator_with_default_settings;
-use tondi_consensus::{
+use spora_alloc::init_allocator_with_default_settings;
+use spora_consensus::{
     config::ConfigBuilder, consensus::test_consensus::TestConsensus, params::MAINNET_PARAMS,
     processes::reachability::tests::StoreValidationExtensions,
 };
-use tondi_consensus_core::{api::ConsensusApi, blockhash};
-use tondi_database::prelude::CachePolicy;
-use tondi_hashes::Hash;
+use spora_consensus_core::{api::ConsensusApi, blockhash};
+use spora_database::prelude::CachePolicy;
+use spora_hashes::Hash;
 
 #[tokio::test]
 async fn test_concurrent_pipeline() {
@@ -34,7 +34,7 @@ async fn test_concurrent_pipeline() {
 
     for (hash, parents) in blocks {
         // Submit to consensus twice to make sure duplicates are handled
-        let b: tondi_consensus_core::block::Block = consensus.build_block_with_parents(hash, parents).to_immutable();
+        let b: spora_consensus_core::block::Block = consensus.build_block_with_parents(hash, parents).to_immutable();
         let results = join!(
             consensus.validate_and_insert_block(b.clone()).virtual_state_task,
             consensus.validate_and_insert_block(b).virtual_state_task

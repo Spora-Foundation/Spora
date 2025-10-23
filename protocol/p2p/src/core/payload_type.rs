@@ -1,8 +1,8 @@
-use crate::pb::tondid_message::Payload as TondidMessagePayload;
+use crate::pb::tondid_message::Payload as SporadMessagePayload;
 
 #[repr(u8)]
 #[derive(Debug, Copy, Clone, Eq, Hash, PartialEq)]
-pub enum TondidMessagePayloadType {
+pub enum SporadMessagePayloadType {
     Addresses = 0,
     Block,
     Transaction,
@@ -48,57 +48,57 @@ pub enum TondidMessagePayloadType {
     RequestNextPruningPointAndItsAnticoneBlocks,
 }
 
-impl From<&TondidMessagePayload> for TondidMessagePayloadType {
-    fn from(payload: &TondidMessagePayload) -> Self {
+impl From<&SporadMessagePayload> for SporadMessagePayloadType {
+    fn from(payload: &SporadMessagePayload) -> Self {
         match payload {
-            TondidMessagePayload::Addresses(_) => TondidMessagePayloadType::Addresses,
-            TondidMessagePayload::Block(_) => TondidMessagePayloadType::Block,
-            TondidMessagePayload::Transaction(_) => TondidMessagePayloadType::Transaction,
-            TondidMessagePayload::BlockLocator(_) => TondidMessagePayloadType::BlockLocator,
-            TondidMessagePayload::RequestAddresses(_) => TondidMessagePayloadType::RequestAddresses,
-            TondidMessagePayload::RequestRelayBlocks(_) => TondidMessagePayloadType::RequestRelayBlocks,
-            TondidMessagePayload::RequestTransactions(_) => TondidMessagePayloadType::RequestTransactions,
-            TondidMessagePayload::IbdBlock(_) => TondidMessagePayloadType::IbdBlock,
-            TondidMessagePayload::InvRelayBlock(_) => TondidMessagePayloadType::InvRelayBlock,
-            TondidMessagePayload::InvTransactions(_) => TondidMessagePayloadType::InvTransactions,
-            TondidMessagePayload::Ping(_) => TondidMessagePayloadType::Ping,
-            TondidMessagePayload::Pong(_) => TondidMessagePayloadType::Pong,
-            TondidMessagePayload::Verack(_) => TondidMessagePayloadType::Verack,
-            TondidMessagePayload::Version(_) => TondidMessagePayloadType::Version,
-            TondidMessagePayload::TransactionNotFound(_) => TondidMessagePayloadType::TransactionNotFound,
-            TondidMessagePayload::Reject(_) => TondidMessagePayloadType::Reject,
-            TondidMessagePayload::PruningPointUtxoSetChunk(_) => TondidMessagePayloadType::PruningPointUtxoSetChunk,
-            TondidMessagePayload::RequestIbdBlocks(_) => TondidMessagePayloadType::RequestIbdBlocks,
-            TondidMessagePayload::UnexpectedPruningPoint(_) => TondidMessagePayloadType::UnexpectedPruningPoint,
-            TondidMessagePayload::IbdBlockLocator(_) => TondidMessagePayloadType::IbdBlockLocator,
-            TondidMessagePayload::IbdBlockLocatorHighestHash(_) => TondidMessagePayloadType::IbdBlockLocatorHighestHash,
-            TondidMessagePayload::RequestNextPruningPointUtxoSetChunk(_) => {
-                TondidMessagePayloadType::RequestNextPruningPointUtxoSetChunk
+            SporadMessagePayload::Addresses(_) => SporadMessagePayloadType::Addresses,
+            SporadMessagePayload::Block(_) => SporadMessagePayloadType::Block,
+            SporadMessagePayload::Transaction(_) => SporadMessagePayloadType::Transaction,
+            SporadMessagePayload::BlockLocator(_) => SporadMessagePayloadType::BlockLocator,
+            SporadMessagePayload::RequestAddresses(_) => SporadMessagePayloadType::RequestAddresses,
+            SporadMessagePayload::RequestRelayBlocks(_) => SporadMessagePayloadType::RequestRelayBlocks,
+            SporadMessagePayload::RequestTransactions(_) => SporadMessagePayloadType::RequestTransactions,
+            SporadMessagePayload::IbdBlock(_) => SporadMessagePayloadType::IbdBlock,
+            SporadMessagePayload::InvRelayBlock(_) => SporadMessagePayloadType::InvRelayBlock,
+            SporadMessagePayload::InvTransactions(_) => SporadMessagePayloadType::InvTransactions,
+            SporadMessagePayload::Ping(_) => SporadMessagePayloadType::Ping,
+            SporadMessagePayload::Pong(_) => SporadMessagePayloadType::Pong,
+            SporadMessagePayload::Verack(_) => SporadMessagePayloadType::Verack,
+            SporadMessagePayload::Version(_) => SporadMessagePayloadType::Version,
+            SporadMessagePayload::TransactionNotFound(_) => SporadMessagePayloadType::TransactionNotFound,
+            SporadMessagePayload::Reject(_) => SporadMessagePayloadType::Reject,
+            SporadMessagePayload::PruningPointUtxoSetChunk(_) => SporadMessagePayloadType::PruningPointUtxoSetChunk,
+            SporadMessagePayload::RequestIbdBlocks(_) => SporadMessagePayloadType::RequestIbdBlocks,
+            SporadMessagePayload::UnexpectedPruningPoint(_) => SporadMessagePayloadType::UnexpectedPruningPoint,
+            SporadMessagePayload::IbdBlockLocator(_) => SporadMessagePayloadType::IbdBlockLocator,
+            SporadMessagePayload::IbdBlockLocatorHighestHash(_) => SporadMessagePayloadType::IbdBlockLocatorHighestHash,
+            SporadMessagePayload::RequestNextPruningPointUtxoSetChunk(_) => {
+                SporadMessagePayloadType::RequestNextPruningPointUtxoSetChunk
             }
-            TondidMessagePayload::DonePruningPointUtxoSetChunks(_) => TondidMessagePayloadType::DonePruningPointUtxoSetChunks,
-            TondidMessagePayload::IbdBlockLocatorHighestHashNotFound(_) => {
-                TondidMessagePayloadType::IbdBlockLocatorHighestHashNotFound
+            SporadMessagePayload::DonePruningPointUtxoSetChunks(_) => SporadMessagePayloadType::DonePruningPointUtxoSetChunks,
+            SporadMessagePayload::IbdBlockLocatorHighestHashNotFound(_) => {
+                SporadMessagePayloadType::IbdBlockLocatorHighestHashNotFound
             }
-            TondidMessagePayload::BlockWithTrustedData(_) => TondidMessagePayloadType::BlockWithTrustedData,
-            TondidMessagePayload::DoneBlocksWithTrustedData(_) => TondidMessagePayloadType::DoneBlocksWithTrustedData,
-            TondidMessagePayload::RequestPruningPointAndItsAnticone(_) => TondidMessagePayloadType::RequestPruningPointAndItsAnticone,
-            TondidMessagePayload::BlockHeaders(_) => TondidMessagePayloadType::BlockHeaders,
-            TondidMessagePayload::RequestNextHeaders(_) => TondidMessagePayloadType::RequestNextHeaders,
-            TondidMessagePayload::DoneHeaders(_) => TondidMessagePayloadType::DoneHeaders,
-            TondidMessagePayload::RequestPruningPointUtxoSet(_) => TondidMessagePayloadType::RequestPruningPointUtxoSet,
-            TondidMessagePayload::RequestHeaders(_) => TondidMessagePayloadType::RequestHeaders,
-            TondidMessagePayload::RequestBlockLocator(_) => TondidMessagePayloadType::RequestBlockLocator,
-            TondidMessagePayload::PruningPoints(_) => TondidMessagePayloadType::PruningPoints,
-            TondidMessagePayload::RequestPruningPointProof(_) => TondidMessagePayloadType::RequestPruningPointProof,
-            TondidMessagePayload::PruningPointProof(_) => TondidMessagePayloadType::PruningPointProof,
-            TondidMessagePayload::Ready(_) => TondidMessagePayloadType::Ready,
-            TondidMessagePayload::BlockWithTrustedDataV4(_) => TondidMessagePayloadType::BlockWithTrustedDataV4,
-            TondidMessagePayload::TrustedData(_) => TondidMessagePayloadType::TrustedData,
-            TondidMessagePayload::RequestIbdChainBlockLocator(_) => TondidMessagePayloadType::RequestIbdChainBlockLocator,
-            TondidMessagePayload::IbdChainBlockLocator(_) => TondidMessagePayloadType::IbdChainBlockLocator,
-            TondidMessagePayload::RequestAntipast(_) => TondidMessagePayloadType::RequestAntipast,
-            TondidMessagePayload::RequestNextPruningPointAndItsAnticoneBlocks(_) => {
-                TondidMessagePayloadType::RequestNextPruningPointAndItsAnticoneBlocks
+            SporadMessagePayload::BlockWithTrustedData(_) => SporadMessagePayloadType::BlockWithTrustedData,
+            SporadMessagePayload::DoneBlocksWithTrustedData(_) => SporadMessagePayloadType::DoneBlocksWithTrustedData,
+            SporadMessagePayload::RequestPruningPointAndItsAnticone(_) => SporadMessagePayloadType::RequestPruningPointAndItsAnticone,
+            SporadMessagePayload::BlockHeaders(_) => SporadMessagePayloadType::BlockHeaders,
+            SporadMessagePayload::RequestNextHeaders(_) => SporadMessagePayloadType::RequestNextHeaders,
+            SporadMessagePayload::DoneHeaders(_) => SporadMessagePayloadType::DoneHeaders,
+            SporadMessagePayload::RequestPruningPointUtxoSet(_) => SporadMessagePayloadType::RequestPruningPointUtxoSet,
+            SporadMessagePayload::RequestHeaders(_) => SporadMessagePayloadType::RequestHeaders,
+            SporadMessagePayload::RequestBlockLocator(_) => SporadMessagePayloadType::RequestBlockLocator,
+            SporadMessagePayload::PruningPoints(_) => SporadMessagePayloadType::PruningPoints,
+            SporadMessagePayload::RequestPruningPointProof(_) => SporadMessagePayloadType::RequestPruningPointProof,
+            SporadMessagePayload::PruningPointProof(_) => SporadMessagePayloadType::PruningPointProof,
+            SporadMessagePayload::Ready(_) => SporadMessagePayloadType::Ready,
+            SporadMessagePayload::BlockWithTrustedDataV4(_) => SporadMessagePayloadType::BlockWithTrustedDataV4,
+            SporadMessagePayload::TrustedData(_) => SporadMessagePayloadType::TrustedData,
+            SporadMessagePayload::RequestIbdChainBlockLocator(_) => SporadMessagePayloadType::RequestIbdChainBlockLocator,
+            SporadMessagePayload::IbdChainBlockLocator(_) => SporadMessagePayloadType::IbdChainBlockLocator,
+            SporadMessagePayload::RequestAntipast(_) => SporadMessagePayloadType::RequestAntipast,
+            SporadMessagePayload::RequestNextPruningPointAndItsAnticoneBlocks(_) => {
+                SporadMessagePayloadType::RequestNextPruningPointAndItsAnticoneBlocks
             }
         }
     }

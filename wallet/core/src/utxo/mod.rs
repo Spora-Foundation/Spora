@@ -27,7 +27,7 @@ pub use scan::{Scan, ScanExtent};
 pub use settings::*;
 pub use stream::UtxoStream;
 pub use sync::SyncMonitor;
-pub use tondi_consensus_client::UtxoEntryId;
+pub use spora_consensus_client::UtxoEntryId;
 
 #[cfg(test)]
 pub mod test;

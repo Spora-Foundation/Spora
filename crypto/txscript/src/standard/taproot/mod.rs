@@ -15,7 +15,7 @@ mod tests {
     use secp256k1::{Keypair, Message, Secp256k1};
     use smallvec::SmallVec;
     use std::str::FromStr;
-    use tondi_consensus_core::{
+    use spora_consensus_core::{
         hashing::sighash::SigHashReusedValuesUnsync,
         subnets::SubnetworkId,
         tx::{
@@ -24,7 +24,7 @@ mod tests {
             TransactionOutput, UtxoEntry,
         },
     };
-    use tondi_utils::hex::FromHex;
+    use spora_utils::hex::FromHex;
 
     #[test]
     fn test_taproot_key_spend() {

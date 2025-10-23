@@ -1,12 +1,12 @@
 use rand::{rngs::SmallRng, seq::SliceRandom, Rng};
-use tondi_consensus_core::{
+use spora_consensus_core::{
     block::Block,
     header::Header,
     subnets::SubnetworkId,
     tx::{ScriptPublicKey, ScriptVec, Transaction, TransactionInput, TransactionOutpoint, TransactionOutput},
     // utxo::utxo_collection::UtxoCollection, // TODO(cell-model): Removed UTXO
 };
-use tondi_hashes::{Hash, HASH_SIZE};
+use spora_hashes::{Hash, HASH_SIZE};
 
 pub fn header_from_precomputed_hash(hash: Hash, parents: Vec<Hash>) -> Header {
     Header::from_precomputed_hash(hash, parents)
@@ -158,4 +158,4 @@ pub fn generate_random_transaction_outpoint(rng: &mut SmallRng) -> TransactionOu
     TransactionOutpoint::new(generate_random_hash(rng), rng.gen())
 }
 
-//TODO: create `assert_eq_<tondi-sturct>!()` helper macros in `consensus::test_helpers`
+//TODO: create `assert_eq_<spora-sturct>!()` helper macros in `consensus::test_helpers`

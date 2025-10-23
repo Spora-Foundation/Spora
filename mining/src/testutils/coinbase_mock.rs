@@ -1,4 +1,4 @@
-use tondi_consensus_core::{
+use spora_consensus_core::{
     coinbase::{CoinbaseData, CoinbaseTransactionTemplate, MinerData},
     constants::{SAU_PER_TONDI, TX_VERSION},
     subnets::SUBNETWORK_ID_COINBASE,

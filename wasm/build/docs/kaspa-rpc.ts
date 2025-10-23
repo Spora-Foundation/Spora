@@ -1,1 +1,1 @@
-export * from "../../web/tondi-rpc";
+export * from "../../web/spora-rpc";

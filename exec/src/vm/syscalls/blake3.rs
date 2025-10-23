@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: ISC
 // Copyright (C) 2025 Spora developers
 //
-// Blake3 hash syscall (Tondi-specific extension to CKB-VM)
+// Blake3 hash syscall (Spora-specific extension to CKB-VM)
 //
-// This syscall is NOT in CKB, it's our addition for Tondi
+// This syscall is NOT in CKB, it's our addition for Spora
 
 use ckb_vm::{
     Memory, Register, Syscalls, SupportMachine,
@@ -13,7 +13,7 @@ use ckb_vm::{
 
 /// Syscall: Blake3 Hash
 ///
-/// Syscall number: 3001 (Tondi extension, not in CKB)
+/// Syscall number: 3001 (Spora extension, not in CKB)
 ///
 /// Computes blake3 hash of input data
 ///
@@ -41,7 +41,7 @@ impl<M: SupportMachine> Syscalls<M> for Blake3Hash {
     fn ecall(&mut self, machine: &mut M) -> Result<bool, VMError> {
         let syscall_number = machine.registers()[A7].to_u64();
         
-        // BLAKE3_HASH = 3001 (Tondi extension)
+        // BLAKE3_HASH = 3001 (Spora extension)
         if syscall_number != 3001 {
             return Ok(false);
         }

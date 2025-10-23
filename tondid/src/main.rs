@@ -1,12 +1,12 @@
-extern crate tondi_consensus;
-extern crate tondi_core;
-extern crate tondi_hashes;
+extern crate spora_consensus;
+extern crate spora_core;
+extern crate spora_hashes;
 
 use std::sync::Arc;
 
-use tondi_alloc::init_allocator_with_default_settings;
-use tondi_core::{info, signals::Signals};
-use tondi_utils::fd_budget;
+use spora_alloc::init_allocator_with_default_settings;
+use spora_core::{info, signals::Signals};
+use spora_utils::fd_budget;
 use tondid_lib::{
     args::parse_args,
     daemon::{create_core, DESIRED_DAEMON_SOFT_FD_LIMIT, MINIMUM_DAEMON_SOFT_FD_LIMIT},
@@ -18,7 +18,7 @@ static ALLOC: dhat::Alloc = dhat::Alloc;
 
 pub fn main() {
     #[cfg(feature = "heap")]
-    let _profiler = dhat::Profiler::builder().file_name("Tondid-heap.json").build();
+    let _profiler = dhat::Profiler::builder().file_name("Sporad-heap.json").build();
 
     init_allocator_with_default_settings();
 
@@ -28,14 +28,14 @@ pub fn main() {
         Ok(limit) => {
             if limit < MINIMUM_DAEMON_SOFT_FD_LIMIT {
                 println!("Current OS file descriptor limit (soft FD limit) is set to {limit}");
-                println!("The Tondid node requires a setting of at least {DESIRED_DAEMON_SOFT_FD_LIMIT} to operate properly.");
+                println!("The Sporad node requires a setting of at least {DESIRED_DAEMON_SOFT_FD_LIMIT} to operate properly.");
                 println!("Please increase the limits using the following command:");
                 println!("ulimit -n {DESIRED_DAEMON_SOFT_FD_LIMIT}");
             }
         }
         Err(err) => {
             println!("Unable to initialize the necessary OS file descriptor limit (soft FD limit) to: {}", err);
-            println!("The Tondid node requires a setting of at least {DESIRED_DAEMON_SOFT_FD_LIMIT} to operate properly.");
+            println!("The Sporad node requires a setting of at least {DESIRED_DAEMON_SOFT_FD_LIMIT} to operate properly.");
         }
     }
 
@@ -46,5 +46,5 @@ pub fn main() {
     Arc::new(Signals::new(&core)).init();
 
     core.run();
-    info!("Tondid has stopped...");
+    info!("Sporad has stopped...");
 }

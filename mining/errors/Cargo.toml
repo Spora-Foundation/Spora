@@ -1,6 +1,6 @@
 [package]
-name = "tondi-mining-errors"
-description = "Tondi mining error definitions"
+name = "spora-mining-errors"
+description = "Spora mining error definitions"
 rust-version.workspace = true
 version.workspace = true
 edition.workspace = true
@@ -13,4 +13,4 @@ repository.workspace = true
 
 [dependencies]
 thiserror.workspace = true
-tondi-consensus-core.workspace = true
+spora-consensus-core.workspace = true

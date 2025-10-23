@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ISC
-// Copyright (C) 2025Tondi developers
+// Copyright (C) 2025 Spora developers
 //
 // Cell index errors
 
@@ -8,7 +8,7 @@
 pub enum CellIndexError {
     /// State error
     #[error("State error: {0}")]
-    State(#[from] tondi_state::StateError),
+    State(#[from] spora_state::StateError),
     
     /// Query failed
     #[error("Query failed: {0}")]

@@ -1,6 +1,6 @@
 use crate::FeerateTransactionKey;
 use std::sync::Arc;
-use tondi_consensus_core::tx::Transaction;
+use spora_consensus_core::tx::Transaction;
 
 /// Transaction with additional metadata needed in order to be a candidate
 /// in the transaction selection algorithm

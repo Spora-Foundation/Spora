@@ -1,6 +1,6 @@
 globalThis.WebSocket = require('websocket').w3cwebsocket; // W3C WebSocket module shim
 
-let tondi = require('../tondi/tondi_wasm');
+let spora = require('../spora/spora_wasm');
 const { parseArgs, guardRpcIsSynced } = require("../utils");
 let {
     RpcClient, UtxoSet, Address, Encoding, UtxoOrdering,
@@ -10,8 +10,8 @@ let {
     createTransaction,
     signTransaction,
     signScriptHash
-} = tondi;
-tondi.init_console_panic_hook();
+} = spora;
+spora.init_console_panic_hook();
 
 (async () => {
     const args = parseArgs({});
@@ -20,7 +20,7 @@ tondi.init_console_panic_hook();
     const networkType = args.networkType;
     // Either Encoding.Borsh or Encoding.JSON
     const encoding = args.encoding;
-    // The tondi address that was passed as an argument or a default one
+    // The spora address that was passed as an argument or a default one
     const address = args.address ?? "tonditest:qz7ulu4c25dh7fzec9zjyrmlhnkzrg4wmf89q7gzr3gfrsj3uz6xjceef60sd";
 
     const rpc = new RpcClient({

@@ -1,14 +1,14 @@
 use thiserror::Error;
 use tokio::sync::mpsc::error::TrySendError;
-use tondi_grpc_core::ops::TondidPayloadOps;
+use spora_grpc_core::ops::SporadPayloadOps;
 
 #[derive(Debug, Error)]
 pub enum GrpcServerError {
     #[error("RpcApi error: {0}")]
-    RpcApiError(#[from] tondi_rpc_core::error::RpcError),
+    RpcApiError(#[from] spora_rpc_core::error::RpcError),
 
     #[error("Notification subsystem error: {0}")]
-    NotificationError(#[from] tondi_notify::error::Error),
+    NotificationError(#[from] spora_notify::error::Error),
 
     #[error("Request has no valid payload")]
     InvalidRequestPayload,
@@ -20,7 +20,7 @@ pub enum GrpcServerError {
     MethodNotImplemented,
 
     #[error("{0:?} handler is closed")]
-    ClosedHandler(TondidPayloadOps),
+    ClosedHandler(SporadPayloadOps),
 
     #[error("client connection is closed")]
     ConnectionClosed,
@@ -29,29 +29,29 @@ pub enum GrpcServerError {
     OutgoingRouteCapacityReached(String),
 }
 
-impl From<GrpcServerError> for tondi_rpc_core::error::RpcError {
+impl From<GrpcServerError> for spora_rpc_core::error::RpcError {
     fn from(err: GrpcServerError) -> Self {
         match err {
             GrpcServerError::RpcApiError(err) => err,
             GrpcServerError::NotificationError(err) => err.into(),
-            _ => tondi_rpc_core::error::RpcError::General(err.to_string()),
+            _ => spora_rpc_core::error::RpcError::General(err.to_string()),
         }
     }
 }
 
-impl From<GrpcServerError> for tondi_notify::error::Error {
+impl From<GrpcServerError> for spora_notify::error::Error {
     fn from(err: GrpcServerError) -> Self {
         match err {
-            GrpcServerError::RpcApiError(err) => tondi_notify::error::Error::General(err.to_string()),
+            GrpcServerError::RpcApiError(err) => spora_notify::error::Error::General(err.to_string()),
             GrpcServerError::NotificationError(err) => err,
-            _ => tondi_notify::error::Error::General(err.to_string()),
+            _ => spora_notify::error::Error::General(err.to_string()),
         }
     }
 }
 
 impl<T> From<TrySendError<T>> for GrpcServerError {
     fn from(_: TrySendError<T>) -> Self {
-        tondi_notify::error::Error::ChannelSendError.into()
+        spora_notify::error::Error::ChannelSendError.into()
     }
 }
 

@@ -1,7 +1,7 @@
 use crate::model::stores::{block_window_cache::BlockWindowHeap, headers::HeaderStoreReader};
 use std::sync::Arc;
-use tondi_consensus_core::errors::block::RuleError;
-use tondi_hashes::Hash;
+use spora_consensus_core::errors::block::RuleError;
+use spora_hashes::Hash;
 
 /// A past median manager conforming to the legacy golang implementation
 /// based on full, hence un-sampled, windows
@@ -28,7 +28,7 @@ impl<T: HeaderStoreReader> FullPastMedianTimeManager<T> {
     }
 }
 
-/// A past median time manager implementing [KIP-0004](https://github.com/tondinet/kips/blob/master/kip-0004.md),
+/// A past median time manager implementing [KIP-0004](https://github.com/sporanet/kips/blob/master/kip-0004.md),
 /// so based on sampled windows
 #[derive(Clone)]
 pub struct SampledPastMedianTimeManager<T: HeaderStoreReader> {

@@ -1,11 +1,11 @@
-use crate::{common::ProtocolError, pb::TondidMessage, ConnectionInitializer, Peer, Router};
+use crate::{common::ProtocolError, pb::SporadMessage, ConnectionInitializer, Peer, Router};
 use parking_lot::RwLock;
 use std::{
     collections::{hash_map::Entry::Occupied, HashMap},
     sync::Arc,
 };
 use tokio::sync::mpsc::Receiver as MpscReceiver;
-use tondi_core::{debug, info, warn};
+use spora_core::{debug, info, warn};
 
 use super::peer::PeerKey;
 use rand::prelude::IteratorRandom;
@@ -113,7 +113,7 @@ impl Hub {
     }
 
     /// Send a message to a specific peer
-    pub async fn send(&self, peer_key: PeerKey, msg: TondidMessage) -> Result<bool, ProtocolError> {
+    pub async fn send(&self, peer_key: PeerKey, msg: SporadMessage) -> Result<bool, ProtocolError> {
         let op = self.peers.read().get(&peer_key).cloned();
         if let Some(router) = op {
             router.enqueue(msg).await?;
@@ -124,7 +124,7 @@ impl Hub {
     }
 
     /// Broadcast a message to all peers
-    pub async fn broadcast(&self, msg: TondidMessage) {
+    pub async fn broadcast(&self, msg: SporadMessage) {
         let peers = self.peers.read().values().cloned().collect::<Vec<_>>();
         for router in peers {
             let _ = router.enqueue(msg.clone()).await;
@@ -132,7 +132,7 @@ impl Hub {
     }
 
     /// Broadcast a message to only some number of peers
-    pub async fn broadcast_to_some_peers(&self, msg: TondidMessage, num_peers: usize) {
+    pub async fn broadcast_to_some_peers(&self, msg: SporadMessage, num_peers: usize) {
         assert!(num_peers > 0);
 
         let peers = self.select_some_peers(num_peers);
@@ -143,7 +143,7 @@ impl Hub {
     }
 
     /// Broadcast a vector of messages to all peers
-    pub async fn broadcast_many(&self, msgs: Vec<TondidMessage>) {
+    pub async fn broadcast_many(&self, msgs: Vec<SporadMessage>) {
         if msgs.is_empty() {
             return;
         }

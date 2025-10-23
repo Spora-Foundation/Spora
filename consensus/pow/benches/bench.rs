@@ -1,7 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
-use tondi_hashes::Hash;
-use tondi_pow::{matrix::Matrix, xoshiro::XoShiRo256PlusPlus};
+use spora_hashes::Hash;
+use spora_pow::{matrix::Matrix, xoshiro::XoShiRo256PlusPlus};
 
 // Big enough to make the cache not very useful
 const ITERS: usize = 1024;

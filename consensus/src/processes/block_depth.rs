@@ -1,9 +1,9 @@
 use std::sync::Arc;
-use tondi_consensus_core::{
+use spora_consensus_core::{
     blockhash::{BlockHashExtensions, ORIGIN},
     config::params::ForkedParam,
 };
-use tondi_hashes::Hash;
+use spora_hashes::Hash;
 
 use crate::model::{
     services::reachability::{MTReachabilityService, ReachabilityService},

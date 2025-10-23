@@ -1,6 +1,6 @@
 [package]
-name = "tondi-daemon"
-description = "Utilities for running Tondi node and tools as a child processes"
+name = "spora-daemon"
+description = "Utilities for running Spora node and tools as a child processes"
 rust-version.workspace = true
 version.workspace = true
 edition.workspace = true
@@ -15,9 +15,9 @@ borsh.workspace = true
 cfg-if.workspace = true
 downcast-rs.workspace = true
 futures.workspace = true
-tondi-addresses.workspace = true
-tondi-consensus-core.workspace = true
-tondi-wallet-core.workspace = true
+spora-addresses.workspace = true
+spora-consensus-core.workspace = true
+spora-wallet-core.workspace = true
 nw-sys.workspace = true
 serde.workspace = true
 thiserror.workspace = true

@@ -1,6 +1,6 @@
 use crate::{hashing, tx::{Transaction, CellTx}};
-use tondi_hashes::Hash;
-use tondi_merkle::calc_merkle_root;
+use spora_hashes::Hash;
+use spora_merkle::calc_merkle_root;
 
 pub fn calc_hash_merkle_root<'a>(txs: impl ExactSizeIterator<Item = &'a Transaction>, include_mass_field: bool) -> Hash {
     calc_merkle_root(txs.map(|tx| hashing::tx::hash(tx, include_mass_field)))
@@ -19,7 +19,7 @@ mod tests {
         subnets::{SUBNETWORK_ID_COINBASE, SUBNETWORK_ID_NATIVE},
         tx::{scriptvec, ScriptPublicKey, Transaction, TransactionId, TransactionInput, TransactionOutpoint, TransactionOutput},
     };
-    use tondi_hashes::Hash;
+    use spora_hashes::Hash;
 
     #[test]
     fn merkle_root_test() {

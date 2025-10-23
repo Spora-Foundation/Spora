@@ -1,1 +1,1 @@
-pub type RpcHash = tondi_hashes::Hash;
+pub type RpcHash = spora_hashes::Hash;

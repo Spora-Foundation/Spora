@@ -2,11 +2,11 @@ use crate::{
     hashing::HasherExtensions,
     tx::{TransactionOutpoint, UtxoEntry, VerifiableTransaction},
 };
-use tondi_core::{info, trace};
-use tondi_hashes::HasherBase;
+use spora_core::{info, trace};
+use spora_hashes::HasherBase;
 
 // Re-export MuHash for public use
-pub use tondi_muhash::MuHash;
+pub use spora_muhash::MuHash;
 
 pub trait MuHashExtensions {
     fn add_transaction(&mut self, tx: &impl VerifiableTransaction, block_daa_score: u64);

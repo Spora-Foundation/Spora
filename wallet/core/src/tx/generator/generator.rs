@@ -65,11 +65,11 @@ use crate::tx::{
 };
 use crate::utxo::{NetworkParams, UtxoContext, UtxoEntryReference};
 use std::collections::VecDeque;
-use tondi_consensus_client::UtxoEntry;
-use tondi_consensus_core::constants::UNACCEPTED_DAA_SCORE;
-use tondi_consensus_core::subnets::SUBNETWORK_ID_NATIVE;
-use tondi_consensus_core::tx::{Transaction, TransactionInput, TransactionOutpoint, TransactionOutput};
-use tondi_txscript::{pay_to_address_script, pay_to_address_with_lock_time_script};
+use spora_consensus_client::UtxoEntry;
+use spora_consensus_core::constants::UNACCEPTED_DAA_SCORE;
+use spora_consensus_core::subnets::SUBNETWORK_ID_NATIVE;
+use spora_consensus_core::tx::{Transaction, TransactionInput, TransactionOutpoint, TransactionOutput};
+use spora_txscript::{pay_to_address_script, pay_to_address_with_lock_time_script};
 
 use super::SignerT;
 

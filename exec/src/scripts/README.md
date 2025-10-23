@@ -1,6 +1,6 @@
-# Tondi Standard Scripts
+# Spora Standard Scripts
 
-This directory contains standard lock and type scripts for Tondi.
+This directory contains standard lock and type scripts for Spora.
 
 ## Lock Scripts
 
@@ -29,7 +29,7 @@ let lock = ScriptRef {
 
 **Functionality**:
 - Verifies secp256k1 signatures
-- Uses **blake3** for hashing (Tondi-specific!)
+- Uses **blake3** for hashing (Spora-specific!)
 - Args: pubkey hash (20 bytes, blake3 of pubkey)
 - Witness: signature (65 bytes, r + s + v)
 
@@ -75,13 +75,13 @@ let output = CellOut {
 
 ## Key Differences from CKB
 
-| Feature | CKB | Tondi |
+| Feature | CKB | Spora |
 |---------|-----|-------|
 | Sighash | blake2b | **blake3** |
 | VM syscalls | 9 standard | 9 standard + **blake3_hash** |
 | Binary format | Same RISC-V | Same RISC-V ✅ |
 
-**Important**: CKB scripts need to be **recompiled** for Tondi because:
+**Important**: CKB scripts need to be **recompiled** for Spora because:
 1. Sighash uses blake3 (not blake2b)
 2. Tx hash uses blake3
 3. Script hash uses blake3
@@ -149,7 +149,7 @@ fn test_always_success() {
 
 ### Building Custom Scripts
 
-1. Write script in C (using Tondi syscalls)
+1. Write script in C (using Spora syscalls)
 2. Compile to RISC-V binary
 3. Compute blake3 code hash
 4. Deploy as cell data in genesis or via transaction

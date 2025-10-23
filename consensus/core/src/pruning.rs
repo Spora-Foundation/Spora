@@ -4,7 +4,7 @@ use crate::{
     BlueWorkType,
 };
 use std::sync::Arc;
-use tondi_hashes::Hash;
+use spora_hashes::Hash;
 
 pub type PruningPointProof = Vec<Vec<Arc<Header>>>;
 

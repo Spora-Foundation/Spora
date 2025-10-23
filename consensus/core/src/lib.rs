@@ -1,7 +1,7 @@
 //!
 //! # Consensus Core
 //!
-//! This crate implements primitives used in the Tondi node consensus processing.
+//! This crate implements primitives used in the Spora node consensus processing.
 //!
 
 extern crate alloc;
@@ -11,7 +11,7 @@ extern crate self as consensus_core;
 use std::collections::{HashMap, HashSet};
 use std::hash::{BuildHasher, Hasher};
 
-pub use tondi_hashes::Hash;
+pub use spora_hashes::Hash;
 
 pub mod acceptance_data;
 pub mod api;
@@ -46,7 +46,7 @@ pub mod tx;
 /// Integer type for accumulated PoW of blue blocks. We expect no more than
 /// 2^128 work in a single block (btc has ~2^80), and no more than 2^64
 /// overall blocks, so 2^192 is definitely a justified upper-bound.
-pub type BlueWorkType = tondi_math::Uint192;
+pub type BlueWorkType = spora_math::Uint192;
 
 /// The extends directly from the expectation above about having no more than
 /// 2^128 work in a single block
@@ -142,7 +142,7 @@ pub type BlockLevel = u8;
 mod tests {
     use super::BlockHasher;
     use std::hash::{Hash as _, Hasher as _};
-    use tondi_hashes::Hash;
+    use spora_hashes::Hash;
     #[test]
     fn test_block_hasher() {
         let hash = Hash::from_le_u64([1, 2, 3, 4]);

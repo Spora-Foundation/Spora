@@ -1,19 +1,19 @@
-# Blake3 Syscall Solution for Tondi
+# Blake3 Syscall Solution for Spora
 
 **Date**: 2025-10-22  
-**Question**: Tondi使用blake3，CKB-VM支持blake3吗？  
+**Question**: Spora使用blake3，CKB-VM支持blake3吗？  
 **Answer**: CKB-VM不内置blake3，但我们通过**自定义syscall**提供blake3支持！
 
 ---
 
 ## 🔍 问题分析
 
-### CKB vs Tondi 哈希函数差异
+### CKB vs Spora 哈希函数差异
 
 | 项目 | 哈希函数 | 原因 |
 |------|---------|------|
 | **CKB** | blake2b | 传统选择，经过充分验证 |
-| **Tondi** | blake3 | 更快（~3x），并行化，现代化 |
+| **Spora** | blake3 | 更快（~3x），并行化，现代化 |
 
 ### CKB-VM 的工作原理
 
@@ -41,11 +41,11 @@ CKB的脚本如果需要计算哈希，有两种方式：
 
 ---
 
-## ✅ Tondi的解决方案
+## ✅ Spora的解决方案
 
 ### 方案: 添加 BLAKE3 Syscall
 
-我们为CKB-VM添加了**Tondi专属的blake3 syscall**！
+我们为CKB-VM添加了**Spora专属的blake3 syscall**！
 
 ```rust
 // exec/src/vm/syscalls/blake3.rs
@@ -54,14 +54,14 @@ pub struct Blake3Hash;
 
 impl<M: SupportMachine> Syscalls<M> for Blake3Hash {
     fn ecall(&mut self, machine: &mut M) -> Result<bool, VMError> {
-        // Syscall number: 3001 (Tondi extension)
+        // Syscall number: 3001 (Spora extension)
         
         // 1. 从VM内存读取输入数据
         let mut input_data = vec![0u8; input_len];
         machine.memory_mut().load_bytes(input_addr, &mut input_data)?;
 
         // 2. 计算blake3哈希
-        let hash = blake3::hash(&input_data);  // ← 使用Tondi的blake3!
+        let hash = blake3::hash(&input_data);  // ← 使用Spora的blake3!
         
         // 3. 写回VM内存
         store_data(machine, hash.as_bytes(), output_addr, output_len_ptr)?;
@@ -80,14 +80,14 @@ LOAD_SCRIPT_HASH = 2062  // ✅ CKB兼容
 LOAD_CELL        = 2071  // ✅ CKB兼容
 // ... 等等
 
-// Tondi扩展syscalls: 3000-3999
-BLAKE3_HASH      = 3001  // ✅ Tondi专属
+// Spora扩展syscalls: 3000-3999
+BLAKE3_HASH      = 3001  // ✅ Spora专属
 // 未来可以添加更多: 3002, 3003...
 ```
 
 **优点**:
 - ✅ 不与CKB syscall冲突
-- ✅ 清晰标识Tondi扩展
+- ✅ 清晰标识Spora扩展
 - ✅ 保留未来扩展空间
 
 ---
@@ -111,7 +111,7 @@ int main() {
     
     // 2. 计算blake3哈希
     uint8_t hash[32];
-    blake3_hash(hash, witness, witness_len);  // ← 使用Tondi的blake3 syscall!
+    blake3_hash(hash, witness, witness_len);  // ← 使用Spora的blake3 syscall!
     
     // 3. 比较哈希
     uint8_t expected_hash[32] = { /* ... */ };
@@ -170,7 +170,7 @@ impl<D: CellDataProvider> TransactionScriptVerifier<D> {
         syscalls.push(Box::new(LoadTx::new(&self.tx)));
         syscalls.push(Box::new(LoadCell::new(/* ... */)));
         
-        // ✅ Tondi扩展: blake3 hash
+        // ✅ Spora扩展: blake3 hash
         syscalls.push(Box::new(Blake3Hash::new()));
         
         syscalls
@@ -182,7 +182,7 @@ impl<D: CellDataProvider> TransactionScriptVerifier<D> {
 
 Blake3的性能优势：
 
-| 操作 | Blake2b (CKB) | Blake3 (Tondi) | 提升 |
+| 操作 | Blake2b (CKB) | Blake3 (Spora) | 提升 |
 |------|--------------|----------------|------|
 | 小数据 (<1KB) | ~500 MB/s | ~1.5 GB/s | **3x** |
 | 大数据 (>1MB) | ~600 MB/s | ~2 GB/s | **3.3x** |
@@ -199,7 +199,7 @@ Blake3的性能优势：
 
 ### 保持CKB兼容的部分
 
-| 功能 | CKB | Tondi | 兼容性 |
+| 功能 | CKB | Spora | 兼容性 |
 |------|-----|-------|--------|
 | RISC-V ISA | IMC+B+MOP | IMC+B+MOP | ✅ 100% |
 | Syscall机制 | ecall | ecall | ✅ 100% |
@@ -207,18 +207,18 @@ Blake3的性能优势：
 | VM版本 | V0/V1/V2 | V0/V1/V2 | ✅ 100% |
 | Script结构 | code_hash + args | code_hash + args | ✅ 100% |
 
-### Tondi扩展的部分
+### Spora扩展的部分
 
-| 功能 | CKB | Tondi | 区别 |
+| 功能 | CKB | Spora | 区别 |
 |------|-----|-------|------|
 | 哈希函数 | blake2b隐式 | blake3 syscall | ✅ 扩展 |
 | Tx哈希 | blake2b | blake3 | ⚠️ 不同 |
 | Script哈希 | blake2b | blake3 | ⚠️ 不同 |
 
-**重要**: CKB脚本**不能**直接在Tondi上运行，因为：
+**重要**: CKB脚本**不能**直接在Spora上运行，因为：
 1. Tx hash不同（blake2b vs blake3）
 2. Script hash不同
-3. 需要重新编译（使用Tondi的syscall头文件）
+3. 需要重新编译（使用Spora的syscall头文件）
 
 但是脚本**逻辑**可以复用，只需重新编译！
 
@@ -311,19 +311,19 @@ pub fn blake3_syscall_cycles(data_len: usize) -> u64 {
 
 ## 📝 文档和标准
 
-### Tondi Syscall 规范
+### Spora Syscall 规范
 
 创建 `docs/TONDI_SYSCALLS.md`:
 
 ```markdown
-# Tondi CKB-VM Syscalls
+# Spora CKB-VM Syscalls
 
 ## CKB Standard Syscalls (2000-2999)
 - LOAD_TX_HASH (2061): Load transaction hash (blake3, 32 bytes)
 - LOAD_CELL (2071): Load cell data
 - ...
 
-## Tondi Extensions (3000-3999)
+## Spora Extensions (3000-3999)
 - BLAKE3_HASH (3001): Compute blake3 hash
   - A0: output buffer (32 bytes)
   - A1: output length ptr
@@ -383,10 +383,10 @@ exec/src/vm/syscalls/
 
 ### 未来扩展
 
-可以添加更多Tondi专属syscalls:
+可以添加更多Spora专属syscalls:
 
 ```rust
-// 3000-3999: Tondi extensions
+// 3000-3999: Spora extensions
 BLAKE3_HASH        = 3001  // ✅ 已实现
 BLAKE3_KEYED_HASH  = 3002  // ⏳ 未来: keyed hash
 BLAKE3_DERIVE_KEY  = 3003  // ⏳ 未来: key derivation
@@ -403,11 +403,11 @@ DAG_VERIFY         = 3010  // ⏳ 未来: DAG特定验证
 1. ✅ CKB-VM通过syscall机制完全支持blake3
 2. ✅ 性能比VM内部实现快100倍以上
 3. ✅ 保持与CKB标准syscalls的兼容性
-4. ✅ 为未来Tondi扩展预留空间
+4. ✅ 为未来Spora扩展预留空间
 5. ✅ 代码实现完整，带测试
 
-**CKB脚本开发者可以轻松迁移到Tondi**，只需：
-- 使用Tondi的syscall头文件重新编译
+**CKB脚本开发者可以轻松迁移到Spora**，只需：
+- 使用Spora的syscall头文件重新编译
 - 享受blake3的性能提升！
 
 ---

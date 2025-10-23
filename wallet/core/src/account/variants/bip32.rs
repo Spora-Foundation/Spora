@@ -6,7 +6,7 @@ use crate::account::{create_private_keys, DerivationCapableAccount, Inner};
 use crate::derivation::{AddressDerivationManager, AddressDerivationManagerTrait};
 use crate::imports::*;
 
-pub const BIP32_ACCOUNT_KIND: &str = "tondi-bip32-standard";
+pub const BIP32_ACCOUNT_KIND: &str = "spora-bip32-standard";
 
 pub struct Ctor {}
 
@@ -17,7 +17,7 @@ impl Factory for Ctor {
     }
 
     fn description(&self) -> String {
-        "Tondi Core HD Wallet Account".to_string()
+        "Spora Core HD Wallet Account".to_string()
     }
 
     async fn try_load(

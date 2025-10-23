@@ -15,7 +15,7 @@ use async_channel::Sender;
 use async_trait::async_trait;
 use parking_lot::RwLock;
 use std::sync::Arc;
-use tondi_core::{debug, trace};
+use spora_core::{debug, trace};
 
 /// Root of a notification system
 ///

@@ -1,5 +1,5 @@
 use crate::protowire::{
-    tondid_response::Payload, BlockAddedNotificationMessage, NewBlockTemplateNotificationMessage, RpcNotifyCommand, TondidResponse,
+    tondid_response::Payload, BlockAddedNotificationMessage, NewBlockTemplateNotificationMessage, RpcNotifyCommand, SporadResponse,
 };
 use crate::protowire::{
     FinalityConflictNotificationMessage, FinalityConflictResolvedNotificationMessage, NotifyPruningPointUtxoSetOverrideRequestMessage,
@@ -12,16 +12,16 @@ use crate::protowire::{
 use crate::{from, try_from};
 use std::str::FromStr;
 use std::sync::Arc;
-use tondi_notify::subscription::Command;
-use tondi_rpc_core::{Notification, RpcError, RpcHash};
+use spora_notify::subscription::Command;
+use spora_rpc_core::{Notification, RpcError, RpcHash};
 
 // ----------------------------------------------------------------------------
 // rpc_core to protowire
 // ----------------------------------------------------------------------------
 
-from!(item: &tondi_rpc_core::Notification, TondidResponse, { Self { id: 0, payload: Some(item.into()) } });
+from!(item: &spora_rpc_core::Notification, SporadResponse, { Self { id: 0, payload: Some(item.into()) } });
 
-from!(item: &tondi_rpc_core::Notification, Payload, {
+from!(item: &spora_rpc_core::Notification, Payload, {
     match item {
         Notification::BlockAdded(ref notification) => Payload::BlockAddedNotification(notification.into()),
         Notification::NewBlockTemplate(ref notification) => Payload::NewBlockTemplateNotification(notification.into()),
@@ -37,11 +37,11 @@ from!(item: &tondi_rpc_core::Notification, Payload, {
     }
 });
 
-from!(item: &tondi_rpc_core::BlockAddedNotification, BlockAddedNotificationMessage, { Self { block: Some((&*item.block).into()) } });
+from!(item: &spora_rpc_core::BlockAddedNotification, BlockAddedNotificationMessage, { Self { block: Some((&*item.block).into()) } });
 
-from!(&tondi_rpc_core::NewBlockTemplateNotification, NewBlockTemplateNotificationMessage);
+from!(&spora_rpc_core::NewBlockTemplateNotification, NewBlockTemplateNotificationMessage);
 
-from!(item: &tondi_rpc_core::VirtualChainChangedNotification, VirtualChainChangedNotificationMessage, {
+from!(item: &spora_rpc_core::VirtualChainChangedNotification, VirtualChainChangedNotificationMessage, {
     Self {
         removed_chain_block_hashes: item.removed_chain_block_hashes.iter().map(|x| x.to_string()).collect(),
         added_chain_block_hashes: item.added_chain_block_hashes.iter().map(|x| x.to_string()).collect(),
@@ -49,30 +49,30 @@ from!(item: &tondi_rpc_core::VirtualChainChangedNotification, VirtualChainChange
     }
 });
 
-from!(item: &tondi_rpc_core::FinalityConflictNotification, FinalityConflictNotificationMessage, {
+from!(item: &spora_rpc_core::FinalityConflictNotification, FinalityConflictNotificationMessage, {
     Self { violating_block_hash: item.violating_block_hash.to_string() }
 });
 
-from!(item: &tondi_rpc_core::FinalityConflictResolvedNotification, FinalityConflictResolvedNotificationMessage, {
+from!(item: &spora_rpc_core::FinalityConflictResolvedNotification, FinalityConflictResolvedNotificationMessage, {
     Self { finality_block_hash: item.finality_block_hash.to_string() }
 });
 
-from!(item: &tondi_rpc_core::UtxosChangedNotification, UtxosChangedNotificationMessage, {
+from!(item: &spora_rpc_core::UtxosChangedNotification, UtxosChangedNotificationMessage, {
     Self {
         added: item.added.iter().map(|x| x.into()).collect::<Vec<_>>(),
         removed: item.removed.iter().map(|x| x.into()).collect::<Vec<_>>(),
     }
 });
 
-from!(item: &tondi_rpc_core::SinkBlueScoreChangedNotification, SinkBlueScoreChangedNotificationMessage, {
+from!(item: &spora_rpc_core::SinkBlueScoreChangedNotification, SinkBlueScoreChangedNotificationMessage, {
     Self { sink_blue_score: item.sink_blue_score }
 });
 
-from!(item: &tondi_rpc_core::VirtualDaaScoreChangedNotification, VirtualDaaScoreChangedNotificationMessage, {
+from!(item: &spora_rpc_core::VirtualDaaScoreChangedNotification, VirtualDaaScoreChangedNotificationMessage, {
     Self { virtual_daa_score: item.virtual_daa_score }
 });
 
-from!(&tondi_rpc_core::PruningPointUtxoSetOverrideNotification, PruningPointUtxoSetOverrideNotificationMessage);
+from!(&spora_rpc_core::PruningPointUtxoSetOverrideNotification, PruningPointUtxoSetOverrideNotificationMessage);
 
 from!(item: Command, RpcNotifyCommand, {
     match item {
@@ -93,14 +93,14 @@ from!(_item: &StopNotifyingPruningPointUtxoSetOverrideRequestMessage, NotifyPrun
 // protowire to rpc_core
 // ----------------------------------------------------------------------------
 
-try_from!(item: &TondidResponse, tondi_rpc_core::Notification, {
+try_from!(item: &SporadResponse, spora_rpc_core::Notification, {
     item.payload
         .as_ref()
-        .ok_or_else(|| RpcError::MissingRpcFieldError("TondidResponse".to_string(), "payload".to_string()))?
+        .ok_or_else(|| RpcError::MissingRpcFieldError("SporadResponse".to_string(), "payload".to_string()))?
         .try_into()?
 });
 
-try_from!(item: &Payload, tondi_rpc_core::Notification, {
+try_from!(item: &Payload, spora_rpc_core::Notification, {
     match item {
         Payload::BlockAddedNotification(ref notification) => Notification::BlockAdded(notification.try_into()?),
         Payload::NewBlockTemplateNotification(ref notification) => Notification::NewBlockTemplate(notification.try_into()?),
@@ -121,7 +121,7 @@ try_from!(item: &Payload, tondi_rpc_core::Notification, {
     }
 });
 
-try_from!(item: &BlockAddedNotificationMessage, tondi_rpc_core::BlockAddedNotification, {
+try_from!(item: &BlockAddedNotificationMessage, spora_rpc_core::BlockAddedNotification, {
     Self {
         block: Arc::new(
             item.block
@@ -132,9 +132,9 @@ try_from!(item: &BlockAddedNotificationMessage, tondi_rpc_core::BlockAddedNotifi
     }
 });
 
-try_from!(&NewBlockTemplateNotificationMessage, tondi_rpc_core::NewBlockTemplateNotification);
+try_from!(&NewBlockTemplateNotificationMessage, spora_rpc_core::NewBlockTemplateNotification);
 
-try_from!(item: &VirtualChainChangedNotificationMessage, tondi_rpc_core::VirtualChainChangedNotification, {
+try_from!(item: &VirtualChainChangedNotificationMessage, spora_rpc_core::VirtualChainChangedNotification, {
     Self {
         removed_chain_block_hashes: Arc::new(
             item.removed_chain_block_hashes.iter().map(|x| RpcHash::from_str(x)).collect::<Result<Vec<_>, _>>()?,
@@ -146,30 +146,30 @@ try_from!(item: &VirtualChainChangedNotificationMessage, tondi_rpc_core::Virtual
     }
 });
 
-try_from!(item: &FinalityConflictNotificationMessage, tondi_rpc_core::FinalityConflictNotification, {
+try_from!(item: &FinalityConflictNotificationMessage, spora_rpc_core::FinalityConflictNotification, {
     Self { violating_block_hash: RpcHash::from_str(&item.violating_block_hash)? }
 });
 
-try_from!(item: &FinalityConflictResolvedNotificationMessage, tondi_rpc_core::FinalityConflictResolvedNotification, {
+try_from!(item: &FinalityConflictResolvedNotificationMessage, spora_rpc_core::FinalityConflictResolvedNotification, {
     Self { finality_block_hash: RpcHash::from_str(&item.finality_block_hash)? }
 });
 
-try_from!(item: &UtxosChangedNotificationMessage, tondi_rpc_core::UtxosChangedNotification, {
+try_from!(item: &UtxosChangedNotificationMessage, spora_rpc_core::UtxosChangedNotification, {
     Self {
         added: Arc::new(item.added.iter().map(|x| x.try_into()).collect::<Result<Vec<_>, _>>()?),
         removed: Arc::new(item.removed.iter().map(|x| x.try_into()).collect::<Result<Vec<_>, _>>()?),
     }
 });
 
-try_from!(item: &SinkBlueScoreChangedNotificationMessage, tondi_rpc_core::SinkBlueScoreChangedNotification, {
+try_from!(item: &SinkBlueScoreChangedNotificationMessage, spora_rpc_core::SinkBlueScoreChangedNotification, {
     Self { sink_blue_score: item.sink_blue_score }
 });
 
-try_from!(item: &VirtualDaaScoreChangedNotificationMessage, tondi_rpc_core::VirtualDaaScoreChangedNotification, {
+try_from!(item: &VirtualDaaScoreChangedNotificationMessage, spora_rpc_core::VirtualDaaScoreChangedNotification, {
     Self { virtual_daa_score: item.virtual_daa_score }
 });
 
-try_from!(&PruningPointUtxoSetOverrideNotificationMessage, tondi_rpc_core::PruningPointUtxoSetOverrideNotification);
+try_from!(&PruningPointUtxoSetOverrideNotificationMessage, spora_rpc_core::PruningPointUtxoSetOverrideNotification);
 
 from!(item: RpcNotifyCommand, Command, {
     match item {

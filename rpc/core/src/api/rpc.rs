@@ -1,5 +1,5 @@
 //!
-//! The main [`RpcApi`] trait that defines all RPC methods available in the Rusty Tondi p2p node.
+//! The main [`RpcApi`] trait that defines all RPC methods available in the Rusty Spora p2p node.
 //!
 //! Rpc = External RPC Service
 //! All data provided by the RPC server can be trusted by the client
@@ -11,7 +11,7 @@ use crate::{model::*, notify::connection::ChannelConnection, RpcResult};
 use async_trait::async_trait;
 use downcast::{downcast_sync, AnySync};
 use std::sync::Arc;
-use tondi_notify::{listener::ListenerId, scope::Scope, subscription::Command};
+use spora_notify::{listener::ListenerId, scope::Scope, subscription::Command};
 
 pub const MAX_SAFE_WINDOW_SIZE: u32 = 10_000;
 
@@ -138,7 +138,7 @@ pub trait RpcApi: Sync + Send + AnySync {
         request: GetBlockTemplateRequest,
     ) -> RpcResult<GetBlockTemplateResponse>;
 
-    /// Requests the list of known Tondid addresses in the current network (mainnet, testnet, etc.)
+    /// Requests the list of known Sporad addresses in the current network (mainnet, testnet, etc.)
     async fn get_peer_addresses(&self) -> RpcResult<GetPeerAddressesResponse> {
         self.get_peer_addresses_call(None, GetPeerAddressesRequest {}).await
     }

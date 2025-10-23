@@ -31,11 +31,11 @@ pub struct Header {
 
 ```rust
 // Current formula:
-cell_commitment = H("tondi/cell_commitment/v0" || cell_root)
+cell_commitment = H("spora/cell_commitment/v0" || cell_root)
 
 // Where H = blake3 domain-separated hash
 let mut hasher = blake3::Hasher::new();
-hasher.update(b"tondi/cell_commitment/v0");
+hasher.update(b"spora/cell_commitment/v0");
 hasher.update(&cell_root.as_bytes());
 cell_commitment = Hash::from_bytes(*hasher.finalize().as_bytes());
 ```
@@ -46,7 +46,7 @@ cell_commitment = Hash::from_bytes(*hasher.finalize().as_bytes());
 // Nodes verify:
 1. Compute cell_root from selected_parent + block diff
 2. Verify cell_root matches header.cell_root
-3. Verify cell_commitment = H("tondi/cell_commitment/v0" || cell_root)
+3. Verify cell_commitment = H("spora/cell_commitment/v0" || cell_root)
 ```
 
 ### Why Two Fields?
@@ -85,7 +85,7 @@ pub struct Header {
 **v1 Calculation**:
 ```rust
 // v1 formula:
-cell_commitment = H("tondi/cell_commitment/v1" || cell_root || history_root)
+cell_commitment = H("spora/cell_commitment/v1" || cell_root || history_root)
 
 // history_root: Merkle tree of all past cell_roots
 // - Allows proving "cell_root was X at DAA Y"
@@ -121,7 +121,7 @@ history_root = history_tree.root();
 
 **Formula**:
 ```rust
-cell_commitment = H("tondi/cell_commitment/v2" 
+cell_commitment = H("spora/cell_commitment/v2" 
     || cell_root 
     || history_root
     || execution_root)
@@ -147,14 +147,14 @@ cell_commitment = H("tondi/cell_commitment/v2"
 // Detect version from domain prefix:
 fn detect_version(cell_commitment: Hash, cell_root: Hash, ...) -> u8 {
     // Try v0:
-    let v0_commitment = H("tondi/cell_commitment/v0" || cell_root);
+    let v0_commitment = H("spora/cell_commitment/v0" || cell_root);
     if v0_commitment == cell_commitment {
         return 0;
     }
     
     // Try v1:
     if history_root is available {
-        let v1_commitment = H("tondi/cell_commitment/v1" || cell_root || history_root);
+        let v1_commitment = H("spora/cell_commitment/v1" || cell_root || history_root);
         if v1_commitment == cell_commitment {
             return 1;
         }
@@ -214,7 +214,7 @@ cell_commitment = v1_formula()  // Always
 - `consensus/src/pipeline/virtual_processor/cell_processing.rs`: v0 calculation
 - Tests: 100% passing
 
-**Formula**: `cell_commitment = H("tondi/cell_commitment/v0" || cell_root)`
+**Formula**: `cell_commitment = H("spora/cell_commitment/v0" || cell_root)`
 
 ### Phase 1: v1 Design (6-12 months)
 
@@ -307,7 +307,7 @@ fn verify_expected_cell_state(
 
 fn compute_cell_commitment_v0(cell_root: Hash) -> Hash {
     let mut hasher = blake3::Hasher::new();
-    hasher.update(b"tondi/cell_commitment/v0");
+    hasher.update(b"spora/cell_commitment/v0");
     hasher.update(&cell_root.as_bytes());
     Hash::from_bytes(*hasher.finalize().as_bytes())
 }
@@ -344,7 +344,7 @@ fn verify_expected_cell_state_v1(
 
 fn compute_cell_commitment_v1(cell_root: Hash, history_root: Hash) -> Hash {
     let mut hasher = blake3::Hasher::new();
-    hasher.update(b"tondi/cell_commitment/v1");
+    hasher.update(b"spora/cell_commitment/v1");
     hasher.update(&cell_root.as_bytes());
     hasher.update(&history_root.as_bytes());
     Hash::from_bytes(*hasher.finalize().as_bytes())
@@ -456,8 +456,8 @@ Per-block storage: ~264 bytes (+32 for history_root, +32 for journal)
 ### v0 Tests (Current) ✅
 
 ```bash
-cargo test --package tondi-consensus-core cell_diff
-cargo test --package tondi-consensus virtual_processor
+cargo test --package spora-consensus-core cell_diff
+cargo test --package spora-consensus virtual_processor
 ```
 
 **Coverage**:

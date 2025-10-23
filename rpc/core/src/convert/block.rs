@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use crate::{RpcBlock, RpcError, RpcRawBlock, RpcResult, RpcTransaction};
-use tondi_consensus_core::block::{Block, MutableBlock};
+use spora_consensus_core::block::{Block, MutableBlock};
 
 // ----------------------------------------------------------------------------
 // consensus_core to rpc_core

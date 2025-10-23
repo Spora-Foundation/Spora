@@ -1,8 +1,8 @@
 use std::cmp::Ordering;
 
 use serde::{Deserialize, Serialize};
-use tondi_consensus_core::BlueWorkType;
-use tondi_hashes::Hash;
+use spora_consensus_core::BlueWorkType;
+use spora_hashes::Hash;
 
 use crate::model::{
     services::reachability::ReachabilityService,

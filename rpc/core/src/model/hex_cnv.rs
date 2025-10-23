@@ -1,8 +1,8 @@
 use smallvec::{smallvec, SmallVec};
 use std::str;
-use tondi_consensus_core::BlueWorkType;
+use spora_consensus_core::BlueWorkType;
 
-// TODO combine this with tondi-utils::hex
+// TODO combine this with spora-utils::hex
 
 pub trait ToRpcHex {
     fn to_rpc_hex(&self) -> String;

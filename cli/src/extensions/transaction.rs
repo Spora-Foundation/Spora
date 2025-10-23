@@ -1,8 +1,8 @@
 use crate::imports::*;
-use tondi_consensus_core::tx::{TransactionInput, TransactionOutpoint};
-use tondi_wallet_core::storage::Binding;
-use tondi_wallet_core::storage::{TransactionData, TransactionKind, TransactionRecord};
-use tondi_wallet_core::wallet::WalletGuard;
+use spora_consensus_core::tx::{TransactionInput, TransactionOutpoint};
+use spora_wallet_core::storage::Binding;
+use spora_wallet_core::storage::{TransactionData, TransactionKind, TransactionRecord};
+use spora_wallet_core::wallet::WalletGuard;
 use workflow_log::style;
 
 pub trait TransactionTypeExtension {
@@ -123,7 +123,7 @@ impl TransactionExtension for TransactionRecord {
         let state = state.unwrap_or(&maturity);
         let mut lines = vec![format!("{name} {id} @{block_daa_score} DAA - {kind} {state}")];
 
-        let suffix = tondi_suffix(&self.network_id.network_type);
+        let suffix = spora_suffix(&self.network_id.network_type);
 
         match transaction_data {
             TransactionData::Reorg { utxo_entries, aggregate_input_value }

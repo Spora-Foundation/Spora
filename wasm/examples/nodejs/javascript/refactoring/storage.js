@@ -1,13 +1,13 @@
 globalThis.WebSocket = require('websocket').w3cwebsocket; // W3C WebSocket module shim
 
-const tondi = require('../tondi/tondi_wasm');
+const spora = require('../spora/spora_wasm');
 const {parseArgs} = require("../utils");
-tondi.init_console_panic_hook();
+spora.init_console_panic_hook();
 
 (async () => {
     const {networkType} = parseArgs();
 
-    const wallet = new tondi.Wallet({
+    const wallet = new spora.Wallet({
         resident: true,
         networkType: networkType,
     });
@@ -32,7 +32,7 @@ tondi.init_console_panic_hook();
     console.log("keydata:", keyData);
 
     const account = await wallet.createAccount(keyData.id, {
-        accountKind: tondi.AccountKind.Bip32,
+        accountKind: spora.AccountKind.Bip32,
         walletSecret
     });
 

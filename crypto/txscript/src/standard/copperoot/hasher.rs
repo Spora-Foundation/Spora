@@ -4,7 +4,7 @@
 //! all using BLAKE3-256 as the underlying hash function.
 
 use blake3::Hasher;
-use tondi_hashes::Hash;
+use spora_hashes::Hash;
 
 /// Domain separation constants for Copperoot
 pub const COPPEROOT_SIGHASH_TAG: &[u8] = b"CopperootSighash";
@@ -15,8 +15,8 @@ pub const COPPEROOT_SCRIPT_PATH_TAG: &[u8] = b"CopperootScriptPath";
 pub const COPPEROOT_KEY_PATH_TAG: &[u8] = b"CopperootKeyPath";
 
 /// Chain-specific domain separation constants (prevents cross-chain replay)
-pub const CHAIN_ID_TAG: &[u8] = b"TondiChainID";
-pub const GENESIS_HASH_TAG: &[u8] = b"TondiGenesisHash";
+pub const CHAIN_ID_TAG: &[u8] = b"SporaChainID";
+pub const GENESIS_HASH_TAG: &[u8] = b"SporaGenesisHash";
 
 /// Sighash domain separation constants
 pub const AMOUNTS_TAG: &[u8] = b"Amounts";

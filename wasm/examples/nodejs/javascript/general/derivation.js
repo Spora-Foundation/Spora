@@ -1,13 +1,13 @@
-const tondi = require('../../../../nodejs/tondi');
+const spora = require('../../../../nodejs/spora');
 const {
     Mnemonic,
     XPrv,
     DerivationPath,
     PublicKey,
     NetworkType,
-} = tondi;
+} = spora;
 
-tondi.initConsolePanicHook();
+spora.initConsolePanicHook();
 
 (async () => {
 
@@ -17,7 +17,7 @@ tondi.initConsolePanicHook();
     const seed = mnemonic.toSeed();
     console.log("seed:", seed);
 
-    // tondi
+    // spora
     let xPrv = new XPrv(seed);
     // derive full path upto second address of receive wallet
     let pubkey1 = xPrv.derivePath("m/44'/7890'/0'/0/1").toXPub().toPublicKey();

@@ -3,7 +3,7 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
-use tondi_core::{
+use spora_core::{
     info,
     task::{
         service::{AsyncService, AsyncServiceFuture},

@@ -1,7 +1,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { Mnemonic, XPrv, PublicKeyGenerator } = require('../nodejs/tondi');
+const { Mnemonic, XPrv, PublicKeyGenerator } = require('../nodejs/spora');
 const { parseArgs } = require('node:util');
 const { create } = require('domain');
 

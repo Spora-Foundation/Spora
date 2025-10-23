@@ -1,7 +1,7 @@
 [package]
 name = "tondid"
-description = "tondi full node daemon"
-keywords = ["tondi", "blockdag"]
+description = "spora full node daemon"
+keywords = ["spora", "blockdag"]
 rust-version.workspace = true
 version.workspace = true
 edition.workspace = true
@@ -15,31 +15,31 @@ name = "tondid_lib"
 crate-type = ["cdylib", "lib"]
 
 [dependencies]
-tondi-alloc.workspace = true # This changes the global allocator for all of the next dependencies so should be kept first
+spora-alloc.workspace = true # This changes the global allocator for all of the next dependencies so should be kept first
 
-tondi-addresses.workspace = true
-tondi-addressmanager.workspace = true
-tondi-consensus-core.workspace = true
-tondi-consensus-notify.workspace = true
-tondi-consensus.workspace = true
-tondi-consensusmanager.workspace = true
-tondi-core.workspace = true
-tondi-database.workspace = true
-tondi-grpc-server.workspace = true
-tondi-hashes.workspace = true
-tondi-index-processor.workspace = true
-tondi-mining.workspace = true
-tondi-notify.workspace = true
-tondi-p2p-flows.workspace = true
-tondi-p2p-lib.workspace = true
-tondi-p2p-mining.workspace = true
-tondi-perf-monitor.workspace = true
-tondi-rpc-core.workspace = true
-tondi-rpc-service.workspace = true
-tondi-txscript.workspace = true
-tondi-utils.workspace = true
-tondi-utils-tower.workspace = true
-tondi-wrpc-server.workspace = true
+spora-addresses.workspace = true
+spora-addressmanager.workspace = true
+spora-consensus-core.workspace = true
+spora-consensus-notify.workspace = true
+spora-consensus.workspace = true
+spora-consensusmanager.workspace = true
+spora-core.workspace = true
+spora-database.workspace = true
+spora-grpc-server.workspace = true
+spora-hashes.workspace = true
+spora-index-processor.workspace = true
+spora-mining.workspace = true
+spora-notify.workspace = true
+spora-p2p-flows.workspace = true
+spora-p2p-lib.workspace = true
+spora-p2p-mining.workspace = true
+spora-perf-monitor.workspace = true
+spora-rpc-core.workspace = true
+spora-rpc-service.workspace = true
+spora-txscript.workspace = true
+spora-utils.workspace = true
+spora-utils-tower.workspace = true
+spora-wrpc-server.workspace = true
 
 async-channel.workspace = true
 cfg-if.workspace = true
@@ -63,6 +63,6 @@ toml = "0.8.10"
 serde_with = "3.7.0"
 
 [features]
-heap = ["dhat", "tondi-alloc/heap"]
-devnet-prealloc = ["tondi-consensus/devnet-prealloc"]
-semaphore-trace = ["tondi-utils/semaphore-trace"]
+heap = ["dhat", "spora-alloc/heap"]
+devnet-prealloc = ["spora-consensus/devnet-prealloc"]
+semaphore-trace = ["spora-utils/semaphore-trace"]

@@ -5,13 +5,13 @@ use crate::model::{
     stores::{ghostdag::GhostdagStoreReader, reachability::ReachabilityStoreReader, relations::RelationsStoreReader},
 };
 use itertools::Itertools;
-use tondi_consensus_core::{
+use spora_consensus_core::{
     blockhash::BlockHashExtensions,
     errors::traversal::{TraversalError, TraversalResult},
     BlockHashSet, ChainPath,
 };
-use tondi_core::trace;
-use tondi_hashes::Hash;
+use spora_core::trace;
+use spora_hashes::Hash;
 
 #[derive(Clone)]
 pub struct DagTraversalManager<T: GhostdagStoreReader, U: ReachabilityStoreReader, V: RelationsStoreReader> {

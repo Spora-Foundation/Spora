@@ -1,6 +1,6 @@
 [package]
-name = "tondi-wrpc-example-subscriber"
-description = "Tondi wRPC subscription example"
+name = "spora-wrpc-example-subscriber"
+description = "Spora wRPC subscription example"
 publish = false
 rust-version.workspace = true
 version.workspace = true
@@ -12,10 +12,10 @@ repository.workspace = true
 
 [dependencies]
 futures.workspace = true
-tondi-consensus-core.workspace = true
-tondi-rpc-core.workspace = true
-tondi-wrpc-client.workspace = true
-tondi-notify.workspace = true
+spora-consensus-core.workspace = true
+spora-rpc-core.workspace = true
+spora-wrpc-client.workspace = true
+spora-notify.workspace = true
 tokio.workspace = true
 workflow-core.workspace = true
 workflow-log.workspace = true

@@ -1,7 +1,7 @@
 //!
-//! # WASM bindings for the [Tondi p2p Node RPC client](TondiRpcClient).
+//! # WASM bindings for the [Spora p2p Node RPC client](SporaRpcClient).
 //!
-//! This module provides a WASM interface for the Tondi p2p Node RPC client
+//! This module provides a WASM interface for the Spora p2p Node RPC client
 //! - [`RpcClient`].
 //!
 
@@ -12,19 +12,19 @@ use crate::Resolver;
 use crate::{RpcEventCallback, RpcEventType, RpcEventTypeOrCallback};
 use js_sys::{Function, Object};
 pub use serde_wasm_bindgen::from_value;
-use tondi_addresses::{Address, AddressOrStringArrayT};
-use tondi_consensus_client::UtxoEntryReference;
-use tondi_consensus_core::network::{NetworkType, NetworkTypeT};
-use tondi_notify::connection::ChannelType;
-use tondi_notify::events::EventType;
-use tondi_notify::listener;
-use tondi_notify::notification::Notification as NotificationT;
-use tondi_rpc_core::api::ctl;
-pub use tondi_rpc_core::wasm::message::*;
-pub use tondi_rpc_macros::{
+use spora_addresses::{Address, AddressOrStringArrayT};
+use spora_consensus_client::UtxoEntryReference;
+use spora_consensus_core::network::{NetworkType, NetworkTypeT};
+use spora_notify::connection::ChannelType;
+use spora_notify::events::EventType;
+use spora_notify::listener;
+use spora_notify::notification::Notification as NotificationT;
+use spora_rpc_core::api::ctl;
+pub use spora_rpc_core::wasm::message::*;
+pub use spora_rpc_macros::{
     build_wrpc_wasm_bindgen_interface, build_wrpc_wasm_bindgen_subscriptions, declare_typescript_wasm_interface as declare,
 };
-use tondi_wasm_core::events::{get_event_targets, Sink};
+use spora_wasm_core::events::{get_event_targets, Sink};
 use workflow_rpc::client::Ctl;
 pub use workflow_rpc::client::IConnectOptions;
 pub use workflow_rpc::encoding::Encoding as WrpcEncoding;
@@ -138,13 +138,13 @@ impl TryFrom<JsValue> for NotificationEvent {
 }
 
 pub(crate) struct Inner {
-    client: Arc<TondiRpcClient>,
+    client: Arc<SporaRpcClient>,
     resolver: Option<Resolver>,
     notification_task: AtomicBool,
     notification_ctl: DuplexChannel,
     callbacks: Arc<Mutex<AHashMap<NotificationEvent, Vec<Sink>>>>,
     listener_id: Arc<Mutex<Option<ListenerId>>>,
-    notification_channel: Channel<tondi_rpc_core::Notification>,
+    notification_channel: Channel<spora_rpc_core::Notification>,
 }
 
 impl Inner {
@@ -166,11 +166,11 @@ impl Inner {
 
 ///
 ///
-/// Tondi RPC client uses ([wRPC](https://github.com/workflow-rs/workflow-rs/tree/master/rpc))
-/// interface to connect directly with Tondi Node. wRPC supports
+/// Spora RPC client uses ([wRPC](https://github.com/workflow-rs/workflow-rs/tree/master/rpc))
+/// interface to connect directly with Spora Node. wRPC supports
 /// two types of encodings: `borsh` (binary, default) and `json`.
 ///
-/// There are two ways to connect: Directly to any Tondi Node or to a
+/// There are two ways to connect: Directly to any Spora Node or to a
 /// community-maintained public node infrastructure using the {@link Resolver} class.
 ///
 /// **Connecting to a public node using a resolver**
@@ -184,7 +184,7 @@ impl Inner {
 /// await rpc.connect();
 /// ```
 ///
-/// **Connecting to a Tondi Node directly**
+/// **Connecting to a Spora Node directly**
 ///
 /// ```javascript
 /// let rpc = new RpcClient({
@@ -230,7 +230,7 @@ impl Inner {
 /// using {@link RpcClient.addEventListener} and {@link RpcClient.removeEventListener} functions.
 ///
 /// **IMPORTANT:** If RPC is disconnected, upon reconnection you do not need
-/// to re-register event listeners, but your have to re-subscribe for Tondi node
+/// to re-register event listeners, but your have to re-subscribe for Spora node
 /// notifications:
 ///
 /// ```typescript
@@ -296,7 +296,7 @@ impl RpcClient {
             .transpose()?;
 
         let client = Arc::new(
-            TondiRpcClient::new(encoding, url.as_deref(), resolver.clone().map(Into::into), network_id, None)
+            SporaRpcClient::new(encoding, url.as_deref(), resolver.clone().map(Into::into), network_id, None)
                 .unwrap_or_else(|err| panic!("{err}")),
         );
 
@@ -374,7 +374,7 @@ impl RpcClient {
         self.inner.client.node_descriptor().map(|node| node.uid.clone())
     }
 
-    /// Connect to the Tondi RPC server. This function starts a background
+    /// Connect to the Spora RPC server. This function starts a background
     /// task that connects and reconnects to the server if the connection
     /// is terminated.  Use [`disconnect()`](Self::disconnect()) to
     /// terminate the connection.
@@ -388,7 +388,7 @@ impl RpcClient {
         Ok(())
     }
 
-    /// Disconnect from the Tondi RPC server.
+    /// Disconnect from the Spora RPC server.
     pub async fn disconnect(&self) -> Result<()> {
         // disconnect the client first to receive the 'close' event
         self.inner.client.disconnect().await?;
@@ -432,7 +432,7 @@ impl RpcClient {
     /// triggered when notifications are received.
     ///
     /// If node is disconnected, upon reconnection you do not need to re-register event listeners,
-    /// however, you have to re-subscribe for Tondi node notifications. As such, it is recommended
+    /// however, you have to re-subscribe for Spora node notifications. As such, it is recommended
     /// to register event listeners when the RPC `open` event is received.
     ///
     /// ```javascript
@@ -605,7 +605,7 @@ impl RpcClient {
 }
 
 impl RpcClient {
-    pub fn new_with_rpc_client(client: Arc<TondiRpcClient>) -> RpcClient {
+    pub fn new_with_rpc_client(client: Arc<SporaRpcClient>) -> RpcClient {
         let resolver = client.resolver().map(Into::into);
         RpcClient {
             inner: Arc::new(Inner {
@@ -624,7 +624,7 @@ impl RpcClient {
         *self.inner.listener_id.lock().unwrap()
     }
 
-    pub fn client(&self) -> &Arc<TondiRpcClient> {
+    pub fn client(&self) -> &Arc<SporaRpcClient> {
         &self.inner.client
     }
 
@@ -661,7 +661,7 @@ impl RpcClient {
                             match ctl {
                                 Ctl::Connect => {
                                     let listener_id = this.inner.client.register_new_listener(ChannelConnection::new(
-                                        "tondi-wrpc-client-wasm",
+                                        "spora-wrpc-client-wasm",
                                         this.inner.notification_channel.sender.clone(),
                                         ChannelType::Persistent,
                                     ));
@@ -693,7 +693,7 @@ impl RpcClient {
                     msg = notification_receiver.recv().fuse() => {
                         if let Ok(notification) = &msg {
                             match &notification {
-                                tondi_rpc_core::Notification::UtxosChanged(utxos_changed_notification) => {
+                                spora_rpc_core::Notification::UtxosChanged(utxos_changed_notification) => {
 
                                     let event_type = EventType::UtxosChanged;
                                     let notification_event = NotificationEvent::Notification(event_type);
@@ -778,7 +778,7 @@ impl RpcClient {
     ///
     #[wasm_bindgen(js_name = parseUrl)]
     pub fn parse_url(url: &str, encoding: Encoding, network: NetworkId) -> Result<String> {
-        let url_ = TondiRpcClient::parse_url(url.to_string(), encoding, network.into())?;
+        let url_ = SporaRpcClient::parse_url(url.to_string(), encoding, network.into())?;
         Ok(url_)
     }
 }
@@ -787,7 +787,7 @@ impl RpcClient {
 impl RpcClient {
     /// Manage subscription for a virtual DAA score changed notification event.
     /// Virtual DAA score changed notification event is produced when the virtual
-    /// Difficulty Adjustment Algorithm (DAA) score changes in the Tondi BlockDAG.
+    /// Difficulty Adjustment Algorithm (DAA) score changes in the Spora BlockDAG.
     #[wasm_bindgen(js_name = subscribeVirtualDaaScoreChanged)]
     pub async fn subscribe_daa_score(&self) -> Result<()> {
         if let Some(listener_id) = self.listener_id() {
@@ -800,7 +800,7 @@ impl RpcClient {
 
     /// Manage subscription for a virtual DAA score changed notification event.
     /// Virtual DAA score changed notification event is produced when the virtual
-    /// Difficulty Adjustment Algorithm (DAA) score changes in the Tondi BlockDAG.
+    /// Difficulty Adjustment Algorithm (DAA) score changes in the Spora BlockDAG.
     #[wasm_bindgen(js_name = unsubscribeVirtualDaaScoreChanged)]
     pub async fn unsubscribe_daa_score(&self) -> Result<()> {
         if let Some(listener_id) = self.listener_id() {
@@ -814,7 +814,7 @@ impl RpcClient {
     /// Subscribe for a UTXOs changed notification event.
     /// UTXOs changed notification event is produced when the set
     /// of unspent transaction outputs (UTXOs) changes in the
-    /// Tondi BlockDAG. The event notification will be scoped to the
+    /// Spora BlockDAG. The event notification will be scoped to the
     /// provided list of addresses.
     #[wasm_bindgen(js_name = subscribeUtxosChanged)]
     pub async fn subscribe_utxos_changed(&self, addresses: AddressOrStringArrayT) -> Result<()> {
@@ -845,7 +845,7 @@ impl RpcClient {
 
     /// Manage subscription for a virtual chain changed notification event.
     /// Virtual chain changed notification event is produced when the virtual
-    /// chain changes in the Tondi BlockDAG.
+    /// chain changes in the Spora BlockDAG.
     #[wasm_bindgen(js_name = subscribeVirtualChainChanged)]
     pub async fn subscribe_virtual_chain_changed(&self, include_accepted_transaction_ids: bool) -> Result<()> {
         if let Some(listener_id) = self.listener_id() {
@@ -861,7 +861,7 @@ impl RpcClient {
 
     /// Manage subscription for a virtual chain changed notification event.
     /// Virtual chain changed notification event is produced when the virtual
-    /// chain changes in the Tondi BlockDAG.
+    /// chain changes in the Spora BlockDAG.
     #[wasm_bindgen(js_name = unsubscribeVirtualChainChanged)]
     pub async fn unsubscribe_virtual_chain_changed(&self, include_accepted_transaction_ids: bool) -> Result<()> {
         if let Some(listener_id) = self.listener_id() {
@@ -884,28 +884,28 @@ build_wrpc_wasm_bindgen_subscriptions!([
     // - VirtualDaaScoreChanged,
     /// Manage subscription for a block added notification event.
     /// Block added notification event is produced when a new
-    /// block is added to the Tondi BlockDAG.
+    /// block is added to the Spora BlockDAG.
     BlockAdded,
     /// Manage subscription for a finality conflict notification event.
     /// Finality conflict notification event is produced when a finality
-    /// conflict occurs in the Tondi BlockDAG.
+    /// conflict occurs in the Spora BlockDAG.
     FinalityConflict,
     // TODO provide better description
     /// Manage subscription for a finality conflict resolved notification event.
     /// Finality conflict resolved notification event is produced when a finality
-    /// conflict in the Tondi BlockDAG is resolved.
+    /// conflict in the Spora BlockDAG is resolved.
     FinalityConflictResolved,
     /// Manage subscription for a sink blue score changed notification event.
     /// Sink blue score changed notification event is produced when the blue
-    /// score of the sink block changes in the Tondi BlockDAG.
+    /// score of the sink block changes in the Spora BlockDAG.
     SinkBlueScoreChanged,
     /// Manage subscription for a pruning point UTXO set override notification event.
     /// Pruning point UTXO set override notification event is produced when the
-    /// UTXO set override for the pruning point changes in the Tondi BlockDAG.
+    /// UTXO set override for the pruning point changes in the Spora BlockDAG.
     PruningPointUtxoSetOverride,
     /// Manage subscription for a new block template notification event.
     /// New block template notification event is produced when a new block
-    /// template is generated for mining in the Tondi BlockDAG.
+    /// template is generated for mining in the Spora BlockDAG.
     NewBlockTemplate,
 ]);
 
@@ -919,43 +919,43 @@ build_wrpc_wasm_bindgen_interface!(
         // functions with optional arguments
         // they are specified as Option<IXxxRequest>
         // which map as `request? : IXxxRequest` in typescript
-        /// Retrieves the current number of blocks in the Tondi BlockDAG.
+        /// Retrieves the current number of blocks in the Spora BlockDAG.
         /// This is not a block count, not a "block height" and can not be
         /// used for transaction validation.
         /// Returned information: Current block count.
         GetBlockCount,
         /// Provides information about the Directed Acyclic Graph (DAG)
-        /// structure of the Tondi BlockDAG.
+        /// structure of the Spora BlockDAG.
         /// Returned information: Number of blocks in the DAG,
         /// number of tips in the DAG, hash of the selected parent block,
         /// difficulty of the selected parent block, selected parent block
         /// blue score, selected parent block time.
         GetBlockDagInfo,
-        /// Returns the total current coin supply of Tondi network.
+        /// Returns the total current coin supply of Spora network.
         /// Returned information: Total coin supply.
         GetCoinSupply,
-        /// Retrieves information about the peers connected to the Tondi node.
+        /// Retrieves information about the peers connected to the Spora node.
         /// Returned information: Peer ID, IP address and port, connection
         /// status, protocol version.
         GetConnectedPeerInfo,
-        /// Retrieves general information about the Tondi node.
-        /// Returned information: Version of the Tondi node, protocol
+        /// Retrieves general information about the Spora node.
+        /// Returned information: Version of the Spora node, protocol
         /// version, network identifier.
         /// This call is primarily used by gRPC clients.
         /// For wRPC clients, use {@link RpcClient.getServerInfo}.
         GetInfo,
-        /// Provides a list of addresses of known peers in the Tondi
+        /// Provides a list of addresses of known peers in the Spora
         /// network that the node can potentially connect to.
         /// Returned information: List of peer addresses.
         GetPeerAddresses,
         /// Retrieves various metrics and statistics related to the
-        /// performance and status of the Tondi node.
+        /// performance and status of the Spora node.
         /// Returned information: Memory usage, CPU usage, network activity.
         GetMetrics,
         /// Retrieves current number of network connections
         GetConnections,
         /// Retrieves the current sink block, which is the block with
-        /// the highest cumulative difficulty in the Tondi BlockDAG.
+        /// the highest cumulative difficulty in the Spora BlockDAG.
         /// Returned information: Sink block hash, sink block height.
         GetSink,
         /// Returns the blue score of the current sink block, indicating
@@ -963,17 +963,17 @@ build_wrpc_wasm_bindgen_interface!(
         /// leading up to that block.
         /// Returned information: Blue score of the sink block.
         GetSinkBlueScore,
-        /// Tests the connection and responsiveness of a Tondi node.
+        /// Tests the connection and responsiveness of a Spora node.
         /// Returned information: None.
         Ping,
-        /// Gracefully shuts down the Tondi node.
+        /// Gracefully shuts down the Spora node.
         /// Returned information: None.
         Shutdown,
-        /// Retrieves information about the Tondi server.
-        /// Returned information: Version of the Tondi server, protocol
+        /// Retrieves information about the Spora server.
+        /// Returned information: Version of the Spora server, protocol
         /// version, network identifier.
         GetServerInfo,
-        /// Obtains basic information about the synchronization status of the Tondi node.
+        /// Obtains basic information about the synchronization status of the Spora node.
         /// Returned information: Syncing status.
         GetSyncStatus,
         /// Feerate estimates
@@ -984,25 +984,25 @@ build_wrpc_wasm_bindgen_interface!(
     ],
     [
         // functions with `request` argument
-        /// Adds a peer to the Tondi node's list of known peers.
+        /// Adds a peer to the Spora node's list of known peers.
         /// Returned information: None.
         AddPeer,
-        /// Bans a peer from connecting to the Tondi node for a specified duration.
+        /// Bans a peer from connecting to the Spora node for a specified duration.
         /// Returned information: None.
         Ban,
         /// Estimates the network's current hash rate in hashes per second.
         /// Returned information: Estimated network hashes per second.
         EstimateNetworkHashesPerSecond,
-        /// Retrieves the balance of a specific address in the Tondi BlockDAG.
+        /// Retrieves the balance of a specific address in the Spora BlockDAG.
         /// Returned information: Balance of the address.
         GetBalanceByAddress,
-        /// Retrieves balances for multiple addresses in the Tondi BlockDAG.
+        /// Retrieves balances for multiple addresses in the Spora BlockDAG.
         /// Returned information: Balances of the addresses.
         GetBalancesByAddresses,
-        /// Retrieves a specific block from the Tondi BlockDAG.
+        /// Retrieves a specific block from the Spora BlockDAG.
         /// Returned information: Block information.
         GetBlock,
-        /// Retrieves multiple blocks from the Tondi BlockDAG.
+        /// Retrieves multiple blocks from the Spora BlockDAG.
         /// Returned information: List of block information.
         GetBlocks,
         /// Generates a new block template for mining.
@@ -1017,10 +1017,10 @@ build_wrpc_wasm_bindgen_interface!(
         GetDaaScoreTimestampEstimate,
         /// Feerate estimates (experimental)
         GetFeeEstimateExperimental,
-        /// Retrieves block headers from the Tondi BlockDAG.
+        /// Retrieves block headers from the Spora BlockDAG.
         /// Returned information: List of block headers.
         GetHeaders,
-        /// Retrieves mempool entries from the Tondi node's mempool.
+        /// Retrieves mempool entries from the Spora node's mempool.
         /// Returned information: List of mempool entries.
         GetMempoolEntries,
         /// Retrieves mempool entries associated with specific addresses.
@@ -1029,7 +1029,7 @@ build_wrpc_wasm_bindgen_interface!(
         /// Retrieves a specific mempool entry by transaction ID.
         /// Returned information: Mempool entry information.
         GetMempoolEntry,
-        /// Retrieves information about a subnetwork in the Tondi BlockDAG.
+        /// Retrieves information about a subnetwork in the Spora BlockDAG.
         /// Returned information: Subnetwork information.
         GetSubnetwork,
         /// Retrieves unspent transaction outputs (UTXOs) associated with
@@ -1039,20 +1039,20 @@ build_wrpc_wasm_bindgen_interface!(
         /// Retrieves the virtual chain corresponding to a specified block hash.
         /// Returned information: Virtual chain information.
         GetVirtualChainFromBlock,
-        /// Resolves a finality conflict in the Tondi BlockDAG.
+        /// Resolves a finality conflict in the Spora BlockDAG.
         /// Returned information: None.
         ResolveFinalityConflict,
-        /// Submits a block to the Tondi network.
+        /// Submits a block to the Spora network.
         /// Returned information: None.
         SubmitBlock,
-        /// Submits a transaction to the Tondi network.
+        /// Submits a transaction to the Spora network.
         /// Returned information: Submitted Transaction Id.
         SubmitTransaction,
-        /// Submits an RBF transaction to the Tondi network.
+        /// Submits an RBF transaction to the Spora network.
         /// Returned information: Submitted Transaction Id, Transaction that was replaced.
         SubmitTransactionReplacement,
         /// Unbans a previously banned peer, allowing it to connect
-        /// to the Tondi node again.
+        /// to the Spora node again.
         /// Returned information: None.
         Unban,
     ]

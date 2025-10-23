@@ -1,5 +1,5 @@
 use crate::mempool::{errors::RuleResult, model::pool::Pool, Mempool};
-use tondi_consensus_core::{
+use spora_consensus_core::{
     api::{
         args::{TransactionValidationArgs, TransactionValidationBatchArgs},
         ConsensusApi,
@@ -7,7 +7,7 @@ use tondi_consensus_core::{
     constants::UNACCEPTED_DAA_SCORE,
     tx::{MutableTransaction, UtxoEntry},
 };
-use tondi_mining_errors::mempool::RuleError;
+use spora_mining_errors::mempool::RuleError;
 
 impl Mempool {
     pub(crate) fn populate_mempool_entries(&self, transaction: &mut MutableTransaction) {

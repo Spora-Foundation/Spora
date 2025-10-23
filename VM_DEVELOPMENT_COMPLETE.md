@@ -52,7 +52,7 @@ exec/src/vm/
 │   ├── load_header.rs    ⚠️ 50% (50行) - LoadHeader (placeholder)
 │   ├── current_cycles.rs ✅ 100% (40行) - CurrentCycles
 │   ├── debugger.rs       ✅ 90% (50行) - Debugger
-│   └── blake3.rs         ✅ 100% (90行) - Blake3 hash (Tondi扩展!)
+│   └── blake3.rs         ✅ 100% (90行) - Blake3 hash (Spora扩展!)
 └── scripts/
     ├── mod.rs                ✅ 100% (60行) - Script模块
     ├── secp256k1_blake3_lock.c ✅ 100% (150行) - Secp256k1 C源码
@@ -68,7 +68,7 @@ exec/src/vm/
 
 ### 1. Blake3问题完美解决 ✅
 
-**问题MenuTondi使用blake3，CKB-VM如何支持？
+**问题MenuSpora使用blake3，CKB-VM如何支持？
 
 **解决方案Menu 添加Blake3 Syscall（编号3001）
 
@@ -78,7 +78,7 @@ pub struct Blake3Hash;
 
 impl<M: SupportMachine> Syscalls<M> for Blake3Hash {
     fn ecall(&mut self, machine: &mut M) -> Result<bool, VMError> {
-        // Syscall 3001: Tondi extension
+        // Syscall 3001: Spora extension
         // 从VM内存读取数据 → 计算blake3 → 写回VM内存
     }
 }
@@ -120,11 +120,11 @@ fn test_blake3_known_vector() {
 | LOAD_CELL_DATA | 2092 | ✅ 90% | 加载cell data |
 | CURRENT_CYCLES | 2042 | ✅ 100% | 获取当前cycles |
 
-#### Tondi扩展Syscalls (1个)
+#### Spora扩展Syscalls (1个)
 
 | Syscall | 编号 | 状态 | 说明 |
 |---------|------|------|------|
-| **BLAKE3_HASH** | **3001** | ✅ 100% | **Tondi专属！** |
+| **BLAKE3_HASH** | **3001** | ✅ 100% | **Spora专属！** |
 
 **总计**: 10个syscalls，9个完整实现
 
@@ -257,7 +257,7 @@ int main() {
 |------|--------|------|
 | VM Machine | 95% | 核心功能完整 |
 | Syscalls (CKB标准) | 90% | 9/9实现，1个(LoadHeader)简化 |
-| Syscalls (Tondi扩展) | 100% | Blake3完整 |
+| Syscalls (Spora扩展) | 100% | Blake3完整 |
 | Script Verifier | 90% | 框架+grouping完整 |
 | CellValidator集成 | 95% | verify_scripts已添加 |
 | 标准Scripts | 80% | Always-success完整，Secp256k1需编译 |
@@ -268,7 +268,7 @@ int main() {
 ## 🚀 Blake3解决方案详解
 
 ### 问题
-Tondi使用blake3，但CKB-VM如何支持？
+Spora使用blake3，但CKB-VM如何支持？
 
 ### 答案
 CKB-VM是**纯RISC-V虚拟机**，不内置任何哈希函数！CKB通过**syscall**提供blake2b，我们通过**syscall**提供blake3！
@@ -310,14 +310,14 @@ blake3_hash(hash, "hello world", 11);  // ← ecall到宿主机
 
 ### 兼容性
 
-| Feature | CKB | Tondi | 兼容 |
+| Feature | CKB | Spora | 兼容 |
 |---------|-----|-------|------|
 | RISC-V ISA | ✅ | ✅ | 100% |
 | Syscall机制 | ✅ | ✅ | 100% |
 | Blake2b syscall | ✅ | ❌ | N/A |
-| **Blake3 syscall** | ❌ | **✅** | **Tondi扩展** |
+| **Blake3 syscall** | ❌ | **✅** | **Spora扩展** |
 
-**结论**: CKB脚本需要重新编译（使用Tondi syscalls），但逻辑可复用！
+**结论**: CKB脚本需要重新编译（使用Spora syscalls），但逻辑可复用！
 
 ---
 
@@ -339,7 +339,7 @@ blake3_hash(hash, "hello world", 11);  // ← ecall到宿主机
 11. ✅ `exec/src/vm/syscalls/load_header.rs` - LoadHeader
 12. ✅ `exec/src/vm/syscalls/current_cycles.rs` - CurrentCycles
 13. ✅ `exec/src/vm/syscalls/debugger.rs` - Debugger
-14. ✅ `exec/src/vm/syscalls/blake3.rs` - **Blake3 (Tondi扩展)**
+14. ✅ `exec/src/vm/syscalls/blake3.rs` - **Blake3 (Spora扩展)**
 
 ### Scripts
 15. ✅ `exec/src/scripts/mod.rs` - Scripts模块
@@ -516,12 +516,12 @@ exec/src/scripts/mod.rs:
 
 ### 决策1: Blake3 Syscall (3001)
 
-**为什么**: Tondi使用blake3，需要高效的VM内调用
+**为什么**: Spora使用blake3，需要高效的VM内调用
 
 **方案**: 
 - ✅ 添加syscall（性能最优）
 - ❌ VM内部实现（慢100倍）
-- ❌ 改用blake2b（破坏Tondi一致性）
+- ❌ 改用blake2b（破坏Spora一致性）
 
 **结果**: 完美，scripts可以高效使用blake3
 
@@ -564,7 +564,7 @@ exec/src/scripts/mod.rs:
 
 3. **创新扩展** ✅
    - Blake3 syscall（3001）
-   - Tondi-specific但保持CKB兼容
+   - Spora-specific但保持CKB兼容
    - 性能优秀
 
 ### 学到的教训
@@ -623,7 +623,7 @@ exec/src/scripts/mod.rs:
 
 1. ✅ Block结构迁移到Cell model（无转换层）
 2. ✅ VM machine wrapper完整实现
-3. ✅ 10个syscalls实现（9个CKB标准+1个Tondi扩展）
+3. ✅ 10个syscalls实现（9个CKB标准+1个Spora扩展）
 4. ✅ Blake3问题完美解决（syscall方式）
 5. ✅ TransactionScriptVerifier框架完整
 6. ✅ CellValidator集成

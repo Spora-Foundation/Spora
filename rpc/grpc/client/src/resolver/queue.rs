@@ -1,6 +1,6 @@
 use crate::{
     error::{Error, Result},
-    resolver::{matcher::Matcher, Resolver, TondidMessageReceiver, TondidMessageSender},
+    resolver::{matcher::Matcher, Resolver, SporadMessageReceiver, SporadMessageSender},
 };
 use std::{
     collections::VecDeque,
@@ -8,26 +8,26 @@ use std::{
     time::Instant,
 };
 use tokio::sync::oneshot;
-use tondi_core::trace;
-use tondi_grpc_core::{
-    ops::TondidPayloadOps,
-    protowire::{TondidRequest, TondidResponse},
+use spora_core::trace;
+use spora_grpc_core::{
+    ops::SporadPayloadOps,
+    protowire::{SporadRequest, SporadResponse},
 };
 
 #[derive(Debug)]
 struct Pending {
     timestamp: Instant,
-    op: TondidPayloadOps,
-    request: TondidRequest,
-    sender: TondidMessageSender,
+    op: SporadPayloadOps,
+    request: SporadRequest,
+    sender: SporadMessageSender,
 }
 
 impl Pending {
-    fn new(op: TondidPayloadOps, request: TondidRequest, sender: TondidMessageSender) -> Self {
+    fn new(op: SporadPayloadOps, request: SporadRequest, sender: SporadMessageSender) -> Self {
         Self { timestamp: Instant::now(), op, request, sender }
     }
 
-    fn is_matching(&self, response: &TondidResponse, response_op: TondidPayloadOps) -> bool {
+    fn is_matching(&self, response: &SporadResponse, response_op: SporadPayloadOps) -> bool {
         self.op == response_op && self.request.is_matching(response)
     }
 }
@@ -44,8 +44,8 @@ impl QueueResolver {
 }
 
 impl Resolver for QueueResolver {
-    fn register_request(&self, op: TondidPayloadOps, request: &TondidRequest) -> TondidMessageReceiver {
-        let (sender, receiver) = oneshot::channel::<Result<TondidResponse>>();
+    fn register_request(&self, op: SporadPayloadOps, request: &SporadRequest) -> SporadMessageReceiver {
+        let (sender, receiver) = oneshot::channel::<Result<SporadResponse>>();
         {
             let pending = Pending::new(op, request.clone(), sender);
 
@@ -56,8 +56,8 @@ impl Resolver for QueueResolver {
         receiver
     }
 
-    fn handle_response(&self, response: TondidResponse) {
-        let response_op: TondidPayloadOps = response.payload.as_ref().unwrap().try_into().expect("response is not a notification");
+    fn handle_response(&self, response: SporadResponse) {
+        let response_op: SporadPayloadOps = response.payload.as_ref().unwrap().try_into().expect("response is not a notification");
         trace!("[Resolver] handle_response type: {:?}", response_op);
         let mut pending_calls = self.pending_calls.lock().unwrap();
         let mut pending: Option<Pending> = None;

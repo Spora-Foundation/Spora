@@ -4,8 +4,8 @@
 
 use super::UtxoRecord;
 use crate::imports::*;
-use tondi_consensus_core::tx::Transaction;
-pub use tondi_consensus_core::tx::TransactionId;
+use spora_consensus_core::tx::Transaction;
+pub use spora_consensus_core::tx::TransactionId;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]

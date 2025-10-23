@@ -5,11 +5,11 @@ use crate::modules::miner::Miner;
 use crate::modules::node::Node;
 use crate::notifier::{Notification, Notifier};
 use crate::result::Result;
-use tondi_daemon::{DaemonEvent, DaemonKind, Daemons};
-use tondi_wallet_core::account::Account;
-use tondi_wallet_core::rpc::DynRpcApi;
-use tondi_wallet_core::storage::{IdT, PrvKeyDataInfo};
-use tondi_wrpc_client::{Resolver, TondiRpcClient};
+use spora_daemon::{DaemonEvent, DaemonKind, Daemons};
+use spora_wallet_core::account::Account;
+use spora_wallet_core::rpc::DynRpcApi;
+use spora_wallet_core::storage::{IdT, PrvKeyDataInfo};
+use spora_wrpc_client::{Resolver, SporaRpcClient};
 use workflow_core::channel::*;
 use workflow_core::time::Instant;
 use workflow_log::*;
@@ -30,7 +30,7 @@ impl Options {
     }
 }
 
-pub struct TondiCli {
+pub struct SporaCli {
     term: Arc<Mutex<Option<Arc<Terminal>>>>,
     wallet: Arc<Wallet>,
     notifications_task_ctl: DuplexChannel,
@@ -47,19 +47,19 @@ pub struct TondiCli {
     pretty_enabled: Arc<AtomicBool>,
 }
 
-impl From<&TondiCli> for Arc<Terminal> {
-    fn from(ctx: &TondiCli) -> Arc<Terminal> {
+impl From<&SporaCli> for Arc<Terminal> {
+    fn from(ctx: &SporaCli) -> Arc<Terminal> {
         ctx.term()
     }
 }
 
-impl AsRef<TondiCli> for TondiCli {
+impl AsRef<SporaCli> for SporaCli {
     fn as_ref(&self) -> &Self {
         self
     }
 }
 
-impl workflow_log::Sink for TondiCli {
+impl workflow_log::Sink for SporaCli {
     fn write(&self, _target: Option<&str>, _level: Level, args: &std::fmt::Arguments<'_>) -> bool {
         if let Some(term) = self.try_term() {
             cfg_if! {
@@ -86,7 +86,7 @@ impl workflow_log::Sink for TondiCli {
     }
 }
 
-impl TondiCli {
+impl SporaCli {
     pub fn init() {
         cfg_if! {
             if #[cfg(not(target_arch = "wasm32"))] {
@@ -94,9 +94,9 @@ impl TondiCli {
                     std::println!("halt");
                     1
                 });
-                tondi_core::log::init_logger(None, "info");
+                spora_core::log::init_logger(None, "info");
             } else {
-                tondi_core::log::set_log_level(LevelFilter::Info);
+                spora_core::log::set_log_level(LevelFilter::Info);
             }
         }
 
@@ -106,7 +106,7 @@ impl TondiCli {
     pub async fn try_new_arc(options: Options) -> Result<Arc<Self>> {
         let wallet = Arc::new(Wallet::try_new(Wallet::local_store()?, Some(Resolver::default()), None)?);
 
-        let tondi_cli = Arc::new(TondiCli {
+        let spora_cli = Arc::new(SporaCli {
             term: Arc::new(Mutex::new(None)),
             wallet,
             notifications_task_ctl: DuplexChannel::oneshot(),
@@ -123,16 +123,16 @@ impl TondiCli {
             pretty_enabled: Arc::new(AtomicBool::new(false)), // Default to ASCII mode
         });
 
-        let term = Arc::new(Terminal::try_new_with_options(tondi_cli.clone(), options.terminal)?);
+        let term = Arc::new(Terminal::try_new_with_options(spora_cli.clone(), options.terminal)?);
         term.init().await?;
 
         cfg_if! {
             if #[cfg(target_arch = "wasm32")] {
-                tondi_cli.init_panic_hook();
+                spora_cli.init_panic_hook();
             }
         }
 
-        Ok(tondi_cli)
+        Ok(spora_cli)
     }
 
     pub fn term(&self) -> Arc<Terminal> {
@@ -167,7 +167,7 @@ impl TondiCli {
         self.wallet.try_rpc_api().clone()
     }
 
-    pub fn try_rpc_client(&self) -> Option<Arc<TondiRpcClient>> {
+    pub fn try_rpc_client(&self) -> Option<Arc<SporaRpcClient>> {
         self.wallet.try_wrpc_client().clone()
     }
 
@@ -229,7 +229,7 @@ impl TondiCli {
 
     pub async fn handle_daemon_event(self: &Arc<Self>, event: DaemonEvent) -> Result<()> {
         match event.kind() {
-            DaemonKind::Tondid => {
+            DaemonKind::Sporad => {
                 let node = self.node.lock().unwrap().clone();
                 if let Some(node) = node {
                     node.handle_event(self, event.into()).await?;
@@ -297,10 +297,10 @@ impl TondiCli {
                             match *msg {
                                 Events::WalletList { .. } => {},
                                 Events::WalletPing => {
-                                    // log_info!("Tondi NG - received wallet ping");
+                                    // log_info!("Spora NG - received wallet ping");
                                 },
                                 Events::Metrics { network_id : _, metrics : _ } => {
-                                    // log_info!("Tondi NG - received metrics event {metrics:?}")
+                                    // log_info!("Spora NG - received metrics event {metrics:?}")
                                 }
                                 Events::FeeRate { .. } => {},
                                 Events::Error { message } => { terrorln!(this,"{message}"); },
@@ -319,7 +319,7 @@ impl TondiCli {
                                     this.term().refresh_prompt();
                                 },
                                 Events::UtxoIndexNotEnabled { .. } => {
-                                    tprintln!(this, "Error: Tondi node UTXO index is not enabled...")
+                                    tprintln!(this, "Error: Spora node UTXO index is not enabled...")
                                 },
                                 Events::SyncState { sync_state } => {
 
@@ -341,16 +341,16 @@ impl TondiCli {
                                     ..
                                 } => {
 
-                                    tprintln!(this, "Connected to Tondi node version {server_version} at {}", url.unwrap_or("N/A".to_string()));
+                                    tprintln!(this, "Connected to Spora node version {server_version} at {}", url.unwrap_or("N/A".to_string()));
 
                                     let is_open = this.wallet.is_open();
 
                                     if !is_synced {
                                         if is_open {
-                                            terrorln!(this, "Unable to update the wallet state - Tondi node is currently syncing with the network...");
+                                            terrorln!(this, "Unable to update the wallet state - Spora node is currently syncing with the network...");
 
                                         } else {
-                                            terrorln!(this, "Tondi node is currently syncing with the network, please wait for the sync to complete...");
+                                            terrorln!(this, "Spora node is currently syncing with the network, please wait for the sync to complete...");
                                         }
                                     }
 
@@ -808,7 +808,7 @@ impl TondiCli {
 }
 
 #[async_trait]
-impl Cli for TondiCli {
+impl Cli for SporaCli {
     fn init(self: Arc<Self>, term: &Arc<Terminal>) -> TerminalResult<()> {
         *self.term.lock().unwrap() = Some(term.clone());
 
@@ -862,10 +862,10 @@ impl Cli for TondiCli {
         if let Ok(network_id) = self.wallet.network_id() {
             let network_type = network_id.network_type();
             let network_str = match network_type {
-                tondi_consensus_core::network::NetworkType::Mainnet => "mainnet",
-                tondi_consensus_core::network::NetworkType::Testnet => "testnet",
-                tondi_consensus_core::network::NetworkType::Devnet => "devnet",
-                tondi_consensus_core::network::NetworkType::Simnet => "simnet",
+                spora_consensus_core::network::NetworkType::Mainnet => "mainnet",
+                spora_consensus_core::network::NetworkType::Testnet => "testnet",
+                spora_consensus_core::network::NetworkType::Devnet => "devnet",
+                spora_consensus_core::network::NetworkType::Simnet => "simnet",
             };
             if self.pretty_enabled() {
                 prompt.push(style(format!("🌐{}", network_str)).yellow().to_string());
@@ -910,7 +910,7 @@ impl Cli for TondiCli {
         // Wallet details
         if let Some(descriptor) = self.wallet.descriptor() {
             let title = descriptor.title.unwrap_or(descriptor.filename);
-            if title.to_lowercase().as_str() != "tondi" {
+            if title.to_lowercase().as_str() != "spora" {
                 prompt.push(style(title).blue().to_string());
             }
 
@@ -941,13 +941,13 @@ impl Cli for TondiCli {
     }
 }
 
-impl cli::Context for TondiCli {
+impl cli::Context for SporaCli {
     fn term(&self) -> Arc<Terminal> {
         self.term.lock().unwrap().as_ref().unwrap().clone()
     }
 }
 
-impl TondiCli {}
+impl SporaCli {}
 
 #[allow(dead_code)]
 async fn select_item<T>(
@@ -1036,14 +1036,14 @@ where
 //     Ok(selection.unwrap())
 // }
 
-pub async fn tondi_cli(terminal_options: TerminalOptions, banner: Option<String>) -> Result<()> {
-    TondiCli::init();
+pub async fn spora_cli(terminal_options: TerminalOptions, banner: Option<String>) -> Result<()> {
+    SporaCli::init();
 
     let options = Options::new(terminal_options, None);
-    let cli = TondiCli::try_new_arc(options).await?;
+    let cli = SporaCli::try_new_arc(options).await?;
 
     let banner =
-        banner.unwrap_or_else(|| format!("Tondi Cli Wallet v{} (type 'help' for list of commands)", env!("CARGO_PKG_VERSION")));
+        banner.unwrap_or_else(|| format!("Spora Cli Wallet v{} (type 'help' for list of commands)", env!("CARGO_PKG_VERSION")));
     cli.term().writeln(banner);
 
     // redirect the global log output to terminal
@@ -1116,7 +1116,7 @@ mod panic_handler {
     }
 }
 
-impl TondiCli {
+impl SporaCli {
     pub fn init_panic_hook(self: &Arc<Self>) {
         let this = self.clone();
         let handler = move |info: &std::panic::PanicHookInfo| {

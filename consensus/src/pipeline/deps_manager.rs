@@ -5,8 +5,8 @@ use std::collections::{
     HashMap, VecDeque,
 };
 use tokio::sync::oneshot;
-use tondi_consensus_core::{block::Block, blockstatus::BlockStatus};
-use tondi_hashes::Hash;
+use spora_consensus_core::{block::Block, blockstatus::BlockStatus};
+use spora_hashes::Hash;
 
 pub type BlockResultSender = oneshot::Sender<BlockProcessResult<BlockStatus>>;
 

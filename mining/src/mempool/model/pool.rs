@@ -10,7 +10,7 @@ use crate::{
     },
 };
 use std::collections::{hash_set::Iter, HashMap, HashSet, VecDeque};
-use tondi_consensus_core::tx::{MutableTransaction, TransactionId};
+use spora_consensus_core::tx::{MutableTransaction, TransactionId};
 
 pub(crate) type TransactionsEdges = HashMap<TransactionId, TransactionIdSet>;
 

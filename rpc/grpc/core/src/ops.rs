@@ -1,5 +1,5 @@
 use crate::protowire::{tondid_request::Payload as RequestPayload, tondid_response::Payload as ResponsePayload, *};
-use tondi_rpc_core::RpcError;
+use spora_rpc_core::RpcError;
 use workflow_core::enums::Describe;
 
 macro_rules! payload_type_enum {
@@ -46,7 +46,7 @@ macro_rules! payload_type_enum {
 payload_type_enum! {
 #[repr(u8)]
 #[derive(Describe, Debug, Copy, Clone, Eq, Hash, PartialEq)]
-pub enum TondidPayloadOps {
+pub enum SporadPayloadOps {
     SubmitBlock = 0,
     GetBlockTemplate,
     GetCurrentNetwork,
@@ -109,6 +109,6 @@ pub enum TondidPayloadOps {
 
     // Please note:
     // Notification payloads existing in ResponsePayload are not considered valid ops.
-    // The conversion from a notification ResponsePayload into TondidPayloadOps fails.
+    // The conversion from a notification ResponsePayload into SporadPayloadOps fails.
 }
 }

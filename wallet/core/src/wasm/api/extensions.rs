@@ -1,6 +1,6 @@
 use crate::imports::*;
 use js_sys::Object;
-use tondi_consensus_core::Hash;
+use spora_consensus_core::Hash;
 
 pub trait WalletApiObjectExtension {
     fn get_secret(&self, key: &str) -> Result<Secret>;

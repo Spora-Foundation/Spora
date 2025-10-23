@@ -1,6 +1,6 @@
 [package]
-name = "tondi-rpc-core"
-description = "Tondi RPC core"
+name = "spora-rpc-core"
+description = "Spora RPC core"
 rust-version.workspace = true
 version.workspace = true
 edition.workspace = true
@@ -11,25 +11,25 @@ repository.workspace = true
 
 [features]
 wasm32-sdk = [
-    "tondi-consensus-client/wasm32-sdk",
-    "tondi-consensus-wasm/wasm32-sdk"
+    "spora-consensus-client/wasm32-sdk",
+    "spora-consensus-wasm/wasm32-sdk"
 ]
 
 [dependencies]
-tondi-addresses.workspace = true
-tondi-consensus-core.workspace = true
-tondi-consensus-client.workspace = true
-tondi-consensus-notify.workspace = true
-tondi-consensus-wasm.workspace = true
-tondi-core.workspace = true
-tondi-hashes.workspace = true
-tondi-index-core.workspace = true
-tondi-math.workspace = true
-tondi-mining-errors.workspace = true
-tondi-notify.workspace = true
-tondi-txscript.workspace = true
-tondi-utils.workspace = true
-tondi-rpc-macros.workspace = true
+spora-addresses.workspace = true
+spora-consensus-core.workspace = true
+spora-consensus-client.workspace = true
+spora-consensus-notify.workspace = true
+spora-consensus-wasm.workspace = true
+spora-core.workspace = true
+spora-hashes.workspace = true
+spora-index-core.workspace = true
+spora-math.workspace = true
+spora-mining-errors.workspace = true
+spora-notify.workspace = true
+spora-txscript.workspace = true
+spora-utils.workspace = true
+spora-rpc-macros.workspace = true
 
 async-channel.workspace = true
 async-trait.workspace = true

@@ -1,6 +1,6 @@
 [package]
-name = "tondi-wrpc-wasm"
-description = "Tondi wRPC WASM client"
+name = "spora-wrpc-wasm"
+description = "Spora wRPC WASM client"
 rust-version.workspace = true
 version.workspace = true
 edition.workspace = true
@@ -10,7 +10,7 @@ license.workspace = true
 repository.workspace = true
 
 [features]
-wasm32-sdk = ["tondi-wrpc-client/wasm32-sdk"]
+wasm32-sdk = ["spora-wrpc-client/wasm32-sdk"]
 default = []
 
 [lib]
@@ -20,15 +20,15 @@ crate-type = ["cdylib", "lib"]
 ahash.workspace = true
 async-std.workspace = true
 cfg-if.workspace = true
-tondi-addresses.workspace = true
-tondi-consensus-core.workspace = true
-tondi-consensus-client.workspace = true
-tondi-consensus-wasm.workspace = true
-tondi-notify.workspace = true
-tondi-wrpc-client.workspace = true
-tondi-rpc-core.workspace = true
-tondi-rpc-macros.workspace = true
-tondi-wasm-core.workspace = true
+spora-addresses.workspace = true
+spora-consensus-core.workspace = true
+spora-consensus-client.workspace = true
+spora-consensus-wasm.workspace = true
+spora-notify.workspace = true
+spora-wrpc-client.workspace = true
+spora-rpc-core.workspace = true
+spora-rpc-macros.workspace = true
+spora-wasm-core.workspace = true
 serde_json.workspace = true
 serde-wasm-bindgen.workspace = true
 serde.workspace = true

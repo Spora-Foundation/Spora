@@ -22,14 +22,14 @@ pub enum Error {
     #[error("wRPC -> {0}")]
     RpcError(#[from] RpcError),
 
-    #[error("Tondi RpcApi -> {0}")]
-    RpcApiError(#[from] tondi_rpc_core::error::RpcError),
+    #[error("Spora RpcApi -> {0}")]
+    RpcApiError(#[from] spora_rpc_core::error::RpcError),
 
-    #[error("Tondi RpcApi -> {0}")]
+    #[error("Spora RpcApi -> {0}")]
     WebSocketError(#[from] WebSocketError),
 
     #[error("Notification subsystem -> {0}")]
-    NotificationError(#[from] tondi_notify::error::Error),
+    NotificationError(#[from] spora_notify::error::Error),
 
     #[error("Channel -> {0}")]
     ChannelError(String),
@@ -44,10 +44,10 @@ pub enum Error {
     ToValue(String),
 
     #[error("invalid network type: {0}")]
-    NetworkType(#[from] tondi_consensus_core::network::NetworkTypeError),
+    NetworkType(#[from] spora_consensus_core::network::NetworkTypeError),
 
     #[error(transparent)]
-    ConsensusWasm(#[from] tondi_consensus_wasm::error::Error),
+    ConsensusWasm(#[from] spora_consensus_wasm::error::Error),
 
     #[error(transparent)]
     HttpError(#[from] HttpError),
@@ -56,13 +56,13 @@ pub enum Error {
     WasmError(#[from] WasmError),
 
     #[error(transparent)]
-    AddressError(#[from] tondi_addresses::AddressError),
+    AddressError(#[from] spora_addresses::AddressError),
 
     #[error(transparent)]
     TomlError(#[from] toml::de::Error),
 
     #[error(transparent)]
-    NetworkId(#[from] tondi_consensus_core::network::NetworkIdError),
+    NetworkId(#[from] spora_consensus_core::network::NetworkIdError),
 }
 
 impl Error {

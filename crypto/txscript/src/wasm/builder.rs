@@ -2,10 +2,10 @@ use crate::result::Result;
 use crate::{script_builder as native, standard};
 use std::cell::{Ref, RefCell, RefMut};
 use std::rc::Rc;
-use tondi_consensus_core::tx::ScriptPublicKey;
-use tondi_utils::hex::ToHex;
-use tondi_wasm_core::hex::{HexViewConfig, HexViewConfigT};
-use tondi_wasm_core::types::{BinaryT, HexString};
+use spora_consensus_core::tx::ScriptPublicKey;
+use spora_utils::hex::ToHex;
+use spora_wasm_core::hex::{HexViewConfig, HexViewConfigT};
+use spora_wasm_core::types::{BinaryT, HexString};
 use wasm_bindgen::prelude::wasm_bindgen;
 use workflow_wasm::prelude::*;
 
@@ -83,11 +83,11 @@ impl ScriptBuilder {
     /// chooses canonical opcodes depending on the length of the data.
     ///
     /// A zero length buffer will lead to a push of empty data onto the stack (Op0 = OpFalse)
-    /// and any push of data greater than [`MAX_SCRIPT_ELEMENT_SIZE`](tondi_txscript::MAX_SCRIPT_ELEMENT_SIZE) will not modify
+    /// and any push of data greater than [`MAX_SCRIPT_ELEMENT_SIZE`](spora_txscript::MAX_SCRIPT_ELEMENT_SIZE) will not modify
     /// the script since that is not allowed by the script engine.
     ///
     /// Also, the script will not be modified if pushing the data would cause the script to
-    /// exceed the maximum allowed script engine size [`MAX_SCRIPTS_SIZE`](tondi_txscript::MAX_SCRIPTS_SIZE).
+    /// exceed the maximum allowed script engine size [`MAX_SCRIPTS_SIZE`](spora_txscript::MAX_SCRIPTS_SIZE).
     #[wasm_bindgen(js_name = "addData")]
     pub fn add_data(&self, data: BinaryT) -> Result<ScriptBuilder> {
         let data = data.try_as_vec_u8()?;

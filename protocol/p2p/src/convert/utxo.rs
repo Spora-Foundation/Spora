@@ -1,5 +1,5 @@
 use crate::pb as protowire;
-use tondi_consensus_core::tx::{TransactionOutpoint, UtxoEntry};
+use spora_consensus_core::tx::{TransactionOutpoint, UtxoEntry};
 
 // ----------------------------------------------------------------------------
 // consensus_core to protowire

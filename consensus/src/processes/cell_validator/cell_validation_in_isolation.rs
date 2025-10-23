@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: ISC
-// Copyright (C) 2025Tondi developers
+// Copyright (C) 2025 Spora developers
 //
 // Cell transaction validation in isolation (no state required)
 
 use super::errors::CellValidationError;
-use tondi_exec::CellTx;
+use spora_exec::CellTx;
 
 /// Validate cell transaction format and basic constraints
 pub fn validate_cell_tx_in_isolation(tx: &CellTx) -> Result<(), CellValidationError> {
     // 1. Check version
-    if tx.ver != tondi_exec::CELL_TX_VERSION {
+    if tx.ver != spora_exec::CELL_TX_VERSION {
         return Err(CellValidationError::InvalidFormat(
             format!("Invalid version: 0x{:04X}", tx.ver)
         ));
@@ -49,7 +49,7 @@ pub fn validate_cell_tx_in_isolation(tx: &CellTx) -> Result<(), CellValidationEr
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tondi_exec::{CellRef, CellOut, ScriptRef, OutPoint};
+    use spora_exec::{CellRef, CellOut, ScriptRef, OutPoint};
 
     fn create_test_tx() -> CellTx {
         let lock = ScriptRef::new([0x00; 32], 0, vec![0; 20]);

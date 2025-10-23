@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ISC
-// Copyright (C) 2025Tondi developers
+// Copyright (C) 2025 Spora developers
 //
 // Cell transaction core types (CKB-inspired, DAG-adapted)
 //
@@ -321,7 +321,7 @@ impl CellMeta {
 
 /// DAG transaction information
 ///
-/// CKB uses BlockNumber, Tondi uses DAA Score
+/// CKB uses BlockNumber, Spora uses DAA Score
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TransactionInfo {
     /// Transaction hash

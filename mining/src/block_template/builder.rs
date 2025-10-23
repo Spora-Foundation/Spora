@@ -1,11 +1,11 @@
 use super::errors::BuilderResult;
-use tondi_consensus_core::{
+use spora_consensus_core::{
     api::ConsensusApi,
     block::{BlockTemplate, TemplateBuildMode, TemplateTransactionSelector},
     coinbase::MinerData,
     tx::COINBASE_TRANSACTION_INDEX,
 };
-use tondi_core::time::{unix_now, Stopwatch};
+use spora_core::time::{unix_now, Stopwatch};
 
 pub(crate) struct BlockTemplateBuilder {}
 

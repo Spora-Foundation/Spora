@@ -1,6 +1,6 @@
 [package]
-name = "tondi-consensusmanager"
-description = "Tondi consensus library"
+name = "spora-consensusmanager"
+description = "Spora consensus library"
 rust-version.workspace = true
 version.workspace = true
 edition.workspace = true
@@ -14,11 +14,11 @@ duration-string.workspace = true
 futures-util.workspace = true
 futures.workspace = true
 itertools.workspace = true
-tondi-addresses.workspace=true
-tondi-consensus-core.workspace = true
-tondi-consensus-notify.workspace = true
-tondi-core.workspace = true
-tondi-utils.workspace = true
+spora-addresses.workspace=true
+spora-consensus-core.workspace = true
+spora-consensus-notify.workspace = true
+spora-core.workspace = true
+spora-utils.workspace = true
 log.workspace = true
 parking_lot.workspace = true
 rand.workspace = true

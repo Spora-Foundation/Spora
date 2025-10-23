@@ -1,5 +1,5 @@
 [package]
-name = "tondi-cellindex"
+name = "spora-cellindex"
 version = "1.21.0"
 edition = "2021"
 license = "ISC"
@@ -7,9 +7,9 @@ description = "Cell indexing service with RPC API"
 
 [dependencies]
 # Core dependencies
-tondi-consensus-core = { path = "../../consensus/core", version = "1.21.0" }
-tondi-exec = { path = "../../exec", version = "1.21.0" }
-tondi-state = { path = "../../state", version = "1.21.0" }
+spora-consensus-core = { path = "../../consensus/core", version = "1.21.0" }
+spora-exec = { path = "../../exec", version = "1.21.0" }
+spora-state = { path = "../../state", version = "1.21.0" }
 
 # Async runtime
 tokio = { version = "1.36", features = ["full"] }

@@ -1,11 +1,11 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use tondi_addresses::{Address, Prefix};
-use tondi_math::Uint256;
-use tondi_notify::{address::tracker::Indexes, subscription::context::SubscriptionContext};
+use spora_addresses::{Address, Prefix};
+use spora_math::Uint256;
+use spora_notify::{address::tracker::Indexes, subscription::context::SubscriptionContext};
 
 fn create_addresses(count: usize) -> Vec<Address> {
     (0..count)
-        .map(|i| Address::new(Prefix::Mainnet, tondi_addresses::Version::PubKey, &Uint256::from_u64(i as u64).to_le_bytes()))
+        .map(|i| Address::new(Prefix::Mainnet, spora_addresses::Version::PubKey, &Uint256::from_u64(i as u64).to_le_bytes()))
         .collect()
 }
 
@@ -25,6 +25,6 @@ pub fn bench_subscription_context(c: &mut Criterion) {
     });
 }
 
-// `cargo bench --package tondi-notify --bench bench`
+// `cargo bench --package spora-notify --bench bench`
 criterion_group!(benches, bench_subscription_context);
 criterion_main!(benches);

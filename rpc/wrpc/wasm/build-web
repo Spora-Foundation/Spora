@@ -1,3 +1,3 @@
 #!/bin/bash
 
-wasm-pack build --target web --out-name tondi-rpc --out-dir web/tondi-rpc --features wasm32-sdk
+wasm-pack build --target web --out-name spora-rpc --out-dir web/spora-rpc --features wasm32-sdk

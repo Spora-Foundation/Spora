@@ -1,8 +1,8 @@
 use super::MiningCounters;
 use crate::manager::MiningManagerProxy;
 use std::{sync::Arc, time::Duration};
-use tondi_consensusmanager::ConsensusManager;
-use tondi_core::{
+use spora_consensusmanager::ConsensusManager;
+use spora_core::{
     debug, info,
     task::{
         service::{AsyncService, AsyncServiceFuture},
@@ -10,7 +10,7 @@ use tondi_core::{
     },
     trace,
 };
-use tondi_txscript::caches::TxScriptCacheCounters;
+use spora_txscript::caches::TxScriptCacheCounters;
 
 const MONITOR: &str = "mempool-monitor";
 

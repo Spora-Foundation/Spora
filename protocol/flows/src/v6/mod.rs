@@ -15,8 +15,8 @@ use crate::v5::{
 use crate::{flow_context::FlowContext, flow_trait::Flow};
 
 use std::sync::Arc;
-use tondi_p2p_lib::{Router, SharedIncomingRoute, TondidMessagePayloadType};
-use tondi_utils::channel;
+use spora_p2p_lib::{Router, SharedIncomingRoute, SporadMessagePayloadType};
+use spora_utils::channel;
 
 use crate::v6::request_pruning_point_and_anticone::PruningPointAndItsAnticoneRequestsFlow;
 
@@ -32,100 +32,100 @@ pub fn register(ctx: FlowContext, router: Arc<Router>) -> Vec<Box<dyn Flow>> {
             ctx.clone(),
             router.clone(),
             router.subscribe(vec![
-                TondidMessagePayloadType::BlockHeaders,
-                TondidMessagePayloadType::DoneHeaders,
-                TondidMessagePayloadType::IbdBlockLocatorHighestHash,
-                TondidMessagePayloadType::IbdBlockLocatorHighestHashNotFound,
-                TondidMessagePayloadType::BlockWithTrustedDataV4,
-                TondidMessagePayloadType::DoneBlocksWithTrustedData,
-                TondidMessagePayloadType::IbdChainBlockLocator,
-                TondidMessagePayloadType::IbdBlock,
-                TondidMessagePayloadType::TrustedData,
-                TondidMessagePayloadType::PruningPoints,
-                TondidMessagePayloadType::PruningPointProof,
-                TondidMessagePayloadType::UnexpectedPruningPoint,
-                TondidMessagePayloadType::PruningPointUtxoSetChunk,
-                TondidMessagePayloadType::DonePruningPointUtxoSetChunks,
+                SporadMessagePayloadType::BlockHeaders,
+                SporadMessagePayloadType::DoneHeaders,
+                SporadMessagePayloadType::IbdBlockLocatorHighestHash,
+                SporadMessagePayloadType::IbdBlockLocatorHighestHashNotFound,
+                SporadMessagePayloadType::BlockWithTrustedDataV4,
+                SporadMessagePayloadType::DoneBlocksWithTrustedData,
+                SporadMessagePayloadType::IbdChainBlockLocator,
+                SporadMessagePayloadType::IbdBlock,
+                SporadMessagePayloadType::TrustedData,
+                SporadMessagePayloadType::PruningPoints,
+                SporadMessagePayloadType::PruningPointProof,
+                SporadMessagePayloadType::UnexpectedPruningPoint,
+                SporadMessagePayloadType::PruningPointUtxoSetChunk,
+                SporadMessagePayloadType::DonePruningPointUtxoSetChunks,
             ]),
             relay_receiver,
         )),
         Box::new(HandleRelayBlockRequests::new(
             ctx.clone(),
             router.clone(),
-            router.subscribe(vec![TondidMessagePayloadType::RequestRelayBlocks]),
+            router.subscribe(vec![SporadMessagePayloadType::RequestRelayBlocks]),
         )),
-        Box::new(ReceivePingsFlow::new(ctx.clone(), router.clone(), router.subscribe(vec![TondidMessagePayloadType::Ping]))),
-        Box::new(SendPingsFlow::new(ctx.clone(), router.clone(), router.subscribe(vec![TondidMessagePayloadType::Pong]))),
+        Box::new(ReceivePingsFlow::new(ctx.clone(), router.clone(), router.subscribe(vec![SporadMessagePayloadType::Ping]))),
+        Box::new(SendPingsFlow::new(ctx.clone(), router.clone(), router.subscribe(vec![SporadMessagePayloadType::Pong]))),
         Box::new(RequestHeadersFlow::new(
             ctx.clone(),
             router.clone(),
-            router.subscribe(vec![TondidMessagePayloadType::RequestHeaders, TondidMessagePayloadType::RequestNextHeaders]),
+            router.subscribe(vec![SporadMessagePayloadType::RequestHeaders, SporadMessagePayloadType::RequestNextHeaders]),
         )),
         Box::new(RequestPruningPointProofFlow::new(
             ctx.clone(),
             router.clone(),
-            router.subscribe(vec![TondidMessagePayloadType::RequestPruningPointProof]),
+            router.subscribe(vec![SporadMessagePayloadType::RequestPruningPointProof]),
         )),
         Box::new(RequestIbdChainBlockLocatorFlow::new(
             ctx.clone(),
             router.clone(),
-            router.subscribe(vec![TondidMessagePayloadType::RequestIbdChainBlockLocator]),
+            router.subscribe(vec![SporadMessagePayloadType::RequestIbdChainBlockLocator]),
         )),
         Box::new(PruningPointAndItsAnticoneRequestsFlow::new(
             ctx.clone(),
             router.clone(),
             router.subscribe(vec![
-                TondidMessagePayloadType::RequestPruningPointAndItsAnticone,
-                TondidMessagePayloadType::RequestNextPruningPointAndItsAnticoneBlocks,
+                SporadMessagePayloadType::RequestPruningPointAndItsAnticone,
+                SporadMessagePayloadType::RequestNextPruningPointAndItsAnticoneBlocks,
             ]),
         )),
         Box::new(RequestPruningPointUtxoSetFlow::new(
             ctx.clone(),
             router.clone(),
             router.subscribe(vec![
-                TondidMessagePayloadType::RequestPruningPointUtxoSet,
-                TondidMessagePayloadType::RequestNextPruningPointUtxoSetChunk,
+                SporadMessagePayloadType::RequestPruningPointUtxoSet,
+                SporadMessagePayloadType::RequestNextPruningPointUtxoSetChunk,
             ]),
         )),
         Box::new(HandleIbdBlockRequests::new(
             ctx.clone(),
             router.clone(),
-            router.subscribe(vec![TondidMessagePayloadType::RequestIbdBlocks]),
+            router.subscribe(vec![SporadMessagePayloadType::RequestIbdBlocks]),
         )),
         Box::new(HandleAntipastRequests::new(
             ctx.clone(),
             router.clone(),
-            router.subscribe(vec![TondidMessagePayloadType::RequestAntipast]),
+            router.subscribe(vec![SporadMessagePayloadType::RequestAntipast]),
         )),
         Box::new(RelayTransactionsFlow::new(
             ctx.clone(),
             router.clone(),
             router
-                .subscribe_with_capacity(vec![TondidMessagePayloadType::InvTransactions], RelayTransactionsFlow::invs_channel_size()),
+                .subscribe_with_capacity(vec![SporadMessagePayloadType::InvTransactions], RelayTransactionsFlow::invs_channel_size()),
             router.subscribe_with_capacity(
-                vec![TondidMessagePayloadType::Transaction, TondidMessagePayloadType::TransactionNotFound],
+                vec![SporadMessagePayloadType::Transaction, SporadMessagePayloadType::TransactionNotFound],
                 RelayTransactionsFlow::txs_channel_size(),
             ),
         )),
         Box::new(RequestTransactionsFlow::new(
             ctx.clone(),
             router.clone(),
-            router.subscribe(vec![TondidMessagePayloadType::RequestTransactions]),
+            router.subscribe(vec![SporadMessagePayloadType::RequestTransactions]),
         )),
-        Box::new(ReceiveAddressesFlow::new(ctx.clone(), router.clone(), router.subscribe(vec![TondidMessagePayloadType::Addresses]))),
+        Box::new(ReceiveAddressesFlow::new(ctx.clone(), router.clone(), router.subscribe(vec![SporadMessagePayloadType::Addresses]))),
         Box::new(SendAddressesFlow::new(
             ctx.clone(),
             router.clone(),
-            router.subscribe(vec![TondidMessagePayloadType::RequestAddresses]),
+            router.subscribe(vec![SporadMessagePayloadType::RequestAddresses]),
         )),
         Box::new(RequestBlockLocatorFlow::new(
             ctx.clone(),
             router.clone(),
-            router.subscribe(vec![TondidMessagePayloadType::RequestBlockLocator]),
+            router.subscribe(vec![SporadMessagePayloadType::RequestBlockLocator]),
         )),
     ];
 
-    let invs_route = router.subscribe_with_capacity(vec![TondidMessagePayloadType::InvRelayBlock], ctx.block_invs_channel_size());
+    let invs_route = router.subscribe_with_capacity(vec![SporadMessagePayloadType::InvRelayBlock], ctx.block_invs_channel_size());
     let shared_invs_route = SharedIncomingRoute::new(invs_route);
 
     let num_relay_flows = (ctx.config.bps().upper_bound() as usize / 2).max(1);
@@ -140,11 +140,11 @@ pub fn register(ctx: FlowContext, router: Arc<Router>) -> Vec<Box<dyn Flow>> {
     }));
 
     // The reject message is handled as a special case by the router
-    // TondidMessagePayloadType::Reject,
+    // SporadMessagePayloadType::Reject,
 
-    // We do not register the below two messages since they are deprecated also in go-tondi
-    // TondidMessagePayloadType::BlockWithTrustedData,
-    // TondidMessagePayloadType::IbdBlockLocator,
+    // We do not register the below two messages since they are deprecated also in go-spora
+    // SporadMessagePayloadType::BlockWithTrustedData,
+    // SporadMessagePayloadType::IbdBlockLocator,
 
     flows
 }

@@ -1,13 +1,13 @@
 use derive_more::Display;
 use std::sync::Arc;
-use tondi_consensus_core::{
+use spora_consensus_core::{
     acceptance_data::AcceptanceData,
     block::Block,
     cell_diff::CellDiff,
 };
 // utxo::utxo_diff::UtxoDiff deprecated - use Cell model
-use tondi_hashes::Hash;
-use tondi_notify::{
+use spora_hashes::Hash;
+use spora_notify::{
     events::EventType,
     full_featured,
     notification::Notification as NotificationTrait,

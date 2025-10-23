@@ -1,7 +1,7 @@
 use std::net::AddrParseError;
 
 use downcast::DowncastError;
-use tondi_wallet_core::error::Error as WalletError;
+use spora_wallet_core::error::Error as WalletError;
 use workflow_core::channel::ChannelError;
 use workflow_terminal::error::Error as TerminalError;
 
@@ -28,10 +28,10 @@ pub enum Error {
     ChannelError(String),
 
     #[error(transparent)]
-    WrpcError(#[from] tondi_wrpc_client::error::Error),
+    WrpcError(#[from] spora_wrpc_client::error::Error),
 
     #[error(transparent)]
-    RpcError(#[from] tondi_rpc_core::RpcError),
+    RpcError(#[from] spora_rpc_core::RpcError),
 
     #[error(transparent)]
     SerdeJsonError(#[from] serde_json::Error),
@@ -97,7 +97,7 @@ pub enum Error {
     NoKeys,
 
     #[error(transparent)]
-    AddressError(#[from] tondi_addresses::AddressError),
+    AddressError(#[from] spora_addresses::AddressError),
 
     #[error("{0}")]
     DowncastError(String),
@@ -109,28 +109,28 @@ pub enum Error {
     NodeJs(#[from] workflow_node::error::Error),
 
     #[error(transparent)]
-    Daemon(#[from] tondi_daemon::error::Error),
+    Daemon(#[from] spora_daemon::error::Error),
 
     #[error(transparent)]
     Dom(#[from] workflow_dom::error::Error),
 
     #[error(transparent)]
-    NetworkId(#[from] tondi_consensus_core::network::NetworkIdError),
+    NetworkId(#[from] spora_consensus_core::network::NetworkIdError),
 
     #[error(transparent)]
-    Bip32(#[from] tondi_bip32::Error),
+    Bip32(#[from] spora_bip32::Error),
 
     #[error("private key {0} already exists")]
     PrivateKeyAlreadyExists(String),
 
     #[error(transparent)]
-    MetricsError(tondi_metrics_core::error::Error),
+    MetricsError(spora_metrics_core::error::Error),
 
     #[error(transparent)]
-    TondiWalletKeys(#[from] tondi_wallet_keys::error::Error),
+    SporaWalletKeys(#[from] spora_wallet_keys::error::Error),
 
     #[error(transparent)]
-    PstbLockScriptSigError(#[from] tondi_wallet_pstt::error::Error),
+    PstbLockScriptSigError(#[from] spora_wallet_pstt::error::Error),
 
     #[error("To hex serialization error")]
     PstbSerializeToHexError,

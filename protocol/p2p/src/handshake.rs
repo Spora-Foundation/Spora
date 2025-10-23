@@ -2,25 +2,25 @@ use std::time::Duration;
 
 use crate::pb::{tondid_message::Payload, ReadyMessage, VerackMessage, VersionMessage};
 use crate::{common::ProtocolError, dequeue_with_timeout, make_message};
-use crate::{IncomingRoute, Router, TondidMessagePayloadType};
-use tondi_core::debug;
+use crate::{IncomingRoute, Router, SporadMessagePayloadType};
+use spora_core::debug;
 
-/// Implements the Tondi peer-to-peer handshake protocol
-pub struct TondidHandshake<'a> {
+/// Implements the Spora peer-to-peer handshake protocol
+pub struct SporadHandshake<'a> {
     router: &'a Router,
     version_receiver: IncomingRoute,
     verack_receiver: IncomingRoute,
     ready_receiver: IncomingRoute,
 }
 
-impl<'a> TondidHandshake<'a> {
+impl<'a> SporadHandshake<'a> {
     /// Builds the handshake object and subscribes to handshake messages
     pub fn new(router: &'a Router) -> Self {
         Self {
             router,
-            version_receiver: router.subscribe(vec![TondidMessagePayloadType::Version]),
-            verack_receiver: router.subscribe(vec![TondidMessagePayloadType::Verack]),
-            ready_receiver: router.subscribe(vec![TondidMessagePayloadType::Ready]),
+            version_receiver: router.subscribe(vec![SporadMessagePayloadType::Version]),
+            verack_receiver: router.subscribe(vec![SporadMessagePayloadType::Verack]),
+            ready_receiver: router.subscribe(vec![SporadMessagePayloadType::Ready]),
         }
     }
 

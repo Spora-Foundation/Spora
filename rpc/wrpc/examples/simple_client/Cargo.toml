@@ -1,6 +1,6 @@
 [package]
-name = "tondi-wrpc-simple-client-example"
-description = "Tondi wRPC simple client example"
+name = "spora-wrpc-simple-client-example"
+description = "Spora wRPC simple client example"
 publish = false
 rust-version.workspace = true
 version.workspace = true
@@ -12,7 +12,7 @@ repository.workspace = true
 
 [dependencies]
 futures.workspace = true
-tondi-rpc-core.workspace = true
-tondi-wrpc-client.workspace = true
+spora-rpc-core.workspace = true
+spora-wrpc-client.workspace = true
 tokio.workspace = true
 

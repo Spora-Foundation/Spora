@@ -1,13 +1,13 @@
 use parking_lot::{RwLock, RwLockWriteGuard};
 use rocksdb::WriteBatch;
 use std::sync::Arc;
-use tondi_consensus_core::{blockstatus::BlockStatus, BlockHasher};
-use tondi_database::registry::DatabaseStorePrefixes;
+use spora_consensus_core::{blockstatus::BlockStatus, BlockHasher};
+use spora_database::registry::DatabaseStorePrefixes;
 
-use tondi_database::prelude::{BatchDbWriter, CachedDbAccess, DirectDbWriter};
-use tondi_database::prelude::{CachePolicy, DB};
-use tondi_database::prelude::{StoreError, StoreResult};
-use tondi_hashes::Hash;
+use spora_database::prelude::{BatchDbWriter, CachedDbAccess, DirectDbWriter};
+use spora_database::prelude::{CachePolicy, DB};
+use spora_database::prelude::{StoreError, StoreResult};
+use spora_hashes::Hash;
 
 /// Reader API for `StatusesStore`.
 pub trait StatusesStoreReader {

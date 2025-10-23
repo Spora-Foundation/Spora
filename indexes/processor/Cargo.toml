@@ -1,6 +1,6 @@
 [package]
-name = "tondi-index-processor"
-description = "Tondi index processor"
+name = "spora-index-processor"
+description = "Spora index processor"
 rust-version.workspace = true
 version.workspace = true
 edition.workspace = true
@@ -10,16 +10,16 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-tondi-cellindex = { path = "../cellindex", version = "1.21.0" }
-tondi-consensus-core.workspace = true
-tondi-consensus-notify.workspace = true
-tondi-consensusmanager.workspace = true
-tondi-core.workspace = true
-tondi-database.workspace = true
-tondi-hashes.workspace = true
-tondi-index-core.workspace = true
-tondi-notify.workspace = true
-tondi-utils.workspace = true
+spora-cellindex = { path = "../cellindex", version = "1.21.0" }
+spora-consensus-core.workspace = true
+spora-consensus-notify.workspace = true
+spora-consensusmanager.workspace = true
+spora-core.workspace = true
+spora-database.workspace = true
+spora-hashes.workspace = true
+spora-index-core.workspace = true
+spora-notify.workspace = true
+spora-utils.workspace = true
 
 async-channel.workspace = true
 async-trait.workspace = true
@@ -32,7 +32,7 @@ tokio = { workspace = true, features = [ "rt-multi-thread", "macros", "signal" ]
 triggered.workspace = true
 
 [dev-dependencies]
-tondi-consensus.workspace = true
+spora-consensus.workspace = true
 parking_lot.workspace = true
 tokio = { workspace = true, features = ["rt", "macros"] }
 rand = {workspace = true,  features = [ "small_rng" ]}

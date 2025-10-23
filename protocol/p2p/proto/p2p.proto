@@ -1,7 +1,7 @@
 syntax = "proto3";
 package protowire;
 
-option go_package = "github.com/tondinet/Tondid/protowire";
+option go_package = "github.com/sporanet/Sporad/protowire";
 
 message RequestAddressesMessage{
   bool includeAllSubnetworks = 1;

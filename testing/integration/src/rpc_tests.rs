@@ -3,21 +3,21 @@ use std::{str::FromStr, sync::Arc, time::Duration};
 use crate::common::{client_notify::ChannelNotify, daemon::Daemon};
 use futures_util::future::try_join_all;
 use tokio::task::JoinHandle;
-use tondi_addresses::{Address, Prefix, Version};
-use tondi_consensus::params::SIMNET_GENESIS;
-use tondi_consensus_core::{constants::MAX_SAU, header::Header, subnets::SubnetworkId, tx::Transaction};
-use tondi_core::{assert_match, info};
-use tondi_grpc_core::ops::TondidPayloadOps;
-use tondi_hashes::Hash;
-use tondi_notify::{
+use spora_addresses::{Address, Prefix, Version};
+use spora_consensus::params::SIMNET_GENESIS;
+use spora_consensus_core::{constants::MAX_SAU, header::Header, subnets::SubnetworkId, tx::Transaction};
+use spora_core::{assert_match, info};
+use spora_grpc_core::ops::SporadPayloadOps;
+use spora_hashes::Hash;
+use spora_notify::{
     connection::{ChannelConnection, ChannelType},
     scope::{
         BlockAddedScope, FinalityConflictScope, NewBlockTemplateScope, PruningPointUtxoSetOverrideScope, Scope,
         SinkBlueScoreChangedScope, UtxosChangedScope, VirtualChainChangedScope, VirtualDaaScoreChangedScope,
     },
 };
-use tondi_rpc_core::{api::rpc::RpcApi, model::*, Notification};
-use tondi_utils::{fd_budget, networking::ContextualNetAddress};
+use spora_rpc_core::{api::rpc::RpcApi, model::*, Notification};
+use spora_utils::{fd_budget, networking::ContextualNetAddress};
 use tondid_lib::args::Args;
 
 #[macro_export]
@@ -36,12 +36,12 @@ macro_rules! tst {
     };
 }
 
-/// `cargo test --release --package tondi-testing-integration --lib -- rpc_tests::sanity_test`
+/// `cargo test --release --package spora-testing-integration --lib -- rpc_tests::sanity_test`
 #[tokio::test]
 async fn sanity_test() {
-    tondi_core::log::try_init_logger("info");
+    spora_core::log::try_init_logger("info");
     // As we log the panic, we want to set it up after the logger
-    tondi_core::panic::configure_panic();
+    spora_core::panic::configure_panic();
 
     let args = Args {
         simnet: true,
@@ -64,10 +64,10 @@ async fn sanity_test() {
     // The intent of this for/match design (emphasizing the absence of an arm with fallback pattern in the match)
     // is to force any implementor of a new RpcApi method to add a matching arm here and to strongly incentivize
     // the adding of an actual sanity test of said new method.
-    for op in TondidPayloadOps::iter() {
+    for op in SporadPayloadOps::iter() {
         let network_id = daemon.network;
         let task: JoinHandle<()> = match op {
-            TondidPayloadOps::SubmitBlock => {
+            SporadPayloadOps::SubmitBlock => {
                 let rpc_client = client.clone();
                 tst!(op, {
                     // Register to basic virtual events in order to keep track of block submission
@@ -178,15 +178,15 @@ async fn sanity_test() {
                 })
             }
 
-            TondidPayloadOps::GetBlockTemplate => {
+            SporadPayloadOps::GetBlockTemplate => {
                 tst!(op, "see SubmitBlock")
             }
 
-            TondidPayloadOps::GetCurrentBlockColor => {
+            SporadPayloadOps::GetCurrentBlockColor => {
                 tst!(op, "see SubmitBlock")
             }
 
-            TondidPayloadOps::GetCurrentNetwork => {
+            SporadPayloadOps::GetCurrentNetwork => {
                 let rpc_client = client.clone();
                 tst!(op, {
                     let response = rpc_client.get_current_network_call(None, GetCurrentNetworkRequest {}).await.unwrap();
@@ -194,7 +194,7 @@ async fn sanity_test() {
                 })
             }
 
-            TondidPayloadOps::GetBlock => {
+            SporadPayloadOps::GetBlock => {
                 let rpc_client = client.clone();
                 tst!(op, {
                     let result =
@@ -209,15 +209,15 @@ async fn sanity_test() {
                 })
             }
 
-            TondidPayloadOps::GetBlockStatus => {
+            SporadPayloadOps::GetBlockStatus => {
                 todo!()
             }
 
-            TondidPayloadOps::GetTransaction => {
+            SporadPayloadOps::GetTransaction => {
                 todo!()
             }
 
-            TondidPayloadOps::GetBlocks => {
+            SporadPayloadOps::GetBlocks => {
                 let rpc_client = client.clone();
                 tst!(op, {
                     let response = rpc_client
@@ -230,11 +230,11 @@ async fn sanity_test() {
                 })
             }
 
-            TondidPayloadOps::GetInfo => {
+            SporadPayloadOps::GetInfo => {
                 let rpc_client = client.clone();
                 tst!(op, {
                     let response = rpc_client.get_info_call(None, GetInfoRequest {}).await.unwrap();
-                    assert_eq!(response.server_version, tondi_core::tondid_env::version().to_string());
+                    assert_eq!(response.server_version, spora_core::tondid_env::version().to_string());
                     assert_eq!(response.mempool_size, 0);
                     assert!(response.is_utxo_indexed);
                     assert!(response.has_message_id);
@@ -242,21 +242,21 @@ async fn sanity_test() {
                 })
             }
 
-            TondidPayloadOps::Shutdown => {
+            SporadPayloadOps::Shutdown => {
                 // This test is purposely left blank since shutdown can only be tested after all other
                 // tests completed
                 tst!(op, "must be run in the end")
             }
 
-            TondidPayloadOps::GetPeerAddresses => {
+            SporadPayloadOps::GetPeerAddresses => {
                 tst!(op, "see AddPeer, Ban")
             }
 
-            TondidPayloadOps::GetSink => {
+            SporadPayloadOps::GetSink => {
                 tst!(op, "see SubmitBlock")
             }
 
-            TondidPayloadOps::GetMempoolEntry => {
+            SporadPayloadOps::GetMempoolEntry => {
                 let rpc_client = client.clone();
                 tst!(op, {
                     let response_result = rpc_client
@@ -275,7 +275,7 @@ async fn sanity_test() {
                 })
             }
 
-            TondidPayloadOps::GetMempoolEntries => {
+            SporadPayloadOps::GetMempoolEntries => {
                 let rpc_client = client.clone();
                 tst!(op, {
                     let response = rpc_client
@@ -289,7 +289,7 @@ async fn sanity_test() {
                 })
             }
 
-            TondidPayloadOps::GetConnectedPeerInfo => {
+            SporadPayloadOps::GetConnectedPeerInfo => {
                 let rpc_client = client.clone();
                 tst!(op, {
                     let response = rpc_client.get_connected_peer_info_call(None, GetConnectedPeerInfoRequest {}).await.unwrap();
@@ -297,7 +297,7 @@ async fn sanity_test() {
                 })
             }
 
-            TondidPayloadOps::AddPeer => {
+            SporadPayloadOps::AddPeer => {
                 let rpc_client = client.clone();
                 tst!(op, {
                     let peer_address = ContextualNetAddress::from_str("1.2.3.4").unwrap();
@@ -311,7 +311,7 @@ async fn sanity_test() {
                 })
             }
 
-            TondidPayloadOps::Ban => {
+            SporadPayloadOps::Ban => {
                 let rpc_client = client.clone();
                 tst!(op, {
                     let peer_address = ContextualNetAddress::from_str("5.6.7.8").unwrap();
@@ -329,11 +329,11 @@ async fn sanity_test() {
                 })
             }
 
-            TondidPayloadOps::Unban => {
+            SporadPayloadOps::Unban => {
                 tst!(op, "see Ban")
             }
 
-            TondidPayloadOps::SubmitTransaction => {
+            SporadPayloadOps::SubmitTransaction => {
                 let rpc_client = client.clone();
                 tst!(op, {
                     // Build an erroneous transaction...
@@ -344,7 +344,7 @@ async fn sanity_test() {
                 })
             }
 
-            TondidPayloadOps::SubmitTransactionReplacement => {
+            SporadPayloadOps::SubmitTransactionReplacement => {
                 let rpc_client = client.clone();
                 tst!(op, {
                     // Build an erroneous transaction...
@@ -355,7 +355,7 @@ async fn sanity_test() {
                 })
             }
 
-            TondidPayloadOps::GetSubnetwork => {
+            SporadPayloadOps::GetSubnetwork => {
                 let rpc_client = client.clone();
                 tst!(op, {
                     let result =
@@ -366,15 +366,15 @@ async fn sanity_test() {
                 })
             }
 
-            TondidPayloadOps::GetVirtualChainFromBlock => {
+            SporadPayloadOps::GetVirtualChainFromBlock => {
                 tst!(op, "see SubmitBlock")
             }
 
-            TondidPayloadOps::GetBlockCount => {
+            SporadPayloadOps::GetBlockCount => {
                 tst!(op, "see SubmitBlock")
             }
 
-            TondidPayloadOps::GetBlockDagInfo => {
+            SporadPayloadOps::GetBlockDagInfo => {
                 let rpc_client = client.clone();
                 tst!(op, {
                     let response = rpc_client.get_block_dag_info_call(None, GetBlockDagInfoRequest {}).await.unwrap();
@@ -382,7 +382,7 @@ async fn sanity_test() {
                 })
             }
 
-            TondidPayloadOps::ResolveFinalityConflict => {
+            SporadPayloadOps::ResolveFinalityConflict => {
                 let rpc_client = client.clone();
                 tst!(op, {
                     let response_result = rpc_client
@@ -397,11 +397,11 @@ async fn sanity_test() {
                 })
             }
 
-            TondidPayloadOps::GetHeader => {
+            SporadPayloadOps::GetHeader => {
                 todo!()
             }
 
-            TondidPayloadOps::GetHeaders => {
+            SporadPayloadOps::GetHeaders => {
                 let rpc_client = client.clone();
                 tst!(op, {
                     let response_result = rpc_client
@@ -413,11 +413,11 @@ async fn sanity_test() {
                 })
             }
 
-            TondidPayloadOps::GetUtxosByAddress => {
+            SporadPayloadOps::GetUtxosByAddress => {
                 todo!()
             }
 
-            TondidPayloadOps::GetUtxosByAddresses => {
+            SporadPayloadOps::GetUtxosByAddresses => {
                 let rpc_client = client.clone();
                 tst!(op, {
                     let addresses = vec![Address::new(Prefix::Simnet, Version::PubKey, &[0u8; 32])];
@@ -427,7 +427,7 @@ async fn sanity_test() {
                 })
             }
 
-            TondidPayloadOps::GetBalanceByAddress => {
+            SporadPayloadOps::GetBalanceByAddress => {
                 let rpc_client = client.clone();
                 tst!(op, {
                     let response = rpc_client
@@ -441,7 +441,7 @@ async fn sanity_test() {
                 })
             }
 
-            TondidPayloadOps::GetBalancesByAddresses => {
+            SporadPayloadOps::GetBalancesByAddresses => {
                 let rpc_client = client.clone();
                 tst!(op, {
                     let addresses = vec![Address::new(Prefix::Simnet, Version::PubKey, &[1u8; 32])];
@@ -459,7 +459,7 @@ async fn sanity_test() {
                 })
             }
 
-            TondidPayloadOps::GetSinkBlueScore => {
+            SporadPayloadOps::GetSinkBlueScore => {
                 let rpc_client = client.clone();
                 tst!(op, {
                     let response = rpc_client.get_sink_blue_score_call(None, GetSinkBlueScoreRequest {}).await.unwrap();
@@ -468,7 +468,7 @@ async fn sanity_test() {
                 })
             }
 
-            TondidPayloadOps::EstimateNetworkHashesPerSecond => {
+            SporadPayloadOps::EstimateNetworkHashesPerSecond => {
                 let rpc_client = client.clone();
                 tst!(op, {
                     let response_result = rpc_client
@@ -482,7 +482,7 @@ async fn sanity_test() {
                 })
             }
 
-            TondidPayloadOps::GetMempoolEntriesByAddresses => {
+            SporadPayloadOps::GetMempoolEntriesByAddresses => {
                 let rpc_client = client.clone();
                 tst!(op, {
                     let addresses = vec![Address::new(Prefix::Simnet, Version::PubKey, &[0u8; 32])];
@@ -500,7 +500,7 @@ async fn sanity_test() {
                 })
             }
 
-            TondidPayloadOps::GetCoinSupply => {
+            SporadPayloadOps::GetCoinSupply => {
                 let rpc_client = client.clone();
                 tst!(op, {
                     let response = rpc_client.get_coin_supply_call(None, GetCoinSupplyRequest {}).await.unwrap();
@@ -509,21 +509,21 @@ async fn sanity_test() {
                 })
             }
 
-            TondidPayloadOps::Ping => {
+            SporadPayloadOps::Ping => {
                 let rpc_client = client.clone();
                 tst!(op, {
                     let _ = rpc_client.ping_call(None, PingRequest {}).await.unwrap();
                 })
             }
 
-            TondidPayloadOps::GetConnections => {
+            SporadPayloadOps::GetConnections => {
                 let rpc_client = client.clone();
                 tst!(op, {
                     let _ = rpc_client.get_connections_call(None, GetConnectionsRequest { include_profile_data: true }).await.unwrap();
                 })
             }
 
-            TondidPayloadOps::GetMetrics => {
+            SporadPayloadOps::GetMetrics => {
                 let rpc_client = client.clone();
                 tst!(op, {
                     let get_metrics_call_response = rpc_client
@@ -596,14 +596,14 @@ async fn sanity_test() {
                 })
             }
 
-            TondidPayloadOps::GetSystemInfo => {
+            SporadPayloadOps::GetSystemInfo => {
                 let rpc_client = client.clone();
                 tst!(op, {
                     let _response = rpc_client.get_system_info_call(None, GetSystemInfoRequest {}).await.unwrap();
                 })
             }
 
-            TondidPayloadOps::GetServerInfo => {
+            SporadPayloadOps::GetServerInfo => {
                 let rpc_client = client.clone();
                 tst!(op, {
                     let response = rpc_client.get_server_info_call(None, GetServerInfoRequest {}).await.unwrap();
@@ -612,14 +612,14 @@ async fn sanity_test() {
                 })
             }
 
-            TondidPayloadOps::GetSyncStatus => {
+            SporadPayloadOps::GetSyncStatus => {
                 let rpc_client = client.clone();
                 tst!(op, {
                     let _ = rpc_client.get_sync_status_call(None, GetSyncStatusRequest {}).await.unwrap();
                 })
             }
 
-            TondidPayloadOps::GetDaaScoreTimestampEstimate => {
+            SporadPayloadOps::GetDaaScoreTimestampEstimate => {
                 let rpc_client = client.clone();
                 tst!(op, {
                     let results = rpc_client
@@ -645,7 +645,7 @@ async fn sanity_test() {
                 })
             }
 
-            TondidPayloadOps::GetFeeEstimate => {
+            SporadPayloadOps::GetFeeEstimate => {
                 let rpc_client = client.clone();
                 tst!(op, {
                     let response = rpc_client.get_fee_estimate().await.unwrap();
@@ -658,7 +658,7 @@ async fn sanity_test() {
                 })
             }
 
-            TondidPayloadOps::GetFeeEstimateExperimental => {
+            SporadPayloadOps::GetFeeEstimateExperimental => {
                 let rpc_client = client.clone();
                 tst!(op, {
                     let response = rpc_client.get_fee_estimate_experimental(true).await.unwrap();
@@ -672,14 +672,14 @@ async fn sanity_test() {
                 })
             }
 
-            TondidPayloadOps::GetUtxoReturnAddress => {
+            SporadPayloadOps::GetUtxoReturnAddress => {
                 let rpc_client = client.clone();
                 tst!(op, {
                     let results = rpc_client.get_utxo_return_address(RpcHash::from_bytes([0; 32]), 1000).await;
 
                     assert!(results.is_err_and(|err| {
                         match err {
-                            tondi_rpc_core::RpcError::General(msg) => {
+                            spora_rpc_core::RpcError::General(msg) => {
                                 info!("Expected error message: {}", msg);
                                 true
                             }
@@ -689,7 +689,7 @@ async fn sanity_test() {
                 })
             }
 
-            TondidPayloadOps::NotifyBlockAdded => {
+            SporadPayloadOps::NotifyBlockAdded => {
                 let rpc_client = client.clone();
                 let id = listener_id;
                 tst!(op, {
@@ -697,7 +697,7 @@ async fn sanity_test() {
                 })
             }
 
-            TondidPayloadOps::NotifyNewBlockTemplate => {
+            SporadPayloadOps::NotifyNewBlockTemplate => {
                 let rpc_client = client.clone();
                 let id = listener_id;
                 tst!(op, {
@@ -705,42 +705,42 @@ async fn sanity_test() {
                 })
             }
 
-            TondidPayloadOps::NotifyFinalityConflict => {
+            SporadPayloadOps::NotifyFinalityConflict => {
                 let rpc_client = client.clone();
                 let id = listener_id;
                 tst!(op, {
                     rpc_client.start_notify(id, FinalityConflictScope {}.into()).await.unwrap();
                 })
             }
-            TondidPayloadOps::NotifyUtxosChanged => {
+            SporadPayloadOps::NotifyUtxosChanged => {
                 let rpc_client = client.clone();
                 let id = listener_id;
                 tst!(op, {
                     rpc_client.start_notify(id, UtxosChangedScope::new(vec![]).into()).await.unwrap();
                 })
             }
-            TondidPayloadOps::NotifySinkBlueScoreChanged => {
+            SporadPayloadOps::NotifySinkBlueScoreChanged => {
                 let rpc_client = client.clone();
                 let id = listener_id;
                 tst!(op, {
                     rpc_client.start_notify(id, SinkBlueScoreChangedScope {}.into()).await.unwrap();
                 })
             }
-            TondidPayloadOps::NotifyPruningPointUtxoSetOverride => {
+            SporadPayloadOps::NotifyPruningPointUtxoSetOverride => {
                 let rpc_client = client.clone();
                 let id = listener_id;
                 tst!(op, {
                     rpc_client.start_notify(id, PruningPointUtxoSetOverrideScope {}.into()).await.unwrap();
                 })
             }
-            TondidPayloadOps::NotifyVirtualDaaScoreChanged => {
+            SporadPayloadOps::NotifyVirtualDaaScoreChanged => {
                 let rpc_client = client.clone();
                 let id = listener_id;
                 tst!(op, {
                     rpc_client.start_notify(id, VirtualDaaScoreChangedScope {}.into()).await.unwrap();
                 })
             }
-            TondidPayloadOps::NotifyVirtualChainChanged => {
+            SporadPayloadOps::NotifyVirtualChainChanged => {
                 let rpc_client = client.clone();
                 let id = listener_id;
                 tst!(op, {
@@ -750,14 +750,14 @@ async fn sanity_test() {
                         .unwrap();
                 })
             }
-            TondidPayloadOps::StopNotifyingUtxosChanged => {
+            SporadPayloadOps::StopNotifyingUtxosChanged => {
                 let rpc_client = client.clone();
                 let id = listener_id;
                 tst!(op, {
                     rpc_client.stop_notify(id, UtxosChangedScope::new(vec![]).into()).await.unwrap();
                 })
             }
-            TondidPayloadOps::StopNotifyingPruningPointUtxoSetOverride => {
+            SporadPayloadOps::StopNotifyingPruningPointUtxoSetOverride => {
                 let rpc_client = client.clone();
                 let id = listener_id;
                 tst!(op, {
