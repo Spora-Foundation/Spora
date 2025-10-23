@@ -4,7 +4,7 @@ use workflow_terminal::Options;
 use workflow_terminal::Result;
 
 #[wasm_bindgen]
-pub async fn load_tondi_wallet_cli() -> Result<()> {
+pub async fn load_spora_wallet_cli() -> Result<()> {
     let options = Options { ..Options::default() };
     spora_cli(options, None).await?;
     Ok(())

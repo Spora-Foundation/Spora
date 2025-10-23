@@ -9,7 +9,7 @@ use spora_consensus_core::constants::*;
 use spora_consensus_core::network::NetworkType;
 use workflow_log::style;
 
-pub fn try_tondi_str_to_sau<S: Into<String>>(s: S) -> Result<Option<u64>> {
+pub fn try_spora_str_to_sau<S: Into<String>>(s: S) -> Result<Option<u64>> {
     let s: String = s.into();
     let amount = s.trim();
     if amount.is_empty() {
@@ -19,7 +19,7 @@ pub fn try_tondi_str_to_sau<S: Into<String>>(s: S) -> Result<Option<u64>> {
     Ok(Some(str_to_sau(amount)?))
 }
 
-pub fn try_tondi_str_to_sau_i64<S: Into<String>>(s: S) -> Result<Option<i64>> {
+pub fn try_spora_str_to_sau_i64<S: Into<String>>(s: S) -> Result<Option<i64>> {
     let s: String = s.into();
     let amount = s.trim();
     if amount.is_empty() {
@@ -31,23 +31,23 @@ pub fn try_tondi_str_to_sau_i64<S: Into<String>>(s: S) -> Result<Option<i64>> {
 }
 
 #[inline]
-pub fn sau_to_tondi(sau: u64) -> f64 {
+pub fn sau_to_spora(sau: u64) -> f64 {
     sau as f64 / SAU_PER_TONDI as f64
 }
 
 #[inline]
-pub fn tondi_to_sau(spora: f64) -> u64 {
+pub fn spora_to_sau(spora: f64) -> u64 {
     (spora * SAU_PER_TONDI as f64) as u64
 }
 
 #[inline]
-pub fn sau_to_tondi_string(sau: u64) -> String {
-    sau_to_tondi(sau).separated_string()
+pub fn sau_to_spora_string(sau: u64) -> String {
+    sau_to_spora(sau).separated_string()
 }
 
 #[inline]
-pub fn sau_to_tondi_string_with_trailing_zeroes(sau: u64) -> String {
-    separated_float!(format!("{:.8}", sau_to_tondi(sau)))
+pub fn sau_to_spora_string_with_trailing_zeroes(sau: u64) -> String {
+    separated_float!(format!("{:.8}", sau_to_spora(sau)))
 }
 
 pub fn spora_suffix(network_type: &NetworkType) -> &'static str {
@@ -60,15 +60,15 @@ pub fn spora_suffix(network_type: &NetworkType) -> &'static str {
 }
 
 #[inline]
-pub fn sau_to_tondi_string_with_suffix(sau: u64, network_type: &NetworkType) -> String {
-    let spora = sau_to_tondi_string(sau);
+pub fn sau_to_spora_string_with_suffix(sau: u64, network_type: &NetworkType) -> String {
+    let spora = sau_to_spora_string(sau);
     let suffix = spora_suffix(network_type);
     format!("{spora} {suffix}")
 }
 
 #[inline]
-pub fn sau_to_tondi_string_with_trailing_zeroes_and_suffix(sau: u64, network_type: &NetworkType) -> String {
-    let spora = sau_to_tondi_string_with_trailing_zeroes(sau);
+pub fn sau_to_spora_string_with_trailing_zeroes_and_suffix(sau: u64, network_type: &NetworkType) -> String {
+    let spora = sau_to_spora_string_with_trailing_zeroes(sau);
     let suffix = spora_suffix(network_type);
     format!("{spora} {suffix}")
 }

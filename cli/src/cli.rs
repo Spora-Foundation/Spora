@@ -734,24 +734,24 @@ impl SporaCli {
             tprintln!(self, "{}", style("shutting down...").magenta());
 
             let miner = self.daemons().try_cpu_miner();
-            let tondid = self.daemons().try_tondid();
+            let sporad = self.daemons().try_sporad();
 
             if let Some(miner) = miner.as_ref() {
                 miner.mute(false).await?;
                 miner.stop().await?;
             }
 
-            if let Some(tondid) = tondid.as_ref() {
-                tondid.mute(false).await?;
-                tondid.stop().await?;
+            if let Some(sporad) = sporad.as_ref() {
+                sporad.mute(false).await?;
+                sporad.stop().await?;
             }
 
             if let Some(miner) = miner.as_ref() {
                 miner.join().await?;
             }
 
-            if let Some(tondid) = tondid.as_ref() {
-                tondid.join().await?;
+            if let Some(sporad) = sporad.as_ref() {
+                sporad.join().await?;
             }
 
             self.term().exit().await;

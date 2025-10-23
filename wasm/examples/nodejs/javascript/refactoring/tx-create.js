@@ -46,11 +46,11 @@ spora.init_console_panic_hook();
     const info = await rpc.getInfo();
     console.log("info", info);
 
-    const addr = address ?? "tonditest:qz7ulu4c25dh7fzec9zjyrmlhnkzrg4wmf89q7gzr3gfrsj3uz6xjceef60sd";
+    const addr = address ?? "sporatest:qz7ulu4c25dh7fzec9zjyrmlhnkzrg4wmf89q7gzr3gfrsj3uz6xjceef60sd";
 
     const addresses = [
         addr,
-        //new Address("tonditest:qz7ulu4c25dh7fzec9zjyrmlhnkzrg4wmf89q7gzr3gfrsj3uz6xjceef60sd")
+        //new Address("sporatest:qz7ulu4c25dh7fzec9zjyrmlhnkzrg4wmf89q7gzr3gfrsj3uz6xjceef60sd")
     ];
 
     console.log("\ngetting UTXOs...", addresses);

@@ -1,5 +1,5 @@
 //!
-//! Legacy (KDX, tondinet.io Web Wallet) account implementation
+//! Legacy (KDX, sporanet.io Web Wallet) account implementation
 //!
 
 use crate::account::{create_private_keys, AsLegacyAccount, DerivationCapableAccount, Inner};
@@ -20,7 +20,7 @@ impl Factory for Ctor {
     }
 
     fn description(&self) -> String {
-        "Spora Legacy Account (KDX, tondinet.io Web Wallet)".to_string()
+        "Spora Legacy Account (KDX, sporanet.io Web Wallet)".to_string()
     }
 
     async fn try_load(

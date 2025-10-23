@@ -52,7 +52,7 @@ Send tokens to a single address:
 ```bash
 cargo run --package treasure_boy -- \
   --private-key YOUR_PRIVATE_KEY \
-  --to-addr tondi0:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvp55hu9 \
+  --to-addr spora0:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvp55hu9 \
   --tps 5 \
   --amount 1000000000
 ```
@@ -96,18 +96,18 @@ cargo run --package treasure_boy -- \
 
 ### Network Types
 
-- **testnet**: Uses `tondi0:` prefix (default)
+- **testnet**: Uses `spora0:` prefix (default)
 - **mainnet**: Uses `spora:` prefix
-- **devnet**: Uses `tondidev:` prefix
+- **devnet**: Uses `sporadev:` prefix
 
 ### Address File Format
 
 Create a text file with one address per line:
 ```
 # Comments are supported
-tondi0:qrgqpkue0tzhmqd77tljdhwjc757hc26uestam0gc4kycjx4k8uu603uewc
-tondi0:qqmquth4lyayewfl32pj8w9w9dpzqk6c9ngyp4xxmyqusxruhjm0jwhje4w
-tondi0:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvp55hu9
+spora0:qrgqpkue0tzhmqd77tljdhwjc757hc26uestam0gc4kycjx4k8uu603uewc
+spora0:qqmquth4lyayewfl32pj8w9w9dpzqk6c9ngyp4xxmyqusxruhjm0jwhje4w
+spora0:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvp55hu9
 ```
 
 ## Examples
@@ -128,7 +128,7 @@ cargo run --package treasure_boy -- --generate-addresses 100 --network mainnet -
 # Send 1 SPORA to a single address at 10 TPS
 cargo run --package treasure_boy -- \
   --private-key c99b1ccf1087af2a56ffedb885943962e0159a7705cac583eef3e9958cd035b3 \
-  --to-addr tondi0:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvp55hu9 \
+  --to-addr spora0:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvp55hu9 \
   --tps 10 \
   --amount 1000000000
 ```

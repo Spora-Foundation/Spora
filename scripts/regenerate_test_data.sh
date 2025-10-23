@@ -43,18 +43,18 @@ for dir in "$TEMP_DIR"/*; do
     if [ -d "$dir" ]; then
         dirname=$(basename "$dir")
         echo "Exporting blocks from $dirname..."
-        # Start tondid in the background
-        cargo run --bin tondid -- --appdir "$dir" &
-        TONDID_PID=$!
+        # Start sporad in the background
+        cargo run --bin sporad -- --appdir "$dir" &
+        SPORAD_PID=$!
         
-        # Wait for tondid to start
+        # Wait for sporad to start
         sleep 2
         
         # Use RPC to get blocks
-        cargo run --bin tondid -- --rpc get-blocks --include-blocks true --include-transactions true > "$TEST_DATA_DIR/$dirname/blocks.json"
+        cargo run --bin sporad -- --rpc get-blocks --include-blocks true --include-transactions true > "$TEST_DATA_DIR/$dirname/blocks.json"
         
-        # Kill tondid
-        kill $TONDID_PID
+        # Kill sporad
+        kill $SPORAD_PID
     fi
 done
 

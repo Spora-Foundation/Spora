@@ -470,19 +470,19 @@ impl From<NetworkId> for Params {
 pub const MAINNET_PARAMS: Params = Params {
     dns_seeders: &[
         // This DNS seeder is run by Denis Mashkevich
-        "mainnet-dnsseed-1.tondinet.org",
+        "mainnet-dnsseed-1.sporanet.org",
         // This DNS seeder is run by Denis Mashkevich
-        "mainnet-dnsseed-2.tondinet.org",
+        "mainnet-dnsseed-2.sporanet.org",
         // This DNS seeder is run by Georges Künzli
-        "seeder1.tondid.net",
+        "seeder1.sporad.net",
         // This DNS seeder is run by Georges Künzli
-        "seeder2.tondid.net",
+        "seeder2.sporad.net",
         // This DNS seeder is run by Georges Künzli
-        "seeder3.tondid.net",
+        "seeder3.sporad.net",
         // This DNS seeder is run by Georges Künzli
-        "seeder4.tondid.net",
+        "seeder4.sporad.net",
         // This DNS seeder is run by Tim
-        "tondidns.tondicalc.net",
+        "sporadns.sporacalc.net",
         // This DNS seeder is run by supertypo
         "n-mainnet.spora.ws",
         // This DNS seeder is run by -gerri-
@@ -507,7 +507,7 @@ pub const MAINNET_PARAMS: Params = Params {
     coinbase_payload_script_public_key_max_len: 150,
     max_coinbase_payload_len: 204,
 
-    // This is technically a soft fork from the Go implementation since tondid's consensus doesn't
+    // This is technically a soft fork from the Go implementation since sporad's consensus doesn't
     // check these rules, but in practice it's enforced by the network layer that limits the message
     // size to 1 GB.
     // These values should be lowered to more reasonable amounts on the next planned HF/SF.
@@ -554,7 +554,7 @@ pub const TESTNET_PARAMS: Params = Params {
     coinbase_payload_script_public_key_max_len: 150,
     max_coinbase_payload_len: 204,
 
-    // This is technically a soft fork from the Go implementation since tondid's consensus doesn't
+    // This is technically a soft fork from the Go implementation since sporad's consensus doesn't
     // check these rules, but in practice it's enforced by the network layer that limits the message
     // size to 1 GB.
     // These values should be lowered to more reasonable amounts on the next planned HF/SF.
@@ -650,7 +650,7 @@ pub const DEVNET_PARAMS: Params = Params {
     coinbase_payload_script_public_key_max_len: 150,
     max_coinbase_payload_len: 204,
 
-    // This is technically a soft fork from the Go implementation since tondid's consensus doesn't
+    // This is technically a soft fork from the Go implementation since sporad's consensus doesn't
     // check these rules, but in practice it's enforced by the network layer that limits the message
     // size to 1 GB.
     // These values should be lowered to more reasonable amounts on the next planned HF/SF.

@@ -32,7 +32,7 @@ use spora_notify::{
 use spora_rpc_core::{api::rpc::RpcApi, Notification, RpcError};
 use spora_txscript::pay_to_address_script;
 use spora_utils::fd_budget;
-use tondid_lib::args::Args;
+use sporad_lib::args::Args;
 
 /// Run this benchmark with the following command line:
 /// `cargo test --release --package spora-testing-integration --lib --features devnet-prealloc -- mempool_benchmarks::bench_bbt_latency --exact --nocapture --ignored`

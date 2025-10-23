@@ -14,8 +14,8 @@ pub struct ListeningClient {
 }
 
 impl ListeningClient {
-    pub async fn connect(tondid: &Daemon) -> Self {
-        let client = tondid.new_multi_listener_client().await;
+    pub async fn connect(sporad: &Daemon) -> Self {
+        let client = sporad.new_multi_listener_client().await;
         client.start(None).await;
         let listeners = Default::default();
         ListeningClient { client, listeners }

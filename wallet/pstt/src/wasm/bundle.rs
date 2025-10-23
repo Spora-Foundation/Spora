@@ -5,7 +5,7 @@ use super::result::*;
 use crate::bundle::Bundle as Inner;
 use crate::pstt::Inner as PSTTInner;
 use crate::wasm::pstt::*;
-use crate::wasm::utils::sau_to_tondi_string_with_suffix;
+use crate::wasm::utils::sau_to_spora_string_with_suffix;
 use spora_consensus_core::network::{NetworkId, NetworkIdT};
 use wasm_bindgen::prelude::*;
 use workflow_wasm::convert::TryCastFromJs;
@@ -36,7 +36,7 @@ impl PSTB {
     #[wasm_bindgen(js_name = "displayFormat")]
     pub fn display_format(&self, network_id: &NetworkIdT) -> Result<String> {
         let network_id = NetworkId::try_cast_from(network_id).map_err(|err| Error::Custom(err.to_string()))?.into_owned();
-        Ok(self.0.display_format(network_id, sau_to_tondi_string_with_suffix))
+        Ok(self.0.display_format(network_id, sau_to_spora_string_with_suffix))
     }
 
     #[wasm_bindgen]

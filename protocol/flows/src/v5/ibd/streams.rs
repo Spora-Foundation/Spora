@@ -15,7 +15,7 @@ use spora_p2p_lib::{
     convert::model::trusted::TrustedDataEntry,
     make_message,
     pb::{
-        tondid_message::Payload, RequestNextHeadersMessage, RequestNextPruningPointAndItsAnticoneBlocksMessage,
+        sporad_message::Payload, RequestNextHeadersMessage, RequestNextPruningPointAndItsAnticoneBlocksMessage,
         RequestNextPruningPointUtxoSetChunkMessage,
     },
     IncomingRoute, Router,

@@ -1,7 +1,7 @@
 use crate::tasks::daemon::DaemonArgs;
 #[cfg(feature = "devnet-prealloc")]
 use spora_addresses::Address;
-use tondid_lib::args::Args;
+use sporad_lib::args::Args;
 
 pub struct ArgsBuilder {
     args: Args,

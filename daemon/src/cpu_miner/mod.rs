@@ -178,7 +178,7 @@ impl CpuMiner {
             self.mute.load(Ordering::SeqCst),
         );
 
-        // let options = tondidOptions::new(path,network)?;
+        // let options = sporadOptions::new(path,network)?;
         let process = Arc::new(Process::new(options));
         self.inner().process.replace(process.clone());
         process.run()?;

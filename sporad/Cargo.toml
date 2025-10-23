@@ -1,5 +1,5 @@
 [package]
-name = "tondid"
+name = "sporad"
 description = "spora full node daemon"
 keywords = ["spora", "blockdag"]
 rust-version.workspace = true
@@ -11,7 +11,7 @@ license.workspace = true
 repository.workspace = true
 
 [lib]
-name = "tondid_lib"
+name = "sporad_lib"
 crate-type = ["cdylib", "lib"]
 
 [dependencies]

@@ -50,7 +50,7 @@ impl Default for Node {
 impl Handler for Node {
     fn verb(&self, ctx: &Arc<dyn Context>) -> Option<&'static str> {
         if let Ok(ctx) = ctx.clone().downcast_arc::<SporaCli>() {
-            ctx.daemons().clone().tondid.as_ref().map(|_| "node")
+            ctx.daemons().clone().sporad.as_ref().map(|_| "node")
         } else {
             None
         }
@@ -96,7 +96,7 @@ impl Node {
         if argv.is_empty() {
             return self.display_help(ctx, argv).await;
         }
-        let tondid = ctx.daemons().tondid();
+        let sporad = ctx.daemons().sporad();
         match argv.remove(0).as_str() {
             "start" => {
                 let mute = self.mute.load(Ordering::SeqCst);
@@ -108,8 +108,8 @@ impl Node {
 
                 let wrpc_client = ctx.wallet().try_wrpc_client().ok_or(Error::custom("Unable to start node with non-wRPC client"))?;
 
-                tondid.configure(self.create_config(&ctx).await?).await?;
-                tondid.start().await?;
+                sporad.configure(self.create_config(&ctx).await?).await?;
+                sporad.start().await?;
 
                 // temporary setup for auto-connect
                 let url = ctx.wallet().settings().get(WalletSettings::Server);
@@ -138,14 +138,14 @@ impl Node {
                 }
             }
             "stop" => {
-                tondid.stop().await?;
+                sporad.stop().await?;
             }
             "restart" => {
-                tondid.configure(self.create_config(&ctx).await?).await?;
-                tondid.restart().await?;
+                sporad.configure(self.create_config(&ctx).await?).await?;
+                sporad.restart().await?;
             }
             "kill" => {
-                tondid.kill().await?;
+                sporad.kill().await?;
             }
             "mute" | "logs" => {
                 let mute = !self.mute.load(Ordering::SeqCst);
@@ -159,7 +159,7 @@ impl Node {
                 self.settings.set(SporadSettings::Mute, mute).await?;
             }
             "status" => {
-                let status = tondid.status().await?;
+                let status = sporad.status().await?;
                 tprintln!(ctx, "{}", status);
             }
             "select" => {
@@ -168,8 +168,8 @@ impl Node {
                 self.select(ctx, path.is_not_empty().then_some(path)).await?;
             }
             "version" => {
-                tondid.configure(self.create_config(&ctx).await?).await?;
-                let version = tondid.version().await?;
+                sporad.configure(self.create_config(&ctx).await?).await?;
+                let version = sporad.version().await?;
                 tprintln!(ctx, "{}", version);
             }
             v => {

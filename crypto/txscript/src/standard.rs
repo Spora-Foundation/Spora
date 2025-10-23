@@ -114,7 +114,7 @@ pub fn pay_to_address_script(address: &Address) -> ScriptPublicKey {
 /// use spora_txscript::pay_to_address_with_lock_time_script;
 /// use spora_addresses::Address;
 ///
-/// let addr = Address::constructor("tondi0:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvp55hu9");
+/// let addr = Address::constructor("spora0:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvp55hu9");
 /// let lock_time = 1756684800; // Unix timestamp
 /// let script = pay_to_address_with_lock_time_script(&addr, lock_time).unwrap();
 /// ```

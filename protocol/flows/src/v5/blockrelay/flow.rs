@@ -11,7 +11,7 @@ use spora_hashes::Hash;
 use spora_p2p_lib::{
     common::ProtocolError,
     dequeue, dequeue_with_timeout, make_message, make_request,
-    pb::{tondid_message::Payload, InvRelayBlockMessage, RequestBlockLocatorMessage, RequestRelayBlocksMessage},
+    pb::{sporad_message::Payload, InvRelayBlockMessage, RequestBlockLocatorMessage, RequestRelayBlocksMessage},
     IncomingRoute, Router, SharedIncomingRoute,
 };
 use spora_utils::channel::{JobSender, JobTrySendError as TrySendError};

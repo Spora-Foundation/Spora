@@ -21,7 +21,7 @@ spora.init_console_panic_hook();
     // Either Encoding.Borsh or Encoding.JSON
     const encoding = args.encoding;
     // The spora address that was passed as an argument or a default one
-    const address = args.address ?? "tonditest:qz7ulu4c25dh7fzec9zjyrmlhnkzrg4wmf89q7gzr3gfrsj3uz6xjceef60sd";
+    const address = args.address ?? "sporatest:qz7ulu4c25dh7fzec9zjyrmlhnkzrg4wmf89q7gzr3gfrsj3uz6xjceef60sd";
 
     const rpc = new RpcClient({
         url : "127.0.0.1",

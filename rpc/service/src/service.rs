@@ -39,7 +39,7 @@ use spora_core::{
     signals::Shutdown,
     task::service::{AsyncService, AsyncServiceError, AsyncServiceFuture},
     task::tick::TickService,
-    tondid_env::version,
+    sporad_env::version,
     trace, warn,
 };
 use spora_index_core::indexed_utxos::BalanceByScriptPublicKey;
@@ -83,8 +83,8 @@ use spora_utils::sysinfo::SystemInfo;
 use spora_utils::{channel::Channel, triggers::SingleTrigger};
 use spora_utils_tower::counters::TowerConnectionCounters;
 // TODO(cell-model): UTXO index needs Cell model replacement
-// use tondi_utxoindex::api::UtxoIndexProxy;
-// use tondi_utxoindex::model::CompactUtxoCollection;
+// use spora_utxoindex::api::UtxoIndexProxy;
+// use spora_utxoindex::model::CompactUtxoCollection;
 
 // Temporary type aliases for compilation during Cell model migration
 type UtxoIndexProxy = ();

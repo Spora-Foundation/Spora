@@ -3,7 +3,7 @@ use std::sync::Arc;
 use spora_p2p_lib::{
     common::ProtocolError,
     dequeue_with_request_id, make_response,
-    pb::{tondid_message::Payload, BlockLocatorMessage},
+    pb::{sporad_message::Payload, BlockLocatorMessage},
     IncomingRoute, Router,
 };
 

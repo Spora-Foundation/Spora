@@ -88,9 +88,9 @@ impl fmt::Display for GeneratorSummary {
             write!(
                 f,
                 "Amount: {}  Fees: {}  Total: {}  UTXOs: {}  {}",
-                sau_to_tondi_string_with_suffix(final_transaction_amount, &self.network_id),
-                sau_to_tondi_string_with_suffix(self.aggregated_fees, &self.network_id),
-                sau_to_tondi_string_with_suffix(total, &self.network_id),
+                sau_to_spora_string_with_suffix(final_transaction_amount, &self.network_id),
+                sau_to_spora_string_with_suffix(self.aggregated_fees, &self.network_id),
+                sau_to_spora_string_with_suffix(total, &self.network_id),
                 self.aggregated_utxos,
                 transactions
             )?;
@@ -98,7 +98,7 @@ impl fmt::Display for GeneratorSummary {
             write!(
                 f,
                 "Fees: {}  UTXOs: {}  {}",
-                sau_to_tondi_string_with_suffix(self.aggregated_fees, &self.network_id),
+                sau_to_spora_string_with_suffix(self.aggregated_fees, &self.network_id),
                 self.aggregated_utxos,
                 transactions
             )?;

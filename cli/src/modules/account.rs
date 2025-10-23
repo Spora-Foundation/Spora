@@ -119,7 +119,7 @@ impl Account {
                                             tprintln!(
                                                 ctx_,
                                                 "Scan detected {} SPORA at index {}; transfer txid: {}",
-                                                sau_to_tondi_string(balance),
+                                                sau_to_spora_string(balance),
                                                 processed,
                                                 txid
                                             );
@@ -128,7 +128,7 @@ impl Account {
                                                 ctx_,
                                                 "Scanned {} derivations, found {} SPORA",
                                                 processed,
-                                                sau_to_tondi_string(balance)
+                                                sau_to_spora_string(balance)
                                             );
                                         } else {
                                             tprintln!(ctx_, "Please wait... scanning for account UTXOs...");
@@ -137,7 +137,7 @@ impl Account {
                                 )
                                 .await?;
                         } else if application_runtime::is_web() {
-                            return Err("'tondinet' web wallet storage not found at this domain name".into());
+                            return Err("'sporanet' web wallet storage not found at this domain name".into());
                         } else {
                             return Err("KDX keydata file not found".into());
                         }
@@ -300,12 +300,12 @@ impl Account {
                         tprintln!(
                             ctx_,
                             "Scan detected {} SPORA at index {}; transfer txid: {}",
-                            sau_to_tondi_string(balance),
+                            sau_to_spora_string(balance),
                             processed,
                             txid
                         );
                     } else {
-                        tprintln!(ctx_, "Scanned {} derivations, found {} SPORA", processed, sau_to_tondi_string(balance));
+                        tprintln!(ctx_, "Scanned {} derivations, found {} SPORA", processed, sau_to_spora_string(balance));
                     }
                 })),
             )

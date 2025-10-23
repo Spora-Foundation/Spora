@@ -5,7 +5,7 @@ use spora_consensus_core::tx::TransactionId;
 use spora_core::debug;
 use spora_p2p_lib::{
     make_message,
-    pb::{tondid_message::Payload, InvTransactionsMessage, SporadMessage},
+    pb::{sporad_message::Payload, InvTransactionsMessage, SporadMessage},
     Hub,
 };
 

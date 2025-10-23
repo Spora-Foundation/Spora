@@ -32,11 +32,11 @@ pub struct Interface {
 
 impl Interface {
     pub fn new(server_ctx: ServerContext) -> Self {
-        let method_not_implemented = Arc::new(Method::new(|_, _, tondid_request: SporadRequest| {
+        let method_not_implemented = Arc::new(Method::new(|_, _, sporad_request: SporadRequest| {
             Box::pin(async move {
-                match tondid_request.payload {
+                match sporad_request.payload {
                     Some(ref request) => Ok(SporadResponse {
-                        id: tondid_request.id,
+                        id: sporad_request.id,
                         payload: Some(SporadPayloadOps::from(request).to_error_response(GrpcServerError::MethodNotImplemented.into())),
                     }),
                     None => Err(GrpcServerError::InvalidRequestPayload),

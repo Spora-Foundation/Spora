@@ -49,7 +49,7 @@ fn test_cli_generate_addresses() {
     // Should display generated addresses
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Generated 3 addresses:"));
-    assert!(stdout.contains("tondi0:"));
+    assert!(stdout.contains("spora0:"));
 }
 
 #[test]
@@ -70,8 +70,8 @@ fn test_cli_generate_addresses_to_file() {
     let file_content = std::fs::read_to_string(format!("{temp_path}.addresses")).unwrap();
     let lines: Vec<&str> = file_content.lines().collect();
     assert_eq!(lines.len(), 2);
-    assert!(lines[0].starts_with("tondi0:"));
-    assert!(lines[1].starts_with("tondi0:"));
+    assert!(lines[0].starts_with("spora0:"));
+    assert!(lines[1].starts_with("spora0:"));
 }
 
 #[test]
@@ -79,8 +79,8 @@ fn test_cli_with_address_file() {
     // Create temporary address file
     let mut temp_file = NamedTempFile::new().unwrap();
     let addresses_content = r#"# Test addresses
-tondi0:qrgqpkue0tzhmqd77tljdhwjc757hc26uestam0gc4kycjx4k8uu603uewc
-tondi0:qqmquth4lyayewfl32pj8w9w9dpzqk6c9ngyp4xxmyqusxruhjm0jwhje4w
+spora0:qrgqpkue0tzhmqd77tljdhwjc757hc26uestam0gc4kycjx4k8uu603uewc
+spora0:qqmquth4lyayewfl32pj8w9w9dpzqk6c9ngyp4xxmyqusxruhjm0jwhje4w
 "#;
 
     temp_file.write_all(addresses_content.as_bytes()).unwrap();
@@ -122,7 +122,7 @@ fn test_cli_with_single_address() {
             "--private-key",
             "c99b1ccf1087af2a56ffedb885943962e0159a7705cac583eef3e9958cd035b3",
             "--to-addr",
-            "tondi0:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvp55hu9",
+            "spora0:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvp55hu9",
             "--tps",
             "5",
             "--threads",
@@ -132,7 +132,7 @@ fn test_cli_with_single_address() {
         .expect("Failed to execute command");
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("to address: tondi0:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvp55hu9"));
+    assert!(stdout.contains("to address: spora0:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvp55hu9"));
 }
 
 #[test]

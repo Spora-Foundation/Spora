@@ -9,7 +9,7 @@ use spora_consensus_core::{
 };
 use spora_consensus_notify::{root::ConsensusNotificationRoot, service::NotifyService};
 use spora_core::{core::Core, debug, info, trace};
-use spora_core::{task::tick::TickService, tondid_env::version};
+use spora_core::{task::tick::TickService, sporad_env::version};
 use spora_database::{
     prelude::{CachePolicy, DbWriter, DirectDbWriter},
     registry::DatabaseStorePrefixes,
@@ -43,13 +43,13 @@ use spora_p2p_flows::{flow_context::FlowContext, service::P2pService};
 use itertools::Itertools;
 use spora_perf_monitor::{builder::Builder as PerfMonitorBuilder, counters::CountersSnapshot};
 // TODO(cell-model): UTXO index needs Cell model replacement
-// use tondi_utxoindex::{api::UtxoIndexProxy, UtxoIndex};
+// use spora_utxoindex::{api::UtxoIndexProxy, UtxoIndex};
 use spora_wrpc_server::service::{Options as WrpcServerOptions, WebSocketCounters as WrpcServerCounters, WrpcEncoding, WrpcService};
 
 /// Desired soft FD limit that needs to be configured
-/// for the tondid process.
+/// for the sporad process.
 pub const DESIRED_DAEMON_SOFT_FD_LIMIT: u64 = 8 * 1024;
-/// Minimum acceptable soft FD limit for the tondid
+/// Minimum acceptable soft FD limit for the sporad
 /// process. (Rusty Spora will operate with the minimal
 /// acceptable limit of `4096`, but a setting below
 /// this value may impact the database performance).
@@ -146,7 +146,7 @@ pub struct Runtime {
 
 /// Get the application directory from the supplied [`Args`].
 /// This function can be used to identify the location of
-/// the application folder that contains tondid logs and the database.
+/// the application folder that contains sporad logs and the database.
 pub fn get_app_dir_from_args(args: &Args) -> PathBuf {
     let app_dir = args
         .appdir
@@ -345,7 +345,7 @@ do you confirm? (answer y/n or pass --yes to the Sporad command line to confirm 
         }
     }
 
-    // Reset Condition: Need to reset if we're upgrading from tondid DB version
+    // Reset Condition: Need to reset if we're upgrading from sporad DB version
     // TEMP: upgrade from Alpha version or any version before this one
     if !is_db_reset_needed
         && (meta_db.get_pinned(b"multi-consensus-metadata-key").is_ok_and(|r| r.is_some())

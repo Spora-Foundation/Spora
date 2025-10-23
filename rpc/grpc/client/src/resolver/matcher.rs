@@ -1,16 +1,16 @@
-use spora_grpc_core::protowire::{tondid_request, tondid_response, SporadRequest, SporadResponse};
+use spora_grpc_core::protowire::{sporad_request, sporad_response, SporadRequest, SporadResponse};
 
 pub(crate) trait Matcher<T> {
     fn is_matching(&self, response: T) -> bool;
 }
 
-impl Matcher<&tondid_response::Payload> for tondid_request::Payload {
-    fn is_matching(&self, response: &tondid_response::Payload) -> bool {
-        use tondid_request::Payload;
+impl Matcher<&sporad_response::Payload> for sporad_request::Payload {
+    fn is_matching(&self, response: &sporad_response::Payload) -> bool {
+        use sporad_request::Payload;
         match self {
             // TODO: implement for each payload variant supporting request/response pairing
             Payload::GetBlockRequest(ref request) => {
-                if let tondid_response::Payload::GetBlockResponse(ref response) = response {
+                if let sporad_response::Payload::GetBlockResponse(ref response) = response {
                     if let Some(block) = response.block.as_ref() {
                         if let Some(verbose_data) = block.verbose_data.as_ref() {
                             return verbose_data.hash == request.hash;

@@ -772,15 +772,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn generate_tonditest_addresses() {
+    async fn generate_sporatest_addresses() {
         let receive_addresses = [
-            "tondi0:qqz22l98sf8jun72rwh5rqe2tm8lhwtdxdmynrz4ypwak427qed5ja43uev",
-            "tondi0:qz880h6s4fwyumlslklt4jjwm7y5lcqyy8v5jc88gsncpuza0y76xwq5z3p",
+            "spora0:qqz22l98sf8jun72rwh5rqe2tm8lhwtdxdmynrz4ypwak427qed5ja43uev",
+            "spora0:qz880h6s4fwyumlslklt4jjwm7y5lcqyy8v5jc88gsncpuza0y76xwq5z3p",
         ];
 
         let change_addresses = vec![
-            "tondi0:qq3p8lvqyhzh37qgh2vf9u79l7h85pnmypg8z0tmp0tfl70zjm2cvuqv4wv",
-            "tondi0:qpl00d5thmm3c5w3lj9cwx94dejjjx667rh3ey4sp0tkrmhsyd7rggp7nla",
+            "spora0:qq3p8lvqyhzh37qgh2vf9u79l7h85pnmypg8z0tmp0tfl70zjm2cvuqv4wv",
+            "spora0:qpl00d5thmm3c5w3lj9cwx94dejjjx667rh3ey4sp0tkrmhsyd7rggp7nla",
         ];
 
         let master_xprv =

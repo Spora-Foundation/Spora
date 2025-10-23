@@ -4,7 +4,7 @@
 // use crate::result::Result;
 // use crate::tx::{Fees, MassCalculator, PaymentDestination};
 // use crate::utxo::UtxoEntryReference;
-// use crate::{tx::PaymentOutputs, utils::tondi_to_sau};
+// use crate::{tx::PaymentOutputs, utils::spora_to_sau};
 // use spora_addresses::Address;
 // use spora_consensus_core::network::{NetworkId, NetworkType};
 // use spora_consensus_core::tx::Transaction;
@@ -34,13 +34,13 @@
 //
 // impl From<Spora> for Sau {
 //     fn from(spora: Spora) -> Self {
-//         Sau(tondi_to_sau(spora.0))
+//         Sau(spora_to_sau(spora.0))
 //     }
 // }
 //
 // impl From<&Spora> for Sau {
 //     fn from(spora: &Spora) -> Self {
-//         Sau(tondi_to_sau(spora.0))
+//         Sau(spora_to_sau(spora.0))
 //     }
 // }
 //
@@ -405,7 +405,7 @@
 //     let mut values = head.to_vec();
 //     values.extend(tail);
 //
-//     let utxo_entries: Vec<UtxoEntryReference> = values.into_iter().map(tondi_to_sau).map(UtxoEntryReference::simulated).collect();
+//     let utxo_entries: Vec<UtxoEntryReference> = values.into_iter().map(spora_to_sau).map(UtxoEntryReference::simulated).collect();
 //     let multiplexer = None;
 //     let sig_op_count = 1;
 //     let minimum_signatures = 1;
@@ -438,7 +438,7 @@
 // pub(crate) fn change_address(network_type: NetworkType) -> Address {
 //     match network_type {
 //         NetworkType::Mainnet => Address::try_from("spora:qpauqsvk7yf9unexwmxsnmg547mhyga37csh0kj53q6xxgl24ydxjsgzthw5j").unwrap(),
-//         NetworkType::Testnet => Address::try_from("tonditest:qqz22l98sf8jun72rwh5rqe2tm8lhwtdxdmynrz4ypwak427qed5juktjt7ju").unwrap(),
+//         NetworkType::Testnet => Address::try_from("sporatest:qqz22l98sf8jun72rwh5rqe2tm8lhwtdxdmynrz4ypwak427qed5juktjt7ju").unwrap(),
 //         _ => unreachable!("network type not supported"),
 //     }
 // }
@@ -446,7 +446,7 @@
 // pub(crate) fn output_address(network_type: NetworkType) -> Address {
 //     match network_type {
 //         NetworkType::Mainnet => Address::try_from("spora:qrd9efkvg3pg34sgp6ztwyv3r569qlc43wa5w8nfs302532dzj47knu04aftm").unwrap(),
-//         NetworkType::Testnet => Address::try_from("tonditest:qqrewmx4gpuekvk8grenkvj2hp7xt0c35rxgq383f6gy223c4ud5s58ptm6er").unwrap(),
+//         NetworkType::Testnet => Address::try_from("sporatest:qqrewmx4gpuekvk8grenkvj2hp7xt0c35rxgq383f6gy223c4ud5s58ptm6er").unwrap(),
 //         _ => unreachable!("network type not supported"),
 //     }
 // }
@@ -496,7 +496,7 @@
 // }
 //
 // #[test]
-// fn test_generator_compound_200k_10tondi_transactions() -> Result<()> {
+// fn test_generator_compound_200k_10spora_transactions() -> Result<()> {
 //     generator(test_network_id(), &[10.0; 200_000], &[], Fees::sender(Spora(5.0)), [(output_address, Spora(190_000.0))].as_slice())
 //         .unwrap()
 //         .harness()

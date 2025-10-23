@@ -1,6 +1,6 @@
 use crate::core::hub::HubEvent;
 use crate::pb::RejectMessage;
-use crate::pb::{tondid_message::Payload as SporadMessagePayload, SporadMessage};
+use crate::pb::{sporad_message::Payload as SporadMessagePayload, SporadMessage};
 use crate::{common::ProtocolError, SporadMessagePayloadType};
 use crate::{make_message, Peer};
 use parking_lot::{Mutex, RwLock};
@@ -401,7 +401,7 @@ impl Router {
 
     /// Enqueues a locally-originated message to be sent to the network peer
     pub async fn enqueue(&self, msg: SporadMessage) -> Result<(), ProtocolError> {
-        assert!(msg.payload.is_some(), "tondid P2P message should always have a value");
+        assert!(msg.payload.is_some(), "sporad P2P message should always have a value");
         match self.outgoing_route.try_send(msg) {
             Ok(_) => Ok(()),
             Err(TrySendError::Closed(_)) => Err(ProtocolError::ConnectionClosed),

@@ -10,7 +10,7 @@ use spora_addresses::Address;
 use spora_consensus_core::network::NetworkType;
 use spora_core::{trace, warn};
 use spora_utils::{fd_budget, triggers::SingleTrigger};
-use tondid_lib::args::Args;
+use sporad_lib::args::Args;
 
 /// Arguments for configuring a [`DaemonTask`]
 #[derive(Parser, Debug)]

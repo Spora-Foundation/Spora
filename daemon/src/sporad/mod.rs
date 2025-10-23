@@ -160,19 +160,19 @@ impl Default for Inner {
     }
 }
 
-pub struct tondid {
+pub struct Sporad {
     inner: Arc<Mutex<Inner>>,
     mute: Arc<AtomicBool>,
     events: Channel<ProcessEvent>,
 }
 
-impl Default for tondid {
+impl Default for Sporad {
     fn default() -> Self {
         Self { inner: Arc::new(Mutex::new(Inner::default())), mute: Arc::new(AtomicBool::new(false)), events: Channel::unbounded() }
     }
 }
 
-impl tondid {
+impl Sporad {
     pub fn new(args: SporadConfig) -> Self {
         Self {
             mute: Arc::new(AtomicBool::new(args.mute)),
@@ -187,7 +187,7 @@ impl tondid {
         Ok(())
     }
 
-    fn inner(&self) -> MutexGuard<Inner> {
+    fn inner(&self) -> MutexGuard<'_, Inner> {
         self.inner.lock().unwrap()
     }
 
@@ -215,7 +215,7 @@ impl tondid {
         let process = self.process();
         if let Some(process) = process {
             if process.is_running() {
-                return Err(Error::Custom("Spora node is already running.".to_string()));
+                return Err(Error::Custom("spora node is already running.".to_string()));
             }
         }
 
@@ -236,7 +236,7 @@ impl tondid {
             self.mute.load(Ordering::SeqCst),
         );
 
-        // let options = tondidOptions::new(path,network)?;
+        // let options = sporadOptions::new(path,network)?;
         let process = Arc::new(Process::new(options));
         self.inner().process.replace(process.clone());
         process.run()?;

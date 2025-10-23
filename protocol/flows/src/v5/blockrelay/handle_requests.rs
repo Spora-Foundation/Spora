@@ -4,7 +4,7 @@ use spora_core::debug;
 use spora_p2p_lib::{
     common::ProtocolError,
     dequeue_with_request_id, make_message, make_response,
-    pb::{tondid_message::Payload, InvRelayBlockMessage},
+    pb::{sporad_message::Payload, InvRelayBlockMessage},
     IncomingRoute, Router,
 };
 

@@ -282,8 +282,8 @@ The Spora RPC API supports two main communication protocols:
 
 ### Basic Connection
 ```rust
-use tondi_rpc_core::api::rpc::RpcApi;
-use tondi_grpc_client::GrpcClient;
+use spora_rpc_core::api::rpc::RpcApi;
+use spora_grpc_client::GrpcClient;
 
 let client = GrpcClient::new("localhost:17110").await?;
 

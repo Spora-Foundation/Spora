@@ -536,9 +536,9 @@ pub fn generate_tx(
     utxos: &[(TransactionOutpoint, UtxoEntry)],
     send_amount: u64,
     num_outs: u64,
-    tondi_addr: &Address,
+    spora_addr: &Address,
 ) -> Transaction {
-    let script_public_key = pay_to_address_script(tondi_addr);
+    let script_public_key = pay_to_address_script(spora_addr);
     let inputs = utxos
         .iter()
         .map(|(op, _)| TransactionInput { previous_outpoint: *op, signature_script: vec![], sequence: 0, sig_op_count: 1 })
@@ -1184,7 +1184,7 @@ mod tests {
         let xpub = secret_key.x_only_public_key(&SECP256K1).0;
         assert_eq!(format!("{xpub}"), "757815720a73acd5a162c32a398b8ffdec534a4ced4445dc33032150d04ff976");
         let addr = Address::new(Prefix::Devnet, ADDRESS_VERSION, &xpub.serialize()).expect("Valid address");
-        assert_eq!(format!("{addr}"), "tondidev:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvw88ne6");
+        assert_eq!(format!("{addr}"), "sporadev:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvw88ne6");
     }
 
     #[test]
@@ -1207,7 +1207,7 @@ mod tests {
         println!("Address: {addr}");
 
         // Validate address format
-        assert!(format!("{addr}").starts_with("tondidev:"));
+        assert!(format!("{addr}").starts_with("sporadev:"));
     }
 
     #[test]

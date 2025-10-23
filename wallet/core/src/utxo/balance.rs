@@ -190,8 +190,8 @@ impl From<(Option<&Balance>, &NetworkType, Option<usize>)> for BalanceStrings {
     fn from((balance, network_type, padding): (Option<&Balance>, &NetworkType, Option<usize>)) -> Self {
         let suffix = utils::spora_suffix(network_type);
         if let Some(balance) = balance {
-            let mut mature = utils::sau_to_tondi_string(balance.mature);
-            let mut pending = if balance.pending > 0 { Some(utils::sau_to_tondi_string(balance.pending)) } else { None };
+            let mut mature = utils::sau_to_spora_string(balance.mature);
+            let mut pending = if balance.pending > 0 { Some(utils::sau_to_spora_string(balance.pending)) } else { None };
             if let Some(padding) = padding {
                 mature = mature.pad_to_width(padding);
                 pending = pending.map(|pending| pending.pad_to_width(padding));

@@ -38,9 +38,9 @@ impl Import {
                     let wallet_secret = Secret::new(ctx.term().ask(true, "Enter wallet password: ").await?.trim().as_bytes().to_vec());
                     wallet.import_gen0_keydata(import_secret, wallet_secret, None).await?;
                 } else if application_runtime::is_web() {
-                    return Err("'tondinet' web wallet storage not found at this domain name".into());
+                    return Err("'sporanet' web wallet storage not found at this domain name".into());
                 } else {
-                    return Err("KDX/tondinet keydata file not found".into());
+                    return Err("KDX/sporanet keydata file not found".into());
                 }
             }
             // todo "read-only" => {}

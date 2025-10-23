@@ -530,7 +530,7 @@ mod tests {
 
         let key = wallet.derive_receive_pubkey(1).unwrap();
         let address = PubkeyDerivationManager::create_address(&key, Prefix::Testnet, false).unwrap().to_string();
-        assert_eq!(address, "tondi0:qpy7k0dt6esg0ud7l7mnytzn5zdwsuy2yf9td36s8qtwl6hdeufv6k6fqay")
+        assert_eq!(address, "spora0:qpy7k0dt6esg0ud7l7mnytzn5zdwsuy2yf9td36s8qtwl6hdeufv6k6fqay")
     }
 
     #[tokio::test]
@@ -563,10 +563,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn generate_tonditest_addresses() {
+    async fn generate_sporatest_addresses() {
         let receive_addresses = [
-            "tondi0:qrgqpkue0tzhmqd77tljdhwjc757hc26uestam0gc4kycjx4k8uu603uewc",
-            "tondi0:qqmquth4lyayewfl32pj8w9w9dpzqk6c9ngyp4xxmyqusxruhjm0jwhje4w",
+            "spora0:qrgqpkue0tzhmqd77tljdhwjc757hc26uestam0gc4kycjx4k8uu603uewc",
+            "spora0:qqmquth4lyayewfl32pj8w9w9dpzqk6c9ngyp4xxmyqusxruhjm0jwhje4w",
         ];
 
         let master_xprv =

@@ -1,4 +1,4 @@
-use crate::pb::tondid_message::Payload as SporadMessagePayload;
+use crate::pb::sporad_message::Payload as SporadMessagePayload;
 
 #[repr(u8)]
 #[derive(Debug, Copy, Clone, Eq, Hash, PartialEq)]

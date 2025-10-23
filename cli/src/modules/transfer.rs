@@ -20,10 +20,10 @@ impl Transfer {
         if target_account.id() == account.id() {
             return Err("Cannot transfer to the same account".into());
         }
-        let amount_sau = try_parse_required_nonzero_tondi_as_sau_u64(argv.get(1))?;
+        let amount_sau = try_parse_required_nonzero_spora_as_sau_u64(argv.get(1))?;
         // TODO fee_rate
         let fee_rate: Option<f64> = None;
-        let _priority_fee_sau = try_parse_optional_tondi_as_sau_i64(argv.get(2))?.unwrap_or(0);
+        let _priority_fee_sau = try_parse_optional_spora_as_sau_i64(argv.get(2))?.unwrap_or(0);
         let target_address = target_account.receive_address()?;
         let (wallet_secret, payment_secret) = ctx.ask_wallet_secret(Some(&account)).await?;
 

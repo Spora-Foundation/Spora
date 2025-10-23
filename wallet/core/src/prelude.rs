@@ -14,8 +14,8 @@ pub use crate::settings::WalletSettings;
 pub use crate::storage::{IdT, Interface, PrvKeyDataId, PrvKeyDataInfo, TransactionId, TransactionRecord, WalletDescriptor};
 pub use crate::tx::{Fees, PaymentDestination, PaymentOutput, PaymentOutputs};
 pub use crate::utils::{
-    sau_to_tondi, sau_to_tondi_string, sau_to_tondi_string_with_suffix, spora_suffix, tondi_to_sau, try_tondi_str_to_sau,
-    try_tondi_str_to_sau_i64,
+    sau_to_spora, sau_to_spora_string, sau_to_spora_string_with_suffix, spora_suffix, spora_to_sau, try_spora_str_to_sau,
+    try_spora_str_to_sau_i64,
 };
 pub use crate::utxo::balance::{Balance, BalanceStrings};
 pub use crate::wallet::args::*;

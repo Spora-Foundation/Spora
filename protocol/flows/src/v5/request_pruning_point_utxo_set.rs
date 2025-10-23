@@ -8,7 +8,7 @@ use spora_p2p_lib::{
     common::ProtocolError,
     dequeue, make_message,
     pb::{
-        tondid_message::Payload, DonePruningPointUtxoSetChunksMessage, PruningPointUtxoSetChunkMessage, UnexpectedPruningPointMessage,
+        sporad_message::Payload, DonePruningPointUtxoSetChunksMessage, PruningPointUtxoSetChunkMessage, UnexpectedPruningPointMessage,
     },
     IncomingRoute, Router,
 };

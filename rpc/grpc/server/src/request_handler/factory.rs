@@ -11,7 +11,7 @@ use crate::{
     connection_handler::ServerContext,
     error::GrpcServerError,
 };
-use spora_grpc_core::protowire::{tondid_request::Payload, *};
+use spora_grpc_core::protowire::{sporad_request::Payload, *};
 use spora_grpc_core::{ops::SporadPayloadOps, protowire::NotifyFinalityConflictResponseMessage};
 use spora_notify::{scope::FinalityConflictResolvedScope, subscriber::SubscriptionManager};
 use spora_rpc_core::{SubmitBlockRejectReason, SubmitBlockReport, SubmitBlockResponse};

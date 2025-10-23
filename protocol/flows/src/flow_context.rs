@@ -45,7 +45,7 @@ use spora_consensusmanager::{BlockProcessingBatch, ConsensusInstance, ConsensusM
 use spora_core::{
     debug, info,
     task::tick::TickService,
-    tondid_env::{name, version},
+    sporad_env::{name, version},
 };
 use spora_core::{time::unix_now, warn};
 use spora_hashes::Hash;
@@ -56,7 +56,7 @@ use spora_p2p_lib::{
     common::ProtocolError,
     convert::model::version::Version,
     make_message,
-    pb::{tondid_message::Payload, InvRelayBlockMessage},
+    pb::{sporad_message::Payload, InvRelayBlockMessage},
     ConnectionInitializer, Hub, PeerKey, PeerProperties, Router, SporadHandshake,
 };
 use spora_p2p_mining::rule_engine::MiningRuleEngine;

@@ -41,11 +41,11 @@ impl Drop for DbLifetime {
     }
 }
 
-pub fn get_tondi_tempdir() -> TempDir {
+pub fn get_spora_tempdir() -> TempDir {
     let global_tempdir = std::env::temp_dir();
-    let tondi_tempdir = global_tempdir.join("spora");
-    std::fs::create_dir_all(tondi_tempdir.as_path()).unwrap();
-    let db_tempdir = tempfile::tempdir_in(tondi_tempdir.as_path()).unwrap();
+    let spora_tempdir = global_tempdir.join("spora");
+    std::fs::create_dir_all(spora_tempdir.as_path()).unwrap();
+    let db_tempdir = tempfile::tempdir_in(spora_tempdir.as_path()).unwrap();
     db_tempdir
 }
 
@@ -54,7 +54,7 @@ pub fn get_tondi_tempdir() -> TempDir {
 #[macro_export]
 macro_rules! create_temp_db {
     ($conn_builder: expr) => {{
-        let db_tempdir = $crate::utils::get_tondi_tempdir();
+        let db_tempdir = $crate::utils::get_spora_tempdir();
         let db_path = db_tempdir.path().to_owned();
         let db = $conn_builder.with_db_path(db_path).build().unwrap();
         ($crate::utils::DbLifetime::new(db_tempdir, std::sync::Arc::downgrade(&db)), db)

@@ -28,10 +28,10 @@ pub fn register_link_matchers(cli: &Arc<SporaCli>) -> Result<()> {
     // addresses (open,copy) https://explorer.spora.org/addresses/
     let cli_ = cli.clone();
     cli.term().register_link_matcher(
-        &js_sys::RegExp::new(r"(spora|tonditest):\S+", "i"),
+        &js_sys::RegExp::new(r"(spora|sporatest):\S+", "i"),
         Arc::new(Box::new(move |modifiers, uri| {
             if modifiers.ctrl || modifiers.meta {
-                if uri.starts_with("tonditest") {
+                if uri.starts_with("sporatest") {
                     cli_.term().writeln("testnet addresses can not be currently looked up with the block explorer");
                 } else {
                     let url = format!("https://explorer.spora.org/addresses/{uri}");

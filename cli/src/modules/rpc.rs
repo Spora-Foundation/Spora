@@ -181,7 +181,7 @@ impl Rpc {
                 let addresses = argv.iter().map(|s| Address::try_from(s.as_str())).collect::<std::result::Result<Vec<_>, _>>()?;
                 for address in addresses {
                     let result = rpc.get_balance_by_address_call(None, GetBalanceByAddressRequest { address }).await?;
-                    self.println(&ctx, sau_to_tondi(result.balance));
+                    self.println(&ctx, sau_to_spora(result.balance));
                 }
             }
             RpcApiOps::GetBalancesByAddresses => {

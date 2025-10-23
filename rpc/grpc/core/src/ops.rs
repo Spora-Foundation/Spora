@@ -1,4 +1,4 @@
-use crate::protowire::{tondid_request::Payload as RequestPayload, tondid_response::Payload as ResponsePayload, *};
+use crate::protowire::{sporad_request::Payload as RequestPayload, sporad_response::Payload as ResponsePayload, *};
 use spora_rpc_core::RpcError;
 use workflow_core::enums::Describe;
 

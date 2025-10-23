@@ -20,7 +20,7 @@ use spora_core::{debug, error, trace};
 use spora_grpc_core::{
     channel::NotificationChannel,
     ops::SporadPayloadOps,
-    protowire::{rpc_client::RpcClient, tondid_request, GetInfoRequestMessage, SporadRequest, SporadResponse},
+    protowire::{rpc_client::RpcClient, sporad_request, GetInfoRequestMessage, SporadRequest, SporadResponse},
     RPC_MAX_MESSAGE_SIZE,
 };
 use spora_notify::{
@@ -925,7 +925,7 @@ impl Inner {
 
     /// Start sending notifications of some type to the client.
     async fn start_notify_to_client(&self, scope: Scope) -> RpcResult<()> {
-        let request = tondid_request::Payload::from_notification_type(&scope, Command::Start);
+        let request = sporad_request::Payload::from_notification_type(&scope, Command::Start);
         self.call((&request).into(), request).await?;
         Ok(())
     }
@@ -933,7 +933,7 @@ impl Inner {
     /// Stop sending notifications of some type to the client.
     async fn stop_notify_to_client(&self, scope: Scope) -> RpcResult<()> {
         if self.handle_stop_notify() {
-            let request = tondid_request::Payload::from_notification_type(&scope, Command::Stop);
+            let request = sporad_request::Payload::from_notification_type(&scope, Command::Stop);
             self.call((&request).into(), request).await?;
         }
         Ok(())

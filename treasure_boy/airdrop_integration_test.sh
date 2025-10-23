@@ -59,7 +59,7 @@ check_prerequisites() {
     # Check RPC connection
     if ! nc -z 127.0.0.1 16210 2>/dev/null; then
         error "RPC server not accessible (127.0.0.1:16210)"
-        error "Please start tondid node first: cargo run --bin tondid --release -- --testnet --netsuffix=10 --utxoindex --rpclisten=127.0.0.1:16210"
+        error "Please start sporad node first: cargo run --bin sporad --release -- --testnet --netsuffix=10 --utxoindex --rpclisten=127.0.0.1:16210"
         exit 1
     fi
     
@@ -370,7 +370,7 @@ show_help() {
     echo "  6. Generate test report"
     echo ""
     echo "Prerequisites:"
-    echo "  - tondid node must be running on 127.0.0.1:16210"
+    echo "  - sporad node must be running on 127.0.0.1:16210"
     echo "  - treasure_boy binary file must exist"
     echo "  - Private key must have sufficient UTXO"
 }

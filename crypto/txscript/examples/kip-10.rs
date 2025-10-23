@@ -688,7 +688,7 @@ mod tests {
     use spora_utils::hex::FromHex;
 
     // Mnemonic: purpose carpet empower monkey hawk brush survey waste judge tide culture slight
-    const ADDRESS: &str = "tondi0:qz8etv6sf8r8vsc05fgvu3pg07yt3sxhd9tzph0jtz5gdru30gd5k46wd38";
+    const ADDRESS: &str = "spora0:qz8etv6sf8r8vsc05fgvu3pg07yt3sxhd9tzph0jtz5gdru30gd5k46wd38";
 
     #[test]
     fn test_tlc_transaction() {

@@ -154,7 +154,7 @@ mod tests {
     use spora_database::prelude::ConnBuilder;
     use spora_database::utils::DbLifetime;
     use spora_notify::notifier::test_helpers::NotifyMock;
-    use tondi_utxoindex::UtxoIndex;
+    use spora_utxoindex::UtxoIndex;
 
     // TODO: rewrite with Simnet, when possible.
 

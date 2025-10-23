@@ -1,9 +1,9 @@
 // RPC-related types. Request messages, response messages, and dependant types.
 //
-// Clients are expected to build RequestMessages and wrap them in tondidMessage. (see messages.proto)
+// Clients are expected to build RequestMessages and wrap them in sporadMessage. (see messages.proto)
 //
-// Having received a RequestMessage, (wrapped in a tondidMessage) the RPC server will respond with a
-// ResponseMessage (likewise wrapped in a tondidMessage) respective to the original RequestMessage.
+// Having received a RequestMessage, (wrapped in a sporadMessage) the RPC server will respond with a
+// ResponseMessage (likewise wrapped in a sporadMessage) respective to the original RequestMessage.
 //
 //
 syntax = "proto3";

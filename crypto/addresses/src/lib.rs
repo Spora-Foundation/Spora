@@ -10,7 +10,7 @@
 //! `{network_prefix}:{encoded_payload}`
 //!
 //! Where:
-//! - `network_prefix`: Network identifier (`spora`, `tonditest`, `tondisim`, `tondidev`)
+//! - `network_prefix`: Network identifier (`spora`, `sporatest`, `sporasim`, `sporadev`)
 //! - `encoded_payload`: Bech32/Bech32m encoded data containing version byte and payload
 //!
 //! ## Supported Address Types
@@ -82,7 +82,7 @@ mod bech32m;
 #[derive(Error, PartialEq, Eq, Debug, Clone)]
 pub enum AddressError {
     /// The address has an invalid network prefix
-    #[error("Invalid network prefix '{0}'. Expected one of: spora, tonditest, tondisim, tondidev")]
+    #[error("Invalid network prefix '{0}'. Expected one of: spora, sporatest, sporasim, sporadev")]
     InvalidPrefix(String),
 
     /// The address is missing the required network prefix
@@ -209,9 +209,9 @@ impl Address {
 ///
 /// Each prefix corresponds to a specific Spora network configuration:
 /// - `Mainnet`: Production network (`spora`)
-/// - `Testnet`: Public test network (`tonditest`)
-/// - `Simnet`: Simulation network (`tondisim`)
-/// - `Devnet`: Development network (`tondidev`)
+/// - `Testnet`: Public test network (`sporatest`)
+/// - `Simnet`: Simulation network (`sporasim`)
+/// - `Devnet`: Development network (`sporadev`)
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Debug, Hash, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 #[borsh(use_discriminant = true)]
 pub enum Prefix {
@@ -219,13 +219,13 @@ pub enum Prefix {
     #[serde(rename = "spora")]
     Mainnet,
     /// Testnet - Public testing network
-    #[serde(rename = "tondi0")]
+    #[serde(rename = "spora0")]
     Testnet,
     /// Simnet - Simulation network for testing
-    #[serde(rename = "tondisim")]
+    #[serde(rename = "sporasim")]
     Simnet,
     /// Devnet - Development network
-    #[serde(rename = "tondidev")]
+    #[serde(rename = "sporadev")]
     Devnet,
     #[cfg(test)]
     A,
@@ -239,9 +239,9 @@ impl Prefix {
     pub fn as_str(&self) -> &'static str {
         match self {
             Prefix::Mainnet => "spora",
-            Prefix::Testnet => "tondi0",
-            Prefix::Simnet => "tondisim",
-            Prefix::Devnet => "tondidev",
+            Prefix::Testnet => "spora0",
+            Prefix::Simnet => "sporasim",
+            Prefix::Devnet => "sporadev",
             #[cfg(test)]
             Prefix::A => "a",
             #[cfg(test)]
@@ -296,9 +296,9 @@ impl TryFrom<&str> for Prefix {
     fn try_from(prefix: &str) -> Result<Self, Self::Error> {
         match prefix {
             "spora" => Ok(Prefix::Mainnet),
-            "tondi0" => Ok(Prefix::Testnet),
-            "tondisim" => Ok(Prefix::Simnet),
-            "tondidev" => Ok(Prefix::Devnet),
+            "spora0" => Ok(Prefix::Testnet),
+            "sporasim" => Ok(Prefix::Simnet),
+            "sporadev" => Ok(Prefix::Devnet),
             #[cfg(test)]
             "a" => Ok(Prefix::A),
             #[cfg(test)]
@@ -1308,7 +1308,7 @@ mod tests {
 
     #[test]
     fn missing_colon_should_fail() {
-        let invalid = "tonditestqpauqsvk7yf9...";
+        let invalid = "sporatestqpauqsvk7yf9...";
         let result: Result<Address, _> = invalid.parse();
         assert_eq!(result, Err(AddressError::MissingPrefix));
     }

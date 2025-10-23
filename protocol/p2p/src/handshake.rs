@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use crate::pb::{tondid_message::Payload, ReadyMessage, VerackMessage, VersionMessage};
+use crate::pb::{sporad_message::Payload, ReadyMessage, VerackMessage, VersionMessage};
 use crate::{common::ProtocolError, dequeue_with_timeout, make_message};
 use crate::{IncomingRoute, Router, SporadMessagePayloadType};
 use spora_core::debug;

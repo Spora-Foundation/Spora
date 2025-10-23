@@ -14,8 +14,8 @@ struct RpcTable {
     server_ctx: Expr,
     server_ctx_type: Expr,
     connection_ctx_type: Expr,
-    tondid_request_type: Expr,
-    tondid_response_type: Expr,
+    sporad_request_type: Expr,
+    sporad_response_type: Expr,
     payload_ops: Expr,
     handlers: ExprArray,
 }
@@ -32,8 +32,8 @@ impl Parse for RpcTable {
         let server_ctx = iter.next().unwrap().clone();
         let server_ctx_type = iter.next().unwrap().clone();
         let connection_ctx_type = iter.next().unwrap().clone();
-        let tondid_request_type = iter.next().unwrap().clone();
-        let tondid_response_type = iter.next().unwrap().clone();
+        let sporad_request_type = iter.next().unwrap().clone();
+        let sporad_response_type = iter.next().unwrap().clone();
         let payload_ops = iter.next().unwrap().clone();
         let handlers = get_handlers(iter.next().unwrap().clone())?;
 
@@ -41,8 +41,8 @@ impl Parse for RpcTable {
             server_ctx,
             server_ctx_type,
             connection_ctx_type,
-            tondid_request_type,
-            tondid_response_type,
+            sporad_request_type,
+            sporad_response_type,
             payload_ops,
             handlers,
         })
@@ -55,8 +55,8 @@ impl ToTokens for RpcTable {
         let server_ctx = &self.server_ctx;
         let server_ctx_type = &self.server_ctx_type;
         let connection_ctx_type = &self.connection_ctx_type;
-        let tondid_request_type = &self.tondid_request_type;
-        let tondid_response_type = &self.tondid_response_type;
+        let sporad_request_type = &self.sporad_request_type;
+        let sporad_response_type = &self.sporad_response_type;
         let payload_ops = &self.payload_ops;
 
         for handler in self.handlers.elems.iter() {
@@ -67,10 +67,10 @@ impl ToTokens for RpcTable {
                 false => {
                     targets.push(quote! {
                         #payload_ops::#handler => {
-                            let method: Method<#server_ctx_type, #connection_ctx_type, #tondid_request_type, #tondid_response_type> =
-                            Method::new(|server_ctx: #server_ctx_type, _: #connection_ctx_type, request: #tondid_request_type| {
+                            let method: Method<#server_ctx_type, #connection_ctx_type, #sporad_request_type, #sporad_response_type> =
+                            Method::new(|server_ctx: #server_ctx_type, _: #connection_ctx_type, request: #sporad_request_type| {
                                 Box::pin(async move {
-                                    let mut response: #tondid_response_type = match request.payload {
+                                    let mut response: #sporad_response_type = match request.payload {
                                         Some(Payload::#request_type(ref request)) => match request.try_into() {
                                             // TODO: RPC-CONNECTION
                                             Ok(request) => server_ctx.core_service.#fn_call(None,request).await.into(),
@@ -91,10 +91,10 @@ impl ToTokens for RpcTable {
                 true => {
                     targets.push(quote! {
                         #payload_ops::#handler => {
-                            let method: Method<#server_ctx_type, #connection_ctx_type, #tondid_request_type, #tondid_response_type> =
-                            Method::new(|server_ctx: #server_ctx_type, connection: #connection_ctx_type, request: #tondid_request_type| {
+                            let method: Method<#server_ctx_type, #connection_ctx_type, #sporad_request_type, #sporad_response_type> =
+                            Method::new(|server_ctx: #server_ctx_type, connection: #connection_ctx_type, request: #sporad_request_type| {
                                 Box::pin(async move {
-                                    let mut response: #tondid_response_type = match request.payload {
+                                    let mut response: #sporad_response_type = match request.payload {
                                         Some(Payload::#request_type(ref request)) => {
                                             match spora_rpc_core::#fallback_request_type::try_from(request) {
                                                 Ok(request) => {

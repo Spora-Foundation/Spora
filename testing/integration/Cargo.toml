@@ -36,7 +36,7 @@ spora-txscript.workspace = true
 spora-utils.workspace = true
 spora-utxoindex.workspace = true
 spora-wrpc-server.workspace = true
-tondid.workspace = true
+sporad.workspace = true
 
 async-channel.workspace = true
 async-trait.workspace = true
@@ -74,4 +74,4 @@ spora-txscript-errors.workspace = true
 [features]
 heap = ["dhat"]
 html_reports = []
-devnet-prealloc = ["tondid/devnet-prealloc"]
+devnet-prealloc = ["sporad/devnet-prealloc"]

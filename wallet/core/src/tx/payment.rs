@@ -18,7 +18,7 @@ const TS_PAYMENT_OUTPUTS: &'static str = r#"
 export interface IPaymentOutput {
     /**
      * Destination address. The address prefix must match the network
-     * you are transacting on (e.g. `spora:` for mainnet, `tonditest:` for testnet, etc).
+     * you are transacting on (e.g. `spora:` for mainnet, `sporatest:` for testnet, etc).
      */
     address: Address | string;
     /**

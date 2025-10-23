@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use clap::{Arg, ArgAction, Command};
 use secp256k1::Keypair;
 use spora_addresses::Address;
-use spora_core::{error, info, time::unix_now, tondid_env::version};
+use spora_core::{error, info, time::unix_now, sporad_env::version};
 use spora_grpc_client::GrpcClient;
 use spora_notify::subscription::context::SubscriptionContext;
 use spora_rpc_core::notify::mode::NotificationMode;
@@ -266,7 +266,7 @@ async fn main() {
         std::process::exit(1);
     };
 
-    let tondi_addr = Address::new(args.network.address_prefix(), ADDRESS_VERSION, &schnorr_key.x_only_public_key().0.serialize());
+    let spora_addr = Address::new(args.network.address_prefix(), ADDRESS_VERSION, &schnorr_key.x_only_public_key().0.serialize());
 
     // Load addresses for batch airdrop
     let target_addresses = if let Some(address_file) = &args.address_file {
@@ -329,7 +329,7 @@ async fn main() {
                 }
             }
             "2" => {
-                vec![tondi_addr.clone().expect("Valid address")]
+                vec![spora_addr.clone().expect("Valid address")]
             }
             "3" => {
                 println!("Exiting...");
@@ -337,7 +337,7 @@ async fn main() {
             }
             _ => {
                 println!("Invalid choice. Using current address for single transaction.");
-                vec![tondi_addr.clone().expect("Valid address")]
+                vec![spora_addr.clone().expect("Valid address")]
             }
         }
     };
@@ -356,7 +356,7 @@ async fn main() {
         \tfrom address: {}\n\
         \trpc server: {}",
         schnorr_key.display_secret(),
-        String::from(&tondi_addr.expect("Valid address")),
+        String::from(&spora_addr.expect("Valid address")),
         args.rpc_server
     );
     if args.address_file.is_some() {

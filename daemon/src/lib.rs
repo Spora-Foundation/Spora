@@ -2,14 +2,14 @@ pub mod cpu_miner;
 pub mod error;
 pub mod imports;
 pub mod result;
-pub mod tondid;
+pub mod sporad;
 
 use std::fmt::Display;
 
 use crate::imports::*;
 pub use crate::result::Result;
 pub use cpu_miner::{CpuMiner, CpuMinerConfig, CpuMinerCtl};
-pub use tondid::{Sporad, SporadConfig, SporadCtl};
+pub use sporad::{Sporad, SporadConfig, SporadCtl};
 use workflow_core::runtime;
 use workflow_node::process::Event as ProcessEvent;
 use workflow_store::fs::*;
@@ -60,18 +60,18 @@ pub enum DaemonKind {
 
 #[derive(Default)]
 pub struct Daemons {
-    pub tondid: Option<Arc<dyn SporadCtl + Send + Sync + 'static>>,
-    // pub tondid_automute : Arc<
+    pub sporad: Option<Arc<dyn SporadCtl + Send + Sync + 'static>>,
+    // pub sporad_automute : Arc<
     pub cpu_miner: Option<Arc<dyn CpuMinerCtl + Send + Sync + 'static>>,
 }
 
 impl Daemons {
     pub fn new() -> Self {
-        Self { tondid: None, cpu_miner: None }
+        Self { sporad: None, cpu_miner: None }
     }
 
-    pub fn with_tondid(mut self, tondid: Arc<dyn SporadCtl + Send + Sync + 'static>) -> Self {
-        self.tondid = Some(tondid);
+    pub fn with_sporad(mut self, sporad: Arc<dyn SporadCtl + Send + Sync + 'static>) -> Self {
+        self.sporad = Some(sporad);
         self
     }
 
@@ -80,12 +80,12 @@ impl Daemons {
         self
     }
 
-    pub fn tondid(&self) -> Arc<dyn SporadCtl + Send + Sync + 'static> {
-        self.tondid.as_ref().expect("accessing Daemons::Sporad while Sporad option is None").clone()
+    pub fn sporad(&self) -> Arc<dyn SporadCtl + Send + Sync + 'static> {
+        self.sporad.as_ref().expect("accessing Daemons::Sporad while Sporad option is None").clone()
     }
 
-    pub fn try_tondid(&self) -> Option<Arc<dyn SporadCtl + Send + Sync + 'static>> {
-        self.tondid.clone()
+    pub fn try_sporad(&self) -> Option<Arc<dyn SporadCtl + Send + Sync + 'static>> {
+        self.sporad.clone()
     }
 
     pub fn cpu_miner(&self) -> Arc<dyn CpuMinerCtl + Send + Sync + 'static> {

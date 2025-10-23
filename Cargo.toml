@@ -17,7 +17,7 @@ members = [
     "consensus/notify",
     "consensus/pow",
     "consensus/wasm",
-    "tondid",
+    "sporad",
     "simpa",
     "wasm",
     "wasm/core",
@@ -139,7 +139,7 @@ spora-wasm-core = { version = "1.21.0", path = "wasm/core" }
 spora-wrpc-client = { version = "1.21.0", path = "rpc/wrpc/client" }
 spora-wrpc-server = { version = "1.21.0", path = "rpc/wrpc/server" }
 spora-wrpc-wasm = { version = "1.21.0", path = "rpc/wrpc/wasm" }
-tondid = { version = "1.21.0", path = "tondid" }
+sporad = { version = "1.21.0", path = "sporad" }
 spora-alloc = { version = "1.21.0", path = "utils/alloc" }
 spora-adaptor = { version = "1.21.0", path = "sdk/adaptor" }
 

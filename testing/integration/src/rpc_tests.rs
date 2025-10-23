@@ -18,7 +18,7 @@ use spora_notify::{
 };
 use spora_rpc_core::{api::rpc::RpcApi, model::*, Notification};
 use spora_utils::{fd_budget, networking::ContextualNetAddress};
-use tondid_lib::args::Args;
+use sporad_lib::args::Args;
 
 #[macro_export]
 macro_rules! tst {
@@ -234,7 +234,7 @@ async fn sanity_test() {
                 let rpc_client = client.clone();
                 tst!(op, {
                     let response = rpc_client.get_info_call(None, GetInfoRequest {}).await.unwrap();
-                    assert_eq!(response.server_version, spora_core::tondid_env::version().to_string());
+                    assert_eq!(response.server_version, spora_core::sporad_env::version().to_string());
                     assert_eq!(response.mempool_size, 0);
                     assert!(response.is_utxo_indexed);
                     assert!(response.has_message_id);

@@ -7,7 +7,7 @@ use spora_consensus_core::{
     config::Config,
     network::{NetworkId, NetworkType},
 };
-use spora_core::tondid_env::version;
+use spora_core::sporad_env::version;
 use spora_notify::address::tracker::Tracker;
 use spora_utils::networking::ContextualNetAddress;
 use spora_wrpc_server::address::WrpcNetAddress;
@@ -198,7 +198,7 @@ pub fn cli() -> Command {
     let defaults: Args = Default::default();
 
     #[allow(clippy::let_and_return)]
-    let cmd = Command::new("tondid")
+    let cmd = Command::new("sporad")
         .about(format!("{} (spora) v{}", env!("CARGO_PKG_DESCRIPTION"), version()))
         .version(env!("CARGO_PKG_VERSION"))
         .arg(arg!(-C --configfile <CONFIG_FILE> "Path of config file."))
@@ -493,7 +493,7 @@ fn arg_match_many_unwrap_or<T: Clone + Send + Sync + 'static>(m: &clap::ArgMatch
 
   -V, --version                             Display version information and exit
   -C, --configfile=                         Path to configuration file (default: /Users/aspect/Library/Application
-                                            Support/Sporad/tondid.conf)
+                                            Support/Sporad/sporad.conf)
   -b, --appdir=                             Directory to store data (default: /Users/aspect/Library/Application
                                             Support/Sporad)
       --logdir=                             Directory to log output.

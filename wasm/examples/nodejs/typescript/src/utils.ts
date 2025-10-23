@@ -54,7 +54,7 @@ function parseArgs(options = {
         process.exit(0);
     }
 
-    const addressRegex = new RegExp(/(spora|tonditest):\S+/i);
+    const addressRegex = new RegExp(/(spora|sporatest):\S+/i);
     const addressArg = values.address ?? positionals.find((positional) => addressRegex.test(positional)) ?? null;
     const destinationAddress = addressArg === null ? null : new Address(addressArg);
 

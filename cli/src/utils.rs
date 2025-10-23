@@ -3,19 +3,19 @@ use crate::result::Result;
 use std::fmt::Display;
 use spora_consensus_core::constants::SAU_PER_TONDI;
 
-pub fn try_parse_required_nonzero_tondi_as_sau_u64<S: ToString + Display>(tondi_amount: Option<S>) -> Result<u64> {
-    if let Some(tondi_amount) = tondi_amount {
-        let sau_amount = tondi_amount
+pub fn try_parse_required_nonzero_spora_as_sau_u64<S: ToString + Display>(spora_amount: Option<S>) -> Result<u64> {
+    if let Some(spora_amount) = spora_amount {
+        let sau_amount = spora_amount
             .to_string()
             .parse::<f64>()
-            .map_err(|_| Error::custom(format!("Supplied Spora amount is not valid: '{tondi_amount}'")))?
+            .map_err(|_| Error::custom(format!("Supplied Spora amount is not valid: '{spora_amount}'")))?
             * SAU_PER_TONDI as f64;
         if sau_amount < 0.0 {
-            Err(Error::custom("Supplied Spora amount is not valid: '{tondi_amount}'"))
+            Err(Error::custom("Supplied Spora amount is not valid: '{spora_amount}'"))
         } else {
             let sau_amount = sau_amount as u64;
             if sau_amount == 0 {
-                Err(Error::custom("Supplied required spora amount must not be a zero: '{tondi_amount}'"))
+                Err(Error::custom("Supplied required spora amount must not be a zero: '{spora_amount}'"))
             } else {
                 Ok(sau_amount)
             }
@@ -25,15 +25,15 @@ pub fn try_parse_required_nonzero_tondi_as_sau_u64<S: ToString + Display>(tondi_
     }
 }
 
-pub fn try_parse_required_tondi_as_sau_u64<S: ToString + Display>(tondi_amount: Option<S>) -> Result<u64> {
-    if let Some(tondi_amount) = tondi_amount {
-        let sau_amount = tondi_amount
+pub fn try_parse_required_spora_as_sau_u64<S: ToString + Display>(spora_amount: Option<S>) -> Result<u64> {
+    if let Some(spora_amount) = spora_amount {
+        let sau_amount = spora_amount
             .to_string()
             .parse::<f64>()
-            .map_err(|_| Error::custom(format!("Supplied Spora amount is not valid: '{tondi_amount}'")))?
+            .map_err(|_| Error::custom(format!("Supplied Spora amount is not valid: '{spora_amount}'")))?
             * SAU_PER_TONDI as f64;
         if sau_amount < 0.0 {
-            Err(Error::custom("Supplied Spora amount is not valid: '{tondi_amount}'"))
+            Err(Error::custom("Supplied Spora amount is not valid: '{spora_amount}'"))
         } else {
             Ok(sau_amount as u64)
         }
@@ -42,15 +42,15 @@ pub fn try_parse_required_tondi_as_sau_u64<S: ToString + Display>(tondi_amount: 
     }
 }
 
-pub fn try_parse_optional_tondi_as_sau_i64<S: ToString + Display>(tondi_amount: Option<S>) -> Result<Option<i64>> {
-    if let Some(tondi_amount) = tondi_amount {
-        let sau_amount = tondi_amount
+pub fn try_parse_optional_spora_as_sau_i64<S: ToString + Display>(spora_amount: Option<S>) -> Result<Option<i64>> {
+    if let Some(spora_amount) = spora_amount {
+        let sau_amount = spora_amount
             .to_string()
             .parse::<f64>()
-            .map_err(|_e| Error::custom(format!("Supplied Spora amount is not valid: '{tondi_amount}'")))?
+            .map_err(|_e| Error::custom(format!("Supplied Spora amount is not valid: '{spora_amount}'")))?
             * SAU_PER_TONDI as f64;
         if sau_amount < 0.0 {
-            Err(Error::custom("Supplied Spora amount is not valid: '{tondi_amount}'"))
+            Err(Error::custom("Supplied Spora amount is not valid: '{spora_amount}'"))
         } else {
             Ok(Some(sau_amount as i64))
         }

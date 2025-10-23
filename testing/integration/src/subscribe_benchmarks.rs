@@ -76,7 +76,7 @@ fn create_client_addresses(index: usize, network_id: &NetworkId) -> Vec<Address>
 async fn utxos_changed_subscriptions_sanity_check() {
     init_allocator_with_default_settings();
     spora_core::log::try_init_logger(
-        "INFO, spora_core::time=debug, spora_rpc_core=debug, spora_grpc_client=debug, spora_notify=info, spora_notify::address::tracker=debug, spora_notify::listener=debug, spora_notify::subscription::single=debug, spora_mining::monitor=debug, tondi_testing_integration::subscribe_benchmarks=trace",
+        "INFO, spora_core::time=debug, spora_rpc_core=debug, spora_grpc_client=debug, spora_notify=info, spora_notify::address::tracker=debug, spora_notify::listener=debug, spora_notify::subscription::single=debug, spora_mining::monitor=debug, spora_testing_integration::subscribe_benchmarks=trace",
     );
     // As we log the panic, we want to set it up after the logger
     spora_core::panic::configure_panic();
@@ -133,7 +133,7 @@ async fn utxos_changed_subscriptions_sanity_check() {
 async fn bench_utxos_changed_subscriptions_daemon() {
     init_allocator_with_default_settings();
     spora_core::log::try_init_logger(
-        "INFO, spora_core::core=trace, spora_core::time=debug, spora_rpc_core=debug, spora_grpc_client=debug, spora_notify=info, spora_notify::address::tracker=debug, spora_notify::listener=debug, spora_notify::subscription::single=debug, spora_mining::monitor=debug, tondi_testing_integration::subscribe_benchmarks=trace",
+        "INFO, spora_core::core=trace, spora_core::time=debug, spora_rpc_core=debug, spora_grpc_client=debug, spora_notify=info, spora_notify::address::tracker=debug, spora_notify::listener=debug, spora_notify::subscription::single=debug, spora_mining::monitor=debug, spora_testing_integration::subscribe_benchmarks=trace",
     );
     // As we log the panic, we want to set it up after the logger
     spora_core::panic::configure_panic();
@@ -160,7 +160,7 @@ async fn bench_utxos_changed_subscriptions_daemon() {
 async fn utxos_changed_subscriptions_client(address_cycle_seconds: u64, address_max_cycles: usize) {
     init_allocator_with_default_settings();
     spora_core::log::try_init_logger(
-        "INFO, spora_core::time=debug, spora_rpc_core=debug, spora_grpc_client=debug, spora_notify=info, spora_notify::address::tracker=debug, spora_notify::listener=debug, spora_notify::subscription::single=debug, spora_mining::monitor=debug, tondi_testing_integration::subscribe_benchmarks=trace",
+        "INFO, spora_core::time=debug, spora_rpc_core=debug, spora_grpc_client=debug, spora_notify=info, spora_notify::address::tracker=debug, spora_notify::listener=debug, spora_notify::subscription::single=debug, spora_mining::monitor=debug, spora_testing_integration::subscribe_benchmarks=trace",
     );
     // As we log the panic, we want to set it up after the logger
     spora_core::panic::configure_panic();

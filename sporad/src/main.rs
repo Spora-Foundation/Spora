@@ -7,7 +7,7 @@ use std::sync::Arc;
 use spora_alloc::init_allocator_with_default_settings;
 use spora_core::{info, signals::Signals};
 use spora_utils::fd_budget;
-use tondid_lib::{
+use sporad_lib::{
     args::parse_args,
     daemon::{create_core, DESIRED_DAEMON_SOFT_FD_LIMIT, MINIMUM_DAEMON_SOFT_FD_LIMIT},
 };

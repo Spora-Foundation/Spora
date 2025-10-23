@@ -14,7 +14,7 @@ ret               # Return
 
 **Usage**:
 ```rust
-use tondi_exec::scripts::{ALWAYS_SUCCESS_SCRIPT, always_success_code_hash};
+use spora_exec::scripts::{ALWAYS_SUCCESS_SCRIPT, always_success_code_hash};
 
 let lock = ScriptRef {
     code_hash: always_success_code_hash(),
@@ -112,7 +112,7 @@ Use the always-success script for initial testing:
 ```rust
 #[test]
 fn test_always_success() {
-    use tondi_exec::vm::{TransactionScriptVerifier, SimpleDataProvider};
+    use spora_exec::vm::{TransactionScriptVerifier, SimpleDataProvider};
     
     // Create provider with always-success script
     let mut provider = SimpleDataProvider::new();

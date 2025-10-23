@@ -3,14 +3,14 @@ use std::{ops::Deref, sync::Arc, time::Duration};
 use tempfile::TempDir;
 use spora_consensus_core::network::NetworkId;
 use spora_core::{core::Core, signals::Shutdown, task::runtime::AsyncRuntime};
-use spora_database::utils::get_tondi_tempdir;
+use spora_database::utils::get_spora_tempdir;
 use spora_grpc_client::GrpcClient;
 use spora_grpc_server::service::GrpcService;
 use spora_notify::subscription::context::SubscriptionContext;
 use spora_rpc_core::notify::mode::NotificationMode;
 use spora_rpc_service::service::RpcCoreService;
 use spora_utils::triggers::Listener;
-use tondid_lib::{args::Args, daemon::create_core_with_runtime};
+use sporad_lib::{args::Args, daemon::create_core_with_runtime};
 
 use spora_grpc_client::ClientPool;
 
@@ -135,7 +135,7 @@ impl Daemon {
     }
 
     pub fn with_manager(client_manager: Arc<ClientManager>, fd_total_budget: i32) -> Daemon {
-        let appdir_tempdir = get_tondi_tempdir();
+        let appdir_tempdir = get_spora_tempdir();
         client_manager.args.write().appdir = Some(appdir_tempdir.path().to_str().unwrap().to_owned());
         let (core, _) = create_core_with_runtime(&Default::default(), &client_manager.args.read(), fd_total_budget);
         let async_service = &Arc::downcast::<AsyncRuntime>(core.find(AsyncRuntime::IDENT).unwrap().arc_any()).unwrap();

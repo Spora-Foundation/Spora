@@ -6,7 +6,7 @@ use spora_addressmanager::NetAddress;
 use spora_p2p_lib::{
     common::ProtocolError,
     dequeue, dequeue_with_timeout, make_message,
-    pb::{tondid_message::Payload, AddressesMessage, RequestAddressesMessage},
+    pb::{sporad_message::Payload, AddressesMessage, RequestAddressesMessage},
     IncomingRoute, Router,
 };
 use spora_utils::networking::IpAddress;

@@ -45,7 +45,7 @@ use spora_consensus_notify::service::NotifyService;
 use spora_consensusmanager::ConsensusManager;
 use spora_core::task::tick::TickService;
 use spora_core::time::unix_now;
-use spora_database::utils::get_tondi_tempdir;
+use spora_database::utils::get_spora_tempdir;
 use spora_hashes::Hash;
 use spora_utils::arc::ArcExtensions;
 
@@ -70,8 +70,8 @@ use spora_notify::subscription::context::SubscriptionContext;
 use spora_txscript::caches::TxScriptCacheCounters;
 use spora_txscript::opcodes::codes::OpTrue;
 use spora_txscript::script_builder::ScriptBuilderResult;
-use tondi_utxoindex::api::{UtxoIndexApi, UtxoIndexProxy};
-use tondi_utxoindex::UtxoIndex;
+use spora_utxoindex::api::{UtxoIndexApi, UtxoIndexProxy};
+use spora_utxoindex::UtxoIndex;
 use serde::{Deserialize, Serialize};
 use std::cmp::{max, Ordering};
 use std::collections::HashSet;
@@ -1740,7 +1740,7 @@ async fn staging_consensus_test() {
     init_allocator_with_default_settings();
     let config = ConfigBuilder::new(MAINNET_PARAMS).build();
 
-    let db_tempdir = get_tondi_tempdir();
+    let db_tempdir = get_spora_tempdir();
     let db_path = db_tempdir.path().to_owned();
     let consensus_db_dir = db_path.join("consensus");
     let meta_db_dir = db_path.join("meta");

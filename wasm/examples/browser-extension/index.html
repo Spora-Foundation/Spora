@@ -9,7 +9,7 @@
             // let { Resolver, RpcClient, Encoding, sporaToSau } = spora;
 
             (async () => {
-                //await spora.default('../../web/spora/tondi_bg.wasm');
+                //await spora.default('../../web/spora/spora_bg.wasm');
 
                 // let networkId = currentNetwork();
                 // log(`Connecting to Spora network...`);
@@ -50,7 +50,7 @@
                     let list = $("#wallets");
                     let temp = $("#wallet-tpl");
                     
-                    let wallets = discover_tondi_wallet();
+                    let wallets = discover_spora_wallet();
                     wallets.forEach(w=>{
                         console.log("wallet", w)
                         let wallet = temp.content.cloneNode(true);
@@ -70,7 +70,7 @@
                 wallets.addEventListener("click", async (e) => {
                     e.preventDefault();
                     let uuid = e.target.closest(".wallet").dataset.uuid;
-                    let wallets = discover_tondi_wallet();
+                    let wallets = discover_spora_wallet();
                     let wallet = wallets.find(w=>w.uuid == uuid)
                     console.log("wallet", uuid, wallet)
                     if (!wallet?.api)

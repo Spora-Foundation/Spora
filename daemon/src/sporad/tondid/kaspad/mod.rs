@@ -160,19 +160,19 @@ impl Default for Inner {
     }
 }
 
-pub struct tondid {
+pub struct sporad {
     inner: Arc<Mutex<Inner>>,
     mute: Arc<AtomicBool>,
     events: Channel<ProcessEvent>,
 }
 
-impl Default for tondid {
+impl Default for sporad {
     fn default() -> Self {
         Self { inner: Arc::new(Mutex::new(Inner::default())), mute: Arc::new(AtomicBool::new(false)), events: Channel::unbounded() }
     }
 }
 
-impl tondid {
+impl sporad {
     pub fn new(args: SporadConfig) -> Self {
         Self {
             mute: Arc::new(AtomicBool::new(args.mute)),
@@ -236,7 +236,7 @@ impl tondid {
             self.mute.load(Ordering::SeqCst),
         );
 
-        // let options = tondidOptions::new(path,network)?;
+        // let options = sporadOptions::new(path,network)?;
         let process = Arc::new(Process::new(options));
         self.inner().process.replace(process.clone());
         process.run()?;

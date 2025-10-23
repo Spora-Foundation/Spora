@@ -101,7 +101,7 @@ BLAKE3_HASH      = 3001  // ✅ Spora专属
 ```c
 // lock_script.c (编译为RISC-V)
 
-#include "tondi_syscalls.h"
+#include "spora_syscalls.h"
 
 int main() {
     // 1. 加载witness数据
@@ -125,7 +125,7 @@ int main() {
 ### C库包装
 
 ```c
-// tondi_syscalls.h
+// spora_syscalls.h
 
 #define BLAKE3_HASH_SYSCALL 3001
 
@@ -334,7 +334,7 @@ pub fn blake3_syscall_cycles(data_len: usize) -> u64 {
 
 ### C/C++ Header
 
-创建 `exec/scripts/tondi_syscalls.h`:
+创建 `exec/scripts/spora_syscalls.h`:
 
 ```c
 #ifndef TONDI_SYSCALLS_H

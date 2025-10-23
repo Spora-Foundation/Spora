@@ -16,10 +16,10 @@ impl Estimate {
             return Ok(());
         }
 
-        let amount_sau = try_parse_required_nonzero_tondi_as_sau_u64(argv.first())?;
+        let amount_sau = try_parse_required_nonzero_spora_as_sau_u64(argv.first())?;
         // TODO fee_rate
         let fee_rate = None;
-        let _priority_fee_sau = try_parse_optional_tondi_as_sau_i64(argv.get(1))?.unwrap_or(0);
+        let _priority_fee_sau = try_parse_optional_spora_as_sau_i64(argv.get(1))?.unwrap_or(0);
         let abortable = Abortable::default();
 
         // just use any address for an estimate (change address)

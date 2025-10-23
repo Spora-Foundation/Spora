@@ -47,12 +47,12 @@ cargo run --bin Sporad --release -- --testnet --netsuffix=11 --utxoindex
 
 If you want to transmit transactions, first create a Treasure Boy wallet
 1. Run ``treasure_boy`` to generate a wallet
-2. The output will provide you with a private key (that looks like a bunch of gibberish) and a public address (that looks like "tondi0:" followed by a bunch of gibberish). For example, the output could look like this:
+2. The output will provide you with a private key (that looks like a bunch of gibberish) and a public address (that looks like "spora0:" followed by a bunch of gibberish). For example, the output could look like this:
      ```
      2023-06-25 18:00:58.677+00:00 [INFO ] Connected to RPC
-     2023-06-25 18:00:58.677+00:00 [INFO ] Generated private key aa1c554386218eb28c4bsf6a02e5943799cf951dac7301324d88dec2d0119fce and address tondi0:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvp55hu9. Send some funds to this address and rerun treasure_boy with `--private-key aa1c554386218eb28c4bsf6a02e5943799cf951dac7301324d88dec2d0119fce`
+     2023-06-25 18:00:58.677+00:00 [INFO ] Generated private key aa1c554386218eb28c4bsf6a02e5943799cf951dac7301324d88dec2d0119fce and address spora0:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvp55hu9. Send some funds to this address and rerun treasure_boy with `--private-key aa1c554386218eb28c4bsf6a02e5943799cf951dac7301324d88dec2d0119fce`
       ```
-     Here, the private key is ```aa1c554386218eb28c4bsf6a02e5943799cf951dac7301324d88dec2d0119fce``` and the address is ```tondi0:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvp55hu9```
+     Here, the private key is ```aa1c554386218eb28c4bsf6a02e5943799cf951dac7301324d88dec2d0119fce``` and the address is ```spora0:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvp55hu9```
 3. Put some money into the wallet. This could be done by either mining to that wallet (see below) or asking other participants to send money to your public address in the \#testnet Discord channel.
 4. Once the wallet has been funded, run Treasure Boy with the private key:
    ```

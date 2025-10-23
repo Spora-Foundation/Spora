@@ -22,7 +22,7 @@ const TS_GENERATOR_SETTINGS_OBJECT: &'static str = r#"
  * transactions as a source for the "final" transaction.
  *
  * @see
- *      {@link tondiToSau},
+ *      {@link sporaToSau},
  *      {@link Generator},
  *      {@link PendingTransaction},
  *      {@link UtxoContext},
@@ -130,8 +130,8 @@ extern "C" {
 ///     utxoEntries : [...],
 ///     changeAddress : "spora:...",
 ///     outputs : [
-///         { amount : tondiToSau(10.0), address: "spora:..."},
-///         { amount : tondiToSau(20.0), address: "spora:..."},
+///         { amount : sporaToSau(10.0), address: "spora:..."},
+///         { amount : sporaToSau(20.0), address: "spora:..."},
 ///         ...
 ///     ],
 ///     priorityFee : 1000n,

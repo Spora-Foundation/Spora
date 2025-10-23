@@ -20,9 +20,9 @@ extern "C" {
 /// This function provides correct precision handling and
 /// can be used to parse user input.
 /// @category Wallet SDK
-#[wasm_bindgen(js_name = "tondiToSau")]
-pub fn tondi_to_sau(spora: String) -> Option<BigInt> {
-    crate::utils::try_tondi_str_to_sau(spora).ok().flatten().map(Into::into)
+#[wasm_bindgen(js_name = "sporaToSau")]
+pub fn spora_to_sau(spora: String) -> Option<BigInt> {
+    crate::utils::try_spora_str_to_sau(spora).ok().flatten().map(Into::into)
 }
 
 ///
@@ -31,9 +31,9 @@ pub fn tondi_to_sau(spora: String) -> Option<BigInt> {
 /// @category Wallet SDK
 ///
 #[wasm_bindgen(js_name = "sauToSporaString")]
-pub fn sau_to_tondi_string(sau: ISauToSpora) -> Result<String> {
+pub fn sau_to_spora_string(sau: ISauToSpora) -> Result<String> {
     let sau = sau.try_as_u64()?;
-    Ok(crate::utils::sau_to_tondi_string(sau))
+    Ok(crate::utils::sau_to_spora_string(sau))
 }
 
 ///
@@ -44,10 +44,10 @@ pub fn sau_to_tondi_string(sau: ISauToSpora) -> Result<String> {
 /// @category Wallet SDK
 ///
 #[wasm_bindgen(js_name = "sauToSporaStringWithSuffix")]
-pub fn sau_to_tondi_string_with_suffix(sau: ISauToSpora, network: &NetworkTypeT) -> Result<String> {
+pub fn sau_to_spora_string_with_suffix(sau: ISauToSpora, network: &NetworkTypeT) -> Result<String> {
     let sau = sau.try_as_u64()?;
     let network_type = NetworkType::try_from(network)?;
-    Ok(crate::utils::sau_to_tondi_string_with_suffix(sau, &network_type))
+    Ok(crate::utils::sau_to_spora_string_with_suffix(sau, &network_type))
 }
 
 #[wasm_bindgen(js_name = "getNetworkParams")]

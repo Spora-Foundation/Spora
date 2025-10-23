@@ -8,7 +8,7 @@ use spora_hashes::Hash;
 use spora_p2p_lib::{
     common::{ProtocolError, DEFAULT_TIMEOUT},
     dequeue_with_timeout, make_message,
-    pb::{tondid_message::Payload, RequestIbdChainBlockLocatorMessage},
+    pb::{sporad_message::Payload, RequestIbdChainBlockLocatorMessage},
 };
 
 pub struct ChainNegotiationOutput {

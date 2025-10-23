@@ -964,9 +964,9 @@ Copperoot maintains full backward compatibility with existing Taproot:
 ### Basic Usage
 
 ```rust
-use tondi_txscript::standard::copperoot::CopperootWitness;
-use tondi_consensus_core::tx::copperoot::sighash::CopperootSighashType;
-use tondi_addresses::{Address, Prefix};
+use spora_txscript::standard::copperoot::CopperootWitness;
+use spora_consensus_core::tx::copperoot::sighash::CopperootSighashType;
+use spora_addresses::{Address, Prefix};
 use secp256k1::{Secp256k1, Keypair, Message};
 
 // Create a CopperootMerkle address from x-only public key
@@ -997,9 +997,9 @@ let witness = CopperootWitness::p2cr_script_spend_with_inputs(
 
 ```rust
 use musig2::{KeyAggContext, FirstRound, SecNonceSpices, CompactSignature};
-use tondi_txscript::standard::copperoot::CopperootWitness;
-use tondi_consensus_core::tx::copperoot::sighash::CopperootSighashType;
-use tondi_addresses::{Address, Prefix};
+use spora_txscript::standard::copperoot::CopperootWitness;
+use spora_consensus_core::tx::copperoot::sighash::CopperootSighashType;
+use spora_addresses::{Address, Prefix};
 use secp256k1::{Secp256k1, XOnlyPublicKey, Message};
 use musig2::secp256k1::{Keypair, PublicKey as MuPubKey, SecretKey};
 
@@ -1110,9 +1110,9 @@ The ScriptPubKey format is identical to Bitcoin's Taproot, but the witness versi
 **Bech32m Encoding**:
 - **HRP (Human Readable Part)**:
   - Mainnet: `spora`
-  - Testnet: `tondi0`
-  - Simnet: `tondisim`
-  - Devnet: `tondidev`
+  - Testnet: `spora0`
+  - Simnet: `sporasim`
+  - Devnet: `sporadev`
 - **Data Part**: `v2` (CopperootMerkle) or `v3` (CopperootVerkle) + 32-byte x-only public key
 - **Checksum**: Bech32m checksum algorithm
 
@@ -1120,15 +1120,15 @@ The ScriptPubKey format is identical to Bitcoin's Taproot, but the witness versi
 ```
 CopperootMerkle - ACTIVE:
 Mainnet:  spora:c... (CopperootMerkle addresses start with 'c' after HRP)
-Testnet:  tondi0:c...
-Simnet:   tondisim:c...
-Devnet:   tondidev:c...
+Testnet:  spora0:c...
+Simnet:   sporasim:c...
+Devnet:   sporadev:c...
 
 CopperootVerkle - RESERVED (INACTIVE):
 Mainnet:  spora:v... (CopperootVerkle addresses start with 'v' after HRP)
-Testnet:  tondi0:v...
-Simnet:   tondisim:v...
-Devnet:   tondidev:v...
+Testnet:  spora0:v...
+Simnet:   sporasim:v...
+Devnet:   sporadev:v...
 NOTE: CopperootVerkle addresses are reserved but currently invalid for mainnet launch
 ```
 
@@ -1147,7 +1147,7 @@ NOTE: CopperootVerkle addresses are reserved but currently invalid for mainnet l
 #### Address Validation
 
 ```rust
-use tondi_addresses::{Address, AddressError};
+use spora_addresses::{Address, AddressError};
 
 // CopperootMerkle address validation
 pub fn validate_p2cr_address(address: &str) -> Result<Address, AddressError> {
@@ -1172,7 +1172,7 @@ pub fn validate_p2crv_address(address: &str) -> Result<Address, AddressError> {
 #### Script Generation
 
 ```rust
-use tondi_txscript::{Script, opcodes::codes::OP_1};
+use spora_txscript::{Script, opcodes::codes::OP_1};
 use secp256k1::XOnlyPublicKey;
 
 // Generate CopperootMerkle ScriptPubKey
@@ -1195,8 +1195,8 @@ pub fn create_p2crv_scriptpubkey(public_key: &XOnlyPublicKey) -> Script {
 #### Witness Structure
 
 ```rust
-use tondi_txscript::standard::copperoot::{CopperootWitness, CopperootControlBlock};
-use tondi_consensus_core::tx::copperoot::sighash::CopperootSighashType;
+use spora_txscript::standard::copperoot::{CopperootWitness, CopperootControlBlock};
+use spora_consensus_core::tx::copperoot::sighash::CopperootSighashType;
 use secp256k1::schnorr::Signature;
 
 // CopperootMerkle witness for key path spending
@@ -1252,7 +1252,7 @@ pub struct CopperootVerkleScriptWitness {
 #### Wallet Integration
 
 ```rust
-use tondi_addresses::{Address, Version};
+use spora_addresses::{Address, Version};
 
 // Address type detection
 pub fn detect_address_type(address: &str) -> Result<Version, AddressError> {

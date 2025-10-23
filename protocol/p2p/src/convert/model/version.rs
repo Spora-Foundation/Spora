@@ -1,7 +1,7 @@
 use spora_consensus_core::subnets::SubnetworkId;
 use spora_core::{
     time::unix_now,
-    tondid_env::{name, version},
+    sporad_env::{name, version},
 };
 use spora_utils::networking::{NetAddress, PeerId};
 
