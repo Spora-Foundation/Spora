@@ -42,7 +42,8 @@ use tondi_p2p_flows::{flow_context::FlowContext, service::P2pService};
 
 use itertools::Itertools;
 use tondi_perf_monitor::{builder::Builder as PerfMonitorBuilder, counters::CountersSnapshot};
-use tondi_utxoindex::{api::UtxoIndexProxy, UtxoIndex};
+// TODO(cell-model): UTXO index needs Cell model replacement
+// use tondi_utxoindex::{api::UtxoIndexProxy, UtxoIndex};
 use tondi_wrpc_server::service::{Options as WrpcServerOptions, WebSocketCounters as WrpcServerCounters, WrpcEncoding, WrpcService};
 
 /// Desired soft FD limit that needs to be configured
@@ -543,15 +544,18 @@ do you confirm? (answer y/n or pass --yes to the Tondid command line to confirm 
     let system_info = SystemInfo::default();
 
     let notify_service = Arc::new(NotifyService::new(notification_root.clone(), notification_recv, subscription_context.clone()));
+    // TODO(cell-model): Replace UTXO index with Cell index
     let index_service: Option<Arc<IndexService>> = if args.utxoindex {
         // Use only a single thread for none-consensus databases
-        let utxoindex_db = tondi_database::prelude::ConnBuilder::default()
+        let _utxoindex_db = tondi_database::prelude::ConnBuilder::default()
             .with_db_path(utxoindex_db_dir)
             .with_files_limit(utxo_files_limit)
             .build()
             .unwrap();
-        let utxoindex = UtxoIndexProxy::new(UtxoIndex::new(consensus_manager.clone(), utxoindex_db).unwrap());
-        let index_service = Arc::new(IndexService::new(&notify_service.notifier(), subscription_context.clone(), Some(utxoindex)));
+        // Temporary: Skip UTXO index initialization during Cell model migration
+        // let utxoindex = UtxoIndexProxy::new(UtxoIndex::new(consensus_manager.clone(), utxoindex_db).unwrap());
+        // let index_service = Arc::new(IndexService::new(&notify_service.notifier(), subscription_context.clone(), Some(utxoindex)));
+        let index_service = Arc::new(IndexService::new(&notify_service.notifier(), subscription_context.clone(), None));
         Some(index_service)
     } else {
         None
@@ -613,7 +617,8 @@ do you confirm? (answer y/n or pass --yes to the Tondid command line to confirm 
         mining_manager,
         flow_context,
         subscription_context,
-        index_service.as_ref().map(|x| x.utxoindex().unwrap()),
+        None, // TODO(cell-model): Replace with CellIndex
+        // index_service.as_ref().map(|x| x.utxoindex().unwrap()),
         config.clone(),
         core.clone(),
         processing_counters,

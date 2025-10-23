@@ -1,4 +1,5 @@
 use crate::{block::Block, header::Header, subnets::SUBNETWORK_ID_COINBASE, tx::Transaction};
+use tondi_exec::CellTx;
 use tondi_hashes::{Hash, ZERO_HASH};
 use tondi_muhash::EMPTY_MUHASH;
 
@@ -17,7 +18,19 @@ pub struct GenesisBlock {
 }
 
 impl GenesisBlock {
-    pub fn build_genesis_transactions(&self) -> Vec<Transaction> {
+    /// Build genesis transactions as CellTx
+    ///
+    /// NOTE: Genesis contains empty coinbase in Cell model
+    /// Cell-based coinbase will be implemented in mining layer
+    pub fn build_genesis_transactions(&self) -> Vec<CellTx> {
+        // Genesis block has no transactions in Cell model
+        // Coinbase rewards are handled differently in GhostDAG mergeset
+        vec![]
+    }
+    
+    /// Build legacy genesis transactions (deprecated, for migration compatibility)
+    #[deprecated(note = "Use build_genesis_transactions() which returns CellTx")]
+    pub fn build_genesis_transactions_legacy(&self) -> Vec<Transaction> {
         vec![Transaction::new(0, Vec::new(), Vec::new(), 0, SUBNETWORK_ID_COINBASE, 0, self.coinbase_payload.to_vec())]
     }
 }

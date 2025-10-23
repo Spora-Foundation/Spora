@@ -3,8 +3,8 @@ use tondi_consensus_core::{
     block::Block,
     header::Header,
     subnets::SubnetworkId,
-    tx::{ScriptPublicKey, ScriptVec, Transaction, TransactionInput, TransactionOutpoint, TransactionOutput, UtxoEntry},
-    utxo::utxo_collection::UtxoCollection,
+    tx::{ScriptPublicKey, ScriptVec, Transaction, TransactionInput, TransactionOutpoint, TransactionOutput},
+    // utxo::utxo_collection::UtxoCollection, // TODO(cell-model): Removed UTXO
 };
 use tondi_hashes::{Hash, HASH_SIZE};
 
@@ -16,20 +16,21 @@ pub fn block_from_precomputed_hash(hash: Hash, parents: Vec<Hash>) -> Block {
     Block::from_precomputed_hash(hash, parents)
 }
 
-pub fn generate_random_utxos_from_script_public_key_pool(
-    rng: &mut SmallRng,
-    amount: usize,
-    script_public_key_pool: &[ScriptPublicKey],
-) -> UtxoCollection {
-    let mut i = 0;
-    let mut collection = UtxoCollection::with_capacity(amount);
-    while i < amount {
-        collection
-            .insert(generate_random_outpoint(rng), generate_random_utxo_from_script_public_key_pool(rng, script_public_key_pool));
-        i += 1;
-    }
-    collection
-}
+// TODO(cell-model): UTXO functions removed - use Cell model equivalents
+// pub fn generate_random_utxos_from_script_public_key_pool(
+//     rng: &mut SmallRng,
+//     amount: usize,
+//     script_public_key_pool: &[ScriptPublicKey],
+// ) -> UtxoCollection {
+//     let mut i = 0;
+//     let mut collection = UtxoCollection::with_capacity(amount);
+//     while i < amount {
+//         collection
+//             .insert(generate_random_outpoint(rng), generate_random_utxo_from_script_public_key_pool(rng, script_public_key_pool));
+//         i += 1;
+//     }
+//     collection
+// }
 
 pub fn generate_random_hash(rng: &mut SmallRng) -> Hash {
     let random_bytes = rng.gen::<[u8; HASH_SIZE]>();
@@ -40,23 +41,24 @@ pub fn generate_random_outpoint(rng: &mut SmallRng) -> TransactionOutpoint {
     TransactionOutpoint::new(generate_random_hash(rng), rng.gen::<u32>())
 }
 
-pub fn generate_random_utxo_from_script_public_key_pool(rng: &mut SmallRng, script_public_key_pool: &[ScriptPublicKey]) -> UtxoEntry {
-    UtxoEntry::new(
-        rng.gen_range(1..100_000), //we choose small amounts as to not overflow with large utxosets.
-        script_public_key_pool.choose(rng).expect("expected_script_public key").clone(),
-        rng.gen(),
-        rng.gen_bool(0.5),
-    )
-}
+// TODO(cell-model): UTXO functions removed - use Cell model equivalents
+// pub fn generate_random_utxo_from_script_public_key_pool(rng: &mut SmallRng, script_public_key_pool: &[ScriptPublicKey]) -> UtxoEntry {
+//     UtxoEntry::new(
+//         rng.gen_range(1..100_000), //we choose small amounts as to not overflow with large utxosets.
+//         script_public_key_pool.choose(rng).expect("expected_script_public key").clone(),
+//         rng.gen(),
+//         rng.gen_bool(0.5),
+//     )
+// }
 
-pub fn generate_random_utxo(rng: &mut SmallRng) -> UtxoEntry {
-    UtxoEntry::new(
-        rng.gen_range(1..100_000), //we choose small amounts as to not overflow with large utxosets.
-        generate_random_p2pk_script_public_key(rng),
-        rng.gen(),
-        rng.gen_bool(0.5),
-    )
-}
+// pub fn generate_random_utxo(rng: &mut SmallRng) -> UtxoEntry {
+//     UtxoEntry::new(
+//         rng.gen_range(1..100_000), //we choose small amounts as to not overflow with large utxosets.
+//         generate_random_p2pk_script_public_key(rng),
+//         rng.gen(),
+//         rng.gen_bool(0.5),
+//     )
+// }
 
 ///Note: this generates schnorr p2pk script public keys.
 pub fn generate_random_p2pk_script_public_key(rng: &mut SmallRng) -> ScriptPublicKey {
@@ -80,13 +82,14 @@ pub fn generate_random_hashes(rng: &mut SmallRng, amount: usize) -> Vec<Hash> {
 pub fn generate_random_block(
     rng: &mut SmallRng,
     parent_amount: usize,
-    number_of_transactions: usize,
-    input_amount: usize,
-    output_amount: usize,
+    _number_of_transactions: usize,
+    _input_amount: usize,
+    _output_amount: usize,
 ) -> Block {
+    // TODO(cell-model): Replace with generate_random_cell_transactions
     Block::new(
         generate_random_header(rng, parent_amount),
-        generate_random_transactions(rng, number_of_transactions, input_amount, output_amount),
+        vec![],  // Empty transactions for now
     )
 }
 

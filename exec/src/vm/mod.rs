@@ -4,6 +4,8 @@
 // VM integration for Cell script execution
 
 #[cfg(feature = "vm")]
+pub mod error;
+#[cfg(feature = "vm")]
 pub mod machine;
 #[cfg(feature = "vm")]
 pub mod syscalls;
@@ -11,7 +13,11 @@ pub mod syscalls;
 pub mod cost_model;
 #[cfg(feature = "vm")]
 pub mod scheduler;
+#[cfg(feature = "vm")]
+pub mod verifier;
 
+#[cfg(feature = "vm")]
+pub use error::*;
 #[cfg(feature = "vm")]
 pub use machine::*;
 #[cfg(feature = "vm")]
@@ -20,6 +26,8 @@ pub use syscalls::*;
 pub use cost_model::*;
 #[cfg(feature = "vm")]
 pub use scheduler::*;
+#[cfg(feature = "vm")]
+pub use verifier::*;
 
 /// VM integration status
 pub const VM_ENABLED: bool = cfg!(feature = "vm");

@@ -1,6 +1,6 @@
 use super::storage::ConsensusStorage;
 use crate::{
-    processes::transaction_validator::TransactionValidator,
+    // TransactionValidator removed - Cell model migration
     config::Config,
     model::{
         services::{reachability::MTReachabilityService, relations::MTRelationsService, statuses::MTStatusesService},
@@ -69,7 +69,7 @@ pub struct ConsensusServices {
     pub sync_manager: DbSyncManager,
     pub depth_manager: DbBlockDepthManager,
     pub mass_calculator: MassCalculator,
-    pub transaction_validator: TransactionValidator,
+    // transaction_validator removed - using CellValidator directly in virtual_processor
 }
 
 impl ConsensusServices {
@@ -145,17 +145,8 @@ impl ConsensusServices {
             params.storage_mass_parameter,
         );
 
-        let transaction_validator = TransactionValidator::new(
-            params.max_tx_inputs(),
-            params.max_tx_outputs(),
-            params.max_signature_script_len(),
-            params.max_script_public_key_len(),
-            params.coinbase_payload_script_public_key_max_len,
-            params.coinbase_maturity(),
-            tx_script_cache_counters,
-            mass_calculator.clone(),
-            params.crescendo_activation,
-        );
+        // TransactionValidator removed - Cell model migration
+        // CellValidator is used directly in virtual_processor
 
         let pruning_point_manager = PruningPointManager::new(
             params.pruning_depth(),
@@ -219,7 +210,7 @@ impl ConsensusServices {
             sync_manager,
             depth_manager,
             mass_calculator,
-            transaction_validator,
+            // transaction_validator removed - using CellValidator
         })
     }
 }

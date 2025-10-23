@@ -96,17 +96,22 @@ impl BlockTemplateBuilder {
     ) -> BuilderResult<BlockTemplate> {
         let mut block_template = block_template_to_modify.clone();
 
-        // The first transaction is always the coinbase transaction
+        // TODO(cell-model): Coinbase modification needs migration to CellTx
+        // CellTx uses outputs_data instead of payload field
+        // For now, skip coinbase modification as mining is being migrated
+        /* 
         let coinbase_tx = &mut block_template.block.transactions[COINBASE_TRANSACTION_INDEX];
-        let new_payload = consensus.modify_coinbase_payload(coinbase_tx.payload.clone(), new_miner_data)?;
-        coinbase_tx.payload = new_payload;
+        let new_payload = consensus.modify_coinbase_payload(coinbase_tx.payload().unwrap_or(&[]).to_vec(), new_miner_data)?;
+        // coinbase_tx.outputs_data[0] = new_payload;  // Need mutable access
         if block_template.coinbase_has_red_reward {
             // The last output is always the coinbase red blocks reward
-            coinbase_tx.outputs.last_mut().unwrap().script_public_key = new_miner_data.script_public_key.clone();
+            // coinbase_tx.outputs.last_mut().unwrap().lock = new_miner_data.script_public_key.clone();
         }
-        // Update the hash merkle root according to the modified transactions
-        block_template.block.header.hash_merkle_root =
-            consensus.calc_transaction_hash_merkle_root(&block_template.block.transactions, block_template.block.header.daa_score);
+        */
+        // TODO(cell-model): Update hash merkle root for CellTx
+        // Temporarily skip this as we're not modifying coinbase anymore
+        /* block_template.block.header.hash_merkle_root =
+            consensus.calc_transaction_hash_merkle_root(&block_template.block.transactions, block_template.block.header.daa_score); */
         let new_timestamp = unix_now();
         if new_timestamp > block_template.block.header.timestamp {
             // Only if new time stamp is later than current, update the header. Otherwise,

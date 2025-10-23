@@ -12,6 +12,10 @@ pub enum CellValidationError {
     #[error("Invalid transaction format: {0}")]
     InvalidFormat(String),
     
+    /// Script verification failed
+    #[error("Script verification failed: {0}")]
+    ScriptVerificationFailed(String),
+    
     /// Cell not found
     #[error("Cell not found: {0:?}")]
     CellNotFound([u8; 32]),

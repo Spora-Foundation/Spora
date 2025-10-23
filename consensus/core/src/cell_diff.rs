@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ISC
-// Copyright (C) 2025 Tondi developers
+// Copyright (C) 2025 Spora developers
 //
 // Cell state difference - tracks additions and removals of cells
 

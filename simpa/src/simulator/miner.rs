@@ -17,9 +17,9 @@ use tondi_consensus_core::mass::MassCalculator;
 use tondi_consensus_core::sign::sign;
 use tondi_consensus_core::subnets::SUBNETWORK_ID_NATIVE;
 use tondi_consensus_core::tx::{
-    MutableTransaction, ScriptPublicKey, ScriptVec, Transaction, TransactionInput, TransactionOutpoint, TransactionOutput, UtxoEntry,
+    MutableTransaction, ScriptPublicKey, ScriptVec, Transaction, TransactionInput, TransactionOutpoint, TransactionOutput, UtxoEntry, CellTx,
 };
-use tondi_consensus_core::utxo::utxo_view::UtxoView;
+// use tondi_consensus_core::utxo::utxo_view::UtxoView;  // TODO(cell-model): UTXO removed
 use tondi_core::trace;
 use tondi_utils::sim::{Environment, Process, Resumption, Suspension};
 
@@ -34,8 +34,9 @@ impl OnetimeTxSelector {
 }
 
 impl TemplateTransactionSelector for OnetimeTxSelector {
-    fn select_transactions(&mut self) -> Vec<Transaction> {
-        self.txs.take().unwrap()
+    fn select_transactions(&mut self) -> Vec<CellTx> {
+        // TODO(cell-model): Convert Transaction to CellTx
+        vec![]  // Empty for now
     }
 
     fn reject_selection(&mut self, _tx_id: tondi_consensus_core::tx::TransactionId) {
@@ -136,11 +137,18 @@ impl Miner {
     }
 
     fn build_txs(&mut self) -> Vec<Transaction> {
-        let virtual_read = self.consensus.virtual_stores.read();
-        let virtual_state = virtual_read.state.get().unwrap();
-        let virtual_utxo_view = &virtual_read.utxo_set;
+        // TODO(cell-model): Full reimplementation needed for Cell model simulation
+        // For now, return empty transactions to allow compilation
+        let _virtual_read = self.consensus.virtual_stores.read();
+        let _virtual_state = _virtual_read.state.get().unwrap();
+        // let virtual_utxo_view = &virtual_read.utxo_set; // REMOVED: Cell model migration
         let multiple_outputs = self.possible_unspent_outpoints.len() < 5_000;
         let schnorr_key = secp256k1::Keypair::from_seckey_slice(secp256k1::SECP256K1, &self.secret_key.secret_bytes()).unwrap();
+        
+        // STUB: Cell model transaction building not yet implemented
+        // Return empty vector as temporary stub
+        
+        /* UTXO-based logic - needs Cell model reimplementation:
         let txs = self
             .possible_unspent_outpoints
             .iter()
@@ -169,23 +177,27 @@ impl Miner {
             self.possible_unspent_outpoints.swap_remove(&outpoint);
         }
         txs
+        */
+        
+        vec![] // Temporary stub - return empty transactions
     }
 
-    fn get_spendable_entry(
-        &self,
-        utxo_view: &impl UtxoView,
-        outpoint: TransactionOutpoint,
-        virtual_daa_score: u64,
-    ) -> Option<UtxoEntry> {
-        let entry = utxo_view.get(&outpoint)?;
-        if entry.amount < 2
-            || (entry.is_coinbase
-                && (virtual_daa_score as i64 - entry.block_daa_score as i64) <= self.params.coinbase_maturity().upper_bound() as i64)
-        {
-            return None;
-        }
-        Some(entry)
-    }
+    // TODO(cell-model): Reimplementation needed for Cell model
+    // fn get_spendable_entry(
+    //     &self,
+    //     utxo_view: &impl UtxoView,
+    //     outpoint: TransactionOutpoint,
+    //     virtual_daa_score: u64,
+    // ) -> Option<UtxoEntry> {
+    //     let entry = utxo_view.get(&outpoint)?;
+    //     if entry.amount < 2
+    //         || (entry.is_coinbase
+    //             && (virtual_daa_score as i64 - entry.block_daa_score as i64) <= self.params.coinbase_maturity().upper_bound() as i64)
+    //     {
+    //         return None;
+    //     }
+    //     Some(entry)
+    // }
 
     fn create_unsigned_tx(&self, outpoint: TransactionOutpoint, input_amount: u64, multiple_outputs: bool) -> Transaction {
         Transaction::new_non_finalized(
@@ -217,13 +229,17 @@ impl Miner {
     }
 
     fn process_block(&mut self, block: Block, env: &mut Environment<Block>) -> Suspension {
+        // TODO(cell-model): Update for Cell model - check lock hash instead of script_public_key
         for tx in block.transactions.iter() {
             for (i, output) in tx.outputs.iter().enumerate() {
-                if output.script_public_key.eq(&self.miner_data.script_public_key) {
+                // STUB: Need to compare lock hash with miner's lock in Cell model
+                // if output.lock.hash().eq(&self.miner_data.script_public_key.hash()) {
+                // For now, skip this logic during migration
+                if false { // Temporary stub
                     if self.possible_unspent_outpoints.len() == self.max_cached_outpoints {
                         self.possible_unspent_outpoints.swap_remove_index(self.rng.gen_range(0..self.max_cached_outpoints));
                     }
-                    self.possible_unspent_outpoints.insert(TransactionOutpoint::new(tx.id(), i as u32));
+                    self.possible_unspent_outpoints.insert(TransactionOutpoint::new(tx.id().into(), i as u32));
                 }
             }
         }

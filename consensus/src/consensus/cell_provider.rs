@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ISC
-// Copyright (C) 2025 Tondi developers
+// Copyright (C) 2025 Spora developers
 //
 // Consensus Cell Provider - GHOSTDAG-aware Cell state queries
 
@@ -195,7 +195,7 @@ impl<
             return Ok(None);
         }
 
-        Ok(Some(tx.outputs[out_idx].value))
+        Ok(Some(tx.outputs[out_idx].capacity))
     }
 }
 
@@ -248,8 +248,8 @@ impl<
 
         // Build CellMetadata
         let metadata = CellMetadata {
-            capacity: output.value,
-            lock_hash: Self::compute_lock_hash(&output.script_public_key),
+            capacity: output.capacity,
+            lock_hash: output.lock.hash(),  // CellOut uses ScriptRef.hash()
             type_hash: None, // TODO: Extract from script if present
             data_hash: [0u8; 32], // TODO: Hash output data
             block_daa_score: header.daa_score,

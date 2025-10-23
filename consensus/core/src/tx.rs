@@ -15,6 +15,9 @@ pub use script_public_key::{
     scriptvec, ScriptPublicKey, ScriptPublicKeyT, ScriptPublicKeyVersion, ScriptPublicKeys, ScriptVec, SCRIPT_VECTOR_SIZE,
 };
 use serde::{Deserialize, Serialize};
+
+// Re-export CellTx from tondi-exec (Cell model)
+pub use tondi_exec::celltx::{CellTx, CellRef, CellOut, OutPoint, ScriptRef, CellDep, DepType};
 use std::collections::HashSet;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering::SeqCst;

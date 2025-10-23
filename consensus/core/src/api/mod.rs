@@ -196,7 +196,8 @@ pub trait ConsensusApi: Send + Sync {
         from_outpoint: Option<TransactionOutpoint>,
         chunk_size: usize,
         skip_first: bool,
-    ) -> Vec<(TransactionOutpoint, UtxoEntry)> {
+    ) -> Vec<(TransactionOutpoint, Hash)> {
+        // TODO(cell-model): Replace with get_virtual_cells
         unimplemented!()
     }
 
@@ -229,6 +230,7 @@ pub trait ConsensusApi: Send + Sync {
     }
 
     fn append_imported_pruning_point_utxos(&self, utxoset_chunk: &[(TransactionOutpoint, UtxoEntry)], current_multiset: &mut MuHash) {
+        // TODO(cell-model): Replace with append_imported_pruning_point_cells
         unimplemented!()
     }
 
@@ -338,6 +340,7 @@ pub trait ConsensusApi: Send + Sync {
         chunk_size: usize,
         skip_first: bool,
     ) -> ConsensusResult<Vec<(TransactionOutpoint, UtxoEntry)>> {
+        // TODO(cell-model): Replace with get_pruning_point_cells
         unimplemented!()
     }
 

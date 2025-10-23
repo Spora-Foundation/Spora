@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ISC
-// Copyright (C) 2025 Tondi developers
+// Copyright (C) 2025 Spora developers
 //
 // Complete Cell metadata for validation and querying (GHOSTDAG-aware)
 

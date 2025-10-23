@@ -1,8 +1,11 @@
 use rocksdb::WriteBatch;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tondi_consensus_core::tx::{TransactionInput, TransactionOutput};
+use tondi_consensus_core::tx::{TransactionInput, TransactionOutput, CellTx};
 use tondi_consensus_core::{tx::Transaction, BlockHasher};
+
+// TODO(cell-model): Transaction is now aliased to CellTx
+type TransactionType = CellTx;
 use tondi_database::prelude::CachePolicy;
 use tondi_database::prelude::StoreError;
 use tondi_database::prelude::DB;
@@ -12,19 +15,19 @@ use tondi_hashes::Hash;
 use tondi_utils::mem_size::MemSizeEstimator;
 
 pub trait BlockTransactionsStoreReader {
-    fn get(&self, hash: Hash) -> Result<Arc<Vec<Transaction>>, StoreError>;
+    fn get(&self, hash: Hash) -> Result<Arc<Vec<CellTx>>, StoreError>;
 
-    fn get_transaction(&self, hash: Hash) -> Result<Transaction, StoreError>;
+    fn get_transaction(&self, hash: Hash) -> Result<CellTx, StoreError>;
 }
 
 pub trait BlockTransactionsStore: BlockTransactionsStoreReader {
     // This is append only
-    fn insert(&self, hash: Hash, transactions: Arc<Vec<Transaction>>) -> Result<(), StoreError>;
+    fn insert(&self, hash: Hash, transactions: Arc<Vec<CellTx>>) -> Result<(), StoreError>;
     fn delete(&self, hash: Hash) -> Result<(), StoreError>;
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-struct BlockBody(Arc<Vec<Transaction>>);
+struct BlockBody(Arc<Vec<CellTx>>);
 
 impl MemSizeEstimator for BlockBody {
     fn estimate_mem_bytes(&self) -> usize {
@@ -86,12 +89,12 @@ impl DbBlockTransactionsStore {
         self.access.has(hash)
     }
 
-    pub fn insert_batch(&self, batch: &mut WriteBatch, hash: Hash, transactions: Arc<Vec<Transaction>>) -> Result<(), StoreError> {
+    pub fn insert_batch(&self, batch: &mut WriteBatch, hash: Hash, transactions: Arc<Vec<CellTx>>) -> Result<(), StoreError> {
         if self.access.has(hash)? {
             return Err(StoreError::HashAlreadyExists(hash));
         }
         for (tidx, tx) in transactions.iter().enumerate() {
-            self.txidxs.write(BatchDbWriter::new(batch), tx.id(), TxIdx::new(hash, tidx))?;
+            self.txidxs.write(BatchDbWriter::new(batch), tx.id().into(), TxIdx::new(hash, tidx))?;
         }
         self.access.write(BatchDbWriter::new(batch), hash, BlockBody(transactions))?;
         Ok(())
@@ -103,11 +106,11 @@ impl DbBlockTransactionsStore {
 }
 
 impl BlockTransactionsStoreReader for DbBlockTransactionsStore {
-    fn get(&self, hash: Hash) -> Result<Arc<Vec<Transaction>>, StoreError> {
+    fn get(&self, hash: Hash) -> Result<Arc<Vec<CellTx>>, StoreError> {
         Ok(self.access.read(hash)?.0)
     }
 
-    fn get_transaction(&self, hash: Hash) -> Result<Transaction, StoreError> {
+    fn get_transaction(&self, hash: Hash) -> Result<CellTx, StoreError> {
         let TxIdx { hash, tidx } = self.txidxs.read(hash)?;
         let txs = self.access.read(hash)?.0;
         Ok(txs[tidx].clone())
@@ -115,12 +118,12 @@ impl BlockTransactionsStoreReader for DbBlockTransactionsStore {
 }
 
 impl BlockTransactionsStore for DbBlockTransactionsStore {
-    fn insert(&self, hash: Hash, transactions: Arc<Vec<Transaction>>) -> Result<(), StoreError> {
+    fn insert(&self, hash: Hash, transactions: Arc<Vec<CellTx>>) -> Result<(), StoreError> {
         if self.access.has(hash)? {
             return Err(StoreError::HashAlreadyExists(hash));
         }
         for (tidx, tx) in transactions.iter().enumerate() {
-            self.txidxs.write(DirectDbWriter::new(&self.db), tx.id(), TxIdx::new(hash, tidx))?;
+            self.txidxs.write(DirectDbWriter::new(&self.db), tx.id().into(), TxIdx::new(hash, tidx))?;
         }
         self.access.write(DirectDbWriter::new(&self.db), hash, BlockBody(transactions))?;
         Ok(())

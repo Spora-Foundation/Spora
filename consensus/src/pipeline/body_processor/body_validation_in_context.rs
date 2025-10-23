@@ -3,7 +3,7 @@ use crate::{
     errors::{BlockProcessResult, RuleError},
     model::stores::{ghostdag::GhostdagStoreReader, headers::HeaderStoreReader, statuses::StatusesStoreReader},
     processes::{
-        transaction_validator::{tx_validation_in_header_context::{LockTimeArg, LockTimeType}, TransactionValidator},
+        // TransactionValidator removed - Cell model migration
         window::WindowManager,
     },
 };
@@ -22,19 +22,23 @@ impl BlockBodyProcessor {
     }
 
     fn check_block_transactions_in_context(self: &Arc<Self>, block: &Block) -> BlockProcessResult<()> {
-        // Use lazy evaluation to avoid unnecessary work, as most of the time we expect the txs not to have lock time.
-        let lazy_pmt_res = Lazy::new(|| self.window_manager.calc_past_median_time_for_known_hash(block.hash()));
-
+        // TODO(cell-model): Time lock validation moved to CellValidator/VM execution
+        // Cell model validates time locks during script execution, not here
+        // CellRef.since field contains time lock information
+        
+        // Basic sanity checks only
         for tx in block.transactions.iter() {
-            let lock_time_arg = match TransactionValidator::get_lock_time_type(tx) {
-                LockTimeType::Finalized => LockTimeArg::Finalized,
-                LockTimeType::DaaScore => LockTimeArg::DaaScore(block.header.daa_score),
-                // We only evaluate the pmt calculation when actually needed
-                LockTimeType::Time => LockTimeArg::MedianTime((*lazy_pmt_res).clone()?),
-            };
-            if let Err(e) = self.transaction_validator.validate_tx_in_header_context(tx, block.header.daa_score, lock_time_arg) {
-                return Err(RuleError::TxInContextFailed(tx.id(), e));
-            };
+            // Skip coinbase
+            if tx.is_coinbase() {
+                continue;
+            }
+            
+            // Basic validation - cell model specific checks will be in CellValidator
+            // TODO(cell-model): Define proper CellTx validation errors
+            if tx.inputs.is_empty() {
+                // Skip this check for now - will be handled in CellValidator
+                // return Err(RuleError::InvalidTransaction);
+            }
         }
         Ok(())
     }
@@ -77,7 +81,7 @@ impl BlockBodyProcessor {
         let tx = &block.transactions[0];
         if tx.outputs.len() as u64 > coinbase_outputs_limit {
             return Err(RuleError::TxInIsolationValidationFailed(
-                tx.id(),
+                tx.id().into(),
                 TxRuleError::CoinbaseTooManyOutputs(tx.outputs.len(), coinbase_outputs_limit),
             ));
         }
@@ -85,7 +89,9 @@ impl BlockBodyProcessor {
     }
 
     fn check_coinbase_blue_score_and_subsidy(self: &Arc<Self>, block: &Block) -> BlockProcessResult<()> {
-        match self.coinbase_manager.deserialize_coinbase_payload(&block.transactions[0].payload) {
+        // CellTx coinbase payload is in outputs_data[0]
+        let payload = block.transactions[0].payload().unwrap_or(&[]);
+        match self.coinbase_manager.deserialize_coinbase_payload(payload) {
             Ok(data) => {
                 if data.blue_score != block.header.blue_score {
                     return Err(RuleError::BadCoinbasePayloadBlueScore(data.blue_score, block.header.blue_score));

@@ -17,7 +17,8 @@ use tondi_consensus_core::daa_score_timestamp::DaaScoreTimestamp;
 use tondi_consensus_core::errors::block::RuleError;
 use tondi_consensus_core::mass::{calc_storage_mass, UtxoCell};
 use tondi_consensus_core::tx::ScriptPublicKey;
-use tondi_consensus_core::utxo::utxo_inquirer::UtxoInquirerError;
+// TODO(cell-model): UTXO-specific error, needs Cell model replacement
+// use tondi_consensus_core::utxo::utxo_inquirer::UtxoInquirerError;
 use tondi_consensus_core::{
     block::Block,
     coinbase::MinerData,
@@ -81,8 +82,13 @@ use tondi_utils::expiring_cache::ExpiringCache;
 use tondi_utils::sysinfo::SystemInfo;
 use tondi_utils::{channel::Channel, triggers::SingleTrigger};
 use tondi_utils_tower::counters::TowerConnectionCounters;
-use tondi_utxoindex::api::UtxoIndexProxy;
-use tondi_utxoindex::model::CompactUtxoCollection;
+// TODO(cell-model): UTXO index needs Cell model replacement
+// use tondi_utxoindex::api::UtxoIndexProxy;
+// use tondi_utxoindex::model::CompactUtxoCollection;
+
+// Temporary type aliases for compilation during Cell model migration
+type UtxoIndexProxy = ();
+type CompactUtxoCollection = Vec<u8>;
 use workflow_rpc::server::WebSocketCounters as WrpcServerCounters;
 
 /// A service implementing the Rpc API at tondi_rpc_core level.
@@ -257,32 +263,25 @@ impl RpcCoreService {
         self.core_shutdown_request.listener.clone()
     }
 
-    async fn get_utxo_set_by_script_public_key(&self, spk: ScriptPublicKey, start: u64, limit: u32) -> CompactUtxoCollection {
-        self.utxoindex.clone().unwrap().get_utxos_by_script_public_key(spk, start, limit).await.unwrap_or_default()
+    async fn get_utxo_set_by_script_public_key(&self, _spk: ScriptPublicKey, _start: u64, _limit: u32) -> CompactUtxoCollection {
+        // TODO(cell-model): Implement Cell-based UTXO query
+        Vec::new() // Temporary stub
     }
 
     async fn get_utxo_set_by_script_public_keys<'a>(
         &self,
-        addresses: impl Iterator<Item = &'a RpcAddress>,
+        _addresses: impl Iterator<Item = &'a RpcAddress>,
     ) -> UtxoSetByScriptPublicKey {
-        self.utxoindex
-            .clone()
-            .unwrap()
-            .get_utxos_by_script_public_keys(addresses.map(pay_to_address_script).collect())
-            .await
-            .unwrap_or_default()
+        // TODO(cell-model): Implement Cell-based UTXO query by script public keys
+        UtxoSetByScriptPublicKey::default() // Temporary stub
     }
 
     async fn get_balance_by_script_public_keys<'a>(
         &self,
-        addresses: impl Iterator<Item = &'a RpcAddress>,
+        _addresses: impl Iterator<Item = &'a RpcAddress>,
     ) -> BalanceByScriptPublicKey {
-        self.utxoindex
-            .clone()
-            .unwrap()
-            .get_balance_by_script_public_keys(addresses.map(pay_to_address_script).collect())
-            .await
-            .unwrap_or_default()
+        // TODO(cell-model): Implement Cell-based balance query by script public keys
+        BalanceByScriptPublicKey::default() // Temporary stub
     }
 
     fn extract_tx_query(&self, filter_transaction_pool: bool, include_orphan_pool: bool) -> RpcResult<TransactionQuery> {
@@ -321,29 +320,31 @@ impl RpcCoreService {
             */
             if tx.outputs.len() > tx.inputs.len() {
                 let num_ins = tx.inputs.len() as u64;
-                let sum_outs = tx.outputs.iter().map(|o| o.value).sum::<u64>();
+                let sum_outs = tx.outputs.iter().map(|o| o.capacity).sum::<u64>(); // CellOut uses capacity, not value
                 if num_ins == 0 || sum_outs < num_ins {
                     // Sanity checks
                     continue;
                 }
 
                 let avg_ins_lower = sum_outs / num_ins; // >= 1
+                // TODO(cell-model): Update calc_storage_mass for Cell model
                 let storage_mass_lower = calc_storage_mass(
                     tx.is_coinbase(),
                     tx.inputs.iter().map(|_| UtxoCell { plurality: 1, amount: avg_ins_lower }),
-                    tx.outputs.iter().map(|o| o.into()),
+                    // STUB: Cannot convert CellOut to UtxoCell directly, needs proper implementation
+                    std::iter::empty(), // tx.outputs.iter().map(|o| o.into()),
                     self.config.storage_mass_parameter,
                 )
                 .unwrap_or(u64::MAX);
 
                 // Despite being a lower bound, storage mass is still calculated to be positive, so we found our problem
                 if storage_mass_lower > 0 {
-                    warn!("The RPC submitted block {} contains a transaction {} with mass = 0 while it should have been strictly positive.
+                    warn!("The RPC submitted block {} contains a transaction {:?} with mass = 0 while it should have been strictly positive.
 This indicates that the RPC conversion flow used by the miner does not preserve the mass values received from GetBlockTemplate.
 You must upgrade your miner flow to propagate the mass field correctly prior to the Crescendo hardfork activation.
 Failure to do so will result in your blocks being considered invalid when Crescendo activates.",
                             block.hash(),
-                            tx.id()
+                            tx.id() // Use Debug formatting for [u8; 32]
                         );
                     // A single warning is sufficient
                     break;
@@ -449,7 +450,8 @@ NOTE: This error usually indicates an RPC conversion error between the node and 
         let block_template = self.mining_manager.clone().get_block_template(&session, miner_data).await?;
 
         // Check coinbase tx payload length
-        if block_template.block.transactions[COINBASE_TRANSACTION_INDEX].payload.len() > self.config.max_coinbase_payload_len {
+        // TODO(cell-model): CellTx payload access needs update
+        if block_template.block.transactions[COINBASE_TRANSACTION_INDEX].payload().map_or(0, |p| p.len()) > self.config.max_coinbase_payload_len {
             return Err(RpcError::CoinbasePayloadLengthAboveMax(self.config.max_coinbase_payload_len));
         }
 
@@ -765,9 +767,10 @@ NOTE: This error usually indicates an RPC conversion error between the node and 
         request: GetUtxosByAddressRequest,
     ) -> RpcResult<GetUtxosByAddressResponse> {
         let GetUtxosByAddressRequest { address, start, limit } = request;
-        let spk = pay_to_address_script(&address);
-        let utxo_collection = self.get_utxo_set_by_script_public_key(spk.clone(), start, limit).await;
-        let entries = utxo_map_into_rpc(&spk, &utxo_collection);
+        let _spk = pay_to_address_script(&address);
+        let _utxo_collection = self.get_utxo_set_by_script_public_key(_spk.clone(), start, limit).await;
+        // TODO(cell-model): Implement proper Cell-based UTXO query and conversion
+        let entries = vec![]; // Temporary stub: return empty entries
         // TODO: Get total by rocksdb.estimate-num-keys
         Ok(GetUtxosByAddressResponse { entries, total: 0 })
     }
@@ -828,8 +831,8 @@ NOTE: This error usually indicates an RPC conversion error between the node and 
         if !self.config.utxoindex {
             return Err(RpcError::NoUtxoIndex);
         }
-        let circulating_sau =
-            self.utxoindex.clone().unwrap().get_circulating_supply().await.map_err(|e| RpcError::General(e.to_string()))?;
+        // TODO(cell-model): Implement circulating supply calculation for Cell model
+        let circulating_sau = 0u64; // Temporary stub
         Ok(GetCoinSupplyResponse::new(MAX_SAU, circulating_sau))
     }
 
@@ -950,6 +953,11 @@ NOTE: This error usually indicates an RPC conversion error between the node and 
 
         match session.async_get_populated_transaction(request.txid, request.accepting_block_daa_score).await {
             Ok(tx) => {
+                // TODO(cell-model): UTXO-specific logic, needs Cell model implementation
+                // Temporary stub: return error for all queries
+                return Err(RpcError::General("GetUtxoReturnAddress not yet implemented for Cell model".to_string()));
+                
+                /* Original UTXO-based code:
                 if tx.tx.inputs.is_empty() || tx.entries.is_empty() {
                     return Err(RpcError::UtxoReturnAddressNotFound(UtxoInquirerError::TxFromCoinbase));
                 }
@@ -963,8 +971,9 @@ NOTE: This error usually indicates an RPC conversion error between the node and 
                 } else {
                     Err(RpcError::UtxoReturnAddressNotFound(UtxoInquirerError::UnfilledUtxoEntry))
                 }
+                */
             }
-            Err(error) => return Err(RpcError::UtxoReturnAddressNotFound(error)),
+            Err(_error) => return Err(RpcError::General("GetUtxoReturnAddress not yet implemented for Cell model".to_string())),
         }
     }
 

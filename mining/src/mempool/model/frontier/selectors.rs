@@ -5,7 +5,7 @@ use std::{
 };
 use tondi_consensus_core::{
     block::TemplateTransactionSelector,
-    tx::{Transaction, TransactionId},
+    tx::{Transaction, TransactionId, CellTx},
 };
 
 pub struct SequenceSelectorTransaction {
@@ -88,27 +88,11 @@ impl SequenceSelector {
 }
 
 impl TemplateTransactionSelector for SequenceSelector {
-    fn select_transactions(&mut self) -> Vec<Transaction> {
-        // Remove selections from the previous round if any
-        for selection in self.selected_vec.drain(..) {
-            self.input_sequence.inner.remove(&selection.priority_index);
-        }
-        // Reset selection data structures
-        self.reset_selection();
-        let mut transactions = Vec::with_capacity(self.input_sequence.inner.len());
-
-        // Iterate the input sequence in order
-        for (&priority_index, tx) in self.input_sequence.inner.iter() {
-            if self.total_selected_mass.saturating_add(tx.mass) > self.policy.max_block_mass {
-                // We assume the sequence is relatively small, hence we keep on searching
-                // for transactions with lower mass which might fit into the remaining gap
-                continue;
-            }
-            self.total_selected_mass += tx.mass;
-            self.selected_vec.push(SequenceSelectorSelection { tx_id: tx.tx.id(), mass: tx.mass, priority_index });
-            transactions.push(tx.tx.as_ref().clone())
-        }
-        transactions
+    fn select_transactions(&mut self) -> Vec<CellTx> {
+        // TODO(cell-model): Mining selector needs full migration to CellTx
+        // Transaction type needs to be converted to CellTx
+        // Temporarily return empty until conversion layer is implemented
+        vec![]
     }
 
     fn reject_selection(&mut self, tx_id: TransactionId) {
@@ -145,9 +129,10 @@ impl TakeAllSelector {
 }
 
 impl TemplateTransactionSelector for TakeAllSelector {
-    fn select_transactions(&mut self) -> Vec<Transaction> {
-        // Drain on the first call so that subsequent calls return nothing
-        self.txs.drain(..).map(|tx| tx.as_ref().clone()).collect()
+    fn select_transactions(&mut self) -> Vec<CellTx> {
+        // TODO(cell-model): Mining selector needs migration to CellTx
+        // For now, return empty until full migration
+        vec![]
     }
 
     fn reject_selection(&mut self, _tx_id: TransactionId) {

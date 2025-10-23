@@ -6,8 +6,8 @@ pub mod services;
 pub mod storage;
 pub mod test_consensus;
 
-#[cfg(feature = "devnet-prealloc")]
-mod utxo_set_override;
+// #[cfg(feature = "devnet-prealloc")]
+// mod utxo_set_override; // TODO(cell-model): Needs Cell model reimplementation
 
 use crate::{
     config::Config,
@@ -44,7 +44,6 @@ use crate::{
     },
 };
 use tondi_consensus_core::{
-    utxo::utxo_inquirer::UtxoInquirerError,  // TODO(spora-critical): Remove
     acceptance_data::AcceptanceData,
     api::{
         args::{TransactionValidationArgs, TransactionValidationBatchArgs},
@@ -71,7 +70,7 @@ use tondi_consensus_core::{
     network::NetworkType,
     pruning::{PruningPointProof, PruningPointTrustedData, PruningPointsList, PruningProofMetadata},
     trusted::{ExternalGhostdagData, TrustedBlock},
-    tx::{MutableTransaction, SignableTransaction, Transaction, TransactionOutpoint, UtxoEntry},
+    tx::{MutableTransaction, SignableTransaction, Transaction, TransactionOutpoint, CellTx, UtxoEntry},
     BlockHashSet, BlueWorkType, ChainPath, HashMapCustomHasher,
 };
 use tondi_consensus_notify::root::ConsensusNotificationRoot;
@@ -791,12 +790,13 @@ impl ConsensusApi for Consensus {
 
     fn get_virtual_utxos(
         &self,
-        from_outpoint: Option<TransactionOutpoint>,
-        chunk_size: usize,
-        skip_first: bool,
-    ) -> Vec<(TransactionOutpoint, UtxoEntry)> {
+        _from_outpoint: Option<TransactionOutpoint>,
+        _chunk_size: usize,
+        _skip_first: bool,
+    ) -> Vec<(TransactionOutpoint, tondi_consensus_core::Hash)> {
         // TODO(cell-model): Needs Cell model reimplementation
         // Cell state is stored in VirtualState::cell_state_tree, not a separate UTXO set
+        // Return empty vec for now - this will be replaced with get_virtual_cells()
         Vec::new()
     }
 
@@ -811,9 +811,9 @@ impl ConsensusApi for Consensus {
     fn get_pruning_point_utxos(
         &self,
         expected_pruning_point: Hash,
-        from_outpoint: Option<TransactionOutpoint>,
-        chunk_size: usize,
-        skip_first: bool,
+        _from_outpoint: Option<TransactionOutpoint>,
+        _chunk_size: usize,
+        _skip_first: bool,
     ) -> ConsensusResult<Vec<(TransactionOutpoint, UtxoEntry)>> {
         if self.pruning_point_store.read().pruning_point().unwrap() != expected_pruning_point {
             return Err(ConsensusError::UnexpectedPruningPoint);
@@ -961,11 +961,10 @@ impl ConsensusApi for Consensus {
     }
 
     fn get_transaction(&self, hash: Hash) -> ConsensusResult<Transaction> {
-        let tx = self.block_transactions_store.get_transaction(hash);
-        match tx {
-            Ok(tx) => Ok(tx),
-            Err(err) => Err(ConsensusError::TransactionNotFound(err.to_string())),
-        }
+        // TODO(cell-model): get_transaction trait expects Transaction, but store returns CellTx
+        // This is a temporary stub - full migration needed
+        // For now, return error as we're in transition
+        Err(ConsensusError::TransactionNotFound("Cell model migration in progress - use get_cell_transaction".to_string()))
     }
 
     fn get_block_even_if_header_only(&self, hash: Hash) -> ConsensusResult<Block> {

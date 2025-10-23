@@ -55,7 +55,7 @@ try_from!(item: &protowire::RpcBlockHeader, tondi_rpc_core::RpcHeader, {
         item.parents.iter().map(Vec::<RpcHash>::try_from).collect::<RpcResult<Vec<Vec<RpcHash>>>>()?,
         RpcHash::from_str(&item.hash_merkle_root)?,
         RpcHash::from_str(&item.accepted_id_merkle_root)?,
-        RpcHash::from_str(&item.utxo_commitment)?,
+        RpcHash::from_str(&item.cell_commitment)?,  // cell_commitment replaces utxo_commitment
         RpcHash::from_str("0000000000000000000000000000000000000000000000000000000000000000")?, // TODO(spora): Add cell_root to RPC
         item.timestamp.try_into()?,
         item.bits,
@@ -75,7 +75,7 @@ try_from!(item: &protowire::RpcBlockHeader, tondi_rpc_core::RpcRawHeader, {
         parents_by_level: item.parents.iter().map(Vec::<RpcHash>::try_from).collect::<RpcResult<Vec<Vec<RpcHash>>>>()?,
         hash_merkle_root: RpcHash::from_str(&item.hash_merkle_root)?,
         accepted_id_merkle_root: RpcHash::from_str(&item.accepted_id_merkle_root)?,
-        cell_commitment: RpcHash::from_str(&item.utxo_commitment)?,
+        cell_commitment: RpcHash::from_str(&item.cell_commitment)?,  // cell_commitment replaces utxo_commitment
         timestamp: item.timestamp.try_into()?,
         bits: item.bits,
         nonce: item.nonce,

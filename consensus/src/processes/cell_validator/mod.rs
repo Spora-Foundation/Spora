@@ -23,6 +23,9 @@ pub use cell_validation_in_dag::DagCellProvider;
 
 use std::sync::Arc;
 
+#[cfg(feature = "vm")]
+use tondi_exec::vm::{TransactionScriptVerifier, SimpleDataProvider, ScriptError};
+
 /// Consensus parameters for Cell validation
 #[derive(Clone, Debug)]
 pub struct CellConsensusParams {
@@ -141,6 +144,50 @@ impl<P: CellStateProvider> CellValidator<P> {
     {
         self.validate_in_isolation(tx)?;
         self.validate_in_dag(tx, daa_score)?;
+        Ok(())
+    }
+    
+    /// Verify scripts (lock + type scripts)
+    ///
+    /// Requires VM feature to be enabled
+    #[cfg(feature = "vm")]
+    pub fn verify_scripts(
+        &self,
+        tx: &tondi_exec::CellTx,
+    ) -> Result<(), CellValidationError> {
+        // Create data provider
+        // TODO: Use real data provider from consensus storage
+        let provider = Arc::new(SimpleDataProvider::new());
+        
+        // Create verifier
+        let verifier = TransactionScriptVerifier::new(
+            Arc::new(tx.clone()),
+            provider,
+        );
+        
+        // Verify all scripts
+        verifier.verify()
+            .map_err(|e| CellValidationError::ScriptVerificationFailed(e.to_string()))?;
+        
+        Ok(())
+    }
+    
+    /// Full validation with scripts (isolation + context + DAG + VM)
+    #[cfg(feature = "vm")]
+    pub fn validate_full_with_scripts(
+        &self,
+        tx: &tondi_exec::CellTx,
+        daa_score: u64,
+    ) -> Result<(), CellValidationError>
+    where
+        P: cell_validation_in_dag::DagCellProvider,
+    {
+        // Standard validation
+        self.validate_full(tx, daa_score)?;
+        
+        // Script verification
+        self.verify_scripts(tx)?;
+        
         Ok(())
     }
 }

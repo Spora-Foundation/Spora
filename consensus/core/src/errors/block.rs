@@ -85,6 +85,9 @@ pub enum RuleError {
 
     #[error("invalid cell root: {0}")]
     BadCellRoot(String),
+    
+    #[error("invalid cell commitment: {0}")]
+    BadCellCommitment(String),
 
     #[error("block has no transactions")]
     NoTransactions,

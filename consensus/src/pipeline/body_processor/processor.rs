@@ -20,7 +20,8 @@ use crate::{
         deps_manager::{BlockProcessingMessage, BlockTaskDependencyManager, TaskId, VirtualStateProcessingMessage},
         ProcessingCounters,
     },
-    processes::{coinbase::CoinbaseManager, transaction_validator::TransactionValidator},
+    processes::coinbase::CoinbaseManager,
+    // TransactionValidator removed - Cell model migration
 };
 use crossbeam_channel::{Receiver, Sender};
 use parking_lot::RwLock;
@@ -35,7 +36,7 @@ use tondi_consensus_core::{
         params::{ForkActivation, ForkedParam, Params},
     },
     mass::{Mass, MassCalculator, MassOps},
-    tx::Transaction,
+    tx::{CellTx, Transaction},  // Transaction is alias for CellTx
     KType,
 };
 use tondi_consensus_notify::{
@@ -73,7 +74,7 @@ pub struct BlockBodyProcessor {
     pub(super) reachability_service: MTReachabilityService<DbReachabilityStore>,
     pub(super) coinbase_manager: CoinbaseManager,
     pub(crate) mass_calculator: MassCalculator,
-    pub(super) transaction_validator: TransactionValidator,
+    // transaction_validator removed - Cell model migration
     pub(super) window_manager: DbWindowManager,
 
     // Pruning lock
@@ -126,7 +127,7 @@ impl BlockBodyProcessor {
             reachability_service: services.reachability_service.clone(),
             coinbase_manager: services.coinbase_manager.clone(),
             mass_calculator: services.mass_calculator.clone(),
-            transaction_validator: services.transaction_validator.clone(),
+            // transaction_validator removed - Cell model migration
             window_manager: services.window_manager.clone(),
 
             pruning_lock,
@@ -232,7 +233,7 @@ impl BlockBodyProcessor {
         Ok(mass)
     }
 
-    fn commit_body(self: &Arc<BlockBodyProcessor>, hash: Hash, parents: &[Hash], transactions: Arc<Vec<Transaction>>) {
+    fn commit_body(self: &Arc<BlockBodyProcessor>, hash: Hash, parents: &[Hash], transactions: Arc<Vec<CellTx>>) {
         let mut batch = WriteBatch::default();
 
         // This is an append only store so it requires no lock.

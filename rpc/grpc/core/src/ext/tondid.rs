@@ -49,6 +49,11 @@ impl tondid_request::Payload {
                 addresses: scope.addresses.iter().map(|x| x.into()).collect::<Vec<String>>(),
                 command: command.into(),
             }),
+            // TODO(cell-model): Implement proper CellsChanged notification
+            Scope::CellsChanged(ref scope) => tondid_request::Payload::NotifyUtxosChangedRequest(NotifyUtxosChangedRequestMessage {
+                addresses: scope.addresses.iter().map(|x| x.into()).collect::<Vec<String>>(),
+                command: command.into(),
+            }),
             Scope::SinkBlueScoreChanged(_) => {
                 tondid_request::Payload::NotifySinkBlueScoreChangedRequest(NotifySinkBlueScoreChangedRequestMessage {
                     command: command.into(),

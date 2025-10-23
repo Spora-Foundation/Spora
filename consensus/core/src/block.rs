@@ -1,22 +1,25 @@
 use crate::{
     coinbase::MinerData,
     header::Header,
-    tx::{Transaction, TransactionId},
+    tx::TransactionId,
     BlueWorkType,
 };
 use std::sync::Arc;
 use tondi_hashes::Hash;
 use tondi_utils::mem_size::MemSizeEstimator;
 
+// Cell model: Use CellTx instead of UTXO Transaction
+use tondi_exec::CellTx;
+
 /// A mutable block structure where header and transactions within can still be mutated.
 #[derive(Debug, Clone)]
 pub struct MutableBlock {
     pub header: Header,
-    pub transactions: Vec<Transaction>,
+    pub transactions: Vec<CellTx>,
 }
 
 impl MutableBlock {
-    pub fn new(header: Header, txs: Vec<Transaction>) -> Self {
+    pub fn new(header: Header, txs: Vec<CellTx>) -> Self {
         Self { header, transactions: txs }
     }
 
@@ -35,15 +38,15 @@ impl MutableBlock {
 #[derive(Debug, Clone)]
 pub struct Block {
     pub header: Arc<Header>,
-    pub transactions: Arc<Vec<Transaction>>,
+    pub transactions: Arc<Vec<CellTx>>,
 }
 
 impl Block {
-    pub fn new(header: Header, txs: Vec<Transaction>) -> Self {
+    pub fn new(header: Header, txs: Vec<CellTx>) -> Self {
         Self { header: Arc::new(header), transactions: Arc::new(txs) }
     }
 
-    pub fn from_arcs(header: Arc<Header>, transactions: Arc<Vec<Transaction>>) -> Self {
+    pub fn from_arcs(header: Arc<Header>, transactions: Arc<Vec<CellTx>>) -> Self {
         Self { header, transactions }
     }
 
@@ -78,8 +81,14 @@ impl MemSizeEstimator for Block {
         // Calculates mem bytes of the block (for cache tracking purposes)
         size_of::<Self>()
             + self.header.estimate_mem_bytes()
-            + size_of::<Vec<Transaction>>()
-            + self.transactions.iter().map(Transaction::estimate_mem_bytes).sum::<usize>()
+            + size_of::<Vec<CellTx>>()
+            + self.transactions.iter().map(|tx| {
+                // Estimate CellTx size
+                std::mem::size_of::<CellTx>() + 
+                tx.inputs.len() * 64 + 
+                tx.outputs.len() * 128 +
+                tx.outputs_data.iter().map(|d| d.len()).sum::<usize>()
+            }).sum::<usize>()
     }
 }
 
@@ -88,7 +97,7 @@ pub trait TemplateTransactionSelector {
     /// Expected to return a batch of transactions which were not previously selected.
     /// The batch will typically contain sufficient transactions to fill the block
     /// mass (along with the previously unrejected txs), or will drain the selector    
-    fn select_transactions(&mut self) -> Vec<Transaction>;
+    fn select_transactions(&mut self) -> Vec<CellTx>;
 
     /// Should be used to report invalid transactions obtained from the *most recent*
     /// `select_transactions` call. Implementors should use this call to internally

@@ -5734,6 +5734,7 @@ dependencies = [
  "thiserror 1.0.69",
  "tondi-addresses",
  "tondi-core",
+ "tondi-exec",
  "tondi-hashes",
  "tondi-math",
  "tondi-merkle",
@@ -5881,15 +5882,19 @@ dependencies = [
  "anyhow",
  "blake3",
  "borsh",
+ "byteorder",
  "ckb-vm",
  "criterion",
+ "hex",
  "indexmap 2.11.4",
+ "log",
  "parking_lot",
  "proptest",
  "rayon",
  "secp256k1 0.29.1",
  "serde",
  "thiserror 1.0.69",
+ "tondi-hashes",
 ]
 
 [[package]]

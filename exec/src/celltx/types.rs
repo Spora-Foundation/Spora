@@ -214,6 +214,47 @@ impl CellTx {
         })
     }
 
+    /// Get transaction ID (same as compute_txid)
+    ///
+    /// This is for compatibility with Transaction interface
+    pub fn id(&self) -> [u8; 32] {
+        crate::celltx::compute_txid(self)
+    }
+    
+    /// Get transaction version
+    ///
+    /// This is for compatibility with Transaction interface
+    pub fn version(&self) -> u16 {
+        self.ver
+    }
+    
+    /// Check if this is a cellbase (coinbase) transaction
+    ///
+    /// Cellbase transactions have no inputs (mining reward)
+    pub fn is_coinbase(&self) -> bool {
+        self.inputs.is_empty()
+    }
+    
+    /// Get mass (storage weight) of the transaction
+    ///
+    /// In Cell model, mass = serialized_size for now
+    /// TODO(spora): Implement proper mass calculation based on storage cost
+    pub fn mass(&self) -> u64 {
+        self.serialized_size() as u64
+    }
+    
+    /// Get cellbase payload (first output data for coinbase tx)
+    ///
+    /// This is for compatibility with old Transaction.payload field
+    /// Returns None if not a coinbase or no outputs
+    pub fn payload(&self) -> Option<&[u8]> {
+        if self.is_coinbase() && !self.outputs_data.is_empty() {
+            Some(&self.outputs_data[0])
+        } else {
+            None
+        }
+    }
+    
     /// Estimate serialized size (approximate)
     pub fn serialized_size(&self) -> usize {
         // Simplified estimation

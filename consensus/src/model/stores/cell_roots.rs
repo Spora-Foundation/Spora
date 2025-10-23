@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ISC
-// Copyright (C) 2025 Tondi developers
+// Copyright (C) 2025 Spora developers
 //
 // Cell roots store - stores Cell state Merkle roots for each block
 // Replaces utxo_multisets_store with Cell State Tree roots

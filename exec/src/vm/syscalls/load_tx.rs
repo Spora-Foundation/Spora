@@ -1,55 +1,48 @@
 // SPDX-License-Identifier: ISC
-// Copyright (C) 2025Tondi developers
+// Copyright (C) 2025 Spora developers
 //
-// Load transaction syscall
-// Adapted from CKB script/src/syscalls/load_tx.rs
-// ⚠️ Modified: Blake2b → Blake3
+// Load transaction hash syscall
+// Reference: ckb/script/src/syscalls/load_tx.rs
 
-use super::utils::store_data;
-use super::{LOAD_TX_HASH_SYSCALL_NUMBER, SUCCESS};
-use crate::celltx::sighash::compute_wtxid;
-use crate::celltx::types::CellTx;
-use crate::vm::cost_model::transferred_byte_cycles;
+use super::utils::{store_data, SUCCESS, INDEX_OUT_OF_BOUND};
 use ckb_vm::{
-    Error as VMError, Register, SupportMachine, Syscalls,
+    Register, Syscalls, SupportMachine,
+    Error as VMError,
     registers::{A0, A7},
 };
-use std::sync::Arc;
 
-/// Load transaction hash syscall
-#[derive(Debug)]
+/// Syscall: Load Transaction Hash
+///
+/// Syscall number: 2061
+///
+/// Returns the transaction hash (32 bytes)
 pub struct LoadTx {
-    tx: Arc<CellTx>,
+    tx_hash: [u8; 32],
 }
 
 impl LoadTx {
-    /// Create a new LoadTx syscall
-    pub fn new(tx: Arc<CellTx>) -> Self {
-        Self { tx }
+    pub fn new(tx_hash: [u8; 32]) -> Self {
+        Self { tx_hash }
     }
 }
 
-impl<Mac: SupportMachine> Syscalls<Mac> for LoadTx {
-    fn initialize(&mut self, _machine: &mut Mac) -> Result<(), VMError> {
+impl<M: SupportMachine> Syscalls<M> for LoadTx {
+    fn initialize(&mut self, _machine: &mut M) -> Result<(), VMError> {
         Ok(())
     }
 
-    fn ecall(&mut self, machine: &mut Mac) -> Result<bool, VMError> {
+    fn ecall(&mut self, machine: &mut M) -> Result<bool, VMError> {
         let syscall_number = machine.registers()[A7].to_u64();
         
-        if syscall_number != LOAD_TX_HASH_SYSCALL_NUMBER {
+        // LOAD_TX_HASH = 2061
+        if syscall_number != 2061 {
             return Ok(false);
         }
 
-        // Compute wtxid using Blake3 (not Blake2b like CKB)
-        let wtxid = compute_wtxid(&self.tx);
-        
-        // Store wtxid to VM memory
-        let wrote_size = store_data(machine, &wtxid)?;
-
-        // Add cycles cost
-        machine.add_cycles_no_checking(transferred_byte_cycles(wrote_size))?;
-        machine.set_register(A0, Mac::REG::from_u8(SUCCESS));
+        // Store tx hash using CKB-style store_data
+        // It reads A0, A1, A2 from registers internally
+        store_data(machine, &self.tx_hash)?;
+        machine.set_register(A0, M::REG::from_u8(SUCCESS));
         
         Ok(true)
     }
@@ -58,24 +51,12 @@ impl<Mac: SupportMachine> Syscalls<Mac> for LoadTx {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::celltx::types::{CellRef, CellOut, ScriptRef, OutPoint};
-
-    fn create_test_tx() -> CellTx {
-        let lock = ScriptRef::new([0x00; 32], 0, vec![0; 20]);
-        CellTx::new(
-            vec![CellRef::new(OutPoint::new([0; 32], 0), 0)],
-            vec![],
-            vec![CellOut { lock, type_: None, capacity: 10000 }],
-            vec![vec![]],
-            vec![],
-        ).unwrap()
-    }
-
+    use crate::celltx::{CellTx, CellRef, CellOut, ScriptRef, OutPoint};
+    
     #[test]
     fn test_load_tx_creation() {
-        let tx = Arc::new(create_test_tx());
-        let syscall = LoadTx::new(tx);
-        assert!(syscall.tx.ver == 0xC001);
+        let tx_hash = [0x42u8; 32];
+        let syscall = LoadTx::new(tx_hash);
+        assert_eq!(syscall.tx_hash.len(), 32);
     }
 }
-

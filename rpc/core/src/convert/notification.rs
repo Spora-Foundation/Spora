@@ -28,6 +28,10 @@ impl From<&consensus_notify::Notification> for Notification {
             consensus_notify::Notification::FinalityConflictResolved(msg) => Notification::FinalityConflictResolved(msg.into()),
             // TODO(spora): Re-enable after CellsChanged notification is implemented
             // consensus_notify::Notification::UtxosChanged(msg) => Notification::UtxosChanged(msg.into()),
+            consensus_notify::Notification::CellsChanged(_msg) => {
+                // TODO(cell-model): Implement CellsChanged notification conversion
+                Notification::UtxosChanged(Default::default())  // Temporary stub
+            },
             consensus_notify::Notification::SinkBlueScoreChanged(msg) => Notification::SinkBlueScoreChanged(msg.into()),
             consensus_notify::Notification::VirtualDaaScoreChanged(msg) => Notification::VirtualDaaScoreChanged(msg.into()),
             consensus_notify::Notification::PruningPointUtxoSetOverride(msg) => Notification::PruningPointUtxoSetOverride(msg.into()),
@@ -127,6 +131,10 @@ impl From<&index_notify::Notification> for Notification {
     fn from(item: &index_notify::Notification) -> Self {
         match item {
             index_notify::Notification::UtxosChanged(msg) => Notification::UtxosChanged(msg.into()),
+            index_notify::Notification::CellsChanged(_msg) => {
+                // TODO(cell-model): Implement CellsChanged notification conversion
+                Notification::UtxosChanged(Default::default())  // Temporary stub
+            },
             index_notify::Notification::PruningPointUtxoSetOverride(msg) => Notification::PruningPointUtxoSetOverride(msg.into()),
         }
     }

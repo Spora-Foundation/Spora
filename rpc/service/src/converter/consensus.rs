@@ -7,7 +7,7 @@ use tondi_consensus_core::{
     config::Config,
     hashing::tx::hash,
     header::Header,
-    tx::{MutableTransaction, Transaction, TransactionId, TransactionInput, TransactionOutput},
+    tx::{MutableTransaction, Transaction, TransactionId, TransactionInput, TransactionOutput, CellTx},
     ChainPath,
 };
 use tondi_consensus_notify::notification::{self as consensus_notify, Notification as ConsensusNotification};
@@ -63,7 +63,7 @@ impl ConsensusConverter {
             hash,
             difficulty: self.get_difficulty_ratio(block.header.bits),
             selected_parent_hash: ghostdag_data.selected_parent,
-            transaction_ids: block.transactions.iter().map(|x| x.id()).collect(),
+            transaction_ids: block.transactions.iter().map(|x| x.id().into()).collect(), // CellTx::id() -> Hash
             is_header_only: block_status.is_header_only(),
             blue_score: ghostdag_data.blue_score,
             children_hashes: children,
@@ -73,11 +73,16 @@ impl ConsensusConverter {
         });
 
         let transactions = if include_transactions {
+            // TODO(cell-model): Implement proper CellTx to RpcTransaction conversion
+            // Temporary stub: return empty transactions during migration
+            vec![]
+            /* Original UTXO-based code:
             block
                 .transactions
                 .iter()
                 .map(|x| self.get_transaction(consensus, x, Some(&block.header), include_transaction_verbose_data))
                 .collect::<Vec<_>>()
+            */
         } else {
             vec![]
         };

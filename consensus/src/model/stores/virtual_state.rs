@@ -93,7 +93,7 @@ impl VirtualState {
             past_median_time: genesis.timestamp,
             cell_state_tree: CellStateTree::new(),
             cell_diff: CellDiff::new(), // Virtual diff is initially empty since genesis receives no reward
-            accepted_tx_ids: genesis.build_genesis_transactions().into_iter().map(|tx| tx.id()).collect(),
+            accepted_tx_ids: genesis.build_genesis_transactions().into_iter().map(|tx| tx.id().into()).collect(),
             mergeset_rewards: BlockHashMap::new(),
             mergeset_non_daa: BlockHashSet::from_iter(std::iter::once(genesis.hash)),
         }

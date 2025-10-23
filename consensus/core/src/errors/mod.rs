@@ -7,8 +7,6 @@ pub mod pruning;
 pub mod sync;
 pub mod traversal;
 pub mod tx;
-// UTXO errors temporarily enabled for compilation
-// TODO(spora-critical): Remove after consensus migration to Cell model
-#[deprecated(note = "UTXO errors are deprecated. Use Cell validation errors instead")]
-#[path = "utxo.deprecated/mod.rs"]
-pub mod utxo;
+
+// UTXO errors fully removed - migrated to Cell model
+// See: consensus/src/processes/cell_validator/errors.rs for Cell validation errors

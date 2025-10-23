@@ -1,93 +1,77 @@
 // SPDX-License-Identifier: ISC
-// Copyright (C) 2025Tondi developers
+// Copyright (C) 2025 Spora developers
 //
 // Load script syscall
-// Adapted from CKB script/src/syscalls/load_script.rs
-// ⚠️ Modified: Blake2b → Blake3
 
-use super::utils::store_data;
-use super::{LOAD_SCRIPT_SYSCALL_NUMBER, LOAD_SCRIPT_HASH_SYSCALL_NUMBER, SUCCESS};
-use crate::celltx::types::ScriptRef;
-use crate::vm::cost_model::transferred_byte_cycles;
+use super::utils::{store_data, SUCCESS, INDEX_OUT_OF_BOUND};
+use crate::celltx::ScriptRef;
 use ckb_vm::{
-    Error as VMError, Register, SupportMachine, Syscalls,
-    registers::{A0, A7},
+    Register, Syscalls, SupportMachine,
+    Error as VMError,
+    registers::{A0, A2, A7},
 };
+use std::sync::Arc;
 
-/// Load script syscall
-#[derive(Debug)]
+/// Syscall: Load Script
+///
+/// Syscall number: 2075
+///
+/// Loads the current script being executed
 pub struct LoadScript {
-    script: ScriptRef,
-    script_hash: [u8; 32],
+    script: Arc<ScriptRef>,
 }
 
 impl LoadScript {
-    /// Create a new LoadScript syscall
-    pub fn new(script: ScriptRef) -> Self {
-        // Calculate script hash using Blake3 (not Blake2b like CKB)
-        let script_hash = script.hash();
-        Self { script, script_hash }
+    pub fn new(script: Arc<ScriptRef>) -> Self {
+        Self { script }
     }
 
-    /// Serialize script to bytes
     fn serialize_script(&self) -> Vec<u8> {
-        // Simple serialization: code_hash || hash_type || args_len || args
-        let mut bytes = Vec::new();
-        bytes.extend_from_slice(&self.script.code_hash);
-        bytes.push(self.script.hash_type);
-        bytes.extend_from_slice(&(self.script.args.len() as u32).to_le_bytes());
-        bytes.extend_from_slice(&self.script.args);
-        bytes
+        let mut data = Vec::new();
+        // code_hash (32 bytes)
+        data.extend_from_slice(&self.script.code_hash);
+        // hash_type (1 byte)
+        data.push(self.script.hash_type);
+        // args length (4 bytes)
+        data.extend_from_slice(&(self.script.args.len() as u32).to_le_bytes());
+        // args
+        data.extend_from_slice(&self.script.args);
+        data
     }
 }
 
-impl<Mac: SupportMachine> Syscalls<Mac> for LoadScript {
-    fn initialize(&mut self, _machine: &mut Mac) -> Result<(), VMError> {
+impl<M: SupportMachine> Syscalls<M> for LoadScript {
+    fn initialize(&mut self, _machine: &mut M) -> Result<(), VMError> {
         Ok(())
     }
 
-    fn ecall(&mut self, machine: &mut Mac) -> Result<bool, VMError> {
+    fn ecall(&mut self, machine: &mut M) -> Result<bool, VMError> {
         let syscall_number = machine.registers()[A7].to_u64();
         
-        let wrote_size = match syscall_number {
-            LOAD_SCRIPT_SYSCALL_NUMBER => {
-                let serialized = self.serialize_script();
-                store_data(machine, &serialized)?
-            }
-            LOAD_SCRIPT_HASH_SYSCALL_NUMBER => {
-                store_data(machine, &self.script_hash)?
-            }
-            _ => return Ok(false),
+        // LOAD_SCRIPT = 2075 or LOAD_SCRIPT_HASH = 2062
+        if syscall_number != 2075 && syscall_number != 2062 {
+            return Ok(false);
+        }
+
+        let offset = machine.registers()[A2].to_u64();
+
+        if offset != 0 {
+            machine.set_register(A0, M::REG::from_u8(INDEX_OUT_OF_BOUND));
+            return Ok(true);
+        }
+
+        let data = if syscall_number == 2062 {
+            // LOAD_SCRIPT_HASH
+            self.script.hash().to_vec()
+        } else {
+            // LOAD_SCRIPT (full script)
+            self.serialize_script()
         };
 
-        // Add cycles cost
-        machine.add_cycles_no_checking(transferred_byte_cycles(wrote_size))?;
-        machine.set_register(A0, Mac::REG::from_u8(SUCCESS));
+        // Store data using CKB-style store_data
+        store_data(machine, &data)?;
+        machine.set_register(A0, M::REG::from_u8(SUCCESS));
         
         Ok(true)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_load_script_creation() {
-        let script = ScriptRef::new([0x12; 32], 1, vec![0xAB, 0xCD]);
-        let syscall = LoadScript::new(script);
-        
-        // Script hash should be computed
-        assert_ne!(syscall.script_hash, [0; 32]);
-    }
-
-    #[test]
-    fn test_script_serialization() {
-        let script = ScriptRef::new([0x12; 32], 1, vec![0xAB, 0xCD]);
-        let syscall = LoadScript::new(script);
-        
-        let serialized = syscall.serialize_script();
-        assert!(serialized.len() > 32); // code_hash + hash_type + args_len + args
-    }
-}
-

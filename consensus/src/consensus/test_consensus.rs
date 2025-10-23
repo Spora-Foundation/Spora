@@ -5,7 +5,7 @@ use tondi_consensus_core::mining_rules::MiningRules;
 use tondi_consensus_core::tx::ScriptPublicKey;
 use tondi_consensus_core::{
     api::ConsensusApi, block::MutableBlock, blockstatus::BlockStatus, header::Header, merkle::calc_hash_merkle_root,
-    subnets::SUBNETWORK_ID_COINBASE, tx::Transaction,
+    subnets::SUBNETWORK_ID_COINBASE, tx::{Transaction, CellTx},
 };
 use tondi_consensus_notify::{notification::Notification, root::ConsensusNotificationRoot};
 use tondi_consensusmanager::{ConsensusFactory, ConsensusInstance, DynConsensusCtl};
@@ -188,10 +188,11 @@ impl TestConsensus {
             .chain((0_u8).to_le_bytes().iter().copied()) // Script public key length
             .collect();
 
-        let cb = Transaction::new(TX_VERSION, vec![], vec![], 0, SUBNETWORK_ID_COINBASE, 0, cb_payload);
-        txs.insert(0, cb);
-        header.hash_merkle_root = calc_hash_merkle_root(txs.iter(), false);
-        MutableBlock::new(header, txs)
+        // TODO(cell-model): Convert to CellTx coinbase
+        // For now, create empty block
+        let cell_txs: Vec<CellTx> = vec![];  // Empty for now
+        header.hash_merkle_root = tondi_consensus_core::merkle::calc_hash_merkle_root_cell(cell_txs.iter(), false);
+        MutableBlock::new(header, cell_txs)
     }
 
     pub fn build_block_with_parents(&self, hash: Hash, parents: Vec<Hash>) -> MutableBlock {

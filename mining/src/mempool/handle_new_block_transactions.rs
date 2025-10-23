@@ -9,7 +9,7 @@ use crate::mempool::{
 use std::{collections::HashSet, sync::atomic::Ordering};
 use tondi_consensus_core::{
     api::ConsensusApi,
-    tx::{Transaction, TransactionId},
+    tx::{Transaction, TransactionId, CellTx},
 };
 use tondi_core::time::Stopwatch;
 
@@ -17,7 +17,7 @@ impl Mempool {
     pub(crate) fn handle_new_block_transactions(
         &mut self,
         block_daa_score: u64,
-        block_transactions: &[Transaction],
+        block_transactions: &[CellTx], // Updated to CellTx
     ) -> RuleResult<Vec<MempoolTransaction>> {
         let _sw = Stopwatch::<400>::with_threshold("handle_new_block_transactions op");
         let mut unorphaned_transactions = vec![];
@@ -25,7 +25,7 @@ impl Mempool {
         let mut input_counts = 0;
         let mut output_counts = 0;
         for transaction in block_transactions[1..].iter() {
-            let transaction_id = transaction.id();
+            let transaction_id = transaction.id().into(); // CellTx::id() returns [u8; 32], convert to Hash
             // Rust rewrite: This behavior does differ from golang implementation.
             // If the transaction got accepted via a peer but is still an orphan here, do not remove
             // its redeemers in the orphan pool. We give those a chance to be unorphaned and included
@@ -33,14 +33,16 @@ impl Mempool {
             if !self.orphan_pool.has(&transaction_id) {
                 self.remove_transaction(&transaction_id, false, TxRemovalReason::Accepted, "")?;
             }
-            self.remove_double_spends(transaction)?;
+            // TODO(cell-model): Implement proper double spend removal for Cell model
+            // self.remove_double_spends(transaction)?;
             self.orphan_pool.remove_orphan(&transaction_id, false, TxRemovalReason::Accepted, "")?;
             if self.accepted_transactions.add(transaction_id, block_daa_score) {
                 tx_accepted_counts += 1;
                 input_counts += transaction.inputs.len();
                 output_counts += transaction.outputs.len();
             }
-            unorphaned_transactions.extend(self.get_unorphaned_transactions_after_accepted_transaction(transaction));
+            // TODO(cell-model): Implement proper unorphaning for Cell model
+            // unorphaned_transactions.extend(self.get_unorphaned_transactions_after_accepted_transaction(transaction));
         }
         self.counters.block_tx_counts.fetch_add(block_transactions.len() as u64 - 1, Ordering::Relaxed);
         self.counters.tx_accepted_counts.fetch_add(tx_accepted_counts, Ordering::Relaxed);

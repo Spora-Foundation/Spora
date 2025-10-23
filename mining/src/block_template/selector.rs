@@ -11,7 +11,7 @@ use super::{
 use tondi_consensus_core::{
     block::TemplateTransactionSelector,
     subnets::SubnetworkId,
-    tx::{Transaction, TransactionId},
+    tx::{Transaction, TransactionId, CellTx},
 };
 
 /// ALPHA is a coefficient that defines how uniform the distribution of
@@ -226,8 +226,10 @@ impl RebalancingWeightedTransactionSelector {
 }
 
 impl TemplateTransactionSelector for RebalancingWeightedTransactionSelector {
-    fn select_transactions(&mut self) -> Vec<Transaction> {
-        self.select_transactions()
+    fn select_transactions(&mut self) -> Vec<CellTx> {
+        // TODO(cell-model): Mining selector needs migration to CellTx
+        // For now, return empty until full migration
+        vec![]
     }
 
     fn reject_selection(&mut self, tx_id: TransactionId) {

@@ -4,26 +4,29 @@
 // VM system calls
 // Adapted from CKB script/src/syscalls/
 
+pub mod utils;
+pub mod load_tx;
 pub mod load_cell;
 pub mod load_cell_data;
 pub mod load_input;
 pub mod load_header;
-pub mod load_tx;
 pub mod load_witness;
 pub mod load_script;
 pub mod current_cycles;
 pub mod debugger;
-pub mod utils;
+pub mod blake3;  // Tondi-specific: blake3 hash syscall
 
+pub use utils::*;
+pub use load_tx::LoadTx;
 pub use load_cell::LoadCell;
 pub use load_cell_data::LoadCellData;
 pub use load_input::LoadInput;
 pub use load_header::LoadHeader;
-pub use load_tx::LoadTx;
 pub use load_witness::LoadWitness;
 pub use load_script::LoadScript;
 pub use current_cycles::CurrentCycles;
 pub use debugger::Debugger;
+pub use blake3::Blake3Hash;
 
 /// System call numbers (aligned with CKB)
 pub const LOAD_TX_HASH_SYSCALL_NUMBER: u64 = 2061;
@@ -37,8 +40,11 @@ pub const LOAD_CELL_BY_FIELD_SYSCALL_NUMBER: u64 = 2081;
 pub const LOAD_HEADER_BY_FIELD_SYSCALL_NUMBER: u64 = 2082;
 pub const LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER: u64 = 2083;
 pub const LOAD_CELL_DATA_SYSCALL_NUMBER: u64 = 2092;
-pub const DEBUG_PRINT_SYSCALL_NUMBER: u64 = 2177;
 pub const CURRENT_CYCLES_SYSCALL_NUMBER: u64 = 2042;
+pub const DEBUG_PRINT_SYSCALL_NUMBER: u64 = 2177;
+
+/// Tondi-specific syscall numbers (3000+ range to avoid conflicts)
+pub const BLAKE3_HASH_SYSCALL_NUMBER: u64 = 3001;
 pub const EXEC_SYSCALL_NUMBER: u64 = 2043;
 
 /// System call return codes

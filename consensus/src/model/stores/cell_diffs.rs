@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ISC
-// Copyright (C) 2025 Tondi developers
+// Copyright (C) 2025 Spora developers
 //
 // Cell diffs store - stores Cell state differences for each block
 // Replaces utxo_diffs_store with pure Cell model

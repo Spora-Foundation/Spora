@@ -1,9 +1,15 @@
-use crate::{hashing, tx::Transaction};
+use crate::{hashing, tx::{Transaction, CellTx}};
 use tondi_hashes::Hash;
 use tondi_merkle::calc_merkle_root;
 
 pub fn calc_hash_merkle_root<'a>(txs: impl ExactSizeIterator<Item = &'a Transaction>, include_mass_field: bool) -> Hash {
     calc_merkle_root(txs.map(|tx| hashing::tx::hash(tx, include_mass_field)))
+}
+
+/// Calculate merkle root for CellTx transactions
+pub fn calc_hash_merkle_root_cell<'a>(txs: impl ExactSizeIterator<Item = &'a CellTx>, _include_mass_field: bool) -> Hash {
+    // CellTx.id() already returns the correct transaction hash
+    calc_merkle_root(txs.map(|tx| tx.id().into()))
 }
 
 #[cfg(test)]

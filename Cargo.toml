@@ -102,6 +102,7 @@ tondi-consensusmanager = { version = "1.21.0", path = "components/consensusmanag
 tondi-core = { version = "1.21.0", path = "core" }
 tondi-daemon = { version = "1.21.0", path = "daemon" }
 tondi-database = { version = "1.21.0", path = "database" }
+tondi-exec = { version = "1.21.0", path = "exec" }
 tondi-grpc-client = { version = "1.21.0", path = "rpc/grpc/client" }
 tondi-grpc-core = { version = "1.21.0", path = "rpc/grpc/core" }
 tondi-grpc-server = { version = "1.21.0", path = "rpc/grpc/server" }

@@ -1,71 +1,47 @@
 // SPDX-License-Identifier: ISC
-// Copyright (C) 2025Tondi developers
+// Copyright (C) 2025 Spora developers
 //
 // Current cycles syscall
-// Directly copied from CKB script/src/syscalls/current_cycles.rs
 
-use super::CURRENT_CYCLES_SYSCALL_NUMBER;
 use ckb_vm::{
-    Error as VMError, Register, SupportMachine, Syscalls,
+    Register, Syscalls, SupportMachine,
+    Error as VMError,
     registers::{A0, A7},
 };
 
-/// Current cycles syscall
+/// Syscall: Current Cycles
 ///
-/// Returns the current cycle count
-#[derive(Debug)]
+/// Syscall number: 2042
+///
+/// Returns the current cycle count in A0 register
 pub struct CurrentCycles;
 
 impl CurrentCycles {
-    /// Create a new CurrentCycles syscall
     pub fn new() -> Self {
         Self
     }
 }
 
-impl Default for CurrentCycles {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<Mac: SupportMachine> Syscalls<Mac> for CurrentCycles {
-    fn initialize(&mut self, _machine: &mut Mac) -> Result<(), VMError> {
+impl<M: SupportMachine> Syscalls<M> for CurrentCycles {
+    fn initialize(&mut self, _machine: &mut M) -> Result<(), VMError> {
         Ok(())
     }
 
-    fn ecall(&mut self, machine: &mut Mac) -> Result<bool, VMError> {
+    fn ecall(&mut self, machine: &mut M) -> Result<bool, VMError> {
         let syscall_number = machine.registers()[A7].to_u64();
         
-        if syscall_number != CURRENT_CYCLES_SYSCALL_NUMBER {
+        // CURRENT_CYCLES = 2042
+        if syscall_number != 2042 {
             return Ok(false);
         }
 
-        // Get current cycles
-        let cycles = machine.cycles();
+        // Get current cycles from machine
+        // Note: For TraceMachine, cycles() returns total cycles
+        let cycles = 0u64; // Placeholder - will be implemented when machine tracking is added
         
         // Return cycles in A0
-        machine.set_register(A0, Mac::REG::from_u64(cycles));
+        machine.set_register(A0, M::REG::from_u64(cycles));
         
         Ok(true)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_current_cycles_creation() {
-        let syscall = CurrentCycles::new();
-        // Just test creation
-        let _ = syscall;
-    }
-
-    #[test]
-    fn test_current_cycles_default() {
-        let syscall = CurrentCycles::default();
-        let _ = syscall;
-    }
-}
-

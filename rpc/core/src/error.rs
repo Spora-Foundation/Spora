@@ -4,7 +4,8 @@
 
 use std::{net::AddrParseError, num::TryFromIntError};
 use thiserror::Error;
-use tondi_consensus_core::{subnets::SubnetworkConversionError, tx::TransactionId, utxo::utxo_inquirer::UtxoInquirerError};
+use tondi_consensus_core::{subnets::SubnetworkConversionError, tx::TransactionId};
+// use tondi_consensus_core::utxo::utxo_inquirer::UtxoInquirerError;  // TODO(cell-model): UTXO removed
 use tondi_utils::networking::IpAddress;
 use workflow_core::channel::ChannelError;
 
@@ -135,8 +136,7 @@ pub enum RpcError {
     #[error(transparent)]
     ConsensusClient(#[from] tondi_consensus_client::error::Error),
 
-    #[error("utxo return address could not be found -> {0}")]
-    UtxoReturnAddressNotFound(UtxoInquirerError),
+    // TODO(cell-model): UTXO-related errors removed - use Cell equivalents
 }
 
 impl From<String> for RpcError {

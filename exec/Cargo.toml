@@ -30,6 +30,16 @@ parking_lot = "0.12"
 
 # CKB-VM integration for script execution
 ckb-vm = { version = "0.24", features = ["asm", "detect-asm"], optional = true }
+byteorder = { version = "1.5", optional = true }
+
+# Tondi dependencies
+tondi-hashes = { path = "../crypto/hashes", version = "1.21.0" }
+
+# Logging
+log = "0.4"
+
+# For testing blake3 known vectors
+hex = { version = "0.4", optional = true }
 
 [dev-dependencies]
 # Testing
@@ -37,7 +47,7 @@ proptest = "1.4"
 criterion = "0.5"
 
 [features]
-default = []
-vm = ["ckb-vm"]  # VM integration enabled
+default = ["vm"]
+vm = ["ckb-vm", "byteorder", "hex"]  # VM integration enabled
 
 

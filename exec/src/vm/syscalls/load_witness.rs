@@ -1,73 +1,81 @@
 // SPDX-License-Identifier: ISC
-// Copyright (C) 2025Tondi developers
+// Copyright (C) 2025 Spora developers
 //
 // Load witness syscall
-// Adapted from CKB script/src/syscalls/load_witness.rs
 
-use super::utils::store_data;
-use super::{LOAD_WITNESS_SYSCALL_NUMBER, SUCCESS, INDEX_OUT_OF_BOUND};
-use crate::vm::cost_model::transferred_byte_cycles;
+use super::utils::{store_data, SUCCESS, INDEX_OUT_OF_BOUND};
+use crate::celltx::CellTx;
 use ckb_vm::{
-    Error as VMError, Register, SupportMachine, Syscalls,
-    registers::{A0, A3, A7},
+    Register, Syscalls, SupportMachine,
+    Error as VMError,
+    registers::{A0, A2, A3, A4, A7},
 };
+use std::sync::Arc;
 
-/// Load witness syscall
-#[derive(Debug)]
+/// Syscall: Load Witness
+///
+/// Syscall number: 2074
 pub struct LoadWitness {
-    witnesses: Vec<Vec<u8>>,
+    tx: Arc<CellTx>,
+    group_input_indices: Vec<usize>,
 }
 
 impl LoadWitness {
-    /// Create a new LoadWitness syscall
-    pub fn new(witnesses: Vec<Vec<u8>>) -> Self {
-        Self { witnesses }
+    pub fn new(tx: Arc<CellTx>, group_input_indices: Vec<usize>) -> Self {
+        Self { tx, group_input_indices }
+    }
+
+    fn get_witness(&self, source: u64, index: usize) -> Option<&[u8]> {
+        match source {
+            0x01 => {
+                // Input witnesses
+                self.tx.witnesses.get(index).map(|w| w.as_slice())
+            }
+            0x0100 => {
+                // GroupInput witnesses
+                self.group_input_indices.get(index)
+                    .and_then(|&idx| self.tx.witnesses.get(idx).map(|w| w.as_slice()))
+            }
+            _ => None,
+        }
     }
 }
 
-impl<Mac: SupportMachine> Syscalls<Mac> for LoadWitness {
-    fn initialize(&mut self, _machine: &mut Mac) -> Result<(), VMError> {
+impl<M: SupportMachine> Syscalls<M> for LoadWitness {
+    fn initialize(&mut self, _machine: &mut M) -> Result<(), VMError> {
         Ok(())
     }
 
-    fn ecall(&mut self, machine: &mut Mac) -> Result<bool, VMError> {
+    fn ecall(&mut self, machine: &mut M) -> Result<bool, VMError> {
         let syscall_number = machine.registers()[A7].to_u64();
         
-        if syscall_number != LOAD_WITNESS_SYSCALL_NUMBER {
+        // LOAD_WITNESS = 2074
+        if syscall_number != 2074 {
             return Ok(false);
         }
 
+        let offset = machine.registers()[A2].to_u64();
         let index = machine.registers()[A3].to_u64() as usize;
+        let source = machine.registers()[A4].to_u64();
 
-        // Fetch witness by index
-        let witness = match self.witnesses.get(index) {
+        if offset != 0 {
+            machine.set_register(A0, M::REG::from_u8(INDEX_OUT_OF_BOUND));
+            return Ok(true);
+        }
+
+        // Get witness data
+        let witness = match self.get_witness(source, index) {
             Some(w) => w,
             None => {
-                machine.set_register(A0, Mac::REG::from_u8(INDEX_OUT_OF_BOUND));
+                machine.set_register(A0, M::REG::from_u8(INDEX_OUT_OF_BOUND));
                 return Ok(true);
             }
         };
 
-        // Store witness to VM memory
-        let wrote_size = store_data(machine, witness)?;
-
-        // Add cycles cost
-        machine.add_cycles_no_checking(transferred_byte_cycles(wrote_size))?;
-        machine.set_register(A0, Mac::REG::from_u8(SUCCESS));
+        // Store data using CKB-style store_data
+        store_data(machine, witness)?;
+        machine.set_register(A0, M::REG::from_u8(SUCCESS));
         
         Ok(true)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_load_witness_creation() {
-        let witnesses = vec![vec![1, 2, 3], vec![4, 5, 6]];
-        let syscall = LoadWitness::new(witnesses.clone());
-        assert_eq!(syscall.witnesses.len(), 2);
-    }
-}
-

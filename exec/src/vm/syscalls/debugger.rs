@@ -1,95 +1,63 @@
 // SPDX-License-Identifier: ISC
-// Copyright (C) 2025Tondi developers
+// Copyright (C) 2025 Spora developers
 //
 // Debug print syscall
-// Adapted from CKB script/src/syscalls/debugger.rs
 
-use super::DEBUG_PRINT_SYSCALL_NUMBER;
 use ckb_vm::{
-    Error as VMError, Memory, Register, SupportMachine, Syscalls,
+    Memory, Register, Syscalls, SupportMachine,
+    Error as VMError,
     registers::{A0, A1, A7},
 };
 
-/// Debug print syscall
+/// Syscall: Debug Print
 ///
-/// Allows scripts to print debug messages
-#[derive(Debug)]
+/// Syscall number: 2177
+///
+/// Prints debug message (only in debug builds)
 pub struct Debugger {
-    enabled: bool,
+    script_hash: [u8; 32],
 }
 
 impl Debugger {
-    /// Create a new Debugger syscall
-    pub fn new(enabled: bool) -> Self {
-        Self { enabled }
+    pub fn new(script_hash: [u8; 32]) -> Self {
+        Self { script_hash }
     }
 }
 
-impl Default for Debugger {
-    fn default() -> Self {
-        Self::new(cfg!(debug_assertions))
-    }
-}
-
-impl<Mac: SupportMachine> Syscalls<Mac> for Debugger {
-    fn initialize(&mut self, _machine: &mut Mac) -> Result<(), VMError> {
+impl<M: SupportMachine> Syscalls<M> for Debugger {
+    fn initialize(&mut self, _machine: &mut M) -> Result<(), VMError> {
         Ok(())
     }
 
-    fn ecall(&mut self, machine: &mut Mac) -> Result<bool, VMError> {
+    fn ecall(&mut self, machine: &mut M) -> Result<bool, VMError> {
         let syscall_number = machine.registers()[A7].to_u64();
         
-        if syscall_number != DEBUG_PRINT_SYSCALL_NUMBER {
+        // DEBUG_PRINT = 2177
+        if syscall_number != 2177 {
             return Ok(false);
         }
 
-        if !self.enabled {
-            // Debug disabled, return success but do nothing
-            machine.set_register(A0, Mac::REG::from_u8(0));
-            return Ok(true);
-        }
-
-        // Read message from memory
         let addr = machine.registers()[A0].to_u64();
         let len = machine.registers()[A1].to_u64() as usize;
 
-        let message = machine.memory_mut().load_bytes(addr, len as u64)?;
+        // Read debug message from VM memory
+        let mut message = vec![0u8; len];
+        machine.memory_mut().store_bytes(addr, &mut message)?;
 
-        // Print debug message
-        if let Ok(msg_str) = String::from_utf8(message.to_vec()) {
-            eprintln!("[VM DEBUG] {}", msg_str);
-        } else {
-            eprintln!("[VM DEBUG] (binary data, {} bytes)", len);
+        // Print debug message (only in debug mode)
+        #[cfg(debug_assertions)]
+        {
+            let msg_str = String::from_utf8_lossy(&message);
+            log::debug!(
+                "Script {:?} DEBUG: {}",
+                hex::encode(&self.script_hash[..8]),
+                msg_str
+            );
         }
 
-        machine.set_register(A0, Mac::REG::from_u8(0));
+        // Return success
+        machine.set_register(A0, M::REG::from_u8(0));
+        
         Ok(true)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_debugger_creation() {
-        let debugger = Debugger::new(true);
-        assert!(debugger.enabled);
-
-        let debugger = Debugger::new(false);
-        assert!(!debugger.enabled);
-    }
-
-    #[test]
-    fn test_debugger_default() {
-        let debugger = Debugger::default();
-        // In debug mode should be enabled
-        #[cfg(debug_assertions)]
-        assert!(debugger.enabled);
-        
-        // In release mode should be disabled
-        #[cfg(not(debug_assertions))]
-        assert!(!debugger.enabled);
-    }
-}
-

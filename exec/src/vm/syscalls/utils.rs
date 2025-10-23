@@ -1,62 +1,54 @@
 // SPDX-License-Identifier: ISC
-// Copyright (C) 2025Tondi developers
+// Copyright (C) 2025 Spora developers
 //
-// System call utility functions
-// Adapted from CKB script/src/syscalls/utils.rs
+// Syscall utility functions
+// Reference: ckb/script/src/syscalls/utils.rs
 
-use ckb_vm::{Error as VMError, Memory, Register, SupportMachine, registers::{A0, A1, A2}};
-use super::{SUCCESS, LENGTH_NOT_ENOUGH, SLICE_OUT_OF_BOUND};
+use ckb_vm::{
+    Error as VMError, Memory, Register, SupportMachine,
+    registers::{A0, A1, A2},
+};
+use std::cmp;
 
-/// Store data to VM memory
+/// Success return code
+pub const SUCCESS: u8 = 0;
+/// Index out of bound
+pub const INDEX_OUT_OF_BOUND: u8 = 1;
+/// Item missing
+pub const ITEM_MISSING: u8 = 2;
+/// Length not enough (buffer too small)
+pub const LENGTH_NOT_ENOUGH: u8 = 3;
+
+/// Store data to VM memory (CKB-compatible implementation)
 ///
-/// Returns the number of bytes written
-pub fn store_data<Mac: SupportMachine>(
-    machine: &mut Mac,
-    data: &[u8],
-) -> Result<usize, VMError> {
+/// This follows CKB's exact pattern for maximum compatibility
+pub fn store_data<Mac: SupportMachine>(machine: &mut Mac, data: &[u8]) -> Result<u64, VMError> {
     let addr = machine.registers()[A0].to_u64();
-    let size_addr = machine.registers()[A1].to_u64();
-    let offset = machine.registers()[A2].to_u64() as usize;
+    let size_addr = machine.registers()[A1].clone();
+    let data_len = data.len() as u64;
+    let offset = cmp::min(data_len, machine.registers()[A2].to_u64());
 
-    // Read the buffer size from memory
-    let size = machine.memory_mut().load64(&Mac::REG::from_u64(size_addr))?.to_u64() as usize;
-
-    // Calculate slice bounds
-    let data_len = data.len();
-    let offset = offset.min(data_len);
+    let size = machine.memory_mut().load64(&size_addr)?.to_u64();
     let full_size = data_len - offset;
-    let real_size = size.min(full_size);
-
-    // Write data to memory
+    let real_size = cmp::min(size, full_size);
     machine
         .memory_mut()
-        .store_bytes(addr, &data[offset..offset + real_size])?;
-
-    // Write actual size back
+        .store64(&size_addr, &Mac::REG::from_u64(full_size))?;
     machine
         .memory_mut()
-        .store64(&Mac::REG::from_u64(size_addr), &Mac::REG::from_u64(full_size as u64))?;
-
+        .store_bytes(addr, &data[offset as usize..(offset + real_size) as usize])?;
     Ok(real_size)
-}
-
-/// Store a u64 value to VM memory
-pub fn store_u64<Mac: SupportMachine>(
-    machine: &mut Mac,
-    value: u64,
-) -> Result<(), VMError> {
-    let addr = machine.registers()[A0].to_u64();
-    machine
-        .memory_mut()
-        .store64(&Mac::REG::from_u64(addr), &Mac::REG::from_u64(value))?;
-    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    // Note: These tests require a VM machine instance
-    // Full tests will be in integration tests
+    #[test]
+    fn test_return_codes() {
+        assert_eq!(SUCCESS, 0);
+        assert_eq!(INDEX_OUT_OF_BOUND, 1);
+        assert_eq!(ITEM_MISSING, 2);
+        assert_eq!(LENGTH_NOT_ENOUGH, 3);
+    }
 }
-

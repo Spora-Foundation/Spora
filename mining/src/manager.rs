@@ -33,7 +33,7 @@ use tondi_consensus_core::{
     coinbase::MinerData,
     config::params::ForkedParam,
     errors::{block::RuleError as BlockRuleError, tx::TxRuleError},
-    tx::{MutableTransaction, Transaction, TransactionId, TransactionOutput},
+    tx::{MutableTransaction, Transaction, TransactionId, TransactionOutput, CellTx},
 };
 use tondi_consensusmanager::{spawn_blocking, ConsensusProxy};
 use tondi_core::{debug, error, info, time::Stopwatch, warn};
@@ -590,7 +590,7 @@ impl MiningManager {
         &self,
         consensus: &dyn ConsensusApi,
         block_daa_score: u64,
-        block_transactions: &[Transaction],
+        block_transactions: &[CellTx], // Updated to CellTx
     ) -> MiningManagerResult<Vec<Arc<Transaction>>> {
         // TODO: should use tx acceptance data to verify that new block txs are actually accepted into virtual state.
         // TODO: avoid returning a result from this function (and the underlying function). Any possible error is a
@@ -922,7 +922,7 @@ impl MiningManagerProxy {
         self,
         consensus: &ConsensusProxy,
         block_daa_score: u64,
-        block_transactions: Arc<Vec<Transaction>>,
+        block_transactions: Arc<Vec<CellTx>>, // Updated to CellTx
     ) -> MiningManagerResult<Vec<Arc<Transaction>>> {
         consensus
             .clone()
@@ -1047,7 +1047,8 @@ struct Stats {
 /// Returns an `Option<Stats>` containing the maximum, median, and minimum fee
 /// rates if the input vectors are valid. Returns `None` if the vectors are
 /// empty or if the lengths are inconsistent.
-fn feerate_stats(transactions: Vec<Transaction>, calculated_fees: Vec<u64>) -> Option<Stats> {
+fn feerate_stats(transactions: Vec<CellTx>, calculated_fees: Vec<u64>) -> Option<Stats> {
+    // TODO(cell-model): CellTx mass calculation
     if calculated_fees.is_empty() {
         return None;
     }
@@ -1066,7 +1067,7 @@ fn feerate_stats(transactions: Vec<Transaction>, calculated_fees: Vec<u64>) -> O
             .iter()
             // skip coinbase tx
             .skip(1)
-            .map(Transaction::mass))
+            .map(|tx| tx.mass())) // TODO(cell-model): Implement proper mass calculation for CellTx
         .map(|(fee, mass)| fee as f64 / mass as f64)
         .collect_vec();
     feerates.sort_unstable_by(f64::total_cmp);

@@ -11,10 +11,10 @@ use tondi_consensus_core::block::{Block, MutableBlock};
 
 impl From<&Block> for RpcBlock {
     fn from(item: &Block) -> Self {
+        // TODO(cell-model): Implement CellTx to RpcTransaction conversion
         Self {
             header: item.header.as_ref().into(),
-            transactions: item.transactions.iter().map(RpcTransaction::from).collect(),
-            // TODO: Implement a populating process inspired from Tondid\app\rpc\rpccontext\verbosedata.go
+            transactions: vec![],  // Empty for now - Cell model migration
             verbose_data: None,
         }
     }
@@ -22,15 +22,17 @@ impl From<&Block> for RpcBlock {
 
 impl From<&Block> for RpcRawBlock {
     fn from(item: &Block) -> Self {
-        Self { header: item.header.as_ref().into(), transactions: item.transactions.iter().map(RpcTransaction::from).collect() }
+        // TODO(cell-model): Implement CellTx to RpcTransaction conversion
+        Self { header: item.header.as_ref().into(), transactions: vec![] }
     }
 }
 
 impl From<&MutableBlock> for RpcBlock {
     fn from(item: &MutableBlock) -> Self {
+        // TODO(cell-model): Implement CellTx to RpcTransaction conversion
         Self {
             header: item.header.as_ref().into(),
-            transactions: item.transactions.iter().map(RpcTransaction::from).collect(),
+            transactions: vec![],  // Empty for now - Cell model migration
             verbose_data: None,
         }
     }
@@ -38,13 +40,15 @@ impl From<&MutableBlock> for RpcBlock {
 
 impl From<&MutableBlock> for RpcRawBlock {
     fn from(item: &MutableBlock) -> Self {
-        Self { header: item.header.as_ref().into(), transactions: item.transactions.iter().map(RpcTransaction::from).collect() }
+        // TODO(cell-model): Implement CellTx to RpcTransaction conversion
+        Self { header: item.header.as_ref().into(), transactions: vec![] }
     }
 }
 
 impl From<MutableBlock> for RpcRawBlock {
     fn from(item: MutableBlock) -> Self {
-        Self { header: item.header.into(), transactions: item.transactions.iter().map(RpcTransaction::from).collect() }
+        // TODO(cell-model): Implement CellTx to RpcTransaction conversion
+        Self { header: item.header.into(), transactions: vec![] }
     }
 }
 
@@ -55,14 +59,10 @@ impl From<MutableBlock> for RpcRawBlock {
 impl TryFrom<RpcBlock> for Block {
     type Error = RpcError;
     fn try_from(item: RpcBlock) -> RpcResult<Self> {
+        // TODO(cell-model): Implement RpcTransaction to CellTx conversion
         Ok(Self {
             header: Arc::new(item.header.into()),
-            transactions: Arc::new(
-                item.transactions
-                    .into_iter()
-                    .map(tondi_consensus_core::tx::Transaction::try_from)
-                    .collect::<RpcResult<Vec<tondi_consensus_core::tx::Transaction>>>()?,
-            ),
+            transactions: Arc::new(vec![]),  // Empty for now - Cell model migration
         })
     }
 }
@@ -70,14 +70,10 @@ impl TryFrom<RpcBlock> for Block {
 impl TryFrom<RpcRawBlock> for Block {
     type Error = RpcError;
     fn try_from(item: RpcRawBlock) -> RpcResult<Self> {
+        // TODO(cell-model): Implement RpcTransaction to CellTx conversion
         Ok(Self {
             header: Arc::new(item.header.into()),
-            transactions: Arc::new(
-                item.transactions
-                    .into_iter()
-                    .map(tondi_consensus_core::tx::Transaction::try_from)
-                    .collect::<RpcResult<Vec<tondi_consensus_core::tx::Transaction>>>()?,
-            ),
+            transactions: Arc::new(vec![]),  // Empty for now - Cell model migration
         })
     }
 }
