@@ -18,8 +18,8 @@ use spora_consensus_core::{
     errors::tx::TxRuleError,
     merkle::calc_hash_merkle_root_cell,
     tx::{
-        cell_meta_from_legacy_output, MutableTransaction, ScriptPublicKey, ScriptVec,
-        Transaction, TransactionInput, TransactionOutpoint, TransactionOutput,
+        cell_meta_from_legacy_output, legacy_sequence_to_cell_since, MutableTransaction, ScriptPublicKey, ScriptVec,
+        TransactionOutpoint,
     },
     BlockHashMap, BlockHashSet,
 };
@@ -407,24 +407,18 @@ fn new_miner_data() -> MinerData {
     MinerData::new(ScriptPublicKey::new(0, script), vec![])
 }
 
-fn build_spend_tx(previous_outpoint: TransactionOutpoint, value: u64) -> Transaction {
-    use spora_consensus_core::subnets;
-    #[allow(deprecated)]
-    Transaction::new(
-        0,
-        vec![TransactionInput::new(previous_outpoint, vec![], u64::MAX, 0)],
-        vec![TransactionOutput { value, script_public_key: ScriptPublicKey::from_vec(0, vec![]) }],
-        0,
-        subnets::SUBNETWORK_ID_NATIVE,
-        0,
-        vec![],
+fn build_spend_tx(previous_outpoint: TransactionOutpoint, value: u64) -> CellTx {
+    build_cell_spend_tx(
+        OutPoint::new(previous_outpoint.tx_hash, previous_outpoint.index),
+        value,
+        legacy_sequence_to_cell_since(u64::MAX),
     )
 }
 
-fn build_cell_spend_tx(previous_outpoint: OutPoint, value: u64) -> CellTx {
+fn build_cell_spend_tx(previous_outpoint: OutPoint, value: u64, since: u64) -> CellTx {
     let lock = ScriptRef::new([0; 32], 0, vec![]);
     CellTx::new(
-        vec![CellRef::new(previous_outpoint, 0)],
+        vec![CellRef::new(previous_outpoint, since)],
         vec![],
         vec![CellOut { lock, type_: None, capacity: value }],
         vec![vec![]],
@@ -481,7 +475,7 @@ async fn rejects_missing_outpoints_in_virtual_state() {
     let parent_hash = parent.block.header.hash;
     consensus.validate_and_insert_block(parent.block.to_immutable()).virtual_state_task.await.unwrap();
 
-    let invalid_tx = build_cell_spend_tx(OutPoint::new([0xAA; 32], 0), 1_000);
+    let invalid_tx = build_cell_spend_tx(OutPoint::new([0xAA; 32], 0), 1_000, 0);
     let block = build_block_with_extra_transactions(&consensus, 2.into(), vec![parent_hash], vec![invalid_tx]);
 
     assert_match!(
@@ -527,8 +521,8 @@ async fn rejects_double_spend_in_same_block_with_cell_inputs() {
     consensus.validate_and_insert_block(parent.block.to_immutable()).virtual_state_task.await.unwrap();
 
     let outpoint = OutPoint::new(parent_coinbase_id, 0);
-    let tx1 = build_cell_spend_tx(outpoint.clone(), 1_000);
-    let tx2 = build_cell_spend_tx(outpoint, 1_001);
+    let tx1 = build_cell_spend_tx(outpoint.clone(), 1_000, 0);
+    let tx2 = build_cell_spend_tx(outpoint, 1_001, 0);
     let block = build_block_with_extra_transactions(&consensus, 3.into(), vec![parent_hash], vec![tx1, tx2]);
 
     assert_match!(consensus.validate_and_insert_block(block).virtual_state_task.await, Err(RuleError::DoubleSpendInSameBlock(_)));
@@ -583,7 +577,7 @@ async fn rejects_mergeset_history_when_a_blue_block_dep_was_spent_on_selected_pa
     let consume_dep_block = consensus
         .build_block_template(
             miner_data.clone(),
-            Box::new(OnetimeTxSelector::new(vec![build_cell_spend_tx(dep_outpoint.clone(), dep_capacity)])),
+            Box::new(OnetimeTxSelector::new(vec![build_cell_spend_tx(dep_outpoint.clone(), dep_capacity, 0)])),
             TemplateBuildMode::Standard,
         )
         .unwrap();
@@ -629,7 +623,7 @@ async fn validates_mempool_transaction_against_virtual_state_and_sets_fee() {
     let wait_handles = consensus.init();
 
     let spend_tx = build_spend_tx(TransactionOutpoint { tx_hash: [0x44; 32], index: 0 }, 9_000);
-    let mut mutable_tx = MutableTransaction::from_tx(spend_tx);
+    let mut mutable_tx = MutableTransaction::from_cell_tx(spend_tx);
     mutable_tx.entries[0] = Some(cell_meta_from_legacy_output(10_000, &ScriptPublicKey::from_vec(0, vec![]), 0, false));
 
     consensus
@@ -649,7 +643,7 @@ async fn rejects_missing_outpoints_in_mempool_validation() {
     let wait_handles = consensus.init();
 
     let missing_outpoint = TransactionOutpoint { tx_hash: [0xCC; 32], index: 0 };
-    let mut mutable_tx = MutableTransaction::from_tx(build_spend_tx(missing_outpoint, 1_000));
+    let mut mutable_tx = MutableTransaction::from_cell_tx(build_spend_tx(missing_outpoint, 1_000));
 
     assert_eq!(
         consensus.validate_mempool_transaction(&mut mutable_tx, &TransactionValidationArgs::default()),
@@ -657,8 +651,8 @@ async fn rejects_missing_outpoints_in_mempool_validation() {
     );
 
     let mut transactions = vec![
-        MutableTransaction::from_tx(build_spend_tx(TransactionOutpoint { tx_hash: [0xDD; 32], index: 0 }, 1_000)),
-        MutableTransaction::from_tx(build_spend_tx(TransactionOutpoint { tx_hash: [0xEE; 32], index: 0 }, 2_000)),
+        MutableTransaction::from_cell_tx(build_spend_tx(TransactionOutpoint { tx_hash: [0xDD; 32], index: 0 }, 1_000)),
+        MutableTransaction::from_cell_tx(build_spend_tx(TransactionOutpoint { tx_hash: [0xEE; 32], index: 0 }, 2_000)),
     ];
     let results = consensus.validate_mempool_transactions_in_parallel(&mut transactions, &TransactionValidationBatchArgs::default());
     assert_eq!(results, vec![Err(TxRuleError::MissingTxOutpoints), Err(TxRuleError::MissingTxOutpoints)]);
@@ -674,17 +668,8 @@ async fn rejects_relative_daa_sequence_lock_in_mempool_validation() {
     let wait_handles = consensus.init();
     let current_daa = consensus.virtual_processor().lkg_virtual_state.load_full().daa_score;
 
-    #[allow(deprecated)]
-    let spend_tx = Transaction::new(
-        0,
-        vec![TransactionInput::new(TransactionOutpoint { tx_hash: [0x55; 32], index: 0 }, vec![], 1, 0)],
-        vec![TransactionOutput { value: 9_000, script_public_key: ScriptPublicKey::from_vec(0, vec![]) }],
-        0,
-        spora_consensus_core::subnets::SUBNETWORK_ID_NATIVE,
-        0,
-        vec![],
-    );
-    let mut mutable_tx = MutableTransaction::from_tx(spend_tx);
+    let spend_tx = build_cell_spend_tx(OutPoint::new([0x55; 32], 0), 9_000, 1);
+    let mut mutable_tx = MutableTransaction::from_cell_tx(spend_tx);
     mutable_tx.entries[0] = Some(cell_meta_from_legacy_output(10_000, &ScriptPublicKey::from_vec(0, vec![]), current_daa, false));
 
     assert_eq!(
@@ -703,7 +688,7 @@ async fn rejects_legacy_mempool_validation_when_vm_enabled() {
     let wait_handles = consensus.init();
 
     let spend_tx = build_spend_tx(TransactionOutpoint { tx_hash: [0x44; 32], index: 0 }, 9_000);
-    let mut mutable_tx = MutableTransaction::from_tx(spend_tx);
+    let mut mutable_tx = MutableTransaction::from_cell_tx(spend_tx);
     mutable_tx.entries[0] = Some(cell_meta_from_legacy_output(10_000, &ScriptPublicKey::from_vec(0, vec![]), 0, false));
 
     assert_match!(
@@ -729,7 +714,7 @@ async fn build_block_template_rejects_invalid_selected_transactions_in_standard_
     let consensus = TestConsensus::new(&config);
     let wait_handles = consensus.init();
     let miner_data = MinerData::new(ScriptPublicKey::from_vec(0, vec![]), vec![]);
-    let invalid_tx = build_cell_spend_tx(OutPoint::new([0xAB; 32], 0), 10_000);
+    let invalid_tx = build_cell_spend_tx(OutPoint::new([0xAB; 32], 0), 10_000, 0);
 
     assert_match!(
         consensus.build_block_template(
@@ -750,7 +735,7 @@ async fn build_block_template_rejects_isolation_invalid_selected_transactions_in
     let consensus = TestConsensus::new(&config);
     let wait_handles = consensus.init();
     let miner_data = MinerData::new(ScriptPublicKey::from_vec(0, vec![]), vec![]);
-    let mut invalid_tx = build_cell_spend_tx(OutPoint::new([0xA1; 32], 0), 10_000);
+    let mut invalid_tx = build_cell_spend_tx(OutPoint::new([0xA1; 32], 0), 10_000, 0);
     invalid_tx.ver = 0;
 
     assert_match!(
@@ -1071,7 +1056,7 @@ async fn validates_direct_cell_mempool_transaction_when_vm_enabled() {
         funding_header_hash,
         funding_coinbase.outputs[0].capacity - 1_000,
     );
-    let mut mirror = MutableTransaction::from_tx(legacy_compat_transaction_from_cell_tx(&cell_tx));
+    let mut mirror = MutableTransaction::from_cell_tx(cell_tx.clone());
 
     consensus
         .validate_mempool_cell_transaction(&mut mirror, &cell_tx, &TransactionValidationArgs::default())

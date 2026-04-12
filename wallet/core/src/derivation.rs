@@ -14,11 +14,10 @@ use crate::account::AccountKind;
 use crate::error::Error;
 use crate::imports::*;
 use crate::result::Result;
+use spora_addresses::Version as AddressVersion;
 use spora_bip32::{AddressType, DerivationPath, ExtendedPrivateKey, ExtendedPublicKey, Language, Mnemonic, SecretKeyExt};
 use spora_consensus_core::network::{NetworkType, NetworkTypeT};
-use spora_txscript::{
-    extract_script_pub_key_address, multisig_redeem_script, multisig_redeem_script_ecdsa, pay_to_script_hash_script,
-};
+use spora_consensus_core::tx::{multisig_redeem_script, multisig_redeem_script_ecdsa, pay_to_script_hash_script};
 
 #[derive(Default, Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 pub struct AddressDerivationMeta([u32; 2]);
@@ -450,9 +449,11 @@ pub fn create_multisig_address(
     } else {
         multisig_redeem_script_ecdsa(keys.iter().map(|pk| pk.serialize()), minimum_signatures)
     }?;
-    let script_pub_key = pay_to_script_hash_script(&script);
-    let address = extract_script_pub_key_address(&script_pub_key, prefix)?;
-    Ok(address)
+    let lock_script = pay_to_script_hash_script(&script);
+    match lock_script.script() {
+        [0xaa, 0x20, payload @ .., 0x87] if payload.len() == 32 => Ok(Address::new(prefix, AddressVersion::ScriptHash, payload)?),
+        _ => Err(Error::Custom("unsupported multisig lock script".to_string())),
+    }
 }
 
 /// @category Wallet SDK

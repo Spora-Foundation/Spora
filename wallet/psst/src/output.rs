@@ -4,17 +4,24 @@ use crate::psst::KeySource;
 use crate::utils::combine_if_no_conflicts;
 use derive_builder::Builder;
 use serde::{Deserialize, Serialize};
-use spora_consensus_core::tx::ScriptPublicKey;
+use spora_consensus_core::tx::ScriptRef;
 use std::{collections::BTreeMap, ops::Add};
 
 #[derive(Builder, Default, Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 #[builder(default)]
 pub struct Output {
-    /// The output's amount (serialized as sau).
-    pub amount: u64,
-    /// The script for this output, also known as the scriptPubKey.
-    pub script_public_key: ScriptPublicKey,
+    /// The Cell capacity in sau.
+    pub capacity: u64,
+    /// Canonical Cell lock script.
+    pub lock_script: ScriptRef,
+    /// Canonical Cell type script.
+    #[builder(setter(strip_option))]
+    pub type_script: Option<ScriptRef>,
+    /// Canonical Cell output data.
+    #[builder(setter(strip_option))]
+    #[serde(with = "spora_utils::serde_bytes_optional")]
+    pub output_data: Option<Vec<u8>>,
     #[builder(setter(strip_option))]
     #[serde(with = "spora_utils::serde_bytes_optional")]
     /// The redeem script for this output.
@@ -33,11 +40,17 @@ impl Add for Output {
     type Output = Result<Self, CombineError>;
 
     fn add(mut self, rhs: Self) -> Self::Output {
-        if self.amount != rhs.amount {
-            return Err(CombineError::AmountMismatch { this: self.amount, that: rhs.amount });
+        if self.capacity != rhs.capacity {
+            return Err(CombineError::CapacityMismatch { this: self.capacity, that: rhs.capacity });
         }
-        if self.script_public_key != rhs.script_public_key {
-            return Err(CombineError::ScriptPubkeyMismatch { this: self.script_public_key, that: rhs.script_public_key });
+        if self.lock_script != rhs.lock_script {
+            return Err(CombineError::LockScriptMismatch { this: self.lock_script, that: rhs.lock_script });
+        }
+        if self.type_script != rhs.type_script {
+            return Err(CombineError::TypeScriptMismatch { this: self.type_script, that: rhs.type_script });
+        }
+        if self.output_data != rhs.output_data {
+            return Err(CombineError::OutputDataMismatch { this: self.output_data, that: rhs.output_data });
         }
         self.redeem_script = match (self.redeem_script.take(), rhs.redeem_script) {
             (None, None) => None,
@@ -59,20 +72,14 @@ impl Add for Output {
 /// Error combining two output maps.
 #[derive(thiserror::Error, Debug, Clone, PartialEq, Eq)]
 pub enum CombineError {
-    #[error("The amounts are not the same")]
-    AmountMismatch {
-        /// Attempted to combine a psst with `this` previous txid.
-        this: u64,
-        /// Into a psst with `that` previous txid.
-        that: u64,
-    },
-    #[error("The script_pubkeys are not the same")]
-    ScriptPubkeyMismatch {
-        /// Attempted to combine a psst with `this` script_pubkey.
-        this: ScriptPublicKey,
-        /// Into a psst with `that` script_pubkey.
-        that: ScriptPublicKey,
-    },
+    #[error("The capacities are not the same")]
+    CapacityMismatch { this: u64, that: u64 },
+    #[error("The lock scripts are not the same")]
+    LockScriptMismatch { this: ScriptRef, that: ScriptRef },
+    #[error("The type scripts are not the same")]
+    TypeScriptMismatch { this: Option<ScriptRef>, that: Option<ScriptRef> },
+    #[error("The output data is not the same")]
+    OutputDataMismatch { this: Option<Vec<u8>>, that: Option<Vec<u8>> },
     #[error("Two different redeem scripts detected")]
     NotCompatibleRedeemScripts { this: Vec<u8>, that: Vec<u8> },
 

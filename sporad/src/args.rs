@@ -15,9 +15,7 @@ use toml::from_str;
 #[cfg(feature = "devnet-prealloc")]
 use spora_addresses::Address;
 #[cfg(feature = "devnet-prealloc")]
-use spora_consensus_core::tx::{CellEntry, TransactionOutpoint};
-#[cfg(feature = "devnet-prealloc")]
-use spora_txscript::pay_to_address_script;
+use spora_consensus_core::tx::{pay_to_address_script, CellEntry, TransactionOutpoint};
 #[cfg(feature = "devnet-prealloc")]
 use std::sync::Arc;
 

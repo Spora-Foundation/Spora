@@ -3,8 +3,6 @@
 //!
 
 use crate::imports::*;
-use spora_consensus_client::{TransactionOutput, TransactionOutputInner};
-use spora_txscript::pay_to_address_script;
 
 #[wasm_bindgen(typescript_custom_section)]
 const TS_PAYMENT_OUTPUTS: &'static str = r#"
@@ -105,12 +103,6 @@ impl PaymentOutput {
     }
 }
 
-impl From<PaymentOutput> for TransactionOutput {
-    fn from(value: PaymentOutput) -> Self {
-        Self::new_with_inner(TransactionOutputInner { script_public_key: pay_to_address_script(&value.address), value: value.amount })
-    }
-}
-
 impl From<PaymentOutput> for PaymentDestination {
     fn from(output: PaymentOutput) -> Self {
         Self::PaymentOutputs(PaymentOutputs { outputs: vec![output] })
@@ -180,12 +172,6 @@ impl TryCastFromJs for PaymentOutputs {
 
             Ok(Self { outputs })
         })
-    }
-}
-
-impl From<PaymentOutputs> for Vec<TransactionOutput> {
-    fn from(value: PaymentOutputs) -> Self {
-        value.outputs.into_iter().map(TransactionOutput::from).collect()
     }
 }
 

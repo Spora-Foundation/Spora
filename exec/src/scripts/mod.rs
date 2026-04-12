@@ -9,6 +9,7 @@
 //! - secp256k1 lock script (RISC-V binary)
 //! - Always-success lock (for testing)
 //! - Capacity type script
+//! - Time lock scripts (CKB-VM based, replaces legacy CLTV/CSV)
 
 /// Always-success lock script (for testing)
 ///
@@ -52,6 +53,69 @@ pub const LOAD_DEP_CELL_DATA_SCRIPT: &[u8] = include_bytes!("fixtures/load_dep_c
 pub fn load_dep_cell_data_code_hash() -> [u8; 32] {
     blake3::hash(LOAD_DEP_CELL_DATA_SCRIPT).into()
 }
+
+/// Absolute timestamp lock script (for testing)
+///
+/// This ELF fixture verifies that the input's `since` field (as absolute timestamp)
+/// is >= 1735689600 (2025-01-01 00:00:00 UTC).
+/// Expected since format: bit63=0 (absolute), bit62=1 (timestamp), bits0-55=unix_timestamp
+pub const TIMELOCK_ABSOLUTE_SCRIPT: &[u8] = include_bytes!("fixtures/timelock_absolute.elf");
+
+/// Absolute timestamp lock script code hash
+pub fn timelock_absolute_code_hash() -> [u8; 32] {
+    blake3::hash(TIMELOCK_ABSOLUTE_SCRIPT).into()
+}
+
+/// Relative DAA score lock script (for testing)
+///
+/// This ELF fixture verifies that the input's `since` field (as relative DAA)
+/// is >= 100 blocks.
+/// Expected since format: bit63=1 (relative), bit62=0 (DAA), bits0-55=delta
+pub const TIMELOCK_RELATIVE_SCRIPT: &[u8] = include_bytes!("fixtures/timelock_relative.elf");
+
+/// Relative DAA score lock script code hash
+pub fn timelock_relative_code_hash() -> [u8; 32] {
+    blake3::hash(TIMELOCK_RELATIVE_SCRIPT).into()
+}
+
+/// HTLC (Hash Time Locked Contract) script
+///
+/// This ELF fixture implements a complete HTLC with two spending paths:
+/// 1. Recipient path: Provide secret preimage + signature
+/// 2. Sender timeout path: Provide signature after timeout
+///
+/// Script args format (105 bytes):
+/// - [0..32]:   secret_hash (blake3)
+/// - [32..64]:  recipient_pubkey (32 bytes)
+/// - [64..96]:  sender_pubkey (32 bytes)
+/// - [96]:      lock_type (0=abs DAA, 1=abs timestamp, 2=rel DAA, 3=rel timestamp)
+/// - [97..105]: lock_value (u64)
+///
+/// Witness format:
+/// - Recipient: <signature (64)> <secret (32)> <0x01>
+/// - Sender:    <signature (64)> <0x00>
+pub const HTLC_SCRIPT: &[u8] = include_bytes!("fixtures/htlc.elf");
+
+/// HTLC script code hash
+pub fn htlc_code_hash() -> [u8; 32] {
+    blake3::hash(HTLC_SCRIPT).into()
+}
+
+/// Minimal HTLC witness-loading script (for debugging)
+///
+/// This fixture only verifies that `LOAD_WITNESS` over the current input group works.
+pub const HTLC_MINIMAL_SCRIPT: &[u8] = include_bytes!("fixtures/htlc_minimal.elf");
+
+/// Minimal HTLC witness-loading script code hash
+pub fn htlc_minimal_code_hash() -> [u8; 32] {
+    blake3::hash(HTLC_MINIMAL_SCRIPT).into()
+}
+
+/// Time lock script helpers (CKB-VM based)
+///
+/// Replaces legacy OP_CHECKLOCKTIMEVERIFY and OP_CHECKSEQUENCEVERIFY
+/// with CKB-VM scripts that use the `since` syscall.
+pub mod timelock;
 
 /// Secp256k1 + Blake3 lock script (placeholder)
 ///
@@ -122,6 +186,30 @@ mod tests {
         assert!(LOAD_DEP_CELL_DATA_SCRIPT.len() > 64);
         assert_eq!(&LOAD_DEP_CELL_DATA_SCRIPT[..4], b"\x7fELF");
     }
+
+    #[test]
+    fn test_timelock_absolute_script_size() {
+        assert!(TIMELOCK_ABSOLUTE_SCRIPT.len() > 64);
+        assert_eq!(&TIMELOCK_ABSOLUTE_SCRIPT[..4], b"\x7fELF");
+    }
+
+    #[test]
+    fn test_timelock_relative_script_size() {
+        assert!(TIMELOCK_RELATIVE_SCRIPT.len() > 64);
+        assert_eq!(&TIMELOCK_RELATIVE_SCRIPT[..4], b"\x7fELF");
+    }
+
+    #[test]
+    fn test_htlc_script_size() {
+        assert!(HTLC_SCRIPT.len() > 64);
+        assert_eq!(&HTLC_SCRIPT[..4], b"\x7fELF");
+    }
+
+    #[test]
+    fn test_htlc_minimal_script_size() {
+        assert!(HTLC_MINIMAL_SCRIPT.len() > 64);
+        assert_eq!(&HTLC_MINIMAL_SCRIPT[..4], b"\x7fELF");
+    }
 }
 
 #[cfg(all(test, feature = "vm"))]
@@ -135,3 +223,15 @@ mod load_header_timestamp_test;
 
 #[cfg(all(test, feature = "vm"))]
 mod load_dep_cell_data_test;
+
+#[cfg(all(test, feature = "vm"))]
+mod timelock_absolute_test;
+
+#[cfg(all(test, feature = "vm"))]
+mod timelock_relative_test;
+
+#[cfg(all(test, feature = "vm"))]
+mod htlc_test;
+
+#[cfg(all(test, feature = "vm"))]
+mod htlc_minimal_test;

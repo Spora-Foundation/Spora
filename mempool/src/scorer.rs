@@ -8,7 +8,8 @@ use spora_exec::CellTx;
 /// Transaction score components
 #[derive(Clone, Debug, PartialEq)]
 pub struct TransactionScore {
-    /// Fee density (fee / effective_size)
+    /// Fee density (fee / effective_size), where effective_size uses verified
+    /// or projected VM cycles.
     pub fee_density: f64,
 
     /// Unlockability score (time lock penalty)

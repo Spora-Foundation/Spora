@@ -24,9 +24,6 @@ pub struct Input {
     ///
     /// If omitted, assumed to be the final sequence number
     pub sequence: Option<u64>,
-    #[builder(setter)]
-    /// The minimum Unix timestamp that this input requires to be set as the transaction's lock time.
-    pub min_time: Option<u64>,
     /// A map from public keys to their corresponding signature as would be
     /// pushed to the stack from a scriptSig.
     pub partial_sigs: PartialSigs,
@@ -64,7 +61,6 @@ impl Default for Input {
             cell_entry: Default::default(),
             previous_outpoint: Default::default(),
             sequence: Default::default(),
-            min_time: Default::default(),
             partial_sigs: Default::default(),
             sighash_type: SIG_HASH_ALL,
             redeem_script: Default::default(),
@@ -104,7 +100,6 @@ impl Add for Input {
 
         // todo discuss merging. if sequence is equal - combine, otherwise use input which has bigger sequence number as is
         self.sequence = self.sequence.max(rhs.sequence);
-        self.min_time = self.min_time.max(rhs.min_time);
         self.partial_sigs.extend(rhs.partial_sigs);
         // todo combine sighash? or always use sighash all since all signatures must be passed after completion of construction step
         // self.sighash_type

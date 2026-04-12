@@ -5,7 +5,6 @@ use serde_wasm_bindgen::from_value;
 use spora_consensus_client::{sign_with_multiple_v3, Transaction};
 use spora_consensus_core::hashing::wasm::SighashType;
 use spora_consensus_core::sign::sign_input;
-use spora_consensus_core::tx::{cell_tx_from_legacy_transaction, PopulatedTransaction};
 use spora_consensus_core::{hashing::sighash_type::SIG_HASH_ALL, sign::verify};
 use spora_hashes::Hash;
 use spora_wallet_keys::privatekey::PrivateKey;
@@ -53,10 +52,9 @@ pub fn js_sign_transaction(tx: &Transaction, signer: &PrivateKeyArrayT, verify_s
 fn sign_transaction<'a>(tx: &'a Transaction, private_keys: &[[u8; 32]], verify_sig: bool) -> Result<&'a Transaction> {
     let tx = sign(tx, private_keys)?;
     if verify_sig {
-        let (cctx, cells) = tx.tx_and_cells()?;
-        let canonical_tx = cell_tx_from_legacy_transaction(&cctx);
-        let populated_transaction = PopulatedTransaction::new(&canonical_tx, cells);
-        verify(&populated_transaction)?;
+        let signable_tx = tx.signable_transaction()?;
+        let verifiable_tx = signable_tx.as_verifiable();
+        verify(&verifiable_tx)?;
     }
     Ok(tx)
 }
@@ -77,16 +75,11 @@ pub fn create_input_signature(
     private_key: &PrivateKey,
     sighash_type: Option<SighashType>,
 ) -> Result<HexString> {
-    let (cctx, cells) = tx.tx_and_cells()?;
-    let canonical_tx = cell_tx_from_legacy_transaction(&cctx);
-    let populated_transaction = PopulatedTransaction::new(&canonical_tx, cells);
+    let signable_tx = tx.signable_transaction()?;
+    let verifiable_tx = signable_tx.as_verifiable();
 
-    let signature = sign_input(
-        &populated_transaction,
-        input_index.into(),
-        &private_key.secret_bytes(),
-        sighash_type.unwrap_or(SighashType::All).into(),
-    );
+    let signature =
+        sign_input(&verifiable_tx, input_index.into(), &private_key.secret_bytes(), sighash_type.unwrap_or(SighashType::All).into());
 
     Ok(signature.to_hex().into())
 }

@@ -6,9 +6,7 @@ use crate::{
     mempool::{
         config::Config,
         model::tx::{MempoolTransaction, TransactionPostValidation, TransactionPreValidation, TxRemovalReason},
-        populate_entries_and_try_validate::{
-            validate_mempool_cell_transaction, validate_mempool_mempool_transactions_in_parallel,
-        },
+        populate_entries_and_try_validate::{validate_mempool_cell_transaction, validate_mempool_mempool_transactions_in_parallel},
         tx::{Orphan, Priority, RbfPolicy},
         Mempool,
     },
@@ -30,27 +28,21 @@ use spora_consensus_core::{
     block::{BlockTemplate, TemplateBuildMode, TemplateTransactionSelector},
     coinbase::MinerData,
     errors::{block::RuleError as BlockRuleError, tx::TxRuleError},
-    tx::{CellTx, MutableTransaction, OutPointCompat, TransactionId},
+    tx::{pay_to_address_script, CellTx, MutableTransaction, OutPointCompat, TransactionId},
 };
 use spora_consensusmanager::{spawn_blocking, ConsensusProxy};
 use spora_core::{debug, error, info, time::Stopwatch, warn};
 use spora_mining_errors::{manager::MiningManagerError, mempool::RuleError};
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
 
 #[cfg(test)]
-use crate::cell_conversion::legacy_tx_to_cell_tx_with_context;
-#[cfg(test)]
-use crate::mempool::populate_entries_and_try_validate::{validate_mempool_transaction, validate_mempool_transactions_in_parallel};
-#[cfg(test)]
-use spora_consensus_core::tx::{Transaction, TransactionOutput};
+use spora_consensus_core::tx::TransactionOutput;
 
 pub struct MiningManager {
     config: Arc<Config>,
     block_template_cache: BlockTemplateCache,
     mempool: RwLock<Mempool>,
-    #[cfg(test)]
-    legacy_transaction_ids: RwLock<HashMap<TransactionId, TransactionId>>,
     counters: Arc<MiningCounters>,
 }
 
@@ -84,14 +76,7 @@ impl MiningManager {
         let config = Arc::new(config);
         let mempool = RwLock::new(Mempool::new(config.clone(), counters.clone()));
         let block_template_cache = BlockTemplateCache::new(cache_lifetime);
-        Self {
-            config,
-            block_template_cache,
-            mempool,
-            #[cfg(test)]
-            legacy_transaction_ids: RwLock::new(HashMap::new()),
-            counters,
-        }
+        Self { config, block_template_cache, mempool, counters }
     }
 
     pub fn get_block_template(&self, consensus: &dyn ConsensusApi, miner_data: &MinerData) -> MiningManagerResult<BlockTemplate> {
@@ -221,10 +206,7 @@ impl MiningManager {
 
     /// Returns realtime feerate estimations based on internal mempool state
     pub(crate) fn get_realtime_feerate_estimations(&self, _virtual_daa_score: u64) -> FeerateEstimations {
-        let args = FeerateEstimatorArgs::new(
-            self.config.network_blocks_per_second,
-            self.config.maximum_mass_per_block,
-        );
+        let args = FeerateEstimatorArgs::new(self.config.network_blocks_per_second, self.config.maximum_mass_per_block);
         let estimator = self.mempool.read().build_feerate_estimator(args);
         estimator.calc_estimations(self.config.minimum_feerate())
     }
@@ -235,10 +217,7 @@ impl MiningManager {
         consensus: &dyn ConsensusApi,
         prefix: spora_addresses::Prefix,
     ) -> MiningManagerResult<FeeEstimateVerbose> {
-        let args = FeerateEstimatorArgs::new(
-            self.config.network_blocks_per_second,
-            self.config.maximum_mass_per_block,
-        );
+        let args = FeerateEstimatorArgs::new(self.config.network_blocks_per_second, self.config.maximum_mass_per_block);
         let network_mass_per_second = args.network_mass_per_second();
         let mempool_read = self.mempool.read();
         let estimator = mempool_read.build_feerate_estimator(args);
@@ -257,7 +236,7 @@ impl MiningManager {
         };
         // calculate next_block_template_feerate_xxx
         {
-            let script_public_key = spora_txscript::pay_to_address_script(
+            let script_public_key = pay_to_address_script(
                 &spora_addresses::Address::new(prefix, spora_addresses::Version::PubKey, &[0u8; 32]).expect("Valid test address"),
             );
             let miner_data: MinerData = MinerData::new(script_public_key, vec![]);
@@ -285,104 +264,6 @@ impl MiningManager {
     #[cfg(test)]
     pub(crate) fn block_template_builder(&self) -> BlockTemplateBuilder {
         BlockTemplateBuilder::new()
-    }
-
-    /// validate_and_insert_transaction validates the given transaction, and
-    /// adds it to the set of known transactions that have not yet been
-    /// added to any block.
-    ///
-    /// The validation is constrained by a Replace by fee policy applied
-    /// to double spends in the mempool. For more information, see [`RbfPolicy`].
-    ///
-    /// On success, returns transactions that where unorphaned following the insertion
-    /// of the provided transaction.
-    ///
-    /// The returned transactions are references of objects owned by the mempool.
-    #[cfg(test)]
-    pub fn validate_and_insert_transaction(
-        &self,
-        consensus: &dyn ConsensusApi,
-        transaction: Transaction,
-        priority: Priority,
-        orphan: Orphan,
-        rbf_policy: RbfPolicy,
-    ) -> MiningManagerResult<TransactionInsertion> {
-        let legacy_transaction_id = transaction.id();
-        let parent_cell_ids = self.legacy_transaction_ids.read().clone();
-        let canonical_transaction = legacy_tx_to_cell_tx_with_context(&transaction, &parent_cell_ids)
-            .expect("test transaction must convert to canonical CellTx");
-        self.validate_and_insert_mutable_transaction_impl(
-            consensus,
-            MutableTransaction::from_cell_tx(canonical_transaction),
-            Some(legacy_transaction_id),
-            priority,
-            orphan,
-            rbf_policy,
-        )
-    }
-
-    /// Exposed for tests only
-    ///
-    /// See `validate_and_insert_transaction`
-    #[cfg(test)]
-    pub(crate) fn validate_and_insert_mutable_transaction(
-        &self,
-        consensus: &dyn ConsensusApi,
-        transaction: MutableTransaction,
-        priority: Priority,
-        orphan: Orphan,
-        rbf_policy: RbfPolicy,
-    ) -> MiningManagerResult<TransactionInsertion> {
-        self.validate_and_insert_mutable_transaction_impl(consensus, transaction, None, priority, orphan, rbf_policy)
-    }
-
-    #[cfg(test)]
-    fn validate_and_insert_mutable_transaction_impl(
-        &self,
-        consensus: &dyn ConsensusApi,
-        transaction: MutableTransaction,
-        legacy_transaction_id: Option<TransactionId>,
-        priority: Priority,
-        orphan: Orphan,
-        rbf_policy: RbfPolicy,
-    ) -> MiningManagerResult<TransactionInsertion> {
-        let canonical_transaction_id = transaction.id();
-        // read lock on mempool
-        let TransactionPreValidation { mut transaction, cell_tx, feerate_threshold } =
-            self.mempool.read().pre_validate_and_populate_transaction(consensus, transaction, rbf_policy)?;
-        let args = TransactionValidationArgs::new(feerate_threshold);
-        // no lock on mempool
-        let validation_result = validate_mempool_transaction(consensus, &mut transaction, &args);
-        // write lock on mempool
-        let mut mempool = self.mempool.write();
-        match mempool.post_validate_and_insert_transaction(consensus, validation_result, transaction, cell_tx, priority, orphan, rbf_policy)? {
-            TransactionPostValidation { removed, accepted: Some(accepted_transaction), accepted_cell_tx: _ } => {
-                if let Some(legacy_transaction_id) = legacy_transaction_id {
-                    self.legacy_transaction_ids.write().insert(legacy_transaction_id, canonical_transaction_id);
-                }
-                let unorphaned_transactions = mempool.get_unorphaned_transactions_after_accepted_cell_transaction(
-                    accepted_transaction.as_ref(),
-                    legacy_transaction_id.or(Some(accepted_transaction.id().into())),
-                    spora_consensus_core::constants::UNACCEPTED_DAA_SCORE,
-                );
-                drop(mempool);
-
-                // The capacity used here may be exceeded since accepted unorphaned transaction may themselves unorphan other transactions.
-                let mut accepted_transactions = Vec::with_capacity(unorphaned_transactions.len() + 1);
-                // We include the original accepted transaction as well
-                accepted_transactions.push(accepted_transaction);
-                accepted_transactions.extend(self.validate_and_insert_unorphaned_transactions(consensus, unorphaned_transactions));
-                self.counters.increase_tx_counts(1, priority);
-
-                Ok(TransactionInsertion::new(removed, accepted_transactions))
-            }
-            TransactionPostValidation { removed, accepted: None, accepted_cell_tx: _ } => {
-                if let Some(legacy_transaction_id) = legacy_transaction_id {
-                    self.legacy_transaction_ids.write().insert(legacy_transaction_id, canonical_transaction_id);
-                }
-                Ok(TransactionInsertion::new(removed, vec![]))
-            }
-        }
     }
 
     pub(crate) fn validate_and_insert_cell_transaction(
@@ -423,7 +304,9 @@ impl MiningManager {
 
                 Ok(TransactionInsertion::new(removed, accepted_transactions))
             }
-            TransactionPostValidation { removed, accepted: None, accepted_cell_tx: _ } => Ok(TransactionInsertion::new(removed, vec![])),
+            TransactionPostValidation { removed, accepted: None, accepted_cell_tx: _ } => {
+                Ok(TransactionInsertion::new(removed, vec![]))
+            }
         }
     }
 
@@ -516,7 +399,8 @@ impl MiningManager {
                             spora_consensus_core::constants::UNACCEPTED_DAA_SCORE,
                         )
                     }
-                    Ok(TransactionPostValidation { removed: _, accepted: None, accepted_cell_tx: _ }) | Err(RuleError::RejectDuplicate(_)) => {
+                    Ok(TransactionPostValidation { removed: _, accepted: None, accepted_cell_tx: _ })
+                    | Err(RuleError::RejectDuplicate(_)) => {
                         vec![]
                     }
                     Err(err) => {
@@ -604,127 +488,6 @@ impl MiningManager {
             drop(mempool);
         }
         accepted_transactions
-    }
-
-    /// Validates a batch of transactions, handling iteratively only the independent ones, and
-    /// adds those to the set of known transactions that have not yet been added to any block.
-    ///
-    /// The validation is constrained by a Replace by fee policy applied
-    /// to double spends in the mempool. For more information, see [`RbfPolicy`].
-    ///
-    /// Returns transactions that where unorphaned following the insertion of the provided
-    /// transactions. The returned transactions are references of objects owned by the mempool.
-    #[cfg(test)]
-    pub fn validate_and_insert_transaction_batch(
-        &self,
-        consensus: &dyn ConsensusApi,
-        transactions: Vec<Transaction>,
-        priority: Priority,
-        orphan: Orphan,
-        rbf_policy: RbfPolicy,
-    ) -> Vec<MiningManagerResult<Arc<CellTx>>> {
-        const TRANSACTION_CHUNK_SIZE: usize = 250;
-
-        // The capacity used here may be exceeded since accepted transactions may unorphan other transactions.
-        let mut insert_results: Vec<MiningManagerResult<Arc<CellTx>>> = Vec::with_capacity(transactions.len());
-        let mut unorphaned_transactions = vec![];
-        let _swo = Stopwatch::<80>::with_threshold("validate_and_insert_transaction_batch topological_sort op");
-        let sorted_transactions = transactions.into_iter().map(MutableTransaction::from_tx).topological_into_iter();
-        drop(_swo);
-
-        // read lock on mempool
-        // Here, we simply log and drop all erroneous transactions since the caller doesn't care about those anyway
-        let mut transactions = Vec::with_capacity(sorted_transactions.len());
-        let mut args = TransactionValidationBatchArgs::new();
-        for chunk in &sorted_transactions.chunks(TRANSACTION_CHUNK_SIZE) {
-            let mempool = self.mempool.read();
-            let txs = chunk.filter_map(|tx| {
-                let transaction_id = tx.id();
-                match mempool.pre_validate_and_populate_transaction(consensus, tx, rbf_policy) {
-                    Ok(TransactionPreValidation { transaction, cell_tx: _, feerate_threshold }) => {
-                        if let Some(threshold) = feerate_threshold {
-                            args.set_feerate_threshold(transaction.id(), threshold);
-                        }
-                        Some(transaction)
-                    }
-                    Err(RuleError::RejectAlreadyAccepted(transaction_id)) => {
-                        debug!("Ignoring already accepted transaction {}", transaction_id);
-                        None
-                    }
-                    Err(RuleError::RejectDuplicate(transaction_id)) => {
-                        debug!("Ignoring transaction already in the mempool {}", transaction_id);
-                        None
-                    }
-                    Err(RuleError::RejectDuplicateOrphan(transaction_id)) => {
-                        debug!("Ignoring transaction already in the orphan pool {}", transaction_id);
-                        None
-                    }
-                    Err(err) => {
-                        debug!("Failed to pre validate transaction {0} due to rule error: {1}", transaction_id, err);
-                        insert_results.push(Err(MiningManagerError::MempoolError(err)));
-                        None
-                    }
-                }
-            });
-            transactions.extend(txs);
-        }
-
-        // no lock on mempool
-        // We process the transactions by chunks of max block mass to prevent locking the virtual processor for too long.
-        let mut lower_bound: usize = 0;
-        let mut validation_results = Vec::with_capacity(transactions.len());
-        while let Some(upper_bound) = self.next_transaction_chunk_upper_bound(&transactions, lower_bound) {
-            assert!(lower_bound < upper_bound, "the chunk is never empty");
-            validation_results.extend(validate_mempool_transactions_in_parallel(
-                consensus,
-                &mut transactions[lower_bound..upper_bound],
-                &args,
-            ));
-            lower_bound = upper_bound;
-        }
-        assert_eq!(transactions.len(), validation_results.len(), "every transaction should have a matching validation result");
-
-        // write lock on mempool
-        // Here again, transactions failing post validation are logged and dropped
-        for chunk in &transactions.into_iter().zip(validation_results).chunks(TRANSACTION_CHUNK_SIZE) {
-            let mut mempool = self.mempool.write();
-            let txs = chunk.flat_map(|(transaction, validation_result)| {
-                let transaction_id = transaction.id();
-                match mempool.post_validate_and_insert_transaction(
-                    consensus,
-                    validation_result,
-                    transaction,
-                    None,
-                    priority,
-                    orphan,
-                    rbf_policy,
-                ) {
-                    Ok(TransactionPostValidation { removed: _, accepted: Some(accepted_transaction), accepted_cell_tx: _ }) => {
-                        insert_results.push(Ok(accepted_transaction.clone()));
-                        self.counters.increase_tx_counts(1, priority);
-                        mempool.get_unorphaned_transactions_after_accepted_cell_transaction(
-                            accepted_transaction.as_ref(),
-                            Some(accepted_transaction.id().into()),
-                            spora_consensus_core::constants::UNACCEPTED_DAA_SCORE,
-                        )
-                    }
-                    Ok(TransactionPostValidation { removed: _, accepted: None, accepted_cell_tx: _ }) | Err(RuleError::RejectDuplicate(_)) => {
-                        // Either orphaned or already existing in the mempool
-                        vec![]
-                    }
-                    Err(err) => {
-                        debug!("Failed to post validate transaction {0} due to rule error: {1}", transaction_id, err);
-                        insert_results.push(Err(MiningManagerError::MempoolError(err)));
-                        vec![]
-                    }
-                }
-            });
-            unorphaned_transactions.extend(txs);
-        }
-
-        insert_results
-            .extend(self.validate_and_insert_unorphaned_transactions(consensus, unorphaned_transactions).into_iter().map(Ok));
-        insert_results
     }
 
     fn next_transaction_chunk_upper_bound(&self, transactions: &[MutableTransaction], lower_bound: usize) -> Option<usize> {
@@ -937,8 +700,11 @@ impl MiningManager {
         while let Some(upper_bound) = self.next_mempool_transaction_chunk_upper_bound(&transactions, lower_bound) {
             assert!(lower_bound < upper_bound, "the chunk is never empty");
             let _swo = Stopwatch::<60>::with_threshold("revalidate validate_mempool_transactions_in_parallel op");
-            validation_results
-                .extend(validate_mempool_mempool_transactions_in_parallel(consensus, &mut transactions[lower_bound..upper_bound], &TransactionValidationBatchArgs::new()));
+            validation_results.extend(validate_mempool_mempool_transactions_in_parallel(
+                consensus,
+                &mut transactions[lower_bound..upper_bound],
+                &TransactionValidationBatchArgs::new(),
+            ));
             drop(_swo);
             lower_bound = upper_bound;
         }
@@ -1052,7 +818,10 @@ impl MiningManager {
     /// Dust is defined in terms of the minimum transaction relay fee. In particular,
     /// if the cost to the network to spend coins is more than 1/3 of the minimum
     /// transaction relay fee, it is considered dust.
+    ///
+    /// Note: This method uses the deprecated legacy TransactionOutput type for backward compatibility.
     #[cfg(test)]
+    #[allow(deprecated)]
     pub fn is_transaction_output_dust(&self, transaction_output: &TransactionOutput) -> bool {
         self.mempool.read().is_transaction_output_dust(transaction_output)
     }
@@ -1104,28 +873,6 @@ impl MiningManagerProxy {
         consensus.clone().spawn_blocking(move |c| self.inner.get_realtime_feerate_estimations_verbose(c, prefix)).await
     }
 
-    /// Validates a transaction and adds it to the set of known transactions that have not yet been
-    /// added to any block.
-    ///
-    /// The validation is constrained by a Replace by fee policy applied
-    /// to double spends in the mempool. For more information, see [`RbfPolicy`].
-    ///
-    /// The returned transactions are references of objects owned by the mempool.
-    #[cfg(test)]
-    pub async fn validate_and_insert_transaction(
-        self,
-        consensus: &ConsensusProxy,
-        transaction: Transaction,
-        priority: Priority,
-        orphan: Orphan,
-        rbf_policy: RbfPolicy,
-    ) -> MiningManagerResult<TransactionInsertion> {
-        consensus
-            .clone()
-            .spawn_blocking(move |c| self.inner.validate_and_insert_transaction(c, transaction, priority, orphan, rbf_policy))
-            .await
-    }
-
     pub async fn validate_and_insert_cell_transaction(
         self,
         consensus: &ConsensusProxy,
@@ -1140,29 +887,6 @@ impl MiningManagerProxy {
             .await
     }
 
-    /// Validates a batch of transactions, handling iteratively only the independent ones, and
-    /// adds those to the set of known transactions that have not yet been added to any block.
-    ///
-    /// The validation is constrained by a Replace by fee policy applied
-    /// to double spends in the mempool. For more information, see [`RbfPolicy`].
-    ///
-    /// Returns transactions that where unorphaned following the insertion of the provided
-    /// transactions. The returned transactions are references of objects owned by the mempool.
-    #[cfg(test)]
-    pub async fn validate_and_insert_transaction_batch(
-        self,
-        consensus: &ConsensusProxy,
-        transactions: Vec<Transaction>,
-        priority: Priority,
-        orphan: Orphan,
-        rbf_policy: RbfPolicy,
-    ) -> Vec<MiningManagerResult<Arc<CellTx>>> {
-        consensus
-            .clone()
-            .spawn_blocking(move |c| self.inner.validate_and_insert_transaction_batch(c, transactions, priority, orphan, rbf_policy))
-            .await
-    }
-
     pub async fn validate_and_insert_cell_transaction_batch(
         self,
         consensus: &ConsensusProxy,
@@ -1173,7 +897,9 @@ impl MiningManagerProxy {
     ) -> Vec<MiningManagerResult<Arc<CellTx>>> {
         consensus
             .clone()
-            .spawn_blocking(move |c| self.inner.validate_and_insert_cell_transaction_batch(c, transactions, priority, orphan, rbf_policy))
+            .spawn_blocking(move |c| {
+                self.inner.validate_and_insert_cell_transaction_batch(c, transactions, priority, orphan, rbf_policy)
+            })
             .await
     }
 
@@ -1307,7 +1033,6 @@ struct Stats {
 /// rates if the input vectors are valid. Returns `None` if the vectors are
 /// empty or if the lengths are inconsistent.
 fn feerate_stats(transactions: Vec<CellTx>, calculated_fees: Vec<u64>) -> Option<Stats> {
-    // TODO(cell-model): CellTx mass calculation
     if calculated_fees.is_empty() {
         return None;
     }
@@ -1326,7 +1051,7 @@ fn feerate_stats(transactions: Vec<CellTx>, calculated_fees: Vec<u64>) -> Option
             .iter()
             // skip coinbase tx
             .skip(1)
-            .map(|tx| tx.mass())) // TODO(cell-model): Implement proper mass calculation for CellTx
+            .map(|tx| tx.serialized_size().max(1) as u64))
         .map(|(fee, mass)| fee as f64 / mass as f64)
         .collect_vec();
     feerates.sort_unstable_by(f64::total_cmp);
@@ -1362,7 +1087,7 @@ mod tests {
     fn feerate_stats_test() {
         let calculated_fees = vec![100u64, 200, 300, 400];
         let txs = transactions(calculated_fees.len() + 1);
-        let mass = txs[1].mass() as f64;
+        let mass = txs[1].serialized_size().max(1) as f64;
         let Stats { max, median, min } = feerate_stats(txs, calculated_fees).unwrap();
         assert_eq!(max, 400.0 / mass);
         assert_eq!(median, 300.0 / mass);

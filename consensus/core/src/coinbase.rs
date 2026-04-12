@@ -1,4 +1,4 @@
-use crate::tx::{ScriptPublicKey, Transaction};
+use crate::tx::{CellTx, ScriptPublicKey};
 use serde::{Deserialize, Serialize};
 
 #[derive(PartialEq, Eq, Debug, Clone)]
@@ -35,6 +35,6 @@ impl BlockRewardData {
 
 /// Holds a coinbase transaction along with meta-data obtained during creation
 pub struct CoinbaseTransactionTemplate {
-    pub tx: Transaction,
+    pub tx: CellTx,
     pub has_red_reward: bool, // Does the last output contain reward for red blocks
 }

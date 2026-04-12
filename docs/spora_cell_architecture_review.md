@@ -103,6 +103,8 @@
 
 这不是“兼容设计得很优雅”，而是“迁移仍未完成”。
 
+执行上也不应继续打磨这层桥接。正确做法是直接删掉主路径对 legacy `Transaction` 的依赖，把断点留给调用方修复，而不是再做一层“薄兼容壳”。
+
 ### F2. Coinbase 仍走 legacy 路径
 
 当前 coinbase 不是原生生成 `CellTx`，而是先生成 legacy `Transaction`，再转换成 `CellTx`。
@@ -231,6 +233,7 @@ Spora 继承的是：
 
 - 删除 `legacy Transaction -> CellTx` 关键路径依赖
 - 让 accepted block、mempool、wallet 使用同一 transaction identity
+- 迁移过程中不再新增桥接 helper；任何遗留调用点都直接改到 `CellTx`
 
 这是当前收益最高的一步。
 

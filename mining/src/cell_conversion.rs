@@ -1,3 +1,6 @@
+// Cell conversion utilities - uses deprecated legacy types for backward compatibility with existing tests
+#![allow(deprecated)]
+
 use blake3::Hasher;
 use spora_consensus_core::{
     cell_metadata::CellMetadata,
@@ -6,9 +9,7 @@ use spora_consensus_core::{
 use spora_hashes::Hash;
 
 #[cfg(test)]
-use spora_consensus_core::tx::{
-    cell_tx_from_legacy_transaction, CellEntry, CellTx, OutPointCompat, Transaction, TransactionId,
-};
+use spora_consensus_core::tx::{cell_tx_from_legacy_transaction, CellEntry, CellTx, OutPointCompat, Transaction, TransactionId};
 #[cfg(test)]
 use std::collections::HashMap;
 
@@ -100,10 +101,4 @@ pub(crate) fn legacy_txs_to_cell_txs<'a>(txs: impl IntoIterator<Item = &'a Trans
     }
 
     Ok(cell_txs)
-}
-
-#[cfg(test)]
-#[cfg(test)]
-pub(crate) fn legacy_tx_cell_id(tx: &Transaction) -> Option<TransactionId> {
-    legacy_tx_to_cell_tx(tx).ok().map(|cell_tx| cell_tx.id().into())
 }

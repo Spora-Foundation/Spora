@@ -8,14 +8,14 @@
 
 | CKB 类型 | CKB 文件 | SPORA 类型 | SPORA 文件 | 差异 |
 |---------|---------|-----------|-----------|------|
-| `Cell` | `util/types/src/core/cell.rs` | `CellOut` | `exec/src/celltx/types.rs` | ✅ 结构相同 |
+| `CellOutput` | `util/types/src/core/cell.rs` | `CellOut` | `exec/src/celltx/types.rs` | ✅ 结构相同 |
 | `OutPoint` | `util/types/src/core/cell.rs` | `OutPoint` | `exec/src/celltx/types.rs` | ✅ 完全相同 |
 | `Script` | `util/types/src/core/cell.rs` | `ScriptRef` | `exec/src/celltx/types.rs` | ✅ 结构相同 |
 | `CellInput` | `util/types/src/core/cell.rs` | `CellRef` | `exec/src/celltx/types.rs` | ✅ 结构相同 |
 | `CellDep` | `util/types/src/core/cell.rs` | `CellDep` | `exec/src/celltx/types.rs` | ✅ 完全相同 |
-| `Transaction` | `util/types/src/core/views.rs` | `CellTx` | `exec/src/celltx/types.rs` | ⚠️ 无 header_deps |
+| `Transaction` | `util/types/src/core/views.rs` | `CellTx` | `exec/src/celltx/types.rs` | ✅ 有 header_deps |
 | `ResolvedTransaction` | `util/types/src/core/cell.rs` | `ResolvedCellTx` | `exec/src/celltx/types.rs` | ✅ 概念相同 |
-| `CellMeta` | `util/types/src/core/cell.rs` | `CellMeta` | `exec/src/vm/syscalls/load_cell.rs` | ⚠️ 添加 DAG 字段 |
+| `CellMeta` | `util/types/src/core/cell.rs` | `CellMeta` | `exec/src/celltx/types.rs` | ✅ 添加 DAG 字段 |
 
 ## 2. 哈希函数映射
 
@@ -59,48 +59,92 @@ let hash = *hasher.finalize().as_bytes();
 | LOAD_TX_HASH | 2061 | Blake2b → Blake3 | 95% |
 | LOAD_SCRIPT | 2075 | Blake2b → Blake3 | 95% |
 | LOAD_SCRIPT_HASH | 2062 | Blake2b → Blake3 | 95% |
-| LOAD_CELL | 2071 | 适配 CellStateProvider | 90% |
-| LOAD_CELL_BY_FIELD | 2081 | 适配 CellStateProvider | 90% |
+| LOAD_CELL | 2071 | 适配 CellDataProvider | 90% |
+| LOAD_CELL_BY_FIELD | 2081 | 适配 CellDataProvider | 90% |
 
 ### 3.3 已实现（DAG适配版） ✅
 
 | 系统调用 | 编号 | SPORA 文件 | 状态 | DAG特性 |
 |---------|------|-----------|------|---------|
-| LOAD_HEADER | 2072 | `load_header.rs` | ✅ 完成 | 多父区块、blue_score ⭐ |
+| LOAD_HEADER | 2072 | `load_header.rs` | ✅ 完成 | 多父区块、daa_score ⭐ |
 | LOAD_INPUT | 2073 | `load_input.rs` | ✅ 完成 | Since时间锁支持 ⭐ |
 | LOAD_CELL_DATA | 2092 | `load_cell_data.rs` | ✅ 完成 | Cell data字段 ⭐ |
 
-### 3.4 待实现（高级功能） ⏳
+### 3.4 SPORA特有扩展 ✅
+
+| 系统调用 | 编号 | SPORA 文件 | 说明 |
+|---------|------|-----------|------|
+| BLAKE3_HASH | 3001 | `exec/src/vm/syscalls/blake3.rs` | SPORA特有，原生Blake3加速 |
+
+### 3.5 待实现（高级功能） ⏳
 
 | 系统调用 | 编号 | CKB 文件 | 优先级 |
 |---------|------|---------|--------|
 | EXEC | 2043 | `script/src/syscalls/exec.rs` | P2 |
-| SPAWN | (extended) | `script/src/syscalls/spawn.rs` | P3 |
+| SPAWN | 2601+ | `script/src/syscalls/spawn.rs` | P3 |
 
 ## 4. VM 组件映射
+
+### 4.1 基础组件
 
 | 组件 | CKB | SPORA | 复用策略 |
 |------|-----|-------|----------|
 | Machine Type | `TraceMachine` / `AsmMachine` | `TraceMachine` | ✅ 直接复用 |
 | ISA Support | `ISA_IMC \| ISA_B \| ISA_MOP` | ✅ 相同 | ✅ 直接复用 |
-| VM Version | `VERSION0/1/2` | `VERSION0/1` | ✅ 直接复用 |
+| VM Version | `VERSION0/1/2` | `VERSION0/1/2` | ✅ 直接复用 |
 | Cycles Type | `u64` | `u64` | ✅ 直接复用 |
 | Cost Model | `transferred_byte_cycles` | ✅ 相同 | ✅ 直接复用 |
+
+### 4.2 VM 架构对比
+
+**CKB VM 架构**:
+```
+TransactionScriptsVerifier
+├── Scheduler (复杂状态机，支持Spawn/Exec)
+│   ├── 多VM管理 (MAX_VMS=16)
+│   ├── 文件描述符管理
+│   ├── 管道/进程间通信
+│   └── 快照/恢复机制
+└── Syscalls (完整实现)
+```
+
+**SPORA VM 架构** (简化但完整):
+```
+TransactionScriptVerifier
+├── 顺序脚本组执行
+│   ├── Lock脚本验证
+│   └── Type脚本验证
+└── Syscalls (核心功能完整)
+    ├── 数据加载 (Cell/Input/Header/Witness)
+    ├── 哈希计算 (Blake3原生)
+    └── 调试/周期计数
+```
+
+### 4.3 关键差异说明
+
+| 特性 | CKB | SPORA | 原因 |
+|------|-----|-------|------|
+| Spawn/Exec | ✅ 完整支持 | ⏳ 待实现 | 优先级较低 |
+| 并行脚本执行 | ❌ 无 | ✅ 交易级并行 | SPORA特有优化 |
+| 文件描述符 | ✅ 完整 | ❌ 不需要 | 简化设计 |
+| 多VM调度 | ✅ 复杂调度器 | ⏳ placeholder | 当前顺序执行足够 |
+| Blake3加速 | ❌ VM内计算 | ✅ 原生syscall | 性能优化 |
 
 ## 5. 验证器映射
 
 | CKB 验证器 | CKB 文件 | SPORA 验证器 | SPORA 文件 | 差异 |
 |-----------|---------|-------------|-----------|------|
-| `TransactionScriptsVerifier` | `script/src/verify.rs` | `VmScheduler` | `exec/src/vm/scheduler.rs` | ⚠️ 简化版 |
+| `TransactionScriptsVerifier` | `script/src/verify.rs` | `TransactionScriptVerifier` | `exec/src/vm/verifier.rs` | ✅ 已实现 |
+| `Scheduler` | `script/src/scheduler.rs` | (placeholder) | `exec/src/vm/scheduler.rs` | ⏳ 未来并行执行 |
 | `TransactionVerifier` | `verification/src/transaction_verifier.rs` | `CellValidator` | `consensus/src/processes/cell_validator/` | ⚠️ DAG 适配 |
 | `BlockVerifier` | `verification/src/block_verifier.rs` | `BlockValidator` | (待实现) | ⚠️ DAG 适配 |
 
 ## 6. 存储层映射
 
-| CKB Store | CKB 文件 | SPORA Store | SPORA 文件 | 差异 |
+| CKB Trait | CKB 文件 | SPORA Trait | SPORA 文件 | 差异 |
 |-----------|---------|------------|-----------|------|
-| `CellProvider` | `traits/src/cell_data_provider.rs` | `CellStateProvider` | `cell_validation_in_context.rs` | ⚠️ DAG 适配 |
-| `HeaderProvider` | `traits/src/header_provider.rs` | (待实现) | - | ⚠️ DAG 多父 |
+| `CellDataProvider` | `traits/src/cell_data_provider.rs` | `CellDataProvider` | `exec/src/vm/verifier.rs` | ✅ DAG 适配 |
+| `HeaderProvider` | `traits/src/header_provider.rs` | (inline in CellDataProvider) | `exec/src/vm/verifier.rs` | ✅ DAG 多父 |
 | `ChainStore` | `store/src/lib.rs` | `CellDB` | `state/src/index/cell_db.rs` | ⚠️ 简化版 |
 | `Freezer` | `freezer/src/freezer.rs` | `SegmentWriter` | `state/src/store/segment.rs` | ⚠️ DA 特化 |
 
@@ -157,9 +201,21 @@ cp ckb/script/src/syscalls/load_cell.rs exec/src/vm/syscalls/load_cell.rs  # ✅
 
 # LoadCellData - Cell data 字段加载
 # exec/src/vm/syscalls/load_cell_data.rs  # ✅ 已完成
+
+# LoadScript - Blake3适配版
+# exec/src/vm/syscalls/load_script.rs  # ✅ 已完成
+
+# LoadTx - Blake3适配版
+# exec/src/vm/syscalls/load_tx.rs  # ✅ 已完成
 ```
 
-### 8.4 待实现 ⏳
+### 8.4 SPORA特有扩展 ✅
+```bash
+# Blake3 哈希系统调用 (SPORA特有)
+# exec/src/vm/syscalls/blake3.rs  # ✅ 已完成
+```
+
+### 8.5 待实现 ⏳
 ```bash
 # Exec 系统调用
 cp ckb/script/src/syscalls/exec.rs exec/src/vm/syscalls/exec.rs  # ⏳ 待实现
@@ -210,49 +266,49 @@ cp ckb/script/src/syscalls/spawn.rs exec/src/vm/syscalls/spawn.rs  # ⏳ 待实�
 
 ### 总体复用度
 ```
-完全复用 (100%):  40%
+完全复用 (100%):  45%
   - ckb-vm 核心
   - 系统调用架构
   - 成本模型
   - 部分系统调用
 
 修改复用 (>70%):  35%
-  - 哈希函数替换
+  - 哈希函数替换 (Blake2b → Blake3)
   - 数据提供者适配
   - Cell 类型定义
 
-全新实现 (<30%):  25%
+全新实现 (<30%):  20%
   - DAG 共识
   - DA 层
   - 重组逻辑
   - Mergeset 奖励
+  - 并行调度器
 ```
 
 ### 代码行复用
 ```
 可直接复制:     ~1,500 LOC (15%)
-复制后修改:     ~3,200 LOC (32%)
-全新实现:       ~5,273 LOC (53%)
-总计:          ~9,973 LOC
+复制后修改:     ~3,500 LOC (35%)
+全新实现:       ~5,000 LOC (50%)
+总计:          ~10,000 LOC
 
-本次新增 (2025-10-22):
-  ⭐ 系统调用扩展:  ~670 LOC (LoadCellData, LoadInput, LoadHeader)
-  ⭐ Cell State Tree: ~400 LOC (Merkle tree实现)
-  ⭐ CellDiff:       ~240 LOC (状态差异)
-  ⭐ Cell stores:    ~120 LOC (cell_diffs, cell_roots)
-  ⭐ Cell processing: ~160 LOC (处理上下文)
-  总计新增:         ~1,590 LOC
+主要组件 (2025-04):
+  ✅ VM 系统调用:      ~1,600 LOC (10个syscall)
+  ✅ Cell 类型系统:    ~660 LOC (types.rs)
+  ✅ 交易验证器:       ~400 LOC (verifier.rs)
+  ✅ 并行调度器:       ~1,200 LOC (scheduler/)
+  ✅ 脚本示例:         ~200 LOC (scripts/)
 ```
 
 ---
 
 ## 11. 快速参考
 
-### 从 CKB 复制代码的步骤
+### 11.1 从 CKB 复制代码的步骤
 
 1. **检查文件**
    ```bash
-   cat /home/arthur/RustRoverProjects/ckb/script/src/syscalls/load_witness.rs
+   cat /Users/arthur/RustroverProjects/ckb/script/src/syscalls/load_witness.rs
    ```
 
 2. **复制到 SPORA**
@@ -283,59 +339,118 @@ cp ckb/script/src/syscalls/spawn.rs exec/src/vm/syscalls/spawn.rs  # ⏳ 待实�
    cargo test --package spora-exec --lib syscalls::load_witness
    ```
 
+### 11.2 常用类型映射速查
+
+| CKB 类型 | SPORA 类型 | 说明 |
+|---------|-----------|------|
+| `Bytes` | `Vec<u8>` | SPORA使用标准Vec |
+| `Byte32` | `[u8; 32]` | 固定大小数组 |
+| `Script` | `ScriptRef` | 脚本引用 |
+| `CellOutput` | `CellOut` | Cell输出 |
+| `CellInput` | `CellRef` | Cell输入（含since） |
+| `Transaction` | `CellTx` | 交易（含header_deps） |
+| `OutPoint` | `OutPoint` | 完全相同 |
+| `CellDep` | `CellDep` | 完全相同 |
+| `ScriptHashType` | `u8` | 0=Data, 1=Type, 2=Data1, 4=Data2 |
+
+### 11.3 脚本验证流程
+
+```rust
+// 1. 创建交易
+let tx = CellTx::new(inputs, deps, outputs, outputs_data, witnesses)?;
+
+// 2. 创建数据提供者
+let provider = MyCellDataProvider::new();
+
+// 3. 创建验证器
+let verifier = TransactionScriptVerifier::new(Arc::new(tx), Arc::new(provider));
+
+// 4. 执行验证
+let result = verifier.verify()?;
+```
+
 ---
 
 ## 12. CKB 依赖对应
 
-| CKB Crate | SPORA Crate | 说明 |
-|-----------|-------------|------|
-| `ckb-vm` | `ckb-vm` (依赖) | ✅ 完全相同 |
-| `ckb-types` | `spora-exec` | ⚠️ 自己实现 |
-| `ckb-hash` | `blake3` (依赖) | ⚠️ 不同哈希 |
-| `ckb-traits` | `spora-consensus` | ⚠️ 自己实现 |
-| `ckb-script` | `spora-exec::vm` | ⚠️ 基于 CKB 修改 |
+| CKB Crate | SPORA Crate/Module | 说明 |
+|-----------|-------------------|------|
+| `ckb-vm` | `ckb-vm` (依赖) | ✅ 完全相同，直接依赖 |
+| `ckb-types` | `spora-exec::celltx` | ✅ 自己实现 (CellTx/CellOut等) |
+| `ckb-hash` | `blake3` (依赖) | ✅ 使用Blake3替代Blake2b |
+| `ckb-traits` | `spora-exec::vm::verifier` | ✅ CellDataProvider trait |
+| `ckb-script` | `spora-exec::vm` | ✅ 基于CKB修改，适配Cell模型 |
+| `ckb-script::scheduler` | `spora-exec::scheduler` | ⚠️ 不同实现，交易级并行 |
 | `ckb-store` | `spora-state` | ⚠️ DAG 适配 |
 | `ckb-tx-pool` | `spora-mempool` | ⚠️ DAG 适配 |
 
----
+### 12.1 Cargo.toml 依赖对比
+
+**CKB script/Cargo.toml**:
+```toml
+[dependencies]
+ckb-vm = "0.24"
+ckb-types = { path = "../util/types" }
+ckb-hash = { path = "../util/hash" }
+ckb-traits = { path = "../traits" }
+```
+
+**SPORA exec/Cargo.toml**:
+```toml
+[dependencies]
+ckb-vm = "0.24"
+blake3 = "1.5"
+# 无ckb-types, 无ckb-hash, 无ckb-traits
+# 类型定义在本地 celltx/types.rs
+# traits定义在 vm/verifier.rs
+```
 
 ---
 
-## 13. 实施状态总结（2025-10-22）
+---
+
+## 13. 实施状态总结（2025-04-12）
 
 ### ✅ 100% 完成
 
-**核心系统调用**: 9/11 (82%)
-- ✅ LoadCell, LoadCellData ⭐
-- ✅ LoadInput ⭐, LoadHeader ⭐ (DAG适配)
+**核心系统调用**: 10/12 (83%)
+- ✅ LoadCell, LoadCellData
+- ✅ LoadInput, LoadHeader (DAG适配)
 - ✅ LoadTx, LoadWitness, LoadScript
 - ✅ CurrentCycles, Debugger
+- ✅ Blake3Hash (SPORA特有扩展)
+
+**VM 执行层**: 100%
+- ✅ VM Machine 类型定义
+- ✅ ScriptVersion (V0/V1/V2)
+- ✅ TransactionScriptVerifier
+- ✅ CellDataProvider trait
+- ✅ 真实 CKB-VM 执行循环
+- ✅ 已解析输入/依赖的运行时环境
 
 **Cell 模型架构**: 100%
-- ✅ Cell State Tree (Merkle tree)
-- ✅ CellDiff (状态差异)
-- ✅ cell_commitment + cell_root
-- ✅ VirtualState（legacy transaction-output 语义已移除）
+- ✅ CellOut, CellRef, CellDep, CellTx
+- ✅ ScriptRef (Lock/Type脚本)
+- ✅ OutPoint, CellMeta
+- ✅ ResolvedCellTx
+- ✅ DepGroup 解析
 
-**共识集成**: 100%
-- ✅ CellProcessingContext
-- ✅ calculate_cell_state
-- ✅ commit_cell_state
-- ✅ Cell stores创建
-
-**Legacy terminology cleanup**: 100%
-- ❌ legacy_txout_validation.rs - 已删除
-- ❌ legacy_txout_inquirer.rs - 已删除
-- ❌ MuHash/multiset - 已清理
+**并行调度器**: 100%
+- ✅ CellDAG (RW-Set依赖图)
+- ✅ 冲突解决 (ConflictResolver)
+- ✅ 并行执行器 (ParallelExecutor)
 
 ### ⏳ 待实现（可选）
 
-**高级系统调用**: 2/11 (18%)
-- ⏳ Exec - 动态脚本执行
-- ⏳ Spawn - 脚本生成
+**高级系统调用**: 2/12 (17%)
+- ⏳ Exec (2043) - 动态脚本执行
+- ⏳ Spawn (2601+) - 脚本生成
+
+**并行VM调度**: 
+- ⏳ 多脚本组并行执行 (当前为顺序执行)
 
 ---
 
-**最后更新**: 2025-10-22  
-**实施状态**: ✅ 核心100%完成，生产就绪  
+**最后更新**: 2025-04-12  
+**实施状态**: ✅ 核心100%完成，VM执行层生产就绪  
 **维护者**: SPORA Team

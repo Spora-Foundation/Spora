@@ -4,15 +4,12 @@
 //!
 
 use crate::imports::*;
+use crate::input::TransactionInputInner;
 use crate::result::Result;
-use crate::{
-    CellEntry, CellEntryId, CellEntryReference, Transaction, TransactionInput, TransactionInputInner, TransactionOutpoint,
-    TransactionOutpointInner, TransactionOutput,
-};
-use ahash::AHashMap;
+use crate::{CellEntry, CellEntryReference, Transaction, TransactionInput, TransactionOutpoint, TransactionOutput};
 use cctx::VerifiableTransaction;
 use spora_addresses::Address;
-use spora_consensus_core::subnets::SubnetworkId;
+use spora_consensus_core::mass::project_verifiable_transaction_mass;
 use spora_hashes::Hash;
 use workflow_wasm::serde::{from_value, to_value};
 
@@ -120,20 +117,6 @@ pub struct SerializableTransactionInput {
 }
 
 impl SerializableTransactionInput {
-    #[allow(deprecated)]
-    pub fn new(input: &cctx::TransactionInput, cell_entry: &cctx::CellEntry) -> Self {
-        let cell_entry = SerializableCellEntry::from(cell_entry);
-
-        Self {
-            transaction_id: TransactionId::from_slice(&input.previous_outpoint.tx_hash),
-            index: input.previous_outpoint.index,
-            signature_script: input.signature_script.clone(),
-            sequence: input.sequence.to_string(),
-            sig_op_count: input.sig_op_count,
-            cell_entry: cell_entry.clone(),
-        }
-    }
-
     /// Create from a Cell-model CellRef input with its witness data.
     pub fn from_cell_ref(input: &cctx::CellRef, witness: &[u8], cell_entry: &cctx::CellEntry) -> Self {
         let cell_entry = SerializableCellEntry::from(cell_entry);
@@ -168,21 +151,6 @@ impl TryFrom<&SerializableTransactionInput> for CellEntryReference {
         };
 
         Ok(Self { cell: Arc::new(cell_entry) })
-    }
-}
-
-impl TryFrom<SerializableTransactionInput> for cctx::TransactionInput {
-    type Error = Error;
-    fn try_from(signable_input: SerializableTransactionInput) -> Result<Self> {
-        Ok(Self {
-            previous_outpoint: cctx::TransactionOutpoint {
-                tx_hash: signable_input.transaction_id.as_bytes(),
-                index: signable_input.index,
-            },
-            signature_script: signable_input.signature_script,
-            sequence: signable_input.sequence.parse()?,
-            sig_op_count: signable_input.sig_op_count,
-        })
     }
 }
 
@@ -230,20 +198,6 @@ pub struct SerializableTransactionOutput {
     pub script_public_key: ScriptPublicKey,
 }
 
-impl From<cctx::TransactionOutput> for SerializableTransactionOutput {
-    #[allow(deprecated)]
-    fn from(output: cctx::TransactionOutput) -> Self {
-        Self { value: output.value.to_string(), script_public_key: output.script_public_key }
-    }
-}
-
-impl From<&cctx::TransactionOutput> for SerializableTransactionOutput {
-    #[allow(deprecated)]
-    fn from(output: &cctx::TransactionOutput) -> Self {
-        Self { value: output.value.to_string(), script_public_key: output.script_public_key.clone() }
-    }
-}
-
 impl From<cctx::CellOut> for SerializableTransactionOutput {
     fn from(output: cctx::CellOut) -> Self {
         let script_public_key = cctx::ScriptPublicKey::from_vec(0, output.lock.to_bytes());
@@ -255,13 +209,6 @@ impl From<&cctx::CellOut> for SerializableTransactionOutput {
     fn from(output: &cctx::CellOut) -> Self {
         let script_public_key = cctx::ScriptPublicKey::from_vec(0, output.lock.to_bytes());
         Self { value: output.capacity.to_string(), script_public_key }
-    }
-}
-
-impl TryFrom<SerializableTransactionOutput> for cctx::TransactionOutput {
-    type Error = Error;
-    fn try_from(output: SerializableTransactionOutput) -> Result<Self> {
-        Ok(Self { value: output.value.parse()?, script_public_key: output.script_public_key })
     }
 }
 
@@ -287,9 +234,6 @@ pub struct SerializableTransaction {
     pub version: u16,
     pub inputs: Vec<SerializableTransactionInput>,
     pub outputs: Vec<SerializableTransactionOutput>,
-    pub subnetwork_id: SubnetworkId,
-    pub lock_time: String,
-    pub gas: String,
     #[serde(default)]
     pub mass: String,
     #[serde(with = "hex::serde")]
@@ -332,144 +276,62 @@ impl SerializableTransaction {
             inputs,
             version: transaction.version(),
             outputs: outputs.into_iter().map(Into::into).collect(),
-            lock_time: transaction.lock_time().to_string(),
-            subnetwork_id: Default::default(),
-            gas: 0.to_string(),
-            mass: transaction.mass().to_string(),
+            mass: project_verifiable_transaction_mass(&verifiable_tx, None).selection_mass.to_string(),
             payload: transaction.payload().map(|p| p.to_vec()).unwrap_or_default(),
         })
     }
 
     pub fn from_client_transaction(transaction: &Transaction) -> Result<Self> {
-        let inner = transaction.inner();
-
-        let inputs = inner.inputs.iter().map(TryFrom::try_from).collect::<Result<Vec<SerializableTransactionInput>>>()?;
-        let outputs = inner.outputs.iter().map(TryFrom::try_from).collect::<Result<Vec<SerializableTransactionOutput>>>()?;
-
-        Ok(Self {
-            inputs,
-            outputs,
-            version: inner.version,
-            lock_time: inner.lock_time.to_string(),
-            subnetwork_id: inner.subnetwork_id.clone(),
-            gas: inner.gas.to_string(),
-            mass: inner.mass.to_string(),
-            payload: inner.payload.clone(),
-            id: inner.id,
-        })
-    }
-
-    #[allow(deprecated)]
-    pub fn from_cctx_transaction(
-        transaction: &cctx::Transaction,
-        cell_entries: &AHashMap<CellEntryId, CellEntryReference>,
-    ) -> Result<Self> {
-        let inputs = transaction
-            .inputs
-            .iter()
-            .map(|input| {
-                let id = TransactionOutpointInner::new(
-                    TransactionId::from_slice(&input.previous_outpoint.tx_hash),
-                    input.previous_outpoint.index,
-                );
-                let cell_entry = cell_entries.get(&id).ok_or(Error::MissingCellEntry)?;
-                let cell_entry = cctx::CellEntry::from(cell_entry);
-                let input = SerializableTransactionInput::new(input, &cell_entry);
-                Ok(input)
-            })
-            .collect::<Result<Vec<SerializableTransactionInput>>>()?;
-
-        let outputs = transaction.outputs.iter().map(Into::into).collect::<Vec<SerializableTransactionOutput>>();
-
-        Ok(Self {
-            id: transaction.id(),
-            version: transaction.version,
-            inputs,
-            outputs,
-            lock_time: transaction.lock_time.to_string(),
-            subnetwork_id: transaction.subnetwork_id.clone(),
-            gas: transaction.gas.to_string(),
-            mass: transaction.mass().to_string(),
-            payload: transaction.payload.clone(),
-        })
+        Self::from_signable_transaction(&transaction.signable_transaction()?)
     }
 }
 
 impl TryFrom<SerializableTransaction> for cctx::SignableTransaction {
     type Error = Error;
     fn try_from(signable: SerializableTransaction) -> Result<Self> {
-        let mut entries = vec![];
-        let mut inputs = vec![];
-        for input in signable.inputs {
-            entries.push(input.cell_entry.as_ref().try_into()?);
-            inputs.push(input.try_into()?);
-        }
-
-        let outputs = signable.outputs.into_iter().map(TryInto::try_into).collect::<Result<Vec<_>>>()?;
-
-        #[allow(deprecated)]
-        let tx = cctx::Transaction::new(
-            signable.version,
-            inputs,
-            outputs,
-            signable.lock_time.parse()?,
-            signable.subnetwork_id,
-            signable.gas.parse()?,
-            signable.payload,
-        )
-        .with_mass(signable.mass.parse().unwrap_or_default());
-
-        Ok(Self::with_entries(cctx::cell_tx_from_legacy_transaction(&tx), entries))
+        let transaction = Transaction::try_from(signable)?;
+        transaction.signable_transaction()
     }
 }
 
 impl TryFrom<SerializableTransaction> for crate::Transaction {
     type Error = Error;
     fn try_from(tx: SerializableTransaction) -> Result<Self> {
-        let id = tx.id;
-        let inputs: Vec<TransactionInput> = tx.inputs.iter().map(TryInto::try_into).collect::<Result<Vec<_>>>()?;
-        let outputs: Vec<TransactionOutput> = tx.outputs.iter().map(TryInto::try_into).collect::<Result<Vec<_>>>()?;
-
-        Transaction::new(
-            Some(id),
-            tx.version,
-            inputs,
-            outputs,
-            tx.lock_time.parse()?,
-            tx.subnetwork_id,
-            tx.gas.parse()?,
-            tx.payload,
-            tx.mass.parse().unwrap_or_default(),
-        )
+        let signable_transaction = cctx::SignableTransaction::try_from(tx)?;
+        Ok(Transaction::from_signable_transaction(&signable_transaction))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use smallvec::smallvec;
     use spora_consensus_core::{
         cell_metadata::CellMetadata,
-        subnets,
-        tx::{ScriptPublicKey, TransactionInput, TransactionOutpoint},
+        mass::project_verifiable_transaction_mass,
+        tx::{CellOut, CellRef, CellTx, ScriptRef, TransactionOutpoint},
     };
     use spora_hashes::Hash;
 
     #[test]
     fn metadata_only_signable_transaction_returns_explicit_error() {
-        let tx = cctx::Transaction::new(
-            0,
-            vec![TransactionInput::new(TransactionOutpoint::new(Hash::from_bytes([1; 32]), 0), vec![], 0, 0)],
-            vec![cctx::TransactionOutput::new(100, ScriptPublicKey::new(0, smallvec![0x51]))],
-            0,
-            subnets::SUBNETWORK_ID_NATIVE,
-            0,
-            vec![],
+        let input = CellRef::new(
+            TransactionOutpoint::new(Hash::from_bytes([1; 32]).as_bytes(), 0),
+            0, // since
         );
+        let output = CellOut { capacity: 100, lock: ScriptRef::new([0x51u8; 32], 0, vec![]), type_: None };
+        let tx = CellTx::new(
+            vec![input],
+            vec![], // cell_deps
+            vec![output],
+            vec![vec![]], // outputs_data
+            vec![vec![]], // witnesses
+        )
+        .unwrap();
+
         let signable = cctx::SignableTransaction::with_resolved_metadata(
             tx,
             vec![CellMetadata {
-                out_point: TransactionOutpoint::new(Hash::from_bytes([1; 32]), 0),
+                out_point: TransactionOutpoint::new(Hash::from_bytes([1; 32]).as_bytes(), 0),
                 capacity: 100,
                 data_bytes: 0,
                 lock_hash: [2; 32],
@@ -488,5 +350,19 @@ mod tests {
 
         let error = SerializableTransaction::from_signable_transaction(&signable).unwrap_err();
         assert!(matches!(error, Error::MissingLegacyCellEntry(0)));
+    }
+
+    #[test]
+    fn serializable_transaction_uses_projected_selection_mass() {
+        let input = CellRef::new(TransactionOutpoint::new(Hash::from_bytes([4; 32]).as_bytes(), 0), 11);
+        let output = CellOut { capacity: 800, lock: ScriptRef::new([0x61u8; 32], 0, vec![3, 4]), type_: None };
+        let tx = CellTx::new(vec![input], vec![], vec![output], vec![vec![7, 7]], vec![vec![0xcd]]).unwrap();
+        let entry = cctx::CellEntry::from_cell_metadata(1_200, 0, [0x77; 32], None, [0; 32], 0, false);
+        let signable = cctx::SignableTransaction::with_entries(tx, vec![entry]);
+
+        let serialized = SerializableTransaction::from_signable_transaction(&signable).expect("serializable transaction");
+        let expected_mass = project_verifiable_transaction_mass(&signable.as_verifiable(), None).selection_mass;
+
+        assert_eq!(serialized.mass, expected_mass.to_string());
     }
 }

@@ -13,10 +13,10 @@ use spora_consensus_core::{
     coinbase::{BlockRewardData, MinerData},
     errors::block::RuleError,
     merkle::calc_hash_merkle_root_cell,
-    tx::{ScriptPublicKey, Transaction},
+    tx::ScriptPublicKey,
     BlockHashMap,
 };
-use spora_exec::{CellOut, CellTx, ScriptRef};
+use spora_exec::CellTx;
 use spora_hashes::Hash;
 
 use super::VirtualStateProcessor;
@@ -81,26 +81,6 @@ impl TestBlockBuilder {
             )
             .expect("coinbase transaction creation must succeed")
             .tx;
-
-        let outputs = coinbase
-            .outputs
-            .iter()
-            .map(|output| CellOut {
-                lock: ScriptRef::new(self.compute_lock_hash(&output.script_public_key), 0, vec![]),
-                type_: None,
-                capacity: output.value,
-            })
-            .collect();
-        let mut outputs_data = vec![vec![]; coinbase.outputs.len()];
-        let witnesses = if let Some(first) = outputs_data.first_mut() {
-            *first = coinbase.payload.clone();
-            vec![]
-        } else {
-            vec![coinbase.payload.clone()]
-        };
-        let coinbase =
-            CellTx::new(vec![], vec![], outputs, outputs_data, witnesses).expect("coinbase conversion must produce a valid cell tx");
-
         if template.block.transactions.is_empty() {
             template.block.transactions.push(coinbase);
         } else {
@@ -125,7 +105,7 @@ impl TestBlockBuilder {
         &self,
         parents: Vec<Hash>,
         miner_data: MinerData,
-        txs: Vec<Transaction>,
+        txs: Vec<CellTx>,
         validate_transactions: bool,
     ) -> Result<BlockTemplate, RuleError> {
         //
@@ -162,10 +142,10 @@ impl TestBlockBuilder {
             )?,
         };
         if validate_transactions {
-            self.validate_block_template_transactions(&txs, &pov_virtual_state)?;
+            self.validate_block_template_cell_transactions(&txs, &pov_virtual_state)?;
         }
         drop(virtual_read);
-        let mut template = self.build_block_template_from_virtual_state(pov_virtual_state, miner_data.clone(), txs, vec![])?;
+        let mut template = self.build_block_template_from_virtual_state_cell(pov_virtual_state, miner_data.clone(), txs, vec![])?;
         let ghostdag_data = self.ghostdag_manager.ghostdag(&parents);
         let pruning_info = self.pruning_point_store.read().get().unwrap();
         let daa_window = self.window_manager.block_daa_window(&ghostdag_data).unwrap();
@@ -190,7 +170,7 @@ impl TestBlockBuilder {
         &self,
         parents: Vec<Hash>,
         miner_data: MinerData,
-        txs: Vec<Transaction>,
+        txs: Vec<CellTx>,
     ) -> Result<BlockTemplate, RuleError> {
         self.build_block_template_with_parents_impl(parents, miner_data, txs, true)
     }
@@ -199,7 +179,7 @@ impl TestBlockBuilder {
         &self,
         parents: Vec<Hash>,
         miner_data: MinerData,
-        txs: Vec<Transaction>,
+        txs: Vec<CellTx>,
     ) -> Result<BlockTemplate, RuleError> {
         self.build_block_template_with_parents_impl(parents, miner_data, txs, false)
     }

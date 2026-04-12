@@ -1,10 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use itertools::Itertools;
 use rand::{thread_rng, Rng};
-use spora_consensus_core::{
-    subnets::SUBNETWORK_ID_NATIVE,
-    tx::{Transaction, TransactionInput, TransactionOutpoint},
-};
+use spora_consensus_core::tx::{CellRef, CellTx, TransactionOutpoint};
 use spora_hashes::{HasherBase, TransactionID};
 use spora_mining::{model::topological_index::TopologicalIndex, FeerateTransactionKey, Frontier, Policy};
 use std::{
@@ -69,20 +66,20 @@ pub fn bench_compare_topological_index_fns(c: &mut Criterion) {
     let mut group = c.benchmark_group("compare fns");
     group.bench_function("TopologicalIndex::topological_index", |b| {
         let dag = build_dag();
-        b.iter(|| (black_box(dag.topological_index())))
+        b.iter(|| black_box(dag.topological_index()))
     });
     group.bench_function("TopologicalIndex::topological_index_dfs", |b| {
         let dag = build_dag();
-        b.iter(|| (black_box(dag.topological_index_dfs())))
+        b.iter(|| black_box(dag.topological_index_dfs()))
     });
     group.finish();
 }
 
-fn generate_unique_tx(i: u64) -> Arc<Transaction> {
+fn generate_unique_tx(i: u64) -> Arc<CellTx> {
     let mut hasher = TransactionID::new();
     let prev = hasher.update(i.to_le_bytes()).clone().finalize();
-    let input = TransactionInput::new(TransactionOutpoint::new(prev, 0), vec![], 0, 0);
-    Arc::new(Transaction::new(0, vec![input], vec![], 0, SUBNETWORK_ID_NATIVE, 0, vec![]))
+    let input = CellRef::new(TransactionOutpoint::new(prev.as_bytes(), 0), 0);
+    Arc::new(CellTx::new(vec![input], vec![], vec![], vec![], vec![vec![]]).expect("benchmark tx must be a valid CellTx"))
 }
 
 fn build_feerate_key(fee: u64, mass: u64, id: u64) -> FeerateTransactionKey {
@@ -192,7 +189,7 @@ pub fn bench_mempool_selectors(c: &mut Criterion) {
             b.iter(|| {
                 black_box({
                     let mut selector = frontier.build_rebalancing_selector();
-                    selector.select_transactions().iter().map(|k| k.gas).sum::<u64>()
+                    selector.select_transactions().iter().map(|k| k.compute_mass()).sum::<u64>()
                 })
             })
         });
@@ -205,7 +202,7 @@ pub fn bench_mempool_selectors(c: &mut Criterion) {
                 black_box({
                     let mut selector = frontier.build_selector_sample_inplace(&mut collisions);
                     n += 1;
-                    selector.select_transactions().iter().map(|k| k.gas).sum::<u64>()
+                    selector.select_transactions().iter().map(|k| k.compute_mass()).sum::<u64>()
                 })
             })
         });
@@ -219,7 +216,7 @@ pub fn bench_mempool_selectors(c: &mut Criterion) {
                 b.iter(|| {
                     black_box({
                         let mut selector = frontier.build_selector_take_all();
-                        selector.select_transactions().iter().map(|k| k.gas).sum::<u64>()
+                        selector.select_transactions().iter().map(|k| k.compute_mass()).sum::<u64>()
                     })
                 })
             });
@@ -229,7 +226,7 @@ pub fn bench_mempool_selectors(c: &mut Criterion) {
             b.iter(|| {
                 black_box({
                     let mut selector = frontier.build_selector(&Policy::new(500_000));
-                    selector.select_transactions().iter().map(|k| k.gas).sum::<u64>()
+                    selector.select_transactions().iter().map(|k| k.compute_mass()).sum::<u64>()
                 })
             })
         });
@@ -265,7 +262,7 @@ pub fn bench_inplace_sampling_worst_case(c: &mut Criterion) {
                 black_box({
                     let mut selector = frontier.build_selector_sample_inplace(&mut collisions);
                     n += 1;
-                    selector.select_transactions().iter().map(|k| k.gas).sum::<u64>()
+                    selector.select_transactions().iter().map(|k| k.compute_mass()).sum::<u64>()
                 })
             })
         });

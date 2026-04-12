@@ -4,7 +4,7 @@ use crate::common::{client_notify::ChannelNotify, daemon::Daemon};
 use futures_util::future::try_join_all;
 use spora_addresses::{Address, Prefix, Version};
 use spora_consensus::params::SIMNET_GENESIS;
-use spora_consensus_core::{constants::MAX_SAU, header::Header, subnets::SubnetworkId, tx::Transaction};
+use spora_consensus_core::{constants::MAX_SAU, header::Header, subnets::SubnetworkId, tx::CellTx};
 use spora_core::{assert_match, info};
 use spora_grpc_core::ops::SporadPayloadOps;
 use spora_hashes::Hash;
@@ -378,7 +378,7 @@ async fn sanity_test() {
                 let rpc_client = client.clone();
                 tst!(op, {
                     // Build an erroneous transaction...
-                    let transaction = Transaction::new(0, vec![], vec![], 0, SubnetworkId::default(), 0, vec![]);
+                    let transaction = Transaction::new_native(0, vec![], vec![], vec![]);
                     let result = rpc_client.submit_transaction((&transaction).into(), false).await;
                     // ...that gets rejected by the consensus
                     assert!(result.is_err());
@@ -389,7 +389,7 @@ async fn sanity_test() {
                 let rpc_client = client.clone();
                 tst!(op, {
                     // Build an erroneous transaction...
-                    let transaction = Transaction::new(0, vec![], vec![], 0, SubnetworkId::default(), 0, vec![]);
+                    let transaction = Transaction::new_native(0, vec![], vec![], vec![]);
                     let result = rpc_client.submit_transaction_replacement((&transaction).into()).await;
                     // ...that gets rejected by the consensus
                     assert!(result.is_err());
@@ -399,8 +399,12 @@ async fn sanity_test() {
             SporadPayloadOps::GetSubnetwork => {
                 let rpc_client = client.clone();
                 tst!(op, {
-                    let result =
-                        rpc_client.get_subnetwork_call(None, GetSubnetworkRequest { subnetwork_id: SubnetworkId::from_byte(0) }).await;
+                    let result = rpc_client
+                        .get_subnetwork_call(
+                            None,
+                            GetSubnetworkRequest { subnetwork_id: spora_rpc_core::model::RpcSubnetworkId::from_byte(0) },
+                        )
+                        .await;
 
                     // Err because it's currently unimplemented
                     assert!(result.is_err());

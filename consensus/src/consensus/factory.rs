@@ -3,7 +3,7 @@ use super::cell_set_override::{set_genesis_cell_commitment_from_config, set_init
 use super::{ctl::Ctl, Consensus};
 use crate::{model::stores::U64Key, pipeline::ProcessingCounters};
 use itertools::Itertools;
-use spora_consensus_core::{config::Config, mining_rules::MiningRules};
+use spora_consensus_core::{config::Config, mining_rules::MiningRules, tx::ScriptCacheCounters};
 use spora_consensus_notify::root::ConsensusNotificationRoot;
 use spora_consensusmanager::{ConsensusFactory, ConsensusInstance, DynConsensusCtl, SessionLock};
 use spora_core::{debug, time::unix_now, warn};
@@ -17,7 +17,6 @@ use spora_database::{
 use parking_lot::RwLock;
 use rocksdb::WriteBatch;
 use serde::{Deserialize, Serialize};
-use spora_txscript::caches::TxScriptCacheCounters;
 use spora_utils::mem_size::MemSizeEstimator;
 use std::{collections::HashMap, error::Error, fs, path::PathBuf, sync::Arc};
 
@@ -252,7 +251,7 @@ pub struct Factory {
     db_parallelism: usize,
     notification_root: Arc<ConsensusNotificationRoot>,
     counters: Arc<ProcessingCounters>,
-    tx_script_cache_counters: Arc<TxScriptCacheCounters>,
+    tx_script_cache_counters: Arc<ScriptCacheCounters>,
     fd_budget: i32,
     mining_rules: Arc<MiningRules>,
 }
@@ -265,7 +264,7 @@ impl Factory {
         db_parallelism: usize,
         notification_root: Arc<ConsensusNotificationRoot>,
         counters: Arc<ProcessingCounters>,
-        tx_script_cache_counters: Arc<TxScriptCacheCounters>,
+        tx_script_cache_counters: Arc<ScriptCacheCounters>,
         fd_budget: i32,
         mining_rules: Arc<MiningRules>,
     ) -> Self {

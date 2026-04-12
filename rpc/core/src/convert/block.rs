@@ -6,20 +6,6 @@ use crate::{RpcBlock, RpcError, RpcRawBlock, RpcResult};
 use spora_consensus_core::block::{Block, MutableBlock};
 use spora_consensus_core::tx::CellTx;
 
-fn rpc_transaction_from_cell_tx(cell_tx: &CellTx) -> crate::RpcTransaction {
-    crate::RpcTransaction {
-        version: cell_tx.ver,
-        inputs: crate::RpcTransactionInput::from_cell_refs(&cell_tx.inputs, &cell_tx.witnesses),
-        outputs: crate::RpcTransactionOutput::from_cell_outputs(&cell_tx.outputs, &cell_tx.outputs_data),
-        lock_time: 0,
-        subnetwork_id: if cell_tx.is_coinbase() { crate::RpcSubnetworkId::coinbase() } else { crate::RpcSubnetworkId::native() },
-        gas: 0,
-        payload: cell_tx.payload().map(ToOwned::to_owned).unwrap_or_default(),
-        mass: cell_tx.storage_mass(),
-        verbose_data: None,
-    }
-}
-
 // ----------------------------------------------------------------------------
 // consensus_core to rpc_core
 // ----------------------------------------------------------------------------
@@ -28,7 +14,7 @@ impl From<&Block> for RpcBlock {
     fn from(item: &Block) -> Self {
         Self {
             header: item.header.as_ref().into(),
-            transactions: item.transactions.iter().map(rpc_transaction_from_cell_tx).collect(),
+            transactions: item.transactions.iter().map(crate::RpcTransaction::from).collect(),
             verbose_data: None,
         }
     }
@@ -36,10 +22,7 @@ impl From<&Block> for RpcBlock {
 
 impl From<&Block> for RpcRawBlock {
     fn from(item: &Block) -> Self {
-        Self {
-            header: item.header.as_ref().into(),
-            transactions: item.transactions.iter().map(rpc_transaction_from_cell_tx).collect(),
-        }
+        Self { header: item.header.as_ref().into(), transactions: item.transactions.iter().map(crate::RpcTransaction::from).collect() }
     }
 }
 
@@ -47,7 +30,7 @@ impl From<&MutableBlock> for RpcBlock {
     fn from(item: &MutableBlock) -> Self {
         Self {
             header: item.header.as_ref().into(),
-            transactions: item.transactions.iter().map(rpc_transaction_from_cell_tx).collect(),
+            transactions: item.transactions.iter().map(crate::RpcTransaction::from).collect(),
             verbose_data: None,
         }
     }
@@ -55,16 +38,13 @@ impl From<&MutableBlock> for RpcBlock {
 
 impl From<&MutableBlock> for RpcRawBlock {
     fn from(item: &MutableBlock) -> Self {
-        Self {
-            header: item.header.as_ref().into(),
-            transactions: item.transactions.iter().map(rpc_transaction_from_cell_tx).collect(),
-        }
+        Self { header: item.header.as_ref().into(), transactions: item.transactions.iter().map(crate::RpcTransaction::from).collect() }
     }
 }
 
 impl From<MutableBlock> for RpcRawBlock {
     fn from(item: MutableBlock) -> Self {
-        Self { header: item.header.into(), transactions: item.transactions.iter().map(rpc_transaction_from_cell_tx).collect() }
+        Self { header: item.header.into(), transactions: item.transactions.iter().map(crate::RpcTransaction::from).collect() }
     }
 }
 
@@ -90,7 +70,7 @@ impl TryFrom<RpcRawBlock> for Block {
 
 #[cfg(test)]
 mod tests {
-    use super::rpc_transaction_from_cell_tx;
+    use spora_consensus_core::mass::project_cell_tx_mass;
     use spora_consensus_core::tx::{CellOut, CellRef, CellTx, OutPoint, ScriptRef};
 
     #[test]
@@ -108,7 +88,7 @@ mod tests {
         )
         .unwrap();
 
-        let rpc_tx = rpc_transaction_from_cell_tx(&tx);
+        let rpc_tx = crate::RpcTransaction::from(&tx);
 
         assert_eq!(rpc_tx.version, tx.ver);
         assert_eq!(rpc_tx.inputs.len(), 1);
@@ -124,7 +104,7 @@ mod tests {
         assert_eq!(rpc_output.lock_hash, Some(lock.hash()));
         assert_eq!(rpc_output.type_hash, Some(type_script.hash()));
         assert_eq!(rpc_output.data_hash, Some(*blake3::hash(&output_data).as_bytes()));
-        assert_eq!(rpc_tx.mass, tx.storage_mass());
+        assert_eq!(rpc_tx.mass, project_cell_tx_mass(&tx, None).selection_mass);
         assert_eq!(rpc_tx.payload, Vec::<u8>::new());
     }
 }

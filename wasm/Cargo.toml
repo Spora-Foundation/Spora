@@ -24,7 +24,6 @@ spora-consensus-wasm.workspace = true
 spora-core.workspace = true
 spora-math.workspace = true
 spora-pow.workspace = true
-spora-txscript.workspace = true
 spora-rpc-core.workspace = true
 spora-utils.workspace = true
 spora-wasm-core.workspace = true
@@ -42,12 +41,10 @@ workflow-wasm.workspace = true
 wasm32-sdk = [
     "spora-wallet-core/wasm32-sdk",
     "spora-pow/wasm32-sdk",
-    "spora-txscript/wasm32-sdk",
 ]
 wasm32-core = [
     "spora-wallet-core/wasm32-core",
     "spora-pow/wasm32-sdk",
-    "spora-txscript/wasm32-sdk",
 ]
 wasm32-rpc = [
     "spora-consensus-core/wasm32-sdk",

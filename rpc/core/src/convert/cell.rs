@@ -3,10 +3,9 @@
 use crate::RpcCellEntry;
 use crate::RpcCellsByAddressesEntry;
 use spora_addresses::Prefix;
-use spora_consensus_core::tx::ScriptPublicKey;
+use spora_consensus_core::tx::{extract_script_pub_key_address, ScriptPublicKey};
 use spora_index_core::indexed_cells::CellSetByScriptPublicKey;
 use spora_index_core::indexed_cells::CompactCellCollection;
-use spora_txscript::extract_script_pub_key_address;
 
 // ----------------------------------------------------------------------------
 // index to rpc_core

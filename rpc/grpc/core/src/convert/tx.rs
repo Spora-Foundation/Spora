@@ -1,7 +1,6 @@
 use crate::protowire;
 use crate::{from, try_from};
 use spora_rpc_core::{FromRpcHex, RpcError, RpcHash, RpcResult, RpcScriptVec, ToRpcHex};
-use std::str::FromStr;
 
 // ----------------------------------------------------------------------------
 // rpc_core to protowire
@@ -12,9 +11,6 @@ from!(item: &spora_rpc_core::RpcTransaction, protowire::RpcTransaction, {
         version: item.version.into(),
         inputs: item.inputs.iter().map(protowire::RpcTransactionInput::from).collect(),
         outputs: item.outputs.iter().map(protowire::RpcTransactionOutput::from).collect(),
-        lock_time: item.lock_time,
-        subnetwork_id: item.subnetwork_id.to_string(),
-        gas: item.gas,
         payload: item.payload.to_rpc_hex(),
         mass: item.mass,
         verbose_data: item.verbose_data.as_ref().map(|x| x.into()),
@@ -119,9 +115,6 @@ try_from!(item: &protowire::RpcTransaction, spora_rpc_core::RpcTransaction, {
             .iter()
             .map(spora_rpc_core::RpcTransactionOutput::try_from)
             .collect::<RpcResult<Vec<spora_rpc_core::RpcTransactionOutput>>>()?,
-        lock_time: item.lock_time,
-        subnetwork_id: spora_rpc_core::RpcSubnetworkId::from_str(&item.subnetwork_id)?,
-        gas: item.gas,
         payload: Vec::from_rpc_hex(&item.payload)?,
         mass: item.mass,
         verbose_data: item.verbose_data.as_ref().map(spora_rpc_core::RpcTransactionVerboseData::try_from).transpose()?,

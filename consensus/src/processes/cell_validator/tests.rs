@@ -165,7 +165,7 @@ mod tests {
 
     #[test]
     fn test_validate_in_dag_accepts_dep_group() {
-        use spora_exec::{CellDep, DepType, encode_dep_group_data};
+        use spora_exec::{encode_dep_group_data, CellDep, DepType};
 
         let pov = Hash::from_bytes([3; 32]);
         let input_out_point = OutPoint::new([1; 32], 0);
@@ -256,7 +256,7 @@ mod tests {
     #[test]
     fn test_validate_in_dag_rejects_dep_group_with_missing_expanded_dep() {
         use crate::processes::cell_validator::CellValidationError;
-        use spora_exec::{CellDep, DepType, encode_dep_group_data};
+        use spora_exec::{encode_dep_group_data, CellDep, DepType};
 
         let pov = Hash::from_bytes([3; 32]);
         let input_out_point = OutPoint::new([1; 32], 0);

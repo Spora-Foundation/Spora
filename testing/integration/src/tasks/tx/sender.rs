@@ -1,7 +1,7 @@
 use crate::tasks::{tx::submitter::IndexedTransaction, Stopper, Task};
 use async_channel::Sender;
 use async_trait::async_trait;
-use spora_consensus_core::tx::Transaction;
+use spora_consensus_core::tx::CellTx;
 use spora_core::{info, warn};
 use spora_grpc_client::GrpcClient;
 use spora_rpc_core::api::rpc::RpcApi;
@@ -14,7 +14,7 @@ use tokio::{
 
 pub struct TransactionSenderTask {
     client: Arc<GrpcClient>,
-    txs: Vec<Arc<Transaction>>,
+    txs: Vec<Arc<CellTx>>,
     tps_pressure: u64,
     mempool_target: u64,
     sender: Sender<IndexedTransaction>,
@@ -26,7 +26,7 @@ impl TransactionSenderTask {
 
     pub fn new(
         client: Arc<GrpcClient>,
-        txs: Vec<Arc<Transaction>>,
+        txs: Vec<Arc<CellTx>>,
         tps_pressure: u64,
         mempool_target: u64,
         sender: Sender<IndexedTransaction>,
@@ -37,7 +37,7 @@ impl TransactionSenderTask {
 
     pub async fn build(
         client: Arc<GrpcClient>,
-        txs: Vec<Arc<Transaction>>,
+        txs: Vec<Arc<CellTx>>,
         tps_pressure: u64,
         mempool_target: u64,
         sender: Sender<IndexedTransaction>,

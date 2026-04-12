@@ -37,8 +37,7 @@ mod outpoint_serde {
             }
             let mut bytes = [0u8; 32];
             for i in 0..32 {
-                bytes[i] =
-                    u8::from_str_radix(&s[2 * i..2 * i + 2], 16).map_err(serde::de::Error::custom)?;
+                bytes[i] = u8::from_str_radix(&s[2 * i..2 * i + 2], 16).map_err(serde::de::Error::custom)?;
             }
             Ok(bytes)
         } else {
@@ -116,7 +115,13 @@ impl fmt::Display for OutPoint {
 pub struct ScriptRef {
     /// Script code hash (points to a Cell's data)
     pub code_hash: [u8; 32],
-    /// Hash type: 0=Data, 1=Type, 2=Data1, 3=Data2
+    /// Hash type: 0=Data, 1=Type, 2=Data1, 4=Data2
+    ///
+    /// NOTE: Aligned with CKB ScriptHashType encoding:
+    /// - Data = 0
+    /// - Type = 1  
+    /// - Data1 = 2
+    /// - Data2 = 4 (NOT 3, to maintain CKB compatibility)
     pub hash_type: u8,
     /// Script arguments (passed to VM)
     pub args: Vec<u8>,
@@ -259,10 +264,7 @@ pub fn parse_dep_group_data(data: &[u8]) -> Result<Vec<OutPoint>, String> {
     let count = u32::from_le_bytes([data[0], data[1], data[2], data[3]]) as usize;
     let expected = 4 + count * 36;
     if data.len() != expected {
-        return Err(format!(
-            "DepGroup data length mismatch: expected {} bytes for {} outpoints, got {}",
-            expected, count, data.len()
-        ));
+        return Err(format!("DepGroup data length mismatch: expected {} bytes for {} outpoints, got {}", expected, count, data.len()));
     }
     let mut outpoints = Vec::with_capacity(count);
     for i in 0..count {
@@ -346,15 +348,6 @@ impl CellTx {
     /// This is for compatibility with Transaction interface
     pub fn version(&self) -> u16 {
         self.ver
-    }
-
-    /// Get the transaction-level lock time.
-    ///
-    /// Cell model uses per-input `since` for time locks instead of a global
-    /// lock_time field. This compatibility accessor always returns 0 so
-    /// legacy opcode paths (e.g. OpCheckLockTimeVerify) remain functional.
-    pub fn lock_time(&self) -> u64 {
-        0
     }
 
     /// Check if this is a cellbase (coinbase) transaction
@@ -634,11 +627,7 @@ mod tests {
 
     #[test]
     fn test_dep_group_roundtrip() {
-        let ops = vec![
-            OutPoint::new([0x11; 32], 0),
-            OutPoint::new([0x22; 32], 7),
-            OutPoint::new([0x33; 32], u32::MAX),
-        ];
+        let ops = vec![OutPoint::new([0x11; 32], 0), OutPoint::new([0x22; 32], 7), OutPoint::new([0x33; 32], u32::MAX)];
         let data = encode_dep_group_data(&ops);
         let parsed = parse_dep_group_data(&data).unwrap();
         assert_eq!(parsed, ops);

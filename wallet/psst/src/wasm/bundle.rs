@@ -113,8 +113,7 @@ mod tests {
     use crate::psst::PSST as Native;
     use console_log;
     use serde_json::json;
-    use spora_consensus_core::tx::ScriptPublicKey;
-    use std::str::FromStr;
+    use spora_consensus_core::tx::ScriptRef;
     use wasm_bindgen_test::wasm_bindgen_test;
     use wasm_bindgen_test::*;
     #[wasm_bindgen_test]
@@ -148,7 +147,6 @@ mod tests {
             "global": {
                 "version": 0,
                 "txVersion": 0,
-                "fallbackLockTime": null,
                 "inputsModifiable": false,
                 "outputsModifiable": false,
                 "inputCount": 0,
@@ -170,7 +168,6 @@ mod tests {
                         "index": 0
                     },
                     "sequence": null,
-                    "minTime": null,
                     "partialSigs": {},
                     "sighashType": 1,
                     "redeemScript": null,
@@ -182,8 +179,14 @@ mod tests {
             ],
             "outputs": [
                 {
-                    "amount": 1500000000,
-                    "scriptPublicKey": "0000",
+                    "capacity": 1500000000,
+                    "lockScript": {
+                        "codeHash": "0000000000000000000000000000000000000000000000000000000000000000",
+                        "hashType": 0,
+                        "args": []
+                    },
+                    "typeScript": null,
+                    "outputData": null,
                     "redeemScript": null,
                     "bip32Derivations": {},
                     "proprietaries": {}
@@ -221,10 +224,7 @@ mod tests {
         let inner = deserialized_bundle.0 .0.first().expect("psst after deserialize");
         assert_eq!(inner.inputs.len(), 1);
         let input_01 = inner.inputs.first().expect("first input");
-        assert_eq!(input_01.clone().cell_entry.expect("cell entry").amount, 468928887);
-        assert_eq!(
-            inner.outputs.first().expect("output").script_public_key,
-            ScriptPublicKey::from_str("0000").expect("convert valid spk")
-        );
+        assert_eq!(input_01.clone().cell_entry.expect("cell entry").amount(), 468928887);
+        assert_eq!(inner.outputs.first().expect("output").lock_script, ScriptRef::new([0; 32], 0, vec![]));
     }
 }

@@ -7,6 +7,7 @@ use spora_consensus_core::{
     constants::TRANSIENT_BYTE_TO_MASS_FACTOR,
     errors::config::{ConfigError, ConfigResult},
     mining_rules::MiningRules,
+    tx::ScriptCacheCounters,
 };
 use spora_consensus_notify::{root::ConsensusNotificationRoot, service::NotifyService};
 use spora_core::{core::Core, debug, info, trace, warn};
@@ -20,7 +21,6 @@ use spora_notify::{address::tracker::Tracker, subscription::context::Subscriptio
 use spora_p2p_lib::Hub;
 use spora_p2p_mining::rule_engine::MiningRuleEngine;
 use spora_rpc_service::service::RpcCoreService;
-use spora_txscript::caches::TxScriptCacheCounters;
 use spora_utils::git;
 use spora_utils::networking::ContextualNetAddress;
 use spora_utils::sysinfo::SystemInfo;
@@ -571,7 +571,7 @@ do you confirm? (answer y/n or pass --yes to the Sporad command line to confirm 
     let mining_counters = Arc::new(MiningCounters::default());
     let wrpc_borsh_counters = Arc::new(WrpcServerCounters::default());
     let wrpc_json_counters = Arc::new(WrpcServerCounters::default());
-    let tx_script_cache_counters = Arc::new(TxScriptCacheCounters::default());
+    let tx_script_cache_counters = Arc::new(ScriptCacheCounters::default());
     let p2p_tower_counters = Arc::new(TowerConnectionCounters::default());
     let grpc_tower_counters = Arc::new(TowerConnectionCounters::default());
 

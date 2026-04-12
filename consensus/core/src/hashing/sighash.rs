@@ -4,7 +4,7 @@ use std::cell::Cell;
 use std::sync::Arc;
 
 use crate::cell_metadata::{parse_cell_metadata_placeholder_script_public_key, PlaceholderCellMetadata};
-use crate::tx::{CellOut, CellTx, ScriptPublicKey, TransactionOutpoint, TransactionOutput, VerifiableTransaction};
+use crate::tx::{CellOut, CellTx, ScriptPublicKey, TransactionOutpoint, VerifiableTransaction};
 
 use super::{sighash_type::SigHashType, HasherExtensions};
 
@@ -209,7 +209,11 @@ pub fn outputs_hash(tx: &CellTx, hash_type: SigHashType, reused_values: &impl Si
         }
 
         let mut hasher = TransactionSigningHash::new();
-        hash_cell_output(&mut hasher, &tx.outputs[input_index], tx.outputs_data.get(input_index).map(Vec::as_slice).unwrap_or_default());
+        hash_cell_output(
+            &mut hasher,
+            &tx.outputs[input_index],
+            tx.outputs_data.get(input_index).map(Vec::as_slice).unwrap_or_default(),
+        );
         return hasher.finalize();
     }
     let hash = || {
@@ -227,11 +231,6 @@ pub fn outputs_hash(tx: &CellTx, hash_type: SigHashType, reused_values: &impl Si
 pub fn hash_outpoint(hasher: &mut impl Hasher, outpoint: TransactionOutpoint) {
     hasher.update(outpoint.tx_hash);
     hasher.write_u32(outpoint.index);
-}
-
-pub fn hash_output(hasher: &mut impl Hasher, output: &TransactionOutput) {
-    hasher.write_u64(output.value);
-    hash_script_public_key_or_metadata(hasher, &output.script_public_key);
 }
 
 pub fn hash_cell_output(hasher: &mut impl Hasher, output: &CellOut, data: &[u8]) {
@@ -347,7 +346,10 @@ mod tests {
         cell_metadata::CellMetadata,
         hashing::sighash_type::{SIG_HASH_ALL, SIG_HASH_ANY_ONE_CAN_PAY, SIG_HASH_NONE, SIG_HASH_SINGLE},
         subnets::{SubnetworkId, SUBNETWORK_ID_NATIVE},
-        tx::{cell_meta_from_legacy_output, cell_tx_from_legacy_transaction, outpoint_from_id, MutableTransaction, PopulatedTransaction, Transaction, TransactionId, TransactionInput},
+        tx::{
+            cell_meta_from_legacy_output, cell_tx_from_legacy_transaction, outpoint_from_id, MutableTransaction, PopulatedTransaction,
+            Transaction, TransactionId, TransactionInput,
+        },
     };
 
     use super::*;
@@ -676,7 +678,7 @@ mod tests {
                         tx.outputs_data[0] = vec![6, 6, 6, 4, 2, 0, 1, 3, 3, 7];
                     }
                 }
-                ModifyAction::Gas => {} // No equivalent in CellTx
+                ModifyAction::Gas => {}          // No equivalent in CellTx
                 ModifyAction::SubnetworkId => {} // No equivalent in CellTx
             }
             let populated_tx = PopulatedTransaction::new(&tx, entries);

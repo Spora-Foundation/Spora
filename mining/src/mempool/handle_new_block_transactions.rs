@@ -12,10 +12,7 @@ use spora_consensus_core::{
 };
 use spora_core::time::Stopwatch;
 use spora_hashes::Hash;
-use std::{
-    collections::{HashMap, HashSet},
-    sync::atomic::Ordering,
-};
+use std::{collections::HashSet, sync::atomic::Ordering};
 
 impl Mempool {
     fn get_local_transaction_ids_with_parent_transaction(&self, parent_transaction_id: &TransactionId) -> Vec<TransactionId> {
@@ -26,11 +23,7 @@ impl Mempool {
         transaction_ids
     }
 
-    fn find_local_transaction_id_for_accepted_cell_tx(
-        &self,
-        accepted_tx: &CellTx,
-        _accepted_local_mappings: &HashMap<TransactionId, TransactionId>,
-    ) -> Option<TransactionId> {
+    fn find_local_transaction_id_for_accepted_cell_tx(&self, accepted_tx: &CellTx) -> Option<TransactionId> {
         let mut candidate_ids = HashSet::new();
         for input in &accepted_tx.inputs {
             let parent_cell_id = Hash::from_bytes(input.out_point.tx_hash);
@@ -55,23 +48,21 @@ impl Mempool {
         block_daa_score: u64,
         block_transactions: &[CellTx],
     ) -> RuleResult<Vec<MempoolTransaction>> {
+        #[cfg(not(test))]
+        let _ = consensus;
         let _sw = Stopwatch::<400>::with_threshold("handle_new_block_transactions op");
         let mut unorphaned_transactions = vec![];
         let mut tx_accepted_counts = 0;
         let mut input_counts = 0;
         let mut output_counts = 0;
-        let mut accepted_local_mappings = HashMap::new();
         for transaction in block_transactions.iter().skip(1) {
             let transaction_id: TransactionId = transaction.id().into();
             let resolved_transaction_id = self
                 .resolve_transaction_id_by_cell_transaction_id(&transaction_id)
-                .or_else(|| self.find_local_transaction_id_for_accepted_cell_tx(transaction, &accepted_local_mappings))
+                .or_else(|| self.find_local_transaction_id_for_accepted_cell_tx(transaction))
                 .unwrap_or(transaction_id);
 
-            let accepted_legacy_transaction_id = consensus.get_transaction(transaction_id).ok().map(|tx| tx.id());
-            if let Some(legacy_transaction_id) = accepted_legacy_transaction_id.filter(|legacy_id| *legacy_id != transaction_id) {
-                accepted_local_mappings.insert(legacy_transaction_id, transaction_id);
-            }
+            let accepted_compat_transaction_id: Option<TransactionId> = None;
 
             // Rust rewrite: This behavior does differ from golang implementation.
             // If the transaction got accepted via a peer but is still an orphan here, do not remove
@@ -95,7 +86,7 @@ impl Mempool {
 
             let newly_unorphaned = self.get_unorphaned_transactions_after_accepted_cell_transaction(
                 transaction,
-                accepted_legacy_transaction_id,
+                accepted_compat_transaction_id,
                 block_daa_score,
             );
             if !newly_unorphaned.is_empty() {

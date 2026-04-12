@@ -23,7 +23,7 @@ export interface ICellRecord {
     address?: Address;
     index: number;
     amount: bigint;
-    scriptPublicKey: HexString;
+    lockHash: HexString;
     isCoinbase: boolean;
 }
 
@@ -561,8 +561,9 @@ impl TransactionRecord {
         let unixtime = unixtime_as_millis_u64();
 
         let pending_tx = outgoing_tx.pending_transaction();
-        let PendingTransactionInner { fees, aggregate_input_value, aggregate_output_value, payment_value, change_output_value, .. } =
-            &*pending_tx.inner;
+        let PendingTransactionInner {
+            fees, aggregate_input_value, aggregate_output_value, payment_value, change_output_value, ..
+        } = &*pending_tx.inner;
 
         let transaction = pending_tx.transaction();
         let id = TransactionId::from_bytes(transaction.id());
@@ -601,8 +602,9 @@ impl TransactionRecord {
         let unixtime = unixtime_as_millis_u64();
 
         let pending_tx = outgoing_tx.pending_transaction();
-        let PendingTransactionInner { fees, aggregate_input_value, aggregate_output_value, payment_value, change_output_value, .. } =
-            &*pending_tx.inner;
+        let PendingTransactionInner {
+            fees, aggregate_input_value, aggregate_output_value, payment_value, change_output_value, ..
+        } = &*pending_tx.inner;
 
         let transaction = pending_tx.transaction();
         let id = TransactionId::from_bytes(transaction.id());
@@ -647,8 +649,9 @@ impl TransactionRecord {
         let unixtime = unixtime_as_millis_u64();
 
         let pending_tx = outgoing_tx.pending_transaction();
-        let PendingTransactionInner { fees, aggregate_input_value, aggregate_output_value, payment_value, change_output_value, .. } =
-            &*pending_tx.inner;
+        let PendingTransactionInner {
+            fees, aggregate_input_value, aggregate_output_value, payment_value, change_output_value, ..
+        } = &*pending_tx.inner;
 
         let transaction = pending_tx.transaction();
         let id = TransactionId::from_bytes(transaction.id());
@@ -693,8 +696,9 @@ impl TransactionRecord {
         let unixtime = unixtime_as_millis_u64();
 
         let pending_tx = outgoing_tx.pending_transaction();
-        let PendingTransactionInner { fees, aggregate_input_value, aggregate_output_value, payment_value, change_output_value, .. } =
-            &*pending_tx.inner;
+        let PendingTransactionInner {
+            fees, aggregate_input_value, aggregate_output_value, payment_value, change_output_value, ..
+        } = &*pending_tx.inner;
 
         let transaction = pending_tx.transaction();
         let id = TransactionId::from_bytes(transaction.id());

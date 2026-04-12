@@ -8,7 +8,10 @@ use super::{
     model::tx::{CandidateList, SelectableTransaction, SelectableTransactions, TransactionIndex},
     policy::Policy,
 };
-use spora_consensus_core::{block::TemplateTransactionSelector, tx::{CellTx, TransactionId}};
+use spora_consensus_core::{
+    block::TemplateTransactionSelector,
+    tx::{CellTx, TransactionId},
+};
 
 /// ALPHA is a coefficient that defines how uniform the distribution of
 /// candidate transactions should be. A smaller alpha makes the distribution
@@ -143,7 +146,11 @@ impl RebalancingWeightedTransactionSelector {
             self.total_mass += selected_tx.calculated_mass;
             self.total_fees += selected_tx.calculated_fee;
 
-            trace!("Adding tx {:?} (fee per gram: {1})", selected_tx.tx.id(), selected_tx.calculated_fee / selected_tx.calculated_mass);
+            trace!(
+                "Adding tx {:?} (fee per gram: {1})",
+                selected_tx.tx.id(),
+                selected_tx.calculated_fee / selected_tx.calculated_mass
+            );
 
             // Mark for deletion
             selected_candidate.is_marked_for_deletion = true;
@@ -221,13 +228,16 @@ impl TemplateTransactionSelector for RebalancingWeightedTransactionSelector {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testutils::legacy_script::op_true_script;
     use itertools::Itertools;
     use spora_consensus_core::{
         constants::{MAX_TX_IN_SEQUENCE_NUM, SAU_PER_SPORA, TX_VERSION},
         mass::cell_tx_estimated_serialized_size,
-        tx::{compute_lock_hash_for_script, CellOut, CellRef, CellTx, ScriptRef, TransactionId, TransactionOutpoint},
+        tx::{
+            compute_lock_hash_for_script, pay_to_script_hash_signature_script, CellOut, CellRef, CellTx, ScriptRef, TransactionId,
+            TransactionOutpoint,
+        },
     };
-    use spora_txscript::{pay_to_script_hash_signature_script, test_helpers::op_true_script};
     use std::{collections::HashSet, sync::Arc};
 
     use crate::{
@@ -244,10 +254,7 @@ mod tests {
 
         // Create a vector of transactions differing by output value so they have unique ids
         let transactions = (0..TX_INITIAL_COUNT).map(|i| create_transaction(SAU_PER_SPORA * (i + 1) as u64)).collect_vec();
-        let masses: HashMap<_, _> = transactions
-            .iter()
-            .map(|tx| (tx.tx.id(), tx.calculated_mass))
-            .collect();
+        let masses: HashMap<_, _> = transactions.iter().map(|tx| (tx.tx.id(), tx.calculated_mass)).collect();
         let sequence: SequenceSelectorInput = transactions
             .iter()
             .map(|tx| SequenceSelectorTransaction::new(tx.tx.clone(), tx.cell_tx.clone(), tx.calculated_mass))

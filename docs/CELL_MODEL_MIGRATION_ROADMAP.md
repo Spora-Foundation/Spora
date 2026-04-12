@@ -301,21 +301,16 @@
 - `TransactionInput.sig_op_count`
 - legacy `sequence lock` 语义
 
-### 为什么这是最后一步
+### 为什么要一次性收口
 
-这些字段目前仍是：
+这些字段散落在 RPC schema、钱包构造器、legacy sighash 和历史 bridge 上。继续保留“薄兼容层”只会让 `Transaction` 继续成为事实标准对象，拖长双轨期。
 
-- RPC schema 的一部分
-- 钱包和构造器的兼容面
-- legacy bridge `CellTx <-> Transaction` 的承重点
+当前迁移策略改为：
 
-先删它们只会把系统炸穿，而不会让系统更 Cell-native。
-
-### 删除前置条件
-
-- canonical CellTx 在共识、钱包、RPC、模板构造全链可用
-- legacy `Transaction` 只剩薄兼容层
-- 所有主调用方已切到 `CellTx` 或 metadata-aware wrapper
+- 不再新增 `CellTx <-> Transaction` 桥接层
+- 不再以“先保留兼容壳、后续再清”为默认路线
+- 删除 legacy 字段时，同一轮把主调用方迁到 `CellTx` 或 metadata-aware wrapper
+- 编译断点属于迁移清单的一部分，不是引入新适配器的理由
 
 ### 完成条件
 
@@ -323,6 +318,8 @@
 - `CellTx` 成为唯一规范交易对象
 
 ## 5. 模块处理矩阵
+
+说明：下表中的“现在能不能删 = 否”仅表示这些项不能在不迁移调用方的情况下被孤立删除；它不意味着可以继续通过兼容层长期保留这些字段或桥接逻辑。
 
 | 模块/概念 | 当前判断 | 现在能不能删 | 删除前置条件 |
 |---|---|---:|---|
@@ -362,4 +359,4 @@
 
 在此之前，系统都应被准确描述为：
 
-> Cell-native 共识内核 + legacy 兼容外壳
+> 当前实现仍残留 legacy 痕迹，但迁移策略已经确定为一次性收口：不再接受新增兼容桥，主路径直接切到 CellTx / ScriptRef

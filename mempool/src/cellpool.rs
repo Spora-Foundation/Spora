@@ -23,7 +23,8 @@ pub struct PoolEntry {
     pub timestamp: u64,
     /// Fee (capacity)
     pub fee: u64,
-    /// Estimated cycles
+    /// VM-verified cycles when available, otherwise a mempool projection that
+    /// preserves the same effective-size ordering.
     pub cycles: u64,
     /// Blue preference score (for tie-breaking)
     pub blue_score: Option<u64>,

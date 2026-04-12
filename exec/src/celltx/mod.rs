@@ -13,6 +13,6 @@ pub mod types;
 
 pub use sighash::{compute_sighash, compute_txid, compute_wtxid, pubkey_hash};
 pub use types::{
-    CellDep, CellMeta, CellOut, CellRef, CellStatus, CellTx, DepType, OutPoint, ResolvedCellTx, ScriptRef, TransactionInfo,
-    encode_dep_group_data, parse_dep_group_data,
+    encode_dep_group_data, parse_dep_group_data, CellDep, CellMeta, CellOut, CellRef, CellStatus, CellTx, DepType, OutPoint,
+    ResolvedCellTx, ScriptRef, TransactionInfo,
 };

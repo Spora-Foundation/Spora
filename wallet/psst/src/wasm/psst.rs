@@ -1,4 +1,4 @@
-use crate::psst::{Input, PSST as Native};
+use crate::psst::{Input, Output, PSST as Native};
 use crate::role::*;
 use spora_consensus_core::mass::MassCalculator;
 use spora_consensus_core::network::NetworkType;
@@ -8,7 +8,7 @@ use wasm_bindgen::prelude::*;
 // use js_sys::Object;
 use crate::psst::Inner;
 use serde::{Deserialize, Serialize};
-use spora_consensus_client::{Transaction, TransactionInput, TransactionInputT, TransactionOutput, TransactionOutputT};
+use serde_wasm_bindgen::from_value;
 use std::ops::Deref;
 use std::str::FromStr;
 use std::sync::MutexGuard;
@@ -65,7 +65,7 @@ impl From<State> for PSST {
 
 #[wasm_bindgen]
 extern "C" {
-    #[wasm_bindgen(typescript_type = "PSST | Transaction | string | undefined")]
+    #[wasm_bindgen(typescript_type = "PSST | string | undefined")]
     pub type CtorT;
 }
 
@@ -112,9 +112,6 @@ impl TryCastFromJs for PSST {
                     let psst_inner: Inner = serde_json::from_str(&data).map_err(|_| Error::InvalidPayload)?;
                     Ok(PSST::from(State::NoOp(Some(psst_inner))))
                 }
-            } else if let Ok(transaction) = Transaction::try_owned_from(value) {
-                let psst_inner: Inner = transaction.try_into()?;
-                Ok(PSST::from(State::NoOp(Some(psst_inner))))
             } else {
                 Err(Error::InvalidPayload)
             }
@@ -248,16 +245,6 @@ impl PSST {
         self.replace(state)
     }
 
-    #[wasm_bindgen(js_name = fallbackLockTime)]
-    pub fn fallback_lock_time(&self, lock_time: u64) -> Result<PSST> {
-        let state = match self.take() {
-            State::Creator(psst) => State::Creator(psst.fallback_lock_time(lock_time)),
-            _ => Err(Error::expected_state("Creator"))?,
-        };
-
-        self.replace(state)
-    }
-
     #[wasm_bindgen(js_name = inputsModifiable)]
     pub fn inputs_modifiable(&self) -> Result<PSST> {
         let state = match self.take() {
@@ -299,11 +286,10 @@ impl PSST {
     }
 
     #[wasm_bindgen(js_name = inputAndRedeemScript)]
-    pub fn input_with_redeem(&self, input: &TransactionInputT, data: &JsValue) -> Result<PSST> {
+    pub fn input_with_redeem(&self, input: &JsValue, data: &JsValue) -> Result<PSST> {
         let obj = js_sys::Object::from(data.clone());
 
-        let input = TransactionInput::try_owned_from(input)?;
-        let mut input: Input = input.try_into()?;
+        let mut input: Input = from_value(input.clone())?;
         let redeem_script = js_sys::Reflect::get(&obj, &"redeemScript".into())
             .expect("Missing redeemscript field")
             .as_string()
@@ -318,20 +304,20 @@ impl PSST {
         self.replace(state)
     }
 
-    pub fn input(&self, input: &TransactionInputT) -> Result<PSST> {
-        let input = TransactionInput::try_owned_from(input)?;
+    pub fn input(&self, input: &JsValue) -> Result<PSST> {
+        let input: Input = from_value(input.clone())?;
         let state = match self.take() {
-            State::Constructor(psst) => State::Constructor(psst.input(input.try_into()?)),
+            State::Constructor(psst) => State::Constructor(psst.input(input)),
             _ => Err(Error::expected_state("Creator"))?,
         };
 
         self.replace(state)
     }
 
-    pub fn output(&self, output: &TransactionOutputT) -> Result<PSST> {
-        let output = TransactionOutput::try_owned_from(output)?;
+    pub fn output(&self, output: &JsValue) -> Result<PSST> {
+        let output: Output = from_value(output.clone())?;
         let state = match self.take() {
-            State::Constructor(psst) => State::Constructor(psst.output(output.try_into()?)),
+            State::Constructor(psst) => State::Constructor(psst.output(output)),
             _ => Err(Error::expected_state("Creator"))?,
         };
 

@@ -27,7 +27,6 @@ spora-index-core.workspace = true
 spora-math.workspace = true
 spora-mining-errors.workspace = true
 spora-notify.workspace = true
-spora-txscript.workspace = true
 spora-utils.workspace = true
 spora-rpc-macros.workspace = true
 

@@ -98,10 +98,6 @@ interface IGeneratorSettingsObject {
      * Optional NetworkId or network id as string (i.e. `mainnet` or `testnet-11`). Required when {@link IGeneratorSettingsObject.entries} is array
      */
     networkId?: NetworkId | string;
-    /**
-     * Transaction Lock Time(DAA score OR unix timestamp)
-    */
-    lockTime?: number;
 }
 "#;
 
@@ -177,7 +173,6 @@ impl Generator {
             sig_op_count,
             minimum_signatures,
             payload,
-            lock_time,
         } = settings;
 
         let settings = match source {
@@ -199,7 +194,6 @@ impl Generator {
                     fee_rate,
                     final_priority_fee,
                     payload,
-                    lock_time,
                     multiplexer,
                 )?
             }
@@ -216,7 +210,6 @@ impl Generator {
                     final_transaction_destination,
                     final_priority_fee,
                     payload,
-                    lock_time,
                     multiplexer,
                 )?
             } // GeneratorSource::Account(account) => {
@@ -282,7 +275,6 @@ struct GeneratorSettings {
     pub sig_op_count: u8,
     pub minimum_signatures: u16,
     pub payload: Option<Vec<u8>>,
-    pub lock_time: u64,
 }
 
 impl TryFrom<IGeneratorSettingsObject> for GeneratorSettings {
@@ -324,8 +316,6 @@ impl TryFrom<IGeneratorSettingsObject> for GeneratorSettings {
 
         let payload = args.get_vec_u8("payload").ok();
 
-        let lock_time = if args.try_get_value("lockTime")?.is_some() { args.get_u64("lockTime")? } else { 0 };
-
         let settings = GeneratorSettings {
             network_id,
             source: generator_source,
@@ -338,7 +328,6 @@ impl TryFrom<IGeneratorSettingsObject> for GeneratorSettings {
             sig_op_count,
             minimum_signatures,
             payload,
-            lock_time,
         };
 
         Ok(settings)

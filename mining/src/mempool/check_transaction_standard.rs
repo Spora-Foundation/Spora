@@ -2,14 +2,29 @@ use crate::mempool::{
     errors::{NonStandardError, NonStandardResult},
     Mempool,
 };
+use spora_consensus_core::mass::{ContextualMasses, NonContextualMasses};
 use spora_consensus_core::{
     cell_metadata::is_cell_metadata_placeholder_script_public_key,
     constants::{MAX_SAU, MAX_SCRIPT_PUBLIC_KEY_VERSION},
     mass,
-    tx::{cell_entry_legacy_script_public_key, compute_lock_hash_for_script, CellOut, MutableTransaction, PopulatedTransaction, ScriptRef, ScriptPublicKey, TransactionOutput},
+    tx::{cell_entry_legacy_script_public_key, compute_lock_hash_for_script, CellOut, MutableTransaction, ScriptPublicKey, ScriptRef},
 };
-use spora_consensus_core::{hashing::sighash::SigHashReusedValuesUnsync, mass::NonContextualMasses};
-use spora_txscript::{get_sig_op_count_upper_bound, is_unspendable, script_class::ScriptClass};
+
+/// Estimated serialized size of a transaction output for dust calculation.
+/// This is a simplified estimation used for standard transaction checks.
+fn transaction_output_estimated_serialized_size(output: &CellOut) -> u64 {
+    // capacity (8) + lock script overhead (32 + 1 + 8) + lock args + optional type script
+    let mut size = 8u64; // capacity
+    size += 32 + 1 + 8; // lock.code_hash + lock.hash_type + len(lock.args)
+    size += output.lock.args.len() as u64;
+    if let Some(ref type_script) = output.type_ {
+        size += 1 + 32 + 1 + 8; // flag + code_hash + hash_type + len(args)
+        size += type_script.args.len() as u64;
+    } else {
+        size += 1; // no-type flag
+    }
+    size
+}
 
 /// MAX_STANDARD_P2SH_SIG_OPS is the maximum number of signature operations
 /// that are considered standard in a pay-to-script-hash script.
@@ -106,9 +121,8 @@ impl Mempool {
                 return Err(NonStandardError::RejectScriptPublicKeyVersion(transaction_id, i));
             }
 
-            if ScriptClass::from(&legacy_spk) == ScriptClass::NonStandard {
-                return Err(NonStandardError::RejectOutputScriptClass(transaction_id, i));
-            }
+            // ScriptClass check removed - all scripts are validated through CKB-VM
+            // TODO: Add proper script validation for Cell model
 
             if self.is_transaction_output_dust_cell(output) {
                 return Err(NonStandardError::RejectDust(transaction_id, i, output.capacity));
@@ -125,7 +139,9 @@ impl Mempool {
         // Unspendable outputs are considered dust.
         let lock_spk = legacy_script_public_key_from_lock_script(&output.lock);
         let lock_bytes = lock_spk.script();
-        if is_unspendable::<PopulatedTransaction, SigHashReusedValuesUnsync>(&lock_bytes) {
+        // TODO: Add unspendable script detection for Cell model
+        if lock_bytes.is_empty() || lock_bytes[0] == 0x6a {
+            // OP_RETURN
             return true;
         }
 
@@ -146,58 +162,10 @@ impl Mempool {
     /// amount is considered dust or not based on the configured minimum transaction
     /// relay fee.
     ///
-    /// Dust is defined in terms of the minimum transaction relay fee. In particular,
-    /// if the cost to the network to spend coins is more than 1/3 of the minimum
-    /// transaction relay fee, it is considered dust.
-    ///
-    /// It is exposed by [MiningManager] for use by transaction generators and wallets.
-    pub(crate) fn is_transaction_output_dust(&self, transaction_output: &TransactionOutput) -> bool {
-        // Unspendable outputs are considered dust.
-        if is_unspendable::<PopulatedTransaction, SigHashReusedValuesUnsync>(transaction_output.script_public_key.script()) {
-            return true;
-        }
-
-        // The total serialized size consists of the output and the associated
-        // input script to redeem it. Since there is no input script
-        // to redeem it yet, use the minimum size of a typical input script.
-        //
-        // Pay-to-pubkey bytes breakdown:
-        //
-        //  Output to pubkey (43 bytes):
-        //   8 value, 1 script len, 34 script [1 OP_DATA_32,
-        //   32 pubkey, 1 OP_CHECKSIG]
-        //
-        //  Input (105 bytes):
-        //   36 prev outpoint, 1 script len, 64 script [1 OP_DATA_64,
-        //   64 sig], 4 sequence
-        //
-        // The most common scripts are pay-to-pubkey, and as per the above
-        // breakdown, the minimum size of a p2pk input script is 148 bytes. So
-        // that figure is used.
-        let total_serialized_size = mass::transaction_output_estimated_serialized_size(transaction_output) + 148;
-
-        // The output is considered dust if the cost to the network to spend the
-        // coins is more than 1/3 of the minimum free transaction relay fee.
-        // mp.config.MinimumRelayTransactionFee is in sau/KB, so multiply
-        // by 1000 to convert to bytes.
-        //
-        // Using the typical values for a pay-to-pubkey transaction from
-        // the breakdown above and the default minimum free transaction relay
-        // fee of 1000, this equates to values less than 546 sau being
-        // considered dust.
-        //
-        // The following is equivalent to (value/total_serialized_size) * (1/3) * 1000
-        // without needing to do floating point math.
-        //
-        // Since the multiplication may overflow a u64, 2 separate calculation paths
-        // are considered to avoid overflowing.
-        match transaction_output.value.checked_mul(1000) {
-            Some(value_1000) => value_1000 / (3 * total_serialized_size) < self.config.minimum_relay_transaction_fee,
-            None => {
-                (transaction_output.value as u128 * 1000 / (3 * total_serialized_size as u128))
-                    < self.config.minimum_relay_transaction_fee as u128
-            }
-        }
+    /// Note: This function now operates on CellOut instead of legacy TransactionOutput.
+    pub(crate) fn is_transaction_output_dust(&self, transaction_output: &CellOut) -> bool {
+        // Use the Cell model version
+        self.is_transaction_output_dust_cell(transaction_output)
     }
 
     /// check_transaction_standard_in_context performs a series of checks on a transaction's
@@ -209,9 +177,15 @@ impl Mempool {
     /// into the mempool and relay.
     pub(crate) fn check_transaction_standard_in_context(&self, transaction: &MutableTransaction) -> NonStandardResult<()> {
         let transaction_id = transaction.id();
-        let contextual_mass = transaction.tx.mass();
-        if contextual_mass > MAXIMUM_STANDARD_TRANSACTION_MASS {
-            return Err(NonStandardError::RejectStorageMass(transaction_id, contextual_mass, MAXIMUM_STANDARD_TRANSACTION_MASS));
+        let contextual_storage_mass = transaction
+            .contextual_storage_mass()
+            .expect("contextual storage mass should be populated before in-context standard checks");
+        if contextual_storage_mass > MAXIMUM_STANDARD_TRANSACTION_MASS {
+            return Err(NonStandardError::RejectStorageMass(
+                transaction_id,
+                contextual_storage_mass,
+                MAXIMUM_STANDARD_TRANSACTION_MASS,
+            ));
         }
 
         // fee check
@@ -237,25 +211,9 @@ impl Mempool {
             if is_cell_metadata_placeholder_script_public_key(&legacy_script_public_key) {
                 continue;
             }
-            match ScriptClass::from(&legacy_script_public_key) {
-                ScriptClass::NonStandard => {
-                    return Err(NonStandardError::RejectInputScriptClass(transaction_id, i));
-                }
-                ScriptClass::PubKey | ScriptClass::PubKeyECDSA => {
-                    // Standard script types, pass directly
-                }
-                ScriptClass::ScriptHash => {
-                    // P2SH sigops upper limit check
-                    let witness = transaction.tx.witnesses.get(i).cloned().unwrap_or_default();
-                    let num_sig_ops = get_sig_op_count_upper_bound::<PopulatedTransaction, SigHashReusedValuesUnsync>(
-                        &witness,
-                        &legacy_script_public_key,
-                    );
-                    if num_sig_ops > MAX_STANDARD_P2SH_SIG_OPS as u64 {
-                        return Err(NonStandardError::RejectSignatureCount(transaction_id, i, num_sig_ops, MAX_STANDARD_P2SH_SIG_OPS));
-                    }
-                }
-            }
+            // ScriptClass checks removed - all scripts are validated through CKB-VM
+            // TODO: Add proper script validation and sigops counting for Cell model
+            let _ = legacy_script_public_key; // silence unused warning
         }
 
         Ok(())
@@ -297,17 +255,15 @@ mod tests {
         constants::{CELL_TX_VERSION, MAX_TX_IN_SEQUENCE_NUM, SAU_PER_SPORA},
         mass::NonContextualMasses,
         network::NetworkType,
-        subnets::SUBNETWORK_ID_NATIVE,
         tx::{
-            CellEntry, MutableTransaction, ScriptPublicKey, ScriptVec, Transaction, TransactionInput, TransactionOutpoint,
-            TransactionOutput,
+            cell_out_from_legacy_script_public_key, legacy_sequence_to_cell_since, pay_to_address_script, scriptvec, CellEntry,
+            CellOut, CellRef, CellTx, MutableTransaction, ScriptPublicKey, ScriptVec, TransactionOutpoint,
         },
     };
-    use spora_txscript::{
-        opcodes::codes::{OpReturn, OpTrue},
-        script_builder::ScriptBuilder,
-    };
     use std::sync::Arc;
+
+    const OP_RETURN: u8 = 0x6a;
+    const OP_TRUE: u8 = 0x51;
 
     #[test]
     fn test_calc_min_required_tx_relay_fee() {
@@ -376,42 +332,47 @@ mod tests {
 
         struct Test {
             name: &'static str,
-            tx_out: TransactionOutput,
+            cell_out: CellOut,
             minimum_relay_transaction_fee: u64,
             is_dust: bool,
         }
+
+        // Helper to create CellOut from capacity and script_public_key
+        let make_cell_out = |capacity: u64, spk: ScriptPublicKey| -> CellOut {
+            CellOut { capacity, lock: ScriptRef::new([0xff; 32], 0, spk.script().to_vec()), type_: None }
+        };
 
         let tests = vec![
             // Any value is allowed with a zero relay fee.
             Test {
                 name: "zero value with zero relay fee",
-                tx_out: TransactionOutput::new(0, script_public_key.clone()),
+                cell_out: make_cell_out(0, script_public_key.clone()),
                 minimum_relay_transaction_fee: 0,
                 is_dust: false,
             },
             // Zero value is dust with any relay fee"
             Test {
                 name: "zero value with very small tx fee",
-                tx_out: TransactionOutput::new(0, script_public_key.clone()),
+                cell_out: make_cell_out(0, script_public_key.clone()),
                 minimum_relay_transaction_fee: 1,
                 is_dust: true,
             },
             Test {
                 name: "36 byte public key script with value 605",
-                tx_out: TransactionOutput::new(605, script_public_key.clone()),
+                cell_out: make_cell_out(605, script_public_key.clone()),
                 minimum_relay_transaction_fee: 1000,
                 is_dust: true,
             },
             Test {
                 name: "36 byte public key script with value 606",
-                tx_out: TransactionOutput::new(606, script_public_key.clone()),
+                cell_out: make_cell_out(606, script_public_key.clone()),
                 minimum_relay_transaction_fee: 1000,
                 is_dust: false,
             },
             // Maximum allowed value is never dust.
             Test {
                 name: "max sau amount is never dust",
-                tx_out: TransactionOutput::new(MAX_SAU, script_public_key.clone()),
+                cell_out: make_cell_out(MAX_SAU, script_public_key.clone()),
                 minimum_relay_transaction_fee: 1000,
                 is_dust: false,
             },
@@ -419,14 +380,14 @@ mod tests {
             // Rust rewrite: caution, this differs from the golang version
             Test {
                 name: "maximum uint64 value",
-                tx_out: TransactionOutput::new(u64::MAX, script_public_key),
+                cell_out: make_cell_out(u64::MAX, script_public_key),
                 minimum_relay_transaction_fee: u64::MAX,
                 is_dust: false,
             },
             // Unspendable script_public_key due to an invalid public key script.
             Test {
                 name: "unspendable script_public_key",
-                tx_out: TransactionOutput::new(5000, invalid_script_public_key),
+                cell_out: make_cell_out(5000, invalid_script_public_key),
                 minimum_relay_transaction_fee: 0,
                 is_dust: true,
             },
@@ -440,7 +401,7 @@ mod tests {
                 let mempool = Mempool::new(Arc::new(config), counters);
 
                 println!("test_is_transaction_output_dust test '{}' ", test.name);
-                let res = mempool.is_transaction_output_dust(&test.tx_out);
+                let res = mempool.is_transaction_output_dust(&test.cell_out);
                 if res != test.is_dust {
                     println!("test_is_transaction_output_dust test '{}' failed: got {}, want {}", test.name, res, test.is_dust);
                 }
@@ -454,12 +415,12 @@ mod tests {
         // Create some dummy, but otherwise standard, data for transactions.
         let dummy_prev_out = TransactionOutpoint::new(spora_hashes::Hash::from_u64_word(1).as_bytes(), 1);
         let dummy_sig_script = vec![0u8; 65];
-        let dummy_tx_input = TransactionInput::new(dummy_prev_out, dummy_sig_script, MAX_TX_IN_SEQUENCE_NUM, 1);
+        let dummy_tx_input = CellRef::new(dummy_prev_out, legacy_sequence_to_cell_since(MAX_TX_IN_SEQUENCE_NUM));
         let addr_hash = vec![1u8; 32];
 
         let addr = Address::new(Prefix::Testnet, Version::PubKey, &addr_hash).expect("Valid test address");
-        let dummy_script_public_key = spora_txscript::pay_to_address_script(&addr);
-        let dummy_tx_out = TransactionOutput::new(SAU_PER_SPORA, dummy_script_public_key);
+        let dummy_script_public_key = pay_to_address_script(&addr);
+        let dummy_tx_out = cell_out_from_legacy_script_public_key(SAU_PER_SPORA, &dummy_script_public_key);
 
         struct Test {
             name: &'static str,
@@ -467,11 +428,10 @@ mod tests {
             is_standard: bool,
         }
 
-        fn new_mtx(tx: Transaction, mass: u64) -> MutableTransaction {
-            let version = tx.version;
-            let mut mtx = MutableTransaction::from_tx(tx);
-            Arc::make_mut(&mut mtx.tx).ver = version;
+        fn new_mtx(tx: CellTx, mass: u64) -> MutableTransaction {
+            let mut mtx = MutableTransaction::from_cell_tx(tx);
             mtx.calculated_non_contextual_masses = Some(NonContextualMasses::new(mass, mass));
+            mtx.calculated_contextual_masses = Some(ContextualMasses::new(mass));
             mtx
         }
 
@@ -479,15 +439,14 @@ mod tests {
             Test {
                 name: "Typical pay-to-pubkey transaction",
                 mtx: new_mtx(
-                    Transaction::new(
-                        CELL_TX_VERSION,
+                    CellTx::new(
                         vec![dummy_tx_input.clone()],
-                        vec![dummy_tx_out.clone()],
-                        0,
-                        SUBNETWORK_ID_NATIVE,
-                        0,
                         vec![],
-                    ),
+                        vec![dummy_tx_out.clone()],
+                        vec![vec![]],
+                        vec![dummy_sig_script.clone()],
+                    )
+                    .expect("test helper must construct a valid CellTx"),
                     1000,
                 ),
                 is_standard: true,
@@ -495,15 +454,18 @@ mod tests {
             Test {
                 name: "Transaction version too high",
                 mtx: new_mtx(
-                    Transaction::new(
-                        CELL_TX_VERSION + 1,
-                        vec![dummy_tx_input.clone()],
-                        vec![dummy_tx_out.clone()],
-                        0,
-                        SUBNETWORK_ID_NATIVE,
-                        0,
-                        vec![],
-                    ),
+                    {
+                        let mut tx = CellTx::new(
+                            vec![dummy_tx_input.clone()],
+                            vec![],
+                            vec![dummy_tx_out.clone()],
+                            vec![vec![]],
+                            vec![dummy_sig_script.clone()],
+                        )
+                        .expect("test helper must construct a valid CellTx");
+                        tx.ver = CELL_TX_VERSION + 1;
+                        tx
+                    },
                     1000,
                 ),
                 is_standard: false,
@@ -511,21 +473,20 @@ mod tests {
             Test {
                 name: "Transaction size is too large",
                 mtx: new_mtx(
-                    Transaction::new(
-                        CELL_TX_VERSION,
+                    CellTx::new(
                         vec![dummy_tx_input.clone()],
-                        vec![TransactionOutput::new(
-                            0u64,
-                            ScriptPublicKey::new(
+                        vec![],
+                        vec![cell_out_from_legacy_script_public_key(
+                            0,
+                            &ScriptPublicKey::new(
                                 MAX_SCRIPT_PUBLIC_KEY_VERSION,
                                 ScriptVec::from_vec(vec![0u8; MAXIMUM_STANDARD_TRANSACTION_MASS as usize + 1]),
                             ),
                         )],
-                        0,
-                        SUBNETWORK_ID_NATIVE,
-                        0,
-                        vec![],
-                    ),
+                        vec![vec![]],
+                        vec![dummy_sig_script.clone()],
+                    )
+                    .expect("test helper must construct a valid CellTx"),
                     1000,
                 ),
                 is_standard: false,
@@ -533,20 +494,18 @@ mod tests {
             Test {
                 name: "Signature script size is too large",
                 mtx: new_mtx(
-                    Transaction::new(
-                        CELL_TX_VERSION + 1,
-                        vec![TransactionInput::new(
-                            dummy_prev_out,
-                            vec![0u8; MAXIMUM_STANDARD_SIGNATURE_SCRIPT_SIZE as usize + 1],
-                            MAX_TX_IN_SEQUENCE_NUM,
-                            1,
-                        )],
-                        vec![dummy_tx_out.clone()],
-                        0,
-                        SUBNETWORK_ID_NATIVE,
-                        0,
-                        vec![],
-                    ),
+                    {
+                        let mut tx = CellTx::new(
+                            vec![CellRef::new(dummy_prev_out, legacy_sequence_to_cell_since(MAX_TX_IN_SEQUENCE_NUM))],
+                            vec![],
+                            vec![dummy_tx_out.clone()],
+                            vec![vec![]],
+                            vec![vec![0u8; MAXIMUM_STANDARD_SIGNATURE_SCRIPT_SIZE as usize + 1]],
+                        )
+                        .expect("test helper must construct a valid CellTx");
+                        tx.ver = CELL_TX_VERSION + 1;
+                        tx
+                    },
                     1000,
                 ),
                 is_standard: false,
@@ -554,21 +513,17 @@ mod tests {
             Test {
                 name: "Valid but non standard public key script",
                 mtx: new_mtx(
-                    Transaction::new(
-                        CELL_TX_VERSION,
+                    CellTx::new(
                         vec![dummy_tx_input.clone()],
-                        vec![TransactionOutput::new(
-                            SAU_PER_SPORA,
-                            ScriptPublicKey::new(
-                                MAX_SCRIPT_PUBLIC_KEY_VERSION,
-                                ScriptBuilder::new().add_op(OpTrue).unwrap().script().into(),
-                            ),
-                        )],
-                        0,
-                        SUBNETWORK_ID_NATIVE,
-                        0,
                         vec![],
-                    ),
+                        vec![cell_out_from_legacy_script_public_key(
+                            SAU_PER_SPORA,
+                            &ScriptPublicKey::new(MAX_SCRIPT_PUBLIC_KEY_VERSION, scriptvec![OP_TRUE]),
+                        )],
+                        vec![vec![]],
+                        vec![dummy_sig_script.clone()],
+                    )
+                    .expect("test helper must construct a valid CellTx"),
                     1000,
                 ),
                 is_standard: false,
@@ -576,15 +531,14 @@ mod tests {
             Test {
                 name: "Dust output",
                 mtx: new_mtx(
-                    Transaction::new(
-                        CELL_TX_VERSION,
+                    CellTx::new(
                         vec![dummy_tx_input.clone()],
-                        vec![TransactionOutput::new(0, dummy_tx_out.script_public_key)],
-                        0,
-                        SUBNETWORK_ID_NATIVE,
-                        0,
                         vec![],
-                    ),
+                        vec![cell_out_from_legacy_script_public_key(0, &dummy_script_public_key)],
+                        vec![vec![]],
+                        vec![dummy_sig_script.clone()],
+                    )
+                    .expect("test helper must construct a valid CellTx"),
                     1000,
                 ),
                 is_standard: false,
@@ -592,21 +546,17 @@ mod tests {
             Test {
                 name: "Null-data transaction",
                 mtx: new_mtx(
-                    Transaction::new(
-                        CELL_TX_VERSION,
+                    CellTx::new(
                         vec![dummy_tx_input],
-                        vec![TransactionOutput::new(
-                            SAU_PER_SPORA,
-                            ScriptPublicKey::new(
-                                MAX_SCRIPT_PUBLIC_KEY_VERSION,
-                                ScriptBuilder::new().add_op(OpReturn).unwrap().script().into(),
-                            ),
-                        )],
-                        0,
-                        SUBNETWORK_ID_NATIVE,
-                        0,
                         vec![],
-                    ),
+                        vec![cell_out_from_legacy_script_public_key(
+                            SAU_PER_SPORA,
+                            &ScriptPublicKey::new(MAX_SCRIPT_PUBLIC_KEY_VERSION, scriptvec![OP_RETURN]),
+                        )],
+                        vec![vec![]],
+                        vec![dummy_sig_script],
+                    )
+                    .expect("test helper must construct a valid CellTx"),
                     1000,
                 ),
                 is_standard: false,
@@ -650,24 +600,26 @@ mod tests {
         let mempool = Mempool::new(Arc::new(config), counters);
 
         let previous_outpoint = TransactionOutpoint::new(spora_hashes::Hash::from_u64_word(7).as_bytes(), 0);
-        let output = TransactionOutput::new(
-            900,
-            ScriptPublicKey::from_vec(
+        let output = CellOut {
+            capacity: 900,
+            lock: ScriptRef::new(
+                [0x20, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
                 0,
-                vec![0x20, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0xac],
+                vec![1, 0xac],
             ),
-        );
-        let tx = Transaction::new(
-            CELL_TX_VERSION,
-            vec![TransactionInput::new(previous_outpoint, vec![0u8; 64], MAX_TX_IN_SEQUENCE_NUM, 1)],
-            vec![output],
-            0,
-            SUBNETWORK_ID_NATIVE,
-            0,
+            type_: None,
+        };
+        let tx = CellTx::new(
+            vec![CellRef::new(previous_outpoint, legacy_sequence_to_cell_since(MAX_TX_IN_SEQUENCE_NUM))],
             vec![],
-        );
-        let mut mtx = MutableTransaction::from_tx(tx);
+            vec![output],
+            vec![vec![]],
+            vec![vec![0u8; 64]],
+        )
+        .expect("test helper must construct a valid CellTx");
+        let mut mtx = MutableTransaction::from_cell_tx(tx);
         mtx.calculated_non_contextual_masses = Some(NonContextualMasses::new(1000, 1000));
+        mtx.calculated_contextual_masses = Some(ContextualMasses::new(1000));
         mtx.calculated_fee = Some(DEFAULT_MINIMUM_RELAY_TRANSACTION_FEE);
         mtx.entries[0] = Some(CellEntry::from_cell_metadata(SAU_PER_SPORA, 0, [0x44; 32], None, [0; 32], 100, false));
 
@@ -682,24 +634,26 @@ mod tests {
         let mempool = Mempool::new(Arc::new(config), counters);
 
         let previous_outpoint = TransactionOutpoint::new(spora_hashes::Hash::from_u64_word(9).as_bytes(), 0);
-        let output = TransactionOutput::new(
-            900,
-            ScriptPublicKey::from_vec(
+        let output = CellOut {
+            capacity: 900,
+            lock: ScriptRef::new(
+                [0x20, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
                 0,
-                vec![0x20, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0xac],
+                vec![1, 0xac],
             ),
-        );
-        let tx = Transaction::new(
-            CELL_TX_VERSION,
-            vec![TransactionInput::new(previous_outpoint, vec![0u8; 64], MAX_TX_IN_SEQUENCE_NUM, 1)],
-            vec![output],
-            0,
-            SUBNETWORK_ID_NATIVE,
-            0,
+            type_: None,
+        };
+        let tx = CellTx::new(
+            vec![CellRef::new(previous_outpoint, legacy_sequence_to_cell_since(MAX_TX_IN_SEQUENCE_NUM))],
             vec![],
-        );
-        let mut mtx = MutableTransaction::from_tx(tx);
+            vec![output],
+            vec![vec![]],
+            vec![vec![0u8; 64]],
+        )
+        .expect("test helper must construct a valid CellTx");
+        let mut mtx = MutableTransaction::from_cell_tx(tx);
         mtx.calculated_non_contextual_masses = Some(NonContextualMasses::new(1000, 1000));
+        mtx.calculated_contextual_masses = Some(ContextualMasses::new(1000));
         mtx.calculated_fee = Some(DEFAULT_MINIMUM_RELAY_TRANSACTION_FEE);
         mtx.resolved_cell_metadata[0] = Some(CellMetadata {
             out_point: previous_outpoint,

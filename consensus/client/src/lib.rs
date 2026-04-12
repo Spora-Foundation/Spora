@@ -20,6 +20,7 @@ mod outpoint;
 mod output;
 pub mod result;
 mod serializable;
+mod standard_script;
 mod transaction;
 
 pub use cell::*;

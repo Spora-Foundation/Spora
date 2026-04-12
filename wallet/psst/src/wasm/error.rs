@@ -10,7 +10,7 @@ pub enum Error {
     #[error("Unexpected state: {0}")]
     State(String),
 
-    #[error("Constructor argument must be a valid payload, another psst instance, Transaction or undefined")]
+    #[error("Constructor argument must be a valid payload, another psst instance, or undefined")]
     Ctor(String),
 
     #[error("Invalid payload")]

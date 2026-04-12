@@ -8,7 +8,13 @@ use crate::{
     },
     processes::{cell_validator::CellValidationError, CellConsensusParams, CellValidator, DagCellProvider},
 };
-use spora_consensus_core::{block::Block, cell_metadata::CellMetadata, errors::tx::TxRuleError, tx::TransactionOutpoint};
+use spora_consensus_core::{
+    block::Block,
+    cell_metadata::CellMetadata,
+    errors::tx::TxRuleError,
+    mass::{ContextualMasses, Mass, NonContextualMasses},
+    tx::{MutableTransaction, TransactionOutpoint},
+};
 use spora_database::prelude::StoreResultExtensions;
 #[cfg(feature = "vm")]
 use spora_exec::vm::VmLimits;
@@ -30,24 +36,21 @@ type BodyConsensusCellProvider = ConsensusCellProvider<
 type BodyValidationOverlayProvider<B> = OverlayCellProvider<B>;
 
 impl BlockBodyProcessor {
-    pub fn validate_body_in_context(self: &Arc<Self>, block: &Block) -> BlockProcessResult<()> {
+    pub fn validate_body_in_context(self: &Arc<Self>, block: &Block) -> BlockProcessResult<Mass> {
         self.check_parent_bodies_exist(block)?;
         self.check_coinbase_outputs_limit(block)?;
         self.check_coinbase_blue_score_and_subsidy(block)?;
         self.check_block_transactions_in_context(block)
     }
 
-    fn check_block_transactions_in_context(self: &Arc<Self>, block: &Block) -> BlockProcessResult<()> {
+    fn check_block_transactions_in_context(self: &Arc<Self>, block: &Block) -> BlockProcessResult<Mass> {
         if block.transactions.iter().all(|tx| tx.is_coinbase()) {
-            return Ok(());
+            return Ok((NonContextualMasses::new(0, 0), ContextualMasses::new(0)));
         }
 
         let provider = Arc::new(self.build_body_validation_provider(block)?);
         let validator = CellValidator::new(
-            Arc::new(CellConsensusParams {
-                cellbase_maturity: self.coinbase_maturity,
-                ..CellConsensusParams::default()
-            }),
+            Arc::new(CellConsensusParams { cellbase_maturity: self.coinbase_maturity, ..CellConsensusParams::default() }),
             provider.clone(),
         );
 
@@ -69,26 +72,38 @@ impl BlockBodyProcessor {
             let daa_score = block.header.daa_score;
             let timestamp = block.header.timestamp;
 
-            // Parallel: validate every tx and return (serialized_size, Result<cycles>).
-            let results: Vec<(usize, u64, Result<u64, RuleError>)> = non_coinbase_txs
+            let results: Vec<(usize, Result<(NonContextualMasses, u64, u64), RuleError>)> = non_coinbase_txs
                 .par_iter()
                 .map(|&(idx, tx)| {
-                    let size = tx.serialized_size() as u64;
+                    let non_contextual_masses = self.mass_calculator.calc_non_contextual_masses_cell(tx);
                     let res = validator
                         .validate_full_with_scripts_and_cycles(tx, block_hash, daa_score, timestamp)
-                        .map_err(|e| self.map_cell_validation_error(tx, block_hash, daa_score, provider.as_ref(), e));
-                    (idx, size, res)
+                        .map_err(|e| self.map_cell_validation_error(tx, block_hash, daa_score, provider.as_ref(), e))
+                        .and_then(|verified_cycles| {
+                            let resolved_inputs = self
+                                .resolve_cell_tx_inputs_from_provider(tx, provider.as_ref(), block_hash)
+                                .map_err(|_| RuleError::TxInContextFailed(tx.id().into(), TxRuleError::MissingTxOutpoints))?;
+                            let resolved_tx = MutableTransaction::with_resolved_metadata(tx.clone(), resolved_inputs);
+                            let storage_mass = self
+                                .mass_calculator
+                                .calc_contextual_masses(&resolved_tx.as_verifiable())
+                                .map(|contextual_masses| contextual_masses.storage_mass)
+                                .ok_or_else(|| RuleError::TxInContextFailed(tx.id().into(), TxRuleError::MissingTxOutpoints))?;
+                            Ok((non_contextual_masses, storage_mass, verified_cycles))
+                        });
+                    (idx, res)
                 })
                 .collect();
 
-            // Sequential convergence: accumulate cycles and mass in block-original order.
             let vm_limits = VmLimits::default();
             let max_cycles = CellConsensusParams::default().max_block_cycles;
             let mut total_block_cycles = 0u64;
-            let mut total_effective_mass = block.transactions.first().map(|tx| tx.serialized_size() as u64).unwrap_or_default();
+            let mut total_compute_mass = 0u64;
+            let mut total_transient_mass = 0u64;
+            let mut total_storage_mass = 0u64;
 
-            for (idx, size, res) in results {
-                let tx_cycles = res?;
+            for (idx, res) in results {
+                let (non_contextual_masses, storage_mass, tx_cycles) = res?;
                 total_block_cycles = total_block_cycles.saturating_add(tx_cycles);
                 if total_block_cycles > max_cycles {
                     return Err(RuleError::CellValidationError(format!(
@@ -96,11 +111,30 @@ impl BlockBodyProcessor {
                         idx, total_block_cycles, max_cycles
                     )));
                 }
-                total_effective_mass = total_effective_mass.saturating_add(vm_limits.effective_size(size as usize, tx_cycles) as u64);
-                if total_effective_mass > self.max_block_mass {
-                    return Err(RuleError::ExceedsComputeMassLimit(total_effective_mass, self.max_block_mass));
+
+                let effective_compute_mass = non_contextual_masses.compute_mass.max(vm_limits.effective_size(
+                    spora_consensus_core::mass::cell_tx_estimated_serialized_size(&block.transactions[idx]) as usize,
+                    tx_cycles,
+                ) as u64);
+                total_compute_mass = total_compute_mass.saturating_add(effective_compute_mass);
+                total_transient_mass = total_transient_mass.saturating_add(non_contextual_masses.transient_mass);
+                total_storage_mass = total_storage_mass.saturating_add(storage_mass);
+
+                if total_compute_mass > self.max_block_mass {
+                    return Err(RuleError::ExceedsComputeMassLimit(total_compute_mass, self.max_block_mass));
+                }
+                if total_transient_mass > self.max_block_mass {
+                    return Err(RuleError::ExceedsTransientMassLimit(total_transient_mass, self.max_block_mass));
+                }
+                if total_storage_mass > self.max_block_mass {
+                    return Err(RuleError::ExceedsStorageMassLimit(total_storage_mass, self.max_block_mass));
                 }
             }
+
+            return Ok((
+                NonContextualMasses::new(total_compute_mass, total_transient_mass),
+                ContextualMasses::new(total_storage_mass),
+            ));
         }
 
         #[cfg(not(feature = "vm"))]
@@ -109,23 +143,53 @@ impl BlockBodyProcessor {
             let daa_score = block.header.daa_score;
             let timestamp = block.header.timestamp;
 
-            // Parallel: validate every tx.
-            let results: Vec<Result<(), RuleError>> = non_coinbase_txs
+            let results: Vec<Result<(NonContextualMasses, u64), RuleError>> = non_coinbase_txs
                 .par_iter()
                 .map(|&(_, tx)| {
+                    let non_contextual_masses = self.mass_calculator.calc_non_contextual_masses_cell(tx);
                     validator
                         .validate_in_dag(tx, block_hash, daa_score, timestamp)
                         .map_err(|e| self.map_cell_validation_error(tx, block_hash, daa_score, provider.as_ref(), e))
+                        .and_then(|_| {
+                            let resolved_inputs = self
+                                .resolve_cell_tx_inputs_from_provider(tx, provider.as_ref(), block_hash)
+                                .map_err(|_| RuleError::TxInContextFailed(tx.id().into(), TxRuleError::MissingTxOutpoints))?;
+                            let resolved_tx = MutableTransaction::with_resolved_metadata(tx.clone(), resolved_inputs);
+                            let storage_mass = self
+                                .mass_calculator
+                                .calc_contextual_masses(&resolved_tx.as_verifiable())
+                                .map(|contextual_masses| contextual_masses.storage_mass)
+                                .ok_or_else(|| RuleError::TxInContextFailed(tx.id().into(), TxRuleError::MissingTxOutpoints))?;
+                            Ok((non_contextual_masses, storage_mass))
+                        })
                 })
                 .collect();
 
-            // Sequential convergence: report first error in block-original order.
+            let mut total_compute_mass = 0u64;
+            let mut total_transient_mass = 0u64;
+            let mut total_storage_mass = 0u64;
             for res in results {
-                res?;
-            }
-        }
+                let (non_contextual_masses, storage_mass) = res?;
+                total_compute_mass = total_compute_mass.saturating_add(non_contextual_masses.compute_mass);
+                total_transient_mass = total_transient_mass.saturating_add(non_contextual_masses.transient_mass);
+                total_storage_mass = total_storage_mass.saturating_add(storage_mass);
 
-        Ok(())
+                if total_compute_mass > self.max_block_mass {
+                    return Err(RuleError::ExceedsComputeMassLimit(total_compute_mass, self.max_block_mass));
+                }
+                if total_transient_mass > self.max_block_mass {
+                    return Err(RuleError::ExceedsTransientMassLimit(total_transient_mass, self.max_block_mass));
+                }
+                if total_storage_mass > self.max_block_mass {
+                    return Err(RuleError::ExceedsStorageMassLimit(total_storage_mass, self.max_block_mass));
+                }
+            }
+
+            return Ok((
+                NonContextualMasses::new(total_compute_mass, total_transient_mass),
+                ContextualMasses::new(total_storage_mass),
+            ));
+        }
     }
 
     fn build_body_validation_provider(
@@ -426,13 +490,8 @@ mod tests {
     use crate::processes::{CellStateProvider, DagCellProvider};
     use crate::{config::ConfigBuilder, consensus::test_consensus::TestConsensus, errors::RuleError, params::DEVNET_PARAMS};
     use spora_consensus_core::{
-        api::ConsensusApi,
-        block::Block,
-        cell_metadata::CellMetadata,
-        config::params::MAINNET_PARAMS,
-        errors::tx::TxRuleError,
-        merkle::calc_hash_merkle_root_cell as calc_hash_merkle_root_with_options,
-        tx::TransactionOutpoint,
+        api::ConsensusApi, block::Block, cell_metadata::CellMetadata, config::params::MAINNET_PARAMS, errors::tx::TxRuleError,
+        merkle::calc_hash_merkle_root_cell as calc_hash_merkle_root_with_options, tx::TransactionOutpoint,
     };
     use spora_core::assert_match;
     use spora_exec::{CellDep, CellOut, CellRef, CellTx, DepType, OutPoint, ScriptRef};
@@ -522,7 +581,7 @@ mod tests {
             let block = consensus.build_block_with_parents_and_transactions(2.into(), vec![1.into()], vec![]);
             // `add_block_with_parents` now produces a fully inserted parent in this test harness,
             // so the context check should pass for its child.
-            assert_match!(body_processor.validate_body_in_context(&block.to_immutable()), Ok(()));
+            assert_match!(body_processor.validate_body_in_context(&block.to_immutable()), Ok(_));
         }
 
         let valid_block = consensus.build_block_with_parents_and_transactions(3.into(), vec![config.genesis.hash], vec![]);

@@ -14,7 +14,7 @@ pub enum Error {
     WasmError(#[from] workflow_wasm::error::Error),
 
     #[error(transparent)]
-    ScriptBuilderError(#[from] spora_txscript::script_builder::ScriptBuilderError),
+    StandardScript(#[from] spora_consensus_core::tx::StandardScriptError),
 
     #[error("{0}")]
     ParseIntError(#[from] std::num::ParseIntError),

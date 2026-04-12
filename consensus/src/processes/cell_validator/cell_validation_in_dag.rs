@@ -6,7 +6,7 @@
 use super::cell_validation_in_context::CellStateProvider;
 use super::errors::CellValidationError;
 use spora_consensus_core::cell_metadata::CellMetadata;
-use spora_exec::{CellTx, DepType, OutPoint, parse_dep_group_data};
+use spora_exec::{parse_dep_group_data, CellTx, DepType, OutPoint};
 use spora_hashes::Hash;
 
 /// Extended state provider for DAG validation
@@ -79,10 +79,7 @@ pub fn validate_cell_existence<P: DagCellProvider>(tx: &CellTx, pov: Hash, provi
                 .map_err(CellValidationError::InvalidFormat)?
                 .ok_or(CellValidationError::DepCellNotFound(dep.out_point.tx_hash))?;
             let data = meta.data.ok_or_else(|| {
-                CellValidationError::InvalidFormat(format!(
-                    "DepGroup cell data not available for {}",
-                    dep.out_point
-                ))
+                CellValidationError::InvalidFormat(format!("DepGroup cell data not available for {}", dep.out_point))
             })?;
             let outpoints = parse_dep_group_data(&data).map_err(CellValidationError::InvalidFormat)?;
             for op in &outpoints {

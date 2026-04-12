@@ -61,10 +61,10 @@ use spora_consensus_core::{
     config::genesis::GenesisBlock,
     constants::MAX_SAU,
     header::Header,
-    mass::{ContextualMasses, MassCalculator},
+    mass::MassCalculator,
     mining_rules::MiningRules,
     pruning::PruningPointsList,
-    tx::{legacy_sequence_to_cell_since, CellEntry, CellTx, MutableTransaction, Transaction, TransactionOutpoint},
+    tx::{CellEntry, CellTx, MutableTransaction, TransactionOutpoint},
     BlockHashSet,
     ChainPath,
 };
@@ -1031,68 +1031,6 @@ impl VirtualStateProcessor {
         spora_merkle::calc_merkle_root(accepted_tx_ids.iter().copied())
     }
 
-    fn convert_legacy_coinbase_to_cell_tx(&self, tx: &Transaction) -> CellTx {
-        use spora_exec::{CellOut, ScriptRef};
-
-        let outputs = tx
-            .outputs
-            .iter()
-            .map(|output| CellOut {
-                lock: ScriptRef::new(self.compute_lock_hash(&output.script_public_key), 0, vec![]),
-                type_: None,
-                capacity: output.value,
-            })
-            .collect_vec();
-
-        let mut outputs_data = vec![vec![]; outputs.len()];
-        let witnesses = if let Some(first) = outputs_data.first_mut() {
-            *first = tx.payload.clone();
-            vec![]
-        } else {
-            vec![tx.payload.clone()]
-        };
-
-        CellTx::new(vec![], vec![], outputs, outputs_data, witnesses).expect("coinbase conversion must produce a valid cell tx")
-    }
-
-    fn convert_legacy_transaction_to_cell_tx(&self, tx: &Transaction) -> Result<CellTx, RuleError> {
-        use spora_exec::{CellOut, CellRef, OutPoint, ScriptRef};
-
-        if tx.is_coinbase() {
-            return Ok(self.convert_legacy_coinbase_to_cell_tx(tx));
-        }
-
-        if !tx.payload.is_empty() {
-            return Err(RuleError::CellValidationError(
-                "legacy transaction conversion does not support non-coinbase payloads".to_string(),
-            ));
-        }
-
-        let inputs = tx
-            .inputs
-            .iter()
-            .map(|input| {
-                CellRef::new(
-                    OutPoint::new(input.previous_outpoint.tx_hash, input.previous_outpoint.index),
-                    legacy_sequence_to_cell_since(input.sequence),
-                )
-            })
-            .collect_vec();
-        let outputs = tx
-            .outputs
-            .iter()
-            .map(|output| CellOut {
-                lock: ScriptRef::new(self.compute_lock_hash(&output.script_public_key), 0, vec![]),
-                type_: None,
-                capacity: output.value,
-            })
-            .collect_vec();
-        let outputs_data = vec![vec![]; outputs.len()];
-        let witnesses = tx.inputs.iter().map(|input| input.signature_script.clone()).collect_vec();
-
-        CellTx::new(inputs, vec![], outputs, outputs_data, witnesses).map_err(|e| RuleError::CellValidationError(e.to_string()))
-    }
-
     // Legacy commit path removed; fully replaced by commit_cell_state in cell_processing.rs
 
     fn calculate_and_commit_virtual_state(
@@ -1537,40 +1475,6 @@ impl VirtualStateProcessor {
         Ok(total_in - total_out)
     }
 
-    fn convert_legacy_transaction_to_validation_cell_tx(&self, tx: &Transaction) -> CellTx {
-        use spora_exec::{CellOut, CellRef, ScriptRef};
-
-        let inputs = tx
-            .inputs
-            .iter()
-            .map(|input| {
-                CellRef::new(
-                    OutPoint::new(input.previous_outpoint.tx_hash, input.previous_outpoint.index),
-                    legacy_sequence_to_cell_since(input.sequence),
-                )
-            })
-            .collect_vec();
-        let outputs = tx
-            .outputs
-            .iter()
-            .map(|output| CellOut {
-                lock: ScriptRef::new(self.compute_lock_hash(&output.script_public_key), 0, vec![]),
-                type_: None,
-                capacity: output.value,
-            })
-            .collect_vec();
-
-        CellTx {
-            ver: spora_exec::CELL_TX_VERSION,
-            inputs,
-            deps: vec![],
-            header_deps: vec![],
-            outputs_data: vec![vec![]; outputs.len()],
-            outputs,
-            witnesses: tx.inputs.iter().map(|input| input.signature_script.clone()).collect_vec(),
-        }
-    }
-
     fn build_mempool_input_overrides(
         &self,
         mutable_tx: &MutableTransaction,
@@ -1672,28 +1576,27 @@ impl VirtualStateProcessor {
         let resolved_inputs = self.resolve_mempool_inputs(virtual_state.as_ref(), mutable_tx)?;
         backfill_mempool_entries_from_resolved_inputs(mutable_tx, &resolved_inputs);
         let input_overrides = self.build_mempool_input_overrides(mutable_tx, &resolved_inputs);
-        let provider = Arc::new(self.build_virtual_snapshot_provider(
-            virtual_state.clone(),
-            input_overrides,
-            virtual_state.past_median_time,
-        ));
+        let provider =
+            Arc::new(self.build_virtual_snapshot_provider(virtual_state.clone(), input_overrides, virtual_state.past_median_time));
         let validator = CellValidator::new(
-            Arc::new(CellConsensusParams {
-                cellbase_maturity: self.coinbase_maturity,
-                ..CellConsensusParams::default()
-            }),
+            Arc::new(CellConsensusParams { cellbase_maturity: self.coinbase_maturity, ..CellConsensusParams::default() }),
             provider.clone(),
         );
 
         #[cfg(feature = "vm")]
-        validator
-            .validate_full_with_scripts_and_cycles(
-                cell_tx,
-                virtual_state.ghostdag_data.selected_parent,
-                virtual_state.daa_score,
-                virtual_state.past_median_time,
-            )
-            .map_err(|error| self.map_mempool_cell_validation_error(mutable_tx, &resolved_inputs, virtual_state.daa_score, error))?;
+        {
+            let verified_cycles = validator
+                .validate_full_with_scripts_and_cycles(
+                    cell_tx,
+                    virtual_state.ghostdag_data.selected_parent,
+                    virtual_state.daa_score,
+                    virtual_state.past_median_time,
+                )
+                .map_err(|error| {
+                    self.map_mempool_cell_validation_error(mutable_tx, &resolved_inputs, virtual_state.daa_score, error)
+                })?;
+            mutable_tx.verified_cycles = Some(verified_cycles);
+        }
 
         #[cfg(not(feature = "vm"))]
         validator
@@ -1705,22 +1608,17 @@ impl VirtualStateProcessor {
             )
             .map_err(|error| self.map_mempool_cell_validation_error(mutable_tx, &resolved_inputs, virtual_state.daa_score, error))?;
 
-        let calculated_fee = self.calculate_cell_tx_fee_from_provider(
-            cell_tx,
-            provider.as_ref(),
-            virtual_state.ghostdag_data.selected_parent,
-        )?;
+        let calculated_fee =
+            self.calculate_cell_tx_fee_from_provider(cell_tx, provider.as_ref(), virtual_state.ghostdag_data.selected_parent)?;
         mutable_tx.calculated_fee = Some(calculated_fee);
         if mutable_tx.calculated_non_contextual_masses.is_none() {
-            mutable_tx.calculated_non_contextual_masses = Some(self.mass_calculator.calc_non_contextual_masses_cell(mutable_tx.tx.as_ref()));
+            mutable_tx.calculated_non_contextual_masses =
+                Some(self.mass_calculator.calc_non_contextual_masses_cell(mutable_tx.tx.as_ref()));
         }
+        mutable_tx.calculated_contextual_masses = self.mass_calculator.calc_contextual_masses(&mutable_tx.as_verifiable());
 
         if let Some(feerate_threshold) = args.feerate_threshold {
-            let Some(calculated_feerate) = mutable_tx
-                .calculated_non_contextual_masses
-                .map(|masses| ContextualMasses::new(mutable_tx.tx.mass()).max(masses))
-                .map(|contextual_mass| calculated_fee as f64 / contextual_mass as f64)
-            else {
+            let Some(calculated_feerate) = mutable_tx.calculated_feerate() else {
                 return Err(TxRuleError::FeerateTooLow);
             };
 
@@ -1776,7 +1674,9 @@ impl VirtualStateProcessor {
         let resolved_inputs = self.resolve_mempool_inputs(virtual_state.as_ref(), mutable_tx)?;
         backfill_mempool_entries_from_resolved_inputs(mutable_tx, &resolved_inputs);
         mutable_tx.calculated_fee = Some(self.calculate_legacy_mempool_fee(&resolved_inputs, mutable_tx)?);
-        mutable_tx.calculated_non_contextual_masses = Some(self.mass_calculator.calc_non_contextual_masses_cell(mutable_tx.tx.as_ref()));
+        mutable_tx.calculated_non_contextual_masses =
+            Some(self.mass_calculator.calc_non_contextual_masses_cell(mutable_tx.tx.as_ref()));
+        mutable_tx.calculated_contextual_masses = self.mass_calculator.calc_contextual_masses(&mutable_tx.as_verifiable());
         Ok(())
     }
 
@@ -1797,7 +1697,9 @@ impl VirtualStateProcessor {
                 let resolved_inputs = self.resolve_mempool_inputs(virtual_state.as_ref(), mutable_tx)?;
                 backfill_mempool_entries_from_resolved_inputs(mutable_tx, &resolved_inputs);
                 mutable_tx.calculated_fee = Some(self.calculate_legacy_mempool_fee(&resolved_inputs, mutable_tx)?);
-                mutable_tx.calculated_non_contextual_masses = Some(self.mass_calculator.calc_non_contextual_masses_cell(mutable_tx.tx.as_ref()));
+                mutable_tx.calculated_non_contextual_masses =
+                    Some(self.mass_calculator.calc_non_contextual_masses_cell(mutable_tx.tx.as_ref()));
+                mutable_tx.calculated_contextual_masses = self.mass_calculator.calc_contextual_masses(&mutable_tx.as_verifiable());
                 Ok(())
             })
             .collect()
@@ -1986,10 +1888,7 @@ impl VirtualStateProcessor {
     ) -> Result<TemplateValidationOutcome, RuleError> {
         let snapshot_pov = virtual_state.ghostdag_data.selected_parent;
         let template_timestamp = virtual_state.past_median_time + 1;
-        let params = Arc::new(CellConsensusParams {
-            cellbase_maturity: self.coinbase_maturity,
-            ..CellConsensusParams::default()
-        });
+        let params = Arc::new(CellConsensusParams { cellbase_maturity: self.coinbase_maturity, ..CellConsensusParams::default() });
         let mut overlay = TemplateOverlayProvider::new(
             self.build_virtual_snapshot_provider(virtual_state.clone(), HashMap::new(), template_timestamp),
             snapshot_pov,
@@ -2101,13 +2000,12 @@ impl VirtualStateProcessor {
         self.build_block_template_from_virtual_state_cell(virtual_state, miner_data, valid_txs, calculated_fees)
     }
 
-    pub(crate) fn validate_block_template_transactions(
+    pub(crate) fn validate_block_template_cell_transactions(
         &self,
-        txs: &[Transaction],
+        txs: &[CellTx],
         virtual_state: &VirtualState,
     ) -> Result<(), RuleError> {
-        let cell_txs = txs.iter().map(|tx| self.convert_legacy_transaction_to_cell_tx(tx)).collect::<Result<Vec<_>, _>>()?;
-        let prefilter = prefilter_conflicting_template_transactions(cell_txs, None);
+        let prefilter = prefilter_conflicting_template_transactions(txs.to_vec(), None);
         let TemplateValidationOutcome { invalid_transactions: validation_invalids, .. } =
             self.validate_and_filter_block_template_cell_transactions(prefilter.kept_txs, Arc::new(virtual_state.clone()))?;
         let mut invalid_transactions =
@@ -2120,20 +2018,6 @@ impl VirtualStateProcessor {
         }
     }
 
-    // Legacy function for Transaction type
-    pub(crate) fn build_block_template_from_virtual_state(
-        &self,
-        virtual_state: Arc<VirtualState>,
-        miner_data: MinerData,
-        txs: Vec<Transaction>,
-        calculated_fees: Vec<u64>,
-    ) -> Result<BlockTemplate, RuleError> {
-        // Deprecated legacy path: keep it functional by converting legacy transactions into CellTx.
-        let cell_txs = txs.iter().map(|tx| self.convert_legacy_transaction_to_cell_tx(tx)).collect::<Result<Vec<_>, _>>()?;
-        self.build_block_template_from_virtual_state_cell(virtual_state, miner_data, cell_txs, calculated_fees)
-    }
-
-    // New function for CellTx type
     pub(crate) fn build_block_template_from_virtual_state_cell(
         &self,
         virtual_state: Arc<VirtualState>,
@@ -2157,7 +2041,7 @@ impl VirtualStateProcessor {
                 &virtual_state.mergeset_non_daa,
             )
             .expect("coinbase transaction creation must succeed");
-        txs.insert(0, self.convert_legacy_coinbase_to_cell_tx(&coinbase.tx));
+        txs.insert(0, coinbase.tx);
         let version = BLOCK_VERSION;
         let parents_by_level = self.parents_manager.calc_block_parents(pruning_info.pruning_point, &virtual_state.parents);
 
@@ -2235,13 +2119,7 @@ impl VirtualStateProcessor {
         use spora_hashes::ZERO_HASH;
 
         // Write the Cell state of genesis (empty state)
-        self.commit_cell_state(
-            self.genesis.hash,
-            CellDiff::default(),
-            spora_state::CellStateTree::new().root(),
-            vec![],
-            ZERO_HASH,
-        );
+        self.commit_cell_state(self.genesis.hash, CellDiff::default(), spora_state::CellStateTree::new().root(), vec![], ZERO_HASH);
 
         // Init the virtual selected chain store
         let mut batch = WriteBatch::default();

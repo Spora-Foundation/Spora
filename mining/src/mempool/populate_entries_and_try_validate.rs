@@ -1,6 +1,10 @@
 use crate::{
     cell_conversion::cell_output_to_metadata,
-    mempool::{errors::RuleResult, model::{pool::Pool, tx::MempoolTransaction}, Mempool},
+    mempool::{
+        errors::RuleResult,
+        model::{pool::Pool, tx::MempoolTransaction},
+        Mempool,
+    },
 };
 use spora_consensus_core::{
     api::{
@@ -49,14 +53,6 @@ pub(crate) fn validate_mempool_cell_transaction(
     Ok(consensus.validate_mempool_cell_transaction(transaction, cell_tx, args)?)
 }
 
-pub(crate) fn validate_mempool_transactions_in_parallel(
-    consensus: &dyn ConsensusApi,
-    transactions: &mut [MutableTransaction],
-    args: &TransactionValidationBatchArgs,
-) -> Vec<RuleResult<()>> {
-    consensus.validate_mempool_transactions_in_parallel(transactions, args).into_iter().map(|x| x.map_err(RuleError::from)).collect()
-}
-
 pub(crate) fn validate_mempool_mempool_transactions_in_parallel(
     consensus: &dyn ConsensusApi,
     transactions: &mut [MempoolTransaction],
@@ -67,9 +63,7 @@ pub(crate) fn validate_mempool_mempool_transactions_in_parallel(
         .map(|transaction: &mut MempoolTransaction| {
             let validation_args = args.get(&transaction.id());
             if transaction.has_canonical_cell_tx() {
-                let cell_tx = transaction
-                    .cell_tx()
-                    .expect("canonical mempool transactions must retain their canonical CellTx");
+                let cell_tx = transaction.cell_tx().expect("canonical mempool transactions must retain their canonical CellTx");
                 validate_mempool_cell_transaction(consensus, &mut transaction.mtx, cell_tx.as_ref(), validation_args)
             } else {
                 validate_mempool_transaction(consensus, &mut transaction.mtx, validation_args)

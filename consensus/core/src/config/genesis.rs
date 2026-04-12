@@ -1,4 +1,4 @@
-use crate::{block::Block, header::Header, subnets::SUBNETWORK_ID_COINBASE, tx::Transaction};
+use crate::{block::Block, header::Header};
 use spora_exec::CellTx;
 use spora_hashes::{Hash, ZERO_HASH};
 use spora_muhash::EMPTY_MUHASH;
@@ -26,12 +26,6 @@ impl GenesisBlock {
         // Genesis block has no transactions in Cell model
         // Coinbase rewards are handled differently in GhostDAG mergeset
         vec![]
-    }
-
-    /// Build legacy genesis transactions (deprecated, for migration compatibility)
-    #[deprecated(note = "Use build_genesis_transactions() which returns CellTx")]
-    pub fn build_genesis_transactions_legacy(&self) -> Vec<Transaction> {
-        vec![Transaction::new(0, Vec::new(), Vec::new(), 0, SUBNETWORK_ID_COINBASE, 0, self.coinbase_payload.to_vec())]
     }
 }
 

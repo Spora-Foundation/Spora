@@ -61,14 +61,13 @@ use crate::cell::{CellContext, CellEntryReference, NetworkParams};
 use crate::imports::*;
 use crate::result::Result;
 use crate::tx::{
-    mass::*, Fees, GeneratorSettings, GeneratorSummary, PaymentDestination, PendingTransaction, PendingTransactionIterator,
-    PendingTransactionStream,
+    mass::*, Fees, GeneratorSettings, GeneratorSummary, PaymentDestination, PaymentOutput, PendingTransaction,
+    PendingTransactionIterator, PendingTransactionStream,
 };
 use spora_consensus_client::CellEntry;
 use spora_consensus_core::constants::UNACCEPTED_DAA_SCORE;
-use spora_consensus_core::subnets::SUBNETWORK_ID_NATIVE;
-use spora_consensus_core::tx::{cell_tx_from_legacy_transaction, Transaction, TransactionInput, TransactionOutpoint, TransactionOutput};
-use spora_txscript::{pay_to_address_script, pay_to_address_with_lock_time_script};
+use spora_consensus_core::tx::{pay_to_address_script, ScriptRef, TransactionInput, TransactionOutpoint};
+use spora_exec::{CellRef, CellTx};
 use std::collections::VecDeque;
 
 use super::SignerT;
@@ -288,7 +287,6 @@ struct Inner {
     minimum_signatures: u16,
     // change address
     change_address: Address,
-    // change_output: TransactionOutput,
     standard_change_output_compute_mass: u64,
     // signature mass per input
     signature_mass_per_input: u64,
@@ -300,7 +298,7 @@ struct Inner {
     // applies only to the final transaction
     final_transaction_priority_fee: Fees,
     // issued only in the final transaction
-    final_transaction_outputs: Vec<TransactionOutput>,
+    final_transaction_outputs: Vec<PaymentOutput>,
     // pre-calculated partial harmonic for user outputs (does not include change)
     final_transaction_outputs_harmonic: u64,
     // mass of the final transaction
@@ -309,8 +307,6 @@ struct Inner {
     final_transaction_payload: Vec<u8>,
     // final transaction payload mass
     final_transaction_payload_mass: u64,
-    // final transaction lock time
-    final_transaction_lock_time: u64,
     // execution context
     context: Mutex<Context>,
 }
@@ -336,7 +332,6 @@ impl std::fmt::Debug for Inner {
             .field("final_transaction_outputs_compute_mass", &self.final_transaction_outputs_compute_mass)
             .field("final_transaction_payload", &self.final_transaction_payload)
             .field("final_transaction_payload_mass", &self.final_transaction_payload_mass)
-            .field("final_transaction_lock_time", &self.final_transaction_lock_time)
             // .field("context", &self.context)
             .finish()
     }
@@ -366,7 +361,6 @@ impl Generator {
             final_transaction_priority_fee,
             final_transaction_destination,
             final_transaction_payload,
-            final_transaction_lock_time,
             destination_cell_context,
         } = settings;
 
@@ -397,17 +391,7 @@ impl Generator {
                     }
                 }
 
-                let mut tx_outputs = Vec::with_capacity(outputs.len());
-                for output in outputs.iter() {
-                    let spk = if final_transaction_lock_time == 0 {
-                        pay_to_address_script(&output.address)
-                    } else {
-                        pay_to_address_with_lock_time_script(&output.address, final_transaction_lock_time)?
-                    };
-                    tx_outputs.push(TransactionOutput::new(output.amount, spk));
-                }
-
-                (tx_outputs, Some(outputs.amount()))
+                (outputs.outputs.clone(), Some(outputs.amount()))
             }
         };
 
@@ -420,15 +404,15 @@ impl Generator {
             return Err(Error::GeneratorChangeAddressNetworkTypeMismatch);
         }
 
-        let standard_change_output_mass = mass_calculator
-            .calc_compute_mass_for_client_transaction_output(&TransactionOutput::new(0, pay_to_address_script(&change_address)));
+        let standard_change_output_mass =
+            mass_calculator.calc_compute_mass_for_payment_output(&PaymentOutput::new(change_address.clone(), 0));
         let signature_mass_per_input = mass_calculator.calc_compute_mass_for_signature(minimum_signatures);
-        let final_transaction_outputs_compute_mass =
-            mass_calculator.calc_compute_mass_for_client_transaction_outputs(&final_transaction_outputs);
+        let final_transaction_outputs_compute_mass = mass_calculator.calc_compute_mass_for_payment_outputs(&final_transaction_outputs);
         let final_transaction_payload = final_transaction_payload.unwrap_or_default();
         let final_transaction_payload_mass = mass_calculator.calc_compute_mass_for_payload(final_transaction_payload.len());
-        let final_transaction_outputs_harmonic =
-            mass_calculator.calc_storage_mass_output_harmonic(&final_transaction_outputs).ok_or(Error::MassCalculationError)?;
+        let final_transaction_outputs_harmonic = mass_calculator
+            .calc_storage_mass_payment_output_harmonic(&final_transaction_outputs)
+            .ok_or(Error::MassCalculationError)?;
 
         // reject transactions where the payload and outputs are more than 2/3rds of the maximum tx mass
         let final_transaction = final_transaction_amount.map(|amount| FinalTransaction {
@@ -482,7 +466,6 @@ impl Generator {
             final_transaction_outputs_compute_mass,
             final_transaction_payload,
             final_transaction_payload_mass,
-            final_transaction_lock_time,
             destination_cell_context,
         };
 
@@ -1046,22 +1029,22 @@ impl Generator {
 
                 if self.inner.final_transaction_priority_fee.receiver_pays() {
                     let output = final_outputs.get_mut(0).expect("include fees requires one output");
-                    if aggregate_input_value < output.value {
-                        output.value = aggregate_input_value - transaction_fees;
+                    if aggregate_input_value < output.amount {
+                        output.amount = aggregate_input_value - transaction_fees;
                     } else {
-                        output.value -= transaction_fees;
+                        output.amount -= transaction_fees;
                     }
                 }
 
                 let change_output_index = if change_output_value > 0 {
                     let change_output_index = Some(final_outputs.len());
-                    final_outputs.push(TransactionOutput::new(change_output_value, pay_to_address_script(&self.inner.change_address)));
+                    final_outputs.push(PaymentOutput::new(self.inner.change_address.clone(), change_output_value));
                     change_output_index
                 } else {
                     None
                 };
 
-                let aggregate_output_value = final_outputs.iter().map(|output| output.value).sum::<u64>();
+                let aggregate_output_value = final_outputs.iter().map(|output| output.amount).sum::<u64>();
                 // TODO - validate that this is still correct
                 // `Fees::ReceiverPays` processing can result in outputs being larger than inputs
                 if aggregate_output_value > aggregate_input_value {
@@ -1071,15 +1054,7 @@ impl Generator {
                     });
                 }
 
-                let tx = Transaction::new(
-                    0,
-                    inputs,
-                    final_outputs,
-                    0,
-                    SUBNETWORK_ID_NATIVE,
-                    0,
-                    self.inner.final_transaction_payload.clone(),
-                );
+                let tx = self.build_unsigned_cell_transaction(inputs, final_outputs, self.inner.final_transaction_payload.clone())?;
 
                 let transaction_mass = self.inner.mass_calculator.calc_overall_mass_for_unsigned_consensus_transaction(
                     &tx,
@@ -1090,17 +1065,14 @@ impl Generator {
                     // this should never occur as we should not produce transactions higher than the mass limit
                     return Err(Error::MassCalculationError);
                 }
-                tx.set_mass(transaction_mass);
-
                 context.aggregate_mass += transaction_mass;
-                context.final_transaction_id = Some(tx.id());
+                context.final_transaction_id = Some(tx.id().into());
                 context.number_of_stages += 1;
                 context.number_of_transactions += 1;
 
-                let cell_tx = cell_tx_from_legacy_transaction(&tx);
                 Ok(Some(PendingTransaction::try_new(
                     self,
-                    cell_tx,
+                    tx,
                     cell_entry_references,
                     addresses.into_iter().collect(),
                     self.final_transaction_value_no_fees(),
@@ -1133,9 +1105,8 @@ impl Generator {
                 }
 
                 let output_value = aggregate_input_value.saturating_sub(transaction_fees);
-                let script_public_key = pay_to_address_script(&self.inner.change_address);
-                let output = TransactionOutput::new(output_value, script_public_key.clone());
-                let tx = Transaction::new(0, inputs, vec![output], 0, SUBNETWORK_ID_NATIVE, 0, vec![]);
+                let output = PaymentOutput::new(self.inner.change_address.clone(), output_value);
+                let tx = self.build_unsigned_cell_transaction(inputs, vec![output], vec![])?;
 
                 let mut transaction_mass = self.inner.mass_calculator.calc_overall_mass_for_unsigned_consensus_transaction(
                     &tx,
@@ -1147,13 +1118,11 @@ impl Generator {
                     // this should never occur as we should not produce transactions higher than the mass limit
                     return Err(Error::MassCalculationError);
                 }
-                tx.set_mass(transaction_mass);
-
                 context.aggregate_mass += transaction_mass;
                 context.number_of_transactions += 1;
 
                 let previous_batch_cell_entry_reference =
-                    Self::create_batch_cell_entry_reference(tx.id(), output_value, script_public_key, &self.inner.change_address);
+                    Self::create_batch_cell_entry_reference(tx.id().into(), output_value, &self.inner.change_address);
 
                 match kind {
                     DataKind::Node => {
@@ -1175,7 +1144,7 @@ impl Generator {
 
                 Ok(Some(PendingTransaction::try_new(
                     self,
-                    cell_tx_from_legacy_transaction(&tx),
+                    tx,
                     cell_entry_references,
                     addresses.into_iter().collect(),
                     self.final_transaction_value_no_fees(),
@@ -1192,22 +1161,44 @@ impl Generator {
         }
     }
 
-    fn create_batch_cell_entry_reference(
-        txid: TransactionId,
-        amount: u64,
-        script_public_key: ScriptPublicKey,
-        address: &Address,
-    ) -> CellEntryReference {
+    fn build_unsigned_cell_transaction(
+        &self,
+        inputs: Vec<TransactionInput>,
+        outputs: Vec<PaymentOutput>,
+        payload: Vec<u8>,
+    ) -> Result<CellTx> {
+        let inputs = inputs
+            .into_iter()
+            .map(|input| {
+                let witness = input.signature_script.unwrap_or_default();
+                (CellRef::new(input.previous_outpoint, sequence_to_since(input.sequence)), witness)
+            })
+            .collect::<Vec<_>>();
+        let witnesses = inputs.iter().map(|(_, witness)| witness.clone()).collect::<Vec<_>>();
+        let inputs = inputs.into_iter().map(|(input, _)| input).collect::<Vec<_>>();
+        let outputs = outputs.iter().map(cell_out_from_payment_output).collect::<Vec<_>>();
+        let outputs_data = vec![vec![]; outputs.len()];
+        let mut witnesses = witnesses;
+        if !payload.is_empty() {
+            // Preserve opaque payload bytes without reintroducing a legacy top-level payload field.
+            witnesses.push(payload);
+        }
+        CellTx::new(inputs, vec![], outputs, outputs_data, witnesses)
+            .map_err(|err| Error::custom(format!("failed to build canonical CellTx: {err}")))
+    }
+
+    fn create_batch_cell_entry_reference(txid: TransactionId, amount: u64, address: &Address) -> CellEntryReference {
         let outpoint = TransactionOutpoint::new(txid.as_bytes(), 0);
+        let script_public_key = pay_to_address_script(address);
         let cell = CellEntry {
             address: Some(address.clone()),
             outpoint: outpoint.into(),
             amount,
-            capacity: None,
-            data_bytes: None,
-            lock_hash: None,
+            capacity: Some(amount),
+            data_bytes: Some(0),
+            lock_hash: Some(script_public_key.hash().into()),
             type_hash: None,
-            data_hash: None,
+            data_hash: Some(TransactionId::from([0; 32])),
             script_public_key,
             block_daa_score: UNACCEPTED_DAA_SCORE,
             is_coinbase: false, // entry
@@ -1230,5 +1221,22 @@ impl Generator {
             number_of_generated_transactions: context.number_of_transactions,
             number_of_generated_stages: context.number_of_stages,
         }
+    }
+}
+
+fn sequence_to_since(sequence: u64) -> u64 {
+    if sequence == u64::MAX {
+        0
+    } else {
+        sequence
+    }
+}
+
+fn cell_out_from_payment_output(output: &PaymentOutput) -> spora_exec::CellOut {
+    let lock_script = pay_to_address_script(&output.address);
+    spora_exec::CellOut {
+        lock: ScriptRef::new(lock_script.hash(), 0, lock_script.script().to_vec()),
+        type_: None,
+        capacity: output.amount,
     }
 }

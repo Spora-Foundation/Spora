@@ -50,8 +50,7 @@ impl<M: SupportMachine> Syscalls<M> for Blake3Hash {
         let input_len = machine.registers()[A3].to_u64() as usize;
 
         // Read input data from VM memory
-        let mut input_data = vec![0u8; input_len];
-        machine.memory_mut().store_bytes(input_addr, &mut input_data)?;
+        let input_data = machine.memory_mut().load_bytes(input_addr, input_len as u64)?;
 
         // Compute blake3 hash
         let hash = blake3::hash(&input_data);

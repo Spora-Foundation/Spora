@@ -4,7 +4,109 @@ This directory contains standard lock and type scripts for Spora.
 
 ## Lock Scripts
 
-### 1. Always Success (Testing Only)
+### 1. Time Lock Scripts (CKB-VM Based) ⭐ NEW
+
+**Replaces**: Legacy `OP_CHECKLOCKTIMEVERIFY` and `OP_CHECKSEQUENCEVERIFY`
+
+**Files**:
+- `timelock.rs` - Rust helper module for constructing time lock ScriptRefs
+- `timelock_absolute.c` - C source for absolute timestamp lock
+- `timelock_relative.c` - C source for relative DAA score lock
+
+**Features**:
+- Absolute timestamp lock (Unix timestamp)
+- Relative DAA score lock (block count)
+- Absolute DAA score lock
+- Relative timestamp lock
+
+**Usage**:
+```rust
+use spora_exec::scripts::timelock;
+
+// Absolute timestamp lock (e.g., lock until 2025-01-01)
+let target_timestamp = 1735689600u64;
+let lock = timelock::absolute_timestamp_lock(target_timestamp);
+
+// Create input with proper `since` encoding
+let since = timelock::encode_absolute_timestamp_since(target_timestamp);
+let input = CellRef::new(outpoint, since);
+```
+
+**Since Encoding**:
+```rust
+// Absolute timestamp
+let since = timelock::encode_absolute_timestamp_since(timestamp);
+// Bits: 01xxxxxxxx (bit63=0, bit62=1, bits0-55=timestamp)
+
+// Relative DAA score
+let since = timelock::encode_relative_daa_since(delta_blocks);
+// Bits: 10xxxxxxxx (bit63=1, bit62=0, bits0-55=delta)
+```
+
+**Migration from Legacy**:
+
+| Legacy Script | Cell Model Replacement |
+|--------------|------------------------|
+| `pay_to_pub_key_with_lock_time` | `timelock::absolute_timestamp_lock` + proper `since` |
+| `htlc_script` | Custom CKB-VM script with `since` + signature verification |
+| `OP_CHECKSEQUENCEVERIFY` | `timelock::relative_daa_lock` + `encode_relative_daa_since` |
+
+### 2. Time Lock Fixtures (CKB-VM)
+
+**Absolute Timestamp Lock**
+- Source: `fixtures/timelock_absolute.rs`
+- Binary: `fixtures/timelock_absolute.elf`
+- Target: 2025-01-01 00:00:00 UTC (1735689600)
+- Verifies: `since` >= target with bit63=0, bit62=1
+
+**Relative DAA Lock**
+- Source: `fixtures/timelock_relative.rs`
+- Binary: `fixtures/timelock_relative.elf`
+- Target: 100 blocks
+- Verifies: `since` >= 100 with bit63=1, bit62=0
+
+**Usage:**
+```rust
+use spora_exec::scripts::{timelock_absolute_code_hash, TIMELOCK_ABSOLUTE_SCRIPT};
+use spora_exec::scripts::timelock::encode_absolute_timestamp_since;
+
+let code_hash = timelock_absolute_code_hash();
+let since = encode_absolute_timestamp_since(1735689600);
+```
+
+### 3. HTLC (Hash Time Locked Contract)
+
+**Source**: `fixtures/htlc.rs`
+**Binary**: `fixtures/htlc.elf` (768KB)
+
+**Features**:
+- Two spending paths:
+  1. Recipient path: secret preimage + signature
+  2. Sender timeout path: signature after timelock expires
+- Supports all four lock types (absolute/relative DAA/timestamp)
+- Uses blake3 for secret hash verification
+
+**Script Args** (105 bytes):
+- `[0..32]`: secret_hash (blake3)
+- `[32..64]`: recipient_pubkey (32 bytes)
+- `[64..96]`: sender_pubkey (32 bytes)
+- `[96]`: lock_type (0-3)
+- `[97..105]`: lock_value (u64)
+
+**Witness Format**:
+- Recipient: `<signature (64)> <secret (32)> <0x01>`
+- Sender: `<signature (64)> <0x00>`
+
+**Usage:**
+```rust
+use spora_exec::scripts::{htlc_code_hash, HTLC_SCRIPT};
+
+let code_hash = htlc_code_hash();
+let args = build_htlc_args(secret_hash, recipient_pubkey, sender_pubkey, lock_type, lock_value);
+let lock = ScriptRef::new(code_hash, 0, args);
+```
+
+### 4. Always Success (Testing Only)
 
 **Code**: real RISC-V ELF fixture
 
@@ -22,7 +124,7 @@ let lock = ScriptRef {
 };
 ```
 
-### 2. Secp256k1 + Blake3 Lock
+### 5. Secp256k1 + Blake3 Lock
 
 **File**: `secp256k1_blake3_lock.c`
 

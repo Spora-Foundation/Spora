@@ -118,22 +118,11 @@ impl AsRef<TransactionOutput> for TransactionOutput {
     }
 }
 
-impl From<cctx::TransactionOutput> for TransactionOutput {
-    fn from(output: cctx::TransactionOutput) -> Self {
-        TransactionOutput::new(output.value, output.script_public_key)
-    }
-}
-
-impl From<&cctx::TransactionOutput> for TransactionOutput {
-    fn from(output: &cctx::TransactionOutput) -> Self {
-        TransactionOutput::new(output.value, output.script_public_key.clone())
-    }
-}
-
-impl From<&TransactionOutput> for cctx::TransactionOutput {
-    fn from(output: &TransactionOutput) -> Self {
-        let inner = output.inner();
-        cctx::TransactionOutput::new(inner.value, inner.script_public_key.clone())
+/// Create TransactionOutput from CellOut (capacity -> value, lock -> script_public_key)
+impl From<&cctx::CellOut> for TransactionOutput {
+    fn from(cell_out: &cctx::CellOut) -> Self {
+        let script_public_key = cctx::ScriptPublicKey::from_vec(0, cell_out.lock.to_bytes());
+        Self::new(cell_out.capacity, script_public_key)
     }
 }
 

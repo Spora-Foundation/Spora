@@ -3,7 +3,6 @@ use itertools::Itertools;
 use rayon::prelude::*;
 use spora_consensus_core::{
     muhash::MuHashExtensions,
-    subnets::SUBNETWORK_ID_NATIVE,
     tx::{CellEntry, ScriptPublicKey, SignableTransaction, Transaction, TransactionInput, TransactionOutpoint, TransactionOutput},
 };
 use spora_hashes::TransactionID;
@@ -11,7 +10,7 @@ use spora_muhash::MuHash;
 use spora_utils::iter::parallelism_in_power_steps;
 
 fn generate_transaction(ins: usize, outs: usize, randomness: u64) -> SignableTransaction {
-    let mut tx = Transaction::new(0, vec![], vec![], 0, SUBNETWORK_ID_NATIVE, 0, vec![]);
+    let mut tx = Transaction::new_non_finalized_native(0, vec![], vec![], vec![]);
     let mut entries = vec![];
     for i in 0..ins {
         let mut hasher = TransactionID::new();

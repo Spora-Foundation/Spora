@@ -6,6 +6,7 @@
 
 use crate::imports::*;
 use crate::result::Result;
+use crate::standard_script::pay_to_address_script;
 use crate::CellEntryReference;
 use crate::TransactionOutpoint;
 use spora_utils::hex::*;
@@ -188,7 +189,14 @@ impl TransactionInput {
     }
 
     pub fn script_public_key(&self) -> Option<ScriptPublicKey> {
-        self.cell_entry().map(|cell_ref| cell_ref.cell.script_public_key.clone())
+        self.cell_entry().and_then(|cell_ref| {
+            cell_ref
+                .cell
+                .address
+                .as_ref()
+                .map(pay_to_address_script)
+                .or_else(|| (!cell_ref.cell.script_public_key.script().is_empty()).then(|| cell_ref.cell.script_public_key.clone()))
+        })
     }
 }
 
@@ -216,30 +224,5 @@ impl TryCastFromJs for TransactionInput {
                 Err("TransactionInput must be an object".into())
             }
         })
-    }
-}
-
-impl From<cctx::TransactionInput> for TransactionInput {
-    fn from(tx_input: cctx::TransactionInput) -> Self {
-        TransactionInput::new(
-            tx_input.previous_outpoint.into(),
-            Some(tx_input.signature_script),
-            tx_input.sequence,
-            tx_input.sig_op_count,
-            None,
-        )
-    }
-}
-
-impl From<&TransactionInput> for cctx::TransactionInput {
-    fn from(tx_input: &TransactionInput) -> Self {
-        let inner = tx_input.inner();
-        cctx::TransactionInput::new(
-            inner.previous_outpoint.clone().into(),
-            // TODO - discuss: should this unwrap_or_default or return an error?
-            inner.signature_script.clone().unwrap_or_default(),
-            inner.sequence,
-            inner.sig_op_count,
-        )
     }
 }

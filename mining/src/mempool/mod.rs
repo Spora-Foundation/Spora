@@ -75,7 +75,11 @@ impl Mempool {
         transaction.map(|x| x.mtx.clone())
     }
 
-    pub(crate) fn get_mempool_transaction(&self, transaction_id: &TransactionId, query: TransactionQuery) -> Option<MempoolTransaction> {
+    pub(crate) fn get_mempool_transaction(
+        &self,
+        transaction_id: &TransactionId,
+        query: TransactionQuery,
+    ) -> Option<MempoolTransaction> {
         let mut transaction = None;
         if query.include_transaction_pool() {
             transaction = self.transaction_pool.get(transaction_id);

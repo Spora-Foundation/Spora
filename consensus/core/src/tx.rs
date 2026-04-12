@@ -1,35 +1,30 @@
 //!
 //! # Transaction
 //!
-//! This module implements consensus [`Transaction`] structure and related types.
+//! This module implements consensus transaction structures and related types.
 //!
 
 #![allow(non_snake_case)]
 
+mod script_cache;
 mod script_public_key;
+mod standard_script;
 
-use borsh::{BorshDeserialize, BorshSerialize};
+pub use script_cache::{ScriptCacheCounters, ScriptCacheCountersSnapshot};
+
 pub use script_public_key::{
     scriptvec, ScriptPublicKey, ScriptPublicKeyT, ScriptPublicKeyVersion, ScriptPublicKeys, ScriptVec, SCRIPT_VECTOR_SIZE,
 };
-use serde::{Deserialize, Serialize};
+pub use standard_script::{extract_script_pub_key_address, pay_to_address_script, pay_to_script_hash_script};
 
-// Re-export CellTx from spora-exec (Cell model)
 use crate::cell_metadata::{
     cell_metadata_placeholder_script_public_key_with_metadata, parse_cell_metadata_placeholder_script_public_key, CellMetadata,
 };
-use crate::mass::{ContextualMasses, NonContextualMasses};
-use crate::subnets::{self, SubnetworkId};
-use crate::hashing;
+use crate::mass::{cell_tx_estimated_serialized_size, ContextualMasses, NonContextualMasses};
 pub use spora_exec::celltx::{CellDep, CellOut, CellRef, CellTx, DepType, OutPoint, ScriptRef};
-use spora_utils::hex::ToHex;
+use spora_exec::vm::VmLimits;
 use spora_utils::mem_size::MemSizeEstimator;
-use spora_utils::{serde_bytes, serde_bytes_fixed_ref};
-use std::collections::HashSet;
-use std::mem::{size_of, size_of_val};
-use std::str;
-use std::sync::atomic::AtomicU64;
-use std::sync::atomic::Ordering::SeqCst;
+use std::mem::size_of_val;
 
 /// COINBASE_TRANSACTION_INDEX is the index of the coinbase transaction in every block
 pub const COINBASE_TRANSACTION_INDEX: usize = 0;
@@ -55,11 +50,6 @@ pub fn cell_entry_legacy_script_public_key(cell_entry: &CellEntry) -> ScriptPubl
         cell_entry.data_hash,
         cell_entry.data_bytes,
     )
-}
-
-/// Bridge a Cell-backed entry into a legacy TransactionOutput.
-pub fn legacy_transaction_output_from_cell_entry(cell_entry: &CellEntry) -> TransactionOutput {
-    TransactionOutput { value: cell_entry.amount(), script_public_key: cell_entry_legacy_script_public_key(cell_entry) }
 }
 
 /// Deterministically derive the synthetic Cell lock hash used by legacy script bridges.
@@ -118,42 +108,14 @@ pub fn cell_out_from_legacy_script_public_key(value: u64, script_public_key: &Sc
     }
 }
 
-/// Bridge a legacy compatibility `Transaction` into a canonical `CellTx`.
-pub fn cell_tx_from_legacy_transaction(tx: &Transaction) -> CellTx {
-    let inputs = tx
-        .inputs
-        .iter()
-        .map(|input| CellRef::new(input.previous_outpoint, legacy_sequence_to_cell_since(input.sequence)))
-        .collect::<Vec<_>>();
-
-    let witnesses = tx.inputs.iter().map(|input| input.signature_script.clone()).collect::<Vec<_>>();
-
-    let outputs = tx
-        .outputs
-        .iter()
-        .map(|output| cell_out_from_legacy_script_public_key(output.value, &output.script_public_key))
-        .collect::<Vec<_>>();
-
-    let mut outputs_data = vec![vec![]; outputs.len()];
-    if tx.is_coinbase() && !tx.payload.is_empty() && !outputs_data.is_empty() {
-        let first = outputs_data.first_mut().expect("checked outputs_data is not empty");
-        *first = tx.payload.clone();
-    }
-
-    let coinbase_witnesses = if tx.is_coinbase() && outputs.is_empty() && !tx.payload.is_empty() {
-        vec![tx.payload.clone()]
-    } else {
-        witnesses
-    };
-
-    CellTx::new(inputs, vec![], outputs, outputs_data, coinbase_witnesses)
-        .expect("legacy compatibility transactions must convert into valid CellTx values")
-}
-
 /// Bridge a legacy sequence value into the canonical Cell `since` field.
 #[inline]
 pub fn legacy_sequence_to_cell_since(sequence: u64) -> u64 {
-    if sequence == u64::MAX { 0 } else { sequence }
+    if sequence == u64::MAX {
+        0
+    } else {
+        sequence
+    }
 }
 
 pub type TransactionIndexType = u32;
@@ -181,183 +143,6 @@ impl OutPointCompat for TransactionOutpoint {
 pub fn outpoint_from_id(transaction_id: TransactionId, index: u32) -> TransactionOutpoint {
     TransactionOutpoint::new(transaction_id.as_bytes(), index)
 }
-
-/// Legacy transaction input compatibility shape.
-#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TransactionInput {
-    pub previous_outpoint: TransactionOutpoint,
-    #[serde(with = "serde_bytes")]
-    pub signature_script: Vec<u8>,
-    pub sequence: u64,
-    pub sig_op_count: u8,
-}
-
-impl TransactionInput {
-    pub fn new(previous_outpoint: TransactionOutpoint, signature_script: Vec<u8>, sequence: u64, sig_op_count: u8) -> Self {
-        Self { previous_outpoint, signature_script, sequence, sig_op_count }
-    }
-}
-
-impl std::fmt::Debug for TransactionInput {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("TransactionInput")
-            .field("previous_outpoint", &self.previous_outpoint)
-            .field("signature_script", &self.signature_script.to_hex())
-            .field("sequence", &self.sequence)
-            .field("sig_op_count", &self.sig_op_count)
-            .finish()
-    }
-}
-
-/// Legacy transaction output compatibility shape.
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TransactionOutput {
-    pub value: u64,
-    pub script_public_key: ScriptPublicKey,
-}
-
-impl TransactionOutput {
-    pub fn new(value: u64, script_public_key: ScriptPublicKey) -> Self {
-        Self { value, script_public_key }
-    }
-}
-
-#[derive(Debug, Default, Serialize, Deserialize)]
-pub struct TransactionMass(AtomicU64);
-
-impl Eq for TransactionMass {}
-
-impl PartialEq for TransactionMass {
-    fn eq(&self, other: &Self) -> bool {
-        self.0.load(SeqCst) == other.0.load(SeqCst)
-    }
-}
-
-impl Clone for TransactionMass {
-    fn clone(&self) -> Self {
-        Self(AtomicU64::new(self.0.load(SeqCst)))
-    }
-}
-
-impl BorshDeserialize for TransactionMass {
-    fn deserialize_reader<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
-        let mass: u64 = borsh::BorshDeserialize::deserialize_reader(reader)?;
-        Ok(Self(AtomicU64::new(mass)))
-    }
-}
-
-impl BorshSerialize for TransactionMass {
-    fn serialize<W: std::io::prelude::Write>(&self, writer: &mut W) -> std::io::Result<()> {
-        borsh::BorshSerialize::serialize(&self.0.load(SeqCst), writer)
-    }
-}
-
-/// Legacy transaction compatibility view.
-///
-/// New code should prefer [`CellTx`], but a reduced `Transaction` surface is
-/// still required by hashing, merkle, RPC, and test-only mining shims.
-#[allow(deprecated)]
-#[deprecated(note = "Use CellTx directly; Transaction is a legacy compatibility type")]
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Transaction {
-    pub version: u16,
-    pub inputs: Vec<TransactionInput>,
-    pub outputs: Vec<TransactionOutput>,
-    pub lock_time: u64,
-    pub subnetwork_id: SubnetworkId,
-    pub gas: u64,
-    #[serde(with = "serde_bytes")]
-    pub payload: Vec<u8>,
-    #[serde(default)]
-    mass: TransactionMass,
-    #[serde(with = "serde_bytes_fixed_ref")]
-    id: TransactionId,
-}
-
-#[allow(deprecated)]
-impl Transaction {
-    pub fn new(
-        version: u16,
-        inputs: Vec<TransactionInput>,
-        outputs: Vec<TransactionOutput>,
-        lock_time: u64,
-        subnetwork_id: SubnetworkId,
-        gas: u64,
-        payload: Vec<u8>,
-    ) -> Self {
-        let mut tx = Self::new_non_finalized(version, inputs, outputs, lock_time, subnetwork_id, gas, payload);
-        tx.finalize();
-        tx
-    }
-
-    pub fn new_non_finalized(
-        version: u16,
-        inputs: Vec<TransactionInput>,
-        outputs: Vec<TransactionOutput>,
-        lock_time: u64,
-        subnetwork_id: SubnetworkId,
-        gas: u64,
-        payload: Vec<u8>,
-    ) -> Self {
-        Self { version, inputs, outputs, lock_time, subnetwork_id, gas, payload, mass: Default::default(), id: Default::default() }
-    }
-
-    pub fn is_coinbase(&self) -> bool {
-        self.subnetwork_id == subnets::SUBNETWORK_ID_COINBASE
-    }
-
-    pub fn finalize(&mut self) {
-        self.id = hashing::tx::id(self);
-    }
-
-    pub fn id(&self) -> TransactionId {
-        self.id
-    }
-
-    pub fn set_mass(&self, mass: u64) {
-        self.mass.0.store(mass, SeqCst)
-    }
-
-    pub fn mass(&self) -> u64 {
-        self.mass.0.load(SeqCst)
-    }
-
-    pub fn with_mass(self, mass: u64) -> Self {
-        self.set_mass(mass);
-        self
-    }
-}
-
-#[allow(deprecated)]
-impl MemSizeEstimator for Transaction {
-    fn estimate_mem_bytes(&self) -> usize {
-        size_of::<Self>()
-            + self.payload.len()
-            + self
-                .inputs
-                .iter()
-                .map(|input| input.signature_script.len() + size_of::<TransactionInput>())
-                .chain(self.outputs.iter().map(|output| {
-                    output.script_public_key.script().len().saturating_sub(SCRIPT_VECTOR_SIZE) + size_of::<TransactionOutput>()
-                }))
-                .sum::<usize>()
-    }
-}
-
-
-
-
-
-
-
-
-
-
-
-
 
 /// Represents any kind of transaction which has its inputs resolved either as
 /// legacy Cell entries or as canonical Cell metadata and can be verified/signed.
@@ -478,62 +263,11 @@ impl ResolvedCellTransaction {
         self.resolved_inputs.get(index)
     }
 
-    /// Convert this canonical Cell transaction into the legacy signable view
-    /// required by compatibility APIs.
-    pub fn into_legacy_signable_transaction(self) -> SignableTransaction {
+    /// Convert this canonical Cell transaction into the signable view.
+    pub fn into_signable_transaction(self) -> SignableTransaction {
         MutableTransaction::with_resolved_metadata(self.tx, self.resolved_inputs)
     }
-
-    /// Convert this canonical Cell transaction into the legacy compatibility
-    /// transaction view used by older RPC and wallet interfaces.
-    pub fn legacy_compat_view(&self) -> Transaction {
-        legacy_compat_transaction_from_cell_tx(&self.tx)
-    }
 }
-
-/// Build the legacy compatibility `Transaction` view for a canonical `CellTx`.
-pub fn legacy_compat_transaction_from_cell_tx(cell_tx: &CellTx) -> Transaction {
-    let inputs = cell_tx
-        .inputs
-        .iter()
-        .enumerate()
-        .map(|(index, input)| {
-            let signature_script = cell_tx.witnesses.get(index).cloned().unwrap_or_default();
-            TransactionInput::new(
-                TransactionOutpoint::new(input.out_point.tx_hash.into(), input.out_point.index),
-                signature_script,
-                input.since,
-                0,
-            )
-        })
-        .collect();
-
-    let outputs = cell_tx
-        .outputs
-        .iter()
-        .enumerate()
-        .map(|(index, output)| {
-            let output_data = cell_tx.outputs_data.get(index).cloned().unwrap_or_default();
-            TransactionOutput::new(
-                output.capacity,
-                cell_metadata_placeholder_script_public_key_with_metadata(
-                    output.lock.hash(),
-                    output.type_.as_ref().map(|script| script.hash()),
-                    *blake3::hash(&output_data).as_bytes(),
-                    output_data.len() as u64,
-                ),
-            )
-        })
-        .collect();
-
-    let payload = cell_tx.payload().map(ToOwned::to_owned).unwrap_or_default();
-    let subnetwork_id = if cell_tx.is_coinbase() { subnets::SUBNETWORK_ID_COINBASE } else { subnets::SUBNETWORK_ID_NATIVE };
-    let transaction = Transaction::new(cell_tx.ver, inputs, outputs, 0, subnetwork_id, 0, payload);
-    transaction.set_mass(cell_tx.storage_mass());
-    transaction
-}
-
-
 
 /// Local access trait so owned and shared CellTx containers can back
 /// `MutableTransaction` without requiring foreign-trait impls on `CellTx`.
@@ -559,8 +293,6 @@ impl<T: CellTxContainer + ?Sized> CellTxContainer for &T {
     }
 }
 
-
-
 /// Represents a generic mutable/readonly/pointer transaction type along with
 /// partially filled legacy Cell entries and/or resolved canonical Cell metadata.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -575,6 +307,10 @@ pub struct MutableTransaction<T: CellTxContainer = std::sync::Arc<CellTx>> {
     pub calculated_fee: Option<u64>,
     /// Populated non-contextual masses (does not include the storage mass)
     pub calculated_non_contextual_masses: Option<NonContextualMasses>,
+    /// Populated contextual masses once inputs are resolved.
+    pub calculated_contextual_masses: Option<ContextualMasses>,
+    /// Actual VM script cycles returned by the Cell validator when available.
+    pub verified_cycles: Option<u64>,
 }
 
 impl<T: CellTxContainer> MutableTransaction<T> {
@@ -586,6 +322,8 @@ impl<T: CellTxContainer> MutableTransaction<T> {
             resolved_cell_metadata: vec![None; num_inputs],
             calculated_fee: None,
             calculated_non_contextual_masses: None,
+            calculated_contextual_masses: None,
+            verified_cycles: None,
         }
     }
 
@@ -602,6 +340,8 @@ impl<T: CellTxContainer> MutableTransaction<T> {
             resolved_cell_metadata,
             calculated_fee: None,
             calculated_non_contextual_masses: None,
+            calculated_contextual_masses: None,
+            verified_cycles: None,
         }
     }
 
@@ -613,6 +353,8 @@ impl<T: CellTxContainer> MutableTransaction<T> {
             resolved_cell_metadata: resolved_cell_metadata.into_iter().map(Some).collect(),
             calculated_fee: None,
             calculated_non_contextual_masses: None,
+            calculated_contextual_masses: None,
+            verified_cycles: None,
         }
     }
 
@@ -630,7 +372,10 @@ impl<T: CellTxContainer> MutableTransaction<T> {
     }
 
     pub fn is_fully_populated(&self) -> bool {
-        self.is_verifiable() && self.calculated_fee.is_some() && self.calculated_non_contextual_masses.is_some()
+        self.is_verifiable()
+            && self.calculated_fee.is_some()
+            && self.calculated_non_contextual_masses.is_some()
+            && self.calculated_contextual_masses.is_some()
     }
 
     pub fn missing_outpoints(&self) -> impl Iterator<Item = TransactionOutpoint> + '_ {
@@ -661,10 +406,52 @@ impl<T: CellTxContainer> MutableTransaction<T> {
     /// transactions pays per gram of the aggregated contextual mass (max over compute, transient
     /// and storage masses). The function returns a value when calculated fee and calculated masses
     /// exist, otherwise `None` is returned.
+    pub fn effective_compute_mass(&self) -> Option<u64> {
+        self.calculated_non_contextual_masses.map(|non_contextual_masses| {
+            let effective_size = self
+                .verified_cycles
+                .map(|verified_cycles| {
+                    VmLimits::default().effective_size(cell_tx_estimated_serialized_size(self.tx.cell_tx()) as usize, verified_cycles)
+                        as u64
+                })
+                .unwrap_or(0);
+            non_contextual_masses.compute_mass.max(effective_size)
+        })
+    }
+
+    pub fn contextual_storage_mass(&self) -> Option<u64> {
+        self.calculated_contextual_masses.map(|contextual_masses| contextual_masses.storage_mass)
+    }
+
+    /// Returns the current mempool/block-template selection mass.
+    ///
+    /// This is the current one-dimensional projection used by mempool ordering and
+    /// block-template selection. It combines the contextual storage mass with the
+    /// effective compute mass, which prefers actual VM-verified cycles whenever
+    /// they are available.
+    pub fn selection_mass(&self) -> Option<u64> {
+        self.calculated_non_contextual_masses.zip(self.contextual_storage_mass()).map(|(non_contextual_masses, storage_mass)| {
+            let effective_compute_mass = self.effective_compute_mass().unwrap_or(non_contextual_masses.compute_mass);
+            effective_compute_mass.max(non_contextual_masses.transient_mass).max(storage_mass)
+        })
+    }
+
     pub fn calculated_feerate(&self) -> Option<f64> {
-        self.calculated_non_contextual_masses
-            .map(|non_contextual_masses| ContextualMasses::new(self.tx.cell_tx().storage_mass()).max(non_contextual_masses))
-            .and_then(|max_mass| self.calculated_fee.map(|fee| fee as f64 / max_mass as f64))
+        self.selection_mass().and_then(|selection_mass| self.calculated_fee.map(|fee| fee as f64 / selection_mass as f64))
+    }
+
+    /// Returns the cycles value that should be projected into CellPool scoring.
+    ///
+    /// Prefer actual VM-verified cycles. When they are unavailable, synthesize a
+    /// cycles value from the unified effective compute mass so CellPool keeps the
+    /// same ordering as the main mempool selection logic.
+    pub fn projected_cell_pool_cycles(&self) -> Option<u64> {
+        self.verified_cycles.or_else(|| {
+            self.effective_compute_mass().map(|effective_compute_mass| {
+                let projected_size = effective_compute_mass.max(cell_tx_estimated_serialized_size(self.tx.cell_tx()));
+                projected_size.saturating_mul(VmLimits::default().cycles_per_byte)
+            })
+        })
     }
 
     /// A function for estimating the amount of memory bytes used by this transaction (dedicated to mempool usage).
@@ -679,21 +466,21 @@ impl<T: CellTxContainer> MutableTransaction<T> {
         self.tx.cell_tx().inputs.iter().any(|x| x.out_point.tx_hash == parent_bytes)
     }
 
-    pub fn has_parent_in_set(&self, possible_parents: &HashSet<TransactionId>) -> bool {
+    pub fn has_parent_in_set(&self, possible_parents: &std::collections::HashSet<TransactionId>) -> bool {
         self.tx.cell_tx().inputs.iter().any(|x| possible_parents.contains(&TransactionId::from_bytes(x.out_point.tx_hash)))
     }
 }
 
 impl<T: CellTxContainer> MemSizeEstimator for MutableTransaction<T> {
     fn estimate_mem_bytes(&self) -> usize {
-        size_of::<Self>()
+        std::mem::size_of::<Self>()
             + self
                 .entries
                 .iter()
                 .zip(self.resolved_cell_metadata.iter())
                 .map(|(_op, metadata)| {
-                    size_of::<Option<CellEntry>>()
-                        + size_of::<Option<CellMetadata>>()
+                    std::mem::size_of::<Option<CellEntry>>()
+                        + std::mem::size_of::<Option<CellMetadata>>()
                         + metadata.as_ref().and_then(|meta| meta.data.as_ref().map(Vec::len)).unwrap_or_default()
                 })
                 .sum::<usize>()
@@ -728,11 +515,6 @@ impl<T: CellTxContainer> VerifiableTransaction for MutableTransactionVerifiableW
 
 /// Specialized impl for `T=Arc<CellTx>`
 impl MutableTransaction {
-    #[allow(deprecated)]
-    pub fn from_tx(tx: Transaction) -> Self {
-        Self::from_cell_tx(cell_tx_from_legacy_transaction(&tx))
-    }
-
     pub fn from_cell_tx(tx: CellTx) -> Self {
         Self::new(std::sync::Arc::new(tx))
     }
@@ -747,8 +529,7 @@ mod tests {
     use super::*;
     use smallvec::smallvec;
 
-    #[allow(deprecated)]
-    fn test_transaction() -> Transaction {
+    fn test_cell_tx() -> CellTx {
         let script_public_key = ScriptPublicKey::new(
             0,
             smallvec![
@@ -756,131 +537,67 @@ mod tests {
                 0xd9, 0x00, 0x3b, 0xf0, 0x92, 0x2c, 0xf3, 0xaa, 0x45, 0x28, 0x46, 0x4b, 0xab, 0x78, 0x0d, 0xba, 0x5e
             ],
         );
-        Transaction::new(
-            1,
-            vec![
-                TransactionInput {
-                    previous_outpoint: outpoint_from_id(
-                        TransactionId::from_slice(&[
-                            0x16, 0x5e, 0x38, 0xe8, 0xb3, 0x91, 0x45, 0x95, 0xd9, 0xc6, 0x41, 0xf3, 0xb8, 0xee, 0xc2, 0xf3, 0x46,
-                            0x11, 0x89, 0x6b, 0x82, 0x1a, 0x68, 0x3b, 0x7a, 0x4e, 0xde, 0xfe, 0x2c, 0x00, 0x00, 0x00,
-                        ]),
-                        0xfffffffa,
-                    ),
-                    signature_script: vec![
-                        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11,
-                        0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f,
-                    ],
-                    sequence: 2,
-                    sig_op_count: 3,
-                },
-                TransactionInput {
-                    previous_outpoint: outpoint_from_id(
-                        TransactionId::from_slice(&[
-                            0x4b, 0xb0, 0x75, 0x35, 0xdf, 0xd5, 0x8e, 0x0b, 0x3c, 0xd6, 0x4f, 0xd7, 0x15, 0x52, 0x80, 0x87, 0x2a,
-                            0x04, 0x71, 0xbc, 0xf8, 0x30, 0x95, 0x52, 0x6a, 0xce, 0x0e, 0x38, 0xc6, 0x00, 0x00, 0x00,
-                        ]),
-                        0xfffffffb,
-                    ),
-                    signature_script: vec![
-                        0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2a, 0x2b, 0x2c, 0x2d, 0x2e, 0x2f, 0x30, 0x31,
-                        0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3a, 0x3b, 0x3c, 0x3d, 0x3e, 0x3f,
-                    ],
-                    sequence: 4,
-                    sig_op_count: 5,
-                },
-            ],
-            vec![
-                TransactionOutput { value: 6, script_public_key: script_public_key.clone() },
-                TransactionOutput { value: 7, script_public_key },
-            ],
-            8,
-            subnets::SUBNETWORK_ID_COINBASE,
-            9,
+
+        // Create a CellTx with 2 inputs and 2 outputs
+        let input1 = CellRef::new(
+            outpoint_from_id(
+                TransactionId::from_slice(&[
+                    0x16, 0x5e, 0x38, 0xe8, 0xb3, 0x91, 0x45, 0x95, 0xd9, 0xc6, 0x41, 0xf3, 0xb8, 0xee, 0xc2, 0xf3, 0x46, 0x11, 0x89,
+                    0x6b, 0x82, 0x1a, 0x68, 0x3b, 0x7a, 0x4e, 0xde, 0xfe, 0x2c, 0x00, 0x00, 0x00,
+                ]),
+                0xfffffffa,
+            ),
+            2, // since value (converted from sequence)
+        );
+        let input2 = CellRef::new(
+            outpoint_from_id(
+                TransactionId::from_slice(&[
+                    0x4b, 0xb0, 0x75, 0x35, 0xdf, 0xd5, 0x8e, 0x0b, 0x3c, 0xd6, 0x4f, 0xd7, 0x15, 0x52, 0x80, 0x87, 0x2a, 0x04, 0x71,
+                    0xbc, 0xf8, 0x30, 0x95, 0x52, 0x6a, 0xce, 0x0e, 0x38, 0xc6, 0x00, 0x00, 0x00,
+                ]),
+                0xfffffffb,
+            ),
+            4, // since value (converted from sequence)
+        );
+
+        let output1 = cell_out_from_legacy_script_public_key(6, &script_public_key);
+        let output2 = cell_out_from_legacy_script_public_key(7, &script_public_key);
+
+        let witnesses: Vec<Vec<u8>> = vec![
             vec![
                 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12,
-                0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25,
-                0x26, 0x27, 0x28, 0x29, 0x2a, 0x2b, 0x2c, 0x2d, 0x2e, 0x2f, 0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38,
-                0x39, 0x3a, 0x3b, 0x3c, 0x3d, 0x3e, 0x3f, 0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49, 0x4a, 0x4b,
-                0x4c, 0x4d, 0x4e, 0x4f, 0x50, 0x51, 0x52, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59, 0x5a, 0x5b, 0x5c, 0x5d, 0x5e,
-                0x5f, 0x60, 0x61, 0x62, 0x63,
+                0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f,
             ],
-        )
-    }
-
-    #[test]
-    fn test_transaction_bincode() {
-        let tx = test_transaction();
-        let bts = bincode::serialize(&tx).unwrap();
-
-        // standard, based on https://github.com/AvatoLabs/Spora/commit/7e947a06d2434daf4bc7064d4cd87dc1984b56fe
-        let expected_bts = vec![
-            1, 0, 2, 0, 0, 0, 0, 0, 0, 0, 22, 94, 56, 232, 179, 145, 69, 149, 217, 198, 65, 243, 184, 238, 194, 243, 70, 17, 137, 107,
-            130, 26, 104, 59, 122, 78, 222, 254, 44, 0, 0, 0, 250, 255, 255, 255, 32, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8,
-            9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 2, 0, 0, 0, 0, 0, 0, 0, 3, 75,
-            176, 117, 53, 223, 213, 142, 11, 60, 214, 79, 215, 21, 82, 128, 135, 42, 4, 113, 188, 248, 48, 149, 82, 106, 206, 14, 56,
-            198, 0, 0, 0, 251, 255, 255, 255, 32, 0, 0, 0, 0, 0, 0, 0, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47,
-            48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 4, 0, 0, 0, 0, 0, 0, 0, 5, 2, 0, 0, 0, 0, 0, 0, 0, 6, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 36, 0, 0, 0, 0, 0, 0, 0, 118, 169, 33, 3, 47, 126, 67, 10, 164, 201, 209, 89, 67, 126, 132, 185,
-            117, 220, 118, 217, 0, 59, 240, 146, 44, 243, 170, 69, 40, 70, 75, 171, 120, 13, 186, 94, 7, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            36, 0, 0, 0, 0, 0, 0, 0, 118, 169, 33, 3, 47, 126, 67, 10, 164, 201, 209, 89, 67, 126, 132, 185, 117, 220, 118, 217, 0,
-            59, 240, 146, 44, 243, 170, 69, 40, 70, 75, 171, 120, 13, 186, 94, 8, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 9, 0, 0, 0, 0, 0, 0, 0, 100, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
-            13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42,
-            43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72,
-            73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 0, 0, 0, 0, 0,
-            0, 0, 0, 61, 188, 55, 192, 57, 96, 26, 206, 50, 63, 46, 214, 76, 28, 198, 69, 142, 39, 240, 188, 203, 112, 243, 237, 32,
-            9, 181, 135, 129, 178, 212, 47,
+            vec![
+                0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2a, 0x2b, 0x2c, 0x2d, 0x2e, 0x2f, 0x30, 0x31, 0x32,
+                0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3a, 0x3b, 0x3c, 0x3d, 0x3e, 0x3f,
+            ],
         ];
-        assert_eq!(expected_bts, bts);
-        assert_eq!(tx, bincode::deserialize(&bts).unwrap());
+
+        CellTx::new(
+            vec![input1, input2],
+            vec![], // cell_deps
+            vec![output1, output2],
+            vec![vec![], vec![]], // outputs_data
+            witnesses,
+        )
+        .expect("test CellTx must be valid")
     }
 
     #[test]
-    fn test_transaction_json() {
-        let tx = test_transaction();
+    fn test_cell_tx_bincode() {
+        let tx = test_cell_tx();
+        let bts = bincode::serialize(&tx).unwrap();
+        let tx2: CellTx = bincode::deserialize(&bts).unwrap();
+        assert_eq!(tx, tx2);
+    }
+
+    #[test]
+    fn test_cell_tx_json() {
+        let tx = test_cell_tx();
         let str = serde_json::to_string_pretty(&tx).unwrap();
-        let expected_str = r#"{
-  "version": 1,
-  "inputs": [
-    {
-      "previousOutpoint": {
-        "transactionId": "165e38e8b3914595d9c641f3b8eec2f34611896b821a683b7a4edefe2c000000",
-        "index": 4294967290
-      },
-      "signatureScript": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
-      "sequence": 2,
-      "sigOpCount": 3
-    },
-    {
-      "previousOutpoint": {
-        "transactionId": "4bb07535dfd58e0b3cd64fd7155280872a0471bcf83095526ace0e38c6000000",
-        "index": 4294967291
-      },
-      "signatureScript": "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
-      "sequence": 4,
-      "sigOpCount": 5
-    }
-  ],
-  "outputs": [
-    {
-      "value": 6,
-      "scriptPublicKey": "000076a921032f7e430aa4c9d159437e84b975dc76d9003bf0922cf3aa4528464bab780dba5e"
-    },
-    {
-      "value": 7,
-      "scriptPublicKey": "000076a921032f7e430aa4c9d159437e84b975dc76d9003bf0922cf3aa4528464bab780dba5e"
-    }
-  ],
-  "lockTime": 8,
-  "subnetworkId": "0100000000000000000000000000000000000000",
-  "gas": 9,
-  "payload": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f60616263",
-  "mass": 0,
-  "id": "3dbc37c039601ace323f2ed64c1cc6458e27f0bccb70f3ed2009b58781b2d42f"
-}"#;
-        assert_eq!(expected_str, str);
-        assert_eq!(tx, serde_json::from_str(&str).unwrap());
+        let tx2: CellTx = serde_json::from_str(&str).unwrap();
+        assert_eq!(tx, tx2);
     }
 
     #[test]
@@ -904,57 +621,82 @@ mod tests {
         // Tests for ScriptPublicKey Borsh ser/deser since we manually implemented them
         let spk = ScriptPublicKey::from_vec(12, vec![32; 20]);
         let bin = borsh::to_vec(&spk).unwrap();
-        let spk2: ScriptPublicKey = BorshDeserialize::try_from_slice(&bin).unwrap();
+        let spk2: ScriptPublicKey = borsh::BorshDeserialize::try_from_slice(&bin).unwrap();
         assert_eq!(spk, spk2);
 
         let spk = ScriptPublicKey::from_vec(55455, vec![11; 200]);
         let bin = borsh::to_vec(&spk).unwrap();
-        let spk2: ScriptPublicKey = BorshDeserialize::try_from_slice(&bin).unwrap();
+        let spk2: ScriptPublicKey = borsh::BorshDeserialize::try_from_slice(&bin).unwrap();
         assert_eq!(spk, spk2);
     }
 
-    // use wasm_bindgen_test::wasm_bindgen_test;
-    // #[wasm_bindgen_test]
-    // pub fn test_wasm_serde_spk_constructor() {
-    //     let str = "spora:qpauqsvk7yf9unexwmxsnmg547mhyga37csh0kj53q6xxgl24ydxjsgzthw5j";
-    //     let a = Address::constructor(str);
-    //     let value = to_value(&a).unwrap();
-    //
-    //     assert_eq!(JsValue::from_str("string"), value.js_typeof());
-    //     assert_eq!(value, JsValue::from_str(str));
-    //     assert_eq!(a, from_value(value).unwrap());
-    // }
-    //
-    // #[wasm_bindgen_test]
-    // pub fn test_wasm_js_serde_spk_object() {
-    //     let expected = Address::constructor("spora:qpauqsvk7yf9unexwmxsnmg547mhyga37csh0kj53q6xxgl24ydxjsgzthw5j");
-    //
-    //     use web_sys::console;
-    //     console::log_4(&"address: ".into(), &expected.version().into(), &expected.prefix().into(), &expected.payload().into());
-    //
-    //     let obj = Object::new();
-    //     obj.set("version", &JsValue::from_str("PubKey")).unwrap();
-    //     obj.set("prefix", &JsValue::from_str("spora")).unwrap();
-    //     obj.set("payload", &JsValue::from_str("qpauqsvk7yf9unexwmxsnmg547mhyga37csh0kj53q6xxgl24ydxjsgzthw5j")).unwrap();
-    //
-    //     assert_eq!(JsValue::from_str("object"), obj.js_typeof());
-    //
-    //     let obj_js = obj.into_js_result().unwrap();
-    //     let actual = from_value(obj_js).unwrap();
-    //     assert_eq!(expected, actual);
-    // }
-    //
-    // #[wasm_bindgen_test]
-    // pub fn test_wasm_serde_spk_object() {
-    //     use wasm_bindgen::convert::IntoWasmAbi;
-    //
-    //     let expected = Address::constructor("spora:qpauqsvk7yf9unexwmxsnmg547mhyga37csh0kj53q6xxgl24ydxjsgzthw5j");
-    //     let wasm_js_value: JsValue = expected.clone().into_abi().into();
-    //
-    //     // use web_sys::console;
-    //     // console::log_4(&"address: ".into(), &expected.version().into(), &expected.prefix().into(), &expected.payload().into());
-    //
-    //     let actual = from_value(wasm_js_value).unwrap();
-    //     assert_eq!(expected, actual);
-    // }
+    #[test]
+    fn test_mutable_transaction() {
+        let cell_tx = test_cell_tx();
+        let mutable_tx = MutableTransaction::from_cell_tx(cell_tx.clone());
+
+        assert_eq!(mutable_tx.id(), TransactionId::from_bytes(cell_tx.id()));
+        assert_eq!(mutable_tx.tx.cell_tx().inputs.len(), 2);
+        assert_eq!(mutable_tx.tx.cell_tx().outputs.len(), 2);
+    }
+
+    #[test]
+    fn test_verifiable_transaction() {
+        let cell_tx = test_cell_tx();
+        let entries = vec![
+            CellEntry {
+                out_point: cell_tx.inputs[0].out_point,
+                capacity: 1000,
+                data_bytes: 0,
+                lock_hash: [1u8; 32],
+                type_hash: None,
+                data_hash: [0u8; 32],
+                block_daa_score: 100,
+                is_cellbase: false,
+            },
+            CellEntry {
+                out_point: cell_tx.inputs[1].out_point,
+                capacity: 2000,
+                data_bytes: 0,
+                lock_hash: [2u8; 32],
+                type_hash: None,
+                data_hash: [0u8; 32],
+                block_daa_score: 100,
+                is_cellbase: false,
+            },
+        ];
+
+        let populated = PopulatedTransaction::new(&cell_tx, entries);
+        assert_eq!(populated.tx.inputs.len(), 2);
+        assert_eq!(populated.tx.outputs.len(), 2);
+    }
+
+    #[test]
+    fn test_effective_compute_mass_prefers_verified_cycles() {
+        let cell_tx = test_cell_tx();
+        let mut mutable_tx = MutableTransaction::from_cell_tx(cell_tx.clone());
+        mutable_tx.calculated_non_contextual_masses = Some(NonContextualMasses::new(100, 50));
+        mutable_tx.verified_cycles = Some(1_000_000);
+
+        let expected_effective_size =
+            VmLimits::default().effective_size(cell_tx_estimated_serialized_size(&cell_tx) as usize, 1_000_000) as u64;
+        assert_eq!(mutable_tx.effective_compute_mass(), Some(expected_effective_size.max(100)));
+    }
+
+    #[test]
+    fn test_selection_mass_and_feerate_use_verified_cycles() {
+        let cell_tx = test_cell_tx();
+        let mut mutable_tx = MutableTransaction::from_cell_tx(cell_tx.clone());
+        mutable_tx.calculated_non_contextual_masses = Some(NonContextualMasses::new(100, 50));
+        mutable_tx.calculated_contextual_masses = Some(ContextualMasses::new(12_500));
+        mutable_tx.calculated_fee = Some(20_000);
+        mutable_tx.verified_cycles = Some(1_000_000);
+
+        let expected_effective_compute_mass =
+            VmLimits::default().effective_size(cell_tx_estimated_serialized_size(&cell_tx) as usize, 1_000_000) as u64;
+        let expected_selection_mass = expected_effective_compute_mass.max(100).max(50).max(12_500);
+
+        assert_eq!(mutable_tx.selection_mass(), Some(expected_selection_mass));
+        assert_eq!(mutable_tx.calculated_feerate(), Some(20_000f64 / expected_selection_mass as f64));
+    }
 }

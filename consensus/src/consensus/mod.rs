@@ -69,15 +69,12 @@ use spora_consensus_core::{
     },
     header::Header,
     mass::{ContextualMasses, NonContextualMasses},
-    merkle::{calc_hash_merkle_root, calc_hash_merkle_root_cell},
+    merkle::calc_hash_merkle_root_cell,
     mining_rules::MiningRules,
     network::NetworkType,
     pruning::{PruningPointProof, PruningPointTrustedData, PruningPointsList, PruningProofMetadata},
     trusted::{ExternalGhostdagData, TrustedBlock},
-    tx::{
-        legacy_compat_transaction_from_cell_tx, CellEntry, CellTx, MutableTransaction, ResolvedCellTransaction, SignableTransaction,
-        Transaction, TransactionOutpoint,
-    },
+    tx::{CellEntry, CellTx, MutableTransaction, ResolvedCellTransaction, SignableTransaction, TransactionOutpoint},
     BlockHashSet, BlueWorkType, ChainPath, HashMapCustomHasher,
 };
 use spora_consensus_notify::root::ConsensusNotificationRoot;
@@ -90,9 +87,9 @@ use crossbeam_channel::{
 use itertools::Itertools;
 use spora_consensusmanager::{SessionLock, SessionReadGuard};
 
+use spora_consensus_core::tx::ScriptCacheCounters;
 use spora_database::prelude::{StoreResultEmptyTuple, StoreResultExtensions};
 use spora_hashes::Hash;
-use spora_txscript::caches::TxScriptCacheCounters;
 
 use std::{
     cmp::Reverse,
@@ -314,7 +311,7 @@ impl Consensus {
         pruning_lock: SessionLock,
         notification_root: Arc<ConsensusNotificationRoot>,
         counters: Arc<ProcessingCounters>,
-        tx_script_cache_counters: Arc<TxScriptCacheCounters>,
+        tx_script_cache_counters: Arc<ScriptCacheCounters>,
         creation_timestamp: u64,
         mining_rules: Arc<MiningRules>,
     ) -> Self {
@@ -1060,11 +1057,6 @@ impl ConsensusApi for Consensus {
         self.services.coinbase_manager.modify_coinbase_payload(payload, miner_data)
     }
 
-    fn calc_transaction_hash_merkle_root(&self, txs: &[Transaction], _pov_daa_score: u64) -> Hash {
-        let storage_mass_activated = true;
-        calc_hash_merkle_root(txs.iter(), storage_mass_activated)
-    }
-
     fn calc_cell_tx_hash_merkle_root(&self, txs: &[CellTx], _pov_daa_score: u64) -> Hash {
         let storage_mass_activated = true;
         calc_hash_merkle_root_cell(txs.iter(), storage_mass_activated)
@@ -1199,11 +1191,6 @@ impl ConsensusApi for Consensus {
             header: self.headers_store.get_header(hash).unwrap_option().ok_or(ConsensusError::BlockNotFound(hash))?,
             transactions: self.block_transactions_store.get(hash).unwrap_option().ok_or(ConsensusError::BlockNotFound(hash))?,
         })
-    }
-
-    fn get_transaction(&self, hash: Hash) -> ConsensusResult<Transaction> {
-        let cell_tx = self.get_cell_transaction(hash)?;
-        Ok(legacy_compat_transaction_from_cell_tx(&cell_tx))
     }
 
     fn get_block_even_if_header_only(&self, hash: Hash) -> ConsensusResult<Block> {

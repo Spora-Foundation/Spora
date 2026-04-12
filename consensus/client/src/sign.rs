@@ -11,7 +11,6 @@ use spora_consensus_core::{
         sighash::{calc_schnorr_signature_hash, SigHashReusedValuesUnsync},
         sighash_type::SIG_HASH_ALL,
     },
-    tx::{cell_tx_from_legacy_transaction, PopulatedTransaction},
     //sign::Signed,
 };
 use std::collections::BTreeMap;
@@ -49,9 +48,8 @@ pub fn sign_with_multiple_v3<'a>(tx: &'a Transaction, privkeys: &[[u8; 32]]) -> 
     let mut additional_signatures_required = false;
     {
         let input_len = tx.inner().inputs.len();
-        let (cctx, cell_entries) = tx.tx_and_cell_entries()?;
-        let cell_tx = cell_tx_from_legacy_transaction(&cctx);
-        let populated_transaction = PopulatedTransaction::new(&cell_tx, cell_entries);
+        let signable_tx = tx.signable_transaction()?;
+        let verifiable_tx = signable_tx.as_verifiable();
         for i in 0..input_len {
             let script_pub_key = match tx.inner().inputs[i].script_public_key() {
                 Some(script) => script,
@@ -65,7 +63,7 @@ pub fn sign_with_multiple_v3<'a>(tx: &'a Transaction, privkeys: &[[u8; 32]]) -> 
             }
             let script = script_pub_key.script();
             if let Some(schnorr_key) = map.get(script) {
-                let sig_hash = calc_schnorr_signature_hash(&populated_transaction, i, SIG_HASH_ALL, &reused_values);
+                let sig_hash = calc_schnorr_signature_hash(&verifiable_tx, i, SIG_HASH_ALL, &reused_values);
                 let msg = secp256k1::Message::from_digest_slice(sig_hash.as_bytes().as_slice()).unwrap();
                 let sig: [u8; 64] = *schnorr_key.sign_schnorr(msg).as_ref();
                 // This represents OP_DATA_65 <SIGNATURE+SIGHASH_TYPE> (since signature length is 64 bytes and SIGHASH_TYPE is one byte)

@@ -152,7 +152,6 @@ cfg_if::cfg_if! {
         pub use spora_addresses::{Address, Version as AddressVersion};
         pub use spora_consensus_core::tx::{ScriptPublicKey, Transaction, TransactionInput, TransactionOutpoint, TransactionOutput};
         pub use spora_pow::wasm::*;
-        pub use spora_txscript::wasm::*;
 
         pub mod rpc {
             //! Spora RPC interface
@@ -179,7 +178,6 @@ cfg_if::cfg_if! {
         pub use spora_addresses::{Address, Version as AddressVersion};
         pub use spora_consensus_core::tx::{ScriptPublicKey, Transaction, TransactionInput, TransactionOutpoint, TransactionOutput};
         pub use spora_pow::wasm::*;
-        pub use spora_txscript::wasm::*;
 
         pub mod rpc {
             //! Spora RPC interface

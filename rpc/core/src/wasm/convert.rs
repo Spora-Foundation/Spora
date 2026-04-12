@@ -88,23 +88,18 @@ cfg_if::cfg_if! {
 
         impl From<&Transaction> for RpcTransaction {
             fn from(tx: &Transaction) -> Self {
-                let inner = tx.inner();
-                let inputs: Vec<RpcTransactionInput> =
-                    inner.inputs.clone().into_iter().map(|input| input.into()).collect::<Vec<RpcTransactionInput>>();
-                let outputs: Vec<RpcTransactionOutput> =
-                    inner.outputs.clone().into_iter().map(|output| output.into()).collect::<Vec<RpcTransactionOutput>>();
-
-                RpcTransaction {
-                    version: inner.version,
-                    inputs,
-                    outputs,
-                    lock_time: inner.lock_time,
-                    subnetwork_id: inner.subnetwork_id.clone().into(),
-                    gas: inner.gas,
-                    payload: inner.payload.clone(),
-                    mass: inner.mass,
-                    verbose_data: None,
-                }
+                let cell_tx =
+                    tx.cell_tx().unwrap_or_else(|err| panic!("Transaction must be canonical before RPC conversion: {err}"));
+                let projected_mass = tx
+                    .signable_transaction()
+                    .ok()
+                    .map(|signable_tx| {
+                        spora_consensus_core::mass::project_verifiable_transaction_mass(&signable_tx.as_verifiable(), None).selection_mass
+                    })
+                    .unwrap_or_else(|| spora_consensus_core::mass::project_cell_tx_mass(&cell_tx, None).selection_mass);
+                let mut rpc_tx = RpcTransaction::from(&cell_tx);
+                rpc_tx.mass = projected_mass;
+                rpc_tx
             }
         }
     }

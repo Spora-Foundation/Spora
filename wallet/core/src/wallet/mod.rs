@@ -1610,8 +1610,6 @@ mod test {
     use spora_bip32::{ChildNumber, ExtendedPrivateKey, SecretKey};
     use spora_consensus_core::subnets::SUBNETWORK_ID_NATIVE;
     use spora_consensus_wasm::{sign_transaction, SignableTransaction, Transaction, TransactionInput, TransactionOutput};
-    use spora_txscript::pay_to_address_script;
-
     async fn create_cells_context_with_addresses(
         rpc: Arc<DynRpcApi>,
         addresses: Vec<Address>,
@@ -1677,9 +1675,6 @@ mod test {
             0,
             inputs,
             vec![TransactionOutput::new(1000, &pay_to_address_script(&to_address))],
-            0,
-            SUBNETWORK_ID_NATIVE,
-            0,
             vec![],
         )?;
 

@@ -17,6 +17,7 @@ impl From<&Header> for protowire::BlockHeader {
             hash_merkle_root: Some(item.hash_merkle_root.into()),
             accepted_id_merkle_root: Some(item.accepted_id_merkle_root.into()),
             cell_commitment: Some(item.cell_commitment.into()),
+            cell_root: Some(item.cell_root.into()),
             timestamp: item.timestamp.try_into().expect("timestamp is always convertible to i64"),
             bits: item.bits,
             nonce: item.nonce,
@@ -42,14 +43,13 @@ impl From<&Vec<Hash>> for protowire::BlockLevelParents {
 impl TryFrom<protowire::BlockHeader> for Header {
     type Error = ConversionError;
     fn try_from(item: protowire::BlockHeader) -> Result<Self, Self::Error> {
-        use spora_hashes::ZERO_HASH;
         Ok(Self::new_finalized(
             item.version.try_into()?,
             item.parents.into_iter().map(Vec::<Hash>::try_from).collect::<Result<Vec<Vec<Hash>>, ConversionError>>()?,
             item.hash_merkle_root.try_into_ex()?,
             item.accepted_id_merkle_root.try_into_ex()?,
             item.cell_commitment.try_into_ex()?,
-            ZERO_HASH, // TODO(spora): Add cell_root to protowire
+            item.cell_root.try_into_ex()?,
             item.timestamp.try_into()?,
             item.bits,
             item.nonce,
@@ -66,5 +66,39 @@ impl TryFrom<protowire::BlockLevelParents> for Vec<Hash> {
     type Error = ConversionError;
     fn try_from(item: protowire::BlockLevelParents) -> Result<Self, Self::Error> {
         item.parent_hashes.into_iter().map(|x| x.try_into()).collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn hash_from_byte(byte: u8) -> Hash {
+        Hash::from_bytes([byte; 32])
+    }
+
+    #[test]
+    fn test_block_header_roundtrip_preserves_cell_root() {
+        let header = Header::new_finalized(
+            1,
+            vec![vec![hash_from_byte(1), hash_from_byte(2)], vec![hash_from_byte(3)]],
+            hash_from_byte(4),
+            hash_from_byte(5),
+            hash_from_byte(6),
+            hash_from_byte(7),
+            123,
+            456,
+            789,
+            1011,
+            1213.into(),
+            1415,
+            hash_from_byte(8),
+        );
+
+        let wire: protowire::BlockHeader = (&header).into();
+        let decoded = Header::try_from(wire).unwrap();
+
+        assert_eq!(decoded.cell_root, header.cell_root);
+        assert_eq!(decoded.hash, header.hash);
     }
 }

@@ -9,8 +9,7 @@ use spora_cellindex::api::{CellIndexProxy, CellQuery};
 use spora_consensus_core::api::counters::ProcessingCounters;
 use spora_consensus_core::daa_score_timestamp::DaaScoreTimestamp;
 use spora_consensus_core::errors::block::RuleError;
-use spora_consensus_core::mass::{calc_storage_mass, CellMass};
-use spora_consensus_core::tx::{ScriptPublicKey, TransactionOutpoint};
+use spora_consensus_core::tx::{extract_script_pub_key_address, pay_to_address_script, ScriptPublicKey, TransactionOutpoint};
 use std::time::Duration;
 use std::{
     collections::HashMap,
@@ -75,7 +74,6 @@ use spora_rpc_core::{
     notify::connection::ChannelConnection,
     Notification, RpcError, RpcResult,
 };
-use spora_txscript::{extract_script_pub_key_address, pay_to_address_script};
 use spora_utils::expiring_cache::ExpiringCache;
 use spora_utils::sysinfo::SystemInfo;
 use spora_utils::{channel::Channel, triggers::SingleTrigger};
@@ -353,59 +351,6 @@ impl RpcCoreService {
             (false, false) => Ok(TransactionQuery::TransactionsOnly),
         }
     }
-
-    fn sanity_check_storage_mass(&self, block: Block) {
-        // Storage mass is always active
-
-        // It is sufficient to witness a single transaction with non-default storage mass
-        // to conclude that miner RPC flow is populating the commitment field correctly.
-        if block.transactions.iter().any(|tx| tx.storage_mass() > 0) {
-            return;
-        }
-
-        // Iterate over non-coinbase transactions and search for a transaction which is proven to have positive storage mass
-        for tx in block.transactions.iter().skip(1) {
-            /*
-                Below we apply a workaround to compute a lower bound to the storage mass even without having full cell-entry context (thus lacking input amounts).
-                Notes:
-                    1. We know that plurality is always 1 for std tx ins/outs (assuming the submitted block was built via the local std mempool).
-                    2. The submitted block was accepted by consensus hence all transactions passed the basic in-isolation validity checks
-
-                |O| > |I| means that the formula used is C·|O| / H(O) - C·|I| / A(I). Additionally we know that sum(O) <= sum(I) (outs = ins minus fee).
-                Combined, we can use sum(O)/|I| as a lower bound for A(I). We simulate this by using sum(O)/|I| as the value of each (unknown) input.
-                Plugging in to the storage formula we obtain a lower bound for the real storage mass (intuitively, making inputs smaller only decreases the mass).
-            */
-            if tx.outputs.len() > tx.inputs.len() {
-                let num_ins = tx.inputs.len() as u64;
-                let sum_outs = tx.outputs.iter().map(|o| o.capacity).sum::<u64>(); // CellOut uses capacity, not value
-                if num_ins == 0 || sum_outs < num_ins {
-                    // Sanity checks
-                    continue;
-                }
-
-                let avg_ins_lower = sum_outs / num_ins; // >= 1
-                let storage_mass_lower = calc_storage_mass(
-                    tx.is_coinbase(),
-                    tx.inputs.iter().map(|_| CellMass { plurality: 1, amount: avg_ins_lower }),
-                    tx.outputs.iter().zip(tx.outputs_data.iter()).map(|(output, data)| (output, data.len()).into()),
-                    self.config.storage_mass_parameter,
-                )
-                .unwrap_or(u64::MAX);
-
-                // Despite being a lower bound, storage mass is still calculated to be positive, so we found our problem
-                if storage_mass_lower > 0 {
-                    warn!("The RPC submitted block {} contains a transaction {:?} with mass = 0 while it should have been strictly positive.
-This indicates that the RPC conversion flow used by the miner does not preserve the mass values received from GetBlockTemplate.
-You must upgrade your miner flow to propagate the mass field correctly.",
-                            block.hash(),
-                            tx.id() // Use Debug formatting for [u8; 32]
-                        );
-                    // A single warning is sufficient
-                    break;
-                }
-            }
-        }
-    }
 }
 
 #[async_trait]
@@ -441,9 +386,7 @@ impl RpcApi for RpcCoreService {
             // A simple heuristic check which signals that the mined block is out of date
             // and should not be accepted unless user explicitly requests
             //
-            let difficulty_window_duration = self
-                .config
-                .difficulty_window_duration_in_block_units();
+            let difficulty_window_duration = self.config.difficulty_window_duration_in_block_units();
             if virtual_daa_score > difficulty_window_duration
                 && block.header.daa_score < virtual_daa_score - difficulty_window_duration
             {
@@ -454,10 +397,7 @@ impl RpcApi for RpcCoreService {
 
         trace!("incoming SubmitBlockRequest for block {}", hash);
         match self.flow_context.submit_rpc_block(&session, block.clone()).await {
-            Ok(_) => {
-                self.sanity_check_storage_mass(block);
-                Ok(SubmitBlockResponse { report: SubmitBlockReport::Success })
-            }
+            Ok(_) => Ok(SubmitBlockResponse { report: SubmitBlockReport::Success }),
             Err(ProtocolError::RuleError(RuleError::BadMerkleRoot(h1, h2))) => {
                 warn!(
                     "The RPC submitted block {} triggered a {} error: {}.
@@ -495,7 +435,7 @@ NOTE: This error usually indicates an RPC conversion error between the node and 
         }
 
         // Build block template
-        let script_public_key = spora_txscript::pay_to_address_script(&request.pay_address);
+        let script_public_key = pay_to_address_script(&request.pay_address);
         let extra_data = version().as_bytes().iter().chain(once(&(b'/'))).chain(&request.extra_data).cloned().collect::<Vec<_>>();
         let miner_data: MinerData = MinerData::new(script_public_key, extra_data);
         let session = self.consensus_manager.consensus().unguarded_session();

@@ -1,11 +1,10 @@
 use crate::{
     cell_metadata::CellMetadata,
-    config::params::Params,
+    config::params::{Params, MAINNET_PARAMS},
     constants::TRANSIENT_BYTE_TO_MASS_FACTOR,
-    subnets::SUBNETWORK_ID_SIZE,
-    tx::{CellEntry, CellOut, CellTx, ScriptPublicKey, Transaction, TransactionInput, TransactionOutput, VerifiableTransaction},
+    tx::{CellEntry, CellOut, CellTx, ScriptPublicKey, VerifiableTransaction},
 };
-use spora_hashes::HASH_SIZE;
+use spora_exec::vm::VmLimits;
 
 const LEGACY_CELL_CONST_STORAGE: u64 =
     32  // outpoint::tx_id
@@ -87,56 +86,6 @@ pub fn cell_tx_estimated_serialized_size(tx: &CellTx) -> u64 {
     size
 }
 
-// transaction_estimated_serialized_size is the estimated size of a legacy transaction in some
-// serialization. This has to be deterministic, but not necessarily accurate, since
-// it's only used as the size component in the transaction and block mass limit
-// calculation.
-pub fn transaction_estimated_serialized_size(tx: &Transaction) -> u64 {
-    let mut size: u64 = 0;
-    size += 2; // Tx version (u16)
-    size += 8; // Number of inputs (u64)
-    let inputs_size: u64 = tx.inputs.iter().map(transaction_input_estimated_serialized_size).sum();
-    size += inputs_size;
-
-    size += 8; // number of outputs (u64)
-    let outputs_size: u64 = tx.outputs.iter().map(transaction_output_estimated_serialized_size).sum();
-    size += outputs_size;
-
-    size += 8; // lock time (u64)
-    size += SUBNETWORK_ID_SIZE as u64;
-    size += 8; // gas (u64)
-    size += HASH_SIZE as u64; // payload hash
-
-    size += 8; // length of the payload (u64)
-    size += tx.payload.len() as u64;
-    size
-}
-
-fn transaction_input_estimated_serialized_size(input: &TransactionInput) -> u64 {
-    let mut size = 0;
-    size += outpoint_estimated_serialized_size();
-    size += 8; // length of signature script (u64)
-    size += input.signature_script.len() as u64;
-    size += 8; // sequence (u64)
-    size
-}
-
-const fn outpoint_estimated_serialized_size() -> u64 {
-    let mut size: u64 = 0;
-    size += HASH_SIZE as u64; // previous tx id
-    size += 4; // index (u32)
-    size
-}
-
-pub fn transaction_output_estimated_serialized_size(output: &TransactionOutput) -> u64 {
-    let mut size: u64 = 0;
-    size += 8; // value (u64)
-    size += 2; // output.ScriptPublicKey.Version (u16)
-    size += 8; // length of script public key (u64)
-    size += output.script_public_key.script().len() as u64;
-    size
-}
-
 /// Returns the cell storage plurality for this script public key.
 /// i.e., how many 100-byte "storage units" it occupies.
 /// The choice of 100 bytes per unit ensures that all standard SPKs have a plurality of 1.
@@ -156,13 +105,6 @@ fn canonical_cell_storage_bytes(entry: &CellEntry) -> Option<u64> {
 fn canonical_cell_metadata_storage_bytes(metadata: &CellMetadata) -> u64 {
     CANONICAL_CELL_CONST_STORAGE + u64::from(metadata.type_hash.is_some()) * 32 + metadata.data_bytes
 }
-
-fn canonical_output_storage_bytes(output: &TransactionOutput) -> Option<u64> {
-    crate::cell_metadata::parse_cell_metadata_placeholder_script_public_key(&output.script_public_key)
-        .map(|metadata| CANONICAL_CELL_CONST_STORAGE + u64::from(metadata.type_hash.is_some()) * 32 + metadata.data_bytes)
-}
-
-
 
 pub fn cell_entry_plurality(entry: &CellEntry) -> u64 {
     // CellMeta always carries canonical cell metadata
@@ -193,18 +135,6 @@ impl CellPlurality for CellEntry {
         cell_entry_plurality(self)
     }
 }
-
-impl CellPlurality for TransactionOutput {
-    fn plurality(&self) -> u64 {
-        canonical_output_storage_bytes(self)
-            .unwrap_or_else(|| LEGACY_CELL_CONST_STORAGE + self.script_public_key.script().len() as u64)
-            .div_ceil(CELL_UNIT_SIZE)
-    }
-}
-
-
-
-
 
 /// An abstract storage cell.
 ///
@@ -248,14 +178,6 @@ impl From<&CellMetadata> for CellMass {
         Self::new(canonical_cell_metadata_storage_bytes(metadata).div_ceil(CELL_UNIT_SIZE), metadata.capacity)
     }
 }
-
-impl From<&TransactionOutput> for CellMass {
-    fn from(output: &TransactionOutput) -> Self {
-        Self::new(output.plurality(), output.value)
-    }
-}
-
-
 
 impl From<(&CellOut, usize)> for CellMass {
     fn from((output, data_len): (&CellOut, usize)) -> Self {
@@ -332,6 +254,14 @@ impl MassOps for Mass {
     fn max(&self) -> u64 {
         self.1.max(self.0)
     }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct ProjectedTransactionMass {
+    pub effective_compute_mass: u64,
+    pub transient_mass: u64,
+    pub storage_mass: Option<u64>,
+    pub selection_mass: u64,
 }
 
 // Note: consensus mass calculator operates on signed transactions.
@@ -424,6 +354,58 @@ impl MassCalculator {
         )
         .map(ContextualMasses::new)
     }
+}
+
+fn default_projection_mass_calculator() -> MassCalculator {
+    // All currently supported networks share the same mass coefficients. Keep
+    // compatibility/API projections on a single deterministic baseline.
+    MassCalculator::new_with_consensus_params(&MAINNET_PARAMS)
+}
+
+pub fn project_cell_tx_mass_with_calculator(
+    calculator: &MassCalculator,
+    tx: &CellTx,
+    verified_cycles: Option<u64>,
+) -> ProjectedTransactionMass {
+    if tx.is_coinbase() {
+        return ProjectedTransactionMass { effective_compute_mass: 0, transient_mass: 0, storage_mass: Some(0), selection_mass: 0 };
+    }
+
+    let non_contextual_masses = calculator.calc_non_contextual_masses_cell(tx);
+    let effective_size_mass = verified_cycles
+        .map(|cycles| VmLimits::default().effective_size(cell_tx_estimated_serialized_size(tx) as usize, cycles))
+        .unwrap_or(0);
+    let effective_compute_mass = non_contextual_masses.compute_mass.max(effective_size_mass);
+    let selection_mass = effective_compute_mass.max(non_contextual_masses.transient_mass);
+
+    ProjectedTransactionMass {
+        effective_compute_mass,
+        transient_mass: non_contextual_masses.transient_mass,
+        storage_mass: None,
+        selection_mass,
+    }
+}
+
+pub fn project_verifiable_transaction_mass_with_calculator(
+    calculator: &MassCalculator,
+    tx: &(impl VerifiableTransaction + ?Sized),
+    verified_cycles: Option<u64>,
+) -> ProjectedTransactionMass {
+    let mut projected = project_cell_tx_mass_with_calculator(calculator, tx.tx(), verified_cycles);
+    projected.storage_mass = calculator.calc_contextual_masses(tx).map(|mass| mass.storage_mass);
+    projected.selection_mass = projected.selection_mass.max(projected.storage_mass.unwrap_or(0));
+    projected
+}
+
+pub fn project_cell_tx_mass(tx: &CellTx, verified_cycles: Option<u64>) -> ProjectedTransactionMass {
+    project_cell_tx_mass_with_calculator(&default_projection_mass_calculator(), tx, verified_cycles)
+}
+
+pub fn project_verifiable_transaction_mass(
+    tx: &(impl VerifiableTransaction + ?Sized),
+    verified_cycles: Option<u64>,
+) -> ProjectedTransactionMass {
+    project_verifiable_transaction_mass_with_calculator(&default_projection_mass_calculator(), tx, verified_cycles)
 }
 
 /// Calculates the storage mass (KIP-0009) for a given set of inputs and outputs.
@@ -570,8 +552,8 @@ mod tests {
         */
         for net in NetworkType::iter() {
             let params: Params = net.into();
-            let max_spk_len = (params.max_script_public_key_len() as u64)
-                .min(params.max_block_mass.div_ceil(params.mass_per_script_pub_key_byte));
+            let max_spk_len =
+                (params.max_script_public_key_len() as u64).min(params.max_block_mass.div_ceil(params.mass_per_script_pub_key_byte));
             let max_plurality = (LEGACY_CELL_CONST_STORAGE + max_spk_len).div_ceil(CELL_UNIT_SIZE); // see cell_plurality
             let product = params.storage_mass_parameter.checked_mul(max_plurality).and_then(|x| x.checked_mul(max_plurality));
             // verify C·P^2 can never overflow
@@ -582,9 +564,12 @@ mod tests {
         assert!(cell_plurality(&ScriptPublicKey::new(0, ScriptVec::from_slice(&[]))) == 1);
         // Assert the CANONICAL_CELL_CONST_STORAGE=126, CELL_UNIT_SIZE=100 constants
         // Note: With canonical storage (126 bytes), even empty script gives plurality = 2 (ceil(126/100))
-        assert!(cell_plurality(&ScriptPublicKey::from_vec(0, vec![1; (CELL_UNIT_SIZE * 2 - CANONICAL_CELL_CONST_STORAGE) as usize])) == 2);
         assert!(
-            cell_plurality(&ScriptPublicKey::from_vec(0, vec![1; (CELL_UNIT_SIZE * 2 - CANONICAL_CELL_CONST_STORAGE + 1) as usize])) == 3
+            cell_plurality(&ScriptPublicKey::from_vec(0, vec![1; (CELL_UNIT_SIZE * 2 - CANONICAL_CELL_CONST_STORAGE) as usize])) == 2
+        );
+        assert!(
+            cell_plurality(&ScriptPublicKey::from_vec(0, vec![1; (CELL_UNIT_SIZE * 2 - CANONICAL_CELL_CONST_STORAGE + 1) as usize]))
+                == 3
         );
     }
 
@@ -859,32 +844,16 @@ mod tests {
         let lock = ScriptRef::new(lock_hash, 0, vec![]);
         let prev_tx_id = TransactionId::from_str("880eb9819a31821d9d2399e2f35e2433b72637e393d71ecc9b8d0250f49153c3").unwrap();
 
-        let inputs: Vec<CellRef> = (0..ins.len())
-            .map(|i| CellRef::new(outpoint_from_id(prev_tx_id, i as u32), 0))
-            .collect();
+        let inputs: Vec<CellRef> = (0..ins.len()).map(|i| CellRef::new(outpoint_from_id(prev_tx_id, i as u32), 0)).collect();
 
-        let outputs: Vec<CellOut> = outs.iter()
-            .copied()
-            .map(|out_amount| CellOut {
-                lock: lock.clone(),
-                type_: None,
-                capacity: out_amount,
-            })
-            .collect();
+        let outputs: Vec<CellOut> =
+            outs.iter().copied().map(|out_amount| CellOut { lock: lock.clone(), type_: None, capacity: out_amount }).collect();
 
         // Use data_len=15 for each output so cell_out_plurality = ceil((86+15)/100) = 2
         // This matches CellMeta entries which also have plurality 2 (canonical_cell_storage=126)
         let outputs_data: Vec<Vec<u8>> = (0..outs.len()).map(|_| vec![0; 15]).collect();
 
-        let tx = CellTx {
-            ver: 0,
-            inputs,
-            deps: vec![],
-            header_deps: vec![],
-            outputs,
-            outputs_data,
-            witnesses: vec![],
-        };
+        let tx = CellTx { ver: 0, inputs, deps: vec![], header_deps: vec![], outputs, outputs_data, witnesses: vec![] };
 
         let entries = ins
             .iter()

@@ -79,16 +79,14 @@ impl BlockBodyProcessor {
         if crescendo_activated {
             let mut total_compute_mass: u64 = 0;
             let mut total_transient_mass: u64 = 0;
-            let mut total_storage_mass: u64 = 0;
             for tx in block.transactions.iter() {
-                let compute_mass = tx.compute_mass();
-                let transient_mass = tx.transient_mass();
-                let storage_mass_commitment = tx.storage_mass();
+                let non_contextual_masses = self.mass_calculator.calc_non_contextual_masses_cell(tx);
+                let compute_mass = non_contextual_masses.compute_mass;
+                let transient_mass = non_contextual_masses.transient_mass;
 
                 // Sum over the various masses separately
                 total_compute_mass = total_compute_mass.saturating_add(compute_mass);
                 total_transient_mass = total_transient_mass.saturating_add(transient_mass);
-                total_storage_mass = total_storage_mass.saturating_add(storage_mass_commitment);
 
                 // Verify all limits
                 if total_compute_mass > self.max_block_mass {
@@ -97,15 +95,12 @@ impl BlockBodyProcessor {
                 if total_transient_mass > self.max_block_mass {
                     return Err(RuleError::ExceedsTransientMassLimit(total_transient_mass, self.max_block_mass));
                 }
-                if total_storage_mass > self.max_block_mass {
-                    return Err(RuleError::ExceedsStorageMassLimit(total_storage_mass, self.max_block_mass));
-                }
             }
-            Ok((NonContextualMasses::new(total_compute_mass, total_transient_mass), ContextualMasses::new(total_storage_mass)))
+            Ok((NonContextualMasses::new(total_compute_mass, total_transient_mass), ContextualMasses::new(0)))
         } else {
             let mut total_mass: u64 = 0;
             for tx in block.transactions.iter() {
-                let compute_mass = tx.compute_mass();
+                let compute_mass = self.mass_calculator.calc_non_contextual_masses_cell(tx).compute_mass;
                 total_mass = total_mass.saturating_add(compute_mass);
                 if total_mass > self.max_block_mass {
                     return Err(RuleError::ExceedsComputeMassLimit(total_mass, self.max_block_mass));
@@ -201,10 +196,7 @@ mod tests {
         )
         .unwrap();
         let tx1 = CellTx::new(
-            vec![
-                CellRef::new(OutPoint::new([0x16; 32], 0xffffffff), 0),
-                CellRef::new(OutPoint::new([0x4b; 32], 0xffffffff), 0),
-            ],
+            vec![CellRef::new(OutPoint::new([0x16; 32], 0xffffffff), 0), CellRef::new(OutPoint::new([0x4b; 32], 0xffffffff), 0)],
             vec![],
             vec![CellOut { lock: lock.clone(), type_: None, capacity: 1000 }],
             vec![vec![]],
@@ -271,12 +263,7 @@ mod tests {
                 9,
                 Default::default(),
             ),
-            vec![coinbase,
-                tx1,
-                tx2,
-                tx3,
-                tx4,
-            ],
+            vec![coinbase, tx1, tx2, tx3, tx4],
         );
         example_block.header.hash_merkle_root = calc_hash_merkle_root(example_block.transactions.iter());
 

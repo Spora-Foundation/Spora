@@ -96,9 +96,6 @@ export interface ISerializableTransaction {
     version: number;
     inputs: ISerializableTransactionInput[];
     outputs: ISerializableTransactionOutput[];
-    lockTime: bigint;
-    subnetworkId: HexString;
-    gas: bigint;
     payload: HexString;
 }
 

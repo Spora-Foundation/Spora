@@ -9,16 +9,10 @@ use crate::imports::*;
 use crate::result::Result;
 use crate::rpc::DynRpcApi;
 use crate::tx::{DataKind, Generator, MAXIMUM_STANDARD_TRANSACTION_MASS};
-use secp256k1::Message;
-use spora_consensus_core::hashing::sighash::{calc_schnorr_signature_hash, SigHashReusedValuesUnsync};
-use spora_consensus_core::hashing::sighash_type::{SigHashType, SIG_HASH_ALL};
+use spora_consensus_core::hashing::sighash_type::SigHashType;
 use spora_consensus_core::sign::{sign_input, sign_with_multiple_v2, Signed};
-use spora_consensus_core::tx::{
-    cell_tx_from_legacy_transaction, legacy_compat_transaction_from_cell_tx, CellTx, SignableTransaction, Transaction, TransactionId,
-    TransactionInput, TransactionOutput,
-};
+use spora_consensus_core::tx::{CellTx, SignableTransaction, TransactionId};
 use spora_rpc_core::{RpcTransaction, RpcTransactionId};
-use spora_txscript::{pay_to_pub_key_with_lock_time, pay_to_script_hash_signature_script};
 
 pub(crate) struct PendingTransactionInner {
     /// Generator that produced the transaction
@@ -47,7 +41,7 @@ pub(crate) struct PendingTransactionInner {
     /// (passed in during transaction creation). This value is used
     /// to estimate the mass of the transaction.
     pub(crate) minimum_signatures: u16,
-    // Transaction mass
+    // One-dimensional transaction mass used for fee estimation.
     pub(crate) mass: u64,
     /// Fees of the transaction
     pub(crate) fees: u64,
@@ -154,6 +148,7 @@ impl PendingTransaction {
         self.inner.fees
     }
 
+    /// One-dimensional transaction mass used by the generator fee model.
     pub fn mass(&self) -> u64 {
         self.inner.mass
     }
@@ -306,28 +301,6 @@ impl PendingTransaction {
         };
 
         *self.inner.signable_tx.lock().unwrap() = signed_tx;
-        Ok(())
-    }
-
-    pub fn try_sign_with_lock_time(&self, privkey: &[u8; 32], lock_time: u64) -> Result<()> {
-        let mut mutable_tx = self.inner.signable_tx.lock()?;
-
-        let reused_values = SigHashReusedValuesUnsync::new();
-        let keypair = secp256k1::Keypair::from_seckey_slice(secp256k1::SECP256K1, privkey)?;
-        let xpub = keypair.x_only_public_key().0.serialize();
-        let redeem_script = pay_to_pub_key_with_lock_time(&xpub, lock_time)?;
-
-        for i in 0..mutable_tx.tx.inputs.len() {
-            let sig_hash = calc_schnorr_signature_hash(&mutable_tx.as_verifiable(), i, SIG_HASH_ALL, &reused_values);
-            let msg = Message::from_digest_slice(sig_hash.as_bytes().as_slice())?;
-            let sig = keypair.sign_schnorr(msg).as_ref().to_vec();
-            let signature = std::iter::once(65u8).chain(sig).chain([SIG_HASH_ALL.to_u8()]).collect();
-            let signature_script = pay_to_script_hash_signature_script(&redeem_script, signature)?;
-            while mutable_tx.tx.witnesses.len() < mutable_tx.tx.inputs.len() {
-                mutable_tx.tx.witnesses.push(vec![]);
-            }
-            mutable_tx.tx.witnesses[i] = signature_script;
-        }
         Ok(())
     }
 }

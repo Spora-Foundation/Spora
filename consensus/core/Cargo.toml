@@ -34,7 +34,6 @@ spora-math.workspace = true
 spora-merkle.workspace = true
 spora-muhash.workspace = true
 spora-state.workspace = true
-spora-txscript-errors.workspace = true
 spora-utils.workspace = true
 rand.workspace = true
 secp256k1.workspace = true

@@ -3,21 +3,20 @@ use itertools::Itertools;
 use rayon::prelude::{IntoParallelIterator, ParallelIterator};
 use secp256k1::Keypair;
 use spora_addresses::Address;
+use spora_consensus_client::{Transaction, TransactionInput, TransactionOutput};
 use spora_consensus_core::{
     cell_diff::{CellCollection, CellDiff},
     constants::TX_VERSION,
     header::Header,
     sign::sign,
-    subnets::SUBNETWORK_ID_NATIVE,
     tx::{
-        CellEntry, MutableTransaction, ScriptPublicKey, SignableTransaction, Transaction, TransactionId, TransactionInput,
-        TransactionOutpoint, TransactionOutput,
+        pay_to_address_script, CellEntry, CellOut, CellRef, CellTx, MutableTransaction, ScriptPublicKey, ScriptRef,
+        SignableTransaction, TransactionId, TransactionOutpoint,
     },
 };
 use spora_core::info;
 use spora_grpc_client::GrpcClient;
 use spora_rpc_core::{api::rpc::RpcApi, BlockAddedNotification, Notification, RpcCellEntry, VirtualDaaScoreChangedNotification};
-use spora_txscript::pay_to_address_script;
 use std::{
     collections::{hash_map::Entry::Occupied, HashMap, HashSet},
     future::Future,
@@ -45,7 +44,7 @@ pub fn generate_tx_dag(
     spk: ScriptPublicKey,
     target_levels: usize,
     target_width: usize,
-) -> Vec<Arc<Transaction>> {
+) -> Vec<Arc<CellTx>> {
     /*
     Algo:
        perform level by level:
@@ -69,16 +68,38 @@ pub fn generate_tx_dag(
             .take(num_inputs * target_width)
             .chunks(num_inputs)
             .into_iter()
-            .map(|c| c.into_iter().map(|(o, e)| (TransactionInput::new(*o, vec![], 0, 1), e.clone())).unzip())
+            .map(|c| {
+                c.into_iter()
+                    .map(|(o, e)| {
+                        // Convert OutPoint to CellRef
+                        let cell_ref = CellRef::new(*o, 0); // since = 0 for test
+                        (cell_ref, e.clone())
+                    })
+                    .unzip()
+            })
             .collect::<Vec<(Vec<_>, Vec<_>)>>()
             .into_par_iter()
             .map(|(inputs, entries)| {
-                let total_in = entries.iter().map(|e| e.amount).sum::<u64>();
+                let total_in = entries.iter().map(|e| e.capacity()).sum::<u64>();
                 let total_out = total_in - required_fee(num_inputs, num_outputs);
-                let outputs = (0..num_outputs)
-                    .map(|_| TransactionOutput { value: total_out / num_outputs, script_public_key: spk.clone() })
+                let outputs: Vec<CellOut> = (0..num_outputs)
+                    .map(|_| {
+                        // Convert ScriptPublicKey to ScriptRef (using code_hash from script bytes)
+                        let script_bytes = spk.script();
+                        let code_hash = if script_bytes.len() >= 32 {
+                            let mut hash = [0u8; 32];
+                            hash.copy_from_slice(&script_bytes[..32]);
+                            hash
+                        } else {
+                            // Use a default hash for short scripts
+                            [0u8; 32]
+                        };
+                        CellOut { capacity: total_out / num_outputs, lock: ScriptRef::new(code_hash, 0, vec![]), type_: None }
+                    })
                     .collect_vec();
-                let unsigned_tx = Transaction::new(TX_VERSION, inputs, outputs, 0, SUBNETWORK_ID_NATIVE, 0, vec![]);
+                let outputs_data: Vec<Vec<u8>> = (0..num_outputs).map(|_| vec![]).collect();
+                let witnesses: Vec<Vec<u8>> = inputs.iter().map(|_| vec![]).collect();
+                let unsigned_tx = CellTx::new(inputs, vec![], outputs, outputs_data, witnesses).expect("valid CellTx");
                 sign(SignableTransaction::with_entries(unsigned_tx, entries), schnorr_key)
             })
             .collect::<Vec<_>>()
@@ -99,16 +120,16 @@ pub fn generate_tx_dag(
 }
 
 /// Sanity test verifying that the generated TX DAG is valid, topologically ordered and has no double spends
-pub fn verify_tx_dag(initial_cell_set: &CellCollection, txs: &[Arc<Transaction>]) {
-    let mut prev_txs: HashMap<TransactionId, Arc<Transaction>> = HashMap::new();
+pub fn verify_tx_dag(initial_cell_set: &CellCollection, txs: &[Arc<CellTx>]) {
+    let mut prev_txs: HashMap<TransactionId, Arc<CellTx>> = HashMap::new();
     let mut used_outpoints = HashSet::with_capacity(txs.len() * 2);
     for tx in txs.iter() {
         for input in tx.inputs.iter() {
-            assert!(used_outpoints.insert(input.previous_outpoint));
-            if let Occupied(e) = prev_txs.entry(input.previous_outpoint.transaction_id) {
-                assert!(e.get().outputs.len() > input.previous_outpoint.index as usize);
+            assert!(used_outpoints.insert(input.out_point));
+            if let Occupied(e) = prev_txs.entry(TransactionId::from_bytes(input.out_point.tx_hash)) {
+                assert!(e.get().outputs.len() > input.out_point.index as usize);
             } else {
-                assert!(initial_cell_set.contains_key(&input.previous_outpoint));
+                assert!(initial_cell_set.contains_key(&input.out_point));
             }
         }
         assert!(prev_txs.insert(tx.id(), tx.clone()).is_none());
@@ -137,19 +158,32 @@ pub fn generate_tx(
     amount: u64,
     num_outputs: u64,
     address: &Address,
-) -> Transaction {
-    let total_in = cells.iter().map(|x| x.1.amount).sum::<u64>();
+) -> CellTx {
+    let total_in = cells.iter().map(|x| x.1.capacity()).sum::<u64>();
     assert!(amount <= total_in - required_fee(cells.len(), num_outputs));
     let script_public_key = pay_to_address_script(address);
-    let inputs = cells
+    let inputs: Vec<CellRef> = cells
         .iter()
-        .map(|(op, _)| TransactionInput { previous_outpoint: *op, signature_script: vec![], sequence: 0, sig_op_count: 1 })
+        .map(|(op, _)| CellRef::new(*op, 0)) // since = 0 for test
         .collect_vec();
 
-    let outputs = (0..num_outputs)
-        .map(|_| TransactionOutput { value: amount / num_outputs, script_public_key: script_public_key.clone() })
+    let outputs: Vec<CellOut> = (0..num_outputs)
+        .map(|_| {
+            // Convert ScriptPublicKey to ScriptRef
+            let script_bytes = script_public_key.script();
+            let code_hash = if script_bytes.len() >= 32 {
+                let mut hash = [0u8; 32];
+                hash.copy_from_slice(&script_bytes[..32]);
+                hash
+            } else {
+                [0u8; 32]
+            };
+            CellOut { capacity: amount / num_outputs, lock: ScriptRef::new(code_hash, 0, vec![]), type_: None }
+        })
         .collect_vec();
-    let unsigned_tx = Transaction::new(TX_VERSION, inputs, outputs, 0, SUBNETWORK_ID_NATIVE, 0, vec![]);
+    let outputs_data: Vec<Vec<u8>> = (0..num_outputs).map(|_| vec![]).collect();
+    let witnesses: Vec<Vec<u8>> = inputs.iter().map(|_| vec![]).collect();
+    let unsigned_tx = CellTx::new(inputs, vec![], outputs, outputs_data, witnesses).expect("valid CellTx");
     let signed_tx =
         sign(MutableTransaction::with_entries(unsigned_tx, cells.iter().map(|(_, entry)| entry.clone()).collect_vec()), schnorr_key);
     signed_tx.tx
@@ -170,7 +204,7 @@ pub async fn fetch_spendable_cells(
         assert_eq!(*resp_entry.address.as_ref().unwrap(), address);
         cells.push((TransactionOutpoint::from(resp_entry.outpoint), CellEntry::from(resp_entry.cell_entry)));
     }
-    cells.sort_by(|a, b| b.1.amount.cmp(&a.1.amount));
+    cells.sort_by(|a, b| b.1.capacity().cmp(&a.1.capacity()));
     cells
 }
 

@@ -2,13 +2,16 @@ use secp256k1::{rand::thread_rng, Keypair};
 use spora_consensus_core::{
     config::params::TESTNET_PARAMS,
     hashing::sighash::{calc_schnorr_signature_hash, SigHashReusedValuesUnsync},
-    tx::{CellEntry, TransactionId, TransactionOutpoint},
+    tx::{multisig_redeem_script, outpoint_from_id, pay_to_script_hash_script, push_data_script, CellEntry, ScriptRef, TransactionId},
 };
-use spora_txscript::{multisig_redeem_script, opcodes::codes::OpData65, pay_to_script_hash_script, script_builder::ScriptBuilder};
 use spora_wallet_psst::prelude::{
     Combiner, Creator, Extractor, Finalizer, Inner, InputBuilder, SignInputOk, Signature, Signer, Updater, PSST,
 };
-use std::{iter, str::FromStr};
+use std::str::FromStr;
+
+fn example_cell_entry_from_lock_script(amount: u64, lock_script: ScriptRef) -> CellEntry {
+    CellEntry::from_cell_metadata(amount, 0, lock_script.code_hash, None, [0; 32], 36151168, false)
+}
 
 fn main() {
     let kps = [Keypair::new(secp256k1::SECP256K1, &mut thread_rng()), Keypair::new(secp256k1::SECP256K1, &mut thread_rng())];
@@ -21,17 +24,16 @@ fn main() {
     // The first constructor entity receives the PSST and adds an input.
     let psst: PSST<Creator> = serde_json::from_str(&ser).expect("Failed to deserialize");
     // let in_0 = dummy_out_point();
+    let p2sh_script = pay_to_script_hash_script(&redeem_script);
     let input_0 = InputBuilder::default()
-        .cell_entry(CellEntry {
-            amount: 12793000000000,
-            script_public_key: pay_to_script_hash_script(&redeem_script),
-            block_daa_score: 36151168,
-            is_coinbase: false,
-        })
-        .previous_outpoint(TransactionOutpoint {
-            transaction_id: TransactionId::from_str("63020db736215f8b1105a9281f7bcbb6473d965ecc45bb2fb5da59bd35e6ff84").unwrap(),
-            index: 0,
-        })
+        .cell_entry(example_cell_entry_from_lock_script(
+            12793000000000,
+            ScriptRef::new(p2sh_script.hash(), 0, p2sh_script.script().to_vec()),
+        ))
+        .previous_outpoint(outpoint_from_id(
+            TransactionId::from_str("63020db736215f8b1105a9281f7bcbb6473d965ecc45bb2fb5da59bd35e6ff84").unwrap(),
+            0,
+        ))
         .sig_op_count(2)
         .redeem_script(redeem_script)
         .build()
@@ -86,30 +88,20 @@ fn main() {
             Ok(inner
                 .inputs
                 .iter()
-                .map(|input| -> Vec<u8> {
+                .map(|input| -> Result<Vec<u8>, String> {
                     // todo actually required count can be retrieved from redeem_script, sigs can be taken from partial sigs according to required count
                     // considering xpubs sorted order
 
-                    let signatures: Vec<_> = kps
-                        .iter()
-                        .flat_map(|kp| {
-                            let sig = input.partial_sigs.get(&kp.public_key()).unwrap().into_bytes();
-                            iter::once(OpData65).chain(sig).chain([input.sighash_type.to_u8()])
-                        })
-                        .collect();
-                    signatures
-                        .into_iter()
-                        .chain(
-                            ScriptBuilder::new()
-                                .add_data(input.redeem_script.as_ref().unwrap().as_slice())
-                                .unwrap()
-                                .drain()
-                                .iter()
-                                .cloned(),
-                        )
-                        .collect()
+                    let mut witness = Vec::new();
+                    for kp in &kps {
+                        let mut sig = Vec::from(input.partial_sigs.get(&kp.public_key()).unwrap().into_bytes());
+                        sig.push(input.sighash_type.to_u8());
+                        witness.extend(push_data_script(&sig).map_err(|e| e.to_string())?);
+                    }
+                    witness.extend(push_data_script(input.redeem_script.as_ref().unwrap().as_slice()).map_err(|e| e.to_string())?);
+                    Ok(witness)
                 })
-                .collect())
+                .collect::<Result<Vec<_>, _>>()?)
         })
         .unwrap();
     let ser_finalized = serde_json::to_string_pretty(&psst_finalizer).expect("Failed to serialize after finalizing");

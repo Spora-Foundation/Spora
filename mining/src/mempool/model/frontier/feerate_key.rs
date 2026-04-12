@@ -1,5 +1,5 @@
 use crate::{block_template::selector::ALPHA, mempool::model::tx::MempoolTransaction};
-use spora_consensus_core::{mass::ContextualMasses, tx::CellTx};
+use spora_consensus_core::tx::CellTx;
 use std::sync::Arc;
 
 #[derive(Clone, Debug)]
@@ -81,8 +81,7 @@ impl From<&MempoolTransaction> for FeerateTransactionKey {
         //       single one-dimension value (making it easier to select transactions for block templates).
         // Future mempool improvements are expected to refine this behavior and use the multi-dimension values
         // in order to optimize and increase block space usage.
-        let mass = ContextualMasses::new(tx.mtx.tx.mass())
-            .max(tx.mtx.calculated_non_contextual_masses.expect("masses are expected to be calculated"));
+        let mass = tx.mtx.selection_mass().expect("masses are expected to be calculated");
         let fee = tx.mtx.calculated_fee.expect("fee is expected to be populated");
         Self::new(fee, mass, tx.mtx.tx.clone())
     }
@@ -91,10 +90,10 @@ impl From<&MempoolTransaction> for FeerateTransactionKey {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use spora_consensus_core::tx::cell_tx_from_legacy_transaction;
+    use crate::mempool::tx::Priority;
     use spora_consensus_core::{
-        subnets::SUBNETWORK_ID_NATIVE,
-        tx::{Transaction, TransactionInput, TransactionOutpoint},
+        mass::{ContextualMasses, NonContextualMasses},
+        tx::{CellRef, MutableTransaction, TransactionOutpoint},
     };
     use spora_hashes::{HasherBase, TransactionID};
     use std::sync::Arc;
@@ -102,13 +101,28 @@ pub(crate) mod tests {
     fn generate_unique_tx(i: u64) -> Arc<CellTx> {
         let mut hasher = TransactionID::new();
         let prev = hasher.update(i.to_le_bytes()).clone().finalize();
-        let input = TransactionInput::new(TransactionOutpoint::new(prev.as_bytes(), 0), vec![], 0, 0);
-        let tx = Transaction::new(0, vec![input], vec![], 0, SUBNETWORK_ID_NATIVE, 0, vec![]);
-        Arc::new(cell_tx_from_legacy_transaction(&tx))
+        let input = CellRef::new(TransactionOutpoint::new(prev.as_bytes(), 0), 0);
+        Arc::new(CellTx::new(vec![input], vec![], vec![], vec![], vec![vec![]]).expect("test tx must be a valid CellTx"))
     }
 
     /// Test helper for generating a feerate key with a unique tx (per u64 id)
     pub(crate) fn build_feerate_key(fee: u64, mass: u64, id: u64) -> FeerateTransactionKey {
         FeerateTransactionKey::new(fee, mass, generate_unique_tx(id))
+    }
+
+    #[test]
+    fn feerate_key_uses_selection_mass_from_verified_cycles() {
+        let tx = generate_unique_tx(7);
+        let mut mtx = MutableTransaction::new(tx.clone());
+        mtx.calculated_fee = Some(1_000);
+        mtx.calculated_non_contextual_masses = Some(NonContextualMasses::new(100, 50));
+        mtx.calculated_contextual_masses = Some(ContextualMasses::new(3_000));
+        mtx.verified_cycles = Some(1_000_000);
+        let expected_mass = mtx.selection_mass().expect("selection mass should be available");
+
+        let mempool_tx = MempoolTransaction::new(mtx, Priority::Low, 0);
+        let key = FeerateTransactionKey::from(&mempool_tx);
+
+        assert_eq!(key.mass, expected_mass);
     }
 }

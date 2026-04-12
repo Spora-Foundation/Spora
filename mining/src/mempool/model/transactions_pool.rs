@@ -252,7 +252,9 @@ impl TransactionsPool {
             .mtx
             .calculated_fee
             .ok_or_else(|| RuleError::RejectCellMirror(transaction.id(), "transaction fee was not populated".to_string()))?;
-        let cycles = cell_tx.compute_mass();
+        let cycles = transaction.mtx.projected_cell_pool_cycles().ok_or_else(|| {
+            RuleError::RejectCellMirror(transaction.id(), "transaction compute resources were not populated".to_string())
+        })?;
         let wtxid = self
             .cell_pool
             .add(cell_tx.as_ref().clone(), fee, cycles)
@@ -432,7 +434,11 @@ impl TransactionsPool {
             return false;
         };
 
-        let wtxid = match self.cell_pool.add(cell_tx.as_ref().clone(), fee, cell_tx.compute_mass()) {
+        let cycles = match self.all_transactions.get(&transaction_id).and_then(|tx| tx.mtx.projected_cell_pool_cycles()) {
+            Some(cycles) => cycles,
+            None => return false,
+        };
+        let wtxid = match self.cell_pool.add(cell_tx.as_ref().clone(), fee, cycles) {
             Ok(wtxid) => wtxid,
             Err(_) => return false,
         };
@@ -585,8 +591,7 @@ impl TransactionsPool {
 
     pub(crate) fn collect_expired_low_priority_transactions(&mut self, virtual_daa_score: u64) -> Vec<TransactionId> {
         let now = unix_now();
-        if virtual_daa_score
-            < self.last_expire_scan_daa_score + self.config.transaction_expire_scan_interval_daa_score
+        if virtual_daa_score < self.last_expire_scan_daa_score + self.config.transaction_expire_scan_interval_daa_score
             || now < self.last_expire_scan_time + self.config.transaction_expire_scan_interval_milliseconds
         {
             return vec![];
@@ -601,8 +606,7 @@ impl TransactionsPool {
             .values()
             .filter_map(|x| {
                 if (x.priority == Priority::Low)
-                    && virtual_daa_score
-                        > x.added_at_daa_score + self.config.transaction_expire_interval_daa_score
+                    && virtual_daa_score > x.added_at_daa_score + self.config.transaction_expire_interval_daa_score
                 {
                     Some(x.id())
                 } else {
@@ -644,7 +648,7 @@ mod tests {
     use crate::cell_conversion::cell_output_to_placeholder_entry;
     use smallvec::smallvec;
     use spora_consensus_core::{
-        mass::NonContextualMasses,
+        mass::{ContextualMasses, NonContextualMasses},
         tx::{CellOut, CellRef, CellTx, MutableTransaction, ScriptPublicKey, ScriptRef, TransactionId, TransactionOutpoint},
     };
 
@@ -657,14 +661,21 @@ mod tests {
             capacity: 9_000,
         };
         let tx = Arc::new(CellTx::new(vec![input], vec![], vec![output], vec![vec![]], vec![vec![1, 2, 3]]).unwrap());
-        let entry = cell_output_to_placeholder_entry(&CellOut {
-            lock: ScriptRef::new(crate::cell_conversion::compute_lock_hash(&script_public_key), 0, vec![]),
-            type_: None,
-            capacity: 10_000,
-        }, &[], 0, false);
+        let entry = cell_output_to_placeholder_entry(
+            &CellOut {
+                lock: ScriptRef::new(crate::cell_conversion::compute_lock_hash(&script_public_key), 0, vec![]),
+                type_: None,
+                capacity: 10_000,
+            },
+            &[],
+            0,
+            false,
+        );
         let mut mtx = MutableTransaction::with_entries(tx, vec![entry]);
         mtx.calculated_fee = Some(1_000);
         mtx.calculated_non_contextual_masses = Some(NonContextualMasses::new(100, 50));
+        mtx.calculated_contextual_masses = Some(ContextualMasses::new(75));
+        mtx.verified_cycles = Some(321);
         mtx
     }
 
@@ -677,14 +688,21 @@ mod tests {
             capacity: 8_000,
         };
         let tx = Arc::new(CellTx::new(vec![input], vec![], vec![output], vec![vec![]], vec![vec![4, 5, 6]]).unwrap());
-        let entry = cell_output_to_placeholder_entry(&CellOut {
-            lock: ScriptRef::new(crate::cell_conversion::compute_lock_hash(&script_public_key), 0, vec![]),
-            type_: None,
-            capacity: 9_000,
-        }, &[], 0, false);
+        let entry = cell_output_to_placeholder_entry(
+            &CellOut {
+                lock: ScriptRef::new(crate::cell_conversion::compute_lock_hash(&script_public_key), 0, vec![]),
+                type_: None,
+                capacity: 9_000,
+            },
+            &[],
+            0,
+            false,
+        );
         let mut mtx = MutableTransaction::with_entries(tx, vec![entry]);
         mtx.calculated_fee = Some(1_000);
         mtx.calculated_non_contextual_masses = Some(NonContextualMasses::new(100, 50));
+        mtx.calculated_contextual_masses = Some(ContextualMasses::new(75));
+        mtx.verified_cycles = Some(654);
         mtx
     }
 
@@ -777,5 +795,41 @@ mod tests {
         let selected = pool.build_selector().select_transactions();
         assert_eq!(selected.len(), 1);
         assert_eq!(selected[0].id(), expected_child_cell_tx_id);
+    }
+
+    #[test]
+    fn cell_pool_prefers_verified_cycles_over_compute_mass() {
+        let config = Arc::new(Config::build_default(1000, false, 1_000_000));
+        let mut pool = TransactionsPool::new(config);
+        let mtx = build_test_mtx();
+        let tx_id = mtx.id();
+        let expected_cycles = mtx.verified_cycles.expect("test transaction should carry verified cycles");
+
+        add_test_transaction(&mut pool, mtx);
+
+        let stored = pool.all_transactions.get(&tx_id).unwrap();
+        let cell_wtxid = stored.cell_wtxid().expect("accepted transaction should have a CellPool mirror");
+        let cell_entry = pool.cell_pool.get(&cell_wtxid).expect("CellPool entry should exist");
+        assert_eq!(cell_entry.cycles, expected_cycles);
+    }
+
+    #[test]
+    fn revalidated_cell_pool_entry_keeps_verified_cycles() {
+        let config = Arc::new(Config::build_default(1000, false, 1_000_000));
+        let mut pool = TransactionsPool::new(config);
+        let original = build_test_mtx();
+        let tx_id = original.id();
+
+        add_test_transaction(&mut pool, original);
+
+        let mut revalidated = build_test_mtx();
+        revalidated.verified_cycles = Some(9_999);
+        let revalidated_tx = MempoolTransaction::new(revalidated.clone(), Priority::Low, 0);
+        assert!(pool.update_revalidated_transaction(revalidated_tx));
+
+        let stored = pool.all_transactions.get(&tx_id).expect("revalidated transaction should still be present");
+        let cell_wtxid = stored.cell_wtxid().expect("revalidated transaction should have a CellPool mirror");
+        let cell_entry = pool.cell_pool.get(&cell_wtxid).expect("CellPool entry should exist after revalidation");
+        assert_eq!(cell_entry.cycles, revalidated.verified_cycles.expect("revalidated transaction should carry verified cycles"));
     }
 }

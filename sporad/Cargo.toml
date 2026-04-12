@@ -37,7 +37,6 @@ spora-p2p-mining.workspace = true
 spora-perf-monitor.workspace = true
 spora-rpc-core.workspace = true
 spora-rpc-service.workspace = true
-spora-txscript.workspace = true
 spora-utils.workspace = true
 spora-utils-tower.workspace = true
 spora-wrpc-server.workspace = true

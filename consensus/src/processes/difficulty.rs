@@ -164,7 +164,6 @@ impl<T: HeaderStoreReader> DifficultyManagerExtension for FullDifficultyManager<
     }
 }
 
-
 fn hash_suffix(n: f64) -> (f64, &'static str) {
     match n {
         n if n < 1_000.0 => (n, "hash/block"),

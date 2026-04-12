@@ -15,13 +15,14 @@ wasm32-types = []
 [dependencies]
 spora-addresses.workspace = true
 spora-consensus-core.workspace = true
+spora-exec.workspace = true
 spora-hashes.workspace = true
 spora-math.workspace = true
-spora-txscript.workspace = true
 spora-utils.workspace = true
 spora-wasm-core.workspace = true
 
 ahash.workspace = true
+blake3.workspace = true
 cfg-if.workspace = true
 faster-hex.workspace = true
 hex.workspace = true

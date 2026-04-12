@@ -107,7 +107,7 @@ pub enum RpcError {
     ConsensusError(#[from] spora_consensus_core::errors::consensus::ConsensusError),
 
     #[error(transparent)]
-    ScriptClassError(#[from] spora_txscript::script_class::Error),
+    ScriptClassError(#[from] spora_consensus_core::tx::StandardScriptError),
 
     #[error(transparent)]
     NodeIdError(#[from] uuid::Error),

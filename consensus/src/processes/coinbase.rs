@@ -1,13 +1,12 @@
 use spora_consensus_core::{
     coinbase::*,
     errors::coinbase::{CoinbaseError, CoinbaseResult},
-    subnets,
-    tx::{ScriptPublicKey, ScriptVec, Transaction, TransactionOutput},
+    tx::{cell_out_from_legacy_script_public_key, CellTx, ScriptPublicKey, ScriptVec, TransactionOutput},
     BlockHashMap, BlockHashSet,
 };
 use std::convert::TryInto;
 
-use crate::{constants, model::stores::ghostdag::GhostdagData};
+use crate::model::stores::ghostdag::GhostdagData;
 
 const LENGTH_OF_BLUE_SCORE: usize = size_of::<u64>();
 const LENGTH_OF_SUBSIDY: usize = size_of::<u64>();
@@ -55,6 +54,25 @@ impl<'a> PayloadParser<'a> {
 }
 
 impl CoinbaseManager {
+    fn build_coinbase_cell_tx(&self, outputs: Vec<TransactionOutput>, payload: Vec<u8>) -> CellTx {
+        let outputs = outputs
+            .into_iter()
+            .map(|output| cell_out_from_legacy_script_public_key(output.value, &output.script_public_key))
+            .collect::<Vec<_>>();
+
+        let mut outputs_data = vec![Vec::new(); outputs.len()];
+        let mut witnesses = Vec::new();
+        if outputs_data.is_empty() {
+            if !payload.is_empty() {
+                witnesses.push(payload);
+            }
+        } else {
+            outputs_data[0] = payload;
+        }
+
+        CellTx::new(vec![], vec![], outputs, outputs_data, witnesses).expect("coinbase template must produce a valid CellTx")
+    }
+
     pub fn new(
         coinbase_payload_script_public_key_max_len: u8,
         max_coinbase_payload_len: usize,
@@ -62,8 +80,7 @@ impl CoinbaseManager {
         pre_deflationary_phase_base_subsidy: u64,
         bps: u64,
     ) -> Self {
-        let subsidy_by_month_table: SubsidyByMonthTable =
-            core::array::from_fn(|i| SUBSIDY_BY_MONTH_TABLE[i].div_ceil(bps));
+        let subsidy_by_month_table: SubsidyByMonthTable = core::array::from_fn(|i| SUBSIDY_BY_MONTH_TABLE[i].div_ceil(bps));
         Self {
             coinbase_payload_script_public_key_max_len,
             max_coinbase_payload_len,
@@ -122,10 +139,7 @@ impl CoinbaseManager {
         let subsidy = self.calc_block_subsidy(daa_score);
         let payload = self.serialize_coinbase_payload(&CoinbaseData { blue_score: ghostdag_data.blue_score, subsidy, miner_data })?;
 
-        Ok(CoinbaseTransactionTemplate {
-            tx: Transaction::new(constants::TX_VERSION, vec![], outputs, 0, subnets::SUBNETWORK_ID_COINBASE, 0, payload),
-            has_red_reward: red_reward > 0,
-        })
+        Ok(CoinbaseTransactionTemplate { tx: self.build_coinbase_cell_tx(outputs, payload), has_red_reward: red_reward > 0 })
     }
 
     pub fn serialize_coinbase_payload<T: AsRef<[u8]>>(&self, data: &CoinbaseData<T>) -> CoinbaseResult<Vec<u8>> {
@@ -330,8 +344,8 @@ mod tests {
             + SUBSIDY_BY_MONTH_TABLE.iter().map(|x| (x.div_ceil(testnet_11_bps) * testnet_11_bps) * SECONDS_PER_MONTH).sum::<u64>();
 
         let cbm = create_manager(&SIMNET_PARAMS);
-        let total_high_bps_rewards: u64 = pre_deflationary_rewards
-            + cbm.subsidy_by_month_table.iter().map(|x| x * SECONDS_PER_MONTH * cbm.bps()).sum::<u64>();
+        let total_high_bps_rewards: u64 =
+            pre_deflationary_rewards + cbm.subsidy_by_month_table.iter().map(|x| x * SECONDS_PER_MONTH * cbm.bps()).sum::<u64>();
         assert_eq!(total_high_bps_rewards_rounded_up, total_high_bps_rewards, "subsidy adjusted to bps must be rounded up");
 
         let delta = total_high_bps_rewards as i64 - total_rewards as i64;

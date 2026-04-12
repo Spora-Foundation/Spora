@@ -1,114 +1,86 @@
 //!
 //! Conversion functions for converting between
-//! the [`spora_consensus_client`], [`spora_consensus_core`]
-//! and [`spora_wallet_psst`](crate) types.
+//! native [`spora_consensus_core`] types and [`spora_wallet_psst`](crate) types.
 //!
 
 use crate::error::Error;
 use crate::input::{Input, InputBuilder};
 use crate::output::{Output, OutputBuilder};
 use crate::psst::{Global, Inner};
-use spora_consensus_client::{Transaction, TransactionInput, TransactionInputInner, TransactionOutput, TransactionOutputInner};
-use spora_consensus_core::tx as cctx;
+use spora_consensus_core::tx::{self as cctx};
 
-impl TryFrom<Transaction> for Inner {
-    type Error = Error;
-    fn try_from(_transaction: Transaction) -> Result<Self, Self::Error> {
-        Inner::try_from(cctx::Transaction::from(&_transaction))
-    }
+fn output_from_cell_out(output: &cctx::CellOut, output_data: &[u8]) -> Output {
+    OutputBuilder::default()
+        .capacity(output.capacity)
+        .lock_script(output.lock.clone())
+        .output_data(output_data.to_vec())
+        .build()
+        .map(|mut built| {
+            built.type_script = output.type_.clone();
+            built
+        })
+        .expect("CellOut must map to Output")
 }
 
-impl TryFrom<TransactionInput> for Input {
-    type Error = Error;
-    fn try_from(input: TransactionInput) -> std::result::Result<Input, Self::Error> {
-        let TransactionInputInner { previous_outpoint, signature_script: _, sequence: _, sig_op_count, cell_entry } = &*input.inner();
-
-        let input = InputBuilder::default()
-        .cell_entry(cell_entry.as_ref().ok_or(Error::MissingCellEntry)?.into())
-        .previous_outpoint(previous_outpoint.into())
-        // .sequence(*sequence)
-        // min_time
-        // partial_sigs
-        // sighash_type
-        // redeem_script
-        .sig_op_count(*sig_op_count)
-        // bip32_derivations
-        // final_script_sig
-        .build()?;
-
-        Ok(input)
-    }
-}
-
-impl TryFrom<TransactionOutput> for Output {
-    type Error = Error;
-    fn try_from(output: TransactionOutput) -> std::result::Result<Output, Self::Error> {
-        // Self::Transaction(transaction)
-
-        let TransactionOutputInner { value, script_public_key } = &*output.inner();
-
-        let output = OutputBuilder::default()
-        .amount(*value)
-        .script_public_key(script_public_key.clone())
-        // .redeem_script
-        // .bip32_derivations
-        // .proprietaries
-        // .unknowns
-        .build()?;
-
-        Ok(output)
-    }
-}
-
-impl TryFrom<(cctx::Transaction, Vec<(cctx::TransactionInput, cctx::CellEntry)>)> for Inner {
+impl TryFrom<(cctx::CellTx, Vec<(cctx::CellRef, cctx::CellEntry)>)> for Inner {
     type Error = Error; // Define your error type
 
     fn try_from(
-        (transaction, inputs_with_entries): (cctx::Transaction, Vec<(cctx::TransactionInput, cctx::CellEntry)>),
+        (transaction, inputs_with_entries): (cctx::CellTx, Vec<(cctx::CellRef, cctx::CellEntry)>),
     ) -> Result<Self, Self::Error> {
         let inputs: Result<Vec<Input>, Self::Error> = inputs_with_entries
             .into_iter()
-            .map(|(input, cell_entry)| {
-                InputBuilder::default()
+            .map(|(cell_ref, cell_entry)| {
+                let since = cell_ref.since;
+                let mut built = InputBuilder::default()
                     .cell_entry(cell_entry)
-                    .previous_outpoint(input.previous_outpoint)
-                    .sig_op_count(input.sig_op_count)
+                    .previous_outpoint(cell_ref.out_point)
+                    .sig_op_count(0)
                     .build()
-                    .map_err(Error::TxToInnerConversionInputBuildingError)
-                // Handle the error
+                    .map_err(Error::TxToInnerConversionInputBuildingError)?;
+                built.sequence = Some(since);
+                Ok(built)
             })
             .collect::<Result<_, _>>();
 
-        let outputs: Result<Vec<Output>, Self::Error> = transaction
+        let outputs = transaction
             .outputs
             .iter()
-            .map(|output| {
-                Output::try_from(TransactionOutput::from(output.to_owned())).map_err(|e| Error::TxToInnerConversionError(Box::new(e)))
+            .enumerate()
+            .map(|(index, output)| {
+                output_from_cell_out(output, transaction.outputs_data.get(index).map(Vec::as_slice).unwrap_or_default())
             })
-            .collect::<Result<_, _>>();
+            .collect::<Vec<_>>();
 
-        Ok(Inner { global: Global::default(), inputs: inputs?, outputs: outputs? })
+        Ok(Inner { global: Global::default(), inputs: inputs?, outputs })
     }
 }
 
-impl TryFrom<cctx::Transaction> for Inner {
+impl TryFrom<cctx::CellTx> for Inner {
     type Error = Error;
-    fn try_from(transaction: cctx::Transaction) -> Result<Self, self::Error> {
+    fn try_from(transaction: cctx::CellTx) -> Result<Self, self::Error> {
         let inputs = transaction
             .inputs
             .iter()
-            .map(|input| {
-                Input::try_from(TransactionInput::from(input.to_owned())).map_err(|e| Error::TxToInnerConversionError(Box::new(e)))
+            .map(|input| -> Result<Input, Error> {
+                let mut built = InputBuilder::default()
+                    .previous_outpoint(input.out_point)
+                    .sig_op_count(0)
+                    .build()
+                    .map_err(Error::TxToInnerConversionInputBuildingError)?;
+                built.sequence = Some(input.since);
+                Ok(built)
             })
             .collect::<Result<_, _>>()?;
 
         let outputs = transaction
             .outputs
             .iter()
-            .map(|output| {
-                Output::try_from(TransactionOutput::from(output.to_owned())).map_err(|e| Error::TxToInnerConversionError(Box::new(e)))
+            .enumerate()
+            .map(|(index, output)| {
+                output_from_cell_out(output, transaction.outputs_data.get(index).map(Vec::as_slice).unwrap_or_default())
             })
-            .collect::<Result<_, _>>()?;
+            .collect::<Vec<_>>();
 
         Ok(Inner { global: Global::default(), inputs, outputs })
     }

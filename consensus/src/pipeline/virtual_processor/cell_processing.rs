@@ -10,18 +10,16 @@ use crate::consensus::cell_provider::{ConsensusCellProvider, OverlayCellProvider
 use crate::model::stores::{
     block_transactions::BlockTransactionsStoreReader, ghostdag::GhostdagData, statuses::StatusesStoreBatchExtensions,
 };
+#[cfg(feature = "vm")]
+use crate::processes::CellValidator;
 use crate::{
     errors::RuleError,
     model::stores::headers::HeaderStoreReader,
     processes::{
-        cell_validator::{
-            cell_validation_in_context, cell_validation_in_dag, cell_validation_in_isolation, CellValidationError,
-        },
+        cell_validator::{cell_validation_in_context, cell_validation_in_dag, cell_validation_in_isolation, CellValidationError},
         CellConsensusParams,
     },
 };
-#[cfg(feature = "vm")]
-use crate::processes::CellValidator;
 use spora_consensus_core::{
     acceptance_data::{AcceptedTxEntry, MergesetBlockAcceptanceData},
     cell_diff::{BlockCellDiff, CellDiff, CellMeta},
@@ -238,9 +236,8 @@ impl ReplayValidationContext {
             .map_err(|err| self.map_validation_error(tx, err))?;
 
         // Check tx serialized size
-        let tx_size = borsh::to_vec(tx)
-            .map_err(|e| self.map_validation_error(tx, CellValidationError::InvalidFormat(e.to_string())))?
-            .len();
+        let tx_size =
+            borsh::to_vec(tx).map_err(|e| self.map_validation_error(tx, CellValidationError::InvalidFormat(e.to_string())))?.len();
         if tx_size > self.params.max_tx_size {
             return Err(self.map_validation_error(
                 tx,

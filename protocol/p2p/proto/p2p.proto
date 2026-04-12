@@ -26,8 +26,12 @@ message TransactionMessage{
   uint32 version = 1;
   repeated TransactionInput inputs = 2;
   repeated TransactionOutput outputs = 3;
+  // Legacy wire-compatibility field. Must be zero in Cell model.
   uint64 lockTime = 4;
+  // Legacy wire-compatibility field. Must match the canonical Cell-model value:
+  // all-zero for normal transactions, 0x01 followed by zeros for coinbase.
   SubnetworkId subnetworkId = 5;
+  // Legacy wire-compatibility field. Must be zero in Cell model.
   uint64 gas = 6;
   bytes payload = 8;
   uint64 mass = 9;
@@ -69,6 +73,7 @@ message BlockHeader{
   Hash hashMerkleRoot = 3;
   Hash acceptedIdMerkleRoot = 4;
   Hash cellCommitment = 5;  // Replaced utxoCommitment with cellCommitment (SPORA Cell model)
+  Hash cellRoot = 11;
   int64 timestamp = 6;
   uint32 bits = 7;
   uint64 nonce = 8;

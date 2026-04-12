@@ -3,7 +3,9 @@ use crate::result::Result;
 use crate::tx::{IPaymentOutputArray, PaymentOutputs};
 use crate::wasm::tx::generator::*;
 use spora_consensus_client::*;
-use spora_consensus_core::subnets::SUBNETWORK_ID_NATIVE;
+use spora_consensus_core::tx::{
+    pay_to_address_script, CellEntry as ConsensusCellEntry, CellRef, CellTx, ScriptRef, SignableTransaction,
+};
 use spora_wallet_macros::declare_typescript_wasm_interface as declare;
 use spora_wasm_core::types::BinaryT;
 use workflow_core::runtime::is_web;
@@ -25,31 +27,48 @@ pub fn create_transaction_js(
     };
     let priority_fee: u64 = priority_fee.try_into().map_err(|err| Error::custom(format!("invalid fee value: {err}")))?;
     let payload = payload.and_then(|payload| payload.try_as_vec_u8().ok()).unwrap_or_default();
+    if !payload.is_empty() {
+        return Err(Error::custom("createTransaction() no longer supports transaction-level payload; attach data to Cell outputs"));
+    }
     let outputs = PaymentOutputs::try_owned_from(outputs)?;
     let sig_op_count = sig_op_count.unwrap_or(1);
+    let _ = sig_op_count;
 
     // ---
 
     let mut total_input_amount = 0;
-    let mut entries = vec![];
-
+    let entries = cell_entries.iter().map(ConsensusCellEntry::from).collect::<Vec<_>>();
     let inputs = cell_entries
         .into_iter()
         .enumerate()
         .map(|(sequence, reference)| {
             let cell = &reference.cell;
             total_input_amount += cell.amount();
-            entries.push(reference.clone());
-            TransactionInput::new(cell.outpoint.clone(), None, sequence as u64, sig_op_count, Some(reference))
+            CellRef::new((&cell.outpoint).into(), sequence as u64)
         })
-        .collect::<Vec<TransactionInput>>();
+        .collect::<Vec<_>>();
 
     if priority_fee > total_input_amount {
         return Err(format!("priority fee({priority_fee}) > amount({total_input_amount})").into());
     }
 
-    let outputs: Vec<TransactionOutput> = outputs.into();
-    let transaction = Transaction::new(None, 0, inputs, outputs, 0, SUBNETWORK_ID_NATIVE, 0, payload, 0)?;
+    let outputs_len = outputs.len();
+    let inputs_len = inputs.len();
+    let outputs = outputs
+        .iter()
+        .map(|output| {
+            let lock_script = pay_to_address_script(&output.address);
+            spora_consensus_core::tx::CellOut {
+                lock: ScriptRef::new(lock_script.hash(), 0, lock_script.script().to_vec()),
+                type_: None,
+                capacity: output.amount,
+            }
+        })
+        .collect::<Vec<_>>();
+    let witnesses = vec![vec![]; inputs_len];
+    let cell_tx = CellTx::new(inputs, vec![], outputs, vec![vec![]; outputs_len], witnesses).map_err(Error::custom)?;
+    let signable_tx = SignableTransaction::with_entries(cell_tx, entries);
+    let transaction = Transaction::from_signable_transaction(&signable_tx);
 
     Ok(transaction)
 }

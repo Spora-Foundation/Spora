@@ -66,4 +66,3 @@ impl AppenderSpec {
             .build(self.name, self.append.take().unwrap())
     }
 }
-

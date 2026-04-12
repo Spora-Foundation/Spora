@@ -504,11 +504,7 @@ fn topologically_ordered_hashes(src_consensus: &Consensus, genesis_hash: Hash) -
         }
     }
 
-    assert_eq!(
-        ordered.len(),
-        reachable.len(),
-        "simpa replay ordering must include every descendant of {genesis_hash}"
-    );
+    assert_eq!(ordered.len(), reachable.len(), "simpa replay ordering must include every descendant of {genesis_hash}");
     ordered
 }
 

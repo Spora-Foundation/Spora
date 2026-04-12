@@ -217,6 +217,12 @@ Cell 模型已经把时间锁语义切到每输入 `since`，而且共识侧 `Ce
 
 Cell-native 的替代方向已经存在：`exec/src/scripts/` 中已有通过 CKB-VM 系统调用读取 `since` / header timestamp 的 fixture；后续应将对外时间锁能力统一收敛到“输入 `since` + VM lock script”这一条规范路径。
 
+这条 issue 的最终状态不是“保留一个被废弃的 txscript 分支”，而是：
+
+- 相关 helper 下线
+- 相关调用迁走
+- `spora-txscript` 作为正式脚本能力承载体整体退役
+
 **主要代码路径**
 
 - `consensus/src/processes/cell_validator/mod.rs`
@@ -247,6 +253,8 @@ Cell-native 的替代方向已经存在：`exec/src/scripts/` 中已有通过 CK
 - `CellTx::lock_time()` 兼容方法删除，或保留为内部桥接但不再被共识/SDK/标准脚本调用
 - txscript 中仅服务旧 opcode 的常量与示例清理完成；保留哪些共识常量、哪些 bridge 常量，需要在文档里明确切分
 - `exec/src/scripts/` 或等价位置提供清晰的 Cell-native 时间锁示例、脚本包产物和迁移说明
+- `spora-txscript` 不再被 wallet / client / PSTT / mining / tool crates 作为活跃依赖引用
+- `spora-txscript` crate 从 workspace 与源码树删除，不再参与任何生产或测试构建
 - 增加回归测试，至少覆盖以下事实：
 - 现有 `validate_time_locks` 继续覆盖四类 `since` 语义
 - 旧 helper 若仍保留，会稳定报错而不是生成“看似成功、实则不可花费”的脚本
@@ -257,10 +265,21 @@ Cell-native 的替代方向已经存在：`exec/src/scripts/` 中已有通过 CK
 
 - 建议与 `V2-P0-02` 并轨推进，因为“彻底迁到新 VM”必须以真实 consensus-backed data provider 为前提
 - 依赖对外替代路径先明确，否则直接删除会打断 wallet / SDK / `treasure_boy`
+- 依赖 `ScriptPublicKey -> ScriptRef` 替换继续推进；在地址系统、RPC 输出和 wallet 构造仍以 `ScriptPublicKey` 为主之前，不能直接删除 txscript
 - 建议分两阶段推进：
 - 第一阶段先把 legacy helper 改成显式不可用，并补 `ScriptRef + CKB-VM` 迁移文档与样例
-- 第二阶段在下游调用清零后删除实现和兼容常量
+- 第二阶段在下游调用清零后删除实现和兼容常量，并移除 `spora-txscript` crate
 - `legacy_sequence_to_cell_since()` 作为 legacy 交易输入桥接可暂时保留，但不得再被包装成 Cell-native 时间锁能力
+
+**实现状态（2026-04-12）**
+
+- `spora-txscript` crate 已从 workspace、`Cargo.lock` 和源码树删除
+- `consensus/client`、`wallet/core`、`wallet/psst`、`mining`、`rpc`、`notify`、`treasure_boy` 已切掉对 `spora-txscript` / `spora-txscript-errors` 的直接依赖
+- `wallet/psst` 不再依赖 `TxScriptEngine`
+- `mining` / `consensus` 不再依赖 `TxScriptCacheCounters`
+- 旧 CLTV / CSV helper 已统一改成显式不可用或迁移到 `ScriptRef + CKB-VM`
+- `treasure_boy` 已删除 legacy TLC/HTLC CLI、库函数和专用示例，不再保留“保留但失败”的时间锁接口
+- 当前剩余工作不再是“删除 txscript”，而是继续收紧公开 API、示例和文档口径，避免把 legacy 术语误写成仍可用能力
 
 **不做的风险**
 

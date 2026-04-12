@@ -2,21 +2,17 @@ use criterion::{criterion_group, criterion_main, Criterion};
 use rayon::prelude::*;
 
 use spora_consensus_core::{
-    constants::TX_VERSION,
-    subnets::SUBNETWORK_ID_NATIVE,
-    tx::{ScriptPublicKey, Transaction, TransactionInput, TransactionOutpoint, TransactionOutput},
+    tx::{CellOut, CellRef, CellTx, ScriptPublicKey, ScriptRef, TransactionOutpoint},
     Hash,
 };
 
-fn constuct_tx() -> Transaction {
-    let inputs = vec![TransactionInput {
-        previous_outpoint: TransactionOutpoint { transaction_id: Hash::from_bytes([0xFF; 32]), index: 0 },
-        signature_script: vec![],
-        sequence: 0,
-        sig_op_count: 1,
-    }];
-    let outputs = vec![TransactionOutput { value: 10000, script_public_key: ScriptPublicKey::from_vec(0, vec![0xff; 35]) }];
-    Transaction::new(TX_VERSION, inputs, outputs, 0, SUBNETWORK_ID_NATIVE, 0, vec![])
+fn constuct_tx() -> CellTx {
+    let outpoint = TransactionOutpoint { tx_hash: Hash::from_bytes([0xFF; 32]).as_bytes(), index: 0 };
+    let inputs = vec![CellRef::new(outpoint, 0)];
+    let outputs = vec![CellOut { capacity: 10000, lock: ScriptRef::new([0xff; 32], 0, vec![0xff; 35]), type_: None }];
+    let outputs_data = vec![vec![]];
+    let witnesses = vec![vec![]];
+    CellTx::new(inputs, vec![], outputs, outputs_data, witnesses).expect("valid CellTx")
 }
 
 fn construct_txs_serially() {

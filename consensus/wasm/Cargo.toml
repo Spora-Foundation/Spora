@@ -17,7 +17,6 @@ wasm32-types = []
 spora-consensus-core.workspace = true
 spora-consensus-client.workspace = true
 spora-addresses.workspace = true
-spora-txscript.workspace = true
 spora-hashes.workspace = true
 spora-utils.workspace = true
 

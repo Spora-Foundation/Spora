@@ -1,8 +1,5 @@
 use rand::{rngs::SmallRng, Rng};
-use spora_consensus_core::{
-    block::Block,
-    header::Header,
-};
+use spora_consensus_core::{block::Block, header::Header};
 use spora_hashes::{Hash, HASH_SIZE};
 
 pub fn header_from_precomputed_hash(hash: Hash, parents: Vec<Hash>) -> Header {

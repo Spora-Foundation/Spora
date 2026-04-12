@@ -3,7 +3,7 @@
 //!
 //! This module provides client-side data structures for Cell tracking.
 //! The canonical Rust names are [`CellEntry`] and [`CellEntryReference`].
-//! Legacy JSON/WASM transaction-output field names are still accepted for compatibility.
+//! Client-side Cell entries are represented using canonical Cell metadata.
 //!
 
 #![allow(non_snake_case)]
@@ -11,8 +11,9 @@
 use crate::imports::*;
 use crate::outpoint::{TransactionOutpoint, TransactionOutpointInner};
 use crate::result::Result;
+use crate::standard_script::pay_to_address_script;
 use spora_addresses::Address;
-use spora_consensus_core::cell_metadata::{parse_cell_metadata_placeholder_script_public_key, PlaceholderCellMetadata};
+use spora_consensus_core::cell_metadata::PlaceholderCellMetadata;
 use spora_consensus_core::mass::CellMass;
 
 #[wasm_bindgen(typescript_custom_section)]
@@ -39,8 +40,6 @@ export interface ICellEntry {
     typeHash?: HexString;
     /** @readonly */
     dataHash?: HexString;
-    /** @readonly */
-    scriptPublicKey : IScriptPublicKey;
     /** @readonly */
     blockDaaScore: bigint;
     /** @readonly */
@@ -153,7 +152,7 @@ impl CellEntry {
                 data_hash: data_hash.as_bytes(),
                 data_bytes: self.data_bytes.unwrap_or_default(),
             }),
-            _ => parse_cell_metadata_placeholder_script_public_key(&self.script_public_key),
+            _ => None,
         }
     }
 
@@ -167,7 +166,7 @@ impl CellEntry {
             lock_hash: None,
             type_hash: None,
             data_hash: None,
-            script_public_key: cctx::cell_entry_legacy_script_public_key(entry),
+            script_public_key: ScriptPublicKey::default(),
             block_daa_score: entry.block_daa_score,
             is_coinbase: entry.is_cellbase,
         };
@@ -198,7 +197,6 @@ impl CellEntry {
         obj.set("amount", &self.amount.to_string().into())?;
         obj.set("capacity", &self.capacity().to_string().into())?;
         obj.set("outpoint", &outpoint.into())?;
-        obj.set("scriptPublicKey", &workflow_wasm::serde::to_value(&self.script_public_key)?)?;
         obj.set("blockDaaScore", &self.block_daa_score.to_string().into())?;
         obj.set("isCoinbase", &self.is_coinbase.into())?;
         if let Some(metadata) = self.embedded_cell_metadata() {
@@ -222,19 +220,16 @@ impl AsRef<CellEntry> for CellEntry {
 
 impl From<&CellEntry> for cctx::CellEntry {
     fn from(cell: &CellEntry) -> Self {
-        if let Some(metadata) = cell.embedded_cell_metadata() {
-            cctx::CellEntry::from_cell_metadata(
-                cell.capacity(),
-                metadata.data_bytes,
-                metadata.lock_hash,
-                metadata.type_hash,
-                metadata.data_hash,
-                cell.block_daa_score,
-                cell.is_coinbase,
-            )
-        } else {
-            cctx::cell_meta_from_legacy_output(cell.amount, &cell.script_public_key, cell.block_daa_score, cell.is_coinbase)
-        }
+        let metadata = cell.embedded_cell_metadata().expect("client CellEntry requires canonical Cell metadata");
+        cctx::CellEntry::from_cell_metadata(
+            cell.capacity(),
+            metadata.data_bytes,
+            metadata.lock_hash,
+            metadata.type_hash,
+            metadata.data_hash,
+            cell.block_daa_score,
+            cell.is_coinbase,
+        )
     }
 }
 
@@ -290,7 +285,7 @@ impl CellEntryReference {
 
     #[wasm_bindgen(getter, js_name = "scriptPublicKey")]
     pub fn script_public_key(&self) -> ScriptPublicKey {
-        self.cell.script_public_key.clone()
+        self.cell.address.as_ref().map(pay_to_address_script).unwrap_or_else(|| self.cell.script_public_key.clone())
     }
 }
 
@@ -530,9 +525,6 @@ impl TryCastFromJs for CellEntryReference {
                     let amount = cell_entry.get_u64("amount").map_err(|_| {
                         Error::custom("Supplied object does not contain `cellEntry.amount` property (or it is not a numerical value)")
                     })?;
-                    let script_public_key = ScriptPublicKey::try_owned_from(cell_entry.get_value("scriptPublicKey")?).map_err(|_| {
-                        Error::custom("Supplied object does not contain `cellEntry.scriptPublicKey` property (or it is not a hex string or a ScriptPublicKey class)")
-                    })?;
                     let block_daa_score = cell_entry.get_u64("blockDaaScore").map_err(|_| {
                         Error::custom(
                             "Supplied object does not contain `cellEntry.blockDaaScore` property (or it is not a numerical value)",
@@ -557,7 +549,7 @@ impl TryCastFromJs for CellEntryReference {
                         lock_hash,
                         type_hash,
                         data_hash,
-                        script_public_key,
+                        script_public_key: address.as_ref().map(pay_to_address_script).unwrap_or_default(),
                         block_daa_score,
                         is_coinbase,
                     }
@@ -565,8 +557,6 @@ impl TryCastFromJs for CellEntryReference {
                     let amount = object.get_u64("amount").map_err(|_| {
                         Error::custom("Supplied object does not contain `amount` property (or it is not a numerical value)")
                     })?;
-                    let script_public_key = ScriptPublicKey::try_owned_from(object.get_value("scriptPublicKey")?)
-                        .map_err(|_|Error::custom("Supplied object does not contain `scriptPublicKey` property (or it is not a hex string or a ScriptPublicKey class)"))?;
                     let block_daa_score = object.get_u64("blockDaaScore").map_err(|_| {
                         Error::custom("Supplied object does not contain `blockDaaScore` property (or it is not a numerical value)")
                     })?;
@@ -589,7 +579,7 @@ impl TryCastFromJs for CellEntryReference {
                         lock_hash,
                         type_hash,
                         data_hash,
-                        script_public_key,
+                        script_public_key: address.as_ref().map(pay_to_address_script).unwrap_or_default(),
                         block_daa_score,
                         is_coinbase,
                     }
@@ -612,7 +602,7 @@ impl CellEntryReference {
 
     pub fn simulated_with_address(amount: u64, address: &Address) -> Self {
         let outpoint = TransactionOutpoint::simulated();
-        let script_public_key = spora_txscript::pay_to_address_script(address);
+        let script_public_key = pay_to_address_script(address);
         let block_daa_score = 0;
         let is_coinbase = false;
 
@@ -620,11 +610,11 @@ impl CellEntryReference {
             address: Some(address.clone()),
             outpoint,
             amount,
-            capacity: None,
-            data_bytes: None,
-            lock_hash: None,
+            capacity: Some(amount),
+            data_bytes: Some(0),
+            lock_hash: Some(script_public_key.hash().into()),
             type_hash: None,
-            data_hash: None,
+            data_hash: Some(TransactionId::from([0; 32])),
             script_public_key,
             block_daa_score,
             is_coinbase,

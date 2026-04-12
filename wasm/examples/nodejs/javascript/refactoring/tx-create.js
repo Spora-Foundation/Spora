@@ -114,10 +114,7 @@ spora.init_console_panic_hook();
     let transaction = new Transaction({
         inputs,
         outputs,
-        lockTime: 0,
-        subnetworkId: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
         version: 0,
-        gas: 0,
         payload: [],
     });
 

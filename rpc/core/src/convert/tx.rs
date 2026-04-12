@@ -1,7 +1,10 @@
 //! Conversion of Transaction related types
 
 use crate::{RpcError, RpcResult, RpcTransaction, RpcTransactionInput, RpcTransactionOutput};
-use spora_consensus_core::tx::{cell_out_from_legacy_script_public_key, CellRef, CellTx};
+use spora_consensus_core::{
+    mass::project_cell_tx_mass,
+    tx::{cell_out_from_legacy_script_public_key, CellRef, CellTx},
+};
 
 // ----------------------------------------------------------------------------
 // consensus_core to rpc_core
@@ -9,15 +12,13 @@ use spora_consensus_core::tx::{cell_out_from_legacy_script_public_key, CellRef, 
 
 impl From<&CellTx> for RpcTransaction {
     fn from(item: &CellTx) -> Self {
+        let projected_mass = project_cell_tx_mass(item, None);
         Self {
             version: item.ver,
             inputs: RpcTransactionInput::from_cell_refs(&item.inputs, &item.witnesses),
             outputs: RpcTransactionOutput::from_cell_outputs(&item.outputs, &item.outputs_data),
-            lock_time: 0,
-            subnetwork_id: if item.is_coinbase() { crate::RpcSubnetworkId::coinbase() } else { crate::RpcSubnetworkId::native() },
-            gas: 0,
             payload: item.payload().map(ToOwned::to_owned).unwrap_or_default(),
-            mass: item.storage_mass(),
+            mass: projected_mass.selection_mass,
             verbose_data: None,
         }
     }
@@ -31,17 +32,23 @@ impl TryFrom<RpcTransaction> for CellTx {
     type Error = RpcError;
 
     fn try_from(item: RpcTransaction) -> RpcResult<Self> {
+        let is_coinbase = item.inputs.is_empty();
+
+        if !is_coinbase && !item.payload.is_empty() {
+            return Err(RpcError::General(
+                "RpcTransaction.payload is only supported for coinbase transactions; attach data to outputs for normal CellTx"
+                    .to_string(),
+            ));
+        }
+
         let inputs: Vec<CellRef> = item
             .inputs
             .iter()
             .map(|input| CellRef::new(input.previous_outpoint.into(), input.since.unwrap_or(input.sequence)))
             .collect();
 
-        let mut witnesses: Vec<Vec<u8>> = item
-            .inputs
-            .into_iter()
-            .map(|input| input.witness.unwrap_or(input.signature_script))
-            .collect();
+        let mut witnesses: Vec<Vec<u8>> =
+            item.inputs.into_iter().map(|input| input.witness.unwrap_or(input.signature_script)).collect();
 
         let outputs: Vec<_> = item
             .outputs
@@ -50,7 +57,7 @@ impl TryFrom<RpcTransaction> for CellTx {
             .collect();
 
         let mut outputs_data = vec![vec![]; outputs.len()];
-        if inputs.is_empty() && !item.payload.is_empty() {
+        if is_coinbase && !item.payload.is_empty() {
             if let Some(first_output_data) = outputs_data.first_mut() {
                 *first_output_data = item.payload.clone();
             } else {
@@ -65,7 +72,10 @@ impl TryFrom<RpcTransaction> for CellTx {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use spora_consensus_core::tx::{CellOut, OutPoint, ScriptRef};
+    use spora_consensus_core::{
+        mass::project_cell_tx_mass,
+        tx::{CellOut, OutPoint, ScriptRef},
+    };
 
     #[test]
     fn cell_tx_roundtrip_preserves_canonical_fields() {
@@ -83,6 +93,7 @@ mod tests {
         .unwrap();
 
         let rpc_tx = RpcTransaction::from(&tx);
+        assert_eq!(rpc_tx.mass, project_cell_tx_mass(&tx, None).selection_mass);
         assert_eq!(rpc_tx.outputs[0].data_bytes, Some(4));
         assert_eq!(rpc_tx.outputs[0].data_hash, Some(*blake3::hash(&tx.outputs_data[0]).as_bytes()));
 
@@ -114,10 +125,29 @@ mod tests {
         .unwrap();
 
         let rpc_tx = RpcTransaction::from(&tx);
+        assert_eq!(rpc_tx.mass, 0);
         assert_eq!(rpc_tx.payload, payload);
 
         let restored = CellTx::try_from(rpc_tx).expect("coinbase rpc tx converts back into CellTx");
         assert!(restored.is_coinbase());
         assert_eq!(restored.outputs_data, vec![payload]);
+    }
+
+    #[test]
+    fn rpc_transaction_rejects_non_coinbase_payload() {
+        let rpc_tx = RpcTransaction {
+            version: 0,
+            inputs: vec![RpcTransactionInput::from_cell_ref(&CellRef::new(OutPoint::new([0x11; 32], 2), 42), vec![0xaa])],
+            outputs: vec![RpcTransactionOutput::from_cell_output(
+                &CellOut { lock: ScriptRef::new([0x22; 32], 0, vec![]), type_: None, capacity: 1_000 },
+                &[1, 2, 3],
+            )],
+            payload: vec![9, 8, 7],
+            mass: 0,
+            verbose_data: None,
+        };
+
+        let error = CellTx::try_from(rpc_tx).expect_err("legacy payload must be rejected on normal transactions");
+        assert!(error.to_string().contains("payload"));
     }
 }

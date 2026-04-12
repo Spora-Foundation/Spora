@@ -33,8 +33,6 @@ spora-merkle.workspace = true
 spora-muhash.workspace = true
 spora-notify.workspace = true
 spora-pow.workspace = true
-spora-txscript.workspace = true
-spora-txscript-errors.workspace = true
 spora-utils.workspace = true
 log.workspace = true
 once_cell.workspace = true
@@ -60,15 +58,10 @@ criterion.workspace = true
 serde_json.workspace = true
 flate2.workspace = true
 rand_distr.workspace = true
-spora-txscript-errors.workspace = true
 spora-addresses.workspace = true
 
 [[bench]]
 name = "parallel_muhash"
-harness = false
-
-[[bench]]
-name = "check_scripts"
 harness = false
 
 [features]

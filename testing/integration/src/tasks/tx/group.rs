@@ -7,7 +7,7 @@ use crate::{
 };
 use async_trait::async_trait;
 use itertools::chain;
-use spora_consensus_core::tx::Transaction;
+use spora_consensus_core::tx::CellTx;
 use spora_utils::triggers::SingleTrigger;
 use std::sync::Arc;
 use tokio::task::JoinHandle;
@@ -26,7 +26,7 @@ impl TxSenderGroupTask {
         client_manager: Arc<ClientManager>,
         submitter_pool_size: usize,
         allow_orphan: bool,
-        txs: Vec<Arc<Transaction>>,
+        txs: Vec<Arc<CellTx>>,
         tps_pressure: u64,
         mempool_target: u64,
         stopper: Stopper,

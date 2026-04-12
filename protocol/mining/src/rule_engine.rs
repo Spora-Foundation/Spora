@@ -131,8 +131,7 @@ impl MiningRuleEngine {
         // enter the DAA window of fully-synced nodes and thus contribute to overall network difficulty
         //
         // Both durations are nearly equal so this decision is negligible
-        let synced_threshold =
-            self.config.expected_difficulty_window_duration_in_milliseconds() / 4;
+        let synced_threshold = self.config.expected_difficulty_window_duration_in_milliseconds() / 4;
 
         // Roughly 10mins in all networks
         unix_now() < sink_timestamp + synced_threshold

@@ -21,14 +21,13 @@ use spora_consensus_core::{
     constants::SAU_PER_SPORA,
     sign::sign,
     tx::{
-        compute_lock_hash_for_script, legacy_compat_transaction_from_cell_tx,
-        legacy_sequence_to_cell_since, CellEntry, CellOut, CellRef, CellTx, MutableTransaction, ScriptRef, Transaction, TransactionOutpoint,
+        compute_lock_hash_for_script, legacy_sequence_to_cell_since, pay_to_address_script, CellEntry, CellOut, CellRef, CellTx,
+        MutableTransaction, ScriptRef, TransactionOutpoint,
     },
 };
 use spora_core::{info, warn};
 use spora_grpc_client::GrpcClient;
 use spora_rpc_core::{api::rpc::RpcApi, RpcCellsByAddressesEntry};
-use spora_txscript::{htlc_script, pay_to_address_script, pay_to_address_with_lock_time_script};
 use tokio::time::Instant;
 
 /// Default amount to send per address in SAU (Smallest Atomic Unit)
@@ -257,10 +256,6 @@ pub struct Config {
     pub network: NetworkType,
     /// Amount to send per address in SAU (Smallest Atomic Unit)
     pub send_amount: u64,
-    /// Enable TLC airdrop mode
-    pub tlc_mode: bool,
-    /// TLC configuration
-    pub tlc_config: Option<TlcAirdropConfig>,
 }
 
 /// Configuration for transaction fees
@@ -270,21 +265,6 @@ pub struct TxsFeeConfig {
     pub priority_fee: u64,
     /// Whether to randomize the priority fee
     pub randomize_fee: bool,
-}
-
-/// Configuration for Time Locked Contract (TLC) airdrop
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TlcAirdropConfig {
-    /// Lock time in seconds (Unix timestamp) or block height
-    pub lock_time: u64,
-    /// Whether lock_time is a Unix timestamp (true) or block height (false)
-    pub is_timestamp: bool,
-    /// Secret for HTLC (optional, if None, creates simple time lock)
-    pub secret: Option<Vec<u8>>,
-    /// Recipient's public key (32 bytes for Schnorr)
-    pub recipient_pubkey: Option<[u8; 32]>,
-    /// Sender's public key (32 bytes for Schnorr)
-    pub sender_pubkey: Option<[u8; 32]>,
 }
 
 /// Load addresses from a text file, one address per line.
@@ -539,20 +519,13 @@ pub fn generate_tx(
     send_amount: u64,
     num_outs: u64,
     spora_addr: &Address,
-) -> Transaction {
+) -> CellTx {
     let script_public_key = pay_to_address_script(spora_addr);
-    let inputs = cells
-        .iter()
-        .map(|(op, _)| CellRef::new(*op, legacy_sequence_to_cell_since(0)))
-        .collect_vec();
+    let inputs = cells.iter().map(|(op, _)| CellRef::new(*op, legacy_sequence_to_cell_since(0))).collect_vec();
 
     let outputs = (0..num_outs)
         .map(|_| CellOut {
-            lock: ScriptRef::new(
-                compute_lock_hash_for_script(&script_public_key),
-                0,
-                script_public_key.script().to_vec(),
-            ),
+            lock: ScriptRef::new(compute_lock_hash_for_script(&script_public_key), 0, script_public_key.script().to_vec()),
             type_: None,
             capacity: send_amount / num_outs,
         })
@@ -561,7 +534,7 @@ pub fn generate_tx(
         .expect("treasure_boy generated transaction must be Cell-constructible");
     let signed_tx =
         sign(MutableTransaction::with_entries(unsigned_tx, cells.iter().map(|(_, entry)| entry.clone()).collect_vec()), schnorr_key);
-    legacy_compat_transaction_from_cell_tx(&signed_tx.tx)
+    signed_tx.tx
 }
 
 pub fn generate_multi_output_tx(
@@ -569,11 +542,8 @@ pub fn generate_multi_output_tx(
     cells: &[(TransactionOutpoint, CellEntry)],
     send_amount: u64,
     target_addresses: &[&Address],
-) -> Transaction {
-    let inputs = cells
-        .iter()
-        .map(|(op, _)| CellRef::new(*op, legacy_sequence_to_cell_since(0)))
-        .collect_vec();
+) -> CellTx {
+    let inputs = cells.iter().map(|(op, _)| CellRef::new(*op, legacy_sequence_to_cell_since(0))).collect_vec();
 
     // Create an output for each target address
     let outputs = target_addresses
@@ -581,28 +551,18 @@ pub fn generate_multi_output_tx(
         .map(|addr| {
             let script_public_key = pay_to_address_script(addr);
             CellOut {
-                lock: ScriptRef::new(
-                    compute_lock_hash_for_script(&script_public_key),
-                    0,
-                    script_public_key.script().to_vec(),
-                ),
+                lock: ScriptRef::new(compute_lock_hash_for_script(&script_public_key), 0, script_public_key.script().to_vec()),
                 type_: None,
                 capacity: send_amount / target_addresses.len() as u64,
             }
         })
         .collect_vec();
 
-    let unsigned_tx = CellTx::new(
-        inputs,
-        vec![],
-        outputs,
-        vec![vec![]; target_addresses.len()],
-        vec![vec![]; cells.len()],
-    )
-    .expect("treasure_boy generated transaction must be Cell-constructible");
+    let unsigned_tx = CellTx::new(inputs, vec![], outputs, vec![vec![]; target_addresses.len()], vec![vec![]; cells.len()])
+        .expect("treasure_boy generated transaction must be Cell-constructible");
     let signed_tx =
         sign(MutableTransaction::with_entries(unsigned_tx, cells.iter().map(|(_, entry)| entry.clone()).collect_vec()), schnorr_key);
-    legacy_compat_transaction_from_cell_tx(&signed_tx.tx)
+    signed_tx.tx
 }
 
 pub fn select_cells(
@@ -656,226 +616,6 @@ pub fn is_cell_spendable(entry: &RpcCellsByAddressesEntry, virtual_daa_score: u6
 pub fn clean_old_pending_outpoints(pending: &mut HashMap<TransactionOutpoint, Instant>) {
     let now = Instant::now();
     pending.retain(|_, &mut time| now.duration_since(time) <= Duration::from_secs(3600));
-}
-
-/// Generate a Time Locked Contract script for airdrop
-///
-/// This function creates either a simple time lock or an HTLC script based on the configuration.
-///
-/// # Arguments
-/// * `address` - The target address for the airdrop
-/// * `config` - TLC configuration
-///
-/// # Returns
-/// * `Ok(ScriptPublicKey)` - The constructed script public key
-/// * `Err(Box<dyn std::error::Error>)` - If script generation fails
-pub fn generate_tlc_script(
-    address: &Address,
-    config: &TlcAirdropConfig,
-) -> Result<spora_consensus_core::tx::ScriptPublicKey, Box<dyn std::error::Error>> {
-    use blake3::hash;
-    use spora_consensus_core::constants::LOCK_TIME_THRESHOLD;
-
-    // Determine the actual lock time based on configuration
-    let lock_time = if config.is_timestamp {
-        // If it's a timestamp, ensure it's above the threshold
-        if config.lock_time < LOCK_TIME_THRESHOLD {
-            config.lock_time + LOCK_TIME_THRESHOLD
-        } else {
-            config.lock_time
-        }
-    } else {
-        // If it's a block height, ensure it's below the threshold
-        if config.lock_time >= LOCK_TIME_THRESHOLD {
-            return Err("Block height cannot be >= LOCK_TIME_THRESHOLD".into());
-        }
-        config.lock_time
-    };
-
-    // Generate script based on configuration
-    if let (Some(secret), Some(recipient_pubkey), Some(sender_pubkey)) =
-        (&config.secret, &config.recipient_pubkey, &config.sender_pubkey)
-    {
-        // Create HTLC script
-        let secret_hash = hash(secret);
-        htlc_script(secret_hash.as_bytes(), recipient_pubkey, sender_pubkey, lock_time)
-            .map_err(|e| format!("Failed to create HTLC script: {:?}", e).into())
-    } else {
-        // Create simple time lock script
-        pay_to_address_with_lock_time_script(address, lock_time)
-            .map_err(|e| format!("Failed to create time lock script: {:?}", e).into())
-    }
-}
-
-/// Generate a transaction with TLC outputs for airdrop
-///
-/// This function creates a transaction with time-locked outputs for each target address.
-///
-/// # Arguments
-/// * `schnorr_key` - The private key for signing the transaction
-/// * `cells` - Available cells for the transaction
-/// * `send_amount` - Amount to send per address in SAU
-/// * `target_addresses` - List of addresses to send TLC outputs to
-/// * `tlc_config` - TLC configuration for the outputs
-///
-/// # Returns
-/// * `Ok(Transaction)` - The signed transaction with TLC outputs
-/// * `Err(Box<dyn std::error::Error>)` - If transaction generation fails
-pub fn generate_tlc_airdrop_tx(
-    schnorr_key: Keypair,
-    cells: &[(TransactionOutpoint, CellEntry)],
-    send_amount: u64,
-    target_addresses: &[&Address],
-    tlc_config: &TlcAirdropConfig,
-) -> Result<Transaction, Box<dyn std::error::Error>> {
-    let inputs = cells
-        .iter()
-        .map(|(op, _)| CellRef::new(*op, legacy_sequence_to_cell_since(0)))
-        .collect_vec();
-
-    // Create TLC outputs for each target address
-    let outputs = target_addresses
-        .iter()
-        .map(|addr| {
-            let script_public_key = generate_tlc_script(addr, tlc_config)?;
-            Ok(CellOut {
-                lock: ScriptRef::new(
-                    compute_lock_hash_for_script(&script_public_key),
-                    0,
-                    script_public_key.script().to_vec(),
-                ),
-                type_: None,
-                capacity: send_amount / target_addresses.len() as u64,
-            })
-        })
-        .collect::<Result<Vec<_>, Box<dyn std::error::Error>>>()?;
-
-    let unsigned_tx = CellTx::new(
-        inputs,
-        vec![],
-        outputs,
-        vec![vec![]; target_addresses.len()],
-        vec![vec![]; cells.len()],
-    )
-    .expect("treasure_boy generated transaction must be Cell-constructible");
-
-    let signed_tx =
-        sign(MutableTransaction::with_entries(unsigned_tx, cells.iter().map(|(_, entry)| entry.clone()).collect_vec()), schnorr_key);
-
-    Ok(legacy_compat_transaction_from_cell_tx(&signed_tx.tx))
-}
-
-/// Perform TLC airdrop to multiple addresses
-///
-/// This function creates time-locked transactions for batch airdrop operations.
-///
-/// # Arguments
-/// * `schnorr_key` - The private key for signing transactions
-/// * `target_addresses` - List of addresses to send TLC outputs to
-/// * `amount_per_address` - Amount to send to each address in SAU
-/// * `outputs_per_tx` - Number of outputs per transaction
-/// * `rpc_client` - The RPC client for blockchain interaction
-/// * `fee_config` - Configuration for transaction fees
-/// * `tlc_config` - TLC configuration for the outputs
-/// * `threads` - Number of threads for parallel processing
-/// * `network` - Network type for operations
-///
-/// # Returns
-/// * `Ok(Vec<Transaction>)` - Vector of successfully sent transactions
-/// * `Err(Box<dyn std::error::Error>)` - If airdrop fails
-pub async fn tlc_airdrop(
-    schnorr_key: Keypair,
-    target_addresses: Vec<Address>,
-    amount_per_address: u64,
-    outputs_per_tx: u64,
-    rpc_client: &GrpcClient,
-    fee_config: &TxsFeeConfig,
-    tlc_config: &TlcAirdropConfig,
-    threads: usize,
-    network: NetworkType,
-) -> Result<Vec<Transaction>, Box<dyn std::error::Error>> {
-    info!("Starting TLC airdrop to {} addresses", target_addresses.len());
-    info!("Lock time: {} ({})", tlc_config.lock_time, if tlc_config.is_timestamp { "timestamp" } else { "block height" });
-
-    // Create address distribution tracker
-    let mut address_tracker = AddressDistributionTracker::new(target_addresses);
-
-    // Get live cells
-    let from_address = Address::new(network.address_prefix(), ADDRESS_VERSION, &schnorr_key.x_only_public_key().0.serialize())?;
-    let rpc_cells = rpc_client.get_cells_by_addresses(vec![from_address.clone()]).await?;
-
-    // Convert cell format
-    let cells: Vec<(TransactionOutpoint, CellEntry)> =
-        rpc_cells.into_iter().map(|entry| (entry.outpoint.into(), entry.cell_entry.into())).collect();
-
-    if cells.is_empty() {
-        return Err("No cells available for sending".into());
-    }
-
-    // Calculate the number of transactions to send
-    let total_addresses = address_tracker.addresses.len();
-    let txs_needed = (total_addresses as f64 / outputs_per_tx as f64).ceil() as u64;
-
-    info!("Need to send {} transactions with {} TLC outputs each", txs_needed, outputs_per_tx);
-
-    let mut successful_txs = Vec::new();
-    let mut next_available_cell_index = 0;
-
-    // Set thread pool
-    let _ = rayon::ThreadPoolBuilder::new().num_threads(threads).build_global();
-
-    // Batch process transactions
-    let batch_size = 10;
-    for batch_start in (0..txs_needed).step_by(batch_size as usize) {
-        let batch_end = (batch_start + batch_size).min(txs_needed);
-        let batch_txs = batch_end - batch_start;
-
-        info!("Processing TLC batch: transactions {} to {}", batch_start + 1, batch_end);
-
-        // Pre-batch allocate addresses
-        let address_assignments = if address_tracker.addresses.len() == 1 {
-            (0..batch_txs).map(|_| vec![&address_tracker.addresses[0]]).collect::<Vec<_>>()
-        } else {
-            address_tracker.get_next_addresses_batch(batch_txs as usize, outputs_per_tx as usize)
-        };
-
-        // Generate transactions sequentially
-        let mut txs = Vec::new();
-        for (_, target_addresses) in (0..batch_txs as usize).zip(address_assignments.iter()) {
-            let (selected_cells, selected_amount) = select_cells(
-                &cells,
-                amount_per_address * outputs_per_tx,
-                outputs_per_tx,
-                false,
-                &mut next_available_cell_index,
-                fee_config,
-            );
-
-            if !selected_cells.is_empty() {
-                let tx = generate_tlc_airdrop_tx(schnorr_key, &selected_cells, selected_amount, target_addresses, tlc_config)?;
-                txs.push(Some(tx));
-            } else {
-                txs.push(None);
-            }
-        }
-
-        // Send transactions
-        for tx in txs.into_iter().flatten() {
-            match rpc_client.submit_transaction((&tx).into(), false).await {
-                Ok(tx_id) => {
-                    successful_txs.push(tx);
-                    info!("TLC transaction submitted successfully");
-                    info!("Transaction ID: {}", tx_id);
-                }
-                Err(e) => {
-                    warn!("Failed to submit TLC transaction: {}", e);
-                }
-            }
-        }
-    }
-
-    info!("TLC airdrop completed: {} transactions sent successfully", successful_txs.len());
-    Ok(successful_txs)
 }
 
 #[cfg(test)]
@@ -1045,7 +785,7 @@ mod tests {
             Address::new(Prefix::Devnet, Version::PubKey, &public_key.x_only_public_key().0.serialize()).expect("Valid address");
 
         let cells = vec![(
-            TransactionOutpoint { transaction_id: spora_consensus_core::Hash::from_bytes([0xFF; 32]), index: 0 },
+            TransactionOutpoint { tx_hash: spora_consensus_core::Hash::from_bytes([0xFF; 32]).as_bytes(), index: 0 },
             cell_meta_from_legacy_output(
                 1000000,
                 &spora_consensus_core::tx::ScriptPublicKey::from_vec(0, vec![0xff; 35]),
@@ -1071,7 +811,7 @@ mod tests {
         let addr2 = Address::new(Prefix::Devnet, Version::PubKey, &[0x42; 32]).expect("Valid address");
 
         let cells = vec![(
-            TransactionOutpoint { transaction_id: spora_consensus_core::Hash::from_bytes([0xFF; 32]), index: 0 },
+            TransactionOutpoint { tx_hash: spora_consensus_core::Hash::from_bytes([0xFF; 32]).as_bytes(), index: 0 },
             cell_meta_from_legacy_output(
                 1000000,
                 &spora_consensus_core::tx::ScriptPublicKey::from_vec(0, vec![0xff; 35]),
@@ -1093,7 +833,7 @@ mod tests {
     fn test_select_cells() {
         let cells = vec![
             (
-                TransactionOutpoint { transaction_id: spora_consensus_core::Hash::from_bytes([0x01; 32]), index: 0 },
+                TransactionOutpoint { tx_hash: spora_consensus_core::Hash::from_bytes([0x01; 32]).as_bytes(), index: 0 },
                 cell_meta_from_legacy_output(
                     100000,
                     &spora_consensus_core::tx::ScriptPublicKey::from_vec(0, vec![0xff; 35]),
@@ -1102,7 +842,7 @@ mod tests {
                 ),
             ),
             (
-                TransactionOutpoint { transaction_id: spora_consensus_core::Hash::from_bytes([0x02; 32]), index: 0 },
+                TransactionOutpoint { tx_hash: spora_consensus_core::Hash::from_bytes([0x02; 32]).as_bytes(), index: 0 },
                 cell_meta_from_legacy_output(
                     200000,
                     &spora_consensus_core::tx::ScriptPublicKey::from_vec(0, vec![0xff; 35]),
@@ -1129,6 +869,11 @@ mod tests {
             outpoint: TransactionOutpoint::default().into(),
             cell_entry: spora_rpc_core::RpcCellEntry {
                 amount: 100000,
+                capacity: 100000,
+                data_bytes: 0,
+                lock_hash: [0xff; 32],
+                type_hash: None,
+                data_hash: [0; 32],
                 script_public_key: spora_consensus_core::tx::ScriptPublicKey::from_vec(0, vec![0xff; 35]),
                 block_daa_score: 1000,
                 is_coinbase: false,
@@ -1171,8 +916,6 @@ mod tests {
             output_file: None,
             network: NetworkType::Testnet,
             send_amount: DEFAULT_SEND_AMOUNT,
-            tlc_mode: false,
-            tlc_config: None,
         };
 
         assert_eq!(config.tps, 1);
@@ -1247,126 +990,5 @@ mod tests {
 
         // Validate address format
         assert!(format!("{addr}").starts_with("sporadev:"));
-    }
-
-    #[test]
-    fn test_tlc_config_creation() {
-        let config = TlcAirdropConfig {
-            lock_time: 1756684800, // Unix timestamp
-            is_timestamp: true,
-            secret: Some(b"test_secret".to_vec()),
-            recipient_pubkey: Some([0x01; 32]),
-            sender_pubkey: Some([0x02; 32]),
-        };
-
-        assert_eq!(config.lock_time, 1756684800);
-        assert!(config.is_timestamp);
-        assert!(config.secret.is_some());
-        assert!(config.recipient_pubkey.is_some());
-        assert!(config.sender_pubkey.is_some());
-    }
-
-    #[test]
-    fn test_generate_tlc_script_simple() {
-        let addr = Address::new(Prefix::Devnet, Version::PubKey, &[0x42; 32]).expect("Valid address");
-        let config = TlcAirdropConfig {
-            lock_time: 1756684800, // Unix timestamp
-            is_timestamp: true,
-            secret: None,
-            recipient_pubkey: None,
-            sender_pubkey: None,
-        };
-
-        let result = generate_tlc_script(&addr, &config);
-        assert!(result.is_ok(), "Simple TLC script generation should succeed");
-
-        let script = result.unwrap();
-        assert_eq!(script.version(), 0); // ScriptHash version
-    }
-
-    #[test]
-    fn test_generate_tlc_script_htlc() {
-        let addr = Address::new(Prefix::Devnet, Version::PubKey, &[0x42; 32]).expect("Valid address");
-        let config = TlcAirdropConfig {
-            lock_time: 1756684800, // Unix timestamp
-            is_timestamp: true,
-            secret: Some(b"test_secret_for_htlc".to_vec()),
-            recipient_pubkey: Some([0x01; 32]),
-            sender_pubkey: Some([0x02; 32]),
-        };
-
-        let result = generate_tlc_script(&addr, &config);
-        assert!(result.is_ok(), "HTLC script generation should succeed");
-
-        let script = result.unwrap();
-        assert_eq!(script.version(), 0); // ScriptHash version
-    }
-
-    #[test]
-    fn test_generate_tlc_script_block_height() {
-        let addr = Address::new(Prefix::Devnet, Version::PubKey, &[0x42; 32]).expect("Valid address");
-        let config = TlcAirdropConfig {
-            lock_time: 1000, // Block height
-            is_timestamp: false,
-            secret: None,
-            recipient_pubkey: None,
-            sender_pubkey: None,
-        };
-
-        let result = generate_tlc_script(&addr, &config);
-        assert!(result.is_ok(), "Block height TLC script generation should succeed");
-
-        let script = result.unwrap();
-        assert_eq!(script.version(), 0); // ScriptHash version
-    }
-
-    #[test]
-    fn test_generate_tlc_airdrop_tx() {
-        let (secret_key, public_key) = secp256k1::generate_keypair(&mut thread_rng());
-        let keypair = Keypair::from_seckey_slice(secp256k1::SECP256K1, &secret_key.secret_bytes()).unwrap();
-
-        let addr1 =
-            Address::new(Prefix::Devnet, Version::PubKey, &public_key.x_only_public_key().0.serialize()).expect("Valid address");
-        let addr2 = Address::new(Prefix::Devnet, Version::PubKey, &[0x42; 32]).expect("Valid address");
-
-        let cells = vec![(
-            TransactionOutpoint { transaction_id: spora_consensus_core::Hash::from_bytes([0xFF; 32]), index: 0 },
-            CellEntry {
-                amount: 1000000,
-                script_public_key: spora_consensus_core::tx::ScriptPublicKey::from_vec(0, vec![0xff; 35]),
-                block_daa_score: 1000,
-                is_coinbase: false,
-            },
-        )];
-
-        let tlc_config =
-            TlcAirdropConfig { lock_time: 1756684800, is_timestamp: true, secret: None, recipient_pubkey: None, sender_pubkey: None };
-
-        let target_addresses = vec![&addr1, &addr2];
-        let result = generate_tlc_airdrop_tx(keypair, &cells, 100000, &target_addresses, &tlc_config);
-
-        assert!(result.is_ok(), "TLC airdrop transaction generation should succeed");
-
-        let tx = result.unwrap();
-        assert_eq!(tx.inputs.len(), 1);
-        assert_eq!(tx.outputs.len(), 2);
-        assert_eq!(tx.outputs[0].value, 50000);
-        assert_eq!(tx.outputs[1].value, 50000);
-    }
-
-    #[test]
-    fn test_tlc_config_validation() {
-        // Test invalid block height (too high)
-        let addr = Address::new(Prefix::Devnet, Version::PubKey, &[0x42; 32]).expect("Valid address");
-        let config = TlcAirdropConfig {
-            lock_time: 500_000_000_001, // Above LOCK_TIME_THRESHOLD
-            is_timestamp: false,
-            secret: None,
-            recipient_pubkey: None,
-            sender_pubkey: None,
-        };
-
-        let result = generate_tlc_script(&addr, &config);
-        assert!(result.is_err(), "Block height above threshold should fail");
     }
 }

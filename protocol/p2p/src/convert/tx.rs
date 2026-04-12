@@ -2,8 +2,12 @@ use super::{error::ConversionError, option::TryIntoOptionEx};
 use crate::pb as protowire;
 use spora_consensus_core::{
     cell_metadata::cell_metadata_placeholder_script_public_key_with_metadata,
+    mass::project_cell_tx_mass,
     subnets::SUBNETWORK_ID_SIZE,
-    tx::{cell_meta_from_legacy_output, cell_out_from_legacy_script_public_key, CellEntry, CellRef, CellTx, ScriptPublicKey, TransactionId, TransactionOutpoint},
+    tx::{
+        cell_meta_from_legacy_output, cell_out_from_legacy_script_public_key, CellEntry, CellRef, CellTx, ScriptPublicKey,
+        TransactionId, TransactionOutpoint,
+    },
 };
 use spora_hashes::Hash;
 
@@ -43,8 +47,32 @@ fn protowire_subnetwork_id(is_coinbase: bool) -> protowire::SubnetworkId {
     protowire::SubnetworkId { bytes }
 }
 
+fn validate_legacy_wire_fields(tx: &protowire::TransactionMessage) -> Result<(), ConversionError> {
+    if tx.lock_time != 0 {
+        return Err(ConversionError::NonCanonicalLegacyField("lockTime"));
+    }
+
+    if tx.gas != 0 {
+        return Err(ConversionError::NonCanonicalLegacyField("gas"));
+    }
+
+    if !tx.inputs.is_empty() && !tx.payload.is_empty() {
+        return Err(ConversionError::NonCoinbasePayload);
+    }
+
+    if let Some(subnetwork_id) = tx.subnetwork_id.as_ref() {
+        let expected = protowire_subnetwork_id(tx.inputs.is_empty());
+        if subnetwork_id.bytes != expected.bytes {
+            return Err(ConversionError::NonCanonicalLegacyField("subnetworkId"));
+        }
+    }
+
+    Ok(())
+}
+
 impl From<&CellTx> for protowire::TransactionMessage {
     fn from(tx: &CellTx) -> Self {
+        let projected_mass = project_cell_tx_mass(tx, None);
         Self {
             version: tx.ver as u32,
             inputs: tx
@@ -83,7 +111,7 @@ impl From<&CellTx> for protowire::TransactionMessage {
             subnetwork_id: Some(protowire_subnetwork_id(tx.is_coinbase())),
             gas: 0,
             payload: tx.payload().map(ToOwned::to_owned).unwrap_or_default(),
-            mass: tx.storage_mass(),
+            mass: projected_mass.selection_mass,
         }
     }
 }
@@ -138,6 +166,8 @@ impl TryFrom<protowire::TransactionMessage> for CellTx {
     type Error = ConversionError;
 
     fn try_from(tx: protowire::TransactionMessage) -> Result<Self, Self::Error> {
+        validate_legacy_wire_fields(&tx)?;
+
         let inputs: Vec<CellRef> = tx
             .inputs
             .iter()
@@ -165,5 +195,75 @@ impl TryFrom<protowire::TransactionMessage> for CellTx {
         }
 
         Ok(CellTx { ver: tx.version.try_into()?, inputs, deps: vec![], header_deps: vec![], outputs, outputs_data, witnesses })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use spora_consensus_core::{
+        mass::project_cell_tx_mass,
+        tx::{CellOut, OutPoint, ScriptRef},
+    };
+
+    fn sample_lock_script(seed: u8) -> ScriptRef {
+        ScriptRef::new([seed; 32], 1, vec![seed, seed.wrapping_add(1)])
+    }
+
+    fn sample_output(seed: u8) -> CellOut {
+        CellOut { lock: sample_lock_script(seed), type_: None, capacity: 1_000 }
+    }
+
+    fn sample_non_coinbase_tx() -> CellTx {
+        CellTx::new(vec![CellRef::new(OutPoint::new([7; 32], 0), 42)], vec![], vec![sample_output(9)], vec![vec![]], vec![vec![0xaa]])
+            .expect("sample tx")
+    }
+
+    fn sample_coinbase_tx() -> CellTx {
+        CellTx::new(vec![], vec![], vec![sample_output(5)], vec![vec![]], vec![]).expect("sample coinbase")
+    }
+
+    #[test]
+    fn rejects_non_zero_legacy_lock_time() {
+        let mut proto = protowire::TransactionMessage::from(&sample_non_coinbase_tx());
+        proto.lock_time = 1;
+        assert!(matches!(CellTx::try_from(proto), Err(ConversionError::NonCanonicalLegacyField("lockTime"))));
+    }
+
+    #[test]
+    fn rejects_non_zero_legacy_gas() {
+        let mut proto = protowire::TransactionMessage::from(&sample_non_coinbase_tx());
+        proto.gas = 1;
+        assert!(matches!(CellTx::try_from(proto), Err(ConversionError::NonCanonicalLegacyField("gas"))));
+    }
+
+    #[test]
+    fn rejects_non_canonical_subnetwork_id() {
+        let mut proto = protowire::TransactionMessage::from(&sample_non_coinbase_tx());
+        proto.subnetwork_id = Some(protowire::SubnetworkId { bytes: vec![1; SUBNETWORK_ID_SIZE] });
+        assert!(matches!(CellTx::try_from(proto), Err(ConversionError::NonCanonicalLegacyField("subnetworkId"))));
+    }
+
+    #[test]
+    fn rejects_payload_on_non_coinbase_transaction() {
+        let mut proto = protowire::TransactionMessage::from(&sample_non_coinbase_tx());
+        proto.payload = vec![1, 2, 3];
+        assert!(matches!(CellTx::try_from(proto), Err(ConversionError::NonCoinbasePayload)));
+    }
+
+    #[test]
+    fn accepts_canonical_coinbase_payload_and_subnetwork() {
+        let mut proto = protowire::TransactionMessage::from(&sample_coinbase_tx());
+        proto.payload = vec![1, 2, 3];
+        let tx = CellTx::try_from(proto).expect("canonical coinbase transaction");
+        assert!(tx.is_coinbase());
+        assert_eq!(tx.outputs_data[0], vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn transaction_message_uses_projected_selection_mass() {
+        let tx = sample_non_coinbase_tx();
+        let proto = protowire::TransactionMessage::from(&tx);
+        assert_eq!(proto.mass, project_cell_tx_mass(&tx, None).selection_mass);
     }
 }

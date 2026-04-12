@@ -31,10 +31,7 @@ use rocksdb::WriteBatch;
 use spora_consensus_core::{
     block::Block,
     blockstatus::BlockStatus::{self, StatusHeaderOnly, StatusInvalid},
-    config::{
-        genesis::GenesisBlock,
-        params::Params,
-    },
+    config::{genesis::GenesisBlock, params::Params},
     mass::{Mass, MassCalculator, MassOps},
     tx::CellTx,
     KType,
@@ -229,11 +226,11 @@ impl BlockBodyProcessor {
     }
 
     fn validate_body(self: &Arc<BlockBodyProcessor>, block: &Block, is_trusted: bool) -> BlockProcessResult<Mass> {
-        let mass = self.validate_body_in_isolation(block)?;
+        let isolation_mass = self.validate_body_in_isolation(block)?;
         if !is_trusted {
-            self.validate_body_in_context(block)?;
+            return self.validate_body_in_context(block);
         }
-        Ok(mass)
+        Ok(isolation_mass)
     }
 
     fn commit_body(self: &Arc<BlockBodyProcessor>, hash: Hash, parents: &[Hash], transactions: Arc<Vec<CellTx>>) {

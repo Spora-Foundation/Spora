@@ -5,7 +5,6 @@ use crate::wasm::PrivateKeyArrayT;
 use spora_consensus_client::{numeric, string};
 use spora_consensus_client::{Transaction, TransactionT};
 use spora_consensus_core::hashing::wasm::SighashType;
-use spora_consensus_core::tx::legacy_compat_transaction_from_cell_tx;
 use spora_wallet_keys::privatekey::PrivateKey;
 use spora_wasm_core::types::{BinaryT, HexString};
 use spora_wrpc_wasm::RpcClient;
@@ -46,7 +45,7 @@ impl PendingTransaction {
         BigInt::from(self.inner.fees())
     }
 
-    /// Calculated storage-mass commitment.
+    /// Calculated transaction mass used for fee estimation and relay sizing.
     #[wasm_bindgen(getter)]
     pub fn mass(&self) -> BigInt {
         BigInt::from(self.inner.mass())
@@ -143,14 +142,6 @@ impl PendingTransaction {
         }
     }
 
-    #[wasm_bindgen(js_name = signWithLockTime)]
-    pub fn sign_with_lock_time(&self, private_key: &PrivateKey, lock_time: u64) -> Result<()> {
-        let mut key = private_key.secret_bytes();
-        self.inner.try_sign_with_lock_time(&key, lock_time)?;
-        key.zeroize();
-        Ok(())
-    }
-
     /// Submit transaction to the supplied [`RpcClient`]
     /// **IMPORTANT:** This method will remove cells from the associated
     /// {@link CellContext} if one was used to create the transaction
@@ -174,8 +165,7 @@ impl PendingTransaction {
     /// Returns encapsulated network [`Transaction`]
     #[wasm_bindgen(getter)]
     pub fn transaction(&self) -> Result<Transaction> {
-        let legacy_tx = legacy_compat_transaction_from_cell_tx(&self.inner.transaction());
-        Ok(Transaction::from_cctx_transaction(&legacy_tx, self.inner.cell_entries()))
+        Ok(numeric::SerializableTransaction::from_signable_transaction(&self.inner.signable_transaction())?.try_into()?)
     }
 
     /// Serializes the transaction to a pure JavaScript Object.
@@ -184,8 +174,7 @@ impl PendingTransaction {
     /// @see {@link Transaction}, {@link ISerializableTransaction}
     #[wasm_bindgen(js_name = "serializeToObject")]
     pub fn serialize_to_object(&self) -> Result<TransactionT> {
-        let legacy_tx = legacy_compat_transaction_from_cell_tx(&self.inner.transaction());
-        Ok(numeric::SerializableTransaction::from_cctx_transaction(&legacy_tx, self.inner.cell_entries())?
+        Ok(numeric::SerializableTransaction::from_signable_transaction(&self.inner.signable_transaction())?
             .serialize_to_object()?
             .into())
     }
@@ -196,9 +185,7 @@ impl PendingTransaction {
     /// @see {@link Transaction}, {@link ISerializableTransaction}
     #[wasm_bindgen(js_name = "serializeToJSON")]
     pub fn serialize_to_json(&self) -> Result<String> {
-        let legacy_tx = legacy_compat_transaction_from_cell_tx(&self.inner.transaction());
-        Ok(numeric::SerializableTransaction::from_cctx_transaction(&legacy_tx, self.inner.cell_entries())?
-            .serialize_to_json()?)
+        Ok(numeric::SerializableTransaction::from_signable_transaction(&self.inner.signable_transaction())?.serialize_to_json()?)
     }
 
     /// Serializes the transaction to a "Safe" JSON schema where it converts all `bigint` values to `string` to avoid potential client-side precision loss.
@@ -206,9 +193,7 @@ impl PendingTransaction {
     /// @see {@link Transaction}, {@link ISerializableTransaction}
     #[wasm_bindgen(js_name = "serializeToSafeJSON")]
     pub fn serialize_to_json_safe(&self) -> Result<String> {
-        let legacy_tx = legacy_compat_transaction_from_cell_tx(&self.inner.transaction());
-        Ok(string::SerializableTransaction::from_cctx_transaction(&legacy_tx, self.inner.cell_entries())?
-            .serialize_to_json()?)
+        Ok(string::SerializableTransaction::from_signable_transaction(&self.inner.signable_transaction())?.serialize_to_json()?)
     }
 }
 

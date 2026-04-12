@@ -112,8 +112,6 @@ fn test_config_validation() {
         output_file: None,
         network: NetworkType::Testnet,
         send_amount: 1000000,
-        tlc_mode: false,
-        tlc_config: None,
     };
 
     assert_eq!(config.tps, 10);

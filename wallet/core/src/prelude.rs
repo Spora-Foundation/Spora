@@ -13,7 +13,7 @@ pub use crate::metrics::{MetricsUpdate, MetricsUpdateKind};
 pub use crate::rpc::{ConnectOptions, ConnectStrategy, DynRpcApi};
 pub use crate::settings::WalletSettings;
 pub use crate::storage::{IdT, Interface, PrvKeyDataId, PrvKeyDataInfo, TransactionId, TransactionRecord, WalletDescriptor};
-pub use crate::tx::{Fees, PaymentDestination, PaymentOutput, PaymentOutputs};
+pub use crate::tx::{Fees, PaymentDestination, PaymentOutput, PaymentOutputs, TimelockConfig};
 pub use crate::utils::{
     sau_to_spora, sau_to_spora_string, sau_to_spora_string_with_suffix, spora_suffix, spora_to_sau, try_spora_str_to_sau,
     try_spora_str_to_sau_i64,

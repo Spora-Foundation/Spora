@@ -1,5 +1,6 @@
 use super::MiningCounters;
 use crate::manager::MiningManagerProxy;
+use spora_consensus_core::tx::{ScriptCacheCounters, ScriptCacheCountersSnapshot};
 use spora_consensusmanager::ConsensusManager;
 use spora_core::{
     debug, info,
@@ -9,7 +10,6 @@ use spora_core::{
     },
     trace,
 };
-use spora_txscript::caches::TxScriptCacheCounters;
 use std::{sync::Arc, time::Duration};
 
 const MONITOR: &str = "mempool-monitor";
@@ -22,7 +22,7 @@ pub struct MiningMonitor {
     // Counters
     counters: Arc<MiningCounters>,
 
-    tx_script_cache_counters: Arc<TxScriptCacheCounters>,
+    tx_script_cache_counters: Arc<ScriptCacheCounters>,
 
     // Tick service
     tick_service: Arc<TickService>,
@@ -33,7 +33,7 @@ impl MiningMonitor {
         mining_manager: MiningManagerProxy,
         consensus_manager: Arc<ConsensusManager>,
         counters: Arc<MiningCounters>,
-        tx_script_cache_counters: Arc<TxScriptCacheCounters>,
+        tx_script_cache_counters: Arc<ScriptCacheCounters>,
         tick_service: Arc<TickService>,
     ) -> MiningMonitor {
         MiningMonitor { mining_manager, consensus_manager, counters, tx_script_cache_counters, tick_service }

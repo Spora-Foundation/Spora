@@ -4,7 +4,7 @@ use crate::{
 };
 use async_channel::Sender;
 use async_trait::async_trait;
-use spora_consensus_core::tx::Transaction;
+use spora_consensus_core::tx::CellTx;
 use spora_core::{error, warn};
 use spora_grpc_client::ClientPool;
 use spora_rpc_core::{api::rpc::RpcApi, RpcError};
@@ -12,7 +12,7 @@ use spora_utils::triggers::SingleTrigger;
 use std::{sync::Arc, time::Duration};
 use tokio::{task::JoinHandle, time::sleep};
 
-pub type IndexedTransaction = (usize, Arc<Transaction>);
+pub type IndexedTransaction = (usize, Arc<CellTx>);
 
 /// Transaction submitter
 ///

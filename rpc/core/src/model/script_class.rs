@@ -1,3 +1,3 @@
-use spora_txscript::script_class::ScriptClass;
+use spora_consensus_core::tx::ScriptClass;
 
 pub type RpcScriptClass = ScriptClass;

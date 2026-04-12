@@ -7,7 +7,7 @@
 use crate::imports::*;
 use crate::tx::{Fees, GeneratorSummary, PaymentDestination};
 use spora_addresses::Address;
-use spora_consensus_core::tx::{cell_entry_legacy_script_public_key, cell_meta_from_legacy_output, CellEntry, TransactionOutpoint};
+use spora_consensus_core::tx::{CellEntry, TransactionOutpoint};
 use spora_rpc_core::RpcFeerateBucket;
 
 #[derive(Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
@@ -579,13 +579,10 @@ pub struct CellEntryWrapper {
     pub capacity: Option<u64>,
     #[serde(default)]
     pub data_bytes: Option<u64>,
-    #[serde(default)]
-    pub lock_hash: Option<TransactionId>,
+    pub lock_hash: TransactionId,
     #[serde(default)]
     pub type_hash: Option<TransactionId>,
-    #[serde(default)]
-    pub data_hash: Option<TransactionId>,
-    pub script_public_key: ScriptPublicKey,
+    pub data_hash: TransactionId,
     pub block_daa_score: u64,
     pub is_coinbase: bool,
 }
@@ -603,21 +600,16 @@ impl CellEntryWrapper {
         obj.set("amount", &self.amount.to_string().into())?;
         obj.set("capacity", &self.capacity.unwrap_or(self.amount).to_string().into())?;
         obj.set("outpoint", &outpoint.into())?;
-        obj.set("scriptPublicKey", &workflow_wasm::serde::to_value(&self.script_public_key)?)?;
         obj.set("blockDaaScore", &self.block_daa_score.to_string().into())?;
         obj.set("isCoinbase", &self.is_coinbase.into())?;
         if let Some(data_bytes) = self.data_bytes {
             obj.set("dataBytes", &data_bytes.to_string().into())?;
         }
-        if let Some(lock_hash) = self.lock_hash {
-            obj.set("lockHash", &lock_hash.to_string().into())?;
-        }
+        obj.set("lockHash", &self.lock_hash.to_string().into())?;
         if let Some(type_hash) = self.type_hash {
             obj.set("typeHash", &type_hash.to_string().into())?;
         }
-        if let Some(data_hash) = self.data_hash {
-            obj.set("dataHash", &data_hash.to_string().into())?;
-        }
+        obj.set("dataHash", &self.data_hash.to_string().into())?;
 
         Ok(obj)
     }
@@ -644,34 +636,30 @@ impl From<TransactionOutpointWrapper> for TransactionOutpoint {
 
 impl From<CellEntryWrapper> for CellEntry {
     fn from(entry: CellEntryWrapper) -> Self {
-        match (entry.lock_hash, entry.data_hash) {
-            (Some(lock_hash), Some(data_hash)) => Self::from_cell_metadata(
-                entry.capacity.unwrap_or(entry.amount),
-                entry.data_bytes.unwrap_or_default(),
-                lock_hash.as_bytes(),
-                entry.type_hash.map(|hash| hash.as_bytes()),
-                data_hash.as_bytes(),
-                entry.block_daa_score,
-                entry.is_coinbase,
-            ),
-            _ => cell_meta_from_legacy_output(entry.amount, &entry.script_public_key, entry.block_daa_score, entry.is_coinbase),
-        }
+        Self::from_cell_metadata(
+            entry.capacity.unwrap_or(entry.amount),
+            entry.data_bytes.unwrap_or_default(),
+            entry.lock_hash.as_bytes(),
+            entry.type_hash.map(|hash| hash.as_bytes()),
+            entry.data_hash.as_bytes(),
+            entry.block_daa_score,
+            entry.is_coinbase,
+        )
     }
 }
 
 impl From<CellEntry> for CellEntryWrapper {
     fn from(entry: CellEntry) -> Self {
-        let metadata = entry.embedded_cell_metadata();
+        let metadata = entry.embedded_cell_metadata().expect("CellEntryWrapper requires canonical Cell metadata");
         Self {
             address: None, // CellEntry doesn't have address field
             outpoint: TransactionOutpointWrapper { transaction_id: spora_hashes::Hash::default(), index: 0 }, // CellEntry doesn't have outpoint field
             amount: entry.amount(),
-            capacity: metadata.map(|_| entry.capacity()),
-            data_bytes: metadata.map(|m| m.data_bytes),
-            lock_hash: metadata.map(|m| m.lock_hash.into()),
-            type_hash: metadata.and_then(|m| m.type_hash.map(Into::into)),
-            data_hash: metadata.map(|m| m.data_hash.into()),
-            script_public_key: cell_entry_legacy_script_public_key(&entry),
+            capacity: Some(entry.capacity()),
+            data_bytes: Some(metadata.data_bytes),
+            lock_hash: metadata.lock_hash.into(),
+            type_hash: metadata.type_hash.map(Into::into),
+            data_hash: metadata.data_hash.into(),
             block_daa_score: entry.block_daa_score,
             is_coinbase: entry.is_cellbase,
         }

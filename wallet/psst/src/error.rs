@@ -1,7 +1,5 @@
 //! Error types for the psst crate.
 
-use spora_txscript_errors::TxScriptError;
-
 use crate::input::InputBuilderError;
 
 #[derive(thiserror::Error, Debug)]
@@ -34,8 +32,6 @@ pub enum Error {
     TxToInnerConversionError(#[source] Box<Error>),
     #[error("Transaction input building error in conversion")]
     TxToInnerConversionInputBuildingError(#[source] InputBuilderError),
-    #[error("P2SH extraction error")]
-    P2SHExtractError(#[source] TxScriptError),
     #[error("PSSB hex serialization error: {0}")]
     PSSBSerializeToHexError(String),
     #[error("PSSB serialization requires 'PSSB' prefix")]

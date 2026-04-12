@@ -13,7 +13,7 @@ use spora_consensus_core::{
     mass::{ContextualMasses, NonContextualMasses},
     pruning::{PruningPointProof, PruningPointTrustedData, PruningPointsList},
     trusted::{ExternalGhostdagData, TrustedBlock},
-    tx::{CellEntry, CellTx, MutableTransaction, ResolvedCellTransaction, SignableTransaction, Transaction, TransactionOutpoint},
+    tx::{CellEntry, CellTx, MutableTransaction, ResolvedCellTransaction, SignableTransaction, TransactionOutpoint},
     // legacy transaction-output inquirer errors removed during Cell migration
     BlockHashSet,
     BlueWorkType,
@@ -386,10 +386,6 @@ impl ConsensusSessionOwned {
 
     pub async fn async_get_block_even_if_header_only(&self, hash: Hash) -> ConsensusResult<Block> {
         self.clone().spawn_blocking(move |c| c.get_block_even_if_header_only(hash)).await
-    }
-
-    pub async fn async_get_transaction(&self, hash: Hash) -> ConsensusResult<Transaction> {
-        self.clone().spawn_blocking(move |c| c.get_transaction(hash)).await
     }
 
     pub async fn async_get_cell_transaction(&self, hash: Hash) -> ConsensusResult<CellTx> {

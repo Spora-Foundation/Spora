@@ -1,8 +1,7 @@
 use spora_consensus_core::{
     coinbase::{CoinbaseData, CoinbaseTransactionTemplate, MinerData},
-    constants::{SAU_PER_SPORA, TX_VERSION},
-    subnets::SUBNETWORK_ID_COINBASE,
-    tx::{Transaction, TransactionOutput},
+    constants::SAU_PER_SPORA,
+    tx::{cell_out_from_legacy_script_public_key, CellTx, TransactionOutput},
 };
 
 const LENGTH_OF_BLUE_SCORE: usize = size_of::<u64>();
@@ -20,9 +19,11 @@ impl CoinbaseManagerMock {
         let output = TransactionOutput::new(SUBSIDY, miner_data.script_public_key.clone());
 
         let payload = self.serialize_coinbase_payload(&CoinbaseData { blue_score: 1, subsidy: SUBSIDY, miner_data });
+        let outputs = vec![cell_out_from_legacy_script_public_key(output.value, &output.script_public_key)];
+        let outputs_data = vec![payload];
 
         CoinbaseTransactionTemplate {
-            tx: Transaction::new(TX_VERSION, vec![], vec![output], 0, SUBNETWORK_ID_COINBASE, 0, payload),
+            tx: CellTx::new(vec![], vec![], outputs, outputs_data, vec![]).expect("mock coinbase must be a valid CellTx"),
             has_red_reward: false,
         }
     }

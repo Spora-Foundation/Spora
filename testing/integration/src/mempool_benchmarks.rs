@@ -14,14 +14,17 @@ use rand::thread_rng;
 use rand_distr::{Distribution, Exp};
 use spora_addresses::Address;
 use spora_consensus::params::Params;
-use spora_consensus_core::{constants::SAU_PER_SPORA, network::NetworkType, tx::Transaction};
+use spora_consensus_core::{
+    constants::SAU_PER_SPORA,
+    network::NetworkType,
+    tx::{pay_to_address_script, Transaction},
+};
 use spora_core::{debug, info};
 use spora_notify::{
     listener::ListenerId,
     scope::{NewBlockTemplateScope, Scope},
 };
 use spora_rpc_core::{api::rpc::RpcApi, Notification, RpcError};
-use spora_txscript::pay_to_address_script;
 use spora_utils::fd_budget;
 use sporad_lib::args::Args;
 use std::{
@@ -347,15 +350,8 @@ async fn bench_bbt_latency_2() {
         .launch()
         .await
         .task(
-            MinerGroupTask::build(
-                network,
-                client_manager.clone(),
-                SUBMIT_BLOCK_CLIENTS,
-                params.bps(),
-                BLOCK_COUNT,
-                Stopper::Signal,
-            )
-            .await,
+            MinerGroupTask::build(network, client_manager.clone(), SUBMIT_BLOCK_CLIENTS, params.bps(), BLOCK_COUNT, Stopper::Signal)
+                .await,
         )
         .task(
             TxSenderGroupTask::build(

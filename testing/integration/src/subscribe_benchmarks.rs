@@ -21,12 +21,14 @@ use rand::thread_rng;
 use spora_addresses::Address;
 use spora_alloc::init_allocator_with_default_settings;
 use spora_consensus::params::Params;
-use spora_consensus_core::network::{NetworkId, NetworkType};
+use spora_consensus_core::{
+    network::{NetworkId, NetworkType},
+    tx::pay_to_address_script,
+};
 use spora_core::{info, task::tick::TickService, trace};
 use spora_math::Uint256;
 use spora_notify::scope::VirtualDaaScoreChangedScope;
 use spora_rpc_core::api::rpc::RpcApi;
-use spora_txscript::pay_to_address_script;
 use std::{sync::Arc, time::Duration};
 
 // Constants
@@ -231,15 +233,8 @@ async fn cells_changed_subscriptions_client(address_cycle_seconds: u64, address_
         .task(TickTask::build(tick_service.clone()))
         .task(MemoryMonitorTask::build(tick_service.clone(), "client", Duration::from_secs(5), MAX_MEMORY))
         .task(
-            MinerGroupTask::build(
-                network,
-                client_manager.clone(),
-                SUBMIT_BLOCK_CLIENTS,
-                params.bps(),
-                BLOCK_COUNT,
-                Stopper::Signal,
-            )
-            .await,
+            MinerGroupTask::build(network, client_manager.clone(), SUBMIT_BLOCK_CLIENTS, params.bps(), BLOCK_COUNT, Stopper::Signal)
+                .await,
         )
         .task(
             TxSenderGroupTask::build(

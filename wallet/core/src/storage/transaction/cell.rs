@@ -15,8 +15,7 @@ pub struct CellRecord {
     pub address: Option<Address>,
     pub index: TransactionIndexType,
     pub amount: u64,
-    #[serde(rename = "scriptPubKey")]
-    pub script_public_key: ScriptPublicKey,
+    pub lock_hash: TransactionId,
     #[serde(rename = "isCoinbase")]
     pub is_coinbase: bool,
 }
@@ -28,7 +27,12 @@ impl From<&CellEntryReference> for CellRecord {
             index: cell.outpoint.get_index(),
             address: cell.address.clone(),
             amount: cell.amount,
-            script_public_key: cell.script_public_key.clone(),
+            lock_hash: cell
+                .cell
+                .embedded_cell_metadata()
+                .expect("transaction cell records require canonical Cell metadata")
+                .lock_hash
+                .into(),
             is_coinbase: cell.is_coinbase,
         }
     }

@@ -18,7 +18,7 @@ use crate::{
 };
 use itertools::Itertools;
 use spora_consensus_core::mass::MassCalculator;
-use spora_txscript::caches::TxScriptCacheCounters;
+use spora_consensus_core::tx::ScriptCacheCounters;
 use std::sync::{atomic::AtomicBool, Arc};
 
 pub type DbGhostdagManager =
@@ -74,7 +74,7 @@ impl ConsensusServices {
         db: Arc<DB>,
         storage: Arc<ConsensusStorage>,
         config: Arc<Config>,
-        _tx_script_cache_counters: Arc<TxScriptCacheCounters>,
+        _tx_script_cache_counters: Arc<ScriptCacheCounters>,
         is_consensus_exiting: Arc<AtomicBool>,
     ) -> Arc<Self> {
         let params = &config.params;

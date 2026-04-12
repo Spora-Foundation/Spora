@@ -8,13 +8,12 @@ use rand::thread_rng;
 use spora_addresses::Address;
 use spora_alloc::init_allocator_with_default_settings;
 use spora_consensus::params::SIMNET_PARAMS;
-use spora_consensus_core::header::Header;
+use spora_consensus_core::{header::Header, tx::pay_to_address_script};
 use spora_consensusmanager::ConsensusManager;
 use spora_core::{task::runtime::AsyncRuntime, trace};
 use spora_grpc_client::GrpcClient;
 use spora_notify::scope::{BlockAddedScope, CellsChangedScope, VirtualDaaScoreChangedScope};
 use spora_rpc_core::{api::rpc::RpcApi, Notification, RpcTransactionId};
-use spora_txscript::pay_to_address_script;
 use sporad_lib::args::Args;
 use std::{sync::Arc, time::Duration};
 

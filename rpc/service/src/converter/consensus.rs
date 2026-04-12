@@ -5,6 +5,7 @@ use spora_consensus_core::{
     blockstatus::BlockStatus,
     config::Config,
     header::Header,
+    mass::{project_cell_tx_mass_with_calculator, MassCalculator},
     tx::{CellRef, CellTx, MutableTransaction, TransactionId, TransactionOutpoint},
     ChainPath,
 };
@@ -31,6 +32,10 @@ impl ConsensusConverter {
         Self { consensus_manager, config }
     }
 
+    fn mass_calculator(&self) -> MassCalculator {
+        MassCalculator::new_with_consensus_params(&self.config.params)
+    }
+
     /// Returns the proof-of-work difficulty as a multiple of the minimum difficulty using
     /// the passed bits field from the header of a block.
     pub fn get_difficulty_ratio(&self, bits: u32) -> f64 {
@@ -47,22 +52,17 @@ impl ConsensusConverter {
         RpcTransactionInput::from_cell_ref(&CellRef::new(out_point, input.since), witness)
     }
 
-    fn rpc_subnetwork_id(&self, is_coinbase: bool) -> spora_rpc_core::RpcSubnetworkId {
-        if is_coinbase {
-            spora_rpc_core::RpcSubnetworkId::coinbase()
-        } else {
-            spora_rpc_core::RpcSubnetworkId::native()
-        }
-    }
-
-    pub fn get_cell_transaction(
+    fn build_rpc_transaction(
         &self,
-        _consensus: &ConsensusProxy,
         transaction: &CellTx,
         header: Option<&Header>,
         include_verbose_data: bool,
+        projected_mass: Option<(u64, u64)>,
     ) -> RpcTransaction {
         let txid: TransactionId = transaction.id().into();
+        let fallback_projection = project_cell_tx_mass_with_calculator(&self.mass_calculator(), transaction, None);
+        let (selection_mass, effective_compute_mass) =
+            projected_mass.unwrap_or((fallback_projection.selection_mass, fallback_projection.effective_compute_mass));
         RpcTransaction {
             version: transaction.ver,
             inputs: transaction
@@ -83,19 +83,35 @@ impl ConsensusConverter {
                     RpcTransactionOutput::from_cell_output(output, output_data)
                 })
                 .collect(),
-            lock_time: 0,
-            subnetwork_id: self.rpc_subnetwork_id(transaction.is_coinbase()),
-            gas: 0,
             payload: transaction.payload().map(ToOwned::to_owned).unwrap_or_default(),
-            mass: transaction.storage_mass(),
+            mass: selection_mass,
             verbose_data: include_verbose_data.then(|| RpcTransactionVerboseData {
                 transaction_id: txid,
                 hash: txid,
-                compute_mass: transaction.compute_mass(),
+                compute_mass: effective_compute_mass,
                 block_hash: header.map_or_else(RpcHash::default, |x| x.hash),
                 block_time: header.map_or(0, |x| x.timestamp),
             }),
         }
+    }
+
+    pub fn get_cell_transaction(
+        &self,
+        _consensus: &ConsensusProxy,
+        transaction: &CellTx,
+        header: Option<&Header>,
+        include_verbose_data: bool,
+    ) -> RpcTransaction {
+        self.build_rpc_transaction(transaction, header, include_verbose_data, None)
+    }
+
+    fn get_mempool_transaction(&self, transaction: &MutableTransaction) -> RpcTransaction {
+        self.build_rpc_transaction(
+            transaction.tx.as_ref(),
+            None,
+            true,
+            transaction.selection_mass().zip(transaction.effective_compute_mass()),
+        )
     }
 
     /// Converts a consensus [`Block`] into an [`RpcBlock`], optionally including transaction verbose data.
@@ -145,7 +161,11 @@ impl ConsensusConverter {
 
     pub fn get_mempool_entry(&self, consensus: &ConsensusProxy, transaction: &MutableTransaction) -> RpcMempoolEntry {
         let is_orphan = !transaction.is_fully_populated();
-        let rpc_transaction = self.get_cell_transaction(consensus, transaction.tx.as_ref(), None, true);
+        let rpc_transaction = if is_orphan {
+            self.get_cell_transaction(consensus, transaction.tx.as_ref(), None, true)
+        } else {
+            self.get_mempool_transaction(transaction)
+        };
         RpcMempoolEntry::new(transaction.calculated_fee.unwrap_or_default(), rpc_transaction, is_orphan)
     }
 

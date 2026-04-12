@@ -10,19 +10,16 @@ use crate::tx::PaymentOutputs;
 use futures::stream;
 use secp256k1::schnorr;
 use secp256k1::{Message, PublicKey};
+use spora_addresses::{Address, Prefix, Version as AddressVersion};
 use spora_bip32::{DerivationPath, KeyFingerprint, PrivateKey};
 use spora_consensus_client::{CellEntry as ClientCellEntry, CellEntryReference};
 use spora_consensus_core::hashing::sighash::{calc_schnorr_signature_hash, SigHashReusedValuesUnsync};
-use spora_consensus_core::tx::{cell_entry_legacy_script_public_key, legacy_compat_transaction_from_cell_tx, VerifiableTransaction};
-use spora_txscript::extract_script_pub_key_address;
-use spora_txscript::opcodes::codes::OpData65;
-use spora_txscript::script_builder::ScriptBuilder;
+use spora_consensus_core::tx::{push_data_script, ScriptRef, VerifiableTransaction};
 use spora_wallet_core::tx::{DataKind, Generator, GeneratorSettings, PaymentDestination, PendingTransaction};
 pub use spora_wallet_psst::bundle::Bundle;
 use spora_wallet_psst::bundle::{script_sig_to_address, unlock_cell_outputs_as_batch_transaction_pssb};
 use spora_wallet_psst::prelude::{lock_script_sig_templating_bytes, Finalizer, Inner, KeySource, SignInputOk, Signature, Signer};
 pub use spora_wallet_psst::psst::{Creator, PSST};
-use std::iter;
 
 struct PSSBSignerInner {
     keydata: PrvKeyData,
@@ -136,17 +133,15 @@ fn convert_pending_tx_to_psst(pending_tx: PendingTransaction) -> Result<PSST<Sig
     let signable_tx = pending_tx.signable_transaction();
     let verifiable_tx = signable_tx.as_verifiable();
     let cell_tx = pending_tx.transaction();
-    let legacy_tx = legacy_compat_transaction_from_cell_tx(&cell_tx);
-    let mut inputs_with_entries = Vec::with_capacity(legacy_tx.inputs.len());
-    for (index, input) in legacy_tx.inputs.iter().cloned().enumerate() {
-        let entry = verifiable_tx.cell_entry(index).cloned().ok_or_else(|| {
-            Error::Custom(format!(
-                "PSST conversion requires a legacy cell entry for input {index}; canonical metadata-only inputs are not supported"
-            ))
-        })?;
+    let mut inputs_with_entries = Vec::with_capacity(cell_tx.inputs.len());
+    for (index, input) in cell_tx.inputs.iter().cloned().enumerate() {
+        let entry = verifiable_tx
+            .cell_entry(index)
+            .cloned()
+            .ok_or_else(|| Error::Custom(format!("PSST conversion requires resolved Cell metadata for input {index}")))?;
         inputs_with_entries.push((input, entry));
     }
-    let psst_inner = Inner::try_from((legacy_tx, inputs_with_entries))?;
+    let psst_inner = Inner::try_from((cell_tx, inputs_with_entries))?;
     Ok(PSST::<Signer>::from(psst_inner))
 }
 
@@ -189,9 +184,7 @@ pub async fn pssb_signer_for_address(
                     .inputs
                     .iter()
                     .filter_map(|input| input.cell_entry.as_ref())
-                    .filter_map(|cell_entry| {
-                        extract_script_pub_key_address(&cell_entry_legacy_script_public_key(cell_entry), network_id.into()).ok()
-                    })
+                    .filter_map(|cell_entry| cell_entry.address.clone())
                     .collect()
             })
             .collect()
@@ -260,26 +253,21 @@ pub fn finalize_psst_one_or_more_sig_and_redeem_script(psst: PSST<Finalizer>) ->
         Ok(inner
             .inputs
             .iter()
-            .map(|input| -> Vec<u8> {
-                let signatures: Vec<_> = input
-                    .partial_sigs
-                    .clone()
-                    .into_iter()
-                    .flat_map(|(_, signature)| iter::once(OpData65).chain(signature.into_bytes()).chain([input.sighash_type.to_u8()]))
-                    .collect();
+            .map(|input| -> Result<Vec<u8>, String> {
+                let mut finalized = Vec::new();
+                for (_, signature) in input.partial_sigs.clone() {
+                    let mut signature_bytes = Vec::from(signature.into_bytes());
+                    signature_bytes.push(input.sighash_type.to_u8());
+                    finalized.extend(push_data_script(&signature_bytes).map_err(|e| e.to_string())?);
+                }
 
-                signatures
-                    .into_iter()
-                    .chain(
-                        input
-                            .redeem_script
-                            .as_ref()
-                            .map(|redeem_script| ScriptBuilder::new().add_data(redeem_script.as_slice()).unwrap().drain().to_vec())
-                            .unwrap_or_default(),
-                    )
-                    .collect()
+                if let Some(redeem_script) = input.redeem_script.as_ref() {
+                    finalized.extend(push_data_script(redeem_script.as_slice()).map_err(|e| e.to_string())?);
+                }
+
+                Ok(finalized)
             })
-            .collect())
+            .collect::<Result<Vec<_>, _>>()?)
     });
 
     match result {
@@ -293,14 +281,14 @@ pub fn finalize_psst_no_sig_and_redeem_script(psst: PSST<Finalizer>) -> Result<P
         Ok(inner
             .inputs
             .iter()
-            .map(|input| -> Vec<u8> {
+            .map(|input| -> Result<Vec<u8>, String> {
                 input
                     .redeem_script
                     .as_ref()
-                    .map(|redeem_script| ScriptBuilder::new().add_data(redeem_script.as_slice()).unwrap().drain().to_vec())
-                    .unwrap_or_default()
+                    .map(|redeem_script| push_data_script(redeem_script.as_slice()).map_err(|e| e.to_string()))
+                    .unwrap_or_else(|| Ok(Vec::new()))
             })
-            .collect())
+            .collect::<Result<Vec<_>, _>>()?)
     });
 
     match result {
@@ -331,11 +319,7 @@ pub fn psst_to_pending_transaction(
             input.cell_entry.as_ref().map(|ue| {
                 (
                     CellEntryReference {
-                        cell: Arc::new(ClientCellEntry::from_consensus_entry(
-                            Some(extract_script_pub_key_address(&cell_entry_legacy_script_public_key(ue), network_id.into()).unwrap()),
-                            input.previous_outpoint.into(),
-                            ue,
-                        )),
+                        cell: Arc::new(ClientCellEntry::from_consensus_entry(None, input.previous_outpoint.into(), ue)),
                     },
                     ue.amount(),
                 )
@@ -352,19 +336,18 @@ pub fn psst_to_pending_transaction(
         },
         Err(e) => return Err(Error::PendingTransactionFromPSSTError(e.to_string())),
     };
-    let signed_legacy_tx = legacy_compat_transaction_from_cell_tx(&signed_tx);
-    let outputs = &signed_legacy_tx.outputs;
-    if outputs.is_empty() {
+    if signed_tx.outputs.is_empty() {
         return Err(Error::Custom("0 outputs psst is not supported".to_string()));
         // todo support 0 outputs
     }
-    let recipient = extract_script_pub_key_address(&outputs[0].script_public_key, network_id.into())?;
+    let first_output = inner_psst.outputs.first().ok_or_else(|| Error::Custom("0 outputs psst is not supported".to_string()))?;
+    let recipient = address_from_lock_script(&first_output.lock_script, network_id.into())?;
     let fee_u: u64 = 0;
 
     let cell_iterator: Box<dyn Iterator<Item = CellEntryReference> + Send + Sync + 'static> =
         Box::new(cell_entries_ref.clone().into_iter());
 
-    let final_transaction_destination = PaymentDestination::PaymentOutputs(PaymentOutputs::from((recipient, outputs[0].value)));
+    let final_transaction_destination = PaymentDestination::PaymentOutputs(PaymentOutputs::from((recipient, first_output.capacity)));
 
     let settings = GeneratorSettings {
         network_id,
@@ -380,21 +363,21 @@ pub fn psst_to_pending_transaction(
         final_transaction_priority_fee: fee_u.into(),
         final_transaction_destination,
         final_transaction_payload: None,
-        final_transaction_lock_time: 0,
     };
 
     // Create the Generator
     let generator = Generator::try_new(settings, None, None)?;
 
-    let aggregate_output_value = outputs.iter().map(|output| output.value).sum::<u64>();
+    let aggregate_output_value = signed_tx.outputs.iter().map(|output| output.capacity).sum::<u64>();
 
-    let (change_output_index, change_output_value) = outputs
+    let (change_output_index, change_output_value) = signed_tx
+        .outputs
         .iter()
         .enumerate()
         .find_map(|(idx, output)| {
-            if let Ok(address) = extract_script_pub_key_address(&output.script_public_key, change_address.prefix) {
+            if let Ok(address) = address_from_lock_script(&output.lock, change_address.prefix) {
                 if address == change_address {
-                    Some((Some(idx), output.value))
+                    Some((Some(idx), output.capacity))
                 } else {
                     None
                 }
@@ -409,7 +392,7 @@ pub fn psst_to_pending_transaction(
     // todo where the source of mass and fees. why does it equal to zero?
     let pending_tx = PendingTransaction::try_new(
         &generator,
-        signed_tx,  // CellTx directly
+        signed_tx, // CellTx directly
         cell_entries_ref,
         addresses,
         Some(aggregate_output_value),
@@ -424,6 +407,16 @@ pub fn psst_to_pending_transaction(
     )?;
 
     Ok(pending_tx)
+}
+
+fn address_from_lock_script(lock_script: &ScriptRef, prefix: Prefix) -> Result<Address, Error> {
+    let script = lock_script.args.as_slice();
+    match script {
+        [0x20, payload @ .., 0xac] if payload.len() == 32 => Ok(Address::new(prefix, AddressVersion::PubKey, payload)?),
+        [0x21, payload @ .., 0xab] if payload.len() == 33 => Ok(Address::new(prefix, AddressVersion::PubKeyECDSA, payload)?),
+        [0xaa, 0x20, payload @ .., 0x87] if payload.len() == 32 => Ok(Address::new(prefix, AddressVersion::ScriptHash, payload)?),
+        _ => Err(Error::Custom("unsupported lock script for wallet address derivation".to_string())),
+    }
 }
 
 // Allow creation of atomic commit reveal operation with two
@@ -505,7 +498,6 @@ pub async fn commit_reveal_batch_bundle(
         fee_rate.or(Some(1.0)),
         0u64.into(),
         payload,
-        0, // final_transaction_lock_time
     )
     .map_err(|e| Error::PSSTGenerationError(e.to_string()))?;
 

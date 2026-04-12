@@ -23,7 +23,7 @@ use crate::{
     pruning::{PruningPointProof, PruningPointTrustedData, PruningPointsList, PruningProofMetadata},
     trusted::{ExternalGhostdagData, TrustedBlock},
     tx::{
-        CellEntry, CellTx, MutableTransaction, ResolvedCellTransaction, SignableTransaction, Transaction, TransactionOutpoint,
+        CellEntry, CellTx, MutableTransaction, ResolvedCellTransaction, SignableTransaction, TransactionOutpoint,
         VerifiableTransaction,
     },
     // legacy transaction-output inquirer errors removed during Cell migration
@@ -259,10 +259,6 @@ pub trait ConsensusApi: Send + Sync {
         unimplemented!()
     }
 
-    fn calc_transaction_hash_merkle_root(&self, txs: &[Transaction], pov_daa_score: u64) -> Hash {
-        unimplemented!()
-    }
-
     /// Calculates the block transaction merkle root directly from canonical `CellTx` values.
     fn calc_cell_tx_hash_merkle_root(&self, txs: &[CellTx], pov_daa_score: u64) -> Hash {
         unimplemented!()
@@ -347,10 +343,6 @@ pub trait ConsensusApi: Send + Sync {
     }
 
     fn get_block(&self, hash: Hash) -> ConsensusResult<Block> {
-        unimplemented!()
-    }
-
-    fn get_transaction(&self, hash: Hash) -> ConsensusResult<Transaction> {
         unimplemented!()
     }
 

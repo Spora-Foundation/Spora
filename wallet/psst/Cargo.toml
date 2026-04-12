@@ -23,11 +23,10 @@ spora-addresses.workspace = true
 spora-bip32.workspace = true
 spora-consensus-client.workspace = true
 spora-consensus-core.workspace = true
-spora-txscript-errors.workspace = true
-spora-txscript.workspace = true
 spora-utils.workspace = true
 
 bincode.workspace = true
+blake3.workspace = true
 derive_builder.workspace = true
 js-sys.workspace = true
 futures.workspace = true

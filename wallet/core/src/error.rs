@@ -130,6 +130,9 @@ pub enum Error {
     #[error(transparent)]
     Address(#[from] spora_addresses::AddressError),
 
+    #[error(transparent)]
+    StandardScript(#[from] spora_consensus_core::tx::StandardScriptError),
+
     #[error("Serde WASM bindgen -> {0}")]
     SerdeWasmBindgen(Sendable<Printable>),
 
@@ -147,9 +150,6 @@ pub enum Error {
 
     #[error(transparent)]
     FromUtf8Error(#[from] std::string::FromUtf8Error),
-
-    #[error(transparent)]
-    ScriptBuilderError(#[from] spora_txscript::script_builder::ScriptBuilderError),
 
     #[error("argon2 -> {0}")]
     Argon2(argon2::Error),
@@ -284,10 +284,7 @@ pub enum Error {
     InvalidRange(u64, u64),
 
     #[error(transparent)]
-    MultisigCreateError(#[from] spora_txscript::MultisigCreateError),
-
-    #[error(transparent)]
-    TxScriptError(#[from] spora_txscript_errors::TxScriptError),
+    MultisigRedeemScript(#[from] spora_consensus_core::tx::MultisigRedeemScriptError),
 
     #[error("Legacy account is not initialized")]
     LegacyAccountNotInitialized,

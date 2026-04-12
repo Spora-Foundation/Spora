@@ -20,10 +20,6 @@ pub struct Global {
     pub version: Version,
     /// The version number of the transaction being built.
     pub tx_version: u16,
-    #[builder(setter(strip_option))]
-    /// The transaction locktime to use if no inputs specify a required locktime.
-    pub fallback_lock_time: Option<u64>,
-
     pub inputs_modifiable: bool,
     pub outputs_modifiable: bool,
 
@@ -53,11 +49,6 @@ impl Add for Global {
         if self.tx_version != rhs.tx_version {
             return Err(CombineError::TxVersionMismatch { this: self.tx_version, that: rhs.tx_version });
         }
-        self.fallback_lock_time = match (self.fallback_lock_time, rhs.fallback_lock_time) {
-            (Some(lhs), Some(rhs)) if lhs != rhs => return Err(CombineError::LockTimeMismatch { this: lhs, that: rhs }),
-            (Some(v), _) | (_, Some(v)) => Some(v),
-            _ => None,
-        };
         // todo discussable, maybe throw error
         self.inputs_modifiable &= rhs.inputs_modifiable;
         self.outputs_modifiable &= rhs.outputs_modifiable;
@@ -132,7 +123,6 @@ impl Default for Global {
         Global {
             version: Version::Zero,
             tx_version: spora_consensus_core::constants::TX_VERSION,
-            fallback_lock_time: None,
             inputs_modifiable: false,
             outputs_modifiable: false,
             input_count: 0,
@@ -163,13 +153,6 @@ pub enum CombineError {
         this: u16,
         /// Into a psst with `that` tx version.
         that: u16,
-    },
-    #[error("The transaction lock times are not the same")]
-    LockTimeMismatch {
-        /// Attempted to combine a psst with `this` lock times.
-        this: u64,
-        /// Into a psst with `that` lock times.
-        that: u64,
     },
     #[error("The transaction ids are not the same")]
     TransactionIdMismatch {

@@ -12,40 +12,21 @@ use crate::mempool::{
 };
 use spora_consensus_core::{
     api::ConsensusApi,
-    tx::{legacy_compat_transaction_from_cell_tx, CellTx, MutableTransaction, TransactionId, TransactionOutpoint},
+    tx::{CellTx, MutableTransaction, TransactionId, TransactionOutpoint},
 };
 use spora_core::{debug, info};
 
-#[cfg(test)]
-use crate::cell_conversion::legacy_tx_to_cell_tx;
-#[cfg(test)]
-use spora_consensus_core::{constants::UNACCEPTED_DAA_SCORE, tx::Transaction};
-
 impl Mempool {
-    pub(crate) fn pre_validate_and_populate_transaction(
-        &self,
-        consensus: &dyn ConsensusApi,
-        mut transaction: MutableTransaction,
-        rbf_policy: RbfPolicy,
-    ) -> RuleResult<TransactionPreValidation> {
-        self.validate_transaction_unacceptance(&transaction)?;
-        // Populate mass and estimated_size in the beginning, it will be used in multiple places throughout the validation and insertion.
-        transaction.calculated_non_contextual_masses = Some(consensus.calculate_transaction_non_contextual_masses(transaction.tx.as_ref()));
-        self.validate_transaction_in_isolation(&transaction)?;
-        let feerate_threshold = self.get_replace_by_fee_constraint(&transaction, rbf_policy)?;
-        self.populate_mempool_entries(&mut transaction);
-        Ok(TransactionPreValidation { transaction, cell_tx: None, feerate_threshold })
-    }
-
     pub(crate) fn pre_validate_and_populate_cell_transaction(
         &self,
         consensus: &dyn ConsensusApi,
         cell_tx: CellTx,
         rbf_policy: RbfPolicy,
     ) -> RuleResult<TransactionPreValidation> {
-        let mut transaction = MutableTransaction::from_tx(legacy_compat_transaction_from_cell_tx(&cell_tx));
+        let mut transaction = MutableTransaction::from_cell_tx(cell_tx.clone());
         self.validate_transaction_unacceptance(&transaction)?;
-        transaction.calculated_non_contextual_masses = Some(consensus.calculate_transaction_non_contextual_masses(transaction.tx.as_ref()));
+        transaction.calculated_non_contextual_masses =
+            Some(consensus.calculate_transaction_non_contextual_masses(transaction.tx.as_ref()));
         self.validate_transaction_in_isolation(&transaction)?;
         let feerate_threshold = self.get_replace_by_fee_constraint(&transaction, rbf_policy)?;
         self.populate_mempool_entries(&mut transaction);
@@ -83,7 +64,9 @@ impl Mempool {
                 }
                 let _ = self.get_replace_by_fee_constraint(&transaction, rbf_policy)?;
                 let mempool_tx = match cell_tx.clone() {
-                    Some(cell_tx) => MempoolTransaction::new_with_cell_tx(transaction, cell_tx, priority, consensus.get_virtual_daa_score()),
+                    Some(cell_tx) => {
+                        MempoolTransaction::new_with_cell_tx(transaction, cell_tx, priority, consensus.get_virtual_daa_score())
+                    }
                     None => MempoolTransaction::new(transaction, priority, consensus.get_virtual_daa_score()),
                 };
                 self.orphan_pool.try_add_mempool_transaction_orphan(mempool_tx)?;
@@ -184,32 +167,6 @@ impl Mempool {
             self.check_transaction_standard_in_context(transaction)?;
         }
         Ok(())
-    }
-
-    #[cfg(test)]
-    pub(crate) fn get_legacy_transaction_by_transaction_id(&self, transaction_id: &TransactionId) -> Option<Transaction> {
-        self.transaction_pool.get(transaction_id).or_else(|| self.orphan_pool.get(transaction_id)).map(|tx| {
-            legacy_compat_transaction_from_cell_tx(tx.mtx.tx.as_ref())
-        })
-    }
-
-    /// Returns a list with all successfully unorphaned transactions after some
-    /// transaction has been accepted.
-    #[cfg(test)]
-    pub(crate) fn get_unorphaned_transactions_after_accepted_transaction(
-        &mut self,
-        transaction: &Transaction,
-    ) -> Vec<MempoolTransaction> {
-        legacy_tx_to_cell_tx(transaction)
-            .ok()
-            .map(|cell_tx| {
-                self.get_unorphaned_transactions_after_accepted_cell_transaction(
-                    &cell_tx,
-                    Some(transaction.id()),
-                    UNACCEPTED_DAA_SCORE,
-                )
-            })
-            .unwrap_or_default()
     }
 
     pub(crate) fn get_unorphaned_transactions_after_accepted_cell_transaction(

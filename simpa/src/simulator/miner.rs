@@ -14,12 +14,12 @@ use spora_consensus_core::tx::{
     legacy_sequence_to_cell_since, CellEntry, CellOut, CellRef, CellTx, MutableTransaction, OutPoint, ScriptPublicKey, ScriptRef,
     ScriptVec, TransactionOutpoint,
 };
+use spora_core::trace;
 use spora_hashes::Hash;
+use spora_utils::sim::{Environment, Process, Resumption, Suspension};
 use std::cmp::max;
 use std::iter::once;
 use std::sync::Arc;
-use spora_core::trace;
-use spora_utils::sim::{Environment, Process, Resumption, Suspension};
 
 pub struct Miner {
     // ID

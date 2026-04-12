@@ -327,7 +327,6 @@ pub trait Account: AnySync + Send + Sync + 'static {
             fee_rate,
             Fees::None,
             None,
-            0, // final_transaction_lock_time
         )?;
 
         let generator = Generator::try_new(settings, Some(signer), Some(abortable))?;
@@ -364,7 +363,7 @@ pub trait Account: AnySync + Send + Sync + 'static {
         let signer = Arc::new(Signer::new(self.clone().as_dyn_arc(), keydata, payment_secret));
 
         let settings =
-            GeneratorSettings::try_new_with_account(self.clone().as_dyn_arc(), destination, fee_rate, _priority_fee_sau, payload, 0)?;
+            GeneratorSettings::try_new_with_account(self.clone().as_dyn_arc(), destination, fee_rate, _priority_fee_sau, payload)?;
 
         let generator = Generator::try_new(settings, Some(signer), Some(abortable))?;
 
@@ -446,7 +445,7 @@ pub trait Account: AnySync + Send + Sync + 'static {
         abortable: &Abortable,
     ) -> Result<Bundle, Error> {
         let settings =
-            GeneratorSettings::try_new_with_account(self.clone().as_dyn_arc(), destination, fee_rate, _priority_fee_sau, payload, 0)?;
+            GeneratorSettings::try_new_with_account(self.clone().as_dyn_arc(), destination, fee_rate, _priority_fee_sau, payload)?;
         let keydata = self.prv_key_data(wallet_secret).await?;
         let signer = Arc::new(PSSBSigner::new(self.clone().as_dyn_arc(), keydata, payment_secret));
         let generator = Generator::try_new(settings, None, Some(abortable))?;
@@ -460,9 +459,13 @@ pub trait Account: AnySync + Send + Sync + 'static {
         Ok(cells
             .into_iter()
             .map(|cell| {
-                spora_consensus_core::tx::cell_meta_from_legacy_output(
-                    cell.amount,
-                    &cell.script_public_key,
+                let metadata = cell.embedded_cell_metadata().expect("wallet cells must carry canonical Cell metadata");
+                CellEntry::from_cell_metadata(
+                    cell.capacity(),
+                    metadata.data_bytes,
+                    metadata.lock_hash,
+                    metadata.type_hash,
+                    metadata.data_hash,
                     cell.block_daa_score,
                     cell.is_coinbase,
                 )
@@ -533,7 +536,6 @@ pub trait Account: AnySync + Send + Sync + 'static {
             fee_rate,
             _priority_fee_sau,
             final_transaction_payload,
-            0, // final_transaction_lock_time
         )?
         .cell_context_transfer(destination_account.cell_context());
 
@@ -562,8 +564,7 @@ pub trait Account: AnySync + Send + Sync + 'static {
         payload: Option<Vec<u8>>,
         abortable: &Abortable,
     ) -> Result<GeneratorSummary> {
-        let settings =
-            GeneratorSettings::try_new_with_account(self.as_dyn_arc(), destination, fee_rate, _priority_fee_sau, payload, 0)?;
+        let settings = GeneratorSettings::try_new_with_account(self.as_dyn_arc(), destination, fee_rate, _priority_fee_sau, payload)?;
 
         let generator = Generator::try_new(settings, None, Some(abortable))?;
 
@@ -745,7 +746,6 @@ pub trait DerivationCapableAccount: Account {
                         fee_rate,
                         Fees::None,
                         None,
-                        0, // final_transaction_lock_time
                         None,
                     )?;
 

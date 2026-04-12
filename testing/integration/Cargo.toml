@@ -33,7 +33,6 @@ spora-notify.workspace = true
 spora-pow.workspace = true
 spora-rpc-core.workspace = true
 spora-rpc-service.workspace = true
-spora-txscript.workspace = true
 spora-utils.workspace = true
 spora-wrpc-server.workspace = true
 sporad.workspace = true
@@ -69,7 +68,6 @@ workflow-perf-monitor.workspace = true
 criterion.workspace = true
 rand = { workspace = true, features = ["small_rng"] }
 tokio = { workspace = true, features = ["rt", "macros", "process"] }
-spora-txscript-errors.workspace = true
 
 [features]
 heap = ["dhat"]

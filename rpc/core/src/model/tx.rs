@@ -9,7 +9,7 @@ use spora_consensus_core::tx::{
 use spora_utils::{hex::ToHex, serde_bytes_fixed_ref};
 use workflow_serializer::prelude::*;
 
-use crate::prelude::{RpcHash, RpcScriptClass, RpcSubnetworkId};
+use crate::prelude::{RpcHash, RpcScriptClass};
 
 mod option_hex_serde {
     use serde::{Deserialize, Deserializer, Serializer};
@@ -444,11 +444,9 @@ pub struct RpcTransaction {
     pub version: u16,
     pub inputs: Vec<RpcTransactionInput>,
     pub outputs: Vec<RpcTransactionOutput>,
-    pub lock_time: u64,
-    pub subnetwork_id: RpcSubnetworkId,
-    pub gas: u64,
     #[serde(with = "hex::serde")]
     pub payload: Vec<u8>,
+    /// Best-available one-dimensional selection mass used for feerate and template ranking.
     pub mass: u64,
     pub verbose_data: Option<RpcTransactionVerboseData>,
 }
@@ -457,9 +455,6 @@ impl std::fmt::Debug for RpcTransaction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RpcTransaction")
             .field("version", &self.version)
-            .field("lock_time", &self.lock_time)
-            .field("subnetwork_id", &self.subnetwork_id)
-            .field("gas", &self.gas)
             .field("payload", &self.payload.to_hex())
             .field("mass", &self.mass)
             .field("inputs", &self.inputs) // Inputs and outputs are placed purposely at the end for better debug visibility 
@@ -471,13 +466,10 @@ impl std::fmt::Debug for RpcTransaction {
 
 impl Serializer for RpcTransaction {
     fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
-        store!(u16, &1, writer)?;
+        store!(u16, &2, writer)?;
         store!(u16, &self.version, writer)?;
         serialize!(Vec<RpcTransactionInput>, &self.inputs, writer)?;
         serialize!(Vec<RpcTransactionOutput>, &self.outputs, writer)?;
-        store!(u64, &self.lock_time, writer)?;
-        store!(RpcSubnetworkId, &self.subnetwork_id, writer)?;
-        store!(u64, &self.gas, writer)?;
         store!(Vec<u8>, &self.payload, writer)?;
         store!(u64, &self.mass, writer)?;
         serialize!(Option<RpcTransactionVerboseData>, &self.verbose_data, writer)?;
@@ -488,18 +480,21 @@ impl Serializer for RpcTransaction {
 
 impl Deserializer for RpcTransaction {
     fn deserialize<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
-        let _struct_version = load!(u16, reader)?;
+        let struct_version = load!(u16, reader)?;
         let version = load!(u16, reader)?;
         let inputs = deserialize!(Vec<RpcTransactionInput>, reader)?;
         let outputs = deserialize!(Vec<RpcTransactionOutput>, reader)?;
-        let lock_time = load!(u64, reader)?;
-        let subnetwork_id = load!(RpcSubnetworkId, reader)?;
-        let gas = load!(u64, reader)?;
+        if struct_version != 2 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("unsupported RpcTransaction serialization version: {struct_version}"),
+            ));
+        }
         let payload = load!(Vec<u8>, reader)?;
         let mass = load!(u64, reader)?;
         let verbose_data = deserialize!(Option<RpcTransactionVerboseData>, reader)?;
 
-        Ok(Self { version, inputs, outputs, lock_time, subnetwork_id, gas, payload, mass, verbose_data })
+        Ok(Self { version, inputs, outputs, payload, mass, verbose_data })
     }
 }
 
@@ -509,6 +504,7 @@ impl Deserializer for RpcTransaction {
 pub struct RpcTransactionVerboseData {
     pub transaction_id: RpcTransactionId,
     pub hash: RpcHash,
+    /// Effective compute-side mass after applying the VM-cycles projection when available.
     pub compute_mass: u64,
     pub block_hash: RpcHash,
     pub block_time: u64,

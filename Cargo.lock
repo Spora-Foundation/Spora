@@ -552,17 +552,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "blake2b_simd"
-version = "1.0.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "06e903a20b159e944f91ec8499fe1e55651480c541ea0a584f5d967c49ad9d99"
-dependencies = [
- "arrayref",
- "arrayvec",
- "constant_time_eq",
-]
-
-[[package]]
 name = "blake3"
 version = "1.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5115,8 +5104,6 @@ dependencies = [
  "spora-notify",
  "spora-pow",
  "spora-state",
- "spora-txscript",
- "spora-txscript-errors",
  "spora-utils",
  "thiserror 1.0.69",
  "time",
@@ -5128,6 +5115,7 @@ name = "spora-consensus-client"
 version = "1.21.0"
 dependencies = [
  "ahash",
+ "blake3",
  "cfg-if 1.0.3",
  "faster-hex",
  "hex",
@@ -5140,9 +5128,9 @@ dependencies = [
  "serde_json",
  "spora-addresses",
  "spora-consensus-core",
+ "spora-exec",
  "spora-hashes",
  "spora-math",
- "spora-txscript",
  "spora-utils",
  "spora-wasm-core",
  "thiserror 1.0.69",
@@ -5185,7 +5173,6 @@ dependencies = [
  "spora-merkle",
  "spora-muhash",
  "spora-state",
- "spora-txscript-errors",
  "spora-utils",
  "thiserror 1.0.69",
  "wasm-bindgen",
@@ -5232,7 +5219,6 @@ dependencies = [
  "spora-consensus-client",
  "spora-consensus-core",
  "spora-hashes",
- "spora-txscript",
  "spora-utils",
  "thiserror 1.0.69",
  "wasm-bindgen",
@@ -5588,7 +5574,6 @@ dependencies = [
  "spora-mempool",
  "spora-mining-errors",
  "spora-muhash",
- "spora-txscript",
  "spora-utils",
  "sweep-bptree",
  "thiserror 1.0.69",
@@ -5641,8 +5626,6 @@ dependencies = [
  "spora-core",
  "spora-hashes",
  "spora-math",
- "spora-txscript",
- "spora-txscript-errors",
  "spora-utils",
  "thiserror 1.0.69",
  "tokio",
@@ -5799,7 +5782,6 @@ dependencies = [
  "spora-mining-errors",
  "spora-notify",
  "spora-rpc-macros",
- "spora-txscript",
  "spora-utils",
  "thiserror 1.0.69",
  "uuid 1.18.1",
@@ -5846,7 +5828,6 @@ dependencies = [
  "spora-perf-monitor",
  "spora-rpc-core",
  "spora-state",
- "spora-txscript",
  "spora-utils",
  "spora-utils-tower",
  "tokio",
@@ -5932,8 +5913,6 @@ dependencies = [
  "spora-pow",
  "spora-rpc-core",
  "spora-rpc-service",
- "spora-txscript",
- "spora-txscript-errors",
  "spora-utils",
  "spora-wrpc-server",
  "sporad",
@@ -5941,48 +5920,6 @@ dependencies = [
  "thiserror 1.0.69",
  "tokio",
  "workflow-perf-monitor",
-]
-
-[[package]]
-name = "spora-txscript"
-version = "1.21.0"
-dependencies = [
- "blake2b_simd",
- "blake3",
- "borsh",
- "cfg-if 1.0.3",
- "chrono",
- "criterion",
- "hex",
- "hexplay",
- "indexmap 2.11.4",
- "itertools 0.13.0",
- "log",
- "parking_lot",
- "rand 0.8.5",
- "secp256k1",
- "serde",
- "serde-wasm-bindgen",
- "serde_json",
- "sha2",
- "smallvec",
- "spora-addresses",
- "spora-consensus-core",
- "spora-hashes",
- "spora-txscript-errors",
- "spora-utils",
- "spora-wasm-core",
- "thiserror 1.0.69",
- "wasm-bindgen",
- "workflow-wasm",
-]
-
-[[package]]
-name = "spora-txscript-errors"
-version = "1.21.0"
-dependencies = [
- "secp256k1",
- "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -6119,12 +6056,11 @@ dependencies = [
  "spora-consensus-core",
  "spora-consensus-wasm",
  "spora-core",
+ "spora-exec",
  "spora-hashes",
  "spora-metrics-core",
  "spora-notify",
  "spora-rpc-core",
- "spora-txscript",
- "spora-txscript-errors",
  "spora-utils",
  "spora-wallet-keys",
  "spora-wallet-macros",
@@ -6168,8 +6104,6 @@ dependencies = [
  "spora-addresses",
  "spora-bip32",
  "spora-consensus-core",
- "spora-txscript",
- "spora-txscript-errors",
  "spora-utils",
  "spora-wasm-core",
  "thiserror 1.0.69",
@@ -6199,6 +6133,7 @@ name = "spora-wallet-psst"
 version = "1.21.0"
 dependencies = [
  "bincode",
+ "blake3",
  "console_log",
  "derive_builder",
  "futures",
@@ -6215,8 +6150,6 @@ dependencies = [
  "spora-bip32",
  "spora-consensus-client",
  "spora-consensus-core",
- "spora-txscript",
- "spora-txscript-errors",
  "spora-utils",
  "thiserror 1.0.69",
  "wasm-bindgen",
@@ -6239,7 +6172,6 @@ dependencies = [
  "spora-math",
  "spora-pow",
  "spora-rpc-core",
- "spora-txscript",
  "spora-utils",
  "spora-wallet-core",
  "spora-wallet-keys",
@@ -6440,7 +6372,6 @@ dependencies = [
  "spora-perf-monitor",
  "spora-rpc-core",
  "spora-rpc-service",
- "spora-txscript",
  "spora-utils",
  "spora-utils-tower",
  "spora-wrpc-server",
@@ -7050,7 +6981,6 @@ name = "treasure_boy"
 version = "1.21.0"
 dependencies = [
  "async-channel 2.5.0",
- "blake3",
  "clap 4.5.49",
  "criterion",
  "faster-hex",
@@ -7068,7 +6998,6 @@ dependencies = [
  "spora-grpc-client",
  "spora-notify",
  "spora-rpc-core",
- "spora-txscript",
  "spora-utils",
  "tempfile",
  "thiserror 1.0.69",

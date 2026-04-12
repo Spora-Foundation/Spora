@@ -275,6 +275,7 @@ RPC/service 一侧确实仍有 lower-bound / workaround 风格逻辑。
 - 迁移并清理已失效的 txscript 时间锁 opcode / helper 路径（CLTV / CSV）
 - 把 wallet / SDK / 工具层从 `lock_time` helper 切到 `ScriptRef + CKB-VM` 方案
 - 让文档、公开 API、示例脚本都和 CKB 风格脚本面保持一致
+- 最终删除 `spora-txscript` 作为生产依赖
 
 完成标准：
 
@@ -284,6 +285,17 @@ RPC/service 一侧确实仍有 lower-bound / workaround 风格逻辑。
 - wallet / SDK / `treasure_boy` 不再调用 legacy 时间锁构造器
 - 对应示例、测试和迁移说明同步更新
 - 至少有一条面向上层使用者的标准路径明确落在 `ScriptRef + CKB-VM`，而不是继续依赖 txscript builder
+- `wallet/core`、`wallet/psst`、`consensus/client`、`mining`、`treasure_boy` 不再把 `spora-txscript` 当作生产依赖
+- `spora-txscript` crate 从 workspace 与源码树删除，不再参与生产或测试构建
+
+当前状态（2026-04-12）：
+
+- `spora-txscript` 已从 workspace、`Cargo.lock` 与源码树删除
+- `wallet/core`、`wallet/psst`、`consensus/client`、`mining`、`treasure_boy` 已切掉对 `spora-txscript` 的直接生产依赖
+- `wallet/psst` 已移除 `TxScriptEngine`
+- `mining` / `consensus` 已移除 txscript cache counters 依赖
+- `treasure_boy` 已删除 legacy TLC/HTLC CLI、库函数和示例，不再保留“公开但必然失败”的时间锁入口
+- 剩余工作主要是继续清理仓库级公开示例、注释和迁移文档，使“ScriptRef + CKB-VM”成为唯一推荐路径
 
 ### 任务 C: 钱包 SDK 收口
 

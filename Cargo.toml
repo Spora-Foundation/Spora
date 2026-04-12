@@ -54,8 +54,6 @@ members = [
     "components/connectionmanager",
     "components/consensusmanager",
     "database",
-    "crypto/txscript",
-    "crypto/txscript/errors",
     "testing/integration",
     "utils",
     "utils/tower",
@@ -127,8 +125,6 @@ spora-rpc-core = { version = "1.21.0", path = "rpc/core" }
 spora-rpc-macros = { version = "1.21.0", path = "rpc/macros" }
 spora-rpc-service = { version = "1.21.0", path = "rpc/service" }
 spora-state = { version = "1.21.0", path = "state" }
-spora-txscript = { version = "1.21.0", path = "crypto/txscript" }
-spora-txscript-errors = { version = "1.21.0", path = "crypto/txscript/errors" }
 spora-utils = { version = "1.21.0", path = "utils" }
 spora-utils-tower = { version = "1.21.0", path = "utils/tower" }
 spora-wallet = { version = "1.21.0", path = "wallet/native" }

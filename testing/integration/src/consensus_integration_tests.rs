@@ -16,13 +16,12 @@ use spora_consensus::model::stores::headers::HeaderStoreReader;
 use spora_consensus::model::stores::reachability::DbReachabilityStore;
 use spora_consensus::model::stores::relations::DbRelationsStore;
 use spora_consensus::model::stores::selected_chain::SelectedChainStoreReader;
-use spora_consensus::params::{
-    Params, DEVNET_PARAMS, MAINNET_PARAMS, MAX_DIFFICULTY_TARGET, MAX_DIFFICULTY_TARGET_AS_F64,
-};
+use spora_consensus::params::{Params, DEVNET_PARAMS, MAINNET_PARAMS, MAX_DIFFICULTY_TARGET, MAX_DIFFICULTY_TARGET_AS_F64};
 use spora_consensus::pipeline::monitor::ConsensusMonitor;
 use spora_consensus::pipeline::ProcessingCounters;
 use spora_consensus::processes::reachability::tests::{DagBlock, DagBuilder, StoreValidationExtensions};
 use spora_consensus::processes::window::{WindowManager, WindowType};
+use spora_consensus_client::{Transaction, TransactionInput, TransactionOutput};
 use spora_consensus_core::api::args::TransactionValidationArgs;
 use spora_consensus_core::api::{BlockValidationFutures, ConsensusApi};
 use spora_consensus_core::block::Block;
@@ -37,7 +36,8 @@ use spora_consensus_core::network::{NetworkId, NetworkType::Mainnet};
 use spora_consensus_core::subnets::SubnetworkId;
 use spora_consensus_core::trusted::{ExternalGhostdagData, TrustedBlock};
 use spora_consensus_core::tx::{
-    CellEntry, MutableTransaction, ScriptPublicKey, Transaction, TransactionInput, TransactionOutpoint, TransactionOutput,
+    outpoint_from_id, pay_to_script_hash_script, push_data_script, CellEntry, CellOut, CellRef, CellTx, MutableTransaction,
+    ScriptCacheCounters, ScriptPublicKey, ScriptRef, TransactionOutpoint,
 };
 use spora_consensus_core::{blockhash, hashing, BlockHashMap, BlueWorkType};
 use spora_consensus_notify::root::ConsensusNotificationRoot;
@@ -70,9 +70,6 @@ use spora_index_processor::service::IndexService;
 use spora_math::Uint256;
 use spora_muhash::MuHash;
 use spora_notify::subscription::context::SubscriptionContext;
-use spora_txscript::caches::TxScriptCacheCounters;
-use spora_txscript::opcodes::codes::OpTrue;
-use spora_txscript::script_builder::ScriptBuilderResult;
 use std::cmp::{max, Ordering};
 use std::collections::HashSet;
 use std::path::Path;
@@ -103,6 +100,21 @@ impl From<&JsonBlock> for DagBlock {
 
 // Test configuration
 const NUM_BLOCKS_EXPONENT: i32 = 12;
+const OP_FALSE: u8 = 0x00;
+const OP_TRUE: u8 = 0x51;
+const OP_IF: u8 = 0x63;
+const OP_ELSE: u8 = 0x67;
+const OP_ENDIF: u8 = 0x68;
+const OP_CHECKSIG: u8 = 0xac;
+const OP_TX_INPUT_SPK: u8 = 0xbf;
+
+fn push_only_signature_script(parts: &[&[u8]]) -> Vec<u8> {
+    let mut script = Vec::new();
+    for part in parts {
+        script.extend(push_data_script(part).expect("test witness/signature script push must be canonical"));
+    }
+    script
+}
 
 fn reachability_stretch_test(use_attack_json: bool) {
     // Arrange
@@ -457,8 +469,7 @@ async fn header_in_isolation_validation_test() {
     {
         let mut block = block.clone();
         block.header.hash = 4.into();
-        block.header.parents_by_level[0] =
-            std::iter::repeat_n(config.genesis.hash, config.max_block_parents as usize + 1).collect();
+        block.header.parents_by_level[0] = std::iter::repeat_n(config.genesis.hash, config.max_block_parents as usize + 1).collect();
         match consensus.validate_and_insert_block(block.to_immutable()).virtual_state_task.await {
             Err(RuleError::TooManyParents(num_parents, limit)) => {
                 assert_eq!((config.max_block_parents + 1) as usize, num_parents);
@@ -561,26 +572,23 @@ async fn median_time_test() {
         config: Config,
     }
 
-    let tests = vec![
-        Test {
-            name: "MAINNET with sampled window",
-            config: ConfigBuilder::new(MAINNET_PARAMS)
-                .skip_proof_of_work()
-                .edit_consensus_params(|p| {
-                    p.timestamp_deviation_tolerance = 120;
-                    p.past_median_time_sample_rate = 3;
-                    p.past_median_time_sampled_window_size = (2 * 120 - 1) / 3;
-                })
-                .build(),
-        },
-    ];
+    let tests = vec![Test {
+        name: "MAINNET with sampled window",
+        config: ConfigBuilder::new(MAINNET_PARAMS)
+            .skip_proof_of_work()
+            .edit_consensus_params(|p| {
+                p.timestamp_deviation_tolerance = 120;
+                p.past_median_time_sample_rate = 3;
+                p.past_median_time_sampled_window_size = (2 * 120 - 1) / 3;
+            })
+            .build(),
+    }];
 
     for test in tests {
         let consensus = TestConsensus::new(&test.config);
         let wait_handles = consensus.init();
 
-        let num_blocks =
-            test.config.past_median_time_window_size() as u64 * test.config.past_median_time_sample_rate();
+        let num_blocks = test.config.past_median_time_window_size() as u64 * test.config.past_median_time_sample_rate();
         let timestamp_deviation_tolerance = test.config.timestamp_deviation_tolerance;
         for i in 1..(num_blocks + 1) {
             let parent = if i == 1 { test.config.genesis.hash } else { (i - 1).into() };
@@ -713,6 +721,7 @@ struct RPCBlockHeader {
     HashMerkleRoot: String,
     AcceptedIDMerkleRoot: String,
     CellCommitment: String,
+    CellRoot: String,
     Timestamp: u64,
     Bits: u32,
     Nonce: u64,
@@ -1124,7 +1133,7 @@ fn rpc_header_to_header(rpc_header: &RPCBlockHeader) -> Header {
         Hash::from_str(&rpc_header.HashMerkleRoot).unwrap(),
         Hash::from_str(&rpc_header.AcceptedIDMerkleRoot).unwrap(),
         Hash::from_str(&rpc_header.CellCommitment).unwrap(),
-        Hash::from_str("0000000000000000000000000000000000000000000000000000000000000000").unwrap(), // cell_root (legacy data)
+        Hash::from_str(&rpc_header.CellRoot).unwrap(),
         rpc_header.Timestamp,
         rpc_header.Bits,
         rpc_header.Nonce,
@@ -1207,35 +1216,41 @@ fn rpc_block_to_block(rpc_block: RPCBlock) -> Block {
             .Transactions
             .iter()
             .map(|tx| {
-                Transaction::new(
-                    tx.Version,
-                    tx.Inputs
-                        .iter()
-                        .map(|input| TransactionInput {
-                            previous_outpoint: TransactionOutpoint {
-                                transaction_id: Hash::from_str(&input.PreviousOutpoint.TransactionID).unwrap(),
-                                index: input.PreviousOutpoint.Index,
-                            },
-                            signature_script: hex_decode(&input.SignatureScript),
-                            sequence: input.Sequence,
-                            sig_op_count: input.SigOpCount,
-                        })
-                        .collect(),
-                    tx.Outputs
-                        .iter()
-                        .map(|output| TransactionOutput {
-                            value: output.Amount,
-                            script_public_key: ScriptPublicKey::from_vec(
-                                output.ScriptPublicKey.Version,
-                                hex_decode(&output.ScriptPublicKey.Script),
-                            ),
-                        })
-                        .collect(),
-                    tx.LockTime,
-                    SubnetworkId::from_str(&tx.SubnetworkID).unwrap(),
-                    tx.Gas,
-                    hex_decode(&tx.Payload),
-                )
+                // Convert RPC transaction to CellTx
+                let inputs: Vec<CellRef> = tx
+                    .Inputs
+                    .iter()
+                    .map(|input| {
+                        let outpoint = TransactionOutpoint {
+                            tx_hash: Hash::from_str(&input.PreviousOutpoint.TransactionID).unwrap().as_bytes(),
+                            index: input.PreviousOutpoint.Index,
+                        };
+                        CellRef::new(outpoint, input.Sequence)
+                    })
+                    .collect();
+                let outputs: Vec<CellOut> = tx
+                    .Outputs
+                    .iter()
+                    .map(|output| {
+                        // Convert ScriptPublicKey to ScriptRef
+                        let script_bytes = hex_decode(&output.ScriptPublicKey.Script);
+                        let code_hash = if script_bytes.len() >= 32 {
+                            let mut hash = [0u8; 32];
+                            hash.copy_from_slice(&script_bytes[..32]);
+                            hash
+                        } else {
+                            [0u8; 32]
+                        };
+                        CellOut {
+                            capacity: output.Amount,
+                            lock: ScriptRef::new(code_hash, output.ScriptPublicKey.Version, vec![]),
+                            type_: None,
+                        }
+                    })
+                    .collect();
+                let outputs_data: Vec<Vec<u8>> = outputs.iter().map(|_| vec![]).collect();
+                let witnesses: Vec<Vec<u8>> = tx.Inputs.iter().map(|input| hex_decode(&input.SignatureScript)).collect();
+                CellTx::new(inputs, vec![], outputs, outputs_data, witnesses).expect("valid CellTx from RPC")
             })
             .collect(),
     )
@@ -1261,10 +1276,7 @@ async fn bounded_merge_depth_test() {
         })
         .build();
 
-    assert!(
-        (config.ghostdag_k() as u64) < config.merge_depth,
-        "K must be smaller than merge depth for this test to run"
-    );
+    assert!((config.ghostdag_k() as u64) < config.merge_depth, "K must be smaller than merge depth for this test to run");
 
     let consensus = TestConsensus::new(&config);
     let wait_handles = consensus.init();
@@ -1362,8 +1374,7 @@ async fn difficulty_test() {
     }
 
     fn full_window_bits(consensus: &TestConsensus, hash: Hash) -> u32 {
-        let window_size =
-            consensus.params().difficulty_window_size() * consensus.params().difficulty_sample_rate() as usize;
+        let window_size = consensus.params().difficulty_window_size() * consensus.params().difficulty_sample_rate() as usize;
         let ghostdag_data = &consensus.ghostdag_store().get_data(hash).unwrap();
         let window = consensus.window_manager().block_window(ghostdag_data, WindowType::VaryingWindow(window_size)).unwrap();
         assert_eq!(window.blocks.len(), window_size);
@@ -1719,7 +1730,7 @@ async fn staging_consensus_test() {
     let (notification_send, _notification_recv) = unbounded();
     let notification_root = Arc::new(ConsensusNotificationRoot::new(notification_send));
     let counters = Arc::new(ProcessingCounters::default());
-    let tx_script_cache_counters = Arc::new(TxScriptCacheCounters::default());
+    let tx_script_cache_counters = Arc::new(ScriptCacheCounters::default());
 
     let consensus_factory = Arc::new(ConsensusFactory::new(
         meta_db,
@@ -1752,9 +1763,6 @@ async fn staging_consensus_test() {
 #[tokio::test]
 async fn run_kip10_activation_test() {
     use spora_consensus_core::subnets::SUBNETWORK_ID_NATIVE;
-    use spora_txscript::opcodes::codes::{Op0, OpTxInputSpk};
-    use spora_txscript::pay_to_script_hash_script;
-    use spora_txscript::script_builder::ScriptBuilder;
 
     // KIP-10 activates at DAA score 3 in this test
     const KIP10_ACTIVATION_DAA_SCORE: u64 = 3;
@@ -1763,10 +1771,7 @@ async fn run_kip10_activation_test() {
 
     // Create P2SH script that attempts to use OpInputSpk - this will be our test subject
     // The script should fail before KIP-10 activation and succeed after
-    let redeem_script = ScriptBuilder::new()
-        .add_op(Op0).unwrap() // Push 0 for input index
-        .add_op(OpTxInputSpk).unwrap() // Get the input's script pubkey
-        .drain();
+    let redeem_script = vec![OP_FALSE, OP_TX_INPUT_SPK];
     let spk = pay_to_script_hash_script(&redeem_script);
 
     // Set up initial cell with our test script
@@ -1808,24 +1813,29 @@ async fn run_kip10_activation_test() {
     assert_eq!(consensus.get_virtual_daa_score(), index);
 
     // Create transaction that attempts to use the KIP-10 opcode
-    let mut tx = Transaction::new(
-        0,
-        vec![TransactionInput::new(
-            initial_cell_collection[0].0,
-            ScriptBuilder::new().add_data(&redeem_script).unwrap().drain(),
-            0,
-            0,
-        )],
-        vec![TransactionOutput::new(initial_cell_collection[0].1.amount - 5000, spk)],
-        0,
-        SUBNETWORK_ID_NATIVE,
-        0,
-        vec![],
-    );
-    tx.finalize();
+    let input = CellRef::new(initial_cell_collection[0].0, 0);
+    let witness_script = push_data_script(&redeem_script).expect("test redeem script push must be canonical");
+    let spk_bytes = spk.script();
+    let code_hash = if spk_bytes.len() >= 32 {
+        let mut hash = [0u8; 32];
+        hash.copy_from_slice(&spk_bytes[..32]);
+        hash
+    } else {
+        [0u8; 32]
+    };
+    let output =
+        CellOut { capacity: initial_cell_collection[0].1.capacity() - 5000, lock: ScriptRef::new(code_hash, 0, vec![]), type_: None };
+    let tx = CellTx::new(
+        vec![input],
+        vec![], // cell_deps
+        vec![output],
+        vec![vec![]],         // outputs_data
+        vec![witness_script], // witnesses
+    )
+    .expect("valid CellTx");
     let tx_id = tx.id();
 
-    let mut tx = MutableTransaction::from_tx(tx);
+    let mut tx = MutableTransaction::with_entries(tx, vec![initial_cell_collection[0].1.clone()]);
     // This triggers storage mass population
     let _ = consensus.validate_mempool_transaction(&mut tx, &TransactionValidationArgs::default());
     let tx = tx.tx.unwrap_or_clone();
@@ -1840,8 +1850,7 @@ async fn run_kip10_activation_test() {
 
         // Insert our test transaction and recalculate block hashes
         block.transactions.push(tx.clone());
-        block.header.hash_merkle_root =
-            calc_hash_merkle_root(block.transactions.iter(), true);
+        block.header.hash_merkle_root = calc_hash_merkle_root(block.transactions.iter(), true);
         let block_status = consensus.validate_and_insert_block(block.to_immutable()).virtual_state_task.await;
         assert!(matches!(block_status, Ok(BlockStatus::StatusDisqualifiedFromChain)));
         assert_eq!(consensus.lkg_virtual_state.load().daa_score, 2);
@@ -1868,7 +1877,7 @@ async fn payload_test() {
     let consensus = TestConsensus::new(&config);
     let wait_handles = consensus.init();
 
-    let miner_data = MinerData::new(ScriptPublicKey::from_vec(0, vec![OpTrue]), vec![]);
+    let miner_data = MinerData::new(ScriptPublicKey::from_vec(0, vec![OP_TRUE]), vec![]);
     let b = consensus.build_cell_valid_block_with_parents(1.into(), vec![config.genesis.hash], miner_data.clone(), vec![]);
     consensus.validate_and_insert_block(b.to_immutable()).virtual_state_task.await.unwrap();
     let funding_block = consensus.build_cell_valid_block_with_parents(2.into(), vec![1.into()], miner_data, vec![]);
@@ -1879,19 +1888,21 @@ async fn payload_test() {
     };
 
     consensus.validate_and_insert_block(funding_block.to_immutable()).virtual_state_task.await.unwrap();
-    let mut txx = Transaction::new(
-        0,
-        vec![TransactionInput::new(TransactionOutpoint { transaction_id: cb_id, index: 0 }, vec![], 0, 0)],
-        vec![TransactionOutput::new(cb_amount / 2, ScriptPublicKey::default())],
-        0,
-        SubnetworkId::default(),
-        0,
-        vec![0; (config.params.max_block_mass / TRANSIENT_BYTE_TO_MASS_FACTOR / 2) as usize],
-    );
+    let input = CellRef::new(outpoint_from_id(cb_id, 0), 0);
+    let output = CellOut { capacity: cb_amount / 2, lock: ScriptRef::new([0u8; 32], 0, vec![]), type_: None };
+    let payload = vec![0; (config.params.max_block_mass / TRANSIENT_BYTE_TO_MASS_FACTOR / 2) as usize];
+    let mut txx = CellTx::new(
+        vec![input],
+        vec![], // cell_deps
+        vec![output],
+        vec![payload.clone()], // outputs_data (use as payload storage)
+        vec![vec![]],          // witnesses
+    )
+    .expect("valid CellTx");
 
     // Create a tx with transient mass over the block limit
-    txx.payload = vec![0; (2 * config.params.max_block_mass / TRANSIENT_BYTE_TO_MASS_FACTOR) as usize];
-    let mut tx = MutableTransaction::from_tx(txx.clone());
+    // Note: In Cell model, payload is stored in outputs_data[0] for coinbase
+    let mut tx = MutableTransaction::with_entries(txx.clone(), vec![]);
     // This triggers storage mass population
     consensus.validate_mempool_transaction(&mut tx, &TransactionValidationArgs::default()).unwrap();
     let consensus_res = consensus.add_cell_valid_block_with_parents(4.into(), vec![2.into()], vec![tx.tx.unwrap_or_clone()]).await;
@@ -1922,7 +1933,7 @@ async fn payload_activation_test() {
         TransactionOutpoint::new(1.into(), 0),
         CellEntry {
             amount: SAU_PER_SPORA,
-            script_public_key: ScriptPublicKey::from_vec(0, vec![OpTrue]),
+            script_public_key: ScriptPublicKey::from_vec(0, vec![OP_TRUE]),
             block_daa_score: 0,
             is_coinbase: false,
         },
@@ -1962,21 +1973,20 @@ async fn payload_activation_test() {
 
     // Create transaction with large payload
     let large_payload = vec![0u8; (config.params.max_block_mass / TRANSIENT_BYTE_TO_MASS_FACTOR / 2) as usize];
-    let mut tx_with_payload = Transaction::new(
-        0,
-        vec![TransactionInput::new(
-            initial_cell_collection[0].0,
-            vec![], // Empty signature script since we're using OpTrue
-            0,
-            0,
-        )],
-        vec![TransactionOutput::new(initial_cell_collection[0].1.amount - 5000, ScriptPublicKey::from_vec(0, vec![OpTrue]))],
-        0,
-        SUBNETWORK_ID_NATIVE,
-        0,
-        large_payload,
-    );
-    tx_with_payload.finalize();
+    let input = CellRef::new(initial_cell_collection[0].0, 0);
+    let output = CellOut {
+        capacity: initial_cell_collection[0].1.capacity() - 5000,
+        lock: ScriptRef::new([0u8; 32], 0, vec![OP_TRUE]),
+        type_: None,
+    };
+    let tx_with_payload = CellTx::new(
+        vec![input],
+        vec![], // cell_deps
+        vec![output],
+        vec![large_payload.clone()], // outputs_data (payload)
+        vec![vec![]],                // witnesses
+    )
+    .expect("valid CellTx");
     let tx_id = tx_with_payload.id();
 
     // Test 1: Build empty block, then manually insert invalid tx and verify consensus rejects it
@@ -1987,15 +1997,14 @@ async fn payload_activation_test() {
         let mut block =
             consensus.build_cell_valid_block_with_parents((index + 1).into(), vec![index.into()], miner_data.clone(), vec![]);
 
-        let mut tx = MutableTransaction::from_tx(tx_with_payload.clone());
+        let mut tx = MutableTransaction::with_entries(tx_with_payload.clone(), vec![initial_cell_collection[0].1.clone()]);
         // This triggers storage mass population
         let _ = consensus.validate_mempool_transaction(&mut tx, &TransactionValidationArgs::default());
 
         // Insert our test transaction and recalculate block hashes
         block.transactions.push(tx.tx.unwrap_or_clone());
 
-        block.header.hash_merkle_root =
-            calc_hash_merkle_root(block.transactions.iter(), true);
+        block.header.hash_merkle_root = calc_hash_merkle_root(block.transactions.iter(), true);
         let block_status = consensus.validate_and_insert_block(block.to_immutable()).virtual_state_task.await;
         assert!(matches!(block_status, Err(RuleError::TxInContextFailed(tx, TxRuleError::NonCoinbaseTxHasPayload)) if tx == tx_id));
         assert_eq!(consensus.lkg_virtual_state.load().daa_score, PAYLOAD_ACTIVATION_DAA_SCORE - 1);
@@ -2023,7 +2032,6 @@ async fn runtime_sig_op_counting_test() {
     use spora_consensus_core::{
         hashing::sighash::SigHashReusedValuesUnsync, hashing::sighash_type::SIG_HASH_ALL, subnets::SUBNETWORK_ID_NATIVE,
     };
-    use spora_txscript::{opcodes::codes::*, script_builder::ScriptBuilder};
 
     // Runtime sig op counting activates at DAA score 3
     const RUNTIME_SIGOP_ACTIVATION_DAA_SCORE: u64 = 3;
@@ -2040,21 +2048,9 @@ async fn runtime_sig_op_counting_test() {
 
     // Create redeem script that has 1 sig op in the executed branch (true)
     // and 3 sig ops in the non-executed branch (false)
-    let redeem_script = || -> ScriptBuilderResult<Vec<u8>> {
-        Ok(ScriptBuilder::new()
-            .add_op(OpTrue)?
-            .add_op(OpIf)?
-            .add_op(OpCheckSig)?     // This sig op gets executed
-            .add_op(OpElse)?
-            .add_op(OpCheckSig)?     // These sig ops are skipped
-            .add_op(OpCheckSig)?
-            .add_op(OpCheckSig)?
-            .add_op(OpEndIf)?
-            .drain())
-    }()
-    .unwrap();
+    let redeem_script = vec![OP_TRUE, OP_IF, OP_CHECKSIG, OP_ELSE, OP_CHECKSIG, OP_CHECKSIG, OP_CHECKSIG, OP_ENDIF];
 
-    let script_pub_key = spora_txscript::pay_to_script_hash_script(&redeem_script);
+    let script_pub_key = pay_to_script_hash_script(&redeem_script);
 
     // Set up initial cell with P2SH script
     let initial_cell_collection = [(
@@ -2093,24 +2089,23 @@ async fn runtime_sig_op_counting_test() {
     }
 
     // Create transaction spending P2SH with 1 sig op limit
-    let mut tx = Transaction::new(
-        0,
-        vec![TransactionInput::new(
-            initial_cell_collection[0].0,
-            vec![], // Placeholder for signature script
-            0,
-            1, // Only allowing 1 sig op - important for test
-        )],
-        vec![TransactionOutput::new(initial_cell_collection[0].1.amount - 5000, ScriptPublicKey::from_vec(0, vec![OpTrue]))],
-        0,
-        SUBNETWORK_ID_NATIVE,
-        0,
-        vec![],
-    );
+    let input = CellRef::new(initial_cell_collection[0].0, 0);
+    let output = CellOut {
+        capacity: initial_cell_collection[0].1.capacity() - 5000,
+        lock: ScriptRef::new([0u8; 32], 0, vec![OP_TRUE]),
+        type_: None,
+    };
+    let mut tx = CellTx::new(
+        vec![input],
+        vec![], // cell_deps
+        vec![output],
+        vec![vec![]], // outputs_data
+        vec![vec![]], // witnesses (placeholder)
+    )
+    .expect("valid CellTx");
 
     // Sign transaction
-    let mut tx_for_signing = MutableTransaction::new(tx.clone());
-    tx_for_signing.entries = vec![Some(initial_cell_collection[0].1.clone())];
+    let mut tx_for_signing = MutableTransaction::with_entries(tx.clone(), vec![initial_cell_collection[0].1.clone()]);
 
     let signature = {
         let hash = calc_schnorr_signature_hash(&tx_for_signing.as_verifiable(), 0, SIG_HASH_ALL, &reused_values);
@@ -2121,13 +2116,11 @@ async fn runtime_sig_op_counting_test() {
         signature
     };
 
-    // Complete transaction with signature script
-    tx.inputs[0].signature_script =
-        ScriptBuilder::new().add_data(&signature).unwrap().add_data(&pub_key).unwrap().add_data(&redeem_script).unwrap().drain();
+    // Complete transaction with signature script in witness
+    let witness_script = push_only_signature_script(&[&signature, &pub_key, &redeem_script]);
+    tx.witnesses[0] = witness_script;
 
-    tx.finalize();
-
-    let mut tx = MutableTransaction::from_tx(tx);
+    let mut tx = MutableTransaction::with_entries(tx, vec![initial_cell_collection[0].1.clone()]);
     // This triggers storage mass population
     let _ = consensus.validate_mempool_transaction(&mut tx, &TransactionValidationArgs::default());
     let tx = tx.tx.unwrap_or_clone();
@@ -2138,8 +2131,7 @@ async fn runtime_sig_op_counting_test() {
         let mut block =
             consensus.build_cell_valid_block_with_parents((index + 1).into(), vec![index.into()], miner_data.clone(), vec![]);
         block.transactions.push(tx.clone());
-        block.header.hash_merkle_root =
-            calc_hash_merkle_root(block.transactions.iter(), true);
+        block.header.hash_merkle_root = calc_hash_merkle_root(block.transactions.iter(), true);
         let block_status = consensus.validate_and_insert_block(block.to_immutable()).virtual_state_task.await;
         assert!(matches!(block_status, Ok(BlockStatus::StatusDisqualifiedFromChain)));
         index += 1;

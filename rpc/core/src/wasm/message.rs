@@ -11,7 +11,7 @@ use spora_addresses::Address;
 use spora_addresses::AddressOrStringArrayT;
 use spora_consensus_client::CellEntryReference;
 use spora_consensus_client::Transaction;
-use spora_consensus_core::tx::{legacy_compat_transaction_from_cell_tx, CellTx, Transaction as CctxTransaction};
+use spora_consensus_core::tx::CellTx;
 use spora_rpc_macros::declare_typescript_wasm_interface as declare;
 use wasm_bindgen::prelude::*;
 use workflow_wasm::convert::*;
@@ -1421,7 +1421,7 @@ declare! {
 try_from! ( args: SubmitTransactionReplacementResponse, ISubmitTransactionReplacementResponse, {
     let transaction_id = args.transaction_id;
     let replaced_transaction = CellTx::try_from(args.replaced_transaction)?;
-    let replaced_transaction = Transaction::from(legacy_compat_transaction_from_cell_tx(&replaced_transaction));
+    let replaced_transaction = Transaction::from_cell_tx(&replaced_transaction);
 
     let response = ISubmitTransactionReplacementResponse::default();
     response.set("transactionId", &transaction_id.into())?;
@@ -1564,7 +1564,7 @@ declare! {
          *
          * Note: for all buckets, feerate values represent fee/mass of a transaction in `sau/gram` units.
          * Given a feerate value recommendation, calculate the required fee by
-         * taking the transaction mass and multiplying it by feerate: `fee = feerate * mass(tx)`
+         * taking the transaction selection mass and multiplying it by feerate: `fee = feerate * mass(tx)`
          */
 
         priorityBucket : IFeerateBucket;

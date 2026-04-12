@@ -289,8 +289,7 @@ impl<P: CellStateProvider> CellValidator<P> {
                         .get_cell_data(&dep.out_point, pov)
                         .map_err(CellValidationError::InvalidFormat)?
                         .ok_or(CellValidationError::CellNotFound(dep.out_point.tx_hash))?;
-                    let outpoints =
-                        spora_exec::parse_dep_group_data(&group_data).map_err(CellValidationError::InvalidFormat)?;
+                    let outpoints = spora_exec::parse_dep_group_data(&group_data).map_err(CellValidationError::InvalidFormat)?;
                     for op in &outpoints {
                         let code_dep = CellDep { out_point: *op, dep_type: DepType::Code };
                         let metadata = self
