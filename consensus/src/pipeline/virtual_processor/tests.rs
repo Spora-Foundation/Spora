@@ -17,9 +17,8 @@ use spora_consensus_core::{
     config::{params::MAINNET_PARAMS, ConfigBuilder},
     errors::tx::TxRuleError,
     merkle::calc_hash_merkle_root_cell,
-    subnets::SUBNETWORK_ID_NATIVE,
     tx::{
-        cell_meta_from_legacy_output, legacy_compat_transaction_from_cell_tx, MutableTransaction, ScriptPublicKey, ScriptVec,
+        cell_meta_from_legacy_output, MutableTransaction, ScriptPublicKey, ScriptVec,
         Transaction, TransactionInput, TransactionOutpoint, TransactionOutput,
     },
     BlockHashMap, BlockHashSet,
@@ -409,12 +408,14 @@ fn new_miner_data() -> MinerData {
 }
 
 fn build_spend_tx(previous_outpoint: TransactionOutpoint, value: u64) -> Transaction {
+    use spora_consensus_core::subnets;
+    #[allow(deprecated)]
     Transaction::new(
         0,
         vec![TransactionInput::new(previous_outpoint, vec![], u64::MAX, 0)],
         vec![TransactionOutput { value, script_public_key: ScriptPublicKey::from_vec(0, vec![]) }],
         0,
-        SUBNETWORK_ID_NATIVE,
+        subnets::SUBNETWORK_ID_NATIVE,
         0,
         vec![],
     )
@@ -673,12 +674,13 @@ async fn rejects_relative_daa_sequence_lock_in_mempool_validation() {
     let wait_handles = consensus.init();
     let current_daa = consensus.virtual_processor().lkg_virtual_state.load_full().daa_score;
 
+    #[allow(deprecated)]
     let spend_tx = Transaction::new(
         0,
         vec![TransactionInput::new(TransactionOutpoint { tx_hash: [0x55; 32], index: 0 }, vec![], 1, 0)],
         vec![TransactionOutput { value: 9_000, script_public_key: ScriptPublicKey::from_vec(0, vec![]) }],
         0,
-        SUBNETWORK_ID_NATIVE,
+        spora_consensus_core::subnets::SUBNETWORK_ID_NATIVE,
         0,
         vec![],
     );

@@ -2238,7 +2238,7 @@ impl VirtualStateProcessor {
         self.commit_cell_state(
             self.genesis.hash,
             CellDiff::default(),
-            ZERO_HASH, // Genesis has no cells yet
+            spora_state::CellStateTree::new().root(),
             vec![],
             ZERO_HASH,
         );

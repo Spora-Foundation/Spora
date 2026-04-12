@@ -1,4 +1,4 @@
-use spora_consensus_core::constants::TX_VERSION;
+use spora_consensus_core::constants::CELL_TX_VERSION;
 
 pub(crate) const DEFAULT_MAXIMUM_TRANSACTION_COUNT: usize = 1_000_000;
 pub(crate) const DEFAULT_MEMPOOL_SIZE_LIMIT: usize = 1_000_000_000;
@@ -22,8 +22,8 @@ pub(crate) const DEFAULT_MINIMUM_RELAY_TRANSACTION_FEE: u64 = 1000;
 /// we define separate values in mempool.
 /// However, currently there's exactly one transaction version, so mempool accepts the same version
 /// as consensus.
-pub(crate) const DEFAULT_MINIMUM_STANDARD_TRANSACTION_VERSION: u16 = TX_VERSION;
-pub(crate) const DEFAULT_MAXIMUM_STANDARD_TRANSACTION_VERSION: u16 = TX_VERSION;
+pub(crate) const DEFAULT_MINIMUM_STANDARD_TRANSACTION_VERSION: u16 = CELL_TX_VERSION;
+pub(crate) const DEFAULT_MAXIMUM_STANDARD_TRANSACTION_VERSION: u16 = CELL_TX_VERSION;
 
 #[derive(Clone, Debug)]
 pub struct Config {

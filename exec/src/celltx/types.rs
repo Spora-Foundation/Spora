@@ -248,6 +248,43 @@ pub enum DepType {
     DepGroup = 1,
 }
 
+/// Parse DepGroup cell data as a list of OutPoints.
+///
+/// Format: 4-byte LE count, then count × 36-byte entries
+/// (32-byte tx_hash + 4-byte LE index per OutPoint).
+pub fn parse_dep_group_data(data: &[u8]) -> Result<Vec<OutPoint>, String> {
+    if data.len() < 4 {
+        return Err("DepGroup data too short for count header".into());
+    }
+    let count = u32::from_le_bytes([data[0], data[1], data[2], data[3]]) as usize;
+    let expected = 4 + count * 36;
+    if data.len() != expected {
+        return Err(format!(
+            "DepGroup data length mismatch: expected {} bytes for {} outpoints, got {}",
+            expected, count, data.len()
+        ));
+    }
+    let mut outpoints = Vec::with_capacity(count);
+    for i in 0..count {
+        let offset = 4 + i * 36;
+        let key: &[u8; 36] = data[offset..offset + 36].try_into().map_err(|_| "slice conversion failed")?;
+        outpoints.push(OutPoint::from_key(key));
+    }
+    Ok(outpoints)
+}
+
+/// Encode a list of OutPoints into DepGroup cell data format.
+///
+/// This is the inverse of [`parse_dep_group_data`].
+pub fn encode_dep_group_data(outpoints: &[OutPoint]) -> Vec<u8> {
+    let mut data = Vec::with_capacity(4 + outpoints.len() * 36);
+    data.extend_from_slice(&(outpoints.len() as u32).to_le_bytes());
+    for op in outpoints {
+        data.extend_from_slice(&op.to_key());
+    }
+    data
+}
+
 /// Cell transaction (complete structure)
 ///
 /// Reference: CKB Transaction
@@ -593,5 +630,32 @@ mod tests {
         assert_eq!(tx.transient_mass(), (tx.serialized_size() as u64) * TRANSIENT_BYTE_TO_MASS_FACTOR);
         assert_eq!(tx.mass(), tx.storage_mass());
         assert_ne!(tx.compute_mass(), tx.storage_mass());
+    }
+
+    #[test]
+    fn test_dep_group_roundtrip() {
+        let ops = vec![
+            OutPoint::new([0x11; 32], 0),
+            OutPoint::new([0x22; 32], 7),
+            OutPoint::new([0x33; 32], u32::MAX),
+        ];
+        let data = encode_dep_group_data(&ops);
+        let parsed = parse_dep_group_data(&data).unwrap();
+        assert_eq!(parsed, ops);
+    }
+
+    #[test]
+    fn test_dep_group_empty() {
+        let data = encode_dep_group_data(&[]);
+        assert_eq!(data, [0, 0, 0, 0]);
+        let parsed = parse_dep_group_data(&data).unwrap();
+        assert!(parsed.is_empty());
+    }
+
+    #[test]
+    fn test_dep_group_invalid_data() {
+        assert!(parse_dep_group_data(&[]).is_err());
+        assert!(parse_dep_group_data(&[1, 0, 0, 0]).is_err()); // count=1 but no data
+        assert!(parse_dep_group_data(&[1, 0, 0, 0, 0]).is_err()); // count=1 but only 1 byte
     }
 }

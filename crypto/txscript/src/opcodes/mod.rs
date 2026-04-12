@@ -797,97 +797,22 @@ opcode_list! {
         }
     }
 
-    opcode OpCheckLockTimeVerify<0xb0, 1>(self, vm) {
-        match vm.script_source {
-            ScriptSource::TxInput {input, tx, ..} => {
-                let [mut lock_time_bytes] = vm.dstack.pop_raw()?;
-
-                // Make sure lockTimeBytes is exactly 8 bytes.
-                // If more - return ErrNumberTooBig
-                // If less - pad with 0's
-                if lock_time_bytes.len() > 8 {
-                    return Err(TxScriptError::NumberTooBig(format!("lockTime value represented as {lock_time_bytes:x?} is longer then 8 bytes")))
-                }
-                lock_time_bytes.resize(8, 0);
-                let stack_lock_time = u64::from_le_bytes(lock_time_bytes.try_into().expect("checked vector size"));
-
-                // The lock time field of a transaction is either a DAA score at
-                // which the transaction is finalized or a timestamp depending on if the
-                // value is before the constants.LockTimeThreshold. When it is under the
-                // threshold it is a DAA score.
-                if !(
-                    (tx.tx().lock_time() < LOCK_TIME_THRESHOLD && stack_lock_time < LOCK_TIME_THRESHOLD) ||
-                    (tx.tx().lock_time() >= LOCK_TIME_THRESHOLD && stack_lock_time >= LOCK_TIME_THRESHOLD)
-                ){
-                    return Err(TxScriptError::UnsatisfiedLockTime(format!("mismatched locktime types -- tx locktime {}, stack locktime {}", tx.tx().lock_time(), stack_lock_time)))
-                }
-
-                if stack_lock_time > tx.tx().lock_time() {
-                    return Err(TxScriptError::UnsatisfiedLockTime(format!("locktime requirement not satisfied -- locktime is greater than the transaction locktime: {} > {}", stack_lock_time, tx.tx().lock_time())))
-                }
-
-                // The lock time feature can also be disabled, thereby bypassing
-                // OP_CHECKLOCKTIMEVERIFY, if every transaction input has been finalized by
-                // setting its sequence to the maximum value (constants.MaxTxInSequenceNum). This
-                // condition would result in the transaction being allowed into the blockDAG
-                // making the opcode ineffective.
-                //
-                // This condition is prevented by enforcing that the input being used by
-                // the opcode is unlocked (its sequence number is less than the max
-                // value). This is sufficient to prove correctness without having to
-                // check every input.
-                //
-                // NOTE: This implies that even if the transaction is not finalized due to
-                // another input being unlocked, the opcode execution will still fail when the
-                // input being used by the opcode is locked.
-                if input.since == MAX_TX_IN_SEQUENCE_NUM {
-                    return Err(TxScriptError::UnsatisfiedLockTime("transaction input is finalized".to_string()));
-                }
-                Ok(())
-            }
-            _ => Err(TxScriptError::InvalidSource("LockTimeVerify only applies to transaction inputs".to_string()))
-        }
+    opcode OpCheckLockTimeVerify<0xb0, 1>(self, _vm) {
+        // OP_CHECKLOCKTIMEVERIFY is disabled in Cell model.
+        // Cell model uses per-input `since` for time locks instead of tx-level lock_time.
+        // Use CKB-VM with `since` syscall for time lock verification in the new model.
+        Err(TxScriptError::OpcodeDisabled(
+            "OP_CHECKLOCKTIMEVERIFY is disabled in Cell model. Use CKB-VM with `since` syscall instead.".to_string()
+        ))
     }
 
-    opcode OpCheckSequenceVerify<0xb1, 1>(self, vm) {
-        match vm.script_source {
-            ScriptSource::TxInput {input, tx, ..} => {
-                let [mut sequence_bytes] = vm.dstack.pop_raw()?;
-
-                // Make sure sequenceBytes is exactly 8 bytes.
-                // If more - return ErrNumberTooBig
-                // If less - pad with 0's
-                if sequence_bytes.len() > 8 {
-                    return Err(TxScriptError::NumberTooBig(format!("lockTime value represented as {sequence_bytes:x?} is longer then 8 bytes")))
-                }
-                // Don't use makeScriptNum here, since sequence is not an actual number, minimal encoding rules don't apply to it,
-                // and is more convenient to be represented as an unsigned int.
-                sequence_bytes.resize(8, 0);
-                let stack_sequence = u64::from_le_bytes(sequence_bytes.try_into().expect("ensured size checks"));
-
-                // To provide for future soft-fork extensibility, if the
-                // operand has the disabled lock-time flag set,
-                // CHECKSEQUENCEVERIFY behaves as a NOP.
-                if stack_sequence & SEQUENCE_LOCK_TIME_DISABLED != 0 {
-                    return Ok(());
-                }
-
-                // Sequence numbers with their most significant bit set are not
-                // consensus constrained. Testing that the transaction's sequence
-                // number does not have this bit set prevents using this property
-                // to get around a CHECKSEQUENCEVERIFY check.
-                if input.since & SEQUENCE_LOCK_TIME_DISABLED != 0 {
-                    return Err(TxScriptError::UnsatisfiedLockTime(format!("transaction sequence has sequence locktime disabled bit set: {:#x}", input.since)));
-                }
-
-                // Mask off non-consensus bits before doing comparisons.
-                if (stack_sequence & SEQUENCE_LOCK_TIME_MASK) > (input.since & SEQUENCE_LOCK_TIME_MASK) {
-                    return Err(TxScriptError::UnsatisfiedLockTime(format!("locktime requirement not satisfied -- locktime is greater than the transaction locktime: {} > {}", stack_sequence & SEQUENCE_LOCK_TIME_MASK, input.since & SEQUENCE_LOCK_TIME_MASK)))
-                }
-                Ok(())
-            }
-            _ => Err(TxScriptError::InvalidSource("LockTimeVerify only applies to transaction inputs".to_string()))
-        }
+    opcode OpCheckSequenceVerify<0xb1, 1>(self, _vm) {
+        // OP_CHECKSEQUENCEVERIFY is disabled in Cell model.
+        // Cell model uses per-input `since` for time locks instead of legacy sequence-based semantics.
+        // Use CKB-VM with `since` syscall for time lock verification in the new model.
+        Err(TxScriptError::OpcodeDisabled(
+            "OP_CHECKSEQUENCEVERIFY is disabled in Cell model. Use CKB-VM with `since` syscall instead.".to_string()
+        ))
     }
 
     // Introspection opcodes
@@ -2860,80 +2785,49 @@ mod test {
     }
 
     #[test]
-    fn test_opchecklocktimeverify() {
-        // Everything we need to build a script source
-        let (base_tx, input, cell_entry) = make_mock_transaction(1);
-
+    fn test_opchecklocktimeverify_disabled_in_cell_model() {
+        // OP_CHECKLOCKTIMEVERIFY is disabled in Cell model
+        // It should always return OpcodeDisabled error
         let sig_cache = Cache::new(10_000);
         let reused_values = SigHashReusedValuesUnsync::new();
 
         let code = opcodes::OpCheckLockTimeVerify::empty().expect("Should accept empty");
 
-        for (tx_lock_time, lock_time, should_fail) in [
-            (1u64, vec![], false),                                // Case 1: 0 = locktime < txLockTime
-            (0x800000, vec![0x7f, 0, 0], false),                  // Case 2: 0 < locktime < txLockTime
-            (0x800000, vec![0x7f, 0, 0, 0, 0, 0, 0, 0, 0], true), // Case 3: locktime too big
-            (LOCK_TIME_THRESHOLD * 2, vec![0x7f, 0, 0, 0], true), // Case 4: lock times are inconsistent
-        ] {
-            let mut tx = base_tx.clone();
-            tx.0.lock_time = tx_lock_time;
-            let mut vm = TxScriptEngine::from_transaction_input(&tx, &input, 0, &cell_entry, &reused_values, &sig_cache, false, false);
+        // Test that CLTV always returns OpcodeDisabled error regardless of parameters
+        // Using from_script since CLTV now just returns an error without accessing transaction data
+        for lock_time in [vec![], vec![0x7f, 0, 0], vec![0x7f, 0, 0, 0, 0, 0, 0, 0, 0]] {
+            let mut vm = TxScriptEngine::from_script(&[], &reused_values, &sig_cache, false);
             vm.dstack = vec![lock_time.clone()];
             match code.execute(&mut vm) {
-                // Message is based on the should_fail values
-                Ok(()) => assert!(
-                    !should_fail,
-                    "Opcode {} must fail (tx_lock_time: {}, lock_time: {:?})",
-                    code.value(),
-                    tx_lock_time,
-                    lock_time
-                ),
-                Err(e) => assert!(
-                    should_fail,
-                    "Opcode {} should not fail. Got {} (tx_lock_time: {}, lock_time: {:?})",
-                    code.value(),
-                    e,
-                    tx_lock_time,
-                    lock_time
-                ),
+                Err(TxScriptError::OpcodeDisabled(msg)) => {
+                    assert!(msg.contains("Cell model"), "Error message should mention Cell model: {}", msg);
+                }
+                Ok(()) => panic!("Opcode {} should fail with OpcodeDisabled in Cell model", code.value()),
+                Err(e) => panic!("Opcode {} should fail with OpcodeDisabled, got: {}", code.value(), e),
             }
         }
     }
 
     #[test]
-    fn test_opchecksequencerify() {
-        // Everything we need to build a script source
-        let (tx, base_input, cell_entry) = make_mock_transaction(1);
-
+    fn test_opchecksequenceverify_disabled_in_cell_model() {
+        // OP_CHECKSEQUENCEVERIFY is disabled in Cell model
+        // It should always return OpcodeDisabled error
         let sig_cache = Cache::new(10_000);
         let reused_values = SigHashReusedValuesUnsync::new();
 
         let code = opcodes::OpCheckSequenceVerify::empty().expect("Should accept empty");
 
-        for (tx_sequence, sequence, should_fail) in [
-            (1u64, vec![], false),                                // Case 1: 0 = sequence < tx_sequence
-            (0x800000, vec![0x7f, 0, 0], false),                  // Case 2: 0 < sequence < tx_sequence
-            (0x800000, vec![0x7f, 0, 0, 0, 0, 0, 0, 0, 0], true), // Case 3: sequence too big
-            (1 << 63, vec![0x7f, 0, 0], true),                    // Case 4: disabled
-            ((1 << 63) | 0xffff, vec![0x7f, 0, 0], true),         // Case 5: another disabled
-        ] {
-            let mut input = base_input.clone();
-            input.sequence = tx_sequence;
-            let mut vm = TxScriptEngine::from_transaction_input(&tx, &input, 0, &cell_entry, &reused_values, &sig_cache, false, false);
+        // Test that CSV always returns OpcodeDisabled error regardless of parameters
+        // Using from_script since CSV now just returns an error without accessing transaction data
+        for sequence in [vec![], vec![0x7f, 0, 0], vec![0x7f, 0, 0, 0, 0, 0, 0, 0, 0]] {
+            let mut vm = TxScriptEngine::from_script(&[], &reused_values, &sig_cache, false);
             vm.dstack = vec![sequence.clone()];
             match code.execute(&mut vm) {
-                // Message is based on the should_fail values
-                Ok(()) => {
-                    assert!(!should_fail, "Opcode {} must fail (tx_sequence: {}, sequence: {:?})", code.value(), tx_sequence, sequence)
+                Err(TxScriptError::OpcodeDisabled(msg)) => {
+                    assert!(msg.contains("Cell model"), "Error message should mention Cell model: {}", msg);
                 }
-                Err(e) => assert!(
-                    should_fail,
-                    "Opcode {} should not fail. Got {} (tx_sequence: {}, sequence: {:?})",
-                    code.value(),
-                    e,
-                    tx_sequence,
-                    sequence
-                ),
+                Ok(()) => panic!("Opcode {} should fail with OpcodeDisabled in Cell model", code.value()),
+                Err(e) => panic!("Opcode {} should fail with OpcodeDisabled, got: {}", code.value(), e),
             }
         }
     }

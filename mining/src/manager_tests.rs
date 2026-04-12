@@ -2,7 +2,7 @@
 mod tests {
     use crate::{
         block_template::builder::BlockTemplateBuilder,
-        cell_conversion::{cell_output_to_placeholder_entry, legacy_tx_to_cell_tx, legacy_txs_to_cell_txs},
+        cell_conversion::{cell_output_to_placeholder_entry, legacy_tx_to_cell_tx, legacy_tx_to_cell_tx_with_context},
         errors::{MiningManagerError, MiningManagerResult},
         manager::MiningManager,
         mempool::{
@@ -21,13 +21,13 @@ mod tests {
         api::ConsensusApi,
         block::TemplateBuildMode,
         coinbase::MinerData,
-        constants::{MAX_TX_IN_SEQUENCE_NUM, SAU_PER_SPORA, TX_VERSION},
+        constants::{SAU_PER_SPORA, TX_VERSION},
         errors::tx::TxRuleError,
         mass::{cell_tx_estimated_serialized_size, NonContextualMasses},
         subnets::SUBNETWORK_ID_NATIVE,
         tx::{
-            compute_lock_hash_for_script, scriptvec, CellEntry, CellOut, CellRef, CellTx, MutableTransaction, ScriptPublicKey,
-            ScriptRef, Transaction, TransactionId, TransactionInput, TransactionOutpoint, TransactionOutput,
+            compute_lock_hash_for_script, scriptvec, CellOut, CellRef, CellTx, MutableTransaction, ScriptPublicKey, ScriptRef,
+            Transaction, TransactionId, TransactionOutpoint, TransactionOutput,
         },
     };
     use spora_hashes::Hash;
@@ -36,8 +36,7 @@ mod tests {
         pay_to_address_script, pay_to_script_hash_signature_script,
         test_helpers::{create_transaction, create_transaction_with_change, op_true_script},
     };
-    use spora_utils::mem_size::MemSizeEstimator;
-    use std::{iter::once, sync::Arc};
+    use std::{collections::HashMap, iter::once, sync::Arc};
     use tokio::sync::mpsc::{error::TryRecvError, unbounded_channel};
 
     const TARGET_TIME_PER_BLOCK: u64 = 1_000;
@@ -63,7 +62,10 @@ mod tests {
                 ));
                 match rbf_policy {
                     RbfPolicy::Forbidden | RbfPolicy::Allowed => {
-                        assert!(result.is_ok(), "({priority:?}, {orphan:?}, {rbf_policy:?}) inserting a valid transaction failed");
+                        assert!(
+                            result.is_ok(),
+                            "({priority:?}, {orphan:?}, {rbf_policy:?}) inserting a valid transaction failed: {result:?}"
+                        );
                     }
                     RbfPolicy::Mandatory => {
                         assert!(result.is_err(), "({priority:?}, {orphan:?}, {rbf_policy:?}) replacing a valid transaction without replacement in mempool should fail");
@@ -97,7 +99,8 @@ mod tests {
             );
             transactions_inserted.iter().for_each(|tx_to_insert| {
                 let found_exact_match = transactions_from_pool.contains(tx_to_insert);
-                let tx_from_pool = transactions_from_pool.iter().find(|tx_from_pool| tx_from_pool.id() == tx_to_insert.id());
+                let tx_from_pool =
+                    transactions_from_pool.iter().find(|tx_from_pool| tx_from_pool.test_tx_id() == tx_to_insert.test_tx_id());
                 let found_transaction_id = tx_from_pool.is_some();
                 if found_transaction_id && !found_exact_match {
                     let tx = tx_from_pool.unwrap();
@@ -121,7 +124,7 @@ mod tests {
                 assert!(
                     found_exact_match,
                     "({priority:?}, {orphan:?}, {rbf_policy:?}) missing transaction {} in the mempool, no exact match",
-                    tx_to_insert.id()
+                    tx_to_insert.test_tx_id()
                 );
             });
 
@@ -138,13 +141,15 @@ mod tests {
             assert!(
                 result.is_ok(),
                 "({priority:?}, {orphan:?}, {rbf_policy:?}) inserting the child transaction {} into the mempool failed",
-                transaction_not_an_orphan.id()
+                transaction_not_an_orphan.test_tx_id()
             );
-            let (transactions_from_pool, _) = mining_manager.get_all_transactions(TransactionQuery::TransactionsOnly);
+            let (transactions_from_pool, orphan_transactions) = mining_manager.get_all_transactions(TransactionQuery::All);
             assert!(
-                contained_by(transaction_not_an_orphan.id(), &transactions_from_pool),
-                "({priority:?}, {orphan:?}, {rbf_policy:?}) missing transaction {} in the mempool",
-                transaction_not_an_orphan.id()
+                contained_by(transaction_not_an_orphan.test_tx_id(), &transactions_from_pool),
+                "({priority:?}, {orphan:?}, {rbf_policy:?}) missing transaction {} in the mempool; populated={:?}; orphans={:?}",
+                transaction_not_an_orphan.test_tx_id(),
+                transactions_from_pool.iter().map(TestTxId::test_tx_id).collect::<Vec<_>>(),
+                orphan_transactions.iter().map(TestTxId::test_tx_id).collect::<Vec<_>>()
             );
         }
     }
@@ -167,7 +172,7 @@ mod tests {
                 RbfPolicy::Forbidden | RbfPolicy::Allowed => Err(RuleError::from(tx_err.clone())),
                 RbfPolicy::Mandatory => Err(RuleError::RejectRbfNoDoubleSpend),
             };
-            consensus.set_status(transaction.id(), Err(tx_err));
+            consensus.set_status(transaction.test_tx_id(), Err(tx_err));
 
             // Try validate and insert the transaction into the mempool
             let result = into_mempool_result(mining_manager.validate_and_insert_mutable_transaction(
@@ -182,7 +187,7 @@ mod tests {
                 expected, result,
                 "({priority:?}, {orphan:?}, {rbf_policy:?}) unexpected result when trying to insert an invalid transaction: expected: {expected:?}, got: {result:?}",
             );
-            let pool_tx = mining_manager.get_transaction(&transaction.id(), TransactionQuery::All);
+            let pool_tx = mining_manager.get_transaction(&transaction.test_tx_id(), TransactionQuery::All);
             assert!(
                 pool_tx.is_none(),
                 "({priority:?}, {orphan:?}, {rbf_policy:?}) mempool contains a transaction that should have been rejected"
@@ -215,8 +220,7 @@ mod tests {
             );
 
             // submit the same transaction again to the mempool
-            let result = into_mempool_result(validate_and_insert_mutable_transaction(
-                &mining_manager,
+            let result = into_mempool_result(mining_manager.validate_and_insert_mutable_transaction(
                 consensus.as_ref(),
                 transaction.clone(),
                 priority,
@@ -226,17 +230,17 @@ mod tests {
             match result {
                 Err(RuleError::RejectDuplicate(transaction_id)) => {
                     assert_eq!(
-                        transaction.id(),
+                        transaction.test_tx_id(),
                         transaction_id,
                         "({priority:?}, {orphan:?}, {rbf_policy:?}) the error returned by the mempool should include transaction id {} but provides {}",
-                        transaction.id(),
+                        transaction.test_tx_id(),
                         transaction_id
                     );
                 }
                 Err(err) => {
                     panic!(
                         "({priority:?}, {orphan:?}, {rbf_policy:?}) the error returned by the mempool should be {:?} but is {err:?}",
-                        RuleError::RejectDuplicate(transaction.id())
+                        RuleError::RejectDuplicate(transaction.test_tx_id())
                     );
                 }
                 Ok(()) => {
@@ -259,7 +263,7 @@ mod tests {
             assert!(
                 consensus.can_finance_transaction(&MutableTransaction::from_tx(transaction.clone())),
                 "({priority:?}, {orphan:?}, {rbf_policy:?}) the consensus mock should have spendable cells for the newly created transaction {}",
-                transaction.id()
+                transaction.test_tx_id()
             );
 
             let result = mining_manager.validate_and_insert_transaction(
@@ -275,8 +279,8 @@ mod tests {
             double_spending_transaction.outputs[0].value += 1; // do some minor change so that txID is different while not increasing fee
             double_spending_transaction.finalize();
             assert_ne!(
-                transaction.id(),
-                double_spending_transaction.id(),
+                transaction.test_tx_id(),
+                double_spending_transaction.test_tx_id(),
                 "({priority:?}, {orphan:?}, {rbf_policy:?}) two transactions differing by only one output value should have different ids"
             );
             let result = into_mempool_result(mining_manager.validate_and_insert_transaction(
@@ -289,10 +293,10 @@ mod tests {
             match result {
                 Err(RuleError::RejectDoubleSpendInMempool(_, transaction_id)) => {
                     assert_eq!(
-                        transaction.id(),
+                        transaction.test_tx_id(),
                         transaction_id,
                         "({priority:?}, {orphan:?}, {rbf_policy:?}) the error returned by the mempool should include id {} but provides {}",
-                        transaction.id(),
+                        transaction.test_tx_id(),
                         transaction_id
                     );
                 }
@@ -408,7 +412,7 @@ mod tests {
                     "[{}, {:?}] the consensus should have spendable cells for the newly created transaction {}",
                     self.name,
                     rbf_policy,
-                    transaction_replacement.id()
+                    transaction_replacement.test_tx_id()
                 );
                 let tx_count = mining_manager.transaction_count(TransactionQuery::TransactionsOnly);
                 let expected_tx_count = match expected {
@@ -431,14 +435,14 @@ mod tests {
                     let tx_insertion = result.unwrap();
                     assert_eq!(
                         tx_insertion.removed.as_ref().unwrap().id(),
-                        transactions[0].id(),
+                        legacy_tx_to_cell_tx(&transactions[0]).expect("test transaction must convert to CellTx").id(),
                         "[{}, {:?}] RBF should return the removed transaction",
                         self.name,
                         rbf_policy,
                     );
                     transactions.iter().for_each(|x| {
                         assert!(
-                            !mining_manager.has_transaction(&x.id(), TransactionQuery::All),
+                            !mining_manager.has_transaction(&x.test_tx_id(), TransactionQuery::All),
                             "[{}, {:?}] RBF replaced transaction should no longer be in the mempool",
                             self.name,
                             rbf_policy,
@@ -456,7 +460,7 @@ mod tests {
                     assert!(result.is_err(), "[{}, {:?}] mempool should reject the RBF transaction", self.name, rbf_policy);
                     transactions.iter().for_each(|x| {
                         assert!(
-                            mining_manager.has_transaction(&x.id(), TransactionQuery::All),
+                            mining_manager.has_transaction(&x.test_tx_id(), TransactionQuery::All),
                             "[{}, {:?}] RBF transaction target is no longer in the mempool",
                             self.name,
                             rbf_policy
@@ -554,14 +558,7 @@ mod tests {
         const TX_COUNT: u32 = 10;
         let transactions_to_insert = (0..TX_COUNT).map(|i| create_transaction_with_cell_entry(i, 0)).collect::<Vec<_>>();
         for transaction in transactions_to_insert.iter() {
-            let result = validate_and_insert_mutable_transaction(
-                &mining_manager,
-                consensus.as_ref(),
-                transaction.clone(),
-                Priority::Low,
-                Orphan::Allowed,
-                RbfPolicy::Forbidden,
-            );
+            let result = validate_and_insert_mutable_transaction(&mining_manager, consensus.as_ref(), transaction.clone());
             assert!(result.is_ok(), "the insertion of a new valid transaction in the mempool failed");
         }
 
@@ -576,7 +573,7 @@ mod tests {
             result.is_ok(),
             "the handling by the mempool of the transactions of a block accepted by the consensus should succeed but returned {result:?}"
         );
-        for handled_tx_id in first_part.iter().map(|x| x.id()) {
+        for handled_tx_id in first_part.iter().map(TestTxId::test_tx_id) {
             assert!(
                 mining_manager.get_transaction(&handled_tx_id, TransactionQuery::All).is_none(),
                 "the transaction {handled_tx_id} should not be in the mempool"
@@ -584,7 +581,7 @@ mod tests {
         }
         // There are no chained/double-spends transactions, and hence it is expected that all the other
         // transactions, will still be included in the mempool.
-        for handled_tx_id in rest.iter().map(|x| x.id()) {
+        for handled_tx_id in rest.iter().map(TestTxId::test_tx_id) {
             assert!(
                 mining_manager.get_transaction(&handled_tx_id, TransactionQuery::All).is_some(),
                 "the transaction {handled_tx_id} is lacking from the mempool"
@@ -597,7 +594,7 @@ mod tests {
             result.is_ok(),
             "the handling by the mempool of the transactions of a block accepted by the consensus should succeed but returned {result:?}"
         );
-        for handled_tx_id in rest.iter().map(|x| x.id()) {
+        for handled_tx_id in rest.iter().map(TestTxId::test_tx_id) {
             assert!(
                 mining_manager.get_transaction(&handled_tx_id, TransactionQuery::All).is_none(),
                 "the transaction {handled_tx_id} should no longer be in the mempool"
@@ -614,14 +611,7 @@ mod tests {
         let mining_manager = MiningManager::new(TARGET_TIME_PER_BLOCK, false, MAX_BLOCK_MASS, None, counters);
 
         let transaction_in_the_mempool = create_transaction_with_cell_entry(0, 0);
-        let result = validate_and_insert_mutable_transaction(
-            &mining_manager,
-            consensus.as_ref(),
-            transaction_in_the_mempool.clone(),
-            Priority::Low,
-            Orphan::Allowed,
-            RbfPolicy::Forbidden,
-        );
+        let result = validate_and_insert_mutable_transaction(&mining_manager, consensus.as_ref(), transaction_in_the_mempool.clone());
         assert!(result.is_ok());
 
         let mut double_spend_transaction_in_the_block = create_transaction_with_cell_entry(0, 0);
@@ -632,9 +622,9 @@ mod tests {
         assert!(result.is_ok());
 
         assert!(
-            mining_manager.get_transaction(&transaction_in_the_mempool.id(), TransactionQuery::All).is_none(),
+            mining_manager.get_transaction(&transaction_in_the_mempool.test_tx_id(), TransactionQuery::All).is_none(),
             "the transaction {} shouldn't be in the mempool since at least one output was already spent",
-            transaction_in_the_mempool.id()
+            transaction_in_the_mempool.test_tx_id()
         );
     }
 
@@ -659,19 +649,23 @@ mod tests {
                 Orphan::Allowed,
                 RbfPolicy::Forbidden,
             );
-            assert!(result.is_ok(), "the mempool should accept the valid orphan transaction {}", orphan.id());
+            assert!(result.is_ok(), "the mempool should accept the valid orphan transaction {}", orphan.test_tx_id());
         }
         let (populated_txs, orphans) = mining_manager.get_all_transactions(TransactionQuery::All);
         assert!(populated_txs.is_empty(), "the mempool should have no populated transaction since only orphans were submitted");
         for orphan in orphans.iter() {
             assert!(
-                contained_by(orphan.id(), &child_txs),
+                contained_by(orphan.test_tx_id(), &child_txs),
                 "orphan transaction {} should exist in the child transactions",
-                orphan.id()
+                orphan.test_tx_id()
             );
         }
         for child in child_txs.iter() {
-            assert!(contained_by(child.id(), &orphans), "child transaction {} should exist in the orphan pool", child.id());
+            assert!(
+                contained_by(child.test_tx_id(), &orphans),
+                "child transaction {} should exist in the orphan pool",
+                child.test_tx_id()
+            );
         }
 
         // Try to build a block template.
@@ -723,11 +717,15 @@ mod tests {
         }
         for child in child_txs.iter().skip(SKIPPED_TXS) {
             assert!(
-                contained_by(child.id(), &unorphaned_txs),
+                contained_by(child.test_tx_id(), &unorphaned_txs),
                 "child transaction {} should exist in the unorphaned transactions",
-                child.id()
+                child.test_tx_id()
             );
-            assert!(contained_by(child.id(), &populated_txs), "child transaction {} should exist in the mempool", child.id());
+            assert!(
+                contained_by(child.test_tx_id(), &populated_txs),
+                "child transaction {} should exist in the mempool",
+                child.test_tx_id()
+            );
         }
         assert_eq!(
             SKIPPED_TXS, orphans.len(),
@@ -736,13 +734,17 @@ mod tests {
         );
         for orphan in orphans.iter() {
             assert!(
-                contained_by(orphan.id(), &child_txs),
+                contained_by(orphan.test_tx_id(), &child_txs),
                 "orphan transaction {} should exist in the child transactions",
-                orphan.id()
+                orphan.test_tx_id()
             );
         }
         for child in child_txs.iter().take(SKIPPED_TXS) {
-            assert!(contained_by(child.id(), &orphans), "child transaction {} should exist in the orphan pool", child.id());
+            assert!(
+                contained_by(child.test_tx_id(), &orphans),
+                "child transaction {} should exist in the orphan pool",
+                child.test_tx_id()
+            );
         }
 
         // Build a new block template with all ready transactions, meaning all child transactions but one.
@@ -826,16 +828,16 @@ mod tests {
         );
         for parent in parent_txs.iter().take(SKIPPED_TXS) {
             assert!(
-                contained_by(parent.id(), &populated_txs),
+                contained_by(parent.test_tx_id(), &populated_txs),
                 "mempool transaction {} should exist in the remaining parent transactions",
-                parent.id()
+                parent.test_tx_id()
             );
         }
         for child in child_txs.iter().take(SKIPPED_TXS) {
             assert!(
-                contained_by(child.id(), &populated_txs),
+                contained_by(child.test_tx_id(), &populated_txs),
                 "mempool transaction {} should exist in the remaining child transactions",
-                child.id()
+                child.test_tx_id()
             );
         }
         assert_eq!(0, orphans.len(), "the orphan pool is expected to be empty: {}, got: {}", 0, orphans.len());
@@ -877,20 +879,21 @@ mod tests {
             .handle_new_block_transactions(consensus.as_ref(), 2, &build_block_transactions(std::iter::once(&orphan_parent)))
             .expect("handling a new block with an accepted orphan parent should succeed");
 
+        let orphan_child_id = canonical_legacy_tx_id_with_parents(&orphan_child, [&orphan_parent]);
         assert_eq!(1, accepted_transactions.len(), "the child orphan should have been accepted after its parent entered the block");
         assert_eq!(
-            orphan_child.id(),
-            accepted_transactions[0].id(),
+            orphan_child_id,
+            accepted_transactions[0].test_tx_id(),
             "the accepted transaction should be the child formerly blocked on the orphan parent"
         );
 
         let (populated_txs, orphans) = mining_manager.get_all_transactions(TransactionQuery::All);
         assert!(
-            contained_by(orphan_child.id(), &populated_txs),
+            contained_by(orphan_child_id, &populated_txs),
             "the child transaction should be promoted into the populated mempool after the block is handled"
         );
         assert!(
-            !contained_by(orphan_parent.id(), &orphans),
+            !contained_by(orphan_parent.test_tx_id(), &orphans),
             "the accepted parent must be removed from the orphan pool after the block is handled"
         );
     }
@@ -912,7 +915,7 @@ mod tests {
                 Orphan::Allowed,
                 RbfPolicy::Forbidden,
             );
-            assert!(result.is_ok(), "transaction {} should enter the populated mempool", tx.id());
+            assert!(result.is_ok(), "transaction {} should enter the populated mempool", tx.test_tx_id());
         }
 
         let (populated_txs, orphans) = mining_manager.get_all_transactions(TransactionQuery::All);
@@ -988,7 +991,7 @@ mod tests {
                 Orphan::Allowed,
                 RbfPolicy::Forbidden,
             );
-            assert!(result.is_ok(), "transaction {} should enter the orphan pool", orphan.id());
+            assert!(result.is_ok(), "transaction {} should enter the orphan pool", orphan.test_tx_id());
         }
 
         let (populated_txs, orphans) = mining_manager.get_all_transactions(TransactionQuery::All);
@@ -999,6 +1002,7 @@ mod tests {
             .handle_new_block_transactions(consensus.as_ref(), 2, &build_block_transactions(std::iter::once(&orphan_parent_a)))
             .expect("handling a new block with a partially-satisfied orphan should succeed");
 
+        let orphan_child_id = canonical_legacy_tx_id_with_parents(&orphan_child, [&orphan_parent_a, &orphan_parent_b]);
         assert!(
             accepted_transactions.is_empty(),
             "the child should be retried and sent back to the orphan pool while another parent is still missing"
@@ -1007,15 +1011,15 @@ mod tests {
         let (populated_txs, orphans) = mining_manager.get_all_transactions(TransactionQuery::All);
         assert!(populated_txs.is_empty(), "no transaction should become ready while the second parent is still missing");
         assert!(
-            contained_by(orphan_parent_b.id(), &orphans),
+            contained_by(orphan_parent_b.test_tx_id(), &orphans),
             "the still-missing parent should remain in the orphan pool after the accepted block is handled"
         );
         assert!(
-            contained_by(orphan_child.id(), &orphans),
+            contained_by(orphan_child_id, &orphans),
             "the retried child should be re-added to the orphan pool instead of being dropped"
         );
         assert!(
-            !contained_by(orphan_parent_a.id(), &orphans),
+            !contained_by(orphan_parent_a.test_tx_id(), &orphans),
             "the accepted parent must be removed from the orphan pool after the block is handled"
         );
     }
@@ -1119,10 +1123,10 @@ mod tests {
             assert!(result.is_err(), "mempool should reject an orphan transaction with {:?} when asked to do so", test.priority);
             if let Err(MiningManagerError::MempoolError(RuleError::RejectDisallowedOrphan(transaction_id))) = result {
                 assert_eq!(
-                    tx.id(),
+                    tx.test_tx_id(),
                     transaction_id,
                     "the error returned by the mempool should include id {} but provides {}",
-                    tx.id(),
+                    tx.test_tx_id(),
                     transaction_id
                 );
             } else {
@@ -1186,7 +1190,11 @@ mod tests {
                 test.parent_insert_result()
             );
             if unorphaned_txs.len() > 1 {
-                assert_eq!(unorphaned_txs[1].id(), child_txs[i].id(), "the unorphaned transaction should match the inserted parent");
+                assert_eq!(
+                    unorphaned_txs[1].id(),
+                    legacy_tx_to_cell_tx(&child_txs[i]).expect("test transaction must convert to CellTx").id(),
+                    "the unorphaned transaction should match the inserted parent"
+                );
             }
         }
     }
@@ -1235,15 +1243,15 @@ mod tests {
         );
         let valid_txs = result.unwrap();
         assert_eq!(1, valid_txs.len(), "the revalidated transaction count is wrong: expected: {}, got: {}", 1, valid_txs.len());
-        assert_eq!(spending_tx.id(), valid_txs[0], "the revalidated transaction is not the right one");
+        assert_eq!(spending_tx.test_tx_id(), valid_txs[0], "the revalidated transaction is not the right one");
 
         // Simulate: Mine 2 more blocks on top of tip1, to re-org out child_tx_1, thus making spending_tx invalid
         consensus.add_transaction(child_tx_1, 1);
-        consensus.set_status(spending_tx.id(), Err(TxRuleError::MissingTxOutpoints));
+        consensus.set_status(spending_tx.test_tx_id(), Err(TxRuleError::MissingTxOutpoints));
 
         // Make sure spending_tx is still in mempool
         assert!(
-            mining_manager.get_transaction(&spending_tx.id(), TransactionQuery::TransactionsOnly).is_some(),
+            mining_manager.get_transaction(&spending_tx.test_tx_id(), TransactionQuery::TransactionsOnly).is_some(),
             "the spending transaction is no longer in the mempool"
         );
 
@@ -1281,7 +1289,7 @@ mod tests {
                 Orphan::Allowed,
                 RbfPolicy::Forbidden,
             );
-            assert!(result.is_ok(), "the mempool should accept the valid parent transaction {}", parent_tx.id());
+            assert!(result.is_ok(), "the mempool should accept the valid parent transaction {}", parent_tx.test_tx_id());
             let result = mining_manager.validate_and_insert_transaction(
                 consensus.as_ref(),
                 child_tx.clone(),
@@ -1289,7 +1297,7 @@ mod tests {
                 Orphan::Allowed,
                 RbfPolicy::Forbidden,
             );
-            assert!(result.is_ok(), "the mempool should accept the valid child transaction {}", parent_tx.id());
+            assert!(result.is_ok(), "the mempool should accept the valid child transaction {}", child_tx.test_tx_id());
         }
 
         // Collect all parent transactions for the next block template.
@@ -1305,7 +1313,7 @@ mod tests {
             assert!(
                 transactions.iter().any(|tx| tx.id() == expected_id),
                 "the parent transaction {} should be candidate for the next block template as CellTx {}",
-                x.id(),
+                x.test_tx_id(),
                 Hash::from_bytes(expected_id)
             );
         });
@@ -1360,7 +1368,8 @@ mod tests {
 
         let too_big_tx = {
             let mut heavy_tx = create_transaction_with_cell_entry(TX_COUNT as u32 + 2, 0);
-            pad_transaction_to_target_size(&mut heavy_tx, size_limit + heavy_tx.mempool_estimated_bytes());
+            let oversized_target = size_limit + heavy_tx.mempool_estimated_bytes();
+            pad_transaction_to_target_size(&mut heavy_tx, oversized_target);
             heavy_tx.calculated_fee = Some(500_000);
             heavy_tx
         };
@@ -1528,7 +1537,7 @@ mod tests {
     }
 
     fn create_transaction_with_cell_entry(i: u32, block_daa_score: u64) -> MutableTransaction {
-        let previous_outpoint = TransactionOutpoint::new(*Hash::default().as_bytes(), i);
+        let previous_outpoint = TransactionOutpoint::new(Hash::default().as_bytes(), i);
         let (script_public_key, redeem_script) = op_true_script();
         let signature_script = pay_to_script_hash_signature_script(&redeem_script, vec![]).expect("the redeem script is canonical");
 
@@ -1679,11 +1688,17 @@ mod tests {
 
     impl TestTxId for Transaction {
         fn test_tx_id(&self) -> TransactionId {
-            self.id()
+            legacy_tx_to_cell_tx(self).expect("test transaction must convert to CellTx").id().into()
         }
     }
 
     impl TestTxId for CellTx {
+        fn test_tx_id(&self) -> TransactionId {
+            self.id().into()
+        }
+    }
+
+    impl TestTxId for Arc<CellTx> {
         fn test_tx_id(&self) -> TransactionId {
             self.id().into()
         }
@@ -1699,25 +1714,58 @@ mod tests {
         transactions.iter().any(|x| x.test_tx_id() == transaction_id)
     }
 
+    fn canonical_legacy_tx_id_with_parents<'a>(
+        transaction: &Transaction,
+        parents: impl IntoIterator<Item = &'a Transaction>,
+    ) -> TransactionId {
+        let parent_cell_ids = parents
+            .into_iter()
+            .map(|parent| {
+                (
+                    parent.id(),
+                    legacy_tx_to_cell_tx(parent).expect("test parent transaction must convert to CellTx").id().into(),
+                )
+            })
+            .collect::<HashMap<_, _>>();
+        legacy_tx_to_cell_tx_with_context(transaction, &parent_cell_ids)
+            .expect("test transaction must convert to CellTx")
+            .id()
+            .into()
+    }
+
     trait IntoTestCellTx {
-        fn into_test_cell_tx(&self) -> CellTx;
+        fn source_tx_id(&self) -> TransactionId;
+        fn into_test_cell_tx(&self, parent_cell_ids: &HashMap<TransactionId, TransactionId>) -> CellTx;
     }
 
     impl IntoTestCellTx for Transaction {
-        fn into_test_cell_tx(&self) -> CellTx {
-            legacy_tx_to_cell_tx(self).expect("test transaction must convert to CellTx")
+        fn source_tx_id(&self) -> TransactionId {
+            self.id()
+        }
+
+        fn into_test_cell_tx(&self, parent_cell_ids: &HashMap<TransactionId, TransactionId>) -> CellTx {
+            legacy_tx_to_cell_tx_with_context(self, parent_cell_ids).expect("test transaction must convert to CellTx")
         }
     }
 
     impl IntoTestCellTx for CellTx {
-        fn into_test_cell_tx(&self) -> CellTx {
+        fn source_tx_id(&self) -> TransactionId {
+            self.id().into()
+        }
+
+        fn into_test_cell_tx(&self, _parent_cell_ids: &HashMap<TransactionId, TransactionId>) -> CellTx {
             self.clone()
         }
     }
 
     fn build_block_transactions<'a, T: IntoTestCellTx + 'a>(transactions: impl Iterator<Item = &'a T>) -> Vec<CellTx> {
         let mut block_transactions = vec![CellTx::new(vec![], vec![], vec![], vec![], vec![]).expect("dummy coinbase must be valid")];
-        block_transactions.extend(transactions.map(IntoTestCellTx::into_test_cell_tx));
+        let mut parent_cell_ids = HashMap::new();
+        for transaction in transactions {
+            let cell_tx = transaction.into_test_cell_tx(&parent_cell_ids);
+            parent_cell_ids.insert(transaction.source_tx_id(), cell_tx.id().into());
+            block_transactions.push(cell_tx);
+        }
         block_transactions
     }
 

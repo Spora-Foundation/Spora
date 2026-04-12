@@ -6,7 +6,7 @@
 use super::cell_validation_in_context::CellStateProvider;
 use super::errors::CellValidationError;
 use spora_consensus_core::cell_metadata::CellMetadata;
-use spora_exec::{CellTx, DepType, OutPoint};
+use spora_exec::{CellTx, DepType, OutPoint, parse_dep_group_data};
 use spora_hashes::Hash;
 
 /// Extended state provider for DAG validation
@@ -66,17 +66,31 @@ pub fn validate_cell_existence<P: DagCellProvider>(tx: &CellTx, pov: Hash, provi
 
     // Check all deps exist
     for dep in &tx.deps {
-        if dep.dep_type != DepType::Code {
-            return Err(CellValidationError::InvalidFormat(format!(
-                "Unsupported dep type {:?}; only DepType::Code is currently supported",
-                dep.dep_type
-            )));
-        }
-
+        // The dep cell itself must exist regardless of type
         let available = provider.is_cell_available(&dep.out_point, pov).map_err(|e| CellValidationError::InvalidFormat(e))?;
-
         if !available {
             return Err(CellValidationError::DepCellNotFound(dep.out_point.tx_hash));
+        }
+
+        if dep.dep_type == DepType::DepGroup {
+            // Expand: read the DepGroup cell's data and verify every referenced OutPoint
+            let meta = provider
+                .get_cell_at_pov(&dep.out_point, pov)
+                .map_err(CellValidationError::InvalidFormat)?
+                .ok_or(CellValidationError::DepCellNotFound(dep.out_point.tx_hash))?;
+            let data = meta.data.ok_or_else(|| {
+                CellValidationError::InvalidFormat(format!(
+                    "DepGroup cell data not available for {}",
+                    dep.out_point
+                ))
+            })?;
+            let outpoints = parse_dep_group_data(&data).map_err(CellValidationError::InvalidFormat)?;
+            for op in &outpoints {
+                let ok = provider.is_cell_available(op, pov).map_err(|e| CellValidationError::InvalidFormat(e))?;
+                if !ok {
+                    return Err(CellValidationError::DepCellNotFound(op.tx_hash));
+                }
+            }
         }
     }
 

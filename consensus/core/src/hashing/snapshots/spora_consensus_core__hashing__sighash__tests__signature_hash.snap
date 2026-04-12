@@ -5,114 +5,114 @@ expression: expected_hashs
 [
     (
         "native-all-0",
-        157ec43d74cb00b7c56d19bec9cdc362512f0f4d70f8192b3c4dbefee0a07590,
+        b53581206fa488d8db620ee4c898d193c0a22902301563255bf4450f004063fe,
     ),
     (
         "native-all-0-modify-input-1",
-        04130d7ca862d57c0a4f3c11ff11dd8b9e51b974723384358dfdee116d8a3707,
+        bac36b5c00d3b1da26095148e5eb6078d3d3977eed1fad65ea8b351cf48f958e,
     ),
     (
         "native-all-0-modify-output-1",
-        0987fab679cc790e7086431fab2ae907f9e2bab1482b2086abe1999f9ef9f670,
+        79738a6e92f146c36e80987a4d089551c4caf2e7a88ea1ba37a0a764aab2c2cf,
     ),
     (
         "native-all-0-modify-sequence-1",
-        1b4949889acce539f754c68a43eb3eac1549698448481a293de45ae69a8d0a00,
+        6d27cf8d9508bd48a866fb8e4ed41498bc40caeea8050c39cb05aaeeed3cef91,
     ),
     (
         "native-all-anyonecanpay-0",
-        8752fe8519f6b8fedfc7a368cfa8c422ecb91e06d765709831dac6a73abcc2bb,
+        edc3ccceb9b752812edad8a4b7ec6ffc800b2ebd9128a9f54f1ea86589554ed1,
     ),
     (
         "native-all-anyonecanpay-0-modify-input-0",
-        133571938f1c55d1d539663896b354d5688ede63463524e3e2bd1fd5777af90d,
+        5ae60d2d75994adad7d95114928a093fbcb2222170c75f4f8b952eb30fc463dd,
     ),
     (
         "native-all-anyonecanpay-0-modify-input-1",
-        8752fe8519f6b8fedfc7a368cfa8c422ecb91e06d765709831dac6a73abcc2bb,
+        edc3ccceb9b752812edad8a4b7ec6ffc800b2ebd9128a9f54f1ea86589554ed1,
     ),
     (
         "native-all-anyonecanpay-0-modify-sequence",
-        8752fe8519f6b8fedfc7a368cfa8c422ecb91e06d765709831dac6a73abcc2bb,
+        edc3ccceb9b752812edad8a4b7ec6ffc800b2ebd9128a9f54f1ea86589554ed1,
     ),
     (
         "native-none-0",
-        305cc410590ebf9b99633ec36660100c5a27dacb658a4be9e1018944be2525a1,
+        f5e6cb57fcbcd26e7658adc7fcf093f843471494896a26d4de26481d41539f15,
     ),
     (
         "native-none-0-modify-output-1",
-        305cc410590ebf9b99633ec36660100c5a27dacb658a4be9e1018944be2525a1,
+        f5e6cb57fcbcd26e7658adc7fcf093f843471494896a26d4de26481d41539f15,
     ),
     (
         "native-none-0-modify-sequence-0",
-        15f1fe1614665d26af5a85bf196384fccce5e025de97e6ad37d720fbc52c481c,
+        5af111b08591d93d5e3e0e89e208bb9b3c570edd0903bdf9672b4b72d4a561ab,
     ),
     (
         "native-none-0-modify-sequence-1",
-        305cc410590ebf9b99633ec36660100c5a27dacb658a4be9e1018944be2525a1,
+        f5e6cb57fcbcd26e7658adc7fcf093f843471494896a26d4de26481d41539f15,
     ),
     (
         "native-none-anyonecanpay-0",
-        534a94c2ec5901990d79d7d9570baae29d52a86512419551ed92bad522caf033,
+        1409c14af2d67b8b45d1b3c3c6e283b35039a1c4b4a54f93214c84c6559932cb,
     ),
     (
         "native-none-anyonecanpay-0-modify-amount-spent",
-        5f67b9238c54b65f766adbd25917861c3860f84fbf579f6beb58bad8683759c2,
+        07507375ccc94ad2d66088eff8360cd1dfdbfbb2e8a207542f0514d2c3f3b75e,
     ),
     (
         "native-none-anyonecanpay-0-modify-script-public-key",
-        7d5096f68b470c5b64d50391b4c5ac009014d1ebb8574162c2fb228e6f727111,
+        6923cfdffbe94ddf7fdfb2bab98cde6fe3b1995eba0237336c0eb3d0bd7f9472,
     ),
     (
         "native-single-0",
-        7f24545cce228fecc133a43ef2174d0a2c68611341547da89860c59880c82d7f,
+        74f8501332d4b8e122be61e179a6404cd07f1157e1f0eebaa32876c01b8aa9ad,
     ),
     (
         "native-single-0-modify-output-1",
-        7f24545cce228fecc133a43ef2174d0a2c68611341547da89860c59880c82d7f,
+        74f8501332d4b8e122be61e179a6404cd07f1157e1f0eebaa32876c01b8aa9ad,
     ),
     (
         "native-single-0-modify-sequence-0",
-        e8b5613d27f34f3c1a30fafa5482ab32112608d9f50a5abf05d590705db7e4af,
+        d27c73b882e325e1f3debddb13b808f752b41c9b81eaf760bd139854e10df7b4,
     ),
     (
         "native-single-0-modify-sequence-1",
-        7f24545cce228fecc133a43ef2174d0a2c68611341547da89860c59880c82d7f,
+        74f8501332d4b8e122be61e179a6404cd07f1157e1f0eebaa32876c01b8aa9ad,
     ),
     (
         "native-single-2-no-corresponding-output",
-        5d90cf729d93f64cfdf0587bb34cbb87c7142a1fbe108123359a05f083ad6e17,
+        a1376dd5d539180c89cd91a972a6755b0760ba41c71cdb64412962c68b3fd965,
     ),
     (
         "native-single-2-no-corresponding-output-modify-output-1",
-        5d90cf729d93f64cfdf0587bb34cbb87c7142a1fbe108123359a05f083ad6e17,
+        a1376dd5d539180c89cd91a972a6755b0760ba41c71cdb64412962c68b3fd965,
     ),
     (
         "native-single-anyonecanpay-0",
-        99444723db09c9140015621b36891a24e778356d7e389bea99c30906e2f5ac3e,
+        ec3441f71477f031c2d1c9531308214c878cbb2902e51546bdef5526bbedcc38,
     ),
     (
         "native-single-anyonecanpay-2-no-corresponding-output",
-        9b1789d3e6f6a4a364170de89cb8f3d08804f624c9c88cec1eb5fe95cfae49e3,
+        7375dd593f35b37f2b847d308ab1b19d81c20e46f2604b14c45a9cde685de7cb,
     ),
     (
         "native-all-0-modify-payload",
-        47b658cb06292eb93ef11e8a1dc158cf5d36c2e09944ba14302504c6fb8fb567,
+        376cf1b1b4290960a4bd72c6fd7214288714b9653f180f32d36a8050bbb67320,
     ),
     (
         "subnetwork-all-0",
-        157ec43d74cb00b7c56d19bec9cdc362512f0f4d70f8192b3c4dbefee0a07590,
+        b53581206fa488d8db620ee4c898d193c0a22902301563255bf4450f004063fe,
     ),
     (
         "subnetwork-all-modify-payload",
-        47b658cb06292eb93ef11e8a1dc158cf5d36c2e09944ba14302504c6fb8fb567,
+        376cf1b1b4290960a4bd72c6fd7214288714b9653f180f32d36a8050bbb67320,
     ),
     (
         "subnetwork-all-modify-gas",
-        157ec43d74cb00b7c56d19bec9cdc362512f0f4d70f8192b3c4dbefee0a07590,
+        b53581206fa488d8db620ee4c898d193c0a22902301563255bf4450f004063fe,
     ),
     (
         "subnetwork-all-subnetwork-id",
-        157ec43d74cb00b7c56d19bec9cdc362512f0f4d70f8192b3c4dbefee0a07590,
+        b53581206fa488d8db620ee4c898d193c0a22902301563255bf4450f004063fe,
     ),
 ]

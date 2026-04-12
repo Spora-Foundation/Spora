@@ -12,7 +12,7 @@ use spora_consensus_core::{block::Block, cell_metadata::CellMetadata, errors::tx
 use spora_database::prelude::StoreResultExtensions;
 #[cfg(feature = "vm")]
 use spora_exec::vm::VmLimits;
-use spora_exec::OutPoint;
+use spora_exec::{DepType, OutPoint};
 use spora_hashes::Hash;
 use std::{collections::HashSet, sync::Arc};
 
@@ -132,7 +132,11 @@ impl BlockBodyProcessor {
         self: &Arc<Self>,
         block: &Block,
     ) -> BlockProcessResult<BodyValidationOverlayProvider<BodyConsensusCellProvider>> {
-        let ghostdag_data = self.ghostdag_store.get_data(block.hash()).ok();
+        let ghostdag_data = self
+            .ghostdag_store
+            .get_data(block.hash())
+            .ok()
+            .or_else(|| Some(Arc::new(self.ghostdag_manager.ghostdag(block.header.direct_parents()))));
         let selected_parent = ghostdag_data
             .as_ref()
             .map(|data| data.selected_parent)
@@ -201,6 +205,24 @@ impl BlockBodyProcessor {
                     provider
                         .ensure_dep_available(&dep.out_point)
                         .map_err(|e| RuleError::CellValidationError(format!("failed to build body validation overlay: {e}")))?;
+
+                    if dep.dep_type == DepType::DepGroup {
+                        // Expand the DepGroup: read its data, parse OutPoint list, ensure each is available
+                        let meta = provider
+                            .get_cell_metadata(&dep.out_point)
+                            .map_err(|e| RuleError::CellValidationError(format!("failed to read dep group metadata: {e}")))?;
+                        if let Some(meta) = meta {
+                            if let Some(ref data) = meta.data {
+                                let outpoints = spora_exec::parse_dep_group_data(data)
+                                    .map_err(|e| RuleError::CellValidationError(format!("invalid DepGroup data: {e}")))?;
+                                for op in &outpoints {
+                                    provider.ensure_dep_available(op).map_err(|e| {
+                                        RuleError::CellValidationError(format!("DepGroup expanded dep unavailable: {e}"))
+                                    })?;
+                                }
+                            }
+                        }
+                    }
                 }
 
                 for input in &tx.inputs {
@@ -619,6 +641,43 @@ mod tests {
             body_processor.validate_body_in_context(&block),
             Err(RuleError::TxInContextFailed(_, TxRuleError::ImmatureCoinbaseSpend(..)))
         );
+
+        consensus.shutdown(wait_handles);
+    }
+
+    #[tokio::test]
+    async fn accepts_child_spend_of_parent_non_coinbase_output_during_body_context_validation() {
+        let config = ConfigBuilder::new(MAINNET_PARAMS)
+            .skip_proof_of_work()
+            .edit_consensus_params(|params| {
+                params.coinbase_maturity = 0;
+            })
+            .build();
+        let consensus = TestConsensus::new(&config);
+        let wait_handles = consensus.init();
+        let body_processor = consensus.block_body_processor();
+
+        let reward_source = consensus.build_block_with_parents_and_transactions(1.into(), vec![config.genesis.hash], vec![]);
+        let reward_source_hash = reward_source.header.hash;
+        let reward_source_coinbase = reward_source.transactions[0].clone();
+        let reward_outpoint = TransactionOutpoint { tx_hash: reward_source_coinbase.id(), index: 0 };
+        let reward_capacity = reward_source_coinbase.outputs[0].capacity;
+        consensus.validate_and_insert_block(reward_source.to_immutable()).virtual_state_task.await.unwrap();
+
+        let parent_tx = build_spend_tx(reward_outpoint, reward_capacity - 1_000);
+        let parent_tx_id = parent_tx.id();
+        let parent_output_capacity = parent_tx.outputs[0].capacity;
+        let parent = build_block_with_extra_transactions(&consensus, 2.into(), vec![reward_source_hash], vec![parent_tx]);
+        let parent_hash = parent.header.hash;
+        consensus.validate_and_insert_block(parent).virtual_state_task.await.unwrap();
+
+        let child_tx = build_spend_tx(TransactionOutpoint { tx_hash: parent_tx_id, index: 0 }, parent_output_capacity - 1_000);
+        let child = build_block_with_extra_transactions(&consensus, 3.into(), vec![parent_hash], vec![child_tx]);
+
+        body_processor
+            .validate_body_in_context(&child)
+            .expect("body validation overlay should resolve outputs created by the selected parent block");
+        consensus.validate_and_insert_block(child).virtual_state_task.await.unwrap();
 
         consensus.shutdown(wait_handles);
     }

@@ -532,6 +532,8 @@ fn print_stats(src_consensus: &Consensus, hashes: &[Hash], delay: f64, bps: f64,
 #[cfg(test)]
 mod tests {
     use super::*;
+    use spora_consensus::{config::ConfigBuilder, consensus::test_consensus::TestConsensus, params::DEVNET_PARAMS};
+    use spora_consensus_core::api::ConsensusApi;
 
     #[test]
     fn test_pruning_via_simpa() {
@@ -545,5 +547,39 @@ mod tests {
         // As we log the panic, we want to set it up after the logger
         spora_core::panic::configure_panic();
         main_impl(args);
+    }
+
+    #[tokio::test]
+    async fn replay_order_keeps_parents_before_children_with_skewed_timestamps() {
+        let config = ConfigBuilder::new(DEVNET_PARAMS).skip_proof_of_work().build();
+        let consensus = TestConsensus::new(&config);
+        let wait_handles = consensus.init();
+
+        let mut early_parent = consensus.build_block_with_parents(1.into(), vec![config.genesis.hash]);
+        early_parent.header.timestamp = config.genesis.timestamp + 10;
+        early_parent.header.finalize();
+        let early_parent_hash = early_parent.header.hash;
+        consensus.validate_and_insert_block(early_parent.to_immutable()).virtual_state_task.await.unwrap();
+
+        let mut late_parent = consensus.build_block_with_parents(2.into(), vec![config.genesis.hash]);
+        late_parent.header.timestamp = config.genesis.timestamp + 100;
+        late_parent.header.finalize();
+        let late_parent_hash = late_parent.header.hash;
+        consensus.validate_and_insert_block(late_parent.to_immutable()).virtual_state_task.await.unwrap();
+
+        let mut merger = consensus.build_block_with_parents(3.into(), vec![early_parent_hash, late_parent_hash]);
+        merger.header.timestamp = config.genesis.timestamp + 50;
+        merger.header.finalize();
+        let merger_hash = merger.header.hash;
+        consensus.validate_and_insert_block(merger.to_immutable()).virtual_state_task.await.unwrap();
+
+        let ordered = topologically_ordered_hashes(&consensus, config.genesis.hash);
+        let positions: std::collections::HashMap<_, _> =
+            ordered.iter().copied().enumerate().map(|(index, hash)| (hash, index)).collect();
+
+        assert!(positions[&early_parent_hash] < positions[&merger_hash]);
+        assert!(positions[&late_parent_hash] < positions[&merger_hash]);
+
+        consensus.shutdown(wait_handles);
     }
 }

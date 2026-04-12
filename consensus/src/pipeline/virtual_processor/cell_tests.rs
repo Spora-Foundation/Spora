@@ -276,10 +276,11 @@ mod tests {
     /// e) Cell added then removed → Back to previous hash
     #[test]
     fn test_cell_root_calculation() {
+        use spora_muhash::EMPTY_MUHASH;
         let mut tree = CellStateTree::new();
 
-        // a) Empty tree
-        assert_eq!(tree.root(), ZERO_HASH);
+        // a) Empty tree - MuHash empty accumulator produces EMPTY_MUHASH, not ZERO_HASH
+        assert_eq!(tree.root(), EMPTY_MUHASH);
 
         // b) Single cell
         let entry1 = CellEntry::new(1000, 0, Hash::from_bytes([1u8; 32]), None, Hash::from_bytes([2u8; 32]), 1, false);
@@ -300,10 +301,10 @@ mod tests {
 
         // d) Same cells different order → verified in test_cell_state_tree_determinism
 
-        // e) Remove both cells - back to empty
+        // e) Remove both cells - back to empty (EMPTY_MUHASH, not ZERO_HASH)
         tree.remove(&outpoint2);
         tree.remove(&outpoint1);
-        assert_eq!(tree.root(), ZERO_HASH);
+        assert_eq!(tree.root(), EMPTY_MUHASH);
     }
 
     // ========================================================================

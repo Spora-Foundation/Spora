@@ -268,24 +268,45 @@ impl<P: CellStateProvider> CellValidator<P> {
         let mut provider = PreparedVmDataProvider::default();
 
         for dep in &tx.deps {
-            if dep.dep_type != DepType::Code {
-                return Err(CellValidationError::InvalidFormat(format!(
-                    "Unsupported dep type {:?}; only DepType::Code is currently supported for VM validation",
-                    dep.dep_type
-                )));
+            match dep.dep_type {
+                DepType::Code => {
+                    let metadata = self
+                        .provider
+                        .get_cell_at_pov(&dep.out_point, pov)
+                        .map_err(CellValidationError::InvalidFormat)?
+                        .ok_or(CellValidationError::CellNotFound(dep.out_point.tx_hash))?;
+                    let data = self
+                        .provider
+                        .get_cell_data(&dep.out_point, pov)
+                        .map_err(CellValidationError::InvalidFormat)?
+                        .ok_or(CellValidationError::CellNotFound(dep.out_point.tx_hash))?;
+                    provider.insert_dep(dep, metadata_to_resolved_cell(metadata, Some(data))?);
+                }
+                DepType::DepGroup => {
+                    // Read the DepGroup cell data, parse it as OutPoint list, expand each as Code dep
+                    let group_data = self
+                        .provider
+                        .get_cell_data(&dep.out_point, pov)
+                        .map_err(CellValidationError::InvalidFormat)?
+                        .ok_or(CellValidationError::CellNotFound(dep.out_point.tx_hash))?;
+                    let outpoints =
+                        spora_exec::parse_dep_group_data(&group_data).map_err(CellValidationError::InvalidFormat)?;
+                    for op in &outpoints {
+                        let code_dep = CellDep { out_point: *op, dep_type: DepType::Code };
+                        let metadata = self
+                            .provider
+                            .get_cell_at_pov(op, pov)
+                            .map_err(CellValidationError::InvalidFormat)?
+                            .ok_or(CellValidationError::DepCellNotFound(op.tx_hash))?;
+                        let data = self
+                            .provider
+                            .get_cell_data(op, pov)
+                            .map_err(CellValidationError::InvalidFormat)?
+                            .ok_or(CellValidationError::DepCellNotFound(op.tx_hash))?;
+                        provider.insert_dep(&code_dep, metadata_to_resolved_cell(metadata, Some(data))?);
+                    }
+                }
             }
-
-            let metadata = self
-                .provider
-                .get_cell_at_pov(&dep.out_point, pov)
-                .map_err(CellValidationError::InvalidFormat)?
-                .ok_or(CellValidationError::CellNotFound(dep.out_point.tx_hash))?;
-            let data = self
-                .provider
-                .get_cell_data(&dep.out_point, pov)
-                .map_err(CellValidationError::InvalidFormat)?
-                .ok_or(CellValidationError::CellNotFound(dep.out_point.tx_hash))?;
-            provider.insert_dep(dep, metadata_to_resolved_cell(metadata, Some(data))?);
         }
 
         for input in &tx.inputs {

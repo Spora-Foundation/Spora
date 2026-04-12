@@ -224,15 +224,13 @@ mod tests {
     use itertools::Itertools;
     use spora_consensus_core::{
         constants::{MAX_TX_IN_SEQUENCE_NUM, SAU_PER_SPORA, TX_VERSION},
-        mass::transaction_estimated_serialized_size,
-        subnets::SUBNETWORK_ID_NATIVE,
-        tx::{Transaction, TransactionId, TransactionInput, TransactionOutpoint, TransactionOutput},
+        mass::cell_tx_estimated_serialized_size,
+        tx::{compute_lock_hash_for_script, CellOut, CellRef, CellTx, ScriptRef, TransactionId, TransactionOutpoint},
     };
     use spora_txscript::{pay_to_script_hash_signature_script, test_helpers::op_true_script};
     use std::{collections::HashSet, sync::Arc};
 
     use crate::{
-        cell_conversion::legacy_tx_to_cell_tx,
         mempool::{
             config::DEFAULT_MINIMUM_RELAY_TRANSACTION_FEE,
             model::frontier::selectors::{SequenceSelector, SequenceSelectorInput, SequenceSelectorTransaction},
@@ -248,9 +246,7 @@ mod tests {
         let transactions = (0..TX_INITIAL_COUNT).map(|i| create_transaction(SAU_PER_SPORA * (i + 1) as u64)).collect_vec();
         let masses: HashMap<_, _> = transactions
             .iter()
-            .map(|tx| {
-                (legacy_tx_to_cell_tx(tx.tx.as_ref()).expect("test transaction must be Cell-convertible").id(), tx.calculated_mass)
-            })
+            .map(|tx| (tx.tx.id(), tx.calculated_mass))
             .collect();
         let sequence: SequenceSelectorInput = transactions
             .iter()
@@ -294,20 +290,29 @@ mod tests {
     }
 
     fn create_transaction(value: u64) -> CandidateTransaction {
-        let previous_outpoint = TransactionOutpoint::new(TransactionId::default(), 0);
+        let previous_outpoint = TransactionOutpoint::new(TransactionId::default().as_bytes(), 0);
         let (script_public_key, redeem_script) = op_true_script();
         let signature_script = pay_to_script_hash_signature_script(&redeem_script, vec![]).expect("the redeem script is canonical");
 
-        let input = TransactionInput::new(previous_outpoint, signature_script, MAX_TX_IN_SEQUENCE_NUM, 1);
-        let output = TransactionOutput::new(value - DEFAULT_MINIMUM_RELAY_TRANSACTION_FEE, script_public_key);
-        let tx = Arc::new(Transaction::new(TX_VERSION, vec![input], vec![output], 0, SUBNETWORK_ID_NATIVE, 0, vec![]));
-        let calculated_mass = transaction_estimated_serialized_size(&tx);
+        let tx = Arc::new(
+            CellTx::new(
+                vec![CellRef::new(previous_outpoint, MAX_TX_IN_SEQUENCE_NUM)],
+                vec![],
+                vec![CellOut {
+                    lock: ScriptRef::new(compute_lock_hash_for_script(&script_public_key), 0, script_public_key.script().to_vec()),
+                    type_: None,
+                    capacity: value - DEFAULT_MINIMUM_RELAY_TRANSACTION_FEE,
+                }],
+                vec![vec![]],
+                vec![signature_script],
+            )
+            .expect("test helper must construct a valid CellTx"),
+        );
+        let calculated_mass = cell_tx_estimated_serialized_size(tx.as_ref());
         let calculated_fee = DEFAULT_MINIMUM_RELAY_TRANSACTION_FEE;
-
-        let cell_tx = Arc::new(legacy_tx_to_cell_tx(tx.as_ref()).expect("test transaction must be Cell-convertible"));
         CandidateTransaction {
-            tx,
-            cell_tx,
+            tx: tx.clone(),
+            cell_tx: tx,
             calculated_fee,
             calculated_mass,
             cell_score_total: None,

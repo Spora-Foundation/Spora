@@ -18,7 +18,10 @@ use spora_consensus_core::{
     header::Header,
     mass::{cell_tx_estimated_serialized_size, ContextualMasses, NonContextualMasses},
     merkle::{calc_hash_merkle_root, calc_hash_merkle_root_cell},
-    tx::{cell_tx_from_legacy_transaction, legacy_compat_transaction_from_cell_tx, CellEntry, CellTx, MutableTransaction, ScriptRef, Transaction, TransactionId, TransactionOutpoint},
+    tx::{
+        cell_tx_from_legacy_transaction, legacy_compat_transaction_from_cell_tx, CellEntry, CellTx, MutableTransaction,
+        OutPointCompat, ScriptRef, Transaction, TransactionId, TransactionOutpoint,
+    },
 };
 use spora_core::time::unix_now;
 use spora_hashes::{Hash, ZERO_HASH};
@@ -29,8 +32,10 @@ use std::{collections::HashMap, sync::Arc};
 type CellCollection = HashMap<TransactionOutpoint, CellEntry>;
 
 pub(crate) struct ConsensusMock {
+    legacy_transactions: RwLock<HashMap<TransactionId, Transaction>>,
     transactions: RwLock<HashMap<TransactionId, Arc<CellTx>>>,
     cell_transactions: RwLock<HashMap<TransactionId, Arc<CellTx>>>,
+    legacy_ids_by_cell_id: RwLock<HashMap<TransactionId, TransactionId>>,
     statuses: RwLock<HashMap<TransactionId, TxResult<()>>>,
     cells: RwLock<CellCollection>,
 }
@@ -38,8 +43,10 @@ pub(crate) struct ConsensusMock {
 impl ConsensusMock {
     pub(crate) fn new() -> Self {
         Self {
+            legacy_transactions: RwLock::new(HashMap::default()),
             transactions: RwLock::new(HashMap::default()),
             cell_transactions: RwLock::new(HashMap::default()),
+            legacy_ids_by_cell_id: RwLock::new(HashMap::default()),
             statuses: RwLock::new(HashMap::default()),
             cells: RwLock::new(HashMap::default()),
         }
@@ -52,24 +59,33 @@ impl ConsensusMock {
     pub(crate) fn add_transaction(&self, transaction: Transaction, block_daa_score: u64) {
         let legacy_id = transaction.id();
         let cell_tx = Arc::new(cell_tx_from_legacy_transaction(&transaction));
+        let mut legacy_transactions = self.legacy_transactions.write();
         let mut transactions = self.transactions.write();
         let mut cell_transactions = self.cell_transactions.write();
+        let mut legacy_ids_by_cell_id = self.legacy_ids_by_cell_id.write();
         let mut cells = self.cells.write();
 
         // Remove the spent cells
         cell_tx.inputs.iter().for_each(|x| {
             cells.remove(&x.out_point);
+            if let Some(parent_cell_id) = transactions.get(&x.out_point.transaction_id()).map(|tx| TransactionId::from_bytes(tx.id())) {
+                cells.remove(&TransactionOutpoint::new(parent_cell_id.as_bytes(), x.out_point.index));
+            }
+            if let Some(parent_legacy_id) = legacy_ids_by_cell_id.get(&x.out_point.transaction_id()).copied() {
+                cells.remove(&TransactionOutpoint::new(parent_legacy_id.as_bytes(), x.out_point.index));
+            }
         });
         // Create the new cells
         cell_tx.outputs.iter().zip(cell_tx.outputs_data.iter()).enumerate().for_each(|(i, (output, data))| {
-            cells.insert(
-                TransactionOutpoint::new(cell_tx.id(), i as u32),
-                cell_output_to_placeholder_entry(output, data, block_daa_score, cell_tx.is_coinbase()),
-            );
+            let entry = cell_output_to_placeholder_entry(output, data, block_daa_score, cell_tx.is_coinbase());
+            cells.insert(TransactionOutpoint::new(legacy_id.as_bytes(), i as u32), entry.clone());
+            cells.insert(TransactionOutpoint::new(cell_tx.id(), i as u32), entry);
         });
         // Register the transaction
+        legacy_transactions.insert(legacy_id, transaction);
         transactions.insert(legacy_id, cell_tx.clone());
-        cell_transactions.insert(cell_tx.id().into(), cell_tx);
+        cell_transactions.insert(cell_tx.id().into(), cell_tx.clone());
+        legacy_ids_by_cell_id.insert(cell_tx.id().into(), legacy_id);
     }
 
     pub(crate) fn can_finance_transaction(&self, transaction: &MutableTransaction) -> bool {
@@ -210,6 +226,14 @@ impl ConsensusApi for ConsensusMock {
     }
 
     fn get_transaction(&self, hash: Hash) -> ConsensusResult<Transaction> {
+        if let Some(transaction) = self.legacy_transactions.read().get(&hash) {
+            return Ok(transaction.clone());
+        }
+        if let Some(legacy_id) = self.legacy_ids_by_cell_id.read().get(&hash).copied() {
+            if let Some(transaction) = self.legacy_transactions.read().get(&legacy_id) {
+                return Ok(transaction.clone());
+            }
+        }
         if let Some(transaction) = self.transactions.read().get(&hash) {
             return Ok(legacy_compat_transaction_from_cell_tx(transaction.as_ref()));
         }

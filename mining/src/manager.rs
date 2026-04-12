@@ -35,9 +35,11 @@ use spora_consensus_core::{
 use spora_consensusmanager::{spawn_blocking, ConsensusProxy};
 use spora_core::{debug, error, info, time::Stopwatch, warn};
 use spora_mining_errors::{manager::MiningManagerError, mempool::RuleError};
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 use tokio::sync::mpsc::UnboundedSender;
 
+#[cfg(test)]
+use crate::cell_conversion::legacy_tx_to_cell_tx_with_context;
 #[cfg(test)]
 use crate::mempool::populate_entries_and_try_validate::{validate_mempool_transaction, validate_mempool_transactions_in_parallel};
 #[cfg(test)]
@@ -47,6 +49,8 @@ pub struct MiningManager {
     config: Arc<Config>,
     block_template_cache: BlockTemplateCache,
     mempool: RwLock<Mempool>,
+    #[cfg(test)]
+    legacy_transaction_ids: RwLock<HashMap<TransactionId, TransactionId>>,
     counters: Arc<MiningCounters>,
 }
 
@@ -80,7 +84,14 @@ impl MiningManager {
         let config = Arc::new(config);
         let mempool = RwLock::new(Mempool::new(config.clone(), counters.clone()));
         let block_template_cache = BlockTemplateCache::new(cache_lifetime);
-        Self { config, block_template_cache, mempool, counters }
+        Self {
+            config,
+            block_template_cache,
+            mempool,
+            #[cfg(test)]
+            legacy_transaction_ids: RwLock::new(HashMap::new()),
+            counters,
+        }
     }
 
     pub fn get_block_template(&self, consensus: &dyn ConsensusApi, miner_data: &MinerData) -> MiningManagerResult<BlockTemplate> {
@@ -296,7 +307,18 @@ impl MiningManager {
         orphan: Orphan,
         rbf_policy: RbfPolicy,
     ) -> MiningManagerResult<TransactionInsertion> {
-        self.validate_and_insert_mutable_transaction(consensus, MutableTransaction::from_tx(transaction), priority, orphan, rbf_policy)
+        let legacy_transaction_id = transaction.id();
+        let parent_cell_ids = self.legacy_transaction_ids.read().clone();
+        let canonical_transaction = legacy_tx_to_cell_tx_with_context(&transaction, &parent_cell_ids)
+            .expect("test transaction must convert to canonical CellTx");
+        self.validate_and_insert_mutable_transaction_impl(
+            consensus,
+            MutableTransaction::from_cell_tx(canonical_transaction),
+            Some(legacy_transaction_id),
+            priority,
+            orphan,
+            rbf_policy,
+        )
     }
 
     /// Exposed for tests only
@@ -311,6 +333,20 @@ impl MiningManager {
         orphan: Orphan,
         rbf_policy: RbfPolicy,
     ) -> MiningManagerResult<TransactionInsertion> {
+        self.validate_and_insert_mutable_transaction_impl(consensus, transaction, None, priority, orphan, rbf_policy)
+    }
+
+    #[cfg(test)]
+    fn validate_and_insert_mutable_transaction_impl(
+        &self,
+        consensus: &dyn ConsensusApi,
+        transaction: MutableTransaction,
+        legacy_transaction_id: Option<TransactionId>,
+        priority: Priority,
+        orphan: Orphan,
+        rbf_policy: RbfPolicy,
+    ) -> MiningManagerResult<TransactionInsertion> {
+        let canonical_transaction_id = transaction.id();
         // read lock on mempool
         let TransactionPreValidation { mut transaction, cell_tx, feerate_threshold } =
             self.mempool.read().pre_validate_and_populate_transaction(consensus, transaction, rbf_policy)?;
@@ -321,9 +357,12 @@ impl MiningManager {
         let mut mempool = self.mempool.write();
         match mempool.post_validate_and_insert_transaction(consensus, validation_result, transaction, cell_tx, priority, orphan, rbf_policy)? {
             TransactionPostValidation { removed, accepted: Some(accepted_transaction), accepted_cell_tx: _ } => {
+                if let Some(legacy_transaction_id) = legacy_transaction_id {
+                    self.legacy_transaction_ids.write().insert(legacy_transaction_id, canonical_transaction_id);
+                }
                 let unorphaned_transactions = mempool.get_unorphaned_transactions_after_accepted_cell_transaction(
                     accepted_transaction.as_ref(),
-                    Some(accepted_transaction.id().into()),
+                    legacy_transaction_id.or(Some(accepted_transaction.id().into())),
                     spora_consensus_core::constants::UNACCEPTED_DAA_SCORE,
                 );
                 drop(mempool);
@@ -337,7 +376,12 @@ impl MiningManager {
 
                 Ok(TransactionInsertion::new(removed, accepted_transactions))
             }
-            TransactionPostValidation { removed, accepted: None, accepted_cell_tx: _ } => Ok(TransactionInsertion::new(removed, vec![])),
+            TransactionPostValidation { removed, accepted: None, accepted_cell_tx: _ } => {
+                if let Some(legacy_transaction_id) = legacy_transaction_id {
+                    self.legacy_transaction_ids.write().insert(legacy_transaction_id, canonical_transaction_id);
+                }
+                Ok(TransactionInsertion::new(removed, vec![]))
+            }
         }
     }
 

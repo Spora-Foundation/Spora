@@ -24,7 +24,7 @@ pub mod scripts;
 #[cfg(feature = "vm")]
 pub mod vm;
 
-pub use celltx::{CellDep, CellOut, CellRef, CellTx, DepType, OutPoint, ScriptRef};
+pub use celltx::{CellDep, CellOut, CellRef, CellTx, DepType, OutPoint, ScriptRef, encode_dep_group_data, parse_dep_group_data};
 
 /// Cell transaction version
 pub const CELL_TX_VERSION: u16 = 0xC001;

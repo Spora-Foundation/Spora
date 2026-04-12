@@ -87,7 +87,7 @@ pub fn cell_tx_estimated_serialized_size(tx: &CellTx) -> u64 {
     size
 }
 
-// transaction_estimated_serialized_size is the estimated size of a transaction in some
+// transaction_estimated_serialized_size is the estimated size of a legacy transaction in some
 // serialization. This has to be deterministic, but not necessarily accurate, since
 // it's only used as the size component in the transaction and block mass limit
 // calculation.
@@ -115,18 +115,16 @@ pub fn transaction_estimated_serialized_size(tx: &Transaction) -> u64 {
 fn transaction_input_estimated_serialized_size(input: &TransactionInput) -> u64 {
     let mut size = 0;
     size += outpoint_estimated_serialized_size();
-
     size += 8; // length of signature script (u64)
     size += input.signature_script.len() as u64;
-
-    size += 8; // sequence (uint64)
+    size += 8; // sequence (u64)
     size
 }
 
 const fn outpoint_estimated_serialized_size() -> u64 {
     let mut size: u64 = 0;
-    size += HASH_SIZE as u64; // Previous tx ID
-    size += 4; // Index (u32)
+    size += HASH_SIZE as u64; // previous tx id
+    size += 4; // index (u32)
     size
 }
 
@@ -145,7 +143,8 @@ pub fn transaction_output_estimated_serialized_size(output: &TransactionOutput) 
 pub fn cell_plurality(spk: &ScriptPublicKey) -> u64 {
     // The base (63 bytes) plus the max standard public key length (33 bytes) fits into one 100-byte unit.
     // Hence, all standard SPKs end up with a plurality of 1.
-    (LEGACY_CELL_CONST_STORAGE + spk.script().len() as u64).div_ceil(CELL_UNIT_SIZE)
+    // Using CANONICAL_CELL_CONST_STORAGE (126 bytes) as the base for cell model compatibility
+    (CANONICAL_CELL_CONST_STORAGE + spk.script().len() as u64).div_ceil(CELL_UNIT_SIZE)
 }
 
 fn canonical_cell_storage_bytes(entry: &CellEntry) -> Option<u64> {
@@ -162,6 +161,8 @@ fn canonical_output_storage_bytes(output: &TransactionOutput) -> Option<u64> {
     crate::cell_metadata::parse_cell_metadata_placeholder_script_public_key(&output.script_public_key)
         .map(|metadata| CANONICAL_CELL_CONST_STORAGE + u64::from(metadata.type_hash.is_some()) * 32 + metadata.data_bytes)
 }
+
+
 
 pub fn cell_entry_plurality(entry: &CellEntry) -> u64 {
     // CellMeta always carries canonical cell metadata
@@ -200,6 +201,10 @@ impl CellPlurality for TransactionOutput {
             .div_ceil(CELL_UNIT_SIZE)
     }
 }
+
+
+
+
 
 /// An abstract storage cell.
 ///
@@ -249,6 +254,8 @@ impl From<&TransactionOutput> for CellMass {
         Self::new(output.plurality(), output.value)
     }
 }
+
+
 
 impl From<(&CellOut, usize)> for CellMass {
     fn from((output, data_len): (&CellOut, usize)) -> Self {
@@ -350,33 +357,6 @@ impl MassCalculator {
             mass_per_sig_op: consensus_params.mass_per_sig_op,
             storage_mass_parameter: consensus_params.storage_mass_parameter,
         }
-    }
-
-    /// Calculates the non-contextual masses for this transaction (i.e., masses which can be calculated from
-    /// the transaction alone). These include compute and transient storage masses of this transaction. This
-    /// does not include the persistent storage mass calculation below which requires full cell-entry context
-    #[allow(deprecated)]
-    pub fn calc_non_contextual_masses(&self, tx: &Transaction) -> NonContextualMasses {
-        if tx.is_coinbase() {
-            return NonContextualMasses::new(0, 0);
-        }
-
-        let size = transaction_estimated_serialized_size(tx);
-        let compute_mass_for_size = size * self.mass_per_tx_byte;
-        let total_script_public_key_size: u64 = tx
-            .outputs
-            .iter()
-            .map(|output| 2 /* script public key version (u16) */ + output.script_public_key.script().len() as u64)
-            .sum();
-        let total_script_public_key_mass = total_script_public_key_size * self.mass_per_script_pub_key_byte;
-
-        let total_sigops: u64 = tx.inputs.iter().map(|input| input.sig_op_count as u64).sum();
-        let total_sigops_mass = total_sigops * self.mass_per_sig_op;
-
-        let compute_mass = compute_mass_for_size + total_script_public_key_mass + total_sigops_mass;
-        let transient_mass = size * TRANSIENT_BYTE_TO_MASS_FACTOR;
-
-        NonContextualMasses::new(compute_mass, transient_mass)
     }
 
     /// Calculates non-contextual masses for a CellTx transaction.
@@ -600,10 +580,11 @@ mod tests {
 
         // verify P >= 1 also when the script is empty
         assert!(cell_plurality(&ScriptPublicKey::new(0, ScriptVec::from_slice(&[]))) == 1);
-        // Assert the CELL_CONST_STORAGE=63, CELL_UNIT_SIZE=100 constants
-        assert!(cell_plurality(&ScriptPublicKey::from_vec(0, vec![1; (CELL_UNIT_SIZE - LEGACY_CELL_CONST_STORAGE) as usize])) == 1);
+        // Assert the CANONICAL_CELL_CONST_STORAGE=126, CELL_UNIT_SIZE=100 constants
+        // Note: With canonical storage (126 bytes), even empty script gives plurality = 2 (ceil(126/100))
+        assert!(cell_plurality(&ScriptPublicKey::from_vec(0, vec![1; (CELL_UNIT_SIZE * 2 - CANONICAL_CELL_CONST_STORAGE) as usize])) == 2);
         assert!(
-            cell_plurality(&ScriptPublicKey::from_vec(0, vec![1; (CELL_UNIT_SIZE - LEGACY_CELL_CONST_STORAGE + 1) as usize])) == 2
+            cell_plurality(&ScriptPublicKey::from_vec(0, vec![1; (CELL_UNIT_SIZE * 2 - CANONICAL_CELL_CONST_STORAGE + 1) as usize])) == 3
         );
     }
 

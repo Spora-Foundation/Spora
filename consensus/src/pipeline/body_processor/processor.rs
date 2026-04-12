@@ -1,6 +1,6 @@
 use crate::{
     consensus::{
-        services::{ConsensusServices, DbWindowManager},
+        services::{ConsensusServices, DbGhostdagManager, DbWindowManager},
         storage::ConsensusStorage,
     },
     errors::{BlockProcessResult, RuleError},
@@ -75,6 +75,7 @@ pub struct BlockBodyProcessor {
 
     // Managers and services
     pub(super) reachability_service: MTReachabilityService<DbReachabilityStore>,
+    pub(super) ghostdag_manager: DbGhostdagManager,
     pub(super) coinbase_manager: CoinbaseManager,
     pub(crate) mass_calculator: MassCalculator,
     pub(super) window_manager: DbWindowManager,
@@ -127,6 +128,7 @@ impl BlockBodyProcessor {
             body_tips_store: storage.body_tips_store.clone(),
 
             reachability_service: services.reachability_service.clone(),
+            ghostdag_manager: services.ghostdag_manager.clone(),
             coinbase_manager: services.coinbase_manager.clone(),
             mass_calculator: services.mass_calculator.clone(),
             window_manager: services.window_manager.clone(),

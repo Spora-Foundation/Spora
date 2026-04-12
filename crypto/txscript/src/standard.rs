@@ -25,6 +25,15 @@ fn pay_to_pub_key(address_payload: &[u8]) -> ScriptVec {
     SmallVec::from_iter(once(OpData32).chain(address_payload.iter().copied()).chain(once(OpCheckSig)))
 }
 
+/// DEPRECATED: This function uses legacy OP_CHECKLOCKTIMEVERIFY which is disabled in Cell model.
+/// 
+/// Use CKB-VM with `since` syscall for time lock verification instead.
+/// 
+/// See: `exec/src/scripts/` for Cell-native script examples.
+#[deprecated(
+    since = "0.2.0",
+    note = "Legacy time lock scripts are disabled in Cell model. Use CKB-VM with `since` syscall instead. See exec/src/scripts/ for examples."
+)]
 pub fn pay_to_pub_key_with_lock_time(address_payload: &[u8], lock_time: u64) -> ScriptBuilderResult<Vec<u8>> {
     assert_eq!(address_payload.len(), 32);
     let script = ScriptBuilder::new()
@@ -61,33 +70,25 @@ pub fn pay_to_address_script(address: &Address) -> ScriptPublicKey {
     ScriptPublicKey::new(version, script)
 }
 
-/// Creates a new script to pay a transaction output to the specified address with lock time.
+/// DEPRECATED: This function creates legacy time lock scripts using OP_CHECKLOCKTIMEVERIFY
+/// which is disabled in Cell model.
 ///
-/// This function creates a Time Locked Contract (TLC) script that requires:
-/// 1. The transaction's lock time to be greater than or equal to the specified lock_time
-/// 2. A valid signature from the address owner
+/// Use CKB-VM with `since` syscall for time lock verification instead.
+/// Cell model uses per-input `since` field for time locks, not tx-level lock_time.
 ///
-/// The lock_time can be either:
-/// - A block height (if < LOCK_TIME_THRESHOLD)
-/// - A Unix timestamp (if >= LOCK_TIME_THRESHOLD)
+/// See: `exec/src/scripts/` for Cell-native script examples.
 ///
 /// # Arguments
 /// * `address` - The address to pay to (must be PubKey version)
-/// * `lock_time` - The minimum lock time required to spend this output
+/// * `lock_time` - The minimum lock time required to spend this output (IGNORED in Cell model)
 ///
 /// # Returns
 /// * `Ok(ScriptPublicKey)` - The constructed script public key
 /// * `Err(ScriptBuilderError::InvalidAddressVersion)` - If address is not PubKey version
-///
-/// # Example
-/// ```
-/// use spora_txscript::pay_to_address_with_lock_time_script;
-/// use spora_addresses::Address;
-///
-/// let addr = Address::constructor("spora0:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvp55hu9");
-/// let lock_time = 1756684800; // Unix timestamp
-/// let script = pay_to_address_with_lock_time_script(&addr, lock_time).unwrap();
-/// ```
+#[deprecated(
+    since = "0.2.0",
+    note = "Legacy time lock scripts are disabled in Cell model. Use CKB-VM with `since` syscall instead. See exec/src/scripts/ for examples."
+)]
 pub fn pay_to_address_with_lock_time_script(address: &Address, lock_time: u64) -> ScriptBuilderResult<ScriptPublicKey> {
     if address.version != Version::PubKey {
         return Err(ScriptBuilderError::InvalidAddressVersion(address.version as u8));
@@ -98,46 +99,25 @@ pub fn pay_to_address_with_lock_time_script(address: &Address, lock_time: u64) -
     Ok(pay_to_script_hash_script(&redeem_script))
 }
 
-/// Creates a Hash Time Locked Contract (HTLC) script.
+/// DEPRECATED: This function creates legacy HTLC scripts using OP_CHECKLOCKTIMEVERIFY
+/// which is disabled in Cell model.
 ///
-/// This function creates an HTLC script that allows spending in two ways:
-/// 1. With the correct preimage (secret) and a valid signature from the recipient
-/// 2. With a valid signature from the sender after the lock time expires
-///
-/// The HTLC script structure:
-/// ```text
-/// OP_IF
-///   OP_BLAKE3 <hash(secret)> OP_EQUALVERIFY
-///   <recipient_pubkey> OP_CHECKSIG
-/// OP_ELSE
-///   <lock_time> OP_CHECKLOCKTIMEVERIFY OP_DROP
-///   <sender_pubkey> OP_CHECKSIG
-/// OP_ENDIF
-/// ```
+/// Use CKB-VM with `since` syscall for time lock verification instead.
+/// See: `exec/src/scripts/` for Cell-native HTLC script examples.
 ///
 /// # Arguments
 /// * `secret_hash` - The Blake3 hash of the secret (32 bytes)
 /// * `recipient_pubkey` - The recipient's public key (32 bytes for Schnorr)
 /// * `sender_pubkey` - The sender's public key (32 bytes for Schnorr)
-/// * `lock_time` - The minimum lock time required for sender to spend
+/// * `lock_time` - The minimum lock time required for sender to spend (IGNORED in Cell model)
 ///
 /// # Returns
 /// * `Ok(ScriptPublicKey)` - The constructed HTLC script public key
 /// * `Err(ScriptBuilderError)` - If any parameter is invalid
-///
-/// # Example
-/// ```
-/// use spora_txscript::htlc_script;
-/// use blake3::hash;
-///
-/// let secret = b"my_secret_key";
-/// let secret_hash = hash(secret);
-/// let recipient_pubkey = [0u8; 32]; // Replace with actual pubkey
-/// let sender_pubkey = [0u8; 32]; // Replace with actual pubkey
-/// let lock_time = 1756684800; // Unix timestamp
-///
-/// let script = htlc_script(secret_hash.as_bytes(), &recipient_pubkey, &sender_pubkey, lock_time).unwrap();
-/// ```
+#[deprecated(
+    since = "0.2.0",
+    note = "Legacy HTLC scripts are disabled in Cell model. Use CKB-VM with `since` syscall instead. See exec/src/scripts/ for examples."
+)]
 pub fn htlc_script(
     secret_hash: &[u8],
     recipient_pubkey: &[u8],
@@ -186,19 +166,26 @@ pub fn htlc_script(
     Ok(ScriptPublicKey::from_vec(version, script))
 }
 
-/// Creates a Hash Time Locked Contract (HTLC) script with ECDSA signatures.
+/// DEPRECATED: This function creates legacy HTLC scripts using OP_CHECKLOCKTIMEVERIFY
+/// which is disabled in Cell model.
 ///
 /// Similar to `htlc_script` but uses ECDSA signature verification instead of Schnorr.
+/// Use CKB-VM with `since` syscall for time lock verification instead.
+/// See: `exec/src/scripts/` for Cell-native HTLC script examples.
 ///
 /// # Arguments
 /// * `secret_hash` - The BLAKE3-256 hash of the secret (32 bytes)
 /// * `recipient_pubkey` - The recipient's ECDSA public key (33 bytes)
 /// * `sender_pubkey` - The sender's ECDSA public key (33 bytes)
-/// * `lock_time` - The minimum lock time required for sender to spend
+/// * `lock_time` - The minimum lock time required for sender to spend (IGNORED in Cell model)
 ///
 /// # Returns
 /// * `Ok(ScriptPublicKey)` - The constructed HTLC script public key
 /// * `Err(ScriptBuilderError)` - If any parameter is invalid
+#[deprecated(
+    since = "0.2.0",
+    note = "Legacy HTLC scripts are disabled in Cell model. Use CKB-VM with `since` syscall instead. See exec/src/scripts/ for examples."
+)]
 pub fn htlc_script_ecdsa(
     secret_hash: &[u8],
     recipient_pubkey: &[u8],

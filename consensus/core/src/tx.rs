@@ -19,10 +19,8 @@ use crate::cell_metadata::{
     cell_metadata_placeholder_script_public_key_with_metadata, parse_cell_metadata_placeholder_script_public_key, CellMetadata,
 };
 use crate::mass::{ContextualMasses, NonContextualMasses};
-use crate::{
-    hashing,
-    subnets::{self, SubnetworkId},
-};
+use crate::subnets::{self, SubnetworkId};
+use crate::hashing;
 pub use spora_exec::celltx::{CellDep, CellOut, CellRef, CellTx, DepType, OutPoint, ScriptRef};
 use spora_utils::hex::ToHex;
 use spora_utils::mem_size::MemSizeEstimator;
@@ -64,10 +62,7 @@ pub fn legacy_transaction_output_from_cell_entry(cell_entry: &CellEntry) -> Tran
     TransactionOutput { value: cell_entry.amount(), script_public_key: cell_entry_legacy_script_public_key(cell_entry) }
 }
 
-/// Compute the lock_hash for a legacy ScriptPublicKey using blake3.
-///
-/// The hash is domain-separated with `spora-cell/lock` and includes
-/// the script version and body.
+/// Deterministically derive the synthetic Cell lock hash used by legacy script bridges.
 pub fn compute_lock_hash_for_script(script_public_key: &ScriptPublicKey) -> [u8; 32] {
     let mut hasher = blake3::Hasher::new();
     hasher.update(b"spora-cell/lock");
@@ -129,7 +124,9 @@ pub fn cell_tx_from_legacy_transaction(tx: &Transaction) -> CellTx {
         .inputs
         .iter()
         .map(|input| CellRef::new(input.previous_outpoint, legacy_sequence_to_cell_since(input.sequence)))
-        .collect();
+        .collect::<Vec<_>>();
+
+    let witnesses = tx.inputs.iter().map(|input| input.signature_script.clone()).collect::<Vec<_>>();
 
     let outputs = tx
         .outputs
@@ -138,20 +135,25 @@ pub fn cell_tx_from_legacy_transaction(tx: &Transaction) -> CellTx {
         .collect::<Vec<_>>();
 
     let mut outputs_data = vec![vec![]; outputs.len()];
-    if let Some(first) = outputs_data.first_mut() {
+    if tx.is_coinbase() && !tx.payload.is_empty() && !outputs_data.is_empty() {
+        let first = outputs_data.first_mut().expect("checked outputs_data is not empty");
         *first = tx.payload.clone();
     }
 
-    let witnesses = tx.inputs.iter().map(|input| input.signature_script.clone()).collect();
+    let coinbase_witnesses = if tx.is_coinbase() && outputs.is_empty() && !tx.payload.is_empty() {
+        vec![tx.payload.clone()]
+    } else {
+        witnesses
+    };
 
-    CellTx::new(inputs, vec![], outputs, outputs_data, witnesses)
+    CellTx::new(inputs, vec![], outputs, outputs_data, coinbase_witnesses)
         .expect("legacy compatibility transactions must convert into valid CellTx values")
 }
 
 /// Bridge a legacy sequence value into the canonical Cell `since` field.
 #[inline]
 pub fn legacy_sequence_to_cell_since(sequence: u64) -> u64 {
-    sequence
+    if sequence == u64::MAX { 0 } else { sequence }
 }
 
 pub type TransactionIndexType = u32;
@@ -180,30 +182,14 @@ pub fn outpoint_from_id(transaction_id: TransactionId, index: u32) -> Transactio
     TransactionOutpoint::new(transaction_id.as_bytes(), index)
 }
 
-/// Represents a Spora transaction input
-///
-/// **Deprecated**: Use `CellRef` (from `CellTx`) for new code.
-/// `CellRef` has `out_point: OutPoint` and `since: u64`.
-/// `TransactionInput` fields map to Cell model as follows:
-/// - `previous_outpoint` → `CellRef.out_point`
-/// - `sequence` → `CellRef.since` (via `legacy_sequence_to_cell_since()`)
-/// - `signature_script` → `CellTx.witnesses[i]`
-/// - `sig_op_count` → implicit 1 in Cell model
-#[deprecated(note = "Use CellRef directly; TransactionInput is a legacy compatibility type")]
+/// Legacy transaction input compatibility shape.
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TransactionInput {
     pub previous_outpoint: TransactionOutpoint,
     #[serde(with = "serde_bytes")]
-    pub signature_script: Vec<u8>, // TODO: Consider using SmallVec
+    pub signature_script: Vec<u8>,
     pub sequence: u64,
-
-    // TODO
-    // pub witness: Witness,
-
-    // TODO: Since this field is used for calculating mass context free, and we already commit
-    // to the mass in a dedicated field (on the tx level), it follows that this field is no longer
-    // needed, and can be removed if we ever implement a v2 transaction
     pub sig_op_count: u8,
 }
 
@@ -211,7 +197,6 @@ impl TransactionInput {
     pub fn new(previous_outpoint: TransactionOutpoint, signature_script: Vec<u8>, sequence: u64, sig_op_count: u8) -> Self {
         Self { previous_outpoint, signature_script, sequence, sig_op_count }
     }
-
 }
 
 impl std::fmt::Debug for TransactionInput {
@@ -225,14 +210,7 @@ impl std::fmt::Debug for TransactionInput {
     }
 }
 
-/// Represents a Sporad transaction output
-///
-/// **Deprecated**: Use `CellOut` (from `CellTx`) for new code.
-/// `CellOut` has `lock: ScriptRef`, `type_: Option<ScriptRef>`, `capacity: u64`.
-/// `TransactionOutput` fields map to Cell model as follows:
-/// - `value` → `CellOut.capacity`
-/// - `script_public_key` → `CellOut.lock` (converted via `compute_lock_hash_for_script()`)
-#[deprecated(note = "Use CellOut directly; TransactionOutput is a legacy compatibility type")]
+/// Legacy transaction output compatibility shape.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TransactionOutput {
@@ -247,7 +225,7 @@ impl TransactionOutput {
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
-pub struct TransactionMass(AtomicU64); // TODO: using atomic as a temp solution for mutating this field through the mempool
+pub struct TransactionMass(AtomicU64);
 
 impl Eq for TransactionMass {}
 
@@ -368,6 +346,10 @@ impl MemSizeEstimator for Transaction {
                 .sum::<usize>()
     }
 }
+
+
+
+
 
 
 
@@ -534,7 +516,7 @@ pub fn legacy_compat_transaction_from_cell_tx(cell_tx: &CellTx) -> Transaction {
             let output_data = cell_tx.outputs_data.get(index).cloned().unwrap_or_default();
             TransactionOutput::new(
                 output.capacity,
-                crate::cell_metadata::cell_metadata_placeholder_script_public_key_with_metadata(
+                cell_metadata_placeholder_script_public_key_with_metadata(
                     output.lock.hash(),
                     output.type_.as_ref().map(|script| script.hash()),
                     *blake3::hash(&output_data).as_bytes(),
@@ -746,6 +728,11 @@ impl<T: CellTxContainer> VerifiableTransaction for MutableTransactionVerifiableW
 
 /// Specialized impl for `T=Arc<CellTx>`
 impl MutableTransaction {
+    #[allow(deprecated)]
+    pub fn from_tx(tx: Transaction) -> Self {
+        Self::from_cell_tx(cell_tx_from_legacy_transaction(&tx))
+    }
+
     pub fn from_cell_tx(tx: CellTx) -> Self {
         Self::new(std::sync::Arc::new(tx))
     }
@@ -760,8 +747,8 @@ mod tests {
     use super::*;
     use smallvec::smallvec;
 
-    #[test]
-    fn test_spk_serde_json() {
+    #[allow(deprecated)]
+    fn test_transaction() -> Transaction {
         let script_public_key = ScriptPublicKey::new(
             0,
             smallvec![
@@ -808,7 +795,7 @@ mod tests {
                 TransactionOutput { value: 7, script_public_key },
             ],
             8,
-            SUBNETWORK_ID_COINBASE,
+            subnets::SUBNETWORK_ID_COINBASE,
             9,
             vec![
                 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12,
@@ -897,7 +884,7 @@ mod tests {
     }
 
     #[test]
-    fn test_spk_serde_json() {
+    fn test_spk_serde_json_helper() {
         let vec = (0..SCRIPT_VECTOR_SIZE as u8).collect::<Vec<_>>();
         let spk = ScriptPublicKey::from_vec(0xc0de, vec.clone());
         let hex: String = serde_json::to_string(&spk).unwrap();

@@ -246,12 +246,30 @@ impl ScriptBuilder {
         self.add_data(&bytes)
     }
 
-    /// Gets a u64 lock time, converts it to byte array in little-endian, and then used the add_data function.
+    /// DEPRECATED: This method was used for legacy OP_CHECKLOCKTIMEVERIFY opcode.
+    /// 
+    /// OP_CHECKLOCKTIMEVERIFY is disabled in Cell model. Use CKB-VM with `since` syscall
+    /// for time lock verification instead.
+    ///
+    /// This method is kept for backward compatibility but should not be used for new scripts.
+    #[deprecated(
+        since = "0.2.0",
+        note = "Legacy time lock opcodes are disabled in Cell model. Use CKB-VM with `since` syscall instead."
+    )]
     pub fn add_lock_time(&mut self, lock_time: u64) -> ScriptBuilderResult<&mut Self> {
         self.add_u64(lock_time)
     }
 
-    /// Gets a u64 sequence, converts it to byte array in little-endian, and then used the add_data function.
+    /// DEPRECATED: This method was used for legacy OP_CHECKSEQUENCEVERIFY opcode.
+    ///
+    /// OP_CHECKSEQUENCEVERIFY is disabled in Cell model. Use CKB-VM with `since` syscall
+    /// for time lock verification instead.
+    ///
+    /// This method is kept for backward compatibility but should not be used for new scripts.
+    #[deprecated(
+        since = "0.2.0",
+        note = "Legacy time lock opcodes are disabled in Cell model. Use CKB-VM with `since` syscall instead."
+    )]
     pub fn add_sequence(&mut self, sequence: u64) -> ScriptBuilderResult<&mut Self> {
         self.add_u64(sequence)
     }

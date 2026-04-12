@@ -650,7 +650,7 @@ mod tests {
 
     fn build_test_mtx() -> MutableTransaction {
         let script_public_key = ScriptPublicKey::new(0, smallvec![0x51]);
-        let input = CellRef::new(TransactionOutpoint::new(*TransactionId::default().as_bytes(), 0), 0);
+        let input = CellRef::new(TransactionOutpoint::new(TransactionId::default().as_bytes(), 0), 0);
         let output = CellOut {
             lock: ScriptRef::new(crate::cell_conversion::compute_lock_hash(&script_public_key), 0, vec![]),
             type_: None,
@@ -670,7 +670,7 @@ mod tests {
 
     fn build_child_mtx(parent_id: TransactionId) -> MutableTransaction {
         let script_public_key = ScriptPublicKey::new(0, smallvec![0x51]);
-        let input = CellRef::new(TransactionOutpoint::new(*parent_id.as_bytes(), 0), 0);
+        let input = CellRef::new(TransactionOutpoint::new(parent_id.as_bytes(), 0), 0);
         let output = CellOut {
             lock: ScriptRef::new(crate::cell_conversion::compute_lock_hash(&script_public_key), 0, vec![]),
             type_: None,
@@ -688,6 +688,11 @@ mod tests {
         mtx
     }
 
+    fn add_test_transaction(pool: &mut TransactionsPool, transaction: MutableTransaction) {
+        let transaction_size = transaction.mempool_estimated_bytes();
+        pool.add_transaction(transaction, 0, Priority::Low, transaction_size).unwrap();
+    }
+
     #[test]
     fn build_selector_reads_cell_txs_from_cell_pool() {
         let config = Arc::new(Config::build_default(1000, false, 1_000_000));
@@ -696,7 +701,7 @@ mod tests {
         let tx_id = mtx.id();
         let expected_cell_tx_id = mtx.tx.id();
 
-        pool.add_transaction(mtx, 0, Priority::Low, 256).unwrap();
+        add_test_transaction(&mut pool, mtx);
         let stored = pool.all_transactions.get_mut(&tx_id).unwrap();
         stored.cell_tx = None;
 
@@ -715,8 +720,8 @@ mod tests {
         let child = build_child_mtx(parent_id);
         let child_id = child.id();
 
-        pool.add_transaction(parent, 0, Priority::Low, 256).unwrap();
-        pool.add_transaction(child, 0, Priority::Low, 256).unwrap();
+        add_test_transaction(&mut pool, parent);
+        add_test_transaction(&mut pool, child);
 
         pool.parent_transactions.remove(&child_id);
         pool.chained_transactions.remove(&parent_id);
@@ -735,12 +740,13 @@ mod tests {
         let child = build_child_mtx(parent_id);
         let child_id = child.id();
 
-        pool.add_transaction(parent, 0, Priority::Low, 256).unwrap();
-        pool.add_transaction(child, 0, Priority::Low, 256).unwrap();
+        add_test_transaction(&mut pool, parent);
+        add_test_transaction(&mut pool, child);
 
         let parent_cell_id = pool.all_transactions.get(&parent_id).unwrap().cell_tx_id().unwrap();
         let child_tx = pool.all_transactions.get_mut(&child_id).unwrap();
-        child_tx.cell_tx.as_mut().unwrap().inputs.iter_mut().for_each(|input| input.out_point.tx_hash = *parent_cell_id.as_bytes());
+        let child_cell_tx = Arc::make_mut(child_tx.cell_tx.as_mut().unwrap());
+        child_cell_tx.inputs.iter_mut().for_each(|input| input.out_point.tx_hash = parent_cell_id.as_bytes());
 
         let effective = {
             let child = pool.all_transactions.get(&child_id).unwrap();
@@ -760,8 +766,8 @@ mod tests {
         let child_id = child.id();
         let expected_child_cell_tx_id = child.tx.id();
 
-        pool.add_transaction(parent, 0, Priority::Low, 256).unwrap();
-        pool.add_transaction(child, 0, Priority::Low, 256).unwrap();
+        add_test_transaction(&mut pool, parent);
+        add_test_transaction(&mut pool, child);
 
         pool.parent_transactions.remove(&child_id);
         pool.chained_transactions.remove(&parent_id);

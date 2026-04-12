@@ -193,7 +193,7 @@ template 已经能生成大部分承诺，但交易筛选和 fee 语义仍是简
 - 后续每次改规则都要改两套地方
 - 再次引入分层漂移的概率很高
 
-### V2-P1-04 收口 Cell 模型下已失效的 legacy 时间锁脚本面
+### V2-P1-04 把 legacy 时间锁脚本面彻底迁移到 `ScriptRef + CKB-VM`
 
 **为什么要做**
 
@@ -204,7 +204,7 @@ Cell 模型已经把时间锁语义切到每输入 `since`，而且共识侧 `Ce
 - 绝对时间戳锁
 - 相对时间戳锁
 
-因此，这一条 issue 的重点不是“再发明一次时间锁校验”，而是把仍暴露在 txscript / SDK / wallet 上层的 legacy 时间锁脚本面收掉。当前这些 legacy 入口和 Cell 模型不兼容，而且下游仍在使用，属于会误导调用方的真实 P1 风险。
+因此，这一条 issue 的重点不是“再发明一次时间锁校验”，也不是“给 CLTV/CSV 打一个 Cell 兼容补丁”，而是把仍暴露在 txscript / SDK / wallet 上层的 legacy 时间锁脚本面彻底迁到 `ScriptRef + CKB-VM`。当前这些 legacy 入口和 Cell 模型不兼容，而且下游仍在使用，属于会误导调用方的真实 P1 风险。
 
 当前 txscript 中两个 legacy 时间锁 opcode 在 Cell 模型下都已实质失效：
 
@@ -212,6 +212,8 @@ Cell 模型已经把时间锁语义切到每输入 `since`，而且共识侧 `Ce
 - `OpCheckSequenceVerify`（CSV）：沿用 legacy `sequence` 语义。对 Cell `since` 来说，bit63 表示“相对锁”，但 CSV 把它当成“disabled bit”，因此相对锁会被立即判错；即便是绝对锁，CSV 也只比较低 32 位，忽略 bit62 模式位和高位值域，语义同样是**错误的**。
 
 此外，依赖这两个 opcode 的标准脚本构建函数（HTLC、时间锁支付）仍在对外暴露，下游调用面包括 wallet generator、WASM SDK、`consensus/client` 包装层和 `treasure_boy`。这意味着风险不是“仓库里留了几段死代码”，而是“公开 API 仍在引导用户生成会失败或锁死资金的脚本”。
+
+主架构文档已经把终态写清楚了：Spora 的规范脚本面应当与 CKB 对齐，即由 `ScriptRef + CKB-VM + since + header_deps` 组成，txscript 只应作为迁移期兼容层，不能继续承载正式时间锁能力。
 
 Cell-native 的替代方向已经存在：`exec/src/scripts/` 中已有通过 CKB-VM 系统调用读取 `since` / header timestamp 的 fixture；后续应将对外时间锁能力统一收敛到“输入 `since` + VM lock script”这一条规范路径。
 
@@ -225,6 +227,7 @@ Cell-native 的替代方向已经存在：`exec/src/scripts/` 中已有通过 CK
 - `crypto/txscript/src/wasm/builder.rs`
 - `exec/src/celltx/types.rs`（`CellTx::lock_time()` 恒返回 0 的兼容方法）
 - `exec/src/scripts/mod.rs`
+- `exec/src/vm/`
 - `crypto/txscript/src/lib.rs`（`LOCK_TIME_THRESHOLD`, `MAX_TX_IN_SEQUENCE_NUM` 等仅服务旧 opcode 的常量）
 - `consensus/client/src/utils.rs`
 - `wallet/core/src/tx/generator/generator.rs`
@@ -236,22 +239,26 @@ Cell-native 的替代方向已经存在：`exec/src/scripts/` 中已有通过 CK
 - 文档先明确：Cell 模型的规范时间锁语义是输入 `since`，不是 tx-level `lock_time`
 - CLTV / CSV 在 CellTx 上不再“静默沿用 legacy 语义”
 - 如果暂时不能删除 opcode，实现至少要改成显式返回“Cell 模型不支持”的确定性错误
+- 对外脚本能力的终态明确为 `ScriptRef + CKB-VM`，而不是修补 txscript helper 继续沿用
 - `pay_to_pub_key_with_lock_time`、`pay_to_address_with_lock_time_script`、`htlc_script`、`htlc_script_ecdsa` 不再作为可用标准脚本对外暴露
 - `consensus/client`、WASM SDK、wallet generator、`treasure_boy` 不再调用上述 legacy helper
+- `consensus/client` / wallet / SDK 对时间锁脚本的公开入口改成 Cell-native 方案，必要时直接暴露 `ScriptRef`、code hash、args、`header_deps` 等构造能力
 - `ScriptBuilder` 中 `add_lock_time()` / `add_sequence()` 及对应 wasm builder 包装层删除，或降级为仅限 legacy/测试 feature
 - `CellTx::lock_time()` 兼容方法删除，或保留为内部桥接但不再被共识/SDK/标准脚本调用
 - txscript 中仅服务旧 opcode 的常量与示例清理完成；保留哪些共识常量、哪些 bridge 常量，需要在文档里明确切分
-- `exec/src/scripts/` 或等价位置提供清晰的 Cell-native 时间锁示例与迁移说明
+- `exec/src/scripts/` 或等价位置提供清晰的 Cell-native 时间锁示例、脚本包产物和迁移说明
 - 增加回归测试，至少覆盖以下事实：
 - 现有 `validate_time_locks` 继续覆盖四类 `since` 语义
 - 旧 helper 若仍保留，会稳定报错而不是生成“看似成功、实则不可花费”的脚本
 - wallet / SDK 不再能构造 CLTV/CSV 风格的 Cell 时间锁输出
+- 真实 VM data provider + script execution 能覆盖迁移后的时间锁脚本样例
 
 **依赖**
 
+- 建议与 `V2-P0-02` 并轨推进，因为“彻底迁到新 VM”必须以真实 consensus-backed data provider 为前提
 - 依赖对外替代路径先明确，否则直接删除会打断 wallet / SDK / `treasure_boy`
 - 建议分两阶段推进：
-- 第一阶段先把 legacy helper 改成显式不可用，并补迁移文档
+- 第一阶段先把 legacy helper 改成显式不可用，并补 `ScriptRef + CKB-VM` 迁移文档与样例
 - 第二阶段在下游调用清零后删除实现和兼容常量
 - `legacy_sequence_to_cell_since()` 作为 legacy 交易输入桥接可暂时保留，但不得再被包装成 Cell-native 时间锁能力
 
@@ -260,7 +267,8 @@ Cell-native 的替代方向已经存在：`exec/src/scripts/` 中已有通过 CK
 - 用户可能构造使用 CLTV 的脚本，导致资金永久锁死
 - CSV 对 Cell `since` 的解释错误，导致相对锁直接误判、绝对锁按错误位宽比较
 - 标准脚本库、WASM SDK 和 wallet helper 名义可用但语义错误，继续误导开发者和工具作者
-- 文档如果继续把它写成“时间锁未完成”，会掩盖真正的问题：共识层 `since` 已有实现，但公开接口还在暴露错误的 legacy 能力
+- 文档如果只写成“清理旧 opcode”，会掩盖真正的终态要求：Spora 需要和 CKB 对齐，彻底收敛到 `ScriptRef + CKB-VM`
+- 如果继续维持两套脚本世界，协议外围会长期卡在“共识用 VM、钱包/SDK 还在 txscript”的分裂状态
 
 ## 4. P2
 

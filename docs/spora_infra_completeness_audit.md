@@ -18,7 +18,7 @@
 
 - 共识、virtual state、cell state tree、cell commitment 主路径可运行。
 - P2P、出块、accepted path、reorg 相关主逻辑已基本收口。
-- Cell-native `since` 时间锁校验已进入 DAG validator，但 legacy txscript 时间锁脚本入口仍在对外暴露。
+- Cell-native `since` 时间锁校验已进入 DAG validator，但脚本层还没有彻底迁到 `ScriptRef + CKB-VM`，legacy txscript 时间锁入口仍在对外暴露。
 - 钱包签名、密钥管理主体框架存在，但部分接口仍有 `todo!()`。
 - RPC 查询层仍有多处 stub，直接导致余额、Cell 查询不可用。
 - `CellIndex` 实现已经存在，但尚未接入 daemon 与 RPC service。
@@ -126,11 +126,11 @@
 
 - Web/WASM 钱包和历史密钥导入体验不完整
 
-### P1-3 共识层 `since` 已实现，但 legacy 时间锁脚本接口仍在误导上层
+### P1-3 共识层 `since` 已实现，但脚本层还没有彻底迁到 `ScriptRef + CKB-VM`
 
 审计后需要修正一个判断：
 
-> **当前问题不是“Cell 时间锁只实现了绝对 DAA 锁”，而是“共识层 `since` 已实现，但 legacy txscript 时间锁接口与 Cell 模型冲突，且仍被上层调用”。**
+> **当前问题不是“Cell 时间锁只实现了绝对 DAA 锁”，而是“共识层 `since` 已实现，但脚本层还没有彻底迁到 `ScriptRef + CKB-VM`，legacy txscript 时间锁接口仍与 Cell 模型冲突并被上层调用”。**
 
 当前事实如下：
 
@@ -147,7 +147,7 @@
 - `consensus/src/processes/cell_validator/mod.rs`
 - `consensus/src/processes/cell_validator/cell_validation_in_dag.rs`
 
-真正的 P1 风险在 legacy txscript 路径：
+真正的 P1 风险在“共识已经走向 CKB-VM，但外围还保留 txscript helper”这条分裂路径：
 
 - `OpCheckLockTimeVerify`（CLTV）仍比较栈上值和 `tx.lock_time()`，而 `CellTx::lock_time()` 恒返回 0
 - 结果是：
@@ -171,8 +171,9 @@
 - 共识层时间锁内核不是主要短板，短板是公开 API 仍暴露错误的 legacy 时间锁能力
 - 钱包、SDK、工具层仍可能生成“构造成功但实际不可花费”的脚本
 - 如果文档继续写成“时间锁只做了绝对 DAA”，会误导后续工作，把重点放错到共识内核补实现，而不是上层接口收口
+- 如果文档只写“清理旧 opcode”，又会低估终态要求。这里真正需要的是彻底迁到 `ScriptRef + CKB-VM`，和主架构文档、`CELL_MODEL_MIGRATION_ROADMAP.md` 保持一致
 
-Cell-native 替代方向已存在：`exec/src/scripts/` 中已有通过 VM 系统调用读取 `since` / header timestamp 的 fixture，可作为规范迁移路径的起点。
+Cell-native 替代方向已存在：`exec/src/scripts/` 中已有通过 VM 系统调用读取 `since` / header timestamp 的 fixture，可作为规范迁移路径的起点。终态应当是 wallet / client / SDK 都围绕 `ScriptRef + CKB-VM` 暴露能力，而不是继续包装 txscript 时间锁 helper。
 
 详见共识 V2 清单：`V2-P1-04`。
 
@@ -240,7 +241,7 @@ RPC/service 一侧确实仍有 lower-bound / workaround 风格逻辑。
 
 ### 第二优先级
 
-1. 收口 legacy 时间锁脚本接口。
+1. 推进 `ScriptRef + CKB-VM` 迁移，先切掉 legacy 时间锁脚本入口。
 2. 清理钱包中的 `todo!()`。
 3. 把通知、key rename、旧 key import 收口。
 
@@ -266,13 +267,14 @@ RPC/service 一侧确实仍有 lower-bound / workaround 风格逻辑。
 - `get_cells_by_address` / 对应 Cell 查询返回真实 live cells
 - `get_coin_supply` 返回真实值
 
-### 任务 B: 收口 legacy 时间锁脚本面
+### 任务 B: 完成时间锁脚本面向 `ScriptRef + CKB-VM` 的迁移
 
 目标：
 
 - 保持现有 Cell-native `since` 校验路径稳定
 - 迁移并清理已失效的 txscript 时间锁 opcode / helper 路径（CLTV / CSV）
-- 把 wallet / SDK / 工具层从 `lock_time` helper 切回 Cell-native 方案
+- 把 wallet / SDK / 工具层从 `lock_time` helper 切到 `ScriptRef + CKB-VM` 方案
+- 让文档、公开 API、示例脚本都和 CKB 风格脚本面保持一致
 
 完成标准：
 
@@ -281,6 +283,7 @@ RPC/service 一侧确实仍有 lower-bound / workaround 风格逻辑。
 - `pay_to_address_with_lock_time_script`、`pay_to_pub_key_with_lock_time`、`htlc_script`、`htlc_script_ecdsa` 不再作为可用 Cell helper 对外暴露
 - wallet / SDK / `treasure_boy` 不再调用 legacy 时间锁构造器
 - 对应示例、测试和迁移说明同步更新
+- 至少有一条面向上层使用者的标准路径明确落在 `ScriptRef + CKB-VM`，而不是继续依赖 txscript builder
 
 ### 任务 C: 钱包 SDK 收口
 
@@ -307,6 +310,6 @@ RPC/service 一侧确实仍有 lower-bound / workaround 风格逻辑。
 
 1. 接上 CellIndex
 2. 打通 RPC 查询
-3. 清掉钱包和 legacy 时间锁接口中的关键缺口（包括旧 opcode 清理）
+3. 清掉钱包和 legacy 时间锁接口中的关键缺口，并把脚本面对齐到 `ScriptRef + CKB-VM`
 
 当这三项完成后，Spora 才能从“协议内核已经成型”进入“整条链真正可用”的阶段。

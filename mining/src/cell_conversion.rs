@@ -7,7 +7,7 @@ use spora_hashes::Hash;
 
 #[cfg(test)]
 use spora_consensus_core::tx::{
-    legacy_sequence_to_cell_since, CellEntry, CellRef, CellTx, OutPoint, OutPointCompat, ScriptRef, Transaction, TransactionId,
+    cell_tx_from_legacy_transaction, CellEntry, CellTx, OutPointCompat, Transaction, TransactionId,
 };
 #[cfg(test)]
 use std::collections::HashMap;
@@ -68,54 +68,17 @@ pub(crate) fn legacy_tx_to_cell_tx_with_context(
     tx: &Transaction,
     parent_cell_ids: &HashMap<TransactionId, TransactionId>,
 ) -> Result<CellTx, &'static str> {
-    if tx.is_coinbase() {
-        let outputs = tx
-            .outputs
-            .iter()
-            .map(|output| CellOut {
-                lock: ScriptRef::new(compute_lock_hash(&output.script_public_key), 0, vec![]),
-                type_: None,
-                capacity: output.value,
-            })
-            .collect::<Vec<_>>();
-        let mut outputs_data = vec![vec![]; outputs.len()];
-        if let Some(first) = outputs_data.first_mut() {
-            *first = tx.payload.clone();
-            return CellTx::new(vec![], vec![], outputs, outputs_data, vec![]);
-        }
-
-        return CellTx::new(vec![], vec![], outputs, outputs_data, vec![tx.payload.clone()]);
-    }
-
-    if !tx.payload.is_empty() {
+    if !tx.is_coinbase() && !tx.payload.is_empty() {
         return Err("legacy transaction conversion does not support non-coinbase payloads");
     }
 
-    let inputs = tx
-        .inputs
-        .iter()
-        .map(|input| {
-            let outpoint_tx_id = input.previous_outpoint.transaction_id();
-            let parent_tx_id = parent_cell_ids.get(&outpoint_tx_id).copied().unwrap_or(outpoint_tx_id);
-            CellRef::new(
-                OutPoint::new(parent_tx_id.as_bytes().into(), input.previous_outpoint.index),
-                legacy_sequence_to_cell_since(input.sequence),
-            )
-        })
-        .collect::<Vec<_>>();
-    let outputs = tx
-        .outputs
-        .iter()
-        .map(|output| CellOut {
-            lock: ScriptRef::new(compute_lock_hash(&output.script_public_key), 0, vec![]),
-            type_: None,
-            capacity: output.value,
-        })
-        .collect::<Vec<_>>();
-    let outputs_data = vec![vec![]; outputs.len()];
-    let witnesses = tx.inputs.iter().map(|input| input.signature_script.clone()).collect::<Vec<_>>();
-
-    CellTx::new(inputs, vec![], outputs, outputs_data, witnesses)
+    let mut cell_tx = cell_tx_from_legacy_transaction(tx);
+    for (input, original_input) in cell_tx.inputs.iter_mut().zip(tx.inputs.iter()) {
+        let outpoint_tx_id = original_input.previous_outpoint.transaction_id();
+        let parent_tx_id = parent_cell_ids.get(&outpoint_tx_id).copied().unwrap_or(outpoint_tx_id);
+        input.out_point.tx_hash = parent_tx_id.as_bytes();
+    }
+    Ok(cell_tx)
 }
 
 #[cfg(test)]

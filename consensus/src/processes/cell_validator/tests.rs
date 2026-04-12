@@ -164,15 +164,109 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_in_dag_rejects_dep_group_without_vm() {
-        use crate::processes::cell_validator::CellValidationError;
-        use spora_exec::{CellDep, DepType};
+    fn test_validate_in_dag_accepts_dep_group() {
+        use spora_exec::{CellDep, DepType, encode_dep_group_data};
 
         let pov = Hash::from_bytes([3; 32]);
         let input_out_point = OutPoint::new([1; 32], 0);
-        let dep_out_point = OutPoint::new([2; 32], 0);
+        let dep_group_out_point = OutPoint::new([2; 32], 0);
+        let expanded_dep_out_point = OutPoint::new([5; 32], 0);
         let block_hash = Hash::from_bytes([4; 32]);
         let lock = ScriptRef::new([0; 32], 0, vec![]);
+
+        // Encode a DepGroup that references one expanded outpoint
+        let dep_group_data = encode_dep_group_data(&[expanded_dep_out_point]);
+
+        let mut provider = MockProvider { cells: HashMap::new(), block_timestamps: HashMap::new() };
+        provider.cells.insert(
+            (pov, input_out_point.clone()),
+            CellMetadata {
+                out_point: tx_outpoint(&input_out_point),
+                capacity: 1_000,
+                data_bytes: 0,
+                lock_hash: [0; 32],
+                type_hash: None,
+                data_hash: [0; 32],
+                block_daa_score: 0,
+                is_cellbase: false,
+                block_hash,
+                lock_code_hash: None,
+                type_code_hash: None,
+                lock_script: None,
+                type_script: None,
+                data: None,
+            },
+        );
+        // The DepGroup cell itself with its encoded data
+        provider.cells.insert(
+            (pov, dep_group_out_point.clone()),
+            CellMetadata {
+                out_point: tx_outpoint(&dep_group_out_point),
+                capacity: 1_000,
+                data_bytes: dep_group_data.len() as u64,
+                lock_hash: [0; 32],
+                type_hash: None,
+                data_hash: [0; 32],
+                block_daa_score: 0,
+                is_cellbase: false,
+                block_hash,
+                lock_code_hash: None,
+                type_code_hash: None,
+                lock_script: None,
+                type_script: None,
+                data: Some(dep_group_data),
+            },
+        );
+        // The expanded dep cell referenced by the DepGroup
+        provider.cells.insert(
+            (pov, expanded_dep_out_point.clone()),
+            CellMetadata {
+                out_point: tx_outpoint(&expanded_dep_out_point),
+                capacity: 1_000,
+                data_bytes: 0,
+                lock_hash: [0; 32],
+                type_hash: None,
+                data_hash: [0; 32],
+                block_daa_score: 0,
+                is_cellbase: false,
+                block_hash,
+                lock_code_hash: None,
+                type_code_hash: None,
+                lock_script: None,
+                type_script: None,
+                data: None,
+            },
+        );
+        provider.block_timestamps.insert(block_hash, 0);
+
+        let tx = CellTx::new(
+            vec![CellRef::new(input_out_point, 0)],
+            vec![CellDep { out_point: dep_group_out_point, dep_type: DepType::DepGroup }],
+            vec![CellOut { lock, type_: None, capacity: 1_000 }],
+            vec![vec![]],
+            vec![],
+        )
+        .unwrap();
+
+        let validator = CellValidator::new(Arc::new(CellConsensusParams::default()), Arc::new(provider));
+        let result = validator.validate_in_dag(&tx, pov, 0, 0);
+        assert!(result.is_ok(), "DepGroup should be accepted: {result:?}");
+    }
+
+    #[test]
+    fn test_validate_in_dag_rejects_dep_group_with_missing_expanded_dep() {
+        use crate::processes::cell_validator::CellValidationError;
+        use spora_exec::{CellDep, DepType, encode_dep_group_data};
+
+        let pov = Hash::from_bytes([3; 32]);
+        let input_out_point = OutPoint::new([1; 32], 0);
+        let dep_group_out_point = OutPoint::new([2; 32], 0);
+        let missing_dep = OutPoint::new([0xAA; 32], 0);
+        let block_hash = Hash::from_bytes([4; 32]);
+        let lock = ScriptRef::new([0; 32], 0, vec![]);
+
+        // Encode a DepGroup referencing a cell that does NOT exist
+        let dep_group_data = encode_dep_group_data(&[missing_dep]);
 
         let mut provider = MockProvider { cells: HashMap::new(), block_timestamps: HashMap::new() };
         provider.cells.insert(
@@ -195,11 +289,11 @@ mod tests {
             },
         );
         provider.cells.insert(
-            (pov, dep_out_point.clone()),
+            (pov, dep_group_out_point.clone()),
             CellMetadata {
-                out_point: tx_outpoint(&dep_out_point),
+                out_point: tx_outpoint(&dep_group_out_point),
                 capacity: 1_000,
-                data_bytes: 0,
+                data_bytes: dep_group_data.len() as u64,
                 lock_hash: [0; 32],
                 type_hash: None,
                 data_hash: [0; 32],
@@ -210,14 +304,14 @@ mod tests {
                 type_code_hash: None,
                 lock_script: None,
                 type_script: None,
-                data: None,
+                data: Some(dep_group_data),
             },
         );
         provider.block_timestamps.insert(block_hash, 0);
 
         let tx = CellTx::new(
             vec![CellRef::new(input_out_point, 0)],
-            vec![CellDep { out_point: dep_out_point, dep_type: DepType::DepGroup }],
+            vec![CellDep { out_point: dep_group_out_point, dep_type: DepType::DepGroup }],
             vec![CellOut { lock, type_: None, capacity: 1_000 }],
             vec![vec![]],
             vec![],
@@ -226,7 +320,7 @@ mod tests {
 
         let validator = CellValidator::new(Arc::new(CellConsensusParams::default()), Arc::new(provider));
         let result = validator.validate_in_dag(&tx, pov, 0, 0);
-        assert!(matches!(result, Err(CellValidationError::InvalidFormat(msg)) if msg.contains("Unsupported dep type")));
+        assert!(matches!(result, Err(CellValidationError::DepCellNotFound(_))), "Missing expanded dep should fail: {result:?}");
     }
 
     #[cfg(feature = "vm")]

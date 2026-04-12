@@ -6,7 +6,7 @@ use spora_consensus_core::{
     cell_metadata::is_cell_metadata_placeholder_script_public_key,
     constants::{MAX_SAU, MAX_SCRIPT_PUBLIC_KEY_VERSION},
     mass,
-    tx::{cell_entry_legacy_script_public_key, CellOut, MutableTransaction, PopulatedTransaction, TransactionOutput},
+    tx::{cell_entry_legacy_script_public_key, compute_lock_hash_for_script, CellOut, MutableTransaction, PopulatedTransaction, ScriptRef, ScriptPublicKey, TransactionOutput},
 };
 use spora_consensus_core::{hashing::sighash::SigHashReusedValuesUnsync, mass::NonContextualMasses};
 use spora_txscript::{get_sig_op_count_upper_bound, is_unspendable, script_class::ScriptClass};
@@ -37,6 +37,15 @@ const MAXIMUM_STANDARD_SIGNATURE_SCRIPT_SIZE: u64 = 1650;
 /// MAXIMUM_STANDARD_TRANSACTION_MASS is the maximum mass allowed for transactions that
 /// are considered standard and will therefore be relayed and considered for mining.
 const MAXIMUM_STANDARD_TRANSACTION_MASS: u64 = 100_000;
+
+fn legacy_script_public_key_from_lock_script(lock: &ScriptRef) -> ScriptPublicKey {
+    let legacy_spk = ScriptPublicKey::from_vec(0, lock.args.clone());
+    if lock.hash_type == 0 && lock.code_hash == compute_lock_hash_for_script(&legacy_spk) {
+        legacy_spk
+    } else {
+        ScriptPublicKey::from_vec(0, lock.to_bytes())
+    }
+}
 
 impl Mempool {
     pub(crate) fn check_transaction_standard_in_isolation(&self, transaction: &MutableTransaction) -> NonStandardResult<()> {
@@ -90,8 +99,9 @@ impl Mempool {
 
         // None of the output lock scripts can be a non-standard script or be "dust".
         for (i, output) in transaction.tx.outputs.iter().enumerate() {
-            // In Cell model, lock is a ScriptRef. Convert to legacy SPK for checking.
-            let legacy_spk = spora_consensus_core::tx::ScriptPublicKey::from_vec(0, output.lock.to_bytes());
+            // Bridged legacy outputs carry the original script bytes in lock.args.
+            // Fall back to the encoded ScriptRef bytes for opaque native scripts.
+            let legacy_spk = legacy_script_public_key_from_lock_script(&output.lock);
             if legacy_spk.version() > MAX_SCRIPT_PUBLIC_KEY_VERSION {
                 return Err(NonStandardError::RejectScriptPublicKeyVersion(transaction_id, i));
             }
@@ -113,7 +123,8 @@ impl Mempool {
     /// relay fee.
     pub(crate) fn is_transaction_output_dust_cell(&self, output: &CellOut) -> bool {
         // Unspendable outputs are considered dust.
-        let lock_bytes = output.lock.to_bytes();
+        let lock_spk = legacy_script_public_key_from_lock_script(&output.lock);
+        let lock_bytes = lock_spk.script();
         if is_unspendable::<PopulatedTransaction, SigHashReusedValuesUnsync>(&lock_bytes) {
             return true;
         }
@@ -283,7 +294,7 @@ mod tests {
     use spora_consensus_core::{
         cell_metadata::CellMetadata,
         config::params::Params,
-        constants::{MAX_TX_IN_SEQUENCE_NUM, SAU_PER_SPORA, TX_VERSION},
+        constants::{CELL_TX_VERSION, MAX_TX_IN_SEQUENCE_NUM, SAU_PER_SPORA},
         mass::NonContextualMasses,
         network::NetworkType,
         subnets::SUBNETWORK_ID_NATIVE,
@@ -441,7 +452,7 @@ mod tests {
     #[test]
     fn test_check_transaction_standard_in_isolation() {
         // Create some dummy, but otherwise standard, data for transactions.
-        let dummy_prev_out = TransactionOutpoint::new(*spora_hashes::Hash::from_u64_word(1).as_bytes(), 1);
+        let dummy_prev_out = TransactionOutpoint::new(spora_hashes::Hash::from_u64_word(1).as_bytes(), 1);
         let dummy_sig_script = vec![0u8; 65];
         let dummy_tx_input = TransactionInput::new(dummy_prev_out, dummy_sig_script, MAX_TX_IN_SEQUENCE_NUM, 1);
         let addr_hash = vec![1u8; 32];
@@ -457,7 +468,9 @@ mod tests {
         }
 
         fn new_mtx(tx: Transaction, mass: u64) -> MutableTransaction {
+            let version = tx.version;
             let mut mtx = MutableTransaction::from_tx(tx);
+            Arc::make_mut(&mut mtx.tx).ver = version;
             mtx.calculated_non_contextual_masses = Some(NonContextualMasses::new(mass, mass));
             mtx
         }
@@ -467,7 +480,7 @@ mod tests {
                 name: "Typical pay-to-pubkey transaction",
                 mtx: new_mtx(
                     Transaction::new(
-                        TX_VERSION,
+                        CELL_TX_VERSION,
                         vec![dummy_tx_input.clone()],
                         vec![dummy_tx_out.clone()],
                         0,
@@ -483,7 +496,7 @@ mod tests {
                 name: "Transaction version too high",
                 mtx: new_mtx(
                     Transaction::new(
-                        TX_VERSION + 1,
+                        CELL_TX_VERSION + 1,
                         vec![dummy_tx_input.clone()],
                         vec![dummy_tx_out.clone()],
                         0,
@@ -499,7 +512,7 @@ mod tests {
                 name: "Transaction size is too large",
                 mtx: new_mtx(
                     Transaction::new(
-                        TX_VERSION,
+                        CELL_TX_VERSION,
                         vec![dummy_tx_input.clone()],
                         vec![TransactionOutput::new(
                             0u64,
@@ -521,7 +534,7 @@ mod tests {
                 name: "Signature script size is too large",
                 mtx: new_mtx(
                     Transaction::new(
-                        TX_VERSION + 1,
+                        CELL_TX_VERSION + 1,
                         vec![TransactionInput::new(
                             dummy_prev_out,
                             vec![0u8; MAXIMUM_STANDARD_SIGNATURE_SCRIPT_SIZE as usize + 1],
@@ -542,7 +555,7 @@ mod tests {
                 name: "Valid but non standard public key script",
                 mtx: new_mtx(
                     Transaction::new(
-                        TX_VERSION,
+                        CELL_TX_VERSION,
                         vec![dummy_tx_input.clone()],
                         vec![TransactionOutput::new(
                             SAU_PER_SPORA,
@@ -564,7 +577,7 @@ mod tests {
                 name: "Dust output",
                 mtx: new_mtx(
                     Transaction::new(
-                        TX_VERSION,
+                        CELL_TX_VERSION,
                         vec![dummy_tx_input.clone()],
                         vec![TransactionOutput::new(0, dummy_tx_out.script_public_key)],
                         0,
@@ -580,7 +593,7 @@ mod tests {
                 name: "Null-data transaction",
                 mtx: new_mtx(
                     Transaction::new(
-                        TX_VERSION,
+                        CELL_TX_VERSION,
                         vec![dummy_tx_input],
                         vec![TransactionOutput::new(
                             SAU_PER_SPORA,
@@ -636,7 +649,7 @@ mod tests {
         let counters = Arc::new(MiningCounters::default());
         let mempool = Mempool::new(Arc::new(config), counters);
 
-        let previous_outpoint = TransactionOutpoint::new(*spora_hashes::Hash::from_u64_word(7).as_bytes(), 0);
+        let previous_outpoint = TransactionOutpoint::new(spora_hashes::Hash::from_u64_word(7).as_bytes(), 0);
         let output = TransactionOutput::new(
             900,
             ScriptPublicKey::from_vec(
@@ -645,7 +658,7 @@ mod tests {
             ),
         );
         let tx = Transaction::new(
-            TX_VERSION,
+            CELL_TX_VERSION,
             vec![TransactionInput::new(previous_outpoint, vec![0u8; 64], MAX_TX_IN_SEQUENCE_NUM, 1)],
             vec![output],
             0,
@@ -668,7 +681,7 @@ mod tests {
         let counters = Arc::new(MiningCounters::default());
         let mempool = Mempool::new(Arc::new(config), counters);
 
-        let previous_outpoint = TransactionOutpoint::new(*spora_hashes::Hash::from_u64_word(9).as_bytes(), 0);
+        let previous_outpoint = TransactionOutpoint::new(spora_hashes::Hash::from_u64_word(9).as_bytes(), 0);
         let output = TransactionOutput::new(
             900,
             ScriptPublicKey::from_vec(
@@ -677,7 +690,7 @@ mod tests {
             ),
         );
         let tx = Transaction::new(
-            TX_VERSION,
+            CELL_TX_VERSION,
             vec![TransactionInput::new(previous_outpoint, vec![0u8; 64], MAX_TX_IN_SEQUENCE_NUM, 1)],
             vec![output],
             0,

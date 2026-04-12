@@ -4,6 +4,9 @@ pub const BLOCK_VERSION: u16 = 1;
 /// TX_VERSION is the current latest supported transaction version.
 pub const TX_VERSION: u16 = 0;
 
+/// CELL_TX_VERSION is the canonical Cell transaction version used on active paths.
+pub const CELL_TX_VERSION: u16 = spora_exec::CELL_TX_VERSION;
+
 pub const LOCK_TIME_THRESHOLD: u64 = 500_000_000_000;
 
 /// MAX_SCRIPT_PUBLIC_KEY_VERSION is the current latest supported public key script version.
