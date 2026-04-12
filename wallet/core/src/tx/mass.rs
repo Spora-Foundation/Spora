@@ -5,7 +5,7 @@
 use crate::error::Error;
 use crate::result::Result;
 use spora_consensus_client as kcc;
-use spora_consensus_client::UtxoEntryReference;
+use spora_consensus_client::CellEntryReference;
 use spora_consensus_core::mass::calc_storage_mass as consensus_calc_storage_mass;
 use spora_consensus_core::tx::{Transaction, TransactionInput, TransactionOutput, SCRIPT_VECTOR_SIZE};
 use spora_consensus_core::{config::params::Params, constants::*, subnets::SUBNETWORK_ID_SIZE};
@@ -308,23 +308,23 @@ impl MassCalculator {
     pub fn calc_overall_mass_for_unsigned_consensus_transaction(
         &self,
         tx: &Transaction,
-        utxos: &[UtxoEntryReference],
+        cells: &[CellEntryReference],
         minimum_signatures: u16,
     ) -> Result<u64> {
-        let storage_mass = self.calc_storage_mass_for_transaction_parts(utxos, &tx.outputs).ok_or(Error::MassCalculationError)?;
+        let storage_mass = self.calc_storage_mass_for_transaction_parts(cells, &tx.outputs).ok_or(Error::MassCalculationError)?;
         let compute_mass = self.calc_compute_mass_for_unsigned_consensus_transaction(tx, minimum_signatures);
         Ok(self.combine_mass(compute_mass, storage_mass))
     }
 
     pub fn calc_storage_mass_for_transaction(&self, tx: &kcc::Transaction) -> Result<Option<u64>> {
-        let utxos = tx.utxo_entry_references()?;
+        let cells = tx.cell_entry_references()?;
         let outputs = tx.outputs();
-        Ok(self.calc_storage_mass_for_transaction_parts(&utxos, &outputs))
+        Ok(self.calc_storage_mass_for_transaction_parts(&cells, &outputs))
     }
 
     pub fn calc_storage_mass_for_transaction_parts(
         &self,
-        inputs: &[UtxoEntryReference],
+        inputs: &[CellEntryReference],
         outputs: &[TransactionOutput],
     ) -> Option<u64> {
         consensus_calc_storage_mass(

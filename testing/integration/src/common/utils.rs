@@ -2,6 +2,22 @@ use super::client::ListeningClient;
 use itertools::Itertools;
 use rayon::prelude::{IntoParallelIterator, ParallelIterator};
 use secp256k1::Keypair;
+use spora_addresses::Address;
+use spora_consensus_core::{
+    cell_diff::{CellCollection, CellDiff},
+    constants::TX_VERSION,
+    header::Header,
+    sign::sign,
+    subnets::SUBNETWORK_ID_NATIVE,
+    tx::{
+        CellEntry, MutableTransaction, ScriptPublicKey, SignableTransaction, Transaction, TransactionId, TransactionInput,
+        TransactionOutpoint, TransactionOutput,
+    },
+};
+use spora_core::info;
+use spora_grpc_client::GrpcClient;
+use spora_rpc_core::{api::rpc::RpcApi, BlockAddedNotification, Notification, RpcCellEntry, VirtualDaaScoreChangedNotification};
+use spora_txscript::pay_to_address_script;
 use std::{
     collections::{hash_map::Entry::Occupied, HashMap, HashSet},
     future::Future,
@@ -9,25 +25,6 @@ use std::{
     time::Duration,
 };
 use tokio::time::timeout;
-use spora_addresses::Address;
-use spora_consensus_core::{
-    constants::TX_VERSION,
-    header::Header,
-    sign::sign,
-    subnets::SUBNETWORK_ID_NATIVE,
-    tx::{
-        MutableTransaction, ScriptPublicKey, SignableTransaction, Transaction, TransactionId, TransactionInput, TransactionOutpoint,
-        TransactionOutput, UtxoEntry,
-    },
-    utxo::{
-        utxo_collection::{UtxoCollection, UtxoCollectionExtensions},
-        utxo_diff::UtxoDiff,
-    },
-};
-use spora_core::info;
-use spora_grpc_client::GrpcClient;
-use spora_rpc_core::{api::rpc::RpcApi, BlockAddedNotification, Notification, RpcUtxoEntry, VirtualDaaScoreChangedNotification};
-use spora_txscript::pay_to_address_script;
 
 pub(crate) const EXPAND_FACTOR: u64 = 1;
 pub(crate) const CONTRACT_FACTOR: u64 = 1;
@@ -41,9 +38,9 @@ pub const fn required_fee(num_inputs: usize, num_outputs: u64) -> u64 {
     FEE_RATE * estimated_mass(num_inputs, num_outputs)
 }
 
-/// Builds a TX DAG based on the initial UTXO set and on constant params
+/// Builds a TX DAG based on the initial cell set and on constant params
 pub fn generate_tx_dag(
-    mut utxoset: UtxoCollection,
+    mut cell_set: CellCollection,
     schnorr_key: Keypair,
     spk: ScriptPublicKey,
     target_levels: usize,
@@ -53,11 +50,11 @@ pub fn generate_tx_dag(
     Algo:
        perform level by level:
            for target txs per level:
-               select random utxos (distinctly)
+               select random cells (distinctly)
                create and sign a tx
                append tx to level txs
-               append tx to utxo diff
-           apply level utxo diff to the utxo collection
+               append tx to cell diff
+           apply level cell diff to the cell collection
     */
 
     let num_inputs = CONTRACT_FACTOR as usize;
@@ -66,8 +63,8 @@ pub fn generate_tx_dag(
     let mut txs = Vec::with_capacity(target_levels * target_width);
 
     for i in 0..target_levels {
-        let mut utxo_diff = UtxoDiff::default();
-        utxoset
+        let mut cell_diff = CellDiff::default();
+        cell_set
             .iter()
             .take(num_inputs * target_width)
             .chunks(num_inputs)
@@ -87,11 +84,11 @@ pub fn generate_tx_dag(
             .collect::<Vec<_>>()
             .into_iter()
             .for_each(|signed_tx| {
-                utxo_diff.add_transaction(&signed_tx.as_verifiable(), 0).unwrap();
+                cell_diff.add_transaction(&signed_tx.as_verifiable(), 0).unwrap();
                 txs.push(Arc::new(signed_tx.tx));
             });
-        utxoset.remove_collection(&utxo_diff.remove);
-        utxoset.add_collection(&utxo_diff.add);
+        cell_set.remove_collection(&cell_diff.remove);
+        cell_set.add_collection(&cell_diff.add);
 
         if i % (target_levels / 10).max(1) == 0 {
             info!("Generated {} txs", txs.len());
@@ -102,7 +99,7 @@ pub fn generate_tx_dag(
 }
 
 /// Sanity test verifying that the generated TX DAG is valid, topologically ordered and has no double spends
-pub fn verify_tx_dag(initial_utxoset: &UtxoCollection, txs: &[Arc<Transaction>]) {
+pub fn verify_tx_dag(initial_cell_set: &CellCollection, txs: &[Arc<Transaction>]) {
     let mut prev_txs: HashMap<TransactionId, Arc<Transaction>> = HashMap::new();
     let mut used_outpoints = HashSet::with_capacity(txs.len() * 2);
     for tx in txs.iter() {
@@ -111,7 +108,7 @@ pub fn verify_tx_dag(initial_utxoset: &UtxoCollection, txs: &[Arc<Transaction>])
             if let Occupied(e) = prev_txs.entry(input.previous_outpoint.transaction_id) {
                 assert!(e.get().outputs.len() > input.previous_outpoint.index as usize);
             } else {
-                assert!(initial_utxoset.contains_key(&input.previous_outpoint));
+                assert!(initial_cell_set.contains_key(&input.previous_outpoint));
             }
         }
         assert!(prev_txs.insert(tx.id(), tx.clone()).is_none());
@@ -136,15 +133,15 @@ where
 
 pub fn generate_tx(
     schnorr_key: Keypair,
-    utxos: &[(TransactionOutpoint, UtxoEntry)],
+    cells: &[(TransactionOutpoint, CellEntry)],
     amount: u64,
     num_outputs: u64,
     address: &Address,
 ) -> Transaction {
-    let total_in = utxos.iter().map(|x| x.1.amount).sum::<u64>();
-    assert!(amount <= total_in - required_fee(utxos.len(), num_outputs));
+    let total_in = cells.iter().map(|x| x.1.amount).sum::<u64>();
+    assert!(amount <= total_in - required_fee(cells.len(), num_outputs));
     let script_public_key = pay_to_address_script(address);
-    let inputs = utxos
+    let inputs = cells
         .iter()
         .map(|(op, _)| TransactionInput { previous_outpoint: *op, signature_script: vec![], sequence: 0, sig_op_count: 1 })
         .collect_vec();
@@ -154,30 +151,30 @@ pub fn generate_tx(
         .collect_vec();
     let unsigned_tx = Transaction::new(TX_VERSION, inputs, outputs, 0, SUBNETWORK_ID_NATIVE, 0, vec![]);
     let signed_tx =
-        sign(MutableTransaction::with_entries(unsigned_tx, utxos.iter().map(|(_, entry)| entry.clone()).collect_vec()), schnorr_key);
+        sign(MutableTransaction::with_entries(unsigned_tx, cells.iter().map(|(_, entry)| entry.clone()).collect_vec()), schnorr_key);
     signed_tx.tx
 }
 
-pub async fn fetch_spendable_utxos(
+pub async fn fetch_spendable_cells(
     client: &GrpcClient,
     address: Address,
     coinbase_maturity: u64,
-) -> Vec<(TransactionOutpoint, UtxoEntry)> {
-    let resp = client.get_utxos_by_addresses(vec![address.clone()]).await.unwrap();
+) -> Vec<(TransactionOutpoint, CellEntry)> {
+    let resp = client.get_cells_by_addresses(vec![address.clone()]).await.unwrap();
     let virtual_daa_score = client.get_server_info().await.unwrap().virtual_daa_score;
-    let mut utxos = Vec::with_capacity(resp.len());
+    let mut cells = Vec::with_capacity(resp.len());
     for resp_entry in
-        resp.into_iter().filter(|resp_entry| is_utxo_spendable(&resp_entry.utxo_entry, virtual_daa_score, coinbase_maturity))
+        resp.into_iter().filter(|resp_entry| is_cell_spendable(&resp_entry.cell_entry, virtual_daa_score, coinbase_maturity))
     {
         assert!(resp_entry.address.is_some());
         assert_eq!(*resp_entry.address.as_ref().unwrap(), address);
-        utxos.push((TransactionOutpoint::from(resp_entry.outpoint), UtxoEntry::from(resp_entry.utxo_entry)));
+        cells.push((TransactionOutpoint::from(resp_entry.outpoint), CellEntry::from(resp_entry.cell_entry)));
     }
-    utxos.sort_by(|a, b| b.1.amount.cmp(&a.1.amount));
-    utxos
+    cells.sort_by(|a, b| b.1.amount.cmp(&a.1.amount));
+    cells
 }
 
-pub fn is_utxo_spendable(entry: &RpcUtxoEntry, virtual_daa_score: u64, coinbase_maturity: u64) -> bool {
+pub fn is_cell_spendable(entry: &RpcCellEntry, virtual_daa_score: u64, coinbase_maturity: u64) -> bool {
     let needed_confirmations = if !entry.is_coinbase { 10 } else { coinbase_maturity };
     entry.block_daa_score + needed_confirmations <= virtual_daa_score
 }

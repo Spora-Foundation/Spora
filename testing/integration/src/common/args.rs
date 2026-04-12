@@ -9,13 +9,13 @@ pub struct ArgsBuilder {
 
 impl ArgsBuilder {
     #[cfg(feature = "devnet-prealloc")]
-    pub fn simnet(num_prealloc_utxos: u64, prealloc_amount: u64) -> Self {
+    pub fn simnet(num_prealloc_cells: u64, prealloc_amount: u64) -> Self {
         let args = Args {
             simnet: true,
             disable_upnp: true, // UPnP registration might take some time and is not needed for this test
             enable_unsynced_mining: true,
-            num_prealloc_utxos: Some(num_prealloc_utxos),
-            prealloc_amount: prealloc_amount * spora_consensus_core::constants::SAU_PER_TONDI,
+            num_prealloc_cells: Some(num_prealloc_cells),
+            prealloc_amount: prealloc_amount * spora_consensus_core::constants::SAU_PER_SPORA,
             block_template_cache_lifetime: Some(0),
             rpc_max_clients: 2500,
             unsafe_rpc: true,
@@ -56,8 +56,8 @@ impl ArgsBuilder {
         self
     }
 
-    pub fn utxoindex(mut self, utxoindex: bool) -> Self {
-        self.args.utxoindex = utxoindex;
+    pub fn cellindex(mut self, cellindex: bool) -> Self {
+        self.args.cellindex = cellindex;
         self
     }
 

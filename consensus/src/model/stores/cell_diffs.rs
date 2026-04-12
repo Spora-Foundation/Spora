@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: ISC
-// Copyright (C) 2025 Spora developers
+// Copyright (C) 2026 Spora developers
 //
 // Cell diffs store - stores Cell state differences for each block
-// Replaces utxo_diffs_store with pure Cell model
+// Replaces the legacy diff store with pure Cell model
 
 use std::sync::Arc;
 
 use rocksdb::WriteBatch;
 use spora_consensus_core::{cell_diff::CellDiff, BlockHasher};
 use spora_database::{
-    prelude::{BatchDbWriter, CachePolicy, CachedDbAccess, DirectDbWriter, StoreError, StoreResult, StoreResultExtensions, DB},
+    prelude::{BatchDbWriter, CachePolicy, CachedDbAccess, StoreResult, DB},
     registry::DatabaseStorePrefixes,
 };
 use spora_hashes::Hash;
@@ -54,8 +54,6 @@ impl CellDiffsStoreReader for DbCellDiffsStore {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     fn test_cell_diffs_store_creation() {
         // Test requires a real database, skip for now

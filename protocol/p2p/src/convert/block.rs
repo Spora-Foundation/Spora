@@ -1,9 +1,6 @@
 use super::{error::ConversionError, option::TryIntoOptionEx};
 use crate::pb as protowire;
-use spora_consensus_core::{
-    block::Block,
-    tx::{CellTx, Transaction},
-};
+use spora_consensus_core::block::Block;
 
 // ----------------------------------------------------------------------------
 // consensus_core to protowire

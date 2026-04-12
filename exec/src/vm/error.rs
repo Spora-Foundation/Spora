@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ISC
-// Copyright (C) 2025 Spora developers
+// Copyright (C) 2026 Spora developers
 //
 // VM error types
 
@@ -8,6 +8,10 @@ use thiserror::Error;
 /// VM execution errors
 #[derive(Error, Debug)]
 pub enum VMError {
+    /// VM backend is wired into the call path but the actual executor is not implemented yet.
+    #[error("VM backend not implemented: {0}")]
+    BackendUnimplemented(String),
+
     /// Failed to load program
     #[error("Failed to load program: {0}")]
     LoadProgramError(String),

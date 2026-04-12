@@ -15,12 +15,9 @@ name = "kip-10"
 [features]
 wasm32-core = []
 wasm32-sdk = []
-verkle = []
-musig2 = ["dep:musig2"]
 
 [dependencies]
 blake2b_simd.workspace = true
-bitcoin.workspace = true
 borsh.workspace = true
 cfg-if.workspace = true
 hexplay.workspace = true
@@ -46,7 +43,6 @@ wasm-bindgen.workspace = true
 workflow-wasm.workspace = true
 blake3.workspace = true
 chrono.workspace = true
-musig2 = { version = "0.3.1", features = ["secp256k1"], optional = true }
 
 [dev-dependencies]
 criterion.workspace = true

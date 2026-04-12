@@ -4,11 +4,13 @@ use std::{
     path::Path,
 };
 
+#[cfg(feature = "legacy-integration-tests")]
 pub mod args;
 pub mod client;
 pub mod client_notify;
 pub mod daemon;
 pub mod listener;
+#[cfg(feature = "legacy-integration-tests")]
 pub mod utils;
 
 pub fn open_file(file_path: &Path) -> File {

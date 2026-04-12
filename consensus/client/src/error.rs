@@ -48,8 +48,11 @@ pub enum Error {
     #[error("Error processing JSON: {0}")]
     SerdeJson(String),
 
-    #[error("Transaction input is missing UTXO entry")]
-    MissingUtxoEntry,
+    #[error("Transaction input is missing Cell entry")]
+    MissingCellEntry,
+
+    #[error("Transaction input {0} is resolved via canonical Cell metadata only; a legacy Cell entry is required")]
+    MissingLegacyCellEntry(usize),
 }
 
 impl Error {

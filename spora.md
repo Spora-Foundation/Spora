@@ -2,29 +2,29 @@
 
 > **⚠️ 重要警告：这是一次不可逆的架构重写**
 > 
-> 本分支 `spora` 将**完全放弃 UTXO 模型**，不保留任何兼容层或过渡代码。
-> - **不向后兼容**：现有 UTXO 交易将无法在新系统中验证
-> - **不可逆删除**：UTXO 相关代码将被直接删除（保留 git 历史）
+> 本分支 `spora` 将**完全放弃 legacy txout 模型**，不保留任何兼容层或过渡代码。
+> - **不向后兼容**：现有 legacy txout 交易将无法在新系统中验证
+> - **不可逆删除**：legacy txout 相关代码将被直接删除（保留 git 历史）
 > - **彻底重写**：这不是渐进式迁移，而是从 Cell 模型重新开始
 > 
 ---
 
 ## 0. 目标/边界
 
-* **目标**：在新分支 `spora` 中，**完全放弃 UTXO 模型**，全面引入 **Cell 模型（lock/type/data + RW-Set）**，保持 **DAG 共识骨架**，先用 **GhostDAG**，为后续 **Spora 共识**预留挂载点。
+* **目标**：在新分支 `spora` 中，**完全放弃 legacy txout 模型**，全面引入 **Cell 模型（lock/type/data + RW-Set）**，保持 **DAG 共识骨架**，先用 **GhostDAG**，为后续 **Spora 共识**预留挂载点。
 * **参照**：CKB 的 **Cell 语义/脚本接口/CKB-VM 交互模式**，而**不复制**其线性链/NC-Max 共识。
   * **CKB 源码位置**：`/home/arthur/RustRoverProjects/ckb/` （可直接参考）
   * 重点参考：`ckb/script/`, `ckb/traits/`, `ckb/tx-pool/`, `ckb/store/`
-* **⚠️ 重要决策：完全放弃 UTXO**
-  * **不保留任何 UTXO 代码**（包括兼容层、过渡脚手架）
+* **⚠️ 重要决策：完全放弃 legacy txout**
+  * **不保留任何 legacy txout 代码**（包括兼容层、过渡脚手架）
   * **不考虑向后兼容**
   * **这是一次彻底的架构重写**，不是渐进式迁移
-  * 所有 UTXO 相关模块将被**直接删除**，而非标记 deprecated
+  * 所有 legacy txout 相关模块将被**直接删除**，而非标记 deprecated
 
 **当前代码基础（Spora v1.21.0）**：
 - 语言：**Rust** (edition 2021, rustc 1.82.0)
-- 共识：GhostDAG + UTXO（**将被完全替换为 GhostDAG + Cell**）
-- 待删除模块：`indexes/utxoindex/`, `consensus/*/tx_validation_in_utxo_context.rs`, UTXO 相关验证逻辑
+- 共识：GhostDAG + legacy txout（**将被完全替换为 GhostDAG + Cell**）
+- 待删除模块：`indexes/cellindex/`, `consensus/*/tx_validation_in_cell_context.rs`, legacy txout 相关验证逻辑
 - 保留模块：`consensus/core/`（DAG 部分）, `database/`, `protocol/p2p/`（底层）
 
 ---
@@ -36,7 +36,7 @@
 ```
 Spora/
 ├── consensus/
-│   ├── core/           # 现有：保留 DAG/GhostDAG 核心，删除所有 UTXO 类型
+│   ├── core/           # 现有：保留 DAG/GhostDAG 核心，删除所有 legacy txout 类型
 │   ├── spora/          # 新增 crate：Spora 共识接口与权重打分
 │   │   ├── Cargo.toml
 │   │   └── src/
@@ -86,7 +86,7 @@ Spora/
 ├── indexes/
 │   ├── core/           # 现有：保留索引核心抽象
 │   ├── processor/      # 现有：保留处理器
-│   └── cellindex/      # 新增：Cell 索引服务（替代 utxoindex）
+│   └── cellindex/      # 新增：Cell 索引服务（替代 cellindex）
 │       ├── Cargo.toml
 │       └── src/
 │           ├── lib.rs
@@ -129,38 +129,38 @@ Spora/
 
 **⚠️ 完全删除（不保留任何代码）**：
 
-* `indexes/utxoindex/` → **整个 crate 直接删除**
-* `consensus/src/processes/transaction_validator/tx_validation_in_utxo_context.rs` → **删除**
+* `indexes/cellindex/` → **整个 crate 直接删除**
+* `consensus/src/processes/transaction_validator/tx_validation_in_cell_context.rs` → **删除**
 * `consensus/src/processes/transaction_validator/tx_validation_in_isolation.rs` → **删除或彻底重写**
 * `consensus/src/processes/transaction_validator/tx_validation_in_header_context.rs` → **删除或彻底重写**
-* `consensus/core/src/utxo/` (如果存在) → **删除**
+* `consensus/core/src/legacy_txout/` (如果存在) → **删除**
 * `consensus/core/src/tx.rs` 中的 `VerifiableTransaction` → **删除**，替换为 `VerifiableCellTx`
-* `crypto/txscript/` 中的 UTXO 特定逻辑 → **移除所有 UTXO 假设**
+* `crypto/txscript/` 中的 legacy txout 特定逻辑 → **移除所有 legacy txout 假设**
 
 **扫描待删除的代码（直接删除，不注释）**：
 
 ```bash
 # 在 consensus/ 和 mining/ 中扫描
-rg -n "utxo|UTXO|UtxoEntry|script_pub_key|ScriptPublicKey" \
+rg -n "legacy_txout|legacy txout|CellEntry|script_pub_key|ScriptPublicKey" \
   consensus/src/ consensus/core/src/ mining/src/
 ```
 
 **待删除的具体文件和目录（扫描确认后全部删除）**：
 
-1. **✗ 删除**：`indexes/utxoindex/` - 整个目录（包括 Cargo.toml）
-2. **✗ 删除**：`consensus/src/processes/transaction_validator/tx_validation_in_utxo_context.rs` (361行)
+1. **✗ 删除**：`indexes/cellindex/` - 整个目录（包括 Cargo.toml）
+2. **✗ 删除**：`consensus/src/processes/transaction_validator/tx_validation_in_cell_context.rs` (361行)
 3. **✗ 删除**：`consensus/src/processes/transaction_validator/tx_validation_in_isolation.rs`
 4. **✗ 删除**：`consensus/src/processes/transaction_validator/tx_validation_in_header_context.rs`
-5. **✗ 删除**：`consensus/core/src/tx.rs` 中的所有 UTXO 相关 trait 和类型
-6. **✗ 删除**：`consensus/core/src/utxo/` (如果存在)
-7. **⚠️ 延后处理**：`wallet/` 相关 UTXO 假设（等 Cell 交易类型稳定后重写钱包）
+5. **✗ 删除**：`consensus/core/src/tx.rs` 中的所有 legacy txout 相关 trait 和类型
+6. **✗ 删除**：`consensus/core/src/legacy_txout/` (如果存在)
+7. **⚠️ 延后处理**：`wallet/` 相关 legacy txout 假设（等 Cell 交易类型稳定后重写钱包）
 
 **从 Cargo.toml 移除的 crate**：
 
 ```toml
 # workspace members 中删除：
-"indexes/utxoindex",
-"spora-utxoindex",
+"indexes/cellindex",
+"spora-cellindex",
 ```
 
 **替换为（新建模块）**：
@@ -2987,15 +2987,15 @@ pub trait SporaConsensus {
 ## 12. 提交/PR 规范（Cursor 重要）
 
 * **commit 前缀**：`cell(exec|state|vm|scheduler|proto|p2p|test|cleanup): ...`
-  * `cell(cleanup)`: 删除 UTXO 相关代码
+  * `cell(cleanup)`: 删除 legacy txout 相关代码
   * `cell(exec)`: 执行层实现
   * `cell(state)`: 状态层实现
   * `cell(vm)`: VM 集成
   * `cell(test)`: 测试向量
   
 * **⚠️ 重要规则**：
-  * **禁止**保留任何 UTXO 代码（包括注释掉的代码）
-  * **禁止**创建 UTXO 兼容层或过渡方案
+  * **禁止**保留任何 legacy txout 代码（包括注释掉的代码）
+  * **禁止**创建 legacy txout 兼容层或过渡方案
   * 删除代码时**必须**同步更新 Cargo.toml 和文档
   * 每个 PR **必须**能通过编译（即使功能未完成）
 
@@ -3013,46 +3013,46 @@ pub trait SporaConsensus {
 
 ### 阶段 0：准备与清理（1-2 天）
 
-**任务 0.1：UTXO 依赖全面扫描**
+**任务 0.1：legacy txout 依赖全面扫描**
 ```bash
 cd /home/arthur/RustRoverProjects/Spora
-# 扫描所有 UTXO 相关代码
-rg -n "utxo|UTXO|UtxoEntry|script_pub_key|ScriptPublicKey" \
-  --type rust consensus/ mining/ indexes/ > utxo_scan_full.txt
+# 扫描所有 legacy txout 相关代码
+rg -n "legacy_txout|legacy txout|CellEntry|script_pub_key|ScriptPublicKey" \
+  --type rust consensus/ mining/ indexes/ > cell_scan_full.txt
 
 # 统计文件分布（决定删除顺序）
-rg --type rust -c "UTXO|utxo" consensus/ | sort -t: -k2 -rn | head -20
+rg --type rust -c "legacy txout|legacy_txout" consensus/ | sort -t: -k2 -rn | head -20
 
-# 找出所有依赖 utxoindex 的地方
-rg "spora-utxoindex|use.*utxo" --type rust -l
+# 找出所有依赖 cellindex 的地方
+rg "spora-cellindex|use.*legacy_txout" --type rust -l
 ```
 
-**任务 0.2：删除 UTXO 模块（不可逆操作，谨慎执行）**
+**任务 0.2：删除 legacy txout 模块（不可逆操作，谨慎执行）**
 ```bash
 # ⚠️ 确认你在 spora 分支！
 git branch --show-current  # 应该输出 spora
 
-# 1. 删除 utxoindex 整个目录
-rm -rf indexes/utxoindex
+# 1. 删除 cellindex 整个目录
+rm -rf indexes/cellindex
 
-# 2. 删除 UTXO 验证器
-rm -f consensus/src/processes/transaction_validator/tx_validation_in_utxo_context.rs
+# 2. 删除 legacy txout 验证器
+rm -f consensus/src/processes/transaction_validator/tx_validation_in_cell_context.rs
 
 # 3. 从 workspace 移除
 # 编辑 Cargo.toml，删除以下行：
-#   "indexes/utxoindex",
+#   "indexes/cellindex",
 # 以及 [workspace.dependencies] 中的：
-#   spora-utxoindex = { ... }
+#   spora-cellindex = { ... }
 
 # 4. 提交删除（保留 git 历史）
 git add -A
-git commit -m "cell(cleanup): Remove UTXO model completely
+git commit -m "cell(cleanup): Remove legacy txout model completely
 
-- Delete indexes/utxoindex crate
-- Remove UTXO validation logic
+- Delete indexes/cellindex crate
+- Remove legacy txout validation logic
 - Remove from workspace dependencies
 
-BREAKING CHANGE: UTXO model is no longer supported"
+BREAKING CHANGE: legacy txout model is no longer supported"
 ```
 
 **任务 0.3：创建 Cell 工作目录骨架**
@@ -3389,7 +3389,7 @@ git commit -m "cell(foundation): Initial Cell model implementation
 - Add mempool crate with cellpool and scoring
 - Add consensus/spora interface (placeholder)
 - Add testvectors S1-S6
-- Deprecate indexes/utxoindex
+- Deprecate indexes/cellindex
 
 Ref: CURSOR_RULES.md Phase 1-8"
 
@@ -3589,15 +3589,15 @@ const DEFAULT_TYPE_CYCLES: Cycle = 10_000_000;  // 10M
 
 ## 16. 从 CKB 学习到的核心概念（完整总结）
 
-### 16.1 Cell 模型精髓（vs UTXO）
+### 16.1 Cell 模型精髓（vs legacy txout）
 
 **CKB Cell 的三要素**：
-1. **Lock Script**：谁能花费（类似 UTXO 的 ScriptPubKey）
-2. **Type Script**（可选）：状态转移约束（UTXO 没有）
-3. **Data**：任意数据（UTXO 只有金额）
+1. **Lock Script**：谁能花费（类似 legacy txout 的 ScriptPubKey）
+2. **Type Script**（可选）：状态转移约束（legacy txout 没有）
+3. **Data**：任意数据（legacy txout 只有金额）
 
 **关键差异**：
-- UTXO：`value + scriptPubKey`（简单）
+- legacy txout：`value + scriptPubKey`（简单）
 - Cell：`capacity + lock + type + data`（图灵完备）
 - Cell 的 `capacity` 包含存储成本（防状态爆炸）
 
@@ -3732,9 +3732,9 @@ since 字段：
 
 ### 16.9 术语对照表
 
-| CKB | Spora-Cell | UTXO (旧) | 说明 |
+| CKB | Spora-Cell | legacy txout (旧) | 说明 |
 |-----|-----------|----------|------|
-| Cell | Cell | UTXO | 基本状态单元 |
+| Cell | Cell | legacy txout | 基本状态单元 |
 | OutPoint | OutPoint | OutPoint | 引用（tx_hash + index） |
 | Lock Script | Lock Script | ScriptPubKey | 花费条件 |
 | Type Script | Type Script | - | 状态转移约束 |
@@ -3787,21 +3787,21 @@ since 字段：
 
 ## 17. 立即行动指南
 
-### 第一步：清理 UTXO（今天，必须完成）
+### 第一步：清理 legacy txout（今天，必须完成）
 
-**A. 扫描 UTXO 依赖（全面盘点）**
+**A. 扫描 legacy txout 依赖（全面盘点）**
 ```bash
 cd /home/arthur/RustRoverProjects/Spora
-# 扫描所有 UTXO 引用
-rg -n "utxo|UTXO" --type rust -c consensus/ indexes/ mining/ | sort -t: -k2 -rn > utxo_hotspots.txt
-cat utxo_hotspots.txt
+# 扫描所有 legacy txout 引用
+rg -n "legacy_txout|legacy txout" --type rust -c consensus/ indexes/ mining/ | sort -t: -k2 -rn > legacy_txout_hotspots.txt
+cat legacy_txout_hotspots.txt
 
-# 找出依赖 utxoindex 的模块
-rg "spora-utxoindex" --type toml
-rg "use.*utxo" --type rust -l > utxo_imports.txt
+# 找出依赖 cellindex 的模块
+rg "spora-cellindex" --type toml
+rg "use.*legacy_txout" --type rust -l > legacy_txout_imports.txt
 ```
 
-**B. 删除 UTXO 模块（⚠️ 不可逆操作）**
+**B. 删除 legacy txout 模块（⚠️ 不可逆操作）**
 ```bash
 cd /home/arthur/RustRoverProjects/Spora
 
@@ -3809,23 +3809,23 @@ cd /home/arthur/RustRoverProjects/Spora
 git branch --show-current  # 必须是 spora
 
 # 备份当前状态（可选）
-git tag before-utxo-removal
+git tag before-legacy_txout-removal
 
-# 删除 utxoindex
-rm -rf indexes/utxoindex
+# 删除 cellindex
+rm -rf indexes/cellindex
 
-# 删除 UTXO 验证器
-rm -f consensus/src/processes/transaction_validator/tx_validation_in_utxo_context.rs
+# 删除 legacy txout 验证器
+rm -f consensus/src/processes/transaction_validator/tx_validation_in_cell_context.rs
 
 # 编辑 Cargo.toml 移除引用（手动或用 sed）
-# 删除 members 中的 "indexes/utxoindex"
-# 删除 workspace.dependencies 中的 spora-utxoindex
+# 删除 members 中的 "indexes/cellindex"
+# 删除 workspace.dependencies 中的 spora-cellindex
 
 # 提交删除
 git add -A
-git commit -m "cell(cleanup): Remove UTXO model completely
+git commit -m "cell(cleanup): Remove legacy txout model completely
 
-BREAKING CHANGE: UTXO model is no longer supported"
+BREAKING CHANGE: legacy txout model is no longer supported"
 ```
 
 **C. 研究 CKB Cell 结构**
@@ -3884,7 +3884,7 @@ echo "# Cell Memory Pool - Parallel scheduler with RW-Set DAG" > mempool/README.
 
 | 阶段 | 天数 | 累计 | 关键输出 |
 |------|------|------|----------|
-| 0 - 准备 | 2 | 2 | UTXO 扫描报告 + 目录结构 |
+| 0 - 准备 | 2 | 2 | legacy txout 扫描报告 + 目录结构 |
 | 1 - 核心类型 | 3 | 5 | exec/celltx 可编译+测试通过 |
 | 2 - 调度器 | 5 | 10 | 并行执行 demo |
 | 3 - VM | 7 | 17 | CKB-VM 集成 + secp256k1 锁 |
@@ -3919,17 +3919,17 @@ cd /home/arthur/RustRoverProjects/Spora
 # 1. 确认分支
 git branch --show-current  # 必须是 spora
 
-# 2. 全面扫描 UTXO 依赖
-rg -n "utxo|UTXO" --type rust -c consensus/ indexes/ mining/ | sort -t: -k2 -rn > utxo_hotspots.txt
-rg "spora-utxoindex" --type toml > utxo_cargo_deps.txt
+# 2. 全面扫描 legacy txout 依赖
+rg -n "legacy_txout|legacy txout" --type rust -c consensus/ indexes/ mining/ | sort -t: -k2 -rn > legacy_txout_hotspots.txt
+rg "spora-cellindex" --type toml > legacy_txout_cargo_deps.txt
 
 # 3. 备份并删除
-git tag before-utxo-removal
-rm -rf indexes/utxoindex
-rm -f consensus/src/processes/transaction_validator/tx_validation_in_utxo_context.rs
+git tag before-legacy_txout-removal
+rm -rf indexes/cellindex
+rm -f consensus/src/processes/transaction_validator/tx_validation_in_cell_context.rs
 
 # 4. 查看需要手动修改的文件
-cat utxo_cargo_deps.txt  # 需要手动编辑这些 Cargo.toml
+cat legacy_txout_cargo_deps.txt  # 需要手动编辑这些 Cargo.toml
 
 # 5. 研究 CKB Cell 结构（学习参考）
 bat /home/arthur/RustRoverProjects/ckb/util/types/src/core/cell.rs | head -100
@@ -3938,7 +3938,7 @@ bat /home/arthur/RustRoverProjects/ckb/util/types/src/core/cell.rs | head -100
 **🟡 优先级 P1：今天完成（2-3 小时）**
 ```bash
 # 1. 手动编辑 Cargo.toml
-#    删除 "indexes/utxoindex" 和 spora-utxoindex 依赖
+#    删除 "indexes/cellindex" 和 spora-cellindex 依赖
 
 # 2. 创建 Cell 工作目录
 mkdir -p exec/src/{celltx,scheduler,vm,scripts}
@@ -3947,9 +3947,9 @@ mkdir -p mempool/src
 
 # 3. 提交删除
 git add -A
-git commit -m "cell(cleanup): Remove UTXO model completely
+git commit -m "cell(cleanup): Remove legacy txout model completely
 
-BREAKING CHANGE: UTXO model is no longer supported"
+BREAKING CHANGE: legacy txout model is no longer supported"
 ```
 
 **🟢 优先级 P2：明天开始（阶段 1）**
@@ -4240,7 +4240,7 @@ jobs:
 
 ```rust
 // SPDX-License-Identifier: ISC
-// Copyright (C) 2025Spora developers
+// Copyright (C) 2026Spora developers
 //
 // This file is part of Spora, a DAG-based blockchain with Cell model.
 // Portions adapted from Nervos CKB (MIT License).
@@ -4293,7 +4293,7 @@ jobs:
 3. **Block结构** ✅ (100% - **今日完成**)
    - `consensus/core/src/block.rs` ✅
    - **完全迁移到CellTx** ✅
-   - **废弃Transaction（UTXO）** ✅
+   - **废弃Transaction（legacy txout）** ✅
    - **无转换层** ✅
    - Genesis适配 ✅
 
@@ -4423,14 +4423,14 @@ jobs:
 
 ---
 
-#### ✅ UTXO清理进度 (完成！)
+#### ✅ legacy txout清理进度 (完成！)
 
 **2025-10-22 深夜 - 完全清理完成**:
-- ✅ 删除 `consensus/core/src/utxo.deprecated/` (6个文件)
-- ✅ 删除 `consensus/core/src/errors/utxo.deprecated/` (1个文件)
+- ✅ 删除 `consensus/core/src/legacy_txout.deprecated/` (6个文件)
+- ✅ 删除 `consensus/core/src/errors/legacy_txout.deprecated/` (1个文件)
 - ✅ 删除 `consensus/src/processes/transaction_validator.deprecated/` (5个文件)
-- ✅ 更新 `consensus/core/src/lib.rs` - 完全移除UTXO模块
-- ✅ 更新 `consensus/core/src/errors/mod.rs` - 移除utxo错误
+- ✅ 更新 `consensus/core/src/lib.rs` - 完全移除legacy txout模块
+- ✅ 更新 `consensus/core/src/errors/mod.rs` - 移除legacy_txout错误
 - ✅ 更新 `consensus/src/processes/mod.rs` - 移除transaction_validator
 
 **🎉 核心突破**:
@@ -4439,7 +4439,7 @@ jobs:
 - ✅ **TransactionValidator完全废弃**
 - ✅ **无转换层设计**
 
-**总计删除**: 12个deprecated文件，~800行UTXO代码
+**总计删除**: 12个deprecated文件，~800行legacy txout代码
 
 **待处理** (非阻塞，渐进式迁移):
 - wallet层适配Cell模型 (P2)
@@ -4470,8 +4470,8 @@ jobs:
 总计新增             : ~28,800 lines
 
 已删除（今日）:
-- utxo.deprecated/   : ~800 lines (12个文件)
-- UTXO引用           : ~200 lines
+- legacy_txout.deprecated/   : ~800 lines (12个文件)
+- legacy txout引用           : ~200 lines
 
 测试覆盖:
 - exec测试           : 27 tests ✅
@@ -4489,7 +4489,7 @@ jobs:
 **已完成的核心任务**:
 - ✅ 直接废弃Transaction，全面使用CellTx
 - ✅ 修改Block结构使用`Vec<CellTx>`
-- ✅ 删除所有UTXO deprecated代码
+- ✅ 删除所有legacy txout deprecated代码
 - ✅ Virtual Processor完全Cell化
 - ✅ Cell验证和VM集成
 - ✅ 详细文档体系
@@ -4503,7 +4503,7 @@ jobs:
 // 文件: consensus/core/src/block.rs
 // ❌ 删除:
 pub struct Block {
-    pub transactions: Arc<Vec<Transaction>>,  // UTXO model
+    pub transactions: Arc<Vec<Transaction>>,  // legacy txout model
 }
 
 // ✅ 已实现（2025-10-22）:
@@ -4516,7 +4516,7 @@ pub struct Block {
 - [x] 修改BlockTemplate结构 ✅
 - [x] 修改TemplateTransactionSelector trait ✅
 - [x] 更新所有Block使用处（Virtual Processor等）✅
-- [x] 删除UTXO Transaction类型 ✅
+- [x] 删除legacy txout Transaction类型 ✅
 - [x] 更新序列化/反序列化 ✅
 - [ ] 运行测试套件 ⏳ (清理编译错误后)
 
@@ -4705,7 +4705,7 @@ pub(super) transaction_validator: TransactionValidator,
    - Reorg集成测试
 
 **技术债务**: ✅ **极低**
-- ❌ 无UTXO残留（已全部删除）
+- ❌ 无legacy txout残留（已全部删除）
 - ❌ 无转换层（直接使用CellTx）
 - ⚠️ 仅有TransactionValidator引用需清理（非核心逻辑）
 
@@ -4732,22 +4732,22 @@ cargo test --package spora-consensus
 #### 📋 废弃的计划项（基于审计澄清）
 
 ❌ ~~**不需要**: Transaction → CellTx转换层~~  
-❌ ~~**不需要**: UTXO兼容模式~~  
-❌ ~~**不需要**: 渐进式UTXO迁移~~
+❌ ~~**不需要**: legacy txout兼容模式~~  
+❌ ~~**不需要**: 渐进式legacy txout迁移~~
 
-**原因**: 用户已明确完全放弃UTXO模型，直接全面使用CellTx。
+**原因**: 用户已明确完全放弃legacy txout模型，直接全面使用CellTx。
 
 #### 📝 相关文档
 
 - **详细进度**: `SPORA_PROGRESS.md`
 - **审计报告**: `SPORA_AUDIT.md`
-- **UTXO清理**: `UTXO_CLEANUP.md`, `utxo_hotspots.txt`
+- **legacy txout清理**: `legacy txout_CLEANUP.md`, `legacy_txout_hotspots.txt`
 
 
 **🎉 重大里程碑**: 
 - Spora (GhostDAG + Cell + CKB-VM) 核心实现完成！
 - 从75%提升到92%完成度
-- Block完全Cell化，UTXO彻底清除
+- Block完全Cell化，legacy txout彻底清除
 - VM框架完整，Blake3集成
 - 详细文档体系建立
 

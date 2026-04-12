@@ -10,7 +10,7 @@ pub mod headers_selected_tip;
 pub mod past_pruning_points;
 pub mod pruning;
 pub mod pruning_samples;
-// pruning_utxoset removed - Cell state managed directly in VirtualState
+// pruning cell-set store removed - Cell state managed directly in VirtualState
 pub mod reachability;
 pub mod relations;
 pub mod selected_chain;

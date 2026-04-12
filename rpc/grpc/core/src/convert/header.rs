@@ -31,7 +31,7 @@ from!(item: &spora_rpc_core::RpcRawHeader, protowire::RpcBlockHeader, {
         parents: item.parents_by_level.iter().map(protowire::RpcBlockLevelParents::from).collect(),
         hash_merkle_root: item.hash_merkle_root.to_string(),
         accepted_id_merkle_root: item.accepted_id_merkle_root.to_string(),
-        cell_commitment: item.cell_commitment.to_string(),  // Changed from utxo_commitment
+        cell_commitment: item.cell_commitment.to_string(),
         timestamp: item.timestamp.try_into().expect("timestamp is always convertible to i64"),
         bits: item.bits,
         nonce: item.nonce,
@@ -55,7 +55,7 @@ try_from!(item: &protowire::RpcBlockHeader, spora_rpc_core::RpcHeader, {
         item.parents.iter().map(Vec::<RpcHash>::try_from).collect::<RpcResult<Vec<Vec<RpcHash>>>>()?,
         RpcHash::from_str(&item.hash_merkle_root)?,
         RpcHash::from_str(&item.accepted_id_merkle_root)?,
-        RpcHash::from_str(&item.cell_commitment)?,  // cell_commitment replaces utxo_commitment
+        RpcHash::from_str(&item.cell_commitment)?,
         RpcHash::from_str("0000000000000000000000000000000000000000000000000000000000000000")?, // TODO(spora): Add cell_root to RPC
         item.timestamp.try_into()?,
         item.bits,
@@ -75,7 +75,7 @@ try_from!(item: &protowire::RpcBlockHeader, spora_rpc_core::RpcRawHeader, {
         parents_by_level: item.parents.iter().map(Vec::<RpcHash>::try_from).collect::<RpcResult<Vec<Vec<RpcHash>>>>()?,
         hash_merkle_root: RpcHash::from_str(&item.hash_merkle_root)?,
         accepted_id_merkle_root: RpcHash::from_str(&item.accepted_id_merkle_root)?,
-        cell_commitment: RpcHash::from_str(&item.cell_commitment)?,  // cell_commitment replaces utxo_commitment
+        cell_commitment: RpcHash::from_str(&item.cell_commitment)?,
         timestamp: item.timestamp.try_into()?,
         bits: item.bits,
         nonce: item.nonce,

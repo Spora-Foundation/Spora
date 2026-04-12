@@ -16,7 +16,7 @@ Treasure Boy now supports Time Locked Contract (TLC) airdrop functionality, allo
 ### 1. Simple Time-Locked Airdrop
 
 ```bash
-# Create timestamp-locked airdrop (unlocks on August 1, 2025)
+# Create timestamp-locked airdrop (unlocks on August 1, 2026)
 cargo run --package treasure_boy -- \
   --private-key YOUR_PRIVATE_KEY \
   --address-file addresses.txt \

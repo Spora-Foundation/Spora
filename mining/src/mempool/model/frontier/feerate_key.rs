@@ -1,5 +1,5 @@
 use crate::{block_template::selector::ALPHA, mempool::model::tx::MempoolTransaction};
-use spora_consensus_core::{mass::ContextualMasses, tx::Transaction};
+use spora_consensus_core::{mass::ContextualMasses, tx::CellTx};
 use std::sync::Arc;
 
 #[derive(Clone, Debug)]
@@ -7,7 +7,7 @@ pub struct FeerateTransactionKey {
     pub fee: u64,
     pub mass: u64,
     weight: f64,
-    pub tx: Arc<Transaction>,
+    pub tx: Arc<CellTx>,
 }
 
 impl Eq for FeerateTransactionKey {}
@@ -19,7 +19,7 @@ impl PartialEq for FeerateTransactionKey {
 }
 
 impl FeerateTransactionKey {
-    pub fn new(fee: u64, mass: u64, tx: Arc<Transaction>) -> Self {
+    pub fn new(fee: u64, mass: u64, tx: Arc<CellTx>) -> Self {
         // NOTE: any change to the way this weight is calculated (such as scaling by some factor)
         // requires a reversed update to total_weight in `Frontier::build_feerate_estimator`. This
         // is because the math methods in FeeEstimator assume this specific weight function.
@@ -91,6 +91,7 @@ impl From<&MempoolTransaction> for FeerateTransactionKey {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    use spora_consensus_core::tx::cell_tx_from_legacy_transaction;
     use spora_consensus_core::{
         subnets::SUBNETWORK_ID_NATIVE,
         tx::{Transaction, TransactionInput, TransactionOutpoint},
@@ -98,11 +99,12 @@ pub(crate) mod tests {
     use spora_hashes::{HasherBase, TransactionID};
     use std::sync::Arc;
 
-    fn generate_unique_tx(i: u64) -> Arc<Transaction> {
+    fn generate_unique_tx(i: u64) -> Arc<CellTx> {
         let mut hasher = TransactionID::new();
         let prev = hasher.update(i.to_le_bytes()).clone().finalize();
-        let input = TransactionInput::new(TransactionOutpoint::new(prev, 0), vec![], 0, 0);
-        Arc::new(Transaction::new(0, vec![input], vec![], 0, SUBNETWORK_ID_NATIVE, 0, vec![]))
+        let input = TransactionInput::new(TransactionOutpoint::new(prev.as_bytes(), 0), vec![], 0, 0);
+        let tx = Transaction::new(0, vec![input], vec![], 0, SUBNETWORK_ID_NATIVE, 0, vec![]);
+        Arc::new(cell_tx_from_legacy_transaction(&tx))
     }
 
     /// Test helper for generating a feerate key with a unique tx (per u64 id)

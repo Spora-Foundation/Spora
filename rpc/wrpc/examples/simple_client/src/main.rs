@@ -59,12 +59,12 @@ async fn check_node_status() -> Result<()> {
     client.connect(Some(options)).await?;
 
     // Retrieve and show Spora node information
-    let GetServerInfoResponse { is_synced, server_version, network_id, has_utxo_index, .. } = client.get_server_info().await?;
+    let GetServerInfoResponse { is_synced, server_version, network_id, has_cell_index, .. } = client.get_server_info().await?;
 
     println!("Node version: {server_version}");
     println!("Network: {network_id}");
     println!("Node is synced: {is_synced}");
-    println!("Node is indexing UTXOs: {has_utxo_index}");
+    println!("Node is indexing cells: {has_cell_index}");
 
     // Retrieve and show Spora network information
     let GetBlockDagInfoResponse {

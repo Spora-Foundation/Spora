@@ -46,16 +46,15 @@ event_type_enum! {
         VirtualChainChanged,
         FinalityConflict,
         FinalityConflictResolved,
-        UtxosChanged,
         CellsChanged,
         SinkBlueScoreChanged,
         VirtualDaaScoreChanged,
-        PruningPointUtxoSetOverride,
+        PruningPointCellSetOverride,
         NewBlockTemplate,
     }
 }
 
-pub const EVENT_COUNT: usize = 10;
+pub const EVENT_COUNT: usize = 9;
 
 impl FromStr for EventType {
     type Err = Error;
@@ -66,10 +65,10 @@ impl FromStr for EventType {
             "virtual-chain-changed" => Ok(EventType::VirtualChainChanged),
             "finality-conflict" => Ok(EventType::FinalityConflict),
             "finality-conflict-resolved" => Ok(EventType::FinalityConflictResolved),
-            "utxos-changed" => Ok(EventType::UtxosChanged),
+            "cells-changed" => Ok(EventType::CellsChanged),
             "sink-blue-score-changed" => Ok(EventType::SinkBlueScoreChanged),
             "virtual-daa-score-changed" => Ok(EventType::VirtualDaaScoreChanged),
-            "pruning-point-utxo-set-override" => Ok(EventType::PruningPointUtxoSetOverride),
+            "pruning-point-cell-set-override" => Ok(EventType::PruningPointCellSetOverride),
             "new-block-template" => Ok(EventType::NewBlockTemplate),
             _ => Err(Error::InvalidEventType(s.to_string())),
         }

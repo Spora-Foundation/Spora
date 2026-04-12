@@ -8,5 +8,5 @@ pub mod sync;
 pub mod traversal;
 pub mod tx;
 
-// UTXO errors fully removed - migrated to Cell model
+// Legacy transaction-output errors fully removed - migrated to Cell model
 // See: consensus/src/processes/cell_validator/errors.rs for Cell validation errors

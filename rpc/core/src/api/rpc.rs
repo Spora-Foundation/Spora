@@ -352,7 +352,7 @@ pub trait RpcApi: Sync + Send + AnySync {
 
     /// Returns the total balance in unspent transactions towards a given address.
     ///
-    /// This call is only available when this node was started with `--utxoindex`.
+    /// This call is only available when this node was started with `--cellindex`.
     async fn get_balance_by_address(&self, address: RpcAddress) -> RpcResult<u64> {
         Ok(self.get_balance_by_address_call(None, GetBalanceByAddressRequest::new(address)).await?.balance)
     }
@@ -372,27 +372,27 @@ pub trait RpcApi: Sync + Send + AnySync {
         request: GetBalancesByAddressesRequest,
     ) -> RpcResult<GetBalancesByAddressesResponse>;
 
-    async fn get_utxos_by_address(&self, address: RpcAddress, start: u64, limit: u32) -> RpcResult<GetUtxosByAddressResponse> {
-        self.get_utxos_by_address_call(None, GetUtxosByAddressRequest::new(address, start, limit)).await
+    async fn get_cells_by_address(&self, address: RpcAddress, start: u64, limit: u32) -> RpcResult<GetCellsByAddressResponse> {
+        self.get_cells_by_address_call(None, GetCellsByAddressRequest::new(address, start, limit)).await
     }
 
-    async fn get_utxos_by_address_call(
+    async fn get_cells_by_address_call(
         &self,
         connection: Option<&DynRpcConnection>,
-        request: GetUtxosByAddressRequest,
-    ) -> RpcResult<GetUtxosByAddressResponse>;
+        request: GetCellsByAddressRequest,
+    ) -> RpcResult<GetCellsByAddressResponse>;
 
-    /// Requests all current UTXOs for the given node addresses.
+    /// Requests all current cells for the given node addresses.
     ///
-    /// This call is only available when this node was started with `--utxoindex`.
-    async fn get_utxos_by_addresses(&self, addresses: Vec<RpcAddress>) -> RpcResult<Vec<RpcUtxosByAddressesEntry>> {
-        Ok(self.get_utxos_by_addresses_call(None, GetUtxosByAddressesRequest::new(addresses)).await?.entries)
+    /// This call is only available when this node was started with `--cellindex`.
+    async fn get_cells_by_addresses(&self, addresses: Vec<RpcAddress>) -> RpcResult<Vec<RpcCellsByAddressesEntry>> {
+        Ok(self.get_cells_by_addresses_call(None, GetCellsByAddressesRequest::new(addresses)).await?.entries)
     }
-    async fn get_utxos_by_addresses_call(
+    async fn get_cells_by_addresses_call(
         &self,
         connection: Option<&DynRpcConnection>,
-        request: GetUtxosByAddressesRequest,
-    ) -> RpcResult<GetUtxosByAddressesResponse>;
+        request: GetCellsByAddressesRequest,
+    ) -> RpcResult<GetCellsByAddressesResponse>;
 
     /// Requests the blue score of the current selected parent of the virtual block.
     async fn get_sink_blue_score(&self) -> RpcResult<u64> {
@@ -477,17 +477,17 @@ pub trait RpcApi: Sync + Send + AnySync {
         request: GetDaaScoreTimestampEstimateRequest,
     ) -> RpcResult<GetDaaScoreTimestampEstimateResponse>;
 
-    async fn get_utxo_return_address(&self, txid: RpcHash, accepting_block_daa_score: u64) -> RpcResult<RpcAddress> {
+    async fn get_cell_return_address(&self, txid: RpcHash, accepting_block_daa_score: u64) -> RpcResult<RpcAddress> {
         Ok(self
-            .get_utxo_return_address_call(None, GetUtxoReturnAddressRequest { txid, accepting_block_daa_score })
+            .get_cell_return_address_call(None, GetCellReturnAddressRequest { txid, accepting_block_daa_score })
             .await?
             .return_address)
     }
-    async fn get_utxo_return_address_call(
+    async fn get_cell_return_address_call(
         &self,
         _connection: Option<&DynRpcConnection>,
-        request: GetUtxoReturnAddressRequest,
-    ) -> RpcResult<GetUtxoReturnAddressResponse>;
+        request: GetCellReturnAddressRequest,
+    ) -> RpcResult<GetCellReturnAddressResponse>;
 
     // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     // Fee estimation API

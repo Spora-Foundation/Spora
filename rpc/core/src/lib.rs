@@ -29,7 +29,7 @@ pub mod prelude {
 }
 
 pub use api::notifications::*;
-pub use convert::utxo::*;
+pub use convert::cell::*;
 pub use error::*;
 pub use model::script_class::*;
 pub use model::*;

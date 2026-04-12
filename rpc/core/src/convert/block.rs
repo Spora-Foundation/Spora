@@ -2,8 +2,23 @@
 
 use std::sync::Arc;
 
-use crate::{RpcBlock, RpcError, RpcRawBlock, RpcResult, RpcTransaction};
+use crate::{RpcBlock, RpcError, RpcRawBlock, RpcResult};
 use spora_consensus_core::block::{Block, MutableBlock};
+use spora_consensus_core::tx::CellTx;
+
+fn rpc_transaction_from_cell_tx(cell_tx: &CellTx) -> crate::RpcTransaction {
+    crate::RpcTransaction {
+        version: cell_tx.ver,
+        inputs: crate::RpcTransactionInput::from_cell_refs(&cell_tx.inputs, &cell_tx.witnesses),
+        outputs: crate::RpcTransactionOutput::from_cell_outputs(&cell_tx.outputs, &cell_tx.outputs_data),
+        lock_time: 0,
+        subnetwork_id: if cell_tx.is_coinbase() { crate::RpcSubnetworkId::coinbase() } else { crate::RpcSubnetworkId::native() },
+        gas: 0,
+        payload: cell_tx.payload().map(ToOwned::to_owned).unwrap_or_default(),
+        mass: cell_tx.storage_mass(),
+        verbose_data: None,
+    }
+}
 
 // ----------------------------------------------------------------------------
 // consensus_core to rpc_core
@@ -11,10 +26,9 @@ use spora_consensus_core::block::{Block, MutableBlock};
 
 impl From<&Block> for RpcBlock {
     fn from(item: &Block) -> Self {
-        // TODO(cell-model): Implement CellTx to RpcTransaction conversion
         Self {
             header: item.header.as_ref().into(),
-            transactions: vec![], // Empty for now - Cell model migration
+            transactions: item.transactions.iter().map(rpc_transaction_from_cell_tx).collect(),
             verbose_data: None,
         }
     }
@@ -22,17 +36,18 @@ impl From<&Block> for RpcBlock {
 
 impl From<&Block> for RpcRawBlock {
     fn from(item: &Block) -> Self {
-        // TODO(cell-model): Implement CellTx to RpcTransaction conversion
-        Self { header: item.header.as_ref().into(), transactions: vec![] }
+        Self {
+            header: item.header.as_ref().into(),
+            transactions: item.transactions.iter().map(rpc_transaction_from_cell_tx).collect(),
+        }
     }
 }
 
 impl From<&MutableBlock> for RpcBlock {
     fn from(item: &MutableBlock) -> Self {
-        // TODO(cell-model): Implement CellTx to RpcTransaction conversion
         Self {
             header: item.header.as_ref().into(),
-            transactions: vec![], // Empty for now - Cell model migration
+            transactions: item.transactions.iter().map(rpc_transaction_from_cell_tx).collect(),
             verbose_data: None,
         }
     }
@@ -40,15 +55,16 @@ impl From<&MutableBlock> for RpcBlock {
 
 impl From<&MutableBlock> for RpcRawBlock {
     fn from(item: &MutableBlock) -> Self {
-        // TODO(cell-model): Implement CellTx to RpcTransaction conversion
-        Self { header: item.header.as_ref().into(), transactions: vec![] }
+        Self {
+            header: item.header.as_ref().into(),
+            transactions: item.transactions.iter().map(rpc_transaction_from_cell_tx).collect(),
+        }
     }
 }
 
 impl From<MutableBlock> for RpcRawBlock {
     fn from(item: MutableBlock) -> Self {
-        // TODO(cell-model): Implement CellTx to RpcTransaction conversion
-        Self { header: item.header.into(), transactions: vec![] }
+        Self { header: item.header.into(), transactions: item.transactions.iter().map(rpc_transaction_from_cell_tx).collect() }
     }
 }
 
@@ -59,21 +75,56 @@ impl From<MutableBlock> for RpcRawBlock {
 impl TryFrom<RpcBlock> for Block {
     type Error = RpcError;
     fn try_from(item: RpcBlock) -> RpcResult<Self> {
-        // TODO(cell-model): Implement RpcTransaction to CellTx conversion
-        Ok(Self {
-            header: Arc::new(item.header.into()),
-            transactions: Arc::new(vec![]), // Empty for now - Cell model migration
-        })
+        let transactions = item.transactions.into_iter().map(crate::RpcTransaction::try_into).collect::<RpcResult<Vec<CellTx>>>()?;
+        Ok(Self { header: Arc::new(item.header.into()), transactions: Arc::new(transactions) })
     }
 }
 
 impl TryFrom<RpcRawBlock> for Block {
     type Error = RpcError;
     fn try_from(item: RpcRawBlock) -> RpcResult<Self> {
-        // TODO(cell-model): Implement RpcTransaction to CellTx conversion
-        Ok(Self {
-            header: Arc::new(item.header.into()),
-            transactions: Arc::new(vec![]), // Empty for now - Cell model migration
-        })
+        let transactions = item.transactions.into_iter().map(crate::RpcTransaction::try_into).collect::<RpcResult<Vec<CellTx>>>()?;
+        Ok(Self { header: Arc::new(item.header.into()), transactions: Arc::new(transactions) })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::rpc_transaction_from_cell_tx;
+    use spora_consensus_core::tx::{CellOut, CellRef, CellTx, OutPoint, ScriptRef};
+
+    #[test]
+    fn rpc_transaction_from_cell_tx_preserves_canonical_output_metadata() {
+        let lock = ScriptRef::new([0x11; 32], 0, vec![0xaa, 0xbb]);
+        let type_script = ScriptRef::new([0x22; 32], 1, vec![0xcc]);
+        let output = CellOut { lock: lock.clone(), type_: Some(type_script.clone()), capacity: 4242 };
+        let output_data = vec![1, 2, 3, 4];
+        let tx = CellTx::new(
+            vec![CellRef::new(OutPoint::new([0x33; 32], 7), 123)],
+            vec![],
+            vec![output.clone()],
+            vec![output_data.clone()],
+            vec![vec![0xde, 0xad, 0xbe, 0xef]],
+        )
+        .unwrap();
+
+        let rpc_tx = rpc_transaction_from_cell_tx(&tx);
+
+        assert_eq!(rpc_tx.version, tx.ver);
+        assert_eq!(rpc_tx.inputs.len(), 1);
+        assert_eq!(rpc_tx.inputs[0].sequence, 123);
+        assert_eq!(rpc_tx.inputs[0].since, Some(123));
+        assert_eq!(rpc_tx.inputs[0].witness.as_deref(), Some([0xde, 0xad, 0xbe, 0xef].as_slice()));
+
+        assert_eq!(rpc_tx.outputs.len(), 1);
+        let rpc_output = &rpc_tx.outputs[0];
+        assert_eq!(rpc_output.value, output.capacity);
+        assert_eq!(rpc_output.capacity, Some(output.capacity));
+        assert_eq!(rpc_output.data_bytes, Some(output_data.len() as u64));
+        assert_eq!(rpc_output.lock_hash, Some(lock.hash()));
+        assert_eq!(rpc_output.type_hash, Some(type_script.hash()));
+        assert_eq!(rpc_output.data_hash, Some(*blake3::hash(&output_data).as_bytes()));
+        assert_eq!(rpc_tx.mass, tx.storage_mass());
+        assert_eq!(rpc_tx.payload, Vec::<u8>::new());
     }
 }

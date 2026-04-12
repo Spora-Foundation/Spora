@@ -50,7 +50,7 @@ impl ConsensusMonitor {
             let now = Instant::now();
 
             info!(
-                "Processed {} blocks and {} headers in the last {:.2}s ({} transactions; {} UTXO-validated blocks; {:.2} parents; {:.2} mergeset; {:.2} TPB; {:.1} mass)", 
+                "Processed {} blocks and {} headers in the last {:.2}s ({} transactions; {} cell-validated blocks; {:.2} parents; {:.2} mergeset; {:.2} TPB; {:.1} mass)", 
                 delta.body_counts,
                 delta.header_counts,
                 (now - last_log_time).as_secs_f64(),
@@ -64,7 +64,7 @@ impl ConsensusMonitor {
 
             if delta.chain_disqualified_counts > 0 {
                 warn!(
-                    "Consensus detected UTXO-invalid blocks which are disqualified from the virtual selected chain (possibly due to inheritance): {} disqualified vs. {} valid chain blocks",
+                    "Consensus detected cell-invalid blocks which are disqualified from the virtual selected chain (possibly due to inheritance): {} disqualified vs. {} valid chain blocks",
                     delta.chain_disqualified_counts, delta.chain_block_counts
                 );
             }

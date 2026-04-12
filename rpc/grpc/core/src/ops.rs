@@ -71,8 +71,8 @@ pub enum SporadPayloadOps {
     ResolveFinalityConflict,
     GetHeader,
     GetHeaders,
-    GetUtxosByAddress,
-    GetUtxosByAddresses,
+    GetCellsByAddress,
+    GetCellsByAddresses,
     GetBalanceByAddress,
     GetBalancesByAddresses,
     GetSinkBlueScore,
@@ -91,21 +91,21 @@ pub enum SporadPayloadOps {
     GetFeeEstimate,
     GetFeeEstimateExperimental,
     GetCurrentBlockColor,
-    GetUtxoReturnAddress,
+    GetCellReturnAddress,
 
     // Subscription commands for starting/stopping notifications
     NotifyBlockAdded,
     NotifyNewBlockTemplate,
     NotifyFinalityConflict,
-    NotifyUtxosChanged,
+    NotifyCellsChanged,
     NotifySinkBlueScoreChanged,
-    NotifyPruningPointUtxoSetOverride,
+    NotifyPruningPointCellSetOverride,
     NotifyVirtualDaaScoreChanged,
     NotifyVirtualChainChanged,
 
     // Legacy stop subscription commands
-    StopNotifyingUtxosChanged,
-    StopNotifyingPruningPointUtxoSetOverride,
+    StopNotifyingCellsChanged,
+    StopNotifyingPruningPointCellSetOverride,
 
     // Please note:
     // Notification payloads existing in ResponsePayload are not considered valid ops.

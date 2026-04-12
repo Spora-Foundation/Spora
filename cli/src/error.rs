@@ -130,10 +130,10 @@ pub enum Error {
     SporaWalletKeys(#[from] spora_wallet_keys::error::Error),
 
     #[error(transparent)]
-    PstbLockScriptSigError(#[from] spora_wallet_pstt::error::Error),
+    PssbLockScriptSigError(#[from] spora_wallet_psst::error::Error),
 
     #[error("To hex serialization error")]
-    PstbSerializeToHexError,
+    PssbSerializeToHexError,
 }
 
 impl Error {

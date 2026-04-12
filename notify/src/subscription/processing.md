@@ -1,5 +1,5 @@
 # Subscriptions processing in the notification system
-## UtxosChanged Subscription
+## CellsChanged Subscription
 ### Mutation
 - **All** -->	*mutation.active() = true && addresses empty*
 - **Add(A)** -->	*mutation.active() = true && addresses = A*
@@ -28,21 +28,21 @@ For every combination of Mutation and State, a list of atomic mutations and a re
 
 The atomic mutations are applied to the subscription, which leads to a new subscription state.
 
-The same mutations must be propagated to a Compounded Subscription handling UtxosChanged notifications. For every mutation submitted (see next section) by calling fn `compound` a resulting `Option<SubscribeMessage<NotificationType>>>` is returned.
+The same mutations must be propagated to a Compounded Subscription handling `CellsChanged` notifications. For every mutation submitted (see next section) by calling fn `compound` a resulting `Option<SubscribeMessage<NotificationType>>>` is returned.
 
 The value returned by the last call, if `Some`, must be propagated to the parent.
 
-### Compounded Subscription UtxosChanged
+### Compounded Subscription CellsChanged
 This structure contains counters for `All` and for every address registered in a set.
 
 The possible mutations are:
 
 |**Mutation**|**Process pseudo-code**|**Return pseudo-code**|
 | :- | :- | :- |
-|**Add(All)**|<pre>Increment the `All` counter</pre>|<pre>If All == 1<br/>   Some(SubscribeMessage::StartEvent(NotificationType::UtxosChanged(empty)))<br>Else<br/>   None</pre>|
-|**Add(A)**|<pre>For each `a` in `A`<br/>   inc counter of `a`<br/>   If counter == 1 add `a` to `B`</pre>|<pre>If B is not empty and All == 0<br/>   Some(SubscribeMessage::StartEvent(NotificationType::UtxosChanged(B)))<br/>Else<br/>   None</pre>|
-|**Remove(R)**|<pre>For each `r` in `R`<br/>   dec counter of r<br/>   If counter == 0 add `r` to `S`</pre>|<pre>If `S` is not empty and `All` == 0<br/>   Some(SubscribeMessage::StopEvent(NotificationType::UtxosChanged(S)))</br>Else<br/>   None</pre>|
-|**Remove(All)**|<pre>Decrement the `All` counter</pre>|<pre>If `All` == 0<br/>   Build `S` with every `a` in addresses having counter > 0</br>   If `S` is not empty<br/>      Some(SubscribeMessage::StartEvent(NotificationType::UtxosChanged(S)))</br>   Else<br/>      Some(SubscribeMessage::StopEvent(NotificationType::UtxosChanged(empty)))</br>Else<br/>   None</pre>|
+|**Add(All)**|<pre>Increment the `All` counter</pre>|<pre>If All == 1<br/>   Some(SubscribeMessage::StartEvent(NotificationType::CellsChanged(empty)))<br>Else<br/>   None</pre>|
+|**Add(A)**|<pre>For each `a` in `A`<br/>   inc counter of `a`<br/>   If counter == 1 add `a` to `B`</pre>|<pre>If B is not empty and All == 0<br/>   Some(SubscribeMessage::StartEvent(NotificationType::CellsChanged(B)))<br/>Else<br/>   None</pre>|
+|**Remove(R)**|<pre>For each `r` in `R`<br/>   dec counter of r<br/>   If counter == 0 add `r` to `S`</pre>|<pre>If `S` is not empty and `All` == 0<br/>   Some(SubscribeMessage::StopEvent(NotificationType::CellsChanged(S)))</br>Else<br/>   None</pre>|
+|**Remove(All)**|<pre>Decrement the `All` counter</pre>|<pre>If `All` == 0<br/>   Build `S` with every `a` in addresses having counter > 0</br>   If `S` is not empty<br/>      Some(SubscribeMessage::StartEvent(NotificationType::CellsChanged(S)))</br>   Else<br/>      Some(SubscribeMessage::StopEvent(NotificationType::CellsChanged(empty)))</br>Else<br/>   None</pre>|
 
 It is advised to clean the address set of the Compounded Subscription, removing the addresses which counter reaches 0.
 

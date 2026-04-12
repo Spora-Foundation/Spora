@@ -5,8 +5,10 @@
 
 pub mod descriptor;
 pub mod kind;
-pub mod pstb;
+pub mod pssb;
 pub mod variants;
+use crate::cell::balance::{AtomicBalance, BalanceStrings};
+use crate::cell::{CellContext, CellContextBinding};
 use crate::derivation::build_derivate_paths;
 use crate::derivation::AddressDerivationManagerTrait;
 use crate::imports::*;
@@ -15,18 +17,16 @@ use crate::storage::AccountMetadata;
 use crate::storage::{PrvKeyData, PrvKeyDataId};
 use crate::tx::PaymentOutput;
 use crate::tx::{Fees, Generator, GeneratorSettings, GeneratorSummary, PaymentDestination, PendingTransaction, Signer};
-use crate::utxo::balance::{AtomicBalance, BalanceStrings};
-use crate::utxo::UtxoContextBinding;
 pub use kind::*;
-use pstb::{
-    bundle_from_pstt_generator, bundle_to_finalizer_stream, commit_reveal_batch_bundle, pstb_signer_for_address,
-    pstt_to_pending_transaction, PSTBSigner, PSTTGenerator,
+use pssb::{
+    bundle_from_psst_generator, bundle_to_finalizer_stream, commit_reveal_batch_bundle, pssb_signer_for_address,
+    psst_to_pending_transaction, PSSBSigner, PSSTGenerator,
 };
 use spora_bip32::PrivateKey;
 use spora_bip32::{ChildNumber, ExtendedPrivateKey};
-use spora_consensus_core::tx::UtxoEntry;
+use spora_consensus_core::tx::CellEntry;
 use spora_wallet_keys::derivation::gen0::WalletDerivationManagerV0;
-use spora_wallet_pstt::bundle::Bundle;
+use spora_wallet_psst::bundle::Bundle;
 pub use variants::*;
 use workflow_core::abortable::Abortable;
 
@@ -58,15 +58,15 @@ pub struct Inner {
     id: AccountId,
     storage_key: AccountStorageKey,
     wallet: Arc<Wallet>,
-    utxo_context: UtxoContext,
+    cell_context: CellContext,
 }
 
 impl Inner {
     pub fn new(wallet: &Arc<Wallet>, id: AccountId, storage_key: AccountStorageKey, settings: AccountSettings) -> Self {
-        let utxo_context = UtxoContext::new(wallet.utxo_processor(), UtxoContextBinding::AccountId(id));
+        let cell_context = CellContext::new(wallet.cell_processor(), CellContextBinding::AccountId(id));
 
         let context = Context { settings };
-        Inner { context: Mutex::new(context), id, storage_key, wallet: wallet.clone(), utxo_context: utxo_context.clone() }
+        Inner { context: Mutex::new(context), id, storage_key, wallet: wallet.clone(), cell_context: cell_context.clone() }
     }
 
     pub fn from_storage(wallet: &Arc<Wallet>, storage: &AccountStorage) -> Self {
@@ -106,12 +106,12 @@ pub trait Account: AnySync + Send + Sync + 'static {
         &self.inner().wallet
     }
 
-    fn utxo_context(&self) -> &UtxoContext {
-        &self.inner().utxo_context
+    fn cell_context(&self) -> &CellContext {
+        &self.inner().cell_context
     }
 
     fn balance(&self) -> Option<Balance> {
-        self.utxo_context().balance()
+        self.cell_context().balance()
     }
 
     fn balance_as_strings(&self, padding: Option<usize>) -> Result<BalanceStrings> {
@@ -170,18 +170,18 @@ pub trait Account: AnySync + Send + Sync + 'static {
     fn get_list_string(&self) -> Result<String> {
         let name = style(self.name_with_id()).blue();
         let balance = self.balance_as_strings(None)?;
-        let mature_utxo_size = self.utxo_context().mature_utxo_size();
-        let pending_utxo_size = self.utxo_context().pending_utxo_size();
-        let info = match (mature_utxo_size, pending_utxo_size) {
+        let mature_cell_count = self.cell_context().mature_cell_size();
+        let pending_cell_count = self.cell_context().pending_cell_size();
+        let info = match (mature_cell_count, pending_cell_count) {
             (0, 0) => "".to_string(),
             (_, 0) => {
-                format!("{} UTXOs", mature_utxo_size.separated_string())
+                format!("{} cells", mature_cell_count.separated_string())
             }
             (0, _) => {
-                format!("{} UTXOs pending", pending_utxo_size.separated_string())
+                format!("{} cells pending", pending_cell_count.separated_string())
             }
             _ => {
-                format!("{} UTXOs, {} UTXOs pending", mature_utxo_size.separated_string(), pending_utxo_size.separated_string())
+                format!("{} cells, {} cells pending", mature_cell_count.separated_string(), pending_cell_count.separated_string())
             }
         };
         Ok(format!("{name}: {balance}   {}", style(info).dim()))
@@ -210,7 +210,7 @@ pub trait Account: AnySync + Send + Sync + 'static {
     fn descriptor(&self) -> Result<descriptor::AccountDescriptor>;
 
     async fn scan(self: Arc<Self>, window_size: Option<usize>, extent: Option<u32>) -> Result<()> {
-        self.utxo_context().clear().await?;
+        self.cell_context().clear().await?;
 
         let current_daa_score = self.wallet().current_daa_score().ok_or(Error::NotConnected)?;
         let balance = Arc::new(AtomicBalance::default());
@@ -241,7 +241,7 @@ pub trait Account: AnySync + Send + Sync + 'static {
                     ),
                 ];
 
-                let futures = scans.iter().map(|scan| scan.scan(self.utxo_context())).collect::<Vec<_>>();
+                let futures = scans.iter().map(|scan| scan.scan(self.cell_context())).collect::<Vec<_>>();
 
                 join_all(futures).await.into_iter().collect::<Result<Vec<_>>>()?;
             }
@@ -251,11 +251,11 @@ pub trait Account: AnySync + Send + Sync + 'static {
                 address_set.insert(self.change_address()?);
 
                 let scan = Scan::new_with_address_set(address_set, &balance, current_daa_score);
-                scan.scan(self.utxo_context()).await?;
+                scan.scan(self.cell_context()).await?;
             }
         }
 
-        self.utxo_context().update_balance().await?;
+        self.cell_context().update_balance().await?;
 
         Ok(())
     }
@@ -286,7 +286,7 @@ pub trait Account: AnySync + Send + Sync + 'static {
 
     /// Stop Account service task
     async fn stop(self: Arc<Self>) -> Result<()> {
-        self.utxo_context().clear().await?;
+        self.cell_context().clear().await?;
         self.disconnect().await?;
         Ok(())
     }
@@ -308,7 +308,7 @@ pub trait Account: AnySync + Send + Sync + 'static {
 
     fn as_dyn_arc(self: Arc<Self>) -> Arc<dyn Account>;
 
-    /// Aggregate all account UTXOs into the change address.
+    /// Aggregate all account cells into the change address.
     /// Also known as "compounding".
     async fn sweep(
         self: Arc<Self>,
@@ -396,7 +396,7 @@ pub trait Account: AnySync + Send + Sync + 'static {
         abortable: &Abortable,
     ) -> Result<Bundle, Error> {
         commit_reveal_batch_bundle(
-            pstb::CommitRevealBatchKind::Manual { hop_payment: start_destination, destination_payment: end_destination },
+            pssb::CommitRevealBatchKind::Manual { hop_payment: start_destination, destination_payment: end_destination },
             reveal_fee_sau,
             script_sig,
             payload,
@@ -422,7 +422,7 @@ pub trait Account: AnySync + Send + Sync + 'static {
         abortable: &Abortable,
     ) -> Result<Bundle, Error> {
         commit_reveal_batch_bundle(
-            pstb::CommitRevealBatchKind::Parameterized { address, commit_amount_sau },
+            pssb::CommitRevealBatchKind::Parameterized { address, commit_amount_sau },
             reveal_fee_sau,
             script_sig,
             payload,
@@ -435,7 +435,7 @@ pub trait Account: AnySync + Send + Sync + 'static {
         .await
     }
 
-    async fn pstb_from_send_generator(
+    async fn pssb_from_send_generator(
         self: Arc<Self>,
         destination: PaymentDestination,
         fee_rate: Option<f64>,
@@ -448,27 +448,29 @@ pub trait Account: AnySync + Send + Sync + 'static {
         let settings =
             GeneratorSettings::try_new_with_account(self.clone().as_dyn_arc(), destination, fee_rate, _priority_fee_sau, payload, 0)?;
         let keydata = self.prv_key_data(wallet_secret).await?;
-        let signer = Arc::new(PSTBSigner::new(self.clone().as_dyn_arc(), keydata, payment_secret));
+        let signer = Arc::new(PSSBSigner::new(self.clone().as_dyn_arc(), keydata, payment_secret));
         let generator = Generator::try_new(settings, None, Some(abortable))?;
 
-        let bundle = bundle_from_pstt_generator(PSTTGenerator::new(generator, signer, self.wallet().address_prefix()?)).await?;
+        let bundle = bundle_from_psst_generator(PSSTGenerator::new(generator, signer, self.wallet().address_prefix()?)).await?;
         Ok(bundle)
     }
 
-    async fn get_utxos(self: Arc<Self>, addresses: Option<Vec<Address>>, min_amount_sau: Option<u64>) -> Result<Vec<UtxoEntry>> {
-        let utxos = self.utxo_context().get_utxos(addresses, min_amount_sau).await?;
-        Ok(utxos
+    async fn get_cells(self: Arc<Self>, addresses: Option<Vec<Address>>, min_amount_sau: Option<u64>) -> Result<Vec<CellEntry>> {
+        let cells = self.cell_context().get_cells(addresses, min_amount_sau).await?;
+        Ok(cells
             .into_iter()
-            .map(|utxo| spora_consensus_core::tx::UtxoEntry {
-                amount: utxo.amount,
-                script_public_key: utxo.script_public_key,
-                block_daa_score: utxo.block_daa_score,
-                is_coinbase: utxo.is_coinbase,
+            .map(|cell| {
+                spora_consensus_core::tx::cell_meta_from_legacy_output(
+                    cell.amount,
+                    &cell.script_public_key,
+                    cell.block_daa_score,
+                    cell.is_coinbase,
+                )
             })
             .collect())
     }
 
-    async fn pstb_sign(
+    async fn pssb_sign(
         self: Arc<Self>,
         bundle: &Bundle,
         wallet_secret: Secret,
@@ -476,7 +478,7 @@ pub trait Account: AnySync + Send + Sync + 'static {
         sign_for_address: Option<&Address>,
     ) -> Result<Bundle, Error> {
         let keydata = self.prv_key_data(wallet_secret).await?;
-        let signer = Arc::new(PSTBSigner::new(self.clone().as_dyn_arc(), keydata.clone(), payment_secret.clone()));
+        let signer = Arc::new(PSSBSigner::new(self.clone().as_dyn_arc(), keydata.clone(), payment_secret.clone()));
 
         let network_id = self.wallet().clone().network_id()?;
         let (derivation_path, key_fingerprint) = if self.account_kind() == KEYPAIR_ACCOUNT_KIND {
@@ -493,7 +495,7 @@ pub trait Account: AnySync + Send + Sync + 'static {
             (Some(derivation_path), Some(key_fingerprint))
         };
 
-        match pstb_signer_for_address(bundle, signer, network_id, sign_for_address, derivation_path, key_fingerprint).await {
+        match pssb_signer_for_address(bundle, signer, network_id, sign_for_address, derivation_path, key_fingerprint).await {
             Ok(signer) => Ok(signer),
             Err(e) => Err(Error::from(e.to_string())),
         }
@@ -533,7 +535,7 @@ pub trait Account: AnySync + Send + Sync + 'static {
             final_transaction_payload,
             0, // final_transaction_lock_time
         )?
-        .utxo_context_transfer(destination_account.utxo_context());
+        .cell_context_transfer(destination_account.cell_context());
 
         let generator = Generator::try_new(settings, Some(signer), Some(abortable))?;
 
@@ -593,20 +595,20 @@ pub trait Account: AnySync + Send + Sync + 'static {
         Ok(private_keys.into_iter().map(|(addr, key)| (addr.clone(), key)).collect())
     }
 
-    async fn pstb_broadcast(self: Arc<Self>, bundle: &Bundle) -> Result<Vec<spora_hashes::Hash>> {
+    async fn pssb_broadcast(self: Arc<Self>, bundle: &Bundle) -> Result<Vec<spora_hashes::Hash>> {
         let mut ids = Vec::new();
         let mut stream = bundle_to_finalizer_stream(bundle);
 
         while let Some(result) = stream.next().await {
             match result {
-                Ok(pstt) => {
+                Ok(psst) => {
                     let change = self.change_address()?;
                     let transaction =
-                        pstt_to_pending_transaction(pstt, self.wallet().network_id()?, change, self.utxo_context().clone().into())?;
+                        psst_to_pending_transaction(psst, self.wallet().network_id()?, change, self.cell_context().clone().into())?;
                     ids.push(transaction.try_submit(&self.wallet().rpc_api()).await?);
                 }
                 Err(e) => {
-                    eprintln!("Error processing a PSTT from bundle: {:?}", e);
+                    eprintln!("Error processing a PSST from bundle: {:?}", e);
                 }
             }
         }
@@ -672,7 +674,7 @@ pub trait DerivationCapableAccount: Account {
         let mut index: usize = start;
         let mut last_notification = 0;
         let mut aggregate_balance = 0;
-        let mut aggregate_utxo_count = 0;
+        let mut aggregate_cell_count = 0;
         let mut last_change_address_index = change_address_index;
         let mut last_receive_address_index = receive_address_manager.index();
 
@@ -704,13 +706,13 @@ pub trait DerivationCapableAccount: Account {
                 (vec![], addresses)
             };
 
-            let utxos = rpc.get_utxos_by_addresses(addresses.clone()).await?;
+            let cells = rpc.get_cells_by_addresses(addresses.clone()).await?;
             let mut balance = 0;
-            let utxos = utxos
+            let cells = cells
                 .iter()
-                .map(|utxo| {
-                    let utxo_ref = UtxoEntryReference::from(utxo);
-                    if let Some(address) = utxo_ref.utxo.address.as_ref() {
+                .map(|cell| {
+                    let cell_ref = CellEntryReference::from(cell);
+                    if let Some(address) = cell_ref.cell.address.as_ref() {
                         if let Some(address_index) = receive_address_manager.inner().address_to_index_map.get(address) {
                             if last_receive_address_index < *address_index {
                                 last_receive_address_index = *address_index;
@@ -723,18 +725,18 @@ pub trait DerivationCapableAccount: Account {
                             panic!("Account::derivation_scan() has received an unknown address: `{address}`");
                         }
                     }
-                    balance += utxo_ref.utxo.amount;
-                    utxo_ref
+                    balance += cell_ref.cell.amount;
+                    cell_ref
                 })
                 .collect::<Vec<_>>();
-            aggregate_utxo_count += utxos.len();
+            aggregate_cell_count += cells.len();
 
             if balance > 0 {
                 aggregate_balance += balance;
                 if sweep {
                     let settings = GeneratorSettings::try_new_with_iterator(
                         self.wallet().network_id()?,
-                        Box::new(utxos.into_iter()),
+                        Box::new(cells.into_iter()),
                         None,
                         change_address.clone(),
                         1,
@@ -754,13 +756,13 @@ pub trait DerivationCapableAccount: Account {
                         transaction.try_sign_with_keys(&keys, None)?;
                         let id = transaction.try_submit(&rpc).await?;
                         if let Some(notifier) = notifier {
-                            notifier(index, aggregate_utxo_count, balance, Some(id));
+                            notifier(index, aggregate_cell_count, balance, Some(id));
                         }
                         yield_executor().await;
                     }
                 } else {
                     if let Some(notifier) = notifier {
-                        notifier(index, aggregate_utxo_count, aggregate_balance, None);
+                        notifier(index, aggregate_cell_count, aggregate_balance, None);
                     }
                     yield_executor().await;
                 }
@@ -769,7 +771,7 @@ pub trait DerivationCapableAccount: Account {
             if index > last_notification + 1_000 {
                 last_notification = index;
                 if let Some(notifier) = notifier {
-                    notifier(index, aggregate_utxo_count, aggregate_balance, None);
+                    notifier(index, aggregate_cell_count, aggregate_balance, None);
                 }
                 yield_executor().await;
             }
@@ -779,7 +781,7 @@ pub trait DerivationCapableAccount: Account {
 
         if index > last_notification {
             if let Some(notifier) = notifier {
-                notifier(index, aggregate_utxo_count, aggregate_balance, None);
+                notifier(index, aggregate_cell_count, aggregate_balance, None);
             }
         }
 
@@ -804,7 +806,7 @@ pub trait DerivationCapableAccount: Account {
 
     async fn new_receive_address(self: Arc<Self>) -> Result<Address> {
         let address = self.derivation().receive_address_manager().new_address()?;
-        self.utxo_context().register_addresses(std::slice::from_ref(&address)).await?;
+        self.cell_context().register_addresses(std::slice::from_ref(&address)).await?;
 
         let metadata = self.metadata()?.expect("derivation accounts must provide metadata");
         let store = self.wallet().store().as_account_store()?;
@@ -817,7 +819,7 @@ pub trait DerivationCapableAccount: Account {
 
     async fn new_change_address(self: Arc<Self>) -> Result<Address> {
         let address = self.derivation().change_address_manager().new_address()?;
-        self.utxo_context().register_addresses(std::slice::from_ref(&address)).await?;
+        self.cell_context().register_addresses(std::slice::from_ref(&address)).await?;
 
         let metadata = self.metadata()?.expect("derivation accounts must provide metadata");
         let store = self.wallet().store().as_account_store()?;

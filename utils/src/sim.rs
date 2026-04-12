@@ -91,8 +91,11 @@ impl<T: Clone> Environment<T> {
         self.event_queue.push(Event::new(self.now + timeout, dest, None))
     }
 
-    pub fn broadcast(&mut self, _sender: u64, msg: T) {
+    pub fn broadcast(&mut self, sender: u64, msg: T) {
         for &id in self.process_ids.iter() {
+            if id == sender {
+                continue;
+            }
             self.event_queue.push(Event::new(self.now + self.broadcast_delay, id, Some(msg.clone())));
         }
     }

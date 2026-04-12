@@ -2,7 +2,7 @@ use spora_notify::error::Error as NotifyError;
 use spora_rpc_core::RpcError;
 use thiserror::Error;
 
-pub type BoxedStdError = Box<(dyn std::error::Error + Sync + std::marker::Send + 'static)>;
+pub type BoxedStdError = Box<dyn std::error::Error + Sync + std::marker::Send + 'static>;
 
 #[derive(Debug, Error)]
 pub enum Error {

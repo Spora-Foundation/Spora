@@ -2,7 +2,10 @@
 
 **Date**: 2025-10-22  
 **Version**: 1.0  
-**Status**: ✅ Production Design
+**Status**: Historical Reference Only
+
+> This document is superseded by [spora_consensus_architecture_v2.md](/Users/arthur/RustroverProjects/Spora/docs/spora_consensus_architecture_v2.md).
+> It remains useful as design history, but it is not the protocol source of truth anymore.
 
 ---
 
@@ -481,15 +484,15 @@ CF_SPEND_JOURNAL.put(outpoint, SpendRecord {
 
 ## Comparison: Spora vs CKB vs Bitcoin
 
-| Feature | Bitcoin (UTXO) | CKB (Cell + NC-Max) | Spora (Cell + GhostDAG) |
+| Feature | Bitcoin (legacy txout) | CKB (Cell + NC-Max) | Spora (Cell + GhostDAG) |
 |---------|----------------|---------------------|-------------------------|
-| **State Model** | UTXO | Cell | Cell ✅ |
+| **State Model** | legacy txout | Cell | Cell ✅ |
 | **Consensus** | Longest chain | NC-Max (PoW) | GhostDAG ✅ |
 | **Ordering** | Block height | Block number | DAA score ✅ |
 | **Time Locks** | Block height / timestamp | Epoch / timestamp | DAA score / timestamp ✅ |
 | **Maturity** | 100 blocks | 4 epochs | 100 DAA scores ✅ |
 | **Programmability** | Script | CKB-VM scripts | CKB-VM scripts ✅ |
-| **State Commitment** | UTXO set hash | None (transactions only) | cell_root Merkle tree ✅ |
+| **State Commitment** | legacy txout set hash | None (transactions only) | cell_root Merkle tree ✅ |
 | **Finality** | Probabilistic | Probabilistic | Probabilistic |
 | **Reorg Handling** | Rewind & replay | Rewind & replay | Rewind & replay ✅ |
 
@@ -634,4 +637,3 @@ Reorg validation:
 **Document Version**: 1.0  
 **Last Updated**: 2025-10-22  
 **Next Review**: Post-mainnet (architecture refinements)
-

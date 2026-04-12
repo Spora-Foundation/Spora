@@ -2,7 +2,7 @@
 //! [`GeneratorSummary`] is a struct that holds the summary
 //! of a [`Generator`](crate::tx::Generator) output after transaction generation.
 //! The summary includes total amount, total fees consumed,
-//! total UTXOs consumed etc.
+//! total cells consumed etc.
 //!
 
 use crate::utils::*;
@@ -15,7 +15,7 @@ use std::fmt;
 #[derive(Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 pub struct GeneratorSummary {
     pub network_id: NetworkId,
-    pub aggregated_utxos: usize,
+    pub aggregated_cells: usize,
     pub aggregated_fees: u64,
     pub aggregated_mass: u64,
     pub number_of_generated_transactions: usize,
@@ -28,7 +28,7 @@ impl GeneratorSummary {
     pub fn new(network_id: NetworkId) -> Self {
         Self {
             network_id,
-            aggregated_utxos: 0,
+            aggregated_cells: 0,
             aggregated_fees: 0,
             aggregated_mass: 0,
             number_of_generated_transactions: 0,
@@ -46,8 +46,8 @@ impl GeneratorSummary {
         self.network_id
     }
 
-    pub fn aggregated_utxos(&self) -> usize {
-        self.aggregated_utxos
+    pub fn aggregated_cells(&self) -> usize {
+        self.aggregated_cells
     }
 
     pub fn aggregate_mass(&self) -> u64 {
@@ -87,19 +87,19 @@ impl fmt::Display for GeneratorSummary {
             let total = final_transaction_amount + self.aggregated_fees;
             write!(
                 f,
-                "Amount: {}  Fees: {}  Total: {}  UTXOs: {}  {}",
+                "Amount: {}  Fees: {}  Total: {}  Cells: {}  {}",
                 sau_to_spora_string_with_suffix(final_transaction_amount, &self.network_id),
                 sau_to_spora_string_with_suffix(self.aggregated_fees, &self.network_id),
                 sau_to_spora_string_with_suffix(total, &self.network_id),
-                self.aggregated_utxos,
+                self.aggregated_cells,
                 transactions
             )?;
         } else {
             write!(
                 f,
-                "Fees: {}  UTXOs: {}  {}",
+                "Fees: {}  Cells: {}  {}",
                 sau_to_spora_string_with_suffix(self.aggregated_fees, &self.network_id),
-                self.aggregated_utxos,
+                self.aggregated_cells,
                 transactions
             )?;
         }

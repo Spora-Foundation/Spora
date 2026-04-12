@@ -6,7 +6,11 @@ use rocksdb::WriteBatch;
 use serde::{Deserialize, Serialize};
 use spora_consensus_core::api::stats::VirtualStateStats;
 use spora_consensus_core::{
-    block::VirtualStateApproxId, cell_diff::CellDiff, coinbase::BlockRewardData, config::genesis::GenesisBlock, tx::TransactionId,
+    block::VirtualStateApproxId,
+    cell_diff::{BlockCellDiff, CellDiff},
+    coinbase::BlockRewardData,
+    config::genesis::GenesisBlock,
+    tx::TransactionId,
     BlockHashMap, BlockHashSet, HashMapCustomHasher,
 };
 use spora_database::prelude::{BatchDbWriter, CachedDbItem, DirectDbWriter, StoreResultExtensions};
@@ -26,11 +30,17 @@ pub struct VirtualState {
     pub daa_score: u64,
     pub bits: u32,
     pub past_median_time: u64,
-    /// Cell state tree (replaces multiset/MuHash from UTXO model)
+    /// Cell state tree (replaces multiset/MuHash from the legacy transaction-output model)
     #[serde(skip)]
     pub cell_state_tree: CellStateTree,
-    /// Cell diff from selected tip to virtual (replaces utxo_diff)
+    /// Cell diff from selected tip to virtual.
     pub cell_diff: CellDiff,
+    /// Block-level provenance for the current virtual cell diff.
+    ///
+    /// This is notification/runtime-only state and is not persisted in the
+    /// virtual-state store.
+    #[serde(skip)]
+    pub block_cell_diffs: Vec<BlockCellDiff>,
     pub accepted_tx_ids: Vec<TransactionId>,
     pub mergeset_rewards: BlockHashMap<BlockRewardData>,
     pub mergeset_non_daa: BlockHashSet,
@@ -46,6 +56,7 @@ impl Default for VirtualState {
             past_median_time: 0,
             cell_state_tree: CellStateTree::new(),
             cell_diff: CellDiff::new(),
+            block_cell_diffs: Vec::new(),
             accepted_tx_ids: Vec::new(),
             mergeset_rewards: BlockHashMap::new(),
             mergeset_non_daa: BlockHashSet::new(),
@@ -61,6 +72,7 @@ impl VirtualState {
         past_median_time: u64,
         cell_state_tree: CellStateTree,
         cell_diff: CellDiff,
+        block_cell_diffs: Vec<BlockCellDiff>,
         accepted_tx_ids: Vec<TransactionId>,
         mergeset_rewards: BlockHashMap<BlockRewardData>,
         mergeset_non_daa: BlockHashSet,
@@ -74,6 +86,7 @@ impl VirtualState {
             past_median_time,
             cell_state_tree,
             cell_diff,
+            block_cell_diffs,
             accepted_tx_ids,
             mergeset_rewards,
             mergeset_non_daa,
@@ -89,6 +102,7 @@ impl VirtualState {
             past_median_time: genesis.timestamp,
             cell_state_tree: CellStateTree::new(),
             cell_diff: CellDiff::new(), // Virtual diff is initially empty since genesis receives no reward
+            block_cell_diffs: Vec::new(),
             accepted_tx_ids: genesis.build_genesis_transactions().into_iter().map(|tx| tx.id().into()).collect(),
             mergeset_rewards: BlockHashMap::new(),
             mergeset_non_daa: BlockHashSet::from_iter(std::iter::once(genesis.hash)),

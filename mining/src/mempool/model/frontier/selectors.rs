@@ -1,7 +1,7 @@
 use crate::Policy;
 use spora_consensus_core::{
     block::TemplateTransactionSelector,
-    tx::{CellTx, Transaction, TransactionId},
+    tx::{CellTx, TransactionId},
 };
 use std::{
     collections::{BTreeMap, HashMap},
@@ -9,13 +9,14 @@ use std::{
 };
 
 pub struct SequenceSelectorTransaction {
-    pub tx: Arc<Transaction>,
+    pub tx: Arc<CellTx>,
+    pub cell_tx: Arc<CellTx>,
     pub mass: u64,
 }
 
 impl SequenceSelectorTransaction {
-    pub fn new(tx: Arc<Transaction>, mass: u64) -> Self {
-        Self { tx, mass }
+    pub fn new(tx: Arc<CellTx>, cell_tx: Arc<CellTx>, mass: u64) -> Self {
+        Self { tx, cell_tx, mass }
     }
 }
 
@@ -36,9 +37,9 @@ impl FromIterator<SequenceSelectorTransaction> for SequenceSelectorInput {
 }
 
 impl SequenceSelectorInput {
-    pub fn push(&mut self, tx: Arc<Transaction>, mass: u64) {
+    pub fn push(&mut self, tx: Arc<CellTx>, cell_tx: Arc<CellTx>, mass: u64) {
         let idx = self.inner.len() as SequencePriorityIndex;
-        self.inner.insert(idx, SequenceSelectorTransaction::new(tx, mass));
+        self.inner.insert(idx, SequenceSelectorTransaction::new(tx, cell_tx, mass));
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &SequenceSelectorTransaction> {
@@ -50,7 +51,6 @@ impl SequenceSelectorInput {
 struct SequenceSelectorSelection {
     tx_id: TransactionId,
     mass: u64,
-    priority_index: SequencePriorityIndex,
 }
 
 /// A selector which selects transactions in the order they are provided. The selector assumes
@@ -64,6 +64,7 @@ pub struct SequenceSelector {
     total_selected_mass: u64,
     overall_candidates: usize,
     overall_rejections: usize,
+    next_candidate_index: SequencePriorityIndex,
     policy: Policy,
 }
 
@@ -76,6 +77,7 @@ impl SequenceSelector {
             selected_map: Default::default(),
             total_selected_mass: Default::default(),
             overall_rejections: Default::default(),
+            next_candidate_index: 0,
             policy,
         }
     }
@@ -89,10 +91,30 @@ impl SequenceSelector {
 
 impl TemplateTransactionSelector for SequenceSelector {
     fn select_transactions(&mut self) -> Vec<CellTx> {
-        // TODO(cell-model): Mining selector needs full migration to CellTx
-        // Transaction type needs to be converted to CellTx
-        // Temporarily return empty until conversion layer is implemented
-        vec![]
+        self.reset_selection();
+
+        let mut selected_candidates = Vec::new();
+        for (&priority_index, candidate) in self.input_sequence.inner.range(self.next_candidate_index..) {
+            let Some(next_total_mass) = self.total_selected_mass.checked_add(candidate.mass) else {
+                break;
+            };
+            if next_total_mass > self.policy.max_block_mass {
+                break;
+            }
+
+            self.total_selected_mass = next_total_mass;
+            self.next_candidate_index = priority_index + 1;
+            selected_candidates.push((priority_index, candidate.mass, candidate.cell_tx.clone()));
+        }
+
+        let selected = selected_candidates.iter().map(|(_, _, cell_tx)| cell_tx.as_ref().clone()).collect::<Vec<_>>();
+        self.selected_vec = selected_candidates
+            .iter()
+            .zip(selected.iter())
+            .map(|((_, mass, _), cell_tx)| SequenceSelectorSelection { tx_id: cell_tx.id().into(), mass: *mass })
+            .collect();
+        self.selected_map = Some(self.selected_vec.iter().map(|tx| (tx.tx_id, tx.mass)).collect());
+        selected
     }
 
     fn reject_selection(&mut self, tx_id: TransactionId) {
@@ -119,20 +141,23 @@ impl TemplateTransactionSelector for SequenceSelector {
 /// If all mempool transactions have combined mass which is <= block mass limit, this selector
 /// should be called and provided with all the transactions.
 pub struct TakeAllSelector {
-    txs: Vec<Arc<Transaction>>,
+    txs: Vec<Arc<CellTx>>,
 }
 
 impl TakeAllSelector {
-    pub fn new(txs: Vec<Arc<Transaction>>) -> Self {
+    pub fn new(txs: Vec<Arc<CellTx>>) -> Self {
         Self { txs }
+    }
+
+    #[cfg(test)]
+    pub fn from_cell_txs(txs: Vec<CellTx>) -> Self {
+        Self { txs: txs.into_iter().map(Arc::new).collect() }
     }
 }
 
 impl TemplateTransactionSelector for TakeAllSelector {
     fn select_transactions(&mut self) -> Vec<CellTx> {
-        // TODO(cell-model): Mining selector needs migration to CellTx
-        // For now, return empty until full migration
-        vec![]
+        std::mem::take(&mut self.txs).into_iter().map(|tx| tx.as_ref().clone()).collect()
     }
 
     fn reject_selection(&mut self, _tx_id: TransactionId) {

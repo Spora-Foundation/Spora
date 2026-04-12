@@ -3,7 +3,7 @@ use crate::tx::{mass, MAXIMUM_STANDARD_TRANSACTION_MASS};
 use js_sys::Array;
 use spora_consensus_client::*;
 use spora_consensus_core::config::params::Params;
-use spora_consensus_core::mass::{calc_storage_mass, UtxoCell};
+use spora_consensus_core::mass::{calc_storage_mass, CellMass};
 
 use spora_consensus_core::network::{NetworkId, NetworkIdT};
 use wasm_bindgen::prelude::*;
@@ -101,7 +101,7 @@ pub fn calculate_unsigned_transaction_fee(
 /// Note that the storage mass is only a component of the total transaction mass. You are not
 /// meant to use this function by itself and should use `calculateTransactionMass()` instead.
 /// This function purely exists for diagnostic purposes and to help with complex algorithms that
-/// may require a manual UTXO selection for identifying UTXOs and outputs needed for low storage mass.
+/// may require a manual cell selection for identifying inputs and outputs needed for low storage mass.
 ///
 /// @category Wallet SDK
 /// @see {@link maximumStandardTransactionMass}
@@ -113,9 +113,9 @@ pub fn calculate_storage_mass(network_id: NetworkIdT, input_values: &Array, outp
     let consensus_params = Params::from(network_id);
 
     let input_values =
-        Array::from(input_values).to_vec().iter().map(|v| UtxoCell::new(1, v.as_f64().unwrap() as u64)).collect::<Vec<UtxoCell>>();
+        Array::from(input_values).to_vec().iter().map(|v| CellMass::new(1, v.as_f64().unwrap() as u64)).collect::<Vec<CellMass>>();
     let output_values =
-        Array::from(output_values).to_vec().iter().map(|v| UtxoCell::new(1, v.as_f64().unwrap() as u64)).collect::<Vec<UtxoCell>>();
+        Array::from(output_values).to_vec().iter().map(|v| CellMass::new(1, v.as_f64().unwrap() as u64)).collect::<Vec<CellMass>>();
 
     let storage_mass =
         calc_storage_mass(false, input_values.into_iter(), output_values.into_iter(), consensus_params.storage_mass_parameter);

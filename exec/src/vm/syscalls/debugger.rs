@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ISC
-// Copyright (C) 2025 Spora developers
+// Copyright (C) 2026 Spora developers
 //
 // Debug print syscall
 

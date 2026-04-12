@@ -8,6 +8,8 @@ use crate::{
         services::reachability::MTReachabilityService,
         stores::{
             block_transactions::DbBlockTransactionsStore,
+            cell_diffs::DbCellDiffsStore,
+            cell_roots::DbCellRootsStore,
             ghostdag::DbGhostdagStore,
             headers::DbHeadersStore,
             reachability::DbReachabilityStore,
@@ -21,7 +23,6 @@ use crate::{
         ProcessingCounters,
     },
     processes::coinbase::CoinbaseManager,
-    // TransactionValidator removed - Cell model migration
 };
 use crossbeam_channel::{Receiver, Sender};
 use parking_lot::RwLock;
@@ -32,10 +33,10 @@ use spora_consensus_core::{
     blockstatus::BlockStatus::{self, StatusHeaderOnly, StatusInvalid},
     config::{
         genesis::GenesisBlock,
-        params::{ForkActivation, ForkedParam, Params},
+        params::Params,
     },
     mass::{Mass, MassCalculator, MassOps},
-    tx::{CellTx, Transaction}, // Transaction is alias for CellTx
+    tx::CellTx,
     KType,
 };
 use spora_consensus_notify::{
@@ -61,21 +62,23 @@ pub struct BlockBodyProcessor {
     // Config
     pub(super) max_block_mass: u64,
     pub(super) genesis: GenesisBlock,
-    pub(super) ghostdag_k: ForkedParam<KType>,
+    pub(super) ghostdag_k: KType,
 
     // Stores
     pub(super) statuses_store: Arc<RwLock<DbStatusesStore>>,
     pub(super) ghostdag_store: Arc<DbGhostdagStore>,
     pub(super) headers_store: Arc<DbHeadersStore>,
     pub(super) block_transactions_store: Arc<DbBlockTransactionsStore>,
+    pub(super) cell_diffs_store: Arc<DbCellDiffsStore>,
+    pub(super) cell_roots_store: Arc<DbCellRootsStore>,
     pub(super) body_tips_store: Arc<RwLock<DbTipsStore>>,
 
     // Managers and services
     pub(super) reachability_service: MTReachabilityService<DbReachabilityStore>,
     pub(super) coinbase_manager: CoinbaseManager,
     pub(crate) mass_calculator: MassCalculator,
-    // transaction_validator removed - Cell model migration
     pub(super) window_manager: DbWindowManager,
+    pub(super) coinbase_maturity: u64,
 
     // Pruning lock
     pruning_lock: SessionLock,
@@ -88,9 +91,6 @@ pub struct BlockBodyProcessor {
 
     // Counters
     counters: Arc<ProcessingCounters>,
-
-    /// Storage mass hardfork DAA score
-    pub(crate) crescendo_activation: ForkActivation,
 }
 
 impl BlockBodyProcessor {
@@ -122,19 +122,20 @@ impl BlockBodyProcessor {
             ghostdag_store: storage.ghostdag_store.clone(),
             headers_store: storage.headers_store.clone(),
             block_transactions_store: storage.block_transactions_store.clone(),
+            cell_diffs_store: storage.cell_diffs_store.clone(),
+            cell_roots_store: storage.cell_roots_store.clone(),
             body_tips_store: storage.body_tips_store.clone(),
 
             reachability_service: services.reachability_service.clone(),
             coinbase_manager: services.coinbase_manager.clone(),
             mass_calculator: services.mass_calculator.clone(),
-            // transaction_validator removed - Cell model migration
             window_manager: services.window_manager.clone(),
+            coinbase_maturity: params.coinbase_maturity(),
 
             pruning_lock,
             task_manager: BlockTaskDependencyManager::new(),
             notification_root,
             counters,
-            crescendo_activation: params.crescendo_activation,
         }
     }
 
@@ -222,7 +223,7 @@ impl BlockBodyProcessor {
         self.counters.body_counts.fetch_add(1, Ordering::Relaxed);
         self.counters.txs_counts.fetch_add(block.transactions.len() as u64, Ordering::Relaxed);
         self.counters.mass_counts.fetch_add(mass.max(), Ordering::Relaxed);
-        Ok(BlockStatus::StatusUTXOPendingVerification)
+        Ok(BlockStatus::StatusCellPendingVerification)
     }
 
     fn validate_body(self: &Arc<BlockBodyProcessor>, block: &Block, is_trusted: bool) -> BlockProcessResult<Mass> {
@@ -242,7 +243,7 @@ impl BlockBodyProcessor {
         let mut body_tips_write_guard = self.body_tips_store.write();
         body_tips_write_guard.add_tip_batch(&mut batch, hash, parents).unwrap();
         let statuses_write_guard =
-            self.statuses_store.set_batch(&mut batch, hash, BlockStatus::StatusUTXOPendingVerification).unwrap();
+            self.statuses_store.set_batch(&mut batch, hash, BlockStatus::StatusCellPendingVerification).unwrap();
 
         self.db.write(batch).unwrap();
 

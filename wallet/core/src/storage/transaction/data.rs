@@ -2,9 +2,9 @@
 //! Wallet transaction data variants.
 //!
 
-use super::UtxoRecord;
+use super::CellRecord;
 use crate::imports::*;
-use spora_consensus_core::tx::Transaction;
+use spora_consensus_core::tx::CellTx;
 pub use spora_consensus_core::tx::TransactionId;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -15,26 +15,26 @@ pub use spora_consensus_core::tx::TransactionId;
 #[serde(rename_all = "kebab-case")]
 pub enum TransactionData {
     Reorg {
-        #[serde(rename = "utxoEntries")]
-        utxo_entries: Vec<UtxoRecord>,
+        #[serde(rename = "cellEntries")]
+        cell_entries: Vec<CellRecord>,
         #[serde(rename = "value")]
         aggregate_input_value: u64,
     },
     Incoming {
-        #[serde(rename = "utxoEntries")]
-        utxo_entries: Vec<UtxoRecord>,
+        #[serde(rename = "cellEntries")]
+        cell_entries: Vec<CellRecord>,
         #[serde(rename = "value")]
         aggregate_input_value: u64,
     },
     Stasis {
-        #[serde(rename = "utxoEntries")]
-        utxo_entries: Vec<UtxoRecord>,
+        #[serde(rename = "cellEntries")]
+        cell_entries: Vec<CellRecord>,
         #[serde(rename = "value")]
         aggregate_input_value: u64,
     },
     External {
-        #[serde(rename = "utxoEntries")]
-        utxo_entries: Vec<UtxoRecord>,
+        #[serde(rename = "cellEntries")]
+        cell_entries: Vec<CellRecord>,
         #[serde(rename = "value")]
         aggregate_input_value: u64,
     },
@@ -44,16 +44,16 @@ pub enum TransactionData {
         aggregate_input_value: u64,
         #[serde(rename = "outputValue")]
         aggregate_output_value: u64,
-        transaction: Transaction,
+        transaction: CellTx,
         #[serde(rename = "paymentValue")]
         payment_value: Option<u64>,
         #[serde(rename = "changeValue")]
         change_value: u64,
         #[serde(rename = "acceptedDaaScore")]
         accepted_daa_score: Option<u64>,
-        #[serde(rename = "utxoEntries")]
+        #[serde(rename = "cellEntries")]
         #[serde(default)]
-        utxo_entries: Vec<UtxoRecord>,
+        cell_entries: Vec<CellRecord>,
     },
     Outgoing {
         fees: u64,
@@ -61,16 +61,16 @@ pub enum TransactionData {
         aggregate_input_value: u64,
         #[serde(rename = "outputValue")]
         aggregate_output_value: u64,
-        transaction: Transaction,
+        transaction: CellTx,
         #[serde(rename = "paymentValue")]
         payment_value: Option<u64>,
         #[serde(rename = "changeValue")]
         change_value: u64,
         #[serde(rename = "acceptedDaaScore")]
         accepted_daa_score: Option<u64>,
-        #[serde(rename = "utxoEntries")]
+        #[serde(rename = "cellEntries")]
         #[serde(default)]
-        utxo_entries: Vec<UtxoRecord>,
+        cell_entries: Vec<CellRecord>,
     },
     TransferIncoming {
         fees: u64,
@@ -78,15 +78,15 @@ pub enum TransactionData {
         aggregate_input_value: u64,
         #[serde(rename = "outputValue")]
         aggregate_output_value: u64,
-        transaction: Transaction,
+        transaction: CellTx,
         #[serde(rename = "paymentValue")]
         payment_value: Option<u64>,
         #[serde(rename = "changeValue")]
         change_value: u64,
         #[serde(rename = "acceptedDaaScore")]
         accepted_daa_score: Option<u64>,
-        #[serde(rename = "utxoEntries")]
-        utxo_entries: Vec<UtxoRecord>,
+        #[serde(rename = "cellEntries")]
+        cell_entries: Vec<CellRecord>,
     },
     TransferOutgoing {
         fees: u64,
@@ -94,30 +94,30 @@ pub enum TransactionData {
         aggregate_input_value: u64,
         #[serde(rename = "outputValue")]
         aggregate_output_value: u64,
-        transaction: Transaction,
+        transaction: CellTx,
         #[serde(rename = "paymentValue")]
         payment_value: Option<u64>,
         #[serde(rename = "changeValue")]
         change_value: u64,
         #[serde(rename = "acceptedDaaScore")]
         accepted_daa_score: Option<u64>,
-        #[serde(rename = "utxoEntries")]
-        utxo_entries: Vec<UtxoRecord>,
+        #[serde(rename = "cellEntries")]
+        cell_entries: Vec<CellRecord>,
     },
     Change {
         #[serde(rename = "inputValue")]
         aggregate_input_value: u64,
         #[serde(rename = "outputValue")]
         aggregate_output_value: u64,
-        transaction: Transaction,
+        transaction: CellTx,
         #[serde(rename = "paymentValue")]
         payment_value: Option<u64>,
         #[serde(rename = "changeValue")]
         change_value: u64,
         #[serde(rename = "acceptedDaaScore")]
         accepted_daa_score: Option<u64>,
-        #[serde(rename = "utxoEntries")]
-        utxo_entries: Vec<UtxoRecord>,
+        #[serde(rename = "cellEntries")]
+        cell_entries: Vec<CellRecord>,
     },
 }
 
@@ -141,19 +141,19 @@ impl TransactionData {
 
     pub fn has_address(&self, address: &Address) -> bool {
         match self {
-            TransactionData::Reorg { utxo_entries, .. } => utxo_entries.iter().any(|utxo| utxo.address.as_ref() == Some(address)),
-            TransactionData::Stasis { utxo_entries, .. } => utxo_entries.iter().any(|utxo| utxo.address.as_ref() == Some(address)),
-            TransactionData::Incoming { utxo_entries, .. } => utxo_entries.iter().any(|utxo| utxo.address.as_ref() == Some(address)),
-            TransactionData::External { utxo_entries, .. } => utxo_entries.iter().any(|utxo| utxo.address.as_ref() == Some(address)),
-            TransactionData::Outgoing { utxo_entries, .. } => utxo_entries.iter().any(|utxo| utxo.address.as_ref() == Some(address)),
-            TransactionData::Batch { utxo_entries, .. } => utxo_entries.iter().any(|utxo| utxo.address.as_ref() == Some(address)),
-            TransactionData::TransferIncoming { utxo_entries, .. } => {
-                utxo_entries.iter().any(|utxo| utxo.address.as_ref() == Some(address))
+            TransactionData::Reorg { cell_entries, .. } => cell_entries.iter().any(|cell| cell.address.as_ref() == Some(address)),
+            TransactionData::Stasis { cell_entries, .. } => cell_entries.iter().any(|cell| cell.address.as_ref() == Some(address)),
+            TransactionData::Incoming { cell_entries, .. } => cell_entries.iter().any(|cell| cell.address.as_ref() == Some(address)),
+            TransactionData::External { cell_entries, .. } => cell_entries.iter().any(|cell| cell.address.as_ref() == Some(address)),
+            TransactionData::Outgoing { cell_entries, .. } => cell_entries.iter().any(|cell| cell.address.as_ref() == Some(address)),
+            TransactionData::Batch { cell_entries, .. } => cell_entries.iter().any(|cell| cell.address.as_ref() == Some(address)),
+            TransactionData::TransferIncoming { cell_entries, .. } => {
+                cell_entries.iter().any(|cell| cell.address.as_ref() == Some(address))
             }
-            TransactionData::TransferOutgoing { utxo_entries, .. } => {
-                utxo_entries.iter().any(|utxo| utxo.address.as_ref() == Some(address))
+            TransactionData::TransferOutgoing { cell_entries, .. } => {
+                cell_entries.iter().any(|cell| cell.address.as_ref() == Some(address))
             }
-            TransactionData::Change { utxo_entries, .. } => utxo_entries.iter().any(|utxo| utxo.address.as_ref() == Some(address)),
+            TransactionData::Change { cell_entries, .. } => cell_entries.iter().any(|cell| cell.address.as_ref() == Some(address)),
         }
     }
 }
@@ -166,20 +166,20 @@ impl BorshSerialize for TransactionData {
         BorshSerialize::serialize(&kind, writer)?;
 
         match self {
-            TransactionData::Reorg { utxo_entries, aggregate_input_value } => {
-                BorshSerialize::serialize(utxo_entries, writer)?;
+            TransactionData::Reorg { cell_entries, aggregate_input_value } => {
+                BorshSerialize::serialize(cell_entries, writer)?;
                 BorshSerialize::serialize(aggregate_input_value, writer)?;
             }
-            TransactionData::Incoming { utxo_entries, aggregate_input_value } => {
-                BorshSerialize::serialize(utxo_entries, writer)?;
+            TransactionData::Incoming { cell_entries, aggregate_input_value } => {
+                BorshSerialize::serialize(cell_entries, writer)?;
                 BorshSerialize::serialize(aggregate_input_value, writer)?;
             }
-            TransactionData::Stasis { utxo_entries, aggregate_input_value } => {
-                BorshSerialize::serialize(utxo_entries, writer)?;
+            TransactionData::Stasis { cell_entries, aggregate_input_value } => {
+                BorshSerialize::serialize(cell_entries, writer)?;
                 BorshSerialize::serialize(aggregate_input_value, writer)?;
             }
-            TransactionData::External { utxo_entries, aggregate_input_value } => {
-                BorshSerialize::serialize(utxo_entries, writer)?;
+            TransactionData::External { cell_entries, aggregate_input_value } => {
+                BorshSerialize::serialize(cell_entries, writer)?;
                 BorshSerialize::serialize(aggregate_input_value, writer)?;
             }
             TransactionData::Batch {
@@ -190,7 +190,7 @@ impl BorshSerialize for TransactionData {
                 payment_value,
                 change_value,
                 accepted_daa_score,
-                utxo_entries,
+                cell_entries,
             } => {
                 BorshSerialize::serialize(fees, writer)?;
                 BorshSerialize::serialize(aggregate_input_value, writer)?;
@@ -199,7 +199,7 @@ impl BorshSerialize for TransactionData {
                 BorshSerialize::serialize(payment_value, writer)?;
                 BorshSerialize::serialize(change_value, writer)?;
                 BorshSerialize::serialize(accepted_daa_score, writer)?;
-                BorshSerialize::serialize(utxo_entries, writer)?;
+                BorshSerialize::serialize(cell_entries, writer)?;
             }
             TransactionData::Outgoing {
                 fees,
@@ -209,7 +209,7 @@ impl BorshSerialize for TransactionData {
                 payment_value,
                 change_value,
                 accepted_daa_score,
-                utxo_entries,
+                cell_entries,
             } => {
                 BorshSerialize::serialize(fees, writer)?;
                 BorshSerialize::serialize(aggregate_input_value, writer)?;
@@ -218,7 +218,7 @@ impl BorshSerialize for TransactionData {
                 BorshSerialize::serialize(payment_value, writer)?;
                 BorshSerialize::serialize(change_value, writer)?;
                 BorshSerialize::serialize(accepted_daa_score, writer)?;
-                BorshSerialize::serialize(utxo_entries, writer)?;
+                BorshSerialize::serialize(cell_entries, writer)?;
             }
             TransactionData::TransferIncoming {
                 fees,
@@ -228,7 +228,7 @@ impl BorshSerialize for TransactionData {
                 payment_value,
                 change_value,
                 accepted_daa_score,
-                utxo_entries,
+                cell_entries,
             } => {
                 BorshSerialize::serialize(fees, writer)?;
                 BorshSerialize::serialize(aggregate_input_value, writer)?;
@@ -237,7 +237,7 @@ impl BorshSerialize for TransactionData {
                 BorshSerialize::serialize(payment_value, writer)?;
                 BorshSerialize::serialize(change_value, writer)?;
                 BorshSerialize::serialize(accepted_daa_score, writer)?;
-                BorshSerialize::serialize(utxo_entries, writer)?;
+                BorshSerialize::serialize(cell_entries, writer)?;
             }
             TransactionData::TransferOutgoing {
                 fees,
@@ -247,7 +247,7 @@ impl BorshSerialize for TransactionData {
                 payment_value,
                 change_value,
                 accepted_daa_score,
-                utxo_entries,
+                cell_entries,
             } => {
                 BorshSerialize::serialize(fees, writer)?;
                 BorshSerialize::serialize(aggregate_input_value, writer)?;
@@ -256,7 +256,7 @@ impl BorshSerialize for TransactionData {
                 BorshSerialize::serialize(payment_value, writer)?;
                 BorshSerialize::serialize(change_value, writer)?;
                 BorshSerialize::serialize(accepted_daa_score, writer)?;
-                BorshSerialize::serialize(utxo_entries, writer)?;
+                BorshSerialize::serialize(cell_entries, writer)?;
             }
             TransactionData::Change {
                 aggregate_input_value,
@@ -265,7 +265,7 @@ impl BorshSerialize for TransactionData {
                 payment_value,
                 change_value,
                 accepted_daa_score,
-                utxo_entries,
+                cell_entries,
             } => {
                 BorshSerialize::serialize(aggregate_input_value, writer)?;
                 BorshSerialize::serialize(aggregate_output_value, writer)?;
@@ -273,7 +273,7 @@ impl BorshSerialize for TransactionData {
                 BorshSerialize::serialize(payment_value, writer)?;
                 BorshSerialize::serialize(change_value, writer)?;
                 BorshSerialize::serialize(accepted_daa_score, writer)?;
-                BorshSerialize::serialize(utxo_entries, writer)?;
+                BorshSerialize::serialize(cell_entries, writer)?;
             }
         }
 
@@ -290,34 +290,34 @@ impl BorshDeserialize for TransactionData {
 
         match kind {
             TransactionKind::Reorg => {
-                let utxo_entries: Vec<UtxoRecord> = BorshDeserialize::deserialize_reader(reader)?;
+                let cell_entries: Vec<CellRecord> = BorshDeserialize::deserialize_reader(reader)?;
                 let aggregate_input_value: u64 = BorshDeserialize::deserialize_reader(reader)?;
-                Ok(TransactionData::Reorg { utxo_entries, aggregate_input_value })
+                Ok(TransactionData::Reorg { cell_entries, aggregate_input_value })
             }
             TransactionKind::Incoming => {
-                let utxo_entries: Vec<UtxoRecord> = BorshDeserialize::deserialize_reader(reader)?;
+                let cell_entries: Vec<CellRecord> = BorshDeserialize::deserialize_reader(reader)?;
                 let aggregate_input_value: u64 = BorshDeserialize::deserialize_reader(reader)?;
-                Ok(TransactionData::Incoming { utxo_entries, aggregate_input_value })
+                Ok(TransactionData::Incoming { cell_entries, aggregate_input_value })
             }
             TransactionKind::Stasis => {
-                let utxo_entries: Vec<UtxoRecord> = BorshDeserialize::deserialize_reader(reader)?;
+                let cell_entries: Vec<CellRecord> = BorshDeserialize::deserialize_reader(reader)?;
                 let aggregate_input_value: u64 = BorshDeserialize::deserialize_reader(reader)?;
-                Ok(TransactionData::Stasis { utxo_entries, aggregate_input_value })
+                Ok(TransactionData::Stasis { cell_entries, aggregate_input_value })
             }
             TransactionKind::External => {
-                let utxo_entries: Vec<UtxoRecord> = BorshDeserialize::deserialize_reader(reader)?;
+                let cell_entries: Vec<CellRecord> = BorshDeserialize::deserialize_reader(reader)?;
                 let aggregate_input_value: u64 = BorshDeserialize::deserialize_reader(reader)?;
-                Ok(TransactionData::External { utxo_entries, aggregate_input_value })
+                Ok(TransactionData::External { cell_entries, aggregate_input_value })
             }
             TransactionKind::Batch => {
                 let fees: u64 = BorshDeserialize::deserialize_reader(reader)?;
                 let aggregate_input_value: u64 = BorshDeserialize::deserialize_reader(reader)?;
                 let aggregate_output_value: u64 = BorshDeserialize::deserialize_reader(reader)?;
-                let transaction: Transaction = BorshDeserialize::deserialize_reader(reader)?;
+                let transaction: CellTx = BorshDeserialize::deserialize_reader(reader)?;
                 let payment_value: Option<u64> = BorshDeserialize::deserialize_reader(reader)?;
                 let change_value: u64 = BorshDeserialize::deserialize_reader(reader)?;
                 let accepted_daa_score: Option<u64> = BorshDeserialize::deserialize_reader(reader)?;
-                let utxo_entries: Vec<UtxoRecord> = BorshDeserialize::deserialize_reader(reader)?;
+                let cell_entries: Vec<CellRecord> = BorshDeserialize::deserialize_reader(reader)?;
                 Ok(TransactionData::Batch {
                     fees,
                     aggregate_input_value,
@@ -326,18 +326,18 @@ impl BorshDeserialize for TransactionData {
                     payment_value,
                     change_value,
                     accepted_daa_score,
-                    utxo_entries,
+                    cell_entries,
                 })
             }
             TransactionKind::Outgoing => {
                 let fees: u64 = BorshDeserialize::deserialize_reader(reader)?;
                 let aggregate_input_value: u64 = BorshDeserialize::deserialize_reader(reader)?;
                 let aggregate_output_value: u64 = BorshDeserialize::deserialize_reader(reader)?;
-                let transaction: Transaction = BorshDeserialize::deserialize_reader(reader)?;
+                let transaction: CellTx = BorshDeserialize::deserialize_reader(reader)?;
                 let payment_value: Option<u64> = BorshDeserialize::deserialize_reader(reader)?;
                 let change_value: u64 = BorshDeserialize::deserialize_reader(reader)?;
                 let accepted_daa_score: Option<u64> = BorshDeserialize::deserialize_reader(reader)?;
-                let utxo_entries: Vec<UtxoRecord> = BorshDeserialize::deserialize_reader(reader)?;
+                let cell_entries: Vec<CellRecord> = BorshDeserialize::deserialize_reader(reader)?;
                 Ok(TransactionData::Outgoing {
                     fees,
                     aggregate_input_value,
@@ -346,18 +346,18 @@ impl BorshDeserialize for TransactionData {
                     payment_value,
                     change_value,
                     accepted_daa_score,
-                    utxo_entries,
+                    cell_entries,
                 })
             }
             TransactionKind::TransferIncoming => {
                 let fees: u64 = BorshDeserialize::deserialize_reader(reader)?;
                 let aggregate_input_value: u64 = BorshDeserialize::deserialize_reader(reader)?;
                 let aggregate_output_value: u64 = BorshDeserialize::deserialize_reader(reader)?;
-                let transaction: Transaction = BorshDeserialize::deserialize_reader(reader)?;
+                let transaction: CellTx = BorshDeserialize::deserialize_reader(reader)?;
                 let payment_value: Option<u64> = BorshDeserialize::deserialize_reader(reader)?;
                 let change_value: u64 = BorshDeserialize::deserialize_reader(reader)?;
                 let accepted_daa_score: Option<u64> = BorshDeserialize::deserialize_reader(reader)?;
-                let utxo_entries: Vec<UtxoRecord> = BorshDeserialize::deserialize_reader(reader)?;
+                let cell_entries: Vec<CellRecord> = BorshDeserialize::deserialize_reader(reader)?;
                 Ok(TransactionData::TransferIncoming {
                     fees,
                     aggregate_input_value,
@@ -366,18 +366,18 @@ impl BorshDeserialize for TransactionData {
                     payment_value,
                     change_value,
                     accepted_daa_score,
-                    utxo_entries,
+                    cell_entries,
                 })
             }
             TransactionKind::TransferOutgoing => {
                 let fees: u64 = BorshDeserialize::deserialize_reader(reader)?;
                 let aggregate_input_value: u64 = BorshDeserialize::deserialize_reader(reader)?;
                 let aggregate_output_value: u64 = BorshDeserialize::deserialize_reader(reader)?;
-                let transaction: Transaction = BorshDeserialize::deserialize_reader(reader)?;
+                let transaction: CellTx = BorshDeserialize::deserialize_reader(reader)?;
                 let payment_value: Option<u64> = BorshDeserialize::deserialize_reader(reader)?;
                 let change_value: u64 = BorshDeserialize::deserialize_reader(reader)?;
                 let accepted_daa_score: Option<u64> = BorshDeserialize::deserialize_reader(reader)?;
-                let utxo_entries: Vec<UtxoRecord> = BorshDeserialize::deserialize_reader(reader)?;
+                let cell_entries: Vec<CellRecord> = BorshDeserialize::deserialize_reader(reader)?;
                 Ok(TransactionData::TransferOutgoing {
                     fees,
                     aggregate_input_value,
@@ -386,17 +386,17 @@ impl BorshDeserialize for TransactionData {
                     payment_value,
                     change_value,
                     accepted_daa_score,
-                    utxo_entries,
+                    cell_entries,
                 })
             }
             TransactionKind::Change => {
                 let aggregate_input_value: u64 = BorshDeserialize::deserialize_reader(reader)?;
                 let aggregate_output_value: u64 = BorshDeserialize::deserialize_reader(reader)?;
-                let transaction: Transaction = BorshDeserialize::deserialize_reader(reader)?;
+                let transaction: CellTx = BorshDeserialize::deserialize_reader(reader)?;
                 let payment_value: Option<u64> = BorshDeserialize::deserialize_reader(reader)?;
                 let change_value: u64 = BorshDeserialize::deserialize_reader(reader)?;
                 let accepted_daa_score: Option<u64> = BorshDeserialize::deserialize_reader(reader)?;
-                let utxo_entries: Vec<UtxoRecord> = BorshDeserialize::deserialize_reader(reader)?;
+                let cell_entries: Vec<CellRecord> = BorshDeserialize::deserialize_reader(reader)?;
                 Ok(TransactionData::Change {
                     aggregate_input_value,
                     aggregate_output_value,
@@ -404,7 +404,7 @@ impl BorshDeserialize for TransactionData {
                     payment_value,
                     change_value,
                     accepted_daa_score,
-                    utxo_entries,
+                    cell_entries,
                 })
             }
         }

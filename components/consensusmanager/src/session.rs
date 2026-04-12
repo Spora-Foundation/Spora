@@ -13,8 +13,8 @@ use spora_consensus_core::{
     mass::{ContextualMasses, NonContextualMasses},
     pruning::{PruningPointProof, PruningPointTrustedData, PruningPointsList},
     trusted::{ExternalGhostdagData, TrustedBlock},
-    tx::{MutableTransaction, SignableTransaction, Transaction, TransactionOutpoint, UtxoEntry},
-    // utxo::utxo_inquirer::UtxoInquirerError, // UTXO deprecated - use Cell validation
+    tx::{CellEntry, CellTx, MutableTransaction, ResolvedCellTransaction, SignableTransaction, Transaction, TransactionOutpoint},
+    // legacy transaction-output inquirer errors removed during Cell migration
     BlockHashSet,
     BlueWorkType,
     ChainPath,
@@ -195,7 +195,7 @@ impl ConsensusSessionOwned {
         self.consensus.validate_and_insert_trusted_block(tb)
     }
 
-    pub fn calculate_transaction_non_contextual_masses(&self, transaction: &Transaction) -> NonContextualMasses {
+    pub fn calculate_transaction_non_contextual_masses(&self, transaction: &CellTx) -> NonContextualMasses {
         // This method performs pure calculations so no need for an async wrapper
         self.consensus.calculate_transaction_non_contextual_masses(transaction)
     }
@@ -286,14 +286,13 @@ impl ConsensusSessionOwned {
         self.clone().spawn_blocking(move |c| c.get_virtual_chain_from_block(low, chain_path_added_limit)).await
     }
 
-    pub async fn async_get_virtual_utxos(
+    pub async fn async_get_virtual_cells(
         &self,
         from_outpoint: Option<TransactionOutpoint>,
         chunk_size: usize,
         skip_first: bool,
     ) -> Vec<(TransactionOutpoint, Hash)> {
-        // TODO(cell-model): Replace with async_get_virtual_cells
-        self.clone().spawn_blocking(move |c| c.get_virtual_utxos(from_outpoint, chunk_size, skip_first)).await
+        self.clone().spawn_blocking(move |c| c.get_virtual_cells(from_outpoint, chunk_size, skip_first)).await
     }
 
     pub async fn async_get_tips(&self) -> Vec<Hash> {
@@ -330,6 +329,14 @@ impl ConsensusSessionOwned {
         accepting_block_daa_score: u64,
     ) -> Result<SignableTransaction, String> {
         self.clone().spawn_blocking(move |c| c.get_populated_transaction(txid, accepting_block_daa_score)).await
+    }
+
+    pub async fn async_get_resolved_cell_transaction(
+        &self,
+        txid: Hash,
+        accepting_block_daa_score: u64,
+    ) -> Result<ResolvedCellTransaction, String> {
+        self.clone().spawn_blocking(move |c| c.get_resolved_cell_transaction(txid, accepting_block_daa_score)).await
     }
 
     /// Returns the antipast of block `hash` from the POV of `context`, i.e. `antipast(hash) ∩ past(context)`.
@@ -385,6 +392,10 @@ impl ConsensusSessionOwned {
         self.clone().spawn_blocking(move |c| c.get_transaction(hash)).await
     }
 
+    pub async fn async_get_cell_transaction(&self, hash: Hash) -> ConsensusResult<CellTx> {
+        self.clone().spawn_blocking(move |c| c.get_cell_transaction(hash)).await
+    }
+
     pub async fn async_get_ghostdag_data(&self, hash: Hash) -> ConsensusResult<ExternalGhostdagData> {
         self.clone().spawn_blocking(move |c| c.get_ghostdag_data(hash)).await
     }
@@ -420,16 +431,15 @@ impl ConsensusSessionOwned {
         self.clone().spawn_blocking(move |c| c.is_chain_block(hash)).await
     }
 
-    pub async fn async_get_pruning_point_utxos(
+    pub async fn async_get_pruning_point_cells(
         &self,
         expected_pruning_point: Hash,
         from_outpoint: Option<TransactionOutpoint>,
         chunk_size: usize,
         skip_first: bool,
-    ) -> ConsensusResult<Vec<(TransactionOutpoint, UtxoEntry)>> {
-        // TODO(cell-model): Replace with async_get_pruning_point_cells
+    ) -> ConsensusResult<Vec<(TransactionOutpoint, CellEntry)>> {
         self.clone()
-            .spawn_blocking(move |c| c.get_pruning_point_utxos(expected_pruning_point, from_outpoint, chunk_size, skip_first))
+            .spawn_blocking(move |c| c.get_pruning_point_cells(expected_pruning_point, from_outpoint, chunk_size, skip_first))
             .await
     }
 

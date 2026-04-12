@@ -389,7 +389,7 @@ async fn main() {
     info!("{}", log_message);
 
     // Only connect RPC server if private key is specified
-    let _stats = Arc::new(Mutex::new(Stats { num_txs: 0, since: unix_now(), num_utxos: 0, utxos_amount: 0, num_outs: 0 }));
+    let _stats = Arc::new(Mutex::new(Stats { num_txs: 0, since: unix_now(), num_cells: 0, cells_amount: 0, num_outs: 0 }));
     let subscription_context = SubscriptionContext::new();
     let rpc_client = GrpcClient::connect_with_args(
         NotificationMode::Direct,

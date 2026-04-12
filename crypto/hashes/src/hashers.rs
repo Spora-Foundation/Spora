@@ -135,8 +135,6 @@ sha256_hasher! {
     struct SchnorrSigningHash => b"SchnorrSigningHash",
 }
 
-use impl_hasher;
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ISC
-// Copyright (C) 2025 Spora developers
+// Copyright (C) 2026 Spora developers
 //
 // Secp256k1 lock script
 // ⚠️ Modified: Blake2b → Blake3

@@ -13,7 +13,7 @@
 //! via JSON in JavaScript environments and later conversion to `bigint` types.
 //!
 //! These data structures can be used for manual transport of transactions using JSON.
-//! For more advanced use cases, please refer to `pstt` in the [`spora_wallet_pstt`](https://docs.rs/spora_wallet_pstt)
+//! For more advanced use cases, please refer to `psst` in the [`spora_wallet_psst`](https://docs.rs/spora_wallet_psst)
 //! crate.
 //!
 
@@ -27,14 +27,19 @@ use wasm_bindgen::prelude::*;
 const TS_TYPES: &'static str = r#"
 
 /**
- * Interface defines the structure of a serializable UTXO entry.
+ * Interface defines the structure of a serializable Cell entry.
  * 
  * @see {@link ISerializableTransactionInput}, {@link ISerializableTransaction}
  * @category Wallet SDK
  */
-export interface ISerializableUtxoEntry {
+export interface ISerializableCellEntry {
     address?: Address;
     amount: bigint;
+    capacity?: bigint;
+    dataBytes?: bigint;
+    lockHash?: HexString;
+    typeHash?: HexString;
+    dataHash?: HexString;
     scriptPublicKey: ScriptPublicKey;
     blockDaaScore: bigint;
     isCoinbase: boolean;
@@ -52,7 +57,7 @@ export interface ISerializableTransactionInput {
     sequence: bigint;
     sigOpCount: number;
     signatureScript?: HexString;
-    utxo: ISerializableUtxoEntry;
+    cellEntry: ISerializableCellEntry;
 }
 
 /**
@@ -82,7 +87,7 @@ export interface ISerializableTransactionOutput {
  * @see {@link Transaction},
  * {@link ISerializableTransactionInput},
  * {@link ISerializableTransactionOutput},
- * {@link ISerializableUtxoEntry}
+ * {@link ISerializableCellEntry}
  * 
  * @category Wallet SDK
  */

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ISC
-// Copyright (C) 2025 Spora developers
+// Copyright (C) 2026 Spora developers
 //
 // Cell transaction core types (CKB-inspired, DAG-adapted)
 //
@@ -7,16 +7,71 @@
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
+use std::fmt;
+
+/// Serde helpers for serializing `[u8; 32]` as a hex string under the key `transactionId`
+/// for human-readable formats (JSON), or raw bytes for binary formats (bincode).
+mod outpoint_serde {
+    use serde::{self, Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S>(tx_hash: &[u8; 32], serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        if serializer.is_human_readable() {
+            let hex: String = tx_hash.iter().map(|b| format!("{:02x}", b)).collect();
+            serializer.serialize_str(&hex)
+        } else {
+            serde::Serialize::serialize(tx_hash, serializer)
+        }
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<[u8; 32], D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        if deserializer.is_human_readable() {
+            let s = String::deserialize(deserializer)?;
+            if s.len() != 64 {
+                return Err(serde::de::Error::custom(format!("expected 64 hex chars, got {}", s.len())));
+            }
+            let mut bytes = [0u8; 32];
+            for i in 0..32 {
+                bytes[i] =
+                    u8::from_str_radix(&s[2 * i..2 * i + 2], 16).map_err(serde::de::Error::custom)?;
+            }
+            Ok(bytes)
+        } else {
+            <[u8; 32]>::deserialize(deserializer)
+        }
+    }
+}
 
 /// Cell transaction version: 0xC001
 pub const CELL_TX_VERSION: u16 = 0xC001;
+/// Additional bytes a live-cell state entry needs beyond the raw output body.
+const CELL_ENTRY_OVERHEAD_EXCLUDING_OUTPUT_BODY: u64 = 32 + 4 + 8 + 1;
+/// Static transient-mass factor used before block-context VM cycles are known.
+///
+/// This intentionally mirrors the consensus-side transient-byte policy until the
+/// Cell-native mass model is fully centralized.
+const TRANSIENT_BYTE_TO_MASS_FACTOR: u64 = 4;
+/// Static surcharge applied to execution-facing surfaces before runtime cycles exist.
+///
+/// This is intentionally conservative: witnesses, deps, output data and type-script
+/// arguments all expand the deterministic work surface of a CellTx even before VM
+/// execution is measured.
+const EXECUTION_SURFACE_BYTE_TO_COMPUTE_FACTOR: u64 = 1;
 
 /// OutPoint: uniquely identifies a Cell (tx_hash || output_index)
 ///
 /// Reference: CKB OutPoint
-#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
+#[derive(
+    Clone, Copy, Default, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, BorshSerialize, BorshDeserialize, Serialize, Deserialize,
+)]
 pub struct OutPoint {
-    /// Transaction hash (32 bytes)
+    /// Transaction hash (32 bytes), serialized as hex string `transactionId` in JSON
+    #[serde(rename = "transactionId", with = "outpoint_serde")]
     pub tx_hash: [u8; 32],
     /// Output index (u32)
     pub index: u32,
@@ -42,6 +97,15 @@ impl OutPoint {
         tx_hash.copy_from_slice(&key[..32]);
         let index = u32::from_le_bytes([key[32], key[33], key[34], key[35]]);
         Self { tx_hash, index }
+    }
+}
+
+impl fmt::Display for OutPoint {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for byte in &self.tx_hash {
+            write!(f, "{:02x}", byte)?;
+        }
+        write!(f, ":{}", self.index)
     }
 }
 
@@ -71,6 +135,18 @@ impl ScriptRef {
         hasher.update(&[self.hash_type]);
         hasher.update(&self.args);
         *hasher.finalize().as_bytes()
+    }
+
+    /// Serialize the script reference to bytes.
+    ///
+    /// Format: code_hash (32) || hash_type (1) || args (variable)
+    /// This is used by txscript opcodes that inspect output script data.
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(33 + self.args.len());
+        bytes.extend_from_slice(&self.code_hash);
+        bytes.push(self.hash_type);
+        bytes.extend_from_slice(&self.args);
+        bytes
     }
 }
 
@@ -183,6 +259,8 @@ pub struct CellTx {
     pub inputs: Vec<CellRef>,
     /// Dependencies: read-only Cells (e.g., script code)
     pub deps: Vec<CellDep>,
+    /// Header dependencies available to VM scripts.
+    pub header_deps: Vec<[u8; 32]>,
     /// Outputs: new Cells to create
     pub outputs: Vec<CellOut>,
     /// Output data (1:1 with outputs)
@@ -201,10 +279,22 @@ impl CellTx {
         outputs_data: Vec<Vec<u8>>,
         witnesses: Vec<Vec<u8>>,
     ) -> Result<Self, &'static str> {
+        Self::new_with_header_deps(inputs, deps, vec![], outputs, outputs_data, witnesses)
+    }
+
+    /// Create a new Cell transaction with explicit header dependencies.
+    pub fn new_with_header_deps(
+        inputs: Vec<CellRef>,
+        deps: Vec<CellDep>,
+        header_deps: Vec<[u8; 32]>,
+        outputs: Vec<CellOut>,
+        outputs_data: Vec<Vec<u8>>,
+        witnesses: Vec<Vec<u8>>,
+    ) -> Result<Self, &'static str> {
         if outputs.len() != outputs_data.len() {
             return Err("outputs and outputs_data length mismatch");
         }
-        Ok(Self { ver: CELL_TX_VERSION, inputs, deps, outputs, outputs_data, witnesses })
+        Ok(Self { ver: CELL_TX_VERSION, inputs, deps, header_deps, outputs, outputs_data, witnesses })
     }
 
     /// Get transaction ID (same as compute_txid)
@@ -221,6 +311,15 @@ impl CellTx {
         self.ver
     }
 
+    /// Get the transaction-level lock time.
+    ///
+    /// Cell model uses per-input `since` for time locks instead of a global
+    /// lock_time field. This compatibility accessor always returns 0 so
+    /// legacy opcode paths (e.g. OpCheckLockTimeVerify) remain functional.
+    pub fn lock_time(&self) -> u64 {
+        0
+    }
+
     /// Check if this is a cellbase (coinbase) transaction
     ///
     /// Cellbase transactions have no inputs (mining reward)
@@ -228,21 +327,69 @@ impl CellTx {
         self.inputs.is_empty()
     }
 
-    /// Get mass (storage weight) of the transaction
+    /// Get the compute-side mass hint of the transaction.
     ///
-    /// In Cell model, mass = serialized_size for now
-    /// TODO(spora): Implement proper mass calculation based on storage cost
+    /// This is a deterministic pre-VM compute hint composed of serialized size
+    /// plus a conservative surcharge for execution-facing surfaces.
+    pub fn compute_mass(&self) -> u64 {
+        let serialized_size = self.serialized_size() as u64;
+        let execution_surface = self.execution_surface_bytes();
+        serialized_size.saturating_add(execution_surface.saturating_mul(EXECUTION_SURFACE_BYTE_TO_COMPUTE_FACTOR))
+    }
+
+    /// Get the transient-storage mass of the transaction.
+    ///
+    /// This tracks temporary mempool/relay footprint using a deterministic
+    /// serialized-size based factor before contextual execution data exists.
+    pub fn transient_mass(&self) -> u64 {
+        (self.serialized_size() as u64).saturating_mul(TRANSIENT_BYTE_TO_MASS_FACTOR)
+    }
+
+    fn execution_surface_bytes(&self) -> u64 {
+        let witness_bytes = self.witnesses.iter().map(|witness| witness.len() as u64).sum::<u64>();
+        let dep_bytes = self.deps.len() as u64 * 37;
+        let header_dep_bytes = self.header_deps.len() as u64 * 32;
+        let output_data_bytes = self.outputs_data.iter().map(|data| data.len() as u64).sum::<u64>();
+        let type_script_arg_bytes =
+            self.outputs.iter().map(|output| output.type_.as_ref().map_or(0, |script| script.args.len() as u64)).sum::<u64>();
+
+        witness_bytes
+            .saturating_add(dep_bytes)
+            .saturating_add(header_dep_bytes)
+            .saturating_add(output_data_bytes)
+            .saturating_add(type_script_arg_bytes)
+    }
+
+    /// Get the storage-side mass of the transaction.
+    ///
+    /// This tracks the persistent live-cell footprint created by outputs,
+    /// including per-entry overhead in the state commitment layer.
+    pub fn storage_mass(&self) -> u64 {
+        self.outputs
+            .iter()
+            .zip(self.outputs_data.iter())
+            .map(|(output, data)| CELL_ENTRY_OVERHEAD_EXCLUDING_OUTPUT_BODY + output.occupied_capacity(data.len()))
+            .sum()
+    }
+
+    /// Get the persisted mass commitment of the transaction.
+    ///
+    /// This is the storage-side mass, kept under the legacy `mass()` name so the
+    /// compatibility bridge keeps writing the right semantic value.
     pub fn mass(&self) -> u64 {
-        self.serialized_size() as u64
+        self.storage_mass()
     }
 
     /// Get cellbase payload (first output data for coinbase tx)
     ///
-    /// This is for compatibility with old Transaction.payload field
-    /// Returns None if not a coinbase or no outputs
+    /// This is for compatibility with old Transaction.payload field.
+    /// When a legacy coinbase has no reward outputs, we preserve its payload in
+    /// the first witness so it remains available and hash-committed.
     pub fn payload(&self) -> Option<&[u8]> {
         if self.is_coinbase() && !self.outputs_data.is_empty() {
             Some(&self.outputs_data[0])
+        } else if self.is_coinbase() && self.outputs.is_empty() {
+            self.witnesses.first().map(Vec::as_slice)
         } else {
             None
         }
@@ -254,6 +401,7 @@ impl CellTx {
         let mut size = 2; // ver
         size += 4 + self.inputs.len() * 40; // inputs
         size += 4 + self.deps.len() * 37; // deps
+        size += 4 + self.header_deps.len() * 32; // header deps
         size += 4 + self
             .outputs
             .iter()
@@ -352,6 +500,12 @@ pub struct ResolvedCellTx {
     pub resolved_deps: Vec<CellMeta>,
 }
 
+impl AsRef<CellTx> for CellTx {
+    fn as_ref(&self) -> &CellTx {
+        self
+    }
+}
+
 impl ResolvedCellTx {
     /// Calculate fee
     pub fn fee(&self) -> u64 {
@@ -420,5 +574,24 @@ mod tests {
         assert!(tx.is_ok());
         let tx = tx.unwrap();
         assert_eq!(tx.ver, CELL_TX_VERSION);
+    }
+
+    #[test]
+    fn test_celltx_compute_and_storage_mass_are_distinct() {
+        let inputs = vec![CellRef::new(OutPoint::new([0; 32], 0), 0)];
+        let deps = vec![];
+        let lock = ScriptRef::new([0x10; 32], 1, vec![1; 20]);
+        let outputs = vec![CellOut { lock, type_: None, capacity: 10_000 }];
+        let outputs_data = vec![vec![7; 128]];
+        let witnesses = vec![vec![0; 65]];
+
+        let tx = CellTx::new(inputs, deps, outputs, outputs_data, witnesses).unwrap();
+        assert!(tx.compute_mass() > tx.serialized_size() as u64);
+        assert!(tx.compute_mass() > 0);
+        assert!(tx.transient_mass() > 0);
+        assert!(tx.storage_mass() > 0);
+        assert_eq!(tx.transient_mass(), (tx.serialized_size() as u64) * TRANSIENT_BYTE_TO_MASS_FACTOR);
+        assert_eq!(tx.mass(), tx.storage_mass());
+        assert_ne!(tx.compute_mass(), tx.storage_mass());
     }
 }

@@ -8,11 +8,7 @@ use super::{
     model::tx::{CandidateList, SelectableTransaction, SelectableTransactions, TransactionIndex},
     policy::Policy,
 };
-use spora_consensus_core::{
-    block::TemplateTransactionSelector,
-    subnets::SubnetworkId,
-    tx::{CellTx, Transaction, TransactionId},
-};
+use spora_consensus_core::{block::TemplateTransactionSelector, tx::{CellTx, TransactionId}};
 
 /// ALPHA is a coefficient that defines how uniform the distribution of
 /// candidate transactions should be. A smaller alpha makes the distribution
@@ -49,14 +45,13 @@ pub struct RebalancingWeightedTransactionSelector {
     used_p: f64,
     total_mass: u64,
     total_fees: u64,
-    gas_usage_map: HashMap<SubnetworkId, u64>,
 }
 
 impl RebalancingWeightedTransactionSelector {
     pub fn new(policy: Policy, mut transactions: Vec<CandidateTransaction>) -> Self {
         let _sw = Stopwatch::<100>::with_threshold("TransactionsSelector::new op");
-        // Sort the transactions by subnetwork_id.
-        transactions.sort_by(|a, b| a.tx.subnetwork_id.cmp(&b.tx.subnetwork_id));
+        // Keep selection deterministic across nodes.
+        transactions.sort_by_key(|tx| tx.tx.id());
 
         // Create the object without selectable transactions
         let mut selector = Self {
@@ -71,7 +66,6 @@ impl RebalancingWeightedTransactionSelector {
             used_p: 0.0,
             total_mass: 0,
             total_fees: 0,
-            gas_usage_map: Default::default(),
         };
 
         // Create the selectable transactions
@@ -103,7 +97,7 @@ impl RebalancingWeightedTransactionSelector {
     /// select_transactions loops over the candidate transactions
     /// and appends the ones that will be included in the next block into
     /// selected_txs.
-    pub fn select_transactions(&mut self) -> Vec<Transaction> {
+    pub fn select_transactions(&mut self) -> Vec<CellTx> {
         let _sw = Stopwatch::<15>::with_threshold("select_transaction op");
         let mut rng = rand::thread_rng();
 
@@ -138,41 +132,8 @@ impl RebalancingWeightedTransactionSelector {
             // Also check for overflow.
             let next_total_mass = self.total_mass.checked_add(selected_tx.calculated_mass);
             if next_total_mass.is_none() || next_total_mass.unwrap() > self.policy.max_block_mass {
-                trace!("Tx {0} would exceed the max block mass. As such, stopping.", selected_tx.tx.id());
+                trace!("Tx {:?} would exceed the max block mass. As such, stopping.", selected_tx.tx.id());
                 break;
-            }
-
-            // Enforce maximum gas per subnetwork per block.
-            // Also check for overflow.
-            if !selected_tx.tx.subnetwork_id.is_builtin_or_native() {
-                let subnetwork_id = selected_tx.tx.subnetwork_id.clone();
-                let gas_usage = self.gas_usage_map.entry(subnetwork_id.clone()).or_insert(0);
-                let tx_gas = selected_tx.tx.gas;
-                let next_gas_usage = (*gas_usage).checked_add(tx_gas);
-                if next_gas_usage.is_none() || next_gas_usage.unwrap() > self.selectable_txs[selected_candidate.index].gas_limit {
-                    trace!(
-                        "Tx {0} would exceed the gas limit in subnetwork {1}. Removing all remaining txs from this subnetwork.",
-                        selected_tx.tx.id(),
-                        subnetwork_id
-                    );
-                    for i in selected_candidate_idx..self.candidate_list.candidates.len() {
-                        let transaction_index = self.candidate_list.candidates[i].index;
-                        // Candidate txs are ordered by subnetwork, so we can safely assume
-                        // that transactions after subnetwork_id will not be relevant.
-                        if subnetwork_id < self.transactions[transaction_index].tx.subnetwork_id {
-                            break;
-                        }
-                        let current = self.candidate_list.candidates.get_mut(i).unwrap();
-
-                        // Mark for deletion
-                        current.is_marked_for_deletion = true;
-                        self.used_count += 1;
-                        self.used_p += self.selectable_txs[transaction_index].p;
-                    }
-                    continue;
-                }
-                // Here we know that next_gas_usage is some (since no overflow occurred) so we can safely unwrap.
-                *gas_usage = next_gas_usage.unwrap();
             }
 
             // Add the transaction to the result, increment counters, and
@@ -182,7 +143,7 @@ impl RebalancingWeightedTransactionSelector {
             self.total_mass += selected_tx.calculated_mass;
             self.total_fees += selected_tx.calculated_fee;
 
-            trace!("Adding tx {0} (fee per gram: {1})", selected_tx.tx.id(), selected_tx.calculated_fee / selected_tx.calculated_mass);
+            trace!("Adding tx {:?} (fee per gram: {1})", selected_tx.tx.id(), selected_tx.calculated_fee / selected_tx.calculated_mass);
 
             // Mark for deletion
             selected_candidate.is_marked_for_deletion = true;
@@ -195,7 +156,7 @@ impl RebalancingWeightedTransactionSelector {
         self.get_transactions()
     }
 
-    fn get_transactions(&self) -> Vec<Transaction> {
+    fn get_transactions(&self) -> Vec<CellTx> {
         // These transactions leave the selector so we clone
         self.selected_txs.iter().map(|x| self.transactions[*x].tx.as_ref().clone()).collect()
     }
@@ -212,38 +173,37 @@ impl RebalancingWeightedTransactionSelector {
     /// The higher the number the more likely it is that the transaction will be
     /// included in the block.
     fn calc_tx_value(&self, transaction: &CandidateTransaction) -> f64 {
+        if let Some(cell_score_total) = transaction.cell_score_total {
+            return cell_score_total.max(f64::EPSILON);
+        }
+
         let mass_limit = self.policy.max_block_mass as f64;
         let mass = transaction.calculated_mass as f64;
         let fee = transaction.calculated_fee as f64;
-        if transaction.tx.subnetwork_id.is_builtin_or_native() {
-            fee / mass / mass_limit
-        } else {
-            // TODO: Replace with real gas once implemented
-            let gas_limit = u64::MAX as f64;
-            fee / mass / mass_limit + transaction.tx.gas as f64 / gas_limit
-        }
+        fee / mass / mass_limit
     }
 }
 
 impl TemplateTransactionSelector for RebalancingWeightedTransactionSelector {
     fn select_transactions(&mut self) -> Vec<CellTx> {
-        // TODO(cell-model): Mining selector needs migration to CellTx
-        // For now, return empty until full migration
-        vec![]
+        let selected_cell_txs = RebalancingWeightedTransactionSelector::select_transactions(self);
+        let mut selected_txs_map = HashMap::with_capacity(selected_cell_txs.len());
+        for (tx_index, cell_tx) in self.selected_txs.iter().copied().zip(selected_cell_txs.iter()) {
+            selected_txs_map.insert(cell_tx.id().into(), tx_index);
+        }
+        self.selected_txs_map = Some(selected_txs_map);
+        selected_cell_txs
     }
 
     fn reject_selection(&mut self, tx_id: TransactionId) {
         let selected_txs_map = self
             .selected_txs_map
             // We lazy-create the map only when there are actual rejections
-            .get_or_insert_with(|| self.selected_txs.iter().map(|&x| (self.transactions[x].tx.id(), x)).collect());
+            .get_or_insert_with(|| self.selected_txs.iter().map(|&x| (self.transactions[x].tx.id().into(), x)).collect());
         let tx_index = selected_txs_map.remove(&tx_id).expect("only previously selected txs can be rejected (and only once)");
         let tx = &self.transactions[tx_index];
         self.total_mass -= tx.calculated_mass;
         self.total_fees -= tx.calculated_fee;
-        if !tx.tx.subnetwork_id.is_builtin_or_native() {
-            *self.gas_usage_map.get_mut(&tx.tx.subnetwork_id).expect("previously selected txs have an entry") -= tx.tx.gas;
-        }
         self.overall_rejections += 1;
     }
 
@@ -263,7 +223,7 @@ mod tests {
     use super::*;
     use itertools::Itertools;
     use spora_consensus_core::{
-        constants::{MAX_TX_IN_SEQUENCE_NUM, SAU_PER_TONDI, TX_VERSION},
+        constants::{MAX_TX_IN_SEQUENCE_NUM, SAU_PER_SPORA, TX_VERSION},
         mass::transaction_estimated_serialized_size,
         subnets::SUBNETWORK_ID_NATIVE,
         tx::{Transaction, TransactionId, TransactionInput, TransactionOutpoint, TransactionOutput},
@@ -272,6 +232,7 @@ mod tests {
     use std::{collections::HashSet, sync::Arc};
 
     use crate::{
+        cell_conversion::legacy_tx_to_cell_tx,
         mempool::{
             config::DEFAULT_MINIMUM_RELAY_TRANSACTION_FEE,
             model::frontier::selectors::{SequenceSelector, SequenceSelectorInput, SequenceSelectorTransaction},
@@ -284,10 +245,17 @@ mod tests {
         const TX_INITIAL_COUNT: usize = 1_000;
 
         // Create a vector of transactions differing by output value so they have unique ids
-        let transactions = (0..TX_INITIAL_COUNT).map(|i| create_transaction(SAU_PER_TONDI * (i + 1) as u64)).collect_vec();
-        let masses: HashMap<_, _> = transactions.iter().map(|tx| (tx.tx.id(), tx.calculated_mass)).collect();
-        let sequence: SequenceSelectorInput =
-            transactions.iter().map(|tx| SequenceSelectorTransaction::new(tx.tx.clone(), tx.calculated_mass)).collect();
+        let transactions = (0..TX_INITIAL_COUNT).map(|i| create_transaction(SAU_PER_SPORA * (i + 1) as u64)).collect_vec();
+        let masses: HashMap<_, _> = transactions
+            .iter()
+            .map(|tx| {
+                (legacy_tx_to_cell_tx(tx.tx.as_ref()).expect("test transaction must be Cell-convertible").id(), tx.calculated_mass)
+            })
+            .collect();
+        let sequence: SequenceSelectorInput = transactions
+            .iter()
+            .map(|tx| SequenceSelectorTransaction::new(tx.tx.clone(), tx.cell_tx.clone(), tx.calculated_mass))
+            .collect();
 
         let policy = Policy::new(100_000);
         let selectors: [Box<dyn TemplateTransactionSelector>; 2] = [
@@ -317,7 +285,7 @@ mod tests {
                 assert!(total_mass <= policy.max_block_mass);
                 selected_txs.iter().take(reject_count).for_each(|x| {
                     total_mass -= masses[&x.id()];
-                    selector.reject_selection(x.id());
+                    selector.reject_selection(x.id().into());
                     kept.remove(&x.id()).then_some(()).expect("was just inserted");
                     rejected.insert(x.id()).then_some(()).expect("was just verified");
                 });
@@ -336,6 +304,15 @@ mod tests {
         let calculated_mass = transaction_estimated_serialized_size(&tx);
         let calculated_fee = DEFAULT_MINIMUM_RELAY_TRANSACTION_FEE;
 
-        CandidateTransaction { tx, calculated_fee, calculated_mass }
+        let cell_tx = Arc::new(legacy_tx_to_cell_tx(tx.as_ref()).expect("test transaction must be Cell-convertible"));
+        CandidateTransaction {
+            tx,
+            cell_tx,
+            calculated_fee,
+            calculated_mass,
+            cell_score_total: None,
+            cell_fee_density: None,
+            cell_deps_width: None,
+        }
     }
 }

@@ -1,10 +1,9 @@
-use rand::{rngs::SmallRng, seq::SliceRandom, Rng};
+use rand::{rngs::SmallRng, Rng};
 use spora_consensus_core::{
     block::Block,
     header::Header,
     subnets::SubnetworkId,
     tx::{ScriptPublicKey, ScriptVec, Transaction, TransactionInput, TransactionOutpoint, TransactionOutput},
-    // utxo::utxo_collection::UtxoCollection, // TODO(cell-model): Removed UTXO
 };
 use spora_hashes::{Hash, HASH_SIZE};
 
@@ -16,21 +15,8 @@ pub fn block_from_precomputed_hash(hash: Hash, parents: Vec<Hash>) -> Block {
     Block::from_precomputed_hash(hash, parents)
 }
 
-// TODO(cell-model): UTXO functions removed - use Cell model equivalents
-// pub fn generate_random_utxos_from_script_public_key_pool(
-//     rng: &mut SmallRng,
-//     amount: usize,
-//     script_public_key_pool: &[ScriptPublicKey],
-// ) -> UtxoCollection {
-//     let mut i = 0;
-//     let mut collection = UtxoCollection::with_capacity(amount);
-//     while i < amount {
-//         collection
-//             .insert(generate_random_outpoint(rng), generate_random_utxo_from_script_public_key_pool(rng, script_public_key_pool));
-//         i += 1;
-//     }
-//     collection
-// }
+// Legacy transaction-output helper functions have been removed.
+// Use Cell model equivalents from cell_diff::CellMeta instead.
 
 pub fn generate_random_hash(rng: &mut SmallRng) -> Hash {
     let random_bytes = rng.gen::<[u8; HASH_SIZE]>();
@@ -38,27 +24,8 @@ pub fn generate_random_hash(rng: &mut SmallRng) -> Hash {
 }
 
 pub fn generate_random_outpoint(rng: &mut SmallRng) -> TransactionOutpoint {
-    TransactionOutpoint::new(generate_random_hash(rng), rng.gen::<u32>())
+    TransactionOutpoint::new(generate_random_hash(rng).as_bytes(), rng.gen::<u32>())
 }
-
-// TODO(cell-model): UTXO functions removed - use Cell model equivalents
-// pub fn generate_random_utxo_from_script_public_key_pool(rng: &mut SmallRng, script_public_key_pool: &[ScriptPublicKey]) -> UtxoEntry {
-//     UtxoEntry::new(
-//         rng.gen_range(1..100_000), //we choose small amounts as to not overflow with large utxosets.
-//         script_public_key_pool.choose(rng).expect("expected_script_public key").clone(),
-//         rng.gen(),
-//         rng.gen_bool(0.5),
-//     )
-// }
-
-// pub fn generate_random_utxo(rng: &mut SmallRng) -> UtxoEntry {
-//     UtxoEntry::new(
-//         rng.gen_range(1..100_000), //we choose small amounts as to not overflow with large utxosets.
-//         generate_random_p2pk_script_public_key(rng),
-//         rng.gen(),
-//         rng.gen_bool(0.5),
-//     )
-// }
 
 ///Note: this generates schnorr p2pk script public keys.
 pub fn generate_random_p2pk_script_public_key(rng: &mut SmallRng) -> ScriptPublicKey {
@@ -86,7 +53,8 @@ pub fn generate_random_block(
     _input_amount: usize,
     _output_amount: usize,
 ) -> Block {
-    // TODO(cell-model): Replace with generate_random_cell_transactions
+    // Cell model: generate_random_block does not produce transactions.
+    // Block-level Cell transactions should be constructed using CellTx from spora_exec.
     Block::new(
         generate_random_header(rng, parent_amount),
         vec![], // Empty transactions for now
@@ -143,7 +111,7 @@ pub fn generate_random_transaction_inputs(rng: &mut SmallRng, amount: usize) -> 
 ///Note: generate_random_transactions is filled with random data, it does not represent consensus-valid  transaction output!
 pub fn generate_random_transaction_output(rng: &mut SmallRng) -> TransactionOutput {
     TransactionOutput::new(
-        rng.gen_range(1..100_000), //we choose small amounts as to not overflow with large utxosets.
+        rng.gen_range(1..100_000), // we choose small amounts so large cell sets do not overflow.
         generate_random_p2pk_script_public_key(rng),
     )
 }
@@ -155,7 +123,7 @@ pub fn generate_random_transaction_outputs(rng: &mut SmallRng, amount: usize) ->
 
 ///Note: generate_random_transactions is filled with random data, it does not represent consensus-valid  transaction output!
 pub fn generate_random_transaction_outpoint(rng: &mut SmallRng) -> TransactionOutpoint {
-    TransactionOutpoint::new(generate_random_hash(rng), rng.gen())
+    TransactionOutpoint::new(generate_random_hash(rng).as_bytes(), rng.gen())
 }
 
 //TODO: create `assert_eq_<spora-sturct>!()` helper macros in `consensus::test_helpers`

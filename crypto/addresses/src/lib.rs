@@ -18,9 +18,6 @@
 //! - **PubKey** (v0): Standard public key addresses
 //! - **PubKeyECDSA** (v1): ECDSA-compatible public key addresses
 //! - **ScriptHash** (v8): Pay-to-script-hash addresses
-//! - **Taproot** (v1): BIP341 Taproot addresses (starts with 't')
-//! - **CopperootMerkle** (v192): Copperoot Merkle tree addresses (starts with 'c')
-//! - **CopperootVerkle** (v96): Copperoot Verkle tree addresses (starts with 'v', disabled)
 //!
 //! ## Examples
 //!
@@ -39,14 +36,11 @@
 //!
 //! // Use convenience constructors
 //! let pubkey_addr = Address::new_pubkey(Prefix::Mainnet, &[0u8; 32]).expect("Valid address");
-//! let taproot_addr = Address::new_taproot(Prefix::Mainnet, &[0u8; 32]).expect("Valid address");
-//! let copperoot_addr = Address::new_copperoot_merkle(Prefix::Mainnet, &[0u8; 32]).expect("Valid address");
 //!
 //! // Get address information
 //! let info = address.info();
 //! println!("Address type: {}", info.version.type_name());
 //! println!("Network: {}", info.prefix.network_name());
-//! println!("Is Copperoot: {}", info.is_copperoot);
 //! ```
 //!
 //! ## Recent Improvements
@@ -90,13 +84,11 @@ pub enum AddressError {
     MissingPrefix,
 
     /// The address has an invalid version byte
-    #[error("Invalid address version {0}. Supported versions: 0 (PubKey), 1 (PubKeyECDSA), 8 (ScriptHash), 1 (Taproot), 192 (CopperootMerkle)")]
+    #[error("Invalid address version {0}. Supported versions: 0 (PubKey), 1 (PubKeyECDSA), 8 (ScriptHash)")]
     InvalidVersion(u8),
 
     /// The address has an invalid version string
-    #[error(
-        "Invalid version string '{0}'. Expected one of: PubKey, PubKeyECDSA, ScriptHash, Taproot, CopperootMerkle, CopperootVerkle"
-    )]
+    #[error("Invalid version string '{0}'. Expected one of: PubKey, PubKeyECDSA, ScriptHash")]
     InvalidVersionString(String),
 
     /// The address contains an invalid character in the encoded payload
@@ -161,24 +153,6 @@ impl Address {
     /// * `script_hash` - 32-byte script hash
     pub fn new_script_hash(prefix: Prefix, script_hash: &[u8; 32]) -> Result<Self, AddressError> {
         Self::new(prefix, Version::ScriptHash, script_hash)
-    }
-
-    /// Create a Taproot address
-    ///
-    /// # Arguments
-    /// * `prefix` - Network prefix
-    /// * `xonly_pubkey` - 32-byte x-only public key
-    pub fn new_taproot(prefix: Prefix, xonly_pubkey: &[u8; 32]) -> Result<Self, AddressError> {
-        Self::new(prefix, Version::Taproot, xonly_pubkey)
-    }
-
-    /// Create a Copperoot Merkle address
-    ///
-    /// # Arguments
-    /// * `prefix` - Network prefix
-    /// * `xonly_pubkey` - 32-byte x-only public key
-    pub fn new_copperoot_merkle(prefix: Prefix, xonly_pubkey: &[u8; 32]) -> Result<Self, AddressError> {
-        Self::new(prefix, Version::CopperootMerkle, xonly_pubkey)
     }
 
     /// Parse an address from a string with detailed error information
@@ -314,9 +288,6 @@ impl TryFrom<&str> for Prefix {
 /// - **PubKey** (v0): Standard 32-byte public key addresses
 /// - **PubKeyECDSA** (v1): ECDSA-compatible 33-byte public key addresses
 /// - **ScriptHash** (v8): Pay-to-script-hash addresses with 32-byte script hash
-/// - **Taproot** (v1): BIP341 Taproot addresses with 32-byte x-only public key (starts with 't')
-/// - **CopperootMerkle** (v192): Copperoot Merkle tree addresses with 32-byte key (starts with 'c')
-/// - **CopperootVerkle** (v96): Copperoot Verkle tree addresses (starts with 'v', currently disabled)
 ///
 /// @category Address
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Debug, Hash, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
@@ -333,18 +304,6 @@ pub enum Version {
     /// Pay-to-script-hash addresses (32 bytes)
     /// Version byte: 8 (0b00001_000)
     ScriptHash = 8,
-    /// BIP341 Taproot addresses (32 bytes)
-    /// Version byte: 88 (0b01011_000) - Bech32m encodes initial 5 bits '0b01011' as 't'
-    Taproot = 88,
-    /// Copperoot Merkle tree addresses (32 bytes)
-    /// Version byte: 192 (0b11000_000) - Bech32m encodes initial 5 bits '0b11000' as 'c'
-    /// Used for Pay-to-Copperoot-Merkle transactions
-    CopperootMerkle = 192,
-    /// Copperoot Verkle tree addresses (32 bytes)
-    /// Version byte: 96 (0b01100_000) - Bech32m encodes initial 5 bits '0b01100' as 'v'
-    /// Used for Pay-to-Copperoot-Verkle transactions
-    /// **Note**: Currently disabled for mainnet launch - reserved for future activation
-    CopperootVerkle = 96,
 }
 
 impl TryFrom<&str> for Version {
@@ -355,9 +314,6 @@ impl TryFrom<&str> for Version {
             "PubKey" => Ok(Version::PubKey),
             "PubKeyECDSA" => Ok(Version::PubKeyECDSA),
             "ScriptHash" => Ok(Version::ScriptHash),
-            "Taproot" => Ok(Version::Taproot),
-            "CopperootMerkle" => Ok(Version::CopperootMerkle),
-            "CopperootVerkle" => Ok(Version::CopperootVerkle),
             _ => Err(AddressError::InvalidVersionString(value.to_owned())),
         }
     }
@@ -371,9 +327,6 @@ impl Version {
             Version::PubKey => 32,
             Version::PubKeyECDSA => 33,
             Version::ScriptHash => 32,
-            Version::Taproot => 32,
-            Version::CopperootMerkle => 32,
-            Version::CopperootVerkle => 32,
         }
     }
 
@@ -388,19 +341,7 @@ impl Version {
     /// Check if this version is currently enabled for mainnet
     #[inline(always)]
     pub fn is_enabled(&self) -> bool {
-        !matches!(self, Version::CopperootVerkle)
-    }
-
-    /// Check if this is a Copperoot address version
-    #[inline(always)]
-    pub fn is_copperoot(&self) -> bool {
-        matches!(self, Version::CopperootMerkle | Version::CopperootVerkle)
-    }
-
-    /// Check if this is a Taproot-compatible address version
-    #[inline(always)]
-    pub fn is_taproot_compatible(&self) -> bool {
-        matches!(self, Version::Taproot | Version::CopperootMerkle | Version::CopperootVerkle)
+        true
     }
 
     /// Get the human-readable name of the address type
@@ -409,22 +350,12 @@ impl Version {
             Version::PubKey => "Public Key",
             Version::PubKeyECDSA => "Public Key (ECDSA)",
             Version::ScriptHash => "Script Hash",
-            Version::Taproot => "Taproot",
-            Version::CopperootMerkle => "Copperoot (Merkle)",
-            Version::CopperootVerkle => "Copperoot (Verkle)",
         }
     }
 
     /// Get all supported address versions
     pub fn all() -> &'static [Version] {
-        &[
-            Version::PubKey,
-            Version::PubKeyECDSA,
-            Version::ScriptHash,
-            Version::Taproot,
-            Version::CopperootMerkle,
-            // Note: CopperootVerkle is intentionally excluded as it's disabled
-        ]
+        &[Version::PubKey, Version::PubKeyECDSA, Version::ScriptHash]
     }
 }
 
@@ -436,9 +367,6 @@ impl TryFrom<u8> for Version {
             0 => Ok(Version::PubKey),
             1 => Ok(Version::PubKeyECDSA),
             8 => Ok(Version::ScriptHash),
-            88 => Ok(Version::Taproot),
-            192 => Ok(Version::CopperootMerkle),            // Address version for 'c' prefix
-            96 => Err(AddressError::InvalidVersion(value)), // CopperootVerkle disabled for mainnet launch
             _ => Err(AddressError::InvalidVersion(value)),
         }
     }
@@ -450,9 +378,6 @@ impl Display for Version {
             Version::PubKey => write!(f, "PubKey"),
             Version::PubKeyECDSA => write!(f, "PubKeyECDSA"),
             Version::ScriptHash => write!(f, "ScriptHash"),
-            Version::Taproot => write!(f, "Taproot"),
-            Version::CopperootMerkle => write!(f, "CopperootMerkle"),
-            Version::CopperootVerkle => write!(f, "CopperootVerkle"),
         }
     }
 }
@@ -477,10 +402,6 @@ pub struct AddressInfo {
     pub payload_len: usize,
     /// Whether this address version is currently enabled
     pub is_enabled: bool,
-    /// Whether this is a Copperoot address
-    pub is_copperoot: bool,
-    /// Whether this is Taproot-compatible
-    pub is_taproot_compatible: bool,
 }
 
 /// Spora [`Address`] struct that serializes to and from an address format string: `spora:qz0s...t8cv`.
@@ -542,30 +463,6 @@ impl Address {
         Self { prefix, payload: PayloadVec::from_slice(payload), version }
     }
 
-    /// Create a Copperoot Merkle address from an x-only public key
-    ///
-    /// This function creates a P2CR (Pay-to-Copperoot-Merkle) address with the provided
-    /// x-only public key as the payload. For MuSig2 aggregated keys, the aggregation
-    /// should be done externally and the result passed to this function.
-    ///
-    /// # Arguments
-    /// * `prefix` - Network prefix
-    /// * `xonly_pubkey` - 32-byte x-only public key
-    ///
-    /// # Errors
-    /// Returns `AddressError::InvalidAddress` if the public key is not exactly 32 bytes
-    ///
-    /// # Examples
-    /// ```rust
-    /// use spora_addresses::{Address, Prefix};
-    ///
-    /// let pubkey = [0u8; 32];
-    /// let address = Address::from_copperoot_xonly(Prefix::Mainnet, &pubkey).expect("Valid address");
-    /// ```
-    pub fn from_copperoot_xonly(prefix: Prefix, xonly_pubkey: &[u8; 32]) -> Result<Self, AddressError> {
-        Self::new(prefix, Version::CopperootMerkle, xonly_pubkey)
-    }
-
     /// Get the network prefix of this address
     #[inline(always)]
     pub fn prefix(&self) -> Prefix {
@@ -608,18 +505,6 @@ impl Address {
         self.version.is_enabled()
     }
 
-    /// Check if this is a Copperoot address
-    #[inline(always)]
-    pub fn is_copperoot(&self) -> bool {
-        self.version.is_copperoot()
-    }
-
-    /// Check if this is a Taproot-compatible address
-    #[inline(always)]
-    pub fn is_taproot_compatible(&self) -> bool {
-        self.version.is_taproot_compatible()
-    }
-
     /// Get a short representation of the address for display
     ///
     /// # Arguments
@@ -643,14 +528,7 @@ impl Address {
 
     /// Get detailed information about this address
     pub fn info(&self) -> AddressInfo {
-        AddressInfo {
-            prefix: self.prefix,
-            version: self.version,
-            payload_len: self.payload.len(),
-            is_enabled: self.is_enabled(),
-            is_copperoot: self.is_copperoot(),
-            is_taproot_compatible: self.is_taproot_compatible(),
-        }
+        AddressInfo { prefix: self.prefix, version: self.version, payload_len: self.payload.len(), is_enabled: self.is_enabled() }
     }
 }
 
@@ -732,18 +610,6 @@ impl Address {
         self.is_enabled()
     }
 
-    /// Check if this is a Copperoot address
-    #[wasm_bindgen(js_name = "isCopperoot")]
-    pub fn js_is_copperoot(&self) -> bool {
-        self.is_copperoot()
-    }
-
-    /// Check if this is a Taproot-compatible address
-    #[wasm_bindgen(js_name = "isTaprootCompatible")]
-    pub fn js_is_taproot_compatible(&self) -> bool {
-        self.is_taproot_compatible()
-    }
-
     /// Check if this is a mainnet address
     #[wasm_bindgen(js_name = "isMainnet")]
     pub fn js_is_mainnet(&self) -> bool {
@@ -759,8 +625,6 @@ impl Address {
         js_sys::Reflect::set(&obj, &"version".into(), &info.version.to_string().into()).unwrap();
         js_sys::Reflect::set(&obj, &"payloadLen".into(), &(info.payload_len as u32).into()).unwrap();
         js_sys::Reflect::set(&obj, &"isEnabled".into(), &info.is_enabled.into()).unwrap();
-        js_sys::Reflect::set(&obj, &"isCopperoot".into(), &info.is_copperoot.into()).unwrap();
-        js_sys::Reflect::set(&obj, &"isTaprootCompatible".into(), &info.is_taproot_compatible.into()).unwrap();
         obj
     }
 }
@@ -1059,11 +923,6 @@ impl TryFrom<AddressOrStringArrayT> for Vec<Address> {
 mod tests {
     use super::*;
 
-    const XPUB: [u8; 32] = [
-        250, 47, 231, 218, 228, 80, 238, 252, 181, 104, 195, 80, 125, 159, 185, 89, 105, 53, 183, 246, 228, 22, 42, 247, 205, 84, 163,
-        10, 80, 28, 14, 182,
-    ];
-
     #[test]
     fn address_roundtrip() {
         use Prefix::*;
@@ -1093,90 +952,6 @@ mod tests {
     }
 
     #[test]
-    fn test_taproot_address() {
-        use Prefix::*;
-        use Version::*;
-        let address = Address::new(Mainnet, Taproot, &XPUB).expect("Valid address");
-        let encoded = String::from(&address);
-        assert_eq!(encoded, "spora:trazle76u3gwal94drp4qlvlh9vkjddh7mjpv2hhe422xzjsrs8tvca30pn");
-        let decoded: Address = encoded.parse().expect("Address decode failed");
-        assert_eq!(address, decoded);
-    }
-
-    #[test]
-    fn test_copperoot_merkle_address_prefix() {
-        use Prefix::*;
-        use Version::*;
-
-        // Test that CopperootMerkle addresses start with 'c' after the prefix
-        let address = Address::new(Mainnet, CopperootMerkle, &XPUB).expect("Valid address");
-        let encoded = String::from(&address);
-
-        // Verify the address after "spora:" starts with 'c'
-        let after_prefix = encoded.strip_prefix("spora:").expect("Should have spora: prefix");
-        assert!(after_prefix.starts_with('c'), "CopperootMerkle address should start with 'c', got: {}", after_prefix);
-
-        // Test round-trip encoding/decoding
-        let decoded: Address = encoded.parse().expect("Failed to decode CopperootMerkle address");
-        assert_eq!(decoded.version, CopperootMerkle);
-        assert_eq!(decoded.payload.as_slice(), &XPUB);
-        assert_eq!(decoded.prefix, Mainnet);
-    }
-
-    #[test]
-    fn test_copperoot_verkle_disabled() {
-        use Prefix::*;
-        use Version::*;
-
-        // CopperootVerkle (version 96) should be rejected during decoding
-        let address = Address::new_unchecked(Mainnet, CopperootVerkle, &XPUB);
-        let encoded = String::from(&address);
-
-        // Decoding should fail because version 96 is disabled
-        let result: Result<Address, _> = encoded.parse();
-        assert!(result.is_err(), "CopperootVerkle addresses should be rejected");
-        assert!(matches!(result, Err(AddressError::InvalidVersion(96))));
-    }
-
-    #[test]
-    fn test_copperoot_real_key_generation() {
-        use secp256k1::{Secp256k1, SecretKey};
-        use Prefix::*;
-        use Version::*;
-
-        let secp = Secp256k1::new();
-        let secret_key = SecretKey::from_slice(&[
-            0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xa, 0xb, 0xc, 0xd, 0xe, 0xf, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
-            0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x20,
-        ])
-        .expect("Valid secret key");
-
-        let public_key = secp256k1::PublicKey::from_secret_key(&secp, &secret_key);
-        let xonly_pubkey = public_key.x_only_public_key().0;
-
-        // Create CopperootMerkle address
-        let address = Address::new(Mainnet, CopperootMerkle, &xonly_pubkey.serialize()).expect("Valid address");
-        let encoded = address.to_string();
-
-        // Verify address starts with 'c' after the network prefix
-        let after_prefix = encoded.strip_prefix("spora:").expect("Should have spora: prefix");
-        assert!(after_prefix.starts_with('c'), "Real CopperootMerkle address should start with 'c', got: {}", after_prefix);
-
-        // Verify round-trip
-        let decoded: Address = encoded.parse().expect("Failed to decode");
-        assert_eq!(decoded.version, CopperootMerkle);
-        assert_eq!(decoded.payload.as_slice(), &xonly_pubkey.serialize());
-
-        // Test different networks all use 'c' prefix
-        for prefix in [Testnet, Simnet, Devnet] {
-            let addr = Address::new(prefix, CopperootMerkle, &xonly_pubkey.serialize()).expect("Valid address");
-            let enc = addr.to_string();
-            let after_net_prefix = enc.split(':').nth(1).expect("Should have network prefix");
-            assert!(after_net_prefix.starts_with('c'), "Network {:?} should also start with 'c', got: {}", prefix, after_net_prefix);
-        }
-    }
-
-    #[test]
     fn test_address_convenience_constructors() {
         use Prefix::*;
 
@@ -1192,12 +967,6 @@ mod tests {
 
         let script_addr = Address::new_script_hash(Mainnet, &payload32).expect("Valid script hash address");
         assert_eq!(script_addr.version(), Version::ScriptHash);
-
-        let taproot_addr = Address::new_taproot(Mainnet, &payload32).expect("Valid taproot address");
-        assert_eq!(taproot_addr.version(), Version::Taproot);
-
-        let copperoot_addr = Address::new_copperoot_merkle(Mainnet, &payload32).expect("Valid copperoot address");
-        assert_eq!(copperoot_addr.version(), Version::CopperootMerkle);
     }
 
     #[test]
@@ -1205,21 +974,17 @@ mod tests {
         use Prefix::*;
 
         let payload = [0u8; 32];
-        let address = Address::new(Mainnet, Version::CopperootMerkle, &payload).expect("Valid address");
+        let address = Address::new(Mainnet, Version::PubKey, &payload).expect("Valid address");
 
         // Test info method
         let info = address.info();
         assert_eq!(info.prefix, Mainnet);
-        assert_eq!(info.version, Version::CopperootMerkle);
+        assert_eq!(info.version, Version::PubKey);
         assert_eq!(info.payload_len, 32);
         assert!(info.is_enabled);
-        assert!(info.is_copperoot);
-        assert!(info.is_taproot_compatible);
 
         // Test convenience methods
         assert!(address.is_enabled());
-        assert!(address.is_copperoot());
-        assert!(address.is_taproot_compatible());
         assert!(address.is_mainnet());
         assert!(!address.is_test_network());
 
@@ -1262,14 +1027,11 @@ mod tests {
 
         // Test Version methods
         assert!(Version::PubKey.is_enabled());
-        assert!(!Version::CopperootVerkle.is_enabled());
-        assert!(Version::CopperootMerkle.is_copperoot());
-        assert!(Version::Taproot.is_taproot_compatible());
         assert_eq!(Version::PubKey.type_name(), "Public Key");
 
         let all_versions = Version::all();
         assert!(all_versions.contains(&Version::PubKey));
-        assert!(!all_versions.contains(&Version::CopperootVerkle)); // Disabled
+        assert!(all_versions.contains(&Version::ScriptHash));
     }
 
     #[test]
@@ -1280,23 +1042,13 @@ mod tests {
         // Test that version bytes encode to expected first characters
         let test_key = [0u8; 32];
 
-        // Taproot = 1 = 0b00001_000 -> first 5 bits = 0b00001 = 1 -> 't' in bech32
-        let taproot = Address::new(Mainnet, Taproot, &test_key).expect("Valid address");
-        let taproot_enc = taproot.to_string();
-        let taproot_data = taproot_enc.strip_prefix("spora:").unwrap();
-        assert!(taproot_data.starts_with('t'), "Taproot should start with 't', got: {}", taproot_data);
+        let pubkey = Address::new(Mainnet, PubKey, &test_key).expect("Valid address");
+        let pubkey_data = pubkey.to_string();
+        assert!(!pubkey_data.strip_prefix("spora:").unwrap().is_empty());
 
-        // CopperootMerkle = 192 = 0b11000_000 -> first 5 bits = 0b11000 = 24 -> 'c' in bech32
-        let copperoot = Address::new(Mainnet, CopperootMerkle, &test_key).expect("Valid address");
-        let copperoot_enc = copperoot.to_string();
-        let copperoot_data = copperoot_enc.strip_prefix("spora:").unwrap();
-        assert!(copperoot_data.starts_with('c'), "CopperootMerkle should start with 'c', got: {}", copperoot_data);
-
-        // CopperootVerkle = 96 = 0b01100_000 -> first 5 bits = 0b01100 = 12 -> 'v' in bech32
-        let copperoot_verkle = Address::new_unchecked(Mainnet, CopperootVerkle, &test_key);
-        let copperoot_verkle_enc = copperoot_verkle.to_string();
-        let copperoot_verkle_data = copperoot_verkle_enc.strip_prefix("spora:").unwrap();
-        assert!(copperoot_verkle_data.starts_with('v'), "CopperootVerkle should start with 'v', got: {}", copperoot_verkle_data);
+        let script_hash = Address::new(Mainnet, ScriptHash, &test_key).expect("Valid address");
+        let script_hash_data = script_hash.to_string();
+        assert!(!script_hash_data.strip_prefix("spora:").unwrap().is_empty());
     }
 
     #[test]

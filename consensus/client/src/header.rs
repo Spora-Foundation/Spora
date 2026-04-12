@@ -29,7 +29,7 @@ export interface IHeader {
     parentsByLevel: Array<Array<HexString>>;
     hashMerkleRoot: HexString;
     acceptedIdMerkleRoot: HexString;
-    utxoCommitment: HexString;
+    cellCommitment: HexString;
     timestamp: bigint;
     bits: number;
     nonce: bigint;
@@ -52,7 +52,7 @@ export interface IRawHeader {
     parentsByLevel: Array<Array<HexString>>;
     hashMerkleRoot: HexString;
     acceptedIdMerkleRoot: HexString;
-    utxoCommitment: HexString;
+    cellCommitment: HexString;
     timestamp: bigint;
     bits: number;
     nonce: bigint;
@@ -205,14 +205,14 @@ impl Header {
         self.inner_mut().accepted_id_merkle_root = Hash::from_slice(&js_value.try_as_vec_u8().expect("accepted id merkle root"));
     }
 
-    #[wasm_bindgen(getter = utxoCommitment)]
-    pub fn get_utxo_commitment_as_hex(&self) -> String {
+    #[wasm_bindgen(getter = cellCommitment)]
+    pub fn get_cell_commitment_as_hex(&self) -> String {
         self.inner().cell_commitment.to_hex()
     }
 
-    #[wasm_bindgen(setter = utxoCommitment)]
-    pub fn set_utxo_commitment_from_js_value(&mut self, js_value: JsValue) {
-        self.inner_mut().cell_commitment = Hash::from_slice(&js_value.try_as_vec_u8().expect("utxo commitment"));
+    #[wasm_bindgen(setter = cellCommitment)]
+    pub fn set_cell_commitment_from_js_value(&mut self, js_value: JsValue) {
+        self.inner_mut().cell_commitment = Hash::from_slice(&js_value.try_as_vec_u8().expect("cell commitment"));
     }
 
     #[wasm_bindgen(getter = pruningPoint)]
@@ -297,9 +297,9 @@ impl TryCastFromJs for Header {
                         .try_into_owned()
                         .map_err(|err| Error::convert("acceptedIdMerkleRoot", err))?,
                     cell_commitment: object
-                        .get_value("utxoCommitment")?
+                        .get_value("cellCommitment")?
                         .try_into_owned()
-                        .map_err(|err| Error::convert("utxoCommitment", err))?,
+                        .map_err(|err| Error::convert("cellCommitment", err))?,
                     cell_root: object.get_value("cellRoot").ok().and_then(|v| v.try_into_owned().ok()).unwrap_or_default(), // Default to zero hash if not present (backward compatibility)
                     nonce: object.get_u64("nonce")?,
                     timestamp: object.get_u64("timestamp")?,

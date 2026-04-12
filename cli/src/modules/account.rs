@@ -131,7 +131,7 @@ impl Account {
                                                 sau_to_spora_string(balance)
                                             );
                                         } else {
-                                            tprintln!(ctx_, "Please wait... scanning for account UTXOs...");
+                                            tprintln!(ctx_, "Please wait... scanning for account cells...");
                                         }
                                     })),
                                 )

@@ -24,6 +24,42 @@ macro_rules! try_from {
     };
 }
 
+fn parse_account_create_args(args: &Object) -> Result<AccountCreateArgs> {
+    let kind = AccountKind::try_from(args.try_get_value("type")?.ok_or(Error::custom("type is required"))?)?;
+
+    match kind.as_ref() {
+        crate::account::BIP32_ACCOUNT_KIND => {
+            let prv_key_data_args = PrvKeyDataArgs {
+                prv_key_data_id: args.try_get_prv_key_data_id("prvKeyDataId")?.ok_or(Error::custom("prvKeyDataId is required"))?,
+                payment_secret: args.try_get_secret("paymentSecret")?,
+            };
+            let account_args = AccountCreateArgsBip32 {
+                account_name: args.try_get_string("accountName")?,
+                account_index: args.get_u64("accountIndex").ok(),
+            };
+
+            Ok(AccountCreateArgs::Bip32 { prv_key_data_args, account_args })
+        }
+        crate::account::KEYPAIR_ACCOUNT_KIND => Ok(AccountCreateArgs::Keypair {
+            prv_key_data_id: args.try_get_prv_key_data_id("prvKeyDataId")?.ok_or(Error::custom("prvKeyDataId is required"))?,
+            account_name: args.try_get_string("accountName")?,
+            ecdsa: args.try_get_bool("ecdsa")?.unwrap_or(false),
+        }),
+        crate::account::BIP32_WATCH_ACCOUNT_KIND => {
+            let xpub_keys = args
+                .get_vec("xpubKeys")?
+                .into_iter()
+                .map(|value| value.as_string().ok_or(Error::custom("xpubKeys must contain strings")))
+                .collect::<Result<Vec<_>>>()?;
+
+            Ok(AccountCreateArgs::Bip32Watch {
+                account_args: AccountCreateArgsBip32Watch { account_name: args.try_get_string("accountName")?, xpub_keys },
+            })
+        }
+        _ => Err(Error::custom("only BIP32, Keypair and Bip32Watch accounts are currently supported")),
+    }
+}
+
 #[wasm_bindgen(typescript_custom_section)]
 const TS_CATEGORY_WALLET: &'static str = r#"
 /**
@@ -862,16 +898,13 @@ declare! {
      * @category Wallet API
      */
     export interface IPrvKeyDataGetResponse {
-        // prvKeyData: PrvKeyData,
+        prvKeyData?: unknown;
     }
     "#,
 }
 
-// TODO
-try_from! ( _args: PrvKeyDataGetResponse, IPrvKeyDataGetResponse, {
-    todo!();
-    // let response = IPrvKeyDataGetResponse::default();
-    // Ok(response)
+try_from! ( args: PrvKeyDataGetResponse, IPrvKeyDataGetResponse, {
+    Ok(to_value(&args)?.into())
 });
 
 // ---
@@ -1058,25 +1091,7 @@ declare! {
 
 try_from! (args: IAccountsCreateRequest, AccountsCreateRequest, {
     let wallet_secret = args.get_secret("walletSecret")?;
-
-    let kind = AccountKind::try_from(args.try_get_value("type")?.ok_or(Error::custom("type is required"))?)?;
-
-    if kind != crate::account::BIP32_ACCOUNT_KIND {
-        return Err(Error::custom("only BIP32 accounts are currently supported"));
-    }
-
-    let prv_key_data_args = PrvKeyDataArgs {
-        prv_key_data_id: args.try_get_prv_key_data_id("prvKeyDataId")?.ok_or(Error::custom("prvKeyDataId is required"))?,
-        payment_secret: args.try_get_secret("paymentSecret")?,
-    };
-
-    let account_args = AccountCreateArgsBip32 {
-        account_name: args.try_get_string("accountName")?,
-        account_index: args.get_u64("accountIndex").ok(),
-    };
-
-    let account_create_args = AccountCreateArgs::Bip32 { prv_key_data_args, account_args };
-
+    let account_create_args = parse_account_create_args(&args)?;
     Ok(AccountsCreateRequest { wallet_secret, account_create_args })
 });
 
@@ -1158,16 +1173,35 @@ declare! {
      *  
      * @category Wallet API
      */
-    export interface IAccountsImportRequest {
+    export type IAccountsImportRequest =
+      {
         walletSecret: string;
-        // TODO
-    }
+        type: "bip32";
+        accountName?: string;
+        accountIndex?: number;
+        prvKeyDataId: string;
+        paymentSecret?: string;
+      }
+      | {
+        walletSecret: string;
+        type: "keypair";
+        accountName?: string;
+        prvKeyDataId: string;
+        ecdsa?: boolean;
+      }
+      | {
+        walletSecret: string;
+        type: "bip32watch";
+        accountName?: string;
+        xpubKeys: string[];
+      };
     "#,
 }
 
-try_from! ( _args: IAccountsImportRequest, AccountsImportRequest, {
-    unimplemented!();
-    // Ok(AccountsImportRequest { })
+try_from! ( args: IAccountsImportRequest, AccountsImportRequest, {
+    let wallet_secret = args.get_secret("walletSecret")?;
+    let account_create_args = parse_account_create_args(&args)?;
+    Ok(AccountsImportRequest { wallet_secret, account_create_args })
 });
 
 declare! {
@@ -1179,15 +1213,15 @@ declare! {
      * @category Wallet API
      */
     export interface IAccountsImportResponse {
-        // TODO
+        accountDescriptor : IAccountDescriptor;
     }
     "#,
 }
 
-try_from! ( _args: AccountsImportResponse, IAccountsImportResponse, {
-    unimplemented!();
-    // let response = IAccountsImportResponse::default();
-    // Ok(response)
+try_from! ( args: AccountsImportResponse, IAccountsImportResponse, {
+    let response = IAccountsImportResponse::default();
+    response.set("accountDescriptor", &IAccountDescriptor::try_from(args.account_descriptor)?.into())?;
+    Ok(response)
 });
 
 // ---
@@ -1382,7 +1416,7 @@ declare! {
          */
         payload: Some(payload)? : Uint8Array | HexString;
         /**
-         * If not supplied, the destination will be the change address resulting in a UTXO compound transaction.
+         * If not supplied, the destination will be the change address resulting in a compound cell transaction.
          */
         destination? : IPaymentOutput[];
     }
@@ -1765,26 +1799,42 @@ declare! {
      * @category Wallet API
      */
     export interface IAddressBookEnumerateResponse {
-        // TODO
+        entries: IAddressBookEntry[];
     }
     "#,
 }
 
-try_from! ( _args: AddressBookEnumerateResponse, IAddressBookEnumerateResponse, {
-    Err(Error::NotImplemented)
+declare! {
+    IAddressBookEntry,
+    r#"
+    /**
+     * Address book entry.
+     *
+     * @category Wallet API
+     */
+    export interface IAddressBookEntry {
+        alias: string;
+        title: string;
+        address: string;
+    }
+    "#,
+}
+
+try_from! ( args: AddressBookEnumerateResponse, IAddressBookEnumerateResponse, {
+    Ok(to_value(&args)?.into())
 });
 
 // ---
 
 declare! {
-    IAccountsPstbSignRequest,
+    IAccountsPssbSignRequest,
     r#"
     /**
      * 
      *  
      * @category Wallet API
      */
-    export interface IAccountsPstbSignRequest {
+    export interface IAccountsPssbSignRequest {
         /**
          * Hex identifier of the account.
          */
@@ -1799,9 +1849,9 @@ declare! {
         paymentSecret? : string;
 
         /**
-         * PSTB to sign.
+         * PSSB to sign.
          */
-        pstb : string;
+        pssb : string;
 
         /**
          * Address to sign for.
@@ -1811,84 +1861,84 @@ declare! {
     "#,
 }
 
-try_from! ( args: IAccountsPstbSignRequest, AccountsPstbSignRequest, {
+try_from! ( args: IAccountsPssbSignRequest, AccountsPssbSignRequest, {
     let account_id = args.get_account_id("accountId")?;
     let wallet_secret = args.get_secret("walletSecret")?;
     let payment_secret = args.try_get_secret("paymentSecret")?;
-    let pstb = args.get_string("pstb")?;
+    let pssb = args.get_string("pssb")?;
     let sign_for_address = match args.try_get_value("signForAddress")? {
         Some(v) => Some(Address::try_cast_from(&v)?.into_owned()),
         None => None,
     };
-    Ok(AccountsPstbSignRequest { account_id, wallet_secret, payment_secret, pstb, sign_for_address })
+    Ok(AccountsPssbSignRequest { account_id, wallet_secret, payment_secret, pssb, sign_for_address })
 });
 
 declare! {
-    IAccountsPstbSignResponse,
+    IAccountsPssbSignResponse,
     r#"
     /**
      * 
      *  
      * @category Wallet API
      */
-    export interface IAccountsPstbSignResponse {
-        pstb : string;
+    export interface IAccountsPssbSignResponse {
+        pssb : string;
     }
     "#,
 }
 
-try_from!(args: AccountsPstbSignResponse, IAccountsPstbSignResponse, {
+try_from!(args: AccountsPssbSignResponse, IAccountsPssbSignResponse, {
     Ok(to_value(&args)?.into())
 });
 
 declare! {
-    IAccountsPstbBroadcastRequest,
+    IAccountsPssbBroadcastRequest,
     r#"
     /**
      * 
      *  
      * @category Wallet API
      */
-    export interface IAccountsPstbBroadcastRequest {
+    export interface IAccountsPssbBroadcastRequest {
         accountId : HexString;
-        pstb : string;
+        pssb : string;
     }
     "#,
 }
 
-try_from! ( args: IAccountsPstbBroadcastRequest, AccountsPstbBroadcastRequest, {
+try_from! ( args: IAccountsPssbBroadcastRequest, AccountsPssbBroadcastRequest, {
     let account_id = args.get_account_id("accountId")?;
-    let pstb = args.get_string("pstb")?;
-    Ok(AccountsPstbBroadcastRequest { account_id, pstb })
+    let pssb = args.get_string("pssb")?;
+    Ok(AccountsPssbBroadcastRequest { account_id, pssb })
 });
 
 declare! {
-    IAccountsPstbBroadcastResponse,
+    IAccountsPssbBroadcastResponse,
     r#"
     /**
      * 
      *  
      * @category Wallet API
      */
-    export interface IAccountsPstbBroadcastResponse {
+    export interface IAccountsPssbBroadcastResponse {
         transactionIds : HexString[];
     }
     "#,
 }
 
-try_from! ( args: AccountsPstbBroadcastResponse, IAccountsPstbBroadcastResponse, {
+try_from! ( args: AccountsPssbBroadcastResponse, IAccountsPssbBroadcastResponse, {
     Ok(to_value(&args)?.into())
 });
 
 declare! {
-    IAccountsPstbSendRequest,
+    IAccountsPssbSendRequest,
     r#"
     /**
      * 
      *  
      * @category Wallet API
      */
-    export interface IAccountsPstbSendRequest {
+    export interface IAccountsPssbSendRequest {
         /**
          * Hex identifier of the account.
          */
@@ -1903,9 +1953,9 @@ declare! {
         paymentSecret? : string;
 
         /**
-         * PSTB to sign.
+         * PSSB to sign.
          */
-        pstb : string;
+        pssb : string;
 
         /**
          * Address to sign for.
@@ -1915,45 +1965,45 @@ declare! {
     "#,
 }
 
-try_from! ( args: IAccountsPstbSendRequest, AccountsPstbSendRequest, {
+try_from! ( args: IAccountsPssbSendRequest, AccountsPssbSendRequest, {
     let account_id = args.get_account_id("accountId")?;
     let wallet_secret = args.get_secret("walletSecret")?;
     let payment_secret = args.try_get_secret("paymentSecret")?;
-    let pstb = args.get_string("pstb")?;
+    let pssb = args.get_string("pssb")?;
     let sign_for_address = match args.try_get_value("signForAddress")? {
         Some(v) => Some(Address::try_cast_from(&v)?.into_owned()),
         None => None,
     };
-    Ok(AccountsPstbSendRequest { account_id, wallet_secret, payment_secret, pstb, sign_for_address })
+    Ok(AccountsPssbSendRequest { account_id, wallet_secret, payment_secret, pssb, sign_for_address })
 });
 
 declare! {
-    IAccountsPstbSendResponse,
+    IAccountsPssbSendResponse,
     r#"
     /**
      * 
      *  
      * @category Wallet API
      */
-    export interface IAccountsPstbSendResponse {
+    export interface IAccountsPssbSendResponse {
         transactionIds : HexString[];
     }
     "#,
 }
 
-try_from! ( args: AccountsPstbSendResponse, IAccountsPstbSendResponse, {
+try_from! ( args: AccountsPssbSendResponse, IAccountsPssbSendResponse, {
     Ok(to_value(&args)?.into())
 });
 
 declare! {
-    IAccountsGetUtxosRequest,
+    IAccountsGetCellsRequest,
     r#"
     /**
      * 
      *  
      * @category Wallet API
      */
-    export interface IAccountsGetUtxosRequest {
+    export interface IAccountsGetCellsRequest {
         accountId : HexString;
         addresses : Address[] | string[];
         minAmountSau? : bigint;
@@ -1961,32 +2011,32 @@ declare! {
     "#,
 }
 
-try_from! ( args: IAccountsGetUtxosRequest, AccountsGetUtxosRequest, {
+try_from! ( args: IAccountsGetCellsRequest, AccountsGetCellsRequest, {
     let account_id = args.get_account_id("accountId")?;
     let addresses = args.try_get_addresses("addresses")?;
     let min_amount_sau = args.get_u64("minAmountSau").ok();
-    Ok(AccountsGetUtxosRequest { account_id, addresses, min_amount_sau })
+    Ok(AccountsGetCellsRequest { account_id, addresses, min_amount_sau })
 });
 
 declare! {
-    IAccountsGetUtxosResponse,
+    IAccountsGetCellsResponse,
     r#"
     /**
      * 
      *  
      * @category Wallet API
      */
-    export interface IAccountsGetUtxosResponse {
-        utxos : UtxoEntry[];
+    export interface IAccountsGetCellsResponse {
+        cells : CellEntry[];
     }
     "#,
 }
 
-try_from! ( args: AccountsGetUtxosResponse, IAccountsGetUtxosResponse, {
-    let response = IAccountsGetUtxosResponse::default();
-    let utxos = args.utxos.into_iter().map(|entry| entry.to_js_object()).collect::<Result<Vec<js_sys::Object>>>()?;
-    let utxos = js_sys::Array::from_iter(utxos.into_iter());
-    response.set("utxos", &utxos)?;
+try_from! ( args: AccountsGetCellsResponse, IAccountsGetCellsResponse, {
+    let response = IAccountsGetCellsResponse::default();
+    let cells = args.cells.into_iter().map(|entry| entry.to_js_object()).collect::<Result<Vec<js_sys::Object>>>()?;
+    let cells = js_sys::Array::from_iter(cells.into_iter());
+    response.set("cells", &cells)?;
     Ok(response)
 });
 

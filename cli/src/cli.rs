@@ -304,9 +304,9 @@ impl SporaCli {
                                 }
                                 Events::FeeRate { .. } => {},
                                 Events::Error { message } => { terrorln!(this,"{message}"); },
-                                Events::UtxoProcStart => {},
-                                Events::UtxoProcStop => {},
-                                Events::UtxoProcError { message } => {
+                                Events::CellProcStart => {},
+                                Events::CellProcStop => {},
+                                Events::CellProcError { message } => {
                                     terrorln!(this,"{message}");
                                 },
                                 #[allow(unused_variables)]
@@ -318,8 +318,8 @@ impl SporaCli {
                                     tprintln!(this, "Disconnected from {}",url.unwrap_or("N/A".to_string()));
                                     this.term().refresh_prompt();
                                 },
-                                Events::UtxoIndexNotEnabled { .. } => {
-                                    tprintln!(this, "Error: Spora node UTXO index is not enabled...")
+                                Events::CellIndexNotEnabled { .. } => {
+                                    tprintln!(this, "Error: Spora node cell index is not enabled...")
                                 },
                                 Events::SyncState { sync_state } => {
 
@@ -401,8 +401,8 @@ impl SporaCli {
                                         let guard = this.wallet.guard();
                                         let guard = guard.lock().await;
 
-                                        let include_utxos = this.flags.get(Track::Utxo);
-                                        let tx = record.format_transaction_with_state(&this.wallet,Some("reorg"),include_utxos, &guard).await;
+                                        let include_cells = this.flags.get(Track::Cell);
+                                        let tx = record.format_transaction_with_state(&this.wallet,Some("reorg"),include_cells, &guard).await;
                                         tx.iter().for_each(|line|tprintln!(this,"{NOTIFY} {line}"));
                                     }
                                 },
@@ -414,20 +414,11 @@ impl SporaCli {
                                         let guard = this.wallet.guard();
                                         let guard = guard.lock().await;
 
-                                        let include_utxos = this.flags.get(Track::Utxo);
-                                        let tx = record.format_transaction_with_state(&this.wallet,Some("stasis"),include_utxos, &guard).await;
+                                        let include_cells = this.flags.get(Track::Cell);
+                                        let tx = record.format_transaction_with_state(&this.wallet,Some("stasis"),include_cells, &guard).await;
                                         tx.iter().for_each(|line|tprintln!(this,"{NOTIFY} {line}"));
                                     }
                                 },
-                                // Events::External {
-                                //     record
-                                // } => {
-                                //     if !this.is_mutted() || (this.is_mutted() && this.flags.get(Track::Tx)) {
-                                //         let include_utxos = this.flags.get(Track::Utxo);
-                                //         let tx = record.format_with_state(&this.wallet,Some("external"),include_utxos).await;
-                                //         tx.iter().for_each(|line|tprintln!(this,"{NOTIFY} {line}"));
-                                //     }
-                                // },
                                 Events::Pending {
                                     record
                                 } => {
@@ -435,8 +426,8 @@ impl SporaCli {
                                         let guard = this.wallet.guard();
                                         let guard = guard.lock().await;
 
-                                        let include_utxos = this.flags.get(Track::Utxo);
-                                        let tx = record.format_transaction_with_state(&this.wallet,Some("pending"),include_utxos, &guard).await;
+                                        let include_cells = this.flags.get(Track::Cell);
+                                        let tx = record.format_transaction_with_state(&this.wallet,Some("pending"),include_cells, &guard).await;
                                         tx.iter().for_each(|line|tprintln!(this,"{NOTIFY} {line}"));
                                     }
                                 },
@@ -447,29 +438,11 @@ impl SporaCli {
                                         let guard = this.wallet.guard();
                                         let guard = guard.lock().await;
 
-                                        let include_utxos = this.flags.get(Track::Utxo);
-                                        let tx = record.format_transaction_with_state(&this.wallet,Some("confirmed"),include_utxos, &guard).await;
+                                        let include_cells = this.flags.get(Track::Cell);
+                                        let tx = record.format_transaction_with_state(&this.wallet,Some("confirmed"),include_cells, &guard).await;
                                         tx.iter().for_each(|line|tprintln!(this,"{NOTIFY} {line}"));
                                     }
                                 },
-                                // Events::Outgoing {
-                                //     record
-                                // } => {
-                                //     if !this.is_mutted() || (this.is_mutted() && this.flags.get(Track::Tx)) {
-                                //         let include_utxos = this.flags.get(Track::Utxo);
-                                //         let tx = record.format_with_state(&this.wallet,Some("confirmed"),include_utxos).await;
-                                //         tx.iter().for_each(|line|tprintln!(this,"{NOTIFY} {line}"));
-                                //     }
-                                // },
-                                // Events::Change {
-                                //     record
-                                // } => {
-                                //     if !this.is_mutted() || (this.is_mutted() && this.flags.get(Track::Tx)) {
-                                //         let include_utxos = this.flags.get(Track::Utxo);
-                                //         let tx = record.format_with_state(&this.wallet,Some("change"),include_utxos).await;
-                                //         tx.iter().for_each(|line|tprintln!(this,"{NOTIFY} {line}"));
-                                //     }
-                                // },
                                 Events::Balance {
                                     balance,
                                     id,
@@ -481,15 +454,15 @@ impl SporaCli {
                                         let balance_strings = BalanceStrings::from((balance.as_ref(),&network_type, None));
                                         let id = id.short();
 
-                                        let mature_utxo_count = balance.as_ref().map(|balance|balance.mature_utxo_count.separated_string()).unwrap_or("N/A".to_string());
-                                        let pending_utxo_count = balance.as_ref().map(|balance|balance.pending_utxo_count).unwrap_or(0);
+                                        let mature_cell_count = balance.as_ref().map(|balance|balance.mature_cell_count.separated_string()).unwrap_or("N/A".to_string());
+                                        let pending_cell_count = balance.as_ref().map(|balance|balance.pending_cell_count).unwrap_or(0);
 
-                                        let pending_utxo_info = if pending_utxo_count > 0 {
-                                            format!("({} pending)", pending_utxo_count)
+                                        let pending_cell_info = if pending_cell_count > 0 {
+                                            format!("({} pending)", pending_cell_count)
                                         } else { "".to_string() };
-                                        let utxo_info = style(format!("{mature_utxo_count} UTXOs {pending_utxo_info}")).dim();
+                                        let cell_info = style(format!("{mature_cell_count} cells {pending_cell_info}")).dim();
 
-                                        tprintln!(this, "{NOTIFY} {} {id}: {balance_strings}   {utxo_info}",style("balance".pad_to_width(8)).blue());
+                                        tprintln!(this, "{NOTIFY} {} {id}: {balance_strings}   {cell_info}",style("balance".pad_to_width(8)).blue());
                                     }
 
                                     this.term().refresh_prompt();
@@ -794,10 +767,10 @@ impl SporaCli {
                         .join(" "),
                     )
                 }
-                SyncState::UtxoSync { total, .. } => {
-                    Some([style("SYNC UTXO").red().to_string(), style(total.separated_string()).dim().to_string()].join(" "))
+                SyncState::CellSync { total, .. } => {
+                    Some([style("SYNC CELL").red().to_string(), style(total.separated_string()).dim().to_string()].join(" "))
                 }
-                SyncState::UtxoResync => Some([style("SYNC").red().to_string(), style("UTXO").black().to_string()].join(" ")),
+                SyncState::CellResync => Some([style("SYNC").red().to_string(), style("CELL").black().to_string()].join(" ")),
                 SyncState::NotSynced => Some([style("SYNC").red().to_string(), style("...").black().to_string()].join(" ")),
                 SyncState::Synced => None,
             }

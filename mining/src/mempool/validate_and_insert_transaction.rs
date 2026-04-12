@@ -1,5 +1,6 @@
-use std::sync::atomic::Ordering;
+use std::sync::{atomic::Ordering, Arc};
 
+use crate::cell_conversion::cell_output_to_metadata;
 use crate::mempool::{
     errors::{RuleError, RuleResult},
     model::{
@@ -11,10 +12,14 @@ use crate::mempool::{
 };
 use spora_consensus_core::{
     api::ConsensusApi,
-    constants::UNACCEPTED_DAA_SCORE,
-    tx::{MutableTransaction, Transaction, TransactionId, TransactionOutpoint, UtxoEntry},
+    tx::{legacy_compat_transaction_from_cell_tx, CellTx, MutableTransaction, TransactionId, TransactionOutpoint},
 };
 use spora_core::{debug, info};
+
+#[cfg(test)]
+use crate::cell_conversion::legacy_tx_to_cell_tx;
+#[cfg(test)]
+use spora_consensus_core::{constants::UNACCEPTED_DAA_SCORE, tx::Transaction};
 
 impl Mempool {
     pub(crate) fn pre_validate_and_populate_transaction(
@@ -25,11 +30,26 @@ impl Mempool {
     ) -> RuleResult<TransactionPreValidation> {
         self.validate_transaction_unacceptance(&transaction)?;
         // Populate mass and estimated_size in the beginning, it will be used in multiple places throughout the validation and insertion.
-        transaction.calculated_non_contextual_masses = Some(consensus.calculate_transaction_non_contextual_masses(&transaction.tx));
+        transaction.calculated_non_contextual_masses = Some(consensus.calculate_transaction_non_contextual_masses(transaction.tx.as_ref()));
         self.validate_transaction_in_isolation(&transaction)?;
         let feerate_threshold = self.get_replace_by_fee_constraint(&transaction, rbf_policy)?;
         self.populate_mempool_entries(&mut transaction);
-        Ok(TransactionPreValidation { transaction, feerate_threshold })
+        Ok(TransactionPreValidation { transaction, cell_tx: None, feerate_threshold })
+    }
+
+    pub(crate) fn pre_validate_and_populate_cell_transaction(
+        &self,
+        consensus: &dyn ConsensusApi,
+        cell_tx: CellTx,
+        rbf_policy: RbfPolicy,
+    ) -> RuleResult<TransactionPreValidation> {
+        let mut transaction = MutableTransaction::from_tx(legacy_compat_transaction_from_cell_tx(&cell_tx));
+        self.validate_transaction_unacceptance(&transaction)?;
+        transaction.calculated_non_contextual_masses = Some(consensus.calculate_transaction_non_contextual_masses(transaction.tx.as_ref()));
+        self.validate_transaction_in_isolation(&transaction)?;
+        let feerate_threshold = self.get_replace_by_fee_constraint(&transaction, rbf_policy)?;
+        self.populate_mempool_entries(&mut transaction);
+        Ok(TransactionPreValidation { transaction, cell_tx: Some(Arc::new(cell_tx)), feerate_threshold })
     }
 
     pub(crate) fn post_validate_and_insert_transaction(
@@ -37,6 +57,7 @@ impl Mempool {
         consensus: &dyn ConsensusApi,
         validation_result: RuleResult<()>,
         transaction: MutableTransaction,
+        cell_tx: Option<Arc<CellTx>>,
         priority: Priority,
         orphan: Orphan,
         rbf_policy: RbfPolicy,
@@ -61,7 +82,11 @@ impl Mempool {
                     return Err(RuleError::RejectDisallowedOrphan(transaction_id));
                 }
                 let _ = self.get_replace_by_fee_constraint(&transaction, rbf_policy)?;
-                self.orphan_pool.try_add_orphan(consensus.get_virtual_daa_score(), transaction, priority)?;
+                let mempool_tx = match cell_tx.clone() {
+                    Some(cell_tx) => MempoolTransaction::new_with_cell_tx(transaction, cell_tx, priority, consensus.get_virtual_daa_score()),
+                    None => MempoolTransaction::new(transaction, priority, consensus.get_virtual_daa_score()),
+                };
+                self.orphan_pool.try_add_mempool_transaction_orphan(mempool_tx)?;
                 return Ok(TransactionPostValidation::default());
             }
             Err(err) => {
@@ -119,14 +144,17 @@ impl Mempool {
             self.config.mempool_size_limit,
         );
 
-        // Add the transaction to the mempool as a MempoolTransaction and return a clone of the embedded Arc<Transaction>
-        let accepted_transaction = self
-            .transaction_pool
-            .add_transaction(transaction, consensus.get_virtual_daa_score(), priority, transaction_size)?
-            .mtx
-            .tx
-            .clone();
-        Ok(TransactionPostValidation { removed: removed_transaction, accepted: Some(accepted_transaction) })
+        // Add the transaction to the mempool as a MempoolTransaction and return clones of the stored compatibility/canonical views.
+        let mempool_tx = match cell_tx {
+            Some(cell_tx) => MempoolTransaction::new_with_cell_tx(transaction, cell_tx, priority, consensus.get_virtual_daa_score()),
+            None => MempoolTransaction::new(transaction, priority, consensus.get_virtual_daa_score()),
+        };
+        let accepted = self.transaction_pool.add_mempool_transaction(mempool_tx, transaction_size)?;
+        Ok(TransactionPostValidation {
+            removed: removed_transaction,
+            accepted: Some(accepted.mtx.tx.clone()),
+            accepted_cell_tx: accepted.cell_tx(),
+        })
     }
 
     /// Validates that the transaction wasn't already accepted into the DAG
@@ -158,47 +186,81 @@ impl Mempool {
         Ok(())
     }
 
+    #[cfg(test)]
+    pub(crate) fn get_legacy_transaction_by_transaction_id(&self, transaction_id: &TransactionId) -> Option<Transaction> {
+        self.transaction_pool.get(transaction_id).or_else(|| self.orphan_pool.get(transaction_id)).map(|tx| {
+            legacy_compat_transaction_from_cell_tx(tx.mtx.tx.as_ref())
+        })
+    }
+
     /// Returns a list with all successfully unorphaned transactions after some
     /// transaction has been accepted.
+    #[cfg(test)]
     pub(crate) fn get_unorphaned_transactions_after_accepted_transaction(
         &mut self,
         transaction: &Transaction,
     ) -> Vec<MempoolTransaction> {
+        legacy_tx_to_cell_tx(transaction)
+            .ok()
+            .map(|cell_tx| {
+                self.get_unorphaned_transactions_after_accepted_cell_transaction(
+                    &cell_tx,
+                    Some(transaction.id()),
+                    UNACCEPTED_DAA_SCORE,
+                )
+            })
+            .unwrap_or_default()
+    }
+
+    pub(crate) fn get_unorphaned_transactions_after_accepted_cell_transaction(
+        &mut self,
+        transaction: &CellTx,
+        accepted_legacy_transaction_id: Option<TransactionId>,
+        block_daa_score: u64,
+    ) -> Vec<MempoolTransaction> {
         let mut unorphaned_transactions = Vec::new();
-        let transaction_id = transaction.id();
-        let mut outpoint = TransactionOutpoint::new(transaction_id, 0);
-        for (i, output) in transaction.outputs.iter().enumerate() {
-            outpoint.index = i as u32;
-            let mut orphan_id = None;
-            if let Some(orphan) = self.orphan_pool.outpoint_orphan_mut(&outpoint) {
-                for (i, input) in orphan.mtx.tx.inputs.iter().enumerate() {
-                    if input.previous_outpoint == outpoint {
-                        if orphan.mtx.entries[i].is_none() {
-                            let entry = UtxoEntry::new(output.value, output.script_public_key.clone(), UNACCEPTED_DAA_SCORE, false);
-                            orphan.mtx.entries[i] = Some(entry);
-                            if orphan.mtx.is_verifiable() {
-                                orphan_id = Some(orphan.id());
+        let transaction_id: TransactionId = transaction.id().into();
+        let mut accepted_parent_ids = vec![transaction_id];
+        if let Some(legacy_id) = accepted_legacy_transaction_id.filter(|legacy_id| *legacy_id != transaction_id) {
+            accepted_parent_ids.push(legacy_id);
+        }
+
+        for parent_id in accepted_parent_ids {
+            let mut outpoint = TransactionOutpoint::new(parent_id.as_bytes(), 0);
+            for (i, output) in transaction.outputs.iter().enumerate() {
+                outpoint.index = i as u32;
+                let mut orphan_id = None;
+                if let Some(orphan) = self.orphan_pool.outpoint_orphan_mut(&outpoint) {
+                    for (input_index, input) in orphan.mtx.tx.inputs.iter().enumerate() {
+                        if input.out_point == outpoint {
+                            if orphan.mtx.entries[input_index].is_none() && orphan.mtx.resolved_cell_metadata[input_index].is_none() {
+                                let output_data = transaction.outputs_data.get(i).cloned().unwrap_or_default();
+                                orphan.mtx.resolved_cell_metadata[input_index] =
+                                    Some(cell_output_to_metadata(outpoint, output, &output_data, block_daa_score, false));
+                                if orphan.mtx.is_verifiable() {
+                                    orphan_id = Some(orphan.id());
+                                }
                             }
+                            break;
                         }
-                        break;
                     }
+                } else {
+                    continue;
                 }
-            } else {
-                continue;
-            }
-            if let Some(orphan_id) = orphan_id {
-                match self.unorphan_transaction(&orphan_id) {
-                    Ok(unorphaned_tx) => {
-                        unorphaned_transactions.push(unorphaned_tx);
-                        debug!("Transaction {0} unorphaned", transaction_id);
-                    }
-                    Err(RuleError::RejectAlreadyAccepted(transaction_id)) => {
-                        debug!("Ignoring already accepted transaction {}", transaction_id);
-                    }
-                    Err(err) => {
-                        // In case of validation error, we log the problem and drop the
-                        // erroneous transaction.
-                        info!("Failed to unorphan transaction {0} due to rule error: {1}", orphan_id, err.to_string());
+                if let Some(orphan_id) = orphan_id {
+                    match self.unorphan_transaction(&orphan_id) {
+                        Ok(unorphaned_tx) => {
+                            unorphaned_transactions.push(unorphaned_tx);
+                            debug!("Transaction {0} unorphaned", transaction_id);
+                        }
+                        Err(RuleError::RejectAlreadyAccepted(transaction_id)) => {
+                            debug!("Ignoring already accepted transaction {}", transaction_id);
+                        }
+                        Err(err) => {
+                            // In case of validation error, we log the problem and drop the
+                            // erroneous transaction.
+                            info!("Failed to unorphan transaction {0} due to rule error: {1}", orphan_id, err.to_string());
+                        }
                     }
                 }
             }

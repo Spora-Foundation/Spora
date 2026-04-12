@@ -12,7 +12,7 @@ use spora_notify::{
     notifier::Notifier,
     scope::Scope,
     subscriber::Subscriber,
-    subscription::{MutationPolicies, UtxosChangedMutationPolicy},
+    subscription::{CellsChangedMutationPolicy, MutationPolicies},
 };
 use spora_rpc_core::{
     api::rpc::{DynRpcService, RpcApi},
@@ -54,8 +54,8 @@ const WRPC_SERVER: &str = "wrpc-server";
 
 impl Server {
     pub fn new(tasks: usize, encoding: Encoding, core_service: Option<Arc<RpcCoreService>>, options: Arc<Options>) -> Self {
-        // This notifier UTXOs subscription granularity to rpc-core notifier
-        let policies = MutationPolicies::new(UtxosChangedMutationPolicy::AddressSet);
+        // This notifier forwards cell subscription granularity to the rpc-core notifier
+        let policies = MutationPolicies::new(CellsChangedMutationPolicy::AddressSet);
 
         // Either get a core service or be called from the proxy and rely each connection having its own gRPC client
         assert_eq!(

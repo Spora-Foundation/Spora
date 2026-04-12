@@ -9,7 +9,10 @@ use crate::{
 
 use self::{
     config::Config,
-    model::{accepted_transactions::AcceptedTransactions, orphan_pool::OrphanPool, pool::Pool, transactions_pool::TransactionsPool},
+    model::{
+        accepted_transactions::AcceptedTransactions, orphan_pool::OrphanPool, pool::Pool, transactions_pool::TransactionsPool,
+        tx::MempoolTransaction,
+    },
     tx::Priority,
 };
 use spora_consensus_core::{
@@ -37,7 +40,7 @@ pub(crate) mod validate_and_insert_transaction;
 ///   dependencies in the mempool.
 /// - A transaction can have some of its outpoints refer to missing outputs when
 ///   added to the mempool. In this case it is considered orphan.
-/// - An orphan transaction is unorphaned when all its UTXO entries have been
+/// - An orphan transaction is unorphaned when all its cell entries have been
 ///   built or found.
 /// - There are transaction priorities: high and low.
 /// - Transactions submitted to the mempool by a RPC call have **high priority**.
@@ -70,6 +73,17 @@ impl Mempool {
             transaction = self.orphan_pool.get(transaction_id);
         }
         transaction.map(|x| x.mtx.clone())
+    }
+
+    pub(crate) fn get_mempool_transaction(&self, transaction_id: &TransactionId, query: TransactionQuery) -> Option<MempoolTransaction> {
+        let mut transaction = None;
+        if query.include_transaction_pool() {
+            transaction = self.transaction_pool.get(transaction_id);
+        }
+        if transaction.is_none() && query.include_orphan_pool() {
+            transaction = self.orphan_pool.get(transaction_id);
+        }
+        transaction.cloned()
     }
 
     pub(crate) fn has_transaction(&self, transaction_id: &TransactionId, query: TransactionQuery) -> bool {
@@ -139,12 +153,18 @@ impl Mempool {
         self.transaction_pool.all_transaction_ids_with_priority(priority)
     }
 
-    pub(crate) fn update_revalidated_transaction(&mut self, transaction: MutableTransaction) -> bool {
+    pub(crate) fn update_revalidated_transaction(&mut self, transaction: MempoolTransaction) -> bool {
         self.transaction_pool.update_revalidated_transaction(transaction)
     }
 
     pub(crate) fn has_accepted_transaction(&self, transaction_id: &TransactionId) -> bool {
         self.accepted_transactions.has(transaction_id)
+    }
+
+    pub(crate) fn resolve_transaction_id_by_cell_transaction_id(&self, cell_transaction_id: &TransactionId) -> Option<TransactionId> {
+        self.transaction_pool
+            .resolve_transaction_id_by_cell_transaction_id(cell_transaction_id)
+            .or_else(|| self.orphan_pool.resolve_transaction_id_by_cell_transaction_id(cell_transaction_id))
     }
 
     pub(crate) fn unaccepted_transactions(&self, transactions: Vec<TransactionId>) -> Vec<TransactionId> {

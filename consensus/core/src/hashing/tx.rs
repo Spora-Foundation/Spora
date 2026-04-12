@@ -84,7 +84,7 @@ fn write_input<T: Hasher>(hasher: &mut T, input: &TransactionInput, encoding_fla
 
 #[inline(always)]
 fn write_outpoint<T: Hasher>(hasher: &mut T, outpoint: &TransactionOutpoint) {
-    hasher.update(outpoint.transaction_id).update(outpoint.index.to_le_bytes());
+    hasher.update(outpoint.tx_hash).update(outpoint.index.to_le_bytes());
 }
 
 #[inline(always)]
@@ -100,7 +100,7 @@ mod tests {
     use super::*;
     use crate::{
         subnets::{self, SubnetworkId},
-        tx::{scriptvec, ScriptPublicKey},
+        tx::{outpoint_from_id, scriptvec, ScriptPublicKey},
     };
     use std::str::FromStr;
 
@@ -121,7 +121,7 @@ mod tests {
             },
         ];
 
-        let inputs = vec![TransactionInput::new(TransactionOutpoint::new(Hash::from_u64_word(0), 2), vec![1, 2], 7, 5)];
+        let inputs = vec![TransactionInput::new(outpoint_from_id(Hash::from_u64_word(0), 2), vec![1, 2], 7, 5)];
 
         // Test #2
         tests.push(Test {
@@ -147,7 +147,7 @@ mod tests {
         });
 
         let inputs = vec![TransactionInput::new(
-            TransactionOutpoint::new(Hash::from_str("59b3d6dc6cdc660c389c3fdb5704c48c598d279cdf1bab54182db586a4c95dd5").unwrap(), 2),
+            outpoint_from_id(Hash::from_str("59b3d6dc6cdc660c389c3fdb5704c48c598d279cdf1bab54182db586a4c95dd5").unwrap(), 2),
             vec![1, 2],
             7,
             5,

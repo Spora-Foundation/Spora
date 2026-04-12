@@ -2,11 +2,11 @@ use crate::protowire::{
     sporad_response::Payload, BlockAddedNotificationMessage, NewBlockTemplateNotificationMessage, RpcNotifyCommand, SporadResponse,
 };
 use crate::protowire::{
-    FinalityConflictNotificationMessage, FinalityConflictResolvedNotificationMessage, NotifyPruningPointUtxoSetOverrideRequestMessage,
-    NotifyPruningPointUtxoSetOverrideResponseMessage, NotifyUtxosChangedRequestMessage, NotifyUtxosChangedResponseMessage,
-    PruningPointUtxoSetOverrideNotificationMessage, SinkBlueScoreChangedNotificationMessage,
-    StopNotifyingPruningPointUtxoSetOverrideRequestMessage, StopNotifyingPruningPointUtxoSetOverrideResponseMessage,
-    StopNotifyingUtxosChangedRequestMessage, StopNotifyingUtxosChangedResponseMessage, UtxosChangedNotificationMessage,
+    CellsChangedNotificationMessage, FinalityConflictNotificationMessage, FinalityConflictResolvedNotificationMessage,
+    NotifyCellsChangedRequestMessage, NotifyCellsChangedResponseMessage, NotifyPruningPointCellSetOverrideRequestMessage,
+    NotifyPruningPointCellSetOverrideResponseMessage, PruningPointCellSetOverrideNotificationMessage,
+    SinkBlueScoreChangedNotificationMessage, StopNotifyingCellsChangedRequestMessage, StopNotifyingCellsChangedResponseMessage,
+    StopNotifyingPruningPointCellSetOverrideRequestMessage, StopNotifyingPruningPointCellSetOverrideResponseMessage,
     VirtualChainChangedNotificationMessage, VirtualDaaScoreChangedNotificationMessage,
 };
 use crate::{from, try_from};
@@ -28,11 +28,11 @@ from!(item: &spora_rpc_core::Notification, Payload, {
         Notification::VirtualChainChanged(ref notification) => Payload::VirtualChainChangedNotification(notification.into()),
         Notification::FinalityConflict(ref notification) => Payload::FinalityConflictNotification(notification.into()),
         Notification::FinalityConflictResolved(ref notification) => Payload::FinalityConflictResolvedNotification(notification.into()),
-        Notification::UtxosChanged(ref notification) => Payload::UtxosChangedNotification(notification.into()),
+        Notification::CellsChanged(ref notification) => Payload::CellsChangedNotification(notification.into()),
         Notification::SinkBlueScoreChanged(ref notification) => Payload::SinkBlueScoreChangedNotification(notification.into()),
         Notification::VirtualDaaScoreChanged(ref notification) => Payload::VirtualDaaScoreChangedNotification(notification.into()),
-        Notification::PruningPointUtxoSetOverride(ref notification) => {
-            Payload::PruningPointUtxoSetOverrideNotification(notification.into())
+        Notification::PruningPointCellSetOverride(ref notification) => {
+            Payload::PruningPointCellSetOverrideNotification(notification.into())
         }
     }
 });
@@ -57,10 +57,10 @@ from!(item: &spora_rpc_core::FinalityConflictResolvedNotification, FinalityConfl
     Self { finality_block_hash: item.finality_block_hash.to_string() }
 });
 
-from!(item: &spora_rpc_core::UtxosChangedNotification, UtxosChangedNotificationMessage, {
+from!(item: &spora_rpc_core::CellsChangedNotification, CellsChangedNotificationMessage, {
     Self {
-        added: item.added.iter().map(|x| x.into()).collect::<Vec<_>>(),
-        removed: item.removed.iter().map(|x| x.into()).collect::<Vec<_>>(),
+        added: item.added.iter().map(Into::into).collect::<Vec<_>>(),
+        removed: item.removed.iter().map(Into::into).collect::<Vec<_>>(),
     }
 });
 
@@ -72,7 +72,7 @@ from!(item: &spora_rpc_core::VirtualDaaScoreChangedNotification, VirtualDaaScore
     Self { virtual_daa_score: item.virtual_daa_score }
 });
 
-from!(&spora_rpc_core::PruningPointUtxoSetOverrideNotification, PruningPointUtxoSetOverrideNotificationMessage);
+from!(&spora_rpc_core::PruningPointCellSetOverrideNotification, PruningPointCellSetOverrideNotificationMessage);
 
 from!(item: Command, RpcNotifyCommand, {
     match item {
@@ -81,11 +81,11 @@ from!(item: Command, RpcNotifyCommand, {
     }
 });
 
-from!(item: &StopNotifyingUtxosChangedRequestMessage, NotifyUtxosChangedRequestMessage, {
+from!(item: &StopNotifyingCellsChangedRequestMessage, NotifyCellsChangedRequestMessage, {
     Self { addresses: item.addresses.clone(), command: Command::Stop.into() }
 });
 
-from!(_item: &StopNotifyingPruningPointUtxoSetOverrideRequestMessage, NotifyPruningPointUtxoSetOverrideRequestMessage, {
+from!(_item: &StopNotifyingPruningPointCellSetOverrideRequestMessage, NotifyPruningPointCellSetOverrideRequestMessage, {
     Self { command: Command::Stop.into() }
 });
 
@@ -109,13 +109,13 @@ try_from!(item: &Payload, spora_rpc_core::Notification, {
         Payload::FinalityConflictResolvedNotification(ref notification) => {
             Notification::FinalityConflictResolved(notification.try_into()?)
         }
-        Payload::UtxosChangedNotification(ref notification) => Notification::UtxosChanged(notification.try_into()?),
+        Payload::CellsChangedNotification(ref notification) => Notification::CellsChanged(notification.try_into()?),
         Payload::SinkBlueScoreChangedNotification(ref notification) => Notification::SinkBlueScoreChanged(notification.try_into()?),
         Payload::VirtualDaaScoreChangedNotification(ref notification) => {
             Notification::VirtualDaaScoreChanged(notification.try_into()?)
         }
-        Payload::PruningPointUtxoSetOverrideNotification(ref notification) => {
-            Notification::PruningPointUtxoSetOverride(notification.try_into()?)
+        Payload::PruningPointCellSetOverrideNotification(ref notification) => {
+            Notification::PruningPointCellSetOverride(notification.try_into()?)
         }
         _ => Err(RpcError::UnsupportedFeature)?,
     }
@@ -154,7 +154,7 @@ try_from!(item: &FinalityConflictResolvedNotificationMessage, spora_rpc_core::Fi
     Self { finality_block_hash: RpcHash::from_str(&item.finality_block_hash)? }
 });
 
-try_from!(item: &UtxosChangedNotificationMessage, spora_rpc_core::UtxosChangedNotification, {
+try_from!(item: &CellsChangedNotificationMessage, spora_rpc_core::CellsChangedNotification, {
     Self {
         added: Arc::new(item.added.iter().map(|x| x.try_into()).collect::<Result<Vec<_>, _>>()?),
         removed: Arc::new(item.removed.iter().map(|x| x.try_into()).collect::<Result<Vec<_>, _>>()?),
@@ -169,7 +169,7 @@ try_from!(item: &VirtualDaaScoreChangedNotificationMessage, spora_rpc_core::Virt
     Self { virtual_daa_score: item.virtual_daa_score }
 });
 
-try_from!(&PruningPointUtxoSetOverrideNotificationMessage, spora_rpc_core::PruningPointUtxoSetOverrideNotification);
+try_from!(&PruningPointCellSetOverrideNotificationMessage, spora_rpc_core::PruningPointCellSetOverrideNotification);
 
 from!(item: RpcNotifyCommand, Command, {
     match item {
@@ -178,8 +178,8 @@ from!(item: RpcNotifyCommand, Command, {
     }
 });
 
-from!(item: NotifyUtxosChangedResponseMessage, StopNotifyingUtxosChangedResponseMessage, { Self { error: item.error } });
+from!(item: NotifyCellsChangedResponseMessage, StopNotifyingCellsChangedResponseMessage, { Self { error: item.error } });
 
-from!(item: NotifyPruningPointUtxoSetOverrideResponseMessage, StopNotifyingPruningPointUtxoSetOverrideResponseMessage, {
+from!(item: NotifyPruningPointCellSetOverrideResponseMessage, StopNotifyingPruningPointCellSetOverrideResponseMessage, {
     Self { error: item.error }
 });

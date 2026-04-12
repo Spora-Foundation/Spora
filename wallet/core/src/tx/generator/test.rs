@@ -3,7 +3,7 @@
 // use crate::error::Error;
 // use crate::result::Result;
 // use crate::tx::{Fees, MassCalculator, PaymentDestination};
-// use crate::utxo::UtxoEntryReference;
+// use crate::cell::CellEntryReference;
 // use crate::{tx::PaymentOutputs, utils::spora_to_sau};
 // use spora_addresses::Address;
 // use spora_consensus_core::network::{NetworkId, NetworkType};
@@ -102,9 +102,9 @@
 //     fn check(self, accumulator: &Accumulator) -> Self {
 //         assert_eq!(self.number_of_generated_transactions, accumulator.list.len(), "number of generated transactions");
 //         assert_eq!(
-//             self.aggregated_utxos,
-//             accumulator.list.iter().map(|pt| pt.utxo_entries().len()).sum::<usize>(),
-//             "number of utxo entries"
+//             self.aggregated_cells,
+//             accumulator.list.iter().map(|pt| pt.cell_entries().len()).sum::<usize>(),
+//             "number of cell entries"
 //         );
 //         let aggregated_fees = accumulator.list.iter().map(|pt| pt.fees()).sum::<u64>();
 //         assert_eq!(self.aggregated_fees, aggregated_fees, "aggregated fees");
@@ -161,7 +161,7 @@
 //     let network_params = pt.generator().network_params();
 //     let tx = pt.transaction();
 //
-//     let aggregate_input_value = pt.utxo_entries().values().map(|o| o.amount()).sum::<u64>();
+//     let aggregate_input_value = pt.cell_entries().values().map(|o| o.amount()).sum::<u64>();
 //     let aggregate_output_value = tx.outputs.iter().map(|o| o.value).sum::<u64>();
 //     assert_ne!(
 //         aggregate_input_value, aggregate_output_value,
@@ -172,8 +172,8 @@
 //     let additional_mass = if pt.is_final() { 0 } else { network_params.additional_compound_transaction_mass() };
 //     let compute_mass = calc.calc_compute_mass_for_unsigned_consensus_transaction(&tx, pt.minimum_signatures());
 //
-//     let utxo_entries = pt.utxo_entries().values().cloned().collect::<Vec<_>>();
-//     let storage_mass = calc.calc_storage_mass_for_transaction_parts(&utxo_entries, &tx.outputs).unwrap_or(u64::MAX);
+//     let cell_entries = pt.cell_entries().values().cloned().collect::<Vec<_>>();
+//     let storage_mass = calc.calc_storage_mass_for_transaction_parts(&cell_entries, &tx.outputs).unwrap_or(u64::MAX);
 //     let calculated_mass = calc.combine_mass(compute_mass, storage_mass) + additional_mass;
 //
 //     assert_eq!(pt.inner.mass, calculated_mass, "pending transaction mass does not match calculated mass");
@@ -186,7 +186,7 @@
 //     let network_params = pt.generator().network_params();
 //     let tx = pt.transaction();
 //
-//     let aggregate_input_value = pt.utxo_entries().values().map(|o| o.amount()).sum::<u64>();
+//     let aggregate_input_value = pt.cell_entries().values().map(|o| o.amount()).sum::<u64>();
 //     let aggregate_output_value = tx.outputs.iter().map(|o| o.value).sum::<u64>();
 //     assert_ne!(aggregate_input_value, aggregate_output_value, "aggregate input and output values can not be the same due to fees");
 //     assert_eq!(pt.is_final(), expected.is_final, "expected final transaction");
@@ -202,8 +202,8 @@
 //
 //     let compute_mass = calc.calc_compute_mass_for_unsigned_consensus_transaction(&tx, pt.minimum_signatures());
 //
-//     let utxo_entries = pt.utxo_entries().values().cloned().collect::<Vec<_>>();
-//     let storage_mass = calc.calc_storage_mass_for_transaction_parts(&utxo_entries, &tx.outputs).unwrap_or(u64::MAX);
+//     let cell_entries = pt.cell_entries().values().cloned().collect::<Vec<_>>();
+//     let storage_mass = calc.calc_storage_mass_for_transaction_parts(&cell_entries, &tx.outputs).unwrap_or(u64::MAX);
 //     if DISPLAY_LOGS && storage_mass != 0 {
 //         println!("calculated storage mass: {} calculated_compute_mass: {}", storage_mass, compute_mass,);
 //     }
@@ -405,14 +405,14 @@
 //     let mut values = head.to_vec();
 //     values.extend(tail);
 //
-//     let utxo_entries: Vec<UtxoEntryReference> = values.into_iter().map(spora_to_sau).map(UtxoEntryReference::simulated).collect();
+//     let cell_entries: Vec<CellEntryReference> = values.into_iter().map(spora_to_sau).map(CellEntryReference::simulated).collect();
 //     let multiplexer = None;
 //     let sig_op_count = 1;
 //     let minimum_signatures = 1;
-//     let utxo_iterator: Box<dyn Iterator<Item = UtxoEntryReference> + Send + Sync + 'static> = Box::new(utxo_entries.into_iter());
-//     let priority_utxo_entries = None;
-//     let source_utxo_context = None;
-//     let destination_utxo_context = None;
+//     let cell_iterator: Box<dyn Iterator<Item = CellEntryReference> + Send + Sync + 'static> = Box::new(cell_entries.into_iter());
+//     let priority_cell_entries = None;
+//     let source_cell_context = None;
+//     let destination_cell_context = None;
 //     let final_priority_fee = fees;
 //     let final_transaction_payload = None;
 //     let change_address = change_address(network_id.into());
@@ -423,10 +423,10 @@
 //         sig_op_count,
 //         minimum_signatures,
 //         change_address,
-//         utxo_iterator,
-//         source_utxo_context,
-//         priority_utxo_entries,
-//         destination_utxo_context,
+//         cell_iterator,
+//         source_cell_context,
+//         priority_cell_entries,
+//         destination_cell_context,
 //         final_transaction_priority_fee: final_priority_fee,
 //         final_transaction_destination,
 //         final_transaction_payload,
@@ -452,7 +452,7 @@
 // }
 //
 // #[test]
-// fn test_generator_empty_utxo_noop() -> Result<()> {
+// fn test_generator_empty_cell_noop() -> Result<()> {
 //     let generator = make_generator(test_network_id(), &[], &[], Fees::None, change_address, PaymentDestination::Change).unwrap();
 //     let tx = generator.generate_transaction().unwrap();
 //     assert!(tx.is_none());
@@ -460,18 +460,18 @@
 // }
 //
 // #[test]
-// fn test_generator_sweep_single_utxo_noop() -> Result<()> {
+// fn test_generator_sweep_single_cell_noop() -> Result<()> {
 //     let generator = make_generator(test_network_id(), &[10.0], &[], Fees::None, change_address, PaymentDestination::Change)
-//         .expect("single UTXO input: generator");
+//         .expect("single cell input: generator");
 //     let tx = generator.generate_transaction().unwrap();
 //     assert!(tx.is_none());
 //     Ok(())
 // }
 //
 // #[test]
-// fn test_generator_sweep_two_utxos() -> Result<()> {
+// fn test_generator_sweep_two_cells() -> Result<()> {
 //     make_generator(test_network_id(), &[10.0, 10.0], &[], Fees::None, change_address, PaymentDestination::Change)
-//         .expect("merge 2 UTXOs without fees: generator")
+//         .expect("merge 2 cells without fees: generator")
 //         .harness()
 //         .fetch(&Expected {
 //             is_final: true,
@@ -485,12 +485,12 @@
 // }
 //
 // #[test]
-// fn test_generator_sweep_two_utxos_with_priority_fees_rejection() -> Result<()> {
+// fn test_generator_sweep_two_cells_with_priority_fees_rejection() -> Result<()> {
 //     let generator =
 //         make_generator(test_network_id(), &[10.0, 10.0], &[], Fees::sender(Spora(5.0)), change_address, PaymentDestination::Change);
 //     match generator {
 //         Err(Error::GeneratorFeesInSweepTransaction) => {}
-//         _ => panic!("merge 2 UTXOs with fees must fail generator creation"),
+//         _ => panic!("merge 2 cells with fees must fail generator creation"),
 //     }
 //     Ok(())
 // }

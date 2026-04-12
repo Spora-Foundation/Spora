@@ -1,12 +1,12 @@
 use crate::tasks::{subscription::submitter::SubscribeCommand, Task};
 use async_channel::Sender;
 use async_trait::async_trait;
-use std::{sync::Arc, time::Duration};
-use tokio::{sync::oneshot::channel, task::JoinHandle, time::sleep};
 use spora_core::warn;
 use spora_grpc_client::GrpcClient;
 use spora_notify::scope::Scope;
 use spora_utils::triggers::SingleTrigger;
+use std::{sync::Arc, time::Duration};
+use tokio::{sync::oneshot::channel, task::JoinHandle, time::sleep};
 
 pub struct BasicSubscriberTask {
     clients: Vec<Arc<GrpcClient>>,

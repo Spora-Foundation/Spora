@@ -6,7 +6,6 @@ mod mockery {
     use spora_addresses::{Prefix, Version};
     use spora_consensus_core::api::BlockCount;
     use spora_consensus_core::network::NetworkType;
-    use spora_consensus_core::subnets::SubnetworkId;
     use spora_consensus_core::tx::ScriptPublicKey;
     use spora_hashes::Hash;
     use spora_math::Uint192;
@@ -113,11 +112,19 @@ mod mockery {
         }
     }
 
-    impl Mock for SubnetworkId {
+    impl Mock for [u8; 32] {
+        fn mock() -> Self {
+            let mut bytes = [0u8; 32];
+            rand::thread_rng().fill(&mut bytes);
+            bytes
+        }
+    }
+
+    impl Mock for RpcSubnetworkId {
         fn mock() -> Self {
             let mut bytes: [u8; 20] = [0; 20];
             rand::thread_rng().fill(&mut bytes);
-            SubnetworkId::from_bytes(bytes)
+            RpcSubnetworkId::from_bytes(bytes)
         }
     }
 
@@ -216,6 +223,8 @@ mod mockery {
                 signature_script: Hash::mock().as_bytes().to_vec(),
                 sequence: mock(),
                 sig_op_count: mock(),
+                since: None,
+                witness: None,
                 verbose_data: mock(),
             }
         }
@@ -229,7 +238,16 @@ mod mockery {
 
     impl Mock for RpcTransactionOutput {
         fn mock() -> Self {
-            RpcTransactionOutput { value: mock(), script_public_key: mock(), verbose_data: mock() }
+            RpcTransactionOutput {
+                value: mock(),
+                capacity: mock(),
+                data_bytes: mock(),
+                lock_hash: mock(),
+                type_hash: mock(),
+                data_hash: mock(),
+                script_public_key: mock(),
+                verbose_data: mock(),
+            }
         }
     }
 
@@ -327,9 +345,19 @@ mod mockery {
         }
     }
 
-    impl Mock for RpcUtxoEntry {
+    impl Mock for RpcCellEntry {
         fn mock() -> Self {
-            RpcUtxoEntry { amount: mock(), script_public_key: mock(), block_daa_score: mock(), is_coinbase: true }
+            RpcCellEntry {
+                amount: mock(),
+                capacity: mock(),
+                data_bytes: mock(),
+                lock_hash: mock(),
+                type_hash: mock(),
+                data_hash: mock(),
+                script_public_key: mock(),
+                block_daa_score: mock(),
+                is_coinbase: true,
+            }
         }
     }
 
@@ -339,9 +367,9 @@ mod mockery {
         }
     }
 
-    impl Mock for RpcUtxosByAddressesEntry {
+    impl Mock for RpcCellsByAddressesEntry {
         fn mock() -> Self {
-            RpcUtxosByAddressesEntry { address: mock(), outpoint: mock(), utxo_entry: mock() }
+            RpcCellsByAddressesEntry { address: mock(), outpoint: mock(), cell_entry: mock() }
         }
     }
 
@@ -484,7 +512,7 @@ mod mockery {
                 p2p_id: Hash::mock().to_string(),
                 mempool_size: mock(),
                 server_version: "0.4.2".to_string(),
-                is_utxo_indexed: true,
+                is_cell_indexed: true,
                 is_synced: false,
                 has_notify_command: true,
                 has_message_id: false,
@@ -870,21 +898,21 @@ mod mockery {
 
     test!(GetSinkBlueScoreResponse);
 
-    impl Mock for GetUtxosByAddressesRequest {
+    impl Mock for GetCellsByAddressesRequest {
         fn mock() -> Self {
-            GetUtxosByAddressesRequest { addresses: mock() }
+            GetCellsByAddressesRequest { addresses: mock() }
         }
     }
 
-    test!(GetUtxosByAddressesRequest);
+    test!(GetCellsByAddressesRequest);
 
-    impl Mock for GetUtxosByAddressesResponse {
+    impl Mock for GetCellsByAddressesResponse {
         fn mock() -> Self {
-            GetUtxosByAddressesResponse { entries: mock() }
+            GetCellsByAddressesResponse { entries: mock() }
         }
     }
 
-    test!(GetUtxosByAddressesResponse);
+    test!(GetCellsByAddressesResponse);
 
     impl Mock for BanRequest {
         fn mock() -> Self {
@@ -1068,7 +1096,7 @@ mod mockery {
                 rpc_api_revision: mock(),
                 server_version: "0.4.2".to_string(),
                 network_id: NetworkType::Mainnet.try_into().unwrap(),
-                has_utxo_index: true,
+                has_cell_index: true,
                 is_synced: false,
                 virtual_daa_score: mock(),
             }
@@ -1209,29 +1237,29 @@ mod mockery {
 
     test!(FinalityConflictResolvedNotification);
 
-    impl Mock for NotifyUtxosChangedRequest {
+    impl Mock for NotifyCellsChangedRequest {
         fn mock() -> Self {
-            NotifyUtxosChangedRequest { addresses: mock(), command: Command::Start }
+            NotifyCellsChangedRequest { addresses: mock(), command: Command::Start }
         }
     }
 
-    test!(NotifyUtxosChangedRequest);
+    test!(NotifyCellsChangedRequest);
 
-    impl Mock for NotifyUtxosChangedResponse {
+    impl Mock for NotifyCellsChangedResponse {
         fn mock() -> Self {
-            NotifyUtxosChangedResponse {}
+            NotifyCellsChangedResponse {}
         }
     }
 
-    test!(NotifyUtxosChangedResponse);
+    test!(NotifyCellsChangedResponse);
 
-    impl Mock for UtxosChangedNotification {
+    impl Mock for CellsChangedNotification {
         fn mock() -> Self {
-            UtxosChangedNotification { added: mock(), removed: mock() }
+            CellsChangedNotification { added: mock(), removed: mock() }
         }
     }
 
-    test!(UtxosChangedNotification);
+    test!(CellsChangedNotification);
 
     impl Mock for NotifySinkBlueScoreChangedRequest {
         fn mock() -> Self {
@@ -1281,29 +1309,29 @@ mod mockery {
 
     test!(VirtualDaaScoreChangedNotification);
 
-    impl Mock for NotifyPruningPointUtxoSetOverrideRequest {
+    impl Mock for NotifyPruningPointCellSetOverrideRequest {
         fn mock() -> Self {
-            NotifyPruningPointUtxoSetOverrideRequest { command: Command::Start }
+            NotifyPruningPointCellSetOverrideRequest { command: Command::Start }
         }
     }
 
-    test!(NotifyPruningPointUtxoSetOverrideRequest);
+    test!(NotifyPruningPointCellSetOverrideRequest);
 
-    impl Mock for NotifyPruningPointUtxoSetOverrideResponse {
+    impl Mock for NotifyPruningPointCellSetOverrideResponse {
         fn mock() -> Self {
-            NotifyPruningPointUtxoSetOverrideResponse {}
+            NotifyPruningPointCellSetOverrideResponse {}
         }
     }
 
-    test!(NotifyPruningPointUtxoSetOverrideResponse);
+    test!(NotifyPruningPointCellSetOverrideResponse);
 
-    impl Mock for PruningPointUtxoSetOverrideNotification {
+    impl Mock for PruningPointCellSetOverrideNotification {
         fn mock() -> Self {
-            PruningPointUtxoSetOverrideNotification {}
+            PruningPointCellSetOverrideNotification {}
         }
     }
 
-    test!(PruningPointUtxoSetOverrideNotification);
+    test!(PruningPointCellSetOverrideNotification);
 
     impl Mock for NotifyNewBlockTemplateRequest {
         fn mock() -> Self {

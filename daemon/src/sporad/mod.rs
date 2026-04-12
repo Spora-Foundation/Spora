@@ -10,7 +10,7 @@ pub struct SporadConfig {
     pub mute: bool,
     pub path: Option<String>,
     pub network: Option<NetworkId>,
-    pub utxo_index: bool,
+    pub cell_index: bool,
     pub perf_metrics: bool,
     pub perf_metrics_interval_sec: Option<u64>,
     // --- TODO: these are not used yet ---
@@ -41,7 +41,7 @@ impl Default for SporadConfig {
             mute: false,
             path: None,
             network: None,
-            utxo_index: true,
+            cell_index: true,
             enable_grpc: true,
             is_grpc_public: false,
             enable_borsh_rpc: true,
@@ -103,8 +103,8 @@ impl TryFrom<SporadConfig> for Vec<String> {
             argv.push(flag);
         }
 
-        if args.utxo_index {
-            argv.push("--utxoindex");
+        if args.cell_index {
+            argv.push("--cellindex");
         }
 
         // ---

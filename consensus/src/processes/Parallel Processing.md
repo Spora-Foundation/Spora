@@ -40,7 +40,7 @@ Below we detail the current state of affairs in *go-Sporad* and discuss future p
 ### Block processing
 
 * Block body in isolation:
-    * verify all txs have utxo inputs
+    * verify all txs have valid cell inputs
     * verify block merkle root
     * verify at least one tx
     * verify first tx is coinbase
@@ -61,11 +61,11 @@ Below we detail the current state of affairs in *go-Sporad* and discuss future p
 * Stage and commit block body and block status
 
 
-### Virtual-state processing (block UTXO data -- for context of chain blocks only)
+### Virtual-state processing (block Cell data -- for context of chain blocks only)
 
 * (*roughly*)
-* build the utxo state for selected parent through utxo diffs from virtual
-* build the utxo state for current block based on selected parent state and tx data from the mergeset
+* build the cell state for selected parent through cell diffs from virtual
+* build the cell state for current block based on selected parent state and tx data from the mergeset
 * stage acceptance data
 * update diff paths to virtual
 * update virtual state
@@ -106,5 +106,5 @@ Seems straightforward.
 
 * Process each chain block + mergeset sequentially.
 * Within each such step:
-    * txs within each block can be validated against the utxo set in parallel
+    * txs within each block can be validated against the cell set in parallel
     * blocks in the mergeset and txs within can be processed in parallel based on the consensus-agreed topological mergeset ordering -- however conflicts might arise and need to be taken care of according to said order.

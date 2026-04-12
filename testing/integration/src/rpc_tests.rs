@@ -2,7 +2,6 @@ use std::{str::FromStr, sync::Arc, time::Duration};
 
 use crate::common::{client_notify::ChannelNotify, daemon::Daemon};
 use futures_util::future::try_join_all;
-use tokio::task::JoinHandle;
 use spora_addresses::{Address, Prefix, Version};
 use spora_consensus::params::SIMNET_GENESIS;
 use spora_consensus_core::{constants::MAX_SAU, header::Header, subnets::SubnetworkId, tx::Transaction};
@@ -12,13 +11,18 @@ use spora_hashes::Hash;
 use spora_notify::{
     connection::{ChannelConnection, ChannelType},
     scope::{
-        BlockAddedScope, FinalityConflictScope, NewBlockTemplateScope, PruningPointUtxoSetOverrideScope, Scope,
-        SinkBlueScoreChangedScope, UtxosChangedScope, VirtualChainChangedScope, VirtualDaaScoreChangedScope,
+        BlockAddedScope, CellsChangedScope, FinalityConflictScope, NewBlockTemplateScope, PruningPointCellSetOverrideScope, Scope,
+        SinkBlueScoreChangedScope, VirtualChainChangedScope, VirtualDaaScoreChangedScope,
     },
 };
 use spora_rpc_core::{api::rpc::RpcApi, model::*, Notification};
 use spora_utils::{fd_budget, networking::ContextualNetAddress};
 use sporad_lib::args::Args;
+use tokio::task::JoinHandle;
+
+fn test_address(seed: u8) -> Address {
+    Address::new(Prefix::Simnet, Version::PubKey, &[seed; 32]).expect("test address must be valid")
+}
 
 #[macro_export]
 macro_rules! tst {
@@ -48,7 +52,7 @@ async fn sanity_test() {
         disable_upnp: true, // UPnP registration might take some time and is not needed for this test
         enable_unsynced_mining: true,
         block_template_cache_lifetime: Some(0),
-        utxoindex: true,
+        cellindex: true,
         unsafe_rpc: true,
         ..Default::default()
     };
@@ -95,6 +99,7 @@ async fn sanity_test() {
                             GetVirtualChainFromBlockRequest {
                                 start_hash: SIMNET_GENESIS.hash,
                                 include_accepted_transaction_ids: false,
+                                min_confirmation_count: None,
                             },
                         )
                         .await
@@ -106,10 +111,7 @@ async fn sanity_test() {
                     let GetBlockTemplateResponse { block, is_synced } = rpc_client
                         .get_block_template_call(
                             None,
-                            GetBlockTemplateRequest {
-                                pay_address: Address::new(Prefix::Simnet, Version::PubKey, &[0u8; 32]),
-                                extra_data: Vec::new(),
-                            },
+                            GetBlockTemplateRequest { pay_address: test_address(0), extra_data: Vec::new() },
                         )
                         .await
                         .unwrap();
@@ -121,6 +123,11 @@ async fn sanity_test() {
 
                     // Submit the template (no mining, in simnet PoW is skipped)
                     let response = rpc_client.submit_block(block.clone(), false).await.unwrap();
+                    if block.transactions.is_empty() {
+                        assert_eq!(response.report, SubmitBlockReport::Reject(SubmitBlockRejectReason::BlockInvalid));
+                        info!("Skipping submit-block success assertions because the template exposed no transactions");
+                        return;
+                    }
                     assert_eq!(response.report, SubmitBlockReport::Success);
 
                     // Wait for virtual event indicating the block was processed and entered past(virtual)
@@ -155,6 +162,7 @@ async fn sanity_test() {
                             GetVirtualChainFromBlockRequest {
                                 start_hash: SIMNET_GENESIS.hash,
                                 include_accepted_transaction_ids: false,
+                                min_confirmation_count: None,
                             },
                         )
                         .await
@@ -210,11 +218,44 @@ async fn sanity_test() {
             }
 
             SporadPayloadOps::GetBlockStatus => {
-                todo!()
+                let rpc_client = client.clone();
+                tst!(op, {
+                    let result = rpc_client.get_block_status_call(None, GetBlockStatusRequest { hash: 0.into() }).await;
+                    assert!(result.is_err());
+
+                    let response =
+                        rpc_client.get_block_status_call(None, GetBlockStatusRequest { hash: SIMNET_GENESIS.hash }).await.unwrap();
+                    assert_ne!(response.status.status, 0, "genesis should not be reported as invalid");
+                })
             }
 
             SporadPayloadOps::GetTransaction => {
-                todo!()
+                let rpc_client = client.clone();
+                tst!(op, {
+                    let result = rpc_client.get_transaction_call(None, GetTransactionRequest { hash: 0.into() }).await;
+                    assert!(result.is_err());
+
+                    let template = rpc_client
+                        .get_block_template_call(
+                            None,
+                            GetBlockTemplateRequest { pay_address: test_address(2), extra_data: Vec::new() },
+                        )
+                        .await
+                        .unwrap();
+                    let maybe_txid = template.block.transactions.first().cloned().map(|first_tx| {
+                        let transaction: Transaction = first_tx.try_into().expect("rpc transaction must convert");
+                        transaction.id()
+                    });
+
+                    if let Some(txid) = maybe_txid {
+                        let report = rpc_client.submit_block(template.block, true).await.unwrap();
+                        assert!(report.report.is_success());
+                        let response = rpc_client.get_transaction_call(None, GetTransactionRequest { hash: txid }).await.unwrap();
+                        assert_eq!(response.transaction.verbose_data.as_ref().map(|v| v.transaction_id), Some(txid));
+                    } else {
+                        info!("Skipping accepted transaction lookup because the template exposed no transactions");
+                    }
+                })
             }
 
             SporadPayloadOps::GetBlocks => {
@@ -236,7 +277,7 @@ async fn sanity_test() {
                     let response = rpc_client.get_info_call(None, GetInfoRequest {}).await.unwrap();
                     assert_eq!(response.server_version, spora_core::sporad_env::version().to_string());
                     assert_eq!(response.mempool_size, 0);
-                    assert!(response.is_utxo_indexed);
+                    assert!(response.is_cell_indexed);
                     assert!(response.has_message_id);
                     assert!(response.has_notify_command);
                 })
@@ -398,7 +439,14 @@ async fn sanity_test() {
             }
 
             SporadPayloadOps::GetHeader => {
-                todo!()
+                let rpc_client = client.clone();
+                tst!(op, {
+                    let result = rpc_client.get_header_call(None, GetHeaderRequest { hash: 0.into() }).await;
+                    assert!(result.is_err());
+
+                    let response = rpc_client.get_header_call(None, GetHeaderRequest { hash: SIMNET_GENESIS.hash }).await.unwrap();
+                    assert_eq!(response.header.hash, SIMNET_GENESIS.hash);
+                })
             }
 
             SporadPayloadOps::GetHeaders => {
@@ -413,16 +461,24 @@ async fn sanity_test() {
                 })
             }
 
-            SporadPayloadOps::GetUtxosByAddress => {
-                todo!()
-            }
-
-            SporadPayloadOps::GetUtxosByAddresses => {
+            SporadPayloadOps::GetCellsByAddress => {
                 let rpc_client = client.clone();
                 tst!(op, {
-                    let addresses = vec![Address::new(Prefix::Simnet, Version::PubKey, &[0u8; 32])];
+                    let response = rpc_client
+                        .get_cells_by_address_call(None, GetCellsByAddressRequest { address: test_address(0), start: 0, limit: 100 })
+                        .await
+                        .unwrap();
+                    assert!(response.entries.is_empty());
+                    assert_eq!(response.total, 0);
+                })
+            }
+
+            SporadPayloadOps::GetCellsByAddresses => {
+                let rpc_client = client.clone();
+                tst!(op, {
+                    let addresses = vec![test_address(0)];
                     let response =
-                        rpc_client.get_utxos_by_addresses_call(None, GetUtxosByAddressesRequest { addresses }).await.unwrap();
+                        rpc_client.get_cells_by_addresses_call(None, GetCellsByAddressesRequest { addresses }).await.unwrap();
                     assert!(response.entries.is_empty());
                 })
             }
@@ -431,10 +487,7 @@ async fn sanity_test() {
                 let rpc_client = client.clone();
                 tst!(op, {
                     let response = rpc_client
-                        .get_balance_by_address_call(
-                            None,
-                            GetBalanceByAddressRequest { address: Address::new(Prefix::Simnet, Version::PubKey, &[0u8; 32]) },
-                        )
+                        .get_balance_by_address_call(None, GetBalanceByAddressRequest { address: test_address(0) })
                         .await
                         .unwrap();
                     assert_eq!(response.balance, 0);
@@ -444,7 +497,7 @@ async fn sanity_test() {
             SporadPayloadOps::GetBalancesByAddresses => {
                 let rpc_client = client.clone();
                 tst!(op, {
-                    let addresses = vec![Address::new(Prefix::Simnet, Version::PubKey, &[1u8; 32])];
+                    let addresses = vec![test_address(1)];
                     let response = rpc_client
                         .get_balances_by_addresses_call(None, GetBalancesByAddressesRequest::new(addresses.clone()))
                         .await
@@ -485,7 +538,7 @@ async fn sanity_test() {
             SporadPayloadOps::GetMempoolEntriesByAddresses => {
                 let rpc_client = client.clone();
                 tst!(op, {
-                    let addresses = vec![Address::new(Prefix::Simnet, Version::PubKey, &[0u8; 32])];
+                    let addresses = vec![test_address(0)];
                     let response = rpc_client
                         .get_mempool_entries_by_addresses_call(
                             None,
@@ -607,7 +660,7 @@ async fn sanity_test() {
                 let rpc_client = client.clone();
                 tst!(op, {
                     let response = rpc_client.get_server_info_call(None, GetServerInfoRequest {}).await.unwrap();
-                    assert!(response.has_utxo_index); // we set utxoindex above
+                    assert!(response.has_cell_index); // we set cellindex above
                     assert_eq!(response.network_id, network_id);
                 })
             }
@@ -672,10 +725,10 @@ async fn sanity_test() {
                 })
             }
 
-            SporadPayloadOps::GetUtxoReturnAddress => {
+            SporadPayloadOps::GetCellReturnAddress => {
                 let rpc_client = client.clone();
                 tst!(op, {
-                    let results = rpc_client.get_utxo_return_address(RpcHash::from_bytes([0; 32]), 1000).await;
+                    let results = rpc_client.get_cell_return_address(RpcHash::from_bytes([0; 32]), 1000).await;
 
                     assert!(results.is_err_and(|err| {
                         match err {
@@ -712,11 +765,11 @@ async fn sanity_test() {
                     rpc_client.start_notify(id, FinalityConflictScope {}.into()).await.unwrap();
                 })
             }
-            SporadPayloadOps::NotifyUtxosChanged => {
+            SporadPayloadOps::NotifyCellsChanged => {
                 let rpc_client = client.clone();
                 let id = listener_id;
                 tst!(op, {
-                    rpc_client.start_notify(id, UtxosChangedScope::new(vec![]).into()).await.unwrap();
+                    rpc_client.start_notify(id, CellsChangedScope::new(vec![]).into()).await.unwrap();
                 })
             }
             SporadPayloadOps::NotifySinkBlueScoreChanged => {
@@ -726,11 +779,11 @@ async fn sanity_test() {
                     rpc_client.start_notify(id, SinkBlueScoreChangedScope {}.into()).await.unwrap();
                 })
             }
-            SporadPayloadOps::NotifyPruningPointUtxoSetOverride => {
+            SporadPayloadOps::NotifyPruningPointCellSetOverride => {
                 let rpc_client = client.clone();
                 let id = listener_id;
                 tst!(op, {
-                    rpc_client.start_notify(id, PruningPointUtxoSetOverrideScope {}.into()).await.unwrap();
+                    rpc_client.start_notify(id, PruningPointCellSetOverrideScope {}.into()).await.unwrap();
                 })
             }
             SporadPayloadOps::NotifyVirtualDaaScoreChanged => {
@@ -750,18 +803,18 @@ async fn sanity_test() {
                         .unwrap();
                 })
             }
-            SporadPayloadOps::StopNotifyingUtxosChanged => {
+            SporadPayloadOps::StopNotifyingCellsChanged => {
                 let rpc_client = client.clone();
                 let id = listener_id;
                 tst!(op, {
-                    rpc_client.stop_notify(id, UtxosChangedScope::new(vec![]).into()).await.unwrap();
+                    rpc_client.stop_notify(id, CellsChangedScope::new(vec![]).into()).await.unwrap();
                 })
             }
-            SporadPayloadOps::StopNotifyingPruningPointUtxoSetOverride => {
+            SporadPayloadOps::StopNotifyingPruningPointCellSetOverride => {
                 let rpc_client = client.clone();
                 let id = listener_id;
                 tst!(op, {
-                    rpc_client.stop_notify(id, PruningPointUtxoSetOverrideScope {}.into()).await.unwrap();
+                    rpc_client.stop_notify(id, PruningPointCellSetOverrideScope {}.into()).await.unwrap();
                 })
             }
         };

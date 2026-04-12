@@ -6,11 +6,10 @@ This directory contains standard lock and type scripts for Spora.
 
 ### 1. Always Success (Testing Only)
 
-**Code**: 8 bytes RISC-V
-```riscv
-addi a0, zero, 0  # Set return value to 0
-ret               # Return
-```
+**Code**: real RISC-V ELF fixture
+
+Source file:
+`fixtures/always_success.rs`
 
 **Usage**:
 ```rust
@@ -121,8 +120,29 @@ fn test_always_success() {
         ALWAYS_SUCCESS_SCRIPT.to_vec(),
     );
     
-    // Create transaction with always-success lock
+    let input_out_point = OutPoint::new([0x11; 32], 0);
+    provider.add_cell(
+        input_out_point.tx_hash,
+        input_out_point.index,
+        ResolvedCell {
+            cell_output: CellOut {
+                capacity: 1000,
+                lock: ScriptRef {
+                    code_hash: always_success_code_hash(),
+                    hash_type: 0,
+                    args: vec![],
+                },
+                type_: None,
+            },
+            data: Some(vec![]),
+        },
+    );
+
+    // Create transaction spending an input with the always-success lock
     let tx = CellTx {
+        inputs: vec![CellRef::new(input_out_point, 0)],
+        deps: vec![],
+        header_deps: vec![],
         outputs: vec![
             CellOut {
                 capacity: 1000,
@@ -159,4 +179,3 @@ fn test_always_success() {
 
 **Last Updated**: 2025-10-22  
 **See Also**: `../vm/syscalls/` for syscall implementations
-

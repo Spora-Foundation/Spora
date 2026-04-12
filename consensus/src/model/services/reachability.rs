@@ -85,9 +85,14 @@ impl<T: ReachabilityStoreReader + ?Sized> ReachabilityService for T {
 }
 
 /// Multi-threaded reachability service imp
-#[derive(Clone)]
 pub struct MTReachabilityService<T: ReachabilityStoreReader + ?Sized> {
     store: Arc<RwLock<T>>,
+}
+
+impl<T: ReachabilityStoreReader + ?Sized> Clone for MTReachabilityService<T> {
+    fn clone(&self) -> Self {
+        Self { store: self.store.clone() }
+    }
 }
 
 impl<T: ReachabilityStoreReader + ?Sized> MTReachabilityService<T> {

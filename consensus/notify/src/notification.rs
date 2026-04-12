@@ -1,7 +1,9 @@
 use derive_more::Display;
-use spora_consensus_core::{acceptance_data::AcceptanceData, block::Block, cell_diff::CellDiff};
-use std::sync::Arc;
-// utxo::utxo_diff::UtxoDiff deprecated - use Cell model
+use spora_consensus_core::{
+    acceptance_data::AcceptanceData,
+    block::Block,
+    cell_diff::{BlockCellDiff, CellDiff},
+};
 use spora_hashes::Hash;
 use spora_notify::{
     events::EventType,
@@ -9,10 +11,11 @@ use spora_notify::{
     notification::Notification as NotificationTrait,
     subscription::{
         context::SubscriptionContext,
-        single::{OverallSubscription, UtxosChangedSubscription, VirtualChainChangedSubscription},
+        single::{CellsChangedSubscription, OverallSubscription, VirtualChainChangedSubscription},
         Subscription,
     },
 };
+use std::sync::Arc;
 
 full_featured! {
 #[derive(Clone, Debug, Display)]
@@ -29,10 +32,6 @@ pub enum Notification {
     #[display(fmt = "FinalityConflict notification: violating block hash {}", "_0.finality_block_hash")]
     FinalityConflictResolved(FinalityConflictResolvedNotification),
 
-    // UTXO notifications deprecated - use Cell model
-    // #[display(fmt = "UtxosChanged notification")]
-    // UtxosChanged(UtxosChangedNotification),
-
     #[display(fmt = "CellsChanged notification")]
     CellsChanged(CellsChangedNotification),
 
@@ -42,8 +41,8 @@ pub enum Notification {
     #[display(fmt = "VirtualDaaScoreChanged notification: virtual DAA score {}", "_0.virtual_daa_score")]
     VirtualDaaScoreChanged(VirtualDaaScoreChangedNotification),
 
-    #[display(fmt = "PruningPointUtxoSetOverride notification")]
-    PruningPointUtxoSetOverride(PruningPointUtxoSetOverrideNotification),
+    #[display(fmt = "PruningPointCellSetOverride notification")]
+    PruningPointCellSetOverride(PruningPointCellSetOverrideNotification),
 
     #[display(fmt = "NewBlockTemplate notification")]
     NewBlockTemplate(NewBlockTemplateNotification),
@@ -82,9 +81,9 @@ impl NotificationTrait for Notification {
         }
     }
 
-    fn apply_utxos_changed_subscription(
+    fn apply_cells_changed_subscription(
         &self,
-        _subscription: &UtxosChangedSubscription,
+        _subscription: &CellsChangedSubscription,
         _context: &SubscriptionContext,
     ) -> Option<Self> {
         // No effort is made here to apply the subscription addresses.
@@ -146,21 +145,7 @@ impl FinalityConflictResolvedNotification {
     }
 }
 
-// UTXO notifications deprecated - use Cell model
-// #[derive(Debug, Clone)]
-// pub struct UtxosChangedNotification {
-//     /// Accumulated UTXO diff between the last virtual state and the current virtual state
-//     pub accumulated_utxo_diff: Arc<UtxoDiff>,
-//     pub virtual_parents: Arc<Vec<Hash>>,
-// }
-//
-// impl UtxosChangedNotification {
-//     pub fn new(accumulated_utxo_diff: Arc<UtxoDiff>, virtual_parents: Arc<Vec<Hash>>) -> Self {
-//         Self { accumulated_utxo_diff, virtual_parents }
-//     }
-// }
-
-/// CellsChanged notification - Cell model replacement for UtxosChanged
+/// CellsChanged notification for virtual state updates
 ///
 /// Notifies subscribers about changes in the Cell state between virtual state updates.
 /// This is GHOSTDAG-aware and includes the accumulated Cell diff and virtual parents.
@@ -170,11 +155,17 @@ pub struct CellsChangedNotification {
     pub accumulated_cell_diff: Arc<CellDiff>,
     /// Virtual parents of the current virtual state
     pub virtual_parents: Arc<Vec<Hash>>,
+    /// Block-level provenance for the accumulated diff.
+    pub block_cell_diffs: Arc<Vec<BlockCellDiff>>,
 }
 
 impl CellsChangedNotification {
-    pub fn new(accumulated_cell_diff: Arc<CellDiff>, virtual_parents: Arc<Vec<Hash>>) -> Self {
-        Self { accumulated_cell_diff, virtual_parents }
+    pub fn new(
+        accumulated_cell_diff: Arc<CellDiff>,
+        virtual_parents: Arc<Vec<Hash>>,
+        block_cell_diffs: Arc<Vec<BlockCellDiff>>,
+    ) -> Self {
+        Self { accumulated_cell_diff, virtual_parents, block_cell_diffs }
     }
 }
 
@@ -201,7 +192,7 @@ impl VirtualDaaScoreChangedNotification {
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct PruningPointUtxoSetOverrideNotification {}
+pub struct PruningPointCellSetOverrideNotification {}
 
 #[derive(Debug, Clone)]
 pub struct NewBlockTemplateNotification {}

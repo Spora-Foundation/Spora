@@ -1,11 +1,7 @@
 use rocksdb::WriteBatch;
 use serde::{Deserialize, Serialize};
 use spora_consensus_core::tx::{CellTx, TransactionInput, TransactionOutput};
-use spora_consensus_core::{tx::Transaction, BlockHasher};
-use std::sync::Arc;
-
-// TODO(cell-model): Transaction is now aliased to CellTx
-type TransactionType = CellTx;
+use spora_consensus_core::BlockHasher;
 use spora_database::prelude::CachePolicy;
 use spora_database::prelude::StoreError;
 use spora_database::prelude::DB;
@@ -13,6 +9,7 @@ use spora_database::prelude::{BatchDbWriter, CachedDbAccess, DirectDbWriter};
 use spora_database::registry::DatabaseStorePrefixes;
 use spora_hashes::Hash;
 use spora_utils::mem_size::MemSizeEstimator;
+use std::sync::Arc;
 
 pub trait BlockTransactionsStoreReader {
     fn get(&self, hash: Hash) -> Result<Arc<Vec<CellTx>>, StoreError>;
@@ -40,8 +37,8 @@ impl MemSizeEstimator for BlockBody {
         // A similar argument holds for spk within outputs, but in this case the constant is already counted through the SmallVec used within.
         inputs * (size_of::<TransactionInput>() + NORMAL_SIG_SIZE)
             + outputs * size_of::<TransactionOutput>()
-            + self.0.len() * size_of::<Transaction>()
-            + size_of::<Vec<Transaction>>()
+            + self.0.len() * size_of::<CellTx>()
+            + size_of::<Vec<CellTx>>()
             + size_of::<Self>()
     }
 }
@@ -87,6 +84,11 @@ impl DbBlockTransactionsStore {
 
     pub fn has(&self, hash: Hash) -> Result<bool, StoreError> {
         self.access.has(hash)
+    }
+
+    pub fn get_transaction_location(&self, hash: Hash) -> Result<(Hash, usize), StoreError> {
+        let TxIdx { hash: block_hash, tidx } = self.txidxs.read(hash)?;
+        Ok((block_hash, tidx))
     }
 
     pub fn insert_batch(&self, batch: &mut WriteBatch, hash: Hash, transactions: Arc<Vec<CellTx>>) -> Result<(), StoreError> {

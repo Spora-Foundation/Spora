@@ -4,7 +4,7 @@ use crate::tx::generator as core;
 ///
 /// A class containing a summary produced by transaction {@link Generator}.
 /// This class contains the number of transactions, the aggregated fees,
-/// the aggregated UTXOs and the final transaction amount that includes
+/// the aggregated cells and the final transaction amount that includes
 /// both network and QoS (priority) fees.
 ///
 /// @see {@link createTransactions}, {@link IGeneratorSettingsObject}, {@link Generator}
@@ -22,9 +22,9 @@ impl GeneratorSummary {
         self.inner.network_type()
     }
 
-    #[wasm_bindgen(getter, js_name = utxos)]
-    pub fn aggregated_utxos(&self) -> usize {
-        self.inner.aggregated_utxos()
+    #[wasm_bindgen(getter, js_name = cells)]
+    pub fn aggregated_cells(&self) -> usize {
+        self.inner.aggregated_cells()
     }
 
     #[wasm_bindgen(getter, js_name = fees)]

@@ -5,7 +5,7 @@
 use crate::imports::*;
 
 /// Metrics posted by the wallet subsystem.
-/// See [`UtxoProcessor::start_metrics`] to enable metrics processing.
+/// See [`CellProcessor::start_metrics`] to enable metrics processing.
 /// This struct contains mempool size that can be used to estimate
 /// current network congestion.
 #[derive(Debug, Clone, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]

@@ -173,25 +173,25 @@ The Spora RPC API supports two main communication protocols:
   - Parameters: `hash` (RpcHash) - Block hash
   - Returns: Block color information
 
-## Address and UTXO Endpoints
+## Address and Cell Endpoints
 
 ### Address Operations
 - **`get_balance_by_address`** - Get balance for specified address
   - Parameters: `address` (RpcAddress) - Address
   - Returns: Balance (sau)
-  - Note: Requires `--utxoindex` option to be enabled
+  - Note: Requires `--cellindex` option to be enabled
 
 - **`get_balances_by_addresses`** - Get balances for multiple addresses
   - Parameters: `addresses` (Vec<RpcAddress>) - Address list
   - Returns: Address balances list
-  - Note: Requires `--utxoindex` option to be enabled
+  - Note: Requires `--cellindex` option to be enabled
 
-- **`get_utxos_by_addresses`** - Get UTXO list for specified addresses
+- **`get_cells_by_addresses`** - Get cell list for specified addresses
   - Parameters: `addresses` (Vec<RpcAddress>) - Address list
-  - Returns: Address UTXO entries list
-  - Note: Requires `--utxoindex` option to be enabled
+  - Returns: Address cell entries list
+  - Note: Requires `--cellindex` option to be enabled
 
-- **`get_utxo_return_address`** - Get UTXO return address
+- **`get_cell_return_address`** - Get cell return address
   - Parameters:
     - `txid` (RpcHash) - Transaction ID
     - `accepting_block_daa_score` (u64) - DAA score of accepting block
@@ -257,8 +257,8 @@ The Spora RPC API supports two main communication protocols:
 - **`NotifyNewBlockTemplate`** - New block template notification
 
 ### Chain State Notifications
-- **`NotifyUtxosChanged`** - UTXO change notification
-- **`NotifyPruningPointUtxoSetOverride`** - Pruning point UTXO set override notification
+- **`NotifyCellsChanged`** - Cell change notification
+- **`NotifyPruningPointCellSetOverride`** - Pruning point cell set override notification
 - **`NotifyFinalityConflict`** - Finality conflict notification
 - **`NotifyFinalityConflictResolved`** - Finality conflict resolved notification
 - **`NotifyVirtualDaaScoreChanged`** - Virtual DAA score change notification
@@ -337,7 +337,7 @@ match client.get_block(hash, true).await {
 
 ## Important Notes
 
-1. **UTXO Index**: Some endpoints (such as balance queries) require the `--utxoindex` option to be enabled
+1. **Cell Index**: Some endpoints (such as balance queries) require the `--cellindex` option to be enabled
 2. **Network Type**: Ensure connection to the correct network (mainnet, testnet, etc.)
 3. **Permissions**: Some operations may require appropriate permission settings
 4. **Connection Management**: Reasonably manage connection count to avoid resource exhaustion

@@ -50,36 +50,36 @@ const { networkId, encoding } = require("../utils").parseArgs();
 
 
     try {
-        const { entries : utxos } = await rpc.getUtxosByAddresses([address]);
+        const { entries : cells } = await rpc.getCellsByAddresses([address]);
 
-        console.info(utxos);
+        console.info(cells);
 
-        if (utxos.length === 0) {
+        if (cells.length === 0) {
             console.info('Send some spora to', address, 'before proceeding with the demo');
             return;
         }
 
 
-        let total = utxos.reduce((agg, curr) => {
+        let total = cells.reduce((agg, curr) => {
             return curr.amount + agg;
         }, 0n);
 
-        console.info('Amount sending', total - BigInt(utxos.length) * 2000n)
+        console.info('Amount sending', total - BigInt(cells.length) * 2000n)
 
         const outputs = [{
             address,
-            amount: total - BigInt(utxos.length) * 2000n,
+            amount: total - BigInt(cells.length) * 2000n,
         }];
 
         const changeAddress = address;
         console.log("changeAddress:", changeAddress)
         
-        // utxo_entry_source: IUtxoEntry[], 
+        // cell_entry_source: ICellEntry[],
         // outputs: IPaymentOutput[], 
         // priority_fee: bigint, 
         // payload: HexString | Uint8Array, 
         // sig_op_count?: number
-        const tx = createTransaction(utxos, outputs, 0n, "", 1);
+        const tx = createTransaction(cells, outputs, 0n, "", 1);
 
 
         console.info("Transaction before signing:", tx);

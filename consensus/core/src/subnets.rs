@@ -10,6 +10,10 @@ use thiserror::Error;
 pub const SUBNETWORK_ID_SIZE: usize = 20;
 
 /// The domain representation of a Subnetwork ID
+///
+/// **Deprecated**: In the Cell model, coinbase detection uses `CellTx::is_coinbase()`
+/// (which checks `inputs.is_empty()`). SubnetworkId is only needed for legacy Transaction compatibility.
+#[deprecated(note = "Use CellTx::is_coinbase() instead; SubnetworkId is a legacy Kaspa concept")]
 #[derive(Clone, Default, Eq, PartialEq, Ord, PartialOrd, Hash, BorshSerialize, BorshDeserialize)]
 pub struct SubnetworkId([u8; SUBNETWORK_ID_SIZE]);
 
@@ -128,10 +132,13 @@ impl FromHex for SubnetworkId {
 }
 
 /// The default subnetwork ID which is used for transactions without related payload data
+#[deprecated(note = "Use CellTx directly; SubnetworkId is a legacy Kaspa concept")]
 pub const SUBNETWORK_ID_NATIVE: SubnetworkId = SubnetworkId::from_byte(0);
 
 /// The subnetwork ID which is used for the coinbase transaction
+#[deprecated(note = "Use CellTx::is_coinbase() instead; SubnetworkId is a legacy Kaspa concept")]
 pub const SUBNETWORK_ID_COINBASE: SubnetworkId = SubnetworkId::from_byte(1);
 
 /// The subnetwork ID which is used for adding new sub networks to the registry
+#[deprecated(note = "Use CellTx directly; SubnetworkId is a legacy Kaspa concept")]
 pub const SUBNETWORK_ID_REGISTRY: SubnetworkId = SubnetworkId::from_byte(2);

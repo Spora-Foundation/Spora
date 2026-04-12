@@ -12,8 +12,8 @@ use spora_notify::{
     connection::ChannelType,
     events::{EventSwitches, EventType},
     listener::ListenerLifespan,
-    scope::{CellsChangedScope, PruningPointUtxoSetOverrideScope, UtxosChangedScope},
-    subscription::{context::SubscriptionContext, MutationPolicies, UtxosChangedMutationPolicy},
+    scope::{CellsChangedScope, PruningPointCellSetOverrideScope},
+    subscription::{context::SubscriptionContext, CellsChangedMutationPolicy, MutationPolicies},
 };
 use spora_utils::{channel::Channel, triggers::SingleTrigger};
 use std::sync::Arc;
@@ -21,7 +21,7 @@ use std::sync::Arc;
 const INDEX_SERVICE: &str = IDENT;
 
 pub struct IndexService {
-    cellindex: Option<CellIndexProxy>, // Replaced utxoindex with cellindex
+    cellindex: Option<CellIndexProxy>,
     notifier: Arc<IndexNotifier>,
     shutdown: SingleTrigger,
 }
@@ -30,10 +30,10 @@ impl IndexService {
     pub fn new(
         consensus_notifier: &Arc<ConsensusNotifier>,
         subscription_context: SubscriptionContext,
-        cellindex: Option<CellIndexProxy>, // Changed from utxoindex to cellindex
+        cellindex: Option<CellIndexProxy>,
     ) -> Self {
         // TODO(spora): Update to Cells subscription granularity
-        let policies = MutationPolicies::new(UtxosChangedMutationPolicy::Wildcard);
+        let policies = MutationPolicies::new(CellsChangedMutationPolicy::Wildcard);
 
         // Prepare consensus-notify objects
         let consensus_notify_channel = Channel::<ConsensusNotification>::default();
@@ -42,22 +42,17 @@ impl IndexService {
             ListenerLifespan::Static(policies),
         );
 
-        // Prepare the index-processor notifier
-        // Subscribe to both UtxosChanged (legacy) and CellsChanged (new)
-        let events: EventSwitches =
-            [EventType::UtxosChanged, EventType::CellsChanged, EventType::PruningPointUtxoSetOverride].as_ref().into();
+        // Prepare the index-processor notifier.
+        let events: EventSwitches = [EventType::CellsChanged, EventType::PruningPointCellSetOverride].as_ref().into();
         let collector = Arc::new(Processor::new(cellindex.clone(), consensus_notify_channel.receiver()));
         let notifier = Arc::new(IndexNotifier::new(INDEX_SERVICE, events, vec![collector], vec![], subscription_context, 1, policies));
 
-        // Subscribe to both legacy UTXO and new Cell notifications
-        consensus_notifier
-            .try_start_notify(consensus_notify_listener_id, UtxosChangedScope::default().into())
-            .expect("the subscription always succeeds");
+        // Subscribe only to Cell-model notifications from consensus.
         consensus_notifier
             .try_start_notify(consensus_notify_listener_id, CellsChangedScope::default().into())
             .expect("the subscription always succeeds");
         consensus_notifier
-            .try_start_notify(consensus_notify_listener_id, PruningPointUtxoSetOverrideScope::default().into())
+            .try_start_notify(consensus_notify_listener_id, PruningPointCellSetOverrideScope::default().into())
             .expect("the subscription always succeeds");
 
         Self { cellindex, notifier, shutdown: SingleTrigger::default() }

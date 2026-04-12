@@ -5,7 +5,7 @@ use spora_core::debug;
 use crate::{
     error::Result,
     subscription::{
-        context::SubscriptionContext, DynSubscription, MutateSingle, MutationOutcome, MutationPolicies, UtxosChangedMutationPolicy,
+        context::SubscriptionContext, CellsChangedMutationPolicy, DynSubscription, MutateSingle, MutationOutcome, MutationPolicies,
     },
 };
 
@@ -43,16 +43,16 @@ where
     }
 
     pub fn new_static(id: ListenerId, connection: C, context: &SubscriptionContext, policies: MutationPolicies) -> Self {
-        let capacity = match policies.utxo_changed {
-            UtxosChangedMutationPolicy::AddressSet => {
+        let capacity = match policies.cells_changed {
+            CellsChangedMutationPolicy::AddressSet => {
                 debug!(
-                    "Creating a static listener {} with UtxosChanged capacity of {}",
+                    "Creating a static listener {} with CellsChanged capacity of {}",
                     connection,
                     context.address_tracker.addresses_preallocation().unwrap_or_default()
                 );
                 context.address_tracker.addresses_preallocation()
             }
-            UtxosChangedMutationPolicy::Wildcard => None,
+            CellsChangedMutationPolicy::Wildcard => None,
         };
         let subscriptions = ArrayBuilder::single(id, capacity);
         Self { connection, subscriptions, _lifespan: ListenerLifespan::Static(policies) }

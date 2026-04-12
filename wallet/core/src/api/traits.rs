@@ -304,7 +304,7 @@ pub trait WalletApi: Send + Sync + AnySync {
     }
     /// Activate a specific set of accounts.
     /// An account can be in 2 states - active and inactive. When an account
-    /// is activated, it performs a discovery of UTXO entries related to its
+    /// is activated, it performs a discovery of cell entries related to its
     /// addresses, registers for appropriate notifications and starts tracking
     /// its state. As long as an account is active and the wallet is connected
     /// to the node, the account will give a consistent view of its state.
@@ -332,7 +332,7 @@ pub trait WalletApi: Send + Sync + AnySync {
     /// Performs a bip44 account discovery by scanning the account address space.
     /// Returns the last sequential bip44 index of an account that contains a balance.
     /// The discovery is performed by scanning `account_scan_extent` accounts where
-    /// each account is scanned for `address_scan_extent` addresses. If a UTXO is found
+    /// each account is scanned for `address_scan_extent` addresses. If a cell is found
     /// during the scan, ths account index and all account indexes preceding it are
     /// considered as viable.
     async fn accounts_discovery_call(self: Arc<Self>, request: AccountsDiscoveryRequest) -> Result<AccountsDiscoveryResponse>;
@@ -415,40 +415,40 @@ pub trait WalletApi: Send + Sync + AnySync {
     /// well `transaction_ids` containing a list of submitted transaction ids.
     async fn accounts_send_call(self: Arc<Self>, request: AccountsSendRequest) -> Result<AccountsSendResponse>;
 
-    /// Wrapper around [`accounts_pstb_sign()`](Self::accounts_pstb_sign_call)
-    async fn accounts_pstb_sign(self: Arc<Self>, request: AccountsPstbSignRequest) -> Result<AccountsPstbSignResponse> {
-        self.accounts_pstb_sign_call(request).await
+    /// Wrapper around [`accounts_pssb_sign()`](Self::accounts_pssb_sign_call)
+    async fn accounts_pssb_sign(self: Arc<Self>, request: AccountsPssbSignRequest) -> Result<AccountsPssbSignResponse> {
+        self.accounts_pssb_sign_call(request).await
     }
 
-    /// Sign a PSTB.
-    async fn accounts_pstb_sign_call(self: Arc<Self>, request: AccountsPstbSignRequest) -> Result<AccountsPstbSignResponse>;
+    /// Sign a PSSB.
+    async fn accounts_pssb_sign_call(self: Arc<Self>, request: AccountsPssbSignRequest) -> Result<AccountsPssbSignResponse>;
 
-    /// Wrapper around [`accounts_pstb_broadcast()`](Self::accounts_pstb_broadcast_call)
-    async fn accounts_pstb_broadcast(self: Arc<Self>, request: AccountsPstbBroadcastRequest) -> Result<AccountsPstbBroadcastResponse> {
-        self.accounts_pstb_broadcast_call(request).await
+    /// Wrapper around [`accounts_pssb_broadcast()`](Self::accounts_pssb_broadcast_call)
+    async fn accounts_pssb_broadcast(self: Arc<Self>, request: AccountsPssbBroadcastRequest) -> Result<AccountsPssbBroadcastResponse> {
+        self.accounts_pssb_broadcast_call(request).await
     }
 
-    /// Broadcast a PSTB.
-    async fn accounts_pstb_broadcast_call(
+    /// Broadcast a PSSB.
+    async fn accounts_pssb_broadcast_call(
         self: Arc<Self>,
-        request: AccountsPstbBroadcastRequest,
-    ) -> Result<AccountsPstbBroadcastResponse>;
+        request: AccountsPssbBroadcastRequest,
+    ) -> Result<AccountsPssbBroadcastResponse>;
 
-    /// Wrapper around [`accounts_pstb_send_call()`](Self::accounts_pstb_send_call)
-    async fn accounts_pstb_send(self: Arc<Self>, request: AccountsPstbSendRequest) -> Result<AccountsPstbSendResponse> {
-        self.accounts_pstb_send_call(request).await
+    /// Wrapper around [`accounts_pssb_send_call()`](Self::accounts_pssb_send_call)
+    async fn accounts_pssb_send(self: Arc<Self>, request: AccountsPssbSendRequest) -> Result<AccountsPssbSendResponse> {
+        self.accounts_pssb_send_call(request).await
     }
 
-    /// Sign and broadcast a PSTB.
-    async fn accounts_pstb_send_call(self: Arc<Self>, request: AccountsPstbSendRequest) -> Result<AccountsPstbSendResponse>;
+    /// Sign and broadcast a PSSB.
+    async fn accounts_pssb_send_call(self: Arc<Self>, request: AccountsPssbSendRequest) -> Result<AccountsPssbSendResponse>;
 
-    /// Wrapper around [`accounts_get_utxos_call()`](Self::accounts_get_utxos_call)
-    async fn accounts_get_utxos(self: Arc<Self>, request: AccountsGetUtxosRequest) -> Result<AccountsGetUtxosResponse> {
-        self.accounts_get_utxos_call(request).await
+    /// Wrapper around [`accounts_get_cells_call()`](Self::accounts_get_cells_call)
+    async fn accounts_get_cells(self: Arc<Self>, request: AccountsGetCellsRequest) -> Result<AccountsGetCellsResponse> {
+        self.accounts_get_cells_call(request).await
     }
 
-    /// Get UTXOs for an account.
-    async fn accounts_get_utxos_call(self: Arc<Self>, request: AccountsGetUtxosRequest) -> Result<AccountsGetUtxosResponse>;
+    /// Get cells for an account.
+    async fn accounts_get_cells_call(self: Arc<Self>, request: AccountsGetCellsRequest) -> Result<AccountsGetCellsResponse>;
 
     /// Transfer funds to another account. Returns an [`AccountsTransferResponse`]
     /// struct that contains a [`GeneratorSummary`] as well `transaction_ids`
@@ -480,7 +480,7 @@ pub trait WalletApi: Send + Sync + AnySync {
     /// Performs a transaction estimate, returning [`AccountsEstimateResponse`]
     /// that contains [`GeneratorSummary`]. This call will estimate the total
     /// amount of fees that will be required by the transaction as well as
-    /// the number of UTXOs that will be consumed by the transaction. If this
+    /// the number of cell entries that will be consumed by the transaction. If this
     /// call is invoked while the previous instance of this call is already
     /// running for the same account, the previous call will be aborted returning
     /// an error.

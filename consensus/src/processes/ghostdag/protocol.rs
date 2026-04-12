@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use spora_consensus_core::{
     blockhash::{self, BlockHashExtensions, BlockHashes},
-    config::params::ForkedParam,
     BlockHashMap, BlockLevel, BlueWorkType, HashMapCustomHasher,
 };
 use spora_hashes::Hash;
@@ -25,7 +24,7 @@ use super::ordering::*;
 #[derive(Clone)]
 pub struct GhostdagManager<T: GhostdagStoreReader, S: RelationsStoreReader, U: ReachabilityService, V: HeaderStoreReader> {
     genesis_hash: Hash,
-    pub(super) k: ForkedParam<KType>,
+    pub(super) k: KType,
     pub(super) ghostdag_store: Arc<T>,
     pub(super) relations_store: S,
     pub(super) headers_store: Arc<V>,
@@ -44,13 +43,12 @@ pub struct GhostdagManager<T: GhostdagStoreReader, S: RelationsStoreReader, U: R
 impl<T: GhostdagStoreReader, S: RelationsStoreReader, U: ReachabilityService, V: HeaderStoreReader> GhostdagManager<T, S, U, V> {
     pub fn new(
         genesis_hash: Hash,
-        k: ForkedParam<KType>,
+        k: KType,
         ghostdag_store: Arc<T>,
         relations_store: S,
         headers_store: Arc<V>,
         reachability_service: U,
     ) -> Self {
-        // For ordinary GD, always keep level_work=0 so the lower bound is ineffective
         Self { genesis_hash, k, ghostdag_store, relations_store, reachability_service, headers_store, level_work: 0.into() }
     }
 
@@ -66,7 +64,7 @@ impl<T: GhostdagStoreReader, S: RelationsStoreReader, U: ReachabilityService, V:
     ) -> Self {
         Self {
             genesis_hash,
-            k: ForkedParam::new_const(k),
+            k,
             ghostdag_store,
             relations_store,
             reachability_service,
@@ -135,7 +133,7 @@ impl<T: GhostdagStoreReader, S: RelationsStoreReader, U: ReachabilityService, V:
             return GhostdagData::new_with_selected_parent(selected_parent, 1); // k is only a capacity hint here
         }
         // [Crescendo]: get k as function of the selected parent DAA score
-        let k = self.k.get(self.headers_store.get_daa_score(selected_parent).unwrap());
+        let k = self.k;
         // Initialize new GHOSTDAG block data with the selected parent
         let mut new_block_data = GhostdagData::new_with_selected_parent(selected_parent, k);
         // Get the mergeset in consensus-agreed topological order (topological here means forward in time from blocks to children)

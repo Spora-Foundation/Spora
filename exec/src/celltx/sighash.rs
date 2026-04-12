@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ISC
-// Copyright (C) 2025 Spora developers
+// Copyright (C) 2026 Spora developers
 //
 // Cell transaction signature hashing (blake3 with domain separation)
 
@@ -14,7 +14,7 @@ pub const CELL_SIG_DOMAIN: &[u8] = b"spora-cell/sig";
 
 /// Compute txid (without witnesses)
 ///
-/// Formula: blake3(CELL_TXID_DOMAIN || ver || inputs || deps || outputs || outputs_data)
+/// Formula: blake3(CELL_TXID_DOMAIN || ver || inputs || deps || header_deps || outputs || outputs_data || coinbase_payload_fallback?)
 pub fn compute_txid(tx: &CellTx) -> [u8; 32] {
     let mut hasher = blake3::Hasher::new();
     hasher.update(CELL_TXID_DOMAIN);
@@ -37,6 +37,12 @@ pub fn compute_txid(tx: &CellTx) -> [u8; 32] {
         hasher.update(&dep.out_point.tx_hash);
         hasher.update(&dep.out_point.index.to_le_bytes());
         hasher.update(&[dep.dep_type.clone() as u8]);
+    }
+
+    // Header dependencies
+    hasher.update(&(tx.header_deps.len() as u32).to_le_bytes());
+    for header_hash in &tx.header_deps {
+        hasher.update(header_hash);
     }
 
     // Outputs
@@ -66,12 +72,20 @@ pub fn compute_txid(tx: &CellTx) -> [u8; 32] {
         hasher.update(data);
     }
 
+    if tx.is_coinbase() && tx.outputs.is_empty() {
+        if let Some(payload) = tx.witnesses.first() {
+            hasher.update(b"coinbase-payload-fallback");
+            hasher.update(&(payload.len() as u32).to_le_bytes());
+            hasher.update(payload);
+        }
+    }
+
     *hasher.finalize().as_bytes()
 }
 
 /// Compute wtxid (with witnesses)
 ///
-/// Formula: blake3(CELL_WTXID_DOMAIN || ver || inputs || deps || outputs || outputs_data || witnesses)
+/// Formula: blake3(CELL_WTXID_DOMAIN || ver || inputs || deps || header_deps || outputs || outputs_data || coinbase_payload_fallback? || witnesses)
 pub fn compute_wtxid(tx: &CellTx) -> [u8; 32] {
     let mut hasher = blake3::Hasher::new();
     hasher.update(CELL_WTXID_DOMAIN);
@@ -93,6 +107,12 @@ pub fn compute_wtxid(tx: &CellTx) -> [u8; 32] {
         hasher.update(&dep.out_point.tx_hash);
         hasher.update(&dep.out_point.index.to_le_bytes());
         hasher.update(&[dep.dep_type.clone() as u8]);
+    }
+
+    // Header dependencies
+    hasher.update(&(tx.header_deps.len() as u32).to_le_bytes());
+    for header_hash in &tx.header_deps {
+        hasher.update(header_hash);
     }
 
     // Outputs
@@ -120,6 +140,14 @@ pub fn compute_wtxid(tx: &CellTx) -> [u8; 32] {
     for data in &tx.outputs_data {
         hasher.update(&(data.len() as u32).to_le_bytes());
         hasher.update(data);
+    }
+
+    if tx.is_coinbase() && tx.outputs.is_empty() {
+        if let Some(payload) = tx.witnesses.first() {
+            hasher.update(b"coinbase-payload-fallback");
+            hasher.update(&(payload.len() as u32).to_le_bytes());
+            hasher.update(payload);
+        }
     }
 
     // Witnesses

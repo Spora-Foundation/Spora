@@ -4,12 +4,12 @@ use crate::{
 };
 use async_channel::Sender;
 use async_trait::async_trait;
-use std::{sync::Arc, time::Duration};
-use tokio::{task::JoinHandle, time::sleep};
 use spora_core::warn;
 use spora_grpc_client::ClientPool;
 use spora_rpc_core::{api::rpc::RpcApi, RpcRawBlock};
 use spora_utils::triggers::SingleTrigger;
+use std::{sync::Arc, time::Duration};
+use tokio::{task::JoinHandle, time::sleep};
 
 pub struct BlockSubmitterTask {
     pool: ClientPool<RpcRawBlock>,

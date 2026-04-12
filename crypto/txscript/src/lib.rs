@@ -17,20 +17,17 @@ pub mod runtime_sig_op_counter;
 use crate::caches::Cache;
 use crate::data_stack::{DataStack, Stack};
 use crate::opcodes::{deserialize_next_opcode, OpCodeImplementation};
-use bitcoin::taproot::ControlBlock;
-// P2TrSpend is now private in official bitcoin crate, we'll use Witness methods instead
-use bitcoin::XOnlyPublicKey;
 use itertools::Itertools;
 use opcodes::codes::OpReturn;
 use opcodes::{codes, to_small_int, OpCond};
 use script_class::ScriptClass;
-use secp256k1::{Message, Secp256k1};
 use spora_consensus_core::hashing::sighash::{
     calc_ecdsa_signature_hash, calc_schnorr_signature_hash, SigHashReusedValues, SigHashReusedValuesUnsync,
 };
 use spora_consensus_core::hashing::sighash_type::SigHashType;
-use spora_consensus_core::tx::taproot::sighash::{Prevouts, SighashCache, TapSighashType};
-use spora_consensus_core::tx::{ScriptPublicKey, TransactionInput, TransactionOutput, UtxoEntry, VerifiableTransaction};
+use spora_consensus_core::tx::{
+    cell_entry_legacy_script_public_key, CellEntry, CellRef, ScriptPublicKey, VerifiableTransaction,
+};
 use spora_txscript_errors::TxScriptError;
 
 pub mod prelude {
@@ -39,21 +36,10 @@ pub mod prelude {
 use crate::runtime_sig_op_counter::{RuntimeSigOpCounter, SigOpConsumer};
 pub use standard::*;
 
-// Re-export MuSig2 types for easier access
-#[cfg(feature = "musig2")]
-pub use standard::copperoot::{EncryptedSignature, MuSig2Error, MuSig2KeyAgg, MuSig2Nonce, MuSig2Session, MuSig2Signature};
-
-pub const MAX_SCRIPT_PUBLIC_KEY_VERSION: u16 = 193;
+pub const MAX_SCRIPT_PUBLIC_KEY_VERSION: u16 = 0;
 
 // Script version constants for different script types
 pub const SCRIPT_VER_CLASSIC: u16 = 0; // Legacy script types (PubKey, ScriptHash, etc.)
-pub const SCRIPT_VER_TAPROOT: u16 = 1; // Taproot (BIP341/SHA256)
-pub const SCRIPT_VER_COPPEROOT_MERKLE: u16 = 2; // Pay-to-Copperoot-Merkle (BLAKE3) - Address starts with 'c'
-pub const SCRIPT_VER_COPPEROOT_VERKLE: u16 = 3; // Pay-to-Copperoot-Verkle (BLAKE3) - Reserved
-
-// Backward compatibility aliases
-pub const SCRIPT_VER_P2CR: u16 = SCRIPT_VER_COPPEROOT_MERKLE;
-pub const SCRIPT_VER_P2CRV: u16 = SCRIPT_VER_COPPEROOT_VERKLE;
 pub const MAX_STACK_SIZE: usize = 244;
 pub const MAX_SCRIPTS_SIZE: usize = 10_000;
 pub const MAX_SCRIPT_ELEMENT_SIZE: usize = 520;
@@ -91,7 +77,7 @@ pub struct SigCacheKey {
 }
 
 enum ScriptSource<'a, T: VerifiableTransaction> {
-    TxInput { tx: &'a T, input: &'a TransactionInput, idx: usize, utxo_entry: &'a UtxoEntry },
+    TxInput { tx: &'a T, input: &'a CellRef, idx: usize, cell_entry: &'a CellEntry, witness: Vec<u8> },
     StandAloneScripts(Vec<&'a [u8]>),
 }
 
@@ -158,7 +144,7 @@ pub fn get_sig_op_count<T: VerifiableTransaction>(tx: &T, input_idx: usize, kip1
         tx,
         &tx.inputs()[input_idx],
         input_idx,
-        tx.utxo(input_idx).ok_or_else(|| TxScriptError::InvalidInputIndex(input_idx as i32, tx.inputs().len()))?,
+        tx.cell_entry(input_idx).ok_or_else(|| TxScriptError::InvalidInputIndex(input_idx as i32, tx.inputs().len()))?,
         &reused_values,
         &sig_cache,
         kip10_enabled,
@@ -239,7 +225,7 @@ fn get_sig_op_count_by_opcodes<T: VerifiableTransaction, Reused: SigHashReusedVa
 
 /// Returns whether the passed public key script is unspendable, or guaranteed to fail at execution.
 ///
-/// This allows inputs to be pruned instantly when entering the UTXO set.
+/// This allows inputs to be pruned instantly when entering the Cell set.
 pub fn is_unspendable<T: VerifiableTransaction, Reused: SigHashReusedValues>(script: &[u8]) -> bool {
     parse_script::<T, Reused>(script).enumerate().any(|(index, op)| op.is_err() || (index == 0 && op.unwrap().value() == OpReturn))
 }
@@ -273,7 +259,7 @@ impl<'a, T: VerifiableTransaction, Reused: SigHashReusedValues> TxScriptEngine<'
     /// * `tx` - The transaction being validated
     /// * `input` - The input being validated
     /// * `input_idx` - Index of the input in the transaction
-    /// * `utxo_entry` - UTXO entry being spent
+    /// * `cell_entry` - Cell entry being spent
     /// * `reused_values` - Reused values for signature hashing
     /// * `sig_cache` - Cache for signature verification
     /// * `kip10_enabled` - Whether KIP-10 transaction introspection opcodes are enabled
@@ -285,25 +271,28 @@ impl<'a, T: VerifiableTransaction, Reused: SigHashReusedValues> TxScriptEngine<'
     /// Script engine instance configured for the given input
     pub fn from_transaction_input(
         tx: &'a T,
-        input: &'a TransactionInput,
+        input: &'a CellRef,
         input_idx: usize,
-        utxo_entry: &'a UtxoEntry,
+        cell_entry: &'a CellEntry,
         reused_values: &'a Reused,
         sig_cache: &'a Cache<SigCacheKey, bool>,
         kip10_enabled: bool,
         runtime_sig_op_counting: bool,
     ) -> Self {
         assert!(input_idx < tx.tx().inputs.len());
+        // In Cell model, witness data replaces signature_script
+        let witness = tx.tx().witnesses.get(input_idx).cloned().unwrap_or_default();
         Self {
             dstack: Default::default(),
             astack: Default::default(),
-            script_source: ScriptSource::TxInput { tx, input, idx: input_idx, utxo_entry },
+            script_source: ScriptSource::TxInput { tx, input, idx: input_idx, cell_entry, witness },
             reused_values,
             sig_cache,
             cond_stack: Default::default(),
             num_ops: 0,
             kip10_enabled,
-            runtime_sig_op_counter: runtime_sig_op_counting.then_some(RuntimeSigOpCounter::new(input.sig_op_count)),
+            // Cell model: each input has implicit 1 sigop
+            runtime_sig_op_counter: runtime_sig_op_counting.then_some(RuntimeSigOpCounter::new(1)),
             check_push_opcode: true,
         }
     }
@@ -418,132 +407,20 @@ impl<'a, T: VerifiableTransaction, Reused: SigHashReusedValues> TxScriptEngine<'
         self.execute_script(script.as_slice())
     }
 
-    fn execute_p2tr(&mut self) -> Result<(), TxScriptError> {
-        match self.script_source {
-            ScriptSource::TxInput { tx, input, idx, utxo_entry } => {
-                let script_public_key = utxo_entry.script_public_key.script();
-                // Parse signature_script as Borsh-serialized witness data
-                let witness = Witness::try_from(&*input.signature_script).map_err(|_| TxScriptError::InvalidTaprootWitness)?;
-
-                let xpub = XOnlyPublicKey::from_slice(&script_public_key[2..]).map_err(TxScriptError::InvalidSignature)?;
-
-                // Use Witness methods to determine taproot spend type
-                if witness.len() == 1 || (witness.len() == 2 && witness.last().map_or(false, |last| last.starts_with(&[0x50]))) {
-                    // Key spend
-                    let signature = if witness.len() == 1 {
-                        witness.nth(0).ok_or(TxScriptError::InvalidTaprootWitness)?
-                    } else {
-                        witness.nth(0).ok_or(TxScriptError::InvalidTaprootWitness)?
-                    };
-
-                    let sighash_type = TapSighashType::Default;
-                    let mut sighasher = SighashCache::new(tx.tx());
-                    let vouts = tx
-                        .populated_inputs()
-                        .map(|(_, utxo)| TransactionOutput { value: utxo.amount, script_public_key: utxo.script_public_key.clone() })
-                        .collect::<Vec<_>>();
-                    let prevouts = Prevouts::All(&vouts);
-                    let sighash =
-                        sighasher.taproot_key_spend_signature_hash(idx, &prevouts, sighash_type).expect("failed to construct sighash");
-                    let msg = Message::from(sighash);
-                    // Verify signature using secp256k1 directly
-                    let secp = Secp256k1::new();
-                    let sig = secp256k1::schnorr::Signature::from_slice(signature).map_err(TxScriptError::InvalidSignature)?;
-                    secp.verify_schnorr(&sig, &msg, &xpub).map_err(TxScriptError::InvalidSignature)?;
-                    self.dstack.push_item(true)
-                } else {
-                    // Script spend
-                    let leaf_script = witness.taproot_leaf_script().ok_or(TxScriptError::InvalidTaprootWitness)?;
-                    let control_block_bytes = witness.taproot_control_block().ok_or(TxScriptError::InvalidTaprootWitness)?;
-
-                    // Push input data to stack (excluding leaf script, control block, and annex)
-                    let mut input_data = Vec::new();
-                    for i in 0..witness.len() {
-                        if let Some(data) = witness.nth(i) {
-                            // Skip the last element if it's an annex (starts with 0x50)
-                            if i == witness.len() - 1 && data.starts_with(&[0x50]) {
-                                continue;
-                            }
-                            // Skip control block and leaf script
-                            if i == witness.len() - 1 || (i == witness.len() - 2 && !data.starts_with(&[0x50])) {
-                                continue;
-                            }
-                            input_data.push(data.to_vec());
-                        }
-                    }
-
-                    for data in input_data {
-                        self.dstack.push(data);
-                    }
-
-                    let secp = Secp256k1::new();
-                    let control_block = ControlBlock::decode(control_block_bytes).map_err(|_| TxScriptError::InvalidTaprootWitness)?;
-                    let valid_script = control_block.verify_taproot_commitment(&secp, xpub, &leaf_script.script);
-                    if !valid_script {
-                        return Err(TxScriptError::InvalidTaprootWitness);
-                    }
-                    self.check_push_opcode = false;
-                    self.execute_script(leaf_script.script.as_bytes())
-                }
-            }
-            _ => unreachable!("p2tr must be ScriptSource::TxInput"),
-        }
-    }
-
-    /// Generic Taproot-like execution using the ScriptVariant trait
-    fn execute_taplike<TL: crate::standard::copperoot::ScriptVariant>(&mut self) -> Result<(), TxScriptError> {
-        match self.script_source {
-            ScriptSource::TxInput { tx, input, idx, utxo_entry } => {
-                let script_public_key = utxo_entry.script_public_key.script();
-                let witness = TL::parse_witness(&*input.signature_script)?;
-                let xpub = XOnlyPublicKey::from_slice(&script_public_key[2..]).map_err(TxScriptError::InvalidSignature)?;
-
-                // Try key path spending first
-                if let Ok(signature) = TL::extract_key_spend_signature(&witness) {
-                    let msg = TL::key_spend_sighash(tx, idx)?;
-                    let secp = Secp256k1::new();
-                    let sig = match secp256k1::schnorr::Signature::from_slice(&signature) {
-                        Ok(sig) => sig,
-                        Err(e) => return Err(TxScriptError::InvalidSignature(e)),
-                    };
-                    if let Err(e) = secp.verify_schnorr(&sig, &msg, &xpub) {
-                        return Err(TxScriptError::InvalidSignature(e));
-                    }
-                    let _ = self.dstack.push_item(true);
-                    return Ok(());
-                }
-
-                // Try script path spending
-                if let Ok((input_items, leaf_script, control_block)) = TL::extract_script_spend_components(&witness) {
-                    for item in input_items {
-                        self.dstack.push(item);
-                    }
-
-                    // Control block validation is now done in TL::verify_commitment
-                    // which parses the TLV format and validates proof type
-
-                    TL::verify_commitment(xpub, &leaf_script, &control_block)?;
-                    self.check_push_opcode = false;
-                    self.execute_script(&leaf_script)
-                } else {
-                    Err(TxScriptError::InvalidTaprootWitness)
-                }
-            }
-            _ => unreachable!("taplike must be ScriptSource::TxInput"),
-        }
-    }
-
     pub fn execute(&mut self) -> Result<(), TxScriptError> {
         let (scripts, script_class) = match &self.script_source {
-            ScriptSource::TxInput { input, utxo_entry, .. } => {
+            ScriptSource::TxInput { input: _, cell_entry, witness, .. } => {
                 // Strictly reject unknown script versions - refuse unknown versions
-                if utxo_entry.script_public_key.version() > MAX_SCRIPT_PUBLIC_KEY_VERSION {
-                    return Err(TxScriptError::InvalidScriptPublicKeyVersion(utxo_entry.script_public_key.version()));
+                let legacy_script_public_key = cell_entry_legacy_script_public_key(cell_entry);
+                if legacy_script_public_key.version() > MAX_SCRIPT_PUBLIC_KEY_VERSION {
+                    return Err(TxScriptError::InvalidScriptPublicKeyVersion(legacy_script_public_key.version()));
                 }
-                let script_class = ScriptClass::from(&utxo_entry.script_public_key);
-                (vec![input.signature_script.as_slice(), utxo_entry.script_public_key.script()], script_class)
+                let script_class = ScriptClass::from(&legacy_script_public_key);
+                (vec![witness.clone(), legacy_script_public_key.script().to_vec()], script_class)
             }
-            ScriptSource::StandAloneScripts(scripts) => (scripts.clone(), ScriptClass::NonStandard),
+            ScriptSource::StandAloneScripts(scripts) => {
+                (scripts.iter().map(|script| script.to_vec()).collect::<Vec<_>>(), ScriptClass::NonStandard)
+            }
         };
 
         // TODO: run all in same iterator?
@@ -566,16 +443,11 @@ impl<'a, T: VerifiableTransaction, Reused: SigHashReusedValues> TxScriptEngine<'
             self.check_push_opcode = false
         }
         let scripts = scripts.into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>();
+        let script_refs = scripts.iter().map(Vec::as_slice).collect::<Vec<_>>();
 
         match script_class {
-            ScriptClass::Taproot => self.execute_p2tr(),
-            ScriptClass::ScriptHash => self.execute_p2sh(&scripts),
-            ScriptClass::CopperootMerkle => self.execute_taplike::<crate::standard::copperoot::CopperootVariant>(),
-            ScriptClass::CopperootVerkle => {
-                // P2CRV is disabled for mainnet launch - reject as invalid
-                return Err(TxScriptError::OpcodeDisabled("P2CRV (CopperootVerkle) is disabled for mainnet launch".to_string()));
-            }
-            _ => self.execute_standard(&scripts),
+            ScriptClass::ScriptHash => self.execute_p2sh(&script_refs),
+            _ => self.execute_standard(&script_refs),
         }?;
 
         self.check_error_condition(true)
@@ -824,11 +696,7 @@ mod tests {
             unimplemented!()
         }
 
-        fn populated_input(&self, _index: usize) -> (&TransactionInput, &UtxoEntry) {
-            unimplemented!()
-        }
-
-        fn utxo(&self, _index: usize) -> Option<&UtxoEntry> {
+        fn cell_entry(&self, _index: usize) -> Option<&CellEntry> {
             unimplemented!()
         }
     }
@@ -854,16 +722,16 @@ mod tests {
             let output = TransactionOutput { value: 1000000000, script_public_key: ScriptPublicKey::new(0, test.script.into()) };
 
             let tx = Transaction::new(1, vec![input.clone()], vec![output.clone()], 0, Default::default(), 0, vec![]);
-            let utxo_entry = UtxoEntry::new(output.value, output.script_public_key.clone(), 0, tx.is_coinbase());
+            let cell_entry = CellEntry::new(output.value, output.script_public_key.clone(), 0, tx.is_coinbase());
 
-            let populated_tx = PopulatedTransaction::new(&tx, vec![utxo_entry.clone()]);
+            let populated_tx = PopulatedTransaction::new(&tx, vec![cell_entry.clone()]);
             [false, true].into_iter().for_each(|kip10_enabled| {
                 [false, true].into_iter().for_each(|runtime_sig_op_counting| {
                     let mut vm = TxScriptEngine::from_transaction_input(
                         &populated_tx,
                         &input,
                         0,
-                        &utxo_entry,
+                        &cell_entry,
                         &reused_values,
                         &sig_cache,
                         kip10_enabled,
@@ -1402,7 +1270,7 @@ mod tests {
             let script = script_builder.drain();
 
             let script_pub_key = pay_to_script_hash_script(&script);
-            let utxo_entry = UtxoEntry::new(1000, script_pub_key.clone(), 0, false);
+            let cell_entry = CellEntry::new(1000, script_pub_key.clone(), 0, false);
 
             // Create transaction
             let tx = Transaction::new(
@@ -1421,7 +1289,7 @@ mod tests {
             );
 
             let mut tx = MutableTransaction::new(tx);
-            tx.entries = vec![Some(utxo_entry.clone())];
+            tx.entries = vec![Some(cell_entry.clone())];
 
             // Build signature script
             let signature_script = (test.sig_builder)(&tx, &reused_values).build(&script)?;
@@ -1430,7 +1298,7 @@ mod tests {
             // Execute script
             let tx = tx.as_verifiable();
             let mut vm =
-                TxScriptEngine::from_transaction_input(&tx, &tx.inputs()[0], 0, &utxo_entry, &reused_values, &sig_cache, false, true);
+                TxScriptEngine::from_transaction_input(&tx, &tx.inputs()[0], 0, &cell_entry, &reused_values, &sig_cache, false, true);
 
             let result = vm.execute().map(|_| vm.used_sig_ops().unwrap());
 
@@ -1590,8 +1458,8 @@ mod bitcoind_tests {
             let tx = create_spending_transaction(script_sig, script_pub_key.clone());
             println!("Created transaction: {:?}", tx);
 
-            let entry = UtxoEntry::new(0, script_pub_key.clone(), 0, true);
-            println!("Created UtxoEntry: {:?}", entry);
+            let entry = CellEntry::new(0, script_pub_key.clone(), 0, true);
+            println!("Created CellEntry: {:?}", entry);
 
             let populated_tx = PopulatedTransaction::new(&tx, vec![entry]);
             println!("Populated transaction: {:?}", populated_tx);

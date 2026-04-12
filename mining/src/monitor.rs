@@ -83,9 +83,15 @@ impl MiningMonitor {
                     delta.tx_evicted_counts
                 );
             }
+            if delta.accepted_metadata_miss_counts > 0 {
+                info!(
+                    "Mempool stats: skipped unorphaning {} accepted block transactions because legacy metadata was unavailable",
+                    delta.accepted_metadata_miss_counts
+                );
+            }
             if tx_script_cache_snapshot != last_tx_script_cache_snapshot {
                 debug!(
-                    "UTXO set stats: {} spent, {} created ({} signatures validated, {} cache hits, {:.2} hit ratio)",
+                    "Cell set stats: {} spent, {} created ({} signatures validated, {} cache hits, {:.2} hit ratio)",
                     delta.input_counts,
                     delta.output_counts,
                     tx_script_cache_delta.insert_counts,

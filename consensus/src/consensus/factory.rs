@@ -1,5 +1,5 @@
 #[cfg(feature = "devnet-prealloc")]
-use super::utxo_set_override::{set_genesis_cell_commitment_from_config, set_initial_cell_set};
+use super::cell_set_override::{set_genesis_cell_commitment_from_config, set_initial_cell_set};
 use super::{ctl::Ctl, Consensus};
 use crate::{model::stores::U64Key, pipeline::ProcessingCounters};
 use itertools::Itertools;

@@ -8,12 +8,12 @@ use crate::{
 use async_trait::async_trait;
 use itertools::chain;
 use rand::thread_rng;
-use std::sync::Arc;
-use tokio::task::JoinHandle;
 use spora_addresses::Address;
 use spora_consensus_core::network::NetworkId;
 use spora_core::debug;
 use spora_utils::triggers::SingleTrigger;
+use std::sync::Arc;
+use tokio::task::JoinHandle;
 
 pub struct MinerGroupTask {
     submitter: Arc<BlockSubmitterTask>,

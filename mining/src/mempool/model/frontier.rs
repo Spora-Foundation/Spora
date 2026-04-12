@@ -1,6 +1,6 @@
 use crate::{
     feerate::{FeerateEstimator, FeerateEstimatorArgs},
-    model::candidate_tx::CandidateTransaction,
+    model::candidate_tx::{CandidateCellData, CandidateTransaction},
     Policy, RebalancingWeightedTransactionSelector,
 };
 
@@ -8,9 +8,16 @@ use feerate_key::FeerateTransactionKey;
 use rand::{distributions::Uniform, prelude::Distribution, Rng};
 use search_tree::SearchTree;
 use selectors::{SequenceSelector, SequenceSelectorInput, TakeAllSelector};
-use spora_consensus_core::{block::TemplateTransactionSelector, tx::Transaction};
+use spora_consensus_core::{
+    block::TemplateTransactionSelector,
+    tx::{CellTx, TransactionId},
+};
 use spora_core::trace;
-use std::{collections::HashSet, iter::FusedIterator, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    iter::FusedIterator,
+    sync::Arc,
+};
 
 pub(crate) mod feerate_key;
 pub(crate) mod search_tree;
@@ -52,6 +59,19 @@ impl Default for Frontier {
 }
 
 impl Frontier {
+    fn resolve_cell_data(
+        key: &FeerateTransactionKey,
+        cell_txs: Option<&HashMap<TransactionId, CandidateCellData>>,
+    ) -> CandidateCellData {
+        let tx_id = TransactionId::from_bytes(key.tx.id());
+        cell_txs.and_then(|cell_txs| cell_txs.get(&tx_id).cloned()).unwrap_or_else(|| CandidateCellData {
+            cell_tx: key.tx.clone(),
+            score_total: None,
+            fee_density: None,
+            deps_width: None,
+        })
+    }
+
     pub fn total_weight(&self) -> f64 {
         self.search_tree.total_weight()
     }
@@ -124,6 +144,19 @@ impl Frontier {
     where
         R: Rng + ?Sized,
     {
+        self.sample_inplace_with_cells(rng, policy, _collisions, None)
+    }
+
+    pub fn sample_inplace_with_cells<R>(
+        &self,
+        rng: &mut R,
+        policy: &Policy,
+        _collisions: &mut u64,
+        cell_txs: Option<&HashMap<TransactionId, CandidateCellData>>,
+    ) -> SequenceSelectorInput
+    where
+        R: Rng + ?Sized,
+    {
         debug_assert!(!self.search_tree.is_empty(), "expected to be called only if not empty");
 
         // Sample 20% more than the hard limit in order to allow the SequenceSelector to
@@ -167,7 +200,7 @@ impl Frontier {
                 }
                 item
             };
-            sequence.push(item.tx.clone(), item.mass);
+            sequence.push(item.tx.clone(), Self::resolve_cell_data(item, cell_txs).cell_tx, item.mass);
             total_selected_mass += item.mass; // Max standard mass + Mempool capacity bound imply this will not overflow
         }
         trace!("[mempool frontier sample inplace] collisions: {collisions}, cache: {}", cache.len());
@@ -190,15 +223,29 @@ impl Frontier {
     /// full transaction selection in less than 150 µs even if the frontier has 1M entries (!!). See mining/benches
     /// for more details.  
     pub fn build_selector(&self, policy: &Policy) -> Box<dyn TemplateTransactionSelector> {
+        self.build_selector_with_cells(policy, None)
+    }
+
+    pub fn build_selector_with_cells(
+        &self,
+        policy: &Policy,
+        cell_txs: Option<&HashMap<TransactionId, CandidateCellData>>,
+    ) -> Box<dyn TemplateTransactionSelector> {
         if self.total_mass <= policy.max_block_mass {
-            Box::new(TakeAllSelector::new(self.search_tree.ascending_iter().map(|k| k.tx.clone()).collect()))
+            Box::new(TakeAllSelector::new(
+                self.search_tree.ascending_iter().map(|k| Self::resolve_cell_data(k, cell_txs).cell_tx).collect(),
+            ))
         } else if self.total_mass > policy.max_block_mass * COLLISION_FACTOR {
             let mut rng = rand::thread_rng();
-            Box::new(SequenceSelector::new(self.sample_inplace(&mut rng, policy, &mut 0), policy.clone()))
+            Box::new(SequenceSelector::new(self.sample_inplace_with_cells(&mut rng, policy, &mut 0, cell_txs), policy.clone()))
         } else {
             Box::new(RebalancingWeightedTransactionSelector::new(
                 policy.clone(),
-                self.search_tree.ascending_iter().cloned().map(CandidateTransaction::from_key).collect(),
+                self.search_tree
+                    .ascending_iter()
+                    .cloned()
+                    .map(|key| CandidateTransaction::from_key_and_cell_data(key.clone(), Self::resolve_cell_data(&key, cell_txs)))
+                    .collect(),
             ))
         }
     }
@@ -207,19 +254,23 @@ impl Frontier {
     pub fn build_selector_sample_inplace(&self, _collisions: &mut u64) -> Box<dyn TemplateTransactionSelector> {
         let mut rng = rand::thread_rng();
         let policy = Policy::new(500_000);
-        Box::new(SequenceSelector::new(self.sample_inplace(&mut rng, &policy, _collisions), policy))
+        Box::new(SequenceSelector::new(self.sample_inplace_with_cells(&mut rng, &policy, _collisions, None), policy))
     }
 
     /// Exposed for benchmarking purposes
     pub fn build_selector_take_all(&self) -> Box<dyn TemplateTransactionSelector> {
-        Box::new(TakeAllSelector::new(self.search_tree.ascending_iter().map(|k| k.tx.clone()).collect()))
+        Box::new(TakeAllSelector::new(self.search_tree.ascending_iter().map(|k| Self::resolve_cell_data(k, None).cell_tx).collect()))
     }
 
     /// Exposed for benchmarking purposes
     pub fn build_rebalancing_selector(&self) -> Box<dyn TemplateTransactionSelector> {
         Box::new(RebalancingWeightedTransactionSelector::new(
             Policy::new(500_000),
-            self.search_tree.ascending_iter().cloned().map(CandidateTransaction::from_key).collect(),
+            self.search_tree
+                .ascending_iter()
+                .cloned()
+                .map(|key| CandidateTransaction::from_key_and_cell_data(key.clone(), Self::resolve_cell_data(&key, None)))
+                .collect(),
         ))
     }
 
@@ -265,7 +316,7 @@ impl Frontier {
     }
 
     /// Returns an iterator to the transactions in the frontier in increasing feerate order
-    pub fn ascending_iter(&self) -> impl DoubleEndedIterator<Item = &Arc<Transaction>> + ExactSizeIterator + FusedIterator {
+    pub fn ascending_iter(&self) -> impl DoubleEndedIterator<Item = &Arc<CellTx>> + ExactSizeIterator + FusedIterator {
         self.search_tree.ascending_iter().map(|key| &key.tx)
     }
 }
@@ -320,19 +371,19 @@ mod tests {
         }
 
         let mut selector = frontier.build_selector(&Policy::new(500_000));
-        selector.select_transactions().iter().map(|k| k.gas).sum::<u64>();
+        selector.select_transactions().iter().map(|k| k.mass()).sum::<u64>();
 
         let mut selector = frontier.build_rebalancing_selector();
-        selector.select_transactions().iter().map(|k| k.gas).sum::<u64>();
+        selector.select_transactions().iter().map(|k| k.mass()).sum::<u64>();
 
         let mut selector = frontier.build_selector_sample_inplace(&mut 0);
-        selector.select_transactions().iter().map(|k| k.gas).sum::<u64>();
+        selector.select_transactions().iter().map(|k| k.mass()).sum::<u64>();
 
         let mut selector = frontier.build_selector_take_all();
-        selector.select_transactions().iter().map(|k| k.gas).sum::<u64>();
+        selector.select_transactions().iter().map(|k| k.mass()).sum::<u64>();
 
         let mut selector = frontier.build_selector(&Policy::new(500_000));
-        selector.select_transactions().iter().map(|k| k.gas).sum::<u64>();
+        selector.select_transactions().iter().map(|k| k.mass()).sum::<u64>();
     }
 
     #[test]

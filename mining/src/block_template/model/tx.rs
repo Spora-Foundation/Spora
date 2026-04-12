@@ -1,4 +1,5 @@
 pub(crate) struct SelectableTransaction {
+    #[allow(dead_code)]
     pub(crate) gas_limit: u64,
     pub(crate) p: f64,
 }

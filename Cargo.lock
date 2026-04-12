@@ -448,16 +448,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4c7f02d4ea65f2c1853089ffd8d2787bdbc63de2f0d29dedbcf8ccdfa0ccd4cf"
 
 [[package]]
-name = "base58ck"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2c8d66485a3a2ea485c1913c4572ce0256067a5377ac8c75c4960e1cda98605f"
-dependencies = [
- "bitcoin-internals",
- "bitcoin_hashes",
-]
-
-[[package]]
 name = "base64"
 version = "0.22.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -539,54 +529,6 @@ name = "bit-vec"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5e764a1d40d510daf35e07be9eb06e75770908c27d411ee6c92109c9840eaaf7"
-
-[[package]]
-name = "bitcoin"
-version = "0.32.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0fda569d741b895131a88ee5589a467e73e9c4718e958ac9308e4f7dc44b6945"
-dependencies = [
- "base58ck",
- "bech32",
- "bitcoin-internals",
- "bitcoin-io",
- "bitcoin-units",
- "bitcoin_hashes",
- "hex-conservative",
- "hex_lit",
- "secp256k1 0.29.1",
-]
-
-[[package]]
-name = "bitcoin-internals"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "30bdbe14aa07b06e6cfeffc529a1f099e5fbe249524f8125358604df99a4bed2"
-
-[[package]]
-name = "bitcoin-io"
-version = "0.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0b47c4ab7a93edb0c7198c5535ed9b52b63095f4e9b45279c6736cec4b856baf"
-
-[[package]]
-name = "bitcoin-units"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5285c8bcaa25876d07f37e3d30c303f2609179716e11d688f51e8f1fe70063e2"
-dependencies = [
- "bitcoin-internals",
-]
-
-[[package]]
-name = "bitcoin_hashes"
-version = "0.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bb18c03d0db0247e147a21a6faafd5a7eb851c743db062de72018b6b7e8e4d16"
-dependencies = [
- "bitcoin-io",
- "hex-conservative",
-]
 
 [[package]]
 name = "bitflags"
@@ -2207,25 +2149,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "hex-conservative"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5313b072ce3c597065a808dbf612c4c8e8590bdbf8b579508bf7a762c5eae6cd"
-dependencies = [
- "arrayvec",
-]
-
-[[package]]
 name = "hex-literal"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6fe2267d4ed49bc07b63801559be28c718ea06c4738b7a03c94df7386d2cde46"
-
-[[package]]
-name = "hex_lit"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3011d1213f159867b13cfd6ac92d2cd5f1345762c63be3554e84092d85a50bbd"
 
 [[package]]
 name = "hexplay"
@@ -3273,21 +3200,6 @@ name = "multimap"
 version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1d87ecb2933e8aeadb3e3a02b828fed80a7528047e68b4f424523a0981a3a084"
-
-[[package]]
-name = "musig2"
-version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1c5ffeab912897e7577287c8f2b4efbc4be24912f77531b45ba4b18c93f8be21"
-dependencies = [
- "base16ct",
- "hmac",
- "once_cell",
- "secp",
- "secp256k1 0.31.1",
- "sha2",
- "subtle",
-]
 
 [[package]]
 name = "nanoid"
@@ -4574,38 +4486,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "secp"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d3b203895e8f18854c828d1cf7e5710683c3abc28d79330fe5ab723ce5b76e1"
-dependencies = [
- "base16ct",
- "once_cell",
- "secp256k1 0.31.1",
- "subtle",
-]
-
-[[package]]
 name = "secp256k1"
 version = "0.29.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9465315bc9d4566e1724f0fffcbcc446268cb522e60f9a27bcded6b19c108113"
 dependencies = [
- "bitcoin_hashes",
  "rand 0.8.5",
- "secp256k1-sys 0.10.1",
+ "secp256k1-sys",
  "serde",
-]
-
-[[package]]
-name = "secp256k1"
-version = "0.31.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2c3c81b43dc2d8877c216a3fccf76677ee1ebccd429566d3e67447290d0c42b2"
-dependencies = [
- "bitcoin_hashes",
- "rand 0.9.2",
- "secp256k1-sys 0.11.0",
 ]
 
 [[package]]
@@ -4613,15 +4501,6 @@ name = "secp256k1-sys"
 version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d4387882333d3aa8cb20530a17c69a3752e97837832f34f6dccc760e715001d9"
-dependencies = [
- "cc",
-]
-
-[[package]]
-name = "secp256k1-sys"
-version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dcb913707158fadaf0d8702c2db0e857de66eb003ccfdda5924b5f5ac98efb38"
 dependencies = [
  "cc",
 ]
@@ -4918,6 +4797,7 @@ name = "simpa"
 version = "1.21.0"
 dependencies = [
  "async-channel 2.5.0",
+ "blake3",
  "cfg-if 1.0.3",
  "clap 4.5.49",
  "dhat",
@@ -4931,7 +4811,7 @@ dependencies = [
  "rand 0.8.5",
  "rand_distr",
  "rayon",
- "secp256k1 0.29.1",
+ "secp256k1",
  "spora-alloc",
  "spora-consensus",
  "spora-consensus-core",
@@ -4940,6 +4820,7 @@ dependencies = [
  "spora-database",
  "spora-hashes",
  "spora-perf-monitor",
+ "spora-state",
  "spora-utils",
  "time",
  "tokio",
@@ -5030,7 +4911,7 @@ dependencies = [
  "k256",
  "rand 0.8.5",
  "rand_core 0.6.4",
- "secp256k1 0.29.1",
+ "secp256k1",
  "serde",
  "sha2",
  "thiserror 1.0.69",
@@ -5044,7 +4925,7 @@ dependencies = [
  "borsh",
  "criterion",
  "js-sys",
- "secp256k1 0.29.1",
+ "secp256k1",
  "serde",
  "smallvec",
  "thiserror 1.0.69",
@@ -5100,7 +4981,7 @@ dependencies = [
  "rand 0.8.5",
  "rand_core 0.6.4",
  "ripemd",
- "secp256k1 0.29.1",
+ "secp256k1",
  "serde",
  "sha2",
  "spora-consensus-core",
@@ -5158,7 +5039,7 @@ dependencies = [
  "spora-utils",
  "spora-wallet-core",
  "spora-wallet-keys",
- "spora-wallet-pstt",
+ "spora-wallet-psst",
  "spora-wrpc-client",
  "textwrap 0.16.2",
  "thiserror 1.0.69",
@@ -5216,7 +5097,7 @@ dependencies = [
  "rand_distr",
  "rayon",
  "rocksdb",
- "secp256k1 0.29.1",
+ "secp256k1",
  "serde",
  "serde_json",
  "smallvec",
@@ -5253,7 +5134,7 @@ dependencies = [
  "itertools 0.13.0",
  "js-sys",
  "rand 0.8.5",
- "secp256k1 0.29.1",
+ "secp256k1",
  "serde",
  "serde-wasm-bindgen",
  "serde_json",
@@ -5277,7 +5158,6 @@ dependencies = [
  "arc-swap",
  "async-trait",
  "bincode",
- "bitcoin",
  "blake3",
  "borsh",
  "cfg-if 1.0.3",
@@ -5291,7 +5171,7 @@ dependencies = [
  "js-sys",
  "log",
  "rand 0.8.5",
- "secp256k1 0.29.1",
+ "secp256k1",
  "serde",
  "serde-wasm-bindgen",
  "serde_bytes",
@@ -5344,7 +5224,7 @@ dependencies = [
  "faster-hex",
  "js-sys",
  "rand 0.8.5",
- "secp256k1 0.29.1",
+ "secp256k1",
  "serde",
  "serde-wasm-bindgen",
  "serde_json",
@@ -5458,7 +5338,7 @@ dependencies = [
  "parking_lot",
  "proptest",
  "rayon",
- "secp256k1 0.29.1",
+ "secp256k1",
  "serde",
  "spora-hashes",
  "thiserror 1.0.69",
@@ -5690,13 +5570,14 @@ dependencies = [
 name = "spora-mining"
 version = "1.21.0"
 dependencies = [
+ "blake3",
  "criterion",
  "futures-util",
  "itertools 0.13.0",
  "log",
  "parking_lot",
  "rand 0.8.5",
- "secp256k1 0.29.1",
+ "secp256k1",
  "serde",
  "smallvec",
  "spora-addresses",
@@ -5704,6 +5585,7 @@ dependencies = [
  "spora-consensusmanager",
  "spora-core",
  "spora-hashes",
+ "spora-mempool",
  "spora-mining-errors",
  "spora-muhash",
  "spora-txscript",
@@ -5809,6 +5691,7 @@ dependencies = [
 name = "spora-p2p-lib"
 version = "1.21.0"
 dependencies = [
+ "blake3",
  "borsh",
  "ctrlc",
  "futures",
@@ -5889,6 +5772,7 @@ version = "1.21.0"
 dependencies = [
  "async-channel 2.5.0",
  "async-trait",
+ "blake3",
  "borsh",
  "cfg-if 1.0.3",
  "derive_more 0.99.20",
@@ -5942,12 +5826,15 @@ name = "spora-rpc-service"
 version = "1.21.0"
 dependencies = [
  "async-trait",
+ "blake3",
  "log",
  "spora-addresses",
+ "spora-cellindex",
  "spora-consensus-core",
  "spora-consensus-notify",
  "spora-consensusmanager",
  "spora-core",
+ "spora-exec",
  "spora-hashes",
  "spora-index-core",
  "spora-math",
@@ -5958,6 +5845,7 @@ dependencies = [
  "spora-p2p-mining",
  "spora-perf-monitor",
  "spora-rpc-core",
+ "spora-state",
  "spora-txscript",
  "spora-utils",
  "spora-utils-tower",
@@ -5990,15 +5878,75 @@ dependencies = [
  "serde",
  "spora-exec",
  "spora-hashes",
+ "spora-muhash",
  "tempfile",
  "thiserror 1.0.69",
+]
+
+[[package]]
+name = "spora-testing-integration"
+version = "1.21.0"
+dependencies = [
+ "async-channel 2.5.0",
+ "async-trait",
+ "bincode",
+ "chrono",
+ "clap 4.5.49",
+ "criterion",
+ "crossbeam-channel",
+ "dhat",
+ "faster-hex",
+ "flate2",
+ "futures-util",
+ "indexmap 2.11.4",
+ "itertools 0.13.0",
+ "log",
+ "parking_lot",
+ "rand 0.8.5",
+ "rand_distr",
+ "rayon",
+ "rocksdb",
+ "secp256k1",
+ "serde",
+ "serde_json",
+ "smallvec",
+ "spora-addresses",
+ "spora-alloc",
+ "spora-bip32",
+ "spora-cellindex",
+ "spora-consensus",
+ "spora-consensus-core",
+ "spora-consensus-notify",
+ "spora-consensusmanager",
+ "spora-core",
+ "spora-database",
+ "spora-grpc-client",
+ "spora-grpc-core",
+ "spora-grpc-server",
+ "spora-hashes",
+ "spora-index-processor",
+ "spora-math",
+ "spora-merkle",
+ "spora-muhash",
+ "spora-notify",
+ "spora-pow",
+ "spora-rpc-core",
+ "spora-rpc-service",
+ "spora-txscript",
+ "spora-txscript-errors",
+ "spora-utils",
+ "spora-wrpc-server",
+ "sporad",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tokio",
+ "workflow-perf-monitor",
 ]
 
 [[package]]
 name = "spora-txscript"
 version = "1.21.0"
 dependencies = [
- "bitcoin",
  "blake2b_simd",
  "blake3",
  "borsh",
@@ -6010,10 +5958,9 @@ dependencies = [
  "indexmap 2.11.4",
  "itertools 0.13.0",
  "log",
- "musig2",
  "parking_lot",
  "rand 0.8.5",
- "secp256k1 0.29.1",
+ "secp256k1",
  "serde",
  "serde-wasm-bindgen",
  "serde_json",
@@ -6034,7 +5981,7 @@ dependencies = [
 name = "spora-txscript-errors"
 version = "1.21.0"
 dependencies = [
- "secp256k1 0.29.1",
+ "secp256k1",
  "thiserror 1.0.69",
 ]
 
@@ -6156,7 +6103,7 @@ dependencies = [
  "rand 0.8.5",
  "regex",
  "ripemd",
- "secp256k1 0.29.1",
+ "secp256k1",
  "separator",
  "serde",
  "serde-wasm-bindgen",
@@ -6181,7 +6128,7 @@ dependencies = [
  "spora-utils",
  "spora-wallet-keys",
  "spora-wallet-macros",
- "spora-wallet-pstt",
+ "spora-wallet-psst",
  "spora-wasm-core",
  "spora-wrpc-client",
  "spora-wrpc-wasm",
@@ -6213,7 +6160,7 @@ dependencies = [
  "js-sys",
  "rand 0.8.5",
  "ripemd",
- "secp256k1 0.29.1",
+ "secp256k1",
  "serde",
  "serde-wasm-bindgen",
  "serde_json",
@@ -6248,7 +6195,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "spora-wallet-pstt"
+name = "spora-wallet-psst"
 version = "1.21.0"
 dependencies = [
  "bincode",
@@ -6257,7 +6204,7 @@ dependencies = [
  "futures",
  "hex",
  "js-sys",
- "secp256k1 0.29.1",
+ "secp256k1",
  "separator",
  "serde",
  "serde-value",
@@ -6475,6 +6422,7 @@ dependencies = [
  "spora-addresses",
  "spora-addressmanager",
  "spora-alloc",
+ "spora-cellindex",
  "spora-consensus",
  "spora-consensus-core",
  "spora-consensus-notify",
@@ -7110,7 +7058,7 @@ dependencies = [
  "log",
  "parking_lot",
  "rayon",
- "secp256k1 0.29.1",
+ "secp256k1",
  "serde",
  "serde_json",
  "spora-addresses",

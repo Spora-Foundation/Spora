@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: ISC
-// Copyright (C) 2025 Spora developers
+// Copyright (C) 2026 Spora developers
 //
 // Cell query API
 
 use crate::indexer::CellIndexer;
 use serde::{Deserialize, Serialize};
-use spora_exec::OutPoint;
+use spora_consensus_core::cell_diff::{BlockCellDiff, CellCollection};
+use spora_exec::{CellTx, OutPoint};
 use spora_state::index::CellMeta;
 use std::sync::Arc;
 
@@ -96,6 +97,26 @@ impl CellIndexProxy {
         self.indexer.get_cell(out_point)
     }
 
+    /// Sum the capacity of all currently live cells tracked by the index.
+    pub fn total_live_capacity(&self) -> crate::Result<u64> {
+        self.indexer.total_live_capacity()
+    }
+
+    /// Returns true when the index contains no live cells yet.
+    pub fn is_empty(&self) -> crate::Result<bool> {
+        self.indexer.is_empty()
+    }
+
+    /// Seed the index directly from a live cell collection.
+    pub fn seed_cell_collection(&self, cells: &CellCollection, block_hash: [u8; 32]) -> crate::Result<()> {
+        self.indexer.seed_cell_collection(cells, block_hash)
+    }
+
+    /// Index a single transaction synchronously.
+    pub fn index_transaction(&self, tx: &CellTx, daa_score: u64, block_hash: [u8; 32], is_cellbase: bool) -> crate::Result<()> {
+        self.indexer.index_transaction(tx, daa_score, block_hash, is_cellbase)
+    }
+
     /// Update index with Cell diff (async version)
     ///
     /// GHOSTDAG-aware: processes accumulated Cell diff from consensus notifications
@@ -107,6 +128,41 @@ impl CellIndexProxy {
         tokio::task::spawn_blocking(move || indexer.update_with_diff(&diff))
             .await
             .map_err(|e| crate::errors::CellIndexError::Internal(format!("Async task error: {}", e)))?
+    }
+
+    /// Update index with block-aware Cell diff provenance (async version).
+    pub async fn update_with_block_diffs(&self, block_diffs: &[BlockCellDiff]) -> crate::Result<()> {
+        let indexer = self.indexer.clone();
+        let block_diffs = block_diffs.to_vec();
+
+        tokio::task::spawn_blocking(move || indexer.update_with_block_diffs(&block_diffs))
+            .await
+            .map_err(|e| crate::errors::CellIndexError::Internal(format!("Async task error: {}", e)))?
+    }
+}
+
+pub trait CellIndexApi {
+    fn query(&self, query: &CellQuery) -> crate::Result<CellQueryResult>;
+    fn get_cell(&self, out_point: &OutPoint) -> crate::Result<Option<CellMeta>>;
+    fn total_live_capacity(&self) -> crate::Result<u64>;
+    fn is_empty(&self) -> crate::Result<bool>;
+}
+
+impl CellIndexApi for CellIndexProxy {
+    fn query(&self, query: &CellQuery) -> crate::Result<CellQueryResult> {
+        CellIndexProxy::query(self, query)
+    }
+
+    fn get_cell(&self, out_point: &OutPoint) -> crate::Result<Option<CellMeta>> {
+        CellIndexProxy::get_cell(self, out_point)
+    }
+
+    fn total_live_capacity(&self) -> crate::Result<u64> {
+        CellIndexProxy::total_live_capacity(self)
+    }
+
+    fn is_empty(&self) -> crate::Result<bool> {
+        CellIndexProxy::is_empty(self)
     }
 }
 

@@ -26,18 +26,18 @@ pub fn try_spora_str_to_sau_i64<S: Into<String>>(s: S) -> Result<Option<i64>> {
         return Ok(None);
     }
 
-    let amount = amount.parse::<f64>()? * SAU_PER_TONDI as f64;
+    let amount = amount.parse::<f64>()? * SAU_PER_SPORA as f64;
     Ok(Some(amount as i64))
 }
 
 #[inline]
 pub fn sau_to_spora(sau: u64) -> f64 {
-    sau as f64 / SAU_PER_TONDI as f64
+    sau as f64 / SAU_PER_SPORA as f64
 }
 
 #[inline]
 pub fn spora_to_sau(spora: f64) -> u64 {
-    (spora * SAU_PER_TONDI as f64) as u64
+    (spora * SAU_PER_SPORA as f64) as u64
 }
 
 #[inline]
@@ -53,9 +53,9 @@ pub fn sau_to_spora_string_with_trailing_zeroes(sau: u64) -> String {
 pub fn spora_suffix(network_type: &NetworkType) -> &'static str {
     match network_type {
         NetworkType::Mainnet => "SPORA",
-        NetworkType::Testnet => "TTONDI",
-        NetworkType::Simnet => "STONDI",
-        NetworkType::Devnet => "DTONDI",
+        NetworkType::Testnet => "TSPORA",
+        NetworkType::Simnet => "SSPORA",
+        NetworkType::Devnet => "DSPORA",
     }
 }
 
@@ -92,9 +92,9 @@ pub fn format_address_colors(address: &Address, range: Option<usize>) -> String 
 
 fn str_to_sau(amount: &str) -> Result<u64> {
     let Some(dot_idx) = amount.find('.') else {
-        return Ok(amount.parse::<u64>()? * SAU_PER_TONDI);
+        return Ok(amount.parse::<u64>()? * SAU_PER_SPORA);
     };
-    let integer = amount[..dot_idx].parse::<u64>()? * SAU_PER_TONDI;
+    let integer = amount[..dot_idx].parse::<u64>()? * SAU_PER_SPORA;
     let decimal = &amount[dot_idx + 1..];
     let decimal_len = decimal.len();
     let decimal = if decimal_len == 0 {

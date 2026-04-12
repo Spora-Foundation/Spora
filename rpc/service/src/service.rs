@@ -4,11 +4,13 @@ use super::collector::{CollectorFromConsensus, CollectorFromIndex};
 use crate::converter::feerate_estimate::{FeeEstimateConverter, FeeEstimateVerboseConverter};
 use crate::converter::{consensus::ConsensusConverter, index::IndexConverter, protocol::ProtocolConverter};
 use async_trait::async_trait;
+use blake3::Hasher;
+use spora_cellindex::api::{CellIndexProxy, CellQuery};
 use spora_consensus_core::api::counters::ProcessingCounters;
 use spora_consensus_core::daa_score_timestamp::DaaScoreTimestamp;
 use spora_consensus_core::errors::block::RuleError;
-use spora_consensus_core::mass::{calc_storage_mass, UtxoCell};
-use spora_consensus_core::tx::ScriptPublicKey;
+use spora_consensus_core::mass::{calc_storage_mass, CellMass};
+use spora_consensus_core::tx::{ScriptPublicKey, TransactionOutpoint};
 use std::time::Duration;
 use std::{
     collections::HashMap,
@@ -17,15 +19,14 @@ use std::{
     vec,
 };
 use tokio::join;
-// TODO(cell-model): UTXO-specific error, needs Cell model replacement
-// use spora_consensus_core::utxo::utxo_inquirer::UtxoInquirerError;
+// TODO(cell-model): legacy transaction-output-specific error, needs Cell model replacement
 use spora_consensus_core::{
     block::Block,
     coinbase::MinerData,
     config::Config,
     constants::MAX_SAU,
     network::NetworkType,
-    tx::{Transaction, COINBASE_TRANSACTION_INDEX},
+    tx::{CellTx, COINBASE_TRANSACTION_INDEX},
 };
 use spora_consensus_notify::{
     notifier::ConsensusNotifier,
@@ -42,17 +43,14 @@ use spora_core::{
     task::tick::TickService,
     trace, warn,
 };
-use spora_index_core::indexed_utxos::BalanceByScriptPublicKey;
-use spora_index_core::{
-    connection::IndexChannelConnection, indexed_utxos::UtxoSetByScriptPublicKey, notification::Notification as IndexNotification,
-    notifier::IndexNotifier,
-};
+use spora_index_core::indexed_cells::{BalanceByScriptPublicKey, CellSetByScriptPublicKey, CompactCellCollection, CompactCellEntry};
+use spora_index_core::{connection::IndexChannelConnection, notification::Notification as IndexNotification, notifier::IndexNotifier};
 use spora_mining::feerate::FeeEstimateVerbose;
 use spora_mining::model::tx_query::TransactionQuery;
 use spora_mining::{manager::MiningManagerProxy, mempool::tx::Orphan};
 use spora_notify::listener::ListenerLifespan;
 use spora_notify::subscription::context::SubscriptionContext;
-use spora_notify::subscription::{MutationPolicies, UtxosChangedMutationPolicy};
+use spora_notify::subscription::{CellsChangedMutationPolicy, MutationPolicies};
 use spora_notify::{
     collector::DynCollector,
     connection::ChannelType,
@@ -66,7 +64,7 @@ use spora_p2p_flows::flow_context::FlowContext;
 use spora_p2p_lib::common::ProtocolError;
 use spora_p2p_mining::rule_engine::MiningRuleEngine;
 use spora_perf_monitor::{counters::CountersSnapshot, Monitor as PerfMonitor};
-use spora_rpc_core::utxo_map_into_rpc;
+use spora_rpc_core::cell_collection_into_rpc;
 use spora_rpc_core::{
     api::{
         connection::DynRpcConnection,
@@ -82,13 +80,6 @@ use spora_utils::expiring_cache::ExpiringCache;
 use spora_utils::sysinfo::SystemInfo;
 use spora_utils::{channel::Channel, triggers::SingleTrigger};
 use spora_utils_tower::counters::TowerConnectionCounters;
-// TODO(cell-model): UTXO index needs Cell model replacement
-// use spora_utxoindex::api::UtxoIndexProxy;
-// use spora_utxoindex::model::CompactUtxoCollection;
-
-// Temporary type aliases for compilation during Cell model migration
-type UtxoIndexProxy = ();
-type CompactUtxoCollection = Vec<u8>;
 use workflow_rpc::server::WebSocketCounters as WrpcServerCounters;
 
 /// A service implementing the Rpc API at spora_rpc_core level.
@@ -113,7 +104,7 @@ pub struct RpcCoreService {
     notifier: Arc<Notifier<Notification, ChannelConnection>>,
     mining_manager: MiningManagerProxy,
     flow_context: Arc<FlowContext>,
-    utxoindex: Option<UtxoIndexProxy>,
+    cellindex: Option<CellIndexProxy>,
     config: Arc<Config>,
     consensus_converter: Arc<ConsensusConverter>,
     index_converter: Arc<IndexConverter>,
@@ -146,7 +137,7 @@ impl RpcCoreService {
         mining_manager: MiningManagerProxy,
         flow_context: Arc<FlowContext>,
         subscription_context: SubscriptionContext,
-        utxoindex: Option<UtxoIndexProxy>,
+        cellindex: Option<CellIndexProxy>,
         config: Arc<Config>,
         core: Arc<Core>,
         processing_counters: Arc<ProcessingCounters>,
@@ -158,10 +149,11 @@ impl RpcCoreService {
         system_info: SystemInfo,
         mining_rule_engine: Arc<MiningRuleEngine>,
     ) -> Self {
-        // This notifier UTXOs subscription granularity to index-processor or consensus notifier
+        // This notifier uses the address-scoped mutation policy from the legacy
+        // notify framework, but the actual index feed is Cell-model based.
         let policies = match index_notifier {
-            Some(_) => MutationPolicies::new(UtxosChangedMutationPolicy::AddressSet),
-            None => MutationPolicies::new(UtxosChangedMutationPolicy::Wildcard),
+            Some(_) => MutationPolicies::new(CellsChangedMutationPolicy::AddressSet),
+            None => MutationPolicies::new(CellsChangedMutationPolicy::Wildcard),
         };
 
         // Prepare consensus-notify objects
@@ -173,8 +165,8 @@ impl RpcCoreService {
 
         // Prepare the rpc-core notifier objects
         let mut consensus_events: EventSwitches = EVENT_TYPE_ARRAY[..].into();
-        consensus_events[EventType::UtxosChanged] = false;
-        consensus_events[EventType::PruningPointUtxoSetOverride] = index_notifier.is_none();
+        consensus_events[EventType::CellsChanged] = false;
+        consensus_events[EventType::PruningPointCellSetOverride] = index_notifier.is_none();
         let consensus_converter = Arc::new(ConsensusConverter::new(consensus_manager.clone(), config.clone()));
         let consensus_collector = Arc::new(CollectorFromConsensus::new(
             "rpc-core <= consensus",
@@ -196,7 +188,7 @@ impl RpcCoreService {
                 ListenerLifespan::Static(policies),
             );
 
-            let index_events: EventSwitches = [EventType::UtxosChanged, EventType::PruningPointUtxoSetOverride].as_ref().into();
+            let index_events: EventSwitches = [EventType::CellsChanged, EventType::PruningPointCellSetOverride].as_ref().into();
             let index_collector =
                 Arc::new(CollectorFromIndex::new("rpc-core <= index", index_notify_channel.receiver(), index_converter.clone()));
             let index_subscriber =
@@ -218,7 +210,7 @@ impl RpcCoreService {
             notifier,
             mining_manager,
             flow_context,
-            utxoindex,
+            cellindex,
             config,
             consensus_converter,
             index_converter,
@@ -263,25 +255,92 @@ impl RpcCoreService {
         self.core_shutdown_request.listener.clone()
     }
 
-    async fn get_utxo_set_by_script_public_key(&self, _spk: ScriptPublicKey, _start: u64, _limit: u32) -> CompactUtxoCollection {
-        // TODO(cell-model): Implement Cell-based UTXO query
-        Vec::new() // Temporary stub
+    fn cellindex(&self) -> RpcResult<&CellIndexProxy> {
+        self.cellindex.as_ref().ok_or_else(|| RpcError::General("Cell index is not initialized".to_string()))
     }
 
-    async fn get_utxo_set_by_script_public_keys<'a>(
+    async fn get_cell_set_by_script_public_key(
         &self,
-        _addresses: impl Iterator<Item = &'a RpcAddress>,
-    ) -> UtxoSetByScriptPublicKey {
-        // TODO(cell-model): Implement Cell-based UTXO query by script public keys
-        UtxoSetByScriptPublicKey::default() // Temporary stub
+        spk: ScriptPublicKey,
+        start: u64,
+        limit: u32,
+    ) -> RpcResult<(CompactCellCollection, u64)> {
+        if limit == 0 {
+            return Ok((CompactCellCollection::default(), 0));
+        }
+
+        let query_limit = usize::try_from(start).unwrap_or(usize::MAX).saturating_add(limit as usize);
+        let result = self
+            .cellindex()?
+            .query(&CellQuery::by_lock(Self::compute_lock_hash(&spk), query_limit))
+            .map_err(|err| RpcError::General(format!("Cell index query failed: {err}")))?;
+
+        let start = usize::try_from(start).unwrap_or(usize::MAX);
+        let collection = result
+            .cells
+            .into_iter()
+            .skip(start)
+            .map(|(out_point, meta)| (Self::transaction_outpoint_from_exec(&out_point), Self::compact_cell_entry_from_meta(&meta)))
+            .collect();
+
+        Ok((collection, result.total_count as u64))
     }
 
     async fn get_balance_by_script_public_keys<'a>(
         &self,
-        _addresses: impl Iterator<Item = &'a RpcAddress>,
-    ) -> BalanceByScriptPublicKey {
-        // TODO(cell-model): Implement Cell-based balance query by script public keys
-        BalanceByScriptPublicKey::default() // Temporary stub
+        addresses: impl Iterator<Item = &'a RpcAddress>,
+    ) -> RpcResult<BalanceByScriptPublicKey> {
+        let mut balances = BalanceByScriptPublicKey::default();
+
+        for address in addresses {
+            let spk = pay_to_address_script(address);
+            let (cells, _) = self.get_cell_set_by_script_public_key(spk.clone(), 0, u32::MAX).await?;
+            let balance = cells.values().map(|entry| entry.amount).sum();
+            balances.insert(spk, balance);
+        }
+
+        Ok(balances)
+    }
+
+    async fn get_cell_set_by_script_public_keys<'a>(
+        &self,
+        addresses: impl Iterator<Item = &'a RpcAddress>,
+    ) -> RpcResult<CellSetByScriptPublicKey> {
+        let mut entry_map = CellSetByScriptPublicKey::default();
+
+        for address in addresses {
+            let spk = pay_to_address_script(address);
+            let (cells, _) = self.get_cell_set_by_script_public_key(spk.clone(), 0, u32::MAX).await?;
+            if !cells.is_empty() {
+                entry_map.insert(spk, cells);
+            }
+        }
+
+        Ok(entry_map)
+    }
+
+    fn compute_lock_hash(script_public_key: &ScriptPublicKey) -> [u8; 32] {
+        let mut hasher = Hasher::new();
+        hasher.update(b"spora-cell/lock");
+        hasher.update(&script_public_key.version().to_le_bytes());
+        hasher.update(script_public_key.script());
+        *hasher.finalize().as_bytes()
+    }
+
+    fn transaction_outpoint_from_exec(out_point: &spora_exec::OutPoint) -> TransactionOutpoint {
+        TransactionOutpoint::new(out_point.tx_hash.into(), out_point.index)
+    }
+
+    fn compact_cell_entry_from_meta(meta: &spora_state::index::CellMeta) -> CompactCellEntry {
+        CompactCellEntry::new(
+            meta.cell_output.capacity,
+            meta.cell_data.len() as u64,
+            meta.cell_output.lock.hash(),
+            meta.cell_output.type_.as_ref().map(|script| script.hash()),
+            *blake3::hash(&meta.cell_data).as_bytes(),
+            meta.daa_score,
+            meta.is_cellbase,
+        )
     }
 
     fn extract_tx_query(&self, filter_transaction_pool: bool, include_orphan_pool: bool) -> RpcResult<TransactionQuery> {
@@ -296,20 +355,18 @@ impl RpcCoreService {
     }
 
     fn sanity_check_storage_mass(&self, block: Block) {
-        // [Crescendo]: warn non updated miners to upgrade their rpc flow before Crescendo activation
-        if self.config.crescendo_activation.is_active(block.header.daa_score) {
-            return;
-        }
+        // Storage mass is always active
 
-        // It is sufficient to witness a single transaction with non default mass to conclude that miner rpc flow is correct
-        if block.transactions.iter().any(|tx| tx.mass() > 0) {
+        // It is sufficient to witness a single transaction with non-default storage mass
+        // to conclude that miner RPC flow is populating the commitment field correctly.
+        if block.transactions.iter().any(|tx| tx.storage_mass() > 0) {
             return;
         }
 
         // Iterate over non-coinbase transactions and search for a transaction which is proven to have positive storage mass
         for tx in block.transactions.iter().skip(1) {
             /*
-                Below we apply a workaround to compute a lower bound to the storage mass even without having full UTXO context (thus lacking input amounts).
+                Below we apply a workaround to compute a lower bound to the storage mass even without having full cell-entry context (thus lacking input amounts).
                 Notes:
                     1. We know that plurality is always 1 for std tx ins/outs (assuming the submitted block was built via the local std mempool).
                     2. The submitted block was accepted by consensus hence all transactions passed the basic in-isolation validity checks
@@ -327,12 +384,10 @@ impl RpcCoreService {
                 }
 
                 let avg_ins_lower = sum_outs / num_ins; // >= 1
-                                                        // TODO(cell-model): Update calc_storage_mass for Cell model
                 let storage_mass_lower = calc_storage_mass(
                     tx.is_coinbase(),
-                    tx.inputs.iter().map(|_| UtxoCell { plurality: 1, amount: avg_ins_lower }),
-                    // STUB: Cannot convert CellOut to UtxoCell directly, needs proper implementation
-                    std::iter::empty(), // tx.outputs.iter().map(|o| o.into()),
+                    tx.inputs.iter().map(|_| CellMass { plurality: 1, amount: avg_ins_lower }),
+                    tx.outputs.iter().zip(tx.outputs_data.iter()).map(|(output, data)| (output, data.len()).into()),
                     self.config.storage_mass_parameter,
                 )
                 .unwrap_or(u64::MAX);
@@ -341,8 +396,7 @@ impl RpcCoreService {
                 if storage_mass_lower > 0 {
                     warn!("The RPC submitted block {} contains a transaction {:?} with mass = 0 while it should have been strictly positive.
 This indicates that the RPC conversion flow used by the miner does not preserve the mass values received from GetBlockTemplate.
-You must upgrade your miner flow to propagate the mass field correctly prior to the Crescendo hardfork activation.
-Failure to do so will result in your blocks being considered invalid when Crescendo activates.",
+You must upgrade your miner flow to propagate the mass field correctly.",
                             block.hash(),
                             tx.id() // Use Debug formatting for [u8; 32]
                         );
@@ -387,11 +441,9 @@ impl RpcApi for RpcCoreService {
             // A simple heuristic check which signals that the mined block is out of date
             // and should not be accepted unless user explicitly requests
             //
-            // [Crescendo]: switch to the larger duration only after a full window with the new duration is reached post activation
             let difficulty_window_duration = self
                 .config
-                .difficulty_window_duration_in_block_units()
-                .get(virtual_daa_score.saturating_sub(self.config.difficulty_window_duration_in_block_units().after()));
+                .difficulty_window_duration_in_block_units();
             if virtual_daa_score > difficulty_window_duration
                 && block.header.daa_score < virtual_daa_score - difficulty_window_duration
             {
@@ -510,8 +562,8 @@ NOTE: This error usually indicates an RPC conversion error between the node and 
         request: GetTransactionRequest,
     ) -> RpcResult<GetTransactionResponse> {
         let session = self.consensus_manager.consensus().session().await;
-        let tx = session.async_get_transaction(request.hash).await?;
-        Ok(GetTransactionResponse { transaction: self.consensus_converter.get_transaction(&session, &tx, None, false) })
+        let tx = session.async_get_cell_transaction(request.hash).await?;
+        Ok(GetTransactionResponse { transaction: self.consensus_converter.get_cell_transaction(&session, &tx, None, false) })
     }
 
     async fn get_blocks_call(
@@ -541,7 +593,7 @@ NOTE: This error usually indicates an RPC conversion error between the node and 
 
         // We use +1 because low_hash is also returned
         // max_blocks MUST be >= mergeset_size_limit + 1
-        let max_blocks = self.config.mergeset_size_limit().upper_bound() as usize + 1;
+        let max_blocks = self.config.mergeset_size_limit() as usize + 1;
         let (block_hashes, high_hash) = session.async_get_hashes_between(low_hash, sink_hash, max_blocks).await?;
 
         // If the high hash is equal to sink it means get_hashes_between didn't skip any hashes, and
@@ -574,7 +626,7 @@ NOTE: This error usually indicates an RPC conversion error between the node and 
             p2p_id: self.flow_context.node_id.to_string(),
             mempool_size: self.mining_manager.transaction_count_sample(TransactionQuery::TransactionsOnly),
             server_version: version().to_string(),
-            is_utxo_indexed: self.config.utxoindex,
+            is_cell_indexed: self.config.cellindex,
             is_synced: self.mining_rule_engine.is_sink_recent_and_connected(sink_daa_score_timestamp),
             has_notify_command: true,
             has_message_id: true,
@@ -646,8 +698,8 @@ NOTE: This error usually indicates an RPC conversion error between the node and 
             debug!("SubmitTransaction RPC command called with AllowOrphan enabled while node in safe RPC mode -- switching to ForbidOrphan.");
         }
 
-        let transaction: Transaction = request.transaction.try_into()?;
-        let transaction_id = transaction.id();
+        let transaction: CellTx = request.transaction.try_into()?;
+        let transaction_id = transaction.id().into();
         let session = self.consensus_manager.consensus().unguarded_session();
         let orphan = match allow_orphan {
             true => Orphan::Allowed,
@@ -666,8 +718,8 @@ NOTE: This error usually indicates an RPC conversion error between the node and 
         _connection: Option<&DynRpcConnection>,
         request: SubmitTransactionReplacementRequest,
     ) -> RpcResult<SubmitTransactionReplacementResponse> {
-        let transaction: Transaction = request.transaction.try_into()?;
-        let transaction_id = transaction.id();
+        let transaction: CellTx = request.transaction.try_into()?;
+        let transaction_id = transaction.id().into();
         let session = self.consensus_manager.consensus().unguarded_session();
         let replaced_transaction =
             self.flow_context.submit_rpc_transaction_replacement(&session, transaction).await.map_err(|err| {
@@ -719,7 +771,7 @@ NOTE: This error usually indicates an RPC conversion error between the node and 
         // this bounds by number of merged blocks, if include_accepted_transactions = true
         // else it returns the batch_size amount on pure chain blocks.
         // Note: batch_size does not bound removed chain blocks, only added chain blocks.
-        let batch_size = (self.config.mergeset_size_limit().upper_bound() * 10) as usize;
+        let batch_size = (self.config.mergeset_size_limit() * 10) as usize;
         let mut virtual_chain_batch = session.async_get_virtual_chain_from_block(request.start_hash, Some(batch_size)).await?;
 
         // Apply min confirmation count filter if specified
@@ -763,32 +815,34 @@ NOTE: This error usually indicates an RPC conversion error between the node and 
         Ok(self.consensus_manager.consensus().unguarded_session().async_estimate_block_count().await)
     }
 
-    async fn get_utxos_by_address_call(
+    async fn get_cells_by_address_call(
         &self,
         _connection: Option<&DynRpcConnection>,
-        request: GetUtxosByAddressRequest,
-    ) -> RpcResult<GetUtxosByAddressResponse> {
-        let GetUtxosByAddressRequest { address, start, limit } = request;
-        let _spk = pay_to_address_script(&address);
-        let _utxo_collection = self.get_utxo_set_by_script_public_key(_spk.clone(), start, limit).await;
-        // TODO(cell-model): Implement proper Cell-based UTXO query and conversion
-        let entries = vec![]; // Temporary stub: return empty entries
-                              // TODO: Get total by rocksdb.estimate-num-keys
-        Ok(GetUtxosByAddressResponse { entries, total: 0 })
+        request: GetCellsByAddressRequest,
+    ) -> RpcResult<GetCellsByAddressResponse> {
+        if !self.config.cellindex {
+            return Err(RpcError::NoCellIndex);
+        }
+        let GetCellsByAddressRequest { address, start, limit } = request;
+        let spk = pay_to_address_script(&address);
+        let (cell_collection, total) = self.get_cell_set_by_script_public_key(spk.clone(), start, limit).await?;
+        let mut entries = cell_collection_into_rpc(&spk, &cell_collection);
+        entries.iter_mut().for_each(|entry| entry.address = Some(address.clone()));
+        Ok(GetCellsByAddressResponse::new(entries, total))
     }
 
-    async fn get_utxos_by_addresses_call(
+    async fn get_cells_by_addresses_call(
         &self,
         _connection: Option<&DynRpcConnection>,
-        request: GetUtxosByAddressesRequest,
-    ) -> RpcResult<GetUtxosByAddressesResponse> {
-        if !self.config.utxoindex {
-            return Err(RpcError::NoUtxoIndex);
+        request: GetCellsByAddressesRequest,
+    ) -> RpcResult<GetCellsByAddressesResponse> {
+        if !self.config.cellindex {
+            return Err(RpcError::NoCellIndex);
         }
         // TODO: discuss if the entry order is part of the method requirements
         //       (the current impl does not retain an entry order matching the request addresses order)
-        let entry_map = self.get_utxo_set_by_script_public_keys(request.addresses.iter()).await;
-        Ok(GetUtxosByAddressesResponse::new(self.index_converter.get_utxos_by_addresses_entries(&entry_map)))
+        let entry_map = self.get_cell_set_by_script_public_keys(request.addresses.iter()).await?;
+        Ok(GetCellsByAddressesResponse::new(self.index_converter.get_cells_by_addresses_entries(&entry_map)))
     }
 
     async fn get_balance_by_address_call(
@@ -796,10 +850,10 @@ NOTE: This error usually indicates an RPC conversion error between the node and 
         _connection: Option<&DynRpcConnection>,
         request: GetBalanceByAddressRequest,
     ) -> RpcResult<GetBalanceByAddressResponse> {
-        if !self.config.utxoindex {
-            return Err(RpcError::NoUtxoIndex);
+        if !self.config.cellindex {
+            return Err(RpcError::NoCellIndex);
         }
-        let entry_map = self.get_balance_by_script_public_keys(once(&request.address)).await;
+        let entry_map = self.get_balance_by_script_public_keys(once(&request.address)).await?;
         let balance = entry_map.values().sum();
         Ok(GetBalanceByAddressResponse::new(balance))
     }
@@ -809,10 +863,10 @@ NOTE: This error usually indicates an RPC conversion error between the node and 
         _connection: Option<&DynRpcConnection>,
         request: GetBalancesByAddressesRequest,
     ) -> RpcResult<GetBalancesByAddressesResponse> {
-        if !self.config.utxoindex {
-            return Err(RpcError::NoUtxoIndex);
+        if !self.config.cellindex {
+            return Err(RpcError::NoCellIndex);
         }
-        let entry_map = self.get_balance_by_script_public_keys(request.addresses.iter()).await;
+        let entry_map = self.get_balance_by_script_public_keys(request.addresses.iter()).await?;
         let entries = request
             .addresses
             .iter()
@@ -830,11 +884,13 @@ NOTE: This error usually indicates an RPC conversion error between the node and 
         _connection: Option<&DynRpcConnection>,
         _: GetCoinSupplyRequest,
     ) -> RpcResult<GetCoinSupplyResponse> {
-        if !self.config.utxoindex {
-            return Err(RpcError::NoUtxoIndex);
+        if !self.config.cellindex {
+            return Err(RpcError::NoCellIndex);
         }
-        // TODO(cell-model): Implement circulating supply calculation for Cell model
-        let circulating_sau = 0u64; // Temporary stub
+        let circulating_sau = self
+            .cellindex()?
+            .total_live_capacity()
+            .map_err(|err| RpcError::General(format!("Cell index supply query failed: {err}")))?;
         Ok(GetCoinSupplyResponse::new(MAX_SAU, circulating_sau))
     }
 
@@ -875,7 +931,7 @@ NOTE: This error usually indicates an RPC conversion error between the node and 
                 // For daa_score later than the last header, we estimate in milliseconds based on the difference
                 let time_adjustment = if header_idx == 0 {
                     // estimate milliseconds = (daa_score * target_time_per_block)
-                    (curr_daa_score - header.daa_score).saturating_mul(self.config.target_time_per_block().get(header.daa_score))
+                    (curr_daa_score - header.daa_score).saturating_mul(self.config.target_time_per_block())
                 } else {
                     // "next" header is the one that we processed last iteration
                     let next_header = &headers[header_idx - 1];
@@ -946,36 +1002,29 @@ NOTE: This error usually indicates an RPC conversion error between the node and 
         }
     }
 
-    async fn get_utxo_return_address_call(
+    async fn get_cell_return_address_call(
         &self,
         _connection: Option<&DynRpcConnection>,
-        request: GetUtxoReturnAddressRequest,
-    ) -> RpcResult<GetUtxoReturnAddressResponse> {
+        request: GetCellReturnAddressRequest,
+    ) -> RpcResult<GetCellReturnAddressResponse> {
         let session = self.consensus_manager.consensus().session().await;
 
-        match session.async_get_populated_transaction(request.txid, request.accepting_block_daa_score).await {
+        match session.async_get_resolved_cell_transaction(request.txid, request.accepting_block_daa_score).await {
             Ok(tx) => {
-                // TODO(cell-model): UTXO-specific logic, needs Cell model implementation
-                // Temporary stub: return error for all queries
-                return Err(RpcError::General("GetUtxoReturnAddress not yet implemented for Cell model".to_string()));
-
-                /* Original UTXO-based code:
-                if tx.tx.inputs.is_empty() || tx.entries.is_empty() {
-                    return Err(RpcError::UtxoReturnAddressNotFound(UtxoInquirerError::TxFromCoinbase));
+                if tx.tx.inputs.is_empty() {
+                    return Err(RpcError::General("GetCellReturnAddress is not available for coinbase transactions".to_string()));
                 }
 
-                if let Some(utxo_entry) = &tx.entries[0] {
-                    if let Ok(address) = extract_script_pub_key_address(&utxo_entry.script_public_key, self.config.prefix()) {
-                        Ok(GetUtxoReturnAddressResponse { return_address: address })
-                    } else {
-                        Err(RpcError::UtxoReturnAddressNotFound(UtxoInquirerError::NonStandard))
-                    }
+                if tx.resolved_input(0).is_some() {
+                    Err(RpcError::General(
+                        "GetCellReturnAddress resolved the first input via canonical Cell metadata only; no legacy address is available"
+                            .to_string(),
+                    ))
                 } else {
-                    Err(RpcError::UtxoReturnAddressNotFound(UtxoInquirerError::UnfilledUtxoEntry))
+                    Err(RpcError::General("GetCellReturnAddress could not resolve the first input".to_string()))
                 }
-                */
             }
-            Err(_error) => return Err(RpcError::General("GetUtxoReturnAddress not yet implemented for Cell model".to_string())),
+            Err(error) => Err(RpcError::General(format!("GetCellReturnAddress failed: {error}"))),
         }
     }
 
@@ -1031,8 +1080,8 @@ NOTE: This error usually indicates an RPC conversion error between the node and 
         if !self.config.unsafe_rpc && request.window_size > MAX_SAFE_WINDOW_SIZE {
             return Err(RpcError::WindowSizeExceedingMaximum(request.window_size, MAX_SAFE_WINDOW_SIZE));
         }
-        if request.window_size as u64 > self.config.pruning_depth().lower_bound() {
-            return Err(RpcError::WindowSizeExceedingPruningDepth(request.window_size, self.config.prior_pruning_depth));
+        if request.window_size as u64 > self.config.pruning_depth() {
+            return Err(RpcError::WindowSizeExceedingPruningDepth(request.window_size, self.config.pruning_depth()));
         }
 
         // In the previous golang implementation the convention for virtual was the following const.
@@ -1296,7 +1345,7 @@ NOTE: This error usually indicates an RPC conversion error between the node and 
             rpc_api_revision: RPC_API_REVISION,
             server_version: version().to_string(),
             network_id: self.config.net,
-            has_utxo_index: self.config.utxoindex,
+            has_cell_index: self.config.cellindex,
             is_synced,
             virtual_daa_score,
         })
@@ -1332,14 +1381,14 @@ NOTE: This error usually indicates an RPC conversion error between the node and 
     /// Start sending notifications of some type to a listener.
     async fn start_notify(&self, id: ListenerId, scope: Scope) -> RpcResult<()> {
         match scope {
-            Scope::UtxosChanged(ref utxos_changed_scope) if !self.config.unsafe_rpc && utxos_changed_scope.addresses.is_empty() => {
-                // The subscription to blanket UtxosChanged notifications is restricted to unsafe mode only
+            Scope::CellsChanged(ref cells_changed_scope) if !self.config.unsafe_rpc && cells_changed_scope.addresses.is_empty() => {
+                // The subscription to blanket CellsChanged notifications is restricted to unsafe mode only
                 // since the notifications yielded are highly resource intensive.
                 //
-                // Please note that unsubscribing to blanket UtxosChanged is always allowed and cancels
+                // Please note that unsubscribing to blanket CellsChanged is always allowed and cancels
                 // the whole subscription no matter if blanket or targeting specified addresses.
 
-                warn!("RPC subscription to blanket UtxosChanged called while node in safe RPC mode -- ignoring.");
+                warn!("RPC subscription to blanket CellsChanged called while node in safe RPC mode -- ignoring.");
                 Err(RpcError::UnavailableInSafeMode)
             }
             _ => {

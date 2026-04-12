@@ -52,7 +52,7 @@ cargo build --release --package spora-cli
 - `send <address> <amount>` - Send funds
 - `transfer <account> <amount>` - Transfer between accounts
 - `estimate <amount>` - Estimate fees
-- `sweep` - Consolidate UTXOs
+- `sweep` - Consolidate cells
 
 ### Network Operations
 - `network <name>` - Switch networks (mainnet, testnet-10, devnet)

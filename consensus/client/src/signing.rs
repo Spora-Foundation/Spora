@@ -12,7 +12,7 @@ use spora_consensus_core::tx::{TransactionOutpoint, TransactionOutput, Verifiabl
 // use spora_hashes::{Hash, Hasher, HasherBase, TransactionSigningHash};
 use crate::transaction::{Transaction,ITransaction};
 use crate::input::{ITransactionInput, TransactionInput};
-use crate::utxo::{IUtxoEntry,UtxoEntryReference};
+use crate::cell::{CellEntryReference, ICellEntry};
 use spora_hashes::{Hash, Hasher, HasherBase, TransactionSigningHash, TransactionSigningHashECDSA, ZERO_HASH};
 use spora_consensus_core::hashing::HasherExtensions;
 use spora_consensus_core::hashing::sighash::*;
@@ -155,7 +155,7 @@ impl SigHashCache {
 pub fn calc_schnorr_signature_hash(
     tx : ITransaction,
     input : ITransactionInput,
-    // utxo : IUtxoEntry,
+    // cell_entry : ICellEntry,
 //    verifiable_tx: &impl VerifiableTransaction,
     input_index: usize,
     // hash_type: SigHashType,
@@ -167,15 +167,15 @@ pub fn calc_schnorr_signature_hash(
     let input = TransactionInput::try_cast_from(input)?;
     // let input = TransactionInput::try_cast_from(input.as_ref())?;
 
-    // let utxo = input.
+    // let cell_entry = input.
 
-    let utxo = input.as_ref().utxo().ok_or(Error::MissingUtxoEntry)?;
+    let cell_entry = input.as_ref().cell_entry().ok_or(Error::MissingCellEntry)?;
 
-    // let utxo = UtxoEntryReference::try_cast_from(utxo.as_ref())?;
+    // let cell_entry = CellEntryReference::try_cast_from(cell_entry.as_ref())?;
 
     let tx = cctx::Transaction::from(tx.as_ref());
     let input = cctx::TransactionInput::from(input.as_ref());
-    let utxo = cctx::UtxoEntry::from(utxo.as_ref());
+    let cell_entry = cctx::CellEntry::from(cell_entry.as_ref());
 
     let hash_type = SIG_HASH_ALL;
     let reused_values = SigHashReusedValuesUnsync::new();
@@ -189,9 +189,9 @@ pub fn calc_schnorr_signature_hash(
         .update(sequences_hash(&tx, hash_type, &reused_values))
         .update(sig_op_counts_hash(&tx, hash_type, &reused_values));
     hash_outpoint(&mut hasher, input.previous_outpoint);
-    hash_script_public_key(&mut hasher, &utxo.script_public_key);
+    hash_script_public_key(&mut hasher, &cell_entry.script_public_key);
     hasher
-        .write_u64(utxo.amount)
+        .write_u64(cell_entry.amount)
         .write_u64(input.sequence)
         .write_u8(input.sig_op_count)
         .update(outputs_hash(&tx, hash_type, &reused_values, input_index))

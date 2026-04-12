@@ -1,31 +1,22 @@
 use async_trait::async_trait;
 use spora_consensus_core::config::Config;
-use spora_index_core::indexed_utxos::UtxoSetByScriptPublicKey;
-use spora_index_core::notification::{self as index_notify, Notification as IndexNotification};
+use spora_index_core::indexed_cells::CellSetByScriptPublicKey;
+use spora_index_core::notification::Notification as IndexNotification;
 use spora_notify::converter::Converter;
-use spora_rpc_core::{utxo_set_into_rpc, Notification, RpcUtxosByAddressesEntry, UtxosChangedNotification};
+use spora_rpc_core::{cell_set_into_rpc, Notification, RpcCellsByAddressesEntry};
 use std::sync::Arc;
 
 /// Conversion of consensus_core to rpc_core structures
 #[derive(Debug)]
-pub struct IndexConverter {
-    config: Arc<Config>,
-}
+pub struct IndexConverter;
 
 impl IndexConverter {
-    pub fn new(config: Arc<Config>) -> Self {
-        Self { config }
+    pub fn new(_config: Arc<Config>) -> Self {
+        Self
     }
 
-    pub fn get_utxo_changed_notification(&self, utxo_changed: index_notify::UtxosChangedNotification) -> UtxosChangedNotification {
-        UtxosChangedNotification {
-            added: Arc::new(self.get_utxos_by_addresses_entries(&utxo_changed.added)),
-            removed: Arc::new(self.get_utxos_by_addresses_entries(&utxo_changed.removed)),
-        }
-    }
-
-    pub fn get_utxos_by_addresses_entries(&self, item: &UtxoSetByScriptPublicKey) -> Vec<RpcUtxosByAddressesEntry> {
-        utxo_set_into_rpc(item, Some(self.config.prefix()))
+    pub fn get_cells_by_addresses_entries(&self, item: &CellSetByScriptPublicKey) -> Vec<RpcCellsByAddressesEntry> {
+        cell_set_into_rpc(item, None)
     }
 }
 
@@ -35,9 +26,6 @@ impl Converter for IndexConverter {
     type Outgoing = Notification;
 
     async fn convert(&self, incoming: IndexNotification) -> Notification {
-        match incoming {
-            index_notify::Notification::UtxosChanged(msg) => Notification::UtxosChanged(self.get_utxo_changed_notification(msg)),
-            _ => (&incoming).into(),
-        }
+        (&incoming).into()
     }
 }

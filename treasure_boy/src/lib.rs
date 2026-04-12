@@ -18,19 +18,21 @@ use serde::{Deserialize, Serialize};
 use spora_addresses::{Address, Prefix, Version};
 use spora_bip32::{DerivationPath, ExtendedPrivateKey, Language, Mnemonic, WordCount};
 use spora_consensus_core::{
-    constants::{SAU_PER_TONDI, TX_VERSION},
+    constants::SAU_PER_SPORA,
     sign::sign,
-    subnets::SUBNETWORK_ID_NATIVE,
-    tx::{MutableTransaction, Transaction, TransactionInput, TransactionOutpoint, TransactionOutput, UtxoEntry},
+    tx::{
+        compute_lock_hash_for_script, legacy_compat_transaction_from_cell_tx,
+        legacy_sequence_to_cell_since, CellEntry, CellOut, CellRef, CellTx, MutableTransaction, ScriptRef, Transaction, TransactionOutpoint,
+    },
 };
 use spora_core::{info, warn};
 use spora_grpc_client::GrpcClient;
-use spora_rpc_core::{api::rpc::RpcApi, RpcUtxoEntry};
+use spora_rpc_core::{api::rpc::RpcApi, RpcCellsByAddressesEntry};
 use spora_txscript::{htlc_script, pay_to_address_script, pay_to_address_with_lock_time_script};
 use tokio::time::Instant;
 
 /// Default amount to send per address in SAU (Smallest Atomic Unit)
-pub const DEFAULT_SEND_AMOUNT: u64 = SAU_PER_TONDI;
+pub const DEFAULT_SEND_AMOUNT: u64 = SAU_PER_SPORA;
 /// Base fee rate for transaction fees
 pub const FEE_RATE: u64 = 10;
 /// Milliseconds per tick for timing operations
@@ -74,10 +76,10 @@ impl RandGenWallet {
 pub struct Stats {
     /// Number of transactions processed
     pub num_txs: usize,
-    /// Number of UTXOs available
-    pub num_utxos: usize,
-    /// Total amount of UTXOs in SAU
-    pub utxos_amount: u64,
+    /// Number of cells available
+    pub num_cells: usize,
+    /// Total amount of cells in SAU
+    pub cells_amount: u64,
     /// Number of outputs generated
     pub num_outs: usize,
     /// Timestamp when stats were created
@@ -330,35 +332,35 @@ pub async fn single_airdrop(
 ) -> Result<Transaction, Box<dyn std::error::Error>> {
     info!("Starting single airdrop to: {}", String::from(&target_address));
 
-    // Get UTXOs
+    // Get live cells
     let from_address = Address::new(network.address_prefix(), ADDRESS_VERSION, &schnorr_key.x_only_public_key().0.serialize())?;
-    let rpc_utxos = rpc_client.get_utxos_by_addresses(vec![from_address.clone()]).await?;
+    let rpc_cells = rpc_client.get_cells_by_addresses(vec![from_address.clone()]).await?;
 
-    if rpc_utxos.is_empty() {
-        return Err("No UTXOs available for sending".into());
+    if rpc_cells.is_empty() {
+        return Err("No cells available for sending".into());
     }
 
-    // Convert UTXOs format
-    let utxos: Vec<(TransactionOutpoint, UtxoEntry)> =
-        rpc_utxos.into_iter().map(|entry| (entry.outpoint.into(), entry.utxo_entry.into())).collect();
+    // Convert cell format
+    let cells: Vec<(TransactionOutpoint, CellEntry)> =
+        rpc_cells.into_iter().map(|entry| (entry.outpoint.into(), entry.cell_entry.into())).collect();
 
-    // Select UTXOs
-    let mut next_available_utxo_index = 0;
-    let (selected_utxos, selected_amount) = select_utxos(
-        &utxos,
+    // Select cells
+    let mut next_available_cell_index = 0;
+    let (selected_cells, selected_amount) = select_cells(
+        &cells,
         amount,
         1, // Single airdrop has only one output
         false,
-        &mut next_available_utxo_index,
+        &mut next_available_cell_index,
         fee_config,
     );
 
-    if selected_utxos.is_empty() {
+    if selected_cells.is_empty() {
         return Err("Insufficient funds for transaction".into());
     }
 
     // Generate transaction
-    let tx = generate_multi_output_tx(schnorr_key, &selected_utxos, selected_amount, &[&target_address]);
+    let tx = generate_multi_output_tx(schnorr_key, &selected_cells, selected_amount, &[&target_address]);
 
     // Send transaction
     let tx_id = rpc_client.submit_transaction((&tx).into(), false).await?;
@@ -396,16 +398,16 @@ pub async fn batch_airdrop(
     // Create address distribution tracker
     let mut address_tracker = AddressDistributionTracker::new(target_addresses);
 
-    // Get UTXOs
+    // Get live cells
     let from_address = Address::new(network.address_prefix(), ADDRESS_VERSION, &schnorr_key.x_only_public_key().0.serialize())?;
-    let rpc_utxos = rpc_client.get_utxos_by_addresses(vec![from_address.clone()]).await?;
+    let rpc_cells = rpc_client.get_cells_by_addresses(vec![from_address.clone()]).await?;
 
-    // Convert UTXOs format
-    let utxos: Vec<(TransactionOutpoint, UtxoEntry)> =
-        rpc_utxos.into_iter().map(|entry| (entry.outpoint.into(), entry.utxo_entry.into())).collect();
+    // Convert cell format
+    let cells: Vec<(TransactionOutpoint, CellEntry)> =
+        rpc_cells.into_iter().map(|entry| (entry.outpoint.into(), entry.cell_entry.into())).collect();
 
-    if utxos.is_empty() {
-        return Err("No UTXOs available for sending".into());
+    if cells.is_empty() {
+        return Err("No cells available for sending".into());
     }
 
     // Calculate the number of transactions to send
@@ -416,7 +418,7 @@ pub async fn batch_airdrop(
 
     let mut successful_txs = Vec::new();
     let mut pending: HashMap<TransactionOutpoint, Instant> = HashMap::new();
-    let mut next_available_utxo_index = 0;
+    let mut next_available_cell_index = 0;
 
     // Set thread pool (ignore if already initialized)
     let _ = rayon::ThreadPoolBuilder::new().num_threads(threads).build_global();
@@ -439,17 +441,17 @@ pub async fn batch_airdrop(
         // Generate transactions sequentially to avoid mutable borrowing issues
         let mut txs = Vec::new();
         for (_, target_addresses) in (0..batch_txs as usize).zip(address_assignments.iter()) {
-            let (selected_utxos, selected_amount) = select_utxos(
-                &utxos,
+            let (selected_cells, selected_amount) = select_cells(
+                &cells,
                 amount_per_address * outputs_per_tx,
                 outputs_per_tx,
                 false,
-                &mut next_available_utxo_index,
+                &mut next_available_cell_index,
                 fee_config,
             );
 
-            if !selected_utxos.is_empty() {
-                let tx = generate_multi_output_tx(schnorr_key, &selected_utxos, selected_amount, target_addresses);
+            if !selected_cells.is_empty() {
+                let tx = generate_multi_output_tx(schnorr_key, &selected_cells, selected_amount, target_addresses);
                 txs.push(Some(tx));
             } else {
                 txs.push(None);
@@ -470,7 +472,7 @@ pub async fn batch_airdrop(
             }
         }
 
-        // Clean up used UTXOs
+        // Clean up used cells
         clean_old_pending_outpoints(&mut pending);
     }
 
@@ -523,47 +525,54 @@ pub fn ask_batch_count() -> Result<u32, Box<dyn std::error::Error>> {
     }
 }
 
-pub fn required_fee(num_utxos: usize, num_outs: u64) -> u64 {
-    FEE_RATE * estimated_mass(num_utxos, num_outs)
+pub fn required_fee(num_cells: usize, num_outs: u64) -> u64 {
+    FEE_RATE * estimated_mass(num_cells, num_outs)
 }
 
-pub fn estimated_mass(num_utxos: usize, num_outs: u64) -> u64 {
-    200 + 34 * num_outs + 1000 * (num_utxos as u64)
+pub fn estimated_mass(num_cells: usize, num_outs: u64) -> u64 {
+    200 + 34 * num_outs + 1000 * (num_cells as u64)
 }
 
 pub fn generate_tx(
     schnorr_key: Keypair,
-    utxos: &[(TransactionOutpoint, UtxoEntry)],
+    cells: &[(TransactionOutpoint, CellEntry)],
     send_amount: u64,
     num_outs: u64,
     spora_addr: &Address,
 ) -> Transaction {
     let script_public_key = pay_to_address_script(spora_addr);
-    let inputs = utxos
+    let inputs = cells
         .iter()
-        .map(|(op, _)| TransactionInput { previous_outpoint: *op, signature_script: vec![], sequence: 0, sig_op_count: 1 })
+        .map(|(op, _)| CellRef::new(*op, legacy_sequence_to_cell_since(0)))
         .collect_vec();
 
     let outputs = (0..num_outs)
-        .map(|_| TransactionOutput { value: send_amount / num_outs, script_public_key: script_public_key.clone() })
+        .map(|_| CellOut {
+            lock: ScriptRef::new(
+                compute_lock_hash_for_script(&script_public_key),
+                0,
+                script_public_key.script().to_vec(),
+            ),
+            type_: None,
+            capacity: send_amount / num_outs,
+        })
         .collect_vec();
-    let unsigned_tx = Transaction::new_non_finalized(TX_VERSION, inputs, outputs, 0, SUBNETWORK_ID_NATIVE, 0, vec![]);
+    let unsigned_tx = CellTx::new(inputs, vec![], outputs, vec![vec![]; num_outs as usize], vec![vec![]; cells.len()])
+        .expect("treasure_boy generated transaction must be Cell-constructible");
     let signed_tx =
-        sign(MutableTransaction::with_entries(unsigned_tx, utxos.iter().map(|(_, entry)| entry.clone()).collect_vec()), schnorr_key);
-    let mut final_tx = signed_tx.tx;
-    final_tx.finalize();
-    final_tx
+        sign(MutableTransaction::with_entries(unsigned_tx, cells.iter().map(|(_, entry)| entry.clone()).collect_vec()), schnorr_key);
+    legacy_compat_transaction_from_cell_tx(&signed_tx.tx)
 }
 
 pub fn generate_multi_output_tx(
     schnorr_key: Keypair,
-    utxos: &[(TransactionOutpoint, UtxoEntry)],
+    cells: &[(TransactionOutpoint, CellEntry)],
     send_amount: u64,
     target_addresses: &[&Address],
 ) -> Transaction {
-    let inputs = utxos
+    let inputs = cells
         .iter()
-        .map(|(op, _)| TransactionInput { previous_outpoint: *op, signature_script: vec![], sequence: 0, sig_op_count: 1 })
+        .map(|(op, _)| CellRef::new(*op, legacy_sequence_to_cell_since(0)))
         .collect_vec();
 
     // Create an output for each target address
@@ -571,34 +580,47 @@ pub fn generate_multi_output_tx(
         .iter()
         .map(|addr| {
             let script_public_key = pay_to_address_script(addr);
-            TransactionOutput { value: send_amount / target_addresses.len() as u64, script_public_key }
+            CellOut {
+                lock: ScriptRef::new(
+                    compute_lock_hash_for_script(&script_public_key),
+                    0,
+                    script_public_key.script().to_vec(),
+                ),
+                type_: None,
+                capacity: send_amount / target_addresses.len() as u64,
+            }
         })
         .collect_vec();
 
-    let unsigned_tx = Transaction::new_non_finalized(TX_VERSION, inputs, outputs, 0, SUBNETWORK_ID_NATIVE, 0, vec![]);
+    let unsigned_tx = CellTx::new(
+        inputs,
+        vec![],
+        outputs,
+        vec![vec![]; target_addresses.len()],
+        vec![vec![]; cells.len()],
+    )
+    .expect("treasure_boy generated transaction must be Cell-constructible");
     let signed_tx =
-        sign(MutableTransaction::with_entries(unsigned_tx, utxos.iter().map(|(_, entry)| entry.clone()).collect_vec()), schnorr_key);
-    let mut final_tx = signed_tx.tx;
-    final_tx.finalize();
-    final_tx
+        sign(MutableTransaction::with_entries(unsigned_tx, cells.iter().map(|(_, entry)| entry.clone()).collect_vec()), schnorr_key);
+    legacy_compat_transaction_from_cell_tx(&signed_tx.tx)
 }
 
-pub fn select_utxos(
-    utxos: &[(TransactionOutpoint, UtxoEntry)],
+pub fn select_cells(
+    cells: &[(TransactionOutpoint, CellEntry)],
     min_amount: u64,
     num_outs: u64,
-    maximize_utxos: bool,
-    next_available_utxo_index: &mut usize,
+    maximize_cells: bool,
+    next_available_cell_index: &mut usize,
     fee_config: &TxsFeeConfig,
-) -> (Vec<(TransactionOutpoint, UtxoEntry)>, u64) {
-    const MAX_UTXOS: usize = 84;
+) -> (Vec<(TransactionOutpoint, CellEntry)>, u64) {
+    const MAX_CELLS: usize = 84;
     let mut selected_amount: u64 = 0;
     let mut selected = Vec::new();
     let mut rng = thread_rng();
 
-    while *next_available_utxo_index < utxos.len() {
-        let (outpoint, entry) = utxos[*next_available_utxo_index].clone();
-        selected_amount += entry.amount;
+    while *next_available_cell_index < cells.len() {
+        let (outpoint, entry) = cells[*next_available_cell_index].clone();
+        selected_amount += entry.amount();
         selected.push((outpoint, entry));
 
         let fee = required_fee(selected.len(), num_outs);
@@ -608,13 +630,13 @@ pub fn select_utxos(
             fee_config.priority_fee
         };
 
-        *next_available_utxo_index += 1;
+        *next_available_cell_index += 1;
 
-        if selected_amount >= min_amount + fee + priority_fee && (!maximize_utxos || selected.len() == MAX_UTXOS) {
+        if selected_amount >= min_amount + fee + priority_fee && (!maximize_cells || selected.len() == MAX_CELLS) {
             return (selected, selected_amount - fee - priority_fee);
         }
 
-        if selected.len() > MAX_UTXOS {
+        if selected.len() > MAX_CELLS {
             return (vec![], 0);
         }
     }
@@ -622,13 +644,13 @@ pub fn select_utxos(
     (vec![], 0)
 }
 
-pub fn is_utxo_spendable(entry: &RpcUtxoEntry, virtual_daa_score: u64, coinbase_maturity: u64) -> bool {
-    let needed_confs = if !entry.is_coinbase {
+pub fn is_cell_spendable(entry: &RpcCellsByAddressesEntry, virtual_daa_score: u64, coinbase_maturity: u64) -> bool {
+    let needed_confs = if !entry.cell_entry.is_coinbase {
         10
     } else {
         coinbase_maturity * 2 // TODO: We should compare with sink blue score in the case of coinbase
     };
-    entry.block_daa_score + needed_confs < virtual_daa_score
+    entry.cell_entry.block_daa_score + needed_confs < virtual_daa_score
 }
 
 pub fn clean_old_pending_outpoints(pending: &mut HashMap<TransactionOutpoint, Instant>) {
@@ -691,7 +713,7 @@ pub fn generate_tlc_script(
 ///
 /// # Arguments
 /// * `schnorr_key` - The private key for signing the transaction
-/// * `utxos` - Available UTXOs for the transaction
+/// * `cells` - Available cells for the transaction
 /// * `send_amount` - Amount to send per address in SAU
 /// * `target_addresses` - List of addresses to send TLC outputs to
 /// * `tlc_config` - TLC configuration for the outputs
@@ -701,14 +723,14 @@ pub fn generate_tlc_script(
 /// * `Err(Box<dyn std::error::Error>)` - If transaction generation fails
 pub fn generate_tlc_airdrop_tx(
     schnorr_key: Keypair,
-    utxos: &[(TransactionOutpoint, UtxoEntry)],
+    cells: &[(TransactionOutpoint, CellEntry)],
     send_amount: u64,
     target_addresses: &[&Address],
     tlc_config: &TlcAirdropConfig,
 ) -> Result<Transaction, Box<dyn std::error::Error>> {
-    let inputs = utxos
+    let inputs = cells
         .iter()
-        .map(|(op, _)| TransactionInput { previous_outpoint: *op, signature_script: vec![], sequence: 0, sig_op_count: 1 })
+        .map(|(op, _)| CellRef::new(*op, legacy_sequence_to_cell_since(0)))
         .collect_vec();
 
     // Create TLC outputs for each target address
@@ -716,18 +738,31 @@ pub fn generate_tlc_airdrop_tx(
         .iter()
         .map(|addr| {
             let script_public_key = generate_tlc_script(addr, tlc_config)?;
-            Ok(TransactionOutput { value: send_amount / target_addresses.len() as u64, script_public_key })
+            Ok(CellOut {
+                lock: ScriptRef::new(
+                    compute_lock_hash_for_script(&script_public_key),
+                    0,
+                    script_public_key.script().to_vec(),
+                ),
+                type_: None,
+                capacity: send_amount / target_addresses.len() as u64,
+            })
         })
         .collect::<Result<Vec<_>, Box<dyn std::error::Error>>>()?;
 
-    let unsigned_tx = Transaction::new_non_finalized(TX_VERSION, inputs, outputs, 0, SUBNETWORK_ID_NATIVE, 0, vec![]);
+    let unsigned_tx = CellTx::new(
+        inputs,
+        vec![],
+        outputs,
+        vec![vec![]; target_addresses.len()],
+        vec![vec![]; cells.len()],
+    )
+    .expect("treasure_boy generated transaction must be Cell-constructible");
 
     let signed_tx =
-        sign(MutableTransaction::with_entries(unsigned_tx, utxos.iter().map(|(_, entry)| entry.clone()).collect_vec()), schnorr_key);
+        sign(MutableTransaction::with_entries(unsigned_tx, cells.iter().map(|(_, entry)| entry.clone()).collect_vec()), schnorr_key);
 
-    let mut final_tx = signed_tx.tx;
-    final_tx.finalize();
-    Ok(final_tx)
+    Ok(legacy_compat_transaction_from_cell_tx(&signed_tx.tx))
 }
 
 /// Perform TLC airdrop to multiple addresses
@@ -765,16 +800,16 @@ pub async fn tlc_airdrop(
     // Create address distribution tracker
     let mut address_tracker = AddressDistributionTracker::new(target_addresses);
 
-    // Get UTXOs
+    // Get live cells
     let from_address = Address::new(network.address_prefix(), ADDRESS_VERSION, &schnorr_key.x_only_public_key().0.serialize())?;
-    let rpc_utxos = rpc_client.get_utxos_by_addresses(vec![from_address.clone()]).await?;
+    let rpc_cells = rpc_client.get_cells_by_addresses(vec![from_address.clone()]).await?;
 
-    // Convert UTXOs format
-    let utxos: Vec<(TransactionOutpoint, UtxoEntry)> =
-        rpc_utxos.into_iter().map(|entry| (entry.outpoint.into(), entry.utxo_entry.into())).collect();
+    // Convert cell format
+    let cells: Vec<(TransactionOutpoint, CellEntry)> =
+        rpc_cells.into_iter().map(|entry| (entry.outpoint.into(), entry.cell_entry.into())).collect();
 
-    if utxos.is_empty() {
-        return Err("No UTXOs available for sending".into());
+    if cells.is_empty() {
+        return Err("No cells available for sending".into());
     }
 
     // Calculate the number of transactions to send
@@ -784,7 +819,7 @@ pub async fn tlc_airdrop(
     info!("Need to send {} transactions with {} TLC outputs each", txs_needed, outputs_per_tx);
 
     let mut successful_txs = Vec::new();
-    let mut next_available_utxo_index = 0;
+    let mut next_available_cell_index = 0;
 
     // Set thread pool
     let _ = rayon::ThreadPoolBuilder::new().num_threads(threads).build_global();
@@ -807,17 +842,17 @@ pub async fn tlc_airdrop(
         // Generate transactions sequentially
         let mut txs = Vec::new();
         for (_, target_addresses) in (0..batch_txs as usize).zip(address_assignments.iter()) {
-            let (selected_utxos, selected_amount) = select_utxos(
-                &utxos,
+            let (selected_cells, selected_amount) = select_cells(
+                &cells,
                 amount_per_address * outputs_per_tx,
                 outputs_per_tx,
                 false,
-                &mut next_available_utxo_index,
+                &mut next_available_cell_index,
                 fee_config,
             );
 
-            if !selected_utxos.is_empty() {
-                let tx = generate_tlc_airdrop_tx(schnorr_key, &selected_utxos, selected_amount, target_addresses, tlc_config)?;
+            if !selected_cells.is_empty() {
+                let tx = generate_tlc_airdrop_tx(schnorr_key, &selected_cells, selected_amount, target_addresses, tlc_config)?;
                 txs.push(Some(tx));
             } else {
                 txs.push(None);
@@ -1009,17 +1044,17 @@ mod tests {
         let addr =
             Address::new(Prefix::Devnet, Version::PubKey, &public_key.x_only_public_key().0.serialize()).expect("Valid address");
 
-        let utxos = vec![(
+        let cells = vec![(
             TransactionOutpoint { transaction_id: spora_consensus_core::Hash::from_bytes([0xFF; 32]), index: 0 },
-            UtxoEntry {
-                amount: 1000000,
-                script_public_key: spora_consensus_core::tx::ScriptPublicKey::from_vec(0, vec![0xff; 35]),
-                block_daa_score: 1000,
-                is_coinbase: false,
-            },
+            cell_meta_from_legacy_output(
+                1000000,
+                &spora_consensus_core::tx::ScriptPublicKey::from_vec(0, vec![0xff; 35]),
+                1000,
+                false,
+            ),
         )];
 
-        let tx = generate_tx(keypair, &utxos, 100000, 2, &addr);
+        let tx = generate_tx(keypair, &cells, 100000, 2, &addr);
 
         assert_eq!(tx.inputs.len(), 1);
         assert_eq!(tx.outputs.len(), 2);
@@ -1035,18 +1070,18 @@ mod tests {
             Address::new(Prefix::Devnet, Version::PubKey, &public_key.x_only_public_key().0.serialize()).expect("Valid address");
         let addr2 = Address::new(Prefix::Devnet, Version::PubKey, &[0x42; 32]).expect("Valid address");
 
-        let utxos = vec![(
+        let cells = vec![(
             TransactionOutpoint { transaction_id: spora_consensus_core::Hash::from_bytes([0xFF; 32]), index: 0 },
-            UtxoEntry {
-                amount: 1000000,
-                script_public_key: spora_consensus_core::tx::ScriptPublicKey::from_vec(0, vec![0xff; 35]),
-                block_daa_score: 1000,
-                is_coinbase: false,
-            },
+            cell_meta_from_legacy_output(
+                1000000,
+                &spora_consensus_core::tx::ScriptPublicKey::from_vec(0, vec![0xff; 35]),
+                1000,
+                false,
+            ),
         )];
 
         let target_addresses = vec![&addr1, &addr2];
-        let tx = generate_multi_output_tx(keypair, &utxos, 100000, &target_addresses);
+        let tx = generate_multi_output_tx(keypair, &cells, 100000, &target_addresses);
 
         assert_eq!(tx.inputs.len(), 1);
         assert_eq!(tx.outputs.len(), 2);
@@ -1055,32 +1090,32 @@ mod tests {
     }
 
     #[test]
-    fn test_select_utxos() {
-        let utxos = vec![
+    fn test_select_cells() {
+        let cells = vec![
             (
                 TransactionOutpoint { transaction_id: spora_consensus_core::Hash::from_bytes([0x01; 32]), index: 0 },
-                UtxoEntry {
-                    amount: 100000,
-                    script_public_key: spora_consensus_core::tx::ScriptPublicKey::from_vec(0, vec![0xff; 35]),
-                    block_daa_score: 1000,
-                    is_coinbase: false,
-                },
+                cell_meta_from_legacy_output(
+                    100000,
+                    &spora_consensus_core::tx::ScriptPublicKey::from_vec(0, vec![0xff; 35]),
+                    1000,
+                    false,
+                ),
             ),
             (
                 TransactionOutpoint { transaction_id: spora_consensus_core::Hash::from_bytes([0x02; 32]), index: 0 },
-                UtxoEntry {
-                    amount: 200000,
-                    script_public_key: spora_consensus_core::tx::ScriptPublicKey::from_vec(0, vec![0xff; 35]),
-                    block_daa_score: 1000,
-                    is_coinbase: false,
-                },
+                cell_meta_from_legacy_output(
+                    200000,
+                    &spora_consensus_core::tx::ScriptPublicKey::from_vec(0, vec![0xff; 35]),
+                    1000,
+                    false,
+                ),
             ),
         ];
 
         let fee_config = TxsFeeConfig { priority_fee: 0, randomize_fee: false };
 
         let mut index = 0;
-        let (selected, amount) = select_utxos(&utxos, 50000, 1, false, &mut index, &fee_config);
+        let (selected, amount) = select_cells(&cells, 50000, 1, false, &mut index, &fee_config);
 
         assert!(!selected.is_empty());
         assert!(amount > 0);
@@ -1088,31 +1123,35 @@ mod tests {
     }
 
     #[test]
-    fn test_is_utxo_spendable() {
-        let mut entry = RpcUtxoEntry {
-            amount: 100000,
-            script_public_key: spora_consensus_core::tx::ScriptPublicKey::from_vec(0, vec![0xff; 35]),
-            block_daa_score: 1000,
-            is_coinbase: false,
+    fn test_is_cell_spendable() {
+        let mut entry = RpcCellsByAddressesEntry {
+            address: None,
+            outpoint: TransactionOutpoint::default().into(),
+            cell_entry: spora_rpc_core::RpcCellEntry {
+                amount: 100000,
+                script_public_key: spora_consensus_core::tx::ScriptPublicKey::from_vec(0, vec![0xff; 35]),
+                block_daa_score: 1000,
+                is_coinbase: false,
+            },
         };
 
-        // Test non-coinbase UTXO
+        // Test non-coinbase cell
         // block_daa_score: 1000, needed_confs: 10, virtual_daa_score: 1020
         // 1000 + 10 = 1010 < 1020, so it should be spendable
-        assert!(is_utxo_spendable(&entry, 1020, 100)); // Confirmation sufficient
+        assert!(is_cell_spendable(&entry, 1020, 100)); // Confirmation sufficient
 
-        entry.block_daa_score = 1015;
+        entry.cell_entry.block_daa_score = 1015;
         // block_daa_score: 1015, needed_confs: 10, virtual_daa_score: 1020
         // 1015 + 10 = 1025 > 1020, so it should not be spendable
-        assert!(!is_utxo_spendable(&entry, 1020, 100)); // Confirmation insufficient
+        assert!(!is_cell_spendable(&entry, 1020, 100)); // Confirmation insufficient
 
-        // Test coinbase UTXO
-        entry.is_coinbase = true;
-        entry.block_daa_score = 1000;
+        // Test coinbase cell
+        entry.cell_entry.is_coinbase = true;
+        entry.cell_entry.block_daa_score = 1000;
         // coinbase needs coinbase_maturity * 2 = 200 confirmations
         // 1000 + 200 = 1200, so virtual_daa_score needs > 1200
-        assert!(is_utxo_spendable(&entry, 1201, 100)); // Need coinbase_maturity * 2 confirmations
-        assert!(!is_utxo_spendable(&entry, 1200, 100)); // Confirmation insufficient
+        assert!(is_cell_spendable(&entry, 1201, 100)); // Need coinbase_maturity * 2 confirmations
+        assert!(!is_cell_spendable(&entry, 1200, 100)); // Confirmation insufficient
     }
 
     #[test]
@@ -1290,9 +1329,9 @@ mod tests {
             Address::new(Prefix::Devnet, Version::PubKey, &public_key.x_only_public_key().0.serialize()).expect("Valid address");
         let addr2 = Address::new(Prefix::Devnet, Version::PubKey, &[0x42; 32]).expect("Valid address");
 
-        let utxos = vec![(
+        let cells = vec![(
             TransactionOutpoint { transaction_id: spora_consensus_core::Hash::from_bytes([0xFF; 32]), index: 0 },
-            UtxoEntry {
+            CellEntry {
                 amount: 1000000,
                 script_public_key: spora_consensus_core::tx::ScriptPublicKey::from_vec(0, vec![0xff; 35]),
                 block_daa_score: 1000,
@@ -1304,7 +1343,7 @@ mod tests {
             TlcAirdropConfig { lock_time: 1756684800, is_timestamp: true, secret: None, recipient_pubkey: None, sender_pubkey: None };
 
         let target_addresses = vec![&addr1, &addr2];
-        let result = generate_tlc_airdrop_tx(keypair, &utxos, 100000, &target_addresses, &tlc_config);
+        let result = generate_tlc_airdrop_tx(keypair, &cells, 100000, &target_addresses, &tlc_config);
 
         assert!(result.is_ok(), "TLC airdrop transaction generation should succeed");
 

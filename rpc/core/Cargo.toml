@@ -34,6 +34,7 @@ spora-rpc-macros.workspace = true
 async-channel.workspace = true
 async-trait.workspace = true
 borsh.workspace = true
+blake3.workspace = true
 cfg-if.workspace = true
 derive_more.workspace = true
 downcast.workspace = true

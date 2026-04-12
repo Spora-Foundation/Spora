@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: ISC
-// Copyright (C) 2025 Spora developers
+// Copyright (C) 2026 Spora developers
 //
 // Cell transaction script verifier
 // Reference: ckb/script/src/verify.rs
 
-use super::error::{ScriptError, ScriptResult, VMError};
+use super::error::{ScriptError, ScriptResult};
 use super::machine::{run_script, Machine, ScriptVersion, VmContext};
-use super::syscalls::LoadTx;
-use crate::celltx::{CellTx, ScriptRef};
+use crate::celltx::{CellOut, CellTx, ScriptRef};
 use ckb_vm::{DefaultMachineRunner, Syscalls};
+use rayon::prelude::*;
 use std::sync::Arc;
 
 /// Script group type
@@ -33,13 +33,38 @@ pub struct ScriptGroup {
     pub output_indices: Vec<usize>,
 }
 
+/// Fully resolved cell contents available to the VM runtime.
+#[derive(Debug, Clone)]
+pub struct ResolvedCell {
+    /// Full cell output structure.
+    pub cell_output: CellOut,
+    /// Optional associated cell data.
+    pub data: Option<Vec<u8>>,
+}
+
+/// Fully resolved header contents available to the VM runtime.
+#[derive(Debug, Clone)]
+pub struct ResolvedHeader {
+    /// Header hash.
+    pub hash: [u8; 32],
+    /// Timestamp in milliseconds.
+    pub timestamp: u64,
+    /// DAA score.
+    pub daa_score: u64,
+    /// Direct parent hashes.
+    pub parents: Vec<[u8; 32]>,
+}
+
 /// Cell data provider trait (for loading cell data)
-pub trait CellDataProvider {
+pub trait CellDataProvider: Send + Sync + 'static {
     /// Load cell data by script code hash
     fn load_cell_data(&self, code_hash: &[u8; 32]) -> Option<Vec<u8>>;
 
-    /// Load cell by outpoint (for deps)
-    fn load_cell_by_outpoint(&self, tx_hash: &[u8; 32], index: u32) -> Option<Vec<u8>>;
+    /// Load a fully resolved cell by outpoint.
+    fn load_cell_by_outpoint(&self, tx_hash: &[u8; 32], index: u32) -> Option<ResolvedCell>;
+
+    /// Load a fully resolved header by hash.
+    fn load_header(&self, hash: &[u8; 32]) -> Option<ResolvedHeader>;
 }
 
 /// Transaction script verifier
@@ -78,31 +103,51 @@ impl<D: CellDataProvider> TransactionScriptVerifier<D> {
     }
 
     /// Extract script groups from transaction
-    pub fn extract_script_groups(&self) -> Vec<ScriptGroup> {
-        use std::collections::HashMap;
+    pub fn extract_script_groups(&self) -> ScriptResult<Vec<ScriptGroup>> {
+        use std::collections::BTreeMap;
 
-        let mut lock_groups: HashMap<[u8; 32], ScriptGroup> = HashMap::new();
-        let mut type_groups: HashMap<[u8; 32], ScriptGroup> = HashMap::new();
+        let mut lock_groups: BTreeMap<[u8; 32], ScriptGroup> = BTreeMap::new();
+        let mut type_groups: BTreeMap<[u8; 32], ScriptGroup> = BTreeMap::new();
 
-        // Group inputs by lock script
-        // Note: In Cell model, we need to resolve inputs to get their lock scripts
-        // For now, we'll work with outputs which we have direct access to
-        for (i, output) in self.tx.outputs.iter().enumerate() {
-            let lock_hash = output.lock.hash();
+        // Lock scripts execute against resolved input cells.
+        for (i, input) in self.tx.inputs.iter().enumerate() {
+            let resolved =
+                self.data_provider.load_cell_by_outpoint(&input.out_point.tx_hash, input.out_point.index).ok_or_else(|| {
+                    ScriptError::VM(super::error::VMError::ItemMissing(format!(
+                        "missing resolved input cell {:02x?}:{}",
+                        input.out_point.tx_hash, input.out_point.index
+                    )))
+                })?;
+            let lock_hash = resolved.cell_output.lock.hash();
 
             lock_groups
                 .entry(lock_hash)
                 .or_insert_with(|| ScriptGroup {
-                    script: output.lock.clone(),
+                    script: resolved.cell_output.lock.clone(),
                     group_type: ScriptGroupType::Lock,
                     input_indices: vec![],
                     output_indices: vec![],
                 })
-                .output_indices
+                .input_indices
                 .push(i);
+
+            if let Some(ref type_script) = resolved.cell_output.type_ {
+                let type_hash = type_script.hash();
+
+                type_groups
+                    .entry(type_hash)
+                    .or_insert_with(|| ScriptGroup {
+                        script: type_script.clone(),
+                        group_type: ScriptGroupType::Type,
+                        input_indices: vec![],
+                        output_indices: vec![],
+                    })
+                    .input_indices
+                    .push(i);
+            }
         }
 
-        // Group by type script
+        // Type scripts execute over both consumed and created cells.
         for (i, output) in self.tx.outputs.iter().enumerate() {
             if let Some(ref type_script) = output.type_ {
                 let type_hash = type_script.hash();
@@ -120,24 +165,32 @@ impl<D: CellDataProvider> TransactionScriptVerifier<D> {
             }
         }
 
-        // Combine all groups
-        lock_groups.into_values().chain(type_groups.into_values()).collect()
+        Ok(lock_groups.into_values().chain(type_groups.into_values()).collect())
     }
 
     /// Verify all scripts in the transaction
     pub fn verify(&self) -> ScriptResult<()> {
-        let script_groups = self.extract_script_groups();
+        self.verify_with_cycles().map(|_| ())
+    }
 
-        // Verify each script group
-        for group in script_groups {
-            self.verify_script_group(&group)?;
-        }
+    /// Verify all scripts in the transaction and return the total consumed cycles.
+    pub fn verify_with_cycles(&self) -> ScriptResult<u64> {
+        let script_groups = self.extract_script_groups()?;
+        let group_results: Vec<ScriptResult<u64>> = script_groups.par_iter().map(|group| self.verify_script_group(group)).collect();
 
-        Ok(())
+        // Keep error selection deterministic by folding results in the stable
+        // script-group order produced by extract_script_groups.
+        group_results
+            .into_iter()
+            .try_fold(0u64, |total_cycles, group_cycles| group_cycles.map(|cycles| total_cycles.saturating_add(cycles)))
     }
 
     /// Verify a single script group
-    fn verify_script_group(&self, group: &ScriptGroup) -> ScriptResult<()> {
+    fn verify_script_group(&self, group: &ScriptGroup) -> ScriptResult<u64> {
+        if group.script.hash_type != 0 {
+            return Err(ScriptError::InvalidHashType(group.script.hash_type));
+        }
+
         // Load script code from data provider
         let script_code = self
             .data_provider
@@ -158,7 +211,7 @@ impl<D: CellDataProvider> TransactionScriptVerifier<D> {
 
         log::debug!("Script group {:?} verified successfully, cycles: {}", group.group_type, cycles);
 
-        Ok(())
+        Ok(cycles)
     }
 
     /// Build syscalls for a script group
@@ -171,12 +224,22 @@ impl<D: CellDataProvider> TransactionScriptVerifier<D> {
         // Compute tx hash using our sighash function
         let tx_hash = crate::celltx::compute_txid(&self.tx);
         syscalls.push(Box::new(LoadTx::new(tx_hash)));
-        syscalls.push(Box::new(LoadCell::new(Arc::clone(&self.tx), group.input_indices.clone(), group.output_indices.clone())));
-        syscalls.push(Box::new(LoadCellData::new(Arc::clone(&self.tx), group.output_indices.clone())));
+        syscalls.push(Box::new(LoadCell::new(
+            Arc::clone(&self.tx),
+            Arc::clone(&self.data_provider),
+            group.input_indices.clone(),
+            group.output_indices.clone(),
+        )));
+        syscalls.push(Box::new(LoadCellData::new(
+            Arc::clone(&self.tx),
+            Arc::clone(&self.data_provider),
+            group.input_indices.clone(),
+            group.output_indices.clone(),
+        )));
         syscalls.push(Box::new(LoadInput::new(Arc::clone(&self.tx), group.input_indices.clone())));
         syscalls.push(Box::new(LoadWitness::new(Arc::clone(&self.tx), group.input_indices.clone())));
         syscalls.push(Box::new(LoadScript::new(Arc::new(group.script.clone()))));
-        syscalls.push(Box::new(LoadHeader::new()));
+        syscalls.push(Box::new(LoadHeader::new(Arc::clone(&self.tx), Arc::clone(&self.data_provider))));
         syscalls.push(Box::new(CurrentCycles::new()));
         syscalls.push(Box::new(Debugger::new(group.script.code_hash)));
 
@@ -190,15 +253,29 @@ impl<D: CellDataProvider> TransactionScriptVerifier<D> {
 /// Simple in-memory cell data provider (for testing)
 pub struct SimpleDataProvider {
     scripts: std::collections::HashMap<[u8; 32], Vec<u8>>,
+    cells: std::collections::HashMap<([u8; 32], u32), ResolvedCell>,
+    headers: std::collections::HashMap<[u8; 32], ResolvedHeader>,
 }
 
 impl SimpleDataProvider {
     pub fn new() -> Self {
-        Self { scripts: std::collections::HashMap::new() }
+        Self {
+            scripts: std::collections::HashMap::new(),
+            cells: std::collections::HashMap::new(),
+            headers: std::collections::HashMap::new(),
+        }
     }
 
     pub fn add_script(&mut self, code_hash: [u8; 32], code: Vec<u8>) {
         self.scripts.insert(code_hash, code);
+    }
+
+    pub fn add_cell(&mut self, tx_hash: [u8; 32], index: u32, cell: ResolvedCell) {
+        self.cells.insert((tx_hash, index), cell);
+    }
+
+    pub fn add_header(&mut self, hash: [u8; 32], header: ResolvedHeader) {
+        self.headers.insert(hash, header);
     }
 }
 
@@ -207,25 +284,117 @@ impl CellDataProvider for SimpleDataProvider {
         self.scripts.get(code_hash).cloned()
     }
 
-    fn load_cell_by_outpoint(&self, _tx_hash: &[u8; 32], _index: u32) -> Option<Vec<u8>> {
-        None // TODO: implement
+    fn load_cell_by_outpoint(&self, tx_hash: &[u8; 32], index: u32) -> Option<ResolvedCell> {
+        self.cells.get(&(*tx_hash, index)).cloned()
+    }
+
+    fn load_header(&self, hash: &[u8; 32]) -> Option<ResolvedHeader> {
+        self.headers.get(hash).cloned()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::celltx::{CellOut, CellRef, CellTx, OutPoint};
+    use crate::celltx::{CellRef, OutPoint};
 
     #[test]
     fn test_verifier_creation() {
-        let tx =
-            Arc::new(CellTx { ver: 0xC001, inputs: vec![], deps: vec![], outputs: vec![], outputs_data: vec![], witnesses: vec![] });
+        let tx = Arc::new(CellTx {
+            ver: 0xC001,
+            inputs: vec![],
+            deps: vec![],
+            header_deps: vec![],
+            outputs: vec![],
+            outputs_data: vec![],
+            witnesses: vec![],
+        });
 
         let provider = Arc::new(SimpleDataProvider::new());
         let verifier = TransactionScriptVerifier::new(tx, provider);
 
         assert_eq!(verifier.version, ScriptVersion::latest());
         assert_eq!(verifier.max_cycles, 10_000_000);
+    }
+
+    #[test]
+    fn test_extract_script_groups_uses_resolved_input_locks() {
+        let input_lock = ScriptRef::new([1u8; 32], 0, vec![0xAA]);
+        let output_lock = ScriptRef::new([2u8; 32], 0, vec![0xBB]);
+        let input_out_point = OutPoint::new([9u8; 32], 0);
+        let tx = Arc::new(
+            CellTx::new(
+                vec![CellRef::new(input_out_point.clone(), 0)],
+                vec![],
+                vec![CellOut { capacity: 1000, lock: output_lock.clone(), type_: None }],
+                vec![vec![]],
+                vec![],
+            )
+            .unwrap(),
+        );
+
+        let mut provider = SimpleDataProvider::new();
+        provider.add_cell(
+            input_out_point.tx_hash,
+            input_out_point.index,
+            ResolvedCell { cell_output: CellOut { capacity: 1000, lock: input_lock.clone(), type_: None }, data: Some(vec![]) },
+        );
+
+        let groups = TransactionScriptVerifier::new(tx, Arc::new(provider)).extract_script_groups().unwrap();
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].group_type, ScriptGroupType::Lock);
+        assert_eq!(groups[0].script, input_lock);
+        assert_eq!(groups[0].input_indices, vec![0]);
+        assert!(groups[0].output_indices.is_empty());
+    }
+
+    #[test]
+    fn test_verify_rejects_unsupported_hash_type() {
+        let tx = Arc::new(CellTx::new(vec![CellRef::new(OutPoint::new([7u8; 32], 0), 0)], vec![], vec![], vec![], vec![]).unwrap());
+        let mut provider = SimpleDataProvider::new();
+        provider.add_cell(
+            [7u8; 32],
+            0,
+            ResolvedCell {
+                cell_output: CellOut { capacity: 1000, lock: ScriptRef::new([3u8; 32], 1, vec![]), type_: None },
+                data: Some(vec![]),
+            },
+        );
+
+        let err = TransactionScriptVerifier::new(tx, Arc::new(provider)).verify().unwrap_err();
+        assert!(matches!(err, ScriptError::InvalidHashType(1)));
+    }
+
+    #[test]
+    fn test_extract_script_groups_merges_type_inputs_and_outputs() {
+        let input_lock = ScriptRef::new([1u8; 32], 0, vec![0xAA]);
+        let shared_type = ScriptRef::new([4u8; 32], 0, vec![0xCC]);
+        let input_out_point = OutPoint::new([9u8; 32], 0);
+        let tx = Arc::new(
+            CellTx::new(
+                vec![CellRef::new(input_out_point.clone(), 0)],
+                vec![],
+                vec![CellOut { capacity: 1000, lock: ScriptRef::new([2u8; 32], 0, vec![0xBB]), type_: Some(shared_type.clone()) }],
+                vec![vec![]],
+                vec![],
+            )
+            .unwrap(),
+        );
+
+        let mut provider = SimpleDataProvider::new();
+        provider.add_cell(
+            input_out_point.tx_hash,
+            input_out_point.index,
+            ResolvedCell {
+                cell_output: CellOut { capacity: 1000, lock: input_lock, type_: Some(shared_type.clone()) },
+                data: Some(vec![]),
+            },
+        );
+
+        let groups = TransactionScriptVerifier::new(tx, Arc::new(provider)).extract_script_groups().unwrap();
+        let type_group = groups.into_iter().find(|group| group.group_type == ScriptGroupType::Type).expect("type group");
+        assert_eq!(type_group.script, shared_type);
+        assert_eq!(type_group.input_indices, vec![0]);
+        assert_eq!(type_group.output_indices, vec![0]);
     }
 }

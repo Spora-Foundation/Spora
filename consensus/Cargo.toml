@@ -74,3 +74,4 @@ harness = false
 [features]
 html_reports = []
 devnet-prealloc = ["spora-consensus-core/devnet-prealloc"]
+vm = ["spora-exec/vm"]

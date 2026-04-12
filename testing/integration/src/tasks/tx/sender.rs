@@ -1,16 +1,16 @@
 use crate::tasks::{tx::submitter::IndexedTransaction, Stopper, Task};
 use async_channel::Sender;
 use async_trait::async_trait;
-use std::{sync::Arc, time::Duration};
-use tokio::{
-    task::JoinHandle,
-    time::{sleep, Instant},
-};
 use spora_consensus_core::tx::Transaction;
 use spora_core::{info, warn};
 use spora_grpc_client::GrpcClient;
 use spora_rpc_core::api::rpc::RpcApi;
 use spora_utils::triggers::SingleTrigger;
+use std::{sync::Arc, time::Duration};
+use tokio::{
+    task::JoinHandle,
+    time::{sleep, Instant},
+};
 
 pub struct TransactionSenderTask {
     client: Arc<GrpcClient>,

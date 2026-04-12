@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: ISC
-// Copyright (C) 2025 Spora developers
+// Copyright (C) 2026 Spora developers
 //
 // Load transaction hash syscall
 // Reference: ckb/script/src/syscalls/load_tx.rs
 
-use super::utils::{store_data, INDEX_OUT_OF_BOUND, SUCCESS};
+use super::utils::{store_data, SUCCESS};
 use ckb_vm::{
     registers::{A0, A7},
     Error as VMError, Register, SupportMachine, Syscalls,
@@ -50,7 +50,6 @@ impl<M: SupportMachine> Syscalls<M> for LoadTx {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::celltx::{CellOut, CellRef, CellTx, OutPoint, ScriptRef};
 
     #[test]
     fn test_load_tx_creation() {

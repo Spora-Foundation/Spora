@@ -75,8 +75,11 @@ pub enum TxRuleError {
     #[error("one of the transaction sequence locks conditions was not met")]
     SequenceLockConditionsAreNotMet,
 
-    #[error("outpoints corresponding to some transaction inputs are missing from current utxo context")]
+    #[error("outpoints corresponding to some transaction inputs are missing from the current cell context")]
     MissingTxOutpoints,
+
+    #[error("cell validation failed: {0}")]
+    CellValidationFailed(String),
 
     #[error("failed to verify the signature script: {0}")]
     SignatureInvalid(TxScriptError),

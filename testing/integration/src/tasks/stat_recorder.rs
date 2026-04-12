@@ -1,5 +1,6 @@
 use crate::tasks::{DynTask, Task};
 use async_trait::async_trait;
+use spora_utils::triggers::SingleTrigger;
 use std::{
     io::{BufWriter, Write},
     path::PathBuf,
@@ -7,7 +8,6 @@ use std::{
     time::{Duration, Instant},
 };
 use tokio::{task::JoinHandle, time::sleep};
-use spora_utils::triggers::SingleTrigger;
 use workflow_perf_monitor::mem::{get_process_memory_info, ProcessMemoryInfo};
 
 pub struct StatRecorderTask {

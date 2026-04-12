@@ -14,7 +14,7 @@ use spora_consensus::{
         headers::HeaderStoreReader,
         relations::RelationsStoreReader,
     },
-    params::{ForkActivation, Params, TenBps, DEVNET_PARAMS, NETWORK_DELAY_BOUND, SIMNET_PARAMS},
+    params::{Params, TenBps, DEVNET_PARAMS, NETWORK_DELAY_BOUND, SIMNET_PARAMS},
 };
 use spora_consensus_core::{
     api::ConsensusApi, block::Block, blockstatus::BlockStatus, config::bps::calculate_ghostdag_k, errors::block::BlockProcessResult,
@@ -32,7 +32,12 @@ use spora_database::{create_temp_db, load_existing_db};
 use spora_hashes::Hash;
 use spora_perf_monitor::{builder::Builder, counters::CountersSnapshot};
 use spora_utils::fd_budget;
-use std::{collections::VecDeque, sync::Arc, time::Duration};
+use std::{
+    cmp::Reverse,
+    collections::{BinaryHeap, VecDeque},
+    sync::Arc,
+    time::Duration,
+};
 
 pub mod simulator;
 
@@ -193,8 +198,7 @@ fn main_impl(mut args: Args) {
     }
     args.bps = if args.testnet11 { TenBps::bps() as f64 } else { args.bps };
     let mut params = if args.testnet11 { SIMNET_PARAMS } else { DEVNET_PARAMS };
-    params.crescendo_activation = ForkActivation::always();
-    params.crescendo.coinbase_maturity = 200;
+    params.coinbase_maturity = 200;
     params.storage_mass_parameter = 10_000;
     let mut builder = ConfigBuilder::new(params)
         .apply_args(|config| apply_args_to_consensus_params(&args, &mut config.params))
@@ -264,7 +268,7 @@ fn main_impl(mut args: Args) {
     if args.test_pruning {
         let hashes = topologically_ordered_hashes(&consensus, consensus.pruning_point());
         let num_blocks = hashes.len();
-        let num_txs = print_stats(&consensus, &hashes, args.delay, args.bps, config.ghostdag_k().before());
+        let num_txs = print_stats(&consensus, &hashes, args.delay, args.bps, config.ghostdag_k());
         info!("There are {num_blocks} blocks with {num_txs} transactions overall above the current pruning point");
 
         if args.retention_period_days.is_some() {
@@ -334,56 +338,44 @@ fn apply_args_to_consensus_params(args: &Args, params: &mut Params) {
     if args.testnet11 {
         info!(
             "Using spora-testnet-11 configuration (GHOSTDAG K={}, DAA window size={}, Median time window size={})",
-            params.ghostdag_k().before(),
-            params.difficulty_window_size().before(),
-            params.past_median_time_window_size().before(),
+            params.ghostdag_k(),
+            params.difficulty_window_size(),
+            params.past_median_time_window_size(),
         );
     } else {
         let max_delay = args.delay.max(NETWORK_DELAY_BOUND as f64);
-        let k = u64::max(calculate_ghostdag_k(2.0 * max_delay * args.bps, 0.05), params.ghostdag_k().before() as u64);
+        let k = u64::max(calculate_ghostdag_k(2.0 * max_delay * args.bps, 0.05), params.ghostdag_k() as u64);
         let k = u64::min(k, KType::MAX as u64) as KType; // Clamp to KType::MAX
-        params.prior_ghostdag_k = k;
-        params.prior_mergeset_size_limit = k as u64 * 10;
-        params.prior_max_block_parents = u8::max((0.66 * k as f64) as u8, 10);
-        params.prior_target_time_per_block = (1000.0 / args.bps) as u64;
-        params.prior_merge_depth = (params.prior_merge_depth as f64 * args.bps) as u64;
-        params.prior_coinbase_maturity = (params.prior_coinbase_maturity as f64 * f64::max(1.0, args.bps * args.delay * 0.25)) as u64;
+        params.ghostdag_k = k;
+        params.mergeset_size_limit = k as u64 * 10;
+        params.max_block_parents = u8::max((0.66 * k as f64) as u8, 10);
+        params.target_time_per_block = (1000.0 / args.bps) as u64;
+        params.merge_depth = (params.merge_depth as f64 * args.bps) as u64;
+        params.coinbase_maturity = (params.coinbase_maturity as f64 * f64::max(1.0, args.bps * args.delay * 0.25)) as u64;
 
         if args.daa_legacy {
             // Scale DAA and median-time windows linearly with BPS
-            params.crescendo_activation = ForkActivation::never();
             params.timestamp_deviation_tolerance = (params.timestamp_deviation_tolerance as f64 * args.bps) as u64;
-            params.prior_difficulty_window_size = (params.prior_difficulty_window_size as f64 * args.bps) as usize;
         } else {
             // Use the new sampling algorithms
-            params.crescendo_activation = ForkActivation::always();
             params.timestamp_deviation_tolerance = (600.0 * args.bps) as u64;
-            params.crescendo.past_median_time_sample_rate = (10.0 * args.bps) as u64;
-            params.crescendo.difficulty_sample_rate = (2.0 * args.bps) as u64;
+            params.past_median_time_sample_rate = (10.0 * args.bps) as u64;
+            params.difficulty_sample_rate = (2.0 * args.bps) as u64;
         }
 
-        info!("2Dλ={}, GHOSTDAG K={}, DAA window size={}", 2.0 * args.delay * args.bps, k, params.difficulty_window_size().before());
+        info!("2D\u{03bb}={}, GHOSTDAG K={}, DAA window size={}", 2.0 * args.delay * args.bps, k, params.difficulty_window_size());
     }
     if args.test_pruning {
-        params.crescendo_activation = ForkActivation::new(1250.min(args.target_blocks.map(|x| x / 2).unwrap_or(900)));
-
         params.pruning_proof_m = 16;
         params.min_difficulty_window_size = 16;
-        params.prior_difficulty_window_size = 64;
         params.timestamp_deviation_tolerance = 16;
-        params.crescendo.sampled_difficulty_window_size = params.crescendo.sampled_difficulty_window_size.min(32);
+        params.sampled_difficulty_window_size = params.sampled_difficulty_window_size.min(32);
 
-        params.prior_ghostdag_k = 10;
-        params.prior_finality_depth = 100;
-        params.prior_merge_depth = 64;
-        params.prior_mergeset_size_limit = 32;
-        params.prior_pruning_depth = 100 * 2 + 50;
-
-        params.crescendo.ghostdag_k = 20;
-        params.crescendo.finality_depth = 100 * 2;
-        params.crescendo.merge_depth = 64 * 2;
-        params.crescendo.mergeset_size_limit = 32 * 2;
-        params.crescendo.pruning_depth = 100 * 2 * 2 + 50;
+        params.ghostdag_k = 20;
+        params.finality_depth = 100 * 2;
+        params.merge_depth = 64 * 2;
+        params.mergeset_size_limit = 32 * 2;
+        params.pruning_depth = 100 * 2 * 2 + 50;
 
         info!("Setting pruning depth to {:?}", params.pruning_depth());
     }
@@ -401,7 +393,7 @@ fn apply_args_to_perf_params(args: &Args, perf_params: &mut PerfParams) {
 async fn validate(src_consensus: &Consensus, dst_consensus: &Consensus, params: &Params, delay: f64, bps: f64, header_only: bool) {
     let hashes = topologically_ordered_hashes(src_consensus, params.genesis.hash);
     let num_blocks = hashes.len();
-    let num_txs = print_stats(src_consensus, &hashes, delay, bps, params.ghostdag_k().before());
+    let num_txs = print_stats(src_consensus, &hashes, delay, bps, params.ghostdag_k());
     if header_only {
         info!("Validating {num_blocks} headers...");
     } else {
@@ -409,32 +401,38 @@ async fn validate(src_consensus: &Consensus, dst_consensus: &Consensus, params: 
     }
 
     let start = std::time::Instant::now();
-    let chunks = hashes.into_iter().chunks(1000);
-    let mut iter = chunks.into_iter();
-    let mut chunk = iter.next().unwrap();
-    let mut prev_joins = submit_chunk(src_consensus, dst_consensus, &mut chunk, header_only);
-
-    for (i, mut chunk) in iter.enumerate() {
-        let current_joins = submit_chunk(src_consensus, dst_consensus, &mut chunk, header_only);
-        let statuses = try_join_all(prev_joins).await.unwrap();
-        trace!("Validated chunk {}", i);
-        if header_only {
-            assert!(statuses.iter().all(|s| s.is_header_only()));
-        } else {
-            assert!(statuses.iter().all(|s| s.is_utxo_valid_or_pending()));
-        }
-        prev_joins = current_joins;
-    }
-
-    let statuses = try_join_all(prev_joins).await.unwrap();
     if header_only {
+        let chunks = hashes.into_iter().chunks(1000);
+        let mut iter = chunks.into_iter();
+        let mut chunk = iter.next().unwrap();
+        let mut prev_joins = submit_chunk(src_consensus, dst_consensus, &mut chunk, true);
+
+        for (i, mut chunk) in iter.enumerate() {
+            let current_joins = submit_chunk(src_consensus, dst_consensus, &mut chunk, true);
+            let statuses = try_join_all(prev_joins).await.unwrap();
+            trace!("Validated chunk {}", i);
+            assert!(statuses.iter().all(|s| s.is_header_only()));
+            prev_joins = current_joins;
+        }
+
+        let statuses = try_join_all(prev_joins).await.unwrap();
         assert!(statuses.iter().all(|s| s.is_header_only()));
     } else {
-        assert!(statuses.iter().all(|s| s.is_utxo_valid_or_pending()));
+        for (i, hash) in hashes.into_iter().enumerate() {
+            let block = Block::from_arcs(
+                src_consensus.headers_store.get_header(hash).unwrap(),
+                src_consensus.block_transactions_store.get(hash).unwrap(),
+            );
+            let status = dst_consensus.validate_and_insert_block(block).virtual_state_task.await.unwrap();
+            assert!(status.is_cell_valid_or_pending());
+            if i > 0 && i % 1000 == 0 {
+                trace!("Validated {} blocks", i);
+            }
+        }
     }
 
-    // Assert that at least one body tip was resolved with valid UTXO
-    assert!(dst_consensus.body_tips().iter().copied().any(|h| dst_consensus.block_status(h) == BlockStatus::StatusUTXOValid));
+    // Assert that at least one body tip was resolved with valid cells
+    assert!(dst_consensus.body_tips().iter().copied().any(|h| dst_consensus.block_status(h) == BlockStatus::StatusCellValid));
     let elapsed = start.elapsed();
     info!(
         "Total validation time: {:?}, {} processing rate: {:.2} (b/s), transaction processing rate: {:.2} (t/s)",
@@ -465,19 +463,53 @@ fn submit_chunk(
 
 fn topologically_ordered_hashes(src_consensus: &Consensus, genesis_hash: Hash) -> Vec<Hash> {
     let mut queue: VecDeque<Hash> = std::iter::once(genesis_hash).collect();
-    let mut visited = BlockHashSet::new();
-    let mut vec = Vec::new();
+    let mut reachable = BlockHashSet::new();
     let relations = src_consensus.relations_stores.read();
     while let Some(current) = queue.pop_front() {
         for child in relations[0].get_children(current).unwrap().read().iter() {
-            if visited.insert(*child) {
+            if reachable.insert(*child) {
                 queue.push_back(*child);
-                vec.push(*child);
             }
         }
     }
-    vec.sort_by_cached_key(|&h| src_consensus.headers_store.get_timestamp(h).unwrap());
-    vec
+
+    let mut remaining_parents = spora_consensus_core::BlockHashMap::with_capacity(reachable.len());
+    let mut ready = BinaryHeap::new();
+    for hash in reachable.iter().copied() {
+        let parent_count = relations[0]
+            .get_parents(hash)
+            .unwrap()
+            .iter()
+            .copied()
+            .filter(|parent| *parent != genesis_hash && reachable.contains(parent))
+            .count();
+        remaining_parents.insert(hash, parent_count);
+        if parent_count == 0 {
+            ready.push(Reverse(hash));
+        }
+    }
+
+    let mut ordered = Vec::with_capacity(reachable.len());
+    while let Some(Reverse(current)) = ready.pop() {
+        ordered.push(current);
+        for child in relations[0].get_children(current).unwrap().read().iter().copied() {
+            let Some(remaining) = remaining_parents.get_mut(&child) else {
+                continue;
+            };
+
+            *remaining -= 1;
+            if *remaining == 0 {
+                ready.push(Reverse(child));
+            }
+        }
+    }
+
+    assert_eq!(
+        ordered.len(),
+        reachable.len(),
+        "simpa replay ordering must include every descendant of {genesis_hash}"
+    );
+    ordered
 }
 
 fn print_stats(src_consensus: &Consensus, hashes: &[Hash], delay: f64, bps: f64, k: KType) -> usize {

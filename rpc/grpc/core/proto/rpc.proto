@@ -76,6 +76,8 @@ message RpcTransactionInput {
   uint64 sequence = 3;
   uint32 sigOpCount = 5;
   RpcTransactionInputVerboseData verboseData = 4;
+  optional uint64 since = 6;
+  optional string witness = 7;
 }
 
 message RpcScriptPublicKey {
@@ -87,6 +89,11 @@ message RpcTransactionOutput {
   uint64 amount = 1;
   RpcScriptPublicKey scriptPublicKey = 2;
   RpcTransactionOutputVerboseData verboseData = 3;
+  uint64 capacity = 4;
+  uint64 dataBytes = 5;
+  string lockHash = 6;
+  string typeHash = 7;
+  string dataHash = 8;
 }
 
 message RpcOutpoint {
@@ -94,11 +101,16 @@ message RpcOutpoint {
   uint32 index = 2;
 }
 
-message RpcUtxoEntry {
+message RpcCellEntry {
   uint64 amount = 1;
   RpcScriptPublicKey scriptPublicKey = 2;
   uint64 blockDaaScore = 3;
   bool isCoinbase = 4;
+  uint64 capacity = 5;
+  uint64 dataBytes = 6;
+  string lockHash = 7;
+  string typeHash = 8;
+  string dataHash = 9;
 }
 
 message RpcTransactionVerboseData{
@@ -529,83 +541,83 @@ message GetHeadersResponseMessage{
   RPCError error = 1000;
 }
 
-// NotifyUtxosChangedRequestMessage registers this connection for utxoChanged notifications
+// NotifyCellsChangedRequestMessage registers this connection for cellsChanged notifications
 // for the given addresses.
 //
-// This call is only available when this Sporad was started with `--utxoindex`
+// This call is only available when this Sporad was started with `--cellindex`
 //
-// See: UtxosChangedNotificationMessage
-message NotifyUtxosChangedRequestMessage {
-  // UTXOs addresses to start/stop getting notified about
+// See: CellsChangedNotificationMessage
+message NotifyCellsChangedRequestMessage {
+  // Cell addresses to start/stop getting notified about
   // Leave empty to start/stop all updates
   repeated string addresses = 1;
   RpcNotifyCommand command = 101;
 }
 
-message NotifyUtxosChangedResponseMessage {
+message NotifyCellsChangedResponseMessage {
   RPCError error = 1000;
 }
 
-// UtxosChangedNotificationMessage is sent whenever the UTXO index had been updated.
+// CellsChangedNotificationMessage is sent whenever the cell index had been updated.
 //
-// See: NotifyUtxosChangedRequestMessage
-message UtxosChangedNotificationMessage {
-  repeated RpcUtxosByAddressesEntry added = 1;
-  repeated RpcUtxosByAddressesEntry removed = 2;
+// See: NotifyCellsChangedRequestMessage
+message CellsChangedNotificationMessage {
+  repeated RpcCellsByAddressesEntry added = 1;
+  repeated RpcCellsByAddressesEntry removed = 2;
 }
 
-message RpcUtxosByAddressesEntry {
+message RpcCellsByAddressesEntry {
   string address = 1;
   RpcOutpoint outpoint = 2;
-  RpcUtxoEntry utxoEntry = 3;
+  RpcCellEntry cellEntry = 3;
 }
 
-// StopNotifyingUtxosChangedRequestMessage unregisters this connection for utxoChanged notifications
+// StopNotifyingCellsChangedRequestMessage unregisters this connection for cellsChanged notifications
 // for the given addresses.
 //
-// This call is only available when this Sporad was started with `--utxoindex`
+// This call is only available when this Sporad was started with `--cellindex`
 //
-// See: UtxosChangedNotificationMessage
+// See: CellsChangedNotificationMessage
 //
 // This message only exists for backward compatibility reason with Sporad and is deprecated.
-// Use instead UtxosChangedNotificationMessage with command = NOTIFY_STOP.
-message StopNotifyingUtxosChangedRequestMessage {
+// Use instead CellsChangedNotificationMessage with command = NOTIFY_STOP.
+message StopNotifyingCellsChangedRequestMessage {
   repeated string addresses = 1;
 }
 
-message StopNotifyingUtxosChangedResponseMessage {
+message StopNotifyingCellsChangedResponseMessage {
   RPCError error = 1000;
 }
 
-message GetUtxosByAddressRequestMessage {
+message GetCellsByAddressRequestMessage {
   string address = 1;
   uint64 start = 2;
   uint32 limit = 3;
 }
 
-message GetUtxosByAddressResponseMessage {
-  repeated RpcUtxosByAddressesEntry entries =1;
+message GetCellsByAddressResponseMessage {
+  repeated RpcCellsByAddressesEntry entries =1;
   uint64 total = 2;
 
   RPCError error = 1000;
 }
 
-// GetUtxosByAddressesRequestMessage requests all current UTXOs for the given Sporad addresses
+// GetCellsByAddressesRequestMessage requests all current cells for the given Sporad addresses
 //
-// This call is only available when this Sporad was started with `--utxoindex`
-message GetUtxosByAddressesRequestMessage {
+// This call is only available when this Sporad was started with `--cellindex`
+message GetCellsByAddressesRequestMessage {
   repeated string addresses = 1;
 }
 
-message GetUtxosByAddressesResponseMessage {
-  repeated RpcUtxosByAddressesEntry entries = 1;
+message GetCellsByAddressesResponseMessage {
+  repeated RpcCellsByAddressesEntry entries = 1;
 
   RPCError error = 1000;
 }
 
 // GetBalanceByAddressRequest returns the total balance in unspent transactions towards a given address
 //
-// This call is only available when this Sporad was started with `--utxoindex`
+// This call is only available when this Sporad was started with `--cellindex`
 message GetBalanceByAddressRequestMessage {
   string address = 1;
 }
@@ -684,41 +696,41 @@ message VirtualDaaScoreChangedNotificationMessage {
   uint64 virtualDaaScore = 1;
 }
 
-// NotifyPruningPointUtxoSetOverrideRequestMessage registers this connection for
-// pruning point UTXO set override notifications.
+// NotifyPruningPointCellSetOverrideRequestMessage registers this connection for
+// pruning point cell set override notifications.
 //
-// This call is only available when this Sporad was started with `--utxoindex`
+// This call is only available when this Sporad was started with `--cellindex`
 //
-// See: NotifyPruningPointUtxoSetOverrideResponseMessage
-message NotifyPruningPointUtxoSetOverrideRequestMessage {
+// See: NotifyPruningPointCellSetOverrideResponseMessage
+message NotifyPruningPointCellSetOverrideRequestMessage {
   RpcNotifyCommand command = 101;
 }
 
 
-message NotifyPruningPointUtxoSetOverrideResponseMessage {
+message NotifyPruningPointCellSetOverrideResponseMessage {
   RPCError error = 1000;
 }
 
-// PruningPointUtxoSetOverrideNotificationMessage is sent whenever the UTXO index
+// PruningPointCellSetOverrideNotificationMessage is sent whenever the cell index
 // resets due to pruning point change via IBD.
 //
-// See NotifyPruningPointUtxoSetOverrideRequestMessage
-message PruningPointUtxoSetOverrideNotificationMessage {
+// See NotifyPruningPointCellSetOverrideRequestMessage
+message PruningPointCellSetOverrideNotificationMessage {
 }
 
-// StopNotifyingPruningPointUtxoSetOverrideRequestMessage unregisters this connection for
-// pruning point UTXO set override notifications.
+// StopNotifyingPruningPointCellSetOverrideRequestMessage unregisters this connection for
+// pruning point cell set override notifications.
 //
-// This call is only available when this Sporad was started with `--utxoindex`
+// This call is only available when this Sporad was started with `--cellindex`
 //
-// See: PruningPointUtxoSetOverrideNotificationMessage
+// See: PruningPointCellSetOverrideNotificationMessage
 //
 // This message only exists for backward compatibility reason with Sporad and is deprecated.
-// Use instead NotifyPruningPointUtxoSetOverrideRequestMessage with command = NOTIFY_STOP.
-message StopNotifyingPruningPointUtxoSetOverrideRequestMessage {
+// Use instead NotifyPruningPointCellSetOverrideRequestMessage with command = NOTIFY_STOP.
+message StopNotifyingPruningPointCellSetOverrideRequestMessage {
 }
 
-message StopNotifyingPruningPointUtxoSetOverrideResponseMessage {
+message StopNotifyingPruningPointCellSetOverrideResponseMessage {
   RPCError error = 1000;
 }
 
@@ -748,7 +760,7 @@ message GetInfoResponseMessage{
   string p2pId = 1;
   uint64 mempoolSize = 2;
   string serverVersion = 3;
-  bool isUtxoIndexed = 4;
+  bool isCellIndexed = 4;
   bool isSynced = 5;
   bool hasNotifyCommand = 11;
   bool hasMessageId = 12;
@@ -934,7 +946,7 @@ message GetServerInfoResponseMessage{
   uint32 rpcApiRevision = 2;
   string serverVersion = 3;
   string networkId = 4;
-  bool hasUtxoIndex = 5;
+  bool hasCellIndex = 5;
   bool isSynced = 6;
   uint64 virtualDaaScore = 7;
   RPCError error = 1000;
@@ -1023,12 +1035,12 @@ message GetCurrentBlockColorResponseMessage {
   RPCError error = 1000;
 }
 
-message GetUtxoReturnAddressRequestMessage {
+message GetCellReturnAddressRequestMessage {
   string txid = 1;
   uint64 accepting_block_daa_score = 2;
 }
 
-message GetUtxoReturnAddressResponseMessage {
+message GetCellReturnAddressResponseMessage {
   string return_address = 1;
   RPCError error = 1000;
 }

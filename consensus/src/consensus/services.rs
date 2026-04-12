@@ -1,6 +1,5 @@
 use super::storage::ConsensusStorage;
 use crate::{
-    // TransactionValidator removed - Cell model migration
     config::Config,
     model::{
         services::{reachability::MTReachabilityService, relations::MTRelationsService, statuses::MTStatusesService},
@@ -12,16 +11,9 @@ use crate::{
         },
     },
     processes::{
-        block_depth::BlockDepthManager,
-        coinbase::CoinbaseManager,
-        ghostdag::protocol::GhostdagManager,
-        parents_builder::ParentsManager,
-        pruning::PruningPointManager,
-        pruning_proof::PruningProofManager,
-        sync::SyncManager,
-        // transaction_validator::TransactionValidator, // UTXO deprecated - use cell_validator
-        traversal_manager::DagTraversalManager,
-        window::DualWindowManager,
+        block_depth::BlockDepthManager, coinbase::CoinbaseManager, ghostdag::protocol::GhostdagManager,
+        parents_builder::ParentsManager, pruning::PruningPointManager, pruning_proof::PruningProofManager, sync::SyncManager,
+        traversal_manager::DagTraversalManager, window::DualWindowManager,
     },
 };
 use itertools::Itertools;
@@ -75,7 +67,6 @@ pub struct ConsensusServices {
     pub sync_manager: DbSyncManager,
     pub depth_manager: DbBlockDepthManager,
     pub mass_calculator: MassCalculator,
-    // transaction_validator removed - using CellValidator directly in virtual_processor
 }
 
 impl ConsensusServices {
@@ -83,7 +74,7 @@ impl ConsensusServices {
         db: Arc<DB>,
         storage: Arc<ConsensusStorage>,
         config: Arc<Config>,
-        tx_script_cache_counters: Arc<TxScriptCacheCounters>,
+        _tx_script_cache_counters: Arc<TxScriptCacheCounters>,
         is_consensus_exiting: Arc<AtomicBool>,
     ) -> Arc<Self> {
         let params = &config.params;
@@ -107,16 +98,13 @@ impl ConsensusServices {
             storage.block_window_cache_for_difficulty.clone(),
             storage.block_window_cache_for_past_median_time.clone(),
             params.max_difficulty_target,
-            params.prior_target_time_per_block,
-            params.crescendo.target_time_per_block,
-            params.crescendo_activation,
-            params.prior_difficulty_window_size,
-            params.crescendo.sampled_difficulty_window_size as usize,
+            params.target_time_per_block,
+            params.sampled_difficulty_window_size,
             params.min_difficulty_window_size,
-            params.crescendo.difficulty_sample_rate,
-            params.prior_past_median_time_window_size(),
-            params.sampled_past_median_time_window_size(),
-            params.crescendo.past_median_time_sample_rate,
+            params.difficulty_sample_rate,
+            params.past_median_time_window_size(),
+            params.past_median_time_window_size(),
+            params.past_median_time_sample_rate,
         );
         let depth_manager = BlockDepthManager::new(
             params.merge_depth(),
@@ -150,9 +138,6 @@ impl ConsensusServices {
             params.mass_per_sig_op,
             params.storage_mass_parameter,
         );
-
-        // TransactionValidator removed - Cell model migration
-        // CellValidator is used directly in virtual_processor
 
         let pruning_point_manager = PruningPointManager::new(
             params.pruning_depth(),
@@ -216,7 +201,6 @@ impl ConsensusServices {
             sync_manager,
             depth_manager,
             mass_calculator,
-            // transaction_validator removed - using CellValidator
         })
     }
 }

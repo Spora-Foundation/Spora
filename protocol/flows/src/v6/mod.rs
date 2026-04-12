@@ -9,7 +9,7 @@ use crate::v5::{
     request_ibd_blocks::HandleIbdBlockRequests,
     request_ibd_chain_block_locator::RequestIbdChainBlockLocatorFlow,
     request_pp_proof::RequestPruningPointProofFlow,
-    request_pruning_point_utxo_set::RequestPruningPointUtxoSetFlow,
+    request_pruning_point_cell_set::RequestPruningPointCellSetFlow,
     txrelay::flow::{RelayTransactionsFlow, RequestTransactionsFlow},
 };
 use crate::{flow_context::FlowContext, flow_trait::Flow};
@@ -44,8 +44,8 @@ pub fn register(ctx: FlowContext, router: Arc<Router>) -> Vec<Box<dyn Flow>> {
                 SporadMessagePayloadType::PruningPoints,
                 SporadMessagePayloadType::PruningPointProof,
                 SporadMessagePayloadType::UnexpectedPruningPoint,
-                SporadMessagePayloadType::PruningPointUtxoSetChunk,
-                SporadMessagePayloadType::DonePruningPointUtxoSetChunks,
+                SporadMessagePayloadType::PruningPointCellSetChunk,
+                SporadMessagePayloadType::DonePruningPointCellSetChunks,
             ]),
             relay_receiver,
         )),
@@ -79,12 +79,12 @@ pub fn register(ctx: FlowContext, router: Arc<Router>) -> Vec<Box<dyn Flow>> {
                 SporadMessagePayloadType::RequestNextPruningPointAndItsAnticoneBlocks,
             ]),
         )),
-        Box::new(RequestPruningPointUtxoSetFlow::new(
+        Box::new(RequestPruningPointCellSetFlow::new(
             ctx.clone(),
             router.clone(),
             router.subscribe(vec![
-                SporadMessagePayloadType::RequestPruningPointUtxoSet,
-                SporadMessagePayloadType::RequestNextPruningPointUtxoSetChunk,
+                SporadMessagePayloadType::RequestPruningPointCellSet,
+                SporadMessagePayloadType::RequestNextPruningPointCellSetChunk,
             ]),
         )),
         Box::new(HandleIbdBlockRequests::new(
@@ -128,7 +128,7 @@ pub fn register(ctx: FlowContext, router: Arc<Router>) -> Vec<Box<dyn Flow>> {
     let invs_route = router.subscribe_with_capacity(vec![SporadMessagePayloadType::InvRelayBlock], ctx.block_invs_channel_size());
     let shared_invs_route = SharedIncomingRoute::new(invs_route);
 
-    let num_relay_flows = (ctx.config.bps().upper_bound() as usize / 2).max(1);
+    let num_relay_flows = (ctx.config.bps() as usize / 2).max(1);
     flows.extend((0..num_relay_flows).map(|_| {
         Box::new(HandleRelayInvsFlow::new(
             ctx.clone(),

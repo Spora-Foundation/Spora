@@ -1,0 +1,49 @@
+[package]
+name = "spora-wallet-psst"
+keywords = ["spora", "wallet", "psst", "pssb", "bip-370"]
+description = "Partially Signed Spora Transaction"
+categories = ["cryptography::cryptocurrencies"]
+rust-version.workspace = true
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+edition.workspace = true
+include.workspace = true
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[features]
+wasm32-sdk = ["spora-consensus-client/wasm32-sdk"]
+wasm32-types = ["spora-consensus-client/wasm32-types"]
+
+[dependencies]
+spora-addresses.workspace = true
+spora-bip32.workspace = true
+spora-consensus-client.workspace = true
+spora-consensus-core.workspace = true
+spora-txscript-errors.workspace = true
+spora-txscript.workspace = true
+spora-utils.workspace = true
+
+bincode.workspace = true
+derive_builder.workspace = true
+js-sys.workspace = true
+futures.workspace = true
+hex.workspace = true
+secp256k1.workspace = true
+serde_repr.workspace = true
+serde-value.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+wasm-bindgen.workspace = true
+serde_json.workspace = true
+serde-wasm-bindgen.workspace = true
+workflow-wasm.workspace = true
+separator.workspace = true
+console_log.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+wasm-bindgen-test.workspace = true

@@ -1,5 +1,5 @@
 use itertools::Itertools;
-use spora_consensus_core::tx::Transaction;
+use spora_consensus_core::tx::{CellTx, OutPointCompat, TransactionId};
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     iter::{FusedIterator, Map},
@@ -13,7 +13,7 @@ pub trait TopologicalSort {
         Self: Sized;
 }
 
-impl<T: AsRef<Transaction> + Clone> TopologicalSort for Vec<T> {
+impl<T: AsRef<CellTx> + Clone> TopologicalSort for Vec<T> {
     fn topological_sort(self) -> Self {
         let mut sorted = Vec::with_capacity(self.len());
         let mut in_degree: Vec<i32> = vec![0; self.len()];
@@ -21,14 +21,14 @@ impl<T: AsRef<Transaction> + Clone> TopologicalSort for Vec<T> {
         // Index on transaction ids
         let mut index = HashMap::with_capacity(self.len());
         self.iter().enumerate().for_each(|(idx, tx)| {
-            let _ = index.insert(tx.as_ref().id(), idx);
+            let _ = index.insert(TransactionId::from_bytes(tx.as_ref().id()), idx);
         });
 
         // Transaction edges
         let mut all_edges: Vec<Option<IndexSet>> = vec![None; self.len()];
         self.iter().enumerate().for_each(|(destination_idx, tx)| {
             tx.as_ref().inputs.iter().for_each(|input| {
-                if let Some(origin_idx) = index.get(&input.previous_outpoint.transaction_id) {
+                if let Some(origin_idx) = index.get(&input.out_point.transaction_id()) {
                     all_edges[*origin_idx].get_or_insert_with(IndexSet::new).insert(destination_idx);
                 }
             })
@@ -73,24 +73,24 @@ impl<T: AsRef<Transaction> + Clone> TopologicalSort for Vec<T> {
 
 pub trait IterTopologically<T>
 where
-    T: AsRef<Transaction>,
+    T: AsRef<CellTx>,
 {
     fn topological_iter(&self) -> TopologicalIter<'_, T>;
 }
 
-impl<T: AsRef<Transaction>> IterTopologically<T> for &[T] {
+impl<T: AsRef<CellTx>> IterTopologically<T> for &[T] {
     fn topological_iter(&self) -> TopologicalIter<'_, T> {
         TopologicalIter::new(self)
     }
 }
 
-impl<T: AsRef<Transaction>> IterTopologically<T> for Vec<T> {
+impl<T: AsRef<CellTx>> IterTopologically<T> for Vec<T> {
     fn topological_iter(&self) -> TopologicalIter<'_, T> {
         TopologicalIter::new(self)
     }
 }
 
-pub struct TopologicalIter<'a, T: AsRef<Transaction>> {
+pub struct TopologicalIter<'a, T: AsRef<CellTx>> {
     transactions: &'a [T],
     in_degree: Vec<i32>,
     edges: Vec<Option<IndexSet>>,
@@ -98,21 +98,21 @@ pub struct TopologicalIter<'a, T: AsRef<Transaction>> {
     yields_count: usize,
 }
 
-impl<'a, T: AsRef<Transaction>> TopologicalIter<'a, T> {
+impl<'a, T: AsRef<CellTx>> TopologicalIter<'a, T> {
     pub fn new(transactions: &'a [T]) -> Self {
         let mut in_degree: Vec<i32> = vec![0; transactions.len()];
 
         // Index on transaction ids
         let mut index = HashMap::with_capacity(transactions.len());
         transactions.iter().enumerate().for_each(|(idx, tx)| {
-            let _ = index.insert(tx.as_ref().id(), idx);
+            let _ = index.insert(TransactionId::from_bytes(tx.as_ref().id()), idx);
         });
 
         // Transaction edges
         let mut edges: Vec<Option<IndexSet>> = vec![None; transactions.len()];
         transactions.iter().enumerate().for_each(|(destination_idx, tx)| {
             tx.as_ref().inputs.iter().for_each(|input| {
-                if let Some(origin_idx) = index.get(&input.previous_outpoint.transaction_id) {
+                if let Some(origin_idx) = index.get(&input.out_point.transaction_id()) {
                     edges[*origin_idx].get_or_insert_with(IndexSet::new).insert(destination_idx);
                 }
             })
@@ -138,7 +138,7 @@ impl<'a, T: AsRef<Transaction>> TopologicalIter<'a, T> {
     }
 }
 
-impl<'a, T: AsRef<Transaction>> Iterator for TopologicalIter<'a, T> {
+impl<'a, T: AsRef<CellTx>> Iterator for TopologicalIter<'a, T> {
     type Item = &'a T;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -166,8 +166,8 @@ impl<'a, T: AsRef<Transaction>> Iterator for TopologicalIter<'a, T> {
     }
 }
 
-impl<T: AsRef<Transaction>> FusedIterator for TopologicalIter<'_, T> {}
-impl<T: AsRef<Transaction>> ExactSizeIterator for TopologicalIter<'_, T> {
+impl<T: AsRef<CellTx>> FusedIterator for TopologicalIter<'_, T> {}
+impl<T: AsRef<CellTx>> ExactSizeIterator for TopologicalIter<'_, T> {
     fn len(&self) -> usize {
         self.transactions.len()
     }
@@ -175,12 +175,12 @@ impl<T: AsRef<Transaction>> ExactSizeIterator for TopologicalIter<'_, T> {
 
 pub trait IntoIterTopologically<T>
 where
-    T: AsRef<Transaction>,
+    T: AsRef<CellTx>,
 {
     fn topological_into_iter(self) -> TopologicalIntoIter<T>;
 }
 
-impl<T: AsRef<Transaction>> IntoIterTopologically<T> for Vec<T> {
+impl<T: AsRef<CellTx>> IntoIterTopologically<T> for Vec<T> {
     fn topological_into_iter(self) -> TopologicalIntoIter<T> {
         TopologicalIntoIter::new(self)
     }
@@ -188,7 +188,7 @@ impl<T: AsRef<Transaction>> IntoIterTopologically<T> for Vec<T> {
 
 impl<T, I, F> IntoIterTopologically<T> for Map<I, F>
 where
-    T: AsRef<Transaction>,
+    T: AsRef<CellTx>,
     I: Iterator,
     F: FnMut(<I as Iterator>::Item) -> T,
 {
@@ -197,7 +197,7 @@ where
     }
 }
 
-pub struct TopologicalIntoIter<T: AsRef<Transaction>> {
+pub struct TopologicalIntoIter<T: AsRef<CellTx>> {
     transactions: Vec<Option<T>>,
     in_degree: Vec<i32>,
     edges: Vec<Option<IndexSet>>,
@@ -205,7 +205,7 @@ pub struct TopologicalIntoIter<T: AsRef<Transaction>> {
     yields_count: usize,
 }
 
-impl<T: AsRef<Transaction>> TopologicalIntoIter<T> {
+impl<T: AsRef<CellTx>> TopologicalIntoIter<T> {
     pub fn new(transactions: impl IntoIterator<Item = T>) -> Self {
         // Collect all transactions
         let transactions = transactions.into_iter().map(|tx| Some(tx)).collect_vec();
@@ -215,14 +215,14 @@ impl<T: AsRef<Transaction>> TopologicalIntoIter<T> {
         // Index on transaction ids
         let mut index = HashMap::with_capacity(transactions.len());
         transactions.iter().enumerate().for_each(|(idx, tx)| {
-            let _ = index.insert(tx.as_ref().unwrap().as_ref().id(), idx);
+            let _ = index.insert(TransactionId::from_bytes(tx.as_ref().unwrap().as_ref().id()), idx);
         });
 
         // Transaction edges
         let mut edges: Vec<Option<IndexSet>> = vec![None; transactions.len()];
         transactions.iter().enumerate().for_each(|(destination_idx, tx)| {
             tx.as_ref().unwrap().as_ref().inputs.iter().for_each(|input| {
-                if let Some(origin_idx) = index.get(&input.previous_outpoint.transaction_id) {
+                if let Some(origin_idx) = index.get(&input.out_point.transaction_id()) {
                     edges[*origin_idx].get_or_insert_with(IndexSet::new).insert(destination_idx);
                 }
             })
@@ -248,7 +248,7 @@ impl<T: AsRef<Transaction>> TopologicalIntoIter<T> {
     }
 }
 
-impl<T: AsRef<Transaction>> Iterator for TopologicalIntoIter<T> {
+impl<T: AsRef<CellTx>> Iterator for TopologicalIntoIter<T> {
     type Item = T;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -276,8 +276,8 @@ impl<T: AsRef<Transaction>> Iterator for TopologicalIntoIter<T> {
     }
 }
 
-impl<T: AsRef<Transaction>> FusedIterator for TopologicalIntoIter<T> {}
-impl<T: AsRef<Transaction>> ExactSizeIterator for TopologicalIntoIter<T> {
+impl<T: AsRef<CellTx>> FusedIterator for TopologicalIntoIter<T> {}
+impl<T: AsRef<CellTx>> ExactSizeIterator for TopologicalIntoIter<T> {
     fn len(&self) -> usize {
         self.transactions.len()
     }

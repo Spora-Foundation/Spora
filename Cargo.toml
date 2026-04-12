@@ -10,7 +10,7 @@ members = [
     "wallet/wasm",
     "wallet/bip32",
     "wallet/keys",
-    "wallet/pstt",
+    "wallet/psst",
     "consensus",
     "consensus/core",
     "consensus/client",
@@ -56,7 +56,7 @@ members = [
     "database",
     "crypto/txscript",
     "crypto/txscript/errors",
-    # "testing/integration",
+    "testing/integration",
     "utils",
     "utils/tower",
     "treasure_boy",
@@ -91,6 +91,7 @@ log = "0.4.20"
 spora-addresses = { version = "1.21.0", path = "crypto/addresses" }
 spora-addressmanager = { version = "1.21.0", path = "components/addressmanager" }
 spora-bip32 = { version = "1.21.0", path = "wallet/bip32" }
+spora-cellindex = { version = "1.21.0", path = "indexes/cellindex" }
 spora-cli = { version = "1.21.0", path = "cli" }
 spora-connectionmanager = { version = "1.21.0", path = "components/connectionmanager" }
 spora-consensus = { version = "1.21.0", path = "consensus" }
@@ -111,6 +112,7 @@ spora-index-core = { version = "1.21.0", path = "indexes/core" }
 spora-index-processor = { version = "1.21.0", path = "indexes/processor" }
 spora-math = { version = "1.21.0", path = "math" }
 spora-merkle = { version = "1.21.0", path = "crypto/merkle" }
+spora-mempool = { version = "1.21.0", path = "mempool" }
 spora-metrics-core = { version = "1.21.0", path = "metrics/core" }
 spora-mining = { version = "1.21.0", path = "mining" }
 spora-mining-errors = { version = "1.21.0", path = "mining/errors" }
@@ -132,7 +134,7 @@ spora-utils-tower = { version = "1.21.0", path = "utils/tower" }
 spora-wallet = { version = "1.21.0", path = "wallet/native" }
 spora-wallet-cli-wasm = { version = "1.21.0", path = "wallet/wasm" }
 spora-wallet-keys = { version = "1.21.0", path = "wallet/keys" }
-spora-wallet-pstt = { version = "1.21.0", path = "wallet/pstt" }
+spora-wallet-psst = { version = "1.21.0", path = "wallet/psst" }
 spora-wallet-core = { version = "1.21.0", path = "wallet/core" }
 spora-wallet-macros = { version = "1.21.0", path = "wallet/macros" }
 spora-wasm = { version = "1.21.0", path = "wasm" }

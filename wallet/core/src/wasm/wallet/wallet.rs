@@ -83,8 +83,8 @@ impl Inner {
 ///
 /// Wallet class is the main coordinator that manages integrated wallet operations.
 ///
-/// The Wallet class encapsulates {@link UtxoProcessor} and provides internal
-/// account management using {@link UtxoContext} instances. It acts as a bridge
+/// The Wallet class encapsulates {@link CellProcessor} and provides internal
+/// account management using {@link CellContext} instances. It acts as a bridge
 /// between the integrated Wallet subsystem providing a high-level interface
 /// for wallet key and account management.
 ///
@@ -103,7 +103,7 @@ impl Inner {
 /// The wallet implementation is designed to be efficient and support a large number
 /// of accounts. Accounts reside in storage and can be loaded and activated as needed.
 /// A `loaded` account contains all account information loaded from the permanent storage
-/// whereas an `active` account monitors the UTXO set and provides notifications for
+/// whereas an `active` account monitors the live cell set and provides notifications for
 /// incoming and outgoing transactions as well as balance updates.
 ///
 /// The Wallet API communicates with the client using resource identifiers. These include

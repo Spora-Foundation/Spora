@@ -4,7 +4,7 @@ use crate::{
     constants,
     errors::{coinbase::CoinbaseError, tx::TxRuleError},
     tx::{TransactionId, TransactionOutpoint},
-    // utxo::utxo_error::UtxoAlgebraError as CoreUtxoAlgebraError, // UTXO deprecated
+    // legacy transaction-output algebra errors removed during Cell migration
     BlueWorkType,
 };
 use itertools::Itertools;
@@ -143,8 +143,8 @@ pub enum RuleError {
     #[error("expected indirect parents {0} but got {1}")]
     UnexpectedIndirectParents(TwoDimVecDisplay<Hash>, TwoDimVecDisplay<Hash>),
 
-    #[error("block {0} UTXO commitment is invalid - block header indicates {1}, but calculated value is {2}")]
-    BadUTXOCommitment(Hash, Hash, Hash),
+    #[error("block {0} cell commitment is invalid - block header indicates {1}, but calculated value is {2}")]
+    BadCellCommitmentMismatch(Hash, Hash, Hash),
 
     #[error("block {0} accepted ID merkle root is invalid - block header indicates {1}, but calculated value is {2}")]
     BadAcceptedIDMerkleRoot(Hash, Hash, Hash),
@@ -152,8 +152,8 @@ pub enum RuleError {
     #[error("coinbase transaction is not built as expected")]
     BadCoinbaseTransaction,
 
-    #[error("{0} non-coinbase transactions (out of {1}) are invalid in UTXO context")]
-    InvalidTransactionsInUtxoContext(usize, usize),
+    #[error("{0} non-coinbase transactions (out of {1}) are invalid in cell context")]
+    InvalidTransactionsInCellContext(usize, usize),
 
     #[error("invalid transactions in new block template")]
     InvalidTransactionsInNewBlock(HashMap<TransactionId, TxRuleError>),

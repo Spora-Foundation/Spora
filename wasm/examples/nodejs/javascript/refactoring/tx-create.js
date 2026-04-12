@@ -3,14 +3,14 @@ globalThis.WebSocket = require('websocket').w3cwebsocket; // W3C WebSocket modul
 const spora = require('../spora/spora_wasm');
 const { parseArgs, guardRpcIsSynced } = require("../utils");
 const {
-    RpcClient, UtxoSet, Address, Encoding, UtxoOrdering,
+    RpcClient, CellSet, Address, Encoding, CellOrdering,
     PaymentOutputs, PaymentOutput,
     XPrivateKey,
     TransactionInput,
     Transaction,
     signTransaction,
     MutableTransaction,
-    UtxoEntries,
+    CellEntries,
     NetworkType,
     minimumTransactionFee,
     adjustTransactionForFee,
@@ -53,16 +53,16 @@ spora.init_console_panic_hook();
         //new Address("sporatest:qz7ulu4c25dh7fzec9zjyrmlhnkzrg4wmf89q7gzr3gfrsj3uz6xjceef60sd")
     ];
 
-    console.log("\ngetting UTXOs...", addresses);
-    // const utxosByAddress = await rpc.getUtxosByAddresses({addresses});
+    console.log("\ngetting cells...", addresses);
+    // const cellsByAddress = await rpc.getCellsByAddresses({addresses});
 
-    const utxos = await rpc.getUtxosByAddresses({ addresses });
+    const cells = await rpc.getCellsByAddresses({ addresses });
 
     const amount = 1000n;
-    // const utxoSelection = await utxoSet.select(amount + 100n, UtxoOrdering.AscendingAmount);
+    // const cellSelection = await cellSet.select(amount + 100n, CellOrdering.AscendingAmount);
     //
-    // console.log("utxo_selection.amount", utxoSelection.amount)
-    // console.log("utxo_selection.totalAmount", utxoSelection.totalAmount)
+    // console.log("cell_selection.amount", utxoSelection.amount)
+    // console.log("cell_selection.totalAmount", utxoSelection.totalAmount)
     // // const utxos = utxoSelection.utxos;
     // console.log("utxos[0].data.outpoint", utxos[0]?.data.outpoint)
     // console.log("utxos.*.data.outpoint", utxos.map(a => a.data.outpoint))
@@ -70,7 +70,7 @@ spora.init_console_panic_hook();
 
     const priorityFee = 0n;
     const changeAddress = addr;
-    // let change = utxo_selection.totalAmount - amount - priorityFee;
+    // let change = cell_selection.totalAmount - amount - priorityFee;
     // if (change > 500){
     //     outputItems.push(new Output(
     //         change_address,
@@ -85,23 +85,23 @@ spora.init_console_panic_hook();
         ]
     ];
 
-    const utxoEntryList = [];
-    const inputs = utxos.map((utxo, sequence) => {
-        utxoEntryList.push(utxo.data);
+    const cellEntryList = [];
+    const inputs = cells.map((cell, sequence) => {
+        cellEntryList.push(cell.data);
 
         return new TransactionInput({
-            previousOutpoint: utxo.data.outpoint,
+            previousOutpoint: cell.data.outpoint,
             signatureScript: [],
             sequence,
             sigOpCount: 0
         });
     });
 
-    const utxoEntries = new UtxoEntries(utxoEntryList);
+    const cellEntries = new CellEntries(cellEntryList);
 
     console.log("inputs", inputs);
     console.log("outputs", outputs);
-    console.log("utxoEntries:", utxoEntries.items);
+    console.log("cellEntries:", cellEntries.items);
 
     // let outputs = [
     //     new spora.TransactionOutput(300n, new spora.ScriptPublicKey(0, keypair3.publicKey)),
@@ -135,7 +135,7 @@ spora.init_console_panic_hook();
 
     const private_key = xKey.receiveKey(0);
 
-    let mtx = new MutableTransaction(transaction, utxoEntries);
+    let mtx = new MutableTransaction(transaction, cellEntries);
     const adjustTransactionResult = adjustTransactionForFee(mtx, changeAddress, priorityFee);
     console.log("adjustTransactionResult", adjustTransactionResult)
     mtx = signTransaction(mtx, [private_key], true);

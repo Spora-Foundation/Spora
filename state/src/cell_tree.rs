@@ -4,26 +4,45 @@
 // Cell State Tree - Merkle tree for live cells
 // Provides state root for lightweight client verification
 
+use spora_exec::OutPoint;
 use spora_hashes::{Hash, HasherBase, MerkleBranchHash};
-use std::collections::BTreeMap;
+use spora_muhash::MuHash;
+use std::{
+    collections::BTreeMap,
+    ops::Bound::{Excluded, Included, Unbounded},
+};
 
 /// Cell state entry in the tree
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CellEntry {
     /// Cell capacity
     pub capacity: u64,
+    /// Data length in bytes
+    pub data_bytes: u64,
     /// Lock script hash
     pub lock_hash: Hash,
     /// Type script hash (if present)
     pub type_hash: Option<Hash>,
     /// Data hash
     pub data_hash: Hash,
+    /// Block DAA score where this cell was created
+    pub block_daa_score: u64,
+    /// Whether this cell was created by a cellbase transaction
+    pub is_cellbase: bool,
 }
 
 impl CellEntry {
     /// Create a new cell entry
-    pub fn new(capacity: u64, lock_hash: Hash, type_hash: Option<Hash>, data_hash: Hash) -> Self {
-        Self { capacity, lock_hash, type_hash, data_hash }
+    pub fn new(
+        capacity: u64,
+        data_bytes: u64,
+        lock_hash: Hash,
+        type_hash: Option<Hash>,
+        data_hash: Hash,
+        block_daa_score: u64,
+        is_cellbase: bool,
+    ) -> Self {
+        Self { capacity, data_bytes, lock_hash, type_hash, data_hash, block_daa_score, is_cellbase }
     }
 
     /// Serialize cell entry for hashing
@@ -32,6 +51,9 @@ impl CellEntry {
 
         // Capacity (8 bytes)
         bytes.extend_from_slice(&self.capacity.to_le_bytes());
+
+        // Data length (8 bytes)
+        bytes.extend_from_slice(&self.data_bytes.to_le_bytes());
 
         // Lock hash (32 bytes)
         bytes.extend_from_slice(&self.lock_hash.as_bytes());
@@ -47,6 +69,12 @@ impl CellEntry {
         // Data hash (32 bytes)
         bytes.extend_from_slice(&self.data_hash.as_bytes());
 
+        // Creation DAA score (8 bytes)
+        bytes.extend_from_slice(&self.block_daa_score.to_le_bytes());
+
+        // Cellbase flag (1 byte)
+        bytes.push(u8::from(self.is_cellbase));
+
         bytes
     }
 
@@ -60,20 +88,45 @@ impl CellEntry {
     }
 }
 
-/// Cell State Tree - Sparse Merkle Tree for live cells
+/// Cell State Tree - MuHash accumulator for live cells
 ///
 /// This tree maintains the state of all live (unspent) cells.
 /// The tree is keyed by OutPoint hash and stores cell metadata.
 ///
 /// Features:
-/// - Sparse Merkle Tree structure (256-bit keys)
-/// - Incremental updates (add/remove cells)
-/// - Efficient state root calculation
-/// - Support for Merkle proofs
+/// - Sparse key space for live-cell membership
+/// - Mutable add/remove operations over the live-cell set
+/// - O(1) incremental root updates via MuHash accumulator
+/// - Deterministic proof / pagination helpers
+///
+/// # Performance
+///
+/// Root computation uses MuHash (multiplicative hash accumulator). Insert and
+/// remove operations incrementally update the accumulator in O(1), and
+/// `root()` calls `muhash.finalize()` which is also O(1) (384-byte modular
+/// arithmetic). The root is cached and only recomputed on mutation.
+///
+/// The leaf-hash cache (`leaf_hashes`) is retained so that `remove` can undo
+/// a previously added element without recomputing the leaf hash from scratch.
 #[derive(Clone)]
 pub struct CellStateTree {
     /// Cells indexed by outpoint hash (public for consensus layer access)
     pub cells: BTreeMap<Hash, CellEntry>,
+
+    /// Original outpoints indexed by outpoint hash.
+    ///
+    /// The Merkle tree is still keyed by `outpoint_hash`, but consensus query paths need the
+    /// original outpoint for chunked enumeration.
+    outpoints_by_hash: BTreeMap<Hash, OutPoint>,
+
+    /// Reverse index used for stable pagination by original outpoint ordering.
+    outpoint_hashes: BTreeMap<OutPoint, Hash>,
+
+    /// Per-leaf hash cache: avoids re-serializing and re-hashing unchanged cells.
+    leaf_hashes: BTreeMap<Hash, Hash>,
+
+    /// MuHash accumulator for O(1) incremental root updates.
+    muhash: MuHash,
 
     /// Cached root (invalidated on updates)
     cached_root: Option<Hash>,
@@ -82,11 +135,51 @@ pub struct CellStateTree {
 impl CellStateTree {
     /// Create a new empty cell state tree
     pub fn new() -> Self {
-        Self { cells: BTreeMap::new(), cached_root: None }
+        Self {
+            cells: BTreeMap::new(),
+            outpoints_by_hash: BTreeMap::new(),
+            outpoint_hashes: BTreeMap::new(),
+            leaf_hashes: BTreeMap::new(),
+            muhash: MuHash::new(),
+            cached_root: None,
+        }
     }
 
     /// Insert a cell into the tree
     pub fn insert(&mut self, outpoint_hash: Hash, entry: CellEntry) {
+        // Pre-compute and cache the leaf hash
+        let leaf_hash = Self::compute_leaf_hash(&outpoint_hash, &entry);
+        // Update MuHash accumulator: remove old leaf if replacing, then add new
+        if let Some(old_leaf_hash) = self.leaf_hashes.insert(outpoint_hash, leaf_hash) {
+            self.muhash.remove_element(&old_leaf_hash.as_bytes());
+        }
+        self.muhash.add_element(&leaf_hash.as_bytes());
+        self.cells.insert(outpoint_hash, entry);
+        self.cached_root = None; // Invalidate cache
+    }
+
+    /// Insert a cell into the tree while preserving the original outpoint.
+    pub fn insert_with_outpoint(&mut self, outpoint_hash: Hash, outpoint: OutPoint, entry: CellEntry) {
+        if let Some(previous_outpoint) = self.outpoints_by_hash.insert(outpoint_hash, outpoint.clone()) {
+            self.outpoint_hashes.remove(&previous_outpoint);
+        }
+        if let Some(previous_hash) = self.outpoint_hashes.insert(outpoint.clone(), outpoint_hash) {
+            if previous_hash != outpoint_hash {
+                self.cells.remove(&previous_hash);
+                self.outpoints_by_hash.remove(&previous_hash);
+                // Remove evicted leaf from MuHash
+                if let Some(old_leaf_hash) = self.leaf_hashes.remove(&previous_hash) {
+                    self.muhash.remove_element(&old_leaf_hash.as_bytes());
+                }
+            }
+        }
+        // Pre-compute and cache the leaf hash
+        let leaf_hash = Self::compute_leaf_hash(&outpoint_hash, &entry);
+        // Update MuHash accumulator: remove old leaf if replacing, then add new
+        if let Some(old_leaf_hash) = self.leaf_hashes.insert(outpoint_hash, leaf_hash) {
+            self.muhash.remove_element(&old_leaf_hash.as_bytes());
+        }
+        self.muhash.add_element(&leaf_hash.as_bytes());
         self.cells.insert(outpoint_hash, entry);
         self.cached_root = None; // Invalidate cache
     }
@@ -95,6 +188,13 @@ impl CellStateTree {
     pub fn remove(&mut self, outpoint_hash: &Hash) -> Option<CellEntry> {
         let result = self.cells.remove(outpoint_hash);
         if result.is_some() {
+            // Remove leaf from MuHash accumulator
+            if let Some(old_leaf_hash) = self.leaf_hashes.remove(outpoint_hash) {
+                self.muhash.remove_element(&old_leaf_hash.as_bytes());
+            }
+            if let Some(outpoint) = self.outpoints_by_hash.remove(outpoint_hash) {
+                self.outpoint_hashes.remove(&outpoint);
+            }
             self.cached_root = None; // Invalidate cache
         }
         result
@@ -103,6 +203,11 @@ impl CellStateTree {
     /// Get a cell from the tree
     pub fn get(&self, outpoint_hash: &Hash) -> Option<&CellEntry> {
         self.cells.get(outpoint_hash)
+    }
+
+    /// Get the original outpoint corresponding to a hashed tree key.
+    pub fn get_outpoint(&self, outpoint_hash: &Hash) -> Option<&OutPoint> {
+        self.outpoints_by_hash.get(outpoint_hash)
     }
 
     /// Get the number of cells in the tree
@@ -115,74 +220,27 @@ impl CellStateTree {
         self.cells.is_empty()
     }
 
-    /// Apply a Cell diff to this tree
-    /// Note: This is a placeholder - needs proper implementation with OutPoint → Hash conversion
-    pub fn apply_diff_placeholder(&mut self) {
-        // TODO(cell-model): Implement proper diff application
-        // This requires converting TransactionOutpoint to Hash for tree indexing
-        self.cached_root = None; // Invalidate cache on any update
+    /// Compute leaf hash for a single cell (used for caching)
+    fn compute_leaf_hash(outpoint_hash: &Hash, entry: &CellEntry) -> Hash {
+        let cell_hash = entry.hash();
+        let mut hasher = MerkleBranchHash::new();
+        hasher.update(b"spora-cell/leaf");
+        hasher.update(&outpoint_hash.as_bytes());
+        hasher.update(&cell_hash.as_bytes());
+        hasher.finalize()
     }
 
-    /// Calculate the Merkle root of the cell tree
+    /// Calculate the MuHash root of the cell tree
     ///
-    /// For now, we use a simple approach:
-    /// 1. Sort all (outpoint_hash, cell_hash) pairs by outpoint_hash
-    /// 2. Build a binary Merkle tree
-    ///
-    /// Future optimization: Use incremental Merkle tree (e.g., Jellyfish Merkle Tree)
+    /// Returns the finalized MuHash accumulator value. This is O(1) since
+    /// the accumulator is maintained incrementally on insert/remove.
     pub fn root(&mut self) -> Hash {
         // Return cached root if available
         if let Some(ref root) = self.cached_root {
             return *root;
         }
 
-        // Empty tree has zero hash
-        if self.cells.is_empty() {
-            return Hash::from_bytes([0u8; 32]);
-        }
-
-        // Collect (outpoint_hash, cell_hash) pairs, sorted by outpoint_hash
-        let mut entries: Vec<(Hash, Hash)> = self.cells.iter().map(|(outpoint_hash, cell)| (*outpoint_hash, cell.hash())).collect();
-
-        entries.sort_by(|a, b| a.0.cmp(&b.0));
-
-        // Build binary Merkle tree bottom-up
-        let mut current_level: Vec<Hash> = entries
-            .into_iter()
-            .map(|(outpoint, cell_hash)| {
-                // Leaf = H("spora-cell/leaf" || outpoint || cell_hash)
-                let mut hasher = MerkleBranchHash::new();
-                hasher.update(b"spora-cell/leaf");
-                hasher.update(&outpoint.as_bytes());
-                hasher.update(&cell_hash.as_bytes());
-                hasher.finalize()
-            })
-            .collect();
-
-        // Build tree upwards
-        while current_level.len() > 1 {
-            let mut next_level = Vec::new();
-
-            for chunk in current_level.chunks(2) {
-                let hash = if chunk.len() == 2 {
-                    // Internal node = H("spora-cell/node" || left || right)
-                    let mut hasher = MerkleBranchHash::new();
-                    hasher.update(b"spora-cell/node");
-                    hasher.update(&chunk[0].as_bytes());
-                    hasher.update(&chunk[1].as_bytes());
-                    hasher.finalize()
-                } else {
-                    // Odd number, promote the single node
-                    chunk[0]
-                };
-
-                next_level.push(hash);
-            }
-
-            current_level = next_level;
-        }
-
-        let root = current_level[0];
+        let root = self.muhash.clone().finalize();
         self.cached_root = Some(root);
         root
     }
@@ -190,12 +248,45 @@ impl CellStateTree {
     /// Clear the tree
     pub fn clear(&mut self) {
         self.cells.clear();
+        self.outpoints_by_hash.clear();
+        self.outpoint_hashes.clear();
+        self.leaf_hashes.clear();
+        self.muhash = MuHash::new();
         self.cached_root = None;
     }
 
     /// Get all cell entries (for iteration)
     pub fn iter(&self) -> impl Iterator<Item = (&Hash, &CellEntry)> {
         self.cells.iter()
+    }
+
+    /// Iterate cells ordered by their original outpoint.
+    pub fn iter_by_outpoint(&self) -> impl Iterator<Item = (&OutPoint, &Hash, &CellEntry)> {
+        self.outpoint_hashes
+            .iter()
+            .filter_map(|(outpoint, outpoint_hash)| self.cells.get(outpoint_hash).map(|entry| (outpoint, outpoint_hash, entry)))
+    }
+
+    /// Iterate cells ordered by original outpoint with an optional pagination anchor.
+    pub fn iter_by_outpoint_from<'a>(
+        &'a self,
+        from_outpoint: Option<&'a OutPoint>,
+        skip_first: bool,
+    ) -> Box<dyn Iterator<Item = (&'a OutPoint, &'a Hash, &'a CellEntry)> + 'a> {
+        let iter: Box<dyn Iterator<Item = (&'a OutPoint, &'a Hash, &'a CellEntry)> + 'a> =
+            match from_outpoint {
+                Some(from_outpoint) if skip_first => {
+                    Box::new(self.outpoint_hashes.range((Excluded(from_outpoint.clone()), Unbounded)).filter_map(
+                        |(outpoint, outpoint_hash)| self.cells.get(outpoint_hash).map(|entry| (outpoint, outpoint_hash, entry)),
+                    ))
+                }
+                Some(from_outpoint) => Box::new(self.outpoint_hashes.range((Included(from_outpoint.clone()), Unbounded)).filter_map(
+                    |(outpoint, outpoint_hash)| self.cells.get(outpoint_hash).map(|entry| (outpoint, outpoint_hash, entry)),
+                )),
+                None => Box::new(self.iter_by_outpoint()),
+            };
+
+        iter
     }
 }
 
@@ -210,7 +301,11 @@ mod tests {
     use super::*;
 
     fn create_test_entry(capacity: u64) -> CellEntry {
-        CellEntry::new(capacity, Hash::from_bytes([1u8; 32]), None, Hash::from_bytes([2u8; 32]))
+        CellEntry::new(capacity, 0, Hash::from_bytes([1u8; 32]), None, Hash::from_bytes([2u8; 32]), 100, false)
+    }
+
+    fn create_test_outpoint(byte: u8, index: u32) -> OutPoint {
+        OutPoint::new([byte; 32], index)
     }
 
     #[test]
@@ -218,29 +313,39 @@ mod tests {
         let entry = create_test_entry(100000);
         let serialized = entry.serialize();
 
-        // 8 (capacity) + 32 (lock) + 1 (type flag) + 32 (data) = 73 bytes
-        assert_eq!(serialized.len(), 73);
+        // 8 (capacity) + 8 (data bytes) + 32 (lock) + 1 (type flag) + 32 (data hash) + 8 (daa) + 1 (cellbase) = 90 bytes
+        assert_eq!(serialized.len(), 90);
 
         // Verify capacity
         assert_eq!(&serialized[0..8], &100000u64.to_le_bytes());
 
+        // Verify data length
+        assert_eq!(&serialized[8..16], &0u64.to_le_bytes());
+
         // Verify no type script
-        assert_eq!(serialized[40], 0);
+        assert_eq!(serialized[48], 0);
     }
 
     #[test]
     fn test_cell_entry_with_type_script() {
-        let entry =
-            CellEntry::new(100000, Hash::from_bytes([1u8; 32]), Some(Hash::from_bytes([3u8; 32])), Hash::from_bytes([2u8; 32]));
+        let entry = CellEntry::new(
+            100000,
+            0,
+            Hash::from_bytes([1u8; 32]),
+            Some(Hash::from_bytes([3u8; 32])),
+            Hash::from_bytes([2u8; 32]),
+            100,
+            true,
+        );
 
         let serialized = entry.serialize();
 
-        // 8 + 32 + 1 + 32 (type) + 32 (data) = 105 bytes
-        assert_eq!(serialized.len(), 105);
+        // 8 + 8 + 32 + 1 + 32 (type) + 32 + 8 + 1 = 122 bytes
+        assert_eq!(serialized.len(), 122);
 
         // Verify type script present
-        assert_eq!(serialized[40], 1);
-        assert_eq!(&serialized[41..73], &[3u8; 32]);
+        assert_eq!(serialized[48], 1);
+        assert_eq!(&serialized[49..81], &[3u8; 32]);
     }
 
     #[test]
@@ -262,8 +367,8 @@ mod tests {
         assert_eq!(tree.len(), 0);
         assert!(tree.is_empty());
 
-        // Empty tree root is zero hash
-        assert_eq!(tree.root(), Hash::from_bytes([0u8; 32]));
+        // Empty tree root is EMPTY_MUHASH
+        assert_eq!(tree.root(), spora_muhash::EMPTY_MUHASH);
     }
 
     #[test]
@@ -371,5 +476,18 @@ mod tests {
         }
 
         assert_eq!(tree1.root(), tree2.root());
+    }
+
+    #[test]
+    fn test_insert_with_outpoint_preserves_original_outpoint_order() {
+        let mut tree = CellStateTree::new();
+
+        tree.insert_with_outpoint(Hash::from_bytes([2u8; 32]), create_test_outpoint(2, 0), create_test_entry(200));
+        tree.insert_with_outpoint(Hash::from_bytes([1u8; 32]), create_test_outpoint(1, 0), create_test_entry(100));
+
+        let ordered =
+            tree.iter_by_outpoint().map(|(outpoint, _, entry)| (outpoint.tx_hash, outpoint.index, entry.capacity)).collect::<Vec<_>>();
+
+        assert_eq!(ordered, vec![([1u8; 32], 0, 100), ([2u8; 32], 0, 200)]);
     }
 }

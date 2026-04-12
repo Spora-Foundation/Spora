@@ -13,12 +13,12 @@ impl HeaderProcessor {
     }
 
     // TODO (post HF): move back to pre_ghostdag_validation (substitute for check_parents_limit_upper_bound)
-    fn check_parents_limit(&self, ctx: &mut HeaderProcessingContext, header: &Header) -> BlockProcessResult<()> {
+    fn check_parents_limit(&self, _ctx: &mut HeaderProcessingContext, header: &Header) -> BlockProcessResult<()> {
         if header.direct_parents().is_empty() {
             return Err(RuleError::NoParents);
         }
 
-        let max_block_parents = self.max_block_parents.get(ctx.selected_parent_daa_score()) as usize;
+        let max_block_parents = self.max_block_parents as usize;
         if header.direct_parents().len() > max_block_parents {
             return Err(RuleError::TooManyParents(header.direct_parents().len(), max_block_parents));
         }

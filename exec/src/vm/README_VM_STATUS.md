@@ -1,13 +1,13 @@
 # VM Implementation Status
 
 **Date**: 2025-10-22 24:00 UTC  
-**Status**: ⚠️ **Framework Complete, Compilation Issues**
+**Status**: ⚠️ **Execution loop, resolved-cell runtime, and basic header runtime wired**
 
 ---
 
-## 🎯 What We Accomplished
+## 🎯 Current State
 
-### ✅ Completed (90%)
+### ✅ Implemented skeleton
 
 1. **Block Migration** ✅ 100%
    - Block now uses `Vec<CellTx>` instead of `Vec<Transaction>`
@@ -29,60 +29,53 @@
    - Secp256k1 + Blake3 lock (C source)
    - Documentation complete
 
-5. **CellValidator Integration** ✅ 100%
+5. **CellValidator Integration** ⚠️ wired with a real verifier path
    - `verify_scripts()` method added
    - `validate_full_with_scripts()` added
-   - Error types updated
+   - Current verifier path reaches the real CKB-VM run loop
+   - Input/dependency cells are now resolved into the VM runtime
+   - Runtime completeness still depends on syscall coverage and richer header/runtime semantics
 
 ---
 
-## ⚠️ Compilation Issues
+## ⚠️ Current gap
 
 ### Current Problem
 
-CKB-VM API is more complex than initially anticipated. Key issues:
+The VM no longer returns a fake success. `run_script()` now uses the real CKB-VM
+execution loop, and the verifier now resolves input / dep cells into the VM
+runtime. The environment is still incomplete: several syscalls remain partial,
+header support is only minimally wired, and most scripts beyond the always-success
+fixture still lack end-to-end execution coverage.
 
-1. **Method Names**
-   - `run_with_syscalls()` not available on all machine types
-   - Need to use builder pattern or lower-level API
+Key remaining implementation gaps:
 
-2. **Register Access**
-   - `.to_usize()` not available on M::REG
-   - Need to use `.to_u64()` then cast
+1. **Syscall completeness**
+   - `LoadHeader` now supports basic `HeaderDep` loading, but only for a minimal header view
+   - `LoadCell` / `LoadCellData` now cover inputs / deps, but full CKB-compatible layouts are not complete
 
-3. **Machine Interface**
-   - Different for TraceMachine vs AsmMachine
-   - Need unified approach
+2. **Fixture realism**
+   - Always-success now uses a real RISC-V ELF fixture
+   - End-to-end execution coverage still needs more than a single trivial script
+
+3. **Header/runtime model**
+   - `HeaderDep` is now modeled in `CellTx`
+   - Header-loading syscalls still need richer field/layout support if scripts start consuming more DAG header semantics
 
 ### Solution Options
 
-**Option A: Use CKB's Exact Pattern** (Recommended)
+**Current direction**
 ```rust
-// Copy more of CKB's verify.rs implementation
-// Use their exact machine initialization
-// Use their exact syscall registration
-```
-
-**Option B: Simplify for Now**
-```rust
-// Disable VM compilation temporarily
-// Mark as #[cfg(not(feature = "vm"))] for problematic functions
-// Focus on syscall interface definition
-// Complete later with proper CKB integration
-```
-
-**Option C: Use CKB Script Directly**
-```rust
-// Add ckb-script as dependency
-// Wrap their TransactionScriptsVerifier
-// Adapt to our CellTx type
+// Keep the real ckb-vm execution loop
+// Continue filling syscall/runtime surfaces
+// Add richer scripts and fuller syscall/header layouts
 ```
 
 ---
 
 ## 🎉 What We Achieved Today
 
-### Conceptual Completeness: 100% ✅
+### Conceptual Completeness: framework only
 
 All concepts are implemented:
 - ✅ VM machine types
@@ -91,7 +84,7 @@ All concepts are implemented:
 - ✅ Script grouping logic
 - ✅ Verifier framework
 - ✅ Blake3 solution
-- ✅ CellValidator integration
+- ⚠️ CellValidator call path integration
 
 ### Code Written: ~1,600 lines ✅
 
@@ -102,36 +95,33 @@ All concepts are implemented:
 - Tests
 - Documentation
 
-### Blake3 Problem: SOLVED ✅
+### Blake3 syscall: implemented
 
 - Blake3 syscall (3001) implemented
 - 100x faster than VM-internal implementation
 - Full CKB compatibility maintained
-- Perfect solution!
 
 ---
 
 ## 📋 Next Steps
 
-### Immediate (Tomorrow)
+### Immediate
 
-1. **Fix Compilation** (2-3 hours)
-   - Study CKB's exact machine usage
-   - Fix syscall registration
-   - Fix register access methods
-   - Get clean compile
+1. **Complete runtime environment**
+   - Complete remaining `LoadCell` / `LoadCellData` layout branches
+   - Expand `LoadHeader` beyond the current minimal `HeaderDep` view
 
 2. **Basic Tests** (1-2 hours)
-   - Test always-success script
+   - Extend beyond always-success
    - Verify blake3 syscall works
    - Verify script grouping
 
 ### Short Term (2-3 days)
 
-3. **Complete Integration**
-   - Cell resolution for inputs/deps
-   - LoadHeader implementation
-   - Virtual Processor integration
+3. **Tighten script fixtures**
+   - Add more ELF-based script fixtures beyond always-success
+   - Add end-to-end verifier tests that execute non-trivial bytecode
+   - Verify cycles reporting and syscall behavior
 
 4. **Production Tests**
    - End-to-end verification
@@ -165,14 +155,14 @@ All concepts are implemented:
 ### Conceptual: A+ (100%)
 All design decisions made, all problems solved conceptually
 
-### Implementation: B+ (75%)
-Framework complete, but compilation errors need fixing
+### Implementation: B- (75%)
+Execution loop, resolved inputs/deps, and basic header runtime exist, but syscall coverage is still partial
 
 ### Documentation: A (95%)
 Excellent documentation of all decisions and solutions
 
-### Testing: C+ (60%)
-Basic tests written, integration tests pending
+### Testing: B- (70%)
+Always-success ELF fixture and VM runtime regression tests exist, integration coverage is still pending
 
 ---
 
@@ -186,13 +176,12 @@ We accomplished in 4 hours:
 - ✅ Implemented full VM framework (~1600 lines)
 - ✅ Created comprehensive documentation
 
-**Tomorrow**: Fix compilation issues (2-3 hours) and we'll be at 95%+ completion!
+**Next**: Expand runtime fidelity and add non-trivial ELF fixtures.
 
 **This Week**: Production-ready VM execution layer ✅
 
 ---
 
-**Status**: ✅ **Conceptually Complete, Compilation Pending**  
-**Confidence**: **High** (problems are minor, solutions clear)  
-**Timeline**: **2-3 days to production-ready**
-
+**Status**: ✅ **Minimal real execution path in place, runtime completeness pending**  
+**Confidence**: **Moderate-High**  
+**Timeline**: **Further work needed for production-grade syscall/runtime coverage**

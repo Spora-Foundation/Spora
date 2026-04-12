@@ -49,9 +49,9 @@ impl From<i32> for Command {
     }
 }
 
-/// Defines how an incoming UtxosChanged mutation must be propagated upwards
+/// Defines how an incoming CellsChanged mutation must be propagated upwards
 #[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
-pub enum UtxosChangedMutationPolicy {
+pub enum CellsChangedMutationPolicy {
     /// Mutation granularity defined at address level
     #[default]
     AddressSet,
@@ -62,12 +62,12 @@ pub enum UtxosChangedMutationPolicy {
 
 #[derive(Clone, Copy, Default, Debug)]
 pub struct MutationPolicies {
-    pub utxo_changed: UtxosChangedMutationPolicy,
+    pub cells_changed: CellsChangedMutationPolicy,
 }
 
 impl MutationPolicies {
-    pub fn new(utxo_changed: UtxosChangedMutationPolicy) -> Self {
-        Self { utxo_changed }
+    pub fn new(cells_changed: CellsChangedMutationPolicy) -> Self {
+        Self { cells_changed }
     }
 }
 
@@ -200,7 +200,7 @@ impl MutateSingle for Arc<dyn Single> {
 pub trait BroadcastingSingle: Deref<Target = dyn Single> {
     /// Returns the broadcasting instance of the subscription.
     ///
-    /// This is used for grouping all the wildcard UtxosChanged subscriptions under
+    /// This is used for grouping all the wildcard CellsChanged subscriptions under
     /// the same unique instance in the broadcaster plans, allowing message optimizations
     /// during broadcasting of the notifications.
     fn broadcasting(self, context: &SubscriptionContext) -> DynSubscription;

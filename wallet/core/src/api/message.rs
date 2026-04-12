@@ -7,7 +7,7 @@
 use crate::imports::*;
 use crate::tx::{Fees, GeneratorSummary, PaymentDestination};
 use spora_addresses::Address;
-use spora_consensus_core::tx::{TransactionOutpoint, UtxoEntry};
+use spora_consensus_core::tx::{cell_entry_legacy_script_public_key, cell_meta_from_legacy_output, CellEntry, TransactionOutpoint};
 use spora_rpc_core::RpcFeerateBucket;
 
 #[derive(Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
@@ -512,9 +512,9 @@ pub struct AccountsSendResponse {
 
 #[derive(Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct AccountsPstbSignRequest {
+pub struct AccountsPssbSignRequest {
     pub account_id: AccountId,
-    pub pstb: String,
+    pub pssb: String,
     pub wallet_secret: Secret,
     pub payment_secret: Option<Secret>,
     pub sign_for_address: Option<Address>,
@@ -522,28 +522,28 @@ pub struct AccountsPstbSignRequest {
 
 #[derive(Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct AccountsPstbSignResponse {
-    pub pstb: String,
+pub struct AccountsPssbSignResponse {
+    pub pssb: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct AccountsPstbBroadcastRequest {
+pub struct AccountsPssbBroadcastRequest {
     pub account_id: AccountId,
-    pub pstb: String,
+    pub pssb: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct AccountsPstbBroadcastResponse {
+pub struct AccountsPssbBroadcastResponse {
     pub transaction_ids: Vec<TransactionId>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct AccountsPstbSendRequest {
+pub struct AccountsPssbSendRequest {
     pub account_id: AccountId,
-    pub pstb: String,
+    pub pssb: String,
     pub wallet_secret: Secret,
     pub payment_secret: Option<Secret>,
     pub sign_for_address: Option<Address>,
@@ -551,13 +551,13 @@ pub struct AccountsPstbSendRequest {
 
 #[derive(Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct AccountsPstbSendResponse {
+pub struct AccountsPssbSendResponse {
     pub transaction_ids: Vec<TransactionId>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct AccountsGetUtxosRequest {
+pub struct AccountsGetCellsRequest {
     pub account_id: AccountId,
     pub addresses: Option<Vec<Address>>,
     pub min_amount_sau: Option<u64>,
@@ -565,21 +565,31 @@ pub struct AccountsGetUtxosRequest {
 
 #[derive(Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct AccountsGetUtxosResponse {
-    pub utxos: Vec<UtxoEntryWrapper>,
+pub struct AccountsGetCellsResponse {
+    pub cells: Vec<CellEntryWrapper>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct UtxoEntryWrapper {
+pub struct CellEntryWrapper {
     pub address: Option<Address>,
     pub outpoint: TransactionOutpointWrapper,
     pub amount: u64,
+    #[serde(default)]
+    pub capacity: Option<u64>,
+    #[serde(default)]
+    pub data_bytes: Option<u64>,
+    #[serde(default)]
+    pub lock_hash: Option<TransactionId>,
+    #[serde(default)]
+    pub type_hash: Option<TransactionId>,
+    #[serde(default)]
+    pub data_hash: Option<TransactionId>,
     pub script_public_key: ScriptPublicKey,
     pub block_daa_score: u64,
     pub is_coinbase: bool,
 }
-impl UtxoEntryWrapper {
+impl CellEntryWrapper {
     pub fn to_js_object(&self) -> Result<js_sys::Object> {
         let obj = js_sys::Object::new();
         if let Some(address) = &self.address {
@@ -591,10 +601,23 @@ impl UtxoEntryWrapper {
         outpoint.set("index", &self.outpoint.index.into())?;
 
         obj.set("amount", &self.amount.to_string().into())?;
+        obj.set("capacity", &self.capacity.unwrap_or(self.amount).to_string().into())?;
         obj.set("outpoint", &outpoint.into())?;
         obj.set("scriptPublicKey", &workflow_wasm::serde::to_value(&self.script_public_key)?)?;
         obj.set("blockDaaScore", &self.block_daa_score.to_string().into())?;
         obj.set("isCoinbase", &self.is_coinbase.into())?;
+        if let Some(data_bytes) = self.data_bytes {
+            obj.set("dataBytes", &data_bytes.to_string().into())?;
+        }
+        if let Some(lock_hash) = self.lock_hash {
+            obj.set("lockHash", &lock_hash.to_string().into())?;
+        }
+        if let Some(type_hash) = self.type_hash {
+            obj.set("typeHash", &type_hash.to_string().into())?;
+        }
+        if let Some(data_hash) = self.data_hash {
+            obj.set("dataHash", &data_hash.to_string().into())?;
+        }
 
         Ok(obj)
     }
@@ -609,36 +632,48 @@ pub struct TransactionOutpointWrapper {
 
 impl From<TransactionOutpoint> for TransactionOutpointWrapper {
     fn from(outpoint: TransactionOutpoint) -> Self {
-        Self { transaction_id: outpoint.transaction_id, index: outpoint.index }
+        Self { transaction_id: TransactionId::from_bytes(outpoint.tx_hash), index: outpoint.index }
     }
 }
 
 impl From<TransactionOutpointWrapper> for TransactionOutpoint {
     fn from(outpoint: TransactionOutpointWrapper) -> Self {
-        Self::new(outpoint.transaction_id, outpoint.index)
+        Self::new(outpoint.transaction_id.as_bytes(), outpoint.index)
     }
 }
 
-impl From<UtxoEntryWrapper> for UtxoEntry {
-    fn from(entry: UtxoEntryWrapper) -> Self {
-        Self {
-            amount: entry.amount,
-            script_public_key: entry.script_public_key,
-            block_daa_score: entry.block_daa_score,
-            is_coinbase: entry.is_coinbase,
+impl From<CellEntryWrapper> for CellEntry {
+    fn from(entry: CellEntryWrapper) -> Self {
+        match (entry.lock_hash, entry.data_hash) {
+            (Some(lock_hash), Some(data_hash)) => Self::from_cell_metadata(
+                entry.capacity.unwrap_or(entry.amount),
+                entry.data_bytes.unwrap_or_default(),
+                lock_hash.as_bytes(),
+                entry.type_hash.map(|hash| hash.as_bytes()),
+                data_hash.as_bytes(),
+                entry.block_daa_score,
+                entry.is_coinbase,
+            ),
+            _ => cell_meta_from_legacy_output(entry.amount, &entry.script_public_key, entry.block_daa_score, entry.is_coinbase),
         }
     }
 }
 
-impl From<UtxoEntry> for UtxoEntryWrapper {
-    fn from(entry: UtxoEntry) -> Self {
+impl From<CellEntry> for CellEntryWrapper {
+    fn from(entry: CellEntry) -> Self {
+        let metadata = entry.embedded_cell_metadata();
         Self {
-            address: None, // UtxoEntry doesn't have address field
-            outpoint: TransactionOutpointWrapper { transaction_id: spora_hashes::Hash::default(), index: 0 }, // UtxoEntry doesn't have outpoint field
-            amount: entry.amount,
-            script_public_key: entry.script_public_key,
+            address: None, // CellEntry doesn't have address field
+            outpoint: TransactionOutpointWrapper { transaction_id: spora_hashes::Hash::default(), index: 0 }, // CellEntry doesn't have outpoint field
+            amount: entry.amount(),
+            capacity: metadata.map(|_| entry.capacity()),
+            data_bytes: metadata.map(|m| m.data_bytes),
+            lock_hash: metadata.map(|m| m.lock_hash.into()),
+            type_hash: metadata.and_then(|m| m.type_hash.map(Into::into)),
+            data_hash: metadata.map(|m| m.data_hash.into()),
+            script_public_key: cell_entry_legacy_script_public_key(&entry),
             block_daa_score: entry.block_daa_score,
-            is_coinbase: entry.is_coinbase,
+            is_coinbase: entry.is_cellbase,
         }
     }
 }
@@ -795,7 +830,9 @@ pub struct AddressBookEnumerateRequest {}
 
 #[derive(Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct AddressBookEnumerateResponse {}
+pub struct AddressBookEnumerateResponse {
+    pub entries: Vec<Arc<AddressBookEntry>>,
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 #[serde(rename_all = "camelCase")]

@@ -1,5 +1,5 @@
 use crate::imports::*;
-use spora_consensus_core::tx::{TransactionInput, TransactionOutpoint};
+use spora_consensus_core::tx::OutPointCompat;
 use spora_wallet_core::storage::Binding;
 use spora_wallet_core::storage::{TransactionData, TransactionKind, TransactionRecord};
 use spora_wallet_core::wallet::WalletGuard;
@@ -49,12 +49,12 @@ impl TransactionTypeExtension for TransactionKind {
 
 #[async_trait]
 pub trait TransactionExtension {
-    async fn format_transaction(&self, wallet: &Arc<Wallet>, include_utxos: bool, guard: &WalletGuard) -> Vec<String>;
+    async fn format_transaction(&self, wallet: &Arc<Wallet>, include_cells: bool, guard: &WalletGuard) -> Vec<String>;
     async fn format_transaction_with_state(
         &self,
         wallet: &Arc<Wallet>,
         state: Option<&str>,
-        include_utxos: bool,
+        include_cells: bool,
         guard: &WalletGuard,
     ) -> Vec<String>;
     async fn format_transaction_with_args(
@@ -62,7 +62,7 @@ pub trait TransactionExtension {
         wallet: &Arc<Wallet>,
         state: Option<&str>,
         current_daa_score: Option<u64>,
-        include_utxos: bool,
+        include_cells: bool,
         history: bool,
         account: Option<Arc<dyn Account>>,
         guard: &WalletGuard,
@@ -71,18 +71,18 @@ pub trait TransactionExtension {
 
 #[async_trait]
 impl TransactionExtension for TransactionRecord {
-    async fn format_transaction(&self, wallet: &Arc<Wallet>, include_utxos: bool, guard: &WalletGuard) -> Vec<String> {
-        self.format_transaction_with_args(wallet, None, None, include_utxos, false, None, guard).await
+    async fn format_transaction(&self, wallet: &Arc<Wallet>, include_cells: bool, guard: &WalletGuard) -> Vec<String> {
+        self.format_transaction_with_args(wallet, None, None, include_cells, false, None, guard).await
     }
 
     async fn format_transaction_with_state(
         &self,
         wallet: &Arc<Wallet>,
         state: Option<&str>,
-        include_utxos: bool,
+        include_cells: bool,
         guard: &WalletGuard,
     ) -> Vec<String> {
-        self.format_transaction_with_args(wallet, state, None, include_utxos, false, None, guard).await
+        self.format_transaction_with_args(wallet, state, None, include_cells, false, None, guard).await
     }
 
     async fn format_transaction_with_args(
@@ -90,7 +90,7 @@ impl TransactionExtension for TransactionRecord {
         wallet: &Arc<Wallet>,
         state: Option<&str>,
         current_daa_score: Option<u64>,
-        include_utxos: bool,
+        include_cells: bool,
         history: bool,
         account: Option<Arc<dyn Account>>,
         guard: &WalletGuard,
@@ -126,26 +126,26 @@ impl TransactionExtension for TransactionRecord {
         let suffix = spora_suffix(&self.network_id.network_type);
 
         match transaction_data {
-            TransactionData::Reorg { utxo_entries, aggregate_input_value }
-            | TransactionData::Stasis { utxo_entries, aggregate_input_value }
-            | TransactionData::Incoming { utxo_entries, aggregate_input_value }
-            | TransactionData::External { utxo_entries, aggregate_input_value }
-            | TransactionData::Change { utxo_entries, aggregate_input_value, .. } => {
+            TransactionData::Reorg { cell_entries, aggregate_input_value }
+            | TransactionData::Stasis { cell_entries, aggregate_input_value }
+            | TransactionData::Incoming { cell_entries, aggregate_input_value }
+            | TransactionData::External { cell_entries, aggregate_input_value }
+            | TransactionData::Change { cell_entries, aggregate_input_value, .. } => {
                 let aggregate_input_value =
                     transaction_type.style_with_sign(sau_to_spora_string(*aggregate_input_value).as_str(), history);
-                lines.push(format!("{:>4}UTXOs: {}  Total: {}", "", utxo_entries.len(), aggregate_input_value));
-                if include_utxos {
-                    for utxo_entry in utxo_entries {
+                lines.push(format!("{:>4}Cells: {}  Total: {}", "", cell_entries.len(), aggregate_input_value));
+                if include_cells {
+                    for cell_entry in cell_entries {
                         let address =
-                            style(utxo_entry.address.as_ref().map(|addr| addr.to_string()).unwrap_or_else(|| "n/a".to_string()))
+                            style(cell_entry.address.as_ref().map(|addr| addr.to_string()).unwrap_or_else(|| "n/a".to_string()))
                                 .blue();
-                        let index = utxo_entry.index;
-                        let is_coinbase = if utxo_entry.is_coinbase {
-                            style(format!("coinbase utxo [{index}]")).dim()
+                        let index = cell_entry.index;
+                        let is_coinbase = if cell_entry.is_coinbase {
+                            style(format!("coinbase cell [{index}]")).dim()
                         } else {
-                            style(format!("standard utxo [{index}]")).dim()
+                            style(format!("standard cell [{index}]")).dim()
                         };
-                        let amount = transaction_type.style_with_sign(sau_to_spora_string(utxo_entry.amount).as_str(), history);
+                        let amount = transaction_type.style_with_sign(sau_to_spora_string(cell_entry.amount).as_str(), history);
 
                         lines.push(format!("{:>4}{address}", ""));
                         lines.push(format!("{:>4}{amount} {suffix} {is_coinbase}", ""));
@@ -158,7 +158,7 @@ impl TransactionExtension for TransactionRecord {
             | TransactionData::TransferOutgoing { fees, aggregate_input_value, transaction, payment_value, change_value, .. } => {
                 if let Some(payment_value) = payment_value {
                     lines.push(format!(
-                        "{:>4}Payment: {}  Used: {}  Fees: {}  Change: {}  UTXOs: [{}↠{}]",
+                        "{:>4}Payment: {}  Used: {}  Fees: {}  Change: {}  Cells: [{}↠{}]",
                         "",
                         style(sau_to_spora_string(*payment_value)).red(),
                         style(sau_to_spora_string(*aggregate_input_value)).blue(),
@@ -169,7 +169,7 @@ impl TransactionExtension for TransactionRecord {
                     ));
                 } else {
                     lines.push(format!(
-                        "{:>4}Sweep: {}  Fees: {}  Change: {}  UTXOs: [{}↠{}]",
+                        "{:>4}Sweep: {}  Fees: {}  Change: {}  Cells: [{}↠{}]",
                         "",
                         style(sau_to_spora_string(*aggregate_input_value)).blue(),
                         style(sau_to_spora_string(*fees)).red(),
@@ -179,12 +179,14 @@ impl TransactionExtension for TransactionRecord {
                     ));
                 }
 
-                if include_utxos {
+                if include_cells {
                     for input in transaction.inputs.iter() {
-                        let TransactionInput { previous_outpoint, signature_script: _, sequence, sig_op_count } = input;
-                        let TransactionOutpoint { transaction_id, index } = previous_outpoint;
+                        let out_point = &input.out_point;
+                        let index = out_point.index;
+                        let transaction_id = out_point.transaction_id();
+                        let since = input.since;
 
-                        lines.push(format!("{:>4}{sequence:>2}: {transaction_id}:{index} SigOps: {sig_op_count}", ""));
+                        lines.push(format!("{:>4}{since:>2}: {transaction_id}:{index}", ""));
                     }
                 }
             }

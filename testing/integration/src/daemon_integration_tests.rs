@@ -2,10 +2,9 @@ use crate::common::{
     client::ListeningClient,
     client_notify::ChannelNotify,
     daemon::Daemon,
-    utils::{fetch_spendable_utxos, generate_tx, mine_block, wait_for},
+    utils::{fetch_spendable_cells, generate_tx, mine_block, wait_for},
 };
 use rand::thread_rng;
-use std::{sync::Arc, time::Duration};
 use spora_addresses::Address;
 use spora_alloc::init_allocator_with_default_settings;
 use spora_consensus::params::SIMNET_PARAMS;
@@ -13,10 +12,11 @@ use spora_consensus_core::header::Header;
 use spora_consensusmanager::ConsensusManager;
 use spora_core::{task::runtime::AsyncRuntime, trace};
 use spora_grpc_client::GrpcClient;
-use spora_notify::scope::{BlockAddedScope, UtxosChangedScope, VirtualDaaScoreChangedScope};
+use spora_notify::scope::{BlockAddedScope, CellsChangedScope, VirtualDaaScoreChangedScope};
 use spora_rpc_core::{api::rpc::RpcApi, Notification, RpcTransactionId};
 use spora_txscript::pay_to_address_script;
 use sporad_lib::args::Args;
+use std::{sync::Arc, time::Duration};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn daemon_sanity_test() {
@@ -121,9 +121,9 @@ async fn daemon_mining_test() {
     }
 }
 
-/// `cargo test --release --package spora-testing-integration --lib -- daemon_integration_tests::daemon_utxos_propagation_test`
+/// `cargo test --release --package spora-testing-integration --lib -- daemon_integration_tests::daemon_cells_propagation_test`
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-async fn daemon_utxos_propagation_test() {
+async fn daemon_cells_propagation_test() {
     #[cfg(feature = "heap")]
     let _profiler = dhat::Profiler::builder().file_name("spora-testing-integration-heap.json").build();
 
@@ -136,12 +136,12 @@ async fn daemon_utxos_propagation_test() {
         unsafe_rpc: true,
         enable_unsynced_mining: true,
         disable_upnp: true, // UPnP registration might take some time and is not needed for this test
-        utxoindex: true,
+        cellindex: true,
         ..Default::default()
     };
     let total_fd_limit = 10;
 
-    let coinbase_maturity = SIMNET_PARAMS.coinbase_maturity().before();
+    let coinbase_maturity = SIMNET_PARAMS.coinbase_maturity();
     let mut sporad1 = Daemon::new_random_with_args(args.clone(), total_fd_limit);
     let mut sporad2 = Daemon::new_random_with_args(args, total_fd_limit);
     let rpc_client1 = sporad1.start().await;
@@ -217,7 +217,7 @@ async fn daemon_utxos_propagation_test() {
             async fn daa_score_reached(client: GrpcClient) -> bool {
                 let virtual_daa_score = client.get_server_info().await.unwrap().virtual_daa_score;
                 trace!("Virtual DAA score: {}", virtual_daa_score);
-                virtual_daa_score == SIMNET_PARAMS.coinbase_maturity().before()
+                virtual_daa_score == SIMNET_PARAMS.coinbase_maturity()
             }
             Box::pin(daa_score_reached(check_client.clone()))
         },
@@ -245,11 +245,11 @@ async fn daemon_utxos_propagation_test() {
     // ...and subscribe each to some notifications
     for x in clients.iter_mut() {
         x.start_notify(BlockAddedScope {}.into()).await.unwrap();
-        x.start_notify(UtxosChangedScope::new(vec![miner_address.clone(), user_address.clone()]).into()).await.unwrap();
+        x.start_notify(CellsChangedScope::new(vec![miner_address.clone(), user_address.clone()]).into()).await.unwrap();
         x.start_notify(VirtualDaaScoreChangedScope {}.into()).await.unwrap();
     }
 
-    // Mine some extra blocks so the latest miner reward is added to its balance and some UTXOs reach maturity
+    // Mine some extra blocks so the latest miner reward is added to its balance and some cells reach maturity
     const EXTRA_BLOCKS: usize = 10;
     for _ in 0..EXTRA_BLOCKS {
         mine_block(blank_address.clone(), &rpc_client1, &clients).await;
@@ -261,25 +261,25 @@ async fn daemon_utxos_propagation_test() {
     let miner_balance = rpc_client1.get_balance_by_address(miner_address.clone()).await.unwrap();
     assert_eq!(miner_balance, initial_blocks * SIMNET_PARAMS.pre_deflationary_phase_base_subsidy);
 
-    // Get the miner UTXOs
-    let utxos = fetch_spendable_utxos(&rpc_client1, miner_address.clone(), coinbase_maturity).await;
-    assert_eq!(utxos.len(), EXTRA_BLOCKS - 1);
-    for utxo in utxos.iter() {
-        assert!(utxo.1.is_coinbase);
-        assert_eq!(utxo.1.amount, SIMNET_PARAMS.pre_deflationary_phase_base_subsidy);
-        assert_eq!(utxo.1.script_public_key, miner_spk);
+    // Get the miner cells
+    let cells = fetch_spendable_cells(&rpc_client1, miner_address.clone(), coinbase_maturity).await;
+    assert_eq!(cells.len(), EXTRA_BLOCKS - 1);
+    for cell in cells.iter() {
+        assert!(cell.1.is_coinbase);
+        assert_eq!(cell.1.amount, SIMNET_PARAMS.pre_deflationary_phase_base_subsidy);
+        assert_eq!(cell.1.script_public_key, miner_spk);
     }
 
-    // Drain UTXOs and Virtual DAA score changed notification channels
-    clients.iter().for_each(|x| x.utxos_changed_listener().unwrap().drain());
+    // Drain cell and Virtual DAA score changed notification channels
+    clients.iter().for_each(|x| x.cells_changed_listener().unwrap().drain());
     clients.iter().for_each(|x| x.virtual_daa_score_changed_listener().unwrap().drain());
 
     // Spend some coins - sending funds from miner address to user address
-    // The transaction here is later used to verify utxo return address RPC
+    // The transaction here is later used to verify cell return address RPC
     const NUMBER_INPUTS: u64 = 2;
     const NUMBER_OUTPUTS: u64 = 2;
     const TX_AMOUNT: u64 = SIMNET_PARAMS.pre_deflationary_phase_base_subsidy * (NUMBER_INPUTS * 5 - 1) / 5;
-    let transaction = generate_tx(miner_schnorr_key, &utxos[0..NUMBER_INPUTS as usize], TX_AMOUNT, NUMBER_OUTPUTS, &user_address);
+    let transaction = generate_tx(miner_schnorr_key, &cells[0..NUMBER_INPUTS as usize], TX_AMOUNT, NUMBER_OUTPUTS, &user_address);
     rpc_client1.submit_transaction((&transaction).into(), false).await.unwrap();
 
     let check_client = rpc_client1.clone();
@@ -300,9 +300,9 @@ async fn daemon_utxos_propagation_test() {
 
     mine_block(blank_address.clone(), &rpc_client1, &clients).await;
 
-    // Check UTXOs changed notifications
+    // Check cells changed notifications
     for x in clients.iter() {
-        let Notification::UtxosChanged(uc) = x.utxos_changed_listener().unwrap().receiver.recv().await.unwrap() else {
+        let Notification::CellsChanged(uc) = x.cells_changed_listener().unwrap().receiver.recv().await.unwrap() else {
             panic!("wrong notification type")
         };
         assert!(uc.removed.iter().all(|x| x.address.is_some() && *x.address.as_ref().unwrap() == miner_address));
@@ -310,10 +310,10 @@ async fn daemon_utxos_propagation_test() {
         assert_eq!(uc.removed.len() as u64, NUMBER_INPUTS);
         assert_eq!(uc.added.len() as u64, NUMBER_OUTPUTS);
         assert_eq!(
-            uc.removed.iter().map(|x| x.utxo_entry.amount).sum::<u64>(),
+            uc.removed.iter().map(|x| x.cell_entry.amount).sum::<u64>(),
             SIMNET_PARAMS.pre_deflationary_phase_base_subsidy * NUMBER_INPUTS
         );
-        assert_eq!(uc.added.iter().map(|x| x.utxo_entry.amount).sum::<u64>(), TX_AMOUNT);
+        assert_eq!(uc.added.iter().map(|x| x.cell_entry.amount).sum::<u64>(), TX_AMOUNT);
     }
 
     // Check the balance of both miner and user addresses
@@ -325,22 +325,22 @@ async fn daemon_utxos_propagation_test() {
         assert_eq!(user_balance, TX_AMOUNT);
     }
 
-    // UTXO Return Address Test
+    // Cell return address compatibility test
     // Mine another block to accept the transactions from the previous block
     // The tx above is sending from miner address to user address
     mine_block(blank_address.clone(), &rpc_client1, &clients).await;
-    let new_utxos = rpc_client1.get_utxos_by_addresses(vec![user_address]).await.unwrap();
-    let new_utxo = new_utxos
+    let new_cells = rpc_client1.get_cells_by_addresses(vec![user_address]).await.unwrap();
+    let new_cell = new_cells
         .iter()
-        .find(|utxo| utxo.outpoint.transaction_id == transaction.id())
-        .expect("Did not find a utxo for the tx we just created but expected to");
+        .find(|cell| cell.outpoint.transaction_id == transaction.id())
+        .expect("Did not find a cell for the tx we just created but expected to");
 
-    let utxo_return_address = rpc_client1
-        .get_utxo_return_address(new_utxo.outpoint.transaction_id, new_utxo.utxo_entry.block_daa_score)
+    let cell_return_address = rpc_client1
+        .get_cell_return_address(new_cell.outpoint.transaction_id, new_cell.cell_entry.block_daa_score)
         .await
-        .expect("We just created the tx and utxo here");
+        .expect("We just created the tx and cell here");
 
-    assert_eq!(miner_address, utxo_return_address);
+    assert_eq!(miner_address, cell_return_address);
 
     // Terminate multi-listener clients
     for x in clients.iter() {

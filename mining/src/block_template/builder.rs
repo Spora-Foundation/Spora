@@ -1,8 +1,10 @@
 use super::errors::BuilderResult;
+use crate::cell_conversion::compute_lock_hash;
 use spora_consensus_core::{
     api::ConsensusApi,
     block::{BlockTemplate, TemplateBuildMode, TemplateTransactionSelector},
     coinbase::MinerData,
+    merkle::calc_hash_merkle_root_cell,
     tx::COINBASE_TRANSACTION_INDEX,
 };
 use spora_core::time::{unix_now, Stopwatch};
@@ -96,22 +98,25 @@ impl BlockTemplateBuilder {
     ) -> BuilderResult<BlockTemplate> {
         let mut block_template = block_template_to_modify.clone();
 
-        // TODO(cell-model): Coinbase modification needs migration to CellTx
-        // CellTx uses outputs_data instead of payload field
-        // For now, skip coinbase modification as mining is being migrated
-        /*
         let coinbase_tx = &mut block_template.block.transactions[COINBASE_TRANSACTION_INDEX];
-        let new_payload = consensus.modify_coinbase_payload(coinbase_tx.payload().unwrap_or(&[]).to_vec(), new_miner_data)?;
-        // coinbase_tx.outputs_data[0] = new_payload;  // Need mutable access
+        let current_payload = coinbase_tx.payload().unwrap_or(&[]).to_vec();
+        let new_payload = consensus.modify_coinbase_payload(current_payload, new_miner_data)?;
+        if !coinbase_tx.outputs_data.is_empty() {
+            coinbase_tx.outputs_data[0] = new_payload;
+        } else if let Some(first_witness) = coinbase_tx.witnesses.first_mut() {
+            *first_witness = new_payload;
+        } else {
+            coinbase_tx.witnesses.push(new_payload);
+        }
         if block_template.coinbase_has_red_reward {
             // The last output is always the coinbase red blocks reward
-            // coinbase_tx.outputs.last_mut().unwrap().lock = new_miner_data.script_public_key.clone();
+            if let Some(last_output) = coinbase_tx.outputs.last_mut() {
+                last_output.lock.code_hash = compute_lock_hash(&new_miner_data.script_public_key);
+                last_output.lock.hash_type = 0;
+                last_output.lock.args.clear();
+            }
         }
-        */
-        // TODO(cell-model): Update hash merkle root for CellTx
-        // Temporarily skip this as we're not modifying coinbase anymore
-        /* block_template.block.header.hash_merkle_root =
-        consensus.calc_transaction_hash_merkle_root(&block_template.block.transactions, block_template.block.header.daa_score); */
+        block_template.block.header.hash_merkle_root = calc_hash_merkle_root_cell(block_template.block.transactions.iter(), false);
         let new_timestamp = unix_now();
         if new_timestamp > block_template.block.header.timestamp {
             // Only if new time stamp is later than current, update the header. Otherwise,

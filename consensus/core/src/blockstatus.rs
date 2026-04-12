@@ -6,13 +6,13 @@ pub enum BlockStatus {
     /// StatusInvalid indicates that the block is invalid.
     StatusInvalid,
 
-    /// StatusUTXOValid indicates the block is valid from any UTXO related aspects and has passed all the other validations as well.
-    StatusUTXOValid,
+    /// StatusCellValid indicates the block is valid from any Cell related aspects and has passed all the other validations as well.
+    StatusCellValid,
 
-    /// StatusUTXOPendingVerification indicates that the block is pending verification against its past UTXO-Set, either
+    /// StatusCellPendingVerification indicates that the block is pending verification against its past Cell set, either
     /// because it was not yet verified since the block was never in the selected parent chain, or if the
     /// block violates finality.
-    StatusUTXOPendingVerification,
+    StatusCellPendingVerification,
 
     /// StatusDisqualifiedFromChain indicates that the block is not eligible to be a selected parent.
     StatusDisqualifiedFromChain,
@@ -27,7 +27,7 @@ impl BlockStatus {
     pub fn has_block_header(self) -> bool {
         matches!(
             self,
-            Self::StatusHeaderOnly | Self::StatusUTXOValid | Self::StatusUTXOPendingVerification | Self::StatusDisqualifiedFromChain
+            Self::StatusHeaderOnly | Self::StatusCellValid | Self::StatusCellPendingVerification | Self::StatusDisqualifiedFromChain
         )
     }
 
@@ -36,11 +36,11 @@ impl BlockStatus {
     }
 
     pub fn has_block_body(self) -> bool {
-        matches!(self, Self::StatusUTXOValid | Self::StatusUTXOPendingVerification | Self::StatusDisqualifiedFromChain)
+        matches!(self, Self::StatusCellValid | Self::StatusCellPendingVerification | Self::StatusDisqualifiedFromChain)
     }
 
-    pub fn is_utxo_valid_or_pending(self) -> bool {
-        matches!(self, Self::StatusUTXOValid | Self::StatusUTXOPendingVerification)
+    pub fn is_cell_valid_or_pending(self) -> bool {
+        matches!(self, Self::StatusCellValid | Self::StatusCellPendingVerification)
     }
 
     pub fn is_valid(self) -> bool {

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ISC
-// Copyright (C) 2025 Spora developers
+// Copyright (C) 2026 Spora developers
 //
 // Cell validation errors
 
@@ -15,6 +15,10 @@ pub enum CellValidationError {
     /// Script verification failed
     #[error("Script verification failed: {0}")]
     ScriptVerificationFailed(String),
+
+    /// Script execution exceeded the configured cycles budget
+    #[error("Script cycles exceeded limit: total {total}, limit {limit}")]
+    ExceededMaxCycles { total: u64, limit: u64 },
 
     /// Cell not found
     #[error("Cell not found: {0:?}")]

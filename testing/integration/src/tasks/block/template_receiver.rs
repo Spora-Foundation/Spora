@@ -4,14 +4,14 @@ use crate::{
 };
 use async_trait::async_trait;
 use parking_lot::Mutex;
-use std::sync::Arc;
-use tokio::task::JoinHandle;
 use spora_addresses::Address;
 use spora_core::warn;
 use spora_grpc_client::GrpcClient;
 use spora_notify::{listener::ListenerId, scope::NewBlockTemplateScope};
 use spora_rpc_core::{api::rpc::RpcApi, GetBlockTemplateResponse, Notification};
 use spora_utils::{channel::Channel, triggers::SingleTrigger};
+use std::sync::Arc;
+use tokio::task::JoinHandle;
 
 pub struct BlockTemplateReceiverTask {
     client: Arc<GrpcClient>,

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ISC
-// Copyright (C) 2025 Spora developers
+// Copyright (C) 2026 Spora developers
 //
 // This file is part of Spora, a DAG-based blockchain with Cell model.
 // Portions adapted from Nervos CKB (MIT License).

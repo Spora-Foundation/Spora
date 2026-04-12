@@ -25,13 +25,13 @@ message SporadMessage {
     VersionMessage version = 20;
     TransactionNotFoundMessage transactionNotFound = 21;
     RejectMessage reject = 22;
-    PruningPointUtxoSetChunkMessage pruningPointUtxoSetChunk = 25;
+    PruningPointCellSetChunkMessage pruningPointCellSetChunk = 25;
     RequestIBDBlocksMessage requestIBDBlocks = 26;
     UnexpectedPruningPointMessage unexpectedPruningPoint = 27;
     IbdBlockLocatorMessage ibdBlockLocator = 30;
     IbdBlockLocatorHighestHashMessage ibdBlockLocatorHighestHash = 31;
-    RequestNextPruningPointUtxoSetChunkMessage requestNextPruningPointUtxoSetChunk = 33;
-    DonePruningPointUtxoSetChunksMessage donePruningPointUtxoSetChunks = 34;
+    RequestNextPruningPointCellSetChunkMessage requestNextPruningPointCellSetChunk = 33;
+    DonePruningPointCellSetChunksMessage donePruningPointCellSetChunks = 34;
     IbdBlockLocatorHighestHashNotFoundMessage ibdBlockLocatorHighestHashNotFound = 35;
     BlockWithTrustedDataMessage blockWithTrustedData = 36;
     DoneBlocksWithTrustedDataMessage doneBlocksWithTrustedData = 37;
@@ -39,7 +39,7 @@ message SporadMessage {
     BlockHeadersMessage blockHeaders = 41;
     RequestNextHeadersMessage requestNextHeaders = 42;
     DoneHeadersMessage DoneHeaders = 43;
-    RequestPruningPointUTXOSetMessage requestPruningPointUTXOSet = 44;
+    RequestPruningPointCellSetMessage requestPruningPointCellSet = 44;
     RequestHeadersMessage requestHeaders = 45;
     RequestBlockLocatorMessage requestBlockLocator = 46;
     PruningPointsMessage pruningPoints = 47;

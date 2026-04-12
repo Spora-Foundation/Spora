@@ -1,4 +1,5 @@
 pub mod block;
+pub mod cell;
 pub mod error;
 pub mod ghostdag;
 pub mod hash;
@@ -11,4 +12,3 @@ pub mod pruning;
 pub mod subnets;
 pub mod trusted;
 pub mod tx;
-pub mod utxo;

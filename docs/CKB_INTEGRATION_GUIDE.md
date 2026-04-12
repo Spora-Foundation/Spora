@@ -249,7 +249,7 @@ pub struct Header {
     // ... 其他字段 ...
     
     /// Cell commitment - 可演进的版本化状态承诺（共识字段）
-    #[serde(alias = "utxo_commitment")]  // 向后兼容
+    #[serde(alias = "cell_commitment")]  // 向后兼容
     pub cell_commitment: Hash,
     
     /// Cell state root - Live cells 的 Merkle 根（状态证明用）
@@ -543,7 +543,7 @@ pub struct CellTx {
 1. **共识集成** - 添加 cell_root 到区块头
 2. **高级系统调用** - Exec, Spawn, LoadHeader
 3. **性能优化** - ASM 机器、并行验证
-4. **UTXO 清理** - 完整迁移到 Cell 模型
+4. **Legacy transaction-output 清理** - 完整迁移到 Cell 模型
 
 ---
 
@@ -571,4 +571,3 @@ pub struct CellTx {
 **最后更新**: 2025-10-22 19:00 UTC
 **状态**: ✅ Phase 3 (VM Integration) Complete
 **下一步**: Phase 4 (Consensus Integration)
-

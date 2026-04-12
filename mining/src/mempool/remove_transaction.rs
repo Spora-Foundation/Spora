@@ -31,7 +31,7 @@ impl Mempool {
 
         let mut removed_orphans: Vec<TransactionId> = vec![];
         for tx_id in removed_transactions.iter() {
-            // Remove the tx from the transaction pool and the UTXO set (handled within the pool)
+            // Remove the tx from the transaction pool and the transitional Cell set (handled within the pool)
             let tx = self.transaction_pool.remove_transaction(tx_id)?;
             // Update/remove descendent orphan txs (depending on `remove_redeemers`)
             let txs = self.orphan_pool.update_orphans_after_transaction_removed(&tx, remove_redeemers)?;

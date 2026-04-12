@@ -2,18 +2,18 @@ use criterion::{black_box, criterion_group, criterion_main, Criterion, SamplingM
 use rand::{thread_rng, Rng};
 use secp256k1::Keypair;
 use spora_addresses::{Address, Prefix, Version};
-use spora_consensus::processes::transaction_validator::tx_validation_in_utxo_context::{
+use spora_consensus::processes::transaction_validator::tx_validation_in_cell_context::{
     check_scripts_par_iter, check_scripts_par_iter_pool, check_scripts_sequential,
 };
 use spora_consensus_core::hashing::sighash::{calc_schnorr_signature_hash, SigHashReusedValuesUnsync};
 use spora_consensus_core::hashing::sighash_type::SIG_HASH_ALL;
 use spora_consensus_core::subnets::SubnetworkId;
-use spora_consensus_core::tx::{MutableTransaction, Transaction, TransactionInput, TransactionOutpoint, UtxoEntry};
+use spora_consensus_core::tx::{CellEntry, MutableTransaction, Transaction, TransactionInput, TransactionOutpoint};
 use spora_txscript::caches::Cache;
 use spora_txscript::pay_to_address_script;
 use spora_utils::iter::parallelism_in_power_steps;
 
-fn mock_tx_with_payload(inputs_count: usize, non_uniq_signatures: usize, payload_size: usize) -> (Transaction, Vec<UtxoEntry>) {
+fn mock_tx_with_payload(inputs_count: usize, non_uniq_signatures: usize, payload_size: usize) -> (Transaction, Vec<CellEntry>) {
     let mut payload = vec![0u8; payload_size];
     thread_rng().fill(&mut payload[..]);
 
@@ -28,14 +28,14 @@ fn mock_tx_with_payload(inputs_count: usize, non_uniq_signatures: usize, payload
         0,
         payload,
     );
-    let mut utxos = vec![];
+    let mut cells = vec![];
     let mut kps = vec![];
 
     for _ in 0..inputs_count - non_uniq_signatures {
         let kp = Keypair::new(secp256k1::SECP256K1, &mut thread_rng());
         tx.inputs.push(TransactionInput { previous_outpoint: dummy_prev_out, signature_script: vec![], sequence: 0, sig_op_count: 1 });
         let address = Address::new(Prefix::Mainnet, Version::PubKey, &kp.x_only_public_key().0.serialize());
-        utxos.push(UtxoEntry {
+        cells.push(CellEntry {
             amount: thread_rng().gen::<u32>() as u64,
             script_public_key: pay_to_address_script(&address),
             block_daa_score: 333,
@@ -48,7 +48,7 @@ fn mock_tx_with_payload(inputs_count: usize, non_uniq_signatures: usize, payload
         let kp = kps.last().unwrap();
         tx.inputs.push(TransactionInput { previous_outpoint: dummy_prev_out, signature_script: vec![], sequence: 0, sig_op_count: 1 });
         let address = Address::new(Prefix::Mainnet, Version::PubKey, &kp.x_only_public_key().0.serialize());
-        utxos.push(UtxoEntry {
+        cells.push(CellEntry {
             amount: thread_rng().gen::<u32>() as u64,
             script_public_key: pay_to_address_script(&address),
             block_daa_score: 444,
@@ -57,7 +57,7 @@ fn mock_tx_with_payload(inputs_count: usize, non_uniq_signatures: usize, payload
     }
 
     for (i, kp) in kps.iter().enumerate().take(inputs_count - non_uniq_signatures) {
-        let mut_tx = MutableTransaction::with_entries(&tx, utxos.clone());
+        let mut_tx = MutableTransaction::with_entries(&tx, cells.clone());
         let sig_hash = calc_schnorr_signature_hash(&mut_tx.as_verifiable(), i, SIG_HASH_ALL, &reused_values);
         let msg = secp256k1::Message::from_digest_slice(sig_hash.as_bytes().as_slice()).unwrap();
         let sig: [u8; 64] = *kp.sign_schnorr(msg).as_ref();
@@ -67,25 +67,25 @@ fn mock_tx_with_payload(inputs_count: usize, non_uniq_signatures: usize, payload
     let length = tx.inputs.len();
     for i in (inputs_count - non_uniq_signatures)..length {
         let kp = kps.last().unwrap();
-        let mut_tx = MutableTransaction::with_entries(&tx, utxos.clone());
+        let mut_tx = MutableTransaction::with_entries(&tx, cells.clone());
         let sig_hash = calc_schnorr_signature_hash(&mut_tx.as_verifiable(), i, SIG_HASH_ALL, &reused_values);
         let msg = secp256k1::Message::from_digest_slice(sig_hash.as_bytes().as_slice()).unwrap();
         let sig: [u8; 64] = *kp.sign_schnorr(msg).as_ref();
         tx.inputs[i].signature_script = std::iter::once(65u8).chain(sig).chain([SIG_HASH_ALL.to_u8()]).collect();
     }
 
-    (tx, utxos)
+    (tx, cells)
 }
 
 fn benchmark_check_scripts(c: &mut Criterion) {
     for inputs_count in [100, 50, 25, 10, 5, 2] {
         for non_uniq_signatures in [0, inputs_count / 2] {
-            let (tx, utxos) = mock_tx_with_payload(inputs_count, non_uniq_signatures, 0);
+            let (tx, cells) = mock_tx_with_payload(inputs_count, non_uniq_signatures, 0);
             let mut group = c.benchmark_group(format!("inputs: {inputs_count}, non uniq: {non_uniq_signatures}"));
             group.sampling_mode(SamplingMode::Flat);
 
             group.bench_function("single_thread", |b| {
-                let tx = MutableTransaction::with_entries(&tx, utxos.clone());
+                let tx = MutableTransaction::with_entries(&tx, cells.clone());
                 let cache = Cache::new(inputs_count as u64);
                 b.iter(|| {
                     cache.clear();
@@ -94,7 +94,7 @@ fn benchmark_check_scripts(c: &mut Criterion) {
             });
 
             group.bench_function("rayon par iter", |b| {
-                let tx = MutableTransaction::with_entries(tx.clone(), utxos.clone());
+                let tx = MutableTransaction::with_entries(tx.clone(), cells.clone());
                 let cache = Cache::new(inputs_count as u64);
                 b.iter(|| {
                     cache.clear();
@@ -105,7 +105,7 @@ fn benchmark_check_scripts(c: &mut Criterion) {
             for i in parallelism_in_power_steps() {
                 if inputs_count >= i {
                     group.bench_function(format!("rayon, custom thread pool, thread count {i}"), |b| {
-                        let tx = MutableTransaction::with_entries(tx.clone(), utxos.clone());
+                        let tx = MutableTransaction::with_entries(tx.clone(), cells.clone());
                         let pool = rayon::ThreadPoolBuilder::new().num_threads(i).build().unwrap();
                         let cache = Cache::new(inputs_count as u64);
                         b.iter(|| {
@@ -144,12 +144,12 @@ fn benchmark_check_scripts_with_payload(c: &mut Criterion) {
 
     for inputs_count in input_counts {
         for &payload_size in &payload_sizes {
-            let (tx, utxos) = mock_tx_with_payload(inputs_count, non_uniq_signatures, payload_size);
+            let (tx, cells) = mock_tx_with_payload(inputs_count, non_uniq_signatures, payload_size);
             let mut group = c.benchmark_group(format!("script_check/inputs_{}/payload_{}_kb", inputs_count, payload_size / 1024));
             group.sampling_mode(SamplingMode::Flat);
 
             group.bench_function("parallel_validation", |b| {
-                let tx = MutableTransaction::with_entries(tx.clone(), utxos.clone());
+                let tx = MutableTransaction::with_entries(tx.clone(), cells.clone());
                 let cache = Cache::new(inputs_count as u64);
                 b.iter(|| {
                     cache.clear();

@@ -1,6 +1,8 @@
 use crate::{
+    cell_metadata::CellMetadata,
+    cell_metadata::PlaceholderCellMetadata,
     hashing::HasherExtensions,
-    tx::{TransactionOutpoint, UtxoEntry, VerifiableTransaction},
+    tx::{outpoint_from_id, CellEntry, TransactionOutpoint, VerifiableTransaction},
 };
 use spora_core::{info, trace};
 use spora_hashes::HasherBase;
@@ -10,9 +12,9 @@ pub use spora_muhash::MuHash;
 
 pub trait MuHashExtensions {
     fn add_transaction(&mut self, tx: &impl VerifiableTransaction, block_daa_score: u64);
-    fn add_utxo(&mut self, outpoint: &TransactionOutpoint, entry: &UtxoEntry);
+    fn add_cell_entry(&mut self, outpoint: &TransactionOutpoint, entry: &CellEntry);
     fn from_transaction(tx: &impl VerifiableTransaction, block_daa_score: u64) -> Self;
-    fn from_utxo(outpoint: &TransactionOutpoint, entry: &UtxoEntry) -> Self;
+    fn from_cell_entry(outpoint: &TransactionOutpoint, entry: &CellEntry) -> Self;
 }
 
 impl MuHashExtensions for MuHash {
@@ -20,46 +22,66 @@ impl MuHashExtensions for MuHash {
         let tx_id = tx.id();
         info!("Adding transaction {} to multiset (is_coinbase: {}, block_daa_score: {})", tx_id, tx.is_coinbase(), block_daa_score);
 
-        for (input, entry) in tx.populated_inputs() {
+        for (index, input) in tx.inputs().iter().enumerate() {
             let mut writer = self.remove_element_builder();
-            write_utxo(&mut writer, entry, &input.previous_outpoint);
+            if let Some(metadata) = tx.cell_metadata(index) {
+                write_cell_metadata(&mut writer, &metadata);
+            } else {
+                let entry = tx
+                    .cell_entry(index)
+                    .expect("MuHash input removal requires either canonical cell metadata or a populated cell entry");
+                write_cell_entry(&mut writer, entry, &input.out_point);
+            }
             writer.finalize();
+            let (capacity, is_coinbase, block_daa_score) = if let Some(metadata) = tx.cell_metadata(index) {
+                (metadata.capacity, metadata.is_cellbase, metadata.block_daa_score)
+            } else {
+                let entry = tx.cell_entry(index).expect("cell entry must exist when metadata is absent");
+                (entry.capacity(), entry.is_cellbase, entry.block_daa_score)
+            };
             info!(
-                "Removed UTXO from multiset: tx={}, index={}, value={}, is_coinbase={}, block_daa_score={}",
-                input.previous_outpoint.transaction_id,
-                input.previous_outpoint.index,
-                entry.amount,
-                entry.is_coinbase,
-                entry.block_daa_score
+                "Removed cell from multiset: tx={:?}, index={}, value={}, is_coinbase={}, block_daa_score={}",
+                input.out_point.tx_hash, input.out_point.index, capacity, is_coinbase, block_daa_score
             );
         }
 
-        for (i, output) in tx.outputs().iter().enumerate() {
-            let outpoint = TransactionOutpoint::new(tx_id, i as u32);
-            let entry = UtxoEntry::new(output.value, output.script_public_key.clone(), block_daa_score, tx.is_coinbase());
-            self.add_utxo(&outpoint, &entry);
+        let cell_tx = tx.tx();
+        for (i, output) in cell_tx.outputs.iter().enumerate() {
+            let outpoint = outpoint_from_id(tx_id, i as u32);
+            let data = cell_tx.outputs_data.get(i).map(Vec::as_slice).unwrap_or_default();
+            let data_hash = *blake3::hash(data).as_bytes();
+            let entry = CellEntry {
+                out_point: outpoint,
+                capacity: output.capacity,
+                data_bytes: data.len() as u64,
+                lock_hash: output.lock.hash(),
+                type_hash: output.type_.as_ref().map(|s| s.hash()),
+                data_hash,
+                block_daa_score,
+                is_cellbase: tx.is_coinbase(),
+            };
+            self.add_cell_entry(&outpoint, &entry);
             info!(
-                "Added UTXO to multiset: tx={}, index={}, value={}, is_coinbase={}, block_daa_score={}, script_public_key={:?}",
+                "Added cell to multiset: tx={}, index={}, value={}, is_coinbase={}, block_daa_score={}",
                 tx_id,
                 i,
-                output.value,
+                output.capacity,
                 tx.is_coinbase(),
                 block_daa_score,
-                output.script_public_key
             );
         }
     }
 
-    fn add_utxo(&mut self, outpoint: &TransactionOutpoint, entry: &UtxoEntry) {
+    fn add_cell_entry(&mut self, outpoint: &TransactionOutpoint, entry: &CellEntry) {
         let mut writer = self.add_element_builder();
-        write_utxo(&mut writer, entry, outpoint);
+        write_cell_entry(&mut writer, entry, outpoint);
         writer.finalize();
         trace!(
-            "UTXO entry details: outpoint={}:{}, amount={}, is_coinbase={}, block_daa_score={}",
-            outpoint.transaction_id,
+            "Cell entry details: outpoint={:?}:{}, amount={}, is_coinbase={}, block_daa_score={}",
+            outpoint.tx_hash,
             outpoint.index,
-            entry.amount,
-            entry.is_coinbase,
+            entry.capacity(),
+            entry.is_cellbase,
             entry.block_daa_score
         );
     }
@@ -70,22 +92,53 @@ impl MuHashExtensions for MuHash {
         mh
     }
 
-    fn from_utxo(outpoint: &TransactionOutpoint, entry: &UtxoEntry) -> Self {
+    fn from_cell_entry(outpoint: &TransactionOutpoint, entry: &CellEntry) -> Self {
         let mut mh = Self::new();
-        mh.add_utxo(outpoint, entry);
+        mh.add_cell_entry(outpoint, entry);
         mh
     }
 }
 
-fn write_utxo(writer: &mut impl HasherBase, entry: &UtxoEntry, outpoint: &TransactionOutpoint) {
+fn write_placeholder_cell_metadata(writer: &mut impl HasherBase, metadata: &PlaceholderCellMetadata) {
+    writer.update(metadata.lock_hash);
+    writer.write_bool(metadata.type_hash.is_some());
+    if let Some(type_hash) = metadata.type_hash {
+        writer.update(type_hash);
+    }
+    writer.update(metadata.data_hash).update(metadata.data_bytes.to_le_bytes());
+}
+
+fn write_cell_metadata(writer: &mut impl HasherBase, metadata: &CellMetadata) {
+    writer
+        .update(metadata.out_point.tx_hash)
+        .update(metadata.out_point.index.to_le_bytes())
+        .update(metadata.block_daa_score.to_le_bytes())
+        .update(metadata.capacity.to_le_bytes())
+        .write_bool(metadata.is_cellbase);
+
+    write_placeholder_cell_metadata(
+        writer,
+        &PlaceholderCellMetadata {
+            lock_hash: metadata.lock_hash,
+            type_hash: metadata.type_hash,
+            data_hash: metadata.data_hash,
+            data_bytes: metadata.data_bytes,
+        },
+    );
+}
+
+fn write_cell_entry(writer: &mut impl HasherBase, entry: &CellEntry, outpoint: &TransactionOutpoint) {
     writer
         // Outpoint
-        .update(outpoint.transaction_id)
+        .update(outpoint.tx_hash)
         .update(outpoint.index.to_le_bytes())
-        // Utxo entry
+        // Cell entry
         .update(entry.block_daa_score.to_le_bytes())
-        .update(entry.amount.to_le_bytes())
-        .write_bool(entry.is_coinbase)
-        .update(entry.script_public_key.version().to_le_bytes())
-        .write_var_bytes(entry.script_public_key.script());
+        .update(entry.capacity().to_le_bytes())
+        .write_bool(entry.is_cellbase);
+
+    // CellMeta always carries metadata
+    if let Some(metadata) = entry.embedded_cell_metadata() {
+        write_placeholder_cell_metadata(writer, &metadata);
+    }
 }

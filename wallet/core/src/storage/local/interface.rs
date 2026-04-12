@@ -525,6 +525,7 @@ impl PrvKeyDataStore for LocalStoreInner {
         let encryption_kind = cache.encryption_kind;
         let mut prv_key_data_map: Decrypted<PrvKeyDataMap> = cache.prv_key_data.decrypt(wallet_secret)?;
         prv_key_data_map.remove(prv_key_data_id);
+        cache.prv_key_data_info.remove(&[prv_key_data_id])?;
         cache.prv_key_data.replace(prv_key_data_map.encrypt(wallet_secret, encryption_kind)?);
         self.set_modified(true);
         Ok(())

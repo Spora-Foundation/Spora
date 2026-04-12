@@ -38,9 +38,9 @@ pub struct Config {
     /// Enable various sanity checks which might be compute-intensive (mostly performed during pruning)
     pub enable_sanity_checks: bool,
 
-    // TODO: move non-consensus parameters like utxoindex to a higher scoped Config
-    /// Enable the UTXO index
-    pub utxoindex: bool,
+    // TODO: move non-consensus parameters like cellindex to a higher scoped Config
+    /// Enable the cell index
+    pub cellindex: bool,
 
     /// Enable RPC commands which affect the state of the node
     pub unsafe_rpc: bool,
@@ -85,7 +85,7 @@ impl Config {
             process_genesis: true,
             is_archival: false,
             enable_sanity_checks: false,
-            utxoindex: false,
+            cellindex: false,
             unsafe_rpc: false,
             enable_unsynced_mining: false,
             enable_mainnet_mining: false,

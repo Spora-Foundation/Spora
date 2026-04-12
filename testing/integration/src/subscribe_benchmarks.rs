@@ -18,7 +18,6 @@ use crate::{
 };
 use itertools::Itertools;
 use rand::thread_rng;
-use std::{sync::Arc, time::Duration};
 use spora_addresses::Address;
 use spora_alloc::init_allocator_with_default_settings;
 use spora_consensus::params::Params;
@@ -28,6 +27,7 @@ use spora_math::Uint256;
 use spora_notify::scope::VirtualDaaScoreChangedScope;
 use spora_rpc_core::api::rpc::RpcApi;
 use spora_txscript::pay_to_address_script;
+use std::{sync::Arc, time::Duration};
 
 // Constants
 const BLOCK_COUNT: usize = usize::MAX;
@@ -59,7 +59,7 @@ fn create_client_addresses(index: usize, network_id: &NetworkId) -> Vec<Address>
     // between notifiers and from notifier to broadcasters at grpc server and rpc core levels
     let max_address = ((NOTIFY_CLIENTS - index) * MAX_ADDRESSES / NOTIFY_CLIENTS) + 1;
     let min_address = if (NOTIFY_CLIENTS - index) % (NOTIFY_CLIENTS / 5) == 0 {
-        // Create a typical UTXOs monitoring service subscription scope
+        // Create a typical cells monitoring service subscription scope
         0
     } else {
         // Create a typical wallet subscription scope
@@ -70,10 +70,10 @@ fn create_client_addresses(index: usize, network_id: &NetworkId) -> Vec<Address>
         .collect_vec()
 }
 
-/// `cargo test --package spora-testing-integration --lib --features devnet-prealloc -- subscribe_benchmarks::utxos_changed_subscriptions_sanity_check --exact --nocapture --ignored`
+/// `cargo test --package spora-testing-integration --lib --features devnet-prealloc -- subscribe_benchmarks::cells_changed_subscriptions_sanity_check --exact --nocapture --ignored`
 #[tokio::test]
 #[ignore = "bmk"]
-async fn utxos_changed_subscriptions_sanity_check() {
+async fn cells_changed_subscriptions_sanity_check() {
     init_allocator_with_default_settings();
     spora_core::log::try_init_logger(
         "INFO, spora_core::time=debug, spora_rpc_core=debug, spora_grpc_client=debug, spora_notify=info, spora_notify::address::tracker=debug, spora_notify::listener=debug, spora_notify::subscription::single=debug, spora_mining::monitor=debug, spora_testing_integration::subscribe_benchmarks=trace",
@@ -98,7 +98,7 @@ async fn utxos_changed_subscriptions_sanity_check() {
     );
     let server_start_time = std::time::Instant::now();
     let mut daemon_process = tokio::process::Command::new("cargo")
-        .args(daemon_args.to_command_args("subscribe_benchmarks::bench_utxos_changed_subscriptions_daemon"))
+        .args(daemon_args.to_command_args("subscribe_benchmarks::bench_cells_changed_subscriptions_daemon"))
         .spawn()
         .expect("failed to start daemon process");
 
@@ -124,13 +124,13 @@ async fn utxos_changed_subscriptions_sanity_check() {
     daemon_process.wait().await.expect("failed to wait for the daemon process");
 }
 
-/// `cargo test --package spora-testing-integration --lib --features devnet-prealloc -- subscribe_benchmarks::bench_utxos_changed_subscriptions_daemon --exact --nocapture --ignored -- --rpc=16610 --p2p=16611 --private-key=a2760251adb5b6e8d4514d23397f1631893e168c33f92ff8a7a24f397d355d62 --max-tracked-addresses=1000000 --utxoindex`
+/// `cargo test --package spora-testing-integration --lib --features devnet-prealloc -- subscribe_benchmarks::bench_cells_changed_subscriptions_daemon --exact --nocapture --ignored -- --rpc=16610 --p2p=16611 --private-key=a2760251adb5b6e8d4514d23397f1631893e168c33f92ff8a7a24f397d355d62 --max-tracked-addresses=1000000 --cellindex`
 ///
 /// This test is designed to be run as a child process, with the parent process eventually shutting it down.
 /// Do not run it directly.
 #[tokio::test]
 #[ignore = "bmk"]
-async fn bench_utxos_changed_subscriptions_daemon() {
+async fn bench_cells_changed_subscriptions_daemon() {
     init_allocator_with_default_settings();
     spora_core::log::try_init_logger(
         "INFO, spora_core::core=trace, spora_core::time=debug, spora_rpc_core=debug, spora_grpc_client=debug, spora_notify=info, spora_notify::address::tracker=debug, spora_notify::listener=debug, spora_notify::subscription::single=debug, spora_mining::monitor=debug, spora_testing_integration::subscribe_benchmarks=trace",
@@ -157,7 +157,7 @@ async fn bench_utxos_changed_subscriptions_daemon() {
     trace!("Daemon was successfully shut down");
 }
 
-async fn utxos_changed_subscriptions_client(address_cycle_seconds: u64, address_max_cycles: usize) {
+async fn cells_changed_subscriptions_client(address_cycle_seconds: u64, address_max_cycles: usize) {
     init_allocator_with_default_settings();
     spora_core::log::try_init_logger(
         "INFO, spora_core::time=debug, spora_rpc_core=debug, spora_grpc_client=debug, spora_notify=info, spora_notify::address::tracker=debug, spora_notify::listener=debug, spora_notify::subscription::single=debug, spora_mining::monitor=debug, spora_testing_integration::subscribe_benchmarks=trace",
@@ -182,21 +182,21 @@ async fn utxos_changed_subscriptions_client(address_cycle_seconds: u64, address_
     let args = ArgsBuilder::simnet(TX_LEVEL_WIDTH as u64 * CONTRACT_FACTOR, PREALLOC_AMOUNT)
         .prealloc_address(prealloc_address)
         .max_tracked_addresses(MAX_ADDRESSES)
-        .utxoindex(true)
+        .cellindex(true)
         .apply_args(Daemon::fill_args_with_random_ports)
         .build();
     let network = args.network();
     let params: Params = network.into();
 
-    let utxoset = args.generate_prealloc_utxos(args.num_prealloc_utxos.unwrap());
+    let cellset = args.generate_prealloc_cells(args.num_prealloc_cells.unwrap());
     let txs = common::utils::generate_tx_dag(
-        utxoset.clone(),
+        cellset.clone(),
         schnorr_key,
         spk,
         (TX_COUNT + TX_LEVEL_WIDTH - 1) / TX_LEVEL_WIDTH,
         TX_LEVEL_WIDTH,
     );
-    common::utils::verify_tx_dag(&utxoset, &txs);
+    common::utils::verify_tx_dag(&cellset, &txs);
     info!("Generated overall {} txs", txs.len());
 
     // Start the daemon
@@ -211,7 +211,7 @@ async fn utxos_changed_subscriptions_client(address_cycle_seconds: u64, address_
     );
     let server_start_time = std::time::Instant::now();
     let mut daemon_process = tokio::process::Command::new("cargo")
-        .args(daemon_args.to_command_args("subscribe_benchmarks::bench_utxos_changed_subscriptions_daemon"))
+        .args(daemon_args.to_command_args("subscribe_benchmarks::bench_cells_changed_subscriptions_daemon"))
         .spawn()
         .expect("failed to start daemon process");
 
@@ -235,7 +235,7 @@ async fn utxos_changed_subscriptions_client(address_cycle_seconds: u64, address_
                 network,
                 client_manager.clone(),
                 SUBMIT_BLOCK_CLIENTS,
-                params.bps().upper_bound(),
+                params.bps(),
                 BLOCK_COUNT,
                 Stopper::Signal,
             )
@@ -257,7 +257,7 @@ async fn utxos_changed_subscriptions_client(address_cycle_seconds: u64, address_
             SubscriberGroupTask::build(
                 client_manager,
                 SUBSCRIBE_WORKERS,
-                params.bps().upper_bound(),
+                params.bps(),
                 vec![VirtualDaaScoreChangedScope {}.into()],
                 3,
                 subscribing_addresses,
@@ -283,42 +283,42 @@ async fn utxos_changed_subscriptions_client(address_cycle_seconds: u64, address_
     daemon_process.wait().await.expect("failed to wait for the daemon process");
 }
 
-/// `cargo test --package spora-testing-integration --lib --features devnet-prealloc -- subscribe_benchmarks::bench_utxos_changed_subscriptions_footprint_a --exact --nocapture --ignored`
+/// `cargo test --package spora-testing-integration --lib --features devnet-prealloc -- subscribe_benchmarks::bench_cells_changed_subscriptions_footprint_a --exact --nocapture --ignored`
 #[tokio::test]
 #[ignore = "bmk"]
-async fn bench_utxos_changed_subscriptions_footprint_a() {
+async fn bench_cells_changed_subscriptions_footprint_a() {
     // No subscriptions
-    utxos_changed_subscriptions_client(1200, 0).await;
+    cells_changed_subscriptions_client(1200, 0).await;
 }
 
-/// `cargo test --package spora-testing-integration --lib --features devnet-prealloc -- subscribe_benchmarks::bench_utxos_changed_subscriptions_footprint_b --exact --nocapture --ignored`
+/// `cargo test --package spora-testing-integration --lib --features devnet-prealloc -- subscribe_benchmarks::bench_cells_changed_subscriptions_footprint_b --exact --nocapture --ignored`
 #[tokio::test]
 #[ignore = "bmk"]
-async fn bench_utxos_changed_subscriptions_footprint_b() {
+async fn bench_cells_changed_subscriptions_footprint_b() {
     // Single initial subscriptions, no cycles
-    utxos_changed_subscriptions_client(60, 1).await;
+    cells_changed_subscriptions_client(60, 1).await;
 }
 
-/// `cargo test --package spora-testing-integration --lib --features devnet-prealloc -- subscribe_benchmarks::bench_utxos_changed_subscriptions_footprint_c --exact --nocapture --ignored`
+/// `cargo test --package spora-testing-integration --lib --features devnet-prealloc -- subscribe_benchmarks::bench_cells_changed_subscriptions_footprint_c --exact --nocapture --ignored`
 #[tokio::test]
 #[ignore = "bmk"]
-async fn bench_utxos_changed_subscriptions_footprint_c() {
+async fn bench_cells_changed_subscriptions_footprint_c() {
     // 2 hours subscription cycles
-    utxos_changed_subscriptions_client(7200, usize::MAX).await;
+    cells_changed_subscriptions_client(7200, usize::MAX).await;
 }
 
-/// `cargo test --package spora-testing-integration --lib --features devnet-prealloc -- subscribe_benchmarks::bench_utxos_changed_subscriptions_footprint_d --exact --nocapture --ignored`
+/// `cargo test --package spora-testing-integration --lib --features devnet-prealloc -- subscribe_benchmarks::bench_cells_changed_subscriptions_footprint_d --exact --nocapture --ignored`
 #[tokio::test]
 #[ignore = "bmk"]
-async fn bench_utxos_changed_subscriptions_footprint_d() {
+async fn bench_cells_changed_subscriptions_footprint_d() {
     // 30 minutes subscription cycles
-    utxos_changed_subscriptions_client(1800, usize::MAX).await;
+    cells_changed_subscriptions_client(1800, usize::MAX).await;
 }
 
-/// `cargo test --package spora-testing-integration --lib --features devnet-prealloc -- subscribe_benchmarks::bench_utxos_changed_subscriptions_footprint_e --exact --nocapture --ignored`
+/// `cargo test --package spora-testing-integration --lib --features devnet-prealloc -- subscribe_benchmarks::bench_cells_changed_subscriptions_footprint_e --exact --nocapture --ignored`
 #[tokio::test]
 #[ignore = "bmk"]
-async fn bench_utxos_changed_subscriptions_footprint_e() {
+async fn bench_cells_changed_subscriptions_footprint_e() {
     // 3 minutes subscription cycles
-    utxos_changed_subscriptions_client(180, usize::MAX).await;
+    cells_changed_subscriptions_client(180, usize::MAX).await;
 }

@@ -5,7 +5,7 @@ use crate::{
     },
     script_builder::{ScriptBuilder, ScriptBuilderError, ScriptBuilderResult},
     script_class::ScriptClass,
-    SCRIPT_VER_CLASSIC, SCRIPT_VER_COPPEROOT_MERKLE, SCRIPT_VER_COPPEROOT_VERKLE, SCRIPT_VER_TAPROOT,
+    SCRIPT_VER_CLASSIC,
 };
 use blake3::hash;
 use smallvec::SmallVec;
@@ -14,13 +14,9 @@ use spora_consensus_core::tx::{ScriptPublicKey, ScriptVec};
 use spora_txscript_errors::TxScriptError;
 use std::iter::once;
 
-pub mod copperoot;
 mod multisig;
-mod taproot;
 
-pub use copperoot::witness::CopperootWitness;
 pub use multisig::{multisig_redeem_script, multisig_redeem_script_ecdsa, Error as MultisigCreateError};
-pub use taproot::witness::Witness;
 
 /// Creates a new script to pay a transaction output to a 32-byte pubkey.
 fn pay_to_pub_key(address_payload: &[u8]) -> ScriptVec {
@@ -38,29 +34,6 @@ pub fn pay_to_pub_key_with_lock_time(address_payload: &[u8], lock_time: u64) -> 
         .add_op(OpCheckSig)?
         .drain();
     Ok(script)
-}
-
-/// It is expected that the input is a valid taproot.
-fn pay_to_taproot(taproot: &[u8]) -> ScriptVec {
-    // TODO: use ScriptBuilder when add_op and add_data fns or equivalents are available
-    assert_eq!(taproot.len(), 32);
-    SmallVec::from_iter([OpTrue, OpData32].iter().copied().chain(taproot.iter().copied()))
-}
-
-/// Creates a new script to pay a transaction output to P2CR (Pay-to-Copperoot-Merkle).
-/// It is expected that the input is a valid copperoot x-only public key.
-fn pay_to_p2cr(p2cr: &[u8]) -> ScriptVec {
-    // TODO: use ScriptBuilder when add_op and add_data fns or equivalents are available
-    assert_eq!(p2cr.len(), 32);
-    SmallVec::from_iter([OpTrue, OpData32].iter().copied().chain(p2cr.iter().copied()))
-}
-
-/// Creates a new script to pay a transaction output to P2CRV (Pay-to-Copperoot-Verkle).
-/// It is expected that the input is a valid copperoot x-only public key.
-fn pay_to_p2crv(p2crv: &[u8]) -> ScriptVec {
-    // TODO: use ScriptBuilder when add_op and add_data fns or equivalents are available
-    assert_eq!(p2crv.len(), 32);
-    SmallVec::from_iter([OpTrue, OpData32].iter().copied().chain(p2crv.iter().copied()))
 }
 
 /// Creates a new script to pay a transaction output to a 33-byte ECDSA pubkey.
@@ -84,9 +57,6 @@ pub fn pay_to_address_script(address: &Address) -> ScriptPublicKey {
         Version::PubKey => (pay_to_pub_key(address.payload.as_slice()), SCRIPT_VER_CLASSIC),
         Version::PubKeyECDSA => (pay_to_pub_key_ecdsa(address.payload.as_slice()), SCRIPT_VER_CLASSIC),
         Version::ScriptHash => (pay_to_script_hash(address.payload.as_slice()), SCRIPT_VER_CLASSIC),
-        Version::Taproot => (pay_to_taproot(address.payload.as_slice()), SCRIPT_VER_TAPROOT),
-        Version::CopperootMerkle => (pay_to_p2cr(address.payload.as_slice()), SCRIPT_VER_COPPEROOT_MERKLE),
-        Version::CopperootVerkle => (pay_to_p2crv(address.payload.as_slice()), SCRIPT_VER_COPPEROOT_VERKLE),
     };
     ScriptPublicKey::new(version, script)
 }
@@ -352,11 +322,6 @@ pub fn extract_script_pub_key_address(script_public_key: &ScriptPublicKey, prefi
             Address::new(prefix, Version::PubKeyECDSA, &script[1..34]).map_err(|_| TxScriptError::PubKeyFormat)
         }
         ScriptClass::ScriptHash => Address::new(prefix, Version::ScriptHash, &script[2..34]).map_err(|_| TxScriptError::PubKeyFormat),
-        ScriptClass::Taproot => Address::new(prefix, Version::Taproot, &script[2..34]).map_err(|_| TxScriptError::PubKeyFormat),
-        ScriptClass::CopperootMerkle => {
-            Address::new(prefix, Version::CopperootMerkle, &script[2..34]).map_err(|_| TxScriptError::PubKeyFormat)
-        }
-        ScriptClass::CopperootVerkle => Err(TxScriptError::PubKeyFormat), // P2CRV disabled for mainnet launch
     }
 }
 
@@ -383,7 +348,7 @@ pub mod test_helpers {
     pub fn create_transaction(tx_to_spend: &Transaction, fee: u64) -> Transaction {
         let (script_public_key, redeem_script) = op_true_script();
         let signature_script = pay_to_script_hash_signature_script(&redeem_script, vec![]).expect("the script is canonical");
-        let previous_outpoint = TransactionOutpoint::new(tx_to_spend.id(), 0);
+        let previous_outpoint = TransactionOutpoint::new(tx_to_spend.id().as_bytes(), 0);
         let input = TransactionInput::new(previous_outpoint, signature_script, MAX_TX_IN_SEQUENCE_NUM, 1);
         let output = TransactionOutput::new(tx_to_spend.outputs[0].value - fee, script_public_key);
         Transaction::new(TX_VERSION, vec![input], vec![output], 0, SUBNETWORK_ID_NATIVE, 0, vec![])
@@ -409,7 +374,7 @@ pub mod test_helpers {
         for tx_to_spend in txs_to_spend {
             for i in output_indexes.iter().copied() {
                 if i < tx_to_spend.outputs.len() {
-                    let previous_outpoint = TransactionOutpoint::new(tx_to_spend.id(), i as u32);
+                    let previous_outpoint = TransactionOutpoint::new(tx_to_spend.id().as_bytes(), i as u32);
                     inputs.push(TransactionInput::new(previous_outpoint, signature_script.clone(), MAX_TX_IN_SEQUENCE_NUM, 1));
                     inputs_value += tx_to_spend.outputs[i].value;
                 }
@@ -477,7 +442,7 @@ mod tests {
             Test {
                 name: "Mainnet script with unknown version",
                 script_pub_key: ScriptPublicKey::new(
-                    SCRIPT_VER_COPPEROOT_VERKLE + 1, // Use a truly unknown version
+                    SCRIPT_VER_CLASSIC + 1,
                     ScriptVec::from_slice(
                         &hex::decode("207bc04196f1125e4f2676cd09ed14afb77223b1f62177da5488346323eaa91a69ac").unwrap(),
                     ),

@@ -50,7 +50,7 @@ impl TransactionOutpointInner {
 
 impl From<cctx::TransactionOutpoint> for TransactionOutpointInner {
     fn from(outpoint: cctx::TransactionOutpoint) -> Self {
-        TransactionOutpointInner { transaction_id: outpoint.transaction_id, index: outpoint.index }
+        TransactionOutpointInner { transaction_id: TransactionId::from_slice(&outpoint.tx_hash), index: outpoint.index }
     }
 }
 
@@ -164,7 +164,7 @@ impl TryFrom<&JsValue> for TransactionOutpoint {
 
 impl From<cctx::TransactionOutpoint> for TransactionOutpoint {
     fn from(outpoint: cctx::TransactionOutpoint) -> Self {
-        let transaction_id = outpoint.transaction_id;
+        let transaction_id = TransactionId::from_slice(&outpoint.tx_hash);
         let index = outpoint.index;
         TransactionOutpoint::new(transaction_id, index)
     }
@@ -175,7 +175,7 @@ impl From<TransactionOutpoint> for cctx::TransactionOutpoint {
         let inner = outpoint.inner();
         let transaction_id = inner.transaction_id;
         let index = inner.index;
-        cctx::TransactionOutpoint::new(transaction_id, index)
+        cctx::TransactionOutpoint::new(transaction_id.as_bytes(), index)
     }
 }
 
@@ -184,7 +184,7 @@ impl From<&TransactionOutpoint> for cctx::TransactionOutpoint {
         let inner = outpoint.inner();
         let transaction_id = inner.transaction_id;
         let index = inner.index;
-        cctx::TransactionOutpoint::new(transaction_id, index)
+        cctx::TransactionOutpoint::new(transaction_id.as_bytes(), index)
     }
 }
 

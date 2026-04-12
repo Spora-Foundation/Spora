@@ -4,18 +4,18 @@
 
 #![allow(non_snake_case)]
 
+use crate::cell::{CellEntryId, CellEntryReference};
 use crate::imports::*;
 use crate::input::{TransactionInput, TransactionInputArrayAsArgT, TransactionInputArrayAsResultT};
 use crate::outpoint::TransactionOutpoint;
 use crate::output::{TransactionOutput, TransactionOutputArrayAsArgT, TransactionOutputArrayAsResultT};
 use crate::result::Result;
 use crate::serializable::{numeric, string, SerializableTransactionT};
-use crate::utxo::{UtxoEntryId, UtxoEntryReference};
 use ahash::AHashMap;
 use spora_consensus_core::network::NetworkType;
 use spora_consensus_core::network::NetworkTypeT;
 use spora_consensus_core::subnets::{self, SubnetworkId};
-use spora_consensus_core::tx::UtxoEntry;
+use spora_consensus_core::tx::CellEntry;
 use spora_txscript::extract_script_pub_key_address;
 use spora_utils::hex::*;
 
@@ -83,7 +83,7 @@ pub struct TransactionInner {
 
 /// Represents a Spora transaction.
 /// This is an artificial construct that includes additional
-/// transaction-related data such as additional data from UTXOs
+/// transaction-related data such as additional data from input cells
 /// used by transaction inputs.
 /// @category Consensus
 #[derive(Clone, Debug, Serialize, Deserialize, CastFromJs)]
@@ -177,11 +177,11 @@ impl Transaction {
     pub fn addresses(&self, network_type: &NetworkTypeT) -> Result<spora_addresses::AddressArrayT> {
         let mut list = std::collections::HashSet::new();
         for input in &self.inner.lock().unwrap().inputs {
-            if let Some(utxo) = input.get_utxo() {
-                if let Some(address) = &utxo.utxo.address {
+            if let Some(cell_entry) = input.get_cell_entry() {
+                if let Some(address) = &cell_entry.cell.address {
                     list.insert(address.clone());
                 } else if let Ok(address) =
-                    extract_script_pub_key_address(&utxo.utxo.script_public_key, NetworkType::try_from(network_type)?.into())
+                    extract_script_pub_key_address(&cell_entry.cell.script_public_key, NetworkType::try_from(network_type)?.into())
                 {
                     list.insert(address);
                 }
@@ -365,19 +365,19 @@ impl From<&Transaction> for cctx::Transaction {
 }
 
 impl Transaction {
-    pub fn from_cctx_transaction(tx: &cctx::Transaction, utxos: &AHashMap<UtxoEntryId, UtxoEntryReference>) -> Self {
+    pub fn from_cctx_transaction(tx: &cctx::Transaction, cell_entries: &AHashMap<CellEntryId, CellEntryReference>) -> Self {
         let inputs: Vec<TransactionInput> = tx
             .inputs
             .iter()
             .map(|input| {
                 let previous_outpoint: TransactionOutpoint = input.previous_outpoint.into();
-                let utxo = utxos.get(previous_outpoint.id()).cloned();
+                let cell_entry = cell_entries.get(previous_outpoint.id()).cloned();
                 TransactionInput::new(
                     previous_outpoint,
                     Some(input.signature_script.clone()),
                     input.sequence,
                     input.sig_op_count,
-                    utxo,
+                    cell_entry,
                 )
             })
             .collect::<Vec<TransactionInput>>();
@@ -396,16 +396,16 @@ impl Transaction {
         })
     }
 
-    pub fn tx_and_utxos(&self) -> Result<(cctx::Transaction, Vec<UtxoEntry>)> {
+    pub fn tx_and_cell_entries(&self) -> Result<(cctx::Transaction, Vec<CellEntry>)> {
         let mut inputs = vec![];
         let inner = self.inner();
-        let utxos: Vec<cctx::UtxoEntry> = inner
+        let cell_entries: Vec<cctx::CellEntry> = inner
             .inputs
             .clone()
             .into_iter()
             .map(|input| {
                 inputs.push(input.as_ref().into());
-                Ok(input.get_utxo().ok_or(Error::MissingUtxoEntry)?.entry().as_ref().into())
+                Ok(input.get_cell_entry().ok_or(Error::MissingCellEntry)?.entry().as_ref().into())
             })
             .collect::<Result<Vec<_>>>()?;
         let outputs: Vec<cctx::TransactionOutput> =
@@ -421,18 +421,22 @@ impl Transaction {
         )
         .with_mass(inner.mass);
 
-        Ok((tx, utxos))
+        Ok((tx, cell_entries))
     }
 
-    pub fn utxo_entry_references(&self) -> Result<Vec<UtxoEntryReference>> {
+    pub fn tx_and_cells(&self) -> Result<(cctx::Transaction, Vec<CellEntry>)> {
+        self.tx_and_cell_entries()
+    }
+
+    pub fn cell_entry_references(&self) -> Result<Vec<CellEntryReference>> {
         let inner = self.inner();
-        let utxo_entry_references = inner
+        let cell_entry_references = inner
             .inputs
             .clone()
             .into_iter()
-            .map(|input| input.get_utxo().ok_or(Error::MissingUtxoEntry))
-            .collect::<Result<Vec<UtxoEntryReference>>>()?;
-        Ok(utxo_entry_references)
+            .map(|input| input.get_cell_entry().ok_or(Error::MissingCellEntry))
+            .collect::<Result<Vec<CellEntryReference>>>()?;
+        Ok(cell_entry_references)
     }
 
     pub fn outputs(&self) -> Vec<cctx::TransactionOutput> {

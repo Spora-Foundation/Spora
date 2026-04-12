@@ -10,7 +10,7 @@ use spora_p2p_lib::{
     make_message,
     pb::{
         sporad_message::Payload, RequestNextHeadersMessage, RequestNextPruningPointAndItsAnticoneBlocksMessage,
-        RequestNextPruningPointUtxoSetChunkMessage,
+        RequestNextPruningPointCellSetChunkMessage,
     },
     IncomingRoute, Router,
 };
@@ -150,28 +150,19 @@ impl<'a, 'b> PruningPointCellsetChunkStream<'a, 'b> {
             Ok(op) => {
                 if let Some(msg) = op {
                     match msg.payload {
-                        Some(Payload::PruningPointUtxoSetChunk(payload)) => {
-                            // Protocol still uses UTXO naming for backward compatibility
-                            // But we convert to Cell model here
-                            let utxo_chunk: Vec<(TransactionOutpoint, spora_consensus_core::tx::UtxoEntry)> = payload.try_into()?;
-                            let cell_chunk: Vec<_> = utxo_chunk
+                        Some(Payload::PruningPointCellSetChunk(payload)) => {
+                            let entry_chunk: Vec<(TransactionOutpoint, spora_consensus_core::tx::CellEntry)> = payload.try_into()?;
+                            let cell_chunk: Vec<_> = entry_chunk
                                 .into_iter()
-                                .map(|(outpoint, utxo_entry)| {
-                                    let cell_meta = CellMeta {
-                                        out_point: outpoint.clone(),
-                                        capacity: utxo_entry.amount,
-                                        data_bytes: 0, // TODO: Extract actual data size from script_public_key
-                                        lock_hash: [0u8; 32], // TODO: Extract from script_public_key
-                                        type_hash: None,
-                                        data_hash: [0u8; 32], // TODO: Derive from data
-                                        block_daa_score: utxo_entry.block_daa_score,
-                                    };
+                                .map(|(outpoint, cell_entry)| {
+                                    let mut cell_meta = cell_entry;
+                                    cell_meta.out_point = outpoint.clone();
                                     (outpoint, cell_meta)
                                 })
                                 .collect();
                             Ok(Some(cell_chunk))
                         }
-                        Some(Payload::DonePruningPointUtxoSetChunks(_)) => {
+                        Some(Payload::DonePruningPointCellSetChunks(_)) => {
                             info!("Finished receiving the Cell set. Total Cells: {}", self.cell_count);
                             Ok(None)
                         }
@@ -182,8 +173,8 @@ impl<'a, 'b> PruningPointCellsetChunkStream<'a, 'b> {
                         }
                         _ => Err(ProtocolError::UnexpectedMessage(
                             stringify!(
-                                Payload::PruningPointUtxoSetChunk
-                                    | Payload::DonePruningPointUtxoSetChunks
+                                Payload::PruningPointCellSetChunk
+                                    | Payload::DonePruningPointCellSetChunks
                                     | Payload::UnexpectedPruningPoint
                             ),
                             msg.payload.as_ref().map(|v| v.into()),
@@ -204,8 +195,8 @@ impl<'a, 'b> PruningPointCellsetChunkStream<'a, 'b> {
                 info!("Received {} Cell set chunks so far, totaling in {} Cells", self.i, self.cell_count);
                 self.router
                     .enqueue(make_message!(
-                        Payload::RequestNextPruningPointUtxoSetChunk,
-                        RequestNextPruningPointUtxoSetChunkMessage {}
+                        Payload::RequestNextPruningPointCellSetChunk,
+                        RequestNextPruningPointCellSetChunkMessage {}
                     ))
                     .await?;
             }

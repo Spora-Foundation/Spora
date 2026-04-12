@@ -1,22 +1,24 @@
 use super::coinbase_mock::CoinbaseManagerMock;
+use crate::cell_conversion::{cell_output_to_placeholder_entry, legacy_tx_to_cell_tx};
 use spora_consensus_core::{
     api::{
         args::{TransactionValidationArgs, TransactionValidationBatchArgs},
         ConsensusApi,
     },
     block::{BlockTemplate, MutableBlock, TemplateBuildMode, TemplateTransactionSelector, VirtualStateApproxId},
+    cell_metadata::CellMetadata,
     coinbase::MinerData,
     constants::BLOCK_VERSION,
     errors::{
         block::RuleError,
         coinbase::CoinbaseResult,
+        consensus::{ConsensusError, ConsensusResult},
         tx::{TxResult, TxRuleError},
     },
     header::Header,
-    mass::{transaction_estimated_serialized_size, ContextualMasses, NonContextualMasses},
-    merkle::calc_hash_merkle_root,
-    tx::{MutableTransaction, Transaction, TransactionId, TransactionOutpoint, UtxoEntry},
-    utxo::utxo_collection::UtxoCollection,
+    mass::{cell_tx_estimated_serialized_size, ContextualMasses, NonContextualMasses},
+    merkle::{calc_hash_merkle_root, calc_hash_merkle_root_cell},
+    tx::{cell_tx_from_legacy_transaction, legacy_compat_transaction_from_cell_tx, CellEntry, CellTx, MutableTransaction, ScriptRef, Transaction, TransactionId, TransactionOutpoint},
 };
 use spora_core::time::unix_now;
 use spora_hashes::{Hash, ZERO_HASH};
@@ -24,18 +26,22 @@ use spora_hashes::{Hash, ZERO_HASH};
 use parking_lot::RwLock;
 use std::{collections::HashMap, sync::Arc};
 
+type CellCollection = HashMap<TransactionOutpoint, CellEntry>;
+
 pub(crate) struct ConsensusMock {
-    transactions: RwLock<HashMap<TransactionId, Arc<Transaction>>>,
+    transactions: RwLock<HashMap<TransactionId, Arc<CellTx>>>,
+    cell_transactions: RwLock<HashMap<TransactionId, Arc<CellTx>>>,
     statuses: RwLock<HashMap<TransactionId, TxResult<()>>>,
-    utxos: RwLock<UtxoCollection>,
+    cells: RwLock<CellCollection>,
 }
 
 impl ConsensusMock {
     pub(crate) fn new() -> Self {
         Self {
             transactions: RwLock::new(HashMap::default()),
+            cell_transactions: RwLock::new(HashMap::default()),
             statuses: RwLock::new(HashMap::default()),
-            utxos: RwLock::new(HashMap::default()),
+            cells: RwLock::new(HashMap::default()),
         }
     }
 
@@ -44,29 +50,32 @@ impl ConsensusMock {
     }
 
     pub(crate) fn add_transaction(&self, transaction: Transaction, block_daa_score: u64) {
-        let transaction = MutableTransaction::from_tx(transaction);
+        let legacy_id = transaction.id();
+        let cell_tx = Arc::new(cell_tx_from_legacy_transaction(&transaction));
         let mut transactions = self.transactions.write();
-        let mut utxos = self.utxos.write();
+        let mut cell_transactions = self.cell_transactions.write();
+        let mut cells = self.cells.write();
 
-        // Remove the spent UTXOs
-        transaction.tx.inputs.iter().for_each(|x| {
-            utxos.remove(&x.previous_outpoint);
+        // Remove the spent cells
+        cell_tx.inputs.iter().for_each(|x| {
+            cells.remove(&x.out_point);
         });
-        // Create the new UTXOs
-        transaction.tx.outputs.iter().enumerate().for_each(|(i, x)| {
-            utxos.insert(
-                TransactionOutpoint::new(transaction.id(), i as u32),
-                UtxoEntry::new(x.value, x.script_public_key.clone(), block_daa_score, transaction.tx.is_coinbase()),
+        // Create the new cells
+        cell_tx.outputs.iter().zip(cell_tx.outputs_data.iter()).enumerate().for_each(|(i, (output, data))| {
+            cells.insert(
+                TransactionOutpoint::new(cell_tx.id(), i as u32),
+                cell_output_to_placeholder_entry(output, data, block_daa_score, cell_tx.is_coinbase()),
             );
         });
         // Register the transaction
-        transactions.insert(transaction.id(), transaction.tx);
+        transactions.insert(legacy_id, cell_tx.clone());
+        cell_transactions.insert(cell_tx.id().into(), cell_tx);
     }
 
     pub(crate) fn can_finance_transaction(&self, transaction: &MutableTransaction) -> bool {
-        let utxos = self.utxos.read();
+        let cells = self.cells.read();
         for outpoint in transaction.missing_outpoints() {
-            if !utxos.contains_key(&outpoint) {
+            if !cells.contains_key(&outpoint) {
                 return false;
             }
         }
@@ -84,9 +93,9 @@ impl ConsensusApi for ConsensusMock {
         let mut txs = tx_selector.select_transactions();
         let coinbase_manager = CoinbaseManagerMock::new();
         let coinbase = coinbase_manager.expected_coinbase_transaction(miner_data.clone());
-        txs.insert(0, coinbase.tx);
+        txs.insert(0, legacy_tx_to_cell_tx(&coinbase.tx).expect("mock coinbase must be Cell-convertible"));
         let now = unix_now();
-        let hash_merkle_root = self.calc_transaction_hash_merkle_root(&txs, 0);
+        let hash_merkle_root = calc_hash_merkle_root_cell(txs.iter(), false);
         let header = Header::new_finalized(
             BLOCK_VERSION,
             vec![],
@@ -114,15 +123,20 @@ impl ConsensusApi for ConsensusMock {
                 return status.clone();
             }
         }
-        let utxos = self.utxos.read();
+        let cells = self.cells.read();
         let mut has_missing_outpoints = false;
         for i in 0..mutable_tx.tx.inputs.len() {
-            // Keep existing entries
-            if mutable_tx.entries[i].is_some() {
+            // Keep existing resolved inputs.
+            if mutable_tx.entries[i].is_some() || mutable_tx.resolved_cell_metadata[i].is_some() {
                 continue;
             }
-            // Try add missing entries
-            if let Some(entry) = utxos.get(&mutable_tx.tx.inputs[i].previous_outpoint) {
+            // Try add missing entries from the mock cell set.
+            if let Some(entry) = cells.get(&mutable_tx.tx.inputs[i].out_point) {
+                let mut metadata = CellMetadata::from(entry);
+                metadata.out_point = mutable_tx.tx.inputs[i].out_point;
+                metadata.lock_script = Some(ScriptRef::new(entry.lock_hash, 0, vec![]));
+                metadata.type_script = entry.type_hash.map(|hash| ScriptRef::new(hash, 0, vec![]));
+                mutable_tx.resolved_cell_metadata[i] = Some(metadata);
                 mutable_tx.entries[i] = Some(entry.clone());
             } else {
                 has_missing_outpoints = true;
@@ -131,14 +145,28 @@ impl ConsensusApi for ConsensusMock {
         if has_missing_outpoints {
             return Err(TxRuleError::MissingTxOutpoints);
         }
-        // At this point we know all UTXO entries are populated, so we can safely calculate the fee
-        let total_in: u64 = mutable_tx.entries.iter().map(|x| x.as_ref().unwrap().amount).sum();
-        let total_out: u64 = mutable_tx.tx.outputs.iter().map(|x| x.value).sum();
-        mutable_tx.tx.set_mass(self.calculate_transaction_contextual_masses(mutable_tx).unwrap().storage_mass);
+        // At this point we know all inputs are resolved, so we can safely calculate the fee.
+        let total_in: u64 = mutable_tx
+            .tx
+            .inputs
+            .iter()
+            .enumerate()
+            .map(|(i, _)| {
+                mutable_tx
+                    .resolved_cell_metadata(i)
+                    .map(|metadata| metadata.capacity)
+                    .or_else(|| mutable_tx.entries[i].as_ref().map(|entry| entry.capacity()))
+                    .expect("expected resolved input in consensus mock")
+            })
+            .sum();
+        let total_out: u64 = mutable_tx.tx.outputs.iter().map(|x| x.capacity).sum();
 
         if mutable_tx.calculated_fee.is_none() {
             let calculated_fee = total_in - total_out;
             mutable_tx.calculated_fee = Some(calculated_fee);
+        }
+        if mutable_tx.calculated_non_contextual_masses.is_none() {
+            mutable_tx.calculated_non_contextual_masses = Some(self.calculate_transaction_non_contextual_masses(mutable_tx.tx.as_ref()));
         }
         Ok(())
     }
@@ -155,8 +183,8 @@ impl ConsensusApi for ConsensusMock {
         transactions.iter_mut().map(|x| self.validate_mempool_transaction(x, &Default::default())).collect()
     }
 
-    fn calculate_transaction_non_contextual_masses(&self, transaction: &Transaction) -> NonContextualMasses {
-        let mass = if transaction.is_coinbase() { 0 } else { transaction_estimated_serialized_size(transaction) };
+    fn calculate_transaction_non_contextual_masses(&self, transaction: &CellTx) -> NonContextualMasses {
+        let mass = if transaction.is_coinbase() { 0 } else { cell_tx_estimated_serialized_size(transaction) };
         NonContextualMasses::new(mass, mass)
     }
 
@@ -179,5 +207,15 @@ impl ConsensusApi for ConsensusMock {
 
     fn calc_transaction_hash_merkle_root(&self, txs: &[Transaction], _pov_daa_score: u64) -> Hash {
         calc_hash_merkle_root(txs.iter(), false)
+    }
+
+    fn get_transaction(&self, hash: Hash) -> ConsensusResult<Transaction> {
+        if let Some(transaction) = self.transactions.read().get(&hash) {
+            return Ok(legacy_compat_transaction_from_cell_tx(transaction.as_ref()));
+        }
+        if let Some(transaction) = self.cell_transactions.read().get(&hash) {
+            return Ok(legacy_compat_transaction_from_cell_tx(transaction.as_ref()));
+        }
+        Err(ConsensusError::TransactionNotFound(hash.to_string()))
     }
 }

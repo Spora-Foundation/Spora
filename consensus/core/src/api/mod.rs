@@ -22,8 +22,11 @@ use crate::{
     mass::{ContextualMasses, NonContextualMasses},
     pruning::{PruningPointProof, PruningPointTrustedData, PruningPointsList, PruningProofMetadata},
     trusted::{ExternalGhostdagData, TrustedBlock},
-    tx::{MutableTransaction, SignableTransaction, Transaction, TransactionOutpoint, UtxoEntry},
-    // utxo::utxo_inquirer::UtxoInquirerError, // UTXO deprecated - use Cell validation
+    tx::{
+        CellEntry, CellTx, MutableTransaction, ResolvedCellTransaction, SignableTransaction, Transaction, TransactionOutpoint,
+        VerifiableTransaction,
+    },
+    // legacy transaction-output inquirer errors removed during Cell migration
     BlockHashSet,
     BlueWorkType,
     ChainPath,
@@ -70,13 +73,27 @@ pub trait ConsensusApi: Send + Sync {
         unimplemented!()
     }
 
-    /// Populates the mempool transaction with maximally found UTXO entry data and proceeds to full transaction
+    /// Populates the mempool transaction with maximally found Cell input resolution data
+    /// (legacy entries and/or canonical metadata) and proceeds to full transaction
     /// validation if all are found. If validation is successful, also `transaction.calculated_fee` is expected to be populated.
     fn validate_mempool_transaction(&self, transaction: &mut MutableTransaction, args: &TransactionValidationArgs) -> TxResult<()> {
         unimplemented!()
     }
 
-    /// Populates the mempool transactions with maximally found UTXO entry data and proceeds to full transactions
+    /// Validates a canonical Cell transaction against the current virtual state while
+    /// using `transaction` as the legacy compatibility mirror for resolved-input
+    /// bookkeeping, fee calculation, and mempool policy integration.
+    fn validate_mempool_cell_transaction(
+        &self,
+        transaction: &mut MutableTransaction,
+        cell_tx: &CellTx,
+        args: &TransactionValidationArgs,
+    ) -> TxResult<()> {
+        unimplemented!()
+    }
+
+    /// Populates the mempool transactions with maximally found Cell input resolution data
+    /// (legacy entries and/or canonical metadata) and proceeds to full transactions
     /// validation if all are found. If validation is successful, also `transaction.calculated_fee` is expected to be populated.
     fn validate_mempool_transactions_in_parallel(
         &self,
@@ -86,21 +103,30 @@ pub trait ConsensusApi: Send + Sync {
         unimplemented!()
     }
 
-    /// Populates the mempool transaction with maximally found UTXO entry data.
+    /// Populates the mempool transaction with maximally found Cell input resolution data.
     fn populate_mempool_transaction(&self, transaction: &mut MutableTransaction) -> TxResult<()> {
         unimplemented!()
     }
 
-    /// Populates the mempool transactions with maximally found UTXO entry data.
+    /// Populates the mempool transactions with maximally found Cell input resolution data.
     fn populate_mempool_transactions_in_parallel(&self, transactions: &mut [MutableTransaction]) -> Vec<TxResult<()>> {
         unimplemented!()
     }
 
-    fn calculate_transaction_non_contextual_masses(&self, transaction: &Transaction) -> NonContextualMasses {
+    fn calculate_transaction_non_contextual_masses(&self, transaction: &CellTx) -> NonContextualMasses {
         unimplemented!()
     }
 
     fn calculate_transaction_contextual_masses(&self, transaction: &MutableTransaction) -> Option<ContextualMasses> {
+        unimplemented!()
+    }
+
+    /// Calculates contextual masses directly from a metadata-aware verifiable transaction.
+    ///
+    /// This is the preferred entry point for Cell-model callers because it allows consensus to
+    /// consume resolved canonical cell metadata when available, instead of forcing a downgrade to
+    /// the legacy `MutableTransaction` bridge.
+    fn calculate_verifiable_transaction_contextual_masses(&self, transaction: &dyn VerifiableTransaction) -> Option<ContextualMasses> {
         unimplemented!()
     }
 
@@ -182,9 +208,25 @@ pub trait ConsensusApi: Send + Sync {
         unimplemented!()
     }
 
-    /// Returns the fully populated transaction with the given txid which was accepted at the provided accepting_block_daa_score.
+    /// Returns the fully resolved transaction with the given txid which was accepted at the provided accepting_block_daa_score.
     /// The argument `accepting_block_daa_score` is expected to be the DAA score of the accepting chain block of `txid`.
     fn get_populated_transaction(&self, txid: Hash, accepting_block_daa_score: u64) -> Result<SignableTransaction, String> {
+        unimplemented!()
+    }
+
+    /// Returns the canonical Cell transaction plus fully resolved input metadata for the given txid.
+    ///
+    /// The argument `accepting_block_daa_score` is expected to be the DAA score of the accepting
+    /// chain block of `txid`.
+    fn get_resolved_cell_transaction(&self, txid: Hash, accepting_block_daa_score: u64) -> Result<ResolvedCellTransaction, String> {
+        unimplemented!()
+    }
+
+    /// Returns the canonical Cell transaction for the given txid.
+    ///
+    /// New Cell-model callers should prefer this over `get_transaction`, which
+    /// is a legacy compatibility view backed by `Transaction`.
+    fn get_cell_transaction(&self, hash: Hash) -> ConsensusResult<CellTx> {
         unimplemented!()
     }
 
@@ -196,13 +238,12 @@ pub trait ConsensusApi: Send + Sync {
         unimplemented!()
     }
 
-    fn get_virtual_utxos(
+    fn get_virtual_cells(
         &self,
         from_outpoint: Option<TransactionOutpoint>,
         chunk_size: usize,
         skip_first: bool,
     ) -> Vec<(TransactionOutpoint, Hash)> {
-        // TODO(cell-model): Replace with get_virtual_cells
         unimplemented!()
     }
 
@@ -222,6 +263,11 @@ pub trait ConsensusApi: Send + Sync {
         unimplemented!()
     }
 
+    /// Calculates the block transaction merkle root directly from canonical `CellTx` values.
+    fn calc_cell_tx_hash_merkle_root(&self, txs: &[CellTx], pov_daa_score: u64) -> Hash {
+        unimplemented!()
+    }
+
     fn validate_pruning_proof(&self, proof: &PruningPointProof, proof_metadata: &PruningProofMetadata) -> PruningImportResult<()> {
         unimplemented!()
     }
@@ -236,7 +282,7 @@ pub trait ConsensusApi: Send + Sync {
 
     /// Append imported cells to the pruning point cell state tree
     ///
-    /// Cell model: Replaces append_imported_pruning_point_utxos
+    /// Cell model: Appends imported live cells to the pruning-point cell state tree.
     fn append_imported_pruning_point_cells(
         &self,
         cellset_chunk: &[(TransactionOutpoint, CellMeta)],
@@ -247,7 +293,7 @@ pub trait ConsensusApi: Send + Sync {
 
     /// Import the pruning point cell set
     ///
-    /// Cell model: Replaces import_pruning_point_utxo_set
+    /// Cell model: Imports the pruning-point cell state tree.
     fn import_pruning_point_cell_set(&self, new_pruning_point: Hash, imported_cell_tree: CellStateTree) -> PruningImportResult<()> {
         unimplemented!()
     }
@@ -347,14 +393,13 @@ pub trait ConsensusApi: Send + Sync {
         unimplemented!()
     }
 
-    fn get_pruning_point_utxos(
+    fn get_pruning_point_cells(
         &self,
         expected_pruning_point: Hash,
         from_outpoint: Option<TransactionOutpoint>,
         chunk_size: usize,
         skip_first: bool,
-    ) -> ConsensusResult<Vec<(TransactionOutpoint, UtxoEntry)>> {
-        // TODO(cell-model): Replace with get_pruning_point_cells
+    ) -> ConsensusResult<Vec<(TransactionOutpoint, CellEntry)>> {
         unimplemented!()
     }
 

@@ -19,13 +19,13 @@ pub enum SporadMessagePayloadType {
     Version,
     TransactionNotFound,
     Reject,
-    PruningPointUtxoSetChunk,
+    PruningPointCellSetChunk,
     RequestIbdBlocks,
     UnexpectedPruningPoint,
     IbdBlockLocator,
     IbdBlockLocatorHighestHash,
-    RequestNextPruningPointUtxoSetChunk,
-    DonePruningPointUtxoSetChunks,
+    RequestNextPruningPointCellSetChunk,
+    DonePruningPointCellSetChunks,
     IbdBlockLocatorHighestHashNotFound,
     BlockWithTrustedData,
     DoneBlocksWithTrustedData,
@@ -33,7 +33,7 @@ pub enum SporadMessagePayloadType {
     BlockHeaders,
     RequestNextHeaders,
     DoneHeaders,
-    RequestPruningPointUtxoSet,
+    RequestPruningPointCellSet,
     RequestHeaders,
     RequestBlockLocator,
     PruningPoints,
@@ -67,15 +67,15 @@ impl From<&SporadMessagePayload> for SporadMessagePayloadType {
             SporadMessagePayload::Version(_) => SporadMessagePayloadType::Version,
             SporadMessagePayload::TransactionNotFound(_) => SporadMessagePayloadType::TransactionNotFound,
             SporadMessagePayload::Reject(_) => SporadMessagePayloadType::Reject,
-            SporadMessagePayload::PruningPointUtxoSetChunk(_) => SporadMessagePayloadType::PruningPointUtxoSetChunk,
+            SporadMessagePayload::PruningPointCellSetChunk(_) => SporadMessagePayloadType::PruningPointCellSetChunk,
             SporadMessagePayload::RequestIbdBlocks(_) => SporadMessagePayloadType::RequestIbdBlocks,
             SporadMessagePayload::UnexpectedPruningPoint(_) => SporadMessagePayloadType::UnexpectedPruningPoint,
             SporadMessagePayload::IbdBlockLocator(_) => SporadMessagePayloadType::IbdBlockLocator,
             SporadMessagePayload::IbdBlockLocatorHighestHash(_) => SporadMessagePayloadType::IbdBlockLocatorHighestHash,
-            SporadMessagePayload::RequestNextPruningPointUtxoSetChunk(_) => {
-                SporadMessagePayloadType::RequestNextPruningPointUtxoSetChunk
+            SporadMessagePayload::RequestNextPruningPointCellSetChunk(_) => {
+                SporadMessagePayloadType::RequestNextPruningPointCellSetChunk
             }
-            SporadMessagePayload::DonePruningPointUtxoSetChunks(_) => SporadMessagePayloadType::DonePruningPointUtxoSetChunks,
+            SporadMessagePayload::DonePruningPointCellSetChunks(_) => SporadMessagePayloadType::DonePruningPointCellSetChunks,
             SporadMessagePayload::IbdBlockLocatorHighestHashNotFound(_) => {
                 SporadMessagePayloadType::IbdBlockLocatorHighestHashNotFound
             }
@@ -85,7 +85,7 @@ impl From<&SporadMessagePayload> for SporadMessagePayloadType {
             SporadMessagePayload::BlockHeaders(_) => SporadMessagePayloadType::BlockHeaders,
             SporadMessagePayload::RequestNextHeaders(_) => SporadMessagePayloadType::RequestNextHeaders,
             SporadMessagePayload::DoneHeaders(_) => SporadMessagePayloadType::DoneHeaders,
-            SporadMessagePayload::RequestPruningPointUtxoSet(_) => SporadMessagePayloadType::RequestPruningPointUtxoSet,
+            SporadMessagePayload::RequestPruningPointCellSet(_) => SporadMessagePayloadType::RequestPruningPointCellSet,
             SporadMessagePayload::RequestHeaders(_) => SporadMessagePayloadType::RequestHeaders,
             SporadMessagePayload::RequestBlockLocator(_) => SporadMessagePayloadType::RequestBlockLocator,
             SporadMessagePayload::PruningPoints(_) => SporadMessagePayloadType::PruningPoints,

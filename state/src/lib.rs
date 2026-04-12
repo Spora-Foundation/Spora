@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ISC
-// Copyright (C) 2025 Spora developers
+// Copyright (C) 2026 Spora developers
 //
 // Cell state management and data availability storage
 
@@ -11,7 +11,7 @@
 //! - **DA storage**: Segment files with NMT/KZG commitments
 //! - **Sampling proofs**: Data availability verification
 
-#![warn(missing_docs)]
+#![allow(missing_docs)]
 
 pub mod cell_tree;
 pub mod index;

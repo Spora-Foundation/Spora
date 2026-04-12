@@ -50,7 +50,7 @@ Systematic fixes to align Spora's Cell implementation with CKB while maintaining
 - Fixed type compatibility issues
 
 **Updated IBD Streams** (`protocol/flows/src/v5/ibd/streams.rs`):
-- Fixed UTXO-to-Cell conversion in pruning point sync
+- Fixed legacy-output-to-Cell conversion in pruning point sync
 - Added `out_point` and `data_bytes` to converted cells
 
 **Files Modified**: 3 files, 100+ lines changed
@@ -208,4 +208,3 @@ The Spora Cell implementation now:
 **Session End**: 2025-10-23  
 **Quality**: Production-ready  
 **Status**: COMPLETE ✅
-

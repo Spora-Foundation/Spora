@@ -5,7 +5,7 @@ fn hex_to_bytes(s: &str) -> Vec<u8> {
 }
 
 fn main() {
-    // Test vectors from tx_validation_in_utxo_context.rs
+    // Test vectors from the legacy validation context.
     let test_vectors = [
         // Single signature test
         (

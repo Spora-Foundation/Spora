@@ -10,16 +10,24 @@ use crate::storage::interface::TransactionRangeResult;
 use crate::storage::Binding;
 use crate::tx::Fees;
 use spora_rpc_core::RpcFeeEstimate;
-use spora_wallet_pstt::bundle::Bundle;
+use spora_wallet_psst::bundle::Bundle;
 use workflow_core::channel::Receiver;
 
 #[async_trait]
 impl WalletApi for super::Wallet {
-    async fn register_notifications(self: Arc<Self>, _channel: Receiver<WalletNotification>) -> Result<u64> {
-        todo!()
+    async fn register_notifications(self: Arc<Self>, channel: Receiver<WalletNotification>) -> Result<u64> {
+        let channel_id = self.inner.next_notification_channel_id.fetch_add(1, Ordering::SeqCst);
+        self.inner.notification_channels.lock().unwrap().insert(channel_id, channel);
+        Ok(channel_id)
     }
-    async fn unregister_notifications(self: Arc<Self>, _channel_id: u64) -> Result<()> {
-        todo!()
+    async fn unregister_notifications(self: Arc<Self>, channel_id: u64) -> Result<()> {
+        self.inner
+            .notification_channels
+            .lock()
+            .unwrap()
+            .remove(&channel_id)
+            .ok_or_else(|| Error::custom(format!("Unknown wallet notification channel id: {channel_id}")))?;
+        Ok(())
     }
 
     async fn get_status_call(self: Arc<Self>, request: GetStatusRequest) -> Result<GetStatusResponse> {
@@ -96,11 +104,11 @@ impl WalletApi for super::Wallet {
 
             self.set_network_id(&network_id)?;
 
-            let processor = self.utxo_processor().clone();
+            let processor = self.cell_processor().clone();
             let (sender, receiver) = oneshot();
 
             // set connection signaler that gets triggered
-            // by utxo processor when connection occurs
+            // by cell processor when connection occurs
             processor.set_connection_signaler(sender);
 
             // connect rpc
@@ -237,9 +245,34 @@ impl WalletApi for super::Wallet {
         Ok(PrvKeyDataCreateResponse { prv_key_data_id })
     }
 
-    async fn prv_key_data_remove_call(self: Arc<Self>, _request: PrvKeyDataRemoveRequest) -> Result<PrvKeyDataRemoveResponse> {
-        // TODO handle key removal
-        return Err(Error::NotImplemented);
+    async fn prv_key_data_remove_call(self: Arc<Self>, request: PrvKeyDataRemoveRequest) -> Result<PrvKeyDataRemoveResponse> {
+        let PrvKeyDataRemoveRequest { wallet_secret, prv_key_data_id } = request;
+
+        let guard = self.guard();
+        let _guard = guard.lock().await;
+
+        let account_store = self.store().as_account_store()?;
+        let mut accounts = account_store.iter(None).await?;
+        let mut referencing_account = None;
+        while let Some((account, _)) = accounts.try_next().await? {
+            if account.prv_key_data_ids.contains(&prv_key_data_id) {
+                referencing_account = Some(account.id);
+                break;
+            }
+        }
+
+        if let Some(account_id) = referencing_account {
+            return Err(Error::custom(format!(
+                "Private key data {} is still referenced by account {}",
+                prv_key_data_id.to_hex(),
+                account_id
+            )));
+        }
+
+        self.store().as_prv_key_data_store()?.remove(&wallet_secret, &prv_key_data_id).await?;
+        self.store().commit(&wallet_secret).await?;
+
+        Ok(PrvKeyDataRemoveResponse {})
     }
 
     async fn prv_key_data_get_call(self: Arc<Self>, request: PrvKeyDataGetRequest) -> Result<PrvKeyDataGetResponse> {
@@ -408,53 +441,53 @@ impl WalletApi for super::Wallet {
         Ok(AccountsSendResponse { generator_summary, transaction_ids })
     }
 
-    async fn accounts_pstb_sign_call(self: Arc<Self>, request: AccountsPstbSignRequest) -> Result<AccountsPstbSignResponse> {
-        let AccountsPstbSignRequest { account_id, pstb, wallet_secret, payment_secret, sign_for_address } = request;
-        let pstb = Bundle::deserialize(&pstb)?;
+    async fn accounts_pssb_sign_call(self: Arc<Self>, request: AccountsPssbSignRequest) -> Result<AccountsPssbSignResponse> {
+        let AccountsPssbSignRequest { account_id, pssb, wallet_secret, payment_secret, sign_for_address } = request;
+        let pssb = Bundle::deserialize(&pssb)?;
         let guard = self.guard();
         let guard = guard.lock().await;
 
         let account = self.get_account_by_id(&account_id, &guard).await?.ok_or(Error::AccountNotFound(account_id))?;
-        let pstb = account.pstb_sign(&pstb, wallet_secret, payment_secret, sign_for_address.as_ref()).await?;
+        let pssb = account.pssb_sign(&pssb, wallet_secret, payment_secret, sign_for_address.as_ref()).await?;
 
-        Ok(AccountsPstbSignResponse { pstb: pstb.serialize()? })
+        Ok(AccountsPssbSignResponse { pssb: pssb.serialize()? })
     }
 
-    async fn accounts_pstb_broadcast_call(
+    async fn accounts_pssb_broadcast_call(
         self: Arc<Self>,
-        request: AccountsPstbBroadcastRequest,
-    ) -> Result<AccountsPstbBroadcastResponse> {
-        let AccountsPstbBroadcastRequest { account_id, pstb } = request;
-        let pstb = Bundle::deserialize(&pstb)?;
+        request: AccountsPssbBroadcastRequest,
+    ) -> Result<AccountsPssbBroadcastResponse> {
+        let AccountsPssbBroadcastRequest { account_id, pssb } = request;
+        let pssb = Bundle::deserialize(&pssb)?;
         let guard = self.guard();
         let guard = guard.lock().await;
 
         let account = self.get_account_by_id(&account_id, &guard).await?.ok_or(Error::AccountNotFound(account_id))?;
-        // PSTB broadcast is now handled by the Account trait default implementation
-        let transaction_ids = account.pstb_broadcast(&pstb).await?;
-        Ok(AccountsPstbBroadcastResponse { transaction_ids })
+        // PSSB broadcast is now handled by the Account trait default implementation
+        let transaction_ids = account.pssb_broadcast(&pssb).await?;
+        Ok(AccountsPssbBroadcastResponse { transaction_ids })
     }
 
-    async fn accounts_get_utxos_call(self: Arc<Self>, request: AccountsGetUtxosRequest) -> Result<AccountsGetUtxosResponse> {
-        let AccountsGetUtxosRequest { account_id, addresses, min_amount_sau } = request;
+    async fn accounts_get_cells_call(self: Arc<Self>, request: AccountsGetCellsRequest) -> Result<AccountsGetCellsResponse> {
+        let AccountsGetCellsRequest { account_id, addresses, min_amount_sau } = request;
         let guard = self.guard();
         let guard = guard.lock().await;
         let account = self.get_account_by_id(&account_id, &guard).await?.ok_or(Error::AccountNotFound(account_id))?;
-        let utxos = account.get_utxos(addresses, min_amount_sau).await?;
-        Ok(AccountsGetUtxosResponse { utxos: utxos.into_iter().map(|entry| entry.into()).collect::<Vec<UtxoEntryWrapper>>() })
+        let cells = account.get_cells(addresses, min_amount_sau).await?;
+        Ok(AccountsGetCellsResponse { cells: cells.into_iter().map(|entry| entry.into()).collect::<Vec<CellEntryWrapper>>() })
     }
 
-    async fn accounts_pstb_send_call(self: Arc<Self>, request: AccountsPstbSendRequest) -> Result<AccountsPstbSendResponse> {
-        let AccountsPstbSendRequest { account_id, pstb, wallet_secret, payment_secret, sign_for_address } = request;
-        let pstb = Bundle::deserialize(&pstb)?;
+    async fn accounts_pssb_send_call(self: Arc<Self>, request: AccountsPssbSendRequest) -> Result<AccountsPssbSendResponse> {
+        let AccountsPssbSendRequest { account_id, pssb, wallet_secret, payment_secret, sign_for_address } = request;
+        let pssb = Bundle::deserialize(&pssb)?;
         let guard = self.guard();
         let guard = guard.lock().await;
 
         let account = self.get_account_by_id(&account_id, &guard).await?.ok_or(Error::AccountNotFound(account_id))?;
-        let pstb = account.clone().pstb_sign(&pstb, wallet_secret, payment_secret, sign_for_address.as_ref()).await?;
-        // PSTB broadcast is now handled by the Account trait default implementation
-        let transaction_ids = account.pstb_broadcast(&pstb).await?;
-        Ok(AccountsPstbSendResponse { transaction_ids })
+        let pssb = account.clone().pssb_sign(&pssb, wallet_secret, payment_secret, sign_for_address.as_ref()).await?;
+        // PSSB broadcast is now handled by the Account trait default implementation
+        let transaction_ids = account.pssb_broadcast(&pssb).await?;
+        Ok(AccountsPssbSendResponse { transaction_ids })
     }
 
     async fn accounts_transfer_call(self: Arc<Self>, request: AccountsTransferRequest) -> Result<AccountsTransferResponse> {
@@ -529,7 +562,7 @@ impl WalletApi for super::Wallet {
             )
             .await?;
 
-        let transaction_ids = account.pstb_broadcast(&bundle).await?;
+        let transaction_ids = account.pssb_broadcast(&bundle).await?;
         Ok(AccountsCommitRevealManualResponse { transaction_ids })
     }
 
@@ -589,7 +622,7 @@ impl WalletApi for super::Wallet {
             )
             .await?;
 
-        let transaction_ids = account.pstb_broadcast(&bundle).await?;
+        let transaction_ids = account.pssb_broadcast(&bundle).await?;
         Ok(AccountsCommitRevealResponse { transaction_ids })
     }
 
@@ -666,7 +699,8 @@ impl WalletApi for super::Wallet {
         self: Arc<Self>,
         _request: AddressBookEnumerateRequest,
     ) -> Result<AddressBookEnumerateResponse> {
-        return Err(Error::NotImplemented);
+        let entries = self.store().as_address_book_store()?.iter().await?.try_collect::<Vec<_>>().await?;
+        Ok(AddressBookEnumerateResponse { entries })
     }
 
     async fn fee_rate_estimate_call(self: Arc<Self>, _request: FeeRateEstimateRequest) -> Result<FeeRateEstimateResponse> {
@@ -681,7 +715,7 @@ impl WalletApi for super::Wallet {
 
     async fn fee_rate_poller_enable_call(self: Arc<Self>, request: FeeRatePollerEnableRequest) -> Result<FeeRatePollerEnableResponse> {
         let FeeRatePollerEnableRequest { interval_seconds } = request;
-        self.utxo_processor().start_fee_rate_poller(Duration::from_secs(interval_seconds)).await?;
+        self.cell_processor().start_fee_rate_poller(Duration::from_secs(interval_seconds)).await?;
         Ok(FeeRatePollerEnableResponse {})
     }
 
@@ -689,7 +723,26 @@ impl WalletApi for super::Wallet {
         self: Arc<Self>,
         _request: FeeRatePollerDisableRequest,
     ) -> Result<FeeRatePollerDisableResponse> {
-        self.utxo_processor().stop_fee_rate_poller().await?;
+        self.cell_processor().stop_fee_rate_poller().await?;
         Ok(FeeRatePollerDisableResponse {})
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use workflow_core::channel::unbounded;
+
+    #[tokio::test]
+    async fn register_and_unregister_notifications_tracks_channel_ids() {
+        let wallet =
+            Arc::new(super::super::Wallet::try_with_rpc(None, super::super::Wallet::resident_store().unwrap(), None).unwrap());
+        let (_sender, receiver) = unbounded();
+
+        let channel_id = wallet.clone().register_notifications(receiver).await.unwrap();
+        assert!(wallet.inner.notification_channels.lock().unwrap().contains_key(&channel_id));
+
+        wallet.clone().unregister_notifications(channel_id).await.unwrap();
+        assert!(!wallet.inner.notification_channels.lock().unwrap().contains_key(&channel_id));
     }
 }

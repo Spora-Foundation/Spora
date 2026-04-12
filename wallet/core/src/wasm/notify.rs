@@ -10,17 +10,17 @@ cfg_if! {
         const TS_NOTIFY: &'static str = r#"
 
         /**
-         * Events emitted by the {@link UtxoProcessor}.
+         * Events emitted by the {@link CellProcessor}.
          * @category Wallet SDK
          */
-        export enum UtxoProcessorEventType {
+        export enum CellProcessorEventType {
             Connect = "connect",
             Disconnect = "disconnect",
-            UtxoIndexNotEnabled = "utxo-index-not-enabled",
+            CellIndexNotEnabled = "cell-index-not-enabled",
             SyncState = "sync-state",
-            UtxoProcStart = "utxo-proc-start",
-            UtxoProcStop = "utxo-proc-stop",
-            UtxoProcError = "utxo-proc-error",
+            CellProcStart = "cell-proc-start",
+            CellProcStop = "cell-proc-stop",
+            CellProcError = "cell-proc-error",
             DaaScoreChange = "daa-score-change",
             Pending = "pending",
             Reorg = "reorg",
@@ -32,19 +32,19 @@ cfg_if! {
         }
 
         /**
-         * {@link UtxoProcessor} notification event data map.
+         * {@link CellProcessor} notification event data map.
          * 
          * @category Wallet API
          */
-        export type UtxoProcessorEventMap = {
+        export type CellProcessorEventMap = {
             "connect": IConnectEvent,
             "disconnect": IDisconnectEvent,
-            "utxo-index-not-enabled": IUtxoIndexNotEnabledEvent,
+            "cell-index-not-enabled": ICellIndexNotEnabledEvent,
             "sync-state": ISyncStateEvent,
             "server-status": IServerStatusEvent,
-            "utxo-proc-start": undefined,
-            "utxo-proc-stop": undefined,
-            "utxo-proc-error": IUtxoProcErrorEvent,
+            "cell-proc-start": undefined,
+            "cell-proc-stop": undefined,
+            "cell-proc-error": ICellProcErrorEvent,
             "daa-score-change": IDaaScoreChangeEvent,
             "pending": IPendingEvent,
             "reorg": IReorgEvent,
@@ -60,35 +60,35 @@ cfg_if! {
          * @category Wallet API
          */
 
-        export type UtxoProcessorEvent<T extends keyof UtxoProcessorEventMap> = {
+        export type CellProcessorEvent<T extends keyof CellProcessorEventMap> = {
           [K in T]: {
             type: K,
-            data: UtxoProcessorEventMap[K]
+            data: CellProcessorEventMap[K]
           }
         }[T];
         
         /**
-         * {@link UtxoProcessor} notification callback type.
+         * {@link CellProcessor} notification callback type.
          * 
          * This type declares the callback function that is called when notification is emitted
-         * from the UtxoProcessor or UtxoContext subsystems.
+         * from the CellProcessor or CellContext subsystems.
          * 
-         * @see {@link UtxoProcessor}, {@link UtxoContext},
+         * @see {@link CellProcessor}, {@link CellContext},
          * 
          * @category Wallet SDK
          */
 
-        export type UtxoProcessorNotificationCallback<E extends keyof UtxoProcessorEventMap = keyof UtxoProcessorEventMap> = (event: UtxoProcessorEvent<E>) => void;
+        export type CellProcessorNotificationCallback<E extends keyof CellProcessorEventMap = keyof CellProcessorEventMap> = (event: CellProcessorEvent<E>) => void;
         "#;
 
         #[wasm_bindgen]
         extern "C" {
-            #[wasm_bindgen(typescript_type = "UtxoProcessorEventType | UtxoProcessorEventType[] | string | string[]")]
-            pub type UtxoProcessorEventTarget;
-            #[wasm_bindgen(extends = js_sys::Function, typescript_type = "UtxoProcessorNotificationCallback")]
-            pub type UtxoProcessorNotificationCallback;
-            #[wasm_bindgen(extends = js_sys::Function, typescript_type = "string | UtxoProcessorNotificationCallback")]
-            pub type UtxoProcessorNotificationTypeOrCallback;
+            #[wasm_bindgen(typescript_type = "CellProcessorEventType | CellProcessorEventType[] | string | string[]")]
+            pub type CellProcessorEventTarget;
+            #[wasm_bindgen(extends = js_sys::Function, typescript_type = "CellProcessorNotificationCallback")]
+            pub type CellProcessorNotificationCallback;
+            #[wasm_bindgen(extends = js_sys::Function, typescript_type = "string | CellProcessorNotificationCallback")]
+            pub type CellProcessorNotificationTypeOrCallback;
         }
     }
 }
@@ -105,7 +105,7 @@ cfg_if! {
         export enum WalletEventType {
             Connect = "connect",
             Disconnect = "disconnect",
-            UtxoIndexNotEnabled = "utxo-index-not-enabled",
+            CellIndexNotEnabled = "cell-index-not-enabled",
             SyncState = "sync-state",
             WalletHint = "wallet-hint",
             WalletOpen = "wallet-open",
@@ -120,9 +120,9 @@ cfg_if! {
             AccountCreate = "account-create",
             AccountUpdate = "account-update",
             ServerStatus = "server-status",
-            UtxoProcStart = "utxo-proc-start",
-            UtxoProcStop = "utxo-proc-stop",
-            UtxoProcError = "utxo-proc-error",
+            CellProcStart = "cell-proc-start",
+            CellProcStop = "cell-proc-stop",
+            CellProcError = "cell-proc-error",
             DaaScoreChange = "daa-score-change",
             Pending = "pending",
             Reorg = "reorg",
@@ -142,7 +142,7 @@ cfg_if! {
         export type WalletEventMap = {
             "connect": IConnectEvent,
             "disconnect": IDisconnectEvent,
-            "utxo-index-not-enabled": IUtxoIndexNotEnabledEvent,
+            "cell-index-not-enabled": ICellIndexNotEnabledEvent,
             "sync-state": ISyncStateEvent,
             "wallet-hint": IWalletHintEvent,
             "wallet-open": IWalletOpenEvent,
@@ -157,9 +157,9 @@ cfg_if! {
             "account-create": IAccountCreateEvent,
             "account-update": IAccountUpdateEvent,
             "server-status": IServerStatusEvent,
-            "utxo-proc-start": undefined,
-            "utxo-proc-stop": undefined,
-            "utxo-proc-error": IUtxoProcErrorEvent,
+            "cell-proc-start": undefined,
+            "cell-proc-stop": undefined,
+            "cell-proc-error": ICellProcErrorEvent,
             "daa-score-change": IDaaScoreChangeEvent,
             "pending": IPendingEvent,
             "reorg": IReorgEvent,
@@ -187,7 +187,7 @@ cfg_if! {
          * Wallet notification callback type.
          * 
          * This type declares the callback function that is called when notification is emitted
-         * from the Wallet (and the underlying UtxoProcessor or UtxoContext subsystems).
+         * from the Wallet (and the underlying CellProcessor or CellContext subsystems).
          * 
          * @see {@link Wallet}
          * 
@@ -212,7 +212,7 @@ declare! {
     IConnectEvent,
     r#"
     /**
-     * Emitted by {@link UtxoProcessor} when it negotiates a successful RPC connection.
+     * Emitted by {@link CellProcessor} when it negotiates a successful RPC connection.
      * 
      * @category Wallet Events
      */
@@ -227,7 +227,7 @@ declare! {
     IDisconnectEvent,
     r#"
     /**
-     * Emitted by {@link UtxoProcessor} when it disconnects from RPC.
+     * Emitted by {@link CellProcessor} when it disconnects from RPC.
      * 
      * @category Wallet Events
      */
@@ -239,14 +239,14 @@ declare! {
 }
 
 declare! {
-    IUtxoIndexNotEnabledEvent,
+    ICellIndexNotEnabledEvent,
     r#"
     /**
-     * Emitted by {@link UtxoProcessor} when it detects that connected node does not have UTXO index enabled.
+     * Emitted by {@link CellProcessor} when it detects that connected node does not have Cell index enabled.
      * 
      * @category Wallet Events
      */
-    export interface IUtxoIndexNotEnabledEvent {
+    export interface ICellIndexNotEnabledEvent {
         url? : string;
     }
     "#,
@@ -262,7 +262,7 @@ declare! {
      */
     export interface ISyncState {
         event : string;
-        data? : ISyncProofEvent | ISyncHeadersEvent | ISyncBlocksEvent | ISyncUtxoSyncEvent | ISyncTrustSyncEvent;
+        data? : ISyncProofEvent | ISyncHeadersEvent | ISyncBlocksEvent | ISyncCellSyncEvent | ISyncTrustSyncEvent;
     }
     
     /**
@@ -477,7 +477,7 @@ declare! {
     IServerStatusEvent,
     r#"
     /**
-     * Emitted by {@link UtxoProcessor} after successfully opening an RPC
+     * Emitted by {@link CellProcessor} after successfully opening an RPC
      * connection to the Spora node. This event contains general information
      * about the Spora node.
      * 
@@ -493,17 +493,17 @@ declare! {
 }
 
 declare! {
-    IUtxoProcErrorEvent,
+    ICellProcErrorEvent,
     r#"
     /**
-     * Emitted by {@link UtxoProcessor} indicating a non-recoverable internal error.
-     * If such event is emitted, the application should stop the UtxoProcessor
-     * and restart all related subsystem. This event is emitted when the UtxoProcessor
+     * Emitted by {@link CellProcessor} indicating a non-recoverable internal error.
+     * If such event is emitted, the application should stop the CellProcessor
+     * and restart all related subsystem. This event is emitted when the CellProcessor
      * encounters a critical condition such as "out of memory".
      * 
      * @category Wallet Events
      */
-    export interface IUtxoProcErrorEvent {
+    export interface ICellProcErrorEvent {
         message : string;
     }
     "#,
@@ -513,7 +513,7 @@ declare! {
     IDaaScoreChangeEvent,
     r#"
     /**
-     * Emitted by {@link UtxoProcessor} on DAA score change.
+     * Emitted by {@link CellProcessor} on DAA score change.
      * 
      * @category Wallet Events
      */
@@ -527,7 +527,7 @@ declare! {
     IPendingEvent,
     r#"
     /**
-     * Emitted by {@link UtxoContext} when detecting a pending transaction.
+     * Emitted by {@link CellContext} when detecting a pending transaction.
      * This notification will be followed by the "balance" event.
      * 
      * @category Wallet Events
@@ -540,11 +540,11 @@ declare! {
     IReorgEvent,
     r#"
     /**
-     * Emitted by {@link UtxoContext} when detecting a reorg transaction condition.
-     * A transaction is considered reorg if it has been removed from the UTXO set
+     * Emitted by {@link CellContext} when detecting a reorg transaction condition.
+     * A transaction is considered reorg if it has been removed from the tracked cell set
      * as a part of the network reorg process. Transactions notified with this event
      * should be considered as invalid and should be removed from the application state.
-     * Associated UTXOs will be automatically removed from the UtxoContext state.
+     * Associated cells will be automatically removed from the CellContext state.
      * 
      * @category Wallet Events
      */
@@ -556,7 +556,7 @@ declare! {
     IStasisEvent,
     r#"
     /**
-     * Emitted by {@link UtxoContext} when detecting a new coinbase transaction.
+     * Emitted by {@link CellContext} when detecting a new coinbase transaction.
      * Transactions are kept in "stasis" for the half of the coinbase maturity DAA period.
      * A wallet should ignore these transactions until they are re-broadcasted
      * via the "pending" event.
@@ -571,7 +571,7 @@ declare! {
     IMaturityEvent,
     r#"
     /**
-     * Emitted by {@link UtxoContext} when transaction is considered to be confirmed.
+     * Emitted by {@link CellContext} when transaction is considered to be confirmed.
      * This notification will be followed by the "balance" event.
      * 
      * @category Wallet Events
@@ -584,16 +584,16 @@ declare! {
     IDiscoveryEvent,
     r#"
     /**
-     * Emitted by {@link UtxoContext} when detecting a new transaction during
-     * the initialization phase. Discovery transactions indicate that UTXOs
-     * have been discovered during the initial UTXO scan.
+     * Emitted by {@link CellContext} when detecting a new transaction during
+     * the initialization phase. Discovery transactions indicate that cells
+     * have been discovered during the initial cell scan.
      * 
      * When receiving such notifications, the application should check its 
      * internal storage to see if the transaction already exists. If it doesn't,
      * it should create a correspond in record and notify the user of a new
      * transaction.
      * 
-     * This event is emitted when an address has existing UTXO entries that
+     * This event is emitted when an address has existing cell entries that
      * may have been received during previous sessions or while the wallet
      * was offline.
      * 
@@ -607,8 +607,8 @@ declare! {
     IBalanceEvent,
     r#"
     /**
-     * Emitted by {@link UtxoContext} when detecting a balance change.
-     * This notification is produced during the UTXO scan, when UtxoContext
+     * Emitted by {@link CellContext} when detecting a balance change.
+     * This notification is produced during the cell scan, when CellContext
      * detects incoming or outgoing transactions or when transactions
      * change their state (e.g. from pending to confirmed).
      * 
@@ -641,7 +641,7 @@ declare! {
     ISyncProof,
     r#"
     /**
-     * Emitted by {@link UtxoProcessor} when node is syncing and processing cryptographic proofs.
+     * Emitted by {@link CellProcessor} when node is syncing and processing cryptographic proofs.
      * 
      * @category Wallet Events
      */
@@ -655,7 +655,7 @@ declare! {
     ISyncHeaders,
     r#"
     /**
-     * Emitted by {@link UtxoProcessor} when node is syncing headers as a part of the IBD (Initial Block Download) process.
+     * Emitted by {@link CellProcessor} when node is syncing headers as a part of the IBD (Initial Block Download) process.
      * 
      * @category Wallet Events
      */
@@ -670,7 +670,7 @@ declare! {
     ISyncBlocks,
     r#"
     /**
-     * Emitted by {@link UtxoProcessor} when node is syncing blocks as a part of the IBD (Initial Block Download) process.
+     * Emitted by {@link CellProcessor} when node is syncing blocks as a part of the IBD (Initial Block Download) process.
      * 
      * @category Wallet Events
      */
@@ -682,14 +682,14 @@ declare! {
 }
 
 declare! {
-    ISyncUtxoSync,
+    ISyncCellSync,
     r#"
     /**
-     * Emitted by {@link UtxoProcessor} when node is syncing the UTXO set as a part of the IBD (Initial Block Download) process.
+     * Emitted by {@link CellProcessor} when node is syncing the cell set as a part of the IBD (Initial Block Download) process.
      * 
      * @category Wallet Events
      */
-    export interface ISyncUtxoSyncEvent {
+    export interface ISyncCellSyncEvent {
         chunks : number;
         total : number;
     }
@@ -700,7 +700,7 @@ declare! {
     ISyncTrustSync,
     r#"
     /**
-     * Emitted by {@link UtxoProcessor} when node is syncing cryptographic trust data as a part of the IBD (Initial Block Download) process.
+     * Emitted by {@link CellProcessor} when node is syncing cryptographic trust data as a part of the IBD (Initial Block Download) process.
      * 
      * @category Wallet Events
      */

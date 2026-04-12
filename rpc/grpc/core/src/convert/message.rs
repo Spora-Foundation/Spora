@@ -195,7 +195,7 @@ from!(item: RpcResult<&spora_rpc_core::GetInfoResponse>, protowire::GetInfoRespo
         p2p_id: item.p2p_id.clone(),
         mempool_size: item.mempool_size,
         server_version: item.server_version.clone(),
-        is_utxo_indexed: item.is_utxo_indexed,
+        is_cell_indexed: item.is_cell_indexed,
         is_synced: item.is_synced,
         has_notify_command: item.has_notify_command,
         has_message_id: item.has_message_id,
@@ -360,11 +360,11 @@ from!(item: RpcResult<&spora_rpc_core::GetHeadersResponse>, protowire::GetHeader
     Self { headers: item.headers.iter().map(|x| x.hash.to_string()).collect(), error: None }
 });
 
-from!(item: &spora_rpc_core::GetUtxosByAddressRequest, protowire::GetUtxosByAddressRequestMessage, {
+from!(item: &spora_rpc_core::GetCellsByAddressRequest, protowire::GetCellsByAddressRequestMessage, {
     Self { address: (&item.address).into(), start: item.start, limit: item.limit }
 });
-from!(item: RpcResult<&spora_rpc_core::GetUtxosByAddressResponse>, protowire::GetUtxosByAddressResponseMessage, {
-    debug!("GRPC, Creating GetUtxosByAddress message with {} entries", item.entries.len());
+from!(item: RpcResult<&spora_rpc_core::GetCellsByAddressResponse>, protowire::GetCellsByAddressResponseMessage, {
+    debug!("GRPC, Creating GetCellsByAddress message with {} entries", item.entries.len());
     Self {
         entries: item.entries.iter().map(|x| x.into()).collect(),
         total: item.total,
@@ -372,11 +372,11 @@ from!(item: RpcResult<&spora_rpc_core::GetUtxosByAddressResponse>, protowire::Ge
     }
 });
 
-from!(item: &spora_rpc_core::GetUtxosByAddressesRequest, protowire::GetUtxosByAddressesRequestMessage, {
+from!(item: &spora_rpc_core::GetCellsByAddressesRequest, protowire::GetCellsByAddressesRequestMessage, {
     Self { addresses: item.addresses.iter().map(|x| x.into()).collect() }
 });
-from!(item: RpcResult<&spora_rpc_core::GetUtxosByAddressesResponse>, protowire::GetUtxosByAddressesResponseMessage, {
-    debug!("GRPC, Creating GetUtxosByAddresses message with {} entries", item.entries.len());
+from!(item: RpcResult<&spora_rpc_core::GetCellsByAddressesResponse>, protowire::GetCellsByAddressesResponseMessage, {
+    debug!("GRPC, Creating GetCellsByAddresses message with {} entries", item.entries.len());
     Self { entries: item.entries.iter().map(|x| x.into()).collect(), error: None }
 });
 
@@ -392,7 +392,7 @@ from!(item: &spora_rpc_core::GetBalancesByAddressesRequest, protowire::GetBalanc
     Self { addresses: item.addresses.iter().map(|x| x.into()).collect() }
 });
 from!(item: RpcResult<&spora_rpc_core::GetBalancesByAddressesResponse>, protowire::GetBalancesByAddressesResponseMessage, {
-    debug!("GRPC, Creating GetUtxosByAddresses message with {} entries", item.entries.len());
+    debug!("GRPC, Creating GetCellsByAddresses message with {} entries", item.entries.len());
     Self { entries: item.entries.iter().map(|x| x.into()).collect(), error: None }
 });
 
@@ -471,13 +471,13 @@ from!(item: RpcResult<&spora_rpc_core::GetCurrentBlockColorResponse>, protowire:
     Self { blue: item.blue, error: None }
 });
 
-from!(item: &spora_rpc_core::GetUtxoReturnAddressRequest, protowire::GetUtxoReturnAddressRequestMessage, {
+from!(item: &spora_rpc_core::GetCellReturnAddressRequest, protowire::GetCellReturnAddressRequestMessage, {
     Self {
         txid: item.txid.to_string(),
         accepting_block_daa_score: item.accepting_block_daa_score
     }
 });
-from!(item: RpcResult<&spora_rpc_core::GetUtxoReturnAddressResponse>, protowire::GetUtxoReturnAddressResponseMessage, {
+from!(item: RpcResult<&spora_rpc_core::GetCellReturnAddressResponse>, protowire::GetCellReturnAddressResponseMessage, {
     Self { return_address: item.return_address.address_to_string(), error: None }
 });
 
@@ -543,7 +543,7 @@ from!(item: RpcResult<&spora_rpc_core::GetServerInfoResponse>, protowire::GetSer
         rpc_api_revision: item.rpc_api_revision as u32,
         server_version: item.server_version.clone(),
         network_id: item.network_id.to_string(),
-        has_utxo_index: item.has_utxo_index,
+        has_cell_index: item.has_cell_index,
         is_synced: item.is_synced,
         virtual_daa_score: item.virtual_daa_score,
         error: None,
@@ -558,26 +558,26 @@ from!(item: RpcResult<&spora_rpc_core::GetSyncStatusResponse>, protowire::GetSyn
     }
 });
 
-from!(item: &spora_rpc_core::NotifyUtxosChangedRequest, protowire::NotifyUtxosChangedRequestMessage, {
-    Self { addresses: item.addresses.iter().map(|x| x.into()).collect(), command: item.command.into() }
+from!(item: &spora_rpc_core::NotifyCellsChangedRequest, protowire::NotifyCellsChangedRequestMessage, {
+    Self { addresses: item.addresses.iter().map(Into::into).collect::<Vec<_>>(), command: item.command.into() }
 });
-from!(item: &spora_rpc_core::NotifyUtxosChangedRequest, protowire::StopNotifyingUtxosChangedRequestMessage, {
-    Self { addresses: item.addresses.iter().map(|x| x.into()).collect() }
+from!(item: &spora_rpc_core::NotifyCellsChangedRequest, protowire::StopNotifyingCellsChangedRequestMessage, {
+    Self { addresses: item.addresses.iter().map(Into::into).collect::<Vec<_>>() }
 });
-from!(RpcResult<&spora_rpc_core::NotifyUtxosChangedResponse>, protowire::NotifyUtxosChangedResponseMessage);
-from!(RpcResult<&spora_rpc_core::NotifyUtxosChangedResponse>, protowire::StopNotifyingUtxosChangedResponseMessage);
+from!(RpcResult<&spora_rpc_core::NotifyCellsChangedResponse>, protowire::NotifyCellsChangedResponseMessage);
+from!(RpcResult<&spora_rpc_core::NotifyCellsChangedResponse>, protowire::StopNotifyingCellsChangedResponseMessage);
 
-from!(item: &spora_rpc_core::NotifyPruningPointUtxoSetOverrideRequest, protowire::NotifyPruningPointUtxoSetOverrideRequestMessage, {
+from!(item: &spora_rpc_core::NotifyPruningPointCellSetOverrideRequest, protowire::NotifyPruningPointCellSetOverrideRequestMessage, {
     Self { command: item.command.into() }
 });
-from!(&spora_rpc_core::NotifyPruningPointUtxoSetOverrideRequest, protowire::StopNotifyingPruningPointUtxoSetOverrideRequestMessage);
+from!(&spora_rpc_core::NotifyPruningPointCellSetOverrideRequest, protowire::StopNotifyingPruningPointCellSetOverrideRequestMessage);
 from!(
-    RpcResult<&spora_rpc_core::NotifyPruningPointUtxoSetOverrideResponse>,
-    protowire::NotifyPruningPointUtxoSetOverrideResponseMessage
+    RpcResult<&spora_rpc_core::NotifyPruningPointCellSetOverrideResponse>,
+    protowire::NotifyPruningPointCellSetOverrideResponseMessage
 );
 from!(
-    RpcResult<&spora_rpc_core::NotifyPruningPointUtxoSetOverrideResponse>,
-    protowire::StopNotifyingPruningPointUtxoSetOverrideResponseMessage
+    RpcResult<&spora_rpc_core::NotifyPruningPointCellSetOverrideResponse>,
+    protowire::StopNotifyingPruningPointCellSetOverrideResponseMessage
 );
 
 from!(item: &spora_rpc_core::NotifyFinalityConflictRequest, protowire::NotifyFinalityConflictRequestMessage, {
@@ -710,7 +710,7 @@ try_from!(item: &protowire::GetInfoResponseMessage, RpcResult<spora_rpc_core::Ge
         p2p_id: item.p2p_id.clone(),
         mempool_size: item.mempool_size,
         server_version: item.server_version.clone(),
-        is_utxo_indexed: item.is_utxo_indexed,
+        is_cell_indexed: item.is_cell_indexed,
         is_synced: item.is_synced,
         has_notify_command: item.has_notify_command,
         has_message_id: item.has_message_id,
@@ -901,20 +901,20 @@ try_from!(item: &protowire::GetHeadersResponseMessage, RpcResult<spora_rpc_core:
     Self { headers: vec![] }
 });
 
-try_from!(item: &protowire::GetUtxosByAddressRequestMessage, spora_rpc_core::GetUtxosByAddressRequest, {
+try_from!(item: &protowire::GetCellsByAddressRequestMessage, spora_rpc_core::GetCellsByAddressRequest, {
     Self { address: item.address.as_str().try_into()?, start: item.start, limit: item.limit }
 });
-try_from!(item: &protowire::GetUtxosByAddressResponseMessage, RpcResult<spora_rpc_core::GetUtxosByAddressResponse>, {
+try_from!(item: &protowire::GetCellsByAddressResponseMessage, RpcResult<spora_rpc_core::GetCellsByAddressResponse>, {
     Self {
         entries: item.entries.iter().map(|x| x.try_into()).collect::<Result<Vec<_>, _>>()?,
         total: item.total,
     }
 });
 
-try_from!(item: &protowire::GetUtxosByAddressesRequestMessage, spora_rpc_core::GetUtxosByAddressesRequest, {
+try_from!(item: &protowire::GetCellsByAddressesRequestMessage, spora_rpc_core::GetCellsByAddressesRequest, {
     Self { addresses: item.addresses.iter().map(|x| x.as_str().try_into()).collect::<Result<Vec<_>, _>>()? }
 });
-try_from!(item: &protowire::GetUtxosByAddressesResponseMessage, RpcResult<spora_rpc_core::GetUtxosByAddressesResponse>, {
+try_from!(item: &protowire::GetCellsByAddressesResponseMessage, RpcResult<spora_rpc_core::GetCellsByAddressesResponse>, {
     Self { entries: item.entries.iter().map(|x| x.try_into()).collect::<Result<Vec<_>, _>>()? }
 });
 
@@ -1016,13 +1016,13 @@ try_from!(item: &protowire::GetCurrentBlockColorResponseMessage, RpcResult<spora
         blue: item.blue
     }
 });
-try_from!(item: &protowire::GetUtxoReturnAddressRequestMessage, spora_rpc_core::GetUtxoReturnAddressRequest , {
+try_from!(item: &protowire::GetCellReturnAddressRequestMessage, spora_rpc_core::GetCellReturnAddressRequest , {
     Self {
         txid: Hash::from_str(&item.txid).unwrap_or_default(),
         accepting_block_daa_score: item.accepting_block_daa_score
     }
 });
-try_from!(item: &protowire::GetUtxoReturnAddressResponseMessage, RpcResult<spora_rpc_core::GetUtxoReturnAddressResponse>, {
+try_from!(item: &protowire::GetCellReturnAddressResponseMessage, RpcResult<spora_rpc_core::GetCellReturnAddressResponse>, {
     Self { return_address: Address::try_from(item.return_address.clone())? }
 });
 
@@ -1083,7 +1083,7 @@ try_from!(item: &protowire::GetServerInfoResponseMessage, RpcResult<spora_rpc_co
         rpc_api_revision: item.rpc_api_revision as u16,
         server_version: item.server_version.clone(),
         network_id: NetworkId::from_str(&item.network_id)?,
-        has_utxo_index: item.has_utxo_index,
+        has_cell_index: item.has_cell_index,
         is_synced: item.is_synced,
         virtual_daa_score: item.virtual_daa_score,
     }
@@ -1096,38 +1096,38 @@ try_from!(item: &protowire::GetSyncStatusResponseMessage, RpcResult<spora_rpc_co
     }
 });
 
-try_from!(item: &protowire::NotifyUtxosChangedRequestMessage, spora_rpc_core::NotifyUtxosChangedRequest, {
+try_from!(item: &protowire::NotifyCellsChangedRequestMessage, spora_rpc_core::NotifyCellsChangedRequest, {
     Self {
         addresses: item.addresses.iter().map(|x| x.as_str().try_into()).collect::<Result<Vec<_>, _>>()?,
         command: item.command.into(),
     }
 });
-try_from!(item: &protowire::StopNotifyingUtxosChangedRequestMessage, spora_rpc_core::NotifyUtxosChangedRequest, {
+try_from!(item: &protowire::StopNotifyingCellsChangedRequestMessage, spora_rpc_core::NotifyCellsChangedRequest, {
     Self {
         addresses: item.addresses.iter().map(|x| x.as_str().try_into()).collect::<Result<Vec<_>, _>>()?,
         command: Command::Stop,
     }
 });
-try_from!(&protowire::NotifyUtxosChangedResponseMessage, RpcResult<spora_rpc_core::NotifyUtxosChangedResponse>);
-try_from!(&protowire::StopNotifyingUtxosChangedResponseMessage, RpcResult<spora_rpc_core::NotifyUtxosChangedResponse>);
+try_from!(&protowire::NotifyCellsChangedResponseMessage, RpcResult<spora_rpc_core::NotifyCellsChangedResponse>);
+try_from!(&protowire::StopNotifyingCellsChangedResponseMessage, RpcResult<spora_rpc_core::NotifyCellsChangedResponse>);
 
 try_from!(
-    item: &protowire::NotifyPruningPointUtxoSetOverrideRequestMessage,
-    spora_rpc_core::NotifyPruningPointUtxoSetOverrideRequest,
+    item: &protowire::NotifyPruningPointCellSetOverrideRequestMessage,
+    spora_rpc_core::NotifyPruningPointCellSetOverrideRequest,
     { Self { command: item.command.into() } }
 );
 try_from!(
-    _item: &protowire::StopNotifyingPruningPointUtxoSetOverrideRequestMessage,
-    spora_rpc_core::NotifyPruningPointUtxoSetOverrideRequest,
+    _item: &protowire::StopNotifyingPruningPointCellSetOverrideRequestMessage,
+    spora_rpc_core::NotifyPruningPointCellSetOverrideRequest,
     { Self { command: Command::Stop } }
 );
 try_from!(
-    &protowire::NotifyPruningPointUtxoSetOverrideResponseMessage,
-    RpcResult<spora_rpc_core::NotifyPruningPointUtxoSetOverrideResponse>
+    &protowire::NotifyPruningPointCellSetOverrideResponseMessage,
+    RpcResult<spora_rpc_core::NotifyPruningPointCellSetOverrideResponse>
 );
 try_from!(
-    &protowire::StopNotifyingPruningPointUtxoSetOverrideResponseMessage,
-    RpcResult<spora_rpc_core::NotifyPruningPointUtxoSetOverrideResponse>
+    &protowire::StopNotifyingPruningPointCellSetOverrideResponseMessage,
+    RpcResult<spora_rpc_core::NotifyPruningPointCellSetOverrideResponse>
 );
 
 try_from!(item: &protowire::NotifyFinalityConflictRequestMessage, spora_rpc_core::NotifyFinalityConflictRequest, {

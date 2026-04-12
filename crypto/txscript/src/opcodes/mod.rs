@@ -9,7 +9,7 @@ use crate::{
 use sha2::{Digest, Sha256};
 use spora_consensus_core::hashing::sighash::SigHashReusedValues;
 use spora_consensus_core::hashing::sighash_type::SigHashType;
-use spora_consensus_core::tx::VerifiableTransaction;
+use spora_consensus_core::tx::{cell_entry_legacy_script_public_key, VerifiableTransaction};
 use std::{
     fmt::{Debug, Formatter},
     num::TryFromIntError,
@@ -816,14 +816,14 @@ opcode_list! {
                 // value is before the constants.LockTimeThreshold. When it is under the
                 // threshold it is a DAA score.
                 if !(
-                    (tx.tx().lock_time < LOCK_TIME_THRESHOLD && stack_lock_time < LOCK_TIME_THRESHOLD) ||
-                    (tx.tx().lock_time >= LOCK_TIME_THRESHOLD && stack_lock_time >= LOCK_TIME_THRESHOLD)
+                    (tx.tx().lock_time() < LOCK_TIME_THRESHOLD && stack_lock_time < LOCK_TIME_THRESHOLD) ||
+                    (tx.tx().lock_time() >= LOCK_TIME_THRESHOLD && stack_lock_time >= LOCK_TIME_THRESHOLD)
                 ){
-                    return Err(TxScriptError::UnsatisfiedLockTime(format!("mismatched locktime types -- tx locktime {}, stack locktime {}", tx.tx().lock_time, stack_lock_time)))
+                    return Err(TxScriptError::UnsatisfiedLockTime(format!("mismatched locktime types -- tx locktime {}, stack locktime {}", tx.tx().lock_time(), stack_lock_time)))
                 }
 
-                if stack_lock_time > tx.tx().lock_time {
-                    return Err(TxScriptError::UnsatisfiedLockTime(format!("locktime requirement not satisfied -- locktime is greater than the transaction locktime: {} > {}", stack_lock_time, tx.tx().lock_time)))
+                if stack_lock_time > tx.tx().lock_time() {
+                    return Err(TxScriptError::UnsatisfiedLockTime(format!("locktime requirement not satisfied -- locktime is greater than the transaction locktime: {} > {}", stack_lock_time, tx.tx().lock_time())))
                 }
 
                 // The lock time feature can also be disabled, thereby bypassing
@@ -840,7 +840,7 @@ opcode_list! {
                 // NOTE: This implies that even if the transaction is not finalized due to
                 // another input being unlocked, the opcode execution will still fail when the
                 // input being used by the opcode is locked.
-                if input.sequence == MAX_TX_IN_SEQUENCE_NUM {
+                if input.since == MAX_TX_IN_SEQUENCE_NUM {
                     return Err(TxScriptError::UnsatisfiedLockTime("transaction input is finalized".to_string()));
                 }
                 Ok(())
@@ -876,13 +876,13 @@ opcode_list! {
                 // consensus constrained. Testing that the transaction's sequence
                 // number does not have this bit set prevents using this property
                 // to get around a CHECKSEQUENCEVERIFY check.
-                if input.sequence & SEQUENCE_LOCK_TIME_DISABLED != 0 {
-                    return Err(TxScriptError::UnsatisfiedLockTime(format!("transaction sequence has sequence locktime disabled bit set: {:#x}", input.sequence)));
+                if input.since & SEQUENCE_LOCK_TIME_DISABLED != 0 {
+                    return Err(TxScriptError::UnsatisfiedLockTime(format!("transaction sequence has sequence locktime disabled bit set: {:#x}", input.since)));
                 }
 
                 // Mask off non-consensus bits before doing comparisons.
-                if (stack_sequence & SEQUENCE_LOCK_TIME_MASK) > (input.sequence & SEQUENCE_LOCK_TIME_MASK) {
-                    return Err(TxScriptError::UnsatisfiedLockTime(format!("locktime requirement not satisfied -- locktime is greater than the transaction locktime: {} > {}", stack_sequence & SEQUENCE_LOCK_TIME_MASK, input.sequence & SEQUENCE_LOCK_TIME_MASK)))
+                if (stack_sequence & SEQUENCE_LOCK_TIME_MASK) > (input.since & SEQUENCE_LOCK_TIME_MASK) {
+                    return Err(TxScriptError::UnsatisfiedLockTime(format!("locktime requirement not satisfied -- locktime is greater than the transaction locktime: {} > {}", stack_sequence & SEQUENCE_LOCK_TIME_MASK, input.since & SEQUENCE_LOCK_TIME_MASK)))
                 }
                 Ok(())
             }
@@ -938,16 +938,16 @@ opcode_list! {
     opcode OpOutpointIndex<0xbb, 1>(self, vm) Err(TxScriptError::OpcodeReserved(format!("{self:?}")))
     opcode OpTxInputScriptSig<0xbc, 1>(self, vm) Err(TxScriptError::OpcodeReserved(format!("{self:?}")))
     opcode OpTxInputSeq<0xbd, 1>(self, vm) Err(TxScriptError::OpcodeReserved(format!("{self:?}")))
-    // UTXO related opcodes (following UtxoEntry struct field order)
+    // Cell-entry related opcodes (following CellEntry struct field order)
     opcode OpTxInputAmount<0xbe, 1>(self, vm) {
         if vm.kip10_enabled {
             match vm.script_source {
                 ScriptSource::TxInput{tx, ..} => {
                     let [idx]: [i32; 1] = vm.dstack.pop_items()?;
-                    let utxo = usize::try_from(idx).ok()
-                        .and_then(|idx| tx.utxo(idx))
+                    let cell = usize::try_from(idx).ok()
+                        .and_then(|idx| tx.cell_entry(idx))
                         .ok_or_else(|| TxScriptError::InvalidInputIndex(idx, tx.inputs().len()))?;
-                    push_number(utxo.amount.try_into().map_err(|e: TryFromIntError| TxScriptError::NumberTooBig(e.to_string()))?, vm)
+                    push_number(cell.amount().try_into().map_err(|e: TryFromIntError| TxScriptError::NumberTooBig(e.to_string()))?, vm)
                 },
                 _ => Err(TxScriptError::InvalidSource("OpInputAmount only applies to transaction inputs".to_string()))
             }
@@ -960,10 +960,10 @@ opcode_list! {
             match vm.script_source {
                 ScriptSource::TxInput{tx, ..} => {
                     let [idx]: [i32; 1] = vm.dstack.pop_items()?;
-                    let utxo = usize::try_from(idx).ok()
-                        .and_then(|idx| tx.utxo(idx))
+                    let cell = usize::try_from(idx).ok()
+                        .and_then(|idx| tx.cell_entry(idx))
                         .ok_or_else(|| TxScriptError::InvalidInputIndex(idx, tx.inputs().len()))?;
-                    vm.dstack.push(utxo.script_public_key.to_bytes());
+                    vm.dstack.push(cell_entry_legacy_script_public_key(cell).to_bytes());
                     Ok(())
                 },
                 _ => Err(TxScriptError::InvalidSource("OpInputSpk only applies to transaction inputs".to_string()))
@@ -983,7 +983,7 @@ opcode_list! {
                     let output = usize::try_from(idx).ok()
                         .and_then(|idx| tx.outputs().get(idx))
                         .ok_or_else(|| TxScriptError::InvalidOutputIndex(idx, tx.inputs().len()))?;
-                    push_number(output.value.try_into().map_err(|e: TryFromIntError| TxScriptError::NumberTooBig(e.to_string()))?, vm)
+                    push_number(output.capacity.try_into().map_err(|e: TryFromIntError| TxScriptError::NumberTooBig(e.to_string()))?, vm)
                 },
                 _ => Err(TxScriptError::InvalidSource("OpOutputAmount only applies to transaction inputs".to_string()))
             }
@@ -999,7 +999,7 @@ opcode_list! {
                     let output = usize::try_from(idx).ok()
                         .and_then(|idx| tx.outputs().get(idx))
                         .ok_or_else(|| TxScriptError::InvalidOutputIndex(idx, tx.inputs().len()))?;
-                    vm.dstack.push(output.script_public_key.to_bytes());
+                    vm.dstack.push(output.lock.to_bytes());
                     Ok(())
                 },
                 _ => Err(TxScriptError::InvalidSource("OpOutputSpk only applies to transaction inputs".to_string()))
@@ -1091,11 +1091,11 @@ mod test {
     use crate::opcodes::{OpCodeExecution, OpCodeImplementation};
     use crate::{opcodes, pay_to_address_script, TxScriptEngine, TxScriptError, LOCK_TIME_THRESHOLD};
     use spora_addresses::{Address, Prefix, Version};
-    use spora_consensus_core::constants::{SAU_PER_TONDI, TX_VERSION};
+    use spora_consensus_core::constants::{SAU_PER_SPORA, TX_VERSION};
     use spora_consensus_core::hashing::sighash::SigHashReusedValuesUnsync;
     use spora_consensus_core::subnets::SUBNETWORK_ID_NATIVE;
     use spora_consensus_core::tx::{
-        PopulatedTransaction, ScriptPublicKey, Transaction, TransactionInput, TransactionOutpoint, TransactionOutput, UtxoEntry,
+        CellEntry, PopulatedTransaction, ScriptPublicKey, Transaction, TransactionInput, TransactionOutpoint, TransactionOutput,
         VerifiableTransaction,
     };
 
@@ -2831,15 +2831,12 @@ mod test {
             &self.0
         }
 
-        fn populated_input(&self, _index: usize) -> (&TransactionInput, &UtxoEntry) {
-            unimplemented!()
-        }
-        fn utxo(&self, _index: usize) -> Option<&UtxoEntry> {
+        fn cell_entry(&self, _index: usize) -> Option<&CellEntry> {
             unimplemented!()
         }
     }
 
-    fn make_mock_transaction(lock_time: u64) -> (VerifiableTransactionMock, TransactionInput, UtxoEntry) {
+    fn make_mock_transaction(lock_time: u64) -> (VerifiableTransactionMock, TransactionInput, CellEntry) {
         let dummy_prev_out = TransactionOutpoint::new(spora_hashes::Hash::from_u64_word(1), 1);
         let dummy_sig_script = vec![0u8; 65];
         let dummy_tx_input = TransactionInput::new(dummy_prev_out, dummy_sig_script, 10, 1);
@@ -2847,7 +2844,7 @@ mod test {
 
         let addr = Address::new(Prefix::Testnet, Version::PubKey, &addr_hash).expect("Valid test address");
         let dummy_script_public_key = pay_to_address_script(&addr);
-        let dummy_tx_out = TransactionOutput::new(SAU_PER_TONDI, dummy_script_public_key);
+        let dummy_tx_out = TransactionOutput::new(SAU_PER_SPORA, dummy_script_public_key);
 
         let tx = VerifiableTransactionMock(Transaction::new(
             TX_VERSION + 1,
@@ -2858,14 +2855,14 @@ mod test {
             0,
             vec![],
         ));
-        let utxo_entry = UtxoEntry::new(0, ScriptPublicKey::default(), 0, false);
-        (tx, dummy_tx_input, utxo_entry)
+        let cell_entry = CellEntry::new(0, ScriptPublicKey::default(), 0, false);
+        (tx, dummy_tx_input, cell_entry)
     }
 
     #[test]
     fn test_opchecklocktimeverify() {
         // Everything we need to build a script source
-        let (base_tx, input, utxo_entry) = make_mock_transaction(1);
+        let (base_tx, input, cell_entry) = make_mock_transaction(1);
 
         let sig_cache = Cache::new(10_000);
         let reused_values = SigHashReusedValuesUnsync::new();
@@ -2880,7 +2877,7 @@ mod test {
         ] {
             let mut tx = base_tx.clone();
             tx.0.lock_time = tx_lock_time;
-            let mut vm = TxScriptEngine::from_transaction_input(&tx, &input, 0, &utxo_entry, &reused_values, &sig_cache, false, false);
+            let mut vm = TxScriptEngine::from_transaction_input(&tx, &input, 0, &cell_entry, &reused_values, &sig_cache, false, false);
             vm.dstack = vec![lock_time.clone()];
             match code.execute(&mut vm) {
                 // Message is based on the should_fail values
@@ -2906,7 +2903,7 @@ mod test {
     #[test]
     fn test_opchecksequencerify() {
         // Everything we need to build a script source
-        let (tx, base_input, utxo_entry) = make_mock_transaction(1);
+        let (tx, base_input, cell_entry) = make_mock_transaction(1);
 
         let sig_cache = Cache::new(10_000);
         let reused_values = SigHashReusedValuesUnsync::new();
@@ -2922,7 +2919,7 @@ mod test {
         ] {
             let mut input = base_input.clone();
             input.sequence = tx_sequence;
-            let mut vm = TxScriptEngine::from_transaction_input(&tx, &input, 0, &utxo_entry, &reused_values, &sig_cache, false, false);
+            let mut vm = TxScriptEngine::from_transaction_input(&tx, &input, 0, &cell_entry, &reused_values, &sig_cache, false, false);
             vm.dstack = vec![sequence.clone()];
             match code.execute(&mut vm) {
                 // Message is based on the should_fail values
@@ -3048,20 +3045,20 @@ mod test {
             pay_to_address_script(&addr)
         }
 
-        fn kip_10_tx_mock(inputs: Vec<Kip10Mock>, outputs: Vec<Kip10Mock>) -> (Transaction, Vec<UtxoEntry>) {
+        fn kip_10_tx_mock(inputs: Vec<Kip10Mock>, outputs: Vec<Kip10Mock>) -> (Transaction, Vec<CellEntry>) {
             let dummy_prev_out = TransactionOutpoint::new(spora_hashes::Hash::from_u64_word(1), 1);
             let dummy_sig_script = vec![0u8; 65];
-            let (utxos, tx_inputs) = inputs
+            let (cells, tx_inputs) = inputs
                 .into_iter()
                 .map(|Kip10Mock { spk, amount }| {
-                    (UtxoEntry::new(amount, spk, 0, false), TransactionInput::new(dummy_prev_out, dummy_sig_script.clone(), 10, 0))
+                    (CellEntry::new(amount, spk, 0, false), TransactionInput::new(dummy_prev_out, dummy_sig_script.clone(), 10, 0))
                 })
                 .unzip();
 
             let tx_out = outputs.into_iter().map(|Kip10Mock { spk, amount }| TransactionOutput::new(amount, spk));
 
             let tx = Transaction::new(TX_VERSION + 1, tx_inputs, tx_out.collect(), 0, SUBNETWORK_ID_NATIVE, 0, vec![]);
-            (tx, utxos)
+            (tx, cells)
         }
 
         #[derive(Debug)]
@@ -3102,8 +3099,8 @@ mod test {
             let outputs =
                 vec![Kip10Mock { spk: output_spk1.clone(), amount: 3333 }, Kip10Mock { spk: output_spk2.clone(), amount: 4444 }];
 
-            let (tx, utxo_entries) = kip_10_tx_mock(inputs, outputs);
-            let tx = PopulatedTransaction::new(&tx, utxo_entries);
+            let (tx, cell_entries) = kip_10_tx_mock(inputs, outputs);
+            let tx = PopulatedTransaction::new(&tx, cell_entries);
             let sig_cache = Cache::new(10_000);
             let reused_values = SigHashReusedValuesUnsync::new();
 
@@ -3112,7 +3109,7 @@ mod test {
                     &tx,
                     &tx.inputs()[current_idx],
                     current_idx,
-                    tx.utxo(current_idx).unwrap(),
+                    tx.cell_entry(current_idx).unwrap(),
                     &reused_values,
                     &sig_cache,
                     group.kip10_enabled,
@@ -3329,7 +3326,7 @@ mod test {
                 execute_test_group(&group);
             }
         }
-        fn create_mock_tx(input_count: usize, output_count: usize) -> (Transaction, Vec<UtxoEntry>) {
+        fn create_mock_tx(input_count: usize, output_count: usize) -> (Transaction, Vec<CellEntry>) {
             let dummy_prev_out = TransactionOutpoint::new(spora_hashes::Hash::from_u64_word(1), 1);
             let dummy_sig_script = vec![0u8; 65];
 
@@ -3341,10 +3338,10 @@ mod test {
             let outputs: Vec<Kip10Mock> =
                 (0..output_count).map(|i| Kip10Mock { spk: create_mock_spk((100 + i) as u8), amount: 2000 + i as u64 }).collect();
 
-            let (utxos, tx_inputs): (Vec<_>, Vec<_>) = inputs
+            let (cells, tx_inputs): (Vec<_>, Vec<_>) = inputs
                 .into_iter()
                 .map(|Kip10Mock { spk, amount }| {
-                    (UtxoEntry::new(amount, spk, 0, false), TransactionInput::new(dummy_prev_out, dummy_sig_script.clone(), 10, 0))
+                    (CellEntry::new(amount, spk, 0, false), TransactionInput::new(dummy_prev_out, dummy_sig_script.clone(), 10, 0))
                 })
                 .unzip();
 
@@ -3353,7 +3350,7 @@ mod test {
 
             let tx = Transaction::new(TX_VERSION + 1, tx_inputs, tx_outputs, 0, SUBNETWORK_ID_NATIVE, 0, vec![]);
 
-            (tx, utxos)
+            (tx, cells)
         }
 
         #[test]
@@ -3370,8 +3367,8 @@ mod test {
             ];
 
             for (input_count, output_count) in test_cases {
-                let (tx, utxo_entries) = create_mock_tx(input_count, output_count);
-                let tx = PopulatedTransaction::new(&tx, utxo_entries);
+                let (tx, cell_entries) = create_mock_tx(input_count, output_count);
+                let tx = PopulatedTransaction::new(&tx, cell_entries);
                 let sig_cache = Cache::new(10_000);
                 let reused_values = SigHashReusedValuesUnsync::new();
 
@@ -3382,7 +3379,7 @@ mod test {
                             &tx,
                             &tx.inputs()[0], // Use first input
                             0,
-                            tx.utxo(0).unwrap(),
+                            tx.cell_entry(0).unwrap(),
                             &reused_values,
                             &sig_cache,
                             kip10_enabled,
@@ -3448,8 +3445,8 @@ mod test {
             let input_mock = Kip10Mock { spk: spk.clone(), amount: 200 };
             let output_mock = Kip10Mock { spk: create_mock_spk(1), amount: 100 };
 
-            let (tx, utxo_entries) = kip_10_tx_mock(vec![input_mock.clone()], vec![output_mock]);
-            let mut tx = MutableTransaction::with_entries(tx, utxo_entries);
+            let (tx, cell_entries) = kip_10_tx_mock(vec![input_mock.clone()], vec![output_mock]);
+            let mut tx = MutableTransaction::with_entries(tx, cell_entries);
 
             // Set signature script to push redeem script
             tx.tx.inputs[0].signature_script = ScriptBuilder::new().add_data(&redeem_script).unwrap().drain();
@@ -3464,7 +3461,7 @@ mod test {
                     &tx,
                     &tx.inputs()[0],
                     0,
-                    tx.utxo(0).unwrap(),
+                    tx.cell_entry(0).unwrap(),
                     &reused_values,
                     &sig_cache,
                     true,
@@ -3480,8 +3477,8 @@ mod test {
                     spk: create_mock_spk(1),
                     amount: 99, // Wrong amount
                 };
-                let (tx, utxo_entries) = kip_10_tx_mock(vec![input_mock.clone()], vec![output_mock]);
-                let mut tx = MutableTransaction::with_entries(tx, utxo_entries);
+                let (tx, cell_entries) = kip_10_tx_mock(vec![input_mock.clone()], vec![output_mock]);
+                let mut tx = MutableTransaction::with_entries(tx, cell_entries);
                 tx.tx.inputs[0].signature_script = ScriptBuilder::new().add_data(&redeem_script).unwrap().drain();
 
                 let tx = tx.as_verifiable();
@@ -3489,7 +3486,7 @@ mod test {
                     &tx,
                     &tx.inputs()[0],
                     0,
-                    tx.utxo(0).unwrap(),
+                    tx.cell_entry(0).unwrap(),
                     &reused_values,
                     &sig_cache,
                     true,
@@ -3522,15 +3519,15 @@ mod test {
                 let input_mock = Kip10Mock { spk: spk.clone(), amount: 200 };
                 let output_mock = Kip10Mock { spk: create_mock_spk(1), amount: 100 };
 
-                let (tx, utxo_entries) = kip_10_tx_mock(vec![input_mock], vec![output_mock]);
-                let mut tx = MutableTransaction::with_entries(tx, utxo_entries);
+                let (tx, cell_entries) = kip_10_tx_mock(vec![input_mock], vec![output_mock]);
+                let mut tx = MutableTransaction::with_entries(tx, cell_entries);
                 tx.tx.inputs[0].signature_script = ScriptBuilder::new().add_data(&redeem_script).unwrap().drain();
                 let tx = tx.as_verifiable();
                 let mut vm = TxScriptEngine::from_transaction_input(
                     &tx,
                     &tx.inputs()[0],
                     0,
-                    tx.utxo(0).unwrap(),
+                    tx.cell_entry(0).unwrap(),
                     &reused_values,
                     &sig_cache,
                     true,
@@ -3548,8 +3545,8 @@ mod test {
                 };
                 let output_mock = Kip10Mock { spk: create_mock_spk(1), amount: 100 };
 
-                let (tx, utxo_entries) = kip_10_tx_mock(vec![input_mock], vec![output_mock]);
-                let mut tx = MutableTransaction::with_entries(tx, utxo_entries);
+                let (tx, cell_entries) = kip_10_tx_mock(vec![input_mock], vec![output_mock]);
+                let mut tx = MutableTransaction::with_entries(tx, cell_entries);
                 tx.tx.inputs[0].signature_script = ScriptBuilder::new().add_data(&redeem_script).unwrap().drain();
 
                 let tx = tx.as_verifiable();
@@ -3557,7 +3554,7 @@ mod test {
                     &tx,
                     &tx.inputs()[0],
                     0,
-                    tx.utxo(0).unwrap(),
+                    tx.cell_entry(0).unwrap(),
                     &reused_values,
                     &sig_cache,
                     true,
@@ -3578,8 +3575,8 @@ mod test {
             let redeem_script = ScriptBuilder::new().add_ops(&[Op0, OpTxInputSpk, OpNop]).unwrap().drain();
             let spk = pay_to_script_hash_script(&redeem_script);
 
-            let (tx, utxo_entries) = kip_10_tx_mock(vec![Kip10Mock { spk, amount: 100 }], vec![]);
-            let mut tx = MutableTransaction::with_entries(tx, utxo_entries);
+            let (tx, cell_entries) = kip_10_tx_mock(vec![Kip10Mock { spk, amount: 100 }], vec![]);
+            let mut tx = MutableTransaction::with_entries(tx, cell_entries);
             tx.tx.inputs[0].signature_script = ScriptBuilder::new().add_data(&redeem_script).unwrap().drain();
 
             let tx = tx.as_verifiable();
@@ -3587,7 +3584,7 @@ mod test {
                 &tx,
                 &tx.inputs()[0],
                 0,
-                tx.utxo(0).unwrap(),
+                tx.cell_entry(0).unwrap(),
                 &reused_values,
                 &sig_cache,
                 true,
@@ -3610,8 +3607,8 @@ mod test {
             let input_mock1 = Kip10Mock { spk, amount: 100 };
             let input_mock2 = Kip10Mock { spk: create_mock_spk(2), amount: 100 }; // Different SPK
 
-            let (tx, utxo_entries) = kip_10_tx_mock(vec![input_mock1, input_mock2], vec![]);
-            let mut tx = MutableTransaction::with_entries(tx, utxo_entries);
+            let (tx, cell_entries) = kip_10_tx_mock(vec![input_mock1, input_mock2], vec![]);
+            let mut tx = MutableTransaction::with_entries(tx, cell_entries);
             tx.tx.inputs[0].signature_script = ScriptBuilder::new().add_data(&redeem_script).unwrap().drain();
 
             let tx = tx.as_verifiable();
@@ -3619,7 +3616,7 @@ mod test {
                 &tx,
                 &tx.inputs()[0],
                 0,
-                tx.utxo(0).unwrap(),
+                tx.cell_entry(0).unwrap(),
                 &reused_values,
                 &sig_cache,
                 true,
@@ -3643,8 +3640,8 @@ mod test {
             let input_mock1 = Kip10Mock { spk: spk.clone(), amount: 100 };
             let input_mock2 = Kip10Mock { spk, amount: 100 };
 
-            let (tx, utxo_entries) = kip_10_tx_mock(vec![input_mock1, input_mock2], vec![]);
-            let mut tx = MutableTransaction::with_entries(tx, utxo_entries);
+            let (tx, cell_entries) = kip_10_tx_mock(vec![input_mock1, input_mock2], vec![]);
+            let mut tx = MutableTransaction::with_entries(tx, cell_entries);
             tx.tx.inputs[0].signature_script = ScriptBuilder::new().add_data(&redeem_script).unwrap().drain();
 
             let tx = tx.as_verifiable();
@@ -3652,7 +3649,7 @@ mod test {
                 &tx,
                 &tx.inputs()[0],
                 0,
-                tx.utxo(0).unwrap(),
+                tx.cell_entry(0).unwrap(),
                 &reused_values,
                 &sig_cache,
                 true,
@@ -3689,8 +3686,8 @@ mod test {
                 let input_mock = Kip10Mock { spk: spk.clone(), amount: 200 };
                 let output_mock = Kip10Mock { spk: expected_spk.clone(), amount: 100 };
 
-                let (tx, utxo_entries) = kip_10_tx_mock(vec![input_mock], vec![output_mock]);
-                let mut tx = MutableTransaction::with_entries(tx, utxo_entries);
+                let (tx, cell_entries) = kip_10_tx_mock(vec![input_mock], vec![output_mock]);
+                let mut tx = MutableTransaction::with_entries(tx, cell_entries);
                 tx.tx.inputs[0].signature_script = ScriptBuilder::new().add_data(&redeem_script).unwrap().drain();
 
                 let tx = tx.as_verifiable();
@@ -3698,7 +3695,7 @@ mod test {
                     &tx,
                     &tx.inputs()[0],
                     0,
-                    tx.utxo(0).unwrap(),
+                    tx.cell_entry(0).unwrap(),
                     &reused_values,
                     &sig_cache,
                     true,
@@ -3716,8 +3713,8 @@ mod test {
                     amount: 100,
                 };
 
-                let (tx, utxo_entries) = kip_10_tx_mock(vec![input_mock], vec![output_mock]);
-                let mut tx = MutableTransaction::with_entries(tx, utxo_entries);
+                let (tx, cell_entries) = kip_10_tx_mock(vec![input_mock], vec![output_mock]);
+                let mut tx = MutableTransaction::with_entries(tx, cell_entries);
                 tx.tx.inputs[0].signature_script = ScriptBuilder::new().add_data(&redeem_script).unwrap().drain();
 
                 let tx = tx.as_verifiable();
@@ -3725,7 +3722,7 @@ mod test {
                     &tx,
                     &tx.inputs()[0],
                     0,
-                    tx.utxo(0).unwrap(),
+                    tx.cell_entry(0).unwrap(),
                     &reused_values,
                     &sig_cache,
                     true,
@@ -3750,8 +3747,8 @@ mod test {
                 let input_mock = Kip10Mock { spk: spk.clone(), amount: 200 };
                 let output_mock = Kip10Mock { spk: create_mock_spk(1), amount: 100 };
 
-                let (tx, utxo_entries) = kip_10_tx_mock(vec![input_mock], vec![output_mock]);
-                let mut tx = MutableTransaction::with_entries(tx, utxo_entries);
+                let (tx, cell_entries) = kip_10_tx_mock(vec![input_mock], vec![output_mock]);
+                let mut tx = MutableTransaction::with_entries(tx, cell_entries);
                 tx.tx.inputs[0].signature_script = ScriptBuilder::new().add_data(&redeem_script).unwrap().drain();
 
                 let tx = tx.as_verifiable();
@@ -3759,7 +3756,7 @@ mod test {
                     &tx,
                     &tx.inputs()[0],
                     0,
-                    tx.utxo(0).unwrap(),
+                    tx.cell_entry(0).unwrap(),
                     &reused_values,
                     &sig_cache,
                     true,
@@ -3775,8 +3772,8 @@ mod test {
                 let input_mock2 = Kip10Mock { spk: spk.clone(), amount: 200 };
                 let output_mock = Kip10Mock { spk: create_mock_spk(2), amount: 100 };
 
-                let (tx, utxo_entries) = kip_10_tx_mock(vec![input_mock1, input_mock2], vec![output_mock]);
-                let mut tx = MutableTransaction::with_entries(tx, utxo_entries);
+                let (tx, cell_entries) = kip_10_tx_mock(vec![input_mock1, input_mock2], vec![output_mock]);
+                let mut tx = MutableTransaction::with_entries(tx, cell_entries);
                 tx.tx.inputs[1].signature_script = ScriptBuilder::new().add_data(&redeem_script).unwrap().drain();
 
                 let tx = tx.as_verifiable();
@@ -3784,7 +3781,7 @@ mod test {
                     &tx,
                     &tx.inputs()[1],
                     1,
-                    tx.utxo(1).unwrap(),
+                    tx.cell_entry(1).unwrap(),
                     &reused_values,
                     &sig_cache,
                     true,
@@ -3818,12 +3815,12 @@ mod test {
             let output_mock2 = Kip10Mock { spk: create_mock_spk(2), amount: 100 };
             let output_mock3 = Kip10Mock { spk: create_mock_spk(3), amount: 150 };
 
-            let (tx, utxo_entries) =
+            let (tx, cell_entries) =
                 kip_10_tx_mock(vec![input_mock1.clone(), input_mock2.clone()], vec![output_mock1, output_mock2, output_mock3]);
 
             // Test InputCount
             {
-                let mut tx = MutableTransaction::with_entries(tx.clone(), utxo_entries.clone());
+                let mut tx = MutableTransaction::with_entries(tx.clone(), cell_entries.clone());
                 tx.tx.inputs[0].signature_script = ScriptBuilder::new().add_data(&input_count_script).unwrap().drain();
 
                 let tx = tx.as_verifiable();
@@ -3831,7 +3828,7 @@ mod test {
                     &tx,
                     &tx.inputs()[0],
                     0,
-                    tx.utxo(0).unwrap(),
+                    tx.cell_entry(0).unwrap(),
                     &reused_values,
                     &sig_cache,
                     true,
@@ -3843,7 +3840,7 @@ mod test {
 
             // Test OutputCount
             {
-                let mut tx = MutableTransaction::with_entries(tx.clone(), utxo_entries.clone());
+                let mut tx = MutableTransaction::with_entries(tx.clone(), cell_entries.clone());
                 tx.tx.inputs[1].signature_script = ScriptBuilder::new().add_data(&output_count_script).unwrap().drain();
 
                 let tx = tx.as_verifiable();
@@ -3851,7 +3848,7 @@ mod test {
                     &tx,
                     &tx.inputs()[1],
                     1,
-                    tx.utxo(1).unwrap(),
+                    tx.cell_entry(1).unwrap(),
                     &reused_values,
                     &sig_cache,
                     true,
@@ -3867,7 +3864,7 @@ mod test {
                 let wrong_input_count_script =
                     ScriptBuilder::new().add_op(OpTxInputCount).unwrap().add_i64(3).unwrap().add_op(OpEqual).unwrap().drain();
 
-                let mut tx = MutableTransaction::with_entries(tx.clone(), utxo_entries.clone());
+                let mut tx = MutableTransaction::with_entries(tx.clone(), cell_entries.clone());
                 tx.tx.inputs[0].signature_script = ScriptBuilder::new().add_data(&wrong_input_count_script).unwrap().drain();
 
                 let tx = tx.as_verifiable();
@@ -3875,7 +3872,7 @@ mod test {
                     &tx,
                     &tx.inputs()[0],
                     0,
-                    tx.utxo(0).unwrap(),
+                    tx.cell_entry(0).unwrap(),
                     &reused_values,
                     &sig_cache,
                     true,
@@ -3890,7 +3887,7 @@ mod test {
                 let wrong_output_count_script =
                     ScriptBuilder::new().add_op(OpTxOutputCount).unwrap().add_i64(2).unwrap().add_op(OpEqual).unwrap().drain();
 
-                let mut tx = MutableTransaction::with_entries(tx.clone(), utxo_entries.clone());
+                let mut tx = MutableTransaction::with_entries(tx.clone(), cell_entries.clone());
                 tx.tx.inputs[1].signature_script = ScriptBuilder::new().add_data(&wrong_output_count_script).unwrap().drain();
 
                 let tx = tx.as_verifiable();
@@ -3898,7 +3895,7 @@ mod test {
                     &tx,
                     &tx.inputs()[1],
                     1,
-                    tx.utxo(1).unwrap(),
+                    tx.cell_entry(1).unwrap(),
                     &reused_values,
                     &sig_cache,
                     true,

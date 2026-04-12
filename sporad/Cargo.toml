@@ -19,6 +19,7 @@ spora-alloc.workspace = true # This changes the global allocator for all of the 
 
 spora-addresses.workspace = true
 spora-addressmanager.workspace = true
+spora-cellindex.workspace = true
 spora-consensus-core.workspace = true
 spora-consensus-notify.workspace = true
 spora-consensus.workspace = true

@@ -143,7 +143,7 @@ for (outpoint, meta) in cell_diff.add.iter() {
 **Status**: Needs implementation
 
 **Required**:
-- Replace `calculate_utxo_state_relatively` with Cell version
+- Replace `calculate_legacy_txout_state_relatively` with Cell version
 - Load parent `cell_state_tree` from `cell_roots_store`
 - Apply `CellDiff` from `cell_diffs_store`
 - Return new `CellStateTree`
@@ -270,7 +270,7 @@ Phase 1 tests: 23/23 passing ✅
 
 ## Outstanding Questions
 
-1. ⏳ **UTXO Cleanup Scope**: Clean consensus layer only, defer wallet/RPC?
+1. ⏳ **Legacy terminology cleanup scope**: Clean consensus layer only, defer wallet/RPC?
    - Decision: Focus on consensus/exec/state (answered: 1a)
 
 2. ⏳ **Parallel Script Execution**: Implement now or defer?
@@ -298,4 +298,3 @@ Phase 1 tests: 23/23 passing ✅
 **Status**: Phase 1 complete, Phase 2 ready to begin  
 **Confidence**: High (all tests passing, clear path forward)  
 **Recommendation**: Proceed with Phase 2 (Virtual Processor Migration)
-

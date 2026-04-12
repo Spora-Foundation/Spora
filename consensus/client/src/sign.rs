@@ -6,11 +6,12 @@ use crate::transaction::Transaction;
 use core::iter::once;
 use itertools::Itertools;
 use spora_consensus_core::{
+    cell_metadata::parse_cell_metadata_placeholder_script_public_key,
     hashing::{
         sighash::{calc_schnorr_signature_hash, SigHashReusedValuesUnsync},
         sighash_type::SIG_HASH_ALL,
     },
-    tx::PopulatedTransaction,
+    tx::{cell_tx_from_legacy_transaction, PopulatedTransaction},
     //sign::Signed,
 };
 use std::collections::BTreeMap;
@@ -48,15 +49,20 @@ pub fn sign_with_multiple_v3<'a>(tx: &'a Transaction, privkeys: &[[u8; 32]]) -> 
     let mut additional_signatures_required = false;
     {
         let input_len = tx.inner().inputs.len();
-        let (cctx, utxos) = tx.tx_and_utxos()?;
-        let populated_transaction = PopulatedTransaction::new(&cctx, utxos);
+        let (cctx, cell_entries) = tx.tx_and_cell_entries()?;
+        let cell_tx = cell_tx_from_legacy_transaction(&cctx);
+        let populated_transaction = PopulatedTransaction::new(&cell_tx, cell_entries);
         for i in 0..input_len {
             let script_pub_key = match tx.inner().inputs[i].script_public_key() {
                 Some(script) => script,
                 None => {
-                    return Err(crate::imports::Error::Custom("expected to be called only following full UTXO population".to_string()))
+                    return Err(crate::imports::Error::Custom("expected to be called only following full Cell population".to_string()))
                 }
             };
+            if parse_cell_metadata_placeholder_script_public_key(&script_pub_key).is_some() {
+                additional_signatures_required = true;
+                continue;
+            }
             let script = script_pub_key.script();
             if let Some(schnorr_key) = map.get(script) {
                 let sig_hash = calc_schnorr_signature_hash(&populated_transaction, i, SIG_HASH_ALL, &reused_values);

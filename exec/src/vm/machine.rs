@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ISC
-// Copyright (C) 2025 Spora developers
+// Copyright (C) 2026 Spora developers
 //
 // VM Machine implementation (adapted from CKB-VM)
 // Reference: ckb/script/src/types.rs
@@ -7,7 +7,7 @@
 use super::error::VMError;
 use ckb_vm::{
     machine::{VERSION0, VERSION1, VERSION2},
-    DefaultMachineRunner, SupportMachine, Syscalls, ISA_B, ISA_IMC, ISA_MOP,
+    Bytes, DefaultMachineBuilder, DefaultMachineRunner, SupportMachine, Syscalls, ISA_B, ISA_IMC, ISA_MOP,
 };
 
 /// CKB-VM ISA type
@@ -92,27 +92,41 @@ impl VmContext {
 
 /// Run a script with given program and syscalls
 ///
-/// NOTE: This is a placeholder implementation
-/// Full CKB-VM integration requires more complex scheduler setup
-/// See: /home/arthur/RustRoverProjects/ckb/script/src/verify.rs for complete implementation
+/// Run a script using the real CKB-VM execution loop.
+///
+/// This currently provides the minimal executable backend:
+/// - instantiate a trace machine
+/// - register the provided syscalls
+/// - load the program as an ELF payload
+/// - run until exit
+///
+/// Higher-level runtime completeness still depends on syscall coverage and script
+/// fixtures being valid ELF programs.
 pub fn run_script(
-    _program: &[u8],
-    _args: &[Vec<u8>],
-    _syscalls: Vec<Box<dyn Syscalls<<Machine as DefaultMachineRunner>::Inner>>>,
-    _context: &VmContext,
+    program: &[u8],
+    args: &[Vec<u8>],
+    syscalls: Vec<Box<dyn Syscalls<<Machine as DefaultMachineRunner>::Inner>>>,
+    context: &VmContext,
 ) -> Result<Cycle, VMError> {
-    // TODO: Implement full CKB-VM execution
-    // For now, return success with placeholder cycles
-    // This allows compilation and testing of other components
+    let core_machine = context.version.init_core_machine(context.max_cycles);
+    let builder = syscalls.into_iter().fold(DefaultMachineBuilder::new(core_machine), |builder, syscall| builder.syscall(syscall));
+    let mut machine = Machine::new(builder.build());
 
-    // The proper implementation requires:
-    // 1. Create Scheduler (see ckb/script/src/scheduler.rs)
-    // 2. Load program into machine
-    // 3. Register syscalls
-    // 4. Run with cycle limits
-    // 5. Handle suspension/resumption
+    let program = Bytes::copy_from_slice(program);
+    let args = args.iter().cloned().map(Bytes::from).map(Ok);
 
-    Ok(1000) // Placeholder cycles
+    machine.load_program(&program, args).map_err(|err| VMError::LoadProgramError(err.to_string()))?;
+
+    let exit_code = machine.run().map_err(|err| match err {
+        ckb_vm::Error::CyclesExceeded => VMError::CyclesExceeded { limit: context.max_cycles, actual: machine.machine.cycles() },
+        other => VMError::ExecutionError(other.to_string()),
+    })?;
+
+    if exit_code != 0 {
+        return Err(VMError::NonZeroExitCode(exit_code));
+    }
+
+    Ok(machine.machine.cycles())
 }
 
 #[cfg(test)]

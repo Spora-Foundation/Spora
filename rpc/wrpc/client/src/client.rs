@@ -6,7 +6,7 @@ use crate::{error::Error, node::NodeDescriptor};
 use spora_consensus_core::network::NetworkType;
 use spora_notify::{
     listener::ListenerLifespan,
-    subscription::{context::SubscriptionContext, MutationPolicies, UtxosChangedMutationPolicy},
+    subscription::{context::SubscriptionContext, CellsChangedMutationPolicy, MutationPolicies},
 };
 use spora_rpc_core::{
     api::ctl::RpcCtl,
@@ -71,10 +71,10 @@ impl Inner {
             RpcApiOps::VirtualChainChangedNotification,
             RpcApiOps::FinalityConflictNotification,
             RpcApiOps::FinalityConflictResolvedNotification,
-            RpcApiOps::UtxosChangedNotification,
+            RpcApiOps::CellsChangedNotification,
             RpcApiOps::SinkBlueScoreChangedNotification,
             RpcApiOps::VirtualDaaScoreChangedNotification,
-            RpcApiOps::PruningPointUtxoSetOverrideNotification,
+            RpcApiOps::PruningPointCellSetOverrideNotification,
             RpcApiOps::NewBlockTemplateNotification,
         ]
         .into_iter()
@@ -178,7 +178,7 @@ impl Inner {
         let converter = Arc::new(RpcCoreConverter::new());
         let collector = Arc::new(RpcCoreCollector::new(WRPC_CLIENT, receiver, converter));
         let subscriber = Arc::new(Subscriber::new(WRPC_CLIENT, enabled_events, self.clone(), 0));
-        let policies = MutationPolicies::new(UtxosChangedMutationPolicy::AddressSet);
+        let policies = MutationPolicies::new(CellsChangedMutationPolicy::AddressSet);
         let notifier = Arc::new(Notifier::new(
             WRPC_CLIENT,
             enabled_events,
@@ -311,7 +311,7 @@ impl SporaRpcClient {
         //         let converter = Arc::new(RpcCoreConverter::new());
         //         let collector = Arc::new(RpcCoreCollector::new(WRPC_CLIENT, inner.notification_channel_receiver(), converter));
         //         let subscriber = Arc::new(Subscriber::new(WRPC_CLIENT, enabled_events, inner.clone(), 0));
-        //         let policies = MutationPolicies::new(UtxosChangedMutationPolicy::AddressSet);
+        //         let policies = MutationPolicies::new(CellsChangedMutationPolicy::AddressSet);
         //         Some(Arc::new(Notifier::new(
         //             WRPC_CLIENT,
         //             enabled_events,
@@ -647,9 +647,9 @@ impl RpcApi for SporaRpcClient {
             GetSubnetwork,
             GetSyncStatus,
             GetSystemInfo,
-            GetUtxoReturnAddress,
-            GetUtxosByAddress,
-            GetUtxosByAddresses,
+            GetCellReturnAddress,
+            GetCellsByAddress,
+            GetCellsByAddresses,
             GetVirtualChainFromBlock,
             ResolveFinalityConflict,
             Shutdown,

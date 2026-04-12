@@ -6,8 +6,8 @@
 
 use crate::imports::*;
 use crate::result::Result;
+use crate::CellEntryReference;
 use crate::TransactionOutpoint;
-use crate::UtxoEntryReference;
 use spora_utils::hex::*;
 
 #[wasm_bindgen(typescript_custom_section)]
@@ -22,7 +22,7 @@ export interface ITransactionInput {
     signatureScript?: HexString;
     sequence: bigint;
     sigOpCount: number;
-    utxo?: UtxoEntryReference;
+    cellEntry?: CellEntryReference;
 
     /** Optional verbose data provided by RPC */
     verboseData?: ITransactionInputVerboseData;
@@ -61,7 +61,7 @@ pub struct TransactionInputInner {
     pub signature_script: Option<Vec<u8>>,
     pub sequence: u64,
     pub sig_op_count: u8,
-    pub utxo: Option<UtxoEntryReference>,
+    pub cell_entry: Option<CellEntryReference>,
 }
 
 impl TransactionInputInner {
@@ -70,9 +70,9 @@ impl TransactionInputInner {
         signature_script: Option<Vec<u8>>,
         sequence: u64,
         sig_op_count: u8,
-        utxo: Option<UtxoEntryReference>,
+        cell_entry: Option<CellEntryReference>,
     ) -> Self {
-        Self { previous_outpoint, signature_script, sequence, sig_op_count, utxo }
+        Self { previous_outpoint, signature_script, sequence, sig_op_count, cell_entry }
     }
 }
 
@@ -90,9 +90,9 @@ impl TransactionInput {
         signature_script: Option<Vec<u8>>,
         sequence: u64,
         sig_op_count: u8,
-        utxo: Option<UtxoEntryReference>,
+        cell_entry: Option<CellEntryReference>,
     ) -> Self {
-        let inner = TransactionInputInner::new(previous_outpoint, signature_script, sequence, sig_op_count, utxo);
+        let inner = TransactionInputInner::new(previous_outpoint, signature_script, sequence, sig_op_count, cell_entry);
         Self { inner: Arc::new(Mutex::new(inner)) }
     }
 
@@ -112,8 +112,8 @@ impl TransactionInput {
         self.inner().signature_script.as_ref().map(|signature_script| signature_script.len()).unwrap_or_default()
     }
 
-    pub fn utxo(&self) -> Option<UtxoEntryReference> {
-        self.inner().utxo.clone()
+    pub fn cell_entry(&self) -> Option<CellEntryReference> {
+        self.inner().cell_entry.clone()
     }
 }
 
@@ -176,9 +176,9 @@ impl TransactionInput {
         self.inner().sig_op_count = sig_op_count;
     }
 
-    #[wasm_bindgen(getter = utxo)]
-    pub fn get_utxo(&self) -> Option<UtxoEntryReference> {
-        self.inner().utxo.clone()
+    #[wasm_bindgen(getter = cellEntry)]
+    pub fn get_cell_entry(&self) -> Option<CellEntryReference> {
+        self.inner().cell_entry.clone()
     }
 }
 
@@ -188,7 +188,7 @@ impl TransactionInput {
     }
 
     pub fn script_public_key(&self) -> Option<ScriptPublicKey> {
-        self.utxo().map(|utxo_ref| utxo_ref.utxo.script_public_key.clone())
+        self.cell_entry().map(|cell_ref| cell_ref.cell.script_public_key.clone())
     }
 }
 
@@ -210,8 +210,8 @@ impl TryCastFromJs for TransactionInput {
                 let signature_script = object.get_vec_u8("signatureScript").ok();
                 let sequence = object.get_u64("sequence")?;
                 let sig_op_count = object.get_u8("sigOpCount")?;
-                let utxo = object.try_cast_into::<UtxoEntryReference>("utxo")?;
-                Ok(TransactionInput::new(previous_outpoint, signature_script, sequence, sig_op_count, utxo).into())
+                let cell_entry = object.try_cast_into::<CellEntryReference>("cellEntry")?;
+                Ok(TransactionInput::new(previous_outpoint, signature_script, sequence, sig_op_count, cell_entry).into())
             } else {
                 Err("TransactionInput must be an object".into())
             }

@@ -29,7 +29,7 @@ pub mod network;
 pub mod node;
 pub mod open;
 pub mod ping;
-pub mod pstb;
+pub mod pssb;
 pub mod reload;
 pub mod rpc;
 pub mod select;
@@ -61,7 +61,7 @@ pub fn register_handlers(cli: &Arc<SporaCli>) -> Result<()> {
         cli.handlers(),
         [
             account, address, c, clear, close, connect, details, disconnect, pretty, estimate, exit, export, guide, help, ls, rpc,
-            list, miner, message, monitor, mute, network, node, open, ping, pstb, reload, select, send, server, settings, sign, start,
+            list, miner, message, monitor, mute, network, node, open, ping, pssb, reload, select, send, server, settings, sign, start,
             stop, sweep, track, transfer, wallet,
             // halt,
             // theme,  start, stop

@@ -3,9 +3,10 @@ use crate::mempool::{
     Mempool,
 };
 use spora_consensus_core::{
+    cell_metadata::is_cell_metadata_placeholder_script_public_key,
     constants::{MAX_SAU, MAX_SCRIPT_PUBLIC_KEY_VERSION},
     mass,
-    tx::{MutableTransaction, PopulatedTransaction, TransactionOutput},
+    tx::{cell_entry_legacy_script_public_key, CellOut, MutableTransaction, PopulatedTransaction, TransactionOutput},
 };
 use spora_consensus_core::{hashing::sighash::SigHashReusedValuesUnsync, mass::NonContextualMasses};
 use spora_txscript::{get_sig_op_count_upper_bound, is_unspendable, script_class::ScriptClass};
@@ -37,15 +38,6 @@ const MAXIMUM_STANDARD_SIGNATURE_SCRIPT_SIZE: u64 = 1650;
 /// are considered standard and will therefore be relayed and considered for mining.
 const MAXIMUM_STANDARD_TRANSACTION_MASS: u64 = 100_000;
 
-/// Unactivated Policy limits for tap-like witnesses
-#[allow(dead_code)]
-const MAX_TAPLIKE_CONTROL_BLOCK_SIZE: usize = 1536; // 1.5 KB
-#[allow(dead_code)]
-const MAX_TAPLIKE_LEAF_SCRIPT_SIZE: usize = 10240; // 10 KB
-const MAX_TAPLIKE_WITNESS_TOTAL_SIZE: usize = 102400; // 100 KB
-const MAX_TAPLIKE_SINGLE_ELEMENT_SIZE: usize = 65536; // 64 KB
-const MAX_TAPLIKE_MERKLE_DEPTH: u8 = 8;
-
 impl Mempool {
     pub(crate) fn check_transaction_standard_in_isolation(&self, transaction: &MutableTransaction) -> NonStandardResult<()> {
         let transaction_id = transaction.id();
@@ -55,12 +47,12 @@ impl Mempool {
         // This check is currently mirrored in consensus.
         // However, in a later version of Spora the consensus-valid transaction version range might diverge from the
         // standard transaction version range, and thus the validation should happen in both levels.
-        if transaction.tx.version > self.config.maximum_standard_transaction_version
-            || transaction.tx.version < self.config.minimum_standard_transaction_version
+        if transaction.tx.version() > self.config.maximum_standard_transaction_version
+            || transaction.tx.version() < self.config.minimum_standard_transaction_version
         {
             return Err(NonStandardError::RejectVersion(
                 transaction_id,
-                transaction.tx.version,
+                transaction.tx.version(),
                 self.config.minimum_standard_transaction_version,
                 self.config.maximum_standard_transaction_version,
             ));
@@ -79,38 +71,64 @@ impl Mempool {
         }
 
         for (i, input) in transaction.tx.inputs.iter().enumerate() {
-            // Each transaction input signature script must not exceed the
+            // Each transaction input witness must not exceed the
             // maximum size allowed for a standard transaction.
             //
             // See the comment on MAXIMUM_STANDARD_SIGNATURE_SCRIPT_SIZE for
             // more details.
-            let signature_script_len = input.signature_script.len() as u64;
-            if signature_script_len > MAXIMUM_STANDARD_SIGNATURE_SCRIPT_SIZE {
+            let _ = input; // input used for iteration only
+            let witness = transaction.tx.witnesses.get(i).map(|w| w.len()).unwrap_or(0) as u64;
+            if witness > MAXIMUM_STANDARD_SIGNATURE_SCRIPT_SIZE {
                 return Err(NonStandardError::RejectSignatureScriptSize(
                     transaction_id,
                     i,
-                    signature_script_len,
+                    witness,
                     MAXIMUM_STANDARD_SIGNATURE_SCRIPT_SIZE,
                 ));
             }
         }
 
-        // None of the output public key scripts can be a non-standard script or be "dust".
+        // None of the output lock scripts can be a non-standard script or be "dust".
         for (i, output) in transaction.tx.outputs.iter().enumerate() {
-            if output.script_public_key.version() > MAX_SCRIPT_PUBLIC_KEY_VERSION {
+            // In Cell model, lock is a ScriptRef. Convert to legacy SPK for checking.
+            let legacy_spk = spora_consensus_core::tx::ScriptPublicKey::from_vec(0, output.lock.to_bytes());
+            if legacy_spk.version() > MAX_SCRIPT_PUBLIC_KEY_VERSION {
                 return Err(NonStandardError::RejectScriptPublicKeyVersion(transaction_id, i));
             }
 
-            if ScriptClass::from(&output.script_public_key) == ScriptClass::NonStandard {
+            if ScriptClass::from(&legacy_spk) == ScriptClass::NonStandard {
                 return Err(NonStandardError::RejectOutputScriptClass(transaction_id, i));
             }
 
-            if self.is_transaction_output_dust(output) {
-                return Err(NonStandardError::RejectDust(transaction_id, i, output.value));
+            if self.is_transaction_output_dust_cell(output) {
+                return Err(NonStandardError::RejectDust(transaction_id, i, output.capacity));
             }
         }
 
         Ok(())
+    }
+
+    /// is_transaction_output_dust_cell returns whether or not the passed CellOut
+    /// amount is considered dust or not based on the configured minimum transaction
+    /// relay fee.
+    pub(crate) fn is_transaction_output_dust_cell(&self, output: &CellOut) -> bool {
+        // Unspendable outputs are considered dust.
+        let lock_bytes = output.lock.to_bytes();
+        if is_unspendable::<PopulatedTransaction, SigHashReusedValuesUnsync>(&lock_bytes) {
+            return true;
+        }
+
+        // Estimate serialized size for dust calculation
+        let output_size: u64 = 8 /* capacity */ + 2 /* script version */ + 8 /* script len */ + lock_bytes.len() as u64;
+        let total_serialized_size = output_size + 148;
+
+        match output.capacity.checked_mul(1000) {
+            Some(value_1000) => value_1000 / (3 * total_serialized_size) < self.config.minimum_relay_transaction_fee,
+            None => {
+                (output.capacity as u128 * 1000 / (3 * total_serialized_size as u128))
+                    < self.config.minimum_relay_transaction_fee as u128
+            }
+        }
     }
 
     /// is_transaction_output_dust returns whether or not the passed transaction output
@@ -196,8 +214,19 @@ impl Mempool {
             // It is safe to elide existence and index checks here since
             // they have already been checked prior to calling this
             // function.
-            let entry = transaction.entries[i].as_ref().unwrap();
-            match ScriptClass::from(&entry.script_public_key) {
+            let _ = input; // input used for iteration only
+            let Some(entry) = transaction.entries[i].as_ref() else {
+                if transaction.resolved_cell_metadata(i).is_some() {
+                    // Canonical Cell metadata was resolved without synthesizing a legacy placeholder entry.
+                    continue;
+                }
+                continue;
+            };
+            let legacy_script_public_key = cell_entry_legacy_script_public_key(entry);
+            if is_cell_metadata_placeholder_script_public_key(&legacy_script_public_key) {
+                continue;
+            }
+            match ScriptClass::from(&legacy_script_public_key) {
                 ScriptClass::NonStandard => {
                     return Err(NonStandardError::RejectInputScriptClass(transaction_id, i));
                 }
@@ -206,43 +235,14 @@ impl Mempool {
                 }
                 ScriptClass::ScriptHash => {
                     // P2SH sigops upper limit check
+                    let witness = transaction.tx.witnesses.get(i).cloned().unwrap_or_default();
                     let num_sig_ops = get_sig_op_count_upper_bound::<PopulatedTransaction, SigHashReusedValuesUnsync>(
-                        &input.signature_script,
-                        &entry.script_public_key,
+                        &witness,
+                        &legacy_script_public_key,
                     );
                     if num_sig_ops > MAX_STANDARD_P2SH_SIG_OPS as u64 {
                         return Err(NonStandardError::RejectSignatureCount(transaction_id, i, num_sig_ops, MAX_STANDARD_P2SH_SIG_OPS));
                     }
-                }
-                ScriptClass::Taproot => {
-                    // Taproot witness layer policy check
-                    if let Err(e) = self.policy_check_taplike_witness(&input.signature_script, false) {
-                        return Err(match e {
-                            NonStandardError::RejectWitnessParse(_, _) => NonStandardError::RejectWitnessParse(transaction_id, i),
-                            NonStandardError::RejectWitnessSize(_, _) => NonStandardError::RejectWitnessSize(transaction_id, i),
-                            NonStandardError::RejectTaplikeControlBlockDepth(_, _, depth, max) => {
-                                NonStandardError::RejectTaplikeControlBlockDepth(transaction_id, i, depth, max)
-                            }
-                            _ => e,
-                        });
-                    }
-                }
-                ScriptClass::CopperootMerkle => {
-                    // P2CRM witness layer policy check
-                    if let Err(e) = self.policy_check_taplike_witness(&input.signature_script, true) {
-                        return Err(match e {
-                            NonStandardError::RejectWitnessParse(_, _) => NonStandardError::RejectWitnessParse(transaction_id, i),
-                            NonStandardError::RejectWitnessSize(_, _) => NonStandardError::RejectWitnessSize(transaction_id, i),
-                            NonStandardError::RejectTaplikeControlBlockDepth(_, _, depth, max) => {
-                                NonStandardError::RejectTaplikeControlBlockDepth(transaction_id, i, depth, max)
-                            }
-                            _ => e,
-                        });
-                    }
-                }
-                ScriptClass::CopperootVerkle => {
-                    // P2CRV not enabled on mainnet: reject directly
-                    return Err(NonStandardError::RejectInputScriptClass(transaction_id, i));
                 }
             }
         }
@@ -269,75 +269,6 @@ impl Mempool {
 
         minimum_fee
     }
-
-    /// Policy check for tap-like witnesses (Taproot and Copperoot-Merkle)
-    fn policy_check_taplike_witness(&self, signature_script: &[u8], is_copperoot: bool) -> NonStandardResult<()> {
-        // 1) Total size and basic robustness checks (keep existing)
-        if signature_script.len() > MAX_TAPLIKE_WITNESS_TOTAL_SIZE {
-            return Err(NonStandardError::RejectWitnessSize(Default::default(), 0));
-        }
-        if signature_script.is_empty() {
-            return Err(NonStandardError::RejectWitnessParse(Default::default(), 0));
-        }
-
-        // 2) Simplified parsing: deserialize witness (suggest using real witness decoder later)
-        // Try to parse as CopperootWitness for P2CR depth validation
-        if is_copperoot {
-            if let Ok(wit) = spora_txscript::standard::copperoot::witness::CopperootWitness::try_from(signature_script) {
-                if let Ok(spend) = spora_txscript::standard::copperoot::witness::P2CrSpend::try_from(&wit) {
-                    if let spora_txscript::standard::copperoot::witness::P2CrSpend::Script { control_block, .. } = spend {
-                        // Parse control block, count merkle_path length
-                        if let Ok(cb) =
-                            spora_txscript::standard::copperoot::witness::CopperootControlBlock::deserialize(&control_block)
-                        {
-                            // For P2CR (Merkle type) apply depth limit; Verkle type currently rejected (existing rules)
-                            let proof_type = cb
-                                .tlv_extensions
-                                .iter()
-                                .find(|tlv| tlv.tlv_type == spora_txscript::standard::copperoot::witness::TLV_TYPE_PROOF_TYPE)
-                                .and_then(|tlv| tlv.value.first().copied())
-                                .unwrap_or(0);
-
-                            if proof_type == 0 {
-                                let depth = cb.merkle_path.len() as u8;
-                                if depth > MAX_TAPLIKE_MERKLE_DEPTH {
-                                    return Err(NonStandardError::RejectTaplikeControlBlockDepth(
-                                        Default::default(),
-                                        0,
-                                        depth,
-                                        MAX_TAPLIKE_MERKLE_DEPTH,
-                                    ));
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // 3) Fallback: keep old lenient checks (length/element size) to avoid DoS on parse failure
-        // Basic structure validation for tap-like witnesses
-        // Key path: single element (signature)
-        // Script path: multiple elements (input items + leaf script + control block)
-        if signature_script.len() == 1 {
-            // Key path spending - single signature
-            if signature_script[0] as usize > MAX_TAPLIKE_SINGLE_ELEMENT_SIZE {
-                return Err(NonStandardError::RejectWitnessSize(Default::default(), 0));
-            }
-        } else if signature_script.len() >= 3 {
-            // Script path spending - check basic structure
-            // This is a simplified check - in practice you'd parse the actual witness structure
-            for &byte in signature_script {
-                if byte as usize > MAX_TAPLIKE_SINGLE_ELEMENT_SIZE {
-                    return Err(NonStandardError::RejectWitnessSize(Default::default(), 0));
-                }
-            }
-        } else {
-            return Err(NonStandardError::RejectWitnessParse(Default::default(), 0));
-        }
-
-        Ok(())
-    }
 }
 
 #[cfg(test)]
@@ -350,12 +281,16 @@ mod tests {
     use smallvec::smallvec;
     use spora_addresses::{Address, Prefix, Version};
     use spora_consensus_core::{
+        cell_metadata::CellMetadata,
         config::params::Params,
-        constants::{MAX_TX_IN_SEQUENCE_NUM, SAU_PER_TONDI, TX_VERSION},
+        constants::{MAX_TX_IN_SEQUENCE_NUM, SAU_PER_SPORA, TX_VERSION},
         mass::NonContextualMasses,
         network::NetworkType,
         subnets::SUBNETWORK_ID_NATIVE,
-        tx::{ScriptPublicKey, ScriptVec, Transaction, TransactionInput, TransactionOutpoint, TransactionOutput},
+        tx::{
+            CellEntry, MutableTransaction, ScriptPublicKey, ScriptVec, Transaction, TransactionInput, TransactionOutpoint,
+            TransactionOutput,
+        },
     };
     use spora_txscript::{
         opcodes::codes::{OpReturn, OpTrue},
@@ -506,14 +441,14 @@ mod tests {
     #[test]
     fn test_check_transaction_standard_in_isolation() {
         // Create some dummy, but otherwise standard, data for transactions.
-        let dummy_prev_out = TransactionOutpoint::new(spora_hashes::Hash::from_u64_word(1), 1);
+        let dummy_prev_out = TransactionOutpoint::new(*spora_hashes::Hash::from_u64_word(1).as_bytes(), 1);
         let dummy_sig_script = vec![0u8; 65];
         let dummy_tx_input = TransactionInput::new(dummy_prev_out, dummy_sig_script, MAX_TX_IN_SEQUENCE_NUM, 1);
         let addr_hash = vec![1u8; 32];
 
         let addr = Address::new(Prefix::Testnet, Version::PubKey, &addr_hash).expect("Valid test address");
         let dummy_script_public_key = spora_txscript::pay_to_address_script(&addr);
-        let dummy_tx_out = TransactionOutput::new(SAU_PER_TONDI, dummy_script_public_key);
+        let dummy_tx_out = TransactionOutput::new(SAU_PER_SPORA, dummy_script_public_key);
 
         struct Test {
             name: &'static str,
@@ -610,7 +545,7 @@ mod tests {
                         TX_VERSION,
                         vec![dummy_tx_input.clone()],
                         vec![TransactionOutput::new(
-                            SAU_PER_TONDI,
+                            SAU_PER_SPORA,
                             ScriptPublicKey::new(
                                 MAX_SCRIPT_PUBLIC_KEY_VERSION,
                                 ScriptBuilder::new().add_op(OpTrue).unwrap().script().into(),
@@ -648,7 +583,7 @@ mod tests {
                         TX_VERSION,
                         vec![dummy_tx_input],
                         vec![TransactionOutput::new(
-                            SAU_PER_TONDI,
+                            SAU_PER_SPORA,
                             ScriptPublicKey::new(
                                 MAX_SCRIPT_PUBLIC_KEY_VERSION,
                                 ScriptBuilder::new().add_op(OpReturn).unwrap().script().into(),
@@ -695,23 +630,81 @@ mod tests {
     }
 
     #[test]
-    fn test_policy_check_taplike_witness() {
+    fn test_check_transaction_standard_in_context_accepts_cell_placeholder_inputs() {
         let params: Params = NetworkType::Mainnet.into();
         let config = Config::build_default(params.target_time_per_block(), false, params.max_block_mass);
         let counters = Arc::new(MiningCounters::default());
         let mempool = Mempool::new(Arc::new(config), counters);
 
-        // Test empty witness
-        assert!(mempool.policy_check_taplike_witness(&[], false).is_err());
+        let previous_outpoint = TransactionOutpoint::new(*spora_hashes::Hash::from_u64_word(7).as_bytes(), 0);
+        let output = TransactionOutput::new(
+            900,
+            ScriptPublicKey::from_vec(
+                0,
+                vec![0x20, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0xac],
+            ),
+        );
+        let tx = Transaction::new(
+            TX_VERSION,
+            vec![TransactionInput::new(previous_outpoint, vec![0u8; 64], MAX_TX_IN_SEQUENCE_NUM, 1)],
+            vec![output],
+            0,
+            SUBNETWORK_ID_NATIVE,
+            0,
+            vec![],
+        );
+        let mut mtx = MutableTransaction::from_tx(tx);
+        mtx.calculated_non_contextual_masses = Some(NonContextualMasses::new(1000, 1000));
+        mtx.calculated_fee = Some(DEFAULT_MINIMUM_RELAY_TRANSACTION_FEE);
+        mtx.entries[0] = Some(CellEntry::from_cell_metadata(SAU_PER_SPORA, 0, [0x44; 32], None, [0; 32], 100, false));
 
-        // Test key path witness (single element)
-        assert!(mempool.policy_check_taplike_witness(&[64], false).is_ok());
+        assert!(mempool.check_transaction_standard_in_context(&mtx).is_ok());
+    }
 
-        // Test script path witness (multiple elements)
-        assert!(mempool.policy_check_taplike_witness(&[1, 2, 3], false).is_ok());
+    #[test]
+    fn test_check_transaction_standard_in_context_accepts_metadata_only_inputs() {
+        let params: Params = NetworkType::Mainnet.into();
+        let config = Config::build_default(params.target_time_per_block(), false, params.max_block_mass);
+        let counters = Arc::new(MiningCounters::default());
+        let mempool = Mempool::new(Arc::new(config), counters);
 
-        // Test oversized witness
-        let oversized_witness = vec![0u8; MAX_TAPLIKE_WITNESS_TOTAL_SIZE + 1];
-        assert!(mempool.policy_check_taplike_witness(&oversized_witness, false).is_err());
+        let previous_outpoint = TransactionOutpoint::new(*spora_hashes::Hash::from_u64_word(9).as_bytes(), 0);
+        let output = TransactionOutput::new(
+            900,
+            ScriptPublicKey::from_vec(
+                0,
+                vec![0x20, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0xac],
+            ),
+        );
+        let tx = Transaction::new(
+            TX_VERSION,
+            vec![TransactionInput::new(previous_outpoint, vec![0u8; 64], MAX_TX_IN_SEQUENCE_NUM, 1)],
+            vec![output],
+            0,
+            SUBNETWORK_ID_NATIVE,
+            0,
+            vec![],
+        );
+        let mut mtx = MutableTransaction::from_tx(tx);
+        mtx.calculated_non_contextual_masses = Some(NonContextualMasses::new(1000, 1000));
+        mtx.calculated_fee = Some(DEFAULT_MINIMUM_RELAY_TRANSACTION_FEE);
+        mtx.resolved_cell_metadata[0] = Some(CellMetadata {
+            out_point: previous_outpoint,
+            capacity: SAU_PER_SPORA,
+            data_bytes: 0,
+            lock_hash: [0x44; 32],
+            type_hash: None,
+            data_hash: [0; 32],
+            block_daa_score: 100,
+            is_cellbase: false,
+            block_hash: spora_hashes::Hash::default(),
+            lock_code_hash: None,
+            type_code_hash: None,
+            lock_script: None,
+            type_script: None,
+            data: None,
+        });
+
+        assert!(mempool.check_transaction_standard_in_context(&mtx).is_ok());
     }
 }

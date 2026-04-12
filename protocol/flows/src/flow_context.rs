@@ -15,13 +15,13 @@ use spora_connectionmanager::ConnectionManager;
 use spora_consensus_core::block::Block;
 use spora_consensus_core::config::Config;
 use spora_consensus_core::errors::block::RuleError;
-use spora_consensus_core::tx::{Transaction, TransactionId};
+use spora_consensus_core::tx::{CellTx, TransactionId};
 use spora_consensus_core::{
     api::{BlockValidationFuture, BlockValidationFutures},
     network::NetworkType,
 };
 use spora_consensus_notify::{
-    notification::{Notification, PruningPointUtxoSetOverrideNotification},
+    notification::{Notification, PruningPointCellSetOverrideNotification},
     root::ConsensusNotificationRoot,
 };
 use spora_consensusmanager::{BlockProcessingBatch, ConsensusInstance, ConsensusManager, ConsensusProxy, ConsensusSessionOwned};
@@ -319,13 +319,13 @@ impl FlowContext {
         hub: Hub,
         mining_rule_engine: Arc<MiningRuleEngine>,
     ) -> Self {
-        let bps_upper_bound = config.bps().upper_bound() as usize;
+        let bps_upper_bound = config.bps() as usize;
         let orphan_resolution_range = BASELINE_ORPHAN_RESOLUTION_RANGE + (bps_upper_bound as f64).log2().ceil() as u32;
 
         // The maximum amount of orphans allowed in the orphans pool. This number is an approximation
         // of how many orphans there can possibly be on average bounded by an upper bound.
         let max_orphans =
-            (2u64.pow(orphan_resolution_range) as usize * config.ghostdag_k().upper_bound() as usize).min(MAX_ORPHANS_UPPER_BOUND);
+            (2u64.pow(orphan_resolution_range) as usize * config.ghostdag_k() as usize).min(MAX_ORPHANS_UPPER_BOUND);
         Self {
             inner: Arc::new(FlowContextInner {
                 node_id: Uuid::new_v4().into(),
@@ -519,27 +519,9 @@ impl FlowContext {
         Ok(())
     }
 
-    /// [Crescendo] temp crescendo countdown logging
-    pub(super) fn log_new_block_event(&self, event: BlockLogEvent, daa_score: u64) {
-        if self.config.bps().before() == 1 && !self.config.crescendo_activation.is_active(daa_score) {
-            if let Some(dist) = self.config.crescendo_activation.is_within_range_before_activation(daa_score, 3600) {
-                match event {
-                    BlockLogEvent::Relay(hash) => info!("Accepted block {} via relay \t [Crescendo countdown: -{}]", hash, dist),
-                    BlockLogEvent::Submit(hash) => {
-                        info!("Accepted block {} via submit block \t [Crescendo countdown: -{}]", hash, dist)
-                    }
-                    _ => {}
-                }
-            } else {
-                match event {
-                    BlockLogEvent::Relay(hash) => info!("Accepted block {} via relay", hash),
-                    BlockLogEvent::Submit(hash) => info!("Accepted block {} via submit block", hash),
-                    _ => {}
-                }
-            }
-        } else {
-            self.log_block_event(event);
-        }
+    /// Log block events
+    pub(super) fn log_new_block_event(&self, event: BlockLogEvent, _daa_score: u64) {
+        self.log_block_event(event);
     }
 
     pub fn log_block_event(&self, event: BlockLogEvent) {
@@ -592,7 +574,7 @@ impl FlowContext {
                 .handle_new_block_transactions(consensus, block.header.daa_score, block.transactions.clone())
                 .await
             {
-                transactions_to_broadcast.enqueue_chunk(txs.into_iter().map(|x| x.id()));
+                transactions_to_broadcast.enqueue_chunk(txs.into_iter().map(|x| x.id().into()));
             }
         }
 
@@ -646,11 +628,11 @@ impl FlowContext {
         self.mining_rule_engine.should_mine(sink_daa_score_and_timestamp)
     }
 
-    /// Notifies that the UTXO set was reset due to pruning point change via IBD.
+    /// Notifies that the cell set was reset due to pruning point change via IBD.
     pub fn on_pruning_point_cellset_override(&self) {
         // Notifications from the flow context might be ignored if the inner channel is already closing
         // due to global shutdown, hence we ignore the possible error
-        let _ = self.notification_root.notify(Notification::PruningPointUtxoSetOverride(PruningPointUtxoSetOverrideNotification {}));
+        let _ = self.notification_root.notify(Notification::PruningPointCellSetOverride(PruningPointCellSetOverrideNotification {}));
     }
 
     /// Notifies that a transaction has been added to the mempool.
@@ -666,16 +648,16 @@ impl FlowContext {
     pub async fn submit_rpc_transaction(
         &self,
         consensus: &ConsensusProxy,
-        transaction: Transaction,
+        transaction: CellTx,
         orphan: Orphan,
     ) -> Result<(), ProtocolError> {
         let transaction_insertion = self
             .mining_manager()
             .clone()
-            .validate_and_insert_transaction(consensus, transaction, Priority::High, orphan, RbfPolicy::Forbidden)
+            .validate_and_insert_cell_transaction(consensus, transaction, Priority::High, orphan, RbfPolicy::Forbidden)
             .await?;
         self.broadcast_transactions(
-            transaction_insertion.accepted.iter().map(|x| x.id()),
+            transaction_insertion.accepted.iter().map(|x| x.id().into()),
             false, // RPC transactions are considered high priority, so we don't want to throttle them
         )
         .await;
@@ -692,15 +674,15 @@ impl FlowContext {
     pub async fn submit_rpc_transaction_replacement(
         &self,
         consensus: &ConsensusProxy,
-        transaction: Transaction,
-    ) -> Result<Arc<Transaction>, ProtocolError> {
+        transaction: CellTx,
+    ) -> Result<Arc<CellTx>, ProtocolError> {
         let transaction_insertion = self
             .mining_manager()
             .clone()
-            .validate_and_insert_transaction(consensus, transaction, Priority::High, Orphan::Forbidden, RbfPolicy::Mandatory)
+            .validate_and_insert_cell_transaction(consensus, transaction, Priority::High, Orphan::Forbidden, RbfPolicy::Mandatory)
             .await?;
         self.broadcast_transactions(
-            transaction_insertion.accepted.iter().map(|x| x.id()),
+            transaction_insertion.accepted.iter().map(|x| x.id().into()),
             false, // RPC transactions are considered high priority, so we don't want to throttle them
         )
         .await;

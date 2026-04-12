@@ -7,7 +7,7 @@ use crate::result::Result;
 use argon2::Argon2;
 use chacha20poly1305::{
     aead::{AeadCore, AeadInPlace, KeyInit, OsRng},
-    Key, XChaCha20Poly1305,
+    XChaCha20Poly1305,
 };
 use std::ops::{Deref, DerefMut};
 use zeroize::Zeroize;
@@ -231,8 +231,8 @@ pub fn argon2_blake3iv_hash(data: &[u8], byte_length: usize) -> Result<Secret> {
 /// Encrypts the given data using `XChaCha20Poly1305` algorithm with BLAKE3.
 pub fn encrypt_xchacha20poly1305(data: &[u8], secret: &Secret) -> Result<Vec<u8>> {
     let private_key_bytes = argon2_blake3iv_hash(secret.as_ref(), 32)?;
-    let key = Key::from_slice(private_key_bytes.as_ref());
-    let cipher = XChaCha20Poly1305::new(key);
+    let cipher = XChaCha20Poly1305::new_from_slice(private_key_bytes.as_ref())
+        .map_err(|e| Error::custom(format!("Invalid encryption key: {}", e)))?;
     let nonce = XChaCha20Poly1305::generate_nonce(&mut OsRng); // 96-bits; unique per message
     let mut buffer = data.to_vec();
     buffer.reserve(16); // Reserve space for authentication tag
@@ -248,8 +248,8 @@ pub fn decrypt_xchacha20poly1305(data: &[u8], secret: &Secret) -> Result<Secret>
     }
 
     let private_key_bytes = argon2_blake3iv_hash(secret.as_ref(), 32)?;
-    let key = Key::from_slice(private_key_bytes.as_ref());
-    let cipher = XChaCha20Poly1305::new(key);
+    let cipher = XChaCha20Poly1305::new_from_slice(private_key_bytes.as_ref())
+        .map_err(|e| Error::custom(format!("Invalid encryption key: {}", e)))?;
     let nonce = &data[0..24];
     let mut buffer = data[24..].to_vec();
     cipher.decrypt_in_place(nonce.into(), &[], &mut buffer).map_err(|e| Error::custom(format!("Decryption failed: {}", e)))?;

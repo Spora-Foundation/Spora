@@ -9,9 +9,9 @@ use crate::model::*;
 pub use serde_wasm_bindgen::from_value;
 use spora_addresses::Address;
 use spora_addresses::AddressOrStringArrayT;
+use spora_consensus_client::CellEntryReference;
 use spora_consensus_client::Transaction;
-use spora_consensus_client::UtxoEntryReference;
-use spora_consensus_core::tx as cctx;
+use spora_consensus_core::tx::{legacy_compat_transaction_from_cell_tx, CellTx, Transaction as CctxTransaction};
 use spora_rpc_macros::declare_typescript_wasm_interface as declare;
 use wasm_bindgen::prelude::*;
 use workflow_wasm::convert::*;
@@ -241,7 +241,7 @@ declare! {
         p2pId : string;
         mempoolSize : bigint;
         serverVersion : string;
-        isUtxoIndexed : boolean;
+        isCellIndexed : boolean;
         isSynced : boolean;
         /** GRPC ONLY */
         hasNotifyCommand : boolean;
@@ -471,7 +471,7 @@ declare! {
         rpcApiVersion : number[];
         serverVersion : string;
         networkId : string;
-        hasUtxoIndex : boolean;
+        hasCellIndex : boolean;
         isSynced : boolean;
         virtualDaaScore : bigint;
     }
@@ -1170,49 +1170,49 @@ try_from! ( args: GetSubnetworkResponse, IGetSubnetworkResponse, {
 // ---
 
 declare! {
-    IGetUtxosByAddressesRequest,
-    "IGetUtxosByAddressesRequest | Address[] | string[]",
+    IGetCellsByAddressesRequest,
+    "IGetCellsByAddressesRequest | Address[] | string[]",
     r#"
     /**
      * 
      * 
      * @category Node RPC
      */
-    export interface IGetUtxosByAddressesRequest { 
+    export interface IGetCellsByAddressesRequest { 
         addresses : Address[] | string[]
     }
     "#,
 }
 
-try_from! ( args: IGetUtxosByAddressesRequest, GetUtxosByAddressesRequest, {
+try_from! ( args: IGetCellsByAddressesRequest, GetCellsByAddressesRequest, {
     let js_value = JsValue::from(args);
     let request = if let Ok(addresses) = Vec::<Address>::try_from(AddressOrStringArrayT::from(js_value.clone())) {
-        GetUtxosByAddressesRequest { addresses }
+        GetCellsByAddressesRequest { addresses }
     } else {
-        from_value::<GetUtxosByAddressesRequest>(js_value)?
+        from_value::<GetCellsByAddressesRequest>(js_value)?
     };
     Ok(request)
 });
 
 declare! {
-    IGetUtxosByAddressesResponse,
+    IGetCellsByAddressesResponse,
     r#"
     /**
      * 
      * 
      * @category Node RPC
      */
-    export interface IGetUtxosByAddressesResponse {
-        entries : UtxoEntryReference[];
+    export interface IGetCellsByAddressesResponse {
+        entries : CellEntryReference[];
     }
     "#,
 }
 
-try_from! ( args: GetUtxosByAddressesResponse, IGetUtxosByAddressesResponse, {
-    let GetUtxosByAddressesResponse { entries } = args;
-    let entries = entries.into_iter().map(UtxoEntryReference::from).collect::<Vec<UtxoEntryReference>>();
+try_from! ( args: GetCellsByAddressesResponse, IGetCellsByAddressesResponse, {
+    let GetCellsByAddressesResponse { entries } = args;
+    let entries = entries.into_iter().map(CellEntryReference::from).collect::<Vec<CellEntryReference>>();
     let entries = js_sys::Array::from_iter(entries.into_iter().map(JsValue::from));
-    let response = IGetUtxosByAddressesResponse::default();
+    let response = IGetCellsByAddressesResponse::default();
     response.set("entries", entries.as_ref())?;
     Ok(response)
 });
@@ -1420,8 +1420,8 @@ declare! {
 
 try_from! ( args: SubmitTransactionReplacementResponse, ISubmitTransactionReplacementResponse, {
     let transaction_id = args.transaction_id;
-    let replaced_transaction  = cctx::Transaction::try_from(args.replaced_transaction)?;
-    let replaced_transaction = Transaction::from(replaced_transaction);
+    let replaced_transaction = CellTx::try_from(args.replaced_transaction)?;
+    let replaced_transaction = Transaction::from(legacy_compat_transaction_from_cell_tx(&replaced_transaction));
 
     let response = ISubmitTransactionReplacementResponse::default();
     response.set("transactionId", &transaction_id.into())?;

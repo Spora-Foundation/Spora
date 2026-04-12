@@ -1,6 +1,7 @@
-use std::{fs, path::PathBuf, process::exit, sync::Arc, time::Duration};
+use std::{fs, iter::once, path::PathBuf, process::exit, sync::Arc, time::Duration};
 
 use async_channel::unbounded;
+use spora_cellindex::{api::CellIndexProxy, CellIndexer};
 use spora_consensus_core::{
     config::ConfigBuilder,
     constants::TRANSIENT_BYTE_TO_MASS_FACTOR,
@@ -8,7 +9,7 @@ use spora_consensus_core::{
     mining_rules::MiningRules,
 };
 use spora_consensus_notify::{root::ConsensusNotificationRoot, service::NotifyService};
-use spora_core::{core::Core, debug, info, trace};
+use spora_core::{core::Core, debug, info, trace, warn};
 use spora_core::{sporad_env::version, task::tick::TickService};
 use spora_database::{
     prelude::{CachePolicy, DbWriter, DirectDbWriter},
@@ -42,8 +43,6 @@ use spora_p2p_flows::{flow_context::FlowContext, service::P2pService};
 
 use itertools::Itertools;
 use spora_perf_monitor::{builder::Builder as PerfMonitorBuilder, counters::CountersSnapshot};
-// TODO(cell-model): UTXO index needs Cell model replacement
-// use spora_utxoindex::{api::UtxoIndexProxy, UtxoIndex};
 use spora_wrpc_server::service::{Options as WrpcServerOptions, WebSocketCounters as WrpcServerCounters, WrpcEncoding, WrpcService};
 
 /// Desired soft FD limit that needs to be configured
@@ -64,7 +63,9 @@ use crate::args::Args;
 
 const DEFAULT_DATA_DIR: &str = "datadir";
 const CONSENSUS_DB: &str = "consensus";
-const UTXOINDEX_DB: &str = "utxoindex";
+const CELLINDEX_DB: &str = "cellindex";
+const CELLINDEX_CELLS_DB: &str = "cells";
+const CELLINDEX_SCRIPTS_DB: &str = "scripts";
 const META_DB: &str = "meta";
 const META_DB_FILE_LIMIT: i32 = 5;
 const DEFAULT_LOG_DIR: &str = "logs";
@@ -87,11 +88,11 @@ pub fn get_app_dir() -> PathBuf {
 pub fn validate_args(args: &Args) -> ConfigResult<()> {
     #[cfg(feature = "devnet-prealloc")]
     {
-        if args.num_prealloc_utxos.is_some() && !(args.devnet || args.simnet) {
-            return Err(ConfigError::PreallocUtxosOnNonDevnet);
+        if args.num_prealloc_cells.is_some() && !(args.devnet || args.simnet) {
+            return Err(ConfigError::PreallocCellsOnNonDevnet);
         }
 
-        if args.prealloc_address.is_some() ^ args.num_prealloc_utxos.is_some() {
+        if args.prealloc_address.is_some() ^ args.num_prealloc_cells.is_some() {
             return Err(ConfigError::MissingPreallocNumOrAddress);
         }
     }
@@ -172,6 +173,71 @@ pub fn get_log_dir(args: &Args) -> Option<String> {
     log_dir
 }
 
+#[cfg(feature = "devnet-prealloc")]
+fn seed_initial_cells_from_config(cellindex: &CellIndexProxy, config: &spora_consensus_core::config::Config) {
+    if config.initial_cell_set.is_empty() {
+        return;
+    }
+
+    cellindex
+        .seed_cell_collection(config.initial_cell_set.as_ref(), config.genesis.hash.as_bytes())
+        .expect("initial cell set backfill must succeed");
+}
+
+#[cfg(not(feature = "devnet-prealloc"))]
+fn seed_initial_cells_from_config(_cellindex: &CellIndexProxy, _config: &spora_consensus_core::config::Config) {}
+
+fn backfill_cellindex_from_consensus(
+    cellindex: &CellIndexProxy,
+    consensus_manager: &ConsensusManager,
+    config: &spora_consensus_core::config::Config,
+) {
+    if !cellindex.is_empty().expect("cell index emptiness check must succeed") {
+        return;
+    }
+
+    let session = consensus_manager.consensus().unguarded_session_blocking();
+    let retention_root = session.get_retention_period_root();
+
+    if retention_root != config.genesis.hash {
+        warn!(
+            "CellIndex cold-start backfill is replaying from retention root {} instead of genesis {}. \
+             Live cells older than the retention root are not reconstructed yet.",
+            retention_root, config.genesis.hash
+        );
+    }
+
+    seed_initial_cells_from_config(cellindex, config);
+
+    let chain_path = session
+        .get_virtual_chain_from_block(retention_root, None)
+        .expect("selected chain path lookup for CellIndex backfill must succeed");
+
+    let block_hashes = once(retention_root).chain(chain_path.added);
+    let mut blocks_replayed = 0u64;
+    let mut txs_replayed = 0u64;
+
+    for block_hash in block_hashes {
+        let block = session.get_block(block_hash).expect("selected chain block for CellIndex backfill must exist");
+        let daa_score = block.header.daa_score;
+        let txs = block.transactions.as_ref();
+
+        for tx in txs.iter() {
+            cellindex
+                .index_transaction(tx, daa_score, block_hash.as_bytes(), tx.is_coinbase())
+                .expect("CellIndex block replay must succeed");
+        }
+
+        blocks_replayed += 1;
+        txs_replayed += txs.len() as u64;
+    }
+
+    info!(
+        "CellIndex cold-start backfill completed: replayed {} selected-chain blocks and {} transactions",
+        blocks_replayed, txs_replayed
+    );
+}
+
 impl Runtime {
     pub fn from_args(args: &Args) -> Self {
         let log_dir = get_log_dir(args);
@@ -223,10 +289,10 @@ pub fn create_core(args: Args, fd_total_budget: i32) -> (Arc<Core>, Arc<RpcCoreS
 pub fn create_core_with_runtime(runtime: &Runtime, args: &Args, fd_total_budget: i32) -> (Arc<Core>, Arc<RpcCoreService>) {
     let network = args.network();
     let mut fd_remaining = fd_total_budget;
-    let utxo_files_limit = if args.utxoindex {
-        let utxo_files_limit = fd_remaining / 10;
-        fd_remaining -= utxo_files_limit;
-        utxo_files_limit
+    let _cellindex_files_limit = if args.cellindex {
+        let cellindex_files_limit = fd_remaining / 10;
+        fd_remaining -= cellindex_files_limit;
+        cellindex_files_limit
     } else {
         0
     };
@@ -262,7 +328,7 @@ pub fn create_core_with_runtime(runtime: &Runtime, args: &Args, fd_total_budget:
     }
 
     let consensus_db_dir = db_dir.join(CONSENSUS_DB);
-    let utxoindex_db_dir = db_dir.join(UTXOINDEX_DB);
+    let cellindex_db_dir = db_dir.join(CELLINDEX_DB);
     let meta_db_dir = db_dir.join(META_DB);
 
     let mut is_db_reset_needed = args.reset_db;
@@ -278,16 +344,16 @@ do you confirm? (answer y/n or pass --yes to the Sporad command line to confirm 
 
     fs::create_dir_all(consensus_db_dir.as_path()).unwrap();
     fs::create_dir_all(meta_db_dir.as_path()).unwrap();
-    if args.utxoindex {
-        info!("Utxoindex Data directory {}", utxoindex_db_dir.display());
-        fs::create_dir_all(utxoindex_db_dir.as_path()).unwrap();
+    if args.cellindex {
+        info!("Cellindex data directory {}", cellindex_db_dir.display());
+        fs::create_dir_all(cellindex_db_dir.as_path()).unwrap();
     }
 
     if !args.archival && args.retention_period_days.is_some() {
         let retention_period_days = args.retention_period_days.unwrap();
         // Look only at post-fork values (which are the worst-case)
-        let finality_depth = config.finality_depth().after();
-        let target_time_per_block = config.target_time_per_block().after(); // in ms
+        let finality_depth = config.finality_depth();
+        let target_time_per_block = config.target_time_per_block(); // in ms
 
         let retention_period_milliseconds = (retention_period_days * 24.0 * 60.0 * 60.0 * 1000.0).ceil() as u64;
         if MINIMUM_RETENTION_PERIOD_DAYS <= retention_period_days {
@@ -466,8 +532,8 @@ do you confirm? (answer y/n or pass --yes to the Sporad command line to confirm 
         fs::create_dir_all(consensus_db_dir.as_path()).unwrap();
         fs::create_dir_all(meta_db_dir.as_path()).unwrap();
 
-        if args.utxoindex {
-            fs::create_dir_all(utxoindex_db_dir.as_path()).unwrap();
+        if args.cellindex {
+            fs::create_dir_all(cellindex_db_dir.as_path()).unwrap();
         }
 
         // Reopen the DB
@@ -498,7 +564,7 @@ do you confirm? (answer y/n or pass --yes to the Sporad command line to confirm 
 
     let tick_service = Arc::new(TickService::new());
     let (notification_send, notification_recv) = unbounded();
-    let max_tracked_addresses = if args.utxoindex && args.max_tracked_addresses > 0 { Some(args.max_tracked_addresses) } else { None };
+    let max_tracked_addresses = if args.cellindex && args.max_tracked_addresses > 0 { Some(args.max_tracked_addresses) } else { None };
     let subscription_context = SubscriptionContext::with_options(max_tracked_addresses);
     let notification_root = Arc::new(ConsensusNotificationRoot::with_context(notification_send, subscription_context.clone()));
     let processing_counters = Arc::new(ProcessingCounters::default());
@@ -544,18 +610,15 @@ do you confirm? (answer y/n or pass --yes to the Sporad command line to confirm 
     let system_info = SystemInfo::default();
 
     let notify_service = Arc::new(NotifyService::new(notification_root.clone(), notification_recv, subscription_context.clone()));
-    // TODO(cell-model): Replace UTXO index with Cell index
-    let index_service: Option<Arc<IndexService>> = if args.utxoindex {
-        // Use only a single thread for none-consensus databases
-        let _utxoindex_db = spora_database::prelude::ConnBuilder::default()
-            .with_db_path(utxoindex_db_dir)
-            .with_files_limit(utxo_files_limit)
-            .build()
-            .unwrap();
-        // Temporary: Skip UTXO index initialization during Cell model migration
-        // let utxoindex = UtxoIndexProxy::new(UtxoIndex::new(consensus_manager.clone(), utxoindex_db).unwrap());
-        // let index_service = Arc::new(IndexService::new(&notify_service.notifier(), subscription_context.clone(), Some(utxoindex)));
-        let index_service = Arc::new(IndexService::new(&notify_service.notifier(), subscription_context.clone(), None));
+    let index_service: Option<Arc<IndexService>> = if args.cellindex {
+        let cell_db_dir = cellindex_db_dir.join(CELLINDEX_CELLS_DB);
+        let script_db_dir = cellindex_db_dir.join(CELLINDEX_SCRIPTS_DB);
+        fs::create_dir_all(&cell_db_dir).unwrap();
+        fs::create_dir_all(&script_db_dir).unwrap();
+
+        let cellindex = CellIndexProxy::new(Arc::new(CellIndexer::new(&cell_db_dir, &script_db_dir).unwrap()));
+        backfill_cellindex_from_consensus(&cellindex, &consensus_manager, config.as_ref());
+        let index_service = Arc::new(IndexService::new(&notify_service.notifier(), subscription_context.clone(), Some(cellindex)));
         Some(index_service)
     } else {
         None
@@ -617,8 +680,7 @@ do you confirm? (answer y/n or pass --yes to the Sporad command line to confirm 
         mining_manager,
         flow_context,
         subscription_context,
-        None, // TODO(cell-model): Replace with CellIndex
-        // index_service.as_ref().map(|x| x.utxoindex().unwrap()),
+        index_service.as_ref().and_then(|x| x.cellindex()),
         config.clone(),
         core.clone(),
         processing_counters,

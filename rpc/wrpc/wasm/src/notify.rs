@@ -20,10 +20,10 @@ export enum RpcEventType {
     VirtualChainChanged = "virtual-chain-changed",
     FinalityConflict = "finality-conflict",
     FinalityConflictResolved = "finality-conflict-resolved",
-    UtxosChanged = "utxos-changed",
+    CellsChanged = "cells-changed",
     SinkBlueScoreChanged = "sink-blue-score-changed",
     VirtualDaaScoreChanged = "virtual-daa-score-changed",
-    PruningPointUtxoSetOverride = "pruning-point-utxo-set-override",
+    PruningPointCellSetOverride = "pruning-point-cell-set-override",
     NewBlockTemplate = "new-block-template",
 }
 
@@ -36,10 +36,10 @@ export type RpcEventData = IBlockAdded
     | IVirtualChainChanged 
     | IFinalityConflict 
     | IFinalityConflictResolved 
-    | IUtxosChanged 
+    | ICellsChanged 
     | ISinkBlueScoreChanged 
     | IVirtualDaaScoreChanged 
-    | IPruningPointUtxoSetOverride 
+    | IPruningPointCellSetOverride 
     | INewBlockTemplate;
 
 /**
@@ -54,10 +54,10 @@ export type RpcEventMap = {
     "virtual-chain-changed" : IVirtualChainChanged,
     "finality-conflict" : IFinalityConflict,
     "finality-conflict-resolved" : IFinalityConflictResolved,
-    "utxos-changed" : IUtxosChanged,
+    "cells-changed" : ICellsChanged,
     "sink-blue-score-changed" : ISinkBlueScoreChanged,
     "virtual-daa-score-changed" : IVirtualDaaScoreChanged,
-    "pruning-point-utxo-set-override" : IPruningPointUtxoSetOverride,
+    "pruning-point-cell-set-override" : IPruningPointCellSetOverride,
     "new-block-template" : INewBlockTemplate,
 }
 
@@ -76,13 +76,13 @@ export type RpcEvent = {
  * This type is used to define the callback function that is called when an RPC notification is received.
  * 
  * @see {@link RpcClient.subscribeVirtualDaaScoreChanged},
- * {@link RpcClient.subscribeUtxosChanged}, 
+ * {@link RpcClient.subscribeCellsChanged}, 
  * {@link RpcClient.subscribeVirtualChainChanged},
  * {@link RpcClient.subscribeBlockAdded},
  * {@link RpcClient.subscribeFinalityConflict},
  * {@link RpcClient.subscribeFinalityConflictResolved},
  * {@link RpcClient.subscribeSinkBlueScoreChanged},
- * {@link RpcClient.subscribePruningPointUtxoSetOverride},
+ * {@link RpcClient.subscribePruningPointCellSetOverride},
  * {@link RpcClient.subscribeNewBlockTemplate},
  * 
  * @category Node RPC
@@ -166,17 +166,17 @@ declare! {
 }
 
 declare! {
-    IUtxosChanged,
+    ICellsChanged,
     r#"
     /**
-     * UTXOs changed notification event is produced when the set
-     * of unspent transaction outputs (UTXOs) changes in the
+     * Cells changed notification event is produced when the set
+     * of live cells changes in the
      * Spora BlockDAG. The event notification is scoped to the
      * monitored list of addresses specified during the subscription.
      * 
      * @category Node RPC
      */
-    export interface IUtxosChanged {
+    export interface ICellsChanged {
         [key: string]: any;
     }
     "#,
@@ -213,15 +213,15 @@ declare! {
 }
 
 declare! {
-    IPruningPointUtxoSetOverride,
+    IPruningPointCellSetOverride,
     r#"
     /**
-     * Pruning point UTXO set override notification event is produced when the
-     * UTXO set override for the pruning point changes in the Spora BlockDAG.
+     * Pruning point cell set override notification event is produced when the
+     * cell set override for the pruning point changes in the Spora BlockDAG.
      * 
      * @category Node RPC
      */
-    export interface IPruningPointUtxoSetOverride {
+    export interface IPruningPointCellSetOverride {
         [key: string]: any;
     }
     "#,

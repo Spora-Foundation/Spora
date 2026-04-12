@@ -6,6 +6,9 @@
 pub use crate::account::descriptor::{AccountDescriptor, AccountDescriptorProperty};
 pub use crate::account::variants::*;
 pub use crate::account::{Account, AccountKind, DerivationCapableAccount};
+pub use crate::cell::balance::Balance;
+pub use crate::cell::scan::{Scan, ScanExtent};
+pub use crate::cell::{CellContext, CellEntryReference, CellProcessor, Maturity, NetworkParams, OutgoingTransaction};
 pub use crate::deterministic::*;
 pub use crate::encryption::{Encryptable, EncryptionKind};
 pub use crate::error::Error;
@@ -17,13 +20,11 @@ pub use crate::rpc::Rpc;
 pub use crate::rpc::{DynRpcApi, RpcCtl};
 pub use crate::serializer::*;
 pub use crate::storage::*;
-pub use crate::utxo::balance::Balance;
-pub use crate::utxo::scan::{Scan, ScanExtent};
-pub use crate::utxo::{Maturity, NetworkParams, OutgoingTransaction, UtxoContext, UtxoEntryReference, UtxoProcessor};
 pub use crate::wallet::*;
 pub use crate::{storage, utils};
 
 pub use ahash::{AHashMap, AHashSet};
+pub use async_channel::Receiver;
 pub use async_std::sync::{
     Mutex as AsyncMutex, MutexGuard as AsyncMutexGuard, RwLock as AsyncRwLock, RwLockReadGuard as AsyncRwLockReadGuard,
 };

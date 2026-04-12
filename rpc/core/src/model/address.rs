@@ -1,34 +1,34 @@
-use crate::{RpcTransactionOutpoint, RpcUtxoEntry};
+use crate::{RpcCellEntry, RpcTransactionOutpoint};
 use serde::{Deserialize, Serialize};
 use workflow_serializer::prelude::*;
 
 pub type RpcAddress = spora_addresses::Address;
 
-/// Represents a UTXO entry of an address returned by the `GetUtxosByAddresses` RPC.
+/// Represents a Cell entry of an address returned by the `GetCellsByAddresses` RPC.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RpcUtxosByAddressesEntry {
+pub struct RpcCellsByAddressesEntry {
     pub address: Option<RpcAddress>,
     pub outpoint: RpcTransactionOutpoint,
-    pub utxo_entry: RpcUtxoEntry,
+    pub cell_entry: RpcCellEntry,
 }
 
-impl Serializer for RpcUtxosByAddressesEntry {
+impl Serializer for RpcCellsByAddressesEntry {
     fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
         store!(u8, &1, writer)?; // version
         store!(Option<RpcAddress>, &self.address, writer)?;
         serialize!(RpcTransactionOutpoint, &self.outpoint, writer)?;
-        serialize!(RpcUtxoEntry, &self.utxo_entry, writer)
+        serialize!(RpcCellEntry, &self.cell_entry, writer)
     }
 }
 
-impl Deserializer for RpcUtxosByAddressesEntry {
+impl Deserializer for RpcCellsByAddressesEntry {
     fn deserialize<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
         let _version: u8 = load!(u8, reader)?;
         let address = load!(Option<RpcAddress>, reader)?;
         let outpoint = deserialize!(RpcTransactionOutpoint, reader)?;
-        let utxo_entry = deserialize!(RpcUtxoEntry, reader)?;
-        Ok(Self { address, outpoint, utxo_entry })
+        let cell_entry = deserialize!(RpcCellEntry, reader)?;
+        Ok(Self { address, outpoint, cell_entry })
     }
 }
 

@@ -73,8 +73,8 @@ setDefaultStorageFolder(storageFolder);
             // console.log("ID:", id);
             // console.log("type:", tx.data.type, ", value:", value(tx));
             // console.log(chalk.dim("----------------------------"))
-            // let addresses = tx.data.data.utxoEntries.map(utxo=>{
-            //     return utxo.address.substring(0, 5)+"..."
+            // let addresses = tx.data.data.cellEntries.map(cell=>{
+            //     return cell.address.substring(0, 5)+"..."
             // });
             list.push({
                 Id: tx.id,
@@ -135,9 +135,9 @@ setDefaultStorageFolder(storageFolder);
                             Mature: sauToSporaString(data.balance.mature),
                             Pending: sauToSporaString(data.balance.pending),
                             Outgoing: sauToSporaString(data.balance.outgoing),
-                            MatureUtxo: data.balance.matureUtxoCount,
-                            PendingUtxo: data.balance.pendingUtxoCount,
-                            StasisUtxo: data.balance.stasisUtxoCount
+                            MatureCells: data.balance.matureCellCount,
+                            PendingCells: data.balance.pendingCellCount,
+                            StasisCells: data.balance.stasisCellCount
                         })
                     })
                     console.table(list)
@@ -149,10 +149,10 @@ setDefaultStorageFolder(storageFolder);
                     }
                 break;
                 case "server-status":
-                case "utxo-proc-start":
+                case "cell-proc-start":
                 case "sync-state":
                 case "account-activation":
-                case "utxo-proc-stop":
+                case "cell-proc-stop":
                 case "connect":
                 case "stasis":
                     //

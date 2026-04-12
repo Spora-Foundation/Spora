@@ -200,7 +200,7 @@ impl Mnemonic {
 
     fn build_checksum(entropy: &Zeroizing<Vec<u8>>) -> Result<u8> {
         let binding = Sha256::digest(entropy);
-        let bytes = binding.as_slice();
+        let bytes: &[u8] = binding.as_ref();
         //println!("len: {}, bytes: {:?}", entropy.len(), bytes);
         match entropy.len() {
             16 => {

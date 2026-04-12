@@ -1,6 +1,6 @@
 use std::{collections::VecDeque, sync::Arc};
 
-use super::{reachability::ReachabilityResultExtensions, utils::CoinFlip};
+use super::reachability::ReachabilityResultExtensions;
 use crate::model::{
     services::reachability::{MTReachabilityService, ReachabilityService},
     stores::{
@@ -16,10 +16,8 @@ use crate::model::{
 use parking_lot::RwLock;
 use spora_consensus_core::{
     blockhash::BlockHashExtensions,
-    config::params::ForkedParam,
     errors::pruning::{PruningImportError, PruningImportResult},
 };
-use spora_core::{info, log::CRESCENDO_KEYWORD};
 use spora_database::prelude::StoreResultEmptyTuple;
 use spora_hashes::Hash;
 
@@ -41,13 +39,11 @@ pub struct PruningPointManager<
     W: HeadersSelectedTipStoreReader,
     Y: PruningSamplesStore,
 > {
-    /// Forked pruning depth param. Throughout this file we use P, P' to indicate the pre, post activation depths respectively
-    pruning_depth: ForkedParam<u64>,
+    /// Pruning depth param
+    pruning_depth: u64,
 
-    /// Forked finality depth param. Throughout this file we use F, F' to indicate the pre, post activation depths respectively.
-    /// Note that this quantity represents here the interval between pruning point samples and is not tightly coupled with the
-    /// actual concept of finality as used by virtual processor to reject deep reorgs   
-    finality_depth: ForkedParam<u64>,
+    /// Finality depth param. Note that this quantity represents here the interval between pruning point samples
+    finality_depth: u64,
 
     genesis_hash: Hash,
 
@@ -72,8 +68,8 @@ impl<
     > PruningPointManager<S, T, U, V, W, Y>
 {
     pub fn new(
-        pruning_depth: ForkedParam<u64>,
-        finality_depth: ForkedParam<u64>,
+        pruning_depth: u64,
+        finality_depth: u64,
         genesis_hash: Hash,
         reachability_service: MTReachabilityService<T>,
         ghostdag_store: Arc<S>,
@@ -82,14 +78,7 @@ impl<
         header_selected_tip_store: Arc<RwLock<W>>,
         pruning_samples_store: Arc<Y>,
     ) -> Self {
-        // [Crescendo]: These conditions ensure that blue score points with the same finality score before
-        // the fork will remain with the same finality score post the fork. See below for the usage.
-        assert!(finality_depth.before() <= finality_depth.after());
-        assert!(finality_depth.after() % finality_depth.before() == 0);
-        assert!(pruning_depth.before() <= pruning_depth.after());
-
-        let pruning_samples_steps = pruning_depth.before().div_ceil(finality_depth.before());
-        assert_eq!(pruning_samples_steps, pruning_depth.after().div_ceil(finality_depth.after()));
+        let pruning_samples_steps = pruning_depth.div_ceil(finality_depth);
 
         Self {
             pruning_depth,
@@ -121,9 +110,9 @@ impl<
         // store entry, se we only use these stores here (and specifically do not use the ghostdag store)
         //
 
-        let selected_parent_daa_score = self.headers_store.get_daa_score(ghostdag_data.selected_parent).unwrap();
-        let pruning_depth = self.pruning_depth.get(selected_parent_daa_score);
-        let finality_depth = self.finality_depth.get(selected_parent_daa_score);
+        let _selected_parent_daa_score = self.headers_store.get_daa_score(ghostdag_data.selected_parent).unwrap();
+        let pruning_depth = self.pruning_depth;
+        let finality_depth = self.finality_depth;
 
         let selected_parent_blue_score = self.headers_store.get_blue_score(ghostdag_data.selected_parent).unwrap();
 
@@ -173,20 +162,11 @@ impl<
 
     fn log_pruning_depth_post_activation(
         &self,
-        ghostdag_data: CompactGhostdagData,
-        selected_parent_daa_score: u64,
-        pruning_point_blue_score: u64,
+        _ghostdag_data: CompactGhostdagData,
+        _selected_parent_daa_score: u64,
+        _pruning_point_blue_score: u64,
     ) {
-        if self.pruning_depth.activation().is_active(selected_parent_daa_score)
-            && ghostdag_data.blue_score.saturating_sub(pruning_point_blue_score) < self.pruning_depth.after()
-            && CoinFlip::new(1.0 / 1000.0).flip()
-        {
-            info!(target: CRESCENDO_KEYWORD,
-                "[Crescendo] Pruning depth increasing post activation: {} (target: {})",
-                ghostdag_data.blue_score.saturating_sub(pruning_point_blue_score),
-                self.pruning_depth.after()
-            );
-        }
+        // No-op: logging removed
     }
 
     /// A block is a pruning sample *iff* its own finality score is larger than its pruning sample
@@ -209,17 +189,10 @@ impl<
             return (vec![], current_candidate);
         }
         let selected_parent_daa_score = self.headers_store.get_daa_score(sink_ghostdag.selected_parent).unwrap();
-        if self.pruning_depth.activation().is_active(selected_parent_daa_score) {
+        {
             let v2 = self.next_pruning_points_v2(sink_ghostdag, selected_parent_daa_score, current_pruning_point);
-            // Keep the candidate valid also post activation just in case it's still used by v1 calls
             let candidate = v2.last().copied().unwrap_or(current_candidate);
             (v2, candidate)
-        } else {
-            let (v1, candidate) = self.next_pruning_points_v1(sink_ghostdag, current_candidate, current_pruning_point);
-            // [Crescendo]: sanity check that v2 logic pre activation is equivalent to v1
-            let v2 = self.next_pruning_points_v2(sink_ghostdag, selected_parent_daa_score, current_pruning_point);
-            assert_eq!(v1, v2, "v1 = v2 pre activation");
-            (v1, candidate)
         }
     }
 
@@ -231,10 +204,9 @@ impl<
     ) -> Vec<Hash> {
         let current_pruning_point_blue_score = self.headers_store.get_blue_score(current_pruning_point).unwrap();
 
-        // Sanity check #1: global pruning point depth from sink >= min(P, P')
-        if current_pruning_point_blue_score + self.pruning_depth.lower_bound() > sink_ghostdag.blue_score {
+        // Sanity check: global pruning point depth from sink >= P
+        if current_pruning_point_blue_score + self.pruning_depth > sink_ghostdag.blue_score {
             // During initial IBD the sink can be close to the global pruning point.
-            // We use min(P, P') here and rely on sanity check #2 for post activation edge cases
             return vec![];
         }
 
@@ -267,9 +239,9 @@ impl<
         current_candidate: Hash,
         current_pruning_point: Hash,
     ) -> (Vec<Hash>, Hash) {
-        let selected_parent_daa_score = self.headers_store.get_daa_score(ghostdag_data.selected_parent).unwrap();
-        let pruning_depth = self.pruning_depth.get(selected_parent_daa_score);
-        let finality_depth = self.finality_depth.get(selected_parent_daa_score);
+        let _selected_parent_daa_score = self.headers_store.get_daa_score(ghostdag_data.selected_parent).unwrap();
+        let pruning_depth = self.pruning_depth;
+        let finality_depth = self.finality_depth;
         self.next_pruning_points_v1_inner(ghostdag_data, current_candidate, current_pruning_point, pruning_depth, finality_depth)
     }
 
@@ -306,25 +278,16 @@ impl<
         let mut new_candidate = current_candidate;
 
         /*
-            [Crescendo]
-
             Notation:
                 P = pruning point
                 C = candidate
-                F0 = the finality depth before the fork
-                F1 = the finality depth after the fork
+                F = the finality depth
 
-            Property 1: F0 <= F1 AND F1 % F0 == 0 (validated in Self::new)
+            Property 1: finality depth is fixed
 
-            Remark 1: if P,C had the same finality score with regard to F0, they have the same finality score also with regard to F1
+            Remark 1: if P,C had the same finality score they have the same finality score
 
-            Proof by picture (based on Property 1):
-                F0:    [    0    ] [    1    ] [    2    ] [    3    ] [    4    ] [    5    ]                 ...                 [    9    ] ...
-                F1:    [                            0                            ] [                            1                            ] ...
-
-                (each row divides the blue score space into finality score buckets with F0 or F1 numbers in each bucket correspondingly)
-
-            This means we can safely begin the search from C even in the few moments post the fork (i.e., there's no fear of needing to "pull" C back)
+            This means we can safely begin the search from C
 
             Note that overall this search is guaranteed to provide the desired monotonicity described in KIP-14:
             https://github.com/sporanet/kips/blob/master/kip-0014.md#pruning-point-adjustment
@@ -375,9 +338,9 @@ impl<
             return self.genesis_hash;
         }
 
-        let selected_parent_daa_score = self.headers_store.get_daa_score(ghostdag_data.selected_parent).unwrap();
-        let pruning_depth = self.pruning_depth.get(selected_parent_daa_score);
-        let finality_depth = self.finality_depth.get(selected_parent_daa_score);
+        let _selected_parent_daa_score = self.headers_store.get_daa_score(ghostdag_data.selected_parent).unwrap();
+        let pruning_depth = self.pruning_depth;
+        let finality_depth = self.finality_depth;
 
         let (current_pruning_point, current_candidate, current_pruning_point_index) = pruning_info.decompose();
 
@@ -436,8 +399,7 @@ impl<
             sp_pp
         };
 
-        // [Crescendo]: shortly after fork activation, R is not guaranteed to comply with the new
-        // increased pruning depth, so we must manually verify not to go below it
+        // Verify not to go below pruning depth
         if sp_pp_blue_score >= self.headers_store.get_blue_score(next_or_current_pp).unwrap() {
             return sp_pp;
         }
@@ -477,11 +439,8 @@ impl<
         }
 
         let tip_bs = self.ghostdag_store.get_blue_score(tip).unwrap();
-        // [Crescendo]: for new nodes syncing right after the fork, it might be difficult to determine whether the
-        // new pruning depth is expected, so we use the DAA score of the pruning point itself as an indicator.
-        // This means that in the first few days following the fork we err on the side of a shorter period which is
-        // a weaker requirement
-        let pruning_depth = self.pruning_depth.get(self.headers_store.get_daa_score(pp_candidate).unwrap());
+        // Use the pruning depth directly.
+        let pruning_depth = self.pruning_depth;
         self.is_pruning_point_in_pruning_depth(tip_bs, pp_candidate, pruning_depth)
     }
 
@@ -504,9 +463,9 @@ impl<
         let mut expected_pps_queue = VecDeque::new();
         for current in self.reachability_service.forward_chain_iterator(pruning_info.pruning_point, syncer_sink, true).skip(1) {
             let current_header = self.headers_store.get_header(current).unwrap();
-            // Post-crescendo: expected header pruning point is no longer part of header validity, but we want to make sure
+            // Expected header pruning point is no longer part of header validity, but we want to make sure
             // the syncer's virtual chain indeed coincides with the pruning point and past pruning points before downloading
-            // the UTXO set and resolving virtual. Hence we perform the check over this chain here.
+            // the cell set and resolving virtual. Hence we perform the check over this chain here.
             let reply = self.expected_header_pruning_point_v2(self.ghostdag_store.get_compact_data(current).unwrap());
             if reply.pruning_point != current_header.pruning_point {
                 return Err(PruningImportError::WrongHeaderPruningPoint(current_header.pruning_point, current));
@@ -583,11 +542,8 @@ mod tests {
             let ghostdag_k = params.ghostdag_k();
 
             // Assert P is not a multiple of F +- noise(K)
-            let mod_before = pruning_depth.before() % finality_depth.before();
-            assert!((ghostdag_k.before() as u64) < mod_before && mod_before < finality_depth.before() - ghostdag_k.before() as u64);
-
-            let mod_after = pruning_depth.after() % finality_depth.after();
-            assert!((ghostdag_k.after() as u64) < mod_after && mod_after < finality_depth.after() - ghostdag_k.after() as u64);
+            let mod_val = pruning_depth % finality_depth;
+            assert!((ghostdag_k as u64) < mod_val && mod_val < finality_depth - ghostdag_k as u64);
         }
     }
 }

@@ -1,14 +1,37 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 use spora_addresses::Address;
+use spora_consensus_core::cell_metadata::cell_metadata_placeholder_script_public_key_with_metadata;
 use spora_consensus_core::tx::{
-    ScriptPublicKey, ScriptVec, TransactionId, TransactionIndexType, TransactionInput, TransactionOutpoint, TransactionOutput,
-    UtxoEntry,
+    cell_entry_legacy_script_public_key, cell_meta_from_legacy_output, CellEntry, CellOut, CellRef, ScriptPublicKey, ScriptVec,
+    TransactionId, TransactionIndexType, TransactionOutpoint,
 };
 use spora_utils::{hex::ToHex, serde_bytes_fixed_ref};
 use workflow_serializer::prelude::*;
 
 use crate::prelude::{RpcHash, RpcScriptClass, RpcSubnetworkId};
+
+mod option_hex_serde {
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S>(value: &Option<Vec<u8>>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match value {
+            Some(bytes) => serializer.serialize_some(&hex::encode(bytes)),
+            None => serializer.serialize_none(),
+        }
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<Vec<u8>>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = Option::<String>::deserialize(deserializer)?;
+        value.map(|hex| hex::decode(&hex).map_err(serde::de::Error::custom)).transpose()
+    }
+}
 
 /// Represents the ID of a Spora transaction
 pub type RpcTransactionId = TransactionId;
@@ -18,45 +41,101 @@ pub type RpcScriptPublicKey = ScriptPublicKey;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RpcUtxoEntry {
+pub struct RpcCellEntry {
     pub amount: u64,
+    pub capacity: u64,
+    pub data_bytes: u64,
+    pub lock_hash: [u8; 32],
+    pub type_hash: Option<[u8; 32]>,
+    pub data_hash: [u8; 32],
     pub script_public_key: ScriptPublicKey,
     pub block_daa_score: u64,
     pub is_coinbase: bool,
 }
 
-impl RpcUtxoEntry {
+impl RpcCellEntry {
     pub fn new(amount: u64, script_public_key: ScriptPublicKey, block_daa_score: u64, is_coinbase: bool) -> Self {
-        Self { amount, script_public_key, block_daa_score, is_coinbase }
+        Self {
+            amount,
+            capacity: amount,
+            data_bytes: 0,
+            lock_hash: [0; 32],
+            type_hash: None,
+            data_hash: [0; 32],
+            script_public_key,
+            block_daa_score,
+            is_coinbase,
+        }
+    }
+
+    pub fn with_cell_metadata(
+        mut self,
+        capacity: u64,
+        data_bytes: u64,
+        lock_hash: [u8; 32],
+        type_hash: Option<[u8; 32]>,
+        data_hash: [u8; 32],
+    ) -> Self {
+        self.amount = capacity;
+        self.capacity = capacity;
+        self.data_bytes = data_bytes;
+        self.lock_hash = lock_hash;
+        self.type_hash = type_hash;
+        self.data_hash = data_hash;
+        self
     }
 }
 
-impl From<UtxoEntry> for RpcUtxoEntry {
-    fn from(entry: UtxoEntry) -> Self {
+impl From<CellEntry> for RpcCellEntry {
+    fn from(entry: CellEntry) -> Self {
+        let metadata = entry.embedded_cell_metadata();
         Self {
-            amount: entry.amount,
-            script_public_key: entry.script_public_key,
+            amount: entry.amount(),
+            capacity: entry.capacity(),
+            data_bytes: metadata.map(|m| m.data_bytes).unwrap_or_default(),
+            lock_hash: metadata.map(|m| m.lock_hash).unwrap_or([0; 32]),
+            type_hash: metadata.and_then(|m| m.type_hash),
+            data_hash: metadata.map(|m| m.data_hash).unwrap_or([0; 32]),
+            script_public_key: cell_entry_legacy_script_public_key(&entry),
             block_daa_score: entry.block_daa_score,
-            is_coinbase: entry.is_coinbase,
+            is_coinbase: entry.is_cellbase,
         }
     }
 }
 
-impl From<RpcUtxoEntry> for UtxoEntry {
-    fn from(entry: RpcUtxoEntry) -> Self {
-        Self {
-            amount: entry.amount,
-            script_public_key: entry.script_public_key,
-            block_daa_score: entry.block_daa_score,
-            is_coinbase: entry.is_coinbase,
+impl From<RpcCellEntry> for CellEntry {
+    fn from(entry: RpcCellEntry) -> Self {
+        let has_canonical_metadata = entry.capacity != entry.amount
+            || entry.data_bytes != 0
+            || entry.lock_hash != [0; 32]
+            || entry.type_hash.is_some()
+            || entry.data_hash != [0; 32];
+
+        if has_canonical_metadata {
+            CellEntry::from_cell_metadata(
+                entry.capacity,
+                entry.data_bytes,
+                entry.lock_hash,
+                entry.type_hash,
+                entry.data_hash,
+                entry.block_daa_score,
+                entry.is_coinbase,
+            )
+        } else {
+            cell_meta_from_legacy_output(entry.amount, &entry.script_public_key, entry.block_daa_score, entry.is_coinbase)
         }
     }
 }
 
-impl Serializer for RpcUtxoEntry {
+impl Serializer for RpcCellEntry {
     fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
-        store!(u8, &1, writer)?;
+        store!(u8, &2, writer)?;
         store!(u64, &self.amount, writer)?;
+        store!(u64, &self.capacity, writer)?;
+        store!(u64, &self.data_bytes, writer)?;
+        store!([u8; 32], &self.lock_hash, writer)?;
+        store!(Option<[u8; 32]>, &self.type_hash, writer)?;
+        store!([u8; 32], &self.data_hash, writer)?;
         store!(ScriptPublicKey, &self.script_public_key, writer)?;
         store!(u64, &self.block_daa_score, writer)?;
         store!(bool, &self.is_coinbase, writer)?;
@@ -65,15 +144,26 @@ impl Serializer for RpcUtxoEntry {
     }
 }
 
-impl Deserializer for RpcUtxoEntry {
+impl Deserializer for RpcCellEntry {
     fn deserialize<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
-        let _version = load!(u8, reader)?;
+        let version = load!(u8, reader)?;
         let amount = load!(u64, reader)?;
+        let (capacity, data_bytes, lock_hash, type_hash, data_hash) = if version >= 2 {
+            (
+                load!(u64, reader)?,
+                load!(u64, reader)?,
+                load!([u8; 32], reader)?,
+                load!(Option<[u8; 32]>, reader)?,
+                load!([u8; 32], reader)?,
+            )
+        } else {
+            (amount, 0, [0; 32], None, [0; 32])
+        };
         let script_public_key = load!(ScriptPublicKey, reader)?;
         let block_daa_score = load!(u64, reader)?;
         let is_coinbase = load!(bool, reader)?;
 
-        Ok(Self { amount, script_public_key, block_daa_score, is_coinbase })
+        Ok(Self { amount, capacity, data_bytes, lock_hash, type_hash, data_hash, script_public_key, block_daa_score, is_coinbase })
     }
 }
 
@@ -88,13 +178,13 @@ pub struct RpcTransactionOutpoint {
 
 impl From<TransactionOutpoint> for RpcTransactionOutpoint {
     fn from(outpoint: TransactionOutpoint) -> Self {
-        Self { transaction_id: outpoint.transaction_id, index: outpoint.index }
+        Self { transaction_id: TransactionId::from_bytes(outpoint.tx_hash), index: outpoint.index }
     }
 }
 
 impl From<RpcTransactionOutpoint> for TransactionOutpoint {
     fn from(outpoint: RpcTransactionOutpoint) -> Self {
-        Self { transaction_id: outpoint.transaction_id, index: outpoint.index }
+        Self::new(outpoint.transaction_id.as_bytes(), outpoint.index)
     }
 }
 
@@ -139,6 +229,9 @@ pub struct RpcTransactionInput {
     pub signature_script: Vec<u8>,
     pub sequence: u64,
     pub sig_op_count: u8,
+    pub since: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "option_hex_serde")]
+    pub witness: Option<Vec<u8>>,
     pub verbose_data: Option<RpcTransactionInputVerboseData>,
 }
 
@@ -149,36 +242,50 @@ impl std::fmt::Debug for RpcTransactionInput {
             .field("signature_script", &self.signature_script.to_hex())
             .field("sequence", &self.sequence)
             .field("sig_op_count", &self.sig_op_count)
+            .field("since", &self.since)
+            .field("witness", &self.witness.as_ref().map(|w| w.to_hex()))
             .field("verbose_data", &self.verbose_data)
             .finish()
     }
 }
 
-impl From<TransactionInput> for RpcTransactionInput {
-    fn from(input: TransactionInput) -> Self {
+impl RpcTransactionInput {
+    pub fn with_cell_input(mut self, since: u64, witness: Vec<u8>) -> Self {
+        self.since = Some(since);
+        self.witness = Some(witness);
+        self
+    }
+
+    pub fn from_cell_ref(input: &CellRef, witness: Vec<u8>) -> Self {
         Self {
-            previous_outpoint: input.previous_outpoint.into(),
-            signature_script: input.signature_script,
-            sequence: input.sequence,
-            sig_op_count: input.sig_op_count,
+            previous_outpoint: input.out_point.into(),
+            signature_script: witness.clone(),
+            sequence: input.since,
+            sig_op_count: 0,
+            since: Some(input.since),
+            witness: Some(witness),
             verbose_data: None,
         }
     }
-}
 
-impl RpcTransactionInput {
-    pub fn from_transaction_inputs(other: Vec<TransactionInput>) -> Vec<Self> {
-        other.into_iter().map(Self::from).collect()
+    pub fn from_cell_refs(inputs: &[CellRef], witnesses: &[Vec<u8>]) -> Vec<Self> {
+        inputs
+            .iter()
+            .enumerate()
+            .map(|(index, input)| Self::from_cell_ref(input, witnesses.get(index).cloned().unwrap_or_default()))
+            .collect()
     }
 }
 
 impl Serializer for RpcTransactionInput {
     fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
-        store!(u8, &1, writer)?;
+        store!(u8, &2, writer)?;
         serialize!(RpcTransactionOutpoint, &self.previous_outpoint, writer)?;
         store!(Vec<u8>, &self.signature_script, writer)?;
         store!(u64, &self.sequence, writer)?;
         store!(u8, &self.sig_op_count, writer)?;
+        store!(Option<u64>, &self.since, writer)?;
+        store!(Option<Vec<u8>>, &self.witness, writer)?;
         serialize!(Option<RpcTransactionInputVerboseData>, &self.verbose_data, writer)?;
 
         Ok(())
@@ -187,14 +294,18 @@ impl Serializer for RpcTransactionInput {
 
 impl Deserializer for RpcTransactionInput {
     fn deserialize<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
-        let _version = load!(u8, reader)?;
+        let version = load!(u8, reader)?;
         let previous_outpoint = deserialize!(RpcTransactionOutpoint, reader)?;
         let signature_script = load!(Vec<u8>, reader)?;
         let sequence = load!(u64, reader)?;
         let sig_op_count = load!(u8, reader)?;
+        let (since, witness) = match version {
+            1 => (None, None),
+            _ => (load!(Option<u64>, reader)?, load!(Option<Vec<u8>>, reader)?),
+        };
         let verbose_data = deserialize!(Option<RpcTransactionInputVerboseData>, reader)?;
 
-        Ok(Self { previous_outpoint, signature_script, sequence, sig_op_count, verbose_data })
+        Ok(Self { previous_outpoint, signature_script, sequence, sig_op_count, since, witness, verbose_data })
     }
 }
 
@@ -222,26 +333,53 @@ impl Deserializer for RpcTransactionInputVerboseData {
 #[serde(rename_all = "camelCase")]
 pub struct RpcTransactionOutput {
     pub value: u64,
+    pub capacity: Option<u64>,
+    pub data_bytes: Option<u64>,
+    pub lock_hash: Option<[u8; 32]>,
+    pub type_hash: Option<[u8; 32]>,
+    pub data_hash: Option<[u8; 32]>,
     pub script_public_key: RpcScriptPublicKey,
     pub verbose_data: Option<RpcTransactionOutputVerboseData>,
 }
 
 impl RpcTransactionOutput {
-    pub fn from_transaction_outputs(other: Vec<TransactionOutput>) -> Vec<Self> {
-        other.into_iter().map(Self::from).collect()
+    pub fn from_cell_output(output: &CellOut, output_data: &[u8]) -> Self {
+        let data_hash = *blake3::hash(output_data).as_bytes();
+        Self {
+            value: output.capacity,
+            capacity: Some(output.capacity),
+            data_bytes: Some(output_data.len() as u64),
+            lock_hash: Some(output.lock.hash()),
+            type_hash: output.type_.as_ref().map(|script| script.hash()),
+            data_hash: Some(data_hash),
+            script_public_key: cell_metadata_placeholder_script_public_key_with_metadata(
+                output.lock.hash(),
+                output.type_.as_ref().map(|script| script.hash()),
+                data_hash,
+                output_data.len() as u64,
+            ),
+            verbose_data: None,
+        }
     }
-}
 
-impl From<TransactionOutput> for RpcTransactionOutput {
-    fn from(output: TransactionOutput) -> Self {
-        Self { value: output.value, script_public_key: output.script_public_key, verbose_data: None }
+    pub fn from_cell_outputs(outputs: &[CellOut], outputs_data: &[Vec<u8>]) -> Vec<Self> {
+        outputs
+            .iter()
+            .enumerate()
+            .map(|(index, output)| Self::from_cell_output(output, outputs_data.get(index).map(Vec::as_slice).unwrap_or(&[])))
+            .collect()
     }
 }
 
 impl Serializer for RpcTransactionOutput {
     fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
-        store!(u8, &1, writer)?;
+        store!(u8, &2, writer)?;
         store!(u64, &self.value, writer)?;
+        store!(Option<u64>, &self.capacity, writer)?;
+        store!(Option<u64>, &self.data_bytes, writer)?;
+        store!(Option<[u8; 32]>, &self.lock_hash, writer)?;
+        store!(Option<[u8; 32]>, &self.type_hash, writer)?;
+        store!(Option<[u8; 32]>, &self.data_hash, writer)?;
         store!(RpcScriptPublicKey, &self.script_public_key, writer)?;
         serialize!(Option<RpcTransactionOutputVerboseData>, &self.verbose_data, writer)?;
 
@@ -251,12 +389,23 @@ impl Serializer for RpcTransactionOutput {
 
 impl Deserializer for RpcTransactionOutput {
     fn deserialize<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
-        let _version = load!(u8, reader)?;
+        let version = load!(u8, reader)?;
         let value = load!(u64, reader)?;
+        let (capacity, data_bytes, lock_hash, type_hash, data_hash) = if version >= 2 {
+            (
+                load!(Option<u64>, reader)?,
+                load!(Option<u64>, reader)?,
+                load!(Option<[u8; 32]>, reader)?,
+                load!(Option<[u8; 32]>, reader)?,
+                load!(Option<[u8; 32]>, reader)?,
+            )
+        } else {
+            (None, None, None, None, None)
+        };
         let script_public_key = load!(RpcScriptPublicKey, reader)?;
         let verbose_data = deserialize!(Option<RpcTransactionOutputVerboseData>, reader)?;
 
-        Ok(Self { value, script_public_key, verbose_data })
+        Ok(Self { value, capacity, data_bytes, lock_hash, type_hash, data_hash, script_public_key, verbose_data })
     }
 }
 

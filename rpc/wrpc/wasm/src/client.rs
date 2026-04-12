@@ -13,7 +13,7 @@ use crate::{RpcEventCallback, RpcEventType, RpcEventTypeOrCallback};
 use js_sys::{Function, Object};
 pub use serde_wasm_bindgen::from_value;
 use spora_addresses::{Address, AddressOrStringArrayT};
-use spora_consensus_client::UtxoEntryReference;
+use spora_consensus_client::CellEntryReference;
 use spora_consensus_core::network::{NetworkType, NetworkTypeT};
 use spora_notify::connection::ChannelType;
 use spora_notify::events::EventType;
@@ -693,15 +693,15 @@ impl RpcClient {
                     msg = notification_receiver.recv().fuse() => {
                         if let Ok(notification) = &msg {
                             match &notification {
-                                spora_rpc_core::Notification::UtxosChanged(utxos_changed_notification) => {
+                                spora_rpc_core::Notification::CellsChanged(cells_changed_notification) => {
 
-                                    let event_type = EventType::UtxosChanged;
+                                    let event_type = EventType::CellsChanged;
                                     let notification_event = NotificationEvent::Notification(event_type);
                                     if let Some(handlers) = this.inner.notification_callbacks(notification_event) {
 
-                                        let UtxosChangedNotification { added, removed } = utxos_changed_notification;
-                                        let added = js_sys::Array::from_iter(added.iter().map(UtxoEntryReference::from).map(JsValue::from));
-                                        let removed = js_sys::Array::from_iter(removed.iter().map(UtxoEntryReference::from).map(JsValue::from));
+                                        let CellsChangedNotification { added, removed } = cells_changed_notification;
+                                        let added = js_sys::Array::from_iter(added.iter().map(CellEntryReference::from).map(JsValue::from));
+                                        let removed = js_sys::Array::from_iter(removed.iter().map(CellEntryReference::from).map(JsValue::from));
                                         let notification = Object::new();
                                         notification.set("added", &added).unwrap();
                                         notification.set("removed", &removed).unwrap();
@@ -811,16 +811,18 @@ impl RpcClient {
         Ok(())
     }
 
-    /// Subscribe for a UTXOs changed notification event.
-    /// UTXOs changed notification event is produced when the set
-    /// of unspent transaction outputs (UTXOs) changes in the
-    /// Spora BlockDAG. The event notification will be scoped to the
+    /// Subscribe for a Cells changed notification event.
+    /// Cells changed notification event is produced when the set
+    /// of live cells changes in the Spora BlockDAG. The event notification will be scoped to the
     /// provided list of addresses.
-    #[wasm_bindgen(js_name = subscribeUtxosChanged)]
-    pub async fn subscribe_utxos_changed(&self, addresses: AddressOrStringArrayT) -> Result<()> {
+    #[wasm_bindgen(js_name = subscribeCellsChanged)]
+    pub async fn subscribe_cells_changed(&self, addresses: AddressOrStringArrayT) -> Result<()> {
         if let Some(listener_id) = self.listener_id() {
             let addresses: Vec<Address> = addresses.try_into()?;
-            self.inner.client.start_notify(listener_id, Scope::UtxosChanged(UtxosChangedScope { addresses })).await?;
+            self.inner
+                .client
+                .start_notify(listener_id, Scope::CellsChanged(spora_notify::scope::CellsChangedScope { addresses }))
+                .await?;
         } else {
             log_error!("RPC subscribe on a closed connection");
         }
@@ -828,13 +830,16 @@ impl RpcClient {
         Ok(())
     }
 
-    /// Unsubscribe from UTXOs changed notification event
+    /// Unsubscribe from Cells changed notification event
     /// for a specific set of addresses.
-    #[wasm_bindgen(js_name = unsubscribeUtxosChanged)]
-    pub async fn unsubscribe_utxos_changed(&self, addresses: AddressOrStringArrayT) -> Result<()> {
+    #[wasm_bindgen(js_name = unsubscribeCellsChanged)]
+    pub async fn unsubscribe_cells_changed(&self, addresses: AddressOrStringArrayT) -> Result<()> {
         if let Some(listener_id) = self.listener_id() {
             let addresses: Vec<Address> = addresses.try_into()?;
-            self.inner.client.stop_notify(listener_id, Scope::UtxosChanged(UtxosChangedScope { addresses })).await?;
+            self.inner
+                .client
+                .stop_notify(listener_id, Scope::CellsChanged(spora_notify::scope::CellsChangedScope { addresses }))
+                .await?;
         } else {
             log_error!("RPC unsubscribe on a closed connection");
         }
@@ -880,7 +885,7 @@ impl RpcClient {
 build_wrpc_wasm_bindgen_subscriptions!([
     // Manually implemented subscriptions (above)
     // - VirtualChainChanged, // can't used this here due to non-C-style enum variant
-    // - UtxosChanged, // can't used this here due to non-C-style enum variant
+    // - CellsChanged, // can't used this here due to non-C-style enum variant
     // - VirtualDaaScoreChanged,
     /// Manage subscription for a block added notification event.
     /// Block added notification event is produced when a new
@@ -899,10 +904,10 @@ build_wrpc_wasm_bindgen_subscriptions!([
     /// Sink blue score changed notification event is produced when the blue
     /// score of the sink block changes in the Spora BlockDAG.
     SinkBlueScoreChanged,
-    /// Manage subscription for a pruning point UTXO set override notification event.
-    /// Pruning point UTXO set override notification event is produced when the
-    /// UTXO set override for the pruning point changes in the Spora BlockDAG.
-    PruningPointUtxoSetOverride,
+    /// Manage subscription for a pruning point cell set override notification event.
+    /// Pruning point cell set override notification event is produced when the
+    /// cell set override for the pruning point changes in the Spora BlockDAG.
+    PruningPointCellSetOverride,
     /// Manage subscription for a new block template notification event.
     /// New block template notification event is produced when a new block
     /// template is generated for mining in the Spora BlockDAG.
@@ -1032,10 +1037,9 @@ build_wrpc_wasm_bindgen_interface!(
         /// Retrieves information about a subnetwork in the Spora BlockDAG.
         /// Returned information: Subnetwork information.
         GetSubnetwork,
-        /// Retrieves unspent transaction outputs (UTXOs) associated with
-        /// specific addresses.
-        /// Returned information: List of UTXOs.
-        GetUtxosByAddresses,
+        /// Retrieves live cells associated with specific addresses.
+        /// Returned information: list of cells.
+        GetCellsByAddresses,
         /// Retrieves the virtual chain corresponding to a specified block hash.
         /// Returned information: Virtual chain information.
         GetVirtualChainFromBlock,

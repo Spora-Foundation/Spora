@@ -1,13 +1,13 @@
 use crate::tasks::Task;
 use async_trait::async_trait;
-use std::{sync::Arc, time::Duration};
-use tokio::task::JoinHandle;
 use spora_core::{
     info,
     task::tick::{TickReason, TickService},
     warn,
 };
 use spora_utils::triggers::SingleTrigger;
+use std::{sync::Arc, time::Duration};
+use tokio::task::JoinHandle;
 use workflow_perf_monitor::mem::{get_process_memory_info, ProcessMemoryInfo};
 
 pub struct MemoryMonitorTask {

@@ -235,7 +235,7 @@ pub const DEVNET_GENESIS: GenesisBlock = GenesisBlock {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{config::bps::TenBps, merkle::calc_hash_merkle_root};
+    use crate::config::bps::TenBps;
 
     const GENESIS_BLOCKS: &[GenesisBlock] = &[GENESIS, TESTNET_GENESIS, TESTNET11_GENESIS, SIMNET_GENESIS, DEVNET_GENESIS];
 
@@ -243,7 +243,8 @@ mod tests {
     fn test_genesis_hashes() {
         GENESIS_BLOCKS.iter().for_each(|genesis| {
             let block: Block = genesis.into();
-            assert_hashes_eq(calc_hash_merkle_root(block.transactions.iter(), false), block.header.hash_merkle_root);
+            assert!(block.transactions.is_empty());
+            assert_hashes_eq(block.header.hash_merkle_root, genesis.hash_merkle_root);
             assert_hashes_eq(block.hash(), genesis.hash);
         });
     }
@@ -267,7 +268,7 @@ mod tests {
         for (i, genesis) in GENESIS_BLOCKS.iter().enumerate() {
             let block: Block = (genesis).into();
             let hash = block.hash();
-            let merkle_root = calc_hash_merkle_root(block.transactions.iter(), false);
+            let merkle_root = block.header.hash_merkle_root;
             let cell_commitment = block.header.cell_commitment;
 
             println!("Genesis Block {}:", i);

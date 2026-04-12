@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: ISC
-// Copyright (C) 2025 Spora developers
+// Copyright (C) 2026 Spora developers
 //
 // CellDB: Cell indexing database (OutPoint → CellMeta)
 
 use crate::{Result, StateError};
 use borsh::{BorshDeserialize, BorshSerialize};
 use parking_lot::RwLock;
-use rocksdb::{ColumnFamilyDescriptor, Options, WriteBatch, DB};
+use rocksdb::{ColumnFamilyDescriptor, IteratorMode, Options, WriteBatch, DB};
 use serde::{Deserialize, Serialize};
 use spora_exec::{CellOut, OutPoint};
 use std::path::Path;
@@ -38,10 +38,15 @@ pub struct CellMeta {
 
 /// Spend record for historical queries
 ///
-/// Stores both when a Cell was spent and its original metadata
+/// Stores both when a Cell was spent and its original metadata.
+///
+/// `spent_in_block` is the primary branch-aware anchor. `spent_at_daa` is kept
+/// only as auxiliary/indexing data and must not be used as a consensus POV.
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct SpendRecord {
-    /// When the Cell was spent
+    /// Block hash where the Cell was spent.
+    pub spent_in_block: [u8; 32],
+    /// DAA score observed when the Cell was spent.
     pub spent_at_daa: u64,
     /// Original Cell metadata (for historical reconstruction)
     pub cell_meta: CellMeta,
@@ -126,10 +131,33 @@ impl CellDB {
         Ok(())
     }
 
-    /// Spend a Cell
+    /// Remove a live Cell from the live set without writing spent history.
     ///
-    /// Moves a Cell from live set to spent set, preserving metadata for historical queries
-    pub fn spend(&self, out_point: &OutPoint, spent_at_daa: u64) -> Result<()> {
+    /// This exists for secondary-index maintenance paths that only receive net
+    /// virtual diffs and therefore do not know the canonical spending block.
+    /// Consensus and canonical historical journaling must use
+    /// [`CellDB::spend_in_block`].
+    pub fn remove_live_cell(&self, out_point: &OutPoint) -> Result<Option<CellMeta>> {
+        let _lock = self.write_lock.write();
+
+        let cf = self.db.cf_handle(CF_CELLS).ok_or_else(|| StateError::Database("CF_CELLS not found".to_string()))?;
+        let key = out_point.to_key();
+
+        let existing = self.db.get_cf(&cf, &key).map_err(|e| StateError::Database(e.to_string()))?;
+        let Some(existing) = existing else {
+            return Ok(None);
+        };
+
+        let meta = CellMeta::try_from_slice(&existing).map_err(|e| StateError::Serialization(e.to_string()))?;
+        self.db.delete_cf(&cf, &key).map_err(|e| StateError::Database(e.to_string()))?;
+        Ok(Some(meta))
+    }
+
+    /// Spend a Cell using a block-aware journal record.
+    ///
+    /// Moves a Cell from live set to spent set, preserving metadata for debugging
+    /// and index-only historical inspection.
+    pub fn spend_in_block(&self, out_point: &OutPoint, spent_at_daa: u64, spent_in_block: [u8; 32]) -> Result<()> {
         let _lock = self.write_lock.write();
 
         let cf_cells = self.db.cf_handle(CF_CELLS).ok_or_else(|| StateError::Database("CF_CELLS not found".to_string()))?;
@@ -149,7 +177,7 @@ impl CellDB {
         let cell_meta = CellMeta::try_from_slice(&cell_data).map_err(|e| StateError::Serialization(e.to_string()))?;
 
         // Create spend record
-        let spend_record = SpendRecord { spent_at_daa, cell_meta };
+        let spend_record = SpendRecord { spent_in_block, spent_at_daa, cell_meta };
 
         // Atomic update: delete from cells, add to spent + journal
         let mut batch = WriteBatch::default();
@@ -160,6 +188,15 @@ impl CellDB {
         self.db.write(batch).map_err(|e| StateError::Database(e.to_string()))?;
 
         Ok(())
+    }
+
+    /// Spend a Cell using a legacy DAA-only tombstone.
+    ///
+    /// Deprecated: use [`CellDB::spend_in_block`] so the journal records the
+    /// spending block hash as the branch-aware anchor.
+    #[deprecated(note = "use spend_in_block; DAA-only spend records are not branch-aware")]
+    pub fn spend(&self, out_point: &OutPoint, spent_at_daa: u64) -> Result<()> {
+        self.spend_in_block(out_point, spent_at_daa, [0; 32])
     }
 
     /// Check if a Cell is spent
@@ -199,8 +236,8 @@ impl CellDB {
         Ok(())
     }
 
-    /// Batch spend Cells (for block processing)
-    pub fn batch_spend(&self, spends: &[(OutPoint, u64)]) -> Result<()> {
+    /// Batch spend Cells using block-aware journal records.
+    pub fn batch_spend_in_block(&self, spends: &[(OutPoint, u64, [u8; 32])]) -> Result<()> {
         let _lock = self.write_lock.write();
 
         let cf_cells = self.db.cf_handle(CF_CELLS).ok_or_else(|| StateError::Database("CF_CELLS not found".to_string()))?;
@@ -210,7 +247,7 @@ impl CellDB {
 
         let mut batch = WriteBatch::default();
 
-        for (out_point, spent_at_daa) in spends {
+        for (out_point, spent_at_daa, spent_in_block) in spends {
             let key = out_point.to_key();
 
             // Get Cell metadata before deleting
@@ -218,7 +255,7 @@ impl CellDB {
                 let cell_meta = CellMeta::try_from_slice(&cell_data).map_err(|e| StateError::Serialization(e.to_string()))?;
 
                 // Create spend record
-                let spend_record = SpendRecord { spent_at_daa: *spent_at_daa, cell_meta };
+                let spend_record = SpendRecord { spent_in_block: *spent_in_block, spent_at_daa: *spent_at_daa, cell_meta };
 
                 batch.delete_cf(&cf_cells, &key);
                 batch.put_cf(&cf_spent, &key, &spent_at_daa.to_le_bytes());
@@ -231,9 +268,22 @@ impl CellDB {
         Ok(())
     }
 
-    /// Get Cell state at a specific DAA score (GHOSTDAG-aware historical query)
+    /// Batch spend Cells using a legacy DAA-only tombstone.
     ///
-    /// Returns the Cell if it was live at the given DAA score.
+    /// Deprecated: use [`CellDB::batch_spend_in_block`] so the journal records
+    /// the spending block hash as the branch-aware anchor.
+    #[deprecated(note = "use batch_spend_in_block; DAA-only spend records are not branch-aware")]
+    pub fn batch_spend(&self, spends: &[(OutPoint, u64)]) -> Result<()> {
+        let spends_with_block =
+            spends.iter().map(|(out_point, spent_at_daa)| (out_point.clone(), *spent_at_daa, [0; 32])).collect::<Vec<_>>();
+        self.batch_spend_in_block(&spends_with_block)
+    }
+
+    /// Get Cell state at a specific DAA score.
+    ///
+    /// Deprecated: this is an index/debug helper only. DAA does not uniquely
+    /// identify a DAG history POV, so this method must not be used for consensus
+    /// validation, reorg logic, or double-spend decisions.
     ///
     /// Logic:
     /// - Cell must have been created at or before `at_daa`
@@ -241,18 +291,9 @@ impl CellDB {
     ///   a) Still live (in CF_CELLS), OR
     ///   b) Spent after `at_daa` (in CF_SPEND_JOURNAL with spent_at_daa > at_daa)
     ///
-    /// This is critical for DAG consensus where we need to validate transactions
-    /// at specific DAA scores (e.g., during reorgs).
-    ///
-    /// # Examples
-    ///
-    /// ```text
-    /// Cell created at DAA 50, spent at DAA 150:
-    /// - get_cell_at_daa(cell, 40) → None (not created yet)
-    /// - get_cell_at_daa(cell, 100) → Some(cell) (live)
-    /// - get_cell_at_daa(cell, 150) → None (spent at this point)
-    /// - get_cell_at_daa(cell, 200) → None (already spent)
-    /// ```
+    /// Correct consensus queries must be anchored by block hash / POV, for
+    /// example `get_cell_at_pov(outpoint, block_hash)`.
+    #[deprecated(note = "DAA-only historical queries are not branch-aware; use POV/block-hash anchored queries for consensus")]
     pub fn get_cell_at_daa(&self, out_point: &OutPoint, at_daa: u64) -> Result<Option<CellMeta>> {
         let cf_cells = self.db.cf_handle(CF_CELLS).ok_or_else(|| StateError::Database("CF_CELLS not found".to_string()))?;
         let cf_journal =
@@ -294,9 +335,11 @@ impl CellDB {
         Ok(None)
     }
 
-    /// Batch query Cells at a specific DAA score
+    /// Batch query Cells at a specific DAA score.
     ///
-    /// Efficient batch version of get_cell_at_daa for transaction validation
+    /// Deprecated: index/debug only; see [`CellDB::get_cell_at_daa`].
+    #[deprecated(note = "DAA-only historical queries are not branch-aware; use POV/block-hash anchored queries for consensus")]
+    #[allow(deprecated)]
     pub fn batch_get_at_daa(&self, out_points: &[OutPoint], at_daa: u64) -> Result<Vec<Option<CellMeta>>> {
         let mut results = Vec::with_capacity(out_points.len());
 
@@ -328,6 +371,33 @@ impl CellDB {
 
         Ok(CellDBStats { live_cells, spent_cells })
     }
+
+    /// Return the total capacity currently held by live cells.
+    pub fn total_live_capacity(&self) -> Result<u64> {
+        let cf_cells = self.db.cf_handle(CF_CELLS).ok_or_else(|| StateError::Database("CF_CELLS not found".to_string()))?;
+        let mut total = 0u64;
+
+        for item in self.db.iterator_cf(&cf_cells, IteratorMode::Start) {
+            let (_key, value) = item.map_err(|e| StateError::Database(e.to_string()))?;
+            let meta = CellMeta::try_from_slice(&value).map_err(|e| StateError::Serialization(e.to_string()))?;
+            total = total.saturating_add(meta.cell_output.capacity);
+        }
+
+        Ok(total)
+    }
+
+    /// Returns true if the live cell set currently contains at least one cell.
+    pub fn has_live_cells(&self) -> Result<bool> {
+        let cf_cells = self.db.cf_handle(CF_CELLS).ok_or_else(|| StateError::Database("CF_CELLS not found".to_string()))?;
+        let mut iter = self.db.iterator_cf(&cf_cells, IteratorMode::Start);
+        Ok(match iter.next() {
+            Some(item) => {
+                item.map_err(|e| StateError::Database(e.to_string()))?;
+                true
+            }
+            None => false,
+        })
+    }
 }
 
 /// CellDB statistics
@@ -340,6 +410,7 @@ pub struct CellDBStats {
 }
 
 #[cfg(test)]
+#[allow(deprecated)]
 mod tests {
     use super::*;
     use spora_exec::{CellOut, ScriptRef};
@@ -396,6 +467,42 @@ mod tests {
 
         // Cell should be marked as spent
         assert_eq!(db.is_spent(&out_point).unwrap(), Some(200));
+    }
+
+    #[test]
+    fn test_remove_live_cell_does_not_create_spent_marker() {
+        let tmp = TempDir::new().unwrap();
+        let db = CellDB::open(tmp.path()).unwrap();
+
+        let out_point = OutPoint::new([0x55; 32], 0);
+        let meta = create_test_cell_meta(1234, 99);
+        db.put(&out_point, &meta).unwrap();
+
+        let removed = db.remove_live_cell(&out_point).unwrap();
+        assert_eq!(removed, Some(meta));
+        assert!(db.get(&out_point).unwrap().is_none());
+        assert_eq!(db.is_spent(&out_point).unwrap(), None);
+    }
+
+    #[test]
+    fn test_spend_journal_records_spending_block_hash() {
+        let tmp = TempDir::new().unwrap();
+        let db = CellDB::open(tmp.path()).unwrap();
+
+        let out_point = OutPoint::new([0x42; 32], 1);
+        let meta = create_test_cell_meta(1000, 100);
+        let spending_block = [0x77; 32];
+
+        db.put(&out_point, &meta).unwrap();
+        db.spend_in_block(&out_point, 200, spending_block).unwrap();
+
+        let cf_journal = db.db.cf_handle(CF_SPEND_JOURNAL).unwrap();
+        let journal_data = db.db.get_cf(&cf_journal, out_point.to_key()).unwrap().unwrap();
+        let spend_record = SpendRecord::try_from_slice(&journal_data).unwrap();
+
+        assert_eq!(spend_record.spent_in_block, spending_block);
+        assert_eq!(spend_record.spent_at_daa, 200);
+        assert_eq!(spend_record.cell_meta, meta);
     }
 
     #[test]
@@ -465,7 +572,7 @@ mod tests {
         // Query when live (50 <= 100 < 150): Some
         let result = db.get_cell_at_daa(&out_point, 100).unwrap();
         assert!(result.is_some());
-        assert_eq!(result.unwrap().capacity, 1000);
+        assert_eq!(result.unwrap().cell_output.capacity, 1000);
 
         // Query at spend point (DAA 150): None (just spent)
         assert_eq!(db.get_cell_at_daa(&out_point, 150).unwrap(), None);
@@ -491,9 +598,9 @@ mod tests {
 
         // Reorg validation: Check if Cell was live at DAA 100
         let cell_at_100 = db.get_cell_at_daa(&out_point, 100).unwrap();
-        assert!(cell_at_100.is_some());
-        assert_eq!(cell_at_100.unwrap().capacity, 1000);
-        assert_eq!(cell_at_100.unwrap().daa_score, 50);
+        let cell_at_100 = cell_at_100.expect("cell should be live at daa 100");
+        assert_eq!(cell_at_100.cell_output.capacity, 1000);
+        assert_eq!(cell_at_100.daa_score, 50);
     }
 
     #[test]

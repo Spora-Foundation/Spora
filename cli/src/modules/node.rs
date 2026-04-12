@@ -255,8 +255,8 @@ impl Node {
                 term.refresh_prompt();
             }
             Event::Stdout(text) | Event::Stderr(text) => {
-                if !ctx.wallet().utxo_processor().is_synced() {
-                    ctx.wallet().utxo_processor().sync_proc().handle_stdout(&text).await?;
+                if !ctx.wallet().cell_processor().is_synced() {
+                    ctx.wallet().cell_processor().sync_proc().handle_stdout(&text).await?;
                 }
 
                 if !self.mute.load(Ordering::SeqCst) {

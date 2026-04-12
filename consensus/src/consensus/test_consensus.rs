@@ -3,15 +3,7 @@ use parking_lot::RwLock;
 use spora_consensus_core::coinbase::MinerData;
 use spora_consensus_core::mining_rules::MiningRules;
 use spora_consensus_core::tx::ScriptPublicKey;
-use spora_consensus_core::{
-    api::ConsensusApi,
-    block::MutableBlock,
-    blockstatus::BlockStatus,
-    header::Header,
-    merkle::calc_hash_merkle_root,
-    subnets::SUBNETWORK_ID_COINBASE,
-    tx::{CellTx, Transaction},
-};
+use spora_consensus_core::{api::ConsensusApi, block::MutableBlock, blockstatus::BlockStatus, header::Header, tx::Transaction};
 use spora_consensus_notify::{notification::Notification, root::ConsensusNotificationRoot};
 use spora_consensusmanager::{ConsensusFactory, ConsensusInstance, DynConsensusCtl};
 use spora_core::{core::Core, service::Service};
@@ -25,7 +17,6 @@ use crate::pipeline::virtual_processor::test_block_builder::TestBlockBuilder;
 use crate::processes::window::WindowManager;
 use crate::{
     config::Config,
-    constants::TX_VERSION,
     errors::BlockProcessResult,
     model::{
         services::reachability::MTReachabilityService,
@@ -151,14 +142,14 @@ impl TestConsensus {
     ///
     /// Panics if block builder validation rules are violated.
     /// See `spora_consensus_core::errors::block::RuleError` for the complete list of possible validation rules.
-    pub fn add_utxo_valid_block_with_parents(
+    pub fn add_cell_valid_block_with_parents(
         &self,
         hash: Hash,
         parents: Vec<Hash>,
         txs: Vec<Transaction>,
     ) -> impl Future<Output = BlockProcessResult<BlockStatus>> {
         let miner_data = MinerData::new(ScriptPublicKey::from_vec(0, vec![]), vec![]);
-        self.validate_and_insert_block(self.build_utxo_valid_block_with_parents(hash, parents, miner_data, txs).to_immutable())
+        self.validate_and_insert_block(self.build_cell_valid_block_with_parents(hash, parents, miner_data, txs).to_immutable())
             .virtual_state_task
     }
 
@@ -168,7 +159,7 @@ impl TestConsensus {
     ///
     /// Panics if block builder validation rules are violated.
     /// See `spora_consensus_core::errors::block::RuleError` for the complete list of possible validation rules.
-    pub fn build_utxo_valid_block_with_parents(
+    pub fn build_cell_valid_block_with_parents(
         &self,
         hash: Hash,
         parents: Vec<Hash>,
@@ -180,24 +171,13 @@ impl TestConsensus {
         template.block
     }
 
-    pub fn build_block_with_parents_and_transactions(
-        &self,
-        hash: Hash,
-        parents: Vec<Hash>,
-        mut txs: Vec<Transaction>,
-    ) -> MutableBlock {
-        let mut header = self.build_header_with_parents(hash, parents);
-        let cb_payload: Vec<u8> = header.blue_score.to_le_bytes().iter().copied() // Blue score
-            .chain(self.consensus.services.coinbase_manager.calc_block_subsidy(header.daa_score).to_le_bytes().iter().copied()) // Subsidy
-            .chain((0_u16).to_le_bytes().iter().copied()) // Script public key version
-            .chain((0_u8).to_le_bytes().iter().copied()) // Script public key length
-            .collect();
-
-        // TODO(cell-model): Convert to CellTx coinbase
-        // For now, create empty block
-        let cell_txs: Vec<CellTx> = vec![]; // Empty for now
-        header.hash_merkle_root = spora_consensus_core::merkle::calc_hash_merkle_root_cell(cell_txs.iter(), false);
-        MutableBlock::new(header, cell_txs)
+    pub fn build_block_with_parents_and_transactions(&self, hash: Hash, parents: Vec<Hash>, txs: Vec<Transaction>) -> MutableBlock {
+        let miner_data = MinerData::new(ScriptPublicKey::from_vec(0, vec![]), vec![]);
+        let mut template = self.block_builder.build_block_template_with_parents_unchecked(parents, miner_data, txs).unwrap();
+        template.block.header.hash = hash;
+        let mut block = template.block;
+        block.header.hash = hash;
+        block
     }
 
     pub fn build_block_with_parents(&self, hash: Hash, parents: Vec<Hash>) -> MutableBlock {

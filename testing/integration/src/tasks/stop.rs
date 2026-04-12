@@ -1,9 +1,9 @@
 use crate::tasks::Task;
 use async_trait::async_trait;
-use std::sync::Arc;
-use tokio::task::JoinHandle;
 use spora_core::{trace, warn};
 use spora_utils::triggers::SingleTrigger;
+use std::sync::Arc;
+use tokio::task::JoinHandle;
 
 pub(super) struct StopTask {
     main_stop_signal: SingleTrigger,

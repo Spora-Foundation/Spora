@@ -33,8 +33,8 @@ pub enum RpcApiOps {
     // Subscription commands for starting/stopping notifications
     NotifyBlockAdded = 10,
     NotifyNewBlockTemplate = 11,
-    NotifyUtxosChanged = 12,
-    NotifyPruningPointUtxoSetOverride = 13,
+    NotifyCellsChanged = 12,
+    NotifyPruningPointCellSetOverride = 13,
     NotifyFinalityConflict = 14,
     NotifyFinalityConflictResolved = 15, // for uniformity purpose only since subscribing to NotifyFinalityConflict means receiving both FinalityConflict and FinalityConflictResolved
     NotifyVirtualDaaScoreChanged = 16,
@@ -49,10 +49,10 @@ pub enum RpcApiOps {
     VirtualChainChangedNotification = 61,
     FinalityConflictNotification = 62,
     FinalityConflictResolvedNotification = 63,
-    UtxosChangedNotification = 64,
+    CellsChangedNotification = 64,
     SinkBlueScoreChangedNotification = 65,
     VirtualDaaScoreChangedNotification = 66,
-    PruningPointUtxoSetOverrideNotification = 67,
+    PruningPointCellSetOverrideNotification = 67,
     NewBlockTemplateNotification = 68,
 
     // RPC methods
@@ -106,8 +106,8 @@ pub enum RpcApiOps {
     Shutdown = 133,
     //
     GetHeaders = 134,
-    /// Get a list of available UTXOs for a given address
-    GetUtxosByAddresses = 135,
+    /// Get a list of available live cells for a given address
+    GetCellsByAddresses = 135,
     /// Get a balance for a given address
     GetBalanceByAddress = 136,
     /// Get a balance for a number of addresses
@@ -136,12 +136,12 @@ pub enum RpcApiOps {
     GetFeeEstimateExperimental = 148,
     /// Block color determination by iterating DAG.
     GetCurrentBlockColor = 149,
-    /// Get UTXO Return Addresses
-    GetUtxoReturnAddress = 150,
+    /// Get cell return addresses
+    GetCellReturnAddress = 150,
     GetTransaction = 151,
     GetBlockStatus = 152,
     GetHeader = 153,
-    GetUtxosByAddress = 154,
+    GetCellsByAddress = 154,
 }
 
 impl RpcApiOps {
@@ -150,9 +150,9 @@ impl RpcApiOps {
             self,
             RpcApiOps::NotifyBlockAdded
                 | RpcApiOps::NotifyNewBlockTemplate
-                | RpcApiOps::NotifyUtxosChanged
+                | RpcApiOps::NotifyCellsChanged
                 | RpcApiOps::NotifyVirtualChainChanged
-                | RpcApiOps::NotifyPruningPointUtxoSetOverride
+                | RpcApiOps::NotifyPruningPointCellSetOverride
                 | RpcApiOps::NotifyFinalityConflict
                 | RpcApiOps::NotifyFinalityConflictResolved
                 | RpcApiOps::NotifySinkBlueScoreChanged
@@ -178,11 +178,10 @@ impl From<EventType> for RpcApiOps {
             EventType::VirtualChainChanged => RpcApiOps::VirtualChainChangedNotification,
             EventType::FinalityConflict => RpcApiOps::FinalityConflictNotification,
             EventType::FinalityConflictResolved => RpcApiOps::FinalityConflictResolvedNotification,
-            EventType::UtxosChanged => RpcApiOps::UtxosChangedNotification,
-            EventType::CellsChanged => RpcApiOps::UtxosChangedNotification, // TODO(cell-model): Use CellsChangedNotification
+            EventType::CellsChanged => RpcApiOps::CellsChangedNotification,
             EventType::SinkBlueScoreChanged => RpcApiOps::SinkBlueScoreChangedNotification,
             EventType::VirtualDaaScoreChanged => RpcApiOps::VirtualDaaScoreChangedNotification,
-            EventType::PruningPointUtxoSetOverride => RpcApiOps::PruningPointUtxoSetOverrideNotification,
+            EventType::PruningPointCellSetOverride => RpcApiOps::PruningPointCellSetOverrideNotification,
             EventType::NewBlockTemplate => RpcApiOps::NewBlockTemplateNotification,
         }
     }

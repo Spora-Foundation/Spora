@@ -15,7 +15,6 @@ pub struct Header {
     pub hash_merkle_root: Hash,
     pub accepted_id_merkle_root: Hash,
     /// Cell commitment - versioned commitment to execution-related state (v0: H(domain || cell_root))
-    #[serde(alias = "utxo_commitment")]
     pub cell_commitment: Hash,
     /// Cell state root - Merkle root of all live cells (for state proofs)
     pub cell_root: Hash,

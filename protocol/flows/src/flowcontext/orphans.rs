@@ -298,7 +298,7 @@ mod tests {
     }
 
     async fn block_process_mock() -> BlockProcessResult<BlockStatus> {
-        Ok(BlockStatus::StatusUTXOPendingVerification)
+        Ok(BlockStatus::StatusCellPendingVerification)
     }
 
     impl ConsensusApi for MockProcessor {
@@ -308,7 +308,7 @@ mod tests {
         }
 
         fn get_block_status(&self, hash: Hash) -> Option<BlockStatus> {
-            self.processed.read().get(&hash).map(|_| BlockStatus::StatusUTXOPendingVerification)
+            self.processed.read().get(&hash).map(|_| BlockStatus::StatusCellPendingVerification)
         }
     }
 

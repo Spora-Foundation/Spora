@@ -3,7 +3,7 @@ use crate::{
     flow_trait::Flow,
     flowcontext::transactions::MAX_INV_PER_TX_INV_MSG,
 };
-use spora_consensus_core::tx::{Transaction, TransactionId};
+use spora_consensus_core::tx::{CellTx, TransactionId};
 use spora_consensusmanager::ConsensusProxy;
 use spora_core::{time::unix_now, warn};
 use spora_mining::{
@@ -27,14 +27,14 @@ use tokio::time::timeout;
 pub(crate) const MAX_TPS_THRESHOLD: u64 = 3000;
 
 enum Response {
-    Transaction(Transaction),
+    Transaction(CellTx),
     NotFound(TransactionId),
 }
 
 impl Response {
     fn transaction_id(&self) -> TransactionId {
         match self {
-            Response::Transaction(tx) => tx.id(),
+            Response::Transaction(tx) => tx.id().into(),
             Response::NotFound(id) => id.to_owned(),
         }
     }
@@ -201,7 +201,7 @@ impl RelayTransactionsFlow {
         requests: Vec<RequestScope<TransactionId>>,
         should_throttle: bool,
     ) -> Result<(), ProtocolError> {
-        let mut transactions: Vec<Transaction> = Vec::with_capacity(requests.len());
+        let mut transactions: Vec<CellTx> = Vec::with_capacity(requests.len());
         for request in requests {
             let response = self.read_response().await?;
             let transaction_id = response.transaction_id();
@@ -219,7 +219,7 @@ impl RelayTransactionsFlow {
             .ctx
             .mining_manager()
             .clone()
-            .validate_and_insert_transaction_batch(&consensus, transactions, Priority::Low, Orphan::Allowed, RbfPolicy::Allowed)
+            .validate_and_insert_cell_transaction_batch(&consensus, transactions, Priority::Low, Orphan::Allowed, RbfPolicy::Allowed)
             .await;
 
         for res in insert_results.iter() {
@@ -242,7 +242,7 @@ impl RelayTransactionsFlow {
         self.ctx
             .broadcast_transactions(
                 insert_results.into_iter().filter_map(|res| match res {
-                    Ok(x) => Some(x.id()),
+                    Ok(x) => Some(x.id().into()),
                     Err(_) => None,
                 }),
                 should_throttle,

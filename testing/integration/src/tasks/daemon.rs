@@ -4,13 +4,13 @@ use crate::{
 };
 use async_trait::async_trait;
 use clap::Parser;
-use std::{iter::once, sync::Arc};
-use tokio::task::JoinHandle;
 use spora_addresses::Address;
 use spora_consensus_core::network::NetworkType;
 use spora_core::{trace, warn};
 use spora_utils::{fd_budget, triggers::SingleTrigger};
 use sporad_lib::args::Args;
+use std::{iter::once, sync::Arc};
+use tokio::task::JoinHandle;
 
 /// Arguments for configuring a [`DaemonTask`]
 #[derive(Parser, Debug)]
@@ -23,7 +23,7 @@ pub struct DaemonArgs {
     #[arg(long)]
     pub p2p: u16,
 
-    /// Preallocated UTXOs private key
+    /// Preallocated cells private key
     #[arg(long, name = "private-key")]
     pub private_key: String,
 
@@ -34,7 +34,7 @@ pub struct DaemonArgs {
     pub max_tracked_addresses: usize,
 
     #[arg(long)]
-    pub utxoindex: bool,
+    pub cellindex: bool,
 }
 
 impl DaemonArgs {
@@ -44,9 +44,9 @@ impl DaemonArgs {
         private_key: String,
         stat_file_prefix: Option<String>,
         max_tracked_addresses: usize,
-        utxoindex: bool,
+        cellindex: bool,
     ) -> Self {
-        Self { rpc, p2p, private_key, stat_file_prefix, max_tracked_addresses, utxoindex }
+        Self { rpc, p2p, private_key, stat_file_prefix, max_tracked_addresses, cellindex }
     }
 
     pub fn from_env_args() -> Self {
@@ -89,8 +89,8 @@ impl DaemonArgs {
             args.push("--stat-file-prefix".to_owned());
             args.push(stat_file_prefix.clone());
         }
-        if self.utxoindex {
-            args.push("--utxoindex".to_owned());
+        if self.cellindex {
+            args.push("--cellindex".to_owned());
         }
         args
     }
@@ -112,7 +112,7 @@ impl DaemonArgs {
         args.listen = Some(format!("0.0.0.0:{}", self.p2p).try_into().unwrap());
         args.prealloc_address = Some(self.prealloc_address().to_string());
         args.max_tracked_addresses = self.max_tracked_addresses;
-        args.utxoindex = self.utxoindex;
+        args.cellindex = self.cellindex;
     }
 
     #[cfg(not(feature = "devnet-prealloc"))]
@@ -120,7 +120,7 @@ impl DaemonArgs {
         args.rpclisten = Some(format!("0.0.0.0:{}", self.rpc).try_into().unwrap());
         args.listen = Some(format!("0.0.0.0:{}", self.p2p).try_into().unwrap());
         args.max_tracked_addresses = self.max_tracked_addresses;
-        args.utxoindex = self.utxoindex;
+        args.cellindex = self.cellindex;
     }
 }
 

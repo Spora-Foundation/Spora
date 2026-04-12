@@ -22,7 +22,7 @@ pub fn blake3_256(data: &[u8]) -> Hash256 {
 /// 📌 Used for:
 /// - Block hash (chain PoW identifier)
 /// - Commitment ID hashing
-/// - UTXO ID or contract state anchors
+/// - Cell ID or contract state anchors
 #[allow(dead_code)]
 pub fn blake3d(data: &[u8]) -> Hash256 {
     blake3_256(&blake3_256(data))

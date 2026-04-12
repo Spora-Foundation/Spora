@@ -31,23 +31,23 @@ seal! { 0x93c6, {
         #[derive(Debug, Clone, Serialize, Deserialize, BorshSerialize, BorshDeserialize, Eq, PartialEq)]
         #[serde(rename_all = "kebab-case")]
         pub enum TransactionKind {
-            /// Reorg transaction (caused by UTXO reorg).
+            /// Reorg transaction (caused by Cell reorg).
             /// NOTE: These transactions should be ignored by clients
             /// if the transaction has not reached Pending maturity.
             Reorg,
-            /// Stasis transaction (caused by a reorg during coinbase UTXO stasis).
+            /// Stasis transaction (caused by a reorg during coinbase cell stasis).
             /// NOTE: These types of transactions should be ignored by clients.
             Stasis,
             /// Internal batch (sweep) transaction. Generated as a part
             /// of Outgoing or Transfer transactions if the number of
-            /// UTXOs needed for transaction is greater than the transaction
+            /// Cells needed for transaction is greater than the transaction
             /// mass limit.
             Batch,
             /// Change transaction. Generated as a part of the Outgoing
             /// or Transfer transactions.
             /// NOTE: These types of transactions should be ignored by clients
             Change,
-            /// A regular incoming transaction comprised of one or more UTXOs.
+            /// A regular incoming transaction comprised of one or more cells.
             Incoming,
             /// An outgoing transaction created by the wallet framework.
             /// If transaction creation results in multiple sweep transactions,

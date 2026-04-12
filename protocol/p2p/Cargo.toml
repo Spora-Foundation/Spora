@@ -30,6 +30,7 @@ spora-utils.workspace = true
 spora-utils-tower.workspace = true
 
 borsh.workspace = true
+blake3.workspace = true
 ctrlc.workspace = true
 futures = { workspace = true, features = ["alloc"] }
 h2.workspace = true

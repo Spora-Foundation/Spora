@@ -59,7 +59,7 @@ check_prerequisites() {
     # Check RPC connection
     if ! nc -z 127.0.0.1 16210 2>/dev/null; then
         error "RPC server not accessible (127.0.0.1:16210)"
-        error "Please start sporad node first: cargo run --bin sporad --release -- --testnet --netsuffix=10 --utxoindex --rpclisten=127.0.0.1:16210"
+        error "Please start sporad node first: cargo run --bin sporad --release -- --testnet --netsuffix=10 --cellindex --rpclisten=127.0.0.1:16210"
         exit 1
     fi
     
@@ -286,7 +286,7 @@ verify_transactions() {
     log "Checking transaction status..."
     
     # Here we can add more detailed transaction verification logic
-    # Such as querying RPC for transaction status, checking UTXO changes, etc.
+    # Such as querying RPC for transaction status, checking cell changes, etc.
     
     success "Transaction verification completed"
 }
@@ -372,7 +372,7 @@ show_help() {
     echo "Prerequisites:"
     echo "  - sporad node must be running on 127.0.0.1:16210"
     echo "  - treasure_boy binary file must exist"
-    echo "  - Private key must have sufficient UTXO"
+    echo "  - Private key must have sufficient cells"
 }
 
 # Clean all test files

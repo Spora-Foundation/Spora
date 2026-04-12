@@ -43,14 +43,14 @@ initConsolePanicHook();
         return;
     }
 
-    let { entries } = (await rpc.getUtxosByAddresses([sourceAddress]));
+    let { entries } = (await rpc.getCellsByAddresses([sourceAddress]));
 
     if (!entries.length) {
-        console.error("No UTXOs found for address");
+        console.error("No cells found for address");
     } else {
         console.info(entries);
 
-        // a very basic JS-driven utxo entry sort
+        // a very basic JS-driven cell entry sort
         entries.sort((a, b) => a.amount > b.amount ? 1 : -1);
 
         let { transactions, summary } = await createTransactions({

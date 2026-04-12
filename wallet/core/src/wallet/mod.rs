@@ -49,11 +49,13 @@ struct Inner {
     selected_account: Mutex<Option<Arc<dyn Account>>>,
     store: Arc<dyn Interface>,
     settings: SettingsStore<WalletSettings>,
-    utxo_processor: Arc<UtxoProcessor>,
+    cell_processor: Arc<CellProcessor>,
     multiplexer: Multiplexer<Box<Events>>,
     wallet_bus: Channel<WalletBusMessage>,
     estimation_abortables: Mutex<HashMap<AccountId, Abortable>>,
     retained_contexts: Mutex<HashMap<String, Arc<Vec<u8>>>>,
+    notification_channels: Mutex<HashMap<u64, Receiver<crate::api::message::WalletNotification>>>,
+    next_notification_channel_id: AtomicU64,
     // Mutex used to protect concurrent access to accounts at the wallet api level
     guard: Arc<AsyncMutex<()>>,
     account_guard: Arc<AsyncMutex<()>>,
@@ -104,8 +106,8 @@ impl Wallet {
     pub fn try_with_rpc(rpc: Option<Rpc>, store: Arc<dyn Interface>, network_id: Option<NetworkId>) -> Result<Wallet> {
         let multiplexer = Multiplexer::<Box<Events>>::new();
         let wallet_bus = Channel::unbounded();
-        let utxo_processor =
-            Arc::new(UtxoProcessor::new(rpc.clone(), network_id, Some(multiplexer.clone()), Some(wallet_bus.clone())));
+        let cell_processor =
+            Arc::new(CellProcessor::new(rpc.clone(), network_id, Some(multiplexer.clone()), Some(wallet_bus.clone())));
 
         let wallet = Wallet {
             inner: Arc::new(Inner {
@@ -117,10 +119,12 @@ impl Wallet {
                 task_ctl: DuplexChannel::oneshot(),
                 selected_account: Mutex::new(None),
                 settings: SettingsStore::new_with_storage(Storage::default_settings_store()),
-                utxo_processor: utxo_processor.clone(),
+                cell_processor: cell_processor.clone(),
                 wallet_bus,
                 estimation_abortables: Mutex::new(HashMap::new()),
                 retained_contexts: Mutex::new(HashMap::new()),
+                notification_channels: Mutex::new(HashMap::new()),
+                next_notification_channel_id: AtomicU64::new(1),
                 guard: Arc::new(AsyncMutex::new(())),
                 account_guard: Arc::new(AsyncMutex::new(())),
             }),
@@ -167,8 +171,8 @@ impl Wallet {
         Ok(self.store().location()? == StorageDescriptor::Resident)
     }
 
-    pub fn utxo_processor(&self) -> &Arc<UtxoProcessor> {
-        &self.inner.utxo_processor
+    pub fn cell_processor(&self) -> &Arc<CellProcessor> {
+        &self.inner.cell_processor
     }
 
     pub fn descriptor(&self) -> Option<WalletDescriptor> {
@@ -187,7 +191,7 @@ impl Wallet {
     }
 
     pub async fn reset(self: &Arc<Self>, clear_legacy_cache: bool) -> Result<()> {
-        self.utxo_processor().cleanup().await?;
+        self.cell_processor().cleanup().await?;
 
         self.select(None).await?;
 
@@ -226,8 +230,8 @@ impl Wallet {
             let futures = accounts.iter().map(|account| account.clone().stop());
             join_all(futures).await.into_iter().collect::<Result<Vec<_>>>()?;
 
-            // reset utxo processor
-            self.utxo_processor().cleanup().await?;
+            // reset cell processor
+            self.cell_processor().cleanup().await?;
 
             // notify reload event
             self.notify(Events::WalletReload { wallet_descriptor, account_descriptors }).await?;
@@ -487,27 +491,27 @@ impl Wallet {
     }
 
     pub fn rpc_api(&self) -> Arc<DynRpcApi> {
-        self.utxo_processor().rpc_api()
+        self.cell_processor().rpc_api()
     }
 
     pub fn try_rpc_api(&self) -> Option<Arc<DynRpcApi>> {
-        self.utxo_processor().try_rpc_api()
+        self.cell_processor().try_rpc_api()
     }
 
     pub fn rpc_ctl(&self) -> RpcCtl {
-        self.utxo_processor().rpc_ctl()
+        self.cell_processor().rpc_ctl()
     }
 
     pub fn try_rpc_ctl(&self) -> Option<RpcCtl> {
-        self.utxo_processor().try_rpc_ctl()
+        self.cell_processor().try_rpc_ctl()
     }
 
     pub fn has_rpc(&self) -> bool {
-        self.utxo_processor().has_rpc()
+        self.cell_processor().has_rpc()
     }
 
     pub async fn bind_rpc(self: &Arc<Self>, rpc: Option<Rpc>) -> Result<()> {
-        self.utxo_processor().bind_rpc(rpc).await?;
+        self.cell_processor().bind_rpc(rpc).await?;
         Ok(())
     }
 
@@ -532,7 +536,7 @@ impl Wallet {
     }
 
     pub fn current_daa_score(&self) -> Option<u64> {
-        self.utxo_processor().current_daa_score()
+        self.cell_processor().current_daa_score()
     }
 
     pub async fn load_settings(&self) -> Result<()> {
@@ -559,7 +563,7 @@ impl Wallet {
 
         // internal event loop
         self.start_task().await?;
-        self.utxo_processor().start().await?;
+        self.cell_processor().start().await?;
         // rpc services (notifier)
         if let Some(rpc_client) = self.try_wrpc_client() {
             rpc_client.start().await?;
@@ -570,7 +574,7 @@ impl Wallet {
 
     // intended for stopping async management task
     pub async fn stop(&self) -> Result<()> {
-        self.utxo_processor().stop().await?;
+        self.cell_processor().stop().await?;
         self.stop_task().await?;
         Ok(())
     }
@@ -602,7 +606,7 @@ impl Wallet {
         if self.is_connected() {
             return Err(Error::NetworkTypeConnected);
         }
-        self.utxo_processor().set_network_id(network_id);
+        self.cell_processor().set_network_id(network_id);
 
         if let Some(wrpc_client) = self.try_wrpc_client() {
             wrpc_client.set_network_id(network_id)?;
@@ -611,7 +615,7 @@ impl Wallet {
     }
 
     pub fn network_id(&self) -> Result<NetworkId> {
-        self.utxo_processor().network_id()
+        self.cell_processor().network_id()
     }
 
     pub fn address_prefix(&self) -> Result<spora_addresses::Prefix> {
@@ -1005,11 +1009,11 @@ impl Wallet {
     }
 
     pub fn is_synced(&self) -> bool {
-        self.utxo_processor().is_synced()
+        self.cell_processor().is_synced()
     }
 
     pub fn is_connected(&self) -> bool {
-        self.utxo_processor().is_connected()
+        self.cell_processor().is_connected()
     }
 
     pub(crate) async fn handle_discovery(&self, record: TransactionRecord) -> Result<()> {
@@ -1131,16 +1135,16 @@ impl Wallet {
     }
 
     pub fn enable_metrics_kinds(&self, kinds: &[MetricsUpdateKind]) {
-        self.utxo_processor().enable_metrics_kinds(kinds);
+        self.cell_processor().enable_metrics_kinds(kinds);
     }
 
     pub async fn start_metrics(&self) -> Result<()> {
-        self.utxo_processor().start_metrics().await?;
+        self.cell_processor().start_metrics().await?;
         Ok(())
     }
 
     pub async fn stop_metrics(&self) -> Result<()> {
-        self.utxo_processor().stop_metrics().await?;
+        self.cell_processor().stop_metrics().await?;
         Ok(())
     }
 
@@ -1368,8 +1372,7 @@ impl Wallet {
         // use crate::derivation::gen1::import::load_v1_keydata;
 
         // let _keydata = load_v1_keydata(&secret).await?;
-        todo!();
-        // Ok(())
+        Err(Error::NotImplemented)
     }
 
     pub async fn import_with_mnemonic(
@@ -1432,8 +1435,8 @@ impl Wallet {
     }
 
     /// Perform a "2d" scan of account derivations while scanning addresses
-    /// in each account (UTXOs up to `address_scan_extent` address derivation).
-    /// Report back the last account index that has UTXOs. The scan is performed
+    /// in each account (cells up to `address_scan_extent` address derivation).
+    /// Report back the last account index that has tracked cells. The scan is performed
     /// until we have encountered at least `account_scan_extent` of empty
     /// accounts.
     pub async fn scan_bip44_accounts(
@@ -1463,7 +1466,7 @@ impl Wallet {
             let addresses = bip32::Bip32::try_new(self, None, prv_key_data.id, account_index as u64, xpub_keys, ecdsa)
                 .await?
                 .get_address_range_for_scan(0..address_scan_extent)?;
-            if self.rpc_api().get_utxos_by_addresses(addresses).await?.is_not_empty() {
+            if self.rpc_api().get_cells_by_addresses(addresses).await?.is_not_empty() {
                 last_account_index = account_index;
             }
             account_index += 1;
@@ -1602,26 +1605,26 @@ mod test {
     use workflow_rpc::client::ConnectOptions;
     use std::{str::FromStr, thread::sleep, time};
     use crate::derivation::gen1;
-    use crate::utxo::{UtxoContext, UtxoContextBinding, UtxoIterator};
+    use crate::cell::{CellContext, CellContextBinding, CellIterator};
     use spora_addresses::{Prefix, Version};
     use spora_bip32::{ChildNumber, ExtendedPrivateKey, SecretKey};
     use spora_consensus_core::subnets::SUBNETWORK_ID_NATIVE;
     use spora_consensus_wasm::{sign_transaction, SignableTransaction, Transaction, TransactionInput, TransactionOutput};
     use spora_txscript::pay_to_address_script;
 
-    async fn create_utxos_context_with_addresses(
+    async fn create_cells_context_with_addresses(
         rpc: Arc<DynRpcApi>,
         addresses: Vec<Address>,
         current_daa_score: u64,
-        core: &UtxoProcessor,
-    ) -> Result<UtxoContext> {
-        let utxos = rpc.get_utxos_by_addresses(addresses).await?;
-        let utxo_context = UtxoContext::new(core, UtxoContextBinding::default());
-        let entries = utxos.into_iter().map(|entry| entry.into()).collect::<Vec<_>>();
+        core: &CellProcessor,
+    ) -> Result<CellContext> {
+        let cells = rpc.get_cells_by_addresses(addresses).await?;
+        let cell_context = CellContext::new(core, CellContextBinding::default());
+        let entries = cells.into_iter().map(|entry| entry.into()).collect::<Vec<_>>();
         for entry in entries.into_iter() {
-            utxo_context.insert(entry, current_daa_score, false).await?;
+            cell_context.insert(entry, current_daa_score, false).await?;
         }
-        Ok(utxo_context)
+        Ok(cell_context)
     }
 
     #[allow(dead_code)]
@@ -1632,7 +1635,7 @@ mod test {
         let wallet = Arc::new(Wallet::try_new(resident_store, None)?);
 
         let rpc_api = wallet.rpc_api();
-        let utxo_processor = wallet.utxo_processor();
+        let cell_processor = wallet.cell_processor();
 
         let wrpc_client = wallet.wrpc_client().expect("Unable to obtain wRPC client");
 
@@ -1649,25 +1652,25 @@ mod test {
 
         let address = Address::try_from("sporatest:qz7ulu4c25dh7fzec9zjyrmlhnkzrg4wmf89q7gzr3gfrsj3uz6xjceef60sd")?;
 
-        let utxo_context =
-            self::create_utxos_context_with_addresses(rpc_api.clone(), vec![address.clone()], current_daa_score, utxo_processor)
+        let cell_context =
+            self::create_cells_context_with_addresses(rpc_api.clone(), vec![address.clone()], current_daa_score, cell_processor)
                 .await?;
 
-        let utxo_set_balance = utxo_context.calculate_balance().await;
-        println!("get_utxos_by_addresses: {utxo_set_balance:?}");
+        let cell_set_balance = cell_context.calculate_balance().await;
+        println!("get_cells_by_addresses: {cell_set_balance:?}");
 
         let to_address = Address::try_from("sporatest:qpakxqlesqywgkq7rg4wyhjd93kmw7trkl3gpa3vd5flyt59a43yyn8vu0w8c")?;
-        let mut iter = UtxoIterator::new(&utxo_context);
-        let utxo = iter.next().unwrap();
-        let utxo = (*utxo.utxo).clone();
-        let selected_entries = vec![utxo];
+        let mut iter = CellIterator::new(&cell_context);
+        let cell = iter.next().unwrap();
+        let cell = (*cell.cell).clone();
+        let selected_entries = vec![cell];
 
         let entries = &selected_entries;
 
         let inputs = selected_entries
             .iter()
             .enumerate()
-            .map(|(sequence, utxo)| TransactionInput::new(utxo.outpoint.clone(), vec![], sequence as u64, 0))
+            .map(|(sequence, cell)| TransactionInput::new(cell.outpoint.clone(), vec![], sequence as u64, 0))
             .collect::<Vec<TransactionInput>>();
 
         let tx = Transaction::new(
@@ -1703,10 +1706,10 @@ mod test {
 
         let mtx = sign_transaction(mtx, private_keys, true)?;
 
-        let utxo_context =
-            self::create_utxos_context_with_addresses(rpc_api.clone(), vec![to_address.clone()], current_daa_score, utxo_processor)
+        let cell_context =
+            self::create_cells_context_with_addresses(rpc_api.clone(), vec![to_address.clone()], current_daa_score, cell_processor)
                 .await?;
-        let to_balance = utxo_context.calculate_balance().await;
+        let to_balance = cell_context.calculate_balance().await;
         println!("to address balance before tx submit: {to_balance:?}");
 
         let result = rpc_api.submit_transaction(mtx.into(), false).await?;
@@ -1714,10 +1717,10 @@ mod test {
         println!("tx submit result, {:?}", result);
         println!("sleep for 5s...");
         sleep(time::Duration::from_millis(5000));
-        let utxo_context =
-            self::create_utxos_context_with_addresses(rpc_api.clone(), vec![to_address.clone()], current_daa_score, utxo_processor)
+        let cell_context =
+            self::create_cells_context_with_addresses(rpc_api.clone(), vec![to_address.clone()], current_daa_score, cell_processor)
                 .await?;
-        let to_balance = utxo_context.calculate_balance().await;
+        let to_balance = cell_context.calculate_balance().await;
         println!("to address balance after tx submit: {to_balance:?}");
 
         Ok(())

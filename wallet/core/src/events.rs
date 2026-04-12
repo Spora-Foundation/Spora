@@ -5,9 +5,9 @@
 //!
 
 use crate::api::message::FeeRateEstimateBucket;
+use crate::cell::context::CellContextId;
 use crate::imports::*;
 use crate::storage::{Hint, PrvKeyDataInfo, StorageDescriptor, TransactionRecord, WalletDescriptor};
-use crate::utxo::context::UtxoContextId;
 use transaction::TransactionRecordNotification;
 
 /// Sync state of the Sporad node
@@ -26,7 +26,7 @@ pub enum SyncState {
         blocks: u64,
         progress: u64,
     },
-    UtxoSync {
+    CellSync {
         chunks: u64,
         total: u64,
     },
@@ -34,7 +34,7 @@ pub enum SyncState {
         processed: u64,
         total: u64,
     },
-    UtxoResync,
+    CellResync,
     /// General cases when the node is waiting
     /// for information from peers or waiting to
     /// connect to peers.
@@ -72,9 +72,9 @@ pub enum Events {
         url: Option<String>,
     },
     /// A special event emitted if the connected node
-    /// does not have UTXO index enabled
+    /// does not have Cell index enabled
     #[serde(rename_all = "camelCase")]
-    UtxoIndexNotEnabled {
+    CellIndexNotEnabled {
         /// Node RPC url on which connection
         /// has been established
         url: Option<String>,
@@ -165,18 +165,18 @@ pub enum Events {
         url: Option<String>,
     },
 
-    /// Successful start of [`UtxoProcessor`].
+    /// Successful start of [`CellProcessor`].
     /// This event signifies that the application can
-    /// start interfacing with the UTXO processor.
-    UtxoProcStart,
-    /// [`UtxoProcessor`] has shut down.
-    UtxoProcStop,
-    /// Occurs when UtxoProcessor has failed to connect to the node
+    /// start interfacing with the cell processor.
+    CellProcStart,
+    /// [`CellProcessor`] has shut down.
+    CellProcStop,
+    /// Occurs when CellProcessor has failed to connect to the node
     /// for an unknown reason. Can also occur during general unexpected
-    /// UtxoProcessor processing errors, such as node disconnection
+    /// CellProcessor processing errors, such as node disconnection
     /// then submitting an outgoing transaction. This is a general
     /// error trap for logging purposes and is safe to ignore.
-    UtxoProcError {
+    CellProcError {
         message: String,
     },
     /// DAA score change
@@ -185,15 +185,15 @@ pub enum Events {
         #[serde(rename = "currentDaaScore")]
         current_daa_score: u64,
     },
-    /// New incoming pending UTXO/transaction
+    /// New incoming pending cell/transaction
     Pending {
         record: TransactionRecord,
     },
-    /// Pending UTXO has been removed (reorg)
+    /// Pending cell has been removed (reorg)
     Reorg {
         record: TransactionRecord,
     },
-    /// Coinbase stasis UTXO has been removed (reorg)
+    /// Coinbase stasis cell has been removed (reorg)
     /// NOTE: These transactions should be ignored by clients.
     Stasis {
         record: TransactionRecord,
@@ -203,14 +203,14 @@ pub enum Events {
         record: TransactionRecord,
     },
     /// Emitted when a transaction has been discovered
-    /// during the UTXO scan. This event is generated
+    /// during the cell scan. This event is generated
     /// when a runtime [`Account`]
     /// initiates address monitoring and performs
-    /// an initial scan of the UTXO set.
+    /// an initial scan of the tracked cell set.
     ///
-    /// This event is emitted when UTXOs are
-    /// registered with the UtxoContext using the
-    /// [`UtxoContext::extend_from_scan()`](UtxoContext::extend_from_scan) method.
+    /// This event is emitted when cells are
+    /// registered with the CellContext using the
+    /// [`CellContext::extend_from_scan()`](CellContext::extend_from_scan) method.
     ///
     /// NOTE: if using runtime [`Wallet`],
     /// the wallet will not emit this event if it detects
@@ -225,14 +225,14 @@ pub enum Events {
     Discovery {
         record: TransactionRecord,
     },
-    /// UtxoContext (Account) balance update. Emitted for each
-    /// balance change within the UtxoContext.
+    /// CellContext (Account) balance update. Emitted for each
+    /// balance change within the CellContext.
     Balance {
         balance: Option<Balance>,
-        /// If UtxoContext is bound to a Runtime Account, this
+        /// If CellContext is bound to a Runtime Account, this
         /// field will contain the account id. Otherwise, it will
         /// contain a developer-assigned internal id.
-        id: UtxoContextId,
+        id: CellContextId,
     },
     /// Periodic metrics updates (on-request)
     #[serde(rename_all = "camelCase")]
@@ -284,7 +284,7 @@ pub enum EventKind {
     All,
     Connect,
     Disconnect,
-    UtxoIndexNotEnabled,
+    CellIndexNotEnabled,
     SyncState,
     WalletList,
     WalletStart,
@@ -301,9 +301,9 @@ pub enum EventKind {
     AccountCreate,
     AccountUpdate,
     ServerStatus,
-    UtxoProcStart,
-    UtxoProcStop,
-    UtxoProcError,
+    CellProcStart,
+    CellProcStop,
+    CellProcError,
     DaaScoreChange,
     Pending,
     Reorg,
@@ -323,7 +323,7 @@ impl From<&Events> for EventKind {
 
             Events::Connect { .. } => EventKind::Connect,
             Events::Disconnect { .. } => EventKind::Disconnect,
-            Events::UtxoIndexNotEnabled { .. } => EventKind::UtxoIndexNotEnabled,
+            Events::CellIndexNotEnabled { .. } => EventKind::CellIndexNotEnabled,
             Events::SyncState { .. } => EventKind::SyncState,
             Events::WalletList { .. } => EventKind::WalletList,
             Events::WalletHint { .. } => EventKind::WalletHint,
@@ -339,9 +339,9 @@ impl From<&Events> for EventKind {
             Events::AccountCreate { .. } => EventKind::AccountCreate,
             Events::AccountUpdate { .. } => EventKind::AccountUpdate,
             Events::ServerStatus { .. } => EventKind::ServerStatus,
-            Events::UtxoProcStart => EventKind::UtxoProcStart,
-            Events::UtxoProcStop => EventKind::UtxoProcStop,
-            Events::UtxoProcError { .. } => EventKind::UtxoProcError,
+            Events::CellProcStart => EventKind::CellProcStart,
+            Events::CellProcStop => EventKind::CellProcStop,
+            Events::CellProcError { .. } => EventKind::CellProcError,
             Events::DaaScoreChange { .. } => EventKind::DaaScoreChange,
             Events::Pending { .. } => EventKind::Pending,
             Events::Reorg { .. } => EventKind::Reorg,
@@ -363,7 +363,7 @@ impl FromStr for EventKind {
             "*" => Ok(EventKind::All),
             "connect" => Ok(EventKind::Connect),
             "disconnect" => Ok(EventKind::Disconnect),
-            "utxo-index-not-enabled" => Ok(EventKind::UtxoIndexNotEnabled),
+            "cell-index-not-enabled" => Ok(EventKind::CellIndexNotEnabled),
             "sync-state" => Ok(EventKind::SyncState),
             "wallet-list" => Ok(EventKind::WalletList),
             "wallet-start" => Ok(EventKind::WalletStart),
@@ -380,9 +380,9 @@ impl FromStr for EventKind {
             "account-create" => Ok(EventKind::AccountCreate),
             "account-update" => Ok(EventKind::AccountUpdate),
             "server-status" => Ok(EventKind::ServerStatus),
-            "utxo-proc-start" => Ok(EventKind::UtxoProcStart),
-            "utxo-proc-stop" => Ok(EventKind::UtxoProcStop),
-            "utxo-proc-error" => Ok(EventKind::UtxoProcError),
+            "cell-proc-start" => Ok(EventKind::CellProcStart),
+            "cell-proc-stop" => Ok(EventKind::CellProcStop),
+            "cell-proc-error" => Ok(EventKind::CellProcError),
             "daa-score-change" => Ok(EventKind::DaaScoreChange),
             "pending" => Ok(EventKind::Pending),
             "reorg" => Ok(EventKind::Reorg),
@@ -413,7 +413,7 @@ impl std::fmt::Display for EventKind {
             EventKind::WalletStart => "wallet-start",
             EventKind::Connect => "connect",
             EventKind::Disconnect => "disconnect",
-            EventKind::UtxoIndexNotEnabled => "utxo-index-not-enabled",
+            EventKind::CellIndexNotEnabled => "cell-index-not-enabled",
             EventKind::SyncState => "sync-state",
             EventKind::WalletList => "wallet-list",
             EventKind::WalletHint => "wallet-hint",
@@ -429,9 +429,9 @@ impl std::fmt::Display for EventKind {
             EventKind::AccountCreate => "account-create",
             EventKind::AccountUpdate => "account-update",
             EventKind::ServerStatus => "server-status",
-            EventKind::UtxoProcStart => "utxo-proc-start",
-            EventKind::UtxoProcStop => "utxo-proc-stop",
-            EventKind::UtxoProcError => "utxo-proc-error",
+            EventKind::CellProcStart => "cell-proc-start",
+            EventKind::CellProcStop => "cell-proc-stop",
+            EventKind::CellProcError => "cell-proc-error",
             EventKind::DaaScoreChange => "daa-score-change",
             EventKind::Pending => "pending",
             EventKind::Reorg => "reorg",

@@ -4,7 +4,7 @@ use crate::mempool::{
     tx::RbfPolicy,
     Mempool,
 };
-use spora_consensus_core::tx::{MutableTransaction, Transaction};
+use spora_consensus_core::tx::{CellTx, MutableTransaction};
 use std::sync::Arc;
 
 impl Mempool {
@@ -66,7 +66,7 @@ impl Mempool {
         &mut self,
         transaction: &MutableTransaction,
         rbf_policy: RbfPolicy,
-    ) -> RuleResult<Option<Arc<Transaction>>> {
+    ) -> RuleResult<Option<Arc<CellTx>>> {
         match rbf_policy {
             RbfPolicy::Forbidden => {
                 self.transaction_pool.check_double_spends(transaction)?;

@@ -1,48 +1,23 @@
 //! Conversion of Transaction related types
 
 use crate::{RpcError, RpcResult, RpcTransaction, RpcTransactionInput, RpcTransactionOutput};
-use spora_consensus_core::tx::{Transaction, TransactionInput, TransactionOutput};
+use spora_consensus_core::tx::{cell_out_from_legacy_script_public_key, CellRef, CellTx};
 
 // ----------------------------------------------------------------------------
 // consensus_core to rpc_core
 // ----------------------------------------------------------------------------
 
-impl From<&Transaction> for RpcTransaction {
-    fn from(item: &Transaction) -> Self {
+impl From<&CellTx> for RpcTransaction {
+    fn from(item: &CellTx) -> Self {
         Self {
-            version: item.version,
-            inputs: item.inputs.iter().map(RpcTransactionInput::from).collect(),
-            outputs: item.outputs.iter().map(RpcTransactionOutput::from).collect(),
-            lock_time: item.lock_time,
-            subnetwork_id: item.subnetwork_id.clone(),
-            gas: item.gas,
-            payload: item.payload.clone(),
-            mass: item.mass(),
-            // TODO: Implement a populating process inspired from Sporad\app\rpc\rpccontext\verbosedata.go
-            verbose_data: None,
-        }
-    }
-}
-
-impl From<&TransactionOutput> for RpcTransactionOutput {
-    fn from(item: &TransactionOutput) -> Self {
-        Self {
-            value: item.value,
-            script_public_key: item.script_public_key.clone(),
-            // TODO: Implement a populating process inspired from Sporad\app\rpc\rpccontext\verbosedata.go
-            verbose_data: None,
-        }
-    }
-}
-
-impl From<&TransactionInput> for RpcTransactionInput {
-    fn from(item: &TransactionInput) -> Self {
-        Self {
-            previous_outpoint: item.previous_outpoint.into(),
-            signature_script: item.signature_script.clone(),
-            sequence: item.sequence,
-            sig_op_count: item.sig_op_count,
-            // TODO: Implement a populating process inspired from Sporad\app\rpc\rpccontext\verbosedata.go
+            version: item.ver,
+            inputs: RpcTransactionInput::from_cell_refs(&item.inputs, &item.witnesses),
+            outputs: RpcTransactionOutput::from_cell_outputs(&item.outputs, &item.outputs_data),
+            lock_time: 0,
+            subnetwork_id: if item.is_coinbase() { crate::RpcSubnetworkId::coinbase() } else { crate::RpcSubnetworkId::native() },
+            gas: 0,
+            payload: item.payload().map(ToOwned::to_owned).unwrap_or_default(),
+            mass: item.storage_mass(),
             verbose_data: None,
         }
     }
@@ -52,39 +27,97 @@ impl From<&TransactionInput> for RpcTransactionInput {
 // rpc_core to consensus_core
 // ----------------------------------------------------------------------------
 
-impl TryFrom<RpcTransaction> for Transaction {
+impl TryFrom<RpcTransaction> for CellTx {
     type Error = RpcError;
+
     fn try_from(item: RpcTransaction) -> RpcResult<Self> {
-        let transaction = Transaction::new(
-            item.version,
-            item.inputs
-                .into_iter()
-                .map(spora_consensus_core::tx::TransactionInput::try_from)
-                .collect::<RpcResult<Vec<spora_consensus_core::tx::TransactionInput>>>()?,
-            item.outputs
-                .into_iter()
-                .map(spora_consensus_core::tx::TransactionOutput::try_from)
-                .collect::<RpcResult<Vec<spora_consensus_core::tx::TransactionOutput>>>()?,
-            item.lock_time,
-            item.subnetwork_id.clone(),
-            item.gas,
-            item.payload.clone(),
+        let inputs: Vec<CellRef> = item
+            .inputs
+            .iter()
+            .map(|input| CellRef::new(input.previous_outpoint.into(), input.since.unwrap_or(input.sequence)))
+            .collect();
+
+        let mut witnesses: Vec<Vec<u8>> = item
+            .inputs
+            .into_iter()
+            .map(|input| input.witness.unwrap_or(input.signature_script))
+            .collect();
+
+        let outputs: Vec<_> = item
+            .outputs
+            .iter()
+            .map(|output| cell_out_from_legacy_script_public_key(output.capacity.unwrap_or(output.value), &output.script_public_key))
+            .collect();
+
+        let mut outputs_data = vec![vec![]; outputs.len()];
+        if inputs.is_empty() && !item.payload.is_empty() {
+            if let Some(first_output_data) = outputs_data.first_mut() {
+                *first_output_data = item.payload.clone();
+            } else {
+                witnesses = vec![item.payload.clone()];
+            }
+        }
+
+        Ok(CellTx { ver: item.version, inputs, deps: vec![], header_deps: vec![], outputs, outputs_data, witnesses })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use spora_consensus_core::tx::{CellOut, OutPoint, ScriptRef};
+
+    #[test]
+    fn cell_tx_roundtrip_preserves_canonical_fields() {
+        let tx = CellTx::new(
+            vec![CellRef::new(OutPoint::new([0x11; 32], 2), 42)],
+            vec![],
+            vec![CellOut {
+                lock: ScriptRef::new([0x22; 32], 1, vec![0xaa, 0xbb]),
+                type_: Some(ScriptRef::new([0x33; 32], 2, vec![0xcc])),
+                capacity: 1_337,
+            }],
+            vec![vec![1, 2, 3, 4]],
+            vec![vec![0xde, 0xad]],
+        )
+        .unwrap();
+
+        let rpc_tx = RpcTransaction::from(&tx);
+        assert_eq!(rpc_tx.outputs[0].data_bytes, Some(4));
+        assert_eq!(rpc_tx.outputs[0].data_hash, Some(*blake3::hash(&tx.outputs_data[0]).as_bytes()));
+
+        let restored = CellTx::try_from(rpc_tx).expect("rpc tx converts back into CellTx");
+
+        assert_eq!(restored.ver, tx.ver);
+        assert_eq!(restored.inputs, tx.inputs);
+        assert_eq!(restored.witnesses, tx.witnesses);
+        assert_eq!(restored.outputs.len(), 1);
+        assert_eq!(restored.outputs[0].capacity, tx.outputs[0].capacity);
+        assert_eq!(restored.outputs[0].lock.code_hash, tx.outputs[0].lock.hash());
+        assert_eq!(
+            restored.outputs[0].type_.as_ref().map(|script| script.code_hash),
+            tx.outputs[0].type_.as_ref().map(|script| script.hash())
         );
-        transaction.set_mass(item.mass);
-        Ok(transaction)
+        assert_eq!(restored.outputs_data, vec![Vec::<u8>::new()]);
     }
-}
 
-impl TryFrom<RpcTransactionOutput> for TransactionOutput {
-    type Error = RpcError;
-    fn try_from(item: RpcTransactionOutput) -> RpcResult<Self> {
-        Ok(Self::new(item.value, item.script_public_key))
-    }
-}
+    #[test]
+    fn coinbase_payload_roundtrip_restores_first_output_data() {
+        let payload = vec![9, 8, 7, 6];
+        let tx = CellTx::new(
+            vec![],
+            vec![],
+            vec![CellOut { lock: ScriptRef::new([0x44; 32], 0, vec![]), type_: None, capacity: 5_000 }],
+            vec![payload.clone()],
+            vec![],
+        )
+        .unwrap();
 
-impl TryFrom<RpcTransactionInput> for TransactionInput {
-    type Error = RpcError;
-    fn try_from(item: RpcTransactionInput) -> RpcResult<Self> {
-        Ok(Self::new(item.previous_outpoint.into(), item.signature_script, item.sequence, item.sig_op_count))
+        let rpc_tx = RpcTransaction::from(&tx);
+        assert_eq!(rpc_tx.payload, payload);
+
+        let restored = CellTx::try_from(rpc_tx).expect("coinbase rpc tx converts back into CellTx");
+        assert!(restored.is_coinbase());
+        assert_eq!(restored.outputs_data, vec![payload]);
     }
 }

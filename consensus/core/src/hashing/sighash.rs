@@ -3,7 +3,8 @@ use spora_hashes::{Hash, Hasher, HasherBase, SchnorrSigningHash, TransactionSign
 use std::cell::Cell;
 use std::sync::Arc;
 
-use crate::tx::{ScriptPublicKey, Transaction, TransactionOutpoint, TransactionOutput, VerifiableTransaction};
+use crate::cell_metadata::{parse_cell_metadata_placeholder_script_public_key, PlaceholderCellMetadata};
+use crate::tx::{CellOut, CellTx, ScriptPublicKey, TransactionOutpoint, TransactionOutput, VerifiableTransaction};
 
 use super::{sighash_type::SigHashType, HasherExtensions};
 
@@ -137,64 +138,66 @@ impl SigHashReusedValues for SigHashReusedValuesSync {
     }
 }
 
-pub fn previous_outputs_hash(tx: &Transaction, hash_type: SigHashType, reused_values: &impl SigHashReusedValues) -> Hash {
+pub fn previous_outputs_hash(tx: &CellTx, hash_type: SigHashType, reused_values: &impl SigHashReusedValues) -> Hash {
     if hash_type.is_sighash_anyone_can_pay() {
         return ZERO_HASH;
     }
     let hash = || {
         let mut hasher = TransactionSigningHash::new();
         for input in tx.inputs.iter() {
-            hasher.update(input.previous_outpoint.transaction_id.as_bytes());
-            hasher.write_u32(input.previous_outpoint.index);
+            hasher.update(input.out_point.tx_hash);
+            hasher.write_u32(input.out_point.index);
         }
         hasher.finalize()
     };
     reused_values.previous_outputs_hash(hash)
 }
 
-pub fn sequences_hash(tx: &Transaction, hash_type: SigHashType, reused_values: &impl SigHashReusedValues) -> Hash {
+pub fn sequences_hash(tx: &CellTx, hash_type: SigHashType, reused_values: &impl SigHashReusedValues) -> Hash {
     if hash_type.is_sighash_single() || hash_type.is_sighash_anyone_can_pay() || hash_type.is_sighash_none() {
         return ZERO_HASH;
     }
     let hash = || {
         let mut hasher = TransactionSigningHash::new();
         for input in tx.inputs.iter() {
-            hasher.write_u64(input.sequence);
+            hasher.write_u64(input.since);
         }
         hasher.finalize()
     };
     reused_values.sequences_hash(hash)
 }
 
-pub fn sig_op_counts_hash(tx: &Transaction, hash_type: SigHashType, reused_values: &impl SigHashReusedValues) -> Hash {
+pub fn sig_op_counts_hash(tx: &CellTx, hash_type: SigHashType, reused_values: &impl SigHashReusedValues) -> Hash {
     if hash_type.is_sighash_anyone_can_pay() {
         return ZERO_HASH;
     }
 
     let hash = || {
         let mut hasher = TransactionSigningHash::new();
-        for input in tx.inputs.iter() {
-            hasher.write_u8(input.sig_op_count);
+        // In Cell model, sig_op_count is always 1 per input (implicit)
+        for _input in tx.inputs.iter() {
+            hasher.write_u8(1);
         }
         hasher.finalize()
     };
     reused_values.sig_op_counts_hash(hash)
 }
 
-pub fn payload_hash(tx: &Transaction, reused_values: &impl SigHashReusedValues) -> Hash {
-    if tx.subnetwork_id.is_native() && tx.payload.is_empty() {
+pub fn payload_hash(tx: &CellTx, reused_values: &impl SigHashReusedValues) -> Hash {
+    let payload = tx.payload().unwrap_or_default();
+    if !tx.is_coinbase() && payload.is_empty() {
         return ZERO_HASH;
     }
 
     let hash = || {
         let mut hasher = TransactionSigningHash::new();
-        hasher.write_var_bytes(&tx.payload);
+        hasher.write_var_bytes(payload);
         hasher.finalize()
     };
     reused_values.payload_hash(hash)
 }
 
-pub fn outputs_hash(tx: &Transaction, hash_type: SigHashType, reused_values: &impl SigHashReusedValues, input_index: usize) -> Hash {
+pub fn outputs_hash(tx: &CellTx, hash_type: SigHashType, reused_values: &impl SigHashReusedValues, input_index: usize) -> Hash {
     if hash_type.is_sighash_none() {
         return ZERO_HASH;
     }
@@ -206,13 +209,14 @@ pub fn outputs_hash(tx: &Transaction, hash_type: SigHashType, reused_values: &im
         }
 
         let mut hasher = TransactionSigningHash::new();
-        hash_output(&mut hasher, &tx.outputs[input_index]);
+        hash_cell_output(&mut hasher, &tx.outputs[input_index], tx.outputs_data.get(input_index).map(Vec::as_slice).unwrap_or_default());
         return hasher.finalize();
     }
     let hash = || {
         let mut hasher = TransactionSigningHash::new();
-        for output in tx.outputs.iter() {
-            hash_output(&mut hasher, output);
+        for (i, output) in tx.outputs.iter().enumerate() {
+            let data = tx.outputs_data.get(i).map(Vec::as_slice).unwrap_or_default();
+            hash_cell_output(&mut hasher, output, data);
         }
         hasher.finalize()
     };
@@ -221,18 +225,57 @@ pub fn outputs_hash(tx: &Transaction, hash_type: SigHashType, reused_values: &im
 }
 
 pub fn hash_outpoint(hasher: &mut impl Hasher, outpoint: TransactionOutpoint) {
-    hasher.update(outpoint.transaction_id);
+    hasher.update(outpoint.tx_hash);
     hasher.write_u32(outpoint.index);
 }
 
 pub fn hash_output(hasher: &mut impl Hasher, output: &TransactionOutput) {
     hasher.write_u64(output.value);
-    hash_script_public_key(hasher, &output.script_public_key);
+    hash_script_public_key_or_metadata(hasher, &output.script_public_key);
+}
+
+pub fn hash_cell_output(hasher: &mut impl Hasher, output: &CellOut, data: &[u8]) {
+    hasher.write_u64(output.capacity);
+    // Hash lock script components
+    hasher.update(output.lock.code_hash);
+    hasher.write_u8(output.lock.hash_type);
+    hasher.write_var_bytes(&output.lock.args);
+    // Hash type script presence and components
+    hasher.write_bool(output.type_.is_some());
+    if let Some(ref type_script) = output.type_ {
+        hasher.update(type_script.code_hash);
+        hasher.write_u8(type_script.hash_type);
+        hasher.write_var_bytes(&type_script.args);
+    }
+    // Hash output data
+    hasher.write_var_bytes(data);
 }
 
 pub fn hash_script_public_key(hasher: &mut impl Hasher, script_public_key: &ScriptPublicKey) {
     hasher.write_u16(script_public_key.version());
     hasher.write_var_bytes(script_public_key.script());
+}
+
+fn hash_placeholder_cell_metadata(hasher: &mut impl Hasher, metadata: &PlaceholderCellMetadata) {
+    hasher.update(metadata.lock_hash).write_bool(metadata.type_hash.is_some());
+    if let Some(type_hash) = metadata.type_hash {
+        hasher.update(type_hash);
+    }
+    hasher.update(metadata.data_hash).write_u64(metadata.data_bytes);
+}
+
+fn hash_script_public_key_or_metadata(hasher: &mut impl Hasher, script_public_key: &ScriptPublicKey) {
+    if let Some(metadata) = parse_cell_metadata_placeholder_script_public_key(script_public_key) {
+        hash_placeholder_cell_metadata(hasher, &metadata);
+    } else {
+        hash_script_public_key(hasher, script_public_key);
+    }
+}
+
+fn real_signing_entry<'a>(_verifiable_tx: &'a impl VerifiableTransaction, _input_index: usize) -> Option<&'a crate::tx::CellEntry> {
+    // CellMeta (aka CellEntry) always carries metadata, so there are no "real script" entries.
+    // All signing now goes through the cell_metadata path.
+    None
 }
 
 pub fn calc_schnorr_signature_hash(
@@ -241,24 +284,42 @@ pub fn calc_schnorr_signature_hash(
     hash_type: SigHashType,
     reused_values: &impl SigHashReusedValues,
 ) -> Hash {
-    let input = verifiable_tx.populated_input(input_index);
     let tx = verifiable_tx.tx();
+    let input = &verifiable_tx.inputs()[input_index];
     let mut hasher = SchnorrSigningHash::new();
     hasher
-        .write_u16(tx.version)
+        .write_u16(tx.ver)
         .update(previous_outputs_hash(tx, hash_type, reused_values))
         .update(sequences_hash(tx, hash_type, reused_values))
         .update(sig_op_counts_hash(tx, hash_type, reused_values));
-    hash_outpoint(&mut hasher, input.0.previous_outpoint);
-    hash_script_public_key(&mut hasher, &input.1.script_public_key);
+    hash_outpoint(&mut hasher, input.out_point);
+    if let Some(entry) = real_signing_entry(verifiable_tx, input_index) {
+        // This branch is now unreachable since CellMeta always has metadata
+        let metadata = entry.embedded_cell_metadata().expect("CellMeta always has metadata");
+        hash_placeholder_cell_metadata(&mut hasher, &metadata);
+        hasher.write_u64(entry.capacity);
+    } else if let Some(metadata) = verifiable_tx.cell_metadata(input_index) {
+        let placeholder = PlaceholderCellMetadata {
+            lock_hash: metadata.lock_hash,
+            type_hash: metadata.type_hash,
+            data_hash: metadata.data_hash,
+            data_bytes: metadata.data_bytes,
+        };
+        hash_placeholder_cell_metadata(&mut hasher, &placeholder);
+        hasher.write_u64(metadata.capacity);
+    } else {
+        let entry = verifiable_tx
+            .cell_entry(input_index)
+            .expect("calc_schnorr_signature_hash requires either canonical cell metadata or a populated cell entry");
+        let metadata = entry.embedded_cell_metadata().expect("CellMeta always has metadata");
+        hash_placeholder_cell_metadata(&mut hasher, &metadata);
+        hasher.write_u64(entry.capacity);
+    }
     hasher
-        .write_u64(input.1.amount)
-        .write_u64(input.0.sequence)
-        .write_u8(input.0.sig_op_count)
+        .write_u64(input.since)
+        .write_u8(1) // sig_op_count is implicit 1 in Cell model
         .update(outputs_hash(tx, hash_type, reused_values, input_index))
-        .write_u64(tx.lock_time)
-        .update(&tx.subnetwork_id)
-        .write_u64(tx.gas)
+        .write_u64(0) // lock_time: no equivalent in CellTx
         .update(payload_hash(tx, reused_values))
         .write_u8(hash_type.to_u8());
     hasher.finalize()
@@ -283,13 +344,15 @@ mod tests {
     use smallvec::SmallVec;
 
     use crate::{
+        cell_metadata::CellMetadata,
         hashing::sighash_type::{SIG_HASH_ALL, SIG_HASH_ANY_ONE_CAN_PAY, SIG_HASH_NONE, SIG_HASH_SINGLE},
         subnets::{SubnetworkId, SUBNETWORK_ID_NATIVE},
-        tx::{PopulatedTransaction, Transaction, TransactionId, TransactionInput, UtxoEntry},
+        tx::{cell_meta_from_legacy_output, cell_tx_from_legacy_transaction, outpoint_from_id, MutableTransaction, PopulatedTransaction, Transaction, TransactionId, TransactionInput},
     };
 
     use super::*;
 
+    #[allow(deprecated)]
     #[test]
     fn test_signature_hash() {
         // TODO: Copy all sighash tests from go sporad.
@@ -302,23 +365,23 @@ mod tests {
         faster_hex::hex_decode("20fcef4c106cf11135bbd70f02a726a92162d2fb8b22f0469126f800862ad884e8ac".as_bytes(), &mut bytes).unwrap();
         let script_pub_key_2 = SmallVec::from_vec(bytes.to_vec());
 
-        let native_tx = Transaction::new(
+        let native_tx_legacy = Transaction::new(
             0,
             vec![
                 TransactionInput {
-                    previous_outpoint: TransactionOutpoint { transaction_id: prev_tx_id, index: 0 },
+                    previous_outpoint: outpoint_from_id(prev_tx_id, 0),
                     signature_script: vec![],
                     sequence: 0,
                     sig_op_count: 0,
                 },
                 TransactionInput {
-                    previous_outpoint: TransactionOutpoint { transaction_id: prev_tx_id, index: 1 },
+                    previous_outpoint: outpoint_from_id(prev_tx_id, 1),
                     signature_script: vec![],
                     sequence: 1,
                     sig_op_count: 0,
                 },
                 TransactionInput {
-                    previous_outpoint: TransactionOutpoint { transaction_id: prev_tx_id, index: 2 },
+                    previous_outpoint: outpoint_from_id(prev_tx_id, 2),
                     signature_script: vec![],
                     sequence: 2,
                     sig_op_count: 0,
@@ -333,56 +396,28 @@ mod tests {
             0,
             vec![],
         );
+        let native_tx = cell_tx_from_legacy_transaction(&native_tx_legacy);
 
         let native_populated_tx = PopulatedTransaction::new(
             &native_tx,
             vec![
-                UtxoEntry {
-                    amount: 100,
-                    script_public_key: ScriptPublicKey::new(0, script_pub_key_1.clone()),
-                    block_daa_score: 0,
-                    is_coinbase: false,
-                },
-                UtxoEntry {
-                    amount: 200,
-                    script_public_key: ScriptPublicKey::new(0, script_pub_key_2.clone()),
-                    block_daa_score: 0,
-                    is_coinbase: false,
-                },
-                UtxoEntry {
-                    amount: 300,
-                    script_public_key: ScriptPublicKey::new(0, script_pub_key_2.clone()),
-                    block_daa_score: 0,
-                    is_coinbase: false,
-                },
+                cell_meta_from_legacy_output(100, &ScriptPublicKey::new(0, script_pub_key_1.clone()), 0, false),
+                cell_meta_from_legacy_output(200, &ScriptPublicKey::new(0, script_pub_key_2.clone()), 0, false),
+                cell_meta_from_legacy_output(300, &ScriptPublicKey::new(0, script_pub_key_2.clone()), 0, false),
             ],
         );
 
-        let mut subnetwork_tx = native_tx.clone();
-        subnetwork_tx.subnetwork_id = SubnetworkId::from_bytes([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
-        subnetwork_tx.gas = 250;
-        subnetwork_tx.payload = vec![10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20];
+        let mut subnetwork_tx_legacy = native_tx_legacy.clone();
+        subnetwork_tx_legacy.subnetwork_id = SubnetworkId::from_bytes([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+        subnetwork_tx_legacy.gas = 250;
+        subnetwork_tx_legacy.payload = vec![10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20];
+        let subnetwork_tx = cell_tx_from_legacy_transaction(&subnetwork_tx_legacy);
         let subnetwork_populated_tx = PopulatedTransaction::new(
             &subnetwork_tx,
             vec![
-                UtxoEntry {
-                    amount: 100,
-                    script_public_key: ScriptPublicKey::new(0, script_pub_key_1),
-                    block_daa_score: 0,
-                    is_coinbase: false,
-                },
-                UtxoEntry {
-                    amount: 200,
-                    script_public_key: ScriptPublicKey::new(0, script_pub_key_2.clone()),
-                    block_daa_score: 0,
-                    is_coinbase: false,
-                },
-                UtxoEntry {
-                    amount: 300,
-                    script_public_key: ScriptPublicKey::new(0, script_pub_key_2),
-                    block_daa_score: 0,
-                    is_coinbase: false,
-                },
+                cell_meta_from_legacy_output(100, &ScriptPublicKey::new(0, script_pub_key_1), 0, false),
+                cell_meta_from_legacy_output(200, &ScriptPublicKey::new(0, script_pub_key_2.clone()), 0, false),
+                cell_meta_from_legacy_output(300, &ScriptPublicKey::new(0, script_pub_key_2), 0, false),
             ],
         );
 
@@ -620,148 +655,134 @@ mod tests {
             match test.action {
                 ModifyAction::NoAction => {}
                 ModifyAction::Output(i) => {
-                    tx.outputs[i].value = 100;
+                    tx.outputs[i].capacity = 100;
                 }
                 ModifyAction::Input(i) => {
-                    tx.inputs[i].previous_outpoint.index = 2;
+                    tx.inputs[i].out_point.index = 2;
                 }
                 ModifyAction::AmountSpent(i) => {
-                    entries[i].amount = 666;
+                    entries[i].capacity = 666;
                 }
                 ModifyAction::PrevScriptPublicKey(i) => {
-                    let mut script_vec = entries[i].script_public_key.script().to_vec();
-                    script_vec.append(&mut vec![1, 2, 3]);
-                    entries[i].script_public_key = ScriptPublicKey::new(entries[i].script_public_key.version(), script_vec.into());
+                    // Simulate changing the script by modifying the lock_hash directly
+                    entries[i].lock_hash = [0xFF; 32];
                 }
                 ModifyAction::Sequence(i) => {
-                    tx.inputs[i].sequence = 12345;
+                    tx.inputs[i].since = 12345;
                 }
-                ModifyAction::Payload => tx.payload = vec![6, 6, 6, 4, 2, 0, 1, 3, 3, 7],
-                ModifyAction::Gas => tx.gas = 1234,
-                ModifyAction::SubnetworkId => {
-                    tx.subnetwork_id = SubnetworkId::from_bytes([6, 6, 6, 4, 2, 0, 1, 3, 3, 7, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+                ModifyAction::Payload => {
+                    // In Cell model, modify outputs_data instead of payload
+                    if !tx.outputs_data.is_empty() {
+                        tx.outputs_data[0] = vec![6, 6, 6, 4, 2, 0, 1, 3, 3, 7];
+                    }
                 }
+                ModifyAction::Gas => {} // No equivalent in CellTx
+                ModifyAction::SubnetworkId => {} // No equivalent in CellTx
             }
             let populated_tx = PopulatedTransaction::new(&tx, entries);
             let reused_values = SigHashReusedValuesUnsync::new();
             let actual_hash = calc_schnorr_signature_hash(&populated_tx, test.input_index, test.hash_type, &reused_values);
             expected_hashs.push((test.name, actual_hash));
         }
-        insta::assert_debug_snapshot!(expected_hashs, @r#"
-        [
-            (
-                "native-all-0",
-                2496bde1dabf3af3d2057cc77260d4e499935dcb80628b130ee536db6c1f65d9,
-            ),
-            (
-                "native-all-0-modify-input-1",
-                8511a615713650b6fc026d77be22e5dac230660ad6b722609ef54565306717c8,
-            ),
-            (
-                "native-all-0-modify-output-1",
-                a5e29a32fd70c8a5d50a48e3ef7542f6eb5eab974e63afba8972f200078e3c83,
-            ),
-            (
-                "native-all-0-modify-sequence-1",
-                26ab27c86c04c72299b12a2882fbd1de8f460518afec77046297cf72de6fddd5,
-            ),
-            (
-                "native-all-anyonecanpay-0",
-                b4cf020d9d353f9e251176243628028136e03042acde8b97c095f449959a3b9d,
-            ),
-            (
-                "native-all-anyonecanpay-0-modify-input-0",
-                e06fe198aa43741d985e48cad5b3ccdc775c7fbde552867553f0610c87d6bc4a,
-            ),
-            (
-                "native-all-anyonecanpay-0-modify-input-1",
-                b4cf020d9d353f9e251176243628028136e03042acde8b97c095f449959a3b9d,
-            ),
-            (
-                "native-all-anyonecanpay-0-modify-sequence",
-                b4cf020d9d353f9e251176243628028136e03042acde8b97c095f449959a3b9d,
-            ),
-            (
-                "native-none-0",
-                322aa93591edffb7a5e407bad8ebf7d7d151e28a83a62177dd7b8f776cc7ed22,
-            ),
-            (
-                "native-none-0-modify-output-1",
-                322aa93591edffb7a5e407bad8ebf7d7d151e28a83a62177dd7b8f776cc7ed22,
-            ),
-            (
-                "native-none-0-modify-sequence-0",
-                6e619e4771af34a2a13332b26e2ccfe79b90f215dbe37a8d5a9f52d45530aeb7,
-            ),
-            (
-                "native-none-0-modify-sequence-1",
-                322aa93591edffb7a5e407bad8ebf7d7d151e28a83a62177dd7b8f776cc7ed22,
-            ),
-            (
-                "native-none-anyonecanpay-0",
-                8c33dc5e5e1837ac150b7d761be4389afd706529fcc245366e5e8d160000ff87,
-            ),
-            (
-                "native-none-anyonecanpay-0-modify-amount-spent",
-                f999c2a7c9c4750e1fc625a921ae4163da3d50a96d0b5db53862448d2905124a,
-            ),
-            (
-                "native-none-anyonecanpay-0-modify-script-public-key",
-                7cf976bb4175a61a94d01ae3005fc644d1c29370c0ae3110b1397bb722ad15c8,
-            ),
-            (
-                "native-single-0",
-                edd5f0bb4011936e246e959e5537afbbca024ef81e00bdb880232090d77f8b74,
-            ),
-            (
-                "native-single-0-modify-output-1",
-                edd5f0bb4011936e246e959e5537afbbca024ef81e00bdb880232090d77f8b74,
-            ),
-            (
-                "native-single-0-modify-sequence-0",
-                ded7fe3f54cd163e1c8f9f695ebc89d89fa22935148824d68b5fa4682fcca98d,
-            ),
-            (
-                "native-single-0-modify-sequence-1",
-                edd5f0bb4011936e246e959e5537afbbca024ef81e00bdb880232090d77f8b74,
-            ),
-            (
-                "native-single-2-no-corresponding-output",
-                92fe49f75292d358d1ece29976d9b7bd3077bb91f85e76cafe3537707e812d31,
-            ),
-            (
-                "native-single-2-no-corresponding-output-modify-output-1",
-                92fe49f75292d358d1ece29976d9b7bd3077bb91f85e76cafe3537707e812d31,
-            ),
-            (
-                "native-single-anyonecanpay-0",
-                b56d9aabf3f41d68d0d66cd64ed3210d3d64a9b84d36bfd72d2dd31b9195d8a2,
-            ),
-            (
-                "native-single-anyonecanpay-2-no-corresponding-output",
-                5e503c096052bda3318b9f424e9354a23493dc1a2d413590b68fc4402082372f,
-            ),
-            (
-                "native-all-0-modify-payload",
-                14a60aa00cd2bd03e304ab9bf1f86fade2a47e25cb8d4833b682136e15e47d93,
-            ),
-            (
-                "subnetwork-all-0",
-                7190a8e319375cb6a6af4f4532b69846452eeb7db344836c282d92ad747e4898,
-            ),
-            (
-                "subnetwork-all-modify-payload",
-                235cde3d553c6eea0e88c45010409fdbae9378b95b7f5366a3c0df0189031e74,
-            ),
-            (
-                "subnetwork-all-modify-gas",
-                5cad256a1e01e63347a72eb41b60ed340281a4a596ba364691a48d4b3dd30212,
-            ),
-            (
-                "subnetwork-all-subnetwork-id",
-                10dcfa634e5f1515d89e29592d18d0c8a2d4d358f418fe01a2d6148280c3425c,
-            ),
-        ]
-        "#)
+        insta::assert_debug_snapshot!(expected_hashs)
+    }
+
+    #[allow(deprecated)]
+    #[test]
+    fn test_signature_hash_resolved_metadata_overrides_embedded() {
+        // When resolved_cell_metadata is explicitly set on MutableTransaction,
+        // it overrides the auto-derived metadata from CellMeta.
+        let prev_tx_id = TransactionId::from_str("880eb9819a31821d9d2399e2f35e2433b72637e393d71ecc9b8d0250f49153c3").unwrap();
+        let tx_legacy = Transaction::new(
+            0,
+            vec![TransactionInput {
+                previous_outpoint: outpoint_from_id(prev_tx_id, 0),
+                signature_script: vec![],
+                sequence: 0,
+                sig_op_count: 0,
+            }],
+            vec![TransactionOutput { value: 100, script_public_key: ScriptPublicKey::from_vec(0, vec![0x20; 34]) }],
+            0,
+            SUBNETWORK_ID_NATIVE,
+            0,
+            vec![],
+        );
+        let tx = cell_tx_from_legacy_transaction(&tx_legacy);
+
+        let entry = cell_meta_from_legacy_output(42, &ScriptPublicKey::from_vec(0, vec![0x21; 34]), 7, false);
+
+        let baseline = PopulatedTransaction::new(&tx, vec![entry.clone()]);
+        let baseline_hash = calc_schnorr_signature_hash(&baseline, 0, SIG_HASH_ALL, &SigHashReusedValuesUnsync::new());
+
+        // Override resolved metadata with different lock_hash/type_hash/data_hash/data_bytes
+        let mut mutable = MutableTransaction::with_entries(tx.clone(), vec![entry]);
+        mutable.resolved_cell_metadata[0] = Some(CellMetadata {
+            out_point: tx.inputs[0].out_point,
+            capacity: 42,
+            data_bytes: 128,
+            lock_hash: [0x11; 32],
+            type_hash: Some([0x22; 32]),
+            data_hash: [0x33; 32],
+            block_daa_score: 7,
+            is_cellbase: false,
+            block_hash: Hash::default(),
+            lock_code_hash: None,
+            type_code_hash: None,
+            lock_script: None,
+            type_script: None,
+            data: None,
+        });
+        let metadata_hash = calc_schnorr_signature_hash(&mutable.as_verifiable(), 0, SIG_HASH_ALL, &SigHashReusedValuesUnsync::new());
+
+        // Resolved metadata has different fields, so the hash must differ
+        assert_ne!(baseline_hash, metadata_hash);
+    }
+
+    #[allow(deprecated)]
+    #[test]
+    fn test_signature_hash_uses_metadata_for_placeholder_entries() {
+        let prev_tx_id = TransactionId::from_str("880eb9819a31821d9d2399e2f35e2433b72637e393d71ecc9b8d0250f49153c3").unwrap();
+        let tx_legacy = Transaction::new(
+            0,
+            vec![TransactionInput {
+                previous_outpoint: outpoint_from_id(prev_tx_id, 0),
+                signature_script: vec![],
+                sequence: 0,
+                sig_op_count: 0,
+            }],
+            vec![TransactionOutput { value: 100, script_public_key: ScriptPublicKey::from_vec(0, vec![0x20; 34]) }],
+            0,
+            SUBNETWORK_ID_NATIVE,
+            0,
+            vec![],
+        );
+        let tx = cell_tx_from_legacy_transaction(&tx_legacy);
+
+        let metadata = CellMetadata {
+            out_point: tx.inputs[0].out_point,
+            capacity: 500,
+            data_bytes: 64,
+            lock_hash: [0x44; 32],
+            type_hash: Some([0x55; 32]),
+            data_hash: [0x66; 32],
+            block_daa_score: 11,
+            is_cellbase: false,
+            block_hash: Hash::default(),
+            lock_code_hash: None,
+            type_code_hash: None,
+            lock_script: None,
+            type_script: None,
+            data: None,
+        };
+
+        let placeholder_entry = metadata.to_placeholder_cell_entry();
+        let placeholder_tx = PopulatedTransaction::new(&tx, vec![placeholder_entry.clone()]);
+        let placeholder_hash = calc_schnorr_signature_hash(&placeholder_tx, 0, SIG_HASH_ALL, &SigHashReusedValuesUnsync::new());
+
+        let mut resolved = MutableTransaction::with_entries(tx, vec![placeholder_entry]);
+        resolved.resolved_cell_metadata[0] = Some(metadata);
+        let resolved_hash = calc_schnorr_signature_hash(&resolved.as_verifiable(), 0, SIG_HASH_ALL, &SigHashReusedValuesUnsync::new());
+
+        assert_eq!(placeholder_hash, resolved_hash);
     }
 }

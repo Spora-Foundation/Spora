@@ -9,7 +9,6 @@ use futures::future::{join_all, select, try_join_all, Either};
 use spora_consensus_core::{
     api::BlockValidationFuture,
     block::Block,
-    cell_diff::CellMeta,
     header::Header,
     pruning::{PruningPointProof, PruningPointsList, PruningProofMetadata},
     BlockHashSet,
@@ -23,7 +22,7 @@ use spora_p2p_lib::{
     dequeue_with_timeout, make_message,
     pb::{
         sporad_message::Payload, RequestAntipastMessage, RequestHeadersMessage, RequestIbdBlocksMessage,
-        RequestPruningPointAndItsAnticoneMessage, RequestPruningPointProofMessage, RequestPruningPointUtxoSetMessage,
+        RequestPruningPointAndItsAnticoneMessage, RequestPruningPointCellSetMessage, RequestPruningPointProofMessage,
     },
     IncomingRoute, Router,
 };
@@ -189,20 +188,13 @@ impl IbdFlow {
         }
 
         let hst_header = consensus.async_get_header(consensus.async_get_headers_selected_tip().await).await.unwrap();
-        // [Crescendo]: use the post crescendo pruning depth depending on hst's DAA score.
-        // Having a shorter depth for this condition for the fork transition period (if hst is shortly before activation)
-        // is negligible since there are other conditions required for activating an headers proof IBD. The important
-        // thing is that we eventually adjust to the longer period.
-        let pruning_depth = self.ctx.config.pruning_depth().get(hst_header.daa_score);
+        let pruning_depth = self.ctx.config.pruning_depth();
         if relay_header.blue_score >= hst_header.blue_score + pruning_depth && relay_header.blue_work > hst_header.blue_work {
-            // [Crescendo]: switch to the new *shorter* finality duration only after sufficient time has passed
-            // since activation (measured via the new *larger* finality depth).
             // Note: these are not critical execution paths so such estimation heuristics are completely ok in this context.
             let finality_duration_in_milliseconds = self
                 .ctx
                 .config
-                .finality_duration_in_milliseconds()
-                .get(hst_header.daa_score.saturating_sub(self.ctx.config.finality_depth().upper_bound()));
+                .finality_duration_in_milliseconds();
             if unix_now() > consensus.async_creation_timestamp().await + finality_duration_in_milliseconds {
                 let fp = consensus.async_finality_point().await;
                 let fp_ts = consensus.async_get_header(fp).await?.timestamp;
@@ -503,11 +495,11 @@ staging selected tip ({}) is too small or negative. Aborting IBD...",
     }
 
     async fn sync_pruning_point_cellset(&mut self, consensus: &ConsensusProxy, pruning_point: Hash) -> Result<(), ProtocolError> {
-        // Protocol message still uses UTXO naming for backward compatibility
+        // Protocol message still uses legacy transaction-output naming for backward compatibility
         self.router
             .enqueue(make_message!(
-                Payload::RequestPruningPointUtxoSet,
-                RequestPruningPointUtxoSetMessage { pruning_point_hash: Some(pruning_point.into()) }
+                Payload::RequestPruningPointCellSet,
+                RequestPruningPointCellSetMessage { pruning_point_hash: Some(pruning_point.into()) }
             ))
             .await?;
 

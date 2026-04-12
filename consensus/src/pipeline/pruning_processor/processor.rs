@@ -1,4 +1,9 @@
-//! TODO: module comment about locking safety and consistency of various pruning stores
+//! Pruning processor for advancing the pruning point and deleting historical block data.
+//!
+//! In the Cell model there is no separate pruning-time cell set to advance. Before
+//! historical `cell_roots` / `cell_diffs` are deleted, this processor verifies that
+//! selected-chain Cell state metadata is continuous up to the new pruning point and
+//! that the new pruning point header commits to the persisted cell root.
 
 use crate::{
     consensus::{
@@ -32,7 +37,6 @@ use spora_consensus_core::{
     blockhash::ORIGIN,
     blockstatus::BlockStatus::StatusHeaderOnly,
     config::Config,
-    muhash::MuHashExtensions,
     pruning::{PruningPointProof, PruningPointTrustedData},
     trusted::ExternalGhostdagData,
     BlockHashMap, BlockHashSet, BlockLevel,
@@ -41,7 +45,6 @@ use spora_consensusmanager::SessionLock;
 use spora_core::{debug, info, trace, warn};
 use spora_database::prelude::{BatchDbWriter, MemoryWriter, StoreResultExtensions, DB};
 use spora_hashes::Hash;
-use spora_muhash::MuHash;
 use spora_utils::iter::IterExtensions;
 use std::{
     collections::{hash_map::Entry::Vacant, VecDeque},
@@ -137,7 +140,7 @@ impl PruningProcessor {
         let pruning_point = pruning_point_read.pruning_point().unwrap();
         let retention_checkpoint = pruning_point_read.retention_checkpoint().unwrap();
         let retention_period_root = pruning_point_read.retention_period_root().unwrap();
-        // pruning_utxoset_position removed - Cell state tracked in VirtualState
+        // pruning cell-set position removed - Cell state tracked in VirtualState
         drop(pruning_point_read);
 
         debug!(
@@ -145,16 +148,11 @@ impl PruningProcessor {
             pruning_point, retention_checkpoint
         );
 
-        // TODO(cell-model): Cell state recovery logic simplified
-        // Cell state is maintained in VirtualState, no separate pruning utxo set needed
-        let pruning_recovery_needed = false; // Placeholder
-        if pruning_recovery_needed {
-            info!("Recovering pruning cell state to pruning point {}", pruning_point);
-            if !self.advance_pruning_cellset(pruning_point, pruning_point) {
-                info!("Interrupted while advancing the pruning point UTXO set: Process is exiting");
-                return;
-            }
-        }
+        // In the Cell model, the canonical cell state is maintained in VirtualState
+        // (CellStateTree + cell_diffs_store). No separate "pruning cell set" is needed
+        // because the virtual processor already tracks the live set. The pruning
+        // processor only needs to verify the cell_commitment sanity check and prune
+        // old data — recovery of a separate cell set is not required.
 
         trace!(
             "retention_checkpoint: {:?} | retention_period_root: {} | pruning_point: {}",
@@ -208,12 +206,9 @@ impl PruningProcessor {
             // Inform the user
             info!("Periodic pruning point movement: advancing from {} to {}", current_pruning_info.pruning_point, new_pruning_point);
 
-            // Advance the pruning point utxoset to the state of the new pruning point using chain-block UTXO diffs
-            if !self.advance_pruning_cellset(current_pruning_info.pruning_point, new_pruning_point) {
-                info!("Interrupted while advancing the pruning point Cell set: Process is exiting");
-                return;
-            }
-            info!("Updated the pruning point UTXO set");
+            // Verify selected-chain Cell state continuity before pruning historical Cell data.
+            self.advance_pruning_cellset(current_pruning_info.pruning_point, new_pruning_point);
+            info!("Verified pruning point Cell state continuity");
 
             // Finally, prune data in the new pruning point past
             self.prune(new_pruning_point, adjusted_retention_period_root);
@@ -223,29 +218,63 @@ impl PruningProcessor {
         }
     }
 
-    fn advance_pruning_cellset(&self, _start: Hash, new_pruning_point: Hash) -> bool {
-        // TODO(cell-model): Simplified pruning cell set advancement
-        // Cell state is maintained in VirtualState, pruning just marks old blocks
-        // No need to build separate cell set like UTXO model did
+    /// Verify that selected-chain Cell state metadata is continuous up to the
+    /// new pruning point before pruning historical Cell roots/diffs.
+    fn advance_pruning_cellset(&self, start: Hash, new_pruning_point: Hash) {
+        self.assert_selected_chain_cell_state_path(start, new_pruning_point);
+        self.assert_cell_commitment(new_pruning_point);
+    }
 
-        if self.config.enable_sanity_checks {
-            info!("Performing a sanity check that the new cell state has the expected cell commitment");
-            // TODO: Implement assert_cell_commitment
-            // self.assert_cell_commitment(new_pruning_point);
+    fn assert_selected_chain_cell_state_path(&self, start: Hash, new_pruning_point: Hash) {
+        let selected_chain_read = self.selected_chain_store.read();
+        let start_index = selected_chain_read
+            .get_by_hash(start)
+            .unwrap_or_else(|err| panic!("pruning point {start} missing from selected chain: {err}"));
+        let new_index = selected_chain_read
+            .get_by_hash(new_pruning_point)
+            .unwrap_or_else(|err| panic!("new pruning point {new_pruning_point} missing from selected chain: {err}"));
+
+        assert!(
+            new_index >= start_index,
+            "new pruning point {new_pruning_point} is below current pruning point {start} on the selected chain"
+        );
+
+        for index in (start_index + 1)..=new_index {
+            let current = selected_chain_read
+                .get_by_index(index)
+                .unwrap_or_else(|err| panic!("selected chain index {index} missing while advancing pruning point: {err}"));
+            self.cell_diffs_store
+                .get(current)
+                .unwrap_or_else(|err| panic!("selected-chain block {current} is missing persisted cell diff before pruning: {err}"));
+            self.cell_roots_store
+                .get(current)
+                .unwrap_or_else(|err| panic!("selected-chain block {current} is missing persisted cell root before pruning: {err}"));
         }
-        true
+    }
+
+    fn compute_cell_commitment_v0(cell_root: Hash) -> Hash {
+        use blake3::Hasher;
+
+        let mut hasher = Hasher::new();
+        hasher.update(b"spora/cell_commitment/v0");
+        hasher.update(&cell_root.as_bytes());
+        Hash::from_bytes(*hasher.finalize().as_bytes())
     }
 
     fn assert_cell_commitment(&self, pruning_point: Hash) {
-        info!("Verifying the new pruning point cell commitment (sanity test)");
+        info!("Verifying the new pruning point cell commitment");
         let header = self.headers_store.get_header(pruning_point).unwrap();
         let expected_commitment = header.cell_commitment;
 
         // Get the stored cell root for this block
         let stored_cell_root = self.cell_roots_store.get(pruning_point).expect("pruning point should have cell root");
+        let calculated_commitment = Self::compute_cell_commitment_v0(stored_cell_root);
 
-        assert_eq!(stored_cell_root, expected_commitment, "Pruning point cell root does not match header cell_commitment");
-        info!("Pruning point cell commitment was verified correctly (sanity test)");
+        assert_eq!(
+            calculated_commitment, expected_commitment,
+            "Pruning point cell commitment does not match the commitment derived from the stored cell root"
+        );
+        info!("Pruning point cell commitment verified");
     }
 
     fn prune(&self, new_pruning_point: Hash, retention_period_root: Hash) {

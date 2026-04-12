@@ -1,7 +1,7 @@
 use crate::{
     events::EVENT_TYPE_ARRAY,
     listener::ListenerLifespan,
-    subscription::{context::SubscriptionContext, MutationPolicies, UtxosChangedMutationPolicy},
+    subscription::{context::SubscriptionContext, CellsChangedMutationPolicy, MutationPolicies},
 };
 
 use super::{
@@ -309,14 +309,14 @@ where
             assert!(iter.next().is_none(), "A notifier is not allowed to have more than one subscriber per event type");
             subscriber
         });
-        let utxos_changed_capacity = match policies.utxo_changed {
-            UtxosChangedMutationPolicy::AddressSet => subscription_context.address_tracker.addresses_preallocation(),
-            UtxosChangedMutationPolicy::Wildcard => None,
+        let cells_changed_capacity = match policies.cells_changed {
+            CellsChangedMutationPolicy::AddressSet => subscription_context.address_tracker.addresses_preallocation(),
+            CellsChangedMutationPolicy::Wildcard => None,
         };
         Self {
             enabled_events,
             listeners: Mutex::new(HashMap::new()),
-            subscriptions: Mutex::new(ArrayBuilder::compounded(utxos_changed_capacity)),
+            subscriptions: Mutex::new(ArrayBuilder::compounded(cells_changed_capacity)),
             started: Arc::new(AtomicBool::new(false)),
             notification_channel,
             broadcasters,
@@ -536,9 +536,9 @@ pub mod test_helpers {
         address::test_helpers::get_3_addresses,
         connection::ChannelConnection,
         notification::test_helpers::{
-            BlockAddedNotification, Data, TestNotification, UtxosChangedNotification, VirtualChainChangedNotification,
+            BlockAddedNotification, CellsChangedNotification, Data, TestNotification, VirtualChainChangedNotification,
         },
-        scope::{BlockAddedScope, UtxosChangedScope, VirtualChainChangedScope},
+        scope::{BlockAddedScope, CellsChangedScope, VirtualChainChangedScope},
         subscriber::test_helpers::SubscriptionMessage,
     };
     use async_channel::Sender;
@@ -717,23 +717,23 @@ pub mod test_helpers {
         ])
     }
 
-    pub fn utxos_changed_test_steps(listener_id: ListenerId) -> Vec<Step> {
+    pub fn cells_changed_test_steps(listener_id: ListenerId) -> Vec<Step> {
         let a_stock = get_3_addresses(true);
 
         let a = |indexes: &[usize]| indexes.iter().map(|idx| (a_stock[*idx]).clone()).collect::<Vec<_>>();
         let m = |command: Command, indexes: &[usize]| {
-            Some(Mutation { command, scope: Scope::UtxosChanged(UtxosChangedScope::new(a(indexes))) })
+            Some(Mutation { command, scope: Scope::CellsChanged(CellsChangedScope::new(a(indexes))) })
         };
         let s = |command: Command, indexes: &[usize]| {
             Some(SubscriptionMessage {
                 listener_id,
-                mutation: Mutation { command, scope: Scope::UtxosChanged(UtxosChangedScope::new(a(indexes))) },
+                mutation: Mutation { command, scope: Scope::CellsChanged(CellsChangedScope::new(a(indexes))) },
             })
         };
         let n =
-            |indexes: &[usize]| TestNotification::UtxosChanged(UtxosChangedNotification { data: 0, addresses: Arc::new(a(indexes)) });
+            |indexes: &[usize]| TestNotification::CellsChanged(CellsChangedNotification { data: 0, addresses: Arc::new(a(indexes)) });
         let e = |indexes: &[usize]| {
-            Some(TestNotification::UtxosChanged(UtxosChangedNotification { data: 0, addresses: Arc::new(a(indexes)) }))
+            Some(TestNotification::CellsChanged(CellsChangedNotification { data: 0, addresses: Arc::new(a(indexes)) }))
         };
 
         set_steps_data(vec![
@@ -999,9 +999,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_utxos_changed() {
+    async fn test_cells_changed() {
         spora_core::log::try_init_logger("trace,spora_notify=trace");
-        let test = Test::new("UtxosChanged broadcast", 3, utxos_changed_test_steps(SUBSCRIPTION_MANAGER_ID));
+        let test = Test::new("CellsChanged broadcast", 3, cells_changed_test_steps(SUBSCRIPTION_MANAGER_ID));
         test.run().await;
     }
 }

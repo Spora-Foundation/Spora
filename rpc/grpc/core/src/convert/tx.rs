@@ -27,6 +27,8 @@ from!(item: &spora_rpc_core::RpcTransactionInput, protowire::RpcTransactionInput
         signature_script: item.signature_script.to_rpc_hex(),
         sequence: item.sequence,
         sig_op_count: item.sig_op_count.into(),
+        since: item.since,
+        witness: item.witness.as_ref().map(|w| w.to_rpc_hex()),
         verbose_data: item.verbose_data.as_ref().map(|x| x.into()),
     }
 });
@@ -36,6 +38,11 @@ from!(item: &spora_rpc_core::RpcTransactionOutput, protowire::RpcTransactionOutp
         amount: item.value,
         script_public_key: Some((&item.script_public_key).into()),
         verbose_data: item.verbose_data.as_ref().map(|x| x.into()),
+        capacity: item.capacity.unwrap_or_default(),
+        data_bytes: item.data_bytes.unwrap_or_default(),
+        lock_hash: item.lock_hash.map(RpcHash::from).map(|x| x.to_string()).unwrap_or_default(),
+        type_hash: item.type_hash.map(RpcHash::from).map(|x| x.to_string()).unwrap_or_default(),
+        data_hash: item.data_hash.map(RpcHash::from).map(|x| x.to_string()).unwrap_or_default(),
     }
 });
 
@@ -43,12 +50,17 @@ from!(item: &spora_rpc_core::RpcTransactionOutpoint, protowire::RpcOutpoint, {
     Self { transaction_id: item.transaction_id.to_string(), index: item.index }
 });
 
-from!(item: &spora_rpc_core::RpcUtxoEntry, protowire::RpcUtxoEntry, {
+from!(item: &spora_rpc_core::RpcCellEntry, protowire::RpcCellEntry, {
     Self {
         amount: item.amount,
         script_public_key: Some((&item.script_public_key).into()),
         block_daa_score: item.block_daa_score,
         is_coinbase: item.is_coinbase,
+        capacity: item.capacity,
+        data_bytes: item.data_bytes,
+        lock_hash: RpcHash::from(item.lock_hash).to_string(),
+        type_hash: item.type_hash.map(RpcHash::from).map(|x| x.to_string()).unwrap_or_default(),
+        data_hash: RpcHash::from(item.data_hash).to_string(),
     }
 });
 
@@ -82,11 +94,11 @@ from!(item: &spora_rpc_core::RpcAcceptedTransactionIds, protowire::RpcAcceptedTr
     }
 });
 
-from!(item: &spora_rpc_core::RpcUtxosByAddressesEntry, protowire::RpcUtxosByAddressesEntry, {
+from!(item: &spora_rpc_core::RpcCellsByAddressesEntry, protowire::RpcCellsByAddressesEntry, {
     Self {
         address: item.address.as_ref().map_or("".to_string(), |x| x.into()),
         outpoint: Some((&item.outpoint).into()),
-        utxo_entry: Some((&item.utxo_entry).into()),
+        cell_entry: Some((&item.cell_entry).into()),
     }
 });
 
@@ -126,6 +138,8 @@ try_from!(item: &protowire::RpcTransactionInput, spora_rpc_core::RpcTransactionI
         signature_script: Vec::from_rpc_hex(&item.signature_script)?,
         sequence: item.sequence,
         sig_op_count: item.sig_op_count.try_into()?,
+        since: item.since,
+        witness: item.witness.as_ref().map(|w| Vec::from_rpc_hex(w)).transpose()?,
         verbose_data: item.verbose_data.as_ref().map(spora_rpc_core::RpcTransactionInputVerboseData::try_from).transpose()?,
     }
 });
@@ -133,6 +147,11 @@ try_from!(item: &protowire::RpcTransactionInput, spora_rpc_core::RpcTransactionI
 try_from!(item: &protowire::RpcTransactionOutput, spora_rpc_core::RpcTransactionOutput, {
     Self {
         value: item.amount,
+        capacity: if item.capacity == 0 { None } else { Some(item.capacity) },
+        data_bytes: if item.data_bytes == 0 { None } else { Some(item.data_bytes) },
+        lock_hash: if item.lock_hash.is_empty() { None } else { Some(RpcHash::from_str(&item.lock_hash)?.as_bytes()) },
+        type_hash: if item.type_hash.is_empty() { None } else { Some(RpcHash::from_str(&item.type_hash)?.as_bytes()) },
+        data_hash: if item.data_hash.is_empty() { None } else { Some(RpcHash::from_str(&item.data_hash)?.as_bytes()) },
         script_public_key: item
             .script_public_key
             .as_ref()
@@ -146,9 +165,14 @@ try_from!(item: &protowire::RpcOutpoint, spora_rpc_core::RpcTransactionOutpoint,
     Self { transaction_id: RpcHash::from_str(&item.transaction_id)?, index: item.index }
 });
 
-try_from!(item: &protowire::RpcUtxoEntry, spora_rpc_core::RpcUtxoEntry, {
+try_from!(item: &protowire::RpcCellEntry, spora_rpc_core::RpcCellEntry, {
     Self {
         amount: item.amount,
+        capacity: item.capacity,
+        data_bytes: item.data_bytes,
+        lock_hash: if item.lock_hash.is_empty() { [0; 32] } else { RpcHash::from_str(&item.lock_hash)?.as_bytes() },
+        type_hash: if item.type_hash.is_empty() { None } else { Some(RpcHash::from_str(&item.type_hash)?.as_bytes()) },
+        data_hash: if item.data_hash.is_empty() { [0; 32] } else { RpcHash::from_str(&item.data_hash)?.as_bytes() },
         script_public_key: item
             .script_public_key
             .as_ref()
@@ -189,19 +213,19 @@ try_from!(item: &protowire::RpcAcceptedTransactionIds, spora_rpc_core::RpcAccept
     }
 });
 
-try_from!(item: &protowire::RpcUtxosByAddressesEntry, spora_rpc_core::RpcUtxosByAddressesEntry, {
+try_from!(item: &protowire::RpcCellsByAddressesEntry, spora_rpc_core::RpcCellsByAddressesEntry, {
     let address = if item.address.is_empty() { None } else { Some(item.address.as_str().try_into()?) };
     Self {
         address,
         outpoint: item
             .outpoint
             .as_ref()
-            .ok_or_else(|| RpcError::MissingRpcFieldError("UtxosByAddressesEntry".to_string(), "outpoint".to_string()))?
+            .ok_or_else(|| RpcError::MissingRpcFieldError("CellsByAddressesEntry".to_string(), "outpoint".to_string()))?
             .try_into()?,
-        utxo_entry: item
-            .utxo_entry
+        cell_entry: item
+            .cell_entry
             .as_ref()
-            .ok_or_else(|| RpcError::MissingRpcFieldError("UtxosByAddressesEntry".to_string(), "utxo_entry".to_string()))?
+            .ok_or_else(|| RpcError::MissingRpcFieldError("CellsByAddressesEntry".to_string(), "cell_entry".to_string()))?
             .try_into()?,
     }
 });

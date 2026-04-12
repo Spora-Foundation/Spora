@@ -12,7 +12,7 @@ A high-performance transaction generator and airdrop tool for the Spora blockcha
 - **Multi-threaded Processing**: Parallel transaction processing for optimal performance
 - **Flexible Fee Management**: Configurable priority fees with optional randomization
 - **Network Support**: Support for mainnet, testnet, and devnet networks
-- **UTXO Management**: Intelligent UTXO selection and management
+- **Cell Management**: Intelligent cell selection and management
 - **Fair Distribution**: Address distribution tracking for balanced airdrops
 
 ## Installation
@@ -215,7 +215,7 @@ cargo run --package treasure_boy -- \
 ### Performance Tuning
 
 - **Threads**: Set to 0 for automatic detection (1 thread per CPU core)
-- **TPS**: Higher values require more UTXOs and network bandwidth
+- **TPS**: Higher values require more cells and network bandwidth
 - **Outputs per TX**: More outputs per transaction reduce total transaction count
 - **Unleashed Mode**: Bypasses TPS limits for high-performance scenarios
 
@@ -230,7 +230,7 @@ Main configuration structure containing all operation parameters.
 Tracks address distribution for fair airdrop operations.
 
 #### `Stats`
-Transaction statistics including UTXO count, amounts, and timing.
+Transaction statistics including cell count, amounts, and timing.
 
 #### `NetworkType`
 Enum representing supported network types (Mainnet, Testnet, Devnet).
@@ -258,7 +258,7 @@ Performs TLC airdrop to multiple addresses with time-locked outputs.
 #### `generate_tlc_script(address: &Address, config: &TlcAirdropConfig) -> Result<ScriptPublicKey, Box<dyn Error>>`
 Generates a Time Locked Contract script for the specified address and configuration.
 
-#### `generate_tlc_airdrop_tx(keypair: Keypair, utxos: &[(TransactionOutpoint, UtxoEntry)], amount: u64, addresses: &[&Address], config: &TlcAirdropConfig) -> Result<Transaction, Box<dyn Error>>`
+#### `generate_tlc_airdrop_tx(keypair: Keypair, cells: &[(TransactionOutpoint, CellEntry)], amount: u64, addresses: &[&Address], config: &TlcAirdropConfig) -> Result<Transaction, Box<dyn Error>>`
 Generates a transaction with TLC outputs for airdrop operations.
 
 ## Error Handling
@@ -266,7 +266,7 @@ Generates a transaction with TLC outputs for airdrop operations.
 Treasure Boy provides comprehensive error handling for common scenarios:
 
 - **Invalid Addresses**: Automatically skips invalid addresses in batch operations
-- **Insufficient UTXOs**: Clear error messages when not enough funds are available
+- **Insufficient cells**: Clear error messages when not enough funds are available
 - **Network Errors**: Automatic retry logic for transient network issues
 - **RPC Connection**: Validates RPC server connectivity before operations
 

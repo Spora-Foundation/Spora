@@ -12,18 +12,9 @@ use futures_util::future::join_all;
 use parking_lot::Mutex;
 use rand::thread_rng;
 use rand_distr::{Distribution, Exp};
-use std::{
-    cmp::max,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
-    time::{Duration, Instant},
-};
-use tokio::join;
 use spora_addresses::Address;
 use spora_consensus::params::Params;
-use spora_consensus_core::{constants::SAU_PER_TONDI, network::NetworkType, tx::Transaction};
+use spora_consensus_core::{constants::SAU_PER_SPORA, network::NetworkType, tx::Transaction};
 use spora_core::{debug, info};
 use spora_notify::{
     listener::ListenerId,
@@ -33,6 +24,15 @@ use spora_rpc_core::{api::rpc::RpcApi, Notification, RpcError};
 use spora_txscript::pay_to_address_script;
 use spora_utils::fd_budget;
 use sporad_lib::args::Args;
+use std::{
+    cmp::max,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    time::{Duration, Instant},
+};
+use tokio::join;
 
 /// Run this benchmark with the following command line:
 /// `cargo test --release --package spora-testing-integration --lib --features devnet-prealloc -- mempool_benchmarks::bench_bbt_latency --exact --nocapture --ignored`
@@ -60,8 +60,8 @@ async fn bench_bbt_latency() {
 
     /*
     Logic:
-       1. Use the new feature for preallocating utxos
-       2. Set up a dataset with a DAG of signed txs over the preallocated utxoset
+       1. Use the new feature for preallocating cells
+       2. Set up a dataset with a DAG of signed txs over the preallocated cell set
        3. Create constant mempool pressure by submitting txs (via rpc for now)
        4. Mine to the node (simulated)
        5. Measure bbt latency, real-time bps, real-time throughput, mempool draining rate (tbd)
@@ -85,18 +85,18 @@ async fn bench_bbt_latency() {
         simnet: true,
         disable_upnp: true, // UPnP registration might take some time and is not needed for this test
         enable_unsynced_mining: true,
-        num_prealloc_utxos: Some(TX_LEVEL_WIDTH as u64 * CONTRACT_FACTOR),
+        num_prealloc_cells: Some(TX_LEVEL_WIDTH as u64 * CONTRACT_FACTOR),
         prealloc_address: Some(prealloc_address.to_string()),
-        prealloc_amount: 500 * SAU_PER_TONDI,
+        prealloc_amount: 500 * SAU_PER_SPORA,
         block_template_cache_lifetime: Some(0),
         ..Default::default()
     };
     let network = args.network();
     let params: Params = network.into();
 
-    let utxoset = args.generate_prealloc_utxos(args.num_prealloc_utxos.unwrap());
-    let txs = common::utils::generate_tx_dag(utxoset.clone(), schnorr_key, spk, TX_COUNT / TX_LEVEL_WIDTH, TX_LEVEL_WIDTH);
-    common::utils::verify_tx_dag(&utxoset, &txs);
+    let cellset = args.generate_prealloc_cells(args.num_prealloc_cells.unwrap());
+    let txs = common::utils::generate_tx_dag(cellset.clone(), schnorr_key, spk, TX_COUNT / TX_LEVEL_WIDTH, TX_LEVEL_WIDTH);
+    common::utils::verify_tx_dag(&cellset, &txs);
     info!("Generated overall {} txs", txs.len());
 
     let fd_total_budget = fd_budget::limit();
@@ -105,7 +105,7 @@ async fn bench_bbt_latency() {
     let bbt_client = daemon.new_client().await;
 
     // The time interval between Poisson(lambda) events distributes ~Exp(lambda)
-    let dist: Exp<f64> = Exp::new(params.bps().upper_bound() as f64).unwrap();
+    let dist: Exp<f64> = Exp::new(params.bps() as f64).unwrap();
     let comm_delay = 1000;
 
     // Mining key and address
@@ -308,8 +308,8 @@ async fn bench_bbt_latency_2() {
 
     /*
     Logic:
-       1. Use the new feature for preallocating utxos
-       2. Set up a dataset with a DAG of signed txs over the preallocated utxoset
+       1. Use the new feature for preallocating cells
+       2. Set up a dataset with a DAG of signed txs over the preallocated cell set
        3. Create constant mempool pressure by submitting txs (via rpc for now)
        4. Mine to the node (simulated)
        5. Measure bbt latency, real-time bps, real-time throughput, mempool draining rate (tbd)
@@ -337,9 +337,9 @@ async fn bench_bbt_latency_2() {
     let network = args.network();
     let params: Params = network.into();
 
-    let utxoset = args.generate_prealloc_utxos(args.num_prealloc_utxos.unwrap());
-    let txs = common::utils::generate_tx_dag(utxoset.clone(), schnorr_key, spk, TX_COUNT / TX_LEVEL_WIDTH, TX_LEVEL_WIDTH);
-    common::utils::verify_tx_dag(&utxoset, &txs);
+    let cellset = args.generate_prealloc_cells(args.num_prealloc_cells.unwrap());
+    let txs = common::utils::generate_tx_dag(cellset.clone(), schnorr_key, spk, TX_COUNT / TX_LEVEL_WIDTH, TX_LEVEL_WIDTH);
+    common::utils::verify_tx_dag(&cellset, &txs);
     info!("Generated overall {} txs", txs.len());
 
     let client_manager = Arc::new(ClientManager::new(args));
@@ -351,7 +351,7 @@ async fn bench_bbt_latency_2() {
                 network,
                 client_manager.clone(),
                 SUBMIT_BLOCK_CLIENTS,
-                params.bps().upper_bound(),
+                params.bps(),
                 BLOCK_COUNT,
                 Stopper::Signal,
             )

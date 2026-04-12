@@ -1,12 +1,12 @@
+use crate::cell::balance as native;
 use crate::imports::*;
 use crate::result::Result;
-use crate::utxo::balance as native;
 use spora_consensus_core::network::NetworkTypeT;
 
 ///
-/// Represents a {@link UtxoContext} (account) balance.
+/// Represents a {@link CellContext} (account) balance.
 ///
-/// @see {@link IBalance}, {@link UtxoContext}
+/// @see {@link IBalance}, {@link CellContext}
 ///
 /// @category Wallet SDK
 ///

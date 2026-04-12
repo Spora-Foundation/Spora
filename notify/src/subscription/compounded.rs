@@ -1,7 +1,7 @@
 use crate::{
     address::{error::Result, tracker::Counters},
     events::EventType,
-    scope::{Scope, UtxosChangedScope, VirtualChainChangedScope},
+    scope::{CellsChangedScope, Scope, VirtualChainChangedScope},
     subscription::{context::SubscriptionContext, Command, Compounded, Mutation, Subscription},
 };
 use itertools::Itertools;
@@ -150,12 +150,12 @@ impl Subscription for VirtualChainChangedSubscription {
 }
 
 #[derive(Clone, Default, Debug, PartialEq, Eq)]
-pub struct UtxosChangedSubscription {
+pub struct CellsChangedSubscription {
     all: usize,
     indexes: Counters,
 }
 
-impl UtxosChangedSubscription {
+impl CellsChangedSubscription {
     pub fn new() -> Self {
         Self { all: 0, indexes: Counters::new() }
     }
@@ -182,32 +182,33 @@ impl UtxosChangedSubscription {
     }
 }
 
-impl Compounded for UtxosChangedSubscription {
+impl Compounded for CellsChangedSubscription {
     fn compound(&mut self, mutation: Mutation, context: &SubscriptionContext) -> Option<Mutation> {
         assert_eq!(self.event_type(), mutation.event_type());
-        if let Scope::UtxosChanged(scope) = mutation.scope {
+        if let Scope::CellsChanged(scope) = mutation.scope {
+            let addresses = scope.addresses;
             match mutation.command {
                 Command::Start => {
-                    if scope.addresses.is_empty() {
+                    if addresses.is_empty() {
                         // Add All
                         self.all += 1;
                         if self.all == 1 {
-                            return Some(Mutation::new(Command::Start, UtxosChangedScope::default().into()));
+                            return Some(Mutation::new(Command::Start, CellsChangedScope::default().into()));
                         }
                     } else {
                         // Add(A)
-                        let added = self.register(scope.addresses, context).expect("compounded always registers");
+                        let added = self.register(addresses, context).expect("compounded always registers");
                         if !added.is_empty() && self.all == 0 {
-                            return Some(Mutation::new(Command::Start, UtxosChangedScope::new(added).into()));
+                            return Some(Mutation::new(Command::Start, CellsChangedScope::new(added).into()));
                         }
                     }
                 }
                 Command::Stop => {
-                    if !scope.addresses.is_empty() {
+                    if !addresses.is_empty() {
                         // Remove(R)
-                        let removed = self.unregister(scope.addresses, context);
+                        let removed = self.unregister(addresses, context);
                         if !removed.is_empty() && self.all == 0 {
-                            return Some(Mutation::new(Command::Stop, UtxosChangedScope::new(removed).into()));
+                            return Some(Mutation::new(Command::Stop, CellsChangedScope::new(removed).into()));
                         }
                     } else {
                         // Remove All
@@ -216,9 +217,9 @@ impl Compounded for UtxosChangedSubscription {
                         if self.all == 0 {
                             let addresses = self.to_addresses(Prefix::Mainnet, context);
                             if !addresses.is_empty() {
-                                return Some(Mutation::new(Command::Start, UtxosChangedScope::new(addresses).into()));
+                                return Some(Mutation::new(Command::Start, CellsChangedScope::new(addresses).into()));
                             } else {
-                                return Some(Mutation::new(Command::Stop, UtxosChangedScope::default().into()));
+                                return Some(Mutation::new(Command::Stop, CellsChangedScope::default().into()));
                             }
                         }
                     }
@@ -229,10 +230,10 @@ impl Compounded for UtxosChangedSubscription {
     }
 }
 
-impl Subscription for UtxosChangedSubscription {
+impl Subscription for CellsChangedSubscription {
     #[inline(always)]
     fn event_type(&self) -> EventType {
-        EventType::UtxosChanged
+        EventType::CellsChanged
     }
 
     fn active(&self) -> bool {
@@ -241,7 +242,7 @@ impl Subscription for UtxosChangedSubscription {
 
     fn scope(&self, context: &SubscriptionContext) -> Scope {
         let addresses = if self.all > 0 { vec![] } else { self.to_addresses(Prefix::Mainnet, context) };
-        Scope::UtxosChanged(UtxosChangedScope::new(addresses))
+        Scope::CellsChanged(CellsChangedScope::new(addresses))
     }
 }
 
@@ -355,15 +356,15 @@ mod tests {
 
     #[test]
     #[allow(clippy::redundant_clone)]
-    fn test_utxos_changed_compounding() {
+    fn test_cells_changed_compounding() {
         spora_core::log::try_init_logger("trace,spora_notify=trace");
         let a_stock = get_3_addresses(true);
 
         let a = |indexes: &[usize]| indexes.iter().map(|idx| (a_stock[*idx]).clone()).collect::<Vec<_>>();
         let m = |command: Command, indexes: &[usize]| -> Mutation {
-            Mutation { command, scope: Scope::UtxosChanged(UtxosChangedScope::new(a(indexes))) }
+            Mutation { command, scope: Scope::CellsChanged(CellsChangedScope::new(a(indexes))) }
         };
-        let none = Box::<UtxosChangedSubscription>::default;
+        let none = Box::<CellsChangedSubscription>::default;
 
         let add_all = || m(Command::Start, &[]);
         let remove_all = || m(Command::Stop, &[]);
@@ -374,7 +375,7 @@ mod tests {
         let remove_1 = || m(Command::Stop, &[1]);
 
         let test = Test {
-            name: "UtxosChanged",
+            name: "CellsChanged",
             context: SubscriptionContext::new(),
             initial_state: none(),
             steps: vec![
@@ -397,7 +398,7 @@ mod tests {
                 Step { name: "remove all 1, revealing a0", mutation: remove_all(), result: Some(add_0()) },
                 Step { name: "remove a0", mutation: remove_0(), result: Some(remove_0()) },
             ],
-            final_state: Box::new(UtxosChangedSubscription {
+            final_state: Box::new(CellsChangedSubscription {
                 all: 0,
                 indexes: Counters::with_counters(vec![
                     Counter { index: 0, count: 0, locked: true },

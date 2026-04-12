@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: ISC
-// Copyright (C) 2025 Spora developers
+// Copyright (C) 2026 Spora developers
 //
 // Consensus Cell Provider - GHOSTDAG-aware Cell state queries
 
+#[cfg(feature = "vm")]
+use crate::processes::cell_validator::CellScriptDataProvider;
 use crate::{
     model::{
         services::reachability::MTReachabilityService,
@@ -15,21 +17,17 @@ use crate::{
     processes::{CellStateProvider, DagCellProvider},
 };
 use parking_lot::RwLock;
-use spora_consensus_core::{
-    cell_diff::{CellDiff, CellMeta},
-    cell_metadata::CellMetadata,
-    tx::TransactionOutpoint,
-};
+use spora_consensus_core::{blockhash, cell_metadata::CellMetadata, tx::TransactionOutpoint};
+#[cfg(feature = "vm")]
+use spora_database::prelude::StoreError;
 use spora_exec::OutPoint;
 use spora_hashes::Hash;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 /// Consensus Cell Provider
 ///
-/// Provides Cell state queries with GHOSTDAG awareness:
-/// - Current Cell availability
-/// - Historical Cell state at specific DAA scores
-/// - Cell metadata lookup
+/// Provides Cell state queries with explicit POV blocks instead of ambiguous DAA-only history.
 pub struct ConsensusCellProvider<
     T: GhostdagStoreReader,
     U: ReachabilityStoreReader,
@@ -46,6 +44,29 @@ pub struct ConsensusCellProvider<
     cell_roots_store: Arc<X>,
     block_transactions_store: Arc<Y>,
     statuses_store: Arc<RwLock<Z>>,
+}
+
+impl<
+        T: GhostdagStoreReader,
+        U: ReachabilityStoreReader,
+        V: HeaderStoreReader,
+        W: CellDiffsStoreReader,
+        X: CellRootsStoreReader,
+        Y: BlockTransactionsStoreReader,
+        Z: StatusesStoreReader,
+    > Clone for ConsensusCellProvider<T, U, V, W, X, Y, Z>
+{
+    fn clone(&self) -> Self {
+        Self {
+            ghostdag_store: self.ghostdag_store.clone(),
+            reachability_service: self.reachability_service.clone(),
+            headers_store: self.headers_store.clone(),
+            cell_diffs_store: self.cell_diffs_store.clone(),
+            cell_roots_store: self.cell_roots_store.clone(),
+            block_transactions_store: self.block_transactions_store.clone(),
+            statuses_store: self.statuses_store.clone(),
+        }
+    }
 }
 
 impl<
@@ -80,27 +101,227 @@ impl<
         }
     }
 
-    /// Find the block that created this Cell
-    ///
-    /// Searches through the DAG to find the transaction output.
-    /// Returns (block_hash, tx_index, output_index)
-    fn find_cell_creator(&self, outpoint: &TransactionOutpoint) -> Result<Option<(Hash, usize, usize)>, String> {
-        // TODO: Implement efficient cell creator lookup
-        // For now, return None (would need transaction index)
+    fn to_transaction_outpoint(out_point: &OutPoint) -> TransactionOutpoint {
+        TransactionOutpoint { tx_hash: out_point.tx_hash, index: out_point.index }
+    }
+
+    fn ensure_queryable_pov(&self, pov: Hash) -> Result<(), String> {
+        if pov == blockhash::NONE {
+            return Ok(());
+        }
+
+        let status = self.statuses_store.read().get(pov).map_err(|e| format!("Status lookup error: {}", e))?;
+        if status.has_block_body() && status.is_cell_valid_or_pending() {
+            Ok(())
+        } else {
+            Err(format!("POV block {} is not queryable (status: {:?})", pov, status))
+        }
+    }
+
+    fn compute_data_hash(data: &[u8]) -> [u8; 32] {
+        if data.is_empty() {
+            [0u8; 32]
+        } else {
+            use blake3::Hasher;
+
+            let mut hasher = Hasher::new();
+            hasher.update(b"spora-cell/data");
+            hasher.update(data);
+            *hasher.finalize().as_bytes()
+        }
+    }
+
+    fn load_metadata_from_block(&self, block: Hash, outpoint: &TransactionOutpoint) -> Result<Option<CellMetadata>, String> {
+        let transactions = self.block_transactions_store.get(block).map_err(|e| format!("Transaction lookup error: {}", e))?;
+        let header = self.headers_store.get_header(block).map_err(|e| format!("Header lookup error: {}", e))?;
+
+        for (tx_index, tx) in transactions.iter().enumerate() {
+            let tx_id: Hash = tx.id().into();
+            if tx_id != Hash::from_bytes(outpoint.tx_hash) {
+                continue;
+            }
+
+            let output_index = outpoint.index as usize;
+            if output_index >= tx.outputs.len() {
+                return Ok(None);
+            }
+
+            let output = &tx.outputs[output_index];
+            let output_data = tx.outputs_data.get(output_index).map(|data| data.as_slice()).unwrap_or(&[]);
+            return Ok(Some(CellMetadata {
+                out_point: *outpoint,
+                capacity: output.capacity,
+                data_bytes: output_data.len() as u64,
+                lock_hash: output.lock.hash(),
+                type_hash: output.type_.as_ref().map(|script| script.hash()),
+                data_hash: Self::compute_data_hash(output_data),
+                block_daa_score: header.daa_score,
+                is_cellbase: tx_index == 0 && tx.is_coinbase(),
+                block_hash: block,
+                lock_code_hash: Some(output.lock.code_hash),
+                type_code_hash: output.type_.as_ref().map(|script| script.code_hash),
+                lock_script: Some(output.lock.clone()),
+                type_script: output.type_.clone(),
+                data: Some(output_data.to_vec()),
+            }));
+        }
+
         Ok(None)
     }
 
-    /// Check if a Cell exists in the DAG's past
-    ///
-    /// GHOSTDAG-aware: verifies the creating block is in the past
-    #[allow(dead_code)]
-    fn is_cell_in_dag_past(&self, cell_block: Hash, current_tip: Hash) -> Result<bool, String> {
-        // Check reachability: is cell_block in the past of current_tip?
-        // Use the reachability service's chain iterator to verify
-        let mut iter = self.reachability_service.backward_chain_iterator(current_tip, cell_block, true);
+    fn resolve_added_cell_in_diff(&self, pov: Hash, outpoint: &TransactionOutpoint) -> Result<Option<CellMetadata>, String> {
+        if let Some(metadata) = self.load_metadata_from_block(pov, outpoint)? {
+            return Ok(Some(metadata));
+        }
 
-        // If we can iterate from current_tip back to cell_block, it's in the past
-        Ok(iter.any(|h| h == cell_block))
+        let ghostdag_data = self.ghostdag_store.get_data(pov).map_err(|e| format!("GhostDAG lookup error: {}", e))?;
+
+        if let Some(metadata) = self.load_metadata_from_block(ghostdag_data.selected_parent, outpoint)? {
+            return Ok(Some(metadata));
+        }
+
+        for block in ghostdag_data.mergeset_blues.iter().copied().skip(1) {
+            if let Some(metadata) = self.load_metadata_from_block(block, outpoint)? {
+                return Ok(Some(metadata));
+            }
+        }
+
+        Ok(None)
+    }
+
+    fn get_cell_at_pov_internal(&self, outpoint: &TransactionOutpoint, pov: Hash) -> Result<Option<CellMetadata>, String> {
+        let mut current = pov;
+        while current != blockhash::NONE {
+            self.ensure_queryable_pov(current)?;
+
+            let diff = self.cell_diffs_store.get(current).map_err(|e| format!("Cell diff lookup error: {}", e))?;
+            if diff.remove.contains_key(outpoint) {
+                return Ok(None);
+            }
+            if diff.add.contains_key(outpoint) {
+                return self.resolve_added_cell_in_diff(current, outpoint).and_then(|metadata| {
+                    metadata
+                        .ok_or_else(|| {
+                            format!("Cell {} is present in diff for {} but creator transaction is missing", outpoint, current)
+                        })
+                        .map(Some)
+                });
+            }
+
+            current = self.ghostdag_store.get_selected_parent(current).map_err(|e| format!("GhostDAG lookup error: {}", e))?;
+        }
+
+        Ok(None)
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct OverlayCellProvider<B> {
+    snapshot_pov: Hash,
+    base_pov: Hash,
+    base: B,
+    added: HashMap<OutPoint, CellMetadata>,
+    removed: HashSet<OutPoint>,
+}
+
+impl<B> OverlayCellProvider<B> {
+    pub(crate) fn new(base: B, snapshot_pov: Hash, base_pov: Hash) -> Self {
+        Self { snapshot_pov, base_pov, base, added: HashMap::new(), removed: HashSet::new() }
+    }
+
+    pub(crate) fn add_cell(&mut self, out_point: OutPoint, metadata: CellMetadata) -> Result<(), String> {
+        if self.removed.contains(&out_point) || self.added.contains_key(&out_point) {
+            return Err(format!("overlay attempted to create duplicate outpoint {:?}", out_point));
+        }
+
+        self.added.insert(out_point, metadata);
+        Ok(())
+    }
+
+    pub(crate) fn spend_cell(&mut self, out_point: &OutPoint) -> Result<(), String> {
+        if self.removed.contains(out_point) {
+            return Err(format!("overlay attempted to spend outpoint {:?} more than once", out_point));
+        }
+
+        if self.added.remove(out_point).is_none() {
+            self.removed.insert(out_point.clone());
+        }
+
+        Ok(())
+    }
+
+    fn ensure_snapshot_pov(&self, pov: Hash) -> Result<(), String> {
+        if pov == self.snapshot_pov {
+            Ok(())
+        } else {
+            Err(format!("unexpected POV {pov}, expected {}", self.snapshot_pov))
+        }
+    }
+}
+
+impl<B: DagCellProvider> OverlayCellProvider<B> {
+    pub(crate) fn get_cell_metadata(&self, out_point: &OutPoint) -> Result<Option<CellMetadata>, String> {
+        if self.removed.contains(out_point) {
+            return Ok(None);
+        }
+
+        if let Some(metadata) = self.added.get(out_point) {
+            return Ok(Some(metadata.clone()));
+        }
+
+        self.base.get_cell_at_pov(out_point, self.base_pov)
+    }
+
+    pub(crate) fn ensure_dep_available(&self, out_point: &OutPoint) -> Result<(), String> {
+        if self.get_cell_metadata(out_point)?.is_some() {
+            Ok(())
+        } else {
+            Err(format!("cell dependency {:?} is unavailable in mergeset overlay", out_point))
+        }
+    }
+}
+
+impl<B: DagCellProvider> CellStateProvider for OverlayCellProvider<B> {
+    fn is_cell_available(&self, out_point: &OutPoint, pov: Hash) -> Result<bool, String> {
+        self.ensure_snapshot_pov(pov)?;
+        Ok(self.get_cell_metadata(out_point)?.is_some())
+    }
+
+    fn get_cell_capacity(&self, out_point: &OutPoint, pov: Hash) -> Result<Option<u64>, String> {
+        self.ensure_snapshot_pov(pov)?;
+        Ok(self.get_cell_metadata(out_point)?.map(|meta| meta.capacity))
+    }
+}
+
+impl<B: DagCellProvider> DagCellProvider for OverlayCellProvider<B> {
+    fn get_cell_at_pov(&self, out_point: &OutPoint, pov: Hash) -> Result<Option<CellMetadata>, String> {
+        self.ensure_snapshot_pov(pov)?;
+        self.get_cell_metadata(out_point)
+    }
+
+    fn get_block_timestamp(&self, block_hash: Hash) -> Result<u64, String> {
+        self.base.get_block_timestamp(block_hash)
+    }
+}
+
+#[cfg(feature = "vm")]
+impl<B: CellScriptDataProvider + DagCellProvider> CellScriptDataProvider for OverlayCellProvider<B> {
+    fn get_cell_data(&self, out_point: &OutPoint, pov: Hash) -> Result<Option<Vec<u8>>, String> {
+        self.ensure_snapshot_pov(pov)?;
+
+        if self.removed.contains(out_point) {
+            return Ok(None);
+        }
+
+        if let Some(metadata) = self.added.get(out_point) {
+            return Ok(metadata.data.clone());
+        }
+
+        self.base.get_cell_data(out_point, self.base_pov)
+    }
+
+    fn get_header(&self, block_hash: Hash) -> Result<Option<spora_exec::vm::ResolvedHeader>, String> {
+        self.base.get_header(block_hash)
     }
 }
 
@@ -114,75 +335,14 @@ impl<
         Z: StatusesStoreReader,
     > CellStateProvider for ConsensusCellProvider<T, U, V, W, X, Y, Z>
 {
-    /// Check if a Cell is available (exists and unspent) at given DAA score
-    ///
-    /// GHOSTDAG-aware implementation:
-    /// 1. Find the block that created this Cell
-    /// 2. Check if that block is in the past of the virtual tip at this DAA
-    /// 3. Check if the Cell has been spent in any subsequent blocks
-    fn is_cell_available(&self, out_point: &OutPoint, daa: u64) -> Result<bool, String> {
-        // Convert exec::OutPoint to consensus-core::TransactionOutpoint
-        let outpoint = TransactionOutpoint {
-            transaction_id: spora_consensus_core::Hash::from_bytes(out_point.tx_hash).into(),
-            index: out_point.index,
-        };
-
-        // Find the block that created this Cell
-        let creator_info = self.find_cell_creator(&outpoint)?;
-
-        if creator_info.is_none() {
-            // Cell not found in DAG
-            return Ok(false);
-        }
-
-        let (creator_block, _tx_idx, _out_idx) = creator_info.unwrap();
-
-        // Get the creator block's DAA score
-        let creator_header = self.headers_store.get_header(creator_block).map_err(|e| format!("Header lookup error: {}", e))?;
-
-        // Cell must have been created before or at the query DAA
-        if creator_header.daa_score > daa {
-            return Ok(false);
-        }
-
-        // TODO: Check if Cell has been spent
-        // For now, we assume if it was created, it's still available
-        // This needs proper spent tracking via cell_diffs
-
-        Ok(true)
+    fn is_cell_available(&self, out_point: &OutPoint, pov: Hash) -> Result<bool, String> {
+        let outpoint = Self::to_transaction_outpoint(out_point);
+        Ok(self.get_cell_at_pov_internal(&outpoint, pov)?.is_some())
     }
 
-    /// Get Cell capacity
-    ///
-    /// Looks up the Cell in the transaction outputs
-    fn get_cell_capacity(&self, out_point: &OutPoint) -> Result<Option<u64>, String> {
-        // Convert to TransactionOutpoint
-        let outpoint = TransactionOutpoint {
-            transaction_id: spora_consensus_core::Hash::from_bytes(out_point.tx_hash).into(),
-            index: out_point.index,
-        };
-
-        // Find creator
-        let creator_info = self.find_cell_creator(&outpoint)?;
-        if creator_info.is_none() {
-            return Ok(None);
-        }
-
-        let (creator_block, tx_idx, out_idx) = creator_info.unwrap();
-
-        // Get the transaction
-        let transactions = self.block_transactions_store.get(creator_block).map_err(|e| format!("Transaction lookup error: {}", e))?;
-
-        if tx_idx >= transactions.len() {
-            return Ok(None);
-        }
-
-        let tx = &transactions[tx_idx];
-        if out_idx >= tx.outputs.len() {
-            return Ok(None);
-        }
-
-        Ok(Some(tx.outputs[out_idx].capacity))
+    fn get_cell_capacity(&self, out_point: &OutPoint, pov: Hash) -> Result<Option<u64>, String> {
+        let outpoint = Self::to_transaction_outpoint(out_point);
+        Ok(self.get_cell_at_pov_internal(&outpoint, pov)?.map(|meta| meta.capacity))
     }
 }
 
@@ -196,94 +356,17 @@ impl<
         Z: StatusesStoreReader,
     > DagCellProvider for ConsensusCellProvider<T, U, V, W, X, Y, Z>
 {
-    /// Get complete Cell metadata
-    ///
-    /// Includes DAG-specific information (is_cellbase, block_hash)
-    fn get_cell_metadata(&self, out_point: &OutPoint) -> Result<Option<CellMetadata>, String> {
-        // Convert to TransactionOutpoint
-        let outpoint = TransactionOutpoint {
-            transaction_id: spora_consensus_core::Hash::from_bytes(out_point.tx_hash).into(),
-            index: out_point.index,
-        };
-
-        // Find creator
-        let creator_info = self.find_cell_creator(&outpoint)?;
-        if creator_info.is_none() {
-            return Ok(None);
-        }
-
-        let (creator_block, tx_idx, out_idx) = creator_info.unwrap();
-
-        // Get the transaction
-        let transactions = self.block_transactions_store.get(creator_block).map_err(|e| format!("Transaction lookup error: {}", e))?;
-
-        if tx_idx >= transactions.len() {
-            return Ok(None);
-        }
-
-        let tx = &transactions[tx_idx];
-        if out_idx >= tx.outputs.len() {
-            return Ok(None);
-        }
-
-        let output = &tx.outputs[out_idx];
-
-        // Get block header for DAA score
-        let header = self.headers_store.get_header(creator_block).map_err(|e| format!("Header lookup error: {}", e))?;
-
-        // Build CellMetadata
-        // Convert OutPoint to TransactionOutpoint
-        let tx_outpoint = spora_consensus_core::tx::TransactionOutpoint {
-            transaction_id: out_point.tx_hash.into(),
-            index: out_point.index,
-        };
-        
-        let metadata = CellMetadata {
-            out_point: tx_outpoint,
-            capacity: output.capacity,
-            data_bytes: 0,                 // TODO: Get actual data size from transaction data
-            lock_hash: output.lock.hash(), // CellOut uses ScriptRef.hash()
-            type_hash: None,               // TODO: Extract from script if present
-            data_hash: [0u8; 32],          // TODO: Hash output data
-            block_daa_score: header.daa_score,
-            is_cellbase: tx_idx == 0, // First tx in block is coinbase
-            block_hash: creator_block,
-            lock_code_hash: None,
-            type_code_hash: None,
-            data: None,
-        };
-
-        Ok(Some(metadata))
+    fn get_cell_at_pov(&self, out_point: &OutPoint, pov: Hash) -> Result<Option<CellMetadata>, String> {
+        let outpoint = Self::to_transaction_outpoint(out_point);
+        self.get_cell_at_pov_internal(&outpoint, pov)
     }
 
-    /// Get Cell state at a specific DAA score (GHOSTDAG-aware)
-    ///
-    /// This is the key method for reorg-safe queries.
-    /// Returns the Cell metadata as it existed at the given DAA score.
-    fn get_cell_at_daa(&self, out_point: &OutPoint, target_daa: u64) -> Result<Option<CellMetadata>, String> {
-        // First check if cell exists
-        let metadata = self.get_cell_metadata(out_point)?;
-
-        if metadata.is_none() {
-            return Ok(None);
-        }
-
-        let metadata = metadata.unwrap();
-
-        // Check if Cell was created before target DAA
-        if metadata.block_daa_score > target_daa {
-            // Cell didn't exist yet at target DAA
-            return Ok(None);
-        }
-
-        // TODO: Check if Cell was spent before target DAA
-        // This requires traversing cell_diffs from creator to target DAA
-
-        // For now, if it was created, assume it exists
-        Ok(Some(metadata))
+    fn get_block_timestamp(&self, block_hash: Hash) -> Result<u64, String> {
+        self.headers_store.get_timestamp(block_hash).map_err(|e| format!("Header timestamp lookup error: {}", e))
     }
 }
 
+#[cfg(feature = "vm")]
 impl<
         T: GhostdagStoreReader,
         U: ReachabilityStoreReader,
@@ -292,53 +375,24 @@ impl<
         X: CellRootsStoreReader,
         Y: BlockTransactionsStoreReader,
         Z: StatusesStoreReader,
-    > ConsensusCellProvider<T, U, V, W, X, Y, Z>
+    > CellScriptDataProvider for ConsensusCellProvider<T, U, V, W, X, Y, Z>
 {
-    /// Compute lock script hash from ScriptPublicKey
-    fn compute_lock_hash(script_public_key: &spora_consensus_core::tx::ScriptPublicKey) -> [u8; 32] {
-        use blake3::Hasher;
-
-        let mut hasher = Hasher::new();
-        hasher.update(b"spora-cell/lock"); // Domain separation
-        hasher.update(&script_public_key.version().to_le_bytes());
-        hasher.update(script_public_key.script());
-
-        *hasher.finalize().as_bytes()
+    fn get_cell_data(&self, out_point: &OutPoint, pov: Hash) -> Result<Option<Vec<u8>>, String> {
+        let outpoint = Self::to_transaction_outpoint(out_point);
+        Ok(self.get_cell_at_pov_internal(&outpoint, pov)?.and_then(|meta| meta.data))
     }
-}
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::model::stores::block_transactions::DbBlockTransactionsStore;
-    use crate::model::stores::cell_diffs::DbCellDiffsStore;
-    use crate::model::stores::cell_roots::DbCellRootsStore;
-    use crate::model::stores::ghostdag::DbGhostdagStore;
-    use crate::model::stores::headers::DbHeadersStore;
-    use crate::model::stores::reachability::DbReachabilityStore;
-    use crate::model::stores::statuses::DbStatusesStore;
-    use spora_consensus_core::tx::ScriptPublicKey;
-
-    // Type alias for the full provider type
-    type TestProvider = ConsensusCellProvider<
-        DbGhostdagStore,
-        DbReachabilityStore,
-        DbHeadersStore,
-        DbCellDiffsStore,
-        DbCellRootsStore,
-        DbBlockTransactionsStore,
-        DbStatusesStore,
-    >;
-
-    // Note: Full integration tests require mock stores
-    // Unit tests focus on logic verification
-
-    #[test]
-    fn test_compute_lock_hash_deterministic() {
-        let script = ScriptPublicKey::from_vec(0, vec![0x76, 0xa9, 0x14]); // Example P2PKH prefix
-        let hash1 = TestProvider::compute_lock_hash(&script);
-        let hash2 = TestProvider::compute_lock_hash(&script);
-
-        assert_eq!(hash1, hash2, "Lock hash should be deterministic");
+    fn get_header(&self, block_hash: Hash) -> Result<Option<spora_exec::vm::ResolvedHeader>, String> {
+        let header = match self.headers_store.get_header(block_hash) {
+            Ok(header) => header,
+            Err(StoreError::KeyNotFound(_)) => return Ok(None),
+            Err(err) => return Err(format!("Header lookup error: {}", err)),
+        };
+        Ok(Some(spora_exec::vm::ResolvedHeader {
+            hash: block_hash.as_bytes(),
+            timestamp: header.timestamp,
+            daa_score: header.daa_score,
+            parents: header.direct_parents().iter().map(|hash| hash.as_bytes()).collect(),
+        }))
     }
 }

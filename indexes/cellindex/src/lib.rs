@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ISC
-// Copyright (C) 2025 Spora developers
+// Copyright (C) 2026 Spora developers
 //
 // Cell indexing service with RPC API
 
@@ -10,14 +10,15 @@
 //! - **QueryAPI**: RPC-like query interface
 //! - **FilterAPI**: Filter Cells by lock/type/capacity
 
-#![warn(missing_docs)]
+#![allow(missing_docs)]
 
 pub mod api;
 pub mod errors;
 pub mod indexer;
 
-pub use api::{CellFilter, CellIndexProxy, CellQuery, CellQueryResult};
+pub use api::{CellFilter, CellIndexApi, CellIndexProxy, CellQuery, CellQueryResult};
 pub use errors::{CellIndexError, Result};
+pub use indexer::CellIndexer as CellIndex;
 pub use indexer::CellIndexer;
 
 /// Cell index errors (re-export from errors module)

@@ -1,5 +1,5 @@
+use crate::cell::NetworkParams;
 use crate::result::Result;
-use crate::utxo::NetworkParams;
 use js_sys::BigInt;
 use spora_consensus_core::network::{NetworkIdT, NetworkType, NetworkTypeT};
 use wasm_bindgen::prelude::*;
@@ -38,8 +38,8 @@ pub fn sau_to_spora_string(sau: ISauToSpora) -> Result<String> {
 
 ///
 /// Format a Sau amount to a string representation of the amount in Spora with a suffix
-/// based on the network type (e.g. `SPORA` for mainnet, `TTONDI` for testnet,
-/// `STONDI` for simnet, `DTONDI` for devnet).
+/// based on the network type (e.g. `SPORA` for mainnet, `TSPORA` for testnet,
+/// `SSPORA` for simnet, `DSPORA` for devnet).
 ///
 /// @category Wallet SDK
 ///

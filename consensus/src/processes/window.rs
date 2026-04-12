@@ -10,11 +10,10 @@ use crate::{
 use once_cell::unsync::Lazy;
 use spora_consensus_core::{
     blockhash::{BlockHashExtensions, ORIGIN},
-    config::{genesis::GenesisBlock, params::ForkActivation},
+    config::genesis::GenesisBlock,
     errors::{block::RuleError, difficulty::DifficultyResult},
     BlockHashSet, BlueWorkType, HashMapCustomHasher,
 };
-use spora_core::{info, log::CRESCENDO_KEYWORD};
 use spora_hashes::Hash;
 use spora_math::Uint256;
 use spora_utils::refs::Refs;
@@ -28,7 +27,6 @@ use std::{
 use super::{
     difficulty::{FullDifficultyManager, SampledDifficultyManager},
     past_median_time::{FullPastMedianTimeManager, SampledPastMedianTimeManager},
-    utils::CoinFlip,
 };
 
 #[derive(Clone, Copy)]
@@ -307,7 +305,6 @@ pub struct SampledWindowManager<
     block_window_cache_for_difficulty: Arc<U>,
     block_window_cache_for_past_median_time: Arc<U>,
     target_time_per_block: u64,
-    crescendo_activation: ForkActivation,
     difficulty_window_size: usize,
     difficulty_sample_rate: u64,
     past_median_time_window_size: usize,
@@ -328,9 +325,7 @@ impl<T: GhostdagStoreReader, U: BlockWindowCacheReader + BlockWindowCacheWriter,
         block_window_cache_for_difficulty: Arc<U>,
         block_window_cache_for_past_median_time: Arc<U>,
         max_difficulty_target: Uint256,
-        prior_target_time_per_block: u64,
         target_time_per_block: u64,
-        crescendo_activation: ForkActivation,
         difficulty_window_size: usize,
         min_difficulty_window_size: usize,
         difficulty_sample_rate: u64,
@@ -346,9 +341,7 @@ impl<T: GhostdagStoreReader, U: BlockWindowCacheReader + BlockWindowCacheWriter,
             difficulty_window_size,
             min_difficulty_window_size,
             difficulty_sample_rate,
-            prior_target_time_per_block,
             target_time_per_block,
-            crescendo_activation,
         );
         let past_median_time_manager = SampledPastMedianTimeManager::new(headers_store.clone(), genesis.timestamp);
         Self {
@@ -359,7 +352,6 @@ impl<T: GhostdagStoreReader, U: BlockWindowCacheReader + BlockWindowCacheWriter,
             block_window_cache_for_difficulty,
             block_window_cache_for_past_median_time,
             target_time_per_block,
-            crescendo_activation,
             difficulty_window_size,
             difficulty_sample_rate,
             past_median_time_window_size,
@@ -369,14 +361,8 @@ impl<T: GhostdagStoreReader, U: BlockWindowCacheReader + BlockWindowCacheWriter,
         }
     }
 
-    pub(crate) fn is_window_block_crescendo_activated(&self, selected_parent: Hash) -> bool {
-        if selected_parent.is_origin() {
-            // Trusted block syncer<>syncee contract: if the selected parent header wasn't provided, we assume activation.
-            // See crescendo-related comment in consecutive_cover_for_window for the syncer side of the contract
-            return true;
-        }
-        let sp_daa_score = self.headers_store.get_daa_score(selected_parent).unwrap();
-        self.crescendo_activation.is_active(sp_daa_score)
+    pub(crate) fn is_window_block_activated(&self, _selected_parent: Hash) -> bool {
+        true
     }
 
     fn build_block_window(
@@ -401,13 +387,13 @@ impl<T: GhostdagStoreReader, U: BlockWindowCacheReader + BlockWindowCacheWriter,
             return Err(RuleError::InsufficientDaaWindowSize(0));
         }
 
-        // [Crescendo]: filter non activated blocks from the window
+        // Filter non-activated blocks from the window
         let filter_non_activated = true;
 
         /*
-            Crescendo extended explanation
+            Extended explanation
 
-            Background: for the post-activation window we filter all previously non activated blocks.
+            For the window we filter all previously non-activated blocks.
             See https://github.com/sporanet/kips/blob/master/kip-0014.md#handling-difficulty-adjustment-during-the-transition
 
             We consider a block C to be not activated from the pov of this block (B) if either:
@@ -445,7 +431,7 @@ impl<T: GhostdagStoreReader, U: BlockWindowCacheReader + BlockWindowCacheWriter,
             Some(&mut mergeset_non_daa_inserter),
             filter_non_activated,
         ) {
-            // [Crescendo]: the selected parent window will be in the cache only if it was activated (due to tracking of window origin),
+            // The selected parent window will be in the cache only if it was activated (due to tracking of window origin),
             // so we can safely inherit it, add activated blocks from the mergeset and return
             return Ok(res);
         }
@@ -481,12 +467,6 @@ impl<T: GhostdagStoreReader, U: BlockWindowCacheReader + BlockWindowCacheWriter,
                 break;
             }
 
-            // [Crescendo]: check whether the current block was activated (by checking its selected parent DAA score).
-            // If not active, break with the currently obtained window (following definition 2 above)
-            if !self.is_window_block_crescendo_activated(current_ghostdag.selected_parent) {
-                break;
-            }
-
             let parent_ghostdag = self.ghostdag_store.get_data(current_ghostdag.selected_parent).unwrap();
 
             // No need to further iterate since past of selected parent has only lower blue work
@@ -504,7 +484,7 @@ impl<T: GhostdagStoreReader, U: BlockWindowCacheReader + BlockWindowCacheWriter,
                 filter_non_activated,
             );
 
-            // [Crescendo]: the chain ancestor window will be in the cache only if it was
+            // The chain ancestor window will be in the cache only if it was
             // activated (due to tracking of window origin), so we can safely inherit it
             //
             // see if we can inherit and merge with the selected parent cache
@@ -616,7 +596,7 @@ impl<T: GhostdagStoreReader, U: BlockWindowCacheReader + BlockWindowCacheWriter,
                     Some(SampledBlock::NonDaa(block.hash))
                 } else {
                     index += 1;
-                    if filter_non_activated && !self.is_window_block_crescendo_activated(compact.selected_parent) {
+                    if filter_non_activated && !self.is_window_block_activated(compact.selected_parent) {
                         return None;
                     }
                     if (selected_parent_daa_score + index) % sample_rate == 0 {
@@ -657,13 +637,6 @@ impl<T: GhostdagStoreReader, U: BlockWindowCacheReader + BlockWindowCacheWriter,
 
     fn calc_past_median_time(&self, ghostdag_data: &GhostdagData) -> Result<(u64, Arc<BlockWindowHeap>), RuleError> {
         let window = self.block_window(ghostdag_data, WindowType::MedianTimeWindow)?;
-        if window.len() < self.past_median_time_window_size && CoinFlip::default().flip() {
-            info!(target: CRESCENDO_KEYWORD,
-                "[Crescendo] MDT window increasing post activation: {} (target: {})",
-                window.len(),
-                self.past_median_time_window_size
-            );
-        }
         let past_median_time = self.past_median_time_manager.calc_past_median_time(&window, ghostdag_data.selected_parent)?;
         Ok((past_median_time, window))
     }
@@ -725,7 +698,7 @@ impl<T: GhostdagStoreReader, U: BlockWindowCacheReader + BlockWindowCacheWriter,
             for merged in ghostdag.unordered_mergeset() {
                 cover.insert(merged);
                 if unvisited.remove(&merged) {
-                    // [Crescendo]: for each block in the original window save its selected parent as well
+                    // For each block in the original window save its selected parent as well
                     // since it is required for checking whether the block was activated (when building the
                     // window by the syncee or when rebuilding following pruning)
                     cover.insert(self.ghostdag_store.get_selected_parent(merged).unwrap());
@@ -753,7 +726,6 @@ pub struct DualWindowManager<
 > {
     ghostdag_store: Arc<T>,
     headers_store: Arc<V>,
-    crescendo_activation: ForkActivation,
     full_window_manager: FullWindowManager<T, U, V>,
     sampled_window_manager: SampledWindowManager<T, U, V, W>,
 }
@@ -761,7 +733,6 @@ pub struct DualWindowManager<
 impl<T: GhostdagStoreReader, U: BlockWindowCacheReader + BlockWindowCacheWriter, V: HeaderStoreReader, W: DaaStoreReader>
     DualWindowManager<T, U, V, W>
 {
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         genesis: &GenesisBlock,
         ghostdag_store: Arc<T>,
@@ -770,10 +741,7 @@ impl<T: GhostdagStoreReader, U: BlockWindowCacheReader + BlockWindowCacheWriter,
         block_window_cache_for_difficulty: Arc<U>,
         block_window_cache_for_past_median_time: Arc<U>,
         max_difficulty_target: Uint256,
-        prior_target_time_per_block: u64,
-        crescendo_target_time_per_block: u64,
-        crescendo_activation: ForkActivation,
-        full_difficulty_window_size: usize,
+        target_time_per_block: u64,
         sampled_difficulty_window_size: usize,
         min_difficulty_window_size: usize,
         difficulty_sample_rate: u64,
@@ -788,9 +756,9 @@ impl<T: GhostdagStoreReader, U: BlockWindowCacheReader + BlockWindowCacheWriter,
             block_window_cache_for_difficulty.clone(),
             block_window_cache_for_past_median_time.clone(),
             max_difficulty_target,
-            prior_target_time_per_block,
-            full_difficulty_window_size,
-            min_difficulty_window_size.min(full_difficulty_window_size),
+            target_time_per_block,
+            sampled_difficulty_window_size,
+            min_difficulty_window_size.min(sampled_difficulty_window_size),
             full_past_median_time_window_size,
         );
         let sampled_window_manager = SampledWindowManager::new(
@@ -801,22 +769,19 @@ impl<T: GhostdagStoreReader, U: BlockWindowCacheReader + BlockWindowCacheWriter,
             block_window_cache_for_difficulty,
             block_window_cache_for_past_median_time,
             max_difficulty_target,
-            prior_target_time_per_block,
-            crescendo_target_time_per_block,
-            crescendo_activation,
+            target_time_per_block,
             sampled_difficulty_window_size,
             min_difficulty_window_size.min(sampled_difficulty_window_size),
             difficulty_sample_rate,
             sampled_past_median_time_window_size,
             past_median_time_sample_rate,
         );
-        Self { ghostdag_store, headers_store, sampled_window_manager, full_window_manager, crescendo_activation }
+        Self { ghostdag_store, headers_store, sampled_window_manager, full_window_manager }
     }
 
-    /// Checks whether sampling mode was activated based on the selected parent (internally checking its DAA score)
-    pub(crate) fn sampling(&self, selected_parent: Hash) -> bool {
-        let sp_daa_score = self.headers_store.get_daa_score(selected_parent).unwrap();
-        self.crescendo_activation.is_active(sp_daa_score)
+    /// Sampling is always active
+    pub(crate) fn sampling(&self, _selected_parent: Hash) -> bool {
+        true
     }
 }
 

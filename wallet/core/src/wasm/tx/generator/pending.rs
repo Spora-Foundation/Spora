@@ -5,6 +5,7 @@ use crate::wasm::PrivateKeyArrayT;
 use spora_consensus_client::{numeric, string};
 use spora_consensus_client::{Transaction, TransactionT};
 use spora_consensus_core::hashing::wasm::SighashType;
+use spora_consensus_core::tx::legacy_compat_transaction_from_cell_tx;
 use spora_wallet_keys::privatekey::PrivateKey;
 use spora_wasm_core::types::{BinaryT, HexString};
 use spora_wrpc_wasm::RpcClient;
@@ -45,7 +46,7 @@ impl PendingTransaction {
         BigInt::from(self.inner.fees())
     }
 
-    /// Calculated transaction mass.
+    /// Calculated storage-mass commitment.
     #[wasm_bindgen(getter)]
     pub fn mass(&self) -> BigInt {
         BigInt::from(self.inner.mass())
@@ -87,10 +88,10 @@ impl PendingTransaction {
         self.inner.addresses().iter().map(|address| JsValue::from(address.to_string())).collect()
     }
 
-    /// Provides a list of UTXO entries used by the transaction.
-    #[wasm_bindgen(js_name = getUtxoEntries)]
-    pub fn get_utxo_entries(&self) -> Array {
-        self.inner.utxo_entries().values().map(|utxo_entry| JsValue::from(utxo_entry.clone())).collect()
+    /// Provides a list of cell entries used by the transaction.
+    #[wasm_bindgen(js_name = getCellEntries)]
+    pub fn get_cell_entries(&self) -> Array {
+        self.inner.cell_entries().values().map(|cell_entry| JsValue::from(cell_entry.clone())).collect()
     }
 
     /// Creates and returns a signature for the input at the specified index.
@@ -151,9 +152,9 @@ impl PendingTransaction {
     }
 
     /// Submit transaction to the supplied [`RpcClient`]
-    /// **IMPORTANT:** This method will remove UTXOs from the associated
-    /// {@link UtxoContext} if one was used to create the transaction
-    /// and will return UTXOs back to {@link UtxoContext} in case of
+    /// **IMPORTANT:** This method will remove cells from the associated
+    /// {@link CellContext} if one was used to create the transaction
+    /// and will return cells back to {@link CellContext} in case of
     /// a failed submission.
     ///
     /// # Important
@@ -173,7 +174,8 @@ impl PendingTransaction {
     /// Returns encapsulated network [`Transaction`]
     #[wasm_bindgen(getter)]
     pub fn transaction(&self) -> Result<Transaction> {
-        Ok(Transaction::from_cctx_transaction(&self.inner.transaction(), self.inner.utxo_entries()))
+        let legacy_tx = legacy_compat_transaction_from_cell_tx(&self.inner.transaction());
+        Ok(Transaction::from_cctx_transaction(&legacy_tx, self.inner.cell_entries()))
     }
 
     /// Serializes the transaction to a pure JavaScript Object.
@@ -182,7 +184,8 @@ impl PendingTransaction {
     /// @see {@link Transaction}, {@link ISerializableTransaction}
     #[wasm_bindgen(js_name = "serializeToObject")]
     pub fn serialize_to_object(&self) -> Result<TransactionT> {
-        Ok(numeric::SerializableTransaction::from_cctx_transaction(&self.inner.transaction(), self.inner.utxo_entries())?
+        let legacy_tx = legacy_compat_transaction_from_cell_tx(&self.inner.transaction());
+        Ok(numeric::SerializableTransaction::from_cctx_transaction(&legacy_tx, self.inner.cell_entries())?
             .serialize_to_object()?
             .into())
     }
@@ -193,7 +196,8 @@ impl PendingTransaction {
     /// @see {@link Transaction}, {@link ISerializableTransaction}
     #[wasm_bindgen(js_name = "serializeToJSON")]
     pub fn serialize_to_json(&self) -> Result<String> {
-        Ok(numeric::SerializableTransaction::from_cctx_transaction(&self.inner.transaction(), self.inner.utxo_entries())?
+        let legacy_tx = legacy_compat_transaction_from_cell_tx(&self.inner.transaction());
+        Ok(numeric::SerializableTransaction::from_cctx_transaction(&legacy_tx, self.inner.cell_entries())?
             .serialize_to_json()?)
     }
 
@@ -202,7 +206,8 @@ impl PendingTransaction {
     /// @see {@link Transaction}, {@link ISerializableTransaction}
     #[wasm_bindgen(js_name = "serializeToSafeJSON")]
     pub fn serialize_to_json_safe(&self) -> Result<String> {
-        Ok(string::SerializableTransaction::from_cctx_transaction(&self.inner.transaction(), self.inner.utxo_entries())?
+        let legacy_tx = legacy_compat_transaction_from_cell_tx(&self.inner.transaction());
+        Ok(string::SerializableTransaction::from_cctx_transaction(&legacy_tx, self.inner.cell_entries())?
             .serialize_to_json()?)
     }
 }

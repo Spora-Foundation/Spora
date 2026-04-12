@@ -1,11 +1,11 @@
 use super::{daemon::Daemon, listener::Listener};
+use spora_grpc_client::GrpcClient;
+use spora_notify::{events::EventType, scope::Scope, subscription::Command};
+use spora_rpc_core::RpcResult;
 use std::{
     collections::{hash_map::Entry, HashMap},
     ops::Deref,
 };
-use spora_grpc_client::GrpcClient;
-use spora_notify::{events::EventType, scope::Scope, subscription::Command};
-use spora_rpc_core::RpcResult;
 
 /// A multi-listener gRPC client with event type dedicated listeners
 pub struct ListeningClient {
@@ -49,8 +49,8 @@ impl ListeningClient {
         self.listener(EventType::BlockAdded)
     }
 
-    pub fn utxos_changed_listener(&self) -> Option<Listener> {
-        self.listener(EventType::UtxosChanged)
+    pub fn cells_changed_listener(&self) -> Option<Listener> {
+        self.listener(EventType::CellsChanged)
     }
 
     pub fn virtual_daa_score_changed_listener(&self) -> Option<Listener> {

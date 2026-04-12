@@ -4,7 +4,7 @@ use rayon::prelude::*;
 use spora_consensus_core::{
     muhash::MuHashExtensions,
     subnets::SUBNETWORK_ID_NATIVE,
-    tx::{ScriptPublicKey, SignableTransaction, Transaction, TransactionInput, TransactionOutpoint, TransactionOutput, UtxoEntry},
+    tx::{CellEntry, ScriptPublicKey, SignableTransaction, Transaction, TransactionInput, TransactionOutpoint, TransactionOutput},
 };
 use spora_hashes::TransactionID;
 use spora_muhash::MuHash;
@@ -18,7 +18,7 @@ fn generate_transaction(ins: usize, outs: usize, randomness: u64) -> SignableTra
         hasher.write(i.to_le_bytes());
         hasher.write(randomness.to_le_bytes());
         let input = TransactionInput::new(TransactionOutpoint::new(hasher.finalize(), 0), vec![10; 66], 0, 1);
-        let entry = UtxoEntry::new(22222222, ScriptPublicKey::from_vec(0, vec![99; 34]), 23456, false);
+        let entry = CellEntry::new(22222222, ScriptPublicKey::from_vec(0, vec![99; 34]), 23456, false);
         tx.inputs.push(input);
         entries.push(entry);
     }

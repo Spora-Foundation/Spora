@@ -3,7 +3,7 @@ globalThis.WebSocket = require('websocket').w3cwebsocket; // W3C WebSocket modul
 let spora = require('../spora/spora_wasm');
 const { parseArgs, guardRpcIsSynced } = require("../utils");
 let {
-    RpcClient, UtxoSet, Address, Encoding, UtxoOrdering,
+    RpcClient, CellSet, Address, Encoding, CellOrdering,
     PaymentOutputs, PaymentOutput,
     XPrivateKey,
     VirtualTransaction,
@@ -43,20 +43,17 @@ spora.init_console_panic_hook();
 
     console.log("\nJSON.stringify(addresses):", JSON.stringify(addresses));
 
-    console.log("\ngetting UTXOs...");
-    const utxosByAddress = await rpc.getUtxosByAddresses({ addresses });
-    console.log("Creating UtxoSet...");
-    //console.log("utxos_by_address", utxos_by_address)
-    const utxoSet = UtxoSet.from(utxosByAddress);
-
-    //console.log("utxos_by_address", utxos_by_address)
+    console.log("\ngetting cells...");
+    const cellsByAddress = await rpc.getCellsByAddresses({ addresses });
+    console.log("Creating CellSet...");
+    const cellSet = CellSet.from(cellsByAddress);
 
     const amount = 1000n;
 
-    const utxoSelection = await utxoSet.select(amount + 100n, UtxoOrdering.AscendingAmount);
+    const cellSelection = await cellSet.select(amount + 100n, CellOrdering.AscendingAmount);
 
-    console.log("utxo_selection.amount", utxoSelection.amount)
-    console.log("utxo_selection.totalAmount", utxoSelection.totalAmount)
+    console.log("cell_selection.amount", cellSelection.amount)
+    console.log("cell_selection.totalAmount", cellSelection.totalAmount)
 
     const outputs = [
         [
@@ -67,10 +64,10 @@ spora.init_console_panic_hook();
 
     console.log("outputs", outputs)
 
-    const changeAddress = addr;
+    const changeAddress = address;
 
     const priorityFee = 1500;
-    const tx = createTransaction(utxoSelection, outputs, changeAddress, priorityFee);
+    const tx = createTransaction(cellSelection, outputs, changeAddress, priorityFee);
     const scriptHashes = tx.getScriptHashes();
     console.log("scriptHashes", scriptHashes)
 

@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: ISC
-// Copyright (C) 2025 Spora developers
+// Copyright (C) 2026 Spora developers
 //
 // VM integration for Cell script execution
+
+#![allow(ambiguous_glob_reexports, missing_docs)]
 
 #[cfg(feature = "vm")]
 pub mod cost_model;

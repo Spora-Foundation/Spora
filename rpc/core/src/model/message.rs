@@ -3,7 +3,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 use spora_consensus_core::api::stats::BlockCount;
 use spora_core::debug;
-use spora_notify::subscription::{context::SubscriptionContext, single::UtxosChangedSubscription, Command};
+use spora_notify::subscription::{context::SubscriptionContext, single::CellsChangedSubscription, Command};
 use spora_utils::hex::ToHex;
 use std::collections::HashMap;
 use std::{
@@ -365,7 +365,7 @@ pub struct GetInfoResponse {
     pub p2p_id: String,
     pub mempool_size: u64,
     pub server_version: String,
-    pub is_utxo_indexed: bool,
+    pub is_cell_indexed: bool,
     pub is_synced: bool,
     pub has_notify_command: bool,
     pub has_message_id: bool,
@@ -377,7 +377,7 @@ impl Serializer for GetInfoResponse {
         store!(String, &self.p2p_id, writer)?;
         store!(u64, &self.mempool_size, writer)?;
         store!(String, &self.server_version, writer)?;
-        store!(bool, &self.is_utxo_indexed, writer)?;
+        store!(bool, &self.is_cell_indexed, writer)?;
         store!(bool, &self.is_synced, writer)?;
         store!(bool, &self.has_notify_command, writer)?;
         store!(bool, &self.has_message_id, writer)?;
@@ -392,12 +392,12 @@ impl Deserializer for GetInfoResponse {
         let p2p_id = load!(String, reader)?;
         let mempool_size = load!(u64, reader)?;
         let server_version = load!(String, reader)?;
-        let is_utxo_indexed = load!(bool, reader)?;
+        let is_cell_indexed = load!(bool, reader)?;
         let is_synced = load!(bool, reader)?;
         let has_notify_command = load!(bool, reader)?;
         let has_message_id = load!(bool, reader)?;
 
-        Ok(Self { p2p_id, mempool_size, server_version, is_utxo_indexed, is_synced, has_notify_command, has_message_id })
+        Ok(Self { p2p_id, mempool_size, server_version, is_cell_indexed, is_synced, has_notify_command, has_message_id })
     }
 }
 
@@ -1605,19 +1605,19 @@ impl Deserializer for GetSinkBlueScoreResponse {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct GetUtxosByAddressRequest {
+pub struct GetCellsByAddressRequest {
     pub address: RpcAddress,
     pub start: u64,
     pub limit: u32,
 }
 
-impl GetUtxosByAddressRequest {
+impl GetCellsByAddressRequest {
     pub fn new(address: RpcAddress, start: u64, limit: u32) -> Self {
         Self { address, start, limit }
     }
 }
 
-impl Serializer for GetUtxosByAddressRequest {
+impl Serializer for GetCellsByAddressRequest {
     fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
         store!(u16, &1, writer)?;
         store!(RpcAddress, &self.address, writer)?;
@@ -1627,7 +1627,7 @@ impl Serializer for GetUtxosByAddressRequest {
     }
 }
 
-impl Deserializer for GetUtxosByAddressRequest {
+impl Deserializer for GetCellsByAddressRequest {
     fn deserialize<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
         let _version = load!(u16, reader)?;
         let address = load!(RpcAddress, reader)?;
@@ -1639,30 +1639,30 @@ impl Deserializer for GetUtxosByAddressRequest {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct GetUtxosByAddressResponse {
-    pub entries: Vec<RpcUtxosByAddressesEntry>,
+pub struct GetCellsByAddressResponse {
+    pub entries: Vec<RpcCellsByAddressesEntry>,
     pub total: u64,
 }
 
-impl GetUtxosByAddressResponse {
-    pub fn new(entries: Vec<RpcUtxosByAddressesEntry>, total: u64) -> Self {
+impl GetCellsByAddressResponse {
+    pub fn new(entries: Vec<RpcCellsByAddressesEntry>, total: u64) -> Self {
         Self { entries, total }
     }
 }
 
-impl Serializer for GetUtxosByAddressResponse {
+impl Serializer for GetCellsByAddressResponse {
     fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
         store!(u16, &1, writer)?;
-        serialize!(Vec<RpcUtxosByAddressesEntry>, &self.entries, writer)?;
+        serialize!(Vec<RpcCellsByAddressesEntry>, &self.entries, writer)?;
         store!(u64, &self.total, writer)?;
         Ok(())
     }
 }
 
-impl Deserializer for GetUtxosByAddressResponse {
+impl Deserializer for GetCellsByAddressResponse {
     fn deserialize<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
         let _version = load!(u16, reader)?;
-        let entries = deserialize!(Vec<RpcUtxosByAddressesEntry>, reader)?;
+        let entries = deserialize!(Vec<RpcCellsByAddressesEntry>, reader)?;
         let total = load!(u64, reader)?;
         Ok(Self { entries, total })
     }
@@ -1670,17 +1670,17 @@ impl Deserializer for GetUtxosByAddressResponse {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct GetUtxosByAddressesRequest {
+pub struct GetCellsByAddressesRequest {
     pub addresses: Vec<RpcAddress>,
 }
 
-impl GetUtxosByAddressesRequest {
+impl GetCellsByAddressesRequest {
     pub fn new(addresses: Vec<RpcAddress>) -> Self {
         Self { addresses }
     }
 }
 
-impl Serializer for GetUtxosByAddressesRequest {
+impl Serializer for GetCellsByAddressesRequest {
     fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
         store!(u16, &1, writer)?;
         store!(Vec<RpcAddress>, &self.addresses, writer)?;
@@ -1689,7 +1689,7 @@ impl Serializer for GetUtxosByAddressesRequest {
     }
 }
 
-impl Deserializer for GetUtxosByAddressesRequest {
+impl Deserializer for GetCellsByAddressesRequest {
     fn deserialize<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
         let _version = load!(u16, reader)?;
         let addresses = load!(Vec<RpcAddress>, reader)?;
@@ -1700,29 +1700,29 @@ impl Deserializer for GetUtxosByAddressesRequest {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct GetUtxosByAddressesResponse {
-    pub entries: Vec<RpcUtxosByAddressesEntry>,
+pub struct GetCellsByAddressesResponse {
+    pub entries: Vec<RpcCellsByAddressesEntry>,
 }
 
-impl GetUtxosByAddressesResponse {
-    pub fn new(entries: Vec<RpcUtxosByAddressesEntry>) -> Self {
+impl GetCellsByAddressesResponse {
+    pub fn new(entries: Vec<RpcCellsByAddressesEntry>) -> Self {
         Self { entries }
     }
 }
 
-impl Serializer for GetUtxosByAddressesResponse {
+impl Serializer for GetCellsByAddressesResponse {
     fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
         store!(u16, &1, writer)?;
-        serialize!(Vec<RpcUtxosByAddressesEntry>, &self.entries, writer)?;
+        serialize!(Vec<RpcCellsByAddressesEntry>, &self.entries, writer)?;
 
         Ok(())
     }
 }
 
-impl Deserializer for GetUtxosByAddressesResponse {
+impl Deserializer for GetCellsByAddressesResponse {
     fn deserialize<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
         let _version = load!(u16, reader)?;
-        let entries = deserialize!(Vec<RpcUtxosByAddressesEntry>, reader)?;
+        let entries = deserialize!(Vec<RpcCellsByAddressesEntry>, reader)?;
 
         Ok(Self { entries })
     }
@@ -2584,7 +2584,7 @@ impl Deserializer for GetMetricsResponse {
 pub enum RpcCaps {
     Full = 0,
     Blocks,
-    UtxoIndex,
+    CellIndex,
     Mempool,
     Metrics,
     Visualizer,
@@ -2616,7 +2616,7 @@ pub struct GetServerInfoResponse {
     pub rpc_api_revision: u16,
     pub server_version: String,
     pub network_id: RpcNetworkId,
-    pub has_utxo_index: bool,
+    pub has_cell_index: bool,
     pub is_synced: bool,
     pub virtual_daa_score: u64,
 }
@@ -2630,7 +2630,7 @@ impl Serializer for GetServerInfoResponse {
 
         store!(String, &self.server_version, writer)?;
         store!(RpcNetworkId, &self.network_id, writer)?;
-        store!(bool, &self.has_utxo_index, writer)?;
+        store!(bool, &self.has_cell_index, writer)?;
         store!(bool, &self.is_synced, writer)?;
         store!(u64, &self.virtual_daa_score, writer)?;
 
@@ -2647,11 +2647,11 @@ impl Deserializer for GetServerInfoResponse {
 
         let server_version = load!(String, reader)?;
         let network_id = load!(RpcNetworkId, reader)?;
-        let has_utxo_index = load!(bool, reader)?;
+        let has_cell_index = load!(bool, reader)?;
         let is_synced = load!(bool, reader)?;
         let virtual_daa_score = load!(u64, reader)?;
 
-        Ok(Self { rpc_api_version, rpc_api_revision, server_version, network_id, has_utxo_index, is_synced, virtual_daa_score })
+        Ok(Self { rpc_api_version, rpc_api_revision, server_version, network_id, has_cell_index, is_synced, virtual_daa_score })
     }
 }
 
@@ -2894,18 +2894,18 @@ impl Deserializer for GetCurrentBlockColorResponse {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct GetUtxoReturnAddressRequest {
+pub struct GetCellReturnAddressRequest {
     pub txid: RpcHash,
     pub accepting_block_daa_score: u64,
 }
 
-impl GetUtxoReturnAddressRequest {
+impl GetCellReturnAddressRequest {
     pub fn new(txid: RpcHash, accepting_block_daa_score: u64) -> Self {
         Self { txid, accepting_block_daa_score }
     }
 }
 
-impl Serializer for GetUtxoReturnAddressRequest {
+impl Serializer for GetCellReturnAddressRequest {
     fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
         store!(u16, &1, writer)?;
         store!(RpcHash, &self.txid, writer)?;
@@ -2915,7 +2915,7 @@ impl Serializer for GetUtxoReturnAddressRequest {
     }
 }
 
-impl Deserializer for GetUtxoReturnAddressRequest {
+impl Deserializer for GetCellReturnAddressRequest {
     fn deserialize<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
         let _version = load!(u16, reader)?;
         let txid = load!(RpcHash, reader)?;
@@ -2927,17 +2927,17 @@ impl Deserializer for GetUtxoReturnAddressRequest {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct GetUtxoReturnAddressResponse {
+pub struct GetCellReturnAddressResponse {
     pub return_address: RpcAddress,
 }
 
-impl GetUtxoReturnAddressResponse {
+impl GetCellReturnAddressResponse {
     pub fn new(return_address: RpcAddress) -> Self {
         Self { return_address }
     }
 }
 
-impl Serializer for GetUtxoReturnAddressResponse {
+impl Serializer for GetCellReturnAddressResponse {
     fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
         store!(u16, &1, writer)?;
         store!(RpcAddress, &self.return_address, writer)?;
@@ -2946,7 +2946,7 @@ impl Serializer for GetUtxoReturnAddressResponse {
     }
 }
 
-impl Deserializer for GetUtxoReturnAddressResponse {
+impl Deserializer for GetCellReturnAddressResponse {
     fn deserialize<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
         let _version = load!(u16, reader)?;
         let return_address = load!(RpcAddress, reader)?;
@@ -3271,31 +3271,31 @@ impl Deserializer for FinalityConflictResolvedNotification {
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~
-// UtxosChangedNotification
+// CellsChangedNotification
 
-// NotifyUtxosChangedRequestMessage registers this connection for utxoChanged notifications
+// NotifyCellsChangedRequestMessage registers this connection for cellChanged notifications
 // for the given addresses. Depending on the provided `command`, notifications will
 // start or stop for the provided `addresses`.
 //
 // If `addresses` is empty, the notifications will start or stop for all addresses.
 //
-// This call is only available when this Sporad was started with `--utxoindex`
+// This call is only available when this Sporad was started with `--cellindex`
 //
-// See: UtxosChangedNotification
+// See: CellsChangedNotification
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct NotifyUtxosChangedRequest {
+pub struct NotifyCellsChangedRequest {
     pub addresses: Vec<RpcAddress>,
     pub command: Command,
 }
 
-impl NotifyUtxosChangedRequest {
+impl NotifyCellsChangedRequest {
     pub fn new(addresses: Vec<RpcAddress>, command: Command) -> Self {
         Self { addresses, command }
     }
 }
 
-impl Serializer for NotifyUtxosChangedRequest {
+impl Serializer for NotifyCellsChangedRequest {
     fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
         store!(u16, &1, writer)?;
         store!(Vec<RpcAddress>, &self.addresses, writer)?;
@@ -3304,7 +3304,7 @@ impl Serializer for NotifyUtxosChangedRequest {
     }
 }
 
-impl Deserializer for NotifyUtxosChangedRequest {
+impl Deserializer for NotifyCellsChangedRequest {
     fn deserialize<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
         let _version = load!(u16, reader)?;
         let addresses = load!(Vec<RpcAddress>, reader)?;
@@ -3315,76 +3315,76 @@ impl Deserializer for NotifyUtxosChangedRequest {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct NotifyUtxosChangedResponse {}
+pub struct NotifyCellsChangedResponse {}
 
-impl Serializer for NotifyUtxosChangedResponse {
+impl Serializer for NotifyCellsChangedResponse {
     fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
         store!(u16, &1, writer)?;
         Ok(())
     }
 }
 
-impl Deserializer for NotifyUtxosChangedResponse {
+impl Deserializer for NotifyCellsChangedResponse {
     fn deserialize<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
         let _version = load!(u16, reader)?;
         Ok(Self {})
     }
 }
 
-// UtxosChangedNotificationMessage is sent whenever the UTXO index had been updated.
+// CellsChangedNotificationMessage is sent whenever the cell index had been updated.
 //
-// See: NotifyUtxosChangedRequest
+// See: NotifyCellsChangedRequest
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct UtxosChangedNotification {
-    pub added: Arc<Vec<RpcUtxosByAddressesEntry>>,
-    pub removed: Arc<Vec<RpcUtxosByAddressesEntry>>,
+pub struct CellsChangedNotification {
+    pub added: Arc<Vec<RpcCellsByAddressesEntry>>,
+    pub removed: Arc<Vec<RpcCellsByAddressesEntry>>,
 }
 
-impl UtxosChangedNotification {
-    pub(crate) fn apply_utxos_changed_subscription(
+impl CellsChangedNotification {
+    pub(crate) fn apply_cells_changed_subscription(
         &self,
-        subscription: &UtxosChangedSubscription,
+        subscription: &CellsChangedSubscription,
         context: &SubscriptionContext,
     ) -> Option<Self> {
         if subscription.to_all() {
             Some(self.clone())
         } else {
-            let added = Self::filter_utxos(&self.added, subscription, context);
-            let removed = Self::filter_utxos(&self.removed, subscription, context);
+            let added = Self::filter_cells(&self.added, subscription, context);
+            let removed = Self::filter_cells(&self.removed, subscription, context);
             if added.is_empty() && removed.is_empty() {
                 None
             } else {
-                debug!("CRPC, Creating UtxosChanged notifications with {} added and {} removed utxos", added.len(), removed.len());
+                debug!("CRPC, Creating CellsChanged notifications with {} added and {} removed entries", added.len(), removed.len());
                 Some(Self { added: Arc::new(added), removed: Arc::new(removed) })
             }
         }
     }
 
-    fn filter_utxos(
-        utxo_set: &[RpcUtxosByAddressesEntry],
-        subscription: &UtxosChangedSubscription,
+    fn filter_cells(
+        cell_set: &[RpcCellsByAddressesEntry],
+        subscription: &CellsChangedSubscription,
         context: &SubscriptionContext,
-    ) -> Vec<RpcUtxosByAddressesEntry> {
+    ) -> Vec<RpcCellsByAddressesEntry> {
         let subscription_data = subscription.data();
-        utxo_set.iter().filter(|x| subscription_data.contains(&x.utxo_entry.script_public_key, context)).cloned().collect()
+        cell_set.iter().filter(|x| subscription_data.contains(&x.cell_entry.script_public_key, context)).cloned().collect()
     }
 }
 
-impl Serializer for UtxosChangedNotification {
+impl Serializer for CellsChangedNotification {
     fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
         store!(u16, &1, writer)?;
-        serialize!(Vec<RpcUtxosByAddressesEntry>, &self.added, writer)?;
-        serialize!(Vec<RpcUtxosByAddressesEntry>, &self.removed, writer)?;
+        serialize!(Vec<RpcCellsByAddressesEntry>, &self.added, writer)?;
+        serialize!(Vec<RpcCellsByAddressesEntry>, &self.removed, writer)?;
         Ok(())
     }
 }
 
-impl Deserializer for UtxosChangedNotification {
+impl Deserializer for CellsChangedNotification {
     fn deserialize<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
         let _version = load!(u16, reader)?;
-        let added = deserialize!(Vec<RpcUtxosByAddressesEntry>, reader)?;
-        let removed = deserialize!(Vec<RpcUtxosByAddressesEntry>, reader)?;
+        let added = deserialize!(Vec<RpcCellsByAddressesEntry>, reader)?;
+        let removed = deserialize!(Vec<RpcCellsByAddressesEntry>, reader)?;
         Ok(Self { added: added.into(), removed: removed.into() })
     }
 }
@@ -3548,21 +3548,21 @@ impl Deserializer for VirtualDaaScoreChangedNotification {
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// PruningPointUtxoSetOverrideNotification
+// PruningPointCellSetOverrideNotification
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct NotifyPruningPointUtxoSetOverrideRequest {
+pub struct NotifyPruningPointCellSetOverrideRequest {
     pub command: Command,
 }
 
-impl NotifyPruningPointUtxoSetOverrideRequest {
+impl NotifyPruningPointCellSetOverrideRequest {
     pub fn new(command: Command) -> Self {
         Self { command }
     }
 }
 
-impl Serializer for NotifyPruningPointUtxoSetOverrideRequest {
+impl Serializer for NotifyPruningPointCellSetOverrideRequest {
     fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
         store!(u16, &1, writer)?;
         store!(Command, &self.command, writer)?;
@@ -3570,7 +3570,7 @@ impl Serializer for NotifyPruningPointUtxoSetOverrideRequest {
     }
 }
 
-impl Deserializer for NotifyPruningPointUtxoSetOverrideRequest {
+impl Deserializer for NotifyPruningPointCellSetOverrideRequest {
     fn deserialize<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
         let _version = load!(u16, reader)?;
         let command = load!(Command, reader)?;
@@ -3580,16 +3580,16 @@ impl Deserializer for NotifyPruningPointUtxoSetOverrideRequest {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct NotifyPruningPointUtxoSetOverrideResponse {}
+pub struct NotifyPruningPointCellSetOverrideResponse {}
 
-impl Serializer for NotifyPruningPointUtxoSetOverrideResponse {
+impl Serializer for NotifyPruningPointCellSetOverrideResponse {
     fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
         store!(u16, &1, writer)?;
         Ok(())
     }
 }
 
-impl Deserializer for NotifyPruningPointUtxoSetOverrideResponse {
+impl Deserializer for NotifyPruningPointCellSetOverrideResponse {
     fn deserialize<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
         let _version = load!(u16, reader)?;
         Ok(Self {})
@@ -3598,16 +3598,16 @@ impl Deserializer for NotifyPruningPointUtxoSetOverrideResponse {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct PruningPointUtxoSetOverrideNotification {}
+pub struct PruningPointCellSetOverrideNotification {}
 
-impl Serializer for PruningPointUtxoSetOverrideNotification {
+impl Serializer for PruningPointCellSetOverrideNotification {
     fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
         store!(u16, &1, writer)?;
         Ok(())
     }
 }
 
-impl Deserializer for PruningPointUtxoSetOverrideNotification {
+impl Deserializer for PruningPointCellSetOverrideNotification {
     fn deserialize<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
         let _version = load!(u16, reader)?;
         Ok(Self {})

@@ -5,18 +5,18 @@ use itertools::Itertools;
 use parking_lot::Mutex;
 use rand::thread_rng;
 use rand_distr::{Distribution, Exp};
+use spora_addresses::Address;
+use spora_core::warn;
+use spora_grpc_client::GrpcClient;
+use spora_notify::scope::{CellsChangedScope, Scope};
+use spora_rpc_core::api::rpc::RpcApi;
+use spora_utils::{channel::Channel, triggers::SingleTrigger};
 use std::{cmp::max, collections::HashMap, sync::Arc, time::Duration};
 use tokio::{
     sync::oneshot::{channel as oneshot_channel, Receiver as OneshotReceiver, Sender as OneshotSender},
     task::JoinHandle,
     time::sleep,
 };
-use spora_addresses::Address;
-use spora_core::warn;
-use spora_grpc_client::GrpcClient;
-use spora_notify::scope::{Scope, UtxosChangedScope};
-use spora_rpc_core::api::rpc::RpcApi;
-use spora_utils::{channel::Channel, triggers::SingleTrigger};
 
 pub type JobId = u64;
 pub type Count = usize;
@@ -36,8 +36,8 @@ pub enum SubscribeCommand {
     RegisterJob((Count, OneshotSender<Registration>)),
     Start((JobId, Arc<GrpcClient>, Scope)),
     Stop((JobId, Arc<GrpcClient>, Scope)),
-    StartUtxosChanged((JobId, Arc<GrpcClient>, Arc<Vec<Address>>)),
-    StopUtxosChanged((JobId, Arc<GrpcClient>)),
+    StartCellsChanged((JobId, Arc<GrpcClient>, Arc<Vec<Address>>)),
+    StopCellsChanged((JobId, Arc<GrpcClient>)),
 }
 
 struct Job {
@@ -131,8 +131,8 @@ impl Task for SubscriptionSubmitterTask {
                                 client.stop_notify(0, scope).await.unwrap();
                                 register.lock().dec_count(id);
                             }
-                            SubscribeCommand::StartUtxosChanged((id, client, addresses)) => loop {
-                                match client.start_notify(0, UtxosChangedScope::new((*addresses).clone()).into()).await {
+                            SubscribeCommand::StartCellsChanged((id, client, addresses)) => loop {
+                                match client.start_notify(0, CellsChangedScope::new((*addresses).clone()).into()).await {
                                     Ok(_) => {
                                         register.lock().dec_count(id);
                                         break;
@@ -144,8 +144,8 @@ impl Task for SubscriptionSubmitterTask {
                                     }
                                 }
                             },
-                            SubscribeCommand::StopUtxosChanged((id, client)) => loop {
-                                match client.stop_notify(0, UtxosChangedScope::new(vec![]).into()).await {
+                            SubscribeCommand::StopCellsChanged((id, client)) => loop {
+                                match client.stop_notify(0, CellsChangedScope::new(vec![]).into()).await {
                                     Ok(_) => {
                                         register.lock().dec_count(id);
                                         break;

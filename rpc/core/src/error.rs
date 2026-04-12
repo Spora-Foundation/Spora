@@ -5,7 +5,7 @@
 use spora_consensus_core::{subnets::SubnetworkConversionError, tx::TransactionId};
 use std::{net::AddrParseError, num::TryFromIntError};
 use thiserror::Error;
-// use spora_consensus_core::utxo::utxo_inquirer::UtxoInquirerError;  // TODO(cell-model): UTXO removed
+// legacy transaction-output inquirer errors removed during Cell migration
 use spora_utils::networking::IpAddress;
 use workflow_core::channel::ChannelError;
 
@@ -61,8 +61,8 @@ pub enum RpcError {
     #[error("Transaction {0} not found")]
     TransactionNotFound(TransactionId),
 
-    #[error("Method unavailable. Run the node with the --utxoindex argument.")]
-    NoUtxoIndex,
+    #[error("Method unavailable. Run the node with the --cellindex argument.")]
+    NoCellIndex,
 
     #[error("Method unavailable. No connection manager is currently available.")]
     NoConnectionManager,
@@ -135,7 +135,7 @@ pub enum RpcError {
 
     #[error(transparent)]
     ConsensusClient(#[from] spora_consensus_client::error::Error),
-    // TODO(cell-model): UTXO-related errors removed - use Cell equivalents
+    // TODO(cell-model): legacy transaction-output errors removed; use Cell equivalents
 }
 
 impl From<String> for RpcError {

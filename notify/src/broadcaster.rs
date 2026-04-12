@@ -262,7 +262,7 @@ mod tests {
         listener::Listener,
         notification::test_helpers::*,
         notifier::test_helpers::{
-            overall_test_steps, utxos_changed_test_steps, virtual_chain_changed_test_steps, Step, TestConnection, SYNC_MAX_DELAY,
+            cells_changed_test_steps, overall_test_steps, virtual_chain_changed_test_steps, Step, TestConnection, SYNC_MAX_DELAY,
         },
         subscription::context::SubscriptionContext,
     };
@@ -450,9 +450,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_utxos_changed() {
+    async fn test_cells_changed() {
         spora_core::log::try_init_logger("trace,spora_notify=trace");
-        let mut test = Test::new("UtxosChanged broadcast", 3, utxos_changed_test_steps(0));
+        let mut test = Test::new("CellsChanged broadcast", 3, cells_changed_test_steps(0));
         test.run().await;
     }
 }

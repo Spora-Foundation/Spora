@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ISC
-// Copyright (C) 2025 Spora developers
+// Copyright (C) 2026 Spora developers
 //
 // Segment storage: 1GB data segments for DA layer
 
@@ -43,13 +43,13 @@ pub struct SegmentWriter {
     /// Base directory for segments
     base_dir: PathBuf,
     /// Current segment ID
-    current_segment_id: u32,
+    current_segment_id: Arc<Mutex<u32>>,
     /// Current segment file
     current_file: Arc<Mutex<Option<File>>>,
     /// Current offset
     current_offset: Arc<Mutex<u64>>,
     /// Segment metadata
-    segments: Arc<Mutex<Vec<SegmentMeta>>>,
+    _segments: Arc<Mutex<Vec<SegmentMeta>>>,
 }
 
 impl SegmentWriter {
@@ -63,10 +63,10 @@ impl SegmentWriter {
 
         Ok(Self {
             base_dir,
-            current_segment_id: max_id.map(|id| id + 1).unwrap_or(0),
+            current_segment_id: Arc::new(Mutex::new(max_id.map(|id| id + 1).unwrap_or(0))),
             current_file: Arc::new(Mutex::new(None)),
             current_offset: Arc::new(Mutex::new(0)),
-            segments: Arc::new(Mutex::new(Vec::new())),
+            _segments: Arc::new(Mutex::new(Vec::new())),
         })
     }
 
@@ -88,7 +88,7 @@ impl SegmentWriter {
 
         let file = file_guard.as_mut().ok_or_else(|| StateError::Database("No active segment file".to_string()))?;
 
-        let segment_id = self.current_segment_id;
+        let segment_id = *self.current_segment_id.lock();
         let offset = *offset_guard;
         let length = data.len() as u32;
 
@@ -110,7 +110,7 @@ impl SegmentWriter {
             return Err(StateError::Database("No active segment to seal".to_string()));
         }
 
-        let segment_id = self.current_segment_id;
+        let segment_id = *self.current_segment_id.lock();
         let size = *offset_guard;
 
         // Compute Merkle root (simplified: blake3 hash of entire segment)
@@ -135,6 +135,14 @@ impl SegmentWriter {
         // Close current segment
         let mut file_guard = self.current_file.lock();
         *file_guard = None;
+        drop(file_guard);
+
+        let mut offset_guard = self.current_offset.lock();
+        *offset_guard = 0;
+        drop(offset_guard);
+
+        let mut segment_id_guard = self.current_segment_id.lock();
+        *segment_id_guard += 1;
 
         Ok(meta)
     }
@@ -147,7 +155,7 @@ impl SegmentWriter {
         }
 
         // Open new segment
-        let new_id = self.current_segment_id + 1;
+        let new_id = *self.current_segment_id.lock();
         let path = self.segment_path(new_id);
 
         let file = OpenOptions::new().create(true).write(true).append(true).open(&path)?;

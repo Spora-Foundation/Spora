@@ -146,7 +146,7 @@ mod tests {
             vec![],
         );
 
-        let entries = vec![UtxoEntry {
+        let entries = vec![CellEntry {
             amount: 12793000000000,
             script_public_key: pay_to_script_hash_script(&script),
             block_daa_score: 36151168,
@@ -181,7 +181,8 @@ mod tests {
         }
 
         let tx = tx.as_verifiable();
-        let (input, entry) = tx.populated_inputs().next().unwrap();
+        let input = &tx.inputs()[0];
+        let entry = tx.cell_entry(0).expect("expected populated cell entry for multisig validation");
 
         let cache = Cache::new(10_000);
         let mut engine = TxScriptEngine::from_transaction_input(&tx, input, 0, entry, &reused_values, &cache, false, false);

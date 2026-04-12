@@ -275,7 +275,7 @@ impl Inner {
             Self::MAX_ADDRESS_UPPER_BOUND
         );
         let max_addresses = max_addresses.unwrap_or(Self::DEFAULT_MAX_ADDRESSES);
-        debug!("Memory configuration: UTXO changed events wil be tracked for at most {} addresses", max_addresses);
+        debug!("Memory configuration: cell changed events will be tracked for at most {} addresses", max_addresses);
 
         let script_pub_keys = IndexMap::with_capacity(capacity);
         debug!("Creating an address tracker with a capacity of {}", script_pub_keys.capacity());
@@ -389,7 +389,7 @@ impl Inner {
 /// #### Implementation design
 ///
 /// Each [`Address`] is stored internally as a [`ScriptPubKey`](spora_consensus_core::tx::ScriptPublicKey).
-/// This prevents inter-network duplication and optimizes UTXOs filtering efficiency.
+/// This prevents inter-network duplication and optimizes cell-change filtering efficiency.
 ///
 /// But consequently the address network prefix gets lost and must be globally provided when querying for addresses by indexes.
 #[derive(Debug)]

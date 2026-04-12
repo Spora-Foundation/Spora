@@ -7,7 +7,7 @@ use crate::{
         config::Config,
         model::tx::{MempoolTransaction, TransactionPostValidation, TransactionPreValidation, TxRemovalReason},
         populate_entries_and_try_validate::{
-            populate_mempool_transactions_in_parallel, validate_mempool_transaction, validate_mempool_transactions_in_parallel,
+            validate_mempool_cell_transaction, validate_mempool_mempool_transactions_in_parallel,
         },
         tx::{Orphan, Priority, RbfPolicy},
         Mempool,
@@ -29,15 +29,19 @@ use spora_consensus_core::{
     },
     block::{BlockTemplate, TemplateBuildMode, TemplateTransactionSelector},
     coinbase::MinerData,
-    config::params::ForkedParam,
     errors::{block::RuleError as BlockRuleError, tx::TxRuleError},
-    tx::{CellTx, MutableTransaction, Transaction, TransactionId, TransactionOutput},
+    tx::{CellTx, MutableTransaction, OutPointCompat, TransactionId},
 };
 use spora_consensusmanager::{spawn_blocking, ConsensusProxy};
 use spora_core::{debug, error, info, time::Stopwatch, warn};
 use spora_mining_errors::{manager::MiningManagerError, mempool::RuleError};
 use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
+
+#[cfg(test)]
+use crate::mempool::populate_entries_and_try_validate::{validate_mempool_transaction, validate_mempool_transactions_in_parallel};
+#[cfg(test)]
+use spora_consensus_core::tx::{Transaction, TransactionOutput};
 
 pub struct MiningManager {
     config: Arc<Config>,
@@ -47,7 +51,7 @@ pub struct MiningManager {
 }
 
 impl MiningManager {
-    // [Crescendo]: used for tests only so we can pass a single value target_time_per_block
+    // Used for tests only so we can pass a single value target_time_per_block
     pub fn new(
         target_time_per_block: u64,
         relay_non_std_transactions: bool,
@@ -55,12 +59,12 @@ impl MiningManager {
         cache_lifetime: Option<u64>,
         counters: Arc<MiningCounters>,
     ) -> Self {
-        let config = Config::build_default(ForkedParam::new_const(target_time_per_block), relay_non_std_transactions, max_block_mass);
+        let config = Config::build_default(target_time_per_block, relay_non_std_transactions, max_block_mass);
         Self::with_config(config, cache_lifetime, counters)
     }
 
     pub fn new_with_extended_config(
-        target_time_per_block: ForkedParam<u64>,
+        target_time_per_block: u64,
         relay_non_std_transactions: bool,
         max_block_mass: u64,
         ram_scale: f64,
@@ -205,9 +209,9 @@ impl MiningManager {
     }
 
     /// Returns realtime feerate estimations based on internal mempool state
-    pub(crate) fn get_realtime_feerate_estimations(&self, virtual_daa_score: u64) -> FeerateEstimations {
+    pub(crate) fn get_realtime_feerate_estimations(&self, _virtual_daa_score: u64) -> FeerateEstimations {
         let args = FeerateEstimatorArgs::new(
-            self.config.network_blocks_per_second.get(virtual_daa_score),
+            self.config.network_blocks_per_second,
             self.config.maximum_mass_per_block,
         );
         let estimator = self.mempool.read().build_feerate_estimator(args);
@@ -221,7 +225,7 @@ impl MiningManager {
         prefix: spora_addresses::Prefix,
     ) -> MiningManagerResult<FeeEstimateVerbose> {
         let args = FeerateEstimatorArgs::new(
-            self.config.network_blocks_per_second.get(consensus.get_virtual_daa_score()),
+            self.config.network_blocks_per_second,
             self.config.maximum_mass_per_block,
         );
         let network_mass_per_second = args.network_mass_per_second();
@@ -283,6 +287,7 @@ impl MiningManager {
     /// of the provided transaction.
     ///
     /// The returned transactions are references of objects owned by the mempool.
+    #[cfg(test)]
     pub fn validate_and_insert_transaction(
         &self,
         consensus: &dyn ConsensusApi,
@@ -297,6 +302,7 @@ impl MiningManager {
     /// Exposed for tests only
     ///
     /// See `validate_and_insert_transaction`
+    #[cfg(test)]
     pub(crate) fn validate_and_insert_mutable_transaction(
         &self,
         consensus: &dyn ConsensusApi,
@@ -306,16 +312,20 @@ impl MiningManager {
         rbf_policy: RbfPolicy,
     ) -> MiningManagerResult<TransactionInsertion> {
         // read lock on mempool
-        let TransactionPreValidation { mut transaction, feerate_threshold } =
+        let TransactionPreValidation { mut transaction, cell_tx, feerate_threshold } =
             self.mempool.read().pre_validate_and_populate_transaction(consensus, transaction, rbf_policy)?;
         let args = TransactionValidationArgs::new(feerate_threshold);
         // no lock on mempool
         let validation_result = validate_mempool_transaction(consensus, &mut transaction, &args);
         // write lock on mempool
         let mut mempool = self.mempool.write();
-        match mempool.post_validate_and_insert_transaction(consensus, validation_result, transaction, priority, orphan, rbf_policy)? {
-            TransactionPostValidation { removed, accepted: Some(accepted_transaction) } => {
-                let unorphaned_transactions = mempool.get_unorphaned_transactions_after_accepted_transaction(&accepted_transaction);
+        match mempool.post_validate_and_insert_transaction(consensus, validation_result, transaction, cell_tx, priority, orphan, rbf_policy)? {
+            TransactionPostValidation { removed, accepted: Some(accepted_transaction), accepted_cell_tx: _ } => {
+                let unorphaned_transactions = mempool.get_unorphaned_transactions_after_accepted_cell_transaction(
+                    accepted_transaction.as_ref(),
+                    Some(accepted_transaction.id().into()),
+                    spora_consensus_core::constants::UNACCEPTED_DAA_SCORE,
+                );
                 drop(mempool);
 
                 // The capacity used here may be exceeded since accepted unorphaned transaction may themselves unorphan other transactions.
@@ -327,15 +337,164 @@ impl MiningManager {
 
                 Ok(TransactionInsertion::new(removed, accepted_transactions))
             }
-            TransactionPostValidation { removed, accepted: None } => Ok(TransactionInsertion::new(removed, vec![])),
+            TransactionPostValidation { removed, accepted: None, accepted_cell_tx: _ } => Ok(TransactionInsertion::new(removed, vec![])),
         }
+    }
+
+    pub(crate) fn validate_and_insert_cell_transaction(
+        &self,
+        consensus: &dyn ConsensusApi,
+        cell_tx: CellTx,
+        priority: Priority,
+        orphan: Orphan,
+        rbf_policy: RbfPolicy,
+    ) -> MiningManagerResult<TransactionInsertion> {
+        let TransactionPreValidation { mut transaction, cell_tx, feerate_threshold } =
+            self.mempool.read().pre_validate_and_populate_cell_transaction(consensus, cell_tx, rbf_policy)?;
+        let args = TransactionValidationArgs::new(feerate_threshold);
+        let canonical_cell_tx = cell_tx.expect("cell transaction pre-validation must preserve the canonical CellTx");
+        let validation_result = validate_mempool_cell_transaction(consensus, &mut transaction, canonical_cell_tx.as_ref(), &args);
+        let mut mempool = self.mempool.write();
+        match mempool.post_validate_and_insert_transaction(
+            consensus,
+            validation_result,
+            transaction,
+            Some(canonical_cell_tx),
+            priority,
+            orphan,
+            rbf_policy,
+        )? {
+            TransactionPostValidation { removed, accepted: Some(accepted_transaction), accepted_cell_tx: _ } => {
+                let unorphaned_transactions = mempool.get_unorphaned_transactions_after_accepted_cell_transaction(
+                    accepted_transaction.as_ref(),
+                    Some(accepted_transaction.id().into()),
+                    spora_consensus_core::constants::UNACCEPTED_DAA_SCORE,
+                );
+                drop(mempool);
+
+                let mut accepted_transactions = Vec::with_capacity(unorphaned_transactions.len() + 1);
+                accepted_transactions.push(accepted_transaction);
+                accepted_transactions.extend(self.validate_and_insert_unorphaned_transactions(consensus, unorphaned_transactions));
+                self.counters.increase_tx_counts(1, priority);
+
+                Ok(TransactionInsertion::new(removed, accepted_transactions))
+            }
+            TransactionPostValidation { removed, accepted: None, accepted_cell_tx: _ } => Ok(TransactionInsertion::new(removed, vec![])),
+        }
+    }
+
+    pub fn validate_and_insert_cell_transaction_batch(
+        &self,
+        consensus: &dyn ConsensusApi,
+        transactions: Vec<CellTx>,
+        priority: Priority,
+        orphan: Orphan,
+        rbf_policy: RbfPolicy,
+    ) -> Vec<MiningManagerResult<Arc<CellTx>>> {
+        const TRANSACTION_CHUNK_SIZE: usize = 250;
+
+        let mut insert_results: Vec<MiningManagerResult<Arc<CellTx>>> = Vec::with_capacity(transactions.len());
+        let mut unorphaned_transactions = vec![];
+
+        let _swo = Stopwatch::<81>::with_threshold("validate_and_insert_cell_transaction_batch topological_sort op");
+        let sorted_transactions = transactions.into_iter().map(Arc::new).topological_into_iter();
+        drop(_swo);
+
+        let mut transactions = Vec::with_capacity(sorted_transactions.len());
+        let mut canonical_cell_txs = Vec::with_capacity(sorted_transactions.len());
+        let mut validation_args = Vec::with_capacity(sorted_transactions.len());
+
+        for chunk in &sorted_transactions.chunks(TRANSACTION_CHUNK_SIZE) {
+            let mempool = self.mempool.read();
+            for cell_tx in chunk {
+                let transaction_id: TransactionId = cell_tx.id().into();
+                match mempool.pre_validate_and_populate_cell_transaction(consensus, cell_tx.as_ref().clone(), rbf_policy) {
+                    Ok(TransactionPreValidation { transaction, cell_tx: Some(canonical_cell_tx), feerate_threshold }) => {
+                        validation_args.push(TransactionValidationArgs::new(feerate_threshold));
+                        transactions.push(transaction);
+                        canonical_cell_txs.push(canonical_cell_tx);
+                    }
+                    Ok(TransactionPreValidation { cell_tx: None, .. }) => {
+                        unreachable!("cell transaction pre-validation must preserve the canonical CellTx")
+                    }
+                    Err(RuleError::RejectAlreadyAccepted(transaction_id)) => {
+                        debug!("Ignoring already accepted cell transaction {}", transaction_id);
+                    }
+                    Err(RuleError::RejectDuplicate(transaction_id)) => {
+                        debug!("Ignoring cell transaction already in the mempool {}", transaction_id);
+                    }
+                    Err(RuleError::RejectDuplicateOrphan(transaction_id)) => {
+                        debug!("Ignoring cell transaction already in the orphan pool {}", transaction_id);
+                    }
+                    Err(err) => {
+                        debug!("Failed to pre validate cell transaction {0} due to rule error: {1}", transaction_id, err);
+                        insert_results.push(Err(MiningManagerError::MempoolError(err)));
+                    }
+                }
+            }
+        }
+
+        let mut lower_bound: usize = 0;
+        let mut validation_results = Vec::with_capacity(transactions.len());
+        while let Some(upper_bound) = self.next_transaction_chunk_upper_bound(&transactions, lower_bound) {
+            assert!(lower_bound < upper_bound, "the chunk is never empty");
+            for index in lower_bound..upper_bound {
+                validation_results.push(validate_mempool_cell_transaction(
+                    consensus,
+                    &mut transactions[index],
+                    canonical_cell_txs[index].as_ref(),
+                    &validation_args[index],
+                ));
+            }
+            lower_bound = upper_bound;
+        }
+        assert_eq!(transactions.len(), validation_results.len(), "every transaction should have a matching validation result");
+
+        for chunk in &transactions.into_iter().zip(canonical_cell_txs).zip(validation_results).chunks(TRANSACTION_CHUNK_SIZE) {
+            let mut mempool = self.mempool.write();
+            let txs = chunk.flat_map(|((transaction, cell_tx), validation_result)| {
+                let transaction_id = transaction.id();
+                match mempool.post_validate_and_insert_transaction(
+                    consensus,
+                    validation_result,
+                    transaction,
+                    Some(cell_tx),
+                    priority,
+                    orphan,
+                    rbf_policy,
+                ) {
+                    Ok(TransactionPostValidation { removed: _, accepted: Some(accepted_transaction), accepted_cell_tx: _ }) => {
+                        insert_results.push(Ok(accepted_transaction.clone()));
+                        self.counters.increase_tx_counts(1, priority);
+                        mempool.get_unorphaned_transactions_after_accepted_cell_transaction(
+                            accepted_transaction.as_ref(),
+                            Some(accepted_transaction.id().into()),
+                            spora_consensus_core::constants::UNACCEPTED_DAA_SCORE,
+                        )
+                    }
+                    Ok(TransactionPostValidation { removed: _, accepted: None, accepted_cell_tx: _ }) | Err(RuleError::RejectDuplicate(_)) => {
+                        vec![]
+                    }
+                    Err(err) => {
+                        debug!("Failed to post validate cell transaction {0} due to rule error: {1}", transaction_id, err);
+                        insert_results.push(Err(MiningManagerError::MempoolError(err)));
+                        vec![]
+                    }
+                }
+            });
+            unorphaned_transactions.extend(txs);
+        }
+
+        insert_results
+            .extend(self.validate_and_insert_unorphaned_transactions(consensus, unorphaned_transactions).into_iter().map(Ok));
+        insert_results
     }
 
     fn validate_and_insert_unorphaned_transactions(
         &self,
         consensus: &dyn ConsensusApi,
         mut incoming_transactions: Vec<MempoolTransaction>,
-    ) -> Vec<Arc<Transaction>> {
+    ) -> Vec<Arc<CellTx>> {
         // The capacity used here may be exceeded (see next comment).
         let mut accepted_transactions = Vec::with_capacity(incoming_transactions.len());
         // The validation args map is immutably empty since unorphaned transactions do not require pre processing so there
@@ -344,18 +503,15 @@ impl MiningManager {
         // We loop as long as incoming unorphaned transactions do unorphan other transactions when they
         // get validated and inserted into the mempool.
         while !incoming_transactions.is_empty() {
-            // Since the consensus validation requires a slice of MutableTransaction, we destructure the vector of
-            // MempoolTransaction into 2 distinct vectors holding respectively the needed MutableTransaction and Priority.
-            let (mut transactions, priorities): (Vec<MutableTransaction>, Vec<Priority>) =
-                incoming_transactions.into_iter().map(|x| (x.mtx, x.priority)).unzip();
+            let mut transactions = incoming_transactions;
 
             // no lock on mempool
             // We process the transactions by chunks of max block mass to prevent locking the virtual processor for too long.
             let mut lower_bound: usize = 0;
             let mut validation_results = Vec::with_capacity(transactions.len());
-            while let Some(upper_bound) = self.next_transaction_chunk_upper_bound(&transactions, lower_bound) {
+            while let Some(upper_bound) = self.next_mempool_transaction_chunk_upper_bound(&transactions, lower_bound) {
                 assert!(lower_bound < upper_bound, "the chunk is never empty");
-                validation_results.extend(validate_mempool_transactions_in_parallel(
+                validation_results.extend(validate_mempool_mempool_transactions_in_parallel(
                     consensus,
                     &mut transactions[lower_bound..upper_bound],
                     &args,
@@ -368,25 +524,32 @@ impl MiningManager {
             let mut mempool = self.mempool.write();
             incoming_transactions = transactions
                 .into_iter()
-                .zip(priorities)
                 .zip(validation_results)
-                .flat_map(|((transaction, priority), validation_result)| {
+                .flat_map(|(transaction, validation_result)| {
                     let orphan_id = transaction.id();
+                    let priority = transaction.priority;
                     let rbf_policy = Mempool::get_orphan_transaction_rbf_policy(priority);
+                    let cell_tx = transaction.cell_tx();
+                    let mtx = transaction.mtx;
                     match mempool.post_validate_and_insert_transaction(
                         consensus,
                         validation_result,
-                        transaction,
+                        mtx,
+                        cell_tx,
                         priority,
-                        Orphan::Forbidden,
+                        Orphan::Allowed,
                         rbf_policy,
                     ) {
-                        Ok(TransactionPostValidation { removed: _, accepted: Some(accepted_transaction) }) => {
+                        Ok(TransactionPostValidation { removed: _, accepted: Some(accepted_transaction), accepted_cell_tx: _ }) => {
                             accepted_transactions.push(accepted_transaction.clone());
                             self.counters.increase_tx_counts(1, priority);
-                            mempool.get_unorphaned_transactions_after_accepted_transaction(&accepted_transaction)
+                            mempool.get_unorphaned_transactions_after_accepted_cell_transaction(
+                                accepted_transaction.as_ref(),
+                                Some(accepted_transaction.id().into()),
+                                spora_consensus_core::constants::UNACCEPTED_DAA_SCORE,
+                            )
                         }
-                        Ok(TransactionPostValidation { removed: _, accepted: None }) => vec![],
+                        Ok(TransactionPostValidation { removed: _, accepted: None, accepted_cell_tx: _ }) => vec![],
                         Err(err) => {
                             debug!("Failed to unorphan transaction {0} due to rule error: {1}", orphan_id, err);
                             vec![]
@@ -407,6 +570,7 @@ impl MiningManager {
     ///
     /// Returns transactions that where unorphaned following the insertion of the provided
     /// transactions. The returned transactions are references of objects owned by the mempool.
+    #[cfg(test)]
     pub fn validate_and_insert_transaction_batch(
         &self,
         consensus: &dyn ConsensusApi,
@@ -414,11 +578,11 @@ impl MiningManager {
         priority: Priority,
         orphan: Orphan,
         rbf_policy: RbfPolicy,
-    ) -> Vec<MiningManagerResult<Arc<Transaction>>> {
+    ) -> Vec<MiningManagerResult<Arc<CellTx>>> {
         const TRANSACTION_CHUNK_SIZE: usize = 250;
 
         // The capacity used here may be exceeded since accepted transactions may unorphan other transactions.
-        let mut insert_results: Vec<MiningManagerResult<Arc<Transaction>>> = Vec::with_capacity(transactions.len());
+        let mut insert_results: Vec<MiningManagerResult<Arc<CellTx>>> = Vec::with_capacity(transactions.len());
         let mut unorphaned_transactions = vec![];
         let _swo = Stopwatch::<80>::with_threshold("validate_and_insert_transaction_batch topological_sort op");
         let sorted_transactions = transactions.into_iter().map(MutableTransaction::from_tx).topological_into_iter();
@@ -433,7 +597,7 @@ impl MiningManager {
             let txs = chunk.filter_map(|tx| {
                 let transaction_id = tx.id();
                 match mempool.pre_validate_and_populate_transaction(consensus, tx, rbf_policy) {
-                    Ok(TransactionPreValidation { transaction, feerate_threshold }) => {
+                    Ok(TransactionPreValidation { transaction, cell_tx: _, feerate_threshold }) => {
                         if let Some(threshold) = feerate_threshold {
                             args.set_feerate_threshold(transaction.id(), threshold);
                         }
@@ -486,16 +650,21 @@ impl MiningManager {
                     consensus,
                     validation_result,
                     transaction,
+                    None,
                     priority,
                     orphan,
                     rbf_policy,
                 ) {
-                    Ok(TransactionPostValidation { removed: _, accepted: Some(accepted_transaction) }) => {
+                    Ok(TransactionPostValidation { removed: _, accepted: Some(accepted_transaction), accepted_cell_tx: _ }) => {
                         insert_results.push(Ok(accepted_transaction.clone()));
                         self.counters.increase_tx_counts(1, priority);
-                        mempool.get_unorphaned_transactions_after_accepted_transaction(&accepted_transaction)
+                        mempool.get_unorphaned_transactions_after_accepted_cell_transaction(
+                            accepted_transaction.as_ref(),
+                            Some(accepted_transaction.id().into()),
+                            spora_consensus_core::constants::UNACCEPTED_DAA_SCORE,
+                        )
                     }
-                    Ok(TransactionPostValidation { removed: _, accepted: None }) | Err(RuleError::RejectDuplicate(_)) => {
+                    Ok(TransactionPostValidation { removed: _, accepted: None, accepted_cell_tx: _ }) | Err(RuleError::RejectDuplicate(_)) => {
                         // Either orphaned or already existing in the mempool
                         vec![]
                     }
@@ -528,6 +697,21 @@ impl MiningManager {
             // Make sure the upper bound is greater than the lower bound, allowing to handle a very unlikely,
             // (if not impossible) case where the mass of a single transaction is greater than the maximum
             // chunk mass.
+            .map(|relative_index| relative_index.max(1) + lower_bound)
+            .or(Some(transactions.len()))
+    }
+
+    fn next_mempool_transaction_chunk_upper_bound(&self, transactions: &[MempoolTransaction], lower_bound: usize) -> Option<usize> {
+        if lower_bound >= transactions.len() {
+            return None;
+        }
+        let mut mass = 0;
+        transactions[lower_bound..]
+            .iter()
+            .position(|tx| {
+                mass += tx.mtx.calculated_non_contextual_masses.unwrap().max();
+                mass >= self.config.maximum_mass_per_block
+            })
             .map(|relative_index| relative_index.max(1) + lower_bound)
             .or(Some(transactions.len()))
     }
@@ -589,13 +773,14 @@ impl MiningManager {
         consensus: &dyn ConsensusApi,
         block_daa_score: u64,
         block_transactions: &[CellTx], // Updated to CellTx
-    ) -> MiningManagerResult<Vec<Arc<Transaction>>> {
+    ) -> MiningManagerResult<Vec<Arc<CellTx>>> {
         // TODO: should use tx acceptance data to verify that new block txs are actually accepted into virtual state.
         // TODO: avoid returning a result from this function (and the underlying function). Any possible error is a
         // problem of the internal implementation and unrelated to the caller
 
         // write lock on mempool
-        let unorphaned_transactions = self.mempool.write().handle_new_block_transactions(block_daa_score, block_transactions)?;
+        let unorphaned_transactions =
+            self.mempool.write().handle_new_block_transactions(consensus, block_daa_score, block_transactions)?;
 
         // alternate no & write lock on mempool
         let accepted_transactions = self.validate_and_insert_unorphaned_transactions(consensus, unorphaned_transactions);
@@ -651,10 +836,10 @@ impl MiningManager {
         }
         drop(mempool);
         // read lock on mempool by transaction chunks
-        let mut transactions = Vec::with_capacity(transaction_ids.len());
+        let mut transactions: Vec<MempoolTransaction> = Vec::with_capacity(transaction_ids.len());
         for chunk in &transaction_ids.iter().chunks(TRANSACTION_CHUNK_SIZE) {
             let mempool = self.mempool.read();
-            transactions.extend(chunk.filter_map(|x| mempool.get_transaction(x, TransactionQuery::TransactionsOnly)));
+            transactions.extend(chunk.filter_map(|x| mempool.get_mempool_transaction(x, TransactionQuery::TransactionsOnly)));
         }
 
         let mut valid: usize = 0;
@@ -682,12 +867,12 @@ impl MiningManager {
                     accepted += 1;
                     None
                 } else if mempool.has_transaction(&transaction_id, TransactionQuery::TransactionsOnly) {
-                    x.clear_entries();
-                    mempool.populate_mempool_entries(&mut x);
-                    match x.is_fully_populated() {
+                    x.mtx.clear_entries();
+                    mempool.populate_mempool_entries(&mut x.mtx);
+                    match x.mtx.is_fully_populated() && !x.has_canonical_cell_tx() {
                         false => Some(x),
                         true => {
-                            // If all entries are populated with mempool UTXOs, we already know the transaction is valid
+                            // If all entries are populated with mempool cells, we already know the transaction is valid
                             valid += 1;
                             None
                         }
@@ -705,11 +890,11 @@ impl MiningManager {
         // We process the transactions by chunks of max block mass to prevent locking the virtual processor for too long.
         let mut lower_bound: usize = 0;
         let mut validation_results = Vec::with_capacity(transactions.len());
-        while let Some(upper_bound) = self.next_transaction_chunk_upper_bound(&transactions, lower_bound) {
+        while let Some(upper_bound) = self.next_mempool_transaction_chunk_upper_bound(&transactions, lower_bound) {
             assert!(lower_bound < upper_bound, "the chunk is never empty");
             let _swo = Stopwatch::<60>::with_threshold("revalidate validate_mempool_transactions_in_parallel op");
             validation_results
-                .extend(populate_mempool_transactions_in_parallel(consensus, &mut transactions[lower_bound..upper_bound]));
+                .extend(validate_mempool_mempool_transactions_in_parallel(consensus, &mut transactions[lower_bound..upper_bound], &TransactionValidationBatchArgs::new()));
             drop(_swo);
             lower_bound = upper_bound;
         }
@@ -741,10 +926,11 @@ impl MiningManager {
                     }
                     Err(RuleError::RejectMissingOutpoint) => {
                         let missing_txs = transaction
+                            .mtx
                             .entries
                             .iter()
-                            .zip(transaction.tx.inputs.iter())
-                            .filter_map(|(entry, input)| entry.is_none().then_some(input.previous_outpoint.transaction_id))
+                            .zip(transaction.mtx.tx.inputs.iter())
+                            .filter_map(|(entry, input)| entry.is_none().then_some(input.out_point.transaction_id()))
                             .collect::<Vec<_>>();
 
                         // A transaction may have missing outpoints for legitimate reasons related to concurrency, like a race condition between
@@ -822,6 +1008,7 @@ impl MiningManager {
     /// Dust is defined in terms of the minimum transaction relay fee. In particular,
     /// if the cost to the network to spend coins is more than 1/3 of the minimum
     /// transaction relay fee, it is considered dust.
+    #[cfg(test)]
     pub fn is_transaction_output_dust(&self, transaction_output: &TransactionOutput) -> bool {
         self.mempool.read().is_transaction_output_dust(transaction_output)
     }
@@ -880,6 +1067,7 @@ impl MiningManagerProxy {
     /// to double spends in the mempool. For more information, see [`RbfPolicy`].
     ///
     /// The returned transactions are references of objects owned by the mempool.
+    #[cfg(test)]
     pub async fn validate_and_insert_transaction(
         self,
         consensus: &ConsensusProxy,
@@ -894,6 +1082,20 @@ impl MiningManagerProxy {
             .await
     }
 
+    pub async fn validate_and_insert_cell_transaction(
+        self,
+        consensus: &ConsensusProxy,
+        transaction: CellTx,
+        priority: Priority,
+        orphan: Orphan,
+        rbf_policy: RbfPolicy,
+    ) -> MiningManagerResult<TransactionInsertion> {
+        consensus
+            .clone()
+            .spawn_blocking(move |c| self.inner.validate_and_insert_cell_transaction(c, transaction, priority, orphan, rbf_policy))
+            .await
+    }
+
     /// Validates a batch of transactions, handling iteratively only the independent ones, and
     /// adds those to the set of known transactions that have not yet been added to any block.
     ///
@@ -902,6 +1104,7 @@ impl MiningManagerProxy {
     ///
     /// Returns transactions that where unorphaned following the insertion of the provided
     /// transactions. The returned transactions are references of objects owned by the mempool.
+    #[cfg(test)]
     pub async fn validate_and_insert_transaction_batch(
         self,
         consensus: &ConsensusProxy,
@@ -909,10 +1112,24 @@ impl MiningManagerProxy {
         priority: Priority,
         orphan: Orphan,
         rbf_policy: RbfPolicy,
-    ) -> Vec<MiningManagerResult<Arc<Transaction>>> {
+    ) -> Vec<MiningManagerResult<Arc<CellTx>>> {
         consensus
             .clone()
             .spawn_blocking(move |c| self.inner.validate_and_insert_transaction_batch(c, transactions, priority, orphan, rbf_policy))
+            .await
+    }
+
+    pub async fn validate_and_insert_cell_transaction_batch(
+        self,
+        consensus: &ConsensusProxy,
+        transactions: Vec<CellTx>,
+        priority: Priority,
+        orphan: Orphan,
+        rbf_policy: RbfPolicy,
+    ) -> Vec<MiningManagerResult<Arc<CellTx>>> {
+        consensus
+            .clone()
+            .spawn_blocking(move |c| self.inner.validate_and_insert_cell_transaction_batch(c, transactions, priority, orphan, rbf_policy))
             .await
     }
 
@@ -921,7 +1138,7 @@ impl MiningManagerProxy {
         consensus: &ConsensusProxy,
         block_daa_score: u64,
         block_transactions: Arc<Vec<CellTx>>, // Updated to CellTx
-    ) -> MiningManagerResult<Vec<Arc<Transaction>>> {
+    ) -> MiningManagerResult<Vec<Arc<CellTx>>> {
         consensus
             .clone()
             .spawn_blocking(move |c| self.inner.handle_new_block_transactions(c, block_daa_score, &block_transactions))
@@ -1080,17 +1297,20 @@ fn feerate_stats(transactions: Vec<CellTx>, calculated_fees: Vec<u64>) -> Option
 #[cfg(test)]
 mod tests {
     use super::*;
-    use spora_consensus_core::subnets;
-    use std::iter::repeat;
+    use spora_consensus_core::tx::{CellRef, CellTx, OutPoint};
 
-    fn transactions(length: usize) -> Vec<Transaction> {
-        let tx = || {
-            let tx = Transaction::new(0, vec![], vec![], 0, Default::default(), 0, vec![]);
-            tx.set_mass(2);
-            tx
+    fn transactions(length: usize) -> Vec<CellTx> {
+        let coinbase = CellTx::new(vec![], vec![], vec![], vec![], vec![]).expect("coinbase test tx must be constructible");
+        let regular = || {
+            CellTx::new(vec![CellRef::new(OutPoint::new([0u8; 32], 0), 0)], vec![], vec![], vec![], vec![vec![]])
+                .expect("regular test tx must be constructible")
         };
-        let mut txs = repeat(tx()).take(length).collect_vec();
-        txs[0].subnetwork_id = subnets::SUBNETWORK_ID_COINBASE;
+
+        let mut txs = Vec::with_capacity(length.max(1));
+        txs.push(coinbase);
+        while txs.len() < length {
+            txs.push(regular());
+        }
         txs
     }
 
@@ -1098,10 +1318,11 @@ mod tests {
     fn feerate_stats_test() {
         let calculated_fees = vec![100u64, 200, 300, 400];
         let txs = transactions(calculated_fees.len() + 1);
+        let mass = txs[1].mass() as f64;
         let Stats { max, median, min } = feerate_stats(txs, calculated_fees).unwrap();
-        assert_eq!(max, 200.0);
-        assert_eq!(median, 150.0);
-        assert_eq!(min, 50.0);
+        assert_eq!(max, 400.0 / mass);
+        assert_eq!(median, 300.0 / mass);
+        assert_eq!(min, 100.0 / mass);
     }
 
     #[test]

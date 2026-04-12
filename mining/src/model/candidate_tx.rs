@@ -1,21 +1,49 @@
 use crate::FeerateTransactionKey;
-use spora_consensus_core::tx::Transaction;
+use spora_consensus_core::tx::CellTx;
 use std::sync::Arc;
+
+#[derive(Clone, Debug)]
+pub struct CandidateCellData {
+    pub cell_tx: Arc<CellTx>,
+    pub score_total: Option<f64>,
+    pub fee_density: Option<f64>,
+    pub deps_width: Option<f64>,
+}
 
 /// Transaction with additional metadata needed in order to be a candidate
 /// in the transaction selection algorithm
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub struct CandidateTransaction {
     /// The actual transaction
-    pub tx: Arc<Transaction>,
+    pub tx: Arc<CellTx>,
+    /// Mirrored Cell transaction
+    pub cell_tx: Arc<CellTx>,
     /// Populated fee
     pub calculated_fee: u64,
     /// Populated mass
     pub calculated_mass: u64,
+    /// Optional CellPool-native total score
+    pub cell_score_total: Option<f64>,
+    /// Optional CellPool-native fee density
+    pub cell_fee_density: Option<f64>,
+    /// Optional CellPool-native dependency width
+    pub cell_deps_width: Option<f64>,
 }
 
 impl CandidateTransaction {
-    pub fn from_key(key: FeerateTransactionKey) -> Self {
-        Self { tx: key.tx, calculated_fee: key.fee, calculated_mass: key.mass }
+    pub fn from_key_and_cell(key: FeerateTransactionKey, cell_tx: Arc<CellTx>) -> Self {
+        Self::from_key_and_cell_data(key, CandidateCellData { cell_tx, score_total: None, fee_density: None, deps_width: None })
+    }
+
+    pub fn from_key_and_cell_data(key: FeerateTransactionKey, cell: CandidateCellData) -> Self {
+        Self {
+            tx: key.tx,
+            cell_tx: cell.cell_tx,
+            calculated_fee: key.fee,
+            calculated_mass: key.mass,
+            cell_score_total: cell.score_total,
+            cell_fee_density: cell.fee_density,
+            cell_deps_width: cell.deps_width,
+        }
     }
 }

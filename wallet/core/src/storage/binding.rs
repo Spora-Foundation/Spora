@@ -1,9 +1,9 @@
 //!
-//! Id references used to associate transactions with Account or UtxoContext ids.
+//! Id references used to associate transactions with Account or CellContext ids.
 //!
 
+use crate::cell::{CellContextBinding, CellContextId};
 use crate::imports::*;
-use crate::utxo::{UtxoContextBinding as UtxoProcessorBinding, UtxoContextId};
 
 #[wasm_bindgen(typescript_custom_section)]
 const ITransactionRecord: &'static str = r#"
@@ -48,16 +48,16 @@ extern "C" {
 #[serde(rename_all = "kebab-case")]
 #[serde(tag = "type", content = "id")]
 pub enum Binding {
-    Custom(UtxoContextId),
+    Custom(CellContextId),
     Account(AccountId),
 }
 
-impl From<UtxoProcessorBinding> for Binding {
-    fn from(b: UtxoProcessorBinding) -> Self {
+impl From<CellContextBinding> for Binding {
+    fn from(b: CellContextBinding) -> Self {
         match b {
-            UtxoProcessorBinding::Internal(id) => Binding::Custom(id),
-            UtxoProcessorBinding::Id(id) => Binding::Custom(id),
-            UtxoProcessorBinding::AccountId(id) => Binding::Account(id),
+            CellContextBinding::Internal(id) => Binding::Custom(id),
+            CellContextBinding::Id(id) => Binding::Custom(id),
+            CellContextBinding::AccountId(id) => Binding::Account(id),
         }
     }
 }

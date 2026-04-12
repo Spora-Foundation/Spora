@@ -7,10 +7,10 @@ use crate::{
 };
 use async_trait::async_trait;
 use itertools::chain;
-use std::sync::Arc;
-use tokio::task::JoinHandle;
 use spora_consensus_core::tx::Transaction;
 use spora_utils::triggers::SingleTrigger;
+use std::sync::Arc;
+use tokio::task::JoinHandle;
 
 pub struct TxSenderGroupTask {
     submitter: Arc<TransactionSubmitterTask>,

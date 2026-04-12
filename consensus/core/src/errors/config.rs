@@ -18,11 +18,11 @@ pub enum ConfigError {
     MaxTrackedAddressesTooHigh(usize),
 
     #[cfg(feature = "devnet-prealloc")]
-    #[error("Cannot preallocate UTXOs on any network except devnet")]
-    PreallocUtxosOnNonDevnet,
+    #[error("Cannot preallocate cells on any network except devnet")]
+    PreallocCellsOnNonDevnet,
 
     #[cfg(feature = "devnet-prealloc")]
-    #[error("--num-prealloc-utxos has to appear with --prealloc-address and vice versa")]
+    #[error("--num-prealloc-cells has to appear with --prealloc-address and vice versa")]
     MissingPreallocNumOrAddress,
 }
 

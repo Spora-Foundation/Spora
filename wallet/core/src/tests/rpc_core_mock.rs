@@ -7,7 +7,7 @@ use spora_notify::listener::{ListenerId, ListenerLifespan};
 use spora_notify::notifier::{Notifier, Notify};
 use spora_notify::scope::Scope;
 use spora_notify::subscription::context::SubscriptionContext;
-use spora_notify::subscription::{MutationPolicies, UtxosChangedMutationPolicy};
+use spora_notify::subscription::{CellsChangedMutationPolicy, MutationPolicies};
 use spora_rpc_core::api::ctl::RpcCtl;
 use spora_rpc_core::{api::connection::DynRpcConnection, api::rpc::RpcApi, *};
 use spora_rpc_core::{notify::connection::ChannelConnection, RpcResult};
@@ -30,7 +30,7 @@ pub struct RpcCoreMock {
 impl RpcCoreMock {
     pub fn new() -> Self {
         let (sync_sender, sync_receiver) = unbounded();
-        let policies = MutationPolicies::new(UtxosChangedMutationPolicy::AddressSet);
+        let policies = MutationPolicies::new(CellsChangedMutationPolicy::AddressSet);
         let core_notifier: Arc<RpcCoreNotifier> = Arc::new(Notifier::with_sync(
             "rpc-core",
             EVENT_TYPE_ARRAY[..].into(),
@@ -88,7 +88,7 @@ impl RpcApi for RpcCoreMock {
             p2p_id: "wallet-mock".to_string(),
             mempool_size: 1234,
             server_version: "mock".to_string(),
-            is_utxo_indexed: false,
+            is_cell_indexed: false,
             is_synced: false,
             has_notify_command: false,
             has_message_id: false,
@@ -307,19 +307,19 @@ impl RpcApi for RpcCoreMock {
         Err(RpcError::NotImplemented)
     }
 
-    async fn get_utxos_by_address_call(
+    async fn get_cells_by_address_call(
         &self,
         _connection: Option<&DynRpcConnection>,
-        _request: GetUtxosByAddressRequest,
-    ) -> RpcResult<GetUtxosByAddressResponse> {
+        _request: GetCellsByAddressRequest,
+    ) -> RpcResult<GetCellsByAddressResponse> {
         Err(RpcError::NotImplemented)
     }
 
-    async fn get_utxos_by_addresses_call(
+    async fn get_cells_by_addresses_call(
         &self,
         _connection: Option<&DynRpcConnection>,
-        _request: GetUtxosByAddressesRequest,
-    ) -> RpcResult<GetUtxosByAddressesResponse> {
+        _request: GetCellsByAddressesRequest,
+    ) -> RpcResult<GetCellsByAddressesResponse> {
         Err(RpcError::NotImplemented)
     }
 
@@ -395,11 +395,11 @@ impl RpcApi for RpcCoreMock {
         Err(RpcError::NotImplemented)
     }
 
-    async fn get_utxo_return_address_call(
+    async fn get_cell_return_address_call(
         &self,
         _connection: Option<&DynRpcConnection>,
-        _request: GetUtxoReturnAddressRequest,
-    ) -> RpcResult<GetUtxoReturnAddressResponse> {
+        _request: GetCellReturnAddressRequest,
+    ) -> RpcResult<GetCellReturnAddressResponse> {
         Err(RpcError::NotImplemented)
     }
 

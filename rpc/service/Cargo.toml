@@ -10,11 +10,14 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+blake3.workspace = true
 spora-addresses.workspace = true
+spora-cellindex.workspace = true
 spora-consensus-core.workspace = true
 spora-consensus-notify.workspace = true
 spora-consensusmanager.workspace = true
 spora-core.workspace = true
+spora-exec.workspace = true
 spora-hashes.workspace = true
 spora-index-core.workspace = true
 spora-math.workspace = true
@@ -25,6 +28,7 @@ spora-p2p-lib.workspace = true
 spora-p2p-mining.workspace = true
 spora-perf-monitor.workspace = true
 spora-rpc-core.workspace = true
+spora-state.workspace = true
 spora-txscript.workspace = true
 spora-utils.workspace = true
 spora-utils-tower.workspace = true

@@ -40,11 +40,10 @@ pub enum Scope {
     VirtualChainChanged,
     FinalityConflict,
     FinalityConflictResolved,
-    UtxosChanged,
     CellsChanged,
     SinkBlueScoreChanged,
     VirtualDaaScoreChanged,
-    PruningPointUtxoSetOverride,
+    PruningPointCellSetOverride,
     NewBlockTemplate,
 }
 }
@@ -154,53 +153,7 @@ impl Deserializer for FinalityConflictResolvedScope {
     }
 }
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
-pub struct UtxosChangedScope {
-    pub addresses: Vec<Address>,
-}
-
-impl std::fmt::Display for UtxosChangedScope {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let addresses = match self.addresses.len() {
-            0 => "all".to_string(),
-            1 => format!("{}", self.addresses[0]),
-            n => format!("{} addresses", n),
-        };
-        write!(f, "UtxosChangedScope ({})", addresses)
-    }
-}
-
-impl PartialEq for UtxosChangedScope {
-    fn eq(&self, other: &Self) -> bool {
-        self.addresses.len() == other.addresses.len() && self.addresses.iter().all(|x| other.addresses.contains(x))
-    }
-}
-
-impl Eq for UtxosChangedScope {}
-
-impl UtxosChangedScope {
-    pub fn new(addresses: Vec<Address>) -> Self {
-        Self { addresses }
-    }
-}
-
-impl Serializer for UtxosChangedScope {
-    fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
-        store!(u16, &1, writer)?;
-        store!(Vec<Address>, &self.addresses, writer)?;
-        Ok(())
-    }
-}
-
-impl Deserializer for UtxosChangedScope {
-    fn deserialize<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
-        let _version = load!(u16, reader)?;
-        let addresses = load!(Vec<Address>, reader)?;
-        Ok(Self { addresses })
-    }
-}
-
-/// CellsChanged scope - Cell model replacement for UtxosChanged
+/// CellsChanged scope - canonical address-scoped cell notification filter.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 pub struct CellsChangedScope {
     /// Addresses to filter cells by (empty = all cells)
@@ -283,16 +236,16 @@ impl Deserializer for VirtualDaaScoreChangedScope {
 }
 
 #[derive(Clone, Display, Debug, Default, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
-pub struct PruningPointUtxoSetOverrideScope {}
+pub struct PruningPointCellSetOverrideScope {}
 
-impl Serializer for PruningPointUtxoSetOverrideScope {
+impl Serializer for PruningPointCellSetOverrideScope {
     fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
         store!(u16, &1, writer)?;
         Ok(())
     }
 }
 
-impl Deserializer for PruningPointUtxoSetOverrideScope {
+impl Deserializer for PruningPointCellSetOverrideScope {
     fn deserialize<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
         let _version = load!(u16, reader)?;
         Ok(Self {})

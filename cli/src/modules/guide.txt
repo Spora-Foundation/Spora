@@ -41,9 +41,9 @@ the selected account to an account named 'pete' (starts with a 'p' letter)
 
 `send <address> <amount>` - Send funds to a destination address .
 
-`estimate <amount>` - Provides a fee and UTXO consumption estimate for a transaction of a given amount.
+`estimate <amount>` - Provides a fee and cell consumption estimate for a transaction of a given amount.
 
-`sweep` - Sweeps account UTXOs to reduce the UTXO size.
+`sweep` - Sweeps account cells to reduce the live cell set size.
 
 `history list` - Shows previous account transactions.
 
@@ -52,4 +52,3 @@ the selected account to an account named 'pete' (starts with a 'p' letter)
 `monitor` - A test screen environment that periodically updates account balances.
 
 `rpc` - Allows you to execute RPC methods against the node (not all methods are currently available)
-

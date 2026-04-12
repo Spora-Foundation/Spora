@@ -3,7 +3,7 @@
 //!
 //! This crate offers client-side primitives mirroring the consensus layer of the Spora p2p node.
 //! It declares structs such as [`Transaction`], [`TransactionInput`], [`TransactionOutput`],
-//! [`TransactionOutpoint`], [`UtxoEntry`], and [`UtxoEntryReference`]
+//! [`TransactionOutpoint`], [`CellEntry`], and [`CellEntryReference`]
 //! that are used by the Wallet subsystem as well as WASM bindings.
 //!
 //! Unlike raw consensus primitives (used for high-performance DAG processing) the primitives
@@ -12,6 +12,7 @@
 //! async / threaded environments and WASM bindings.
 //!
 
+mod cell;
 pub mod error;
 mod imports;
 mod input;
@@ -20,14 +21,13 @@ mod output;
 pub mod result;
 mod serializable;
 mod transaction;
-mod utxo;
 
+pub use cell::*;
 pub use input::*;
 pub use outpoint::*;
 pub use output::*;
 pub use serializable::*;
 pub use transaction::*;
-pub use utxo::*;
 
 cfg_if::cfg_if! {
     if #[cfg(feature = "wasm32-sdk")] {

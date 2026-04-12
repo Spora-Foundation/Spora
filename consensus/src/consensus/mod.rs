@@ -6,17 +6,20 @@ pub mod services;
 pub mod storage;
 pub mod test_consensus;
 
+// Cell model: devnet-prealloc cell_set_override not yet reimplemented for Cell model.
 // #[cfg(feature = "devnet-prealloc")]
-// mod utxo_set_override; // TODO(cell-model): Needs Cell model reimplementation
+// mod cell_set_override;
 
 use crate::{
     config::Config,
+    consensus::cell_provider::ConsensusCellProvider,
     errors::{BlockProcessResult, RuleError},
     model::{
         services::reachability::ReachabilityService,
         stores::{
             acceptance_data::AcceptanceDataStoreReader,
             block_transactions::BlockTransactionsStoreReader,
+            cell_diffs::CellDiffsStoreReader,
             ghostdag::{GhostdagData, GhostdagStoreReader},
             headers::{CompactHeaderData, HeaderStoreReader},
             headers_selected_tip::HeadersSelectedTipStoreReader,
@@ -39,6 +42,7 @@ use crate::{
         ProcessingCounters,
     },
     processes::{
+        cell_validator::DagCellProvider,
         ghostdag::ordering::SortableBlock,
         window::{WindowManager, WindowType},
     },
@@ -65,16 +69,19 @@ use spora_consensus_core::{
     },
     header::Header,
     mass::{ContextualMasses, NonContextualMasses},
-    merkle::calc_hash_merkle_root,
+    merkle::{calc_hash_merkle_root, calc_hash_merkle_root_cell},
     mining_rules::MiningRules,
-    muhash::MuHashExtensions,
     network::NetworkType,
     pruning::{PruningPointProof, PruningPointTrustedData, PruningPointsList, PruningProofMetadata},
     trusted::{ExternalGhostdagData, TrustedBlock},
-    tx::{CellTx, MutableTransaction, SignableTransaction, Transaction, TransactionOutpoint, UtxoEntry},
+    tx::{
+        legacy_compat_transaction_from_cell_tx, CellEntry, CellTx, MutableTransaction, ResolvedCellTransaction, SignableTransaction,
+        Transaction, TransactionOutpoint,
+    },
     BlockHashSet, BlueWorkType, ChainPath, HashMapCustomHasher,
 };
 use spora_consensus_notify::root::ConsensusNotificationRoot;
+use spora_exec::OutPoint;
 use spora_state::CellStateTree;
 
 use crossbeam_channel::{
@@ -83,10 +90,8 @@ use crossbeam_channel::{
 use itertools::Itertools;
 use spora_consensusmanager::{SessionLock, SessionReadGuard};
 
-use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use spora_database::prelude::{StoreResultEmptyTuple, StoreResultExtensions};
 use spora_hashes::Hash;
-use spora_muhash::MuHash;
 use spora_txscript::caches::TxScriptCacheCounters;
 
 use std::{
@@ -156,6 +161,153 @@ impl Deref for Consensus {
 }
 
 impl Consensus {
+    fn cell_state_outpoint_hash(outpoint: &TransactionOutpoint) -> Hash {
+        use blake3::Hasher;
+
+        let mut hasher = Hasher::new();
+        hasher.update(b"spora-cell/outpoint");
+        hasher.update(&outpoint.tx_hash);
+        hasher.update(&outpoint.index.to_le_bytes());
+
+        Hash::from_bytes(*hasher.finalize().as_bytes())
+    }
+
+    fn state_cell_entry_from_meta(meta: &CellMeta) -> spora_state::CellEntry {
+        spora_state::CellEntry::new(
+            meta.capacity,
+            meta.data_bytes,
+            Hash::from_bytes(meta.lock_hash),
+            meta.type_hash.map(Hash::from_bytes),
+            Hash::from_bytes(meta.data_hash),
+            meta.block_daa_score,
+            meta.is_cellbase,
+        )
+    }
+
+    fn revert_cell_diff_from_tree(tree: &mut CellStateTree, diff: &spora_consensus_core::cell_diff::CellDiff) {
+        for outpoint in diff.add.keys() {
+            let outpoint_hash = Self::cell_state_outpoint_hash(outpoint);
+            tree.remove(&outpoint_hash);
+        }
+
+        for (outpoint, meta) in &diff.remove {
+            let outpoint_hash = Self::cell_state_outpoint_hash(outpoint);
+            tree.insert_with_outpoint(
+                outpoint_hash,
+                Self::exec_outpoint_from_transaction_outpoint(outpoint),
+                Self::state_cell_entry_from_meta(meta),
+            );
+        }
+    }
+
+    fn exec_outpoint_from_transaction_outpoint(outpoint: &TransactionOutpoint) -> OutPoint {
+        OutPoint::new(outpoint.tx_hash, outpoint.index)
+    }
+
+    fn transaction_outpoint_from_exec(outpoint: &OutPoint) -> TransactionOutpoint {
+        TransactionOutpoint::new(outpoint.tx_hash, outpoint.index)
+    }
+
+    fn consensus_cell_entry_from_state(entry: &spora_state::CellEntry) -> CellEntry {
+        CellEntry::from_cell_metadata(
+            entry.capacity,
+            entry.data_bytes,
+            entry.lock_hash.as_bytes(),
+            entry.type_hash.map(|hash| hash.as_bytes()),
+            entry.data_hash.as_bytes(),
+            entry.block_daa_score,
+            entry.is_cellbase,
+        )
+    }
+
+    fn paged_tree_outpoints(
+        tree: &CellStateTree,
+        from_outpoint: Option<TransactionOutpoint>,
+        chunk_size: usize,
+        skip_first: bool,
+    ) -> Vec<(TransactionOutpoint, Hash)> {
+        if chunk_size == 0 {
+            return Vec::new();
+        }
+
+        let from_exec_outpoint = from_outpoint.as_ref().map(Self::exec_outpoint_from_transaction_outpoint);
+        tree.iter_by_outpoint_from(from_exec_outpoint.as_ref(), skip_first)
+            .take(chunk_size)
+            .map(|(outpoint, outpoint_hash, _)| (Self::transaction_outpoint_from_exec(outpoint), *outpoint_hash))
+            .collect()
+    }
+
+    fn paged_tree_cells(
+        tree: &CellStateTree,
+        from_outpoint: Option<TransactionOutpoint>,
+        chunk_size: usize,
+        skip_first: bool,
+    ) -> Vec<(TransactionOutpoint, CellEntry)> {
+        if chunk_size == 0 {
+            return Vec::new();
+        }
+
+        let from_exec_outpoint = from_outpoint.as_ref().map(Self::exec_outpoint_from_transaction_outpoint);
+        tree.iter_by_outpoint_from(from_exec_outpoint.as_ref(), skip_first)
+            .take(chunk_size)
+            .map(|(outpoint, _, entry)| (Self::transaction_outpoint_from_exec(outpoint), Self::consensus_cell_entry_from_state(entry)))
+            .collect()
+    }
+
+    fn selected_chain_cell_tree(&self, target_hash: Hash) -> ConsensusResult<CellStateTree> {
+        let virtual_state = self.lkg_virtual_state.load();
+        let mut tree = virtual_state.cell_state_tree.clone();
+
+        Self::revert_cell_diff_from_tree(&mut tree, &virtual_state.cell_diff);
+
+        let selected_parent = virtual_state.ghostdag_data.selected_parent;
+        if selected_parent == target_hash {
+            return Ok(tree);
+        }
+
+        let selected_chain_read = self.selected_chain_store.read();
+        let selected_parent_index = selected_chain_read
+            .get_by_hash(selected_parent)
+            .map_err(|err| ConsensusError::GeneralOwned(format!("selected parent chain index lookup failed: {err}")))?;
+        let target_index = selected_chain_read
+            .get_by_hash(target_hash)
+            .map_err(|err| ConsensusError::GeneralOwned(format!("target chain index lookup failed: {err}")))?;
+
+        if target_index > selected_parent_index {
+            return Err(ConsensusError::GeneralOwned(format!(
+                "target block {target_hash} is not on the selected chain at or below current selected parent {selected_parent}"
+            )));
+        }
+
+        for index in ((target_index + 1)..=selected_parent_index).rev() {
+            let current_hash = selected_chain_read
+                .get_by_index(index)
+                .map_err(|err| ConsensusError::GeneralOwned(format!("selected chain hash lookup failed: {err}")))?;
+            let diff = self
+                .cell_diffs_store
+                .get(current_hash)
+                .map_err(|err| ConsensusError::GeneralOwned(format!("cell diff lookup failed: {err}")))?;
+            Self::revert_cell_diff_from_tree(&mut tree, diff.as_ref());
+        }
+
+        Ok(tree)
+    }
+
+    fn find_selected_chain_block_by_daa_score(&self, daa_score: u64) -> Result<Hash, String> {
+        let sc_read = self.storage.selected_chain_store.read();
+        let (tip_index, _) = sc_read.get_tip().map_err(|e| format!("selected chain tip lookup failed: {e}"))?;
+
+        for index in 0..=tip_index {
+            let hash = sc_read.get_by_index(index).map_err(|e| format!("selected chain index lookup failed: {e}"))?;
+            let block_daa = self.headers_store.get_daa_score(hash).map_err(|e| format!("header DAA lookup failed: {e}"))?;
+            if block_daa == daa_score {
+                return Ok(hash);
+            }
+        }
+
+        Err(format!("no selected-chain block found for accepting DAA score {daa_score}"))
+    }
+
     pub fn new(
         db: Arc<DB>,
         config: Arc<Config>,
@@ -373,7 +525,7 @@ impl Consensus {
         let mut processed = 0;
         spora_core::info!("Upgrading database to include and populate the pruning samples store");
         while let Some(current) = queue.pop_front() {
-            if !self.get_block_status(current).is_some_and(|s| s == BlockStatus::StatusUTXOValid) {
+            if !self.get_block_status(current).is_some_and(|s| s == BlockStatus::StatusCellValid) {
                 // Skip branches of the tree which are not chain qualified.
                 // This is sufficient since we will only assume this field exists
                 // for such chain qualified blocks
@@ -411,6 +563,18 @@ impl Consensus {
     /// Acquires a consensus session, blocking data-pruning from occurring until released
     pub fn acquire_session(&self) -> SessionReadGuard<'_> {
         self.pruning_lock.blocking_read()
+    }
+
+    pub fn build_block_template_with_cell_tx_selector<F>(
+        &self,
+        miner_data: MinerData,
+        build_mode: TemplateBuildMode,
+        tx_selector: F,
+    ) -> Result<BlockTemplate, RuleError>
+    where
+        F: FnOnce(&crate::model::stores::virtual_state::VirtualState) -> Vec<CellTx>,
+    {
+        self.virtual_processor.build_block_template_with_cell_tx_selector(miner_data, build_mode, tx_selector)
     }
 
     fn validate_and_insert_block_impl(
@@ -514,6 +678,16 @@ impl ConsensusApi for Consensus {
         Ok(())
     }
 
+    fn validate_mempool_cell_transaction(
+        &self,
+        transaction: &mut MutableTransaction,
+        cell_tx: &CellTx,
+        args: &TransactionValidationArgs,
+    ) -> TxResult<()> {
+        self.virtual_processor.validate_mempool_cell_transaction(transaction, cell_tx, args)?;
+        Ok(())
+    }
+
     fn validate_mempool_transactions_in_parallel(
         &self,
         transactions: &mut [MutableTransaction],
@@ -531,12 +705,19 @@ impl ConsensusApi for Consensus {
         self.virtual_processor.populate_mempool_transactions_in_parallel(transactions)
     }
 
-    fn calculate_transaction_non_contextual_masses(&self, transaction: &Transaction) -> NonContextualMasses {
-        self.services.mass_calculator.calc_non_contextual_masses(transaction)
+    fn calculate_transaction_non_contextual_masses(&self, transaction: &CellTx) -> NonContextualMasses {
+        self.services.mass_calculator.calc_non_contextual_masses_cell(transaction)
     }
 
     fn calculate_transaction_contextual_masses(&self, transaction: &MutableTransaction) -> Option<ContextualMasses> {
-        self.services.mass_calculator.calc_contextual_masses(&transaction.as_verifiable())
+        self.calculate_verifiable_transaction_contextual_masses(&transaction.as_verifiable())
+    }
+
+    fn calculate_verifiable_transaction_contextual_masses(
+        &self,
+        transaction: &dyn spora_consensus_core::tx::VerifiableTransaction,
+    ) -> Option<ContextualMasses> {
+        self.services.mass_calculator.calc_contextual_masses(transaction)
     }
 
     fn get_stats(&self) -> ConsensusStats {
@@ -777,9 +958,61 @@ impl ConsensusApi for Consensus {
         sample_headers
     }
 
-    fn get_populated_transaction(&self, _txid: Hash, _accepting_block_daa_score: u64) -> Result<SignableTransaction, String> {
-        // TODO(cell-model): Needs Cell model reimplementation
-        Err("get_populated_transaction not implemented for Cell model yet".to_string())
+    fn get_populated_transaction(&self, txid: Hash, accepting_block_daa_score: u64) -> Result<SignableTransaction, String> {
+        self.get_resolved_cell_transaction(txid, accepting_block_daa_score)
+            .map(ResolvedCellTransaction::into_legacy_signable_transaction)
+    }
+
+    fn get_resolved_cell_transaction(&self, txid: Hash, accepting_block_daa_score: u64) -> Result<ResolvedCellTransaction, String> {
+        let cell_tx = self.block_transactions_store.get_transaction(txid).map_err(|e| format!("transaction lookup failed: {e}"))?;
+        if cell_tx.is_coinbase() {
+            return Ok(ResolvedCellTransaction::new(cell_tx, vec![]));
+        }
+
+        self.block_transactions_store
+            .get_transaction_location(txid)
+            .map_err(|e| format!("transaction location lookup failed: {e}"))?;
+
+        let accepting_block = self.find_selected_chain_block_by_daa_score(accepting_block_daa_score)?;
+        let accepting_ghostdag =
+            self.ghostdag_store.get_data(accepting_block).map_err(|e| format!("accepting block ghostdag lookup failed: {e}"))?;
+        let pov = accepting_ghostdag.selected_parent;
+
+        let provider = ConsensusCellProvider::new(
+            self.ghostdag_store.clone(),
+            self.services.reachability_service.clone(),
+            self.headers_store.clone(),
+            self.cell_diffs_store.clone(),
+            self.cell_roots_store.clone(),
+            self.block_transactions_store.clone(),
+            self.statuses_store.clone(),
+        );
+
+        let resolved_inputs = cell_tx
+            .inputs
+            .iter()
+            .map(|input| {
+                provider
+                    .get_cell_at_pov(&input.out_point, pov)
+                    .map_err(|e| {
+                        format!("input resolution failed for {}:{}: {e}", hex::encode(input.out_point.tx_hash), input.out_point.index)
+                    })?
+                    .ok_or_else(|| {
+                        format!(
+                            "missing input {}:{} at accepting POV {}",
+                            hex::encode(input.out_point.tx_hash),
+                            input.out_point.index,
+                            pov
+                        )
+                    })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(ResolvedCellTransaction::new(cell_tx, resolved_inputs))
+    }
+
+    fn get_cell_transaction(&self, hash: Hash) -> ConsensusResult<CellTx> {
+        self.storage.block_transactions_store.get_transaction(hash).map_err(|_| ConsensusError::TransactionNotFound(hash.to_string()))
     }
 
     fn get_virtual_parents(&self) -> BlockHashSet {
@@ -790,16 +1023,14 @@ impl ConsensusApi for Consensus {
         self.lkg_virtual_state.load().parents.len()
     }
 
-    fn get_virtual_utxos(
+    fn get_virtual_cells(
         &self,
-        _from_outpoint: Option<TransactionOutpoint>,
-        _chunk_size: usize,
-        _skip_first: bool,
+        from_outpoint: Option<TransactionOutpoint>,
+        chunk_size: usize,
+        skip_first: bool,
     ) -> Vec<(TransactionOutpoint, spora_consensus_core::Hash)> {
-        // TODO(cell-model): Needs Cell model reimplementation
-        // Cell state is stored in VirtualState::cell_state_tree, not a separate UTXO set
-        // Return empty vec for now - this will be replaced with get_virtual_cells()
-        Vec::new()
+        let virtual_state = self.lkg_virtual_state.load();
+        Self::paged_tree_outpoints(&virtual_state.cell_state_tree, from_outpoint, chunk_size, skip_first)
     }
 
     fn get_tips(&self) -> Vec<Hash> {
@@ -810,28 +1041,33 @@ impl ConsensusApi for Consensus {
         self.body_tips_store.read().get().unwrap().read().len()
     }
 
-    fn get_pruning_point_utxos(
+    fn get_pruning_point_cells(
         &self,
         expected_pruning_point: Hash,
-        _from_outpoint: Option<TransactionOutpoint>,
-        _chunk_size: usize,
-        _skip_first: bool,
-    ) -> ConsensusResult<Vec<(TransactionOutpoint, UtxoEntry)>> {
+        from_outpoint: Option<TransactionOutpoint>,
+        chunk_size: usize,
+        skip_first: bool,
+    ) -> ConsensusResult<Vec<(TransactionOutpoint, CellEntry)>> {
         if self.pruning_point_store.read().pruning_point().unwrap() != expected_pruning_point {
             return Err(ConsensusError::UnexpectedPruningPoint);
         }
-        // TODO(cell-model): Needs Cell model reimplementation
-        // Pruning point UTXO set will be replaced with Cell set
-        Ok(Vec::new())
+
+        let tree = self.selected_chain_cell_tree(expected_pruning_point)?;
+        Ok(Self::paged_tree_cells(&tree, from_outpoint, chunk_size, skip_first))
     }
 
     fn modify_coinbase_payload(&self, payload: Vec<u8>, miner_data: &MinerData) -> CoinbaseResult<Vec<u8>> {
         self.services.coinbase_manager.modify_coinbase_payload(payload, miner_data)
     }
 
-    fn calc_transaction_hash_merkle_root(&self, txs: &[Transaction], pov_daa_score: u64) -> Hash {
-        let storage_mass_activated = self.config.crescendo_activation.is_active(pov_daa_score);
+    fn calc_transaction_hash_merkle_root(&self, txs: &[Transaction], _pov_daa_score: u64) -> Hash {
+        let storage_mass_activated = true;
         calc_hash_merkle_root(txs.iter(), storage_mass_activated)
+    }
+
+    fn calc_cell_tx_hash_merkle_root(&self, txs: &[CellTx], _pov_daa_score: u64) -> Hash {
+        let storage_mass_activated = true;
+        calc_hash_merkle_root_cell(txs.iter(), storage_mass_activated)
     }
 
     fn validate_pruning_proof(
@@ -887,7 +1123,7 @@ impl ConsensusApi for Consensus {
     // max_blocks has to be greater than the merge set size limit
     fn get_hashes_between(&self, low: Hash, high: Hash, max_blocks: usize) -> ConsensusResult<(Vec<Hash>, Hash)> {
         let _guard = self.pruning_lock.blocking_read();
-        assert!(max_blocks as u64 > self.config.mergeset_size_limit().upper_bound());
+        assert!(max_blocks as u64 > self.config.mergeset_size_limit());
         self.validate_block_exists(low)?;
         self.validate_block_exists(high)?;
 
@@ -966,10 +1202,8 @@ impl ConsensusApi for Consensus {
     }
 
     fn get_transaction(&self, hash: Hash) -> ConsensusResult<Transaction> {
-        // TODO(cell-model): get_transaction trait expects Transaction, but store returns CellTx
-        // This is a temporary stub - full migration needed
-        // For now, return error as we're in transition
-        Err(ConsensusError::TransactionNotFound("Cell model migration in progress - use get_cell_transaction".to_string()))
+        let cell_tx = self.get_cell_transaction(hash)?;
+        Ok(legacy_compat_transaction_from_cell_tx(&cell_tx))
     }
 
     fn get_block_even_if_header_only(&self, hash: Hash) -> ConsensusResult<Block> {
@@ -1086,9 +1320,8 @@ impl ConsensusApi for Consensus {
             return Err(ConsensusError::UnexpectedPruningPoint);
         }
 
-        // [Crescendo]: get ghostdag k based on the pruning point's DAA score. The off-by-one of not going by selected parent
-        // DAA score is not important here as we simply increase K one block earlier which is more conservative (saving/sending more data)
-        let ghostdag_k = self.config.ghostdag_k().get(self.headers_store.get_daa_score(pruning_point).unwrap());
+        // Get ghostdag k
+        let ghostdag_k = self.config.ghostdag_k();
 
         // Note: the method `get_ghostdag_chain_k_depth` might return a partial chain if data is missing.
         // Ideally this node when synced would validate it got all of the associated data up to k blocks

@@ -1,8 +1,9 @@
 use super::{error::ConversionError, option::TryIntoOptionEx};
 use crate::pb as protowire;
 use spora_consensus_core::{
-    subnets::SubnetworkId,
-    tx::{ScriptPublicKey, Transaction, TransactionId, TransactionInput, TransactionOutpoint, TransactionOutput, UtxoEntry},
+    cell_metadata::cell_metadata_placeholder_script_public_key_with_metadata,
+    subnets::SUBNETWORK_ID_SIZE,
+    tx::{cell_meta_from_legacy_output, cell_out_from_legacy_script_public_key, CellEntry, CellRef, CellTx, ScriptPublicKey, TransactionId, TransactionOutpoint},
 };
 use spora_hashes::Hash;
 
@@ -22,15 +23,9 @@ impl From<&Hash> for protowire::TransactionId {
     }
 }
 
-impl From<&SubnetworkId> for protowire::SubnetworkId {
-    fn from(id: &SubnetworkId) -> Self {
-        Self { bytes: Vec::from(<SubnetworkId as AsRef<[u8]>>::as_ref(id)) }
-    }
-}
-
 impl From<&TransactionOutpoint> for protowire::Outpoint {
     fn from(outpoint: &TransactionOutpoint) -> Self {
-        Self { transaction_id: Some(outpoint.transaction_id.into()), index: outpoint.index }
+        Self { transaction_id: Some(TransactionId::from_bytes(outpoint.tx_hash).into()), index: outpoint.index }
     }
 }
 
@@ -40,34 +35,55 @@ impl From<&ScriptPublicKey> for protowire::ScriptPublicKey {
     }
 }
 
-impl From<&TransactionInput> for protowire::TransactionInput {
-    fn from(input: &TransactionInput) -> Self {
-        Self {
-            previous_outpoint: Some((&input.previous_outpoint).into()),
-            signature_script: input.signature_script.clone(),
-            sequence: input.sequence,
-            sig_op_count: input.sig_op_count as u32,
-        }
+fn protowire_subnetwork_id(is_coinbase: bool) -> protowire::SubnetworkId {
+    let mut bytes = vec![0u8; SUBNETWORK_ID_SIZE];
+    if is_coinbase {
+        bytes[0] = 1;
     }
+    protowire::SubnetworkId { bytes }
 }
 
-impl From<&TransactionOutput> for protowire::TransactionOutput {
-    fn from(output: &TransactionOutput) -> Self {
-        Self { value: output.value, script_public_key: Some((&output.script_public_key).into()) }
-    }
-}
-
-impl From<&Transaction> for protowire::TransactionMessage {
-    fn from(tx: &Transaction) -> Self {
+impl From<&CellTx> for protowire::TransactionMessage {
+    fn from(tx: &CellTx) -> Self {
         Self {
-            version: tx.version as u32,
-            inputs: tx.inputs.iter().map(|input| input.into()).collect(),
-            outputs: tx.outputs.iter().map(|output| output.into()).collect(),
-            lock_time: tx.lock_time,
-            subnetwork_id: Some((&tx.subnetwork_id).into()),
-            gas: tx.gas,
-            payload: tx.payload.clone(),
-            mass: tx.mass(),
+            version: tx.ver as u32,
+            inputs: tx
+                .inputs
+                .iter()
+                .enumerate()
+                .map(|(index, input)| protowire::TransactionInput {
+                    previous_outpoint: Some((&input.out_point).into()),
+                    signature_script: tx.witnesses.get(index).cloned().unwrap_or_default(),
+                    sequence: input.since,
+                    sig_op_count: 0,
+                })
+                .collect(),
+            outputs: tx
+                .outputs
+                .iter()
+                .enumerate()
+                .map(|(index, output)| {
+                    let output_data = tx.outputs_data.get(index).map(Vec::as_slice).unwrap_or(&[]);
+                    let data_hash = *blake3::hash(output_data).as_bytes();
+                    protowire::TransactionOutput {
+                        value: output.capacity,
+                        script_public_key: Some(
+                            (&cell_metadata_placeholder_script_public_key_with_metadata(
+                                output.lock.hash(),
+                                output.type_.as_ref().map(|script| script.hash()),
+                                data_hash,
+                                output_data.len() as u64,
+                            ))
+                                .into(),
+                        ),
+                    }
+                })
+                .collect(),
+            lock_time: 0,
+            subnetwork_id: Some(protowire_subnetwork_id(tx.is_coinbase())),
+            gas: 0,
+            payload: tx.payload().map(ToOwned::to_owned).unwrap_or_default(),
+            mass: tx.storage_mass(),
         }
     }
 }
@@ -88,7 +104,8 @@ impl TryFrom<protowire::Outpoint> for TransactionOutpoint {
     type Error = ConversionError;
 
     fn try_from(item: protowire::Outpoint) -> Result<Self, Self::Error> {
-        Ok(Self::new(item.transaction_id.try_into_ex()?, item.index))
+        let tx_id: TransactionId = item.transaction_id.try_into_ex()?;
+        Ok(Self::new(tx_id.as_bytes(), item.index))
     }
 }
 
@@ -100,52 +117,53 @@ impl TryFrom<protowire::ScriptPublicKey> for ScriptPublicKey {
     }
 }
 
-impl TryFrom<protowire::UtxoEntry> for UtxoEntry {
+impl TryFrom<protowire::CellEntry> for CellEntry {
     type Error = ConversionError;
 
-    fn try_from(value: protowire::UtxoEntry) -> Result<Self, Self::Error> {
-        Ok(Self::new(value.amount, value.script_public_key.try_into_ex()?, value.block_daa_score, value.is_coinbase))
+    fn try_from(value: protowire::CellEntry) -> Result<Self, Self::Error> {
+        let script_public_key = value.script_public_key.try_into_ex()?;
+        Ok(cell_meta_from_legacy_output(value.amount, &script_public_key, value.block_daa_score, value.is_coinbase))
     }
 }
 
-impl TryFrom<protowire::OutpointAndUtxoEntryPair> for (TransactionOutpoint, UtxoEntry) {
+impl TryFrom<protowire::OutpointAndCellEntryPair> for (TransactionOutpoint, CellEntry) {
     type Error = ConversionError;
 
-    fn try_from(value: protowire::OutpointAndUtxoEntryPair) -> Result<Self, Self::Error> {
-        Ok((value.outpoint.try_into_ex()?, value.utxo_entry.try_into_ex()?))
+    fn try_from(value: protowire::OutpointAndCellEntryPair) -> Result<Self, Self::Error> {
+        Ok((value.outpoint.try_into_ex()?, value.cell_entry.try_into_ex()?))
     }
 }
 
-impl TryFrom<protowire::TransactionInput> for TransactionInput {
-    type Error = ConversionError;
-
-    fn try_from(value: protowire::TransactionInput) -> Result<Self, Self::Error> {
-        Ok(Self::new(value.previous_outpoint.try_into_ex()?, value.signature_script, value.sequence, value.sig_op_count.try_into()?))
-    }
-}
-
-impl TryFrom<protowire::TransactionOutput> for TransactionOutput {
-    type Error = ConversionError;
-
-    fn try_from(output: protowire::TransactionOutput) -> Result<Self, Self::Error> {
-        Ok(Self::new(output.value, output.script_public_key.try_into_ex()?))
-    }
-}
-
-impl TryFrom<protowire::TransactionMessage> for Transaction {
+impl TryFrom<protowire::TransactionMessage> for CellTx {
     type Error = ConversionError;
 
     fn try_from(tx: protowire::TransactionMessage) -> Result<Self, Self::Error> {
-        let transaction = Self::new(
-            tx.version.try_into()?,
-            tx.inputs.into_iter().map(|i| i.try_into()).collect::<Result<Vec<TransactionInput>, Self::Error>>()?,
-            tx.outputs.into_iter().map(|i| i.try_into()).collect::<Result<Vec<TransactionOutput>, Self::Error>>()?,
-            tx.lock_time,
-            tx.subnetwork_id.try_into_ex()?,
-            tx.gas,
-            tx.payload,
-        );
-        transaction.set_mass(tx.mass);
-        Ok(transaction)
+        let inputs: Vec<CellRef> = tx
+            .inputs
+            .iter()
+            .map(|input| Ok(CellRef::new(input.previous_outpoint.clone().try_into_ex()?, input.sequence)))
+            .collect::<Result<_, Self::Error>>()?;
+
+        let mut witnesses: Vec<Vec<u8>> = tx.inputs.into_iter().map(|input| input.signature_script).collect();
+
+        let outputs = tx
+            .outputs
+            .iter()
+            .map(|output| {
+                let script_public_key = output.script_public_key.clone().try_into_ex()?;
+                Ok(cell_out_from_legacy_script_public_key(output.value, &script_public_key))
+            })
+            .collect::<Result<Vec<_>, Self::Error>>()?;
+
+        let mut outputs_data = vec![vec![]; outputs.len()];
+        if inputs.is_empty() && !tx.payload.is_empty() {
+            if let Some(first_output_data) = outputs_data.first_mut() {
+                *first_output_data = tx.payload.clone();
+            } else {
+                witnesses = vec![tx.payload.clone()];
+            }
+        }
+
+        Ok(CellTx { ver: tx.version.try_into()?, inputs, deps: vec![], header_deps: vec![], outputs, outputs_data, witnesses })
     }
 }

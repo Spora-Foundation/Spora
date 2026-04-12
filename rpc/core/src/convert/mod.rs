@@ -3,7 +3,7 @@
 //!
 
 pub mod block;
+pub mod cell;
 pub mod notification;
 pub mod scope;
 pub mod tx;
-pub mod utxo;

@@ -15,6 +15,7 @@ spora-consensus-core.workspace = true
 spora-consensusmanager.workspace = true
 spora-core.workspace = true
 spora-hashes.workspace = true
+spora-mempool.workspace = true
 spora-mining-errors.workspace = true
 spora-muhash.workspace = true
 spora-txscript.workspace = true
@@ -30,6 +31,7 @@ smallvec.workspace = true
 sweep-bptree = "0.4.1"
 thiserror.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal"] }
+blake3.workspace = true
 
 [dev-dependencies]
 spora-txscript.workspace = true

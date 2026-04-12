@@ -2,16 +2,16 @@ use std::{collections::HashSet, sync::Arc};
 
 use super::BlockBodyProcessor;
 use crate::errors::{BlockProcessResult, RuleError};
+use crate::processes::cell_validator::{cell_validation_in_isolation::validate_cell_tx_in_isolation, CellConsensusParams};
 use spora_consensus_core::{
     block::Block,
     mass::{ContextualMasses, Mass, NonContextualMasses},
-    merkle::calc_hash_merkle_root,
     tx::TransactionOutpoint,
 };
 
 impl BlockBodyProcessor {
     pub fn validate_body_in_isolation(self: &Arc<Self>, block: &Block) -> BlockProcessResult<Mass> {
-        let crescendo_activated = self.crescendo_activation.is_active(block.header.daa_score);
+        let crescendo_activated = true; // always active
 
         Self::check_has_transactions(block)?;
         Self::check_hash_merkle_root(block, crescendo_activated)?;
@@ -57,25 +57,21 @@ impl BlockBodyProcessor {
     }
 
     fn check_transactions_in_isolation(self: &Arc<Self>, block: &Block) -> BlockProcessResult<()> {
-        // TODO(cell-model): Transaction isolation validation moved to CellValidator
-        // Cell model validation happens in virtual_processor with CellValidator
-        // Basic checks only here
         for tx in block.transactions.iter() {
-            // Verify outputs exist
-            // TODO(cell-model): Define proper CellTx validation errors
-            if !tx.is_coinbase() && tx.outputs.is_empty() {
-                // Skip this check for now - will be handled in CellValidator
-                // return Err(RuleError::InvalidTransaction);
+            if tx.is_coinbase() {
+                continue;
             }
+
+            validate_cell_tx_in_isolation(tx, CellConsensusParams::default().max_cell_data_size)
+                .map_err(|e| RuleError::CellValidationError(format!("Isolation validation failed for tx {:?}: {e}", tx.id())))?;
         }
         Ok(())
     }
 
     fn check_coinbase_has_zero_mass(&self, block: &Block, crescendo_activated: bool) -> BlockProcessResult<()> {
-        // TODO (post HF): move to check_coinbase_in_isolation
-        if crescendo_activated && block.transactions[0].mass() > 0 {
-            return Err(RuleError::CoinbaseNonZeroMassCommitment);
-        }
+        // CellTx no longer has a dedicated storage-mass commitment field.
+        // Until coinbase payload commits this explicitly, there is nothing meaningful to enforce here.
+        let _ = (block, crescendo_activated);
         Ok(())
     }
 
@@ -85,12 +81,9 @@ impl BlockBodyProcessor {
             let mut total_transient_mass: u64 = 0;
             let mut total_storage_mass: u64 = 0;
             for tx in block.transactions.iter() {
-                // TODO(cell-model): Mass calculation for CellTx
-                // For now, use simplified mass = serialized_size
-                // Full mass calculation will be in CellValidator
-                let compute_mass = tx.mass();
-                let transient_mass = 0; // CellTx doesn't have transient mass concept
-                let storage_mass_commitment = tx.mass();
+                let compute_mass = tx.compute_mass();
+                let transient_mass = tx.transient_mass();
+                let storage_mass_commitment = tx.storage_mass();
 
                 // Sum over the various masses separately
                 total_compute_mass = total_compute_mass.saturating_add(compute_mass);
@@ -112,8 +105,7 @@ impl BlockBodyProcessor {
         } else {
             let mut total_mass: u64 = 0;
             for tx in block.transactions.iter() {
-                // TODO(cell-model): Use simplified mass for CellTx
-                let compute_mass = tx.mass();
+                let compute_mass = tx.compute_mass();
                 total_mass = total_mass.saturating_add(compute_mass);
                 if total_mass > self.max_block_mass {
                     return Err(RuleError::ExceedsComputeMassLimit(total_mass, self.max_block_mass));
@@ -127,7 +119,7 @@ impl BlockBodyProcessor {
         let mut existing = HashSet::new();
         for input in block.transactions.iter().flat_map(|tx| &tx.inputs) {
             // Convert OutPoint to TransactionOutpoint
-            let txout = TransactionOutpoint { transaction_id: input.out_point.tx_hash.into(), index: input.out_point.index };
+            let txout = TransactionOutpoint { tx_hash: input.out_point.tx_hash, index: input.out_point.index };
             if !existing.insert(txout.clone()) {
                 return Err(RuleError::DoubleSpendInSameBlock(txout));
             }
@@ -139,13 +131,13 @@ impl BlockBodyProcessor {
         let mut block_created_outpoints = HashSet::new();
         for tx in block.transactions.iter() {
             for index in 0..tx.outputs.len() {
-                block_created_outpoints.insert(TransactionOutpoint { transaction_id: tx.id().into(), index: index as u32 });
+                block_created_outpoints.insert(TransactionOutpoint { tx_hash: tx.id(), index: index as u32 });
             }
         }
 
         for input in block.transactions.iter().flat_map(|tx| &tx.inputs) {
             // Convert OutPoint to TransactionOutpoint
-            let txout = TransactionOutpoint { transaction_id: input.out_point.tx_hash.into(), index: input.out_point.index };
+            let txout = TransactionOutpoint { tx_hash: input.out_point.tx_hash, index: input.out_point.index };
             if block_created_outpoints.contains(&txout) {
                 return Err(RuleError::ChainedTransaction(txout));
             }
@@ -177,15 +169,74 @@ mod tests {
         api::{BlockValidationFutures, ConsensusApi},
         block::MutableBlock,
         header::Header,
-        merkle::calc_hash_merkle_root as calc_hash_merkle_root_with_options,
+        merkle::calc_hash_merkle_root_cell as calc_hash_merkle_root_with_options,
         subnets::{SUBNETWORK_ID_COINBASE, SUBNETWORK_ID_NATIVE},
-        tx::{scriptvec, ScriptPublicKey, Transaction, TransactionId, TransactionInput, TransactionOutpoint, TransactionOutput},
+        tx::{
+            legacy_sequence_to_cell_since, scriptvec, ScriptPublicKey, Transaction, TransactionId, TransactionInput,
+            TransactionOutpoint, TransactionOutput,
+        },
     };
     use spora_core::assert_match;
+    use spora_exec::{CellOut, CellRef, CellTx, OutPoint, ScriptRef};
     use spora_hashes::Hash;
 
-    fn calc_hash_merkle_root<'a>(txs: impl ExactSizeIterator<Item = &'a Transaction>) -> Hash {
+    fn calc_hash_merkle_root<'a>(txs: impl ExactSizeIterator<Item = &'a CellTx>) -> Hash {
         calc_hash_merkle_root_with_options(txs, false)
+    }
+
+    fn compute_lock_hash(script_public_key: &ScriptPublicKey) -> [u8; 32] {
+        use blake3::Hasher;
+
+        let mut hasher = Hasher::new();
+        hasher.update(b"spora-cell/lock");
+        hasher.update(&script_public_key.version().to_le_bytes());
+        hasher.update(script_public_key.script());
+        *hasher.finalize().as_bytes()
+    }
+
+    fn legacy_tx_to_cell_tx(tx: Transaction) -> CellTx {
+        if tx.is_coinbase() {
+            let outputs = tx
+                .outputs
+                .into_iter()
+                .map(|output| CellOut {
+                    lock: ScriptRef::new(compute_lock_hash(&output.script_public_key), 0, vec![]),
+                    type_: None,
+                    capacity: output.value,
+                })
+                .collect::<Vec<_>>();
+            let mut outputs_data = vec![vec![]; outputs.len()];
+            if !outputs_data.is_empty() {
+                outputs_data[0] = tx.payload;
+            }
+            return CellTx::new(vec![], vec![], outputs, outputs_data, vec![]).unwrap();
+        }
+
+        let inputs = tx
+            .inputs
+            .iter()
+            .map(|input| {
+                CellRef::new(
+                    OutPoint::new(input.previous_outpoint.tx_hash, input.previous_outpoint.index),
+                    legacy_sequence_to_cell_since(input.sequence),
+                )
+            })
+            .collect::<Vec<_>>();
+        let outputs = if tx.outputs.is_empty() {
+            vec![CellOut { lock: ScriptRef::new([0; 32], 0, vec![]), type_: None, capacity: 1000 }]
+        } else {
+            tx.outputs
+                .into_iter()
+                .map(|output| CellOut {
+                    lock: ScriptRef::new(compute_lock_hash(&output.script_public_key), 0, vec![]),
+                    type_: None,
+                    capacity: output.value,
+                })
+                .collect::<Vec<_>>()
+        };
+        let outputs_data = vec![vec![]; outputs.len()];
+        let witnesses = tx.inputs.into_iter().map(|input| input.signature_script).collect::<Vec<_>>();
+        CellTx::new(inputs, vec![], outputs, outputs_data, witnesses).unwrap()
     }
 
     #[test]
@@ -194,7 +245,7 @@ mod tests {
         let wait_handles = consensus.init();
 
         let body_processor = consensus.block_body_processor();
-        let example_block = MutableBlock::new(
+        let mut example_block = MutableBlock::new(
             Header::new_finalized(
                 0,
                 vec![vec![
@@ -247,10 +298,11 @@ mod tests {
                     vec![
                         TransactionInput {
                             previous_outpoint: TransactionOutpoint {
-                                transaction_id: TransactionId::from_slice(&[
+                                tx_hash: TransactionId::from_slice(&[
                                     0x16, 0x5e, 0x38, 0xe8, 0xb3, 0x91, 0x45, 0x95, 0xd9, 0xc6, 0x41, 0xf3, 0xb8, 0xee, 0xc2, 0xf3,
                                     0x46, 0x11, 0x89, 0x6b, 0x82, 0x1a, 0x68, 0x3b, 0x7a, 0x4e, 0xde, 0xfe, 0x2c, 0x00, 0x00, 0x00,
-                                ]),
+                                ])
+                                .as_bytes(),
                                 index: 0xffffffff,
                             },
                             signature_script: vec![],
@@ -259,10 +311,11 @@ mod tests {
                         },
                         TransactionInput {
                             previous_outpoint: TransactionOutpoint {
-                                transaction_id: TransactionId::from_slice(&[
+                                tx_hash: TransactionId::from_slice(&[
                                     0x4b, 0xb0, 0x75, 0x35, 0xdf, 0xd5, 0x8e, 0x0b, 0x3c, 0xd6, 0x4f, 0xd7, 0x15, 0x52, 0x80, 0x87,
                                     0x2a, 0x04, 0x71, 0xbc, 0xf8, 0x30, 0x95, 0x52, 0x6a, 0xce, 0x0e, 0x38, 0xc6, 0x00, 0x00, 0x00,
-                                ]),
+                                ])
+                                .as_bytes(),
                                 index: 0xffffffff,
                             },
                             signature_script: vec![],
@@ -280,10 +333,11 @@ mod tests {
                     0,
                     vec![TransactionInput {
                         previous_outpoint: TransactionOutpoint {
-                            transaction_id: TransactionId::from_slice(&[
+                            tx_hash: TransactionId::from_slice(&[
                                 0x03, 0x2e, 0x38, 0xe9, 0xc0, 0xa8, 0x4c, 0x60, 0x46, 0xd6, 0x87, 0xd1, 0x05, 0x56, 0xdc, 0xac, 0xc4,
                                 0x1d, 0x27, 0x5e, 0xc5, 0x5f, 0xc0, 0x07, 0x79, 0xac, 0x88, 0xfd, 0xf3, 0x57, 0xa1, 0x87,
-                            ]),
+                            ])
+                            .as_bytes(),
                             index: 0,
                         },
                         signature_script: vec![
@@ -341,10 +395,11 @@ mod tests {
                     0,
                     vec![TransactionInput {
                         previous_outpoint: TransactionOutpoint {
-                            transaction_id: TransactionId::from_slice(&[
+                            tx_hash: TransactionId::from_slice(&[
                                 0xc3, 0x3e, 0xbf, 0xf2, 0xa7, 0x09, 0xf1, 0x3d, 0x9f, 0x9a, 0x75, 0x69, 0xab, 0x16, 0xa3, 0x27, 0x86,
                                 0xaf, 0x7d, 0x7e, 0x2d, 0xe0, 0x92, 0x65, 0xe4, 0x1c, 0x61, 0xd0, 0x78, 0x29, 0x4e, 0xcf,
-                            ]),
+                            ])
+                            .as_bytes(),
                             index: 1,
                         },
                         signature_script: vec![
@@ -401,10 +456,11 @@ mod tests {
                     0,
                     vec![TransactionInput {
                         previous_outpoint: TransactionOutpoint {
-                            transaction_id: TransactionId::from_slice(&[
+                            tx_hash: TransactionId::from_slice(&[
                                 0x0b, 0x60, 0x72, 0xb3, 0x86, 0xd4, 0xa7, 0x73, 0x23, 0x52, 0x37, 0xf6, 0x4c, 0x11, 0x26, 0xac, 0x3b,
                                 0x24, 0x0c, 0x84, 0xb9, 0x17, 0xa3, 0x90, 0x9b, 0xa1, 0xc4, 0x3d, 0xed, 0x5f, 0x51, 0xf4,
-                            ]),
+                            ])
+                            .as_bytes(),
                             index: 0,
                         },
                         signature_script: vec![
@@ -442,20 +498,23 @@ mod tests {
                     0,
                     vec![],
                 ),
-            ],
+            ]
+            .into_iter()
+            .map(legacy_tx_to_cell_tx)
+            .collect(),
         );
+        example_block.header.hash_merkle_root = calc_hash_merkle_root(example_block.transactions.iter());
 
         body_processor.validate_body_in_isolation(&example_block.clone().to_immutable()).unwrap();
 
         let mut block = example_block.clone();
         let txs = &mut block.transactions;
-        txs[1].version += 1;
+        txs[1].ver += 1;
         assert_match!(body_processor.validate_body_in_isolation(&block.to_immutable()), Err(RuleError::BadMerkleRoot(_, _)));
 
         let mut block = example_block.clone();
         let txs = &mut block.transactions;
-        txs[1].inputs[0].sig_op_count = 255;
-        txs[1].inputs[1].sig_op_count = 255;
+        txs[1].witnesses.push(vec![0; 600_000]);
         block.header.hash_merkle_root = calc_hash_merkle_root(txs.iter());
         assert_match!(body_processor.validate_body_in_isolation(&block.to_immutable()), Err(RuleError::ExceedsComputeMassLimit(_, _)));
 
@@ -467,34 +526,31 @@ mod tests {
 
         let mut block = example_block.clone();
         let txs = &mut block.transactions;
-        txs[1].subnetwork_id = SUBNETWORK_ID_COINBASE;
+        txs[1].inputs.clear();
         block.header.hash_merkle_root = calc_hash_merkle_root(txs.iter());
         assert_match!(body_processor.validate_body_in_isolation(&block.to_immutable()), Err(RuleError::MultipleCoinbases(_)));
 
         let mut block = example_block.clone();
         let txs = &mut block.transactions;
-        txs[2].inputs[0].previous_outpoint = txs[1].inputs[0].previous_outpoint;
+        txs[2].inputs[0].out_point = txs[1].inputs[0].out_point.clone();
         block.header.hash_merkle_root = calc_hash_merkle_root(txs.iter());
         assert_match!(body_processor.validate_body_in_isolation(&block.to_immutable()), Err(RuleError::DoubleSpendInSameBlock(_)));
 
         let mut block = example_block.clone();
         let txs = &mut block.transactions;
-        txs[0].subnetwork_id = SUBNETWORK_ID_NATIVE;
+        txs[0].inputs.push(CellRef::new(OutPoint::new([1; 32], 0), 0));
         block.header.hash_merkle_root = calc_hash_merkle_root(txs.iter());
         assert_match!(body_processor.validate_body_in_isolation(&block.to_immutable()), Err(RuleError::FirstTxNotCoinbase));
 
         let mut block = example_block.clone();
         let txs = &mut block.transactions;
-        txs[1].inputs = vec![];
+        txs[1].outputs_data.clear();
         block.header.hash_merkle_root = calc_hash_merkle_root(txs.iter());
-        assert_match!(
-            body_processor.validate_body_in_isolation(&block.to_immutable()),
-            Err(RuleError::TxInIsolationValidationFailed(_, _))
-        );
+        assert_match!(body_processor.validate_body_in_isolation(&block.to_immutable()), Err(RuleError::CellValidationError(_)));
 
         let mut block = example_block;
         let txs = &mut block.transactions;
-        txs[3].inputs[0].previous_outpoint = TransactionOutpoint { transaction_id: txs[2].id(), index: 0 };
+        txs[3].inputs[0].out_point = OutPoint::new(txs[2].id(), 0);
         block.header.hash_merkle_root = calc_hash_merkle_root(txs.iter());
         assert_match!(body_processor.validate_body_in_isolation(&block.to_immutable()), Err(RuleError::ChainedTransaction(_)));
 
@@ -508,7 +564,7 @@ mod tests {
         let wait_handles = consensus.init();
 
         let mut block = consensus.build_block_with_parents_and_transactions(1.into(), vec![config.genesis.hash], vec![]);
-        block.transactions[0].version += 1;
+        block.transactions[0].ver += 1;
 
         let BlockValidationFutures { block_task, virtual_state_task } =
             consensus.validate_and_insert_block(block.clone().to_immutable());

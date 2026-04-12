@@ -1,15 +1,15 @@
 use crate::tasks::{subscription::submitter::SubscribeCommand, Task};
 use async_channel::Sender;
 use async_trait::async_trait;
+use spora_addresses::Address;
+use spora_core::warn;
+use spora_grpc_client::GrpcClient;
+use spora_utils::triggers::SingleTrigger;
 use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
 use tokio::{sync::oneshot::channel, task::JoinHandle, time::sleep};
-use spora_addresses::Address;
-use spora_core::warn;
-use spora_grpc_client::GrpcClient;
-use spora_utils::triggers::SingleTrigger;
 
 pub struct AddressSubscriberTask {
     clients: Vec<Arc<GrpcClient>>,
@@ -76,13 +76,13 @@ impl Task for AddressSubscriberTask {
                 cycle += 1;
 
                 if cycle <= max_cycles {
-                    warn!("Cycle {cycle} - Starting UTXOs notifications...");
+                    warn!("Cycle {cycle} - Starting cell notifications...");
                     let (tx, rx) = channel();
                     sender.send(SubscribeCommand::RegisterJob((clients.len(), tx))).await.unwrap();
                     let registration = rx.await.unwrap();
                     for (i, client) in clients.iter().cloned().enumerate() {
                         sender
-                            .send(SubscribeCommand::StartUtxosChanged((registration.id, client, addresses[i].clone())))
+                            .send(SubscribeCommand::StartCellsChanged((registration.id, client, addresses[i].clone())))
                             .await
                             .unwrap();
                     }
@@ -93,7 +93,7 @@ impl Task for AddressSubscriberTask {
                         }
                         _ = registration.complete => {}
                     }
-                    warn!("Cycle {cycle} - UTXOs notifications started");
+                    warn!("Cycle {cycle} - cell notifications started");
                 }
 
                 tokio::select! {
@@ -106,12 +106,12 @@ impl Task for AddressSubscriberTask {
                 stopwatch = Instant::now();
 
                 if cycle < max_cycles {
-                    warn!("Cycle {cycle} - Stopping UTXOs notifications...");
+                    warn!("Cycle {cycle} - Stopping cell notifications...");
                     let (tx, rx) = channel();
                     sender.send(SubscribeCommand::RegisterJob((clients.len(), tx))).await.unwrap();
                     let registration = rx.await.unwrap();
                     for client in clients.iter().cloned() {
-                        sender.send(SubscribeCommand::StopUtxosChanged((registration.id, client))).await.unwrap();
+                        sender.send(SubscribeCommand::StopCellsChanged((registration.id, client))).await.unwrap();
                     }
                     tokio::select! {
                         biased;
@@ -120,7 +120,7 @@ impl Task for AddressSubscriberTask {
                         }
                         _ = registration.complete => {}
                     }
-                    warn!("Cycle {cycle} - UTXOs notifications stopped");
+                    warn!("Cycle {cycle} - cell notifications stopped");
                 }
 
                 tokio::select! {

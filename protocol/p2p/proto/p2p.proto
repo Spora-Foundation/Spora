@@ -153,30 +153,30 @@ message RejectMessage{
   string reason = 1;
 }
 
-message RequestPruningPointUTXOSetMessage{
+message RequestPruningPointCellSetMessage{
   Hash pruningPointHash = 1;
 }
 
-message PruningPointUtxoSetChunkMessage{
-  repeated OutpointAndUtxoEntryPair outpointAndUtxoEntryPairs = 1;
+message PruningPointCellSetChunkMessage{
+  repeated OutpointAndCellEntryPair outpointAndCellEntryPairs = 1;
 }
 
-message OutpointAndUtxoEntryPair{
+message OutpointAndCellEntryPair{
   Outpoint outpoint = 1;
-  UtxoEntry utxoEntry = 2;
+  CellEntry cellEntry = 2;
 }
 
-message UtxoEntry {
+message CellEntry {
   uint64 amount = 1;
   ScriptPublicKey scriptPublicKey = 2;
   uint64 blockDaaScore = 3;
   bool isCoinbase = 4;
 }
 
-message RequestNextPruningPointUtxoSetChunkMessage {
+message RequestNextPruningPointCellSetChunkMessage {
 }
 
-message DonePruningPointUtxoSetChunksMessage {
+message DonePruningPointCellSetChunksMessage {
 }
 
 message RequestIBDBlocksMessage{

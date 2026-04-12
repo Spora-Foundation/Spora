@@ -106,8 +106,8 @@ pub enum Error {
     #[error("{0}")]
     NetworkId(#[from] spora_consensus_core::network::NetworkIdError),
 
-    #[error("The server UTXO index is not enabled")]
-    MissingUtxoIndex,
+    #[error("The server cell index is not enabled")]
+    MissingCellIndex,
 
     #[error("Invalid filename: {0}")]
     InvalidFilename(String),
@@ -214,8 +214,8 @@ pub enum Error {
     #[error("{0}")]
     ParseIntError(#[from] std::num::ParseIntError),
 
-    #[error("Receiving duplicate UTXO entry")]
-    DuplicateUtxoEntry,
+    #[error("Receiving duplicate cell entry")]
+    DuplicateCellEntry,
 
     #[error("{0}")]
     ToValue(String),
@@ -340,10 +340,10 @@ pub enum Error {
     #[error("Connected node is not synced")]
     NotSynced,
     #[error(transparent)]
-    PSTT(#[from] spora_wallet_pstt::error::Error),
+    PSST(#[from] spora_wallet_psst::error::Error),
 
-    #[error("Error generating pending transaction from PSTT: {0}")]
-    PendingTransactionFromPSTTError(String),
+    #[error("Error generating pending transaction from PSST: {0}")]
+    PendingTransactionFromPSSTError(String),
 
     #[error("Address not found")]
     AddressNotFound,
@@ -357,16 +357,16 @@ pub enum Error {
     #[error("Failed to generate redeem script")]
     RevealRedeemScriptTemplateError,
 
-    #[error("Failed to generate PSTT: {0}")]
-    PSTTGenerationError(String),
+    #[error("Failed to generate PSST: {0}")]
+    PSSTGenerationError(String),
 
     #[error("Failed to sign commit transaction")]
     CommitTransactionSigningError,
 
-    #[error("Failed to finalize PSTT")]
-    PSTTFinalizationError,
+    #[error("Failed to finalize PSST")]
+    PSSTFinalizationError,
 
-    #[error("Failed to extract transaction ID from PSTT")]
+    #[error("Failed to extract transaction ID from PSST")]
     CommitTransactionIdExtractionError,
 
     #[error("No valid reveal address found for signing")]

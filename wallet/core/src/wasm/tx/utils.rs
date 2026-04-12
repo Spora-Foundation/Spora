@@ -12,16 +12,16 @@ use workflow_core::runtime::is_web;
 /// @category Wallet SDK
 #[wasm_bindgen(js_name=createTransaction)]
 pub fn create_transaction_js(
-    utxo_entry_source: IUtxoEntryArray,
+    cell_entry_source: ICellEntryArray,
     outputs: IPaymentOutputArray,
     priority_fee: BigInt,
     payload: Option<BinaryT>,
     sig_op_count: Option<u8>,
 ) -> crate::result::Result<Transaction> {
-    let utxo_entries = if let Some(utxo_entries) = utxo_entry_source.dyn_ref::<js_sys::Array>() {
-        utxo_entries.to_vec().iter().map(UtxoEntryReference::try_owned_from).collect::<Result<Vec<_>, _>>()?
+    let cell_entries = if let Some(cell_entries) = cell_entry_source.dyn_ref::<js_sys::Array>() {
+        cell_entries.to_vec().iter().map(CellEntryReference::try_owned_from).collect::<Result<Vec<_>, _>>()?
     } else {
-        return Err(Error::custom("utxo_entries must be an array"));
+        return Err(Error::custom("cell_entries must be an array"));
     };
     let priority_fee: u64 = priority_fee.try_into().map_err(|err| Error::custom(format!("invalid fee value: {err}")))?;
     let payload = payload.and_then(|payload| payload.try_as_vec_u8().ok()).unwrap_or_default();
@@ -33,14 +33,14 @@ pub fn create_transaction_js(
     let mut total_input_amount = 0;
     let mut entries = vec![];
 
-    let inputs = utxo_entries
+    let inputs = cell_entries
         .into_iter()
         .enumerate()
         .map(|(sequence, reference)| {
-            let UtxoEntryReference { utxo } = &reference;
-            total_input_amount += utxo.amount();
+            let cell = &reference.cell;
+            total_input_amount += cell.amount();
             entries.push(reference.clone());
-            TransactionInput::new(utxo.outpoint.clone(), None, sequence as u64, sig_op_count, Some(reference))
+            TransactionInput::new(cell.outpoint.clone(), None, sequence as u64, sig_op_count, Some(reference))
         })
         .collect::<Vec<TransactionInput>>();
 

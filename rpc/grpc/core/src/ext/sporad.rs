@@ -1,9 +1,9 @@
 use spora_notify::{scope::Scope, subscription::Command};
 
 use crate::protowire::{
-    sporad_request, sporad_response, NotifyBlockAddedRequestMessage, NotifyFinalityConflictRequestMessage,
-    NotifyNewBlockTemplateRequestMessage, NotifyPruningPointUtxoSetOverrideRequestMessage, NotifySinkBlueScoreChangedRequestMessage,
-    NotifyUtxosChangedRequestMessage, NotifyVirtualChainChangedRequestMessage, NotifyVirtualDaaScoreChangedRequestMessage,
+    sporad_request, sporad_response, NotifyBlockAddedRequestMessage, NotifyCellsChangedRequestMessage,
+    NotifyFinalityConflictRequestMessage, NotifyNewBlockTemplateRequestMessage, NotifyPruningPointCellSetOverrideRequestMessage,
+    NotifySinkBlueScoreChangedRequestMessage, NotifyVirtualChainChangedRequestMessage, NotifyVirtualDaaScoreChangedRequestMessage,
     SporadRequest, SporadResponse,
 };
 
@@ -45,12 +45,7 @@ impl sporad_request::Payload {
                     command: command.into(),
                 })
             }
-            Scope::UtxosChanged(ref scope) => sporad_request::Payload::NotifyUtxosChangedRequest(NotifyUtxosChangedRequestMessage {
-                addresses: scope.addresses.iter().map(|x| x.into()).collect::<Vec<String>>(),
-                command: command.into(),
-            }),
-            // CellsChanged is a cell model replacement for UtxosChanged, map to the same request for compatibility
-            Scope::CellsChanged(ref scope) => sporad_request::Payload::NotifyUtxosChangedRequest(NotifyUtxosChangedRequestMessage {
+            Scope::CellsChanged(ref scope) => sporad_request::Payload::NotifyCellsChangedRequest(NotifyCellsChangedRequestMessage {
                 addresses: scope.addresses.iter().map(|x| x.into()).collect::<Vec<String>>(),
                 command: command.into(),
             }),
@@ -64,8 +59,8 @@ impl sporad_request::Payload {
                     command: command.into(),
                 })
             }
-            Scope::PruningPointUtxoSetOverride(_) => {
-                sporad_request::Payload::NotifyPruningPointUtxoSetOverrideRequest(NotifyPruningPointUtxoSetOverrideRequestMessage {
+            Scope::PruningPointCellSetOverride(_) => {
+                sporad_request::Payload::NotifyPruningPointCellSetOverrideRequest(NotifyPruningPointCellSetOverrideRequestMessage {
                     command: command.into(),
                 })
             }
@@ -79,13 +74,13 @@ impl sporad_request::Payload {
             Payload::NotifyBlockAddedRequest(_)
                 | Payload::NotifyVirtualChainChangedRequest(_)
                 | Payload::NotifyFinalityConflictRequest(_)
-                | Payload::NotifyUtxosChangedRequest(_)
+                | Payload::NotifyCellsChangedRequest(_)
                 | Payload::NotifySinkBlueScoreChangedRequest(_)
                 | Payload::NotifyVirtualDaaScoreChangedRequest(_)
-                | Payload::NotifyPruningPointUtxoSetOverrideRequest(_)
+                | Payload::NotifyPruningPointCellSetOverrideRequest(_)
                 | Payload::NotifyNewBlockTemplateRequest(_)
-                | Payload::StopNotifyingUtxosChangedRequest(_)
-                | Payload::StopNotifyingPruningPointUtxoSetOverrideRequest(_)
+                | Payload::StopNotifyingCellsChangedRequest(_)
+                | Payload::StopNotifyingPruningPointCellSetOverrideRequest(_)
         )
     }
 }
@@ -108,10 +103,10 @@ impl sporad_response::Payload {
             Payload::VirtualChainChangedNotification(_) => true,
             Payload::FinalityConflictNotification(_) => true,
             Payload::FinalityConflictResolvedNotification(_) => true,
-            Payload::UtxosChangedNotification(_) => true,
+            Payload::CellsChangedNotification(_) => true,
             Payload::SinkBlueScoreChangedNotification(_) => true,
             Payload::VirtualDaaScoreChangedNotification(_) => true,
-            Payload::PruningPointUtxoSetOverrideNotification(_) => true,
+            Payload::PruningPointCellSetOverrideNotification(_) => true,
             Payload::NewBlockTemplateNotification(_) => true,
             _ => false,
         }

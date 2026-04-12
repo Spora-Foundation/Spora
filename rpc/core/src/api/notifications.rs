@@ -10,7 +10,7 @@ use spora_notify::{
     notification::{full_featured, Notification as NotificationTrait},
     subscription::{
         context::SubscriptionContext,
-        single::{OverallSubscription, UtxosChangedSubscription, VirtualChainChangedSubscription},
+        single::{CellsChangedSubscription, OverallSubscription, VirtualChainChangedSubscription},
         Subscription,
     },
 };
@@ -34,8 +34,8 @@ pub enum Notification {
     #[display(fmt = "FinalityConflict notification: violating block hash {}", "_0.finality_block_hash")]
     FinalityConflictResolved(FinalityConflictResolvedNotification),
 
-    #[display(fmt = "UtxosChanged notification: {} removed, {} added", "_0.removed.len()", "_0.added.len()")]
-    UtxosChanged(UtxosChangedNotification),
+    #[display(fmt = "CellsChanged notification: {} removed, {} added", "_0.removed.len()", "_0.added.len()")]
+    CellsChanged(CellsChangedNotification),
 
     #[display(fmt = "SinkBlueScoreChanged notification: virtual selected parent blue score {}", "_0.sink_blue_score")]
     SinkBlueScoreChanged(SinkBlueScoreChangedNotification),
@@ -43,8 +43,8 @@ pub enum Notification {
     #[display(fmt = "VirtualDaaScoreChanged notification: virtual DAA score {}", "_0.virtual_daa_score")]
     VirtualDaaScoreChanged(VirtualDaaScoreChangedNotification),
 
-    #[display(fmt = "PruningPointUtxoSetOverride notification")]
-    PruningPointUtxoSetOverride(PruningPointUtxoSetOverrideNotification),
+    #[display(fmt = "PruningPointCellSetOverride notification")]
+    PruningPointCellSetOverride(PruningPointCellSetOverrideNotification),
 
     #[display(fmt = "NewBlockTemplate notification")]
     NewBlockTemplate(NewBlockTemplateNotification),
@@ -59,8 +59,8 @@ impl Notification {
             Notification::FinalityConflict(v) => to_value(&v),
             Notification::FinalityConflictResolved(v) => to_value(&v),
             Notification::NewBlockTemplate(v) => to_value(&v),
-            Notification::PruningPointUtxoSetOverride(v) => to_value(&v),
-            Notification::UtxosChanged(v) => to_value(&v),
+            Notification::PruningPointCellSetOverride(v) => to_value(&v),
+            Notification::CellsChanged(v) => to_value(&v),
             Notification::VirtualDaaScoreChanged(v) => to_value(&v),
             Notification::SinkBlueScoreChanged(v) => to_value(&v),
             Notification::VirtualChainChanged(v) => to_value(&v),
@@ -98,15 +98,15 @@ impl NotificationTrait for Notification {
         }
     }
 
-    fn apply_utxos_changed_subscription(
+    fn apply_cells_changed_subscription(
         &self,
-        subscription: &UtxosChangedSubscription,
+        subscription: &CellsChangedSubscription,
         context: &SubscriptionContext,
     ) -> Option<Self> {
         match subscription.active() {
             true => {
-                let Self::UtxosChanged(notification) = self else { return None };
-                notification.apply_utxos_changed_subscription(subscription, context).map(Self::UtxosChanged)
+                let Self::CellsChanged(notification) = self else { return None };
+                notification.apply_cells_changed_subscription(subscription, context).map(Self::CellsChanged)
             }
             false => None,
         }
@@ -137,9 +137,9 @@ impl Serializer for Notification {
                 store!(u16, &3, writer)?;
                 serialize!(FinalityConflictResolvedNotification, notification, writer)?;
             }
-            Notification::UtxosChanged(notification) => {
+            Notification::CellsChanged(notification) => {
                 store!(u16, &4, writer)?;
-                serialize!(UtxosChangedNotification, notification, writer)?;
+                serialize!(CellsChangedNotification, notification, writer)?;
             }
             Notification::SinkBlueScoreChanged(notification) => {
                 store!(u16, &5, writer)?;
@@ -149,9 +149,9 @@ impl Serializer for Notification {
                 store!(u16, &6, writer)?;
                 serialize!(VirtualDaaScoreChangedNotification, notification, writer)?;
             }
-            Notification::PruningPointUtxoSetOverride(notification) => {
+            Notification::PruningPointCellSetOverride(notification) => {
                 store!(u16, &7, writer)?;
-                serialize!(PruningPointUtxoSetOverrideNotification, notification, writer)?;
+                serialize!(PruningPointCellSetOverrideNotification, notification, writer)?;
             }
             Notification::NewBlockTemplate(notification) => {
                 store!(u16, &8, writer)?;
@@ -183,8 +183,8 @@ impl Deserializer for Notification {
                 Ok(Notification::FinalityConflictResolved(notification))
             }
             4 => {
-                let notification = deserialize!(UtxosChangedNotification, reader)?;
-                Ok(Notification::UtxosChanged(notification))
+                let notification = deserialize!(CellsChangedNotification, reader)?;
+                Ok(Notification::CellsChanged(notification))
             }
             5 => {
                 let notification = deserialize!(SinkBlueScoreChangedNotification, reader)?;
@@ -195,8 +195,8 @@ impl Deserializer for Notification {
                 Ok(Notification::VirtualDaaScoreChanged(notification))
             }
             7 => {
-                let notification = deserialize!(PruningPointUtxoSetOverrideNotification, reader)?;
-                Ok(Notification::PruningPointUtxoSetOverride(notification))
+                let notification = deserialize!(PruningPointCellSetOverrideNotification, reader)?;
+                Ok(Notification::PruningPointCellSetOverride(notification))
             }
             8 => {
                 let notification = deserialize!(NewBlockTemplateNotification, reader)?;

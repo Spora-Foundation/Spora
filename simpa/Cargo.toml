@@ -19,6 +19,7 @@ spora-core.workspace = true
 spora-database.workspace = true
 spora-hashes.workspace = true
 spora-perf-monitor.workspace = true
+spora-state.workspace = true
 spora-utils.workspace = true
 
 async-channel.workspace = true
@@ -36,6 +37,7 @@ rand.workspace = true
 rayon.workspace = true
 secp256k1.workspace = true
 tokio = { workspace = true, features = ["rt", "macros", "rt-multi-thread"] }
+blake3.workspace = true
 headers = "0.4.0"
 time = "0.3.41"
 

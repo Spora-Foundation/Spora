@@ -15,7 +15,7 @@ pub enum RuleError {
     #[error(transparent)]
     RejectTxRule(TxRuleError),
 
-    #[error("at least one outpoint of transaction is lacking a matching UTXO entry")]
+    #[error("at least one outpoint of transaction is lacking a matching cell entry")]
     RejectMissingOutpoint,
 
     #[error("transaction {0} was already accepted by the consensus")]
@@ -41,7 +41,7 @@ pub enum RuleError {
     #[error("transaction {0} is not standard: {1}")]
     RejectNonStandard(TransactionId, String),
 
-    #[error("one of the transaction inputs spends an immature UTXO: {0}")]
+    #[error("one of the transaction inputs spends an immature cell: {0}")]
     RejectImmatureSpend(TxRuleError),
 
     #[error("transaction {0} doesn't exist in transaction pool")]
@@ -78,6 +78,9 @@ pub enum RuleError {
 
     #[error("Rejected tx {0} from mempool due to incomputable storage mass")]
     RejectStorageMassIncomputable(TransactionId),
+
+    #[error("failed to mirror transaction {0} into CellPool: {1}")]
+    RejectCellMirror(TransactionId, String),
 }
 
 impl From<NonStandardError> for RuleError {
@@ -132,15 +135,6 @@ pub enum NonStandardError {
 
     #[error("transaction input #{1} has {2} signature operations which is more than the allowed max amount of {3}")]
     RejectSignatureCount(TransactionId, usize, u64, u8),
-
-    #[error("transaction input #{1}: tap-like witness control block depth {2} exceeds maximum allowed depth of {3}")]
-    RejectTaplikeControlBlockDepth(TransactionId, usize, u8, u8),
-
-    #[error("transaction input #{1}: tap-like witness size exceeds policy limits")]
-    RejectWitnessSize(TransactionId, usize),
-
-    #[error("transaction input #{1}: failed to parse tap-like witness")]
-    RejectWitnessParse(TransactionId, usize),
 }
 
 impl NonStandardError {
@@ -157,9 +151,6 @@ impl NonStandardError {
             NonStandardError::RejectInputScriptClass(id, _) => id,
             NonStandardError::RejectInsufficientFee(id, _, _) => id,
             NonStandardError::RejectSignatureCount(id, _, _, _) => id,
-            NonStandardError::RejectTaplikeControlBlockDepth(id, _, _, _) => id,
-            NonStandardError::RejectWitnessSize(id, _) => id,
-            NonStandardError::RejectWitnessParse(id, _) => id,
         }
     }
 }

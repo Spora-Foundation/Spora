@@ -3,10 +3,10 @@ use crate::{
     error::Result,
     events::EventType,
     listener::ListenerId,
-    scope::{Scope, UtxosChangedScope, VirtualChainChangedScope},
+    scope::{CellsChangedScope, Scope, VirtualChainChangedScope},
     subscription::{
-        context::SubscriptionContext, BroadcastingSingle, Command, DynSubscription, Mutation, MutationOutcome, MutationPolicies,
-        Single, Subscription, UtxosChangedMutationPolicy,
+        context::SubscriptionContext, BroadcastingSingle, CellsChangedMutationPolicy, Command, DynSubscription, Mutation,
+        MutationOutcome, MutationPolicies, Single, Subscription,
     },
 };
 use itertools::Itertools;
@@ -172,18 +172,18 @@ impl Subscription for VirtualChainChangedSubscription {
     }
 }
 
-static UTXOS_CHANGED_SUBSCRIPTIONS: AtomicUsize = AtomicUsize::new(0);
+static CELLS_CHANGED_SUBSCRIPTIONS: AtomicUsize = AtomicUsize::new(0);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum UtxosChangedMutation {
+enum CellsChangedMutation {
     None,
     Remove,
     Add,
     All,
 }
 
-impl From<(Command, &UtxosChangedScope)> for UtxosChangedMutation {
-    fn from((command, scope): (Command, &UtxosChangedScope)) -> Self {
+impl From<(Command, &CellsChangedScope)> for CellsChangedMutation {
+    fn from((command, scope): (Command, &CellsChangedScope)) -> Self {
         match (command, scope.addresses.is_empty()) {
             (Command::Stop, true) => Self::None,
             (Command::Stop, false) => Self::Remove,
@@ -193,8 +193,19 @@ impl From<(Command, &UtxosChangedScope)> for UtxosChangedMutation {
     }
 }
 
+impl CellsChangedMutation {
+    fn from_addresses(command: Command, addresses: &[Address]) -> Self {
+        match (command, addresses.is_empty()) {
+            (Command::Stop, true) => Self::None,
+            (Command::Stop, false) => Self::Remove,
+            (Command::Start, false) => Self::Add,
+            (Command::Start, true) => Self::All,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, Hash, PartialEq, Eq)]
-pub enum UtxosChangedState {
+pub enum CellsChangedState {
     /// Inactive
     #[default]
     None,
@@ -206,31 +217,31 @@ pub enum UtxosChangedState {
     All,
 }
 
-impl UtxosChangedState {
+impl CellsChangedState {
     pub fn active(&self) -> bool {
         match self {
-            UtxosChangedState::None => false,
-            UtxosChangedState::Selected | UtxosChangedState::All => true,
+            CellsChangedState::None => false,
+            CellsChangedState::Selected | CellsChangedState::All => true,
         }
     }
 }
 
-impl Display for UtxosChangedState {
+impl Display for CellsChangedState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            UtxosChangedState::None => write!(f, "none"),
-            UtxosChangedState::Selected => write!(f, "selected"),
-            UtxosChangedState::All => write!(f, "all"),
+            CellsChangedState::None => write!(f, "none"),
+            CellsChangedState::Selected => write!(f, "selected"),
+            CellsChangedState::All => write!(f, "all"),
         }
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct UtxosChangedSubscriptionData {
+pub struct CellsChangedSubscriptionData {
     /// State of the subscription
     ///
     /// Can be mutated without affecting neither equality nor hash of the struct
-    state: UtxosChangedState,
+    state: CellsChangedState,
 
     /// Address indexes in `SubscriptionContext`
     ///
@@ -238,14 +249,14 @@ pub struct UtxosChangedSubscriptionData {
     indexes: Indexes,
 }
 
-impl UtxosChangedSubscriptionData {
-    fn with_capacity(state: UtxosChangedState, capacity: usize) -> Self {
+impl CellsChangedSubscriptionData {
+    fn with_capacity(state: CellsChangedState, capacity: usize) -> Self {
         let indexes = Indexes::with_capacity(capacity);
         Self { state, indexes }
     }
 
     #[inline(always)]
-    pub fn update_state(&mut self, new_state: UtxosChangedState) {
+    pub fn update_state(&mut self, new_state: CellsChangedState) {
         self.state = new_state;
     }
 
@@ -293,23 +304,23 @@ impl UtxosChangedSubscriptionData {
     }
 
     pub fn to_all(&self) -> bool {
-        matches!(self.state, UtxosChangedState::All)
+        matches!(self.state, CellsChangedState::All)
     }
 }
 
-impl Display for UtxosChangedSubscriptionData {
+impl Display for CellsChangedSubscriptionData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.state {
-            UtxosChangedState::None | UtxosChangedState::All => write!(f, "{}", self.state),
-            UtxosChangedState::Selected => write!(f, "{}({})", self.state, self.indexes.len()),
+            CellsChangedState::None | CellsChangedState::All => write!(f, "{}", self.state),
+            CellsChangedState::Selected => write!(f, "{}({})", self.state, self.indexes.len()),
         }
     }
 }
 
 #[derive(Debug)]
-pub struct UtxosChangedSubscription {
+pub struct CellsChangedSubscription {
     /// Mutable inner data
-    data: RwLock<UtxosChangedSubscriptionData>,
+    data: RwLock<CellsChangedSubscriptionData>,
 
     /// ID of the listener owning this subscription
     ///
@@ -317,17 +328,17 @@ pub struct UtxosChangedSubscription {
     listener_id: ListenerId,
 }
 
-impl UtxosChangedSubscription {
-    pub fn new(state: UtxosChangedState, listener_id: ListenerId) -> Self {
+impl CellsChangedSubscription {
+    pub fn new(state: CellsChangedState, listener_id: ListenerId) -> Self {
         Self::with_capacity(state, listener_id, 0)
     }
 
-    pub fn with_capacity(state: UtxosChangedState, listener_id: ListenerId, capacity: usize) -> Self {
-        let data = RwLock::new(UtxosChangedSubscriptionData::with_capacity(state, capacity));
+    pub fn with_capacity(state: CellsChangedState, listener_id: ListenerId, capacity: usize) -> Self {
+        let data = RwLock::new(CellsChangedSubscriptionData::with_capacity(state, capacity));
         let subscription = Self { data, listener_id };
         trace!(
-            "UtxosChangedSubscription: {} in total (new {})",
-            UTXOS_CHANGED_SUBSCRIPTIONS.fetch_add(1, Ordering::SeqCst) + 1,
+            "CellsChangedSubscription: {} in total (new {})",
+            CELLS_CHANGED_SUBSCRIPTIONS.fetch_add(1, Ordering::SeqCst) + 1,
             subscription
         );
         subscription
@@ -336,79 +347,79 @@ impl UtxosChangedSubscription {
     #[cfg(test)]
     pub fn with_addresses(active: bool, addresses: Vec<Address>, listener_id: ListenerId, context: &SubscriptionContext) -> Self {
         let state = match (active, addresses.is_empty()) {
-            (false, _) => UtxosChangedState::None,
-            (true, false) => UtxosChangedState::Selected,
-            (true, true) => UtxosChangedState::All,
+            (false, _) => CellsChangedState::None,
+            (true, false) => CellsChangedState::Selected,
+            (true, true) => CellsChangedState::All,
         };
         let subscription = Self::with_capacity(state, listener_id, addresses.len());
         let _ = subscription.data_mut().register(addresses, context);
         subscription
     }
 
-    pub fn data(&self) -> RwLockReadGuard<'_, UtxosChangedSubscriptionData> {
+    pub fn data(&self) -> RwLockReadGuard<'_, CellsChangedSubscriptionData> {
         self.data.read()
     }
 
-    pub fn data_mut(&self) -> RwLockWriteGuard<'_, UtxosChangedSubscriptionData> {
+    pub fn data_mut(&self) -> RwLockWriteGuard<'_, CellsChangedSubscriptionData> {
         self.data.write()
     }
 
     #[inline(always)]
-    pub fn state(&self) -> UtxosChangedState {
+    pub fn state(&self) -> CellsChangedState {
         self.data().state
     }
 
     pub fn to_all(&self) -> bool {
-        matches!(self.data().state, UtxosChangedState::All)
+        matches!(self.data().state, CellsChangedState::All)
     }
 }
 
-impl Clone for UtxosChangedSubscription {
+impl Clone for CellsChangedSubscription {
     fn clone(&self) -> Self {
         let subscription = Self { data: RwLock::new(self.data().clone()), listener_id: self.listener_id };
         trace!(
-            "UtxosChangedSubscription: {} in total (clone {})",
-            UTXOS_CHANGED_SUBSCRIPTIONS.fetch_add(1, Ordering::SeqCst) + 1,
+            "CellsChangedSubscription: {} in total (clone {})",
+            CELLS_CHANGED_SUBSCRIPTIONS.fetch_add(1, Ordering::SeqCst) + 1,
             subscription
         );
         subscription
     }
 }
 
-impl Display for UtxosChangedSubscription {
+impl Display for CellsChangedSubscription {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.data())
     }
 }
 
-impl Drop for UtxosChangedSubscription {
+impl Drop for CellsChangedSubscription {
     fn drop(&mut self) {
-        let old = UTXOS_CHANGED_SUBSCRIPTIONS.load(Ordering::SeqCst);
+        let old = CELLS_CHANGED_SUBSCRIPTIONS.load(Ordering::SeqCst);
         if old > 0 {
-            let new = UTXOS_CHANGED_SUBSCRIPTIONS.fetch_sub(1, Ordering::SeqCst) - 1;
-            trace!("UtxosChangedSubscription: {} in total (drop {})", new, self);
+            let new = CELLS_CHANGED_SUBSCRIPTIONS.fetch_sub(1, Ordering::SeqCst) - 1;
+            trace!("CellsChangedSubscription: {} in total (drop {})", new, self);
         } else {
-            trace!("UtxosChangedSubscription: drop() called with counter already at zero");
+            trace!("CellsChangedSubscription: drop() called with counter already at zero");
         }
     }
 }
 
-impl PartialEq for UtxosChangedSubscription {
+impl PartialEq for CellsChangedSubscription {
     /// Equality is specifically bound to the listener ID
     fn eq(&self, other: &Self) -> bool {
         self.listener_id == other.listener_id
     }
 }
-impl Eq for UtxosChangedSubscription {}
+impl Eq for CellsChangedSubscription {}
 
-impl Hash for UtxosChangedSubscription {
+impl Hash for CellsChangedSubscription {
     /// Hash is specifically bound to the listener ID
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.listener_id.hash(state);
     }
 }
 
-impl Single for UtxosChangedSubscription {
+impl Single for CellsChangedSubscription {
     fn apply_mutation(
         &self,
         current: &Arc<dyn Single>,
@@ -417,71 +428,72 @@ impl Single for UtxosChangedSubscription {
         context: &SubscriptionContext,
     ) -> Result<MutationOutcome> {
         assert_eq!(self.event_type(), mutation.event_type());
-        let outcome = if let Scope::UtxosChanged(scope) = mutation.scope {
+        let outcome = if let Scope::CellsChanged(scope) = &mutation.scope {
+            let addresses = scope.addresses.clone();
             let mut data = self.data_mut();
             let state = data.state;
-            let mutation_type = UtxosChangedMutation::from((mutation.command, &scope));
+            let mutation_type = CellsChangedMutation::from_addresses(mutation.command, &addresses);
             match (state, mutation_type) {
-                (UtxosChangedState::None, UtxosChangedMutation::None | UtxosChangedMutation::Remove) => {
+                (CellsChangedState::None, CellsChangedMutation::None | CellsChangedMutation::Remove) => {
                     // State None + Mutations None or Remove(R) => No change
                     MutationOutcome::new()
                 }
-                (UtxosChangedState::None, UtxosChangedMutation::Add) => {
+                (CellsChangedState::None, CellsChangedMutation::Add) => {
                     // State None + Mutation Add(A) => Mutated new state Selected(A)
-                    let addresses = data.register(scope.addresses, context)?;
-                    data.update_state(UtxosChangedState::Selected);
-                    let mutations = match policies.utxo_changed {
-                        UtxosChangedMutationPolicy::AddressSet => {
-                            vec![Mutation::new(mutation.command, UtxosChangedScope::new(addresses).into())]
+                    let addresses = data.register(addresses, context)?;
+                    data.update_state(CellsChangedState::Selected);
+                    let mutations = match policies.cells_changed {
+                        CellsChangedMutationPolicy::AddressSet => {
+                            vec![Mutation::new(mutation.command, CellsChangedScope::new(addresses).into())]
                         }
-                        UtxosChangedMutationPolicy::Wildcard => {
-                            vec![Mutation::new(mutation.command, UtxosChangedScope::default().into())]
+                        CellsChangedMutationPolicy::Wildcard => {
+                            vec![Mutation::new(mutation.command, CellsChangedScope::default().into())]
                         }
                     };
                     MutationOutcome::with_mutated(current.clone(), mutations)
                 }
-                (UtxosChangedState::None, UtxosChangedMutation::All) => {
+                (CellsChangedState::None, CellsChangedMutation::All) => {
                     // State None + Mutation All => Mutated new state All
-                    data.update_state(UtxosChangedState::All);
-                    let mutations = vec![Mutation::new(mutation.command, UtxosChangedScope::default().into())];
+                    data.update_state(CellsChangedState::All);
+                    let mutations = vec![Mutation::new(mutation.command, CellsChangedScope::default().into())];
                     MutationOutcome::with_mutated(current.clone(), mutations)
                 }
-                (UtxosChangedState::Selected, UtxosChangedMutation::None) => {
+                (CellsChangedState::Selected, CellsChangedMutation::None) => {
                     // State Selected(S) + Mutation None => Mutated new state None
-                    data.update_state(UtxosChangedState::None);
+                    data.update_state(CellsChangedState::None);
                     let removed = data.unregister_indexes(context);
                     assert!(!removed.is_empty(), "state Selected implies a non empty address set");
-                    let mutations = match policies.utxo_changed {
-                        UtxosChangedMutationPolicy::AddressSet => {
-                            vec![Mutation::new(Command::Stop, UtxosChangedScope::new(removed).into())]
+                    let mutations = match policies.cells_changed {
+                        CellsChangedMutationPolicy::AddressSet => {
+                            vec![Mutation::new(Command::Stop, CellsChangedScope::new(removed).into())]
                         }
-                        UtxosChangedMutationPolicy::Wildcard => {
-                            vec![Mutation::new(Command::Stop, UtxosChangedScope::default().into())]
+                        CellsChangedMutationPolicy::Wildcard => {
+                            vec![Mutation::new(Command::Stop, CellsChangedScope::default().into())]
                         }
                     };
                     MutationOutcome::with_mutated(current.clone(), mutations)
                 }
-                (UtxosChangedState::Selected, UtxosChangedMutation::Remove) => {
+                (CellsChangedState::Selected, CellsChangedMutation::Remove) => {
                     // State Selected(S) + Mutation Remove(R) => Mutated state Selected(S – R) or mutated new state None or no change
-                    let removed = data.unregister(scope.addresses, context);
+                    let removed = data.unregister(addresses, context);
                     match (removed.is_empty(), data.indexes.is_empty()) {
                         (false, false) => {
-                            let mutations = match policies.utxo_changed {
-                                UtxosChangedMutationPolicy::AddressSet => {
-                                    vec![Mutation::new(Command::Stop, UtxosChangedScope::new(removed).into())]
+                            let mutations = match policies.cells_changed {
+                                CellsChangedMutationPolicy::AddressSet => {
+                                    vec![Mutation::new(Command::Stop, CellsChangedScope::new(removed).into())]
                                 }
-                                UtxosChangedMutationPolicy::Wildcard => vec![],
+                                CellsChangedMutationPolicy::Wildcard => vec![],
                             };
                             MutationOutcome::with_mutations(mutations)
                         }
                         (false, true) => {
-                            data.update_state(UtxosChangedState::None);
-                            let mutations = match policies.utxo_changed {
-                                UtxosChangedMutationPolicy::AddressSet => {
-                                    vec![Mutation::new(Command::Stop, UtxosChangedScope::new(removed).into())]
+                            data.update_state(CellsChangedState::None);
+                            let mutations = match policies.cells_changed {
+                                CellsChangedMutationPolicy::AddressSet => {
+                                    vec![Mutation::new(Command::Stop, CellsChangedScope::new(removed).into())]
                                 }
-                                UtxosChangedMutationPolicy::Wildcard => {
-                                    vec![Mutation::new(Command::Stop, UtxosChangedScope::default().into())]
+                                CellsChangedMutationPolicy::Wildcard => {
+                                    vec![Mutation::new(Command::Stop, CellsChangedScope::default().into())]
                                 }
                             };
                             MutationOutcome::with_mutated(current.clone(), mutations)
@@ -489,60 +501,60 @@ impl Single for UtxosChangedSubscription {
                         (true, _) => MutationOutcome::new(),
                     }
                 }
-                (UtxosChangedState::Selected, UtxosChangedMutation::Add) => {
+                (CellsChangedState::Selected, CellsChangedMutation::Add) => {
                     // State Selected(S) + Mutation Add(A) => Mutated state Selected(A ∪ S)
-                    let added = data.register(scope.addresses, context)?;
+                    let added = data.register(addresses, context)?;
                     match added.is_empty() {
                         false => {
-                            let mutations = match policies.utxo_changed {
-                                UtxosChangedMutationPolicy::AddressSet => {
-                                    vec![Mutation::new(Command::Start, UtxosChangedScope::new(added).into())]
+                            let mutations = match policies.cells_changed {
+                                CellsChangedMutationPolicy::AddressSet => {
+                                    vec![Mutation::new(Command::Start, CellsChangedScope::new(added).into())]
                                 }
-                                UtxosChangedMutationPolicy::Wildcard => vec![],
+                                CellsChangedMutationPolicy::Wildcard => vec![],
                             };
                             MutationOutcome::with_mutations(mutations)
                         }
                         true => MutationOutcome::new(),
                     }
                 }
-                (UtxosChangedState::Selected, UtxosChangedMutation::All) => {
+                (CellsChangedState::Selected, CellsChangedMutation::All) => {
                     // State Selected(S) + Mutation All => Mutated new state All
                     let removed = data.unregister_indexes(context);
                     assert!(!removed.is_empty(), "state Selected implies a non empty address set");
-                    data.update_state(UtxosChangedState::All);
-                    let mutations = match policies.utxo_changed {
-                        UtxosChangedMutationPolicy::AddressSet => vec![
-                            Mutation::new(Command::Stop, UtxosChangedScope::new(removed).into()),
-                            Mutation::new(Command::Start, UtxosChangedScope::default().into()),
+                    data.update_state(CellsChangedState::All);
+                    let mutations = match policies.cells_changed {
+                        CellsChangedMutationPolicy::AddressSet => vec![
+                            Mutation::new(Command::Stop, CellsChangedScope::new(removed).into()),
+                            Mutation::new(Command::Start, CellsChangedScope::default().into()),
                         ],
-                        UtxosChangedMutationPolicy::Wildcard => vec![],
+                        CellsChangedMutationPolicy::Wildcard => vec![],
                     };
                     MutationOutcome::with_mutated(current.clone(), mutations)
                 }
-                (UtxosChangedState::All, UtxosChangedMutation::None) => {
+                (CellsChangedState::All, CellsChangedMutation::None) => {
                     // State All + Mutation None => Mutated new state None
-                    data.update_state(UtxosChangedState::None);
-                    let mutations = vec![Mutation::new(Command::Stop, UtxosChangedScope::default().into())];
+                    data.update_state(CellsChangedState::None);
+                    let mutations = vec![Mutation::new(Command::Stop, CellsChangedScope::default().into())];
                     MutationOutcome::with_mutated(current.clone(), mutations)
                 }
-                (UtxosChangedState::All, UtxosChangedMutation::Remove) => {
+                (CellsChangedState::All, CellsChangedMutation::Remove) => {
                     // State All + Mutation Remove(R) => No change
                     MutationOutcome::new()
                 }
-                (UtxosChangedState::All, UtxosChangedMutation::Add) => {
+                (CellsChangedState::All, CellsChangedMutation::Add) => {
                     // State All + Mutation Add(A) => Mutated new state Selectee(A)
-                    let added = data.register(scope.addresses, context)?;
-                    data.update_state(UtxosChangedState::Selected);
-                    let mutations = match policies.utxo_changed {
-                        UtxosChangedMutationPolicy::AddressSet => vec![
-                            Mutation::new(Command::Start, UtxosChangedScope::new(added).into()),
-                            Mutation::new(Command::Stop, UtxosChangedScope::default().into()),
+                    let added = data.register(addresses, context)?;
+                    data.update_state(CellsChangedState::Selected);
+                    let mutations = match policies.cells_changed {
+                        CellsChangedMutationPolicy::AddressSet => vec![
+                            Mutation::new(Command::Start, CellsChangedScope::new(added).into()),
+                            Mutation::new(Command::Stop, CellsChangedScope::default().into()),
                         ],
-                        UtxosChangedMutationPolicy::Wildcard => vec![],
+                        CellsChangedMutationPolicy::Wildcard => vec![],
                     };
                     MutationOutcome::with_mutated(current.clone(), mutations)
                 }
-                (UtxosChangedState::All, UtxosChangedMutation::All) => {
+                (CellsChangedState::All, CellsChangedMutation::All) => {
                     // State All <= Mutation All
                     MutationOutcome::new()
                 }
@@ -554,9 +566,9 @@ impl Single for UtxosChangedSubscription {
     }
 }
 
-impl Subscription for UtxosChangedSubscription {
+impl Subscription for CellsChangedSubscription {
     fn event_type(&self) -> EventType {
-        EventType::UtxosChanged
+        EventType::CellsChanged
     }
 
     fn active(&self) -> bool {
@@ -565,17 +577,17 @@ impl Subscription for UtxosChangedSubscription {
 
     fn scope(&self, context: &SubscriptionContext) -> Scope {
         // TODO: consider using a provided prefix
-        UtxosChangedScope::new(self.data().to_addresses(Prefix::Mainnet, context)).into()
+        CellsChangedScope::new(self.data().to_addresses(Prefix::Mainnet, context)).into()
     }
 }
 
 impl BroadcastingSingle for DynSubscription {
     fn broadcasting(self, context: &SubscriptionContext) -> DynSubscription {
         match self.event_type() {
-            EventType::UtxosChanged => {
-                let utxos_changed_subscription = self.as_any().downcast_ref::<UtxosChangedSubscription>().unwrap();
-                match utxos_changed_subscription.to_all() {
-                    true => context.utxos_changed_subscription_to_all.clone(),
+            EventType::CellsChanged => {
+                let cells_changed_subscription = self.as_any().downcast_ref::<CellsChangedSubscription>().unwrap();
+                match cells_changed_subscription.to_all() {
+                    true => context.cells_changed_subscription_to_all.clone(),
                     false => self,
                 }
             }
@@ -682,14 +694,14 @@ mod tests {
                 ],
             },
             Test {
-                name: "test utxos changed subscription",
+                name: "test cells changed subscription",
                 subscriptions: vec![
-                    Arc::new(UtxosChangedSubscription::with_addresses(false, vec![], 0, &context)),
-                    Arc::new(UtxosChangedSubscription::with_addresses(true, addresses[0..2].to_vec(), 1, &context)),
-                    Arc::new(UtxosChangedSubscription::with_addresses(true, addresses[0..3].to_vec(), 2, &context)),
-                    Arc::new(UtxosChangedSubscription::with_addresses(true, sorted_addresses[0..3].to_vec(), 2, &context)),
-                    Arc::new(UtxosChangedSubscription::with_addresses(true, vec![], 3, &context)),
-                    Arc::new(UtxosChangedSubscription::with_addresses(true, vec![], 4, &context)),
+                    Arc::new(CellsChangedSubscription::with_addresses(false, vec![], 0, &context)),
+                    Arc::new(CellsChangedSubscription::with_addresses(true, addresses[0..2].to_vec(), 1, &context)),
+                    Arc::new(CellsChangedSubscription::with_addresses(true, addresses[0..3].to_vec(), 2, &context)),
+                    Arc::new(CellsChangedSubscription::with_addresses(true, sorted_addresses[0..3].to_vec(), 2, &context)),
+                    Arc::new(CellsChangedSubscription::with_addresses(true, vec![], 3, &context)),
+                    Arc::new(CellsChangedSubscription::with_addresses(true, vec![], 4, &context)),
                 ],
                 comparisons: vec![
                     Comparison::new(0, 0, true),
@@ -927,18 +939,18 @@ mod tests {
     }
 
     #[test]
-    fn test_utxos_changed_mutation() {
+    fn test_cells_changed_mutation() {
         let context = SubscriptionContext::new();
         let a_stock = get_3_addresses(true);
 
         let av = |indexes: &[usize]| indexes.iter().map(|idx| (a_stock[*idx]).clone()).collect::<Vec<_>>();
         let ah = |indexes: &[usize]| indexes.iter().map(|idx| (a_stock[*idx]).clone()).collect::<Vec<_>>();
         let s = |active: bool, indexes: &[usize]| {
-            Arc::new(UtxosChangedSubscription::with_addresses(active, ah(indexes).to_vec(), MutationTests::LISTENER_ID, &context))
+            Arc::new(CellsChangedSubscription::with_addresses(active, ah(indexes).to_vec(), MutationTests::LISTENER_ID, &context))
                 as DynSubscription
         };
         let m = |command: Command, indexes: &[usize]| -> Mutation {
-            Mutation { command, scope: Scope::UtxosChanged(UtxosChangedScope::new(av(indexes))) }
+            Mutation { command, scope: Scope::CellsChanged(CellsChangedScope::new(av(indexes))) }
         };
 
         // Subscriptions
@@ -964,112 +976,112 @@ mod tests {
         // Tests
         let tests = MutationTests::new(vec![
             MutationTest {
-                name: "UtxosChangedSubscription None to All (add all)",
+                name: "CellsChangedSubscription None to All (add all)",
                 state: none(),
                 mutation: start_all(),
                 new_state: all(),
                 outcome: MutationOutcome::with_mutated(all(), vec![start_all()]),
             },
             MutationTest {
-                name: "UtxosChangedSubscription None to Selected 0 (add set)",
+                name: "CellsChangedSubscription None to Selected 0 (add set)",
                 state: none(),
                 mutation: start_0(),
                 new_state: selected_0(),
                 outcome: MutationOutcome::with_mutated(selected_0(), vec![start_0()]),
             },
             MutationTest {
-                name: "UtxosChangedSubscription None to None (stop set)",
+                name: "CellsChangedSubscription None to None (stop set)",
                 state: none(),
                 mutation: stop_0(),
                 new_state: none(),
                 outcome: MutationOutcome::new(),
             },
             MutationTest {
-                name: "UtxosChangedSubscription None to None (stop all)",
+                name: "CellsChangedSubscription None to None (stop all)",
                 state: none(),
                 mutation: stop_all(),
                 new_state: none(),
                 outcome: MutationOutcome::new(),
             },
             MutationTest {
-                name: "UtxosChangedSubscription Selected 01 to All (add all)",
+                name: "CellsChangedSubscription Selected 01 to All (add all)",
                 state: selected_01(),
                 mutation: start_all(),
                 new_state: all(),
                 outcome: MutationOutcome::with_mutated(all(), vec![stop_01(), start_all()]),
             },
             MutationTest {
-                name: "UtxosChangedSubscription Selected 01 to 01 (add set with total intersection)",
+                name: "CellsChangedSubscription Selected 01 to 01 (add set with total intersection)",
                 state: selected_01(),
                 mutation: start_1(),
                 new_state: selected_01(),
                 outcome: MutationOutcome::new(),
             },
             MutationTest {
-                name: "UtxosChangedSubscription Selected 0 to 01 (add set with partial intersection)",
+                name: "CellsChangedSubscription Selected 0 to 01 (add set with partial intersection)",
                 state: selected_0(),
                 mutation: start_01(),
                 new_state: selected_01(),
                 outcome: MutationOutcome::with_mutations(vec![start_1()]),
             },
             MutationTest {
-                name: "UtxosChangedSubscription Selected 2 to 012 (add set with no intersection)",
+                name: "CellsChangedSubscription Selected 2 to 012 (add set with no intersection)",
                 state: selected_2(),
                 mutation: start_01(),
                 new_state: selected_012(),
                 outcome: MutationOutcome::with_mutations(vec![start_01()]),
             },
             MutationTest {
-                name: "UtxosChangedSubscription Selected 01 to None (remove superset)",
+                name: "CellsChangedSubscription Selected 01 to None (remove superset)",
                 state: selected_1(),
                 mutation: stop_01(),
                 new_state: none(),
                 outcome: MutationOutcome::with_mutated(none(), vec![stop_1()]),
             },
             MutationTest {
-                name: "UtxosChangedSubscription Selected 01 to None (remove set with total intersection)",
+                name: "CellsChangedSubscription Selected 01 to None (remove set with total intersection)",
                 state: selected_01(),
                 mutation: stop_01(),
                 new_state: none(),
                 outcome: MutationOutcome::with_mutated(none(), vec![stop_01()]),
             },
             MutationTest {
-                name: "UtxosChangedSubscription Selected 02 to 2 (remove set with partial intersection)",
+                name: "CellsChangedSubscription Selected 02 to 2 (remove set with partial intersection)",
                 state: selected_02(),
                 mutation: stop_01(),
                 new_state: selected_2(),
                 outcome: MutationOutcome::with_mutations(vec![stop_0()]),
             },
             MutationTest {
-                name: "UtxosChangedSubscription Selected 02 to 02 (remove set with no intersection)",
+                name: "CellsChangedSubscription Selected 02 to 02 (remove set with no intersection)",
                 state: selected_02(),
                 mutation: stop_1(),
                 new_state: selected_02(),
                 outcome: MutationOutcome::new(),
             },
             MutationTest {
-                name: "UtxosChangedSubscription All to All (add all)",
+                name: "CellsChangedSubscription All to All (add all)",
                 state: all(),
                 mutation: start_all(),
                 new_state: all(),
                 outcome: MutationOutcome::new(),
             },
             MutationTest {
-                name: "UtxosChangedSubscription All to Selected 01 (add set)",
+                name: "CellsChangedSubscription All to Selected 01 (add set)",
                 state: all(),
                 mutation: start_01(),
                 new_state: selected_01(),
                 outcome: MutationOutcome::with_mutated(selected_01(), vec![start_01(), stop_all()]),
             },
             MutationTest {
-                name: "UtxosChangedSubscription All to All (remove set)",
+                name: "CellsChangedSubscription All to All (remove set)",
                 state: all(),
                 mutation: stop_01(),
                 new_state: all(),
                 outcome: MutationOutcome::new(),
             },
             MutationTest {
-                name: "UtxosChangedSubscription All to None (remove all)",
+                name: "CellsChangedSubscription All to None (remove all)",
                 state: all(),
                 mutation: stop_all(),
                 new_state: none(),

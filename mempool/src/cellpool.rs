@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ISC
-// Copyright (C) 2025 Spora developers
+// Copyright (C) 2026 Spora developers
 //
 // CellPool: Cell transaction memory pool
 
@@ -217,6 +217,14 @@ impl CellPool {
             }
         }
 
+        // Remove this dependency from direct child transactions so readiness can
+        // be recomputed from the remaining CellPool dependency set.
+        for child_wtxid in &entry.dependents {
+            if let Some(child) = txs.get_mut(child_wtxid) {
+                child.dependencies.retain(|id| id != wtxid);
+            }
+        }
+
         // Update stats
         stats.total_txs -= 1;
         stats.total_size -= entry.tx.serialized_size();
@@ -330,8 +338,8 @@ impl CellPool {
         for input in &tx.inputs {
             // Check if input is produced by a transaction in pool
             for (parent_wtxid, parent_entry) in txs.iter() {
-                let parent_hash = spora_exec::celltx::sighash::compute_wtxid(&parent_entry.tx);
-                if input.out_point.tx_hash == parent_hash {
+                let parent_txid = parent_entry.tx.id();
+                if input.out_point.tx_hash == parent_txid {
                     deps.insert(*parent_wtxid);
                 }
             }
@@ -503,11 +511,8 @@ mod tests {
         let parent_tx = create_test_tx(vec![], 1000);
         let parent_wtxid = pool.add(parent_tx.clone(), 50, 1000).unwrap(); // Low fee
 
-        // Compute parent's output hash
-        let parent_hash = spora_exec::celltx::sighash::compute_wtxid(&parent_tx);
-
         // Create a child transaction spending parent's output
-        let child_out_point = OutPoint::new(parent_hash, 0);
+        let child_out_point = OutPoint::new(parent_tx.id(), 0);
         let child_tx = create_test_tx(vec![child_out_point], 2000);
         let child_wtxid = pool.add(child_tx.clone(), 300, 1000).unwrap(); // High fee (pays for parent)
 
@@ -531,5 +536,22 @@ mod tests {
         let stats = pool.stats();
         assert_eq!(stats.total_txs, 2);
         assert_eq!(stats.total_fee, 350); // 50 + 300
+    }
+
+    #[test]
+    fn test_remove_clears_child_dependencies() {
+        let pool = CellPool::new(100);
+
+        let parent_tx = create_test_tx(vec![], 1000);
+        let parent_wtxid = pool.add(parent_tx.clone(), 50, 1000).unwrap();
+
+        let child_tx = create_test_tx(vec![OutPoint::new(parent_tx.id(), 0)], 2000);
+        let child_wtxid = pool.add(child_tx, 300, 1000).unwrap();
+
+        assert_eq!(pool.get(&child_wtxid).unwrap().dependencies, vec![parent_wtxid]);
+
+        pool.remove(&parent_wtxid).unwrap();
+
+        assert!(pool.get(&child_wtxid).unwrap().dependencies.is_empty());
     }
 }

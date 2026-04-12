@@ -3,7 +3,7 @@ use spora_hashes::Hash;
 use spora_utils::mem_size::MemSizeEstimator;
 use std::sync::Arc;
 
-// Cell model: Use CellTx instead of UTXO Transaction
+// Cell model: Use CellTx instead of the legacy Transaction type
 use spora_exec::CellTx;
 
 /// A mutable block structure where header and transactions within can still be mutated.

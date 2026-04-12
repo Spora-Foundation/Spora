@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ISC
-// Copyright (C) 2025 Spora developers
+// Copyright (C) 2026 Spora developers
 //
 // Blake3 hash syscall (Spora-specific extension to CKB-VM)
 //
@@ -79,7 +79,7 @@ mod tests {
 
     #[test]
     fn test_blake3_hash_creation() {
-        let syscall = Blake3Hash::new();
+        let _syscall = Blake3Hash::new();
         // Just ensure it compiles
     }
 

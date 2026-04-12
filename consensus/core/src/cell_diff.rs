@@ -1,41 +1,47 @@
 // SPDX-License-Identifier: ISC
-// Copyright (C) 2025 Spora developers
+// Copyright (C) 2026 Spora developers
 //
 // Cell state difference - tracks additions and removals of cells
 
+use crate::cell_metadata::PlaceholderCellMetadata;
 use crate::tx::TransactionOutpoint;
+use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
+use spora_hashes::Hash;
 use spora_utils::mem_size::MemSizeEstimator;
 use std::collections::BTreeMap;
 
 /// Cell metadata (for diff tracking and state commitment)
 ///
 /// **CKB Compatibility**: Aligned with CKB's CellMeta while adapted for GhostDAG
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 pub struct CellMeta {
     /// OutPoint: uniquely identifies this cell
     /// Added for CKB compatibility - essential for cell identification
     pub out_point: TransactionOutpoint,
-    
+
     /// Cell capacity in saus
     pub capacity: u64,
-    
+
     /// Data length in bytes
     /// Added for CKB compatibility - needed for occupied_capacity calculation
     pub data_bytes: u64,
-    
+
     /// Lock script hash
     pub lock_hash: [u8; 32],
-    
+
     /// Type script hash (if present)
     pub type_hash: Option<[u8; 32]>,
-    
+
     /// Data hash
     pub data_hash: [u8; 32],
-    
+
     /// Block DAA score where this cell was created
     /// GhostDAG extension: replaces block_number for DAG compatibility
     pub block_daa_score: u64,
+
+    /// Whether this cell was created by a cellbase transaction
+    pub is_cellbase: bool,
 }
 
 /// Collection of cells (OutPoint → CellMeta)
@@ -43,13 +49,31 @@ pub struct CellMeta {
 /// **Determinism**: BTreeMap ensures deterministic iteration order for consensus
 pub type CellCollection = BTreeMap<TransactionOutpoint, CellMeta>;
 
+/// Per-block cell diff journal entry.
+///
+/// Carries the concrete block that created/consumed the cells in `cell_diff`,
+/// allowing downstream consumers to reconstruct a canonical history journal
+/// instead of only a live accumulated diff.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BlockCellDiff {
+    pub block_hash: Hash,
+    pub block_daa_score: u64,
+    pub cell_diff: CellDiff,
+}
+
+impl BlockCellDiff {
+    pub fn new(block_hash: Hash, block_daa_score: u64, cell_diff: CellDiff) -> Self {
+        Self { block_hash, block_daa_score, cell_diff }
+    }
+}
+
 /// Cell state difference
 ///
 /// Represents the difference between two cell states:
 /// - `add`: Cells created (new outputs)
 /// - `remove`: Cells consumed (spent inputs)
 ///
-/// This is the Cell model equivalent of UtxoDiff.
+/// This is the Cell model equivalent of the legacy transaction-output diff.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct CellDiff {
     /// Cells added (created outputs)
@@ -80,7 +104,55 @@ impl CellMeta {
         }
         Ok(())
     }
+
+    /// Convenience constructor (without outpoint, which defaults to zero).
+    ///
+    /// This mirrors the old `CellEntry::from_cell_metadata` API used across
+    /// the codebase during the Cell migration.
+    pub fn from_cell_metadata(
+        capacity: u64,
+        data_bytes: u64,
+        lock_hash: [u8; 32],
+        type_hash: Option<[u8; 32]>,
+        data_hash: [u8; 32],
+        block_daa_score: u64,
+        is_cellbase: bool,
+    ) -> Self {
+        Self {
+            out_point: TransactionOutpoint::default(),
+            capacity,
+            data_bytes,
+            lock_hash,
+            type_hash,
+            data_hash,
+            block_daa_score,
+            is_cellbase,
+        }
+    }
+
+    /// Backward-compat: returns the embedded cell metadata.
+    /// CellMeta always carries complete metadata, so this always returns `Some`.
+    pub fn embedded_cell_metadata(&self) -> Option<PlaceholderCellMetadata> {
+        Some(PlaceholderCellMetadata {
+            lock_hash: self.lock_hash,
+            type_hash: self.type_hash,
+            data_hash: self.data_hash,
+            data_bytes: self.data_bytes,
+        })
+    }
+
+    /// Backward-compat: returns capacity (same as the `capacity` field).
+    pub fn capacity(&self) -> u64 {
+        self.capacity
+    }
+
+    /// Backward-compat alias: returns capacity (old CellEntry used `amount`).
+    pub fn amount(&self) -> u64 {
+        self.capacity
+    }
 }
+
+impl MemSizeEstimator for CellMeta {}
 
 impl MemSizeEstimator for CellDiff {
     fn estimate_mem_bytes(&self) -> usize {
@@ -129,8 +201,7 @@ impl CellDiff {
 
     /// Merge another diff into this one
     pub fn merge(&mut self, other: CellDiff) {
-        self.add.extend(other.add);
-        self.remove.extend(other.remove);
+        self.with_diff_in_place(&other).expect("cell diff merge must preserve a valid state transition");
     }
 
     /// Reverse the diff (swap add and remove)
@@ -152,13 +223,17 @@ impl CellDiff {
     // apply_to_tree removed - use apply_diff_placeholder on CellStateTree instead
 
     /// Apply another diff to this diff (in-place composition)
-    /// Similar to UtxoDiff::with_diff_in_place
+    /// Similar to the legacy transaction-output diff `with_diff_in_place`
     pub fn with_diff_in_place(&mut self, other: &CellDiff) -> Result<(), String> {
         // Apply removals from other
         for (outpoint, meta) in &other.remove {
-            if let Some(existing_meta) = self.add.remove(outpoint) {
-                // Cell was added in self but removed in other -> net removal
-                self.remove.insert(outpoint.clone(), existing_meta);
+            if self.add.remove(outpoint).is_some() {
+                // Cell was created and later consumed within the composed range -> net no-op.
+                continue;
+            }
+
+            if self.remove.contains_key(outpoint) {
+                return Err(format!("cell diff composition tried to remove outpoint {outpoint} twice"));
             } else {
                 // Direct removal
                 self.remove.insert(outpoint.clone(), meta.clone());
@@ -167,9 +242,13 @@ impl CellDiff {
 
         // Apply additions from other
         for (outpoint, meta) in &other.add {
-            if let Some(_) = self.remove.remove(outpoint) {
-                // Cell was removed in self but added in other -> net addition
-                self.add.insert(outpoint.clone(), meta.clone());
+            if self.remove.remove(outpoint).is_some() {
+                // Cell existed in the base state and still exists after the composed range -> net no-op.
+                continue;
+            }
+
+            if self.add.contains_key(outpoint) {
+                return Err(format!("cell diff composition tried to add outpoint {outpoint} twice"));
             } else {
                 // Direct addition
                 self.add.insert(outpoint.clone(), meta.clone());
@@ -180,7 +259,7 @@ impl CellDiff {
     }
 
     /// Create a reversed view of this diff (non-consuming)
-    /// Similar to UtxoDiff::as_reversed
+    /// Similar to the legacy transaction-output diff `as_reversed`
     pub fn as_reversed(&self) -> Self {
         Self { add: self.remove.clone(), remove: self.add.clone() }
     }
@@ -227,11 +306,12 @@ mod tests {
             type_hash: None,
             data_hash: [2u8; 32],
             block_daa_score: 100,
+            is_cellbase: false,
         }
     }
 
     fn create_test_outpoint(index: u32) -> TransactionOutpoint {
-        TransactionOutpoint { transaction_id: [3u8; 32].into(), index }
+        TransactionOutpoint::new([3u8; 32], index)
     }
 
     #[test]
@@ -336,14 +416,29 @@ mod tests {
 
         diff1.with_diff_in_place(&diff2).unwrap();
 
-        // Result: outpoint1 should be in remove (add then remove)
-        // outpoint2 still in remove
-        // outpoint3 in add
+        // Result: outpoint1 cancels out, outpoint2 remains removed, outpoint3 remains added.
         assert_eq!(diff1.num_added(), 1);
-        assert_eq!(diff1.num_removed(), 2);
+        assert_eq!(diff1.num_removed(), 1);
         assert!(diff1.add.contains_key(&outpoint3));
-        assert!(diff1.remove.contains_key(&outpoint1));
         assert!(diff1.remove.contains_key(&outpoint2));
+        assert!(!diff1.add.contains_key(&outpoint1));
+        assert!(!diff1.remove.contains_key(&outpoint1));
+    }
+
+    #[test]
+    fn test_with_diff_in_place_remove_then_add_cancels() {
+        let mut diff1 = CellDiff::new();
+        let mut diff2 = CellDiff::new();
+
+        let outpoint = create_test_outpoint(0);
+        let meta = create_test_cell(1000, 0);
+
+        diff1.remove_cell(outpoint.clone(), meta.clone());
+        diff2.add_cell(outpoint.clone(), meta);
+
+        diff1.with_diff_in_place(&diff2).unwrap();
+
+        assert!(diff1.is_empty());
     }
 
     #[test]
@@ -381,10 +476,10 @@ mod tests {
     fn test_verify_capacity() {
         let mut cell = create_test_cell(1000, 0);
         cell.data_bytes = 100;
-        
+
         // Should pass: 1000 >= occupied (72 + 100 = 172)
         assert!(cell.verify_capacity().is_ok());
-        
+
         // Should fail: insufficient capacity
         cell.capacity = 50;
         assert!(cell.verify_capacity().is_err());

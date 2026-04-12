@@ -11,8 +11,8 @@
 //! [`spora_wallet_keys`] crate.
 //!
 //! This crate included are low-level primitives
-//! such as [`UtxoProcessor`](crate::utxo::UtxoProcessor)
-//! and [`UtxoContext`](crate::utxo::UtxoContext) that provide
+//! such as [`CellProcessor`](crate::cell::CellProcessor)
+//! and [`CellContext`](crate::cell::CellContext) that provide
 //! various levels of automation as well as higher-level
 //! APIs such as [`Wallet`](crate::wallet::Wallet),
 //! [`Account`](crate::account::Account) (managed via the
@@ -25,7 +25,7 @@
 //! The wallet framework also includes transaction
 //! [`Generator`](crate::tx::generator::Generator)
 //! that can be used to generate transactions from a set of
-//! UTXO entries. The generator can be used to create
+//! cell entries. The generator can be used to create
 //! simple transactions as well as batch transactions
 //! comprised of multiple chained transactions.  Batch
 //! transactions (also known as compound transactions)
@@ -74,6 +74,7 @@ extern crate self as spora_wallet_core;
 
 pub mod account;
 pub mod api;
+pub mod cell;
 pub mod compat;
 pub mod cryptobox;
 pub mod derivation;
@@ -93,7 +94,6 @@ pub mod settings;
 pub mod storage;
 pub mod tx;
 pub mod utils;
-pub mod utxo;
 pub mod wallet;
 
 #[cfg(any(feature = "wasm32-sdk", feature = "wasm32-core"))]

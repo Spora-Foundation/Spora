@@ -46,22 +46,31 @@ pub enum Codec {
 /// [`WalletClient`] is a counter-part to [`WalletServer`].
 pub struct WalletClient {
     pub codec: Codec,
+    notification_channels: Mutex<HashMap<u64, Receiver<WalletNotification>>>,
+    next_notification_channel_id: AtomicU64,
 }
 
 impl WalletClient {
     pub fn new(codec: Codec) -> Self {
-        Self { codec }
+        Self { codec, notification_channels: Mutex::new(HashMap::new()), next_notification_channel_id: AtomicU64::new(1) }
     }
 }
 
 use workflow_core::channel::{DuplexChannel, Receiver};
 #[async_trait]
 impl WalletApi for WalletClient {
-    async fn register_notifications(self: Arc<Self>, _channel: Receiver<WalletNotification>) -> Result<u64> {
-        todo!()
+    async fn register_notifications(self: Arc<Self>, channel: Receiver<WalletNotification>) -> Result<u64> {
+        let channel_id = self.next_notification_channel_id.fetch_add(1, Ordering::SeqCst);
+        self.notification_channels.lock().unwrap().insert(channel_id, channel);
+        Ok(channel_id)
     }
-    async fn unregister_notifications(self: Arc<Self>, _channel_id: u64) -> Result<()> {
-        todo!()
+    async fn unregister_notifications(self: Arc<Self>, channel_id: u64) -> Result<()> {
+        self.notification_channels
+            .lock()
+            .unwrap()
+            .remove(&channel_id)
+            .ok_or_else(|| Error::custom(format!("Unknown wallet notification channel id: {channel_id}")))?;
+        Ok(())
     }
 
     build_wallet_client_transport_interface! {[
@@ -99,10 +108,10 @@ impl WalletApi for WalletClient {
         AccountsGet,
         AccountsCreateNewAddress,
         AccountsSend,
-        AccountsPstbSign,
-        AccountsPstbBroadcast,
-        AccountsPstbSend,
-        AccountsGetUtxos,
+        AccountsPssbSign,
+        AccountsPssbBroadcast,
+        AccountsPssbSend,
+        AccountsGetCells,
         AccountsTransfer,
         AccountsEstimate,
         TransactionsDataGet,
@@ -186,10 +195,10 @@ impl WalletServer {
         AccountsGet,
         AccountsCreateNewAddress,
         AccountsSend,
-        AccountsPstbSign,
-        AccountsPstbBroadcast,
-        AccountsPstbSend,
-        AccountsGetUtxos,
+        AccountsPssbSign,
+        AccountsPssbBroadcast,
+        AccountsPssbSend,
+        AccountsGetCells,
         AccountsTransfer,
         AccountsEstimate,
         TransactionsDataGet,

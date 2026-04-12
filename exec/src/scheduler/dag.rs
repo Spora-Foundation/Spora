@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ISC
-// Copyright (C) 2025 Spora developers
+// Copyright (C) 2026 Spora developers
 //
 // CellDAG: RW-Set dependency graph construction
 
@@ -99,7 +99,7 @@ impl CellDAG {
         conflicts.retain(|_, consumers| consumers.len() > 1);
 
         // Step 4: Compute topological layers
-        let layers = Self::compute_layers(node_count, &reverse_edges)?;
+        let layers = Self::compute_layers(node_count, &edges, &reverse_edges)?;
 
         Ok(CellDAG { node_count, edges, reverse_edges, conflicts, layers })
     }
@@ -109,10 +109,19 @@ impl CellDAG {
     /// Uses Kahn's algorithm with layer tracking:
     /// - Layer 0: nodes with no predecessors
     /// - Layer N: nodes whose all predecessors are in layers < N
-    fn compute_layers(node_count: usize, reverse_edges: &BTreeMap<NodeId, Vec<NodeId>>) -> Result<Vec<Vec<NodeId>>, DagError> {
+    fn compute_layers(
+        node_count: usize,
+        edges: &BTreeMap<NodeId, Vec<(NodeId, DagEdge)>>,
+        reverse_edges: &BTreeMap<NodeId, Vec<NodeId>>,
+    ) -> Result<Vec<Vec<NodeId>>, DagError> {
+        if node_count == 0 {
+            return Ok(Vec::new());
+        }
+
         let mut in_degree = vec![0usize; node_count];
         let mut layers = Vec::new();
         let mut current_layer = Vec::new();
+        let mut processed = 0usize;
 
         // Compute in-degrees
         for (node, degree) in in_degree.iter_mut().enumerate().take(node_count) {
@@ -122,11 +131,36 @@ impl CellDAG {
             }
         }
 
-        // If no nodes have in-degree 0, put all in one layer
-        if current_layer.is_empty() {
-            layers.push((0..node_count).collect());
-        } else {
-            layers.push(current_layer);
+        while !current_layer.is_empty() {
+            current_layer.sort_unstable();
+            layers.push(current_layer.clone());
+            processed += current_layer.len();
+
+            let mut next_layer = Vec::new();
+            for node in current_layer {
+                if let Some(successors) = edges.get(&node) {
+                    for &(successor, _) in successors {
+                        let degree = in_degree
+                            .get_mut(successor)
+                            .ok_or_else(|| DagError::InvalidRWSet(format!("successor node {successor} is out of bounds")))?;
+                        if *degree == 0 {
+                            return Err(DagError::InvalidRWSet(format!(
+                                "successor node {successor} reached zero in-degree too early"
+                            )));
+                        }
+                        *degree -= 1;
+                        if *degree == 0 {
+                            next_layer.push(successor);
+                        }
+                    }
+                }
+            }
+
+            current_layer = next_layer;
+        }
+
+        if processed != node_count {
+            return Err(DagError::CycleDetected);
         }
 
         Ok(layers)
@@ -223,6 +257,7 @@ mod tests {
         let dag = CellDAG::build(&[tx0, tx1, tx2]).unwrap();
 
         assert_eq!(dag.node_count, 3);
+        assert_eq!(dag.layers, vec![vec![0], vec![1], vec![2]]);
         assert!(dag.has_path(0, 2));
         assert!(!dag.has_path(2, 0));
     }
@@ -262,10 +297,34 @@ mod tests {
 
         // No conflicts (different outputs)
         assert!(dag.conflicts.is_empty());
+        assert_eq!(dag.layers, vec![vec![0], vec![1, 2]]);
 
         // Both tx1 and tx2 depend on tx0
         assert!(dag.has_path(0, 1));
         assert!(dag.has_path(0, 2));
         assert!(!dag.has_path(1, 2)); // tx1 and tx2 are independent
+    }
+
+    #[test]
+    fn test_compute_layers_detects_cycle() {
+        let mut edges = BTreeMap::new();
+        let mut reverse_edges = BTreeMap::new();
+
+        edges.insert(0, vec![(1, DagEdge::Dependency)]);
+        edges.insert(1, vec![(0, DagEdge::Dependency)]);
+        reverse_edges.insert(0, vec![1]);
+        reverse_edges.insert(1, vec![0]);
+
+        let result = CellDAG::compute_layers(2, &edges, &reverse_edges);
+        assert!(matches!(result, Err(DagError::CycleDetected)));
+    }
+
+    #[test]
+    fn test_compute_layers_empty_dag() {
+        let edges = BTreeMap::new();
+        let reverse_edges = BTreeMap::new();
+
+        let layers = CellDAG::compute_layers(0, &edges, &reverse_edges).unwrap();
+        assert!(layers.is_empty());
     }
 }

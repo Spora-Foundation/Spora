@@ -1,6 +1,6 @@
 use crate::error::Error;
 use crate::result::Result;
-use spora_consensus_core::constants::SAU_PER_TONDI;
+use spora_consensus_core::constants::SAU_PER_SPORA;
 use std::fmt::Display;
 
 pub fn try_parse_required_nonzero_spora_as_sau_u64<S: ToString + Display>(spora_amount: Option<S>) -> Result<u64> {
@@ -9,7 +9,7 @@ pub fn try_parse_required_nonzero_spora_as_sau_u64<S: ToString + Display>(spora_
             .to_string()
             .parse::<f64>()
             .map_err(|_| Error::custom(format!("Supplied Spora amount is not valid: '{spora_amount}'")))?
-            * SAU_PER_TONDI as f64;
+            * SAU_PER_SPORA as f64;
         if sau_amount < 0.0 {
             Err(Error::custom("Supplied Spora amount is not valid: '{spora_amount}'"))
         } else {
@@ -31,7 +31,7 @@ pub fn try_parse_required_spora_as_sau_u64<S: ToString + Display>(spora_amount: 
             .to_string()
             .parse::<f64>()
             .map_err(|_| Error::custom(format!("Supplied Spora amount is not valid: '{spora_amount}'")))?
-            * SAU_PER_TONDI as f64;
+            * SAU_PER_SPORA as f64;
         if sau_amount < 0.0 {
             Err(Error::custom("Supplied Spora amount is not valid: '{spora_amount}'"))
         } else {
@@ -48,7 +48,7 @@ pub fn try_parse_optional_spora_as_sau_i64<S: ToString + Display>(spora_amount: 
             .to_string()
             .parse::<f64>()
             .map_err(|_e| Error::custom(format!("Supplied Spora amount is not valid: '{spora_amount}'")))?
-            * SAU_PER_TONDI as f64;
+            * SAU_PER_SPORA as f64;
         if sau_amount < 0.0 {
             Err(Error::custom("Supplied Spora amount is not valid: '{spora_amount}'"))
         } else {

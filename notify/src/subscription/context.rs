@@ -2,7 +2,7 @@ use crate::{
     address::tracker::Tracker,
     listener::ListenerId,
     subscription::{
-        single::{UtxosChangedState, UtxosChangedSubscription},
+        single::{CellsChangedState, CellsChangedSubscription},
         DynSubscription,
     },
 };
@@ -14,7 +14,7 @@ use spora_addresses::Address;
 #[derive(Debug)]
 pub struct SubscriptionContextInner {
     pub address_tracker: Tracker,
-    pub utxos_changed_subscription_to_all: DynSubscription,
+    pub cells_changed_subscription_to_all: DynSubscription,
 }
 
 impl SubscriptionContextInner {
@@ -26,17 +26,17 @@ impl SubscriptionContextInner {
 
     pub fn with_options(max_addresses: Option<usize>) -> Self {
         let address_tracker = Tracker::new(max_addresses);
-        let utxos_changed_subscription_all =
-            Arc::new(UtxosChangedSubscription::new(UtxosChangedState::All, Self::CONTEXT_LISTENER_ID));
-        Self { address_tracker, utxos_changed_subscription_to_all: utxos_changed_subscription_all }
+        let cells_changed_subscription_all =
+            Arc::new(CellsChangedSubscription::new(CellsChangedState::All, Self::CONTEXT_LISTENER_ID));
+        Self { address_tracker, cells_changed_subscription_to_all: cells_changed_subscription_all }
     }
 
     #[cfg(test)]
     pub fn with_addresses(addresses: &[Address]) -> Self {
         let address_tracker = Tracker::with_addresses(addresses);
-        let utxos_changed_subscription_all =
-            Arc::new(UtxosChangedSubscription::new(UtxosChangedState::All, Self::CONTEXT_LISTENER_ID));
-        Self { address_tracker, utxos_changed_subscription_to_all: utxos_changed_subscription_all }
+        let cells_changed_subscription_all =
+            Arc::new(CellsChangedSubscription::new(CellsChangedState::All, Self::CONTEXT_LISTENER_ID));
+        Self { address_tracker, cells_changed_subscription_to_all: cells_changed_subscription_all }
     }
 }
 

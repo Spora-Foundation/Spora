@@ -6,23 +6,56 @@ use crate::model::*;
 use spora_consensus_client::*;
 use std::sync::Arc;
 
-impl From<RpcUtxosByAddressesEntry> for UtxoEntry {
-    fn from(entry: RpcUtxosByAddressesEntry) -> UtxoEntry {
-        let RpcUtxosByAddressesEntry { address, outpoint, utxo_entry } = entry;
-        let RpcUtxoEntry { amount, script_public_key, block_daa_score, is_coinbase } = utxo_entry;
-        UtxoEntry { address, outpoint: outpoint.into(), amount, script_public_key, block_daa_score, is_coinbase }
+impl From<RpcCellsByAddressesEntry> for CellEntry {
+    fn from(entry: RpcCellsByAddressesEntry) -> CellEntry {
+        let RpcCellsByAddressesEntry { address, outpoint, cell_entry } = entry;
+        let RpcCellEntry {
+            amount,
+            capacity,
+            data_bytes,
+            lock_hash,
+            type_hash,
+            data_hash,
+            script_public_key,
+            block_daa_score,
+            is_coinbase,
+        } = cell_entry;
+
+        let mut cell_entry = CellEntry {
+            address,
+            outpoint: outpoint.into(),
+            amount,
+            capacity: None,
+            data_bytes: None,
+            lock_hash: None,
+            type_hash: None,
+            data_hash: None,
+            script_public_key,
+            block_daa_score,
+            is_coinbase,
+        };
+
+        let has_canonical_metadata =
+            capacity != amount || data_bytes != 0 || lock_hash != [0; 32] || type_hash.is_some() || data_hash != [0; 32];
+
+        if has_canonical_metadata {
+            cell_entry =
+                cell_entry.with_cell_metadata(capacity, data_bytes, lock_hash.into(), type_hash.map(Into::into), data_hash.into());
+        }
+
+        cell_entry
     }
 }
 
-impl From<RpcUtxosByAddressesEntry> for UtxoEntryReference {
-    fn from(entry: RpcUtxosByAddressesEntry) -> Self {
-        Self { utxo: Arc::new(entry.into()) }
+impl From<RpcCellsByAddressesEntry> for CellEntryReference {
+    fn from(entry: RpcCellsByAddressesEntry) -> Self {
+        Self { cell: Arc::new(entry.into()) }
     }
 }
 
-impl From<&RpcUtxosByAddressesEntry> for UtxoEntryReference {
-    fn from(entry: &RpcUtxosByAddressesEntry) -> Self {
-        Self { utxo: Arc::new(entry.clone().into()) }
+impl From<&RpcCellsByAddressesEntry> for CellEntryReference {
+    fn from(entry: &RpcCellsByAddressesEntry) -> Self {
+        Self { cell: Arc::new(entry.clone().into()) }
     }
 }
 
@@ -32,20 +65,18 @@ cfg_if::cfg_if! {
         impl From<TransactionInput> for RpcTransactionInput {
             fn from(tx_input: TransactionInput) -> Self {
                 let inner = tx_input.inner();
-                RpcTransactionInput {
-                    previous_outpoint: inner.previous_outpoint.clone().into(),
-                    signature_script: inner.signature_script.clone().unwrap_or_default(),
-                    sequence: inner.sequence,
-                    sig_op_count: inner.sig_op_count,
-                    verbose_data: None,
-                }
+                RpcTransactionInput::from_cell_ref(
+                    &spora_consensus_core::tx::CellRef::new(inner.previous_outpoint.clone().into(), inner.sequence),
+                    inner.signature_script.clone().unwrap_or_default(),
+                )
             }
         }
 
         impl From<TransactionOutput> for RpcTransactionOutput {
             fn from(output: TransactionOutput) -> Self {
                 let inner = output.inner();
-                RpcTransactionOutput { value: inner.value, script_public_key: inner.script_public_key.clone(), verbose_data: None }
+                let cell_out = spora_consensus_core::tx::cell_out_from_legacy_script_public_key(inner.value, &inner.script_public_key);
+                RpcTransactionOutput::from_cell_output(&cell_out, &[])
             }
         }
 
@@ -68,7 +99,7 @@ cfg_if::cfg_if! {
                     inputs,
                     outputs,
                     lock_time: inner.lock_time,
-                    subnetwork_id: inner.subnetwork_id.clone(),
+                    subnetwork_id: inner.subnetwork_id.clone().into(),
                     gas: inner.gas,
                     payload: inner.payload.clone(),
                     mass: inner.mass,

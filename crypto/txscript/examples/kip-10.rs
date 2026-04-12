@@ -7,8 +7,8 @@ use spora_consensus_core::{
         sighash_type::SIG_HASH_ALL,
     },
     tx::{
-        MutableTransaction, PopulatedTransaction, Transaction, TransactionId, TransactionInput, TransactionOutpoint,
-        TransactionOutput, UtxoEntry, VerifiableTransaction,
+        CellEntry, MutableTransaction, PopulatedTransaction, Transaction, TransactionId, TransactionInput, TransactionOutpoint,
+        TransactionOutput, VerifiableTransaction,
     },
 };
 use spora_txscript::{
@@ -85,8 +85,8 @@ fn threshold_scenario() -> ScriptBuilderResult<()> {
     // Create a transaction output
     let output = TransactionOutput { value: 1000000000 + threshold as u64, script_public_key: spk.clone() };
 
-    // Create a UTXO entry for the input
-    let utxo_entry = UtxoEntry::new(input_value, spk, 0, false);
+    // Create a cell entry for the input
+    let cell_entry = CellEntry::new(input_value, spk, 0, false);
 
     // Create a transaction input
     let input = TransactionInput {
@@ -108,7 +108,7 @@ fn threshold_scenario() -> ScriptBuilderResult<()> {
     // Check owner branch
     {
         println!("[STANDARD] Checking owner branch");
-        let mut tx = MutableTransaction::with_entries(tx.clone(), vec![utxo_entry.clone()]);
+        let mut tx = MutableTransaction::with_entries(tx.clone(), vec![cell_entry.clone()]);
         let sig_hash = calc_schnorr_signature_hash(&tx.as_verifiable(), 0, SIG_HASH_ALL, &reused_values);
         let msg = secp256k1::Message::from_digest_slice(sig_hash.as_bytes().as_slice()).unwrap();
 
@@ -127,7 +127,7 @@ fn threshold_scenario() -> ScriptBuilderResult<()> {
 
         let tx = tx.as_verifiable();
         let mut vm =
-            TxScriptEngine::from_transaction_input(&tx, &tx.inputs()[0], 0, &utxo_entry, &reused_values, &sig_cache, true, false);
+            TxScriptEngine::from_transaction_input(&tx, &tx.inputs()[0], 0, &cell_entry, &reused_values, &sig_cache, true, false);
         assert_eq!(vm.execute(), Ok(()));
         println!("[STANDARD] Owner branch execution successful");
     }
@@ -136,9 +136,9 @@ fn threshold_scenario() -> ScriptBuilderResult<()> {
     {
         println!("[STANDARD] Checking borrower branch");
         tx.inputs[0].signature_script = ScriptBuilder::new().add_op(OpFalse)?.add_data(&script)?.drain();
-        let tx = PopulatedTransaction::new(&tx, vec![utxo_entry.clone()]);
+        let tx = PopulatedTransaction::new(&tx, vec![cell_entry.clone()]);
         let mut vm =
-            TxScriptEngine::from_transaction_input(&tx, &tx.tx.inputs[0], 0, &utxo_entry, &reused_values, &sig_cache, true, false);
+            TxScriptEngine::from_transaction_input(&tx, &tx.tx.inputs[0], 0, &cell_entry, &reused_values, &sig_cache, true, false);
         assert_eq!(vm.execute(), Ok(()));
         println!("[STANDARD] Borrower branch execution successful");
     }
@@ -148,9 +148,9 @@ fn threshold_scenario() -> ScriptBuilderResult<()> {
         println!("[STANDARD] Checking borrower branch with threshold not reached");
         // Less than threshold
         tx.outputs[0].value -= 1;
-        let tx = PopulatedTransaction::new(&tx, vec![utxo_entry.clone()]);
+        let tx = PopulatedTransaction::new(&tx, vec![cell_entry.clone()]);
         let mut vm =
-            TxScriptEngine::from_transaction_input(&tx, &tx.tx.inputs[0], 0, &utxo_entry, &reused_values, &sig_cache, true, false);
+            TxScriptEngine::from_transaction_input(&tx, &tx.tx.inputs[0], 0, &cell_entry, &reused_values, &sig_cache, true, false);
         assert_eq!(vm.execute(), Err(EvalFalse));
         println!("[STANDARD] Borrower branch with threshold not reached failed as expected");
     }
@@ -259,8 +259,8 @@ fn threshold_scenario_limited_one_time() -> ScriptBuilderResult<()> {
     // Create a transaction output
     let output = TransactionOutput { value: 1000000000 + threshold as u64, script_public_key: p2pk.clone() };
 
-    // Create a UTXO entry for the input
-    let utxo_entry = UtxoEntry::new(input_value, spk, 0, false);
+    // Create a cell entry for the input
+    let cell_entry = CellEntry::new(input_value, spk, 0, false);
 
     // Create a transaction input
     let input = TransactionInput {
@@ -282,7 +282,7 @@ fn threshold_scenario_limited_one_time() -> ScriptBuilderResult<()> {
     // Check owner branch
     {
         println!("[ONE-TIME] Checking owner branch");
-        let mut tx = MutableTransaction::with_entries(tx.clone(), vec![utxo_entry.clone()]);
+        let mut tx = MutableTransaction::with_entries(tx.clone(), vec![cell_entry.clone()]);
         let sig_hash = calc_schnorr_signature_hash(&tx.as_verifiable(), 0, SIG_HASH_ALL, &reused_values);
         let msg = secp256k1::Message::from_digest_slice(sig_hash.as_bytes().as_slice()).unwrap();
 
@@ -301,7 +301,7 @@ fn threshold_scenario_limited_one_time() -> ScriptBuilderResult<()> {
 
         let tx = tx.as_verifiable();
         let mut vm =
-            TxScriptEngine::from_transaction_input(&tx, &tx.inputs()[0], 0, &utxo_entry, &reused_values, &sig_cache, true, false);
+            TxScriptEngine::from_transaction_input(&tx, &tx.inputs()[0], 0, &cell_entry, &reused_values, &sig_cache, true, false);
         assert_eq!(vm.execute(), Ok(()));
         println!("[ONE-TIME] Owner branch execution successful");
     }
@@ -310,9 +310,9 @@ fn threshold_scenario_limited_one_time() -> ScriptBuilderResult<()> {
     {
         println!("[ONE-TIME] Checking borrower branch");
         tx.inputs[0].signature_script = ScriptBuilder::new().add_op(OpFalse)?.add_data(&script)?.drain();
-        let tx = PopulatedTransaction::new(&tx, vec![utxo_entry.clone()]);
+        let tx = PopulatedTransaction::new(&tx, vec![cell_entry.clone()]);
         let mut vm =
-            TxScriptEngine::from_transaction_input(&tx, &tx.tx.inputs[0], 0, &utxo_entry, &reused_values, &sig_cache, true, false);
+            TxScriptEngine::from_transaction_input(&tx, &tx.tx.inputs[0], 0, &cell_entry, &reused_values, &sig_cache, true, false);
         assert_eq!(vm.execute(), Ok(()));
         println!("[ONE-TIME] Borrower branch execution successful");
     }
@@ -322,9 +322,9 @@ fn threshold_scenario_limited_one_time() -> ScriptBuilderResult<()> {
         println!("[ONE-TIME] Checking borrower branch with threshold not reached");
         // Less than threshold
         tx.outputs[0].value -= 1;
-        let tx = PopulatedTransaction::new(&tx, vec![utxo_entry.clone()]);
+        let tx = PopulatedTransaction::new(&tx, vec![cell_entry.clone()]);
         let mut vm =
-            TxScriptEngine::from_transaction_input(&tx, &tx.tx.inputs[0], 0, &utxo_entry, &reused_values, &sig_cache, true, false);
+            TxScriptEngine::from_transaction_input(&tx, &tx.tx.inputs[0], 0, &cell_entry, &reused_values, &sig_cache, true, false);
         assert_eq!(vm.execute(), Err(EvalFalse));
         println!("[ONE-TIME] Borrower branch with threshold not reached failed as expected");
     }
@@ -344,12 +344,12 @@ fn threshold_scenario_limited_one_time() -> ScriptBuilderResult<()> {
         wrong_tx.outputs[0].script_public_key = wrong_p2pk;
         wrong_tx.inputs[0].signature_script = ScriptBuilder::new().add_op(OpFalse)?.add_data(&script)?.drain();
 
-        let wrong_tx = PopulatedTransaction::new(&wrong_tx, vec![utxo_entry.clone()]);
+        let wrong_tx = PopulatedTransaction::new(&wrong_tx, vec![cell_entry.clone()]);
         let mut vm = TxScriptEngine::from_transaction_input(
             &wrong_tx,
             &wrong_tx.tx.inputs[0],
             0,
-            &utxo_entry,
+            &cell_entry,
             &reused_values,
             &sig_cache,
             true,
@@ -422,8 +422,8 @@ fn threshold_scenario_limited_2_times() -> ScriptBuilderResult<()> {
     // Create a transaction output
     let output = TransactionOutput { value: 1000000000 + threshold as u64, script_public_key: p2sh_one_time };
 
-    // Create a UTXO entry for the input
-    let utxo_entry = UtxoEntry::new(input_value, spk, 0, false);
+    // Create a cell entry for the input
+    let cell_entry = CellEntry::new(input_value, spk, 0, false);
 
     // Create a transaction input
     let input = TransactionInput {
@@ -445,7 +445,7 @@ fn threshold_scenario_limited_2_times() -> ScriptBuilderResult<()> {
     // Check owner branch
     {
         println!("[TWO-TIMES] Checking owner branch");
-        let mut tx = MutableTransaction::with_entries(tx.clone(), vec![utxo_entry.clone()]);
+        let mut tx = MutableTransaction::with_entries(tx.clone(), vec![cell_entry.clone()]);
         let sig_hash = calc_schnorr_signature_hash(&tx.as_verifiable(), 0, SIG_HASH_ALL, &reused_values);
         let msg = secp256k1::Message::from_digest_slice(sig_hash.as_bytes().as_slice()).unwrap();
 
@@ -464,7 +464,7 @@ fn threshold_scenario_limited_2_times() -> ScriptBuilderResult<()> {
 
         let tx = tx.as_verifiable();
         let mut vm =
-            TxScriptEngine::from_transaction_input(&tx, &tx.inputs()[0], 0, &utxo_entry, &reused_values, &sig_cache, true, false);
+            TxScriptEngine::from_transaction_input(&tx, &tx.inputs()[0], 0, &cell_entry, &reused_values, &sig_cache, true, false);
         assert_eq!(vm.execute(), Ok(()));
         println!("[TWO-TIMES] Owner branch execution successful");
     }
@@ -473,9 +473,9 @@ fn threshold_scenario_limited_2_times() -> ScriptBuilderResult<()> {
     {
         println!("[TWO-TIMES] Checking borrower branch (first borrowing)");
         tx.inputs[0].signature_script = ScriptBuilder::new().add_op(OpFalse)?.add_data(&two_times_script)?.drain();
-        let tx = PopulatedTransaction::new(&tx, vec![utxo_entry.clone()]);
+        let tx = PopulatedTransaction::new(&tx, vec![cell_entry.clone()]);
         let mut vm =
-            TxScriptEngine::from_transaction_input(&tx, &tx.tx.inputs[0], 0, &utxo_entry, &reused_values, &sig_cache, true, false);
+            TxScriptEngine::from_transaction_input(&tx, &tx.tx.inputs[0], 0, &cell_entry, &reused_values, &sig_cache, true, false);
         assert_eq!(vm.execute(), Ok(()));
         println!("[TWO-TIMES] Borrower branch (first borrowing) execution successful");
     }
@@ -485,9 +485,9 @@ fn threshold_scenario_limited_2_times() -> ScriptBuilderResult<()> {
         println!("[TWO-TIMES] Checking borrower branch with threshold not reached");
         // Less than threshold
         tx.outputs[0].value -= 1;
-        let tx = PopulatedTransaction::new(&tx, vec![utxo_entry.clone()]);
+        let tx = PopulatedTransaction::new(&tx, vec![cell_entry.clone()]);
         let mut vm =
-            TxScriptEngine::from_transaction_input(&tx, &tx.tx.inputs[0], 0, &utxo_entry, &reused_values, &sig_cache, true, false);
+            TxScriptEngine::from_transaction_input(&tx, &tx.tx.inputs[0], 0, &cell_entry, &reused_values, &sig_cache, true, false);
         assert_eq!(vm.execute(), Err(EvalFalse));
         println!("[TWO-TIMES] Borrower branch with threshold not reached failed as expected");
     }
@@ -507,12 +507,12 @@ fn threshold_scenario_limited_2_times() -> ScriptBuilderResult<()> {
         wrong_tx.outputs[0].script_public_key = wrong_p2pk;
         wrong_tx.inputs[0].signature_script = ScriptBuilder::new().add_op(OpFalse)?.add_data(&two_times_script)?.drain();
 
-        let wrong_tx = PopulatedTransaction::new(&wrong_tx, vec![utxo_entry.clone()]);
+        let wrong_tx = PopulatedTransaction::new(&wrong_tx, vec![cell_entry.clone()]);
         let mut vm = TxScriptEngine::from_transaction_input(
             &wrong_tx,
             &wrong_tx.tx.inputs[0],
             0,
-            &utxo_entry,
+            &cell_entry,
             &reused_values,
             &sig_cache,
             true,
@@ -581,8 +581,8 @@ fn shared_secret_scenario() -> ScriptBuilderResult<()> {
     // Create a transaction output
     let output = TransactionOutput { value: input_value, script_public_key: spk.clone() };
 
-    // Create a UTXO entry for the input
-    let utxo_entry = UtxoEntry::new(input_value, spk, 0, false);
+    // Create a cell entry for the input
+    let cell_entry = CellEntry::new(input_value, spk, 0, false);
 
     // Create a transaction input
     let input = TransactionInput {
@@ -604,7 +604,7 @@ fn shared_secret_scenario() -> ScriptBuilderResult<()> {
         // Prepare to reuse values for signature hashing
         let reused_values = SigHashReusedValuesUnsync::new();
 
-        let tx = MutableTransaction::with_entries(tx.clone(), vec![utxo_entry.clone()]);
+        let tx = MutableTransaction::with_entries(tx.clone(), vec![cell_entry.clone()]);
         let sig_hash = calc_schnorr_signature_hash(&tx.as_verifiable(), 0, SIG_HASH_ALL, &reused_values);
         let msg = secp256k1::Message::from_digest_slice(sig_hash.as_bytes().as_slice()).unwrap();
 
@@ -629,7 +629,7 @@ fn shared_secret_scenario() -> ScriptBuilderResult<()> {
 
         let tx = tx.as_verifiable();
         let mut vm =
-            TxScriptEngine::from_transaction_input(&tx, &tx.inputs()[0], 0, &utxo_entry, &reused_values, &sig_cache, true, false);
+            TxScriptEngine::from_transaction_input(&tx, &tx.inputs()[0], 0, &cell_entry, &reused_values, &sig_cache, true, false);
         assert_eq!(vm.execute(), Ok(()));
         println!("[SHARED-SECRET] Owner branch execution successful");
     }
@@ -648,7 +648,7 @@ fn shared_secret_scenario() -> ScriptBuilderResult<()> {
 
         let tx = tx.as_verifiable();
         let mut vm =
-            TxScriptEngine::from_transaction_input(&tx, &tx.inputs()[0], 0, &utxo_entry, &reused_values, &sig_cache, true, false);
+            TxScriptEngine::from_transaction_input(&tx, &tx.inputs()[0], 0, &cell_entry, &reused_values, &sig_cache, true, false);
         assert_eq!(vm.execute(), Ok(()));
         println!("[SHARED-SECRET] Borrower branch with correct shared secret execution successful");
     }
@@ -667,7 +667,7 @@ fn shared_secret_scenario() -> ScriptBuilderResult<()> {
 
         let tx = tx.as_verifiable();
         let mut vm =
-            TxScriptEngine::from_transaction_input(&tx, &tx.inputs()[0], 0, &utxo_entry, &reused_values, &sig_cache, true, false);
+            TxScriptEngine::from_transaction_input(&tx, &tx.inputs()[0], 0, &cell_entry, &reused_values, &sig_cache, true, false);
         assert_eq!(vm.execute(), Err(VerifyError));
         println!("[SHARED-SECRET] Borrower branch with incorrect secret failed as expected");
     }
@@ -701,22 +701,22 @@ mod tests {
         )
         .unwrap();
 
-        let datetime = NaiveDateTime::parse_from_str("2025-09-01 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap();
+        let datetime = NaiveDateTime::parse_from_str("2026-09-01 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap();
         let lock_time = datetime.and_utc().timestamp_millis() as u64;
         assert_eq!(lock_time, 1756684800000);
 
         let amount = 1_0000_0000;
 
-        // UTXO
-        let utxo_spk = pay_to_address_with_lock_time_script(&addr, lock_time).unwrap();
-        let utxo_tx_id = TransactionId::from_str("880eb9819a31821d9d2399e2f35e2433b72637e393d71ecc9b8d0250f49153c3").unwrap();
-        let utxo_entry = UtxoEntry::new(amount, utxo_spk, 0, false);
+        // Cell entry
+        let cell_spk = pay_to_address_with_lock_time_script(&addr, lock_time).unwrap();
+        let cell_tx_id = TransactionId::from_str("880eb9819a31821d9d2399e2f35e2433b72637e393d71ecc9b8d0250f49153c3").unwrap();
+        let cell_entry = CellEntry::new(amount, cell_spk, 0, false);
 
         // Transaction
         let raw_tx = Transaction::new(
             0,
             vec![TransactionInput {
-                previous_outpoint: TransactionOutpoint { transaction_id: utxo_tx_id, index: 0 },
+                previous_outpoint: TransactionOutpoint { transaction_id: cell_tx_id, index: 0 },
                 signature_script: vec![],
                 sequence: 0,
                 sig_op_count: 0,
@@ -730,7 +730,7 @@ mod tests {
 
         // Sign
         let reused_values = SigHashReusedValuesUnsync::new();
-        let mut mutable_tx = MutableTransaction::with_entries(raw_tx, vec![utxo_entry.clone()]);
+        let mut mutable_tx = MutableTransaction::with_entries(raw_tx, vec![cell_entry.clone()]);
         let hash_type = SIG_HASH_ALL;
         let sig_hash = calc_schnorr_signature_hash(&mutable_tx.as_verifiable(), 0, hash_type, &reused_values);
         let msg = Message::from_digest_slice(sig_hash.as_bytes().as_slice()).unwrap();
@@ -745,7 +745,7 @@ mod tests {
         let sig_cache = Cache::new(10_000);
         let tx = mutable_tx.as_verifiable();
         let mut vm =
-            TxScriptEngine::from_transaction_input(&tx, &tx.inputs()[0], 0, &utxo_entry, &reused_values, &sig_cache, true, false);
+            TxScriptEngine::from_transaction_input(&tx, &tx.inputs()[0], 0, &cell_entry, &reused_values, &sig_cache, true, false);
         let ret = vm.execute();
         println!("{ret:?}");
     }
@@ -806,7 +806,7 @@ mod tests {
         // Create address for output
         let addr = Address::constructor(ADDRESS);
 
-        let datetime = NaiveDateTime::parse_from_str("2025-09-01 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap();
+        let datetime = NaiveDateTime::parse_from_str("2026-09-01 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap();
         let lock_time = datetime.and_utc().timestamp() as u64;
         assert_eq!(lock_time, 1756684800);
 

@@ -4,29 +4,32 @@
 //!
 
 #![allow(unused_imports)]
+use crate::cell::{CellContext, CellEntryId, CellEntryReference};
 use crate::imports::*;
 use crate::result::Result;
 use crate::rpc::DynRpcApi;
 use crate::tx::{DataKind, Generator, MAXIMUM_STANDARD_TRANSACTION_MASS};
-use crate::utxo::{UtxoContext, UtxoEntryId, UtxoEntryReference};
 use secp256k1::Message;
 use spora_consensus_core::hashing::sighash::{calc_schnorr_signature_hash, SigHashReusedValuesUnsync};
 use spora_consensus_core::hashing::sighash_type::{SigHashType, SIG_HASH_ALL};
 use spora_consensus_core::sign::{sign_input, sign_with_multiple_v2, Signed};
-use spora_consensus_core::tx::{SignableTransaction, Transaction, TransactionId, TransactionInput, TransactionOutput};
+use spora_consensus_core::tx::{
+    cell_tx_from_legacy_transaction, legacy_compat_transaction_from_cell_tx, CellTx, SignableTransaction, Transaction, TransactionId,
+    TransactionInput, TransactionOutput,
+};
 use spora_rpc_core::{RpcTransaction, RpcTransactionId};
 use spora_txscript::{pay_to_pub_key_with_lock_time, pay_to_script_hash_signature_script};
 
 pub(crate) struct PendingTransactionInner {
     /// Generator that produced the transaction
     pub(crate) generator: Generator,
-    /// UtxoEntryReferences of the pending transaction
-    pub(crate) utxo_entries: AHashMap<UtxoEntryId, UtxoEntryReference>,
+    /// CellEntryReferences of the pending transaction
+    pub(crate) cell_entries: AHashMap<CellEntryId, CellEntryReference>,
     /// Transaction Id (cached in pending to avoid mutex lock)
     pub(crate) id: TransactionId,
     /// Signable transaction (actual transaction that will be signed and sent)
     pub(crate) signable_tx: Mutex<SignableTransaction>,
-    /// UTXO addresses used by this transaction
+    /// Cell addresses used by this transaction
     pub(crate) addresses: Vec<Address>,
     /// Whether the transaction has been committed to the mempool via RPC
     pub(crate) is_submitted: AtomicBool,
@@ -56,7 +59,7 @@ impl std::fmt::Debug for PendingTransaction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let transaction = self.transaction();
         f.debug_struct("PendingTransaction")
-            .field("utxo_entries", &self.inner.utxo_entries)
+            .field("cell_entries", &self.inner.cell_entries)
             .field("addresses", &self.inner.addresses)
             .field("payment_value", &self.inner.payment_value)
             .field("change_output_index", &self.inner.change_output_index)
@@ -83,8 +86,8 @@ impl PendingTransaction {
     #[allow(clippy::too_many_arguments)]
     pub fn try_new(
         generator: &Generator,
-        transaction: Transaction,
-        utxo_entries: Vec<UtxoEntryReference>,
+        transaction: CellTx,
+        cell_entries: Vec<CellEntryReference>,
         addresses: Vec<Address>,
         payment_value: Option<u64>,
         change_output_index: Option<usize>,
@@ -96,16 +99,16 @@ impl PendingTransaction {
         fees: u64,
         kind: DataKind,
     ) -> Result<Self> {
-        let id = transaction.id();
-        let entries = utxo_entries.iter().map(|e| e.utxo.as_ref().into()).collect::<Vec<_>>();
+        let id = TransactionId::from_bytes(transaction.id());
+        let entries = cell_entries.iter().map(|e| e.cell.as_ref().into()).collect::<Vec<_>>();
         let signable_tx = Mutex::new(SignableTransaction::with_entries(transaction, entries));
-        let utxo_entries = utxo_entries.into_iter().map(|entry| (entry.id(), entry)).collect::<AHashMap<_, _>>();
+        let cell_entries = cell_entries.into_iter().map(|entry| (entry.id(), entry)).collect::<AHashMap<_, _>>();
         Ok(Self {
             inner: Arc::new(PendingTransactionInner {
                 generator: generator.clone(),
                 id,
                 signable_tx,
-                utxo_entries,
+                cell_entries,
                 addresses,
                 is_submitted: AtomicBool::new(false),
                 payment_value,
@@ -129,12 +132,12 @@ impl PendingTransaction {
         &self.inner.generator
     }
 
-    pub fn source_utxo_context(&self) -> &Option<UtxoContext> {
-        self.inner.generator.source_utxo_context()
+    pub fn source_cell_context(&self) -> &Option<CellContext> {
+        self.inner.generator.source_cell_context()
     }
 
-    pub fn destination_utxo_context(&self) -> &Option<UtxoContext> {
-        self.inner.generator.destination_utxo_context()
+    pub fn destination_cell_context(&self) -> &Option<CellContext> {
+        self.inner.generator.destination_cell_context()
     }
 
     /// Addresses used by the pending transaction
@@ -142,9 +145,9 @@ impl PendingTransaction {
         &self.inner.addresses
     }
 
-    /// Get UTXO entries [`AHashSet<UtxoEntryReference>`] of the pending transaction
-    pub fn utxo_entries(&self) -> &AHashMap<UtxoEntryId, UtxoEntryReference> {
-        &self.inner.utxo_entries
+    /// Get cell entries of the pending transaction.
+    pub fn cell_entries(&self) -> &AHashMap<CellEntryId, CellEntryReference> {
+        &self.inner.cell_entries
     }
 
     pub fn fees(&self) -> u64 {
@@ -191,7 +194,7 @@ impl PendingTransaction {
         self.inner.generator.network_type()
     }
 
-    pub fn transaction(&self) -> Transaction {
+    pub fn transaction(&self) -> CellTx {
         self.inner.signable_tx.lock().unwrap().tx.clone()
     }
 
@@ -213,29 +216,29 @@ impl PendingTransaction {
 
         let rpc_transaction: RpcTransaction = self.rpc_transaction();
 
-        // if we are running under UtxoProcessor
-        if let Some(utxo_context) = self.inner.generator.source_utxo_context() {
-            // lock UtxoProcessor notification ingest
-            let _lock = utxo_context.processor().notification_lock().await;
+        // if we are running under CellProcessor
+        if let Some(cell_context) = self.inner.generator.source_cell_context() {
+            // lock CellProcessor notification ingest
+            let _lock = cell_context.processor().notification_lock().await;
 
-            // register pending UTXOs with UtxoProcessor
-            utxo_context.register_outgoing_transaction(self).await?;
+            // register pending cells with CellProcessor
+            cell_context.register_outgoing_transaction(self).await?;
 
             // try to submit transaction
             match rpc.submit_transaction(rpc_transaction, false).await {
                 Ok(id) => {
                     // on successful submit, create a notification
-                    utxo_context.notify_outgoing_transaction(self).await?;
+                    cell_context.notify_outgoing_transaction(self).await?;
                     Ok(id)
                 }
                 Err(error) => {
-                    // in case of failure, remove transaction UTXOs from the consumed list
-                    utxo_context.cancel_outgoing_transaction(self).await?;
+                    // in case of failure, remove transaction cells from the consumed list
+                    cell_context.cancel_outgoing_transaction(self).await?;
                     Err(error.into())
                 }
             }
         } else {
-            // No UtxoProcessor present (API etc)
+            // No CellProcessor present (API etc)
             Ok(rpc.submit_transaction(rpc_transaction, false).await?)
         }
     }
@@ -261,7 +264,10 @@ impl PendingTransaction {
 
     pub fn fill_input(&self, input_index: usize, signature_script: Vec<u8>) -> Result<()> {
         let mut mutable_tx = self.inner.signable_tx.lock()?.clone();
-        mutable_tx.tx.inputs[input_index].signature_script = signature_script;
+        while mutable_tx.tx.witnesses.len() < mutable_tx.tx.inputs.len() {
+            mutable_tx.tx.witnesses.push(vec![]);
+        }
+        mutable_tx.tx.witnesses[input_index] = signature_script;
         *self.inner.signable_tx.lock().unwrap() = mutable_tx;
 
         Ok(())
@@ -275,7 +281,10 @@ impl PendingTransaction {
             sign_input(verifiable_tx, input_index, private_key, hash_type)
         };
 
-        mutable_tx.tx.inputs[input_index].signature_script = signature_script;
+        while mutable_tx.tx.witnesses.len() < mutable_tx.tx.inputs.len() {
+            mutable_tx.tx.witnesses.push(vec![]);
+        }
+        mutable_tx.tx.witnesses[input_index] = signature_script;
         *self.inner.signable_tx.lock().unwrap() = mutable_tx;
 
         Ok(())
@@ -302,7 +311,6 @@ impl PendingTransaction {
 
     pub fn try_sign_with_lock_time(&self, privkey: &[u8; 32], lock_time: u64) -> Result<()> {
         let mut mutable_tx = self.inner.signable_tx.lock()?;
-        mutable_tx.tx.lock_time = lock_time + 1;
 
         let reused_values = SigHashReusedValuesUnsync::new();
         let keypair = secp256k1::Keypair::from_seckey_slice(secp256k1::SECP256K1, privkey)?;
@@ -315,7 +323,10 @@ impl PendingTransaction {
             let sig = keypair.sign_schnorr(msg).as_ref().to_vec();
             let signature = std::iter::once(65u8).chain(sig).chain([SIG_HASH_ALL.to_u8()]).collect();
             let signature_script = pay_to_script_hash_signature_script(&redeem_script, signature)?;
-            mutable_tx.tx.inputs[i].signature_script = signature_script;
+            while mutable_tx.tx.witnesses.len() < mutable_tx.tx.inputs.len() {
+                mutable_tx.tx.witnesses.push(vec![]);
+            }
+            mutable_tx.tx.witnesses[i] = signature_script;
         }
         Ok(())
     }
@@ -331,7 +342,7 @@ pub fn increase_fees_for_rbf(&self, additional_fees: u64) -> Result<PendingTrans
 
     let PendingTransactionInner {
         generator,
-        utxo_entries,
+        cell_entries,
         id,
         signable_tx,
         addresses,
@@ -348,7 +359,7 @@ pub fn increase_fees_for_rbf(&self, additional_fees: u64) -> Result<PendingTrans
     } = &*self.inner;
 
     let generator = generator.clone();
-    let utxo_entries = utxo_entries.clone();
+    let cell_entries = cell_entries.clone();
     let id = *id;
     // let signable_tx = Mutex::new(signable_tx.lock()?.clone());
     let mut signable_tx = signable_tx.lock()?.clone();
@@ -380,26 +391,18 @@ pub fn increase_fees_for_rbf(&self, additional_fees: u64) -> Result<PendingTrans
                     signable_tx.tx.outputs[index].value = change_output_value;
                 }
             } else {
-                // we need more utxos...
-                let mut utxo_entries_rbf = vec![];
+                // we need more cells...
+                let mut cell_entries_rbf = vec![];
                 let mut available = change_output_value;
 
-                let utxo_context = generator.source_utxo_context().as_ref().ok_or(Error::custom("No utxo context"))?;
-                let mut context_utxo_entries = UtxoIterator::new(utxo_context);
+                let cell_context = generator.source_cell_context().as_ref().ok_or(Error::custom("No cell context"))?;
+                let mut context_cell_entries = CellIterator::new(cell_context);
                 while available < additional_fees {
-                    // let utxo_entry = utxo_entries.next().ok_or(Error::InsufficientFunds { additional_needed: additional_fees - available, origin: "increase_fees_for_rbf" })?;
-                    // let utxo_entry = generator.get_utxo_entry_for_rbf()?;
-                    if let Some(utxo_entry) = context_utxo_entries.next() {
-                        // let utxo = utxo_entry.utxo.as_ref();
-                        let value = utxo_entry.amount();
+                    if let Some(cell_entry) = context_cell_entries.next() {
+                        let value = cell_entry.amount();
                         available += value;
-                        // aggregate_input_value += value;
-
-                        utxo_entries_rbf.push(utxo_entry);
-                        // signable_tx.lock().unwrap().tx.inputs.push(utxo.as_input());
+                        cell_entries_rbf.push(cell_entry);
                     } else {
-                        // generator.stash(utxo_entries_rbf);
-                        // utxo_entries_rbf.into_iter().for_each(|utxo_entry|generator.stash(utxo_entry));
                         return Err(Error::InsufficientFunds {
                             additional_needed: additional_fees - available,
                             origin: "increase_fees_for_rbf",
@@ -407,21 +410,21 @@ pub fn increase_fees_for_rbf(&self, additional_fees: u64) -> Result<PendingTrans
                     }
                 }
 
-                let utxo_entries_vec = utxo_entries
+                let cell_entries_vec = cell_entries
                     .iter()
-                    .map(|(_, utxo_entry)| utxo_entry.as_ref().clone())
-                    .chain(utxo_entries_rbf.iter().map(|utxo_entry| utxo_entry.as_ref().clone()))
+                    .map(|(_, cell_entry)| cell_entry.as_ref().clone())
+                    .chain(cell_entries_rbf.iter().map(|cell_entry| cell_entry.as_ref().clone()))
                     .collect::<Vec<_>>();
 
-                let inputs = utxo_entries_rbf
+                let inputs = cell_entries_rbf
                     .into_iter()
-                    .map(|utxo| TransactionInput::new(utxo.outpoint().clone().into(), vec![], 0, generator.sig_op_count()));
+                    .map(|cell| TransactionInput::new(cell.outpoint().clone().into(), vec![], 0, generator.sig_op_count()));
 
                 signable_tx.tx.inputs.extend(inputs);
 
                 // let transaction_mass = generator.mass_calculator().calc_overall_mass_for_unsigned_consensus_transaction(
                 //     &signable_tx.tx,
-                //     &utxo_entries_vec,
+                //     &cell_entries_vec,
                 //     self.inner.minimum_signatures,
                 // )?;
                 // if transaction_mass > MAXIMUM_STANDARD_TRANSACTION_MASS {
@@ -429,8 +432,6 @@ pub fn increase_fees_for_rbf(&self, additional_fees: u64) -> Result<PendingTrans
                 //     return Err(Error::MassCalculationError);
                 // }
                 // signable_tx.tx.set_mass(transaction_mass);
-
-                // utxo
 
                 // let input = ;
             }
@@ -440,7 +441,7 @@ pub fn increase_fees_for_rbf(&self, additional_fees: u64) -> Result<PendingTrans
 
     let inner = PendingTransactionInner {
         generator,
-        utxo_entries,
+        cell_entries,
         id,
         signable_tx: Mutex::new(signable_tx),
         addresses,

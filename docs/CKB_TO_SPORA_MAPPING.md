@@ -315,7 +315,7 @@ cp ckb/script/src/syscalls/spawn.rs exec/src/vm/syscalls/spawn.rs  # ⏳ 待实�
 - ✅ Cell State Tree (Merkle tree)
 - ✅ CellDiff (状态差异)
 - ✅ cell_commitment + cell_root
-- ✅ VirtualState (UTXO完全移除)
+- ✅ VirtualState（legacy transaction-output 语义已移除）
 
 **共识集成**: 100%
 - ✅ CellProcessingContext
@@ -323,9 +323,9 @@ cp ckb/script/src/syscalls/spawn.rs exec/src/vm/syscalls/spawn.rs  # ⏳ 待实�
 - ✅ commit_cell_state
 - ✅ Cell stores创建
 
-**UTXO清理**: 100%
-- ❌ utxo_validation.rs - 已删除
-- ❌ utxo_inquirer.rs - 已删除
+**Legacy terminology cleanup**: 100%
+- ❌ legacy_txout_validation.rs - 已删除
+- ❌ legacy_txout_inquirer.rs - 已删除
 - ❌ MuHash/multiset - 已清理
 
 ### ⏳ 待实现（可选）
@@ -339,4 +339,3 @@ cp ckb/script/src/syscalls/spawn.rs exec/src/vm/syscalls/spawn.rs  # ⏳ 待实�
 **最后更新**: 2025-10-22  
 **实施状态**: ✅ 核心100%完成，生产就绪  
 **维护者**: SPORA Team
-

@@ -5,6 +5,7 @@
 pub use crate::account::descriptor::AccountDescriptor;
 pub use crate::account::{Account, AccountKind};
 pub use crate::api::*;
+pub use crate::cell::balance::{Balance, BalanceStrings};
 pub use crate::deterministic::{AccountId, AccountStorageKey};
 pub use crate::encryption::EncryptionKind;
 pub use crate::events::{Events, SyncState};
@@ -17,7 +18,6 @@ pub use crate::utils::{
     sau_to_spora, sau_to_spora_string, sau_to_spora_string_with_suffix, spora_suffix, spora_to_sau, try_spora_str_to_sau,
     try_spora_str_to_sau_i64,
 };
-pub use crate::utxo::balance::{Balance, BalanceStrings};
 pub use crate::wallet::args::*;
 pub use crate::wallet::Wallet;
 pub use async_std::sync::{Mutex as AsyncMutex, MutexGuard as AsyncMutexGuard};

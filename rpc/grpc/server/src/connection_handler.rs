@@ -19,7 +19,7 @@ use spora_notify::{
     listener::ListenerLifespan,
     notifier::Notifier,
     subscriber::Subscriber,
-    subscription::{context::SubscriptionContext, MutationPolicies, UtxosChangedMutationPolicy},
+    subscription::{context::SubscriptionContext, CellsChangedMutationPolicy, MutationPolicies},
 };
 use spora_rpc_core::{
     api::rpc::DynRpcService,
@@ -90,8 +90,8 @@ impl ConnectionHandler {
         broadcasters: usize,
         counters: Arc<TowerConnectionCounters>,
     ) -> Self {
-        // This notifier UTXOs subscription granularity to rpc-core notifier
-        let policies = MutationPolicies::new(UtxosChangedMutationPolicy::AddressSet);
+        // This notifier forwards cell-subscription granularity to the rpc-core notifier
+        let policies = MutationPolicies::new(CellsChangedMutationPolicy::AddressSet);
 
         // Prepare core objects
         let core_channel = NotificationChannel::default();

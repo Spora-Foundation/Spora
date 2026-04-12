@@ -4,9 +4,8 @@ use spora_consensus_core::{
     block::Block,
     blockstatus::BlockStatus,
     config::Config,
-    hashing::tx::hash,
     header::Header,
-    tx::{CellTx, MutableTransaction, Transaction, TransactionId, TransactionInput, TransactionOutput},
+    tx::{CellRef, CellTx, MutableTransaction, TransactionId, TransactionOutpoint},
     ChainPath,
 };
 use spora_consensus_notify::notification::{self as consensus_notify, Notification as ConsensusNotification};
@@ -17,9 +16,8 @@ use spora_notify::converter::Converter;
 use spora_rpc_core::{
     BlockAddedNotification, Notification, RpcAcceptedTransactionIds, RpcBlock, RpcBlockStatus, RpcBlockVerboseData, RpcHash,
     RpcMempoolEntry, RpcMempoolEntryByAddress, RpcResult, RpcTransaction, RpcTransactionInput, RpcTransactionOutput,
-    RpcTransactionOutputVerboseData, RpcTransactionVerboseData,
+    RpcTransactionVerboseData,
 };
-use spora_txscript::{extract_script_pub_key_address, script_class::ScriptClass};
 use std::{collections::HashMap, fmt::Debug, sync::Arc};
 
 /// Conversion of consensus_core to rpc_core structures
@@ -42,6 +40,62 @@ impl ConsensusConverter {
         // with the compact form which loses precision.
         let target = Uint256::from_compact_target_bits(bits);
         self.config.max_difficulty_target_f64 / target.as_f64()
+    }
+
+    fn get_cell_transaction_input(&self, input: &CellRef, witness: Vec<u8>) -> RpcTransactionInput {
+        let out_point = TransactionOutpoint::new(input.out_point.tx_hash, input.out_point.index);
+        RpcTransactionInput::from_cell_ref(&CellRef::new(out_point, input.since), witness)
+    }
+
+    fn rpc_subnetwork_id(&self, is_coinbase: bool) -> spora_rpc_core::RpcSubnetworkId {
+        if is_coinbase {
+            spora_rpc_core::RpcSubnetworkId::coinbase()
+        } else {
+            spora_rpc_core::RpcSubnetworkId::native()
+        }
+    }
+
+    pub fn get_cell_transaction(
+        &self,
+        _consensus: &ConsensusProxy,
+        transaction: &CellTx,
+        header: Option<&Header>,
+        include_verbose_data: bool,
+    ) -> RpcTransaction {
+        let txid: TransactionId = transaction.id().into();
+        RpcTransaction {
+            version: transaction.ver,
+            inputs: transaction
+                .inputs
+                .iter()
+                .enumerate()
+                .map(|(index, input)| {
+                    let witness = transaction.witnesses.get(index).cloned().unwrap_or_default();
+                    self.get_cell_transaction_input(input, witness)
+                })
+                .collect(),
+            outputs: transaction
+                .outputs
+                .iter()
+                .enumerate()
+                .map(|(index, output)| {
+                    let output_data = transaction.outputs_data.get(index).map(Vec::as_slice).unwrap_or(&[]);
+                    RpcTransactionOutput::from_cell_output(output, output_data)
+                })
+                .collect(),
+            lock_time: 0,
+            subnetwork_id: self.rpc_subnetwork_id(transaction.is_coinbase()),
+            gas: 0,
+            payload: transaction.payload().map(ToOwned::to_owned).unwrap_or_default(),
+            mass: transaction.storage_mass(),
+            verbose_data: include_verbose_data.then(|| RpcTransactionVerboseData {
+                transaction_id: txid,
+                hash: txid,
+                compute_mass: transaction.compute_mass(),
+                block_hash: header.map_or_else(RpcHash::default, |x| x.hash),
+                block_time: header.map_or(0, |x| x.timestamp),
+            }),
+        }
     }
 
     /// Converts a consensus [`Block`] into an [`RpcBlock`], optionally including transaction verbose data.
@@ -73,16 +127,11 @@ impl ConsensusConverter {
         });
 
         let transactions = if include_transactions {
-            // TODO(cell-model): Implement proper CellTx to RpcTransaction conversion
-            // Temporary stub: return empty transactions during migration
-            vec![]
-            /* Original UTXO-based code:
             block
                 .transactions
                 .iter()
-                .map(|x| self.get_transaction(consensus, x, Some(&block.header), include_transaction_verbose_data))
+                .map(|x| self.get_cell_transaction(consensus, x, Some(&block.header), include_transaction_verbose_data))
                 .collect::<Vec<_>>()
-            */
         } else {
             vec![]
         };
@@ -96,7 +145,7 @@ impl ConsensusConverter {
 
     pub fn get_mempool_entry(&self, consensus: &ConsensusProxy, transaction: &MutableTransaction) -> RpcMempoolEntry {
         let is_orphan = !transaction.is_fully_populated();
-        let rpc_transaction = self.get_transaction(consensus, &transaction.tx, None, true);
+        let rpc_transaction = self.get_cell_transaction(consensus, transaction.tx.as_ref(), None, true);
         RpcMempoolEntry::new(transaction.calculated_fee.unwrap_or_default(), rpc_transaction, is_orphan)
     }
 
@@ -119,53 +168,6 @@ impl ConsensusConverter {
         transactions: &HashMap<TransactionId, MutableTransaction>,
     ) -> Vec<RpcMempoolEntry> {
         transaction_ids.iter().map(|x| self.get_mempool_entry(consensus, transactions.get(x).expect("transaction exists"))).collect()
-    }
-
-    /// Converts a consensus [`Transaction`] into an [`RpcTransaction`], optionally including verbose data.
-    ///
-    /// _GO-Sporad: PopulateTransactionWithVerboseData
-    pub fn get_transaction(
-        &self,
-        consensus: &ConsensusProxy,
-        transaction: &Transaction,
-        header: Option<&Header>,
-        include_verbose_data: bool,
-    ) -> RpcTransaction {
-        if include_verbose_data {
-            let verbose_data = Some(RpcTransactionVerboseData {
-                transaction_id: transaction.id(),
-                hash: hash(transaction, false),
-                compute_mass: consensus.calculate_transaction_non_contextual_masses(transaction).compute_mass,
-                // TODO: make block_hash an option
-                block_hash: header.map_or_else(RpcHash::default, |x| x.hash),
-                block_time: header.map_or(0, |x| x.timestamp),
-            });
-            RpcTransaction {
-                version: transaction.version,
-                inputs: transaction.inputs.iter().map(|x| self.get_transaction_input(x)).collect(),
-                outputs: transaction.outputs.iter().map(|x| self.get_transaction_output(x)).collect(),
-                lock_time: transaction.lock_time,
-                subnetwork_id: transaction.subnetwork_id.clone(),
-                gas: transaction.gas,
-                payload: transaction.payload.clone(),
-                mass: transaction.mass(),
-                verbose_data,
-            }
-        } else {
-            transaction.into()
-        }
-    }
-
-    fn get_transaction_input(&self, input: &TransactionInput) -> RpcTransactionInput {
-        input.into()
-    }
-
-    fn get_transaction_output(&self, output: &TransactionOutput) -> RpcTransactionOutput {
-        let script_public_key_type = ScriptClass::from(&output.script_public_key);
-        let address = extract_script_pub_key_address(&output.script_public_key, self.config.prefix()).ok();
-        let verbose_data =
-            address.map(|address| RpcTransactionOutputVerboseData { script_public_key_type, script_public_key_address: address });
-        RpcTransactionOutput { value: output.value, script_public_key: output.script_public_key.clone(), verbose_data }
     }
 
     pub async fn get_virtual_chain_accepted_transaction_ids(

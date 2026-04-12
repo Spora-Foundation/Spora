@@ -18,8 +18,8 @@ pub enum DatabaseStorePrefixes {
     Headers = 8,
     HeadersCompact = 9,
     PastPruningPoints = 10,
-    PruningUtxoset = 11,
-    PruningUtxosetPosition = 12,
+    PruningCellset = 11,
+    PruningCellsetPosition = 12,
     PruningPoint = 13,
     RetentionCheckpoint = 14,
     Reachability = 15,
@@ -32,9 +32,9 @@ pub enum DatabaseStorePrefixes {
     ChainHighestIndex = 22,
     Statuses = 23,
     Tips = 24,
-    UtxoDiffs = 25,      // Deprecated - use CellDiffs
-    UtxoMultisets = 26,  // Deprecated - use CellRoots
-    VirtualUtxoset = 27, // Deprecated
+    CellDiffsLegacy = 25,      // Deprecated - use CellDiffs
+    CellRootsLegacy = 26,      // Deprecated - use CellRoots
+    VirtualCellsetLegacy = 27, // Deprecated
     VirtualState = 28,
     PruningSamples = 29,
 
@@ -58,8 +58,8 @@ pub enum DatabaseStorePrefixes {
     BannedAddresses = 129,
 
     // ---- Indexes ----
-    UtxoIndex = 192,
-    UtxoIndexTips = 193,
+    CellIndex = 192,
+    CellIndexTips = 193,
     CirculatingSupply = 194,
     TransactionIndex = 195,
     CellDiffs = 196, // Cell state diffs

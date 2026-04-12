@@ -1,7 +1,5 @@
 use futures_util::future::try_join_all;
 use rand_distr::{Distribution, Poisson};
-use std::cmp::min;
-use tokio::join;
 use spora_alloc::init_allocator_with_default_settings;
 use spora_consensus::{
     config::ConfigBuilder, consensus::test_consensus::TestConsensus, params::MAINNET_PARAMS,
@@ -10,6 +8,8 @@ use spora_consensus::{
 use spora_consensus_core::{api::ConsensusApi, blockhash};
 use spora_database::prelude::CachePolicy;
 use spora_hashes::Hash;
+use std::cmp::min;
+use tokio::join;
 
 #[tokio::test]
 async fn test_concurrent_pipeline() {
@@ -94,7 +94,7 @@ async fn test_concurrent_pipeline_random() {
     let mut tips = vec![genesis];
     let mut total = 1000i64;
     while total > 0 {
-        let v = min(config.prior_max_block_parents as i64, poi.sample(&mut thread_rng) as i64);
+        let v = min(config.max_block_parents as i64, poi.sample(&mut thread_rng) as i64);
         if v == 0 {
             continue;
         }

@@ -1,8 +1,8 @@
 //! Conversion of Notification Scope related types
 
 use crate::{
-    NotifyBlockAddedRequest, NotifyFinalityConflictRequest, NotifyNewBlockTemplateRequest, NotifyPruningPointUtxoSetOverrideRequest,
-    NotifySinkBlueScoreChangedRequest, NotifyUtxosChangedRequest, NotifyVirtualChainChangedRequest,
+    NotifyBlockAddedRequest, NotifyCellsChangedRequest, NotifyFinalityConflictRequest, NotifyNewBlockTemplateRequest,
+    NotifyPruningPointCellSetOverrideRequest, NotifySinkBlueScoreChangedRequest, NotifyVirtualChainChangedRequest,
     NotifyVirtualDaaScoreChangedRequest,
 };
 use spora_notify::scope::*;
@@ -55,10 +55,10 @@ impl From<&NotifyFinalityConflictRequest> for FinalityConflictResolvedScope {
         Self::default()
     }
 }
-from!(item: UtxosChanged, {
+from!(item: CellsChanged, {
     Self::new(item.addresses.clone())
 });
 from!(SinkBlueScoreChanged);
 from!(VirtualDaaScoreChanged);
-from!(PruningPointUtxoSetOverride);
+from!(PruningPointCellSetOverride);
 from!(NewBlockTemplate);

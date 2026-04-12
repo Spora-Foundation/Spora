@@ -47,8 +47,8 @@ pub mod sporad_request_convert {
     impl_into_sporad_request!(ResolveFinalityConflict);
     impl_into_sporad_request!(GetHeader);
     impl_into_sporad_request!(GetHeaders);
-    impl_into_sporad_request!(GetUtxosByAddress);
-    impl_into_sporad_request!(GetUtxosByAddresses);
+    impl_into_sporad_request!(GetCellsByAddress);
+    impl_into_sporad_request!(GetCellsByAddresses);
     impl_into_sporad_request!(GetBalanceByAddress);
     impl_into_sporad_request!(GetBalancesByAddresses);
     impl_into_sporad_request!(GetSinkBlueScore);
@@ -67,12 +67,16 @@ pub mod sporad_request_convert {
     impl_into_sporad_request!(GetFeeEstimate);
     impl_into_sporad_request!(GetFeeEstimateExperimental);
     impl_into_sporad_request!(GetCurrentBlockColor);
-    impl_into_sporad_request!(GetUtxoReturnAddress);
+    impl_into_sporad_request!(GetCellReturnAddress);
 
     impl_into_sporad_request!(NotifyBlockAdded);
     impl_into_sporad_request!(NotifyNewBlockTemplate);
-    impl_into_sporad_request!(NotifyUtxosChanged);
-    impl_into_sporad_request!(NotifyPruningPointUtxoSetOverride);
+    impl_into_sporad_request_ex!(
+        spora_rpc_core::NotifyCellsChangedRequest,
+        NotifyCellsChangedRequestMessage,
+        NotifyCellsChangedRequest
+    );
+    impl_into_sporad_request!(NotifyPruningPointCellSetOverride);
     impl_into_sporad_request!(NotifyFinalityConflict);
     impl_into_sporad_request!(NotifyVirtualDaaScoreChanged);
     impl_into_sporad_request!(NotifyVirtualChainChanged);
@@ -189,8 +193,8 @@ pub mod sporad_response_convert {
     impl_into_sporad_response!(ResolveFinalityConflict);
     impl_into_sporad_response!(GetHeader);
     impl_into_sporad_response!(GetHeaders);
-    impl_into_sporad_response!(GetUtxosByAddress);
-    impl_into_sporad_response!(GetUtxosByAddresses);
+    impl_into_sporad_response!(GetCellsByAddress);
+    impl_into_sporad_response!(GetCellsByAddresses);
     impl_into_sporad_response!(GetBalanceByAddress);
     impl_into_sporad_response!(GetBalancesByAddresses);
     impl_into_sporad_response!(GetSinkBlueScore);
@@ -209,19 +213,19 @@ pub mod sporad_response_convert {
     impl_into_sporad_response!(GetFeeEstimate);
     impl_into_sporad_response!(GetFeeEstimateExperimental);
     impl_into_sporad_response!(GetCurrentBlockColor);
-    impl_into_sporad_response!(GetUtxoReturnAddress);
+    impl_into_sporad_response!(GetCellReturnAddress);
 
     impl_into_sporad_notify_response!(NotifyBlockAdded);
     impl_into_sporad_notify_response!(NotifyNewBlockTemplate);
-    impl_into_sporad_notify_response!(NotifyUtxosChanged);
-    impl_into_sporad_notify_response!(NotifyPruningPointUtxoSetOverride);
+    impl_into_sporad_notify_response!(NotifyCellsChanged);
+    impl_into_sporad_notify_response!(NotifyPruningPointCellSetOverride);
     impl_into_sporad_notify_response!(NotifyFinalityConflict);
     impl_into_sporad_notify_response!(NotifyVirtualDaaScoreChanged);
     impl_into_sporad_notify_response!(NotifyVirtualChainChanged);
     impl_into_sporad_notify_response!(NotifySinkBlueScoreChanged);
 
-    impl_into_sporad_notify_response!(NotifyUtxosChanged, StopNotifyingUtxosChanged);
-    impl_into_sporad_notify_response!(NotifyPruningPointUtxoSetOverride, StopNotifyingPruningPointUtxoSetOverride);
+    impl_into_sporad_notify_response!(NotifyCellsChanged, StopNotifyingCellsChanged);
+    impl_into_sporad_notify_response!(NotifyPruningPointCellSetOverride, StopNotifyingPruningPointCellSetOverride);
 
     macro_rules! impl_into_sporad_response {
         ($name:tt) => {

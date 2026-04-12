@@ -39,18 +39,18 @@ const { encoding, networkId } = require("../utils").parseArgs();
         return;
     }
 
-    let { entries } = await rpc.getUtxosByAddresses([sourceAddress]);
+    let { entries } = await rpc.getCellsByAddresses([sourceAddress]);
 
     if (!entries.length) {
-        console.error(`No UTXOs found for address ${sourceAddress}`);
+        console.error(`No cells found for address ${sourceAddress}`);
     } else {
         console.info(entries);
 
-        // a very basic JS-driven utxo entry sort
+        // a very basic JS-driven cell entry sort
         entries.sort((a, b) => a.amount > b.amount ? 1 : -1);
 
         // create a transaction generator
-        // entries: an array of UtxoEntry
+        // entries: an array of CellEntry
         // outputs: an array of [address, amount]
         //
         // priorityFee: a priorityFee value in Sau
@@ -66,7 +66,7 @@ const { encoding, networkId } = require("../utils").parseArgs();
         // If the requested amount is greater than the Spora
         // transaction mass, the Generator will create multiple
         // transactions where each transaction will forward
-        // UTXOs to the change address, until the requested
+        // cells to the change address, until the requested
         // amount is reached.  It will then create a final
         // transaction according to the supplied outputs.
         let generator = new Generator({

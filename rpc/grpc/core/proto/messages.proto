@@ -32,19 +32,19 @@ message SporadRequest {
     GetMempoolEntriesRequestMessage getMempoolEntriesRequest = 1043;
     ShutdownRequestMessage shutdownRequest = 1045;
     GetHeadersRequestMessage getHeadersRequest = 1047;
-    NotifyUtxosChangedRequestMessage notifyUtxosChangedRequest = 1049;
-    // UtxosChangedNotificationMessage utxosChangedNotification = 1051;
-    GetUtxosByAddressesRequestMessage getUtxosByAddressesRequest = 1052;
+    NotifyCellsChangedRequestMessage notifyCellsChangedRequest = 1049;
+    // CellsChangedNotificationMessage cellsChangedNotification = 1051;
+    GetCellsByAddressesRequestMessage getCellsByAddressesRequest = 1052;
     GetSinkBlueScoreRequestMessage getSinkBlueScoreRequest = 1054;
     NotifySinkBlueScoreChangedRequestMessage notifySinkBlueScoreChangedRequest = 1056;
     // SinkBlueScoreChangedNotificationMessage sinkBlueScoreChangedNotification = 1058;
     BanRequestMessage banRequest = 1059;
     UnbanRequestMessage unbanRequest = 1061;
     GetInfoRequestMessage getInfoRequest = 1063;
-    StopNotifyingUtxosChangedRequestMessage stopNotifyingUtxosChangedRequest = 1065;
-    NotifyPruningPointUtxoSetOverrideRequestMessage notifyPruningPointUtxoSetOverrideRequest = 1067;
-    // PruningPointUtxoSetOverrideNotificationMessage pruningPointUtxoSetOverrideNotification = 1069;
-    StopNotifyingPruningPointUtxoSetOverrideRequestMessage stopNotifyingPruningPointUtxoSetOverrideRequest = 1070;
+    StopNotifyingCellsChangedRequestMessage stopNotifyingCellsChangedRequest = 1065;
+    NotifyPruningPointCellSetOverrideRequestMessage notifyPruningPointCellSetOverrideRequest = 1067;
+    // PruningPointCellSetOverrideNotificationMessage pruningPointCellSetOverrideNotification = 1069;
+    StopNotifyingPruningPointCellSetOverrideRequestMessage stopNotifyingPruningPointCellSetOverrideRequest = 1070;
     EstimateNetworkHashesPerSecondRequestMessage estimateNetworkHashesPerSecondRequest = 1072;
     NotifyVirtualDaaScoreChangedRequestMessage notifyVirtualDaaScoreChangedRequest = 1074;
     // VirtualDaaScoreChangedNotificationMessage virtualDaaScoreChangedNotification = 1076;
@@ -65,11 +65,11 @@ message SporadRequest {
     GetFeeEstimateRequestMessage getFeeEstimateRequest = 1106;
     GetFeeEstimateExperimentalRequestMessage getFeeEstimateExperimentalRequest = 1108;
     GetCurrentBlockColorRequestMessage getCurrentBlockColorRequest = 1110;
-    GetUtxoReturnAddressRequestMessage GetUtxoReturnAddressRequest = 1112;
+    GetCellReturnAddressRequestMessage GetCellReturnAddressRequest = 1112;
     GetTransactionRequestMessage getTransactionRequest = 1114;
     GetBlockStatusRequestMessage getBlockStatusRequest = 1116;
     GetHeaderRequestMessage getHeaderRequest = 1118;
-    GetUtxosByAddressRequestMessage getUtxosByAddressRequest = 1120;
+    GetCellsByAddressRequestMessage getCellsByAddressRequest = 1120;
   }
 }
 
@@ -102,19 +102,19 @@ message SporadResponse {
     GetMempoolEntriesResponseMessage getMempoolEntriesResponse = 1044;
     ShutdownResponseMessage shutdownResponse = 1046;
     GetHeadersResponseMessage getHeadersResponse = 1048;
-    NotifyUtxosChangedResponseMessage notifyUtxosChangedResponse = 1050;
-    UtxosChangedNotificationMessage utxosChangedNotification = 1051;
-    GetUtxosByAddressesResponseMessage getUtxosByAddressesResponse = 1053;
+    NotifyCellsChangedResponseMessage notifyCellsChangedResponse = 1050;
+    CellsChangedNotificationMessage cellsChangedNotification = 1051;
+    GetCellsByAddressesResponseMessage getCellsByAddressesResponse = 1053;
     GetSinkBlueScoreResponseMessage getSinkBlueScoreResponse = 1055;
     NotifySinkBlueScoreChangedResponseMessage notifySinkBlueScoreChangedResponse = 1057;
     SinkBlueScoreChangedNotificationMessage sinkBlueScoreChangedNotification = 1058;
     BanResponseMessage banResponse = 1060;
     UnbanResponseMessage unbanResponse = 1062;
     GetInfoResponseMessage getInfoResponse = 1064;
-    StopNotifyingUtxosChangedResponseMessage stopNotifyingUtxosChangedResponse = 1066;
-    NotifyPruningPointUtxoSetOverrideResponseMessage notifyPruningPointUtxoSetOverrideResponse = 1068;
-    PruningPointUtxoSetOverrideNotificationMessage pruningPointUtxoSetOverrideNotification = 1069;
-    StopNotifyingPruningPointUtxoSetOverrideResponseMessage stopNotifyingPruningPointUtxoSetOverrideResponse = 1071;
+    StopNotifyingCellsChangedResponseMessage stopNotifyingCellsChangedResponse = 1066;
+    NotifyPruningPointCellSetOverrideResponseMessage notifyPruningPointCellSetOverrideResponse = 1068;
+    PruningPointCellSetOverrideNotificationMessage pruningPointCellSetOverrideNotification = 1069;
+    StopNotifyingPruningPointCellSetOverrideResponseMessage stopNotifyingPruningPointCellSetOverrideResponse = 1071;
     EstimateNetworkHashesPerSecondResponseMessage estimateNetworkHashesPerSecondResponse = 1073;
     NotifyVirtualDaaScoreChangedResponseMessage notifyVirtualDaaScoreChangedResponse = 1075;
     VirtualDaaScoreChangedNotificationMessage virtualDaaScoreChangedNotification = 1076;
@@ -135,11 +135,11 @@ message SporadResponse {
     GetFeeEstimateResponseMessage getFeeEstimateResponse = 1107;
     GetFeeEstimateExperimentalResponseMessage getFeeEstimateExperimentalResponse = 1109;
     GetCurrentBlockColorResponseMessage getCurrentBlockColorResponse = 1111;
-    GetUtxoReturnAddressResponseMessage GetUtxoReturnAddressResponse = 1113;
+    GetCellReturnAddressResponseMessage GetCellReturnAddressResponse = 1113;
     GetTransactionResponseMessage getTransactionResponse = 1115;
     GetBlockStatusResponseMessage getBlockStatusResponse = 1117;
     GetHeaderResponseMessage getHeaderResponse = 1119;
-    GetUtxosByAddressResponseMessage getUtxosByAddressResponse = 1121;
+    GetCellsByAddressResponseMessage getCellsByAddressResponse = 1121;
   }
 }
 

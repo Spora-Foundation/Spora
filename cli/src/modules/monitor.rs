@@ -115,15 +115,15 @@ impl Monitor {
                 let balance_strings = BalanceStrings::from((balance.as_ref(), &network_type, None));
                 let id = id.short();
 
-                let mature_utxo_count =
-                    balance.as_ref().map(|balance| balance.mature_utxo_count.separated_string()).unwrap_or("N/A".to_string());
-                let pending_utxo_count = balance.as_ref().map(|balance| balance.pending_utxo_count).unwrap_or(0);
+                let mature_cell_count =
+                    balance.as_ref().map(|balance| balance.mature_cell_count.separated_string()).unwrap_or("N/A".to_string());
+                let pending_cell_count = balance.as_ref().map(|balance| balance.pending_cell_count).unwrap_or(0);
 
-                let pending_utxo_info =
-                    if pending_utxo_count > 0 { format!("({pending_utxo_count} pending)") } else { "".to_string() };
-                let utxo_info = style(format!("{mature_utxo_count} UTXOs {pending_utxo_info}")).dim();
+                let pending_cell_info =
+                    if pending_cell_count > 0 { format!("({pending_cell_count} pending)") } else { "".to_string() };
+                let cell_info = style(format!("{mature_cell_count} cells {pending_cell_info}")).dim();
 
-                tprintln!(ctx, "{} {id}: {balance_strings}   {utxo_info}", style("balance".pad_to_width(8)).blue());
+                tprintln!(ctx, "{} {id}: {balance_strings}   {cell_info}", style("balance".pad_to_width(8)).blue());
             }
             _ => {}
         });
