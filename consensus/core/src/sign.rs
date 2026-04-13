@@ -3,7 +3,7 @@ use crate::{
         sighash::{calc_schnorr_signature_hash, SigHashReusedValuesUnsync},
         sighash_type::{SigHashType, SIG_HASH_ALL},
     },
-    tx::{compute_lock_hash_for_script, ScriptPublicKey, SignableTransaction, VerifiableTransaction},
+    tx::{SignableTransaction, VerifiableTransaction},
 };
 use itertools::Itertools;
 use std::collections::BTreeMap;
@@ -12,7 +12,12 @@ use thiserror::Error;
 
 /// Compute the lock_hash that a given raw script (version 0) would produce.
 fn lock_hash_for_script_bytes(script: &[u8]) -> [u8; 32] {
-    compute_lock_hash_for_script(&ScriptPublicKey::from_vec(0, script.to_vec()))
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"spora-cell/lock");
+    hasher.update(&0u16.to_le_bytes());
+    hasher.update(script);
+    let code_hash = *hasher.finalize().as_bytes();
+    crate::tx::ScriptRef::new(code_hash, 0, script.to_vec()).hash()
 }
 
 #[derive(Error, Debug, Clone)]
@@ -106,7 +111,9 @@ pub fn sign_with_multiple(mut mutable_tx: SignableTransaction, privkeys: Vec<[u8
     let mut map = BTreeMap::new();
     for privkey in privkeys {
         let schnorr_key = secp256k1::Keypair::from_seckey_slice(secp256k1::SECP256K1, &privkey).unwrap();
-        let lock_hash = lock_hash_for_script_bytes(&schnorr_key.public_key().serialize());
+        let schnorr_public_key = schnorr_key.public_key().x_only_public_key().0;
+        let lock_script: Vec<u8> = once(0x20).chain(schnorr_public_key.serialize().into_iter()).chain(once(0xac)).collect_vec();
+        let lock_hash = lock_hash_for_script_bytes(&lock_script);
         map.insert(lock_hash, schnorr_key);
     }
     // Ensure witnesses vector has enough entries
@@ -226,61 +233,61 @@ pub fn verify(tx: &impl VerifiableTransaction) -> Result<(), Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        subnets::SubnetworkId,
-        tx::{cell_meta_from_legacy_output, cell_tx_from_legacy_transaction, *},
-    };
+    use crate::tx::*;
     use secp256k1::{rand, Secp256k1};
+    use spora_addresses::{Address, Prefix};
     use std::str::FromStr;
 
-    #[allow(deprecated)]
+    fn lock_script_from_pubkey(pubkey: &[u8; 32]) -> ScriptRef {
+        pay_to_address_lock_script(&Address::new(Prefix::Testnet, spora_addresses::Version::PubKey, pubkey).unwrap())
+    }
+
+    fn cell_entry_from_lock_script(value: u64, lock_script: &ScriptRef, block_daa_score: u64, is_cellbase: bool) -> CellEntry {
+        CellEntry {
+            out_point: TransactionOutpoint::default(),
+            capacity: value,
+            data_bytes: 0,
+            lock_hash: lock_script.hash(),
+            type_hash: None,
+            data_hash: [0; 32],
+            block_daa_score,
+            is_cellbase,
+        }
+    }
+
     #[test]
     fn test_and_verify_sign() {
         let secp = Secp256k1::new();
         let (secret_key, public_key) = secp.generate_keypair(&mut rand::thread_rng());
-        let script_pub_key = ScriptVec::from_slice(&public_key.serialize());
+        let script_pub_key = public_key.x_only_public_key().0.serialize();
 
         let (secret_key2, public_key2) = secp.generate_keypair(&mut rand::thread_rng());
-        let script_pub_key2 = ScriptVec::from_slice(&public_key2.serialize());
+        let script_pub_key2 = public_key2.x_only_public_key().0.serialize();
+
+        let lock_script = lock_script_from_pubkey(&script_pub_key);
+        let lock_script2 = lock_script_from_pubkey(&script_pub_key2);
 
         let prev_tx_id = TransactionId::from_str("880eb9819a31821d9d2399e2f35e2433b72637e393d71ecc9b8d0250f49153c3").unwrap();
-        let unsigned_tx_legacy = Transaction::new(
-            0,
+        let unsigned_tx = CellTx::new(
             vec![
-                TransactionInput {
-                    previous_outpoint: outpoint_from_id(prev_tx_id, 0),
-                    signature_script: vec![],
-                    sequence: 0,
-                    sig_op_count: 0,
-                },
-                TransactionInput {
-                    previous_outpoint: outpoint_from_id(prev_tx_id, 1),
-                    signature_script: vec![],
-                    sequence: 1,
-                    sig_op_count: 0,
-                },
-                TransactionInput {
-                    previous_outpoint: outpoint_from_id(prev_tx_id, 2),
-                    signature_script: vec![],
-                    sequence: 2,
-                    sig_op_count: 0,
-                },
+                CellRef::new(outpoint_from_id(prev_tx_id, 0), 0),
+                CellRef::new(outpoint_from_id(prev_tx_id, 1), 1),
+                CellRef::new(outpoint_from_id(prev_tx_id, 2), 2),
             ],
-            vec![
-                TransactionOutput { value: 300, script_public_key: ScriptPublicKey::new(0, script_pub_key.clone()) },
-                TransactionOutput { value: 300, script_public_key: ScriptPublicKey::new(0, script_pub_key.clone()) },
-            ],
-            1615462089000,
-            SubnetworkId::from_bytes([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
-            0,
             vec![],
-        );
-        let unsigned_tx = cell_tx_from_legacy_transaction(&unsigned_tx_legacy);
+            vec![
+                CellOut { capacity: 300, lock: lock_script.clone(), type_: None },
+                CellOut { capacity: 300, lock: lock_script.clone(), type_: None },
+            ],
+            vec![vec![], vec![]],
+            vec![vec![], vec![], vec![]],
+        )
+        .unwrap();
 
         let entries = vec![
-            cell_meta_from_legacy_output(100, &ScriptPublicKey::new(0, script_pub_key.clone()), 0, false),
-            cell_meta_from_legacy_output(200, &ScriptPublicKey::new(0, script_pub_key), 0, false),
-            cell_meta_from_legacy_output(300, &ScriptPublicKey::new(0, script_pub_key2), 0, false),
+            cell_entry_from_lock_script(100, &lock_script, 0, false),
+            cell_entry_from_lock_script(200, &lock_script, 0, false),
+            cell_entry_from_lock_script(300, &lock_script2, 0, false),
         ];
         let signed_tx = sign_with_multiple(
             SignableTransaction::with_entries(unsigned_tx, entries),

@@ -481,7 +481,6 @@ try_from! ( args: WalletCreateResponse, IWalletCreateResponse, {
 // ---
 
 // ---
-// NOTE: `legacy_accounts` are disabled in JS API
 declare! {
     IWalletOpenRequest,
     r#"
@@ -502,7 +501,7 @@ try_from! ( args: IWalletOpenRequest, WalletOpenRequest, {
     let filename = args.try_get_string("filename")?;
     let account_descriptors = args.get_value("accountDescriptors")?.as_bool().unwrap_or(false);
 
-    Ok(WalletOpenRequest { wallet_secret, filename, account_descriptors, legacy_accounts: None })
+    Ok(WalletOpenRequest { wallet_secret, filename, account_descriptors })
 });
 
 declare! {

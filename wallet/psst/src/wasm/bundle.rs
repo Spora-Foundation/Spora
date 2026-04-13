@@ -167,11 +167,10 @@ mod tests {
                         "transactionId": "69155d0e3380e8816dffe2671294ad104f0b3776f35bce1a22f0c21b1f908500",
                         "index": 0
                     },
-                    "sequence": null,
+                    "since": null,
                     "partialSigs": {},
                     "sighashType": 1,
                     "redeemScript": null,
-                    "sigOpCount": 1,
                     "bip32Derivations": {},
                     "finalScriptSig": null,
                     "proprietaries": {}

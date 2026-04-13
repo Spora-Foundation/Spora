@@ -105,10 +105,6 @@ struct Args {
     #[arg(long, default_value_t = false)]
     test_pruning: bool,
 
-    /// Use the legacy full-window DAA mechanism (note: the size of this window scales with bps)
-    #[arg(long, default_value_t = false)]
-    daa_legacy: bool,
-
     /// Use testnet-11 consensus params
     #[arg(long, default_value_t = false)]
     testnet11: bool,
@@ -353,15 +349,10 @@ fn apply_args_to_consensus_params(args: &Args, params: &mut Params) {
         params.merge_depth = (params.merge_depth as f64 * args.bps) as u64;
         params.coinbase_maturity = (params.coinbase_maturity as f64 * f64::max(1.0, args.bps * args.delay * 0.25)) as u64;
 
-        if args.daa_legacy {
-            // Scale DAA and median-time windows linearly with BPS
-            params.timestamp_deviation_tolerance = (params.timestamp_deviation_tolerance as f64 * args.bps) as u64;
-        } else {
-            // Use the new sampling algorithms
-            params.timestamp_deviation_tolerance = (600.0 * args.bps) as u64;
-            params.past_median_time_sample_rate = (10.0 * args.bps) as u64;
-            params.difficulty_sample_rate = (2.0 * args.bps) as u64;
-        }
+        // Use the new sampling algorithms
+        params.timestamp_deviation_tolerance = (600.0 * args.bps) as u64;
+        params.past_median_time_sample_rate = (10.0 * args.bps) as u64;
+        params.difficulty_sample_rate = (2.0 * args.bps) as u64;
 
         info!("2D\u{03bb}={}, GHOSTDAG K={}, DAA window size={}", 2.0 * args.delay * args.bps, k, params.difficulty_window_size());
     }

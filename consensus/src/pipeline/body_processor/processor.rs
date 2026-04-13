@@ -8,6 +8,7 @@ use crate::{
         services::reachability::MTReachabilityService,
         stores::{
             block_transactions::DbBlockTransactionsStore,
+            cell_data::DbCellDataStore,
             cell_diffs::DbCellDiffsStore,
             cell_roots::DbCellRootsStore,
             ghostdag::DbGhostdagStore,
@@ -22,7 +23,7 @@ use crate::{
         deps_manager::{BlockProcessingMessage, BlockTaskDependencyManager, TaskId, VirtualStateProcessingMessage},
         ProcessingCounters,
     },
-    processes::coinbase::CoinbaseManager,
+    processes::{coinbase::CoinbaseManager, utils::outpoint_to_hash},
 };
 use crossbeam_channel::{Receiver, Sender};
 use parking_lot::RwLock;
@@ -33,7 +34,7 @@ use spora_consensus_core::{
     blockstatus::BlockStatus::{self, StatusHeaderOnly, StatusInvalid},
     config::{genesis::GenesisBlock, params::Params},
     mass::{Mass, MassCalculator, MassOps},
-    tx::CellTx,
+    tx::{CellTx, TransactionOutpoint},
     KType,
 };
 use spora_consensus_notify::{
@@ -42,6 +43,7 @@ use spora_consensus_notify::{
 };
 use spora_consensusmanager::SessionLock;
 use spora_hashes::Hash;
+use spora_state::SegmentWriter;
 use spora_notify::notifier::Notify;
 use std::sync::{atomic::Ordering, Arc};
 
@@ -66,8 +68,10 @@ pub struct BlockBodyProcessor {
     pub(super) ghostdag_store: Arc<DbGhostdagStore>,
     pub(super) headers_store: Arc<DbHeadersStore>,
     pub(super) block_transactions_store: Arc<DbBlockTransactionsStore>,
+    pub(super) cell_data_store: Arc<DbCellDataStore>,
     pub(super) cell_diffs_store: Arc<DbCellDiffsStore>,
     pub(super) cell_roots_store: Arc<DbCellRootsStore>,
+    pub(super) cell_data_segment_writer: Arc<SegmentWriter>,
     pub(super) body_tips_store: Arc<RwLock<DbTipsStore>>,
 
     // Managers and services
@@ -120,8 +124,10 @@ impl BlockBodyProcessor {
             ghostdag_store: storage.ghostdag_store.clone(),
             headers_store: storage.headers_store.clone(),
             block_transactions_store: storage.block_transactions_store.clone(),
+            cell_data_store: storage.cell_data_store.clone(),
             cell_diffs_store: storage.cell_diffs_store.clone(),
             cell_roots_store: storage.cell_roots_store.clone(),
+            cell_data_segment_writer: storage.cell_data_segment_writer.clone(),
             body_tips_store: storage.body_tips_store.clone(),
 
             reachability_service: services.reachability_service.clone(),
@@ -237,7 +243,8 @@ impl BlockBodyProcessor {
         let mut batch = WriteBatch::default();
 
         // This is an append only store so it requires no lock.
-        self.block_transactions_store.insert_batch(&mut batch, hash, transactions).unwrap();
+        self.block_transactions_store.insert_batch(&mut batch, hash, transactions.clone()).unwrap();
+        self.persist_cell_data_segments(&mut batch, &transactions);
 
         let mut body_tips_write_guard = self.body_tips_store.write();
         body_tips_write_guard.add_tip_batch(&mut batch, hash, parents).unwrap();
@@ -249,6 +256,27 @@ impl BlockBodyProcessor {
         // Calling the drops explicitly after the batch is written in order to avoid possible errors.
         drop(statuses_write_guard);
         drop(body_tips_write_guard);
+    }
+
+    fn persist_cell_data_segments(&self, batch: &mut WriteBatch, transactions: &[CellTx]) {
+        for tx in transactions {
+            let tx_id = tx.id();
+            for (output_index, output_data) in tx.outputs_data.iter().enumerate() {
+                if output_data.is_empty() {
+                    continue;
+                }
+
+                let (segment_id, offset, length) = self.cell_data_segment_writer.append(output_data).unwrap();
+                let outpoint = TransactionOutpoint::new(tx_id, output_index as u32);
+                self.cell_data_store
+                    .insert_batch(
+                        batch,
+                        outpoint_to_hash(&outpoint),
+                        spora_state::SegmentInfo { segment_id, offset, length },
+                    )
+                    .unwrap();
+            }
+        }
     }
 
     pub fn process_genesis(self: &Arc<BlockBodyProcessor>) {

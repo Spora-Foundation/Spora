@@ -1,5 +1,5 @@
 use crate::protowire::{
-    sporad_response::Payload, BlockAddedNotificationMessage, NewBlockTemplateNotificationMessage, RpcNotifyCommand, SporadResponse,
+    rpc_response::Payload, BlockAddedNotificationMessage, NewBlockTemplateNotificationMessage, RpcNotifyCommand, RpcResponse,
 };
 use crate::protowire::{
     CellsChangedNotificationMessage, FinalityConflictNotificationMessage, FinalityConflictResolvedNotificationMessage,
@@ -19,7 +19,7 @@ use std::sync::Arc;
 // rpc_core to protowire
 // ----------------------------------------------------------------------------
 
-from!(item: &spora_rpc_core::Notification, SporadResponse, { Self { id: 0, payload: Some(item.into()) } });
+from!(item: &spora_rpc_core::Notification, RpcResponse, { Self { id: 0, payload: Some(item.into()) } });
 
 from!(item: &spora_rpc_core::Notification, Payload, {
     match item {
@@ -93,10 +93,10 @@ from!(_item: &StopNotifyingPruningPointCellSetOverrideRequestMessage, NotifyPrun
 // protowire to rpc_core
 // ----------------------------------------------------------------------------
 
-try_from!(item: &SporadResponse, spora_rpc_core::Notification, {
+try_from!(item: &RpcResponse, spora_rpc_core::Notification, {
     item.payload
         .as_ref()
-        .ok_or_else(|| RpcError::MissingRpcFieldError("SporadResponse".to_string(), "payload".to_string()))?
+        .ok_or_else(|| RpcError::MissingRpcFieldError("RpcResponse".to_string(), "payload".to_string()))?
         .try_into()?
 });
 

@@ -19,10 +19,8 @@ pub use spora_bip32::{ChildNumber, ExtendedPrivateKey, ExtendedPublicKey, Secret
 pub use spora_consensus_core::network::{NetworkId, NetworkTypeT};
 pub use spora_utils::hex::*;
 pub use spora_wasm_core::types::*;
-pub use std::collections::HashMap;
 pub use std::str::FromStr;
-pub use std::sync::atomic::{AtomicBool, Ordering};
-pub use std::sync::{Arc, Mutex, MutexGuard};
+pub use std::sync::{Arc, Mutex};
 pub use wasm_bindgen::prelude::*;
 pub use workflow_wasm::convert::*;
 pub use zeroize::*;

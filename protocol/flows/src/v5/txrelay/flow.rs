@@ -18,7 +18,7 @@ use spora_mining::{
 use spora_p2p_lib::{
     common::{ProtocolError, DEFAULT_TIMEOUT},
     dequeue, make_message,
-    pb::{sporad_message::Payload, RequestTransactionsMessage, TransactionNotFoundMessage},
+    pb::{p2p_message::Payload, RequestTransactionsMessage, TransactionNotFoundMessage},
     IncomingRoute, Router,
 };
 use std::sync::Arc;
@@ -79,7 +79,7 @@ impl RelayTransactionsFlow {
 
     pub fn invs_channel_size() -> usize {
         // TODO: reevaluate when the node is fully functional and later when the network tx rate increases
-        // Note: in go-sporad we have 10,000 for this channel combined with tx channel.
+        // Matches the previous implementation's shared channel sizing.
         4096
     }
 

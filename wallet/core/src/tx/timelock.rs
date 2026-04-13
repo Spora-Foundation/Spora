@@ -6,9 +6,9 @@
 // This module provides wallet-level helpers for creating time-locked transactions
 // using the Cell model's `since` field and CKB-VM scripts.
 //
-// ## Migration from Legacy
+// ## Migration from the previous lock_time flow
 //
-// Legacy wallet code used `lock_time` in `GeneratorSettings` to create time-locked
+// Previous wallet code used `lock_time` in `GeneratorSettings` to create time-locked
 // outputs using `pay_to_address_with_lock_time_script`. This has been deprecated
 // because:
 //
@@ -25,7 +25,7 @@
 //! Time lock utilities for wallet transactions
 //!
 //! This module provides types and functions for creating time-locked transactions
-//! in the Cell model. Unlike the legacy approach that used tx-level `lock_time`,
+//! in the Cell model. Unlike the previous approach that used tx-level `lock_time`,
 //! the Cell model uses per-input `since` fields with CKB-VM verification.
 //!
 //! # Example

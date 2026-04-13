@@ -14,7 +14,7 @@ use crate::v5::{
 };
 use crate::{flow_context::FlowContext, flow_trait::Flow};
 
-use spora_p2p_lib::{Router, SharedIncomingRoute, SporadMessagePayloadType};
+use spora_p2p_lib::{P2pMessagePayloadType, Router, SharedIncomingRoute};
 use spora_utils::channel;
 use std::sync::Arc;
 
@@ -32,100 +32,95 @@ pub fn register(ctx: FlowContext, router: Arc<Router>) -> Vec<Box<dyn Flow>> {
             ctx.clone(),
             router.clone(),
             router.subscribe(vec![
-                SporadMessagePayloadType::BlockHeaders,
-                SporadMessagePayloadType::DoneHeaders,
-                SporadMessagePayloadType::IbdBlockLocatorHighestHash,
-                SporadMessagePayloadType::IbdBlockLocatorHighestHashNotFound,
-                SporadMessagePayloadType::BlockWithTrustedDataV4,
-                SporadMessagePayloadType::DoneBlocksWithTrustedData,
-                SporadMessagePayloadType::IbdChainBlockLocator,
-                SporadMessagePayloadType::IbdBlock,
-                SporadMessagePayloadType::TrustedData,
-                SporadMessagePayloadType::PruningPoints,
-                SporadMessagePayloadType::PruningPointProof,
-                SporadMessagePayloadType::UnexpectedPruningPoint,
-                SporadMessagePayloadType::PruningPointCellSetChunk,
-                SporadMessagePayloadType::DonePruningPointCellSetChunks,
+                P2pMessagePayloadType::BlockHeaders,
+                P2pMessagePayloadType::DoneHeaders,
+                P2pMessagePayloadType::IbdBlockLocatorHighestHash,
+                P2pMessagePayloadType::IbdBlockLocatorHighestHashNotFound,
+                P2pMessagePayloadType::BlockWithTrustedDataV4,
+                P2pMessagePayloadType::DoneBlocksWithTrustedData,
+                P2pMessagePayloadType::IbdChainBlockLocator,
+                P2pMessagePayloadType::IbdBlock,
+                P2pMessagePayloadType::TrustedData,
+                P2pMessagePayloadType::PruningPoints,
+                P2pMessagePayloadType::PruningPointProof,
+                P2pMessagePayloadType::UnexpectedPruningPoint,
+                P2pMessagePayloadType::PruningPointCellSetChunk,
+                P2pMessagePayloadType::DonePruningPointCellSetChunks,
             ]),
             relay_receiver,
         )),
         Box::new(HandleRelayBlockRequests::new(
             ctx.clone(),
             router.clone(),
-            router.subscribe(vec![SporadMessagePayloadType::RequestRelayBlocks]),
+            router.subscribe(vec![P2pMessagePayloadType::RequestRelayBlocks]),
         )),
-        Box::new(ReceivePingsFlow::new(ctx.clone(), router.clone(), router.subscribe(vec![SporadMessagePayloadType::Ping]))),
-        Box::new(SendPingsFlow::new(ctx.clone(), router.clone(), router.subscribe(vec![SporadMessagePayloadType::Pong]))),
+        Box::new(ReceivePingsFlow::new(ctx.clone(), router.clone(), router.subscribe(vec![P2pMessagePayloadType::Ping]))),
+        Box::new(SendPingsFlow::new(ctx.clone(), router.clone(), router.subscribe(vec![P2pMessagePayloadType::Pong]))),
         Box::new(RequestHeadersFlow::new(
             ctx.clone(),
             router.clone(),
-            router.subscribe(vec![SporadMessagePayloadType::RequestHeaders, SporadMessagePayloadType::RequestNextHeaders]),
+            router.subscribe(vec![P2pMessagePayloadType::RequestHeaders, P2pMessagePayloadType::RequestNextHeaders]),
         )),
         Box::new(RequestPruningPointProofFlow::new(
             ctx.clone(),
             router.clone(),
-            router.subscribe(vec![SporadMessagePayloadType::RequestPruningPointProof]),
+            router.subscribe(vec![P2pMessagePayloadType::RequestPruningPointProof]),
         )),
         Box::new(RequestIbdChainBlockLocatorFlow::new(
             ctx.clone(),
             router.clone(),
-            router.subscribe(vec![SporadMessagePayloadType::RequestIbdChainBlockLocator]),
+            router.subscribe(vec![P2pMessagePayloadType::RequestIbdChainBlockLocator]),
         )),
         Box::new(PruningPointAndItsAnticoneRequestsFlow::new(
             ctx.clone(),
             router.clone(),
             router.subscribe(vec![
-                SporadMessagePayloadType::RequestPruningPointAndItsAnticone,
-                SporadMessagePayloadType::RequestNextPruningPointAndItsAnticoneBlocks,
+                P2pMessagePayloadType::RequestPruningPointAndItsAnticone,
+                P2pMessagePayloadType::RequestNextPruningPointAndItsAnticoneBlocks,
             ]),
         )),
         Box::new(RequestPruningPointCellSetFlow::new(
             ctx.clone(),
             router.clone(),
             router.subscribe(vec![
-                SporadMessagePayloadType::RequestPruningPointCellSet,
-                SporadMessagePayloadType::RequestNextPruningPointCellSetChunk,
+                P2pMessagePayloadType::RequestPruningPointCellSet,
+                P2pMessagePayloadType::RequestNextPruningPointCellSetChunk,
             ]),
         )),
         Box::new(HandleIbdBlockRequests::new(
             ctx.clone(),
             router.clone(),
-            router.subscribe(vec![SporadMessagePayloadType::RequestIbdBlocks]),
+            router.subscribe(vec![P2pMessagePayloadType::RequestIbdBlocks]),
         )),
         Box::new(HandleAntipastRequests::new(
             ctx.clone(),
             router.clone(),
-            router.subscribe(vec![SporadMessagePayloadType::RequestAntipast]),
+            router.subscribe(vec![P2pMessagePayloadType::RequestAntipast]),
         )),
         Box::new(RelayTransactionsFlow::new(
             ctx.clone(),
             router.clone(),
-            router
-                .subscribe_with_capacity(vec![SporadMessagePayloadType::InvTransactions], RelayTransactionsFlow::invs_channel_size()),
+            router.subscribe_with_capacity(vec![P2pMessagePayloadType::InvTransactions], RelayTransactionsFlow::invs_channel_size()),
             router.subscribe_with_capacity(
-                vec![SporadMessagePayloadType::Transaction, SporadMessagePayloadType::TransactionNotFound],
+                vec![P2pMessagePayloadType::Transaction, P2pMessagePayloadType::TransactionNotFound],
                 RelayTransactionsFlow::txs_channel_size(),
             ),
         )),
         Box::new(RequestTransactionsFlow::new(
             ctx.clone(),
             router.clone(),
-            router.subscribe(vec![SporadMessagePayloadType::RequestTransactions]),
+            router.subscribe(vec![P2pMessagePayloadType::RequestTransactions]),
         )),
-        Box::new(ReceiveAddressesFlow::new(ctx.clone(), router.clone(), router.subscribe(vec![SporadMessagePayloadType::Addresses]))),
-        Box::new(SendAddressesFlow::new(
-            ctx.clone(),
-            router.clone(),
-            router.subscribe(vec![SporadMessagePayloadType::RequestAddresses]),
-        )),
+        Box::new(ReceiveAddressesFlow::new(ctx.clone(), router.clone(), router.subscribe(vec![P2pMessagePayloadType::Addresses]))),
+        Box::new(SendAddressesFlow::new(ctx.clone(), router.clone(), router.subscribe(vec![P2pMessagePayloadType::RequestAddresses]))),
         Box::new(RequestBlockLocatorFlow::new(
             ctx.clone(),
             router.clone(),
-            router.subscribe(vec![SporadMessagePayloadType::RequestBlockLocator]),
+            router.subscribe(vec![P2pMessagePayloadType::RequestBlockLocator]),
         )),
     ];
 
-    let invs_route = router.subscribe_with_capacity(vec![SporadMessagePayloadType::InvRelayBlock], ctx.block_invs_channel_size());
+    let invs_route = router.subscribe_with_capacity(vec![P2pMessagePayloadType::InvRelayBlock], ctx.block_invs_channel_size());
     let shared_invs_route = SharedIncomingRoute::new(invs_route);
 
     let num_relay_flows = (ctx.config.bps() as usize / 2).max(1);
@@ -140,11 +135,11 @@ pub fn register(ctx: FlowContext, router: Arc<Router>) -> Vec<Box<dyn Flow>> {
     }));
 
     // The reject message is handled as a special case by the router
-    // SporadMessagePayloadType::Reject,
+    // P2pMessagePayloadType::Reject,
 
     // We do not register the below two messages since they are deprecated also in go-spora
-    // SporadMessagePayloadType::BlockWithTrustedData,
-    // SporadMessagePayloadType::IbdBlockLocator,
+    // P2pMessagePayloadType::BlockWithTrustedData,
+    // P2pMessagePayloadType::IbdBlockLocator,
 
     flows
 }

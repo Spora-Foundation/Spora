@@ -19,7 +19,7 @@ impl AsRef<[u8]> for PersonalMessage<'_> {
 pub struct SignMessageOptions {
     /// The auxiliary randomness exists only to mitigate specific kinds of power analysis
     /// side-channel attacks. Providing it definitely improves security, but omitting it
-    /// should not be considered dangerous, as most legacy signature schemes don't provide
+    /// should not be considered dangerous, as most older signature schemes don't provide
     /// mitigations against such attacks. To read more about the relevant discussions that
     /// arose in adding this randomness please see: <https://github.com/sipa/bips/issues/195>
     pub no_aux_rand: bool,

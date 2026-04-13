@@ -202,7 +202,7 @@ pub enum Error {
     #[error("Invalid id: {0}")]
     InvalidKeyDataId(String),
 
-    #[error("Invalid account type (must be one of: bip32|multisig|legacy")]
+    #[error("Invalid account type (must be one of: bip32|multisig|keypair|bip32watch)")]
     InvalidAccountKind,
 
     #[error("Insufficient funds")]
@@ -285,9 +285,6 @@ pub enum Error {
 
     #[error(transparent)]
     MultisigRedeemScript(#[from] spora_consensus_core::tx::MultisigRedeemScriptError),
-
-    #[error("Legacy account is not initialized")]
-    LegacyAccountNotInitialized,
 
     #[error("AssocPrvKeyDataIds required {0} but got {1:?}")]
     AssocPrvKeyDataIds(String, AssocPrvKeyDataIds),

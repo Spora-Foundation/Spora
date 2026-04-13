@@ -2,11 +2,10 @@
 //! [`RpcError`] enum used by RPC primitives.
 //!
 
-use spora_consensus_core::{subnets::SubnetworkConversionError, tx::TransactionId};
+use spora_consensus_core::tx::TransactionId;
+use spora_utils::networking::IpAddress;
 use std::{net::AddrParseError, num::TryFromIntError};
 use thiserror::Error;
-// legacy transaction-output inquirer errors removed during Cell migration
-use spora_utils::networking::IpAddress;
 use workflow_core::channel::ChannelError;
 
 use crate::{api::ctl::RpcState, RpcHash, RpcTransactionId, SubmitBlockRejectReason};
@@ -123,10 +122,6 @@ pub enum RpcError {
 
     #[error("transaction query must either not filter transactions or include orphans")]
     InconsistentMempoolTxQuery,
-
-    #[error(transparent)]
-    SubnetParsingError(#[from] SubnetworkConversionError),
-
     #[error(transparent)]
     WasmError(#[from] workflow_wasm::error::Error),
 
@@ -135,7 +130,6 @@ pub enum RpcError {
 
     #[error(transparent)]
     ConsensusClient(#[from] spora_consensus_client::error::Error),
-    // TODO(cell-model): legacy transaction-output errors removed; use Cell equivalents
 }
 
 impl From<String> for RpcError {

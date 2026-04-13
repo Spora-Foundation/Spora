@@ -1,123 +1,122 @@
-use crate::protowire::{sporad_request, SporadRequest, SporadResponse};
+use crate::protowire::{rpc_request, RpcRequest, RpcResponse};
 
-impl From<sporad_request::Payload> for SporadRequest {
-    fn from(item: sporad_request::Payload) -> Self {
-        SporadRequest { id: 0, payload: Some(item) }
+impl From<rpc_request::Payload> for RpcRequest {
+    fn from(item: rpc_request::Payload) -> Self {
+        RpcRequest { id: 0, payload: Some(item) }
     }
 }
 
-impl AsRef<SporadRequest> for SporadRequest {
+impl AsRef<RpcRequest> for RpcRequest {
     fn as_ref(&self) -> &Self {
         self
     }
 }
 
-impl AsRef<SporadResponse> for SporadResponse {
+impl AsRef<RpcResponse> for RpcResponse {
     fn as_ref(&self) -> &Self {
         self
     }
 }
 
-pub mod sporad_request_convert {
+pub mod rpc_request_convert {
     use crate::protowire::*;
     use spora_rpc_core::{RpcError, RpcResult};
 
-    impl_into_sporad_request!(Shutdown);
-    impl_into_sporad_request!(SubmitBlock);
-    impl_into_sporad_request!(GetBlockTemplate);
-    impl_into_sporad_request!(GetBlock);
-    impl_into_sporad_request!(GetBlockStatus);
-    impl_into_sporad_request!(GetTransaction);
-    impl_into_sporad_request!(GetInfo);
+    impl_into_rpc_request!(Shutdown);
+    impl_into_rpc_request!(SubmitBlock);
+    impl_into_rpc_request!(GetBlockTemplate);
+    impl_into_rpc_request!(GetBlock);
+    impl_into_rpc_request!(GetBlockStatus);
+    impl_into_rpc_request!(GetTransaction);
+    impl_into_rpc_request!(GetInfo);
 
-    impl_into_sporad_request!(GetCurrentNetwork);
-    impl_into_sporad_request!(GetPeerAddresses);
-    impl_into_sporad_request!(GetSink);
-    impl_into_sporad_request!(GetMempoolEntry);
-    impl_into_sporad_request!(GetMempoolEntries);
-    impl_into_sporad_request!(GetConnectedPeerInfo);
-    impl_into_sporad_request!(AddPeer);
-    impl_into_sporad_request!(SubmitTransaction);
-    impl_into_sporad_request!(SubmitTransactionReplacement);
-    impl_into_sporad_request!(GetSubnetwork);
-    impl_into_sporad_request!(GetVirtualChainFromBlock);
-    impl_into_sporad_request!(GetBlocks);
-    impl_into_sporad_request!(GetBlockCount);
-    impl_into_sporad_request!(GetBlockDagInfo);
-    impl_into_sporad_request!(ResolveFinalityConflict);
-    impl_into_sporad_request!(GetHeader);
-    impl_into_sporad_request!(GetHeaders);
-    impl_into_sporad_request!(GetCellsByAddress);
-    impl_into_sporad_request!(GetCellsByAddresses);
-    impl_into_sporad_request!(GetBalanceByAddress);
-    impl_into_sporad_request!(GetBalancesByAddresses);
-    impl_into_sporad_request!(GetSinkBlueScore);
-    impl_into_sporad_request!(Ban);
-    impl_into_sporad_request!(Unban);
-    impl_into_sporad_request!(EstimateNetworkHashesPerSecond);
-    impl_into_sporad_request!(GetMempoolEntriesByAddresses);
-    impl_into_sporad_request!(GetCoinSupply);
-    impl_into_sporad_request!(Ping);
-    impl_into_sporad_request!(GetMetrics);
-    impl_into_sporad_request!(GetConnections);
-    impl_into_sporad_request!(GetSystemInfo);
-    impl_into_sporad_request!(GetServerInfo);
-    impl_into_sporad_request!(GetSyncStatus);
-    impl_into_sporad_request!(GetDaaScoreTimestampEstimate);
-    impl_into_sporad_request!(GetFeeEstimate);
-    impl_into_sporad_request!(GetFeeEstimateExperimental);
-    impl_into_sporad_request!(GetCurrentBlockColor);
-    impl_into_sporad_request!(GetCellReturnAddress);
+    impl_into_rpc_request!(GetCurrentNetwork);
+    impl_into_rpc_request!(GetPeerAddresses);
+    impl_into_rpc_request!(GetSink);
+    impl_into_rpc_request!(GetMempoolEntry);
+    impl_into_rpc_request!(GetMempoolEntries);
+    impl_into_rpc_request!(GetConnectedPeerInfo);
+    impl_into_rpc_request!(AddPeer);
+    impl_into_rpc_request!(SubmitTransaction);
+    impl_into_rpc_request!(SubmitTransactionReplacement);
+    impl_into_rpc_request!(GetVirtualChainFromBlock);
+    impl_into_rpc_request!(GetBlocks);
+    impl_into_rpc_request!(GetBlockCount);
+    impl_into_rpc_request!(GetBlockDagInfo);
+    impl_into_rpc_request!(ResolveFinalityConflict);
+    impl_into_rpc_request!(GetHeader);
+    impl_into_rpc_request!(GetHeaders);
+    impl_into_rpc_request!(GetCellsByAddress);
+    impl_into_rpc_request!(GetCellsByAddresses);
+    impl_into_rpc_request!(GetBalanceByAddress);
+    impl_into_rpc_request!(GetBalancesByAddresses);
+    impl_into_rpc_request!(GetSinkBlueScore);
+    impl_into_rpc_request!(Ban);
+    impl_into_rpc_request!(Unban);
+    impl_into_rpc_request!(EstimateNetworkHashesPerSecond);
+    impl_into_rpc_request!(GetMempoolEntriesByAddresses);
+    impl_into_rpc_request!(GetCoinSupply);
+    impl_into_rpc_request!(Ping);
+    impl_into_rpc_request!(GetMetrics);
+    impl_into_rpc_request!(GetConnections);
+    impl_into_rpc_request!(GetSystemInfo);
+    impl_into_rpc_request!(GetServerInfo);
+    impl_into_rpc_request!(GetSyncStatus);
+    impl_into_rpc_request!(GetDaaScoreTimestampEstimate);
+    impl_into_rpc_request!(GetFeeEstimate);
+    impl_into_rpc_request!(GetFeeEstimateExperimental);
+    impl_into_rpc_request!(GetCurrentBlockColor);
+    impl_into_rpc_request!(GetCellReturnAddress);
 
-    impl_into_sporad_request!(NotifyBlockAdded);
-    impl_into_sporad_request!(NotifyNewBlockTemplate);
-    impl_into_sporad_request_ex!(
+    impl_into_rpc_request!(NotifyBlockAdded);
+    impl_into_rpc_request!(NotifyNewBlockTemplate);
+    impl_into_rpc_request_ex!(
         spora_rpc_core::NotifyCellsChangedRequest,
         NotifyCellsChangedRequestMessage,
         NotifyCellsChangedRequest
     );
-    impl_into_sporad_request!(NotifyPruningPointCellSetOverride);
-    impl_into_sporad_request!(NotifyFinalityConflict);
-    impl_into_sporad_request!(NotifyVirtualDaaScoreChanged);
-    impl_into_sporad_request!(NotifyVirtualChainChanged);
-    impl_into_sporad_request!(NotifySinkBlueScoreChanged);
+    impl_into_rpc_request!(NotifyPruningPointCellSetOverride);
+    impl_into_rpc_request!(NotifyFinalityConflict);
+    impl_into_rpc_request!(NotifyVirtualDaaScoreChanged);
+    impl_into_rpc_request!(NotifyVirtualChainChanged);
+    impl_into_rpc_request!(NotifySinkBlueScoreChanged);
 
-    macro_rules! impl_into_sporad_request {
+    macro_rules! impl_into_rpc_request {
         ($name:tt) => {
             paste::paste! {
-                impl_into_sporad_request_ex!(spora_rpc_core::[<$name Request>],[<$name RequestMessage>],[<$name Request>]);
+                impl_into_rpc_request_ex!(spora_rpc_core::[<$name Request>],[<$name RequestMessage>],[<$name Request>]);
             }
         };
     }
 
-    use impl_into_sporad_request;
+    use impl_into_rpc_request;
 
-    macro_rules! impl_into_sporad_request_ex {
+    macro_rules! impl_into_rpc_request_ex {
         // ($($core_struct:ident)::+, $($protowire_struct:ident)::+, $($variant:ident)::+) => {
         ($core_struct:path, $protowire_struct:ident, $variant:ident) => {
             // ----------------------------------------------------------------------------
             // rpc_core to protowire
             // ----------------------------------------------------------------------------
 
-            impl From<&$core_struct> for sporad_request::Payload {
+            impl From<&$core_struct> for rpc_request::Payload {
                 fn from(item: &$core_struct) -> Self {
                     Self::$variant(item.into())
                 }
             }
 
-            impl From<&$core_struct> for SporadRequest {
+            impl From<&$core_struct> for RpcRequest {
                 fn from(item: &$core_struct) -> Self {
                     Self { id: 0, payload: Some(item.into()) }
                 }
             }
 
-            impl From<$core_struct> for sporad_request::Payload {
+            impl From<$core_struct> for rpc_request::Payload {
                 fn from(item: $core_struct) -> Self {
                     Self::$variant((&item).into())
                 }
             }
 
-            impl From<$core_struct> for SporadRequest {
+            impl From<$core_struct> for RpcRequest {
                 fn from(item: $core_struct) -> Self {
                     Self { id: 0, payload: Some((&item).into()) }
                 }
@@ -127,10 +126,10 @@ pub mod sporad_request_convert {
             // protowire to rpc_core
             // ----------------------------------------------------------------------------
 
-            impl TryFrom<&sporad_request::Payload> for $core_struct {
+            impl TryFrom<&rpc_request::Payload> for $core_struct {
                 type Error = RpcError;
-                fn try_from(item: &sporad_request::Payload) -> RpcResult<Self> {
-                    if let sporad_request::Payload::$variant(request) = item {
+                fn try_from(item: &rpc_request::Payload) -> RpcResult<Self> {
+                    if let rpc_request::Payload::$variant(request) = item {
                         request.try_into()
                     } else {
                         Err(RpcError::MissingRpcFieldError("Payload".to_string(), stringify!($variant).to_string()))
@@ -138,9 +137,9 @@ pub mod sporad_request_convert {
                 }
             }
 
-            impl TryFrom<&SporadRequest> for $core_struct {
+            impl TryFrom<&RpcRequest> for $core_struct {
                 type Error = RpcError;
-                fn try_from(item: &SporadRequest) -> RpcResult<Self> {
+                fn try_from(item: &RpcRequest) -> RpcResult<Self> {
                     item.payload
                         .as_ref()
                         .ok_or(RpcError::MissingRpcFieldError("SporaRequest".to_string(), "Payload".to_string()))?
@@ -148,100 +147,99 @@ pub mod sporad_request_convert {
                 }
             }
 
-            impl From<$protowire_struct> for SporadRequest {
+            impl From<$protowire_struct> for RpcRequest {
                 fn from(item: $protowire_struct) -> Self {
-                    Self { id: 0, payload: Some(sporad_request::Payload::$variant(item)) }
+                    Self { id: 0, payload: Some(rpc_request::Payload::$variant(item)) }
                 }
             }
 
-            impl From<$protowire_struct> for sporad_request::Payload {
+            impl From<$protowire_struct> for rpc_request::Payload {
                 fn from(item: $protowire_struct) -> Self {
-                    sporad_request::Payload::$variant(item)
+                    rpc_request::Payload::$variant(item)
                 }
             }
         };
     }
-    use impl_into_sporad_request_ex;
+    use impl_into_rpc_request_ex;
 }
 
-pub mod sporad_response_convert {
+pub mod rpc_response_convert {
     use crate::protowire::*;
     use spora_rpc_core::{RpcError, RpcResult};
 
-    impl_into_sporad_response!(Shutdown);
-    impl_into_sporad_response!(SubmitBlock);
-    impl_into_sporad_response!(GetBlockTemplate);
-    impl_into_sporad_response!(GetBlock);
-    impl_into_sporad_response!(GetBlockStatus);
-    impl_into_sporad_response!(GetTransaction);
-    impl_into_sporad_response!(GetInfo);
-    impl_into_sporad_response!(GetCurrentNetwork);
+    impl_into_rpc_response!(Shutdown);
+    impl_into_rpc_response!(SubmitBlock);
+    impl_into_rpc_response!(GetBlockTemplate);
+    impl_into_rpc_response!(GetBlock);
+    impl_into_rpc_response!(GetBlockStatus);
+    impl_into_rpc_response!(GetTransaction);
+    impl_into_rpc_response!(GetInfo);
+    impl_into_rpc_response!(GetCurrentNetwork);
 
-    impl_into_sporad_response!(GetPeerAddresses);
-    impl_into_sporad_response!(GetSink);
-    impl_into_sporad_response!(GetMempoolEntry);
-    impl_into_sporad_response!(GetMempoolEntries);
-    impl_into_sporad_response!(GetConnectedPeerInfo);
-    impl_into_sporad_response!(AddPeer);
-    impl_into_sporad_response!(SubmitTransaction);
-    impl_into_sporad_response!(SubmitTransactionReplacement);
-    impl_into_sporad_response!(GetSubnetwork);
-    impl_into_sporad_response!(GetVirtualChainFromBlock);
-    impl_into_sporad_response!(GetBlocks);
-    impl_into_sporad_response!(GetBlockCount);
-    impl_into_sporad_response!(GetBlockDagInfo);
-    impl_into_sporad_response!(ResolveFinalityConflict);
-    impl_into_sporad_response!(GetHeader);
-    impl_into_sporad_response!(GetHeaders);
-    impl_into_sporad_response!(GetCellsByAddress);
-    impl_into_sporad_response!(GetCellsByAddresses);
-    impl_into_sporad_response!(GetBalanceByAddress);
-    impl_into_sporad_response!(GetBalancesByAddresses);
-    impl_into_sporad_response!(GetSinkBlueScore);
-    impl_into_sporad_response!(Ban);
-    impl_into_sporad_response!(Unban);
-    impl_into_sporad_response!(EstimateNetworkHashesPerSecond);
-    impl_into_sporad_response!(GetMempoolEntriesByAddresses);
-    impl_into_sporad_response!(GetCoinSupply);
-    impl_into_sporad_response!(Ping);
-    impl_into_sporad_response!(GetMetrics);
-    impl_into_sporad_response!(GetConnections);
-    impl_into_sporad_response!(GetSystemInfo);
-    impl_into_sporad_response!(GetServerInfo);
-    impl_into_sporad_response!(GetSyncStatus);
-    impl_into_sporad_response!(GetDaaScoreTimestampEstimate);
-    impl_into_sporad_response!(GetFeeEstimate);
-    impl_into_sporad_response!(GetFeeEstimateExperimental);
-    impl_into_sporad_response!(GetCurrentBlockColor);
-    impl_into_sporad_response!(GetCellReturnAddress);
+    impl_into_rpc_response!(GetPeerAddresses);
+    impl_into_rpc_response!(GetSink);
+    impl_into_rpc_response!(GetMempoolEntry);
+    impl_into_rpc_response!(GetMempoolEntries);
+    impl_into_rpc_response!(GetConnectedPeerInfo);
+    impl_into_rpc_response!(AddPeer);
+    impl_into_rpc_response!(SubmitTransaction);
+    impl_into_rpc_response!(SubmitTransactionReplacement);
+    impl_into_rpc_response!(GetVirtualChainFromBlock);
+    impl_into_rpc_response!(GetBlocks);
+    impl_into_rpc_response!(GetBlockCount);
+    impl_into_rpc_response!(GetBlockDagInfo);
+    impl_into_rpc_response!(ResolveFinalityConflict);
+    impl_into_rpc_response!(GetHeader);
+    impl_into_rpc_response!(GetHeaders);
+    impl_into_rpc_response!(GetCellsByAddress);
+    impl_into_rpc_response!(GetCellsByAddresses);
+    impl_into_rpc_response!(GetBalanceByAddress);
+    impl_into_rpc_response!(GetBalancesByAddresses);
+    impl_into_rpc_response!(GetSinkBlueScore);
+    impl_into_rpc_response!(Ban);
+    impl_into_rpc_response!(Unban);
+    impl_into_rpc_response!(EstimateNetworkHashesPerSecond);
+    impl_into_rpc_response!(GetMempoolEntriesByAddresses);
+    impl_into_rpc_response!(GetCoinSupply);
+    impl_into_rpc_response!(Ping);
+    impl_into_rpc_response!(GetMetrics);
+    impl_into_rpc_response!(GetConnections);
+    impl_into_rpc_response!(GetSystemInfo);
+    impl_into_rpc_response!(GetServerInfo);
+    impl_into_rpc_response!(GetSyncStatus);
+    impl_into_rpc_response!(GetDaaScoreTimestampEstimate);
+    impl_into_rpc_response!(GetFeeEstimate);
+    impl_into_rpc_response!(GetFeeEstimateExperimental);
+    impl_into_rpc_response!(GetCurrentBlockColor);
+    impl_into_rpc_response!(GetCellReturnAddress);
 
-    impl_into_sporad_notify_response!(NotifyBlockAdded);
-    impl_into_sporad_notify_response!(NotifyNewBlockTemplate);
-    impl_into_sporad_notify_response!(NotifyCellsChanged);
-    impl_into_sporad_notify_response!(NotifyPruningPointCellSetOverride);
-    impl_into_sporad_notify_response!(NotifyFinalityConflict);
-    impl_into_sporad_notify_response!(NotifyVirtualDaaScoreChanged);
-    impl_into_sporad_notify_response!(NotifyVirtualChainChanged);
-    impl_into_sporad_notify_response!(NotifySinkBlueScoreChanged);
+    impl_into_rpc_notify_response!(NotifyBlockAdded);
+    impl_into_rpc_notify_response!(NotifyNewBlockTemplate);
+    impl_into_rpc_notify_response!(NotifyCellsChanged);
+    impl_into_rpc_notify_response!(NotifyPruningPointCellSetOverride);
+    impl_into_rpc_notify_response!(NotifyFinalityConflict);
+    impl_into_rpc_notify_response!(NotifyVirtualDaaScoreChanged);
+    impl_into_rpc_notify_response!(NotifyVirtualChainChanged);
+    impl_into_rpc_notify_response!(NotifySinkBlueScoreChanged);
 
-    impl_into_sporad_notify_response!(NotifyCellsChanged, StopNotifyingCellsChanged);
-    impl_into_sporad_notify_response!(NotifyPruningPointCellSetOverride, StopNotifyingPruningPointCellSetOverride);
+    impl_into_rpc_notify_response!(NotifyCellsChanged, StopNotifyingCellsChanged);
+    impl_into_rpc_notify_response!(NotifyPruningPointCellSetOverride, StopNotifyingPruningPointCellSetOverride);
 
-    macro_rules! impl_into_sporad_response {
+    macro_rules! impl_into_rpc_response {
         ($name:tt) => {
             paste::paste! {
-                impl_into_sporad_response_ex!(spora_rpc_core::[<$name Response>],[<$name ResponseMessage>],[<$name Response>]);
+                impl_into_rpc_response_ex!(spora_rpc_core::[<$name Response>],[<$name ResponseMessage>],[<$name Response>]);
             }
         };
         ($core_name:tt, $protowire_name:tt) => {
             paste::paste! {
-                impl_into_sporad_response_base!(spora_rpc_core::[<$core_name Response>],[<$protowire_name ResponseMessage>],[<$protowire_name Response>]);
+                impl_into_rpc_response_base!(spora_rpc_core::[<$core_name Response>],[<$protowire_name ResponseMessage>],[<$protowire_name Response>]);
             }
         };
     }
-    use impl_into_sporad_response;
+    use impl_into_rpc_response;
 
-    macro_rules! impl_into_sporad_response_base {
+    macro_rules! impl_into_rpc_response_base {
         ($core_struct:path, $protowire_struct:ident, $variant:ident) => {
             // ----------------------------------------------------------------------------
             // rpc_core to protowire
@@ -260,61 +258,61 @@ pub mod sporad_response_convert {
                 }
             }
 
-            impl From<$protowire_struct> for sporad_response::Payload {
+            impl From<$protowire_struct> for rpc_response::Payload {
                 fn from(item: $protowire_struct) -> Self {
-                    sporad_response::Payload::$variant(item)
+                    rpc_response::Payload::$variant(item)
                 }
             }
 
-            impl From<$protowire_struct> for SporadResponse {
+            impl From<$protowire_struct> for RpcResponse {
                 fn from(item: $protowire_struct) -> Self {
-                    Self { id: 0, payload: Some(sporad_response::Payload::$variant(item)) }
+                    Self { id: 0, payload: Some(rpc_response::Payload::$variant(item)) }
                 }
             }
         };
     }
-    use impl_into_sporad_response_base;
+    use impl_into_rpc_response_base;
 
-    macro_rules! impl_into_sporad_response_ex {
+    macro_rules! impl_into_rpc_response_ex {
         ($core_struct:path, $protowire_struct:ident, $variant:ident) => {
             // ----------------------------------------------------------------------------
             // rpc_core to protowire
             // ----------------------------------------------------------------------------
 
-            impl From<RpcResult<&$core_struct>> for sporad_response::Payload {
+            impl From<RpcResult<&$core_struct>> for rpc_response::Payload {
                 fn from(item: RpcResult<&$core_struct>) -> Self {
-                    sporad_response::Payload::$variant(item.into())
+                    rpc_response::Payload::$variant(item.into())
                 }
             }
 
-            impl From<RpcResult<&$core_struct>> for SporadResponse {
+            impl From<RpcResult<&$core_struct>> for RpcResponse {
                 fn from(item: RpcResult<&$core_struct>) -> Self {
                     Self { id: 0, payload: Some(item.into()) }
                 }
             }
 
-            impl From<RpcResult<$core_struct>> for sporad_response::Payload {
+            impl From<RpcResult<$core_struct>> for rpc_response::Payload {
                 fn from(item: RpcResult<$core_struct>) -> Self {
-                    sporad_response::Payload::$variant(item.into())
+                    rpc_response::Payload::$variant(item.into())
                 }
             }
 
-            impl From<RpcResult<$core_struct>> for SporadResponse {
+            impl From<RpcResult<$core_struct>> for RpcResponse {
                 fn from(item: RpcResult<$core_struct>) -> Self {
                     Self { id: 0, payload: Some(item.into()) }
                 }
             }
 
-            impl_into_sporad_response_base!($core_struct, $protowire_struct, $variant);
+            impl_into_rpc_response_base!($core_struct, $protowire_struct, $variant);
 
             // ----------------------------------------------------------------------------
             // protowire to rpc_core
             // ----------------------------------------------------------------------------
 
-            impl TryFrom<&sporad_response::Payload> for $core_struct {
+            impl TryFrom<&rpc_response::Payload> for $core_struct {
                 type Error = RpcError;
-                fn try_from(item: &sporad_response::Payload) -> RpcResult<Self> {
-                    if let sporad_response::Payload::$variant(response) = item {
+                fn try_from(item: &rpc_response::Payload) -> RpcResult<Self> {
+                    if let rpc_response::Payload::$variant(response) = item {
                         response.try_into()
                     } else {
                         Err(RpcError::MissingRpcFieldError("Payload".to_string(), stringify!($variant).to_string()))
@@ -322,9 +320,9 @@ pub mod sporad_response_convert {
                 }
             }
 
-            impl TryFrom<&SporadResponse> for $core_struct {
+            impl TryFrom<&RpcResponse> for $core_struct {
                 type Error = RpcError;
-                fn try_from(item: &SporadResponse) -> RpcResult<Self> {
+                fn try_from(item: &RpcResponse) -> RpcResult<Self> {
                     item.payload
                         .as_ref()
                         .ok_or(RpcError::MissingRpcFieldError("SporaResponse".to_string(), "Payload".to_string()))?
@@ -333,27 +331,27 @@ pub mod sporad_response_convert {
             }
         };
     }
-    use impl_into_sporad_response_ex;
+    use impl_into_rpc_response_ex;
 
-    macro_rules! impl_into_sporad_notify_response {
+    macro_rules! impl_into_rpc_notify_response {
         ($name:tt) => {
-            impl_into_sporad_response!($name);
+            impl_into_rpc_response!($name);
 
             paste::paste! {
-                impl_into_sporad_notify_response_ex!(spora_rpc_core::[<$name Response>],[<$name ResponseMessage>]);
+                impl_into_rpc_notify_response_ex!(spora_rpc_core::[<$name Response>],[<$name ResponseMessage>]);
             }
         };
         ($core_name:tt, $protowire_name:tt) => {
-            impl_into_sporad_response!($core_name, $protowire_name);
+            impl_into_rpc_response!($core_name, $protowire_name);
 
             paste::paste! {
-                impl_into_sporad_notify_response_ex!(spora_rpc_core::[<$core_name Response>],[<$protowire_name ResponseMessage>]);
+                impl_into_rpc_notify_response_ex!(spora_rpc_core::[<$core_name Response>],[<$protowire_name ResponseMessage>]);
             }
         };
     }
-    use impl_into_sporad_notify_response;
+    use impl_into_rpc_notify_response;
 
-    macro_rules! impl_into_sporad_notify_response_ex {
+    macro_rules! impl_into_rpc_notify_response_ex {
         ($($core_struct:ident)::+, $protowire_struct:ident) => {
             // ----------------------------------------------------------------------------
             // rpc_core to protowire
@@ -372,5 +370,5 @@ pub mod sporad_response_convert {
 
         };
     }
-    use impl_into_sporad_notify_response_ex;
+    use impl_into_rpc_notify_response_ex;
 }

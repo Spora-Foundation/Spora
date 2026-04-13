@@ -25,7 +25,7 @@ macro_rules! route {
                     }
                     let __self = self;
                     let __ret: RpcResult<[<$name Response>]> =
-                        { __self.inner.call(SporadPayloadOps::$name, request).await?.as_ref().try_into() };
+                        { __self.inner.call(RpcPayloadOps::$name, request).await?.as_ref().try_into() };
                     #[allow(unreachable_code)]
                     __ret
                 })

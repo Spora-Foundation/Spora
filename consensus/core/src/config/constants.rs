@@ -16,7 +16,7 @@ pub mod consensus {
     /// **Desired** upper bound on the probability of anticones larger than k
     pub const GHOSTDAG_TAIL_DELTA: f64 = 0.01;
 
-    /// **Legacy** default K for 1 BPS
+    /// Historical default K for 1 BPS
     pub const LEGACY_DEFAULT_GHOSTDAG_K: KType = 18;
 
     //
@@ -58,7 +58,7 @@ pub mod consensus {
     ///
     pub const MIN_DIFFICULTY_WINDOW_SIZE: usize = 150;
 
-    /// **Legacy** difficulty adjustment window size corresponding to ~44 minutes with 1 BPS
+    /// Historical difficulty adjustment window size corresponding to ~44 minutes with 1 BPS
     pub const LEGACY_DIFFICULTY_WINDOW_SIZE: usize = 2641;
 
     /// **New** difficulty window duration expressed in time units (seconds).
@@ -74,7 +74,7 @@ pub mod consensus {
     // ~~~~~~~~~~~~~~~~~~~ Finality & Pruning ~~~~~~~~~~~~~~~~~~~
     //
 
-    /// **Legacy** finality depth (in block units)
+    /// Historical finality depth (in block units)
     pub const LEGACY_FINALITY_DEPTH: u64 = 86_400;
 
     /// **New** finality duration expressed in time units (seconds).
@@ -83,7 +83,7 @@ pub mod consensus {
     /// **New** pruning duration expressed in time units (seconds).
     pub const NEW_PRUNING_DURATION: u64 = 108_000; // 30 hours
 
-    /// Merge depth bound duration (in seconds). For 1 BPS networks this equals the legacy depth
+    /// Merge depth bound duration (in seconds). For 1 BPS networks this equals the historical depth
     /// bound in block units. For higher BPS networks this should be scaled up.
     ///
     /// This number should be roughly equal to DAA window duration in order to prevent merging
@@ -110,7 +110,7 @@ pub mod consensus {
     // ~~~~~~~~~~~~~~~~~~~ Coinbase ~~~~~~~~~~~~~~~~~~~
     //
 
-    /// **Legacy** value of the coinbase maturity parameter for 1 BPS networks
+    /// Historical value of the coinbase maturity parameter for 1 BPS networks
     pub const LEGACY_COINBASE_MATURITY: u64 = 100;
 }
 

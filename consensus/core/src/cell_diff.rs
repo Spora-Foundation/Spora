@@ -3,7 +3,7 @@
 //
 // Cell state difference - tracks additions and removals of cells
 
-use crate::cell_metadata::PlaceholderCellMetadata;
+use crate::cell_metadata::EmbeddedCellMetadata;
 use crate::tx::TransactionOutpoint;
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
@@ -73,7 +73,7 @@ impl BlockCellDiff {
 /// - `add`: Cells created (new outputs)
 /// - `remove`: Cells consumed (spent inputs)
 ///
-/// This is the Cell model equivalent of the legacy transaction-output diff.
+/// This is the Cell model equivalent of the old transaction-output diff.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct CellDiff {
     /// Cells added (created outputs)
@@ -106,9 +106,6 @@ impl CellMeta {
     }
 
     /// Convenience constructor (without outpoint, which defaults to zero).
-    ///
-    /// This mirrors the old `CellEntry::from_cell_metadata` API used across
-    /// the codebase during the Cell migration.
     pub fn from_cell_metadata(
         capacity: u64,
         data_bytes: u64,
@@ -130,10 +127,9 @@ impl CellMeta {
         }
     }
 
-    /// Backward-compat: returns the embedded cell metadata.
-    /// CellMeta always carries complete metadata, so this always returns `Some`.
-    pub fn embedded_cell_metadata(&self) -> Option<PlaceholderCellMetadata> {
-        Some(PlaceholderCellMetadata {
+    /// Returns the compact metadata view embedded in this cell entry.
+    pub fn embedded_cell_metadata(&self) -> Option<EmbeddedCellMetadata> {
+        Some(EmbeddedCellMetadata {
             lock_hash: self.lock_hash,
             type_hash: self.type_hash,
             data_hash: self.data_hash,
@@ -141,12 +137,12 @@ impl CellMeta {
         })
     }
 
-    /// Backward-compat: returns capacity (same as the `capacity` field).
+    /// Returns capacity (same as the `capacity` field).
     pub fn capacity(&self) -> u64 {
         self.capacity
     }
 
-    /// Backward-compat alias: returns capacity (old CellEntry used `amount`).
+    /// Returns capacity using the account-facing `amount` name.
     pub fn amount(&self) -> u64 {
         self.capacity
     }
@@ -220,10 +216,8 @@ impl CellDiff {
         base.extend(self.add.clone());
     }
 
-    // apply_to_tree removed - use apply_diff_placeholder on CellStateTree instead
-
     /// Apply another diff to this diff (in-place composition)
-    /// Similar to the legacy transaction-output diff `with_diff_in_place`
+    /// Similar to the old transaction-output diff `with_diff_in_place`
     pub fn with_diff_in_place(&mut self, other: &CellDiff) -> Result<(), String> {
         // Apply removals from other
         for (outpoint, meta) in &other.remove {
@@ -259,7 +253,7 @@ impl CellDiff {
     }
 
     /// Create a reversed view of this diff (non-consuming)
-    /// Similar to the legacy transaction-output diff `as_reversed`
+    /// Similar to the old transaction-output diff `as_reversed`
     pub fn as_reversed(&self) -> Self {
         Self { add: self.remove.clone(), remove: self.add.clone() }
     }

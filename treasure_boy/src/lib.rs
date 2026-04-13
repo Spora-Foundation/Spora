@@ -17,14 +17,15 @@ use secp256k1::{
 use serde::{Deserialize, Serialize};
 use spora_addresses::{Address, Prefix, Version};
 use spora_bip32::{DerivationPath, ExtendedPrivateKey, Language, Mnemonic, WordCount};
+use spora_consensus_client::pay_to_address_lock_script;
 use spora_consensus_core::{
+    cell_diff::CellMeta,
     constants::SAU_PER_SPORA,
     sign::sign,
-    tx::{
-        compute_lock_hash_for_script, legacy_sequence_to_cell_since, pay_to_address_script, CellEntry, CellOut, CellRef, CellTx,
-        MutableTransaction, ScriptRef, TransactionOutpoint,
-    },
+    tx::{CellOut, CellRef, CellTx, MutableTransaction, TransactionOutpoint},
 };
+// Note: TransactionOutpoint and MutableTransaction are internal abstractions, not Kaspa legacy types.
+// They are used for transaction construction and signing workflows.
 use spora_core::{info, warn};
 use spora_grpc_client::GrpcClient;
 use spora_rpc_core::{api::rpc::RpcApi, RpcCellsByAddressesEntry};
@@ -309,7 +310,7 @@ pub async fn single_airdrop(
     rpc_client: &GrpcClient,
     fee_config: &TxsFeeConfig,
     network: NetworkType,
-) -> Result<Transaction, Box<dyn std::error::Error>> {
+) -> Result<CellTx, Box<dyn std::error::Error>> {
     info!("Starting single airdrop to: {}", String::from(&target_address));
 
     // Get live cells
@@ -321,7 +322,7 @@ pub async fn single_airdrop(
     }
 
     // Convert cell format
-    let cells: Vec<(TransactionOutpoint, CellEntry)> =
+    let cells: Vec<(TransactionOutpoint, CellMeta)> =
         rpc_cells.into_iter().map(|entry| (entry.outpoint.into(), entry.cell_entry.into())).collect();
 
     // Select cells
@@ -372,7 +373,7 @@ pub async fn batch_airdrop(
     fee_config: &TxsFeeConfig,
     threads: usize,
     network: NetworkType,
-) -> Result<Vec<Transaction>, Box<dyn std::error::Error>> {
+) -> Result<Vec<CellTx>, Box<dyn std::error::Error>> {
     info!("Starting batch airdrop to {} addresses", target_addresses.len());
 
     // Create address distribution tracker
@@ -383,7 +384,7 @@ pub async fn batch_airdrop(
     let rpc_cells = rpc_client.get_cells_by_addresses(vec![from_address.clone()]).await?;
 
     // Convert cell format
-    let cells: Vec<(TransactionOutpoint, CellEntry)> =
+    let cells: Vec<(TransactionOutpoint, CellMeta)> =
         rpc_cells.into_iter().map(|entry| (entry.outpoint.into(), entry.cell_entry.into())).collect();
 
     if cells.is_empty() {
@@ -515,21 +516,16 @@ pub fn estimated_mass(num_cells: usize, num_outs: u64) -> u64 {
 
 pub fn generate_tx(
     schnorr_key: Keypair,
-    cells: &[(TransactionOutpoint, CellEntry)],
+    cells: &[(TransactionOutpoint, CellMeta)],
     send_amount: u64,
     num_outs: u64,
     spora_addr: &Address,
 ) -> CellTx {
-    let script_public_key = pay_to_address_script(spora_addr);
-    let inputs = cells.iter().map(|(op, _)| CellRef::new(*op, legacy_sequence_to_cell_since(0))).collect_vec();
+    let lock_script = pay_to_address_lock_script(spora_addr);
+    let inputs = cells.iter().map(|(op, _)| CellRef::new(*op, 0)).collect_vec();
 
-    let outputs = (0..num_outs)
-        .map(|_| CellOut {
-            lock: ScriptRef::new(compute_lock_hash_for_script(&script_public_key), 0, script_public_key.script().to_vec()),
-            type_: None,
-            capacity: send_amount / num_outs,
-        })
-        .collect_vec();
+    let outputs =
+        (0..num_outs).map(|_| CellOut { lock: lock_script.clone(), type_: None, capacity: send_amount / num_outs }).collect_vec();
     let unsigned_tx = CellTx::new(inputs, vec![], outputs, vec![vec![]; num_outs as usize], vec![vec![]; cells.len()])
         .expect("treasure_boy generated transaction must be Cell-constructible");
     let signed_tx =
@@ -539,22 +535,19 @@ pub fn generate_tx(
 
 pub fn generate_multi_output_tx(
     schnorr_key: Keypair,
-    cells: &[(TransactionOutpoint, CellEntry)],
+    cells: &[(TransactionOutpoint, CellMeta)],
     send_amount: u64,
     target_addresses: &[&Address],
 ) -> CellTx {
-    let inputs = cells.iter().map(|(op, _)| CellRef::new(*op, legacy_sequence_to_cell_since(0))).collect_vec();
+    let inputs = cells.iter().map(|(op, _)| CellRef::new(*op, 0)).collect_vec();
 
     // Create an output for each target address
     let outputs = target_addresses
         .iter()
-        .map(|addr| {
-            let script_public_key = pay_to_address_script(addr);
-            CellOut {
-                lock: ScriptRef::new(compute_lock_hash_for_script(&script_public_key), 0, script_public_key.script().to_vec()),
-                type_: None,
-                capacity: send_amount / target_addresses.len() as u64,
-            }
+        .map(|addr| CellOut {
+            lock: pay_to_address_lock_script(addr),
+            type_: None,
+            capacity: send_amount / target_addresses.len() as u64,
         })
         .collect_vec();
 
@@ -566,13 +559,13 @@ pub fn generate_multi_output_tx(
 }
 
 pub fn select_cells(
-    cells: &[(TransactionOutpoint, CellEntry)],
+    cells: &[(TransactionOutpoint, CellMeta)],
     min_amount: u64,
     num_outs: u64,
     maximize_cells: bool,
     next_available_cell_index: &mut usize,
     fee_config: &TxsFeeConfig,
-) -> (Vec<(TransactionOutpoint, CellEntry)>, u64) {
+) -> (Vec<(TransactionOutpoint, CellMeta)>, u64) {
     const MAX_CELLS: usize = 84;
     let mut selected_amount: u64 = 0;
     let mut selected = Vec::new();
@@ -623,6 +616,7 @@ mod tests {
     use super::*;
     use secp256k1::{SecretKey, SECP256K1};
     use spora_bip32::{DerivationPath, ExtendedPrivateKey, Language, Mnemonic, WordCount};
+    use spora_consensus_core::cell_diff::CellMeta;
     use std::str::FromStr;
 
     #[test]
@@ -784,22 +778,27 @@ mod tests {
         let addr =
             Address::new(Prefix::Devnet, Version::PubKey, &public_key.x_only_public_key().0.serialize()).expect("Valid address");
 
+        let outpoint = TransactionOutpoint { tx_hash: spora_consensus_core::Hash::from_bytes([0xFF; 32]).as_bytes(), index: 0 };
         let cells = vec![(
-            TransactionOutpoint { tx_hash: spora_consensus_core::Hash::from_bytes([0xFF; 32]).as_bytes(), index: 0 },
-            cell_meta_from_legacy_output(
-                1000000,
-                &spora_consensus_core::tx::ScriptPublicKey::from_vec(0, vec![0xff; 35]),
-                1000,
-                false,
-            ),
+            outpoint,
+            CellMeta {
+                out_point: outpoint,
+                capacity: 1000000,
+                data_bytes: 0,
+                lock_hash: [0xff; 32],
+                type_hash: None,
+                data_hash: [0; 32],
+                block_daa_score: 1000,
+                is_cellbase: false,
+            },
         )];
 
         let tx = generate_tx(keypair, &cells, 100000, 2, &addr);
 
         assert_eq!(tx.inputs.len(), 1);
         assert_eq!(tx.outputs.len(), 2);
-        assert_eq!(tx.outputs[0].value, 50000);
-        assert_eq!(tx.outputs[1].value, 50000);
+        assert_eq!(tx.outputs[0].capacity, 50000);
+        assert_eq!(tx.outputs[1].capacity, 50000);
     }
 
     #[test]
@@ -810,14 +809,19 @@ mod tests {
             Address::new(Prefix::Devnet, Version::PubKey, &public_key.x_only_public_key().0.serialize()).expect("Valid address");
         let addr2 = Address::new(Prefix::Devnet, Version::PubKey, &[0x42; 32]).expect("Valid address");
 
+        let outpoint = TransactionOutpoint { tx_hash: spora_consensus_core::Hash::from_bytes([0xFF; 32]).as_bytes(), index: 0 };
         let cells = vec![(
-            TransactionOutpoint { tx_hash: spora_consensus_core::Hash::from_bytes([0xFF; 32]).as_bytes(), index: 0 },
-            cell_meta_from_legacy_output(
-                1000000,
-                &spora_consensus_core::tx::ScriptPublicKey::from_vec(0, vec![0xff; 35]),
-                1000,
-                false,
-            ),
+            outpoint,
+            CellMeta {
+                out_point: outpoint,
+                capacity: 1000000,
+                data_bytes: 0,
+                lock_hash: [0xff; 32],
+                type_hash: None,
+                data_hash: [0; 32],
+                block_daa_score: 1000,
+                is_cellbase: false,
+            },
         )];
 
         let target_addresses = vec![&addr1, &addr2];
@@ -825,30 +829,40 @@ mod tests {
 
         assert_eq!(tx.inputs.len(), 1);
         assert_eq!(tx.outputs.len(), 2);
-        assert_eq!(tx.outputs[0].value, 50000);
-        assert_eq!(tx.outputs[1].value, 50000);
+        assert_eq!(tx.outputs[0].capacity, 50000);
+        assert_eq!(tx.outputs[1].capacity, 50000);
     }
 
     #[test]
     fn test_select_cells() {
+        let outpoint1 = TransactionOutpoint { tx_hash: spora_consensus_core::Hash::from_bytes([0x01; 32]).as_bytes(), index: 0 };
+        let outpoint2 = TransactionOutpoint { tx_hash: spora_consensus_core::Hash::from_bytes([0x02; 32]).as_bytes(), index: 0 };
         let cells = vec![
             (
-                TransactionOutpoint { tx_hash: spora_consensus_core::Hash::from_bytes([0x01; 32]).as_bytes(), index: 0 },
-                cell_meta_from_legacy_output(
-                    100000,
-                    &spora_consensus_core::tx::ScriptPublicKey::from_vec(0, vec![0xff; 35]),
-                    1000,
-                    false,
-                ),
+                outpoint1,
+                CellMeta {
+                    out_point: outpoint1,
+                    capacity: 100000,
+                    data_bytes: 0,
+                    lock_hash: [0xff; 32],
+                    type_hash: None,
+                    data_hash: [0; 32],
+                    block_daa_score: 1000,
+                    is_cellbase: false,
+                },
             ),
             (
-                TransactionOutpoint { tx_hash: spora_consensus_core::Hash::from_bytes([0x02; 32]).as_bytes(), index: 0 },
-                cell_meta_from_legacy_output(
-                    200000,
-                    &spora_consensus_core::tx::ScriptPublicKey::from_vec(0, vec![0xff; 35]),
-                    1000,
-                    false,
-                ),
+                outpoint2,
+                CellMeta {
+                    out_point: outpoint2,
+                    capacity: 200000,
+                    data_bytes: 0,
+                    lock_hash: [0xff; 32],
+                    type_hash: None,
+                    data_hash: [0; 32],
+                    block_daa_score: 1000,
+                    is_cellbase: false,
+                },
             ),
         ];
 
@@ -874,7 +888,6 @@ mod tests {
                 lock_hash: [0xff; 32],
                 type_hash: None,
                 data_hash: [0; 32],
-                script_public_key: spora_consensus_core::tx::ScriptPublicKey::from_vec(0, vec![0xff; 35]),
                 block_daa_score: 1000,
                 is_coinbase: false,
             },

@@ -59,10 +59,10 @@ pub(crate) struct TransactionsPool {
     /// for all current transactions in this collection.
     all_transactions: MempoolTransactionCollection,
 
-    /// Index from Cell transaction ids back to legacy transaction ids stored by the mempool.
+    /// Index from Cell transaction ids back to mempool transaction ids.
     cell_transaction_ids: CellTransactionIndex,
 
-    /// Index from Cell transaction witness ids back to legacy transaction ids stored by the mempool.
+    /// Index from Cell transaction witness ids back to mempool transaction ids.
     cell_wtxids: HashMap<[u8; 32], TransactionId>,
 
     /// Transactions dependencies formed by inputs present in pool - ancestor relations.
@@ -85,7 +85,7 @@ pub(crate) struct TransactionsPool {
     /// Transitional store of mempool-owned Cell outpoints.
     cell_set: MempoolCellSet,
 
-    /// Cell-native mirror of the legacy transaction pool.
+    /// Cell-native mirror of the mempool transaction pool.
     cell_pool: CellPool,
 }
 
@@ -247,7 +247,7 @@ impl TransactionsPool {
     fn add_cell_mirror(&self, transaction: &mut MempoolTransaction) -> RuleResult<()> {
         let cell_tx = transaction
             .cell_tx()
-            .ok_or_else(|| RuleError::RejectCellMirror(transaction.id(), "legacy transaction conversion failed".to_string()))?;
+            .ok_or_else(|| RuleError::RejectCellMirror(transaction.id(), "cell transaction view construction failed".to_string()))?;
         let fee = transaction
             .mtx
             .calculated_fee
@@ -294,8 +294,8 @@ impl TransactionsPool {
         // This concerns only the parents of the added transaction.
         // The transactions chained to the added transaction cannot be stored
         // here yet since, by definition, they would have been orphans.
-        let legacy_parents = self.get_parent_transaction_ids_in_pool(&transaction.mtx);
-        let parent_cell_ids = self.build_parent_cell_id_context(&legacy_parents)?;
+        let parent_transaction_ids = self.get_parent_transaction_ids_in_pool(&transaction.mtx);
+        let parent_cell_ids = self.build_parent_cell_id_context(&parent_transaction_ids)?;
         transaction.refresh_cell_mirror_with_context(&parent_cell_ids);
         self.add_cell_mirror(&mut transaction)?;
         let parents = self.get_effective_parent_transaction_ids_in_pool(&transaction);
@@ -322,7 +322,7 @@ impl TransactionsPool {
     /// Fully removes the transaction from all relational sets, as well as from the transitional Cell set
     pub(crate) fn remove_transaction(&mut self, transaction_id: &TransactionId) -> RuleResult<MempoolTransaction> {
         let mut cell_dependents = Vec::new();
-        let legacy_chains = self.chained_transactions.get(transaction_id).cloned().unwrap_or_default();
+        let chained_children = self.chained_transactions.get(transaction_id).cloned().unwrap_or_default();
         if let Some(cell_wtxid) = self.all_transactions.get(transaction_id).and_then(|transaction| transaction.cell_wtxid()) {
             cell_dependents = self.cell_pool.get(&cell_wtxid).map(|entry| entry.dependents).unwrap_or_default();
             self.cell_pool.remove(&cell_wtxid).map_err(|err| RuleError::RejectCellMirror(*transaction_id, err.to_string()))?;
@@ -368,7 +368,7 @@ impl TransactionsPool {
         self.estimated_size -= removed_tx.mtx.mempool_estimated_bytes();
 
         let mut maybe_ready = TransactionIdSet::new();
-        maybe_ready.extend(legacy_chains.iter().copied());
+        maybe_ready.extend(chained_children.iter().copied());
         for child_wtxid in cell_dependents {
             if let Some(child_id) = self.cell_wtxids.get(&child_wtxid).copied() {
                 maybe_ready.insert(child_id);
@@ -398,12 +398,12 @@ impl TransactionsPool {
             self.cell_wtxids.remove(&previous_cell_wtxid);
         }
 
-        let legacy_parent_ids = if let Some(existing) = self.all_transactions.get(&transaction_id) {
+        let parent_transaction_ids = if let Some(existing) = self.all_transactions.get(&transaction_id) {
             self.get_parent_transaction_ids_in_pool(&existing.mtx)
         } else {
             return false;
         };
-        let parent_cell_ids = match self.build_parent_cell_id_context(&legacy_parent_ids) {
+        let parent_cell_ids = match self.build_parent_cell_id_context(&parent_transaction_ids) {
             Ok(parent_cell_ids) => parent_cell_ids,
             Err(_) => return false,
         };
@@ -646,31 +646,17 @@ impl Pool for TransactionsPool {
 mod tests {
     use super::*;
     use crate::cell_conversion::cell_output_to_placeholder_entry;
-    use smallvec::smallvec;
     use spora_consensus_core::{
         mass::{ContextualMasses, NonContextualMasses},
-        tx::{CellOut, CellRef, CellTx, MutableTransaction, ScriptPublicKey, ScriptRef, TransactionId, TransactionOutpoint},
+        tx::{CellOut, CellRef, CellTx, MutableTransaction, ScriptRef, TransactionId, TransactionOutpoint},
     };
 
     fn build_test_mtx() -> MutableTransaction {
-        let script_public_key = ScriptPublicKey::new(0, smallvec![0x51]);
+        let lock_script = ScriptRef::new([0; 32], 0, vec![0x51]);
         let input = CellRef::new(TransactionOutpoint::new(TransactionId::default().as_bytes(), 0), 0);
-        let output = CellOut {
-            lock: ScriptRef::new(crate::cell_conversion::compute_lock_hash(&script_public_key), 0, vec![]),
-            type_: None,
-            capacity: 9_000,
-        };
+        let output = CellOut { lock: lock_script.clone(), type_: None, capacity: 9_000 };
         let tx = Arc::new(CellTx::new(vec![input], vec![], vec![output], vec![vec![]], vec![vec![1, 2, 3]]).unwrap());
-        let entry = cell_output_to_placeholder_entry(
-            &CellOut {
-                lock: ScriptRef::new(crate::cell_conversion::compute_lock_hash(&script_public_key), 0, vec![]),
-                type_: None,
-                capacity: 10_000,
-            },
-            &[],
-            0,
-            false,
-        );
+        let entry = cell_output_to_placeholder_entry(&CellOut { lock: lock_script, type_: None, capacity: 10_000 }, &[], 0, false);
         let mut mtx = MutableTransaction::with_entries(tx, vec![entry]);
         mtx.calculated_fee = Some(1_000);
         mtx.calculated_non_contextual_masses = Some(NonContextualMasses::new(100, 50));
@@ -680,24 +666,11 @@ mod tests {
     }
 
     fn build_child_mtx(parent_id: TransactionId) -> MutableTransaction {
-        let script_public_key = ScriptPublicKey::new(0, smallvec![0x51]);
+        let lock_script = ScriptRef::new([0; 32], 0, vec![0x51]);
         let input = CellRef::new(TransactionOutpoint::new(parent_id.as_bytes(), 0), 0);
-        let output = CellOut {
-            lock: ScriptRef::new(crate::cell_conversion::compute_lock_hash(&script_public_key), 0, vec![]),
-            type_: None,
-            capacity: 8_000,
-        };
+        let output = CellOut { lock: lock_script.clone(), type_: None, capacity: 8_000 };
         let tx = Arc::new(CellTx::new(vec![input], vec![], vec![output], vec![vec![]], vec![vec![4, 5, 6]]).unwrap());
-        let entry = cell_output_to_placeholder_entry(
-            &CellOut {
-                lock: ScriptRef::new(crate::cell_conversion::compute_lock_hash(&script_public_key), 0, vec![]),
-                type_: None,
-                capacity: 9_000,
-            },
-            &[],
-            0,
-            false,
-        );
+        let entry = cell_output_to_placeholder_entry(&CellOut { lock: lock_script, type_: None, capacity: 9_000 }, &[], 0, false);
         let mut mtx = MutableTransaction::with_entries(tx, vec![entry]);
         mtx.calculated_fee = Some(1_000);
         mtx.calculated_non_contextual_masses = Some(NonContextualMasses::new(100, 50));

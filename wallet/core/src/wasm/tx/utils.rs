@@ -3,9 +3,8 @@ use crate::result::Result;
 use crate::tx::{IPaymentOutputArray, PaymentOutputs};
 use crate::wasm::tx::generator::*;
 use spora_consensus_client::*;
-use spora_consensus_core::tx::{
-    pay_to_address_script, CellEntry as ConsensusCellEntry, CellRef, CellTx, ScriptRef, SignableTransaction,
-};
+use spora_consensus_core::cell_diff::CellMeta;
+use spora_consensus_core::tx::{CellRef, CellTx, SignableTransaction};
 use spora_wallet_macros::declare_typescript_wasm_interface as declare;
 use spora_wasm_core::types::BinaryT;
 use workflow_core::runtime::is_web;
@@ -18,7 +17,6 @@ pub fn create_transaction_js(
     outputs: IPaymentOutputArray,
     priority_fee: BigInt,
     payload: Option<BinaryT>,
-    sig_op_count: Option<u8>,
 ) -> crate::result::Result<Transaction> {
     let cell_entries = if let Some(cell_entries) = cell_entry_source.dyn_ref::<js_sys::Array>() {
         cell_entries.to_vec().iter().map(CellEntryReference::try_owned_from).collect::<Result<Vec<_>, _>>()?
@@ -31,9 +29,6 @@ pub fn create_transaction_js(
         return Err(Error::custom("createTransaction() no longer supports transaction-level payload; attach data to Cell outputs"));
     }
     let outputs = PaymentOutputs::try_owned_from(outputs)?;
-    let sig_op_count = sig_op_count.unwrap_or(1);
-    let _ = sig_op_count;
-
     // ---
 
     let mut total_input_amount = 0;
@@ -56,13 +51,10 @@ pub fn create_transaction_js(
     let inputs_len = inputs.len();
     let outputs = outputs
         .iter()
-        .map(|output| {
-            let lock_script = pay_to_address_script(&output.address);
-            spora_consensus_core::tx::CellOut {
-                lock: ScriptRef::new(lock_script.hash(), 0, lock_script.script().to_vec()),
-                type_: None,
-                capacity: output.amount,
-            }
+        .map(|output| spora_consensus_core::tx::CellOut {
+            lock: pay_to_address_lock_script(&output.address),
+            type_: None,
+            capacity: output.amount,
         })
         .collect::<Vec<_>>();
     let witnesses = vec![vec![]; inputs_len];

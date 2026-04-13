@@ -17,7 +17,7 @@ pub mod reachability;
 pub mod relations;
 pub mod sync;
 
-// Legacy transaction validator fully removed - replaced with cell_validator
+// The transaction validator was fully replaced with cell_validator.
 // All transaction validation now uses CellValidator (see cell_validator/ module)
 
 pub mod traversal_manager;

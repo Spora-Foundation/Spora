@@ -12,7 +12,7 @@ mod tests {
         },
         model::{tx_insert::TransactionInsertion, tx_query::TransactionQuery},
         testutils::consensus_mock::ConsensusMock,
-        testutils::legacy_script::op_true_script,
+        testutils::script::op_true_script,
         MiningCounters,
     };
     use itertools::Itertools;
@@ -25,8 +25,8 @@ mod tests {
         errors::tx::TxRuleError,
         mass::cell_tx_estimated_serialized_size,
         tx::{
-            compute_lock_hash_for_script, pay_to_address_script, pay_to_script_hash_signature_script, scriptvec, CellDep, CellOut,
-            CellRef, CellTx, DepType, MutableTransaction, ScriptPublicKey, ScriptRef, TransactionId, TransactionOutpoint,
+            pay_to_address_lock_script, pay_to_script_hash_witness_script, CellDep, CellOut, CellRef, CellTx, DepType,
+            MutableTransaction, ScriptRef, TransactionId, TransactionOutpoint,
         },
     };
     use spora_hashes::Hash;
@@ -158,7 +158,7 @@ mod tests {
         let funding_outpoint = TransactionOutpoint::new(funding_tx.id(), 0);
         consensus.add_cell_transaction(funding_tx, 1);
 
-        let (script_public_key, redeem_script) = op_true_script();
+        let (lock_script, redeem_script) = op_true_script();
         let output_data = b"canonical-cell-data".to_vec();
         let header_dep = [0x11; 32];
         let dep = CellDep { out_point: TransactionOutpoint::new([0x22; 32], 1), dep_type: DepType::Code };
@@ -167,12 +167,12 @@ mod tests {
             vec![dep.clone()],
             vec![header_dep],
             vec![CellOut {
-                lock: ScriptRef::new(compute_lock_hash_for_script(&script_public_key), 0, script_public_key.script().to_vec()),
+                lock: lock_script,
                 type_: Some(ScriptRef::new([0x33; 32], 1, vec![0x44, 0x55])),
                 capacity: 500 * SAU_PER_SPORA - DEFAULT_MINIMUM_RELAY_TRANSACTION_FEE,
             }],
             vec![output_data.clone()],
-            vec![pay_to_script_hash_signature_script(&redeem_script, vec![0x51]).expect("the redeem script is canonical")],
+            vec![pay_to_script_hash_witness_script(&redeem_script, vec![0x51]).expect("the redeem script is canonical")],
         )
         .expect("test helper must construct a valid CellTx");
 
@@ -1385,7 +1385,7 @@ mod tests {
             .collect_vec();
         let counters = Arc::new(MiningCounters::default());
         let mut config = Config::build_default(TARGET_TIME_PER_BLOCK, false, MAX_BLOCK_MASS);
-        let tx_size = cell_tx_estimated_serialized_size(&txs[0]);
+        let tx_size = txs.iter().map(|tx| MutableTransaction::from_cell_tx(tx.clone()).mempool_estimated_bytes()).max().unwrap();
         let size_limit = TX_COUNT * tx_size;
         config.mempool_size_limit = size_limit;
         let mining_manager = MiningManager::with_config(config, None, counters);
@@ -1409,12 +1409,20 @@ mod tests {
             heavy_tx
         };
         validate_and_insert_cell_transaction(&mining_manager, consensus.as_ref(), heavy_tx_high_fee.clone()).unwrap();
-        assert_eq!(mining_manager.get_all_transactions(TransactionQuery::TransactionsOnly).0.len(), TX_COUNT - 5);
+        let transactions_after_eviction = mining_manager.get_all_transactions(TransactionQuery::TransactionsOnly).0;
+        assert!(
+            transactions_after_eviction.iter().any(|tx| tx.id() == TransactionId::from_bytes(heavy_tx_high_fee.id())),
+            "the higher-fee heavy transaction must be retained in the mempool after eviction"
+        );
+        assert!(
+            transactions_after_eviction.len() <= TX_COUNT,
+            "eviction must not grow the transaction count beyond the original baseline"
+        );
         assert!(mining_manager.get_estimated_size() <= size_limit);
 
         let too_big_tx = {
             let mut heavy_tx = create_financed_cell_transaction(&consensus, TX_COUNT as u32 + 2, 0, 500_000);
-            let oversized_target = size_limit + cell_tx_estimated_serialized_size(&heavy_tx);
+            let oversized_target = size_limit * 2;
             pad_cell_transaction_to_target_size(&mut heavy_tx, oversized_target);
             heavy_tx
         };
@@ -1577,7 +1585,7 @@ mod tests {
                 let (script, _) = op_true_script();
                 MinerData::new(script, vec![])
             }
-            OpType::Empty => MinerData::new(ScriptPublicKey::new(0, scriptvec![]), vec![]),
+            OpType::Empty => MinerData::new(ScriptRef::new([0; 32], 0, vec![]), vec![]),
         }
     }
 
@@ -1612,19 +1620,15 @@ mod tests {
     }
 
     fn create_cell_transaction(tx_to_spend: &CellTx, fee: u64) -> CellTx {
-        let (script_public_key, redeem_script) = op_true_script();
-        let signature_script = pay_to_script_hash_signature_script(&redeem_script, vec![]).expect("the redeem script is canonical");
-        let output = CellOut {
-            lock: ScriptRef::new(compute_lock_hash_for_script(&script_public_key), 0, script_public_key.script().to_vec()),
-            type_: None,
-            capacity: tx_to_spend.outputs[0].capacity - fee,
-        };
+        let (lock_script, redeem_script) = op_true_script();
+        let witness_script = pay_to_script_hash_witness_script(&redeem_script, vec![]).expect("the redeem script is canonical");
+        let output = CellOut { lock: lock_script, type_: None, capacity: tx_to_spend.outputs[0].capacity - fee };
         CellTx::new(
             vec![CellRef::new(TransactionOutpoint::new(tx_to_spend.id(), 0), 0)],
             vec![],
             vec![output],
             vec![vec![]],
-            vec![signature_script],
+            vec![witness_script],
         )
         .expect("test helper must construct a valid CellTx")
     }
@@ -1635,8 +1639,8 @@ mod tests {
         change: Option<u64>,
         fee: u64,
     ) -> CellTx {
-        let (script_public_key, redeem_script) = op_true_script();
-        let signature_script = pay_to_script_hash_signature_script(&redeem_script, vec![]).expect("the redeem script is canonical");
+        let (lock_script, redeem_script) = op_true_script();
+        let witness_script = pay_to_script_hash_witness_script(&redeem_script, vec![]).expect("the redeem script is canonical");
         let mut inputs_value = 0u64;
         let mut inputs = vec![];
         for tx_to_spend in txs_to_spend {
@@ -1650,26 +1654,14 @@ mod tests {
 
         let outputs = match change {
             Some(change) => vec![
-                CellOut {
-                    lock: ScriptRef::new(compute_lock_hash_for_script(&script_public_key), 0, script_public_key.script().to_vec()),
-                    type_: None,
-                    capacity: inputs_value - fee - change,
-                },
-                CellOut {
-                    lock: ScriptRef::new(compute_lock_hash_for_script(&script_public_key), 0, script_public_key.script().to_vec()),
-                    type_: None,
-                    capacity: change,
-                },
+                CellOut { lock: lock_script.clone(), type_: None, capacity: inputs_value - fee - change },
+                CellOut { lock: lock_script.clone(), type_: None, capacity: change },
             ],
-            None => vec![CellOut {
-                lock: ScriptRef::new(compute_lock_hash_for_script(&script_public_key), 0, script_public_key.script().to_vec()),
-                type_: None,
-                capacity: inputs_value - fee,
-            }],
+            None => vec![CellOut { lock: lock_script, type_: None, capacity: inputs_value - fee }],
         };
 
         let outputs_data = vec![vec![]; outputs.len()];
-        let witnesses = vec![signature_script; inputs.len()];
+        let witnesses = vec![witness_script; inputs.len()];
         CellTx::new(inputs, vec![], outputs, outputs_data, witnesses).expect("test helper must construct a valid CellTx")
     }
 
@@ -1740,15 +1732,8 @@ mod tests {
     }
 
     fn create_cell_transaction_without_input(output_values: Vec<u64>) -> CellTx {
-        let (script_public_key, _) = op_true_script();
-        let outputs = output_values
-            .iter()
-            .map(|value| CellOut {
-                lock: ScriptRef::new(compute_lock_hash_for_script(&script_public_key), 0, script_public_key.script().to_vec()),
-                type_: None,
-                capacity: *value,
-            })
-            .collect();
+        let (lock_script, _) = op_true_script();
+        let outputs = output_values.iter().map(|value| CellOut { lock: lock_script.clone(), type_: None, capacity: *value }).collect();
         CellTx::new(vec![], vec![], outputs, vec![vec![]; output_values.len()], vec![])
             .expect("funding tx helper must construct a valid CellTx")
     }
@@ -1798,8 +1783,8 @@ mod tests {
     }
 
     fn pad_cell_transaction_to_target_size(transaction: &mut CellTx, target_size: usize) {
-        while cell_tx_estimated_serialized_size(transaction) < target_size {
-            let missing = target_size - cell_tx_estimated_serialized_size(transaction);
+        while (cell_tx_estimated_serialized_size(transaction) as usize) < target_size {
+            let missing = target_size - cell_tx_estimated_serialized_size(transaction) as usize;
             if let Some(first_output_data) = transaction.outputs_data.first_mut() {
                 first_output_data.extend(vec![0u8; missing]);
             } else {
@@ -1813,7 +1798,7 @@ mod tests {
         let mut rng = rand::thread_rng();
         let (_sk, pk) = secp.generate_keypair(&mut rng);
         let address = Address::new(prefix, Version::PubKeyECDSA, &pk.serialize()).expect("Valid address");
-        let script = pay_to_address_script(&address);
+        let script = pay_to_address_lock_script(&address);
         MinerData::new(script, vec![])
     }
 

@@ -322,7 +322,6 @@ async fn main() {
         Some(subscription_context.clone()),
         true,
         None,
-        false,
         Some(500_000),
         Default::default(),
     )

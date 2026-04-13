@@ -17,7 +17,7 @@ use spora_consensus::params::Params;
 use spora_consensus_core::{
     constants::SAU_PER_SPORA,
     network::NetworkType,
-    tx::{pay_to_address_script, Transaction},
+    tx::{pay_to_address_lock_script, Transaction},
 };
 use spora_core::{debug, info};
 use spora_notify::{
@@ -82,7 +82,7 @@ async fn bench_bbt_latency() {
     let prealloc_address =
         Address::new(NetworkType::Simnet.into(), spora_addresses::Version::PubKey, &prealloc_pk.x_only_public_key().0.serialize());
     let schnorr_key = secp256k1::Keypair::from_secret_key(secp256k1::SECP256K1, &prealloc_sk);
-    let spk = pay_to_address_script(&prealloc_address);
+    let lock_script = pay_to_address_lock_script(&prealloc_address);
 
     let args = Args {
         simnet: true,
@@ -98,7 +98,7 @@ async fn bench_bbt_latency() {
     let params: Params = network.into();
 
     let cellset = args.generate_prealloc_cells(args.num_prealloc_cells.unwrap());
-    let txs = common::utils::generate_tx_dag(cellset.clone(), schnorr_key, spk, TX_COUNT / TX_LEVEL_WIDTH, TX_LEVEL_WIDTH);
+    let txs = common::utils::generate_tx_dag(cellset.clone(), schnorr_key, lock_script, TX_COUNT / TX_LEVEL_WIDTH, TX_LEVEL_WIDTH);
     common::utils::verify_tx_dag(&cellset, &txs);
     info!("Generated overall {} txs", txs.len());
 
@@ -330,7 +330,7 @@ async fn bench_bbt_latency_2() {
     let prealloc_address =
         Address::new(NetworkType::Simnet.into(), spora_addresses::Version::PubKey, &prealloc_pk.x_only_public_key().0.serialize());
     let schnorr_key = secp256k1::Keypair::from_secret_key(secp256k1::SECP256K1, &prealloc_sk);
-    let spk = pay_to_address_script(&prealloc_address);
+    let lock_script = pay_to_address_lock_script(&prealloc_address);
 
     let args = ArgsBuilder::simnet(TX_LEVEL_WIDTH as u64 * CONTRACT_FACTOR, 500)
         .prealloc_address(prealloc_address)
@@ -341,7 +341,7 @@ async fn bench_bbt_latency_2() {
     let params: Params = network.into();
 
     let cellset = args.generate_prealloc_cells(args.num_prealloc_cells.unwrap());
-    let txs = common::utils::generate_tx_dag(cellset.clone(), schnorr_key, spk, TX_COUNT / TX_LEVEL_WIDTH, TX_LEVEL_WIDTH);
+    let txs = common::utils::generate_tx_dag(cellset.clone(), schnorr_key, lock_script, TX_COUNT / TX_LEVEL_WIDTH, TX_LEVEL_WIDTH);
     common::utils::verify_tx_dag(&cellset, &txs);
     info!("Generated overall {} txs", txs.len());
 

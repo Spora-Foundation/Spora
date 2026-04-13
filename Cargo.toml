@@ -333,10 +333,19 @@ workflow-wasm = { version = "0.18.0" }
 # https://github.com/aspectron/nw-sys
 # nw-sys = { path = "../nw-sys" }
 
+[patch.crates-io]
+workflow-perf-monitor = { path = "vendor/workflow-perf-monitor" }
+
 [profile.release]
 lto = "thin"
 strip = true
 overflow-checks = true
+
+[profile.bench]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+overflow-checks = false
 
 [profile.heap]
 inherits = "release"

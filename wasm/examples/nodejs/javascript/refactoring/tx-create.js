@@ -86,14 +86,13 @@ spora.init_console_panic_hook();
     ];
 
     const cellEntryList = [];
-    const inputs = cells.map((cell, sequence) => {
+    const inputs = cells.map((cell, since) => {
         cellEntryList.push(cell.data);
 
         return new TransactionInput({
             previousOutpoint: cell.data.outpoint,
-            signatureScript: [],
-            sequence,
-            sigOpCount: 0
+            witness: [],
+            since
         });
     });
 
@@ -103,13 +102,8 @@ spora.init_console_panic_hook();
     console.log("outputs", outputs);
     console.log("cellEntries:", cellEntries.items);
 
-    // let outputs = [
-    //     new spora.TransactionOutput(300n, new spora.ScriptPublicKey(0, keypair3.publicKey)),
-    //     {
-    //         value: 300n,
-    //         scriptPublicKey : new spora.ScriptPublicKey(0, keypair3.publicKey)
-    //     },
-    // ];
+    // Outputs are canonical CellOut values now; construct a lock script directly if you
+    // want to build them by hand instead of using address-based helpers.
 
     let transaction = new Transaction({
         inputs,

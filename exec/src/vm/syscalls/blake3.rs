@@ -5,6 +5,7 @@
 //
 // This syscall is NOT in CKB, it's our addition for Spora
 
+use super::BLAKE3_HASH_SYSCALL_NUMBER;
 use ckb_vm::{
     registers::{A0, A2, A3, A7},
     Error as VMError, Memory, Register, SupportMachine, Syscalls,
@@ -41,7 +42,7 @@ impl<M: SupportMachine> Syscalls<M> for Blake3Hash {
         let syscall_number = machine.registers()[A7].to_u64();
 
         // BLAKE3_HASH = 3001 (Spora extension)
-        if syscall_number != 3001 {
+        if syscall_number != BLAKE3_HASH_SYSCALL_NUMBER {
             return Ok(false);
         }
 

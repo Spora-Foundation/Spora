@@ -181,10 +181,6 @@ impl Account for Bip32 {
         self
     }
 
-    fn sig_op_count(&self) -> u8 {
-        1
-    }
-
     fn minimum_signatures(&self) -> u16 {
         1
     }

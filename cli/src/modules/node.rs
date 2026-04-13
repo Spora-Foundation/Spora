@@ -155,7 +155,7 @@ impl Node {
                 } else {
                     tprintln!(ctx, "{}", style("node is unmuted").dim());
                 }
-                // Sporad.mute(mute).await?;
+                // node_daemon.mute(mute).await?;
                 self.settings.set(SporadSettings::Mute, mute).await?;
             }
             "status" => {
@@ -185,8 +185,8 @@ impl Node {
     async fn display_help(self: Arc<Self>, ctx: Arc<SporaCli>, _argv: Vec<String>) -> Result<()> {
         ctx.term().help(
             &[
-                ("select", "Select Sporad executable (binary) location"),
-                ("version", "Display Sporad executable version"),
+                ("select", "Select node executable (binary) location"),
+                ("version", "Display node executable version"),
                 ("start", "Start the local Spora node instance"),
                 ("stop", "Stop the local Spora node instance"),
                 ("restart", "Restart the local Spora node instance"),
@@ -208,10 +208,10 @@ impl Node {
                 let binaries = spora_daemon::locate_binaries(root.as_str(), "Sporad").await?;
 
                 if binaries.is_empty() {
-                    tprintln!(ctx, "No Sporad binaries found");
+                    tprintln!(ctx, "No node binaries found");
                 } else {
                     let binaries = binaries.iter().map(|p| p.display().to_string()).collect::<Vec<_>>();
-                    if let Some(selection) = ctx.term().select("Please select a Sporad binary", &binaries).await? {
+                    if let Some(selection) = ctx.term().select("Please select a node binary", &binaries).await? {
                         tprintln!(ctx, "selecting: {}", selection);
                         self.settings.set(SporadSettings::Location, selection.as_str()).await?;
                     } else {
@@ -227,7 +227,7 @@ impl Node {
                     self.settings.set(SporadSettings::Location, path.as_str()).await?;
                 } else {
                     twarnln!(ctx, "destination binary not found, please specify full path including the binary name");
-                    twarnln!(ctx, "example: 'node select /home/user/testnet/Sporad'");
+                    twarnln!(ctx, "example: 'node select /home/user/testnet/sporad'");
                     tprintln!(ctx, "no selection is made");
                 }
             }
@@ -245,12 +245,12 @@ impl Node {
                 term.refresh_prompt();
             }
             Event::Exit(_code) => {
-                tprintln!(ctx, "Sporad has exited");
+                tprintln!(ctx, "node has exited");
                 self.is_running.store(false, Ordering::SeqCst);
                 term.refresh_prompt();
             }
             Event::Error(error) => {
-                tprintln!(ctx, "{}", style(format!("Sporad error: {error}")).red());
+                tprintln!(ctx, "{}", style(format!("node error: {error}")).red());
                 self.is_running.store(false, Ordering::SeqCst);
                 term.refresh_prompt();
             }

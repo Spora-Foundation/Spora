@@ -1,45 +1,36 @@
 # Spora 共识架构 V2 RFC 摘要
 
-- 日期: 2026-04-11
-- 状态: Draft for Review
+- 日期: 2026-04-13
+- 文档版本: v2.0
+- 状态: 已按当前实现审计更新
 - 正文: [spora_consensus_architecture_v2.md](/Users/arthur/RustroverProjects/Spora/docs/spora_consensus_architecture_v2.md)
 - 差距清单: [spora_consensus_v2_gap_analysis.md](/Users/arthur/RustroverProjects/Spora/docs/spora_consensus_v2_gap_analysis.md)
 - Issue 清单: [spora_consensus_v2_issue_list.md](/Users/arthur/RustroverProjects/Spora/docs/spora_consensus_v2_issue_list.md)
 
-## 1. 这份 RFC 要解决什么问题
+## 1. 这份摘要现在的定位
 
-Spora 当前已经从“Cell on DAG 的原型想法”走到了“主状态承诺路径基本成立”的阶段，但协议定义和实现入口还没有完全收口。
+这份文档不再是 “V2 draft review briefing”。
 
-V2 RFC 的目标只有一个：
+截至 2026-04-13，更准确的定位是：
 
-- 让 Spora 的共识定义从“实现驱动”切换到“协议驱动”
+- 说明 V2 RFC 的协议核心仍然是什么
+- 标明哪些协议判断已经被代码主路径实现
+- 把剩余工作收敛到真实还没完成的事项
 
-换句话说，先定义什么是协议真相，再要求代码逐步贴齐。
+换句话说，V2 已经不再是“是否要做”的提案，而是“哪些部分已经落地、哪些部分还要继续收尾”的协议摘要。
 
-## 2. 提案核心
+## 2. V2 现在到底解决了什么
 
-V2 提案把 Spora 定义为：
+V2 仍然定义 Spora 为：
 
-- `Kaspa / GhostDAG` 负责排序
-- `CKB / Cell` 负责状态表达
+- `GhostDAG` 负责排序
+- `Cell` 负责状态表达
 - `CKB-VM` 负责脚本执行
-- `accepted_id_merkle_root + cell_root + cell_commitment` 负责把 accepted 结果和 live Cell 状态绑定到 header
+- `accepted_id_merkle_root + cell_root + cell_commitment` 把 accepted 结果与 live Cell 状态绑定到 header
 
-这意味着 Spora 既不是：
+这条协议主线在当前代码中已经进入主路径，不再只是架构口号。
 
-- 单纯“把 CKB 放进 DAG”
-
-也不是：
-
-- 单纯“给 Kaspa 加一个脚本字段”
-
-它是一个新协议，必须把三者在协议层焊死：
-
-- 排序
-- 状态
-- 执行
-
-## 3. V2 的三条核心决策
+## 3. 仍然有效的三条核心决策
 
 ### 决策 1: 状态视角必须是 POV-aware
 
@@ -51,12 +42,9 @@ V2 提案把 Spora 定义为：
 
 - `daa score`
 
-原因：
+这条原则仍然有效，而且当前实现已经按这条原则组织主路径查询与 DAG 校验。
 
-- DAG 中同一个 `DAA` 不能唯一决定状态视角
-- `POV` 才能把状态判断锚定到具体的 selected-parent 上下文
-
-### 决策 2: `selected_parent` 的已提交状态是唯一合法起点
+### 决策 2: `selected_parent` 的已提交状态是合法起点
 
 每个块的状态计算都必须从：
 
@@ -65,108 +53,75 @@ V2 提案把 Spora 定义为：
 开始，而不是从：
 
 - 当前 `virtual_state`
-- 某个本地缓存树
+- 某个缓存树
 - 某个“接近正确”的 root 恢复结果
 
-原因：
+这条原则仍然是 V2 的关键约束，当前实现也已经朝这个方向收口。
 
-- `virtual` 只是缓存
-- 只有 `selected_parent` 能成为协议层的单一状态起点
+### 决策 3: 入口应尽量共享状态转移语义
 
-### 决策 3: 必须有单一 State Transition Engine
-
-以下入口必须共享同一套状态转移语义：
+以下入口应尽量共享同一套状态转移语义：
 
 - `body validation in context`
 - `reorg replay`
 - `mempool admission`
 - `block template validation`
 
-原因：
+这条原则仍然成立，不过它现在更适合作为“后续持续收敛目标”，而不是再描述成“主路径仍完全未接入”。
 
-- 如果不同入口跑不同版本的规则，协议就没有闭环
-- “最终在某个更晚阶段才拒绝”不等于协议设计正确
+## 4. 现在已经落地的部分
 
-## 4. 和旧体系相比，到底变了什么
-
-### 相比 CKB
-
-新增负担：
-
-- `GhostDAG`
-- `selected_parent`
-- `ordered_mergeset`
-- red / blue reward 语义
-- `POV-aware` 状态查询
-
-保留核心：
-
-- Cell 生命周期
-- `lock/type script`
-- `since`
-- VM 执行模型
-
-### 相比 Kaspa
-
-新增负担：
-
-- Cell diff 不再只是 legacy txout diff
-- 输入检查不再只是 spend/create
-- 需要 VM / script group / data provider
-- 历史状态和 time lock 更复杂
-
-保留核心：
-
-- `GhostDAG`
-- `selected_parent`
-- mergeset / accepted / pruning / virtual
-
-## 5. V2 成立的最低标准
-
-V2 不是写了文档就算成立。至少要满足这四条：
-
-1. 正式协议只承认 `POV-aware` 历史状态语义。
-2. `body/reorg/mempool/template` 使用同一套状态转移引擎。
-3. `CKB-VM` 和真实 data provider 属于共识，而不是可选插件。
-4. `accepted_id_merkle_root`、`cell_root`、`cell_commitment` 都由同一 working state 导出。
-
-只要这四条有一条没做到，V2 就仍然只是“方向正确”，不是“闭环协议”。
-
-## 6. 当前实现进度
-
-### 已基本具备
+### 已经落地
 
 - `selected_parent + ordered_mergeset` 主路径
 - `cell_root` / `cell_commitment` / `accepted_id_merkle_root` 校验
-- 缺失输入、双花、capacity 不守恒等核心拒绝逻辑
 - `POV-aware` Cell provider
+- `get_virtual_cells` / `get_pruning_point_cells`
+- block body validation 中的 `CellValidator::validate_full_with_scripts_and_cycles(...)`
+- mempool 主路径上的真实输入解析、POV 视角校验、fee 计算与 contextual mass 回填
+- template 构造中的 canonical commitment / acceptance / coinbase 主路径
+- `txscript` 删除、`ScriptPublicKey` 主路径退役、wallet legacy account / compat / gen0 删除
 
-### 仍需补完
+### 仍然需要继续收尾
 
-- `body_validation_in_context` 还没有接到完整 Cell 状态机
-- `mempool` 还是简化实现
-- `template validation` 仍部分简化
-- `verify_scripts` 还没有用真实 consensus-backed data provider
+- Cell-native 资源模型仍是简化实现，`compute_mass()` 仍是静态 hint
+- `CellMeta` / metadata / wrapper 分层仍有继续收敛空间
+- `mempool` / `template` 虽然已经不是 placeholder，但仍有内部 helper 和命名可继续收口
+- 历史文档与说明材料仍有一部分口径落后于代码现状
 
-## 7. 评审时应重点讨论的不是“代码细节”，而是这些协议问题
+## 5. 对旧版摘要里几条判断的修正
 
-1. `POV` 的正式定义是否足够明确，能否支撑第二实现。
-2. `accepted_tx_order` 是否要被明确定义为规范对象，而不是实现副产物。
-3. `cell_commitment` 的 v1 / v2 升级路径是否要在现在就预留。
-4. `VM` 的版本激活、cycles 计费、syscall 兼容规则是否要纳入本 RFC。
-5. `CellDB/get_cell_at_daa` 是否正式降级为非共识接口。
+下列旧判断已经不再准确：
 
-## 8. 推荐决策
+- “`mempool` 还是简化实现”  
+  更准确地说：mempool 已接入真实 POV / Cell 校验主路径，但内部仍有 wrapper 和命名遗留可继续收口。
 
-如果团队要推进 V2，我建议在评审会上直接做三项决策：
+- “`template validation` 仍部分简化”  
+  更准确地说：template 已进入 canonical Cell 校验路径，但 fee / admission / helper 分层仍可继续统一。
 
-1. 接受 V2 作为新的协议主文档。
-2. 正式把旧 `spora_ghostdag_cell_architecture.md` 降级为历史参考。
-3. 同意后续所有 Cell / mempool / template / VM 改动都以“统一 State Transition Engine”为收敛目标。
+- “`verify_scripts` 还没有用真实 consensus-backed data provider”  
+  这条已过时。当前 `CellValidator` 已准备 VM data provider，而不是 `SimpleDataProvider::new()` placeholder。
 
-## 9. 一句话结论
+## 6. 现在应该如何理解 V2 完成度
 
-V2 的意义不是“把现在的实现写漂亮”，而是给 Spora 一个可以真正长期演进的协议骨架。  
-如果 CKB 负责告诉我们“状态怎么表达”，Kaspa 负责告诉我们“DAG 怎么排序”，那 V2 负责回答最后那个最难的问题：
+当前更准确的结论不是：
 
-- 这两件事怎样在同一个共识状态机里成立。
+> “V2 还只是方向正确，协议实现尚未闭环。”
+
+而是：
+
+> “V2 的协议骨架和代码主路径已经对齐；剩余工作主要在资源模型精化、内部抽象收缩和历史文档口径对齐，而不是继续打通主路径。”
+
+## 7. 当前最值得继续推进的事项
+
+如果继续沿 V2 方向推进，优先级建议是：
+
+1. 完成 Cell-native mass 模型的进一步精化
+2. 收敛 `CellMeta` / metadata / wrapper 的分层边界
+3. 继续统一 mempool / template / signing 的内部抽象与命名
+4. 对齐历史审计文档、README 和仓库说明材料
+
+## 8. 一句话结论
+
+V2 现在不再是 “要不要做” 的 RFC，而已经是当前代码主路径的协议解释框架。  
+后续工作不是再把主路径切成 Cell，而是继续把已经完成的 V2 实现收紧、验证和文档化。

@@ -30,7 +30,7 @@ pub struct VirtualState {
     pub daa_score: u64,
     pub bits: u32,
     pub past_median_time: u64,
-    /// Cell state tree (replaces multiset/MuHash from the legacy transaction-output model)
+    /// Cell state tree (replaces multiset/MuHash from the previous transaction-output model)
     #[serde(skip)]
     pub cell_state_tree: CellStateTree,
     /// Cell diff from selected tip to virtual.

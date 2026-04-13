@@ -1,4 +1,3 @@
-use spora_consensus_core::subnets::SubnetworkId;
 use spora_utils::networking::{IpAddress, PeerId};
 use std::{fmt::Display, net::SocketAddr, sync::Arc, time::Instant};
 
@@ -9,7 +8,6 @@ pub struct PeerProperties {
     pub advertised_protocol_version: u32,
     pub protocol_version: u32,
     pub disable_relay_tx: bool,
-    pub subnetwork_id: Option<SubnetworkId>,
     pub time_offset: i64,
 }
 

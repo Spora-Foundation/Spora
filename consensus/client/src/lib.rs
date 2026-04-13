@@ -28,6 +28,7 @@ pub use input::*;
 pub use outpoint::*;
 pub use output::*;
 pub use serializable::*;
+pub use standard_script::{extract_address_from_lock_script, pay_to_address_lock_script, pay_to_script_hash_lock_script};
 pub use transaction::*;
 
 cfg_if::cfg_if! {

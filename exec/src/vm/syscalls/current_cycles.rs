@@ -3,6 +3,7 @@
 //
 // Current cycles syscall
 
+use super::CURRENT_CYCLES_SYSCALL_NUMBER;
 use ckb_vm::{
     registers::{A0, A7},
     Error as VMError, Register, SupportMachine, Syscalls,
@@ -30,17 +31,52 @@ impl<M: SupportMachine> Syscalls<M> for CurrentCycles {
         let syscall_number = machine.registers()[A7].to_u64();
 
         // CURRENT_CYCLES = 2042
-        if syscall_number != 2042 {
+        if syscall_number != CURRENT_CYCLES_SYSCALL_NUMBER {
             return Ok(false);
         }
 
-        // Get current cycles from machine
-        // Note: For TraceMachine, cycles() returns total cycles
-        let cycles = 0u64; // Placeholder - will be implemented when machine tracking is added
+        // Return the machine's current cycle counter.
+        // ckb-vm exposes this through SupportMachine for both core and wrapped machines.
+        let cycles = machine.cycles();
 
         // Return cycles in A0
         machine.set_register(A0, M::REG::from_u64(cycles));
 
         Ok(true)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::vm::ScriptVersion;
+    use ckb_vm::{
+        registers::{A0, A7},
+        CoreMachine, Register, SupportMachine, Syscalls,
+    };
+
+    #[test]
+    fn test_current_cycles_returns_machine_cycles() {
+        let mut machine = ScriptVersion::V2.init_core_machine(10_000);
+        machine.set_cycles(4242);
+        machine.set_register(A7, CURRENT_CYCLES_SYSCALL_NUMBER);
+
+        let mut syscall = CurrentCycles::new();
+        let handled = syscall.ecall(&mut machine).expect("current cycles syscall should succeed");
+
+        assert!(handled);
+        assert_eq!(machine.registers()[A0].to_u64(), 4242);
+    }
+
+    #[test]
+    fn test_current_cycles_ignores_other_syscalls() {
+        let mut machine = ScriptVersion::V2.init_core_machine(10_000);
+        machine.set_cycles(99);
+        machine.set_register(A7, 1);
+
+        let mut syscall = CurrentCycles::new();
+        let handled = syscall.ecall(&mut machine).expect("non-matching syscall should not error");
+
+        assert!(!handled);
     }
 }

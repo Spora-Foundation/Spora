@@ -1,6 +1,6 @@
 use crate::{
     cell_metadata::CellMetadata,
-    cell_metadata::PlaceholderCellMetadata,
+    cell_metadata::EmbeddedCellMetadata,
     hashing::HasherExtensions,
     tx::{outpoint_from_id, CellEntry, TransactionOutpoint, VerifiableTransaction},
 };
@@ -99,7 +99,7 @@ impl MuHashExtensions for MuHash {
     }
 }
 
-fn write_placeholder_cell_metadata(writer: &mut impl HasherBase, metadata: &PlaceholderCellMetadata) {
+fn write_embedded_cell_metadata(writer: &mut impl HasherBase, metadata: &EmbeddedCellMetadata) {
     writer.update(metadata.lock_hash);
     writer.write_bool(metadata.type_hash.is_some());
     if let Some(type_hash) = metadata.type_hash {
@@ -116,9 +116,9 @@ fn write_cell_metadata(writer: &mut impl HasherBase, metadata: &CellMetadata) {
         .update(metadata.capacity.to_le_bytes())
         .write_bool(metadata.is_cellbase);
 
-    write_placeholder_cell_metadata(
+    write_embedded_cell_metadata(
         writer,
-        &PlaceholderCellMetadata {
+        &EmbeddedCellMetadata {
             lock_hash: metadata.lock_hash,
             type_hash: metadata.type_hash,
             data_hash: metadata.data_hash,
@@ -139,6 +139,6 @@ fn write_cell_entry(writer: &mut impl HasherBase, entry: &CellEntry, outpoint: &
 
     // CellMeta always carries metadata
     if let Some(metadata) = entry.embedded_cell_metadata() {
-        write_placeholder_cell_metadata(writer, &metadata);
+        write_embedded_cell_metadata(writer, &metadata);
     }
 }

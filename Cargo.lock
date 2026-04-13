@@ -5459,6 +5459,7 @@ dependencies = [
  "log",
  "paste",
  "serde",
+ "spora-addresses",
  "spora-consensus-core",
  "spora-hashes",
  "spora-notify",
@@ -5567,6 +5568,7 @@ dependencies = [
  "serde",
  "smallvec",
  "spora-addresses",
+ "spora-consensus-client",
  "spora-consensus-core",
  "spora-consensusmanager",
  "spora-core",
@@ -5812,6 +5814,7 @@ dependencies = [
  "log",
  "spora-addresses",
  "spora-cellindex",
+ "spora-consensus-client",
  "spora-consensus-core",
  "spora-consensus-notify",
  "spora-consensusmanager",
@@ -6993,6 +6996,7 @@ dependencies = [
  "serde_json",
  "spora-addresses",
  "spora-bip32",
+ "spora-consensus-client",
  "spora-consensus-core",
  "spora-core",
  "spora-grpc-client",
@@ -8032,8 +8036,6 @@ dependencies = [
 [[package]]
 name = "workflow-perf-monitor"
 version = "0.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "15f0c75f26b643f5658d88058c107682becd99e028f33e01f97cc8d725e8cc13"
 dependencies = [
  "bindgen 0.59.2",
  "cc",

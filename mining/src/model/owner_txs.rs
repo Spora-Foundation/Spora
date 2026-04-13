@@ -1,12 +1,13 @@
-use spora_consensus_core::tx::{MutableTransaction, ScriptPublicKey, TransactionId};
+use spora_addresses::Address;
+use spora_consensus_core::tx::{MutableTransaction, TransactionId};
 use std::collections::{HashMap, HashSet};
 
 use super::TransactionIdSet;
 
-pub type ScriptPublicKeySet = HashSet<ScriptPublicKey>;
+pub type AddressSet = HashSet<Address>;
 
 /// Transaction ids involved in either sending to or receiving from an
-/// address or its [`ScriptPublicKey`] equivalent.
+/// address.
 #[derive(Default)]
 pub struct OwnerTransactions {
     pub sending_txs: TransactionIdSet,
@@ -23,5 +24,5 @@ impl OwnerTransactions {
 #[derive(Default)]
 pub struct GroupedOwnerTransactions {
     pub transactions: HashMap<TransactionId, MutableTransaction>,
-    pub owners: HashMap<ScriptPublicKey, OwnerTransactions>,
+    pub owners: HashMap<Address, OwnerTransactions>,
 }

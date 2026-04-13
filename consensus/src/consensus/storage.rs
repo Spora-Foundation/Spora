@@ -4,6 +4,7 @@ use crate::{
         acceptance_data::DbAcceptanceDataStore,
         block_transactions::DbBlockTransactionsStore,
         block_window_cache::BlockWindowCacheStore,
+        cell_data::DbCellDataStore,
         cell_diffs::DbCellDiffsStore,
         cell_roots::DbCellRootsStore,
         daa::DbDaaStore,
@@ -32,6 +33,7 @@ use parking_lot::RwLock;
 use spora_consensus_core::{blockstatus::BlockStatus, BlockHashSet};
 use spora_database::registry::DatabaseStorePrefixes;
 use spora_hashes::Hash;
+use spora_state::{SegmentReader, SegmentWriter};
 use std::{ops::DerefMut, sync::Arc};
 
 pub struct ConsensusStorage {
@@ -59,9 +61,12 @@ pub struct ConsensusStorage {
     pub pruning_samples_store: Arc<DbPruningSamplesStore>,
 
     // Cell model stores
+    pub cell_data_store: Arc<DbCellDataStore>,
     pub cell_diffs_store: Arc<DbCellDiffsStore>,
     pub cell_roots_store: Arc<DbCellRootsStore>,
     pub acceptance_data_store: Arc<DbAcceptanceDataStore>,
+    pub cell_data_segment_writer: Arc<SegmentWriter>,
+    pub cell_data_segment_reader: Arc<SegmentReader>,
 
     // Block window caches
     pub block_window_cache_for_difficulty: Arc<BlockWindowCacheStore>,
@@ -164,7 +169,7 @@ impl ConsensusStorage {
         let acceptance_data_builder = PolicyBuilder::new().bytes_budget(acceptance_data_budget).tracked_bytes();
         let past_pruning_points_builder = PolicyBuilder::new().max_items(1024).untracked();
 
-        // TODO: consider tracking CellDiff byte sizes more accurately including the exact size of ScriptPublicKey
+        // TODO: consider tracking CellDiff byte sizes more accurately including the exact script payload size
 
         // Headers
         let statuses_store = Arc::new(RwLock::new(DbStatusesStore::new(db.clone(), statuses_builder.build())));
@@ -214,9 +219,13 @@ impl ConsensusStorage {
         let block_transactions_store = Arc::new(DbBlockTransactionsStore::new(db.clone(), transactions_builder.build()));
 
         // Cell model stores
+        let cell_data_store = Arc::new(DbCellDataStore::new(db.clone(), block_data_builder.build()));
         let cell_diffs_store = Arc::new(DbCellDiffsStore::new(db.clone(), cell_diffs_builder.build()));
         let cell_roots_store = Arc::new(DbCellRootsStore::new(db.clone(), block_data_builder.build()));
         let acceptance_data_store = Arc::new(DbAcceptanceDataStore::new(db.clone(), acceptance_data_builder.build()));
+        let segments_dir = db.path().join("segments");
+        let cell_data_segment_writer = Arc::new(SegmentWriter::new(&segments_dir).expect("consensus segment writer must initialize"));
+        let cell_data_segment_reader = Arc::new(SegmentReader::new(&segments_dir).expect("consensus segment reader must initialize"));
 
         // Tips
         let headers_selected_tip_store = Arc::new(RwLock::new(DbHeadersSelectedTipStore::new(db.clone())));
@@ -251,12 +260,15 @@ impl ConsensusStorage {
             virtual_stores,
             selected_chain_store,
             acceptance_data_store,
+            cell_data_store,
             past_pruning_points_store,
             daa_excluded_store,
             depth_store,
             pruning_samples_store,
             cell_diffs_store,
             cell_roots_store,
+            cell_data_segment_writer,
+            cell_data_segment_reader,
             block_window_cache_for_difficulty,
             block_window_cache_for_past_median_time,
             lkg_virtual_state,

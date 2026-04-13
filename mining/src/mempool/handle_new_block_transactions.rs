@@ -44,12 +44,10 @@ impl Mempool {
 
     pub(crate) fn handle_new_block_transactions(
         &mut self,
-        consensus: &dyn ConsensusApi,
+        _consensus: &dyn ConsensusApi,
         block_daa_score: u64,
         block_transactions: &[CellTx],
     ) -> RuleResult<Vec<MempoolTransaction>> {
-        #[cfg(not(test))]
-        let _ = consensus;
         let _sw = Stopwatch::<400>::with_threshold("handle_new_block_transactions op");
         let mut unorphaned_transactions = vec![];
         let mut tx_accepted_counts = 0;

@@ -4,7 +4,7 @@
 // VM Machine implementation (adapted from CKB-VM)
 // Reference: ckb/script/src/types.rs
 
-use super::error::VMError;
+use super::{error::VMError, MAX_SCRIPT_SIZE, MAX_VM_MEMORY};
 use ckb_vm::{
     machine::{VERSION0, VERSION1, VERSION2},
     Bytes, DefaultMachineBuilder, DefaultMachineRunner, SupportMachine, Syscalls, ISA_B, ISA_IMC, ISA_MOP,
@@ -59,9 +59,14 @@ impl ScriptVersion {
 
     /// Creates a VM core machine with cycles limit
     pub fn init_core_machine(self, max_cycles: Cycle) -> <Machine as DefaultMachineRunner>::Inner {
+        self.init_core_machine_with_memory(max_cycles, MAX_VM_MEMORY)
+    }
+
+    /// Creates a VM core machine with explicit memory size.
+    pub fn init_core_machine_with_memory(self, max_cycles: Cycle, memory_size: usize) -> <Machine as DefaultMachineRunner>::Inner {
         let isa = self.vm_isa();
         let version = self.vm_version();
-        <<Machine as DefaultMachineRunner>::Inner as SupportMachine>::new(isa, version, max_cycles)
+        <<Machine as DefaultMachineRunner>::Inner as SupportMachine>::new_with_memory(isa, version, max_cycles, memory_size)
     }
 }
 
@@ -76,12 +81,21 @@ pub struct VmContext {
     pub version: ScriptVersion,
     /// Maximum cycles
     pub max_cycles: Cycle,
+    /// Maximum VM memory in bytes.
+    pub max_memory: usize,
+    /// Maximum script size in bytes.
+    pub max_script_size: usize,
 }
 
 impl VmContext {
     /// Create a new VM context
     pub fn new(version: ScriptVersion, max_cycles: Cycle) -> Self {
-        Self { version, max_cycles }
+        Self { version, max_cycles, max_memory: MAX_VM_MEMORY, max_script_size: MAX_SCRIPT_SIZE }
+    }
+
+    /// Create a VM context with explicit memory and script size limits.
+    pub fn with_limits(version: ScriptVersion, max_cycles: Cycle, max_memory: usize, max_script_size: usize) -> Self {
+        Self { version, max_cycles, max_memory, max_script_size }
     }
 
     /// Create a VM context with default cycles limit (10M)
@@ -108,7 +122,11 @@ pub fn run_script(
     syscalls: Vec<Box<dyn Syscalls<<Machine as DefaultMachineRunner>::Inner>>>,
     context: &VmContext,
 ) -> Result<Cycle, VMError> {
-    let core_machine = context.version.init_core_machine(context.max_cycles);
+    if program.len() > context.max_script_size {
+        return Err(VMError::ScriptTooLarge { size: program.len(), limit: context.max_script_size });
+    }
+
+    let core_machine = context.version.init_core_machine_with_memory(context.max_cycles, context.max_memory);
     let builder = syscalls.into_iter().fold(DefaultMachineBuilder::new(core_machine), |builder, syscall| builder.syscall(syscall));
     let mut machine = Machine::new(builder.build());
 
@@ -132,6 +150,7 @@ pub fn run_script(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ckb_vm::{CoreMachine, Memory};
 
     #[test]
     fn test_script_version_isa() {
@@ -150,5 +169,32 @@ mod tests {
         let ctx = VmContext::new(ScriptVersion::V2, 1_000_000);
         assert_eq!(ctx.version, ScriptVersion::V2);
         assert_eq!(ctx.max_cycles, 1_000_000);
+        assert_eq!(ctx.max_memory, MAX_VM_MEMORY);
+        assert_eq!(ctx.max_script_size, MAX_SCRIPT_SIZE);
+    }
+
+    #[test]
+    fn test_vm_context_with_limits() {
+        let ctx = VmContext::with_limits(ScriptVersion::V1, 2_000_000, 4 * 1024 * 1024, 64 * 1024);
+        assert_eq!(ctx.version, ScriptVersion::V1);
+        assert_eq!(ctx.max_cycles, 2_000_000);
+        assert_eq!(ctx.max_memory, 4 * 1024 * 1024);
+        assert_eq!(ctx.max_script_size, 64 * 1024);
+    }
+
+    #[test]
+    fn test_init_core_machine_with_memory_uses_requested_limit() {
+        let machine = ScriptVersion::V2.init_core_machine_with_memory(10_000, 4 * 1024 * 1024);
+        assert_eq!(machine.memory().memory_size(), 4 * 1024 * 1024);
+    }
+
+    #[test]
+    fn test_run_script_rejects_oversized_program_before_loading() {
+        let context = VmContext::with_limits(ScriptVersion::V2, 10_000, MAX_VM_MEMORY, 16);
+        let oversized_program = vec![0u8; 17];
+
+        let result = run_script(&oversized_program, &[], vec![], &context);
+
+        assert!(matches!(result, Err(VMError::ScriptTooLarge { size: 17, limit: 16 })));
     }
 }

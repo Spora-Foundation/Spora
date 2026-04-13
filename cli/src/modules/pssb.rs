@@ -2,7 +2,8 @@
 
 use crate::imports::*;
 use spora_addresses::Prefix;
-use spora_consensus_core::tx::{CellEntry, TransactionOutpoint};
+use spora_consensus_core::cell_diff::CellMeta;
+use spora_consensus_core::tx::TransactionOutpoint;
 use spora_wallet_core::account::pssb::finalize_psst_one_or_more_sig_and_redeem_script;
 use spora_wallet_psst::{
     prelude::{lock_script_sig_templating, script_sig_to_address, unlock_cells_as_pssb, Bundle, Signer, PSST},
@@ -126,7 +127,7 @@ impl Pssb {
                             return Ok(());
                         }
 
-                        let references: Vec<(CellEntry, TransactionOutpoint)> =
+                        let references: Vec<(CellMeta, TransactionOutpoint)> =
                             spend_cells.iter().map(|entry| (entry.cell_entry.clone().into(), entry.outpoint.into())).collect();
 
                         let total_locked_sau: u64 = spend_cells.iter().map(|entry| entry.cell_entry.amount).sum();

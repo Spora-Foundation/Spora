@@ -50,7 +50,7 @@ impl ConsensusMock {
         self.add_arc_cell_transaction(Arc::new(transaction), None, block_daa_score);
     }
 
-    fn add_arc_cell_transaction(&self, cell_tx: Arc<CellTx>, legacy_id: Option<TransactionId>, block_daa_score: u64) {
+    fn add_arc_cell_transaction(&self, cell_tx: Arc<CellTx>, alias_id: Option<TransactionId>, block_daa_score: u64) {
         let canonical_id = TransactionId::from_bytes(cell_tx.id());
         let mut transactions = self.transactions.write();
         let mut cells = self.cells.write();
@@ -66,15 +66,15 @@ impl ConsensusMock {
         // Create the new cells
         cell_tx.outputs.iter().zip(cell_tx.outputs_data.iter()).enumerate().for_each(|(i, (output, data))| {
             let entry = cell_output_to_placeholder_entry(output, data, block_daa_score, cell_tx.is_coinbase());
-            if let Some(legacy_id) = legacy_id {
-                cells.insert(TransactionOutpoint::new(legacy_id.as_bytes(), i as u32), entry.clone());
+            if let Some(alias_id) = alias_id {
+                cells.insert(TransactionOutpoint::new(alias_id.as_bytes(), i as u32), entry.clone());
             }
             cells.insert(TransactionOutpoint::new(cell_tx.id(), i as u32), entry);
         });
         // Register the transaction
         transactions.insert(canonical_id, cell_tx.clone());
-        if let Some(legacy_id) = legacy_id {
-            transactions.insert(legacy_id, cell_tx);
+        if let Some(alias_id) = alias_id {
+            transactions.insert(alias_id, cell_tx);
         }
     }
 

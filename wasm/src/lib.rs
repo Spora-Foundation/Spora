@@ -150,7 +150,7 @@ cfg_if::cfg_if! {
     if #[cfg(feature = "wasm32-sdk")] {
 
         pub use spora_addresses::{Address, Version as AddressVersion};
-        pub use spora_consensus_core::tx::{ScriptPublicKey, Transaction, TransactionInput, TransactionOutpoint, TransactionOutput};
+        pub use spora_consensus_core::tx::TransactionOutpoint;
         pub use spora_pow::wasm::*;
 
         pub mod rpc {
@@ -176,7 +176,7 @@ cfg_if::cfg_if! {
     } else if #[cfg(feature = "wasm32-core")] {
 
         pub use spora_addresses::{Address, Version as AddressVersion};
-        pub use spora_consensus_core::tx::{ScriptPublicKey, Transaction, TransactionInput, TransactionOutpoint, TransactionOutput};
+        pub use spora_consensus_core::tx::TransactionOutpoint;
         pub use spora_pow::wasm::*;
 
         pub mod rpc {

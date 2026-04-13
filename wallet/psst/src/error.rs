@@ -1,6 +1,7 @@
 //! Error types for the psst crate.
 
 use crate::input::InputBuilderError;
+use spora_addresses::AddressError;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -40,6 +41,8 @@ pub enum Error {
     PSSTPrefixError,
     #[error("Cannot set payload on PSST version {0}, payload requires version 1 or higher")]
     PayloadRequiresVersion1(crate::psst::Version),
+    #[error(transparent)]
+    Address(#[from] AddressError),
 }
 #[derive(thiserror::Error, Debug)]
 pub enum ConstructorError {

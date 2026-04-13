@@ -2,7 +2,7 @@
 //! Deterministic byte sequence generation (used by Account ids).
 //!
 
-pub use crate::account::{bip32, bip32watch, keypair, legacy, multisig};
+pub use crate::account::{bip32, bip32watch, keypair, multisig};
 use crate::encryption::blake3_hash;
 use crate::imports::*;
 use crate::storage::PrvKeyDataId;
@@ -117,19 +117,6 @@ pub fn from_bip32<const N: usize>(prv_key_data_id: &PrvKeyDataId, data: &bip32::
         prv_key_data_ids: &Some([*prv_key_data_id]),
         ecdsa: Some(data.ecdsa),
         account_index: Some(data.account_index),
-        secp256k1_public_key: None,
-        data: None,
-    };
-    make_hashes(hashable)
-}
-
-/// Create deterministic hashes from legacy account data.
-pub fn from_legacy<const N: usize>(prv_key_data_id: &PrvKeyDataId, _data: &legacy::Payload) -> [Hash; N] {
-    let hashable = DeterministicHashData {
-        account_kind: &legacy::LEGACY_ACCOUNT_KIND.into(),
-        prv_key_data_ids: &Some([*prv_key_data_id]),
-        ecdsa: Some(false),
-        account_index: Some(0),
         secp256k1_public_key: None,
         data: None,
     };

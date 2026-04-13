@@ -119,7 +119,7 @@ pub enum NonStandardError {
     RejectSignatureScriptSize(TransactionId, usize, u64, u64),
 
     #[error("transaction output #{1}: the version of the scriptPublicKey is higher than the known version")]
-    RejectScriptPublicKeyVersion(TransactionId, usize),
+    RejectLockScriptHashType(TransactionId, usize),
 
     #[error("transaction output #{1}: non-standard script form")]
     RejectOutputScriptClass(TransactionId, usize),
@@ -145,7 +145,7 @@ impl NonStandardError {
             NonStandardError::RejectTransientMass(id, _, _) => id,
             NonStandardError::RejectStorageMass(id, _, _) => id,
             NonStandardError::RejectSignatureScriptSize(id, _, _, _) => id,
-            NonStandardError::RejectScriptPublicKeyVersion(id, _) => id,
+            NonStandardError::RejectLockScriptHashType(id, _) => id,
             NonStandardError::RejectOutputScriptClass(id, _) => id,
             NonStandardError::RejectDust(id, _, _) => id,
             NonStandardError::RejectInputScriptClass(id, _) => id,

@@ -172,14 +172,14 @@ impl Mempool {
     pub(crate) fn get_unorphaned_transactions_after_accepted_cell_transaction(
         &mut self,
         transaction: &CellTx,
-        accepted_legacy_transaction_id: Option<TransactionId>,
+        accepted_alias_transaction_id: Option<TransactionId>,
         block_daa_score: u64,
     ) -> Vec<MempoolTransaction> {
         let mut unorphaned_transactions = Vec::new();
         let transaction_id: TransactionId = transaction.id().into();
         let mut accepted_parent_ids = vec![transaction_id];
-        if let Some(legacy_id) = accepted_legacy_transaction_id.filter(|legacy_id| *legacy_id != transaction_id) {
-            accepted_parent_ids.push(legacy_id);
+        if let Some(alias_id) = accepted_alias_transaction_id.filter(|alias_id| *alias_id != transaction_id) {
+            accepted_parent_ids.push(alias_id);
         }
 
         for parent_id in accepted_parent_ids {

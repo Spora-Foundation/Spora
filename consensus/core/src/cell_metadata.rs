@@ -3,21 +3,13 @@
 //
 // Complete Cell metadata for validation and querying (GHOSTDAG-aware)
 
-use crate::{
-    cell_diff::CellMeta,
-    tx::{CellEntry, ScriptPublicKey, ScriptRef},
-};
+use crate::{cell_diff::CellMeta, tx::ScriptRef};
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 use spora_hashes::Hash;
 
-const CELL_METADATA_PLACEHOLDER_PREFIX: [u8; 2] = [0xCE, 0x11];
-const CELL_METADATA_PLACEHOLDER_V1_TAG: u8 = 0x01;
-const LEGACY_PLACEHOLDER_SCRIPT_LEN: usize = CELL_METADATA_PLACEHOLDER_PREFIX.len() + 32;
-const V1_PLACEHOLDER_SCRIPT_LEN: usize = CELL_METADATA_PLACEHOLDER_PREFIX.len() + 1 + 32 + 1 + 32 + 32 + 8;
-
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
-pub struct PlaceholderCellMetadata {
+pub struct EmbeddedCellMetadata {
     pub lock_hash: [u8; 32],
     pub type_hash: Option<[u8; 32]>,
     pub data_hash: [u8; 32],
@@ -118,100 +110,7 @@ impl CellMetadata {
         self.type_code_hash = type_code_hash;
         self
     }
-
-    /// Build a synthetic Cell entry for legacy mempool bridges.
-    ///
-    /// During the Cell migration, mempool paths still expect `CellEntry`-shaped
-    /// inputs. We encode a deterministic placeholder script carrying complete cell
-    /// metadata so those paths can distinguish Cell-backed entries from real legacy
-    /// scripts without throwing away lock/type/data semantics.
-    pub fn to_placeholder_cell_entry(&self) -> CellEntry {
-        CellEntry::from_cell_metadata(
-            self.capacity,
-            self.data_bytes,
-            self.lock_hash,
-            self.type_hash,
-            self.data_hash,
-            self.block_daa_score,
-            self.is_cellbase,
-        )
-    }
 }
-
-pub fn cell_metadata_placeholder_script_public_key(lock_hash: [u8; 32]) -> ScriptPublicKey {
-    let mut script = Vec::with_capacity(CELL_METADATA_PLACEHOLDER_PREFIX.len() + lock_hash.len());
-    script.extend_from_slice(&CELL_METADATA_PLACEHOLDER_PREFIX);
-    script.extend_from_slice(&lock_hash);
-    ScriptPublicKey::from_vec(0, script)
-}
-
-pub fn cell_metadata_placeholder_script_public_key_with_metadata(
-    lock_hash: [u8; 32],
-    type_hash: Option<[u8; 32]>,
-    data_hash: [u8; 32],
-    data_bytes: u64,
-) -> ScriptPublicKey {
-    let mut script = Vec::with_capacity(V1_PLACEHOLDER_SCRIPT_LEN);
-    script.extend_from_slice(&CELL_METADATA_PLACEHOLDER_PREFIX);
-    script.push(CELL_METADATA_PLACEHOLDER_V1_TAG);
-    script.extend_from_slice(&lock_hash);
-    script.push(u8::from(type_hash.is_some()));
-    script.extend_from_slice(&type_hash.unwrap_or([0; 32]));
-    script.extend_from_slice(&data_hash);
-    script.extend_from_slice(&data_bytes.to_le_bytes());
-    ScriptPublicKey::from_vec(0, script)
-}
-
-pub fn parse_cell_metadata_placeholder_script_public_key(script_public_key: &ScriptPublicKey) -> Option<PlaceholderCellMetadata> {
-    let script = script_public_key.script();
-    if script_public_key.version() != 0 || !script.starts_with(&CELL_METADATA_PLACEHOLDER_PREFIX) {
-        return None;
-    }
-
-    if script.len() == LEGACY_PLACEHOLDER_SCRIPT_LEN {
-        let mut lock_hash = [0u8; 32];
-        lock_hash.copy_from_slice(&script[CELL_METADATA_PLACEHOLDER_PREFIX.len()..]);
-        return Some(PlaceholderCellMetadata { lock_hash, type_hash: None, data_hash: [0; 32], data_bytes: 0 });
-    }
-
-    if script.len() != V1_PLACEHOLDER_SCRIPT_LEN || script[CELL_METADATA_PLACEHOLDER_PREFIX.len()] != CELL_METADATA_PLACEHOLDER_V1_TAG
-    {
-        return None;
-    }
-
-    let mut offset = CELL_METADATA_PLACEHOLDER_PREFIX.len() + 1;
-
-    let mut lock_hash = [0u8; 32];
-    lock_hash.copy_from_slice(&script[offset..offset + 32]);
-    offset += 32;
-
-    let type_present = match script[offset] {
-        0 => false,
-        1 => true,
-        _ => return None,
-    };
-    offset += 1;
-
-    let mut encoded_type_hash = [0u8; 32];
-    encoded_type_hash.copy_from_slice(&script[offset..offset + 32]);
-    let type_hash = type_present.then_some(encoded_type_hash);
-    offset += 32;
-
-    let mut data_hash = [0u8; 32];
-    data_hash.copy_from_slice(&script[offset..offset + 32]);
-    offset += 32;
-
-    let mut data_bytes_buf = [0u8; 8];
-    data_bytes_buf.copy_from_slice(&script[offset..offset + 8]);
-    let data_bytes = u64::from_le_bytes(data_bytes_buf);
-
-    Some(PlaceholderCellMetadata { lock_hash, type_hash, data_hash, data_bytes })
-}
-
-pub fn is_cell_metadata_placeholder_script_public_key(script_public_key: &ScriptPublicKey) -> bool {
-    parse_cell_metadata_placeholder_script_public_key(script_public_key).is_some()
-}
-
 impl From<&CellMeta> for CellMetadata {
     fn from(meta: &CellMeta) -> Self {
         Self {
@@ -305,32 +204,5 @@ mod tests {
 
         assert_eq!(metadata.data, Some(vec![0xde, 0xad, 0xbe, 0xef]));
         assert_eq!(metadata.data_bytes, 4);
-    }
-
-    #[test]
-    fn test_placeholder_script_roundtrip() {
-        let lock_hash = [0x42; 32];
-        let data_hash = [0x24; 32];
-        let type_hash = Some([0x11; 32]);
-        let script_public_key = cell_metadata_placeholder_script_public_key_with_metadata(lock_hash, type_hash, data_hash, 512);
-
-        assert!(is_cell_metadata_placeholder_script_public_key(&script_public_key));
-        let parsed = parse_cell_metadata_placeholder_script_public_key(&script_public_key).unwrap();
-        assert_eq!(parsed.lock_hash, lock_hash);
-        assert_eq!(parsed.type_hash, type_hash);
-        assert_eq!(parsed.data_hash, data_hash);
-        assert_eq!(parsed.data_bytes, 512);
-    }
-
-    #[test]
-    fn test_legacy_placeholder_script_roundtrip() {
-        let lock_hash = [0x33; 32];
-        let script_public_key = cell_metadata_placeholder_script_public_key(lock_hash);
-
-        let parsed = parse_cell_metadata_placeholder_script_public_key(&script_public_key).unwrap();
-        assert_eq!(parsed.lock_hash, lock_hash);
-        assert_eq!(parsed.type_hash, None);
-        assert_eq!(parsed.data_hash, [0; 32]);
-        assert_eq!(parsed.data_bytes, 0);
     }
 }

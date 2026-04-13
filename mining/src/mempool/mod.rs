@@ -1,7 +1,7 @@
 use crate::{
     feerate::{FeerateEstimator, FeerateEstimatorArgs},
     model::{
-        owner_txs::{GroupedOwnerTransactions, ScriptPublicKeySet},
+        owner_txs::{AddressSet, GroupedOwnerTransactions},
         tx_query::TransactionQuery,
     },
     MiningCounters,
@@ -107,17 +107,13 @@ impl Mempool {
         (transactions, orphans)
     }
 
-    pub(crate) fn get_transactions_by_addresses(
-        &self,
-        script_public_keys: &ScriptPublicKeySet,
-        query: TransactionQuery,
-    ) -> GroupedOwnerTransactions {
+    pub(crate) fn get_transactions_by_addresses(&self, addresses: &AddressSet, query: TransactionQuery) -> GroupedOwnerTransactions {
         let mut owner_set = GroupedOwnerTransactions::default();
         if query.include_transaction_pool() {
-            self.transaction_pool.fill_owner_set_transactions(script_public_keys, &mut owner_set);
+            self.transaction_pool.fill_owner_set_transactions(addresses, &mut owner_set);
         }
         if query.include_orphan_pool() {
-            self.orphan_pool.fill_owner_set_transactions(script_public_keys, &mut owner_set);
+            self.orphan_pool.fill_owner_set_transactions(addresses, &mut owner_set);
         }
         owner_set
     }

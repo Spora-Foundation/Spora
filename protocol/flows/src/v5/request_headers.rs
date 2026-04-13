@@ -6,7 +6,7 @@ use spora_hashes::Hash;
 use spora_p2p_lib::{
     common::ProtocolError,
     dequeue, dequeue_with_request_id, make_response,
-    pb::{self, sporad_message::Payload, BlockHeadersMessage, DoneHeadersMessage},
+    pb::{self, p2p_message::Payload, BlockHeadersMessage, DoneHeadersMessage},
     IncomingRoute, Router,
 };
 

@@ -41,22 +41,6 @@ impl From<WalletCreateArgs> for CreateArgs {
 pub struct WalletOpenArgs {
     /// Return account descriptors
     pub account_descriptors: bool,
-    /// Enable support for legacy accounts
-    pub legacy_accounts: bool,
-}
-
-impl WalletOpenArgs {
-    pub fn default_with_legacy_accounts() -> Self {
-        Self { legacy_accounts: true, ..Default::default() }
-    }
-
-    pub fn load_account_descriptors(&self) -> bool {
-        self.account_descriptors || self.legacy_accounts
-    }
-
-    pub fn is_legacy_only(&self) -> bool {
-        self.legacy_accounts && !self.account_descriptors
-    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
@@ -146,10 +130,6 @@ pub enum AccountCreateArgs {
         prv_key_data_args: PrvKeyDataArgs,
         account_args: AccountCreateArgsBip32,
     },
-    Legacy {
-        prv_key_data_id: PrvKeyDataId,
-        account_name: Option<String>,
-    },
     Multisig {
         prv_key_data_args: Vec<PrvKeyDataArgs>,
         additional_xpub_keys: Vec<String>,
@@ -175,10 +155,6 @@ impl AccountCreateArgs {
         let prv_key_data_args = PrvKeyDataArgs { prv_key_data_id, payment_secret };
         let account_args = AccountCreateArgsBip32 { account_name, account_index };
         AccountCreateArgs::Bip32 { prv_key_data_args, account_args }
-    }
-
-    pub fn new_legacy(prv_key_data_id: PrvKeyDataId, account_name: Option<String>) -> Self {
-        AccountCreateArgs::Legacy { prv_key_data_id, account_name }
     }
 
     pub fn new_keypair_key(prv_key_data_id: PrvKeyDataId, account_name: Option<String>, ecdsa: bool) -> Self {

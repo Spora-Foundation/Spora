@@ -1,11 +1,10 @@
 syntax = "proto3";
 package protowire;
 
-option go_package = "github.com/sporanet/Sporad/protowire";
 
 import "p2p.proto";
 
-message SporadMessage {
+message P2pMessage {
   uint32 response_id = 101;
   uint32 request_id = 102;
   oneof payload {
@@ -56,5 +55,5 @@ message SporadMessage {
 }
 
 service P2P {
-  rpc MessageStream (stream SporadMessage) returns (stream SporadMessage) {}
+  rpc MessageStream (stream P2pMessage) returns (stream P2pMessage) {}
 }

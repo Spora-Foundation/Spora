@@ -1,16 +1,17 @@
 use secp256k1::{rand::thread_rng, Keypair};
 use spora_consensus_core::{
+    cell_diff::CellMeta,
     config::params::TESTNET_PARAMS,
     hashing::sighash::{calc_schnorr_signature_hash, SigHashReusedValuesUnsync},
-    tx::{multisig_redeem_script, outpoint_from_id, pay_to_script_hash_script, push_data_script, CellEntry, ScriptRef, TransactionId},
+    tx::{multisig_redeem_script, outpoint_from_id, pay_to_script_hash_lock_script, push_data_script, ScriptRef, TransactionId},
 };
 use spora_wallet_psst::prelude::{
     Combiner, Creator, Extractor, Finalizer, Inner, InputBuilder, SignInputOk, Signature, Signer, Updater, PSST,
 };
 use std::str::FromStr;
 
-fn example_cell_entry_from_lock_script(amount: u64, lock_script: ScriptRef) -> CellEntry {
-    CellEntry::from_cell_metadata(amount, 0, lock_script.code_hash, None, [0; 32], 36151168, false)
+fn example_cell_meta_from_lock_script(amount: u64, lock_script: ScriptRef) -> CellMeta {
+    CellMeta::from_cell_metadata(amount, 0, lock_script.code_hash, None, [0; 32], 36151168, false)
 }
 
 fn main() {
@@ -24,17 +25,13 @@ fn main() {
     // The first constructor entity receives the PSST and adds an input.
     let psst: PSST<Creator> = serde_json::from_str(&ser).expect("Failed to deserialize");
     // let in_0 = dummy_out_point();
-    let p2sh_script = pay_to_script_hash_script(&redeem_script);
+    let p2sh_script = pay_to_script_hash_lock_script(&redeem_script);
     let input_0 = InputBuilder::default()
-        .cell_entry(example_cell_entry_from_lock_script(
-            12793000000000,
-            ScriptRef::new(p2sh_script.hash(), 0, p2sh_script.script().to_vec()),
-        ))
+        .cell_entry(example_cell_meta_from_lock_script(12793000000000, p2sh_script))
         .previous_outpoint(outpoint_from_id(
             TransactionId::from_str("63020db736215f8b1105a9281f7bcbb6473d965ecc45bb2fb5da59bd35e6ff84").unwrap(),
             0,
         ))
-        .sig_op_count(2)
         .redeem_script(redeem_script)
         .build()
         .unwrap();
@@ -49,9 +46,9 @@ fn main() {
 
     // The PSST is now ready for handling with the updater role.
     let updater_psst: PSST<Updater> = serde_json::from_str(&ser_combined).expect("Failed to deserialize");
-    let updater_psst = updater_psst.set_sequence(u64::MAX, 0).expect("Failed to set sequence");
-    let ser_updated = serde_json::to_string_pretty(&updater_psst).expect("Failed to serialize after setting sequence");
-    println!("Serialized after setting sequence: {}", ser_updated);
+    let updater_psst = updater_psst.set_since(0, 0).expect("Failed to set since");
+    let ser_updated = serde_json::to_string_pretty(&updater_psst).expect("Failed to serialize after setting since");
+    println!("Serialized after setting since: {}", ser_updated);
 
     let signer_psst: PSST<Signer> = serde_json::from_str(&ser_updated).expect("Failed to deserialize");
     let reused_values = SigHashReusedValuesUnsync::new();

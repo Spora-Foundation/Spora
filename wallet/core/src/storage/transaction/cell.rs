@@ -28,7 +28,6 @@ impl From<&CellEntryReference> for CellRecord {
             address: cell.address.clone(),
             amount: cell.amount,
             lock_hash: cell
-                .cell
                 .embedded_cell_metadata()
                 .expect("transaction cell records require canonical Cell metadata")
                 .lock_hash

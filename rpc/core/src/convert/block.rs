@@ -92,9 +92,8 @@ mod tests {
 
         assert_eq!(rpc_tx.version, tx.ver);
         assert_eq!(rpc_tx.inputs.len(), 1);
-        assert_eq!(rpc_tx.inputs[0].sequence, 123);
-        assert_eq!(rpc_tx.inputs[0].since, Some(123));
-        assert_eq!(rpc_tx.inputs[0].witness.as_deref(), Some([0xde, 0xad, 0xbe, 0xef].as_slice()));
+        assert_eq!(rpc_tx.inputs[0].since, 123);
+        assert_eq!(rpc_tx.inputs[0].witness, vec![0xde, 0xad, 0xbe, 0xef]);
 
         assert_eq!(rpc_tx.outputs.len(), 1);
         let rpc_output = &rpc_tx.outputs[0];

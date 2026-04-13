@@ -69,7 +69,7 @@ impl Wallet {
 
                 let (wallet_secret, _) = ctx.ask_wallet_secret(None).await?;
                 let _ = ctx.notifier().show(Notification::Processing).await;
-                let args = WalletOpenArgs::default_with_legacy_accounts();
+                let args = WalletOpenArgs { account_descriptors: true };
                 ctx.wallet().open(&wallet_secret, name, args, &guard).await?;
                 ctx.wallet().activate_accounts(None, &guard).await?;
             }
@@ -106,14 +106,7 @@ impl Wallet {
             &[
                 ("list", "List available local wallet files"),
                 ("create [<name>]", "Create a new bip32 wallet"),
-                (
-                    "import [<name>]",
-                    "Create a wallet from an existing mnemonic (bip32 only). \r\n\r\n\
-                To import legacy wallets (KDX or sporanet) please create \
-                a new bip32 wallet and use the 'account import' command. \
-                Legacy wallets can only be imported as accounts. \
-                \r\n",
-                ),
+                ("import [<name>]", "Create a wallet from an existing mnemonic (bip32 only)."),
                 ("open [<name>]", "Open an existing wallet (shorthand: 'open [<name>]')"),
                 ("close", "Close an opened wallet (shorthand: 'close')"),
                 ("hint", "Change the wallet phishing hint"),

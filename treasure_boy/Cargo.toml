@@ -22,6 +22,7 @@ spora-notify.workspace = true
 spora-rpc-core.workspace = true
 spora-utils.workspace = true
 spora-bip32.workspace = true
+spora-consensus-client.workspace = true
 
 async-channel.workspace = true
 clap.workspace = true

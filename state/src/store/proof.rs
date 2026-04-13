@@ -1,15 +1,16 @@
 // SPDX-License-Identifier: ISC
 // Copyright (C) 2026 Spora developers
 //
-// Data availability proofs: NMT/KZG sampling (simplified version)
+// Data availability proofs: Merkle-based sampling with an upgrade path to NMT/KZG
 
 use crate::Result;
 use borsh::{BorshDeserialize, BorshSerialize};
 
 /// Segment proof (Merkle proof for DA sampling)
 ///
-/// Simplified version: full segment hash as commitment
-/// Future: Replace with NMT (Namespaced Merkle Tree) or KZG
+/// Current implementation uses a conventional Merkle tree over ordered chunk
+/// payloads. This keeps proofs sound today while preserving an upgrade path to
+/// NMT/KZG for namespaced sampling later.
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct SegmentProof {
     /// Segment ID
@@ -20,7 +21,7 @@ pub struct SegmentProof {
     pub chunk_offset: u64,
     /// Chunk length
     pub chunk_length: u32,
-    /// Merkle path (simplified: just root hash for now)
+    /// Merkle path from leaf to root (sibling hashes).
     pub merkle_path: Vec<[u8; 32]>,
     /// Segment root (commitment)
     pub segment_root: [u8; 32],
@@ -34,23 +35,20 @@ impl SegmentProof {
             chunk_data,
             chunk_offset,
             chunk_length,
-            merkle_path: vec![], // TODO: implement Merkle path
+            merkle_path: vec![],
             segment_root,
         }
     }
 
-    /// Verify proof (simplified)
+    /// Verify proof against the committed segment root.
     pub fn verify(&self) -> Result<bool> {
-        // Simplified verification: just check chunk hash against root
-        // In production, this should verify the full Merkle path
-
         if self.chunk_data.len() != self.chunk_length as usize {
             return Ok(false);
         }
 
-        // For now, just return true (placeholder)
-        // TODO: Implement proper Merkle verification
-        Ok(true)
+        let leaf = hash_leaf(&self.chunk_data);
+        let leaf_index = self.chunk_offset / self.chunk_length as u64;
+        Ok(verify_merkle_proof(&leaf, &self.merkle_path, &self.segment_root, leaf_index as usize))
     }
 }
 
@@ -83,9 +81,10 @@ impl Default for ProofVerifier {
     }
 }
 
-/// Merkle tree builder (simplified)
+/// Merkle tree builder
 ///
-/// Future: Replace with proper NMT implementation
+/// Future: Replace with proper NMT implementation while keeping the same
+/// high-level proof API.
 pub struct MerkleTreeBuilder {
     leaves: Vec<[u8; 32]>,
 }
@@ -98,45 +97,40 @@ impl MerkleTreeBuilder {
 
     /// Add a leaf
     pub fn add_leaf(&mut self, data: &[u8]) {
-        let hash = blake3::hash(data);
-        self.leaves.push(*hash.as_bytes());
+        self.leaves.push(hash_leaf(data));
+    }
+
+    /// Add a pre-hashed leaf.
+    pub fn add_hashed_leaf(&mut self, hash: [u8; 32]) {
+        self.leaves.push(hash);
     }
 
     /// Build the tree and return root
     pub fn build(&self) -> [u8; 32] {
-        if self.leaves.is_empty() {
-            return [0u8; 32];
-        }
-
-        let mut level = self.leaves.clone();
-
-        while level.len() > 1 {
-            let mut next_level = Vec::new();
-
-            for chunk in level.chunks(2) {
-                let hash = if chunk.len() == 2 {
-                    // Hash pair
-                    let mut hasher = blake3::Hasher::new();
-                    hasher.update(&chunk[0]);
-                    hasher.update(&chunk[1]);
-                    *hasher.finalize().as_bytes()
-                } else {
-                    // Odd node: promote directly
-                    chunk[0]
-                };
-                next_level.push(hash);
-            }
-
-            level = next_level;
-        }
-
-        level[0]
+        compute_merkle_root_from_leaves(&self.leaves)
     }
 
     /// Get Merkle proof for a leaf index
-    pub fn get_proof(&self, _index: usize) -> Vec<[u8; 32]> {
-        // TODO: Implement Merkle proof generation
-        vec![]
+    pub fn get_proof(&self, index: usize) -> Vec<[u8; 32]> {
+        if index >= self.leaves.len() {
+            return vec![];
+        }
+
+        let mut proof = Vec::new();
+        let mut current_index = index;
+        let mut level = self.leaves.clone();
+
+        while level.len() > 1 {
+            let sibling_index = if current_index % 2 == 0 { current_index + 1 } else { current_index - 1 };
+            if sibling_index < level.len() {
+                proof.push(level[sibling_index]);
+            }
+
+            level = build_next_level(&level);
+            current_index /= 2;
+        }
+
+        proof
     }
 }
 
@@ -146,16 +140,70 @@ impl Default for MerkleTreeBuilder {
     }
 }
 
-/// Verify Merkle proof
-pub fn verify_merkle_proof(leaf: &[u8; 32], proof: &[[u8; 32]], root: &[u8; 32], _index: usize) -> bool {
-    // Simplified: just check if proof is empty and leaf equals root
-    // TODO: Implement proper Merkle proof verification
-    if proof.is_empty() {
-        return leaf == root;
+fn hash_leaf(data: &[u8]) -> [u8; 32] {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"spora-segment/leaf");
+    hasher.update(data);
+    *hasher.finalize().as_bytes()
+}
+
+fn hash_internal(left: &[u8; 32], right: &[u8; 32]) -> [u8; 32] {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"spora-segment/node");
+    hasher.update(left);
+    hasher.update(right);
+    *hasher.finalize().as_bytes()
+}
+
+fn build_next_level(level: &[[u8; 32]]) -> Vec<[u8; 32]> {
+    let mut next_level = Vec::with_capacity(level.len().div_ceil(2));
+    for chunk in level.chunks(2) {
+        let hash = if chunk.len() == 2 {
+            hash_internal(&chunk[0], &chunk[1])
+        } else {
+            chunk[0]
+        };
+        next_level.push(hash);
+    }
+    next_level
+}
+
+pub fn compute_merkle_root_from_leaves(leaves: &[[u8; 32]]) -> [u8; 32] {
+    if leaves.is_empty() {
+        return [0u8; 32];
     }
 
-    // Placeholder for now
-    true
+    let mut level = leaves.to_vec();
+    while level.len() > 1 {
+        level = build_next_level(&level);
+    }
+    level[0]
+}
+
+/// Compute a segment root from ordered data chunks.
+pub fn compute_segment_root(chunks: &[Vec<u8>]) -> [u8; 32] {
+    let mut builder = MerkleTreeBuilder::new();
+    for chunk in chunks {
+        builder.add_leaf(chunk);
+    }
+    builder.build()
+}
+
+/// Verify Merkle proof
+pub fn verify_merkle_proof(leaf: &[u8; 32], proof: &[[u8; 32]], root: &[u8; 32], index: usize) -> bool {
+    let mut current = *leaf;
+    let mut current_index = index;
+
+    for sibling in proof {
+        current = if current_index % 2 == 0 {
+            hash_internal(&current, sibling)
+        } else {
+            hash_internal(sibling, &current)
+        };
+        current_index /= 2;
+    }
+
+    &current == root
 }
 
 #[cfg(test)]
@@ -183,9 +231,9 @@ mod tests {
         builder.add_leaf(b"single");
 
         let root = builder.build();
-        let expected = blake3::hash(b"single");
+        let expected = hash_leaf(b"single");
 
-        assert_eq!(root, *expected.as_bytes());
+        assert_eq!(root, expected);
     }
 
     #[test]
@@ -198,17 +246,21 @@ mod tests {
 
     #[test]
     fn test_proof_verification() {
-        let proof = SegmentProof::new(0, vec![0xBB; 512], 100, 512, [0x99; 32]);
+        let chunk = vec![0xBB; 512];
+        let mut builder = MerkleTreeBuilder::new();
+        builder.add_leaf(&chunk);
+        let proof = SegmentProof::new(0, chunk, 0, 512, builder.build());
 
-        // Simplified verification should pass
         assert!(proof.verify().unwrap());
     }
 
     #[test]
     fn test_proof_verifier() {
         let verifier = ProofVerifier::new();
-
-        let proof = SegmentProof::new(0, vec![0xCC; 256], 200, 256, [0x11; 32]);
+        let chunk = vec![0xCC; 256];
+        let mut builder = MerkleTreeBuilder::new();
+        builder.add_leaf(&chunk);
+        let proof = SegmentProof::new(0, chunk, 0, 256, builder.build());
 
         assert!(verifier.verify_proof(&proof).unwrap());
     }
@@ -217,14 +269,32 @@ mod tests {
     fn test_batch_verify() {
         let verifier = ProofVerifier::new();
 
-        let proofs = vec![
-            SegmentProof::new(0, vec![0xAA; 128], 0, 128, [0x01; 32]),
-            SegmentProof::new(1, vec![0xBB; 256], 0, 256, [0x02; 32]),
-            SegmentProof::new(2, vec![0xCC; 512], 0, 512, [0x03; 32]),
-        ];
+        let proofs = [vec![0xAA; 128], vec![0xBB; 256], vec![0xCC; 512]]
+            .into_iter()
+            .enumerate()
+            .map(|(segment_id, chunk)| {
+                let mut builder = MerkleTreeBuilder::new();
+                builder.add_leaf(&chunk);
+                SegmentProof::new(segment_id as u32, chunk.clone(), 0, chunk.len() as u32, builder.build())
+            })
+            .collect::<Vec<_>>();
 
         let results = verifier.batch_verify(&proofs).unwrap();
         assert_eq!(results.len(), 3);
         assert!(results.iter().all(|&r| r));
+    }
+
+    #[test]
+    fn test_merkle_proof_roundtrip() {
+        let chunks = [b"a".to_vec(), b"b".to_vec(), b"c".to_vec(), b"d".to_vec()];
+        let mut builder = MerkleTreeBuilder::new();
+        for chunk in &chunks {
+            builder.add_leaf(chunk);
+        }
+
+        let proof = builder.get_proof(2);
+        let leaf = hash_leaf(&chunks[2]);
+        let root = builder.build();
+        assert!(verify_merkle_proof(&leaf, &proof, &root, 2));
     }
 }

@@ -44,11 +44,6 @@ impl Account for Resident {
         self
     }
 
-    fn sig_op_count(&self) -> u8 {
-        // TODO - discuss
-        unreachable!()
-    }
-
     fn minimum_signatures(&self) -> u16 {
         // TODO - discuss
         unreachable!()

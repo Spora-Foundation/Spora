@@ -155,9 +155,9 @@ impl Deserializer for GetBlockTemplateRequest {
 pub struct GetBlockTemplateResponse {
     pub block: RpcRawBlock,
 
-    /// Whether Sporad thinks that it's synced.
-    /// Callers are discouraged (but not forbidden) from solving blocks when Sporad is not synced.
-    /// That is because when Sporad isn't in sync with the rest of the network there's a high
+    /// Whether the node thinks that it's synced.
+    /// Callers are discouraged (but not forbidden) from solving blocks when the node is not synced.
+    /// That is because when the node isn't in sync with the rest of the network there's a high
     /// chance the block will never be accepted, thus the solving effort would have been wasted.
     pub is_synced: bool,
 }
@@ -889,66 +889,6 @@ impl Deserializer for SubmitTransactionReplacementResponse {
         let replaced_transaction = deserialize!(RpcTransaction, reader)?;
 
         Ok(Self { transaction_id, replaced_transaction })
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct GetSubnetworkRequest {
-    pub subnetwork_id: RpcSubnetworkId,
-}
-
-impl GetSubnetworkRequest {
-    pub fn new(subnetwork_id: RpcSubnetworkId) -> Self {
-        Self { subnetwork_id }
-    }
-}
-
-impl Serializer for GetSubnetworkRequest {
-    fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
-        store!(u16, &1, writer)?;
-        store!(RpcSubnetworkId, &self.subnetwork_id, writer)?;
-
-        Ok(())
-    }
-}
-
-impl Deserializer for GetSubnetworkRequest {
-    fn deserialize<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
-        let _version = load!(u16, reader)?;
-        let subnetwork_id = load!(RpcSubnetworkId, reader)?;
-
-        Ok(Self { subnetwork_id })
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct GetSubnetworkResponse {
-    pub gas_limit: u64,
-}
-
-impl GetSubnetworkResponse {
-    pub fn new(gas_limit: u64) -> Self {
-        Self { gas_limit }
-    }
-}
-
-impl Serializer for GetSubnetworkResponse {
-    fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
-        store!(u16, &1, writer)?;
-        store!(u64, &self.gas_limit, writer)?;
-
-        Ok(())
-    }
-}
-
-impl Deserializer for GetSubnetworkResponse {
-    fn deserialize<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
-        let _version = load!(u16, reader)?;
-        let gas_limit = load!(u64, reader)?;
-
-        Ok(Self { gas_limit })
     }
 }
 
@@ -3279,7 +3219,7 @@ impl Deserializer for FinalityConflictResolvedNotification {
 //
 // If `addresses` is empty, the notifications will start or stop for all addresses.
 //
-// This call is only available when this Sporad was started with `--cellindex`
+// This call is only available when the node was started with `--cellindex`
 //
 // See: CellsChangedNotification
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -3367,7 +3307,11 @@ impl CellsChangedNotification {
         context: &SubscriptionContext,
     ) -> Vec<RpcCellsByAddressesEntry> {
         let subscription_data = subscription.data();
-        cell_set.iter().filter(|x| subscription_data.contains(&x.cell_entry.script_public_key, context)).cloned().collect()
+        cell_set
+            .iter()
+            .filter(|entry| entry.address.as_ref().is_some_and(|address| subscription_data.contains_address(address, context)))
+            .cloned()
+            .collect()
     }
 }
 

@@ -9,7 +9,7 @@ use crate::{
 };
 use spora_consensus_core::tx::{MutableTransaction, OutPointCompat, TransactionId, TransactionOutpoint};
 
-// TODO(cell-model): MempoolCellSet needs complete Cell model reimplementation
+// TODO: extend MempoolCellSet from spent-input tracking to full mempool-owned Cell tracking.
 pub(crate) struct MempoolCellSet {
     outpoint_owner_id: OutpointIndex,
 }
@@ -23,12 +23,12 @@ impl MempoolCellSet {
         let transaction_id = transaction.id();
 
         for input in transaction.tx.inputs.iter() {
-            // TODO(cell-model): Cell state management
+            // Track spent inputs immediately for double-spend detection.
             self.outpoint_owner_id.insert(input.out_point, transaction_id);
         }
 
-        // TODO(cell-model): Track newly created mempool-owned Cells once the pool
-        // stops depending on legacy transaction entries for child discovery.
+        // TODO: Track newly created mempool-owned Cells once the pool
+        // stops depending on transaction entries for child discovery.
     }
 
     pub(crate) fn remove_transaction(&mut self, transaction: &MutableTransaction, parent_ids_in_pool: &TransactionIdSet) {
@@ -45,7 +45,7 @@ impl MempoolCellSet {
             self.outpoint_owner_id.remove(&input.out_point);
         }
 
-        // TODO(cell-model): Remove newly created mempool-owned Cells once output
+        // TODO: Remove newly created mempool-owned Cells once output
         // tracking is implemented in this structure.
     }
 

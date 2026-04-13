@@ -88,7 +88,7 @@ impl<U: BlockWindowCacheReader> AffiliatedWindowCacheReader for AffiliatedWindow
     }
 }
 
-/// A window manager conforming (indirectly) to the legacy golang implementation
+/// A window manager conforming (indirectly) to the historical golang implementation
 /// based on full, hence un-sampled, windows
 #[derive(Clone)]
 pub struct FullWindowManager<T: GhostdagStoreReader, U: BlockWindowCacheReader + BlockWindowCacheWriter, V: HeaderStoreReader> {

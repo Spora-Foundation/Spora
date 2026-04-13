@@ -31,7 +31,6 @@ impl From<Version> for protowire::VersionMessage {
             id: item.id.as_bytes().to_vec(),
             user_agent: item.user_agent,
             disable_relay_tx: item.disable_relay_tx,
-            subnetwork_id: item.subnetwork_id.map(|x| x.into()),
             network: item.network.clone(),
         }
     }
@@ -52,7 +51,6 @@ impl TryFrom<protowire::VersionMessage> for Version {
             id: PeerId::from_slice(&msg.id)?,
             user_agent: msg.user_agent.clone(),
             disable_relay_tx: msg.disable_relay_tx,
-            subnetwork_id: if msg.subnetwork_id.is_none() { None } else { Some(msg.subnetwork_id.unwrap().try_into()?) },
             network: msg.network.clone(),
         })
     }

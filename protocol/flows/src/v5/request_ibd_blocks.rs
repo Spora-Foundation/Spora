@@ -1,8 +1,6 @@
 use crate::{flow_context::FlowContext, flow_trait::Flow};
 use spora_core::debug;
-use spora_p2p_lib::{
-    common::ProtocolError, dequeue_with_request_id, make_response, pb::sporad_message::Payload, IncomingRoute, Router,
-};
+use spora_p2p_lib::{common::ProtocolError, dequeue_with_request_id, make_response, pb::p2p_message::Payload, IncomingRoute, Router};
 use std::sync::Arc;
 
 pub struct HandleIbdBlockRequests {

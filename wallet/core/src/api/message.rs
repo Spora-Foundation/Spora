@@ -7,7 +7,8 @@
 use crate::imports::*;
 use crate::tx::{Fees, GeneratorSummary, PaymentDestination};
 use spora_addresses::Address;
-use spora_consensus_core::tx::{CellEntry, TransactionOutpoint};
+use spora_consensus_core::cell_diff::CellMeta;
+use spora_consensus_core::tx::TransactionOutpoint;
 use spora_rpc_core::RpcFeerateBucket;
 
 #[derive(Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
@@ -186,7 +187,6 @@ pub struct WalletOpenRequest {
     pub wallet_secret: Secret,
     pub filename: Option<String>,
     pub account_descriptors: bool,
-    pub legacy_accounts: Option<bool>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
@@ -634,7 +634,7 @@ impl From<TransactionOutpointWrapper> for TransactionOutpoint {
     }
 }
 
-impl From<CellEntryWrapper> for CellEntry {
+impl From<CellEntryWrapper> for CellMeta {
     fn from(entry: CellEntryWrapper) -> Self {
         Self::from_cell_metadata(
             entry.capacity.unwrap_or(entry.amount),
@@ -648,8 +648,8 @@ impl From<CellEntryWrapper> for CellEntry {
     }
 }
 
-impl From<CellEntry> for CellEntryWrapper {
-    fn from(entry: CellEntry) -> Self {
+impl From<CellMeta> for CellEntryWrapper {
+    fn from(entry: CellMeta) -> Self {
         let metadata = entry.embedded_cell_metadata().expect("CellEntryWrapper requires canonical Cell metadata");
         Self {
             address: None, // CellEntry doesn't have address field

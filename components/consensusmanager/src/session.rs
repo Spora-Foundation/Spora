@@ -14,11 +14,7 @@ use spora_consensus_core::{
     pruning::{PruningPointProof, PruningPointTrustedData, PruningPointsList},
     trusted::{ExternalGhostdagData, TrustedBlock},
     tx::{CellEntry, CellTx, MutableTransaction, ResolvedCellTransaction, SignableTransaction, TransactionOutpoint},
-    // legacy transaction-output inquirer errors removed during Cell migration
-    BlockHashSet,
-    BlueWorkType,
-    ChainPath,
-    Hash,
+    BlockHashSet, BlueWorkType, ChainPath, Hash,
 };
 use spora_utils::sync::rwlock::*;
 use std::{ops::Deref, sync::Arc};

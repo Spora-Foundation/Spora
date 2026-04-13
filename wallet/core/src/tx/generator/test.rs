@@ -407,7 +407,6 @@
 //
 //     let cell_entries: Vec<CellEntryReference> = values.into_iter().map(spora_to_sau).map(CellEntryReference::simulated).collect();
 //     let multiplexer = None;
-//     let sig_op_count = 1;
 //     let minimum_signatures = 1;
 //     let cell_iterator: Box<dyn Iterator<Item = CellEntryReference> + Send + Sync + 'static> = Box::new(cell_entries.into_iter());
 //     let priority_cell_entries = None;
@@ -420,7 +419,6 @@
 //     let settings = GeneratorSettings {
 //         network_id,
 //         multiplexer,
-//         sig_op_count,
 //         minimum_signatures,
 //         change_address,
 //         cell_iterator,

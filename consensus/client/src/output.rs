@@ -5,17 +5,20 @@
 #![allow(non_snake_case)]
 
 use crate::imports::*;
+use crate::result::Result;
 
 #[wasm_bindgen(typescript_custom_section)]
 const TS_TRANSACTION_OUTPUT: &'static str = r#"
 /**
- * Interface defining the structure of a transaction output.
- * 
+ * Interface defining the structure of a canonical Cell output.
+ *
  * @category Consensus
  */
 export interface ITransactionOutput {
-    value: bigint;
-    scriptPublicKey: IScriptPublicKey | HexString;
+    capacity: bigint;
+    lockScript: ScriptRef;
+    typeScript?: ScriptRef;
+    outputData?: HexString;
 
     /** Optional verbose data provided by RPC */
     verboseData?: ITransactionOutputVerboseData;
@@ -23,12 +26,12 @@ export interface ITransactionOutput {
 
 /**
  * TransactionOutput verbose data.
- * 
+ *
  * @category Node RPC
  */
 export interface ITransactionOutputVerboseData {
-    scriptPublicKeyType : string;
-    scriptPublicKeyAddress : string;
+    lockScriptType?: string;
+    lockScriptAddress?: string;
 }
 "#;
 
@@ -52,11 +55,16 @@ extern "C" {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TransactionOutputInner {
-    pub value: u64,
-    pub script_public_key: ScriptPublicKey,
+    pub capacity: u64,
+    pub lock_script: cctx::ScriptRef,
+    #[serde(default)]
+    pub type_script: Option<cctx::ScriptRef>,
+    #[serde(with = "spora_utils::serde_bytes_optional")]
+    #[serde(default)]
+    pub output_data: Option<Vec<u8>>,
 }
 
-/// Represents a Sporad transaction output
+/// Represents a canonical client-side Cell output.
 /// @category Consensus
 #[derive(Clone, Debug, Serialize, Deserialize, CastFromJs)]
 #[serde(rename_all = "camelCase")]
@@ -66,8 +74,8 @@ pub struct TransactionOutput {
 }
 
 impl TransactionOutput {
-    pub fn new(value: u64, script_public_key: ScriptPublicKey) -> TransactionOutput {
-        Self { inner: Arc::new(Mutex::new(TransactionOutputInner { value, script_public_key })) }
+    pub fn new(capacity: u64, lock_script: cctx::ScriptRef) -> TransactionOutput {
+        Self { inner: Arc::new(Mutex::new(TransactionOutputInner { capacity, lock_script, type_script: None, output_data: None })) }
     }
 
     pub fn new_with_inner(inner: TransactionOutputInner) -> Self {
@@ -78,8 +86,8 @@ impl TransactionOutput {
         self.inner.lock().unwrap()
     }
 
-    pub fn script_public_key_length(&self) -> usize {
-        self.inner().script_public_key.script().len()
+    pub fn lock_script_length(&self) -> usize {
+        self.inner().lock_script.args.len()
     }
 }
 
@@ -87,28 +95,52 @@ impl TransactionOutput {
 impl TransactionOutput {
     #[wasm_bindgen(constructor)]
     /// TransactionOutput constructor
-    pub fn ctor(value: u64, script_public_key: &ScriptPublicKey) -> TransactionOutput {
-        Self { inner: Arc::new(Mutex::new(TransactionOutputInner { value, script_public_key: script_public_key.clone() })) }
+    pub fn ctor(capacity: u64, lock_script: JsValue) -> Result<TransactionOutput> {
+        let lock_script: cctx::ScriptRef = workflow_wasm::serde::from_value(lock_script)?;
+        Ok(Self::new(capacity, lock_script))
     }
 
-    #[wasm_bindgen(getter, js_name = value)]
-    pub fn value(&self) -> u64 {
-        self.inner().value
+    #[wasm_bindgen(getter, js_name = capacity)]
+    pub fn capacity(&self) -> u64 {
+        self.inner().capacity
     }
 
-    #[wasm_bindgen(setter, js_name = value)]
-    pub fn set_value(&self, v: u64) {
-        self.inner().value = v;
+    #[wasm_bindgen(setter, js_name = capacity)]
+    pub fn set_capacity(&self, v: u64) {
+        self.inner().capacity = v;
     }
 
-    #[wasm_bindgen(getter, js_name = scriptPublicKey)]
-    pub fn get_script_public_key(&self) -> ScriptPublicKey {
-        self.inner().script_public_key.clone()
+    #[wasm_bindgen(getter, js_name = lockScript)]
+    pub fn get_lock_script(&self) -> Result<JsValue> {
+        Ok(workflow_wasm::serde::to_value(&self.inner().lock_script)?)
     }
 
-    #[wasm_bindgen(setter, js_name = scriptPublicKey)]
-    pub fn set_script_public_key(&self, v: &ScriptPublicKey) {
-        self.inner().script_public_key = v.clone();
+    #[wasm_bindgen(setter, js_name = lockScript)]
+    pub fn set_lock_script(&self, v: JsValue) -> Result<()> {
+        self.inner().lock_script = workflow_wasm::serde::from_value(v)?;
+        Ok(())
+    }
+
+    #[wasm_bindgen(getter, js_name = typeScript)]
+    pub fn get_type_script(&self) -> Result<JsValue> {
+        Ok(workflow_wasm::serde::to_value(&self.inner().type_script)?)
+    }
+
+    #[wasm_bindgen(setter, js_name = typeScript)]
+    pub fn set_type_script(&self, v: JsValue) -> Result<()> {
+        self.inner().type_script = if v.is_undefined() || v.is_null() { None } else { Some(workflow_wasm::serde::from_value(v)?) };
+        Ok(())
+    }
+
+    #[wasm_bindgen(getter, js_name = outputData)]
+    pub fn get_output_data(&self) -> Option<String> {
+        self.inner().output_data.as_ref().map(hex::encode)
+    }
+
+    #[wasm_bindgen(setter, js_name = outputData)]
+    pub fn set_output_data(&self, v: Option<String>) -> Result<()> {
+        self.inner().output_data = v.map(|value| hex::decode(value).map_err(|error| Error::custom(error.to_string()))).transpose()?;
+        Ok(())
     }
 }
 
@@ -118,11 +150,14 @@ impl AsRef<TransactionOutput> for TransactionOutput {
     }
 }
 
-/// Create TransactionOutput from CellOut (capacity -> value, lock -> script_public_key)
 impl From<&cctx::CellOut> for TransactionOutput {
     fn from(cell_out: &cctx::CellOut) -> Self {
-        let script_public_key = cctx::ScriptPublicKey::from_vec(0, cell_out.lock.to_bytes());
-        Self::new(cell_out.capacity, script_public_key)
+        Self::new_with_inner(TransactionOutputInner {
+            capacity: cell_out.capacity,
+            lock_script: cell_out.lock.clone(),
+            type_script: cell_out.type_.clone(),
+            output_data: None,
+        })
     }
 }
 
@@ -134,11 +169,21 @@ impl TryCastFromJs for TransactionOutput {
     {
         Self::resolve_cast(value, || {
             if let Some(object) = Object::try_from(value.as_ref()) {
-                let value = object.get_u64("value")?;
-                let script_public_key = ScriptPublicKey::try_owned_from(object.get_value("scriptPublicKey")?)?;
-                Ok(TransactionOutput::new(value, script_public_key).into())
+                let capacity = object.get_u64("capacity")?;
+                let lock_script: cctx::ScriptRef = workflow_wasm::serde::from_value(object.get_value("lockScript")?)?;
+                let type_script = match object.try_get_value("typeScript")? {
+                    Some(value) if !value.is_null() && !value.is_undefined() => Some(workflow_wasm::serde::from_value(value)?),
+                    _ => None,
+                };
+                let output_data = object
+                    .get_string("outputData")
+                    .ok()
+                    .map(|value| hex::decode(value).map_err(|error| Error::custom(error.to_string())))
+                    .transpose()?;
+                Ok(TransactionOutput::new_with_inner(TransactionOutputInner { capacity, lock_script, type_script, output_data })
+                    .into())
             } else {
-                Err("TransactionInput must be an object".into())
+                Err("TransactionOutput must be an object".into())
             }
         })
     }

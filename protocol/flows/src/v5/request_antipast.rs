@@ -5,7 +5,7 @@ use spora_hashes::Hash;
 use spora_p2p_lib::{
     common::ProtocolError,
     dequeue_with_request_id, make_response,
-    pb::{sporad_message::Payload, BlockHeadersMessage, DoneHeadersMessage},
+    pb::{p2p_message::Payload, BlockHeadersMessage, DoneHeadersMessage},
     IncomingRoute, Router,
 };
 use std::sync::Arc;

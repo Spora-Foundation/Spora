@@ -15,7 +15,7 @@ use toml::from_str;
 #[cfg(feature = "devnet-prealloc")]
 use spora_addresses::Address;
 #[cfg(feature = "devnet-prealloc")]
-use spora_consensus_core::tx::{pay_to_address_script, CellEntry, TransactionOutpoint};
+use spora_consensus_core::tx::{pay_to_address_lock_script, CellEntry, TransactionOutpoint};
 #[cfg(feature = "devnet-prealloc")]
 use std::sync::Arc;
 
@@ -60,7 +60,6 @@ pub struct Args {
     pub rpc_max_clients: usize,
     pub max_tracked_addresses: usize,
     pub enable_unsynced_mining: bool,
-    pub enable_mainnet_mining: bool,
     pub testnet: bool,
     #[serde(rename = "netsuffix")]
     pub testnet_suffix: u32,
@@ -107,7 +106,6 @@ impl Default for Args {
             rpc_max_clients: 128,
             max_tracked_addresses: 0,
             enable_unsynced_mining: false,
-            enable_mainnet_mining: true,
             testnet: false,
             testnet_suffix: 10,
             devnet: false,
@@ -150,7 +148,6 @@ impl Args {
         config.disable_upnp = self.disable_upnp;
         config.unsafe_rpc = self.unsafe_rpc;
         config.enable_unsynced_mining = self.enable_unsynced_mining;
-        config.enable_mainnet_mining = self.enable_mainnet_mining;
         config.is_archival = self.archival;
         // TODO: change to `config.enable_sanity_checks = self.sanity` when we reach stable versions
         config.enable_sanity_checks = true;
@@ -170,12 +167,14 @@ impl Args {
     #[cfg(feature = "devnet-prealloc")]
     pub fn generate_prealloc_cells(&self, num_prealloc_cells: u64) -> spora_consensus_core::cell_diff::CellCollection {
         let addr = Address::try_from(&self.prealloc_address.as_ref().unwrap()[..]).unwrap();
-        let spk = pay_to_address_script(&addr);
+        let lock_script = pay_to_address_lock_script(&addr);
         (1..=num_prealloc_cells)
             .map(|i| {
+                let mut tx_hash = [0u8; 32];
+                tx_hash[..8].copy_from_slice(&i.to_le_bytes());
                 (
-                    TransactionOutpoint { transaction_id: i.into(), index: 0 },
-                    CellEntry { amount: self.prealloc_amount, script_public_key: spk.clone(), block_daa_score: 0, is_coinbase: false },
+                    TransactionOutpoint::new(tx_hash, 0),
+                    CellEntry::from_cell_metadata(self.prealloc_amount, 0, lock_script.hash(), None, [0; 32], 0, false),
                 )
             })
             .collect()
@@ -302,15 +301,8 @@ pub fn cli() -> Command {
                 .value_parser(clap::value_parser!(usize))
                 .help("Max number of RPC clients for standard connections (default: 128)."),
         )
-        .arg(arg!(--"reset-db" "Reset database before starting node. It's needed when switching between subnetworks."))
+        .arg(arg!(--"reset-db" "Reset database before starting node. It's needed when switching between networks."))
         .arg(arg!(--"enable-unsynced-mining" "Allow the node to accept blocks from RPC while not synced (this flag is mainly used for testing)"))
-        .arg(
-            Arg::new("enable-mainnet-mining")
-                .long("enable-mainnet-mining")
-                .action(ArgAction::SetTrue)
-                .hide(true)
-                .help("Allow mainnet mining (currently enabled by default while the flag is kept for backwards compatibility)"),
-        )
         .arg(arg!(--cellindex "Enable the cell index"))
         .arg(
             Arg::new("max-tracked-addresses")
@@ -437,7 +429,6 @@ impl Args {
             max_tracked_addresses: arg_match_unwrap_or::<usize>(&m, "max-tracked-addresses", defaults.max_tracked_addresses),
             reset_db: arg_match_unwrap_or::<bool>(&m, "reset-db", defaults.reset_db),
             enable_unsynced_mining: arg_match_unwrap_or::<bool>(&m, "enable-unsynced-mining", defaults.enable_unsynced_mining),
-            enable_mainnet_mining: arg_match_unwrap_or::<bool>(&m, "enable-mainnet-mining", defaults.enable_mainnet_mining),
             cellindex: arg_match_unwrap_or::<bool>(&m, "cellindex", defaults.cellindex),
             testnet: arg_match_unwrap_or::<bool>(&m, "testnet", defaults.testnet),
             testnet_suffix: arg_match_unwrap_or::<u32>(&m, "netsuffix", defaults.testnet_suffix),
@@ -465,10 +456,6 @@ impl Args {
             #[cfg(feature = "devnet-prealloc")]
             prealloc_amount: arg_match_unwrap_or::<u64>(&m, "prealloc-amount", defaults.prealloc_amount),
         };
-
-        if arg_match_unwrap_or::<bool>(&m, "enable-mainnet-mining", false) {
-            println!("\nNOTE: The flag --enable-mainnet-mining is deprecated and defaults to true also w/o explicit setting\n")
-        }
 
         Ok(args)
     }
@@ -554,7 +541,7 @@ fn arg_match_many_unwrap_or<T: Clone + Send + Sync + 'static>(m: &clap::ArgMatch
       --rejectnonstd                        Reject non-standard transactions regardless of the default settings for
                                             the active network.
       --reset-db                            Reset database before starting node. It's needed when switching between
-                                            subnetworks.
+                                            networks.
       --maxcellcachesize=                   Max size of loaded cell data into ram from the disk in bytes (default:
                                             5000000000)
       --cellindex                           Enable the cell index

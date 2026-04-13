@@ -6,7 +6,7 @@
 
 use crate::imports::*;
 use crate::result::Result;
-use crate::standard_script::pay_to_address_script;
+use crate::standard_script::pay_to_address_lock_script;
 use crate::CellEntryReference;
 use crate::TransactionOutpoint;
 use spora_utils::hex::*;
@@ -20,9 +20,8 @@ const TS_TRANSACTION: &'static str = r#"
  */
 export interface ITransactionInput {
     previousOutpoint: ITransactionOutpoint;
-    signatureScript?: HexString;
-    sequence: bigint;
-    sigOpCount: number;
+    witness?: HexString;
+    since: bigint;
     cellEntry?: CellEntryReference;
 
     /** Optional verbose data provided by RPC */
@@ -59,21 +58,19 @@ extern "C" {
 #[serde(rename_all = "camelCase")]
 pub struct TransactionInputInner {
     pub previous_outpoint: TransactionOutpoint,
-    pub signature_script: Option<Vec<u8>>,
-    pub sequence: u64,
-    pub sig_op_count: u8,
+    pub witness: Option<Vec<u8>>,
+    pub since: u64,
     pub cell_entry: Option<CellEntryReference>,
 }
 
 impl TransactionInputInner {
     pub fn new(
         previous_outpoint: TransactionOutpoint,
-        signature_script: Option<Vec<u8>>,
-        sequence: u64,
-        sig_op_count: u8,
+        witness: Option<Vec<u8>>,
+        since: u64,
         cell_entry: Option<CellEntryReference>,
     ) -> Self {
-        Self { previous_outpoint, signature_script, sequence, sig_op_count, cell_entry }
+        Self { previous_outpoint, witness, since, cell_entry }
     }
 }
 
@@ -88,12 +85,11 @@ pub struct TransactionInput {
 impl TransactionInput {
     pub fn new(
         previous_outpoint: TransactionOutpoint,
-        signature_script: Option<Vec<u8>>,
-        sequence: u64,
-        sig_op_count: u8,
+        witness: Option<Vec<u8>>,
+        since: u64,
         cell_entry: Option<CellEntryReference>,
     ) -> Self {
-        let inner = TransactionInputInner::new(previous_outpoint, signature_script, sequence, sig_op_count, cell_entry);
+        let inner = TransactionInputInner::new(previous_outpoint, witness, since, cell_entry);
         Self { inner: Arc::new(Mutex::new(inner)) }
     }
 
@@ -105,12 +101,8 @@ impl TransactionInput {
         self.inner.lock().unwrap()
     }
 
-    pub fn sig_op_count(&self) -> u8 {
-        self.inner().sig_op_count
-    }
-
-    pub fn signature_script_length(&self) -> usize {
-        self.inner().signature_script.as_ref().map(|signature_script| signature_script.len()).unwrap_or_default()
+    pub fn witness_length(&self) -> usize {
+        self.inner().witness.as_ref().map(|witness| witness.len()).unwrap_or_default()
     }
 
     pub fn cell_entry(&self) -> Option<CellEntryReference> {
@@ -141,40 +133,30 @@ impl TransactionInput {
         }
     }
 
-    #[wasm_bindgen(getter = signatureScript)]
-    pub fn get_signature_script_as_hex(&self) -> Option<String> {
-        self.inner().signature_script.as_ref().map(|script| script.to_hex())
+    #[wasm_bindgen(getter = witness)]
+    pub fn get_witness_as_hex(&self) -> Option<String> {
+        self.inner().witness.as_ref().map(|witness| witness.to_hex())
     }
 
-    #[wasm_bindgen(setter = signatureScript)]
-    pub fn set_signature_script_from_js_value(&mut self, js_value: JsValue) -> Result<()> {
+    #[wasm_bindgen(setter = witness)]
+    pub fn set_witness_from_js_value(&mut self, js_value: JsValue) -> Result<()> {
         match js_value.try_as_vec_u8() {
-            Ok(signature) => {
-                self.set_signature_script(signature);
+            Ok(witness) => {
+                self.set_witness(witness);
                 Ok(())
             }
-            Err(_) => Err(Error::custom("invalid signature script".to_string())),
+            Err(_) => Err(Error::custom("invalid witness".to_string())),
         }
     }
 
-    #[wasm_bindgen(getter = sequence)]
-    pub fn get_sequence(&self) -> u64 {
-        self.inner().sequence
+    #[wasm_bindgen(getter = since)]
+    pub fn get_since(&self) -> u64 {
+        self.inner().since
     }
 
-    #[wasm_bindgen(setter = sequence)]
-    pub fn set_sequence(&mut self, sequence: u64) {
-        self.inner().sequence = sequence;
-    }
-
-    #[wasm_bindgen(getter = sigOpCount)]
-    pub fn get_sig_op_count(&self) -> u8 {
-        self.inner().sig_op_count
-    }
-
-    #[wasm_bindgen(setter = sigOpCount)]
-    pub fn set_sig_op_count(&mut self, sig_op_count: u8) {
-        self.inner().sig_op_count = sig_op_count;
+    #[wasm_bindgen(setter = since)]
+    pub fn set_since(&mut self, since: u64) {
+        self.inner().since = since;
     }
 
     #[wasm_bindgen(getter = cellEntry)]
@@ -184,19 +166,12 @@ impl TransactionInput {
 }
 
 impl TransactionInput {
-    pub fn set_signature_script(&self, signature_script: Vec<u8>) {
-        self.inner().signature_script.replace(signature_script);
+    pub fn set_witness(&self, witness: Vec<u8>) {
+        self.inner().witness.replace(witness);
     }
 
-    pub fn script_public_key(&self) -> Option<ScriptPublicKey> {
-        self.cell_entry().and_then(|cell_ref| {
-            cell_ref
-                .cell
-                .address
-                .as_ref()
-                .map(pay_to_address_script)
-                .or_else(|| (!cell_ref.cell.script_public_key.script().is_empty()).then(|| cell_ref.cell.script_public_key.clone()))
-        })
+    pub fn lock_script_bytes(&self) -> Option<Vec<u8>> {
+        self.cell_entry().and_then(|cell_ref| cell_ref.cell.address.as_ref().map(|address| pay_to_address_lock_script(address).args))
     }
 }
 
@@ -215,11 +190,10 @@ impl TryCastFromJs for TransactionInput {
         Self::resolve_cast(value, || {
             if let Some(object) = Object::try_from(value.as_ref()) {
                 let previous_outpoint: TransactionOutpoint = object.get_value("previousOutpoint")?.as_ref().try_into()?;
-                let signature_script = object.get_vec_u8("signatureScript").ok();
-                let sequence = object.get_u64("sequence")?;
-                let sig_op_count = object.get_u8("sigOpCount")?;
+                let witness = object.get_vec_u8("witness").ok();
+                let since = object.get_u64("since")?;
                 let cell_entry = object.try_cast_into::<CellEntryReference>("cellEntry")?;
-                Ok(TransactionInput::new(previous_outpoint, signature_script, sequence, sig_op_count, cell_entry).into())
+                Ok(TransactionInput::new(previous_outpoint, witness, since, cell_entry).into())
             } else {
                 Err("TransactionInput must be an object".into())
             }

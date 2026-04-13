@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Spora developers
 //
 // Cell set override for devnet pre-allocation
-// Migrated from the legacy transaction-output model to the Cell model
+// Migrated from the previous transaction-output model to the Cell model
 
 #[cfg(feature = "devnet-prealloc")]
 mod cell_set_override_inner {
@@ -53,7 +53,7 @@ mod cell_set_override_inner {
 
     /// Set genesis cell_root and cell_commitment from initial cell set
     /// 
-    /// Replaces the legacy MuHash-based implementation with Cell State Tree
+    /// Replaces the previous MuHash-based implementation with Cell State Tree
     pub fn set_genesis_cell_commitment_from_config(config: &mut Config) {
         let mut genesis_tree = CellStateTree::new();
         
@@ -75,7 +75,7 @@ mod cell_set_override_inner {
             genesis_tree.insert_with_outpoint(outpoint_hash, exec_outpoint(outpoint), entry);
         }
         
-        // Calculate cell_root (Merkle root of all cells)
+        // Calculate cell_root (MuHash root of all cells)
         let cell_root = genesis_tree.root();
         config.params.genesis.cell_root = cell_root;
         
@@ -89,7 +89,7 @@ mod cell_set_override_inner {
 
     /// Set initial cell set for pruning point import
     /// 
-    /// Replaces the legacy cell-set import shim with Cell set import
+    /// Replaces the previous cell-set import shim with Cell set import
     pub fn set_initial_cell_set(
         initial_cell_set: &CellCollection,
         consensus: Arc<Consensus>,

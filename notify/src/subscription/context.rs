@@ -147,7 +147,7 @@ mod tests {
     #[test]
     #[ignore = "measuring consumed memory"]
     // ITEM = SubscriptionContext
-    // (measuring IndexMap<ScriptPublicKey, u16>)
+    // (measuring an IndexMap keyed by address-like values)
     //
     //   ITEM_LEN    NUM_ITEMS     MEMORY/ITEM   MEM/ADDR
     // --------------------------------------------------

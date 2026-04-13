@@ -16,6 +16,7 @@ from!(item: &spora_rpc_core::RpcHeader, protowire::RpcBlockHeader, {
         accepted_id_merkle_root: item.accepted_id_merkle_root.to_string(),
         cell_commitment: item.cell_commitment.to_string(),
         cell_root: item.cell_root.to_string(),
+        segment_root: item.segment_root.to_string(),
         timestamp: item.timestamp.try_into().expect("timestamp is always convertible to i64"),
         bits: item.bits,
         nonce: item.nonce,
@@ -34,6 +35,7 @@ from!(item: &spora_rpc_core::RpcRawHeader, protowire::RpcBlockHeader, {
         accepted_id_merkle_root: item.accepted_id_merkle_root.to_string(),
         cell_commitment: item.cell_commitment.to_string(),
         cell_root: item.cell_root.to_string(),
+        segment_root: item.segment_root.to_string(),
         timestamp: item.timestamp.try_into().expect("timestamp is always convertible to i64"),
         bits: item.bits,
         nonce: item.nonce,
@@ -59,6 +61,7 @@ try_from!(item: &protowire::RpcBlockHeader, spora_rpc_core::RpcHeader, {
         RpcHash::from_str(&item.accepted_id_merkle_root)?,
         RpcHash::from_str(&item.cell_commitment)?,
         RpcHash::from_str(&item.cell_root)?,
+        RpcHash::from_str(&item.segment_root)?,
         item.timestamp.try_into()?,
         item.bits,
         item.nonce,
@@ -79,6 +82,7 @@ try_from!(item: &protowire::RpcBlockHeader, spora_rpc_core::RpcRawHeader, {
         accepted_id_merkle_root: RpcHash::from_str(&item.accepted_id_merkle_root)?,
         cell_commitment: RpcHash::from_str(&item.cell_commitment)?,
         cell_root: RpcHash::from_str(&item.cell_root)?,
+        segment_root: RpcHash::from_str(&item.segment_root)?,
         timestamp: item.timestamp.try_into()?,
         bits: item.bits,
         nonce: item.nonce,
@@ -155,6 +159,7 @@ mod tests {
             new_unique(),
             new_unique(),
             new_unique(), // cell_root
+            new_unique(), // segment_root
             123,
             12345,
             98765,
@@ -177,6 +182,7 @@ mod tests {
 
         assert_eq!(r.hash, r2.hash);
         assert_eq!(r.cell_root, r2.cell_root);
+        assert_eq!(r.segment_root, r2.segment_root);
         assert_eq!(p, p2);
     }
 
@@ -189,6 +195,7 @@ mod tests {
             new_unique(),
             new_unique(),
             new_unique(), // cell_root
+            new_unique(), // segment_root
             123,
             12345,
             98765,

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: ISC
 // Copyright (C) 2026 Spora developers
 //
-// Cell transaction validator (replaces the legacy transaction validator)
+// Cell transaction validator (replaces the previous transaction validator)
 
 //! Cell Transaction Validation
 //!
@@ -37,6 +37,8 @@ use spora_hashes::Hash;
 pub struct CellConsensusParams {
     /// Cellbase maturity (DAA score)
     pub cellbase_maturity: u64,
+    /// Maximum cycles allowed for a single transaction's scripts.
+    pub max_tx_cycles: u64,
     /// Maximum block cycles (CKB-style)
     pub max_block_cycles: u64,
     /// Maximum transaction size (bytes)
@@ -49,6 +51,7 @@ impl Default for CellConsensusParams {
     fn default() -> Self {
         Self {
             cellbase_maturity: 100,       // 100 DAA scores
+            max_tx_cycles: 10_000_000,    // 10M cycles per transaction
             max_block_cycles: 70_000_000, // 70M cycles (same as CKB)
             max_tx_size: 500 * 1024,      // 500KB
             max_cell_data_size: 500 * 1024,
@@ -211,14 +214,15 @@ impl<P: CellStateProvider> CellValidator<P> {
         P: CellScriptDataProvider + DagCellProvider,
     {
         let provider = Arc::new(self.prepare_vm_data_provider(tx, pov)?);
+        let per_tx_cycles_limit = self.params.max_tx_cycles.min(self.params.max_block_cycles);
 
         // Create verifier
-        let verifier = TransactionScriptVerifier::new(Arc::new(tx.clone()), provider).with_max_cycles(self.params.max_block_cycles);
+        let verifier = TransactionScriptVerifier::new(Arc::new(tx.clone()), provider).with_max_cycles(per_tx_cycles_limit);
 
         // Verify all scripts
         let total_cycles = verifier.verify_with_cycles().map_err(|e| CellValidationError::ScriptVerificationFailed(e.to_string()))?;
-        if total_cycles > self.params.max_block_cycles {
-            return Err(CellValidationError::ExceededMaxCycles { total: total_cycles, limit: self.params.max_block_cycles });
+        if total_cycles > per_tx_cycles_limit {
+            return Err(CellValidationError::ExceededMaxCycles { total: total_cycles, limit: per_tx_cycles_limit });
         }
 
         Ok(total_cycles)

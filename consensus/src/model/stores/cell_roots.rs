@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Spora developers
 //
 // Cell roots store - stores Cell state Merkle roots for each block
-// Replaces the legacy multiset store with Cell State Tree roots
+// Replaces the previous multiset store with Cell State Tree roots
 
 use std::sync::Arc;
 

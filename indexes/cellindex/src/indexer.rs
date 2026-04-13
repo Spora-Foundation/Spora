@@ -8,7 +8,7 @@ use parking_lot::RwLock;
 use spora_consensus_core::cell_diff::{BlockCellDiff, CellCollection, CellMeta as DiffCellMeta};
 use spora_exec::{CellOut, CellTx, OutPoint, ScriptRef};
 use spora_state::index::CellMeta;
-use spora_state::{CellDB, ScriptIndex};
+use spora_state::{CellDB, ScriptIndex, SegmentInfo, SegmentReader, SegmentWriter};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -21,6 +21,12 @@ pub struct CellIndexer {
 
     /// Script index
     script_index: Arc<ScriptIndex>,
+
+    /// DA segment writer for large cell data payloads
+    segment_writer: Arc<SegmentWriter>,
+
+    /// DA segment reader used to hydrate payloads on demand
+    segment_reader: Arc<SegmentReader>,
 
     /// Processing statistics
     stats: Arc<RwLock<IndexerStats>>,
@@ -45,12 +51,18 @@ pub struct IndexerStats {
 impl CellIndexer {
     /// Create a new Cell indexer
     pub fn new<P: AsRef<Path>>(cell_db_path: P, script_index_path: P) -> Result<Self> {
+        let cell_db_path = cell_db_path.as_ref();
         let cell_db = CellDB::open(cell_db_path)?;
         let script_index = ScriptIndex::open(script_index_path)?;
+        let segments_dir = cell_db_path.join("segments");
+        let segment_writer = SegmentWriter::new(&segments_dir)?;
+        let segment_reader = SegmentReader::new(&segments_dir)?;
 
         Ok(Self {
             cell_db: Arc::new(cell_db),
             script_index: Arc::new(script_index),
+            segment_writer: Arc::new(segment_writer),
+            segment_reader: Arc::new(segment_reader),
             stats: Arc::new(RwLock::new(IndexerStats::default())),
         })
     }
@@ -65,14 +77,15 @@ impl CellIndexer {
         for (idx, output) in tx.outputs.iter().enumerate() {
             let out_point = OutPoint::new(tx_hash, idx as u32);
             let cell_data = tx.outputs_data.get(idx).cloned().unwrap_or_default();
+            let (stored_cell_data, segment_info) = self.persist_cell_data(&cell_data)?;
 
             let meta = CellMeta {
                 cell_output: output.clone(),
-                cell_data,
+                cell_data: stored_cell_data,
                 daa_score,
                 block_hash,
                 is_cellbase,
-                segment_info: None, // TODO: link to DA segment
+                segment_info,
             };
 
             self.cell_db.put(&out_point, &meta)?;
@@ -126,6 +139,7 @@ impl CellIndexer {
 
         for out_point in &out_points {
             if let Some(meta) = self.cell_db.get(out_point)? {
+                let meta = self.hydrate_cell_data(meta)?;
                 // Apply capacity filter
                 if let Some(min_cap) = query.min_capacity {
                     if meta.cell_output.capacity < min_cap {
@@ -153,7 +167,7 @@ impl CellIndexer {
 
     /// Get a single Cell by OutPoint
     pub fn get_cell(&self, out_point: &OutPoint) -> Result<Option<CellMeta>> {
-        Ok(self.cell_db.get(out_point)?)
+        self.cell_db.get(out_point)?.map(|meta| self.hydrate_cell_data(meta)).transpose()
     }
 
     /// Check if a Cell is spent
@@ -267,6 +281,33 @@ impl CellIndexer {
     pub fn stats(&self) -> IndexerStats {
         self.stats.read().clone()
     }
+
+    fn persist_cell_data(&self, cell_data: &[u8]) -> Result<(Vec<u8>, Option<SegmentInfo>)> {
+        if cell_data.is_empty() {
+            return Ok((Vec::new(), None));
+        }
+
+        let (segment_id, offset, length) = self.segment_writer.append(cell_data)?;
+        Ok((
+            Vec::new(),
+            Some(SegmentInfo {
+                segment_id,
+                offset,
+                length,
+            }),
+        ))
+    }
+
+    fn hydrate_cell_data(&self, mut meta: CellMeta) -> Result<CellMeta> {
+        if meta.cell_data.is_empty() {
+            if let Some(segment_info) = &meta.segment_info {
+                meta.cell_data =
+                    self.segment_reader.read(segment_info.segment_id, segment_info.offset, segment_info.length)?;
+            }
+        }
+
+        Ok(meta)
+    }
 }
 
 fn index_cell_meta_from_diff(meta: &DiffCellMeta, block_hash: [u8; 32], block_daa_score: u64) -> CellMeta {
@@ -317,6 +358,11 @@ mod tests {
 
         let tx = create_test_tx();
         indexer.index_transaction(&tx, 100, [0x42; 32], false).unwrap();
+
+        let out_point = OutPoint::new(spora_exec::celltx::sighash::compute_wtxid(&tx), 0);
+        let meta = indexer.get_cell(&out_point).unwrap().unwrap();
+        assert_eq!(meta.cell_data, vec![0xAA; 100]);
+        assert!(meta.segment_info.is_some());
 
         let stats = indexer.stats();
         assert_eq!(stats.txs_indexed, 1);
@@ -405,7 +451,6 @@ mod tests {
     }
 
     #[test]
-    #[allow(deprecated)]
     fn test_update_with_block_diffs_preserves_creation_and_spend_journal() {
         let tmp_db = TempDir::new().unwrap();
         let tmp_script = TempDir::new().unwrap();
@@ -437,8 +482,8 @@ mod tests {
 
         assert_eq!(indexer.cell_db.is_spent(&out_point).unwrap(), Some(220));
         assert!(indexer.get_cell(&out_point).unwrap().is_none());
-        assert!(indexer.cell_db.get_cell_at_daa(&out_point, 200).unwrap().is_some());
-        assert!(indexer.cell_db.get_cell_at_daa(&out_point, 220).unwrap().is_none());
+        assert!(indexer.cell_db.get_cell_snapshot_at_daa(&out_point, 200).unwrap().is_some());
+        assert!(indexer.cell_db.get_cell_snapshot_at_daa(&out_point, 220).unwrap().is_none());
     }
 
     #[test]

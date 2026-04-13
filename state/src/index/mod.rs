@@ -6,5 +6,5 @@
 pub mod cell_db;
 pub mod script_index;
 
-pub use cell_db::{CellDB, CellMeta};
+pub use cell_db::{CellDB, CellMeta, SegmentInfo};
 pub use script_index::ScriptIndex;

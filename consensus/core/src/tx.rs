@@ -7,19 +7,16 @@
 #![allow(non_snake_case)]
 
 mod script_cache;
-mod script_public_key;
 mod standard_script;
 
 pub use script_cache::{ScriptCacheCounters, ScriptCacheCountersSnapshot};
-
-pub use script_public_key::{
-    scriptvec, ScriptPublicKey, ScriptPublicKeyT, ScriptPublicKeyVersion, ScriptPublicKeys, ScriptVec, SCRIPT_VECTOR_SIZE,
+pub use standard_script::{
+    classify_lock_script, extract_address_from_lock_script, multisig_redeem_script, multisig_redeem_script_ecdsa,
+    pay_to_address_lock_script, pay_to_script_hash_lock_script, pay_to_script_hash_witness_script, push_data_script,
+    MultisigRedeemScriptError, ScriptClass, StandardScriptError,
 };
-pub use standard_script::{extract_script_pub_key_address, pay_to_address_script, pay_to_script_hash_script};
 
-use crate::cell_metadata::{
-    cell_metadata_placeholder_script_public_key_with_metadata, parse_cell_metadata_placeholder_script_public_key, CellMetadata,
-};
+use crate::cell_metadata::CellMetadata;
 use crate::mass::{cell_tx_estimated_serialized_size, ContextualMasses, NonContextualMasses};
 pub use spora_exec::celltx::{CellDep, CellOut, CellRef, CellTx, DepType, OutPoint, ScriptRef};
 use spora_exec::vm::VmLimits;
@@ -31,92 +28,8 @@ pub const COINBASE_TRANSACTION_INDEX: usize = 0;
 /// A 32-byte Spora transaction identifier.
 pub type TransactionId = spora_hashes::Hash;
 
-/// CellEntry is now a type alias for CellMeta.
-///
-/// All code should migrate to using CellMeta directly.
-/// During the transition, compat methods on CellMeta preserve the old API surface
-/// (`capacity()`, `amount()`, `embedded_cell_metadata()`, `from_cell_metadata()`).
+/// CellEntry is a semantic alias for CellMeta at transaction boundaries.
 pub type CellEntry = crate::cell_diff::CellMeta;
-
-/// Bridge a Cell-backed entry into a legacy placeholder ScriptPublicKey.
-///
-/// This preserves lock/type/data metadata inside the placeholder payload so
-/// remaining legacy surfaces can continue operating without silently throwing
-/// away Cell semantics.
-pub fn cell_entry_legacy_script_public_key(cell_entry: &CellEntry) -> ScriptPublicKey {
-    cell_metadata_placeholder_script_public_key_with_metadata(
-        cell_entry.lock_hash,
-        cell_entry.type_hash,
-        cell_entry.data_hash,
-        cell_entry.data_bytes,
-    )
-}
-
-/// Deterministically derive the synthetic Cell lock hash used by legacy script bridges.
-pub fn compute_lock_hash_for_script(script_public_key: &ScriptPublicKey) -> [u8; 32] {
-    let mut hasher = blake3::Hasher::new();
-    hasher.update(b"spora-cell/lock");
-    hasher.update(&script_public_key.version().to_le_bytes());
-    hasher.update(script_public_key.script());
-    *hasher.finalize().as_bytes()
-}
-
-/// Bridge: create a CellMeta from a legacy TransactionOutput.
-///
-/// Parses placeholder cell metadata from the script if present; otherwise
-/// computes a deterministic `lock_hash` from the raw script bytes.
-pub fn cell_meta_from_legacy_output(
-    value: u64,
-    script_public_key: &ScriptPublicKey,
-    block_daa_score: u64,
-    is_cellbase: bool,
-) -> CellEntry {
-    if let Some(m) = parse_cell_metadata_placeholder_script_public_key(script_public_key) {
-        CellEntry::from_cell_metadata(value, m.data_bytes, m.lock_hash, m.type_hash, m.data_hash, block_daa_score, is_cellbase)
-    } else {
-        CellEntry {
-            out_point: TransactionOutpoint::default(),
-            capacity: value,
-            data_bytes: 0,
-            lock_hash: compute_lock_hash_for_script(script_public_key),
-            type_hash: None,
-            data_hash: [0; 32],
-            block_daa_score,
-            is_cellbase,
-        }
-    }
-}
-
-/// Bridge: create a canonical `CellOut` from a legacy output shape.
-///
-/// If the script embeds placeholder cell metadata, preserve the lock/type hashes
-/// carried by that placeholder instead of recomputing a lossy lock hash from the
-/// serialized script bytes.
-pub fn cell_out_from_legacy_script_public_key(value: u64, script_public_key: &ScriptPublicKey) -> CellOut {
-    if let Some(metadata) = parse_cell_metadata_placeholder_script_public_key(script_public_key) {
-        CellOut {
-            lock: ScriptRef::new(metadata.lock_hash, 0, vec![]),
-            type_: metadata.type_hash.map(|type_hash| ScriptRef::new(type_hash, 0, vec![])),
-            capacity: value,
-        }
-    } else {
-        CellOut {
-            lock: ScriptRef::new(compute_lock_hash_for_script(script_public_key), 0, script_public_key.script().to_vec()),
-            type_: None,
-            capacity: value,
-        }
-    }
-}
-
-/// Bridge a legacy sequence value into the canonical Cell `since` field.
-#[inline]
-pub fn legacy_sequence_to_cell_since(sequence: u64) -> u64 {
-    if sequence == u64::MAX {
-        0
-    } else {
-        sequence
-    }
-}
 
 pub type TransactionIndexType = u32;
 
@@ -126,7 +39,7 @@ pub type TransactionIndexType = u32;
 /// now aliases `spora_exec::celltx::OutPoint` which uses `tx_hash: [u8; 32]` + `index: u32`.
 pub type TransactionOutpoint = spora_exec::celltx::OutPoint;
 
-/// Extension trait bridging OutPoint's `tx_hash: [u8; 32]` to the legacy `TransactionId` type.
+/// Extension trait bridging OutPoint's `tx_hash: [u8; 32]` to the `TransactionId` wrapper type.
 pub trait OutPointCompat {
     /// Get the transaction ID as a `TransactionId` (Hash wrapper).
     fn transaction_id(&self) -> TransactionId;
@@ -145,9 +58,9 @@ pub fn outpoint_from_id(transaction_id: TransactionId, index: u32) -> Transactio
 }
 
 /// Represents any kind of transaction which has its inputs resolved either as
-/// legacy Cell entries or as canonical Cell metadata and can be verified/signed.
+/// entry views or as canonical Cell metadata and can be verified/signed.
 ///
-/// Now based on [`CellTx`] rather than the legacy `Transaction` struct.
+/// Now based on [`CellTx`] rather than the old `Transaction` struct.
 pub trait VerifiableTransaction {
     fn tx(&self) -> &CellTx;
 
@@ -294,7 +207,7 @@ impl<T: CellTxContainer + ?Sized> CellTxContainer for &T {
 }
 
 /// Represents a generic mutable/readonly/pointer transaction type along with
-/// partially filled legacy Cell entries and/or resolved canonical Cell metadata.
+/// partially filled entry views and/or resolved canonical Cell metadata.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MutableTransaction<T: CellTxContainer = std::sync::Arc<CellTx>> {
     /// The inner CellTx transaction
@@ -473,6 +386,22 @@ impl<T: CellTxContainer> MutableTransaction<T> {
 
 impl<T: CellTxContainer> MemSizeEstimator for MutableTransaction<T> {
     fn estimate_mem_bytes(&self) -> usize {
+        let tx = self.tx.cell_tx();
+        let tx_heap_bytes = tx.inputs.capacity() * std::mem::size_of::<CellRef>()
+            + tx.deps.capacity() * std::mem::size_of::<CellDep>()
+            + tx.header_deps.capacity() * std::mem::size_of::<spora_hashes::Hash>()
+            + tx.outputs
+                .iter()
+                .map(|output| {
+                    std::mem::size_of::<CellOut>()
+                        + output.lock.args.len()
+                        + output.type_.as_ref().map(|script| script.args.len()).unwrap_or_default()
+                })
+                .sum::<usize>()
+            + tx.outputs_data.capacity() * std::mem::size_of::<Vec<u8>>()
+            + tx.outputs_data.iter().map(Vec::len).sum::<usize>()
+            + tx.witnesses.capacity() * std::mem::size_of::<Vec<u8>>()
+            + tx.witnesses.iter().map(Vec::len).sum::<usize>();
         std::mem::size_of::<Self>()
             + self
                 .entries
@@ -484,7 +413,8 @@ impl<T: CellTxContainer> MemSizeEstimator for MutableTransaction<T> {
                         + metadata.as_ref().and_then(|meta| meta.data.as_ref().map(Vec::len)).unwrap_or_default()
                 })
                 .sum::<usize>()
-            + size_of_val(self.tx.cell_tx())
+            + size_of_val(tx)
+            + tx_heap_bytes
     }
 }
 
@@ -527,16 +457,20 @@ pub type SignableTransaction = MutableTransaction<CellTx>;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use smallvec::smallvec;
+
+    fn lock_script_from_bytes(script: &[u8]) -> ScriptRef {
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(b"spora-cell/lock");
+        hasher.update(&0u16.to_le_bytes());
+        hasher.update(script);
+        ScriptRef::new(*hasher.finalize().as_bytes(), 0, script.to_vec())
+    }
 
     fn test_cell_tx() -> CellTx {
-        let script_public_key = ScriptPublicKey::new(
-            0,
-            smallvec![
-                0x76, 0xa9, 0x21, 0x03, 0x2f, 0x7e, 0x43, 0x0a, 0xa4, 0xc9, 0xd1, 0x59, 0x43, 0x7e, 0x84, 0xb9, 0x75, 0xdc, 0x76,
-                0xd9, 0x00, 0x3b, 0xf0, 0x92, 0x2c, 0xf3, 0xaa, 0x45, 0x28, 0x46, 0x4b, 0xab, 0x78, 0x0d, 0xba, 0x5e
-            ],
-        );
+        let script_bytes: Vec<u8> = vec![
+            0x76, 0xa9, 0x21, 0x03, 0x2f, 0x7e, 0x43, 0x0a, 0xa4, 0xc9, 0xd1, 0x59, 0x43, 0x7e, 0x84, 0xb9, 0x75, 0xdc, 0x76, 0xd9,
+            0x00, 0x3b, 0xf0, 0x92, 0x2c, 0xf3, 0xaa, 0x45, 0x28, 0x46, 0x4b, 0xab, 0x78, 0x0d, 0xba, 0x5e,
+        ];
 
         // Create a CellTx with 2 inputs and 2 outputs
         let input1 = CellRef::new(
@@ -560,8 +494,8 @@ mod tests {
             4, // since value (converted from sequence)
         );
 
-        let output1 = cell_out_from_legacy_script_public_key(6, &script_public_key);
-        let output2 = cell_out_from_legacy_script_public_key(7, &script_public_key);
+        let output1 = CellOut { lock: lock_script_from_bytes(&script_bytes), type_: None, capacity: 6 };
+        let output2 = CellOut { lock: lock_script_from_bytes(&script_bytes), type_: None, capacity: 7 };
 
         let witnesses: Vec<Vec<u8>> = vec![
             vec![
@@ -598,36 +532,6 @@ mod tests {
         let str = serde_json::to_string_pretty(&tx).unwrap();
         let tx2: CellTx = serde_json::from_str(&str).unwrap();
         assert_eq!(tx, tx2);
-    }
-
-    #[test]
-    fn test_spk_serde_json_helper() {
-        let vec = (0..SCRIPT_VECTOR_SIZE as u8).collect::<Vec<_>>();
-        let spk = ScriptPublicKey::from_vec(0xc0de, vec.clone());
-        let hex: String = serde_json::to_string(&spk).unwrap();
-        assert_eq!("\"c0de000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20212223\"", hex);
-        let spk = serde_json::from_str::<ScriptPublicKey>(&hex).unwrap();
-        assert_eq!(spk.version, 0xc0de);
-        assert_eq!(spk.script.as_slice(), vec.as_slice());
-        let result = "00".parse::<ScriptPublicKey>();
-        assert!(matches!(result, Err(faster_hex::Error::InvalidLength(2))));
-        let result = "0000".parse::<ScriptPublicKey>();
-        let _empty = ScriptPublicKey { version: 0, script: ScriptVec::new() };
-        assert!(matches!(result, Ok(_empty)));
-    }
-
-    #[test]
-    fn test_spk_borsh() {
-        // Tests for ScriptPublicKey Borsh ser/deser since we manually implemented them
-        let spk = ScriptPublicKey::from_vec(12, vec![32; 20]);
-        let bin = borsh::to_vec(&spk).unwrap();
-        let spk2: ScriptPublicKey = borsh::BorshDeserialize::try_from_slice(&bin).unwrap();
-        assert_eq!(spk, spk2);
-
-        let spk = ScriptPublicKey::from_vec(55455, vec![11; 200]);
-        let bin = borsh::to_vec(&spk).unwrap();
-        let spk2: ScriptPublicKey = borsh::BorshDeserialize::try_from_slice(&bin).unwrap();
-        assert_eq!(spk, spk2);
     }
 
     #[test]

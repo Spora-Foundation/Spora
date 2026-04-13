@@ -1,7 +1,7 @@
 use spora_consensus_core::{
     coinbase::*,
     errors::coinbase::{CoinbaseError, CoinbaseResult},
-    tx::{cell_out_from_legacy_script_public_key, CellTx, ScriptPublicKey, ScriptVec, TransactionOutput},
+    tx::{CellOut, CellTx, ScriptRef},
     BlockHashMap, BlockHashSet,
 };
 use std::convert::TryInto;
@@ -10,11 +10,14 @@ use crate::model::stores::ghostdag::GhostdagData;
 
 const LENGTH_OF_BLUE_SCORE: usize = size_of::<u64>();
 const LENGTH_OF_SUBSIDY: usize = size_of::<u64>();
-const LENGTH_OF_SCRIPT_PUB_KEY_VERSION: usize = size_of::<u16>();
-const LENGTH_OF_SCRIPT_PUB_KEY_LENGTH: usize = size_of::<u8>();
+const LENGTH_OF_MASS_COMMITMENT: usize = size_of::<u64>();
+const LENGTH_OF_LOCK_CODE_HASH: usize = 32;
+const LENGTH_OF_LOCK_HASH_TYPE: usize = size_of::<u8>();
+const LENGTH_OF_LOCK_ARGS_LENGTH: usize = size_of::<u8>();
+const LENGTH_OF_MASS_COMMITMENT_MAGIC: usize = COINBASE_MASS_COMMITMENT_MAGIC.len();
 
 const MIN_PAYLOAD_LENGTH: usize =
-    LENGTH_OF_BLUE_SCORE + LENGTH_OF_SUBSIDY + LENGTH_OF_SCRIPT_PUB_KEY_VERSION + LENGTH_OF_SCRIPT_PUB_KEY_LENGTH;
+    LENGTH_OF_BLUE_SCORE + LENGTH_OF_SUBSIDY + LENGTH_OF_LOCK_CODE_HASH + LENGTH_OF_LOCK_HASH_TYPE + LENGTH_OF_LOCK_ARGS_LENGTH;
 
 // We define a year as 365.25 days and a month as 365.25 / 12 = 30.4375
 // SECONDS_PER_MONTH = 30.4375 * 24 * 60 * 60
@@ -54,12 +57,7 @@ impl<'a> PayloadParser<'a> {
 }
 
 impl CoinbaseManager {
-    fn build_coinbase_cell_tx(&self, outputs: Vec<TransactionOutput>, payload: Vec<u8>) -> CellTx {
-        let outputs = outputs
-            .into_iter()
-            .map(|output| cell_out_from_legacy_script_public_key(output.value, &output.script_public_key))
-            .collect::<Vec<_>>();
-
+    fn build_coinbase_cell_tx(&self, outputs: Vec<CellOut>, payload: Vec<u8>) -> CellTx {
         let mut outputs_data = vec![Vec::new(); outputs.len()];
         let mut witnesses = Vec::new();
         if outputs_data.is_empty() {
@@ -112,8 +110,11 @@ impl CoinbaseManager {
         for blue in ghostdag_data.mergeset_blues.iter().filter(|h| !mergeset_non_daa.contains(h)) {
             let reward_data = mergeset_rewards.get(blue).unwrap();
             if reward_data.subsidy + reward_data.total_fees > 0 {
-                outputs
-                    .push(TransactionOutput::new(reward_data.subsidy + reward_data.total_fees, reward_data.script_public_key.clone()));
+                outputs.push(CellOut {
+                    capacity: reward_data.subsidy + reward_data.total_fees,
+                    lock: reward_data.lock_script.clone(),
+                    type_: None,
+                });
             }
         }
 
@@ -132,55 +133,53 @@ impl CoinbaseManager {
         }
 
         if red_reward > 0 {
-            outputs.push(TransactionOutput::new(red_reward, miner_data.script_public_key.clone()));
+            outputs.push(CellOut { capacity: red_reward, lock: miner_data.lock_script.clone(), type_: None });
         }
 
         // Build the current block's payload
         let subsidy = self.calc_block_subsidy(daa_score);
-        let payload = self.serialize_coinbase_payload(&CoinbaseData { blue_score: ghostdag_data.blue_score, subsidy, miner_data })?;
+        let payload = self.serialize_coinbase_payload(&CoinbaseData {
+            blue_score: ghostdag_data.blue_score,
+            subsidy,
+            mass_commitment: 0,
+            miner_data,
+        })?;
 
         Ok(CoinbaseTransactionTemplate { tx: self.build_coinbase_cell_tx(outputs, payload), has_red_reward: red_reward > 0 })
     }
 
     pub fn serialize_coinbase_payload<T: AsRef<[u8]>>(&self, data: &CoinbaseData<T>) -> CoinbaseResult<Vec<u8>> {
-        let script_pub_key_len = data.miner_data.script_public_key.script().len();
-        if script_pub_key_len > self.coinbase_payload_script_public_key_max_len as usize {
-            return Err(CoinbaseError::PayloadScriptPublicKeyLenAboveMax(
-                script_pub_key_len,
-                self.coinbase_payload_script_public_key_max_len,
-            ));
+        let lock_args_len = data.miner_data.lock_script.args.len();
+        if lock_args_len > self.coinbase_payload_script_public_key_max_len as usize {
+            return Err(CoinbaseError::PayloadLockScriptLenAboveMax(lock_args_len, self.coinbase_payload_script_public_key_max_len));
         }
         let payload: Vec<u8> = data.blue_score.to_le_bytes().iter().copied()                    // Blue score                   (u64)
             .chain(data.subsidy.to_le_bytes().iter().copied())                                  // Subsidy                      (u64)
-            .chain(data.miner_data.script_public_key.version().to_le_bytes().iter().copied())   // Script public key version    (u16)
-            .chain((script_pub_key_len as u8).to_le_bytes().iter().copied())                    // Script public key length     (u8)
-            .chain(data.miner_data.script_public_key.script().iter().copied())                  // Script public key
+            .chain(data.miner_data.lock_script.code_hash.iter().copied())                       // Lock script code hash        (32 bytes)
+            .chain(data.miner_data.lock_script.hash_type.to_le_bytes().iter().copied())         // Lock script hash type        (u8)
+            .chain((lock_args_len as u8).to_le_bytes().iter().copied())                         // Lock script args length      (u8)
+            .chain(data.miner_data.lock_script.args.iter().copied())                            // Lock script args
+            .chain(COINBASE_MASS_COMMITMENT_MAGIC.iter().copied())                              // Mass commitment marker
+            .chain(data.mass_commitment.to_le_bytes().iter().copied())                          // Mass commitment              (u64)
             .chain(data.miner_data.extra_data.as_ref().iter().copied())                         // Extra data
             .collect();
 
         Ok(payload)
     }
 
-    pub fn modify_coinbase_payload<T: AsRef<[u8]>>(&self, mut payload: Vec<u8>, miner_data: &MinerData<T>) -> CoinbaseResult<Vec<u8>> {
-        let script_pub_key_len = miner_data.script_public_key.script().len();
-        if script_pub_key_len > self.coinbase_payload_script_public_key_max_len as usize {
-            return Err(CoinbaseError::PayloadScriptPublicKeyLenAboveMax(
-                script_pub_key_len,
-                self.coinbase_payload_script_public_key_max_len,
-            ));
+    pub fn modify_coinbase_payload<T: AsRef<[u8]>>(&self, payload: Vec<u8>, miner_data: &MinerData<T>) -> CoinbaseResult<Vec<u8>> {
+        let lock_args_len = miner_data.lock_script.args.len();
+        if lock_args_len > self.coinbase_payload_script_public_key_max_len as usize {
+            return Err(CoinbaseError::PayloadLockScriptLenAboveMax(lock_args_len, self.coinbase_payload_script_public_key_max_len));
         }
 
-        // Keep only blue score and subsidy. Note that truncate does not modify capacity, so
-        // the usual case where the payloads are the same size will not trigger a reallocation
-        payload.truncate(LENGTH_OF_BLUE_SCORE + LENGTH_OF_SUBSIDY);
-        payload.extend(
-            miner_data.script_public_key.version().to_le_bytes().iter().copied() // Script public key version (u16)
-                .chain((script_pub_key_len as u8).to_le_bytes().iter().copied()) // Script public key length  (u8)
-                .chain(miner_data.script_public_key.script().iter().copied())    // Script public key
-                .chain(miner_data.extra_data.as_ref().iter().copied()), // Extra data
-        );
-
-        Ok(payload)
+        let parsed = self.deserialize_coinbase_payload(&payload)?;
+        self.serialize_coinbase_payload(&CoinbaseData {
+            blue_score: parsed.blue_score,
+            subsidy: parsed.subsidy,
+            mass_commitment: parsed.mass_commitment,
+            miner_data: MinerData { lock_script: miner_data.lock_script.clone(), extra_data: miner_data.extra_data.as_ref() },
+        })
     }
 
     pub fn deserialize_coinbase_payload<'a>(&self, payload: &'a [u8]) -> CoinbaseResult<CoinbaseData<&'a [u8]>> {
@@ -196,28 +195,35 @@ impl CoinbaseManager {
 
         let blue_score = u64::from_le_bytes(parser.take(LENGTH_OF_BLUE_SCORE).try_into().unwrap());
         let subsidy = u64::from_le_bytes(parser.take(LENGTH_OF_SUBSIDY).try_into().unwrap());
-        let script_pub_key_version = u16::from_le_bytes(parser.take(LENGTH_OF_SCRIPT_PUB_KEY_VERSION).try_into().unwrap());
-        let script_pub_key_len = u8::from_le_bytes(parser.take(LENGTH_OF_SCRIPT_PUB_KEY_LENGTH).try_into().unwrap());
+        let lock_code_hash = parser.take(LENGTH_OF_LOCK_CODE_HASH).try_into().unwrap();
+        let lock_hash_type = u8::from_le_bytes(parser.take(LENGTH_OF_LOCK_HASH_TYPE).try_into().unwrap());
+        let lock_args_len = u8::from_le_bytes(parser.take(LENGTH_OF_LOCK_ARGS_LENGTH).try_into().unwrap());
 
-        if script_pub_key_len > self.coinbase_payload_script_public_key_max_len {
-            return Err(CoinbaseError::PayloadScriptPublicKeyLenAboveMax(
-                script_pub_key_len as usize,
+        if lock_args_len > self.coinbase_payload_script_public_key_max_len {
+            return Err(CoinbaseError::PayloadLockScriptLenAboveMax(
+                lock_args_len as usize,
                 self.coinbase_payload_script_public_key_max_len,
             ));
         }
 
-        if parser.remaining.len() < script_pub_key_len as usize {
-            return Err(CoinbaseError::PayloadCantContainScriptPublicKey(
-                payload.len(),
-                MIN_PAYLOAD_LENGTH + script_pub_key_len as usize,
-            ));
+        if parser.remaining.len() < lock_args_len as usize {
+            return Err(CoinbaseError::PayloadCantContainLockScript(payload.len(), MIN_PAYLOAD_LENGTH + lock_args_len as usize));
         }
 
-        let script_public_key =
-            ScriptPublicKey::new(script_pub_key_version, ScriptVec::from_slice(parser.take(script_pub_key_len as usize)));
-        let extra_data = parser.remaining;
+        let lock_script = ScriptRef::new(lock_code_hash, lock_hash_type, parser.take(lock_args_len as usize).to_vec());
+        let (mass_commitment, extra_data) = if parser.remaining.len() >= LENGTH_OF_MASS_COMMITMENT_MAGIC + LENGTH_OF_MASS_COMMITMENT
+            && parser.remaining[..LENGTH_OF_MASS_COMMITMENT_MAGIC] == COINBASE_MASS_COMMITMENT_MAGIC
+        {
+            let mut commitment_bytes = [0u8; LENGTH_OF_MASS_COMMITMENT];
+            commitment_bytes.copy_from_slice(
+                &parser.remaining[LENGTH_OF_MASS_COMMITMENT_MAGIC..LENGTH_OF_MASS_COMMITMENT_MAGIC + LENGTH_OF_MASS_COMMITMENT],
+            );
+            (u64::from_le_bytes(commitment_bytes), &parser.remaining[LENGTH_OF_MASS_COMMITMENT_MAGIC + LENGTH_OF_MASS_COMMITMENT..])
+        } else {
+            (0, parser.remaining)
+        };
 
-        Ok(CoinbaseData { blue_score, subsidy, miner_data: MinerData { script_public_key, extra_data } })
+        Ok(CoinbaseData { blue_score, subsidy, mass_commitment, miner_data: MinerData { lock_script, extra_data } })
     }
 
     pub fn calc_block_subsidy(&self, daa_score: u64) -> u64 {
@@ -238,7 +244,7 @@ impl CoinbaseManager {
     }
 
     #[cfg(test)]
-    pub fn legacy_calc_block_subsidy(&self, daa_score: u64) -> u64 {
+    pub fn reference_calc_block_subsidy(&self, daa_score: u64) -> u64 {
         if daa_score < self.deflationary_phase_daa_score {
             return self.pre_deflationary_phase_base_subsidy;
         }
@@ -256,7 +262,7 @@ impl CoinbaseManager {
 }
 
 /*
-    This table was pre-calculated by calling `calcDeflationaryPeriodBlockSubsidyFloatCalc` (in Sporad-go) for all months until reaching 0 subsidy.
+    This table was pre-calculated by calling `calcDeflationaryPeriodBlockSubsidyFloatCalc` in the previous Go implementation for all months until reaching 0 subsidy.
     To regenerate this table, run `TestBuildSubsidyTable` in coinbasemanager_test.go (note the `deflationaryPhaseBaseSubsidy` therein).
     These values represent the reward per second for each month (= reward per block for 1 BPS).
 */
@@ -308,7 +314,6 @@ mod tests {
         config::params::{Params, SIMNET_PARAMS, TESTNET_PARAMS},
         constants::SAU_PER_SPORA,
         network::{NetworkId, NetworkType},
-        tx::scriptvec,
     };
 
     #[test]
@@ -336,8 +341,8 @@ mod tests {
 
     #[test]
     fn calc_high_bps_total_rewards_delta() {
-        let legacy_cbm = create_legacy_manager();
-        let pre_deflationary_rewards = legacy_cbm.pre_deflationary_phase_base_subsidy * legacy_cbm.deflationary_phase_daa_score;
+        let reference_cbm = create_reference_manager();
+        let pre_deflationary_rewards = reference_cbm.pre_deflationary_phase_base_subsidy * reference_cbm.deflationary_phase_daa_score;
         let total_rewards: u64 = pre_deflationary_rewards + SUBSIDY_BY_MONTH_TABLE.iter().map(|x| x * SECONDS_PER_MONTH).sum::<u64>();
         let testnet_11_bps = SIMNET_PARAMS.bps();
         let total_high_bps_rewards_rounded_up: u64 = pre_deflationary_rewards
@@ -357,7 +362,7 @@ mod tests {
 
     #[test]
     fn subsidy_by_month_table_test() {
-        let cbm = create_legacy_manager();
+        let cbm = create_reference_manager();
         cbm.subsidy_by_month_table.iter().enumerate().for_each(|(i, x)| {
             assert_eq!(SUBSIDY_BY_MONTH_TABLE[i], *x, "for 1 BPS, const table and precomputed values must match");
         });
@@ -495,8 +500,9 @@ mod tests {
         let data = CoinbaseData {
             blue_score: 56,
             subsidy: 44000000000,
+            mass_commitment: 0,
             miner_data: MinerData {
-                script_public_key: ScriptPublicKey::new(0, ScriptVec::from_slice(&script_data)),
+                lock_script: ScriptRef::new([0x11; 32], 3, script_data.to_vec()),
                 extra_data: &extra_data as &[u8],
             },
         };
@@ -505,29 +511,6 @@ mod tests {
         let deserialized_data = cbm.deserialize_coinbase_payload(&payload).unwrap();
 
         assert_eq!(data, deserialized_data);
-
-        // Test an actual mainnet payload
-        let payload_hex =
-            "b612c90100000000041a763e07000000000022202b32443ff740012157716d81216d09aebc39e5493c93a7181d92cb756c02c560ac302e31322e382f";
-        let mut payload = vec![0u8; payload_hex.len() / 2];
-        faster_hex::hex_decode(payload_hex.as_bytes(), &mut payload).unwrap();
-        let deserialized_data = cbm.deserialize_coinbase_payload(&payload).unwrap();
-
-        let expected_data = CoinbaseData {
-            blue_score: 29954742,
-            subsidy: 31112698372,
-            miner_data: MinerData {
-                script_public_key: ScriptPublicKey::new(
-                    0,
-                    scriptvec![
-                        32, 43, 50, 68, 63, 247, 64, 1, 33, 87, 113, 109, 129, 33, 109, 9, 174, 188, 57, 229, 73, 60, 147, 167, 24,
-                        29, 146, 203, 117, 108, 2, 197, 96, 172,
-                    ],
-                ),
-                extra_data: &[48u8, 46, 49, 50, 46, 56, 47] as &[u8],
-            },
-        };
-        assert_eq!(expected_data, deserialized_data);
     }
 
     #[test]
@@ -539,18 +522,17 @@ mod tests {
         let data = CoinbaseData {
             blue_score: 56345,
             subsidy: 44000000000,
-            miner_data: MinerData {
-                script_public_key: ScriptPublicKey::new(0, ScriptVec::from_slice(&script_data)),
-                extra_data: &extra_data,
-            },
+            mass_commitment: 0,
+            miner_data: MinerData { lock_script: ScriptRef::new([0x22; 32], 1, script_data.to_vec()), extra_data: &extra_data },
         };
 
         let data2 = CoinbaseData {
             blue_score: data.blue_score,
             subsidy: data.subsidy,
+            mass_commitment: data.mass_commitment,
             miner_data: MinerData {
                 // Modify only miner data
-                script_public_key: ScriptPublicKey::new(0, ScriptVec::from_slice(&[33u8, 255, 33])),
+                lock_script: ScriptRef::new([0x33; 32], 2, vec![33u8, 255, 33]),
                 extra_data: &[2u8, 3, 23, 98, 34, 34] as &[u8],
             },
         };
@@ -572,7 +554,7 @@ mod tests {
         )
     }
 
-    fn create_legacy_manager() -> CoinbaseManager {
+    fn create_reference_manager() -> CoinbaseManager {
         CoinbaseManager::new(150, 204, 15778800 - 259200, 50000000000, 1)
     }
 }

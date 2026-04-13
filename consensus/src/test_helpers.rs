@@ -10,7 +10,7 @@ pub fn block_from_precomputed_hash(hash: Hash, parents: Vec<Hash>) -> Block {
     Block::from_precomputed_hash(hash, parents)
 }
 
-// Legacy transaction-output helper functions have been removed.
+// Transaction-output helper functions have been removed.
 // Use Cell model equivalents from cell_diff::CellMeta instead.
 
 pub fn generate_random_hash(rng: &mut SmallRng) -> Hash {
@@ -53,6 +53,7 @@ pub fn generate_random_header(rng: &mut SmallRng, parent_amount: usize) -> Heade
         generate_random_hash(rng),
         generate_random_hash(rng),
         generate_random_hash(rng), // cell_root
+        generate_random_hash(rng), // segment_root
         rng.gen(),
         rng.gen(),
         rng.gen(),

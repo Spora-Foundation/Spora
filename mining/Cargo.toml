@@ -11,6 +11,7 @@ repository.workspace = true
 
 [dependencies]
 spora-addresses.workspace = true
+spora-consensus-client.workspace = true
 spora-consensus-core.workspace = true
 spora-consensusmanager.workspace = true
 spora-core.workspace = true

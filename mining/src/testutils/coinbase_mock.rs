@@ -1,7 +1,7 @@
 use spora_consensus_core::{
-    coinbase::{CoinbaseData, CoinbaseTransactionTemplate, MinerData},
+    coinbase::{CoinbaseData, CoinbaseTransactionTemplate, MinerData, COINBASE_MASS_COMMITMENT_MAGIC},
     constants::SAU_PER_SPORA,
-    tx::{cell_out_from_legacy_script_public_key, CellTx, TransactionOutput},
+    tx::{CellOut, CellTx},
 };
 
 const LENGTH_OF_BLUE_SCORE: usize = size_of::<u64>();
@@ -16,10 +16,13 @@ impl CoinbaseManagerMock {
 
     pub(super) fn expected_coinbase_transaction(&self, miner_data: MinerData) -> CoinbaseTransactionTemplate {
         const SUBSIDY: u64 = 500 * SAU_PER_SPORA;
-        let output = TransactionOutput::new(SUBSIDY, miner_data.script_public_key.clone());
-
-        let payload = self.serialize_coinbase_payload(&CoinbaseData { blue_score: 1, subsidy: SUBSIDY, miner_data });
-        let outputs = vec![cell_out_from_legacy_script_public_key(output.value, &output.script_public_key)];
+        let payload = self.serialize_coinbase_payload(&CoinbaseData {
+            blue_score: 1,
+            subsidy: SUBSIDY,
+            mass_commitment: 0,
+            miner_data: miner_data.clone(),
+        });
+        let outputs = vec![CellOut { capacity: SUBSIDY, lock: miner_data.lock_script.clone(), type_: None }];
         let outputs_data = vec![payload];
 
         CoinbaseTransactionTemplate {
@@ -29,28 +32,28 @@ impl CoinbaseManagerMock {
     }
 
     pub(super) fn serialize_coinbase_payload(&self, data: &CoinbaseData) -> Vec<u8> {
-        let script_pub_key_len = data.miner_data.script_public_key.script().len();
+        let lock_args_len = data.miner_data.lock_script.args.len();
         let payload: Vec<u8> = data.blue_score.to_le_bytes().iter().copied()                    // Blue score                   (u64)
             .chain(data.subsidy.to_le_bytes().iter().copied())                                  // Subsidy                      (u64)
-            .chain(data.miner_data.script_public_key.version().to_le_bytes().iter().copied())   // Script public key version    (u16)
-            .chain((script_pub_key_len as u8).to_le_bytes().iter().copied())                    // Script public key length     (u8)
-            .chain(data.miner_data.script_public_key.script().iter().copied())                  // Script public key            
+            .chain(data.miner_data.lock_script.code_hash.iter().copied())                       // Lock script code hash        (32)
+            .chain(data.miner_data.lock_script.hash_type.to_le_bytes().iter().copied())         // Lock script hash type        (u8)
+            .chain((lock_args_len as u8).to_le_bytes().iter().copied())                         // Lock script args length      (u8)
+            .chain(data.miner_data.lock_script.args.iter().copied())                            // Lock script args
+            .chain(COINBASE_MASS_COMMITMENT_MAGIC.iter().copied())                              // Mass commitment marker
+            .chain(data.mass_commitment.to_le_bytes().iter().copied())                          // Mass commitment              (u64)
             .chain(data.miner_data.extra_data.iter().copied())                                  // Extra data
             .collect();
 
         payload
     }
 
-    pub fn modify_coinbase_payload(&self, mut payload: Vec<u8>, miner_data: &MinerData) -> Vec<u8> {
-        let script_pub_key_len = miner_data.script_public_key.script().len();
-        payload.truncate(LENGTH_OF_BLUE_SCORE + LENGTH_OF_SUBSIDY);
-        payload.extend(
-            miner_data.script_public_key.version().to_le_bytes().iter().copied() // Script public key version (u16)
-                .chain((script_pub_key_len as u8).to_le_bytes().iter().copied()) // Script public key length  (u8)
-                .chain(miner_data.script_public_key.script().iter().copied())    // Script public key
-                .chain(miner_data.extra_data.iter().copied()), // Extra data
+    pub fn modify_coinbase_payload(&self, payload: Vec<u8>, miner_data: &MinerData) -> Vec<u8> {
+        let blue_score = u64::from_le_bytes(payload[..LENGTH_OF_BLUE_SCORE].try_into().expect("mock payload must contain blue score"));
+        let subsidy = u64::from_le_bytes(
+            payload[LENGTH_OF_BLUE_SCORE..LENGTH_OF_BLUE_SCORE + LENGTH_OF_SUBSIDY]
+                .try_into()
+                .expect("mock payload must contain subsidy"),
         );
-
-        payload
+        self.serialize_coinbase_payload(&CoinbaseData { blue_score, subsidy, mass_commitment: 0, miner_data: miner_data.clone() })
     }
 }

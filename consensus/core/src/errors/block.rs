@@ -4,7 +4,7 @@ use crate::{
     constants,
     errors::{coinbase::CoinbaseError, tx::TxRuleError},
     tx::{TransactionId, TransactionOutpoint},
-    // legacy transaction-output algebra errors removed during Cell migration
+    // Transaction-output algebra errors were removed during the Cell migration.
     BlueWorkType,
 };
 use itertools::Itertools;

@@ -1,8 +1,8 @@
-use crate::pb::sporad_message::Payload as SporadMessagePayload;
+use crate::pb::p2p_message::Payload as P2pMessagePayload;
 
 #[repr(u8)]
 #[derive(Debug, Copy, Clone, Eq, Hash, PartialEq)]
-pub enum SporadMessagePayloadType {
+pub enum P2pMessagePayloadType {
     Addresses = 0,
     Block,
     Transaction,
@@ -48,57 +48,53 @@ pub enum SporadMessagePayloadType {
     RequestNextPruningPointAndItsAnticoneBlocks,
 }
 
-impl From<&SporadMessagePayload> for SporadMessagePayloadType {
-    fn from(payload: &SporadMessagePayload) -> Self {
+impl From<&P2pMessagePayload> for P2pMessagePayloadType {
+    fn from(payload: &P2pMessagePayload) -> Self {
         match payload {
-            SporadMessagePayload::Addresses(_) => SporadMessagePayloadType::Addresses,
-            SporadMessagePayload::Block(_) => SporadMessagePayloadType::Block,
-            SporadMessagePayload::Transaction(_) => SporadMessagePayloadType::Transaction,
-            SporadMessagePayload::BlockLocator(_) => SporadMessagePayloadType::BlockLocator,
-            SporadMessagePayload::RequestAddresses(_) => SporadMessagePayloadType::RequestAddresses,
-            SporadMessagePayload::RequestRelayBlocks(_) => SporadMessagePayloadType::RequestRelayBlocks,
-            SporadMessagePayload::RequestTransactions(_) => SporadMessagePayloadType::RequestTransactions,
-            SporadMessagePayload::IbdBlock(_) => SporadMessagePayloadType::IbdBlock,
-            SporadMessagePayload::InvRelayBlock(_) => SporadMessagePayloadType::InvRelayBlock,
-            SporadMessagePayload::InvTransactions(_) => SporadMessagePayloadType::InvTransactions,
-            SporadMessagePayload::Ping(_) => SporadMessagePayloadType::Ping,
-            SporadMessagePayload::Pong(_) => SporadMessagePayloadType::Pong,
-            SporadMessagePayload::Verack(_) => SporadMessagePayloadType::Verack,
-            SporadMessagePayload::Version(_) => SporadMessagePayloadType::Version,
-            SporadMessagePayload::TransactionNotFound(_) => SporadMessagePayloadType::TransactionNotFound,
-            SporadMessagePayload::Reject(_) => SporadMessagePayloadType::Reject,
-            SporadMessagePayload::PruningPointCellSetChunk(_) => SporadMessagePayloadType::PruningPointCellSetChunk,
-            SporadMessagePayload::RequestIbdBlocks(_) => SporadMessagePayloadType::RequestIbdBlocks,
-            SporadMessagePayload::UnexpectedPruningPoint(_) => SporadMessagePayloadType::UnexpectedPruningPoint,
-            SporadMessagePayload::IbdBlockLocator(_) => SporadMessagePayloadType::IbdBlockLocator,
-            SporadMessagePayload::IbdBlockLocatorHighestHash(_) => SporadMessagePayloadType::IbdBlockLocatorHighestHash,
-            SporadMessagePayload::RequestNextPruningPointCellSetChunk(_) => {
-                SporadMessagePayloadType::RequestNextPruningPointCellSetChunk
-            }
-            SporadMessagePayload::DonePruningPointCellSetChunks(_) => SporadMessagePayloadType::DonePruningPointCellSetChunks,
-            SporadMessagePayload::IbdBlockLocatorHighestHashNotFound(_) => {
-                SporadMessagePayloadType::IbdBlockLocatorHighestHashNotFound
-            }
-            SporadMessagePayload::BlockWithTrustedData(_) => SporadMessagePayloadType::BlockWithTrustedData,
-            SporadMessagePayload::DoneBlocksWithTrustedData(_) => SporadMessagePayloadType::DoneBlocksWithTrustedData,
-            SporadMessagePayload::RequestPruningPointAndItsAnticone(_) => SporadMessagePayloadType::RequestPruningPointAndItsAnticone,
-            SporadMessagePayload::BlockHeaders(_) => SporadMessagePayloadType::BlockHeaders,
-            SporadMessagePayload::RequestNextHeaders(_) => SporadMessagePayloadType::RequestNextHeaders,
-            SporadMessagePayload::DoneHeaders(_) => SporadMessagePayloadType::DoneHeaders,
-            SporadMessagePayload::RequestPruningPointCellSet(_) => SporadMessagePayloadType::RequestPruningPointCellSet,
-            SporadMessagePayload::RequestHeaders(_) => SporadMessagePayloadType::RequestHeaders,
-            SporadMessagePayload::RequestBlockLocator(_) => SporadMessagePayloadType::RequestBlockLocator,
-            SporadMessagePayload::PruningPoints(_) => SporadMessagePayloadType::PruningPoints,
-            SporadMessagePayload::RequestPruningPointProof(_) => SporadMessagePayloadType::RequestPruningPointProof,
-            SporadMessagePayload::PruningPointProof(_) => SporadMessagePayloadType::PruningPointProof,
-            SporadMessagePayload::Ready(_) => SporadMessagePayloadType::Ready,
-            SporadMessagePayload::BlockWithTrustedDataV4(_) => SporadMessagePayloadType::BlockWithTrustedDataV4,
-            SporadMessagePayload::TrustedData(_) => SporadMessagePayloadType::TrustedData,
-            SporadMessagePayload::RequestIbdChainBlockLocator(_) => SporadMessagePayloadType::RequestIbdChainBlockLocator,
-            SporadMessagePayload::IbdChainBlockLocator(_) => SporadMessagePayloadType::IbdChainBlockLocator,
-            SporadMessagePayload::RequestAntipast(_) => SporadMessagePayloadType::RequestAntipast,
-            SporadMessagePayload::RequestNextPruningPointAndItsAnticoneBlocks(_) => {
-                SporadMessagePayloadType::RequestNextPruningPointAndItsAnticoneBlocks
+            P2pMessagePayload::Addresses(_) => P2pMessagePayloadType::Addresses,
+            P2pMessagePayload::Block(_) => P2pMessagePayloadType::Block,
+            P2pMessagePayload::Transaction(_) => P2pMessagePayloadType::Transaction,
+            P2pMessagePayload::BlockLocator(_) => P2pMessagePayloadType::BlockLocator,
+            P2pMessagePayload::RequestAddresses(_) => P2pMessagePayloadType::RequestAddresses,
+            P2pMessagePayload::RequestRelayBlocks(_) => P2pMessagePayloadType::RequestRelayBlocks,
+            P2pMessagePayload::RequestTransactions(_) => P2pMessagePayloadType::RequestTransactions,
+            P2pMessagePayload::IbdBlock(_) => P2pMessagePayloadType::IbdBlock,
+            P2pMessagePayload::InvRelayBlock(_) => P2pMessagePayloadType::InvRelayBlock,
+            P2pMessagePayload::InvTransactions(_) => P2pMessagePayloadType::InvTransactions,
+            P2pMessagePayload::Ping(_) => P2pMessagePayloadType::Ping,
+            P2pMessagePayload::Pong(_) => P2pMessagePayloadType::Pong,
+            P2pMessagePayload::Verack(_) => P2pMessagePayloadType::Verack,
+            P2pMessagePayload::Version(_) => P2pMessagePayloadType::Version,
+            P2pMessagePayload::TransactionNotFound(_) => P2pMessagePayloadType::TransactionNotFound,
+            P2pMessagePayload::Reject(_) => P2pMessagePayloadType::Reject,
+            P2pMessagePayload::PruningPointCellSetChunk(_) => P2pMessagePayloadType::PruningPointCellSetChunk,
+            P2pMessagePayload::RequestIbdBlocks(_) => P2pMessagePayloadType::RequestIbdBlocks,
+            P2pMessagePayload::UnexpectedPruningPoint(_) => P2pMessagePayloadType::UnexpectedPruningPoint,
+            P2pMessagePayload::IbdBlockLocator(_) => P2pMessagePayloadType::IbdBlockLocator,
+            P2pMessagePayload::IbdBlockLocatorHighestHash(_) => P2pMessagePayloadType::IbdBlockLocatorHighestHash,
+            P2pMessagePayload::RequestNextPruningPointCellSetChunk(_) => P2pMessagePayloadType::RequestNextPruningPointCellSetChunk,
+            P2pMessagePayload::DonePruningPointCellSetChunks(_) => P2pMessagePayloadType::DonePruningPointCellSetChunks,
+            P2pMessagePayload::IbdBlockLocatorHighestHashNotFound(_) => P2pMessagePayloadType::IbdBlockLocatorHighestHashNotFound,
+            P2pMessagePayload::BlockWithTrustedData(_) => P2pMessagePayloadType::BlockWithTrustedData,
+            P2pMessagePayload::DoneBlocksWithTrustedData(_) => P2pMessagePayloadType::DoneBlocksWithTrustedData,
+            P2pMessagePayload::RequestPruningPointAndItsAnticone(_) => P2pMessagePayloadType::RequestPruningPointAndItsAnticone,
+            P2pMessagePayload::BlockHeaders(_) => P2pMessagePayloadType::BlockHeaders,
+            P2pMessagePayload::RequestNextHeaders(_) => P2pMessagePayloadType::RequestNextHeaders,
+            P2pMessagePayload::DoneHeaders(_) => P2pMessagePayloadType::DoneHeaders,
+            P2pMessagePayload::RequestPruningPointCellSet(_) => P2pMessagePayloadType::RequestPruningPointCellSet,
+            P2pMessagePayload::RequestHeaders(_) => P2pMessagePayloadType::RequestHeaders,
+            P2pMessagePayload::RequestBlockLocator(_) => P2pMessagePayloadType::RequestBlockLocator,
+            P2pMessagePayload::PruningPoints(_) => P2pMessagePayloadType::PruningPoints,
+            P2pMessagePayload::RequestPruningPointProof(_) => P2pMessagePayloadType::RequestPruningPointProof,
+            P2pMessagePayload::PruningPointProof(_) => P2pMessagePayloadType::PruningPointProof,
+            P2pMessagePayload::Ready(_) => P2pMessagePayloadType::Ready,
+            P2pMessagePayload::BlockWithTrustedDataV4(_) => P2pMessagePayloadType::BlockWithTrustedDataV4,
+            P2pMessagePayload::TrustedData(_) => P2pMessagePayloadType::TrustedData,
+            P2pMessagePayload::RequestIbdChainBlockLocator(_) => P2pMessagePayloadType::RequestIbdChainBlockLocator,
+            P2pMessagePayload::IbdChainBlockLocator(_) => P2pMessagePayloadType::IbdChainBlockLocator,
+            P2pMessagePayload::RequestAntipast(_) => P2pMessagePayloadType::RequestAntipast,
+            P2pMessagePayload::RequestNextPruningPointAndItsAnticoneBlocks(_) => {
+                P2pMessagePayloadType::RequestNextPruningPointAndItsAnticoneBlocks
             }
         }
     }

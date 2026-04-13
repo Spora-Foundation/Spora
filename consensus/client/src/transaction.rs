@@ -11,9 +11,7 @@ use crate::outpoint::TransactionOutpoint;
 use crate::output::{TransactionOutput, TransactionOutputArrayAsArgT, TransactionOutputArrayAsResultT};
 use crate::result::Result;
 use crate::serializable::{numeric, string, SerializableTransactionT};
-use crate::standard_script::extract_script_pub_key_address;
 use spora_consensus_core::mass::project_verifiable_transaction_mass;
-use spora_consensus_core::network::NetworkType;
 use spora_consensus_core::network::NetworkTypeT;
 use spora_consensus_core::tx::VerifiableTransaction;
 use spora_utils::hex::*;
@@ -285,23 +283,23 @@ impl Transaction {
             .iter()
             .map(|input| {
                 let input = input.inner();
-                cctx::CellRef::new((&input.previous_outpoint).into(), cctx::legacy_sequence_to_cell_since(input.sequence))
+                cctx::CellRef::new((&input.previous_outpoint).into(), input.since)
             })
             .collect::<Vec<_>>();
 
-        let mut witnesses =
-            inner.inputs.iter().map(|input| input.inner().signature_script.clone().unwrap_or_default()).collect::<Vec<_>>();
+        let mut witnesses = inner.inputs.iter().map(|input| input.inner().witness.clone().unwrap_or_default()).collect::<Vec<_>>();
 
         let outputs = inner
             .outputs
             .iter()
             .map(|output| {
                 let output = output.inner();
-                cctx::cell_out_from_legacy_script_public_key(output.value, &output.script_public_key)
+                cctx::CellOut { lock: output.lock_script.clone(), type_: output.type_script.clone(), capacity: output.capacity }
             })
             .collect::<Vec<_>>();
 
-        let mut outputs_data = vec![vec![]; outputs.len()];
+        let mut outputs_data =
+            inner.outputs.iter().map(|output| output.inner().output_data.clone().unwrap_or_default()).collect::<Vec<_>>();
         if is_coinbase && !inner.payload.is_empty() {
             if let Some(first_output_data) = outputs_data.first_mut() {
                 *first_output_data = inner.payload.clone();
@@ -348,7 +346,7 @@ impl Transaction {
                     CellEntryReference::from(entry)
                 });
                 let witness = transaction.witnesses.get(index).cloned().filter(|witness| !witness.is_empty());
-                TransactionInput::new(previous_outpoint, witness, input.since, 1, cell_entry)
+                TransactionInput::new(previous_outpoint, witness, input.since, cell_entry)
             })
             .collect::<Vec<_>>();
 
@@ -377,11 +375,11 @@ impl Transaction {
         Ok(cell_entry_references)
     }
 
-    pub fn set_signature_script(&self, input_index: usize, signature_script: Vec<u8>) -> Result<()> {
+    pub fn set_witness(&self, input_index: usize, witness: Vec<u8>) -> Result<()> {
         if self.inner().inputs.len() <= input_index {
             return Err(Error::Custom("Input index is invalid".to_string()));
         }
-        self.inner().inputs[input_index].set_signature_script(signature_script);
+        self.inner().inputs[input_index].set_witness(witness);
         Ok(())
     }
 

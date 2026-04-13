@@ -3,7 +3,7 @@ use std::sync::Arc;
 use super::{
     handler::RequestHandler,
     handler_trait::Handler,
-    interface::{Interface, SporadMethod, SporadRoutingPolicy},
+    interface::{Interface, RpcMethod, RpcRoutingPolicy},
     method::Method,
 };
 use crate::{
@@ -11,8 +11,8 @@ use crate::{
     connection_handler::ServerContext,
     error::GrpcServerError,
 };
-use spora_grpc_core::protowire::{sporad_request::Payload, *};
-use spora_grpc_core::{ops::SporadPayloadOps, protowire::NotifyFinalityConflictResponseMessage};
+use spora_grpc_core::protowire::{rpc_request::Payload, *};
+use spora_grpc_core::{ops::RpcPayloadOps, protowire::NotifyFinalityConflictResponseMessage};
 use spora_notify::{scope::FinalityConflictResolvedScope, subscriber::SubscriptionManager};
 use spora_rpc_core::{SubmitBlockRejectReason, SubmitBlockReport, SubmitBlockResponse};
 use spora_rpc_macros::build_grpc_server_interface;
@@ -21,7 +21,7 @@ pub struct Factory {}
 
 impl Factory {
     pub fn new_handler(
-        rpc_op: SporadPayloadOps,
+        rpc_op: RpcPayloadOps,
         incoming_route: IncomingRoute,
         server_context: ServerContext,
         interface: &Interface,
@@ -32,14 +32,14 @@ impl Factory {
 
     pub fn new_interface(server_ctx: ServerContext, network_bps: u64) -> Interface {
         // The array as last argument in the macro call below must exactly match the full set of
-        // SporadPayloadOps variants.
+        // RpcPayloadOps variants.
         let mut interface = build_grpc_server_interface!(
             server_ctx.clone(),
             ServerContext,
             Connection,
-            SporadRequest,
-            SporadResponse,
-            SporadPayloadOps,
+            RpcRequest,
+            RpcResponse,
+            RpcPayloadOps,
             [
                 SubmitBlock,
                 GetBlockTemplate,
@@ -58,7 +58,6 @@ impl Factory {
                 AddPeer,
                 SubmitTransaction,
                 SubmitTransactionReplacement,
-                GetSubnetwork,
                 GetVirtualChainFromBlock,
                 GetBlockCount,
                 GetBlockDagInfo,
@@ -101,9 +100,9 @@ impl Factory {
 
         // Manually reimplementing the NotifyFinalityConflictRequest method so subscription
         // gets mirrored to FinalityConflictResolved notifications as well.
-        let method: SporadMethod = Method::new(|server_ctx: ServerContext, connection: Connection, request: SporadRequest| {
+        let method: RpcMethod = Method::new(|server_ctx: ServerContext, connection: Connection, request: RpcRequest| {
             Box::pin(async move {
-                let mut response: SporadResponse = match request.payload {
+                let mut response: RpcResponse = match request.payload {
                     Some(Payload::NotifyFinalityConflictRequest(ref request)) => {
                         match spora_rpc_core::NotifyFinalityConflictRequest::try_from(request) {
                             Ok(request) => {
@@ -138,15 +137,15 @@ impl Factory {
                 Ok(response)
             })
         });
-        interface.replace_method(SporadPayloadOps::NotifyFinalityConflict, method);
+        interface.replace_method(RpcPayloadOps::NotifyFinalityConflict, method);
 
         // Methods with special properties
         let network_bps = network_bps as usize;
         interface.set_method_properties(
-            SporadPayloadOps::SubmitBlock,
+            RpcPayloadOps::SubmitBlock,
             network_bps,
             10.max(network_bps * 2),
-            SporadRoutingPolicy::DropIfFull(Arc::new(Box::new(|_: &SporadRequest| {
+            RpcRoutingPolicy::DropIfFull(Arc::new(Box::new(|_: &RpcRequest| {
                 Ok(Ok(SubmitBlockResponse { report: SubmitBlockReport::Reject(SubmitBlockRejectReason::RouteIsFull) }).into())
             }))),
         );

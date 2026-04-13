@@ -1,6 +1,6 @@
 use rocksdb::WriteBatch;
 use serde::{Deserialize, Serialize};
-use spora_consensus_core::tx::{CellTx, TransactionInput, TransactionOutput};
+use spora_consensus_core::tx::{CellOut, CellRef, CellTx};
 use spora_consensus_core::BlockHasher;
 use spora_database::prelude::CachePolicy;
 use spora_database::prelude::StoreError;
@@ -35,8 +35,8 @@ impl MemSizeEstimator for BlockBody {
         // Outliers with longer signatures are rare enough and their size is eventually bounded by mempool standards
         // or in the worst case by max block mass.
         // A similar argument holds for spk within outputs, but in this case the constant is already counted through the SmallVec used within.
-        inputs * (size_of::<TransactionInput>() + NORMAL_SIG_SIZE)
-            + outputs * size_of::<TransactionOutput>()
+        inputs * (size_of::<CellRef>() + NORMAL_SIG_SIZE)
+            + outputs * size_of::<CellOut>()
             + self.0.len() * size_of::<CellTx>()
             + size_of::<Vec<CellTx>>()
             + size_of::<Self>()

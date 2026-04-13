@@ -6,7 +6,6 @@ use crate::transaction::Transaction;
 use core::iter::once;
 use itertools::Itertools;
 use spora_consensus_core::{
-    cell_metadata::parse_cell_metadata_placeholder_script_public_key,
     hashing::{
         sighash::{calc_schnorr_signature_hash, SigHashReusedValuesUnsync},
         sighash_type::SIG_HASH_ALL,
@@ -51,23 +50,18 @@ pub fn sign_with_multiple_v3<'a>(tx: &'a Transaction, privkeys: &[[u8; 32]]) -> 
         let signable_tx = tx.signable_transaction()?;
         let verifiable_tx = signable_tx.as_verifiable();
         for i in 0..input_len {
-            let script_pub_key = match tx.inner().inputs[i].script_public_key() {
+            let lock_script = match tx.inner().inputs[i].lock_script_bytes() {
                 Some(script) => script,
                 None => {
                     return Err(crate::imports::Error::Custom("expected to be called only following full Cell population".to_string()))
                 }
             };
-            if parse_cell_metadata_placeholder_script_public_key(&script_pub_key).is_some() {
-                additional_signatures_required = true;
-                continue;
-            }
-            let script = script_pub_key.script();
-            if let Some(schnorr_key) = map.get(script) {
+            if let Some(schnorr_key) = map.get(lock_script.as_slice()) {
                 let sig_hash = calc_schnorr_signature_hash(&verifiable_tx, i, SIG_HASH_ALL, &reused_values);
                 let msg = secp256k1::Message::from_digest_slice(sig_hash.as_bytes().as_slice()).unwrap();
                 let sig: [u8; 64] = *schnorr_key.sign_schnorr(msg).as_ref();
                 // This represents OP_DATA_65 <SIGNATURE+SIGHASH_TYPE> (since signature length is 64 bytes and SIGHASH_TYPE is one byte)
-                tx.set_signature_script(i, std::iter::once(65u8).chain(sig).chain([SIG_HASH_ALL.to_u8()]).collect())?;
+                tx.set_witness(i, std::iter::once(65u8).chain(sig).chain([SIG_HASH_ALL.to_u8()]).collect())?;
             } else {
                 additional_signatures_required = true;
             }

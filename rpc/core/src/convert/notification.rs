@@ -5,7 +5,7 @@ use crate::{
     NewBlockTemplateNotification, Notification, PruningPointCellSetOverrideNotification, RpcAcceptedTransactionIds, RpcCellEntry,
     RpcCellsByAddressesEntry, SinkBlueScoreChangedNotification, VirtualChainChangedNotification, VirtualDaaScoreChangedNotification,
 };
-use spora_consensus_core::{cell_diff::CellCollection, cell_metadata::cell_metadata_placeholder_script_public_key_with_metadata};
+use spora_consensus_core::cell_diff::CellCollection;
 use spora_consensus_notify::notification as consensus_notify;
 use spora_index_core::notification as index_notify;
 use std::sync::Arc;
@@ -86,14 +86,13 @@ fn rpc_cells_changed_entries(cells: &CellCollection) -> Vec<RpcCellsByAddressesE
     cells
         .iter()
         .map(|(outpoint, meta)| {
-            let placeholder_script_public_key = cell_metadata_placeholder_script_public_key_with_metadata(
+            let cell_entry = RpcCellEntry::new(meta.capacity, meta.block_daa_score, meta.is_cellbase).with_cell_metadata(
+                meta.capacity,
+                meta.data_bytes,
                 meta.lock_hash,
                 meta.type_hash,
                 meta.data_hash,
-                meta.data_bytes,
             );
-            let cell_entry = RpcCellEntry::new(meta.capacity, placeholder_script_public_key, meta.block_daa_score, meta.is_cellbase)
-                .with_cell_metadata(meta.capacity, meta.data_bytes, meta.lock_hash, meta.type_hash, meta.data_hash);
 
             RpcCellsByAddressesEntry { address: None, outpoint: outpoint.clone().into(), cell_entry }
         })
@@ -102,10 +101,10 @@ fn rpc_cells_changed_entries(cells: &CellCollection) -> Vec<RpcCellsByAddressesE
 
 impl From<&consensus_notify::CellsChangedNotification> for CellsChangedNotification {
     fn from(item: &consensus_notify::CellsChangedNotification) -> Self {
-        // Consensus/index layer diffs currently carry canonical Cell metadata but not a recoverable
-        // legacy ScriptPublicKey/address pair. We therefore preserve the canonical Cell payload here
-        // and leave `address` empty. Address-scoped filtering in rpc-core still relies on the legacy
-        // ScriptPublicKey tracker and needs a separate Cell-aware index to become exact.
+        // Consensus/index layer diffs currently carry canonical Cell metadata but not recoverable
+        // address ownership. We therefore preserve the canonical Cell payload here and leave
+        // `address` empty. Address-scoped filtering in rpc-core still needs a dedicated Cell-aware
+        // ownership index to become exact.
         Self {
             added: Arc::new(rpc_cells_changed_entries(&item.accumulated_cell_diff.add)),
             removed: Arc::new(rpc_cells_changed_entries(&item.accumulated_cell_diff.remove)),

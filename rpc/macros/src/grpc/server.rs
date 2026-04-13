@@ -25,7 +25,7 @@ impl Parse for RpcTable {
         let parsed = Punctuated::<Expr, Token![,]>::parse_terminated(input).unwrap();
         if parsed.len() != 7 {
             return Err(Error::new_spanned(parsed,
-                "usage: build_grpc_server_interface!(server_context, ServerContextType, ConnectionType, SporadRequestType, SporadResponseType, SporadPayloadOps, [GetInfo, ..])".to_string()));
+                "usage: build_grpc_server_interface!(server_context, ServerContextType, ConnectionType, RpcRequestType, RpcResponseType, RpcPayloadOps, [GetInfo, ..])".to_string()));
         }
 
         let mut iter = parsed.iter();

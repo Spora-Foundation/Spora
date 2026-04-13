@@ -1,12 +1,8 @@
 syntax = "proto3";
 package protowire;
 
-option go_package = "github.com/sporanet/Sporad/protowire";
 
-message RequestAddressesMessage{
-  bool includeAllSubnetworks = 1;
-  SubnetworkId subnetworkId = 2;
-}
+message RequestAddressesMessage{}
 
 message AddressesMessage{
   repeated NetAddress addressList = 1;
@@ -18,20 +14,13 @@ message NetAddress{
   uint32 port = 4;
 }
 
-message SubnetworkId{
-  bytes bytes = 1;
-}
-
 message TransactionMessage{
   uint32 version = 1;
   repeated TransactionInput inputs = 2;
   repeated TransactionOutput outputs = 3;
-  // Legacy wire-compatibility field. Must be zero in Cell model.
+  // Reserved field. Must be zero in the Cell model.
   uint64 lockTime = 4;
-  // Legacy wire-compatibility field. Must match the canonical Cell-model value:
-  // all-zero for normal transactions, 0x01 followed by zeros for coinbase.
-  SubnetworkId subnetworkId = 5;
-  // Legacy wire-compatibility field. Must be zero in Cell model.
+  // Reserved field. Must be zero in the Cell model.
   uint64 gas = 6;
   bytes payload = 8;
   uint64 mass = 9;
@@ -39,9 +28,8 @@ message TransactionMessage{
 
 message TransactionInput{
   Outpoint previousOutpoint = 1;
-  bytes signatureScript = 2;
-  uint64 sequence = 3;
-  uint32 sigOpCount = 4;
+  bytes witness = 2;
+  uint64 since = 3;
 }
 
 message Outpoint{
@@ -52,14 +40,17 @@ message Outpoint{
 message TransactionId{
   bytes bytes = 1;
 }
-message ScriptPublicKey {
-  bytes script = 1;
-  uint32 version = 2;
+message ScriptRef {
+  bytes codeHash = 1;
+  uint32 hashType = 2;
+  bytes args = 3;
 }
 
 message TransactionOutput{
   uint64 value = 1;
-  ScriptPublicKey scriptPublicKey = 2;
+  ScriptRef lockScript = 2;
+  ScriptRef typeScript = 3;
+  bytes outputData = 4;
 }
 
 message BlockMessage{
@@ -74,6 +65,7 @@ message BlockHeader{
   Hash acceptedIdMerkleRoot = 4;
   Hash cellCommitment = 5;  // Replaced utxoCommitment with cellCommitment (SPORA Cell model)
   Hash cellRoot = 11;
+  Hash segmentRoot = 15;
   int64 timestamp = 6;
   uint32 bits = 7;
   uint64 nonce = 8;
@@ -150,7 +142,6 @@ message VersionMessage{
   bytes id = 5;
   string userAgent = 6;
   bool disableRelayTx = 8;
-  SubnetworkId subnetworkId = 9;
   string network = 10;
 }
 
@@ -173,9 +164,13 @@ message OutpointAndCellEntryPair{
 
 message CellEntry {
   uint64 amount = 1;
-  ScriptPublicKey scriptPublicKey = 2;
-  uint64 blockDaaScore = 3;
-  bool isCoinbase = 4;
+  uint64 blockDaaScore = 2;
+  bool isCoinbase = 3;
+  uint64 capacity = 4;
+  uint64 dataBytes = 5;
+  bytes lockHash = 6;
+  bytes typeHash = 7;
+  bytes dataHash = 8;
 }
 
 message RequestNextPruningPointCellSetChunkMessage {
@@ -205,7 +200,7 @@ message IbdChainBlockLocatorMessage {
   repeated Hash blockLocatorHashes = 1;
 }
 
-// Legacy name of this message is `RequestAnticoneMessage`
+// Previous name of this message was `RequestAnticoneMessage`
 message RequestAntipastMessage{
   Hash blockHash = 1;
   Hash contextHash = 2;

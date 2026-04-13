@@ -1,5 +1,4 @@
 use super::errors::BuilderResult;
-use crate::cell_conversion::compute_lock_hash;
 use spora_consensus_core::{
     api::ConsensusApi,
     block::{BlockTemplate, TemplateBuildMode, TemplateTransactionSelector},
@@ -111,9 +110,7 @@ impl BlockTemplateBuilder {
         if block_template.coinbase_has_red_reward {
             // The last output is always the coinbase red blocks reward
             if let Some(last_output) = coinbase_tx.outputs.last_mut() {
-                last_output.lock.code_hash = compute_lock_hash(&new_miner_data.script_public_key);
-                last_output.lock.hash_type = 0;
-                last_output.lock.args.clear();
+                last_output.lock = new_miner_data.lock_script.clone();
             }
         }
         block_template.block.header.hash_merkle_root = calc_hash_merkle_root_cell(block_template.block.transactions.iter(), false);

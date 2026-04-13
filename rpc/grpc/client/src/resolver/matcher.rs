@@ -1,16 +1,16 @@
-use spora_grpc_core::protowire::{sporad_request, sporad_response, SporadRequest, SporadResponse};
+use spora_grpc_core::protowire::{rpc_request, rpc_response, RpcRequest, RpcResponse};
 
 pub(crate) trait Matcher<T> {
     fn is_matching(&self, response: T) -> bool;
 }
 
-impl Matcher<&sporad_response::Payload> for sporad_request::Payload {
-    fn is_matching(&self, response: &sporad_response::Payload) -> bool {
-        use sporad_request::Payload;
+impl Matcher<&rpc_response::Payload> for rpc_request::Payload {
+    fn is_matching(&self, response: &rpc_response::Payload) -> bool {
+        use rpc_request::Payload;
         match self {
             // TODO: implement for each payload variant supporting request/response pairing
             Payload::GetBlockRequest(ref request) => {
-                if let sporad_response::Payload::GetBlockResponse(ref response) = response {
+                if let rpc_response::Payload::GetBlockResponse(ref response) = response {
                     if let Some(block) = response.block.as_ref() {
                         if let Some(verbose_data) = block.verbose_data.as_ref() {
                             return verbose_data.hash == request.hash;
@@ -29,8 +29,8 @@ impl Matcher<&sporad_response::Payload> for sporad_request::Payload {
     }
 }
 
-impl Matcher<&SporadResponse> for SporadRequest {
-    fn is_matching(&self, response: &SporadResponse) -> bool {
+impl Matcher<&RpcResponse> for RpcRequest {
+    fn is_matching(&self, response: &RpcResponse) -> bool {
         if let Some(ref response) = response.payload {
             if let Some(ref request) = self.payload {
                 return request.is_matching(response);

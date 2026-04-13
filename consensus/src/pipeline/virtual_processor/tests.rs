@@ -17,26 +17,13 @@ use spora_consensus_core::{
     config::{params::MAINNET_PARAMS, ConfigBuilder},
     errors::tx::TxRuleError,
     merkle::calc_hash_merkle_root_cell,
-    tx::{
-        cell_meta_from_legacy_output, legacy_sequence_to_cell_since, MutableTransaction, ScriptPublicKey, ScriptVec,
-        TransactionOutpoint,
-    },
+    tx::{CellEntry, MutableTransaction, TransactionOutpoint},
     BlockHashMap, BlockHashSet,
 };
 use spora_core::assert_match;
 use spora_exec::{CellDep, CellOut, CellRef, CellTx, DepType, OutPoint, ScriptRef};
 use spora_hashes::Hash;
 use std::{collections::VecDeque, thread::JoinHandle};
-
-fn compute_lock_hash(script_public_key: &ScriptPublicKey) -> [u8; 32] {
-    use blake3::Hasher;
-
-    let mut hasher = Hasher::new();
-    hasher.update(b"spora-cell/lock");
-    hasher.update(&script_public_key.version().to_le_bytes());
-    hasher.update(script_public_key.script());
-    *hasher.finalize().as_bytes()
-}
 
 struct OnetimeTxSelector {
     txs: Option<Vec<CellTx>>,
@@ -173,12 +160,12 @@ impl TestContext {
                 .first()
                 .and_then(|tx| tx.payload())
                 .and_then(|payload| self.consensus.services.coinbase_manager.deserialize_coinbase_payload(payload).ok())
-                .map(|payload| BlockRewardData::new(payload.subsidy, 0, payload.miner_data.script_public_key.clone()))
+                .map(|payload| BlockRewardData::new(payload.subsidy, 0, payload.miner_data.lock_script.clone()))
                 .unwrap_or_else(|| {
                     BlockRewardData::new(
                         self.consensus.services.coinbase_manager.calc_block_subsidy(block_daa_score),
                         0,
-                        ScriptPublicKey::from_vec(0, vec![]),
+                        ScriptRef::new([0; 32], 0, vec![]),
                     )
                 });
             mergeset_rewards.insert(block_hash, reward_data);
@@ -198,21 +185,14 @@ impl TestContext {
             .unwrap()
             .tx;
 
-        let outputs = coinbase
-            .outputs
-            .iter()
-            .map(|output| CellOut {
-                lock: ScriptRef::new(compute_lock_hash(&output.script_public_key), 0, vec![]),
-                type_: None,
-                capacity: output.value,
-            })
-            .collect();
+        let outputs = coinbase.outputs.clone();
         let mut outputs_data = vec![vec![]; coinbase.outputs.len()];
+        let payload = coinbase.payload().map(|payload| payload.to_vec()).unwrap_or_default();
         let witnesses = if let Some(first) = outputs_data.first_mut() {
-            *first = coinbase.payload.clone();
+            *first = payload;
             vec![]
         } else {
-            vec![coinbase.payload.clone()]
+            vec![payload]
         };
         let coinbase = CellTx::new(vec![], vec![], outputs, outputs_data, witnesses).unwrap();
 
@@ -403,16 +383,11 @@ fn new_miner_data() -> MinerData {
     let secp = secp256k1::Secp256k1::new();
     let mut rng = rand::thread_rng();
     let (_sk, pk) = secp.generate_keypair(&mut rng);
-    let script = ScriptVec::from_slice(&pk.serialize());
-    MinerData::new(ScriptPublicKey::new(0, script), vec![])
+    MinerData::new(lock_script_from_bytes(pk.serialize().to_vec()), vec![])
 }
 
 fn build_spend_tx(previous_outpoint: TransactionOutpoint, value: u64) -> CellTx {
-    build_cell_spend_tx(
-        OutPoint::new(previous_outpoint.tx_hash, previous_outpoint.index),
-        value,
-        legacy_sequence_to_cell_since(u64::MAX),
-    )
+    build_cell_spend_tx(OutPoint::new(previous_outpoint.tx_hash, previous_outpoint.index), value, 0)
 }
 
 fn build_cell_spend_tx(previous_outpoint: OutPoint, value: u64, since: u64) -> CellTx {
@@ -425,6 +400,22 @@ fn build_cell_spend_tx(previous_outpoint: OutPoint, value: u64, since: u64) -> C
         vec![],
     )
     .unwrap()
+}
+
+fn lock_script_from_bytes(script: Vec<u8>) -> ScriptRef {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"spora-cell/lock");
+    hasher.update(&0u16.to_le_bytes());
+    hasher.update(&script);
+    ScriptRef::new(*hasher.finalize().as_bytes(), 0, script)
+}
+
+fn empty_miner_data() -> MinerData {
+    MinerData::new(ScriptRef::new([0; 32], 0, vec![]), vec![])
+}
+
+fn test_cell_entry(capacity: u64, block_daa_score: u64, is_cellbase: bool) -> CellEntry {
+    CellEntry::from_cell_metadata(capacity, 0, [0; 32], None, [0; 32], block_daa_score, is_cellbase)
 }
 
 fn build_cell_spend_tx_with_dep(previous_outpoint: OutPoint, dep_outpoint: OutPoint, value: u64) -> CellTx {
@@ -466,11 +457,7 @@ async fn rejects_missing_outpoints_in_virtual_state() {
     let wait_handles = consensus.init();
 
     let parent = consensus
-        .build_block_template(
-            MinerData::new(ScriptPublicKey::from_vec(0, vec![]), vec![]),
-            Box::new(OnetimeTxSelector::new(vec![])),
-            TemplateBuildMode::Standard,
-        )
+        .build_block_template(empty_miner_data(), Box::new(OnetimeTxSelector::new(vec![])), TemplateBuildMode::Standard)
         .unwrap();
     let parent_hash = parent.block.header.hash;
     consensus.validate_and_insert_block(parent.block.to_immutable()).virtual_state_task.await.unwrap();
@@ -498,21 +485,13 @@ async fn rejects_double_spend_in_same_block_with_cell_inputs() {
     let wait_handles = consensus.init();
 
     let reward_source = consensus
-        .build_block_template(
-            MinerData::new(ScriptPublicKey::from_vec(0, vec![]), vec![]),
-            Box::new(OnetimeTxSelector::new(vec![])),
-            TemplateBuildMode::Standard,
-        )
+        .build_block_template(empty_miner_data(), Box::new(OnetimeTxSelector::new(vec![])), TemplateBuildMode::Standard)
         .unwrap();
     let reward_source_hash = reward_source.block.header.hash;
     consensus.validate_and_insert_block(reward_source.block.to_immutable()).virtual_state_task.await.unwrap();
 
     let parent = consensus
-        .build_block_template(
-            MinerData::new(ScriptPublicKey::from_vec(0, vec![]), vec![]),
-            Box::new(OnetimeTxSelector::new(vec![])),
-            TemplateBuildMode::Standard,
-        )
+        .build_block_template(empty_miner_data(), Box::new(OnetimeTxSelector::new(vec![])), TemplateBuildMode::Standard)
         .unwrap();
     let parent_hash = parent.block.header.hash;
     let parent_coinbase_id = parent.block.transactions[0].id();
@@ -541,7 +520,7 @@ async fn rejects_mergeset_history_when_a_blue_block_dep_was_spent_on_selected_pa
         .build();
     let consensus = TestConsensus::new(&config);
     let wait_handles = consensus.init();
-    let miner_data = MinerData::new(ScriptPublicKey::from_vec(0, vec![]), vec![]);
+    let miner_data = empty_miner_data();
 
     let warmup = consensus
         .build_block_template(miner_data.clone(), Box::new(OnetimeTxSelector::new(vec![])), TemplateBuildMode::Standard)
@@ -624,7 +603,7 @@ async fn validates_mempool_transaction_against_virtual_state_and_sets_fee() {
 
     let spend_tx = build_spend_tx(TransactionOutpoint { tx_hash: [0x44; 32], index: 0 }, 9_000);
     let mut mutable_tx = MutableTransaction::from_cell_tx(spend_tx);
-    mutable_tx.entries[0] = Some(cell_meta_from_legacy_output(10_000, &ScriptPublicKey::from_vec(0, vec![]), 0, false));
+    mutable_tx.entries[0] = Some(test_cell_entry(10_000, 0, false));
 
     consensus
         .validate_mempool_transaction(&mut mutable_tx, &TransactionValidationArgs::default())
@@ -668,9 +647,9 @@ async fn rejects_relative_daa_sequence_lock_in_mempool_validation() {
     let wait_handles = consensus.init();
     let current_daa = consensus.virtual_processor().lkg_virtual_state.load_full().daa_score;
 
-    let spend_tx = build_cell_spend_tx(OutPoint::new([0x55; 32], 0), 9_000, 1);
+    let spend_tx = build_cell_spend_tx(OutPoint::new([0x55; 32], 0), 9_000, 0xC000_0000_0000_0001);
     let mut mutable_tx = MutableTransaction::from_cell_tx(spend_tx);
-    mutable_tx.entries[0] = Some(cell_meta_from_legacy_output(10_000, &ScriptPublicKey::from_vec(0, vec![]), current_daa, false));
+    mutable_tx.entries[0] = Some(test_cell_entry(10_000, current_daa, false));
 
     assert_eq!(
         consensus.validate_mempool_transaction(&mut mutable_tx, &TransactionValidationArgs::default()),
@@ -682,19 +661,19 @@ async fn rejects_relative_daa_sequence_lock_in_mempool_validation() {
 
 #[cfg(feature = "vm")]
 #[tokio::test]
-async fn rejects_legacy_mempool_validation_when_vm_enabled() {
+async fn rejects_non_cell_mempool_validation_when_vm_enabled() {
     let config = ConfigBuilder::new(MAINNET_PARAMS).skip_proof_of_work().build();
     let consensus = TestConsensus::new(&config);
     let wait_handles = consensus.init();
 
     let spend_tx = build_spend_tx(TransactionOutpoint { tx_hash: [0x44; 32], index: 0 }, 9_000);
     let mut mutable_tx = MutableTransaction::from_cell_tx(spend_tx);
-    mutable_tx.entries[0] = Some(cell_meta_from_legacy_output(10_000, &ScriptPublicKey::from_vec(0, vec![]), 0, false));
+    mutable_tx.entries[0] = Some(test_cell_entry(10_000, 0, false));
 
     assert_match!(
         consensus.validate_mempool_transaction(&mut mutable_tx, &TransactionValidationArgs::default()),
         Err(TxRuleError::CellValidationFailed(msg))
-            if msg.contains("legacy mempool submission is disabled when the vm feature is enabled")
+            if msg.contains("non-cell mempool submission is disabled when the vm feature is enabled")
     );
 
     let mut batch = vec![mutable_tx];
@@ -702,7 +681,7 @@ async fn rejects_legacy_mempool_validation_when_vm_enabled() {
     assert_match!(
         results.as_slice(),
         [Err(TxRuleError::CellValidationFailed(msg))]
-            if msg.contains("legacy mempool submission is disabled when the vm feature is enabled")
+            if msg.contains("non-cell mempool submission is disabled when the vm feature is enabled")
     );
 
     consensus.shutdown(wait_handles);
@@ -713,7 +692,7 @@ async fn build_block_template_rejects_invalid_selected_transactions_in_standard_
     let config = ConfigBuilder::new(MAINNET_PARAMS).skip_proof_of_work().build();
     let consensus = TestConsensus::new(&config);
     let wait_handles = consensus.init();
-    let miner_data = MinerData::new(ScriptPublicKey::from_vec(0, vec![]), vec![]);
+    let miner_data = empty_miner_data();
     let invalid_tx = build_cell_spend_tx(OutPoint::new([0xAB; 32], 0), 10_000, 0);
 
     assert_match!(
@@ -734,7 +713,7 @@ async fn build_block_template_rejects_isolation_invalid_selected_transactions_in
     let config = ConfigBuilder::new(MAINNET_PARAMS).skip_proof_of_work().build();
     let consensus = TestConsensus::new(&config);
     let wait_handles = consensus.init();
-    let miner_data = MinerData::new(ScriptPublicKey::from_vec(0, vec![]), vec![]);
+    let miner_data = empty_miner_data();
     let mut invalid_tx = build_cell_spend_tx(OutPoint::new([0xA1; 32], 0), 10_000, 0);
     invalid_tx.ver = 0;
 
@@ -765,7 +744,7 @@ async fn build_block_template_in_infallible_mode_filters_invalid_transactions_an
         .build();
     let consensus = TestConsensus::new(&config);
     let wait_handles = consensus.init();
-    let miner_data = MinerData::new(ScriptPublicKey::from_vec(0, vec![]), vec![]);
+    let miner_data = empty_miner_data();
 
     let warmup = consensus
         .build_block_template(miner_data.clone(), Box::new(OnetimeTxSelector::new(vec![])), TemplateBuildMode::Standard)
@@ -780,8 +759,8 @@ async fn build_block_template_in_infallible_mode_filters_invalid_transactions_an
 
     assert!(!funding_coinbase.outputs.is_empty(), "funding block should create a spendable coinbase output");
     let funding_capacity = funding_coinbase.outputs[0].capacity;
-    let valid_tx = build_cell_spend_tx(OutPoint::new(funding_coinbase.id(), 0), funding_capacity - 1_000);
-    let invalid_tx = build_cell_spend_tx(OutPoint::new([0xCD; 32], 0), 10_000);
+    let valid_tx = build_cell_spend_tx(OutPoint::new(funding_coinbase.id(), 0), funding_capacity - 1_000, 0);
+    let invalid_tx = build_cell_spend_tx(OutPoint::new([0xCD; 32], 0), 10_000, 0);
     let valid_only_template = consensus
         .build_block_template(
             miner_data.clone(),
@@ -818,7 +797,7 @@ async fn build_block_template_rejects_conflicting_selected_transactions_in_stand
         .build();
     let consensus = TestConsensus::new(&config);
     let wait_handles = consensus.init();
-    let miner_data = MinerData::new(ScriptPublicKey::from_vec(0, vec![]), vec![]);
+    let miner_data = empty_miner_data();
 
     let warmup = consensus
         .build_block_template(miner_data.clone(), Box::new(OnetimeTxSelector::new(vec![])), TemplateBuildMode::Standard)
@@ -832,8 +811,8 @@ async fn build_block_template_rejects_conflicting_selected_transactions_in_stand
     consensus.validate_and_insert_block(funding.block.to_immutable()).virtual_state_task.await.unwrap();
 
     let funding_outpoint = OutPoint::new(funding_coinbase.id(), 0);
-    let winner_tx = build_cell_spend_tx(funding_outpoint.clone(), funding_coinbase.outputs[0].capacity - 1_000);
-    let loser_tx = build_cell_spend_tx(funding_outpoint, funding_coinbase.outputs[0].capacity - 2_000);
+    let winner_tx = build_cell_spend_tx(funding_outpoint.clone(), funding_coinbase.outputs[0].capacity - 1_000, 0);
+    let loser_tx = build_cell_spend_tx(funding_outpoint, funding_coinbase.outputs[0].capacity - 2_000, 0);
 
     assert_match!(
         consensus.build_block_template(
@@ -864,7 +843,7 @@ async fn build_block_template_in_infallible_mode_filters_conflicting_selected_tr
         .build();
     let consensus = TestConsensus::new(&config);
     let wait_handles = consensus.init();
-    let miner_data = MinerData::new(ScriptPublicKey::from_vec(0, vec![]), vec![]);
+    let miner_data = empty_miner_data();
 
     let warmup = consensus
         .build_block_template(miner_data.clone(), Box::new(OnetimeTxSelector::new(vec![])), TemplateBuildMode::Standard)
@@ -878,8 +857,8 @@ async fn build_block_template_in_infallible_mode_filters_conflicting_selected_tr
     consensus.validate_and_insert_block(funding.block.to_immutable()).virtual_state_task.await.unwrap();
 
     let funding_outpoint = OutPoint::new(funding_coinbase.id(), 0);
-    let winner_tx = build_cell_spend_tx(funding_outpoint.clone(), funding_coinbase.outputs[0].capacity - 1_000);
-    let loser_tx = build_cell_spend_tx(funding_outpoint, funding_coinbase.outputs[0].capacity - 2_000);
+    let winner_tx = build_cell_spend_tx(funding_outpoint.clone(), funding_coinbase.outputs[0].capacity - 1_000, 0);
+    let loser_tx = build_cell_spend_tx(funding_outpoint, funding_coinbase.outputs[0].capacity - 2_000, 0);
 
     let template = consensus
         .build_block_template(
@@ -907,7 +886,7 @@ async fn build_block_template_in_infallible_mode_filters_isolation_invalid_trans
         .build();
     let consensus = TestConsensus::new(&config);
     let wait_handles = consensus.init();
-    let miner_data = MinerData::new(ScriptPublicKey::from_vec(0, vec![]), vec![]);
+    let miner_data = empty_miner_data();
 
     let warmup = consensus
         .build_block_template(miner_data.clone(), Box::new(OnetimeTxSelector::new(vec![])), TemplateBuildMode::Standard)
@@ -921,8 +900,8 @@ async fn build_block_template_in_infallible_mode_filters_isolation_invalid_trans
     consensus.validate_and_insert_block(funding.block.to_immutable()).virtual_state_task.await.unwrap();
 
     let funding_capacity = funding_coinbase.outputs[0].capacity;
-    let valid_tx = build_cell_spend_tx(OutPoint::new(funding_coinbase.id(), 0), funding_capacity - 1_000);
-    let mut invalid_tx = build_cell_spend_tx(OutPoint::new([0xA2; 32], 0), 10_000);
+    let valid_tx = build_cell_spend_tx(OutPoint::new(funding_coinbase.id(), 0), funding_capacity - 1_000, 0);
+    let mut invalid_tx = build_cell_spend_tx(OutPoint::new([0xA2; 32], 0), 10_000, 0);
     invalid_tx.ver = 0;
 
     let template = consensus
@@ -951,7 +930,7 @@ async fn build_block_template_rejects_missing_header_deps_in_standard_mode() {
         .build();
     let consensus = TestConsensus::new(&config);
     let wait_handles = consensus.init();
-    let miner_data = MinerData::new(ScriptPublicKey::from_vec(0, vec![]), vec![]);
+    let miner_data = empty_miner_data();
 
     let warmup = consensus
         .build_block_template(miner_data.clone(), Box::new(OnetimeTxSelector::new(vec![])), TemplateBuildMode::Standard)
@@ -997,7 +976,7 @@ async fn build_block_template_in_infallible_mode_filters_missing_header_deps_whe
         .build();
     let consensus = TestConsensus::new(&config);
     let wait_handles = consensus.init();
-    let miner_data = MinerData::new(ScriptPublicKey::from_vec(0, vec![]), vec![]);
+    let miner_data = empty_miner_data();
 
     let warmup = consensus
         .build_block_template(miner_data.clone(), Box::new(OnetimeTxSelector::new(vec![])), TemplateBuildMode::Standard)
@@ -1037,7 +1016,7 @@ async fn validates_direct_cell_mempool_transaction_when_vm_enabled() {
         .build();
     let consensus = TestConsensus::new(&config);
     let wait_handles = consensus.init();
-    let miner_data = MinerData::new(ScriptPublicKey::from_vec(0, vec![]), vec![]);
+    let miner_data = empty_miner_data();
 
     let warmup = consensus
         .build_block_template(miner_data.clone(), Box::new(OnetimeTxSelector::new(vec![])), TemplateBuildMode::Standard)
@@ -1063,7 +1042,10 @@ async fn validates_direct_cell_mempool_transaction_when_vm_enabled() {
         .expect("canonical CellTx mempool validation should succeed when deps/header_deps are complete");
 
     assert_eq!(mirror.calculated_fee, Some(1_000));
-    assert!(mirror.resolved_cell_metadata[0].is_some(), "resolved input metadata should be backfilled for the legacy mirror");
+    assert!(
+        mirror.resolved_cell_metadata[0].is_some(),
+        "resolved input metadata should be backfilled for the mutable transaction view"
+    );
 
     consensus.shutdown(wait_handles);
 }

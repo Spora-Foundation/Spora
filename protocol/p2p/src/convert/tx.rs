@@ -1,13 +1,8 @@
 use super::{error::ConversionError, option::TryIntoOptionEx};
 use crate::pb as protowire;
 use spora_consensus_core::{
-    cell_metadata::cell_metadata_placeholder_script_public_key_with_metadata,
     mass::project_cell_tx_mass,
-    subnets::SUBNETWORK_ID_SIZE,
-    tx::{
-        cell_meta_from_legacy_output, cell_out_from_legacy_script_public_key, CellEntry, CellRef, CellTx, ScriptPublicKey,
-        TransactionId, TransactionOutpoint,
-    },
+    tx::{CellEntry, CellOut, CellRef, CellTx, ScriptRef, TransactionId, TransactionOutpoint},
 };
 use spora_hashes::Hash;
 
@@ -33,38 +28,23 @@ impl From<&TransactionOutpoint> for protowire::Outpoint {
     }
 }
 
-impl From<&ScriptPublicKey> for protowire::ScriptPublicKey {
-    fn from(script_public_key: &ScriptPublicKey) -> Self {
-        Self { script: script_public_key.script().to_vec(), version: script_public_key.version() as u32 }
+impl From<&ScriptRef> for protowire::ScriptRef {
+    fn from(script: &ScriptRef) -> Self {
+        Self { code_hash: script.code_hash.to_vec(), hash_type: script.hash_type as u32, args: script.args.clone() }
     }
 }
 
-fn protowire_subnetwork_id(is_coinbase: bool) -> protowire::SubnetworkId {
-    let mut bytes = vec![0u8; SUBNETWORK_ID_SIZE];
-    if is_coinbase {
-        bytes[0] = 1;
-    }
-    protowire::SubnetworkId { bytes }
-}
-
-fn validate_legacy_wire_fields(tx: &protowire::TransactionMessage) -> Result<(), ConversionError> {
+fn validate_reserved_wire_fields(tx: &protowire::TransactionMessage) -> Result<(), ConversionError> {
     if tx.lock_time != 0 {
-        return Err(ConversionError::NonCanonicalLegacyField("lockTime"));
+        return Err(ConversionError::NonCanonicalReservedField("lockTime"));
     }
 
     if tx.gas != 0 {
-        return Err(ConversionError::NonCanonicalLegacyField("gas"));
+        return Err(ConversionError::NonCanonicalReservedField("gas"));
     }
 
     if !tx.inputs.is_empty() && !tx.payload.is_empty() {
         return Err(ConversionError::NonCoinbasePayload);
-    }
-
-    if let Some(subnetwork_id) = tx.subnetwork_id.as_ref() {
-        let expected = protowire_subnetwork_id(tx.inputs.is_empty());
-        if subnetwork_id.bytes != expected.bytes {
-            return Err(ConversionError::NonCanonicalLegacyField("subnetworkId"));
-        }
     }
 
     Ok(())
@@ -81,34 +61,22 @@ impl From<&CellTx> for protowire::TransactionMessage {
                 .enumerate()
                 .map(|(index, input)| protowire::TransactionInput {
                     previous_outpoint: Some((&input.out_point).into()),
-                    signature_script: tx.witnesses.get(index).cloned().unwrap_or_default(),
-                    sequence: input.since,
-                    sig_op_count: 0,
+                    witness: tx.witnesses.get(index).cloned().unwrap_or_default(),
+                    since: input.since,
                 })
                 .collect(),
             outputs: tx
                 .outputs
                 .iter()
                 .enumerate()
-                .map(|(index, output)| {
-                    let output_data = tx.outputs_data.get(index).map(Vec::as_slice).unwrap_or(&[]);
-                    let data_hash = *blake3::hash(output_data).as_bytes();
-                    protowire::TransactionOutput {
-                        value: output.capacity,
-                        script_public_key: Some(
-                            (&cell_metadata_placeholder_script_public_key_with_metadata(
-                                output.lock.hash(),
-                                output.type_.as_ref().map(|script| script.hash()),
-                                data_hash,
-                                output_data.len() as u64,
-                            ))
-                                .into(),
-                        ),
-                    }
+                .map(|(index, output)| protowire::TransactionOutput {
+                    value: output.capacity,
+                    lock_script: Some((&output.lock).into()),
+                    type_script: output.type_.as_ref().map(Into::into),
+                    output_data: tx.outputs_data.get(index).cloned().unwrap_or_default(),
                 })
                 .collect(),
             lock_time: 0,
-            subnetwork_id: Some(protowire_subnetwork_id(tx.is_coinbase())),
             gas: 0,
             payload: tx.payload().map(ToOwned::to_owned).unwrap_or_default(),
             mass: projected_mass.selection_mass,
@@ -137,11 +105,11 @@ impl TryFrom<protowire::Outpoint> for TransactionOutpoint {
     }
 }
 
-impl TryFrom<protowire::ScriptPublicKey> for ScriptPublicKey {
+impl TryFrom<protowire::ScriptRef> for ScriptRef {
     type Error = ConversionError;
 
-    fn try_from(value: protowire::ScriptPublicKey) -> Result<Self, Self::Error> {
-        Ok(Self::from_vec(value.version.try_into()?, value.script))
+    fn try_from(value: protowire::ScriptRef) -> Result<Self, Self::Error> {
+        Ok(Self::new(value.code_hash.as_slice().try_into()?, value.hash_type.try_into()?, value.args))
     }
 }
 
@@ -149,8 +117,18 @@ impl TryFrom<protowire::CellEntry> for CellEntry {
     type Error = ConversionError;
 
     fn try_from(value: protowire::CellEntry) -> Result<Self, Self::Error> {
-        let script_public_key = value.script_public_key.try_into_ex()?;
-        Ok(cell_meta_from_legacy_output(value.amount, &script_public_key, value.block_daa_score, value.is_coinbase))
+        let lock_hash = value.lock_hash.as_slice().try_into()?;
+        let type_hash = if value.type_hash.is_empty() { None } else { Some(value.type_hash.as_slice().try_into()?) };
+        let data_hash = value.data_hash.as_slice().try_into()?;
+        Ok(CellEntry::from_cell_metadata(
+            value.capacity.max(value.amount),
+            value.data_bytes,
+            lock_hash,
+            type_hash,
+            data_hash,
+            value.block_daa_score,
+            value.is_coinbase,
+        ))
     }
 }
 
@@ -166,27 +144,30 @@ impl TryFrom<protowire::TransactionMessage> for CellTx {
     type Error = ConversionError;
 
     fn try_from(tx: protowire::TransactionMessage) -> Result<Self, Self::Error> {
-        validate_legacy_wire_fields(&tx)?;
+        validate_reserved_wire_fields(&tx)?;
 
         let inputs: Vec<CellRef> = tx
             .inputs
             .iter()
-            .map(|input| Ok(CellRef::new(input.previous_outpoint.clone().try_into_ex()?, input.sequence)))
+            .map(|input| Ok(CellRef::new(input.previous_outpoint.clone().try_into_ex()?, input.since)))
             .collect::<Result<_, Self::Error>>()?;
 
-        let mut witnesses: Vec<Vec<u8>> = tx.inputs.into_iter().map(|input| input.signature_script).collect();
+        let mut witnesses: Vec<Vec<u8>> = tx.inputs.into_iter().map(|input| input.witness).collect();
 
         let outputs = tx
             .outputs
             .iter()
             .map(|output| {
-                let script_public_key = output.script_public_key.clone().try_into_ex()?;
-                Ok(cell_out_from_legacy_script_public_key(output.value, &script_public_key))
+                Ok(CellOut {
+                    lock: output.lock_script.clone().try_into_ex()?,
+                    type_: output.type_script.clone().map(ScriptRef::try_from).transpose()?,
+                    capacity: output.value,
+                })
             })
             .collect::<Result<Vec<_>, Self::Error>>()?;
 
-        let mut outputs_data = vec![vec![]; outputs.len()];
-        if inputs.is_empty() && !tx.payload.is_empty() {
+        let mut outputs_data = tx.outputs.iter().map(|output| output.output_data.clone()).collect::<Vec<_>>();
+        if inputs.is_empty() && !tx.payload.is_empty() && outputs_data.iter().all(Vec::is_empty) {
             if let Some(first_output_data) = outputs_data.first_mut() {
                 *first_output_data = tx.payload.clone();
             } else {
@@ -224,24 +205,17 @@ mod tests {
     }
 
     #[test]
-    fn rejects_non_zero_legacy_lock_time() {
+    fn rejects_non_zero_reserved_lock_time() {
         let mut proto = protowire::TransactionMessage::from(&sample_non_coinbase_tx());
         proto.lock_time = 1;
-        assert!(matches!(CellTx::try_from(proto), Err(ConversionError::NonCanonicalLegacyField("lockTime"))));
+        assert!(matches!(CellTx::try_from(proto), Err(ConversionError::NonCanonicalReservedField("lockTime"))));
     }
 
     #[test]
-    fn rejects_non_zero_legacy_gas() {
+    fn rejects_non_zero_reserved_gas() {
         let mut proto = protowire::TransactionMessage::from(&sample_non_coinbase_tx());
         proto.gas = 1;
-        assert!(matches!(CellTx::try_from(proto), Err(ConversionError::NonCanonicalLegacyField("gas"))));
-    }
-
-    #[test]
-    fn rejects_non_canonical_subnetwork_id() {
-        let mut proto = protowire::TransactionMessage::from(&sample_non_coinbase_tx());
-        proto.subnetwork_id = Some(protowire::SubnetworkId { bytes: vec![1; SUBNETWORK_ID_SIZE] });
-        assert!(matches!(CellTx::try_from(proto), Err(ConversionError::NonCanonicalLegacyField("subnetworkId"))));
+        assert!(matches!(CellTx::try_from(proto), Err(ConversionError::NonCanonicalReservedField("gas"))));
     }
 
     #[test]
@@ -252,12 +226,35 @@ mod tests {
     }
 
     #[test]
-    fn accepts_canonical_coinbase_payload_and_subnetwork() {
+    fn accepts_canonical_coinbase_payload() {
         let mut proto = protowire::TransactionMessage::from(&sample_coinbase_tx());
+        proto.outputs[0].output_data.clear();
         proto.payload = vec![1, 2, 3];
         let tx = CellTx::try_from(proto).expect("canonical coinbase transaction");
         assert!(tx.is_coinbase());
         assert_eq!(tx.outputs_data[0], vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn roundtrip_preserves_native_output_fields() {
+        let tx = CellTx::new(
+            vec![CellRef::new(OutPoint::new([7; 32], 0), 42)],
+            vec![],
+            vec![CellOut {
+                lock: ScriptRef::new([9; 32], 1, vec![0xaa, 0xbb]),
+                type_: Some(ScriptRef::new([4; 32], 2, vec![0xcc])),
+                capacity: 1_337,
+            }],
+            vec![vec![1, 2, 3, 4]],
+            vec![vec![0xdd]],
+        )
+        .expect("sample tx");
+
+        let restored = CellTx::try_from(protowire::TransactionMessage::from(&tx)).expect("p2p tx converts back into CellTx");
+        assert_eq!(restored.outputs[0].capacity, tx.outputs[0].capacity);
+        assert_eq!(restored.outputs[0].lock, tx.outputs[0].lock);
+        assert_eq!(restored.outputs[0].type_, tx.outputs[0].type_);
+        assert_eq!(restored.outputs_data, tx.outputs_data);
     }
 
     #[test]

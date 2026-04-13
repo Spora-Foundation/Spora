@@ -6,9 +6,7 @@ use spora_hashes::Hash;
 use spora_p2p_lib::{
     common::ProtocolError,
     dequeue, make_message,
-    pb::{
-        sporad_message::Payload, DonePruningPointCellSetChunksMessage, PruningPointCellSetChunkMessage, UnexpectedPruningPointMessage,
-    },
+    pb::{p2p_message::Payload, DonePruningPointCellSetChunksMessage, PruningPointCellSetChunkMessage, UnexpectedPruningPointMessage},
     IncomingRoute, Router,
 };
 use std::sync::Arc;

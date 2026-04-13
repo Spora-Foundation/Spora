@@ -187,7 +187,7 @@ pub(crate) async fn create(
     term.writeln(style(receive_address).blue().to_string());
     term.writeln("");
 
-    wallet.open(&wallet_secret, name.map(String::from), WalletOpenArgs::default_with_legacy_accounts(), &guard).await?;
+    wallet.open(&wallet_secret, name.map(String::from), WalletOpenArgs { account_descriptors: true }, &guard).await?;
     wallet.activate_accounts(None, &guard).await?;
 
     Ok(())

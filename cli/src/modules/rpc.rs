@@ -118,10 +118,6 @@ impl Rpc {
                 let result = rpc.get_block_call(None, GetBlockRequest { hash, include_transactions }).await?;
                 self.println(&ctx, result);
             }
-            // RpcApiOps::GetSubnetwork => {
-            //     let result = rpc.get_subnetwork_call(GetSubnetworkRequest {  }).await?;
-            //     self.println(&ctx, result);
-            // }
             RpcApiOps::GetVirtualChainFromBlock => {
                 if argv.is_empty() {
                     return Err(Error::custom("Missing startHash argument"));

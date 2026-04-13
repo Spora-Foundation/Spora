@@ -9,10 +9,7 @@ use crate::result::Result;
 use crate::standard_script;
 use js_sys::Reflect;
 use spora_addresses::*;
-use spora_consensus_core::{
-    network::{NetworkType, NetworkTypeT},
-    tx::ScriptPublicKeyT,
-};
+use spora_consensus_core::network::{NetworkType, NetworkTypeT};
 use spora_exec::{scripts::timelock as exec_timelock, ScriptRef as CellScriptRef};
 use spora_utils::hex::ToHex;
 use spora_wasm_core::types::{BinaryT, HexString};
@@ -58,12 +55,12 @@ fn decoded_since_to_js_value(is_relative: bool, is_timestamp: bool, value: u64) 
     obj.into()
 }
 
-/// Creates a new script to pay a transaction output to the specified address.
+/// Creates a new canonical lock script for the specified address.
 /// @category Wallet SDK
-#[wasm_bindgen(js_name = payToAddressScript)]
-pub fn pay_to_address_script(address: &AddressT) -> Result<ScriptPublicKey> {
+#[wasm_bindgen(js_name = payToAddressLockScript)]
+pub fn pay_to_address_lock_script(address: &AddressT) -> Result<JsValue> {
     let address = Address::try_cast_from(address)?;
-    Ok(standard_script::pay_to_address_script(address.as_ref()))
+    Ok(workflow_wasm::serde::to_value(&standard_script::pay_to_address_lock_script(address.as_ref()))?)
 }
 
 /// Encodes an absolute timestamp `since` value for Cell inputs.
@@ -161,37 +158,41 @@ pub fn relative_timestamp_lock_script(delta_seconds: u64) -> JsValue {
     script_ref_to_js_value(&exec_timelock::relative_timestamp_lock(delta_seconds))
 }
 
-/// Takes a script and returns an equivalent pay-to-script-hash script.
+/// Takes a redeem script and returns its canonical pay-to-script-hash lock script.
 /// @param redeem_script - The redeem script ({@link HexString} or Uint8Array).
 /// @category Wallet SDK
-#[wasm_bindgen(js_name = payToScriptHashScript)]
-pub fn pay_to_script_hash_script(redeem_script: BinaryT) -> Result<ScriptPublicKey> {
+#[wasm_bindgen(js_name = payToScriptHashLockScript)]
+pub fn pay_to_script_hash_lock_script(redeem_script: BinaryT) -> Result<JsValue> {
     let redeem_script = redeem_script.try_as_vec_u8()?;
-    Ok(standard_script::pay_to_script_hash_script(redeem_script.as_slice()))
+    Ok(workflow_wasm::serde::to_value(&standard_script::pay_to_script_hash_lock_script(redeem_script.as_slice()))?)
 }
 
-/// Generates a signature script that fits a pay-to-script-hash script.
+/// Generates witness bytes that fit a pay-to-script-hash lock script.
 /// @param redeem_script - The redeem script ({@link HexString} or Uint8Array).
 /// @param signature - The signature ({@link HexString} or Uint8Array).
 /// @category Wallet SDK
-#[wasm_bindgen(js_name = payToScriptHashSignatureScript)]
-pub fn pay_to_script_hash_signature_script(redeem_script: BinaryT, signature: BinaryT) -> Result<HexString> {
+#[wasm_bindgen(js_name = payToScriptHashWitnessScript)]
+pub fn pay_to_script_hash_witness_script(redeem_script: BinaryT, signature: BinaryT) -> Result<HexString> {
     let redeem_script = redeem_script.try_as_vec_u8()?;
     let signature = signature.try_as_vec_u8()?;
-    let script = standard_script::pay_to_script_hash_signature_script(&redeem_script, signature)?;
+    let script = standard_script::pay_to_script_hash_witness_script(&redeem_script, signature)?;
     Ok(script.to_hex().into())
 }
 
-/// Returns the address encoded in a script public key.
-/// @param script_public_key - The script public key ({@link ScriptPublicKey}).
+/// Returns the address encoded in a canonical Cell lock script.
+/// @param lock_script - The lock script ({@link ScriptRef}, {@link HexString} or Uint8Array).
 /// @param network - The network type.
 /// @category Wallet SDK
-#[wasm_bindgen(js_name = addressFromScriptPublicKey)]
-pub fn address_from_script_public_key(script_public_key: &ScriptPublicKeyT, network: &NetworkTypeT) -> Result<AddressOrUndefinedT> {
-    let script_public_key = ScriptPublicKey::try_cast_from(script_public_key)?;
+#[wasm_bindgen(js_name = addressFromLockScript)]
+pub fn address_from_lock_script(lock_script: JsValue, network: &NetworkTypeT) -> Result<AddressOrUndefinedT> {
     let network_type = NetworkType::try_from(network)?;
+    let lock_script = if let Ok(script) = workflow_wasm::serde::from_value::<CellScriptRef>(lock_script.clone()) {
+        script.args
+    } else {
+        lock_script.try_as_vec_u8()?
+    };
 
-    match standard_script::extract_script_pub_key_address(script_public_key.as_ref(), network_type.into()) {
+    match standard_script::extract_address_from_lock_script(lock_script.as_slice(), network_type.into()) {
         Ok(address) => Ok(AddressOrUndefinedT::from(JsValue::from(address))),
         Err(_) => Ok(AddressOrUndefinedT::from(JsValue::UNDEFINED)),
     }

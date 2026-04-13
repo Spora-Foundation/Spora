@@ -1,7 +1,7 @@
 use crate::core::hub::HubEvent;
 use crate::pb::RejectMessage;
-use crate::pb::{sporad_message::Payload as SporadMessagePayload, SporadMessage};
-use crate::{common::ProtocolError, SporadMessagePayloadType};
+use crate::pb::{p2p_message::Payload as P2pMessagePayload, P2pMessage};
+use crate::{common::ProtocolError, P2pMessagePayloadType};
 use crate::{make_message, Peer};
 use parking_lot::{Mutex, RwLock};
 use seqlock::SeqLock;
@@ -22,18 +22,17 @@ use tonic::Streaming;
 use super::peer::{PeerKey, PeerProperties};
 
 pub struct IncomingRoute {
-    rx: MpscReceiver<SporadMessage>,
+    rx: MpscReceiver<P2pMessage>,
     id: u32,
 }
 
-// BLANK_ROUTE_ID is the value that is used in the p2p when no request or response IDs
-// are needed. To support backward compatibility, this is set to the default gRPC value
-// for uint32.
+// BLANK_ROUTE_ID is the value used in p2p when no request or response IDs
+// are needed. It matches the default `uint32` zero value.
 pub const BLANK_ROUTE_ID: u32 = 0;
 static ROUTE_ID: AtomicU32 = AtomicU32::new(BLANK_ROUTE_ID + 1);
 
 impl IncomingRoute {
-    pub fn new(rx: MpscReceiver<SporadMessage>) -> Self {
+    pub fn new(rx: MpscReceiver<P2pMessage>) -> Self {
         let id = ROUTE_ID.fetch_add(1, Ordering::SeqCst);
         Self { rx, id }
     }
@@ -44,7 +43,7 @@ impl IncomingRoute {
 }
 
 impl Deref for IncomingRoute {
-    type Target = MpscReceiver<SporadMessage>;
+    type Target = MpscReceiver<P2pMessage>;
 
     fn deref(&self) -> &Self::Target {
         &self.rx
@@ -65,7 +64,7 @@ impl SharedIncomingRoute {
         Self(Arc::new(tokio::sync::Mutex::new(incoming_route)))
     }
 
-    pub async fn recv(&mut self) -> Option<SporadMessage> {
+    pub async fn recv(&mut self) -> Option<P2pMessage> {
         self.0.lock().await.recv().await
     }
 }
@@ -79,11 +78,11 @@ pub enum IncomingRouteOverflowPolicy {
     Disconnect,
 }
 
-impl From<SporadMessagePayloadType> for IncomingRouteOverflowPolicy {
-    fn from(msg_type: SporadMessagePayloadType) -> Self {
+impl From<P2pMessagePayloadType> for IncomingRouteOverflowPolicy {
+    fn from(msg_type: P2pMessagePayloadType) -> Self {
         match msg_type {
             // Inv messages are unique in the sense that no harm is done if some of them are dropped
-            SporadMessagePayloadType::InvTransactions | SporadMessagePayloadType::InvRelayBlock => IncomingRouteOverflowPolicy::Drop,
+            P2pMessagePayloadType::InvTransactions | P2pMessagePayloadType::InvRelayBlock => IncomingRouteOverflowPolicy::Drop,
             _ => IncomingRouteOverflowPolicy::Disconnect,
         }
     }
@@ -127,12 +126,12 @@ pub struct Router {
     connection_started: Instant,
 
     /// Routing map for mapping messages to subscribed flows
-    routing_map_by_type: RwLock<HashMap<SporadMessagePayloadType, MpscSender<SporadMessage>>>,
+    routing_map_by_type: RwLock<HashMap<P2pMessagePayloadType, MpscSender<P2pMessage>>>,
 
-    routing_map_by_id: RwLock<HashMap<u32, MpscSender<SporadMessage>>>,
+    routing_map_by_id: RwLock<HashMap<u32, MpscSender<P2pMessage>>>,
 
     /// The outgoing route for sending messages to this peer
-    outgoing_route: MpscSender<SporadMessage>,
+    outgoing_route: MpscSender<P2pMessage>,
 
     /// A channel sender for internal event management. Used to send information from each router to a central hub object
     hub_sender: MpscSender<HubEvent>,
@@ -166,10 +165,10 @@ impl From<&Router> for Peer {
     }
 }
 
-fn message_summary(msg: &SporadMessage) -> impl Debug {
+fn message_summary(msg: &P2pMessage) -> impl Debug {
     // TODO (low priority): display a concise summary of the message. Printing full messages
     // overflows the logs and is hardly useful, hence we currently only return the type
-    msg.payload.as_ref().map(std::convert::Into::<SporadMessagePayloadType>::into)
+    msg.payload.as_ref().map(std::convert::Into::<P2pMessagePayloadType>::into)
 }
 
 impl Router {
@@ -177,8 +176,8 @@ impl Router {
         net_address: SocketAddr,
         is_outbound: bool,
         hub_sender: MpscSender<HubEvent>,
-        mut incoming_stream: Streaming<SporadMessage>,
-        outgoing_route: MpscSender<SporadMessage>,
+        mut incoming_stream: Streaming<P2pMessage>,
+        outgoing_route: MpscSender<P2pMessage>,
     ) -> Arc<Self> {
         let (start_sender, start_receiver) = oneshot_channel();
         let (shutdown_sender, mut shutdown_receiver) = oneshot_channel();
@@ -312,14 +311,14 @@ impl Router {
     /// Subscribe to specific message types.
     ///
     /// This should be used by `ConnectionInitializer` instances to register application-specific flows
-    pub fn subscribe(&self, msg_types: Vec<SporadMessagePayloadType>) -> IncomingRoute {
+    pub fn subscribe(&self, msg_types: Vec<P2pMessagePayloadType>) -> IncomingRoute {
         self.subscribe_with_capacity(msg_types, Self::incoming_flow_baseline_channel_size())
     }
 
     /// Subscribe to specific message types with a specific channel capacity.
     ///
     /// This should be used by `ConnectionInitializer` instances to register application-specific flows.
-    pub fn subscribe_with_capacity(&self, msg_types: Vec<SporadMessagePayloadType>, capacity: usize) -> IncomingRoute {
+    pub fn subscribe_with_capacity(&self, msg_types: Vec<P2pMessagePayloadType>, capacity: usize) -> IncomingRoute {
         let (sender, receiver) = mpsc_channel(capacity);
         let incoming_route = IncomingRoute::new(receiver);
         let mut map_by_type = self.routing_map_by_type.write();
@@ -362,15 +361,15 @@ impl Router {
     }
 
     /// Routes a message coming from the network to the corresponding registered flow
-    pub fn route_to_flow(&self, msg: SporadMessage) -> Result<(), ProtocolError> {
+    pub fn route_to_flow(&self, msg: P2pMessage) -> Result<(), ProtocolError> {
         if msg.payload.is_none() {
             debug!("P2P, Route to flow got empty payload, peer: {}", self);
-            return Err(ProtocolError::Other("received Sporad p2p message with empty payload"));
+            return Err(ProtocolError::Other("received Spora p2p message with empty payload"));
         }
-        let msg_type: SporadMessagePayloadType = msg.payload.as_ref().expect("payload was just verified").into();
+        let msg_type: P2pMessagePayloadType = msg.payload.as_ref().expect("payload was just verified").into();
         // Handle the special case of a reject message ending the connection
-        if msg_type == SporadMessagePayloadType::Reject {
-            let Some(SporadMessagePayload::Reject(reject)) = msg.payload else { unreachable!() };
+        if msg_type == P2pMessagePayloadType::Reject {
+            let Some(P2pMessagePayload::Reject(reject)) = msg.payload else { unreachable!() };
             return Err(ProtocolError::from_reject_message(reject.reason));
         }
 
@@ -400,8 +399,8 @@ impl Router {
     }
 
     /// Enqueues a locally-originated message to be sent to the network peer
-    pub async fn enqueue(&self, msg: SporadMessage) -> Result<(), ProtocolError> {
-        assert!(msg.payload.is_some(), "sporad P2P message should always have a value");
+    pub async fn enqueue(&self, msg: P2pMessage) -> Result<(), ProtocolError> {
+        assert!(msg.payload.is_some(), "P2P message envelope should always have a payload");
         match self.outgoing_route.try_send(msg) {
             Ok(_) => Ok(()),
             Err(TrySendError::Closed(_)) => Err(ProtocolError::ConnectionClosed),
@@ -414,7 +413,7 @@ impl Router {
         if err.can_send_outgoing_message() {
             // Send an explicit reject message for easier tracing of logical bugs causing protocol errors.
             // No need to handle errors since we are closing anyway
-            let _ = self.enqueue(make_message!(SporadMessagePayload::Reject, RejectMessage { reason: err.to_reject_message() })).await;
+            let _ = self.enqueue(make_message!(P2pMessagePayload::Reject, RejectMessage { reason: err.to_reject_message() })).await;
         }
     }
 

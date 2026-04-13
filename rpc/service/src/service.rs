@@ -4,21 +4,12 @@ use super::collector::{CollectorFromConsensus, CollectorFromIndex};
 use crate::converter::feerate_estimate::{FeeEstimateConverter, FeeEstimateVerboseConverter};
 use crate::converter::{consensus::ConsensusConverter, index::IndexConverter, protocol::ProtocolConverter};
 use async_trait::async_trait;
-use blake3::Hasher;
 use spora_cellindex::api::{CellIndexProxy, CellQuery};
+use spora_consensus_client::pay_to_address_lock_script;
 use spora_consensus_core::api::counters::ProcessingCounters;
 use spora_consensus_core::daa_score_timestamp::DaaScoreTimestamp;
 use spora_consensus_core::errors::block::RuleError;
-use spora_consensus_core::tx::{extract_script_pub_key_address, pay_to_address_script, ScriptPublicKey, TransactionOutpoint};
-use std::time::Duration;
-use std::{
-    collections::HashMap,
-    iter::once,
-    sync::{atomic::Ordering, Arc},
-    vec,
-};
-use tokio::join;
-// TODO(cell-model): legacy transaction-output-specific error, needs Cell model replacement
+use spora_consensus_core::tx::TransactionOutpoint;
 use spora_consensus_core::{
     block::Block,
     coinbase::MinerData,
@@ -42,7 +33,7 @@ use spora_core::{
     task::tick::TickService,
     trace, warn,
 };
-use spora_index_core::indexed_cells::{BalanceByScriptPublicKey, CellSetByScriptPublicKey, CompactCellCollection, CompactCellEntry};
+use spora_index_core::indexed_cells::{BalanceByAddress, CellSetByAddress, CompactCellCollection, CompactCellEntry};
 use spora_index_core::{connection::IndexChannelConnection, notification::Notification as IndexNotification, notifier::IndexNotifier};
 use spora_mining::feerate::FeeEstimateVerbose;
 use spora_mining::model::tx_query::TransactionQuery;
@@ -78,6 +69,14 @@ use spora_utils::expiring_cache::ExpiringCache;
 use spora_utils::sysinfo::SystemInfo;
 use spora_utils::{channel::Channel, triggers::SingleTrigger};
 use spora_utils_tower::counters::TowerConnectionCounters;
+use std::time::Duration;
+use std::{
+    collections::HashMap,
+    iter::once,
+    sync::{atomic::Ordering, Arc},
+    vec,
+};
+use tokio::join;
 use workflow_rpc::server::WebSocketCounters as WrpcServerCounters;
 
 /// A service implementing the Rpc API at spora_rpc_core level.
@@ -147,8 +146,8 @@ impl RpcCoreService {
         system_info: SystemInfo,
         mining_rule_engine: Arc<MiningRuleEngine>,
     ) -> Self {
-        // This notifier uses the address-scoped mutation policy from the legacy
-        // notify framework, but the actual index feed is Cell-model based.
+        // This notifier uses the address-scoped mutation policy from the current
+        // notify framework while the backing index feed is Cell-model based.
         let policies = match index_notifier {
             Some(_) => MutationPolicies::new(CellsChangedMutationPolicy::AddressSet),
             None => MutationPolicies::new(CellsChangedMutationPolicy::Wildcard),
@@ -257,20 +256,16 @@ impl RpcCoreService {
         self.cellindex.as_ref().ok_or_else(|| RpcError::General("Cell index is not initialized".to_string()))
     }
 
-    async fn get_cell_set_by_script_public_key(
-        &self,
-        spk: ScriptPublicKey,
-        start: u64,
-        limit: u32,
-    ) -> RpcResult<(CompactCellCollection, u64)> {
+    async fn get_cell_set_by_address(&self, address: &RpcAddress, start: u64, limit: u32) -> RpcResult<(CompactCellCollection, u64)> {
         if limit == 0 {
             return Ok((CompactCellCollection::default(), 0));
         }
 
         let query_limit = usize::try_from(start).unwrap_or(usize::MAX).saturating_add(limit as usize);
+        let lock_script = pay_to_address_lock_script(address);
         let result = self
             .cellindex()?
-            .query(&CellQuery::by_lock(Self::compute_lock_hash(&spk), query_limit))
+            .query(&CellQuery::by_lock(lock_script.hash(), query_limit))
             .map_err(|err| RpcError::General(format!("Cell index query failed: {err}")))?;
 
         let start = usize::try_from(start).unwrap_or(usize::MAX);
@@ -284,45 +279,29 @@ impl RpcCoreService {
         Ok((collection, result.total_count as u64))
     }
 
-    async fn get_balance_by_script_public_keys<'a>(
-        &self,
-        addresses: impl Iterator<Item = &'a RpcAddress>,
-    ) -> RpcResult<BalanceByScriptPublicKey> {
-        let mut balances = BalanceByScriptPublicKey::default();
+    async fn get_balance_by_addresses<'a>(&self, addresses: impl Iterator<Item = &'a RpcAddress>) -> RpcResult<BalanceByAddress> {
+        let mut balances = BalanceByAddress::default();
 
         for address in addresses {
-            let spk = pay_to_address_script(address);
-            let (cells, _) = self.get_cell_set_by_script_public_key(spk.clone(), 0, u32::MAX).await?;
+            let (cells, _) = self.get_cell_set_by_address(address, 0, u32::MAX).await?;
             let balance = cells.values().map(|entry| entry.amount).sum();
-            balances.insert(spk, balance);
+            balances.insert(address.clone(), balance);
         }
 
         Ok(balances)
     }
 
-    async fn get_cell_set_by_script_public_keys<'a>(
-        &self,
-        addresses: impl Iterator<Item = &'a RpcAddress>,
-    ) -> RpcResult<CellSetByScriptPublicKey> {
-        let mut entry_map = CellSetByScriptPublicKey::default();
+    async fn get_cell_set_by_addresses<'a>(&self, addresses: impl Iterator<Item = &'a RpcAddress>) -> RpcResult<CellSetByAddress> {
+        let mut entry_map = CellSetByAddress::default();
 
         for address in addresses {
-            let spk = pay_to_address_script(address);
-            let (cells, _) = self.get_cell_set_by_script_public_key(spk.clone(), 0, u32::MAX).await?;
+            let (cells, _) = self.get_cell_set_by_address(address, 0, u32::MAX).await?;
             if !cells.is_empty() {
-                entry_map.insert(spk, cells);
+                entry_map.insert(address.clone(), cells);
             }
         }
 
         Ok(entry_map)
-    }
-
-    fn compute_lock_hash(script_public_key: &ScriptPublicKey) -> [u8; 32] {
-        let mut hasher = Hasher::new();
-        hasher.update(b"spora-cell/lock");
-        hasher.update(&script_public_key.version().to_le_bytes());
-        hasher.update(script_public_key.script());
-        *hasher.finalize().as_bytes()
     }
 
     fn transaction_outpoint_from_exec(out_point: &spora_exec::OutPoint) -> TransactionOutpoint {
@@ -425,24 +404,18 @@ NOTE: This error usually indicates an RPC conversion error between the node and 
     ) -> RpcResult<GetBlockTemplateResponse> {
         trace!("incoming GetBlockTemplate request");
 
-        if *self.config.net == NetworkType::Mainnet && !self.config.enable_mainnet_mining {
-            return Err(RpcError::General("Mining on mainnet is not supported for initial Rust versions".to_owned()));
-        }
-
         // Make sure the pay address prefix matches the config network type
         if request.pay_address.prefix != self.config.prefix() {
             return Err(spora_addresses::AddressError::InvalidPrefix(request.pay_address.prefix.to_string()))?;
         }
 
         // Build block template
-        let script_public_key = pay_to_address_script(&request.pay_address);
         let extra_data = version().as_bytes().iter().chain(once(&(b'/'))).chain(&request.extra_data).cloned().collect::<Vec<_>>();
-        let miner_data: MinerData = MinerData::new(script_public_key, extra_data);
+        let miner_data: MinerData = MinerData::new(pay_to_address_lock_script(&request.pay_address), extra_data);
         let session = self.consensus_manager.consensus().unguarded_session();
         let block_template = self.mining_manager.clone().get_block_template(&session, miner_data).await?;
 
-        // Check coinbase tx payload length
-        // TODO(cell-model): CellTx payload access needs update
+        // Check coinbase transaction payload length.
         if block_template.block.transactions[COINBASE_TRANSACTION_INDEX].payload().map_or(0, |p| p.len())
             > self.config.max_coinbase_payload_len
         {
@@ -609,17 +582,15 @@ NOTE: This error usually indicates an RPC conversion error between the node and 
     ) -> RpcResult<GetMempoolEntriesByAddressesResponse> {
         let query = self.extract_tx_query(request.filter_transaction_pool, request.include_orphan_pool)?;
         let session = self.consensus_manager.consensus().unguarded_session();
-        let script_public_keys = request.addresses.iter().map(pay_to_address_script).collect();
-        let grouped_txs = self.mining_manager.clone().get_transactions_by_addresses(script_public_keys, query).await;
+        let addresses = request.addresses.iter().cloned().collect();
+        let grouped_txs = self.mining_manager.clone().get_transactions_by_addresses(addresses, query).await;
         let mempool_entries = grouped_txs
             .owners
             .iter()
-            .map(|(script_public_key, owner_transactions)| {
-                let address = extract_script_pub_key_address(script_public_key, self.config.prefix())
-                    .expect("script public key is convertible into an address");
+            .map(|(address, owner_transactions)| {
                 self.consensus_converter.get_mempool_entries_by_address(
                     &session,
-                    address,
+                    address.clone(),
                     owner_transactions,
                     &grouped_txs.transactions,
                 )
@@ -677,15 +648,6 @@ NOTE: This error usually indicates an RPC conversion error between the node and 
     ) -> RpcResult<GetCurrentNetworkResponse> {
         Ok(GetCurrentNetworkResponse::new(*self.config.net))
     }
-
-    async fn get_subnetwork_call(
-        &self,
-        _connection: Option<&DynRpcConnection>,
-        _: GetSubnetworkRequest,
-    ) -> RpcResult<GetSubnetworkResponse> {
-        Err(RpcError::NotImplemented)
-    }
-
     async fn get_sink_call(&self, _connection: Option<&DynRpcConnection>, _: GetSinkRequest) -> RpcResult<GetSinkResponse> {
         Ok(GetSinkResponse::new(self.consensus_manager.consensus().unguarded_session().async_get_sink().await))
     }
@@ -764,9 +726,8 @@ NOTE: This error usually indicates an RPC conversion error between the node and 
             return Err(RpcError::NoCellIndex);
         }
         let GetCellsByAddressRequest { address, start, limit } = request;
-        let spk = pay_to_address_script(&address);
-        let (cell_collection, total) = self.get_cell_set_by_script_public_key(spk.clone(), start, limit).await?;
-        let mut entries = cell_collection_into_rpc(&spk, &cell_collection);
+        let (cell_collection, total) = self.get_cell_set_by_address(&address, start, limit).await?;
+        let mut entries = cell_collection_into_rpc(&cell_collection);
         entries.iter_mut().for_each(|entry| entry.address = Some(address.clone()));
         Ok(GetCellsByAddressResponse::new(entries, total))
     }
@@ -781,7 +742,7 @@ NOTE: This error usually indicates an RPC conversion error between the node and 
         }
         // TODO: discuss if the entry order is part of the method requirements
         //       (the current impl does not retain an entry order matching the request addresses order)
-        let entry_map = self.get_cell_set_by_script_public_keys(request.addresses.iter()).await?;
+        let entry_map = self.get_cell_set_by_addresses(request.addresses.iter()).await?;
         Ok(GetCellsByAddressesResponse::new(self.index_converter.get_cells_by_addresses_entries(&entry_map)))
     }
 
@@ -793,7 +754,7 @@ NOTE: This error usually indicates an RPC conversion error between the node and 
         if !self.config.cellindex {
             return Err(RpcError::NoCellIndex);
         }
-        let entry_map = self.get_balance_by_script_public_keys(once(&request.address)).await?;
+        let entry_map = self.get_balance_by_addresses(once(&request.address)).await?;
         let balance = entry_map.values().sum();
         Ok(GetBalanceByAddressResponse::new(balance))
     }
@@ -806,13 +767,12 @@ NOTE: This error usually indicates an RPC conversion error between the node and 
         if !self.config.cellindex {
             return Err(RpcError::NoCellIndex);
         }
-        let entry_map = self.get_balance_by_script_public_keys(request.addresses.iter()).await?;
+        let entry_map = self.get_balance_by_addresses(request.addresses.iter()).await?;
         let entries = request
             .addresses
             .iter()
             .map(|address| {
-                let script_public_key = pay_to_address_script(address);
-                let balance = entry_map.get(&script_public_key).copied();
+                let balance = entry_map.get(address).copied();
                 RpcBalancesByAddressesEntry { address: address.to_owned(), balance }
             })
             .collect();
@@ -957,7 +917,7 @@ NOTE: This error usually indicates an RPC conversion error between the node and 
 
                 if tx.resolved_input(0).is_some() {
                     Err(RpcError::General(
-                        "GetCellReturnAddress resolved the first input via canonical Cell metadata only; no legacy address is available"
+                        "GetCellReturnAddress resolved the first input via canonical Cell metadata only; no fallback address is available"
                             .to_string(),
                     ))
                 } else {

@@ -1,6 +1,7 @@
 use crate::protowire;
 use crate::{from, try_from};
-use spora_rpc_core::{FromRpcHex, RpcError, RpcHash, RpcResult, RpcScriptVec, ToRpcHex};
+use spora_rpc_core::{FromRpcHex, RpcError, RpcHash, RpcResult, ToRpcHex};
+use std::str::FromStr;
 
 // ----------------------------------------------------------------------------
 // rpc_core to protowire
@@ -20,11 +21,8 @@ from!(item: &spora_rpc_core::RpcTransaction, protowire::RpcTransaction, {
 from!(item: &spora_rpc_core::RpcTransactionInput, protowire::RpcTransactionInput, {
     Self {
         previous_outpoint: Some((&item.previous_outpoint).into()),
-        signature_script: item.signature_script.to_rpc_hex(),
-        sequence: item.sequence,
-        sig_op_count: item.sig_op_count.into(),
         since: item.since,
-        witness: item.witness.as_ref().map(|w| w.to_rpc_hex()),
+        witness: item.witness.to_rpc_hex(),
         verbose_data: item.verbose_data.as_ref().map(|x| x.into()),
     }
 });
@@ -32,13 +30,15 @@ from!(item: &spora_rpc_core::RpcTransactionInput, protowire::RpcTransactionInput
 from!(item: &spora_rpc_core::RpcTransactionOutput, protowire::RpcTransactionOutput, {
     Self {
         amount: item.value,
-        script_public_key: Some((&item.script_public_key).into()),
+        lock_script: Some((&item.lock_script).into()),
         verbose_data: item.verbose_data.as_ref().map(|x| x.into()),
         capacity: item.capacity.unwrap_or_default(),
         data_bytes: item.data_bytes.unwrap_or_default(),
         lock_hash: item.lock_hash.map(RpcHash::from).map(|x| x.to_string()).unwrap_or_default(),
         type_hash: item.type_hash.map(RpcHash::from).map(|x| x.to_string()).unwrap_or_default(),
         data_hash: item.data_hash.map(RpcHash::from).map(|x| x.to_string()).unwrap_or_default(),
+        type_script: item.type_script.as_ref().map(|script| script.into()),
+        output_data: item.output_data.as_ref().map(|data| data.to_rpc_hex()).unwrap_or_default(),
     }
 });
 
@@ -49,7 +49,6 @@ from!(item: &spora_rpc_core::RpcTransactionOutpoint, protowire::RpcOutpoint, {
 from!(item: &spora_rpc_core::RpcCellEntry, protowire::RpcCellEntry, {
     Self {
         amount: item.amount,
-        script_public_key: Some((&item.script_public_key).into()),
         block_daa_score: item.block_daa_score,
         is_coinbase: item.is_coinbase,
         capacity: item.capacity,
@@ -60,8 +59,8 @@ from!(item: &spora_rpc_core::RpcCellEntry, protowire::RpcCellEntry, {
     }
 });
 
-from!(item: &spora_rpc_core::RpcScriptPublicKey, protowire::RpcScriptPublicKey, {
-    Self { version: item.version().into(), script_public_key: item.script().to_rpc_hex() }
+from!(item: &spora_rpc_core::RpcScriptRef, protowire::RpcScriptRef, {
+    Self { code_hash: RpcHash::from(item.code_hash).to_string(), hash_type: item.hash_type.into(), args: item.args.to_rpc_hex() }
 });
 
 from!(item: &spora_rpc_core::RpcTransactionVerboseData, protowire::RpcTransactionVerboseData, {
@@ -78,8 +77,8 @@ from!(&spora_rpc_core::RpcTransactionInputVerboseData, protowire::RpcTransaction
 
 from!(item: &spora_rpc_core::RpcTransactionOutputVerboseData, protowire::RpcTransactionOutputVerboseData, {
     Self {
-        script_public_key_type: item.script_public_key_type.to_string(),
-        script_public_key_address: (&item.script_public_key_address).into(),
+        lock_script_type: item.lock_script_type.to_string(),
+        lock_script_address: (&item.lock_script_address).into(),
     }
 });
 
@@ -128,11 +127,8 @@ try_from!(item: &protowire::RpcTransactionInput, spora_rpc_core::RpcTransactionI
             .as_ref()
             .ok_or_else(|| RpcError::MissingRpcFieldError("RpcTransactionInput".to_string(), "previous_outpoint".to_string()))?
             .try_into()?,
-        signature_script: Vec::from_rpc_hex(&item.signature_script)?,
-        sequence: item.sequence,
-        sig_op_count: item.sig_op_count.try_into()?,
         since: item.since,
-        witness: item.witness.as_ref().map(|w| Vec::from_rpc_hex(w)).transpose()?,
+        witness: Vec::from_rpc_hex(&item.witness)?,
         verbose_data: item.verbose_data.as_ref().map(spora_rpc_core::RpcTransactionInputVerboseData::try_from).transpose()?,
     }
 });
@@ -145,11 +141,13 @@ try_from!(item: &protowire::RpcTransactionOutput, spora_rpc_core::RpcTransaction
         lock_hash: if item.lock_hash.is_empty() { None } else { Some(RpcHash::from_str(&item.lock_hash)?.as_bytes()) },
         type_hash: if item.type_hash.is_empty() { None } else { Some(RpcHash::from_str(&item.type_hash)?.as_bytes()) },
         data_hash: if item.data_hash.is_empty() { None } else { Some(RpcHash::from_str(&item.data_hash)?.as_bytes()) },
-        script_public_key: item
-            .script_public_key
+        lock_script: item
+            .lock_script
             .as_ref()
-            .ok_or_else(|| RpcError::MissingRpcFieldError("RpcTransactionOutput".to_string(), "script_public_key".to_string()))?
+            .ok_or_else(|| RpcError::MissingRpcFieldError("RpcTransactionOutput".to_string(), "lock_script".to_string()))?
             .try_into()?,
+        type_script: item.type_script.as_ref().map(spora_rpc_core::RpcScriptRef::try_from).transpose()?,
+        output_data: if item.output_data.is_empty() { None } else { Some(Vec::from_rpc_hex(&item.output_data)?) },
         verbose_data: item.verbose_data.as_ref().map(spora_rpc_core::RpcTransactionOutputVerboseData::try_from).transpose()?,
     }
 });
@@ -166,18 +164,17 @@ try_from!(item: &protowire::RpcCellEntry, spora_rpc_core::RpcCellEntry, {
         lock_hash: if item.lock_hash.is_empty() { [0; 32] } else { RpcHash::from_str(&item.lock_hash)?.as_bytes() },
         type_hash: if item.type_hash.is_empty() { None } else { Some(RpcHash::from_str(&item.type_hash)?.as_bytes()) },
         data_hash: if item.data_hash.is_empty() { [0; 32] } else { RpcHash::from_str(&item.data_hash)?.as_bytes() },
-        script_public_key: item
-            .script_public_key
-            .as_ref()
-            .ok_or_else(|| RpcError::MissingRpcFieldError("RpcTransactionOutput".to_string(), "script_public_key".to_string()))?
-            .try_into()?,
         block_daa_score: item.block_daa_score,
         is_coinbase: item.is_coinbase,
     }
 });
 
-try_from!(item: &protowire::RpcScriptPublicKey, spora_rpc_core::RpcScriptPublicKey, {
-    Self::new(u16::try_from(item.version)?, RpcScriptVec::from_rpc_hex(item.script_public_key.as_str())?)
+try_from!(item: &protowire::RpcScriptRef, spora_rpc_core::RpcScriptRef, {
+    Self {
+        code_hash: RpcHash::from_str(&item.code_hash)?.as_bytes(),
+        hash_type: item.hash_type.try_into()?,
+        args: Vec::from_rpc_hex(item.args.as_str())?,
+    }
 });
 
 try_from!(item: &protowire::RpcTransactionVerboseData, spora_rpc_core::RpcTransactionVerboseData, {
@@ -194,8 +191,8 @@ try_from!(&protowire::RpcTransactionInputVerboseData, spora_rpc_core::RpcTransac
 
 try_from!(item: &protowire::RpcTransactionOutputVerboseData, spora_rpc_core::RpcTransactionOutputVerboseData, {
     Self {
-        script_public_key_type: item.script_public_key_type.as_str().try_into()?,
-        script_public_key_address: item.script_public_key_address.as_str().try_into()?,
+        lock_script_type: item.lock_script_type.parse()?,
+        lock_script_address: item.lock_script_address.as_str().try_into()?,
     }
 });
 

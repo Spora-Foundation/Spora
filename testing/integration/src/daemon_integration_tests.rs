@@ -8,7 +8,7 @@ use rand::thread_rng;
 use spora_addresses::Address;
 use spora_alloc::init_allocator_with_default_settings;
 use spora_consensus::params::SIMNET_PARAMS;
-use spora_consensus_core::{header::Header, tx::pay_to_address_script};
+use spora_consensus_core::{header::Header, tx::pay_to_address_lock_script};
 use spora_consensusmanager::ConsensusManager;
 use spora_core::{task::runtime::AsyncRuntime, trace};
 use spora_grpc_client::GrpcClient;
@@ -172,7 +172,7 @@ async fn daemon_cells_propagation_test() {
     let miner_address =
         Address::new(sporad1.network.into(), spora_addresses::Version::PubKey, &miner_pk.x_only_public_key().0.serialize());
     let miner_schnorr_key = secp256k1::Keypair::from_secret_key(secp256k1::SECP256K1, &miner_sk);
-    let miner_spk = pay_to_address_script(&miner_address);
+    let miner_lock_script = pay_to_address_lock_script(&miner_address);
 
     // User key and address
     let (_user_sk, user_pk) = secp256k1::generate_keypair(&mut thread_rng());
@@ -266,7 +266,7 @@ async fn daemon_cells_propagation_test() {
     for cell in cells.iter() {
         assert!(cell.1.is_coinbase);
         assert_eq!(cell.1.amount, SIMNET_PARAMS.pre_deflationary_phase_base_subsidy);
-        assert_eq!(cell.1.script_public_key, miner_spk);
+        assert_eq!(cell.1.lock_hash, miner_lock_script.hash());
     }
 
     // Drain cell and Virtual DAA score changed notification channels

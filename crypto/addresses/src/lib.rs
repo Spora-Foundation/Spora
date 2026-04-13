@@ -332,7 +332,7 @@ impl Version {
 
     /// Get the expected payload length in bytes for this address version
     ///
-    /// This is an alias for `payload_len()` for backward compatibility
+    /// Alias for `payload_len()`
     #[inline(always)]
     pub fn public_key_len(&self) -> usize {
         self.payload_len()

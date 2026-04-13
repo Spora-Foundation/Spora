@@ -431,4 +431,82 @@ mod tests {
         let result = validator.validate_full_with_scripts(&tx, pov, 0, 0);
         assert!(matches!(result, Err(CellValidationError::DepCellNotFound(hash)) if hash == dep_out_point.tx_hash), "{result:?}");
     }
+
+    #[cfg(feature = "vm")]
+    #[test]
+    fn test_verify_scripts_enforces_per_tx_cycles_limit() {
+        let pov = Hash::from_bytes([0x21; 32]);
+        let input_out_point = OutPoint::new([0x22; 32], 0);
+        let dep_out_point = OutPoint::new([0x23; 32], 0);
+        let input_block_hash = Hash::from_bytes([0x24; 32]);
+        let dep_block_hash = Hash::from_bytes([0x25; 32]);
+        let code_hash = always_success_code_hash();
+        let always_success_lock = ScriptRef::new(code_hash, 0, vec![]);
+
+        let mut provider = MockProvider { cells: HashMap::new(), block_timestamps: HashMap::new() };
+        provider.cells.insert(
+            (pov, input_out_point.clone()),
+            CellMetadata {
+                out_point: tx_outpoint(&input_out_point),
+                capacity: 1_000,
+                data_bytes: 0,
+                lock_hash: [0; 32],
+                type_hash: None,
+                data_hash: [0; 32],
+                block_daa_score: 0,
+                is_cellbase: false,
+                block_hash: input_block_hash,
+                lock_code_hash: None,
+                type_code_hash: None,
+                lock_script: Some(always_success_lock.clone()),
+                type_script: None,
+                data: Some(vec![]),
+            },
+        );
+        provider.cells.insert(
+            (pov, dep_out_point.clone()),
+            CellMetadata {
+                out_point: tx_outpoint(&dep_out_point),
+                capacity: 1_000,
+                data_bytes: ALWAYS_SUCCESS_SCRIPT.len() as u64,
+                lock_hash: [0; 32],
+                type_hash: None,
+                data_hash: [0; 32],
+                block_daa_score: 0,
+                is_cellbase: false,
+                block_hash: dep_block_hash,
+                lock_code_hash: None,
+                type_code_hash: None,
+                lock_script: Some(always_success_lock.clone()),
+                type_script: None,
+                data: Some(ALWAYS_SUCCESS_SCRIPT.to_vec()),
+            },
+        );
+        provider.block_timestamps.insert(input_block_hash, 0);
+        provider.block_timestamps.insert(dep_block_hash, 0);
+
+        let tx = CellTx::new(
+            vec![CellRef::new(input_out_point, 0)],
+            vec![CellDep { out_point: dep_out_point, dep_type: DepType::Code }],
+            vec![CellOut { lock: always_success_lock, type_: None, capacity: 1_000 }],
+            vec![vec![]],
+            vec![],
+        )
+        .unwrap();
+
+        let provider = Arc::new(provider);
+        let baseline_validator = CellValidator::new(Arc::new(CellConsensusParams::default()), provider.clone());
+        let consumed_cycles = baseline_validator.verify_scripts_with_cycles(&tx, pov).expect("always-success should verify");
+        assert!(consumed_cycles > 0, "baseline run should consume some cycles");
+
+        let strict_limit = consumed_cycles.saturating_sub(1);
+        let strict_params = Arc::new(CellConsensusParams { max_tx_cycles: strict_limit, ..CellConsensusParams::default() });
+        let strict_validator = CellValidator::new(strict_params, provider);
+        let result = strict_validator.verify_scripts_with_cycles(&tx, pov);
+
+        assert!(
+            matches!(result, Err(CellValidationError::ExceededMaxCycles { total, limit }) if total == consumed_cycles && limit == strict_limit),
+            "{result:?}"
+        );
+    }
 }

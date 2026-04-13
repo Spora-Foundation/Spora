@@ -215,6 +215,8 @@ impl BlockBodyProcessor {
             self.cell_diffs_store.clone(),
             self.cell_roots_store.clone(),
             self.block_transactions_store.clone(),
+            self.cell_data_store.clone(),
+            self.cell_data_segment_reader.clone(),
             self.statuses_store.clone(),
         );
         let mut provider = BodyValidationOverlayProvider::new(base_provider, block.hash(), selected_parent);
@@ -354,6 +356,20 @@ impl BlockBodyProcessor {
         hasher.update(b"spora-cell/data");
         hasher.update(data);
         *hasher.finalize().as_bytes()
+    }
+
+    fn resolve_cell_tx_inputs_from_provider<P: DagCellProvider>(
+        &self,
+        tx: &spora_exec::CellTx,
+        provider: &P,
+        pov: Hash,
+    ) -> Result<Vec<CellMetadata>, String> {
+        tx.inputs
+            .iter()
+            .map(|input| {
+                provider.get_cell_at_pov(&input.out_point, pov)?.ok_or_else(|| format!("missing input cell {:?}", input.out_point))
+            })
+            .collect()
     }
 
     fn map_cell_validation_error<P: DagCellProvider>(

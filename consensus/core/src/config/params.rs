@@ -60,7 +60,7 @@ pub struct Params {
 
     pub max_tx_inputs: usize,
     pub max_tx_outputs: usize,
-    pub max_signature_script_len: usize,
+    pub max_witness_script_len: usize,
     pub max_script_public_key_len: usize,
 
     pub mass_per_tx_byte: u64,
@@ -190,8 +190,8 @@ impl Params {
         self.max_tx_outputs
     }
 
-    pub fn max_signature_script_len(&self) -> usize {
-        self.max_signature_script_len
+    pub fn max_witness_script_len(&self) -> usize {
+        self.max_witness_script_len
     }
 
     pub fn max_script_public_key_len(&self) -> usize {
@@ -282,11 +282,11 @@ pub const MAINNET_PARAMS: Params = Params {
     finality_depth: TenBps::finality_depth(),
     pruning_depth: TenBps::pruning_depth(),
     coinbase_payload_script_public_key_max_len: 150,
-    max_coinbase_payload_len: 204,
+    max_coinbase_payload_len: 216,
 
     max_tx_inputs: 1000,
     max_tx_outputs: 1000,
-    max_signature_script_len: 10_000,
+    max_witness_script_len: 10_000,
     max_script_public_key_len: 10_000,
 
     mass_per_tx_byte: 1,
@@ -324,11 +324,11 @@ pub const TESTNET_PARAMS: Params = Params {
     finality_depth: TenBps::finality_depth(),
     pruning_depth: TenBps::pruning_depth(),
     coinbase_payload_script_public_key_max_len: 150,
-    max_coinbase_payload_len: 204,
+    max_coinbase_payload_len: 216,
 
     max_tx_inputs: 1000,
     max_tx_outputs: 1000,
-    max_signature_script_len: 10_000,
+    max_witness_script_len: 10_000,
     max_script_public_key_len: 10_000,
 
     mass_per_tx_byte: 1,
@@ -375,11 +375,11 @@ pub const SIMNET_PARAMS: Params = Params {
     coinbase_maturity: TenBps::coinbase_maturity(),
 
     coinbase_payload_script_public_key_max_len: 150,
-    max_coinbase_payload_len: 204,
+    max_coinbase_payload_len: 216,
 
     max_tx_inputs: 10_000,
     max_tx_outputs: 10_000,
-    max_signature_script_len: 1_000_000,
+    max_witness_script_len: 1_000_000,
     max_script_public_key_len: 1_000_000,
 
     mass_per_tx_byte: 1,
@@ -414,11 +414,11 @@ pub const DEVNET_PARAMS: Params = Params {
     finality_depth: TenBps::finality_depth(),
     pruning_depth: TenBps::pruning_depth(),
     coinbase_payload_script_public_key_max_len: 150,
-    max_coinbase_payload_len: 204,
+    max_coinbase_payload_len: 216,
 
     max_tx_inputs: 1000,
     max_tx_outputs: 1000,
-    max_signature_script_len: 10_000,
+    max_witness_script_len: 10_000,
     max_script_public_key_len: 10_000,
 
     mass_per_tx_byte: 1,

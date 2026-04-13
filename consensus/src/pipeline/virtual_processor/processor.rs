@@ -47,7 +47,6 @@ use crate::{
     processes::{coinbase::CoinbaseManager, ghostdag::ordering::SortableBlock, window::WindowManager},
 };
 
-// Type aliases for migration compatibility
 use spora_consensus_core::errors::tx::TxRuleError;
 pub type TxResult<T> = Result<T, TxRuleError>;
 use once_cell::unsync::Lazy;
@@ -70,8 +69,8 @@ use spora_consensus_core::{
 };
 // Cell state tree
 use spora_exec::scheduler::CellDAG;
-use spora_state::{CellEntry as StateCellEntry, CellStateTree};
-// Legacy transaction-output imports removed - fully replaced by Cell model
+use spora_state::{compute_segment_root, CellEntry as StateCellEntry, CellStateTree};
+// Transaction-output imports were removed and fully replaced by the Cell model.
 use spora_consensus_notify::{
     notification::{
         CellsChangedNotification, NewBlockTemplateNotification, Notification, SinkBlueScoreChangedNotification,
@@ -241,8 +240,7 @@ fn backfill_mempool_entries_from_resolved_inputs(mutable_tx: &mut MutableTransac
         mutable_tx.entries.iter_mut().zip(mutable_tx.resolved_cell_metadata.iter_mut()).zip(resolved_inputs.iter())
     {
         if metadata_slot.is_none() {
-            // Keep canonical metadata as the source of truth instead of synthesizing
-            // placeholder-backed CellEntry values on the hot mempool path.
+            // Keep canonical metadata as the source of truth on the hot mempool path.
             *metadata_slot = Some(metadata.clone());
         }
     }
@@ -919,6 +917,11 @@ impl VirtualStateProcessor {
     /// Verify that the expected cell state matches the calculated state
     /// Verifies the expected Cell state.
     fn verify_expected_cell_state(&self, ctx: &mut CellProcessingContext, header: &Header) -> Result<(), RuleError> {
+        let block_txs = self
+            .block_transactions_store
+            .get(header.hash)
+            .map_err(|e| RuleError::CellValidationError(format!("failed loading block transactions for {}: {}", header.hash, e)))?;
+
         // Calculate cell_root from current state tree
         let calculated_cell_root = ctx.get_cell_root();
 
@@ -962,6 +965,14 @@ impl VirtualStateProcessor {
             return Err(RuleError::BadCellCommitment(error_msg));
         }
 
+        let calculated_segment_root = self.compute_block_segment_root(block_txs.as_slice());
+        if calculated_segment_root != header.segment_root {
+            return Err(RuleError::CellValidationError(format!(
+                "Segment root mismatch for block {:?}: expected {:?}, calculated {:?}",
+                header.hash, header.segment_root, calculated_segment_root
+            )));
+        }
+
         let calculated_accepted_id_merkle_root = self.accepted_id_merkle_root(&ctx.accepted_tx_ids);
         if calculated_accepted_id_merkle_root != header.accepted_id_merkle_root {
             return Err(RuleError::BadAcceptedIDMerkleRoot(
@@ -985,6 +996,16 @@ impl VirtualStateProcessor {
         hasher.update(cell_root.as_bytes().as_ref());
 
         Hash::from_bytes(*hasher.finalize().as_bytes())
+    }
+
+    fn compute_block_segment_root(&self, transactions: &[CellTx]) -> Hash {
+        let chunks = transactions
+            .iter()
+            .flat_map(|tx| tx.outputs_data.iter())
+            .filter(|chunk| !chunk.is_empty())
+            .cloned()
+            .collect::<Vec<_>>();
+        Hash::from_bytes(compute_segment_root(&chunks))
     }
 
     fn reconstruct_tree_from_virtual_diff(&self, virtual_state: &VirtualState, diff_from_virtual: &CellDiff) -> CellStateTree {
@@ -1031,7 +1052,7 @@ impl VirtualStateProcessor {
         spora_merkle::calc_merkle_root(accepted_tx_ids.iter().copied())
     }
 
-    // Legacy commit path removed; fully replaced by commit_cell_state in cell_processing.rs
+    // The old commit path was removed; use commit_cell_state in cell_processing.rs.
 
     fn calculate_and_commit_virtual_state(
         &self,
@@ -1440,11 +1461,7 @@ impl VirtualStateProcessor {
         (0..mutable_tx.tx.inputs.len()).map(|input_index| self.resolve_mempool_input(virtual_state, input_index, mutable_tx)).collect()
     }
 
-    fn calculate_legacy_mempool_fee(
-        &self,
-        resolved_inputs: &[CellMetadata],
-        mutable_tx: &MutableTransaction,
-    ) -> Result<u64, TxRuleError> {
+    fn calculate_mempool_fee(&self, resolved_inputs: &[CellMetadata], mutable_tx: &MutableTransaction) -> Result<u64, TxRuleError> {
         let total_in = resolved_inputs.iter().try_fold(0u64, |sum, meta| {
             let next = sum.checked_add(meta.capacity).ok_or(TxRuleError::InputAmountOverflow)?;
             if next > MAX_SAU {
@@ -1562,7 +1579,7 @@ impl VirtualStateProcessor {
 
         if mutable_tx.tx.inputs.len() != cell_tx.inputs.len() {
             return Err(TxRuleError::CellValidationFailed(
-                "legacy compatibility mirror input count does not match canonical cell transaction".to_string(),
+                "mutable transaction input count does not match canonical cell transaction".to_string(),
             ));
         }
 
@@ -1615,7 +1632,11 @@ impl VirtualStateProcessor {
             mutable_tx.calculated_non_contextual_masses =
                 Some(self.mass_calculator.calc_non_contextual_masses_cell(mutable_tx.tx.as_ref()));
         }
-        mutable_tx.calculated_contextual_masses = self.mass_calculator.calc_contextual_masses(&mutable_tx.as_verifiable());
+        let contextual_masses = {
+            let verifiable = mutable_tx.as_verifiable();
+            self.mass_calculator.calc_contextual_masses(&verifiable)
+        };
+        mutable_tx.calculated_contextual_masses = contextual_masses;
 
         if let Some(feerate_threshold) = args.feerate_threshold {
             let Some(calculated_feerate) = mutable_tx.calculated_feerate() else {
@@ -1673,10 +1694,14 @@ impl VirtualStateProcessor {
         let virtual_state = virtual_read.state.get().map_err(|_| TxRuleError::MissingTxOutpoints)?;
         let resolved_inputs = self.resolve_mempool_inputs(virtual_state.as_ref(), mutable_tx)?;
         backfill_mempool_entries_from_resolved_inputs(mutable_tx, &resolved_inputs);
-        mutable_tx.calculated_fee = Some(self.calculate_legacy_mempool_fee(&resolved_inputs, mutable_tx)?);
+        mutable_tx.calculated_fee = Some(self.calculate_mempool_fee(&resolved_inputs, mutable_tx)?);
         mutable_tx.calculated_non_contextual_masses =
             Some(self.mass_calculator.calc_non_contextual_masses_cell(mutable_tx.tx.as_ref()));
-        mutable_tx.calculated_contextual_masses = self.mass_calculator.calc_contextual_masses(&mutable_tx.as_verifiable());
+        let contextual_masses = {
+            let verifiable = mutable_tx.as_verifiable();
+            self.mass_calculator.calc_contextual_masses(&verifiable)
+        };
+        mutable_tx.calculated_contextual_masses = contextual_masses;
         Ok(())
     }
 
@@ -1696,10 +1721,14 @@ impl VirtualStateProcessor {
             .map(|mutable_tx| {
                 let resolved_inputs = self.resolve_mempool_inputs(virtual_state.as_ref(), mutable_tx)?;
                 backfill_mempool_entries_from_resolved_inputs(mutable_tx, &resolved_inputs);
-                mutable_tx.calculated_fee = Some(self.calculate_legacy_mempool_fee(&resolved_inputs, mutable_tx)?);
+                mutable_tx.calculated_fee = Some(self.calculate_mempool_fee(&resolved_inputs, mutable_tx)?);
                 mutable_tx.calculated_non_contextual_masses =
                     Some(self.mass_calculator.calc_non_contextual_masses_cell(mutable_tx.tx.as_ref()));
-                mutable_tx.calculated_contextual_masses = self.mass_calculator.calc_contextual_masses(&mutable_tx.as_verifiable());
+                let contextual_masses = {
+                    let verifiable = mutable_tx.as_verifiable();
+                    self.mass_calculator.calc_contextual_masses(&verifiable)
+                };
+                mutable_tx.calculated_contextual_masses = contextual_masses;
                 Ok(())
             })
             .collect()
@@ -1720,7 +1749,7 @@ impl VirtualStateProcessor {
         )
     }
 
-    fn resolve_cell_tx_inputs_from_provider<P: DagCellProvider>(
+    pub(crate) fn resolve_cell_tx_inputs_from_provider<P: DagCellProvider>(
         &self,
         tx: &CellTx,
         provider: &P,
@@ -2057,6 +2086,7 @@ impl VirtualStateProcessor {
         let cell_root = cell_tree_clone.root();
 
         let cell_commitment = self.compute_cell_commitment_v0(cell_root);
+        let segment_root = self.compute_block_segment_root(&txs);
         // Past median time is the exclusive lower bound for valid block time, so we increase by 1 to get the valid min
         let min_block_time = virtual_state.past_median_time + 1;
         let header = Header::new_finalized(
@@ -2066,6 +2096,7 @@ impl VirtualStateProcessor {
             accepted_id_merkle_root,
             cell_commitment,
             cell_root,
+            segment_root,
             u64::max(min_block_time, unix_now()),
             virtual_state.bits,
             0,
@@ -2248,7 +2279,7 @@ impl VirtualStateProcessor {
             virtual_read,
             virtual_parents,
             virtual_ghostdag_data,
-            ZERO_HASH, // imported_cell_root - placeholder for now
+            ZERO_HASH,
             &mut CellDiff::default(),
             &ChainPath::default(),
         )?;

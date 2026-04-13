@@ -40,7 +40,6 @@ export interface ISerializableCellEntry {
     lockHash?: HexString;
     typeHash?: HexString;
     dataHash?: HexString;
-    scriptPublicKey: ScriptPublicKey;
     blockDaaScore: bigint;
     isCoinbase: boolean;
 }
@@ -54,9 +53,8 @@ export interface ISerializableCellEntry {
 export interface ISerializableTransactionInput {
     transactionId : HexString;
     index: number;
-    sequence: bigint;
-    sigOpCount: number;
-    signatureScript?: HexString;
+    since: bigint;
+    witness?: HexString;
     cellEntry: ISerializableCellEntry;
 }
 
@@ -67,8 +65,10 @@ export interface ISerializableTransactionInput {
  * @category Wallet SDK
  */
 export interface ISerializableTransactionOutput {
-    value: bigint;
-    scriptPublicKey: IScriptPublicKey;
+    capacity: bigint;
+    lockScript: ScriptRef;
+    typeScript?: ScriptRef;
+    outputData?: HexString;
 }
 
 /**

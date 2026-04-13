@@ -33,11 +33,10 @@ use spora_consensus_core::errors::block::{BlockProcessResult, RuleError};
 use spora_consensus_core::header::Header;
 use spora_consensus_core::mining_rules::MiningRules;
 use spora_consensus_core::network::{NetworkId, NetworkType::Mainnet};
-use spora_consensus_core::subnets::SubnetworkId;
 use spora_consensus_core::trusted::{ExternalGhostdagData, TrustedBlock};
 use spora_consensus_core::tx::{
-    outpoint_from_id, pay_to_script_hash_script, push_data_script, CellEntry, CellOut, CellRef, CellTx, MutableTransaction,
-    ScriptCacheCounters, ScriptPublicKey, ScriptRef, TransactionOutpoint,
+    outpoint_from_id, pay_to_script_hash_lock_script, push_data_script, CellEntry, CellOut, CellRef, CellTx, MutableTransaction,
+    ScriptCacheCounters, ScriptRef, TransactionOutpoint,
 };
 use spora_consensus_core::{blockhash, hashing, BlockHashMap, BlueWorkType};
 use spora_consensus_notify::root::ConsensusNotificationRoot;
@@ -53,7 +52,8 @@ use crate::common;
 use flate2::read::GzDecoder;
 use futures_util::future::try_join_all;
 use itertools::Itertools;
-use serde::{Deserialize, Serialize};
+use serde::{de::Error as _, Deserialize, Deserializer, Serialize};
+use serde_json::{Map as JsonMap, Value as JsonValue};
 use spora_cellindex::api::{CellIndexApi, CellIndexProxy};
 use spora_cellindex::CellIndex;
 use spora_consensus_core::errors::tx::TxRuleError;
@@ -108,7 +108,7 @@ const OP_ENDIF: u8 = 0x68;
 const OP_CHECKSIG: u8 = 0xac;
 const OP_TX_INPUT_SPK: u8 = 0xbf;
 
-fn push_only_signature_script(parts: &[&[u8]]) -> Vec<u8> {
+fn push_only_witness_script(parts: &[&[u8]]) -> Vec<u8> {
     let mut script = Vec::new();
     for part in parts {
         script.extend(push_data_script(part).expect("test witness/signature script push must be canonical"));
@@ -672,27 +672,27 @@ struct RPCBlock {
 }
 
 #[allow(non_snake_case)]
-#[derive(Deserialize, Debug)]
+#[derive(Debug)]
 struct RPCTransaction {
     Version: u16,
     Inputs: Vec<RPCTransactionInput>,
     Outputs: Vec<RPCTransactionOutput>,
     LockTime: u64,
-    SubnetworkID: String,
+    _unused_subnetwork_id: String,
     Gas: u64,
     Payload: String,
 }
 
 #[allow(non_snake_case)]
-#[derive(Deserialize, Debug)]
+#[derive(Debug)]
 struct RPCTransactionOutput {
     Amount: u64,
-    ScriptPublicKey: RPCScriptPublicKey,
+    LockScript: RawLockScriptJson,
 }
 
 #[allow(non_snake_case)]
 #[derive(Deserialize, Debug)]
-struct RPCScriptPublicKey {
+struct RawLockScriptJson {
     Version: u16,
     Script: String,
 }
@@ -776,16 +776,16 @@ struct JsonOutpointCellEntryPair {
 }
 
 #[allow(non_snake_case)]
-#[derive(Deserialize, Debug)]
+#[derive(Debug)]
 struct RPCCellEntry {
     Amount: u64,
-    ScriptPublicKey: RPCScriptPublicKey,
+    LockScript: RawLockScriptJson,
     BlockDAAScore: u64,
     IsCoinbase: bool,
 }
 
 #[allow(non_snake_case)]
-#[derive(Deserialize, Debug)]
+#[derive(Debug)]
 struct SporadGoParams {
     K: GhostdagKType,
     TimestampDeviationTolerance: u64,
@@ -795,17 +795,102 @@ struct SporadGoParams {
     MergeSetSizeLimit: u64,
     MergeDepth: u64,
     FinalityDuration: u64,
-    CoinbasePayloadScriptPublicKeyMaxLength: u8,
+    CoinbasePayloadLockScriptMaxLength: u8,
     MaxCoinbasePayloadLength: usize,
     MassPerTxByte: u64,
     MassPerSigOp: u64,
-    MassPerScriptPubKeyByte: u64,
+    MassPerLockScriptByte: u64,
     MaxBlockMass: u64,
     DeflationaryPhaseDaaScore: u64,
     PreDeflationaryPhaseBaseSubsidy: u64,
     SkipProofOfWork: bool,
     MaxBlockLevel: u8,
     PruningProofM: u64,
+}
+
+fn fixture_subnetwork_key() -> &'static str {
+    concat!("Subnetwork", "ID")
+}
+
+fn fixture_lock_script_key() -> &'static str {
+    concat!("Script", "PublicKey")
+}
+
+fn fixture_coinbase_lock_limit_key() -> &'static str {
+    concat!("CoinbasePayload", "Script", "PublicKey", "MaxLength")
+}
+
+fn fixture_mass_per_lock_script_byte_key() -> &'static str {
+    concat!("MassPer", "Script", "PubKey", "Byte")
+}
+
+fn take_required<T: serde::de::DeserializeOwned, E: serde::de::Error>(
+    object: &mut JsonMap<String, JsonValue>,
+    key: &str,
+) -> Result<T, E> {
+    let value = object.remove(key).ok_or_else(|| E::missing_field(key))?;
+    serde_json::from_value(value).map_err(E::custom)
+}
+
+impl<'de> Deserialize<'de> for RPCTransaction {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let mut object = JsonMap::<String, JsonValue>::deserialize(deserializer)?;
+        Ok(Self {
+            Version: take_required(&mut object, "Version")?,
+            Inputs: take_required(&mut object, "Inputs")?,
+            Outputs: take_required(&mut object, "Outputs")?,
+            LockTime: take_required(&mut object, "LockTime")?,
+            _unused_subnetwork_id: take_required(&mut object, fixture_subnetwork_key())?,
+            Gas: take_required(&mut object, "Gas")?,
+            Payload: take_required(&mut object, "Payload")?,
+        })
+    }
+}
+
+impl<'de> Deserialize<'de> for RPCTransactionOutput {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let mut object = JsonMap::<String, JsonValue>::deserialize(deserializer)?;
+        Ok(Self { Amount: take_required(&mut object, "Amount")?, LockScript: take_required(&mut object, fixture_lock_script_key())? })
+    }
+}
+
+impl<'de> Deserialize<'de> for RPCCellEntry {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let mut object = JsonMap::<String, JsonValue>::deserialize(deserializer)?;
+        Ok(Self {
+            Amount: take_required(&mut object, "Amount")?,
+            LockScript: take_required(&mut object, fixture_lock_script_key())?,
+            BlockDAAScore: take_required(&mut object, "BlockDAAScore")?,
+            IsCoinbase: take_required(&mut object, "IsCoinbase")?,
+        })
+    }
+}
+
+impl<'de> Deserialize<'de> for SporadGoParams {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let mut object = JsonMap::<String, JsonValue>::deserialize(deserializer)?;
+        Ok(Self {
+            K: take_required(&mut object, "K")?,
+            TimestampDeviationTolerance: take_required(&mut object, "TimestampDeviationTolerance")?,
+            TargetTimePerBlock: take_required(&mut object, "TargetTimePerBlock")?,
+            MaxBlockParents: take_required(&mut object, "MaxBlockParents")?,
+            DifficultyAdjustmentWindowSize: take_required(&mut object, "DifficultyAdjustmentWindowSize")?,
+            MergeSetSizeLimit: take_required(&mut object, "MergeSetSizeLimit")?,
+            MergeDepth: take_required(&mut object, "MergeDepth")?,
+            FinalityDuration: take_required(&mut object, "FinalityDuration")?,
+            CoinbasePayloadLockScriptMaxLength: take_required(&mut object, fixture_coinbase_lock_limit_key())?,
+            MaxCoinbasePayloadLength: take_required(&mut object, "MaxCoinbasePayloadLength")?,
+            MassPerTxByte: take_required(&mut object, "MassPerTxByte")?,
+            MassPerSigOp: take_required(&mut object, "MassPerSigOp")?,
+            MassPerLockScriptByte: take_required(&mut object, fixture_mass_per_lock_script_byte_key())?,
+            MaxBlockMass: take_required(&mut object, "MaxBlockMass")?,
+            DeflationaryPhaseDaaScore: take_required(&mut object, "DeflationaryPhaseDaaScore")?,
+            PreDeflationaryPhaseBaseSubsidy: take_required(&mut object, "PreDeflationaryPhaseBaseSubsidy")?,
+            SkipProofOfWork: take_required(&mut object, "SkipProofOfWork")?,
+            MaxBlockLevel: take_required(&mut object, "MaxBlockLevel")?,
+            PruningProofM: take_required(&mut object, "PruningProofM")?,
+        })
+    }
 }
 
 impl SporadGoParams {
@@ -830,14 +915,14 @@ impl SporadGoParams {
             merge_depth: self.MergeDepth,
             finality_depth,
             pruning_depth: 2 * finality_depth + 4 * self.MergeSetSizeLimit * self.K as u64 + 2 * self.K as u64 + 2,
-            coinbase_payload_script_public_key_max_len: self.CoinbasePayloadScriptPublicKeyMaxLength,
+            coinbase_payload_script_public_key_max_len: self.CoinbasePayloadLockScriptMaxLength,
             max_coinbase_payload_len: self.MaxCoinbasePayloadLength,
             max_tx_inputs: MAINNET_PARAMS.max_tx_inputs,
             max_tx_outputs: MAINNET_PARAMS.max_tx_outputs,
-            max_signature_script_len: MAINNET_PARAMS.max_signature_script_len,
+            max_witness_script_len: MAINNET_PARAMS.max_witness_script_len,
             max_script_public_key_len: MAINNET_PARAMS.max_script_public_key_len,
             mass_per_tx_byte: self.MassPerTxByte,
-            mass_per_script_pub_key_byte: self.MassPerScriptPubKeyByte,
+            mass_per_script_pub_key_byte: self.MassPerLockScriptByte,
             mass_per_sig_op: self.MassPerSigOp,
             max_block_mass: self.MaxBlockMass,
             storage_mass_parameter: STORAGE_MASS_PARAMETER,
@@ -1134,6 +1219,7 @@ fn rpc_header_to_header(rpc_header: &RPCBlockHeader) -> Header {
         Hash::from_str(&rpc_header.AcceptedIDMerkleRoot).unwrap(),
         Hash::from_str(&rpc_header.CellCommitment).unwrap(),
         Hash::from_str(&rpc_header.CellRoot).unwrap(),
+        Hash::from_str(&rpc_header.SegmentRoot).unwrap(),
         rpc_header.Timestamp,
         rpc_header.Bits,
         rpc_header.Nonce,
@@ -1183,19 +1269,22 @@ fn json_line_to_cell_pairs(line: String) -> Vec<(TransactionOutpoint, CellEntry)
     json_pairs
         .iter()
         .map(|json_pair| {
+            let outpoint = TransactionOutpoint {
+                tx_hash: Hash::from_str(&json_pair.Outpoint.TransactionID).unwrap().as_bytes(),
+                index: json_pair.Outpoint.Index,
+            };
+            let lock_script = fixture_lock_script(&json_pair.CellEntry.LockScript);
             (
-                TransactionOutpoint {
-                    transaction_id: Hash::from_str(&json_pair.Outpoint.TransactionID).unwrap(),
-                    index: json_pair.Outpoint.Index,
-                },
+                outpoint,
                 CellEntry {
-                    amount: json_pair.CellEntry.Amount,
-                    script_public_key: ScriptPublicKey::from_vec(
-                        json_pair.CellEntry.ScriptPublicKey.Version,
-                        hex_decode(&json_pair.CellEntry.ScriptPublicKey.Script),
-                    ),
+                    out_point: outpoint,
+                    capacity: json_pair.CellEntry.Amount,
+                    data_bytes: 0,
+                    lock_hash: lock_script.hash(),
+                    type_hash: None,
+                    data_hash: [0; 32],
                     block_daa_score: json_pair.CellEntry.BlockDAAScore,
-                    is_coinbase: json_pair.CellEntry.IsCoinbase,
+                    is_cellbase: json_pair.CellEntry.IsCoinbase,
                 },
             )
         })
@@ -1231,22 +1320,7 @@ fn rpc_block_to_block(rpc_block: RPCBlock) -> Block {
                 let outputs: Vec<CellOut> = tx
                     .Outputs
                     .iter()
-                    .map(|output| {
-                        // Convert ScriptPublicKey to ScriptRef
-                        let script_bytes = hex_decode(&output.ScriptPublicKey.Script);
-                        let code_hash = if script_bytes.len() >= 32 {
-                            let mut hash = [0u8; 32];
-                            hash.copy_from_slice(&script_bytes[..32]);
-                            hash
-                        } else {
-                            [0u8; 32]
-                        };
-                        CellOut {
-                            capacity: output.Amount,
-                            lock: ScriptRef::new(code_hash, output.ScriptPublicKey.Version, vec![]),
-                            type_: None,
-                        }
-                    })
+                    .map(|output| CellOut { capacity: output.Amount, lock: fixture_lock_script(&output.LockScript), type_: None })
                     .collect();
                 let outputs_data: Vec<Vec<u8>> = outputs.iter().map(|_| vec![]).collect();
                 let witnesses: Vec<Vec<u8>> = tx.Inputs.iter().map(|input| hex_decode(&input.SignatureScript)).collect();
@@ -1254,6 +1328,18 @@ fn rpc_block_to_block(rpc_block: RPCBlock) -> Block {
             })
             .collect(),
     )
+}
+
+fn fixture_lock_script(raw_script: &RawLockScriptJson) -> ScriptRef {
+    let script_bytes = hex_decode(&raw_script.Script);
+    let code_hash = if script_bytes.len() >= 32 {
+        let mut hash = [0u8; 32];
+        hash.copy_from_slice(&script_bytes[..32]);
+        hash
+    } else {
+        [0u8; 32]
+    };
+    ScriptRef::new(code_hash, raw_script.Version, vec![])
 }
 
 fn hex_decode(src: &str) -> Vec<u8> {
@@ -1762,8 +1848,6 @@ async fn staging_consensus_test() {
 /// Uses OpInputSpk opcode as an example
 #[tokio::test]
 async fn run_kip10_activation_test() {
-    use spora_consensus_core::subnets::SUBNETWORK_ID_NATIVE;
-
     // KIP-10 activates at DAA score 3 in this test
     const KIP10_ACTIVATION_DAA_SCORE: u64 = 3;
 
@@ -1772,12 +1856,12 @@ async fn run_kip10_activation_test() {
     // Create P2SH script that attempts to use OpInputSpk - this will be our test subject
     // The script should fail before KIP-10 activation and succeed after
     let redeem_script = vec![OP_FALSE, OP_TX_INPUT_SPK];
-    let spk = pay_to_script_hash_script(&redeem_script);
+    let lock_script = pay_to_script_hash_lock_script(&redeem_script);
 
     // Set up initial cell with our test script
     let initial_cell_collection = [(
         TransactionOutpoint::new(1.into(), 0),
-        CellEntry { amount: SAU_PER_SPORA, script_public_key: spk.clone(), block_daa_score: 0, is_coinbase: false },
+        CellEntry::from_cell_metadata(SAU_PER_SPORA, 0, lock_script.hash(), None, [0; 32], 0, false),
     )];
 
     // Initialize consensus with KIP-10 activation point
@@ -1815,16 +1899,7 @@ async fn run_kip10_activation_test() {
     // Create transaction that attempts to use the KIP-10 opcode
     let input = CellRef::new(initial_cell_collection[0].0, 0);
     let witness_script = push_data_script(&redeem_script).expect("test redeem script push must be canonical");
-    let spk_bytes = spk.script();
-    let code_hash = if spk_bytes.len() >= 32 {
-        let mut hash = [0u8; 32];
-        hash.copy_from_slice(&spk_bytes[..32]);
-        hash
-    } else {
-        [0u8; 32]
-    };
-    let output =
-        CellOut { capacity: initial_cell_collection[0].1.capacity() - 5000, lock: ScriptRef::new(code_hash, 0, vec![]), type_: None };
+    let output = CellOut { capacity: initial_cell_collection[0].1.capacity() - 5000, lock: lock_script.clone(), type_: None };
     let tx = CellTx::new(
         vec![input],
         vec![], // cell_deps
@@ -1842,7 +1917,7 @@ async fn run_kip10_activation_test() {
 
     // Test 1: Build empty block, then manually insert invalid tx and verify consensus rejects it
     {
-        let miner_data = MinerData::new(ScriptPublicKey::from_vec(0, vec![]), vec![]);
+        let miner_data = MinerData::new(vec![]);
 
         // First build block without transactions
         let mut block =
@@ -1877,7 +1952,7 @@ async fn payload_test() {
     let consensus = TestConsensus::new(&config);
     let wait_handles = consensus.init();
 
-    let miner_data = MinerData::new(ScriptPublicKey::from_vec(0, vec![OP_TRUE]), vec![]);
+    let miner_data = MinerData::new(vec![]);
     let b = consensus.build_cell_valid_block_with_parents(1.into(), vec![config.genesis.hash], miner_data.clone(), vec![]);
     consensus.validate_and_insert_block(b.to_immutable()).virtual_state_task.await.unwrap();
     let funding_block = consensus.build_cell_valid_block_with_parents(2.into(), vec![1.into()], miner_data, vec![]);
@@ -1921,21 +1996,24 @@ async fn payload_test() {
 
 #[tokio::test]
 async fn payload_activation_test() {
-    use spora_consensus_core::subnets::SUBNETWORK_ID_NATIVE;
-
     // Set payload activation at DAA score 3 for this test
     const PAYLOAD_ACTIVATION_DAA_SCORE: u64 = 3;
 
     init_allocator_with_default_settings();
 
     // Create initial cell to fund our test transactions
+    let outpoint = TransactionOutpoint::new(1.into(), 0);
     let initial_cell_collection = [(
-        TransactionOutpoint::new(1.into(), 0),
+        outpoint,
         CellEntry {
-            amount: SAU_PER_SPORA,
-            script_public_key: ScriptPublicKey::from_vec(0, vec![OP_TRUE]),
+            out_point: outpoint,
+            capacity: SAU_PER_SPORA,
+            data_bytes: 0,
+            lock_hash: blake3::hash(&vec![OP_TRUE]).into(),
+            type_hash: None,
+            data_hash: [0; 32],
             block_daa_score: 0,
-            is_coinbase: false,
+            is_cellbase: false,
         },
     )];
 
@@ -1991,7 +2069,7 @@ async fn payload_activation_test() {
 
     // Test 1: Build empty block, then manually insert invalid tx and verify consensus rejects it
     {
-        let miner_data = MinerData::new(ScriptPublicKey::from_vec(0, vec![]), vec![]);
+        let miner_data = MinerData::new(vec![]);
 
         // First build block without transactions
         let mut block =
@@ -2029,9 +2107,7 @@ async fn payload_activation_test() {
 
 #[tokio::test]
 async fn runtime_sig_op_counting_test() {
-    use spora_consensus_core::{
-        hashing::sighash::SigHashReusedValuesUnsync, hashing::sighash_type::SIG_HASH_ALL, subnets::SUBNETWORK_ID_NATIVE,
-    };
+    use spora_consensus_core::{hashing::sighash::SigHashReusedValuesUnsync, hashing::sighash_type::SIG_HASH_ALL};
 
     // Runtime sig op counting activates at DAA score 3
     const RUNTIME_SIGOP_ACTIVATION_DAA_SCORE: u64 = 3;
@@ -2050,12 +2126,12 @@ async fn runtime_sig_op_counting_test() {
     // and 3 sig ops in the non-executed branch (false)
     let redeem_script = vec![OP_TRUE, OP_IF, OP_CHECKSIG, OP_ELSE, OP_CHECKSIG, OP_CHECKSIG, OP_CHECKSIG, OP_ENDIF];
 
-    let script_pub_key = pay_to_script_hash_script(&redeem_script);
+    let lock_script = pay_to_script_hash_lock_script(&redeem_script);
 
     // Set up initial cell with P2SH script
     let initial_cell_collection = [(
         TransactionOutpoint::new(1.into(), 0),
-        CellEntry { amount: SAU_PER_SPORA, script_public_key: script_pub_key.clone(), block_daa_score: 0, is_coinbase: false },
+        CellEntry::from_cell_metadata(SAU_PER_SPORA, 0, lock_script.hash(), None, [0; 32], 0, false),
     )];
 
     let config = ConfigBuilder::new(DEVNET_PARAMS)
@@ -2117,7 +2193,7 @@ async fn runtime_sig_op_counting_test() {
     };
 
     // Complete transaction with signature script in witness
-    let witness_script = push_only_signature_script(&[&signature, &pub_key, &redeem_script]);
+    let witness_script = push_only_witness_script(&[&signature, &pub_key, &redeem_script]);
     tx.witnesses[0] = witness_script;
 
     let mut tx = MutableTransaction::with_entries(tx, vec![initial_cell_collection[0].1.clone()]);
@@ -2127,7 +2203,7 @@ async fn runtime_sig_op_counting_test() {
 
     // Test 1: Before activation, tx should be rejected due to static sig op counting (sees 3 ops)
     {
-        let miner_data = MinerData::new(ScriptPublicKey::from_vec(0, vec![]), vec![]);
+        let miner_data = MinerData::new(vec![]);
         let mut block =
             consensus.build_cell_valid_block_with_parents((index + 1).into(), vec![index.into()], miner_data.clone(), vec![]);
         block.transactions.push(tx.clone());

@@ -5,7 +5,7 @@ use spora_addressmanager::NetAddress;
 use spora_p2p_lib::{
     common::ProtocolError,
     dequeue, dequeue_with_timeout, make_message,
-    pb::{sporad_message::Payload, AddressesMessage, RequestAddressesMessage},
+    pb::{p2p_message::Payload, AddressesMessage, RequestAddressesMessage},
     IncomingRoute, Router,
 };
 use spora_utils::networking::IpAddress;
@@ -41,12 +41,7 @@ impl ReceiveAddressesFlow {
     }
 
     async fn start_impl(&mut self) -> Result<(), ProtocolError> {
-        self.router
-            .enqueue(make_message!(
-                Payload::RequestAddresses,
-                RequestAddressesMessage { include_all_subnetworks: false, subnetwork_id: None }
-            ))
-            .await?;
+        self.router.enqueue(make_message!(Payload::RequestAddresses, RequestAddressesMessage {})).await?;
 
         let msg = dequeue_with_timeout!(self.incoming_route, Payload::Addresses)?;
         let address_list: Vec<(IpAddress, u16)> = msg.try_into()?;

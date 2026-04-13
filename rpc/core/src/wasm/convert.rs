@@ -9,17 +9,7 @@ use std::sync::Arc;
 impl From<RpcCellsByAddressesEntry> for CellEntry {
     fn from(entry: RpcCellsByAddressesEntry) -> CellEntry {
         let RpcCellsByAddressesEntry { address, outpoint, cell_entry } = entry;
-        let RpcCellEntry {
-            amount,
-            capacity,
-            data_bytes,
-            lock_hash,
-            type_hash,
-            data_hash,
-            script_public_key,
-            block_daa_score,
-            is_coinbase,
-        } = cell_entry;
+        let RpcCellEntry { amount, capacity, data_bytes, lock_hash, type_hash, data_hash, block_daa_score, is_coinbase } = cell_entry;
 
         let mut cell_entry = CellEntry {
             address,
@@ -30,7 +20,6 @@ impl From<RpcCellsByAddressesEntry> for CellEntry {
             lock_hash: None,
             type_hash: None,
             data_hash: None,
-            script_public_key,
             block_daa_score,
             is_coinbase,
         };
@@ -66,8 +55,8 @@ cfg_if::cfg_if! {
             fn from(tx_input: TransactionInput) -> Self {
                 let inner = tx_input.inner();
                 RpcTransactionInput::from_cell_ref(
-                    &spora_consensus_core::tx::CellRef::new(inner.previous_outpoint.clone().into(), inner.sequence),
-                    inner.signature_script.clone().unwrap_or_default(),
+                    &spora_consensus_core::tx::CellRef::new(inner.previous_outpoint.clone().into(), inner.since),
+                    inner.witness.clone().unwrap_or_default(),
                 )
             }
         }
@@ -75,8 +64,12 @@ cfg_if::cfg_if! {
         impl From<TransactionOutput> for RpcTransactionOutput {
             fn from(output: TransactionOutput) -> Self {
                 let inner = output.inner();
-                let cell_out = spora_consensus_core::tx::cell_out_from_legacy_script_public_key(inner.value, &inner.script_public_key);
-                RpcTransactionOutput::from_cell_output(&cell_out, &[])
+                let cell_out = spora_consensus_core::tx::CellOut {
+                    lock: inner.lock_script.clone(),
+                    type_: inner.type_script.clone(),
+                    capacity: inner.capacity,
+                };
+                RpcTransactionOutput::from_cell_output(&cell_out, inner.output_data.as_deref().unwrap_or(&[]))
             }
         }
 

@@ -3,10 +3,11 @@
 //
 // Load script syscall
 
-use super::utils::{store_data, INDEX_OUT_OF_BOUND, SUCCESS};
+use super::{LOAD_SCRIPT_HASH_SYSCALL_NUMBER, LOAD_SCRIPT_SYSCALL_NUMBER};
+use super::utils::{store_data, SUCCESS};
 use crate::celltx::ScriptRef;
 use ckb_vm::{
-    registers::{A0, A2, A7},
+    registers::{A0, A7},
     Error as VMError, Register, SupportMachine, Syscalls,
 };
 use std::sync::Arc;
@@ -48,18 +49,11 @@ impl<M: SupportMachine> Syscalls<M> for LoadScript {
         let syscall_number = machine.registers()[A7].to_u64();
 
         // LOAD_SCRIPT = 2075 or LOAD_SCRIPT_HASH = 2062
-        if syscall_number != 2075 && syscall_number != 2062 {
+        if syscall_number != LOAD_SCRIPT_SYSCALL_NUMBER && syscall_number != LOAD_SCRIPT_HASH_SYSCALL_NUMBER {
             return Ok(false);
         }
 
-        let offset = machine.registers()[A2].to_u64();
-
-        if offset != 0 {
-            machine.set_register(A0, M::REG::from_u8(INDEX_OUT_OF_BOUND));
-            return Ok(true);
-        }
-
-        let data = if syscall_number == 2062 {
+        let data = if syscall_number == LOAD_SCRIPT_HASH_SYSCALL_NUMBER {
             // LOAD_SCRIPT_HASH
             self.script.hash().to_vec()
         } else {
@@ -72,5 +66,57 @@ impl<M: SupportMachine> Syscalls<M> for LoadScript {
         machine.set_register(A0, M::REG::from_u8(SUCCESS));
 
         Ok(true)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::vm::ScriptVersion;
+    use ckb_vm::{
+        registers::{A1, A2},
+        CoreMachine, Memory, Register,
+    };
+
+    const BUFFER_ADDR: u64 = 0x1000;
+    const SIZE_ADDR: u64 = 0x2000;
+
+    #[test]
+    fn test_load_script_supports_partial_reads() {
+        let script = Arc::new(ScriptRef::new([0xAA; 32], 1, vec![0x10, 0x20, 0x30]));
+        let mut machine = ScriptVersion::V2.init_core_machine(10_000);
+        machine.memory_mut().store64(&SIZE_ADDR, &7u64).unwrap();
+        machine.set_register(A0, BUFFER_ADDR);
+        machine.set_register(A1, SIZE_ADDR);
+        machine.set_register(A2, 33);
+        machine.set_register(A7, LOAD_SCRIPT_SYSCALL_NUMBER);
+
+        let mut syscall = LoadScript::new(script);
+        let handled = syscall.ecall(&mut machine).expect("load script syscall should succeed");
+
+        assert!(handled);
+        assert_eq!(machine.registers()[A0].to_u64(), SUCCESS as u64);
+        assert_eq!(machine.memory_mut().load64(&SIZE_ADDR).unwrap().to_u64(), 7);
+        assert_eq!(machine.memory_mut().load_bytes(BUFFER_ADDR, 7).unwrap().as_ref(), &[3, 0, 0, 0, 0x10, 0x20, 0x30]);
+    }
+
+    #[test]
+    fn test_load_script_hash_supports_partial_reads() {
+        let script = Arc::new(ScriptRef::new([0xAA; 32], 1, vec![0x10, 0x20, 0x30]));
+        let expected_hash = script.hash();
+        let mut machine = ScriptVersion::V2.init_core_machine(10_000);
+        machine.memory_mut().store64(&SIZE_ADDR, &6u64).unwrap();
+        machine.set_register(A0, BUFFER_ADDR);
+        machine.set_register(A1, SIZE_ADDR);
+        machine.set_register(A2, 10);
+        machine.set_register(A7, LOAD_SCRIPT_HASH_SYSCALL_NUMBER);
+
+        let mut syscall = LoadScript::new(script);
+        let handled = syscall.ecall(&mut machine).expect("load script hash syscall should succeed");
+
+        assert!(handled);
+        assert_eq!(machine.registers()[A0].to_u64(), SUCCESS as u64);
+        assert_eq!(machine.memory_mut().load64(&SIZE_ADDR).unwrap().to_u64(), 22);
+        assert_eq!(machine.memory_mut().load_bytes(BUFFER_ADDR, 6).unwrap().as_ref(), &expected_hash[10..16]);
     }
 }

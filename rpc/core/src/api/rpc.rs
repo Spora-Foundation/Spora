@@ -138,7 +138,7 @@ pub trait RpcApi: Sync + Send + AnySync {
         request: GetBlockTemplateRequest,
     ) -> RpcResult<GetBlockTemplateResponse>;
 
-    /// Requests the list of known Sporad addresses in the current network (mainnet, testnet, etc.)
+    /// Requests the list of known peer addresses in the current network (mainnet, testnet, etc.)
     async fn get_peer_addresses(&self) -> RpcResult<GetPeerAddressesResponse> {
         self.get_peer_addresses_call(None, GetPeerAddressesRequest {}).await
     }
@@ -255,17 +255,6 @@ pub trait RpcApi: Sync + Send + AnySync {
     ) -> RpcResult<GetTransactionResponse> {
         unimplemented!()
     }
-
-    /// Requests information about a specific subnetwork.
-    async fn get_subnetwork(&self, subnetwork_id: RpcSubnetworkId) -> RpcResult<GetSubnetworkResponse> {
-        self.get_subnetwork_call(None, GetSubnetworkRequest::new(subnetwork_id)).await
-    }
-    async fn get_subnetwork_call(
-        &self,
-        connection: Option<&DynRpcConnection>,
-        request: GetSubnetworkRequest,
-    ) -> RpcResult<GetSubnetworkResponse>;
-
     /// Requests the virtual selected parent chain from some `start_hash` to this node's current virtual.
     async fn get_virtual_chain_from_block(
         &self,

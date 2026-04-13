@@ -18,7 +18,7 @@ use spora_consensus_core::config::params::Params;
 use spora_consensus_core::mass::{ContextualMasses, MassCalculator};
 use spora_consensus_core::{
     hashing::sighash_type::SigHashType,
-    tx::{CellOut, CellRef, CellTx, MutableTransaction, ScriptRef, SignableTransaction, TransactionId},
+    tx::{CellOut, CellRef, CellTx, MutableTransaction, SignableTransaction, TransactionId},
 };
 
 #[derive(Debug, Default, Serialize, Deserialize, Clone)]
@@ -134,7 +134,7 @@ impl<R> PSST<R> {
         let inputs = self
             .inputs
             .iter()
-            .map(|Input { previous_outpoint, sequence, .. }| CellRef::new(*previous_outpoint, sequence_to_since(*sequence)))
+            .map(|Input { previous_outpoint, since, .. }| CellRef::new(*previous_outpoint, since.unwrap_or_default()))
             .collect();
         let outputs = self.outputs.iter().map(cell_out_from_psst_output).collect::<Vec<_>>();
         let outputs_data = self.outputs.iter().map(|output| output.output_data.clone().unwrap_or_default()).collect::<Vec<_>>();
@@ -166,13 +166,6 @@ impl<R> PSST<R> {
         } else {
             Err(Error::PSSTPrefixError)
         }
-    }
-}
-
-fn sequence_to_since(sequence: Option<u64>) -> u64 {
-    match sequence {
-        None | Some(u64::MAX) => 0,
-        Some(sequence) => sequence,
     }
 }
 
@@ -264,8 +257,8 @@ impl PSST<Constructor> {
 }
 
 impl PSST<Updater> {
-    pub fn set_sequence(mut self, n: u64, input_index: usize) -> Result<Self, Error> {
-        self.inner_psst.inputs.get_mut(input_index).ok_or(Error::OutOfBounds)?.sequence = Some(n);
+    pub fn set_since(mut self, n: u64, input_index: usize) -> Result<Self, Error> {
+        self.inner_psst.inputs.get_mut(input_index).ok_or(Error::OutOfBounds)?.since = Some(n);
         Ok(self)
     }
 
@@ -426,7 +419,7 @@ impl PSST<Finalizer> {
             if sig.is_empty() {
                 return Err(FinalizeError::EmptySignature(idx));
             }
-            input.sequence = Some(input.sequence.unwrap_or(u64::MAX)); // todo discussable
+            input.since = Some(input.since.unwrap_or_default());
             input.final_script_sig = Some(sig);
             Ok(())
         })?;
@@ -513,17 +506,18 @@ mod tests {
     use secp256k1::{rand::thread_rng, Keypair, Secp256k1};
     use spora_addresses::{Address, Prefix, Version as AddressVersion};
     use spora_consensus_core::{
+        cell_diff::CellMeta,
         config::params::TESTNET_PARAMS,
         hashing::sighash::{calc_schnorr_signature_hash, SigHashReusedValuesUnsync},
         tx::{
-            multisig_redeem_script, outpoint_from_id, pay_to_address_script, pay_to_script_hash_script, push_data_script, CellEntry,
-            ScriptRef, TransactionId,
+            multisig_redeem_script, outpoint_from_id, pay_to_address_lock_script, pay_to_script_hash_lock_script, push_data_script,
+            CellOut, CellRef, CellTx, ScriptRef, TransactionId, TransactionOutpoint,
         },
     };
     use std::str::FromStr;
 
-    fn test_cell_entry_from_lock_script(amount: u64, lock_script: ScriptRef, block_daa_score: u64, is_coinbase: bool) -> CellEntry {
-        CellEntry::from_cell_metadata(amount, 0, lock_script.code_hash, None, [0; 32], block_daa_score, is_coinbase)
+    fn test_cell_meta_from_lock_script(amount: u64, lock_script: ScriptRef, block_daa_score: u64, is_coinbase: bool) -> CellMeta {
+        CellMeta::from_cell_metadata(amount, 0, lock_script.code_hash, None, [0; 32], block_daa_score, is_coinbase)
     }
 
     #[test]
@@ -621,28 +615,18 @@ mod tests {
         let signer = Keypair::new(&secp, &mut thread_rng());
         let signer_address = Address::new(Prefix::Testnet, AddressVersion::PubKey, &signer.x_only_public_key().0.serialize()).unwrap();
         let recipient = Address::new(Prefix::Testnet, AddressVersion::PubKey, &[0x22; 32]).unwrap();
-        let signer_script = pay_to_address_script(&signer_address);
+        let signer_script = pay_to_address_lock_script(&signer_address);
 
         let input = InputBuilder::default()
-            .cell_entry(test_cell_entry_from_lock_script(
-                12793000000000,
-                ScriptRef::new(signer_script.hash(), 0, signer_script.script().to_vec()),
-                36151168,
-                false,
-            ))
+            .cell_entry(test_cell_meta_from_lock_script(12793000000000, signer_script.clone(), 36151168, false))
             .previous_outpoint(outpoint_from_id(
                 TransactionId::from_str("63020db736215f8b1105a9281f7bcbb6473d965ecc45bb2fb5da59bd35e6ff84").unwrap(),
                 0,
             ))
-            .sig_op_count(1)
             .build()
             .unwrap();
-        let recipient_script = pay_to_address_script(&recipient);
-        let output = OutputBuilder::default()
-            .capacity(12792999900000)
-            .lock_script(ScriptRef::new(recipient_script.hash(), 0, recipient_script.script().to_vec()))
-            .build()
-            .unwrap();
+        let recipient_script = pay_to_address_lock_script(&recipient);
+        let output = OutputBuilder::default().capacity(12792999900000).lock_script(recipient_script).build().unwrap();
 
         let signer_psst = PSST::<Creator>::default().constructor().input(input).output(output).signer();
         let reused_values = SigHashReusedValuesUnsync::new();
@@ -679,29 +663,19 @@ mod tests {
         let redeem_script =
             multisig_redeem_script(signers.iter().map(|kp| kp.x_only_public_key().0.serialize()), 2).expect("multisig script");
         let recipient = Address::new(Prefix::Testnet, AddressVersion::PubKey, &[0x33; 32]).unwrap();
-        let p2sh_script = pay_to_script_hash_script(&redeem_script);
+        let p2sh_script = pay_to_script_hash_lock_script(&redeem_script);
 
         let input = InputBuilder::default()
-            .cell_entry(test_cell_entry_from_lock_script(
-                12793000000000,
-                ScriptRef::new(p2sh_script.hash(), 0, p2sh_script.script().to_vec()),
-                36151168,
-                false,
-            ))
+            .cell_entry(test_cell_meta_from_lock_script(12793000000000, p2sh_script.clone(), 36151168, false))
             .previous_outpoint(outpoint_from_id(
                 TransactionId::from_str("63020db736215f8b1105a9281f7bcbb6473d965ecc45bb2fb5da59bd35e6ff84").unwrap(),
                 0,
             ))
-            .sig_op_count(2)
             .redeem_script(redeem_script.clone())
             .build()
             .unwrap();
-        let recipient_script = pay_to_address_script(&recipient);
-        let output = OutputBuilder::default()
-            .capacity(12792999900000)
-            .lock_script(ScriptRef::new(recipient_script.hash(), 0, recipient_script.script().to_vec()))
-            .build()
-            .unwrap();
+        let recipient_script = pay_to_address_lock_script(&recipient);
+        let output = OutputBuilder::default().capacity(12792999900000).lock_script(recipient_script).build().unwrap();
 
         let base = PSST::<Creator>::default().constructor().input(input).output(output).signer();
         let reused_values = SigHashReusedValuesUnsync::new();

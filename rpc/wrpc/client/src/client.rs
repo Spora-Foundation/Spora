@@ -644,7 +644,6 @@ impl RpcApi for SporaRpcClient {
             GetServerInfo,
             GetSink,
             GetSinkBlueScore,
-            GetSubnetwork,
             GetSyncStatus,
             GetSystemInfo,
             GetCellReturnAddress,

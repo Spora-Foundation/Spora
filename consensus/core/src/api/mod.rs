@@ -26,7 +26,7 @@ use crate::{
         CellEntry, CellTx, MutableTransaction, ResolvedCellTransaction, SignableTransaction, TransactionOutpoint,
         VerifiableTransaction,
     },
-    // legacy transaction-output inquirer errors removed during Cell migration
+    // Transaction-output inquirer errors were removed during the Cell migration.
     BlockHashSet,
     BlueWorkType,
     ChainPath,
@@ -74,14 +74,14 @@ pub trait ConsensusApi: Send + Sync {
     }
 
     /// Populates the mempool transaction with maximally found Cell input resolution data
-    /// (legacy entries and/or canonical metadata) and proceeds to full transaction
+    /// (entry views and/or canonical metadata) and proceeds to full transaction
     /// validation if all are found. If validation is successful, also `transaction.calculated_fee` is expected to be populated.
     fn validate_mempool_transaction(&self, transaction: &mut MutableTransaction, args: &TransactionValidationArgs) -> TxResult<()> {
         unimplemented!()
     }
 
     /// Validates a canonical Cell transaction against the current virtual state while
-    /// using `transaction` as the legacy compatibility mirror for resolved-input
+    /// using `transaction` as the mutable transaction view for resolved-input
     /// bookkeeping, fee calculation, and mempool policy integration.
     fn validate_mempool_cell_transaction(
         &self,
@@ -93,7 +93,7 @@ pub trait ConsensusApi: Send + Sync {
     }
 
     /// Populates the mempool transactions with maximally found Cell input resolution data
-    /// (legacy entries and/or canonical metadata) and proceeds to full transactions
+    /// (entry views and/or canonical metadata) and proceeds to full transactions
     /// validation if all are found. If validation is successful, also `transaction.calculated_fee` is expected to be populated.
     fn validate_mempool_transactions_in_parallel(
         &self,
@@ -125,7 +125,7 @@ pub trait ConsensusApi: Send + Sync {
     ///
     /// This is the preferred entry point for Cell-model callers because it allows consensus to
     /// consume resolved canonical cell metadata when available, instead of forcing a downgrade to
-    /// the legacy `MutableTransaction` bridge.
+    /// the `MutableTransaction` view.
     fn calculate_verifiable_transaction_contextual_masses(&self, transaction: &dyn VerifiableTransaction) -> Option<ContextualMasses> {
         unimplemented!()
     }
@@ -225,7 +225,7 @@ pub trait ConsensusApi: Send + Sync {
     /// Returns the canonical Cell transaction for the given txid.
     ///
     /// New Cell-model callers should prefer this over `get_transaction`, which
-    /// is a legacy compatibility view backed by `Transaction`.
+    /// is a compatibility view backed by `Transaction`.
     fn get_cell_transaction(&self, hash: Hash) -> ConsensusResult<CellTx> {
         unimplemented!()
     }
@@ -403,13 +403,13 @@ pub trait ConsensusApi: Send + Sync {
         unimplemented!()
     }
 
-    // TODO: Delete this function once there's no need for go-sporad backward compatibility.
+    // TODO: Delete this function once external consumers stop depending on it.
     fn get_daa_window(&self, hash: Hash) -> ConsensusResult<Vec<Hash>> {
         unimplemented!()
     }
 
     // TODO: Think of a better name.
-    // TODO: Delete this function once there's no need for go-sporad backward compatibility.
+    // TODO: Delete this function once external consumers stop depending on it.
     fn get_trusted_block_associated_ghostdag_data_block_hashes(&self, hash: Hash) -> ConsensusResult<Vec<Hash>> {
         unimplemented!()
     }

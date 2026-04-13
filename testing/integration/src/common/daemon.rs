@@ -45,7 +45,6 @@ impl ClientManager {
             Some(self.context.clone()),
             false,
             None,
-            false,
             Some(500_000),
             Default::default(),
         )
@@ -68,7 +67,6 @@ impl ClientManager {
             Some(self.context.clone()),
             true,
             None,
-            false,
             Some(500_000),
             Default::default(),
         )

@@ -1131,42 +1131,6 @@ try_from! ( args: GetMempoolEntryResponse, IGetMempoolEntryResponse, {
 
 // ---
 
-declare! {
-    IGetSubnetworkRequest,
-    r#"
-    /**
-     * 
-     * 
-     * @category Node RPC
-     */
-    export interface IGetSubnetworkRequest {
-        subnetworkId : HexString;
-    }
-    "#,
-}
-
-try_from! ( args: IGetSubnetworkRequest, GetSubnetworkRequest, {
-    Ok(from_value(args.into())?)
-});
-
-declare! {
-    IGetSubnetworkResponse,
-    r#"
-    /**
-     * 
-     * 
-     * @category Node RPC
-     */
-    export interface IGetSubnetworkResponse {
-        gasLimit : bigint;
-    }
-    "#,
-}
-
-try_from! ( args: GetSubnetworkResponse, IGetSubnetworkResponse, {
-    Ok(to_value(&args)?.into())
-});
-
 // ---
 
 declare! {

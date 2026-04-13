@@ -12,6 +12,7 @@ repository.workspace = true
 
 [features]
 multi-user = []
+rand = []
 wasm32-keygen = [
     # "spora-consensus-wasm/wasm32-types",
 ]

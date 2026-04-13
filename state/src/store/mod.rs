@@ -6,5 +6,5 @@
 pub mod proof;
 pub mod segment;
 
-pub use proof::{ProofVerifier, SegmentProof};
+pub use proof::{compute_segment_root, ProofVerifier, SegmentProof};
 pub use segment::{SegmentMeta, SegmentReader, SegmentWriter};

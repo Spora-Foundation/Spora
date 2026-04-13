@@ -39,8 +39,8 @@ use spora_p2p_lib::{
     common::ProtocolError,
     convert::model::version::Version,
     make_message,
-    pb::{sporad_message::Payload, InvRelayBlockMessage},
-    ConnectionInitializer, Hub, PeerKey, PeerProperties, Router, SporadHandshake,
+    pb::{p2p_message::Payload, InvRelayBlockMessage},
+    ConnectionInitializer, Hub, P2pHandshake, PeerKey, PeerProperties, Router,
 };
 use spora_p2p_mining::rule_engine::MiningRuleEngine;
 use spora_utils::iter::IterExtensions;
@@ -724,7 +724,7 @@ impl FlowContext {
 impl ConnectionInitializer for FlowContext {
     async fn initialize_connection(&self, router: Arc<Router>) -> Result<(), ProtocolError> {
         // Build the handshake object and subscribe to handshake messages
-        let mut handshake = SporadHandshake::new(&router);
+        let mut handshake = P2pHandshake::new(&router);
 
         // We start the router receive loop only after we registered to handshake routes
         router.start();
@@ -735,7 +735,7 @@ impl ConnectionInitializer for FlowContext {
 
         // Build the local version message
         // Subnets are not currently supported
-        let mut self_version_message = Version::new(local_address, self.node_id, network_name.clone(), None, PROTOCOL_VERSION);
+        let mut self_version_message = Version::new(local_address, self.node_id, network_name.clone(), PROTOCOL_VERSION);
         self_version_message.add_user_agent(name(), version(), &self.config.user_agent_comments);
         // TODO: get number of live services
         // TODO: disable_relay_tx from config/cmd
@@ -785,7 +785,6 @@ impl ConnectionInitializer for FlowContext {
             advertised_protocol_version: peer_version.protocol_version,
             protocol_version: applied_protocol_version,
             disable_relay_tx: peer_version.disable_relay_tx,
-            subnetwork_id: peer_version.subnetwork_id.to_owned(),
             time_offset,
         });
         router.set_properties(peer_properties);

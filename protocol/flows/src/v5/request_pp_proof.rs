@@ -4,7 +4,7 @@ use log::debug;
 use spora_p2p_lib::{
     common::ProtocolError,
     dequeue_with_request_id, make_response,
-    pb::{sporad_message::Payload, PruningPointProofMessage},
+    pb::{p2p_message::Payload, PruningPointProofMessage},
     IncomingRoute, Router,
 };
 

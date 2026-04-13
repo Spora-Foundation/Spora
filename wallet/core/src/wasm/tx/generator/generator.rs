@@ -82,10 +82,6 @@ interface IGeneratorSettingsObject {
      */
     priorityEntries?: ICellEntry[] | CellEntryReference[],
     /**
-     * Optional number of signature operations in the transaction.
-     */
-    sigOpCount?: number;
-    /**
      * Optional minimum number of signatures required for the transaction.
      */
     minimumSignatures?: number;
@@ -170,7 +166,6 @@ impl Generator {
             change_address,
             fee_rate,
             final_priority_fee,
-            sig_op_count,
             minimum_signatures,
             payload,
         } = settings;
@@ -188,7 +183,6 @@ impl Generator {
                     Box::new(cell_entries.into_iter()),
                     priority_cell_entries,
                     change_address,
-                    sig_op_count,
                     minimum_signatures,
                     final_transaction_destination,
                     fee_rate,
@@ -205,7 +199,6 @@ impl Generator {
                     cell_context.into(),
                     priority_cell_entries,
                     change_address,
-                    sig_op_count,
                     minimum_signatures,
                     final_transaction_destination,
                     final_priority_fee,
@@ -272,7 +265,6 @@ struct GeneratorSettings {
     pub change_address: Option<Address>,
     pub fee_rate: Option<f64>,
     pub final_priority_fee: Fees,
-    pub sig_op_count: u8,
     pub minimum_signatures: u16,
     pub payload: Option<Vec<u8>>,
 }
@@ -303,10 +295,6 @@ impl TryFrom<IGeneratorSettingsObject> for GeneratorSettings {
 
         let priority_cell_entries = args.try_get_value("priorityEntries")?.map(|v| v.try_into_cell_entry_references()).transpose()?;
 
-        let sig_op_count = args.get_value("sigOpCount")?;
-        let sig_op_count =
-            if !sig_op_count.is_undefined() { sig_op_count.as_f64().expect("sigOpCount should be a number") as u8 } else { 1 };
-
         let minimum_signatures = args.get_value("minimumSignatures")?;
         let minimum_signatures = if !minimum_signatures.is_undefined() {
             minimum_signatures.as_f64().expect("minimumSignatures should be a number") as u16
@@ -325,7 +313,6 @@ impl TryFrom<IGeneratorSettingsObject> for GeneratorSettings {
             change_address,
             fee_rate,
             final_priority_fee,
-            sig_op_count,
             minimum_signatures,
             payload,
         };

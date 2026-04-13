@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
-use spora_consensus_core::tx::{CellEntry, ScriptPublicKey, TransactionOutpoint};
+use spora_addresses::Address;
+use spora_consensus_core::tx::{CellEntry, TransactionOutpoint};
 use spora_utils::mem_size::MemSizeEstimator;
 use std::collections::HashMap;
 
@@ -7,11 +8,11 @@ use std::collections::HashMap;
 // One possible implementation: u64 of transaction id xor'd with 4 bytes of transaction index.
 pub type CompactCellCollection = HashMap<TransactionOutpoint, CompactCellEntry>;
 
-/// A collection of live cells indexed via [`ScriptPublicKey`] => [`TransactionOutpoint`] => [`CompactCellEntry`].
-pub type CellSetByScriptPublicKey = HashMap<ScriptPublicKey, CompactCellCollection>;
+/// A collection of live cells indexed via [`Address`] => [`TransactionOutpoint`] => [`CompactCellEntry`].
+pub type CellSetByAddress = HashMap<Address, CompactCellCollection>;
 
-/// A map of balance by script public key.
-pub type BalanceByScriptPublicKey = HashMap<ScriptPublicKey, u64>;
+/// A map of balance by address.
+pub type BalanceByAddress = HashMap<Address, u64>;
 
 /// Compact query-side cell metadata keyed by script public key and outpoint.
 #[derive(Clone, Copy, Deserialize, Serialize, Debug)]
@@ -58,15 +59,15 @@ impl From<CellEntry> for CompactCellEntry {
     }
 }
 
-/// A struct holding live-cell set changes keyed by script public key.
+/// A struct holding live-cell set changes keyed by address.
 #[derive(Debug, Clone)]
 pub struct CellChanges {
-    pub added: CellSetByScriptPublicKey,
-    pub removed: CellSetByScriptPublicKey,
+    pub added: CellSetByAddress,
+    pub removed: CellSetByAddress,
 }
 
 impl CellChanges {
-    pub fn new(added: CellSetByScriptPublicKey, removed: CellSetByScriptPublicKey) -> Self {
+    pub fn new(added: CellSetByAddress, removed: CellSetByAddress) -> Self {
         Self { added, removed }
     }
 }

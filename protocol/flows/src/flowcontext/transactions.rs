@@ -4,7 +4,7 @@ use spora_consensus_core::tx::TransactionId;
 use spora_core::debug;
 use spora_p2p_lib::{
     make_message,
-    pb::{sporad_message::Payload, InvTransactionsMessage, SporadMessage},
+    pb::{p2p_message::Payload, InvTransactionsMessage, P2pMessage},
     Hub,
 };
 use std::time::{Duration, Instant};
@@ -75,7 +75,7 @@ impl TransactionsSpread {
     /// every `BROADCAST_INTERVAL` milliseconds or when the queue length is larger than the Inv message
     /// capacity.
     ///
-    /// _GO-Sporad: EnqueueTransactionIDsForPropagation_
+    /// Mirrors the previous Go implementation's transaction propagation batching behavior.
     pub async fn broadcast_transactions<I: IntoIterator<Item = TransactionId>>(&mut self, transaction_ids: I, should_throttle: bool) {
         self.transaction_ids.enqueue_chunk(transaction_ids);
 
@@ -94,7 +94,7 @@ impl TransactionsSpread {
         self.last_broadcast_time = Instant::now();
     }
 
-    async fn broadcast(&self, msg: SporadMessage, should_throttle: bool) {
+    async fn broadcast(&self, msg: P2pMessage, should_throttle: bool) {
         if should_throttle {
             // TODO: Figure out a better number
             self.hub.broadcast_to_some_peers(msg, 8).await

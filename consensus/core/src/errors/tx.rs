@@ -1,6 +1,5 @@
 use crate::constants::MAX_SAU;
-use crate::errors::legacy_script::LegacyScriptError;
-use crate::subnets::SubnetworkId;
+use crate::errors::script::ScriptError;
 use crate::tx::TransactionOutpoint;
 use thiserror::Error;
 
@@ -31,7 +30,7 @@ pub enum TxRuleError {
     TooBigSignatureScript(usize, usize),
 
     #[error("transaction input #{0} signature script is above {1} bytes")]
-    TooBigScriptPublicKey(usize, usize),
+    TooBigLockScript(usize, usize),
 
     #[error("transaction input #{0} is not finalized")]
     NotFinalized(usize),
@@ -43,7 +42,7 @@ pub enum TxRuleError {
     CoinbaseTooManyOutputs(usize, u64),
 
     #[error("script public key of coinbase output #{0} is too long")]
-    CoinbaseScriptPublicKeyTooLong(usize),
+    CoinbaseLockScriptTooLong(usize),
 
     #[error(
         "transaction input #{0} tried to spend coinbase outpoint {1} with daa score of {2} 
@@ -82,10 +81,10 @@ pub enum TxRuleError {
     CellValidationFailed(String),
 
     #[error("failed to verify the signature script: {0}")]
-    SignatureInvalid(LegacyScriptError),
+    SignatureInvalid(ScriptError),
 
     #[error("failed to verify empty signature script. Inner error: {0}")]
-    SignatureEmpty(LegacyScriptError),
+    SignatureEmpty(ScriptError),
 
     #[error("input {0} sig op count is {1}, but the calculated value is {2}")]
     WrongSigOpCount(usize, u64, u64),
@@ -95,10 +94,6 @@ pub enum TxRuleError {
 
     #[error("calculated contextual mass (including storage mass) {0} is not equal to the committed mass field {1}")]
     WrongMass(u64, u64),
-
-    #[error("transaction subnetwork id {0} is neither native nor coinbase")]
-    SubnetworksDisabled(SubnetworkId),
-
     /// [`TxRuleError::FeerateTooLow`] is not a consensus error but a mempool error triggered by the
     /// fee/mass RBF validation rule
     #[error("fee rate per contextual mass gram is not greater than the fee rate of the replaced transaction")]

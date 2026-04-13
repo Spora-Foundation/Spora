@@ -324,10 +324,10 @@ impl PSST {
         self.replace(state)
     }
 
-    #[wasm_bindgen(js_name = setSequence)]
-    pub fn set_sequence(&self, n: u64, input_index: usize) -> Result<PSST> {
+    #[wasm_bindgen(js_name = setSince)]
+    pub fn set_since(&self, n: u64, input_index: usize) -> Result<PSST> {
         let state = match self.take() {
-            State::Updater(psst) => State::Updater(psst.set_sequence(n, input_index)?),
+            State::Updater(psst) => State::Updater(psst.set_since(n, input_index)?),
             _ => Err(Error::expected_state("Creator"))?,
         };
 

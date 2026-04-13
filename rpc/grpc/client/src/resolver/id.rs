@@ -1,11 +1,11 @@
 use crate::{
     error::{Error, Result},
-    resolver::{Resolver, SporadMessageReceiver, SporadMessageSender},
+    resolver::{P2pMessageReceiver, P2pMessageSender, Resolver},
 };
 use spora_core::trace;
 use spora_grpc_core::{
-    ops::SporadPayloadOps,
-    protowire::{SporadRequest, SporadResponse},
+    ops::RpcPayloadOps,
+    protowire::{RpcRequest, RpcResponse},
 };
 use std::{
     collections::HashMap,
@@ -17,11 +17,11 @@ use tokio::sync::oneshot;
 #[derive(Debug)]
 struct Pending {
     timestamp: Instant,
-    sender: SporadMessageSender,
+    sender: P2pMessageSender,
 }
 
 impl Pending {
-    fn new(sender: SporadMessageSender) -> Self {
+    fn new(sender: P2pMessageSender) -> Self {
         Self { timestamp: Instant::now(), sender }
     }
 }
@@ -38,8 +38,8 @@ impl IdResolver {
 }
 
 impl Resolver for IdResolver {
-    fn register_request(&self, _: SporadPayloadOps, request: &SporadRequest) -> SporadMessageReceiver {
-        let (sender, receiver) = oneshot::channel::<Result<SporadResponse>>();
+    fn register_request(&self, _: RpcPayloadOps, request: &RpcRequest) -> P2pMessageReceiver {
+        let (sender, receiver) = oneshot::channel::<Result<RpcResponse>>();
         {
             let mut pending_calls = self.pending_calls.lock().unwrap();
             pending_calls.insert(request.id, Pending::new(sender));
@@ -48,7 +48,7 @@ impl Resolver for IdResolver {
         receiver
     }
 
-    fn handle_response(&self, response: SporadResponse) {
+    fn handle_response(&self, response: RpcResponse) {
         match self.pending_calls.lock().unwrap().remove(&response.id) {
             Some(pending) => {
                 trace!("[Resolver] handle_response has matching request with id {}", response.id);

@@ -38,6 +38,7 @@ impl From<&GenesisBlock> for Header {
             ZERO_HASH,
             genesis.cell_commitment,
             ZERO_HASH, // cell_root (genesis has no cells yet)
+            ZERO_HASH, // segment_root
             genesis.timestamp,
             genesis.bits,
             genesis.nonce,

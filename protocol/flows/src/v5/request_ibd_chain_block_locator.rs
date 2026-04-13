@@ -4,7 +4,7 @@ use spora_consensus_core::errors::{consensus::ConsensusError, sync::SyncManagerE
 use spora_p2p_lib::{
     common::ProtocolError,
     dequeue_with_request_id, make_response,
-    pb::{sporad_message::Payload, IbdChainBlockLocatorMessage},
+    pb::{p2p_message::Payload, IbdChainBlockLocatorMessage},
     IncomingRoute, Router,
 };
 

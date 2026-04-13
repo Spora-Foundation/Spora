@@ -9,19 +9,20 @@ use crate::{
     model::{
         services::reachability::MTReachabilityService,
         stores::{
-            block_transactions::BlockTransactionsStoreReader, cell_diffs::CellDiffsStoreReader, cell_roots::CellRootsStoreReader,
+            block_transactions::BlockTransactionsStoreReader, cell_data::DbCellDataStore,
+            cell_diffs::CellDiffsStoreReader, cell_roots::CellRootsStoreReader,
             ghostdag::GhostdagStoreReader, headers::HeaderStoreReader, reachability::ReachabilityStoreReader,
             statuses::StatusesStoreReader,
         },
     },
-    processes::{CellStateProvider, DagCellProvider},
+    processes::{utils::outpoint_to_hash, CellStateProvider, DagCellProvider},
 };
 use parking_lot::RwLock;
 use spora_consensus_core::{blockhash, cell_metadata::CellMetadata, tx::TransactionOutpoint};
-#[cfg(feature = "vm")]
 use spora_database::prelude::StoreError;
 use spora_exec::OutPoint;
 use spora_hashes::Hash;
+use spora_state::SegmentReader;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -43,6 +44,8 @@ pub struct ConsensusCellProvider<
     cell_diffs_store: Arc<W>,
     cell_roots_store: Arc<X>,
     block_transactions_store: Arc<Y>,
+    cell_data_store: Arc<DbCellDataStore>,
+    segment_reader: Arc<SegmentReader>,
     statuses_store: Arc<RwLock<Z>>,
 }
 
@@ -64,6 +67,8 @@ impl<
             cell_diffs_store: self.cell_diffs_store.clone(),
             cell_roots_store: self.cell_roots_store.clone(),
             block_transactions_store: self.block_transactions_store.clone(),
+            cell_data_store: self.cell_data_store.clone(),
+            segment_reader: self.segment_reader.clone(),
             statuses_store: self.statuses_store.clone(),
         }
     }
@@ -88,6 +93,8 @@ impl<
         cell_diffs_store: Arc<W>,
         cell_roots_store: Arc<X>,
         block_transactions_store: Arc<Y>,
+        cell_data_store: Arc<DbCellDataStore>,
+        segment_reader: Arc<SegmentReader>,
         statuses_store: Arc<RwLock<Z>>,
     ) -> Self {
         Self {
@@ -97,6 +104,8 @@ impl<
             cell_diffs_store,
             cell_roots_store,
             block_transactions_store,
+            cell_data_store,
+            segment_reader,
             statuses_store,
         }
     }
@@ -119,15 +128,18 @@ impl<
     }
 
     fn compute_data_hash(data: &[u8]) -> [u8; 32] {
-        if data.is_empty() {
-            [0u8; 32]
-        } else {
-            use blake3::Hasher;
+        crate::processes::utils::compute_data_hash(data)
+    }
 
-            let mut hasher = Hasher::new();
-            hasher.update(b"spora-cell/data");
-            hasher.update(data);
-            *hasher.finalize().as_bytes()
+    fn load_data_from_segments(&self, outpoint: &TransactionOutpoint) -> Result<Option<Vec<u8>>, String> {
+        match self.cell_data_store.get(outpoint_to_hash(outpoint)) {
+            Ok(segment_info) => self
+                .segment_reader
+                .read(segment_info.segment_id, segment_info.offset, segment_info.length)
+                .map(Some)
+                .map_err(|e| format!("Segment read error: {}", e)),
+            Err(StoreError::KeyNotFound(_)) => Ok(None),
+            Err(err) => Err(format!("Cell data store lookup error: {}", err)),
         }
     }
 
@@ -147,7 +159,11 @@ impl<
             }
 
             let output = &tx.outputs[output_index];
-            let output_data = tx.outputs_data.get(output_index).map(|data| data.as_slice()).unwrap_or(&[]);
+            let persisted_data = self.load_data_from_segments(outpoint)?;
+            let output_data = persisted_data
+                .as_deref()
+                .or_else(|| tx.outputs_data.get(output_index).map(|data| data.as_slice()))
+                .unwrap_or(&[]);
             return Ok(Some(CellMetadata {
                 out_point: *outpoint,
                 capacity: output.capacity,

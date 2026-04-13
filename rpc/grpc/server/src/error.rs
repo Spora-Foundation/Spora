@@ -1,4 +1,4 @@
-use spora_grpc_core::ops::SporadPayloadOps;
+use spora_grpc_core::ops::RpcPayloadOps;
 use thiserror::Error;
 use tokio::sync::mpsc::error::TrySendError;
 
@@ -20,7 +20,7 @@ pub enum GrpcServerError {
     MethodNotImplemented,
 
     #[error("{0:?} handler is closed")]
-    ClosedHandler(SporadPayloadOps),
+    ClosedHandler(RpcPayloadOps),
 
     #[error("client connection is closed")]
     ConnectionClosed,

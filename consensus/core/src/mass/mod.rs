@@ -2,11 +2,12 @@ use crate::{
     cell_metadata::CellMetadata,
     config::params::{Params, MAINNET_PARAMS},
     constants::TRANSIENT_BYTE_TO_MASS_FACTOR,
-    tx::{CellEntry, CellOut, CellTx, ScriptPublicKey, VerifiableTransaction},
+    tx::{CellEntry, CellOut, CellTx, ScriptRef, VerifiableTransaction},
 };
 use spora_exec::vm::VmLimits;
 
-const LEGACY_CELL_CONST_STORAGE: u64 =
+#[cfg(test)]
+const ENTRY_VIEW_CONST_STORAGE: u64 =
     32  // outpoint::tx_id
     + 4 // outpoint::index
     + 8 // entry amount
@@ -86,14 +87,11 @@ pub fn cell_tx_estimated_serialized_size(tx: &CellTx) -> u64 {
     size
 }
 
-/// Returns the cell storage plurality for this script public key.
+/// Returns the cell storage plurality for this lock script.
 /// i.e., how many 100-byte "storage units" it occupies.
-/// The choice of 100 bytes per unit ensures that all standard SPKs have a plurality of 1.
-pub fn cell_plurality(spk: &ScriptPublicKey) -> u64 {
-    // The base (63 bytes) plus the max standard public key length (33 bytes) fits into one 100-byte unit.
-    // Hence, all standard SPKs end up with a plurality of 1.
-    // Using CANONICAL_CELL_CONST_STORAGE (126 bytes) as the base for cell model compatibility
-    (CANONICAL_CELL_CONST_STORAGE + spk.script().len() as u64).div_ceil(CELL_UNIT_SIZE)
+/// The choice of 100 bytes per unit ensures that all standard lock scripts have a plurality of 1.
+pub fn cell_plurality(lock_script: &ScriptRef) -> u64 {
+    (CANONICAL_CELL_CONST_STORAGE + lock_script.args.len() as u64).div_ceil(CELL_UNIT_SIZE)
 }
 
 fn canonical_cell_storage_bytes(entry: &CellEntry) -> Option<u64> {
@@ -120,11 +118,11 @@ pub fn cell_out_plurality(output: &CellOut, data_len: usize) -> u64 {
 }
 
 pub trait CellPlurality {
-    /// Returns the cell storage plurality for the script public key associated with this object.
+    /// Returns the cell storage plurality for the lock script associated with this object.
     fn plurality(&self) -> u64;
 }
 
-impl CellPlurality for ScriptPublicKey {
+impl CellPlurality for ScriptRef {
     fn plurality(&self) -> u64 {
         cell_plurality(self)
     }
@@ -373,7 +371,7 @@ pub fn project_cell_tx_mass_with_calculator(
 
     let non_contextual_masses = calculator.calc_non_contextual_masses_cell(tx);
     let effective_size_mass = verified_cycles
-        .map(|cycles| VmLimits::default().effective_size(cell_tx_estimated_serialized_size(tx) as usize, cycles))
+        .map(|cycles| VmLimits::default().effective_size(cell_tx_estimated_serialized_size(tx) as usize, cycles) as u64)
         .unwrap_or(0);
     let effective_compute_mass = non_contextual_masses.compute_mass.max(effective_size_mass);
     let selection_mass = effective_compute_mass.max(non_contextual_masses.transient_mass);
@@ -554,21 +552,20 @@ mod tests {
             let params: Params = net.into();
             let max_spk_len =
                 (params.max_script_public_key_len() as u64).min(params.max_block_mass.div_ceil(params.mass_per_script_pub_key_byte));
-            let max_plurality = (LEGACY_CELL_CONST_STORAGE + max_spk_len).div_ceil(CELL_UNIT_SIZE); // see cell_plurality
+            let max_plurality = (ENTRY_VIEW_CONST_STORAGE + max_spk_len).div_ceil(CELL_UNIT_SIZE); // see cell_plurality
             let product = params.storage_mass_parameter.checked_mul(max_plurality).and_then(|x| x.checked_mul(max_plurality));
             // verify C·P^2 can never overflow
             assert!(product.is_some());
         }
 
-        // verify P >= 1 also when the script is empty
-        assert!(cell_plurality(&ScriptPublicKey::new(0, ScriptVec::from_slice(&[]))) == 1);
-        // Assert the CANONICAL_CELL_CONST_STORAGE=126, CELL_UNIT_SIZE=100 constants
-        // Note: With canonical storage (126 bytes), even empty script gives plurality = 2 (ceil(126/100))
+        // With canonical cell storage, even an empty script occupies two 100-byte units.
+        assert!(cell_plurality(&ScriptRef::new([0; 32], 0, vec![])) == 2);
+        // Assert the CANONICAL_CELL_CONST_STORAGE=126, CELL_UNIT_SIZE=100 constants.
         assert!(
-            cell_plurality(&ScriptPublicKey::from_vec(0, vec![1; (CELL_UNIT_SIZE * 2 - CANONICAL_CELL_CONST_STORAGE) as usize])) == 2
+            cell_plurality(&ScriptRef::new([0; 32], 0, vec![1; (CELL_UNIT_SIZE * 2 - CANONICAL_CELL_CONST_STORAGE) as usize])) == 2
         );
         assert!(
-            cell_plurality(&ScriptPublicKey::from_vec(0, vec![1; (CELL_UNIT_SIZE * 2 - CANONICAL_CELL_CONST_STORAGE + 1) as usize]))
+            cell_plurality(&ScriptRef::new([0; 32], 0, vec![1; (CELL_UNIT_SIZE * 2 - CANONICAL_CELL_CONST_STORAGE + 1) as usize]))
                 == 3
         );
     }

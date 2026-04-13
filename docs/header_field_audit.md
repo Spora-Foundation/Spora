@@ -125,15 +125,22 @@ fn compute_cell_commitment_v0(cell_root: Hash) -> Hash {
 
 **说明**: 用于状态证明，轻客户端可以通过此根验证 Cell 状态。
 
-**跨边界暴露缺口**:
-- `rpc/core/src/model/header.rs` - `RpcHeader -> Header` / `RpcRawHeader -> Header` 时将 `cell_root` 置为 `Default::default()`
-- `rpc/grpc/core/proto/rpc.proto` - `RpcBlockHeader` 当前没有 `cellRoot`
-- `rpc/grpc/core/src/convert/header.rs` - 反序列化 `RpcBlockHeader` 时把 `cell_root` 硬编码为零哈希
-- `protocol/p2p/proto/p2p.proto` - `BlockHeader` 当前没有 `cellRoot`
-- `protocol/p2p/src/convert/header.rs` - P2P 反序列化时把 `cell_root` 硬编码为 `ZERO_HASH`
-- `consensus/client/src/header.rs` - JS/wasm bridge 在缺失 `cellRoot` 时为兼容旧对象默认填零哈希
+**跨边界暴露状态**: 已修复
 
-**建议**: 完成 `cell_root` 在 RPC、P2P 和客户端桥接层的显式暴露，避免共识头跨边界后丢失状态根。
+**当前实现**:
+- `rpc/core/src/model/header.rs` - `RpcHeader` / `RpcRawHeader` 与 `Header` 的双向转换均显式保留 `cell_root`
+- `rpc/grpc/core/proto/rpc.proto` - `RpcBlockHeader` 已包含 `cellRoot`
+- `rpc/grpc/core/src/convert/header.rs` - gRPC 双向转换显式序列化/反序列化 `cell_root`
+- `protocol/p2p/proto/p2p.proto` - `BlockHeader` 已包含 `cellRoot`
+- `protocol/p2p/src/convert/header.rs` - P2P 双向转换显式序列化/反序列化 `cell_root`
+- `consensus/client/src/header.rs` - JS/wasm bridge 将 `cellRoot` 作为必填字段解析，不再做零哈希兼容回填
+
+**验证**:
+- `rpc/core/src/model/header.rs` - `test_rpc_header_roundtrip_preserves_cell_root`
+- `rpc/grpc/core/src/convert/header.rs` - `test_rpc_header`
+- `protocol/p2p/src/convert/header.rs` - `test_block_header_roundtrip_preserves_cell_root`
+
+**结论**: `cell_root` 现在已在 RPC、P2P 和客户端桥接层显式暴露，不再因跨边界转换而丢失状态根。
 
 ---
 
@@ -161,7 +168,7 @@ fn compute_cell_commitment_v0(cell_root: Hash) -> Hash {
    - `cell_commitment`: 版本化状态承诺
    - `cell_root`: 状态证明根
 
-4. **唯一实质问题不在 Header 设计本身，而在跨边界暴露**: `cell_root` 在共识内部是必需字段，但在 RPC、P2P 和部分客户端桥接层仍会丢失或被回填为零哈希。
+4. **此前的跨边界暴露缺口已关闭**: `cell_root` 现在已贯通 RPC、P2P 和客户端桥接层，不再在这些边界处丢失或被零哈希回填。
 
 ### 无删除建议
 
@@ -172,10 +179,9 @@ fn compute_cell_commitment_v0(cell_root: Hash) -> Hash {
 
 ### 改进建议
 
-1. **完成 RPC/P2P 暴露**: 将 `cell_root` 添加到 `RpcBlockHeader`、`BlockHeader` 及其双向转换
-2. **收敛兼容分支**: 待协议层补齐后，移除 JS/wasm bridge 对缺失 `cellRoot` 的零哈希回填
-3. **文档完善**: 为每个字段添加更详细的注释说明其用途
-4. **版本规划**: `cell_commitment` 的版本化设计为未来升级预留空间
+1. **保持跨边界测试覆盖**: 继续保留 `cell_root` 的 RPC/gRPC/P2P round-trip 测试，避免未来回归
+2. **文档完善**: 为每个字段添加更详细的注释说明其用途
+3. **版本规划**: `cell_commitment` 的版本化设计为未来升级预留空间
 
 ---
 

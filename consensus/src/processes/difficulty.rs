@@ -74,7 +74,7 @@ trait DifficultyManagerExtension {
     }
 }
 
-/// A difficulty manager conforming to the legacy golang implementation
+/// A difficulty manager conforming to the historical golang implementation
 /// based on full, hence un-sampled, windows
 #[derive(Clone)]
 pub struct FullDifficultyManager<T: HeaderStoreReader> {

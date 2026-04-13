@@ -12,7 +12,6 @@ use crate::{
 use itertools::Itertools;
 use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use spora_addresses::{Address, Prefix};
-use spora_consensus_core::tx::ScriptPublicKey;
 use spora_core::trace;
 use std::{
     collections::hash_set,
@@ -258,10 +257,6 @@ impl CellsChangedSubscriptionData {
     #[inline(always)]
     pub fn update_state(&mut self, new_state: CellsChangedState) {
         self.state = new_state;
-    }
-
-    pub fn contains(&self, spk: &ScriptPublicKey, context: &SubscriptionContext) -> bool {
-        context.address_tracker.contains(&self.indexes, spk)
     }
 
     pub fn len(&self) -> usize {

@@ -161,10 +161,6 @@ The Spora RPC API supports two main communication protocols:
     - `include_accepted_transaction_ids` (bool) - Whether to include accepted transaction IDs
   - Returns: Virtual chain information
 
-- **`get_subnetwork`** - Get subnetwork information
-  - Parameters: `subnetwork_id` (RpcSubnetworkId) - Subnetwork ID
-  - Returns: Subnetwork information
-
 - **`resolve_finality_conflict`** - Resolve finality conflict
   - Parameters: `finality_block_hash` (RpcHash) - Finality block hash
   - Returns: Empty response or error message

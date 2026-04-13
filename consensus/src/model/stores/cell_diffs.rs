@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Spora developers
 //
 // Cell diffs store - stores Cell state differences for each block
-// Replaces the legacy diff store with pure Cell model
+// Replaces the previous diff store with the pure Cell model
 
 use std::sync::Arc;
 

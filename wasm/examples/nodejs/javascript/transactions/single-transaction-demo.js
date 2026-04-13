@@ -78,8 +78,7 @@ const { networkId, encoding } = require("../utils").parseArgs();
         // outputs: IPaymentOutput[], 
         // priority_fee: bigint, 
         // payload: HexString | Uint8Array, 
-        // sig_op_count?: number
-        const tx = createTransaction(cells, outputs, 0n, "", 1);
+        const tx = createTransaction(cells, outputs, 0n, "");
 
 
         console.info("Transaction before signing:", tx);

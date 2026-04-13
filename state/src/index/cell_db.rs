@@ -190,15 +190,6 @@ impl CellDB {
         Ok(())
     }
 
-    /// Spend a Cell using a legacy DAA-only tombstone.
-    ///
-    /// Deprecated: use [`CellDB::spend_in_block`] so the journal records the
-    /// spending block hash as the branch-aware anchor.
-    #[deprecated(note = "use spend_in_block; DAA-only spend records are not branch-aware")]
-    pub fn spend(&self, out_point: &OutPoint, spent_at_daa: u64) -> Result<()> {
-        self.spend_in_block(out_point, spent_at_daa, [0; 32])
-    }
-
     /// Check if a Cell is spent
     pub fn is_spent(&self, out_point: &OutPoint) -> Result<Option<u64>> {
         let cf = self.db.cf_handle(CF_SPENT).ok_or_else(|| StateError::Database("CF_SPENT not found".to_string()))?;
@@ -268,22 +259,11 @@ impl CellDB {
         Ok(())
     }
 
-    /// Batch spend Cells using a legacy DAA-only tombstone.
-    ///
-    /// Deprecated: use [`CellDB::batch_spend_in_block`] so the journal records
-    /// the spending block hash as the branch-aware anchor.
-    #[deprecated(note = "use batch_spend_in_block; DAA-only spend records are not branch-aware")]
-    pub fn batch_spend(&self, spends: &[(OutPoint, u64)]) -> Result<()> {
-        let spends_with_block =
-            spends.iter().map(|(out_point, spent_at_daa)| (out_point.clone(), *spent_at_daa, [0; 32])).collect::<Vec<_>>();
-        self.batch_spend_in_block(&spends_with_block)
-    }
-
     /// Get Cell state at a specific DAA score.
     ///
-    /// Deprecated: this is an index/debug helper only. DAA does not uniquely
-    /// identify a DAG history POV, so this method must not be used for consensus
-    /// validation, reorg logic, or double-spend decisions.
+    /// This is an index/debug helper only. DAA does not uniquely identify a DAG
+    /// history POV, so this method must not be used for consensus validation,
+    /// reorg logic, or double-spend decisions.
     ///
     /// Logic:
     /// - Cell must have been created at or before `at_daa`
@@ -293,8 +273,7 @@ impl CellDB {
     ///
     /// Correct consensus queries must be anchored by block hash / POV, for
     /// example `get_cell_at_pov(outpoint, block_hash)`.
-    #[deprecated(note = "DAA-only historical queries are not branch-aware; use POV/block-hash anchored queries for consensus")]
-    pub fn get_cell_at_daa(&self, out_point: &OutPoint, at_daa: u64) -> Result<Option<CellMeta>> {
+    pub fn get_cell_snapshot_at_daa(&self, out_point: &OutPoint, at_daa: u64) -> Result<Option<CellMeta>> {
         let cf_cells = self.db.cf_handle(CF_CELLS).ok_or_else(|| StateError::Database("CF_CELLS not found".to_string()))?;
         let cf_journal =
             self.db.cf_handle(CF_SPEND_JOURNAL).ok_or_else(|| StateError::Database("CF_SPEND_JOURNAL not found".to_string()))?;
@@ -335,16 +314,12 @@ impl CellDB {
         Ok(None)
     }
 
-    /// Batch query Cells at a specific DAA score.
-    ///
-    /// Deprecated: index/debug only; see [`CellDB::get_cell_at_daa`].
-    #[deprecated(note = "DAA-only historical queries are not branch-aware; use POV/block-hash anchored queries for consensus")]
-    #[allow(deprecated)]
-    pub fn batch_get_at_daa(&self, out_points: &[OutPoint], at_daa: u64) -> Result<Vec<Option<CellMeta>>> {
+    /// Batch query Cells at a specific DAA score for index/debug use.
+    pub fn batch_get_cell_snapshots_at_daa(&self, out_points: &[OutPoint], at_daa: u64) -> Result<Vec<Option<CellMeta>>> {
         let mut results = Vec::with_capacity(out_points.len());
 
         for out_point in out_points {
-            results.push(self.get_cell_at_daa(out_point, at_daa)?);
+            results.push(self.get_cell_snapshot_at_daa(out_point, at_daa)?);
         }
 
         Ok(results)
@@ -410,7 +385,6 @@ pub struct CellDBStats {
 }
 
 #[cfg(test)]
-#[allow(deprecated)]
 mod tests {
     use super::*;
     use spora_exec::{CellOut, ScriptRef};
@@ -460,7 +434,7 @@ mod tests {
         let meta = create_test_cell_meta(1000, 100);
 
         db.put(&out_point, &meta).unwrap();
-        db.spend(&out_point, 200).unwrap();
+        db.spend_in_block(&out_point, 200, [0; 32]).unwrap();
 
         // Cell should no longer be in live set
         assert!(db.get(&out_point).unwrap().is_none());
@@ -527,7 +501,8 @@ mod tests {
         // Spend first two Cells
         let spends = vec![(OutPoint::new([0x01; 32], 0), 200), (OutPoint::new([0x02; 32], 0), 201)];
 
-        db.batch_spend(&spends).unwrap();
+        let spends_with_block = spends.iter().map(|(out_point, daa)| (out_point.clone(), *daa, [0; 32])).collect::<Vec<_>>();
+        db.batch_spend_in_block(&spends_with_block).unwrap();
 
         // Verify spends
         assert!(db.get(&OutPoint::new([0x01; 32], 0)).unwrap().is_none());
@@ -546,13 +521,13 @@ mod tests {
         db.put(&out_point, &meta).unwrap();
 
         // Query before creation: should be None
-        assert_eq!(db.get_cell_at_daa(&out_point, 40).unwrap(), None);
+        assert_eq!(db.get_cell_snapshot_at_daa(&out_point, 40).unwrap(), None);
 
         // Query at creation: should be Some
-        assert_eq!(db.get_cell_at_daa(&out_point, 50).unwrap(), Some(meta.clone()));
+        assert_eq!(db.get_cell_snapshot_at_daa(&out_point, 50).unwrap(), Some(meta.clone()));
 
         // Query after creation: should be Some (still live)
-        assert_eq!(db.get_cell_at_daa(&out_point, 100).unwrap(), Some(meta));
+        assert_eq!(db.get_cell_snapshot_at_daa(&out_point, 100).unwrap(), Some(meta));
     }
 
     #[test]
@@ -564,21 +539,21 @@ mod tests {
         let meta = create_test_cell_meta(1000, 50); // Created at DAA 50
 
         db.put(&out_point, &meta).unwrap();
-        db.spend(&out_point, 150).unwrap(); // Spent at DAA 150
+        db.spend_in_block(&out_point, 150, [0; 32]).unwrap(); // Spent at DAA 150
 
         // Query before creation: None
-        assert_eq!(db.get_cell_at_daa(&out_point, 40).unwrap(), None);
+        assert_eq!(db.get_cell_snapshot_at_daa(&out_point, 40).unwrap(), None);
 
         // Query when live (50 <= 100 < 150): Some
-        let result = db.get_cell_at_daa(&out_point, 100).unwrap();
+        let result = db.get_cell_snapshot_at_daa(&out_point, 100).unwrap();
         assert!(result.is_some());
         assert_eq!(result.unwrap().cell_output.capacity, 1000);
 
         // Query at spend point (DAA 150): None (just spent)
-        assert_eq!(db.get_cell_at_daa(&out_point, 150).unwrap(), None);
+        assert_eq!(db.get_cell_snapshot_at_daa(&out_point, 150).unwrap(), None);
 
         // Query after spend: None
-        assert_eq!(db.get_cell_at_daa(&out_point, 200).unwrap(), None);
+        assert_eq!(db.get_cell_snapshot_at_daa(&out_point, 200).unwrap(), None);
     }
 
     #[test]
@@ -594,10 +569,10 @@ mod tests {
         let meta = create_test_cell_meta(1000, 50);
 
         db.put(&out_point, &meta).unwrap();
-        db.spend(&out_point, 150).unwrap();
+        db.spend_in_block(&out_point, 150, [0; 32]).unwrap();
 
         // Reorg validation: Check if Cell was live at DAA 100
-        let cell_at_100 = db.get_cell_at_daa(&out_point, 100).unwrap();
+        let cell_at_100 = db.get_cell_snapshot_at_daa(&out_point, 100).unwrap();
         let cell_at_100 = cell_at_100.expect("cell should be live at daa 100");
         assert_eq!(cell_at_100.cell_output.capacity, 1000);
         assert_eq!(cell_at_100.daa_score, 50);
@@ -618,14 +593,14 @@ mod tests {
         let meta = create_test_cell_meta(2000, 50);
 
         db.put(&out_point, &meta).unwrap();
-        db.spend(&out_point, 120).unwrap();
+        db.spend_in_block(&out_point, 120, [0; 32]).unwrap();
 
         // Query at DAA 100: Cell should be live (50 <= 100 < 120)
-        let result = db.get_cell_at_daa(&out_point, 100).unwrap();
+        let result = db.get_cell_snapshot_at_daa(&out_point, 100).unwrap();
         assert!(result.is_some());
 
         // Query at DAA 130: Cell should be spent (130 >= 120)
-        let result = db.get_cell_at_daa(&out_point, 130).unwrap();
+        let result = db.get_cell_snapshot_at_daa(&out_point, 130).unwrap();
         assert!(result.is_none());
     }
 
@@ -647,10 +622,10 @@ mod tests {
         db.put(&out3, &meta3).unwrap();
 
         // Spend meta2 at DAA 100
-        db.spend(&out2, 100).unwrap();
+        db.spend_in_block(&out2, 100, [0; 32]).unwrap();
 
         // Batch query at DAA 80
-        let results = db.batch_get_at_daa(&[out1.clone(), out2.clone(), out3.clone()], 80).unwrap();
+        let results = db.batch_get_cell_snapshots_at_daa(&[out1.clone(), out2.clone(), out3.clone()], 80).unwrap();
 
         assert!(results[0].is_some()); // meta1: created at 50, still live
         assert!(results[1].is_some()); // meta2: created at 60, spent at 100 (live at 80)

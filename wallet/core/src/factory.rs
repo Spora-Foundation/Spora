@@ -31,7 +31,6 @@ pub fn factories() -> &'static FactoryMap {
 
         let factories: &[(AccountKind, Arc<dyn Factory + Sync + Send + 'static>)] = &[
             (BIP32_ACCOUNT_KIND.into(), Arc::new(bip32::Ctor {})),
-            (LEGACY_ACCOUNT_KIND.into(), Arc::new(legacy::Ctor {})),
             (MULTISIG_ACCOUNT_KIND.into(), Arc::new(multisig::Ctor {})),
             (KEYPAIR_ACCOUNT_KIND.into(), Arc::new(keypair::Ctor {})),
             (BIP32_WATCH_ACCOUNT_KIND.into(), Arc::new(bip32watch::Ctor {})),

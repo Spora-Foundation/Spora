@@ -116,7 +116,7 @@ impl ConsensusConverter {
 
     /// Converts a consensus [`Block`] into an [`RpcBlock`], optionally including transaction verbose data.
     ///
-    /// _GO-Sporad: PopulateBlockWithVerboseData_
+    /// Mirrors the previous Go implementation's block verbose-data population behavior.
     pub async fn get_block(
         &self,
         consensus: &ConsensusProxy,

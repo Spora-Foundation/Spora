@@ -1,9 +1,9 @@
 // RPC-related types. Request messages, response messages, and dependant types.
 //
-// Clients are expected to build RequestMessages and wrap them in sporadMessage. (see messages.proto)
+// Clients are expected to build RequestMessages and wrap them in RpcRequest. (see messages.proto)
 //
-// Having received a RequestMessage, (wrapped in a sporadMessage) the RPC server will respond with a
-// ResponseMessage (likewise wrapped in a sporadMessage) respective to the original RequestMessage.
+// Having received a RequestMessage, (wrapped in a RpcRequest) the RPC server will respond with a
+// ResponseMessage (likewise wrapped in a RpcResponse) respective to the original RequestMessage.
 //
 //
 syntax = "proto3";
@@ -29,6 +29,7 @@ message RpcBlockHeader {
   string acceptedIdMerkleRoot = 4;
   string cellCommitment = 5;  // Replaced utxoCommitment with cellCommitment (SPORA Cell model)
   string cellRoot = 11;
+  string segmentRoot = 15;
   int64 timestamp = 6;
   uint32 bits = 7;
   uint64 nonce = 8;
@@ -72,28 +73,28 @@ message RpcTransaction {
 
 message RpcTransactionInput {
   RpcOutpoint previousOutpoint = 1;
-  string signatureScript = 2;
-  uint64 sequence = 3;
-  uint32 sigOpCount = 5;
+  uint64 since = 2;
+  string witness = 3;
   RpcTransactionInputVerboseData verboseData = 4;
-  optional uint64 since = 6;
-  optional string witness = 7;
 }
 
-message RpcScriptPublicKey {
-  uint32 version = 1;
-  string scriptPublicKey = 2;
+message RpcScriptRef {
+  string codeHash = 1;
+  uint32 hashType = 2;
+  string args = 3;
 }
 
 message RpcTransactionOutput {
   uint64 amount = 1;
-  RpcScriptPublicKey scriptPublicKey = 2;
+  RpcScriptRef lockScript = 2;
   RpcTransactionOutputVerboseData verboseData = 3;
   uint64 capacity = 4;
   uint64 dataBytes = 5;
   string lockHash = 6;
   string typeHash = 7;
   string dataHash = 8;
+  RpcScriptRef typeScript = 9;
+  string outputData = 10;
 }
 
 message RpcOutpoint {
@@ -103,14 +104,13 @@ message RpcOutpoint {
 
 message RpcCellEntry {
   uint64 amount = 1;
-  RpcScriptPublicKey scriptPublicKey = 2;
-  uint64 blockDaaScore = 3;
-  bool isCoinbase = 4;
-  uint64 capacity = 5;
-  uint64 dataBytes = 6;
-  string lockHash = 7;
-  string typeHash = 8;
-  string dataHash = 9;
+  uint64 blockDaaScore = 2;
+  bool isCoinbase = 3;
+  uint64 capacity = 4;
+  uint64 dataBytes = 5;
+  string lockHash = 6;
+  string typeHash = 7;
+  string dataHash = 8;
 }
 
 message RpcTransactionVerboseData{
@@ -125,8 +125,8 @@ message RpcTransactionInputVerboseData{
 }
 
 message RpcTransactionOutputVerboseData{
-  string scriptPublicKeyType = 5;
-  string scriptPublicKeyAddress = 6;
+  string lockScriptType = 5;
+  string lockScriptAddress = 6;
 }
 
 enum RpcNotifyCommand {
@@ -134,7 +134,7 @@ enum RpcNotifyCommand {
   NOTIFY_STOP = 1;
 }
 
-// GetCurrentNetworkRequestMessage requests the network Sporad is currently running against.
+// GetCurrentNetworkRequestMessage requests the network Spora is currently running against.
 //
 // Possible networks are: Mainnet, Testnet, Simnet, Devnet
 message GetCurrentNetworkRequestMessage{
@@ -177,9 +177,9 @@ message GetBlockTemplateRequestMessage{
 message GetBlockTemplateResponseMessage{
   RpcBlock block = 3;
 
-  // Whether Sporad thinks that it's synced.
-  // Callers are discouraged (but not forbidden) from solving blocks when Sporad is not synced.
-  // That is because when Sporad isn't in sync with the rest of the network there's a high
+  // Whether Spora thinks that it's synced.
+  // Callers are discouraged (but not forbidden) from solving blocks when Spora is not synced.
+  // That is because when Spora isn't in sync with the rest of the network there's a high
   // chance the block will never be accepted, thus the solving effort would have been wasted.
   bool isSynced = 2;
 
@@ -205,7 +205,7 @@ message BlockAddedNotificationMessage{
   RpcBlock block = 3;
 }
 
-// GetPeerAddressesRequestMessage requests the list of known Sporad addresses in the
+// GetPeerAddressesRequestMessage requests the list of known Spora addresses in the
 // current network. (mainnet, testnet, etc.)
 message GetPeerAddressesRequestMessage{
 }
@@ -265,7 +265,7 @@ message RpcMempoolEntry{
 }
 
 // GetConnectedPeerInfoRequestMessage requests information about all the p2p peers
-// currently connected to this Sporad.
+// currently connected to this Spora node.
 message GetConnectedPeerInfoRequestMessage{
 }
 
@@ -281,7 +281,7 @@ message GetConnectedPeerInfoMessage{
   // How long did the last ping/pong exchange take
   int64 lastPingDuration = 3;
 
-  // Whether this Sporad initiated the connection
+  // Whether this Spora initiated the connection
   bool isOutbound = 6;
   int64 timeOffset = 7;
   string userAgent = 8;
@@ -289,15 +289,15 @@ message GetConnectedPeerInfoMessage{
   // The protocol version that this peer claims to support
   uint32 advertisedProtocolVersion = 9;
 
-  // The timestamp of when this peer connected to this Sporad
+  // The timestamp of when this peer connected to this Spora node
   int64 timeConnected = 10;
 
   // Whether this peer is the IBD peer (if IBD is running)
   bool isIbdPeer = 11;
 }
 
-// AddPeerRequestMessage adds a peer to Sporad's outgoing connection list.
-// This will, in most cases, result in Sporad connecting to said peer.
+// AddPeerRequestMessage adds a peer to Spora node's outgoing connection list.
+// This will, in most cases, result in Spora connecting to said peer.
 message AddPeerRequestMessage{
   string address = 1;
 
@@ -399,20 +399,8 @@ message GetTransactionResponseMessage{
   RPCError error = 1000;
 }
 
-// GetSubnetworkRequestMessage requests information about a specific subnetwork
-//
-// Currently unimplemented
-message GetSubnetworkRequestMessage{
-  string subnetworkId = 1;
-}
-
-message GetSubnetworkResponseMessage{
-  uint64 gasLimit = 1;
-  RPCError error = 1000;
-}
-
 /// GetVirtualChainFromBlockRequestMessage requests the virtual selected
-/// parent chain from some startHash to this Sporad's current virtual
+/// parent chain from some startHash to this Spora node's current virtual
 /// Note:
 ///     this call batches the response to:
 ///         a. the network's `mergeset size limit * 10` amount of added chain blocks, if `includeAcceptedTransactionIds = false`
@@ -444,7 +432,7 @@ message GetVirtualChainFromBlockResponseMessage{
 }
 
 // GetBlocksRequestMessage requests blocks between a certain block lowHash up to this
-// Sporad's current virtual.
+// Spora node's current virtual.
 message GetBlocksRequestMessage{
   string lowHash = 1;
   bool includeBlocks = 2;
@@ -457,7 +445,7 @@ message GetBlocksResponseMessage{
   RPCError error = 1000;
 }
 
-// GetBlockCountRequestMessage requests the current number of blocks in this Sporad.
+// GetBlockCountRequestMessage requests the current number of blocks in this Spora node.
 // Note that this number may decrease as pruning occurs.
 message GetBlockCountRequestMessage{
 }
@@ -469,7 +457,7 @@ message GetBlockCountResponseMessage{
 }
 
 // GetBlockDagInfoRequestMessage requests general information about the current state
-// of this Sporad's DAG.
+// of this Spora node's DAG.
 message GetBlockDagInfoRequestMessage{
 }
 
@@ -511,7 +499,7 @@ message FinalityConflictResolvedNotificationMessage{
   string finalityBlockHash = 1;
 }
 
-// ShutdownRequestMessage shuts down this Sporad.
+// ShutdownRequestMessage shuts down this Spora node.
 message ShutdownRequestMessage{
 }
 
@@ -544,7 +532,7 @@ message GetHeadersResponseMessage{
 // NotifyCellsChangedRequestMessage registers this connection for cellsChanged notifications
 // for the given addresses.
 //
-// This call is only available when this Sporad was started with `--cellindex`
+// This call is only available when this Spora was started with `--cellindex`
 //
 // See: CellsChangedNotificationMessage
 message NotifyCellsChangedRequestMessage {
@@ -575,12 +563,12 @@ message RpcCellsByAddressesEntry {
 // StopNotifyingCellsChangedRequestMessage unregisters this connection for cellsChanged notifications
 // for the given addresses.
 //
-// This call is only available when this Sporad was started with `--cellindex`
+// This call is only available when this Spora was started with `--cellindex`
 //
 // See: CellsChangedNotificationMessage
 //
-// This message only exists for backward compatibility reason with Sporad and is deprecated.
-// Use instead CellsChangedNotificationMessage with command = NOTIFY_STOP.
+// Transitional stop-notify request message.
+// Prefer CellsChangedNotificationMessage with command = NOTIFY_STOP.
 message StopNotifyingCellsChangedRequestMessage {
   repeated string addresses = 1;
 }
@@ -602,9 +590,9 @@ message GetCellsByAddressResponseMessage {
   RPCError error = 1000;
 }
 
-// GetCellsByAddressesRequestMessage requests all current cells for the given Sporad addresses
+// GetCellsByAddressesRequestMessage requests all current cells for the given Spora addresses
 //
-// This call is only available when this Sporad was started with `--cellindex`
+// This call is only available when this Spora was started with `--cellindex`
 message GetCellsByAddressesRequestMessage {
   repeated string addresses = 1;
 }
@@ -617,7 +605,7 @@ message GetCellsByAddressesResponseMessage {
 
 // GetBalanceByAddressRequest returns the total balance in unspent transactions towards a given address
 //
-// This call is only available when this Sporad was started with `--cellindex`
+// This call is only available when this Spora was started with `--cellindex`
 message GetBalanceByAddressRequestMessage {
   string address = 1;
 }
@@ -699,7 +687,7 @@ message VirtualDaaScoreChangedNotificationMessage {
 // NotifyPruningPointCellSetOverrideRequestMessage registers this connection for
 // pruning point cell set override notifications.
 //
-// This call is only available when this Sporad was started with `--cellindex`
+// This call is only available when this Spora was started with `--cellindex`
 //
 // See: NotifyPruningPointCellSetOverrideResponseMessage
 message NotifyPruningPointCellSetOverrideRequestMessage {
@@ -721,12 +709,12 @@ message PruningPointCellSetOverrideNotificationMessage {
 // StopNotifyingPruningPointCellSetOverrideRequestMessage unregisters this connection for
 // pruning point cell set override notifications.
 //
-// This call is only available when this Sporad was started with `--cellindex`
+// This call is only available when this Spora was started with `--cellindex`
 //
 // See: PruningPointCellSetOverrideNotificationMessage
 //
-// This message only exists for backward compatibility reason with Sporad and is deprecated.
-// Use instead NotifyPruningPointCellSetOverrideRequestMessage with command = NOTIFY_STOP.
+// Transitional stop-notify request message.
+// Prefer NotifyPruningPointCellSetOverrideRequestMessage with command = NOTIFY_STOP.
 message StopNotifyingPruningPointCellSetOverrideRequestMessage {
 }
 

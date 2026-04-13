@@ -271,13 +271,6 @@ from!(item: RpcResult<&spora_rpc_core::SubmitTransactionReplacementResponse>, pr
     Self { transaction_id: item.transaction_id.to_string(), replaced_transaction: Some((&item.replaced_transaction).into()), error: None }
 });
 
-from!(item: &spora_rpc_core::GetSubnetworkRequest, protowire::GetSubnetworkRequestMessage, {
-    Self { subnetwork_id: item.subnetwork_id.to_string() }
-});
-from!(item: RpcResult<&spora_rpc_core::GetSubnetworkResponse>, protowire::GetSubnetworkResponseMessage, {
-    Self { gas_limit: item.gas_limit, error: None }
-});
-
 // ~~~
 
 from!(item: &spora_rpc_core::GetVirtualChainFromBlockRequest, protowire::GetVirtualChainFromBlockRequestMessage, {
@@ -811,13 +804,6 @@ try_from!(item: &protowire::SubmitTransactionReplacementResponseMessage, RpcResu
             .ok_or_else(|| RpcError::MissingRpcFieldError("SubmitTransactionReplacementRequestMessage".to_string(), "replaced_transaction".to_string()))?
             .try_into()?,
     }
-});
-
-try_from!(item: &protowire::GetSubnetworkRequestMessage, spora_rpc_core::GetSubnetworkRequest, {
-    Self { subnetwork_id: spora_rpc_core::RpcSubnetworkId::from_str(&item.subnetwork_id)? }
-});
-try_from!(item: &protowire::GetSubnetworkResponseMessage, RpcResult<spora_rpc_core::GetSubnetworkResponse>, {
-    Self { gas_limit: item.gas_limit }
 });
 
 try_from!(item: &protowire::GetVirtualChainFromBlockRequestMessage, spora_rpc_core::GetVirtualChainFromBlockRequest, {

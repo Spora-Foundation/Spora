@@ -31,6 +31,7 @@ export interface IHeader {
     acceptedIdMerkleRoot: HexString;
     cellCommitment: HexString;
     cellRoot: HexString;
+    segmentRoot: HexString;
     timestamp: bigint;
     bits: number;
     nonce: bigint;
@@ -55,6 +56,7 @@ export interface IRawHeader {
     acceptedIdMerkleRoot: HexString;
     cellCommitment: HexString;
     cellRoot: HexString;
+    segmentRoot: HexString;
     timestamp: bigint;
     bits: number;
     nonce: bigint;
@@ -227,6 +229,16 @@ impl Header {
         self.inner_mut().cell_root = Hash::from_slice(&js_value.try_as_vec_u8().expect("cell root"));
     }
 
+    #[wasm_bindgen(getter = segmentRoot)]
+    pub fn get_segment_root_as_hex(&self) -> String {
+        self.inner().segment_root.to_hex()
+    }
+
+    #[wasm_bindgen(setter = segmentRoot)]
+    pub fn set_segment_root_from_js_value(&mut self, js_value: JsValue) {
+        self.inner_mut().segment_root = Hash::from_slice(&js_value.try_as_vec_u8().expect("segment root"));
+    }
+
     #[wasm_bindgen(getter = pruningPoint)]
     pub fn get_pruning_point_as_hex(&self) -> String {
         self.inner().pruning_point.to_hex()
@@ -313,6 +325,10 @@ impl TryCastFromJs for Header {
                         .try_into_owned()
                         .map_err(|err| Error::convert("cellCommitment", err))?,
                     cell_root: object.get_value("cellRoot")?.try_into_owned().map_err(|err| Error::convert("cellRoot", err))?,
+                    segment_root: object
+                        .get_value("segmentRoot")?
+                        .try_into_owned()
+                        .map_err(|err| Error::convert("segmentRoot", err))?,
                     nonce: object.get_u64("nonce")?,
                     timestamp: object.get_u64("timestamp")?,
                     daa_score: object.get_u64("daaScore")?,

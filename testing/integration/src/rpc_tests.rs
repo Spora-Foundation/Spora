@@ -4,9 +4,9 @@ use crate::common::{client_notify::ChannelNotify, daemon::Daemon};
 use futures_util::future::try_join_all;
 use spora_addresses::{Address, Prefix, Version};
 use spora_consensus::params::SIMNET_GENESIS;
-use spora_consensus_core::{constants::MAX_SAU, header::Header, subnets::SubnetworkId, tx::CellTx};
+use spora_consensus_core::{constants::MAX_SAU, header::Header, tx::CellTx};
 use spora_core::{assert_match, info};
-use spora_grpc_core::ops::SporadPayloadOps;
+use spora_grpc_core::ops::RpcPayloadOps;
 use spora_hashes::Hash;
 use spora_notify::{
     connection::{ChannelConnection, ChannelType},
@@ -68,10 +68,10 @@ async fn sanity_test() {
     // The intent of this for/match design (emphasizing the absence of an arm with fallback pattern in the match)
     // is to force any implementor of a new RpcApi method to add a matching arm here and to strongly incentivize
     // the adding of an actual sanity test of said new method.
-    for op in SporadPayloadOps::iter() {
+    for op in RpcPayloadOps::iter() {
         let network_id = daemon.network;
         let task: JoinHandle<()> = match op {
-            SporadPayloadOps::SubmitBlock => {
+            RpcPayloadOps::SubmitBlock => {
                 let rpc_client = client.clone();
                 tst!(op, {
                     // Register to basic virtual events in order to keep track of block submission
@@ -186,15 +186,15 @@ async fn sanity_test() {
                 })
             }
 
-            SporadPayloadOps::GetBlockTemplate => {
+            RpcPayloadOps::GetBlockTemplate => {
                 tst!(op, "see SubmitBlock")
             }
 
-            SporadPayloadOps::GetCurrentBlockColor => {
+            RpcPayloadOps::GetCurrentBlockColor => {
                 tst!(op, "see SubmitBlock")
             }
 
-            SporadPayloadOps::GetCurrentNetwork => {
+            RpcPayloadOps::GetCurrentNetwork => {
                 let rpc_client = client.clone();
                 tst!(op, {
                     let response = rpc_client.get_current_network_call(None, GetCurrentNetworkRequest {}).await.unwrap();
@@ -202,7 +202,7 @@ async fn sanity_test() {
                 })
             }
 
-            SporadPayloadOps::GetBlock => {
+            RpcPayloadOps::GetBlock => {
                 let rpc_client = client.clone();
                 tst!(op, {
                     let result =
@@ -217,7 +217,7 @@ async fn sanity_test() {
                 })
             }
 
-            SporadPayloadOps::GetBlockStatus => {
+            RpcPayloadOps::GetBlockStatus => {
                 let rpc_client = client.clone();
                 tst!(op, {
                     let result = rpc_client.get_block_status_call(None, GetBlockStatusRequest { hash: 0.into() }).await;
@@ -229,7 +229,7 @@ async fn sanity_test() {
                 })
             }
 
-            SporadPayloadOps::GetTransaction => {
+            RpcPayloadOps::GetTransaction => {
                 let rpc_client = client.clone();
                 tst!(op, {
                     let result = rpc_client.get_transaction_call(None, GetTransactionRequest { hash: 0.into() }).await;
@@ -243,8 +243,8 @@ async fn sanity_test() {
                         .await
                         .unwrap();
                     let maybe_txid = template.block.transactions.first().cloned().map(|first_tx| {
-                        let transaction: Transaction = first_tx.try_into().expect("rpc transaction must convert");
-                        transaction.id()
+                        let transaction = CellTx::try_from(first_tx).expect("rpc transaction must convert");
+                        Hash::from_bytes(transaction.id())
                     });
 
                     if let Some(txid) = maybe_txid {
@@ -258,7 +258,7 @@ async fn sanity_test() {
                 })
             }
 
-            SporadPayloadOps::GetBlocks => {
+            RpcPayloadOps::GetBlocks => {
                 let rpc_client = client.clone();
                 tst!(op, {
                     let response = rpc_client
@@ -271,7 +271,7 @@ async fn sanity_test() {
                 })
             }
 
-            SporadPayloadOps::GetInfo => {
+            RpcPayloadOps::GetInfo => {
                 let rpc_client = client.clone();
                 tst!(op, {
                     let response = rpc_client.get_info_call(None, GetInfoRequest {}).await.unwrap();
@@ -283,21 +283,21 @@ async fn sanity_test() {
                 })
             }
 
-            SporadPayloadOps::Shutdown => {
+            RpcPayloadOps::Shutdown => {
                 // This test is purposely left blank since shutdown can only be tested after all other
                 // tests completed
                 tst!(op, "must be run in the end")
             }
 
-            SporadPayloadOps::GetPeerAddresses => {
+            RpcPayloadOps::GetPeerAddresses => {
                 tst!(op, "see AddPeer, Ban")
             }
 
-            SporadPayloadOps::GetSink => {
+            RpcPayloadOps::GetSink => {
                 tst!(op, "see SubmitBlock")
             }
 
-            SporadPayloadOps::GetMempoolEntry => {
+            RpcPayloadOps::GetMempoolEntry => {
                 let rpc_client = client.clone();
                 tst!(op, {
                     let response_result = rpc_client
@@ -316,7 +316,7 @@ async fn sanity_test() {
                 })
             }
 
-            SporadPayloadOps::GetMempoolEntries => {
+            RpcPayloadOps::GetMempoolEntries => {
                 let rpc_client = client.clone();
                 tst!(op, {
                     let response = rpc_client
@@ -330,7 +330,7 @@ async fn sanity_test() {
                 })
             }
 
-            SporadPayloadOps::GetConnectedPeerInfo => {
+            RpcPayloadOps::GetConnectedPeerInfo => {
                 let rpc_client = client.clone();
                 tst!(op, {
                     let response = rpc_client.get_connected_peer_info_call(None, GetConnectedPeerInfoRequest {}).await.unwrap();
@@ -338,7 +338,7 @@ async fn sanity_test() {
                 })
             }
 
-            SporadPayloadOps::AddPeer => {
+            RpcPayloadOps::AddPeer => {
                 let rpc_client = client.clone();
                 tst!(op, {
                     let peer_address = ContextualNetAddress::from_str("1.2.3.4").unwrap();
@@ -352,7 +352,7 @@ async fn sanity_test() {
                 })
             }
 
-            SporadPayloadOps::Ban => {
+            RpcPayloadOps::Ban => {
                 let rpc_client = client.clone();
                 tst!(op, {
                     let peer_address = ContextualNetAddress::from_str("5.6.7.8").unwrap();
@@ -370,56 +370,41 @@ async fn sanity_test() {
                 })
             }
 
-            SporadPayloadOps::Unban => {
+            RpcPayloadOps::Unban => {
                 tst!(op, "see Ban")
             }
 
-            SporadPayloadOps::SubmitTransaction => {
+            RpcPayloadOps::SubmitTransaction => {
                 let rpc_client = client.clone();
                 tst!(op, {
                     // Build an erroneous transaction...
-                    let transaction = Transaction::new_native(0, vec![], vec![], vec![]);
+                    let transaction = CellTx::new(vec![], vec![], vec![], vec![], vec![]).expect("empty tx should be constructible");
                     let result = rpc_client.submit_transaction((&transaction).into(), false).await;
                     // ...that gets rejected by the consensus
                     assert!(result.is_err());
                 })
             }
 
-            SporadPayloadOps::SubmitTransactionReplacement => {
+            RpcPayloadOps::SubmitTransactionReplacement => {
                 let rpc_client = client.clone();
                 tst!(op, {
                     // Build an erroneous transaction...
-                    let transaction = Transaction::new_native(0, vec![], vec![], vec![]);
+                    let transaction = CellTx::new(vec![], vec![], vec![], vec![], vec![]).expect("empty tx should be constructible");
                     let result = rpc_client.submit_transaction_replacement((&transaction).into()).await;
                     // ...that gets rejected by the consensus
                     assert!(result.is_err());
                 })
             }
 
-            SporadPayloadOps::GetSubnetwork => {
-                let rpc_client = client.clone();
-                tst!(op, {
-                    let result = rpc_client
-                        .get_subnetwork_call(
-                            None,
-                            GetSubnetworkRequest { subnetwork_id: spora_rpc_core::model::RpcSubnetworkId::from_byte(0) },
-                        )
-                        .await;
-
-                    // Err because it's currently unimplemented
-                    assert!(result.is_err());
-                })
-            }
-
-            SporadPayloadOps::GetVirtualChainFromBlock => {
+            RpcPayloadOps::GetVirtualChainFromBlock => {
                 tst!(op, "see SubmitBlock")
             }
 
-            SporadPayloadOps::GetBlockCount => {
+            RpcPayloadOps::GetBlockCount => {
                 tst!(op, "see SubmitBlock")
             }
 
-            SporadPayloadOps::GetBlockDagInfo => {
+            RpcPayloadOps::GetBlockDagInfo => {
                 let rpc_client = client.clone();
                 tst!(op, {
                     let response = rpc_client.get_block_dag_info_call(None, GetBlockDagInfoRequest {}).await.unwrap();
@@ -427,7 +412,7 @@ async fn sanity_test() {
                 })
             }
 
-            SporadPayloadOps::ResolveFinalityConflict => {
+            RpcPayloadOps::ResolveFinalityConflict => {
                 let rpc_client = client.clone();
                 tst!(op, {
                     let response_result = rpc_client
@@ -442,7 +427,7 @@ async fn sanity_test() {
                 })
             }
 
-            SporadPayloadOps::GetHeader => {
+            RpcPayloadOps::GetHeader => {
                 let rpc_client = client.clone();
                 tst!(op, {
                     let result = rpc_client.get_header_call(None, GetHeaderRequest { hash: 0.into() }).await;
@@ -453,7 +438,7 @@ async fn sanity_test() {
                 })
             }
 
-            SporadPayloadOps::GetHeaders => {
+            RpcPayloadOps::GetHeaders => {
                 let rpc_client = client.clone();
                 tst!(op, {
                     let response_result = rpc_client
@@ -465,7 +450,7 @@ async fn sanity_test() {
                 })
             }
 
-            SporadPayloadOps::GetCellsByAddress => {
+            RpcPayloadOps::GetCellsByAddress => {
                 let rpc_client = client.clone();
                 tst!(op, {
                     let response = rpc_client
@@ -477,7 +462,7 @@ async fn sanity_test() {
                 })
             }
 
-            SporadPayloadOps::GetCellsByAddresses => {
+            RpcPayloadOps::GetCellsByAddresses => {
                 let rpc_client = client.clone();
                 tst!(op, {
                     let addresses = vec![test_address(0)];
@@ -487,7 +472,7 @@ async fn sanity_test() {
                 })
             }
 
-            SporadPayloadOps::GetBalanceByAddress => {
+            RpcPayloadOps::GetBalanceByAddress => {
                 let rpc_client = client.clone();
                 tst!(op, {
                     let response = rpc_client
@@ -498,7 +483,7 @@ async fn sanity_test() {
                 })
             }
 
-            SporadPayloadOps::GetBalancesByAddresses => {
+            RpcPayloadOps::GetBalancesByAddresses => {
                 let rpc_client = client.clone();
                 tst!(op, {
                     let addresses = vec![test_address(1)];
@@ -516,7 +501,7 @@ async fn sanity_test() {
                 })
             }
 
-            SporadPayloadOps::GetSinkBlueScore => {
+            RpcPayloadOps::GetSinkBlueScore => {
                 let rpc_client = client.clone();
                 tst!(op, {
                     let response = rpc_client.get_sink_blue_score_call(None, GetSinkBlueScoreRequest {}).await.unwrap();
@@ -525,7 +510,7 @@ async fn sanity_test() {
                 })
             }
 
-            SporadPayloadOps::EstimateNetworkHashesPerSecond => {
+            RpcPayloadOps::EstimateNetworkHashesPerSecond => {
                 let rpc_client = client.clone();
                 tst!(op, {
                     let response_result = rpc_client
@@ -539,7 +524,7 @@ async fn sanity_test() {
                 })
             }
 
-            SporadPayloadOps::GetMempoolEntriesByAddresses => {
+            RpcPayloadOps::GetMempoolEntriesByAddresses => {
                 let rpc_client = client.clone();
                 tst!(op, {
                     let addresses = vec![test_address(0)];
@@ -557,7 +542,7 @@ async fn sanity_test() {
                 })
             }
 
-            SporadPayloadOps::GetCoinSupply => {
+            RpcPayloadOps::GetCoinSupply => {
                 let rpc_client = client.clone();
                 tst!(op, {
                     let response = rpc_client.get_coin_supply_call(None, GetCoinSupplyRequest {}).await.unwrap();
@@ -566,21 +551,21 @@ async fn sanity_test() {
                 })
             }
 
-            SporadPayloadOps::Ping => {
+            RpcPayloadOps::Ping => {
                 let rpc_client = client.clone();
                 tst!(op, {
                     let _ = rpc_client.ping_call(None, PingRequest {}).await.unwrap();
                 })
             }
 
-            SporadPayloadOps::GetConnections => {
+            RpcPayloadOps::GetConnections => {
                 let rpc_client = client.clone();
                 tst!(op, {
                     let _ = rpc_client.get_connections_call(None, GetConnectionsRequest { include_profile_data: true }).await.unwrap();
                 })
             }
 
-            SporadPayloadOps::GetMetrics => {
+            RpcPayloadOps::GetMetrics => {
                 let rpc_client = client.clone();
                 tst!(op, {
                     let get_metrics_call_response = rpc_client
@@ -653,14 +638,14 @@ async fn sanity_test() {
                 })
             }
 
-            SporadPayloadOps::GetSystemInfo => {
+            RpcPayloadOps::GetSystemInfo => {
                 let rpc_client = client.clone();
                 tst!(op, {
                     let _response = rpc_client.get_system_info_call(None, GetSystemInfoRequest {}).await.unwrap();
                 })
             }
 
-            SporadPayloadOps::GetServerInfo => {
+            RpcPayloadOps::GetServerInfo => {
                 let rpc_client = client.clone();
                 tst!(op, {
                     let response = rpc_client.get_server_info_call(None, GetServerInfoRequest {}).await.unwrap();
@@ -669,14 +654,14 @@ async fn sanity_test() {
                 })
             }
 
-            SporadPayloadOps::GetSyncStatus => {
+            RpcPayloadOps::GetSyncStatus => {
                 let rpc_client = client.clone();
                 tst!(op, {
                     let _ = rpc_client.get_sync_status_call(None, GetSyncStatusRequest {}).await.unwrap();
                 })
             }
 
-            SporadPayloadOps::GetDaaScoreTimestampEstimate => {
+            RpcPayloadOps::GetDaaScoreTimestampEstimate => {
                 let rpc_client = client.clone();
                 tst!(op, {
                     let results = rpc_client
@@ -702,7 +687,7 @@ async fn sanity_test() {
                 })
             }
 
-            SporadPayloadOps::GetFeeEstimate => {
+            RpcPayloadOps::GetFeeEstimate => {
                 let rpc_client = client.clone();
                 tst!(op, {
                     let response = rpc_client.get_fee_estimate().await.unwrap();
@@ -715,7 +700,7 @@ async fn sanity_test() {
                 })
             }
 
-            SporadPayloadOps::GetFeeEstimateExperimental => {
+            RpcPayloadOps::GetFeeEstimateExperimental => {
                 let rpc_client = client.clone();
                 tst!(op, {
                     let response = rpc_client.get_fee_estimate_experimental(true).await.unwrap();
@@ -729,7 +714,7 @@ async fn sanity_test() {
                 })
             }
 
-            SporadPayloadOps::GetCellReturnAddress => {
+            RpcPayloadOps::GetCellReturnAddress => {
                 let rpc_client = client.clone();
                 tst!(op, {
                     let results = rpc_client.get_cell_return_address(RpcHash::from_bytes([0; 32]), 1000).await;
@@ -746,7 +731,7 @@ async fn sanity_test() {
                 })
             }
 
-            SporadPayloadOps::NotifyBlockAdded => {
+            RpcPayloadOps::NotifyBlockAdded => {
                 let rpc_client = client.clone();
                 let id = listener_id;
                 tst!(op, {
@@ -754,7 +739,7 @@ async fn sanity_test() {
                 })
             }
 
-            SporadPayloadOps::NotifyNewBlockTemplate => {
+            RpcPayloadOps::NotifyNewBlockTemplate => {
                 let rpc_client = client.clone();
                 let id = listener_id;
                 tst!(op, {
@@ -762,42 +747,42 @@ async fn sanity_test() {
                 })
             }
 
-            SporadPayloadOps::NotifyFinalityConflict => {
+            RpcPayloadOps::NotifyFinalityConflict => {
                 let rpc_client = client.clone();
                 let id = listener_id;
                 tst!(op, {
                     rpc_client.start_notify(id, FinalityConflictScope {}.into()).await.unwrap();
                 })
             }
-            SporadPayloadOps::NotifyCellsChanged => {
+            RpcPayloadOps::NotifyCellsChanged => {
                 let rpc_client = client.clone();
                 let id = listener_id;
                 tst!(op, {
                     rpc_client.start_notify(id, CellsChangedScope::new(vec![]).into()).await.unwrap();
                 })
             }
-            SporadPayloadOps::NotifySinkBlueScoreChanged => {
+            RpcPayloadOps::NotifySinkBlueScoreChanged => {
                 let rpc_client = client.clone();
                 let id = listener_id;
                 tst!(op, {
                     rpc_client.start_notify(id, SinkBlueScoreChangedScope {}.into()).await.unwrap();
                 })
             }
-            SporadPayloadOps::NotifyPruningPointCellSetOverride => {
+            RpcPayloadOps::NotifyPruningPointCellSetOverride => {
                 let rpc_client = client.clone();
                 let id = listener_id;
                 tst!(op, {
                     rpc_client.start_notify(id, PruningPointCellSetOverrideScope {}.into()).await.unwrap();
                 })
             }
-            SporadPayloadOps::NotifyVirtualDaaScoreChanged => {
+            RpcPayloadOps::NotifyVirtualDaaScoreChanged => {
                 let rpc_client = client.clone();
                 let id = listener_id;
                 tst!(op, {
                     rpc_client.start_notify(id, VirtualDaaScoreChangedScope {}.into()).await.unwrap();
                 })
             }
-            SporadPayloadOps::NotifyVirtualChainChanged => {
+            RpcPayloadOps::NotifyVirtualChainChanged => {
                 let rpc_client = client.clone();
                 let id = listener_id;
                 tst!(op, {
@@ -807,14 +792,14 @@ async fn sanity_test() {
                         .unwrap();
                 })
             }
-            SporadPayloadOps::StopNotifyingCellsChanged => {
+            RpcPayloadOps::StopNotifyingCellsChanged => {
                 let rpc_client = client.clone();
                 let id = listener_id;
                 tst!(op, {
                     rpc_client.stop_notify(id, CellsChangedScope::new(vec![]).into()).await.unwrap();
                 })
             }
-            SporadPayloadOps::StopNotifyingPruningPointCellSetOverride => {
+            RpcPayloadOps::StopNotifyingPruningPointCellSetOverride => {
                 let rpc_client = client.clone();
                 let id = listener_id;
                 tst!(op, {

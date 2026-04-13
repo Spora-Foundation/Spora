@@ -257,12 +257,12 @@ impl PendingTransaction {
         Ok(sign_input(&verifiable_tx, input_index, private_key, hash_type))
     }
 
-    pub fn fill_input(&self, input_index: usize, signature_script: Vec<u8>) -> Result<()> {
+    pub fn fill_input(&self, input_index: usize, witness: Vec<u8>) -> Result<()> {
         let mut mutable_tx = self.inner.signable_tx.lock()?.clone();
         while mutable_tx.tx.witnesses.len() < mutable_tx.tx.inputs.len() {
             mutable_tx.tx.witnesses.push(vec![]);
         }
-        mutable_tx.tx.witnesses[input_index] = signature_script;
+        mutable_tx.tx.witnesses[input_index] = witness;
         *self.inner.signable_tx.lock().unwrap() = mutable_tx;
 
         Ok(())
@@ -271,7 +271,7 @@ impl PendingTransaction {
     pub fn sign_input(&self, input_index: usize, private_key: &[u8; 32], hash_type: SigHashType) -> Result<()> {
         let mut mutable_tx = self.inner.signable_tx.lock()?.clone();
 
-        let signature_script = {
+        let witness = {
             let verifiable_tx = &mutable_tx.as_verifiable();
             sign_input(verifiable_tx, input_index, private_key, hash_type)
         };
@@ -279,7 +279,7 @@ impl PendingTransaction {
         while mutable_tx.tx.witnesses.len() < mutable_tx.tx.inputs.len() {
             mutable_tx.tx.witnesses.push(vec![]);
         }
-        mutable_tx.tx.witnesses[input_index] = signature_script;
+        mutable_tx.tx.witnesses[input_index] = witness;
         *self.inner.signable_tx.lock().unwrap() = mutable_tx;
 
         Ok(())
@@ -391,7 +391,7 @@ pub fn increase_fees_for_rbf(&self, additional_fees: u64) -> Result<PendingTrans
 
                 let inputs = cell_entries_rbf
                     .into_iter()
-                    .map(|cell| TransactionInput::new(cell.outpoint().clone().into(), vec![], 0, generator.sig_op_count()));
+                    .map(|cell| TransactionInput::new(cell.outpoint().clone().into(), None, 0, None));
 
                 signable_tx.tx.inputs.extend(inputs);
 

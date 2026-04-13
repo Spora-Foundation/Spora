@@ -11,7 +11,7 @@ use crate::{
         Mempool,
     },
     model::{
-        owner_txs::{GroupedOwnerTransactions, ScriptPublicKeySet},
+        owner_txs::{AddressSet, GroupedOwnerTransactions},
         topological_sort::IntoIterTopologically,
         tx_insert::TransactionInsertion,
         tx_query::TransactionQuery,
@@ -20,6 +20,7 @@ use crate::{
 };
 use itertools::Itertools;
 use parking_lot::RwLock;
+use spora_consensus_client::pay_to_address_lock_script;
 use spora_consensus_core::{
     api::{
         args::{TransactionValidationArgs, TransactionValidationBatchArgs},
@@ -28,16 +29,13 @@ use spora_consensus_core::{
     block::{BlockTemplate, TemplateBuildMode, TemplateTransactionSelector},
     coinbase::MinerData,
     errors::{block::RuleError as BlockRuleError, tx::TxRuleError},
-    tx::{pay_to_address_script, CellTx, MutableTransaction, OutPointCompat, TransactionId},
+    tx::{CellTx, MutableTransaction, OutPointCompat, TransactionId},
 };
 use spora_consensusmanager::{spawn_blocking, ConsensusProxy};
 use spora_core::{debug, error, info, time::Stopwatch, warn};
 use spora_mining_errors::{manager::MiningManagerError, mempool::RuleError};
 use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
-
-#[cfg(test)]
-use spora_consensus_core::tx::TransactionOutput;
 
 pub struct MiningManager {
     config: Arc<Config>,
@@ -236,10 +234,10 @@ impl MiningManager {
         };
         // calculate next_block_template_feerate_xxx
         {
-            let script_public_key = pay_to_address_script(
+            let lock_script = pay_to_address_lock_script(
                 &spora_addresses::Address::new(prefix, spora_addresses::Version::PubKey, &[0u8; 32]).expect("Valid test address"),
             );
-            let miner_data: MinerData = MinerData::new(script_public_key, vec![]);
+            let miner_data: MinerData = MinerData::new(lock_script, vec![]);
 
             let BlockTemplate { block: spora_consensus_core::block::MutableBlock { transactions, .. }, calculated_fees, .. } =
                 self.get_block_template(consensus, &miner_data)?;
@@ -562,13 +560,9 @@ impl MiningManager {
     /// a set of addresses.
     ///
     /// Note: a transaction is an orphan if tx.is_fully_populated() returns false.
-    pub fn get_transactions_by_addresses(
-        &self,
-        script_public_keys: &ScriptPublicKeySet,
-        query: TransactionQuery,
-    ) -> GroupedOwnerTransactions {
+    pub fn get_transactions_by_addresses(&self, addresses: &AddressSet, query: TransactionQuery) -> GroupedOwnerTransactions {
         // TODO: break the monolithic lock
-        self.mempool.read().get_transactions_by_addresses(script_public_keys, query)
+        self.mempool.read().get_transactions_by_addresses(addresses, query)
     }
 
     pub fn transaction_count(&self, query: TransactionQuery) -> usize {
@@ -819,10 +813,8 @@ impl MiningManager {
     /// if the cost to the network to spend coins is more than 1/3 of the minimum
     /// transaction relay fee, it is considered dust.
     ///
-    /// Note: This method uses the deprecated legacy TransactionOutput type for backward compatibility.
     #[cfg(test)]
-    #[allow(deprecated)]
-    pub fn is_transaction_output_dust(&self, transaction_output: &TransactionOutput) -> bool {
+    pub fn is_transaction_output_dust(&self, transaction_output: &spora_consensus_core::tx::CellOut) -> bool {
         self.mempool.read().is_transaction_output_dust(transaction_output)
     }
 
@@ -951,12 +943,8 @@ impl MiningManagerProxy {
     /// a set of addresses.
     ///
     /// Note: a transaction is an orphan if tx.is_fully_populated() returns false.
-    pub async fn get_transactions_by_addresses(
-        self,
-        script_public_keys: ScriptPublicKeySet,
-        query: TransactionQuery,
-    ) -> GroupedOwnerTransactions {
-        spawn_blocking(move || self.inner.get_transactions_by_addresses(&script_public_keys, query)).await.unwrap()
+    pub async fn get_transactions_by_addresses(self, addresses: AddressSet, query: TransactionQuery) -> GroupedOwnerTransactions {
+        spawn_blocking(move || self.inner.get_transactions_by_addresses(&addresses, query)).await.unwrap()
     }
 
     /// Returns whether a transaction id was registered as accepted in the mempool, meaning

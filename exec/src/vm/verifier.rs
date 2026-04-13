@@ -6,6 +6,7 @@
 
 use super::error::{ScriptError, ScriptResult};
 use super::machine::{run_script, Machine, ScriptVersion, VmContext};
+use super::{MAX_SCRIPT_SIZE, MAX_VM_MEMORY};
 use crate::celltx::{CellOut, CellTx, ScriptRef};
 use ckb_vm::{DefaultMachineRunner, Syscalls};
 use rayon::prelude::*;
@@ -77,6 +78,10 @@ pub struct TransactionScriptVerifier<D: CellDataProvider> {
     version: ScriptVersion,
     /// Max cycles per script
     max_cycles: u64,
+    /// Max VM memory per script execution.
+    max_memory: usize,
+    /// Max script binary size.
+    max_script_size: usize,
 }
 
 impl<D: CellDataProvider> TransactionScriptVerifier<D> {
@@ -87,6 +92,8 @@ impl<D: CellDataProvider> TransactionScriptVerifier<D> {
             data_provider,
             version: ScriptVersion::latest(),
             max_cycles: 10_000_000, // 10M cycles default
+            max_memory: MAX_VM_MEMORY,
+            max_script_size: MAX_SCRIPT_SIZE,
         }
     }
 
@@ -99,6 +106,18 @@ impl<D: CellDataProvider> TransactionScriptVerifier<D> {
     /// Set max cycles
     pub fn with_max_cycles(mut self, max_cycles: u64) -> Self {
         self.max_cycles = max_cycles;
+        self
+    }
+
+    /// Set max VM memory
+    pub fn with_max_memory(mut self, max_memory: usize) -> Self {
+        self.max_memory = max_memory;
+        self
+    }
+
+    /// Set max script size
+    pub fn with_max_script_size(mut self, max_script_size: usize) -> Self {
+        self.max_script_size = max_script_size;
         self
     }
 
@@ -204,7 +223,7 @@ impl<D: CellDataProvider> TransactionScriptVerifier<D> {
         let syscalls = self.build_syscalls(group);
 
         // Create VM context
-        let context = VmContext::new(self.version, self.max_cycles);
+        let context = VmContext::with_limits(self.version, self.max_cycles, self.max_memory, self.max_script_size);
 
         // Run script
         let cycles = run_script(&script_code, &args, syscalls, &context).map_err(ScriptError::VM)?;

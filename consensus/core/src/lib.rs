@@ -35,11 +35,10 @@ pub mod muhash;
 pub mod network;
 pub mod pruning;
 pub mod sign;
-pub mod subnets;
 pub mod trusted;
 pub mod tx;
 
-// Legacy transaction-output model fully removed - migrated to Cell model
+// The transaction-output model was fully replaced by the Cell model.
 // See: exec/celltx for Cell transaction types
 // See: state/ for Cell state management
 

@@ -1,26 +1,26 @@
 use std::time::Duration;
 
-use crate::pb::{sporad_message::Payload, ReadyMessage, VerackMessage, VersionMessage};
+use crate::pb::{p2p_message::Payload, ReadyMessage, VerackMessage, VersionMessage};
 use crate::{common::ProtocolError, dequeue_with_timeout, make_message};
-use crate::{IncomingRoute, Router, SporadMessagePayloadType};
+use crate::{IncomingRoute, P2pMessagePayloadType, Router};
 use spora_core::debug;
 
 /// Implements the Spora peer-to-peer handshake protocol
-pub struct SporadHandshake<'a> {
+pub struct P2pHandshake<'a> {
     router: &'a Router,
     version_receiver: IncomingRoute,
     verack_receiver: IncomingRoute,
     ready_receiver: IncomingRoute,
 }
 
-impl<'a> SporadHandshake<'a> {
+impl<'a> P2pHandshake<'a> {
     /// Builds the handshake object and subscribes to handshake messages
     pub fn new(router: &'a Router) -> Self {
         Self {
             router,
-            version_receiver: router.subscribe(vec![SporadMessagePayloadType::Version]),
-            verack_receiver: router.subscribe(vec![SporadMessagePayloadType::Verack]),
-            ready_receiver: router.subscribe(vec![SporadMessagePayloadType::Ready]),
+            version_receiver: router.subscribe(vec![P2pMessagePayloadType::Version]),
+            verack_receiver: router.subscribe(vec![P2pMessagePayloadType::Verack]),
+            ready_receiver: router.subscribe(vec![P2pMessagePayloadType::Ready]),
         }
     }
 

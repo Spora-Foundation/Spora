@@ -1,4 +1,3 @@
-use spora_consensus_core::subnets::SubnetworkConversionError;
 use thiserror::Error;
 
 #[derive(Clone, Debug, Error)]
@@ -6,8 +5,8 @@ pub enum ConversionError {
     #[error("General p2p conversion error")]
     General,
 
-    #[error("Legacy wire field `{0}` must use the canonical Cell-model value")]
-    NonCanonicalLegacyField(&'static str),
+    #[error("Reserved wire field `{0}` must use the canonical Cell-model value")]
+    NonCanonicalReservedField(&'static str),
 
     #[error("Transaction payload is only allowed for coinbase in Cell model")]
     NonCoinbasePayload,
@@ -32,7 +31,4 @@ pub enum ConversionError {
 
     #[error(transparent)]
     IdentityError(#[from] uuid::Error),
-
-    #[error(transparent)]
-    SubnetParsingError(#[from] SubnetworkConversionError),
 }

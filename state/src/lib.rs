@@ -18,8 +18,8 @@ pub mod index;
 pub mod store;
 
 pub use cell_tree::{CellEntry, CellStateTree};
-pub use index::{CellDB, CellMeta as IndexedCellMeta, ScriptIndex};
-pub use store::{SegmentMeta, SegmentProof, SegmentReader, SegmentWriter};
+pub use index::{CellDB, CellMeta as IndexedCellMeta, ScriptIndex, SegmentInfo};
+pub use store::{compute_segment_root, SegmentMeta, SegmentProof, SegmentReader, SegmentWriter};
 
 /// Cell state errors
 #[derive(Debug, thiserror::Error)]

@@ -21,7 +21,7 @@ use spora_p2p_lib::{
     convert::model::trusted::TrustedDataPackage,
     dequeue_with_timeout, make_message,
     pb::{
-        sporad_message::Payload, RequestAntipastMessage, RequestHeadersMessage, RequestIbdBlocksMessage,
+        p2p_message::Payload, RequestAntipastMessage, RequestHeadersMessage, RequestIbdBlocksMessage,
         RequestPruningPointAndItsAnticoneMessage, RequestPruningPointCellSetMessage, RequestPruningPointProofMessage,
     },
     IncomingRoute, Router,
@@ -492,7 +492,7 @@ staging selected tip ({}) is too small or negative. Aborting IBD...",
     }
 
     async fn sync_pruning_point_cellset(&mut self, consensus: &ConsensusProxy, pruning_point: Hash) -> Result<(), ProtocolError> {
-        // Protocol message still uses legacy transaction-output naming for backward compatibility
+        // Protocol message still uses transaction-output naming in the wire schema
         self.router
             .enqueue(make_message!(
                 Payload::RequestPruningPointCellSet,

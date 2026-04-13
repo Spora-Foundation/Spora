@@ -11,8 +11,8 @@ use regex::Regex;
 use spora_core::{debug, error, trace};
 use spora_grpc_core::{
     channel::NotificationChannel,
-    ops::SporadPayloadOps,
-    protowire::{rpc_client::RpcClient, sporad_request, GetInfoRequestMessage, SporadRequest, SporadResponse},
+    ops::RpcPayloadOps,
+    protowire::{rpc_client::RpcClient, rpc_request, GetInfoRequestMessage, RpcRequest, RpcResponse},
     RPC_MAX_MESSAGE_SIZE,
 };
 use spora_notify::{
@@ -87,7 +87,7 @@ impl GrpcClient {
     pub const DIRECT_MODE_LISTENER_ID: ListenerId = 0;
 
     pub async fn connect(url: String) -> Result<GrpcClient> {
-        Self::connect_with_args(NotificationMode::Direct, url, None, false, None, false, None, Default::default()).await
+        Self::connect_with_args(NotificationMode::Direct, url, None, false, None, None, Default::default()).await
     }
 
     /// Connects to a gRPC server.
@@ -109,8 +109,6 @@ impl GrpcClient {
     ///
     /// `connection_event_sender`: when provided will notify of connection and disconnection events via the channel.
     ///
-    /// `override_handle_stop_notify`: legacy, should be removed in near future, always set to `false`.
-    ///
     /// `timeout_duration`: request timeout duration
     ///
     /// `counters`: collects some bandwidth metrics
@@ -120,7 +118,6 @@ impl GrpcClient {
         subscription_context: Option<SubscriptionContext>,
         reconnect: bool,
         connection_event_sender: Option<Sender<ConnectionEvent>>,
-        override_handle_stop_notify: bool,
         timeout_duration: Option<u64>,
         counters: Arc<TowerConnectionCounters>,
     ) -> Result<GrpcClient> {
@@ -128,14 +125,8 @@ impl GrpcClient {
         if !schema.is_match(&url) {
             return Err(Error::GrpcAddressSchema(url));
         }
-        let inner = Inner::connect(
-            url,
-            connection_event_sender,
-            override_handle_stop_notify,
-            timeout_duration.unwrap_or(REQUEST_TIMEOUT_DURATION),
-            counters,
-        )
-        .await?;
+        let inner =
+            Inner::connect(url, connection_event_sender, timeout_duration.unwrap_or(REQUEST_TIMEOUT_DURATION), counters).await?;
         let converter = Arc::new(RpcCoreConverter::new());
         let policies = MutationPolicies::new(CellsChangedMutationPolicy::AddressSet);
         let subscription_context = subscription_context.unwrap_or_default();
@@ -230,7 +221,7 @@ impl GrpcClient {
         self.notification_mode
     }
 
-    pub async fn call(&self, op: SporadPayloadOps, request: impl Into<SporadRequest>) -> Result<SporadResponse> {
+    pub async fn call(&self, op: RpcPayloadOps, request: impl Into<RpcRequest>) -> Result<RpcResponse> {
         self.inner.call(op, request).await
     }
 }
@@ -239,7 +230,7 @@ impl GrpcClient {
 impl RpcApi for GrpcClient {
     // this example illustrates the body of the function created by the route!() macro
     // async fn submit_block_call(&self, request: SubmitBlockRequest) -> RpcResult<SubmitBlockResponse> {
-    //     self.inner.call(SporadPayloadOps::SubmitBlock, request).await?.as_ref().try_into()
+    //     self.inner.call(RpcPayloadOps::SubmitBlock, request).await?.as_ref().try_into()
     // }
 
     route!(ping_call, Ping);
@@ -263,7 +254,6 @@ impl RpcApi for GrpcClient {
     route!(add_peer_call, AddPeer);
     route!(submit_transaction_call, SubmitTransaction);
     route!(submit_transaction_replacement_call, SubmitTransactionReplacement);
-    route!(get_subnetwork_call, GetSubnetwork);
     route!(get_virtual_chain_from_block_call, GetVirtualChainFromBlock);
     route!(get_blocks_call, GetBlocks);
     route!(get_block_count_call, GetBlockCount);
@@ -368,8 +358,8 @@ pub const REQUEST_TIMEOUT_DURATION: u64 = 5_000;
 pub const TIMEOUT_MONITORING_INTERVAL: u64 = 10_000;
 pub const RECONNECT_INTERVAL: u64 = 2_000;
 
-type SporadRequestSender = async_channel::Sender<SporadRequest>;
-type SporadRequestReceiver = async_channel::Receiver<SporadRequest>;
+type RpcRequestSender = async_channel::Sender<RpcRequest>;
+type RpcRequestReceiver = async_channel::Receiver<RpcRequest>;
 
 #[derive(Debug, Default)]
 struct ServerFeatures {
@@ -383,7 +373,7 @@ struct ServerFeatures {
 ///
 /// Data flow:
 /// ```
-/// //   SporadRequest -> request_send -> stream -> SporadResponse
+/// //   RpcRequest -> request_send -> stream -> RpcResponse
 /// ```
 ///
 /// Execution flow:
@@ -420,8 +410,8 @@ struct Inner {
     notification_channel: NotificationChannel,
 
     // Sending to server
-    request_sender: SporadRequestSender,
-    request_receiver: SporadRequestReceiver,
+    request_sender: RpcRequestSender,
+    request_receiver: RpcRequestReceiver,
 
     // Receiving from server
     receiver_is_running: AtomicBool,
@@ -444,9 +434,6 @@ struct Inner {
     // Connection event channel
     connection_event_sender: Option<Sender<ConnectionEvent>>,
 
-    // temporary hack to override the handle_stop_notify flag
-    override_handle_stop_notify: bool,
-
     // bandwidth counters
     counters: Arc<TowerConnectionCounters>,
 }
@@ -455,10 +442,9 @@ impl Inner {
     fn new(
         url: String,
         server_features: ServerFeatures,
-        request_sender: SporadRequestSender,
-        request_receiver: SporadRequestReceiver,
+        request_sender: RpcRequestSender,
+        request_receiver: RpcRequestReceiver,
         connection_event_sender: Option<Sender<ConnectionEvent>>,
-        override_handle_stop_notify: bool,
         timeout_duration: u64,
         counters: Arc<TowerConnectionCounters>,
     ) -> Self {
@@ -484,16 +470,13 @@ impl Inner {
             connector_shutdown: DuplexTrigger::new(),
             connector_timer_interval: RECONNECT_INTERVAL,
             connection_event_sender,
-            override_handle_stop_notify,
             counters,
         }
     }
 
-    // TODO - remove the override (discuss how to handle this in relation to the golang client)
     async fn connect(
         url: String,
         connection_event_sender: Option<Sender<ConnectionEvent>>,
-        override_handle_stop_notify: bool,
         timeout_duration: u64,
         counters: Arc<TowerConnectionCounters>,
     ) -> Result<Arc<Self>> {
@@ -512,7 +495,6 @@ impl Inner {
             request_sender,
             request_receiver,
             connection_event_sender,
-            override_handle_stop_notify,
             timeout_duration,
             counters,
         ));
@@ -530,11 +512,11 @@ impl Inner {
     #[allow(unused_variables)]
     async fn try_connect(
         url: String,
-        request_sender: SporadRequestSender,
-        request_receiver: SporadRequestReceiver,
+        request_sender: RpcRequestSender,
+        request_receiver: RpcRequestReceiver,
         request_timeout: u64,
         counters: Arc<TowerConnectionCounters>,
-    ) -> Result<(Streaming<SporadResponse>, ServerFeatures)> {
+    ) -> Result<(Streaming<RpcResponse>, ServerFeatures)> {
         // gRPC endpoint
         #[cfg(not(feature = "heap"))]
         let channel =
@@ -582,8 +564,8 @@ impl Inner {
             }
         };
 
-        // Actual SporadRequest to SporadResponse stream
-        let mut stream: Streaming<SporadResponse> = client.message_stream(request_stream).await?.into_inner();
+        // Actual RpcRequest to RpcResponse stream
+        let mut stream: Streaming<RpcResponse> = client.message_stream(request_stream).await?.into_inner();
 
         // Collect server capabilities as stated in GetInfoResponse
         let mut server_features = ServerFeatures::default();
@@ -678,12 +660,7 @@ impl Inner {
 
     #[inline(always)]
     fn handle_stop_notify(&self) -> bool {
-        // TODO - remove this
-        if self.override_handle_stop_notify {
-            true
-        } else {
-            self.server_features.handle_stop_notify
-        }
+        self.server_features.handle_stop_notify
     }
 
     #[inline(always)]
@@ -691,11 +668,11 @@ impl Inner {
         self.resolver.clone()
     }
 
-    async fn call(&self, op: SporadPayloadOps, request: impl Into<SporadRequest>) -> Result<SporadResponse> {
+    async fn call(&self, op: RpcPayloadOps, request: impl Into<RpcRequest>) -> Result<RpcResponse> {
         // Calls are only allowed if the client is connected to the server
         if self.is_connected() {
             let id = u64::from_le_bytes(rand::random::<[u8; 8]>());
-            let mut request: SporadRequest = request.into();
+            let mut request: RpcRequest = request.into();
             request.id = id;
 
             trace!("GRPC client: resolver call: {:?}", request);
@@ -749,7 +726,7 @@ impl Inner {
     }
 
     /// Launch a task receiving and handling response messages sent by the server.
-    fn spawn_response_receiver_task(self: Arc<Self>, mut stream: Streaming<SporadResponse>) {
+    fn spawn_response_receiver_task(self: Arc<Self>, mut stream: Streaming<RpcResponse>) {
         // Note: self is a cloned Arc here so that it can be used in the spawned task.
 
         // The task can only be spawned once
@@ -865,7 +842,7 @@ impl Inner {
         });
     }
 
-    fn handle_response(&self, response: SporadResponse) {
+    fn handle_response(&self, response: RpcResponse) {
         if response.is_notification() {
             trace!("GRPC client: handle_response received a notification");
             match Notification::try_from(&response) {
@@ -925,7 +902,7 @@ impl Inner {
 
     /// Start sending notifications of some type to the client.
     async fn start_notify_to_client(&self, scope: Scope) -> RpcResult<()> {
-        let request = sporad_request::Payload::from_notification_type(&scope, Command::Start);
+        let request = rpc_request::Payload::from_notification_type(&scope, Command::Start);
         self.call((&request).into(), request).await?;
         Ok(())
     }
@@ -933,7 +910,7 @@ impl Inner {
     /// Stop sending notifications of some type to the client.
     async fn stop_notify_to_client(&self, scope: Scope) -> RpcResult<()> {
         if self.handle_stop_notify() {
-            let request = sporad_request::Payload::from_notification_type(&scope, Command::Stop);
+            let request = rpc_request::Payload::from_notification_type(&scope, Command::Stop);
             self.call((&request).into(), request).await?;
         }
         Ok(())

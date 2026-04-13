@@ -16,8 +16,10 @@ pub struct Header {
     pub accepted_id_merkle_root: Hash,
     /// Cell commitment - versioned commitment to execution-related state (v0: H(domain || cell_root))
     pub cell_commitment: Hash,
-    /// Cell state root - Merkle root of all live cells (for state proofs)
+    /// Cell state root - MuHash root of all live cells
     pub cell_root: Hash,
+    /// DA segment commitment for block payload data
+    pub segment_root: Hash,
     /// Timestamp is in milliseconds
     pub timestamp: u64,
     pub bits: u32,
@@ -37,6 +39,7 @@ impl Header {
         accepted_id_merkle_root: Hash,
         cell_commitment: Hash,
         cell_root: Hash,
+        segment_root: Hash,
         timestamp: u64,
         bits: u32,
         nonce: u64,
@@ -53,6 +56,7 @@ impl Header {
             accepted_id_merkle_root,
             cell_commitment,
             cell_root,
+            segment_root,
             nonce,
             timestamp,
             daa_score,
@@ -88,6 +92,7 @@ impl Header {
             accepted_id_merkle_root: Default::default(),
             cell_commitment: Default::default(),
             cell_root: Default::default(),
+            segment_root: Default::default(),
             nonce: 0,
             timestamp: 0,
             daa_score: 0,
@@ -126,6 +131,7 @@ mod tests {
             Default::default(),
             Default::default(),
             Default::default(), // cell_root
+            Default::default(), // segment_root
             234,
             23,
             567,

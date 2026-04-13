@@ -1,16 +1,16 @@
 use crate::{
-    cell_conversion::compute_lock_hash,
     mempool::{
         model::{map::MempoolTransactionCollection, tx::MempoolTransaction},
         tx::Priority,
     },
     model::{
-        owner_txs::{GroupedOwnerTransactions, ScriptPublicKeySet},
+        owner_txs::{AddressSet, GroupedOwnerTransactions},
         topological_index::TopologicalIndex,
         TransactionIdSet,
     },
 };
-use spora_consensus_core::tx::{cell_entry_legacy_script_public_key, MutableTransaction, OutPointCompat, TransactionId};
+use spora_consensus_client::pay_to_address_lock_script;
+use spora_consensus_core::tx::{MutableTransaction, OutPointCompat, TransactionId};
 use std::collections::{hash_set::Iter, HashMap, HashSet, VecDeque};
 
 pub(crate) type TransactionsEdges = HashMap<TransactionId, TransactionIdSet>;
@@ -103,22 +103,15 @@ pub(crate) trait Pool {
         self.all().keys().cloned().collect()
     }
 
-    /// Fills owner transactions for a set of script public keys.
-    fn fill_owner_set_transactions(&self, script_public_keys: &ScriptPublicKeySet, owner_set: &mut GroupedOwnerTransactions) {
-        script_public_keys.iter().for_each(|script_public_key| {
-            let owner = owner_set.owners.entry(script_public_key.clone()).or_default();
-            let lock_hash = compute_lock_hash(script_public_key);
+    /// Fills owner transactions for a set of addresses.
+    fn fill_owner_set_transactions(&self, addresses: &AddressSet, owner_set: &mut GroupedOwnerTransactions) {
+        addresses.iter().for_each(|address| {
+            let owner = owner_set.owners.entry(address.clone()).or_default();
+            let lock_hash = pay_to_address_lock_script(address).hash();
 
             self.all().iter().for_each(|(id, transaction)| {
                 // Sending transactions
-                if transaction
-                    .mtx
-                    .entries
-                    .iter()
-                    .flatten()
-                    .any(|entry| cell_entry_legacy_script_public_key(entry) == *script_public_key)
-                    // Metadata-only mempool paths no longer synthesize placeholder
-                    // entries, so match sending transactions by the canonical lock hash.
+                if transaction.mtx.entries.iter().flatten().any(|entry| entry.lock_hash == lock_hash)
                     || transaction.mtx.resolved_cell_metadata.iter().flatten().any(|metadata| metadata.lock_hash == lock_hash)
                 {
                     // Insert the mutable transaction in the owners object if not already present.
@@ -127,11 +120,7 @@ pub(crate) trait Pool {
                     owner.sending_txs.insert(*id);
                 }
 
-                // Receiving transactions: compare CellOut lock bytes to legacy ScriptPublicKey
-                if transaction.mtx.tx.outputs.iter().any(|x| {
-                    let out_spk = spora_consensus_core::tx::ScriptPublicKey::from_vec(0, x.lock.to_bytes());
-                    out_spk == *script_public_key
-                }) {
+                if transaction.mtx.tx.outputs.iter().any(|x| x.lock.hash() == lock_hash) {
                     // Insert the mutable transaction in the owners object if not already present.
                     // Clone since the transaction leaves the mempool.
                     owner_set.transactions.entry(*id).or_insert_with(|| transaction.mtx.clone());

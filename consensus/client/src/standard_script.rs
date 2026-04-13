@@ -1,15 +1,7 @@
 use crate::{error::Error, result::Result};
 use spora_addresses::{Address, Prefix, Version};
-use spora_consensus_core::tx::ScriptPublicKey;
+use spora_consensus_core::tx::ScriptRef;
 
-const SCRIPT_VER_CLASSIC: u16 = 0;
-
-const OP_FALSE: u8 = 0x00;
-const OP_1_NEGATE: u8 = 0x4f;
-const OP_TRUE: u8 = 0x51;
-const OP_PUSH_DATA1: u8 = 0x4c;
-const OP_PUSH_DATA2: u8 = 0x4d;
-const OP_PUSH_DATA4: u8 = 0x4e;
 const OP_DATA32: u8 = 0x20;
 const OP_DATA33: u8 = 0x21;
 const OP_EQUAL: u8 = 0x87;
@@ -17,11 +9,26 @@ const OP_BLAKE3: u8 = 0xaa;
 const OP_CHECK_SIG_ECDSA: u8 = 0xab;
 const OP_CHECK_SIG: u8 = 0xac;
 
+#[cfg(any(feature = "wasm32-sdk", test))]
+const OP_FALSE: u8 = 0x00;
+#[cfg(any(feature = "wasm32-sdk", test))]
+const OP_1_NEGATE: u8 = 0x4f;
+#[cfg(any(feature = "wasm32-sdk", test))]
+const OP_TRUE: u8 = 0x51;
+#[cfg(any(feature = "wasm32-sdk", test))]
+const OP_PUSH_DATA1: u8 = 0x4c;
+#[cfg(any(feature = "wasm32-sdk", test))]
+const OP_PUSH_DATA2: u8 = 0x4d;
+#[cfg(any(feature = "wasm32-sdk", test))]
+const OP_PUSH_DATA4: u8 = 0x4e;
+
+#[cfg(any(feature = "wasm32-sdk", test))]
 const MAX_SCRIPT_ELEMENT_SIZE: usize = 520;
+#[cfg(any(feature = "wasm32-sdk", test))]
 const MAX_SCRIPT_SIZE: usize = 10_000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ScriptClass {
+pub enum LockScriptClass {
     NonStandard,
     PubKey,
     PubKeyECDSA,
@@ -43,54 +50,47 @@ pub fn is_pay_to_script_hash(script_public_key: &[u8]) -> bool {
         && (script_public_key[34] == OP_EQUAL)
 }
 
-pub fn classify_script_public_key(script_public_key: &ScriptPublicKey) -> ScriptClass {
-    if script_public_key.version() != SCRIPT_VER_CLASSIC {
-        return ScriptClass::NonStandard;
-    }
-
-    let script = script_public_key.script();
+pub fn classify_lock_script(script: &[u8]) -> LockScriptClass {
     if is_pay_to_pubkey(script) {
-        ScriptClass::PubKey
+        LockScriptClass::PubKey
     } else if is_pay_to_pubkey_ecdsa(script) {
-        ScriptClass::PubKeyECDSA
+        LockScriptClass::PubKeyECDSA
     } else if is_pay_to_script_hash(script) {
-        ScriptClass::ScriptHash
+        LockScriptClass::ScriptHash
     } else {
-        ScriptClass::NonStandard
+        LockScriptClass::NonStandard
     }
 }
 
-pub fn pay_to_address_script(address: &Address) -> ScriptPublicKey {
+pub fn pay_to_address_lock_script(address: &Address) -> ScriptRef {
     let script = match address.version {
         Version::PubKey => pay_to_pub_key(address.payload.as_slice()),
         Version::PubKeyECDSA => pay_to_pub_key_ecdsa(address.payload.as_slice()),
         Version::ScriptHash => pay_to_script_hash(address.payload.as_slice()),
     };
-
-    ScriptPublicKey::from_vec(SCRIPT_VER_CLASSIC, script)
+    ScriptRef::new(compute_lock_hash(&script), 0, script)
 }
 
-pub fn pay_to_script_hash_script(redeem_script: &[u8]) -> ScriptPublicKey {
+pub fn pay_to_script_hash_lock_script(redeem_script: &[u8]) -> ScriptRef {
     let redeem_script_hash = blake3::hash(redeem_script);
     let script = pay_to_script_hash(redeem_script_hash.as_bytes());
-    ScriptPublicKey::from_vec(SCRIPT_VER_CLASSIC, script)
+    ScriptRef::new(compute_lock_hash(&script), 0, script)
 }
 
-pub fn pay_to_script_hash_signature_script(redeem_script: &[u8], signature: Vec<u8>) -> Result<Vec<u8>> {
+#[cfg(any(feature = "wasm32-sdk", test))]
+pub fn pay_to_script_hash_witness_script(redeem_script: &[u8], signature: Vec<u8>) -> Result<Vec<u8>> {
     let mut script = Vec::new();
     push_data(&mut script, &signature)?;
     push_data(&mut script, redeem_script)?;
     Ok(script)
 }
 
-pub fn extract_script_pub_key_address(script_public_key: &ScriptPublicKey, prefix: Prefix) -> Result<Address> {
-    let script = script_public_key.script();
-
-    match classify_script_public_key(script_public_key) {
-        ScriptClass::NonStandard => Err(Error::custom("non-standard script public key")),
-        ScriptClass::PubKey => Ok(Address::new(prefix, Version::PubKey, &script[1..33])?),
-        ScriptClass::PubKeyECDSA => Ok(Address::new(prefix, Version::PubKeyECDSA, &script[1..34])?),
-        ScriptClass::ScriptHash => Ok(Address::new(prefix, Version::ScriptHash, &script[2..34])?),
+pub fn extract_address_from_lock_script(lock_script: &[u8], prefix: Prefix) -> Result<Address> {
+    match classify_lock_script(lock_script) {
+        LockScriptClass::NonStandard => Err(Error::custom("non-standard lock script")),
+        LockScriptClass::PubKey => Ok(Address::new(prefix, Version::PubKey, &lock_script[1..33])?),
+        LockScriptClass::PubKeyECDSA => Ok(Address::new(prefix, Version::PubKeyECDSA, &lock_script[1..34])?),
+        LockScriptClass::ScriptHash => Ok(Address::new(prefix, Version::ScriptHash, &lock_script[2..34])?),
     }
 }
 
@@ -122,6 +122,15 @@ fn pay_to_script_hash(script_hash: &[u8]) -> Vec<u8> {
     script
 }
 
+fn compute_lock_hash(script: &[u8]) -> [u8; 32] {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"spora-cell/lock");
+    hasher.update(&0u16.to_le_bytes());
+    hasher.update(script);
+    *hasher.finalize().as_bytes()
+}
+
+#[cfg(any(feature = "wasm32-sdk", test))]
 fn push_data(script: &mut Vec<u8>, data: &[u8]) -> Result<()> {
     let data_len = data.len();
     if data_len > MAX_SCRIPT_ELEMENT_SIZE {
@@ -163,6 +172,7 @@ fn push_data(script: &mut Vec<u8>, data: &[u8]) -> Result<()> {
     Ok(())
 }
 
+#[cfg(any(feature = "wasm32-sdk", test))]
 fn canonical_data_size(data: &[u8]) -> usize {
     let data_len = data.len();
     if data_len == 0 || (data_len == 1 && (data[0] <= 16 || data[0] == 0x81)) {
@@ -188,17 +198,17 @@ mod tests {
     #[test]
     fn standard_address_scripts_roundtrip() {
         let address = Address::new(Prefix::Testnet, Version::PubKey, &[0x11; 32]).unwrap();
-        let spk = pay_to_address_script(&address);
-        let decoded = extract_script_pub_key_address(&spk, Prefix::Testnet).unwrap();
+        let lock_script = pay_to_address_lock_script(&address);
+        let decoded = extract_address_from_lock_script(&lock_script.args, Prefix::Testnet).unwrap();
         assert_eq!(decoded, address);
-        assert_eq!(classify_script_public_key(&spk), ScriptClass::PubKey);
+        assert_eq!(classify_lock_script(&lock_script.args), LockScriptClass::PubKey);
     }
 
     #[test]
-    fn p2sh_signature_script_uses_canonical_pushes() {
+    fn p2sh_witness_script_uses_canonical_pushes() {
         let redeem_script = vec![0x51];
         let signature = vec![0x33; 64];
-        let script = pay_to_script_hash_signature_script(&redeem_script, signature.clone()).unwrap();
+        let script = pay_to_script_hash_witness_script(&redeem_script, signature.clone()).unwrap();
 
         assert_eq!(script[0], 64);
         assert_eq!(&script[1..65], signature.as_slice());

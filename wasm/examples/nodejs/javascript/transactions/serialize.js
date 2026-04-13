@@ -5,7 +5,7 @@ const {
     Mnemonic,
     XPrv,
     PrivateKeyGenerator,
-    payToAddressScript,
+    payToAddressLockScript,
 } = require('../../../../nodejs/spora');
 
 
@@ -17,14 +17,14 @@ const {
     const xprv = new XPrv(mnemonic.toSeed());
     const privateKey = new PrivateKeyGenerator(xprv, false, 0n).receiveKey(1);
     const address = privateKey.toAddress(networkId);
-    const scriptPublicKey = payToAddressScript(address);
+    const lockScript = payToAddressLockScript(address);
     const entries = [{
         address,
         outpoint: {
             transactionId: '1b84324c701b16c1cfbbd713a5ff87edf78bc5c92a92866f86d7e32ab5cd387d',
             index: 0
         },
-        scriptPublicKey,
+        lockScript,
         amount: 50000000000n,
         isCoinbase: true,
         blockDaaScore: 342n

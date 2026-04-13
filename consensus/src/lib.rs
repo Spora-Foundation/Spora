@@ -1,13 +1,20 @@
-// Until the codebase stables up, we will have a lot of these -- ignore for now
-// TODO: remove this
-#![allow(dead_code)]
+// Re-exports from consensus core
+pub use spora_consensus_core::config;
+pub use spora_consensus_core::config::params;
 
-pub mod config;
 pub mod consensus;
-pub mod constants;
-pub mod errors;
 pub mod model;
-pub mod params;
 pub mod pipeline;
 pub mod processes;
 pub mod test_helpers;
+
+/// Constants module - re-exports from consensus core
+pub mod constants {
+    pub use spora_consensus_core::config::constants::*;
+    pub use spora_consensus_core::constants::*;
+}
+
+/// Errors module - re-exports from consensus core
+pub mod errors {
+    pub use spora_consensus_core::errors::block::*;
+}

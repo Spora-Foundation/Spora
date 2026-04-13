@@ -40,7 +40,7 @@ pub enum Error {
     #[error("Serde WASM bindgen -> {0}")]
     SerdeWasmBindgen(Sendable<Printable>),
 
-    #[error("Invalid account type (must be one of: bip32|multisig|legacy")]
+    #[error("Invalid account type (must be one of: bip32|multisig)")]
     InvalidAccountKind,
 
     #[error("Invalid XPrv (must be a string or an instance of XPrv)")]

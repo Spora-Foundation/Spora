@@ -24,8 +24,7 @@ use pssb::{
 };
 use spora_bip32::PrivateKey;
 use spora_bip32::{ChildNumber, ExtendedPrivateKey};
-use spora_consensus_core::tx::CellEntry;
-use spora_wallet_keys::derivation::gen0::WalletDerivationManagerV0;
+use spora_consensus_core::cell_diff::CellMeta;
 use spora_wallet_psst::bundle::Bundle;
 pub use variants::*;
 use workflow_core::abortable::Abortable;
@@ -259,8 +258,6 @@ pub trait Account: AnySync + Send + Sync + 'static {
 
         Ok(())
     }
-
-    fn sig_op_count(&self) -> u8;
 
     fn minimum_signatures(&self) -> u16;
 
@@ -580,10 +577,6 @@ pub trait Account: AnySync + Send + Sync + 'static {
         Err(Error::AccountAddressDerivationCaps)
     }
 
-    fn as_legacy_account(self: Arc<Self>) -> Result<Arc<dyn AsLegacyAccount>> {
-        Err(Error::InvalidAccountKind)
-    }
-
     fn create_address_private_keys<'l>(
         self: Arc<Self>,
         key_data: &PrvKeyData,
@@ -620,18 +613,6 @@ pub trait Account: AnySync + Send + Sync + 'static {
 
 downcast_sync!(dyn Account);
 
-/// Account trait used by legacy account types (BIP32 account types with the `'972` derivation path).
-#[async_trait]
-pub trait AsLegacyAccount: Account {
-    async fn create_private_context(
-        &self,
-        _wallet_secret: &Secret,
-        _payment_secret: Option<&Secret>,
-        _index: Option<u32>,
-    ) -> Result<()>;
-
-    async fn clear_private_context(&self) -> Result<()>;
-}
 #[allow(clippy::too_many_arguments)]
 #[async_trait]
 pub trait DerivationCapableAccount: Account {
@@ -652,10 +633,6 @@ pub trait DerivationCapableAccount: Account {
         update_address_indexes: bool,
         notifier: Option<ScanNotifier>,
     ) -> Result<()> {
-        if let Ok(legacy_account) = self.clone().as_legacy_account() {
-            legacy_account.create_private_context(&wallet_secret, payment_secret.as_ref(), None).await?;
-        }
-
         let derivation = self.derivation();
 
         let prv_key_data = self.prv_key_data(wallet_secret).await?;
@@ -741,7 +718,6 @@ pub trait DerivationCapableAccount: Account {
                         None,
                         change_address.clone(),
                         1,
-                        1,
                         PaymentDestination::Change,
                         fee_rate,
                         Fees::None,
@@ -795,10 +771,6 @@ pub trait DerivationCapableAccount: Account {
             store.update_metadata(vec![metadata]).await?;
             self.clone().scan(None, None).await?;
             self.wallet().notify(Events::AccountUpdate { account_descriptor: self.descriptor()? }).await?;
-        }
-
-        if let Ok(legacy_account) = self.as_legacy_account() {
-            legacy_account.clear_private_context().await?;
         }
 
         Ok(())
@@ -871,141 +843,49 @@ pub(crate) fn create_private_keys<'l>(
 ) -> Result<Vec<(&'l Address, secp256k1::SecretKey)>> {
     let paths = build_derivate_paths(account_kind, account_index, cosigner_index)?;
     let mut private_keys = vec![];
-    if matches!(account_kind.as_ref(), LEGACY_ACCOUNT_KIND) {
-        let (private_key, attrs) = WalletDerivationManagerV0::derive_key_by_path(xkey, paths.0)?;
-        for (address, index) in receive.iter() {
-            let (private_key, _) =
-                WalletDerivationManagerV0::derive_private_key(&private_key, &attrs, ChildNumber::new(*index, true)?)?;
-            private_keys.push((*address, private_key));
-        }
-        let (private_key, attrs) = WalletDerivationManagerV0::derive_key_by_path(xkey, paths.1)?;
-        for (address, index) in change.iter() {
-            let (private_key, _) =
-                WalletDerivationManagerV0::derive_private_key(&private_key, &attrs, ChildNumber::new(*index, true)?)?;
-            private_keys.push((*address, private_key));
-        }
-    } else {
-        let receive_xkey = xkey.clone().derive_path(&paths.0)?;
-        let change_xkey = xkey.clone().derive_path(&paths.1)?;
+    let receive_xkey = xkey.clone().derive_path(&paths.0)?;
+    let change_xkey = xkey.clone().derive_path(&paths.1)?;
 
-        for (address, index) in receive.iter() {
-            private_keys.push((*address, *receive_xkey.derive_child(ChildNumber::new(*index, false)?)?.private_key()));
-        }
-        for (address, index) in change.iter() {
-            private_keys.push((*address, *change_xkey.derive_child(ChildNumber::new(*index, false)?)?.private_key()));
-        }
+    for (address, index) in receive.iter() {
+        private_keys.push((*address, *receive_xkey.derive_child(ChildNumber::new(*index, false)?)?.private_key()));
+    }
+    for (address, index) in change.iter() {
+        private_keys.push((*address, *change_xkey.derive_child(ChildNumber::new(*index, false)?)?.private_key()));
     }
 
     Ok(private_keys)
 }
 
-/// NOTE: 🔧 Will be deprecated after full migration to BLAKE3-based key derivation.
-/// DO NOT modify unless migrating test vectors accordingly.
 #[cfg(not(target_arch = "wasm32"))]
 #[cfg(test)]
 mod tests {
     use super::create_private_keys;
     use super::ExtendedPrivateKey;
-    use crate::imports::LEGACY_ACCOUNT_KIND;
-    use spora_addresses::Prefix;
-    use spora_addresses::{Address, Version};
+    use crate::imports::BIP32_ACCOUNT_KIND;
+    use spora_addresses::{Address, Prefix, Version};
     use spora_bip32::secp256k1::SecretKey;
-    use spora_bip32::PrivateKey;
-    use spora_bip32::SecretKeyExt;
-    use spora_wallet_keys::derivation::gen0::PubkeyDerivationManagerV0;
     use std::str::FromStr;
 
-    fn gen0_receive_keys() -> Vec<&'static str> {
-        vec![
-            "269b7650e8a3b37472b353e6e8331a4427c6f081ff51ba6adf9ef203aa346845",
-            "b8e4a2ee20e0c9c0d380c89ffc3d84c8fef6f768cd4c9ac7778aa783a9c70aa4",
-            "ce7a150989f19d4fc00f44e88c55d40f7416364e265e4561063b0b0d753a72a1",
-            "3459868739a23c6a6157ab20300dcb6714c2c4977b07721ca143d4d214b15ff2",
-            "40c8e90184d2f2c2721b80a34cbea60e07bdf396c0367005e904bb8caee5ec63",
-            "a02968ebbe44f9a1543c46cf93a41da1e2cd6d4f2176c6bba7b871ae52bd40fd",
-            "8a9bd04793504af4d146f66fbc3b4b91f8d44c36eff41ac2b6650e1760099506",
-            "a8c38dc42ee94dd569fc0baa115832a2ecd49c970058e703e650565bffb4e30f",
-            "11f96f263a50a8f7a8d434635ec8026db9e2ffc8cadd996ad4c4a7af5ecebbc3",
-            "b2f7aa8fd4c171865d517765485b3f5ab6c76a51a22e51c6bfc3099e08a533db",
-            "6af8dc2a19abbbb2aa3d08b53481c5d88991463d4aacb2d7f4b2fc76368ee90c",
-            "510d09240cd33ba17ef2e3bac206c59f6f0f604e8fe7766b989ee0fa651307e6",
-            "d3d3e41bd7b764fc940af5b82ddc91e8a717f404e41839081f86860841954b1d",
-            "aa0268ab215e1df65f4697f13af20d5d4a896d8ed98ad4764d079c4cad6142d3",
-            "12bed3b829a881a50d5fa8a8a6a9fd28f8f2f2dc5cdb3f31d4e8c41a405ba7bb",
-            "c71614ecb6f369b0379566cceba6bed0fd90336a298cd460a6b305879c3ec884",
-            "65717bf1c74589e6f98f157434ec45c606c76f5ba882e6e6943e272ac159a5d3",
-            "be6815e86d1df8823c93037e7b179fc4d57929cd49681c59eeacf4b0904ed844",
-            "513f5e59508c6cde7a404d45394f32537872e8e9093dd5fd1768c8fbcac07dc0",
-            "f0af3b29f2074838d394288a4a3bcd1cd00dc045e8f15e70eb3e70b4d5856075",
-        ]
-    }
-
-    fn gen0_change_keys() -> Vec<&'static str> {
-        vec![
-            "585820ee35dea0fae75c2bcc101875e32e0a73a7a72eb837a266f2970901b4d1",
-            "5c65fda0e8ca7f1c1d1bb0347c010e881fc3e1b8550d8695b02d631568ca67c2",
-            "4d04d7bdaf6308a5100497cc43e62c86b970153aff585bcccdbc9e9272b8a6c7",
-            "98dcc3d7a83e6bab4005587868beda4364865b4c93f2727de5cf750e2ebb8cb8",
-            "294a4087dc41a755afb47ebd23e6cc253e4d3c502cc79d5556105cd521c54a8f",
-            "0645287dfd9c325505993a7d824f23ffb6002c4cfac19df29cc12a5b263fee5b",
-            "bda676ee28af75b5b59bbadd823315b53b7e9e3d20c222bd307a3c49b76e2b47",
-            "4e7626010f65d21bca852eb9d316a3a1088a04d95f4f9d7c94942eb461e2f660",
-            "2d07da1b5599a58116ff12b090e458376e4abec4318f6ffdd7209ada7375e495",
-            "8fac76d8267f453b11733fc7edd61f89cb59112112dea1b6f07a6928f8173b55",
-            "fa2b253b20158ccb09dcb8fb4b0186e9a7c7a58096e1a3cadc382fae581abc07",
-            "c6515d1e078295c93c2b0ca8c85c5910b5af79e8bdaa8bb2e86db449e988d074",
-            "37c29e6d16573e613b216e38e57b719499244cf05d6dd0160f9144434002fc4d",
-            "97cc07d5e059f53070a22eb4cc9cd96be302da44712667ae84fa5c526d39f2d0",
-            "ec2d44d434be19e71d669e54b9f2cf23872e07ad73f0eb03d2011358a98342a3",
-            "c14826adc08300e154733cc1b3f2631e95504bcc9bc0ef177088aacc6c19658a",
-            "5c0284f38aed77a50836b1b4425bd8c650ddbcdacfb6f2b9d9cf9962f2ba128c",
-            "178a20f914a3215aa18166431859aac30c478d14610171e51dea41e5af35c03c",
-            "762763953155c98f42c29210a04866873be366b801904add1dd023fce39a7b81",
-            "0e7b3c72aff5cb6e3a963a4a89240082c1fc87b3bfbc964969c5c2aeb86f4490",
-        ]
-    }
-
-    fn bytes_str(bytes: &[u8]) -> String {
-        let mut hex = [0u8; 64];
-        faster_hex::hex_encode(bytes, &mut hex).expect("The output is exactly twice the size of the input");
-        unsafe { std::str::from_utf8_unchecked(&hex) }.to_string()
-    }
     fn dummy_address() -> Address {
         Address::new(Prefix::Testnet, Version::PubKey, &[0u8; 32]).expect("Valid dummy address")
     }
 
     #[tokio::test]
-    async fn gen0_prv_keys() {
-        let receive_keys = gen0_receive_keys();
-        let change_keys = gen0_change_keys();
-
+    async fn bip32_private_keys_are_derived() {
         let key = "xprv9s21ZrQH143K2SDYtUz6dphDH3yRLAC7Jc552GYiXai3STvqgc3JBZxH2M4KaKhriaZDSS9KL7zUi5kYpggFspkiZBYWNCxbp27CCcnsJUs";
         let xkey = ExtendedPrivateKey::<SecretKey>::from_str(key).unwrap();
 
         let dummy = dummy_address();
 
-        let receive_addrs = (0u32..receive_keys.len() as u32).map(|i| (&dummy, i)).collect::<Vec<(&Address, u32)>>();
+        let receive_addrs = (0u32..5).map(|i| (&dummy, i)).collect::<Vec<(&Address, u32)>>();
+        let change_addrs = (0u32..5).map(|i| (&dummy, i)).collect::<Vec<(&Address, u32)>>();
 
-        let change_addrs = (0u32..change_keys.len() as u32).map(|i| (&dummy, i)).collect::<Vec<(&Address, u32)>>();
+        let receive_derived = create_private_keys(&BIP32_ACCOUNT_KIND.into(), 0, 0, &xkey, &receive_addrs, &[]).unwrap();
+        let change_derived = create_private_keys(&BIP32_ACCOUNT_KIND.into(), 0, 0, &xkey, &[], &change_addrs).unwrap();
 
-        let receive_derived = create_private_keys(&LEGACY_ACCOUNT_KIND.into(), 0, 0, &xkey, &receive_addrs, &[]).unwrap();
-        for (i, (_addr, key)) in receive_derived.iter().enumerate() {
-            let pubkey = key.get_public_key();
-            let addr = PubkeyDerivationManagerV0::create_address(&pubkey, Prefix::Testnet, false).unwrap();
-            let key_hex = bytes_str(&key.to_bytes());
-
-            println!("Receive #{i}: {} {}", addr.to_string(), key_hex);
-            assert_eq!(key_hex, receive_keys[i], "receive key at {i} failed");
-        }
-
-        let change_derived = create_private_keys(&LEGACY_ACCOUNT_KIND.into(), 0, 0, &xkey, &[], &change_addrs).unwrap();
-        for (i, (_addr, key)) in change_derived.iter().enumerate() {
-            let pubkey = key.get_public_key();
-            let addr = PubkeyDerivationManagerV0::create_address(&pubkey, Prefix::Testnet, false).unwrap();
-            let key_hex = bytes_str(&key.to_bytes());
-
-            println!("Change #{i}: {} {}", addr.to_string(), key_hex);
-            assert_eq!(key_hex, change_keys[i], "change key at {i} failed");
-        }
+        assert_eq!(receive_derived.len(), 5);
+        assert_eq!(change_derived.len(), 5);
+        assert_ne!(receive_derived[0].1.secret_bytes(), receive_derived[1].1.secret_bytes());
+        assert_ne!(change_derived[0].1.secret_bytes(), change_derived[1].1.secret_bytes());
     }
 }

@@ -1034,9 +1034,6 @@ build_wrpc_wasm_bindgen_interface!(
         /// Retrieves a specific mempool entry by transaction ID.
         /// Returned information: Mempool entry information.
         GetMempoolEntry,
-        /// Retrieves information about a subnetwork in the Spora BlockDAG.
-        /// Returned information: Subnetwork information.
-        GetSubnetwork,
         /// Retrieves live cells associated with specific addresses.
         /// Returned information: list of cells.
         GetCellsByAddresses,

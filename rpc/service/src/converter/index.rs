@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use spora_consensus_core::config::Config;
-use spora_index_core::indexed_cells::CellSetByScriptPublicKey;
+use spora_index_core::indexed_cells::CellSetByAddress;
 use spora_index_core::notification::Notification as IndexNotification;
 use spora_notify::converter::Converter;
 use spora_rpc_core::{cell_set_into_rpc, Notification, RpcCellsByAddressesEntry};
@@ -15,8 +15,8 @@ impl IndexConverter {
         Self
     }
 
-    pub fn get_cells_by_addresses_entries(&self, item: &CellSetByScriptPublicKey) -> Vec<RpcCellsByAddressesEntry> {
-        cell_set_into_rpc(item, None)
+    pub fn get_cells_by_addresses_entries(&self, item: &CellSetByAddress) -> Vec<RpcCellsByAddressesEntry> {
+        cell_set_into_rpc(item)
     }
 }
 

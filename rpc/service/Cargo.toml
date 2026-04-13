@@ -13,6 +13,7 @@ repository.workspace = true
 blake3.workspace = true
 spora-addresses.workspace = true
 spora-cellindex.workspace = true
+spora-consensus-client.workspace = true
 spora-consensus-core.workspace = true
 spora-consensus-notify.workspace = true
 spora-consensusmanager.workspace = true

@@ -148,17 +148,8 @@ pub trait WalletApi: Send + Sync + AnySync {
         wallet_secret: Secret,
         filename: Option<String>,
         account_descriptors: bool,
-        legacy_accounts: bool,
     ) -> Result<Option<Vec<AccountDescriptor>>> {
-        Ok(self
-            .wallet_open_call(WalletOpenRequest {
-                wallet_secret,
-                filename,
-                account_descriptors,
-                legacy_accounts: legacy_accounts.then_some(true),
-            })
-            .await?
-            .account_descriptors)
+        Ok(self.wallet_open_call(WalletOpenRequest { wallet_secret, filename, account_descriptors }).await?.account_descriptors)
     }
 
     /// Opens a wallet. A wallet is opened by it's `filename`, which is available
@@ -167,11 +158,6 @@ pub trait WalletApi: Send + Sync + AnySync {
     ///
     /// If `account_descriptors` is true, this call will return `Some(Vec<AccountDescriptor>)`
     /// for all accounts in the wallet.
-    ///
-    /// If `legacy_accounts` is true, the wallet will enable legacy account compatibility mode
-    /// allowing the wallet to operate on legacy accounts. Legacy accounts were created by
-    /// applications such as KDX and sporanet.io web wallet using a deprecated derivation path
-    /// and are considered deprecated. Legacy accounts should not be used in 3rd-party applications.
     ///
     /// See [`wallet_open`](Self::wallet_open) for a convenience wrapper around this call.
     async fn wallet_open_call(self: Arc<Self>, request: WalletOpenRequest) -> Result<WalletOpenResponse>;
@@ -399,7 +385,7 @@ pub trait WalletApi: Send + Sync + AnySync {
     }
 
     /// Creates a new address for a specified account id. This call is applicable
-    /// only to derivation-capable accounts (bip32 and legacy accounts). Returns
+    /// only to derivation-capable accounts. Returns
     /// a [`AccountsCreateNewAddressResponse`] that contains a newly generated address.
     async fn accounts_create_new_address_call(
         self: Arc<Self>,

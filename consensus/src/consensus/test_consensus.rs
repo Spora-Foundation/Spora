@@ -2,13 +2,12 @@ use async_channel::Sender;
 use parking_lot::RwLock;
 use spora_consensus_core::coinbase::MinerData;
 use spora_consensus_core::mining_rules::MiningRules;
-use spora_consensus_core::tx::ScriptPublicKey;
 use spora_consensus_core::{api::ConsensusApi, block::MutableBlock, blockstatus::BlockStatus, header::Header};
 use spora_consensus_notify::{notification::Notification, root::ConsensusNotificationRoot};
 use spora_consensusmanager::{ConsensusFactory, ConsensusInstance, DynConsensusCtl};
 use spora_core::{core::Core, service::Service};
 use spora_database::utils::DbLifetime;
-use spora_exec::CellTx;
+use spora_exec::{CellTx, ScriptRef};
 use spora_hashes::Hash;
 use spora_notify::subscription::context::SubscriptionContext;
 
@@ -149,7 +148,7 @@ impl TestConsensus {
         parents: Vec<Hash>,
         txs: Vec<CellTx>,
     ) -> impl Future<Output = BlockProcessResult<BlockStatus>> {
-        let miner_data = MinerData::new(ScriptPublicKey::from_vec(0, vec![]), vec![]);
+        let miner_data = MinerData::new(ScriptRef::new([0; 32], 0, vec![]), vec![]);
         self.validate_and_insert_block(self.build_cell_valid_block_with_parents(hash, parents, miner_data, txs).to_immutable())
             .virtual_state_task
     }
@@ -173,7 +172,7 @@ impl TestConsensus {
     }
 
     pub fn build_block_with_parents_and_transactions(&self, hash: Hash, parents: Vec<Hash>, txs: Vec<CellTx>) -> MutableBlock {
-        let miner_data = MinerData::new(ScriptPublicKey::from_vec(0, vec![]), vec![]);
+        let miner_data = MinerData::new(ScriptRef::new([0; 32], 0, vec![]), vec![]);
         let mut template = self.block_builder.build_block_template_with_parents_unchecked(parents, miner_data, txs).unwrap();
         template.block.header.hash = hash;
         let mut block = template.block;

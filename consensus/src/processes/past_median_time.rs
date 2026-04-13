@@ -3,7 +3,7 @@ use spora_consensus_core::errors::block::RuleError;
 use spora_hashes::Hash;
 use std::sync::Arc;
 
-/// A past median manager conforming to the legacy golang implementation
+/// A past median manager conforming to the historical golang implementation
 /// based on full, hence un-sampled, windows
 #[derive(Clone)]
 pub struct FullPastMedianTimeManager<T: HeaderStoreReader> {

@@ -73,5 +73,5 @@ tokio = { workspace = true, features = ["rt", "macros", "process"] }
 heap = ["dhat"]
 html_reports = []
 devnet-prealloc = ["sporad/devnet-prealloc"]
-legacy-cellindex-tests = []
-legacy-integration-tests = []
+cellindex-tests = []
+integration-tests = []

@@ -10,10 +10,7 @@ use spora_consensus_core::api::ConsensusApi;
 use spora_consensus_core::block::{Block, TemplateBuildMode};
 use spora_consensus_core::coinbase::MinerData;
 use spora_consensus_core::sign::sign;
-use spora_consensus_core::tx::{
-    legacy_sequence_to_cell_since, CellEntry, CellOut, CellRef, CellTx, MutableTransaction, OutPoint, ScriptPublicKey, ScriptRef,
-    ScriptVec, TransactionOutpoint,
-};
+use spora_consensus_core::tx::{CellEntry, CellOut, CellRef, CellTx, MutableTransaction, OutPoint, ScriptRef, TransactionOutpoint};
 use spora_core::trace;
 use spora_hashes::Hash;
 use spora_utils::sim::{Environment, Process, Resumption, Suspension};
@@ -67,12 +64,11 @@ impl Miner {
     ) -> Self {
         let (schnorr_public_key, _) = pk.x_only_public_key();
         let script_pub_key_script = once(0x20).chain(schnorr_public_key.serialize()).chain(once(0xac)).collect_vec(); // TODO: Use script builder when available to create p2pk properly
-        let script_pub_key_script_vec = ScriptVec::from_slice(&script_pub_key_script);
         Self {
             id,
             consensus,
             params: params.clone(),
-            miner_data: MinerData::new(ScriptPublicKey::new(0, ScriptVec::from_slice(&script_pub_key_script_vec)), Vec::new()),
+            miner_data: MinerData::new(Self::lock_script_from_bytes(&script_pub_key_script), Vec::new()),
             _secret_key: sk,
             possible_unspent_outpoints: IndexSet::new(),
             reserved_outpoints: IndexSet::new(),
@@ -95,26 +91,30 @@ impl Miner {
         miner_data.extra_data.extend_from_slice(&self.num_blocks.to_le_bytes());
         miner_data.extra_data.extend_from_slice(&timestamp.to_le_bytes());
         let mut block_template = consensus
-            .build_block_template_with_cell_tx_selector(miner_data, TemplateBuildMode::Standard, |virtual_state| {
+            .build_block_template_with_cell_tx_selector(miner_data, TemplateBuildMode::Infallible, |virtual_state| {
                 self.build_txs(virtual_state)
             })
-            .expect("simulation txs are selected in sync with virtual state and are expected to be valid");
+            .expect("simulation block template construction should not fail");
         block_template.block.header.timestamp = timestamp; // Use simulation time rather than real time
         block_template.block.header.nonce = nonce;
         block_template.block.header.finalize();
         block_template.block.to_immutable()
     }
 
-    fn compute_lock_hash(script_public_key: &ScriptPublicKey) -> [u8; 32] {
+    fn compute_lock_hash(script: &[u8]) -> [u8; 32] {
         let mut hasher = blake3::Hasher::new();
         hasher.update(b"spora-cell/lock");
-        hasher.update(&script_public_key.version().to_le_bytes());
-        hasher.update(script_public_key.script());
+        hasher.update(&0u16.to_le_bytes());
+        hasher.update(script);
         *hasher.finalize().as_bytes()
     }
 
+    fn lock_script_from_bytes(script: &[u8]) -> ScriptRef {
+        ScriptRef::new(Self::compute_lock_hash(script), 0, script.to_vec())
+    }
+
     fn miner_lock_script_hash(&self) -> [u8; 32] {
-        ScriptRef::new(Self::compute_lock_hash(&self.miner_data.script_public_key), 0, vec![]).hash()
+        self.miner_data.lock_script.hash()
     }
 
     fn outpoint_to_cell_tree_hash(outpoint: &TransactionOutpoint) -> Hash {
@@ -230,26 +230,14 @@ impl Miner {
 
     #[allow(dead_code)]
     fn create_unsigned_tx(&self, outpoint: TransactionOutpoint, input_amount: u64, multiple_outputs: bool) -> CellTx {
-        let inputs = vec![CellRef::new(outpoint, legacy_sequence_to_cell_since(0))];
+        let inputs = vec![CellRef::new(outpoint, 0)];
         let outputs = if multiple_outputs && input_amount > 4 {
             vec![
-                CellOut {
-                    lock: ScriptRef::new(Self::compute_lock_hash(&self.miner_data.script_public_key), 0, vec![]),
-                    type_: None,
-                    capacity: input_amount / 2,
-                },
-                CellOut {
-                    lock: ScriptRef::new(Self::compute_lock_hash(&self.miner_data.script_public_key), 0, vec![]),
-                    type_: None,
-                    capacity: input_amount / 2 - 1,
-                },
+                CellOut { lock: self.miner_data.lock_script.clone(), type_: None, capacity: input_amount / 2 },
+                CellOut { lock: self.miner_data.lock_script.clone(), type_: None, capacity: input_amount / 2 - 1 },
             ]
         } else {
-            vec![CellOut {
-                lock: ScriptRef::new(Self::compute_lock_hash(&self.miner_data.script_public_key), 0, vec![]),
-                type_: None,
-                capacity: input_amount - 1,
-            }]
+            vec![CellOut { lock: self.miner_data.lock_script.clone(), type_: None, capacity: input_amount - 1 }]
         };
         let mut outputs_data = vec![vec![]; outputs.len()];
         if self.long_payload {
@@ -264,11 +252,13 @@ impl Miner {
 
     pub fn mine(&mut self, env: &mut Environment<Block>) -> Suspension {
         let block = self.build_new_block(env.now());
-        match self.process_block(block.clone(), env) {
-            Suspension::Idle => {
+        let (accepted, suspension) = self.process_block(block.clone(), env);
+        match suspension {
+            Suspension::Idle if accepted => {
                 env.broadcast(self.id, block);
                 self.sample_mining_interval()
             }
+            Suspension::Idle => self.sample_mining_interval(),
             Suspension::Halt => Suspension::Halt,
             Suspension::Timeout(timeout) => Suspension::Timeout(timeout),
         }
@@ -278,17 +268,24 @@ impl Miner {
         Suspension::Timeout(max((self.dist.sample(&mut self.rng) * 1000.0) as u64, 1))
     }
 
-    fn process_block(&mut self, block: Block, env: &mut Environment<Block>) -> Suspension {
+    fn process_block(&mut self, block: Block, env: &mut Environment<Block>) -> (bool, Suspension) {
         if self.report_progress(env) {
-            Suspension::Halt
+            (false, Suspension::Halt)
         } else {
             let session = self.consensus.acquire_session();
             let inserted_block = block.clone();
-            let status = futures::executor::block_on(self.consensus.validate_and_insert_block(block).virtual_state_task).unwrap();
+            let status = match futures::executor::block_on(self.consensus.validate_and_insert_block(block).virtual_state_task) {
+                Ok(status) => status,
+                Err(err) => {
+                    drop(session);
+                    trace!("Miner {} dropped stale or invalid block {}: {}", self.id, inserted_block.header.hash, err);
+                    return (false, Suspension::Idle);
+                }
+            };
             assert!(status.is_cell_valid_or_pending());
             drop(session);
 
-            let miner_lock_hash = Self::compute_lock_hash(&self.miner_data.script_public_key);
+            let miner_lock_hash = self.miner_data.lock_script.hash();
             let mut added_outputs = 0usize;
             for tx in inserted_block.transactions.iter() {
                 for input in &tx.inputs {
@@ -316,7 +313,7 @@ impl Miner {
                 inserted_block.header.hash
             );
 
-            Suspension::Idle
+            (true, Suspension::Idle)
         }
     }
 
@@ -343,7 +340,7 @@ impl Process<Block> for Miner {
         match resumption {
             Resumption::Initial => self.sample_mining_interval(),
             Resumption::Scheduled => self.mine(env),
-            Resumption::Message(block) => self.process_block(block, env),
+            Resumption::Message(block) => self.process_block(block, env).1,
         }
     }
 }

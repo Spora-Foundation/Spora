@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Spora developers
 //
 // Cell processing context for virtual processor
-// Replaces legacy transaction-output processing logic with the pure Cell model
+// Replaces transaction-output processing logic with the pure Cell model
 
 use super::VirtualStateProcessor;
 
@@ -10,6 +10,7 @@ use crate::consensus::cell_provider::{ConsensusCellProvider, OverlayCellProvider
 use crate::model::stores::{
     block_transactions::BlockTransactionsStoreReader, ghostdag::GhostdagData, statuses::StatusesStoreBatchExtensions,
 };
+use crate::processes::utils::{compute_data_hash, outpoint_to_hash};
 #[cfg(feature = "vm")]
 use crate::processes::CellValidator;
 use crate::{
@@ -50,7 +51,7 @@ type ReplayConsensusCellProvider = ConsensusCellProvider<
 type ReplayOverlayProvider = OverlayCellProvider<ReplayConsensusCellProvider>;
 
 /// A context for processing the Cell state of a block with respect to its selected parent.
-/// This replaces the legacy processing context with the pure Cell model.
+/// This replaces the previous processing context with the pure Cell model.
 pub(super) struct CellProcessingContext<'a> {
     pub ghostdag_data: Refs<'a, GhostdagData>,
     /// Cell state tree (replaces multiset_hash)
@@ -116,18 +117,6 @@ impl BlockCellProcessingEffect {
     fn acceptance_data(&self) -> MergesetBlockAcceptanceData {
         MergesetBlockAcceptanceData { block_hash: self.block_hash, accepted_transactions: self.accepted_transactions.clone() }
     }
-}
-
-/// Convert TransactionOutpoint to Hash for tree indexing (helper function)
-fn outpoint_to_hash(outpoint: &spora_consensus_core::tx::TransactionOutpoint) -> Hash {
-    use blake3::Hasher;
-
-    let mut hasher = Hasher::new();
-    hasher.update(b"spora-cell/outpoint"); // Domain separation
-    hasher.update(&outpoint.tx_hash);
-    hasher.update(&outpoint.index.to_le_bytes());
-
-    Hash::from_bytes(*hasher.finalize().as_bytes())
 }
 
 pub(super) fn exec_outpoint(outpoint: &TransactionOutpoint) -> OutPoint {
@@ -357,6 +346,8 @@ impl VirtualStateProcessor {
             self.cell_diffs_store.clone(),
             self.cell_roots_store.clone(),
             self.block_transactions_store.clone(),
+            self.cell_data_store.clone(),
+            self.cell_data_segment_reader.clone(),
             self.statuses_store.clone(),
         );
         ReplayValidationContext {
@@ -376,7 +367,7 @@ impl VirtualStateProcessor {
             BlockRewardData::new(
                 self.coinbase_manager.calc_block_subsidy(block_daa_score),
                 0,
-                spora_consensus_core::tx::ScriptPublicKey::from_vec(0, vec![]),
+                spora_exec::ScriptRef::new([0; 32], 0, vec![]),
             )
         };
 
@@ -385,9 +376,7 @@ impl VirtualStateProcessor {
                 .first()
                 .and_then(|tx| tx.payload())
                 .and_then(|payload| self.coinbase_manager.deserialize_coinbase_payload(payload).ok())
-                .map(|coinbase_data| {
-                    BlockRewardData::new(coinbase_data.subsidy, 0, coinbase_data.miner_data.script_public_key.clone())
-                })
+                .map(|coinbase_data| BlockRewardData::new(coinbase_data.subsidy, 0, coinbase_data.miner_data.lock_script.clone()))
                 .unwrap_or_else(fallback),
         )
     }
@@ -616,7 +605,7 @@ impl VirtualStateProcessor {
     ///    - Consume inputs (remove cells)
     ///    - Create outputs (add cells)
     /// 4. Apply accumulated diff to tree
-    /// 5. Calculate cell_root (Merkle root)
+    /// 5. Calculate cell_root (MuHash root)
     pub(super) fn calculate_cell_state(
         &self,
         ctx: &mut CellProcessingContext,
@@ -695,34 +684,14 @@ impl VirtualStateProcessor {
         Ok(())
     }
 
-    /// Compute lock script hash from ScriptPublicKey
-    pub(super) fn compute_lock_hash(&self, script_public_key: &spora_consensus_core::tx::ScriptPublicKey) -> [u8; 32] {
-        use blake3::Hasher;
-
-        let mut hasher = Hasher::new();
-        hasher.update(b"spora-cell/lock"); // Domain separation
-        hasher.update(&script_public_key.version().to_le_bytes());
-        hasher.update(script_public_key.script());
-
-        *hasher.finalize().as_bytes()
+    /// Compute lock script hash from the canonical lock script
+    pub(super) fn compute_lock_hash(&self, lock_script: &spora_consensus_core::tx::ScriptRef) -> [u8; 32] {
+        lock_script.hash()
     }
 
     /// Compute data hash for cell output
-    ///
-    /// Hashes the cell data using blake3
     fn compute_data_hash(&self, data: &[u8]) -> [u8; 32] {
-        if data.is_empty() {
-            // Empty data has zero hash
-            [0u8; 32]
-        } else {
-            use blake3::Hasher;
-
-            let mut hasher = Hasher::new();
-            hasher.update(b"spora-cell/data"); // Domain separation
-            hasher.update(data);
-
-            *hasher.finalize().as_bytes()
-        }
+        compute_data_hash(data)
     }
 
     /// Commit the Cell state for a chain block
@@ -764,8 +733,9 @@ impl VirtualStateProcessor {
 
 #[cfg(test)]
 mod tests {
-    use super::{ensure_red_block_outputs_absent, outpoint_to_hash};
+    use super::ensure_red_block_outputs_absent;
     use crate::errors::RuleError;
+    use crate::processes::utils::outpoint_to_hash;
     use spora_consensus_core::tx::TransactionOutpoint;
     use spora_exec::{CellOut, CellTx, OutPoint, ScriptRef};
     use spora_hashes::Hash;

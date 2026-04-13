@@ -8,11 +8,6 @@ pub fn hash(tx: &crate::tx::CellTx) -> Hash {
     TransactionId::from_bytes(tx.id())
 }
 
-/// Not intended for direct use by clients. Instead use `tx.id()`
-pub(crate) fn id(tx: &crate::tx::CellTx) -> TransactionId {
-    TransactionId::from_bytes(tx.id())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

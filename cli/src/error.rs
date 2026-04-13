@@ -66,7 +66,7 @@ pub enum Error {
     #[error("multiple matches for argument '{0}'; please be more specific.")]
     MultipleMatches(String),
 
-    #[error("account type must be <bip32|multisig|legacy>")]
+    #[error("account type must be <bip32|multisig>")]
     InvalidAccountKind,
 
     #[error("wallet secret is required")]

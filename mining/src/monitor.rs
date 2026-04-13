@@ -1,6 +1,6 @@
 use super::MiningCounters;
 use crate::manager::MiningManagerProxy;
-use spora_consensus_core::tx::{ScriptCacheCounters, ScriptCacheCountersSnapshot};
+use spora_consensus_core::tx::ScriptCacheCounters;
 use spora_consensusmanager::ConsensusManager;
 use spora_core::{
     debug, info,
@@ -85,7 +85,7 @@ impl MiningMonitor {
             }
             if delta.accepted_metadata_miss_counts > 0 {
                 info!(
-                    "Mempool stats: skipped unorphaning {} accepted block transactions because legacy metadata was unavailable",
+                    "Mempool stats: skipped unorphaning {} accepted block transactions because resolved metadata was unavailable",
                     delta.accepted_metadata_miss_counts
                 );
             }

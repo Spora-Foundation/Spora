@@ -123,7 +123,6 @@ impl Server {
                 None,
                 false,
                 None,
-                true,
                 None,
                 Default::default(),
             )

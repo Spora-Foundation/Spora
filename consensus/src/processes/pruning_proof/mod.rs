@@ -327,7 +327,7 @@ impl PruningProofManager {
                     let ghostdag = self.ghostdag_store.get_data(hash).unwrap();
                     e.insert((&*ghostdag).into());
 
-                    // We fill `ghostdag_blocks` only for sporad-go legacy reasons, but the real set we
+                    // We fill `ghostdag_blocks` only for sporad-go compatibility reasons, but the real set we
                     // send is `daa_window_blocks` which represents the full trusted sub-DAG in the antifuture
                     // of the pruning point which sporad-rust nodes expect to get when synced with headers proof
                     if let Entry::Vacant(e) = daa_window_blocks.entry(hash) {

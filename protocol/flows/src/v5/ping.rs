@@ -4,7 +4,7 @@ use spora_core::{debug, task::tick::TickReason};
 use spora_p2p_lib::{
     common::ProtocolError,
     dequeue, dequeue_with_timeout, make_message,
-    pb::{sporad_message::Payload, PingMessage, PongMessage},
+    pb::{p2p_message::Payload, PingMessage, PongMessage},
     IncomingRoute, Router,
 };
 use std::{

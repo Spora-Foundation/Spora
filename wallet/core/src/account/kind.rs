@@ -67,7 +67,6 @@ impl FromStr for AccountKind {
             Ok(s.into())
         } else {
             match s.to_lowercase().as_str() {
-                "legacy" => Ok(LEGACY_ACCOUNT_KIND.into()),
                 "bip32" => Ok(BIP32_ACCOUNT_KIND.into()),
                 "multisig" => Ok(MULTISIG_ACCOUNT_KIND.into()),
                 "keypair" => Ok(KEYPAIR_ACCOUNT_KIND.into()),

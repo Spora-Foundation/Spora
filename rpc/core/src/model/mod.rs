@@ -13,7 +13,6 @@ pub mod message;
 pub mod network;
 pub mod peer;
 pub mod script_class;
-pub mod subnets;
 mod tests;
 pub mod tx;
 
@@ -28,5 +27,5 @@ pub use mempool::*;
 pub use message::*;
 pub use network::*;
 pub use peer::*;
-pub use subnets::*;
+// pub use subnets::*;  // REMOVED
 pub use tx::*;

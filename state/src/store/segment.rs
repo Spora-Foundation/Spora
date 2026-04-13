@@ -3,7 +3,7 @@
 //
 // Segment storage: 1GB data segments for DA layer
 
-use crate::{Result, StateError};
+use crate::{store::proof::compute_segment_root, Result, StateError};
 use borsh::{BorshDeserialize, BorshSerialize};
 use parking_lot::Mutex;
 use std::fs::{File, OpenOptions};
@@ -113,7 +113,7 @@ impl SegmentWriter {
         let segment_id = *self.current_segment_id.lock();
         let size = *offset_guard;
 
-        // Compute Merkle root (simplified: blake3 hash of entire segment)
+        // Compute Merkle root over ordered chunks in the segment.
         drop(file_guard);
         drop(offset_guard);
 
@@ -174,9 +174,9 @@ impl SegmentWriter {
         let path = self.segment_path(segment_id);
         let mut file = File::open(path)?;
 
-        let mut hasher = blake3::Hasher::new();
         let mut buffer = vec![0u8; 1024 * 1024]; // 1MB chunks
         let mut total_read = 0u64;
+        let mut chunks = Vec::new();
 
         while total_read < size {
             let to_read = std::cmp::min(buffer.len(), (size - total_read) as usize);
@@ -184,11 +184,11 @@ impl SegmentWriter {
             if n == 0 {
                 break;
             }
-            hasher.update(&buffer[..n]);
+            chunks.push(buffer[..n].to_vec());
             total_read += n as u64;
         }
 
-        Ok(*hasher.finalize().as_bytes())
+        Ok(compute_segment_root(&chunks))
     }
 
     /// Save segment metadata

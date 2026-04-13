@@ -74,7 +74,7 @@ impl ConsensusServices {
         db: Arc<DB>,
         storage: Arc<ConsensusStorage>,
         config: Arc<Config>,
-        _tx_script_cache_counters: Arc<ScriptCacheCounters>,
+        #[allow(unused_variables)] tx_script_cache_counters: Arc<ScriptCacheCounters>,
         is_consensus_exiting: Arc<AtomicBool>,
     ) -> Arc<Self> {
         let params = &config.params;

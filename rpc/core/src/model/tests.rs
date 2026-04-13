@@ -6,7 +6,6 @@ mod mockery {
     use spora_addresses::{Prefix, Version};
     use spora_consensus_core::api::BlockCount;
     use spora_consensus_core::network::NetworkType;
-    use spora_consensus_core::tx::ScriptPublicKey;
     use spora_hashes::Hash;
     use spora_math::Uint192;
     use spora_notify::subscription::Command;
@@ -119,15 +118,6 @@ mod mockery {
             bytes
         }
     }
-
-    impl Mock for RpcSubnetworkId {
-        fn mock() -> Self {
-            let mut bytes: [u8; 20] = [0; 20];
-            rand::thread_rng().fill(&mut bytes);
-            RpcSubnetworkId::from_bytes(bytes)
-        }
-    }
-
     impl Mock for Hash {
         fn mock() -> Self {
             let mut bytes: [u8; 32] = [0; 32];
@@ -153,6 +143,7 @@ mod mockery {
                 accepted_id_merkle_root: mock(),
                 cell_commitment: mock(),
                 cell_root: mock(),
+                segment_root: mock(),
                 hash: mock(),
                 parents_by_level: vec![mock()],
                 daa_score: mock(),
@@ -174,6 +165,7 @@ mod mockery {
                 accepted_id_merkle_root: mock(),
                 cell_commitment: mock(),
                 cell_root: mock(),
+                segment_root: mock(),
                 parents_by_level: vec![mock()],
                 daa_score: mock(),
                 blue_score: mock(),
@@ -222,11 +214,8 @@ mod mockery {
         fn mock() -> Self {
             RpcTransactionInput {
                 previous_outpoint: mock(),
-                signature_script: Hash::mock().as_bytes().to_vec(),
-                sequence: mock(),
-                sig_op_count: mock(),
-                since: None,
-                witness: None,
+                since: mock(),
+                witness: Hash::mock().as_bytes().to_vec(),
                 verbose_data: mock(),
             }
         }
@@ -234,7 +223,7 @@ mod mockery {
 
     impl Mock for RpcTransactionOutputVerboseData {
         fn mock() -> Self {
-            RpcTransactionOutputVerboseData { script_public_key_type: RpcScriptClass::PubKey, script_public_key_address: mock() }
+            RpcTransactionOutputVerboseData { lock_script_type: RpcScriptClass::PubKey, lock_script_address: mock() }
         }
     }
 
@@ -247,7 +236,9 @@ mod mockery {
                 lock_hash: mock(),
                 type_hash: mock(),
                 data_hash: mock(),
-                script_public_key: mock(),
+                lock_script: mock(),
+                type_script: mock(),
+                output_data: mock(),
                 verbose_data: mock(),
             }
         }
@@ -336,11 +327,9 @@ mod mockery {
         }
     }
 
-    impl Mock for ScriptPublicKey {
+    impl Mock for RpcScriptRef {
         fn mock() -> Self {
-            let mut bytes: [u8; 36] = [0; 36];
-            rand::thread_rng().fill(&mut bytes[..]);
-            ScriptPublicKey::from_vec(0, bytes.to_vec())
+            RpcScriptRef { code_hash: mock(), hash_type: mock(), args: Hash::mock().as_bytes().to_vec() }
         }
     }
 
@@ -353,7 +342,6 @@ mod mockery {
                 lock_hash: mock(),
                 type_hash: mock(),
                 data_hash: mock(),
-                script_public_key: mock(),
                 block_daa_score: mock(),
                 is_coinbase: true,
             }
@@ -648,22 +636,6 @@ mod mockery {
     }
 
     test!(SubmitTransactionResponse);
-
-    impl Mock for GetSubnetworkRequest {
-        fn mock() -> Self {
-            GetSubnetworkRequest { subnetwork_id: mock() }
-        }
-    }
-
-    test!(GetSubnetworkRequest);
-
-    impl Mock for GetSubnetworkResponse {
-        fn mock() -> Self {
-            GetSubnetworkResponse { gas_limit: mock() }
-        }
-    }
-
-    test!(GetSubnetworkResponse);
 
     impl Mock for GetVirtualChainFromBlockRequest {
         fn mock() -> Self {

@@ -1,5 +1,5 @@
 use crate::pb as protowire;
-use spora_consensus_core::tx::{cell_entry_legacy_script_public_key, CellEntry, TransactionOutpoint};
+use spora_consensus_core::tx::{CellEntry, TransactionOutpoint};
 
 // ----------------------------------------------------------------------------
 // consensus_core to protowire
@@ -7,11 +7,16 @@ use spora_consensus_core::tx::{cell_entry_legacy_script_public_key, CellEntry, T
 
 impl From<&CellEntry> for protowire::CellEntry {
     fn from(entry: &CellEntry) -> Self {
+        let metadata = entry.embedded_cell_metadata().expect("p2p CellEntry requires canonical Cell metadata");
         Self {
             amount: entry.amount(),
-            script_public_key: Some((&cell_entry_legacy_script_public_key(entry)).into()),
             block_daa_score: entry.block_daa_score,
             is_coinbase: entry.is_cellbase,
+            capacity: entry.capacity(),
+            data_bytes: metadata.data_bytes,
+            lock_hash: metadata.lock_hash.to_vec(),
+            type_hash: metadata.type_hash.map(|hash| hash.to_vec()).unwrap_or_default(),
+            data_hash: metadata.data_hash.to_vec(),
         }
     }
 }

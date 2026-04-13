@@ -3,7 +3,7 @@ use crate::imports::*;
 use crate::result::Result;
 use crate::SporaCli;
 use spora_bip32::{Language, Mnemonic};
-use spora_wallet_core::account::{BIP32_ACCOUNT_KIND, LEGACY_ACCOUNT_KIND, MULTISIG_ACCOUNT_KIND};
+use spora_wallet_core::account::{BIP32_ACCOUNT_KIND, MULTISIG_ACCOUNT_KIND};
 use std::sync::Arc;
 
 pub async fn prompt_for_mnemonic(term: &Arc<Terminal>) -> Result<Vec<String>> {
@@ -54,40 +54,31 @@ pub(crate) async fn import_with_mnemonic(ctx: &Arc<SporaCli>, account_kind: Acco
     tprintln!(ctx);
     let length = mnemonic.len();
     match account_kind.as_ref() {
-        LEGACY_ACCOUNT_KIND if length != 12 => Err(Error::Custom(format!("wrong mnemonic length ({length})"))),
         BIP32_ACCOUNT_KIND if length != 24 => Err(Error::Custom(format!("wrong mnemonic length ({length})"))),
-
-        LEGACY_ACCOUNT_KIND | BIP32_ACCOUNT_KIND | MULTISIG_ACCOUNT_KIND => Ok(()),
+        BIP32_ACCOUNT_KIND | MULTISIG_ACCOUNT_KIND => Ok(()),
         _ => Err(Error::Custom("unsupported account kind".to_owned())),
     }?;
 
-    let payment_secret = if account_kind == LEGACY_ACCOUNT_KIND {
-        None
-    } else {
-        tpara!(
-            ctx,
-            "\
-            \
-            If your original wallet has a bip39 recovery passphrase, please enter it now.\
-            \
-            Specifically, this is not a wallet password. This is a secondary mnemonic passphrase\
-            used to encrypt your mnemonic. This is known as a 'payment passphrase'\
-            'mnemonic passphrase', or a 'recovery passphrase'. If your mnemonic was created\
-            with a payment passphrase and you do not enter it now, the import process\
-            will generate a different private key.\
-            \
-            If you do not have a bip39 recovery passphrase, press ENTER.\
-            \
-            ",
-        );
+    tpara!(
+        ctx,
+        "\
+        \
+        If your original wallet has a bip39 recovery passphrase, please enter it now.\
+        \
+        Specifically, this is not a wallet password. This is a secondary mnemonic passphrase\
+        used to encrypt your mnemonic. This is known as a 'payment passphrase'\
+        'mnemonic passphrase', or a 'recovery passphrase'. If your mnemonic was created\
+        with a payment passphrase and you do not enter it now, the import process\
+        will generate a different private key.\
+        \
+        If you do not have a bip39 recovery passphrase, press ENTER.\
+        \
+        ",
+    );
 
-        let payment_secret = term.ask(true, "Enter payment password (optional): ").await?;
-        if payment_secret.trim().is_empty() {
-            None
-        } else {
-            Some(Secret::new(payment_secret.trim().as_bytes().to_vec()))
-        }
-    };
+    let payment_secret = term.ask(true, "Enter payment password (optional): ").await?;
+    let payment_secret =
+        if payment_secret.trim().is_empty() { None } else { Some(Secret::new(payment_secret.trim().as_bytes().to_vec())) };
 
     let mnemonic = mnemonic.join(" ");
     let mnemonic = Mnemonic::new(mnemonic.trim(), Language::English)?;

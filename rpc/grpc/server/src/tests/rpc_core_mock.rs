@@ -205,15 +205,6 @@ impl RpcApi for RpcCoreMock {
     async fn get_block_call(&self, _connection: Option<&DynRpcConnection>, _request: GetBlockRequest) -> RpcResult<GetBlockResponse> {
         Err(RpcError::NotImplemented)
     }
-
-    async fn get_subnetwork_call(
-        &self,
-        _connection: Option<&DynRpcConnection>,
-        _request: GetSubnetworkRequest,
-    ) -> RpcResult<GetSubnetworkResponse> {
-        Err(RpcError::NotImplemented)
-    }
-
     async fn get_virtual_chain_from_block_call(
         &self,
         _connection: Option<&DynRpcConnection>,

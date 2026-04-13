@@ -25,24 +25,6 @@ impl Import {
                     crate::wizards::import::import_with_mnemonic(&ctx, account_kind, &[]).await?;
                 }
             }
-            "legacy" => {
-                if exists_legacy_v0_keydata().await? {
-                    let import_secret = Secret::new(
-                        ctx.term()
-                            .ask(true, "Enter the password for the account you are importing: ")
-                            .await?
-                            .trim()
-                            .as_bytes()
-                            .to_vec(),
-                    );
-                    let wallet_secret = Secret::new(ctx.term().ask(true, "Enter wallet password: ").await?.trim().as_bytes().to_vec());
-                    wallet.import_gen0_keydata(import_secret, wallet_secret, None).await?;
-                } else if application_runtime::is_web() {
-                    return Err("'sporanet' web wallet storage not found at this domain name".into());
-                } else {
-                    return Err("KDX/sporanet keydata file not found".into());
-                }
-            }
             // todo "read-only" => {}
             // "core" => {}
             v => {
@@ -59,9 +41,8 @@ impl Import {
             &[
                 (
                     "mnemonic [<type>] [<additional xpub keys>] ",
-                    "Import a 24 or 12 word mnemonic (types: 'bip32' (default), 'legacy', 'multisig'), ",
+                    "Import a mnemonic (types: 'bip32' (default), 'multisig').",
                 ),
-                ("legacy", "Import a legacy (local KDX) wallet"),
                 // ("purge", "Purge an account from the wallet"),
             ],
             None,

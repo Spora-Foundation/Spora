@@ -5,6 +5,7 @@ use crate::errors::{BlockProcessResult, RuleError};
 use crate::processes::cell_validator::{cell_validation_in_isolation::validate_cell_tx_in_isolation, CellConsensusParams};
 use spora_consensus_core::{
     block::Block,
+    errors::coinbase::CoinbaseError,
     mass::{ContextualMasses, Mass, NonContextualMasses},
     tx::TransactionOutpoint,
 };
@@ -69,9 +70,20 @@ impl BlockBodyProcessor {
     }
 
     fn check_coinbase_has_zero_mass(&self, block: &Block, crescendo_activated: bool) -> BlockProcessResult<()> {
-        // CellTx no longer has a dedicated storage-mass commitment field.
-        // Until coinbase payload commits this explicitly, there is nothing meaningful to enforce here.
-        let _ = (block, crescendo_activated);
+        if !crescendo_activated {
+            return Ok(());
+        }
+
+        let payload = block.transactions[0].payload().unwrap_or(&[]);
+        let coinbase_data = self.coinbase_manager.deserialize_coinbase_payload(payload).map_err(|err| match err {
+            CoinbaseError::PayloadLenBelowMin(..)
+            | CoinbaseError::PayloadLenAboveMax(..)
+            | CoinbaseError::PayloadLockScriptLenAboveMax(..)
+            | CoinbaseError::PayloadCantContainLockScript(..) => RuleError::BadCoinbasePayload(err),
+        })?;
+        if coinbase_data.mass_commitment != 0 {
+            return Err(RuleError::CoinbaseNonZeroMassCommitment);
+        }
         Ok(())
     }
 
@@ -185,13 +197,23 @@ mod tests {
 
         let body_processor = consensus.block_body_processor();
 
-        // Build CellTx transactions directly (no legacy Transaction conversion)
+        // Build CellTx transactions directly (no Transaction conversion)
         let lock = make_lock(0);
+        let coinbase_payload = consensus
+            .services
+            .coinbase_manager
+            .serialize_coinbase_payload(&spora_consensus_core::coinbase::CoinbaseData {
+                blue_score: 9,
+                subsidy: 0x12a05f200,
+                mass_commitment: 0,
+                miner_data: spora_consensus_core::coinbase::MinerData { lock_script: lock.clone(), extra_data: &[] },
+            })
+            .unwrap();
         let coinbase = CellTx::new(
             vec![],
             vec![],
             vec![CellOut { lock: lock.clone(), type_: None, capacity: 0x12a05f200 }],
-            vec![vec![9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]],
+            vec![coinbase_payload],
             vec![],
         )
         .unwrap();
@@ -255,6 +277,7 @@ mod tests {
                 Default::default(),
                 Default::default(),
                 Default::default(), // cell_root
+                Default::default(), // segment_root
                 0x17305aa654a,
                 0x207fffff,
                 1,
@@ -309,6 +332,21 @@ mod tests {
         txs[1].outputs_data.clear();
         block.header.hash_merkle_root = calc_hash_merkle_root(txs.iter());
         assert_match!(body_processor.validate_body_in_isolation(&block.to_immutable()), Err(RuleError::CellValidationError(_)));
+
+        let mut block = example_block.clone();
+        let txs = &mut block.transactions;
+        txs[0].outputs_data[0] = consensus
+            .services
+            .coinbase_manager
+            .serialize_coinbase_payload(&spora_consensus_core::coinbase::CoinbaseData {
+                blue_score: 9,
+                subsidy: 0x12a05f200,
+                mass_commitment: 1,
+                miner_data: spora_consensus_core::coinbase::MinerData { lock_script: lock.clone(), extra_data: &[] },
+            })
+            .unwrap();
+        block.header.hash_merkle_root = calc_hash_merkle_root(txs.iter());
+        assert_match!(body_processor.validate_body_in_isolation(&block.to_immutable()), Err(RuleError::CoinbaseNonZeroMassCommitment));
 
         let mut block = example_block;
         let txs = &mut block.transactions;

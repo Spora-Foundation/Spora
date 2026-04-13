@@ -8,7 +8,7 @@ use std::{
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum CellMirrorKind {
-    DerivedLegacy,
+    DerivedView,
     CanonicalProvided,
 }
 
@@ -28,7 +28,7 @@ impl MempoolTransaction {
         assert_eq!(mtx.tx.inputs.len(), mtx.entries.len());
         // mtx.tx is already Arc<CellTx> after MutableTransaction migration
         let cell_tx = Some(mtx.tx.clone());
-        Self::new_with_cell_mirror(mtx, cell_tx, CellMirrorKind::DerivedLegacy, priority, added_at_daa_score)
+        Self::new_with_cell_mirror(mtx, cell_tx, CellMirrorKind::DerivedView, priority, added_at_daa_score)
     }
 
     pub(crate) fn new_with_cell_tx(
@@ -76,9 +76,9 @@ impl MempoolTransaction {
         &mut self,
         _parent_cell_ids: &std::collections::HashMap<TransactionId, TransactionId>,
     ) {
-        // mtx.tx is already a CellTx; no legacy conversion needed.
-        // For DerivedLegacy, the cell_tx is just a clone of mtx.tx.
-        if matches!(self.cell_mirror_kind, CellMirrorKind::DerivedLegacy) {
+        // mtx.tx is already a CellTx; no conversion is needed.
+        // For DerivedView, the cell_tx is just a clone of mtx.tx.
+        if matches!(self.cell_mirror_kind, CellMirrorKind::DerivedView) {
             self.cell_tx = Some(self.mtx.tx.clone());
         }
         self.cell_tx_id = self.cell_tx.as_ref().map(|tx| TransactionId::from_bytes(tx.id()));

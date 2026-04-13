@@ -3,7 +3,6 @@ use indexmap::{map::Entry, IndexMap};
 use itertools::Itertools;
 use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use spora_addresses::{Address, Prefix};
-use spora_consensus_core::tx::{extract_script_pub_key_address, pay_to_address_script, ScriptPublicKey};
 use spora_core::{debug, trace};
 use std::{
     collections::{hash_map, hash_set, HashMap, HashSet},
@@ -207,14 +206,14 @@ impl Indexer for IndexSet {
 
 #[derive(Debug)]
 struct Inner {
-    /// Index-based map of [`ScriptPublicKey`] to its reference count
+    /// Index-based map of [`Address`] to its reference count
     ///
     /// ### Implementation note
     ///
-    /// The whole purpose of the tracker is to reduce a [`ScriptPublicKey`] to an [`Index`] in all
+    /// The whole purpose of the tracker is to reduce an [`Address`] to an [`Index`] in all
     /// [`Indexer`] instances. Therefore, every mutable access to the struct must be careful not to
     /// use `IndexMap` APIs which alter the index order of existing entries.
-    script_pub_keys: IndexMap<ScriptPublicKey, RefCount>,
+    addresses: IndexMap<Address, RefCount>,
 
     /// Maximum address count that can be registered. Note this must be `<= Index::MAX` since we cast the returned indexes to `Index`
     max_addresses: usize,
@@ -276,53 +275,50 @@ impl Inner {
         let max_addresses = max_addresses.unwrap_or(Self::DEFAULT_MAX_ADDRESSES);
         debug!("Memory configuration: cell changed events will be tracked for at most {} addresses", max_addresses);
 
-        let script_pub_keys = IndexMap::with_capacity(capacity);
-        debug!("Creating an address tracker with a capacity of {}", script_pub_keys.capacity());
+        let addresses = IndexMap::with_capacity(capacity);
+        debug!("Creating an address tracker with a capacity of {}", addresses.capacity());
 
         let empty_entries = HashSet::with_capacity(capacity);
-        Self { script_pub_keys, max_addresses, addresses_preallocation, empty_entries }
+        Self { addresses, max_addresses, addresses_preallocation, empty_entries }
     }
 
     fn is_full(&self) -> bool {
-        self.script_pub_keys.len() >= self.max_addresses && self.empty_entries.is_empty()
+        self.addresses.len() >= self.max_addresses && self.empty_entries.is_empty()
     }
 
-    fn get(&self, spk: &ScriptPublicKey) -> Option<(Index, RefCount)> {
-        self.script_pub_keys.get_full(spk).map(|(index, _, count)| (index as Index, *count))
+    fn get(&self, address: &Address) -> Option<(Index, RefCount)> {
+        self.addresses.get_full(address).map(|(index, _, count)| (index as Index, *count))
     }
 
-    fn get_index(&self, index: Index) -> Option<&ScriptPublicKey> {
-        self.script_pub_keys.get_index(index as usize).map(|(spk, _)| spk)
+    fn get_index(&self, index: Index) -> Option<&Address> {
+        self.addresses.get_index(index as usize).map(|(address, _)| address)
     }
 
     fn get_index_address(&self, index: Index, prefix: Prefix) -> Option<Address> {
-        self.script_pub_keys
-            .get_index(index as usize)
-            .map(|(spk, _)| extract_script_pub_key_address(spk, prefix).expect("is retro-convertible"))
+        self.addresses.get_index(index as usize).map(|(address, _)| {
+            debug_assert_eq!(address.prefix, prefix);
+            address.clone()
+        })
     }
 
-    fn get_or_insert(&mut self, spk: ScriptPublicKey) -> Result<Index> {
+    fn get_or_insert(&mut self, address: Address) -> Result<Index> {
         match self.is_full() {
-            false => match self.script_pub_keys.entry(spk) {
+            false => match self.addresses.entry(address) {
                 Entry::Occupied(entry) => Ok(entry.index() as Index),
                 Entry::Vacant(entry) => {
                     let mut index = entry.index() as Index;
-                    trace!(
-                        "AddressTracker insert #{} {}",
-                        index,
-                        extract_script_pub_key_address(entry.key(), Prefix::Mainnet).unwrap()
-                    );
+                    trace!("AddressTracker insert #{} {}", index, entry.key());
                     let _ = *entry.insert(0);
 
                     // Try to recycle an empty entry if there is some
                     let mut recycled = false;
-                    if (index + 1) as usize == self.script_pub_keys.len() && !self.empty_entries.is_empty() {
+                    if (index + 1) as usize == self.addresses.len() && !self.empty_entries.is_empty() {
                         // Takes the first empty entry index
                         let empty_index = self.empty_entries.iter().cloned().next();
                         if let Some(empty_index) = empty_index {
                             // Stores the newly created entry at the empty entry index while keeping it registered as an
                             // empty entry (because it is so at this stage, the ref count being 0).
-                            self.script_pub_keys.swap_remove_index(empty_index as usize);
+                            self.addresses.swap_remove_index(empty_index as usize);
                             index = empty_index;
                             recycled = true;
                         }
@@ -334,19 +330,19 @@ impl Inner {
                     Ok(index)
                 }
             },
-            true => match self.script_pub_keys.get_index_of(&spk) {
+            true => match self.addresses.get_index_of(&address) {
                 Some(index) => Ok(index as Index),
                 None => Err(Error::MaxCapacityReached),
             },
         }
     }
 
-    /// Increases by one the [`RefCount`] of the [`ScriptPublicKey`] at `index`.
+    /// Increases by one the [`RefCount`] of the [`Address`] at `index`.
     ///
     /// If the entry had a reference count of 0 before the increase, its index is removed from
     /// the empty entries set.
     fn inc_count(&mut self, index: Index) {
-        if let Some((_, count)) = self.script_pub_keys.get_index_mut(index as usize) {
+        if let Some((_, count)) = self.addresses.get_index_mut(index as usize) {
             *count += 1;
             trace!("AddressTracker inc count #{} to {}", index, *count);
             if *count == 1 {
@@ -355,13 +351,13 @@ impl Inner {
         }
     }
 
-    /// Decreases by one the [`RefCount`] of the [`ScriptPublicKey`] at `index`.
+    /// Decreases by one the [`RefCount`] of the [`Address`] at `index`.
     ///
     /// Panics if the ref count is already 0.
     ///
     /// When the reference count reaches zero, the index is inserted into the empty entries set.
     fn dec_count(&mut self, index: Index) {
-        if let Some((_, count)) = self.script_pub_keys.get_index_mut(index as usize) {
+        if let Some((_, count)) = self.addresses.get_index_mut(index as usize) {
             if *count == 0 {
                 panic!("Address tracker is trying to decrease an address counter that is already at zero");
             }
@@ -374,8 +370,8 @@ impl Inner {
     }
 
     fn len(&self) -> usize {
-        assert!(self.script_pub_keys.len() >= self.empty_entries.len(), "entries marked empty are never removed from script_pub_keys");
-        self.script_pub_keys.len() - self.empty_entries.len()
+        assert!(self.addresses.len() >= self.empty_entries.len(), "entries marked empty are never removed from addresses");
+        self.addresses.len() - self.empty_entries.len()
     }
 
     fn is_empty(&self) -> bool {
@@ -387,10 +383,7 @@ impl Inner {
 ///
 /// #### Implementation design
 ///
-/// Each [`Address`] is stored internally as a [`ScriptPubKey`](spora_consensus_core::tx::ScriptPublicKey).
-/// This prevents inter-network duplication and optimizes cell-change filtering efficiency.
-///
-/// But consequently the address network prefix gets lost and must be globally provided when querying for addresses by indexes.
+/// Each [`Address`] is stored internally as-is.
 #[derive(Debug)]
 pub struct Tracker {
     inner: RwLock<Inner>,
@@ -398,7 +391,7 @@ pub struct Tracker {
 
 impl Display for Tracker {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} addresses", self.inner.read().script_pub_keys.len())
+        write!(f, "{} addresses", self.inner.read().addresses.len())
     }
 }
 
@@ -430,7 +423,7 @@ impl Tracker {
         for chunk in addresses.chunks(Self::ADDRESS_CHUNK_SIZE) {
             let mut inner = tracker.inner.write();
             for address in chunk {
-                let index = inner.get_or_insert(pay_to_address_script(address)).unwrap();
+                let index = inner.get_or_insert(address.clone()).unwrap();
                 inner.inc_count(index);
             }
         }
@@ -441,24 +434,16 @@ impl Tracker {
         TrackerReadGuard { guard: self.inner.read() }
     }
 
-    pub fn get(&self, spk: &ScriptPublicKey) -> Option<(Index, RefCount)> {
-        self.inner.read().get(spk)
-    }
-
     pub fn get_address(&self, address: &Address) -> Option<(Index, RefCount)> {
-        self.get(&pay_to_address_script(address))
+        self.inner.read().get(address)
     }
 
     pub fn get_address_at_index(&self, index: Index, prefix: Prefix) -> Option<Address> {
         self.inner.read().get_index_address(index, prefix)
     }
 
-    pub fn contains<T: Indexer>(&self, indexes: &T, spk: &ScriptPublicKey) -> bool {
-        self.get(spk).is_some_and(|(index, _)| indexes.contains(index))
-    }
-
     pub fn contains_address<T: Indexer>(&self, indexes: &T, address: &Address) -> bool {
-        self.contains(indexes, &pay_to_address_script(address))
+        self.get_address(address).is_some_and(|(index, _)| indexes.contains(index))
     }
 
     /// Returns an index set containing the indexes of all the addresses both registered in the tracker and in `indexes`.
@@ -466,9 +451,7 @@ impl Tracker {
         Indexes::new(
             addresses
                 .iter()
-                .filter_map(|address| {
-                    self.get(&pay_to_address_script(address)).and_then(|(index, _)| indexes.contains(index).then_some(index))
-                })
+                .filter_map(|address| self.get_address(address).and_then(|(index, _)| indexes.contains(index).then_some(index)))
                 .collect(),
         )
     }
@@ -489,8 +472,7 @@ impl Tracker {
                 if counter % Self::ADDRESS_CHUNK_SIZE == 0 {
                     RwLockWriteGuard::bump(&mut inner);
                 }
-                let spk = pay_to_address_script(address);
-                match inner.get_or_insert(spk) {
+                match inner.get_or_insert(address.clone()) {
                     Ok(index) => {
                         if indexes.insert(index) {
                             inner.inc_count(index);
@@ -532,8 +514,7 @@ impl Tracker {
                 if counter % Self::ADDRESS_CHUNK_SIZE == 0 {
                     RwLockWriteGuard::bump(&mut inner);
                 }
-                let spk = pay_to_address_script(address);
-                if let Some((index, _)) = inner.get(&spk) {
+                if let Some((index, _)) = inner.get(address) {
                     if indexes.remove(index) {
                         inner.dec_count(index);
                         true
@@ -578,7 +559,7 @@ impl Tracker {
     }
 
     pub fn capacity(&self) -> usize {
-        self.inner.read().script_pub_keys.capacity()
+        self.inner.read().addresses.capacity()
     }
 
     pub fn addresses_preallocation(&self) -> Option<usize> {
@@ -597,11 +578,11 @@ pub struct TrackerReadGuard<'a> {
 }
 
 impl<'a> TrackerReadGuard<'a> {
-    pub fn get_index(&'a self, index: Index) -> Option<&'a ScriptPublicKey> {
+    pub fn get_index(&'a self, index: Index) -> Option<&'a Address> {
         self.guard.get_index(index)
     }
 
-    pub fn iter_keys(&'a self, indexes: &'a Indexes) -> impl Iterator<Item = Option<&'a ScriptPublicKey>> {
+    pub fn iter_keys(&'a self, indexes: &'a Indexes) -> impl Iterator<Item = Option<&'a Address>> {
         indexes.0.iter().cloned().map(|index| self.get_index(index))
     }
 }

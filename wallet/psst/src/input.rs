@@ -5,8 +5,9 @@ use crate::utils::{combine_if_no_conflicts, Error as CombineMapErr};
 use derive_builder::Builder;
 use serde::{Deserialize, Serialize};
 use spora_consensus_core::{
+    cell_diff::CellMeta,
     hashing::sighash_type::{SigHashType, SIG_HASH_ALL},
-    tx::{CellEntry, TransactionId, TransactionOutpoint},
+    tx::{TransactionId, TransactionOutpoint},
 };
 use std::{collections::BTreeMap, marker::PhantomData, ops::Add};
 
@@ -17,13 +18,11 @@ use std::{collections::BTreeMap, marker::PhantomData, ops::Add};
 #[builder(setter(skip))]
 pub struct Input {
     #[builder(setter(strip_option))]
-    pub cell_entry: Option<CellEntry>,
+    pub cell_entry: Option<CellMeta>,
     #[builder(setter)]
     pub previous_outpoint: TransactionOutpoint,
-    /// The sequence number of this input.
-    ///
-    /// If omitted, assumed to be the final sequence number
-    pub sequence: Option<u64>,
+    /// The encoded Cell `since` value for this input.
+    pub since: Option<u64>,
     /// A map from public keys to their corresponding signature as would be
     /// pushed to the stack from a scriptSig.
     pub partial_sigs: PartialSigs,
@@ -35,8 +34,6 @@ pub struct Input {
     #[builder(setter(strip_option))]
     /// The redeem script for this input.
     pub redeem_script: Option<Vec<u8>>,
-    #[builder(setter(strip_option))]
-    pub sig_op_count: Option<u8>,
     /// A map from public keys needed to sign this input to their corresponding
     /// master key fingerprints and derivation paths.
     pub bip32_derivations: BTreeMap<secp256k1::PublicKey, Option<KeySource>>,
@@ -60,11 +57,10 @@ impl Default for Input {
         Self {
             cell_entry: Default::default(),
             previous_outpoint: Default::default(),
-            sequence: Default::default(),
+            since: Default::default(),
             partial_sigs: Default::default(),
             sighash_type: SIG_HASH_ALL,
             redeem_script: Default::default(),
-            sig_op_count: Default::default(),
             bip32_derivations: Default::default(),
             final_script_sig: Default::default(),
             hidden: Default::default(),
@@ -98,8 +94,8 @@ impl Add for Input {
             (Some(left), Some(right)) => return Err(CombineError::NotCompatibleCells { this: left, that: right }),
         };
 
-        // todo discuss merging. if sequence is equal - combine, otherwise use input which has bigger sequence number as is
-        self.sequence = self.sequence.max(rhs.sequence);
+        // todo discuss merging. if since is equal - combine, otherwise use input which has bigger since value as is
+        self.since = self.since.max(rhs.since);
         self.partial_sigs.extend(rhs.partial_sigs);
         // todo combine sighash? or always use sighash all since all signatures must be passed after completion of construction step
         // self.sighash_type
@@ -152,7 +148,7 @@ pub enum CombineError {
     #[error("Two different redeem scripts detected")]
     NotCompatibleRedeemScripts { this: Vec<u8>, that: Vec<u8> },
     #[error("Two different cells detected")]
-    NotCompatibleCells { this: CellEntry, that: CellEntry },
+    NotCompatibleCells { this: CellMeta, that: CellMeta },
 
     #[error("Two different derivations for the same key")]
     NotCompatibleBip32Derivations(#[from] CombineMapErr<secp256k1::PublicKey, Option<KeySource>>),

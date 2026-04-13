@@ -4,19 +4,19 @@
 static ALLOC: dhat::Alloc = dhat::Alloc;
 
 pub mod common;
-#[cfg(feature = "legacy-integration-tests")]
+#[cfg(feature = "integration-tests")]
 pub mod tasks;
 
 #[cfg(test)]
-#[cfg(feature = "legacy-cellindex-tests")]
+#[cfg(feature = "cellindex-tests")]
 pub mod consensus_integration_tests;
 
 #[cfg(test)]
-#[cfg(feature = "legacy-integration-tests")]
+#[cfg(feature = "integration-tests")]
 pub mod consensus_pipeline_tests;
 
 #[cfg(test)]
-#[cfg(feature = "legacy-integration-tests")]
+#[cfg(feature = "integration-tests")]
 pub mod daemon_integration_tests;
 
 #[cfg(test)]

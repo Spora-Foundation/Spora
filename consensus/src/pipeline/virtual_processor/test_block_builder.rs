@@ -13,10 +13,9 @@ use spora_consensus_core::{
     coinbase::{BlockRewardData, MinerData},
     errors::block::RuleError,
     merkle::calc_hash_merkle_root_cell,
-    tx::ScriptPublicKey,
     BlockHashMap,
 };
-use spora_exec::CellTx;
+use spora_exec::{CellTx, ScriptRef};
 use spora_hashes::Hash;
 
 use super::VirtualStateProcessor;
@@ -58,13 +57,13 @@ impl TestBlockBuilder {
                     txs.first()
                         .and_then(|tx| tx.payload())
                         .and_then(|payload| self.coinbase_manager.deserialize_coinbase_payload(payload).ok())
-                        .map(|payload| BlockRewardData::new(payload.subsidy, 0, payload.miner_data.script_public_key.clone()))
+                        .map(|payload| BlockRewardData::new(payload.subsidy, 0, payload.miner_data.lock_script.clone()))
                 })
                 .unwrap_or_else(|| {
                     BlockRewardData::new(
                         self.coinbase_manager.calc_block_subsidy(block_daa_score),
                         0,
-                        ScriptPublicKey::from_vec(0, vec![]),
+                        ScriptRef::new([0; 32], 0, vec![]),
                     )
                 });
             mergeset_rewards.insert(block_hash, reward_data);

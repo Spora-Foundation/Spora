@@ -1,9 +1,9 @@
 use crate::{
     common::ProtocolError,
     core::adaptor::ConnectionInitializer,
-    handshake::SporadHandshake,
+    handshake::P2pHandshake,
     pb::{self, VersionMessage},
-    IncomingRoute, Router, SporadMessagePayloadType,
+    IncomingRoute, P2pMessagePayloadType, Router,
 };
 use spora_core::{debug, time::unix_now, trace, warn};
 use std::sync::Arc;
@@ -21,49 +21,49 @@ impl EchoFlow {
         // Subscribe to messages
         trace!("EchoFlow, subscribe to all p2p messages");
         let receiver = router.subscribe(vec![
-            SporadMessagePayloadType::Addresses,
-            SporadMessagePayloadType::Block,
-            SporadMessagePayloadType::Transaction,
-            SporadMessagePayloadType::BlockLocator,
-            SporadMessagePayloadType::RequestAddresses,
-            SporadMessagePayloadType::RequestRelayBlocks,
-            SporadMessagePayloadType::RequestTransactions,
-            SporadMessagePayloadType::IbdBlock,
-            SporadMessagePayloadType::InvRelayBlock,
-            SporadMessagePayloadType::InvTransactions,
-            SporadMessagePayloadType::Ping,
-            SporadMessagePayloadType::Pong,
-            // SporadMessagePayloadType::Verack,
-            // SporadMessagePayloadType::Version,
-            // SporadMessagePayloadType::Ready,
-            SporadMessagePayloadType::TransactionNotFound,
-            SporadMessagePayloadType::Reject,
-            SporadMessagePayloadType::PruningPointCellSetChunk,
-            SporadMessagePayloadType::RequestIbdBlocks,
-            SporadMessagePayloadType::UnexpectedPruningPoint,
-            SporadMessagePayloadType::IbdBlockLocator,
-            SporadMessagePayloadType::IbdBlockLocatorHighestHash,
-            SporadMessagePayloadType::RequestNextPruningPointCellSetChunk,
-            SporadMessagePayloadType::DonePruningPointCellSetChunks,
-            SporadMessagePayloadType::IbdBlockLocatorHighestHashNotFound,
-            SporadMessagePayloadType::BlockWithTrustedData,
-            SporadMessagePayloadType::DoneBlocksWithTrustedData,
-            SporadMessagePayloadType::RequestPruningPointAndItsAnticone,
-            SporadMessagePayloadType::BlockHeaders,
-            SporadMessagePayloadType::RequestNextHeaders,
-            SporadMessagePayloadType::DoneHeaders,
-            SporadMessagePayloadType::RequestPruningPointCellSet,
-            SporadMessagePayloadType::RequestHeaders,
-            SporadMessagePayloadType::RequestBlockLocator,
-            SporadMessagePayloadType::PruningPoints,
-            SporadMessagePayloadType::RequestPruningPointProof,
-            SporadMessagePayloadType::PruningPointProof,
-            SporadMessagePayloadType::BlockWithTrustedDataV4,
-            SporadMessagePayloadType::TrustedData,
-            SporadMessagePayloadType::RequestIbdChainBlockLocator,
-            SporadMessagePayloadType::IbdChainBlockLocator,
-            SporadMessagePayloadType::RequestAntipast,
-            SporadMessagePayloadType::RequestNextPruningPointAndItsAnticoneBlocks,
+            P2pMessagePayloadType::Addresses,
+            P2pMessagePayloadType::Block,
+            P2pMessagePayloadType::Transaction,
+            P2pMessagePayloadType::BlockLocator,
+            P2pMessagePayloadType::RequestAddresses,
+            P2pMessagePayloadType::RequestRelayBlocks,
+            P2pMessagePayloadType::RequestTransactions,
+            P2pMessagePayloadType::IbdBlock,
+            P2pMessagePayloadType::InvRelayBlock,
+            P2pMessagePayloadType::InvTransactions,
+            P2pMessagePayloadType::Ping,
+            P2pMessagePayloadType::Pong,
+            // P2pMessagePayloadType::Verack,
+            // P2pMessagePayloadType::Version,
+            // P2pMessagePayloadType::Ready,
+            P2pMessagePayloadType::TransactionNotFound,
+            P2pMessagePayloadType::Reject,
+            P2pMessagePayloadType::PruningPointCellSetChunk,
+            P2pMessagePayloadType::RequestIbdBlocks,
+            P2pMessagePayloadType::UnexpectedPruningPoint,
+            P2pMessagePayloadType::IbdBlockLocator,
+            P2pMessagePayloadType::IbdBlockLocatorHighestHash,
+            P2pMessagePayloadType::RequestNextPruningPointCellSetChunk,
+            P2pMessagePayloadType::DonePruningPointCellSetChunks,
+            P2pMessagePayloadType::IbdBlockLocatorHighestHashNotFound,
+            P2pMessagePayloadType::BlockWithTrustedData,
+            P2pMessagePayloadType::DoneBlocksWithTrustedData,
+            P2pMessagePayloadType::RequestPruningPointAndItsAnticone,
+            P2pMessagePayloadType::BlockHeaders,
+            P2pMessagePayloadType::RequestNextHeaders,
+            P2pMessagePayloadType::DoneHeaders,
+            P2pMessagePayloadType::RequestPruningPointCellSet,
+            P2pMessagePayloadType::RequestHeaders,
+            P2pMessagePayloadType::RequestBlockLocator,
+            P2pMessagePayloadType::PruningPoints,
+            P2pMessagePayloadType::RequestPruningPointProof,
+            P2pMessagePayloadType::PruningPointProof,
+            P2pMessagePayloadType::BlockWithTrustedDataV4,
+            P2pMessagePayloadType::TrustedData,
+            P2pMessagePayloadType::RequestIbdChainBlockLocator,
+            P2pMessagePayloadType::IbdChainBlockLocator,
+            P2pMessagePayloadType::RequestAntipast,
+            P2pMessagePayloadType::RequestNextPruningPointAndItsAnticoneBlocks,
         ]);
         let mut echo_flow = EchoFlow { router, receiver };
         debug!("EchoFlow, start app-layer receiving loop");
@@ -79,7 +79,7 @@ impl EchoFlow {
         });
     }
 
-    async fn call(&self, msg: pb::SporadMessage) -> bool {
+    async fn call(&self, msg: pb::P2pMessage) -> bool {
         // echo
         trace!("EchoFlow, got message:{:?}", msg);
         self.router.enqueue(msg).await.is_ok()
@@ -99,7 +99,6 @@ fn build_dummy_version_message() -> VersionMessage {
         id: Vec::from(Uuid::new_v4().as_bytes()),
         user_agent: String::new(),
         disable_relay_tx: false,
-        subnetwork_id: None,
         network: "spora-mainnet".to_string(),
     }
 }
@@ -118,7 +117,7 @@ impl ConnectionInitializer for EchoFlowInitializer {
         //
 
         // Build the handshake object and subscribe to handshake messages
-        let mut handshake = SporadHandshake::new(&router);
+        let mut handshake = P2pHandshake::new(&router);
 
         // We start the router receive loop only after we registered to handshake routes
         router.start();

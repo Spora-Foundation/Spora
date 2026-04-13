@@ -1,6 +1,6 @@
 use super::{
     handler_trait::Handler,
-    interface::{DynSporadMethod, Interface},
+    interface::{DynRpcMethod, Interface},
 };
 use crate::{
     connection::{Connection, IncomingRoute},
@@ -9,21 +9,21 @@ use crate::{
 };
 use spora_core::debug;
 use spora_grpc_core::{
-    ops::SporadPayloadOps,
-    protowire::{SporadRequest, SporadResponse},
+    ops::RpcPayloadOps,
+    protowire::{RpcRequest, RpcResponse},
 };
 
 pub struct RequestHandler {
-    rpc_op: SporadPayloadOps,
+    rpc_op: RpcPayloadOps,
     incoming_route: IncomingRoute,
     server_ctx: ServerContext,
-    method: DynSporadMethod,
+    method: DynRpcMethod,
     connection: Connection,
 }
 
 impl RequestHandler {
     pub fn new(
-        rpc_op: SporadPayloadOps,
+        rpc_op: RpcPayloadOps,
         incoming_route: IncomingRoute,
         server_context: ServerContext,
         interface: &Interface,
@@ -33,7 +33,7 @@ impl RequestHandler {
         Self { rpc_op, incoming_route, server_ctx: server_context, method, connection }
     }
 
-    pub async fn handle_request(&self, request: SporadRequest) -> GrpcServerResult<SporadResponse> {
+    pub async fn handle_request(&self, request: RpcRequest) -> GrpcServerResult<RpcResponse> {
         let id = request.id;
         let mut response = self.method.call(self.server_ctx.clone(), self.connection.clone(), request).await?;
         response.id = id;

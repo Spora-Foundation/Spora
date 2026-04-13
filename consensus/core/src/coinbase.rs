@@ -1,15 +1,17 @@
-use crate::tx::{CellTx, ScriptPublicKey};
+use crate::tx::{CellTx, ScriptRef};
 use serde::{Deserialize, Serialize};
+
+pub const COINBASE_MASS_COMMITMENT_MAGIC: [u8; 4] = *b"SMC1";
 
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub struct MinerData<T: AsRef<[u8]> = Vec<u8>> {
-    pub script_public_key: ScriptPublicKey,
+    pub lock_script: ScriptRef,
     pub extra_data: T,
 }
 
 impl<T: AsRef<[u8]>> MinerData<T> {
-    pub fn new(script_public_key: ScriptPublicKey, extra_data: T) -> Self {
-        Self { script_public_key, extra_data }
+    pub fn new(lock_script: ScriptRef, extra_data: T) -> Self {
+        Self { lock_script, extra_data }
     }
 }
 
@@ -17,6 +19,7 @@ impl<T: AsRef<[u8]>> MinerData<T> {
 pub struct CoinbaseData<T: AsRef<[u8]> = Vec<u8>> {
     pub blue_score: u64,
     pub subsidy: u64,
+    pub mass_commitment: u64,
     pub miner_data: MinerData<T>,
 }
 
@@ -24,12 +27,12 @@ pub struct CoinbaseData<T: AsRef<[u8]> = Vec<u8>> {
 pub struct BlockRewardData {
     pub subsidy: u64,
     pub total_fees: u64,
-    pub script_public_key: ScriptPublicKey,
+    pub lock_script: ScriptRef,
 }
 
 impl BlockRewardData {
-    pub fn new(subsidy: u64, total_fees: u64, script_public_key: ScriptPublicKey) -> Self {
-        Self { subsidy, total_fees, script_public_key }
+    pub fn new(subsidy: u64, total_fees: u64, lock_script: ScriptRef) -> Self {
+        Self { subsidy, total_fees, lock_script }
     }
 }
 

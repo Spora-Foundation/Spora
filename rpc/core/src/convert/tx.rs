@@ -3,7 +3,7 @@
 use crate::{RpcError, RpcResult, RpcTransaction, RpcTransactionInput, RpcTransactionOutput};
 use spora_consensus_core::{
     mass::project_cell_tx_mass,
-    tx::{cell_out_from_legacy_script_public_key, CellRef, CellTx},
+    tx::{CellRef, CellTx},
 };
 
 // ----------------------------------------------------------------------------
@@ -41,22 +41,21 @@ impl TryFrom<RpcTransaction> for CellTx {
             ));
         }
 
-        let inputs: Vec<CellRef> = item
-            .inputs
-            .iter()
-            .map(|input| CellRef::new(input.previous_outpoint.into(), input.since.unwrap_or(input.sequence)))
-            .collect();
+        let inputs: Vec<CellRef> = item.inputs.iter().map(|input| CellRef::new(input.previous_outpoint.into(), input.since)).collect();
 
-        let mut witnesses: Vec<Vec<u8>> =
-            item.inputs.into_iter().map(|input| input.witness.unwrap_or(input.signature_script)).collect();
+        let mut witnesses: Vec<Vec<u8>> = item.inputs.into_iter().map(|input| input.witness).collect();
 
         let outputs: Vec<_> = item
             .outputs
             .iter()
-            .map(|output| cell_out_from_legacy_script_public_key(output.capacity.unwrap_or(output.value), &output.script_public_key))
+            .map(|output| spora_consensus_core::tx::CellOut {
+                lock: output.lock_script.clone().into(),
+                type_: output.type_script.clone().map(Into::into),
+                capacity: output.capacity.unwrap_or(output.value),
+            })
             .collect();
 
-        let mut outputs_data = vec![vec![]; outputs.len()];
+        let mut outputs_data = item.outputs.iter().map(|output| output.output_data.clone().unwrap_or_default()).collect::<Vec<_>>();
         if is_coinbase && !item.payload.is_empty() {
             if let Some(first_output_data) = outputs_data.first_mut() {
                 *first_output_data = item.payload.clone();
@@ -109,7 +108,7 @@ mod tests {
             restored.outputs[0].type_.as_ref().map(|script| script.code_hash),
             tx.outputs[0].type_.as_ref().map(|script| script.hash())
         );
-        assert_eq!(restored.outputs_data, vec![Vec::<u8>::new()]);
+        assert_eq!(restored.outputs_data, tx.outputs_data);
     }
 
     #[test]
@@ -147,7 +146,7 @@ mod tests {
             verbose_data: None,
         };
 
-        let error = CellTx::try_from(rpc_tx).expect_err("legacy payload must be rejected on normal transactions");
+        let error = CellTx::try_from(rpc_tx).expect_err("reserved payload must be rejected on normal transactions");
         assert!(error.to_string().contains("payload"));
     }
 }

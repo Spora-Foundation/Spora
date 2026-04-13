@@ -9,7 +9,7 @@ use spora_p2p_lib::{
     convert::model::trusted::TrustedDataEntry,
     make_message,
     pb::{
-        sporad_message::Payload, RequestNextHeadersMessage, RequestNextPruningPointAndItsAnticoneBlocksMessage,
+        p2p_message::Payload, RequestNextHeadersMessage, RequestNextPruningPointAndItsAnticoneBlocksMessage,
         RequestNextPruningPointCellSetChunkMessage,
     },
     IncomingRoute, Router,

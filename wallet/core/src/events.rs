@@ -10,7 +10,7 @@ use crate::imports::*;
 use crate::storage::{Hint, PrvKeyDataInfo, StorageDescriptor, TransactionRecord, WalletDescriptor};
 use transaction::TransactionRecordNotification;
 
-/// Sync state of the Sporad node
+/// Sync state of the connected node
 #[derive(Clone, Debug, Serialize, BorshSerialize, BorshDeserialize)]
 #[serde(rename_all = "kebab-case")]
 #[serde(tag = "type", content = "data")]

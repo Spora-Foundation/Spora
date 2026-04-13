@@ -10,7 +10,7 @@ pub enum Creator {}
 #[derive(Debug)]
 pub enum Constructor {}
 
-/// Can set the sequence number.
+/// Can set the encoded `since` value.
 /// Reference: [BIP-370: Updater](https://github.com/bitcoin/bips/blob/master/bip-0370.mediawiki#updater)
 #[derive(Debug)]
 pub enum Updater {}

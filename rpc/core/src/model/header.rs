@@ -15,6 +15,7 @@ pub struct RpcRawHeader {
     pub accepted_id_merkle_root: Hash,
     pub cell_commitment: Hash,
     pub cell_root: Hash,
+    pub segment_root: Hash,
     /// Timestamp is in milliseconds
     pub timestamp: u64,
     pub bits: u32,
@@ -36,6 +37,7 @@ pub struct RpcHeader {
     pub accepted_id_merkle_root: Hash,
     pub cell_commitment: Hash,
     pub cell_root: Hash,
+    pub segment_root: Hash,
     /// Timestamp is in milliseconds
     pub timestamp: u64,
     pub bits: u32,
@@ -72,6 +74,7 @@ impl From<Header> for RpcHeader {
             accepted_id_merkle_root: header.accepted_id_merkle_root,
             cell_commitment: header.cell_commitment,
             cell_root: header.cell_root,
+            segment_root: header.segment_root,
             timestamp: header.timestamp,
             bits: header.bits,
             nonce: header.nonce,
@@ -93,6 +96,7 @@ impl From<&Header> for RpcHeader {
             accepted_id_merkle_root: header.accepted_id_merkle_root,
             cell_commitment: header.cell_commitment,
             cell_root: header.cell_root,
+            segment_root: header.segment_root,
             timestamp: header.timestamp,
             bits: header.bits,
             nonce: header.nonce,
@@ -114,6 +118,7 @@ impl From<RpcHeader> for Header {
             accepted_id_merkle_root: header.accepted_id_merkle_root,
             cell_commitment: header.cell_commitment,
             cell_root: header.cell_root,
+            segment_root: header.segment_root,
             timestamp: header.timestamp,
             bits: header.bits,
             nonce: header.nonce,
@@ -135,6 +140,7 @@ impl From<&RpcHeader> for Header {
             accepted_id_merkle_root: header.accepted_id_merkle_root,
             cell_commitment: header.cell_commitment,
             cell_root: header.cell_root,
+            segment_root: header.segment_root,
             timestamp: header.timestamp,
             bits: header.bits,
             nonce: header.nonce,
@@ -148,7 +154,7 @@ impl From<&RpcHeader> for Header {
 
 impl Serializer for RpcHeader {
     fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
-        store!(u16, &2, writer)?;
+        store!(u16, &3, writer)?;
 
         store!(Hash, &self.hash, writer)?;
         store!(u16, &self.version, writer)?;
@@ -157,6 +163,7 @@ impl Serializer for RpcHeader {
         store!(Hash, &self.accepted_id_merkle_root, writer)?;
         store!(Hash, &self.cell_commitment, writer)?;
         store!(Hash, &self.cell_root, writer)?;
+        store!(Hash, &self.segment_root, writer)?;
         store!(u64, &self.timestamp, writer)?;
         store!(u32, &self.bits, writer)?;
         store!(u64, &self.nonce, writer)?;
@@ -172,10 +179,10 @@ impl Serializer for RpcHeader {
 impl Deserializer for RpcHeader {
     fn deserialize<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
         let payload_version = load!(u16, reader)?;
-        if payload_version != 2 {
+        if payload_version != 3 {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
-                format!("unsupported RpcHeader version {payload_version}, expected 2"),
+                format!("unsupported RpcHeader version {payload_version}, expected 3"),
             ));
         }
 
@@ -186,6 +193,7 @@ impl Deserializer for RpcHeader {
         let accepted_id_merkle_root = load!(Hash, reader)?;
         let cell_commitment = load!(Hash, reader)?;
         let cell_root = load!(Hash, reader)?;
+        let segment_root = load!(Hash, reader)?;
         let timestamp = load!(u64, reader)?;
         let bits = load!(u32, reader)?;
         let nonce = load!(u64, reader)?;
@@ -202,6 +210,7 @@ impl Deserializer for RpcHeader {
             accepted_id_merkle_root,
             cell_commitment,
             cell_root,
+            segment_root,
             timestamp,
             bits,
             nonce,
@@ -222,6 +231,7 @@ impl From<RpcRawHeader> for Header {
             header.accepted_id_merkle_root,
             header.cell_commitment,
             header.cell_root,
+            header.segment_root,
             header.timestamp,
             header.bits,
             header.nonce,
@@ -242,6 +252,7 @@ impl From<&RpcRawHeader> for Header {
             header.accepted_id_merkle_root,
             header.cell_commitment,
             header.cell_root,
+            header.segment_root,
             header.timestamp,
             header.bits,
             header.nonce,
@@ -262,6 +273,7 @@ impl From<&Header> for RpcRawHeader {
             accepted_id_merkle_root: header.accepted_id_merkle_root,
             cell_commitment: header.cell_commitment,
             cell_root: header.cell_root,
+            segment_root: header.segment_root,
             timestamp: header.timestamp,
             bits: header.bits,
             nonce: header.nonce,
@@ -282,6 +294,7 @@ impl From<Header> for RpcRawHeader {
             accepted_id_merkle_root: header.accepted_id_merkle_root,
             cell_commitment: header.cell_commitment,
             cell_root: header.cell_root,
+            segment_root: header.segment_root,
             timestamp: header.timestamp,
             bits: header.bits,
             nonce: header.nonce,
@@ -295,7 +308,7 @@ impl From<Header> for RpcRawHeader {
 
 impl Serializer for RpcRawHeader {
     fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
-        store!(u16, &2, writer)?;
+        store!(u16, &3, writer)?;
 
         store!(u16, &self.version, writer)?;
         store!(Vec<Vec<Hash>>, &self.parents_by_level, writer)?;
@@ -303,6 +316,7 @@ impl Serializer for RpcRawHeader {
         store!(Hash, &self.accepted_id_merkle_root, writer)?;
         store!(Hash, &self.cell_commitment, writer)?;
         store!(Hash, &self.cell_root, writer)?;
+        store!(Hash, &self.segment_root, writer)?;
         store!(u64, &self.timestamp, writer)?;
         store!(u32, &self.bits, writer)?;
         store!(u64, &self.nonce, writer)?;
@@ -318,10 +332,10 @@ impl Serializer for RpcRawHeader {
 impl Deserializer for RpcRawHeader {
     fn deserialize<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
         let payload_version = load!(u16, reader)?;
-        if payload_version != 2 {
+        if payload_version != 3 {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
-                format!("unsupported RpcRawHeader version {payload_version}, expected 2"),
+                format!("unsupported RpcRawHeader version {payload_version}, expected 3"),
             ));
         }
 
@@ -331,6 +345,7 @@ impl Deserializer for RpcRawHeader {
         let accepted_id_merkle_root = load!(Hash, reader)?;
         let cell_commitment = load!(Hash, reader)?;
         let cell_root = load!(Hash, reader)?;
+        let segment_root = load!(Hash, reader)?;
         let timestamp = load!(u64, reader)?;
         let bits = load!(u32, reader)?;
         let nonce = load!(u64, reader)?;
@@ -346,6 +361,7 @@ impl Deserializer for RpcRawHeader {
             accepted_id_merkle_root,
             cell_commitment,
             cell_root,
+            segment_root,
             timestamp,
             bits,
             nonce,
@@ -377,13 +393,14 @@ mod tests {
             accepted_id_merkle_root: hash_from_byte(4),
             cell_commitment: hash_from_byte(5),
             cell_root: hash_from_byte(6),
-            timestamp: 7,
-            bits: 8,
-            nonce: 9,
-            daa_score: 10,
-            blue_work: 11.into(),
-            blue_score: 12,
-            pruning_point: hash_from_byte(13),
+            segment_root: hash_from_byte(7),
+            timestamp: 8,
+            bits: 9,
+            nonce: 10,
+            daa_score: 11,
+            blue_work: 12.into(),
+            blue_score: 13,
+            pruning_point: hash_from_byte(14),
         };
 
         let mut buffer = Vec::new();
@@ -391,6 +408,7 @@ mod tests {
         let decoded = <RpcHeader as Deserializer>::deserialize(&mut Cursor::new(&buffer)).unwrap();
 
         assert_eq!(decoded.cell_root, header.cell_root);
+        assert_eq!(decoded.segment_root, header.segment_root);
         assert_eq!(decoded.hash, header.hash);
         assert_eq!(decoded.cell_commitment, header.cell_commitment);
         assert_eq!(decoded.pruning_point, header.pruning_point);

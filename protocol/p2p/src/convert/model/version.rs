@@ -1,4 +1,3 @@
-use spora_consensus_core::subnets::SubnetworkId;
 use spora_core::{
     sporad_env::{name, version},
     time::unix_now,
@@ -17,17 +16,10 @@ pub struct Version {
     pub id: PeerId,
     pub user_agent: String,
     pub disable_relay_tx: bool,
-    pub subnetwork_id: Option<SubnetworkId>,
 }
 
 impl Version {
-    pub fn new(
-        address: Option<NetAddress>,
-        id: PeerId,
-        network: String,
-        subnetwork_id: Option<SubnetworkId>,
-        protocol_version: u32,
-    ) -> Self {
+    pub fn new(address: Option<NetAddress>, id: PeerId, network: String, protocol_version: u32) -> Self {
         Self {
             protocol_version,
             network,
@@ -37,7 +29,6 @@ impl Version {
             id,
             user_agent: format!("/{}:{}/", name(), version()),
             disable_relay_tx: false,
-            subnetwork_id,
         }
     }
 

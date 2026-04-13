@@ -162,7 +162,7 @@ pub async fn bundle_from_psst_generator(generator: PSSTGenerator) -> Result<Bund
 pub async fn pssb_signer_for_address(
     bundle: &Bundle,
     signer: Arc<PSSBSigner>,
-    network_id: NetworkId,
+    _network_id: NetworkId,
     sign_for_address: Option<&Address>,
     derivation_path: Option<DerivationPath>,
     key_fingerprint: Option<KeyFingerprint>,
@@ -176,18 +176,9 @@ pub async fn pssb_signer_for_address(
         // Create a vec of single-address vecs
         bundle.iter().map(|_| vec![sign_for_address.unwrap().clone()]).collect()
     } else {
-        // Collect addresses for each PSST separately
-        bundle
-            .iter()
-            .map(|inner| {
-                inner
-                    .inputs
-                    .iter()
-                    .filter_map(|input| input.cell_entry.as_ref())
-                    .filter_map(|cell_entry| cell_entry.address.clone())
-                    .collect()
-            })
-            .collect()
+        return Err(Error::Custom(
+            "automatic PSST signer address inference was removed with CellEntry.address; pass sign_for_address explicitly".to_string(),
+        ));
     };
 
     // Prepare the signer with all unique addresses
@@ -311,24 +302,29 @@ pub fn psst_to_pending_transaction(
     change_address: Address,
     source_cell_context: Option<CellContext>,
 ) -> Result<PendingTransaction, Error> {
-    let inner_psst = finalized_psst.deref();
-    let (cell_entries_ref, aggregate_input_value): (Vec<CellEntryReference>, u64) = inner_psst
-        .inputs
-        .iter()
-        .filter_map(|input| {
-            input.cell_entry.as_ref().map(|ue| {
-                (
-                    CellEntryReference {
-                        cell: Arc::new(ClientCellEntry::from_consensus_entry(None, input.previous_outpoint.into(), ue)),
-                    },
-                    ue.amount(),
-                )
+    let (cell_entries_ref, aggregate_input_value, first_output) = {
+        let inner_psst = finalized_psst.deref();
+        let (cell_entries_ref, aggregate_input_value): (Vec<CellEntryReference>, u64) = inner_psst
+            .inputs
+            .iter()
+            .filter_map(|input| {
+                input.cell_entry.as_ref().map(|ue| {
+                    (
+                        CellEntryReference {
+                            cell: Arc::new(ClientCellEntry::from_consensus_entry(None, input.previous_outpoint.into(), ue)),
+                        },
+                        ue.amount(),
+                    )
+                })
             })
-        })
-        .fold((Vec::new(), 0), |(mut vec, sum), (entry, amount)| {
-            vec.push(entry);
-            (vec, sum + amount)
-        });
+            .fold((Vec::new(), 0), |(mut vec, sum), (entry, amount)| {
+                vec.push(entry);
+                (vec, sum + amount)
+            });
+        let first_output =
+            inner_psst.outputs.first().cloned().ok_or_else(|| Error::Custom("0 outputs psst is not supported".to_string()))?;
+        (cell_entries_ref, aggregate_input_value, first_output)
+    };
     let signed_tx = match finalized_psst.extractor() {
         Ok(extractor) => match extractor.extract_tx(&network_id.into()) {
             Ok(tx) => tx.tx,
@@ -340,7 +336,6 @@ pub fn psst_to_pending_transaction(
         return Err(Error::Custom("0 outputs psst is not supported".to_string()));
         // todo support 0 outputs
     }
-    let first_output = inner_psst.outputs.first().ok_or_else(|| Error::Custom("0 outputs psst is not supported".to_string()))?;
     let recipient = address_from_lock_script(&first_output.lock_script, network_id.into())?;
     let fee_u: u64 = 0;
 
@@ -352,7 +347,6 @@ pub fn psst_to_pending_transaction(
     let settings = GeneratorSettings {
         network_id,
         multiplexer: None,
-        sig_op_count: 1,
         minimum_signatures: 1,
         change_address: change_address.clone(),
         cell_iterator,

@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use spora_consensus_core::tx::ScriptRef;
 use std::{collections::BTreeMap, ops::Add};
 
-#[derive(Builder, Default, Serialize, Deserialize, Clone, Debug)]
+#[derive(Builder, Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 #[builder(default)]
 pub struct Output {
@@ -34,6 +34,21 @@ pub struct Output {
     #[serde(flatten)]
     /// Unknown key-value pairs for this output.
     pub unknowns: BTreeMap<String, serde_value::Value>,
+}
+
+impl Default for Output {
+    fn default() -> Self {
+        Self {
+            capacity: 0,
+            lock_script: ScriptRef::new([0; 32], 0, vec![]),
+            type_script: None,
+            output_data: None,
+            redeem_script: None,
+            bip32_derivations: BTreeMap::new(),
+            proprietaries: BTreeMap::new(),
+            unknowns: BTreeMap::new(),
+        }
+    }
 }
 
 impl Add for Output {

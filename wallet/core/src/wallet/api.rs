@@ -178,8 +178,8 @@ impl WalletApi for super::Wallet {
         let guard = self.guard();
         let guard = guard.lock().await;
 
-        let WalletOpenRequest { wallet_secret, filename, account_descriptors, legacy_accounts } = request;
-        let args = WalletOpenArgs { account_descriptors, legacy_accounts: legacy_accounts.unwrap_or_default() };
+        let WalletOpenRequest { wallet_secret, filename, account_descriptors } = request;
+        let args = WalletOpenArgs { account_descriptors };
         let account_descriptors = self.open(&wallet_secret, filename, args, &guard).await?;
         Ok(WalletOpenResponse { account_descriptors })
     }

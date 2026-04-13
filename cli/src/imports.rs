@@ -16,7 +16,6 @@ pub use serde::{Deserialize, Serialize};
 pub use serde_json::{to_value, Value};
 pub use spora_consensus_core::network::{NetworkId, NetworkType};
 pub use spora_utils::hex::*;
-pub use spora_wallet_core::compat::*;
 pub use spora_wallet_core::prelude::*;
 pub use spora_wallet_core::settings::{DefaultSettings, SettingsStore, WalletSettings};
 pub use spora_wrpc_client::prelude::*;

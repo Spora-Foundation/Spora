@@ -11,9 +11,9 @@
 use crate::imports::*;
 use crate::outpoint::{TransactionOutpoint, TransactionOutpointInner};
 use crate::result::Result;
-use crate::standard_script::pay_to_address_script;
+use crate::standard_script::pay_to_address_lock_script;
 use spora_addresses::Address;
-use spora_consensus_core::cell_metadata::PlaceholderCellMetadata;
+use spora_consensus_core::cell_metadata::EmbeddedCellMetadata;
 use spora_consensus_core::mass::CellMass;
 
 #[wasm_bindgen(typescript_custom_section)]
@@ -91,8 +91,6 @@ pub struct CellEntry {
     #[serde(default)]
     #[wasm_bindgen(skip)]
     pub data_hash: Option<TransactionId>,
-    #[wasm_bindgen(js_name = scriptPublicKey, getter_with_clone)]
-    pub script_public_key: ScriptPublicKey,
     #[wasm_bindgen(js_name = blockDaaScore)]
     pub block_daa_score: u64,
     #[wasm_bindgen(js_name = isCoinbase)]
@@ -144,9 +142,9 @@ impl CellEntry {
         self
     }
 
-    pub fn embedded_cell_metadata(&self) -> Option<PlaceholderCellMetadata> {
+    pub fn embedded_cell_metadata(&self) -> Option<EmbeddedCellMetadata> {
         match (self.lock_hash, self.data_hash) {
-            (Some(lock_hash), Some(data_hash)) => Some(PlaceholderCellMetadata {
+            (Some(lock_hash), Some(data_hash)) => Some(EmbeddedCellMetadata {
                 lock_hash: lock_hash.as_bytes(),
                 type_hash: self.type_hash.map(|hash| hash.as_bytes()),
                 data_hash: data_hash.as_bytes(),
@@ -166,7 +164,6 @@ impl CellEntry {
             lock_hash: None,
             type_hash: None,
             data_hash: None,
-            script_public_key: ScriptPublicKey::default(),
             block_daa_score: entry.block_daa_score,
             is_coinbase: entry.is_cellbase,
         };
@@ -281,11 +278,6 @@ impl CellEntryReference {
     #[wasm_bindgen(getter, js_name = "blockDaaScore")]
     pub fn block_daa_score(&self) -> u64 {
         self.cell.block_daa_score
-    }
-
-    #[wasm_bindgen(getter, js_name = "scriptPublicKey")]
-    pub fn script_public_key(&self) -> ScriptPublicKey {
-        self.cell.address.as_ref().map(pay_to_address_script).unwrap_or_else(|| self.cell.script_public_key.clone())
     }
 }
 
@@ -549,7 +541,6 @@ impl TryCastFromJs for CellEntryReference {
                         lock_hash,
                         type_hash,
                         data_hash,
-                        script_public_key: address.as_ref().map(pay_to_address_script).unwrap_or_default(),
                         block_daa_score,
                         is_coinbase,
                     }
@@ -579,7 +570,6 @@ impl TryCastFromJs for CellEntryReference {
                         lock_hash,
                         type_hash,
                         data_hash,
-                        script_public_key: address.as_ref().map(pay_to_address_script).unwrap_or_default(),
                         block_daa_score,
                         is_coinbase,
                     }
@@ -602,7 +592,7 @@ impl CellEntryReference {
 
     pub fn simulated_with_address(amount: u64, address: &Address) -> Self {
         let outpoint = TransactionOutpoint::simulated();
-        let script_public_key = pay_to_address_script(address);
+        let lock_hash: TransactionId = pay_to_address_lock_script(address).hash().into();
         let block_daa_score = 0;
         let is_coinbase = false;
 
@@ -612,10 +602,9 @@ impl CellEntryReference {
             amount,
             capacity: Some(amount),
             data_bytes: Some(0),
-            lock_hash: Some(script_public_key.hash().into()),
+            lock_hash: Some(lock_hash),
             type_hash: None,
             data_hash: Some(TransactionId::from([0; 32])),
-            script_public_key,
             block_daa_score,
             is_coinbase,
         };

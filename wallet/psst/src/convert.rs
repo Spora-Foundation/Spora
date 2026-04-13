@@ -7,6 +7,7 @@ use crate::error::Error;
 use crate::input::{Input, InputBuilder};
 use crate::output::{Output, OutputBuilder};
 use crate::psst::{Global, Inner};
+use spora_consensus_core::cell_diff::CellMeta;
 use spora_consensus_core::tx::{self as cctx};
 
 fn output_from_cell_out(output: &cctx::CellOut, output_data: &[u8]) -> Output {
@@ -22,12 +23,10 @@ fn output_from_cell_out(output: &cctx::CellOut, output_data: &[u8]) -> Output {
         .expect("CellOut must map to Output")
 }
 
-impl TryFrom<(cctx::CellTx, Vec<(cctx::CellRef, cctx::CellEntry)>)> for Inner {
+impl TryFrom<(cctx::CellTx, Vec<(cctx::CellRef, CellMeta)>)> for Inner {
     type Error = Error; // Define your error type
 
-    fn try_from(
-        (transaction, inputs_with_entries): (cctx::CellTx, Vec<(cctx::CellRef, cctx::CellEntry)>),
-    ) -> Result<Self, Self::Error> {
+    fn try_from((transaction, inputs_with_entries): (cctx::CellTx, Vec<(cctx::CellRef, CellMeta)>)) -> Result<Self, Self::Error> {
         let inputs: Result<Vec<Input>, Self::Error> = inputs_with_entries
             .into_iter()
             .map(|(cell_ref, cell_entry)| {
@@ -35,10 +34,9 @@ impl TryFrom<(cctx::CellTx, Vec<(cctx::CellRef, cctx::CellEntry)>)> for Inner {
                 let mut built = InputBuilder::default()
                     .cell_entry(cell_entry)
                     .previous_outpoint(cell_ref.out_point)
-                    .sig_op_count(0)
                     .build()
                     .map_err(Error::TxToInnerConversionInputBuildingError)?;
-                built.sequence = Some(since);
+                built.since = Some(since);
                 Ok(built)
             })
             .collect::<Result<_, _>>();
@@ -65,10 +63,9 @@ impl TryFrom<cctx::CellTx> for Inner {
             .map(|input| -> Result<Input, Error> {
                 let mut built = InputBuilder::default()
                     .previous_outpoint(input.out_point)
-                    .sig_op_count(0)
                     .build()
                     .map_err(Error::TxToInnerConversionInputBuildingError)?;
-                built.sequence = Some(input.since);
+                built.since = Some(input.since);
                 Ok(built)
             })
             .collect::<Result<_, _>>()?;

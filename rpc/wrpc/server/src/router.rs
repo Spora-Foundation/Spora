@@ -9,7 +9,7 @@ use workflow_serializer::prelude::*;
 /// A wrapper that creates an [`Interface`] instance and initializes
 /// RPC methods and notifications against this interface. The interface
 /// is later given to the RpcServer.  This wrapper exists to allow
-/// a single initialization location for both the Sporad Server and
+/// A single initialization location for both the node server and
 /// the GRPC Proxy.
 pub struct Router {
     pub interface: Arc<Interface<Server, Connection, RpcApiOps>>,
@@ -64,7 +64,6 @@ impl Router {
                 GetServerInfo,
                 GetSink,
                 GetSinkBlueScore,
-                GetSubnetwork,
                 GetSyncStatus,
                 GetSystemInfo,
                 GetCellsByAddresses,

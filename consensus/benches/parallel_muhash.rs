@@ -3,29 +3,27 @@ use itertools::Itertools;
 use rayon::prelude::*;
 use spora_consensus_core::{
     muhash::MuHashExtensions,
-    tx::{CellEntry, ScriptPublicKey, SignableTransaction, Transaction, TransactionInput, TransactionOutpoint, TransactionOutput},
+    tx::{outpoint_from_id, CellEntry, CellOut, CellRef, CellTx, ScriptRef, SignableTransaction, TransactionId},
 };
-use spora_hashes::TransactionID;
 use spora_muhash::MuHash;
 use spora_utils::iter::parallelism_in_power_steps;
 
+fn sample_lock_script(tag: u8) -> ScriptRef {
+    ScriptRef::new([tag; 32], 0, vec![0x51, tag])
+}
+
 fn generate_transaction(ins: usize, outs: usize, randomness: u64) -> SignableTransaction {
-    let mut tx = Transaction::new_non_finalized_native(0, vec![], vec![], vec![]);
-    let mut entries = vec![];
-    for i in 0..ins {
-        let mut hasher = TransactionID::new();
-        hasher.write(i.to_le_bytes());
-        hasher.write(randomness.to_le_bytes());
-        let input = TransactionInput::new(TransactionOutpoint::new(hasher.finalize(), 0), vec![10; 66], 0, 1);
-        let entry = CellEntry::new(22222222, ScriptPublicKey::from_vec(0, vec![99; 34]), 23456, false);
-        tx.inputs.push(input);
-        entries.push(entry);
-    }
-    for _ in 0..outs {
-        let output = TransactionOutput::new(23456, ScriptPublicKey::from_vec(0, vec![101; 34]));
-        tx.outputs.push(output);
-    }
-    tx.finalize();
+    let inputs = (0..ins)
+        .map(|i| CellRef::new(outpoint_from_id(TransactionId::from_u64_word(((randomness as usize) << 16 | i) as u64), 0), 0))
+        .collect_vec();
+    let entries = (0..ins)
+        .map(|i| CellEntry::from_cell_metadata(22_222_222, 0, sample_lock_script((99 + i) as u8).hash(), None, [0; 32], 23_456, false))
+        .collect_vec();
+    let outputs =
+        (0..outs).map(|i| CellOut { capacity: 23_456, lock: sample_lock_script((101 + i) as u8), type_: None }).collect_vec();
+    let outputs_data = vec![vec![]; outs];
+    let witnesses = vec![vec![]; ins];
+    let tx = CellTx::new(inputs, vec![], outputs, outputs_data, witnesses).expect("benchmark CellTx must be valid");
     SignableTransaction::with_entries(tx, entries)
 }
 
@@ -35,7 +33,7 @@ pub fn parallel_muhash_benchmark(c: &mut Criterion) {
     group.bench_function("seq", |b| {
         b.iter(|| {
             let mut mh = MuHash::new();
-            for tx in txs.iter() {
+            for tx in &txs {
                 mh.add_transaction(&tx.as_verifiable(), 222);
             }
             black_box(mh)

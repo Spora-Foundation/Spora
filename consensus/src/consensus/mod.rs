@@ -6,10 +6,6 @@ pub mod services;
 pub mod storage;
 pub mod test_consensus;
 
-// Cell model: devnet-prealloc cell_set_override not yet reimplemented for Cell model.
-// #[cfg(feature = "devnet-prealloc")]
-// mod cell_set_override;
-
 use crate::{
     config::Config,
     consensus::cell_provider::ConsensusCellProvider,
@@ -92,15 +88,15 @@ use spora_database::prelude::{StoreResultEmptyTuple, StoreResultExtensions};
 use spora_hashes::Hash;
 
 use std::{
-    cmp::Reverse,
+    cmp::{self, Reverse},
     collections::{BinaryHeap, VecDeque},
     future::Future,
     iter::once,
     ops::Deref,
-    sync::{atomic::Ordering, Arc},
-};
-use std::{
-    sync::atomic::AtomicBool,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
     thread::{self, JoinHandle},
 };
 use tokio::sync::oneshot;
@@ -108,8 +104,6 @@ use tokio::sync::oneshot;
 use self::{services::ConsensusServices, storage::ConsensusStorage};
 
 use crate::model::stores::selected_chain::SelectedChainStoreReader;
-
-use std::cmp;
 
 pub struct Consensus {
     // DB
@@ -956,8 +950,7 @@ impl ConsensusApi for Consensus {
     }
 
     fn get_populated_transaction(&self, txid: Hash, accepting_block_daa_score: u64) -> Result<SignableTransaction, String> {
-        self.get_resolved_cell_transaction(txid, accepting_block_daa_score)
-            .map(ResolvedCellTransaction::into_legacy_signable_transaction)
+        self.get_resolved_cell_transaction(txid, accepting_block_daa_score).map(ResolvedCellTransaction::into_signable_transaction)
     }
 
     fn get_resolved_cell_transaction(&self, txid: Hash, accepting_block_daa_score: u64) -> Result<ResolvedCellTransaction, String> {
@@ -982,6 +975,8 @@ impl ConsensusApi for Consensus {
             self.cell_diffs_store.clone(),
             self.cell_roots_store.clone(),
             self.block_transactions_store.clone(),
+            self.cell_data_store.clone(),
+            self.cell_data_segment_reader.clone(),
             self.statuses_store.clone(),
         );
 

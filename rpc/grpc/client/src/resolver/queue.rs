@@ -1,11 +1,11 @@
 use crate::{
     error::{Error, Result},
-    resolver::{matcher::Matcher, Resolver, SporadMessageReceiver, SporadMessageSender},
+    resolver::{matcher::Matcher, P2pMessageReceiver, P2pMessageSender, Resolver},
 };
 use spora_core::trace;
 use spora_grpc_core::{
-    ops::SporadPayloadOps,
-    protowire::{SporadRequest, SporadResponse},
+    ops::RpcPayloadOps,
+    protowire::{RpcRequest, RpcResponse},
 };
 use std::{
     collections::VecDeque,
@@ -17,17 +17,17 @@ use tokio::sync::oneshot;
 #[derive(Debug)]
 struct Pending {
     timestamp: Instant,
-    op: SporadPayloadOps,
-    request: SporadRequest,
-    sender: SporadMessageSender,
+    op: RpcPayloadOps,
+    request: RpcRequest,
+    sender: P2pMessageSender,
 }
 
 impl Pending {
-    fn new(op: SporadPayloadOps, request: SporadRequest, sender: SporadMessageSender) -> Self {
+    fn new(op: RpcPayloadOps, request: RpcRequest, sender: P2pMessageSender) -> Self {
         Self { timestamp: Instant::now(), op, request, sender }
     }
 
-    fn is_matching(&self, response: &SporadResponse, response_op: SporadPayloadOps) -> bool {
+    fn is_matching(&self, response: &RpcResponse, response_op: RpcPayloadOps) -> bool {
         self.op == response_op && self.request.is_matching(response)
     }
 }
@@ -44,8 +44,8 @@ impl QueueResolver {
 }
 
 impl Resolver for QueueResolver {
-    fn register_request(&self, op: SporadPayloadOps, request: &SporadRequest) -> SporadMessageReceiver {
-        let (sender, receiver) = oneshot::channel::<Result<SporadResponse>>();
+    fn register_request(&self, op: RpcPayloadOps, request: &RpcRequest) -> P2pMessageReceiver {
+        let (sender, receiver) = oneshot::channel::<Result<RpcResponse>>();
         {
             let pending = Pending::new(op, request.clone(), sender);
 
@@ -56,8 +56,8 @@ impl Resolver for QueueResolver {
         receiver
     }
 
-    fn handle_response(&self, response: SporadResponse) {
-        let response_op: SporadPayloadOps = response.payload.as_ref().unwrap().try_into().expect("response is not a notification");
+    fn handle_response(&self, response: RpcResponse) {
+        let response_op: RpcPayloadOps = response.payload.as_ref().unwrap().try_into().expect("response is not a notification");
         trace!("[Resolver] handle_response type: {:?}", response_op);
         let mut pending_calls = self.pending_calls.lock().unwrap();
         let mut pending: Option<Pending> = None;

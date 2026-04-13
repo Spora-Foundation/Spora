@@ -7,9 +7,11 @@ use spora_addresses::{Address, Prefix};
 // use spora_bip32::Prefix;
 use hex;
 use serde::{Deserialize, Serialize};
+use spora_consensus_client::{extract_address_from_lock_script, pay_to_address_lock_script, pay_to_script_hash_lock_script};
+use spora_consensus_core::cell_diff::CellMeta;
 use spora_consensus_core::constants::UNACCEPTED_DAA_SCORE;
 use spora_consensus_core::network::{NetworkId, NetworkType};
-use spora_consensus_core::tx::{pay_to_address_script, pay_to_script_hash_script, CellEntry, ScriptRef, TransactionOutpoint};
+use spora_consensus_core::tx::{ScriptRef, TransactionOutpoint};
 use std::ops::Deref;
 
 ///
@@ -89,9 +91,7 @@ impl Bundle {
 
                 if let Some(cell_entry) = &input.cell_entry {
                     result.push_str(&format!("  amount: {}\r\n", sau_formatter(cell_entry.amount(), &NetworkType::from(network_id))));
-                    let address =
-                        cell_entry.address.as_ref().map(ToString::to_string).unwrap_or_else(|| "<missing address>".to_string());
-                    result.push_str(&format!("  address: {}\r\n", address));
+                    result.push_str("  address: <unavailable>\r\n");
                 }
             }
 
@@ -161,12 +161,11 @@ pub fn lock_script_sig_templating_bytes(payload: Vec<u8>, pubkey_bytes: Option<&
 }
 
 pub fn script_sig_to_address(script_sig: &[u8], prefix: spora_addresses::Prefix) -> Result<Address, Error> {
-    let lock_script = pay_to_script_hash_script(script_sig);
-    address_from_lock_script(&ScriptRef::new(lock_script.hash(), 0, lock_script.script().to_vec()), prefix)
+    address_from_lock_script(&pay_to_script_hash_lock_script(script_sig), prefix)
 }
 
 pub fn unlock_cells_as_pssb(
-    cell_references: Vec<(CellEntry, TransactionOutpoint)>,
+    cell_references: Vec<(CellMeta, TransactionOutpoint)>,
     recipient: &Address,
     script_sig: Vec<u8>,
     priority_fee_sau_per_transaction: u64,
@@ -183,8 +182,7 @@ pub fn unlock_cells_as_pssb(
         })
         .collect::<Result<Vec<_>, _>>()?;
 
-    let recipient_spk = pay_to_address_script(recipient);
-    let recipient_lock = ScriptRef::new(recipient_spk.hash(), 0, recipient_spk.script().to_vec());
+    let recipient_lock = pay_to_address_lock_script(recipient);
     let (successes, errors): (Vec<_>, Vec<_>) = cell_references
         .into_iter()
         .map(|(cell_entry, outpoint)| {
@@ -214,7 +212,7 @@ pub fn unlock_cells_as_pssb(
 }
 
 pub fn unlock_cell(
-    cell_entry: &CellEntry,
+    cell_entry: &CellMeta,
     outpoint: &TransactionOutpoint,
     lock_script: &ScriptRef,
     script_sig: &[u8],
@@ -223,7 +221,6 @@ pub fn unlock_cell(
     let input = InputBuilder::default()
         .cell_entry(cell_entry.to_owned())
         .previous_outpoint(outpoint.to_owned())
-        .sig_op_count(1)
         .redeem_script(script_sig.to_vec())
         .build()?;
 
@@ -242,22 +239,15 @@ pub fn unlock_cell_outputs_as_batch_transaction_pssb(
     script_sig: &[u8],
     destination_outputs: Vec<(Address, u64)>,
 ) -> Result<Bundle, Error> {
-    let origin_spk = pay_to_address_script(start_address);
-    let origin_lock = ScriptRef::new(origin_spk.hash(), 0, origin_spk.script().to_vec());
-    let cell_entry = direct_cell_entry_from_script(amount, origin_lock, UNACCEPTED_DAA_SCORE, false);
+    let origin_lock = pay_to_address_lock_script(start_address);
+    let cell_entry = direct_cell_meta_from_script(amount, origin_lock, UNACCEPTED_DAA_SCORE, false);
 
-    let input =
-        InputBuilder::default().cell_entry(cell_entry.to_owned()).sig_op_count(1).redeem_script(script_sig.to_vec()).build()?;
+    let input = InputBuilder::default().cell_entry(cell_entry.to_owned()).redeem_script(script_sig.to_vec()).build()?;
 
     let outputs: Vec<Output> = destination_outputs
         .iter()
         .filter_map(|(address, amount)| {
-            let script = pay_to_address_script(address);
-            OutputBuilder::default()
-                .capacity(*amount)
-                .lock_script(ScriptRef::new(script.hash(), 0, script.script().to_vec()))
-                .build()
-                .ok()
+            OutputBuilder::default().capacity(*amount).lock_script(pay_to_address_lock_script(address)).build().ok()
         })
         .collect();
 
@@ -266,19 +256,12 @@ pub fn unlock_cell_outputs_as_batch_transaction_pssb(
     Ok(psst.into())
 }
 
-fn direct_cell_entry_from_script(amount: u64, lock_script: ScriptRef, block_daa_score: u64, is_coinbase: bool) -> CellEntry {
-    CellEntry::from_cell_metadata(amount, 0, lock_script.code_hash, None, [0; 32], block_daa_score, is_coinbase)
+fn direct_cell_meta_from_script(amount: u64, lock_script: ScriptRef, block_daa_score: u64, is_coinbase: bool) -> CellMeta {
+    CellMeta::from_cell_metadata(amount, 0, lock_script.hash(), None, [0; 32], block_daa_score, is_coinbase)
 }
 
 fn address_from_lock_script(lock_script: &ScriptRef, prefix: Prefix) -> Result<Address, Error> {
-    match lock_script.args.as_slice() {
-        [0x20, payload @ .., 0xac] if payload.len() == 32 => Ok(Address::new(prefix, spora_addresses::Version::PubKey, payload)?),
-        [0x21, payload @ .., 0xab] if payload.len() == 33 => Ok(Address::new(prefix, spora_addresses::Version::PubKeyECDSA, payload)?),
-        [0xaa, 0x20, payload @ .., 0x87] if payload.len() == 32 => {
-            Ok(Address::new(prefix, spora_addresses::Version::ScriptHash, payload)?)
-        }
-        _ => Err(Error::from("unsupported lock script for address derivation")),
-    }
+    extract_address_from_lock_script(lock_script.args.as_slice(), prefix).map_err(|err| Error::Custom(err.to_string()))
 }
 
 #[cfg(test)]
@@ -289,7 +272,7 @@ mod tests {
     use crate::role::*;
     use secp256k1::Secp256k1;
     use secp256k1::{rand::thread_rng, Keypair};
-    use spora_consensus_core::tx::{multisig_redeem_script, outpoint_from_id, pay_to_script_hash_script, TransactionId};
+    use spora_consensus_core::tx::{multisig_redeem_script, outpoint_from_id, TransactionId};
     use std::str::FromStr;
     use std::sync::LazyLock;
 
@@ -309,19 +292,13 @@ mod tests {
     fn mock_psst_constructor() -> PSST<Constructor> {
         let (_, redeem_script) = mock_context();
         let psst = PSST::<Creator>::default().inputs_modifiable().outputs_modifiable();
-        let redeem_spk = pay_to_script_hash_script(redeem_script);
+        let redeem_spk = pay_to_script_hash_lock_script(redeem_script);
         let input_0 = InputBuilder::default()
-            .cell_entry(direct_cell_entry_from_script(
-                12793000000000,
-                ScriptRef::new(redeem_spk.hash(), 0, redeem_spk.script().to_vec()),
-                36151168,
-                false,
-            ))
+            .cell_entry(direct_cell_entry_from_script(12793000000000, redeem_spk.clone(), 36151168, false))
             .previous_outpoint(outpoint_from_id(
                 TransactionId::from_str("63020db736215f8b1105a9281f7bcbb6473d965ecc45bb2fb5da59bd35e6ff84").unwrap(),
                 0,
             ))
-            .sig_op_count(2)
             .redeem_script(redeem_script.to_owned())
             .build()
             .expect("Mock psst constructor");

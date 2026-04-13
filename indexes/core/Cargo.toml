@@ -14,6 +14,7 @@ async-channel.workspace = true
 async-trait.workspace = true
 derive_more.workspace = true
 futures.workspace = true
+spora-addresses.workspace = true
 spora-consensus-core.workspace = true
 spora-hashes.workspace = true
 spora-notify.workspace = true

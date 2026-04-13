@@ -32,9 +32,6 @@ pub enum DatabaseStorePrefixes {
     ChainHighestIndex = 22,
     Statuses = 23,
     Tips = 24,
-    CellDiffsLegacy = 25,      // Deprecated - use CellDiffs
-    CellRootsLegacy = 26,      // Deprecated - use CellRoots
-    VirtualCellsetLegacy = 27, // Deprecated
     VirtualState = 28,
     PruningSamples = 29,
 
@@ -64,6 +61,7 @@ pub enum DatabaseStorePrefixes {
     TransactionIndex = 195,
     CellDiffs = 196, // Cell state diffs
     CellRoots = 197, // Cell state Merkle roots
+    CellDataSegments = 198, // OutPoint -> segment-backed cell data mapping
 
     // ---- Separator ----
     /// Reserved as a separator

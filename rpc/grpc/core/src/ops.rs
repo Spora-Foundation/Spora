@@ -1,4 +1,4 @@
-use crate::protowire::{sporad_request::Payload as RequestPayload, sporad_response::Payload as ResponsePayload, *};
+use crate::protowire::{rpc_request::Payload as RequestPayload, rpc_response::Payload as ResponsePayload, *};
 use spora_rpc_core::RpcError;
 use workflow_core::enums::Describe;
 
@@ -46,7 +46,7 @@ macro_rules! payload_type_enum {
 payload_type_enum! {
 #[repr(u8)]
 #[derive(Describe, Debug, Copy, Clone, Eq, Hash, PartialEq)]
-pub enum SporadPayloadOps {
+pub enum RpcPayloadOps {
     SubmitBlock = 0,
     GetBlockTemplate,
     GetCurrentNetwork,
@@ -64,7 +64,6 @@ pub enum SporadPayloadOps {
     AddPeer,
     SubmitTransaction,
     SubmitTransactionReplacement,
-    GetSubnetwork,
     GetVirtualChainFromBlock,
     GetBlockCount,
     GetBlockDagInfo,
@@ -103,12 +102,12 @@ pub enum SporadPayloadOps {
     NotifyVirtualDaaScoreChanged,
     NotifyVirtualChainChanged,
 
-    // Legacy stop subscription commands
+    // Stop subscription commands
     StopNotifyingCellsChanged,
     StopNotifyingPruningPointCellSetOverride,
 
     // Please note:
     // Notification payloads existing in ResponsePayload are not considered valid ops.
-    // The conversion from a notification ResponsePayload into SporadPayloadOps fails.
+    // The conversion from a notification ResponsePayload into RpcPayloadOps fails.
 }
 }

@@ -6,15 +6,17 @@ use crate::error::Error;
 use crate::result::Result;
 use crate::tx::PaymentOutput;
 use spora_consensus_client as kcc;
-use spora_consensus_client::CellEntryReference;
 use spora_consensus_client::TransactionInput;
+use spora_consensus_client::{pay_to_address_lock_script, CellEntryReference};
 use spora_consensus_core::mass::{
     calc_storage_mass as consensus_calc_storage_mass, cell_tx_estimated_serialized_size, CellMass,
     MassCalculator as ConsensusMassCalculator,
 };
-use spora_consensus_core::tx::{pay_to_address_script, CellTx, SCRIPT_VECTOR_SIZE};
+use spora_consensus_core::tx::CellTx;
 use spora_consensus_core::{config::params::Params, constants::*};
 use spora_hashes::HASH_SIZE;
+
+const STANDARD_LOCK_ARGS_SIZE: u64 = 32;
 
 // pub const ECDSA_SIGNATURE_SIZE: u64 = 64;
 // pub const SCHNORR_SIGNATURE_SIZE: u64 = 64;
@@ -85,14 +87,16 @@ pub fn blank_transaction_serialized_byte_size() -> u64 {
     cell_tx_estimated_serialized_size(&CellTx::new(vec![], vec![], vec![], vec![], vec![]).expect("empty CellTx must be valid"))
 }
 
+/// Serialized-size estimate for the client-side input wrapper.
 fn transaction_input_serialized_byte_size(input: &TransactionInput) -> u64 {
+    let inner = input.inner();
     let mut size = 0;
     size += outpoint_estimated_serialized_size();
 
-    size += 8; // length of signature script (u64)
-    size += input.inner().signature_script.as_ref().map(|s| s.len()).unwrap_or(0) as u64;
+    size += 8; // length of witness (u64)
+    size += inner.witness.as_ref().map(|witness| witness.len()).unwrap_or(0) as u64;
 
-    size += 8; // sequence (uint64)
+    size += 8; // since (u64)
     size
 }
 
@@ -104,22 +108,23 @@ const fn outpoint_estimated_serialized_size() -> u64 {
 }
 
 pub fn payment_output_serialized_byte_size(output: &PaymentOutput) -> u64 {
-    let lock_script = pay_to_address_script(&output.address);
+    let lock_script = pay_to_address_lock_script(&output.address);
     let mut size: u64 = 0;
     size += 8; // value (u64)
-    size += 2; // output.ScriptPublicKey.Version (u16)
-    size += 8; // length of script public key (u64)
-    size += lock_script.script().len() as u64;
+    size += 32; // output.lock.code_hash ([u8; 32])
+    size += 1; // output.lock.hash_type (u8)
+    size += 8; // length of output.lock.args (u64)
+    size += lock_script.args.len() as u64;
     size
 }
 
 pub const fn transaction_standard_output_serialized_byte_size() -> u64 {
     let mut size: u64 = 0;
     size += 8; // value (u64)
-    size += 2; // output.ScriptPublicKey.Version (u16)
-    size += 8; // length of script public key (u64)
-               //max script size as per SCRIPT_VECTOR_SIZE
-    size += SCRIPT_VECTOR_SIZE as u64;
+    size += 32; // output.lock.code_hash ([u8; 32])
+    size += 1; // output.lock.hash_type (u8)
+    size += 8; // length of output.lock.args (u64)
+    size += STANDARD_LOCK_ARGS_SIZE;
     size
 }
 
@@ -172,18 +177,16 @@ impl MassCalculator {
         outputs.iter().map(|output| self.calc_compute_mass_for_payment_output(output)).sum()
     }
 
-    pub(crate) fn calc_compute_mass_for_client_transaction_inputs(&self, inputs: &[TransactionInput]) -> u64 {
-        inputs.iter().map(|input| self.calc_compute_mass_for_client_transaction_input(input)).sum::<u64>()
-    }
-
     pub(crate) fn calc_compute_mass_for_payment_output(&self, output: &PaymentOutput) -> u64 {
-        let lock_script = pay_to_address_script(&output.address);
-        self.mass_per_script_pub_key_byte * (2 + lock_script.script().len() as u64)
+        let lock_script = pay_to_address_lock_script(&output.address);
+        self.mass_per_script_pub_key_byte * (33 + lock_script.args.len() as u64)
             + payment_output_serialized_byte_size(output) * self.mass_per_tx_byte
     }
 
+    /// Client-side input mass based on serialized input bytes only.
+    /// Cell-model implicit sigops are accounted for on the consensus side.
     pub(crate) fn calc_compute_mass_for_client_transaction_input(&self, input: &TransactionInput) -> u64 {
-        input.sig_op_count() as u64 * self.mass_per_sig_op + transaction_input_serialized_byte_size(input) * self.mass_per_tx_byte
+        transaction_input_serialized_byte_size(input) * self.mass_per_tx_byte
     }
 
     pub(crate) fn calc_compute_mass_for_signature(&self, minimum_signatures: u16) -> u64 {
@@ -192,6 +195,25 @@ impl MassCalculator {
 
     pub fn calc_signature_compute_mass_for_inputs(&self, number_of_inputs: usize, minimum_signatures: u16) -> u64 {
         SIGNATURE_SIZE * self.mass_per_tx_byte * minimum_signatures.max(1) as u64 * number_of_inputs as u64
+    }
+
+    fn estimated_signed_transaction_serialized_byte_size(&self, tx: &CellTx, minimum_signatures: u16) -> u64 {
+        let existing_witnesses = tx.witnesses.len() as u64;
+        let input_count = tx.inputs.len() as u64;
+        let added_witness_slots = input_count.saturating_sub(existing_witnesses);
+        let estimated_witness_size = SIGNATURE_SIZE * minimum_signatures.max(1) as u64;
+
+        cell_tx_estimated_serialized_size(tx)
+            .saturating_add(added_witness_slots * 8)
+            .saturating_add(input_count * estimated_witness_size)
+    }
+
+    pub fn calc_transient_mass_for_signed_consensus_transaction(&self, tx: &CellTx) -> u64 {
+        cell_tx_estimated_serialized_size(tx) * TRANSIENT_BYTE_TO_MASS_FACTOR
+    }
+
+    pub fn calc_transient_mass_for_unsigned_consensus_transaction(&self, tx: &CellTx, minimum_signatures: u16) -> u64 {
+        self.estimated_signed_transaction_serialized_byte_size(tx, minimum_signatures) * TRANSIENT_BYTE_TO_MASS_FACTOR
     }
 
     pub fn calc_minimum_transaction_fee_from_mass(&self, mass: u64) -> u64 {
@@ -203,22 +225,26 @@ impl MassCalculator {
             + self.calc_signature_compute_mass_for_inputs(tx.inputs.len(), minimum_signatures)
     }
 
-    // provisional
     #[inline(always)]
     pub fn calc_fee_for_mass(&self, mass: u64) -> u64 {
-        mass
+        self.calc_minimum_transaction_fee_from_mass(mass)
     }
 
     pub fn combine_mass(&self, compute_mass: u64, storage_mass: u64) -> u64 {
         compute_mass.max(storage_mass)
     }
 
-    /// Calculates the overall mass of this transaction, combining both compute and storage masses.
+    pub fn combine_mass_components(&self, compute_mass: u64, transient_mass: u64, storage_mass: u64) -> u64 {
+        self.combine_mass(compute_mass, storage_mass).max(transient_mass)
+    }
+
+    /// Calculates the overall mass of this transaction, combining compute, transient, and storage masses.
     pub fn calc_overall_mass_for_unsigned_client_transaction(&self, tx: &kcc::Transaction, minimum_signatures: u16) -> Result<u64> {
         let cctx = tx.cell_tx()?;
         let storage_mass = self.calc_storage_mass_for_transaction(tx)?.ok_or(Error::MassCalculationError)?;
         let compute_mass = self.calc_compute_mass_for_unsigned_consensus_transaction(&cctx, minimum_signatures);
-        Ok(self.combine_mass(compute_mass, storage_mass))
+        let transient_mass = self.calc_transient_mass_for_unsigned_consensus_transaction(&cctx, minimum_signatures);
+        Ok(self.combine_mass_components(compute_mass, transient_mass, storage_mass))
     }
 
     pub fn calc_overall_mass_for_unsigned_consensus_transaction(
@@ -231,7 +257,8 @@ impl MassCalculator {
             .calc_storage_mass_for_cell_transaction_parts(cells, &tx.outputs, &tx.outputs_data)
             .ok_or(Error::MassCalculationError)?;
         let compute_mass = self.calc_compute_mass_for_unsigned_consensus_transaction(tx, minimum_signatures);
-        Ok(self.combine_mass(compute_mass, storage_mass))
+        let transient_mass = self.calc_transient_mass_for_unsigned_consensus_transaction(tx, minimum_signatures);
+        Ok(self.combine_mass_components(compute_mass, transient_mass, storage_mass))
     }
 
     pub fn calc_storage_mass_for_transaction(&self, tx: &kcc::Transaction) -> Result<Option<u64>> {
@@ -276,5 +303,55 @@ impl MassCalculator {
     pub fn calc_storage_mass(&self, output_harmonic: u64, total_input_value: u64, number_of_inputs: u64) -> u64 {
         let input_arithmetic = self.calc_storage_mass_input_mean_arithmetic(total_input_value, number_of_inputs);
         output_harmonic.saturating_sub(input_arithmetic)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use spora_consensus_core::{
+        config::params::MAINNET_PARAMS,
+        tx::{CellOut, CellRef, CellTx, ScriptRef, TransactionOutpoint},
+    };
+
+    fn test_lock_script(arg_len: usize) -> ScriptRef {
+        ScriptRef::new([7; 32], 0, vec![1; arg_len])
+    }
+
+    fn test_tx(arg_len: usize) -> CellTx {
+        let input = CellRef::new(TransactionOutpoint::new([3; 32], 0), 0);
+        let output = CellOut { capacity: 1_000, lock: test_lock_script(arg_len), type_: None };
+        CellTx::new(vec![input], vec![], vec![output], vec![vec![]], vec![vec![]]).expect("test tx must be valid")
+    }
+
+    #[test]
+    fn calc_fee_for_mass_matches_relay_floor() {
+        let calculator = MassCalculator::new(&MAINNET_PARAMS);
+        assert_eq!(calculator.calc_fee_for_mass(1), 1);
+        assert_eq!(calculator.calc_fee_for_mass(2_500), calc_minimum_required_transaction_relay_fee(2_500));
+    }
+
+    #[test]
+    fn combine_mass_includes_transient_mass() {
+        let calculator = MassCalculator::new(&MAINNET_PARAMS);
+        assert_eq!(calculator.combine_mass_components(100, 250, 200), 250);
+    }
+
+    #[test]
+    fn unsigned_overall_mass_accounts_for_signature_expanded_transient_mass() {
+        let calculator = MassCalculator::new(&MAINNET_PARAMS);
+        let tx = test_tx(8_000);
+
+        let compute_mass = calculator.calc_compute_mass_for_unsigned_consensus_transaction(&tx, 1);
+        let signed_transient_mass = calculator.calc_transient_mass_for_signed_consensus_transaction(&tx);
+        let transient_mass = calculator.calc_transient_mass_for_unsigned_consensus_transaction(&tx, 1);
+        let cells = [CellEntryReference::simulated(1_000)];
+        let storage_mass = calculator
+            .calc_storage_mass_for_cell_transaction_parts(&cells, &tx.outputs, &tx.outputs_data)
+            .expect("storage mass should be computable");
+        let overall_mass = calculator.calc_overall_mass_for_unsigned_consensus_transaction(&tx, &cells, 1).unwrap();
+
+        assert!(transient_mass > signed_transient_mass);
+        assert_eq!(overall_mass, compute_mass.max(transient_mass).max(storage_mass));
     }
 }

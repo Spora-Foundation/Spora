@@ -64,9 +64,9 @@ use crate::tx::{
     mass::*, Fees, GeneratorSettings, GeneratorSummary, PaymentDestination, PaymentOutput, PendingTransaction,
     PendingTransactionIterator, PendingTransactionStream,
 };
-use spora_consensus_client::CellEntry;
+use spora_consensus_client::{pay_to_address_lock_script, CellEntry, TransactionInput};
 use spora_consensus_core::constants::UNACCEPTED_DAA_SCORE;
-use spora_consensus_core::tx::{pay_to_address_script, ScriptRef, TransactionInput, TransactionOutpoint};
+use spora_consensus_core::tx::TransactionOutpoint;
 use spora_exec::{CellRef, CellTx};
 use std::collections::VecDeque;
 
@@ -281,8 +281,6 @@ struct Inner {
     destination_cell_context: Option<CellContext>,
     // Event multiplexer
     multiplexer: Option<Multiplexer<Box<Events>>>,
-    // typically a number of keys required to sign the transaction
-    sig_op_count: u8,
     // number of minimum signatures required to sign the transaction
     minimum_signatures: u16,
     // change address
@@ -319,7 +317,6 @@ impl std::fmt::Debug for Inner {
             // .field("source_cell_context", &self.source_cell_context)
             // .field("destination_cell_context", &self.destination_cell_context)
             // .field("multiplexer", &self.multiplexer)
-            .field("sig_op_count", &self.sig_op_count)
             .field("minimum_signatures", &self.minimum_signatures)
             .field("change_address", &self.change_address)
             .field("standard_change_output_compute_mass", &self.standard_change_output_compute_mass)
@@ -354,7 +351,6 @@ impl Generator {
             cell_iterator,
             source_cell_context,
             priority_cell_entries,
-            sig_op_count,
             minimum_signatures,
             change_address,
             fee_rate,
@@ -453,7 +449,6 @@ impl Generator {
             abortable: abortable.cloned(),
             mass_calculator,
             source_cell_context,
-            sig_op_count,
             minimum_signatures,
             change_address,
             standard_change_output_compute_mass: standard_change_output_mass,
@@ -494,11 +489,6 @@ impl Generator {
     #[inline(always)]
     pub fn mass_calculator(&self) -> &MassCalculator {
         &self.inner.mass_calculator
-    }
-
-    #[inline(always)]
-    pub fn sig_op_count(&self) -> u8 {
-        self.inner.sig_op_count
     }
 
     /// The underlying [`CellContext`] (if available).
@@ -704,7 +694,7 @@ impl Generator {
     ) -> Option<DataKind> {
         let cell = &cell_entry_reference.cell;
 
-        let input = TransactionInput::new(cell.outpoint.clone().into(), vec![], 0, self.inner.sig_op_count);
+        let input = TransactionInput::new(cell.outpoint.clone().into(), None, 0, Some(cell_entry_reference.clone()));
         let input_amount = cell.amount();
         let input_compute_mass = calc.calc_compute_mass_for_client_transaction_input(&input) + self.inner.signature_mass_per_input;
 
@@ -1170,8 +1160,12 @@ impl Generator {
         let inputs = inputs
             .into_iter()
             .map(|input| {
-                let witness = input.signature_script.unwrap_or_default();
-                (CellRef::new(input.previous_outpoint, sequence_to_since(input.sequence)), witness)
+                let inner = input.inner();
+                let witness = inner.witness.clone().unwrap_or_default();
+                let previous_outpoint = inner.previous_outpoint.clone();
+                let since = inner.since;
+                drop(inner);
+                (CellRef::new(previous_outpoint.into(), since), witness)
             })
             .collect::<Vec<_>>();
         let witnesses = inputs.iter().map(|(_, witness)| witness.clone()).collect::<Vec<_>>();
@@ -1180,7 +1174,7 @@ impl Generator {
         let outputs_data = vec![vec![]; outputs.len()];
         let mut witnesses = witnesses;
         if !payload.is_empty() {
-            // Preserve opaque payload bytes without reintroducing a legacy top-level payload field.
+            // Preserve opaque payload bytes without reintroducing a top-level payload field.
             witnesses.push(payload);
         }
         CellTx::new(inputs, vec![], outputs, outputs_data, witnesses)
@@ -1189,17 +1183,16 @@ impl Generator {
 
     fn create_batch_cell_entry_reference(txid: TransactionId, amount: u64, address: &Address) -> CellEntryReference {
         let outpoint = TransactionOutpoint::new(txid.as_bytes(), 0);
-        let script_public_key = pay_to_address_script(address);
+        let lock_script = pay_to_address_lock_script(address);
         let cell = CellEntry {
             address: Some(address.clone()),
             outpoint: outpoint.into(),
             amount,
             capacity: Some(amount),
             data_bytes: Some(0),
-            lock_hash: Some(script_public_key.hash().into()),
+            lock_hash: Some(lock_script.hash().into()),
             type_hash: None,
             data_hash: Some(TransactionId::from([0; 32])),
-            script_public_key,
             block_daa_score: UNACCEPTED_DAA_SCORE,
             is_coinbase: false, // entry
         };
@@ -1224,19 +1217,7 @@ impl Generator {
     }
 }
 
-fn sequence_to_since(sequence: u64) -> u64 {
-    if sequence == u64::MAX {
-        0
-    } else {
-        sequence
-    }
-}
-
 fn cell_out_from_payment_output(output: &PaymentOutput) -> spora_exec::CellOut {
-    let lock_script = pay_to_address_script(&output.address);
-    spora_exec::CellOut {
-        lock: ScriptRef::new(lock_script.hash(), 0, lock_script.script().to_vec()),
-        type_: None,
-        capacity: output.amount,
-    }
+    let lock_script = pay_to_address_lock_script(&output.address);
+    spora_exec::CellOut { lock: lock_script, type_: None, capacity: output.amount }
 }

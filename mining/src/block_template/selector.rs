@@ -228,15 +228,12 @@ impl TemplateTransactionSelector for RebalancingWeightedTransactionSelector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutils::legacy_script::op_true_script;
+    use crate::testutils::script::op_true_script;
     use itertools::Itertools;
     use spora_consensus_core::{
-        constants::{MAX_TX_IN_SEQUENCE_NUM, SAU_PER_SPORA, TX_VERSION},
+        constants::{MAX_TX_IN_SEQUENCE_NUM, SAU_PER_SPORA},
         mass::cell_tx_estimated_serialized_size,
-        tx::{
-            compute_lock_hash_for_script, pay_to_script_hash_signature_script, CellOut, CellRef, CellTx, ScriptRef, TransactionId,
-            TransactionOutpoint,
-        },
+        tx::{pay_to_script_hash_witness_script, CellOut, CellRef, CellTx, TransactionId, TransactionOutpoint},
     };
     use std::{collections::HashSet, sync::Arc};
 
@@ -298,20 +295,16 @@ mod tests {
 
     fn create_transaction(value: u64) -> CandidateTransaction {
         let previous_outpoint = TransactionOutpoint::new(TransactionId::default().as_bytes(), 0);
-        let (script_public_key, redeem_script) = op_true_script();
-        let signature_script = pay_to_script_hash_signature_script(&redeem_script, vec![]).expect("the redeem script is canonical");
+        let (lock_script, redeem_script) = op_true_script();
+        let witness_script = pay_to_script_hash_witness_script(&redeem_script, vec![]).expect("the redeem script is canonical");
 
         let tx = Arc::new(
             CellTx::new(
                 vec![CellRef::new(previous_outpoint, MAX_TX_IN_SEQUENCE_NUM)],
                 vec![],
-                vec![CellOut {
-                    lock: ScriptRef::new(compute_lock_hash_for_script(&script_public_key), 0, script_public_key.script().to_vec()),
-                    type_: None,
-                    capacity: value - DEFAULT_MINIMUM_RELAY_TRANSACTION_FEE,
-                }],
+                vec![CellOut { lock: lock_script, type_: None, capacity: value - DEFAULT_MINIMUM_RELAY_TRANSACTION_FEE }],
                 vec![vec![]],
-                vec![signature_script],
+                vec![witness_script],
             )
             .expect("test helper must construct a valid CellTx"),
         );

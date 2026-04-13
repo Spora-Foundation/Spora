@@ -18,6 +18,7 @@ impl From<&Header> for protowire::BlockHeader {
             accepted_id_merkle_root: Some(item.accepted_id_merkle_root.into()),
             cell_commitment: Some(item.cell_commitment.into()),
             cell_root: Some(item.cell_root.into()),
+            segment_root: Some(item.segment_root.into()),
             timestamp: item.timestamp.try_into().expect("timestamp is always convertible to i64"),
             bits: item.bits,
             nonce: item.nonce,
@@ -50,6 +51,7 @@ impl TryFrom<protowire::BlockHeader> for Header {
             item.accepted_id_merkle_root.try_into_ex()?,
             item.cell_commitment.try_into_ex()?,
             item.cell_root.try_into_ex()?,
+            item.segment_root.try_into_ex()?,
             item.timestamp.try_into()?,
             item.bits,
             item.nonce,
@@ -86,19 +88,21 @@ mod tests {
             hash_from_byte(5),
             hash_from_byte(6),
             hash_from_byte(7),
+            hash_from_byte(8),
             123,
             456,
             789,
             1011,
             1213.into(),
             1415,
-            hash_from_byte(8),
+            hash_from_byte(9),
         );
 
         let wire: protowire::BlockHeader = (&header).into();
         let decoded = Header::try_from(wire).unwrap();
 
         assert_eq!(decoded.cell_root, header.cell_root);
+        assert_eq!(decoded.segment_root, header.segment_root);
         assert_eq!(decoded.hash, header.hash);
     }
 }

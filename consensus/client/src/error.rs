@@ -51,8 +51,8 @@ pub enum Error {
     #[error("Transaction input is missing Cell entry")]
     MissingCellEntry,
 
-    #[error("Transaction input {0} is resolved via canonical Cell metadata only; a legacy Cell entry is required")]
-    MissingLegacyCellEntry(usize),
+    #[error("Transaction input {0} is resolved via canonical Cell metadata only; a serializable Cell entry is required")]
+    MissingSerializableCellEntry(usize),
 }
 
 impl Error {

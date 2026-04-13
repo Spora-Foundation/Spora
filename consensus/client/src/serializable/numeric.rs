@@ -38,7 +38,6 @@ pub struct SerializableCellEntry {
     pub type_hash: Option<TransactionId>,
     #[serde(default)]
     pub data_hash: Option<TransactionId>,
-    pub script_public_key: ScriptPublicKey,
     pub block_daa_score: u64,
     pub is_coinbase: bool,
 }
@@ -60,7 +59,6 @@ impl From<&CellEntryReference> for SerializableCellEntry {
             lock_hash: cell_entry.lock_hash,
             type_hash: cell_entry.type_hash,
             data_hash: cell_entry.data_hash,
-            script_public_key: cell_entry.script_public_key.clone(),
             block_daa_score: cell_entry.block_daa_score,
             is_coinbase: cell_entry.is_coinbase,
         }
@@ -69,16 +67,15 @@ impl From<&CellEntryReference> for SerializableCellEntry {
 
 impl From<&cctx::CellEntry> for SerializableCellEntry {
     fn from(cell_entry: &cctx::CellEntry) -> Self {
-        let metadata = cell_entry.embedded_cell_metadata();
+        let metadata = cell_entry.embedded_cell_metadata().expect("serializable client CellEntry requires canonical Cell metadata");
         Self {
             address: None,
             amount: cell_entry.amount(),
-            capacity: metadata.map(|_| cell_entry.capacity()),
-            data_bytes: metadata.map(|m| m.data_bytes),
-            lock_hash: metadata.map(|m| m.lock_hash.into()),
-            type_hash: metadata.and_then(|m| m.type_hash.map(Into::into)),
-            data_hash: metadata.map(|m| m.data_hash.into()),
-            script_public_key: cctx::cell_entry_legacy_script_public_key(cell_entry),
+            capacity: Some(cell_entry.capacity()),
+            data_bytes: Some(metadata.data_bytes),
+            lock_hash: Some(metadata.lock_hash.into()),
+            type_hash: metadata.type_hash.map(Into::into),
+            data_hash: Some(metadata.data_hash.into()),
             block_daa_score: cell_entry.block_daa_score,
             is_coinbase: cell_entry.is_cellbase,
         }
@@ -88,23 +85,17 @@ impl From<&cctx::CellEntry> for SerializableCellEntry {
 impl TryFrom<&SerializableCellEntry> for cctx::CellEntry {
     type Error = crate::error::Error;
     fn try_from(cell_entry: &SerializableCellEntry) -> Result<Self> {
-        match (cell_entry.lock_hash, cell_entry.data_hash) {
-            (Some(lock_hash), Some(data_hash)) => Ok(Self::from_cell_metadata(
-                cell_entry.capacity.unwrap_or(cell_entry.amount),
-                cell_entry.data_bytes.unwrap_or_default(),
-                lock_hash.as_bytes(),
-                cell_entry.type_hash.map(|hash| hash.as_bytes()),
-                data_hash.as_bytes(),
-                cell_entry.block_daa_score,
-                cell_entry.is_coinbase,
-            )),
-            _ => Ok(cctx::cell_meta_from_legacy_output(
-                cell_entry.amount,
-                &cell_entry.script_public_key,
-                cell_entry.block_daa_score,
-                cell_entry.is_coinbase,
-            )),
-        }
+        let lock_hash = cell_entry.lock_hash.ok_or_else(|| Error::Custom("SerializableCellEntry.lockHash is required".to_string()))?;
+        let data_hash = cell_entry.data_hash.ok_or_else(|| Error::Custom("SerializableCellEntry.dataHash is required".to_string()))?;
+        Ok(Self::from_cell_metadata(
+            cell_entry.capacity.unwrap_or(cell_entry.amount),
+            cell_entry.data_bytes.unwrap_or_default(),
+            lock_hash.as_bytes(),
+            cell_entry.type_hash.map(|hash| hash.as_bytes()),
+            data_hash.as_bytes(),
+            cell_entry.block_daa_score,
+            cell_entry.is_coinbase,
+        ))
     }
 }
 
@@ -113,11 +104,9 @@ impl TryFrom<&SerializableCellEntry> for cctx::CellEntry {
 pub struct SerializableTransactionInput {
     pub transaction_id: TransactionId,
     pub index: SignedTransactionIndexType,
-    pub sequence: u64,
-    pub sig_op_count: u8,
+    pub since: u64,
     #[serde(with = "hex::serde")]
-    // TODO - convert to Option<Vec<u8>> and use hex serialization over Option
-    pub signature_script: Vec<u8>,
+    pub witness: Vec<u8>,
     pub cell_entry: SerializableCellEntry,
 }
 
@@ -128,9 +117,8 @@ impl SerializableTransactionInput {
         Self {
             transaction_id: TransactionId::from_slice(&input.out_point.tx_hash),
             index: input.out_point.index,
-            signature_script: witness.to_vec(),
-            sequence: input.since,
-            sig_op_count: 1, // Cell model: implicit 1 sigop per input
+            witness: witness.to_vec(),
+            since: input.since,
             cell_entry,
         }
     }
@@ -150,7 +138,6 @@ impl TryFrom<&SerializableTransactionInput> for CellEntryReference {
             lock_hash: input.cell_entry.lock_hash,
             type_hash: input.cell_entry.type_hash,
             data_hash: input.cell_entry.data_hash,
-            script_public_key: input.cell_entry.script_public_key.clone(),
             block_daa_score: input.cell_entry.block_daa_score,
             is_coinbase: input.cell_entry.is_coinbase,
         };
@@ -167,10 +154,8 @@ impl TryFrom<&SerializableTransactionInput> for TransactionInput {
         let previous_outpoint = TransactionOutpoint::new(serializable_input.transaction_id, serializable_input.index);
         let inner = TransactionInputInner {
             previous_outpoint,
-            // TODO - convert to Option<Vec<u8>> and use hex serialization over Option
-            signature_script: (!serializable_input.signature_script.is_empty()).then_some(serializable_input.signature_script.clone()),
-            sequence: serializable_input.sequence,
-            sig_op_count: serializable_input.sig_op_count,
+            witness: (!serializable_input.witness.is_empty()).then_some(serializable_input.witness.clone()),
+            since: serializable_input.since,
             cell_entry: Some(cell_entry),
         };
 
@@ -187,10 +172,8 @@ impl TryFrom<&TransactionInput> for SerializableTransactionInput {
         Ok(Self {
             transaction_id: inner.previous_outpoint.transaction_id(),
             index: inner.previous_outpoint.index(),
-            // TODO - convert to Option<Vec<u8>> and use hex serialization over Option
-            signature_script: inner.signature_script.clone().unwrap_or_default(),
-            sequence: inner.sequence,
-            sig_op_count: inner.sig_op_count,
+            witness: inner.witness.clone().unwrap_or_default(),
+            since: inner.since,
             cell_entry,
         })
     }
@@ -199,30 +182,35 @@ impl TryFrom<&TransactionInput> for SerializableTransactionInput {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct SerializableTransactionOutput {
-    pub value: u64,
-    pub script_public_key: ScriptPublicKey,
+    pub capacity: u64,
+    pub lock_script: cctx::ScriptRef,
+    #[serde(default)]
+    pub type_script: Option<cctx::ScriptRef>,
+    #[serde(with = "spora_utils::serde_bytes_optional")]
+    #[serde(default)]
+    pub output_data: Option<Vec<u8>>,
 }
 
-/// Bridge from CellOut to serializable output format.
-impl From<cctx::CellOut> for SerializableTransactionOutput {
-    fn from(output: cctx::CellOut) -> Self {
-        // Use lock script bytes as the script_public_key payload
-        let script_public_key = cctx::ScriptPublicKey::from_vec(0, output.lock.to_bytes());
-        Self { value: output.capacity, script_public_key }
-    }
-}
-
-impl From<&cctx::CellOut> for SerializableTransactionOutput {
-    fn from(output: &cctx::CellOut) -> Self {
-        let script_public_key = cctx::ScriptPublicKey::from_vec(0, output.lock.to_bytes());
-        Self { value: output.capacity, script_public_key }
+impl SerializableTransactionOutput {
+    fn from_cell_output(output: &cctx::CellOut, output_data: Option<&[u8]>) -> Self {
+        Self {
+            capacity: output.capacity,
+            lock_script: output.lock.clone(),
+            type_script: output.type_.clone(),
+            output_data: output_data.filter(|data| !data.is_empty()).map(|data| data.to_vec()),
+        }
     }
 }
 
 impl TryFrom<&SerializableTransactionOutput> for TransactionOutput {
     type Error = Error;
     fn try_from(output: &SerializableTransactionOutput) -> Result<Self> {
-        Ok(TransactionOutput::new(output.value, output.script_public_key.clone()))
+        Ok(TransactionOutput::new_with_inner(crate::output::TransactionOutputInner {
+            capacity: output.capacity,
+            lock_script: output.lock_script.clone(),
+            type_script: output.type_script.clone(),
+            output_data: output.output_data.clone(),
+        }))
     }
 }
 
@@ -230,7 +218,12 @@ impl TryFrom<&TransactionOutput> for SerializableTransactionOutput {
     type Error = Error;
     fn try_from(output: &TransactionOutput) -> Result<Self> {
         let inner = output.inner();
-        Ok(Self { value: inner.value, script_public_key: inner.script_public_key.clone() })
+        Ok(Self {
+            capacity: inner.capacity,
+            lock_script: inner.lock_script.clone(),
+            type_script: inner.type_script.clone(),
+            output_data: inner.output_data.clone(),
+        })
     }
 }
 
@@ -271,17 +264,22 @@ impl SerializableTransaction {
         let transaction = tx.as_ref(); // &CellTx
         for index in 0..transaction.inputs.len() {
             let input = &verifiable_tx.inputs()[index];
-            let cell_entry = verifiable_tx.cell_entry(index).ok_or(Error::MissingLegacyCellEntry(index))?;
+            let cell_entry = verifiable_tx.cell_entry(index).ok_or(Error::MissingSerializableCellEntry(index))?;
             let witness = transaction.witnesses.get(index).map(|w| w.as_slice()).unwrap_or_default();
             let input = SerializableTransactionInput::from_cell_ref(input, witness, cell_entry);
             inputs.push(input);
         }
 
-        let outputs = transaction.outputs.clone();
-
         Ok(Self {
             inputs,
-            outputs: outputs.into_iter().map(Into::into).collect(),
+            outputs: transaction
+                .outputs
+                .iter()
+                .enumerate()
+                .map(|(index, output)| {
+                    SerializableTransactionOutput::from_cell_output(output, transaction.outputs_data.get(index).map(Vec::as_slice))
+                })
+                .collect(),
             version: transaction.version(),
             mass: project_verifiable_transaction_mass(&verifiable_tx, None).selection_mass,
             payload: transaction.payload().map(|p| p.to_vec()).unwrap_or_default(),
@@ -316,7 +314,7 @@ mod tests {
     use spora_consensus_core::{
         cell_metadata::CellMetadata,
         mass::project_verifiable_transaction_mass,
-        tx::{CellOut, CellRef, CellTx, ScriptPublicKey, ScriptRef, TransactionOutpoint},
+        tx::{CellOut, CellRef, CellTx, ScriptRef, TransactionOutpoint},
     };
     use spora_hashes::Hash;
 
@@ -357,7 +355,7 @@ mod tests {
         );
 
         let error = SerializableTransaction::from_signable_transaction(&signable).unwrap_err();
-        assert!(matches!(error, Error::MissingLegacyCellEntry(0)));
+        assert!(matches!(error, Error::MissingSerializableCellEntry(0)));
     }
 
     #[test]

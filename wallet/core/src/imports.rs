@@ -41,7 +41,7 @@ pub use separator::Separatable;
 pub use serde::{Deserialize, Deserializer, Serialize};
 pub use spora_addresses::{Address, Prefix};
 pub use spora_consensus_core::network::{NetworkId, NetworkType};
-pub use spora_consensus_core::tx::{ScriptPublicKey, TransactionId, TransactionIndexType};
+pub use spora_consensus_core::tx::{TransactionId, TransactionIndexType};
 pub use spora_metrics_core::{Metric, Metrics, MetricsSnapshot};
 pub use spora_utils::hashmap::*;
 pub use spora_utils::hex::{FromHex, ToHex};

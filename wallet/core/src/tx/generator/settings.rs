@@ -22,8 +22,6 @@ pub struct GeneratorSettings {
     pub source_cell_context: Option<CellContext>,
     // Priority cell entries that are consumed before others
     pub priority_cell_entries: Option<Vec<CellEntryReference>>,
-    // typically a number of keys required to sign the transaction
-    pub sig_op_count: u8,
     // number of minimum signatures required to sign the transaction
     pub minimum_signatures: u16,
     // change address
@@ -48,7 +46,6 @@ pub struct GeneratorSettings {
 //             // .field("multiplexer", &self.multiplexer)
 //             .field("cell_iterator", &"Box<dyn Iterator<Item = CellEntryReference> + Send + Sync + 'static>")
 //             // .field("source_cell_context", &self.source_cell_context)
-//             .field("sig_op_count", &self.sig_op_count)
 //             .field("minimum_signatures", &self.minimum_signatures)
 //             .field("change_address", &self.change_address)
 //             .field("final_transaction_priority_fee", &self.final_transaction_priority_fee)
@@ -70,7 +67,6 @@ impl GeneratorSettings {
         let network_id = account.cell_context().processor().network_id()?;
         let change_address = account.change_address()?;
         let multiplexer = account.wallet().multiplexer().clone();
-        let sig_op_count = account.sig_op_count();
         let minimum_signatures = account.minimum_signatures();
 
         let cell_iterator = CellIterator::new(account.cell_context());
@@ -78,7 +74,6 @@ impl GeneratorSettings {
         let settings = GeneratorSettings {
             network_id,
             multiplexer: Some(multiplexer),
-            sig_op_count,
             minimum_signatures,
             change_address,
             cell_iterator: Box::new(cell_iterator),
@@ -98,7 +93,6 @@ impl GeneratorSettings {
         cell_context: CellContext,
         priority_cell_entries: Option<Vec<CellEntryReference>>,
         change_address: Address,
-        sig_op_count: u8,
         minimum_signatures: u16,
         final_transaction_destination: PaymentDestination,
         final_priority_fee: Fees,
@@ -111,7 +105,6 @@ impl GeneratorSettings {
         let settings = GeneratorSettings {
             network_id,
             multiplexer,
-            sig_op_count,
             minimum_signatures,
             change_address,
             cell_iterator: Box::new(cell_iterator),
@@ -133,7 +126,6 @@ impl GeneratorSettings {
         cell_iterator: Box<dyn Iterator<Item = CellEntryReference> + Send + Sync + 'static>,
         priority_cell_entries: Option<Vec<CellEntryReference>>,
         change_address: Address,
-        sig_op_count: u8,
         minimum_signatures: u16,
         final_transaction_destination: PaymentDestination,
         _fee_rate: Option<f64>,
@@ -144,7 +136,6 @@ impl GeneratorSettings {
         let settings = GeneratorSettings {
             network_id,
             multiplexer,
-            sig_op_count,
             minimum_signatures,
             change_address,
             cell_iterator: Box::new(cell_iterator),

@@ -36,6 +36,9 @@ pub enum Error {
 
     #[error(transparent)]
     PSST(#[from] crate::error::Error),
+
+    #[error(transparent)]
+    SerdeWasm(#[from] serde_wasm_bindgen::Error),
 }
 
 impl Error {

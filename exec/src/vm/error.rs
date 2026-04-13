@@ -28,6 +28,10 @@ pub enum VMError {
     #[error("Cycles exceeded: limit={limit}, actual={actual}")]
     CyclesExceeded { limit: u64, actual: u64 },
 
+    /// Script binary exceeds the configured size limit
+    #[error("Script too large: size={size}, limit={limit}")]
+    ScriptTooLarge { size: usize, limit: usize },
+
     /// Invalid syscall number
     #[error("Invalid syscall number: {0}")]
     InvalidSyscall(u64),

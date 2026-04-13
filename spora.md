@@ -141,7 +141,7 @@ Spora/
 
 ```bash
 # 在 consensus/ 和 mining/ 中扫描
-rg -n "legacy_txout|legacy txout|CellEntry|script_pub_key|ScriptPublicKey" \
+rg -n "legacy_txout|legacy txout|CellEntry|script_pub_key|ScriptRef|lock_script" \
   consensus/src/ consensus/core/src/ mining/src/
 ```
 
@@ -3017,7 +3017,7 @@ pub trait SporaConsensus {
 ```bash
 cd /home/arthur/RustRoverProjects/Spora
 # 扫描所有 legacy txout 相关代码
-rg -n "legacy_txout|legacy txout|CellEntry|script_pub_key|ScriptPublicKey" \
+rg -n "legacy_txout|legacy txout|CellEntry|script_pub_key|ScriptRef|lock_script" \
   --type rust consensus/ mining/ indexes/ > cell_scan_full.txt
 
 # 统计文件分布（决定删除顺序）
@@ -4750,4 +4750,3 @@ cargo test --package spora-consensus
 - Block完全Cell化，legacy txout彻底清除
 - VM框架完整，Blake3集成
 - 详细文档体系建立
-

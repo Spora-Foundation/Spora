@@ -4,7 +4,7 @@ use crate::{
     manager::ManagerEvent,
     request_handler::{
         factory::Factory,
-        interface::{Interface, SporadRoutingPolicy},
+        interface::{Interface, RpcRoutingPolicy},
         method::RoutingPolicy,
     },
 };
@@ -13,8 +13,8 @@ use itertools::Itertools;
 use parking_lot::Mutex;
 use spora_core::{debug, info, trace, warn};
 use spora_grpc_core::{
-    ops::SporadPayloadOps,
-    protowire::{SporadRequest, SporadResponse},
+    ops::RpcPayloadOps,
+    protowire::{RpcRequest, RpcResponse},
 };
 use spora_notify::{
     connection::Connection as ConnectionT,
@@ -39,9 +39,9 @@ use tokio::{select, sync::mpsc::error::TrySendError};
 use tonic::Streaming;
 use uuid::Uuid;
 
-pub type IncomingRoute = MpmcReceiver<SporadRequest>;
+pub type IncomingRoute = MpmcReceiver<RpcRequest>;
 pub type GrpcNotifier = Notifier<Notification, Connection>;
-pub type GrpcSender = MpscSender<SporadResponse>;
+pub type GrpcSender = MpscSender<RpcResponse>;
 pub type StatusResult<T> = Result<T, tonic::Status>;
 pub type ConnectionId = Uuid;
 
@@ -92,16 +92,16 @@ impl Drop for Inner {
     }
 }
 
-type RequestSender = MpmcSender<SporadRequest>;
+type RequestSender = MpmcSender<RpcRequest>;
 
 #[derive(Clone)]
 struct Route {
     sender: RequestSender,
-    policy: SporadRoutingPolicy,
+    policy: RpcRoutingPolicy,
 }
 
 impl Route {
-    fn new(sender: RequestSender, policy: SporadRoutingPolicy) -> Self {
+    fn new(sender: RequestSender, policy: RpcRoutingPolicy) -> Self {
         Self { sender, policy }
     }
 }
@@ -114,7 +114,7 @@ impl Deref for Route {
     }
 }
 
-type RoutingMap = HashMap<SporadPayloadOps, Route>;
+type RoutingMap = HashMap<RpcPayloadOps, Route>;
 
 struct Router {
     /// Routing map for mapping messages to RPC op handlers
@@ -132,7 +132,7 @@ impl Router {
         Self { routing_map: Default::default(), server_context, interface }
     }
 
-    fn get_or_subscribe(&mut self, connection: &Connection, rpc_op: SporadPayloadOps) -> &Route {
+    fn get_or_subscribe(&mut self, connection: &Connection, rpc_op: RpcPayloadOps) -> &Route {
         match self.routing_map.entry(rpc_op) {
             Entry::Vacant(entry) => {
                 let method = self.interface.get_method(&rpc_op);
@@ -170,7 +170,7 @@ impl Router {
         self.routing_map.get(&rpc_op).unwrap()
     }
 
-    async fn route_to_handler(&mut self, connection: &Connection, request: SporadRequest) -> GrpcServerResult<()> {
+    async fn route_to_handler(&mut self, connection: &Connection, request: RpcRequest) -> GrpcServerResult<()> {
         if request.payload.is_none() {
             debug!("GRPC, Route to handler got empty payload, client: {}", connection);
             return Err(GrpcServerError::InvalidRequestPayload);
@@ -218,7 +218,7 @@ impl Connection {
         server_context: ServerContext,
         interface: Arc<Interface>,
         manager_sender: MpscSender<ManagerEvent>,
-        mut incoming_stream: Streaming<SporadRequest>,
+        mut incoming_stream: Streaming<RpcRequest>,
         outgoing_route: GrpcSender,
     ) -> Self {
         let (shutdown_sender, mut shutdown_receiver) = oneshot_channel();
@@ -343,8 +343,8 @@ impl Connection {
     }
 
     /// Enqueues a response to be sent to the client
-    pub async fn enqueue(&self, response: SporadResponse) -> GrpcServerResult<()> {
-        assert!(response.payload.is_some(), "sporad gRPC message should always have a value");
+    pub async fn enqueue(&self, response: RpcResponse) -> GrpcServerResult<()> {
+        assert!(response.payload.is_some(), "gRPC response envelope should always have a payload");
         match self.inner.outgoing_route.try_send(response) {
             Ok(_) => Ok(()),
             Err(TrySendError::Closed(_)) => Err(GrpcServerError::ConnectionClosed),
@@ -401,7 +401,7 @@ pub enum GrpcEncoding {
 #[async_trait::async_trait]
 impl ConnectionT for Connection {
     type Notification = Notification;
-    type Message = Arc<SporadResponse>;
+    type Message = Arc<RpcResponse>;
     type Encoding = GrpcEncoding;
     type Error = super::error::GrpcServerError;
 

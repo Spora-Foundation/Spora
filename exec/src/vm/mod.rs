@@ -51,10 +51,10 @@ pub const MAX_BLOCK_CYCLES: u64 = 70_000_000; // 70M cycles
 pub const MAX_TX_CYCLES: u64 = 10_000_000; // 10M cycles
 
 /// Maximum script code size
-pub const MAX_SCRIPT_SIZE: usize = 512 * 1024; // 512 KB
+pub const MAX_SCRIPT_SIZE: usize = 1024 * 1024; // 1 MB
 
 /// Maximum VM memory
-pub const MAX_VM_MEMORY: usize = 8 * 1024 * 1024; // 8 MB (CKB default)
+pub const MAX_VM_MEMORY: usize = 4 * 1024 * 1024; // 4 MB (ckb-vm 0.24 maximum)
 
 /// Cycles per byte for effective size calculation
 pub const DEFAULT_CYCLES_PER_BYTE: u64 = 100;

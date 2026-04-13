@@ -20,7 +20,3 @@ pub use api::{CellFilter, CellIndexApi, CellIndexProxy, CellQuery, CellQueryResu
 pub use errors::{CellIndexError, Result};
 pub use indexer::CellIndexer as CellIndex;
 pub use indexer::CellIndexer;
-
-/// Cell index errors (re-export from errors module)
-#[deprecated(note = "Use errors::CellIndexError instead")]
-pub type IndexError = CellIndexError;
