@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use spora_addresses::Address;
-use spora_consensus_core::tx::{CellEntry, TransactionOutpoint};
+use spora_consensus_core::cell_diff::CellMeta;
+use spora_consensus_core::tx::TransactionOutpoint;
 use spora_utils::mem_size::MemSizeEstimator;
 use std::collections::HashMap;
 
@@ -43,8 +44,8 @@ impl CompactCellEntry {
 
 impl MemSizeEstimator for CompactCellEntry {}
 
-impl From<CellEntry> for CompactCellEntry {
-    fn from(entry: CellEntry) -> Self {
+impl From<CellMeta> for CompactCellEntry {
+    fn from(entry: CellMeta) -> Self {
         let metadata = entry.embedded_cell_metadata();
         Self {
             amount: entry.amount(),

@@ -7,13 +7,14 @@ use spora_consensus_core::{
     api::{BlockCount, BlockValidationFutures, ConsensusApi, ConsensusStats, DynConsensus},
     block::Block,
     blockstatus::BlockStatus,
+    cell_diff::CellMeta,
     daa_score_timestamp::DaaScoreTimestamp,
     errors::consensus::ConsensusResult,
     header::Header,
     mass::{ContextualMasses, NonContextualMasses},
     pruning::{PruningPointProof, PruningPointTrustedData, PruningPointsList},
     trusted::{ExternalGhostdagData, TrustedBlock},
-    tx::{CellEntry, CellTx, MutableTransaction, ResolvedCellTransaction, SignableTransaction, TransactionOutpoint},
+    tx::{CellTx, MutableTransaction, ResolvedCellTransaction, SignableTransaction, TransactionOutpoint},
     BlockHashSet, BlueWorkType, ChainPath, Hash,
 };
 use spora_utils::sync::rwlock::*;
@@ -429,7 +430,7 @@ impl ConsensusSessionOwned {
         from_outpoint: Option<TransactionOutpoint>,
         chunk_size: usize,
         skip_first: bool,
-    ) -> ConsensusResult<Vec<(TransactionOutpoint, CellEntry)>> {
+    ) -> ConsensusResult<Vec<(TransactionOutpoint, CellMeta)>> {
         self.clone()
             .spawn_blocking(move |c| c.get_pruning_point_cells(expected_pruning_point, from_outpoint, chunk_size, skip_first))
             .await

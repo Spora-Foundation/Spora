@@ -77,6 +77,14 @@ pub struct CellDB {
 }
 
 impl CellDB {
+    fn normalize_meta_for_storage(meta: &CellMeta) -> CellMeta {
+        let mut normalized = meta.clone();
+        if normalized.segment_info.is_some() {
+            normalized.cell_data.clear();
+        }
+        normalized
+    }
+
     /// Open or create a CellDB
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self> {
         let mut opts = Options::default();
@@ -124,7 +132,8 @@ impl CellDB {
         let cf = self.db.cf_handle(CF_CELLS).ok_or_else(|| StateError::Database("CF_CELLS not found".to_string()))?;
 
         let key = out_point.to_key();
-        let value = borsh::to_vec(meta).map_err(|e| StateError::Serialization(e.to_string()))?;
+        let normalized = Self::normalize_meta_for_storage(meta);
+        let value = borsh::to_vec(&normalized).map_err(|e| StateError::Serialization(e.to_string()))?;
 
         self.db.put_cf(&cf, &key, &value).map_err(|e| StateError::Database(e.to_string()))?;
 
@@ -218,7 +227,8 @@ impl CellDB {
 
         for (out_point, meta) in cells {
             let key = out_point.to_key();
-            let value = borsh::to_vec(meta).map_err(|e| StateError::Serialization(e.to_string()))?;
+            let normalized = Self::normalize_meta_for_storage(meta);
+            let value = borsh::to_vec(&normalized).map_err(|e| StateError::Serialization(e.to_string()))?;
             batch.put_cf(&cf, &key, &value);
         }
 
@@ -402,6 +412,12 @@ mod tests {
         }
     }
 
+    fn create_segment_backed_cell_meta(capacity: u64, daa: u64) -> CellMeta {
+        let mut meta = create_test_cell_meta(capacity, daa);
+        meta.segment_info = Some(SegmentInfo { segment_id: 3, offset: 128, length: meta.cell_data.len() as u32 });
+        meta
+    }
+
     #[test]
     fn test_cell_db_open() {
         let tmp = TempDir::new().unwrap();
@@ -423,6 +439,21 @@ mod tests {
 
         let retrieved = db.get(&out_point).unwrap().unwrap();
         assert_eq!(retrieved, meta);
+    }
+
+    #[test]
+    fn test_put_strips_cell_data_when_segment_info_present() {
+        let tmp = TempDir::new().unwrap();
+        let db = CellDB::open(tmp.path()).unwrap();
+
+        let out_point = OutPoint::new([0x52; 32], 0);
+        let meta = create_segment_backed_cell_meta(1000, 100);
+
+        db.put(&out_point, &meta).unwrap();
+
+        let retrieved = db.get(&out_point).unwrap().unwrap();
+        assert!(retrieved.cell_data.is_empty());
+        assert_eq!(retrieved.segment_info, meta.segment_info);
     }
 
     #[test]
@@ -508,6 +539,27 @@ mod tests {
         assert!(db.get(&OutPoint::new([0x01; 32], 0)).unwrap().is_none());
         assert!(db.get(&OutPoint::new([0x02; 32], 0)).unwrap().is_none());
         assert!(db.get(&OutPoint::new([0x03; 32], 0)).unwrap().is_some());
+    }
+
+    #[test]
+    fn test_batch_put_strips_cell_data_when_segment_info_present() {
+        let tmp = TempDir::new().unwrap();
+        let db = CellDB::open(tmp.path()).unwrap();
+
+        let cells = vec![
+            (OutPoint::new([0x21; 32], 0), create_segment_backed_cell_meta(1000, 100)),
+            (OutPoint::new([0x22; 32], 0), create_test_cell_meta(2000, 101)),
+        ];
+
+        db.batch_put(&cells).unwrap();
+
+        let segment_backed = db.get(&cells[0].0).unwrap().unwrap();
+        assert!(segment_backed.cell_data.is_empty());
+        assert_eq!(segment_backed.segment_info, cells[0].1.segment_info);
+
+        let inline = db.get(&cells[1].0).unwrap().unwrap();
+        assert_eq!(inline.cell_data, cells[1].1.cell_data);
+        assert_eq!(inline.segment_info, None);
     }
 
     #[test]

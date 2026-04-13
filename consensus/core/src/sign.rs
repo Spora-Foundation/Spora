@@ -1,4 +1,5 @@
 use crate::{
+    cell_diff::CellMeta,
     hashing::{
         sighash::{calc_schnorr_signature_hash, SigHashReusedValuesUnsync},
         sighash_type::{SigHashType, SIG_HASH_ALL},
@@ -242,8 +243,8 @@ mod tests {
         pay_to_address_lock_script(&Address::new(Prefix::Testnet, spora_addresses::Version::PubKey, pubkey).unwrap())
     }
 
-    fn cell_entry_from_lock_script(value: u64, lock_script: &ScriptRef, block_daa_score: u64, is_cellbase: bool) -> CellEntry {
-        CellEntry {
+    fn cell_entry_from_lock_script(value: u64, lock_script: &ScriptRef, block_daa_score: u64, is_cellbase: bool) -> CellMeta {
+        CellMeta {
             out_point: TransactionOutpoint::default(),
             capacity: value,
             data_bytes: 0,

@@ -258,7 +258,10 @@ fn hash_embedded_cell_metadata(hasher: &mut impl Hasher, metadata: &EmbeddedCell
     hasher.update(metadata.data_hash).write_u64(metadata.data_bytes);
 }
 
-fn real_signing_entry<'a>(_verifiable_tx: &'a impl VerifiableTransaction, _input_index: usize) -> Option<&'a crate::tx::CellEntry> {
+fn real_signing_entry<'a>(
+    _verifiable_tx: &'a impl VerifiableTransaction,
+    _input_index: usize,
+) -> Option<&'a crate::cell_diff::CellMeta> {
     // CellMeta (aka CellEntry) always carries metadata, so there are no "real script" entries.
     // All signing now goes through the cell_metadata path.
     None

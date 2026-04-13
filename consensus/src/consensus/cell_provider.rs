@@ -9,9 +9,13 @@ use crate::{
     model::{
         services::reachability::MTReachabilityService,
         stores::{
-            block_transactions::BlockTransactionsStoreReader, cell_data::DbCellDataStore,
-            cell_diffs::CellDiffsStoreReader, cell_roots::CellRootsStoreReader,
-            ghostdag::GhostdagStoreReader, headers::HeaderStoreReader, reachability::ReachabilityStoreReader,
+            block_transactions::BlockTransactionsStoreReader,
+            cell_data::{CellDataStoreReader, DbCellDataStore},
+            cell_diffs::CellDiffsStoreReader,
+            cell_roots::CellRootsStoreReader,
+            ghostdag::GhostdagStoreReader,
+            headers::HeaderStoreReader,
+            reachability::ReachabilityStoreReader,
             statuses::StatusesStoreReader,
         },
     },
@@ -160,10 +164,8 @@ impl<
 
             let output = &tx.outputs[output_index];
             let persisted_data = self.load_data_from_segments(outpoint)?;
-            let output_data = persisted_data
-                .as_deref()
-                .or_else(|| tx.outputs_data.get(output_index).map(|data| data.as_slice()))
-                .unwrap_or(&[]);
+            let output_data =
+                persisted_data.as_deref().or_else(|| tx.outputs_data.get(output_index).map(|data| data.as_slice())).unwrap_or(&[]);
             return Ok(Some(CellMetadata {
                 out_point: *outpoint,
                 capacity: output.capacity,

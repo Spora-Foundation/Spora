@@ -8,9 +8,11 @@ use spora_consensus::model::stores::virtual_state::VirtualState;
 use spora_consensus::params::Params;
 use spora_consensus_core::api::ConsensusApi;
 use spora_consensus_core::block::{Block, TemplateBuildMode};
+
+use spora_consensus_core::cell_diff::CellMeta;
 use spora_consensus_core::coinbase::MinerData;
 use spora_consensus_core::sign::sign;
-use spora_consensus_core::tx::{CellEntry, CellOut, CellRef, CellTx, MutableTransaction, OutPoint, ScriptRef, TransactionOutpoint};
+use spora_consensus_core::tx::{CellOut, CellRef, CellTx, MutableTransaction, OutPoint, ScriptRef, TransactionOutpoint};
 use spora_core::trace;
 use spora_hashes::Hash;
 use spora_utils::sim::{Environment, Process, Resumption, Suspension};
@@ -129,13 +131,13 @@ impl Miner {
         *outpoint
     }
 
-    fn consensus_cell_entry_from_state(entry: &spora_state::CellEntry) -> CellEntry {
-        CellEntry::from_cell_metadata(
+    fn consensus_cell_entry_from_state(entry: &spora_state::CellEntry) -> CellMeta {
+        CellMeta::from_cell_metadata(
             entry.capacity,
             entry.data_bytes,
-            entry.lock_hash.as_bytes(),
-            entry.type_hash.map(|hash| hash.as_bytes()),
-            entry.data_hash.as_bytes(),
+            entry.lock_hash.as_bytes().try_into().expect("hash size is fixed"),
+            entry.type_hash.map(|hash| hash.as_bytes().try_into().expect("hash size is fixed")),
+            entry.data_hash.as_bytes().try_into().expect("hash size is fixed"),
             entry.block_daa_score,
             entry.is_cellbase,
         )
@@ -147,7 +149,7 @@ impl Miner {
         virtual_daa_score: u64,
         maturity: u64,
         tree: &spora_state::CellStateTree,
-    ) -> Option<CellEntry> {
+    ) -> Option<CellMeta> {
         let entry = tree.get(&Self::outpoint_to_cell_tree_hash(&outpoint))?;
         if entry.capacity < 2 {
             return None;

@@ -11,6 +11,7 @@ use crate::outpoint::TransactionOutpoint;
 use crate::output::{TransactionOutput, TransactionOutputArrayAsArgT, TransactionOutputArrayAsResultT};
 use crate::result::Result;
 use crate::serializable::{numeric, string, SerializableTransactionT};
+use spora_consensus_core::cell_diff::CellMeta;
 use spora_consensus_core::mass::project_verifiable_transaction_mass;
 use spora_consensus_core::network::NetworkTypeT;
 use spora_consensus_core::tx::VerifiableTransaction;
@@ -322,7 +323,7 @@ impl Transaction {
             .inner()
             .inputs
             .iter()
-            .map(|input| input.get_cell_entry().ok_or(Error::MissingCellEntry).map(|entry| cctx::CellEntry::from(&entry)))
+            .map(|input| input.get_cell_entry().ok_or(Error::MissingCellEntry).map(|entry| CellMeta::from(&entry)))
             .collect::<Result<Vec<_>>>()?;
         Ok(cctx::SignableTransaction::with_entries(cell_tx, entries))
     }

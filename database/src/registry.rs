@@ -59,8 +59,8 @@ pub enum DatabaseStorePrefixes {
     CellIndexTips = 193,
     CirculatingSupply = 194,
     TransactionIndex = 195,
-    CellDiffs = 196, // Cell state diffs
-    CellRoots = 197, // Cell state Merkle roots
+    CellDiffs = 196,        // Cell state diffs
+    CellRoots = 197,        // Cell state Merkle roots
     CellDataSegments = 198, // OutPoint -> segment-backed cell data mapping
 
     // ---- Separator ----

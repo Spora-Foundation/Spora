@@ -1,7 +1,8 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 use spora_addresses::Address;
-use spora_consensus_core::tx::{CellEntry, CellOut, CellRef, ScriptRef, TransactionId, TransactionIndexType, TransactionOutpoint};
+use spora_consensus_core::cell_diff::CellMeta;
+use spora_consensus_core::tx::{CellOut, CellRef, ScriptRef, TransactionId, TransactionIndexType, TransactionOutpoint};
 use spora_utils::{hex::ToHex, serde_bytes_fixed, serde_bytes_fixed_ref};
 use workflow_serializer::prelude::*;
 
@@ -105,8 +106,8 @@ impl RpcCellEntry {
     }
 }
 
-impl From<CellEntry> for RpcCellEntry {
-    fn from(entry: CellEntry) -> Self {
+impl From<CellMeta> for RpcCellEntry {
+    fn from(entry: CellMeta) -> Self {
         let metadata = entry.embedded_cell_metadata().expect("RpcCellEntry requires canonical Cell metadata");
         Self {
             amount: entry.amount(),
@@ -121,9 +122,9 @@ impl From<CellEntry> for RpcCellEntry {
     }
 }
 
-impl From<RpcCellEntry> for CellEntry {
+impl From<RpcCellEntry> for CellMeta {
     fn from(entry: RpcCellEntry) -> Self {
-        CellEntry::from_cell_metadata(
+        CellMeta::from_cell_metadata(
             entry.capacity,
             entry.data_bytes,
             entry.lock_hash,

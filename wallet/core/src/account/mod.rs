@@ -451,13 +451,13 @@ pub trait Account: AnySync + Send + Sync + 'static {
         Ok(bundle)
     }
 
-    async fn get_cells(self: Arc<Self>, addresses: Option<Vec<Address>>, min_amount_sau: Option<u64>) -> Result<Vec<CellEntry>> {
+    async fn get_cells(self: Arc<Self>, addresses: Option<Vec<Address>>, min_amount_sau: Option<u64>) -> Result<Vec<CellMeta>> {
         let cells = self.cell_context().get_cells(addresses, min_amount_sau).await?;
         Ok(cells
             .into_iter()
             .map(|cell| {
                 let metadata = cell.embedded_cell_metadata().expect("wallet cells must carry canonical Cell metadata");
-                CellEntry::from_cell_metadata(
+                CellMeta::from_cell_metadata(
                     cell.capacity(),
                     metadata.data_bytes,
                     metadata.lock_hash,

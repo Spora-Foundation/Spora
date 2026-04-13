@@ -32,7 +32,7 @@ pub fn create_transaction_js(
     // ---
 
     let mut total_input_amount = 0;
-    let entries = cell_entries.iter().map(ConsensusCellEntry::from).collect::<Vec<_>>();
+    let entries = cell_entries.iter().map(CellMeta::from).collect::<Vec<_>>();
     let inputs = cell_entries
         .into_iter()
         .enumerate()

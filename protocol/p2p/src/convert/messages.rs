@@ -8,9 +8,10 @@ use super::{
 };
 use crate::pb as protowire;
 use spora_consensus_core::{
+    cell_diff::CellMeta,
     header::Header,
     pruning::{PruningPointProof, PruningPointsList},
-    tx::{CellEntry, TransactionId, TransactionOutpoint},
+    tx::{TransactionId, TransactionOutpoint},
 };
 use spora_hashes::Hash;
 use spora_utils::networking::{IpAddress, PeerId};
@@ -125,7 +126,7 @@ impl TryFrom<protowire::BlockHeadersMessage> for Vec<Arc<Header>> {
     }
 }
 
-impl TryFrom<protowire::PruningPointCellSetChunkMessage> for Vec<(TransactionOutpoint, CellEntry)> {
+impl TryFrom<protowire::PruningPointCellSetChunkMessage> for Vec<(TransactionOutpoint, CellMeta)> {
     type Error = ConversionError;
 
     fn try_from(msg: protowire::PruningPointCellSetChunkMessage) -> Result<Self, Self::Error> {

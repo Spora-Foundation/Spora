@@ -3,9 +3,9 @@
 //
 // Load cell data syscall
 
-use super::LOAD_CELL_DATA_SYSCALL_NUMBER;
 use super::utils::{store_data, INDEX_OUT_OF_BOUND, SUCCESS};
 use super::Source;
+use super::LOAD_CELL_DATA_SYSCALL_NUMBER;
 use crate::celltx::CellTx;
 use crate::vm::CellDataProvider;
 use ckb_vm::{

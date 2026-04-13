@@ -6,6 +6,7 @@
 
 use super::{error::VMError, MAX_SCRIPT_SIZE, MAX_VM_MEMORY};
 use ckb_vm::{
+    cost_model::estimate_cycles,
     machine::{VERSION0, VERSION1, VERSION2},
     Bytes, DefaultMachineBuilder, DefaultMachineRunner, SupportMachine, Syscalls, ISA_B, ISA_IMC, ISA_MOP,
 };
@@ -127,7 +128,11 @@ pub fn run_script(
     }
 
     let core_machine = context.version.init_core_machine_with_memory(context.max_cycles, context.max_memory);
-    let builder = syscalls.into_iter().fold(DefaultMachineBuilder::new(core_machine), |builder, syscall| builder.syscall(syscall));
+    let builder = syscalls
+        .into_iter()
+        .fold(DefaultMachineBuilder::new(core_machine).instruction_cycle_func(Box::new(estimate_cycles)), |builder, syscall| {
+            builder.syscall(syscall)
+        });
     let mut machine = Machine::new(builder.build());
 
     let program = Bytes::copy_from_slice(program);
@@ -136,7 +141,13 @@ pub fn run_script(
     machine.load_program(&program, args).map_err(|err| VMError::LoadProgramError(err.to_string()))?;
 
     let exit_code = machine.run().map_err(|err| match err {
-        ckb_vm::Error::CyclesExceeded => VMError::CyclesExceeded { limit: context.max_cycles, actual: machine.machine.cycles() },
+        // ckb-vm reports CyclesExceeded before committing the overflowing value
+        // back into the machine, so `machine.cycles()` is the last accepted count,
+        // not the attempted total. Report the minimal strictly-over-limit value
+        // instead of the stale pre-overflow counter.
+        ckb_vm::Error::CyclesExceeded => {
+            VMError::CyclesExceeded { limit: context.max_cycles, actual: context.max_cycles.saturating_add(1) }
+        }
         other => VMError::ExecutionError(other.to_string()),
     })?;
 
@@ -150,6 +161,7 @@ pub fn run_script(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::scripts::ALWAYS_SUCCESS_SCRIPT;
     use ckb_vm::{CoreMachine, Memory};
 
     #[test]
@@ -196,5 +208,14 @@ mod tests {
         let result = run_script(&oversized_program, &[], vec![], &context);
 
         assert!(matches!(result, Err(VMError::ScriptTooLarge { size: 17, limit: 16 })));
+    }
+
+    #[test]
+    fn test_run_script_counts_instruction_cycles() {
+        let context = VmContext::with_limits(ScriptVersion::V2, 100_000, MAX_VM_MEMORY, MAX_SCRIPT_SIZE);
+
+        let cycles = run_script(ALWAYS_SUCCESS_SCRIPT, &[], vec![], &context).expect("always-success script should run");
+
+        assert!(cycles > 0, "instruction cycles should be tracked");
     }
 }

@@ -10,8 +10,8 @@ pub(crate) fn cell_output_to_placeholder_entry(
     output_data: &[u8],
     block_daa_score: u64,
     is_cellbase: bool,
-) -> spora_consensus_core::tx::CellEntry {
-    spora_consensus_core::tx::CellEntry::from_cell_metadata(
+) -> spora_consensus_core::cell_diff::CellMeta {
+    spora_consensus_core::cell_diff::CellMeta::from_cell_metadata(
         output.capacity,
         output_data.len() as u64,
         output.lock.hash(),

@@ -3,8 +3,8 @@
 //
 // Load header syscall (DAG-aware)
 
-use super::{HeaderField, Source, LOAD_HEADER_BY_FIELD_SYSCALL_NUMBER, LOAD_HEADER_SYSCALL_NUMBER};
 use super::utils::{store_data, INDEX_OUT_OF_BOUND, ITEM_MISSING, SUCCESS};
+use super::{HeaderField, Source, LOAD_HEADER_BY_FIELD_SYSCALL_NUMBER, LOAD_HEADER_SYSCALL_NUMBER};
 use crate::celltx::CellTx;
 use crate::vm::{CellDataProvider, ResolvedHeader};
 use ckb_vm::{

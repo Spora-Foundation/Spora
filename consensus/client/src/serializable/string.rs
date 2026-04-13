@@ -9,6 +9,7 @@ use crate::result::Result;
 use crate::{CellEntry, CellEntryReference, Transaction, TransactionInput, TransactionOutpoint, TransactionOutput};
 use cctx::VerifiableTransaction;
 use spora_addresses::Address;
+use spora_consensus_core::cell_diff::CellMeta;
 use spora_consensus_core::mass::project_verifiable_transaction_mass;
 use spora_hashes::Hash;
 use workflow_wasm::serde::{from_value, to_value};
@@ -61,8 +62,8 @@ impl From<&CellEntryReference> for SerializableCellEntry {
     }
 }
 
-impl From<&cctx::CellEntry> for SerializableCellEntry {
-    fn from(cell_entry: &cctx::CellEntry) -> Self {
+impl From<&CellMeta> for SerializableCellEntry {
+    fn from(cell_entry: &CellMeta) -> Self {
         let metadata = cell_entry.embedded_cell_metadata().expect("serializable client CellEntry requires canonical Cell metadata");
         Self {
             address: None,
@@ -78,7 +79,7 @@ impl From<&cctx::CellEntry> for SerializableCellEntry {
     }
 }
 
-impl TryFrom<&SerializableCellEntry> for cctx::CellEntry {
+impl TryFrom<&SerializableCellEntry> for CellMeta {
     type Error = crate::error::Error;
     fn try_from(cell_entry: &SerializableCellEntry) -> Result<Self> {
         let lock_hash = cell_entry.lock_hash.ok_or_else(|| Error::Custom("SerializableCellEntry.lockHash is required".to_string()))?;
@@ -108,7 +109,7 @@ pub struct SerializableTransactionInput {
 
 impl SerializableTransactionInput {
     /// Create from a Cell-model CellRef input with its witness data.
-    pub fn from_cell_ref(input: &cctx::CellRef, witness: &[u8], cell_entry: &cctx::CellEntry) -> Self {
+    pub fn from_cell_ref(input: &cctx::CellRef, witness: &[u8], cell_entry: &CellMeta) -> Self {
         let cell_entry = SerializableCellEntry::from(cell_entry);
         Self {
             transaction_id: TransactionId::from_slice(&input.out_point.tx_hash),
@@ -358,7 +359,7 @@ mod tests {
         let input = CellRef::new(TransactionOutpoint::new(Hash::from_bytes([4; 32]).as_bytes(), 0), 11);
         let output = CellOut { capacity: 800, lock: ScriptRef::new([0x61u8; 32], 0, vec![3, 4]), type_: None };
         let tx = CellTx::new(vec![input], vec![], vec![output], vec![vec![7, 7]], vec![vec![0xcd]]).unwrap();
-        let entry = cctx::CellEntry::from_cell_metadata(1_200, 0, [0x77; 32], None, [0; 32], 0, false);
+        let entry = CellMeta::from_cell_metadata(1_200, 0, [0x77; 32], None, [0; 32], 0, false);
         let signable = cctx::SignableTransaction::with_entries(tx, vec![entry]);
 
         let serialized = SerializableTransaction::from_signable_transaction(&signable).expect("serializable transaction");

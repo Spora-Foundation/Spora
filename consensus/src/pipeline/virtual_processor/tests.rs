@@ -12,12 +12,13 @@ use spora_consensus_core::{
     block::{Block, BlockTemplate, MutableBlock, TemplateBuildMode, TemplateTransactionSelector},
     blockhash,
     blockstatus::BlockStatus,
+    cell_diff::CellMeta,
     coinbase::BlockRewardData,
     coinbase::MinerData,
     config::{params::MAINNET_PARAMS, ConfigBuilder},
     errors::tx::TxRuleError,
     merkle::calc_hash_merkle_root_cell,
-    tx::{CellEntry, MutableTransaction, TransactionOutpoint},
+    tx::{MutableTransaction, TransactionOutpoint},
     BlockHashMap, BlockHashSet,
 };
 use spora_core::assert_match;
@@ -414,8 +415,8 @@ fn empty_miner_data() -> MinerData {
     MinerData::new(ScriptRef::new([0; 32], 0, vec![]), vec![])
 }
 
-fn test_cell_entry(capacity: u64, block_daa_score: u64, is_cellbase: bool) -> CellEntry {
-    CellEntry::from_cell_metadata(capacity, 0, [0; 32], None, [0; 32], block_daa_score, is_cellbase)
+fn test_cell_entry(capacity: u64, block_daa_score: u64, is_cellbase: bool) -> CellMeta {
+    CellMeta::from_cell_metadata(capacity, 0, [0; 32], None, [0; 32], block_daa_score, is_cellbase)
 }
 
 fn build_cell_spend_tx_with_dep(previous_outpoint: OutPoint, dep_outpoint: OutPoint, value: u64) -> CellTx {
@@ -1026,7 +1027,7 @@ async fn validates_direct_cell_mempool_transaction_when_vm_enabled() {
     let funding = consensus
         .build_block_template(miner_data.clone(), Box::new(OnetimeTxSelector::new(vec![])), TemplateBuildMode::Standard)
         .unwrap();
-    let funding_header_hash = *funding.block.header.hash.as_bytes();
+    let funding_header_hash = funding.block.header.hash.as_bytes();
     let funding_coinbase = funding.block.transactions[0].clone();
     consensus.validate_and_insert_block(funding.block.to_immutable()).virtual_state_task.await.unwrap();
 

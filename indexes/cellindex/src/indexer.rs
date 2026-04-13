@@ -288,21 +288,13 @@ impl CellIndexer {
         }
 
         let (segment_id, offset, length) = self.segment_writer.append(cell_data)?;
-        Ok((
-            Vec::new(),
-            Some(SegmentInfo {
-                segment_id,
-                offset,
-                length,
-            }),
-        ))
+        Ok((Vec::new(), Some(SegmentInfo { segment_id, offset, length })))
     }
 
     fn hydrate_cell_data(&self, mut meta: CellMeta) -> Result<CellMeta> {
         if meta.cell_data.is_empty() {
             if let Some(segment_info) = &meta.segment_info {
-                meta.cell_data =
-                    self.segment_reader.read(segment_info.segment_id, segment_info.offset, segment_info.length)?;
+                meta.cell_data = self.segment_reader.read(segment_info.segment_id, segment_info.offset, segment_info.length)?;
             }
         }
 

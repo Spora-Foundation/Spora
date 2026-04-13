@@ -3,7 +3,10 @@
 //
 // Segment storage: 1GB data segments for DA layer
 
-use crate::{store::proof::compute_segment_root, Result, StateError};
+use crate::{
+    store::proof::{compute_segment_root, MerkleTreeBuilder},
+    Result, StateError,
+};
 use borsh::{BorshDeserialize, BorshSerialize};
 use parking_lot::Mutex;
 use std::fs::{File, OpenOptions};
@@ -16,6 +19,12 @@ const SEGMENT_SIZE: u64 = 1024 * 1024 * 1024;
 
 /// Maximum segments in memory before forcing seal
 const MAX_OPEN_SEGMENTS: usize = 8;
+
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+struct AppendRecord {
+    offset: u64,
+    length: u32,
+}
 
 /// Segment metadata
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
@@ -48,6 +57,8 @@ pub struct SegmentWriter {
     current_file: Arc<Mutex<Option<File>>>,
     /// Current offset
     current_offset: Arc<Mutex<u64>>,
+    /// Ordered append records for the active segment.
+    current_chunks: Arc<Mutex<Vec<AppendRecord>>>,
     /// Segment metadata
     _segments: Arc<Mutex<Vec<SegmentMeta>>>,
 }
@@ -61,11 +72,23 @@ impl SegmentWriter {
         // Find highest existing segment ID
         let max_id = Self::find_max_segment_id(&base_dir)?;
 
+        let (current_segment_id, current_file, current_offset, current_chunks) =
+            if let Some(segment_id) = max_id.filter(|id| !Self::segment_meta_path_for(&base_dir, *id).exists()) {
+                let path = Self::segment_path_for(&base_dir, segment_id);
+                let size = std::fs::metadata(&path)?.len();
+                let chunks = Self::load_chunk_index(&base_dir, segment_id)?;
+                let file = OpenOptions::new().create(true).write(true).append(true).open(path)?;
+                (segment_id, Some(file), size, chunks)
+            } else {
+                (max_id.map(|id| id + 1).unwrap_or(0), None, 0, Vec::new())
+            };
+
         Ok(Self {
             base_dir,
-            current_segment_id: Arc::new(Mutex::new(max_id.map(|id| id + 1).unwrap_or(0))),
-            current_file: Arc::new(Mutex::new(None)),
-            current_offset: Arc::new(Mutex::new(0)),
+            current_segment_id: Arc::new(Mutex::new(current_segment_id)),
+            current_file: Arc::new(Mutex::new(current_file)),
+            current_offset: Arc::new(Mutex::new(current_offset)),
+            current_chunks: Arc::new(Mutex::new(current_chunks)),
             _segments: Arc::new(Mutex::new(Vec::new())),
         })
     }
@@ -88,7 +111,6 @@ impl SegmentWriter {
 
         let file = file_guard.as_mut().ok_or_else(|| StateError::Database("No active segment file".to_string()))?;
 
-        let segment_id = *self.current_segment_id.lock();
         let offset = *offset_guard;
         let length = data.len() as u32;
 
@@ -97,6 +119,12 @@ impl SegmentWriter {
         file.sync_data()?; // Ensure durability
 
         *offset_guard += data.len() as u64;
+        let segment_id = *self.current_segment_id.lock();
+        {
+            let mut current_chunks = self.current_chunks.lock();
+            current_chunks.push(AppendRecord { offset, length });
+            self.save_chunk_index(segment_id, &current_chunks)?;
+        }
 
         Ok((segment_id, offset, length))
     }
@@ -122,7 +150,7 @@ impl SegmentWriter {
         let meta = SegmentMeta {
             segment_id,
             size,
-            cell_count: 0, // TODO: track cell count
+            cell_count: self.current_chunks.lock().len() as u32,
             merkle_root,
             sealed: true,
             created_at: Self::current_timestamp(),
@@ -140,6 +168,7 @@ impl SegmentWriter {
         let mut offset_guard = self.current_offset.lock();
         *offset_guard = 0;
         drop(offset_guard);
+        self.current_chunks.lock().clear();
 
         let mut segment_id_guard = self.current_segment_id.lock();
         *segment_id_guard += 1;
@@ -173,19 +202,18 @@ impl SegmentWriter {
     fn compute_merkle_root(&self, segment_id: u32, size: u64) -> Result<[u8; 32]> {
         let path = self.segment_path(segment_id);
         let mut file = File::open(path)?;
+        let chunk_ranges = self.current_chunks.lock().clone();
 
-        let mut buffer = vec![0u8; 1024 * 1024]; // 1MB chunks
-        let mut total_read = 0u64;
-        let mut chunks = Vec::new();
+        if chunk_ranges.is_empty() && size > 0 {
+            return Err(StateError::Database("Cannot compute segment root without append chunk boundaries".to_string()));
+        }
 
-        while total_read < size {
-            let to_read = std::cmp::min(buffer.len(), (size - total_read) as usize);
-            let n = file.read(&mut buffer[..to_read])?;
-            if n == 0 {
-                break;
-            }
-            chunks.push(buffer[..n].to_vec());
-            total_read += n as u64;
+        let mut chunks = Vec::with_capacity(chunk_ranges.len());
+        for AppendRecord { offset, length } in chunk_ranges {
+            let mut buffer = vec![0u8; length as usize];
+            file.seek(SeekFrom::Start(offset))?;
+            file.read_exact(&mut buffer)?;
+            chunks.push(buffer);
         }
 
         Ok(compute_segment_root(&chunks))
@@ -199,14 +227,37 @@ impl SegmentWriter {
         Ok(())
     }
 
+    fn save_chunk_index(&self, segment_id: u32, chunks: &[AppendRecord]) -> Result<()> {
+        let path = self.segment_index_path(segment_id);
+        let data = borsh::to_vec(chunks).map_err(|e| StateError::Serialization(e.to_string()))?;
+        std::fs::write(path, data)?;
+        Ok(())
+    }
+
     /// Get segment file path
     fn segment_path(&self, segment_id: u32) -> PathBuf {
-        self.base_dir.join(format!("segment_{:08}.dat", segment_id))
+        Self::segment_path_for(&self.base_dir, segment_id)
     }
 
     /// Get segment metadata path
     fn segment_meta_path(&self, segment_id: u32) -> PathBuf {
-        self.base_dir.join(format!("segment_{:08}.meta", segment_id))
+        Self::segment_meta_path_for(&self.base_dir, segment_id)
+    }
+
+    fn segment_index_path(&self, segment_id: u32) -> PathBuf {
+        Self::segment_index_path_for(&self.base_dir, segment_id)
+    }
+
+    fn segment_path_for(base_dir: &Path, segment_id: u32) -> PathBuf {
+        base_dir.join(format!("segment_{:08}.dat", segment_id))
+    }
+
+    fn segment_meta_path_for(base_dir: &Path, segment_id: u32) -> PathBuf {
+        base_dir.join(format!("segment_{:08}.meta", segment_id))
+    }
+
+    fn segment_index_path_for(base_dir: &Path, segment_id: u32) -> PathBuf {
+        base_dir.join(format!("segment_{:08}.idx", segment_id))
     }
 
     /// Find maximum existing segment ID
@@ -229,6 +280,15 @@ impl SegmentWriter {
         }
 
         Ok(max_id)
+    }
+
+    fn load_chunk_index(base_dir: &Path, segment_id: u32) -> Result<Vec<AppendRecord>> {
+        let path = Self::segment_index_path_for(base_dir, segment_id);
+        match std::fs::read(path) {
+            Ok(data) => Vec::<AppendRecord>::try_from_slice(&data).map_err(|e| StateError::Serialization(e.to_string())),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+            Err(err) => Err(StateError::Database(err.to_string())),
+        }
     }
 
     /// Get current Unix timestamp
@@ -284,6 +344,42 @@ impl SegmentReader {
         SegmentMeta::try_from_slice(&data).map_err(|e| StateError::Serialization(e.to_string()))
     }
 
+    /// Build a Merkle proof for the requested append chunk in a sealed segment.
+    pub fn build_proof(&self, segment_id: u32, leaf_index: u32) -> Result<crate::store::proof::SegmentProof> {
+        let meta = self.load_meta(segment_id)?;
+        let chunk_index = SegmentWriter::load_chunk_index(&self.base_dir, segment_id)?;
+        let leaf_index = leaf_index as usize;
+        let record = chunk_index
+            .get(leaf_index)
+            .ok_or_else(|| StateError::InvalidProof(format!("leaf index {} out of bounds for segment {}", leaf_index, segment_id)))?;
+
+        let mut builder = MerkleTreeBuilder::new();
+        for AppendRecord { offset, length } in &chunk_index {
+            let chunk = self.read(segment_id, *offset, *length)?;
+            builder.add_leaf(&chunk);
+        }
+
+        let computed_root = builder.build();
+        if computed_root != meta.merkle_root {
+            return Err(StateError::InvalidProof(format!(
+                "segment {} proof index root mismatch: meta={:?}, computed={:?}",
+                segment_id, meta.merkle_root, computed_root
+            )));
+        }
+
+        let chunk_data = self.read(segment_id, record.offset, record.length)?;
+        let mut proof = crate::store::proof::SegmentProof::new(
+            segment_id,
+            leaf_index as u32,
+            chunk_data,
+            record.offset,
+            record.length,
+            meta.merkle_root,
+        );
+        proof.merkle_path = builder.get_proof(leaf_index);
+        Ok(proof)
+    }
+
     fn segment_path(&self, segment_id: u32) -> PathBuf {
         self.base_dir.join(format!("segment_{:08}.dat", segment_id))
     }
@@ -296,6 +392,7 @@ impl SegmentReader {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::store::proof::compute_segment_root;
     use tempfile::TempDir;
 
     #[test]
@@ -323,6 +420,26 @@ mod tests {
         assert_eq!(meta.segment_id, 0);
         assert_eq!(meta.size, 2048);
         assert!(meta.sealed);
+    }
+
+    #[test]
+    fn test_segment_seal_persists_merkle_root_for_ordered_chunks() {
+        let tmp = TempDir::new().unwrap();
+        let writer = SegmentWriter::new(tmp.path()).unwrap();
+
+        let chunk_a = vec![0xAB; 1024];
+        let chunk_b = vec![0xCD; 1536];
+        writer.append(&chunk_a).unwrap();
+        writer.append(&chunk_b).unwrap();
+
+        let meta = writer.seal().unwrap();
+        let expected_root = compute_segment_root(&[chunk_a, chunk_b]);
+
+        assert_eq!(meta.merkle_root, expected_root);
+
+        let reader = SegmentReader::new(tmp.path()).unwrap();
+        let loaded_meta = reader.load_meta(meta.segment_id).unwrap();
+        assert_eq!(loaded_meta.merkle_root, expected_root);
     }
 
     #[test]
@@ -358,5 +475,47 @@ mod tests {
 
         assert_ne!(seg1, seg2);
         assert_eq!(seg2, seg1 + 1);
+    }
+
+    #[test]
+    fn test_segment_writer_recovers_unsealed_segment_after_restart() {
+        let tmp = TempDir::new().unwrap();
+        let chunk_a = vec![0x31; 128];
+        let chunk_b = vec![0x42; 96];
+
+        {
+            let writer = SegmentWriter::new(tmp.path()).unwrap();
+            writer.append(&chunk_a).unwrap();
+            writer.append(&chunk_b).unwrap();
+        }
+
+        let recovered_writer = SegmentWriter::new(tmp.path()).unwrap();
+        let meta = recovered_writer.seal().unwrap();
+        let expected_root = compute_segment_root(&[chunk_a, chunk_b]);
+
+        assert_eq!(meta.segment_id, 0);
+        assert_eq!(meta.merkle_root, expected_root);
+        assert!(tmp.path().join("segment_00000000.idx").exists());
+    }
+
+    #[test]
+    fn test_segment_reader_builds_proof_for_sealed_segment() {
+        let tmp = TempDir::new().unwrap();
+        let writer = SegmentWriter::new(tmp.path()).unwrap();
+
+        let chunk_a = vec![0xAA; 64];
+        let chunk_b = vec![0xBB; 96];
+        writer.append(&chunk_a).unwrap();
+        writer.append(&chunk_b).unwrap();
+        let meta = writer.seal().unwrap();
+
+        let reader = SegmentReader::new(tmp.path()).unwrap();
+        let proof = reader.build_proof(meta.segment_id, 1).unwrap();
+
+        assert_eq!(proof.segment_id, meta.segment_id);
+        assert_eq!(proof.leaf_index, 1);
+        assert_eq!(proof.chunk_data, chunk_b);
+        assert_eq!(proof.segment_root, meta.merkle_root);
+        assert!(proof.verify().unwrap());
     }
 }

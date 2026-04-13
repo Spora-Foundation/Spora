@@ -151,7 +151,8 @@ impl<'a, 'b> PruningPointCellsetChunkStream<'a, 'b> {
                 if let Some(msg) = op {
                     match msg.payload {
                         Some(Payload::PruningPointCellSetChunk(payload)) => {
-                            let entry_chunk: Vec<(TransactionOutpoint, spora_consensus_core::tx::CellEntry)> = payload.try_into()?;
+                            let entry_chunk: Vec<(TransactionOutpoint, spora_consensus_core::cell_diff::CellMeta)> =
+                                payload.try_into()?;
                             let cell_chunk: Vec<_> = entry_chunk
                                 .into_iter()
                                 .map(|(outpoint, cell_entry)| {

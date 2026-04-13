@@ -61,10 +61,7 @@ impl<M: SupportMachine> Syscalls<M> for Debugger {
 mod tests {
     use super::*;
     use crate::vm::ScriptVersion;
-    use ckb_vm::{
-        registers::A7,
-        CoreMachine, Memory, Register,
-    };
+    use ckb_vm::{registers::A7, CoreMachine, Memory, Register};
 
     const MESSAGE_ADDR: u64 = 0x1000;
 

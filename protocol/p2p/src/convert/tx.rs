@@ -1,8 +1,9 @@
 use super::{error::ConversionError, option::TryIntoOptionEx};
 use crate::pb as protowire;
 use spora_consensus_core::{
+    cell_diff::CellMeta,
     mass::project_cell_tx_mass,
-    tx::{CellEntry, CellOut, CellRef, CellTx, ScriptRef, TransactionId, TransactionOutpoint},
+    tx::{CellOut, CellRef, CellTx, ScriptRef, TransactionId, TransactionOutpoint},
 };
 use spora_hashes::Hash;
 
@@ -113,14 +114,14 @@ impl TryFrom<protowire::ScriptRef> for ScriptRef {
     }
 }
 
-impl TryFrom<protowire::CellEntry> for CellEntry {
+impl TryFrom<protowire::CellEntry> for CellMeta {
     type Error = ConversionError;
 
     fn try_from(value: protowire::CellEntry) -> Result<Self, Self::Error> {
         let lock_hash = value.lock_hash.as_slice().try_into()?;
         let type_hash = if value.type_hash.is_empty() { None } else { Some(value.type_hash.as_slice().try_into()?) };
         let data_hash = value.data_hash.as_slice().try_into()?;
-        Ok(CellEntry::from_cell_metadata(
+        Ok(CellMeta::from_cell_metadata(
             value.capacity.max(value.amount),
             value.data_bytes,
             lock_hash,
@@ -132,7 +133,7 @@ impl TryFrom<protowire::CellEntry> for CellEntry {
     }
 }
 
-impl TryFrom<protowire::OutpointAndCellEntryPair> for (TransactionOutpoint, CellEntry) {
+impl TryFrom<protowire::OutpointAndCellEntryPair> for (TransactionOutpoint, CellMeta) {
     type Error = ConversionError;
 
     fn try_from(value: protowire::OutpointAndCellEntryPair) -> Result<Self, Self::Error> {

@@ -1,8 +1,9 @@
 use crate::{
+    cell_diff::CellMeta,
     cell_metadata::CellMetadata,
     config::params::{Params, MAINNET_PARAMS},
     constants::TRANSIENT_BYTE_TO_MASS_FACTOR,
-    tx::{CellEntry, CellOut, CellTx, ScriptRef, VerifiableTransaction},
+    tx::{CellOut, CellTx, ScriptRef, VerifiableTransaction},
 };
 use spora_exec::vm::VmLimits;
 
@@ -94,7 +95,7 @@ pub fn cell_plurality(lock_script: &ScriptRef) -> u64 {
     (CANONICAL_CELL_CONST_STORAGE + lock_script.args.len() as u64).div_ceil(CELL_UNIT_SIZE)
 }
 
-fn canonical_cell_storage_bytes(entry: &CellEntry) -> Option<u64> {
+fn canonical_cell_storage_bytes(entry: &CellMeta) -> Option<u64> {
     entry
         .embedded_cell_metadata()
         .map(|metadata| CANONICAL_CELL_CONST_STORAGE + u64::from(metadata.type_hash.is_some()) * 32 + metadata.data_bytes)
@@ -104,7 +105,7 @@ fn canonical_cell_metadata_storage_bytes(metadata: &CellMetadata) -> u64 {
     CANONICAL_CELL_CONST_STORAGE + u64::from(metadata.type_hash.is_some()) * 32 + metadata.data_bytes
 }
 
-pub fn cell_entry_plurality(entry: &CellEntry) -> u64 {
+pub fn cell_entry_plurality(entry: &CellMeta) -> u64 {
     // CellMeta always carries canonical cell metadata
     canonical_cell_storage_bytes(entry).expect("CellMeta always has embedded cell metadata").div_ceil(CELL_UNIT_SIZE)
 }
@@ -128,7 +129,7 @@ impl CellPlurality for ScriptRef {
     }
 }
 
-impl CellPlurality for CellEntry {
+impl CellPlurality for CellMeta {
     fn plurality(&self) -> u64 {
         cell_entry_plurality(self)
     }
@@ -165,8 +166,8 @@ impl CellMass {
     }
 }
 
-impl From<&CellEntry> for CellMass {
-    fn from(entry: &CellEntry) -> Self {
+impl From<&CellMeta> for CellMass {
+    fn from(entry: &CellMeta) -> Self {
         Self::new(entry.plurality(), entry.capacity())
     }
 }
@@ -855,7 +856,7 @@ mod tests {
         let entries = ins
             .iter()
             .copied()
-            .map(|in_amount| CellEntry {
+            .map(|in_amount| CellMeta {
                 out_point: TransactionOutpoint::default(),
                 capacity: in_amount,
                 data_bytes: 0,

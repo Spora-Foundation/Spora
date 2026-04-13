@@ -3,9 +3,9 @@
 //
 // Load witness syscall
 
-use super::LOAD_WITNESS_SYSCALL_NUMBER;
 use super::utils::{store_data, INDEX_OUT_OF_BOUND, SUCCESS};
 use super::Source;
+use super::LOAD_WITNESS_SYSCALL_NUMBER;
 use crate::celltx::CellTx;
 use ckb_vm::{
     registers::{A0, A3, A4, A7},
@@ -29,7 +29,9 @@ impl LoadWitness {
     fn get_witness(&self, source: u64, index: usize) -> Option<&[u8]> {
         match Source::parse(source)? {
             Source::Input => self.tx.witnesses.get(index).map(|w| w.as_slice()),
-            Source::GroupInput => self.group_input_indices.get(index).and_then(|&idx| self.tx.witnesses.get(idx).map(|w| w.as_slice())),
+            Source::GroupInput => {
+                self.group_input_indices.get(index).and_then(|&idx| self.tx.witnesses.get(idx).map(|w| w.as_slice()))
+            }
             _ => None,
         }
     }

@@ -13,6 +13,7 @@ use crate::outpoint::{TransactionOutpoint, TransactionOutpointInner};
 use crate::result::Result;
 use crate::standard_script::pay_to_address_lock_script;
 use spora_addresses::Address;
+use spora_consensus_core::cell_diff::CellMeta;
 use spora_consensus_core::cell_metadata::EmbeddedCellMetadata;
 use spora_consensus_core::mass::CellMass;
 
@@ -154,7 +155,7 @@ impl CellEntry {
         }
     }
 
-    pub fn from_consensus_entry(address: Option<Address>, outpoint: TransactionOutpoint, entry: &cctx::CellEntry) -> Self {
+    pub fn from_consensus_entry(address: Option<Address>, outpoint: TransactionOutpoint, entry: &CellMeta) -> Self {
         let mut cell_entry = Self {
             address,
             outpoint,
@@ -215,10 +216,10 @@ impl AsRef<CellEntry> for CellEntry {
     }
 }
 
-impl From<&CellEntry> for cctx::CellEntry {
+impl From<&CellEntry> for CellMeta {
     fn from(cell: &CellEntry) -> Self {
         let metadata = cell.embedded_cell_metadata().expect("client CellEntry requires canonical Cell metadata");
-        cctx::CellEntry::from_cell_metadata(
+        CellMeta::from_cell_metadata(
             cell.capacity(),
             metadata.data_bytes,
             metadata.lock_hash,
@@ -336,7 +337,7 @@ impl From<CellEntryReference> for CellEntry {
     }
 }
 
-impl From<&CellEntryReference> for cctx::CellEntry {
+impl From<&CellEntryReference> for CellMeta {
     fn from(value: &CellEntryReference) -> Self {
         value.cell.as_ref().into()
         // (*value.cell).clone()
@@ -351,7 +352,7 @@ impl From<CellEntry> for CellEntryReference {
 
 impl From<&CellEntryReference> for CellMass {
     fn from(entry: &CellEntryReference) -> Self {
-        let entry: cctx::CellEntry = entry.into();
+        let entry: CellMeta = entry.into();
         Self::from(&entry)
     }
 }
@@ -464,7 +465,7 @@ impl From<Vec<CellEntry>> for CellEntries {
     }
 }
 
-impl From<CellEntries> for Vec<Option<cctx::CellEntry>> {
+impl From<CellEntries> for Vec<Option<CellMeta>> {
     fn from(value: CellEntries) -> Self {
         value.0.as_ref().iter().map(|entry| Some(entry.cell.as_ref().into())).collect::<Vec<_>>()
     }

@@ -16,6 +16,7 @@ pub use standard_script::{
     MultisigRedeemScriptError, ScriptClass, StandardScriptError,
 };
 
+use crate::cell_diff::CellMeta;
 use crate::cell_metadata::CellMetadata;
 use crate::mass::{cell_tx_estimated_serialized_size, ContextualMasses, NonContextualMasses};
 pub use spora_exec::celltx::{CellDep, CellOut, CellRef, CellTx, DepType, OutPoint, ScriptRef};
@@ -27,9 +28,6 @@ use std::mem::size_of_val;
 pub const COINBASE_TRANSACTION_INDEX: usize = 0;
 /// A 32-byte Spora transaction identifier.
 pub type TransactionId = spora_hashes::Hash;
-
-/// CellEntry is a semantic alias for CellMeta at transaction boundaries.
-pub type CellEntry = crate::cell_diff::CellMeta;
 
 pub type TransactionIndexType = u32;
 
@@ -84,7 +82,7 @@ pub trait VerifiableTransaction {
         TransactionId::from_bytes(self.tx().id())
     }
 
-    fn cell_entry(&self, index: usize) -> Option<&CellEntry>;
+    fn cell_entry(&self, index: usize) -> Option<&CellMeta>;
 
     fn cell_metadata(&self, index: usize) -> Option<CellMetadata> {
         self.cell_entry(index).map(CellMetadata::from)
@@ -95,12 +93,12 @@ pub trait VerifiableTransaction {
 #[derive(Debug)]
 pub struct PopulatedTransaction<'a> {
     pub tx: &'a CellTx,
-    pub entries: Vec<CellEntry>,
+    pub entries: Vec<CellMeta>,
     pub resolved_cell_metadata: Vec<Option<CellMetadata>>,
 }
 
 impl<'a> PopulatedTransaction<'a> {
-    pub fn new(tx: &'a CellTx, entries: Vec<CellEntry>) -> Self {
+    pub fn new(tx: &'a CellTx, entries: Vec<CellMeta>) -> Self {
         assert_eq!(tx.inputs.len(), entries.len());
         let resolved_cell_metadata = entries.iter().map(|entry| Some(CellMetadata::from(entry))).collect();
         Self { tx, entries, resolved_cell_metadata }
@@ -112,7 +110,7 @@ impl VerifiableTransaction for PopulatedTransaction<'_> {
         self.tx
     }
 
-    fn cell_entry(&self, index: usize) -> Option<&CellEntry> {
+    fn cell_entry(&self, index: usize) -> Option<&CellMeta> {
         self.entries.get(index)
     }
 
@@ -124,7 +122,7 @@ impl VerifiableTransaction for PopulatedTransaction<'_> {
 /// Represents a validated transaction with fully resolved input data and a calculated fee.
 pub struct ValidatedTransaction<'a> {
     pub tx: &'a CellTx,
-    pub entries: Vec<CellEntry>,
+    pub entries: Vec<CellMeta>,
     pub resolved_cell_metadata: Vec<Option<CellMetadata>>,
     pub calculated_fee: u64,
 }
@@ -150,7 +148,7 @@ impl VerifiableTransaction for ValidatedTransaction<'_> {
         self.tx
     }
 
-    fn cell_entry(&self, index: usize) -> Option<&CellEntry> {
+    fn cell_entry(&self, index: usize) -> Option<&CellMeta> {
         self.entries.get(index)
     }
 
@@ -213,7 +211,7 @@ pub struct MutableTransaction<T: CellTxContainer = std::sync::Arc<CellTx>> {
     /// The inner CellTx transaction
     pub tx: T,
     /// Partially filled Cell entry data
-    pub entries: Vec<Option<CellEntry>>,
+    pub entries: Vec<Option<CellMeta>>,
     /// Resolved Cell metadata for each input when available.
     pub resolved_cell_metadata: Vec<Option<CellMetadata>>,
     /// Populated fee
@@ -244,7 +242,7 @@ impl<T: CellTxContainer> MutableTransaction<T> {
         TransactionId::from_bytes(self.tx.cell_tx().id())
     }
 
-    pub fn with_entries(tx: T, entries: Vec<CellEntry>) -> Self {
+    pub fn with_entries(tx: T, entries: Vec<CellMeta>) -> Self {
         assert_eq!(tx.cell_tx().inputs.len(), entries.len());
         let resolved_cell_metadata = entries.iter().map(|entry| Some(CellMetadata::from(entry))).collect();
         Self {
@@ -408,7 +406,7 @@ impl<T: CellTxContainer> MemSizeEstimator for MutableTransaction<T> {
                 .iter()
                 .zip(self.resolved_cell_metadata.iter())
                 .map(|(_op, metadata)| {
-                    std::mem::size_of::<Option<CellEntry>>()
+                    std::mem::size_of::<Option<CellMeta>>()
                         + std::mem::size_of::<Option<CellMetadata>>()
                         + metadata.as_ref().and_then(|meta| meta.data.as_ref().map(Vec::len)).unwrap_or_default()
                 })
@@ -434,7 +432,7 @@ impl<T: CellTxContainer> VerifiableTransaction for MutableTransactionVerifiableW
         self.inner.tx.cell_tx()
     }
 
-    fn cell_entry(&self, index: usize) -> Option<&CellEntry> {
+    fn cell_entry(&self, index: usize) -> Option<&CellMeta> {
         self.inner.entries.get(index).and_then(Option::as_ref)
     }
 
@@ -548,7 +546,7 @@ mod tests {
     fn test_verifiable_transaction() {
         let cell_tx = test_cell_tx();
         let entries = vec![
-            CellEntry {
+            CellMeta {
                 out_point: cell_tx.inputs[0].out_point,
                 capacity: 1000,
                 data_bytes: 0,
@@ -558,7 +556,7 @@ mod tests {
                 block_daa_score: 100,
                 is_cellbase: false,
             },
-            CellEntry {
+            CellMeta {
                 out_point: cell_tx.inputs[1].out_point,
                 capacity: 2000,
                 data_bytes: 0,

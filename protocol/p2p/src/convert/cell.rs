@@ -1,12 +1,13 @@
 use crate::pb as protowire;
-use spora_consensus_core::tx::{CellEntry, TransactionOutpoint};
+use spora_consensus_core::cell_diff::CellMeta;
+use spora_consensus_core::tx::TransactionOutpoint;
 
 // ----------------------------------------------------------------------------
 // consensus_core to protowire
 // ----------------------------------------------------------------------------
 
-impl From<&CellEntry> for protowire::CellEntry {
-    fn from(entry: &CellEntry) -> Self {
+impl From<&CellMeta> for protowire::CellEntry {
+    fn from(entry: &CellMeta) -> Self {
         let metadata = entry.embedded_cell_metadata().expect("p2p CellEntry requires canonical Cell metadata");
         Self {
             amount: entry.amount(),
@@ -21,8 +22,8 @@ impl From<&CellEntry> for protowire::CellEntry {
     }
 }
 
-impl From<(&TransactionOutpoint, &CellEntry)> for protowire::OutpointAndCellEntryPair {
-    fn from((outpoint, entry): (&TransactionOutpoint, &CellEntry)) -> Self {
+impl From<(&TransactionOutpoint, &CellMeta)> for protowire::OutpointAndCellEntryPair {
+    fn from((outpoint, entry): (&TransactionOutpoint, &CellMeta)) -> Self {
         Self { outpoint: Some(outpoint.into()), cell_entry: Some(entry.into()) }
     }
 }

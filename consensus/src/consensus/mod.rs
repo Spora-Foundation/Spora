@@ -70,12 +70,12 @@ use spora_consensus_core::{
     network::NetworkType,
     pruning::{PruningPointProof, PruningPointTrustedData, PruningPointsList, PruningProofMetadata},
     trusted::{ExternalGhostdagData, TrustedBlock},
-    tx::{CellEntry, CellTx, MutableTransaction, ResolvedCellTransaction, SignableTransaction, TransactionOutpoint},
+    tx::{CellTx, MutableTransaction, ResolvedCellTransaction, SignableTransaction, TransactionOutpoint},
     BlockHashSet, BlueWorkType, ChainPath, HashMapCustomHasher,
 };
 use spora_consensus_notify::root::ConsensusNotificationRoot;
 use spora_exec::OutPoint;
-use spora_state::CellStateTree;
+use spora_state::{CellEntry, CellStateTree};
 
 use crossbeam_channel::{
     bounded as bounded_crossbeam, unbounded as unbounded_crossbeam, Receiver as CrossbeamReceiver, Sender as CrossbeamSender,
@@ -199,13 +199,13 @@ impl Consensus {
         TransactionOutpoint::new(outpoint.tx_hash, outpoint.index)
     }
 
-    fn consensus_cell_entry_from_state(entry: &spora_state::CellEntry) -> CellEntry {
-        CellEntry::from_cell_metadata(
+    fn consensus_cell_entry_from_state(entry: &spora_state::CellEntry) -> CellMeta {
+        CellMeta::from_cell_metadata(
             entry.capacity,
             entry.data_bytes,
-            entry.lock_hash.as_bytes(),
-            entry.type_hash.map(|hash| hash.as_bytes()),
-            entry.data_hash.as_bytes(),
+            entry.lock_hash.as_bytes().try_into().expect("hash size is fixed"),
+            entry.type_hash.map(|hash| hash.as_bytes().try_into().expect("hash size is fixed")),
+            entry.data_hash.as_bytes().try_into().expect("hash size is fixed"),
             entry.block_daa_score,
             entry.is_cellbase,
         )
@@ -233,7 +233,7 @@ impl Consensus {
         from_outpoint: Option<TransactionOutpoint>,
         chunk_size: usize,
         skip_first: bool,
-    ) -> Vec<(TransactionOutpoint, CellEntry)> {
+    ) -> Vec<(TransactionOutpoint, CellMeta)> {
         if chunk_size == 0 {
             return Vec::new();
         }
@@ -1039,7 +1039,7 @@ impl ConsensusApi for Consensus {
         from_outpoint: Option<TransactionOutpoint>,
         chunk_size: usize,
         skip_first: bool,
-    ) -> ConsensusResult<Vec<(TransactionOutpoint, CellEntry)>> {
+    ) -> ConsensusResult<Vec<(TransactionOutpoint, CellMeta)>> {
         if self.pruning_point_store.read().pruning_point().unwrap() != expected_pruning_point {
             return Err(ConsensusError::UnexpectedPruningPoint);
         }

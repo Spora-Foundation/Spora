@@ -1,3 +1,4 @@
+use crate::model::stores::cell_data::CellDataStoreReader;
 #[cfg(feature = "vm")]
 use crate::processes::cell_validator::CellScriptDataProvider;
 use crate::{
@@ -20,6 +21,7 @@ use crate::{
             acceptance_data::{AcceptanceDataStoreReader, DbAcceptanceDataStore},
             block_transactions::{BlockTransactionsStoreReader, DbBlockTransactionsStore},
             block_window_cache::{BlockWindowCacheStore, BlockWindowCacheWriter},
+            cell_data::DbCellDataStore,
             cell_diffs::{CellDiffsStoreReader, DbCellDiffsStore},
             cell_roots::{CellRootsStoreReader, DbCellRootsStore},
             daa::DbDaaStore,
@@ -43,7 +45,11 @@ use crate::{
     pipeline::{
         deps_manager::VirtualStateProcessingMessage, pruning_processor::processor::PruningProcessingMessage, ProcessingCounters,
     },
-    processes::{cell_validator::CellValidationError, CellConsensusParams, CellStateProvider, CellValidator, DagCellProvider},
+    processes::{
+        cell_validator::CellValidationError,
+        utils::{compute_data_hash, outpoint_to_hash},
+        CellConsensusParams, CellStateProvider, CellValidator, DagCellProvider,
+    },
     processes::{coinbase::CoinbaseManager, ghostdag::ordering::SortableBlock, window::WindowManager},
 };
 
@@ -63,13 +69,13 @@ use spora_consensus_core::{
     mass::MassCalculator,
     mining_rules::MiningRules,
     pruning::PruningPointsList,
-    tx::{CellEntry, CellTx, MutableTransaction, TransactionOutpoint},
+    tx::{CellTx, MutableTransaction, TransactionOutpoint},
     BlockHashSet,
     ChainPath,
 };
 // Cell state tree
 use spora_exec::scheduler::CellDAG;
-use spora_state::{compute_segment_root, CellEntry as StateCellEntry, CellStateTree};
+use spora_state::{compute_segment_root, CellEntry, CellStateTree, SegmentReader};
 // Transaction-output imports were removed and fully replaced by the Cell model.
 use spora_consensus_notify::{
     notification::{
@@ -187,23 +193,13 @@ fn prefilter_conflicting_template_transactions(
     TemplateConflictPrefilterOutcome { kept_txs, rejected_tx_ids }
 }
 
-fn outpoint_to_cell_tree_hash(outpoint: &TransactionOutpoint) -> Hash {
-    use blake3::Hasher;
-
-    let mut hasher = Hasher::new();
-    hasher.update(b"spora-cell/outpoint");
-    hasher.update(&outpoint.tx_hash);
-    hasher.update(&outpoint.index.to_le_bytes());
-    Hash::from_bytes(*hasher.finalize().as_bytes())
-}
-
-fn synthetic_metadata_from_tree_entry(outpoint: TransactionOutpoint, entry: &StateCellEntry) -> CellMetadata {
+fn synthetic_metadata_from_tree_entry(outpoint: TransactionOutpoint, entry: &CellEntry) -> CellMetadata {
     CellMetadata {
         out_point: outpoint,
         capacity: entry.capacity,
         data_bytes: entry.data_bytes,
         lock_hash: entry.lock_hash.as_bytes().try_into().expect("hash size is fixed"),
-        type_hash: entry.type_hash.map(|hash| hash.as_bytes().try_into().expect("hash size is fixed")),
+        type_hash: entry.type_hash.map(|hash: Hash| hash.as_bytes().try_into().expect("hash size is fixed")),
         data_hash: entry.data_hash.as_bytes().try_into().expect("hash size is fixed"),
         block_daa_score: entry.block_daa_score,
         is_cellbase: entry.is_cellbase,
@@ -216,7 +212,7 @@ fn synthetic_metadata_from_tree_entry(outpoint: TransactionOutpoint, entry: &Sta
     }
 }
 
-fn synthetic_metadata_from_cell_entry(outpoint: TransactionOutpoint, cell_entry: &CellEntry) -> CellMetadata {
+fn synthetic_metadata_from_cell_entry(outpoint: TransactionOutpoint, cell_entry: &CellMeta) -> CellMetadata {
     CellMetadata {
         out_point: outpoint,
         capacity: cell_entry.capacity,
@@ -254,19 +250,6 @@ struct TemplateValidationOutcome {
     invalid_transactions: HashMap<Hash, TxRuleError>,
 }
 
-fn compute_cell_data_hash(data: &[u8]) -> [u8; 32] {
-    if data.is_empty() {
-        [0u8; 32]
-    } else {
-        use blake3::Hasher;
-
-        let mut hasher = Hasher::new();
-        hasher.update(b"spora-cell/data");
-        hasher.update(data);
-        *hasher.finalize().as_bytes()
-    }
-}
-
 fn cell_metadata_from_cell_output(
     block_hash: Hash,
     block_daa_score: u64,
@@ -282,7 +265,7 @@ fn cell_metadata_from_cell_output(
         data_bytes: output_data.len() as u64,
         lock_hash: output.lock.hash(),
         type_hash: output.type_.as_ref().map(|script| script.hash()),
-        data_hash: compute_cell_data_hash(output_data),
+        data_hash: compute_data_hash(output_data),
         block_daa_score,
         is_cellbase,
         block_hash,
@@ -301,6 +284,8 @@ struct VirtualSnapshotCellProvider {
     virtual_state: Arc<VirtualState>,
     headers_store: Arc<DbHeadersStore>,
     block_transactions_store: Arc<DbBlockTransactionsStore>,
+    cell_data_store: Arc<DbCellDataStore>,
+    segment_reader: Arc<SegmentReader>,
     overrides: HashMap<OutPoint, CellMetadata>,
 }
 
@@ -309,11 +294,22 @@ impl VirtualSnapshotCellProvider {
         virtual_state: Arc<VirtualState>,
         headers_store: Arc<DbHeadersStore>,
         block_transactions_store: Arc<DbBlockTransactionsStore>,
+        cell_data_store: Arc<DbCellDataStore>,
+        segment_reader: Arc<SegmentReader>,
         overrides: HashMap<OutPoint, CellMetadata>,
         template_timestamp: u64,
     ) -> Self {
         let snapshot_pov = virtual_state.ghostdag_data.selected_parent;
-        Self { snapshot_pov, template_timestamp, virtual_state, headers_store, block_transactions_store, overrides }
+        Self {
+            snapshot_pov,
+            template_timestamp,
+            virtual_state,
+            headers_store,
+            block_transactions_store,
+            cell_data_store,
+            segment_reader,
+            overrides,
+        }
     }
 
     fn to_transaction_outpoint(out_point: &OutPoint) -> TransactionOutpoint {
@@ -325,6 +321,18 @@ impl VirtualSnapshotCellProvider {
             Ok(())
         } else {
             Err(format!("unexpected POV {pov}, expected {}", self.snapshot_pov))
+        }
+    }
+
+    fn load_data_from_segments(&self, outpoint: &TransactionOutpoint) -> Result<Option<Vec<u8>>, String> {
+        match self.cell_data_store.get(outpoint_to_hash(outpoint)) {
+            Ok(segment_info) => self
+                .segment_reader
+                .read(segment_info.segment_id, segment_info.offset, segment_info.length)
+                .map(Some)
+                .map_err(|e| format!("Segment read error: {e}")),
+            Err(StoreError::KeyNotFound(_)) => Ok(None),
+            Err(err) => Err(format!("Cell data store lookup error: {err}")),
         }
     }
 
@@ -343,7 +351,9 @@ impl VirtualSnapshotCellProvider {
             }
 
             let output = &tx.outputs[output_index];
-            let output_data = tx.outputs_data.get(output_index).map(|data| data.as_slice()).unwrap_or(&[]);
+            let persisted_data = self.load_data_from_segments(outpoint)?;
+            let output_data =
+                persisted_data.as_deref().or_else(|| tx.outputs_data.get(output_index).map(|data| data.as_slice())).unwrap_or(&[]);
             return Ok(Some(cell_metadata_from_cell_output(
                 block,
                 header.daa_score,
@@ -376,7 +386,7 @@ impl VirtualSnapshotCellProvider {
         }
 
         let tx_outpoint = Self::to_transaction_outpoint(out_point);
-        let tree_key = outpoint_to_cell_tree_hash(&tx_outpoint);
+        let tree_key = outpoint_to_hash(&tx_outpoint);
         let live_in_tree = self.virtual_state.cell_state_tree.get(&tree_key).is_some();
 
         if let Ok((creator_block, tx_index)) =
@@ -479,6 +489,8 @@ pub struct VirtualStateProcessor {
     pub(super) headers_store: Arc<DbHeadersStore>,
     pub(super) daa_excluded_store: Arc<DbDaaStore>,
     pub(super) block_transactions_store: Arc<DbBlockTransactionsStore>,
+    pub(super) cell_data_store: Arc<DbCellDataStore>,
+    pub(super) cell_data_segment_reader: Arc<SegmentReader>,
     pub(super) pruning_point_store: Arc<RwLock<DbPruningStore>>,
     pub(super) past_pruning_points_store: Arc<DbPastPruningPointsStore>,
     pub(super) body_tips_store: Arc<RwLock<DbTipsStore>>,
@@ -559,6 +571,7 @@ impl VirtualStateProcessor {
             ghostdag_store: storage.ghostdag_store.clone(),
             daa_excluded_store: storage.daa_excluded_store.clone(),
             block_transactions_store: storage.block_transactions_store.clone(),
+            cell_data_store: storage.cell_data_store.clone(),
             pruning_point_store: storage.pruning_point_store.clone(),
             past_pruning_points_store: storage.past_pruning_points_store.clone(),
             body_tips_store: storage.body_tips_store.clone(),
@@ -568,6 +581,7 @@ impl VirtualStateProcessor {
             cell_diffs_store: storage.cell_diffs_store.clone(),
             cell_roots_store: storage.cell_roots_store.clone(),
             acceptance_data_store: storage.acceptance_data_store.clone(),
+            cell_data_segment_reader: storage.cell_data_segment_reader.clone(),
             virtual_stores: storage.virtual_stores.clone(),
             lkg_virtual_state: storage.lkg_virtual_state.clone(),
 
@@ -999,12 +1013,8 @@ impl VirtualStateProcessor {
     }
 
     fn compute_block_segment_root(&self, transactions: &[CellTx]) -> Hash {
-        let chunks = transactions
-            .iter()
-            .flat_map(|tx| tx.outputs_data.iter())
-            .filter(|chunk| !chunk.is_empty())
-            .cloned()
-            .collect::<Vec<_>>();
+        let chunks =
+            transactions.iter().flat_map(|tx| tx.outputs_data.iter()).filter(|chunk| !chunk.is_empty()).cloned().collect::<Vec<_>>();
         Hash::from_bytes(compute_segment_root(&chunks))
     }
 
@@ -1448,7 +1458,7 @@ impl VirtualStateProcessor {
 
         virtual_state
             .cell_state_tree
-            .get(&outpoint_to_cell_tree_hash(&outpoint))
+            .get(&outpoint_to_hash(&outpoint))
             .map(|entry| synthetic_metadata_from_tree_entry(outpoint, entry))
             .ok_or(TxRuleError::MissingTxOutpoints)
     }
@@ -1744,6 +1754,8 @@ impl VirtualStateProcessor {
             virtual_state,
             self.headers_store.clone(),
             self.block_transactions_store.clone(),
+            self.cell_data_store.clone(),
+            self.cell_data_segment_reader.clone(),
             overrides,
             template_timestamp,
         )
@@ -1817,7 +1829,7 @@ impl VirtualStateProcessor {
                         .iter()
                         .map(|input| {
                             let tx_outpoint = TransactionOutpoint::new(input.out_point.tx_hash, input.out_point.index);
-                            let tree_key = outpoint_to_cell_tree_hash(&tx_outpoint);
+                            let tree_key = outpoint_to_hash(&tx_outpoint);
                             let provider_has_cell = provider.get_cell_at_pov(&input.out_point, pov).ok().flatten().is_some();
                             let tree_has_cell =
                                 self.virtual_stores.read().state.get().map(|state| state.cell_state_tree.get(&tree_key).is_some());
@@ -2178,14 +2190,14 @@ impl VirtualStateProcessor {
         cellset_chunk: &[(TransactionOutpoint, CellMeta)],
         current_tree: &mut CellStateTree,
     ) {
-        use spora_state::CellEntry;
+        use spora_state::CellEntry as StateCellEntry;
 
         for (outpoint, meta) in cellset_chunk {
             // Convert TransactionOutpoint to Hash for tree indexing
-            let outpoint_hash = self.outpoint_to_hash(outpoint);
+            let outpoint_hash = outpoint_to_hash(outpoint);
 
             // Convert CellMeta to CellEntry
-            let entry = CellEntry::new(
+            let entry = StateCellEntry::new(
                 meta.capacity,
                 meta.data_bytes,
                 Hash::from_bytes(meta.lock_hash),
@@ -2197,18 +2209,6 @@ impl VirtualStateProcessor {
 
             current_tree.insert_with_outpoint(outpoint_hash, exec_outpoint(outpoint), entry);
         }
-    }
-
-    /// Helper: Convert TransactionOutpoint to Hash for tree indexing
-    fn outpoint_to_hash(&self, outpoint: &TransactionOutpoint) -> Hash {
-        use blake3::Hasher;
-
-        let mut hasher = Hasher::new();
-        hasher.update(b"spora-cell/outpoint"); // Domain separation
-        hasher.update(&outpoint.tx_hash);
-        hasher.update(&outpoint.index.to_le_bytes());
-
-        Hash::from_bytes(*hasher.finalize().as_bytes())
     }
 
     /// Import the pruning point cell set

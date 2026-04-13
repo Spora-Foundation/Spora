@@ -654,7 +654,7 @@ mod tests {
 
     #[tokio::test]
     async fn rejects_missing_outpoints_during_body_context_validation() {
-        let config = ConfigBuilder::new(MAINNET_PARAMS).skip_proof_of_work().build();
+        let config = ConfigBuilder::new(DEVNET_PARAMS).skip_proof_of_work().build();
         let consensus = TestConsensus::new(&config);
         let wait_handles = consensus.init();
         let body_processor = consensus.block_body_processor();
@@ -676,7 +676,7 @@ mod tests {
 
     #[tokio::test]
     async fn rejects_missing_deps_during_body_context_validation() {
-        let config = ConfigBuilder::new(MAINNET_PARAMS).skip_proof_of_work().build();
+        let config = ConfigBuilder::new(DEVNET_PARAMS).skip_proof_of_work().build();
         let consensus = TestConsensus::new(&config);
         let wait_handles = consensus.init();
         let body_processor = consensus.block_body_processor();

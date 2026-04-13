@@ -4,8 +4,8 @@
 // Load transaction hash syscall
 // Reference: ckb/script/src/syscalls/load_tx.rs
 
-use super::LOAD_TX_HASH_SYSCALL_NUMBER;
 use super::utils::{store_data, SUCCESS};
+use super::LOAD_TX_HASH_SYSCALL_NUMBER;
 use ckb_vm::{
     registers::{A0, A7},
     Error as VMError, Register, SupportMachine, Syscalls,

@@ -17,8 +17,8 @@ pub mod selected_chain;
 pub mod statuses;
 pub mod tips;
 // Cell model stores
-pub mod cell_diffs;
 pub mod cell_data;
+pub mod cell_diffs;
 pub mod cell_roots;
 pub mod virtual_state;
 

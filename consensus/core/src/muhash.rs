@@ -1,8 +1,9 @@
 use crate::{
+    cell_diff::CellMeta,
     cell_metadata::CellMetadata,
     cell_metadata::EmbeddedCellMetadata,
     hashing::HasherExtensions,
-    tx::{outpoint_from_id, CellEntry, TransactionOutpoint, VerifiableTransaction},
+    tx::{outpoint_from_id, TransactionOutpoint, VerifiableTransaction},
 };
 use spora_core::{info, trace};
 use spora_hashes::HasherBase;
@@ -12,9 +13,9 @@ pub use spora_muhash::MuHash;
 
 pub trait MuHashExtensions {
     fn add_transaction(&mut self, tx: &impl VerifiableTransaction, block_daa_score: u64);
-    fn add_cell_entry(&mut self, outpoint: &TransactionOutpoint, entry: &CellEntry);
+    fn add_cell_entry(&mut self, outpoint: &TransactionOutpoint, entry: &CellMeta);
     fn from_transaction(tx: &impl VerifiableTransaction, block_daa_score: u64) -> Self;
-    fn from_cell_entry(outpoint: &TransactionOutpoint, entry: &CellEntry) -> Self;
+    fn from_cell_entry(outpoint: &TransactionOutpoint, entry: &CellMeta) -> Self;
 }
 
 impl MuHashExtensions for MuHash {
@@ -50,7 +51,7 @@ impl MuHashExtensions for MuHash {
             let outpoint = outpoint_from_id(tx_id, i as u32);
             let data = cell_tx.outputs_data.get(i).map(Vec::as_slice).unwrap_or_default();
             let data_hash = *blake3::hash(data).as_bytes();
-            let entry = CellEntry {
+            let entry = CellMeta {
                 out_point: outpoint,
                 capacity: output.capacity,
                 data_bytes: data.len() as u64,
@@ -72,7 +73,7 @@ impl MuHashExtensions for MuHash {
         }
     }
 
-    fn add_cell_entry(&mut self, outpoint: &TransactionOutpoint, entry: &CellEntry) {
+    fn add_cell_entry(&mut self, outpoint: &TransactionOutpoint, entry: &CellMeta) {
         let mut writer = self.add_element_builder();
         write_cell_entry(&mut writer, entry, outpoint);
         writer.finalize();
@@ -92,7 +93,7 @@ impl MuHashExtensions for MuHash {
         mh
     }
 
-    fn from_cell_entry(outpoint: &TransactionOutpoint, entry: &CellEntry) -> Self {
+    fn from_cell_entry(outpoint: &TransactionOutpoint, entry: &CellMeta) -> Self {
         let mut mh = Self::new();
         mh.add_cell_entry(outpoint, entry);
         mh
@@ -127,7 +128,7 @@ fn write_cell_metadata(writer: &mut impl HasherBase, metadata: &CellMetadata) {
     );
 }
 
-fn write_cell_entry(writer: &mut impl HasherBase, entry: &CellEntry, outpoint: &TransactionOutpoint) {
+fn write_cell_entry(writer: &mut impl HasherBase, entry: &CellMeta, outpoint: &TransactionOutpoint) {
     writer
         // Outpoint
         .update(outpoint.tx_hash)

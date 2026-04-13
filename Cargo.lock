@@ -5241,6 +5241,7 @@ dependencies = [
  "spora-consensus-core",
  "spora-consensus-notify",
  "spora-core",
+ "spora-state",
  "spora-utils",
  "tokio",
 ]

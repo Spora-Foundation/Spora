@@ -43,8 +43,8 @@ use spora_consensus_notify::{
 };
 use spora_consensusmanager::SessionLock;
 use spora_hashes::Hash;
-use spora_state::SegmentWriter;
 use spora_notify::notifier::Notify;
+use spora_state::{SegmentReader, SegmentWriter};
 use std::sync::{atomic::Ordering, Arc};
 
 pub struct BlockBodyProcessor {
@@ -71,6 +71,7 @@ pub struct BlockBodyProcessor {
     pub(super) cell_data_store: Arc<DbCellDataStore>,
     pub(super) cell_diffs_store: Arc<DbCellDiffsStore>,
     pub(super) cell_roots_store: Arc<DbCellRootsStore>,
+    pub(super) cell_data_segment_reader: Arc<SegmentReader>,
     pub(super) cell_data_segment_writer: Arc<SegmentWriter>,
     pub(super) body_tips_store: Arc<RwLock<DbTipsStore>>,
 
@@ -127,6 +128,7 @@ impl BlockBodyProcessor {
             cell_data_store: storage.cell_data_store.clone(),
             cell_diffs_store: storage.cell_diffs_store.clone(),
             cell_roots_store: storage.cell_roots_store.clone(),
+            cell_data_segment_reader: storage.cell_data_segment_reader.clone(),
             cell_data_segment_writer: storage.cell_data_segment_writer.clone(),
             body_tips_store: storage.body_tips_store.clone(),
 
@@ -269,11 +271,7 @@ impl BlockBodyProcessor {
                 let (segment_id, offset, length) = self.cell_data_segment_writer.append(output_data).unwrap();
                 let outpoint = TransactionOutpoint::new(tx_id, output_index as u32);
                 self.cell_data_store
-                    .insert_batch(
-                        batch,
-                        outpoint_to_hash(&outpoint),
-                        spora_state::SegmentInfo { segment_id, offset, length },
-                    )
+                    .insert_batch(batch, outpoint_to_hash(&outpoint), spora_state::SegmentInfo { segment_id, offset, length })
                     .unwrap();
             }
         }

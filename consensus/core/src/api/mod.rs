@@ -22,10 +22,7 @@ use crate::{
     mass::{ContextualMasses, NonContextualMasses},
     pruning::{PruningPointProof, PruningPointTrustedData, PruningPointsList, PruningProofMetadata},
     trusted::{ExternalGhostdagData, TrustedBlock},
-    tx::{
-        CellEntry, CellTx, MutableTransaction, ResolvedCellTransaction, SignableTransaction, TransactionOutpoint,
-        VerifiableTransaction,
-    },
+    tx::{CellTx, MutableTransaction, ResolvedCellTransaction, SignableTransaction, TransactionOutpoint, VerifiableTransaction},
     // Transaction-output inquirer errors were removed during the Cell migration.
     BlockHashSet,
     BlueWorkType,
@@ -391,7 +388,7 @@ pub trait ConsensusApi: Send + Sync {
         from_outpoint: Option<TransactionOutpoint>,
         chunk_size: usize,
         skip_first: bool,
-    ) -> ConsensusResult<Vec<(TransactionOutpoint, CellEntry)>> {
+    ) -> ConsensusResult<Vec<(TransactionOutpoint, CellMeta)>> {
         unimplemented!()
     }
 

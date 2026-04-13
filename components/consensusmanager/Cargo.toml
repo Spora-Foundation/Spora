@@ -18,6 +18,7 @@ spora-addresses.workspace=true
 spora-consensus-core.workspace = true
 spora-consensus-notify.workspace = true
 spora-core.workspace = true
+spora-state.workspace = true
 spora-utils.workspace = true
 log.workspace = true
 parking_lot.workspace = true

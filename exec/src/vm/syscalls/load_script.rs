@@ -3,8 +3,8 @@
 //
 // Load script syscall
 
-use super::{LOAD_SCRIPT_HASH_SYSCALL_NUMBER, LOAD_SCRIPT_SYSCALL_NUMBER};
 use super::utils::{store_data, SUCCESS};
+use super::{LOAD_SCRIPT_HASH_SYSCALL_NUMBER, LOAD_SCRIPT_SYSCALL_NUMBER};
 use crate::celltx::ScriptRef;
 use ckb_vm::{
     registers::{A0, A7},

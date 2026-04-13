@@ -27,7 +27,7 @@ use std::sync::Arc;
 
 #[cfg(feature = "vm")]
 use spora_exec::{
-    vm::{CellDataProvider, ResolvedCell, ResolvedHeader, TransactionScriptVerifier},
+    vm::{CellDataProvider, ResolvedCell, ResolvedHeader, ScriptError, TransactionScriptVerifier, VMError},
     CellDep, CellTx, DepType, OutPoint,
 };
 use spora_hashes::Hash;
@@ -220,7 +220,12 @@ impl<P: CellStateProvider> CellValidator<P> {
         let verifier = TransactionScriptVerifier::new(Arc::new(tx.clone()), provider).with_max_cycles(per_tx_cycles_limit);
 
         // Verify all scripts
-        let total_cycles = verifier.verify_with_cycles().map_err(|e| CellValidationError::ScriptVerificationFailed(e.to_string()))?;
+        let total_cycles = verifier.verify_with_cycles().map_err(|e| match e {
+            ScriptError::VM(VMError::CyclesExceeded { actual, .. }) => {
+                CellValidationError::ExceededMaxCycles { total: actual, limit: per_tx_cycles_limit }
+            }
+            other => CellValidationError::ScriptVerificationFailed(other.to_string()),
+        })?;
         if total_cycles > per_tx_cycles_limit {
             return Err(CellValidationError::ExceededMaxCycles { total: total_cycles, limit: per_tx_cycles_limit });
         }
