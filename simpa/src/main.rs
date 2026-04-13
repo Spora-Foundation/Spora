@@ -612,7 +612,7 @@ mod tests {
         consensus.validate_and_insert_block(late_parent.to_immutable()).virtual_state_task.await.unwrap();
 
         let mut merger = consensus.build_block_with_parents(3.into(), vec![early_parent_hash, late_parent_hash]);
-        merger.header.timestamp = config.genesis.timestamp + 50;
+        merger.header.timestamp = config.genesis.timestamp + 110;
         merger.header.finalize();
         let merger_hash = merger.header.hash;
         consensus.validate_and_insert_block(merger.to_immutable()).virtual_state_task.await.unwrap();
