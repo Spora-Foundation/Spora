@@ -451,15 +451,15 @@ mod tests {
 
     fn gen1_receive_addresses() -> Vec<&'static str> {
         vec![
-            "spora:qrgqpkue0tzhmqd77tljdhwjc757hc26uestam0gc4kycjx4k8uu6sjhh75",
-            "spora:qqmquth4lyayewfl32pj8w9w9dpzqk6c9ngyp4xxmyqusxruhjm0j35eh9z",
+            "spora:qrgqpkue0tzhmqd77tljdhwjc757hc26uestam0gc4kycjx4k8uu6j8rmut",
+            "spora:qqmquth4lyayewfl32pj8w9w9dpzqk6c9ngyp4xxmyqusxruhjm0jnpdm8a",
         ]
     }
 
     fn gen1_change_addresses() -> Vec<&'static str> {
         vec![
-            "spora:qrsr3glsc0sp8u32jfyx5cp4xg8jmem7nyhycwqfn5skqkmwpf0726g0f55",
-            "spora:qz5a8zvn7hrgkxkz4tw8mxcnfdd7ttpxenpf5e3g9kyl9lj59nhfkxluz4j",
+            "spora:qrsr3glsc0sp8u32jfyx5cp4xg8jmem7nyhycwqfn5skqkmwpf072cam9kt",
+            "spora:qz5a8zvn7hrgkxkz4tw8mxcnfdd7ttpxenpf5e3g9kyl9lj59nhfky2gwhd",
         ]
     }
 
@@ -530,7 +530,7 @@ mod tests {
 
         let key = wallet.derive_receive_pubkey(1).unwrap();
         let address = PubkeyDerivationManager::create_address(&key, Prefix::Testnet, false).unwrap().to_string();
-        assert_eq!(address, "spora0:qpy7k0dt6esg0ud7l7mnytzn5zdwsuy2yf9td36s8qtwl6hdeufv6k6fqay")
+        assert_eq!(address, "spora0:qpy7k0dt6esg0ud7l7mnytzn5zdwsuy2yf9td36s8qtwl6hdeufv6mctfvn")
     }
 
     #[tokio::test]
@@ -565,8 +565,8 @@ mod tests {
     #[tokio::test]
     async fn generate_sporatest_addresses() {
         let receive_addresses = [
-            "spora0:qrgqpkue0tzhmqd77tljdhwjc757hc26uestam0gc4kycjx4k8uu603uewc",
-            "spora0:qqmquth4lyayewfl32pj8w9w9dpzqk6c9ngyp4xxmyqusxruhjm0jwhje4w",
+            "spora0:qrgqpkue0tzhmqd77tljdhwjc757hc26uestam0gc4kycjx4k8uu6zn7sl0",
+            "spora0:qqmquth4lyayewfl32pj8w9w9dpzqk6c9ngyp4xxmyqusxruhjm0jr4ssye",
         ];
 
         let master_xprv =

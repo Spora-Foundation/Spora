@@ -29,7 +29,7 @@ mod tests {
     use super::*;
     use spora_consensus_core::{
         header::Header,
-        tx::{CellOut, CellRef, CellTx, OutPoint, ScriptRef},
+        tx::{CellOutput, CellInput, CellTx, OutPoint, Script},
         BlueWorkType,
     };
     use spora_hashes::Hash;
@@ -59,10 +59,10 @@ mod tests {
 
     fn sample_tx(seed: u8) -> CellTx {
         CellTx::new(
-            vec![CellRef::new(OutPoint::new([seed; 32], 0), u64::from(seed))],
+            vec![CellInput::new(OutPoint::new([seed; 32], 0), u64::from(seed))],
             vec![],
-            vec![CellOut {
-                lock: ScriptRef::new([seed + 1; 32], 1, vec![seed, seed + 1]),
+            vec![CellOutput {
+                lock: Script::new([seed + 1; 32], 1, vec![seed, seed + 1]),
                 type_: None,
                 capacity: 1_000 + u64::from(seed),
             }],

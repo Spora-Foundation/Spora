@@ -66,8 +66,8 @@ export interface ISerializableTransactionInput {
  */
 export interface ISerializableTransactionOutput {
     capacity: bigint;
-    lockScript: ScriptRef;
-    typeScript?: ScriptRef;
+    lockScript: Script;
+    typeScript?: Script;
     outputData?: HexString;
 }
 

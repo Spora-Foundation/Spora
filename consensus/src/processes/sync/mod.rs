@@ -33,6 +33,7 @@ pub struct SyncManager<
     traversal_manager: DagTraversalManager<U, T, S>,
     ghostdag_store: Arc<U>,
     selected_chain_store: Arc<RwLock<V>>,
+    #[allow(dead_code)]
     header_selected_tip_store: Arc<RwLock<W>>,
     pruning_point_store: Arc<RwLock<X>>,
     statuses_store: Arc<RwLock<Y>>,

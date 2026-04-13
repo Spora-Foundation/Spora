@@ -3,14 +3,14 @@ use spora_consensus_core::{
     cell_diff::CellMeta,
     config::params::TESTNET_PARAMS,
     hashing::sighash::{calc_schnorr_signature_hash, SigHashReusedValuesUnsync},
-    tx::{multisig_redeem_script, outpoint_from_id, pay_to_script_hash_lock_script, push_data_script, ScriptRef, TransactionId},
+    tx::{multisig_redeem_script, outpoint_from_id, pay_to_script_hash_lock_script, push_data_script, Script, TransactionId},
 };
 use spora_wallet_psst::prelude::{
     Combiner, Creator, Extractor, Finalizer, Inner, InputBuilder, SignInputOk, Signature, Signer, Updater, PSST,
 };
 use std::str::FromStr;
 
-fn example_cell_meta_from_lock_script(amount: u64, lock_script: ScriptRef) -> CellMeta {
+fn example_cell_meta_from_lock_script(amount: u64, lock_script: Script) -> CellMeta {
     CellMeta::from_cell_metadata(amount, 0, lock_script.code_hash, None, [0; 32], 36151168, false)
 }
 

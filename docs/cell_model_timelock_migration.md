@@ -2,7 +2,7 @@
 
 ## 概述
 
-本文档描述了从 legacy txscript 时间锁（CLTV/CSV）迁移到 Cell 模型的 `ScriptRef + CKB-VM + since + header_deps` 架构的过程。
+本文档描述了从 legacy txscript 时间锁（CLTV/CSV）迁移到 Cell 模型的 `Script + CKB-VM + since + header_deps` 架构的过程。
 
 ## 背景
 
@@ -23,13 +23,13 @@ Cell 模型使用以下机制实现时间锁：
 1. **per-input `since`**: 每个输入独立的时间锁字段
 2. **CKB-VM**: 通过系统调用读取 `since` 和 header timestamp
 3. **`header_deps`**: 依赖区块头获取时间信息
-4. **`ScriptRef`**: 与 CKB 对齐的脚本引用格式
+4. **`Script`**: 与 CKB 对齐的脚本引用格式
 
 ## 迁移决策
 
 当前仓库对时间锁迁移的执行策略已经确定为“一步到位切换”，不再接受新增兼容层：
 
-1. 新代码一律使用 `CellRef.since + ScriptRef + CKB-VM + header_deps`
+1. 新代码一律使用 `CellInput.since + Script + CKB-VM + header_deps`
 2. 不再为 `Transaction.lock_time`、legacy `sequence`、CLTV/CSV helper 增加 Cell 兼容包装
 3. 旧 helper 如果暂时还没删除，其行为也只能是确定性报错，不能继续伪装成可用功能
 4. 因删除旧 API 产生的编译错误，应在调用方完成迁移，而不是再补一层 `Transaction -> CellTx` 或脚本 builder shim
@@ -73,8 +73,8 @@ OP_ENDIF
 
 **Cell 模型 HTLC 脚本（CKB-VM）：**
 ```rust
-// 使用 ScriptRef 定义 lock script
-let lock_script = ScriptRef::new(
+// 使用 Script 定义 lock script
+let lock_script = Script::new(
     code_hash,  // CKB-VM 脚本的 code hash
     hash_type,  // 哈希类型
     args,       // 参数：recipient_pubkey, sender_pubkey, secret_hash, lock_since
@@ -95,7 +95,7 @@ let input = TransactionInput {
 
 **Cell 模型:**
 ```rust
-let input = CellRef::new(
+let input = CellInput::new(
     outpoint,
     since,  // Cell 模型的 since 字段
 );
@@ -117,11 +117,11 @@ use spora_wallet_core::tx::timelock::{TimelockConfig, since_encoding};
 // 方法 1: 使用 TimelockConfig (wallet)
 let config = TimelockConfig::absolute_timestamp(1735689600);
 let since = config.encode_since();
-let input = CellRef::new(outpoint, since);
+let input = CellInput::new(outpoint, since);
 
 // 方法 2: 使用 timelock 模块 (exec)
 let since = timelock::encode_absolute_timestamp_since(1735689600);
-let input = CellRef::new(outpoint, since);
+let input = CellInput::new(outpoint, since);
 
 // 创建时间锁脚本
 let lock_script = timelock::absolute_timestamp_lock(1735689600);
@@ -144,20 +144,20 @@ const since = SinceEncoding.absoluteTimestamp(1735689600);
 **Cell 模型完整示例：**
 ```rust
 use spora_exec::{
-    CellDep, CellOut, CellRef, CellTx, DepType, OutPoint, ScriptRef,
+    CellDep, CellOutput, CellInput, CellTx, DepType, OutPoint, Script,
 };
 use spora_exec::scripts::timelock;
 
 // 创建带时间锁的输入
 let target_timestamp = 1735689600u64; // 2025-01-01 00:00:00 UTC
 let since = timelock::encode_absolute_timestamp_since(target_timestamp);
-let input = CellRef::new(outpoint, since);
+let input = CellInput::new(outpoint, since);
 
 // 创建时间锁脚本
 let lock_script = timelock::absolute_timestamp_lock(target_timestamp);
 
 // 创建输出
-let output = CellOut {
+let output = CellOutput {
     lock: lock_script,
     type_: None,
     capacity: amount,
@@ -302,7 +302,7 @@ fn test_ckb_vm_timelock_script() {
 
 ## 执行顺序
 
-1. 统一文档与公开接口：明确 Cell 模型的规范时间锁只有 `since + ScriptRef + CKB-VM`
+1. 统一文档与公开接口：明确 Cell 模型的规范时间锁只有 `since + Script + CKB-VM`
 2. 迁移 wallet / SDK / client / 示例代码到 Cell-native 路径
 3. 删除 CLTV / CSV helper、builder 包装层和遗留常量
 4. 删除仍暴露错误语义的 `lock_time` / legacy `sequence` 相关入口

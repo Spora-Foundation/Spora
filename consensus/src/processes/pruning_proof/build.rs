@@ -57,7 +57,9 @@ impl<T: RelationsStoreReader, U: ReachabilityService> RelationsStoreReader for R
     }
 
     fn counts(&self) -> Result<(usize, usize), spora_database::prelude::StoreError> {
-        unimplemented!()
+        // Counts are only used in tests, and this wrapper preserves the same backing store.
+        // Delegate to the underlying relation store rather than panicking.
+        self.relations_store.counts()
     }
 }
 

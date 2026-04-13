@@ -16,7 +16,7 @@ use spora_consensus_core::{
     config::Config,
     constants::MAX_SAU,
     network::NetworkType,
-    tx::{CellTx, COINBASE_TRANSACTION_INDEX},
+    tx::{extract_address_from_lock_script, CellTx, COINBASE_TRANSACTION_INDEX},
 };
 use spora_consensus_notify::{
     notifier::ConsensusNotifier,
@@ -78,6 +78,24 @@ use std::{
 };
 use tokio::join;
 use workflow_rpc::server::WebSocketCounters as WrpcServerCounters;
+
+fn resolve_cell_return_address(
+    tx: &spora_consensus_core::tx::ResolvedCellTransaction,
+    prefix: spora_addresses::Prefix,
+) -> RpcResult<RpcAddress> {
+    if tx.tx.inputs.is_empty() {
+        return Err(RpcError::General("GetCellReturnAddress is not available for coinbase transactions".to_string()));
+    }
+
+    let resolved_input =
+        tx.resolved_input(0).ok_or_else(|| RpcError::General("GetCellReturnAddress could not resolve the first input".to_string()))?;
+    let lock_script = resolved_input.lock_script.as_ref().ok_or_else(|| {
+        RpcError::General("GetCellReturnAddress is missing the first input lock script in resolved metadata".to_string())
+    })?;
+
+    extract_address_from_lock_script(lock_script.args.as_slice(), prefix)
+        .map_err(|error| RpcError::General(format!("GetCellReturnAddress failed to decode the first input lock script: {error}")))
+}
 
 /// A service implementing the Rpc API at spora_rpc_core level.
 ///
@@ -476,7 +494,18 @@ NOTE: This error usually indicates an RPC conversion error between the node and 
     ) -> RpcResult<GetTransactionResponse> {
         let session = self.consensus_manager.consensus().session().await;
         let tx = session.async_get_cell_transaction(request.hash).await?;
-        Ok(GetTransactionResponse { transaction: self.consensus_converter.get_cell_transaction(&session, &tx, None, false) })
+        let (block_hash, _) = session.async_get_transaction_location(request.hash).await.map_err(RpcError::General)?;
+        let header = session.async_get_header(block_hash).await?;
+        let transaction = if tx.is_coinbase() {
+            self.consensus_converter.get_cell_transaction(&session, &tx, Some(&header), false)
+        } else {
+            let resolved = session
+                .async_get_resolved_cell_transaction_in_accepting_block(request.hash, block_hash)
+                .await
+                .map_err(RpcError::General)?;
+            self.consensus_converter.get_resolved_cell_transaction(&resolved, Some(&header), false)
+        };
+        Ok(GetTransactionResponse { transaction })
     }
 
     async fn get_blocks_call(
@@ -908,24 +937,12 @@ NOTE: This error usually indicates an RPC conversion error between the node and 
         request: GetCellReturnAddressRequest,
     ) -> RpcResult<GetCellReturnAddressResponse> {
         let session = self.consensus_manager.consensus().session().await;
+        let tx = session
+            .async_get_resolved_cell_transaction(request.txid, request.accepting_block_daa_score)
+            .await
+            .map_err(|error| RpcError::General(format!("GetCellReturnAddress failed: {error}")))?;
 
-        match session.async_get_resolved_cell_transaction(request.txid, request.accepting_block_daa_score).await {
-            Ok(tx) => {
-                if tx.tx.inputs.is_empty() {
-                    return Err(RpcError::General("GetCellReturnAddress is not available for coinbase transactions".to_string()));
-                }
-
-                if tx.resolved_input(0).is_some() {
-                    Err(RpcError::General(
-                        "GetCellReturnAddress resolved the first input via canonical Cell metadata only; no fallback address is available"
-                            .to_string(),
-                    ))
-                } else {
-                    Err(RpcError::General("GetCellReturnAddress could not resolve the first input".to_string()))
-                }
-            }
-            Err(error) => Err(RpcError::General(format!("GetCellReturnAddress failed: {error}"))),
-        }
+        Ok(GetCellReturnAddressResponse::new(resolve_cell_return_address(&tx, self.config.prefix())?))
     }
 
     async fn ping_call(&self, _connection: Option<&DynRpcConnection>, _: PingRequest) -> RpcResult<PingResponse> {
@@ -945,9 +962,33 @@ NOTE: This error usually indicates an RPC conversion error between the node and 
     async fn get_headers_call(
         &self,
         _connection: Option<&DynRpcConnection>,
-        _request: GetHeadersRequest,
+        request: GetHeadersRequest,
     ) -> RpcResult<GetHeadersResponse> {
-        Err(RpcError::NotImplemented)
+        if request.limit == 0 {
+            return Ok(GetHeadersResponse::new(Vec::new()));
+        }
+
+        let session = self.consensus_manager.consensus().session().await;
+        let selected_tip = session.async_get_headers_selected_tip().await;
+        let mut header_hashes = vec![request.start_hash];
+
+        if request.start_hash != selected_tip {
+            let max_headers = request.limit.saturating_sub(1).try_into().unwrap_or(usize::MAX);
+            let (chain_hashes, _) = session.async_get_hashes_between(request.start_hash, selected_tip, max_headers).await?;
+            header_hashes.extend(chain_hashes);
+        }
+
+        if !request.is_ascending {
+            header_hashes.reverse();
+        }
+
+        let mut headers = Vec::with_capacity(header_hashes.len());
+        for hash in header_hashes {
+            let header = session.async_get_header(hash).await?;
+            headers.push((&*header).into());
+        }
+
+        Ok(GetHeadersResponse::new(headers))
     }
 
     async fn get_block_dag_info_call(
@@ -1092,13 +1133,33 @@ NOTE: This error usually indicates an RPC conversion error between the node and 
     async fn resolve_finality_conflict_call(
         &self,
         _connection: Option<&DynRpcConnection>,
-        _request: ResolveFinalityConflictRequest,
+        request: ResolveFinalityConflictRequest,
     ) -> RpcResult<ResolveFinalityConflictResponse> {
         if !self.config.unsafe_rpc {
             warn!("ResolveFinalityConflict RPC command called while node in safe RPC mode -- ignoring.");
             return Err(RpcError::UnavailableInSafeMode);
         }
-        Err(RpcError::NotImplemented)
+
+        let session = self.consensus_manager.consensus().session().await;
+        let current_finality_point = session.async_finality_point().await;
+
+        if request.finality_block_hash != current_finality_point {
+            return Err(RpcError::General(format!(
+                "requested finality block {} does not match the active finality point {}",
+                request.finality_block_hash, current_finality_point
+            )));
+        }
+
+        session.async_get_header(request.finality_block_hash).await?;
+
+        if !self.flow_context.resolve_finality_conflict(request.finality_block_hash) {
+            return Err(RpcError::General(format!(
+                "a different finality conflict is currently pending; expected finality block {}",
+                request.finality_block_hash
+            )));
+        }
+
+        Ok(ResolveFinalityConflictResponse {})
     }
 
     async fn get_connections_call(
@@ -1343,5 +1404,52 @@ impl AsyncService for RpcCoreService {
             trace!("{} stopped", Self::IDENT);
             Ok(())
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_cell_return_address;
+    use spora_addresses::{Address, Prefix, Version};
+    use spora_consensus_core::cell_metadata::CellMetadata;
+    use spora_consensus_core::tx::{pay_to_address_lock_script, CellInput, CellTx, OutPoint, ResolvedCellTransaction};
+    use spora_hashes::Hash;
+
+    #[test]
+    fn resolve_cell_return_address_uses_first_resolved_input_lock_script() {
+        let address = Address::new(Prefix::Simnet, Version::PubKey, &[0x11; 32]).expect("test address");
+        let lock_script = pay_to_address_lock_script(&address);
+        let tx = CellTx {
+            version: 0xC001,
+            inputs: vec![CellInput::new(OutPoint::new([0x22; 32], 0), 0)],
+            cell_deps: vec![],
+            header_deps: vec![],
+            outputs: vec![],
+            outputs_data: vec![],
+            witnesses: vec![],
+        };
+        let resolved = ResolvedCellTransaction::new(
+            tx,
+            vec![CellMetadata {
+                out_point: OutPoint::new([0x22; 32], 0),
+                capacity: 42,
+                data_bytes: 0,
+                lock_hash: lock_script.hash(),
+                type_hash: None,
+                data_hash: [0; 32],
+                block_daa_score: 1,
+                is_cellbase: false,
+                block_hash: Hash::from_bytes([0x33; 32]),
+                lock_code_hash: Some(lock_script.code_hash),
+                type_code_hash: None,
+                lock_script: Some(lock_script),
+                type_script: None,
+                data: Some(vec![]),
+            }],
+        );
+
+        let return_address = resolve_cell_return_address(&resolved, Prefix::Simnet).expect("return address");
+
+        assert_eq!(return_address, address);
     }
 }

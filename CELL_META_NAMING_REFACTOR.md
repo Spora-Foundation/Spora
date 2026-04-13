@@ -41,7 +41,7 @@ pub struct CellMetadata {
 ### 3. **exec/src/celltx/types.rs::CellMeta** ⚠️ (Rename)
 ```rust
 pub struct CellMeta {
-    pub cell_output: CellOut,
+    pub cell_output: CellOutput,
     pub out_point: OutPoint,
     pub transaction_info: Option<TransactionInfo>,
     pub data_bytes: u64,
@@ -57,7 +57,7 @@ pub struct CellMeta {
 ### 4. **exec/src/vm/syscalls/load_cell.rs::CellMeta** ⚠️ (Rename)
 ```rust
 pub struct CellMeta {
-    pub cell_output: CellOut,
+    pub cell_output: CellOutput,
     pub out_point: OutPoint,
     pub data: Option<Vec<u8>>,
 }
@@ -84,7 +84,7 @@ pub struct CellMeta {
 ### 6. **state/src/index/cell_db.rs::CellMeta** ⚠️ (Rename)
 ```rust
 pub struct CellMeta {
-    pub cell_output: CellOut,
+    pub cell_output: CellOutput,
     pub cell_data: Vec<u8>,
     pub daa_score: u64,
     pub block_hash: [u8; 32],
@@ -109,7 +109,7 @@ pub struct CellMeta {
 ```rust
 // exec/src/celltx/types.rs
 pub struct CellInfo {  // General purpose
-    pub cell_output: CellOut,
+    pub cell_output: CellOutput,
     pub out_point: OutPoint,
     // ...
 }
@@ -130,7 +130,7 @@ pub type CellMeta = CellInfo;
 ```rust
 // state/src/index/cell_db.rs
 pub struct StoredCellMeta {  // Clear: stored in database
-    pub cell_output: CellOut,
+    pub cell_output: CellOutput,
     pub cell_data: Vec<u8>,
     // ...
 }

@@ -202,8 +202,8 @@ impl Account for Bip32 {
     // all addresses in the account (receive + change up to and including the last used index)
     fn account_addresses(&self) -> Result<Vec<Address>> {
         let meta = self.derivation.address_derivation_meta();
-        let receive = meta.receive();
-        let change = meta.change();
+        let receive = meta.receive().saturating_add(1);
+        let change = meta.change().saturating_add(1);
         let mut addresses = self.derivation.receive_address_manager().get_range_with_args(0..receive, false)?;
         let change_addresses = self.derivation.change_address_manager().get_range_with_args(0..change, false)?;
         addresses.extend(change_addresses);

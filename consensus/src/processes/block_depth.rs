@@ -25,6 +25,7 @@ pub struct BlockDepthManager<S: DepthStoreReader, U: ReachabilityStoreReader, V:
     depth_store: Arc<S>,
     reachability_service: MTReachabilityService<U>,
     ghostdag_store: Arc<V>,
+    #[allow(dead_code)]
     headers_store: Arc<T>,
 }
 

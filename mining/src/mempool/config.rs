@@ -22,8 +22,8 @@ pub(crate) const DEFAULT_MINIMUM_RELAY_TRANSACTION_FEE: u64 = 1000;
 /// we define separate values in mempool.
 /// However, currently there's exactly one transaction version, so mempool accepts the same version
 /// as consensus.
-pub(crate) const DEFAULT_MINIMUM_STANDARD_TRANSACTION_VERSION: u16 = CELL_TX_VERSION;
-pub(crate) const DEFAULT_MAXIMUM_STANDARD_TRANSACTION_VERSION: u16 = CELL_TX_VERSION;
+pub(crate) const DEFAULT_MINIMUM_STANDARD_TRANSACTION_VERSION: u32 = CELL_TX_VERSION;
+pub(crate) const DEFAULT_MAXIMUM_STANDARD_TRANSACTION_VERSION: u32 = CELL_TX_VERSION;
 
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -43,8 +43,8 @@ pub struct Config {
     pub accept_non_standard: bool,
     pub maximum_mass_per_block: u64,
     pub minimum_relay_transaction_fee: u64,
-    pub minimum_standard_transaction_version: u16,
-    pub maximum_standard_transaction_version: u16,
+    pub minimum_standard_transaction_version: u32,
+    pub maximum_standard_transaction_version: u32,
     pub network_blocks_per_second: u64,
 }
 
@@ -67,8 +67,8 @@ impl Config {
         accept_non_standard: bool,
         maximum_mass_per_block: u64,
         minimum_relay_transaction_fee: u64,
-        minimum_standard_transaction_version: u16,
-        maximum_standard_transaction_version: u16,
+        minimum_standard_transaction_version: u32,
+        maximum_standard_transaction_version: u32,
         network_blocks_per_second: u64,
     ) -> Self {
         Self {

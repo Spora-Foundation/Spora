@@ -14,7 +14,7 @@ use spora_addresses::{Address, Prefix, Version as AddressVersion};
 use spora_bip32::{DerivationPath, KeyFingerprint, PrivateKey};
 use spora_consensus_client::{CellEntry as ClientCellEntry, CellEntryReference};
 use spora_consensus_core::hashing::sighash::{calc_schnorr_signature_hash, SigHashReusedValuesUnsync};
-use spora_consensus_core::tx::{push_data_script, ScriptRef, VerifiableTransaction};
+use spora_consensus_core::tx::{push_data_script, Script, VerifiableTransaction};
 use spora_wallet_core::tx::{DataKind, Generator, GeneratorSettings, PaymentDestination, PendingTransaction};
 pub use spora_wallet_psst::bundle::Bundle;
 use spora_wallet_psst::bundle::{script_sig_to_address, unlock_cell_outputs_as_batch_transaction_pssb};
@@ -403,7 +403,7 @@ pub fn psst_to_pending_transaction(
     Ok(pending_tx)
 }
 
-fn address_from_lock_script(lock_script: &ScriptRef, prefix: Prefix) -> Result<Address, Error> {
+fn address_from_lock_script(lock_script: &Script, prefix: Prefix) -> Result<Address, Error> {
     let script = lock_script.args.as_slice();
     match script {
         [0x20, payload @ .., 0xac] if payload.len() == 32 => Ok(Address::new(prefix, AddressVersion::PubKey, payload)?),

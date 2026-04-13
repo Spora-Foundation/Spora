@@ -26,6 +26,7 @@ pub trait ChildrenStore {
 /// A DB + cache implementation of `DbChildrenStore` trait, with concurrency support.
 #[derive(Clone)]
 pub struct DbChildrenStore {
+    #[allow(dead_code)]
     db: Arc<DB>,
     access: CachedDbSetAccess<Hash, Hash, BlockHasher, BlockHasher>,
 }

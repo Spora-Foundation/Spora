@@ -26,7 +26,7 @@ impl Mempool {
     fn find_local_transaction_id_for_accepted_cell_tx(&self, accepted_tx: &CellTx) -> Option<TransactionId> {
         let mut candidate_ids = HashSet::new();
         for input in &accepted_tx.inputs {
-            let parent_cell_id = Hash::from_bytes(input.out_point.tx_hash);
+            let parent_cell_id = Hash::from_bytes(input.previous_output.tx_hash);
             candidate_ids.extend(self.get_local_transaction_ids_with_parent_transaction(&parent_cell_id));
         }
 
@@ -130,7 +130,7 @@ impl Mempool {
     fn remove_double_spends_cell(&mut self, transaction: &CellTx) -> RuleResult<()> {
         let mut transactions_to_remove = HashSet::new();
         for input in transaction.inputs.iter() {
-            let previous_outpoint = input.out_point;
+            let previous_outpoint = input.previous_output;
             if let Some(redeemer_id) = self.transaction_pool.get_outpoint_owner_id(&previous_outpoint) {
                 transactions_to_remove.insert(*redeemer_id);
             }

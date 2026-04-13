@@ -7,7 +7,8 @@
 use super::error::{ScriptError, ScriptResult};
 use super::machine::{run_script, Machine, ScriptVersion, VmContext};
 use super::{MAX_SCRIPT_SIZE, MAX_VM_MEMORY};
-use crate::celltx::{CellOut, CellTx, ScriptRef};
+use crate::celltx::{CellOutput, CellTx, Script};
+use borsh::{BorshDeserialize, BorshSerialize};
 use ckb_vm::{DefaultMachineRunner, Syscalls};
 use rayon::prelude::*;
 use std::sync::Arc;
@@ -25,7 +26,7 @@ pub enum ScriptGroupType {
 #[derive(Debug, Clone)]
 pub struct ScriptGroup {
     /// The script
-    pub script: ScriptRef,
+    pub script: Script,
     /// Group type
     pub group_type: ScriptGroupType,
     /// Input indices referencing this script
@@ -38,22 +39,51 @@ pub struct ScriptGroup {
 #[derive(Debug, Clone)]
 pub struct ResolvedCell {
     /// Full cell output structure.
-    pub cell_output: CellOut,
+    pub cell_output: CellOutput,
     /// Optional associated cell data.
     pub data: Option<Vec<u8>>,
 }
 
 /// Fully resolved header contents available to the VM runtime.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, BorshSerialize, BorshDeserialize, PartialEq, Eq)]
 pub struct ResolvedHeader {
     /// Header hash.
     pub hash: [u8; 32],
+    /// Header version.
+    pub version: u32,
+    /// Parent hashes grouped by DAG level.
+    pub parents_by_level: Vec<Vec<[u8; 32]>>,
+    /// Transaction hash merkle root.
+    pub hash_merkle_root: [u8; 32],
+    /// Accepted transaction ID merkle root.
+    pub accepted_id_merkle_root: [u8; 32],
+    /// Execution-related state commitment.
+    pub cell_commitment: [u8; 32],
+    /// Cell state root.
+    pub cell_root: [u8; 32],
+    /// Data-availability segment root.
+    pub segment_root: [u8; 32],
     /// Timestamp in milliseconds.
     pub timestamp: u64,
+    /// Compact difficulty bits.
+    pub bits: u32,
+    /// Mining nonce.
+    pub nonce: u64,
     /// DAA score.
     pub daa_score: u64,
-    /// Direct parent hashes.
-    pub parents: Vec<[u8; 32]>,
+    /// Accumulated blue work encoded as little-endian Uint192 bytes.
+    pub blue_work: [u8; 24],
+    /// Blue score.
+    pub blue_score: u64,
+    /// Pruning-point hash.
+    pub pruning_point: [u8; 32],
+}
+
+impl ResolvedHeader {
+    /// Returns direct parent hashes (level 0 of the DAG parent set).
+    pub fn direct_parents(&self) -> &[[u8; 32]] {
+        self.parents_by_level.first().map(Vec::as_slice).unwrap_or(&[])
+    }
 }
 
 /// Cell data provider trait (for loading cell data)
@@ -131,10 +161,10 @@ impl<D: CellDataProvider> TransactionScriptVerifier<D> {
         // Lock scripts execute against resolved input cells.
         for (i, input) in self.tx.inputs.iter().enumerate() {
             let resolved =
-                self.data_provider.load_cell_by_outpoint(&input.out_point.tx_hash, input.out_point.index).ok_or_else(|| {
+                self.data_provider.load_cell_by_outpoint(&input.previous_output.tx_hash, input.previous_output.index).ok_or_else(|| {
                     ScriptError::VM(super::error::VMError::ItemMissing(format!(
                         "missing resolved input cell {:02x?}:{}",
-                        input.out_point.tx_hash, input.out_point.index
+                        input.previous_output.tx_hash, input.previous_output.index
                     )))
                 })?;
             let lock_hash = resolved.cell_output.lock.hash();
@@ -315,14 +345,14 @@ impl CellDataProvider for SimpleDataProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::celltx::{CellRef, OutPoint};
+    use crate::celltx::{CellInput, OutPoint};
 
     #[test]
     fn test_verifier_creation() {
         let tx = Arc::new(CellTx {
-            ver: 0xC001,
+            version: 0xC001,
             inputs: vec![],
-            deps: vec![],
+            cell_deps: vec![],
             header_deps: vec![],
             outputs: vec![],
             outputs_data: vec![],
@@ -338,14 +368,14 @@ mod tests {
 
     #[test]
     fn test_extract_script_groups_uses_resolved_input_locks() {
-        let input_lock = ScriptRef::new([1u8; 32], 0, vec![0xAA]);
-        let output_lock = ScriptRef::new([2u8; 32], 0, vec![0xBB]);
+        let input_lock = Script::new([1u8; 32], 0, vec![0xAA]);
+        let output_lock = Script::new([2u8; 32], 0, vec![0xBB]);
         let input_out_point = OutPoint::new([9u8; 32], 0);
         let tx = Arc::new(
             CellTx::new(
-                vec![CellRef::new(input_out_point.clone(), 0)],
+                vec![CellInput::new(input_out_point.clone(), 0)],
                 vec![],
-                vec![CellOut { capacity: 1000, lock: output_lock.clone(), type_: None }],
+                vec![CellOutput { capacity: 1000, lock: output_lock.clone(), type_: None }],
                 vec![vec![]],
                 vec![],
             )
@@ -356,7 +386,7 @@ mod tests {
         provider.add_cell(
             input_out_point.tx_hash,
             input_out_point.index,
-            ResolvedCell { cell_output: CellOut { capacity: 1000, lock: input_lock.clone(), type_: None }, data: Some(vec![]) },
+            ResolvedCell { cell_output: CellOutput { capacity: 1000, lock: input_lock.clone(), type_: None }, data: Some(vec![]) },
         );
 
         let groups = TransactionScriptVerifier::new(tx, Arc::new(provider)).extract_script_groups().unwrap();
@@ -369,13 +399,13 @@ mod tests {
 
     #[test]
     fn test_verify_rejects_unsupported_hash_type() {
-        let tx = Arc::new(CellTx::new(vec![CellRef::new(OutPoint::new([7u8; 32], 0), 0)], vec![], vec![], vec![], vec![]).unwrap());
+        let tx = Arc::new(CellTx::new(vec![CellInput::new(OutPoint::new([7u8; 32], 0), 0)], vec![], vec![], vec![], vec![]).unwrap());
         let mut provider = SimpleDataProvider::new();
         provider.add_cell(
             [7u8; 32],
             0,
             ResolvedCell {
-                cell_output: CellOut { capacity: 1000, lock: ScriptRef::new([3u8; 32], 1, vec![]), type_: None },
+                cell_output: CellOutput { capacity: 1000, lock: Script::new([3u8; 32], 1, vec![]), type_: None },
                 data: Some(vec![]),
             },
         );
@@ -386,14 +416,14 @@ mod tests {
 
     #[test]
     fn test_extract_script_groups_merges_type_inputs_and_outputs() {
-        let input_lock = ScriptRef::new([1u8; 32], 0, vec![0xAA]);
-        let shared_type = ScriptRef::new([4u8; 32], 0, vec![0xCC]);
+        let input_lock = Script::new([1u8; 32], 0, vec![0xAA]);
+        let shared_type = Script::new([4u8; 32], 0, vec![0xCC]);
         let input_out_point = OutPoint::new([9u8; 32], 0);
         let tx = Arc::new(
             CellTx::new(
-                vec![CellRef::new(input_out_point.clone(), 0)],
+                vec![CellInput::new(input_out_point.clone(), 0)],
                 vec![],
-                vec![CellOut { capacity: 1000, lock: ScriptRef::new([2u8; 32], 0, vec![0xBB]), type_: Some(shared_type.clone()) }],
+                vec![CellOutput { capacity: 1000, lock: Script::new([2u8; 32], 0, vec![0xBB]), type_: Some(shared_type.clone()) }],
                 vec![vec![]],
                 vec![],
             )
@@ -405,7 +435,7 @@ mod tests {
             input_out_point.tx_hash,
             input_out_point.index,
             ResolvedCell {
-                cell_output: CellOut { capacity: 1000, lock: input_lock, type_: Some(shared_type.clone()) },
+                cell_output: CellOutput { capacity: 1000, lock: input_lock, type_: Some(shared_type.clone()) },
                 data: Some(vec![]),
             },
         );

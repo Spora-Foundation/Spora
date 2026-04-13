@@ -33,6 +33,7 @@ impl<T: HeaderStoreReader> FullPastMedianTimeManager<T> {
 #[derive(Clone)]
 pub struct SampledPastMedianTimeManager<T: HeaderStoreReader> {
     headers_store: Arc<T>,
+    #[allow(dead_code)]
     genesis_timestamp: u64,
 }
 

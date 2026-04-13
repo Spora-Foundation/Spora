@@ -7,7 +7,7 @@ use spora_consensus_notify::{notification::Notification, root::ConsensusNotifica
 use spora_consensusmanager::{ConsensusFactory, ConsensusInstance, DynConsensusCtl};
 use spora_core::{core::Core, service::Service};
 use spora_database::utils::DbLifetime;
-use spora_exec::{CellTx, ScriptRef};
+use spora_exec::{CellTx, Script};
 use spora_hashes::Hash;
 use spora_notify::subscription::context::SubscriptionContext;
 
@@ -38,7 +38,8 @@ pub struct TestConsensus {
     params: Params,
     consensus: Arc<Consensus>,
     block_builder: TestBlockBuilder,
-    db_lifetime: DbLifetime,
+    // Keep the temp database directory alive for the lifetime of the test consensus.
+    _db_lifetime: DbLifetime,
 }
 
 impl TestConsensus {
@@ -59,7 +60,7 @@ impl TestConsensus {
         ));
         let block_builder = TestBlockBuilder::new(consensus.virtual_processor.clone());
 
-        Self { params: config.params.clone(), consensus, block_builder, db_lifetime: Default::default() }
+        Self { params: config.params.clone(), consensus, block_builder, _db_lifetime: Default::default() }
     }
 
     /// Creates a test consensus instance based on `config` with a temp DB and the provided `notification_sender`
@@ -80,7 +81,7 @@ impl TestConsensus {
         ));
         let block_builder = TestBlockBuilder::new(consensus.virtual_processor.clone());
 
-        Self { consensus, block_builder, params: config.params.clone(), db_lifetime }
+        Self { consensus, block_builder, params: config.params.clone(), _db_lifetime: db_lifetime }
     }
 
     /// Creates a test consensus instance based on `config` with a temp DB and no notifier
@@ -102,7 +103,7 @@ impl TestConsensus {
         ));
         let block_builder = TestBlockBuilder::new(consensus.virtual_processor.clone());
 
-        Self { consensus, block_builder, params: config.params.clone(), db_lifetime }
+        Self { consensus, block_builder, params: config.params.clone(), _db_lifetime: db_lifetime }
     }
 
     /// Clone the inner consensus Arc. For general usage of the underlying consensus simply deref
@@ -148,7 +149,7 @@ impl TestConsensus {
         parents: Vec<Hash>,
         txs: Vec<CellTx>,
     ) -> impl Future<Output = BlockProcessResult<BlockStatus>> {
-        let miner_data = MinerData::new(ScriptRef::new([0; 32], 0, vec![]), vec![]);
+        let miner_data = MinerData::new(Script::new([0; 32], 0, vec![]), vec![]);
         self.validate_and_insert_block(self.build_cell_valid_block_with_parents(hash, parents, miner_data, txs).to_immutable())
             .virtual_state_task
     }
@@ -172,7 +173,7 @@ impl TestConsensus {
     }
 
     pub fn build_block_with_parents_and_transactions(&self, hash: Hash, parents: Vec<Hash>, txs: Vec<CellTx>) -> MutableBlock {
-        let miner_data = MinerData::new(ScriptRef::new([0; 32], 0, vec![]), vec![]);
+        let miner_data = MinerData::new(Script::new([0; 32], 0, vec![]), vec![]);
         let mut template = self.block_builder.build_block_template_with_parents_unchecked(parents, miner_data, txs).unwrap();
         template.block.header.hash = hash;
         let mut block = template.block;
@@ -277,7 +278,7 @@ impl ConsensusFactory for TestConsensusFactory {
     }
 
     fn new_staging_consensus(&self) -> (ConsensusInstance, DynConsensusCtl) {
-        unimplemented!()
+        panic!("staging consensus is unavailable for TestConsensusFactory")
     }
 
     fn close(&self) {
@@ -285,10 +286,10 @@ impl ConsensusFactory for TestConsensusFactory {
     }
 
     fn delete_inactive_consensus_entries(&self) {
-        unimplemented!()
+        // No-op for in-memory test consensus.
     }
 
     fn delete_staging_entry(&self) {
-        unimplemented!()
+        // No-op for in-memory test consensus.
     }
 }

@@ -48,7 +48,7 @@ impl CellDAG {
     /// # Algorithm
     /// 1. Build RW-Sets for each transaction
     /// 2. Detect dependencies: A.outputs ∩ B.inputs → A → B
-    /// 3. Detect read deps: A.outputs ∩ B.deps → A → B
+    /// 3. Detect read cell_deps: A.outputs ∩ B.cell_deps → A → B
     /// 4. Detect conflicts: A.inputs ∩ B.inputs ≠ ∅
     /// 5. Compute topological layers
     pub fn build(txs: &[CellTx]) -> Result<Self, DagError> {
@@ -71,7 +71,7 @@ impl CellDAG {
         for (consumer_id, tx) in txs.iter().enumerate() {
             // Check inputs (consume edges)
             for input in &tx.inputs {
-                if let Some(&producer_id) = producers.get(&input.out_point) {
+                if let Some(&producer_id) = producers.get(&input.previous_output) {
                     // Dependency: producer → consumer
                     edges.entry(producer_id).or_default().push((consumer_id, DagEdge::Dependency));
 
@@ -82,11 +82,11 @@ impl CellDAG {
                 }
 
                 // Track conflicts (multiple consumers for same Cell)
-                conflicts.entry(input.out_point.clone()).or_default().push(consumer_id);
+                conflicts.entry(input.previous_output.clone()).or_default().push(consumer_id);
             }
 
             // Check deps (read-only edges)
-            for dep in &tx.deps {
+            for dep in &tx.cell_deps {
                 if let Some(&producer_id) = producers.get(&dep.out_point) {
                     edges.entry(producer_id).or_default().push((consumer_id, DagEdge::ReadDep));
 
@@ -233,12 +233,12 @@ pub enum DagError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::celltx::types::{CellOut, CellRef, ScriptRef};
+    use crate::celltx::types::{CellOutput, CellInput, Script};
 
     fn create_test_tx(inputs: Vec<OutPoint>, outputs_count: usize) -> CellTx {
-        let lock = ScriptRef::new([0x00; 32], 0, vec![]);
-        let inputs = inputs.into_iter().map(|op| CellRef::new(op, 0)).collect();
-        let outputs = vec![CellOut { lock: lock.clone(), type_: None, capacity: 1000 }; outputs_count];
+        let lock = Script::new([0x00; 32], 0, vec![]);
+        let inputs = inputs.into_iter().map(|op| CellInput::new(op, 0)).collect();
+        let outputs = vec![CellOutput { lock: lock.clone(), type_: None, capacity: 1000 }; outputs_count];
         let outputs_data = vec![vec![]; outputs_count];
         CellTx::new(inputs, vec![], outputs, outputs_data, vec![]).unwrap()
     }

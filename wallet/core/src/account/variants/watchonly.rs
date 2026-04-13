@@ -70,13 +70,13 @@ impl BorshSerialize for Payload {
 }
 
 impl BorshDeserialize for Payload {
-    fn deserialize(buf: &mut &[u8]) -> IoResult<Self> {
+    fn deserialize_reader<R: std::io::Read>(reader: &mut R) -> IoResult<Self> {
         let StorageHeader { version: _, .. } =
-            StorageHeader::deserialize(buf)?.try_magic(Self::STORAGE_MAGIC)?.try_version(Self::STORAGE_VERSION)?;
+            StorageHeader::deserialize_reader(reader)?.try_magic(Self::STORAGE_MAGIC)?.try_version(Self::STORAGE_VERSION)?;
 
-        let xpub_keys = BorshDeserialize::deserialize(buf)?;
-        let minimum_signatures = BorshDeserialize::deserialize(buf)?;
-        let ecdsa = BorshDeserialize::deserialize(buf)?;
+        let xpub_keys = BorshDeserialize::deserialize_reader(reader)?;
+        let minimum_signatures = BorshDeserialize::deserialize_reader(reader)?;
+        let ecdsa = BorshDeserialize::deserialize_reader(reader)?;
 
         Ok(Self { xpub_keys, minimum_signatures, ecdsa })
     }
@@ -100,14 +100,11 @@ impl WatchOnly {
     ) -> Result<Self> {
         let settings = AccountSettings { name, ..Default::default() };
 
-        let public_key = xpub_keys.first().ok_or_else(|| Error::WatchOnlyXpubRequired)?.public_key();
-
         let storable = Payload::new(xpub_keys.clone(), minimum_signatures, ecdsa);
-
-        let (id, storage_key) = match xpub_keys.len() {
-            1 => make_account_hashes(from_watch_only(&public_key)),
-            _ => make_account_hashes(from_watch_only_multisig(&None, &storable)),
-        };
+        if storable.xpub_keys.is_empty() {
+            return Err(Error::WatchOnlyXpubRequired);
+        }
+        let (id, storage_key) = make_account_hashes(from_watch_only(&storable));
         let inner = Arc::new(Inner::new(wallet, id, storage_key, settings));
 
         let derivation = match xpub_keys.len() {
@@ -220,6 +217,21 @@ impl Account for WatchOnly {
         self.derivation.change_address_manager().current_address()
     }
 
+    fn default_address(&self) -> Result<Address> {
+        let addresses = self.derivation.receive_address_manager().get_range_with_args(0..1, false)?;
+        addresses.first().cloned().ok_or(Error::AddressNotFound)
+    }
+
+    fn account_addresses(&self) -> Result<Vec<Address>> {
+        let meta = self.derivation.address_derivation_meta();
+        let receive = meta.receive().saturating_add(1);
+        let change = meta.change().saturating_add(1);
+        let mut addresses = self.derivation.receive_address_manager().get_range_with_args(0..receive, false)?;
+        let change_addresses = self.derivation.change_address_manager().get_range_with_args(0..change, false)?;
+        addresses.extend(change_addresses);
+        Ok(addresses)
+    }
+
     fn to_storage(&self) -> Result<AccountStorage> {
         let settings = self.context().settings.clone();
         let storable = Payload::new(self.xpub_keys.clone(), self.minimum_signatures, self.ecdsa);
@@ -246,10 +258,11 @@ impl Account for WatchOnly {
             WATCH_ONLY_ACCOUNT_KIND.into(),
             *self.id(),
             self.name(),
+            self.balance(),
             AssocPrvKeyDataIds::None,
             self.receive_address().ok(),
             self.change_address().ok(),
-            None,
+            self.account_addresses().ok(),
         )
         .with_property(AccountDescriptorProperty::XpubKeys, self.xpub_keys.clone().into())
         .with_property(AccountDescriptorProperty::Ecdsa, self.ecdsa.into())
@@ -261,7 +274,6 @@ impl Account for WatchOnly {
     fn as_derivation_capable(self: Arc<Self>) -> Result<Arc<dyn DerivationCapableAccount>> {
         Ok(self.clone())
     }
-
 }
 
 impl DerivationCapableAccount for WatchOnly {
@@ -278,6 +290,8 @@ impl DerivationCapableAccount for WatchOnly {
 mod tests {
     use super::*;
     use crate::tests::*;
+    use crate::wallet::Wallet;
+    use spora_consensus_core::network::{NetworkId, NetworkType};
 
     #[test]
     fn test_storage_watchonly() -> Result<()> {
@@ -291,6 +305,27 @@ mod tests {
         for idx in 0..storable_in.xpub_keys.len() {
             assert_eq!(storable_in.xpub_keys[idx], storable_out.xpub_keys[idx]);
         }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn watchonly_addresses_include_current_receive_and_change_addresses() -> Result<()> {
+        let wallet = Arc::new(
+            Wallet::try_with_rpc(None, Wallet::resident_store()?, None)?.with_network_id(NetworkId::new(NetworkType::Mainnet))?,
+        );
+        let account = WatchOnly::try_new(&wallet, None, vec![make_xpub()].into(), 1, false).await?;
+
+        let receive = account.receive_address()?;
+        let change = account.change_address()?;
+        let addresses = account.account_addresses()?;
+
+        assert_eq!(addresses.len(), 2);
+        assert!(addresses.contains(&receive));
+        assert!(addresses.contains(&change));
+
+        let descriptor = account.descriptor()?;
+        assert_eq!(descriptor.addresses, Some(addresses));
 
         Ok(())
     }

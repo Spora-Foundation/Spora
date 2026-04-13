@@ -31,9 +31,9 @@ pub fn validate_cellbase_maturity<P: DagCellProvider>(
 ) -> Result<(), CellValidationError> {
     for input in &tx.inputs {
         let meta = provider
-            .get_cell_at_pov(&input.out_point, pov)
+            .get_cell_at_pov(&input.previous_output, pov)
             .map_err(|e| CellValidationError::InvalidFormat(e))?
-            .ok_or_else(|| CellValidationError::CellNotFound(input.out_point.tx_hash))?;
+            .ok_or_else(|| CellValidationError::CellNotFound(input.previous_output.tx_hash))?;
 
         // Check cellbase maturity
         if meta.is_cellbase {
@@ -57,15 +57,15 @@ pub fn validate_cellbase_maturity<P: DagCellProvider>(
 pub fn validate_cell_existence<P: DagCellProvider>(tx: &CellTx, pov: Hash, provider: &P) -> Result<(), CellValidationError> {
     // Check all inputs exist
     for input in &tx.inputs {
-        let available = provider.is_cell_available(&input.out_point, pov).map_err(|e| CellValidationError::InvalidFormat(e))?;
+        let available = provider.is_cell_available(&input.previous_output, pov).map_err(|e| CellValidationError::InvalidFormat(e))?;
 
         if !available {
-            return Err(CellValidationError::CellNotFound(input.out_point.tx_hash));
+            return Err(CellValidationError::CellNotFound(input.previous_output.tx_hash));
         }
     }
 
     // Check all deps exist
-    for dep in &tx.deps {
+    for dep in &tx.cell_deps {
         // The dep cell itself must exist regardless of type
         let available = provider.is_cell_available(&dep.out_point, pov).map_err(|e| CellValidationError::InvalidFormat(e))?;
         if !available {
@@ -108,9 +108,9 @@ pub fn validate_time_locks<P: DagCellProvider>(
         }
 
         let meta = provider
-            .get_cell_at_pov(&input.out_point, pov)
+            .get_cell_at_pov(&input.previous_output, pov)
             .map_err(|e| CellValidationError::InvalidFormat(e))?
-            .ok_or_else(|| CellValidationError::CellNotFound(input.out_point.tx_hash))?;
+            .ok_or_else(|| CellValidationError::CellNotFound(input.previous_output.tx_hash))?;
 
         let is_relative = (input.since & 0x8000_0000_0000_0000) != 0;
         let is_daa = (input.since & 0x4000_0000_0000_0000) != 0;
@@ -153,9 +153,9 @@ pub fn validate_in_reorg_context<P: DagCellProvider>(
 
     for input in &tx.inputs {
         let meta = provider
-            .get_cell_at_pov(&input.out_point, pov)
+            .get_cell_at_pov(&input.previous_output, pov)
             .map_err(|e| CellValidationError::InvalidFormat(e))?
-            .ok_or_else(|| CellValidationError::CellNotFound(input.out_point.tx_hash))?;
+            .ok_or_else(|| CellValidationError::CellNotFound(input.previous_output.tx_hash))?;
 
         // Cell must have been created before or at this block
         if meta.block_daa_score > block_daa {
@@ -170,7 +170,7 @@ pub fn validate_in_reorg_context<P: DagCellProvider>(
 mod tests {
     use super::*;
     use spora_consensus_core::tx::TransactionOutpoint;
-    use spora_exec::{CellOut, CellRef, ScriptRef};
+    use spora_exec::{CellOutput, CellInput, Script};
     use std::collections::HashMap;
 
     struct MockDagProvider {
@@ -228,11 +228,11 @@ mod tests {
             },
         );
 
-        let lock = ScriptRef::new([0; 32], 0, vec![]);
+        let lock = Script::new([0; 32], 0, vec![]);
         let tx = CellTx::new(
-            vec![CellRef::new(out_point, 0)],
+            vec![CellInput::new(out_point, 0)],
             vec![],
-            vec![CellOut { lock, type_: None, capacity: 90000 }],
+            vec![CellOutput { lock, type_: None, capacity: 90000 }],
             vec![vec![]],
             vec![],
         )
@@ -275,11 +275,11 @@ mod tests {
             },
         );
 
-        let lock = ScriptRef::new([0; 32], 0, vec![]);
+        let lock = Script::new([0; 32], 0, vec![]);
         let tx = CellTx::new(
-            vec![CellRef::new(out_point, 0)],
+            vec![CellInput::new(out_point, 0)],
             vec![],
-            vec![CellOut { lock, type_: None, capacity: 90000 }],
+            vec![CellOutput { lock, type_: None, capacity: 90000 }],
             vec![vec![]],
             vec![],
         )
@@ -316,11 +316,11 @@ mod tests {
             },
         );
 
-        let lock = ScriptRef::new([0; 32], 0, vec![]);
+        let lock = Script::new([0; 32], 0, vec![]);
         let tx = CellTx::new(
-            vec![CellRef::new(out_point, 0)],
+            vec![CellInput::new(out_point, 0)],
             vec![],
-            vec![CellOut { lock, type_: None, capacity: 90000 }],
+            vec![CellOutput { lock, type_: None, capacity: 90000 }],
             vec![vec![]],
             vec![],
         )
@@ -360,11 +360,11 @@ mod tests {
             },
         );
 
-        let lock = ScriptRef::new([0; 32], 0, vec![]);
+        let lock = Script::new([0; 32], 0, vec![]);
         let absolute_daa = CellTx::new(
-            vec![CellRef::new(out_point.clone(), 0x4000_0000_0000_0096)],
+            vec![CellInput::new(out_point.clone(), 0x4000_0000_0000_0096)],
             vec![],
-            vec![CellOut { lock: lock.clone(), type_: None, capacity: 90000 }],
+            vec![CellOutput { lock: lock.clone(), type_: None, capacity: 90000 }],
             vec![vec![]],
             vec![],
         )
@@ -373,9 +373,9 @@ mod tests {
         assert!(validate_time_locks(&absolute_daa, pov, 150, 1_100, &provider).is_ok());
 
         let relative_daa = CellTx::new(
-            vec![CellRef::new(out_point.clone(), 0xC000_0000_0000_000A)],
+            vec![CellInput::new(out_point.clone(), 0xC000_0000_0000_000A)],
             vec![],
-            vec![CellOut { lock: lock.clone(), type_: None, capacity: 90000 }],
+            vec![CellOutput { lock: lock.clone(), type_: None, capacity: 90000 }],
             vec![vec![]],
             vec![],
         )
@@ -384,9 +384,9 @@ mod tests {
         assert!(validate_time_locks(&relative_daa, pov, 110, 1_100, &provider).is_ok());
 
         let absolute_timestamp = CellTx::new(
-            vec![CellRef::new(out_point.clone(), 0x0000_0000_0000_044C)],
+            vec![CellInput::new(out_point.clone(), 0x0000_0000_0000_044C)],
             vec![],
-            vec![CellOut { lock: lock.clone(), type_: None, capacity: 90000 }],
+            vec![CellOutput { lock: lock.clone(), type_: None, capacity: 90000 }],
             vec![vec![]],
             vec![],
         )
@@ -395,9 +395,9 @@ mod tests {
         assert!(validate_time_locks(&absolute_timestamp, pov, 150, 1_100, &provider).is_ok());
 
         let relative_timestamp = CellTx::new(
-            vec![CellRef::new(out_point, 0x8000_0000_0000_0032)],
+            vec![CellInput::new(out_point, 0x8000_0000_0000_0032)],
             vec![],
-            vec![CellOut { lock, type_: None, capacity: 90000 }],
+            vec![CellOutput { lock, type_: None, capacity: 90000 }],
             vec![vec![]],
             vec![],
         )

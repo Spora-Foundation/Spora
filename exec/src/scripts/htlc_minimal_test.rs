@@ -5,7 +5,7 @@
 
 #[cfg(all(test, feature = "vm"))]
 mod tests {
-    use crate::celltx::{CellOut, CellRef, CellTx, OutPoint, ScriptRef};
+    use crate::celltx::{CellOutput, CellInput, CellTx, OutPoint, Script};
     use crate::scripts::{htlc_minimal_code_hash, HTLC_MINIMAL_SCRIPT};
     use crate::vm::{ResolvedCell, ScriptVersion, SimpleDataProvider, TransactionScriptVerifier};
     use std::sync::Arc;
@@ -17,7 +17,7 @@ mod tests {
             input_out_point.tx_hash,
             input_out_point.index,
             ResolvedCell {
-                cell_output: CellOut { capacity: 1000, lock: ScriptRef { code_hash, hash_type: 0, args: vec![] }, type_: None },
+                cell_output: CellOutput { capacity: 1000, lock: Script { code_hash, hash_type: 0, args: vec![] }, type_: None },
                 data: Some(vec![]),
             },
         );
@@ -30,9 +30,9 @@ mod tests {
         let input_out_point = OutPoint::new([0x61; 32], 0);
         let provider = build_provider(code_hash, input_out_point.clone());
         let tx = CellTx {
-            ver: 0xC001,
-            inputs: vec![CellRef::new(input_out_point, 0)],
-            deps: vec![],
+            version: 0xC001,
+            inputs: vec![CellInput::new(input_out_point, 0)],
+            cell_deps: vec![],
             header_deps: vec![],
             outputs: vec![],
             outputs_data: vec![],
@@ -51,9 +51,9 @@ mod tests {
         let input_out_point = OutPoint::new([0x62; 32], 0);
         let provider = build_provider(code_hash, input_out_point.clone());
         let tx = CellTx {
-            ver: 0xC001,
-            inputs: vec![CellRef::new(input_out_point, 0)],
-            deps: vec![],
+            version: 0xC001,
+            inputs: vec![CellInput::new(input_out_point, 0)],
+            cell_deps: vec![],
             header_deps: vec![],
             outputs: vec![],
             outputs_data: vec![],

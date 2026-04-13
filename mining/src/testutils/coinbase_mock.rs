@@ -1,7 +1,7 @@
 use spora_consensus_core::{
     coinbase::{CoinbaseData, CoinbaseTransactionTemplate, MinerData, COINBASE_MASS_COMMITMENT_MAGIC},
     constants::SAU_PER_SPORA,
-    tx::{CellOut, CellTx},
+    tx::{CellOutput, CellTx},
 };
 
 const LENGTH_OF_BLUE_SCORE: usize = size_of::<u64>();
@@ -22,7 +22,7 @@ impl CoinbaseManagerMock {
             mass_commitment: 0,
             miner_data: miner_data.clone(),
         });
-        let outputs = vec![CellOut { capacity: SUBSIDY, lock: miner_data.lock_script.clone(), type_: None }];
+        let outputs = vec![CellOutput { capacity: SUBSIDY, lock: miner_data.lock_script.clone(), type_: None }];
         let outputs_data = vec![payload];
 
         CoinbaseTransactionTemplate {

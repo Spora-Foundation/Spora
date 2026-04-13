@@ -15,6 +15,7 @@ default = []
 
 [lib]
 crate-type = ["cdylib", "lib"]
+doctest = false
 
 [dependencies]
 ahash.workspace = true

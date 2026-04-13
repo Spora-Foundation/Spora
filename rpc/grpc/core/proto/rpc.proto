@@ -78,7 +78,7 @@ message RpcTransactionInput {
   RpcTransactionInputVerboseData verboseData = 4;
 }
 
-message RpcScriptRef {
+message RpcScript {
   string codeHash = 1;
   uint32 hashType = 2;
   string args = 3;
@@ -86,14 +86,14 @@ message RpcScriptRef {
 
 message RpcTransactionOutput {
   uint64 amount = 1;
-  RpcScriptRef lockScript = 2;
+  RpcScript lockScript = 2;
   RpcTransactionOutputVerboseData verboseData = 3;
   uint64 capacity = 4;
   uint64 dataBytes = 5;
   string lockHash = 6;
   string typeHash = 7;
   string dataHash = 8;
-  RpcScriptRef typeScript = 9;
+  RpcScript typeScript = 9;
   string outputData = 10;
 }
 

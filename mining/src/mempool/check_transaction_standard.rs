@@ -5,7 +5,7 @@ use crate::mempool::{
 use spora_consensus_core::mass::NonContextualMasses;
 use spora_consensus_core::{
     constants::MAX_SAU,
-    tx::{CellOut, MutableTransaction},
+    tx::{CellOutput, MutableTransaction},
 };
 
 /// MAXIMUM_STANDARD_SIGNATURE_SCRIPT_SIZE is the maximum size allowed for a
@@ -99,10 +99,10 @@ impl Mempool {
         Ok(())
     }
 
-    /// is_transaction_output_dust_cell returns whether or not the passed CellOut
+    /// is_transaction_output_dust_cell returns whether or not the passed CellOutput
     /// amount is considered dust or not based on the configured minimum transaction
     /// relay fee.
-    pub(crate) fn is_transaction_output_dust_cell(&self, output: &CellOut) -> bool {
+    pub(crate) fn is_transaction_output_dust_cell(&self, output: &CellOutput) -> bool {
         // Unspendable outputs are considered dust.
         let lock_bytes = output.lock.to_bytes();
         // TODO: Add unspendable script detection for Cell model
@@ -128,9 +128,9 @@ impl Mempool {
     /// amount is considered dust or not based on the configured minimum transaction
     /// relay fee.
     ///
-    /// Note: This function operates on `CellOut`.
+    /// Note: This function operates on `CellOutput`.
     #[cfg(test)]
-    pub(crate) fn is_transaction_output_dust(&self, transaction_output: &CellOut) -> bool {
+    pub(crate) fn is_transaction_output_dust(&self, transaction_output: &CellOutput) -> bool {
         // Use the Cell model version
         self.is_transaction_output_dust_cell(transaction_output)
     }
@@ -203,20 +203,21 @@ mod tests {
     };
     use spora_addresses::{Address, Prefix, Version};
     use spora_consensus_core::{
+        cell_diff::CellMeta,
         cell_metadata::CellMetadata,
         config::params::Params,
         constants::{CELL_TX_VERSION, MAX_TX_IN_SEQUENCE_NUM, SAU_PER_SPORA},
         mass::{ContextualMasses, NonContextualMasses},
         network::NetworkType,
-        tx::{pay_to_address_lock_script, CellEntry, CellOut, CellRef, CellTx, MutableTransaction, ScriptRef, TransactionOutpoint},
+        tx::{pay_to_address_lock_script, CellOutput, CellInput, CellTx, MutableTransaction, Script, TransactionOutpoint},
     };
     use std::sync::Arc;
 
     const OP_RETURN: u8 = 0x6a;
     const OP_TRUE: u8 = 0x51;
 
-    fn lock_script(script: impl Into<Vec<u8>>) -> ScriptRef {
-        ScriptRef::new([0; 32], 0, script.into())
+    fn lock_script(script: impl Into<Vec<u8>>) -> Script {
+        Script::new([0; 32], 0, script.into())
     }
 
     #[test]
@@ -283,14 +284,14 @@ mod tests {
 
         struct Test {
             name: &'static str,
-            cell_out: CellOut,
+            cell_out: CellOutput,
             minimum_relay_transaction_fee: u64,
             is_dust: bool,
         }
 
-        // Helper to create CellOut from capacity and script_public_key
+        // Helper to create CellOutput from capacity and script_public_key
         let make_cell_out =
-            |capacity: u64, script: Vec<u8>| -> CellOut { CellOut { capacity, lock: lock_script(script), type_: None } };
+            |capacity: u64, script: Vec<u8>| -> CellOutput { CellOutput { capacity, lock: lock_script(script), type_: None } };
 
         let tests = vec![
             // Any value is allowed with a zero relay fee.
@@ -365,12 +366,12 @@ mod tests {
         // Create some dummy, but otherwise standard, data for transactions.
         let dummy_prev_out = TransactionOutpoint::new(spora_hashes::Hash::from_u64_word(1).as_bytes(), 1);
         let dummy_sig_script = vec![0u8; 65];
-        let dummy_tx_input = CellRef::new(dummy_prev_out, MAX_TX_IN_SEQUENCE_NUM);
+        let dummy_tx_input = CellInput::new(dummy_prev_out, MAX_TX_IN_SEQUENCE_NUM);
         let addr_hash = vec![1u8; 32];
 
         let addr = Address::new(Prefix::Testnet, Version::PubKey, &addr_hash).expect("Valid test address");
         let dummy_lock_script = pay_to_address_lock_script(&addr);
-        let dummy_tx_out = CellOut { capacity: SAU_PER_SPORA, lock: dummy_lock_script.clone(), type_: None };
+        let dummy_tx_out = CellOutput { capacity: SAU_PER_SPORA, lock: dummy_lock_script.clone(), type_: None };
 
         struct Test {
             name: &'static str,
@@ -413,7 +414,7 @@ mod tests {
                             vec![dummy_sig_script.clone()],
                         )
                         .expect("test helper must construct a valid CellTx");
-                        tx.ver = CELL_TX_VERSION + 1;
+                        tx.version = CELL_TX_VERSION + 1;
                         tx
                     },
                     1000,
@@ -426,7 +427,7 @@ mod tests {
                     CellTx::new(
                         vec![dummy_tx_input.clone()],
                         vec![],
-                        vec![CellOut {
+                        vec![CellOutput {
                             capacity: 0,
                             lock: lock_script(vec![0u8; MAXIMUM_STANDARD_TRANSACTION_MASS as usize + 1]),
                             type_: None,
@@ -444,14 +445,14 @@ mod tests {
                 mtx: new_mtx(
                     {
                         let mut tx = CellTx::new(
-                            vec![CellRef::new(dummy_prev_out, MAX_TX_IN_SEQUENCE_NUM)],
+                            vec![CellInput::new(dummy_prev_out, MAX_TX_IN_SEQUENCE_NUM)],
                             vec![],
                             vec![dummy_tx_out.clone()],
                             vec![vec![]],
                             vec![vec![0u8; MAXIMUM_STANDARD_SIGNATURE_SCRIPT_SIZE as usize + 1]],
                         )
                         .expect("test helper must construct a valid CellTx");
-                        tx.ver = CELL_TX_VERSION + 1;
+                        tx.version = CELL_TX_VERSION + 1;
                         tx
                     },
                     1000,
@@ -464,7 +465,7 @@ mod tests {
                     CellTx::new(
                         vec![dummy_tx_input.clone()],
                         vec![],
-                        vec![CellOut { capacity: SAU_PER_SPORA, lock: lock_script(vec![OP_TRUE]), type_: None }],
+                        vec![CellOutput { capacity: SAU_PER_SPORA, lock: lock_script(vec![OP_TRUE]), type_: None }],
                         vec![vec![]],
                         vec![dummy_sig_script.clone()],
                     )
@@ -479,7 +480,7 @@ mod tests {
                     CellTx::new(
                         vec![dummy_tx_input.clone()],
                         vec![],
-                        vec![CellOut { capacity: 0, lock: dummy_lock_script.clone(), type_: None }],
+                        vec![CellOutput { capacity: 0, lock: dummy_lock_script.clone(), type_: None }],
                         vec![vec![]],
                         vec![dummy_sig_script.clone()],
                     )
@@ -494,7 +495,7 @@ mod tests {
                     CellTx::new(
                         vec![dummy_tx_input],
                         vec![],
-                        vec![CellOut { capacity: SAU_PER_SPORA, lock: lock_script(vec![OP_RETURN]), type_: None }],
+                        vec![CellOutput { capacity: SAU_PER_SPORA, lock: lock_script(vec![OP_RETURN]), type_: None }],
                         vec![vec![]],
                         vec![dummy_sig_script],
                     )
@@ -542,9 +543,9 @@ mod tests {
         let mempool = Mempool::new(Arc::new(config), counters);
 
         let previous_outpoint = TransactionOutpoint::new(spora_hashes::Hash::from_u64_word(7).as_bytes(), 0);
-        let output = CellOut {
+        let output = CellOutput {
             capacity: 900,
-            lock: ScriptRef::new(
+            lock: Script::new(
                 [0x20, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
                 0,
                 vec![1, 0xac],
@@ -552,7 +553,7 @@ mod tests {
             type_: None,
         };
         let tx = CellTx::new(
-            vec![CellRef::new(previous_outpoint, MAX_TX_IN_SEQUENCE_NUM)],
+            vec![CellInput::new(previous_outpoint, MAX_TX_IN_SEQUENCE_NUM)],
             vec![],
             vec![output],
             vec![vec![]],
@@ -563,7 +564,7 @@ mod tests {
         mtx.calculated_non_contextual_masses = Some(NonContextualMasses::new(1000, 1000));
         mtx.calculated_contextual_masses = Some(ContextualMasses::new(1000));
         mtx.calculated_fee = Some(DEFAULT_MINIMUM_RELAY_TRANSACTION_FEE);
-        mtx.entries[0] = Some(CellEntry::from_cell_metadata(SAU_PER_SPORA, 0, [0x44; 32], None, [0; 32], 100, false));
+        mtx.entries[0] = Some(CellMeta::from_cell_metadata(SAU_PER_SPORA, 0, [0x44; 32], None, [0; 32], 100, false));
 
         assert!(mempool.check_transaction_standard_in_context(&mtx).is_ok());
     }
@@ -576,9 +577,9 @@ mod tests {
         let mempool = Mempool::new(Arc::new(config), counters);
 
         let previous_outpoint = TransactionOutpoint::new(spora_hashes::Hash::from_u64_word(9).as_bytes(), 0);
-        let output = CellOut {
+        let output = CellOutput {
             capacity: 900,
-            lock: ScriptRef::new(
+            lock: Script::new(
                 [0x20, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
                 0,
                 vec![1, 0xac],
@@ -586,7 +587,7 @@ mod tests {
             type_: None,
         };
         let tx = CellTx::new(
-            vec![CellRef::new(previous_outpoint, MAX_TX_IN_SEQUENCE_NUM)],
+            vec![CellInput::new(previous_outpoint, MAX_TX_IN_SEQUENCE_NUM)],
             vec![],
             vec![output],
             vec![vec![]],
@@ -625,9 +626,9 @@ mod tests {
         let mempool = Mempool::new(Arc::new(config), counters);
 
         let previous_outpoint = TransactionOutpoint::new(spora_hashes::Hash::from_u64_word(11).as_bytes(), 0);
-        let output = CellOut {
+        let output = CellOutput {
             capacity: 900,
-            lock: ScriptRef::new(
+            lock: Script::new(
                 [0x20, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
                 0,
                 vec![1, 0xac],
@@ -635,7 +636,7 @@ mod tests {
             type_: None,
         };
         let tx = CellTx::new(
-            vec![CellRef::new(previous_outpoint, MAX_TX_IN_SEQUENCE_NUM)],
+            vec![CellInput::new(previous_outpoint, MAX_TX_IN_SEQUENCE_NUM)],
             vec![],
             vec![output],
             vec![vec![]],
@@ -681,9 +682,9 @@ mod tests {
         let mempool = Mempool::new(Arc::new(config), counters);
 
         let previous_outpoint = TransactionOutpoint::new(spora_hashes::Hash::from_u64_word(13).as_bytes(), 0);
-        let output = CellOut {
+        let output = CellOutput {
             capacity: 900,
-            lock: ScriptRef::new(
+            lock: Script::new(
                 [0x20, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
                 0,
                 vec![1, 0xac],
@@ -691,7 +692,7 @@ mod tests {
             type_: None,
         };
         let tx = CellTx::new(
-            vec![CellRef::new(previous_outpoint, MAX_TX_IN_SEQUENCE_NUM)],
+            vec![CellInput::new(previous_outpoint, MAX_TX_IN_SEQUENCE_NUM)],
             vec![],
             vec![output],
             vec![vec![]],

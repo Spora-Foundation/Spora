@@ -5,7 +5,7 @@
 
 use crate::{
     store::proof::{compute_segment_root, MerkleTreeBuilder},
-    Result, StateError,
+    Result, SegmentInfo, StateError,
 };
 use borsh::{BorshDeserialize, BorshSerialize};
 use parking_lot::Mutex;
@@ -344,26 +344,42 @@ impl SegmentReader {
         SegmentMeta::try_from_slice(&data).map_err(|e| StateError::Serialization(e.to_string()))
     }
 
+    fn build_merkle_builder(&self, segment_id: u32, chunk_index: &[AppendRecord]) -> Result<MerkleTreeBuilder> {
+        let mut builder = MerkleTreeBuilder::new();
+        for AppendRecord { offset, length } in chunk_index {
+            let chunk = self.read(segment_id, *offset, *length)?;
+            builder.add_leaf(&chunk);
+        }
+        Ok(builder)
+    }
+
+    fn resolve_segment_root(&self, segment_id: u32, chunk_index: &[AppendRecord]) -> Result<[u8; 32]> {
+        match self.load_meta(segment_id) {
+            Ok(meta) => Ok(meta.merkle_root),
+            Err(StateError::SegmentNotFound(_)) => {
+                let builder = self.build_merkle_builder(segment_id, chunk_index)?;
+                Ok(builder.build())
+            }
+            Err(err) => Err(err),
+        }
+    }
+
     /// Build a Merkle proof for the requested append chunk in a sealed segment.
     pub fn build_proof(&self, segment_id: u32, leaf_index: u32) -> Result<crate::store::proof::SegmentProof> {
-        let meta = self.load_meta(segment_id)?;
         let chunk_index = SegmentWriter::load_chunk_index(&self.base_dir, segment_id)?;
         let leaf_index = leaf_index as usize;
         let record = chunk_index
             .get(leaf_index)
             .ok_or_else(|| StateError::InvalidProof(format!("leaf index {} out of bounds for segment {}", leaf_index, segment_id)))?;
 
-        let mut builder = MerkleTreeBuilder::new();
-        for AppendRecord { offset, length } in &chunk_index {
-            let chunk = self.read(segment_id, *offset, *length)?;
-            builder.add_leaf(&chunk);
-        }
+        let builder = self.build_merkle_builder(segment_id, &chunk_index)?;
+        let segment_root = self.resolve_segment_root(segment_id, &chunk_index)?;
 
         let computed_root = builder.build();
-        if computed_root != meta.merkle_root {
+        if computed_root != segment_root {
             return Err(StateError::InvalidProof(format!(
-                "segment {} proof index root mismatch: meta={:?}, computed={:?}",
-                segment_id, meta.merkle_root, computed_root
+                "segment {} proof index root mismatch: expected={:?}, computed={:?}",
+                segment_id, segment_root, computed_root
             )));
         }
 
@@ -374,10 +390,31 @@ impl SegmentReader {
             chunk_data,
             record.offset,
             record.length,
-            meta.merkle_root,
+            segment_root,
         );
         proof.merkle_path = builder.get_proof(leaf_index);
         Ok(proof)
+    }
+
+    /// Locate the append-order leaf index for an existing segment pointer.
+    pub fn find_leaf_index(&self, segment_info: &SegmentInfo) -> Result<u32> {
+        let chunk_index = SegmentWriter::load_chunk_index(&self.base_dir, segment_info.segment_id)?;
+        chunk_index
+            .iter()
+            .position(|record| record.offset == segment_info.offset && record.length == segment_info.length)
+            .map(|index| index as u32)
+            .ok_or_else(|| {
+                StateError::InvalidProof(format!(
+                    "segment pointer ({}, {}, {}) not found in chunk index",
+                    segment_info.segment_id, segment_info.offset, segment_info.length
+                ))
+            })
+    }
+
+    /// Build a Merkle proof directly from a persisted segment pointer.
+    pub fn build_proof_for_segment_info(&self, segment_info: &SegmentInfo) -> Result<crate::store::proof::SegmentProof> {
+        let leaf_index = self.find_leaf_index(segment_info)?;
+        self.build_proof(segment_info.segment_id, leaf_index)
     }
 
     fn segment_path(&self, segment_id: u32) -> PathBuf {
@@ -516,6 +553,28 @@ mod tests {
         assert_eq!(proof.leaf_index, 1);
         assert_eq!(proof.chunk_data, chunk_b);
         assert_eq!(proof.segment_root, meta.merkle_root);
+        assert!(proof.verify().unwrap());
+    }
+
+    #[test]
+    fn test_segment_reader_builds_proof_from_segment_info_pointer() {
+        let tmp = TempDir::new().unwrap();
+        let writer = SegmentWriter::new(tmp.path()).unwrap();
+
+        let chunk_a = vec![0x10; 48];
+        let chunk_b = vec![0x20; 80];
+        writer.append(&chunk_a).unwrap();
+        let (segment_id, offset, length) = writer.append(&chunk_b).unwrap();
+        writer.seal().unwrap();
+
+        let segment_info = SegmentInfo { segment_id, offset, length };
+        let reader = SegmentReader::new(tmp.path()).unwrap();
+        let proof = reader.build_proof_for_segment_info(&segment_info).unwrap();
+
+        assert_eq!(proof.leaf_index, 1);
+        assert_eq!(proof.chunk_offset, offset);
+        assert_eq!(proof.chunk_length, length);
+        assert_eq!(proof.chunk_data, chunk_b);
         assert!(proof.verify().unwrap());
     }
 }

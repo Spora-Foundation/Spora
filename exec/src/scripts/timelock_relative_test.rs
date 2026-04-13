@@ -5,7 +5,7 @@
 
 #[cfg(all(test, feature = "vm"))]
 mod tests {
-    use crate::celltx::{CellOut, CellRef, CellTx, OutPoint, ScriptRef};
+    use crate::celltx::{CellOutput, CellInput, CellTx, OutPoint, Script};
     use crate::scripts::timelock::encode_relative_daa_since;
     use crate::scripts::{timelock_relative_code_hash, TIMELOCK_RELATIVE_SCRIPT};
     use crate::vm::{ResolvedCell, ScriptVersion, SimpleDataProvider, TransactionScriptVerifier};
@@ -21,7 +21,7 @@ mod tests {
             input_out_point.tx_hash,
             input_out_point.index,
             ResolvedCell {
-                cell_output: CellOut { capacity: 1000, lock: ScriptRef { code_hash, hash_type: 0, args: vec![] }, type_: None },
+                cell_output: CellOutput { capacity: 1000, lock: Script { code_hash, hash_type: 0, args: vec![] }, type_: None },
                 data: Some(vec![]),
             },
         );
@@ -37,9 +37,9 @@ mod tests {
         // Use exact target delta
         let since = encode_relative_daa_since(TARGET_DELTA);
         let tx = CellTx {
-            ver: 0xC001,
-            inputs: vec![CellRef::new(input_out_point, since)],
-            deps: vec![],
+            version: 0xC001,
+            inputs: vec![CellInput::new(input_out_point, since)],
+            cell_deps: vec![],
             header_deps: vec![],
             outputs: vec![],
             outputs_data: vec![],
@@ -61,9 +61,9 @@ mod tests {
         // Use a larger delta
         let since = encode_relative_daa_since(TARGET_DELTA + 50);
         let tx = CellTx {
-            ver: 0xC001,
-            inputs: vec![CellRef::new(input_out_point, since)],
-            deps: vec![],
+            version: 0xC001,
+            inputs: vec![CellInput::new(input_out_point, since)],
+            cell_deps: vec![],
             header_deps: vec![],
             outputs: vec![],
             outputs_data: vec![],
@@ -85,9 +85,9 @@ mod tests {
         // Use a smaller delta
         let since = encode_relative_daa_since(TARGET_DELTA - 50);
         let tx = CellTx {
-            ver: 0xC001,
-            inputs: vec![CellRef::new(input_out_point, since)],
-            deps: vec![],
+            version: 0xC001,
+            inputs: vec![CellInput::new(input_out_point, since)],
+            cell_deps: vec![],
             header_deps: vec![],
             outputs: vec![],
             outputs_data: vec![],
@@ -109,9 +109,9 @@ mod tests {
         // Use absolute lock (bit63 = 0)
         let since = (0u64 << 63) | (0u64 << 62) | TARGET_DELTA;
         let tx = CellTx {
-            ver: 0xC001,
-            inputs: vec![CellRef::new(input_out_point, since)],
-            deps: vec![],
+            version: 0xC001,
+            inputs: vec![CellInput::new(input_out_point, since)],
+            cell_deps: vec![],
             header_deps: vec![],
             outputs: vec![],
             outputs_data: vec![],
@@ -133,9 +133,9 @@ mod tests {
         // Use timestamp lock instead of DAA (bit62 = 1)
         let since = (1u64 << 63) | (1u64 << 62) | TARGET_DELTA;
         let tx = CellTx {
-            ver: 0xC001,
-            inputs: vec![CellRef::new(input_out_point, since)],
-            deps: vec![],
+            version: 0xC001,
+            inputs: vec![CellInput::new(input_out_point, since)],
+            cell_deps: vec![],
             header_deps: vec![],
             outputs: vec![],
             outputs_data: vec![],

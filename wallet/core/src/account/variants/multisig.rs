@@ -203,6 +203,21 @@ impl Account for MultiSig {
         self.derivation.change_address_manager().current_address()
     }
 
+    fn default_address(&self) -> Result<Address> {
+        let addresses = self.derivation.receive_address_manager().get_range_with_args(0..1, false)?;
+        addresses.first().cloned().ok_or(Error::AddressNotFound)
+    }
+
+    fn account_addresses(&self) -> Result<Vec<Address>> {
+        let meta = self.derivation.address_derivation_meta();
+        let receive = meta.receive().saturating_add(1);
+        let change = meta.change().saturating_add(1);
+        let mut addresses = self.derivation.receive_address_manager().get_range_with_args(0..receive, false)?;
+        let change_addresses = self.derivation.change_address_manager().get_range_with_args(0..change, false)?;
+        addresses.extend(change_addresses);
+        Ok(addresses)
+    }
+
     fn to_storage(&self) -> Result<AccountStorage> {
         let settings = self.context().settings.clone();
         let storable = Payload::new(self.xpub_keys.clone(), self.cosigner_index, self.minimum_signatures, self.ecdsa);
@@ -232,7 +247,7 @@ impl Account for MultiSig {
             self.prv_key_data_ids.clone().try_into()?,
             self.receive_address().ok(),
             self.change_address().ok(),
-            None,
+            self.account_addresses().ok(),
         )
         .with_property(AccountDescriptorProperty::XpubKeys, self.xpub_keys.clone().into())
         .with_property(AccountDescriptorProperty::Ecdsa, self.ecdsa.into())

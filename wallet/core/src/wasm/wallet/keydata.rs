@@ -1,3 +1,4 @@
+use crate::api::traits::WalletApi;
 use crate::imports::*;
 use crate::result::Result;
 use crate::storage::keydata;
@@ -34,7 +35,9 @@ impl PrvKeyDataInfo {
     }
 
     #[wasm_bindgen(js_name = "setName")]
-    pub fn set_name(&mut self, _name: String) -> Result<()> {
-        Err(Error::NotImplemented)
+    pub async fn set_name(&mut self, name: String, wallet_secret: String) -> Result<()> {
+        self.inner = self.wallet.clone().prv_key_data_rename(self.inner.id, Some(name), Secret::from(wallet_secret)).await?;
+
+        Ok(())
     }
 }

@@ -56,7 +56,7 @@ Spora/
 │   └── src/
 │       ├── lib.rs
 │       ├── celltx/            # Cell 交易定义
-│       │   ├── types.rs       # CellTx, CellRef, CellOut, ScriptRef
+│       │   ├── types.rs       # CellTx, CellInput, CellOutput, Script
 │       │   ├── codec.rs       # borsh 序列化
 │       │   └── sighash.rs     # blake3 签名哈希
 │       ├── scheduler/         # 并行调度器
@@ -141,7 +141,7 @@ Spora/
 
 ```bash
 # 在 consensus/ 和 mining/ 中扫描
-rg -n "legacy_txout|legacy txout|CellEntry|script_pub_key|ScriptRef|lock_script" \
+rg -n "legacy_txout|legacy txout|CellEntry|script_pub_key|Script|lock_script" \
   consensus/src/ consensus/core/src/ mining/src/
 ```
 
@@ -168,10 +168,10 @@ rg -n "legacy_txout|legacy txout|CellEntry|script_pub_key|ScriptRef|lock_script"
 * **exec/celltx/types.rs**：
   ```rust
   pub const CELL_TX_VERSION: u16 = 0xC001;
-  pub struct CellRef { pub id: [u8; 32], pub since: u64 }
-  pub struct ScriptRef { pub code_hash: [u8; 32], pub hash_type: u8, pub args: Vec<u8> }
-  pub struct CellOut { pub lock: ScriptRef, pub type_: Option<ScriptRef>, pub capacity: u64, pub data: Vec<u8> }
-  pub struct CellTx { pub ver: u16, pub inputs: Vec<CellRef>, pub deps: Vec<CellRef>, pub outputs: Vec<CellOut>, pub fee: u64, pub sigs: Vec<Vec<u8>> }
+  pub struct CellInput { pub id: [u8; 32], pub since: u64 }
+  pub struct Script { pub code_hash: [u8; 32], pub hash_type: u8, pub args: Vec<u8> }
+  pub struct CellOutput { pub lock: Script, pub type_: Option<Script>, pub capacity: u64, pub data: Vec<u8> }
+  pub struct CellTx { pub ver: u16, pub inputs: Vec<CellInput>, pub deps: Vec<CellInput>, pub outputs: Vec<CellOutput>, pub fee: u64, pub sigs: Vec<Vec<u8>> }
   ```
 
 * **exec/celltx/sighash.rs**：
@@ -301,7 +301,7 @@ impl CellID {
 
 /// Cell 引用（输入）
 /// 参考 CKB OutPoint + since
-pub struct CellRef {
+pub struct CellInput {
     /// Cell 的唯一标识：tx_hash || output_index
     pub out_point: OutPoint,
     /// 时间锁：支持相对/绝对时间或 DAA 分数
@@ -318,7 +318,7 @@ pub struct OutPoint {
 
 /// 脚本引用（CKB Script）
 /// 参考 CKB packed::Script
-pub struct ScriptRef {
+pub struct Script {
     /// 脚本代码的哈希（指向一个 Cell 的 data）
     pub code_hash: [u8; 32],
     /// 哈希类型：0=Data, 1=Type, 2=Data1（新版），3=Data2
@@ -327,13 +327,13 @@ pub struct ScriptRef {
     pub args: Vec<u8>,
 }
 
-/// Cell 输出（完全对齐 CKB CellOutput）
+/// Cell 输出（完全对齐 CKB CellOutputput）
 /// 注意：data 字段分离到 CellTx.outputs_data，避免重复存储
-pub struct CellOut {
+pub struct CellOutput {
     /// 锁脚本：定义谁能花费此 Cell
-    pub lock: ScriptRef,
+    pub lock: Script,
     /// 类型脚本（可选）：定义状态转移约束
-    pub type_: Option<ScriptRef>,
+    pub type_: Option<Script>,
     /// 容量（CKB 用 shannons，Spora 用 saus）
     /// 必须 >= occupied_capacity(output, outputs_data[i])
     pub capacity: u64,
@@ -345,11 +345,11 @@ pub struct CellTx {
     /// 交易版本：0xC001（Cell v1）
     pub ver: u16,
     /// 输入：花费的 Cells
-    pub inputs: Vec<CellRef>,
+    pub inputs: Vec<CellInput>,
     /// 依赖：只读 Cells（如脚本代码 Cell）
     pub deps: Vec<CellDep>,
     /// 输出：创建的新 Cells
-    pub outputs: Vec<CellOut>,
+    pub outputs: Vec<CellOutput>,
     /// 输出数据（与 outputs 一一对应）
     /// 注：CKB 分离 outputs 和 data，优化验证
     pub outputs_data: Vec<Vec<u8>>,
@@ -374,7 +374,7 @@ pub enum DepType {
 
 /// Cell 元数据（参考 CKB CellMeta）
 pub struct CellMeta {
-    pub cell_output: CellOut,
+    pub cell_output: CellOutput,
     pub out_point: OutPoint,
     /// DAG 特有：Cell 所在的交易信息
     pub transaction_info: Option<TransactionInfo>,
@@ -588,7 +588,7 @@ impl<DL: CellDataProvider> CellTxVerifier<DL> {
 
 /// 脚本组
 pub struct ScriptGroup {
-    pub script: ScriptRef,
+    pub script: Script,
     pub group_type: ScriptGroupType,
     /// 关联的输入索引
     pub input_indices: Vec<usize>,
@@ -679,7 +679,7 @@ impl<DL: CellDataProvider> Syscalls<CellVM> for LoadCell<DL> {
         // 获取 CellMeta（与 CKB 相同的 source 语义）
         let cell = self.load_cell_from_source(source, index)?;
         
-        // 序列化 CellOutput（CKB Molecule 格式）
+        // 序列化 CellOutputput（CKB Molecule 格式）
         let serialized = self.serialize_cell_output(&cell.cell_output);
         
         // 写入 VM 内存（带 offset 和 len 截断）
@@ -756,7 +756,7 @@ impl<DL: CellDataProvider> Syscalls<CellVM> for LoadCellByField<DL> {
 /// 脚本参数：20 字节公钥哈希（blake2b(pubkey)[0..20]）
 /// 见证：65 字节签名（r + s + v）
 pub fn verify_secp256k1_lock(
-    script: &ScriptRef,
+    script: &Script,
     tx: &CellTx,
     input_index: usize,
 ) -> Result<(), ScriptError> {
@@ -2063,8 +2063,8 @@ table Script {
     args:       Bytes,
 }
 
-// CellOutput（与 CKB 相同）
-table CellOutput {
+// CellOutputput（与 CKB 相同）
+table CellOutputput {
     capacity:   Uint64,
     lock:       Script,
     type_:      ScriptOpt,
@@ -2089,7 +2089,7 @@ table RawTransaction {
     version:        Uint32,          // 0xC001
     cell_deps:      CellDepVec,
     inputs:         CellInputVec,
-    outputs:        CellOutputVec,
+    outputs:        CellOutputputVec,
     outputs_data:   BytesVec,
 }
 
@@ -2102,7 +2102,7 @@ table Transaction {
 // 向量类型
 vector CellDepVec <CellDep>;
 vector CellInputVec <CellInput>;
-vector CellOutputVec <CellOutput>;
+vector CellOutputputVec <CellOutputput>;
 vector BytesVec <Bytes>;
 ```
 
@@ -2154,7 +2154,7 @@ impl CellTx {
         CellTx {
             ver: u32::from_le_bytes(raw.version().as_slice().try_into().unwrap()) as u16,
             inputs: raw.inputs().into_iter().map(|input| {
-                CellRef {
+                CellInput {
                     out_point: OutPoint {
                         tx_hash: input.previous_output().tx_hash().as_bytes().try_into().unwrap(),
                         index: u32::from_le_bytes(input.previous_output().index().as_slice().try_into().unwrap()),
@@ -2176,7 +2176,7 @@ impl CellTx {
                 }
             }).collect(),
             outputs: raw.outputs().into_iter().map(|output| {
-                CellOut {
+                CellOutput {
                     capacity: u64::from_le_bytes(output.capacity().as_slice().try_into().unwrap()),
                     lock: script_from_molecule(&output.lock()),
                     type_: output.type_().to_opt().map(|t| script_from_molecule(&t)),
@@ -2293,7 +2293,7 @@ fn test_molecule_extension() {
 #[test]
 fn test_script_encoding_matches_ckb() {
     // 确保 Script 编码与 CKB 完全一致
-    let script = ScriptRef {
+    let script = Script {
         code_hash: [0x12; 32],
         hash_type: 1,
         args: vec![0xAB, 0xCD],
@@ -2788,7 +2788,7 @@ impl BlockValidator {
 
 /// Cell 变更
 pub enum CellChange {
-    Created(OutPoint, CellOut),
+    Created(OutPoint, CellOutput),
     Spent(OutPoint),
 }
 ```
@@ -2807,15 +2807,15 @@ impl CellbaseBuilder {
     pub fn build_cellbase(
         &self,
         block_daa_score: u64,
-        miner_lock_script: ScriptRef,
-        mergeset_rewards: &[(u64, ScriptRef)],  // (daa_score, miner_lock) from red blocks
+        miner_lock_script: Script,
+        mergeset_rewards: &[(u64, Script)],  // (daa_score, miner_lock) from red blocks
     ) -> CellTx {
         let block_reward = self.calculate_block_reward(block_daa_score);
         
         let mut outputs = Vec::new();
         
         // 主矿工奖励
-        outputs.push(CellOut {
+        outputs.push(CellOutput {
             lock: miner_lock_script.clone(),
             type_: None,
             capacity: block_reward,
@@ -2825,7 +2825,7 @@ impl CellbaseBuilder {
         // Mergeset 奖励（DAG 特有：红块矿工也获得部分奖励）
         for (red_daa, red_miner_lock) in mergeset_rewards {
             let red_reward = block_reward / 2;  // 红块奖励减半
-            outputs.push(CellOut {
+            outputs.push(CellOutput {
                 lock: red_miner_lock.clone(),
                 type_: None,
                 capacity: red_reward,
@@ -2860,7 +2860,7 @@ impl BlockTemplateBuilder {
     /// 生成区块模板（Cell 版本）
     pub fn build_template(
         &self,
-        miner_lock: ScriptRef,
+        miner_lock: Script,
         parent_hashes: Vec<[u8; 32]>,
     ) -> Result<BlockTemplate, Error> {
         // 1. 从 CellPool 选择交易（按 fee rate 排序）
@@ -3017,7 +3017,7 @@ pub trait SporaConsensus {
 ```bash
 cd /home/arthur/RustRoverProjects/Spora
 # 扫描所有 legacy txout 相关代码
-rg -n "legacy_txout|legacy txout|CellEntry|script_pub_key|ScriptRef|lock_script" \
+rg -n "legacy_txout|legacy txout|CellEntry|script_pub_key|Script|lock_script" \
   --type rust consensus/ mining/ indexes/ > cell_scan_full.txt
 
 # 统计文件分布（决定删除顺序）
@@ -3091,7 +3091,7 @@ cargo init --lib
 ```
 
 **任务 1.2：实现 `exec/src/celltx/types.rs`**
-- 定义 `CellRef`, `ScriptRef`, `CellOut`, `CellTx`
+- 定义 `CellInput`, `Script`, `CellOutput`, `CellTx`
 - 实现 `borsh::BorshSerialize` 和 `BorshDeserialize`
 - 单元测试：序列化/反序列化往返
 - **参考**：`/home/arthur/RustRoverProjects/ckb/util/types/src/core/cell.rs`
@@ -3190,8 +3190,8 @@ ckb-vm = "0.24"  # 查看最新版本
 **任务 3.2：实现 `exec/src/vm/interface.rs`**
 ```rust
 pub trait ScriptVerifier {
-    fn verify_lock(&self, lock: &ScriptRef, tx: &CellTx, input_idx: usize) -> Result<(), VMError>;
-    fn verify_type(&self, type_: &ScriptRef, tx: &CellTx, output_idx: usize) -> Result<(), VMError>;
+    fn verify_lock(&self, lock: &Script, tx: &CellTx, input_idx: usize) -> Result<(), VMError>;
+    fn verify_type(&self, type_: &Script, tx: &CellTx, output_idx: usize) -> Result<(), VMError>;
 }
 ```
 
@@ -3243,7 +3243,7 @@ pub struct SegmentWriter {
 }
 
 impl SegmentWriter {
-    pub fn append_cell(&mut self, cell: &CellOut) -> Result<(u32, u64, u32)> {
+    pub fn append_cell(&mut self, cell: &CellOutput) -> Result<(u32, u64, u32)> {
         // 返回 (segment_id, offset, len)
     }
     
@@ -4300,7 +4300,7 @@ jobs:
 4. **Cell交易定义** ✅ (100%)
    - `exec/src/celltx/types.rs` (420行) ✅
    - CellTx结构完整 ✅
-   - OutPoint, ScriptRef, CellOut ✅
+   - OutPoint, Script, CellOutput ✅
    - Time lock支持 (since field) ✅
    - Blake3 sighash ✅
    - **新增**: id()方法 ✅

@@ -734,7 +734,7 @@ impl MiningManager {
                             .entries
                             .iter()
                             .zip(transaction.mtx.tx.inputs.iter())
-                            .filter_map(|(entry, input)| entry.is_none().then_some(input.out_point.transaction_id()))
+                            .filter_map(|(entry, input)| entry.is_none().then_some(input.previous_output.transaction_id()))
                             .collect::<Vec<_>>();
 
                         // A transaction may have missing outpoints for legitimate reasons related to concurrency, like a race condition between
@@ -814,7 +814,7 @@ impl MiningManager {
     /// transaction relay fee, it is considered dust.
     ///
     #[cfg(test)]
-    pub fn is_transaction_output_dust(&self, transaction_output: &spora_consensus_core::tx::CellOut) -> bool {
+    pub fn is_transaction_output_dust(&self, transaction_output: &spora_consensus_core::tx::CellOutput) -> bool {
         self.mempool.read().is_transaction_output_dust(transaction_output)
     }
 
@@ -1054,12 +1054,12 @@ fn feerate_stats(transactions: Vec<CellTx>, calculated_fees: Vec<u64>) -> Option
 #[cfg(test)]
 mod tests {
     use super::*;
-    use spora_consensus_core::tx::{CellRef, CellTx, OutPoint};
+    use spora_consensus_core::tx::{CellInput, CellTx, OutPoint};
 
     fn transactions(length: usize) -> Vec<CellTx> {
         let coinbase = CellTx::new(vec![], vec![], vec![], vec![], vec![]).expect("coinbase test tx must be constructible");
         let regular = || {
-            CellTx::new(vec![CellRef::new(OutPoint::new([0u8; 32], 0), 0)], vec![], vec![], vec![], vec![vec![]])
+            CellTx::new(vec![CellInput::new(OutPoint::new([0u8; 32], 0), 0)], vec![], vec![], vec![], vec![vec![]])
                 .expect("regular test tx must be constructible")
         };
 

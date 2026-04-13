@@ -207,25 +207,30 @@ pub trait ConsensusApi: Send + Sync {
 
     /// Returns the fully resolved transaction with the given txid which was accepted at the provided accepting_block_daa_score.
     /// The argument `accepting_block_daa_score` is expected to be the DAA score of the accepting chain block of `txid`.
-    fn get_populated_transaction(&self, txid: Hash, accepting_block_daa_score: u64) -> Result<SignableTransaction, String> {
-        unimplemented!()
-    }
+    fn get_populated_transaction(&self, txid: Hash, accepting_block_daa_score: u64) -> Result<SignableTransaction, String>;
 
     /// Returns the canonical Cell transaction plus fully resolved input metadata for the given txid.
     ///
     /// The argument `accepting_block_daa_score` is expected to be the DAA score of the accepting
     /// chain block of `txid`.
-    fn get_resolved_cell_transaction(&self, txid: Hash, accepting_block_daa_score: u64) -> Result<ResolvedCellTransaction, String> {
-        unimplemented!()
-    }
+    fn get_resolved_cell_transaction(&self, txid: Hash, accepting_block_daa_score: u64) -> Result<ResolvedCellTransaction, String>;
+
+    /// Returns the containing block hash and transaction index for the given transaction.
+    fn get_transaction_location(&self, txid: Hash) -> Result<(Hash, usize), String>;
+
+    /// Returns the canonical Cell transaction plus fully resolved input metadata for the given txid
+    /// from the POV of a specific accepting block hash.
+    fn get_resolved_cell_transaction_in_accepting_block(
+        &self,
+        txid: Hash,
+        accepting_block: Hash,
+    ) -> Result<ResolvedCellTransaction, String>;
 
     /// Returns the canonical Cell transaction for the given txid.
     ///
     /// New Cell-model callers should prefer this over `get_transaction`, which
     /// is a compatibility view backed by `Transaction`.
-    fn get_cell_transaction(&self, hash: Hash) -> ConsensusResult<CellTx> {
-        unimplemented!()
-    }
+    fn get_cell_transaction(&self, hash: Hash) -> ConsensusResult<CellTx>;
 
     fn get_virtual_parents(&self) -> BlockHashSet {
         unimplemented!()

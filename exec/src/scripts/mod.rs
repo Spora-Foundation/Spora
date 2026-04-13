@@ -84,6 +84,9 @@ pub fn timelock_relative_code_hash() -> [u8; 32] {
 /// 1. Recipient path: Provide secret preimage + signature
 /// 2. Sender timeout path: Provide signature after timeout
 ///
+/// Signature verification in this fixture is deterministic and test-oriented,
+/// not a real secp256k1 implementation.
+///
 /// Script args format (105 bytes):
 /// - [0..32]:   secret_hash (blake3)
 /// - [32..64]:  recipient_pubkey (32 bytes)
@@ -117,10 +120,11 @@ pub fn htlc_minimal_code_hash() -> [u8; 32] {
 /// with CKB-VM scripts that use the `since` syscall.
 pub mod timelock;
 
-/// Secp256k1 + Blake3 lock script (placeholder)
+/// Secp256k1 + Blake3 lock script source.
 ///
-/// Note: This should be compiled from secp256k1_blake3_lock.c
-/// For now, we provide the source code and compilation instructions
+/// Note: this exposes the C source and build instructions only. The actual
+/// secp256k1 verification path inside the source file is still a scaffold and
+/// must be completed before the resulting ELF should guard production funds.
 pub const SECP256K1_BLAKE3_LOCK_SOURCE: &str = include_str!("secp256k1_blake3_lock.c");
 
 /// Build instructions for secp256k1 lock

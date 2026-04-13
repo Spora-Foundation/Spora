@@ -1,12 +1,12 @@
 use spora_consensus_core::{
     cell_metadata::CellMetadata,
-    tx::{CellOut, TransactionOutpoint},
+    tx::{CellOutput, TransactionOutpoint},
 };
 use spora_hashes::Hash;
 
 #[cfg(test)]
 pub(crate) fn cell_output_to_placeholder_entry(
-    output: &CellOut,
+    output: &CellOutput,
     output_data: &[u8],
     block_daa_score: u64,
     is_cellbase: bool,
@@ -24,7 +24,7 @@ pub(crate) fn cell_output_to_placeholder_entry(
 
 pub(crate) fn cell_output_to_metadata(
     out_point: TransactionOutpoint,
-    output: &CellOut,
+    output: &CellOutput,
     output_data: &[u8],
     block_daa_score: u64,
     is_cellbase: bool,

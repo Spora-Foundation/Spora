@@ -1,7 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use itertools::Itertools;
 use rand::{thread_rng, Rng};
-use spora_consensus_core::tx::{CellRef, CellTx, TransactionOutpoint};
+use spora_consensus_core::tx::{CellInput, CellTx, TransactionOutpoint};
 use spora_hashes::{HasherBase, TransactionID};
 use spora_mining::{model::topological_index::TopologicalIndex, FeerateTransactionKey, Frontier, Policy};
 use std::{
@@ -78,7 +78,7 @@ pub fn bench_compare_topological_index_fns(c: &mut Criterion) {
 fn generate_unique_tx(i: u64) -> Arc<CellTx> {
     let mut hasher = TransactionID::new();
     let prev = hasher.update(i.to_le_bytes()).clone().finalize();
-    let input = CellRef::new(TransactionOutpoint::new(prev.as_bytes(), 0), 0);
+    let input = CellInput::new(TransactionOutpoint::new(prev.as_bytes(), 0), 0);
     Arc::new(CellTx::new(vec![input], vec![], vec![], vec![], vec![vec![]]).expect("benchmark tx must be a valid CellTx"))
 }
 

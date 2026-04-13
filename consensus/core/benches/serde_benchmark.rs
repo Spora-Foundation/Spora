@@ -1,21 +1,21 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use spora_consensus_core::tx::{outpoint_from_id, CellOut, CellRef, CellTx, ScriptRef, TransactionId};
+use spora_consensus_core::tx::{outpoint_from_id, CellOutput, CellInput, CellTx, Script, TransactionId};
 use std::time::{Duration, Instant};
 
-fn sample_lock_script(tag: u8) -> ScriptRef {
-    ScriptRef::new([tag; 32], 0, vec![0x51, tag])
+fn sample_lock_script(tag: u8) -> Script {
+    Script::new([tag; 32], 0, vec![0x51, tag])
 }
 
 fn sample_cell_tx() -> CellTx {
     CellTx::new(
         vec![
-            CellRef::new(outpoint_from_id(TransactionId::from_slice(&[0x16; 32]), 0xffff_ffff), 0),
-            CellRef::new(outpoint_from_id(TransactionId::from_slice(&[0x4b; 32]), 0xffff_ffff), 1),
+            CellInput::new(outpoint_from_id(TransactionId::from_slice(&[0x16; 32]), 0xffff_ffff), 0),
+            CellInput::new(outpoint_from_id(TransactionId::from_slice(&[0x4b; 32]), 0xffff_ffff), 1),
         ],
         vec![],
         vec![
-            CellOut { capacity: 300, lock: sample_lock_script(0xaa), type_: None },
-            CellOut { capacity: 300, lock: sample_lock_script(0xbb), type_: None },
+            CellOutput { capacity: 300, lock: sample_lock_script(0xaa), type_: None },
+            CellOutput { capacity: 300, lock: sample_lock_script(0xbb), type_: None },
         ],
         vec![vec![], vec![]],
         vec![vec![1; 32], vec![2; 32]],
@@ -23,7 +23,7 @@ fn sample_cell_tx() -> CellTx {
     .expect("benchmark CellTx must be valid")
 }
 
-fn sample_script_ref() -> ScriptRef {
+fn sample_script_ref() -> Script {
     sample_lock_script(0xcc)
 }
 
@@ -55,7 +55,7 @@ fn serialize_script_ref_benchmark(c: &mut Criterion) {
     let script_ref = sample_script_ref();
     let size = bincode::serialized_size(&script_ref).unwrap();
     let mut buf = Vec::with_capacity(size as usize);
-    c.bench_function("Serialize ScriptRef", move |b| {
+    c.bench_function("Serialize Script", move |b| {
         b.iter_custom(|iters| {
             let start = Duration::default();
             (0..iters).fold(start, |acc, _| {
@@ -72,7 +72,7 @@ fn serialize_script_ref_benchmark(c: &mut Criterion) {
 
 fn deserialize_script_ref_benchmark(c: &mut Criterion) {
     let serialized = bincode::serialize(&sample_script_ref()).unwrap();
-    c.bench_function("Deserialize ScriptRef", |b| b.iter(|| black_box(bincode::deserialize::<ScriptRef>(&serialized).unwrap())));
+    c.bench_function("Deserialize Script", |b| b.iter(|| black_box(bincode::deserialize::<Script>(&serialized).unwrap())));
 }
 
 criterion_group!(

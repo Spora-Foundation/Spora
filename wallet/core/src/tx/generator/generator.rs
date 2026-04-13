@@ -67,7 +67,7 @@ use crate::tx::{
 use spora_consensus_client::{pay_to_address_lock_script, CellEntry, TransactionInput};
 use spora_consensus_core::constants::UNACCEPTED_DAA_SCORE;
 use spora_consensus_core::tx::TransactionOutpoint;
-use spora_exec::{CellRef, CellTx};
+use spora_exec::{CellInput, CellTx};
 use std::collections::VecDeque;
 
 use super::SignerT;
@@ -1165,7 +1165,7 @@ impl Generator {
                 let previous_outpoint = inner.previous_outpoint.clone();
                 let since = inner.since;
                 drop(inner);
-                (CellRef::new(previous_outpoint.into(), since), witness)
+                (CellInput::new(previous_outpoint.into(), since), witness)
             })
             .collect::<Vec<_>>();
         let witnesses = inputs.iter().map(|(_, witness)| witness.clone()).collect::<Vec<_>>();
@@ -1217,7 +1217,7 @@ impl Generator {
     }
 }
 
-fn cell_out_from_payment_output(output: &PaymentOutput) -> spora_exec::CellOut {
+fn cell_out_from_payment_output(output: &PaymentOutput) -> spora_exec::CellOutput {
     let lock_script = pay_to_address_lock_script(&output.address);
-    spora_exec::CellOut { lock: lock_script, type_: None, capacity: output.amount }
+    spora_exec::CellOutput { lock: lock_script, type_: None, capacity: output.amount }
 }

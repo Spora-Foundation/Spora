@@ -3,7 +3,7 @@
 use crate::{RpcError, RpcResult, RpcTransaction, RpcTransactionInput, RpcTransactionOutput};
 use spora_consensus_core::{
     mass::project_cell_tx_mass,
-    tx::{CellRef, CellTx},
+    tx::{CellInput, CellTx},
 };
 
 // ----------------------------------------------------------------------------
@@ -14,7 +14,7 @@ impl From<&CellTx> for RpcTransaction {
     fn from(item: &CellTx) -> Self {
         let projected_mass = project_cell_tx_mass(item, None);
         Self {
-            version: item.ver,
+            version: item.version,
             inputs: RpcTransactionInput::from_cell_refs(&item.inputs, &item.witnesses),
             outputs: RpcTransactionOutput::from_cell_outputs(&item.outputs, &item.outputs_data),
             payload: item.payload().map(ToOwned::to_owned).unwrap_or_default(),
@@ -41,14 +41,14 @@ impl TryFrom<RpcTransaction> for CellTx {
             ));
         }
 
-        let inputs: Vec<CellRef> = item.inputs.iter().map(|input| CellRef::new(input.previous_outpoint.into(), input.since)).collect();
+        let inputs: Vec<CellInput> = item.inputs.iter().map(|input| CellInput::new(input.previous_outpoint.into(), input.since)).collect();
 
         let mut witnesses: Vec<Vec<u8>> = item.inputs.into_iter().map(|input| input.witness).collect();
 
         let outputs: Vec<_> = item
             .outputs
             .iter()
-            .map(|output| spora_consensus_core::tx::CellOut {
+            .map(|output| spora_consensus_core::tx::CellOutput {
                 lock: output.lock_script.clone().into(),
                 type_: output.type_script.clone().map(Into::into),
                 capacity: output.capacity.unwrap_or(output.value),
@@ -64,7 +64,7 @@ impl TryFrom<RpcTransaction> for CellTx {
             }
         }
 
-        Ok(CellTx { ver: item.version, inputs, deps: vec![], header_deps: vec![], outputs, outputs_data, witnesses })
+        Ok(CellTx { version: item.version, inputs, cell_deps: vec![], header_deps: vec![], outputs, outputs_data, witnesses })
     }
 }
 
@@ -73,17 +73,17 @@ mod tests {
     use super::*;
     use spora_consensus_core::{
         mass::project_cell_tx_mass,
-        tx::{CellOut, OutPoint, ScriptRef},
+        tx::{CellOutput, OutPoint, Script},
     };
 
     #[test]
     fn cell_tx_roundtrip_preserves_canonical_fields() {
         let tx = CellTx::new(
-            vec![CellRef::new(OutPoint::new([0x11; 32], 2), 42)],
+            vec![CellInput::new(OutPoint::new([0x11; 32], 2), 42)],
             vec![],
-            vec![CellOut {
-                lock: ScriptRef::new([0x22; 32], 1, vec![0xaa, 0xbb]),
-                type_: Some(ScriptRef::new([0x33; 32], 2, vec![0xcc])),
+            vec![CellOutput {
+                lock: Script::new([0x22; 32], 1, vec![0xaa, 0xbb]),
+                type_: Some(Script::new([0x33; 32], 2, vec![0xcc])),
                 capacity: 1_337,
             }],
             vec![vec![1, 2, 3, 4]],
@@ -98,15 +98,15 @@ mod tests {
 
         let restored = CellTx::try_from(rpc_tx).expect("rpc tx converts back into CellTx");
 
-        assert_eq!(restored.ver, tx.ver);
+        assert_eq!(restored.version, tx.version);
         assert_eq!(restored.inputs, tx.inputs);
         assert_eq!(restored.witnesses, tx.witnesses);
         assert_eq!(restored.outputs.len(), 1);
         assert_eq!(restored.outputs[0].capacity, tx.outputs[0].capacity);
-        assert_eq!(restored.outputs[0].lock.code_hash, tx.outputs[0].lock.hash());
+        assert_eq!(restored.outputs[0].lock.code_hash, tx.outputs[0].lock.code_hash);
         assert_eq!(
             restored.outputs[0].type_.as_ref().map(|script| script.code_hash),
-            tx.outputs[0].type_.as_ref().map(|script| script.hash())
+            tx.outputs[0].type_.as_ref().map(|script| script.code_hash)
         );
         assert_eq!(restored.outputs_data, tx.outputs_data);
     }
@@ -117,7 +117,7 @@ mod tests {
         let tx = CellTx::new(
             vec![],
             vec![],
-            vec![CellOut { lock: ScriptRef::new([0x44; 32], 0, vec![]), type_: None, capacity: 5_000 }],
+            vec![CellOutput { lock: Script::new([0x44; 32], 0, vec![]), type_: None, capacity: 5_000 }],
             vec![payload.clone()],
             vec![],
         )
@@ -136,9 +136,9 @@ mod tests {
     fn rpc_transaction_rejects_non_coinbase_payload() {
         let rpc_tx = RpcTransaction {
             version: 0,
-            inputs: vec![RpcTransactionInput::from_cell_ref(&CellRef::new(OutPoint::new([0x11; 32], 2), 42), vec![0xaa])],
+            inputs: vec![RpcTransactionInput::from_cell_ref(&CellInput::new(OutPoint::new([0x11; 32], 2), 42), vec![0xaa])],
             outputs: vec![RpcTransactionOutput::from_cell_output(
-                &CellOut { lock: ScriptRef::new([0x22; 32], 0, vec![]), type_: None, capacity: 1_000 },
+                &CellOutput { lock: Script::new([0x22; 32], 0, vec![]), type_: None, capacity: 1_000 },
                 &[1, 2, 3],
             )],
             payload: vec![9, 8, 7],

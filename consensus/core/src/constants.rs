@@ -1,11 +1,11 @@
 /// BLOCK_VERSION represents the current block version
-pub const BLOCK_VERSION: u16 = 1;
+pub const BLOCK_VERSION: u32 = 1;
 
 /// TX_VERSION is the current latest supported transaction version.
-pub const TX_VERSION: u16 = 0;
+pub const TX_VERSION: u32 = 0;
 
 /// CELL_TX_VERSION is the canonical Cell transaction version used on active paths.
-pub const CELL_TX_VERSION: u16 = spora_exec::CELL_TX_VERSION;
+pub const CELL_TX_VERSION: u32 = spora_exec::CELL_TX_VERSION;
 
 pub const LOCK_TIME_THRESHOLD: u64 = 500_000_000_000;
 

@@ -10,7 +10,7 @@ use spora_utils::mem_size::MemSizeEstimator;
 pub struct Header {
     /// Cached hash
     pub hash: Hash,
-    pub version: u16,
+    pub version: u32,
     pub parents_by_level: Vec<Vec<Hash>>,
     pub hash_merkle_root: Hash,
     pub accepted_id_merkle_root: Hash,
@@ -33,7 +33,7 @@ pub struct Header {
 impl Header {
     #[allow(clippy::too_many_arguments)]
     pub fn new_finalized(
-        version: u16,
+        version: u32,
         parents_by_level: Vec<Vec<Hash>>,
         hash_merkle_root: Hash,
         accepted_id_merkle_root: Hash,

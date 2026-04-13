@@ -233,7 +233,7 @@ mod tests {
     use spora_consensus_core::{
         constants::{MAX_TX_IN_SEQUENCE_NUM, SAU_PER_SPORA},
         mass::cell_tx_estimated_serialized_size,
-        tx::{pay_to_script_hash_witness_script, CellOut, CellRef, CellTx, TransactionId, TransactionOutpoint},
+        tx::{pay_to_script_hash_witness_script, CellOutput, CellInput, CellTx, TransactionId, TransactionOutpoint},
     };
     use std::{collections::HashSet, sync::Arc};
 
@@ -300,9 +300,9 @@ mod tests {
 
         let tx = Arc::new(
             CellTx::new(
-                vec![CellRef::new(previous_outpoint, MAX_TX_IN_SEQUENCE_NUM)],
+                vec![CellInput::new(previous_outpoint, MAX_TX_IN_SEQUENCE_NUM)],
                 vec![],
-                vec![CellOut { lock: lock_script, type_: None, capacity: value - DEFAULT_MINIMUM_RELAY_TRANSACTION_FEE }],
+                vec![CellOutput { lock: lock_script, type_: None, capacity: value - DEFAULT_MINIMUM_RELAY_TRANSACTION_FEE }],
                 vec![vec![]],
                 vec![witness_script],
             )

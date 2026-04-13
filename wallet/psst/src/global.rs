@@ -19,7 +19,7 @@ pub struct Global {
     /// The version number of this psst.
     pub version: Version,
     /// The version number of the transaction being built.
-    pub tx_version: u16,
+    pub tx_version: u32,
     pub inputs_modifiable: bool,
     pub outputs_modifiable: bool,
 
@@ -150,9 +150,9 @@ pub enum CombineError {
     #[error("The transaction version numbers are not the same")]
     TxVersionMismatch {
         /// Attempted to combine a psst with `this` tx version.
-        this: u16,
+        this: u32,
         /// Into a psst with `that` tx version.
-        that: u16,
+        that: u32,
     },
     #[error("The transaction ids are not the same")]
     TransactionIdMismatch {

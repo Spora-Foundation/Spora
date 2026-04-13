@@ -2,7 +2,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 use spora_addresses::Address;
 use spora_consensus_core::cell_diff::CellMeta;
-use spora_consensus_core::tx::{CellOut, CellRef, ScriptRef, TransactionId, TransactionIndexType, TransactionOutpoint};
+use spora_consensus_core::tx::{CellOutput, CellInput, Script, TransactionId, TransactionIndexType, TransactionOutpoint};
 use spora_utils::{hex::ToHex, serde_bytes_fixed, serde_bytes_fixed_ref};
 use workflow_serializer::prelude::*;
 
@@ -35,7 +35,7 @@ pub type RpcTransactionId = TransactionId;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RpcScriptRef {
+pub struct RpcScript {
     #[serde(with = "serde_bytes_fixed")]
     pub code_hash: [u8; 32],
     pub hash_type: u8,
@@ -43,21 +43,21 @@ pub struct RpcScriptRef {
     pub args: Vec<u8>,
 }
 
-impl From<ScriptRef> for RpcScriptRef {
-    fn from(script: ScriptRef) -> Self {
+impl From<Script> for RpcScript {
+    fn from(script: Script) -> Self {
         Self { code_hash: script.code_hash, hash_type: script.hash_type, args: script.args }
     }
 }
 
-impl From<&ScriptRef> for RpcScriptRef {
-    fn from(script: &ScriptRef) -> Self {
+impl From<&Script> for RpcScript {
+    fn from(script: &Script) -> Self {
         Self { code_hash: script.code_hash, hash_type: script.hash_type, args: script.args.clone() }
     }
 }
 
-impl From<RpcScriptRef> for ScriptRef {
-    fn from(script: RpcScriptRef) -> Self {
-        ScriptRef::new(script.code_hash, script.hash_type, script.args)
+impl From<RpcScript> for Script {
+    fn from(script: RpcScript) -> Self {
+        Script::new(script.code_hash, script.hash_type, script.args)
     }
 }
 
@@ -247,11 +247,11 @@ impl std::fmt::Debug for RpcTransactionInput {
 }
 
 impl RpcTransactionInput {
-    pub fn from_cell_ref(input: &CellRef, witness: Vec<u8>) -> Self {
-        Self { previous_outpoint: input.out_point.into(), since: input.since, witness, verbose_data: None }
+    pub fn from_cell_ref(input: &CellInput, witness: Vec<u8>) -> Self {
+        Self { previous_outpoint: input.previous_output.into(), since: input.since, witness, verbose_data: None }
     }
 
-    pub fn from_cell_refs(inputs: &[CellRef], witnesses: &[Vec<u8>]) -> Vec<Self> {
+    pub fn from_cell_refs(inputs: &[CellInput], witnesses: &[Vec<u8>]) -> Vec<Self> {
         inputs
             .iter()
             .enumerate()
@@ -319,15 +319,15 @@ pub struct RpcTransactionOutput {
     pub lock_hash: Option<[u8; 32]>,
     pub type_hash: Option<[u8; 32]>,
     pub data_hash: Option<[u8; 32]>,
-    pub lock_script: RpcScriptRef,
-    pub type_script: Option<RpcScriptRef>,
+    pub lock_script: RpcScript,
+    pub type_script: Option<RpcScript>,
     #[serde(default, skip_serializing_if = "Option::is_none", with = "option_hex_serde")]
     pub output_data: Option<Vec<u8>>,
     pub verbose_data: Option<RpcTransactionOutputVerboseData>,
 }
 
 impl RpcTransactionOutput {
-    pub fn from_cell_output(output: &CellOut, output_data: &[u8]) -> Self {
+    pub fn from_cell_output(output: &CellOutput, output_data: &[u8]) -> Self {
         let data_hash = *blake3::hash(output_data).as_bytes();
         Self {
             value: output.capacity,
@@ -343,7 +343,7 @@ impl RpcTransactionOutput {
         }
     }
 
-    pub fn from_cell_outputs(outputs: &[CellOut], outputs_data: &[Vec<u8>]) -> Vec<Self> {
+    pub fn from_cell_outputs(outputs: &[CellOutput], outputs_data: &[Vec<u8>]) -> Vec<Self> {
         outputs
             .iter()
             .enumerate()
@@ -361,8 +361,8 @@ impl Serializer for RpcTransactionOutput {
         store!(Option<[u8; 32]>, &self.lock_hash, writer)?;
         store!(Option<[u8; 32]>, &self.type_hash, writer)?;
         store!(Option<[u8; 32]>, &self.data_hash, writer)?;
-        store!(RpcScriptRef, &self.lock_script, writer)?;
-        store!(Option<RpcScriptRef>, &self.type_script, writer)?;
+        store!(RpcScript, &self.lock_script, writer)?;
+        store!(Option<RpcScript>, &self.type_script, writer)?;
         store!(Option<Vec<u8>>, &self.output_data, writer)?;
         serialize!(Option<RpcTransactionOutputVerboseData>, &self.verbose_data, writer)?;
 
@@ -386,7 +386,7 @@ impl Deserializer for RpcTransactionOutput {
             (None, None, None, None, None)
         };
         let (lock_script, type_script, output_data) = if version >= 3 {
-            (load!(RpcScriptRef, reader)?, load!(Option<RpcScriptRef>, reader)?, load!(Option<Vec<u8>>, reader)?)
+            (load!(RpcScript, reader)?, load!(Option<RpcScript>, reader)?, load!(Option<Vec<u8>>, reader)?)
         } else {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
@@ -431,7 +431,7 @@ impl Deserializer for RpcTransactionOutputVerboseData {
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RpcTransaction {
-    pub version: u16,
+    pub version: u32,
     pub inputs: Vec<RpcTransactionInput>,
     pub outputs: Vec<RpcTransactionOutput>,
     #[serde(with = "hex::serde")]
@@ -456,8 +456,8 @@ impl std::fmt::Debug for RpcTransaction {
 
 impl Serializer for RpcTransaction {
     fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
-        store!(u16, &2, writer)?;
-        store!(u16, &self.version, writer)?;
+        store!(u16, &3, writer)?;
+        store!(u32, &self.version, writer)?;
         serialize!(Vec<RpcTransactionInput>, &self.inputs, writer)?;
         serialize!(Vec<RpcTransactionOutput>, &self.outputs, writer)?;
         store!(Vec<u8>, &self.payload, writer)?;
@@ -471,10 +471,10 @@ impl Serializer for RpcTransaction {
 impl Deserializer for RpcTransaction {
     fn deserialize<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
         let struct_version = load!(u16, reader)?;
-        let version = load!(u16, reader)?;
+        let version = load!(u32, reader)?;
         let inputs = deserialize!(Vec<RpcTransactionInput>, reader)?;
         let outputs = deserialize!(Vec<RpcTransactionOutput>, reader)?;
-        if struct_version != 2 {
+        if struct_version != 3 {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 format!("unsupported RpcTransaction serialization version: {struct_version}"),

@@ -77,14 +77,26 @@ export interface IAccountCreateArgsBip32 {
     accountIndex?: number;
 }
 
+export interface IAccountCreateArgsWatchOnly {
+    accountName?: string;
+    xpubKeys: string[];
+    minimumSignatures?: number;
+    ecdsa?: boolean;
+}
+
 /**
  * @category Wallet API
  */
-export interface IAccountCreateArgs {
-    type : "bip32";
-    args : IAccountCreateArgsBip32;
-    prvKeyDataArgs? : IPrvKeyDataArgs;
-}
+export type IAccountCreateArgs =
+    | {
+        type : "bip32";
+        args : IAccountCreateArgsBip32;
+        prvKeyDataArgs? : IPrvKeyDataArgs;
+      }
+    | {
+        type : "watchonly";
+        args : IAccountCreateArgsWatchOnly;
+      };
 "#;
 
 #[derive(Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
@@ -108,6 +120,20 @@ pub struct AccountCreateArgsBip32Watch {
 impl AccountCreateArgsBip32Watch {
     pub fn new(account_name: Option<String>, xpub_keys: Vec<String>) -> Self {
         Self { account_name, xpub_keys }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+pub struct AccountCreateArgsWatchOnly {
+    pub account_name: Option<String>,
+    pub xpub_keys: Vec<String>,
+    pub minimum_signatures: u16,
+    pub ecdsa: bool,
+}
+
+impl AccountCreateArgsWatchOnly {
+    pub fn new(account_name: Option<String>, xpub_keys: Vec<String>, minimum_signatures: u16, ecdsa: bool) -> Self {
+        Self { account_name, xpub_keys, minimum_signatures, ecdsa }
     }
 }
 
@@ -139,6 +165,9 @@ pub enum AccountCreateArgs {
     Bip32Watch {
         account_args: AccountCreateArgsBip32Watch,
     },
+    WatchOnly {
+        account_args: AccountCreateArgsWatchOnly,
+    },
     Keypair {
         prv_key_data_id: PrvKeyDataId,
         account_name: Option<String>,
@@ -159,6 +188,11 @@ impl AccountCreateArgs {
 
     pub fn new_keypair_key(prv_key_data_id: PrvKeyDataId, account_name: Option<String>, ecdsa: bool) -> Self {
         AccountCreateArgs::Keypair { prv_key_data_id, account_name, ecdsa }
+    }
+
+    pub fn new_watch_only(account_name: Option<String>, xpub_keys: Vec<String>, minimum_signatures: u16, ecdsa: bool) -> Self {
+        let account_args = AccountCreateArgsWatchOnly { account_name, xpub_keys, minimum_signatures, ecdsa };
+        AccountCreateArgs::WatchOnly { account_args }
     }
 
     pub fn new_multisig(

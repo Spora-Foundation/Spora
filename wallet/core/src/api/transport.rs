@@ -21,6 +21,7 @@ use async_trait::async_trait;
 use borsh::BorshDeserialize;
 use spora_wallet_macros::{build_wallet_client_transport_interface, build_wallet_server_transport_interface};
 use workflow_core::task::spawn;
+use workflow_core::channel::{unbounded, DuplexChannel, Receiver, Sender};
 
 /// Transport interface supporting Borsh serialization
 #[async_trait]
@@ -46,7 +47,7 @@ pub enum Codec {
 /// [`WalletClient`] is a counter-part to [`WalletServer`].
 pub struct WalletClient {
     pub codec: Codec,
-    notification_channels: Mutex<HashMap<u64, Receiver<WalletNotification>>>,
+    notification_channels: Mutex<HashMap<u64, Sender<WalletNotification>>>,
     next_notification_channel_id: AtomicU64,
 }
 
@@ -56,13 +57,13 @@ impl WalletClient {
     }
 }
 
-use workflow_core::channel::{DuplexChannel, Receiver};
 #[async_trait]
 impl WalletApi for WalletClient {
-    async fn register_notifications(self: Arc<Self>, channel: Receiver<WalletNotification>) -> Result<u64> {
+    async fn register_notifications(self: Arc<Self>) -> Result<(u64, Receiver<WalletNotification>)> {
         let channel_id = self.next_notification_channel_id.fetch_add(1, Ordering::SeqCst);
-        self.notification_channels.lock().unwrap().insert(channel_id, channel);
-        Ok(channel_id)
+        let (sender, receiver) = unbounded();
+        self.notification_channels.lock().unwrap().insert(channel_id, sender);
+        Ok((channel_id, receiver))
     }
     async fn unregister_notifications(self: Arc<Self>, channel_id: u64) -> Result<()> {
         self.notification_channels
@@ -94,6 +95,7 @@ impl WalletApi for WalletClient {
         WalletImport,
         PrvKeyDataEnumerate,
         PrvKeyDataCreate,
+        PrvKeyDataRename,
         PrvKeyDataRemove,
         PrvKeyDataGet,
         AccountsRename,
@@ -125,6 +127,31 @@ impl WalletApi for WalletClient {
         AccountsCommitRevealManual,
 
     ]}
+}
+
+impl WalletClient {
+    fn notify_registered_channels(&self, notification: WalletNotification) {
+        let failed_ids = {
+            let channels = self.notification_channels.lock().unwrap();
+            channels
+                .iter()
+                .filter_map(|(channel_id, sender)| sender.try_send(notification.clone()).err().map(|_| *channel_id))
+                .collect::<Vec<_>>()
+        };
+        if !failed_ids.is_empty() {
+            let mut channels = self.notification_channels.lock().unwrap();
+            for channel_id in failed_ids {
+                channels.remove(&channel_id);
+            }
+        }
+    }
+}
+
+#[async_trait]
+impl EventHandler for WalletClient {
+    async fn handle_event(&self, event: &Events) {
+        self.notify_registered_channels(WalletNotification::from(event));
+    }
 }
 
 // ----------------------------
@@ -181,6 +208,7 @@ impl WalletServer {
         WalletImport,
         PrvKeyDataEnumerate,
         PrvKeyDataCreate,
+        PrvKeyDataRename,
         PrvKeyDataRemove,
         PrvKeyDataGet,
         AccountsRename,
@@ -250,5 +278,46 @@ impl WalletServer {
     pub async fn stop_task(&self) -> Result<()> {
         self.task_ctl.signal(()).await.expect("Wallet::stop_task() `signal` error");
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct NoopCodec;
+
+    #[async_trait]
+    impl BorshCodec for NoopCodec {
+        async fn call(&self, _op: u64, _request: Vec<u8>) -> Result<Vec<u8>> {
+            Err(Error::custom("unused in test"))
+        }
+    }
+
+    #[tokio::test]
+    async fn wallet_client_event_handler_forwards_registered_notifications() {
+        let client = Arc::new(WalletClient::new(Codec::Borsh(Arc::new(NoopCodec))));
+        let (_channel_id, receiver) = client.clone().register_notifications().await.unwrap();
+
+        client.handle_event(&Events::Error { message: "transport notification".to_string() }).await;
+
+        let notification = receiver.recv().await.unwrap();
+        assert!(matches!(notification, WalletNotification::Error { message } if message == "transport notification"));
+    }
+
+    #[tokio::test]
+    async fn wallet_server_forwards_multiplexer_events_to_client_notification_channels() {
+        let wallet = Arc::new(Wallet::try_with_rpc(None, Wallet::resident_store().unwrap(), None).unwrap());
+        let client = Arc::new(WalletClient::new(Codec::Borsh(Arc::new(NoopCodec))));
+        let server = Arc::new(WalletServer::new(wallet.clone(), client.clone()));
+        let (_channel_id, receiver) = client.clone().register_notifications().await.unwrap();
+
+        server.start();
+        wallet.notify(Events::Error { message: "server notification".to_string() }).await.unwrap();
+
+        let notification = receiver.recv().await.unwrap();
+        assert!(matches!(notification, WalletNotification::Error { message } if message == "server notification"));
+
+        server.stop_task().await.unwrap();
     }
 }

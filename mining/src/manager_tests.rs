@@ -25,8 +25,8 @@ mod tests {
         errors::tx::TxRuleError,
         mass::cell_tx_estimated_serialized_size,
         tx::{
-            pay_to_address_lock_script, pay_to_script_hash_witness_script, CellDep, CellOut, CellRef, CellTx, DepType,
-            MutableTransaction, ScriptRef, TransactionId, TransactionOutpoint,
+            pay_to_address_lock_script, pay_to_script_hash_witness_script, CellDep, CellOutput, CellInput, CellTx, DepType,
+            MutableTransaction, Script, TransactionId, TransactionOutpoint,
         },
     };
     use spora_hashes::Hash;
@@ -163,12 +163,12 @@ mod tests {
         let header_dep = [0x11; 32];
         let dep = CellDep { out_point: TransactionOutpoint::new([0x22; 32], 1), dep_type: DepType::Code };
         let cell_tx = CellTx::new_with_header_deps(
-            vec![CellRef::new(funding_outpoint, 0)],
+            vec![CellInput::new(funding_outpoint, 0)],
             vec![dep.clone()],
             vec![header_dep],
-            vec![CellOut {
+            vec![CellOutput {
                 lock: lock_script,
-                type_: Some(ScriptRef::new([0x33; 32], 1, vec![0x44, 0x55])),
+                type_: Some(Script::new([0x33; 32], 1, vec![0x44, 0x55])),
                 capacity: 500 * SAU_PER_SPORA - DEFAULT_MINIMUM_RELAY_TRANSACTION_FEE,
             }],
             vec![output_data.clone()],
@@ -195,7 +195,7 @@ mod tests {
             .expect("canonical CellTx must be addressable in the mempool by its canonical id");
         assert_eq!(stored.tx.as_ref(), &cell_tx, "stored mempool transaction must preserve canonical CellTx data");
         assert_eq!(stored.tx.header_deps, vec![header_dep], "header deps must not be dropped from canonical mempool txs");
-        assert_eq!(stored.tx.deps, vec![dep], "CellDeps must not be dropped from canonical mempool txs");
+        assert_eq!(stored.tx.cell_deps, vec![dep], "CellDeps must not be dropped from canonical mempool txs");
         assert_eq!(stored.tx.outputs_data, vec![output_data], "output data must not be dropped from canonical mempool txs");
         assert_eq!(
             stored.calculated_non_contextual_masses,
@@ -1088,7 +1088,7 @@ mod tests {
         assert_eq!(3, block_transactions.len(), "coinbase, parent and child should all be present in the converted block");
         assert_eq!(
             Hash::from_bytes(block_transactions[1].id()),
-            Hash::from_bytes(block_transactions[2].inputs[0].out_point.tx_hash),
+            Hash::from_bytes(block_transactions[2].inputs[0].previous_output.tx_hash),
             "the converted child transaction must point to the selected parent's CellTx id"
         );
     }
@@ -1585,7 +1585,7 @@ mod tests {
                 let (script, _) = op_true_script();
                 MinerData::new(script, vec![])
             }
-            OpType::Empty => MinerData::new(ScriptRef::new([0; 32], 0, vec![]), vec![]),
+            OpType::Empty => MinerData::new(Script::new([0; 32], 0, vec![]), vec![]),
         }
     }
 
@@ -1622,9 +1622,9 @@ mod tests {
     fn create_cell_transaction(tx_to_spend: &CellTx, fee: u64) -> CellTx {
         let (lock_script, redeem_script) = op_true_script();
         let witness_script = pay_to_script_hash_witness_script(&redeem_script, vec![]).expect("the redeem script is canonical");
-        let output = CellOut { lock: lock_script, type_: None, capacity: tx_to_spend.outputs[0].capacity - fee };
+        let output = CellOutput { lock: lock_script, type_: None, capacity: tx_to_spend.outputs[0].capacity - fee };
         CellTx::new(
-            vec![CellRef::new(TransactionOutpoint::new(tx_to_spend.id(), 0), 0)],
+            vec![CellInput::new(TransactionOutpoint::new(tx_to_spend.id(), 0), 0)],
             vec![],
             vec![output],
             vec![vec![]],
@@ -1646,7 +1646,7 @@ mod tests {
         for tx_to_spend in txs_to_spend {
             for index in output_indexes.iter().copied() {
                 if index < tx_to_spend.outputs.len() {
-                    inputs.push(CellRef::new(TransactionOutpoint::new(tx_to_spend.id(), index as u32), 0));
+                    inputs.push(CellInput::new(TransactionOutpoint::new(tx_to_spend.id(), index as u32), 0));
                     inputs_value += tx_to_spend.outputs[index].capacity;
                 }
             }
@@ -1654,10 +1654,10 @@ mod tests {
 
         let outputs = match change {
             Some(change) => vec![
-                CellOut { lock: lock_script.clone(), type_: None, capacity: inputs_value - fee - change },
-                CellOut { lock: lock_script.clone(), type_: None, capacity: change },
+                CellOutput { lock: lock_script.clone(), type_: None, capacity: inputs_value - fee - change },
+                CellOutput { lock: lock_script.clone(), type_: None, capacity: change },
             ],
-            None => vec![CellOut { lock: lock_script, type_: None, capacity: inputs_value - fee }],
+            None => vec![CellOutput { lock: lock_script, type_: None, capacity: inputs_value - fee }],
         };
 
         let outputs_data = vec![vec![]; outputs.len()];
@@ -1733,7 +1733,7 @@ mod tests {
 
     fn create_cell_transaction_without_input(output_values: Vec<u64>) -> CellTx {
         let (lock_script, _) = op_true_script();
-        let outputs = output_values.iter().map(|value| CellOut { lock: lock_script.clone(), type_: None, capacity: *value }).collect();
+        let outputs = output_values.iter().map(|value| CellOutput { lock: lock_script.clone(), type_: None, capacity: *value }).collect();
         CellTx::new(vec![], vec![], outputs, vec![vec![]; output_values.len()], vec![])
             .expect("funding tx helper must construct a valid CellTx")
     }

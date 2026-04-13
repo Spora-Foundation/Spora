@@ -17,8 +17,8 @@ use std::sync::Arc;
 ///
 /// Syscall number: 2072
 ///
-/// Note: In DAG, headers are more complex (multi-parent)
-/// This is a simplified implementation
+/// Note: In DAG, headers are multi-parent and the serialized runtime view preserves
+/// the richer header fields exposed by `ResolvedHeader`.
 pub struct LoadHeader<D: CellDataProvider> {
     tx: Arc<CellTx>,
     provider: Arc<D>,
@@ -44,13 +44,23 @@ impl<D: CellDataProvider> LoadHeader<D> {
             HeaderField::DaaScore => Some(header.daa_score.to_le_bytes().to_vec()),
             HeaderField::Timestamp => Some(header.timestamp.to_le_bytes().to_vec()),
             HeaderField::Hash => Some(header.hash.to_vec()),
-            HeaderField::Parents => Some(header.parents.iter().flatten().copied().collect()),
+            HeaderField::Parents => Some(header.direct_parents().iter().flatten().copied().collect()),
+            HeaderField::Version => Some(header.version.to_le_bytes().to_vec()),
+            HeaderField::Bits => Some(header.bits.to_le_bytes().to_vec()),
+            HeaderField::Nonce => Some(header.nonce.to_le_bytes().to_vec()),
+            HeaderField::HashMerkleRoot => Some(header.hash_merkle_root.to_vec()),
+            HeaderField::AcceptedIdMerkleRoot => Some(header.accepted_id_merkle_root.to_vec()),
+            HeaderField::CellCommitment => Some(header.cell_commitment.to_vec()),
+            HeaderField::CellRoot => Some(header.cell_root.to_vec()),
+            HeaderField::SegmentRoot => Some(header.segment_root.to_vec()),
+            HeaderField::BlueScore => Some(header.blue_score.to_le_bytes().to_vec()),
+            HeaderField::BlueWork => Some(header.blue_work.to_vec()),
+            HeaderField::PruningPoint => Some(header.pruning_point.to_vec()),
         }
     }
 
     fn serialize_header(&self, header: &ResolvedHeader) -> Result<Vec<u8>, VMError> {
-        borsh::to_vec(&(header.hash, header.timestamp, header.daa_score, header.parents.clone()))
-            .map_err(|e| VMError::Unexpected(format!("Failed to serialize header: {e}")))
+        borsh::to_vec(header).map_err(|e| VMError::Unexpected(format!("Failed to serialize header: {e}")))
     }
 }
 
@@ -101,6 +111,7 @@ impl<D: CellDataProvider, M: SupportMachine> Syscalls<M> for LoadHeader<D> {
 mod tests {
     use super::*;
     use crate::vm::{ScriptVersion, SimpleDataProvider};
+    use borsh::BorshDeserialize;
     use ckb_vm::{
         registers::{A1, A2},
         CoreMachine, Memory, Register,
@@ -109,27 +120,39 @@ mod tests {
     const BUFFER_ADDR: u64 = 0x1000;
     const SIZE_ADDR: u64 = 0x2000;
 
+    fn resolved_header(header_hash: [u8; 32]) -> ResolvedHeader {
+        ResolvedHeader {
+            hash: header_hash,
+            version: 7,
+            parents_by_level: vec![vec![[0xAA; 32], [0xBB; 32]], vec![[0xCC; 32]]],
+            hash_merkle_root: [0x10; 32],
+            accepted_id_merkle_root: [0x20; 32],
+            cell_commitment: [0x30; 32],
+            cell_root: [0x40; 32],
+            segment_root: [0x50; 32],
+            timestamp: 0x0102_0304_0506_0708,
+            bits: 0x1d00_ffff,
+            nonce: 0x8877_6655_4433_2211,
+            daa_score: 0x1122_3344_5566_7788,
+            blue_work: [0x60; 24],
+            blue_score: 0x99AA_BBCC_DDEE_FF00,
+            pruning_point: [0x70; 32],
+        }
+    }
+
     fn build_tx_and_provider() -> (Arc<CellTx>, Arc<SimpleDataProvider>) {
         let header_hash = [0x77; 32];
         let tx = Arc::new(CellTx {
-            ver: 0xC001,
+            version: 0xC001,
             inputs: vec![],
-            deps: vec![],
+            cell_deps: vec![],
             header_deps: vec![header_hash],
             outputs: vec![],
             outputs_data: vec![],
             witnesses: vec![],
         });
         let mut provider = SimpleDataProvider::new();
-        provider.add_header(
-            header_hash,
-            ResolvedHeader {
-                hash: header_hash,
-                timestamp: 0x0102_0304_0506_0708,
-                daa_score: 0x1122_3344_5566_7788,
-                parents: vec![[0xAA; 32], [0xBB; 32]],
-            },
-        );
+        provider.add_header(header_hash, resolved_header(header_hash));
         (tx, Arc::new(provider))
     }
 
@@ -192,5 +215,50 @@ mod tests {
 
         assert!(handled);
         assert_eq!(machine.registers()[A0].to_u64(), ITEM_MISSING as u64);
+    }
+
+    #[test]
+    fn test_load_header_returns_richer_header_view() {
+        let (tx, provider) = build_tx_and_provider();
+        let mut machine = ScriptVersion::V2.init_core_machine(10_000);
+        machine.memory_mut().store64(&SIZE_ADDR, &512u64).unwrap();
+        machine.set_register(A0, BUFFER_ADDR);
+        machine.set_register(A1, SIZE_ADDR);
+        machine.set_register(A2, 0);
+        machine.set_register(A3, 0);
+        machine.set_register(A4, Source::HeaderDep as u64);
+        machine.set_register(A7, LOAD_HEADER_SYSCALL_NUMBER);
+
+        let mut syscall = LoadHeader::new(tx, provider);
+        let handled = syscall.ecall(&mut machine).expect("load header syscall should succeed");
+
+        assert!(handled);
+        assert_eq!(machine.registers()[A0].to_u64(), SUCCESS as u64);
+        let size = machine.memory_mut().load64(&SIZE_ADDR).unwrap().to_u64();
+        let bytes = machine.memory_mut().load_bytes(BUFFER_ADDR, size).unwrap();
+        let header = ResolvedHeader::try_from_slice(bytes.as_ref()).expect("header should deserialize");
+        assert_eq!(header, resolved_header([0x77; 32]));
+    }
+
+    #[test]
+    fn test_load_header_by_field_supports_blue_work() {
+        let (tx, provider) = build_tx_and_provider();
+        let mut machine = ScriptVersion::V2.init_core_machine(10_000);
+        machine.memory_mut().store64(&SIZE_ADDR, &24u64).unwrap();
+        machine.set_register(A0, BUFFER_ADDR);
+        machine.set_register(A1, SIZE_ADDR);
+        machine.set_register(A2, 0);
+        machine.set_register(A3, 0);
+        machine.set_register(A4, Source::HeaderDep as u64);
+        machine.set_register(A5, HeaderField::BlueWork as u64);
+        machine.set_register(A7, LOAD_HEADER_BY_FIELD_SYSCALL_NUMBER);
+
+        let mut syscall = LoadHeader::new(tx, provider);
+        let handled = syscall.ecall(&mut machine).expect("load header by field should succeed");
+
+        assert!(handled);
+        assert_eq!(machine.registers()[A0].to_u64(), SUCCESS as u64);
+        assert_eq!(machine.memory_mut().load64(&SIZE_ADDR).unwrap().to_u64(), 24);
+        assert_eq!(machine.memory_mut().load_bytes(BUFFER_ADDR, 24).unwrap().as_ref(), &[0x60; 24]);
     }
 }

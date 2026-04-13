@@ -8,10 +8,10 @@
 
 | CKB 类型 | CKB 文件 | SPORA 类型 | SPORA 文件 | 差异 |
 |---------|---------|-----------|-----------|------|
-| `CellOutput` | `util/types/src/core/cell.rs` | `CellOut` | `exec/src/celltx/types.rs` | ✅ 结构相同 |
+| `CellOutputput` | `util/types/src/core/cell.rs` | `CellOutput` | `exec/src/celltx/types.rs` | ✅ 结构相同 |
 | `OutPoint` | `util/types/src/core/cell.rs` | `OutPoint` | `exec/src/celltx/types.rs` | ✅ 完全相同 |
-| `Script` | `util/types/src/core/cell.rs` | `ScriptRef` | `exec/src/celltx/types.rs` | ✅ 结构相同 |
-| `CellInput` | `util/types/src/core/cell.rs` | `CellRef` | `exec/src/celltx/types.rs` | ✅ 结构相同 |
+| `Script` | `util/types/src/core/cell.rs` | `Script` | `exec/src/celltx/types.rs` | ✅ 结构相同 |
+| `CellInput` | `util/types/src/core/cell.rs` | `CellInput` | `exec/src/celltx/types.rs` | ✅ 结构相同 |
 | `CellDep` | `util/types/src/core/cell.rs` | `CellDep` | `exec/src/celltx/types.rs` | ✅ 完全相同 |
 | `Transaction` | `util/types/src/core/views.rs` | `CellTx` | `exec/src/celltx/types.rs` | ✅ 有 header_deps |
 | `ResolvedTransaction` | `util/types/src/core/cell.rs` | `ResolvedCellTx` | `exec/src/celltx/types.rs` | ✅ 概念相同 |
@@ -345,9 +345,9 @@ cp ckb/script/src/syscalls/spawn.rs exec/src/vm/syscalls/spawn.rs  # ⏳ 待实�
 |---------|-----------|------|
 | `Bytes` | `Vec<u8>` | SPORA使用标准Vec |
 | `Byte32` | `[u8; 32]` | 固定大小数组 |
-| `Script` | `ScriptRef` | 脚本引用 |
-| `CellOutput` | `CellOut` | Cell输出 |
-| `CellInput` | `CellRef` | Cell输入（含since） |
+| `Script` | `Script` | 脚本引用 |
+| `CellOutputput` | `CellOutput` | Cell输出 |
+| `CellInput` | `CellInput` | Cell输入（含since） |
 | `Transaction` | `CellTx` | 交易（含header_deps） |
 | `OutPoint` | `OutPoint` | 完全相同 |
 | `CellDep` | `CellDep` | 完全相同 |
@@ -376,7 +376,7 @@ let result = verifier.verify()?;
 | CKB Crate | SPORA Crate/Module | 说明 |
 |-----------|-------------------|------|
 | `ckb-vm` | `ckb-vm` (依赖) | ✅ 完全相同，直接依赖 |
-| `ckb-types` | `spora-exec::celltx` | ✅ 自己实现 (CellTx/CellOut等) |
+| `ckb-types` | `spora-exec::celltx` | ✅ 自己实现 (CellTx/CellOutput等) |
 | `ckb-hash` | `blake3` (依赖) | ✅ 使用Blake3替代Blake2b |
 | `ckb-traits` | `spora-exec::vm::verifier` | ✅ CellDataProvider trait |
 | `ckb-script` | `spora-exec::vm` | ✅ 基于CKB修改，适配Cell模型 |
@@ -429,8 +429,8 @@ blake3 = "1.5"
 - ✅ 已解析输入/依赖的运行时环境
 
 **Cell 模型架构**: 100%
-- ✅ CellOut, CellRef, CellDep, CellTx
-- ✅ ScriptRef (Lock/Type脚本)
+- ✅ CellOutput, CellInput, CellDep, CellTx
+- ✅ Script (Lock/Type脚本)
 - ✅ OutPoint, CellMeta
 - ✅ ResolvedCellTx
 - ✅ DepGroup 解析

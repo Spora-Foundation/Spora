@@ -12,7 +12,7 @@ use spora_consensus_core::block::{Block, TemplateBuildMode};
 use spora_consensus_core::cell_diff::CellMeta;
 use spora_consensus_core::coinbase::MinerData;
 use spora_consensus_core::sign::sign;
-use spora_consensus_core::tx::{CellOut, CellRef, CellTx, MutableTransaction, OutPoint, ScriptRef, TransactionOutpoint};
+use spora_consensus_core::tx::{CellOutput, CellInput, CellTx, MutableTransaction, OutPoint, Script, TransactionOutpoint};
 use spora_core::trace;
 use spora_hashes::Hash;
 use spora_utils::sim::{Environment, Process, Resumption, Suspension};
@@ -111,8 +111,8 @@ impl Miner {
         *hasher.finalize().as_bytes()
     }
 
-    fn lock_script_from_bytes(script: &[u8]) -> ScriptRef {
-        ScriptRef::new(Self::compute_lock_hash(script), 0, script.to_vec())
+    fn lock_script_from_bytes(script: &[u8]) -> Script {
+        Script::new(Self::compute_lock_hash(script), 0, script.to_vec())
     }
 
     fn miner_lock_script_hash(&self) -> [u8; 32] {
@@ -232,14 +232,14 @@ impl Miner {
 
     #[allow(dead_code)]
     fn create_unsigned_tx(&self, outpoint: TransactionOutpoint, input_amount: u64, multiple_outputs: bool) -> CellTx {
-        let inputs = vec![CellRef::new(outpoint, 0)];
+        let inputs = vec![CellInput::new(outpoint, 0)];
         let outputs = if multiple_outputs && input_amount > 4 {
             vec![
-                CellOut { lock: self.miner_data.lock_script.clone(), type_: None, capacity: input_amount / 2 },
-                CellOut { lock: self.miner_data.lock_script.clone(), type_: None, capacity: input_amount / 2 - 1 },
+                CellOutput { lock: self.miner_data.lock_script.clone(), type_: None, capacity: input_amount / 2 },
+                CellOutput { lock: self.miner_data.lock_script.clone(), type_: None, capacity: input_amount / 2 - 1 },
             ]
         } else {
-            vec![CellOut { lock: self.miner_data.lock_script.clone(), type_: None, capacity: input_amount - 1 }]
+            vec![CellOutput { lock: self.miner_data.lock_script.clone(), type_: None, capacity: input_amount - 1 }]
         };
         let mut outputs_data = vec![vec![]; outputs.len()];
         if self.long_payload {
@@ -291,7 +291,7 @@ impl Miner {
             let mut added_outputs = 0usize;
             for tx in inserted_block.transactions.iter() {
                 for input in &tx.inputs {
-                    let spent = input.out_point;
+                    let spent = input.previous_output;
                     self.possible_unspent_outpoints.swap_remove(&spent);
                     self.reserved_outpoints.swap_remove(&spent);
                 }

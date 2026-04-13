@@ -1,6 +1,6 @@
 use crate::{error::Error, result::Result};
 use spora_addresses::{Address, Prefix, Version};
-use spora_consensus_core::tx::ScriptRef;
+use spora_consensus_core::tx::Script;
 
 const OP_DATA32: u8 = 0x20;
 const OP_DATA33: u8 = 0x21;
@@ -62,19 +62,19 @@ pub fn classify_lock_script(script: &[u8]) -> LockScriptClass {
     }
 }
 
-pub fn pay_to_address_lock_script(address: &Address) -> ScriptRef {
+pub fn pay_to_address_lock_script(address: &Address) -> Script {
     let script = match address.version {
         Version::PubKey => pay_to_pub_key(address.payload.as_slice()),
         Version::PubKeyECDSA => pay_to_pub_key_ecdsa(address.payload.as_slice()),
         Version::ScriptHash => pay_to_script_hash(address.payload.as_slice()),
     };
-    ScriptRef::new(compute_lock_hash(&script), 0, script)
+    Script::new(compute_lock_hash(&script), 0, script)
 }
 
-pub fn pay_to_script_hash_lock_script(redeem_script: &[u8]) -> ScriptRef {
+pub fn pay_to_script_hash_lock_script(redeem_script: &[u8]) -> Script {
     let redeem_script_hash = blake3::hash(redeem_script);
     let script = pay_to_script_hash(redeem_script_hash.as_bytes());
-    ScriptRef::new(compute_lock_hash(&script), 0, script)
+    Script::new(compute_lock_hash(&script), 0, script)
 }
 
 #[cfg(any(feature = "wasm32-sdk", test))]

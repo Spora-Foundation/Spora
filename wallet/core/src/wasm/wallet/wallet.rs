@@ -1,4 +1,5 @@
 use crate::imports::*;
+use crate::events::EventKind;
 use crate::storage::local::interface::LocalStore;
 use crate::storage::WalletDescriptor;
 use crate::wallet as native;
@@ -135,7 +136,7 @@ cfg_if! {
             */
             addEventListener<M extends keyof WalletEventMap>(
                 event: M,
-                callback: (eventData: WalletEventMap[M]) => void
+                callback: WalletNotificationCallback<M>
             )
         }"#;
     }

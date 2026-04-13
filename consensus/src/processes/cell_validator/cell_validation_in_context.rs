@@ -27,10 +27,10 @@ pub fn validate_cell_tx_in_context<P: CellStateProvider>(
 ) -> Result<(), CellValidationError> {
     // 1. Check all inputs are available
     for input in &tx.inputs {
-        let available = provider.is_cell_available(&input.out_point, pov).map_err(|e| CellValidationError::InvalidFormat(e))?;
+        let available = provider.is_cell_available(&input.previous_output, pov).map_err(|e| CellValidationError::InvalidFormat(e))?;
 
         if !available {
-            return Err(CellValidationError::CellAlreadySpent(input.out_point.tx_hash));
+            return Err(CellValidationError::CellAlreadySpent(input.previous_output.tx_hash));
         }
     }
 
@@ -38,9 +38,9 @@ pub fn validate_cell_tx_in_context<P: CellStateProvider>(
     let mut input_capacity = 0u64;
     for input in &tx.inputs {
         let capacity = provider
-            .get_cell_capacity(&input.out_point, pov)
+            .get_cell_capacity(&input.previous_output, pov)
             .map_err(|e| CellValidationError::InvalidFormat(e))?
-            .ok_or_else(|| CellValidationError::CellNotFound(input.out_point.tx_hash))?;
+            .ok_or_else(|| CellValidationError::CellNotFound(input.previous_output.tx_hash))?;
 
         input_capacity = input_capacity.checked_add(capacity).ok_or(CellValidationError::CapacityOverflow)?;
     }

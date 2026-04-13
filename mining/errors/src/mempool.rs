@@ -104,7 +104,7 @@ pub type RuleResult<T> = std::result::Result<T, RuleError>;
 #[derive(Error, Debug, Clone, PartialEq, Eq)]
 pub enum NonStandardError {
     #[error("transaction version {1} is not in the valid range of {2}-{3}")]
-    RejectVersion(TransactionId, u16, u16, u16),
+    RejectVersion(TransactionId, u32, u32, u32),
 
     #[error("transaction compute mass of {1} is larger than max allowed size of {2}")]
     RejectComputeMass(TransactionId, u64, u64),

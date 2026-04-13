@@ -263,12 +263,18 @@ pub trait Account: AnySync + Send + Sync + 'static {
 
     // default account address (receive[0])
     fn default_address(&self) -> Result<Address> {
-        Err(Error::NotImplemented)
+        self.receive_address()
     }
 
     // all addresses in the account (receive + change up to and including the last used index)
     fn account_addresses(&self) -> Result<Vec<Address>> {
-        Err(Error::NotImplemented)
+        let receive = self.receive_address()?;
+        let change = self.change_address()?;
+        if receive == change {
+            Ok(vec![receive])
+        } else {
+            Ok(vec![receive, change])
+        }
     }
 
     fn receive_address(&self) -> Result<Address>;

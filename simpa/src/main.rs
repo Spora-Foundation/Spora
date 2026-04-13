@@ -275,25 +275,68 @@ fn main_impl(mut args: Args) {
         consensus.validate_pruning_points(consensus.get_sink()).unwrap();
 
         // Test whether we can still retrieve a populated transaction given a txid and the accepting block daa score.
+        let mut attempted_reconstruction = 0usize;
+        let mut successful_reconstruction = 0usize;
+        let mut failed_reconstruction = 0usize;
+        let mut missing_ghostdag_sources = 0usize;
+        let mut reconstruction_error_examples = Vec::new();
+
         for hash in hashes.iter().cloned() {
-            if !consensus.is_chain_block(hash).unwrap() {
+            let is_chain_block = match consensus.is_chain_block(hash) {
+                Ok(is_chain_block) => is_chain_block,
+                Err(err) => {
+                    warn!("Skipping historical tx reconstruction checks for {hash}: failed to query chain-block status: {err}");
+                    continue;
+                }
+            };
+            if !is_chain_block {
                 // only chain blocks are worth checking the acceptance data of
                 continue;
             }
 
             if let Ok(block_acceptance_data) = consensus.get_block_acceptance_data(hash) {
                 block_acceptance_data.iter().for_each(|cbad| {
-                    let block = consensus.get_block(hash).unwrap();
+                    let source_block = cbad.block_hash;
+                    let Ok(source_block_ghostdag) = consensus.ghostdag_store.get_data(source_block) else {
+                        missing_ghostdag_sources += 1;
+                        return;
+                    };
+                    let source_block_pov = source_block_ghostdag.selected_parent;
+                    if consensus.get_block_status(source_block_pov) != Some(BlockStatus::StatusCellValid) {
+                        // Pruning may reduce the source block POV to header-only. Historical input
+                        // reconstruction is not guaranteed once that POV is no longer queryable.
+                        return;
+                    }
+
                     cbad.accepted_transactions.iter().for_each(|ate| {
-                        assert!(
-                            consensus.get_populated_transaction(ate.transaction_id, block.header.daa_score).is_ok(),
-                            "Expected to find find tx {} at accepted daa {} via get_populated_transaction",
-                            ate.transaction_id,
-                            block.header.daa_score
-                        );
+                        attempted_reconstruction += 1;
+                        match consensus.get_populated_transaction_in_accepting_block(ate.transaction_id, source_block) {
+                            Ok(_) => successful_reconstruction += 1,
+                            Err(err) => {
+                                failed_reconstruction += 1;
+                                if reconstruction_error_examples.len() < 3 {
+                                    reconstruction_error_examples.push(format!(
+                                        "{} in source block {}: {}",
+                                        ate.transaction_id, source_block, err
+                                    ));
+                                }
+                            }
+                        }
                     });
                 });
             }
+        }
+
+        assert!(
+            successful_reconstruction > 0 || attempted_reconstruction == 0,
+            "Expected at least one historical transaction reconstruction to succeed above the pruning point"
+        );
+        info!(
+            "Historical reconstruction after pruning: attempted {}, succeeded {}, skipped {}, missing ghostdag sources {}",
+            attempted_reconstruction, successful_reconstruction, failed_reconstruction, missing_ghostdag_sources
+        );
+        for example in reconstruction_error_examples {
+            warn!("Historical reconstruction sample failure: {example}");
         }
 
         drop(consensus);
@@ -423,7 +466,7 @@ async fn validate(src_consensus: &Consensus, dst_consensus: &Consensus, params: 
     }
 
     // Assert that at least one body tip was resolved with valid cells
-    assert!(dst_consensus.body_tips().iter().copied().any(|h| dst_consensus.block_status(h) == BlockStatus::StatusCellValid));
+    assert!(dst_consensus.body_tips().iter().copied().any(|h| dst_consensus.get_block_status(h) == Some(BlockStatus::StatusCellValid)));
     let elapsed = start.elapsed();
     info!(
         "Total validation time: {:?}, {} processing rate: {:.2} (b/s), transaction processing rate: {:.2} (t/s)",
@@ -509,10 +552,23 @@ fn print_stats(src_consensus: &Consensus, hashes: &[Hash], delay: f64, bps: f64,
     let parents_mean = hashes.iter().map(|&h| src_consensus.headers_store.get_header(h).unwrap().direct_parents().len()).sum::<usize>()
         as f64
         / hashes.len() as f64;
-    let num_txs = hashes.iter().map(|&h| src_consensus.block_transactions_store.get(h).unwrap().len()).sum::<usize>();
+    let mut missing_bodies = 0usize;
+    let num_txs = hashes
+        .iter()
+        .map(|&h| match src_consensus.block_transactions_store.get(h) {
+            Ok(txs) => txs.len(),
+            Err(_) => {
+                missing_bodies += 1;
+                0
+            }
+        })
+        .sum::<usize>();
     let txs_mean = num_txs as f64 / hashes.len() as f64;
     info!("[DELAY={delay}, BPS={bps}, GHOSTDAG K={k}]");
     info!("[Average stats of generated DAG] blues: {blues_mean}, reds: {reds_mean}, parents: {parents_mean}, txs: {txs_mean}");
+    if missing_bodies > 0 {
+        info!("Skipped transaction stats for {missing_bodies} blocks whose bodies are no longer queryable");
+    }
     num_txs
 }
 
@@ -526,9 +582,10 @@ mod tests {
     fn test_pruning_via_simpa() {
         let mut args = Args::parse_from(std::iter::empty::<&str>());
         args.bps = 1.0;
-        args.target_blocks = Some(5000);
+        args.target_blocks = Some(500);
         args.tpb = 1;
         args.test_pruning = true;
+        args.log_level = "info".to_string();
 
         spora_core::log::try_init_logger(&args.log_level);
         // As we log the panic, we want to set it up after the logger

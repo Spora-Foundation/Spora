@@ -181,7 +181,7 @@ impl TransactionExtension for TransactionRecord {
 
                 if include_cells {
                     for input in transaction.inputs.iter() {
-                        let out_point = &input.out_point;
+                        let out_point = &input.previous_output;
                         let index = out_point.index;
                         let transaction_id = out_point.transaction_id();
                         let since = input.since;

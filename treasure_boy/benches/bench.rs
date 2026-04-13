@@ -2,14 +2,14 @@ use criterion::{criterion_group, criterion_main, Criterion};
 use rayon::prelude::*;
 
 use spora_consensus_core::{
-    tx::{CellOut, CellRef, CellTx, ScriptRef, TransactionOutpoint},
+    tx::{CellOutput, CellInput, CellTx, Script, TransactionOutpoint},
     Hash,
 };
 
 fn constuct_tx() -> CellTx {
     let outpoint = TransactionOutpoint { tx_hash: Hash::from_bytes([0xFF; 32]).as_bytes(), index: 0 };
-    let inputs = vec![CellRef::new(outpoint, 0)];
-    let outputs = vec![CellOut { capacity: 10000, lock: ScriptRef::new([0xff; 32], 0, vec![0xff; 35]), type_: None }];
+    let inputs = vec![CellInput::new(outpoint, 0)];
+    let outputs = vec![CellOutput { capacity: 10000, lock: Script::new([0xff; 32], 0, vec![0xff; 35]), type_: None }];
     let outputs_data = vec![vec![]];
     let witnesses = vec![vec![]];
     CellTx::new(inputs, vec![], outputs, outputs_data, witnesses).expect("valid CellTx")

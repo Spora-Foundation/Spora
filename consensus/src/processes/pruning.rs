@@ -51,6 +51,7 @@ pub struct PruningPointManager<
     ghostdag_store: Arc<S>,
     headers_store: Arc<U>,
     past_pruning_points_store: Arc<V>,
+    #[allow(dead_code)]
     header_selected_tip_store: Arc<RwLock<W>>,
     pruning_samples_store: Arc<Y>,
 
@@ -233,6 +234,7 @@ impl<
         deque.into()
     }
 
+    #[allow(dead_code)]
     fn next_pruning_points_v1(
         &self,
         ghostdag_data: CompactGhostdagData,

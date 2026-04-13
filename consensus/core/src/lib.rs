@@ -120,9 +120,12 @@ impl Hasher for BlockHasher {
     fn write_u64(&mut self, v: u64) {
         self.0 = v;
     }
-    #[cold]
-    fn write(&mut self, _: &[u8]) {
-        unimplemented!("use write_u64")
+
+    fn write(&mut self, bytes: &[u8]) {
+        let mut tail = [0u8; 8];
+        let copy_len = bytes.len().min(8);
+        tail[..copy_len].copy_from_slice(&bytes[bytes.len().saturating_sub(copy_len)..]);
+        self.0 = u64::from_le_bytes(tail);
     }
 }
 
@@ -148,5 +151,15 @@ mod tests {
         let mut hasher = BlockHasher::default();
         hash.hash(&mut hasher);
         assert_eq!(hasher.finish(), 4);
+    }
+
+    #[test]
+    fn test_block_hasher_write_bytes_falls_back_to_tail_u64() {
+        let mut hasher = BlockHasher::default();
+        hasher.write(&[0x10, 0x20, 0x30, 0x40]);
+        assert_eq!(hasher.finish(), 0x4030_2010);
+
+        hasher.write(&[1, 2, 3, 4, 5, 6, 7, 8, 9]);
+        assert_eq!(hasher.finish(), u64::from_le_bytes([2, 3, 4, 5, 6, 7, 8, 9]));
     }
 }

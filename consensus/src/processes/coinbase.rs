@@ -1,7 +1,7 @@
 use spora_consensus_core::{
     coinbase::*,
     errors::coinbase::{CoinbaseError, CoinbaseResult},
-    tx::{CellOut, CellTx, ScriptRef},
+    tx::{CellOutput, CellTx, Script},
     BlockHashMap, BlockHashSet,
 };
 use std::convert::TryInto;
@@ -57,7 +57,7 @@ impl<'a> PayloadParser<'a> {
 }
 
 impl CoinbaseManager {
-    fn build_coinbase_cell_tx(&self, outputs: Vec<CellOut>, payload: Vec<u8>) -> CellTx {
+    fn build_coinbase_cell_tx(&self, outputs: Vec<CellOutput>, payload: Vec<u8>) -> CellTx {
         let mut outputs_data = vec![Vec::new(); outputs.len()];
         let mut witnesses = Vec::new();
         if outputs_data.is_empty() {
@@ -110,7 +110,7 @@ impl CoinbaseManager {
         for blue in ghostdag_data.mergeset_blues.iter().filter(|h| !mergeset_non_daa.contains(h)) {
             let reward_data = mergeset_rewards.get(blue).unwrap();
             if reward_data.subsidy + reward_data.total_fees > 0 {
-                outputs.push(CellOut {
+                outputs.push(CellOutput {
                     capacity: reward_data.subsidy + reward_data.total_fees,
                     lock: reward_data.lock_script.clone(),
                     type_: None,
@@ -133,7 +133,7 @@ impl CoinbaseManager {
         }
 
         if red_reward > 0 {
-            outputs.push(CellOut { capacity: red_reward, lock: miner_data.lock_script.clone(), type_: None });
+            outputs.push(CellOutput { capacity: red_reward, lock: miner_data.lock_script.clone(), type_: None });
         }
 
         // Build the current block's payload
@@ -210,7 +210,7 @@ impl CoinbaseManager {
             return Err(CoinbaseError::PayloadCantContainLockScript(payload.len(), MIN_PAYLOAD_LENGTH + lock_args_len as usize));
         }
 
-        let lock_script = ScriptRef::new(lock_code_hash, lock_hash_type, parser.take(lock_args_len as usize).to_vec());
+        let lock_script = Script::new(lock_code_hash, lock_hash_type, parser.take(lock_args_len as usize).to_vec());
         let (mass_commitment, extra_data) = if parser.remaining.len() >= LENGTH_OF_MASS_COMMITMENT_MAGIC + LENGTH_OF_MASS_COMMITMENT
             && parser.remaining[..LENGTH_OF_MASS_COMMITMENT_MAGIC] == COINBASE_MASS_COMMITMENT_MAGIC
         {
@@ -412,7 +412,6 @@ mod tests {
 
     #[test]
     fn subsidy_test() {
-        const PRE_DEFLATIONARY_PHASE_BASE_SUBSIDY: u64 = 500_00000000;
         const DEFLATIONARY_PHASE_INITIAL_SUBSIDY: u64 = 450_00000000;
         const SECONDS_PER_MONTH: u64 = 2629800;
         const SECONDS_PER_HALVING: u64 = SECONDS_PER_MONTH * 12;
@@ -502,7 +501,7 @@ mod tests {
             subsidy: 44000000000,
             mass_commitment: 0,
             miner_data: MinerData {
-                lock_script: ScriptRef::new([0x11; 32], 3, script_data.to_vec()),
+                lock_script: Script::new([0x11; 32], 3, script_data.to_vec()),
                 extra_data: &extra_data as &[u8],
             },
         };
@@ -523,7 +522,7 @@ mod tests {
             blue_score: 56345,
             subsidy: 44000000000,
             mass_commitment: 0,
-            miner_data: MinerData { lock_script: ScriptRef::new([0x22; 32], 1, script_data.to_vec()), extra_data: &extra_data },
+            miner_data: MinerData { lock_script: Script::new([0x22; 32], 1, script_data.to_vec()), extra_data: &extra_data },
         };
 
         let data2 = CoinbaseData {
@@ -532,7 +531,7 @@ mod tests {
             mass_commitment: data.mass_commitment,
             miner_data: MinerData {
                 // Modify only miner data
-                lock_script: ScriptRef::new([0x33; 32], 2, vec![33u8, 255, 33]),
+                lock_script: Script::new([0x33; 32], 2, vec![33u8, 255, 33]),
                 extra_data: &[2u8, 3, 23, 98, 34, 34] as &[u8],
             },
         };

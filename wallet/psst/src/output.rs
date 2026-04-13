@@ -4,7 +4,7 @@ use crate::psst::KeySource;
 use crate::utils::combine_if_no_conflicts;
 use derive_builder::Builder;
 use serde::{Deserialize, Serialize};
-use spora_consensus_core::tx::ScriptRef;
+use spora_consensus_core::tx::Script;
 use std::{collections::BTreeMap, ops::Add};
 
 #[derive(Builder, Serialize, Deserialize, Clone, Debug)]
@@ -14,10 +14,10 @@ pub struct Output {
     /// The Cell capacity in sau.
     pub capacity: u64,
     /// Canonical Cell lock script.
-    pub lock_script: ScriptRef,
+    pub lock_script: Script,
     /// Canonical Cell type script.
     #[builder(setter(strip_option))]
-    pub type_script: Option<ScriptRef>,
+    pub type_script: Option<Script>,
     /// Canonical Cell output data.
     #[builder(setter(strip_option))]
     #[serde(with = "spora_utils::serde_bytes_optional")]
@@ -40,7 +40,7 @@ impl Default for Output {
     fn default() -> Self {
         Self {
             capacity: 0,
-            lock_script: ScriptRef::new([0; 32], 0, vec![]),
+            lock_script: Script::new([0; 32], 0, vec![]),
             type_script: None,
             output_data: None,
             redeem_script: None,
@@ -90,9 +90,9 @@ pub enum CombineError {
     #[error("The capacities are not the same")]
     CapacityMismatch { this: u64, that: u64 },
     #[error("The lock scripts are not the same")]
-    LockScriptMismatch { this: ScriptRef, that: ScriptRef },
+    LockScriptMismatch { this: Script, that: Script },
     #[error("The type scripts are not the same")]
-    TypeScriptMismatch { this: Option<ScriptRef>, that: Option<ScriptRef> },
+    TypeScriptMismatch { this: Option<Script>, that: Option<Script> },
     #[error("The output data is not the same")]
     OutputDataMismatch { this: Option<Vec<u8>>, that: Option<Vec<u8>> },
     #[error("Two different redeem scripts detected")]

@@ -7,6 +7,11 @@
 //! 1. Recipient path: Provide secret preimage + signature
 //! 2. Sender timeout path: Provide signature after timeout
 //!
+//! Signature verification is fixture-only and deterministic: the 64-byte
+//! witness signature must equal two domain-separated Blake3 digests over the
+//! selected pubkey plus message bytes. This keeps the fixture meaningful in
+//! tests without embedding a full secp256k1 implementation in the ELF.
+//!
 //! Script args format (105 bytes total):
 //! - [0..32]:  secret_hash (blake3 hash of the secret)
 //! - [32..64]: recipient_pubkey (32 bytes for Schnorr)
@@ -47,6 +52,9 @@ const LOCK_RELATIVE_TIMESTAMP: u8 = 3;
 const SINCE_RELATIVE: u64 = 1 << 63;
 const SINCE_TIMESTAMP: u64 = 1 << 62;
 const SINCE_VALUE_MASK: u64 = 0x00FFFFFFFFFFFFFF;
+
+const SIG_DOMAIN_A: &[u8] = b"spora-htlc-fixture-sig-a";
+const SIG_DOMAIN_B: &[u8] = b"spora-htlc-fixture-sig-b";
 
 #[panic_handler]
 fn panic(_: &core::panic::PanicInfo) -> ! {
@@ -279,12 +287,48 @@ fn parse_sender_witness(witness: &[u8]) -> Option<&[u8]> {
     Some(&witness[0..64])
 }
 
-/// Verify signature (placeholder - actual verification needs secp256k1)
-/// Returns true for testing purposes
-fn verify_signature(_pubkey: &[u8; 32], _signature: &[u8], _message: &[u8]) -> bool {
-    // TODO: Implement actual secp256k1 signature verification
-    // For now, always return true for testing
-    true
+fn hash_signature_chunk(domain: &[u8], pubkey: &[u8; 32], message: &[u8], output: &mut [u8; 32]) -> bool {
+    if message.len() > 64 {
+        return false;
+    }
+
+    let mut preimage = [0u8; 128];
+    let mut cursor = 0usize;
+
+    let domain_end = cursor + domain.len();
+    preimage[cursor..domain_end].copy_from_slice(domain);
+    cursor = domain_end;
+
+    let pubkey_end = cursor + pubkey.len();
+    preimage[cursor..pubkey_end].copy_from_slice(pubkey);
+    cursor = pubkey_end;
+
+    let message_end = cursor + message.len();
+    preimage[cursor..message_end].copy_from_slice(message);
+
+    blake3_hash(&preimage[..message_end], output)
+}
+
+/// Verify signature using a deterministic fixture-only scheme.
+///
+/// Expected signature format:
+/// - [0..32]: blake3("...sig-a" || pubkey || message)
+/// - [32..64]: blake3("...sig-b" || pubkey || message)
+fn verify_signature(pubkey: &[u8; 32], signature: &[u8], message: &[u8]) -> bool {
+    if signature.len() != 64 {
+        return false;
+    }
+
+    let mut expected_a = [0u8; 32];
+    let mut expected_b = [0u8; 32];
+    if !hash_signature_chunk(SIG_DOMAIN_A, pubkey, message, &mut expected_a) {
+        return false;
+    }
+    if !hash_signature_chunk(SIG_DOMAIN_B, pubkey, message, &mut expected_b) {
+        return false;
+    }
+
+    signature[..32] == expected_a && signature[32..64] == expected_b
 }
 
 #[unsafe(no_mangle)]

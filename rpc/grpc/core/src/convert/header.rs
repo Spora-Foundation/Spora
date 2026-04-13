@@ -55,7 +55,7 @@ from!(item: &Vec<RpcHash>, protowire::RpcBlockLevelParents, { Self { parent_hash
 try_from!(item: &protowire::RpcBlockHeader, spora_rpc_core::RpcHeader, {
     // We re-hash the block to remain as most trustless as possible
     let header = Header::new_finalized(
-        item.version.try_into()?,
+        item.version,
         item.parents.iter().map(Vec::<RpcHash>::try_from).collect::<RpcResult<Vec<Vec<RpcHash>>>>()?,
         RpcHash::from_str(&item.hash_merkle_root)?,
         RpcHash::from_str(&item.accepted_id_merkle_root)?,
@@ -76,7 +76,7 @@ try_from!(item: &protowire::RpcBlockHeader, spora_rpc_core::RpcHeader, {
 
 try_from!(item: &protowire::RpcBlockHeader, spora_rpc_core::RpcRawHeader, {
     Self {
-        version: item.version.try_into()?,
+        version: item.version,
         parents_by_level: item.parents.iter().map(Vec::<RpcHash>::try_from).collect::<RpcResult<Vec<Vec<RpcHash>>>>()?,
         hash_merkle_root: RpcHash::from_str(&item.hash_merkle_root)?,
         accepted_id_merkle_root: RpcHash::from_str(&item.accepted_id_merkle_root)?,

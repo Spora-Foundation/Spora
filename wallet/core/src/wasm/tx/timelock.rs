@@ -11,9 +11,9 @@ use wasm_bindgen::prelude::*;
 #[wasm_bindgen(typescript_custom_section)]
 const TS_TIMELOCK_SCRIPT_REF: &'static str = r#"
 /**
- * Serialized ScriptRef returned by timelock helpers.
+ * Serialized Script returned by timelock helpers.
  */
-interface ITimeLockScriptRef {
+interface ITimeLockScript {
     codeHash: string;
     hashType: number;
     args: string;
@@ -21,7 +21,7 @@ interface ITimeLockScriptRef {
 }
 "#;
 
-fn script_ref_to_js_value(script: &spora_exec::ScriptRef) -> JsValue {
+fn script_ref_to_js_value(script: &spora_exec::Script) -> JsValue {
     let obj = Object::new();
     Reflect::set(&obj, &"codeHash".into(), &JsValue::from_str(&script.code_hash.as_ref().to_hex())).unwrap();
     Reflect::set(&obj, &"hashType".into(), &JsValue::from_f64(script.hash_type as f64)).unwrap();
@@ -122,7 +122,7 @@ impl TimeLockConfig {
         self.inner.value()
     }
 
-    /// Create the standalone timelock ScriptRef for this configuration.
+    /// Create the standalone timelock Script for this configuration.
     ///
     /// Returns an object with `codeHash`, `hashType`, `args`, and `scriptHash`
     /// fields, or `undefined` for `TimeLockConfig.none()`.

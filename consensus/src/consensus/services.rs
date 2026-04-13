@@ -50,9 +50,6 @@ pub type DbBlockDepthManager = BlockDepthManager<DbDepthStore, DbReachabilitySto
 pub type DbParentsManager = ParentsManager<DbHeadersStore, DbReachabilityStore, MTRelationsService<DbRelationsStore>>;
 
 pub struct ConsensusServices {
-    // Underlying storage
-    storage: Arc<ConsensusStorage>,
-
     // Services and managers
     pub statuses_service: MTStatusesService<DbStatusesStore>,
     pub relations_service: MTRelationsService<DbRelationsStore>,
@@ -187,7 +184,6 @@ impl ConsensusServices {
         );
 
         Arc::new(Self {
-            storage,
             statuses_service,
             relations_service,
             reachability_service,

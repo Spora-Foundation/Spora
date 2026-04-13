@@ -9,9 +9,9 @@ This directory contains standard lock and type scripts for Spora.
 **Replaces**: Legacy `OP_CHECKLOCKTIMEVERIFY` and `OP_CHECKSEQUENCEVERIFY`
 
 **Files**:
-- `timelock.rs` - Rust helper module for constructing time lock ScriptRefs
-- `timelock_absolute.c` - C source for absolute timestamp lock
-- `timelock_relative.c` - C source for relative DAA score lock
+- `timelock.rs` - Rust helper module for constructing time lock Scripts
+- `timelock_absolute.c` - C source for absolute timestamp lock, reading target args via `LOAD_SCRIPT`
+- `timelock_relative.c` - C source for relative DAA score lock, reading target args via `LOAD_SCRIPT`
 
 **Features**:
 - Absolute timestamp lock (Unix timestamp)
@@ -29,7 +29,7 @@ let lock = timelock::absolute_timestamp_lock(target_timestamp);
 
 // Create input with proper `since` encoding
 let since = timelock::encode_absolute_timestamp_since(target_timestamp);
-let input = CellRef::new(outpoint, since);
+let input = CellInput::new(outpoint, since);
 ```
 
 **Since Encoding**:
@@ -85,6 +85,7 @@ let since = encode_absolute_timestamp_since(1735689600);
   2. Sender timeout path: signature after timelock expires
 - Supports all four lock types (absolute/relative DAA/timestamp)
 - Uses blake3 for secret hash verification
+- Uses a deterministic fixture-only signature rule in tests, not real secp256k1 verification
 
 **Script Args** (105 bytes):
 - `[0..32]`: secret_hash (blake3)
@@ -103,7 +104,7 @@ use spora_exec::scripts::{htlc_code_hash, HTLC_SCRIPT};
 
 let code_hash = htlc_code_hash();
 let args = build_htlc_args(secret_hash, recipient_pubkey, sender_pubkey, lock_type, lock_value);
-let lock = ScriptRef::new(code_hash, 0, args);
+let lock = Script::new(code_hash, 0, args);
 ```
 
 ### 4. Always Success (Testing Only)
@@ -117,7 +118,7 @@ Source file:
 ```rust
 use spora_exec::scripts::{ALWAYS_SUCCESS_SCRIPT, always_success_code_hash};
 
-let lock = ScriptRef {
+let lock = Script {
     code_hash: always_success_code_hash(),
     hash_type: 0,  // Data hash type
     args: vec![],
@@ -133,6 +134,10 @@ let lock = ScriptRef {
 - Uses **blake3** for hashing (Spora-specific!)
 - Args: pubkey hash (20 bytes, blake3 of pubkey)
 - Witness: signature (65 bytes, r + s + v)
+
+**Current status**:
+- The source is included for reference and future compilation.
+- The secp256k1 verification routine inside `secp256k1_blake3_lock.c` is still a scaffold, so the resulting ELF is not production-ready yet.
 
 **Build**:
 ```bash
@@ -161,13 +166,13 @@ blake3sum secp256k1_blake3_lock.bin
 let pubkey = /* secp256k1 public key (33 bytes compressed) */;
 let pubkey_hash = &blake3::hash(&pubkey).as_bytes()[0..20];
 
-let lock = ScriptRef {
+let lock = Script {
     code_hash: blake3::hash(&secp256k1_lock_binary).into(),
     hash_type: 0,
     args: pubkey_hash.to_vec(),
 };
 
-let output = CellOut {
+let output = CellOutput {
     capacity: 10000,
     lock,
     type_: None,
@@ -227,9 +232,9 @@ fn test_always_success() {
         input_out_point.tx_hash,
         input_out_point.index,
         ResolvedCell {
-            cell_output: CellOut {
+            cell_output: CellOutput {
                 capacity: 1000,
-                lock: ScriptRef {
+                lock: Script {
                     code_hash: always_success_code_hash(),
                     hash_type: 0,
                     args: vec![],
@@ -242,13 +247,13 @@ fn test_always_success() {
 
     // Create transaction spending an input with the always-success lock
     let tx = CellTx {
-        inputs: vec![CellRef::new(input_out_point, 0)],
+        inputs: vec![CellInput::new(input_out_point, 0)],
         deps: vec![],
         header_deps: vec![],
         outputs: vec![
-            CellOut {
+            CellOutput {
                 capacity: 1000,
-                lock: ScriptRef {
+                lock: Script {
                     code_hash: always_success_code_hash(),
                     hash_type: 0,
                     args: vec![],

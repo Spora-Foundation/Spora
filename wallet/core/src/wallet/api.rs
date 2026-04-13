@@ -11,14 +11,15 @@ use crate::storage::Binding;
 use crate::tx::Fees;
 use spora_rpc_core::RpcFeeEstimate;
 use spora_wallet_psst::bundle::Bundle;
-use workflow_core::channel::Receiver;
+use workflow_core::channel::{unbounded, Receiver};
 
 #[async_trait]
 impl WalletApi for super::Wallet {
-    async fn register_notifications(self: Arc<Self>, channel: Receiver<WalletNotification>) -> Result<u64> {
+    async fn register_notifications(self: Arc<Self>) -> Result<(u64, Receiver<WalletNotification>)> {
         let channel_id = self.inner.next_notification_channel_id.fetch_add(1, Ordering::SeqCst);
-        self.inner.notification_channels.lock().unwrap().insert(channel_id, channel);
-        Ok(channel_id)
+        let (sender, receiver) = unbounded();
+        self.inner.notification_channels.lock().unwrap().insert(channel_id, sender);
+        Ok((channel_id, receiver))
     }
     async fn unregister_notifications(self: Arc<Self>, channel_id: u64) -> Result<()> {
         self.inner
@@ -243,6 +244,28 @@ impl WalletApi for super::Wallet {
         let PrvKeyDataCreateRequest { wallet_secret, prv_key_data_args } = request;
         let prv_key_data_id = self.create_prv_key_data(&wallet_secret, prv_key_data_args).await?;
         Ok(PrvKeyDataCreateResponse { prv_key_data_id })
+    }
+
+    async fn prv_key_data_rename_call(self: Arc<Self>, request: PrvKeyDataRenameRequest) -> Result<PrvKeyDataRenameResponse> {
+        let PrvKeyDataRenameRequest { wallet_secret, prv_key_data_id, name } = request;
+
+        let guard = self.guard();
+        let _guard = guard.lock().await;
+
+        let prv_key_data_store = self.store().as_prv_key_data_store()?;
+        let mut prv_key_data = prv_key_data_store
+            .load_key_data(&wallet_secret, &prv_key_data_id)
+            .await?
+            .ok_or(Error::PrivateKeyNotFound(prv_key_data_id))?;
+
+        prv_key_data.name = name;
+        prv_key_data_store.store(&wallet_secret, prv_key_data).await?;
+        self.store().commit(&wallet_secret).await?;
+
+        let prv_key_data_info =
+            prv_key_data_store.load_key_info(&prv_key_data_id).await?.ok_or(Error::PrivateKeyNotFound(prv_key_data_id))?;
+
+        Ok(PrvKeyDataRenameResponse { prv_key_data_info })
     }
 
     async fn prv_key_data_remove_call(self: Arc<Self>, request: PrvKeyDataRemoveRequest) -> Result<PrvKeyDataRemoveResponse> {
@@ -731,18 +754,67 @@ impl WalletApi for super::Wallet {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use workflow_core::channel::unbounded;
+    use crate::wallet::PrvKeyDataVariantKind;
 
     #[tokio::test]
     async fn register_and_unregister_notifications_tracks_channel_ids() {
         let wallet =
             Arc::new(super::super::Wallet::try_with_rpc(None, super::super::Wallet::resident_store().unwrap(), None).unwrap());
-        let (_sender, receiver) = unbounded();
 
-        let channel_id = wallet.clone().register_notifications(receiver).await.unwrap();
+        let (channel_id, _receiver) = wallet.clone().register_notifications().await.unwrap();
         assert!(wallet.inner.notification_channels.lock().unwrap().contains_key(&channel_id));
 
         wallet.clone().unregister_notifications(channel_id).await.unwrap();
         assert!(!wallet.inner.notification_channels.lock().unwrap().contains_key(&channel_id));
+    }
+
+    #[tokio::test]
+    async fn notify_forwards_wallet_notifications_to_registered_channels() {
+        let wallet =
+            Arc::new(super::super::Wallet::try_with_rpc(None, super::super::Wallet::resident_store().unwrap(), None).unwrap());
+        let (_channel_id, receiver) = wallet.clone().register_notifications().await.unwrap();
+
+        wallet.notify(Events::Error { message: "test notification".to_string() }).await.unwrap();
+
+        let notification = receiver.recv().await.unwrap();
+        assert!(matches!(notification, WalletNotification::Error { message } if message == "test notification"));
+    }
+
+    #[tokio::test]
+    async fn prv_key_data_rename_updates_stored_name() {
+        let wallet =
+            Arc::new(super::super::Wallet::try_with_rpc(None, super::super::Wallet::resident_store().unwrap(), None).unwrap());
+        let wallet_secret = Secret::from("test-wallet-secret");
+
+        wallet
+            .clone()
+            .wallet_create(wallet_secret.clone(), WalletCreateArgs::new(None, None, EncryptionKind::default(), None, false))
+            .await
+            .unwrap();
+
+        let prv_key_data_id = wallet
+            .clone()
+            .prv_key_data_create(
+                wallet_secret.clone(),
+                PrvKeyDataCreateArgs::new(
+                    Some("before".to_string()),
+                    None,
+                    Secret::from("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"),
+                    PrvKeyDataVariantKind::Mnemonic,
+                ),
+            )
+            .await
+            .unwrap();
+
+        let renamed =
+            wallet.clone().prv_key_data_rename(prv_key_data_id, Some("after".to_string()), wallet_secret.clone()).await.unwrap();
+
+        assert_eq!(renamed.name.as_deref(), Some("after"));
+
+        let stored_info = wallet.store().as_prv_key_data_store().unwrap().load_key_info(&prv_key_data_id).await.unwrap().unwrap();
+        assert_eq!(stored_info.name.as_deref(), Some("after"));
+
+        let stored_key_data = wallet.clone().prv_key_data_get(prv_key_data_id, wallet_secret).await.unwrap();
+        assert_eq!(stored_key_data.name.as_deref(), Some("after"));
     }
 }

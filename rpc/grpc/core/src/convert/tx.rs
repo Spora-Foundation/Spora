@@ -59,7 +59,7 @@ from!(item: &spora_rpc_core::RpcCellEntry, protowire::RpcCellEntry, {
     }
 });
 
-from!(item: &spora_rpc_core::RpcScriptRef, protowire::RpcScriptRef, {
+from!(item: &spora_rpc_core::RpcScript, protowire::RpcScript, {
     Self { code_hash: RpcHash::from(item.code_hash).to_string(), hash_type: item.hash_type.into(), args: item.args.to_rpc_hex() }
 });
 
@@ -103,7 +103,7 @@ from!(item: &spora_rpc_core::RpcCellsByAddressesEntry, protowire::RpcCellsByAddr
 
 try_from!(item: &protowire::RpcTransaction, spora_rpc_core::RpcTransaction, {
     Self {
-        version: item.version.try_into()?,
+        version: item.version,
         inputs: item
             .inputs
             .iter()
@@ -146,7 +146,7 @@ try_from!(item: &protowire::RpcTransactionOutput, spora_rpc_core::RpcTransaction
             .as_ref()
             .ok_or_else(|| RpcError::MissingRpcFieldError("RpcTransactionOutput".to_string(), "lock_script".to_string()))?
             .try_into()?,
-        type_script: item.type_script.as_ref().map(spora_rpc_core::RpcScriptRef::try_from).transpose()?,
+        type_script: item.type_script.as_ref().map(spora_rpc_core::RpcScript::try_from).transpose()?,
         output_data: if item.output_data.is_empty() { None } else { Some(Vec::from_rpc_hex(&item.output_data)?) },
         verbose_data: item.verbose_data.as_ref().map(spora_rpc_core::RpcTransactionOutputVerboseData::try_from).transpose()?,
     }
@@ -169,7 +169,7 @@ try_from!(item: &protowire::RpcCellEntry, spora_rpc_core::RpcCellEntry, {
     }
 });
 
-try_from!(item: &protowire::RpcScriptRef, spora_rpc_core::RpcScriptRef, {
+try_from!(item: &protowire::RpcScript, spora_rpc_core::RpcScript, {
     Self {
         code_hash: RpcHash::from_str(&item.code_hash)?.as_bytes(),
         hash_type: item.hash_type.try_into()?,

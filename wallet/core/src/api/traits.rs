@@ -18,7 +18,7 @@ use workflow_core::channel::Receiver;
 ///
 #[async_trait]
 pub trait WalletApi: Send + Sync + AnySync {
-    async fn register_notifications(self: Arc<Self>, channel: Receiver<WalletNotification>) -> Result<u64>;
+    async fn register_notifications(self: Arc<Self>) -> Result<(u64, Receiver<WalletNotification>)>;
     async fn unregister_notifications(self: Arc<Self>, channel_id: u64) -> Result<()>;
 
     /// Wrapper around [`retain_context_call()`](Self::retain_context_call).
@@ -248,6 +248,18 @@ pub trait WalletApi: Send + Sync + AnySync {
     /// this call.
     async fn prv_key_data_create_call(self: Arc<Self>, request: PrvKeyDataCreateRequest) -> Result<PrvKeyDataCreateResponse>;
 
+    /// Wrapper around [`prv_key_data_rename_call()`](Self::prv_key_data_rename_call)
+    async fn prv_key_data_rename(
+        self: Arc<Self>,
+        prv_key_data_id: PrvKeyDataId,
+        name: Option<String>,
+        wallet_secret: Secret,
+    ) -> Result<Arc<PrvKeyDataInfo>> {
+        Ok(self.prv_key_data_rename_call(PrvKeyDataRenameRequest { prv_key_data_id, name, wallet_secret }).await?.prv_key_data_info)
+    }
+    /// Change the user-visible label of a private key entry.
+    async fn prv_key_data_rename_call(self: Arc<Self>, request: PrvKeyDataRenameRequest) -> Result<PrvKeyDataRenameResponse>;
+
     /// Not implemented
     async fn prv_key_data_remove_call(self: Arc<Self>, request: PrvKeyDataRemoveRequest) -> Result<PrvKeyDataRemoveResponse>;
 
@@ -474,10 +486,8 @@ pub trait WalletApi: Send + Sync + AnySync {
 
     async fn address_book_enumerate_call(
         self: Arc<Self>,
-        _request: AddressBookEnumerateRequest,
-    ) -> Result<AddressBookEnumerateResponse> {
-        return Err(Error::NotImplemented);
-    }
+        request: AddressBookEnumerateRequest,
+    ) -> Result<AddressBookEnumerateResponse>;
 
     async fn fee_rate_estimate_call(self: Arc<Self>, _request: FeeRateEstimateRequest) -> Result<FeeRateEstimateResponse>;
 

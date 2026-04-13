@@ -51,23 +51,23 @@ struct MockFactory;
 
 impl ConsensusFactory for MockFactory {
     fn new_active_consensus(&self) -> (ConsensusInstance, DynConsensusCtl) {
-        unimplemented!()
+        panic!("MockFactory::new_active_consensus is unavailable; use ConsensusManager::from_consensus directly")
     }
 
     fn new_staging_consensus(&self) -> (ConsensusInstance, DynConsensusCtl) {
-        unimplemented!()
+        panic!("staging consensus is unavailable for ConsensusManager::from_consensus")
     }
 
     fn close(&self) {
-        unimplemented!()
+        // No-op for fixed-consensus test managers.
     }
 
     fn delete_inactive_consensus_entries(&self) {
-        unimplemented!()
+        // No-op for fixed-consensus test managers.
     }
 
     fn delete_staging_entry(&self) {
-        unimplemented!()
+        // No-op for fixed-consensus test managers.
     }
 }
 

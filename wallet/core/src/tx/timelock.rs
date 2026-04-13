@@ -19,7 +19,7 @@
 // ## New Approach
 //
 // 1. Set `since` field on inputs using `SinceEncoding`
-// 2. Use time lock ScriptRef from `spora_exec::scripts::timelock`
+// 2. Use time lock Script from `spora_exec::scripts::timelock`
 // 3. The lock script verifies `since` via CKB-VM syscall
 
 //! Time lock utilities for wallet transactions
@@ -46,7 +46,7 @@
 //! let lock_script = config.create_lock_script().expect("timelock config must be locked");
 //! ```
 
-use spora_exec::{scripts::timelock as exec_timelock, ScriptRef};
+use spora_exec::{scripts::timelock as exec_timelock, Script};
 
 /// Time lock configuration for wallet transactions
 ///
@@ -119,7 +119,7 @@ impl TimelockConfig {
 
     /// Encode the since value for this time lock configuration
     ///
-    /// Returns the `since` value to use when creating a `CellRef`.
+    /// Returns the `since` value to use when creating a `CellInput`.
     pub fn encode_since(&self) -> u64 {
         match self {
             Self::AbsoluteTimestamp { target } => exec_timelock::encode_absolute_timestamp_since(*target),
@@ -156,14 +156,14 @@ impl TimelockConfig {
         }
     }
 
-    /// Create the standalone timelock [`ScriptRef`] for this configuration.
+    /// Create the standalone timelock [`Script`] for this configuration.
     ///
     /// This returns only the timelock verifier script. It does not enforce ownership
     /// by itself, so it must not be used as the sole production lock for user funds
     /// until the combined secp256k1 + timelock VM path is fully wired in.
     ///
     /// Returns `None` for [`TimelockConfig::None`].
-    pub fn create_lock_script(&self) -> Option<ScriptRef> {
+    pub fn create_lock_script(&self) -> Option<Script> {
         match self {
             Self::AbsoluteTimestamp { target } => Some(exec_timelock::absolute_timestamp_lock(*target)),
             Self::RelativeDaa { delta } => Some(exec_timelock::relative_daa_lock(*delta)),
@@ -193,7 +193,7 @@ pub mod since_encoding {
 
 /// Re-export of time lock script helpers from spora_exec
 ///
-/// These functions create [`ScriptRef`](spora_exec::celltx::ScriptRef) instances
+/// These functions create [`Script`](spora_exec::celltx::Script) instances
 /// for use in Cell outputs.
 pub mod script_helpers {
     pub use spora_exec::scripts::timelock::{absolute_daa_lock, absolute_timestamp_lock, relative_daa_lock, relative_timestamp_lock};

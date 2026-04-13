@@ -189,7 +189,7 @@ impl Mempool {
                 let mut orphan_id = None;
                 if let Some(orphan) = self.orphan_pool.outpoint_orphan_mut(&outpoint) {
                     for (input_index, input) in orphan.mtx.tx.inputs.iter().enumerate() {
-                        if input.out_point == outpoint {
+                        if input.previous_output == outpoint {
                             if orphan.mtx.entries[input_index].is_none() && orphan.mtx.resolved_cell_metadata[input_index].is_none() {
                                 let output_data = transaction.outputs_data.get(i).cloned().unwrap_or_default();
                                 orphan.mtx.resolved_cell_metadata[input_index] =

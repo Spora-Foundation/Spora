@@ -1,5 +1,6 @@
 pub mod cache_policy_builder;
 pub mod cell_provider;
+pub mod cell_set_override;
 pub mod ctl;
 pub mod factory;
 pub mod services;
@@ -75,7 +76,7 @@ use spora_consensus_core::{
 };
 use spora_consensus_notify::root::ConsensusNotificationRoot;
 use spora_exec::OutPoint;
-use spora_state::{CellEntry, CellStateTree};
+use spora_state::CellStateTree;
 
 use crossbeam_channel::{
     bounded as bounded_crossbeam, unbounded as unbounded_crossbeam, Receiver as CrossbeamReceiver, Sender as CrossbeamSender,
@@ -284,19 +285,86 @@ impl Consensus {
         Ok(tree)
     }
 
-    fn find_selected_chain_block_by_daa_score(&self, daa_score: u64) -> Result<Hash, String> {
+    fn find_selected_chain_blocks_by_daa_score(&self, daa_score: u64) -> Result<Vec<Hash>, String> {
         let sc_read = self.storage.selected_chain_store.read();
         let (tip_index, _) = sc_read.get_tip().map_err(|e| format!("selected chain tip lookup failed: {e}"))?;
+        let mut matches = Vec::new();
 
         for index in 0..=tip_index {
             let hash = sc_read.get_by_index(index).map_err(|e| format!("selected chain index lookup failed: {e}"))?;
             let block_daa = self.headers_store.get_daa_score(hash).map_err(|e| format!("header DAA lookup failed: {e}"))?;
             if block_daa == daa_score {
-                return Ok(hash);
+                matches.push(hash);
             }
         }
 
-        Err(format!("no selected-chain block found for accepting DAA score {daa_score}"))
+        if matches.is_empty() {
+            Err(format!("no selected-chain block found for accepting DAA score {daa_score}"))
+        } else {
+            Ok(matches)
+        }
+    }
+
+    pub fn get_populated_transaction_in_accepting_block(
+        &self,
+        txid: Hash,
+        accepting_block: Hash,
+    ) -> Result<SignableTransaction, String> {
+        self.get_resolved_cell_transaction_in_accepting_block_impl(txid, accepting_block)
+            .map(ResolvedCellTransaction::into_signable_transaction)
+    }
+
+    fn get_resolved_cell_transaction_in_accepting_block_impl(
+        &self,
+        txid: Hash,
+        accepting_block: Hash,
+    ) -> Result<ResolvedCellTransaction, String> {
+        let cell_tx = self.block_transactions_store.get_transaction(txid).map_err(|e| format!("transaction lookup failed: {e}"))?;
+        if cell_tx.is_coinbase() {
+            return Ok(ResolvedCellTransaction::new(cell_tx, vec![]));
+        }
+
+        self.block_transactions_store
+            .get_transaction_location(txid)
+            .map_err(|e| format!("transaction location lookup failed: {e}"))?;
+
+        let accepting_ghostdag =
+            self.ghostdag_store.get_data(accepting_block).map_err(|e| format!("accepting block ghostdag lookup failed: {e}"))?;
+        let pov = accepting_ghostdag.selected_parent;
+
+        let provider = ConsensusCellProvider::new(
+            self.ghostdag_store.clone(),
+            self.services.reachability_service.clone(),
+            self.headers_store.clone(),
+            self.cell_diffs_store.clone(),
+            self.cell_roots_store.clone(),
+            self.block_transactions_store.clone(),
+            self.cell_data_store.clone(),
+            self.cell_data_segment_reader.clone(),
+            self.statuses_store.clone(),
+        );
+
+        let resolved_inputs = cell_tx
+            .inputs
+            .iter()
+            .map(|input| {
+                provider
+                    .get_cell_at_pov(&input.previous_output, pov)
+                    .map_err(|e| {
+                        format!("input resolution failed for {}:{}: {e}", hex::encode(input.previous_output.tx_hash), input.previous_output.index)
+                    })?
+                    .ok_or_else(|| {
+                        format!(
+                            "missing input {}:{} at accepting POV {}",
+                            hex::encode(input.previous_output.tx_hash),
+                            input.previous_output.index,
+                            pov
+                        )
+                    })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(ResolvedCellTransaction::new(cell_tx, resolved_inputs))
     }
 
     pub fn new(
@@ -307,7 +375,7 @@ impl Consensus {
         counters: Arc<ProcessingCounters>,
         tx_script_cache_counters: Arc<ScriptCacheCounters>,
         creation_timestamp: u64,
-        mining_rules: Arc<MiningRules>,
+        _mining_rules: Arc<MiningRules>,
     ) -> Self {
         let params = &config.params;
         let perf_params = &config.perf;
@@ -412,7 +480,6 @@ impl Consensus {
             pruning_lock.clone(),
             notification_root.clone(),
             counters.clone(),
-            mining_rules,
         ));
 
         let pruning_processor = Arc::new(PruningProcessor::new(
@@ -963,11 +1030,6 @@ impl ConsensusApi for Consensus {
             .get_transaction_location(txid)
             .map_err(|e| format!("transaction location lookup failed: {e}"))?;
 
-        let accepting_block = self.find_selected_chain_block_by_daa_score(accepting_block_daa_score)?;
-        let accepting_ghostdag =
-            self.ghostdag_store.get_data(accepting_block).map_err(|e| format!("accepting block ghostdag lookup failed: {e}"))?;
-        let pov = accepting_ghostdag.selected_parent;
-
         let provider = ConsensusCellProvider::new(
             self.ghostdag_store.clone(),
             self.services.reachability_service.clone(),
@@ -980,27 +1042,62 @@ impl ConsensusApi for Consensus {
             self.statuses_store.clone(),
         );
 
-        let resolved_inputs = cell_tx
-            .inputs
-            .iter()
-            .map(|input| {
-                provider
-                    .get_cell_at_pov(&input.out_point, pov)
-                    .map_err(|e| {
-                        format!("input resolution failed for {}:{}: {e}", hex::encode(input.out_point.tx_hash), input.out_point.index)
-                    })?
-                    .ok_or_else(|| {
-                        format!(
-                            "missing input {}:{} at accepting POV {}",
-                            hex::encode(input.out_point.tx_hash),
-                            input.out_point.index,
-                            pov
-                        )
-                    })
-            })
-            .collect::<Result<Vec<_>, _>>()?;
+        let accepting_blocks = self.find_selected_chain_blocks_by_daa_score(accepting_block_daa_score)?;
+        let mut last_error = None;
 
-        Ok(ResolvedCellTransaction::new(cell_tx, resolved_inputs))
+        for accepting_block in accepting_blocks {
+            let accepting_ghostdag =
+                self.ghostdag_store.get_data(accepting_block).map_err(|e| format!("accepting block ghostdag lookup failed: {e}"))?;
+            let pov = accepting_ghostdag.selected_parent;
+
+            match cell_tx
+                .inputs
+                .iter()
+                .map(|input| {
+                    provider
+                        .get_cell_at_pov(&input.previous_output, pov)
+                        .map_err(|e| {
+                            format!(
+                                "input resolution failed for {}:{}: {e}",
+                                hex::encode(input.previous_output.tx_hash),
+                                input.previous_output.index
+                            )
+                        })?
+                        .ok_or_else(|| {
+                            format!(
+                                "missing input {}:{} at accepting POV {}",
+                                hex::encode(input.previous_output.tx_hash),
+                                input.previous_output.index,
+                                pov
+                            )
+                        })
+                })
+                .collect::<Result<Vec<_>, _>>()
+            {
+                Ok(resolved_inputs) => return Ok(ResolvedCellTransaction::new(cell_tx, resolved_inputs)),
+                Err(err) => last_error = Some(err),
+            }
+        }
+
+        Err(last_error.unwrap_or_else(|| {
+            format!("failed to resolve transaction {txid} at any selected-chain block with DAA score {accepting_block_daa_score}")
+        }))
+    }
+
+    #[cfg(not(doctest))]
+    fn get_transaction_location(&self, txid: Hash) -> Result<(Hash, usize), String> {
+        self.block_transactions_store
+            .get_transaction_location(txid)
+            .map_err(|e| format!("transaction location lookup failed: {e}"))
+    }
+
+    #[cfg(not(doctest))]
+    fn get_resolved_cell_transaction_in_accepting_block(
+        &self,
+        txid: Hash,
+        accepting_block: Hash,
+    ) -> Result<ResolvedCellTransaction, String> {
+        self.get_resolved_cell_transaction_in_accepting_block_impl(txid, accepting_block)
     }
 
     fn get_cell_transaction(&self, hash: Hash) -> ConsensusResult<CellTx> {

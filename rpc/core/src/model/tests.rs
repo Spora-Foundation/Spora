@@ -327,9 +327,9 @@ mod mockery {
         }
     }
 
-    impl Mock for RpcScriptRef {
+    impl Mock for RpcScript {
         fn mock() -> Self {
-            RpcScriptRef { code_hash: mock(), hash_type: mock(), args: Hash::mock().as_bytes().to_vec() }
+            RpcScript { code_hash: mock(), hash_type: mock(), args: Hash::mock().as_bytes().to_vec() }
         }
     }
 

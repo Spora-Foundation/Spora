@@ -5,8 +5,8 @@ use spora_consensus_core::{
     blockstatus::BlockStatus,
     config::Config,
     header::Header,
-    mass::{project_cell_tx_mass_with_calculator, MassCalculator},
-    tx::{CellRef, CellTx, MutableTransaction, TransactionId, TransactionOutpoint},
+    mass::{project_cell_tx_mass_with_calculator, project_verifiable_transaction_mass_with_calculator, MassCalculator},
+    tx::{CellInput, CellTx, MutableTransaction, ResolvedCellTransaction, TransactionId, TransactionOutpoint, VerifiableTransaction},
     ChainPath,
 };
 use spora_consensus_notify::notification::{self as consensus_notify, Notification as ConsensusNotification};
@@ -47,9 +47,9 @@ impl ConsensusConverter {
         self.config.max_difficulty_target_f64 / target.as_f64()
     }
 
-    fn get_cell_transaction_input(&self, input: &CellRef, witness: Vec<u8>) -> RpcTransactionInput {
-        let out_point = TransactionOutpoint::new(input.out_point.tx_hash, input.out_point.index);
-        RpcTransactionInput::from_cell_ref(&CellRef::new(out_point, input.since), witness)
+    fn get_cell_transaction_input(&self, input: &CellInput, witness: Vec<u8>) -> RpcTransactionInput {
+        let out_point = TransactionOutpoint::new(input.previous_output.tx_hash, input.previous_output.index);
+        RpcTransactionInput::from_cell_ref(&CellInput::new(out_point, input.since), witness)
     }
 
     fn build_rpc_transaction(
@@ -64,7 +64,7 @@ impl ConsensusConverter {
         let (selection_mass, effective_compute_mass) =
             projected_mass.unwrap_or((fallback_projection.selection_mass, fallback_projection.effective_compute_mass));
         RpcTransaction {
-            version: transaction.ver,
+            version: transaction.version,
             inputs: transaction
                 .inputs
                 .iter()
@@ -105,6 +105,32 @@ impl ConsensusConverter {
         self.build_rpc_transaction(transaction, header, include_verbose_data, None)
     }
 
+    pub fn get_verifiable_transaction(
+        &self,
+        transaction: &(impl VerifiableTransaction + ?Sized),
+        header: Option<&Header>,
+        include_verbose_data: bool,
+    ) -> RpcTransaction {
+        let projected_mass = project_verifiable_transaction_mass_with_calculator(&self.mass_calculator(), transaction, None);
+        self.build_rpc_transaction(
+            transaction.tx(),
+            header,
+            include_verbose_data,
+            Some((projected_mass.selection_mass, projected_mass.effective_compute_mass)),
+        )
+    }
+
+    pub fn get_resolved_cell_transaction(
+        &self,
+        transaction: &ResolvedCellTransaction,
+        header: Option<&Header>,
+        include_verbose_data: bool,
+    ) -> RpcTransaction {
+        let signable = transaction.clone().into_signable_transaction();
+        let verifiable = signable.as_verifiable();
+        self.get_verifiable_transaction(&verifiable, header, include_verbose_data)
+    }
+
     fn get_mempool_transaction(&self, transaction: &MutableTransaction) -> RpcTransaction {
         self.build_rpc_transaction(
             transaction.tx.as_ref(),
@@ -143,11 +169,20 @@ impl ConsensusConverter {
         });
 
         let transactions = if include_transactions {
-            block
-                .transactions
-                .iter()
-                .map(|x| self.get_cell_transaction(consensus, x, Some(&block.header), include_transaction_verbose_data))
-                .collect::<Vec<_>>()
+            let mut transactions = Vec::with_capacity(block.transactions.len());
+            for transaction in block.transactions.iter() {
+                let rpc_tx = if transaction.is_coinbase() {
+                    self.get_cell_transaction(consensus, transaction, Some(&block.header), include_transaction_verbose_data)
+                } else {
+                    let resolved = consensus
+                        .async_get_resolved_cell_transaction_in_accepting_block(transaction.id().into(), hash)
+                        .await
+                        .map_err(spora_rpc_core::RpcError::General)?;
+                    self.get_resolved_cell_transaction(&resolved, Some(&block.header), include_transaction_verbose_data)
+                };
+                transactions.push(rpc_tx);
+            }
+            transactions
         } else {
             vec![]
         };
@@ -233,5 +268,99 @@ impl Converter for ConsensusConverter {
 impl Debug for ConsensusConverter {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ConsensusConverter").field("consensus_manager", &"").field("config", &self.config).finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use spora_consensus::consensus::test_consensus::TestConsensus;
+    use spora_consensus_core::{
+        cell_metadata::CellMetadata,
+        mass::ProjectedTransactionMass,
+        tx::{OutPoint, Script},
+    };
+
+    struct TestConverter {
+        converter: ConsensusConverter,
+        _consensus: TestConsensus,
+    }
+
+    fn build_converter() -> TestConverter {
+        let config = Arc::new(Config::new(spora_consensus::params::SIMNET_PARAMS));
+        let consensus = TestConsensus::new(&config);
+        let consensus_manager = Arc::new(ConsensusManager::from_consensus(consensus.consensus_clone()));
+        TestConverter { converter: ConsensusConverter::new(consensus_manager, config), _consensus: consensus }
+    }
+
+    fn build_resolved_transaction() -> ResolvedCellTransaction {
+        let lock = Script::new([0u8; 32], 0, vec![]);
+        let prev_tx_id = [0x88; 32];
+        let inputs = vec![
+            CellInput::new(OutPoint::new(prev_tx_id, 0), 0),
+            CellInput::new(OutPoint::new(prev_tx_id, 1), 0),
+        ];
+        let outputs = vec![
+            spora_consensus_core::tx::CellOutput { lock: lock.clone(), type_: None, capacity: 50 },
+            spora_consensus_core::tx::CellOutput { lock: lock.clone(), type_: None, capacity: 250 },
+        ];
+        let outputs_data = vec![vec![0; 15], vec![0; 15]];
+        let tx = CellTx { version: 0, inputs, cell_deps: vec![], header_deps: vec![], outputs, outputs_data, witnesses: vec![] };
+        let resolved_inputs = vec![
+            CellMetadata {
+                out_point: OutPoint::new(prev_tx_id, 0),
+                capacity: 100,
+                data_bytes: 0,
+                lock_hash: lock.hash(),
+                type_hash: None,
+                data_hash: [0; 32],
+                block_daa_score: 0,
+                is_cellbase: false,
+                block_hash: [0; 32].into(),
+                lock_code_hash: Some(lock.code_hash),
+                type_code_hash: None,
+                lock_script: Some(lock.clone()),
+                type_script: None,
+                data: Some(vec![]),
+            },
+            CellMetadata {
+                out_point: OutPoint::new(prev_tx_id, 1),
+                capacity: 200,
+                data_bytes: 0,
+                lock_hash: lock.hash(),
+                type_hash: None,
+                data_hash: [0; 32],
+                block_daa_score: 0,
+                is_cellbase: false,
+                block_hash: [0; 32].into(),
+                lock_code_hash: Some(lock.code_hash),
+                type_code_hash: None,
+                lock_script: Some(lock),
+                type_script: None,
+                data: Some(vec![]),
+            },
+        ];
+        ResolvedCellTransaction::new(tx, resolved_inputs)
+    }
+
+    fn project_resolved(converter: &ConsensusConverter, resolved: &ResolvedCellTransaction) -> ProjectedTransactionMass {
+        let signable = resolved.clone().into_signable_transaction();
+        let verifiable = signable.as_verifiable();
+        project_verifiable_transaction_mass_with_calculator(&converter.mass_calculator(), &verifiable, None)
+    }
+
+    #[test]
+    fn resolved_transactions_use_verifiable_selection_mass() {
+        let test = build_converter();
+        let resolved = build_resolved_transaction();
+
+        let projected = project_resolved(&test.converter, &resolved);
+        let fallback = project_cell_tx_mass_with_calculator(&test.converter.mass_calculator(), &resolved.tx, None);
+        assert!(projected.selection_mass > fallback.selection_mass, "test fixture must exercise storage mass");
+
+        let rpc_tx = test.converter.get_resolved_cell_transaction(&resolved, None, true);
+
+        assert_eq!(rpc_tx.mass, projected.selection_mass);
+        assert_eq!(rpc_tx.verbose_data.as_ref().map(|data| data.compute_mass), Some(projected.effective_compute_mass));
     }
 }

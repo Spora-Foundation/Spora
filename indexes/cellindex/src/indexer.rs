@@ -6,11 +6,20 @@
 use crate::{errors::CellIndexError, CellFilter, CellQuery, CellQueryResult, Result};
 use parking_lot::RwLock;
 use spora_consensus_core::cell_diff::{BlockCellDiff, CellCollection, CellMeta as DiffCellMeta};
-use spora_exec::{CellOut, CellTx, OutPoint, ScriptRef};
+use spora_exec::{CellOutput, CellTx, OutPoint, Script};
 use spora_state::index::CellMeta;
-use spora_state::{CellDB, ScriptIndex, SegmentInfo, SegmentReader, SegmentWriter};
+use spora_state::{CellDB, ScriptIndex, SegmentInfo, SegmentProof, SegmentReader, SegmentWriter};
 use std::path::Path;
 use std::sync::Arc;
+
+/// DA proof response for a segment-backed Cell payload.
+#[derive(Clone, Debug)]
+pub struct CellDataProof {
+    pub out_point: OutPoint,
+    pub segment_info: SegmentInfo,
+    pub payload: Vec<u8>,
+    pub proof: SegmentProof,
+}
 
 /// Cell indexer service
 ///
@@ -103,17 +112,17 @@ impl CellIndexer {
         // Mark inputs as spent
         for input in &tx.inputs {
             // Remove from script index using the live metadata before spending.
-            if let Some(meta) = self.cell_db.get(&input.out_point)? {
+            if let Some(meta) = self.cell_db.get(&input.previous_output)? {
                 let lock_hash = meta.cell_output.lock.hash();
-                self.script_index.remove_lock(&lock_hash, &input.out_point)?;
+                self.script_index.remove_lock(&lock_hash, &input.previous_output)?;
 
                 if let Some(ref type_script) = meta.cell_output.type_ {
                     let type_hash = type_script.hash();
-                    self.script_index.remove_type(&type_hash, &input.out_point)?;
+                    self.script_index.remove_type(&type_hash, &input.previous_output)?;
                 }
             }
 
-            self.cell_db.spend_in_block(&input.out_point, daa_score, block_hash)?;
+            self.cell_db.spend_in_block(&input.previous_output, daa_score, block_hash)?;
         }
 
         // Update stats
@@ -168,6 +177,20 @@ impl CellIndexer {
     /// Get a single Cell by OutPoint
     pub fn get_cell(&self, out_point: &OutPoint) -> Result<Option<CellMeta>> {
         self.cell_db.get(out_point)?.map(|meta| self.hydrate_cell_data(meta)).transpose()
+    }
+
+    /// Build a DA proof for a segment-backed Cell payload.
+    pub fn get_cell_data_proof(&self, out_point: &OutPoint) -> Result<Option<CellDataProof>> {
+        let Some(meta) = self.cell_db.get(out_point)? else {
+            return Ok(None);
+        };
+
+        let Some(segment_info) = meta.segment_info.clone() else {
+            return Err(CellIndexError::QueryFailed(format!("cell {:?} is not segment-backed", out_point)));
+        };
+
+        let proof = self.segment_reader.build_proof_for_segment_info(&segment_info)?;
+        Ok(Some(CellDataProof { out_point: *out_point, payload: proof.chunk_data.clone(), segment_info, proof }))
     }
 
     /// Check if a Cell is spent
@@ -307,7 +330,7 @@ fn index_cell_meta_from_diff(meta: &DiffCellMeta, block_hash: [u8; 32], block_da
     let type_ = meta.type_hash.map(placeholder_script_from_hash);
 
     CellMeta {
-        cell_output: CellOut { lock, type_, capacity: meta.capacity },
+        cell_output: CellOutput { lock, type_, capacity: meta.capacity },
         cell_data: Vec::new(),
         daa_score: block_daa_score,
         block_hash,
@@ -316,22 +339,22 @@ fn index_cell_meta_from_diff(meta: &DiffCellMeta, block_hash: [u8; 32], block_da
     }
 }
 
-fn placeholder_script_from_hash(script_hash: [u8; 32]) -> ScriptRef {
+fn placeholder_script_from_hash(script_hash: [u8; 32]) -> Script {
     // The index stores the original script hashes separately in ScriptIndex. The
     // placeholder script only preserves enough structure for RPC bridge queries.
-    ScriptRef::new(script_hash, 0, Vec::new())
+    Script::new(script_hash, 0, Vec::new())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use spora_consensus_core::{cell_diff::CellDiff, tx::TransactionOutpoint};
-    use spora_exec::{CellOut, ScriptRef};
+    use spora_exec::{CellOutput, Script};
     use tempfile::TempDir;
 
     fn create_test_tx() -> CellTx {
-        let lock = ScriptRef::new([0x00; 32], 0, vec![0; 20]);
-        CellTx::new(vec![], vec![], vec![CellOut { lock, type_: None, capacity: 1000 }], vec![vec![0xAA; 100]], vec![]).unwrap()
+        let lock = Script::new([0x00; 32], 0, vec![0; 20]);
+        CellTx::new(vec![], vec![], vec![CellOutput { lock, type_: None, capacity: 1000 }], vec![vec![0xAA; 100]], vec![]).unwrap()
     }
 
     #[test]
@@ -362,12 +385,31 @@ mod tests {
     }
 
     #[test]
+    fn test_get_cell_data_proof_for_segment_backed_cell() {
+        let tmp_db = TempDir::new().unwrap();
+        let tmp_script = TempDir::new().unwrap();
+        let indexer = CellIndexer::new(tmp_db.path(), tmp_script.path()).unwrap();
+
+        let tx = create_test_tx();
+        indexer.index_transaction(&tx, 100, [0x42; 32], false).unwrap();
+
+        let out_point = OutPoint::new(spora_exec::celltx::sighash::compute_wtxid(&tx), 0);
+        let data_proof = indexer.get_cell_data_proof(&out_point).unwrap().unwrap();
+
+        assert_eq!(data_proof.out_point, out_point);
+        assert_eq!(data_proof.payload, vec![0xAA; 100]);
+        assert_eq!(data_proof.payload, data_proof.proof.chunk_data);
+        assert_eq!(data_proof.segment_info.length, 100);
+        assert!(data_proof.proof.verify().unwrap());
+    }
+
+    #[test]
     fn test_query_by_lock() {
         let tmp_db = TempDir::new().unwrap();
         let tmp_script = TempDir::new().unwrap();
         let indexer = CellIndexer::new(tmp_db.path(), tmp_script.path()).unwrap();
 
-        let lock = ScriptRef::new([0x00; 32], 0, vec![0; 20]);
+        let lock = Script::new([0x00; 32], 0, vec![0; 20]);
         let tx = create_test_tx();
 
         indexer.index_transaction(&tx, 100, [0x42; 32], false).unwrap();
@@ -385,7 +427,7 @@ mod tests {
         let tmp_script = TempDir::new().unwrap();
         let indexer = CellIndexer::new(tmp_db.path(), tmp_script.path()).unwrap();
 
-        let lock = ScriptRef::new([0x00; 32], 0, vec![0; 20]);
+        let lock = Script::new([0x00; 32], 0, vec![0; 20]);
         let tx = create_test_tx();
 
         indexer.index_transaction(&tx, 100, [0x42; 32], false).unwrap();
@@ -440,6 +482,27 @@ mod tests {
         assert!(removed.cells.is_empty());
 
         assert_eq!(indexer.cell_db.is_spent(&meta.out_point).unwrap(), None);
+    }
+
+    #[test]
+    fn test_get_cell_data_proof_errors_for_inline_cells() {
+        let tmp_db = TempDir::new().unwrap();
+        let tmp_script = TempDir::new().unwrap();
+        let indexer = CellIndexer::new(tmp_db.path(), tmp_script.path()).unwrap();
+
+        let out_point = OutPoint::new([0x61; 32], 0);
+        let meta = CellMeta {
+            cell_output: CellOutput { lock: Script::new([0x00; 32], 0, vec![0; 20]), type_: None, capacity: 777 },
+            cell_data: vec![0x44; 16],
+            daa_score: 10,
+            block_hash: [0x71; 32],
+            is_cellbase: false,
+            segment_info: None,
+        };
+        indexer.cell_db.put(&out_point, &meta).unwrap();
+
+        let err = indexer.get_cell_data_proof(&out_point).unwrap_err();
+        assert!(matches!(err, CellIndexError::QueryFailed(_)));
     }
 
     #[test]

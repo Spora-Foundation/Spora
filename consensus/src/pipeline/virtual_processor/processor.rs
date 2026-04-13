@@ -24,7 +24,6 @@ use crate::{
             cell_data::DbCellDataStore,
             cell_diffs::{CellDiffsStoreReader, DbCellDiffsStore},
             cell_roots::{CellRootsStoreReader, DbCellRootsStore},
-            daa::DbDaaStore,
             depth::{DbDepthStore, DepthStoreReader},
             ghostdag::{DbGhostdagStore, GhostdagData, GhostdagStoreReader},
             headers::{DbHeadersStore, HeaderStoreReader},
@@ -67,7 +66,6 @@ use spora_consensus_core::{
     constants::MAX_SAU,
     header::Header,
     mass::MassCalculator,
-    mining_rules::MiningRules,
     pruning::PruningPointsList,
     tx::{CellTx, MutableTransaction, TransactionOutpoint},
     BlockHashSet,
@@ -109,6 +107,7 @@ use std::{
     sync::{atomic::Ordering, Arc},
 };
 
+#[allow(dead_code)]
 fn filter_conflicting_template_transactions(txs: Vec<CellTx>, tx_selector: &mut dyn TemplateTransactionSelector) -> Vec<CellTx> {
     prefilter_conflicting_template_transactions(txs, Some(tx_selector)).kept_txs
 }
@@ -256,7 +255,7 @@ fn cell_metadata_from_cell_output(
     is_cellbase: bool,
     tx_id: [u8; 32],
     output_index: u32,
-    output: &spora_exec::CellOut,
+    output: &spora_exec::CellOutput,
     output_data: &[u8],
 ) -> CellMetadata {
     CellMetadata {
@@ -458,9 +457,20 @@ impl CellScriptDataProvider for VirtualSnapshotCellProvider {
         };
         Ok(Some(spora_exec::vm::ResolvedHeader {
             hash: block_hash.as_bytes(),
+            version: header.version,
+            parents_by_level: header.parents_by_level.iter().map(|level| level.iter().map(|hash| hash.as_bytes()).collect()).collect(),
+            hash_merkle_root: header.hash_merkle_root.as_bytes(),
+            accepted_id_merkle_root: header.accepted_id_merkle_root.as_bytes(),
+            cell_commitment: header.cell_commitment.as_bytes(),
+            cell_root: header.cell_root.as_bytes(),
+            segment_root: header.segment_root.as_bytes(),
             timestamp: header.timestamp,
+            bits: header.bits,
+            nonce: header.nonce,
             daa_score: header.daa_score,
-            parents: header.direct_parents().iter().map(|hash| hash.as_bytes()).collect(),
+            blue_work: header.blue_work.to_le_bytes(),
+            blue_score: header.blue_score,
+            pruning_point: header.pruning_point.as_bytes(),
         }))
     }
 }
@@ -487,7 +497,6 @@ pub struct VirtualStateProcessor {
     pub(super) statuses_store: Arc<RwLock<DbStatusesStore>>,
     pub(super) ghostdag_store: Arc<DbGhostdagStore>,
     pub(super) headers_store: Arc<DbHeadersStore>,
-    pub(super) daa_excluded_store: Arc<DbDaaStore>,
     pub(super) block_transactions_store: Arc<DbBlockTransactionsStore>,
     pub(super) cell_data_store: Arc<DbCellDataStore>,
     pub(super) cell_data_segment_reader: Arc<SegmentReader>,
@@ -533,9 +542,6 @@ pub struct VirtualStateProcessor {
 
     // Counters
     counters: Arc<ProcessingCounters>,
-
-    // Mining Rule
-    mining_rules: Arc<MiningRules>,
 }
 
 impl VirtualStateProcessor {
@@ -552,7 +558,6 @@ impl VirtualStateProcessor {
         pruning_lock: SessionLock,
         notification_root: Arc<ConsensusNotificationRoot>,
         counters: Arc<ProcessingCounters>,
-        mining_rules: Arc<MiningRules>,
     ) -> Self {
         Self {
             receiver,
@@ -569,7 +574,6 @@ impl VirtualStateProcessor {
             statuses_store: storage.statuses_store.clone(),
             headers_store: storage.headers_store.clone(),
             ghostdag_store: storage.ghostdag_store.clone(),
-            daa_excluded_store: storage.daa_excluded_store.clone(),
             block_transactions_store: storage.block_transactions_store.clone(),
             cell_data_store: storage.cell_data_store.clone(),
             pruning_point_store: storage.pruning_point_store.clone(),
@@ -603,7 +607,6 @@ impl VirtualStateProcessor {
             pruning_lock,
             notification_root,
             counters,
-            mining_rules,
         }
     }
 
@@ -1446,7 +1449,7 @@ impl VirtualStateProcessor {
         input_index: usize,
         mutable_tx: &MutableTransaction,
     ) -> Result<CellMetadata, TxRuleError> {
-        let outpoint = mutable_tx.tx.inputs[input_index].out_point;
+        let outpoint = mutable_tx.tx.inputs[input_index].previous_output;
 
         if let Some(metadata) = mutable_tx.resolved_cell_metadata(input_index) {
             return Ok(metadata.clone());
@@ -1512,7 +1515,7 @@ impl VirtualStateProcessor {
             .inputs
             .iter()
             .zip(resolved_inputs.iter())
-            .map(|(input, metadata)| (OutPoint::new(input.out_point.tx_hash, input.out_point.index), metadata.clone()))
+            .map(|(input, metadata)| (OutPoint::new(input.previous_output.tx_hash, input.previous_output.index), metadata.clone()))
             .collect()
     }
 
@@ -1542,7 +1545,7 @@ impl VirtualStateProcessor {
                         (meta.is_cellbase && current_daa < meta.block_daa_score + maturity).then_some(
                             TxRuleError::ImmatureCoinbaseSpend(
                                 index,
-                                mutable_tx.tx.inputs[index].out_point,
+                                mutable_tx.tx.inputs[index].previous_output,
                                 meta.block_daa_score,
                                 current_daa,
                                 maturity,
@@ -1595,7 +1598,7 @@ impl VirtualStateProcessor {
 
         let mut seen_inputs = HashSet::with_capacity(cell_tx.inputs.len());
         for input in &cell_tx.inputs {
-            if !seen_inputs.insert((input.out_point.tx_hash, input.out_point.index)) {
+            if !seen_inputs.insert((input.previous_output.tx_hash, input.previous_output.index)) {
                 return Err(TxRuleError::TxDuplicateInputs);
             }
         }
@@ -1770,7 +1773,7 @@ impl VirtualStateProcessor {
         tx.inputs
             .iter()
             .map(|input| {
-                provider.get_cell_at_pov(&input.out_point, pov)?.ok_or_else(|| format!("missing input cell {:?}", input.out_point))
+                provider.get_cell_at_pov(&input.previous_output, pov)?.ok_or_else(|| format!("missing input cell {:?}", input.previous_output))
             })
             .collect()
     }
@@ -1828,12 +1831,12 @@ impl VirtualStateProcessor {
                     tx.inputs
                         .iter()
                         .map(|input| {
-                            let tx_outpoint = TransactionOutpoint::new(input.out_point.tx_hash, input.out_point.index);
+                            let tx_outpoint = TransactionOutpoint::new(input.previous_output.tx_hash, input.previous_output.index);
                             let tree_key = outpoint_to_hash(&tx_outpoint);
-                            let provider_has_cell = provider.get_cell_at_pov(&input.out_point, pov).ok().flatten().is_some();
+                            let provider_has_cell = provider.get_cell_at_pov(&input.previous_output, pov).ok().flatten().is_some();
                             let tree_has_cell =
                                 self.virtual_stores.read().state.get().map(|state| state.cell_state_tree.get(&tree_key).is_some());
-                            (input.out_point.clone(), provider_has_cell, tree_has_cell.unwrap_or(false))
+                            (input.previous_output.clone(), provider_has_cell, tree_has_cell.unwrap_or(false))
                         })
                         .collect_vec()
                 );
@@ -1849,7 +1852,7 @@ impl VirtualStateProcessor {
                 let maturity = self.coinbase_maturity;
                 for (index, input) in tx.inputs.iter().enumerate() {
                     let Some(metadata) = provider
-                        .get_cell_at_pov(&input.out_point, pov)
+                        .get_cell_at_pov(&input.previous_output, pov)
                         .map_err(|err| RuleError::CellValidationError(format!("template input lookup failed: {err}")))?
                     else {
                         continue;
@@ -1858,7 +1861,7 @@ impl VirtualStateProcessor {
                     if metadata.is_cellbase && current_daa < metadata.block_daa_score + maturity {
                         return Ok(TxRuleError::ImmatureCoinbaseSpend(
                             index,
-                            TransactionOutpoint::new(input.out_point.tx_hash, input.out_point.index),
+                            TransactionOutpoint::new(input.previous_output.tx_hash, input.previous_output.index),
                             metadata.block_daa_score,
                             current_daa,
                             maturity,
@@ -1892,7 +1895,7 @@ impl VirtualStateProcessor {
         current_daa: u64,
     ) -> Result<(), RuleError> {
         for input in &tx.inputs {
-            provider.spend_cell(&input.out_point).map_err(|e| {
+            provider.spend_cell(&input.previous_output).map_err(|e| {
                 RuleError::CellValidationError(format!(
                     "failed to update block template overlay for tx {:?}: {e}",
                     Hash::from_bytes(tx.id())
@@ -2336,7 +2339,7 @@ enum MergesetIncreaseResult {
 mod tests {
     use super::filter_conflicting_template_transactions;
     use spora_consensus_core::{block::TemplateTransactionSelector, tx::TransactionId};
-    use spora_exec::{celltx::sighash::compute_wtxid, CellOut, CellRef, CellTx, OutPoint, ScriptRef};
+    use spora_exec::{celltx::sighash::compute_wtxid, CellOutput, CellInput, CellTx, OutPoint, Script};
 
     struct NoopSelector;
 
@@ -2353,9 +2356,9 @@ mod tests {
     }
 
     fn test_tx(inputs: Vec<OutPoint>, output_count: usize) -> CellTx {
-        let lock = ScriptRef::new([0x11; 32], 0, vec![]);
-        let inputs = inputs.into_iter().map(|op| CellRef::new(op, 0)).collect();
-        let outputs = vec![CellOut { lock, type_: None, capacity: 1000 }; output_count];
+        let lock = Script::new([0x11; 32], 0, vec![]);
+        let inputs = inputs.into_iter().map(|op| CellInput::new(op, 0)).collect();
+        let outputs = vec![CellOutput { lock, type_: None, capacity: 1000 }; output_count];
         let outputs_data = vec![vec![]; output_count];
         CellTx::new(inputs, vec![], outputs, outputs_data, vec![]).unwrap()
     }

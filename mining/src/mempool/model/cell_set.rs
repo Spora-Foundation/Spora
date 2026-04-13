@@ -24,7 +24,7 @@ impl MempoolCellSet {
 
         for input in transaction.tx.inputs.iter() {
             // Track spent inputs immediately for double-spend detection.
-            self.outpoint_owner_id.insert(input.out_point, transaction_id);
+            self.outpoint_owner_id.insert(input.previous_output, transaction_id);
         }
 
         // TODO: Track newly created mempool-owned Cells once the pool
@@ -38,11 +38,11 @@ impl MempoolCellSet {
             if let Some(ref entry) = transaction.entries[i] {
                 // If the transaction creating the output spent by this input is in the
                 // mempool, restore the parent-owned Cell once the full Cell set exists.
-                if parent_ids_in_pool.contains(&input.out_point.transaction_id()) {
+                if parent_ids_in_pool.contains(&input.previous_output.transaction_id()) {
                     let _ = entry;
                 }
             }
-            self.outpoint_owner_id.remove(&input.out_point);
+            self.outpoint_owner_id.remove(&input.previous_output);
         }
 
         // TODO: Remove newly created mempool-owned Cells once output
@@ -64,9 +64,9 @@ impl MempoolCellSet {
     pub(crate) fn get_first_double_spend(&self, transaction: &MutableTransaction) -> Option<DoubleSpend> {
         let transaction_id = transaction.id();
         for input in transaction.tx.inputs.iter() {
-            if let Some(existing_transaction_id) = self.get_outpoint_owner_id(&input.out_point) {
+            if let Some(existing_transaction_id) = self.get_outpoint_owner_id(&input.previous_output) {
                 if *existing_transaction_id != transaction_id {
-                    return Some(DoubleSpend::new(input.out_point, *existing_transaction_id));
+                    return Some(DoubleSpend::new(input.previous_output, *existing_transaction_id));
                 }
             }
         }
@@ -79,9 +79,9 @@ impl MempoolCellSet {
         let mut double_spends = vec![];
         let mut visited = HashSet::new();
         for input in transaction.tx.inputs.iter() {
-            if let Some(existing_transaction_id) = self.get_outpoint_owner_id(&input.out_point) {
+            if let Some(existing_transaction_id) = self.get_outpoint_owner_id(&input.previous_output) {
                 if *existing_transaction_id != transaction_id && visited.insert(*existing_transaction_id) {
-                    double_spends.push(DoubleSpend::new(input.out_point, *existing_transaction_id));
+                    double_spends.push(DoubleSpend::new(input.previous_output, *existing_transaction_id));
                 }
             }
         }

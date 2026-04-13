@@ -126,7 +126,7 @@ impl BlockBodyProcessor {
         let mut existing = HashSet::new();
         for input in block.transactions.iter().flat_map(|tx| &tx.inputs) {
             // Convert OutPoint to TransactionOutpoint
-            let txout = TransactionOutpoint { tx_hash: input.out_point.tx_hash, index: input.out_point.index };
+            let txout = TransactionOutpoint { tx_hash: input.previous_output.tx_hash, index: input.previous_output.index };
             if !existing.insert(txout.clone()) {
                 return Err(RuleError::DoubleSpendInSameBlock(txout));
             }
@@ -144,7 +144,7 @@ impl BlockBodyProcessor {
 
         for input in block.transactions.iter().flat_map(|tx| &tx.inputs) {
             // Convert OutPoint to TransactionOutpoint
-            let txout = TransactionOutpoint { tx_hash: input.out_point.tx_hash, index: input.out_point.index };
+            let txout = TransactionOutpoint { tx_hash: input.previous_output.tx_hash, index: input.previous_output.index };
             if block_created_outpoints.contains(&txout) {
                 return Err(RuleError::ChainedTransaction(txout));
             }
@@ -179,15 +179,15 @@ mod tests {
         merkle::calc_hash_merkle_root_cell as calc_hash_merkle_root_with_options,
     };
     use spora_core::assert_match;
-    use spora_exec::{CellOut, CellRef, CellTx, OutPoint, ScriptRef};
+    use spora_exec::{CellOutput, CellInput, CellTx, OutPoint, Script};
     use spora_hashes::Hash;
 
     fn calc_hash_merkle_root<'a>(txs: impl ExactSizeIterator<Item = &'a CellTx>) -> Hash {
         calc_hash_merkle_root_with_options(txs, false)
     }
 
-    fn make_lock(byte: u8) -> ScriptRef {
-        ScriptRef::new([byte; 32], 0, vec![])
+    fn make_lock(byte: u8) -> Script {
+        Script::new([byte; 32], 0, vec![])
     }
 
     #[test]
@@ -212,45 +212,45 @@ mod tests {
         let coinbase = CellTx::new(
             vec![],
             vec![],
-            vec![CellOut { lock: lock.clone(), type_: None, capacity: 0x12a05f200 }],
+            vec![CellOutput { lock: lock.clone(), type_: None, capacity: 0x12a05f200 }],
             vec![coinbase_payload],
             vec![],
         )
         .unwrap();
         let tx1 = CellTx::new(
-            vec![CellRef::new(OutPoint::new([0x16; 32], 0xffffffff), 0), CellRef::new(OutPoint::new([0x4b; 32], 0xffffffff), 0)],
+            vec![CellInput::new(OutPoint::new([0x16; 32], 0xffffffff), 0), CellInput::new(OutPoint::new([0x4b; 32], 0xffffffff), 0)],
             vec![],
-            vec![CellOut { lock: lock.clone(), type_: None, capacity: 1000 }],
+            vec![CellOutput { lock: lock.clone(), type_: None, capacity: 1000 }],
             vec![vec![]],
             vec![vec![], vec![]],
         )
         .unwrap();
         let tx2 = CellTx::new(
-            vec![CellRef::new(OutPoint::new([0x03; 32], 0), 0)],
+            vec![CellInput::new(OutPoint::new([0x03; 32], 0), 0)],
             vec![],
             vec![
-                CellOut { lock: lock.clone(), type_: None, capacity: 0x2123e300 },
-                CellOut { lock: lock.clone(), type_: None, capacity: 0x108e20f00 },
+                CellOutput { lock: lock.clone(), type_: None, capacity: 0x2123e300 },
+                CellOutput { lock: lock.clone(), type_: None, capacity: 0x108e20f00 },
             ],
             vec![vec![], vec![]],
             vec![vec![0x49, 0x30]],
         )
         .unwrap();
         let tx3 = CellTx::new(
-            vec![CellRef::new(OutPoint::new([0xc3; 32], 1), 0)],
+            vec![CellInput::new(OutPoint::new([0xc3; 32], 1), 0)],
             vec![],
             vec![
-                CellOut { lock: lock.clone(), type_: None, capacity: 0xf4240 },
-                CellOut { lock: lock.clone(), type_: None, capacity: 0x11d260c0 },
+                CellOutput { lock: lock.clone(), type_: None, capacity: 0xf4240 },
+                CellOutput { lock: lock.clone(), type_: None, capacity: 0x11d260c0 },
             ],
             vec![vec![], vec![]],
             vec![vec![0x47, 0x30]],
         )
         .unwrap();
         let tx4 = CellTx::new(
-            vec![CellRef::new(OutPoint::new([0x0b; 32], 0), 0)],
+            vec![CellInput::new(OutPoint::new([0x0b; 32], 0), 0)],
             vec![],
-            vec![CellOut { lock: lock.clone(), type_: None, capacity: 0xf4240 }],
+            vec![CellOutput { lock: lock.clone(), type_: None, capacity: 0xf4240 }],
             vec![vec![]],
             vec![vec![0x49, 0x30]],
         )
@@ -294,7 +294,7 @@ mod tests {
 
         let mut block = example_block.clone();
         let txs = &mut block.transactions;
-        txs[1].ver += 1;
+        txs[1].version += 1;
         assert_match!(body_processor.validate_body_in_isolation(&block.to_immutable()), Err(RuleError::BadMerkleRoot(_, _)));
 
         let mut block = example_block.clone();
@@ -317,13 +317,13 @@ mod tests {
 
         let mut block = example_block.clone();
         let txs = &mut block.transactions;
-        txs[2].inputs[0].out_point = txs[1].inputs[0].out_point.clone();
+        txs[2].inputs[0].previous_output = txs[1].inputs[0].previous_output.clone();
         block.header.hash_merkle_root = calc_hash_merkle_root(txs.iter());
         assert_match!(body_processor.validate_body_in_isolation(&block.to_immutable()), Err(RuleError::DoubleSpendInSameBlock(_)));
 
         let mut block = example_block.clone();
         let txs = &mut block.transactions;
-        txs[0].inputs.push(CellRef::new(OutPoint::new([1; 32], 0), 0));
+        txs[0].inputs.push(CellInput::new(OutPoint::new([1; 32], 0), 0));
         block.header.hash_merkle_root = calc_hash_merkle_root(txs.iter());
         assert_match!(body_processor.validate_body_in_isolation(&block.to_immutable()), Err(RuleError::FirstTxNotCoinbase));
 
@@ -350,7 +350,7 @@ mod tests {
 
         let mut block = example_block;
         let txs = &mut block.transactions;
-        txs[3].inputs[0].out_point = OutPoint::new(txs[2].id(), 0);
+        txs[3].inputs[0].previous_output = OutPoint::new(txs[2].id(), 0);
         block.header.hash_merkle_root = calc_hash_merkle_root(txs.iter());
         assert_match!(body_processor.validate_body_in_isolation(&block.to_immutable()), Err(RuleError::ChainedTransaction(_)));
 
@@ -364,7 +364,7 @@ mod tests {
         let wait_handles = consensus.init();
 
         let mut block = consensus.build_block_with_parents_and_transactions(1.into(), vec![config.genesis.hash], vec![]);
-        block.transactions[0].ver += 1;
+        block.transactions[0].version += 1;
 
         let BlockValidationFutures { block_task, virtual_state_task } =
             consensus.validate_and_insert_block(block.clone().to_immutable());

@@ -153,7 +153,7 @@ impl TransactionsPool {
 
         if let Some(cell_tx) = transaction.cell_tx() {
             for input in &cell_tx.inputs {
-                let cell_parent_id: TransactionId = input.out_point.tx_hash.into();
+                let cell_parent_id: TransactionId = input.previous_output.tx_hash.into();
                 if let Some(parent_id) = self.cell_transaction_ids.get(&cell_parent_id).copied() {
                     parents.insert(parent_id);
                 }
@@ -648,15 +648,15 @@ mod tests {
     use crate::cell_conversion::cell_output_to_placeholder_entry;
     use spora_consensus_core::{
         mass::{ContextualMasses, NonContextualMasses},
-        tx::{CellOut, CellRef, CellTx, MutableTransaction, ScriptRef, TransactionId, TransactionOutpoint},
+        tx::{CellOutput, CellInput, CellTx, MutableTransaction, Script, TransactionId, TransactionOutpoint},
     };
 
     fn build_test_mtx() -> MutableTransaction {
-        let lock_script = ScriptRef::new([0; 32], 0, vec![0x51]);
-        let input = CellRef::new(TransactionOutpoint::new(TransactionId::default().as_bytes(), 0), 0);
-        let output = CellOut { lock: lock_script.clone(), type_: None, capacity: 9_000 };
+        let lock_script = Script::new([0; 32], 0, vec![0x51]);
+        let input = CellInput::new(TransactionOutpoint::new(TransactionId::default().as_bytes(), 0), 0);
+        let output = CellOutput { lock: lock_script.clone(), type_: None, capacity: 9_000 };
         let tx = Arc::new(CellTx::new(vec![input], vec![], vec![output], vec![vec![]], vec![vec![1, 2, 3]]).unwrap());
-        let entry = cell_output_to_placeholder_entry(&CellOut { lock: lock_script, type_: None, capacity: 10_000 }, &[], 0, false);
+        let entry = cell_output_to_placeholder_entry(&CellOutput { lock: lock_script, type_: None, capacity: 10_000 }, &[], 0, false);
         let mut mtx = MutableTransaction::with_entries(tx, vec![entry]);
         mtx.calculated_fee = Some(1_000);
         mtx.calculated_non_contextual_masses = Some(NonContextualMasses::new(100, 50));
@@ -666,11 +666,11 @@ mod tests {
     }
 
     fn build_child_mtx(parent_id: TransactionId) -> MutableTransaction {
-        let lock_script = ScriptRef::new([0; 32], 0, vec![0x51]);
-        let input = CellRef::new(TransactionOutpoint::new(parent_id.as_bytes(), 0), 0);
-        let output = CellOut { lock: lock_script.clone(), type_: None, capacity: 8_000 };
+        let lock_script = Script::new([0; 32], 0, vec![0x51]);
+        let input = CellInput::new(TransactionOutpoint::new(parent_id.as_bytes(), 0), 0);
+        let output = CellOutput { lock: lock_script.clone(), type_: None, capacity: 8_000 };
         let tx = Arc::new(CellTx::new(vec![input], vec![], vec![output], vec![vec![]], vec![vec![4, 5, 6]]).unwrap());
-        let entry = cell_output_to_placeholder_entry(&CellOut { lock: lock_script, type_: None, capacity: 9_000 }, &[], 0, false);
+        let entry = cell_output_to_placeholder_entry(&CellOutput { lock: lock_script, type_: None, capacity: 9_000 }, &[], 0, false);
         let mut mtx = MutableTransaction::with_entries(tx, vec![entry]);
         mtx.calculated_fee = Some(1_000);
         mtx.calculated_non_contextual_masses = Some(NonContextualMasses::new(100, 50));
@@ -737,7 +737,7 @@ mod tests {
         let parent_cell_id = pool.all_transactions.get(&parent_id).unwrap().cell_tx_id().unwrap();
         let child_tx = pool.all_transactions.get_mut(&child_id).unwrap();
         let child_cell_tx = Arc::make_mut(child_tx.cell_tx.as_mut().unwrap());
-        child_cell_tx.inputs.iter_mut().for_each(|input| input.out_point.tx_hash = parent_cell_id.as_bytes());
+        child_cell_tx.inputs.iter_mut().for_each(|input| input.previous_output.tx_hash = parent_cell_id.as_bytes());
 
         let effective = {
             let child = pool.all_transactions.get(&child_id).unwrap();

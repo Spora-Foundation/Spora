@@ -6,7 +6,7 @@
 
 use super::utils::{store_data, INDEX_OUT_OF_BOUND, ITEM_MISSING, SUCCESS};
 use super::{InputField, Source, LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER, LOAD_INPUT_SYSCALL_NUMBER};
-use crate::celltx::{CellRef, CellTx};
+use crate::celltx::{CellInput, CellTx};
 use ckb_vm::{
     registers::{A0, A3, A4, A5, A7},
     Error as VMError, Register, SupportMachine, Syscalls,
@@ -26,7 +26,7 @@ impl LoadInput {
         Self { tx, group_input_indices }
     }
 
-    fn get_input(&self, source: u64, index: usize) -> Option<&CellRef> {
+    fn get_input(&self, source: u64, index: usize) -> Option<&CellInput> {
         match Source::parse(source)? {
             Source::Input => self.tx.inputs.get(index),
             Source::GroupInput => self.group_input_indices.get(index).and_then(|&idx| self.tx.inputs.get(idx)),
@@ -34,12 +34,12 @@ impl LoadInput {
         }
     }
 
-    fn serialize_input_field(&self, input: &CellRef, field: u64) -> Option<Vec<u8>> {
+    fn serialize_input_field(&self, input: &CellInput, field: u64) -> Option<Vec<u8>> {
         match InputField::parse(field)? {
             InputField::OutPoint => {
                 let mut data = Vec::with_capacity(36);
-                data.extend_from_slice(&input.out_point.tx_hash);
-                data.extend_from_slice(&input.out_point.index.to_le_bytes());
+                data.extend_from_slice(&input.previous_output.tx_hash);
+                data.extend_from_slice(&input.previous_output.index.to_le_bytes());
                 Some(data)
             }
             InputField::Since => Some(input.since.to_le_bytes().to_vec()),
@@ -86,8 +86,8 @@ impl<M: SupportMachine> Syscalls<M> for LoadInput {
         } else {
             // LOAD_INPUT (full input = outpoint + since = 44 bytes)
             let mut data = Vec::with_capacity(44);
-            data.extend_from_slice(&input.out_point.tx_hash);
-            data.extend_from_slice(&input.out_point.index.to_le_bytes());
+            data.extend_from_slice(&input.previous_output.tx_hash);
+            data.extend_from_slice(&input.previous_output.index.to_le_bytes());
             data.extend_from_slice(&input.since.to_le_bytes());
             data
         };
@@ -114,11 +114,11 @@ mod tests {
 
     #[test]
     fn test_load_input_supports_partial_reads() {
-        let input = CellRef::new(crate::celltx::OutPoint::new([0xAB; 32], 7), 0x1122_3344_5566_7788);
+        let input = CellInput::new(crate::celltx::OutPoint::new([0xAB; 32], 7), 0x1122_3344_5566_7788);
         let tx = Arc::new(CellTx {
-            ver: 0xC001,
+            version: 0xC001,
             inputs: vec![input.clone()],
-            deps: vec![],
+            cell_deps: vec![],
             header_deps: vec![],
             outputs: vec![],
             outputs_data: vec![],
@@ -145,11 +145,11 @@ mod tests {
 
     #[test]
     fn test_load_input_by_field_rejects_unknown_field() {
-        let input = CellRef::new(crate::celltx::OutPoint::new([0xAB; 32], 7), 0x1122_3344_5566_7788);
+        let input = CellInput::new(crate::celltx::OutPoint::new([0xAB; 32], 7), 0x1122_3344_5566_7788);
         let tx = Arc::new(CellTx {
-            ver: 0xC001,
+            version: 0xC001,
             inputs: vec![input],
-            deps: vec![],
+            cell_deps: vec![],
             header_deps: vec![],
             outputs: vec![],
             outputs_data: vec![],

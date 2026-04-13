@@ -1,29 +1,16 @@
 use super::{factory::MultiConsensusManagementStore, Consensus};
 use parking_lot::RwLock;
 use spora_consensusmanager::ConsensusCtl;
-use spora_database::prelude::DB;
-use std::{
-    path::PathBuf,
-    sync::{Arc, Weak},
-    thread::JoinHandle,
-};
+use std::{sync::Arc, thread::JoinHandle};
 
 pub struct Ctl {
     management_store: Arc<RwLock<MultiConsensusManagementStore>>,
-    consensus_db_ref: Weak<DB>,
-    consensus_db_path: PathBuf,
     consensus: Arc<Consensus>,
 }
 
 impl Ctl {
-    pub fn new(
-        management_store: Arc<RwLock<MultiConsensusManagementStore>>,
-        consensus_db: Arc<DB>,
-        consensus: Arc<Consensus>,
-    ) -> Self {
-        let consensus_db_path = consensus_db.path().to_owned();
-        let consensus_db_ref = Arc::downgrade(&consensus_db);
-        Self { management_store, consensus_db_ref, consensus_db_path, consensus }
+    pub fn new(management_store: Arc<RwLock<MultiConsensusManagementStore>>, consensus: Arc<Consensus>) -> Self {
+        Self { management_store, consensus }
     }
 }
 
@@ -53,6 +40,7 @@ impl ConsensusCtl for Consensus {
     }
 
     fn make_active(&self) {
-        unimplemented!()
+        // Fixed-consensus instances have no staging slot to commit into.
+        // Treating this as a no-op keeps tests and embedded single-consensus setups safe.
     }
 }

@@ -62,7 +62,7 @@ extern "C" {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TransactionInner {
-    pub version: u16,
+    pub version: u32,
     pub inputs: Vec<TransactionInput>,
     pub outputs: Vec<TransactionOutput>,
     pub payload: Vec<u8>,
@@ -87,7 +87,7 @@ pub struct Transaction {
 impl Transaction {
     pub fn new(
         id: Option<TransactionId>,
-        version: u16,
+        version: u32,
         inputs: Vec<TransactionInput>,
         outputs: Vec<TransactionOutput>,
         payload: Vec<u8>,
@@ -195,12 +195,12 @@ impl Transaction {
     }
 
     #[wasm_bindgen(getter, js_name = version)]
-    pub fn get_version(&self) -> u16 {
+    pub fn get_version(&self) -> u32 {
         self.inner().version
     }
 
     #[wasm_bindgen(setter, js_name = version)]
-    pub fn set_version(&self, v: u16) {
+    pub fn set_version(&self, v: u32) {
         self.inner().version = v;
     }
 
@@ -237,7 +237,7 @@ impl TryCastFromJs for Transaction {
                     Transaction::try_captured_cast_from(tx)
                 } else {
                     let id = object.try_cast_into::<TransactionId>("id")?;
-                    let version = object.get_u16("version")?;
+                    let version = object.get_u32("version")?;
                     if object.try_get_value("lockTime")?.is_some() {
                         return Err(Error::Custom("ITransaction.lockTime was removed from the canonical client schema".to_string()));
                     }
@@ -284,7 +284,7 @@ impl Transaction {
             .iter()
             .map(|input| {
                 let input = input.inner();
-                cctx::CellRef::new((&input.previous_outpoint).into(), input.since)
+                cctx::CellInput::new((&input.previous_outpoint).into(), input.since)
             })
             .collect::<Vec<_>>();
 
@@ -295,7 +295,7 @@ impl Transaction {
             .iter()
             .map(|output| {
                 let output = output.inner();
-                cctx::CellOut { lock: output.lock_script.clone(), type_: output.type_script.clone(), capacity: output.capacity }
+                cctx::CellOutput { lock: output.lock_script.clone(), type_: output.type_script.clone(), capacity: output.capacity }
             })
             .collect::<Vec<_>>();
 
@@ -341,7 +341,7 @@ impl Transaction {
             .iter()
             .enumerate()
             .map(|(index, input)| {
-                let previous_outpoint = TransactionOutpoint::from(input.out_point);
+                let previous_outpoint = TransactionOutpoint::from(input.previous_output);
                 let cell_entry = verifiable_tx.cell_entry(index).map(|entry| {
                     let entry = CellEntry::from_consensus_entry(None, previous_outpoint.clone(), entry);
                     CellEntryReference::from(entry)

@@ -11,7 +11,7 @@ use crate::storage::{Hint, PrvKeyDataInfo, StorageDescriptor, TransactionRecord,
 use transaction::TransactionRecordNotification;
 
 /// Sync state of the connected node
-#[derive(Clone, Debug, Serialize, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 #[serde(rename_all = "kebab-case")]
 #[serde(tag = "type", content = "data")]
 pub enum SyncState {
@@ -287,7 +287,7 @@ pub enum EventKind {
     CellIndexNotEnabled,
     SyncState,
     WalletList,
-    WalletStart,
+    WalletPing,
     WalletHint,
     WalletOpen,
     WalletCreate,
@@ -319,7 +319,7 @@ pub enum EventKind {
 impl From<&Events> for EventKind {
     fn from(event: &Events) -> Self {
         match event {
-            Events::WalletPing => EventKind::WalletStart,
+            Events::WalletPing => EventKind::WalletPing,
 
             Events::Connect { .. } => EventKind::Connect,
             Events::Disconnect { .. } => EventKind::Disconnect,
@@ -360,13 +360,13 @@ impl FromStr for EventKind {
     type Err = Error;
     fn from_str(s: &str) -> Result<Self> {
         match s {
-            "*" => Ok(EventKind::All),
+            "*" | "all" => Ok(EventKind::All),
             "connect" => Ok(EventKind::Connect),
             "disconnect" => Ok(EventKind::Disconnect),
             "cell-index-not-enabled" => Ok(EventKind::CellIndexNotEnabled),
             "sync-state" => Ok(EventKind::SyncState),
             "wallet-list" => Ok(EventKind::WalletList),
-            "wallet-start" => Ok(EventKind::WalletStart),
+            "wallet-ping" | "wallet-start" => Ok(EventKind::WalletPing),
             "wallet-hint" => Ok(EventKind::WalletHint),
             "wallet-open" => Ok(EventKind::WalletOpen),
             "wallet-create" => Ok(EventKind::WalletCreate),
@@ -410,7 +410,7 @@ impl std::fmt::Display for EventKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
         let str = match self {
             EventKind::All => "all",
-            EventKind::WalletStart => "wallet-start",
+            EventKind::WalletPing => "wallet-ping",
             EventKind::Connect => "connect",
             EventKind::Disconnect => "disconnect",
             EventKind::CellIndexNotEnabled => "cell-index-not-enabled",
@@ -445,5 +445,100 @@ impl std::fmt::Display for EventKind {
         };
 
         write!(f, "{str}")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn event_kind_uses_wallet_ping_and_preserves_legacy_alias() {
+        assert_eq!(EventKind::from(&Events::WalletPing), EventKind::WalletPing);
+        assert_eq!(EventKind::WalletPing.to_string(), "wallet-ping");
+        assert_eq!(EventKind::from_str("wallet-ping").unwrap(), EventKind::WalletPing);
+        assert_eq!(EventKind::from_str("wallet-start").unwrap(), EventKind::WalletPing);
+        assert_eq!(EventKind::from_str("all").unwrap(), EventKind::All);
+        assert_eq!(EventKind::from_str("*").unwrap(), EventKind::All);
+    }
+
+    #[test]
+    fn event_kind_roundtrips_for_processor_and_wallet_events() {
+        for (kind, name) in [
+            (EventKind::WalletList, "wallet-list"),
+            (EventKind::ServerStatus, "server-status"),
+            (EventKind::Metrics, "metrics"),
+            (EventKind::FeeRate, "fee-rate"),
+        ] {
+            assert_eq!(kind.to_string(), name);
+            assert_eq!(EventKind::from_str(name).unwrap(), kind);
+        }
+    }
+
+    #[test]
+    fn unit_events_serialize_without_data_field() {
+        let value = serde_json::to_value(Events::WalletPing).expect("unit event should serialize");
+        assert_eq!(value, serde_json::json!({ "type": "wallet-ping" }));
+    }
+
+    #[test]
+    fn sync_state_serializes_as_tagged_union() {
+        let proof = serde_json::to_value(SyncState::Proof { level: 7 }).expect("sync-state should serialize");
+        assert_eq!(proof, serde_json::json!({ "type": "proof", "data": { "level": 7 } }));
+
+        let synced = serde_json::to_value(SyncState::Synced).expect("sync-state should serialize");
+        assert_eq!(synced, serde_json::json!({ "type": "synced" }));
+
+        let event = serde_json::to_value(Events::SyncState { sync_state: SyncState::NotSynced }).expect("event should serialize");
+        assert_eq!(event, serde_json::json!({ "type": "sync-state", "data": { "syncState": { "type": "not-synced" } } }));
+    }
+}
+
+impl From<&Events> for crate::api::message::WalletNotification {
+    fn from(event: &Events) -> Self {
+        use crate::api::message::WalletNotification;
+
+        match event.clone() {
+            Events::WalletPing => WalletNotification::WalletPing,
+            Events::Connect { network_id, url } => WalletNotification::Connect { network_id, url },
+            Events::Disconnect { network_id, url } => WalletNotification::Disconnect { network_id, url },
+            Events::CellIndexNotEnabled { url } => WalletNotification::CellIndexNotEnabled { url },
+            Events::SyncState { sync_state } => WalletNotification::SyncState { sync_state },
+            Events::WalletList { wallet_descriptors } => WalletNotification::WalletList { wallet_descriptors },
+            Events::WalletHint { hint } => WalletNotification::WalletHint { hint },
+            Events::WalletOpen { wallet_descriptor, account_descriptors } => {
+                WalletNotification::WalletOpen { wallet_descriptor, account_descriptors }
+            }
+            Events::WalletCreate { wallet_descriptor, storage_descriptor } => {
+                WalletNotification::WalletCreate { wallet_descriptor, storage_descriptor }
+            }
+            Events::WalletReload { wallet_descriptor, account_descriptors } => {
+                WalletNotification::WalletReload { wallet_descriptor, account_descriptors }
+            }
+            Events::WalletError { message } => WalletNotification::WalletError { message },
+            Events::WalletClose => WalletNotification::WalletClose,
+            Events::PrvKeyDataCreate { prv_key_data_info } => WalletNotification::PrvKeyDataCreate { prv_key_data_info },
+            Events::AccountActivation { ids } => WalletNotification::AccountActivation { ids },
+            Events::AccountDeactivation { ids } => WalletNotification::AccountDeactivation { ids },
+            Events::AccountSelection { id } => WalletNotification::AccountSelection { id },
+            Events::AccountCreate { account_descriptor } => WalletNotification::AccountCreate { account_descriptor },
+            Events::AccountUpdate { account_descriptor } => WalletNotification::AccountUpdate { account_descriptor },
+            Events::ServerStatus { network_id, server_version, is_synced, url } => {
+                WalletNotification::ServerStatus { network_id, server_version, is_synced, url }
+            }
+            Events::CellProcStart => WalletNotification::CellProcStart,
+            Events::CellProcStop => WalletNotification::CellProcStop,
+            Events::CellProcError { message } => WalletNotification::CellProcError { message },
+            Events::DaaScoreChange { current_daa_score } => WalletNotification::DaaScoreChange { current_daa_score },
+            Events::Pending { record } => WalletNotification::Pending { record },
+            Events::Reorg { record } => WalletNotification::Reorg { record },
+            Events::Stasis { record } => WalletNotification::Stasis { record },
+            Events::Maturity { record } => WalletNotification::Maturity { record },
+            Events::Discovery { record } => WalletNotification::Discovery { record },
+            Events::Balance { balance, id } => WalletNotification::Balance { balance, id: id.into() },
+            Events::Metrics { network_id, metrics } => WalletNotification::Metrics { network_id, metrics },
+            Events::FeeRate { priority, normal, low } => WalletNotification::FeeRate { priority, normal, low },
+            Events::Error { message } => WalletNotification::Error { message },
+        }
     }
 }

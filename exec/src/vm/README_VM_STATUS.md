@@ -51,7 +51,7 @@ fixture still lack end-to-end execution coverage.
 Key remaining implementation gaps:
 
 1. **Syscall completeness**
-   - `LoadHeader` now supports basic `HeaderDep` loading, but only for a minimal header view
+   - `LoadHeader` now supports `HeaderDep` loading with a richer resolved-header view
    - `LoadCell` / `LoadCellData` now cover inputs / deps, but full CKB-compatible layouts are not complete
 
 2. **Fixture realism**
@@ -60,7 +60,7 @@ Key remaining implementation gaps:
 
 3. **Header/runtime model**
    - `HeaderDep` is now modeled in `CellTx`
-   - Header-loading syscalls still need richer field/layout support if scripts start consuming more DAG header semantics
+   - Header-loading syscalls still only source headers from `HeaderDep`; further DAG-specific semantics can be added if scripts begin depending on them
 
 ### Solution Options
 
@@ -109,7 +109,7 @@ All concepts are implemented:
 
 1. **Complete runtime environment**
    - Complete remaining `LoadCell` / `LoadCellData` layout branches
-   - Expand `LoadHeader` beyond the current minimal `HeaderDep` view
+   - Expand `LoadHeader` beyond `HeaderDep` if future scripts need additional header source semantics
 
 2. **Basic Tests** (1-2 hours)
    - Extend beyond always-success

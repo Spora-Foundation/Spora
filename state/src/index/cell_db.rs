@@ -8,7 +8,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use parking_lot::RwLock;
 use rocksdb::{ColumnFamilyDescriptor, IteratorMode, Options, WriteBatch, DB};
 use serde::{Deserialize, Serialize};
-use spora_exec::{CellOut, OutPoint};
+use spora_exec::{CellOutput, OutPoint};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -23,7 +23,7 @@ const CF_SPEND_JOURNAL: &str = "spend_journal"; // Full metadata for historical 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
 pub struct CellMeta {
     /// Cell output structure
-    pub cell_output: CellOut,
+    pub cell_output: CellOutput,
     /// Cell data (may be large, consider storing separately in DA layer)
     pub cell_data: Vec<u8>,
     /// DAA score at creation
@@ -397,13 +397,13 @@ pub struct CellDBStats {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use spora_exec::{CellOut, ScriptRef};
+    use spora_exec::{CellOutput, Script};
     use tempfile::TempDir;
 
     fn create_test_cell_meta(capacity: u64, daa: u64) -> CellMeta {
-        let lock = ScriptRef::new([0x00; 32], 0, vec![0; 20]);
+        let lock = Script::new([0x00; 32], 0, vec![0; 20]);
         CellMeta {
-            cell_output: CellOut { lock, type_: None, capacity },
+            cell_output: CellOutput { lock, type_: None, capacity },
             cell_data: vec![0xAA; 100],
             daa_score: daa,
             block_hash: [0x11; 32],

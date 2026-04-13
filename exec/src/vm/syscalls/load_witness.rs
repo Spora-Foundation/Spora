@@ -85,9 +85,9 @@ mod tests {
     #[test]
     fn test_load_witness_supports_partial_reads() {
         let tx = Arc::new(CellTx {
-            ver: 0xC001,
+            version: 0xC001,
             inputs: vec![],
-            deps: vec![],
+            cell_deps: vec![],
             header_deps: vec![],
             outputs: vec![],
             outputs_data: vec![],
@@ -115,9 +115,9 @@ mod tests {
     #[test]
     fn test_load_witness_rejects_invalid_source() {
         let tx = Arc::new(CellTx {
-            ver: 0xC001,
+            version: 0xC001,
             inputs: vec![],
-            deps: vec![],
+            cell_deps: vec![],
             header_deps: vec![],
             outputs: vec![],
             outputs_data: vec![],

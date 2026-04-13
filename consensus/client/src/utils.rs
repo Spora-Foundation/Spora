@@ -10,18 +10,18 @@ use crate::standard_script;
 use js_sys::Reflect;
 use spora_addresses::*;
 use spora_consensus_core::network::{NetworkType, NetworkTypeT};
-use spora_exec::{scripts::timelock as exec_timelock, ScriptRef as CellScriptRef};
+use spora_exec::{scripts::timelock as exec_timelock, Script as CellScript};
 use spora_utils::hex::ToHex;
 use spora_wasm_core::types::{BinaryT, HexString};
 
 #[wasm_bindgen(typescript_custom_section)]
 const TS_TIMELOCK_TYPES: &'static str = r#"
 /**
- * Serialized CKB-VM ScriptRef returned by timelock helpers.
+ * Serialized CKB-VM Script returned by timelock helpers.
  *
  * This is only the timelock verifier script. It does not enforce ownership by itself.
  */
-interface ITimeLockScriptRef {
+interface ITimeLockScript {
     codeHash: string;
     hashType: number;
     args: string;
@@ -38,7 +38,7 @@ interface IDecodedSince {
 }
 "#;
 
-fn script_ref_to_js_value(script: &CellScriptRef) -> JsValue {
+fn script_ref_to_js_value(script: &CellScript) -> JsValue {
     let obj = Object::new();
     Reflect::set(&obj, &"codeHash".into(), &JsValue::from_str(&script.code_hash.as_ref().to_hex())).unwrap();
     Reflect::set(&obj, &"hashType".into(), &JsValue::from_f64(script.hash_type as f64)).unwrap();
@@ -110,48 +110,48 @@ pub fn decode_since(since: u64) -> JsValue {
     decoded_since_to_js_value(is_relative, is_timestamp, value)
 }
 
-/// Creates an absolute timestamp timelock `ScriptRef`.
+/// Creates an absolute timestamp timelock `Script`.
 ///
 /// This is only the timelock verifier script. It does not enforce ownership by itself.
 ///
 /// @param targetTimestamp - Unix timestamp in seconds.
-/// @returns `ITimeLockScriptRef`
+/// @returns `ITimeLockScript`
 /// @category Wallet SDK
 #[wasm_bindgen(js_name = absoluteTimestampLockScript)]
 pub fn absolute_timestamp_lock_script(target_timestamp: u64) -> JsValue {
     script_ref_to_js_value(&exec_timelock::absolute_timestamp_lock(target_timestamp))
 }
 
-/// Creates a relative DAA-score timelock `ScriptRef`.
+/// Creates a relative DAA-score timelock `Script`.
 ///
 /// This is only the timelock verifier script. It does not enforce ownership by itself.
 ///
 /// @param delta - Number of DAA-score steps to wait.
-/// @returns `ITimeLockScriptRef`
+/// @returns `ITimeLockScript`
 /// @category Wallet SDK
 #[wasm_bindgen(js_name = relativeDaaLockScript)]
 pub fn relative_daa_lock_script(delta: u64) -> JsValue {
     script_ref_to_js_value(&exec_timelock::relative_daa_lock(delta))
 }
 
-/// Creates an absolute DAA-score timelock `ScriptRef`.
+/// Creates an absolute DAA-score timelock `Script`.
 ///
 /// This is only the timelock verifier script. It does not enforce ownership by itself.
 ///
 /// @param daaScore - Absolute DAA score target.
-/// @returns `ITimeLockScriptRef`
+/// @returns `ITimeLockScript`
 /// @category Wallet SDK
 #[wasm_bindgen(js_name = absoluteDaaLockScript)]
 pub fn absolute_daa_lock_script(daa_score: u64) -> JsValue {
     script_ref_to_js_value(&exec_timelock::absolute_daa_lock(daa_score))
 }
 
-/// Creates a relative timestamp timelock `ScriptRef`.
+/// Creates a relative timestamp timelock `Script`.
 ///
 /// This is only the timelock verifier script. It does not enforce ownership by itself.
 ///
 /// @param deltaSeconds - Number of seconds to wait relative to confirmation.
-/// @returns `ITimeLockScriptRef`
+/// @returns `ITimeLockScript`
 /// @category Wallet SDK
 #[wasm_bindgen(js_name = relativeTimestampLockScript)]
 pub fn relative_timestamp_lock_script(delta_seconds: u64) -> JsValue {
@@ -180,13 +180,13 @@ pub fn pay_to_script_hash_witness_script(redeem_script: BinaryT, signature: Bina
 }
 
 /// Returns the address encoded in a canonical Cell lock script.
-/// @param lock_script - The lock script ({@link ScriptRef}, {@link HexString} or Uint8Array).
+/// @param lock_script - The lock script ({@link Script}, {@link HexString} or Uint8Array).
 /// @param network - The network type.
 /// @category Wallet SDK
 #[wasm_bindgen(js_name = addressFromLockScript)]
 pub fn address_from_lock_script(lock_script: JsValue, network: &NetworkTypeT) -> Result<AddressOrUndefinedT> {
     let network_type = NetworkType::try_from(network)?;
-    let lock_script = if let Ok(script) = workflow_wasm::serde::from_value::<CellScriptRef>(lock_script.clone()) {
+    let lock_script = if let Ok(script) = workflow_wasm::serde::from_value::<CellScript>(lock_script.clone()) {
         script.args
     } else {
         lock_script.try_as_vec_u8()?

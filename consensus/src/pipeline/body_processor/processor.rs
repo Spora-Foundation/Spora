@@ -1,6 +1,6 @@
 use crate::{
     consensus::{
-        services::{ConsensusServices, DbGhostdagManager, DbWindowManager},
+        services::{ConsensusServices, DbGhostdagManager},
         storage::ConsensusStorage,
     },
     errors::{BlockProcessResult, RuleError},
@@ -80,7 +80,6 @@ pub struct BlockBodyProcessor {
     pub(super) ghostdag_manager: DbGhostdagManager,
     pub(super) coinbase_manager: CoinbaseManager,
     pub(crate) mass_calculator: MassCalculator,
-    pub(super) window_manager: DbWindowManager,
     pub(super) coinbase_maturity: u64,
 
     // Pruning lock
@@ -136,7 +135,6 @@ impl BlockBodyProcessor {
             ghostdag_manager: services.ghostdag_manager.clone(),
             coinbase_manager: services.coinbase_manager.clone(),
             mass_calculator: services.mass_calculator.clone(),
-            window_manager: services.window_manager.clone(),
             coinbase_maturity: params.coinbase_maturity(),
 
             pruning_lock,

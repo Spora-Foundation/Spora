@@ -276,7 +276,7 @@ impl<P: CellStateProvider> CellValidator<P> {
     {
         let mut provider = PreparedVmDataProvider::default();
 
-        for dep in &tx.deps {
+        for dep in &tx.cell_deps {
             match dep.dep_type {
                 DepType::Code => {
                     let metadata = self
@@ -320,11 +320,11 @@ impl<P: CellStateProvider> CellValidator<P> {
         for input in &tx.inputs {
             let metadata = self
                 .provider
-                .get_cell_at_pov(&input.out_point, pov)
+                .get_cell_at_pov(&input.previous_output, pov)
                 .map_err(CellValidationError::InvalidFormat)?
-                .ok_or(CellValidationError::CellNotFound(input.out_point.tx_hash))?;
-            let data = self.provider.get_cell_data(&input.out_point, pov).map_err(CellValidationError::InvalidFormat)?;
-            provider.insert_input(&input.out_point, metadata_to_resolved_cell(metadata, data)?);
+                .ok_or(CellValidationError::CellNotFound(input.previous_output.tx_hash))?;
+            let data = self.provider.get_cell_data(&input.previous_output, pov).map_err(CellValidationError::InvalidFormat)?;
+            provider.insert_input(&input.previous_output, metadata_to_resolved_cell(metadata, data)?);
         }
 
         for header_hash in &tx.header_deps {
@@ -350,7 +350,7 @@ fn metadata_to_resolved_cell(
         .lock_script
         .ok_or_else(|| CellValidationError::InvalidFormat(format!("missing lock script for resolved cell {}", metadata.out_point)))?;
     Ok(ResolvedCell {
-        cell_output: spora_exec::CellOut { lock: lock_script, type_: metadata.type_script, capacity: metadata.capacity },
+        cell_output: spora_exec::CellOutput { lock: lock_script, type_: metadata.type_script, capacity: metadata.capacity },
         data: data.or(metadata.data),
     })
 }

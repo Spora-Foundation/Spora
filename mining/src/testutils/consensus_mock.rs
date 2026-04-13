@@ -6,6 +6,7 @@ use spora_consensus_core::{
         ConsensusApi,
     },
     block::{BlockTemplate, MutableBlock, TemplateBuildMode, TemplateTransactionSelector, VirtualStateApproxId},
+    cell_diff::CellMeta,
     cell_metadata::CellMetadata,
     coinbase::MinerData,
     constants::BLOCK_VERSION,
@@ -17,7 +18,7 @@ use spora_consensus_core::{
     header::Header,
     mass::{cell_tx_estimated_serialized_size, ContextualMasses, NonContextualMasses},
     merkle::calc_hash_merkle_root_cell,
-    tx::{CellEntry, CellTx, MutableTransaction, OutPointCompat, ScriptRef, TransactionId, TransactionOutpoint},
+    tx::{CellTx, MutableTransaction, OutPointCompat, Script, TransactionId, TransactionOutpoint},
 };
 use spora_core::time::unix_now;
 use spora_hashes::ZERO_HASH;
@@ -25,7 +26,7 @@ use spora_hashes::ZERO_HASH;
 use parking_lot::RwLock;
 use std::{collections::HashMap, sync::Arc};
 
-type CellCollection = HashMap<TransactionOutpoint, CellEntry>;
+type CellCollection = HashMap<TransactionOutpoint, CellMeta>;
 
 pub(crate) struct ConsensusMock {
     transactions: RwLock<HashMap<TransactionId, Arc<CellTx>>>,
@@ -57,10 +58,10 @@ impl ConsensusMock {
 
         // Remove the spent cells
         cell_tx.inputs.iter().for_each(|x| {
-            cells.remove(&x.out_point);
-            if let Some(parent_cell_id) = transactions.get(&x.out_point.transaction_id()).map(|tx| TransactionId::from_bytes(tx.id()))
+            cells.remove(&x.previous_output);
+            if let Some(parent_cell_id) = transactions.get(&x.previous_output.transaction_id()).map(|tx| TransactionId::from_bytes(tx.id()))
             {
-                cells.remove(&TransactionOutpoint::new(parent_cell_id.as_bytes(), x.out_point.index));
+                cells.remove(&TransactionOutpoint::new(parent_cell_id.as_bytes(), x.previous_output.index));
             }
         });
         // Create the new cells
@@ -109,10 +110,11 @@ impl ConsensusApi for ConsensusMock {
             ZERO_HASH,
             ZERO_HASH,
             ZERO_HASH, // cell_root
+            ZERO_HASH, // segment_root
             now,
-            123456789u32,
             0,
             0,
+            123456789,
             0.into(),
             0,
             ZERO_HASH,
@@ -137,11 +139,11 @@ impl ConsensusApi for ConsensusMock {
                 continue;
             }
             // Try add missing entries from the mock cell set.
-            if let Some(entry) = cells.get(&mutable_tx.tx.inputs[i].out_point) {
+            if let Some(entry) = cells.get(&mutable_tx.tx.inputs[i].previous_output) {
                 let mut metadata = CellMetadata::from(entry);
-                metadata.out_point = mutable_tx.tx.inputs[i].out_point;
-                metadata.lock_script = Some(ScriptRef::new(entry.lock_hash, 0, vec![]));
-                metadata.type_script = entry.type_hash.map(|hash| ScriptRef::new(hash, 0, vec![]));
+                metadata.out_point = mutable_tx.tx.inputs[i].previous_output;
+                metadata.lock_script = Some(Script::new(entry.lock_hash, 0, vec![]));
+                metadata.type_script = entry.type_hash.map(|hash| Script::new(hash, 0, vec![]));
                 mutable_tx.resolved_cell_metadata[i] = Some(metadata);
                 mutable_tx.entries[i] = Some(entry.clone());
             } else {
@@ -217,6 +219,47 @@ impl ConsensusApi for ConsensusMock {
 
     fn get_virtual_state_approx_id(&self) -> VirtualStateApproxId {
         VirtualStateApproxId::new(self.get_virtual_daa_score(), 0.into(), ZERO_HASH)
+    }
+
+    fn get_populated_transaction(
+        &self,
+        txid: spora_hashes::Hash,
+        accepting_block_daa_score: u64,
+    ) -> Result<spora_consensus_core::tx::SignableTransaction, String> {
+        Err(format!(
+            "ConsensusMock does not populate transaction {txid} at accepting DAA score {accepting_block_daa_score}"
+        ))
+    }
+
+    fn get_resolved_cell_transaction(
+        &self,
+        txid: spora_hashes::Hash,
+        accepting_block_daa_score: u64,
+    ) -> Result<spora_consensus_core::tx::ResolvedCellTransaction, String> {
+        Err(format!(
+            "ConsensusMock does not resolve transaction {txid} at accepting DAA score {accepting_block_daa_score}"
+        ))
+    }
+
+    fn get_transaction_location(&self, txid: spora_hashes::Hash) -> Result<(spora_hashes::Hash, usize), String> {
+        Err(format!("ConsensusMock does not track transaction locations for {txid}"))
+    }
+
+    fn get_resolved_cell_transaction_in_accepting_block(
+        &self,
+        txid: spora_hashes::Hash,
+        accepting_block: spora_hashes::Hash,
+    ) -> Result<spora_consensus_core::tx::ResolvedCellTransaction, String> {
+        Err(format!(
+            "ConsensusMock does not resolve transaction {txid} in accepting block {accepting_block}"
+        ))
+    }
+
+    fn get_cell_transaction(
+        &self,
+        hash: spora_hashes::Hash,
+    ) -> spora_consensus_core::errors::consensus::ConsensusResult<spora_consensus_core::tx::CellTx> {
+        Err(spora_consensus_core::errors::consensus::ConsensusError::TransactionNotFound(hash.to_string()))
     }
 
     fn modify_coinbase_payload(&self, payload: Vec<u8>, miner_data: &MinerData) -> CoinbaseResult<Vec<u8>> {

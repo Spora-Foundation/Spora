@@ -12,11 +12,11 @@ pub fn calc_hash_merkle_root_cell<'a>(txs: impl ExactSizeIterator<Item = &'a Cel
 mod tests {
     use super::*;
     use crate::merkle::calc_hash_merkle_root_cell;
-    use crate::tx::{outpoint_from_id, CellOut, CellRef, CellTx, ScriptRef, TransactionId};
+    use crate::tx::{outpoint_from_id, CellOutput, CellInput, CellTx, Script, TransactionId};
 
     fn sample_coinbase_tx() -> CellTx {
         let output =
-            CellOut { capacity: 0x12a05f200, lock: ScriptRef::new([0xa9u8; 32], 0, vec![0x14, 0xda, 0x17, 0x45]), type_: None };
+            CellOutput { capacity: 0x12a05f200, lock: Script::new([0xa9u8; 32], 0, vec![0x14, 0xda, 0x17, 0x45]), type_: None };
         CellTx::new(
             vec![], // no inputs for coinbase
             vec![], // cell_deps
@@ -28,7 +28,7 @@ mod tests {
     }
 
     fn sample_tx_with_inputs() -> CellTx {
-        let input1 = CellRef::new(
+        let input1 = CellInput::new(
             outpoint_from_id(
                 TransactionId::from_slice(&[
                     0x16, 0x5e, 0x38, 0xe8, 0xb3, 0x91, 0x45, 0x95, 0xd9, 0xc6, 0x41, 0xf3, 0xb8, 0xee, 0xc2, 0xf3, 0x46, 0x11, 0x89,
@@ -38,7 +38,7 @@ mod tests {
             ),
             u64::MAX, // since
         );
-        let input2 = CellRef::new(
+        let input2 = CellInput::new(
             outpoint_from_id(
                 TransactionId::from_slice(&[
                     0x4b, 0xb0, 0x75, 0x35, 0xdf, 0xd5, 0x8e, 0x0b, 0x3c, 0xd6, 0x4f, 0xd7, 0x15, 0x52, 0x80, 0x87, 0x2a, 0x04, 0x71,
@@ -59,7 +59,7 @@ mod tests {
     }
 
     fn sample_tx_with_outputs() -> CellTx {
-        let input = CellRef::new(
+        let input = CellInput::new(
             outpoint_from_id(
                 TransactionId::from_slice(&[
                     0x03, 0x2e, 0x38, 0xe9, 0xc0, 0xa8, 0x4c, 0x60, 0x46, 0xd6, 0x87, 0xd1, 0x05, 0x56, 0xdc, 0xac, 0xc4, 0x1d, 0x27,
@@ -69,8 +69,8 @@ mod tests {
             ),
             u64::MAX, // since
         );
-        let output1 = CellOut { capacity: 0x2123e300, lock: ScriptRef::new([0x76u8; 32], 0, vec![0xa9, 0x14]), type_: None };
-        let output2 = CellOut { capacity: 0x108e20f00, lock: ScriptRef::new([0x94u8; 32], 0, vec![0xa9, 0x14]), type_: None };
+        let output1 = CellOutput { capacity: 0x2123e300, lock: Script::new([0x76u8; 32], 0, vec![0xa9, 0x14]), type_: None };
+        let output2 = CellOutput { capacity: 0x108e20f00, lock: Script::new([0x94u8; 32], 0, vec![0xa9, 0x14]), type_: None };
         CellTx::new(
             vec![input],
             vec![], // cell_deps

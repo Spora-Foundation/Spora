@@ -156,7 +156,7 @@ mod tests {
 
     impl crate::notification::Notification for OutgoingNotification {
         fn apply_overall_subscription(&self, _: &OverallSubscription, _: &SubscriptionContext) -> Option<Self> {
-            unimplemented!()
+            Some(self.clone())
         }
 
         fn apply_virtual_chain_changed_subscription(
@@ -164,15 +164,15 @@ mod tests {
             _: &VirtualChainChangedSubscription,
             _: &SubscriptionContext,
         ) -> Option<Self> {
-            unimplemented!()
+            Some(self.clone())
         }
 
         fn apply_cells_changed_subscription(&self, _: &CellsChangedSubscription, _: &SubscriptionContext) -> Option<Self> {
-            unimplemented!()
+            Some(self.clone())
         }
 
         fn event_type(&self) -> EventType {
-            unimplemented!()
+            EventType::BlockAdded
         }
     }
 

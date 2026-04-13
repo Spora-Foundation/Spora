@@ -16,8 +16,8 @@ const TS_TRANSACTION_OUTPUT: &'static str = r#"
  */
 export interface ITransactionOutput {
     capacity: bigint;
-    lockScript: ScriptRef;
-    typeScript?: ScriptRef;
+    lockScript: Script;
+    typeScript?: Script;
     outputData?: HexString;
 
     /** Optional verbose data provided by RPC */
@@ -56,9 +56,9 @@ extern "C" {
 #[serde(rename_all = "camelCase")]
 pub struct TransactionOutputInner {
     pub capacity: u64,
-    pub lock_script: cctx::ScriptRef,
+    pub lock_script: cctx::Script,
     #[serde(default)]
-    pub type_script: Option<cctx::ScriptRef>,
+    pub type_script: Option<cctx::Script>,
     #[serde(with = "spora_utils::serde_bytes_optional")]
     #[serde(default)]
     pub output_data: Option<Vec<u8>>,
@@ -74,7 +74,7 @@ pub struct TransactionOutput {
 }
 
 impl TransactionOutput {
-    pub fn new(capacity: u64, lock_script: cctx::ScriptRef) -> TransactionOutput {
+    pub fn new(capacity: u64, lock_script: cctx::Script) -> TransactionOutput {
         Self { inner: Arc::new(Mutex::new(TransactionOutputInner { capacity, lock_script, type_script: None, output_data: None })) }
     }
 
@@ -96,7 +96,7 @@ impl TransactionOutput {
     #[wasm_bindgen(constructor)]
     /// TransactionOutput constructor
     pub fn ctor(capacity: u64, lock_script: JsValue) -> Result<TransactionOutput> {
-        let lock_script: cctx::ScriptRef = workflow_wasm::serde::from_value(lock_script)?;
+        let lock_script: cctx::Script = workflow_wasm::serde::from_value(lock_script)?;
         Ok(Self::new(capacity, lock_script))
     }
 
@@ -150,8 +150,8 @@ impl AsRef<TransactionOutput> for TransactionOutput {
     }
 }
 
-impl From<&cctx::CellOut> for TransactionOutput {
-    fn from(cell_out: &cctx::CellOut) -> Self {
+impl From<&cctx::CellOutput> for TransactionOutput {
+    fn from(cell_out: &cctx::CellOutput) -> Self {
         Self::new_with_inner(TransactionOutputInner {
             capacity: cell_out.capacity,
             lock_script: cell_out.lock.clone(),
@@ -170,7 +170,7 @@ impl TryCastFromJs for TransactionOutput {
         Self::resolve_cast(value, || {
             if let Some(object) = Object::try_from(value.as_ref()) {
                 let capacity = object.get_u64("capacity")?;
-                let lock_script: cctx::ScriptRef = workflow_wasm::serde::from_value(object.get_value("lockScript")?)?;
+                let lock_script: cctx::Script = workflow_wasm::serde::from_value(object.get_value("lockScript")?)?;
                 let type_script = match object.try_get_value("typeScript")? {
                     Some(value) if !value.is_null() && !value.is_undefined() => Some(workflow_wasm::serde::from_value(value)?),
                     _ => None,

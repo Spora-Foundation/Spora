@@ -87,6 +87,7 @@ impl<'a> CellProcessingContext<'a> {
     }
 
     /// Verify that the calculated cell root matches expected
+    #[allow(dead_code)]
     pub fn verify_cell_root(&mut self, expected_root: Hash) -> Result<(), String> {
         let calculated_root = self.get_cell_root();
         if calculated_root == expected_root {
@@ -182,7 +183,7 @@ fn cell_metadata_from_output(
     is_cellbase: bool,
     tx_id: [u8; 32],
     output_index: u32,
-    output: &spora_exec::CellOut,
+    output: &spora_exec::CellOutput,
     output_data: &[u8],
 ) -> CellMetadata {
     CellMetadata {
@@ -302,14 +303,14 @@ impl ReplayValidationContext {
                 let maturity = self.params.cellbase_maturity;
 
                 for (input_index, input) in tx.inputs.iter().enumerate() {
-                    let metadata = self.provider.get_cell_metadata(&input.out_point).ok().flatten();
+                    let metadata = self.provider.get_cell_metadata(&input.previous_output).ok().flatten();
                     if let Some(metadata) = metadata {
                         if metadata.is_cellbase && self.current_daa_score < metadata.block_daa_score.saturating_add(maturity) {
                             return RuleError::TxInContextFailed(
                                 tx_id,
                                 TxRuleError::ImmatureCoinbaseSpend(
                                     input_index,
-                                    TransactionOutpoint::new(input.out_point.tx_hash, input.out_point.index),
+                                    TransactionOutpoint::new(input.previous_output.tx_hash, input.previous_output.index),
                                     metadata.block_daa_score,
                                     self.current_daa_score,
                                     maturity,
@@ -367,7 +368,7 @@ impl VirtualStateProcessor {
             BlockRewardData::new(
                 self.coinbase_manager.calc_block_subsidy(block_daa_score),
                 0,
-                spora_exec::ScriptRef::new([0; 32], 0, vec![]),
+                spora_exec::Script::new([0; 32], 0, vec![]),
             )
         };
 
@@ -514,7 +515,7 @@ impl VirtualStateProcessor {
             }
 
             for input in &tx.inputs {
-                let outpoint = TransactionOutpoint { tx_hash: input.out_point.tx_hash, index: input.out_point.index };
+                let outpoint = TransactionOutpoint { tx_hash: input.previous_output.tx_hash, index: input.previous_output.index };
 
                 let outpoint_hash = outpoint_to_hash(&outpoint);
                 if effect.cell_diff.remove.contains_key(&outpoint) {
@@ -536,7 +537,7 @@ impl VirtualStateProcessor {
                         return Err(RuleError::DoubleSpendInSameBlock(outpoint));
                     }
                 }
-                replay_validation.spend_cell(&input.out_point)?;
+                replay_validation.spend_cell(&input.previous_output)?;
             }
 
             for (index, output) in tx.outputs.iter().enumerate() {
@@ -685,7 +686,8 @@ impl VirtualStateProcessor {
     }
 
     /// Compute lock script hash from the canonical lock script
-    pub(super) fn compute_lock_hash(&self, lock_script: &spora_consensus_core::tx::ScriptRef) -> [u8; 32] {
+    #[allow(dead_code)]
+    pub(super) fn compute_lock_hash(&self, lock_script: &spora_consensus_core::tx::Script) -> [u8; 32] {
         lock_script.hash()
     }
 
@@ -737,7 +739,7 @@ mod tests {
     use crate::errors::RuleError;
     use crate::processes::utils::outpoint_to_hash;
     use spora_consensus_core::tx::TransactionOutpoint;
-    use spora_exec::{CellOut, CellTx, OutPoint, ScriptRef};
+    use spora_exec::{CellOutput, CellTx, OutPoint, Script};
     use spora_hashes::Hash;
     use spora_state::{CellEntry, CellStateTree};
 
@@ -762,8 +764,8 @@ mod tests {
 
     #[test]
     fn red_block_outputs_must_not_exist_in_live_tree() {
-        let lock = ScriptRef::new([0x22; 32], 0, vec![]);
-        let red_tx = CellTx::new(vec![], vec![], vec![CellOut { lock, type_: None, capacity: 1_000 }], vec![vec![]], vec![]).unwrap();
+        let lock = Script::new([0x22; 32], 0, vec![]);
+        let red_tx = CellTx::new(vec![], vec![], vec![CellOutput { lock, type_: None, capacity: 1_000 }], vec![vec![]], vec![]).unwrap();
         let leaked_outpoint = TransactionOutpoint { tx_hash: red_tx.id(), index: 0 };
         let leaked_hash = outpoint_to_hash(&leaked_outpoint);
 

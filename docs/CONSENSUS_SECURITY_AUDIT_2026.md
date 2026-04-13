@@ -259,7 +259,7 @@
 - [x] 保持阶段边界 (已落实)
 - [ ] 不要把 validator 硬塞进 state-application context
 
-### MEDIUM-3. `ScriptRef.hash()` 可扩展性一般
+### MEDIUM-3. `Script.hash()` 可扩展性一般
 
 **状态**: Open  
 **优先级**: MEDIUM  
@@ -280,7 +280,7 @@
 - 类型分层收口
 - output / address / script reference 收口
 
-### MEDIUM-4. `CellOut.verify_capacity()` 的错误类型过于简陋
+### MEDIUM-4. `CellOutput.verify_capacity()` 的错误类型过于简陋
 
 **状态**: Open  
 **优先级**: MEDIUM  
@@ -324,7 +324,7 @@
 
 | 项目 | 状态 | 说明 |
 |---|---|---|
-| Cell 结构 | ✅ 对齐 | OutPoint/CellOutput/CellDep/Script 与 CKB 同构 |
+| Cell 结构 | ✅ 对齐 | OutPoint/CellOutputput/CellDep/Script 与 CKB 同构 |
 | hash_type | ✅ 对齐 | Data=0, Type=1, Data1=2, Data2=4 |
 | 系统调用 | ✅ 兼容 | 核心 syscall 编号与 CKB 一致 |
 | VM 版本 | ✅ 兼容 | 支持 CKB VM V0/V1/V2 |
@@ -344,7 +344,7 @@
 ### 阶段二：内部抽象收缩 (P1)
 4. [ ] 评估 `MutableTransaction / VerifiableTransaction / SignableTransaction` 是否继续收口
 5. [ ] 继续梳理 `CellMeta` / metadata / wrapper 的分层边界
-6. [ ] 推进 `ScriptRef` / lock-hash 地址路径的进一步统一
+6. [ ] 推进 `Script` / lock-hash 地址路径的进一步统一
 
 ### 阶段三：仓库收尾 (P2)
 7. [ ] 对齐历史审计文档与 README

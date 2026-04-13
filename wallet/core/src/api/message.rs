@@ -4,6 +4,7 @@
 //! Each Wallet API `xxx_call()` method has a corresponding
 //! `XxxRequest` and `XxxResponse` message.
 //!
+use crate::cell::Balance;
 use crate::imports::*;
 use crate::tx::{Fees, GeneratorSummary, PaymentDestination};
 use spora_addresses::Address;
@@ -289,6 +290,20 @@ pub struct PrvKeyDataCreateResponse {
     pub prv_key_data_id: PrvKeyDataId,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PrvKeyDataRenameRequest {
+    pub wallet_secret: Secret,
+    pub prv_key_data_id: PrvKeyDataId,
+    pub name: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PrvKeyDataRenameResponse {
+    pub prv_key_data_info: Arc<PrvKeyDataInfo>,
+}
+
 // TODO
 #[derive(Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 #[serde(rename_all = "camelCase")]
@@ -460,7 +475,7 @@ pub struct AccountsGetResponse {
 /// @category Wallet API
 #[derive(Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize, CastFromJs)]
 #[serde(rename_all = "camelCase")]
-#[cfg_attr(feature = "wasm32-sdk", wasm_bindgen)]
+#[wasm_bindgen]
 pub enum NewAddressKind {
     Receive,
     Change,
@@ -707,6 +722,7 @@ pub struct AccountsEstimateResponse {
 #[derive(Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FeeRateEstimateBucket {
+    #[serde(rename = "feeRate")]
     feerate: f64,
     seconds: f64,
 }
@@ -824,7 +840,109 @@ pub struct AddressBookEnumerateResponse {
 
 #[derive(Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct WalletNotification {}
+#[serde(tag = "type", content = "data")]
+pub enum WalletNotification {
+    WalletPing,
+    CellIndexNotEnabled {
+        url: Option<String>,
+    },
+    WalletList {
+        wallet_descriptors: Vec<WalletDescriptor>,
+    },
+    WalletHint {
+        hint: Option<Hint>,
+    },
+    WalletOpen {
+        wallet_descriptor: Option<WalletDescriptor>,
+        account_descriptors: Option<Vec<AccountDescriptor>>,
+    },
+    WalletCreate {
+        wallet_descriptor: WalletDescriptor,
+        storage_descriptor: StorageDescriptor,
+    },
+    WalletError {
+        message: String,
+    },
+    WalletClose,
+    WalletReload {
+        wallet_descriptor: Option<WalletDescriptor>,
+        account_descriptors: Option<Vec<AccountDescriptor>>,
+    },
+    PrvKeyDataCreate {
+        prv_key_data_info: PrvKeyDataInfo,
+    },
+    AccountSelection {
+        id: Option<AccountId>,
+    },
+    AccountActivation {
+        ids: Vec<AccountId>,
+    },
+    AccountDeactivation {
+        ids: Vec<AccountId>,
+    },
+    AccountCreate {
+        account_descriptor: AccountDescriptor,
+    },
+    AccountUpdate {
+        account_descriptor: AccountDescriptor,
+    },
+    ServerStatus {
+        network_id: NetworkId,
+        server_version: String,
+        is_synced: bool,
+        url: Option<String>,
+    },
+    CellProcStart,
+    CellProcStop,
+    CellProcError {
+        message: String,
+    },
+    Discovery {
+        record: TransactionRecord,
+    },
+    Pending {
+        record: TransactionRecord,
+    },
+    Maturity {
+        record: TransactionRecord,
+    },
+    Reorg {
+        record: TransactionRecord,
+    },
+    Stasis {
+        record: TransactionRecord,
+    },
+    Balance {
+        id: AccountId,
+        balance: Option<Balance>,
+    },
+    Metrics {
+        network_id: NetworkId,
+        metrics: MetricsUpdate,
+    },
+    FeeRate {
+        priority: FeeRateEstimateBucket,
+        normal: FeeRateEstimateBucket,
+        low: FeeRateEstimateBucket,
+    },
+    SyncState {
+        sync_state: SyncState,
+    },
+    Connect {
+        network_id: NetworkId,
+        url: Option<String>,
+    },
+    Disconnect {
+        network_id: NetworkId,
+        url: Option<String>,
+    },
+    DaaScoreChange {
+        current_daa_score: u64,
+    },
+    Error {
+        message: String,
+    },
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 #[serde(rename_all = "camelCase")]
@@ -853,7 +971,7 @@ pub struct AccountsCommitRevealManualResponse {
 /// @category Wallet API
 #[derive(Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize, CastFromJs)]
 #[serde(rename_all = "camelCase")]
-#[cfg_attr(feature = "wasm32-sdk", wasm_bindgen)]
+#[wasm_bindgen]
 pub enum CommitRevealAddressKind {
     Receive,
     Change,
@@ -890,4 +1008,20 @@ pub struct AccountsCommitRevealRequest {
 #[serde(rename_all = "camelCase")]
 pub struct AccountsCommitRevealResponse {
     pub transaction_ids: Vec<TransactionId>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fee_rate_estimate_bucket_serializes_with_fee_rate_key() {
+        let bucket = FeeRateEstimateBucket { feerate: 1.25, seconds: 3.5 };
+        let value = serde_json::to_value(bucket).expect("bucket should serialize");
+        let object = value.as_object().expect("bucket should serialize to object");
+
+        assert_eq!(object.get("feeRate").and_then(|value| value.as_f64()), Some(1.25));
+        assert_eq!(object.get("seconds").and_then(|value| value.as_f64()), Some(3.5));
+        assert!(!object.contains_key("feerate"));
+    }
 }

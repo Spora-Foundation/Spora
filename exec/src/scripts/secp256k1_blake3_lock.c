@@ -100,16 +100,20 @@ static inline int blake3_hash(
 // Secp256k1 Signature Verification (simplified)
 // ============================================================================
 
-// Note: Full secp256k1 implementation is ~3000 lines
-// This is a placeholder showing the interface
+// Note: Full secp256k1 implementation is ~3000 lines.
+// Fail closed until a real implementation is wired in.
 int verify_secp256k1_signature(
     const uint8_t* pubkey_hash,   // 20 bytes (blake3(pubkey)[0..20])
     const uint8_t* signature,     // 65 bytes (r + s + v)
     const uint8_t* message_hash   // 32 bytes
 ) {
-    // TODO: Implement full secp256k1 recovery and verification
-    // For now, return success (this is just a demo)
-    return 0;
+    (void)pubkey_hash;
+    (void)signature;
+    (void)message_hash;
+
+    // TODO: Implement full secp256k1 recovery and verification.
+    // Until then, reject instead of silently accepting any witness.
+    return 1;
 }
 
 // ============================================================================
@@ -171,4 +175,3 @@ int main() {
     // Success!
     return 0;
 }
-

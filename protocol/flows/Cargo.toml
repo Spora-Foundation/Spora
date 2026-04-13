@@ -39,3 +39,8 @@ tokio-stream = { workspace = true, features = ["net"] }
 uuid = { workspace = true, features = ["v4", "fast-rng"] }
 chrono.workspace = true
 time = "0.3.41"
+
+[dev-dependencies]
+async-channel.workspace = true
+spora-consensus.workspace = true
+spora-database.workspace = true

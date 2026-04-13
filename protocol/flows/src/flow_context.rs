@@ -21,7 +21,9 @@ use spora_consensus_core::{
     network::NetworkType,
 };
 use spora_consensus_notify::{
-    notification::{Notification, PruningPointCellSetOverrideNotification},
+    notification::{
+        FinalityConflictNotification, FinalityConflictResolvedNotification, Notification, PruningPointCellSetOverrideNotification,
+    },
     root::ConsensusNotificationRoot,
 };
 use spora_consensusmanager::{BlockProcessingBatch, ConsensusInstance, ConsensusManager, ConsensusProxy, ConsensusSessionOwned};
@@ -215,6 +217,12 @@ impl BlockEventLogger {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct FinalityConflictState {
+    violating_block_hash: Hash,
+    finality_block_hash: Hash,
+}
+
 pub struct FlowContextInner {
     pub node_id: PeerId,
     pub consensus_manager: Arc<ConsensusManager>,
@@ -244,6 +252,9 @@ pub struct FlowContextInner {
 
     // Mining rule engine
     mining_rule_engine: Arc<MiningRuleEngine>,
+
+    // Last recorded finality conflict, if any.
+    finality_conflict: Mutex<Option<FinalityConflictState>>,
 }
 
 #[derive(Clone)]
@@ -347,6 +358,7 @@ impl FlowContext {
                 max_orphans,
                 config,
                 mining_rule_engine,
+                finality_conflict: Default::default(),
             }),
         }
     }
@@ -634,6 +646,36 @@ impl FlowContext {
         let _ = self.notification_root.notify(Notification::PruningPointCellSetOverride(PruningPointCellSetOverrideNotification {}));
     }
 
+    /// Records a finality conflict and emits a notification when the recorded conflict changes.
+    pub fn on_finality_conflict(&self, violating_block_hash: Hash, finality_block_hash: Hash) {
+        let mut state = self.finality_conflict.lock();
+        let next = FinalityConflictState { violating_block_hash, finality_block_hash };
+        if state.as_ref() == Some(&next) {
+            return;
+        }
+
+        *state = Some(next);
+        let _ = self.notification_root.notify(Notification::FinalityConflict(FinalityConflictNotification::new(violating_block_hash)));
+    }
+
+    /// Acknowledges the current finality conflict if it matches the provided finality point.
+    ///
+    /// When no conflict is recorded this is treated as an idempotent success.
+    pub fn resolve_finality_conflict(&self, finality_block_hash: Hash) -> bool {
+        let mut state = self.finality_conflict.lock();
+        match *state {
+            Some(current) if current.finality_block_hash == finality_block_hash => {
+                *state = None;
+                let _ = self
+                    .notification_root
+                    .notify(Notification::FinalityConflictResolved(FinalityConflictResolvedNotification::new(finality_block_hash)));
+                true
+            }
+            Some(_) => false,
+            None => true,
+        }
+    }
+
     /// Notifies that a transaction has been added to the mempool.
     pub async fn on_transaction_added_to_mempool(&self) {
         // TODO: call a handler function or a predefined registered service
@@ -816,5 +858,113 @@ impl ConnectionInitializer for FlowContext {
         // it is considered a protocol error and the connection will disconnect
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use async_channel::unbounded;
+    use spora_consensus::consensus::test_consensus::TestConsensus;
+    use spora_consensus_core::{config::Config, mining_rules::MiningRules};
+    use spora_consensus_notify::{notification::Notification, root::ConsensusNotificationRoot};
+    use spora_consensusmanager::ConsensusManager;
+    use spora_database::{create_temp_db, prelude::ConnBuilder, utils::DbLifetime};
+    use spora_mining::{manager::MiningManagerProxy, MiningCounters};
+    use spora_notify::{
+        scope::{FinalityConflictResolvedScope, FinalityConflictScope},
+        subscriber::SubscriptionManager,
+    };
+
+    struct TestFlowContext {
+        flow_context: FlowContext,
+        _address_db_lifetime: DbLifetime,
+        _test_consensus: TestConsensus,
+    }
+
+    fn build_flow_context(notification_root: Arc<ConsensusNotificationRoot>) -> TestFlowContext {
+        let config = Arc::new(
+            Config::new(spora_consensus::params::SIMNET_PARAMS)
+                .to_builder()
+                .apply_args(|cfg| {
+                    cfg.disable_upnp = true;
+                })
+                .build(),
+        );
+        let tick_service = Arc::new(TickService::new());
+        let (_db_lifetime, db) = create_temp_db!(ConnBuilder::default().with_files_limit(10));
+        let (address_manager, _extender) = AddressManager::new(config.clone(), db, tick_service.clone());
+        let test_consensus = TestConsensus::new(&config);
+        let consensus_manager = Arc::new(ConsensusManager::from_consensus(test_consensus.consensus_clone()));
+        let mining_manager = MiningManagerProxy::new(Arc::new(spora_mining::manager::MiningManager::new(
+            config.target_time_per_block(),
+            false,
+            config.max_block_mass,
+            None,
+            Arc::new(MiningCounters::default()),
+        )));
+        let mining_rule_engine = Arc::new(MiningRuleEngine::new(
+            consensus_manager.clone(),
+            config.clone(),
+            Arc::new(Default::default()),
+            tick_service.clone(),
+            Hub::new(),
+            Arc::new(MiningRules::default()),
+        ));
+
+        TestFlowContext {
+            flow_context: FlowContext::new(
+                consensus_manager,
+                address_manager,
+                config,
+                mining_manager,
+                tick_service,
+                notification_root,
+                Hub::new(),
+                mining_rule_engine,
+            ),
+            _address_db_lifetime: _db_lifetime,
+            _test_consensus: test_consensus,
+        }
+    }
+
+    #[tokio::test]
+    async fn finality_conflict_notifications_are_deduplicated_and_resolved() {
+        let (sender, receiver) = unbounded();
+        let notification_root = Arc::new(ConsensusNotificationRoot::new(sender));
+        notification_root.start_notify(0, FinalityConflictScope {}.into()).await.unwrap();
+        notification_root.start_notify(0, FinalityConflictResolvedScope {}.into()).await.unwrap();
+
+        let test_flow_context = build_flow_context(notification_root);
+        let flow_context = &test_flow_context.flow_context;
+        let violating_block_hash = Hash::from_bytes([1; 32]);
+        let finality_block_hash = Hash::from_bytes([2; 32]);
+
+        flow_context.on_finality_conflict(violating_block_hash, finality_block_hash);
+
+        let notification = tokio::time::timeout(Duration::from_secs(1), receiver.recv())
+            .await
+            .expect("expected finality conflict notification within timeout")
+            .unwrap();
+        let Notification::FinalityConflict(msg) = notification else {
+            panic!("expected finality conflict notification");
+        };
+        assert_eq!(msg.violating_block_hash, violating_block_hash);
+
+        flow_context.on_finality_conflict(violating_block_hash, finality_block_hash);
+        assert!(tokio::time::timeout(Duration::from_millis(50), receiver.recv()).await.is_err());
+
+        assert!(!flow_context.resolve_finality_conflict(Hash::from_bytes([3; 32])));
+        assert!(tokio::time::timeout(Duration::from_millis(50), receiver.recv()).await.is_err());
+
+        assert!(flow_context.resolve_finality_conflict(finality_block_hash));
+        let notification = tokio::time::timeout(Duration::from_secs(1), receiver.recv())
+            .await
+            .expect("expected finality conflict resolved notification within timeout")
+            .unwrap();
+        let Notification::FinalityConflictResolved(msg) = notification else {
+            panic!("expected finality conflict resolved notification");
+        };
+        assert_eq!(msg.finality_block_hash, finality_block_hash);
     }
 }

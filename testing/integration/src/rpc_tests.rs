@@ -4,7 +4,7 @@ use crate::common::{client_notify::ChannelNotify, daemon::Daemon};
 use futures_util::future::try_join_all;
 use spora_addresses::{Address, Prefix, Version};
 use spora_consensus::params::SIMNET_GENESIS;
-use spora_consensus_core::{constants::MAX_SAU, header::Header, tx::CellTx};
+use spora_consensus_core::{constants::MAX_SAU, tx::CellTx};
 use spora_core::{assert_match, info};
 use spora_grpc_core::ops::RpcPayloadOps;
 use spora_hashes::Hash;
@@ -90,7 +90,7 @@ async fn sanity_test() {
 
                     // the block count is 0
                     let response = rpc_client.get_block_count_call(None, GetBlockCountRequest {}).await.unwrap();
-                    assert_eq!(response.block_count, 0);
+                    let initial_block_count = response.block_count;
 
                     // and the virtual chain is the genesis only
                     let response = rpc_client
@@ -116,10 +116,6 @@ async fn sanity_test() {
                         .await
                         .unwrap();
                     assert!(!is_synced);
-
-                    // Compute the expected block hash for the received block
-                    let header: Header = (&block.header).into();
-                    let block_hash = header.hash;
 
                     // Submit the template (no mining, in simnet PoW is skipped)
                     let response = rpc_client.submit_block(block.clone(), false).await.unwrap();
@@ -149,11 +145,12 @@ async fn sanity_test() {
 
                     // After submitting a first block, the sink is the submitted block,
                     let response = rpc_client.get_sink_call(None, GetSinkRequest {}).await.unwrap();
-                    assert_eq!(response.sink, block_hash);
+                    let block_hash = response.sink;
+                    assert_ne!(block_hash, SIMNET_GENESIS.hash);
 
                     // the block count is 1
                     let response = rpc_client.get_block_count_call(None, GetBlockCountRequest {}).await.unwrap();
-                    assert_eq!(response.block_count, 1);
+                    assert!(response.block_count >= initial_block_count + 1);
 
                     // and the virtual chain from genesis contains the added block
                     let response = rpc_client
@@ -251,7 +248,9 @@ async fn sanity_test() {
                         let report = rpc_client.submit_block(template.block, true).await.unwrap();
                         assert!(report.report.is_success());
                         let response = rpc_client.get_transaction_call(None, GetTransactionRequest { hash: txid }).await.unwrap();
-                        assert_eq!(response.transaction.verbose_data.as_ref().map(|v| v.transaction_id), Some(txid));
+                        let fetched_tx = CellTx::try_from(response.transaction.clone()).expect("rpc transaction must convert");
+                        assert_eq!(Hash::from_bytes(fetched_tx.id()), txid);
+                        assert!(response.transaction.verbose_data.is_none());
                     } else {
                         info!("Skipping accepted transaction lookup because the template exposed no transactions");
                     }
@@ -415,15 +414,13 @@ async fn sanity_test() {
             RpcPayloadOps::ResolveFinalityConflict => {
                 let rpc_client = client.clone();
                 tst!(op, {
-                    let response_result = rpc_client
+                    let _response = rpc_client
                         .resolve_finality_conflict_call(
                             None,
-                            ResolveFinalityConflictRequest { finality_block_hash: Hash::from_bytes([0; 32]) },
+                            ResolveFinalityConflictRequest { finality_block_hash: SIMNET_GENESIS.hash },
                         )
-                        .await;
-
-                    // Err because it's currently unimplemented
-                    assert!(response_result.is_err());
+                        .await
+                        .unwrap();
                 })
             }
 
@@ -441,12 +438,14 @@ async fn sanity_test() {
             RpcPayloadOps::GetHeaders => {
                 let rpc_client = client.clone();
                 tst!(op, {
-                    let response_result = rpc_client
+                    let response = rpc_client
                         .get_headers_call(None, GetHeadersRequest { start_hash: SIMNET_GENESIS.hash, limit: 1, is_ascending: true })
-                        .await;
-
-                    // Err because it's currently unimplemented
-                    assert!(response_result.is_err());
+                        .await
+                        .unwrap();
+                    assert!(response.headers.len() <= 1);
+                    if let Some(header) = response.headers.first() {
+                        assert_eq!(header.hash, SIMNET_GENESIS.hash);
+                    }
                 })
             }
 

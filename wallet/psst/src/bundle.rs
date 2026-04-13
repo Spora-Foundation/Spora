@@ -11,7 +11,7 @@ use spora_consensus_client::{extract_address_from_lock_script, pay_to_address_lo
 use spora_consensus_core::cell_diff::CellMeta;
 use spora_consensus_core::constants::UNACCEPTED_DAA_SCORE;
 use spora_consensus_core::network::{NetworkId, NetworkType};
-use spora_consensus_core::tx::{ScriptRef, TransactionOutpoint};
+use spora_consensus_core::tx::{Script, TransactionOutpoint};
 use std::ops::Deref;
 
 ///
@@ -214,7 +214,7 @@ pub fn unlock_cells_as_pssb(
 pub fn unlock_cell(
     cell_entry: &CellMeta,
     outpoint: &TransactionOutpoint,
-    lock_script: &ScriptRef,
+    lock_script: &Script,
     script_sig: &[u8],
     _priority_fee_sau: u64,
 ) -> Result<Bundle, Error> {
@@ -256,11 +256,11 @@ pub fn unlock_cell_outputs_as_batch_transaction_pssb(
     Ok(psst.into())
 }
 
-fn direct_cell_meta_from_script(amount: u64, lock_script: ScriptRef, block_daa_score: u64, is_coinbase: bool) -> CellMeta {
+fn direct_cell_meta_from_script(amount: u64, lock_script: Script, block_daa_score: u64, is_coinbase: bool) -> CellMeta {
     CellMeta::from_cell_metadata(amount, 0, lock_script.hash(), None, [0; 32], block_daa_score, is_coinbase)
 }
 
-fn address_from_lock_script(lock_script: &ScriptRef, prefix: Prefix) -> Result<Address, Error> {
+fn address_from_lock_script(lock_script: &Script, prefix: Prefix) -> Result<Address, Error> {
     extract_address_from_lock_script(lock_script.args.as_slice(), prefix).map_err(|err| Error::Custom(err.to_string()))
 }
 
@@ -294,7 +294,7 @@ mod tests {
         let psst = PSST::<Creator>::default().inputs_modifiable().outputs_modifiable();
         let redeem_spk = pay_to_script_hash_lock_script(redeem_script);
         let input_0 = InputBuilder::default()
-            .cell_entry(direct_cell_entry_from_script(12793000000000, redeem_spk.clone(), 36151168, false))
+            .cell_entry(direct_cell_meta_from_script(12793000000000, redeem_spk.clone(), 36151168, false))
             .previous_outpoint(outpoint_from_id(
                 TransactionId::from_str("63020db736215f8b1105a9281f7bcbb6473d965ecc45bb2fb5da59bd35e6ff84").unwrap(),
                 0,

@@ -81,6 +81,7 @@ pub struct FullDifficultyManager<T: HeaderStoreReader> {
     headers_store: Arc<T>,
     genesis_bits: u32,
     max_difficulty_target: Uint320,
+    #[allow(dead_code)]
     difficulty_window_size: usize,
     min_difficulty_window_size: usize,
     target_time_per_block: u64,
@@ -164,6 +165,7 @@ impl<T: HeaderStoreReader> DifficultyManagerExtension for FullDifficultyManager<
     }
 }
 
+#[allow(dead_code)]
 fn hash_suffix(n: f64) -> (f64, &'static str) {
     match n {
         n if n < 1_000.0 => (n, "hash/block"),
@@ -176,6 +178,7 @@ fn hash_suffix(n: f64) -> (f64, &'static str) {
     }
 }
 
+#[allow(dead_code)]
 fn difficulty_desc(target: Uint320) -> String {
     let difficulty = MAX_DIFFICULTY_TARGET_AS_F64 / target.as_f64();
     let hashrate = difficulty * 2.0;
@@ -188,6 +191,7 @@ fn difficulty_desc(target: Uint320) -> String {
 #[derive(Clone)]
 pub struct SampledDifficultyManager<T: HeaderStoreReader, U: GhostdagStoreReader> {
     headers_store: Arc<T>,
+    #[allow(dead_code)]
     ghostdag_store: Arc<U>,
     genesis_hash: Hash,
     genesis_bits: u32,
@@ -255,6 +259,7 @@ impl<T: HeaderStoreReader, U: GhostdagStoreReader> SampledDifficultyManager<T, U
         (self.internal_calc_daa_score(ghostdag_data, &mergeset_non_daa), mergeset_non_daa)
     }
 
+    #[allow(dead_code)]
     pub(crate) fn is_activated(&self, _selected_parent: Hash) -> bool {
         true
     }

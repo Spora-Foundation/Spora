@@ -2,7 +2,7 @@
 //! Deterministic byte sequence generation (used by Account ids).
 //!
 
-pub use crate::account::{bip32, bip32watch, keypair, multisig};
+pub use crate::account::{bip32, bip32watch, keypair, multisig, watchonly};
 use crate::encryption::blake3_hash;
 use crate::imports::*;
 use crate::storage::PrvKeyDataId;
@@ -187,6 +187,19 @@ pub fn from_bip32_watch<const N: usize>(public_key: &PublicKey) -> [Hash; N] {
         account_index: Some(0),
         secp256k1_public_key: Some(public_key.serialize().to_vec()),
         data: None,
+    };
+    make_hashes(hashable)
+}
+
+/// Create deterministic hashes from watch-only account data.
+pub fn from_watch_only<const N: usize>(data: &watchonly::Payload) -> [Hash; N] {
+    let hashable: DeterministicHashData<[PrvKeyDataId; 0]> = DeterministicHashData {
+        account_kind: &watchonly::WATCH_ONLY_ACCOUNT_KIND.into(),
+        prv_key_data_ids: &None,
+        ecdsa: Some(data.ecdsa),
+        account_index: Some(0),
+        secp256k1_public_key: None,
+        data: Some(borsh::to_vec(&(data.xpub_keys.clone(), data.minimum_signatures)).unwrap()),
     };
     make_hashes(hashable)
 }

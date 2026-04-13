@@ -181,9 +181,8 @@ impl IbdFlow {
             // means it's in its antichain (because if `highest_known_syncer_chain_hash` was in
             // the pruning point's past the pruning point itself would be
             // `highest_known_syncer_chain_hash`). So it means there's a finality conflict.
-            //
-            // TODO (relaxed): consider performing additional actions on finality conflicts in addition
-            // to disconnecting from the peer (e.g., banning, rpc notification)
+            let finality_point = consensus.async_finality_point().await;
+            self.ctx.on_finality_conflict(highest_known_syncer_chain_hash, finality_point);
             return Ok(IbdType::None);
         }
 
@@ -198,8 +197,8 @@ impl IbdFlow {
                 if unix_now() < fp_ts + finality_duration_in_milliseconds * 3 / 2 {
                     // We reject the headers proof if the node has a relatively up-to-date finality point and current
                     // consensus has matured for long enough (and not recently synced). This is mostly a spam-protector
-                    // since subsequent checks identify these violations as well
-                    // TODO (relaxed): consider performing additional actions on finality conflicts in addition to disconnecting from the peer (e.g., banning, rpc notification)
+                    // since subsequent checks identify these violations as well.
+                    self.ctx.on_finality_conflict(relay_header.hash, fp);
                     return Ok(IbdType::None);
                 }
             }
@@ -275,7 +274,8 @@ impl IbdFlow {
 
         // Check if past pruning points violate finality of current consensus
         if self.ctx.consensus().session().await.async_are_pruning_points_violating_finality(pruning_points.clone()).await {
-            // TODO (relaxed): consider performing additional actions on finality conflicts in addition to disconnecting from the peer (e.g., banning, rpc notification)
+            let finality_point = self.ctx.consensus().session().await.async_finality_point().await;
+            self.ctx.on_finality_conflict(proof_pruning_point, finality_point);
             return Err(ProtocolError::Other("pruning points are violating finality"));
         }
 

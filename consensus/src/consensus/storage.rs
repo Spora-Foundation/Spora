@@ -37,9 +37,6 @@ use spora_state::{SegmentReader, SegmentWriter};
 use std::{ops::DerefMut, sync::Arc};
 
 pub struct ConsensusStorage {
-    // DB
-    db: Arc<DB>,
-
     // Locked stores
     pub statuses_store: Arc<RwLock<DbStatusesStore>>,
     pub relations_stores: Arc<RwLock<Vec<DbRelationsStore>>>,
@@ -245,7 +242,6 @@ impl ConsensusStorage {
         relations::init(reachability_relations_store.write().deref_mut());
 
         Arc::new(Self {
-            db,
             statuses_store,
             relations_stores,
             reachability_relations_store,

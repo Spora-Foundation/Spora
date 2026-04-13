@@ -5643,6 +5643,7 @@ dependencies = [
 name = "spora-p2p-flows"
 version = "1.21.0"
 dependencies = [
+ "async-channel 2.5.0",
  "async-trait",
  "chrono",
  "futures",
@@ -5653,10 +5654,12 @@ dependencies = [
  "rand 0.8.5",
  "spora-addressmanager",
  "spora-connectionmanager",
+ "spora-consensus",
  "spora-consensus-core",
  "spora-consensus-notify",
  "spora-consensusmanager",
  "spora-core",
+ "spora-database",
  "spora-hashes",
  "spora-mining",
  "spora-muhash",
@@ -5815,6 +5818,7 @@ dependencies = [
  "log",
  "spora-addresses",
  "spora-cellindex",
+ "spora-consensus",
  "spora-consensus-client",
  "spora-consensus-core",
  "spora-consensus-notify",

@@ -15,7 +15,7 @@ use spora_consensus_core::{
     merkle::calc_hash_merkle_root_cell,
     BlockHashMap,
 };
-use spora_exec::{CellTx, ScriptRef};
+use spora_exec::{CellTx, Script};
 use spora_hashes::Hash;
 
 use super::VirtualStateProcessor;
@@ -63,7 +63,7 @@ impl TestBlockBuilder {
                     BlockRewardData::new(
                         self.coinbase_manager.calc_block_subsidy(block_daa_score),
                         0,
-                        ScriptRef::new([0; 32], 0, vec![]),
+                        Script::new([0; 32], 0, vec![]),
                     )
                 });
             mergeset_rewards.insert(block_hash, reward_data);

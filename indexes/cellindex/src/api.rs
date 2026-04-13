@@ -3,7 +3,7 @@
 //
 // Cell query API
 
-use crate::indexer::CellIndexer;
+use crate::indexer::{CellDataProof, CellIndexer};
 use serde::{Deserialize, Serialize};
 use spora_consensus_core::cell_diff::{BlockCellDiff, CellCollection};
 use spora_exec::{CellTx, OutPoint};
@@ -97,6 +97,11 @@ impl CellIndexProxy {
         self.indexer.get_cell(out_point)
     }
 
+    /// Build a DA proof for a segment-backed cell payload.
+    pub fn get_cell_data_proof(&self, out_point: &OutPoint) -> crate::Result<Option<CellDataProof>> {
+        self.indexer.get_cell_data_proof(out_point)
+    }
+
     /// Sum the capacity of all currently live cells tracked by the index.
     pub fn total_live_capacity(&self) -> crate::Result<u64> {
         self.indexer.total_live_capacity()
@@ -144,6 +149,7 @@ impl CellIndexProxy {
 pub trait CellIndexApi {
     fn query(&self, query: &CellQuery) -> crate::Result<CellQueryResult>;
     fn get_cell(&self, out_point: &OutPoint) -> crate::Result<Option<CellMeta>>;
+    fn get_cell_data_proof(&self, out_point: &OutPoint) -> crate::Result<Option<CellDataProof>>;
     fn total_live_capacity(&self) -> crate::Result<u64>;
     fn is_empty(&self) -> crate::Result<bool>;
 }
@@ -155,6 +161,10 @@ impl CellIndexApi for CellIndexProxy {
 
     fn get_cell(&self, out_point: &OutPoint) -> crate::Result<Option<CellMeta>> {
         CellIndexProxy::get_cell(self, out_point)
+    }
+
+    fn get_cell_data_proof(&self, out_point: &OutPoint) -> crate::Result<Option<CellDataProof>> {
+        CellIndexProxy::get_cell_data_proof(self, out_point)
     }
 
     fn total_live_capacity(&self) -> crate::Result<u64> {
@@ -175,6 +185,9 @@ impl std::fmt::Debug for CellIndexProxy {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use spora_exec::{CellOutput, CellTx, Script};
+    use std::sync::Arc;
+    use tempfile::TempDir;
 
     #[test]
     fn test_cell_query_creation() {
@@ -207,5 +220,25 @@ mod tests {
         }
 
         assert_eq!(query.limit, 1);
+    }
+
+    #[test]
+    fn test_proxy_get_cell_data_proof() {
+        let tmp_db = TempDir::new().unwrap();
+        let tmp_script = TempDir::new().unwrap();
+        let indexer = Arc::new(CellIndexer::new(tmp_db.path(), tmp_script.path()).unwrap());
+        let proxy = CellIndexProxy::new(indexer);
+
+        let lock = Script::new([0x00; 32], 0, vec![0; 20]);
+        let tx =
+            CellTx::new(vec![], vec![], vec![CellOutput { lock, type_: None, capacity: 1000 }], vec![vec![0xAB; 32]], vec![]).unwrap();
+        proxy.index_transaction(&tx, 100, [0x44; 32], false).unwrap();
+
+        let out_point = OutPoint::new(spora_exec::celltx::sighash::compute_wtxid(&tx), 0);
+        let data_proof = proxy.get_cell_data_proof(&out_point).unwrap().unwrap();
+
+        assert_eq!(data_proof.out_point, out_point);
+        assert_eq!(data_proof.payload, vec![0xAB; 32]);
+        assert!(data_proof.proof.verify().unwrap());
     }
 }

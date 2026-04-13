@@ -1,5 +1,15 @@
 use rand::{rngs::SmallRng, Rng};
 use spora_consensus_core::{block::Block, header::Header};
+#[cfg(test)]
+use spora_consensus_core::{cell_diff::CellMeta, coinbase::MinerData};
+#[cfg(any(feature = "vm", test))]
+use spora_consensus_core::{cell_metadata::CellMetadata, tx::TransactionOutpoint};
+#[cfg(any(feature = "vm", test))]
+use spora_exec::scripts::{always_success_code_hash, ALWAYS_SUCCESS_SCRIPT};
+#[cfg(any(feature = "vm", test))]
+use spora_exec::OutPoint;
+#[cfg(any(feature = "vm", test))]
+use spora_exec::Script;
 use spora_hashes::{Hash, HASH_SIZE};
 
 pub fn header_from_precomputed_hash(hash: Hash, parents: Vec<Hash>) -> Header {
@@ -65,3 +75,38 @@ pub fn generate_random_header(rng: &mut SmallRng, parent_amount: usize) -> Heade
 }
 
 //TODO: create `assert_eq_<spora-sturct>!()` helper macros in `consensus::test_helpers`
+
+#[cfg(any(feature = "vm", test))]
+pub fn always_success_lock_script() -> Script {
+    Script::new(always_success_code_hash(), 0, vec![])
+}
+
+#[cfg(any(feature = "vm", test))]
+pub fn always_success_cell_metadata(out_point: &OutPoint, block_hash: Hash) -> CellMetadata {
+    CellMetadata {
+        out_point: TransactionOutpoint { tx_hash: out_point.tx_hash, index: out_point.index },
+        capacity: 1_000,
+        data_bytes: ALWAYS_SUCCESS_SCRIPT.len() as u64,
+        lock_hash: [0; 32],
+        type_hash: None,
+        data_hash: [0; 32],
+        block_daa_score: 0,
+        is_cellbase: false,
+        block_hash,
+        lock_code_hash: None,
+        type_code_hash: None,
+        lock_script: Some(always_success_lock_script()),
+        type_script: None,
+        data: Some(ALWAYS_SUCCESS_SCRIPT.to_vec()),
+    }
+}
+
+#[cfg(test)]
+pub fn empty_miner_data() -> MinerData {
+    MinerData::new(Script::new([0; 32], 0, vec![]), vec![])
+}
+
+#[cfg(test)]
+pub fn test_cell_entry(capacity: u64, block_daa_score: u64, is_cellbase: bool) -> CellMeta {
+    CellMeta::from_cell_metadata(capacity, 0, [0; 32], None, [0; 32], block_daa_score, is_cellbase)
+}

@@ -10,7 +10,7 @@ use crate::psst::{Global, Inner};
 use spora_consensus_core::cell_diff::CellMeta;
 use spora_consensus_core::tx::{self as cctx};
 
-fn output_from_cell_out(output: &cctx::CellOut, output_data: &[u8]) -> Output {
+fn output_from_cell_out(output: &cctx::CellOutput, output_data: &[u8]) -> Output {
     OutputBuilder::default()
         .capacity(output.capacity)
         .lock_script(output.lock.clone())
@@ -20,20 +20,20 @@ fn output_from_cell_out(output: &cctx::CellOut, output_data: &[u8]) -> Output {
             built.type_script = output.type_.clone();
             built
         })
-        .expect("CellOut must map to Output")
+        .expect("CellOutput must map to Output")
 }
 
-impl TryFrom<(cctx::CellTx, Vec<(cctx::CellRef, CellMeta)>)> for Inner {
+impl TryFrom<(cctx::CellTx, Vec<(cctx::CellInput, CellMeta)>)> for Inner {
     type Error = Error; // Define your error type
 
-    fn try_from((transaction, inputs_with_entries): (cctx::CellTx, Vec<(cctx::CellRef, CellMeta)>)) -> Result<Self, Self::Error> {
+    fn try_from((transaction, inputs_with_entries): (cctx::CellTx, Vec<(cctx::CellInput, CellMeta)>)) -> Result<Self, Self::Error> {
         let inputs: Result<Vec<Input>, Self::Error> = inputs_with_entries
             .into_iter()
             .map(|(cell_ref, cell_entry)| {
                 let since = cell_ref.since;
                 let mut built = InputBuilder::default()
                     .cell_entry(cell_entry)
-                    .previous_outpoint(cell_ref.out_point)
+                    .previous_outpoint(cell_ref.previous_output)
                     .build()
                     .map_err(Error::TxToInnerConversionInputBuildingError)?;
                 built.since = Some(since);
@@ -62,7 +62,7 @@ impl TryFrom<cctx::CellTx> for Inner {
             .iter()
             .map(|input| -> Result<Input, Error> {
                 let mut built = InputBuilder::default()
-                    .previous_outpoint(input.out_point)
+                    .previous_outpoint(input.previous_output)
                     .build()
                     .map_err(Error::TxToInnerConversionInputBuildingError)?;
                 built.since = Some(input.since);

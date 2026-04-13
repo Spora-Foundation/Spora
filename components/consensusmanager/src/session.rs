@@ -336,6 +336,18 @@ impl ConsensusSessionOwned {
         self.clone().spawn_blocking(move |c| c.get_resolved_cell_transaction(txid, accepting_block_daa_score)).await
     }
 
+    pub async fn async_get_transaction_location(&self, txid: Hash) -> Result<(Hash, usize), String> {
+        self.clone().spawn_blocking(move |c| c.get_transaction_location(txid)).await
+    }
+
+    pub async fn async_get_resolved_cell_transaction_in_accepting_block(
+        &self,
+        txid: Hash,
+        accepting_block: Hash,
+    ) -> Result<ResolvedCellTransaction, String> {
+        self.clone().spawn_blocking(move |c| c.get_resolved_cell_transaction_in_accepting_block(txid, accepting_block)).await
+    }
+
     /// Returns the antipast of block `hash` from the POV of `context`, i.e. `antipast(hash) ∩ past(context)`.
     /// Since this might be an expensive operation for deep blocks, we allow the caller to specify a limit
     /// `max_traversal_allowed` on the maximum amount of blocks to traverse for obtaining the answer

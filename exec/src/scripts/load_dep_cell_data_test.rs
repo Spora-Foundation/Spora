@@ -5,7 +5,7 @@
 
 #[cfg(all(test, feature = "vm"))]
 mod tests {
-    use crate::celltx::{CellDep, CellOut, CellRef, CellTx, DepType, OutPoint, ScriptRef};
+    use crate::celltx::{CellDep, CellOutput, CellInput, CellTx, DepType, OutPoint, Script};
     use crate::scripts::{load_dep_cell_data_code_hash, LOAD_DEP_CELL_DATA_SCRIPT};
     use crate::vm::{ResolvedCell, ScriptVersion, SimpleDataProvider, TransactionScriptVerifier};
     use std::sync::Arc;
@@ -24,7 +24,7 @@ mod tests {
             input_out_point.tx_hash,
             input_out_point.index,
             ResolvedCell {
-                cell_output: CellOut { capacity: 1000, lock: ScriptRef { code_hash, hash_type: 0, args: vec![] }, type_: None },
+                cell_output: CellOutput { capacity: 1000, lock: Script { code_hash, hash_type: 0, args: vec![] }, type_: None },
                 data: Some(vec![]),
             },
         );
@@ -32,9 +32,9 @@ mod tests {
             dep_out_point.tx_hash,
             dep_out_point.index,
             ResolvedCell {
-                cell_output: CellOut {
+                cell_output: CellOutput {
                     capacity: 2000,
-                    lock: ScriptRef { code_hash: [0xAB; 32], hash_type: 0, args: vec![] },
+                    lock: Script { code_hash: [0xAB; 32], hash_type: 0, args: vec![] },
                     type_: None,
                 },
                 data: Some(dep_data),
@@ -50,9 +50,9 @@ mod tests {
         let dep_out_point = OutPoint::new([0x82; 32], 1);
         let provider = build_provider(code_hash, input_out_point.clone(), dep_out_point.clone(), EXPECTED_DATA.to_vec());
         let tx = CellTx {
-            ver: 0xC001,
-            inputs: vec![CellRef::new(input_out_point, 0)],
-            deps: vec![CellDep { out_point: dep_out_point, dep_type: DepType::Code }],
+            version: 0xC001,
+            inputs: vec![CellInput::new(input_out_point, 0)],
+            cell_deps: vec![CellDep { out_point: dep_out_point, dep_type: DepType::Code }],
             header_deps: vec![],
             outputs: vec![],
             outputs_data: vec![],
@@ -72,9 +72,9 @@ mod tests {
         let dep_out_point = OutPoint::new([0x84; 32], 1);
         let provider = build_provider(code_hash, input_out_point.clone(), dep_out_point.clone(), vec![0x00, 0x01, 0x02, 0x03]);
         let tx = CellTx {
-            ver: 0xC001,
-            inputs: vec![CellRef::new(input_out_point, 0)],
-            deps: vec![CellDep { out_point: dep_out_point, dep_type: DepType::Code }],
+            version: 0xC001,
+            inputs: vec![CellInput::new(input_out_point, 0)],
+            cell_deps: vec![CellDep { out_point: dep_out_point, dep_type: DepType::Code }],
             header_deps: vec![],
             outputs: vec![],
             outputs_data: vec![],

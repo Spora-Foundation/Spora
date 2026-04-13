@@ -102,7 +102,7 @@ spora.init_console_panic_hook();
     console.log("outputs", outputs);
     console.log("cellEntries:", cellEntries.items);
 
-    // Outputs are canonical CellOut values now; construct a lock script directly if you
+    // Outputs are canonical CellOutput values now; construct a lock script directly if you
     // want to build them by hand instead of using address-based helpers.
 
     let transaction = new Transaction({

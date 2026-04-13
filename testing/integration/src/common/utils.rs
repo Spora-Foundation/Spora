@@ -10,7 +10,7 @@ use spora_consensus_core::{
     header::Header,
     sign::sign,
     tx::{
-        pay_to_address_lock_script, CellEntry, CellOut, CellRef, CellTx, MutableTransaction, ScriptRef, SignableTransaction,
+        pay_to_address_lock_script, CellEntry, CellOutput, CellInput, CellTx, MutableTransaction, Script, SignableTransaction,
         TransactionId, TransactionOutpoint,
     },
 };
@@ -41,7 +41,7 @@ pub const fn required_fee(num_inputs: usize, num_outputs: u64) -> u64 {
 pub fn generate_tx_dag(
     mut cell_set: CellCollection,
     schnorr_key: Keypair,
-    lock_script: ScriptRef,
+    lock_script: Script,
     target_levels: usize,
     target_width: usize,
 ) -> Vec<Arc<CellTx>> {
@@ -71,8 +71,8 @@ pub fn generate_tx_dag(
             .map(|c| {
                 c.into_iter()
                     .map(|(o, e)| {
-                        // Convert OutPoint to CellRef
-                        let cell_ref = CellRef::new(*o, 0); // since = 0 for test
+                        // Convert OutPoint to CellInput
+                        let cell_ref = CellInput::new(*o, 0); // since = 0 for test
                         (cell_ref, e.clone())
                     })
                     .unzip()
@@ -82,8 +82,8 @@ pub fn generate_tx_dag(
             .map(|(inputs, entries)| {
                 let total_in = entries.iter().map(|e| e.capacity()).sum::<u64>();
                 let total_out = total_in - required_fee(num_inputs, num_outputs);
-                let outputs: Vec<CellOut> = (0..num_outputs)
-                    .map(|_| CellOut { capacity: total_out / num_outputs, lock: lock_script.clone(), type_: None })
+                let outputs: Vec<CellOutput> = (0..num_outputs)
+                    .map(|_| CellOutput { capacity: total_out / num_outputs, lock: lock_script.clone(), type_: None })
                     .collect_vec();
                 let outputs_data: Vec<Vec<u8>> = (0..num_outputs).map(|_| vec![]).collect();
                 let witnesses: Vec<Vec<u8>> = inputs.iter().map(|_| vec![]).collect();
@@ -113,11 +113,11 @@ pub fn verify_tx_dag(initial_cell_set: &CellCollection, txs: &[Arc<CellTx>]) {
     let mut used_outpoints = HashSet::with_capacity(txs.len() * 2);
     for tx in txs.iter() {
         for input in tx.inputs.iter() {
-            assert!(used_outpoints.insert(input.out_point));
-            if let Occupied(e) = prev_txs.entry(TransactionId::from_bytes(input.out_point.tx_hash)) {
-                assert!(e.get().outputs.len() > input.out_point.index as usize);
+            assert!(used_outpoints.insert(input.previous_output));
+            if let Occupied(e) = prev_txs.entry(TransactionId::from_bytes(input.previous_output.tx_hash)) {
+                assert!(e.get().outputs.len() > input.previous_output.index as usize);
             } else {
-                assert!(initial_cell_set.contains_key(&input.out_point));
+                assert!(initial_cell_set.contains_key(&input.previous_output));
             }
         }
         assert!(prev_txs.insert(tx.id(), tx.clone()).is_none());
@@ -150,13 +150,13 @@ pub fn generate_tx(
     let total_in = cells.iter().map(|x| x.1.capacity()).sum::<u64>();
     assert!(amount <= total_in - required_fee(cells.len(), num_outputs));
     let lock_script = pay_to_address_lock_script(address);
-    let inputs: Vec<CellRef> = cells
+    let inputs: Vec<CellInput> = cells
         .iter()
-        .map(|(op, _)| CellRef::new(*op, 0)) // since = 0 for test
+        .map(|(op, _)| CellInput::new(*op, 0)) // since = 0 for test
         .collect_vec();
 
-    let outputs: Vec<CellOut> =
-        (0..num_outputs).map(|_| CellOut { capacity: amount / num_outputs, lock: lock_script.clone(), type_: None }).collect_vec();
+    let outputs: Vec<CellOutput> =
+        (0..num_outputs).map(|_| CellOutput { capacity: amount / num_outputs, lock: lock_script.clone(), type_: None }).collect_vec();
     let outputs_data: Vec<Vec<u8>> = (0..num_outputs).map(|_| vec![]).collect();
     let witnesses: Vec<Vec<u8>> = inputs.iter().map(|_| vec![]).collect();
     let unsigned_tx = CellTx::new(inputs, vec![], outputs, outputs_data, witnesses).expect("valid CellTx");

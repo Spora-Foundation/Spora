@@ -54,8 +54,8 @@ pub(crate) trait Pool {
     fn get_parent_transaction_ids_in_pool(&self, transaction: &MutableTransaction) -> TransactionIdSet {
         let mut parents = HashSet::with_capacity(transaction.tx.inputs.len());
         for input in transaction.tx.inputs.iter() {
-            if self.has(&input.out_point.transaction_id()) {
-                parents.insert(input.out_point.transaction_id());
+            if self.has(&input.previous_output.transaction_id()) {
+                parents.insert(input.previous_output.transaction_id());
             }
         }
         parents

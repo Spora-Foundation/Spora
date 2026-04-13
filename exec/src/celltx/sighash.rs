@@ -20,20 +20,20 @@ pub fn compute_txid(tx: &CellTx) -> [u8; 32] {
     hasher.update(CELL_TXID_DOMAIN);
 
     // Version
-    hasher.update(&tx.ver.to_le_bytes());
+    hasher.update(&tx.version().to_le_bytes());
 
     // Inputs (without witnesses)
     hasher.update(&(tx.inputs.len() as u32).to_le_bytes());
     for input in &tx.inputs {
         // Serialize OutPoint
-        hasher.update(&input.out_point.tx_hash);
-        hasher.update(&input.out_point.index.to_le_bytes());
+        hasher.update(&input.previous_output.tx_hash);
+        hasher.update(&input.previous_output.index.to_le_bytes());
         hasher.update(&input.since.to_le_bytes());
     }
 
     // Dependencies
-    hasher.update(&(tx.deps.len() as u32).to_le_bytes());
-    for dep in &tx.deps {
+    hasher.update(&(tx.cell_deps.len() as u32).to_le_bytes());
+    for dep in &tx.cell_deps {
         hasher.update(&dep.out_point.tx_hash);
         hasher.update(&dep.out_point.index.to_le_bytes());
         hasher.update(&[dep.dep_type.clone() as u8]);
@@ -91,19 +91,19 @@ pub fn compute_wtxid(tx: &CellTx) -> [u8; 32] {
     hasher.update(CELL_WTXID_DOMAIN);
 
     // Version
-    hasher.update(&tx.ver.to_le_bytes());
+    hasher.update(&tx.version().to_le_bytes());
 
     // Inputs
     hasher.update(&(tx.inputs.len() as u32).to_le_bytes());
     for input in &tx.inputs {
-        hasher.update(&input.out_point.tx_hash);
-        hasher.update(&input.out_point.index.to_le_bytes());
+        hasher.update(&input.previous_output.tx_hash);
+        hasher.update(&input.previous_output.index.to_le_bytes());
         hasher.update(&input.since.to_le_bytes());
     }
 
     // Dependencies
-    hasher.update(&(tx.deps.len() as u32).to_le_bytes());
-    for dep in &tx.deps {
+    hasher.update(&(tx.cell_deps.len() as u32).to_le_bytes());
+    for dep in &tx.cell_deps {
         hasher.update(&dep.out_point.tx_hash);
         hasher.update(&dep.out_point.index.to_le_bytes());
         hasher.update(&[dep.dep_type.clone() as u8]);
@@ -205,13 +205,13 @@ pub fn empty_rw_commitment() -> [u8; 32] {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::celltx::types::{CellDep, CellOut, CellRef, DepType, OutPoint, ScriptRef};
+    use crate::celltx::types::{CellDep, CellOutput, CellInput, DepType, OutPoint, Script};
 
     fn create_test_tx() -> CellTx {
-        let lock = ScriptRef::new([0x00; 32], 0, vec![0; 20]);
-        let inputs = vec![CellRef::new(OutPoint::new([0x11; 32], 0), 0)];
+        let lock = Script::new([0x00; 32], 0, vec![0; 20]);
+        let inputs = vec![CellInput::new(OutPoint::new([0x11; 32], 0), 0)];
         let deps = vec![CellDep { out_point: OutPoint::new([0x22; 32], 0), dep_type: DepType::Code }];
-        let outputs = vec![CellOut { lock: lock.clone(), type_: None, capacity: 1000 }];
+        let outputs = vec![CellOutput { lock: lock.clone(), type_: None, capacity: 1000 }];
         let outputs_data = vec![vec![]];
         let witnesses = vec![vec![0; 65]];
 
@@ -315,7 +315,7 @@ mod tests {
         // Manually compute with wrong domain
         let mut hasher = blake3::Hasher::new();
         hasher.update(CELL_WTXID_DOMAIN); // Wrong domain!
-        hasher.update(&tx.ver.to_le_bytes());
+        hasher.update(&tx.version().to_le_bytes());
         // ... (same serialization as txid)
 
         // This would produce a different hash due to domain separation

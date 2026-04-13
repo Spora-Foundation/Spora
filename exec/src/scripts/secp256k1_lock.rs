@@ -5,7 +5,7 @@
 // ⚠️ Modified: Blake2b → Blake3
 
 use crate::celltx::sighash::compute_sighash;
-use crate::celltx::types::{CellTx, ScriptRef};
+use crate::celltx::types::{CellTx, Script};
 use secp256k1::{ecdsa::RecoverableSignature, Message, Secp256k1};
 
 /// Secp256k1 lock script error
@@ -39,7 +39,7 @@ pub enum Secp256k1LockError {
 ///
 /// ⚠️ Uses Blake3 instead of Blake2b (CKB uses Blake2b)
 pub fn verify_secp256k1_lock(
-    script: &ScriptRef,
+    script: &Script,
     tx: &CellTx,
     input_index: usize,
     network_id: u32,
@@ -102,7 +102,7 @@ pub fn pubkey_hash(pubkey: &[u8]) -> [u8; 20] {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::celltx::types::{CellRef, CellOut, OutPoint};
+    use crate::celltx::types::{CellInput, CellOutput, OutPoint};
     use secp256k1::{SecretKey, PublicKey};
 
     #[test]
@@ -114,12 +114,12 @@ mod tests {
 
     #[test]
     fn test_secp256k1_lock_invalid_args() {
-        let script = ScriptRef::new([0; 32], 0, vec![1, 2, 3]); // Wrong length
-        let lock = ScriptRef::new([0; 32], 0, vec![0; 20]);
+        let script = Script::new([0; 32], 0, vec![1, 2, 3]); // Wrong length
+        let lock = Script::new([0; 32], 0, vec![0; 20]);
         let tx = CellTx::new(
-            vec![CellRef::new(OutPoint::new([0; 32], 0), 0)],
+            vec![CellInput::new(OutPoint::new([0; 32], 0), 0)],
             vec![],
-            vec![CellOut { lock, type_: None, capacity: 10000 }],
+            vec![CellOutput { lock, type_: None, capacity: 10000 }],
             vec![vec![]],
             vec![],
         ).unwrap();
@@ -131,12 +131,12 @@ mod tests {
 
     #[test]
     fn test_secp256k1_lock_missing_witness() {
-        let script = ScriptRef::new([0; 32], 0, vec![0; 20]);
-        let lock = ScriptRef::new([0; 32], 0, vec![0; 20]);
+        let script = Script::new([0; 32], 0, vec![0; 20]);
+        let lock = Script::new([0; 32], 0, vec![0; 20]);
         let tx = CellTx::new(
-            vec![CellRef::new(OutPoint::new([0; 32], 0), 0)],
+            vec![CellInput::new(OutPoint::new([0; 32], 0), 0)],
             vec![],
-            vec![CellOut { lock, type_: None, capacity: 10000 }],
+            vec![CellOutput { lock, type_: None, capacity: 10000 }],
             vec![vec![]],
             vec![], // No witnesses
         ).unwrap();
@@ -158,14 +158,14 @@ mod tests {
         let pubkey_hash = pubkey_hash(&pubkey_bytes);
         
         // Create script with pubkey hash
-        let _script = ScriptRef::new([0; 32], 0, pubkey_hash.to_vec());
+        let _script = Script::new([0; 32], 0, pubkey_hash.to_vec());
         
         // Create transaction
-        let lock = ScriptRef::new([0; 32], 0, vec![0; 20]);
+        let lock = Script::new([0; 32], 0, vec![0; 20]);
         let tx = CellTx::new(
-            vec![CellRef::new(OutPoint::new([0; 32], 0), 0)],
+            vec![CellInput::new(OutPoint::new([0; 32], 0), 0)],
             vec![],
-            vec![CellOut { lock, type_: None, capacity: 10000 }],
+            vec![CellOutput { lock, type_: None, capacity: 10000 }],
             vec![vec![]],
             vec![vec![0; 65]], // Placeholder witness
         ).unwrap();

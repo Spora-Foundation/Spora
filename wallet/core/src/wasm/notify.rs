@@ -18,6 +18,7 @@ cfg_if! {
             Disconnect = "disconnect",
             CellIndexNotEnabled = "cell-index-not-enabled",
             SyncState = "sync-state",
+            ServerStatus = "server-status",
             CellProcStart = "cell-proc-start",
             CellProcStop = "cell-proc-stop",
             CellProcError = "cell-proc-error",
@@ -28,6 +29,8 @@ cfg_if! {
             Maturity = "maturity",
             Discovery = "discovery",
             Balance = "balance",
+            Metrics = "metrics",
+            FeeRate = "fee-rate",
             Error = "error",
         }
 
@@ -52,6 +55,8 @@ cfg_if! {
             "maturity": IMaturityEvent,
             "discovery": IDiscoveryEvent,
             "balance": IBalanceEvent,
+            "metrics": IMetricsEvent,
+            "fee-rate": IFeeRateEvent,
             "error": IErrorEvent
         }
 
@@ -61,10 +66,10 @@ cfg_if! {
          */
 
         export type CellProcessorEvent<T extends keyof CellProcessorEventMap> = {
-          [K in T]: {
-            type: K,
-            data: CellProcessorEventMap[K]
-          }
+          [K in T]:
+            CellProcessorEventMap[K] extends undefined
+              ? { type: K }
+              : { type: K, data: CellProcessorEventMap[K] }
         }[T];
         
         /**
@@ -103,10 +108,12 @@ cfg_if! {
          * @category Wallet API
          */
         export enum WalletEventType {
+            WalletPing = "wallet-ping",
             Connect = "connect",
             Disconnect = "disconnect",
             CellIndexNotEnabled = "cell-index-not-enabled",
             SyncState = "sync-state",
+            WalletList = "wallet-list",
             WalletHint = "wallet-hint",
             WalletOpen = "wallet-open",
             WalletCreate = "wallet-create",
@@ -130,6 +137,7 @@ cfg_if! {
             Maturity = "maturity",
             Discovery = "discovery",
             Balance = "balance",
+            Metrics = "metrics",
             Error = "error",
             FeeRate = "fee-rate",
         }
@@ -140,10 +148,12 @@ cfg_if! {
          * @category Wallet API
          */
         export type WalletEventMap = {
+            "wallet-ping": undefined,
             "connect": IConnectEvent,
             "disconnect": IDisconnectEvent,
             "cell-index-not-enabled": ICellIndexNotEnabledEvent,
             "sync-state": ISyncStateEvent,
+            "wallet-list": IWalletListEvent,
             "wallet-hint": IWalletHintEvent,
             "wallet-open": IWalletOpenEvent,
             "wallet-create": IWalletCreateEvent,
@@ -167,6 +177,7 @@ cfg_if! {
             "maturity": IMaturityEvent,
             "discovery": IDiscoveryEvent,
             "balance": IBalanceEvent,
+            "metrics": IMetricsEvent,
             "error": IErrorEvent,
             "fee-rate": IFeeRateEvent,
         }
@@ -176,10 +187,10 @@ cfg_if! {
          * @category Wallet API
          */
         export type IWalletEvent<T extends keyof WalletEventMap> = {
-            [K in T]: {
-                type: K,
-                data: WalletEventMap[K]
-            }
+            [K in T]:
+                WalletEventMap[K] extends undefined
+                    ? { type: K }
+                    : { type: K, data: WalletEventMap[K] }
         }[T];
 
 
@@ -260,10 +271,15 @@ declare! {
      * 
      * @category Wallet Events
      */
-    export interface ISyncState {
-        event : string;
-        data? : ISyncProofEvent | ISyncHeadersEvent | ISyncBlocksEvent | ISyncCellSyncEvent | ISyncTrustSyncEvent;
-    }
+    export type ISyncState =
+        | { type : "proof"; data : ISyncProofEvent }
+        | { type : "headers"; data : ISyncHeadersEvent }
+        | { type : "blocks"; data : ISyncBlocksEvent }
+        | { type : "cell-sync"; data : ISyncCellSyncEvent }
+        | { type : "trust-sync"; data : ISyncTrustSyncEvent }
+        | { type : "cell-resync" }
+        | { type : "not-synced" }
+        | { type : "synced" };
     
     /**
      * 
@@ -271,6 +287,21 @@ declare! {
      */
     export interface ISyncStateEvent {
         syncState : ISyncState;
+    }
+    "#,
+}
+
+#[cfg(feature = "wasm32-sdk")]
+declare! {
+    IWalletListEvent,
+    r#"
+    /**
+     * Emitted by {@link Wallet} when enumerating available wallets.
+     *
+     * @category Wallet Events
+     */
+    export interface IWalletListEvent {
+        walletDescriptors : IWalletDescriptor[];
     }
     "#,
 }
@@ -300,33 +331,32 @@ declare! {
      * @category Wallet Events
      */
     export interface IWalletOpenEvent {
-        walletDescriptor : IWalletDescriptor;
-        accountDescriptors : IAccountDescriptor[];
+        walletDescriptor? : IWalletDescriptor;
+        accountDescriptors? : IAccountDescriptor[];
     }
     "#,
 }
 
-#[cfg(feature = "wasm32-sdk")]
 declare! {
     IFeeRateEvent,
     r#"
     /**
-     * Emitted by {@link Wallet} when the fee rate changes.
+     * Emitted by {@link Wallet} or {@link CellProcessor} when the fee rate changes.
      * 
      * @category Wallet Events
      */
     export interface IFeeRateEvent {
         priority: {
-            feerate: bigint,
-            seconds: bigint,
+            feeRate: number,
+            seconds: number,
         },
         normal: {
-            feerate: bigint,
-            seconds: bigint,
+            feeRate: number,
+            seconds: number,
         },
         low: {
-            feerate: bigint,
-            seconds: bigint,
+            feeRate: number,
+            seconds: number,
         },
     }
     "#,
@@ -358,8 +388,8 @@ declare! {
      * @category Wallet Events
      */
     export interface IWalletReloadEvent {
-        walletDescriptor : IWalletDescriptor;
-        accountDescriptors : IAccountDescriptor[];
+        walletDescriptor? : IWalletDescriptor;
+        accountDescriptors? : IAccountDescriptor[];
     }
     "#,
 }
@@ -617,6 +647,40 @@ declare! {
     export interface IBalanceEvent {
         id : HexString;
         balance? : IBalance;
+    }
+    "#,
+}
+
+declare! {
+    IMetricsEvent,
+    r#"
+    /**
+     * Wallet or cell-processor metrics update.
+     *
+     * @category Wallet Events
+     */
+    export interface IMetricsEvent {
+        networkId : string;
+        metrics : IMetricsUpdate;
+    }
+
+    /**
+     * Supported metrics update payloads.
+     *
+     * @category Wallet Events
+     */
+    export type IMetricsUpdate = {
+        type : "wallet-metrics";
+        data : IWalletMetricsUpdate;
+    }
+
+    /**
+     * Wallet metrics payload.
+     *
+     * @category Wallet Events
+     */
+    export interface IWalletMetricsUpdate {
+        mempoolSize : number;
     }
     "#,
 }

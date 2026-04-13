@@ -16,7 +16,7 @@ This crate implements the execution layer for Cell transactions, including:
 ```
 exec/
 ├── celltx/          # Cell transaction types and encoding
-│   ├── types.rs     # CellTx, CellRef, CellOut, ScriptRef
+│   ├── types.rs     # CellTx, CellInput, CellOutput, Script
 │   ├── codec.rs     # Molecule serialization
 │   └── sighash.rs   # blake3 signature hashing
 ├── scheduler/       # Parallel execution scheduler

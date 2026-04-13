@@ -55,7 +55,7 @@ cfg_if::cfg_if! {
             fn from(tx_input: TransactionInput) -> Self {
                 let inner = tx_input.inner();
                 RpcTransactionInput::from_cell_ref(
-                    &spora_consensus_core::tx::CellRef::new(inner.previous_outpoint.clone().into(), inner.since),
+                    &spora_consensus_core::tx::CellInput::new(inner.previous_outpoint.clone().into(), inner.since),
                     inner.witness.clone().unwrap_or_default(),
                 )
             }
@@ -64,7 +64,7 @@ cfg_if::cfg_if! {
         impl From<TransactionOutput> for RpcTransactionOutput {
             fn from(output: TransactionOutput) -> Self {
                 let inner = output.inner();
-                let cell_out = spora_consensus_core::tx::CellOut {
+                let cell_out = spora_consensus_core::tx::CellOutput {
                     lock: inner.lock_script.clone(),
                     type_: inner.type_script.clone(),
                     capacity: inner.capacity,

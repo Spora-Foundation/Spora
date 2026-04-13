@@ -31,6 +31,7 @@ default = ["wasm32-sdk"]
 
 [lib]
 crate-type = ["cdylib", "lib"]
+doctest = false
 
 [dependencies]
 aes.workspace = true
@@ -83,6 +84,7 @@ regex.workspace = true
 ripemd.workspace = true
 secp256k1.workspace = true
 separator.workspace = true
+serde_repr.workspace = true
 serde_json.workspace = true
 serde-wasm-bindgen.workspace = true
 serde.workspace = true
@@ -122,7 +124,6 @@ home.workspace = true
 
 [dev-dependencies]
 hex-literal.workspace = true
-serde_repr.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tokio.workspace = true

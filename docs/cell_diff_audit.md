@@ -61,7 +61,7 @@ Spora 额外提供了 `to_key()` / `from_key()` 辅助方法，将 OutPoint 编�
 
 ---
 
-### 1.2 Script (CKB) vs ScriptRef (Spora)
+### 1.2 Script (CKB) vs Script (Spora)
 
 | 字段 | CKB | Spora | 状态 | 说明 |
 |------|-----|-------|------|------|
@@ -76,7 +76,7 @@ Spora 额外提供了 `to_key()` / `from_key()` 辅助方法，将 OutPoint 编�
 | 0 | Data | 通过数据哈希匹配脚本代码 |
 | 1 | Type | 通过 type script 哈希匹配脚本代码 |
 | 2 | Data1 | Data 的扩展版本（CKB2021 引入） |
-| 3 | Data2 | Data 的进一步扩展版本 |
+| 4 | Data2 | Data 的进一步扩展版本（注意：值为 4 而非 3，与 CKB 保持一致） |
 
 **CKB**:
 ```rust
@@ -89,9 +89,9 @@ pub struct Script {
 
 **Spora** (`exec/src/celltx/types.rs`):
 ```rust
-pub struct ScriptRef {
+pub struct Script {
     pub code_hash: [u8; 32],
-    pub hash_type: u8,          // 0-3
+    pub hash_type: u8,          // 0=Data, 1=Type, 2=Data1, 4=Data2
     pub args: Vec<u8>,
 }
 ```
@@ -105,6 +105,7 @@ Spora: script_hash = blake3(code_hash || hash_type || args)  // 无域分离前�
 
 **差异说明**:
 - Spora 使用 `u8` 而非类型化枚举表示 `hash_type`
+- hash_type 编码与 CKB 完全对齐：Data=0, Type=1, Data1=2, Data2=4（注意 Data2 为 4 而非 3）
 - 哈希函数：CKB 使用 Blake2b，Spora 使用 Blake3
 - 脚本哈希不使用域分离前缀（有意设计）
 
@@ -112,18 +113,18 @@ Spora: script_hash = blake3(code_hash || hash_type || args)  // 无域分离前�
 
 ---
 
-### 1.3 CellOutput (CKB) vs CellOut (Spora)
+### 1.3 CellOutputput (CKB) vs CellOutput (Spora)
 
 | 字段 | CKB | Spora | 状态 | 说明 |
 |------|-----|-------|------|------|
-| lock | `Script` | `ScriptRef` | [兼容] | 锁定脚本 |
-| type_ | `Option<Script>` | `Option<ScriptRef>` | [兼容] | 类型脚本（可选） |
+| lock | `Script` | `Script` | [兼容] | 锁定脚本 |
+| type_ | `Option<Script>` | `Option<Script>` | [兼容] | 类型脚本（可选） |
 | capacity | `u64`（shannons） | `u64`（saus） | [兼容] | 金额 + 存储成本 |
 | data | 在 `outputs_data` 中 | 在 `outputs_data` 中 | [兼容] | 数据与输出分离存储 |
 
 **CKB**:
 ```rust
-pub struct CellOutput {
+pub struct CellOutputput {
     capacity: Capacity,  // u64 包装类型
     lock: Script,
     type_: Option<Script>,
@@ -133,9 +134,9 @@ pub struct CellOutput {
 
 **Spora** (`exec/src/celltx/types.rs`):
 ```rust
-pub struct CellOut {
-    pub lock: ScriptRef,
-    pub type_: Option<ScriptRef>,
+pub struct CellOutput {
+    pub lock: Script,
+    pub type_: Option<Script>,
     pub capacity: u64,
     // Data 在 CellTx.outputs_data 中（与 outputs 一一对应）
 }
@@ -148,7 +149,7 @@ pub struct CellOut {
 
 ---
 
-### 1.4 CellInput (CKB) vs CellRef (Spora)
+### 1.4 CellInput (CKB) vs CellInput (Spora)
 
 | 字段 | CKB | Spora | 状态 | 说明 |
 |------|-----|-------|------|------|
@@ -204,8 +205,8 @@ Spora 提供 `encode_dep_group_data()` / `parse_dep_group_data()` 进行编解�
 | version | `u32` | `u16` (`0xC001`) | [差异] | Spora: Cell 版本 1 |
 | cell_deps | `Vec<CellDep>` | `deps: Vec<CellDep>` | [兼容] | 依赖 |
 | header_deps | `Vec<Byte32>` | `Vec<[u8; 32]>` | [保留] | 保留字段，VM 可访问 |
-| inputs | `Vec<CellInput>` | `inputs: Vec<CellRef>` | [兼容] | 输入 |
-| outputs | `Vec<CellOutput>` | `outputs: Vec<CellOut>` | [兼容] | 输出 |
+| inputs | `Vec<CellInput>` | `inputs: Vec<CellInput>` | [兼容] | 输入 |
+| outputs | `Vec<CellOutputput>` | `outputs: Vec<CellOutput>` | [兼容] | 输出 |
 | outputs_data | `Vec<Bytes>` | `Vec<Vec<u8>>` | [兼容] | 与 outputs 一一对应 |
 | witnesses | `Vec<Bytes>` | `Vec<Vec<u8>>` | [兼容] | 签名等 |
 
@@ -249,7 +250,7 @@ CELL_ENTRY_OVERHEAD = 32(hash) + 4(index) + 8(daa) + 1(cellbase) = 45 字节。
 
 | 字段 | CKB | Spora | 状态 | 说明 |
 |------|-----|-------|------|------|
-| cell_output | `CellOutput` | `CellOut` | [兼容] | 输出结构 |
+| cell_output | `CellOutputput` | `CellOutput` | [兼容] | 输出结构 |
 | out_point | `OutPoint` | `OutPoint` | [一致] | Cell 标识符 |
 | transaction_info | `Option<TransactionInfo>` | `Option<TransactionInfo>` | [差异] | 见下方 |
 | data_bytes | `u64` | `u64` | [一致] | 数据大小 |
@@ -326,7 +327,7 @@ CELL_ENTRY_OVERHEAD = 32(hash) + 4(index) + 8(daa) + 1(cellbase) = 45 字节。
 - 适合哈希计算
 
 固定类型如 OutPoint 直接编码（36 字节，与 Molecule 相同）。
-可变类型如 ScriptRef 使用长度前缀：`code_hash(32) + hash_type(1) + args_len(4) + args(N)` = 37 + N 字节。
+可变类型如 Script 使用长度前缀：`code_hash(32) + hash_type(1) + args_len(4) + args(N)` = 37 + N 字节。
 
 ### 2.3 对比总结
 
@@ -504,7 +505,7 @@ Spora 的 Cell 状态查询始终关联一个 PoV 块哈希，通过 `is_cell_av
 两者定义一致（`exec/src/vm/verifier.rs`）：
 ```rust
 pub struct ScriptGroup {
-    pub script: ScriptRef,       // CKB 中为 Script
+    pub script: Script,       // CKB 中为 Script
     pub group_type: ScriptGroupType,  // Lock | Type
     pub input_indices: Vec<usize>,
     pub output_indices: Vec<usize>,
@@ -890,7 +891,7 @@ CellDiff 的可逆性和 CellStateTree 的增量更新确保重组操作的安�
 
 | 项目 | 说明 | 优先级 |
 |------|------|--------|
-| hash_type 1/2/3 支持 | 当前 verifier 仅接受 hash_type=0 | P1 |
+| hash_type 1/2/4 支持 | 当前 verifier 仅接受 hash_type=0，需扩展支持 Type/Data1/Data2 | P1 |
 | 调度器完善 | `scheduler.rs` 目前为占位符 | P2 |
 | 零拷贝优化 | Borsh 不支持零拷贝，大数据可能有性能瓶颈 | P2 |
 
@@ -910,7 +911,7 @@ CellDiff 的可逆性和 CellStateTree 的增量更新确保重组操作的安�
 
 | # | 行动 | 状态 | 说明 |
 |---|------|------|------|
-| 4 | 支持 hash_type 1/2/3 | [待定] | 当前仅支持 Data (hash_type=0) |
+| 4 | 支持 hash_type 1/2/4 | [待定] | 当前仅支持 Data (hash_type=0)，需扩展支持 Type/Data1/Data2 |
 | 5 | 综合测试完善 | [进行中] | 时间锁/Cellbase/容量/分组均有测试 |
 | 6 | 并行脚本组执行 | [已完成] | 使用 Rayon par_iter |
 
@@ -954,7 +955,7 @@ CKB Cell 模型的核心安全属性（见证隔离、容量守恒、时间锁�
 
 ---
 
-**审计完成日期**: 2026-04-12
+**审计完成日期**: 2026-04-13
 **下次审计**: hash_type 扩展支持完成后
 
 ---
@@ -1010,11 +1011,11 @@ fn parse_since(since: u64) -> SinceLock {
 | 系统调用 | 功能 | 参数 | 返回 |
 |----------|------|------|------|
 | `LoadTx` | 加载当前交易哈希 | 无 | tx_hash: [u8; 32] |
-| `LoadCell` | 加载 Cell 输出结构 | source, index, offset | CellOut 序列化数据 |
+| `LoadCell` | 加载 Cell 输出结构 | source, index, offset | CellOutput 序列化数据 |
 | `LoadCellData` | 加载 Cell 关联数据 | source, index, offset | 原始数据字节 |
-| `LoadInput` | 加载交易输入 | index, offset | CellRef 序列化数据 |
+| `LoadInput` | 加载交易输入 | index, offset | CellInput 序列化数据 |
 | `LoadWitness` | 加载见证数据 | index, offset | 原始见证字节 |
-| `LoadScript` | 加载当前执行脚本 | 无 | ScriptRef 序列化数据 |
+| `LoadScript` | 加载当前执行脚本 | 无 | Script 序列化数据 |
 | `LoadHeader` | 加载块头信息 | hash | ResolvedHeader 数据 |
 | `CurrentCycles` | 查询已消耗周期数 | 无 | cycles: u64 |
 | `Debugger` | 输出调试日志 | 字符串 | 无 |

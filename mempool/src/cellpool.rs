@@ -177,7 +177,7 @@ impl CellPool {
 
         // Update spent outputs
         for input in &tx.inputs {
-            spent.insert(input.out_point.clone(), wtxid);
+            spent.insert(input.previous_output.clone(), wtxid);
         }
 
         // Update dependents in parent transactions
@@ -208,7 +208,7 @@ impl CellPool {
 
         // Remove from spent outputs
         for input in &entry.tx.inputs {
-            spent.remove(&input.out_point);
+            spent.remove(&input.previous_output);
         }
 
         // Update dependents in parent transactions
@@ -262,7 +262,7 @@ impl CellPool {
         let mut conflicts = Vec::new();
 
         for input in &tx.inputs {
-            if let Some(existing_wtxid) = spent.get(&input.out_point) {
+            if let Some(existing_wtxid) = spent.get(&input.previous_output) {
                 conflicts.push(*existing_wtxid);
             }
         }
@@ -340,7 +340,7 @@ impl CellPool {
             // Check if input is produced by a transaction in pool
             for (parent_wtxid, parent_entry) in txs.iter() {
                 let parent_txid = parent_entry.tx.id();
-                if input.out_point.tx_hash == parent_txid {
+                if input.previous_output.tx_hash == parent_txid {
                     deps.insert(*parent_wtxid);
                 }
             }
@@ -358,12 +358,12 @@ impl CellPool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use spora_exec::{CellOut, CellRef, ScriptRef};
+    use spora_exec::{CellOutput, CellInput, Script};
 
     fn create_test_tx(inputs: Vec<OutPoint>, capacity: u64) -> CellTx {
-        let lock = ScriptRef::new([0x00; 32], 0, vec![0; 20]);
-        let inputs = inputs.into_iter().map(|op| CellRef::new(op, 0)).collect();
-        CellTx::new(inputs, vec![], vec![CellOut { lock, type_: None, capacity }], vec![vec![]], vec![vec![0; 65]]).unwrap()
+        let lock = Script::new([0x00; 32], 0, vec![0; 20]);
+        let inputs = inputs.into_iter().map(|op| CellInput::new(op, 0)).collect();
+        CellTx::new(inputs, vec![], vec![CellOutput { lock, type_: None, capacity }], vec![vec![]], vec![vec![0; 65]]).unwrap()
     }
 
     #[test]
@@ -388,7 +388,7 @@ mod tests {
         let wtxid = pool.add(tx.clone(), 100, 1000).unwrap();
 
         let removed = pool.remove(&wtxid).unwrap();
-        assert_eq!(removed.ver, tx.ver);
+        assert_eq!(removed.version, tx.version);
 
         assert!(pool.get(&wtxid).is_none());
     }

@@ -5,7 +5,7 @@
 
 #[cfg(all(test, feature = "vm"))]
 mod tests {
-    use crate::celltx::{CellOut, CellRef, CellTx, OutPoint, ScriptRef};
+    use crate::celltx::{CellOutput, CellInput, CellTx, OutPoint, Script};
     use crate::scripts::timelock::encode_absolute_timestamp_since;
     use crate::scripts::{htlc_code_hash, HTLC_SCRIPT};
     use crate::vm::{ResolvedCell, ScriptVersion, SimpleDataProvider, TransactionScriptVerifier};
@@ -21,7 +21,7 @@ mod tests {
             input_out_point.tx_hash,
             input_out_point.index,
             ResolvedCell {
-                cell_output: CellOut { capacity: 1000, lock: ScriptRef { code_hash, hash_type: 0, args }, type_: None },
+                cell_output: CellOutput { capacity: 1000, lock: Script { code_hash, hash_type: 0, args }, type_: None },
                 data: Some(vec![]),
             },
         );
@@ -63,6 +63,15 @@ mod tests {
         witness
     }
 
+    fn build_fixture_signature(pubkey: [u8; 32]) -> [u8; 64] {
+        let mut signature = [0u8; 64];
+        let first = blake3::hash(&[b"spora-htlc-fixture-sig-a".as_slice(), pubkey.as_slice()].concat());
+        let second = blake3::hash(&[b"spora-htlc-fixture-sig-b".as_slice(), pubkey.as_slice()].concat());
+        signature[..32].copy_from_slice(first.as_bytes());
+        signature[32..].copy_from_slice(second.as_bytes());
+        signature
+    }
+
     #[test]
     fn test_htlc_recipient_path_success() {
         let code_hash = htlc_code_hash();
@@ -74,7 +83,7 @@ mod tests {
 
         let recipient_pubkey = [0x11u8; 32];
         let sender_pubkey = [0x22u8; 32];
-        let signature = [0x33u8; 64];
+        let signature = build_fixture_signature(recipient_pubkey);
 
         let args = build_htlc_args(
             secret_hash,
@@ -91,9 +100,9 @@ mod tests {
         let witness = build_recipient_witness(signature, secret);
 
         let tx = CellTx {
-            ver: 0xC001,
-            inputs: vec![CellRef::new(input_out_point, since)],
-            deps: vec![],
+            version: 0xC001,
+            inputs: vec![CellInput::new(input_out_point, since)],
+            cell_deps: vec![],
             header_deps: vec![],
             outputs: vec![],
             outputs_data: vec![],
@@ -122,7 +131,7 @@ mod tests {
 
         let recipient_pubkey = [0x11u8; 32];
         let sender_pubkey = [0x22u8; 32];
-        let signature = [0x33u8; 64];
+        let signature = build_fixture_signature(recipient_pubkey);
 
         let args = build_htlc_args(
             secret_hash,
@@ -140,9 +149,9 @@ mod tests {
         let witness = build_recipient_witness(signature, wrong_secret);
 
         let tx = CellTx {
-            ver: 0xC001,
-            inputs: vec![CellRef::new(input_out_point, since)],
-            deps: vec![],
+            version: 0xC001,
+            inputs: vec![CellInput::new(input_out_point, since)],
+            cell_deps: vec![],
             header_deps: vec![],
             outputs: vec![],
             outputs_data: vec![],
@@ -164,7 +173,7 @@ mod tests {
         let secret_hash = blake3::hash(&secret).into();
         let recipient_pubkey = [0x11u8; 32];
         let sender_pubkey = [0x22u8; 32];
-        let signature = [0x33u8; 64];
+        let signature = build_fixture_signature(sender_pubkey);
 
         let args = build_htlc_args(
             secret_hash,
@@ -181,9 +190,9 @@ mod tests {
         let witness = build_sender_witness(signature);
 
         let tx = CellTx {
-            ver: 0xC001,
-            inputs: vec![CellRef::new(input_out_point, since)],
-            deps: vec![],
+            version: 0xC001,
+            inputs: vec![CellInput::new(input_out_point, since)],
+            cell_deps: vec![],
             header_deps: vec![],
             outputs: vec![],
             outputs_data: vec![],
@@ -210,7 +219,7 @@ mod tests {
         let secret_hash = blake3::hash(&secret).into();
         let recipient_pubkey = [0x11u8; 32];
         let sender_pubkey = [0x22u8; 32];
-        let signature = [0x33u8; 64];
+        let signature = build_fixture_signature(sender_pubkey);
 
         let args = build_htlc_args(
             secret_hash,
@@ -227,9 +236,9 @@ mod tests {
         let witness = build_sender_witness(signature);
 
         let tx = CellTx {
-            ver: 0xC001,
-            inputs: vec![CellRef::new(input_out_point, since)],
-            deps: vec![],
+            version: 0xC001,
+            inputs: vec![CellInput::new(input_out_point, since)],
+            cell_deps: vec![],
             header_deps: vec![],
             outputs: vec![],
             outputs_data: vec![],
@@ -246,5 +255,36 @@ mod tests {
     fn test_htlc_script_size() {
         assert!(HTLC_SCRIPT.len() > 64);
         assert_eq!(&HTLC_SCRIPT[..4], b"\x7fELF");
+    }
+
+    #[test]
+    fn test_htlc_recipient_path_wrong_signature() {
+        let code_hash = htlc_code_hash();
+        let input_out_point = OutPoint::new([0x35; 32], 0);
+
+        let secret = [0xABu8; 32];
+        let secret_hash = blake3::hash(&secret).into();
+        let recipient_pubkey = [0x11u8; 32];
+        let sender_pubkey = [0x22u8; 32];
+        let wrong_signature = build_fixture_signature(sender_pubkey);
+
+        let args = build_htlc_args(secret_hash, recipient_pubkey, sender_pubkey, 1, TARGET_TIMESTAMP);
+        let provider = build_provider(code_hash, input_out_point.clone(), args);
+
+        let witness = build_recipient_witness(wrong_signature, secret);
+        let tx = CellTx {
+            version: 0xC001,
+            inputs: vec![CellInput::new(input_out_point, 0)],
+            cell_deps: vec![],
+            header_deps: vec![],
+            outputs: vec![],
+            outputs_data: vec![],
+            witnesses: vec![witness],
+        };
+
+        let verifier =
+            TransactionScriptVerifier::new(Arc::new(tx), Arc::new(provider)).with_version(ScriptVersion::V2).with_max_cycles(100_000);
+
+        assert!(verifier.verify().is_err());
     }
 }

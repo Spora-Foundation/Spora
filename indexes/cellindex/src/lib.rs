@@ -18,5 +18,4 @@ pub mod indexer;
 
 pub use api::{CellFilter, CellIndexApi, CellIndexProxy, CellQuery, CellQueryResult};
 pub use errors::{CellIndexError, Result};
-pub use indexer::CellIndexer as CellIndex;
-pub use indexer::CellIndexer;
+pub use indexer::{CellDataProof, CellIndexer as CellIndex, CellIndexer};

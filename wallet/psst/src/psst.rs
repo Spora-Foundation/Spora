@@ -18,7 +18,7 @@ use spora_consensus_core::config::params::Params;
 use spora_consensus_core::mass::{ContextualMasses, MassCalculator};
 use spora_consensus_core::{
     hashing::sighash_type::SigHashType,
-    tx::{CellOut, CellRef, CellTx, MutableTransaction, SignableTransaction, TransactionId},
+    tx::{CellOutput, CellInput, CellTx, MutableTransaction, SignableTransaction, TransactionId},
 };
 
 #[derive(Debug, Default, Serialize, Deserialize, Clone)]
@@ -134,7 +134,7 @@ impl<R> PSST<R> {
         let inputs = self
             .inputs
             .iter()
-            .map(|Input { previous_outpoint, since, .. }| CellRef::new(*previous_outpoint, since.unwrap_or_default()))
+            .map(|Input { previous_outpoint, since, .. }| CellInput::new(*previous_outpoint, since.unwrap_or_default()))
             .collect();
         let outputs = self.outputs.iter().map(cell_out_from_psst_output).collect::<Vec<_>>();
         let outputs_data = self.outputs.iter().map(|output| output.output_data.clone().unwrap_or_default()).collect::<Vec<_>>();
@@ -148,8 +148,12 @@ impl<R> PSST<R> {
         }
         let tx =
             CellTx::new(inputs, vec![], outputs, outputs_data, witnesses).expect("psst unsigned transaction must be constructible");
-        let entries = self.inputs.iter().filter_map(|Input { cell_entry, .. }| cell_entry.clone()).collect();
-        SignableTransaction::with_entries(tx, entries)
+        let entries = self.inputs.iter().map(|Input { cell_entry, .. }| cell_entry.clone()).collect::<Vec<_>>();
+        if entries.iter().all(Option::is_some) {
+            SignableTransaction::with_entries(tx, entries.into_iter().flatten().collect())
+        } else {
+            SignableTransaction::new(tx)
+        }
     }
 
     fn calculate_id_internal(&self) -> TransactionId {
@@ -169,8 +173,8 @@ impl<R> PSST<R> {
     }
 }
 
-fn cell_out_from_psst_output(output: &Output) -> CellOut {
-    CellOut { lock: output.lock_script.clone(), type_: output.type_script.clone(), capacity: output.capacity }
+fn cell_out_from_psst_output(output: &Output) -> CellOutput {
+    CellOutput { lock: output.lock_script.clone(), type_: output.type_script.clone(), capacity: output.capacity }
 }
 
 impl Default for PSST<Creator> {
@@ -511,12 +515,12 @@ mod tests {
         hashing::sighash::{calc_schnorr_signature_hash, SigHashReusedValuesUnsync},
         tx::{
             multisig_redeem_script, outpoint_from_id, pay_to_address_lock_script, pay_to_script_hash_lock_script, push_data_script,
-            CellOut, CellRef, CellTx, ScriptRef, TransactionId, TransactionOutpoint,
+            CellOutput, CellInput, CellTx, Script, TransactionId, TransactionOutpoint,
         },
     };
     use std::str::FromStr;
 
-    fn test_cell_meta_from_lock_script(amount: u64, lock_script: ScriptRef, block_daa_score: u64, is_coinbase: bool) -> CellMeta {
+    fn test_cell_meta_from_lock_script(amount: u64, lock_script: Script, block_daa_score: u64, is_coinbase: bool) -> CellMeta {
         CellMeta::from_cell_metadata(amount, 0, lock_script.code_hash, None, [0; 32], block_daa_score, is_coinbase)
     }
 
@@ -716,13 +720,13 @@ mod tests {
 
     #[test]
     fn unsigned_tx_prefers_native_cell_output_fields() {
-        let lock = ScriptRef::new([7u8; 32], 1, vec![1, 2, 3, 4]);
-        let type_script = ScriptRef::new([8u8; 32], 0, vec![5, 6, 7]);
+        let lock = Script::new([7u8; 32], 1, vec![1, 2, 3, 4]);
+        let type_script = Script::new([8u8; 32], 0, vec![5, 6, 7]);
         let output_data = vec![9, 10, 11];
         let cell_tx = CellTx::new(
-            vec![CellRef::new(TransactionOutpoint::new([3u8; 32], 1), 42)],
+            vec![CellInput::new(TransactionOutpoint::new([3u8; 32], 1), 42)],
             vec![],
-            vec![CellOut { lock: lock.clone(), type_: Some(type_script.clone()), capacity: 1234 }],
+            vec![CellOutput { lock: lock.clone(), type_: Some(type_script.clone()), capacity: 1234 }],
             vec![output_data.clone()],
             vec![vec![]],
         )

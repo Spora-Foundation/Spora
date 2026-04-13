@@ -157,11 +157,11 @@ pub enum ConflictResolution {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::celltx::types::{CellOut, ScriptRef};
+    use crate::celltx::types::{CellOutput, Script};
 
     fn create_test_tx(capacity: u64) -> CellTx {
-        let lock = ScriptRef::new([0x00; 32], 0, vec![]);
-        CellTx::new(vec![], vec![], vec![CellOut { lock, type_: None, capacity }], vec![vec![]], vec![]).unwrap()
+        let lock = Script::new([0x00; 32], 0, vec![]);
+        CellTx::new(vec![], vec![], vec![CellOutput { lock, type_: None, capacity }], vec![vec![]], vec![]).unwrap()
     }
 
     #[test]

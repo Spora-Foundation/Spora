@@ -270,7 +270,7 @@ impl MassCalculator {
     pub fn calc_storage_mass_for_cell_transaction_parts(
         &self,
         inputs: &[CellEntryReference],
-        outputs: &[spora_exec::celltx::CellOut],
+        outputs: &[spora_exec::celltx::CellOutput],
         outputs_data: &[Vec<u8>],
     ) -> Option<u64> {
         consensus_calc_storage_mass(
@@ -311,16 +311,16 @@ mod tests {
     use super::*;
     use spora_consensus_core::{
         config::params::MAINNET_PARAMS,
-        tx::{CellOut, CellRef, CellTx, ScriptRef, TransactionOutpoint},
+        tx::{CellOutput, CellInput, CellTx, Script, TransactionOutpoint},
     };
 
-    fn test_lock_script(arg_len: usize) -> ScriptRef {
-        ScriptRef::new([7; 32], 0, vec![1; arg_len])
+    fn test_lock_script(arg_len: usize) -> Script {
+        Script::new([7; 32], 0, vec![1; arg_len])
     }
 
     fn test_tx(arg_len: usize) -> CellTx {
-        let input = CellRef::new(TransactionOutpoint::new([3; 32], 0), 0);
-        let output = CellOut { capacity: 1_000, lock: test_lock_script(arg_len), type_: None };
+        let input = CellInput::new(TransactionOutpoint::new([3; 32], 0), 0);
+        let output = CellOutput { capacity: 1_000, lock: test_lock_script(arg_len), type_: None };
         CellTx::new(vec![input], vec![], vec![output], vec![vec![]], vec![vec![]]).expect("test tx must be valid")
     }
 

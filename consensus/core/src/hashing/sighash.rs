@@ -4,7 +4,7 @@ use std::cell::Cell;
 use std::sync::Arc;
 
 use crate::cell_metadata::EmbeddedCellMetadata;
-use crate::tx::{CellOut, CellTx, TransactionOutpoint, VerifiableTransaction};
+use crate::tx::{CellOutput, CellTx, TransactionOutpoint, VerifiableTransaction};
 
 use super::{sighash_type::SigHashType, HasherExtensions};
 
@@ -145,8 +145,8 @@ pub fn previous_outputs_hash(tx: &CellTx, hash_type: SigHashType, reused_values:
     let hash = || {
         let mut hasher = TransactionSigningHash::new();
         for input in tx.inputs.iter() {
-            hasher.update(input.out_point.tx_hash);
-            hasher.write_u32(input.out_point.index);
+            hasher.update(input.previous_output.tx_hash);
+            hasher.write_u32(input.previous_output.index);
         }
         hasher.finalize()
     };
@@ -233,7 +233,7 @@ pub fn hash_outpoint(hasher: &mut impl Hasher, outpoint: TransactionOutpoint) {
     hasher.write_u32(outpoint.index);
 }
 
-pub fn hash_cell_output(hasher: &mut impl Hasher, output: &CellOut, data: &[u8]) {
+pub fn hash_cell_output(hasher: &mut impl Hasher, output: &CellOutput, data: &[u8]) {
     hasher.write_u64(output.capacity);
     // Hash lock script components
     hasher.update(output.lock.code_hash);
@@ -277,11 +277,11 @@ pub fn calc_schnorr_signature_hash(
     let input = &verifiable_tx.inputs()[input_index];
     let mut hasher = SchnorrSigningHash::new();
     hasher
-        .write_u16(tx.ver)
+        .write_u32(tx.version)
         .update(previous_outputs_hash(tx, hash_type, reused_values))
         .update(sequences_hash(tx, hash_type, reused_values))
         .update(sig_op_counts_hash(tx, hash_type, reused_values));
-    hash_outpoint(&mut hasher, input.out_point);
+    hash_outpoint(&mut hasher, input.previous_output);
     if let Some(entry) = real_signing_entry(verifiable_tx, input_index) {
         // This branch is now unreachable since CellMeta always has metadata
         let metadata = entry.embedded_cell_metadata().expect("CellMeta always has metadata");
@@ -329,19 +329,19 @@ pub fn calc_ecdsa_signature_hash(
 #[cfg(test)]
 mod tests {
     #[test]
-    #[ignore = "Needs rewrite for canonical ScriptRef-based signing fixtures"]
+    #[ignore = "Needs rewrite for canonical Script-based signing fixtures"]
     fn test_signature_hash_disabled() {
         assert!(true);
     }
 
     #[test]
-    #[ignore = "Needs rewrite for canonical ScriptRef-based signing fixtures"]
+    #[ignore = "Needs rewrite for canonical Script-based signing fixtures"]
     fn test_signature_hash_resolved_metadata_overrides_embedded_disabled() {
         assert!(true);
     }
 
     #[test]
-    #[ignore = "Needs rewrite for canonical ScriptRef-based signing fixtures"]
+    #[ignore = "Needs rewrite for canonical Script-based signing fixtures"]
     fn test_signature_hash_uses_metadata_for_embedded_entries_disabled() {
         assert!(true);
     }

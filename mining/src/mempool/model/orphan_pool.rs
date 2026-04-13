@@ -66,7 +66,7 @@ impl OrphanPool {
 
         if let Some(cell_tx) = transaction.cell_tx() {
             for input in &cell_tx.inputs {
-                let cell_parent_id: TransactionId = input.out_point.tx_hash.into();
+                let cell_parent_id: TransactionId = input.previous_output.tx_hash.into();
                 if let Some(parent_id) = self.cell_transaction_ids.get(&cell_parent_id).copied() {
                     parents.insert(parent_id);
                 }
@@ -156,7 +156,7 @@ impl OrphanPool {
 
     fn check_orphan_double_spend(&self, transaction: &MutableTransaction) -> RuleResult<()> {
         for input in transaction.tx.inputs.iter() {
-            if let Some(double_spend_orphan) = self.outpoint_orphan(&input.out_point) {
+            if let Some(double_spend_orphan) = self.outpoint_orphan(&input.previous_output) {
                 if double_spend_orphan.id() != transaction.id() {
                     return Err(RuleError::RejectDoubleSpendOrphan(transaction.id(), double_spend_orphan.id()));
                 }
@@ -175,7 +175,7 @@ impl OrphanPool {
         let id = transaction.id();
         // Add all entries in outpoint_owner_id
         for input in transaction.mtx.tx.inputs.iter() {
-            self.outpoint_owner_id.insert(input.out_point, id);
+            self.outpoint_owner_id.insert(input.previous_output, id);
         }
 
         // Add all chained_transaction relations...
@@ -265,8 +265,8 @@ impl OrphanPool {
             // Remove all entries in outpoint_owner_id
             let mut error = None;
             for (i, input) in transaction.mtx.tx.inputs.iter().enumerate() {
-                if self.outpoint_owner_id.remove(&input.out_point).is_none() {
-                    error = Some(RuleError::RejectMissingOrphanOutpoint(i, transaction.id(), input.out_point));
+                if self.outpoint_owner_id.remove(&input.previous_output).is_none() {
+                    error = Some(RuleError::RejectMissingOrphanOutpoint(i, transaction.id(), input.previous_output));
                 }
             }
             match error {
@@ -305,7 +305,7 @@ impl OrphanPool {
             outpoint.index = i as u32;
             if let Some(orphan) = self.outpoint_orphan_mut(&outpoint) {
                 for (i, input) in orphan.mtx.tx.inputs.iter().enumerate() {
-                    if input.out_point == outpoint {
+                    if input.previous_output == outpoint {
                         orphan.mtx.entries[i] = None;
                         orphan.mtx.resolved_cell_metadata[i] = None;
                     }

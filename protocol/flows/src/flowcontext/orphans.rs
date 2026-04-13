@@ -310,6 +310,47 @@ mod tests {
         fn get_block_status(&self, hash: Hash) -> Option<BlockStatus> {
             self.processed.read().get(&hash).map(|_| BlockStatus::StatusCellPendingVerification)
         }
+
+        fn get_populated_transaction(
+            &self,
+            txid: Hash,
+            accepting_block_daa_score: u64,
+        ) -> Result<spora_consensus_core::tx::SignableTransaction, String> {
+            Err(format!(
+                "MockProcessor does not populate transaction {txid} at accepting DAA score {accepting_block_daa_score}"
+            ))
+        }
+
+        fn get_resolved_cell_transaction(
+            &self,
+            txid: Hash,
+            accepting_block_daa_score: u64,
+        ) -> Result<spora_consensus_core::tx::ResolvedCellTransaction, String> {
+            Err(format!(
+                "MockProcessor does not resolve transaction {txid} at accepting DAA score {accepting_block_daa_score}"
+            ))
+        }
+
+        fn get_transaction_location(&self, txid: Hash) -> Result<(Hash, usize), String> {
+            Err(format!("MockProcessor does not track transaction locations for {txid}"))
+        }
+
+        fn get_resolved_cell_transaction_in_accepting_block(
+            &self,
+            txid: Hash,
+            accepting_block: Hash,
+        ) -> Result<spora_consensus_core::tx::ResolvedCellTransaction, String> {
+            Err(format!(
+                "MockProcessor does not resolve transaction {txid} in accepting block {accepting_block}"
+            ))
+        }
+
+        fn get_cell_transaction(
+            &self,
+            hash: Hash,
+        ) -> spora_consensus_core::errors::consensus::ConsensusResult<spora_consensus_core::tx::CellTx> {
+            Err(spora_consensus_core::errors::consensus::ConsensusError::TransactionNotFound(hash.to_string()))
+        }
     }
 
     #[tokio::test]

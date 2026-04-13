@@ -100,15 +100,9 @@ pub trait AccountStore: Send + Sync {
 
 #[async_trait]
 pub trait AddressBookStore: Send + Sync {
-    async fn is_empty(&self) -> Result<bool> {
-        Err(Error::NotImplemented)
-    }
-    async fn iter(&self) -> Result<StorageStream<Arc<AddressBookEntry>>> {
-        Err(Error::NotImplemented)
-    }
-    async fn search(&self, _search: &str) -> Result<Vec<Arc<AddressBookEntry>>> {
-        Err(Error::NotImplemented)
-    }
+    async fn is_empty(&self) -> Result<bool>;
+    async fn iter(&self) -> Result<StorageStream<Arc<AddressBookEntry>>>;
+    async fn search(&self, search: &str) -> Result<Vec<Arc<AddressBookEntry>>>;
 }
 
 pub struct TransactionRangeResult {

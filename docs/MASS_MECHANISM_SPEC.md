@@ -215,7 +215,7 @@ const CANONICAL_CELL_CONST_STORAGE: u64 =
     = 126 bytes
 
 // Plurality 计算
-fn cell_plurality(lock_script: &ScriptRef) -> u64 {
+fn cell_plurality(lock_script: &Script) -> u64 {
     (CANONICAL_CELL_CONST_STORAGE + lock_script.args.len() as u64)
         .div_ceil(CELL_UNIT_SIZE)  // CELL_UNIT_SIZE = 100
 }
@@ -272,7 +272,7 @@ pub struct CellMass {
 // 从不同来源创建 CellMass
 impl From<&CellEntry> for CellMass { ... }
 impl From<&CellMetadata> for CellMass { ... }
-impl From<(&CellOut, usize)> for CellMass { ... }
+impl From<(&CellOutput, usize)> for CellMass { ... }
 ```
 
 ### 5.3 计算流程

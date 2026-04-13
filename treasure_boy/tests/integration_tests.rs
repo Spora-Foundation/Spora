@@ -7,11 +7,11 @@ fn test_load_addresses_from_file_success() {
     // Create temporary file
     let mut temp_file = NamedTempFile::new().unwrap();
     let addresses_content = r#"# Test address file
-spora0:qrgqpkue0tzhmqd77tljdhwjc757hc26uestam0gc4kycjx4k8uu603uewc
-spora0:qqmquth4lyayewfl32pj8w9w9dpzqk6c9ngyp4xxmyqusxruhjm0jwhje4w
+spora0:qrgqpkue0tzhmqd77tljdhwjc757hc26uestam0gc4kycjx4k8uu6zn7sl0
+spora0:qqmquth4lyayewfl32pj8w9w9dpzqk6c9ngyp4xxmyqusxruhjm0jr4ssye
 
 # Another address
-spora0:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvp55hu9
+sporadev:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvs63gd8
 "#;
 
     temp_file.write_all(addresses_content.as_bytes()).unwrap();
@@ -21,7 +21,10 @@ spora0:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvp55hu9
     let addresses = load_addresses_from_file(temp_file.path().to_str().unwrap()).unwrap();
 
     assert_eq!(addresses.len(), 3);
-    assert!(addresses.iter().all(|addr| format!("{addr}").starts_with("spora0:")));
+    assert!(addresses.iter().all(|addr| {
+        let formatted = format!("{addr}");
+        formatted.starts_with("spora0:") || formatted.starts_with("sporadev:")
+    }));
 }
 
 #[test]
@@ -29,14 +32,14 @@ fn test_load_addresses_from_file_with_invalid_addresses() {
     // Create temporary file with invalid addresses
     let mut temp_file = NamedTempFile::new().unwrap();
     let addresses_content = r#"# Valid addresses
-spora0:qrgqpkue0tzhmqd77tljdhwjc757hc26uestam0gc4kycjx4k8uu603uewc
+spora0:qrgqpkue0tzhmqd77tljdhwjc757hc26uestam0gc4kycjx4k8uu6zn7sl0
 
 # Invalid addresses
 invalid_address_123
 another_invalid_address
 
 # Another valid address
-spora0:qqmquth4lyayewfl32pj8w9w9dpzqk6c9ngyp4xxmyqusxruhjm0jwhje4w
+spora0:qqmquth4lyayewfl32pj8w9w9dpzqk6c9ngyp4xxmyqusxruhjm0jr4ssye
 "#;
 
     temp_file.write_all(addresses_content.as_bytes()).unwrap();

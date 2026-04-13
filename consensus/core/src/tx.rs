@@ -19,7 +19,7 @@ pub use standard_script::{
 use crate::cell_diff::CellMeta;
 use crate::cell_metadata::CellMetadata;
 use crate::mass::{cell_tx_estimated_serialized_size, ContextualMasses, NonContextualMasses};
-pub use spora_exec::celltx::{CellDep, CellOut, CellRef, CellTx, DepType, OutPoint, ScriptRef};
+pub use spora_exec::celltx::{CellDep, CellOutput, CellInput, CellTx, DepType, OutPoint, Script};
 use spora_exec::vm::VmLimits;
 use spora_utils::mem_size::MemSizeEstimator;
 use std::mem::size_of_val;
@@ -62,11 +62,11 @@ pub fn outpoint_from_id(transaction_id: TransactionId, index: u32) -> Transactio
 pub trait VerifiableTransaction {
     fn tx(&self) -> &CellTx;
 
-    fn inputs(&self) -> &[CellRef] {
+    fn inputs(&self) -> &[CellInput] {
         &self.tx().inputs
     }
 
-    fn outputs(&self) -> &[CellOut] {
+    fn outputs(&self) -> &[CellOutput] {
         &self.tx().outputs
     }
 
@@ -293,7 +293,7 @@ impl<T: CellTxContainer> MutableTransaction<T> {
         assert_eq!(self.entries.len(), self.tx.cell_tx().inputs.len());
         self.entries.iter().zip(self.resolved_cell_metadata.iter()).enumerate().filter_map(|(i, (entry, metadata))| {
             if entry.is_none() && metadata.is_none() {
-                Some(self.tx.cell_tx().inputs[i].out_point)
+                Some(self.tx.cell_tx().inputs[i].previous_output)
             } else {
                 None
             }
@@ -374,24 +374,24 @@ impl<T: CellTxContainer> MutableTransaction<T> {
 
     pub fn has_parent(&self, possible_parent: TransactionId) -> bool {
         let parent_bytes = possible_parent.as_bytes();
-        self.tx.cell_tx().inputs.iter().any(|x| x.out_point.tx_hash == parent_bytes)
+        self.tx.cell_tx().inputs.iter().any(|x| x.previous_output.tx_hash == parent_bytes)
     }
 
     pub fn has_parent_in_set(&self, possible_parents: &std::collections::HashSet<TransactionId>) -> bool {
-        self.tx.cell_tx().inputs.iter().any(|x| possible_parents.contains(&TransactionId::from_bytes(x.out_point.tx_hash)))
+        self.tx.cell_tx().inputs.iter().any(|x| possible_parents.contains(&TransactionId::from_bytes(x.previous_output.tx_hash)))
     }
 }
 
 impl<T: CellTxContainer> MemSizeEstimator for MutableTransaction<T> {
     fn estimate_mem_bytes(&self) -> usize {
         let tx = self.tx.cell_tx();
-        let tx_heap_bytes = tx.inputs.capacity() * std::mem::size_of::<CellRef>()
-            + tx.deps.capacity() * std::mem::size_of::<CellDep>()
+        let tx_heap_bytes = tx.inputs.capacity() * std::mem::size_of::<CellInput>()
+            + tx.cell_deps.capacity() * std::mem::size_of::<CellDep>()
             + tx.header_deps.capacity() * std::mem::size_of::<spora_hashes::Hash>()
             + tx.outputs
                 .iter()
                 .map(|output| {
-                    std::mem::size_of::<CellOut>()
+                    std::mem::size_of::<CellOutput>()
                         + output.lock.args.len()
                         + output.type_.as_ref().map(|script| script.args.len()).unwrap_or_default()
                 })
@@ -456,12 +456,12 @@ pub type SignableTransaction = MutableTransaction<CellTx>;
 mod tests {
     use super::*;
 
-    fn lock_script_from_bytes(script: &[u8]) -> ScriptRef {
+    fn lock_script_from_bytes(script: &[u8]) -> Script {
         let mut hasher = blake3::Hasher::new();
         hasher.update(b"spora-cell/lock");
         hasher.update(&0u16.to_le_bytes());
         hasher.update(script);
-        ScriptRef::new(*hasher.finalize().as_bytes(), 0, script.to_vec())
+        Script::new(*hasher.finalize().as_bytes(), 0, script.to_vec())
     }
 
     fn test_cell_tx() -> CellTx {
@@ -471,7 +471,7 @@ mod tests {
         ];
 
         // Create a CellTx with 2 inputs and 2 outputs
-        let input1 = CellRef::new(
+        let input1 = CellInput::new(
             outpoint_from_id(
                 TransactionId::from_slice(&[
                     0x16, 0x5e, 0x38, 0xe8, 0xb3, 0x91, 0x45, 0x95, 0xd9, 0xc6, 0x41, 0xf3, 0xb8, 0xee, 0xc2, 0xf3, 0x46, 0x11, 0x89,
@@ -481,7 +481,7 @@ mod tests {
             ),
             2, // since value (converted from sequence)
         );
-        let input2 = CellRef::new(
+        let input2 = CellInput::new(
             outpoint_from_id(
                 TransactionId::from_slice(&[
                     0x4b, 0xb0, 0x75, 0x35, 0xdf, 0xd5, 0x8e, 0x0b, 0x3c, 0xd6, 0x4f, 0xd7, 0x15, 0x52, 0x80, 0x87, 0x2a, 0x04, 0x71,
@@ -492,8 +492,8 @@ mod tests {
             4, // since value (converted from sequence)
         );
 
-        let output1 = CellOut { lock: lock_script_from_bytes(&script_bytes), type_: None, capacity: 6 };
-        let output2 = CellOut { lock: lock_script_from_bytes(&script_bytes), type_: None, capacity: 7 };
+        let output1 = CellOutput { lock: lock_script_from_bytes(&script_bytes), type_: None, capacity: 6 };
+        let output2 = CellOutput { lock: lock_script_from_bytes(&script_bytes), type_: None, capacity: 7 };
 
         let witnesses: Vec<Vec<u8>> = vec![
             vec![
@@ -547,7 +547,7 @@ mod tests {
         let cell_tx = test_cell_tx();
         let entries = vec![
             CellMeta {
-                out_point: cell_tx.inputs[0].out_point,
+                out_point: cell_tx.inputs[0].previous_output,
                 capacity: 1000,
                 data_bytes: 0,
                 lock_hash: [1u8; 32],
@@ -557,7 +557,7 @@ mod tests {
                 is_cellbase: false,
             },
             CellMeta {
-                out_point: cell_tx.inputs[1].out_point,
+                out_point: cell_tx.inputs[1].previous_output,
                 capacity: 2000,
                 data_bytes: 0,
                 lock_hash: [2u8; 32],

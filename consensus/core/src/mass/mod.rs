@@ -3,7 +3,7 @@ use crate::{
     cell_metadata::CellMetadata,
     config::params::{Params, MAINNET_PARAMS},
     constants::TRANSIENT_BYTE_TO_MASS_FACTOR,
-    tx::{CellOut, CellTx, ScriptRef, VerifiableTransaction},
+    tx::{CellOutput, CellTx, Script, VerifiableTransaction},
 };
 use spora_exec::vm::VmLimits;
 
@@ -45,19 +45,19 @@ pub fn cell_tx_estimated_serialized_size(tx: &CellTx) -> u64 {
     let mut size: u64 = 0;
     size += 2; // ver (u16)
 
-    // Inputs: each CellRef = outpoint (32+4) + since (8) = 44 bytes
+    // Inputs: each CellInput = outpoint (32+4) + since (8) = 44 bytes
     size += 8; // number of inputs
     size += tx.inputs.len() as u64 * 44;
 
     // Deps: each CellDep = outpoint (32+4) + dep_type (1) = 37 bytes
     size += 8; // number of deps
-    size += tx.deps.len() as u64 * 37;
+    size += tx.cell_deps.len() as u64 * 37;
 
     // Header deps: each is a 32-byte hash
     size += 8; // number of header_deps
     size += tx.header_deps.len() as u64 * 32;
 
-    // Outputs: each CellOut = lock script + optional type script + capacity
+    // Outputs: each CellOutput = lock script + optional type script + capacity
     size += 8; // number of outputs
     for output in &tx.outputs {
         size += 32 + 1 + 8; // lock.code_hash + lock.hash_type + len(lock.args)
@@ -91,7 +91,7 @@ pub fn cell_tx_estimated_serialized_size(tx: &CellTx) -> u64 {
 /// Returns the cell storage plurality for this lock script.
 /// i.e., how many 100-byte "storage units" it occupies.
 /// The choice of 100 bytes per unit ensures that all standard lock scripts have a plurality of 1.
-pub fn cell_plurality(lock_script: &ScriptRef) -> u64 {
+pub fn cell_plurality(lock_script: &Script) -> u64 {
     (CANONICAL_CELL_CONST_STORAGE + lock_script.args.len() as u64).div_ceil(CELL_UNIT_SIZE)
 }
 
@@ -110,11 +110,11 @@ pub fn cell_entry_plurality(entry: &CellMeta) -> u64 {
     canonical_cell_storage_bytes(entry).expect("CellMeta always has embedded cell metadata").div_ceil(CELL_UNIT_SIZE)
 }
 
-pub fn cell_out_storage_bytes(output: &CellOut, data_len: usize) -> u64 {
+pub fn cell_out_storage_bytes(output: &CellOutput, data_len: usize) -> u64 {
     CELL_ENTRY_OVERHEAD_EXCLUDING_OUTPUT_BODY + output.occupied_capacity(data_len)
 }
 
-pub fn cell_out_plurality(output: &CellOut, data_len: usize) -> u64 {
+pub fn cell_out_plurality(output: &CellOutput, data_len: usize) -> u64 {
     cell_out_storage_bytes(output, data_len).div_ceil(CELL_UNIT_SIZE)
 }
 
@@ -123,7 +123,7 @@ pub trait CellPlurality {
     fn plurality(&self) -> u64;
 }
 
-impl CellPlurality for ScriptRef {
+impl CellPlurality for Script {
     fn plurality(&self) -> u64 {
         cell_plurality(self)
     }
@@ -178,8 +178,8 @@ impl From<&CellMetadata> for CellMass {
     }
 }
 
-impl From<(&CellOut, usize)> for CellMass {
-    fn from((output, data_len): (&CellOut, usize)) -> Self {
+impl From<(&CellOutput, usize)> for CellMass {
+    fn from((output, data_len): (&CellOutput, usize)) -> Self {
         Self::new(cell_out_plurality(output, data_len), output.capacity)
     }
 }
@@ -560,13 +560,13 @@ mod tests {
         }
 
         // With canonical cell storage, even an empty script occupies two 100-byte units.
-        assert!(cell_plurality(&ScriptRef::new([0; 32], 0, vec![])) == 2);
+        assert!(cell_plurality(&Script::new([0; 32], 0, vec![])) == 2);
         // Assert the CANONICAL_CELL_CONST_STORAGE=126, CELL_UNIT_SIZE=100 constants.
         assert!(
-            cell_plurality(&ScriptRef::new([0; 32], 0, vec![1; (CELL_UNIT_SIZE * 2 - CANONICAL_CELL_CONST_STORAGE) as usize])) == 2
+            cell_plurality(&Script::new([0; 32], 0, vec![1; (CELL_UNIT_SIZE * 2 - CANONICAL_CELL_CONST_STORAGE) as usize])) == 2
         );
         assert!(
-            cell_plurality(&ScriptRef::new([0; 32], 0, vec![1; (CELL_UNIT_SIZE * 2 - CANONICAL_CELL_CONST_STORAGE + 1) as usize]))
+            cell_plurality(&Script::new([0; 32], 0, vec![1; (CELL_UNIT_SIZE * 2 - CANONICAL_CELL_CONST_STORAGE + 1) as usize]))
                 == 3
         );
     }
@@ -755,7 +755,7 @@ mod tests {
     }
 
     /// Calculate the outputs_data entry length needed to achieve
-    /// a desired plurality (number of 100-byte storage units) for a CellOut.
+    /// a desired plurality (number of 100-byte storage units) for a CellOutput.
     /// cell_out_storage_bytes = CELL_ENTRY_OVERHEAD(45) + occupied_capacity
     /// occupied_capacity = 8 + 33 + data_len = 41 + data_len (standard lock, no type script)
     /// So: cell_out_storage_bytes = 86 + data_len, plurality = ceil((86+data_len)/100)
@@ -839,19 +839,19 @@ mod tests {
 
     fn generate_tx_from_amounts(ins: &[u64], outs: &[u64]) -> MutableTransaction<CellTx> {
         let lock_hash = [0u8; 32];
-        let lock = ScriptRef::new(lock_hash, 0, vec![]);
+        let lock = Script::new(lock_hash, 0, vec![]);
         let prev_tx_id = TransactionId::from_str("880eb9819a31821d9d2399e2f35e2433b72637e393d71ecc9b8d0250f49153c3").unwrap();
 
-        let inputs: Vec<CellRef> = (0..ins.len()).map(|i| CellRef::new(outpoint_from_id(prev_tx_id, i as u32), 0)).collect();
+        let inputs: Vec<CellInput> = (0..ins.len()).map(|i| CellInput::new(outpoint_from_id(prev_tx_id, i as u32), 0)).collect();
 
-        let outputs: Vec<CellOut> =
-            outs.iter().copied().map(|out_amount| CellOut { lock: lock.clone(), type_: None, capacity: out_amount }).collect();
+        let outputs: Vec<CellOutput> =
+            outs.iter().copied().map(|out_amount| CellOutput { lock: lock.clone(), type_: None, capacity: out_amount }).collect();
 
         // Use data_len=15 for each output so cell_out_plurality = ceil((86+15)/100) = 2
         // This matches CellMeta entries which also have plurality 2 (canonical_cell_storage=126)
         let outputs_data: Vec<Vec<u8>> = (0..outs.len()).map(|_| vec![0; 15]).collect();
 
-        let tx = CellTx { ver: 0, inputs, deps: vec![], header_deps: vec![], outputs, outputs_data, witnesses: vec![] };
+        let tx = CellTx { version: 0, inputs, cell_deps: vec![], header_deps: vec![], outputs, outputs_data, witnesses: vec![] };
 
         let entries = ins
             .iter()

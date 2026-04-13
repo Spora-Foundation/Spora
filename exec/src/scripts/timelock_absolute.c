@@ -21,8 +21,8 @@
 // Spora Syscall Definitions
 // ============================================================================
 
-#define LOAD_INPUT_SYSCALL       2073
-#define LOAD_INPUT_BY_FIELD_SYSCALL 2074
+#define LOAD_INPUT_BY_FIELD_SYSCALL 2083
+#define LOAD_SCRIPT_SYSCALL      2075
 
 #define SUCCESS              0
 #define INDEX_OUT_OF_BOUND   1
@@ -34,7 +34,7 @@
 #define SOURCE_GROUP_INPUT   0x0100
 
 // Field types for LOAD_INPUT_BY_FIELD
-#define FIELD_SINCE          0x00
+#define FIELD_SINCE          0x01
 
 // ============================================================================
 // Syscall Wrappers
@@ -79,21 +79,51 @@ static inline int load_input_by_field(
     return syscall(LOAD_INPUT_BY_FIELD_SYSCALL, (uint64_t)buf, (uint64_t)len, offset, index, source, field);
 }
 
+static inline int load_script(
+    uint8_t* buf,
+    uint64_t* len,
+    size_t offset
+) {
+    return syscall(LOAD_SCRIPT_SYSCALL, (uint64_t)buf, (uint64_t)len, offset, 0, 0, 0);
+}
+
 // ============================================================================
 // Time Lock Script Main Logic
 // ============================================================================
 
-// Read target timestamp from script args
-// In a real implementation, this would use LOAD_SCRIPT syscall
-// For this example, we assume the target is passed in a specific way
-// or baked into the script at compile time
+static uint64_t read_u32_le(const uint8_t* buf) {
+    uint64_t value = 0;
+    for (int i = 0; i < 4; i++) {
+        value |= ((uint64_t)buf[i]) << (8 * i);
+    }
+    return value;
+}
 
-// Placeholder: In real implementation, read from script args
-static uint64_t get_target_timestamp() {
-    // TODO: Use LOAD_SCRIPT syscall to read script args
-    // The args would be: [target_timestamp: u64 (8 bytes)]
-    // For now, return a placeholder value
-    return 0; // This should be replaced with actual args reading
+static uint64_t read_u64_le(const uint8_t* buf) {
+    uint64_t value = 0;
+    for (int i = 0; i < 8; i++) {
+        value |= ((uint64_t)buf[i]) << (8 * i);
+    }
+    return value;
+}
+
+// Read target timestamp from script args.
+// Script layout: code_hash(32) || hash_type(1) || args_len(u32 LE) || args
+static int get_target_timestamp(uint64_t* out) {
+    uint8_t script_buf[64];
+    uint64_t script_len = sizeof(script_buf);
+    int ret = load_script(script_buf, &script_len, 0);
+    if (ret != SUCCESS || script_len < 45) {
+        return 1;
+    }
+
+    uint64_t args_len = read_u32_le(script_buf + 33);
+    if (args_len != 8 || (37 + args_len) > script_len) {
+        return 1;
+    }
+
+    *out = read_u64_le(script_buf + 37);
+    return 0;
 }
 
 int main() {
@@ -121,10 +151,7 @@ int main() {
     }
     
     // 2. Parse the since value (little-endian)
-    uint64_t since = 0;
-    for (int i = 0; i < 8; i++) {
-        since |= ((uint64_t)since_buf[i]) << (8 * i);
-    }
+    uint64_t since = read_u64_le(since_buf);
     
     // 3. Extract the value portion (bits 0-55)
     // Bit 63: relative flag
@@ -143,7 +170,10 @@ int main() {
     }
     
     // 4. Get target timestamp from script args
-    uint64_t target_timestamp = get_target_timestamp();
+    uint64_t target_timestamp = 0;
+    if (get_target_timestamp(&target_timestamp) != 0) {
+        return 1;
+    }
     
     // 5. Verify: since_value >= target_timestamp
     if (since_value < target_timestamp) {

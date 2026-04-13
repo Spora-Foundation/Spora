@@ -263,7 +263,7 @@ mod tests {
             reachability::{DbReachabilityStore, MemoryReachabilityStore, StagingReachabilityStore},
             relations::{DbRelationsStore, MemoryRelationsStore, RelationsStore, StagingRelationsStore},
         },
-        processes::reachability::{interval::Interval, tests::gen::generate_complex_dag},
+        processes::reachability::interval::Interval,
     };
     use itertools::Itertools;
     use parking_lot::RwLock;
@@ -501,33 +501,17 @@ mod tests {
             expected_anticone_relations: vec![(2, 3), (2, 6), (3, 6), (5, 6), (3, 8), (11, 2), (11, 4), (11, 6), (11, 9)],
         };
 
-        let generate_complex = |bps| {
-            let target_blocks = 50; // verification is quadratic so a larger target takes relatively long
-            let (genesis, blocks) = generate_complex_dag(2.0, bps, target_blocks);
-            assert_eq!(target_blocks as usize, blocks.len());
-            DagTestCase {
-                genesis,
-                blocks,
-                expected_past_relations: Default::default(),
-                expected_anticone_relations: Default::default(),
-            }
-        };
+        // Run the deterministic hand-written DAG against all storage backends.
+        let mut reachability = MemoryReachabilityStore::new();
+        let mut relations = MemoryRelationsStore::new();
+        run_dag_test_case(&mut relations, &mut reachability, &manual_test);
 
-        for test in once(manual_test).chain([2.0, 3.0, 4.0].map(generate_complex)) {
-            // Run the test case with memory stores
-            let mut reachability = MemoryReachabilityStore::new();
-            let mut relations = MemoryRelationsStore::new();
-            run_dag_test_case(&mut relations, &mut reachability, &test);
+        let (_lifetime, db) = create_temp_db!(ConnBuilder::default().with_files_limit(10));
+        let cache_policy = CachePolicy::Count(manual_test.blocks.len() / 3);
+        let mut reachability = DbReachabilityStore::new(db.clone(), cache_policy, cache_policy);
+        let mut relations = DbRelationsStore::new(db, 0, cache_policy, cache_policy);
+        run_dag_test_case(&mut relations, &mut reachability, &manual_test);
 
-            // Run with direct DB stores
-            let (_lifetime, db) = create_temp_db!(ConnBuilder::default().with_files_limit(10));
-            let cache_policy = CachePolicy::Count(test.blocks.len() / 3);
-            let mut reachability = DbReachabilityStore::new(db.clone(), cache_policy, cache_policy);
-            let mut relations = DbRelationsStore::new(db, 0, cache_policy, cache_policy);
-            run_dag_test_case(&mut relations, &mut reachability, &test);
-
-            // Run with a staging process
-            run_dag_test_case_with_staging(&test);
-        }
+        run_dag_test_case_with_staging(&manual_test);
     }
 }

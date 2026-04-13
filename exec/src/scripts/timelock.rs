@@ -3,7 +3,7 @@
 //
 // Time lock scripts using CKB-VM with `since` syscall
 //
-// This module provides ScriptRef construction helpers for time lock scripts
+// This module provides Script construction helpers for time lock scripts
 // that use the Cell model's `since` field instead of legacy CLTV/CSV opcodes.
 
 //! Time lock script helpers for Cell model
@@ -30,7 +30,7 @@
 //!
 //! See: <https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0017-tx-valid-since/0017-tx-valid-since.md>
 
-use crate::celltx::ScriptRef;
+use crate::celltx::Script;
 
 /// Code hash for the absolute time lock script (timestamp-based)
 ///
@@ -68,6 +68,30 @@ pub const RELATIVE_TIMESTAMP_LOCK_CODE_HASH: [u8; 32] = [
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 ];
 
+/// Reserved code hash for the absolute timestamp + secp256k1 combined lock script.
+pub const COMBINED_ABSOLUTE_TIME_LOCK_CODE_HASH: [u8; 32] = [
+    0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+];
+
+/// Reserved code hash for the relative DAA + secp256k1 combined lock script.
+pub const COMBINED_RELATIVE_TIME_LOCK_CODE_HASH: [u8; 32] = [
+    0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+];
+
+/// Reserved code hash for the absolute DAA + secp256k1 combined lock script.
+pub const COMBINED_ABSOLUTE_DAA_LOCK_CODE_HASH: [u8; 32] = [
+    0x13, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+];
+
+/// Reserved code hash for the relative timestamp + secp256k1 combined lock script.
+pub const COMBINED_RELATIVE_TIMESTAMP_LOCK_CODE_HASH: [u8; 32] = [
+    0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+];
+
 /// Hash type for all time lock scripts
 pub const TIME_LOCK_HASH_TYPE: u8 = 0;
 
@@ -81,7 +105,7 @@ pub mod since_flags {
     pub const VALUE_MASK: u64 = 0x00FF_FFFF_FFFF_FFFF;
 }
 
-/// Create an absolute timestamp lock ScriptRef
+/// Create an absolute timestamp lock Script
 ///
 /// This creates a script that requires the input's `since` field to be >= the
 /// specified Unix timestamp (seconds since epoch).
@@ -97,12 +121,12 @@ pub mod since_flags {
 /// let target = 1735689600u64; // 2025-01-01 00:00:00 UTC
 /// let script = timelock::absolute_timestamp_lock(target);
 /// ```
-pub fn absolute_timestamp_lock(target_timestamp: u64) -> ScriptRef {
+pub fn absolute_timestamp_lock(target_timestamp: u64) -> Script {
     let args = target_timestamp.to_le_bytes().to_vec();
-    ScriptRef::new(ABSOLUTE_TIME_LOCK_CODE_HASH, TIME_LOCK_HASH_TYPE, args)
+    Script::new(ABSOLUTE_TIME_LOCK_CODE_HASH, TIME_LOCK_HASH_TYPE, args)
 }
 
-/// Create a relative DAA score lock ScriptRef
+/// Create a relative DAA score lock Script
 ///
 /// This creates a script that requires the input's `since` field to indicate
 /// a relative lock of at least `delta_daa` blocks from the input's confirmation.
@@ -117,12 +141,12 @@ pub fn absolute_timestamp_lock(target_timestamp: u64) -> ScriptRef {
 /// // Lock for 100 blocks relative to confirmation
 /// let script = timelock::relative_daa_lock(100);
 /// ```
-pub fn relative_daa_lock(delta_daa: u64) -> ScriptRef {
+pub fn relative_daa_lock(delta_daa: u64) -> Script {
     let args = delta_daa.to_le_bytes().to_vec();
-    ScriptRef::new(RELATIVE_TIME_LOCK_CODE_HASH, TIME_LOCK_HASH_TYPE, args)
+    Script::new(RELATIVE_TIME_LOCK_CODE_HASH, TIME_LOCK_HASH_TYPE, args)
 }
 
-/// Create an absolute DAA score lock ScriptRef
+/// Create an absolute DAA score lock Script
 ///
 /// This creates a script that requires the input's `since` field to be >= the
 /// specified absolute DAA score.
@@ -137,12 +161,12 @@ pub fn relative_daa_lock(delta_daa: u64) -> ScriptRef {
 /// // Lock until DAA score 1000000
 /// let script = timelock::absolute_daa_lock(1_000_000);
 /// ```
-pub fn absolute_daa_lock(target_daa: u64) -> ScriptRef {
+pub fn absolute_daa_lock(target_daa: u64) -> Script {
     let args = target_daa.to_le_bytes().to_vec();
-    ScriptRef::new(ABSOLUTE_DAA_LOCK_CODE_HASH, TIME_LOCK_HASH_TYPE, args)
+    Script::new(ABSOLUTE_DAA_LOCK_CODE_HASH, TIME_LOCK_HASH_TYPE, args)
 }
 
-/// Create a relative timestamp lock ScriptRef
+/// Create a relative timestamp lock Script
 ///
 /// This creates a script that requires the input's `since` field to indicate
 /// a relative lock of at least `delta_seconds` from the input's confirmation.
@@ -157,9 +181,9 @@ pub fn absolute_daa_lock(target_daa: u64) -> ScriptRef {
 /// // Lock for 24 hours relative to confirmation
 /// let script = timelock::relative_timestamp_lock(24 * 60 * 60);
 /// ```
-pub fn relative_timestamp_lock(delta_seconds: u64) -> ScriptRef {
+pub fn relative_timestamp_lock(delta_seconds: u64) -> Script {
     let args = delta_seconds.to_le_bytes().to_vec();
-    ScriptRef::new(RELATIVE_TIMESTAMP_LOCK_CODE_HASH, TIME_LOCK_HASH_TYPE, args)
+    Script::new(RELATIVE_TIMESTAMP_LOCK_CODE_HASH, TIME_LOCK_HASH_TYPE, args)
 }
 
 /// Encode a `since` value for absolute timestamp lock
@@ -168,7 +192,7 @@ pub fn relative_timestamp_lock(delta_seconds: u64) -> ScriptRef {
 /// * `timestamp` - Unix timestamp (seconds since epoch)
 ///
 /// # Returns
-/// The encoded `since` value to use in `CellRef::since`
+/// The encoded `since` value to use in `CellInput::since`
 pub fn encode_absolute_timestamp_since(timestamp: u64) -> u64 {
     since_flags::TIMESTAMP | (timestamp & since_flags::VALUE_MASK)
 }
@@ -179,7 +203,7 @@ pub fn encode_absolute_timestamp_since(timestamp: u64) -> u64 {
 /// * `delta` - Number of blocks to wait
 ///
 /// # Returns
-/// The encoded `since` value to use in `CellRef::since`
+/// The encoded `since` value to use in `CellInput::since`
 pub fn encode_relative_daa_since(delta: u64) -> u64 {
     since_flags::RELATIVE | (delta & since_flags::VALUE_MASK)
 }
@@ -190,7 +214,7 @@ pub fn encode_relative_daa_since(delta: u64) -> u64 {
 /// * `daa_score` - Target DAA score
 ///
 /// # Returns
-/// The encoded `since` value to use in `CellRef::since`
+/// The encoded `since` value to use in `CellInput::since`
 pub fn encode_absolute_daa_since(daa_score: u64) -> u64 {
     daa_score & since_flags::VALUE_MASK
 }
@@ -201,7 +225,7 @@ pub fn encode_absolute_daa_since(daa_score: u64) -> u64 {
 /// * `delta_seconds` - Number of seconds to wait
 ///
 /// # Returns
-/// The encoded `since` value to use in `CellRef::since`
+/// The encoded `since` value to use in `CellInput::since`
 pub fn encode_relative_timestamp_since(delta_seconds: u64) -> u64 {
     since_flags::RELATIVE | since_flags::TIMESTAMP | (delta_seconds & since_flags::VALUE_MASK)
 }
@@ -216,7 +240,7 @@ pub fn decode_since(since: u64) -> (bool, bool, u64) {
     (is_relative, is_timestamp, value)
 }
 
-/// Create a combined secp256k1 + time lock ScriptRef
+/// Create a combined secp256k1 + time lock Script
 ///
 /// This creates a script that requires both signature verification AND
 /// time lock verification. The script args contain:
@@ -229,25 +253,24 @@ pub fn decode_since(since: u64) -> (bool, bool, u64) {
 /// * `is_relative` - Whether this is a relative lock
 /// * `is_timestamp` - Whether to use timestamp (vs DAA score)
 ///
-/// # TODO
-/// This is a placeholder. The actual combined script needs to be implemented
-/// as a single RISC-V binary that does both signature verification and
-/// time lock checking.
-pub fn secp256k1_with_timelock(pubkey_hash: [u8; 20], target: u64, is_relative: bool, is_timestamp: bool) -> ScriptRef {
+/// The returned script uses a reserved combined-lock code hash. The actual
+/// RISC-V binary still needs to be deployed under that hash before this helper
+/// is usable in production.
+pub fn secp256k1_with_timelock(pubkey_hash: [u8; 20], target: u64, is_relative: bool, is_timestamp: bool) -> Script {
     // Combined args: pubkey_hash (20 bytes) + target (8 bytes)
     let mut args = Vec::with_capacity(28);
     args.extend_from_slice(&pubkey_hash);
     args.extend_from_slice(&target.to_le_bytes());
 
-    // Choose code hash based on lock type
+    // Choose the reserved combined-lock code hash based on lock type.
     let code_hash = match (is_relative, is_timestamp) {
-        (false, true) => ABSOLUTE_TIME_LOCK_CODE_HASH,     // Absolute timestamp
-        (true, false) => RELATIVE_TIME_LOCK_CODE_HASH,     // Relative DAA
-        (false, false) => ABSOLUTE_DAA_LOCK_CODE_HASH,     // Absolute DAA
-        (true, true) => RELATIVE_TIMESTAMP_LOCK_CODE_HASH, // Relative timestamp
+        (false, true) => COMBINED_ABSOLUTE_TIME_LOCK_CODE_HASH,     // Absolute timestamp
+        (true, false) => COMBINED_RELATIVE_TIME_LOCK_CODE_HASH,     // Relative DAA
+        (false, false) => COMBINED_ABSOLUTE_DAA_LOCK_CODE_HASH,     // Absolute DAA
+        (true, true) => COMBINED_RELATIVE_TIMESTAMP_LOCK_CODE_HASH, // Relative timestamp
     };
 
-    ScriptRef::new(code_hash, TIME_LOCK_HASH_TYPE, args)
+    Script::new(code_hash, TIME_LOCK_HASH_TYPE, args)
 }
 
 #[cfg(test)]
@@ -341,9 +364,17 @@ mod tests {
 
         let script = secp256k1_with_timelock(pubkey_hash, target, false, true);
 
-        assert_eq!(script.code_hash, ABSOLUTE_TIME_LOCK_CODE_HASH);
+        assert_eq!(script.code_hash, COMBINED_ABSOLUTE_TIME_LOCK_CODE_HASH);
         assert_eq!(script.args.len(), 28);
         assert_eq!(&script.args[0..20], &pubkey_hash);
         assert_eq!(&script.args[20..28], &target.to_le_bytes());
+    }
+
+    #[test]
+    fn test_secp256k1_with_timelock_uses_distinct_reserved_hashes() {
+        let script = secp256k1_with_timelock([0xCD; 20], 100, true, false);
+
+        assert_eq!(script.code_hash, COMBINED_RELATIVE_TIME_LOCK_CODE_HASH);
+        assert_ne!(script.code_hash, RELATIVE_TIME_LOCK_CODE_HASH);
     }
 }

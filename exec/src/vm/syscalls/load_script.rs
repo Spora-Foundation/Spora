@@ -5,7 +5,7 @@
 
 use super::utils::{store_data, SUCCESS};
 use super::{LOAD_SCRIPT_HASH_SYSCALL_NUMBER, LOAD_SCRIPT_SYSCALL_NUMBER};
-use crate::celltx::ScriptRef;
+use crate::celltx::Script;
 use ckb_vm::{
     registers::{A0, A7},
     Error as VMError, Register, SupportMachine, Syscalls,
@@ -18,11 +18,11 @@ use std::sync::Arc;
 ///
 /// Loads the current script being executed
 pub struct LoadScript {
-    script: Arc<ScriptRef>,
+    script: Arc<Script>,
 }
 
 impl LoadScript {
-    pub fn new(script: Arc<ScriptRef>) -> Self {
+    pub fn new(script: Arc<Script>) -> Self {
         Self { script }
     }
 
@@ -83,7 +83,7 @@ mod tests {
 
     #[test]
     fn test_load_script_supports_partial_reads() {
-        let script = Arc::new(ScriptRef::new([0xAA; 32], 1, vec![0x10, 0x20, 0x30]));
+        let script = Arc::new(Script::new([0xAA; 32], 1, vec![0x10, 0x20, 0x30]));
         let mut machine = ScriptVersion::V2.init_core_machine(10_000);
         machine.memory_mut().store64(&SIZE_ADDR, &7u64).unwrap();
         machine.set_register(A0, BUFFER_ADDR);
@@ -102,7 +102,7 @@ mod tests {
 
     #[test]
     fn test_load_script_hash_supports_partial_reads() {
-        let script = Arc::new(ScriptRef::new([0xAA; 32], 1, vec![0x10, 0x20, 0x30]));
+        let script = Arc::new(Script::new([0xAA; 32], 1, vec![0x10, 0x20, 0x30]));
         let expected_hash = script.hash();
         let mut machine = ScriptVersion::V2.init_core_machine(10_000);
         machine.memory_mut().store64(&SIZE_ADDR, &6u64).unwrap();

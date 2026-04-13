@@ -125,12 +125,12 @@ impl Header {
     }
 
     #[wasm_bindgen(getter = version)]
-    pub fn get_version(&self) -> u16 {
+    pub fn get_version(&self) -> u32 {
         self.inner().version
     }
 
     #[wasm_bindgen(setter = version)]
-    pub fn set_version(&mut self, version: u16) {
+    pub fn set_version(&mut self, version: u32) {
         self.inner_mut().version = version
     }
 
@@ -310,7 +310,7 @@ impl TryCastFromJs for Header {
 
                 let header = native::Header {
                     hash: object.get_value("hash")?.try_into_owned().unwrap_or_default(),
-                    version: object.get_u16("version")?,
+                    version: object.get_u32("version")?,
                     parents_by_level,
                     hash_merkle_root: object
                         .get_value("hashMerkleRoot")?

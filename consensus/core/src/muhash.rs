@@ -31,7 +31,7 @@ impl MuHashExtensions for MuHash {
                 let entry = tx
                     .cell_entry(index)
                     .expect("MuHash input removal requires either canonical cell metadata or a populated cell entry");
-                write_cell_entry(&mut writer, entry, &input.out_point);
+                write_cell_entry(&mut writer, entry, &input.previous_output);
             }
             writer.finalize();
             let (capacity, is_coinbase, block_daa_score) = if let Some(metadata) = tx.cell_metadata(index) {
@@ -42,7 +42,7 @@ impl MuHashExtensions for MuHash {
             };
             info!(
                 "Removed cell from multiset: tx={:?}, index={}, value={}, is_coinbase={}, block_daa_score={}",
-                input.out_point.tx_hash, input.out_point.index, capacity, is_coinbase, block_daa_score
+                input.previous_output.tx_hash, input.previous_output.index, capacity, is_coinbase, block_daa_score
             );
         }
 

@@ -62,7 +62,7 @@ impl TransactionScorer {
     pub fn compute_score(&self, tx: &CellTx, fee: u64, cycles: u64, blue_score: Option<u64>) -> TransactionScore {
         let fee_density = self.compute_fee_density(tx, fee, cycles);
         let unlockability = self.compute_unlockability(tx);
-        let deps_width = tx.deps.len() as f64;
+        let deps_width = tx.cell_deps.len() as f64;
 
         // Optional: boost by blue score
         let blue_boost = blue_score.map(|s| s as f64 * 0.01).unwrap_or(0.0);
@@ -124,16 +124,16 @@ impl TransactionScorer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use spora_exec::{CellOut, CellRef, OutPoint, ScriptRef};
+    use spora_exec::{CellOutput, CellInput, OutPoint, Script};
 
     fn create_test_tx(num_inputs: usize, num_deps: usize) -> CellTx {
-        let lock = ScriptRef::new([0x00; 32], 0, vec![0; 20]);
-        let inputs = (0..num_inputs).map(|i| CellRef::new(OutPoint::new([i as u8; 32], 0), 0)).collect();
+        let lock = Script::new([0x00; 32], 0, vec![0; 20]);
+        let inputs = (0..num_inputs).map(|i| CellInput::new(OutPoint::new([i as u8; 32], 0), 0)).collect();
         let deps = (0..num_deps)
             .map(|i| spora_exec::CellDep { out_point: OutPoint::new([100 + i as u8; 32], 0), dep_type: spora_exec::DepType::Code })
             .collect();
 
-        CellTx::new(inputs, deps, vec![CellOut { lock, type_: None, capacity: 1000 }], vec![vec![]], vec![vec![0; 65]]).unwrap()
+        CellTx::new(inputs, deps, vec![CellOutput { lock, type_: None, capacity: 1000 }], vec![vec![]], vec![vec![0; 65]]).unwrap()
     }
 
     #[test]

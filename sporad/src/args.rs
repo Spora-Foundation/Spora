@@ -16,6 +16,7 @@ use toml::from_str;
 use spora_addresses::Address;
 #[cfg(feature = "devnet-prealloc")]
 use spora_consensus_core::cell_diff::CellMeta;
+#[cfg(feature = "devnet-prealloc")]
 use spora_consensus_core::tx::{pay_to_address_lock_script, TransactionOutpoint};
 #[cfg(feature = "devnet-prealloc")]
 use std::sync::Arc;
@@ -175,7 +176,7 @@ impl Args {
                 tx_hash[..8].copy_from_slice(&i.to_le_bytes());
                 (
                     TransactionOutpoint::new(tx_hash, 0),
-                    CellEntry::from_cell_metadata(self.prealloc_amount, 0, lock_script.hash(), None, [0; 32], 0, false),
+                    CellMeta::from_cell_metadata(self.prealloc_amount, 0, lock_script.hash(), None, [0; 32], 0, false),
                 )
             })
             .collect()

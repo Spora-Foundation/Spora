@@ -11,7 +11,7 @@ use crate::{
         storage::ConsensusStorage,
     },
     model::{
-        services::reachability::{MTReachabilityService, ReachabilityService},
+        services::reachability::ReachabilityService,
         stores::{
             cell_diffs::CellDiffsStoreReader,
             cell_roots::CellRootsStoreReader,
@@ -20,7 +20,7 @@ use crate::{
             past_pruning_points::PastPruningPointsStoreReader,
             pruning::{PruningStore, PruningStoreReader},
             pruning_samples::PruningSamplesStoreReader,
-            reachability::{DbReachabilityStore, ReachabilityStoreReader, StagingReachabilityStore},
+            reachability::{ReachabilityStoreReader, StagingReachabilityStore},
             relations::StagingRelationsStore,
             selected_chain::{SelectedChainStore, SelectedChainStoreReader},
             statuses::StatusesStoreReader,
@@ -73,7 +73,6 @@ pub struct PruningProcessor {
     storage: Arc<ConsensusStorage>,
 
     // Managers and Services
-    reachability_service: MTReachabilityService<DbReachabilityStore>,
     pruning_point_manager: DbPruningPointManager,
     pruning_proof_manager: Arc<PruningProofManager>,
     parents_manager: DbParentsManager,
@@ -110,7 +109,6 @@ impl PruningProcessor {
             receiver,
             db,
             storage: storage.clone(),
-            reachability_service: services.reachability_service.clone(),
             pruning_point_manager: services.pruning_point_manager.clone(),
             pruning_proof_manager: services.pruning_proof_manager.clone(),
             parents_manager: services.parents_manager.clone(),

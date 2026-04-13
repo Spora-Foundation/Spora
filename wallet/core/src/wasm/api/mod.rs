@@ -32,6 +32,7 @@ declare_wasm_handlers!([
     WalletImport,
     PrvKeyDataEnumerate,
     PrvKeyDataCreate,
+    PrvKeyDataRename,
     PrvKeyDataRemove,
     PrvKeyDataGet,
     AccountsEnumerate,

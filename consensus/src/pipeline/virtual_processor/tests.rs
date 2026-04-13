@@ -5,6 +5,7 @@ use crate::{
         services::reachability::ReachabilityService,
         stores::{block_transactions::BlockTransactionsStoreReader, headers::HeaderStoreReader},
     },
+    test_helpers::{empty_miner_data, test_cell_entry},
 };
 use spora_consensus_core::{
     api::args::{TransactionValidationArgs, TransactionValidationBatchArgs},
@@ -12,7 +13,6 @@ use spora_consensus_core::{
     block::{Block, BlockTemplate, MutableBlock, TemplateBuildMode, TemplateTransactionSelector},
     blockhash,
     blockstatus::BlockStatus,
-    cell_diff::CellMeta,
     coinbase::BlockRewardData,
     coinbase::MinerData,
     config::{params::MAINNET_PARAMS, ConfigBuilder},
@@ -22,7 +22,7 @@ use spora_consensus_core::{
     BlockHashMap, BlockHashSet,
 };
 use spora_core::assert_match;
-use spora_exec::{CellDep, CellOut, CellRef, CellTx, DepType, OutPoint, ScriptRef};
+use spora_exec::{CellDep, CellOutput, CellInput, CellTx, DepType, OutPoint, Script};
 use spora_hashes::Hash;
 use std::{collections::VecDeque, thread::JoinHandle};
 
@@ -166,7 +166,7 @@ impl TestContext {
                     BlockRewardData::new(
                         self.consensus.services.coinbase_manager.calc_block_subsidy(block_daa_score),
                         0,
-                        ScriptRef::new([0; 32], 0, vec![]),
+                        Script::new([0; 32], 0, vec![]),
                     )
                 });
             mergeset_rewards.insert(block_hash, reward_data);
@@ -392,52 +392,31 @@ fn build_spend_tx(previous_outpoint: TransactionOutpoint, value: u64) -> CellTx 
 }
 
 fn build_cell_spend_tx(previous_outpoint: OutPoint, value: u64, since: u64) -> CellTx {
-    let lock = ScriptRef::new([0; 32], 0, vec![]);
+    let lock = Script::new([0; 32], 0, vec![]);
     CellTx::new(
-        vec![CellRef::new(previous_outpoint, since)],
+        vec![CellInput::new(previous_outpoint, since)],
         vec![],
-        vec![CellOut { lock, type_: None, capacity: value }],
+        vec![CellOutput { lock, type_: None, capacity: value }],
         vec![vec![]],
         vec![],
     )
     .unwrap()
 }
 
-fn lock_script_from_bytes(script: Vec<u8>) -> ScriptRef {
+fn lock_script_from_bytes(script: Vec<u8>) -> Script {
     let mut hasher = blake3::Hasher::new();
     hasher.update(b"spora-cell/lock");
     hasher.update(&0u16.to_le_bytes());
     hasher.update(&script);
-    ScriptRef::new(*hasher.finalize().as_bytes(), 0, script)
-}
-
-fn empty_miner_data() -> MinerData {
-    MinerData::new(ScriptRef::new([0; 32], 0, vec![]), vec![])
-}
-
-fn test_cell_entry(capacity: u64, block_daa_score: u64, is_cellbase: bool) -> CellMeta {
-    CellMeta::from_cell_metadata(capacity, 0, [0; 32], None, [0; 32], block_daa_score, is_cellbase)
+    Script::new(*hasher.finalize().as_bytes(), 0, script)
 }
 
 fn build_cell_spend_tx_with_dep(previous_outpoint: OutPoint, dep_outpoint: OutPoint, value: u64) -> CellTx {
-    let lock = ScriptRef::new([0; 32], 0, vec![]);
+    let lock = Script::new([0; 32], 0, vec![]);
     CellTx::new(
-        vec![CellRef::new(previous_outpoint, 0)],
+        vec![CellInput::new(previous_outpoint, 0)],
         vec![CellDep { out_point: dep_outpoint, dep_type: DepType::Code }],
-        vec![CellOut { lock, type_: None, capacity: value }],
-        vec![vec![]],
-        vec![],
-    )
-    .unwrap()
-}
-
-fn build_cell_spend_tx_with_header_dep(previous_outpoint: OutPoint, header_dep: [u8; 32], value: u64) -> CellTx {
-    let lock = ScriptRef::new([0; 32], 0, vec![]);
-    CellTx::new_with_header_deps(
-        vec![CellRef::new(previous_outpoint, 0)],
-        vec![],
-        vec![header_dep],
-        vec![CellOut { lock, type_: None, capacity: value }],
+        vec![CellOutput { lock, type_: None, capacity: value }],
         vec![vec![]],
         vec![],
     )
@@ -674,7 +653,7 @@ async fn rejects_non_cell_mempool_validation_when_vm_enabled() {
     assert_match!(
         consensus.validate_mempool_transaction(&mut mutable_tx, &TransactionValidationArgs::default()),
         Err(TxRuleError::CellValidationFailed(msg))
-            if msg.contains("non-cell mempool submission is disabled when the vm feature is enabled")
+            if msg.contains("missing lock script for resolved cell")
     );
 
     let mut batch = vec![mutable_tx];
@@ -682,7 +661,7 @@ async fn rejects_non_cell_mempool_validation_when_vm_enabled() {
     assert_match!(
         results.as_slice(),
         [Err(TxRuleError::CellValidationFailed(msg))]
-            if msg.contains("non-cell mempool submission is disabled when the vm feature is enabled")
+            if msg.contains("missing lock script for resolved cell")
     );
 
     consensus.shutdown(wait_handles);
@@ -716,7 +695,7 @@ async fn build_block_template_rejects_isolation_invalid_selected_transactions_in
     let wait_handles = consensus.init();
     let miner_data = empty_miner_data();
     let mut invalid_tx = build_cell_spend_tx(OutPoint::new([0xA1; 32], 0), 10_000, 0);
-    invalid_tx.ver = 0;
+    invalid_tx.version = 0;
 
     assert_match!(
         consensus.build_block_template(
@@ -903,7 +882,7 @@ async fn build_block_template_in_infallible_mode_filters_isolation_invalid_trans
     let funding_capacity = funding_coinbase.outputs[0].capacity;
     let valid_tx = build_cell_spend_tx(OutPoint::new(funding_coinbase.id(), 0), funding_capacity - 1_000, 0);
     let mut invalid_tx = build_cell_spend_tx(OutPoint::new([0xA2; 32], 0), 10_000, 0);
-    invalid_tx.ver = 0;
+    invalid_tx.version = 0;
 
     let template = consensus
         .build_block_template(
@@ -1008,7 +987,7 @@ async fn build_block_template_in_infallible_mode_filters_missing_header_deps_whe
 
 #[cfg(feature = "vm")]
 #[tokio::test]
-async fn validates_direct_cell_mempool_transaction_when_vm_enabled() {
+async fn rejects_direct_cell_mempool_transaction_without_resolved_lock_script_when_vm_enabled() {
     let config = ConfigBuilder::new(MAINNET_PARAMS)
         .skip_proof_of_work()
         .edit_consensus_params(|params| {
@@ -1038,15 +1017,47 @@ async fn validates_direct_cell_mempool_transaction_when_vm_enabled() {
     );
     let mut mirror = MutableTransaction::from_cell_tx(cell_tx.clone());
 
+    assert_match!(
+        consensus.validate_mempool_cell_transaction(&mut mirror, &cell_tx, &TransactionValidationArgs::default()),
+        Err(TxRuleError::CellValidationFailed(msg))
+            if msg.contains("missing lock script for resolved cell")
+    );
+
+    consensus.shutdown(wait_handles);
+}
+
+#[cfg(feature = "vm")]
+#[tokio::test]
+async fn validates_direct_cell_mempool_transaction_with_resolved_lock_script_and_inline_code_dep() {
+    let config = ConfigBuilder::new(MAINNET_PARAMS).skip_proof_of_work().build();
+    let consensus = TestConsensus::new(&config);
+    let wait_handles = consensus.init();
+
+    let warmup = consensus
+        .build_block_template(empty_miner_data(), Box::new(OnetimeTxSelector::new(vec![])), TemplateBuildMode::Standard)
+        .unwrap();
+    consensus.validate_and_insert_block(warmup.block.to_immutable()).virtual_state_task.await.unwrap();
+
+    let input_outpoint = OutPoint::new([0x77; 32], 0);
+    let always_success_lock = always_success_lock_script();
+    let cell_tx = CellTx::new(
+        vec![CellInput::new(input_outpoint.clone(), 0)],
+        vec![CellDep { out_point: input_outpoint.clone(), dep_type: DepType::Code }],
+        vec![CellOutput { lock: always_success_lock.clone(), type_: None, capacity: 9_000 }],
+        vec![vec![]],
+        vec![],
+    )
+    .unwrap();
+    let mut resolved_input = always_success_cell_metadata(&input_outpoint, Hash::from_bytes([0x78; 32]));
+    resolved_input.capacity = 10_000;
+    let mut mirror = MutableTransaction::with_resolved_metadata(std::sync::Arc::new(cell_tx.clone()), vec![resolved_input]);
+
     consensus
         .validate_mempool_cell_transaction(&mut mirror, &cell_tx, &TransactionValidationArgs::default())
-        .expect("canonical CellTx mempool validation should succeed when deps/header_deps are complete");
+        .expect("resolved input metadata plus inline code dep should satisfy VM validation");
 
     assert_eq!(mirror.calculated_fee, Some(1_000));
-    assert!(
-        mirror.resolved_cell_metadata[0].is_some(),
-        "resolved input metadata should be backfilled for the mutable transaction view"
-    );
+    assert_eq!(mirror.verified_cycles.unwrap_or(0) > 0, true);
 
     consensus.shutdown(wait_handles);
 }

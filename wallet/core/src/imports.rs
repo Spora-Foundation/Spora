@@ -12,7 +12,7 @@ pub use crate::cell::{CellContext, CellEntryReference, CellProcessor, Maturity, 
 pub use crate::deterministic::*;
 pub use crate::encryption::{Encryptable, EncryptionKind};
 pub use crate::error::Error;
-pub use crate::events::{EventKind, Events, SyncState};
+pub use crate::events::{Events, SyncState};
 pub use crate::factory::{factories, Factory};
 pub use crate::metrics::{MetricsUpdate, MetricsUpdateKind};
 pub use crate::result::Result;
@@ -24,7 +24,6 @@ pub use crate::wallet::*;
 pub use crate::{storage, utils};
 
 pub use ahash::{AHashMap, AHashSet};
-pub use async_channel::Receiver;
 pub use async_std::sync::{
     Mutex as AsyncMutex, MutexGuard as AsyncMutexGuard, RwLock as AsyncRwLock, RwLockReadGuard as AsyncRwLockReadGuard,
 };

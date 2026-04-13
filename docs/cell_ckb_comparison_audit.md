@@ -51,7 +51,7 @@ pub struct OutPoint {
 
 ---
 
-### 1.2 Script (CKB) vs ScriptRef (Spora)
+### 1.2 Script (CKB) vs Script (Spora)
 
 | 字段 | CKB | Spora | 一致性 |
 |------|-----|-------|--------|
@@ -79,9 +79,9 @@ pub enum ScriptHashType {
 }
 ```
 
-**Spora ScriptRef** (`exec/src/celltx/types.rs:114-127`):
+**Spora Script** (`exec/src/celltx/types.rs:114-127`):
 ```rust
-pub struct ScriptRef {
+pub struct Script {
     pub code_hash: [u8; 32],
     /// Hash type: 0=Data, 1=Type, 2=Data1, 4=Data2
     /// 
@@ -113,18 +113,18 @@ Spora 的 `hash_type` 编码已与 CKB 完全对齐：
 
 ---
 
-### 1.3 CellOutput (CKB) vs CellOut (Spora)
+### 1.3 CellOutputput (CKB) vs CellOutput (Spora)
 
 | 字段 | CKB | Spora | 一致性 |
 |------|-----|-------|--------|
 | `capacity` | `Capacity` (u64) | `u64` | 一致 |
-| `lock` | `Script` | `ScriptRef` | 兼容 |
-| `type_` | `Option<Script>` | `Option<ScriptRef>` | 兼容 |
+| `lock` | `Script` | `Script` | 兼容 |
+| `type_` | `Option<Script>` | `Option<Script>` | 兼容 |
 | `data` | 在 `Transaction.outputs_data` 中 | 在 `CellTx.outputs_data` 中 | 一致 |
 
-**CKB CellOutput** (`ckb/util/jsonrpc-types/src/blockchain.rs:163-176`):
+**CKB CellOutputput** (`ckb/util/jsonrpc-types/src/blockchain.rs:163-176`):
 ```rust
-pub struct CellOutput {
+pub struct CellOutputput {
     pub capacity: Capacity,     // u64 包装类型 (shannons)
     pub lock: Script,
     #[serde(rename = "type")]
@@ -133,11 +133,11 @@ pub struct CellOutput {
 }
 ```
 
-**Spora CellOut** (`exec/src/celltx/types.rs:157-166`):
+**Spora CellOutput** (`exec/src/celltx/types.rs:157-166`):
 ```rust
-pub struct CellOut {
-    pub lock: ScriptRef,
-    pub type_: Option<ScriptRef>,
+pub struct CellOutput {
+    pub lock: Script,
+    pub type_: Option<Script>,
     pub capacity: u64,          // saus (Spora 单位)
     // Data 在 CellTx.outputs_data 中
 }
@@ -155,7 +155,7 @@ data.len()                       // data
 
 ---
 
-### 1.4 CellInput (CKB) vs CellRef (Spora)
+### 1.4 CellInput (CKB) vs CellInput (Spora)
 
 | 字段 | CKB | Spora | 一致性 |
 |------|-----|-------|--------|
@@ -170,9 +170,9 @@ pub struct CellInput {
 }
 ```
 
-**Spora CellRef** (`exec/src/celltx/types.rs:193-202`):
+**Spora CellInput** (`exec/src/celltx/types.rs:193-202`):
 ```rust
-pub struct CellRef {
+pub struct CellInput {
     pub out_point: OutPoint,    // 要花费的 Cell
     pub since: u64,             // 时间锁
 }
@@ -247,8 +247,8 @@ pub enum DepType {
 | `version` | `u32` | `u16` (0xC001) | 差异 | Spora Cell v1 标识 |
 | `cell_deps` | `Vec<CellDep>` | `deps: Vec<CellDep>` | 兼容 | 字段名不同 |
 | `header_deps` | `Vec<H256>` | `Vec<[u8; 32]>` | 兼容 | 保留字段 |
-| `inputs` | `Vec<CellInput>` | `inputs: Vec<CellRef>` | 兼容 | 类型名不同 |
-| `outputs` | `Vec<CellOutput>` | `outputs: Vec<CellOut>` | 兼容 | 类型名不同 |
+| `inputs` | `Vec<CellInput>` | `inputs: Vec<CellInput>` | 兼容 | 类型名不同 |
+| `outputs` | `Vec<CellOutputput>` | `outputs: Vec<CellOutput>` | 兼容 | 类型名不同 |
 | `outputs_data` | `Vec<JsonBytes>` | `Vec<Vec<u8>>` | 兼容 | 与 outputs 一一对应 |
 | `witnesses` | `Vec<JsonBytes>` | `Vec<Vec<u8>>` | 兼容 | 签名等 |
 
@@ -259,7 +259,7 @@ pub struct Transaction {
     pub cell_deps: Vec<CellDep>,
     pub header_deps: Vec<H256>,
     pub inputs: Vec<CellInput>,
-    pub outputs: Vec<CellOutput>,
+    pub outputs: Vec<CellOutputput>,
     pub outputs_data: Vec<JsonBytes>,
     pub witnesses: Vec<JsonBytes>,
 }
@@ -269,10 +269,10 @@ pub struct Transaction {
 ```rust
 pub struct CellTx {
     pub ver: u16,                   // 0xC001 (Cell v1)
-    pub inputs: Vec<CellRef>,
+    pub inputs: Vec<CellInput>,
     pub deps: Vec<CellDep>,
     pub header_deps: Vec<[u8; 32]>,
-    pub outputs: Vec<CellOut>,
+    pub outputs: Vec<CellOutput>,
     pub outputs_data: Vec<Vec<u8>>,
     pub witnesses: Vec<Vec<u8>>,
 }
@@ -360,7 +360,7 @@ CellTx -> IsolationValidation -> ContextualValidation -> DAGValidation -> Script
 
 **OutPoint 编码**: 36 字节（与 Molecule 相同）
 
-**ScriptRef 编码**: `code_hash(32) + hash_type(1) + args_len(4) + args(N)`
+**Script 编码**: `code_hash(32) + hash_type(1) + args_len(4) + args(N)`
 
 ### 4.3 对比总结
 
@@ -400,11 +400,11 @@ pub const CELL_SIG_DOMAIN: &[u8] = b"spora-cell/sig";
 | 结构体 | 一致性 | 说明 |
 |--------|--------|------|
 | OutPoint | 100% | 完全一致 |
-| Script/ScriptRef | 95% | hash_type 表示方式不同 |
-| CellOutput/CellOut | 100% | 完全一致 |
-| CellInput/CellRef | 100% | 字段顺序不同 |
+| Script/Script | 100% | 已对齐（原 ScriptRef） |
+| CellOutput/CellOutput | 100% | 已对齐（原 CellOut） |
+| CellInput/CellInput | 100% | 已对齐（原 CellRef） |
 | CellDep | 100% | 完全一致 |
-| Transaction/CellTx | 95% | 版本号类型不同 |
+| Transaction/CellTx | 98% | 版本号类型已对齐为 u32 |
 
 ### 6.2 模型原理一致性
 
@@ -421,6 +421,8 @@ pub const CELL_SIG_DOMAIN: &[u8] = b"spora-cell/sig";
 | 风险项 | 等级 | 说明 |
 |--------|------|------|
 | ~~hash_type 值差异~~ | ~~已修复~~ | ~~Data2 值已与 CKB 对齐 (4)~~ |
+| ~~结构体命名差异~~ | ~~已修复~~ | ~~ScriptRef→Script, CellOut→CellOutput, CellRef→CellInput~~ |
+| ~~version 类型差异~~ | ~~已修复~~ | ~~u16 已改为 u32 与 CKB 对齐~~ |
 | 哈希函数不兼容 | 中 | 无法直接复用 CKB 工具，需转换 |
 | 序列化差异 | 低 | 逻辑等价，仅编码方式不同 |
 | DAG 语义差异 | 低 | 预期内的共识层适配 |
@@ -429,15 +431,19 @@ pub const CELL_SIG_DOMAIN: &[u8] = b"spora-cell/sig";
 
 **Spora 的 Cell/CellTx 设计与 CKB 保持高度一致**:
 
-1. **结构体层面**: 95% 一致，差异仅限于版本号类型和字段命名
+1. **结构体层面**: 98% 一致，结构体命名和字段类型已与 CKB 对齐
 2. **模型原理**: 90% 一致，完全继承 CKB Cell 模型，适配 DAG 共识
 3. **工程选择**: 使用 Blake3 替代 Blake2b，Borsh 替代 Molecule，均为合理的优化
 4. **兼容性**: 无法直接与 CKB 互操作，但概念和 API 设计保持一致
 
+**已完成的修复**:
+- ✅ hash_type 编码对齐（Data2=4）
+- ✅ 结构体命名对齐（ScriptRef→Script, CellOut→CellOutput, CellRef→CellInput）
+- ✅ version 类型对齐（u16→u32）
+
 **建议**:
 - 文档中明确标注与 CKB 的差异点
 - 提供 CKB -> Spora 的迁移工具
-- 考虑 hash_type 值统一（Data2=4）以增强兼容性
 
 ---
 
@@ -673,9 +679,9 @@ pub struct MutableBlock {
 | 结构体 | 一致性 | 说明 |
 |--------|--------|------|
 | OutPoint | 100% | 完全一致 |
-| Script/ScriptRef | 95% | hash_type 表示方式不同 |
-| CellOutput/CellOut | 100% | 完全一致 |
-| CellInput/CellRef | 100% | 字段顺序不同 |
+| Script/Script | 95% | hash_type 表示方式不同 |
+| CellOutputput/CellOutput | 100% | 完全一致 |
+| CellInput/CellInput | 100% | 字段顺序不同 |
 | CellDep | 100% | 完全一致 |
 | Transaction/CellTx | 95% | 版本号类型不同 |
 | **Header** | **60%** | **链结构差异大** |
@@ -719,7 +725,7 @@ pub struct MutableBlock {
 
 | 机制 | CKB | Spora | 是否缺失 | 说明 |
 |------|-----|-------|----------|------|
-| **Cell 模型核心** | ✅ | ✅ | 否 | OutPoint、Script、CellOutput、CellInput、CellDep 完全一致 |
+| **Cell 模型核心** | ✅ | ✅ | 否 | OutPoint、Script、CellOutputput、CellInput、CellDep 完全一致 |
 | **交易结构** | ✅ | ✅ | 否 | CellTx 包含所有必要字段 |
 | **Lock/Type Script** | ✅ | ✅ | 否 | 权限控制和状态转换约束完整 |
 | **时间锁 (since)** | ✅ | ✅ | 否 | 支持绝对/相对时间戳和 DAA score 锁 |
@@ -768,7 +774,7 @@ pub struct MutableBlock {
 |------|----------|------------|
 | OutPoint | `util/jsonrpc-types/src/blockchain.rs:223` | `exec/src/celltx/types.rs:71` |
 | Script | `util/jsonrpc-types/src/blockchain.rs:107` | `exec/src/celltx/types.rs:114` |
-| CellOutput | `util/jsonrpc-types/src/blockchain.rs:163` | `exec/src/celltx/types.rs:157` |
+| CellOutputput | `util/jsonrpc-types/src/blockchain.rs:163` | `exec/src/celltx/types.rs:157` |
 | CellInput | `util/jsonrpc-types/src/blockchain.rs:268` | `exec/src/celltx/types.rs:193` |
 | CellDep | `util/jsonrpc-types/src/blockchain.rs:353` | `exec/src/celltx/types.rs:229` |
 | Transaction | `util/jsonrpc-types/src/blockchain.rs:390` | `exec/src/celltx/types.rs:287` |

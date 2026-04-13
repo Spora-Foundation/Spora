@@ -26,7 +26,8 @@
 // Spora Syscall Definitions
 // ============================================================================
 
-#define LOAD_INPUT_BY_FIELD_SYSCALL 2074
+#define LOAD_INPUT_BY_FIELD_SYSCALL 2083
+#define LOAD_SCRIPT_SYSCALL      2075
 
 #define SUCCESS              0
 
@@ -34,7 +35,7 @@
 #define SOURCE_GROUP_INPUT   0x0100
 
 // Field types for LOAD_INPUT_BY_FIELD
-#define FIELD_SINCE          0x00
+#define FIELD_SINCE          0x01
 
 // ============================================================================
 // Syscall Wrappers
@@ -79,14 +80,50 @@ static inline int load_input_by_field(
     return syscall(LOAD_INPUT_BY_FIELD_SYSCALL, (uint64_t)buf, (uint64_t)len, offset, index, source, field);
 }
 
+static inline int load_script(
+    uint8_t* buf,
+    uint64_t* len,
+    size_t offset
+) {
+    return syscall(LOAD_SCRIPT_SYSCALL, (uint64_t)buf, (uint64_t)len, offset, 0, 0, 0);
+}
+
 // ============================================================================
 // Time Lock Script Main Logic
 // ============================================================================
 
-// Placeholder: In real implementation, read from script args using LOAD_SCRIPT
-static uint64_t get_target_delta() {
-    // TODO: Use LOAD_SCRIPT syscall to read script args
-    // The args would be: [target_delta: u64 (8 bytes)]
+static uint64_t read_u32_le(const uint8_t* buf) {
+    uint64_t value = 0;
+    for (int i = 0; i < 4; i++) {
+        value |= ((uint64_t)buf[i]) << (8 * i);
+    }
+    return value;
+}
+
+static uint64_t read_u64_le(const uint8_t* buf) {
+    uint64_t value = 0;
+    for (int i = 0; i < 8; i++) {
+        value |= ((uint64_t)buf[i]) << (8 * i);
+    }
+    return value;
+}
+
+// Read target delta from script args.
+// Script layout: code_hash(32) || hash_type(1) || args_len(u32 LE) || args
+static int get_target_delta(uint64_t* out) {
+    uint8_t script_buf[64];
+    uint64_t script_len = sizeof(script_buf);
+    int ret = load_script(script_buf, &script_len, 0);
+    if (ret != SUCCESS || script_len < 45) {
+        return 1;
+    }
+
+    uint64_t args_len = read_u32_le(script_buf + 33);
+    if (args_len != 8 || (37 + args_len) > script_len) {
+        return 1;
+    }
+
+    *out = read_u64_le(script_buf + 37);
     return 0;
 }
 
@@ -115,10 +152,7 @@ int main() {
     }
     
     // 2. Parse the since value (little-endian)
-    uint64_t since = 0;
-    for (int i = 0; i < 8; i++) {
-        since |= ((uint64_t)since_buf[i]) << (8 * i);
-    }
+    uint64_t since = read_u64_le(since_buf);
     
     // 3. Check that this is a relative DAA score lock
     // Bit 63 must be 1 (relative)
@@ -134,7 +168,10 @@ int main() {
     uint64_t delta = since & 0x00FFFFFFFFFFFFFF;
     
     // 5. Get target delta from script args
-    uint64_t target_delta = get_target_delta();
+    uint64_t target_delta = 0;
+    if (get_target_delta(&target_delta) != 0) {
+        return 1;
+    }
     
     // 6. Verify: delta >= target_delta
     if (delta < target_delta) {

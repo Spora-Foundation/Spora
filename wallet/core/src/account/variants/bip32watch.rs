@@ -183,8 +183,8 @@ impl Account for Bip32Watch {
     // all addresses in the account (receive + change up to and including the last used index)
     fn account_addresses(&self) -> Result<Vec<Address>> {
         let meta = self.derivation.address_derivation_meta();
-        let receive = meta.receive();
-        let change = meta.change();
+        let receive = meta.receive().saturating_add(1);
+        let change = meta.change().saturating_add(1);
         let mut addresses = self.derivation.receive_address_manager().get_range_with_args(0..receive, false)?;
         let change_addresses = self.derivation.change_address_manager().get_range_with_args(0..change, false)?;
         addresses.extend(change_addresses);
@@ -253,6 +253,8 @@ impl DerivationCapableAccount for Bip32Watch {
 mod tests {
     use super::*;
     use crate::tests::*;
+    use crate::wallet::Wallet;
+    use spora_consensus_core::network::{NetworkId, NetworkType};
 
     #[test]
     fn test_storage_bip32watch() -> Result<()> {
@@ -265,6 +267,28 @@ mod tests {
         for idx in 0..storable_in.xpub_keys.len() {
             assert_eq!(storable_in.xpub_keys[idx], storable_out.xpub_keys[idx]);
         }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn account_addresses_include_current_receive_and_change_addresses() -> Result<()> {
+        let wallet = Arc::new(
+            Wallet::try_with_rpc(None, Wallet::resident_store()?, None)?.with_network_id(NetworkId::new(NetworkType::Mainnet))?,
+        );
+        let account = Bip32Watch::try_new(&wallet, None, vec![make_xpub()].into(), false).await?;
+
+        let receive = account.receive_address()?;
+        let change = account.change_address()?;
+        let addresses = account.account_addresses()?;
+
+        assert_eq!(addresses.len(), 2);
+        assert!(addresses.contains(&receive));
+        assert!(addresses.contains(&change));
+
+        let descriptor = account.descriptor()?;
+        let descriptor_addresses = descriptor.addresses.expect("descriptor should include derived addresses");
+        assert_eq!(descriptor_addresses, addresses);
 
         Ok(())
     }

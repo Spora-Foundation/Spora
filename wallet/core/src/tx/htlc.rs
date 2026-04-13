@@ -32,7 +32,7 @@
 //! ```
 
 use crate::tx::timelock::TimelockConfig;
-use spora_exec::celltx::ScriptRef;
+use spora_exec::celltx::Script;
 use spora_exec::scripts::htlc_code_hash;
 
 /// HTLC lock type
@@ -117,10 +117,10 @@ impl HtlcConfig {
         args
     }
 
-    /// Create a ScriptRef for this HTLC configuration
-    pub fn create_script_ref(&self) -> ScriptRef {
+    /// Create a Script for this HTLC configuration
+    pub fn create_script_ref(&self) -> Script {
         let args = self.build_script_args();
-        ScriptRef::new(htlc_code_hash(), 0, args)
+        Script::new(htlc_code_hash(), 0, args)
     }
 
     /// Encode the since value for spending this HTLC

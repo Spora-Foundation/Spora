@@ -614,6 +614,10 @@ impl AccountStore for LocalStoreInner {
 
 #[async_trait]
 impl AddressBookStore for LocalStoreInner {
+    async fn is_empty(&self) -> Result<bool> {
+        Ok(self.cache.read().unwrap().address_book.is_empty())
+    }
+
     async fn iter(&self) -> Result<StorageStream<Arc<AddressBookEntry>>> {
         Ok(Box::pin(AddressBookEntryStream::new(self.cache.clone())))
     }

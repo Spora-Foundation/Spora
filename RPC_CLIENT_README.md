@@ -161,9 +161,9 @@ The Spora RPC API supports two main communication protocols:
     - `include_accepted_transaction_ids` (bool) - Whether to include accepted transaction IDs
   - Returns: Virtual chain information
 
-- **`resolve_finality_conflict`** - Resolve finality conflict
-  - Parameters: `finality_block_hash` (RpcHash) - Finality block hash
-  - Returns: Empty response or error message
+- **`resolve_finality_conflict`** - Acknowledge the current finality point and clear the recorded conflict state
+  - Parameters: `finality_block_hash` (RpcHash) - Current active finality point hash
+  - Returns: Empty response or an error if the supplied hash does not match the active finality point
 
 - **`get_current_block_color`** - Determine block color by iterating DAG
   - Parameters: `hash` (RpcHash) - Block hash

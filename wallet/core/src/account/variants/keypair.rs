@@ -168,7 +168,7 @@ impl Account for Keypair {
     }
 
     fn descriptor(&self) -> Result<AccountDescriptor> {
-        let addresses = self.receive_address().ok().map(|address| vec![address]);
+        let addresses = self.account_addresses().ok();
         let descriptor = AccountDescriptor::new(
             KEYPAIR_ACCOUNT_KIND.into(),
             *self.id(),
@@ -200,5 +200,33 @@ impl Account for Keypair {
             }
         }
         Ok(private_keys)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tests::make_xpub;
+    use crate::wallet::Wallet;
+    use spora_consensus_core::network::{NetworkId, NetworkType};
+
+    #[tokio::test]
+    async fn keypair_descriptor_exposes_single_address() -> Result<()> {
+        let wallet = Arc::new(
+            Wallet::try_with_rpc(None, Wallet::resident_store()?, None)?.with_network_id(NetworkId::new(NetworkType::Mainnet))?,
+        );
+        let account = Keypair::try_new(&wallet, None, *make_xpub().public_key(), PrvKeyDataId::new(0x1234_5678), false).await?;
+
+        let receive = account.receive_address()?;
+        let change = account.change_address()?;
+        assert_eq!(receive, change);
+
+        let addresses = account.account_addresses()?;
+        assert_eq!(addresses, vec![receive.clone()]);
+
+        let descriptor = account.descriptor()?;
+        assert_eq!(descriptor.addresses, Some(vec![receive]));
+
+        Ok(())
     }
 }

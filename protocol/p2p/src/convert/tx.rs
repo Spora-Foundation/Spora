@@ -3,7 +3,7 @@ use crate::pb as protowire;
 use spora_consensus_core::{
     cell_diff::CellMeta,
     mass::project_cell_tx_mass,
-    tx::{CellOut, CellRef, CellTx, ScriptRef, TransactionId, TransactionOutpoint},
+    tx::{CellOutput, CellInput, CellTx, Script, TransactionId, TransactionOutpoint},
 };
 use spora_hashes::Hash;
 
@@ -29,8 +29,8 @@ impl From<&TransactionOutpoint> for protowire::Outpoint {
     }
 }
 
-impl From<&ScriptRef> for protowire::ScriptRef {
-    fn from(script: &ScriptRef) -> Self {
+impl From<&Script> for protowire::Script {
+    fn from(script: &Script) -> Self {
         Self { code_hash: script.code_hash.to_vec(), hash_type: script.hash_type as u32, args: script.args.clone() }
     }
 }
@@ -55,13 +55,13 @@ impl From<&CellTx> for protowire::TransactionMessage {
     fn from(tx: &CellTx) -> Self {
         let projected_mass = project_cell_tx_mass(tx, None);
         Self {
-            version: tx.ver as u32,
+            version: tx.version as u32,
             inputs: tx
                 .inputs
                 .iter()
                 .enumerate()
                 .map(|(index, input)| protowire::TransactionInput {
-                    previous_outpoint: Some((&input.out_point).into()),
+                    previous_outpoint: Some((&input.previous_output).into()),
                     witness: tx.witnesses.get(index).cloned().unwrap_or_default(),
                     since: input.since,
                 })
@@ -106,10 +106,10 @@ impl TryFrom<protowire::Outpoint> for TransactionOutpoint {
     }
 }
 
-impl TryFrom<protowire::ScriptRef> for ScriptRef {
+impl TryFrom<protowire::Script> for Script {
     type Error = ConversionError;
 
-    fn try_from(value: protowire::ScriptRef) -> Result<Self, Self::Error> {
+    fn try_from(value: protowire::Script) -> Result<Self, Self::Error> {
         Ok(Self::new(value.code_hash.as_slice().try_into()?, value.hash_type.try_into()?, value.args))
     }
 }
@@ -147,10 +147,10 @@ impl TryFrom<protowire::TransactionMessage> for CellTx {
     fn try_from(tx: protowire::TransactionMessage) -> Result<Self, Self::Error> {
         validate_reserved_wire_fields(&tx)?;
 
-        let inputs: Vec<CellRef> = tx
+        let inputs: Vec<CellInput> = tx
             .inputs
             .iter()
-            .map(|input| Ok(CellRef::new(input.previous_outpoint.clone().try_into_ex()?, input.since)))
+            .map(|input| Ok(CellInput::new(input.previous_outpoint.clone().try_into_ex()?, input.since)))
             .collect::<Result<_, Self::Error>>()?;
 
         let mut witnesses: Vec<Vec<u8>> = tx.inputs.into_iter().map(|input| input.witness).collect();
@@ -159,9 +159,9 @@ impl TryFrom<protowire::TransactionMessage> for CellTx {
             .outputs
             .iter()
             .map(|output| {
-                Ok(CellOut {
+                Ok(CellOutput {
                     lock: output.lock_script.clone().try_into_ex()?,
-                    type_: output.type_script.clone().map(ScriptRef::try_from).transpose()?,
+                    type_: output.type_script.clone().map(Script::try_from).transpose()?,
                     capacity: output.value,
                 })
             })
@@ -176,7 +176,7 @@ impl TryFrom<protowire::TransactionMessage> for CellTx {
             }
         }
 
-        Ok(CellTx { ver: tx.version.try_into()?, inputs, deps: vec![], header_deps: vec![], outputs, outputs_data, witnesses })
+        Ok(CellTx { version: tx.version, inputs, cell_deps: vec![], header_deps: vec![], outputs, outputs_data, witnesses })
     }
 }
 
@@ -185,19 +185,19 @@ mod tests {
     use super::*;
     use spora_consensus_core::{
         mass::project_cell_tx_mass,
-        tx::{CellOut, OutPoint, ScriptRef},
+        tx::{CellOutput, OutPoint, Script},
     };
 
-    fn sample_lock_script(seed: u8) -> ScriptRef {
-        ScriptRef::new([seed; 32], 1, vec![seed, seed.wrapping_add(1)])
+    fn sample_lock_script(seed: u8) -> Script {
+        Script::new([seed; 32], 1, vec![seed, seed.wrapping_add(1)])
     }
 
-    fn sample_output(seed: u8) -> CellOut {
-        CellOut { lock: sample_lock_script(seed), type_: None, capacity: 1_000 }
+    fn sample_output(seed: u8) -> CellOutput {
+        CellOutput { lock: sample_lock_script(seed), type_: None, capacity: 1_000 }
     }
 
     fn sample_non_coinbase_tx() -> CellTx {
-        CellTx::new(vec![CellRef::new(OutPoint::new([7; 32], 0), 42)], vec![], vec![sample_output(9)], vec![vec![]], vec![vec![0xaa]])
+        CellTx::new(vec![CellInput::new(OutPoint::new([7; 32], 0), 42)], vec![], vec![sample_output(9)], vec![vec![]], vec![vec![0xaa]])
             .expect("sample tx")
     }
 
@@ -239,11 +239,11 @@ mod tests {
     #[test]
     fn roundtrip_preserves_native_output_fields() {
         let tx = CellTx::new(
-            vec![CellRef::new(OutPoint::new([7; 32], 0), 42)],
+            vec![CellInput::new(OutPoint::new([7; 32], 0), 42)],
             vec![],
-            vec![CellOut {
-                lock: ScriptRef::new([9; 32], 1, vec![0xaa, 0xbb]),
-                type_: Some(ScriptRef::new([4; 32], 2, vec![0xcc])),
+            vec![CellOutput {
+                lock: Script::new([9; 32], 1, vec![0xaa, 0xbb]),
+                type_: Some(Script::new([4; 32], 2, vec![0xcc])),
                 capacity: 1_337,
             }],
             vec![vec![1, 2, 3, 4]],

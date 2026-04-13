@@ -31,6 +31,7 @@ pub fn outpoint_to_hash(outpoint: &spora_consensus_core::tx::TransactionOutpoint
     Hash::from_bytes(*hasher.finalize().as_bytes())
 }
 
+#[allow(dead_code)]
 pub(crate) struct CoinFlip {
     p: f64,
 }
@@ -42,10 +43,12 @@ impl Default for CoinFlip {
 }
 
 impl CoinFlip {
+    #[allow(dead_code)]
     pub(crate) fn new(p: f64) -> Self {
         Self { p }
     }
 
+    #[allow(dead_code)]
     pub fn flip(self) -> bool {
         rand::thread_rng().gen_bool(self.p)
     }

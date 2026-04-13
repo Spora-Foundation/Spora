@@ -4,7 +4,7 @@ use crate::tx::{IPaymentOutputArray, PaymentOutputs};
 use crate::wasm::tx::generator::*;
 use spora_consensus_client::*;
 use spora_consensus_core::cell_diff::CellMeta;
-use spora_consensus_core::tx::{CellRef, CellTx, SignableTransaction};
+use spora_consensus_core::tx::{CellInput, CellTx, SignableTransaction};
 use spora_wallet_macros::declare_typescript_wasm_interface as declare;
 use spora_wasm_core::types::BinaryT;
 use workflow_core::runtime::is_web;
@@ -39,7 +39,7 @@ pub fn create_transaction_js(
         .map(|(sequence, reference)| {
             let cell = &reference.cell;
             total_input_amount += cell.amount();
-            CellRef::new((&cell.outpoint).into(), sequence as u64)
+            CellInput::new((&cell.outpoint).into(), sequence as u64)
         })
         .collect::<Vec<_>>();
 
@@ -51,7 +51,7 @@ pub fn create_transaction_js(
     let inputs_len = inputs.len();
     let outputs = outputs
         .iter()
-        .map(|output| spora_consensus_core::tx::CellOut {
+        .map(|output| spora_consensus_core::tx::CellOutput {
             lock: pay_to_address_lock_script(&output.address),
             type_: None,
             capacity: output.amount,

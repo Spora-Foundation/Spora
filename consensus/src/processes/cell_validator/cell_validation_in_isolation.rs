@@ -9,8 +9,8 @@ use spora_exec::CellTx;
 /// Validate cell transaction format and basic constraints
 pub fn validate_cell_tx_in_isolation(tx: &CellTx, max_cell_data_size: usize) -> Result<(), CellValidationError> {
     // 1. Check version
-    if tx.ver != spora_exec::CELL_TX_VERSION {
-        return Err(CellValidationError::InvalidFormat(format!("Invalid version: 0x{:04X}", tx.ver)));
+    if tx.version != spora_exec::CELL_TX_VERSION {
+        return Err(CellValidationError::InvalidFormat(format!("Invalid version: 0x{:04X}", tx.version)));
     }
 
     // 2. Check inputs not empty (unless cellbase)
@@ -46,14 +46,14 @@ pub fn validate_cell_tx_in_isolation(tx: &CellTx, max_cell_data_size: usize) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use spora_exec::{CellOut, CellRef, OutPoint, ScriptRef};
+    use spora_exec::{CellOutput, CellInput, OutPoint, Script};
 
     fn create_test_tx() -> CellTx {
-        let lock = ScriptRef::new([0x00; 32], 0, vec![0; 20]);
+        let lock = Script::new([0x00; 32], 0, vec![0; 20]);
         CellTx::new(
-            vec![CellRef::new(OutPoint::new([0; 32], 0), 0)],
+            vec![CellInput::new(OutPoint::new([0; 32], 0), 0)],
             vec![],
-            vec![CellOut { lock, type_: None, capacity: 10000 }],
+            vec![CellOutput { lock, type_: None, capacity: 10000 }],
             vec![vec![]],
             vec![],
         )
@@ -68,11 +68,11 @@ mod tests {
 
     #[test]
     fn test_rejects_oversized_output_data() {
-        let lock = ScriptRef::new([0x00; 32], 0, vec![0; 20]);
+        let lock = Script::new([0x00; 32], 0, vec![0; 20]);
         let tx = CellTx::new(
-            vec![CellRef::new(OutPoint::new([0; 32], 0), 0)],
+            vec![CellInput::new(OutPoint::new([0; 32], 0), 0)],
             vec![],
-            vec![CellOut { lock, type_: None, capacity: 600_000 }],
+            vec![CellOutput { lock, type_: None, capacity: 600_000 }],
             vec![vec![0u8; 1024]],
             vec![],
         )

@@ -1,5 +1,4 @@
 use crate::{
-    cell_diff::CellMeta,
     hashing::{
         sighash::{calc_schnorr_signature_hash, SigHashReusedValuesUnsync},
         sighash_type::{SigHashType, SIG_HASH_ALL},
@@ -18,7 +17,7 @@ fn lock_hash_for_script_bytes(script: &[u8]) -> [u8; 32] {
     hasher.update(&0u16.to_le_bytes());
     hasher.update(script);
     let code_hash = *hasher.finalize().as_bytes();
-    crate::tx::ScriptRef::new(code_hash, 0, script.to_vec()).hash()
+    crate::tx::Script::new(code_hash, 0, script.to_vec()).hash()
 }
 
 #[derive(Error, Debug, Clone)]
@@ -234,16 +233,17 @@ pub fn verify(tx: &impl VerifiableTransaction) -> Result<(), Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cell_diff::CellMeta;
     use crate::tx::*;
     use secp256k1::{rand, Secp256k1};
     use spora_addresses::{Address, Prefix};
     use std::str::FromStr;
 
-    fn lock_script_from_pubkey(pubkey: &[u8; 32]) -> ScriptRef {
+    fn lock_script_from_pubkey(pubkey: &[u8; 32]) -> Script {
         pay_to_address_lock_script(&Address::new(Prefix::Testnet, spora_addresses::Version::PubKey, pubkey).unwrap())
     }
 
-    fn cell_entry_from_lock_script(value: u64, lock_script: &ScriptRef, block_daa_score: u64, is_cellbase: bool) -> CellMeta {
+    fn cell_entry_from_lock_script(value: u64, lock_script: &Script, block_daa_score: u64, is_cellbase: bool) -> CellMeta {
         CellMeta {
             out_point: TransactionOutpoint::default(),
             capacity: value,
@@ -271,14 +271,14 @@ mod tests {
         let prev_tx_id = TransactionId::from_str("880eb9819a31821d9d2399e2f35e2433b72637e393d71ecc9b8d0250f49153c3").unwrap();
         let unsigned_tx = CellTx::new(
             vec![
-                CellRef::new(outpoint_from_id(prev_tx_id, 0), 0),
-                CellRef::new(outpoint_from_id(prev_tx_id, 1), 1),
-                CellRef::new(outpoint_from_id(prev_tx_id, 2), 2),
+                CellInput::new(outpoint_from_id(prev_tx_id, 0), 0),
+                CellInput::new(outpoint_from_id(prev_tx_id, 1), 1),
+                CellInput::new(outpoint_from_id(prev_tx_id, 2), 2),
             ],
             vec![],
             vec![
-                CellOut { capacity: 300, lock: lock_script.clone(), type_: None },
-                CellOut { capacity: 300, lock: lock_script.clone(), type_: None },
+                CellOutput { capacity: 300, lock: lock_script.clone(), type_: None },
+                CellOutput { capacity: 300, lock: lock_script.clone(), type_: None },
             ],
             vec![vec![], vec![]],
             vec![vec![], vec![], vec![]],

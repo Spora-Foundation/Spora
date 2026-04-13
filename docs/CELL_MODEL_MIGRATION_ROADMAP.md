@@ -19,7 +19,7 @@
 
 截至 2026-04-13，Spora 的代码主路径已经完成以下迁移：
 
-- 共识、RPC、钱包、P2P、index、mining、notify 主路径都已切到 Cell-native / ScriptRef-native / Address-native
+- 共识、RPC、钱包、P2P、index、mining、notify 主路径都已切到 Cell-native / Script-native / Address-native
 - `ScriptPublicKey`、`SubnetworkId`、`get_subnetwork`、legacy bridge helper 已从主路径删除
 - `wallet` legacy account / compat / gen0 派生子系统已删除
 - `testing/integration` 的 feature 名也已从 `legacy-*` 改为中性命名
@@ -49,7 +49,7 @@
 
 - `consensus/core` 的 legacy tx bridge 已删除
 - placeholder `ScriptPublicKey` 编解码桥已删除
-- `sign`、`sighash`、`mass`、`standard_script` 主路径已改为 canonical Cell / `ScriptRef`
+- `sign`、`sighash`、`mass`、`standard_script` 主路径已改为 canonical Cell / `Script`
 - coinbase / reward / miner data 已切到 canonical lock script
 - `get_virtual_cells` / `get_pruning_point_cells` 已实现
 
@@ -62,7 +62,7 @@
 ### 3.3 Wallet
 
 - `wallet/psst` 已改为纯 Cell 输入输出模型
-- `wallet/core` 的 generator / payment / mass / address query 主链已切到 `CellOut` / `ScriptRef`
+- `wallet/core` 的 generator / payment / mass / address query 主链已切到 `CellOutput` / `Script`
 - legacy account、compat、gen0 派生子系统已删除
 - CLI 不再暴露 legacy account / legacy-data / default_with_legacy_accounts 等入口
 
@@ -151,7 +151,7 @@
 - `MutableTransaction` / `SignableTransaction` / `TransactionOutpoint`
   - 这些类型仍是仓库中广泛使用的内部 wrapper
   - 它们已经不再承载 legacy `Transaction / ScriptPublicKey` 语义
-  - 但它们和 `CellTx` / `CellRef` / exec `OutPoint` 的边界仍可继续压缩
+  - 但它们和 `CellTx` / `CellInput` / exec `OutPoint` 的边界仍可继续压缩
   - 如果继续推进，建议以“transaction wrapper simplification”单独立项，而不是挂在 legacy migration 名下
 
 - 历史说明性注释
@@ -170,7 +170,7 @@
 对这条迁移线，当前可以采用的完成口径是：
 
 - `CellTx` 已成为代码主路径中的规范交易对象
-- `ScriptRef` 已成为代码主路径中的规范脚本对象
+- `Script` 已成为代码主路径中的规范脚本对象
 - RPC / wallet / index / mining / notify 主路径不再依赖 legacy `Transaction` / `ScriptPublicKey`
 - legacy bridge / adapter / compatibility layer 已删除
 - 剩余任务属于文档清理、内部抽象整合和独立重构，而不是主路径迁移

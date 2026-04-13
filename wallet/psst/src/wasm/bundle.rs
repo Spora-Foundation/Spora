@@ -113,7 +113,7 @@ mod tests {
     use crate::psst::PSST as Native;
     use console_log;
     use serde_json::json;
-    use spora_consensus_core::tx::ScriptRef;
+    use spora_consensus_core::tx::Script;
     use wasm_bindgen_test::wasm_bindgen_test;
     use wasm_bindgen_test::*;
     #[wasm_bindgen_test]
@@ -224,6 +224,6 @@ mod tests {
         assert_eq!(inner.inputs.len(), 1);
         let input_01 = inner.inputs.first().expect("first input");
         assert_eq!(input_01.clone().cell_entry.expect("cell entry").amount(), 468928887);
-        assert_eq!(inner.outputs.first().expect("output").lock_script, ScriptRef::new([0; 32], 0, vec![]));
+        assert_eq!(inner.outputs.first().expect("output").lock_script, Script::new([0; 32], 0, vec![]));
     }
 }

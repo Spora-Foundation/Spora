@@ -9,6 +9,7 @@ use std::collections::VecDeque;
 pub(super) struct ReindexOperationContext<'a, T: ReachabilityStore + ?Sized> {
     store: &'a mut T,
     subtree_sizes: BlockHashMap<u64>, // Cache for subtree sizes computed during this operation
+    #[allow(dead_code)]
     depth: u64,
     slack: u64,
 }

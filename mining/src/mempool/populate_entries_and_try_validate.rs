@@ -19,13 +19,13 @@ use spora_mining_errors::mempool::RuleError;
 impl Mempool {
     pub(crate) fn populate_mempool_entries(&self, transaction: &mut MutableTransaction) {
         for (i, input) in transaction.tx.inputs.iter().enumerate() {
-            if let Some(parent) = self.transaction_pool.get(&input.out_point.transaction_id()) {
-                let output_index = input.out_point.index as usize;
+            if let Some(parent) = self.transaction_pool.get(&input.previous_output.transaction_id()) {
+                let output_index = input.previous_output.index as usize;
                 if let Some(cell_tx) = parent.cell_tx() {
                     if let Some(output) = cell_tx.outputs.get(output_index) {
                         let output_data = cell_tx.outputs_data.get(output_index).map(Vec::as_slice).unwrap_or(&[]);
                         transaction.resolved_cell_metadata[i] =
-                            Some(cell_output_to_metadata(input.out_point, output, output_data, UNACCEPTED_DAA_SCORE, false));
+                            Some(cell_output_to_metadata(input.previous_output, output, output_data, UNACCEPTED_DAA_SCORE, false));
                         continue;
                     }
                 }

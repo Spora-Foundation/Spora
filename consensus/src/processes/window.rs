@@ -283,6 +283,7 @@ impl<T: GhostdagStoreReader, U: BlockWindowCacheReader + BlockWindowCacheWriter,
     }
 }
 
+#[allow(dead_code)]
 type DaaStatus = Option<(u64, BlockHashSet)>;
 
 enum SampledBlock {
@@ -301,9 +302,11 @@ pub struct SampledWindowManager<
     genesis_hash: Hash,
     ghostdag_store: Arc<T>,
     headers_store: Arc<V>,
+    #[allow(dead_code)]
     daa_store: Arc<W>,
     block_window_cache_for_difficulty: Arc<U>,
     block_window_cache_for_past_median_time: Arc<U>,
+    #[allow(dead_code)]
     target_time_per_block: u64,
     difficulty_window_size: usize,
     difficulty_sample_rate: u64,
@@ -725,6 +728,7 @@ pub struct DualWindowManager<
     W: DaaStoreReader,
 > {
     ghostdag_store: Arc<T>,
+    #[allow(dead_code)]
     headers_store: Arc<V>,
     full_window_manager: FullWindowManager<T, U, V>,
     sampled_window_manager: SampledWindowManager<T, U, V, W>,

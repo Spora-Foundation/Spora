@@ -202,7 +202,7 @@ pub enum Error {
     #[error("Invalid id: {0}")]
     InvalidKeyDataId(String),
 
-    #[error("Invalid account type (must be one of: bip32|multisig|keypair|bip32watch)")]
+    #[error("Invalid account type (must be one of: bip32|multisig|keypair|bip32watch|watchonly)")]
     InvalidAccountKind,
 
     #[error("Insufficient funds")]
@@ -237,6 +237,12 @@ pub enum Error {
 
     #[error("At least one xpub is required for a bip32-watch account")]
     Bip32WatchXpubRequired,
+
+    #[error("Not allowed on a watch-only account")]
+    WatchOnlyAccount,
+
+    #[error("At least one xpub is required for a watch-only account")]
+    WatchOnlyXpubRequired,
 
     #[error("This feature is not supported by this account type")]
     AccountKindFeature,

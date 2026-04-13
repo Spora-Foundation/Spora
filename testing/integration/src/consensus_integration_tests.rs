@@ -35,8 +35,8 @@ use spora_consensus_core::mining_rules::MiningRules;
 use spora_consensus_core::network::{NetworkId, NetworkType::Mainnet};
 use spora_consensus_core::trusted::{ExternalGhostdagData, TrustedBlock};
 use spora_consensus_core::tx::{
-    outpoint_from_id, pay_to_script_hash_lock_script, push_data_script, CellEntry, CellOut, CellRef, CellTx, MutableTransaction,
-    ScriptCacheCounters, ScriptRef, TransactionOutpoint,
+    outpoint_from_id, pay_to_script_hash_lock_script, push_data_script, CellEntry, CellOutput, CellInput, CellTx, MutableTransaction,
+    ScriptCacheCounters, Script, TransactionOutpoint,
 };
 use spora_consensus_core::{blockhash, hashing, BlockHashMap, BlueWorkType};
 use spora_consensus_notify::root::ConsensusNotificationRoot;
@@ -1306,7 +1306,7 @@ fn rpc_block_to_block(rpc_block: RPCBlock) -> Block {
             .iter()
             .map(|tx| {
                 // Convert RPC transaction to CellTx
-                let inputs: Vec<CellRef> = tx
+                let inputs: Vec<CellInput> = tx
                     .Inputs
                     .iter()
                     .map(|input| {
@@ -1314,13 +1314,13 @@ fn rpc_block_to_block(rpc_block: RPCBlock) -> Block {
                             tx_hash: Hash::from_str(&input.PreviousOutpoint.TransactionID).unwrap().as_bytes(),
                             index: input.PreviousOutpoint.Index,
                         };
-                        CellRef::new(outpoint, input.Sequence)
+                        CellInput::new(outpoint, input.Sequence)
                     })
                     .collect();
-                let outputs: Vec<CellOut> = tx
+                let outputs: Vec<CellOutput> = tx
                     .Outputs
                     .iter()
-                    .map(|output| CellOut { capacity: output.Amount, lock: fixture_lock_script(&output.LockScript), type_: None })
+                    .map(|output| CellOutput { capacity: output.Amount, lock: fixture_lock_script(&output.LockScript), type_: None })
                     .collect();
                 let outputs_data: Vec<Vec<u8>> = outputs.iter().map(|_| vec![]).collect();
                 let witnesses: Vec<Vec<u8>> = tx.Inputs.iter().map(|input| hex_decode(&input.SignatureScript)).collect();
@@ -1330,7 +1330,7 @@ fn rpc_block_to_block(rpc_block: RPCBlock) -> Block {
     )
 }
 
-fn fixture_lock_script(raw_script: &RawLockScriptJson) -> ScriptRef {
+fn fixture_lock_script(raw_script: &RawLockScriptJson) -> Script {
     let script_bytes = hex_decode(&raw_script.Script);
     let code_hash = if script_bytes.len() >= 32 {
         let mut hash = [0u8; 32];
@@ -1339,7 +1339,7 @@ fn fixture_lock_script(raw_script: &RawLockScriptJson) -> ScriptRef {
     } else {
         [0u8; 32]
     };
-    ScriptRef::new(code_hash, raw_script.Version, vec![])
+    Script::new(code_hash, raw_script.Version, vec![])
 }
 
 fn hex_decode(src: &str) -> Vec<u8> {
@@ -1897,9 +1897,9 @@ async fn run_kip10_activation_test() {
     assert_eq!(consensus.get_virtual_daa_score(), index);
 
     // Create transaction that attempts to use the KIP-10 opcode
-    let input = CellRef::new(initial_cell_collection[0].0, 0);
+    let input = CellInput::new(initial_cell_collection[0].0, 0);
     let witness_script = push_data_script(&redeem_script).expect("test redeem script push must be canonical");
-    let output = CellOut { capacity: initial_cell_collection[0].1.capacity() - 5000, lock: lock_script.clone(), type_: None };
+    let output = CellOutput { capacity: initial_cell_collection[0].1.capacity() - 5000, lock: lock_script.clone(), type_: None };
     let tx = CellTx::new(
         vec![input],
         vec![], // cell_deps
@@ -1963,8 +1963,8 @@ async fn payload_test() {
     };
 
     consensus.validate_and_insert_block(funding_block.to_immutable()).virtual_state_task.await.unwrap();
-    let input = CellRef::new(outpoint_from_id(cb_id, 0), 0);
-    let output = CellOut { capacity: cb_amount / 2, lock: ScriptRef::new([0u8; 32], 0, vec![]), type_: None };
+    let input = CellInput::new(outpoint_from_id(cb_id, 0), 0);
+    let output = CellOutput { capacity: cb_amount / 2, lock: Script::new([0u8; 32], 0, vec![]), type_: None };
     let payload = vec![0; (config.params.max_block_mass / TRANSIENT_BYTE_TO_MASS_FACTOR / 2) as usize];
     let mut txx = CellTx::new(
         vec![input],
@@ -2051,10 +2051,10 @@ async fn payload_activation_test() {
 
     // Create transaction with large payload
     let large_payload = vec![0u8; (config.params.max_block_mass / TRANSIENT_BYTE_TO_MASS_FACTOR / 2) as usize];
-    let input = CellRef::new(initial_cell_collection[0].0, 0);
-    let output = CellOut {
+    let input = CellInput::new(initial_cell_collection[0].0, 0);
+    let output = CellOutput {
         capacity: initial_cell_collection[0].1.capacity() - 5000,
-        lock: ScriptRef::new([0u8; 32], 0, vec![OP_TRUE]),
+        lock: Script::new([0u8; 32], 0, vec![OP_TRUE]),
         type_: None,
     };
     let tx_with_payload = CellTx::new(
@@ -2165,10 +2165,10 @@ async fn runtime_sig_op_counting_test() {
     }
 
     // Create transaction spending P2SH with 1 sig op limit
-    let input = CellRef::new(initial_cell_collection[0].0, 0);
-    let output = CellOut {
+    let input = CellInput::new(initial_cell_collection[0].0, 0);
+    let output = CellOutput {
         capacity: initial_cell_collection[0].1.capacity() - 5000,
-        lock: ScriptRef::new([0u8; 32], 0, vec![OP_TRUE]),
+        lock: Script::new([0u8; 32], 0, vec![OP_TRUE]),
         type_: None,
     };
     let mut tx = CellTx::new(

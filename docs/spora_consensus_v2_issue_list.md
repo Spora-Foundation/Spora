@@ -111,11 +111,11 @@ mempool 与 template 已经接入真实主路径，但内部仍有一些历史 h
 
 - 主路径虽然正确，但内部维护成本继续偏高
 
-### V2-P1-02 继续统一 lock-hash / ScriptRef / address 表达
+### V2-P1-02 继续统一 lock-hash / Script / address 表达
 
 **为什么要做**
 
-主路径已经切到 `ScriptRef` / `Address` / lock-hash，但仓库内部仍有一些命名、说明和包装类型可继续收口。
+主路径已经切到 `Script` / `Address` / lock-hash，但仓库内部仍有一些命名、说明和包装类型可继续收口。
 
 **主要代码路径**
 

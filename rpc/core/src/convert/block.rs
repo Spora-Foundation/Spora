@@ -71,16 +71,16 @@ impl TryFrom<RpcRawBlock> for Block {
 #[cfg(test)]
 mod tests {
     use spora_consensus_core::mass::project_cell_tx_mass;
-    use spora_consensus_core::tx::{CellOut, CellRef, CellTx, OutPoint, ScriptRef};
+    use spora_consensus_core::tx::{CellOutput, CellInput, CellTx, OutPoint, Script};
 
     #[test]
     fn rpc_transaction_from_cell_tx_preserves_canonical_output_metadata() {
-        let lock = ScriptRef::new([0x11; 32], 0, vec![0xaa, 0xbb]);
-        let type_script = ScriptRef::new([0x22; 32], 1, vec![0xcc]);
-        let output = CellOut { lock: lock.clone(), type_: Some(type_script.clone()), capacity: 4242 };
+        let lock = Script::new([0x11; 32], 0, vec![0xaa, 0xbb]);
+        let type_script = Script::new([0x22; 32], 1, vec![0xcc]);
+        let output = CellOutput { lock: lock.clone(), type_: Some(type_script.clone()), capacity: 4242 };
         let output_data = vec![1, 2, 3, 4];
         let tx = CellTx::new(
-            vec![CellRef::new(OutPoint::new([0x33; 32], 7), 123)],
+            vec![CellInput::new(OutPoint::new([0x33; 32], 7), 123)],
             vec![],
             vec![output.clone()],
             vec![output_data.clone()],
@@ -90,7 +90,7 @@ mod tests {
 
         let rpc_tx = crate::RpcTransaction::from(&tx);
 
-        assert_eq!(rpc_tx.version, tx.ver);
+        assert_eq!(rpc_tx.version, tx.version);
         assert_eq!(rpc_tx.inputs.len(), 1);
         assert_eq!(rpc_tx.inputs[0].since, 123);
         assert_eq!(rpc_tx.inputs[0].witness, vec![0xde, 0xad, 0xbe, 0xef]);

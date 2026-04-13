@@ -47,7 +47,7 @@ mod outpoint_serde {
 }
 
 /// Cell transaction version: 0xC001
-pub const CELL_TX_VERSION: u16 = 0xC001;
+pub const CELL_TX_VERSION: u32 = 0xC001;
 /// Additional bytes a live-cell state entry needs beyond the raw output body.
 const CELL_ENTRY_OVERHEAD_EXCLUDING_OUTPUT_BODY: u64 = 32 + 4 + 8 + 1;
 /// Static transient-mass factor used before block-context VM cycles are known.
@@ -112,7 +112,7 @@ impl fmt::Display for OutPoint {
 ///
 /// Reference: CKB Script
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
-pub struct ScriptRef {
+pub struct Script {
     /// Script code hash (points to a Cell's data)
     pub code_hash: [u8; 32],
     /// Hash type: 0=Data, 1=Type, 2=Data1, 4=Data2
@@ -127,7 +127,7 @@ pub struct ScriptRef {
     pub args: Vec<u8>,
 }
 
-impl ScriptRef {
+impl Script {
     /// Create a new script reference
     pub fn new(code_hash: [u8; 32], hash_type: u8, args: Vec<u8>) -> Self {
         Self { code_hash, hash_type, args }
@@ -161,17 +161,17 @@ impl ScriptRef {
 ///
 /// Reference: CKB CellOutput
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
-pub struct CellOut {
+pub struct CellOutput {
     /// Lock script: defines who can spend this Cell
-    pub lock: ScriptRef,
+    pub lock: Script,
     /// Type script (optional): defines state transition constraints
-    pub type_: Option<ScriptRef>,
+    pub type_: Option<Script>,
     /// Capacity (saus): amount + storage cost
     pub capacity: u64,
     // ⚠️ NO data field here! Data is in CellTx.outputs_data
 }
 
-impl CellOut {
+impl CellOutput {
     /// Calculate occupied capacity (minimum required)
     pub fn occupied_capacity(&self, data_len: usize) -> u64 {
         let mut size = 8; // capacity field
@@ -197,9 +197,9 @@ impl CellOut {
 ///
 /// Reference: CKB CellInput
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
-pub struct CellRef {
-    /// OutPoint: which Cell to spend
-    pub out_point: OutPoint,
+pub struct CellInput {
+    /// Previous output: which Cell to spend (CKB calls this previous_output)
+    pub previous_output: OutPoint,
     /// Since: time lock (relative/absolute, timestamp/DAA)
     /// Bit 63: 0=absolute, 1=relative
     /// Bit 62: 0=timestamp, 1=DAA score
@@ -207,10 +207,10 @@ pub struct CellRef {
     pub since: u64,
 }
 
-impl CellRef {
+impl CellInput {
     /// Create a new cell reference
-    pub fn new(out_point: OutPoint, since: u64) -> Self {
-        Self { out_point, since }
+    pub fn new(previous_output: OutPoint, since: u64) -> Self {
+        Self { previous_output, since }
     }
 
     /// Check if this is a relative time lock
@@ -293,15 +293,15 @@ pub fn encode_dep_group_data(outpoints: &[OutPoint]) -> Vec<u8> {
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
 pub struct CellTx {
     /// Transaction version: 0xC001 (Cell v1)
-    pub ver: u16,
+    pub version: u32,
     /// Inputs: Cells to spend
-    pub inputs: Vec<CellRef>,
-    /// Dependencies: read-only Cells (e.g., script code)
-    pub deps: Vec<CellDep>,
+    pub inputs: Vec<CellInput>,
+    /// Cell dependencies: read-only Cells (e.g., script code)
+    pub cell_deps: Vec<CellDep>,
     /// Header dependencies available to VM scripts.
     pub header_deps: Vec<[u8; 32]>,
     /// Outputs: new Cells to create
-    pub outputs: Vec<CellOut>,
+    pub outputs: Vec<CellOutput>,
     /// Output data (1:1 with outputs)
     /// Note: CKB separates outputs and data for verification optimization
     pub outputs_data: Vec<Vec<u8>>,
@@ -312,28 +312,28 @@ pub struct CellTx {
 impl CellTx {
     /// Create a new Cell transaction
     pub fn new(
-        inputs: Vec<CellRef>,
-        deps: Vec<CellDep>,
-        outputs: Vec<CellOut>,
+        inputs: Vec<CellInput>,
+        cell_deps: Vec<CellDep>,
+        outputs: Vec<CellOutput>,
         outputs_data: Vec<Vec<u8>>,
         witnesses: Vec<Vec<u8>>,
     ) -> Result<Self, &'static str> {
-        Self::new_with_header_deps(inputs, deps, vec![], outputs, outputs_data, witnesses)
+        Self::new_with_header_deps(inputs, cell_deps, vec![], outputs, outputs_data, witnesses)
     }
 
     /// Create a new Cell transaction with explicit header dependencies.
     pub fn new_with_header_deps(
-        inputs: Vec<CellRef>,
-        deps: Vec<CellDep>,
+        inputs: Vec<CellInput>,
+        cell_deps: Vec<CellDep>,
         header_deps: Vec<[u8; 32]>,
-        outputs: Vec<CellOut>,
+        outputs: Vec<CellOutput>,
         outputs_data: Vec<Vec<u8>>,
         witnesses: Vec<Vec<u8>>,
     ) -> Result<Self, &'static str> {
         if outputs.len() != outputs_data.len() {
             return Err("outputs and outputs_data length mismatch");
         }
-        Ok(Self { ver: CELL_TX_VERSION, inputs, deps, header_deps, outputs, outputs_data, witnesses })
+        Ok(Self { version: CELL_TX_VERSION, inputs, cell_deps, header_deps, outputs, outputs_data, witnesses })
     }
 
     /// Get transaction ID (same as compute_txid)
@@ -346,8 +346,8 @@ impl CellTx {
     /// Get transaction version
     ///
     /// This is for compatibility with Transaction interface
-    pub fn version(&self) -> u16 {
-        self.ver
+    pub fn version(&self) -> u32 {
+        self.version
     }
 
     /// Check if this is a cellbase (coinbase) transaction
@@ -377,7 +377,7 @@ impl CellTx {
 
     fn execution_surface_bytes(&self) -> u64 {
         let witness_bytes = self.witnesses.iter().map(|witness| witness.len() as u64).sum::<u64>();
-        let dep_bytes = self.deps.len() as u64 * 37;
+        let dep_bytes = self.cell_deps.len() as u64 * 37;
         let header_dep_bytes = self.header_deps.len() as u64 * 32;
         let output_data_bytes = self.outputs_data.iter().map(|data| data.len() as u64).sum::<u64>();
         let type_script_arg_bytes =
@@ -430,7 +430,7 @@ impl CellTx {
         // Simplified estimation
         let mut size = 2; // ver
         size += 4 + self.inputs.len() * 40; // inputs
-        size += 4 + self.deps.len() * 37; // deps
+        size += 4 + self.cell_deps.len() * 37; // cell_deps
         size += 4 + self.header_deps.len() * 32; // header deps
         size += 4 + self
             .outputs
@@ -464,7 +464,7 @@ impl CellTx {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CellMeta {
     /// Cell output structure
-    pub cell_output: CellOut,
+    pub cell_output: CellOutput,
     /// OutPoint
     pub out_point: OutPoint,
     /// DAG transaction info
@@ -566,15 +566,15 @@ mod tests {
 
     #[test]
     fn test_script_hash() {
-        let script = ScriptRef::new([0x11; 32], 1, vec![0xAA, 0xBB]);
+        let script = Script::new([0x11; 32], 1, vec![0xAA, 0xBB]);
         let hash = script.hash();
         assert_eq!(hash.len(), 32);
     }
 
     #[test]
     fn test_cell_out_capacity() {
-        let lock = ScriptRef::new([0x00; 32], 0, vec![0; 20]);
-        let cell = CellOut { lock, type_: None, capacity: 1000 };
+        let lock = Script::new([0x00; 32], 0, vec![0; 20]);
+        let cell = CellOutput { lock, type_: None, capacity: 1000 };
         let occupied = cell.occupied_capacity(100);
         assert!(occupied > 0);
         assert!(cell.verify_capacity(100).is_ok());
@@ -582,7 +582,7 @@ mod tests {
 
     #[test]
     fn test_time_lock_flags() {
-        let relative_daa_lock = CellRef::new(
+        let relative_daa_lock = CellInput::new(
             OutPoint::new([0; 32], 0),
             0xC000_0000_0000_0064, // relative + DAA + value=100
         );
@@ -593,25 +593,25 @@ mod tests {
 
     #[test]
     fn test_celltx_creation() {
-        let inputs = vec![CellRef::new(OutPoint::new([0; 32], 0), 0)];
+        let inputs = vec![CellInput::new(OutPoint::new([0; 32], 0), 0)];
         let deps = vec![];
-        let lock = ScriptRef::new([0x00; 32], 0, vec![]);
-        let outputs = vec![CellOut { lock, type_: None, capacity: 1000 }];
+        let lock = Script::new([0x00; 32], 0, vec![]);
+        let outputs = vec![CellOutput { lock, type_: None, capacity: 1000 }];
         let outputs_data = vec![vec![]];
         let witnesses = vec![vec![0; 65]];
 
         let tx = CellTx::new(inputs, deps, outputs, outputs_data, witnesses);
         assert!(tx.is_ok());
         let tx = tx.unwrap();
-        assert_eq!(tx.ver, CELL_TX_VERSION);
+        assert_eq!(tx.version, CELL_TX_VERSION);
     }
 
     #[test]
     fn test_celltx_compute_and_storage_mass_are_distinct() {
-        let inputs = vec![CellRef::new(OutPoint::new([0; 32], 0), 0)];
+        let inputs = vec![CellInput::new(OutPoint::new([0; 32], 0), 0)];
         let deps = vec![];
-        let lock = ScriptRef::new([0x10; 32], 1, vec![1; 20]);
-        let outputs = vec![CellOut { lock, type_: None, capacity: 10_000 }];
+        let lock = Script::new([0x10; 32], 1, vec![1; 20]);
+        let outputs = vec![CellOutput { lock, type_: None, capacity: 10_000 }];
         let outputs_data = vec![vec![7; 128]];
         let witnesses = vec![vec![0; 65]];
 

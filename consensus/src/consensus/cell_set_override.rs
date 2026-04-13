@@ -25,17 +25,17 @@ mod cell_set_override_inner {
     /// Helper: Convert TransactionOutpoint to Hash for tree indexing
     fn outpoint_to_hash(outpoint: &TransactionOutpoint) -> Hash {
         use blake3::Hasher;
-        
+
         let mut hasher = Hasher::new();
         hasher.update(b"spora-cell/outpoint"); // Domain separation
-        hasher.update(&outpoint.transaction_id.as_bytes());
+        hasher.update(&outpoint.tx_hash);
         hasher.update(&outpoint.index.to_le_bytes());
-        
+
         Hash::from_bytes(*hasher.finalize().as_bytes())
     }
 
     fn exec_outpoint(outpoint: &TransactionOutpoint) -> OutPoint {
-        OutPoint::new(*outpoint.transaction_id.as_bytes(), outpoint.index)
+        OutPoint::new(outpoint.tx_hash, outpoint.index)
     }
 
     /// Compute cell_commitment v0 from cell_root
@@ -77,8 +77,7 @@ mod cell_set_override_inner {
         
         // Calculate cell_root (MuHash root of all cells)
         let cell_root = genesis_tree.root();
-        config.params.genesis.cell_root = cell_root;
-        
+
         // Calculate cell_commitment (v0: H(domain || cell_root))
         config.params.genesis.cell_commitment = compute_cell_commitment_v0(cell_root);
         

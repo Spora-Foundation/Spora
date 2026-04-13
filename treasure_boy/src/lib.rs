@@ -22,7 +22,7 @@ use spora_consensus_core::{
     cell_diff::CellMeta,
     constants::SAU_PER_SPORA,
     sign::sign,
-    tx::{CellOut, CellRef, CellTx, MutableTransaction, TransactionOutpoint},
+    tx::{CellOutput, CellInput, CellTx, MutableTransaction, TransactionOutpoint},
 };
 // Note: TransactionOutpoint and MutableTransaction are internal abstractions, not Kaspa legacy types.
 // They are used for transaction construction and signing workflows.
@@ -522,10 +522,10 @@ pub fn generate_tx(
     spora_addr: &Address,
 ) -> CellTx {
     let lock_script = pay_to_address_lock_script(spora_addr);
-    let inputs = cells.iter().map(|(op, _)| CellRef::new(*op, 0)).collect_vec();
+    let inputs = cells.iter().map(|(op, _)| CellInput::new(*op, 0)).collect_vec();
 
     let outputs =
-        (0..num_outs).map(|_| CellOut { lock: lock_script.clone(), type_: None, capacity: send_amount / num_outs }).collect_vec();
+        (0..num_outs).map(|_| CellOutput { lock: lock_script.clone(), type_: None, capacity: send_amount / num_outs }).collect_vec();
     let unsigned_tx = CellTx::new(inputs, vec![], outputs, vec![vec![]; num_outs as usize], vec![vec![]; cells.len()])
         .expect("treasure_boy generated transaction must be Cell-constructible");
     let signed_tx =
@@ -539,12 +539,12 @@ pub fn generate_multi_output_tx(
     send_amount: u64,
     target_addresses: &[&Address],
 ) -> CellTx {
-    let inputs = cells.iter().map(|(op, _)| CellRef::new(*op, 0)).collect_vec();
+    let inputs = cells.iter().map(|(op, _)| CellInput::new(*op, 0)).collect_vec();
 
     // Create an output for each target address
     let outputs = target_addresses
         .iter()
-        .map(|addr| CellOut {
+        .map(|addr| CellOutput {
             lock: pay_to_address_lock_script(addr),
             type_: None,
             capacity: send_amount / target_addresses.len() as u64,
@@ -979,7 +979,7 @@ mod tests {
         let xpub = secret_key.x_only_public_key(&SECP256K1).0;
         assert_eq!(format!("{xpub}"), "757815720a73acd5a162c32a398b8ffdec534a4ced4445dc33032150d04ff976");
         let addr = Address::new(Prefix::Devnet, ADDRESS_VERSION, &xpub.serialize()).expect("Valid address");
-        assert_eq!(format!("{addr}"), "sporadev:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvw88ne6");
+        assert_eq!(format!("{addr}"), "sporadev:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvs63gd8");
     }
 
     #[test]

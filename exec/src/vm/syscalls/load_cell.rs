@@ -6,7 +6,7 @@
 
 use super::utils::{store_data, INDEX_OUT_OF_BOUND, ITEM_MISSING, SUCCESS};
 use super::{CellField, Source, LOAD_CELL_BY_FIELD_SYSCALL_NUMBER, LOAD_CELL_SYSCALL_NUMBER};
-use crate::celltx::{CellTx, ScriptRef};
+use crate::celltx::{CellTx, Script};
 use crate::vm::{CellDataProvider, ResolvedCell};
 use ckb_vm::{
     registers::{A0, A3, A4, A5, A7},
@@ -35,7 +35,7 @@ impl<D: CellDataProvider> LoadCell<D> {
         match Source::parse(source)? {
             Source::Input => {
                 let input = self.tx.inputs.get(index)?;
-                self.provider.load_cell_by_outpoint(&input.out_point.tx_hash, input.out_point.index)
+                self.provider.load_cell_by_outpoint(&input.previous_output.tx_hash, input.previous_output.index)
             }
             Source::Output => self
                 .tx
@@ -44,13 +44,13 @@ impl<D: CellDataProvider> LoadCell<D> {
                 .cloned()
                 .map(|cell_output| ResolvedCell { cell_output, data: self.tx.outputs_data.get(index).cloned() }),
             Source::CellDep => {
-                let dep = self.tx.deps.get(index)?;
+                let dep = self.tx.cell_deps.get(index)?;
                 self.provider.load_cell_by_outpoint(&dep.out_point.tx_hash, dep.out_point.index)
             }
             Source::GroupInput => {
                 let input_index = *self.group_input_indices.get(index)?;
                 let input = self.tx.inputs.get(input_index)?;
-                self.provider.load_cell_by_outpoint(&input.out_point.tx_hash, input.out_point.index)
+                self.provider.load_cell_by_outpoint(&input.previous_output.tx_hash, input.previous_output.index)
             }
             Source::GroupOutput => {
                 let output_index = *self.group_output_indices.get(index)?;
@@ -89,7 +89,7 @@ impl<D: CellDataProvider> LoadCell<D> {
         }
     }
 
-    fn serialize_script(&self, script: &ScriptRef) -> Vec<u8> {
+    fn serialize_script(&self, script: &Script) -> Vec<u8> {
         let mut data = Vec::new();
         data.extend_from_slice(&script.code_hash);
         data.push(script.hash_type);
@@ -142,7 +142,7 @@ impl<D: CellDataProvider, M: SupportMachine> Syscalls<M> for LoadCell<D> {
             }
         } else {
             // LOAD_CELL (full cell data)
-            borsh::to_vec(&cell.cell_output).map_err(|e| VMError::Unexpected(format!("Failed to serialize CellOut: {e}")))?
+            borsh::to_vec(&cell.cell_output).map_err(|e| VMError::Unexpected(format!("Failed to serialize CellOutput: {e}")))?
         };
 
         // Store data using CKB-style store_data
@@ -156,7 +156,7 @@ impl<D: CellDataProvider, M: SupportMachine> Syscalls<M> for LoadCell<D> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::celltx::{CellDep, CellOut, CellRef, DepType, OutPoint};
+    use crate::celltx::{CellDep, CellOutput, CellInput, DepType, OutPoint};
     use crate::vm::{ResolvedCell, ScriptVersion, SimpleDataProvider};
     use ckb_vm::{
         registers::{A1, A2},
@@ -171,11 +171,11 @@ mod tests {
         let input_out_point = OutPoint::new([7u8; 32], 0);
         let dep_out_point = OutPoint::new([8u8; 32], 1);
         let tx = Arc::new(CellTx {
-            ver: 0xC001,
-            inputs: vec![CellRef::new(input_out_point.clone(), 0)],
-            deps: vec![CellDep { out_point: dep_out_point.clone(), dep_type: DepType::Code }],
+            version: 0xC001,
+            inputs: vec![CellInput::new(input_out_point.clone(), 0)],
+            cell_deps: vec![CellDep { out_point: dep_out_point.clone(), dep_type: DepType::Code }],
             header_deps: vec![],
-            outputs: vec![CellOut { capacity: 1000, lock: ScriptRef::new([1u8; 32], 0, vec![]), type_: None }],
+            outputs: vec![CellOutput { capacity: 1000, lock: Script::new([1u8; 32], 0, vec![]), type_: None }],
             outputs_data: vec![vec![0xAA; 10]],
             witnesses: vec![],
         });
@@ -190,11 +190,11 @@ mod tests {
         let input_out_point = OutPoint::new([7u8; 32], 0);
         let dep_out_point = OutPoint::new([8u8; 32], 1);
         let tx = Arc::new(CellTx {
-            ver: 0xC001,
-            inputs: vec![CellRef::new(input_out_point.clone(), 0)],
-            deps: vec![CellDep { out_point: dep_out_point.clone(), dep_type: DepType::Code }],
+            version: 0xC001,
+            inputs: vec![CellInput::new(input_out_point.clone(), 0)],
+            cell_deps: vec![CellDep { out_point: dep_out_point.clone(), dep_type: DepType::Code }],
             header_deps: vec![],
-            outputs: vec![CellOut { capacity: 1000, lock: ScriptRef::new([1u8; 32], 0, vec![]), type_: None }],
+            outputs: vec![CellOutput { capacity: 1000, lock: Script::new([1u8; 32], 0, vec![]), type_: None }],
             outputs_data: vec![vec![0xAA; 10]],
             witnesses: vec![],
         });
@@ -203,7 +203,7 @@ mod tests {
             input_out_point.tx_hash,
             input_out_point.index,
             ResolvedCell {
-                cell_output: CellOut { capacity: 2000, lock: ScriptRef::new([2u8; 32], 0, vec![0x11]), type_: None },
+                cell_output: CellOutput { capacity: 2000, lock: Script::new([2u8; 32], 0, vec![0x11]), type_: None },
                 data: Some(vec![0x10, 0x20]),
             },
         );
@@ -211,7 +211,7 @@ mod tests {
             dep_out_point.tx_hash,
             dep_out_point.index,
             ResolvedCell {
-                cell_output: CellOut { capacity: 3000, lock: ScriptRef::new([3u8; 32], 0, vec![0x22]), type_: None },
+                cell_output: CellOutput { capacity: 3000, lock: Script::new([3u8; 32], 0, vec![0x22]), type_: None },
                 data: Some(vec![0x30, 0x40, 0x50]),
             },
         );
@@ -228,9 +228,9 @@ mod tests {
     fn test_load_cell_by_field_supports_partial_reads() {
         let input_out_point = OutPoint::new([7u8; 32], 0);
         let tx = Arc::new(CellTx {
-            ver: 0xC001,
-            inputs: vec![CellRef::new(input_out_point.clone(), 0)],
-            deps: vec![],
+            version: 0xC001,
+            inputs: vec![CellInput::new(input_out_point.clone(), 0)],
+            cell_deps: vec![],
             header_deps: vec![],
             outputs: vec![],
             outputs_data: vec![],
@@ -241,7 +241,7 @@ mod tests {
             input_out_point.tx_hash,
             input_out_point.index,
             ResolvedCell {
-                cell_output: CellOut { capacity: 0x1122_3344_5566_7788, lock: ScriptRef::new([2u8; 32], 0, vec![]), type_: None },
+                cell_output: CellOutput { capacity: 0x1122_3344_5566_7788, lock: Script::new([2u8; 32], 0, vec![]), type_: None },
                 data: Some(vec![]),
             },
         );
@@ -269,9 +269,9 @@ mod tests {
     fn test_load_cell_by_field_rejects_unknown_field() {
         let input_out_point = OutPoint::new([7u8; 32], 0);
         let tx = Arc::new(CellTx {
-            ver: 0xC001,
-            inputs: vec![CellRef::new(input_out_point.clone(), 0)],
-            deps: vec![],
+            version: 0xC001,
+            inputs: vec![CellInput::new(input_out_point.clone(), 0)],
+            cell_deps: vec![],
             header_deps: vec![],
             outputs: vec![],
             outputs_data: vec![],
@@ -282,7 +282,7 @@ mod tests {
             input_out_point.tx_hash,
             input_out_point.index,
             ResolvedCell {
-                cell_output: CellOut { capacity: 1, lock: ScriptRef::new([2u8; 32], 0, vec![]), type_: None },
+                cell_output: CellOutput { capacity: 1, lock: Script::new([2u8; 32], 0, vec![]), type_: None },
                 data: Some(vec![]),
             },
         );

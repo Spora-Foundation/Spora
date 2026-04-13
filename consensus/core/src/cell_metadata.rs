@@ -3,7 +3,7 @@
 //
 // Complete Cell metadata for validation and querying (GHOSTDAG-aware)
 
-use crate::{cell_diff::CellMeta, tx::ScriptRef};
+use crate::{cell_diff::CellMeta, tx::Script};
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 use spora_hashes::Hash;
@@ -56,9 +56,9 @@ pub struct CellMetadata {
     /// Type script code hash (for VM execution)
     pub type_code_hash: Option<[u8; 32]>,
     /// Full lock script when available from the current data source.
-    pub lock_script: Option<ScriptRef>,
+    pub lock_script: Option<Script>,
     /// Full type script when available from the current data source.
-    pub type_script: Option<ScriptRef>,
+    pub type_script: Option<Script>,
     /// Cell data (loaded on-demand, can be large)
     pub data: Option<Vec<u8>>,
 }

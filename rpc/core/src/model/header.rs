@@ -9,7 +9,7 @@ use workflow_serializer::prelude::*;
 #[derive(Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RpcRawHeader {
-    pub version: u16,
+    pub version: u32,
     pub parents_by_level: Vec<Vec<Hash>>,
     pub hash_merkle_root: Hash,
     pub accepted_id_merkle_root: Hash,
@@ -31,7 +31,7 @@ pub struct RpcRawHeader {
 pub struct RpcHeader {
     /// Cached hash
     pub hash: Hash,
-    pub version: u16,
+    pub version: u32,
     pub parents_by_level: Vec<Vec<Hash>>,
     pub hash_merkle_root: Hash,
     pub accepted_id_merkle_root: Hash,
@@ -154,10 +154,10 @@ impl From<&RpcHeader> for Header {
 
 impl Serializer for RpcHeader {
     fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
-        store!(u16, &3, writer)?;
+        store!(u16, &4, writer)?;
 
         store!(Hash, &self.hash, writer)?;
-        store!(u16, &self.version, writer)?;
+        store!(u32, &self.version, writer)?;
         store!(Vec<Vec<Hash>>, &self.parents_by_level, writer)?;
         store!(Hash, &self.hash_merkle_root, writer)?;
         store!(Hash, &self.accepted_id_merkle_root, writer)?;
@@ -179,15 +179,15 @@ impl Serializer for RpcHeader {
 impl Deserializer for RpcHeader {
     fn deserialize<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
         let payload_version = load!(u16, reader)?;
-        if payload_version != 3 {
+        if payload_version != 4 {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
-                format!("unsupported RpcHeader version {payload_version}, expected 3"),
+                format!("unsupported RpcHeader version {payload_version}, expected 4"),
             ));
         }
 
         let hash = load!(Hash, reader)?;
-        let version = load!(u16, reader)?;
+        let version = load!(u32, reader)?;
         let parents_by_level = load!(Vec<Vec<Hash>>, reader)?;
         let hash_merkle_root = load!(Hash, reader)?;
         let accepted_id_merkle_root = load!(Hash, reader)?;
@@ -308,9 +308,9 @@ impl From<Header> for RpcRawHeader {
 
 impl Serializer for RpcRawHeader {
     fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
-        store!(u16, &3, writer)?;
+        store!(u16, &4, writer)?;
 
-        store!(u16, &self.version, writer)?;
+        store!(u32, &self.version, writer)?;
         store!(Vec<Vec<Hash>>, &self.parents_by_level, writer)?;
         store!(Hash, &self.hash_merkle_root, writer)?;
         store!(Hash, &self.accepted_id_merkle_root, writer)?;
@@ -332,14 +332,14 @@ impl Serializer for RpcRawHeader {
 impl Deserializer for RpcRawHeader {
     fn deserialize<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
         let payload_version = load!(u16, reader)?;
-        if payload_version != 3 {
+        if payload_version != 4 {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
-                format!("unsupported RpcRawHeader version {payload_version}, expected 3"),
+                format!("unsupported RpcRawHeader version {payload_version}, expected 4"),
             ));
         }
 
-        let version = load!(u16, reader)?;
+        let version = load!(u32, reader)?;
         let parents_by_level = load!(Vec<Vec<Hash>>, reader)?;
         let hash_merkle_root = load!(Hash, reader)?;
         let accepted_id_merkle_root = load!(Hash, reader)?;

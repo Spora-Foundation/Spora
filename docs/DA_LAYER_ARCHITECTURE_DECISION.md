@@ -287,104 +287,158 @@ impl SegmentWriter {
 
 ---
 
-## 4. 当前实现状态
+## 4. 当前代码状态与工程判断
 
-### 4.1 已实现
+### 4.1 当前状态
 
 | 组件 | 状态 | 说明 |
 |------|------|------|
-| `cell_root` | ✅ 已集成 | 共识层完整实现，用于状态承诺 |
-| `cell_commitment` | ✅ 已集成 | V0版本已实现，用于共识校验 |
-| `Segment存储` | ⚠️ 框架存在 | `SegmentWriter`/`SegmentReader`实现但未启用 |
-| `segment_root` | ❌ 未实现 | 设计预留，未进区块头 |
+| `cell_root` | ✅ 已集成 | 共识层 live cell 状态承诺已闭环 |
+| `cell_commitment` | ✅ 已集成 | V0 包装器已具备协议意义 |
+| `SegmentWriter` / `SegmentReader` | ✅ 已接入索引链路 | `indexes/cellindex` 已可将 payload 写入 segment 并按需回填 |
+| `segment_root` | ❌ 未进入区块头 | 目前不参与共识承诺 |
+| NMT | ❌ 设计目标，未完整实现 | 当前更接近通用 Merkle chunk commitment，而非 namespaced DA commitment |
 
-### 4.2 架构断层
+### 4.2 当前实现的真实分层
 
-当前实现的**问题**是数据分离未彻底执行：
+当前仓库已经不是“所有 Cell data 都直接塞进 RocksDB”，但也还没有达到“严格单一权威源 + 轻量索引”的成熟形态。
 
 ```
-设计目标：
-┌─────────────────────────────────────────┐
-│  RocksDB（索引层）                        │
-│  - cell_output（元数据）                   │
-│  - segment_info（指针: segment_id/offset/len）│
-└─────────────────────────────────────────┘
-                    ↓ 指针
-┌─────────────────────────────────────────┐
-│  Segment文件（DA层）                      │
-│  - cell_data（实际大数据）                 │
-│  - NMT承诺                               │
-└─────────────────────────────────────────┘
+当前共存的三层：
 
-当前实现：
-┌─────────────────────────────────────────┐
-│  RocksDB（索引层）                        │
-│  - cell_output（元数据）                   │
-│  - cell_data: Vec<u8>  ← ❌ 大数据直接存DB  │
-│  - segment_info（未使用）                  │
-└─────────────────────────────────────────┘
+┌──────────────────────────────────────────┐
+│  共识层 stores（权威协议数据）             │
+│  - cell_diffs_store                      │
+│  - cell_roots_store                      │
+│  - virtual_state                         │
+│  - cell_data_store (outpoint -> pointer) │
+└──────────────────────────────────────────┘
                     ↓
-┌─────────────────────────────────────────┐
-│  Segment文件（DA层）                      │
-│  - 存在但孤立，未被共识层使用               │
-└─────────────────────────────────────────┘
+┌──────────────────────────────────────────┐
+│  查询索引层（面向 wallet / RPC）           │
+│  - CellDB live set                       │
+│  - spent / spend_journal                 │
+│  - ScriptIndex                           │
+└──────────────────────────────────────────┘
+                    ↓
+┌──────────────────────────────────────────┐
+│  Segment 文件层（大 payload）              │
+│  - append-only segment files             │
+│  - chunk index / segment meta            │
+└──────────────────────────────────────────┘
 ```
 
-### 4.3 问题清单
+这个结构的优点是职责边界已经初步分开；缺点是**同一类事实被多个层次分别落盘**，导致磁盘、写入、重建路径都偏重。
 
-| 问题 | 严重程度 | 位置 |
+### 4.3 存储负担判断
+
+结论不是“容量一定爆炸”，而是：
+
+- **静态磁盘容量**：在 payload 主要落到 segment 文件的前提下，可控
+- **写放大**：当前偏高，是比纯容量更早会暴露的问题
+- **元数据重复存储**：当前明显存在，会让长期负担持续线性上升
+- **热门脚本索引更新成本**：当前设计下会随单 key 规模恶化
+
+### 4.4 当前实现的主要风险
+
+| 风险 | 严重程度 | 原因 |
 |------|----------|------|
-| Segment存储未被共识层使用 | 🔴 高 | `state/src/store/`孤立存在 |
-| Cell data直接存RocksDB | 🔴 高 | `cell_db.rs: CellMeta.cell_data` |
-| 区块头缺少`segment_root` | 🟡 中 | `consensus/core/src/header.rs` |
-| NMT实现为简化版 | 🟡 中 | `proof.rs: MerkleTreeBuilder` |
+| Segment 写入过重 | 🔴 高 | 每次 append 都同步刷盘，并重写 chunk 索引，吞吐和写放大会很难看 |
+| 索引层重复落盘 | 🔴 高 | 共识层已有状态/差分，索引层又保存 live + spent + journal 副本 |
+| `ScriptIndex` 单 key 膨胀 | 🔴 高 | `script_hash -> Vec/Set<OutPoint>` 会导致整值读改写 |
+| spend history 无保留边界 | 🟡 中 | 若不做 pruning / retention，已花费 cell 历史将持续累积 |
+| `segment_root` 与当前实现脱节 | 🟡 中 | 文档写 NMT/DA，但代码尚未形成完整协议闭环 |
+
+### 4.5 必须明确的工程口径
+
+后续设计应明确以下口径，否则实现会继续发散：
+
+1. **谁是权威历史源**
+   - 共识层负责协议真相
+   - 查询索引层负责可重建的二级索引
+   - 不能让两层都长期承担“完整历史权威”
+
+2. **谁存 payload**
+   - 大 payload 只能在 segment 文件层
+   - RocksDB 只保存足够查询和验证的紧凑元数据与指针
+
+3. **谁提供历史查询**
+   - 若提供 index/debug 历史接口，必须声明其 retention 边界
+   - 不应默认无限保留完整 spend journal
+
+4. **谁为轻客户端负责**
+   - 轻客户端 DA 保证属于 `segment_root` + DA protocol 阶段
+   - 在此之前，segment 只是一种 payload 落盘与取回机制，不应被文档描述成“已完成的 DA 层”
 
 ---
 
-## 5. 分阶段实现规划
+## 5. 修正后的设计原则
 
-### 5.1 阶段1：当前（共识闭环）
+### 5.1 原则一：协议承诺与查询索引严格分离
 
-**目标**：确保共识层状态机完整
+- `cell_root` / `cell_commitment` 属于协议承诺
+- `CellDB` / `ScriptIndex` 属于查询优化
+- 查询索引可以重建、裁剪、延迟回填
+- 协议承诺不能依赖查询索引中的冗余副本
 
-**已实现**：
-- `cell_root` + `cell_commitment` 已集成
-- GhostDAG + Cell状态转移已闭环
+### 5.2 原则二：大数据只进 Segment，不进 RocksDB value
 
-**标注**：
-```rust
-// 在文档和代码中明确标注
-/// segment_root: 预留字段，待轻客户端阶段实现
-pub segment_root: Hash, // TODO: DA层第二阶段启用
-```
+允许进入 RocksDB 的内容应限制为：
 
-### 5.2 阶段2：数据分离（性能优化）
+- `capacity`
+- `lock_hash`
+- `type_hash`
+- `data_hash`
+- `data_length`
+- `block anchor`
+- `SegmentInfo`
 
-**目标**：执行"大数据不进DB"原则
+不应长期进入 RocksDB 的内容：
 
-**任务**：
-1. 修改`CellMeta`存储逻辑：
-   - 大Cell data → Segment文件
-   - CellDB只存`SegmentInfo`指针
-2. 共识层调用`SegmentWriter`：
-   - 在Cell创建时写入Segment
-   - 在Cell花费时保留引用
+- 完整 `cell_data`
+- 可从 segment 重建的 payload 副本
 
-**注意**：此阶段仍不需要`segment_root`进区块头
+### 5.3 原则三：二级索引必须是“增量友好”的
 
-### 5.3 阶段3：轻客户端支持（DA完整）
+`script_hash -> full set` 的 value 聚合模型，在热门 lock/type 下更新成本会越来越高。  
+更稳妥的工程方向应是：
 
-**目标**：支持不存储完整数据的轻客户端
+- 使用复合 key，如 `(script_hash, outpoint)` 或 `(script_hash, daa, outpoint)`
+- 避免“读整个集合 -> 修改 -> 回写整个集合”
+- 让 compaction 和热点 key 行为更稳定
 
-**任务**：
-1. 区块头添加`segment_root`
-2. 实现完整NMT承诺计算
-3. 实现P2P DA抽样协议
-4. 轻客户端DA验证支持
+### 5.4 原则四：历史能力必须带 retention 策略
+
+`spend_journal` 如果用于：
+
+- reorg 支持
+- 调试
+- index-only 历史查询
+
+则必须与以下边界绑定：
+
+- pruning depth
+- finality depth
+- archival mode
+
+默认节点不应无限保留完整历史副本。
+
+### 5.5 原则五：DA 协议能力与本地落盘能力分阶段交付
+
+应明确区分两个层次：
+
+- **阶段 A：本地 payload 分层存储**
+  - 目标是降低 RocksDB 压力
+  - 不等于轻客户端可验证的 DA
+
+- **阶段 B：协议级 DA 承诺**
+  - 需要 `segment_root`
+  - 需要真实 NMT/namespace 语义
+  - 需要抽样与网络分发协议
 
 ---
 
-## 6. 修正后的架构关系
+## 6. 推荐目标架构
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -425,26 +479,99 @@ pub segment_root: Hash, // TODO: DA层第二阶段启用
 
 ---
 
-## 7. 结论
+## 7. 分阶段落地规划
+
+### 7.1 阶段1：收敛当前实现的写放大
+
+目标：先解决“能跑但写入过重”的问题。
+
+任务：
+
+1. `SegmentWriter` 改为批量 flush / seal 时持久化，而非每个 cell `fsync`
+2. chunk 索引改为 append-only 或 seal 时一次性生成，避免每次全量重写
+3. 明确 segment 未 seal 前的恢复语义
+
+交付后效果：
+
+- 降低磁盘写放大
+- 提升导入吞吐
+- 不改变现有协议承诺
+
+### 7.2 阶段2：压缩索引层职责
+
+目标：让索引层变成“可重建查询层”，而非第二套历史数据库。
+
+任务：
+
+1. `CellDB` 只保存 live query 所需最小元数据
+2. `spend_journal` 默认改为有保留窗口
+3. 明确 archival mode 与 normal mode 的差异
+4. `ScriptIndex` 改成复合 key 结构，移除大 value 聚合更新
+
+交付后效果：
+
+- 降低长期磁盘负担
+- 降低热门地址/热门脚本下的写入成本
+- 让重建路径更清晰
+
+### 7.3 阶段3：统一权威数据源
+
+目标：减少共识层与索引层重复记录同一事实。
+
+任务：
+
+1. 明确 block-level `cell_diff` 与 query history 的边界
+2. 决定历史查询由：
+   - `cell_diff` 回放提供，或
+   - 单独 archival journal 提供
+3. 避免 live set、spent set、diff store 三者无限叠加成多份长期权威副本
+
+交付后效果：
+
+- 状态语义更清楚
+- 重建逻辑更一致
+- 文档与代码不再出现“谁才是真实历史源”的歧义
+
+### 7.4 阶段4：协议级 DA 完整化
+
+目标：从“分层存储”升级为“可验证 DA”。
+
+任务：
+
+1. 区块头引入 `segment_root`
+2. 把当前 chunk commitment 升级为真实 NMT / namespace commitment
+3. 定义 segment 发布、抽样、证明、缺失惩罚或失败语义
+4. 为轻客户端补齐验证路径
+
+交付后效果：
+
+- `segment_root` 具备协议意义
+- 轻客户端可验证大数据可用性
+- 文档中的 DA 叙述与实现一致
+
+---
+
+## 8. 结论
 
 | 问题 | 答案 |
 |------|------|
 | 三者是否重合？ | ❌ **不重合**，职责分离清晰 |
 | `cell_commitment`是否多余？ | ❌ **不多余**，版本化抽象必要 |
 | `segment_root`是否必要？ | ✅ **长期必要**，短期可选 |
-| 当前实现问题？ | ⚠️ **数据分离未执行**，Cell大数据应走DA层 |
-| 是否需要精简？ | ✅ 当前可只用`cell_root`，未来需要`segment_root` |
+| 当前实现问题？ | ⚠️ **不是方向错，而是工程负担偏重** |
+| 现在最该做什么？ | ✅ **先降写放大，再压缩重复索引职责** |
+| 是否需要精简？ | ✅ 当前以 `cell_root` + `cell_commitment` 为主，`segment_root` 留待 DA 阶段完成 |
 
 **最终建议**：
 
 1. **保留三者设计**：职责清晰，不重合
-2. **修复数据分离**：Cell大数据应存Segment，RocksDB只存指针
-3. **当前阶段**：区块头只需`cell_root` + `cell_commitment`
-4. **轻客户端阶段**：添加`segment_root`，启用完整DA层
+2. **收敛工程实现**：先把 segment 写放大和索引层重复落盘降下来
+3. **当前阶段**：区块头只承诺 `cell_root` + `cell_commitment`
+4. **DA阶段**：待真实 NMT 与轻客户端协议完成后，再引入 `segment_root`
 
 ---
 
-## 8. 参考
+## 9. 参考
 
 - [spora.md - DA层设计](/Users/arthur/RustroverProjects/Spora/spora.md#7-存储da-规范)
 - [spora_consensus_architecture_v2.md - 承诺设计](/Users/arthur/RustroverProjects/Spora/docs/spora_consensus_architecture_v2.md#65-承诺阶段)

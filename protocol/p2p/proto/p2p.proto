@@ -40,7 +40,7 @@ message Outpoint{
 message TransactionId{
   bytes bytes = 1;
 }
-message ScriptRef {
+message Script {
   bytes codeHash = 1;
   uint32 hashType = 2;
   bytes args = 3;
@@ -48,8 +48,8 @@ message ScriptRef {
 
 message TransactionOutput{
   uint64 value = 1;
-  ScriptRef lockScript = 2;
-  ScriptRef typeScript = 3;
+  Script lockScript = 2;
+  Script typeScript = 3;
   bytes outputData = 4;
 }
 

@@ -338,7 +338,7 @@ impl ConsensusFactory for Factory {
             self.management_store.write().save_new_active_consensus(entry).unwrap();
         }
 
-        (ConsensusInstance::new(session_lock, consensus.clone()), Arc::new(Ctl::new(self.management_store.clone(), db, consensus)))
+        (ConsensusInstance::new(session_lock, consensus.clone()), Arc::new(Ctl::new(self.management_store.clone(), consensus)))
     }
 
     fn new_staging_consensus(&self) -> (ConsensusInstance, DynConsensusCtl) {
@@ -365,7 +365,7 @@ impl ConsensusFactory for Factory {
             self.mining_rules.clone(),
         ));
 
-        (ConsensusInstance::new(session_lock, consensus.clone()), Arc::new(Ctl::new(self.management_store.clone(), db, consensus)))
+        (ConsensusInstance::new(session_lock, consensus.clone()), Arc::new(Ctl::new(self.management_store.clone(), consensus)))
     }
 
     fn close(&self) {

@@ -146,7 +146,7 @@ impl InputField {
     }
 }
 
-/// Header field selector (for future LoadHeader implementation)
+/// Header field selector
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HeaderField {
     /// DAA score
@@ -155,8 +155,30 @@ pub enum HeaderField {
     Timestamp = 1,
     /// Block hash
     Hash = 2,
-    /// Parent hashes
+    /// Direct parent hashes
     Parents = 3,
+    /// Header version
+    Version = 4,
+    /// Compact difficulty bits
+    Bits = 5,
+    /// Mining nonce
+    Nonce = 6,
+    /// Transaction hash merkle root
+    HashMerkleRoot = 7,
+    /// Accepted transaction ID merkle root
+    AcceptedIdMerkleRoot = 8,
+    /// Execution state commitment
+    CellCommitment = 9,
+    /// Cell state root
+    CellRoot = 10,
+    /// Data-availability segment root
+    SegmentRoot = 11,
+    /// Blue score
+    BlueScore = 12,
+    /// Accumulated blue work
+    BlueWork = 13,
+    /// Pruning-point hash
+    PruningPoint = 14,
 }
 
 impl HeaderField {
@@ -167,6 +189,17 @@ impl HeaderField {
             1 => Some(Self::Timestamp),
             2 => Some(Self::Hash),
             3 => Some(Self::Parents),
+            4 => Some(Self::Version),
+            5 => Some(Self::Bits),
+            6 => Some(Self::Nonce),
+            7 => Some(Self::HashMerkleRoot),
+            8 => Some(Self::AcceptedIdMerkleRoot),
+            9 => Some(Self::CellCommitment),
+            10 => Some(Self::CellRoot),
+            11 => Some(Self::SegmentRoot),
+            12 => Some(Self::BlueScore),
+            13 => Some(Self::BlueWork),
+            14 => Some(Self::PruningPoint),
             _ => None,
         }
     }

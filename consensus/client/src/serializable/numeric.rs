@@ -112,12 +112,12 @@ pub struct SerializableTransactionInput {
 }
 
 impl SerializableTransactionInput {
-    /// Create from a Cell-model CellRef input with its witness data.
-    pub fn from_cell_ref(input: &cctx::CellRef, witness: &[u8], cell_entry: &CellMeta) -> Self {
+    /// Create from a Cell-model CellInput input with its witness data.
+    pub fn from_cell_ref(input: &cctx::CellInput, witness: &[u8], cell_entry: &CellMeta) -> Self {
         let cell_entry = SerializableCellEntry::from(cell_entry);
         Self {
-            transaction_id: TransactionId::from_slice(&input.out_point.tx_hash),
-            index: input.out_point.index,
+            transaction_id: TransactionId::from_slice(&input.previous_output.tx_hash),
+            index: input.previous_output.index,
             witness: witness.to_vec(),
             since: input.since,
             cell_entry,
@@ -184,16 +184,16 @@ impl TryFrom<&TransactionInput> for SerializableTransactionInput {
 #[serde(rename_all = "camelCase")]
 pub struct SerializableTransactionOutput {
     pub capacity: u64,
-    pub lock_script: cctx::ScriptRef,
+    pub lock_script: cctx::Script,
     #[serde(default)]
-    pub type_script: Option<cctx::ScriptRef>,
+    pub type_script: Option<cctx::Script>,
     #[serde(with = "spora_utils::serde_bytes_optional")]
     #[serde(default)]
     pub output_data: Option<Vec<u8>>,
 }
 
 impl SerializableTransactionOutput {
-    fn from_cell_output(output: &cctx::CellOut, output_data: Option<&[u8]>) -> Self {
+    fn from_cell_output(output: &cctx::CellOutput, output_data: Option<&[u8]>) -> Self {
         Self {
             capacity: output.capacity,
             lock_script: output.lock.clone(),
@@ -233,7 +233,7 @@ impl TryFrom<&TransactionOutput> for SerializableTransactionOutput {
 pub struct SerializableTransaction {
     // pub version: u32,
     pub id: TransactionId,
-    pub version: u16,
+    pub version: u32,
     pub inputs: Vec<SerializableTransactionInput>,
     pub outputs: Vec<SerializableTransactionOutput>,
     #[serde(default)]
@@ -315,17 +315,17 @@ mod tests {
     use spora_consensus_core::{
         cell_metadata::CellMetadata,
         mass::project_verifiable_transaction_mass,
-        tx::{CellOut, CellRef, CellTx, ScriptRef, TransactionOutpoint},
+        tx::{CellOutput, CellInput, CellTx, Script, TransactionOutpoint},
     };
     use spora_hashes::Hash;
 
     #[test]
     fn metadata_only_signable_transaction_returns_explicit_error() {
-        let input = CellRef::new(
+        let input = CellInput::new(
             TransactionOutpoint::new(Hash::from_bytes([1; 32]).as_bytes(), 0),
             0, // since
         );
-        let output = CellOut { capacity: 100, lock: ScriptRef::new([0x51u8; 32], 0, vec![]), type_: None };
+        let output = CellOutput { capacity: 100, lock: Script::new([0x51u8; 32], 0, vec![]), type_: None };
         let tx = CellTx::new(
             vec![input],
             vec![], // cell_deps
@@ -361,8 +361,8 @@ mod tests {
 
     #[test]
     fn serializable_transaction_uses_projected_selection_mass() {
-        let input = CellRef::new(TransactionOutpoint::new(Hash::from_bytes([3; 32]).as_bytes(), 0), 7);
-        let output = CellOut { capacity: 600, lock: ScriptRef::new([0x41u8; 32], 0, vec![1, 2]), type_: None };
+        let input = CellInput::new(TransactionOutpoint::new(Hash::from_bytes([3; 32]).as_bytes(), 0), 7);
+        let output = CellOutput { capacity: 600, lock: Script::new([0x41u8; 32], 0, vec![1, 2]), type_: None };
         let tx = CellTx::new(vec![input], vec![], vec![output], vec![vec![9, 9]], vec![vec![0xab]]).unwrap();
         let entry = CellMeta::from_cell_metadata(1_000, 0, [0x55; 32], None, [0; 32], 0, false);
         let signable = cctx::SignableTransaction::with_entries(tx, vec![entry]);

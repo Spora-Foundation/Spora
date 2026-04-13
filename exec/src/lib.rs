@@ -7,7 +7,7 @@
 //! Cell Execution Layer
 //!
 //! This crate implements the execution layer for Cell transactions, including:
-//! - Cell transaction types (CellTx, CellRef, CellOut, ScriptRef)
+//! - Cell transaction types (CellTx, CellInput, CellOutput, Script)
 //! - Parallel scheduler with RW-Set DAG
 //! - VM integration (CKB-VM for script verification)
 //! - Standard scripts (secp256k1 lock, capacity type)
@@ -24,10 +24,10 @@ pub mod scripts;
 #[cfg(feature = "vm")]
 pub mod vm;
 
-pub use celltx::{encode_dep_group_data, parse_dep_group_data, CellDep, CellOut, CellRef, CellTx, DepType, OutPoint, ScriptRef};
+pub use celltx::{encode_dep_group_data, parse_dep_group_data, CellDep, CellOutput, CellInput, CellTx, DepType, OutPoint, Script};
 
 /// Cell transaction version
-pub const CELL_TX_VERSION: u16 = 0xC001;
+pub const CELL_TX_VERSION: u32 = 0xC001;
 
 /// Network ID (u32, little-endian)
 #[repr(u32)]

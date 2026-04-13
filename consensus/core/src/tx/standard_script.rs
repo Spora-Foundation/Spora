@@ -1,4 +1,4 @@
-use super::ScriptRef;
+use super::Script;
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 use spora_addresses::{Address, Prefix, Version};
@@ -134,8 +134,8 @@ impl From<Version> for ScriptClass {
     }
 }
 
-impl From<&ScriptRef> for ScriptClass {
-    fn from(lock_script: &ScriptRef) -> Self {
+impl From<&Script> for ScriptClass {
+    fn from(lock_script: &Script) -> Self {
         classify_lock_script(lock_script.args.as_slice())
     }
 }
@@ -152,19 +152,19 @@ pub fn classify_lock_script(lock_script: &[u8]) -> ScriptClass {
     }
 }
 
-pub fn pay_to_address_lock_script(address: &Address) -> ScriptRef {
+pub fn pay_to_address_lock_script(address: &Address) -> Script {
     let lock_script = match address.version {
         Version::PubKey => pay_to_pub_key(address.payload.as_slice()),
         Version::PubKeyECDSA => pay_to_pub_key_ecdsa(address.payload.as_slice()),
         Version::ScriptHash => pay_to_script_hash(address.payload.as_slice()),
     };
-    ScriptRef::new(compute_lock_hash(&lock_script), 0, lock_script)
+    Script::new(compute_lock_hash(&lock_script), 0, lock_script)
 }
 
-pub fn pay_to_script_hash_lock_script(redeem_script: &[u8]) -> ScriptRef {
+pub fn pay_to_script_hash_lock_script(redeem_script: &[u8]) -> Script {
     let redeem_script_hash = blake3::hash(redeem_script);
     let lock_script = pay_to_script_hash(redeem_script_hash.as_bytes());
-    ScriptRef::new(compute_lock_hash(&lock_script), 0, lock_script)
+    Script::new(compute_lock_hash(&lock_script), 0, lock_script)
 }
 
 pub fn push_data_script(data: &[u8]) -> Result<Vec<u8>, StandardScriptError> {
@@ -272,7 +272,7 @@ pub fn is_script_unspendable(script: &[u8]) -> bool {
 }
 
 #[cfg(test)]
-pub fn get_witness_sig_op_count_upper_bound(witness_script: &[u8], prev_lock_script: &ScriptRef) -> u64 {
+pub fn get_witness_sig_op_count_upper_bound(witness_script: &[u8], prev_lock_script: &Script) -> u64 {
     if !ScriptClass::is_pay_to_script_hash(prev_lock_script.args.as_slice()) {
         return count_sig_ops(prev_lock_script.args.as_slice());
     }
@@ -547,11 +547,11 @@ mod tests {
         let mut p2pk_args = vec![OP_DATA32];
         p2pk_args.extend_from_slice(&[0x11; 32]);
         p2pk_args.push(OP_CHECK_SIG);
-        let p2pk = ScriptRef::new(compute_lock_hash(&p2pk_args), 0, p2pk_args);
+        let p2pk = Script::new(compute_lock_hash(&p2pk_args), 0, p2pk_args);
         assert_eq!(get_witness_sig_op_count_upper_bound(&[], &p2pk), 1);
 
         let multisig_args = vec![OP_TRUE + 1, OP_CHECK_MULTI_SIG];
-        let multisig = ScriptRef::new(compute_lock_hash(&multisig_args), 0, multisig_args);
+        let multisig = Script::new(compute_lock_hash(&multisig_args), 0, multisig_args);
         assert_eq!(get_witness_sig_op_count_upper_bound(&[], &multisig), 2);
     }
 

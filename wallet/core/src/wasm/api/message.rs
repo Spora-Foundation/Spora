@@ -56,7 +56,23 @@ fn parse_account_create_args(args: &Object) -> Result<AccountCreateArgs> {
                 account_args: AccountCreateArgsBip32Watch { account_name: args.try_get_string("accountName")?, xpub_keys },
             })
         }
-        _ => Err(Error::custom("only BIP32, Keypair and Bip32Watch accounts are currently supported")),
+        crate::account::WATCH_ONLY_ACCOUNT_KIND => {
+            let xpub_keys = args
+                .get_vec("xpubKeys")?
+                .into_iter()
+                .map(|value| value.as_string().ok_or(Error::custom("xpubKeys must contain strings")))
+                .collect::<Result<Vec<_>>>()?;
+
+            Ok(AccountCreateArgs::WatchOnly {
+                account_args: AccountCreateArgsWatchOnly {
+                    account_name: args.try_get_string("accountName")?,
+                    xpub_keys,
+                    minimum_signatures: args.get_u32("minimumSignatures").ok().and_then(|value| value.try_into().ok()).unwrap_or(1),
+                    ecdsa: args.try_get_bool("ecdsa")?.unwrap_or(false),
+                },
+            })
+        }
+        _ => Err(Error::custom("only BIP32, Keypair, Bip32Watch and WatchOnly accounts are currently supported")),
     }
 }
 
@@ -828,6 +844,49 @@ try_from!(args: PrvKeyDataCreateResponse, IPrvKeyDataCreateResponse, {
 // ---
 
 declare! {
+    IPrvKeyDataRenameRequest,
+    r#"
+    /**
+     * 
+     *  
+     * @category Wallet API
+     */
+    export interface IPrvKeyDataRenameRequest {
+        walletSecret: string;
+        prvKeyDataId: HexString;
+        name?: string;
+    }
+    "#,
+}
+
+try_from! ( args: IPrvKeyDataRenameRequest, PrvKeyDataRenameRequest, {
+    let wallet_secret = args.get_secret("walletSecret")?;
+    let prv_key_data_id = args.get_prv_key_data_id("prvKeyDataId")?;
+    let name = args.try_get_string("name")?;
+    Ok(PrvKeyDataRenameRequest { wallet_secret, prv_key_data_id, name })
+});
+
+declare! {
+    IPrvKeyDataRenameResponse,
+    r#"
+    /**
+     * 
+     *  
+     * @category Wallet API
+     */
+    export interface IPrvKeyDataRenameResponse {
+        prvKeyDataInfo: IPrvKeyDataInfo;
+    }
+    "#,
+}
+
+try_from!(args: PrvKeyDataRenameResponse, IPrvKeyDataRenameResponse, {
+    Ok(to_value(&args)?.into())
+});
+
+// ---
+
+declare! {
     IPrvKeyDataRemoveRequest,
     r#"
     /**
@@ -1066,25 +1125,28 @@ declare! {
         accountIndex?:number;
         prvKeyDataId:string;
         paymentSecret?:string;
-    };
-    //   |{
-    //     walletSecret: string;
-    //     type: "multisig";
-    //     accountName:string;
-    //     accountIndex?:number;
-    //     prvKeyDataId:string;
-    //     pubkeys:HexString[];
-    //     paymentSecret?:string;
-    //   }
-
-    //   |{
-    //     walletSecret: string;
-    //     type: "bip32-readonly";
-    //     accountName:string;
-    //     accountIndex?:number;
-    //     pubkey:HexString;
-    //     paymentSecret?:string;
-    //  }
+    }
+      | {
+        walletSecret: string;
+        type: "keypair";
+        accountName?: string;
+        prvKeyDataId: string;
+        ecdsa?: boolean;
+      }
+      | {
+        walletSecret: string;
+        type: "bip32watch";
+        accountName?: string;
+        xpubKeys: string[];
+      }
+      | {
+        walletSecret: string;
+        type: "watchonly";
+        accountName?: string;
+        xpubKeys: string[];
+        minimumSignatures?: number;
+        ecdsa?: boolean;
+      };
     "#,
 }
 
@@ -1193,6 +1255,14 @@ declare! {
         type: "bip32watch";
         accountName?: string;
         xpubKeys: string[];
+      }
+      | {
+        walletSecret: string;
+        type: "watchonly";
+        accountName?: string;
+        xpubKeys: string[];
+        minimumSignatures?: number;
+        ecdsa?: boolean;
       };
     "#,
 }

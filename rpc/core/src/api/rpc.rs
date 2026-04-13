@@ -238,11 +238,9 @@ pub trait RpcApi: Sync + Send + AnySync {
 
     async fn get_block_status_call(
         &self,
-        _connection: Option<&DynRpcConnection>,
-        _request: GetBlockStatusRequest,
-    ) -> RpcResult<GetBlockStatusResponse> {
-        unimplemented!()
-    }
+        connection: Option<&DynRpcConnection>,
+        request: GetBlockStatusRequest,
+    ) -> RpcResult<GetBlockStatusResponse>;
 
     /// Requests information about a specific transaction.
     async fn get_transaction(&self, hash: RpcHash) -> RpcResult<RpcTransaction> {
@@ -250,11 +248,9 @@ pub trait RpcApi: Sync + Send + AnySync {
     }
     async fn get_transaction_call(
         &self,
-        _connection: Option<&DynRpcConnection>,
-        _request: GetTransactionRequest,
-    ) -> RpcResult<GetTransactionResponse> {
-        unimplemented!()
-    }
+        connection: Option<&DynRpcConnection>,
+        request: GetTransactionRequest,
+    ) -> RpcResult<GetTransactionResponse>;
     /// Requests the virtual selected parent chain from some `start_hash` to this node's current virtual.
     async fn get_virtual_chain_from_block(
         &self,

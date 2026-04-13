@@ -11,12 +11,12 @@ mod tests {
     };
     #[cfg(feature = "vm")]
     use crate::processes::cell_validator::{CellScriptDataProvider, CellValidationError};
+    #[cfg(feature = "vm")]
+    use crate::test_helpers::{always_success_cell_metadata, always_success_lock_script};
     use spora_consensus_core::{cell_metadata::CellMetadata, tx::TransactionOutpoint};
     #[cfg(feature = "vm")]
-    use spora_exec::scripts::{always_success_code_hash, ALWAYS_SUCCESS_SCRIPT};
-    #[cfg(feature = "vm")]
     use spora_exec::{CellDep, DepType};
-    use spora_exec::{CellOut, CellRef, CellTx, OutPoint, ScriptRef};
+    use spora_exec::{CellOutput, CellInput, CellTx, OutPoint, Script};
     use spora_hashes::Hash;
     use std::collections::HashMap;
     use std::sync::Arc;
@@ -55,19 +55,30 @@ mod tests {
         fn get_header(&self, block_hash: Hash) -> Result<Option<spora_exec::vm::ResolvedHeader>, String> {
             Ok(self.block_timestamps.get(&block_hash).copied().map(|timestamp| spora_exec::vm::ResolvedHeader {
                 hash: block_hash.as_bytes(),
+                version: 1,
+                parents_by_level: vec![],
+                hash_merkle_root: [0; 32],
+                accepted_id_merkle_root: [0; 32],
+                cell_commitment: [0; 32],
+                cell_root: [0; 32],
+                segment_root: [0; 32],
                 timestamp,
+                bits: 0,
+                nonce: 0,
                 daa_score: 0,
-                parents: vec![],
+                blue_work: [0; 24],
+                blue_score: 0,
+                pruning_point: [0; 32],
             }))
         }
     }
 
     fn create_test_tx() -> CellTx {
-        let lock = ScriptRef::new([0x00; 32], 0, vec![0; 20]);
+        let lock = Script::new([0x00; 32], 0, vec![0; 20]);
         CellTx::new(
-            vec![CellRef::new(OutPoint::new([0; 32], 0), 0)],
+            vec![CellInput::new(OutPoint::new([0; 32], 0), 0)],
             vec![],
-            vec![CellOut { lock, type_: None, capacity: 10000 }],
+            vec![CellOutput { lock, type_: None, capacity: 10000 }],
             vec![vec![]],
             vec![],
         )
@@ -172,7 +183,7 @@ mod tests {
         let dep_group_out_point = OutPoint::new([2; 32], 0);
         let expanded_dep_out_point = OutPoint::new([5; 32], 0);
         let block_hash = Hash::from_bytes([4; 32]);
-        let lock = ScriptRef::new([0; 32], 0, vec![]);
+        let lock = Script::new([0; 32], 0, vec![]);
 
         // Encode a DepGroup that references one expanded outpoint
         let dep_group_data = encode_dep_group_data(&[expanded_dep_out_point]);
@@ -240,9 +251,9 @@ mod tests {
         provider.block_timestamps.insert(block_hash, 0);
 
         let tx = CellTx::new(
-            vec![CellRef::new(input_out_point, 0)],
+            vec![CellInput::new(input_out_point, 0)],
             vec![CellDep { out_point: dep_group_out_point, dep_type: DepType::DepGroup }],
-            vec![CellOut { lock, type_: None, capacity: 1_000 }],
+            vec![CellOutput { lock, type_: None, capacity: 1_000 }],
             vec![vec![]],
             vec![],
         )
@@ -263,7 +274,7 @@ mod tests {
         let dep_group_out_point = OutPoint::new([2; 32], 0);
         let missing_dep = OutPoint::new([0xAA; 32], 0);
         let block_hash = Hash::from_bytes([4; 32]);
-        let lock = ScriptRef::new([0; 32], 0, vec![]);
+        let lock = Script::new([0; 32], 0, vec![]);
 
         // Encode a DepGroup referencing a cell that does NOT exist
         let dep_group_data = encode_dep_group_data(&[missing_dep]);
@@ -310,9 +321,9 @@ mod tests {
         provider.block_timestamps.insert(block_hash, 0);
 
         let tx = CellTx::new(
-            vec![CellRef::new(input_out_point, 0)],
+            vec![CellInput::new(input_out_point, 0)],
             vec![CellDep { out_point: dep_group_out_point, dep_type: DepType::DepGroup }],
-            vec![CellOut { lock, type_: None, capacity: 1_000 }],
+            vec![CellOutput { lock, type_: None, capacity: 1_000 }],
             vec![vec![]],
             vec![],
         )
@@ -329,8 +340,7 @@ mod tests {
         let pov = Hash::from_bytes([7; 32]);
         let input_out_point = OutPoint::new([6; 32], 0);
         let dep_out_point = OutPoint::new([9; 32], 0);
-        let code_hash = always_success_code_hash();
-        let always_success_lock = ScriptRef::new(code_hash, 0, vec![]);
+        let always_success_lock = always_success_lock_script();
 
         let mut provider = MockProvider { cells: HashMap::new(), block_timestamps: HashMap::new() };
         provider.cells.insert(
@@ -353,31 +363,13 @@ mod tests {
             },
         );
         provider.block_timestamps.insert(Hash::from_bytes([5; 32]), 0);
-        provider.cells.insert(
-            (pov, dep_out_point.clone()),
-            CellMetadata {
-                out_point: tx_outpoint(&dep_out_point),
-                capacity: 1_000,
-                data_bytes: ALWAYS_SUCCESS_SCRIPT.len() as u64,
-                lock_hash: [0; 32],
-                type_hash: None,
-                data_hash: [0; 32],
-                block_daa_score: 0,
-                is_cellbase: false,
-                block_hash: Hash::from_bytes([8; 32]),
-                lock_code_hash: None,
-                type_code_hash: None,
-                lock_script: Some(always_success_lock.clone()),
-                type_script: None,
-                data: Some(ALWAYS_SUCCESS_SCRIPT.to_vec()),
-            },
-        );
+        provider.cells.insert((pov, dep_out_point.clone()), always_success_cell_metadata(&dep_out_point, Hash::from_bytes([8; 32])));
         provider.block_timestamps.insert(Hash::from_bytes([8; 32]), 0);
 
         let tx = CellTx::new(
-            vec![CellRef::new(input_out_point, 0)],
+            vec![CellInput::new(input_out_point, 0)],
             vec![CellDep { out_point: dep_out_point.clone(), dep_type: DepType::Code }],
-            vec![CellOut { lock: ScriptRef::new(code_hash, 0, vec![]), type_: None, capacity: 1_000 }],
+            vec![CellOutput { lock: always_success_lock.clone(), type_: None, capacity: 1_000 }],
             vec![vec![]],
             vec![],
         )
@@ -394,7 +386,7 @@ mod tests {
         let pov = Hash::from_bytes([7; 32]);
         let input_out_point = OutPoint::new([6; 32], 0);
         let dep_out_point = OutPoint::new([9; 32], 0);
-        let code_hash = always_success_code_hash();
+        let code_hash = always_success_lock_script().code_hash;
 
         let mut provider = MockProvider { cells: HashMap::new(), block_timestamps: HashMap::new() };
         provider.cells.insert(
@@ -419,9 +411,9 @@ mod tests {
         provider.block_timestamps.insert(Hash::from_bytes([5; 32]), 0);
 
         let tx = CellTx::new(
-            vec![CellRef::new(input_out_point, 0)],
+            vec![CellInput::new(input_out_point, 0)],
             vec![CellDep { out_point: dep_out_point.clone(), dep_type: DepType::Code }],
-            vec![CellOut { lock: ScriptRef::new(code_hash, 0, vec![]), type_: None, capacity: 1_000 }],
+            vec![CellOutput { lock: Script::new(code_hash, 0, vec![]), type_: None, capacity: 1_000 }],
             vec![vec![]],
             vec![],
         )
@@ -440,8 +432,7 @@ mod tests {
         let dep_out_point = OutPoint::new([0x23; 32], 0);
         let input_block_hash = Hash::from_bytes([0x24; 32]);
         let dep_block_hash = Hash::from_bytes([0x25; 32]);
-        let code_hash = always_success_code_hash();
-        let always_success_lock = ScriptRef::new(code_hash, 0, vec![]);
+        let always_success_lock = always_success_lock_script();
 
         let mut provider = MockProvider { cells: HashMap::new(), block_timestamps: HashMap::new() };
         provider.cells.insert(
@@ -463,32 +454,14 @@ mod tests {
                 data: Some(vec![]),
             },
         );
-        provider.cells.insert(
-            (pov, dep_out_point.clone()),
-            CellMetadata {
-                out_point: tx_outpoint(&dep_out_point),
-                capacity: 1_000,
-                data_bytes: ALWAYS_SUCCESS_SCRIPT.len() as u64,
-                lock_hash: [0; 32],
-                type_hash: None,
-                data_hash: [0; 32],
-                block_daa_score: 0,
-                is_cellbase: false,
-                block_hash: dep_block_hash,
-                lock_code_hash: None,
-                type_code_hash: None,
-                lock_script: Some(always_success_lock.clone()),
-                type_script: None,
-                data: Some(ALWAYS_SUCCESS_SCRIPT.to_vec()),
-            },
-        );
+        provider.cells.insert((pov, dep_out_point.clone()), always_success_cell_metadata(&dep_out_point, dep_block_hash));
         provider.block_timestamps.insert(input_block_hash, 0);
         provider.block_timestamps.insert(dep_block_hash, 0);
 
         let tx = CellTx::new(
-            vec![CellRef::new(input_out_point, 0)],
+            vec![CellInput::new(input_out_point, 0)],
             vec![CellDep { out_point: dep_out_point, dep_type: DepType::Code }],
-            vec![CellOut { lock: always_success_lock, type_: None, capacity: 1_000 }],
+            vec![CellOutput { lock: always_success_lock.clone(), type_: None, capacity: 1_000 }],
             vec![vec![]],
             vec![],
         )

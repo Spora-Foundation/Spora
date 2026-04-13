@@ -408,9 +408,20 @@ impl<
         };
         Ok(Some(spora_exec::vm::ResolvedHeader {
             hash: block_hash.as_bytes(),
+            version: header.version,
+            parents_by_level: header.parents_by_level.iter().map(|level| level.iter().map(|hash| hash.as_bytes()).collect()).collect(),
+            hash_merkle_root: header.hash_merkle_root.as_bytes(),
+            accepted_id_merkle_root: header.accepted_id_merkle_root.as_bytes(),
+            cell_commitment: header.cell_commitment.as_bytes(),
+            cell_root: header.cell_root.as_bytes(),
+            segment_root: header.segment_root.as_bytes(),
             timestamp: header.timestamp,
+            bits: header.bits,
+            nonce: header.nonce,
             daa_score: header.daa_score,
-            parents: header.direct_parents().iter().map(|hash| hash.as_bytes()).collect(),
+            blue_work: header.blue_work.to_le_bytes(),
+            blue_score: header.blue_score,
+            pruning_point: header.pruning_point.as_bytes(),
         }))
     }
 }

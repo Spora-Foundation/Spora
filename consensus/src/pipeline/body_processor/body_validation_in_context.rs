@@ -267,7 +267,7 @@ impl BlockBodyProcessor {
                     continue;
                 }
 
-                for dep in &tx.deps {
+                for dep in &tx.cell_deps {
                     provider
                         .ensure_dep_available(&dep.out_point)
                         .map_err(|e| RuleError::CellValidationError(format!("failed to build body validation overlay: {e}")))?;
@@ -293,7 +293,7 @@ impl BlockBodyProcessor {
 
                 for input in &tx.inputs {
                     provider
-                        .spend_cell(&input.out_point)
+                        .spend_cell(&input.previous_output)
                         .map_err(|e| RuleError::CellValidationError(format!("failed to build body validation overlay: {e}")))?;
                 }
 
@@ -324,7 +324,7 @@ impl BlockBodyProcessor {
         is_cellbase: bool,
         tx_id: [u8; 32],
         output_index: u32,
-        output: &spora_exec::CellOut,
+        output: &spora_exec::CellOutput,
         output_data: &[u8],
     ) -> CellMetadata {
         CellMetadata {
@@ -367,7 +367,7 @@ impl BlockBodyProcessor {
         tx.inputs
             .iter()
             .map(|input| {
-                provider.get_cell_at_pov(&input.out_point, pov)?.ok_or_else(|| format!("missing input cell {:?}", input.out_point))
+                provider.get_cell_at_pov(&input.previous_output, pov)?.ok_or_else(|| format!("missing input cell {:?}", input.previous_output))
             })
             .collect()
     }
@@ -402,14 +402,14 @@ impl BlockBodyProcessor {
                 let maturity = self.coinbase_maturity;
 
                 for (input_index, input) in tx.inputs.iter().enumerate() {
-                    let metadata = provider.get_cell_at_pov(&input.out_point, pov).ok().flatten();
+                    let metadata = provider.get_cell_at_pov(&input.previous_output, pov).ok().flatten();
                     if let Some(metadata) = metadata {
                         if metadata.is_cellbase && current_daa < metadata.block_daa_score.saturating_add(maturity) {
                             return RuleError::TxInContextFailed(
                                 tx_id,
                                 TxRuleError::ImmatureCoinbaseSpend(
                                     input_index,
-                                    TransactionOutpoint::new(input.out_point.tx_hash, input.out_point.index),
+                                    TransactionOutpoint::new(input.previous_output.tx_hash, input.previous_output.index),
                                     metadata.block_daa_score,
                                     current_daa,
                                     maturity,
@@ -506,16 +506,46 @@ mod tests {
     use crate::processes::{CellStateProvider, DagCellProvider};
     use crate::{config::ConfigBuilder, consensus::test_consensus::TestConsensus, errors::RuleError, params::DEVNET_PARAMS};
     use spora_consensus_core::{
-        api::ConsensusApi, block::Block, cell_metadata::CellMetadata, config::params::MAINNET_PARAMS, errors::tx::TxRuleError,
-        merkle::calc_hash_merkle_root_cell as calc_hash_merkle_root_with_options, tx::TransactionOutpoint,
+        api::ConsensusApi,
+        block::{Block, TemplateBuildMode, TemplateTransactionSelector},
+        cell_metadata::CellMetadata,
+        coinbase::MinerData,
+        config::params::MAINNET_PARAMS,
+        errors::tx::TxRuleError,
+        merkle::calc_hash_merkle_root_cell as calc_hash_merkle_root_with_options,
+        tx::TransactionOutpoint,
     };
     use spora_core::assert_match;
-    use spora_exec::{CellDep, CellOut, CellRef, CellTx, DepType, OutPoint, ScriptRef};
+    #[cfg(feature = "vm")]
+    use spora_exec::scripts::always_success_code_hash;
+    use spora_exec::{CellDep, CellOutput, CellInput, CellTx, DepType, OutPoint, Script};
     use spora_hashes::Hash;
     use std::collections::HashMap;
 
     fn calc_hash_merkle_root<'a>(txs: impl ExactSizeIterator<Item = &'a CellTx>) -> Hash {
         calc_hash_merkle_root_with_options(txs, false)
+    }
+
+    struct OnetimeTxSelector {
+        txs: Option<Vec<CellTx>>,
+    }
+
+    impl OnetimeTxSelector {
+        fn new(txs: Vec<CellTx>) -> Self {
+            Self { txs: Some(txs) }
+        }
+    }
+
+    impl TemplateTransactionSelector for OnetimeTxSelector {
+        fn select_transactions(&mut self) -> Vec<CellTx> {
+            self.txs.take().unwrap_or_default()
+        }
+
+        fn reject_selection(&mut self, _tx_id: spora_consensus_core::tx::TransactionId) {}
+
+        fn is_successful(&self) -> bool {
+            true
+        }
     }
 
     fn build_block_with_extra_transactions(
@@ -530,12 +560,36 @@ mod tests {
         block.to_immutable()
     }
 
+    fn test_lock_script() -> Script {
+        #[cfg(feature = "vm")]
+        {
+            return Script::new(always_success_code_hash(), 0, vec![]);
+        }
+
+        #[cfg(not(feature = "vm"))]
+        {
+            Script::new([0; 32], 0, vec![])
+        }
+    }
+
+    fn test_miner_data() -> MinerData {
+        MinerData::new(test_lock_script(), vec![])
+    }
+
+    fn build_template_block(consensus: &TestConsensus, txs: Vec<CellTx>) -> Block {
+        consensus
+            .build_block_template(test_miner_data(), Box::new(OnetimeTxSelector::new(txs)), TemplateBuildMode::Standard)
+            .unwrap()
+            .block
+            .to_immutable()
+    }
+
     fn build_spend_tx(outpoint: TransactionOutpoint, output_capacity: u64) -> CellTx {
-        let lock = ScriptRef::new([0; 32], 0, vec![]);
+        let lock = test_lock_script();
         CellTx::new(
-            vec![CellRef::new(OutPoint::new(outpoint.tx_hash, outpoint.index), 0)],
+            vec![CellInput::new(OutPoint::new(outpoint.tx_hash, outpoint.index), 0)],
             vec![],
-            vec![CellOut { lock, type_: None, capacity: output_capacity }],
+            vec![CellOutput { lock, type_: None, capacity: output_capacity }],
             vec![vec![]],
             vec![],
         )
@@ -543,11 +597,11 @@ mod tests {
     }
 
     fn build_spend_tx_with_dep(outpoint: TransactionOutpoint, dep_outpoint: TransactionOutpoint, output_capacity: u64) -> CellTx {
-        let lock = ScriptRef::new([0; 32], 0, vec![]);
+        let lock = test_lock_script();
         CellTx::new(
-            vec![CellRef::new(OutPoint::new(outpoint.tx_hash, outpoint.index), 0)],
+            vec![CellInput::new(OutPoint::new(outpoint.tx_hash, outpoint.index), 0)],
             vec![CellDep { out_point: OutPoint::new(dep_outpoint.tx_hash, dep_outpoint.index), dep_type: DepType::Code }],
-            vec![CellOut { lock, type_: None, capacity: output_capacity }],
+            vec![CellOutput { lock, type_: None, capacity: output_capacity }],
             vec![vec![]],
             vec![],
         )
@@ -659,12 +713,13 @@ mod tests {
         let wait_handles = consensus.init();
         let body_processor = consensus.block_body_processor();
 
-        let parent = consensus.build_block_with_parents_and_transactions(1.into(), vec![config.genesis.hash], vec![]);
-        consensus.validate_and_insert_block(parent.to_immutable()).virtual_state_task.await.unwrap();
+        let parent = build_template_block(&consensus, vec![]);
+        let parent_hash = parent.hash();
+        consensus.validate_and_insert_block(parent).virtual_state_task.await.unwrap();
 
         let missing_outpoint = TransactionOutpoint { tx_hash: [0xAA; 32], index: 0 };
         let invalid_tx = build_spend_tx(missing_outpoint, 1_000);
-        let block = build_block_with_extra_transactions(&consensus, 2.into(), vec![1.into()], vec![invalid_tx]);
+        let block = build_block_with_extra_transactions(&consensus, Hash::from_bytes([0xA1; 32]), vec![parent_hash], vec![invalid_tx]);
 
         assert_match!(
             body_processor.validate_body_in_context(&block),
@@ -681,13 +736,17 @@ mod tests {
         let wait_handles = consensus.init();
         let body_processor = consensus.block_body_processor();
 
-        let parent = consensus.build_block_with_parents_and_transactions(1.into(), vec![config.genesis.hash], vec![]);
+        let warmup = build_template_block(&consensus, vec![]);
+        consensus.validate_and_insert_block(warmup).virtual_state_task.await.unwrap();
+
+        let parent = build_template_block(&consensus, vec![]);
+        let parent_hash = parent.hash();
         let spendable_outpoint = TransactionOutpoint { tx_hash: parent.transactions[0].id(), index: 0 };
-        consensus.validate_and_insert_block(parent.to_immutable()).virtual_state_task.await.unwrap();
+        consensus.validate_and_insert_block(parent).virtual_state_task.await.unwrap();
 
         let missing_dep_outpoint = TransactionOutpoint { tx_hash: [0xBB; 32], index: 0 };
         let invalid_tx = build_spend_tx_with_dep(spendable_outpoint, missing_dep_outpoint, 1_000);
-        let block = build_block_with_extra_transactions(&consensus, 2.into(), vec![1.into()], vec![invalid_tx]);
+        let block = build_block_with_extra_transactions(&consensus, Hash::from_bytes([0xB2; 32]), vec![parent_hash], vec![invalid_tx]);
 
         assert_match!(
             body_processor.validate_body_in_context(&block),
@@ -720,6 +779,7 @@ mod tests {
         consensus.shutdown(wait_handles);
     }
 
+    #[cfg(not(feature = "vm"))]
     #[tokio::test]
     async fn accepts_child_spend_of_parent_non_coinbase_output_during_body_context_validation() {
         let config = ConfigBuilder::new(MAINNET_PARAMS)
@@ -732,22 +792,23 @@ mod tests {
         let wait_handles = consensus.init();
         let body_processor = consensus.block_body_processor();
 
-        let reward_source = consensus.build_block_with_parents_and_transactions(1.into(), vec![config.genesis.hash], vec![]);
-        let reward_source_hash = reward_source.header.hash;
+        let warmup = build_template_block(&consensus, vec![]);
+        consensus.validate_and_insert_block(warmup).virtual_state_task.await.unwrap();
+
+        let reward_source = build_template_block(&consensus, vec![]);
         let reward_source_coinbase = reward_source.transactions[0].clone();
         let reward_outpoint = TransactionOutpoint { tx_hash: reward_source_coinbase.id(), index: 0 };
         let reward_capacity = reward_source_coinbase.outputs[0].capacity;
-        consensus.validate_and_insert_block(reward_source.to_immutable()).virtual_state_task.await.unwrap();
+        consensus.validate_and_insert_block(reward_source).virtual_state_task.await.unwrap();
 
         let parent_tx = build_spend_tx(reward_outpoint, reward_capacity - 1_000);
         let parent_tx_id = parent_tx.id();
         let parent_output_capacity = parent_tx.outputs[0].capacity;
-        let parent = build_block_with_extra_transactions(&consensus, 2.into(), vec![reward_source_hash], vec![parent_tx]);
-        let parent_hash = parent.header.hash;
+        let parent = build_template_block(&consensus, vec![parent_tx]);
         consensus.validate_and_insert_block(parent).virtual_state_task.await.unwrap();
 
         let child_tx = build_spend_tx(TransactionOutpoint { tx_hash: parent_tx_id, index: 0 }, parent_output_capacity - 1_000);
-        let child = build_block_with_extra_transactions(&consensus, 3.into(), vec![parent_hash], vec![child_tx]);
+        let child = build_template_block(&consensus, vec![child_tx]);
 
         body_processor
             .validate_body_in_context(&child)
