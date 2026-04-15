@@ -12,7 +12,7 @@ use spora_rpc_core::notify::mode::NotificationMode;
 use std::fs;
 use treasure_boy::{
     ask_batch_count, batch_airdrop, load_addresses_from_file, single_airdrop, AddressDistributionTracker, Config, NetworkType,
-    RandGenWallet, Stats, TxsFeeConfig, ADDRESS_VERSION, DEFAULT_SEND_AMOUNT,
+    RandGenWallet, Stats, TxsFeeConfig, DEFAULT_SEND_AMOUNT,
 };
 
 fn generate_addresses(count: u32, output_file: Option<String>, network: NetworkType) -> Result<(), Box<dyn std::error::Error>> {
@@ -205,7 +205,13 @@ async fn main() {
         std::process::exit(1);
     };
 
-    let spora_addr = Address::new(args.network.address_prefix(), ADDRESS_VERSION, &schnorr_key.x_only_public_key().0.serialize());
+    let spora_addr = match Address::new_std_single(args.network.address_prefix(), &schnorr_key.x_only_public_key().0.serialize()) {
+        Ok(address) => address,
+        Err(e) => {
+            eprintln!("Error: failed to derive source address from private key: {}", e);
+            std::process::exit(1);
+        }
+    };
 
     // Load addresses for batch airdrop
     let target_addresses = if let Some(address_file) = &args.address_file {
@@ -268,7 +274,7 @@ async fn main() {
                 }
             }
             "2" => {
-                vec![spora_addr.clone().expect("Valid address")]
+                vec![spora_addr.clone()]
             }
             "3" => {
                 println!("Exiting...");
@@ -276,7 +282,7 @@ async fn main() {
             }
             _ => {
                 println!("Invalid choice. Using current address for single transaction.");
-                vec![spora_addr.clone().expect("Valid address")]
+                vec![spora_addr.clone()]
             }
         }
     };
@@ -295,7 +301,7 @@ async fn main() {
         \tfrom address: {}\n\
         \trpc server: {}",
         schnorr_key.display_secret(),
-        String::from(&spora_addr.expect("Valid address")),
+        String::from(&spora_addr),
         args.rpc_server
     );
     if args.address_file.is_some() {

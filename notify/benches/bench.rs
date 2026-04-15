@@ -5,7 +5,10 @@ use spora_notify::{address::tracker::Indexes, subscription::context::Subscriptio
 
 fn create_addresses(count: usize) -> Vec<Address> {
     (0..count)
-        .map(|i| Address::new(Prefix::Mainnet, spora_addresses::Version::PubKey, &Uint256::from_u64(i as u64).to_le_bytes()))
+        .map(|i| {
+            Address::new_std_single(Prefix::Mainnet, &Uint256::from_u64(i as u64).to_le_bytes())
+                .expect("bench address generation must produce valid stdsingle address")
+        })
         .collect()
 }
 
@@ -21,7 +24,7 @@ const ADDRESS_COUNT: usize = 1_000_000;
 pub fn bench_subscription_context(c: &mut Criterion) {
     c.bench_function("create_and_fill_context", |b| {
         let addresses = create_addresses(ADDRESS_COUNT);
-        b.iter(|| (black_box(create_and_fill_context(addresses.clone()))))
+        b.iter(|| black_box(create_and_fill_context(addresses.clone())))
     });
 }
 

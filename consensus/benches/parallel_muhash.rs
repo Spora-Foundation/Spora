@@ -2,8 +2,9 @@ use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use itertools::Itertools;
 use rayon::prelude::*;
 use spora_consensus_core::{
+    cell_diff::CellMeta,
     muhash::MuHashExtensions,
-    tx::{outpoint_from_id, CellEntry, CellOutput, CellInput, CellTx, Script, SignableTransaction, TransactionId},
+    tx::{outpoint_from_id, CellInput, CellOutput, CellTx, Script, SignableTransaction, TransactionId},
 };
 use spora_muhash::MuHash;
 use spora_utils::iter::parallelism_in_power_steps;
@@ -17,7 +18,7 @@ fn generate_transaction(ins: usize, outs: usize, randomness: u64) -> SignableTra
         .map(|i| CellInput::new(outpoint_from_id(TransactionId::from_u64_word(((randomness as usize) << 16 | i) as u64), 0), 0))
         .collect_vec();
     let entries = (0..ins)
-        .map(|i| CellEntry::from_cell_metadata(22_222_222, 0, sample_lock_script((99 + i) as u8).hash(), None, [0; 32], 23_456, false))
+        .map(|i| CellMeta::from_cell_metadata(22_222_222, 0, sample_lock_script((99 + i) as u8).hash(), None, [0; 32], 23_456, false))
         .collect_vec();
     let outputs =
         (0..outs).map(|i| CellOutput { capacity: 23_456, lock: sample_lock_script((101 + i) as u8), type_: None }).collect_vec();

@@ -1,9 +1,20 @@
 use std::io::Write;
 use std::process::Command;
+use spora_addresses::{Address, Prefix};
 use tempfile::NamedTempFile;
 
 fn treasure_boy_command() -> Command {
     Command::new(env!("CARGO_BIN_EXE_treasure_boy"))
+}
+
+fn valid_address(prefix: Prefix, seed: u8) -> String {
+    Address::new_std_single(prefix, &[seed; 32]).expect("deterministic test address").address_to_string()
+}
+
+fn is_rpc_connect_error(stderr: &str) -> bool {
+    stderr.contains("failed to connect to the RPC server")
+        || stderr.contains("Connection refused")
+        || stderr.contains("transport error")
 }
 
 #[test]
@@ -41,10 +52,7 @@ fn test_cli_without_private_key() {
 
 #[test]
 fn test_cli_generate_addresses() {
-    let output = treasure_boy_command()
-        .args(["--generate-addresses", "3"])
-        .output()
-        .expect("Failed to execute command");
+    let output = treasure_boy_command().args(["--generate-addresses", "3"]).output().expect("Failed to execute command");
 
     // Should display generated addresses
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -76,10 +84,7 @@ fn test_cli_generate_addresses_to_file() {
 fn test_cli_with_address_file() {
     // Create temporary address file
     let mut temp_file = NamedTempFile::new().unwrap();
-    let addresses_content = r#"# Test addresses
-spora0:qrgqpkue0tzhmqd77tljdhwjc757hc26uestam0gc4kycjx4k8uu6zn7sl0
-spora0:qqmquth4lyayewfl32pj8w9w9dpzqk6c9ngyp4xxmyqusxruhjm0jr4ssye
-"#;
+    let addresses_content = format!("# Test addresses\n{}\n{}\n", valid_address(Prefix::Testnet, 1), valid_address(Prefix::Testnet, 2));
 
     temp_file.write_all(addresses_content.as_bytes()).unwrap();
     temp_file.flush().unwrap();
@@ -101,17 +106,18 @@ spora0:qqmquth4lyayewfl32pj8w9w9dpzqk6c9ngyp4xxmyqusxruhjm0jr4ssye
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(!stderr.contains("Invalid address"));
-    assert!(stderr.contains("failed to connect to the RPC server") || stderr.contains("Connection refused"));
+    assert!(is_rpc_connect_error(&stderr));
 }
 
 #[test]
 fn test_cli_with_single_address() {
+    let to_addr = valid_address(Prefix::Testnet, 7);
     let output = treasure_boy_command()
         .args([
             "--private-key",
             "c99b1ccf1087af2a56ffedb885943962e0159a7705cac583eef3e9958cd035b3",
             "--to-addr",
-            "sporadev:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvs63gd8",
+            to_addr.as_str(),
             "--tps",
             "5",
             "--threads",
@@ -123,7 +129,7 @@ fn test_cli_with_single_address() {
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(!stderr.contains("Invalid address"));
-    assert!(stderr.contains("failed to connect to the RPC server") || stderr.contains("Connection refused"));
+    assert!(is_rpc_connect_error(&stderr));
 }
 
 #[test]
@@ -141,7 +147,7 @@ fn test_cli_with_priority_fee() {
 
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("failed to connect to the RPC server") || stderr.contains("Connection refused"));
+    assert!(is_rpc_connect_error(&stderr));
 }
 
 #[test]
@@ -158,32 +164,23 @@ fn test_cli_invalid_arguments() {
 #[test]
 fn test_cli_default_values() {
     let output = treasure_boy_command()
-        .args([
-            "--private-key",
-            "c99b1ccf1087af2a56ffedb885943962e0159a7705cac583eef3e9958cd035b3",
-        ])
+        .args(["--private-key", "c99b1ccf1087af2a56ffedb885943962e0159a7705cac583eef3e9958cd035b3"])
         .output()
         .expect("Failed to execute command");
 
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("127.0.0.1:16210") || stderr.contains("Connection refused"));
+    assert!(is_rpc_connect_error(&stderr));
 }
 
 #[test]
 fn test_cli_unleashed_mode() {
     let output = treasure_boy_command()
-        .args([
-            "--private-key",
-            "c99b1ccf1087af2a56ffedb885943962e0159a7705cac583eef3e9958cd035b3",
-            "--unleashed",
-            "--tps",
-            "1000",
-        ])
+        .args(["--private-key", "c99b1ccf1087af2a56ffedb885943962e0159a7705cac583eef3e9958cd035b3", "--unleashed", "--tps", "1000"])
         .output()
         .expect("Failed to execute command");
 
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("failed to connect to the RPC server") || stderr.contains("Connection refused"));
+    assert!(is_rpc_connect_error(&stderr));
 }

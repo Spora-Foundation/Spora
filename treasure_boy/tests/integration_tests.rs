@@ -1,18 +1,22 @@
 use std::io::Write;
+use spora_addresses::{Address, Prefix};
 use tempfile::NamedTempFile;
 use treasure_boy::{load_addresses_from_file, AddressDistributionTracker, Config, NetworkType, TxsFeeConfig};
+
+fn valid_address(prefix: Prefix, seed: u8) -> String {
+    Address::new_std_single(prefix, &[seed; 32]).expect("deterministic test address").address_to_string()
+}
 
 #[test]
 fn test_load_addresses_from_file_success() {
     // Create temporary file
     let mut temp_file = NamedTempFile::new().unwrap();
-    let addresses_content = r#"# Test address file
-spora0:qrgqpkue0tzhmqd77tljdhwjc757hc26uestam0gc4kycjx4k8uu6zn7sl0
-spora0:qqmquth4lyayewfl32pj8w9w9dpzqk6c9ngyp4xxmyqusxruhjm0jr4ssye
-
-# Another address
-sporadev:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvs63gd8
-"#;
+    let addresses_content = format!(
+        "# Test address file\n{}\n{}\n\n# Another address\n{}\n",
+        valid_address(Prefix::Testnet, 1),
+        valid_address(Prefix::Testnet, 2),
+        valid_address(Prefix::Devnet, 3)
+    );
 
     temp_file.write_all(addresses_content.as_bytes()).unwrap();
     temp_file.flush().unwrap();
@@ -31,16 +35,11 @@ sporadev:qp6hs9tjpfe6e4dpvtpj5wvt3l77c562fnk5g3wuxvpjz5xsfluhvs63gd8
 fn test_load_addresses_from_file_with_invalid_addresses() {
     // Create temporary file with invalid addresses
     let mut temp_file = NamedTempFile::new().unwrap();
-    let addresses_content = r#"# Valid addresses
-spora0:qrgqpkue0tzhmqd77tljdhwjc757hc26uestam0gc4kycjx4k8uu6zn7sl0
-
-# Invalid addresses
-invalid_address_123
-another_invalid_address
-
-# Another valid address
-spora0:qqmquth4lyayewfl32pj8w9w9dpzqk6c9ngyp4xxmyqusxruhjm0jr4ssye
-"#;
+    let addresses_content = format!(
+        "# Valid addresses\n{}\n\n# Invalid addresses\ninvalid_address_123\nanother_invalid_address\n\n# Another valid address\n{}\n",
+        valid_address(Prefix::Testnet, 4),
+        valid_address(Prefix::Testnet, 5)
+    );
 
     temp_file.write_all(addresses_content.as_bytes()).unwrap();
     temp_file.flush().unwrap();
@@ -71,12 +70,10 @@ fn test_load_addresses_from_file_nonexistent() {
 
 #[test]
 fn test_address_distribution_tracker_integration() {
-    use spora_addresses::{Address, Prefix, Version};
-
     let addresses = vec![
-        Address::new(Prefix::Testnet, Version::PubKey, &[1; 32]).expect("Valid address"),
-        Address::new(Prefix::Testnet, Version::PubKey, &[2; 32]).expect("Valid address"),
-        Address::new(Prefix::Testnet, Version::PubKey, &[3; 32]).expect("Valid address"),
+        Address::new_std_single(Prefix::Testnet, &[1; 32]).expect("Valid address"),
+        Address::new_std_single(Prefix::Testnet, &[2; 32]).expect("Valid address"),
+        Address::new_std_single(Prefix::Testnet, &[3; 32]).expect("Valid address"),
     ];
 
     let mut tracker = AddressDistributionTracker::new(addresses.clone());
@@ -140,11 +137,9 @@ fn test_txs_fee_config() {
 
 #[test]
 fn test_address_distribution_fairness() {
-    use spora_addresses::{Address, Prefix, Version};
-
     let addresses = vec![
-        Address::new(Prefix::Testnet, Version::PubKey, &[1; 32]).expect("Valid address"),
-        Address::new(Prefix::Testnet, Version::PubKey, &[2; 32]).expect("Valid address"),
+        Address::new_std_single(Prefix::Testnet, &[1; 32]).expect("Valid address"),
+        Address::new_std_single(Prefix::Testnet, &[2; 32]).expect("Valid address"),
     ];
 
     let mut tracker = AddressDistributionTracker::new(addresses);
@@ -165,12 +160,10 @@ fn test_address_distribution_fairness() {
 
 #[test]
 fn test_address_distribution_with_large_outputs() {
-    use spora_addresses::{Address, Prefix, Version};
-
     let addresses = vec![
-        Address::new(Prefix::Testnet, Version::PubKey, &[1; 32]).expect("Valid address"),
-        Address::new(Prefix::Testnet, Version::PubKey, &[2; 32]).expect("Valid address"),
-        Address::new(Prefix::Testnet, Version::PubKey, &[3; 32]).expect("Valid address"),
+        Address::new_std_single(Prefix::Testnet, &[1; 32]).expect("Valid address"),
+        Address::new_std_single(Prefix::Testnet, &[2; 32]).expect("Valid address"),
+        Address::new_std_single(Prefix::Testnet, &[3; 32]).expect("Valid address"),
     ];
 
     let mut tracker = AddressDistributionTracker::new(addresses);
