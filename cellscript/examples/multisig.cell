@@ -1,0 +1,446 @@
+// 多签钱包合约示例
+// 展示 CellScript 的复杂状态管理和条件逻辑
+
+module multisig_wallet;
+
+// ==================== 常量定义 ====================
+
+// 最小签名者数量
+const MIN_SIGNERS: u8 = 2;
+
+// 最大签名者数量
+const MAX_SIGNERS: u8 = 10;
+
+// 默认超时时间 (区块数)
+const DEFAULT_TIMEOUT: u64 = 1440; // 约 1 天
+
+// ==================== 类型定义 ====================
+
+/// 交易提案状态
+enum ProposalStatus {
+    Pending,      // 等待签名
+    Executed,     // 已执行
+    Cancelled,    // 已取消
+    Expired,      // 已过期
+}
+
+/// 操作类型
+enum OperationType {
+    Transfer,     // 转账
+    AddSigner,    // 添加签名者
+    RemoveSigner, // 移除签名者
+    ChangeThreshold, // 修改阈值
+    Custom,       // 自定义操作
+}
+
+/// 多签钱包
+#[capability(store)]
+resource MultisigWallet {
+    signers: Vec<Address>,           // 签名者列表
+    threshold: u8,                   // 执行阈值
+    nonce: u64,                      // 交易计数
+    created_at: u64,                 // 创建时间
+}
+
+/// 交易提案
+#[lifecycle(Created, Pending, Executed, Cancelled)]
+receipt Proposal {
+    wallet_hash: Hash,               // 钱包哈希
+    proposal_id: u64,                // 提案 ID
+    proposer: Address,               // 提案者
+    operation: OperationType,        // 操作类型
+    target: Address,                 // 目标地址
+    amount: u64,                     // 金额
+    data: Vec<u8>,                   // 附加数据
+    required_signatures: u8,         // 所需签名数
+    signatures: Vec<Signature>,      // 已收集签名
+    created_at: u64,                 // 创建时间
+    expires_at: u64,                 // 过期时间
+}
+
+/// 签名记录
+struct Signature {
+    signer: Address,
+    signature: [u8; 64],
+}
+
+/// 签名确认
+receipt SignatureConfirmation {
+    proposal_id: u64,
+    signer: Address,
+    timestamp: u64,
+}
+
+/// 执行记录
+receipt ExecutionRecord {
+    proposal_id: u64,
+    executor: Address,
+    executed_at: u64,
+    success: bool,
+}
+
+// ==================== Action 定义 ====================
+
+/// 创建多签钱包
+#[effect(Creating)]
+#[scheduler_hint(parallel, estimated_cycles = 3000)]
+action create_wallet(
+    signers: Vec<Address>,
+    threshold: u8,
+    current_time: u64,
+) -> MultisigWallet {
+    // 验证参数
+    assert!(
+        signers.len() >= MIN_SIGNERS as usize,
+        "Not enough signers"
+    );
+    assert!(
+        signers.len() <= MAX_SIGNERS as usize,
+        "Too many signers"
+    );
+    assert!(
+        threshold >= MIN_SIGNERS && threshold <= signers.len() as u8,
+        "Invalid threshold"
+    );
+    
+    // 验证签名者不重复
+    for i in 0..signers.len() {
+        for j in (i + 1)..signers.len() {
+            assert!(signers[i] != signers[j], "Duplicate signer");
+        }
+    }
+    
+    let wallet = create MultisigWallet {
+        signers: signers,
+        threshold: threshold,
+        nonce: 0,
+        created_at: current_time,
+    };
+    
+    wallet
+}
+
+/// 创建转账提案
+#[effect(Creating)]
+#[scheduler_hint(parallel, estimated_cycles = 4000)]
+action propose_transfer(
+    wallet: &mut MultisigWallet,
+    proposer: Address,
+    target: Address,
+    amount: u64,
+    current_time: u64,
+) -> Proposal {
+    // 验证提案者是签名者
+    assert!(is_signer(wallet, proposer), "Not a signer");
+    
+    // 验证参数
+    assert!(amount > 0, "Amount must be positive");
+    assert!(target != Address::zero(), "Invalid target address");
+    
+    let proposal_id = wallet.nonce + 1;
+    wallet.nonce = proposal_id;
+    
+    let proposal = create Proposal {
+        wallet_hash: hash_wallet(wallet),
+        proposal_id: proposal_id,
+        proposer: proposer,
+        operation: OperationType::Transfer,
+        target: target,
+        amount: amount,
+        data: Vec::new(),
+        required_signatures: wallet.threshold,
+        signatures: Vec::new(),
+        created_at: current_time,
+        expires_at: current_time + DEFAULT_TIMEOUT,
+    };
+    
+    // 自动添加提案者签名
+    // (实际实现需要验证签名)
+    
+    proposal
+}
+
+/// 添加签名
+#[effect(Mutating)]
+#[scheduler_hint(parallel, estimated_cycles = 3000)]
+action add_signature(
+    proposal: &mut Proposal,
+    wallet: &MultisigWallet,
+    signer: Address,
+    signature: [u8; 64],
+    current_time: u64,
+) -> SignatureConfirmation {
+    // 验证未过期
+    assert!(current_time < proposal.expires_at, "Proposal expired");
+    
+    // 验证是签名者
+    assert!(is_signer(wallet, signer), "Not a signer");
+    
+    // 验证未重复签名
+    assert!(!has_signed(proposal, signer), "Already signed");
+    
+    // 添加签名
+    proposal.signatures.push(Signature {
+        signer: signer,
+        signature: signature,
+    });
+    
+    let confirmation = create SignatureConfirmation {
+        proposal_id: proposal.proposal_id,
+        signer: signer,
+        timestamp: current_time,
+    };
+    
+    confirmation
+}
+
+/// 执行提案
+#[effect(Mutating, Destroying)]
+#[scheduler_hint(sequential, estimated_cycles = 6000)]
+action execute_proposal(
+    wallet: &MultisigWallet,
+    proposal: Proposal,
+    executor: Address,
+    current_time: u64,
+) -> ExecutionRecord {
+    // 验证是签名者
+    assert!(is_signer(wallet, executor), "Not a signer");
+    
+    // 验证未过期
+    assert!(current_time < proposal.expires_at, "Proposal expired");
+    
+    // 验证签名数量
+    assert!(
+        proposal.signatures.len() >= proposal.required_signatures as usize,
+        "Not enough signatures"
+    );
+    
+    // 验证钱包匹配
+    assert!(
+        proposal.wallet_hash == hash_wallet(wallet),
+        "Wallet mismatch"
+    );
+    
+    // 执行操作
+    let success = match proposal.operation {
+        OperationType::Transfer => {
+            // 实际转账逻辑在链上执行
+            true
+        }
+        _ => false,
+    };
+    
+    // 销毁提案
+    destroy proposal;
+    
+    let record = create ExecutionRecord {
+        proposal_id: proposal.proposal_id,
+        executor: executor,
+        executed_at: current_time,
+        success: success,
+    };
+    
+    record
+}
+
+/// 取消提案
+#[effect(Destroying)]
+#[scheduler_hint(parallel, estimated_cycles = 2000)]
+action cancel_proposal(
+    wallet: &MultisigWallet,
+    proposal: Proposal,
+    canceller: Address,
+) {
+    // 只有提案者可以取消
+    assert!(proposal.proposer == canceller, "Only proposer can cancel");
+    
+    // 验证钱包匹配
+    assert!(
+        proposal.wallet_hash == hash_wallet(wallet),
+        "Wallet mismatch"
+    );
+    
+    destroy proposal;
+}
+
+/// 添加签名者提案
+#[effect(Creating)]
+#[scheduler_hint(parallel, estimated_cycles = 4000)]
+action propose_add_signer(
+    wallet: &mut MultisigWallet,
+    proposer: Address,
+    new_signer: Address,
+    current_time: u64,
+) -> Proposal {
+    // 验证提案者是签名者
+    assert!(is_signer(wallet, proposer), "Not a signer");
+    
+    // 验证新签名者不重复
+    assert!(!is_signer(wallet, new_signer), "Already a signer");
+    
+    // 验证不超过最大数量
+    assert!(
+        wallet.signers.len() < MAX_SIGNERS as usize,
+        "Max signers reached"
+    );
+    
+    let proposal_id = wallet.nonce + 1;
+    wallet.nonce = proposal_id;
+    
+    let mut data = Vec::new();
+    data.extend_from_slice(&new_signer.0);
+    
+    let proposal = create Proposal {
+        wallet_hash: hash_wallet(wallet),
+        proposal_id: proposal_id,
+        proposer: proposer,
+        operation: OperationType::AddSigner,
+        target: new_signer,
+        amount: 0,
+        data: data,
+        required_signatures: wallet.threshold,
+        signatures: Vec::new(),
+        created_at: current_time,
+        expires_at: current_time + DEFAULT_TIMEOUT,
+    };
+    
+    proposal
+}
+
+/// 移除签名者提案
+#[effect(Creating)]
+#[scheduler_hint(parallel, estimated_cycles = 4000)]
+action propose_remove_signer(
+    wallet: &mut MultisigWallet,
+    proposer: Address,
+    signer_to_remove: Address,
+    current_time: u64,
+) -> Proposal {
+    // 验证提案者是签名者
+    assert!(is_signer(wallet, proposer), "Not a signer");
+    
+    // 验证目标存在
+    assert!(is_signer(wallet, signer_to_remove), "Not a signer");
+    
+    // 验证移除后仍满足阈值
+    assert!(
+        wallet.signers.len() - 1 >= wallet.threshold as usize,
+        "Would fall below threshold"
+    );
+    
+    let proposal_id = wallet.nonce + 1;
+    wallet.nonce = proposal_id;
+    
+    let proposal = create Proposal {
+        wallet_hash: hash_wallet(wallet),
+        proposal_id: proposal_id,
+        proposer: proposer,
+        operation: OperationType::RemoveSigner,
+        target: signer_to_remove,
+        amount: 0,
+        data: Vec::new(),
+        required_signatures: wallet.threshold,
+        signatures: Vec::new(),
+        created_at: current_time,
+        expires_at: current_time + DEFAULT_TIMEOUT,
+    };
+    
+    proposal
+}
+
+/// 修改阈值提案
+#[effect(Creating)]
+#[scheduler_hint(parallel, estimated_cycles = 4000)]
+action propose_change_threshold(
+    wallet: &mut MultisigWallet,
+    proposer: Address,
+    new_threshold: u8,
+    current_time: u64,
+) -> Proposal {
+    // 验证提案者是签名者
+    assert!(is_signer(wallet, proposer), "Not a signer");
+    
+    // 验证新阈值
+    assert!(
+        new_threshold >= MIN_SIGNERS && new_threshold <= wallet.signers.len() as u8,
+        "Invalid threshold"
+    );
+    
+    let proposal_id = wallet.nonce + 1;
+    wallet.nonce = proposal_id;
+    
+    let mut data = Vec::new();
+    data.push(new_threshold);
+    
+    let proposal = create Proposal {
+        wallet_hash: hash_wallet(wallet),
+        proposal_id: proposal_id,
+        proposer: proposer,
+        operation: OperationType::ChangeThreshold,
+        target: Address::zero(),
+        amount: new_threshold as u64,
+        data: data,
+        required_signatures: wallet.threshold,
+        signatures: Vec::new(),
+        created_at: current_time,
+        expires_at: current_time + DEFAULT_TIMEOUT,
+    };
+    
+    proposal
+}
+
+// ==================== 辅助函数 ====================
+
+/// 检查是否是签名者
+fn is_signer(wallet: &MultisigWallet, addr: Address) -> bool {
+    for signer in &wallet.signers {
+        if *signer == addr {
+            return true;
+        }
+    }
+    false
+}
+
+/// 检查是否已经签名
+fn has_signed(proposal: &Proposal, addr: Address) -> bool {
+    for sig in &proposal.signatures {
+        if sig.signer == addr {
+            return true;
+        }
+    }
+    false
+}
+
+/// 计算钱包哈希
+fn hash_wallet(wallet: &MultisigWallet) -> Hash {
+    // 简化实现，实际应该使用 BLAKE3
+    Hash::zero()
+}
+
+// ==================== Lock 定义 ====================
+
+/// 验证是签名者
+lock is_signer_lock(wallet: &MultisigWallet, addr: Address) -> bool {
+    is_signer(wallet, addr)
+}
+
+/// 验证提案可以执行
+lock can_execute(proposal: &Proposal, current_time: u64) -> bool {
+    proposal.signatures.len() >= proposal.required_signatures as usize
+        && current_time < proposal.expires_at
+}
+
+/// 验证提案可以取消
+lock can_cancel(proposal: &Proposal, caller: Address) -> bool {
+    proposal.proposer == caller
+}
+
+/// 验证签名数量足够
+lock has_enough_signatures(proposal: &Proposal) -> bool {
+    proposal.signatures.len() >= proposal.required_signatures as usize
+}
+
+/// 验证未过期
+lock not_expired(proposal: &Proposal, current_time: u64) -> bool {
+    current_time < proposal.expires_at
+}

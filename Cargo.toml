@@ -61,7 +61,7 @@ members = [
     "metrics/core",
     "metrics/perf_monitor",
     "utils/alloc",
-    "sdk/adaptor",
+    "sdk/adaptor", "cellscript",
 ]
 
 [workspace.package]

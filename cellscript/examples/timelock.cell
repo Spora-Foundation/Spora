@@ -1,0 +1,417 @@
+// 时间锁合约示例
+// 展示 CellScript 的时间相关操作和条件释放
+
+module timelock_contract;
+
+// ==================== 常量定义 ====================
+
+// 最小锁定时间 (区块数)
+const MIN_LOCK_PERIOD: u64 = 10;
+
+// 最大锁定时间 (约 10 年)
+const MAX_LOCK_PERIOD: u64 = 2628000;
+
+// ==================== 类型定义 ====================
+
+/// 锁定类型
+enum LockType {
+    Absolute,     // 绝对时间锁定
+    Relative,     // 相对时间锁定
+}
+
+/// 时间锁资源
+#[capability(store)]
+resource TimeLock {
+    owner: Address,
+    lock_type: LockType,
+    unlock_height: u64,       // 解锁区块高度
+    created_at: u64,          // 创建区块高度
+}
+
+/// 锁定资产
+#[capability(store)]
+resource LockedAsset {
+    asset_type: AssetType,
+    amount: u64,
+    lock_hash: Hash,          // 关联的时间锁哈希
+}
+
+/// 资产类型
+enum AssetType {
+    Native,
+    Token(Hash),             // 代币合约哈希
+    NFT(Hash, u64),          // NFT 合约哈希和 token ID
+}
+
+/// 释放请求
+#[lifecycle(Created, Processing, Released, Cancelled)]
+receipt ReleaseRequest {
+    lock_hash: Hash,
+    requester: Address,
+    requested_at: u64,
+}
+
+/// 释放记录
+receipt ReleaseRecord {
+    lock_hash: Hash,
+    released_at: u64,
+    released_by: Address,
+}
+
+/// 紧急释放请求
+#[lifecycle(Created, Pending, Approved, Rejected)]
+receipt EmergencyRelease {
+    lock_hash: Hash,
+    requester: Address,
+    reason: String,
+    requested_at: u64,
+    approvers: Vec<Address>,
+}
+
+// ==================== Action 定义 ====================
+
+/// 创建绝对时间锁
+#[effect(Creating)]
+#[scheduler_hint(parallel, estimated_cycles = 3000)]
+action create_absolute_lock(
+    owner: Address,
+    unlock_height: u64,
+    current_height: u64,
+) -> TimeLock {
+    // 验证解锁高度
+    assert!(
+        unlock_height > current_height + MIN_LOCK_PERIOD,
+        "Unlock height too close"
+    );
+    assert!(
+        unlock_height <= current_height + MAX_LOCK_PERIOD,
+        "Unlock height too far"
+    );
+    
+    let lock = create TimeLock {
+        owner: owner,
+        lock_type: LockType::Absolute,
+        unlock_height: unlock_height,
+        created_at: current_height,
+    };
+    
+    lock
+}
+
+/// 创建相对时间锁
+#[effect(Creating)]
+#[scheduler_hint(parallel, estimated_cycles = 3000)]
+action create_relative_lock(
+    owner: Address,
+    lock_period: u64,
+    current_height: u64,
+) -> TimeLock {
+    // 验证锁定周期
+    assert!(lock_period >= MIN_LOCK_PERIOD, "Lock period too short");
+    assert!(lock_period <= MAX_LOCK_PERIOD, "Lock period too long");
+    
+    let lock = create TimeLock {
+        owner: owner,
+        lock_type: LockType::Relative,
+        unlock_height: current_height + lock_period,
+        created_at: current_height,
+    };
+    
+    lock
+}
+
+/// 锁定资产
+#[effect(Creating)]
+#[scheduler_hint(sequential, estimated_cycles = 5000)]
+action lock_asset(
+    time_lock: &TimeLock,
+    asset_type: AssetType,
+    amount: u64,
+) -> LockedAsset {
+    assert!(amount > 0, "Amount must be positive");
+    
+    let locked = create LockedAsset {
+        asset_type: asset_type,
+        amount: amount,
+        lock_hash: hash_lock(time_lock),
+    };
+    
+    locked
+}
+
+/// 请求释放
+#[effect(Creating)]
+#[scheduler_hint(parallel, estimated_cycles = 2000)]
+action request_release(
+    time_lock: &TimeLock,
+    requester: Address,
+    current_height: u64,
+) -> ReleaseRequest {
+    // 验证可以释放
+    assert!(can_unlock(time_lock, current_height), "Cannot unlock yet");
+    
+    let request = create ReleaseRequest {
+        lock_hash: hash_lock(time_lock),
+        requester: requester,
+        requested_at: current_height,
+    };
+    
+    request
+}
+
+/// 执行释放
+#[effect(Destroying)]
+#[scheduler_hint(sequential, estimated_cycles = 4000)]
+action execute_release(
+    time_lock: TimeLock,
+    locked_asset: LockedAsset,
+    request: ReleaseRequest,
+    executor: Address,
+    current_height: u64,
+) -> ReleaseRecord {
+    // 验证所有权
+    assert!(time_lock.owner == executor, "Not the owner");
+    
+    // 验证可以解锁
+    assert!(can_unlock(&time_lock, current_height), "Cannot unlock yet");
+    
+    // 验证资产匹配
+    assert!(
+        locked_asset.lock_hash == hash_lock(&time_lock),
+        "Asset does not match lock"
+    );
+    
+    // 验证请求匹配
+    assert!(
+        request.lock_hash == hash_lock(&time_lock),
+        "Request does not match lock"
+    );
+    
+    // 销毁资源
+    destroy time_lock;
+    destroy locked_asset;
+    destroy request;
+    
+    // 创建释放记录
+    let record = create ReleaseRecord {
+        lock_hash: request.lock_hash,
+        released_at: current_height,
+        released_by: executor,
+    };
+    
+    record
+}
+
+/// 创建紧急释放请求
+#[effect(Creating)]
+#[scheduler_hint(parallel, estimated_cycles = 3000)]
+action request_emergency_release(
+    time_lock: &TimeLock,
+    requester: Address,
+    reason: String,
+    current_height: u64,
+) -> EmergencyRelease {
+    // 验证请求者是所有者
+    assert!(time_lock.owner == requester, "Not the owner");
+    
+    // 验证尚未解锁
+    assert!(!can_unlock(time_lock, current_height), "Already unlockable");
+    
+    let emergency = create EmergencyRelease {
+        lock_hash: hash_lock(time_lock),
+        requester: requester,
+        reason: reason,
+        requested_at: current_height,
+        approvers: Vec::new(),
+    };
+    
+    emergency
+}
+
+/// 批准紧急释放
+#[effect(Mutating)]
+#[scheduler_hint(parallel, estimated_cycles = 2000)]
+action approve_emergency_release(
+    emergency: &mut EmergencyRelease,
+    approver: Address,
+    required_approvals: u8,
+) {
+    // 验证未重复批准
+    for existing in &emergency.approvers {
+        assert!(*existing != approver, "Already approved");
+    }
+    
+    // 添加批准
+    emergency.approvers.push(approver);
+    
+    // 如果达到所需批准数，状态变为 Approved
+    // (实际状态转换由调度器处理)
+}
+
+/// 执行紧急释放
+#[effect(Destroying)]
+#[scheduler_hint(sequential, estimated_cycles = 5000)]
+action execute_emergency_release(
+    time_lock: TimeLock,
+    locked_asset: LockedAsset,
+    emergency: EmergencyRelease,
+    executor: Address,
+    required_approvals: u8,
+    current_height: u64,
+) -> ReleaseRecord {
+    // 验证所有权
+    assert!(time_lock.owner == executor, "Not the owner");
+    
+    // 验证有足够的批准
+    assert!(
+        emergency.approvers.len() >= required_approvals as usize,
+        "Not enough approvals"
+    );
+    
+    // 验证匹配
+    assert!(
+        emergency.lock_hash == hash_lock(&time_lock),
+        "Emergency request does not match"
+    );
+    assert!(
+        locked_asset.lock_hash == hash_lock(&time_lock),
+        "Asset does not match"
+    );
+    
+    // 销毁资源
+    destroy time_lock;
+    destroy locked_asset;
+    destroy emergency;
+    
+    // 创建释放记录
+    let record = create ReleaseRecord {
+        lock_hash: hash_lock(&time_lock),
+        released_at: current_height,
+        released_by: executor,
+    };
+    
+    record
+}
+
+/// 延长锁定时间
+#[effect(Mutating)]
+#[scheduler_hint(parallel, estimated_cycles = 2000)]
+action extend_lock(
+    time_lock: &mut TimeLock,
+    additional_period: u64,
+    owner: Address,
+    current_height: u64,
+) {
+    // 验证所有权
+    assert!(time_lock.owner == owner, "Not the owner");
+    
+    // 验证尚未解锁
+    assert!(!can_unlock(time_lock, current_height), "Already unlocked");
+    
+    // 验证新锁定时间不超过最大限制
+    let new_unlock_height = time_lock.unlock_height + additional_period;
+    assert!(
+        new_unlock_height <= current_height + MAX_LOCK_PERIOD,
+        "New unlock height too far"
+    );
+    
+    time_lock.unlock_height = new_unlock_height;
+}
+
+/// 批量创建时间锁
+#[effect(Creating)]
+#[scheduler_hint(sequential, estimated_cycles = 15000)]
+action batch_create_locks(
+    owners: Vec<Address>,
+    unlock_heights: Vec<u64>,
+    current_height: u64,
+) -> Vec<TimeLock> {
+    assert!(
+        owners.len() == unlock_heights.len(),
+        "Owners and heights count mismatch"
+    );
+    
+    let mut locks = Vec::new();
+    
+    for i in 0..owners.len() {
+        let lock = create TimeLock {
+            owner: owners[i],
+            lock_type: LockType::Absolute,
+            unlock_height: unlock_heights[i],
+            created_at: current_height,
+        };
+        locks.push(lock);
+    }
+    
+    locks
+}
+
+// ==================== 辅助函数 ====================
+
+/// 检查是否可以解锁
+fn can_unlock(time_lock: &TimeLock, current_height: u64) -> bool {
+    current_height >= time_lock.unlock_height
+}
+
+/// 计算剩余锁定区块数
+fn remaining_blocks(time_lock: &TimeLock, current_height: u64) -> u64 {
+    if current_height >= time_lock.unlock_height {
+        0
+    } else {
+        time_lock.unlock_height - current_height
+    }
+}
+
+/// 计算锁定进度 (0-100)
+fn lock_progress(time_lock: &TimeLock, current_height: u64) -> u8 {
+    if current_height >= time_lock.unlock_height {
+        100
+    } else {
+        let elapsed = current_height - time_lock.created_at;
+        let total = time_lock.unlock_height - time_lock.created_at;
+        
+        if total == 0 {
+            100
+        } else {
+            let progress = (elapsed * 100) / total;
+            if progress > 100 {
+                100
+            } else {
+                progress as u8
+            }
+        }
+    }
+}
+
+/// 计算时间锁哈希
+fn hash_lock(time_lock: &TimeLock) -> Hash {
+    // 简化实现
+    Hash::zero()
+}
+
+// ==================== Lock 定义 ====================
+
+/// 验证可以解锁
+lock can_unlock_lock(time_lock: &TimeLock, current_height: u64) -> bool {
+    can_unlock(time_lock, current_height)
+}
+
+/// 验证是所有者
+lock is_owner(time_lock: &TimeLock, addr: Address) -> bool {
+    time_lock.owner == addr
+}
+
+/// 验证资产匹配
+lock asset_matches(locked_asset: &LockedAsset, time_lock: &TimeLock) -> bool {
+    locked_asset.lock_hash == hash_lock(time_lock)
+}
+
+/// 验证紧急释放已批准
+lock emergency_approved(emergency: &EmergencyRelease, required: u8) -> bool {
+    emergency.approvers.len() >= required as usize
+}
+
+/// 验证未过期
+lock not_expired(time_lock: &TimeLock, current_height: u64) -> bool {
+    current_height < time_lock.unlock_height
+}
