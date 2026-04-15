@@ -63,13 +63,16 @@ impl DaemonArgs {
     }
 
     pub fn to_command_args(&self, test_name: &str) -> Vec<String> {
+        let mut enabled_features = vec!["integration-tests", "devnet-prealloc"];
+        #[cfg(feature = "vm")]
+        enabled_features.push("vm");
         let mut args = vec![
             "test".to_owned(),
             "--package".to_owned(),
             "spora-testing-integration".to_owned(),
             "--lib".to_owned(),
             "--features".to_owned(),
-            "devnet-prealloc".to_owned(),
+            enabled_features.join(","),
             "--".to_owned(),
             test_name.to_owned(),
             "--exact".to_owned(),
@@ -100,6 +103,7 @@ impl DaemonArgs {
         faster_hex::hex_decode(self.private_key.as_bytes(), &mut private_key_bytes).unwrap();
         let schnorr_key = secp256k1::Keypair::from_seckey_slice(secp256k1::SECP256K1, &private_key_bytes).unwrap();
         Address::new_std_single(NetworkType::Simnet.into(), &schnorr_key.public_key().x_only_public_key().0.serialize())
+            .expect("prealloc address derived from CLI private key must be valid")
     }
 
     #[cfg(feature = "devnet-prealloc")]

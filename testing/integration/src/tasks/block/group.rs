@@ -39,7 +39,8 @@ impl MinerGroupTask {
 
         // Mining key and address
         let (sk, pk) = &secp256k1::generate_keypair(&mut thread_rng());
-        let pay_address = Address::new_std_single(network.network_type().into(), &pk.x_only_public_key().0.serialize());
+        let pay_address = Address::new_std_single(network.network_type().into(), &pk.x_only_public_key().0.serialize())
+            .expect("generated miner address must be valid");
         debug!("Generated private key {} and address {}", sk.display_secret(), pay_address);
 
         // Block template receiver

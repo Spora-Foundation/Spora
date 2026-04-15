@@ -825,3 +825,72 @@ async fn sanity_test() {
     drop(client);
     daemon.shutdown();
 }
+
+/// `cargo test --package spora-testing-integration --lib --features vm -- rpc_tests::resumable_virtual_state_smoke_test --exact --nocapture --test-threads=1`
+#[cfg(feature = "vm")]
+#[tokio::test]
+async fn resumable_virtual_state_smoke_test() {
+    spora_core::log::try_init_logger("info");
+    spora_core::panic::configure_panic();
+
+    let args = Args {
+        simnet: true,
+        disable_upnp: true,
+        enable_unsynced_mining: true,
+        block_template_cache_lifetime: Some(0),
+        unsafe_rpc: true,
+        resumable_virtual_state_step_cycles: Some(1),
+        ..Default::default()
+    };
+
+    let fd_total_budget = fd_budget::limit();
+    let mut daemon = Daemon::new_random_with_args(args, fd_total_budget);
+    let rpc_client = daemon.start().await;
+
+    let (sender, event_receiver) = async_channel::unbounded();
+    rpc_client.start(Some(Arc::new(ChannelNotify::new(sender)))).await;
+    rpc_client.start_notify(Default::default(), Scope::VirtualDaaScoreChanged(VirtualDaaScoreChangedScope {})).await.unwrap();
+
+    let GetBlockTemplateResponse { block, is_synced } = rpc_client
+        .get_block_template_call(None, GetBlockTemplateRequest { pay_address: test_address(9), extra_data: Vec::new() })
+        .await
+        .unwrap();
+    assert!(!is_synced);
+
+    let submit_response = rpc_client.submit_block(block.clone(), false).await.unwrap();
+    assert_eq!(submit_response.report, SubmitBlockReport::Success);
+
+    while let Ok(notification) = match tokio::time::timeout(Duration::from_secs(1), event_receiver.recv()).await {
+        Ok(res) => res,
+        Err(elapsed) => panic!("expected virtual event before {}", elapsed),
+    } {
+        match notification {
+            Notification::VirtualDaaScoreChanged(msg) if msg.virtual_daa_score == 1 => break,
+            Notification::VirtualDaaScoreChanged(msg) if msg.virtual_daa_score > 1 => {
+                panic!("DAA score too high for a single submitted block")
+            }
+            Notification::VirtualDaaScoreChanged(_) => {}
+            _ => {}
+        }
+    }
+
+    let sink = rpc_client.get_sink_call(None, GetSinkRequest {}).await.unwrap().sink;
+    assert_ne!(sink, SIMNET_GENESIS.hash);
+
+    let chain = rpc_client
+        .get_virtual_chain_from_block_call(
+            None,
+            GetVirtualChainFromBlockRequest {
+                start_hash: SIMNET_GENESIS.hash,
+                include_accepted_transaction_ids: false,
+                min_confirmation_count: None,
+            },
+        )
+        .await
+        .unwrap();
+    assert!(chain.added_chain_block_hashes.contains(&sink));
+    assert!(chain.removed_chain_block_hashes.is_empty());
+
+    rpc_client.disconnect().await.unwrap();
+    daemon.shutdown();
+}

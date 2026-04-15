@@ -79,7 +79,8 @@ async fn bench_bbt_latency() {
     // Setup
     //
     let (prealloc_sk, prealloc_pk) = secp256k1::generate_keypair(&mut thread_rng());
-    let prealloc_address = Address::new_std_single(NetworkType::Simnet.into(), &prealloc_pk.x_only_public_key().0.serialize());
+    let prealloc_address = Address::new_std_single(NetworkType::Simnet.into(), &prealloc_pk.x_only_public_key().0.serialize())
+        .expect("prealloc address must be valid");
     let schnorr_key = secp256k1::Keypair::from_secret_key(secp256k1::SECP256K1, &prealloc_sk);
     let lock_script = pay_to_address_lock_script(&prealloc_address);
 
@@ -112,7 +113,8 @@ async fn bench_bbt_latency() {
 
     // Mining key and address
     let (sk, pk) = &secp256k1::generate_keypair(&mut thread_rng());
-    let pay_address = Address::new_std_single(network.network_type().into(), &pk.x_only_public_key().0.serialize());
+    let pay_address = Address::new_std_single(network.network_type().into(), &pk.x_only_public_key().0.serialize())
+        .expect("miner address must be valid");
     debug!("Generated private key {} and address {}", sk.display_secret(), pay_address);
 
     let current_template = Arc::new(Mutex::new(bbt_client.get_block_template(pay_address.clone(), vec![]).await.unwrap()));
@@ -325,7 +327,8 @@ async fn bench_bbt_latency_2() {
     // Setup
     //
     let (prealloc_sk, prealloc_pk) = secp256k1::generate_keypair(&mut thread_rng());
-    let prealloc_address = Address::new_std_single(NetworkType::Simnet.into(), &prealloc_pk.x_only_public_key().0.serialize());
+    let prealloc_address = Address::new_std_single(NetworkType::Simnet.into(), &prealloc_pk.x_only_public_key().0.serialize())
+        .expect("prealloc address must be valid");
     let schnorr_key = secp256k1::Keypair::from_secret_key(secp256k1::SECP256K1, &prealloc_sk);
     let lock_script = pay_to_address_lock_script(&prealloc_address);
 

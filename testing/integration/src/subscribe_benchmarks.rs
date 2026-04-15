@@ -68,7 +68,10 @@ fn create_client_addresses(index: usize, network_id: &NetworkId) -> Vec<Address>
         max_address.max(WALLET_ADDRESSES) - WALLET_ADDRESSES
     };
     (min_address..max_address)
-        .map(|x| Address::new_std_single((*network_id).into(), &Uint256::from_u64(x as u64).to_le_bytes()))
+        .map(|x| {
+            Address::new_std_single((*network_id).into(), &Uint256::from_u64(x as u64).to_le_bytes())
+                .expect("generated subscription address must be valid")
+        })
         .collect_vec()
 }
 
@@ -176,7 +179,8 @@ async fn cells_changed_subscriptions_client(address_cycle_seconds: u64, address_
     // Setup
     //
     let (prealloc_sk, prealloc_pk) = secp256k1::generate_keypair(&mut thread_rng());
-    let prealloc_address = Address::new_std_single(NetworkType::Simnet.into(), &prealloc_pk.x_only_public_key().0.serialize());
+    let prealloc_address = Address::new_std_single(NetworkType::Simnet.into(), &prealloc_pk.x_only_public_key().0.serialize())
+        .expect("prealloc address must be valid");
     let schnorr_key = secp256k1::Keypair::from_secret_key(secp256k1::SECP256K1, &prealloc_sk);
     let lock_script = pay_to_address_lock_script(&prealloc_address);
 

@@ -1,3 +1,5 @@
+#[cfg(all(feature = "vm", feature = "devnet-prealloc"))]
+use crate::common::args::ArgsBuilder;
 use crate::common::{
     client::ListeningClient,
     client_notify::ChannelNotify,
@@ -73,8 +75,13 @@ async fn daemon_mining_test() {
     // Mine 10 blocks to daemon #1
     let mut last_block_hash = None;
     for i in 0..10 {
-        let template =
-            rpc_client1.get_block_template(Address::new_std_single(sporad1.network.into(), &[0; 32]), vec![]).await.unwrap();
+        let template = rpc_client1
+            .get_block_template(
+                Address::new_std_single(sporad1.network.into(), &[0; 32]).expect("simnet mining address must be valid"),
+                vec![],
+            )
+            .await
+            .unwrap();
         let header: Header = (&template.block.header).into();
         last_block_hash = Some(header.hash);
         rpc_client1.submit_block(template.block, false).await.unwrap();
@@ -116,6 +123,150 @@ async fn daemon_mining_test() {
     for accepted_txs_pair in vc.accepted_transaction_ids {
         assert_eq!(accepted_txs_pair.accepted_transaction_ids.len(), 1);
     }
+}
+
+/// `cargo test --package spora-testing-integration --lib --features "integration-tests devnet-prealloc vm" -- daemon_integration_tests::daemon_resumable_virtual_state_prealloc_tx_test --exact --nocapture --test-threads=1`
+#[cfg(all(feature = "vm", feature = "devnet-prealloc"))]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+async fn daemon_resumable_virtual_state_prealloc_tx_test() {
+    init_allocator_with_default_settings();
+    spora_core::log::try_init_logger("INFO");
+
+    let (prealloc_sk, prealloc_pk) = secp256k1::generate_keypair(&mut thread_rng());
+    let prealloc_address = Address::new_std_single(
+        spora_consensus_core::network::NetworkType::Simnet.into(),
+        &prealloc_pk.x_only_public_key().0.serialize(),
+    )
+    .expect("prealloc address must be valid");
+    let recipient_address = Address::new_std_single(spora_consensus_core::network::NetworkType::Simnet.into(), &[7; 32])
+        .expect("recipient address must be valid");
+    let miner_address = Address::new_std_single(spora_consensus_core::network::NetworkType::Simnet.into(), &[9; 32])
+        .expect("miner address must be valid");
+    let prealloc_schnorr_key = secp256k1::Keypair::from_secret_key(secp256k1::SECP256K1, &prealloc_sk);
+
+    let args = ArgsBuilder::simnet(4, 500)
+        .prealloc_address(prealloc_address.clone())
+        .cellindex(true)
+        .resumable_virtual_state_step_cycles(1)
+        .build();
+
+    let total_fd_limit = 10;
+    let mut sporad = Daemon::new_random_with_args(args, total_fd_limit);
+    let rpc_client = sporad.start().await;
+
+    let (sender, event_receiver) = async_channel::unbounded();
+    rpc_client.start(Some(Arc::new(ChannelNotify::new(sender)))).await;
+    rpc_client.start_notify(Default::default(), VirtualDaaScoreChangedScope {}.into()).await.unwrap();
+
+    for expected_daa in 1..=10 {
+        let template = rpc_client.get_block_template(miner_address.clone(), vec![]).await.unwrap();
+        rpc_client.submit_block(template.block, false).await.unwrap();
+
+        while let Ok(notification) = match tokio::time::timeout(Duration::from_secs(1), event_receiver.recv()).await {
+            Ok(res) => res,
+            Err(elapsed) => panic!("expected virtual event before {}", elapsed),
+        } {
+            match notification {
+                Notification::VirtualDaaScoreChanged(msg) if msg.virtual_daa_score == expected_daa => break,
+                Notification::VirtualDaaScoreChanged(msg) if msg.virtual_daa_score > expected_daa => {
+                    panic!("DAA score advanced too far while preparing spendable prealloc cells")
+                }
+                Notification::VirtualDaaScoreChanged(_) => {}
+                _ => panic!("expected only DAA score notifications"),
+            }
+        }
+    }
+
+    wait_for(
+        50,
+        20,
+        {
+            let client = rpc_client.clone();
+            let address = prealloc_address.clone();
+            move || {
+                let client = client.clone();
+                let address = address.clone();
+                async move { !fetch_spendable_cells(&client, address, SIMNET_PARAMS.coinbase_maturity()).await.is_empty() }
+            }
+        },
+        "preallocated cells did not become spendable in time",
+    )
+    .await;
+
+    let spendable_cells = fetch_spendable_cells(&rpc_client, prealloc_address.clone(), SIMNET_PARAMS.coinbase_maturity()).await;
+    assert!(!spendable_cells.is_empty());
+
+    let tx_amount = spendable_cells[0].1.capacity() / 2;
+    let transaction = generate_tx(prealloc_schnorr_key, &spendable_cells[..1], tx_amount, 1, &recipient_address);
+    let transaction_id = spora_hashes::Hash::from_bytes(transaction.id());
+    rpc_client.submit_transaction((&transaction).into(), false).await.unwrap();
+
+    wait_for(
+        50,
+        20,
+        {
+            let client = rpc_client.clone();
+            move || {
+                let client = client.clone();
+                async move { client.get_mempool_entry(transaction_id, false, false).await.is_ok() }
+            }
+        },
+        "prealloc transaction was not added to the mempool",
+    )
+    .await;
+
+    let template = rpc_client.get_block_template(miner_address, vec![]).await.unwrap();
+    assert!(
+        template
+            .block
+            .transactions
+            .iter()
+            .skip(1)
+            .filter_map(|rpc_tx| spora_consensus_core::tx::CellTx::try_from(rpc_tx.clone()).ok())
+            .any(|tx| spora_hashes::Hash::from_bytes(tx.id()) == transaction_id),
+        "expected block template to include the submitted prealloc transaction"
+    );
+    rpc_client.submit_block(template.block, false).await.unwrap();
+
+    while let Ok(notification) = match tokio::time::timeout(Duration::from_secs(1), event_receiver.recv()).await {
+        Ok(res) => res,
+        Err(elapsed) => panic!("expected virtual event before {}", elapsed),
+    } {
+        match notification {
+            Notification::VirtualDaaScoreChanged(msg) if msg.virtual_daa_score == 11 => break,
+            Notification::VirtualDaaScoreChanged(msg) if msg.virtual_daa_score > 11 => {
+                panic!("DAA score advanced too far while confirming prealloc transaction")
+            }
+            Notification::VirtualDaaScoreChanged(_) => {}
+            _ => panic!("expected only DAA score notifications"),
+        }
+    }
+
+    wait_for(
+        50,
+        20,
+        {
+            let client = rpc_client.clone();
+            let address = recipient_address.clone();
+            move || {
+                let client = client.clone();
+                let address = address.clone();
+                async move {
+                    client
+                        .get_cells_by_addresses(vec![address])
+                        .await
+                        .unwrap()
+                        .iter()
+                        .any(|cell| cell.outpoint.transaction_id == transaction_id)
+                }
+            }
+        },
+        "recipient cell from the prealloc transaction was not indexed after block acceptance",
+    )
+    .await;
+
+    let recipient_cells = rpc_client.get_cells_by_addresses(vec![recipient_address]).await.unwrap();
+    assert!(recipient_cells.iter().any(|cell| cell.outpoint.transaction_id == transaction_id));
 }
 
 /// `cargo test --release --package spora-testing-integration --lib -- daemon_integration_tests::daemon_cells_propagation_test`
@@ -167,16 +318,18 @@ async fn daemon_cells_propagation_test() {
 
     // Mining key and address
     let (miner_sk, miner_pk) = secp256k1::generate_keypair(&mut thread_rng());
-    let miner_address = Address::new_std_single(sporad1.network.into(), &miner_pk.x_only_public_key().0.serialize());
+    let miner_address = Address::new_std_single(sporad1.network.into(), &miner_pk.x_only_public_key().0.serialize())
+        .expect("miner address must be valid");
     let miner_schnorr_key = secp256k1::Keypair::from_secret_key(secp256k1::SECP256K1, &miner_sk);
     let miner_lock_script = pay_to_address_lock_script(&miner_address);
 
     // User key and address
     let (_user_sk, user_pk) = secp256k1::generate_keypair(&mut thread_rng());
-    let user_address = Address::new_std_single(sporad1.network.into(), &user_pk.x_only_public_key().0.serialize());
+    let user_address = Address::new_std_single(sporad1.network.into(), &user_pk.x_only_public_key().0.serialize())
+        .expect("user address must be valid");
 
     // Some dummy non-monitored address
-    let blank_address = Address::new_std_single(sporad1.network.into(), &[0; 32]);
+    let blank_address = Address::new_std_single(sporad1.network.into(), &[0; 32]).expect("blank address must be valid");
 
     // Mine 1000 blocks to daemon #1
     let initial_blocks = coinbase_maturity;
@@ -260,8 +413,8 @@ async fn daemon_cells_propagation_test() {
     let cells = fetch_spendable_cells(&rpc_client1, miner_address.clone(), coinbase_maturity).await;
     assert_eq!(cells.len(), EXTRA_BLOCKS - 1);
     for cell in cells.iter() {
-        assert!(cell.1.is_coinbase);
-        assert_eq!(cell.1.amount, SIMNET_PARAMS.pre_deflationary_phase_base_subsidy);
+        assert!(cell.1.is_cellbase);
+        assert_eq!(cell.1.amount(), SIMNET_PARAMS.pre_deflationary_phase_base_subsidy);
         assert_eq!(cell.1.lock_hash, miner_lock_script.hash());
     }
 
@@ -278,7 +431,7 @@ async fn daemon_cells_propagation_test() {
     rpc_client1.submit_transaction((&transaction).into(), false).await.unwrap();
 
     let check_client = rpc_client1.clone();
-    let transaction_id = transaction.id();
+    let transaction_id = spora_hashes::Hash::from_bytes(transaction.id());
     wait_for(
         50,
         20,
@@ -327,7 +480,7 @@ async fn daemon_cells_propagation_test() {
     let new_cells = rpc_client1.get_cells_by_addresses(vec![user_address]).await.unwrap();
     let new_cell = new_cells
         .iter()
-        .find(|cell| cell.outpoint.transaction_id == transaction.id())
+        .find(|cell| cell.outpoint.transaction_id == spora_hashes::Hash::from_bytes(transaction.id()))
         .expect("Did not find a cell for the tx we just created but expected to");
 
     let cell_return_address = rpc_client1

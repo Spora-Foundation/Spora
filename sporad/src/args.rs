@@ -494,12 +494,25 @@ fn arg_match_many_unwrap_or<T: Clone + Send + Sync + 'static>(m: &clap::ArgMatch
 mod tests {
     use super::Args;
     use spora_consensus_core::{config::Config, network::NetworkType};
+    use std::io::Write;
+    use tempfile::NamedTempFile;
 
     #[test]
     fn parse_resumable_virtual_state_step_cycles_from_cli() {
-        let args =
-            Args::parse(["sporad", "--resumable-virtual-state-step-cycles=123"]).expect("cli parsing should accept resumable step cycles");
+        let args = Args::parse(["sporad", "--resumable-virtual-state-step-cycles=123"])
+            .expect("cli parsing should accept resumable step cycles");
         assert_eq!(args.resumable_virtual_state_step_cycles, Some(123));
+    }
+
+    #[test]
+    fn parse_resumable_virtual_state_step_cycles_from_config_file() {
+        let mut config_file = NamedTempFile::new().expect("temp config file should be created");
+        writeln!(config_file, "resumable-virtual-state-step-cycles = 321").expect("config file should be writable");
+
+        let args = Args::parse(["sporad", "--configfile", config_file.path().to_str().expect("temp path should be valid utf-8")])
+            .expect("config parsing should accept resumable step cycles");
+
+        assert_eq!(args.resumable_virtual_state_step_cycles, Some(321));
     }
 
     #[test]

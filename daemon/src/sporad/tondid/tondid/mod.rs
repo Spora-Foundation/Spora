@@ -25,6 +25,7 @@ pub struct SporadConfig {
     pub inbound_limit: Option<usize>,
     pub outbound_target: Option<usize>,
     pub async_threads: Option<usize>,
+    pub resumable_virtual_state_step_cycles: Option<u64>,
     pub no_logfiles: bool,
     // ---
 }
@@ -57,6 +58,7 @@ impl Default for SporadConfig {
             inbound_limit: None,
             outbound_target: None,
             async_threads: None,
+            resumable_virtual_state_step_cycles: None,
             no_logfiles: false,
             // ---
         }
@@ -143,6 +145,14 @@ impl TryFrom<SporadConfig> for Vec<String> {
         if args.perf_metrics {
             argv.push("--perf-metrics");
             argv.push(perf_metrics_interval_sec.as_str());
+        }
+
+        let resumable_virtual_state_step_cycles = args
+            .resumable_virtual_state_step_cycles
+            .filter(|step_cycles| *step_cycles > 0)
+            .map(|step_cycles| format!("--resumable-virtual-state-step-cycles={step_cycles}"));
+        if let Some(flag) = resumable_virtual_state_step_cycles.as_ref() {
+            argv.push(flag);
         }
 
         Ok(argv.into_iter().map(String::from).collect())

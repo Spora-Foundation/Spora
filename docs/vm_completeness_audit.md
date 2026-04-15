@@ -33,6 +33,17 @@
 - 地址锁现代化迁移已与 VM 主路径联动：legacy inline 锁在终态策略下通过 `CellValidator` 与 `virtual_processor` 回归测试覆盖一致拒绝语义。
 - **资源限制已完全 enforce**：tx-level cycles、block-level cycles、script size、VM memory 均已落地。
 
+### 运行时开关
+
+- `VirtualStateProcessor` 的 resumable runtime 现在已有正式配置入口，而不是依赖临时环境变量。
+- 共识配置字段：`Config::resumable_virtual_state_step_cycles`
+- 节点 CLI 参数：`--resumable-virtual-state-step-cycles=<u64>`
+- `sporad` config-file 字段：`resumable-virtual-state-step-cycles = 123`
+- `simpa` 也支持同名参数，便于仿真环境复现实测路径。
+- 该能力当前是 **opt-in**：
+- 不设置时，节点仍走现有 direct virtual-state 主路径。
+- 设置正整数时，virtual-state 计算会按 step-cycles 分段推进并自动 resume 到完成。
+
 ### 最关键结论
 
 1. **真实 VM 执行已经落地。**
@@ -222,6 +233,7 @@ cargo test -p spora-exec --features vm
    - InheritedFd ✅ - FD 继承
    - VmScheduler ✅ - 多VM状态机（MAX_VMS=16, MAX_INSTANTIATED=4）
    - 可恢复验证 ✅ - suspend/resume/complete
+   - 节点级 runtime 配置 ✅ - `sporad` / config-file / `simpa` 已可显式启用 resumable virtual-state
 
 ### 工程判断
 

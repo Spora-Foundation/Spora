@@ -61,6 +61,11 @@ impl ArgsBuilder {
         self
     }
 
+    pub fn resumable_virtual_state_step_cycles(mut self, step_cycles: u64) -> Self {
+        self.args.resumable_virtual_state_step_cycles = Some(step_cycles);
+        self
+    }
+
     pub fn apply_args<F>(mut self, edit_func: F) -> Self
     where
         F: Fn(&mut Args),

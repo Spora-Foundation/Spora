@@ -494,6 +494,7 @@ pub struct VirtualStateProcessor {
     pub(super) max_block_parents: u8,
     pub(super) mergeset_size_limit: u64,
     pub(super) coinbase_maturity: u64,
+    #[cfg_attr(not(feature = "vm"), allow(dead_code))]
     pub(super) resumable_virtual_state_step_cycles: Option<u64>,
 
     // Stores

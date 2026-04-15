@@ -3,15 +3,13 @@ use itertools::Itertools;
 use rayon::prelude::{IntoParallelIterator, ParallelIterator};
 use secp256k1::Keypair;
 use spora_addresses::Address;
-use spora_consensus_client::{Transaction, TransactionInput, TransactionOutput};
 use spora_consensus_core::{
-    cell_diff::{CellCollection, CellDiff},
-    constants::TX_VERSION,
+    cell_diff::{CellCollection, CellMeta},
     header::Header,
     sign::sign,
     tx::{
-        pay_to_address_lock_script, CellEntry, CellInput, CellOutput, CellTx, MutableTransaction, Script, SignableTransaction,
-        TransactionId, TransactionOutpoint,
+        pay_to_address_lock_script, CellInput, CellOutput, CellTx, MutableTransaction, Script, SignableTransaction, TransactionId,
+        TransactionOutpoint,
     },
 };
 use spora_core::info;
@@ -35,6 +33,22 @@ const fn estimated_mass(num_inputs: usize, num_outputs: u64) -> u64 {
 pub const fn required_fee(num_inputs: usize, num_outputs: u64) -> u64 {
     const FEE_RATE: u64 = 10;
     FEE_RATE * estimated_mass(num_inputs, num_outputs)
+}
+
+fn cell_meta_from_output(tx: &CellTx, output_index: u32) -> CellMeta {
+    let output = &tx.outputs[output_index as usize];
+    let output_data = tx.outputs_data.get(output_index as usize).map(Vec::as_slice).unwrap_or(&[]);
+    let out_point = TransactionOutpoint::new(tx.id(), output_index);
+    CellMeta {
+        out_point,
+        capacity: output.capacity,
+        data_bytes: output_data.len() as u64,
+        lock_hash: output.lock.hash(),
+        type_hash: output.type_.as_ref().map(|script| script.hash()),
+        data_hash: [0; 32],
+        block_daa_score: 0,
+        is_cellbase: false,
+    }
 }
 
 /// Builds a TX DAG based on the initial cell set and on constant params
@@ -62,8 +76,7 @@ pub fn generate_tx_dag(
     let mut txs = Vec::with_capacity(target_levels * target_width);
 
     for i in 0..target_levels {
-        let mut cell_diff = CellDiff::default();
-        cell_set
+        let signed_txs = cell_set
             .iter()
             .take(num_inputs * target_width)
             .chunks(num_inputs)
@@ -90,14 +103,18 @@ pub fn generate_tx_dag(
                 let unsigned_tx = CellTx::new(inputs, vec![], outputs, outputs_data, witnesses).expect("valid CellTx");
                 sign(SignableTransaction::with_entries(unsigned_tx, entries), schnorr_key)
             })
-            .collect::<Vec<_>>()
-            .into_iter()
-            .for_each(|signed_tx| {
-                cell_diff.add_transaction(&signed_tx.as_verifiable(), 0).unwrap();
-                txs.push(Arc::new(signed_tx.tx));
-            });
-        cell_set.remove_collection(&cell_diff.remove);
-        cell_set.add_collection(&cell_diff.add);
+            .collect::<Vec<_>>();
+        for signed_tx in signed_txs {
+            for input in &signed_tx.tx.inputs {
+                assert!(cell_set.remove(&input.previous_output).is_some(), "input cell must exist while generating tx DAG");
+            }
+            for output_index in 0..signed_tx.tx.outputs.len() {
+                let outpoint = TransactionOutpoint::new(signed_tx.tx.id(), output_index as u32);
+                let meta = cell_meta_from_output(&signed_tx.tx, output_index as u32);
+                cell_set.insert(outpoint, meta);
+            }
+            txs.push(Arc::new(signed_tx.tx));
+        }
 
         if i % (target_levels / 10).max(1) == 0 {
             info!("Generated {} txs", txs.len());
@@ -120,7 +137,7 @@ pub fn verify_tx_dag(initial_cell_set: &CellCollection, txs: &[Arc<CellTx>]) {
                 assert!(initial_cell_set.contains_key(&input.previous_output));
             }
         }
-        assert!(prev_txs.insert(tx.id(), tx.clone()).is_none());
+        assert!(prev_txs.insert(TransactionId::from_bytes(tx.id()), tx.clone()).is_none());
     }
 }
 
@@ -142,7 +159,7 @@ where
 
 pub fn generate_tx(
     schnorr_key: Keypair,
-    cells: &[(TransactionOutpoint, CellEntry)],
+    cells: &[(TransactionOutpoint, CellMeta)],
     amount: u64,
     num_outputs: u64,
     address: &Address,
@@ -169,7 +186,7 @@ pub async fn fetch_spendable_cells(
     client: &GrpcClient,
     address: Address,
     coinbase_maturity: u64,
-) -> Vec<(TransactionOutpoint, CellEntry)> {
+) -> Vec<(TransactionOutpoint, CellMeta)> {
     let resp = client.get_cells_by_addresses(vec![address.clone()]).await.unwrap();
     let virtual_daa_score = client.get_server_info().await.unwrap().virtual_daa_score;
     let mut cells = Vec::with_capacity(resp.len());
@@ -178,7 +195,10 @@ pub async fn fetch_spendable_cells(
     {
         assert!(resp_entry.address.is_some());
         assert_eq!(*resp_entry.address.as_ref().unwrap(), address);
-        cells.push((TransactionOutpoint::from(resp_entry.outpoint), CellEntry::from(resp_entry.cell_entry)));
+        let outpoint = TransactionOutpoint::from(resp_entry.outpoint);
+        let mut meta = CellMeta::from(resp_entry.cell_entry);
+        meta.out_point = outpoint;
+        cells.push((outpoint, meta));
     }
     cells.sort_by(|a, b| b.1.capacity().cmp(&a.1.capacity()));
     cells
