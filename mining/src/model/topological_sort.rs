@@ -1,5 +1,5 @@
 use itertools::Itertools;
-use spora_consensus_core::tx::{CellTx, OutPointCompat, TransactionId};
+use spora_consensus_core::tx::{CellTx, TransactionId};
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     iter::{FusedIterator, Map},
@@ -28,7 +28,8 @@ impl<T: AsRef<CellTx> + Clone> TopologicalSort for Vec<T> {
         let mut all_edges: Vec<Option<IndexSet>> = vec![None; self.len()];
         self.iter().enumerate().for_each(|(destination_idx, tx)| {
             tx.as_ref().inputs.iter().for_each(|input| {
-                if let Some(origin_idx) = index.get(&input.previous_output.transaction_id()) {
+                let previous_tx_id = TransactionId::from_bytes(input.previous_output.tx_hash);
+                if let Some(origin_idx) = index.get(&previous_tx_id) {
                     all_edges[*origin_idx].get_or_insert_with(IndexSet::new).insert(destination_idx);
                 }
             })
@@ -112,7 +113,8 @@ impl<'a, T: AsRef<CellTx>> TopologicalIter<'a, T> {
         let mut edges: Vec<Option<IndexSet>> = vec![None; transactions.len()];
         transactions.iter().enumerate().for_each(|(destination_idx, tx)| {
             tx.as_ref().inputs.iter().for_each(|input| {
-                if let Some(origin_idx) = index.get(&input.previous_output.transaction_id()) {
+                let previous_tx_id = TransactionId::from_bytes(input.previous_output.tx_hash);
+                if let Some(origin_idx) = index.get(&previous_tx_id) {
                     edges[*origin_idx].get_or_insert_with(IndexSet::new).insert(destination_idx);
                 }
             })
@@ -222,7 +224,8 @@ impl<T: AsRef<CellTx>> TopologicalIntoIter<T> {
         let mut edges: Vec<Option<IndexSet>> = vec![None; transactions.len()];
         transactions.iter().enumerate().for_each(|(destination_idx, tx)| {
             tx.as_ref().unwrap().as_ref().inputs.iter().for_each(|input| {
-                if let Some(origin_idx) = index.get(&input.previous_output.transaction_id()) {
+                let previous_tx_id = TransactionId::from_bytes(input.previous_output.tx_hash);
+                if let Some(origin_idx) = index.get(&previous_tx_id) {
                     edges[*origin_idx].get_or_insert_with(IndexSet::new).insert(destination_idx);
                 }
             })

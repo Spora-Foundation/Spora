@@ -843,112 +843,44 @@ pub struct AddressBookEnumerateResponse {
 #[serde(tag = "type", content = "data")]
 pub enum WalletNotification {
     WalletPing,
-    CellIndexNotEnabled {
-        url: Option<String>,
-    },
-    WalletList {
-        wallet_descriptors: Vec<WalletDescriptor>,
-    },
-    WalletHint {
-        hint: Option<Hint>,
-    },
-    WalletOpen {
-        wallet_descriptor: Option<WalletDescriptor>,
-        account_descriptors: Option<Vec<AccountDescriptor>>,
-    },
-    WalletCreate {
-        wallet_descriptor: WalletDescriptor,
-        storage_descriptor: StorageDescriptor,
-    },
-    WalletError {
-        message: String,
-    },
+    CellIndexNotEnabled { url: Option<String> },
+    WalletList { wallet_descriptors: Vec<WalletDescriptor> },
+    WalletHint { hint: Option<Hint> },
+    WalletOpen { wallet_descriptor: Option<WalletDescriptor>, account_descriptors: Option<Vec<AccountDescriptor>> },
+    WalletCreate { wallet_descriptor: WalletDescriptor, storage_descriptor: StorageDescriptor },
+    WalletError { message: String },
     WalletClose,
-    WalletReload {
-        wallet_descriptor: Option<WalletDescriptor>,
-        account_descriptors: Option<Vec<AccountDescriptor>>,
-    },
-    PrvKeyDataCreate {
-        prv_key_data_info: PrvKeyDataInfo,
-    },
-    AccountSelection {
-        id: Option<AccountId>,
-    },
-    AccountActivation {
-        ids: Vec<AccountId>,
-    },
-    AccountDeactivation {
-        ids: Vec<AccountId>,
-    },
-    AccountCreate {
-        account_descriptor: AccountDescriptor,
-    },
-    AccountUpdate {
-        account_descriptor: AccountDescriptor,
-    },
-    ServerStatus {
-        network_id: NetworkId,
-        server_version: String,
-        is_synced: bool,
-        url: Option<String>,
-    },
+    WalletReload { wallet_descriptor: Option<WalletDescriptor>, account_descriptors: Option<Vec<AccountDescriptor>> },
+    PrvKeyDataCreate { prv_key_data_info: PrvKeyDataInfo },
+    AccountSelection { id: Option<AccountId> },
+    AccountActivation { ids: Vec<AccountId> },
+    AccountDeactivation { ids: Vec<AccountId> },
+    AccountCreate { account_descriptor: AccountDescriptor },
+    AccountUpdate { account_descriptor: AccountDescriptor },
+    ServerStatus { network_id: NetworkId, server_version: String, is_synced: bool, url: Option<String> },
     CellProcStart,
     CellProcStop,
-    CellProcError {
-        message: String,
-    },
-    Discovery {
-        record: TransactionRecord,
-    },
-    Pending {
-        record: TransactionRecord,
-    },
-    Maturity {
-        record: TransactionRecord,
-    },
-    Reorg {
-        record: TransactionRecord,
-    },
-    Stasis {
-        record: TransactionRecord,
-    },
-    Balance {
-        id: AccountId,
-        balance: Option<Balance>,
-    },
-    Metrics {
-        network_id: NetworkId,
-        metrics: MetricsUpdate,
-    },
-    FeeRate {
-        priority: FeeRateEstimateBucket,
-        normal: FeeRateEstimateBucket,
-        low: FeeRateEstimateBucket,
-    },
-    SyncState {
-        sync_state: SyncState,
-    },
-    Connect {
-        network_id: NetworkId,
-        url: Option<String>,
-    },
-    Disconnect {
-        network_id: NetworkId,
-        url: Option<String>,
-    },
-    DaaScoreChange {
-        current_daa_score: u64,
-    },
-    Error {
-        message: String,
-    },
+    CellProcError { message: String },
+    Discovery { record: TransactionRecord },
+    Pending { record: TransactionRecord },
+    Maturity { record: TransactionRecord },
+    Reorg { record: TransactionRecord },
+    Stasis { record: TransactionRecord },
+    Balance { id: AccountId, balance: Option<Balance> },
+    Metrics { network_id: NetworkId, metrics: MetricsUpdate },
+    FeeRate { priority: FeeRateEstimateBucket, normal: FeeRateEstimateBucket, low: FeeRateEstimateBucket },
+    SyncState { sync_state: SyncState },
+    Connect { network_id: NetworkId, url: Option<String> },
+    Disconnect { network_id: NetworkId, url: Option<String> },
+    DaaScoreChange { current_daa_score: u64 },
+    Error { message: String },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AccountsCommitRevealManualRequest {
     pub account_id: AccountId,
-    pub script_sig: Vec<u8>,
+    pub witness_template: Vec<u8>,
     pub start_destination: PaymentDestination,
     pub end_destination: PaymentDestination,
     pub wallet_secret: Secret,
@@ -965,8 +897,8 @@ pub struct AccountsCommitRevealManualResponse {
 }
 
 /// Specifies the type of an account address to be used in
-/// commit reveal redeem script and also to spend reveal
-/// operation to.
+/// commit-reveal witness templating and reveal destination
+/// selection.
 ///
 /// @category Wallet API
 #[derive(Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize, CastFromJs)]
@@ -995,7 +927,7 @@ pub struct AccountsCommitRevealRequest {
     pub account_id: AccountId,
     pub address_type: CommitRevealAddressKind,
     pub address_index: u32,
-    pub script_sig: Vec<u8>,
+    pub witness_template: Vec<u8>,
     pub wallet_secret: Secret,
     pub commit_amount_sau: u64,
     pub payment_secret: Option<Secret>,

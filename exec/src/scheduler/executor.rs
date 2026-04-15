@@ -179,7 +179,7 @@ pub enum ExecutionError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::celltx::types::{CellOutput, CellInput, OutPoint, Script};
+    use crate::celltx::types::{CellInput, CellOutput, OutPoint, Script};
 
     fn create_test_tx(inputs: Vec<OutPoint>) -> CellTx {
         let lock = Script::new([0x00; 32], 0, vec![]);

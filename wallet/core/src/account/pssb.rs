@@ -10,15 +10,15 @@ use crate::tx::PaymentOutputs;
 use futures::stream;
 use secp256k1::schnorr;
 use secp256k1::{Message, PublicKey};
-use spora_addresses::{Address, Prefix, Version as AddressVersion};
+use spora_addresses::{Address, Prefix};
 use spora_bip32::{DerivationPath, KeyFingerprint, PrivateKey};
 use spora_consensus_client::{CellEntry as ClientCellEntry, CellEntryReference};
 use spora_consensus_core::hashing::sighash::{calc_schnorr_signature_hash, SigHashReusedValuesUnsync};
 use spora_consensus_core::tx::{push_data_script, Script, VerifiableTransaction};
 use spora_wallet_core::tx::{DataKind, Generator, GeneratorSettings, PaymentDestination, PendingTransaction};
+use spora_wallet_psst::bundle::unlock_cell_outputs_as_batch_transaction_pssb;
 pub use spora_wallet_psst::bundle::Bundle;
-use spora_wallet_psst::bundle::{script_sig_to_address, unlock_cell_outputs_as_batch_transaction_pssb};
-use spora_wallet_psst::prelude::{lock_script_sig_templating_bytes, Finalizer, Inner, KeySource, SignInputOk, Signature, Signer};
+use spora_wallet_psst::prelude::{Finalizer, Inner, KeySource, SignInputOk, Signature, Signer};
 pub use spora_wallet_psst::psst::{Creator, PSST};
 
 struct PSSBSignerInner {
@@ -239,7 +239,7 @@ pub async fn pssb_signer_for_address(
     Ok(signed_bundle)
 }
 
-pub fn finalize_psst_one_or_more_sig_and_redeem_script(psst: PSST<Finalizer>) -> Result<PSST<Finalizer>, Error> {
+pub fn finalize_psst_one_or_more_sig_and_witness_template(psst: PSST<Finalizer>) -> Result<PSST<Finalizer>, Error> {
     let result = psst.finalize_sync(|inner: &Inner| -> Result<Vec<Vec<u8>>, String> {
         Ok(inner
             .inputs
@@ -252,32 +252,11 @@ pub fn finalize_psst_one_or_more_sig_and_redeem_script(psst: PSST<Finalizer>) ->
                     finalized.extend(push_data_script(&signature_bytes).map_err(|e| e.to_string())?);
                 }
 
-                if let Some(redeem_script) = input.redeem_script.as_ref() {
-                    finalized.extend(push_data_script(redeem_script.as_slice()).map_err(|e| e.to_string())?);
+                if let Some(witness_template) = input.witness_template.as_ref() {
+                    finalized.extend(push_data_script(witness_template.as_slice()).map_err(|e| e.to_string())?);
                 }
 
                 Ok(finalized)
-            })
-            .collect::<Result<Vec<_>, _>>()?)
-    });
-
-    match result {
-        Ok(finalized_psst) => Ok(finalized_psst),
-        Err(e) => Err(Error::from(e.to_string())),
-    }
-}
-
-pub fn finalize_psst_no_sig_and_redeem_script(psst: PSST<Finalizer>) -> Result<PSST<Finalizer>, Error> {
-    let result = psst.finalize_sync(|inner: &Inner| -> Result<Vec<Vec<u8>>, String> {
-        Ok(inner
-            .inputs
-            .iter()
-            .map(|input| -> Result<Vec<u8>, String> {
-                input
-                    .redeem_script
-                    .as_ref()
-                    .map(|redeem_script| push_data_script(redeem_script.as_slice()).map_err(|e| e.to_string()))
-                    .unwrap_or_else(|| Ok(Vec::new()))
             })
             .collect::<Result<Vec<_>, _>>()?)
     });
@@ -292,7 +271,7 @@ pub fn bundle_to_finalizer_stream(bundle: &Bundle) -> impl Stream<Item = Result<
     stream::iter(bundle.iter().cloned().collect::<Vec<_>>()).map(move |psst_inner| {
         let psst: PSST<Creator> = PSST::from(psst_inner);
         let psst_finalizer = psst.constructor().updater().signer().finalizer();
-        finalize_psst_one_or_more_sig_and_redeem_script(psst_finalizer)
+        finalize_psst_one_or_more_sig_and_witness_template(psst_finalizer)
     })
 }
 
@@ -404,13 +383,8 @@ pub fn psst_to_pending_transaction(
 }
 
 fn address_from_lock_script(lock_script: &Script, prefix: Prefix) -> Result<Address, Error> {
-    let script = lock_script.args.as_slice();
-    match script {
-        [0x20, payload @ .., 0xac] if payload.len() == 32 => Ok(Address::new(prefix, AddressVersion::PubKey, payload)?),
-        [0x21, payload @ .., 0xab] if payload.len() == 33 => Ok(Address::new(prefix, AddressVersion::PubKeyECDSA, payload)?),
-        [0xaa, 0x20, payload @ .., 0x87] if payload.len() == 32 => Ok(Address::new(prefix, AddressVersion::ScriptHash, payload)?),
-        _ => Err(Error::Custom("unsupported lock script for wallet address derivation".to_string())),
-    }
+    spora_consensus_core::tx::extract_address_from_script(lock_script, prefix)
+        .map_err(|err| Error::Custom(format!("unsupported lock script for wallet address derivation: {err}")))
 }
 
 // Allow creation of atomic commit reveal operation with two
@@ -424,7 +398,7 @@ struct BundleCommitRevealConfig {
     pub address_commit: Address,
     pub addresses_reveal: Vec<Address>,
     pub commit_destination: PaymentDestination,
-    pub redeem_script: Vec<u8>,
+    pub witness_template: Vec<u8>,
     pub payment_outputs: PaymentOutputs,
 }
 
@@ -432,7 +406,7 @@ struct BundleCommitRevealConfig {
 pub async fn commit_reveal_batch_bundle(
     batch_config: CommitRevealBatchKind,
     reveal_fee_sau: u64,
-    script_sig: Vec<u8>,
+    witness_template: Vec<u8>,
     payload: Option<Vec<u8>>,
     fee_rate: Option<f64>,
     account: Arc<dyn Account>,
@@ -463,23 +437,18 @@ pub async fn commit_reveal_batch_bundle(
                 address_commit: addr_commit,
                 addresses_reveal: addresses,
                 commit_destination: hop_payment,
-                redeem_script: script_sig,
+                witness_template: witness_template.clone(),
                 payment_outputs,
             }
         }
         CommitRevealBatchKind::Parameterized { address, commit_amount_sau } => {
-            let redeem_script = lock_script_sig_templating_bytes(script_sig.to_vec(), Some(&address.payload))
-                .map_err(|_| Error::RevealRedeemScriptTemplateError)?;
-
-            let lock_address = script_sig_to_address(&redeem_script, network_id.into())?;
-
             let amt_reveal: u64 = commit_amount_sau - reveal_fee_sau;
 
             BundleCommitRevealConfig {
-                address_commit: lock_address.clone(),
+                address_commit: address.clone(),
                 addresses_reveal: vec![address.clone()],
-                commit_destination: PaymentDestination::from(PaymentOutput::new(lock_address, commit_amount_sau)),
-                redeem_script,
+                commit_destination: PaymentDestination::from(PaymentOutput::new(address.clone(), commit_amount_sau)),
+                witness_template: witness_template.clone(),
                 payment_outputs: PaymentOutputs { outputs: vec![PaymentOutput::new(address.clone(), amt_reveal)] },
             }
         }
@@ -511,7 +480,7 @@ pub async fn commit_reveal_batch_bundle(
     let bundle_unlock = unlock_cell_outputs_as_batch_transaction_pssb(
         conf.commit_destination.amount().unwrap(),
         &conf.address_commit,
-        &conf.redeem_script,
+        &conf.witness_template,
         conf.payment_outputs.outputs.into_iter().map(|i| (i.address.clone(), i.amount)).collect(),
     )
     .map_err(|e| Error::PSSTGenerationError(e.to_string()))?;
@@ -529,7 +498,8 @@ pub async fn commit_reveal_batch_bundle(
         let psst: PSST<Signer> = PSST::<Signer>::from(signed_pssb.as_ref()[0].to_owned());
         let finalizer = psst.finalizer();
 
-        let psst_finalizer = finalize_psst_one_or_more_sig_and_redeem_script(finalizer).map_err(|_| Error::PSSTFinalizationError)?;
+        let psst_finalizer =
+            finalize_psst_one_or_more_sig_and_witness_template(finalizer).map_err(|_| Error::PSSTFinalizationError)?;
 
         let transaction_id = psst_to_pending_transaction(
             psst_finalizer.clone(),

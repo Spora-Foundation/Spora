@@ -1,27 +1,45 @@
+//! # Currency Conversion Utilities
+//!
+//! Helper functions for converting between the smallest indivisible unit
+//! (SAU) and the human-readable SPORA denomination, plus string formatting
+//! with network-specific suffixes.
+
 use separator::{separated_float, separated_int, separated_uint_with_output, Separatable};
 use spora_consensus_core::constants::*;
 use spora_consensus_core::network::NetworkType;
 
+/// Convert a SAU amount to its SPORA floating-point equivalent.
+///
+/// `1 SPORA = SAU_PER_SPORA SAU`.
 #[inline]
 pub fn sau_to_spora(sau: u64) -> f64 {
     sau as f64 / SAU_PER_SPORA as f64
 }
 
+/// Convert a SPORA floating-point amount to SAU.
+///
+/// Fractional SAU values are truncated (rounded towards zero).
 #[inline]
 pub fn spora_to_sau(spora: f64) -> u64 {
     (spora * SAU_PER_SPORA as f64) as u64
 }
 
+/// Convert a SAU amount to a thousand-separated SPORA string
+/// (e.g. `"1,000"`, `"0.12345678"`).
 #[inline]
 pub fn sau_to_spora_string(sau: u64) -> String {
     sau_to_spora(sau).separated_string()
 }
 
+/// Convert a SAU amount to a SPORA string with exactly 8 decimal places
+/// and thousand separators (e.g. `"1,000.00000000"`).
 #[inline]
 pub fn sau_to_spora_string_with_trailing_zeroes(sau: u64) -> String {
     separated_float!(format!("{:.8}", sau_to_spora(sau)))
 }
 
+/// Return the currency ticker suffix for the given network type
+/// (e.g. `"SPORA"`, `"TSPORA"`).
 pub fn spora_suffix(network_type: &NetworkType) -> &'static str {
     match network_type {
         NetworkType::Mainnet => "SPORA",

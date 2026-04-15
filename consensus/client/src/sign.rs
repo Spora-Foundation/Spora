@@ -3,13 +3,13 @@
 //!
 
 use crate::transaction::Transaction;
-use core::iter::once;
-use itertools::Itertools;
+use spora_addresses::{Address, Prefix};
 use spora_consensus_core::{
     hashing::{
         sighash::{calc_schnorr_signature_hash, SigHashReusedValuesUnsync},
         sighash_type::SIG_HASH_ALL,
     },
+    tx::pay_to_address_lock_script,
     //sign::Signed,
 };
 use std::collections::BTreeMap;
@@ -31,16 +31,17 @@ impl<'a> Signed<'a> {
     }
 }
 
-/// TODO (aspect) - merge this with `v1` fn above or refactor wallet core to use the script engine.
 /// Sign a transaction using schnorr
 #[allow(clippy::result_large_err)]
-pub fn sign_with_multiple_v3<'a>(tx: &'a Transaction, privkeys: &[[u8; 32]]) -> crate::result::Result<Signed<'a>> {
+pub fn sign_with_multiple<'a>(tx: &'a Transaction, privkeys: &[[u8; 32]]) -> crate::result::Result<Signed<'a>> {
     let mut map = BTreeMap::new();
     for privkey in privkeys {
         let schnorr_key = secp256k1::Keypair::from_seckey_slice(secp256k1::SECP256K1, privkey).unwrap();
         let schnorr_public_key = schnorr_key.public_key().x_only_public_key().0;
-        let script_pub_key_script = once(0x20).chain(schnorr_public_key.serialize().into_iter()).chain(once(0xac)).collect_vec();
-        map.insert(script_pub_key_script, schnorr_key);
+        let address = Address::new_std_single(Prefix::Mainnet, &schnorr_public_key.serialize())
+            .map_err(|err| crate::imports::Error::Custom(format!("failed to derive stdsingle address from key: {err}")))?;
+        let key_id = pay_to_address_lock_script(&address).args;
+        map.insert(key_id, schnorr_key);
     }
 
     let reused_values = SigHashReusedValuesUnsync::new();
@@ -50,13 +51,13 @@ pub fn sign_with_multiple_v3<'a>(tx: &'a Transaction, privkeys: &[[u8; 32]]) -> 
         let signable_tx = tx.signable_transaction()?;
         let verifiable_tx = signable_tx.as_verifiable();
         for i in 0..input_len {
-            let lock_script = match tx.inner().inputs[i].lock_script_bytes() {
-                Some(script) => script,
+            let lock_args = match tx.inner().inputs[i].lock_script_args() {
+                Some(args) => args,
                 None => {
                     return Err(crate::imports::Error::Custom("expected to be called only following full Cell population".to_string()))
                 }
             };
-            if let Some(schnorr_key) = map.get(lock_script.as_slice()) {
+            if let Some(schnorr_key) = map.get(lock_args.as_slice()) {
                 let sig_hash = calc_schnorr_signature_hash(&verifiable_tx, i, SIG_HASH_ALL, &reused_values);
                 let msg = secp256k1::Message::from_digest_slice(sig_hash.as_bytes().as_slice()).unwrap();
                 let sig: [u8; 64] = *schnorr_key.sign_schnorr(msg).as_ref();

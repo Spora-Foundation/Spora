@@ -13,8 +13,8 @@ pub enum Error {
     OutOfBounds,
     #[error("Missing cell entry")]
     MissingCellEntry,
-    #[error("Missing redeem script")]
-    MissingRedeemScript,
+    #[error("Missing witness template")]
+    MissingWitnessTemplate,
     #[error(transparent)]
     InputBuilder(#[from] crate::input::InputBuilderError),
     #[error(transparent)]
@@ -25,10 +25,6 @@ pub enum Error {
     JsonDeserializeError(#[from] serde_json::Error),
     #[error("Serialize error")]
     PSSBSerializeError(String),
-    #[error("Unlock cell error")]
-    MultipleUnlockCellError(Vec<Error>),
-    #[error("Unlock fees exceed available amount")]
-    ExcessUnlockFeeError,
     #[error("Transaction output to output conversion error")]
     TxToInnerConversionError(#[source] Box<Error>),
     #[error("Transaction input building error in conversion")]

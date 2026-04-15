@@ -500,10 +500,7 @@ mod tests {
             blue_score: 56,
             subsidy: 44000000000,
             mass_commitment: 0,
-            miner_data: MinerData {
-                lock_script: Script::new([0x11; 32], 3, script_data.to_vec()),
-                extra_data: &extra_data as &[u8],
-            },
+            miner_data: MinerData { lock_script: Script::new([0x11; 32], 3, script_data.to_vec()), extra_data: &extra_data as &[u8] },
         };
 
         let payload = cbm.serialize_coinbase_payload(&data).unwrap();

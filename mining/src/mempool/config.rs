@@ -3,6 +3,9 @@ use spora_consensus_core::constants::CELL_TX_VERSION;
 pub(crate) const DEFAULT_MAXIMUM_TRANSACTION_COUNT: usize = 1_000_000;
 pub(crate) const DEFAULT_MEMPOOL_SIZE_LIMIT: usize = 1_000_000_000;
 pub(crate) const DEFAULT_MAXIMUM_BUILD_BLOCK_TEMPLATE_ATTEMPTS: u64 = 5;
+// Keep this aligned with consensus Cell validation defaults until mining config
+// starts sourcing the value directly from consensus params.
+pub(crate) const DEFAULT_MAXIMUM_CYCLES_PER_BLOCK: u64 = 70_000_000;
 
 pub(crate) const DEFAULT_TRANSACTION_EXPIRE_INTERVAL_SECONDS: u64 = 24 * 60 * 60;
 pub(crate) const DEFAULT_TRANSACTION_EXPIRE_SCAN_INTERVAL_SECONDS: u64 = 60;
@@ -42,6 +45,7 @@ pub struct Config {
     pub maximum_orphan_transaction_count: u64,
     pub accept_non_standard: bool,
     pub maximum_mass_per_block: u64,
+    pub maximum_cycles_per_block: u64,
     pub minimum_relay_transaction_fee: u64,
     pub minimum_standard_transaction_version: u32,
     pub maximum_standard_transaction_version: u32,
@@ -66,6 +70,7 @@ impl Config {
         maximum_orphan_transaction_count: u64,
         accept_non_standard: bool,
         maximum_mass_per_block: u64,
+        maximum_cycles_per_block: u64,
         minimum_relay_transaction_fee: u64,
         minimum_standard_transaction_version: u32,
         maximum_standard_transaction_version: u32,
@@ -87,6 +92,7 @@ impl Config {
             maximum_orphan_transaction_count,
             accept_non_standard,
             maximum_mass_per_block,
+            maximum_cycles_per_block,
             minimum_relay_transaction_fee,
             minimum_standard_transaction_version,
             maximum_standard_transaction_version,
@@ -116,6 +122,7 @@ impl Config {
             maximum_orphan_transaction_count: DEFAULT_MAXIMUM_ORPHAN_TRANSACTION_COUNT,
             accept_non_standard: relay_non_std_transactions,
             maximum_mass_per_block: max_block_mass,
+            maximum_cycles_per_block: DEFAULT_MAXIMUM_CYCLES_PER_BLOCK,
             minimum_relay_transaction_fee: DEFAULT_MINIMUM_RELAY_TRANSACTION_FEE,
             minimum_standard_transaction_version: DEFAULT_MINIMUM_STANDARD_TRANSACTION_VERSION,
             maximum_standard_transaction_version: DEFAULT_MAXIMUM_STANDARD_TRANSACTION_VERSION,

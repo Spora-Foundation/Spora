@@ -14,7 +14,7 @@ use spora_consensus_core::{
     mass::{ContextualMasses, NonContextualMasses},
     pruning::{PruningPointProof, PruningPointTrustedData, PruningPointsList},
     trusted::{ExternalGhostdagData, TrustedBlock},
-    tx::{CellTx, MutableTransaction, ResolvedCellTransaction, SignableTransaction, TransactionOutpoint},
+    tx::{CellTx, MutableTransaction, ResolvedCellTransaction, TransactionOutpoint},
     BlockHashSet, BlueWorkType, ChainPath, Hash,
 };
 use spora_utils::sync::rwlock::*;
@@ -318,14 +318,6 @@ impl ConsensusSessionOwned {
 
     pub async fn async_get_chain_block_samples(&self) -> Vec<DaaScoreTimestamp> {
         self.clone().spawn_blocking(|c| c.get_chain_block_samples()).await
-    }
-
-    pub async fn async_get_populated_transaction(
-        &self,
-        txid: Hash,
-        accepting_block_daa_score: u64,
-    ) -> Result<SignableTransaction, String> {
-        self.clone().spawn_blocking(move |c| c.get_populated_transaction(txid, accepting_block_daa_score)).await
     }
 
     pub async fn async_get_resolved_cell_transaction(

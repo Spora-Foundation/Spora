@@ -12,7 +12,7 @@ pub fn calc_hash_merkle_root_cell<'a>(txs: impl ExactSizeIterator<Item = &'a Cel
 mod tests {
     use super::*;
     use crate::merkle::calc_hash_merkle_root_cell;
-    use crate::tx::{outpoint_from_id, CellOutput, CellInput, CellTx, Script, TransactionId};
+    use crate::tx::{outpoint_from_id, CellInput, CellOutput, CellTx, Script, TransactionId};
 
     fn sample_coinbase_tx() -> CellTx {
         let output =

@@ -1,5 +1,6 @@
 use crate::{
     common::ProtocolError,
+    convert::model::version::DEFAULT_P2P_SERVICES,
     core::adaptor::ConnectionInitializer,
     handshake::P2pHandshake,
     pb::{self, VersionMessage},
@@ -93,7 +94,7 @@ pub struct EchoFlowInitializer {}
 fn build_dummy_version_message() -> VersionMessage {
     pb::VersionMessage {
         protocol_version: 5,
-        services: 0,
+        services: DEFAULT_P2P_SERVICES,
         timestamp: unix_now() as i64,
         address: None,
         id: Vec::from(Uuid::new_v4().as_bytes()),

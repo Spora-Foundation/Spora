@@ -18,7 +18,7 @@ use spora_consensus_core::{
     header::Header,
     mass::{cell_tx_estimated_serialized_size, ContextualMasses, NonContextualMasses},
     merkle::calc_hash_merkle_root_cell,
-    tx::{CellTx, MutableTransaction, OutPointCompat, Script, TransactionId, TransactionOutpoint},
+    tx::{CellTx, MutableTransaction, Script, TransactionId, TransactionOutpoint},
 };
 use spora_core::time::unix_now;
 use spora_hashes::ZERO_HASH;
@@ -48,10 +48,10 @@ impl ConsensusMock {
     }
 
     pub(crate) fn add_cell_transaction(&self, transaction: CellTx, block_daa_score: u64) {
-        self.add_arc_cell_transaction(Arc::new(transaction), None, block_daa_score);
+        self.add_arc_cell_transaction(Arc::new(transaction), block_daa_score);
     }
 
-    fn add_arc_cell_transaction(&self, cell_tx: Arc<CellTx>, alias_id: Option<TransactionId>, block_daa_score: u64) {
+    fn add_arc_cell_transaction(&self, cell_tx: Arc<CellTx>, block_daa_score: u64) {
         let canonical_id = TransactionId::from_bytes(cell_tx.id());
         let mut transactions = self.transactions.write();
         let mut cells = self.cells.write();
@@ -59,24 +59,18 @@ impl ConsensusMock {
         // Remove the spent cells
         cell_tx.inputs.iter().for_each(|x| {
             cells.remove(&x.previous_output);
-            if let Some(parent_cell_id) = transactions.get(&x.previous_output.transaction_id()).map(|tx| TransactionId::from_bytes(tx.id()))
-            {
+            let previous_tx_id = TransactionId::from_bytes(x.previous_output.tx_hash);
+            if let Some(parent_cell_id) = transactions.get(&previous_tx_id).map(|tx| TransactionId::from_bytes(tx.id())) {
                 cells.remove(&TransactionOutpoint::new(parent_cell_id.as_bytes(), x.previous_output.index));
             }
         });
         // Create the new cells
         cell_tx.outputs.iter().zip(cell_tx.outputs_data.iter()).enumerate().for_each(|(i, (output, data))| {
             let entry = cell_output_to_placeholder_entry(output, data, block_daa_score, cell_tx.is_coinbase());
-            if let Some(alias_id) = alias_id {
-                cells.insert(TransactionOutpoint::new(alias_id.as_bytes(), i as u32), entry.clone());
-            }
             cells.insert(TransactionOutpoint::new(cell_tx.id(), i as u32), entry);
         });
         // Register the transaction
         transactions.insert(canonical_id, cell_tx.clone());
-        if let Some(alias_id) = alias_id {
-            transactions.insert(alias_id, cell_tx);
-        }
     }
 
     pub(crate) fn can_finance_transaction(&self, transaction: &MutableTransaction) -> bool {
@@ -170,7 +164,7 @@ impl ConsensusApi for ConsensusMock {
         let total_out: u64 = mutable_tx.tx.outputs.iter().map(|x| x.capacity).sum();
 
         if mutable_tx.calculated_fee.is_none() {
-            let calculated_fee = total_in - total_out;
+            let calculated_fee = total_in.saturating_sub(total_out);
             mutable_tx.calculated_fee = Some(calculated_fee);
         }
         if mutable_tx.calculated_non_contextual_masses.is_none() {
@@ -221,24 +215,12 @@ impl ConsensusApi for ConsensusMock {
         VirtualStateApproxId::new(self.get_virtual_daa_score(), 0.into(), ZERO_HASH)
     }
 
-    fn get_populated_transaction(
-        &self,
-        txid: spora_hashes::Hash,
-        accepting_block_daa_score: u64,
-    ) -> Result<spora_consensus_core::tx::SignableTransaction, String> {
-        Err(format!(
-            "ConsensusMock does not populate transaction {txid} at accepting DAA score {accepting_block_daa_score}"
-        ))
-    }
-
     fn get_resolved_cell_transaction(
         &self,
         txid: spora_hashes::Hash,
         accepting_block_daa_score: u64,
     ) -> Result<spora_consensus_core::tx::ResolvedCellTransaction, String> {
-        Err(format!(
-            "ConsensusMock does not resolve transaction {txid} at accepting DAA score {accepting_block_daa_score}"
-        ))
+        Err(format!("ConsensusMock does not resolve transaction {txid} at accepting DAA score {accepting_block_daa_score}"))
     }
 
     fn get_transaction_location(&self, txid: spora_hashes::Hash) -> Result<(spora_hashes::Hash, usize), String> {
@@ -250,9 +232,7 @@ impl ConsensusApi for ConsensusMock {
         txid: spora_hashes::Hash,
         accepting_block: spora_hashes::Hash,
     ) -> Result<spora_consensus_core::tx::ResolvedCellTransaction, String> {
-        Err(format!(
-            "ConsensusMock does not resolve transaction {txid} in accepting block {accepting_block}"
-        ))
+        Err(format!("ConsensusMock does not resolve transaction {txid} in accepting block {accepting_block}"))
     }
 
     fn get_cell_transaction(

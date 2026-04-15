@@ -75,7 +75,6 @@ extern crate self as spora_wallet_core;
 pub mod account;
 pub mod api;
 pub mod cell;
-mod compat;
 pub mod cryptobox;
 pub mod derivation;
 pub mod deterministic;

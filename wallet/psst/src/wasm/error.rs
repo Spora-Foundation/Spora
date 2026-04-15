@@ -1,7 +1,18 @@
+//! # PSST WASM Error Types
+//!
+//! Error enum and conversion helpers used by the PSST WASM bindings.
+//! All variants are automatically converted to JavaScript exceptions via
+//! the `From<Error> for JsValue` implementation.
+
 use super::psst::State;
 use thiserror::Error;
 use wasm_bindgen::prelude::*;
 
+/// Error type for the PSST WASM layer.
+///
+/// Each variant maps to a distinct failure mode that may arise during
+/// PSST construction, role transitions, or serialisation within the
+/// WASM environment.
 #[derive(Error, Debug)]
 pub enum Error {
     #[error("{0}")]
@@ -42,14 +53,17 @@ pub enum Error {
 }
 
 impl Error {
+    /// Create an [`Error::Custom`] from any displayable value.
     pub fn custom<T: std::fmt::Display>(msg: T) -> Self {
         Error::Custom(msg.to_string())
     }
 
+    /// Create an [`Error::State`] describing an unexpected PSST state.
     pub fn state(state: impl AsRef<State>) -> Self {
         Error::State(state.as_ref().display().to_string())
     }
 
+    /// Create an [`Error::ExpectedState`] for a missing expected state.
     pub fn expected_state(state: impl Into<String>) -> Self {
         Error::ExpectedState(state.into())
     }

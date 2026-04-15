@@ -32,8 +32,7 @@ impl IndexService {
         subscription_context: SubscriptionContext,
         cellindex: Option<CellIndexProxy>,
     ) -> Self {
-        // TODO(spora): Update to Cells subscription granularity
-        let policies = MutationPolicies::new(CellsChangedMutationPolicy::Wildcard);
+        let policies = MutationPolicies::new(CellsChangedMutationPolicy::AddressSet);
 
         // Prepare consensus-notify objects
         let consensus_notify_channel = Channel::<ConsensusNotification>::default();

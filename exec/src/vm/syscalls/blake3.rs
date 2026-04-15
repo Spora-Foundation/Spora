@@ -6,6 +6,7 @@
 // This syscall is NOT in CKB, it's our addition for Spora
 
 use super::BLAKE3_HASH_SYSCALL_NUMBER;
+use crate::vm::transferred_byte_cycles;
 use ckb_vm::{
     registers::{A0, A2, A3, A7},
     Error as VMError, Memory, Register, SupportMachine, Syscalls,
@@ -63,11 +64,12 @@ impl<M: SupportMachine> Syscalls<M> for Blake3Hash {
         machine.set_register(A2, M::REG::from_u64(0));
 
         // Use internal store mechanism
-        super::utils::store_data(machine, hash.as_bytes())?;
+        let result = super::utils::store_data(machine, hash.as_bytes())?;
 
         // Restore A2
         machine.set_register(A2, saved_a2);
-        machine.set_register(A0, M::REG::from_u8(0)); // SUCCESS
+        machine.add_cycles_no_checking(transferred_byte_cycles(result.written_size))?;
+        machine.set_register(A0, M::REG::from_u8(result.return_code));
 
         Ok(true)
     }

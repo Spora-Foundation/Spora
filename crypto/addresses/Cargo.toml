@@ -17,6 +17,7 @@ bech32m = []
 
 [dependencies]
 bech32.workspace = true
+blake3.workspace = true
 borsh.workspace = true
 js-sys.workspace = true
 serde.workspace = true

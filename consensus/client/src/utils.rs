@@ -12,7 +12,6 @@ use spora_addresses::*;
 use spora_consensus_core::network::{NetworkType, NetworkTypeT};
 use spora_exec::{scripts::timelock as exec_timelock, Script as CellScript};
 use spora_utils::hex::ToHex;
-use spora_wasm_core::types::{BinaryT, HexString};
 
 #[wasm_bindgen(typescript_custom_section)]
 const TS_TIMELOCK_TYPES: &'static str = r#"
@@ -158,27 +157,6 @@ pub fn relative_timestamp_lock_script(delta_seconds: u64) -> JsValue {
     script_ref_to_js_value(&exec_timelock::relative_timestamp_lock(delta_seconds))
 }
 
-/// Takes a redeem script and returns its canonical pay-to-script-hash lock script.
-/// @param redeem_script - The redeem script ({@link HexString} or Uint8Array).
-/// @category Wallet SDK
-#[wasm_bindgen(js_name = payToScriptHashLockScript)]
-pub fn pay_to_script_hash_lock_script(redeem_script: BinaryT) -> Result<JsValue> {
-    let redeem_script = redeem_script.try_as_vec_u8()?;
-    Ok(workflow_wasm::serde::to_value(&standard_script::pay_to_script_hash_lock_script(redeem_script.as_slice()))?)
-}
-
-/// Generates witness bytes that fit a pay-to-script-hash lock script.
-/// @param redeem_script - The redeem script ({@link HexString} or Uint8Array).
-/// @param signature - The signature ({@link HexString} or Uint8Array).
-/// @category Wallet SDK
-#[wasm_bindgen(js_name = payToScriptHashWitnessScript)]
-pub fn pay_to_script_hash_witness_script(redeem_script: BinaryT, signature: BinaryT) -> Result<HexString> {
-    let redeem_script = redeem_script.try_as_vec_u8()?;
-    let signature = signature.try_as_vec_u8()?;
-    let script = standard_script::pay_to_script_hash_witness_script(&redeem_script, signature)?;
-    Ok(script.to_hex().into())
-}
-
 /// Returns the address encoded in a canonical Cell lock script.
 /// @param lock_script - The lock script ({@link Script}, {@link HexString} or Uint8Array).
 /// @param network - The network type.
@@ -186,41 +164,12 @@ pub fn pay_to_script_hash_witness_script(redeem_script: BinaryT, signature: Bina
 #[wasm_bindgen(js_name = addressFromLockScript)]
 pub fn address_from_lock_script(lock_script: JsValue, network: &NetworkTypeT) -> Result<AddressOrUndefinedT> {
     let network_type = NetworkType::try_from(network)?;
-    let lock_script = if let Ok(script) = workflow_wasm::serde::from_value::<CellScript>(lock_script.clone()) {
-        script.args
-    } else {
-        lock_script.try_as_vec_u8()?
-    };
+    let script = workflow_wasm::serde::from_value::<CellScript>(lock_script)
+        .map_err(|_| Error::custom("addressFromLockScript now only accepts canonical Script objects".to_string()))?;
+    let address = standard_script::extract_address_from_script(&script, network_type.into());
 
-    match standard_script::extract_address_from_lock_script(lock_script.as_slice(), network_type.into()) {
+    match address {
         Ok(address) => Ok(AddressOrUndefinedT::from(JsValue::from(address))),
         Err(_) => Ok(AddressOrUndefinedT::from(JsValue::UNDEFINED)),
     }
-}
-
-/// Returns true if the script passed is a pay-to-pubkey.
-/// @param script - The script ({@link HexString} or Uint8Array).
-/// @category Wallet SDK
-#[wasm_bindgen(js_name = isScriptPayToPubkey)]
-pub fn is_script_pay_to_pubkey(script: BinaryT) -> Result<bool> {
-    let script = script.try_as_vec_u8()?;
-    Ok(standard_script::is_pay_to_pubkey(script.as_slice()))
-}
-
-/// Returns returns true if the script passed is an ECDSA pay-to-pubkey.
-/// @param script - The script ({@link HexString} or Uint8Array).
-/// @category Wallet SDK
-#[wasm_bindgen(js_name = isScriptPayToPubkeyECDSA)]
-pub fn is_script_pay_to_pubkey_ecdsa(script: BinaryT) -> Result<bool> {
-    let script = script.try_as_vec_u8()?;
-    Ok(standard_script::is_pay_to_pubkey_ecdsa(script.as_slice()))
-}
-
-/// Returns true if the script passed is a pay-to-script-hash (P2SH) format, false otherwise.
-/// @param script - The script ({@link HexString} or Uint8Array).
-/// @category Wallet SDK
-#[wasm_bindgen(js_name = isScriptPayToScriptHash)]
-pub fn is_script_pay_to_script_hash(script: BinaryT) -> Result<bool> {
-    let script = script.try_as_vec_u8()?;
-    Ok(standard_script::is_pay_to_script_hash(script.as_slice()))
 }

@@ -3,7 +3,7 @@ mod mockery {
 
     use crate::{model::*, RpcScriptClass};
     use rand::Rng;
-    use spora_addresses::{Prefix, Version};
+    use spora_addresses::Prefix;
     use spora_consensus_core::api::BlockCount;
     use spora_consensus_core::network::NetworkType;
     use spora_hashes::Hash;
@@ -128,7 +128,9 @@ mod mockery {
 
     impl Mock for RpcAddress {
         fn mock() -> Self {
-            RpcAddress::new(Prefix::Mainnet, Version::PubKey, Hash::mock().as_bytes().as_slice()).expect("Valid mock address")
+            let hash = Hash::mock();
+            let pubkey = hash.as_bytes();
+            RpcAddress::new_std_single(Prefix::Mainnet, &pubkey).expect("Valid mock address")
         }
     }
 
@@ -223,7 +225,12 @@ mod mockery {
 
     impl Mock for RpcTransactionOutputVerboseData {
         fn mock() -> Self {
-            RpcTransactionOutputVerboseData { lock_script_type: RpcScriptClass::PubKey, lock_script_address: mock() }
+            RpcTransactionOutputVerboseData {
+                lock_script_type: RpcScriptClass::StdSingle,
+                lock_script_address: mock(),
+                resolved_lock_kind: Some(RpcResolvedLockKind::StdSingle),
+                resolved_address_kind: Some(RpcResolvedAddressKind::StdSingle),
+            }
         }
     }
 
@@ -250,6 +257,9 @@ mod mockery {
                 transaction_id: mock(),
                 hash: mock(),
                 compute_mass: mock(),
+                transient_mass: mock(),
+                storage_mass: mock(),
+                verified_cycles: mock(),
                 block_hash: mock(),
                 block_time: mock(),
             }

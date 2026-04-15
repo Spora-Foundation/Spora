@@ -16,7 +16,7 @@ use spora_consensus_core::{
     config::Config,
     constants::MAX_SAU,
     network::NetworkType,
-    tx::{extract_address_from_lock_script, CellTx, COINBASE_TRANSACTION_INDEX},
+    tx::{CellTx, COINBASE_TRANSACTION_INDEX},
 };
 use spora_consensus_notify::{
     notifier::ConsensusNotifier,
@@ -93,7 +93,7 @@ fn resolve_cell_return_address(
         RpcError::General("GetCellReturnAddress is missing the first input lock script in resolved metadata".to_string())
     })?;
 
-    extract_address_from_lock_script(lock_script.args.as_slice(), prefix)
+    spora_consensus_core::tx::extract_address_from_script(lock_script, prefix)
         .map_err(|error| RpcError::General(format!("GetCellReturnAddress failed to decode the first input lock script: {error}")))
 }
 
@@ -1025,15 +1025,7 @@ NOTE: This error usually indicates an RPC conversion error between the node and 
             return Err(RpcError::WindowSizeExceedingPruningDepth(request.window_size, self.config.pruning_depth()));
         }
 
-        // In the previous golang implementation the convention for virtual was the following const.
-        // In the current implementation, consensus behaves the same when it gets a None instead.
-        const LEGACY_VIRTUAL: spora_hashes::Hash = spora_hashes::Hash::from_bytes([0xff; spora_hashes::HASH_SIZE]);
-        let mut start_hash = request.start_hash;
-        if let Some(start) = start_hash {
-            if start == LEGACY_VIRTUAL {
-                start_hash = None;
-            }
-        }
+        let start_hash = request.start_hash;
 
         Ok(EstimateNetworkHashesPerSecondResponse::new(
             self.consensus_manager
@@ -1327,6 +1319,7 @@ NOTE: This error usually indicates an RPC conversion error between the node and 
     // Notification API
 
     /// Register a new listener and returns an id identifying it.
+    #[allow(deprecated)]
     fn register_new_listener(&self, connection: ChannelConnection) -> ListenerId {
         self.notifier.register_new_listener(connection, ListenerLifespan::Dynamic)
     }
@@ -1363,6 +1356,34 @@ NOTE: This error usually indicates an RPC conversion error between the node and 
     async fn stop_notify(&self, id: ListenerId, scope: Scope) -> RpcResult<()> {
         self.notifier.clone().stop_notify(id, scope).await?;
         Ok(())
+    }
+
+    async fn subscribe_notifications(
+        &self,
+        request: SubscribeNotificationsRequest,
+    ) -> RpcResult<SubscribeNotificationsResponse> {
+        // Create an internal channel and register it as a new dynamic listener.
+        let channel = Channel::default();
+        let connection = ChannelConnection::new(
+            "rpc-subscribe",
+            channel.sender(),
+            spora_notify::connection::ChannelType::Closable,
+        );
+        #[allow(deprecated)]
+        let listener_id = self.register_new_listener(connection);
+
+        // Activate the requested scope on the newly created listener.
+        self.notifier.clone().start_notify(listener_id, request.scope).await?;
+
+        Ok(SubscribeNotificationsResponse::new(listener_id))
+    }
+
+    async fn unsubscribe_notifications(
+        &self,
+        request: UnsubscribeNotificationsRequest,
+    ) -> RpcResult<UnsubscribeNotificationsResponse> {
+        self.notifier.unregister_listener(request.subscription_id)?;
+        Ok(UnsubscribeNotificationsResponse {})
     }
 }
 
@@ -1410,14 +1431,14 @@ impl AsyncService for RpcCoreService {
 #[cfg(test)]
 mod tests {
     use super::resolve_cell_return_address;
-    use spora_addresses::{Address, Prefix, Version};
+    use spora_addresses::{Address, Prefix};
     use spora_consensus_core::cell_metadata::CellMetadata;
     use spora_consensus_core::tx::{pay_to_address_lock_script, CellInput, CellTx, OutPoint, ResolvedCellTransaction};
     use spora_hashes::Hash;
 
     #[test]
     fn resolve_cell_return_address_uses_first_resolved_input_lock_script() {
-        let address = Address::new(Prefix::Simnet, Version::PubKey, &[0x11; 32]).expect("test address");
+        let address = Address::new_std_single(Prefix::Simnet, &[0x11; 32]).expect("test address");
         let lock_script = pay_to_address_lock_script(&address);
         let tx = CellTx {
             version: 0xC001,

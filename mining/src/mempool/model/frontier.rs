@@ -371,19 +371,19 @@ mod tests {
         }
 
         let mut selector = frontier.build_selector(&Policy::new(500_000));
-        selector.select_transactions().iter().map(|k| k.mass()).sum::<u64>();
+        selector.select_transactions().iter().map(|k| k.estimated_storage_mass()).sum::<u64>();
 
         let mut selector = frontier.build_rebalancing_selector();
-        selector.select_transactions().iter().map(|k| k.mass()).sum::<u64>();
+        selector.select_transactions().iter().map(|k| k.estimated_storage_mass()).sum::<u64>();
 
         let mut selector = frontier.build_selector_sample_inplace(&mut 0);
-        selector.select_transactions().iter().map(|k| k.mass()).sum::<u64>();
+        selector.select_transactions().iter().map(|k| k.estimated_storage_mass()).sum::<u64>();
 
         let mut selector = frontier.build_selector_take_all();
-        selector.select_transactions().iter().map(|k| k.mass()).sum::<u64>();
+        selector.select_transactions().iter().map(|k| k.estimated_storage_mass()).sum::<u64>();
 
         let mut selector = frontier.build_selector(&Policy::new(500_000));
-        selector.select_transactions().iter().map(|k| k.mass()).sum::<u64>();
+        selector.select_transactions().iter().map(|k| k.estimated_storage_mass()).sum::<u64>();
     }
 
     #[test]

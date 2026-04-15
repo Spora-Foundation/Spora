@@ -235,12 +235,13 @@ CKB 中交易可以依赖特定的块头（用于相对时间锁）。在 Spora 
 
 | 方法 | 用途 | 计算方式 |
 |------|------|----------|
-| `compute_mass()` | 执行表面预估 | serialized_size + execution_surface_bytes |
-| `transient_mass()` | mempool/relay 临时占用 | serialized_size * 4 |
-| `storage_mass()` | 持久化存储占用 | 所有输出的 occupied_capacity + 45 字节开销 |
+| `estimated_compute_mass()` | pre-VM compute hint | tx 字节质量 + output lock/type script 字节质量 + 每 input 1 个 sigop |
+| `estimated_transient_mass()` | mempool/relay 临时占用估算 | serialized_size * 4 |
+| `estimated_storage_mass()` | 输出 footprint 估算 | 所有输出的 occupied_capacity + 45 字节开销 |
 
-execution_surface_bytes = witness + dep + header_dep + output_data + type_script_arg 字节总和。
 CELL_ENTRY_OVERHEAD = 32(hash) + 4(index) + 8(daa) + 1(cellbase) = 45 字节。
+
+需要注意：这三者在当前代码里都只是 deterministic estimate。共识、mempool 排序和 RPC 对外 `mass` 已统一到 `selection_mass = max(effective_compute_mass, transient_mass, contextual_storage_mass)`，其中 `effective_compute_mass` 会优先吸收真实 `verified_cycles`。
 
 **结论**: [兼容] 兼容，DAG 差异符合预期。header_deps 保留以支持 VM 脚本访问。
 

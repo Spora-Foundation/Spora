@@ -29,3 +29,11 @@ pub mod subscribe_benchmarks;
 
 #[cfg(test)]
 pub mod rpc_tests;
+
+#[cfg(test)]
+#[cfg(feature = "integration-tests")]
+pub mod wallet_account_variant_tests;
+
+#[cfg(test)]
+#[cfg(feature = "integration-tests")]
+pub mod consensus_mempool_template_matrix_tests;

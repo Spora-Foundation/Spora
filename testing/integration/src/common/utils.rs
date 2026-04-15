@@ -10,7 +10,7 @@ use spora_consensus_core::{
     header::Header,
     sign::sign,
     tx::{
-        pay_to_address_lock_script, CellEntry, CellOutput, CellInput, CellTx, MutableTransaction, Script, SignableTransaction,
+        pay_to_address_lock_script, CellEntry, CellInput, CellOutput, CellTx, MutableTransaction, Script, SignableTransaction,
         TransactionId, TransactionOutpoint,
     },
 };

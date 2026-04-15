@@ -1,12 +1,10 @@
 use crate::imports::*;
 use crate::result::Result;
 use js_sys::Array;
-use serde_wasm_bindgen::from_value;
-use spora_consensus_client::{sign_with_multiple_v3, Transaction};
+use spora_consensus_client::{sign_with_multiple, Transaction};
 use spora_consensus_core::hashing::wasm::SighashType;
 use spora_consensus_core::sign::sign_input;
-use spora_consensus_core::{hashing::sighash_type::SIG_HASH_ALL, sign::verify};
-use spora_hashes::Hash;
+use spora_consensus_core::sign::verify;
 use spora_wallet_keys::privatekey::PrivateKey;
 use spora_wasm_core::types::HexString;
 
@@ -63,7 +61,7 @@ fn sign_transaction<'a>(tx: &'a Transaction, private_keys: &[[u8; 32]], verify_s
 /// The resulting transaction may be partially signed if the supplied keys are not sufficient
 /// to sign all of its inputs.
 pub fn sign<'a>(tx: &'a Transaction, privkeys: &[[u8; 32]]) -> Result<&'a Transaction> {
-    Ok(sign_with_multiple_v3(tx, privkeys)?.unwrap())
+    Ok(sign_with_multiple(tx, privkeys)?.unwrap())
 }
 
 /// `createInputSignature()` is a helper function to sign a transaction input with a specific SigHash type using a private key.
@@ -82,20 +80,4 @@ pub fn create_input_signature(
         sign_input(&verifiable_tx, input_index.into(), &private_key.secret_bytes(), sighash_type.unwrap_or(SighashType::All).into());
 
     Ok(signature.to_hex().into())
-}
-
-/// @category Wallet SDK
-#[wasm_bindgen(js_name=signScriptHash)]
-pub fn sign_script_hash(script_hash: JsValue, privkey: &PrivateKey) -> Result<String> {
-    let script_hash = from_value(script_hash)?;
-    let result = sign_hash(script_hash, &privkey.into())?;
-    Ok(result.to_hex())
-}
-
-fn sign_hash(sig_hash: Hash, privkey: &[u8; 32]) -> Result<Vec<u8>> {
-    let msg = secp256k1::Message::from_digest_slice(sig_hash.as_bytes().as_slice())?;
-    let schnorr_key = secp256k1::Keypair::from_seckey_slice(secp256k1::SECP256K1, privkey)?;
-    let sig: [u8; 64] = *schnorr_key.sign_schnorr(msg).as_ref();
-    let signature = std::iter::once(65u8).chain(sig).chain([SIG_HASH_ALL.to_u8()]).collect();
-    Ok(signature)
 }

@@ -26,42 +26,6 @@ impl Settings {
 
         tprintln!(ctx);
 
-        /*
-
-                this is deprecated in favor of dedicated `network`, `server` and `open <wallet name>` commands
-
-
-                else if argv.len() != 2 {
-                    tprintln!(ctx, "usage: set <key> <value>");
-                    return Ok(());
-                } else {
-                    let key = argv[0].as_str();
-                    let value = argv[1].as_str().trim();
-
-                    if value.contains(' ') || value.contains('\t') {
-                        return Err(Error::Custom("Whitespace in settings is not allowed".to_string()));
-                    }
-
-                    match key {
-                        "network" => {
-                            let network: NetworkId = value.parse()?;
-                            ctx.wallet().settings().set(WalletSettings::Network, network).await?;
-                        }
-                        "server" => {
-                            ctx.wallet().settings().set(WalletSettings::Server, value).await?;
-                        }
-                        "wallet" => {
-                            ctx.wallet().settings().set(WalletSettings::Wallet, value).await?;
-                        }
-                        // "scrollback" => {
-                        //     ctx.wallet().settings().set(WalletSettings::Wallet, value).await?;
-                        // }
-                        _ => return Err(Error::Custom(format!("Unknown setting '{}'", key))),
-                    }
-                    ctx.wallet().settings().try_store().await?;
-                }
-        */
-
         Ok(())
     }
 }

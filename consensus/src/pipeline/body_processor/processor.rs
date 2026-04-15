@@ -231,6 +231,12 @@ impl BlockBodyProcessor {
         Ok(BlockStatus::StatusCellPendingVerification)
     }
 
+    /// Validate the block body: isolation checks first, then contextual checks.
+    ///
+    /// **Ordering contract**: `validate_body_in_isolation` MUST execute before
+    /// `validate_body_in_context`. The latter assumes all isolation-level checks
+    /// (format, capacity, data-size, mass, duplicates, double-spends, chained-tx)
+    /// have already passed and does NOT repeat them.
     fn validate_body(self: &Arc<BlockBodyProcessor>, block: &Block, is_trusted: bool) -> BlockProcessResult<Mass> {
         let isolation_mass = self.validate_body_in_isolation(block)?;
         if !is_trusted {

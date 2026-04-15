@@ -4,7 +4,7 @@
 // Time lock scripts using CKB-VM with `since` syscall
 //
 // This module provides Script construction helpers for time lock scripts
-// that use the Cell model's `since` field instead of legacy CLTV/CSV opcodes.
+// that use the Cell model's `since` field instead of txscript CLTV/CSV opcodes.
 
 //! Time lock script helpers for Cell model
 //!
@@ -12,9 +12,9 @@
 //! with the `since` syscall. In the Cell model, time locks are enforced per-input
 //! using the `since` field, not tx-level lock_time or sequence-based semantics.
 //!
-//! ## Migration from Legacy Scripts
+//! ## Migration from Txscript Locks
 //!
-//! | Legacy (txscript) | Cell Model (CKB-VM) |
+//! | Txscript | Cell Model (CKB-VM) |
 //! |-------------------|---------------------|
 //! | `OP_CHECKLOCKTIMEVERIFY` | `load_input_since` syscall + comparison |
 //! | `OP_CHECKSEQUENCEVERIFY` | `since` with relative lock flags |

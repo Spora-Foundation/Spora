@@ -1,9 +1,13 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
-use spora_addresses::Address;
+use spora_addresses::{Address, Version as AddressVersion};
 use spora_consensus_core::cell_diff::CellMeta;
-use spora_consensus_core::tx::{CellOutput, CellInput, Script, TransactionId, TransactionIndexType, TransactionOutpoint};
+use spora_consensus_core::tx::{CellInput, CellOutput, Script, ScriptClass, TransactionId, TransactionIndexType, TransactionOutpoint};
 use spora_utils::{hex::ToHex, serde_bytes_fixed, serde_bytes_fixed_ref};
+use std::{
+    fmt::{Display, Formatter},
+    str::FromStr,
+};
 use workflow_serializer::prelude::*;
 
 use crate::prelude::{RpcHash, RpcScriptClass};
@@ -405,13 +409,117 @@ impl Deserializer for RpcTransactionOutput {
 pub struct RpcTransactionOutputVerboseData {
     pub lock_script_type: RpcScriptClass,
     pub lock_script_address: Address,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolved_lock_kind: Option<RpcResolvedLockKind>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolved_address_kind: Option<RpcResolvedAddressKind>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+#[repr(u8)]
+#[borsh(use_discriminant = true)]
+pub enum RpcResolvedLockKind {
+    NonStandard = 0,
+    StdSingle = 1,
+    StdSingleECDSA = 2,
+    Account = 3,
+    FullScript = 4,
+}
+
+impl Display for RpcResolvedLockKind {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let label = match self {
+            RpcResolvedLockKind::NonStandard => "nonstandard",
+            RpcResolvedLockKind::StdSingle => "std_single",
+            RpcResolvedLockKind::StdSingleECDSA => "std_single_ecdsa",
+            RpcResolvedLockKind::Account => "account",
+            RpcResolvedLockKind::FullScript => "full_script",
+        };
+        f.write_str(label)
+    }
+}
+
+impl FromStr for RpcResolvedLockKind {
+    type Err = crate::RpcError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "nonstandard" => Ok(Self::NonStandard),
+            "std_single" => Ok(Self::StdSingle),
+            "std_single_ecdsa" => Ok(Self::StdSingleECDSA),
+            "account" => Ok(Self::Account),
+            "full_script" => Ok(Self::FullScript),
+            _ => Err(crate::RpcError::General(format!("invalid resolved lock kind: {value}"))),
+        }
+    }
+}
+
+impl From<ScriptClass> for RpcResolvedLockKind {
+    fn from(value: ScriptClass) -> Self {
+        match value {
+            ScriptClass::NonStandard => Self::NonStandard,
+            ScriptClass::StdSingle => Self::StdSingle,
+            ScriptClass::StdSingleECDSA => Self::StdSingleECDSA,
+            ScriptClass::Account => Self::Account,
+            ScriptClass::FullScript => Self::FullScript,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+#[repr(u8)]
+#[borsh(use_discriminant = true)]
+pub enum RpcResolvedAddressKind {
+    StdSingle = 0,
+    StdSingleECDSA = 1,
+    Account = 2,
+    FullScript = 3,
+}
+
+impl Display for RpcResolvedAddressKind {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let label = match self {
+            RpcResolvedAddressKind::StdSingle => "std_single",
+            RpcResolvedAddressKind::StdSingleECDSA => "std_single_ecdsa",
+            RpcResolvedAddressKind::Account => "account",
+            RpcResolvedAddressKind::FullScript => "full_script",
+        };
+        f.write_str(label)
+    }
+}
+
+impl FromStr for RpcResolvedAddressKind {
+    type Err = crate::RpcError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "std_single" => Ok(Self::StdSingle),
+            "std_single_ecdsa" => Ok(Self::StdSingleECDSA),
+            "account" => Ok(Self::Account),
+            "full_script" => Ok(Self::FullScript),
+            _ => Err(crate::RpcError::General(format!("invalid resolved address kind: {value}"))),
+        }
+    }
+}
+
+impl From<AddressVersion> for RpcResolvedAddressKind {
+    fn from(value: AddressVersion) -> Self {
+        match value {
+            AddressVersion::StdSingle => Self::StdSingle,
+            AddressVersion::StdSingleECDSA => Self::StdSingleECDSA,
+            AddressVersion::Account => Self::Account,
+            AddressVersion::FullScript => Self::FullScript,
+        }
+    }
 }
 
 impl Serializer for RpcTransactionOutputVerboseData {
     fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
-        store!(u8, &1, writer)?;
+        store!(u8, &2, writer)?;
         store!(RpcScriptClass, &self.lock_script_type, writer)?;
         store!(Address, &self.lock_script_address, writer)?;
+        store!(Option<RpcResolvedLockKind>, &self.resolved_lock_kind, writer)?;
+        store!(Option<RpcResolvedAddressKind>, &self.resolved_address_kind, writer)?;
 
         Ok(())
     }
@@ -419,11 +527,16 @@ impl Serializer for RpcTransactionOutputVerboseData {
 
 impl Deserializer for RpcTransactionOutputVerboseData {
     fn deserialize<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
-        let _version = load!(u8, reader)?;
+        let version = load!(u8, reader)?;
         let lock_script_type = load!(RpcScriptClass, reader)?;
         let lock_script_address = load!(Address, reader)?;
+        let (resolved_lock_kind, resolved_address_kind) = if version >= 2 {
+            (load!(Option<RpcResolvedLockKind>, reader)?, load!(Option<RpcResolvedAddressKind>, reader)?)
+        } else {
+            (None, None)
+        };
 
-        Ok(Self { lock_script_type, lock_script_address })
+        Ok(Self { lock_script_type, lock_script_address, resolved_lock_kind, resolved_address_kind })
     }
 }
 
@@ -496,16 +609,25 @@ pub struct RpcTransactionVerboseData {
     pub hash: RpcHash,
     /// Effective compute-side mass after applying the VM-cycles projection when available.
     pub compute_mass: u64,
+    /// Non-contextual transient mass used for relay and block-body occupancy accounting.
+    pub transient_mass: Option<u64>,
+    /// Contextual storage mass when the transaction inputs are resolved.
+    pub storage_mass: Option<u64>,
+    /// Actual VM-verified script cycles when available.
+    pub verified_cycles: Option<u64>,
     pub block_hash: RpcHash,
     pub block_time: u64,
 }
 
 impl Serializer for RpcTransactionVerboseData {
     fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
-        store!(u8, &1, writer)?;
+        store!(u8, &2, writer)?;
         store!(RpcTransactionId, &self.transaction_id, writer)?;
         store!(RpcHash, &self.hash, writer)?;
         store!(u64, &self.compute_mass, writer)?;
+        store!(Option<u64>, &self.transient_mass, writer)?;
+        store!(Option<u64>, &self.storage_mass, writer)?;
+        store!(Option<u64>, &self.verified_cycles, writer)?;
         store!(RpcHash, &self.block_hash, writer)?;
         store!(u64, &self.block_time, writer)?;
 
@@ -515,14 +637,57 @@ impl Serializer for RpcTransactionVerboseData {
 
 impl Deserializer for RpcTransactionVerboseData {
     fn deserialize<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
-        let _version = load!(u8, reader)?;
+        let version = load!(u8, reader)?;
         let transaction_id = load!(RpcTransactionId, reader)?;
         let hash = load!(RpcHash, reader)?;
         let compute_mass = load!(u64, reader)?;
+        let (transient_mass, storage_mass, verified_cycles) = if version >= 2 {
+            (load!(Option<u64>, reader)?, load!(Option<u64>, reader)?, load!(Option<u64>, reader)?)
+        } else {
+            (None, None, None)
+        };
         let block_hash = load!(RpcHash, reader)?;
         let block_time = load!(u64, reader)?;
 
-        Ok(Self { transaction_id, hash, compute_mass, block_hash, block_time })
+        Ok(Self { transaction_id, hash, compute_mass, transient_mass, storage_mass, verified_cycles, block_hash, block_time })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rpc_transaction_verbose_data_deserializes_v1_payloads() {
+        let legacy = RpcTransactionVerboseData {
+            transaction_id: [0x11; 32].into(),
+            hash: [0x22; 32].into(),
+            compute_mass: 123,
+            transient_mass: Some(456),
+            storage_mass: Some(789),
+            verified_cycles: Some(999),
+            block_hash: [0x33; 32].into(),
+            block_time: 456,
+        };
+
+        let mut bytes = Vec::new();
+        store!(u8, &1, &mut bytes).unwrap();
+        store!(RpcTransactionId, &legacy.transaction_id, &mut bytes).unwrap();
+        store!(RpcHash, &legacy.hash, &mut bytes).unwrap();
+        store!(u64, &legacy.compute_mass, &mut bytes).unwrap();
+        store!(RpcHash, &legacy.block_hash, &mut bytes).unwrap();
+        store!(u64, &legacy.block_time, &mut bytes).unwrap();
+
+        let decoded =
+            <RpcTransactionVerboseData as workflow_serializer::serializer::Deserializer>::deserialize(&mut bytes.as_slice()).unwrap();
+        assert_eq!(decoded.transaction_id, legacy.transaction_id);
+        assert_eq!(decoded.hash, legacy.hash);
+        assert_eq!(decoded.compute_mass, legacy.compute_mass);
+        assert_eq!(decoded.transient_mass, None);
+        assert_eq!(decoded.storage_mass, None);
+        assert_eq!(decoded.verified_cycles, None);
+        assert_eq!(decoded.block_hash, legacy.block_hash);
+        assert_eq!(decoded.block_time, legacy.block_time);
     }
 }
 

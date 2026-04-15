@@ -60,11 +60,7 @@ impl TestBlockBuilder {
                         .map(|payload| BlockRewardData::new(payload.subsidy, 0, payload.miner_data.lock_script.clone()))
                 })
                 .unwrap_or_else(|| {
-                    BlockRewardData::new(
-                        self.coinbase_manager.calc_block_subsidy(block_daa_score),
-                        0,
-                        Script::new([0; 32], 0, vec![]),
-                    )
+                    BlockRewardData::new(self.coinbase_manager.calc_block_subsidy(block_daa_score), 0, Script::new([0; 32], 0, vec![]))
                 });
             mergeset_rewards.insert(block_hash, reward_data);
         }

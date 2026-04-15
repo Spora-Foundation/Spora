@@ -1,6 +1,6 @@
 use rocksdb::WriteBatch;
 use serde::{Deserialize, Serialize};
-use spora_consensus_core::tx::{CellOutput, CellInput, CellTx};
+use spora_consensus_core::tx::{CellInput, CellOutput, CellTx};
 use spora_consensus_core::BlockHasher;
 use spora_database::prelude::CachePolicy;
 use spora_database::prelude::StoreError;

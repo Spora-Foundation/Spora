@@ -1,3 +1,8 @@
+//! # PSSB (PSST Bundle) WASM Bindings
+//!
+//! Provides WebAssembly bindings for creating, serialising, and deserialising
+//! bundles of Partially Signed Spora Transactions.
+
 use std::ops::Deref;
 
 use super::error::*;
@@ -10,6 +15,18 @@ use spora_consensus_core::network::{NetworkId, NetworkIdT};
 use wasm_bindgen::prelude::*;
 use workflow_wasm::convert::TryCastFromJs;
 
+/// A **PSST Bundle** (PSSB) – an ordered collection of PSSTs that can be
+/// serialised as a single hex-encoded blob and transferred between signers.
+///
+/// # JavaScript API
+///
+/// ```js
+/// const bundle = new PSSB();
+/// bundle.add(psst1);
+/// bundle.add(psst2);
+/// const hex = bundle.serialize();
+/// const restored = PSSB.deserialize(hex);
+/// ```
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Debug)]
 pub struct PSSB(Inner);
@@ -22,34 +39,82 @@ impl Clone for PSSB {
 
 #[wasm_bindgen]
 impl PSSB {
+    /// Create a new, empty PSSB bundle.
+    ///
+    /// # Errors
+    ///
+    /// Currently infallible; the `Result` is reserved for future validation.
     #[wasm_bindgen(constructor)]
     pub fn new() -> Result<PSSB> {
         let bundle = Inner::new();
         Ok(PSSB(bundle))
     }
 
+    /// Serialise the bundle to a hex-encoded string prefixed with `"PSSB"`.
+    ///
+    /// The resulting string can be passed to [`PSSB::deserialize`] to
+    /// reconstruct the bundle.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if serialisation of any inner PSST fails.
     #[wasm_bindgen]
     pub fn serialize(&self) -> Result<String> {
         self.0.serialize().map_err(Error::from)
     }
 
+    /// Format the bundle contents as a human-readable string using the
+    /// given network for currency suffix (e.g. `"SPORA"` / `"TSPORA"`).
+    ///
+    /// # Arguments
+    ///
+    /// * `network_id` – A network identifier (`NetworkId` or compatible JS value).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the network ID cannot be parsed.
     #[wasm_bindgen(js_name = "displayFormat")]
     pub fn display_format(&self, network_id: &NetworkIdT) -> Result<String> {
         let network_id = NetworkId::try_cast_from(network_id).map_err(|err| Error::Custom(err.to_string()))?.into_owned();
         Ok(self.0.display_format(network_id, sau_to_spora_string_with_suffix))
     }
 
+    /// Deserialise a bundle from a hex-encoded string previously produced
+    /// by [`PSSB::serialize`].
+    ///
+    /// # Arguments
+    ///
+    /// * `hex_data` – Hex string prefixed with `"PSSB"`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the hex data is malformed or any inner PSST
+    /// cannot be parsed.
     #[wasm_bindgen]
     pub fn deserialize(hex_data: &str) -> Result<PSSB> {
         let bundle = Inner::deserialize(hex_data).map_err(Error::from)?;
         Ok(PSSB(bundle))
     }
 
+    /// Returns the number of PSSTs in the bundle.
     #[wasm_bindgen(getter, js_name = "length")]
     pub fn length(&self) -> usize {
         self.0 .0.len()
     }
 
+    /// Append a PSST to the bundle.
+    ///
+    /// The method accepts a PSST in *any* role state and extracts its inner
+    /// payload for storage.
+    ///
+    /// # Arguments
+    ///
+    /// * `psst` – Reference to a [`PSST`] instance.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the PSST payload cannot be deserialised or is in
+    /// an unsupported state.
     pub fn add(&mut self, psst: &PSST) -> Result<()> {
         let payload = psst.payload_getter();
 
@@ -170,9 +235,9 @@ mod tests {
                     "since": null,
                     "partialSigs": {},
                     "sighashType": 1,
-                    "redeemScript": null,
+                    "witnessTemplate": null,
                     "bip32Derivations": {},
-                    "finalScriptSig": null,
+                    "finalWitness": null,
                     "proprietaries": {}
                 }
             ],
@@ -186,7 +251,7 @@ mod tests {
                     },
                     "typeScript": null,
                     "outputData": null,
-                    "redeemScript": null,
+                    "witnessTemplate": null,
                     "bip32Derivations": {},
                     "proprietaries": {}
                 }

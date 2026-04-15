@@ -16,13 +16,14 @@
 // Spora Syscall Definitions
 // ============================================================================
 
-#define LOAD_TX_HASH_SYSCALL     2061
 #define LOAD_SCRIPT_HASH_SYSCALL 2062
 #define LOAD_CELL_SYSCALL        2071
 #define LOAD_INPUT_SYSCALL       2073
 #define LOAD_WITNESS_SYSCALL     2074
 #define LOAD_SCRIPT_SYSCALL      2075
 #define BLAKE3_HASH_SYSCALL      3001  // ← Spora extension!
+#define SECP256K1_VERIFY_SYSCALL 3002  // ← Spora extension!
+#define LOAD_ECDSA_SIGHASH_SYSCALL 3004 // ← Spora extension!
 
 #define SUCCESS              0
 #define INDEX_OUT_OF_BOUND   1
@@ -34,6 +35,8 @@
 #define SOURCE_OUTPUT        0x02
 #define SOURCE_GROUP_INPUT   0x0100
 #define SOURCE_GROUP_OUTPUT  0x0200
+
+#define SIG_HASH_ALL         0x01
 
 // ============================================================================
 // Syscall Wrappers
@@ -77,6 +80,18 @@ static inline int load_witness(
     return syscall(LOAD_WITNESS_SYSCALL, (uint64_t)buf, (uint64_t)len, offset, index, source, 0);
 }
 
+// Load canonical ECDSA signature hash (32 bytes)
+static inline int load_ecdsa_sighash(
+    uint8_t* buf,
+    uint64_t* len,
+    size_t offset,
+    size_t index,
+    size_t source,
+    uint8_t hash_type
+) {
+    return syscall(LOAD_ECDSA_SIGHASH_SYSCALL, (uint64_t)buf, (uint64_t)len, offset, index, source, hash_type);
+}
+
 // Load script args
 static inline int load_script(
     uint8_t* buf,
@@ -96,24 +111,62 @@ static inline int blake3_hash(
     return syscall(BLAKE3_HASH_SYSCALL, (uint64_t)output, (uint64_t)&output_len, (uint64_t)input, input_len, 0, 0);
 }
 
+// Secp256k1 recover + verify against 20-byte blake3 pubkey hash
+static inline int secp256k1_verify(
+    const uint8_t* pubkey_hash,
+    const uint8_t* signature,
+    const uint8_t* message_hash
+) {
+    return syscall(
+        SECP256K1_VERIFY_SYSCALL,
+        (uint64_t)pubkey_hash,
+        (uint64_t)signature,
+        (uint64_t)message_hash,
+        0,
+        0,
+        0
+    );
+}
+
+static uint64_t read_u32_le(const uint8_t* buf) {
+    uint64_t value = 0;
+    for (int i = 0; i < 4; i++) {
+        value |= ((uint64_t)buf[i]) << (8 * i);
+    }
+    return value;
+}
+
 // ============================================================================
-// Secp256k1 Signature Verification (simplified)
+// Secp256k1 Signature Verification
 // ============================================================================
 
-// Note: Full secp256k1 implementation is ~3000 lines.
-// Fail closed until a real implementation is wired in.
 int verify_secp256k1_signature(
     const uint8_t* pubkey_hash,   // 20 bytes (blake3(pubkey)[0..20])
     const uint8_t* signature,     // 65 bytes (r + s + v)
     const uint8_t* message_hash   // 32 bytes
 ) {
-    (void)pubkey_hash;
-    (void)signature;
-    (void)message_hash;
+    return secp256k1_verify(pubkey_hash, signature, message_hash);
+}
 
-    // TODO: Implement full secp256k1 recovery and verification.
-    // Until then, reject instead of silently accepting any witness.
-    return 1;
+// Read 20-byte pubkey hash from canonical Script serialization:
+// code_hash(32) || hash_type(1) || args_len(u32 LE) || args
+static int get_pubkey_hash(uint8_t out_pubkey_hash[20]) {
+    uint8_t script_buf[64];
+    uint64_t script_len = sizeof(script_buf);
+    int ret = load_script(script_buf, &script_len, 0);
+    if (ret != SUCCESS || script_len < 57) {
+        return 1;
+    }
+
+    uint64_t args_len = read_u32_le(script_buf + 33);
+    if (args_len != 20 || (37 + args_len) > script_len) {
+        return 1;
+    }
+
+    for (int i = 0; i < 20; i++) {
+        out_pubkey_hash[i] = script_buf[37 + i];
+    }
+    return 0;
 }
 
 // ============================================================================
@@ -121,57 +174,48 @@ int verify_secp256k1_signature(
 // ============================================================================
 
 int main() {
-    int ret;
-    
-    // 1. Load script args (should contain pubkey hash, 20 bytes)
-    uint8_t script_args[256];
-    uint64_t script_args_len = 256;
-    ret = load_script(script_args, &script_args_len, 0);
-    if (ret != SUCCESS) {
-        return 1;  // Failed to load script
+    uint8_t pubkey_hash[20];
+
+    // 1. Load and validate script args (must be exactly 20-byte pubkey hash)
+    if (get_pubkey_hash(pubkey_hash) != 0) {
+        return 1;
     }
-    
-    // Args format: [pubkey_hash(20 bytes)]
-    if (script_args_len < 20) {
-        return 1;  // Invalid args
+
+    // 2. Verify every input in the current lock-script group against the
+    //    canonical per-input ECDSA signature hash exposed by syscall 3004.
+    size_t group_index = 0;
+    int saw_group_witness = 0;
+    for (;;) {
+        uint8_t witness[256];
+        uint64_t witness_len = sizeof(witness);
+        int ret = load_witness(witness, &witness_len, 0, group_index, SOURCE_GROUP_INPUT);
+        if (ret == INDEX_OUT_OF_BOUND) {
+            break;
+        }
+        if (ret != SUCCESS) {
+            return 1;
+        }
+
+        saw_group_witness = 1;
+        if (witness_len != 65 && witness_len != 66) {
+            return 1;
+        }
+
+        uint8_t hash_type = (witness_len == 66) ? witness[65] : SIG_HASH_ALL;
+        uint8_t sighash[32];
+        uint64_t sighash_len = sizeof(sighash);
+        ret = load_ecdsa_sighash(sighash, &sighash_len, 0, group_index, SOURCE_GROUP_INPUT, hash_type);
+        if (ret != SUCCESS || sighash_len != 32) {
+            return 1;
+        }
+
+        ret = verify_secp256k1_signature(pubkey_hash, witness, sighash);
+        if (ret != 0) {
+            return 1;
+        }
+
+        group_index++;
     }
-    
-    // Skip code_hash (32 bytes) + hash_type (1 byte) + args_len (4 bytes)
-    uint8_t* pubkey_hash = script_args + 37;
-    
-    // 2. Load witness (should contain signature, 65 bytes)
-    uint8_t witness[256];
-    uint64_t witness_len = 256;
-    ret = load_witness(witness, &witness_len, 0, 0, SOURCE_GROUP_INPUT);
-    if (ret != SUCCESS) {
-        return 1;  // No witness
-    }
-    
-    if (witness_len < 65) {
-        return 1;  // Invalid signature length
-    }
-    
-    uint8_t* signature = witness;
-    
-    // 3. Compute message hash (sighash)
-    // In real implementation, need to:
-    // - Load tx hash
-    // - Load inputs/outputs
-    // - Compute sighash (blake3-based, not blake2b!)
-    uint8_t sighash[32];
-    // blake3_hash(sighash, sighash_preimage, preimage_len);
-    
-    // For demo, just use zero hash
-    for (int i = 0; i < 32; i++) {
-        sighash[i] = 0;
-    }
-    
-    // 4. Verify signature
-    ret = verify_secp256k1_signature(pubkey_hash, signature, sighash);
-    if (ret != 0) {
-        return 1;  // Signature verification failed
-    }
-    
-    // Success!
-    return 0;
+
+    return saw_group_witness ? 0 : 1;
 }

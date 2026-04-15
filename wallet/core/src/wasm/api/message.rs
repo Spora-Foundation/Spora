@@ -51,6 +51,9 @@ fn parse_account_create_args(args: &Object) -> Result<AccountCreateArgs> {
                 .into_iter()
                 .map(|value| value.as_string().ok_or(Error::custom("xpubKeys must contain strings")))
                 .collect::<Result<Vec<_>>>()?;
+            if xpub_keys.is_empty() {
+                return Err(Error::Bip32WatchXpubRequired);
+            }
 
             Ok(AccountCreateArgs::Bip32Watch {
                 account_args: AccountCreateArgsBip32Watch { account_name: args.try_get_string("accountName")?, xpub_keys },
@@ -62,17 +65,58 @@ fn parse_account_create_args(args: &Object) -> Result<AccountCreateArgs> {
                 .into_iter()
                 .map(|value| value.as_string().ok_or(Error::custom("xpubKeys must contain strings")))
                 .collect::<Result<Vec<_>>>()?;
+            if xpub_keys.is_empty() {
+                return Err(Error::WatchOnlyXpubRequired);
+            }
+
+            let minimum_signatures = args.get_u32("minimumSignatures").ok().and_then(|value| value.try_into().ok()).unwrap_or(1);
+            if minimum_signatures == 0 {
+                return Err(Error::custom("minimumSignatures must be greater than 0"));
+            }
 
             Ok(AccountCreateArgs::WatchOnly {
                 account_args: AccountCreateArgsWatchOnly {
                     account_name: args.try_get_string("accountName")?,
                     xpub_keys,
-                    minimum_signatures: args.get_u32("minimumSignatures").ok().and_then(|value| value.try_into().ok()).unwrap_or(1),
+                    minimum_signatures,
                     ecdsa: args.try_get_bool("ecdsa")?.unwrap_or(false),
                 },
             })
         }
-        _ => Err(Error::custom("only BIP32, Keypair, Bip32Watch and WatchOnly accounts are currently supported")),
+        crate::account::MULTISIG_ACCOUNT_KIND => {
+            let additional_xpub_key_values = args.get_vec("additionalXpubKeys").unwrap_or_default();
+            let additional_xpub_keys = additional_xpub_key_values
+                .into_iter()
+                .map(|value| value.as_string().ok_or(Error::custom("additionalXpubKeys must contain strings")))
+                .collect::<Result<Vec<_>>>()?;
+
+            let payment_secret = args.try_get_secret("paymentSecret")?;
+            let prv_key_data_values = args.get_vec("prvKeyDataIds").unwrap_or_default();
+            let prv_key_data_ids =
+                prv_key_data_values.into_iter().map(|value| PrvKeyDataId::try_from(&value)).collect::<Result<Vec<_>>>()?;
+
+            let prv_key_data_args = prv_key_data_ids
+                .into_iter()
+                .map(|prv_key_data_id| PrvKeyDataArgs { prv_key_data_id, payment_secret: payment_secret.clone() })
+                .collect::<Vec<_>>();
+
+            if additional_xpub_keys.is_empty() && prv_key_data_args.is_empty() {
+                return Err(Error::custom("multisig account requires at least one xpub key or prvKeyDataId"));
+            }
+
+            let minimum_signatures = args.get_u32("minimumSignatures").ok().and_then(|value| value.try_into().ok()).unwrap_or(1);
+            if minimum_signatures == 0 {
+                return Err(Error::custom("minimumSignatures must be greater than 0"));
+            }
+
+            Ok(AccountCreateArgs::Multisig {
+                prv_key_data_args,
+                additional_xpub_keys,
+                name: args.try_get_string("accountName")?,
+                minimum_signatures,
+            })
+        }
+        _ => Err(Error::custom("only BIP32, Multisig, Keypair, Bip32Watch and WatchOnly accounts are currently supported")),
     }
 }
 
@@ -1146,6 +1190,15 @@ declare! {
         xpubKeys: string[];
         minimumSignatures?: number;
         ecdsa?: boolean;
+      }
+      | {
+        walletSecret: string;
+        type: "multisig";
+        accountName?: string;
+        prvKeyDataIds?: string[];
+        additionalXpubKeys?: string[];
+        minimumSignatures?: number;
+        paymentSecret?: string;
       };
     "#,
 }
@@ -1263,6 +1316,15 @@ declare! {
         xpubKeys: string[];
         minimumSignatures?: number;
         ecdsa?: boolean;
+      }
+      | {
+        walletSecret: string;
+        type: "multisig";
+        accountName?: string;
+        prvKeyDataIds?: string[];
+        additionalXpubKeys?: string[];
+        minimumSignatures?: number;
+        paymentSecret?: string;
       };
     "#,
 }
@@ -2199,13 +2261,13 @@ declare! {
         accountId : HexString;
         addressType : string;
         addressIndex : number;
-        scriptSig : Uint8Array | HexString;
+        witnessTemplate : Uint8Array | HexString;
         walletSecret : string;
         commitAmountSau : bigint;
         paymentSecret? : string;
         feeRate? : number;
         revealFeeSau : bigint;
-        payload: Some(payload)? : Uint8Array | HexString;
+        payload : Uint8Array | HexString;
     }
     "#,
 }
@@ -2214,18 +2276,18 @@ try_from! ( args: IAccountsCommitRevealRequest, AccountsCommitRevealRequest, {
     let account_id = args.get_account_id("accountId")?;
     let address_type = args.get_string("addressType")?;
     let address_index = args.get_u32("addressIndex")?;
-    let script_sig = args.get_vec_u8("scriptSig")?;
+    let witness_template = args.get_vec_u8("witnessTemplate")?;
     let wallet_secret = args.get_secret("walletSecret")?;
     let _commit_amount_sau = args.get_u64("commitAmountSau")?;
     let payment_secret = args.try_get_secret("paymentSecret")?;
     let fee_rate = args.get_f64("feeRate").ok();
     let reveal_fee_sau = args.get_u64("revealFeeSau")?;
-      let payload = args.get_vec_u8("payload")?;
+    let payload = args.get_vec_u8("payload")?;
     Ok(AccountsCommitRevealRequest {
         account_id,
-        address_type: address_type.parse().unwrap_or(CommitRevealAddressKind::Receive),
+        address_type: address_type.parse()?,
         address_index,
-        script_sig,
+        witness_template,
         wallet_secret,
         commit_amount_sau: _commit_amount_sau,
         payment_secret,
@@ -2239,8 +2301,7 @@ declare! {
     IAccountsCommitRevealResponse,
     r#"
     export interface IAccountsCommitRevealResponse {
-        commitTransactionId : HexString;
-        revealTransactionId : HexString;
+        transactionIds : HexString[];
     }
     "#,
 }
@@ -2256,31 +2317,46 @@ declare! {
         accountId : HexString;
         commitDestination : Address | string;
         revealDestination : Address | string;
+        witnessTemplate : Uint8Array | HexString;
         walletSecret : string;
         commitAmountSau : bigint;
         paymentSecret? : string;
         feeRate? : number;
         revealFeeSau : bigint;
-        payload: Some(payload)? : Uint8Array | HexString;
+        payload : Uint8Array | HexString;
     }
     "#,
 }
 
 try_from! ( args: IAccountsCommitRevealManualRequest, AccountsCommitRevealManualRequest, {
     let account_id = args.get_account_id("accountId")?;
-      let commit_destination = args.try_get_addresses("commitDestination")?.unwrap_or_default();
-      let reveal_destination = args.try_get_addresses("revealDestination")?.unwrap_or_default();
+    let commit_destination = args.try_get_addresses("commitDestination")?.unwrap_or_default();
+    let reveal_destination = args.try_get_addresses("revealDestination")?.unwrap_or_default();
+    let witness_template = args.get_vec_u8("witnessTemplate")?;
     let wallet_secret = args.get_secret("walletSecret")?;
-    let _commit_amount_sau = args.get_u64("commitAmountSau")?;
+    let commit_amount_sau = args.get_u64("commitAmountSau")?;
     let payment_secret = args.try_get_secret("paymentSecret")?;
     let fee_rate = args.get_f64("feeRate").ok();
     let reveal_fee_sau = args.get_u64("revealFeeSau")?;
-      let payload = args.get_vec_u8("payload")?;
+    let payload = args.get_vec_u8("payload")?;
+
+    let commit_address =
+        commit_destination.first().cloned().ok_or_else(|| Error::custom("commitDestination must contain one address"))?;
+    let reveal_address =
+        reveal_destination.first().cloned().ok_or_else(|| Error::custom("revealDestination must contain one address"))?;
+    let reveal_amount = commit_amount_sau
+        .checked_sub(reveal_fee_sau)
+        .ok_or_else(|| Error::custom("commitAmountSau must be >= revealFeeSau"))?;
+
     Ok(AccountsCommitRevealManualRequest {
         account_id,
-        start_destination: PaymentDestination::PaymentOutputs(PaymentOutputs::from(&[(commit_destination[0].clone(), 0u64)] as &[(Address, u64)])),
-        end_destination: PaymentDestination::PaymentOutputs(PaymentOutputs::from(&[(reveal_destination[0].clone(), 0u64)] as &[(Address, u64)])),
-        script_sig: vec![], // Default empty script_sig
+        start_destination: PaymentDestination::PaymentOutputs(PaymentOutputs::from(
+            &[(commit_address, commit_amount_sau)] as &[(Address, u64)]
+        )),
+        end_destination: PaymentDestination::PaymentOutputs(PaymentOutputs::from(
+            &[(reveal_address, reveal_amount)] as &[(Address, u64)]
+        )),
+        witness_template,
         wallet_secret,
         payment_secret,
         fee_rate,
@@ -2293,8 +2369,7 @@ declare! {
     IAccountsCommitRevealManualResponse,
     r#"
     export interface IAccountsCommitRevealManualResponse {
-        commitTransactionId : HexString;
-        revealTransactionId : HexString;
+        transactionIds : HexString[];
     }
     "#,
 }
@@ -2304,3 +2379,100 @@ try_from! ( args: AccountsCommitRevealManualResponse, IAccountsCommitRevealManua
 });
 
 // ---
+
+#[cfg(all(test, target_arch = "wasm32"))]
+mod tests {
+    use super::*;
+    use js_sys::{Array, Reflect};
+    use wasm_bindgen::JsValue;
+
+    fn set(object: &Object, key: &str, value: JsValue) {
+        Reflect::set(object, &JsValue::from_str(key), &value).expect("object property assignment should succeed");
+    }
+
+    fn set_str(object: &Object, key: &str, value: &str) {
+        set(object, key, JsValue::from_str(value));
+    }
+
+    fn set_u32(object: &Object, key: &str, value: u32) {
+        set(object, key, JsValue::from_f64(value as f64));
+    }
+
+    fn string_array(values: &[&str]) -> JsValue {
+        let array = Array::new();
+        for value in values {
+            array.push(&JsValue::from_str(value));
+        }
+        array.into()
+    }
+
+    #[test]
+    fn parse_account_create_args_multisig_supports_additional_xpub_keys_and_prv_key_data_ids() {
+        let request = Object::new();
+        set_str(&request, "type", "multisig");
+        set_str(&request, "accountName", "team vault");
+        set_u32(&request, "minimumSignatures", 2);
+        set_str(&request, "paymentSecret", "payment-passphrase");
+        set(&request, "additionalXpubKeys", string_array(&["xpub-a", "xpub-b"]));
+
+        let prv_key_data_id_a = PrvKeyDataId::new(0xAABBCCDD).to_hex();
+        let prv_key_data_id_b = PrvKeyDataId::new(0x11223344).to_hex();
+        let prv_key_data_ids = Array::new();
+        prv_key_data_ids.push(&JsValue::from_str(&prv_key_data_id_a));
+        prv_key_data_ids.push(&JsValue::from_str(&prv_key_data_id_b));
+        set(&request, "prvKeyDataIds", prv_key_data_ids.into());
+
+        match parse_account_create_args(&request).expect("multisig request should parse") {
+            AccountCreateArgs::Multisig { prv_key_data_args, additional_xpub_keys, name, minimum_signatures } => {
+                assert_eq!(name.as_deref(), Some("team vault"));
+                assert_eq!(minimum_signatures, 2);
+                assert_eq!(additional_xpub_keys, vec!["xpub-a".to_string(), "xpub-b".to_string()]);
+                assert_eq!(prv_key_data_args.len(), 2);
+                assert!(prv_key_data_args.iter().all(|entry| entry.payment_secret.is_some()));
+
+                let ids = prv_key_data_args.iter().map(|entry| entry.prv_key_data_id.to_hex()).collect::<Vec<_>>();
+                assert_eq!(ids, vec![prv_key_data_id_a, prv_key_data_id_b]);
+            }
+            _ => panic!("expected multisig account args"),
+        }
+    }
+
+    #[test]
+    fn parse_account_create_args_multisig_rejects_removed_xpub_keys_field() {
+        let request = Object::new();
+        set_str(&request, "type", "multisig");
+        set(&request, "xpubKeys", string_array(&["xpub-removed-field"]));
+
+        let error = parse_account_create_args(&request).expect_err("removed xpubKeys field should no longer be accepted for multisig");
+        assert!(error.to_string().contains("requires at least one xpub key or prvKeyDataId"));
+    }
+
+    #[test]
+    fn parse_account_create_args_multisig_requires_at_least_one_key_source() {
+        let request = Object::new();
+        set_str(&request, "type", "multisig");
+
+        let error = parse_account_create_args(&request).expect_err("missing multisig key sources should fail");
+        assert!(error.to_string().contains("requires at least one xpub key or prvKeyDataId"));
+    }
+
+    #[test]
+    fn parse_account_create_args_watch_only_rejects_empty_xpub_keys() {
+        let request = Object::new();
+        set_str(&request, "type", "watchonly");
+        set(&request, "xpubKeys", Array::new().into());
+
+        let error = parse_account_create_args(&request).expect_err("watch-only request with no xpub keys should fail");
+        assert!(matches!(error, Error::WatchOnlyXpubRequired));
+    }
+
+    #[test]
+    fn parse_account_create_args_bip32_watch_rejects_empty_xpub_keys() {
+        let request = Object::new();
+        set_str(&request, "type", "bip32watch");
+        set(&request, "xpubKeys", Array::new().into());
+
+        let error = parse_account_create_args(&request).expect_err("bip32-watch request with no xpub keys should fail");
+        assert!(matches!(error, Error::Bip32WatchXpubRequired));
+    }
+}

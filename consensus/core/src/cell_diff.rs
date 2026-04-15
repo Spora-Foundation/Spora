@@ -7,6 +7,7 @@ use crate::cell_metadata::EmbeddedCellMetadata;
 use crate::tx::TransactionOutpoint;
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
+use spora_exec::celltx::CapacityError;
 use spora_hashes::Hash;
 use spora_utils::mem_size::MemSizeEstimator;
 use std::collections::BTreeMap;
@@ -97,10 +98,10 @@ impl CellMeta {
     }
 
     /// Verify capacity is sufficient
-    pub fn verify_capacity(&self) -> Result<(), &'static str> {
+    pub fn verify_capacity(&self) -> Result<(), CapacityError> {
         let occupied = self.occupied_capacity();
         if self.capacity < occupied {
-            return Err("Insufficient capacity");
+            return Err(CapacityError::InsufficientCapacity { required: occupied, available: self.capacity });
         }
         Ok(())
     }
@@ -148,12 +149,26 @@ impl CellMeta {
     }
 }
 
-impl MemSizeEstimator for CellMeta {}
+impl MemSizeEstimator for CellMeta {
+    fn estimate_mem_bytes(&self) -> usize {
+        // Track retained metadata bytes rather than the padded Rust struct size so cache
+        // budgeting follows the actual Cell payload surface more closely.
+        std::mem::size_of::<TransactionOutpoint>()
+            + self.occupied_capacity() as usize
+            + std::mem::size_of::<u64>() // block_daa_score
+            + std::mem::size_of::<bool>() // is_cellbase
+    }
+}
 
 impl MemSizeEstimator for CellDiff {
     fn estimate_mem_bytes(&self) -> usize {
         std::mem::size_of::<Self>()
-            + (self.add.len() + self.remove.len()) * (std::mem::size_of::<TransactionOutpoint>() + std::mem::size_of::<CellMeta>())
+            + self
+                .add
+                .iter()
+                .chain(self.remove.iter())
+                .map(|(outpoint, meta)| std::mem::size_of_val(outpoint) + meta.estimate_mem_bytes())
+                .sum::<usize>()
     }
 }
 
@@ -290,6 +305,7 @@ impl CellDiff {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use spora_exec::celltx::CapacityError;
 
     fn create_test_cell(capacity: u64, index: u32) -> CellMeta {
         CellMeta {
@@ -436,6 +452,89 @@ mod tests {
     }
 
     #[test]
+    fn test_with_diff_in_place_matches_collection_replay_for_complex_chain() {
+        let outpoint_a = create_test_outpoint(0);
+        let outpoint_b = create_test_outpoint(1);
+        let outpoint_c = create_test_outpoint(2);
+        let outpoint_d = create_test_outpoint(3);
+        let outpoint_e = create_test_outpoint(4);
+
+        let cell_a = create_test_cell(1000, 0);
+        let cell_b = create_test_cell(2000, 1);
+        let cell_c = create_test_cell(3000, 2);
+        let cell_d = create_test_cell(4000, 3);
+        let cell_e = create_test_cell(5000, 4);
+
+        let mut base = BTreeMap::new();
+        base.insert(outpoint_a.clone(), cell_a.clone());
+        base.insert(outpoint_b.clone(), cell_b.clone());
+
+        let mut diff1 = CellDiff::new();
+        diff1.remove_cell(outpoint_a.clone(), cell_a.clone());
+        diff1.add_cell(outpoint_c.clone(), cell_c.clone());
+
+        let mut diff2 = CellDiff::new();
+        diff2.remove_cell(outpoint_c.clone(), cell_c.clone());
+        diff2.add_cell(outpoint_d.clone(), cell_d.clone());
+
+        let mut diff3 = CellDiff::new();
+        diff3.remove_cell(outpoint_b.clone(), cell_b.clone());
+        diff3.add_cell(outpoint_e.clone(), cell_e.clone());
+
+        let mut replayed = base.clone();
+        diff1.apply_to(&mut replayed);
+        diff2.apply_to(&mut replayed);
+        diff3.apply_to(&mut replayed);
+
+        let mut composed = CellDiff::new();
+        composed.with_diff_in_place(&diff1).unwrap();
+        composed.with_diff_in_place(&diff2).unwrap();
+        composed.with_diff_in_place(&diff3).unwrap();
+
+        let mut composed_applied = base.clone();
+        composed.apply_to(&mut composed_applied);
+
+        assert_eq!(composed_applied, replayed);
+        assert_eq!(composed.num_added(), 2);
+        assert_eq!(composed.num_removed(), 2);
+        assert!(composed.add.contains_key(&outpoint_d));
+        assert!(composed.add.contains_key(&outpoint_e));
+        assert!(composed.remove.contains_key(&outpoint_a));
+        assert!(composed.remove.contains_key(&outpoint_b));
+        assert!(!composed.add.contains_key(&outpoint_c));
+        assert!(!composed.remove.contains_key(&outpoint_c));
+
+        let mut rolled_back = composed_applied.clone();
+        composed.as_reversed().apply_to(&mut rolled_back);
+        assert_eq!(rolled_back, base);
+    }
+
+    #[test]
+    fn test_with_diff_in_place_cancels_transient_chain_across_multiple_diffs() {
+        let outpoint_x = create_test_outpoint(10);
+        let outpoint_y = create_test_outpoint(11);
+        let cell_x = create_test_cell(1500, 10);
+        let cell_y = create_test_cell(1700, 11);
+
+        let mut diff1 = CellDiff::new();
+        diff1.add_cell(outpoint_x.clone(), cell_x.clone());
+
+        let mut diff2 = CellDiff::new();
+        diff2.remove_cell(outpoint_x.clone(), cell_x);
+        diff2.add_cell(outpoint_y.clone(), cell_y.clone());
+
+        let mut diff3 = CellDiff::new();
+        diff3.remove_cell(outpoint_y.clone(), cell_y);
+
+        let mut composed = CellDiff::new();
+        composed.with_diff_in_place(&diff1).unwrap();
+        composed.with_diff_in_place(&diff2).unwrap();
+        composed.with_diff_in_place(&diff3).unwrap();
+
+        assert!(composed.is_empty(), "create/spend chains should collapse to a net no-op");
+    }
+
+    #[test]
     fn test_as_reversed() {
         let mut diff = CellDiff::new();
         diff.add_cell(create_test_outpoint(0), create_test_cell(1000, 0));
@@ -467,6 +566,36 @@ mod tests {
     }
 
     #[test]
+    fn test_cell_meta_mem_size_tracks_retained_payload_bytes() {
+        let mut cell = create_test_cell(1000, 0);
+        cell.data_bytes = 64;
+        cell.type_hash = Some([9u8; 32]);
+
+        let expected = std::mem::size_of::<TransactionOutpoint>() + cell.occupied_capacity() as usize + std::mem::size_of::<u64>() + 1;
+        assert_eq!(cell.estimate_mem_bytes(), expected);
+    }
+
+    #[test]
+    fn test_cell_diff_mem_size_uses_exact_entry_estimates() {
+        let mut diff = CellDiff::new();
+        let mut added = create_test_cell(1000, 0);
+        added.data_bytes = 32;
+        let removed = create_test_cell(2000, 1);
+
+        let added_key = create_test_outpoint(0);
+        let removed_key = create_test_outpoint(1);
+        diff.add_cell(added_key, added.clone());
+        diff.remove_cell(removed_key, removed.clone());
+
+        let expected = std::mem::size_of::<CellDiff>()
+            + std::mem::size_of_val(&added_key)
+            + added.estimate_mem_bytes()
+            + std::mem::size_of_val(&removed_key)
+            + removed.estimate_mem_bytes();
+        assert_eq!(diff.estimate_mem_bytes(), expected);
+    }
+
+    #[test]
     fn test_verify_capacity() {
         let mut cell = create_test_cell(1000, 0);
         cell.data_bytes = 100;
@@ -476,6 +605,9 @@ mod tests {
 
         // Should fail: insufficient capacity
         cell.capacity = 50;
-        assert!(cell.verify_capacity().is_err());
+        assert_eq!(
+            cell.verify_capacity(),
+            Err(CapacityError::InsufficientCapacity { required: cell.occupied_capacity(), available: 50 })
+        );
     }
 }

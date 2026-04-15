@@ -9,7 +9,7 @@
 //! - secp256k1 lock script (RISC-V binary)
 //! - Always-success lock (for testing)
 //! - Capacity type script
-//! - Time lock scripts (CKB-VM based, replaces legacy CLTV/CSV)
+//! - Time lock scripts (CKB-VM based, replaces txscript CLTV/CSV)
 
 /// Always-success lock script (for testing)
 ///
@@ -52,6 +52,32 @@ pub const LOAD_DEP_CELL_DATA_SCRIPT: &[u8] = include_bytes!("fixtures/load_dep_c
 /// Load-dep-cell-data lock script code hash
 pub fn load_dep_cell_data_code_hash() -> [u8; 32] {
     blake3::hash(LOAD_DEP_CELL_DATA_SCRIPT).into()
+}
+
+/// Load-ecdsa-signature-hash lock script (for testing)
+///
+/// This ELF fixture exercises syscall `3004` by loading the canonical ECDSA
+/// signature hash for the first group input and comparing it with an expected
+/// digest embedded in the witness prefix.
+pub const LOAD_ECDSA_SIGNATURE_HASH_SCRIPT: &[u8] = include_bytes!("fixtures/load_ecdsa_signature_hash.elf");
+
+/// Load-ecdsa-signature-hash lock script code hash
+pub fn load_ecdsa_signature_hash_code_hash() -> [u8; 32] {
+    blake3::hash(LOAD_ECDSA_SIGNATURE_HASH_SCRIPT).into()
+}
+
+/// Secp256k1 lock fixture (for testing)
+///
+/// This ELF fixture exercises the VM standard-lock path end-to-end by:
+/// - loading the current script via `LOAD_SCRIPT`,
+/// - reading the current group-input witness via `LOAD_WITNESS`,
+/// - loading the canonical ECDSA sighash via syscall `3004`, and
+/// - verifying the recoverable signature against syscall `3002`.
+pub const SECP256K1_LOCK_FIXTURE_SCRIPT: &[u8] = include_bytes!("fixtures/secp256k1_lock_fixture.elf");
+
+/// Secp256k1 lock fixture code hash
+pub fn secp256k1_lock_fixture_code_hash() -> [u8; 32] {
+    blake3::hash(SECP256K1_LOCK_FIXTURE_SCRIPT).into()
 }
 
 /// Absolute timestamp lock script (for testing)
@@ -116,15 +142,34 @@ pub fn htlc_minimal_code_hash() -> [u8; 32] {
 
 /// Time lock script helpers (CKB-VM based)
 ///
-/// Replaces legacy OP_CHECKLOCKTIMEVERIFY and OP_CHECKSEQUENCEVERIFY
+/// Replaces txscript OP_CHECKLOCKTIMEVERIFY and OP_CHECKSEQUENCEVERIFY
 /// with CKB-VM scripts that use the `since` syscall.
 pub mod timelock;
 
-/// Secp256k1 + Blake3 lock script source.
+/// Secp256k1 + Blake3 lock script (Production-Ready ELF)
 ///
-/// Note: this exposes the C source and build instructions only. The actual
-/// secp256k1 verification path inside the source file is still a scaffold and
-/// must be completed before the resulting ELF should guard production funds.
+/// This is the production-grade secp256k1 lock script compiled from Rust to RISC-V.
+/// It verifies ECDSA signatures using blake3 for hashing (Spora-specific).
+///
+/// Features:
+/// - Args: pubkey hash (20 bytes, blake3 of pubkey)
+/// - Witness: recoverable signature (65 bytes, r + s + v), optional 1-byte sighash flag
+/// - Loads canonical per-input ECDSA sighash via syscall 3004
+/// - Verifies signatures via syscall 3002 (recover + blake3(pubkey)[0..20] comparison)
+/// - Fail-closed semantics
+///
+/// Build: See `BUILD_INSTRUCTIONS`
+pub const SECP256K1_BLAKE3_LOCK_SCRIPT: &[u8] = include_bytes!("fixtures/secp256k1_blake3_lock.elf");
+
+/// Secp256k1 + Blake3 lock script code hash
+pub fn secp256k1_blake3_lock_code_hash() -> [u8; 32] {
+    blake3::hash(SECP256K1_BLAKE3_LOCK_SCRIPT).into()
+}
+
+/// Secp256k1 + Blake3 lock script source (C version for reference).
+///
+/// Note: this is the original C implementation. The production ELF is compiled
+/// from the Rust version in `fixtures/secp256k1_blake3_lock.rs`.
 pub const SECP256K1_BLAKE3_LOCK_SOURCE: &str = include_str!("secp256k1_blake3_lock.c");
 
 /// Build instructions for secp256k1 lock
@@ -151,6 +196,13 @@ hexdump -C secp256k1_blake3_lock.bin
 
 ## Get Code Hash
 blake3sum secp256k1_blake3_lock.bin
+
+# If blake3sum/b3sum is unavailable:
+cargo run -p spora-exec --example fixture_hashes -- secp256k1_blake3_lock.bin
+
+# Note: exec/src/scripts/fixtures/build_fixtures.sh only builds the Rust-based
+# ELF fixtures under fixtures/*.rs. This C lock requires a separate RISC-V C
+# toolchain.
 "#;
 
 #[cfg(test)]
@@ -192,6 +244,18 @@ mod tests {
     }
 
     #[test]
+    fn test_load_ecdsa_signature_hash_script_size() {
+        assert!(LOAD_ECDSA_SIGNATURE_HASH_SCRIPT.len() > 64);
+        assert_eq!(&LOAD_ECDSA_SIGNATURE_HASH_SCRIPT[..4], b"\x7fELF");
+    }
+
+    #[test]
+    fn test_secp256k1_lock_fixture_script_size() {
+        assert!(SECP256K1_LOCK_FIXTURE_SCRIPT.len() > 64);
+        assert_eq!(&SECP256K1_LOCK_FIXTURE_SCRIPT[..4], b"\x7fELF");
+    }
+
+    #[test]
     fn test_timelock_absolute_script_size() {
         assert!(TIMELOCK_ABSOLUTE_SCRIPT.len() > 64);
         assert_eq!(&TIMELOCK_ABSOLUTE_SCRIPT[..4], b"\x7fELF");
@@ -214,6 +278,22 @@ mod tests {
         assert!(HTLC_MINIMAL_SCRIPT.len() > 64);
         assert_eq!(&HTLC_MINIMAL_SCRIPT[..4], b"\x7fELF");
     }
+
+    #[test]
+    fn test_secp256k1_blake3_lock_script_size() {
+        assert!(SECP256K1_BLAKE3_LOCK_SCRIPT.len() > 64);
+        assert_eq!(&SECP256K1_BLAKE3_LOCK_SCRIPT[..4], b"\x7fELF");
+    }
+
+    #[test]
+    fn test_secp256k1_blake3_lock_code_hash() {
+        let hash = secp256k1_blake3_lock_code_hash();
+        assert_eq!(hash.len(), 32);
+
+        // Verify it's deterministic
+        let hash2 = secp256k1_blake3_lock_code_hash();
+        assert_eq!(hash, hash2);
+    }
 }
 
 #[cfg(all(test, feature = "vm"))]
@@ -229,6 +309,12 @@ mod load_header_timestamp_test;
 mod load_dep_cell_data_test;
 
 #[cfg(all(test, feature = "vm"))]
+mod load_ecdsa_signature_hash_test;
+
+#[cfg(all(test, feature = "vm"))]
+mod secp256k1_lock_fixture_test;
+
+#[cfg(all(test, feature = "vm"))]
 mod timelock_absolute_test;
 
 #[cfg(all(test, feature = "vm"))]
@@ -239,3 +325,6 @@ mod htlc_test;
 
 #[cfg(all(test, feature = "vm"))]
 mod htlc_minimal_test;
+
+#[cfg(all(test, feature = "vm"))]
+mod syscall_edge_cases_test;

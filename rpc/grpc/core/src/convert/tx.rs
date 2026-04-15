@@ -68,6 +68,9 @@ from!(item: &spora_rpc_core::RpcTransactionVerboseData, protowire::RpcTransactio
         transaction_id: item.transaction_id.to_string(),
         hash: item.hash.to_string(),
         compute_mass: item.compute_mass,
+        transient_mass: item.transient_mass,
+        storage_mass: item.storage_mass,
+        verified_cycles: item.verified_cycles,
         block_hash: item.block_hash.to_string(),
         block_time: item.block_time,
     }
@@ -79,6 +82,8 @@ from!(item: &spora_rpc_core::RpcTransactionOutputVerboseData, protowire::RpcTran
     Self {
         lock_script_type: item.lock_script_type.to_string(),
         lock_script_address: (&item.lock_script_address).into(),
+        resolved_lock_kind: item.resolved_lock_kind.map(|kind| kind.to_string()).unwrap_or_default(),
+        resolved_address_kind: item.resolved_address_kind.map(|kind| kind.to_string()).unwrap_or_default(),
     }
 });
 
@@ -182,6 +187,9 @@ try_from!(item: &protowire::RpcTransactionVerboseData, spora_rpc_core::RpcTransa
         transaction_id: RpcHash::from_str(&item.transaction_id)?,
         hash: RpcHash::from_str(&item.hash)?,
         compute_mass: item.compute_mass,
+        transient_mass: item.transient_mass,
+        storage_mass: item.storage_mass,
+        verified_cycles: item.verified_cycles,
         block_hash: RpcHash::from_str(&item.block_hash)?,
         block_time: item.block_time,
     }
@@ -193,6 +201,16 @@ try_from!(item: &protowire::RpcTransactionOutputVerboseData, spora_rpc_core::Rpc
     Self {
         lock_script_type: item.lock_script_type.parse()?,
         lock_script_address: item.lock_script_address.as_str().try_into()?,
+        resolved_lock_kind: if item.resolved_lock_kind.is_empty() {
+            None
+        } else {
+            Some(item.resolved_lock_kind.parse()?)
+        },
+        resolved_address_kind: if item.resolved_address_kind.is_empty() {
+            None
+        } else {
+            Some(item.resolved_address_kind.parse()?)
+        },
     }
 });
 

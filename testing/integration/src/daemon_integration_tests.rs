@@ -73,10 +73,8 @@ async fn daemon_mining_test() {
     // Mine 10 blocks to daemon #1
     let mut last_block_hash = None;
     for i in 0..10 {
-        let template = rpc_client1
-            .get_block_template(Address::new(sporad1.network.into(), spora_addresses::Version::PubKey, &[0; 32]), vec![])
-            .await
-            .unwrap();
+        let template =
+            rpc_client1.get_block_template(Address::new_std_single(sporad1.network.into(), &[0; 32]), vec![]).await.unwrap();
         let header: Header = (&template.block.header).into();
         last_block_hash = Some(header.hash);
         rpc_client1.submit_block(template.block, false).await.unwrap();
@@ -169,18 +167,16 @@ async fn daemon_cells_propagation_test() {
 
     // Mining key and address
     let (miner_sk, miner_pk) = secp256k1::generate_keypair(&mut thread_rng());
-    let miner_address =
-        Address::new(sporad1.network.into(), spora_addresses::Version::PubKey, &miner_pk.x_only_public_key().0.serialize());
+    let miner_address = Address::new_std_single(sporad1.network.into(), &miner_pk.x_only_public_key().0.serialize());
     let miner_schnorr_key = secp256k1::Keypair::from_secret_key(secp256k1::SECP256K1, &miner_sk);
     let miner_lock_script = pay_to_address_lock_script(&miner_address);
 
     // User key and address
     let (_user_sk, user_pk) = secp256k1::generate_keypair(&mut thread_rng());
-    let user_address =
-        Address::new(sporad1.network.into(), spora_addresses::Version::PubKey, &user_pk.x_only_public_key().0.serialize());
+    let user_address = Address::new_std_single(sporad1.network.into(), &user_pk.x_only_public_key().0.serialize());
 
     // Some dummy non-monitored address
-    let blank_address = Address::new(sporad1.network.into(), spora_addresses::Version::PubKey, &[0; 32]);
+    let blank_address = Address::new_std_single(sporad1.network.into(), &[0; 32]);
 
     // Mine 1000 blocks to daemon #1
     let initial_blocks = coinbase_maturity;

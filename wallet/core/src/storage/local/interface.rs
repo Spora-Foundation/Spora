@@ -305,19 +305,6 @@ impl LocalStore {
     fn location(&self) -> Option<Arc<Location>> {
         self.location.lock().unwrap().clone()
     }
-
-    #[allow(dead_code)]
-    async fn wallet_export_impl(&self, wallet_secret: &Secret, _options: WalletExportOptions) -> Result<Vec<u8>> {
-        self.inner()?.try_export(wallet_secret, _options).await
-    }
-
-    async fn wallet_import_impl(&self, wallet_secret: &Secret, serialized_wallet_storage: &[u8]) -> Result<WalletDescriptor> {
-        let location = self.location().expect("initialized wallet storage location");
-        let inner = LocalStoreInner::try_import(wallet_secret, &location.folder, serialized_wallet_storage).await?;
-        inner.store(wallet_secret).await?;
-        let wallet_descriptor = inner.descriptor();
-        Ok(wallet_descriptor)
-    }
 }
 
 #[async_trait]
@@ -481,11 +468,14 @@ impl Interface for LocalStore {
     }
 
     async fn wallet_export(&self, wallet_secret: &Secret, options: WalletExportOptions) -> Result<Vec<u8>> {
-        self.wallet_export_impl(wallet_secret, options).await
+        self.inner()?.try_export(wallet_secret, options).await
     }
 
     async fn wallet_import(&self, wallet_secret: &Secret, serialized_wallet_storage: &[u8]) -> Result<WalletDescriptor> {
-        self.wallet_import_impl(wallet_secret, serialized_wallet_storage).await
+        let location = self.location().expect("initialized wallet storage location");
+        let inner = LocalStoreInner::try_import(wallet_secret, &location.folder, serialized_wallet_storage).await?;
+        inner.store(wallet_secret).await?;
+        Ok(inner.descriptor())
     }
 }
 

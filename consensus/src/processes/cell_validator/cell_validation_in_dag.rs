@@ -170,7 +170,7 @@ pub fn validate_in_reorg_context<P: DagCellProvider>(
 mod tests {
     use super::*;
     use spora_consensus_core::tx::TransactionOutpoint;
-    use spora_exec::{CellOutput, CellInput, Script};
+    use spora_exec::{CellInput, CellOutput, Script};
     use std::collections::HashMap;
 
     struct MockDagProvider {

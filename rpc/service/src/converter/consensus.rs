@@ -5,8 +5,11 @@ use spora_consensus_core::{
     blockstatus::BlockStatus,
     config::Config,
     header::Header,
-    mass::{project_cell_tx_mass_with_calculator, project_verifiable_transaction_mass_with_calculator, MassCalculator},
-    tx::{CellInput, CellTx, MutableTransaction, ResolvedCellTransaction, TransactionId, TransactionOutpoint, VerifiableTransaction},
+    mass::{project_cell_tx_mass_with_calculator, project_verifiable_transaction_mass_with_calculator, MassCalculator, ProjectedTransactionMass},
+    tx::{
+        classify_script, extract_address_from_script, CellInput, CellTx, CellTxContainer, MutableTransaction, ResolvedCellTransaction,
+        TransactionId, TransactionOutpoint, VerifiableTransaction,
+    },
     ChainPath,
 };
 use spora_consensus_notify::notification::{self as consensus_notify, Notification as ConsensusNotification};
@@ -16,8 +19,8 @@ use spora_mining::model::{owner_txs::OwnerTransactions, TransactionIdSet};
 use spora_notify::converter::Converter;
 use spora_rpc_core::{
     BlockAddedNotification, Notification, RpcAcceptedTransactionIds, RpcBlock, RpcBlockStatus, RpcBlockVerboseData, RpcHash,
-    RpcMempoolEntry, RpcMempoolEntryByAddress, RpcResult, RpcTransaction, RpcTransactionInput, RpcTransactionOutput,
-    RpcTransactionVerboseData,
+    RpcMempoolEntry, RpcMempoolEntryByAddress, RpcResolvedAddressKind, RpcResolvedLockKind, RpcResult, RpcTransaction,
+    RpcTransactionInput, RpcTransactionOutput, RpcTransactionOutputVerboseData, RpcTransactionVerboseData,
 };
 use std::{collections::HashMap, fmt::Debug, sync::Arc};
 
@@ -27,6 +30,37 @@ pub struct ConsensusConverter {
     config: Arc<Config>,
 }
 
+#[derive(Clone, Copy, Debug)]
+struct RpcMassProjection {
+    selection_mass: u64,
+    effective_compute_mass: u64,
+    transient_mass: Option<u64>,
+    storage_mass: Option<u64>,
+    verified_cycles: Option<u64>,
+}
+
+impl RpcMassProjection {
+    fn from_projected(projected: ProjectedTransactionMass, verified_cycles: Option<u64>) -> Self {
+        Self {
+            selection_mass: projected.selection_mass,
+            effective_compute_mass: projected.effective_compute_mass,
+            transient_mass: Some(projected.transient_mass),
+            storage_mass: projected.storage_mass,
+            verified_cycles,
+        }
+    }
+
+    fn from_mutable_transaction<T: CellTxContainer>(transaction: &MutableTransaction<T>) -> Option<Self> {
+        Some(Self {
+            selection_mass: transaction.selection_mass()?,
+            effective_compute_mass: transaction.effective_compute_mass()?,
+            transient_mass: transaction.calculated_non_contextual_masses.map(|masses| masses.transient_mass),
+            storage_mass: transaction.contextual_storage_mass(),
+            verified_cycles: transaction.verified_cycles,
+        })
+    }
+}
+
 impl ConsensusConverter {
     pub fn new(consensus_manager: Arc<ConsensusManager>, config: Arc<Config>) -> Self {
         Self { consensus_manager, config }
@@ -34,6 +68,21 @@ impl ConsensusConverter {
 
     fn mass_calculator(&self) -> MassCalculator {
         MassCalculator::new_with_consensus_params(&self.config.params)
+    }
+
+    fn enrich_output_verbose_data(&self, output: &spora_consensus_core::tx::CellOutput, rpc_output: &mut RpcTransactionOutput) {
+        let lock_class = classify_script(&output.lock);
+        let Ok(address) = extract_address_from_script(&output.lock, self.config.params.prefix()) else {
+            return;
+        };
+        let address_kind = RpcResolvedAddressKind::from(address.version());
+
+        rpc_output.verbose_data = Some(RpcTransactionOutputVerboseData {
+            lock_script_type: lock_class,
+            lock_script_address: address,
+            resolved_lock_kind: Some(RpcResolvedLockKind::from(lock_class)),
+            resolved_address_kind: Some(address_kind),
+        });
     }
 
     /// Returns the proof-of-work difficulty as a multiple of the minimum difficulty using
@@ -57,12 +106,12 @@ impl ConsensusConverter {
         transaction: &CellTx,
         header: Option<&Header>,
         include_verbose_data: bool,
-        projected_mass: Option<(u64, u64)>,
+        projected_mass: Option<RpcMassProjection>,
     ) -> RpcTransaction {
         let txid: TransactionId = transaction.id().into();
-        let fallback_projection = project_cell_tx_mass_with_calculator(&self.mass_calculator(), transaction, None);
-        let (selection_mass, effective_compute_mass) =
-            projected_mass.unwrap_or((fallback_projection.selection_mass, fallback_projection.effective_compute_mass));
+        let projected_mass = projected_mass.unwrap_or_else(|| {
+            RpcMassProjection::from_projected(project_cell_tx_mass_with_calculator(&self.mass_calculator(), transaction, None), None)
+        });
         RpcTransaction {
             version: transaction.version,
             inputs: transaction
@@ -80,15 +129,22 @@ impl ConsensusConverter {
                 .enumerate()
                 .map(|(index, output)| {
                     let output_data = transaction.outputs_data.get(index).map(Vec::as_slice).unwrap_or(&[]);
-                    RpcTransactionOutput::from_cell_output(output, output_data)
+                    let mut rpc_output = RpcTransactionOutput::from_cell_output(output, output_data);
+                    if include_verbose_data {
+                        self.enrich_output_verbose_data(output, &mut rpc_output);
+                    }
+                    rpc_output
                 })
                 .collect(),
             payload: transaction.payload().map(ToOwned::to_owned).unwrap_or_default(),
-            mass: selection_mass,
+            mass: projected_mass.selection_mass,
             verbose_data: include_verbose_data.then(|| RpcTransactionVerboseData {
                 transaction_id: txid,
                 hash: txid,
-                compute_mass: effective_compute_mass,
+                compute_mass: projected_mass.effective_compute_mass,
+                transient_mass: projected_mass.transient_mass,
+                storage_mass: projected_mass.storage_mass,
+                verified_cycles: projected_mass.verified_cycles,
                 block_hash: header.map_or_else(RpcHash::default, |x| x.hash),
                 block_time: header.map_or(0, |x| x.timestamp),
             }),
@@ -112,12 +168,7 @@ impl ConsensusConverter {
         include_verbose_data: bool,
     ) -> RpcTransaction {
         let projected_mass = project_verifiable_transaction_mass_with_calculator(&self.mass_calculator(), transaction, None);
-        self.build_rpc_transaction(
-            transaction.tx(),
-            header,
-            include_verbose_data,
-            Some((projected_mass.selection_mass, projected_mass.effective_compute_mass)),
-        )
+        self.build_rpc_transaction(transaction.tx(), header, include_verbose_data, Some(RpcMassProjection::from_projected(projected_mass, None)))
     }
 
     pub fn get_resolved_cell_transaction(
@@ -131,13 +182,8 @@ impl ConsensusConverter {
         self.get_verifiable_transaction(&verifiable, header, include_verbose_data)
     }
 
-    fn get_mempool_transaction(&self, transaction: &MutableTransaction) -> RpcTransaction {
-        self.build_rpc_transaction(
-            transaction.tx.as_ref(),
-            None,
-            true,
-            transaction.selection_mass().zip(transaction.effective_compute_mass()),
-        )
+    fn get_mempool_transaction<T: CellTxContainer>(&self, transaction: &MutableTransaction<T>) -> RpcTransaction {
+        self.build_rpc_transaction(transaction.tx.cell_tx(), None, true, RpcMassProjection::from_mutable_transaction(transaction))
     }
 
     /// Converts a consensus [`Block`] into an [`RpcBlock`], optionally including transaction verbose data.
@@ -274,11 +320,12 @@ impl Debug for ConsensusConverter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use spora_addresses::{Address, Prefix, Version};
     use spora_consensus::consensus::test_consensus::TestConsensus;
     use spora_consensus_core::{
         cell_metadata::CellMetadata,
         mass::ProjectedTransactionMass,
-        tx::{OutPoint, Script},
+        tx::{pay_to_address_lock_script, OutPoint, Script},
     };
 
     struct TestConverter {
@@ -296,10 +343,7 @@ mod tests {
     fn build_resolved_transaction() -> ResolvedCellTransaction {
         let lock = Script::new([0u8; 32], 0, vec![]);
         let prev_tx_id = [0x88; 32];
-        let inputs = vec![
-            CellInput::new(OutPoint::new(prev_tx_id, 0), 0),
-            CellInput::new(OutPoint::new(prev_tx_id, 1), 0),
-        ];
+        let inputs = vec![CellInput::new(OutPoint::new(prev_tx_id, 0), 0), CellInput::new(OutPoint::new(prev_tx_id, 1), 0)];
         let outputs = vec![
             spora_consensus_core::tx::CellOutput { lock: lock.clone(), type_: None, capacity: 50 },
             spora_consensus_core::tx::CellOutput { lock: lock.clone(), type_: None, capacity: 250 },
@@ -359,8 +403,63 @@ mod tests {
         assert!(projected.selection_mass > fallback.selection_mass, "test fixture must exercise storage mass");
 
         let rpc_tx = test.converter.get_resolved_cell_transaction(&resolved, None, true);
+        let verbose = rpc_tx.verbose_data.as_ref().expect("verbose data should be present");
 
         assert_eq!(rpc_tx.mass, projected.selection_mass);
-        assert_eq!(rpc_tx.verbose_data.as_ref().map(|data| data.compute_mass), Some(projected.effective_compute_mass));
+        assert_eq!(verbose.compute_mass, projected.effective_compute_mass);
+        assert_eq!(verbose.transient_mass, Some(projected.transient_mass));
+        assert_eq!(verbose.storage_mass, projected.storage_mass);
+        assert_eq!(verbose.verified_cycles, None);
+    }
+
+    #[test]
+    fn mempool_transactions_expose_verified_cycles_and_mass_breakdown() {
+        let test = build_converter();
+        let resolved = build_resolved_transaction();
+        let mut transaction = resolved.into_signable_transaction();
+        let calculator = test.converter.mass_calculator();
+        transaction.calculated_non_contextual_masses = Some(calculator.calc_non_contextual_masses_cell(&transaction.tx));
+        transaction.calculated_contextual_masses = {
+            let verifiable = transaction.as_verifiable();
+            calculator.calc_contextual_masses(&verifiable)
+        };
+        transaction.verified_cycles = Some(12_345);
+
+        let rpc_tx = test.converter.get_mempool_transaction(&transaction);
+        let verbose = rpc_tx.verbose_data.as_ref().expect("verbose data should be present");
+
+        assert_eq!(rpc_tx.mass, transaction.selection_mass().expect("selection mass should be available"));
+        assert_eq!(verbose.compute_mass, transaction.effective_compute_mass().expect("effective compute mass should be available"));
+        assert_eq!(
+            verbose.transient_mass,
+            transaction.calculated_non_contextual_masses.map(|masses| masses.transient_mass)
+        );
+        assert_eq!(verbose.storage_mass, transaction.contextual_storage_mass());
+        assert_eq!(verbose.verified_cycles, transaction.verified_cycles);
+    }
+
+    #[test]
+    fn transaction_outputs_expose_resolved_lock_and_address_kinds_in_verbose_mode() {
+        let test = build_converter();
+        let session = test.converter.consensus_manager.consensus().unguarded_session();
+        let address = Address::new(Prefix::Simnet, Version::StdSingle, &[0x55; 20]).expect("valid std-single address");
+        let lock = pay_to_address_lock_script(&address);
+        let tx = CellTx {
+            version: 0,
+            inputs: vec![],
+            cell_deps: vec![],
+            header_deps: vec![],
+            outputs: vec![spora_consensus_core::tx::CellOutput { lock, type_: None, capacity: 123 }],
+            outputs_data: vec![vec![]],
+            witnesses: vec![],
+        };
+
+        let rpc_tx = test.converter.get_cell_transaction(&session, &tx, None, true);
+        let output_verbose =
+            rpc_tx.outputs.first().and_then(|output| output.verbose_data.as_ref()).expect("verbose output data should be present");
+
+        assert_eq!(output_verbose.lock_script_type, spora_consensus_core::tx::ScriptClass::StdSingle);
+        assert_eq!(output_verbose.resolved_lock_kind, Some(RpcResolvedLockKind::StdSingle));
+        assert_eq!(output_verbose.resolved_address_kind, Some(RpcResolvedAddressKind::StdSingle));
     }
 }

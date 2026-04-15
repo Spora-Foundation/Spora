@@ -84,6 +84,25 @@ export interface IAccountCreateArgsWatchOnly {
     ecdsa?: boolean;
 }
 
+export interface IAccountCreateArgsMultisig {
+    accountName?: string;
+    prvKeyDataIds?: HexString[];
+    additionalXpubKeys?: string[];
+    minimumSignatures?: number;
+    paymentSecret?: string;
+}
+
+export interface IAccountCreateArgsKeypair {
+    accountName?: string;
+    prvKeyDataId: HexString;
+    ecdsa?: boolean;
+}
+
+export interface IAccountCreateArgsBip32Watch {
+    accountName?: string;
+    xpubKeys: string[];
+}
+
 /**
  * @category Wallet API
  */
@@ -94,8 +113,20 @@ export type IAccountCreateArgs =
         prvKeyDataArgs? : IPrvKeyDataArgs;
       }
     | {
+        type : "keypair";
+        args : IAccountCreateArgsKeypair;
+      }
+    | {
+        type : "bip32watch";
+        args : IAccountCreateArgsBip32Watch;
+      }
+    | {
         type : "watchonly";
         args : IAccountCreateArgsWatchOnly;
+      }
+    | {
+        type : "multisig";
+        args : IAccountCreateArgsMultisig;
       };
 "#;
 

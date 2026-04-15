@@ -11,8 +11,8 @@ pub mod sighash;
 pub mod types;
 // pub mod codec;  // Phase 1.5 - Molecule serialization
 
-pub use sighash::{compute_sighash, compute_txid, compute_wtxid, pubkey_hash};
+pub use sighash::{compute_rw_bound_sighash, compute_txid, compute_wtxid, pubkey_hash};
 pub use types::{
-    encode_dep_group_data, parse_dep_group_data, CellDep, CellMeta, CellOutput, CellInput, CellStatus, CellTx, DepType, OutPoint,
-    ResolvedCellTx, Script, TransactionInfo,
+    cell_tx_estimated_serialized_size, encode_dep_group_data, parse_dep_group_data, CapacityError, CellDep, CellInput, CellOutput,
+    CellStatus, CellTx, DepType, OutPoint, ResolvedCellMeta, ResolvedCellTx, Script, ScriptHashVersion, TransactionInfo,
 };

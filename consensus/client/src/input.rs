@@ -170,7 +170,7 @@ impl TransactionInput {
         self.inner().witness.replace(witness);
     }
 
-    pub fn lock_script_bytes(&self) -> Option<Vec<u8>> {
+    pub fn lock_script_args(&self) -> Option<Vec<u8>> {
         self.cell_entry().and_then(|cell_ref| cell_ref.cell.address.as_ref().map(|address| pay_to_address_lock_script(address).args))
     }
 }

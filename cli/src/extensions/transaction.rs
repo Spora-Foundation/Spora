@@ -1,5 +1,5 @@
 use crate::imports::*;
-use spora_consensus_core::tx::OutPointCompat;
+use spora_consensus_core::tx::TransactionId;
 use spora_wallet_core::storage::Binding;
 use spora_wallet_core::storage::{TransactionData, TransactionKind, TransactionRecord};
 use spora_wallet_core::wallet::WalletGuard;
@@ -183,7 +183,7 @@ impl TransactionExtension for TransactionRecord {
                     for input in transaction.inputs.iter() {
                         let out_point = &input.previous_output;
                         let index = out_point.index;
-                        let transaction_id = out_point.transaction_id();
+                        let transaction_id = TransactionId::from_bytes(out_point.tx_hash);
                         let since = input.since;
 
                         lines.push(format!("{:>4}{since:>2}: {transaction_id}:{index}", ""));

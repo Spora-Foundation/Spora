@@ -366,7 +366,7 @@ impl FromStr for EventKind {
             "cell-index-not-enabled" => Ok(EventKind::CellIndexNotEnabled),
             "sync-state" => Ok(EventKind::SyncState),
             "wallet-list" => Ok(EventKind::WalletList),
-            "wallet-ping" | "wallet-start" => Ok(EventKind::WalletPing),
+            "wallet-ping" => Ok(EventKind::WalletPing),
             "wallet-hint" => Ok(EventKind::WalletHint),
             "wallet-open" => Ok(EventKind::WalletOpen),
             "wallet-create" => Ok(EventKind::WalletCreate),
@@ -453,11 +453,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn event_kind_uses_wallet_ping_and_preserves_legacy_alias() {
+    fn event_kind_uses_wallet_ping_name() {
         assert_eq!(EventKind::from(&Events::WalletPing), EventKind::WalletPing);
         assert_eq!(EventKind::WalletPing.to_string(), "wallet-ping");
         assert_eq!(EventKind::from_str("wallet-ping").unwrap(), EventKind::WalletPing);
-        assert_eq!(EventKind::from_str("wallet-start").unwrap(), EventKind::WalletPing);
         assert_eq!(EventKind::from_str("all").unwrap(), EventKind::All);
         assert_eq!(EventKind::from_str("*").unwrap(), EventKind::All);
     }

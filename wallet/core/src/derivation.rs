@@ -2,7 +2,7 @@
 //!  Module handling bip32 address derivation.
 //!
 
-use spora_wallet_keys::derivation::gen1::{PubkeyDerivationManager, WalletDerivationManager};
+use spora_wallet_keys::derivation::standard::{PubkeyDerivationManager, WalletDerivationManager};
 
 pub use spora_wallet_keys::derivation::traits::*;
 use spora_wallet_keys::publickey::{PublicKey, PublicKeyArrayT, PublicKeyT};
@@ -13,10 +13,10 @@ use crate::account::AccountKind;
 use crate::error::Error;
 use crate::imports::*;
 use crate::result::Result;
-use spora_addresses::Version as AddressVersion;
 use spora_bip32::{AddressType, DerivationPath, ExtendedPrivateKey, ExtendedPublicKey, Language, Mnemonic, SecretKeyExt};
 use spora_consensus_core::network::{NetworkType, NetworkTypeT};
-use spora_consensus_core::tx::{multisig_redeem_script, multisig_redeem_script_ecdsa, pay_to_script_hash_lock_script};
+use spora_consensus_core::tx::{encode_full_script_payload, multisig_witness_template, multisig_witness_template_ecdsa};
+use spora_exec::Script;
 
 #[derive(Default, Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 pub struct AddressDerivationMeta([u32; 2]);
@@ -397,24 +397,6 @@ pub trait AddressDerivationManagerTrait: AnySync + Send + Sync + 'static {
     ) -> Result<Vec<(Address, secp256k1::SecretKey)>>;
 }
 
-pub fn create_multisig_address(
-    minimum_signatures: usize,
-    keys: Vec<secp256k1::PublicKey>,
-    prefix: Prefix,
-    ecdsa: bool,
-) -> Result<Address> {
-    let script = if !ecdsa {
-        multisig_redeem_script(keys.iter().map(|pk| pk.x_only_public_key().0.serialize()), minimum_signatures)
-    } else {
-        multisig_redeem_script_ecdsa(keys.iter().map(|pk| pk.serialize()), minimum_signatures)
-    }?;
-    let lock_script = pay_to_script_hash_lock_script(&script);
-    match lock_script.args.as_slice() {
-        [0xaa, 0x20, payload @ .., 0x87] if payload.len() == 32 => Ok(Address::new(prefix, AddressVersion::ScriptHash, payload)?),
-        _ => Err(Error::Custom("unsupported multisig lock script".to_string())),
-    }
-}
-
 /// @category Wallet SDK
 #[wasm_bindgen(js_name=createAddress)]
 pub fn create_address_js(
@@ -439,6 +421,34 @@ pub fn create_multisig_address_js(
     create_address(minimum_signatures, keys.try_into()?, network_type.into(), ecdsa.unwrap_or(false), None)
 }
 
+fn custom_lock_script_from_bytes(script_bytes: Vec<u8>) -> Script {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"spora-cell/lock");
+    hasher.update(&0u16.to_le_bytes());
+    hasher.update(&script_bytes);
+    Script::new(*hasher.finalize().as_bytes(), 0, script_bytes)
+}
+
+fn create_multisig_full_script_address(
+    minimum_signatures: usize,
+    keys: Vec<secp256k1::PublicKey>,
+    prefix: Prefix,
+    ecdsa: bool,
+) -> Result<Address> {
+    let lock_script_bytes = if ecdsa {
+        let compressed_keys = keys.iter().map(|key| key.serialize()).collect::<Vec<_>>();
+        multisig_witness_template_ecdsa(compressed_keys.iter(), minimum_signatures)
+            .map_err(|err| Error::custom(format!("unable to derive multisig ECDSA lock script: {err}")))?
+    } else {
+        let xonly_keys = keys.iter().map(|key| key.x_only_public_key().0.serialize()).collect::<Vec<_>>();
+        multisig_witness_template(xonly_keys.iter(), minimum_signatures)
+            .map_err(|err| Error::custom(format!("unable to derive multisig lock script: {err}")))?
+    };
+
+    let lock_script = custom_lock_script_from_bytes(lock_script_bytes);
+    Address::new_full_script(prefix, &encode_full_script_payload(&lock_script)).map_err(Into::into)
+}
+
 pub fn create_address(
     minimum_signatures: usize,
     keys: Vec<secp256k1::PublicKey>,
@@ -447,12 +457,16 @@ pub fn create_address(
     _account_kind: Option<AccountKind>,
 ) -> Result<Address> {
     let length = keys.len();
+    if length == 0 {
+        return Err(Error::Custom("at least one public key is required".to_string()));
+    }
+
     if length < minimum_signatures {
         return Err(format!{"The minimum amount of signatures ({}) is greater than the amount of provided public keys ({length})", minimum_signatures}.into());
     }
 
     if length > 1 {
-        return create_multisig_address(minimum_signatures, keys, prefix, ecdsa);
+        return create_multisig_full_script_address(minimum_signatures, keys, prefix, ecdsa);
     }
 
     Ok(PubkeyDerivationManager::create_address(&keys[0], prefix, ecdsa)?)
@@ -491,6 +505,46 @@ pub async fn create_xpub_from_xprv(
     let xkey = ExtendedPublicKey { public_key: secret_key.get_public_key(), attrs };
 
     Ok(xkey)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use spora_addresses::Version;
+    use spora_consensus_core::tx::pay_to_address_lock_script;
+
+    fn make_public_key(seed_byte: u8) -> secp256k1::PublicKey {
+        let secret_key = secp256k1::SecretKey::from_slice(&[seed_byte; 32]).expect("valid secret key");
+        secp256k1::PublicKey::from_secret_key(secp256k1::SECP256K1, &secret_key)
+    }
+
+    #[test]
+    fn create_address_multisig_returns_full_script_address() {
+        let keys = vec![make_public_key(1), make_public_key(2), make_public_key(3)];
+        let address = create_address(2, keys.clone(), Prefix::Testnet, false, None).expect("multisig address");
+
+        assert_eq!(address.version(), Version::FullScript);
+
+        let expected_script_bytes =
+            multisig_witness_template(keys.iter().map(|key| key.x_only_public_key().0.serialize()).collect::<Vec<_>>().iter(), 2)
+                .expect("schnorr multisig script");
+        let expected_lock = custom_lock_script_from_bytes(expected_script_bytes);
+        assert_eq!(pay_to_address_lock_script(&address), expected_lock);
+    }
+
+    #[test]
+    fn create_address_multisig_ecdsa_returns_full_script_address() {
+        let keys = vec![make_public_key(4), make_public_key(5)];
+        let address = create_address(2, keys.clone(), Prefix::Mainnet, true, None).expect("multisig ecdsa address");
+
+        assert_eq!(address.version(), Version::FullScript);
+
+        let expected_script_bytes =
+            multisig_witness_template_ecdsa(keys.iter().map(|key| key.serialize()).collect::<Vec<_>>().iter(), 2)
+                .expect("ecdsa multisig script");
+        let expected_lock = custom_lock_script_from_bytes(expected_script_bytes);
+        assert_eq!(pay_to_address_lock_script(&address), expected_lock);
+    }
 }
 
 pub fn build_derivate_path(

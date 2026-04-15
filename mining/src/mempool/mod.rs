@@ -34,20 +34,42 @@ pub(crate) mod validate_and_insert_transaction;
 
 /// Mempool contains transactions intended to be inserted into a block and mined.
 ///
-/// Some important properties to consider:
+/// # Core Invariants
 ///
-/// - Transactions can be chained, so a transaction can have parents and chained
-///   dependencies in the mempool.
-/// - A transaction can have some of its outpoints refer to missing outputs when
-///   added to the mempool. In this case it is considered orphan.
-/// - An orphan transaction is unorphaned when all its cell entries have been
-///   built or found.
-/// - There are transaction priorities: high and low.
-/// - Transactions submitted to the mempool by a RPC call have **high priority**.
-///   They are owned by the node, they never expire in the mempool and the node
-///   rebroadcasts them once in a while.
-/// - Transactions received through P2P have **low-priority**. They expire after
-///   60 seconds and are removed if not inserted in a block for mining.
+/// 1. **Transaction uniqueness (by `tx_id`)** – A transaction id appears at most once
+///    across the transaction pool and the orphan pool combined. Duplicate submissions
+///    are rejected with [`RuleError::RejectDuplicate`] or
+///    [`RuleError::RejectDuplicateOrphan`].
+///
+/// 2. **No double-spend** – For every `OutPoint` referenced as an input, at most one
+///    transaction in the pool consumes it. This is enforced by
+///    [`MempoolCellSet`](model::cell_set::MempoolCellSet) which maintains a
+///    `spent_outpoint_owner_id` index. When Replace-By-Fee (RBF) is in effect the
+///    conflicting transaction is evicted *before* the replacement is inserted,
+///    preserving this invariant.
+///
+/// 3. **Fee-rate ordering** – The ready-transactions frontier is a heap/sorted
+///    structure ordered by descending fee-rate. The block template selector
+///    always picks the highest-value subset first. Eviction removes the *lowest*
+///    fee-rate transactions.
+///
+/// 4. **Capacity limits** – The pool never exceeds `Config::maximum_transaction_count`
+///    entries nor `Config::mempool_size_limit` estimated bytes. When a new transaction
+///    would breach either limit, low-priority ready transactions with the lowest
+///    fee-rates are evicted.
+///
+/// 5. **Orphan transaction rules** – A transaction whose inputs cannot be resolved
+///    against consensus *or* the mempool is placed into the orphan pool (when
+///    `Orphan::Allowed`). It is promoted (“unorphaned”) as soon as all its inputs
+///    become available (e.g. a parent is accepted). Orphans are subject to their own
+///    count limit and expiry.
+///
+/// # Threading model
+///
+/// The `Mempool` struct is held behind a single `parking_lot::RwLock` in
+/// [`MiningManager`](super::manager::MiningManager). All public manager methods
+/// acquire either a read or write lock – see each method’s doc comment for
+/// details.
 pub(crate) struct Mempool {
     config: Arc<Config>,
     transaction_pool: TransactionsPool,

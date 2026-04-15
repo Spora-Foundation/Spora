@@ -15,9 +15,10 @@
 //!
 //! ## Supported Address Types
 //!
-//! - **PubKey** (v0): Standard public key addresses
-//! - **PubKeyECDSA** (v1): ECDSA-compatible public key addresses
-//! - **ScriptHash** (v8): Pay-to-script-hash addresses
+//! - **StdSingle** (v0): Standard Schnorr single-sig addresses
+//! - **StdSingleECDSA** (v1): Standard ECDSA single-sig addresses
+//! - **Account** (v2): Descriptor/policy account addresses
+//! - **FullScript** (v3): Full script addresses
 //!
 //! ## Examples
 //!
@@ -25,8 +26,8 @@
 //! use spora_addresses::{Address, Prefix, Version};
 //!
 //! // Create a new address
-//! let payload = [0u8; 32];
-//! let address = Address::new(Prefix::Mainnet, Version::PubKey, &payload).expect("Valid address");
+//! let pubkey = [0u8; 32];
+//! let address = Address::new_std_single(Prefix::Mainnet, &pubkey).expect("Valid address");
 //!
 //! // Parse from string
 //! // let address: Address = "spora:qz0s...t8cv".parse().expect("Valid address");
@@ -35,7 +36,7 @@
 //! // let is_valid = Address::validate("spora:qz0s...t8cv");
 //!
 //! // Use convenience constructors
-//! let pubkey_addr = Address::new_pubkey(Prefix::Mainnet, &[0u8; 32]).expect("Valid address");
+//! let standard_addr = Address::new_std_single(Prefix::Mainnet, &[0u8; 32]).expect("Valid address");
 //!
 //! // Get address information
 //! let info = address.info();
@@ -54,6 +55,7 @@
 //! - **WASM Support**: Enhanced JavaScript bindings with more functionality
 //!
 
+use blake3::Hasher;
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use smallvec::SmallVec;
@@ -84,11 +86,11 @@ pub enum AddressError {
     MissingPrefix,
 
     /// The address has an invalid version byte
-    #[error("Invalid address version {0}. Supported versions: 0 (PubKey), 1 (PubKeyECDSA), 8 (ScriptHash)")]
+    #[error("Invalid address version {0}. Supported versions: 0 (StdSingle), 1 (StdSingleECDSA), 2 (Account), 3 (FullScript)")]
     InvalidVersion(u8),
 
     /// The address has an invalid version string
-    #[error("Invalid version string '{0}'. Expected one of: PubKey, PubKeyECDSA, ScriptHash")]
+    #[error("Invalid version string '{0}'. Expected one of: StdSingle, StdSingleECDSA, Account, FullScript")]
     InvalidVersionString(String),
 
     /// The address contains an invalid character in the encoded payload
@@ -126,33 +128,118 @@ impl From<workflow_wasm::error::Error> for AddressError {
     }
 }
 
+const KEY_ID_DOMAIN_SCHNORR: &[u8] = b"spora/key-id/schnorr/v1";
+const KEY_ID_DOMAIN_ECDSA: &[u8] = b"spora/key-id/ecdsa/v1";
+const ACCOUNT_DESCRIPTOR_DOMAIN: &[u8] = b"spora/account/v1";
+const MAX_FULL_SCRIPT_ARGS_LEN: usize = 10_000;
+
+fn derive_key_id20(domain: &[u8], key_material: &[u8]) -> [u8; 20] {
+    let mut hasher = Hasher::new();
+    hasher.update(domain);
+    hasher.update(key_material);
+    let digest = hasher.finalize();
+    let mut out = [0u8; 20];
+    out.copy_from_slice(&digest.as_bytes()[..20]);
+    out
+}
+
+fn encode_varint(mut value: usize) -> Vec<u8> {
+    let mut out = Vec::new();
+    loop {
+        let mut byte = (value & 0x7f) as u8;
+        value >>= 7;
+        if value != 0 {
+            byte |= 0x80;
+        }
+        out.push(byte);
+        if value == 0 {
+            break;
+        }
+    }
+    out
+}
+
+fn decode_varint(payload: &[u8], start: usize) -> Option<(usize, usize)> {
+    let mut value = 0usize;
+    let mut shift = 0usize;
+    let mut index = start;
+    while index < payload.len() {
+        let byte = payload[index];
+        let part = usize::from(byte & 0x7f);
+        value |= part.checked_shl(shift as u32)?;
+        index += 1;
+        if byte & 0x80 == 0 {
+            let consumed = index - start;
+            let canonical = encode_varint(value);
+            if canonical.len() != consumed || canonical.as_slice() != &payload[start..index] {
+                return None;
+            }
+            return Some((value, index));
+        }
+        shift += 7;
+        if shift > usize::BITS as usize {
+            return None;
+        }
+    }
+    None
+}
+
+fn is_valid_full_script_payload(payload: &[u8]) -> bool {
+    if payload.len() < 34 {
+        return false;
+    }
+    if payload[32] > 4 {
+        return false;
+    }
+    let Some((args_len, args_start)) = decode_varint(payload, 33) else {
+        return false;
+    };
+    if args_len > MAX_FULL_SCRIPT_ARGS_LEN {
+        return false;
+    }
+    args_start.checked_add(args_len).is_some_and(|end| end == payload.len())
+}
+
 /// Convenience functions for creating common address types
 impl Address {
-    /// Create a standard PubKey address
+    /// Create a standard Schnorr single-sig address from a 32-byte x-only pubkey.
     ///
     /// # Arguments
     /// * `prefix` - Network prefix
-    /// * `pubkey` - 32-byte public key
-    pub fn new_pubkey(prefix: Prefix, pubkey: &[u8; 32]) -> Result<Self, AddressError> {
-        Self::new(prefix, Version::PubKey, pubkey)
+    /// * `pubkey` - 32-byte x-only public key
+    pub fn new_std_single(prefix: Prefix, pubkey: &[u8; 32]) -> Result<Self, AddressError> {
+        let key_id = derive_key_id20(KEY_ID_DOMAIN_SCHNORR, pubkey);
+        Self::new(prefix, Version::StdSingle, &key_id)
     }
 
-    /// Create an ECDSA PubKey address
+    /// Create a standard ECDSA single-sig address from a 33-byte compressed pubkey.
     ///
     /// # Arguments
     /// * `prefix` - Network prefix
-    /// * `pubkey` - 33-byte ECDSA public key
-    pub fn new_pubkey_ecdsa(prefix: Prefix, pubkey: &[u8; 33]) -> Result<Self, AddressError> {
-        Self::new(prefix, Version::PubKeyECDSA, pubkey)
+    /// * `pubkey` - 33-byte compressed public key
+    pub fn new_std_single_ecdsa(prefix: Prefix, pubkey: &[u8; 33]) -> Result<Self, AddressError> {
+        let key_id = derive_key_id20(KEY_ID_DOMAIN_ECDSA, pubkey);
+        Self::new(prefix, Version::StdSingleECDSA, &key_id)
     }
 
-    /// Create a ScriptHash address
+    /// Create a standard single-sig account address from a 32-byte descriptor hash.
+    pub fn new_account(prefix: Prefix, descriptor_hash: &[u8; 32]) -> Result<Self, AddressError> {
+        Self::new(prefix, Version::Account, descriptor_hash)
+    }
+
+    /// Create an account address from a canonical descriptor bytes payload.
+    pub fn new_account_from_descriptor(prefix: Prefix, descriptor: &[u8]) -> Result<Self, AddressError> {
+        let mut hasher = Hasher::new();
+        hasher.update(ACCOUNT_DESCRIPTOR_DOMAIN);
+        hasher.update(descriptor);
+        Self::new(prefix, Version::Account, hasher.finalize().as_bytes())
+    }
+
+    /// Create a full-script address payload.
     ///
-    /// # Arguments
-    /// * `prefix` - Network prefix
-    /// * `script_hash` - 32-byte script hash
-    pub fn new_script_hash(prefix: Prefix, script_hash: &[u8; 32]) -> Result<Self, AddressError> {
-        Self::new(prefix, Version::ScriptHash, script_hash)
+    /// Payload format: `code_hash(32) || hash_type(1) || args_len(varint) || args`
+    pub fn new_full_script(prefix: Prefix, payload: &[u8]) -> Result<Self, AddressError> {
+        Self::new(prefix, Version::FullScript, payload)
     }
 
     /// Parse an address from a string with detailed error information
@@ -238,11 +325,6 @@ impl Prefix {
         matches!(self, Prefix::Mainnet)
     }
 
-    /// Get all supported network prefixes
-    pub fn all() -> &'static [Prefix] {
-        &[Prefix::Mainnet, Prefix::Testnet, Prefix::Simnet, Prefix::Devnet]
-    }
-
     /// Get the human-readable name of the network
     pub fn network_name(&self) -> &'static str {
         match self {
@@ -284,10 +366,11 @@ impl TryFrom<&str> for Prefix {
 
 /// Address version defining the type and format of the address payload.
 ///
-/// Each version corresponds to a specific address type with different characteristics:
-/// - **PubKey** (v0): Standard 32-byte public key addresses
-/// - **PubKeyECDSA** (v1): ECDSA-compatible 33-byte public key addresses
-/// - **ScriptHash** (v8): Pay-to-script-hash addresses with 32-byte script hash
+/// Each version corresponds to a specific address family:
+/// - **StdSingle** (v0): Standard Schnorr single-sig (20-byte key-id)
+/// - **StdSingleECDSA** (v1): Standard ECDSA single-sig (20-byte key-id)
+/// - **Account** (v2): Descriptor/policy account (32-byte descriptor hash)
+/// - **FullScript** (v3): Full script payload (`code_hash||hash_type||args_len||args`)
 ///
 /// @category Address
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Debug, Hash, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
@@ -295,15 +378,14 @@ impl TryFrom<&str> for Prefix {
 #[borsh(use_discriminant = true)]
 #[wasm_bindgen(js_name = "AddressVersion")]
 pub enum Version {
-    /// Standard public key addresses (32 bytes)
-    /// Version byte: 0 (0b00000_000)
-    PubKey = 0,
-    /// ECDSA-compatible public key addresses (33 bytes)
-    /// Version byte: 1 (0b00000_001)
-    PubKeyECDSA = 1,
-    /// Pay-to-script-hash addresses (32 bytes)
-    /// Version byte: 8 (0b00001_000)
-    ScriptHash = 8,
+    /// Standard Schnorr single-sig address (20-byte key-id)
+    StdSingle = 0,
+    /// Standard ECDSA single-sig address (20-byte key-id)
+    StdSingleECDSA = 1,
+    /// Descriptor/policy account address (32-byte descriptor hash)
+    Account = 2,
+    /// Full script address (variable payload length)
+    FullScript = 3,
 }
 
 impl TryFrom<&str> for Version {
@@ -311,51 +393,24 @@ impl TryFrom<&str> for Version {
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         match value {
-            "PubKey" => Ok(Version::PubKey),
-            "PubKeyECDSA" => Ok(Version::PubKeyECDSA),
-            "ScriptHash" => Ok(Version::ScriptHash),
+            "StdSingle" => Ok(Version::StdSingle),
+            "StdSingleECDSA" => Ok(Version::StdSingleECDSA),
+            "Account" => Ok(Version::Account),
+            "FullScript" => Ok(Version::FullScript),
             _ => Err(AddressError::InvalidVersionString(value.to_owned())),
         }
     }
 }
 
 impl Version {
-    /// Get the expected payload length in bytes for this address version
-    #[inline(always)]
-    pub fn payload_len(&self) -> usize {
-        match self {
-            Version::PubKey => 32,
-            Version::PubKeyECDSA => 33,
-            Version::ScriptHash => 32,
-        }
-    }
-
-    /// Get the expected payload length in bytes for this address version
-    ///
-    /// Alias for `payload_len()`
-    #[inline(always)]
-    pub fn public_key_len(&self) -> usize {
-        self.payload_len()
-    }
-
-    /// Check if this version is currently enabled for mainnet
-    #[inline(always)]
-    pub fn is_enabled(&self) -> bool {
-        true
-    }
-
     /// Get the human-readable name of the address type
     pub fn type_name(&self) -> &'static str {
         match self {
-            Version::PubKey => "Public Key",
-            Version::PubKeyECDSA => "Public Key (ECDSA)",
-            Version::ScriptHash => "Script Hash",
+            Version::StdSingle => "Standard Single (Schnorr)",
+            Version::StdSingleECDSA => "Standard Single (ECDSA)",
+            Version::Account => "Account",
+            Version::FullScript => "Full Script",
         }
-    }
-
-    /// Get all supported address versions
-    pub fn all() -> &'static [Version] {
-        &[Version::PubKey, Version::PubKeyECDSA, Version::ScriptHash]
     }
 }
 
@@ -364,9 +419,10 @@ impl TryFrom<u8> for Version {
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
-            0 => Ok(Version::PubKey),
-            1 => Ok(Version::PubKeyECDSA),
-            8 => Ok(Version::ScriptHash),
+            0 => Ok(Version::StdSingle),
+            1 => Ok(Version::StdSingleECDSA),
+            2 => Ok(Version::Account),
+            3 => Ok(Version::FullScript),
             _ => Err(AddressError::InvalidVersion(value)),
         }
     }
@@ -375,9 +431,10 @@ impl TryFrom<u8> for Version {
 impl Display for Version {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Version::PubKey => write!(f, "PubKey"),
-            Version::PubKeyECDSA => write!(f, "PubKeyECDSA"),
-            Version::ScriptHash => write!(f, "ScriptHash"),
+            Version::StdSingle => write!(f, "StdSingle"),
+            Version::StdSingleECDSA => write!(f, "StdSingleECDSA"),
+            Version::Account => write!(f, "Account"),
+            Version::FullScript => write!(f, "FullScript"),
         }
     }
 }
@@ -385,8 +442,8 @@ impl Display for Version {
 /// Size of the payload vector of an address.
 ///
 /// This size is the smallest SmallVec supported backing store size greater or equal to the largest
-/// possible payload, which is 33 for [`Version::PubKeyECDSA`].
-pub const PAYLOAD_VECTOR_SIZE: usize = 36;
+/// possible payload, which is currently the FullScript payload.
+pub const PAYLOAD_VECTOR_SIZE: usize = 256;
 
 /// Used as the underlying type for address payload, optimized for the largest version length (33).
 pub type PayloadVec = SmallVec<[u8; PAYLOAD_VECTOR_SIZE]>;
@@ -400,8 +457,6 @@ pub struct AddressInfo {
     pub version: Version,
     /// Payload length in bytes
     pub payload_len: usize,
-    /// Whether this address version is currently enabled
-    pub is_enabled: bool,
 }
 
 /// Spora [`Address`] struct that serializes to and from an address format string: `spora:qz0s...t8cv`.
@@ -420,7 +475,7 @@ pub struct Address {
 
 impl std::fmt::Debug for Address {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.version == Version::PubKey {
+        if self.version == Version::StdSingle {
             write!(f, "{}", String::from(self))
         } else {
             write!(f, "{} ({})", String::from(self), self.version)
@@ -429,6 +484,39 @@ impl std::fmt::Debug for Address {
 }
 
 impl Address {
+    fn normalize_payload(version: Version, payload: &[u8]) -> Result<PayloadVec, AddressError> {
+        match version {
+            Version::StdSingle => {
+                if payload.len() == 20 {
+                    Ok(PayloadVec::from_slice(payload))
+                } else {
+                    Err(AddressError::BadPayload { expected: 20, actual: payload.len(), version: version as u8 })
+                }
+            }
+            Version::StdSingleECDSA => {
+                if payload.len() == 20 {
+                    Ok(PayloadVec::from_slice(payload))
+                } else {
+                    Err(AddressError::BadPayload { expected: 20, actual: payload.len(), version: version as u8 })
+                }
+            }
+            Version::Account => {
+                if payload.len() == 32 {
+                    Ok(PayloadVec::from_slice(payload))
+                } else {
+                    Err(AddressError::BadPayload { expected: 32, actual: payload.len(), version: version as u8 })
+                }
+            }
+            Version::FullScript => {
+                if is_valid_full_script_payload(payload) {
+                    Ok(PayloadVec::from_slice(payload))
+                } else {
+                    Err(AddressError::BadPayload { expected: 34, actual: payload.len(), version: version as u8 })
+                }
+            }
+        }
+    }
+
     /// Create a new address with the specified prefix, version, and payload
     ///
     /// # Arguments
@@ -443,24 +531,11 @@ impl Address {
     /// ```rust
     /// use spora_addresses::{Address, Prefix, Version};
     ///
-    /// let payload = [0u8; 32];
-    /// let address = Address::new(Prefix::Mainnet, Version::PubKey, &payload);
+    /// let payload = [0u8; 20];
+    /// let address = Address::new(Prefix::Mainnet, Version::StdSingle, &payload);
     /// ```
     pub fn new(prefix: Prefix, version: Version, payload: &[u8]) -> Result<Self, AddressError> {
-        let expected_len = version.payload_len();
-        if !prefix.is_test() && payload.len() != expected_len {
-            return Err(AddressError::BadPayload { expected: expected_len, actual: payload.len(), version: version as u8 });
-        }
-        Ok(Self { prefix, payload: PayloadVec::from_slice(payload), version })
-    }
-
-    /// Create a new address with the specified prefix, version, and payload (unchecked)
-    ///
-    /// # Safety
-    /// This function does not validate payload length. Use `new()` for safe construction.
-    #[inline(always)]
-    pub fn new_unchecked(prefix: Prefix, version: Version, payload: &[u8]) -> Self {
-        Self { prefix, payload: PayloadVec::from_slice(payload), version }
+        Ok(Self { prefix, payload: Self::normalize_payload(version, payload)?, version })
     }
 
     /// Get the network prefix of this address
@@ -499,12 +574,6 @@ impl Address {
         self.prefix.is_mainnet()
     }
 
-    /// Check if this address version is currently enabled
-    #[inline(always)]
-    pub fn is_enabled(&self) -> bool {
-        self.version.is_enabled()
-    }
-
     /// Get a short representation of the address for display
     ///
     /// # Arguments
@@ -513,7 +582,7 @@ impl Address {
     /// # Examples
     /// ```rust
     /// use spora_addresses::{Address, Prefix, Version};
-    /// let address = Address::new(Prefix::Mainnet, Version::PubKey, &[0u8; 32]).expect("Valid address");
+    /// let address = Address::new_std_single(Prefix::Mainnet, &[0u8; 32]).expect("Valid address");
     /// let short = address.short_display(4);
     /// // Returns: "spora:qz0s....t8cv"
     /// ```
@@ -528,7 +597,7 @@ impl Address {
 
     /// Get detailed information about this address
     pub fn info(&self) -> AddressInfo {
-        AddressInfo { prefix: self.prefix, version: self.version, payload_len: self.payload.len(), is_enabled: self.is_enabled() }
+        AddressInfo { prefix: self.prefix, version: self.version, payload_len: self.payload.len() }
     }
 }
 
@@ -604,12 +673,6 @@ impl Address {
         self.short_display(n)
     }
 
-    /// Check if this address is enabled
-    #[wasm_bindgen(js_name = "isEnabled")]
-    pub fn js_is_enabled(&self) -> bool {
-        self.is_enabled()
-    }
-
     /// Check if this is a mainnet address
     #[wasm_bindgen(js_name = "isMainnet")]
     pub fn js_is_mainnet(&self) -> bool {
@@ -624,7 +687,6 @@ impl Address {
         js_sys::Reflect::set(&obj, &"prefix".into(), &info.prefix.to_string().into()).unwrap();
         js_sys::Reflect::set(&obj, &"version".into(), &info.version.to_string().into()).unwrap();
         js_sys::Reflect::set(&obj, &"payloadLen".into(), &(info.payload_len as u32).into()).unwrap();
-        js_sys::Reflect::set(&obj, &"isEnabled".into(), &info.is_enabled.into()).unwrap();
         obj
     }
 }
@@ -926,20 +988,22 @@ mod tests {
     #[test]
     fn address_roundtrip() {
         use Prefix::*;
-        use Version::*;
 
         fn gen_payload(version: Version) -> Vec<u8> {
-            vec![version as u8 + 1; version.public_key_len()]
+            let size = match version {
+                Version::FullScript => 34,
+                Version::Account => 32,
+                _ => 20,
+            };
+            vec![version as u8 + 1; size]
         }
 
         let cases = vec![
-            (Mainnet, PubKey),
-            (Mainnet, PubKeyECDSA),
-            (Mainnet, ScriptHash),
-            (Testnet, PubKey),
-            (Testnet, PubKeyECDSA),
-            (Devnet, ScriptHash),
-            (Simnet, PubKey),
+            (Mainnet, Version::StdSingle),
+            (Mainnet, Version::StdSingleECDSA),
+            (Testnet, Version::Account),
+            (Testnet, Version::StdSingle),
+            (Simnet, Version::StdSingleECDSA),
         ];
 
         for (prefix, version) in cases {
@@ -959,14 +1023,11 @@ mod tests {
         let payload33 = [0u8; 33];
 
         // Test convenience constructors
-        let pubkey_addr = Address::new_pubkey(Mainnet, &payload32).expect("Valid pubkey address");
-        assert_eq!(pubkey_addr.version(), Version::PubKey);
+        let pubkey_addr = Address::new_std_single(Mainnet, &payload32).expect("Valid pubkey address");
+        assert_eq!(pubkey_addr.version(), Version::StdSingle);
 
-        let ecdsa_addr = Address::new_pubkey_ecdsa(Mainnet, &payload33).expect("Valid ecdsa address");
-        assert_eq!(ecdsa_addr.version(), Version::PubKeyECDSA);
-
-        let script_addr = Address::new_script_hash(Mainnet, &payload32).expect("Valid script hash address");
-        assert_eq!(script_addr.version(), Version::ScriptHash);
+        let ecdsa_addr = Address::new_std_single_ecdsa(Mainnet, &payload33).expect("Valid ecdsa address");
+        assert_eq!(ecdsa_addr.version(), Version::StdSingleECDSA);
     }
 
     #[test]
@@ -974,17 +1035,15 @@ mod tests {
         use Prefix::*;
 
         let payload = [0u8; 32];
-        let address = Address::new(Mainnet, Version::PubKey, &payload).expect("Valid address");
+        let address = Address::new_std_single(Mainnet, &payload).expect("Valid address");
 
         // Test info method
         let info = address.info();
         assert_eq!(info.prefix, Mainnet);
-        assert_eq!(info.version, Version::PubKey);
-        assert_eq!(info.payload_len, 32);
-        assert!(info.is_enabled);
+        assert_eq!(info.version, Version::StdSingle);
+        assert_eq!(info.payload_len, 20);
 
         // Test convenience methods
-        assert!(address.is_enabled());
         assert!(address.is_mainnet());
         assert!(!address.is_test_network());
 
@@ -999,9 +1058,18 @@ mod tests {
         use Prefix::*;
 
         // Test payload length validation
-        let wrong_payload = [0u8; 16]; // Too short for PubKeyECDSA
-        let result = Address::new(Mainnet, Version::PubKeyECDSA, &wrong_payload);
-        assert!(matches!(result, Err(AddressError::BadPayload { expected: 33, actual: 16, version: 1 })));
+        let wrong_payload = [0u8; 16]; // Too short for StdSingleECDSA
+        let result = Address::new(Mainnet, Version::StdSingleECDSA, &wrong_payload);
+        assert!(matches!(result, Err(AddressError::BadPayload { expected: 20, actual: 16, version: 1 })));
+
+        // StdSingle and StdSingleECDSA now require key-id20 when using Address::new
+        let schnorr_pubkey_payload = [0u8; 32];
+        let result = Address::new(Mainnet, Version::StdSingle, &schnorr_pubkey_payload);
+        assert!(matches!(result, Err(AddressError::BadPayload { expected: 20, actual: 32, version: 0 })));
+
+        let ecdsa_pubkey_payload = [0u8; 33];
+        let result = Address::new(Mainnet, Version::StdSingleECDSA, &ecdsa_pubkey_payload);
+        assert!(matches!(result, Err(AddressError::BadPayload { expected: 20, actual: 33, version: 1 })));
 
         // Test detailed validation
         let invalid_address = "invalid:address";
@@ -1020,35 +1088,33 @@ mod tests {
         assert!(!Prefix::Testnet.is_mainnet());
         assert_eq!(Prefix::Mainnet.network_name(), "Mainnet");
         assert_eq!(Prefix::Testnet.network_name(), "Testnet");
-
-        let all_prefixes = Prefix::all();
-        assert!(all_prefixes.contains(&Prefix::Mainnet));
-        assert!(all_prefixes.contains(&Prefix::Testnet));
+        assert_eq!(Prefix::Mainnet.as_str(), "spora");
+        assert_eq!(Prefix::Testnet.as_str(), "spora0");
+        assert_eq!(Prefix::Simnet.as_str(), "sporasim");
+        assert_eq!(Prefix::Devnet.as_str(), "sporadev");
 
         // Test Version methods
-        assert!(Version::PubKey.is_enabled());
-        assert_eq!(Version::PubKey.type_name(), "Public Key");
-
-        let all_versions = Version::all();
-        assert!(all_versions.contains(&Version::PubKey));
-        assert!(all_versions.contains(&Version::ScriptHash));
+        assert_eq!(Version::StdSingle.type_name(), "Standard Single (Schnorr)");
+        assert_eq!(Version::StdSingleECDSA.type_name(), "Standard Single (ECDSA)");
+        assert_eq!(Version::Account.type_name(), "Account");
+        assert_eq!(Version::FullScript.type_name(), "Full Script");
     }
 
     #[test]
     fn test_address_version_byte_encoding() {
         use Prefix::*;
-        use Version::*;
 
         // Test that version bytes encode to expected first characters
         let test_key = [0u8; 32];
 
-        let pubkey = Address::new(Mainnet, PubKey, &test_key).expect("Valid address");
+        let pubkey = Address::new_std_single(Mainnet, &test_key).expect("Valid address");
         let pubkey_data = pubkey.to_string();
         assert!(!pubkey_data.strip_prefix("spora:").unwrap().is_empty());
 
-        let script_hash = Address::new(Mainnet, ScriptHash, &test_key).expect("Valid address");
-        let script_hash_data = script_hash.to_string();
-        assert!(!script_hash_data.strip_prefix("spora:").unwrap().is_empty());
+        let ecdsa_key = [0u8; 33];
+        let ecdsa = Address::new_std_single_ecdsa(Mainnet, &ecdsa_key).expect("Valid address");
+        let ecdsa_data = ecdsa.to_string();
+        assert!(!ecdsa_data.strip_prefix("spora:").unwrap().is_empty());
     }
 
     #[test]
@@ -1068,7 +1134,7 @@ mod tests {
     #[test]
     fn bad_checksum_should_fail() {
         // Modify one character of a valid address
-        let valid = Address::new(Prefix::Testnet, Version::PubKey, &[0u8; 32]).expect("Valid address").to_string();
+        let valid = Address::new_std_single(Prefix::Testnet, &[0u8; 32]).expect("Valid address").to_string();
         let mut broken = valid.clone();
         if let Some(last) = broken.pop() {
             let replacement = if last == 'a' { 'b' } else { 'a' };
@@ -1076,6 +1142,61 @@ mod tests {
         }
         let result: Result<Address, _> = broken.parse();
         assert_eq!(result, Err(AddressError::BadChecksum));
+    }
+
+    #[test]
+    fn full_script_payload_rejects_non_minimal_varint() {
+        let mut payload = Vec::new();
+        payload.extend_from_slice(&[0x42; 32]);
+        payload.push(1);
+        payload.extend_from_slice(&[0x81, 0x00]); // non-minimal varint for 1
+        payload.push(0xAA);
+        assert!(!is_valid_full_script_payload(&payload));
+    }
+
+    #[test]
+    fn full_script_payload_rejects_trailing_bytes() {
+        let mut payload = Vec::new();
+        payload.extend_from_slice(&[0x42; 32]);
+        payload.push(1);
+        payload.push(1); // args len
+        payload.push(0xAA);
+        payload.push(0xFF); // trailing byte
+        assert!(!is_valid_full_script_payload(&payload));
+    }
+
+    #[test]
+    fn full_script_payload_rejects_invalid_hash_type() {
+        let mut payload = Vec::new();
+        payload.extend_from_slice(&[0x42; 32]);
+        payload.push(0xFF);
+        payload.push(0); // args len
+        assert!(!is_valid_full_script_payload(&payload));
+    }
+
+    #[test]
+    fn full_script_payload_rejects_oversized_args() {
+        let oversized = MAX_FULL_SCRIPT_ARGS_LEN + 1;
+        let mut payload = Vec::new();
+        payload.extend_from_slice(&[0x42; 32]);
+        payload.push(1);
+        payload.extend_from_slice(&encode_varint(oversized));
+        payload.extend_from_slice(&vec![0xAA; oversized]);
+        assert!(!is_valid_full_script_payload(&payload));
+    }
+
+    #[test]
+    fn parse_rejects_noncanonical_stdsingle_pubkey_payloads() {
+        let noncanonical_schnorr =
+            Address { prefix: Prefix::Mainnet, version: Version::StdSingle, payload: PayloadVec::from_slice(&[0x11; 32]) }.to_string();
+        let err = Address::try_from(noncanonical_schnorr.as_str()).expect_err("32-byte stdsingle payload must be rejected");
+        assert!(matches!(err, AddressError::BadPayload { expected: 20, actual: 32, version: 0 }));
+
+        let noncanonical_ecdsa =
+            Address { prefix: Prefix::Mainnet, version: Version::StdSingleECDSA, payload: PayloadVec::from_slice(&[0x22; 33]) }
+                .to_string();
+        let err = Address::try_from(noncanonical_ecdsa.as_str()).expect_err("33-byte stdsingleecdsa payload must be rejected");
+        assert!(matches!(err, AddressError::BadPayload { expected: 20, actual: 33, version: 1 }));
     }
 
     #[cfg(target_arch = "wasm32")]
@@ -1090,7 +1211,7 @@ mod tests {
     #[cfg(target_arch = "wasm32")]
     #[wasm_bindgen_test]
     pub fn test_wasm_serde_constructor() {
-        let addr = Address::new(Prefix::Mainnet, Version::PubKey, &[0u8; 32]);
+        let addr = Address::new_std_single(Prefix::Mainnet, &[0u8; 32]);
         let encoded = addr.to_string();
         let a = Address::constructor(&encoded);
         let value = to_value(&a).unwrap();
@@ -1103,7 +1224,7 @@ mod tests {
     #[cfg(target_arch = "wasm32")]
     #[wasm_bindgen_test]
     pub fn test_wasm_js_serde_object() {
-        let addr = Address::new(Prefix::Mainnet, Version::PubKey, &[0u8; 32]);
+        let addr = Address::new_std_single(Prefix::Mainnet, &[0u8; 32]);
 
         let obj = Object::new();
         obj.set("version", &JsValue::from_str(&addr.version.to_string())).unwrap();
@@ -1122,7 +1243,7 @@ mod tests {
     pub fn test_wasm_serde_object() {
         use wasm_bindgen::convert::IntoWasmAbi;
 
-        let addr = Address::new(Prefix::Mainnet, Version::PubKey, &[0u8; 32]);
+        let addr = Address::new_std_single(Prefix::Mainnet, &[0u8; 32]);
         let wasm_js_value: JsValue = addr.clone().into_abi().into();
         let actual = from_value(wasm_js_value).unwrap();
 

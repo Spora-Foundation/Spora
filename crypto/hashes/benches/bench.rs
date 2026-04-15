@@ -26,15 +26,15 @@ fn test_bytes_hasher<H: Hasher>(c: &mut Criterion) {
 }
 
 fn bench_hashers(c: &mut Criterion) {
-    test_bytes_hasher::<TransactionHash>(c);
-    test_bytes_hasher::<TransactionID>(c);
-    test_bytes_hasher::<TransactionSigningHash>(c);
+    test_bytes_hasher::<CellTxHash>(c);
+    test_bytes_hasher::<CellTxId>(c);
+    test_bytes_hasher::<CellTxSigningHash>(c);
     test_bytes_hasher::<BlockHash>(c);
     test_bytes_hasher::<ProofOfWorkHash>(c);
     test_bytes_hasher::<MerkleBranchHash>(c);
     test_bytes_hasher::<MuHashElementHash>(c);
     test_bytes_hasher::<MuHashFinalizeHash>(c);
-    test_bytes_hasher::<TransactionSigningHashECDSA>(c);
+    test_bytes_hasher::<CellTxSigningHashEcdsa>(c);
 }
 
 fn bench_pow_hash(c: &mut Criterion) {

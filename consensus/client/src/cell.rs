@@ -586,8 +586,8 @@ impl TryCastFromJs for CellEntryReference {
 
 impl CellEntryReference {
     pub fn simulated(amount: u64) -> Self {
-        use spora_addresses::{Prefix, Version};
-        let address = Address::new(Prefix::Testnet, Version::PubKey, &rand::random::<[u8; 32]>()).expect("Valid test address");
+        use spora_addresses::Prefix;
+        let address = Address::new_std_single(Prefix::Testnet, &rand::random::<[u8; 32]>()).expect("Valid test address");
         Self::simulated_with_address(amount, &address)
     }
 

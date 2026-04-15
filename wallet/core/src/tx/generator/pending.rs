@@ -198,7 +198,9 @@ impl PendingTransaction {
     }
 
     pub fn rpc_transaction(&self) -> RpcTransaction {
-        self.inner.signable_tx.lock().unwrap().tx.as_ref().into()
+        let signable_tx = self.inner.signable_tx.lock().unwrap();
+        let rpc_tx = RpcTransaction::from_verifiable_transaction(&signable_tx.as_verifiable());
+        rpc_tx
     }
 
     /// Submit the transaction on the supplied rpc

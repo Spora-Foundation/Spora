@@ -12,7 +12,7 @@ use spora_consensus_core::block::{Block, TemplateBuildMode};
 use spora_consensus_core::cell_diff::CellMeta;
 use spora_consensus_core::coinbase::MinerData;
 use spora_consensus_core::sign::sign;
-use spora_consensus_core::tx::{CellOutput, CellInput, CellTx, MutableTransaction, OutPoint, Script, TransactionOutpoint};
+use spora_consensus_core::tx::{CellInput, CellOutput, CellTx, MutableTransaction, OutPoint, Script, TransactionOutpoint};
 use spora_core::trace;
 use spora_hashes::Hash;
 use spora_utils::sim::{Environment, Process, Resumption, Suspension};

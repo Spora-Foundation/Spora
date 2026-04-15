@@ -64,9 +64,7 @@ impl Keypair {
     #[wasm_bindgen(js_name = toAddress)]
     // pub fn to_address(&self, network_type: NetworkType) -> Result<Address> {
     pub fn to_address(&self, network: &NetworkTypeT) -> Result<Address> {
-        let payload = &self.xonly_public_key.serialize();
-        let address = Address::new(network.try_into()?, AddressVersion::PubKey, payload);
-        Ok(address?)
+        Ok(Address::new_std_single(network.try_into()?, &self.xonly_public_key.serialize())?)
     }
 
     /// Get `ECDSA` [`Address`] of this Keypair's [`PublicKey`].
@@ -75,9 +73,7 @@ impl Keypair {
     /// JavaScript: `let address = keypair.toAddress(NetworkType.MAINNET);`.
     #[wasm_bindgen(js_name = toAddressECDSA)]
     pub fn to_address_ecdsa(&self, network: &NetworkTypeT) -> Result<Address> {
-        let payload = &self.public_key.serialize();
-        let address = Address::new(network.try_into()?, AddressVersion::PubKeyECDSA, payload);
-        Ok(address?)
+        Ok(Address::new_std_single_ecdsa(network.try_into()?, &self.public_key.serialize())?)
     }
 
     /// Create a new random [`Keypair`].

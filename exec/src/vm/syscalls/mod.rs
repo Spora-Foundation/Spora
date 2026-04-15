@@ -5,30 +5,56 @@
 // Adapted from CKB script/src/syscalls/
 
 pub mod blake3;
+pub mod close;
 pub mod current_cycles;
 pub mod debugger;
+pub mod exec;
+pub mod inherited_fd;
 pub mod load_cell;
 pub mod load_cell_data;
 pub mod load_header;
 pub mod load_input;
 pub mod load_script;
+pub mod load_signature_hash;
 pub mod load_tx;
 pub mod load_witness;
+pub mod pipe;
+pub mod process_id;
+pub mod read;
+pub mod secp256k1_verify;
+pub mod spawn;
 pub mod utils; // Spora-specific: blake3 hash syscall
+pub mod vm_version;
+pub mod wait;
+pub mod write;
 
 pub use blake3::Blake3Hash;
+pub use close::Close;
 pub use current_cycles::CurrentCycles;
 pub use debugger::Debugger;
+pub use exec::Exec;
+pub use inherited_fd::InheritedFd;
 pub use load_cell::LoadCell;
 pub use load_cell_data::LoadCellData;
 pub use load_header::LoadHeader;
 pub use load_input::LoadInput;
 pub use load_script::LoadScript;
+pub use load_signature_hash::{LoadSignatureHash, LOAD_SIGNATURE_HASH_BASE_CYCLES};
 pub use load_tx::LoadTx;
 pub use load_witness::LoadWitness;
+pub use pipe::Pipe;
+pub use process_id::ProcessId;
+pub use read::Read;
+pub use secp256k1_verify::{Secp256k1Verify, SECP256K1_VERIFY_BASE_CYCLES};
+pub use spawn::Spawn;
 pub use utils::*;
+pub use vm_version::VMVersion;
+pub use wait::Wait;
+pub use write::Write;
 
 /// System call numbers (aligned with CKB)
+pub const VM_VERSION_SYSCALL_NUMBER: u64 = 2041;
+pub const LOAD_TRANSACTION_SYSCALL_NUMBER: u64 = 2051;
 pub const LOAD_TX_HASH_SYSCALL_NUMBER: u64 = 2061;
 pub const LOAD_SCRIPT_HASH_SYSCALL_NUMBER: u64 = 2062;
 pub const LOAD_CELL_SYSCALL_NUMBER: u64 = 2071;
@@ -39,25 +65,42 @@ pub const LOAD_SCRIPT_SYSCALL_NUMBER: u64 = 2075;
 pub const LOAD_CELL_BY_FIELD_SYSCALL_NUMBER: u64 = 2081;
 pub const LOAD_HEADER_BY_FIELD_SYSCALL_NUMBER: u64 = 2082;
 pub const LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER: u64 = 2083;
+pub const LOAD_CELL_DATA_AS_CODE_SYSCALL_NUMBER: u64 = 2091;
 pub const LOAD_CELL_DATA_SYSCALL_NUMBER: u64 = 2092;
 pub const CURRENT_CYCLES_SYSCALL_NUMBER: u64 = 2042;
 pub const DEBUG_PRINT_SYSCALL_NUMBER: u64 = 2177;
+pub const SPAWN_SYSCALL_NUMBER: u64 = 2601;
+pub const WAIT_SYSCALL_NUMBER: u64 = 2602;
+pub const PROCESS_ID_SYSCALL_NUMBER: u64 = 2603;
+pub const PIPE_SYSCALL_NUMBER: u64 = 2604;
+pub const WRITE_SYSCALL_NUMBER: u64 = 2605;
+pub const READ_SYSCALL_NUMBER: u64 = 2606;
+pub const INHERITED_FD_SYSCALL_NUMBER: u64 = 2607;
+pub const CLOSE_SYSCALL_NUMBER: u64 = 2608;
 
 /// Spora-specific syscall numbers (3000+ range to avoid conflicts)
 pub const BLAKE3_HASH_SYSCALL_NUMBER: u64 = 3001;
+pub const SECP256K1_VERIFY_SYSCALL_NUMBER: u64 = 3002;
+pub const LOAD_SCHNORR_SIGNATURE_HASH_SYSCALL_NUMBER: u64 = 3003;
+pub const LOAD_ECDSA_SIGNATURE_HASH_SYSCALL_NUMBER: u64 = 3004;
 pub const EXEC_SYSCALL_NUMBER: u64 = 2043;
 
 /// System call return codes
 pub const SUCCESS: u8 = 0;
 pub const INDEX_OUT_OF_BOUND: u8 = 1;
 pub const ITEM_MISSING: u8 = 2;
-pub const LENGTH_NOT_ENOUGH: u8 = 3;
-pub const SLICE_OUT_OF_BOUND: u8 = 4;
+pub const SLICE_OUT_OF_BOUND: u8 = 3;
+pub const WRONG_FORMAT: u8 = 4;
 pub const WAIT_FAILURE: u8 = 5;
 pub const INVALID_FD: u8 = 6;
 pub const OTHER_END_CLOSED: u8 = 7;
 pub const MAX_VMS_SPAWNED: u8 = 8;
 pub const MAX_FDS_CREATED: u8 = 9;
+
+/// Spawn/IPC syscall cost baseline from CKB.
+pub const SPAWN_EXTRA_CYCLES_BASE: u64 = 100_000;
+/// Spawn/IPC yield syscall cost baseline from CKB.
+pub const SPAWN_YIELD_CYCLES_BASE: u64 = 800;
 
 /// Source type for loading data
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -214,6 +257,10 @@ mod tests {
         assert_eq!(Source::parse(0x01), Some(Source::Input));
         assert_eq!(Source::parse(0x02), Some(Source::Output));
         assert_eq!(Source::parse(0x03), Some(Source::CellDep));
+        assert_eq!(Source::parse(0x0100), Some(Source::GroupInput));
+        assert_eq!(Source::parse(0x0200), Some(Source::GroupOutput));
+        assert_eq!(Source::parse(0x0100_0000_0000_0001), None);
+        assert_eq!(Source::parse(0x0100_0000_0000_0002), None);
         assert_eq!(Source::parse(0x99), None);
     }
 

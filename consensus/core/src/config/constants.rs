@@ -16,8 +16,8 @@ pub mod consensus {
     /// **Desired** upper bound on the probability of anticones larger than k
     pub const GHOSTDAG_TAIL_DELTA: f64 = 0.01;
 
-    /// Historical default K for 1 BPS
-    pub const LEGACY_DEFAULT_GHOSTDAG_K: KType = 18;
+    /// Default K for 1 BPS networks.
+    pub const DEFAULT_GHOSTDAG_K_1BPS: KType = 18;
 
     //
     // ~~~~~~~~~~~~~~~~~~ Timestamp deviation & Median time ~~~~~~~~~~~~~~~~~~
@@ -58,8 +58,8 @@ pub mod consensus {
     ///
     pub const MIN_DIFFICULTY_WINDOW_SIZE: usize = 150;
 
-    /// Historical difficulty adjustment window size corresponding to ~44 minutes with 1 BPS
-    pub const LEGACY_DIFFICULTY_WINDOW_SIZE: usize = 2641;
+    /// Difficulty adjustment window size corresponding to ~44 minutes at 1 BPS.
+    pub const DIFFICULTY_WINDOW_SIZE_1BPS: usize = 2641;
 
     /// **New** difficulty window duration expressed in time units (seconds).
     pub const NEW_DIFFICULTY_WINDOW_DURATION: u64 = 2641;
@@ -74,8 +74,8 @@ pub mod consensus {
     // ~~~~~~~~~~~~~~~~~~~ Finality & Pruning ~~~~~~~~~~~~~~~~~~~
     //
 
-    /// Historical finality depth (in block units)
-    pub const LEGACY_FINALITY_DEPTH: u64 = 86_400;
+    /// Finality depth in block units for 1 BPS.
+    pub const FINALITY_DEPTH_1BPS: u64 = 86_400;
 
     /// **New** finality duration expressed in time units (seconds).
     pub const NEW_FINALITY_DURATION: u64 = 43_200; // 12 hours
@@ -110,8 +110,8 @@ pub mod consensus {
     // ~~~~~~~~~~~~~~~~~~~ Coinbase ~~~~~~~~~~~~~~~~~~~
     //
 
-    /// Historical value of the coinbase maturity parameter for 1 BPS networks
-    pub const LEGACY_COINBASE_MATURITY: u64 = 100;
+    /// Coinbase maturity parameter for 1 BPS networks.
+    pub const COINBASE_MATURITY_1BPS: u64 = 100;
 }
 
 pub mod perf {

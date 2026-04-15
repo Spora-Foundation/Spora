@@ -24,7 +24,10 @@ pub mod scripts;
 #[cfg(feature = "vm")]
 pub mod vm;
 
-pub use celltx::{encode_dep_group_data, parse_dep_group_data, CellDep, CellOutput, CellInput, CellTx, DepType, OutPoint, Script};
+pub use celltx::{
+    encode_dep_group_data, parse_dep_group_data, CapacityError, CellDep, CellInput, CellOutput, CellTx, DepType, OutPoint, Script,
+    ScriptHashVersion,
+};
 
 /// Cell transaction version
 pub const CELL_TX_VERSION: u32 = 0xC001;

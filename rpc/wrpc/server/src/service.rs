@@ -5,7 +5,7 @@ use spora_core::{
     task::service::{AsyncService, AsyncServiceError, AsyncServiceFuture},
     trace, warn,
 };
-use spora_rpc_core::api::ops::RpcApiOps;
+use spora_rpc_core::api::ops::{RpcApiOps, RPC_API_REVISION, RPC_API_VERSION};
 use spora_rpc_service::service::RpcCoreService;
 use spora_utils::triggers::SingleTrigger;
 use std::sync::Arc;
@@ -14,6 +14,36 @@ use workflow_rpc::server::prelude::*;
 pub use workflow_rpc::server::{Encoding as WrpcEncoding, WebSocketConfig, WebSocketCounters};
 
 static MAX_WRPC_MESSAGE_SIZE: usize = 1024 * 1024 * 128; // 128MB
+
+/// Current handshake protocol version.
+const HANDSHAKE_PROTOCOL_VERSION: u32 = 1;
+
+/// Handshake request sent by the client upon connection.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct HandshakeRequest {
+    /// Protocol version the client speaks.
+    pub protocol_version: u32,
+    /// RPC API version the client was compiled against.
+    pub rpc_api_version: u16,
+    /// Feature flags the client supports (e.g. `["borsh", "subscribe"]`).
+    pub capabilities: Vec<String>,
+}
+
+/// Handshake response returned by the server.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct HandshakeResponse {
+    /// Protocol version used for this session (min of client & server).
+    pub protocol_version: u32,
+    /// Server RPC API version.
+    pub rpc_api_version: u16,
+    /// Server RPC API revision.
+    pub rpc_api_revision: u16,
+    /// Intersection of client and server capabilities.
+    pub capabilities: Vec<String>,
+}
+
+/// Supported server capabilities.
+const SERVER_CAPABILITIES: &[&str] = &["borsh", "json", "subscribe"];
 
 /// Options for configuring the wRPC server
 pub struct Options {
@@ -66,18 +96,91 @@ impl RpcHandler for SporaRpcHandler {
     async fn handshake(
         self: Arc<Self>,
         peer: &SocketAddr,
-        _sender: &mut WebSocketSender,
-        _receiver: &mut WebSocketReceiver,
+        sender: &mut WebSocketSender,
+        receiver: &mut WebSocketReceiver,
         messenger: Arc<Messenger>,
     ) -> WebSocketResult<Connection> {
-        // TODO - discuss and implement handshake
-        // handshake::greeting(
-        //     std::time::Duration::from_millis(3000),
-        //     sender,
-        //     receiver,
-        //     Box::pin(|msg| if msg != "spora" { Err(WebSocketError::NegotiationFailure) } else { Ok(()) }),
-        // )
-        // .await
+        // ---- wRPC Handshake Protocol ----
+        //
+        // 1. Wait for the client to send a HandshakeRequest (JSON text frame).
+        // 2. Validate protocol & API version compatibility.
+        // 3. Reply with a HandshakeResponse containing the negotiated params.
+        // 4. On version mismatch, send an error response and return Err to
+        //    trigger a graceful disconnect.
+
+        use futures_util::{SinkExt, StreamExt};
+        use tokio::time::timeout;
+
+        let handshake_timeout = std::time::Duration::from_secs(5);
+
+        // Step 1 – receive HandshakeRequest
+        let request: HandshakeRequest = match timeout(handshake_timeout, receiver.next()).await {
+            Ok(Some(Ok(msg))) => {
+                let text = msg.to_text().map_err(|e| e.to_string())?;
+                serde_json::from_str(text).map_err(|e| {
+                    format!("invalid handshake request from {peer}: {e}")
+                })?
+            }
+            Ok(Some(Err(e))) => return Err(format!("handshake recv error from {peer}: {e}").into()),
+            Ok(None) => return Err(format!("peer {peer} disconnected before handshake").into()),
+            Err(_) => return Err(format!("handshake timeout for {peer}").into()),
+        };
+
+        // Step 2 – version compatibility check
+        if request.protocol_version < 1 {
+            let err_msg = format!(
+                "unsupported handshake protocol version {} from {peer} (server requires >= 1)",
+                request.protocol_version
+            );
+            warn!("{}", err_msg);
+            // Best-effort: try to inform the client before disconnecting.
+            let _ = sender
+                .send(Message::Text(
+                    serde_json::json!({ "error": err_msg }).to_string().into(),
+                ))
+                .await;
+            return Err(err_msg.into());
+        }
+
+        if request.rpc_api_version != RPC_API_VERSION {
+            let err_msg = format!(
+                "RPC API version mismatch: client={} server={} (peer {peer})",
+                request.rpc_api_version, RPC_API_VERSION
+            );
+            warn!("{}", err_msg);
+            let _ = sender
+                .send(Message::Text(
+                    serde_json::json!({ "error": err_msg }).to_string().into(),
+                ))
+                .await;
+            return Err(err_msg.into());
+        }
+
+        // Step 3 – compute capability intersection & build response
+        let negotiated_version = request.protocol_version.min(HANDSHAKE_PROTOCOL_VERSION);
+        let capabilities: Vec<String> = request
+            .capabilities
+            .iter()
+            .filter(|c| SERVER_CAPABILITIES.contains(&c.as_str()))
+            .cloned()
+            .collect();
+
+        let response = HandshakeResponse {
+            protocol_version: negotiated_version,
+            rpc_api_version: RPC_API_VERSION,
+            rpc_api_revision: RPC_API_REVISION,
+            capabilities,
+        };
+
+        let response_json = serde_json::to_string(&response)
+            .map_err(|e| format!("failed to serialise handshake response: {e}"))?;
+
+        sender
+            .send(Message::Text(response_json.into()))
+            .await
+            .map_err(|e| format!("failed to send handshake response to {peer}: {e}"))?;
+
+        trace!("wRPC handshake completed with {peer} (proto v{negotiated_version})");
 
         let connection = self.server.connect(peer, messenger).await.map_err(|err| err.to_string())?;
         Ok(connection)

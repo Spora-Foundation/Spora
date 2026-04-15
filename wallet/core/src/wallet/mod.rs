@@ -15,7 +15,6 @@ pub mod maps;
 pub use args::*;
 
 use crate::api::traits::WalletApi;
-use crate::compat::gen1::{decrypt_mnemonic, parse_gen1_wallet_file, Gen1WalletFile, MultisigWalletFileV1, SingleWalletFileV1};
 use crate::factory::try_load_account;
 use crate::imports::*;
 use crate::settings::{SettingsStore, WalletSettings};
@@ -24,7 +23,6 @@ use crate::storage::local::interface::LocalStore;
 use crate::storage::local::Storage;
 use crate::wallet::keydata::PrvKeyDataVariantKind;
 use crate::wallet::maps::ActiveAccountMap;
-use std::convert::TryFrom;
 use spora_bip32::{ExtendedKey, Language, Mnemonic, Prefix as KeyPrefix, WordCount};
 use spora_notify::{
     listener::ListenerId,
@@ -616,9 +614,8 @@ impl Wallet {
             AccountCreateArgs::Keypair { prv_key_data_id, account_name, ecdsa } => {
                 self.create_account_keypair(wallet_secret, None, prv_key_data_id, account_name, ecdsa).await?
             }
-            AccountCreateArgs::Multisig { .. } => {
-                // Multisig accounts are not supported in this context.
-                return Err(Error::InvalidAccountKind);
+            AccountCreateArgs::Multisig { prv_key_data_args, additional_xpub_keys, name, minimum_signatures } => {
+                self.create_account_multisig(wallet_secret, prv_key_data_args, additional_xpub_keys, name, minimum_signatures).await?
             }
         };
 
@@ -1178,99 +1175,6 @@ impl Wallet {
         Ok(Box::pin(stream))
     }
 
-    pub async fn import_gen1_single_v1<T: AsRef<[u8]>>(
-        self: &Arc<Wallet>,
-        import_secret: &Secret,
-        wallet_secret: &Secret,
-        file: SingleWalletFileV1<T>,
-    ) -> Result<Arc<dyn Account>> {
-        if file.ecdsa {
-            return Err(Error::custom("gen1 ecdsa imports are not supported"));
-        }
-
-        if file.xpublic_key.len() < KeyPrefix::LENGTH {
-            return Err(Error::custom("invalid gen1 xpub"));
-        }
-
-        let mnemonic = decrypt_mnemonic(SingleWalletFileV1::<T>::NUM_THREADS, file.encrypted_mnemonic, import_secret.as_ref())?;
-        let mnemonic = Mnemonic::new(mnemonic.trim(), Language::English)?;
-        let prv_key_data = storage::PrvKeyData::try_new_from_mnemonic(mnemonic.clone(), None, self.store().encryption_kind()?)?;
-        let prefix = KeyPrefix::try_from(file.xpublic_key.split_at(KeyPrefix::LENGTH).0)?;
-
-        if prv_key_data.create_xpub(None, BIP32_ACCOUNT_KIND.into(), 0).await?.to_string(Some(prefix)) != file.xpublic_key {
-            return Err(Error::custom("imported gen1 xpub does not match derived xpub"));
-        }
-
-        self.import_with_mnemonic(wallet_secret, None, mnemonic, BIP32_ACCOUNT_KIND.into()).await
-    }
-
-    pub async fn import_gen1_multisig_v1<T: AsRef<[u8]>>(
-        self: &Arc<Wallet>,
-        import_secret: &Secret,
-        wallet_secret: &Secret,
-        file: MultisigWalletFileV1<T>,
-    ) -> Result<Arc<dyn Account>> {
-        if file.ecdsa {
-            return Err(Error::custom("gen1 ecdsa imports are not supported"));
-        }
-
-        let Some(first_pub_key) = file.xpublic_keys.first() else {
-            return Err(Error::custom("gen1 multisig import does not contain xpub keys"));
-        };
-
-        if first_pub_key.len() < KeyPrefix::LENGTH {
-            return Err(Error::custom("invalid gen1 multisig xpub"));
-        }
-
-        let prefix = KeyPrefix::try_from(first_pub_key.split_at(KeyPrefix::LENGTH).0)?;
-        let _cosigner_index = file.cosigner_index;
-
-        let mnemonics_secrets: Vec<(Mnemonic, Option<Secret>)> = file
-            .encrypted_mnemonics
-            .into_iter()
-            .map(|mnemonic| {
-                decrypt_mnemonic(MultisigWalletFileV1::<T>::NUM_THREADS, mnemonic, import_secret.as_ref())
-                    .and_then(|decrypted| Mnemonic::new(decrypted.trim(), Language::English).map_err(Error::from))
-            })
-            .map(|result| result.map(|mnemonic| (mnemonic, None)))
-            .collect::<Result<Vec<_>>>()?;
-
-        let mut all_pub_keys = file.xpublic_keys;
-        all_pub_keys.sort_unstable_by(|left, right| left.split_at(KeyPrefix::LENGTH).1.cmp(right.split_at(KeyPrefix::LENGTH).1));
-
-        let mut pubkeys_from_mnemonics = Vec::with_capacity(mnemonics_secrets.len());
-        for (mnemonic, _) in mnemonics_secrets.iter() {
-            let prv_key_data = storage::PrvKeyData::try_new_from_mnemonic(mnemonic.clone(), None, self.store().encryption_kind()?)?;
-            let xpub_key = prv_key_data.create_xpub(None, MULTISIG_ACCOUNT_KIND.into(), 0).await?.to_string(Some(prefix));
-            pubkeys_from_mnemonics.push(xpub_key);
-        }
-        pubkeys_from_mnemonics
-            .sort_unstable_by(|left, right| left.split_at(KeyPrefix::LENGTH).1.cmp(right.split_at(KeyPrefix::LENGTH).1));
-
-        all_pub_keys
-            .retain(|candidate| pubkeys_from_mnemonics.binary_search_by_key(&candidate.as_str(), |xpub| xpub.as_str()).is_err());
-
-        self.import_multisig_with_mnemonic(wallet_secret, mnemonics_secrets, file.required_signatures, all_pub_keys).await
-    }
-
-    pub async fn import_gen1_wallet_data(
-        self: &Arc<Wallet>,
-        import_secret: &Secret,
-        wallet_secret: &Secret,
-        wallet_data: &[u8],
-    ) -> Result<Arc<dyn Account>> {
-        match parse_gen1_wallet_file(wallet_data)? {
-            Gen1WalletFile::SingleV1(file) => self.import_gen1_single_v1(import_secret, wallet_secret, file).await,
-            Gen1WalletFile::MultiV1(file) => self.import_gen1_multisig_v1(import_secret, wallet_secret, file).await,
-        }
-    }
-
-    pub async fn import_gen1_keydata(self: &Arc<Wallet>, _secret: Secret) -> Result<()> {
-        Err(Error::custom(
-            "import_gen1_keydata requires both the legacy gen1 wallet data and the current wallet secret; use import_gen1_wallet_data instead",
-        ))
-    }
-
     pub async fn import_with_mnemonic(
         self: &Arc<Wallet>,
         wallet_secret: &Secret,
@@ -1471,65 +1375,10 @@ impl Wallet {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::compat::gen1;
+    use crate::account::descriptor::{AccountDescriptorProperty, AccountDescriptorValue};
     use crate::tests::make_xpub;
-    use chacha20poly1305::{aead::Aead, KeyInit, XChaCha20Poly1305};
-    use futures::TryStreamExt;
+    use spora_addresses::Version;
     use spora_consensus_core::network::{NetworkId, NetworkType};
-
-    fn encrypt_gen1_mnemonic(mnemonic: &str, pass: &[u8]) -> gen1::EncryptedMnemonic<Vec<u8>> {
-        let salt = vec![7u8; 16];
-        let nonce = [9u8; 24];
-        let params = argon2::ParamsBuilder::new().t_cost(1).m_cost(64 * 1024).p_cost(8).output_len(32).build().unwrap();
-        let mut key = [0u8; 32];
-        argon2::Argon2::new(argon2::Algorithm::Argon2id, Default::default(), params)
-            .hash_password_into(pass, &salt, &mut key)
-            .unwrap();
-
-        let cipher = XChaCha20Poly1305::new_from_slice(&key).unwrap();
-        let mut encrypted = nonce.to_vec();
-        encrypted.extend(cipher.encrypt((&nonce).into(), mnemonic.as_bytes()).unwrap());
-
-        gen1::EncryptedMnemonic { cipher: encrypted, salt }
-    }
-
-    #[tokio::test]
-    async fn import_gen1_wallet_data_imports_single_account() {
-        let wallet = Arc::new(Wallet::try_with_rpc(None, Wallet::resident_store().unwrap(), None).unwrap());
-        let wallet_secret = Secret::from("test-wallet-secret");
-        let import_secret = Secret::from("");
-        let mnemonic_phrase = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
-
-        wallet.create_wallet(&wallet_secret, WalletCreateArgs::new(None, None, EncryptionKind::default(), None, false)).await.unwrap();
-
-        let mnemonic = Mnemonic::new(mnemonic_phrase, Language::English).unwrap();
-        let prv_key_data = storage::PrvKeyData::try_new_from_mnemonic(mnemonic, None, EncryptionKind::default()).unwrap();
-        let xpub_key = prv_key_data.create_xpub(None, BIP32_ACCOUNT_KIND.into(), 0).await.unwrap().to_string(Some(KeyPrefix::KPUB));
-        let encrypted_mnemonic = encrypt_gen1_mnemonic(mnemonic_phrase, import_secret.as_ref());
-        let wallet_data = format!(
-            r#"{{"version":1,"encryptedMnemonics":[{{"cipher":"{}","salt":"{}"}}],"publicKeys":["{}"],"minimumSignatures":1,"cosignerIndex":0,"lastUsedExternalIndex":0,"lastUsedInternalIndex":0,"ecdsa":false}}"#,
-            encrypted_mnemonic.cipher.to_hex(),
-            encrypted_mnemonic.salt.to_hex(),
-            xpub_key
-        );
-
-        let account = wallet.import_gen1_wallet_data(&import_secret, &wallet_secret, wallet_data.as_bytes()).await.unwrap();
-
-        assert_eq!(account.account_kind().as_ref(), BIP32_ACCOUNT_KIND);
-        assert_eq!(wallet.store().as_account_store().unwrap().len(None).await.unwrap(), 1);
-        assert_eq!(
-            wallet.store().as_prv_key_data_store().unwrap().iter().await.unwrap().try_collect::<Vec<_>>().await.unwrap().len(),
-            1
-        );
-    }
-
-    #[tokio::test]
-    async fn import_gen1_keydata_returns_explicit_error() {
-        let wallet = Arc::new(Wallet::try_with_rpc(None, Wallet::resident_store().unwrap(), None).unwrap());
-        let err = wallet.import_gen1_keydata(Secret::from("unused")).await.unwrap_err();
-
-        assert!(err.to_string().contains("import_gen1_wallet_data"));
-    }
 
     #[tokio::test]
     async fn accounts_create_supports_watchonly_accounts() {
@@ -1557,127 +1406,65 @@ mod test {
         assert_eq!(wallet.store().as_account_store().unwrap().len(None).await.unwrap(), 1);
     }
 
-    /*
-    use workflow_rpc::client::ConnectOptions;
-    use std::{str::FromStr, thread::sleep, time};
-    use crate::derivation::gen1;
-    use crate::cell::{CellContext, CellContextBinding, CellIterator};
-    use spora_addresses::{Prefix, Version};
-    use spora_bip32::{ChildNumber, ExtendedPrivateKey, SecretKey};
-    use spora_consensus_wasm::{sign_transaction, SignableTransaction, Transaction, TransactionInput, TransactionOutput};
-    async fn create_cells_context_with_addresses(
-        rpc: Arc<DynRpcApi>,
-        addresses: Vec<Address>,
-        current_daa_score: u64,
-        core: &CellProcessor,
-    ) -> Result<CellContext> {
-        let cells = rpc.get_cells_by_addresses(addresses).await?;
-        let cell_context = CellContext::new(core, CellContextBinding::default());
-        let entries = cells.into_iter().map(|entry| entry.into()).collect::<Vec<_>>();
-        for entry in entries.into_iter() {
-            cell_context.insert(entry, current_daa_score, false).await?;
-        }
-        Ok(cell_context)
+    #[tokio::test]
+    async fn create_account_multisig_persists_descriptor_with_full_script_addresses() {
+        let wallet = Arc::new(
+            Wallet::try_with_rpc(None, Wallet::resident_store().unwrap(), None)
+                .unwrap()
+                .with_network_id(NetworkId::new(NetworkType::Mainnet))
+                .unwrap(),
+        );
+        let wallet_secret = Secret::from("test-wallet-secret");
+
+        wallet.create_wallet(&wallet_secret, WalletCreateArgs::new(None, None, EncryptionKind::default(), None, false)).await.unwrap();
+
+        let prv_key_data_id = wallet
+            .create_prv_key_data(
+                &wallet_secret,
+                PrvKeyDataCreateArgs::new(
+                    Some("multisig-key".to_string()),
+                    None,
+                    Secret::from("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"),
+                    PrvKeyDataVariantKind::Mnemonic,
+                ),
+            )
+            .await
+            .unwrap();
+
+        let account = wallet
+            .create_account_multisig(
+                &wallet_secret,
+                vec![PrvKeyDataArgs::new(prv_key_data_id, None)],
+                vec![make_xpub().to_string(Some(KeyPrefix::XPUB))],
+                Some("team vault".to_string()),
+                2,
+            )
+            .await
+            .unwrap();
+
+        let descriptor = account.descriptor().unwrap();
+        assert_eq!(descriptor.kind.as_ref(), MULTISIG_ACCOUNT_KIND);
+        assert_eq!(descriptor.account_name.as_deref(), Some("team vault"));
+        assert!(matches!(descriptor.receive_address.as_ref().map(|address| address.version()), Some(Version::FullScript)));
+        assert!(matches!(descriptor.change_address.as_ref().map(|address| address.version()), Some(Version::FullScript)));
+        assert_eq!(descriptor.addresses.as_ref().map(Vec::len), Some(2));
+        assert!(descriptor
+            .addresses
+            .as_ref()
+            .is_some_and(|addresses| addresses.iter().all(|address| address.version() == Version::FullScript)));
+        assert!(descriptor.prv_key_data_ids.contains(&prv_key_data_id));
+        assert!(matches!(
+            descriptor.properties.get(&AccountDescriptorProperty::Other("addressModel".to_string())),
+            Some(AccountDescriptorValue::String(value)) if value == "lock-script"
+        ));
+        assert!(matches!(
+            descriptor.properties.get(&AccountDescriptorProperty::Other("receiveLockScript".to_string())),
+            Some(AccountDescriptorValue::String(value)) if !value.is_empty()
+        ));
+        assert!(matches!(
+            descriptor.properties.get(&AccountDescriptorProperty::Other("changeLockScript".to_string())),
+            Some(AccountDescriptorValue::String(value)) if !value.is_empty()
+        ));
+        assert_eq!(wallet.store().as_account_store().unwrap().len(None).await.unwrap(), 1);
     }
-
-    #[allow(dead_code)]
-    // #[tokio::test]
-    async fn wallet_test() -> Result<()> {
-        println!("Creating wallet...");
-        let resident_store = Wallet::resident_store()?;
-        let wallet = Arc::new(Wallet::try_new(resident_store, None)?);
-
-        let rpc_api = wallet.rpc_api();
-        let cell_processor = wallet.cell_processor();
-
-        let wrpc_client = wallet.wrpc_client().expect("Unable to obtain wRPC client");
-
-        let info = rpc_api.get_block_dag_info().await?;
-        let current_daa_score = info.virtual_daa_score;
-
-        let _connect_result = wrpc_client.connect(ConnectOptions::fallback()).await;
-        //println!("connect_result: {_connect_result:?}");
-
-        let _result = wallet.start().await;
-        //println!("wallet.task(): {_result:?}");
-        let result = wallet.get_info().await;
-        println!("wallet.get_info(): {result:#?}");
-
-        let address = Address::try_from("sporatest:qz7ulu4c25dh7fzec9zjyrmlhnkzrg4wmf89q7gzr3gfrsj3uz6xjceef60sd")?;
-
-        let cell_context =
-            self::create_cells_context_with_addresses(rpc_api.clone(), vec![address.clone()], current_daa_score, cell_processor)
-                .await?;
-
-        let cell_set_balance = cell_context.calculate_balance().await;
-        println!("get_cells_by_addresses: {cell_set_balance:?}");
-
-        let to_address = Address::try_from("sporatest:qpakxqlesqywgkq7rg4wyhjd93kmw7trkl3gpa3vd5flyt59a43yyn8vu0w8c")?;
-        let mut iter = CellIterator::new(&cell_context);
-        let cell = iter.next().unwrap();
-        let cell = (*cell.cell).clone();
-        let selected_entries = vec![cell];
-
-        let entries = &selected_entries;
-
-        let inputs = selected_entries
-            .iter()
-            .enumerate()
-            .map(|(since, cell)| TransactionInput::new(cell.outpoint.clone(), None, since as u64, None))
-            .collect::<Vec<TransactionInput>>();
-        let to_script = pay_to_address_lock_script(&to_address);
-
-        let tx = Transaction::new(
-            0,
-            inputs,
-            vec![TransactionOutput::new(
-                1000,
-                to_script,
-            )],
-            vec![],
-        )?;
-
-        let mtx = SignableTransaction::new(tx, (*entries).clone().into());
-
-        let derivation_path =
-            gen1::WalletDerivationManager::build_derivate_path(false, 0, None, Some(spora_bip32::AddressType::Receive))?;
-
-        let xprv = "kprv5y2qurMHCsXYrNfU3GCihuwG3vMqFji7PZXajMEqyBkNh9UZUJgoHYBLTKu1eM4MvUtomcXPQ3Sw9HZ5ebbM4byoUciHo1zrPJBQfqpLorQ";
-
-        let xkey = ExtendedPrivateKey::<SecretKey>::from_str(xprv)?.derive_path(derivation_path)?;
-
-        let xkey = xkey.derive_child(ChildNumber::new(0, false)?)?;
-
-        // address test
-        let address_test = Address::new(Prefix::Testnet, Version::PubKey, &xkey.public_key().to_bytes()[1..]).expect("Valid test address");
-        let address_str: String = address_test.clone().into();
-        assert_eq!(address, address_test, "Addresses don't match");
-        println!("address: {address_str}");
-
-        let private_keys = vec![xkey.to_bytes()];
-
-        println!("mtx: {mtx:?}");
-
-        let mtx = sign_transaction(mtx, private_keys, true)?;
-
-        let cell_context =
-            self::create_cells_context_with_addresses(rpc_api.clone(), vec![to_address.clone()], current_daa_score, cell_processor)
-                .await?;
-        let to_balance = cell_context.calculate_balance().await;
-        println!("to address balance before tx submit: {to_balance:?}");
-
-        let result = rpc_api.submit_transaction(mtx.into(), false).await?;
-
-        println!("tx submit result, {:?}", result);
-        println!("sleep for 5s...");
-        sleep(time::Duration::from_millis(5000));
-        let cell_context =
-            self::create_cells_context_with_addresses(rpc_api.clone(), vec![to_address.clone()], current_daa_score, cell_processor)
-                .await?;
-        let to_balance = cell_context.calculate_balance().await;
-        println!("to address balance after tx submit: {to_balance:?}");
-
-        Ok(())
-    }
-    */
 }

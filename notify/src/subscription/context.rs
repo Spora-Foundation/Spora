@@ -92,10 +92,7 @@ mod tests {
 
     fn create_addresses(count: usize) -> Vec<Address> {
         (0..count)
-            .map(|i| {
-                Address::new(Prefix::Mainnet, spora_addresses::Version::PubKey, &Uint256::from_u64(i as u64).to_le_bytes())
-                    .expect("Valid address")
-            })
+            .map(|i| Address::new_std_single(Prefix::Mainnet, &Uint256::from_u64(i as u64).to_le_bytes()).expect("Valid address"))
             .collect()
     }
 

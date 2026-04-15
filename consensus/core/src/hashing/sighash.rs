@@ -1,12 +1,18 @@
 use arc_swap::ArcSwapOption;
-use spora_hashes::{Hash, Hasher, HasherBase, SchnorrSigningHash, TransactionSigningHash, TransactionSigningHashECDSA, ZERO_HASH};
+use spora_exec::celltx::sighash::{
+    calc_standard_ecdsa_signature_hash, calc_standard_signature_hash, hash_cell_output as exec_hash_cell_output,
+    hash_outpoint as exec_hash_outpoint, standard_outputs_hash, standard_payload_hash, standard_previous_outputs_hash,
+    standard_sequences_hash, standard_sig_op_counts_hash, StandardSigHashType, StandardSigningInput,
+};
+use spora_hashes::{Hash, Hasher};
 use std::cell::Cell;
 use std::sync::Arc;
 
-use crate::cell_metadata::EmbeddedCellMetadata;
 use crate::tx::{CellOutput, CellTx, TransactionOutpoint, VerifiableTransaction};
 
-use super::{sighash_type::SigHashType, HasherExtensions};
+use super::sighash_type::SigHashType;
+
+pub use spora_exec::celltx::sighash::StandardSigHashReusedValues as SigHashReusedValues;
 
 /// Holds all fields used in the calculation of a transaction's sig_hash which are
 /// the same for all transaction inputs.
@@ -39,14 +45,6 @@ impl SigHashReusedValuesSync {
     pub fn new() -> Self {
         Self::default()
     }
-}
-
-pub trait SigHashReusedValues {
-    fn previous_outputs_hash(&self, set: impl Fn() -> Hash) -> Hash;
-    fn sequences_hash(&self, set: impl Fn() -> Hash) -> Hash;
-    fn sig_op_counts_hash(&self, set: impl Fn() -> Hash) -> Hash;
-    fn outputs_hash(&self, set: impl Fn() -> Hash) -> Hash;
-    fn payload_hash(&self, set: impl Fn() -> Hash) -> Hash;
 }
 
 impl SigHashReusedValues for SigHashReusedValuesUnsync {
@@ -138,133 +136,73 @@ impl SigHashReusedValues for SigHashReusedValuesSync {
     }
 }
 
-pub fn previous_outputs_hash(tx: &CellTx, hash_type: SigHashType, reused_values: &impl SigHashReusedValues) -> Hash {
-    if hash_type.is_sighash_anyone_can_pay() {
-        return ZERO_HASH;
+impl StandardSigHashType for SigHashType {
+    fn is_sighash_none(self) -> bool {
+        self.is_sighash_none()
     }
-    let hash = || {
-        let mut hasher = TransactionSigningHash::new();
-        for input in tx.inputs.iter() {
-            hasher.update(input.previous_output.tx_hash);
-            hasher.write_u32(input.previous_output.index);
-        }
-        hasher.finalize()
-    };
-    reused_values.previous_outputs_hash(hash)
+
+    fn is_sighash_single(self) -> bool {
+        self.is_sighash_single()
+    }
+
+    fn is_sighash_anyone_can_pay(self) -> bool {
+        self.is_sighash_anyone_can_pay()
+    }
+
+    fn to_u8(self) -> u8 {
+        self.to_u8()
+    }
+}
+
+pub fn previous_outputs_hash(tx: &CellTx, hash_type: SigHashType, reused_values: &impl SigHashReusedValues) -> Hash {
+    standard_previous_outputs_hash(tx, hash_type, reused_values)
 }
 
 pub fn sequences_hash(tx: &CellTx, hash_type: SigHashType, reused_values: &impl SigHashReusedValues) -> Hash {
-    if hash_type.is_sighash_single() || hash_type.is_sighash_anyone_can_pay() || hash_type.is_sighash_none() {
-        return ZERO_HASH;
-    }
-    let hash = || {
-        let mut hasher = TransactionSigningHash::new();
-        for input in tx.inputs.iter() {
-            hasher.write_u64(input.since);
-        }
-        hasher.finalize()
-    };
-    reused_values.sequences_hash(hash)
+    standard_sequences_hash(tx, hash_type, reused_values)
 }
 
 pub fn sig_op_counts_hash(tx: &CellTx, hash_type: SigHashType, reused_values: &impl SigHashReusedValues) -> Hash {
-    if hash_type.is_sighash_anyone_can_pay() {
-        return ZERO_HASH;
-    }
-
-    let hash = || {
-        let mut hasher = TransactionSigningHash::new();
-        // In Cell model, each input contributes one implicit sigop.
-        for _input in tx.inputs.iter() {
-            hasher.write_u8(1);
-        }
-        hasher.finalize()
-    };
-    reused_values.sig_op_counts_hash(hash)
+    standard_sig_op_counts_hash(tx, hash_type, reused_values)
 }
 
 pub fn payload_hash(tx: &CellTx, reused_values: &impl SigHashReusedValues) -> Hash {
-    let payload = tx.payload().unwrap_or_default();
-    if !tx.is_coinbase() && payload.is_empty() {
-        return ZERO_HASH;
-    }
-
-    let hash = || {
-        let mut hasher = TransactionSigningHash::new();
-        hasher.write_var_bytes(payload);
-        hasher.finalize()
-    };
-    reused_values.payload_hash(hash)
-}
-
-pub fn outputs_hash(tx: &CellTx, hash_type: SigHashType, reused_values: &impl SigHashReusedValues, input_index: usize) -> Hash {
-    if hash_type.is_sighash_none() {
-        return ZERO_HASH;
-    }
-
-    if hash_type.is_sighash_single() {
-        // If the relevant output exists - return its hash, otherwise return zero-hash
-        if input_index >= tx.outputs.len() {
-            return ZERO_HASH;
-        }
-
-        let mut hasher = TransactionSigningHash::new();
-        hash_cell_output(
-            &mut hasher,
-            &tx.outputs[input_index],
-            tx.outputs_data.get(input_index).map(Vec::as_slice).unwrap_or_default(),
-        );
-        return hasher.finalize();
-    }
-    let hash = || {
-        let mut hasher = TransactionSigningHash::new();
-        for (i, output) in tx.outputs.iter().enumerate() {
-            let data = tx.outputs_data.get(i).map(Vec::as_slice).unwrap_or_default();
-            hash_cell_output(&mut hasher, output, data);
-        }
-        hasher.finalize()
-    };
-    // Otherwise, return hash of all outputs. Re-use hash if available.
-    reused_values.outputs_hash(hash)
+    standard_payload_hash(tx, reused_values)
 }
 
 pub fn hash_outpoint(hasher: &mut impl Hasher, outpoint: TransactionOutpoint) {
-    hasher.update(outpoint.tx_hash);
-    hasher.write_u32(outpoint.index);
+    exec_hash_outpoint(hasher, outpoint);
 }
 
 pub fn hash_cell_output(hasher: &mut impl Hasher, output: &CellOutput, data: &[u8]) {
-    hasher.write_u64(output.capacity);
-    // Hash lock script components
-    hasher.update(output.lock.code_hash);
-    hasher.write_u8(output.lock.hash_type);
-    hasher.write_var_bytes(&output.lock.args);
-    // Hash type script presence and components
-    hasher.write_bool(output.type_.is_some());
-    if let Some(ref type_script) = output.type_ {
-        hasher.update(type_script.code_hash);
-        hasher.write_u8(type_script.hash_type);
-        hasher.write_var_bytes(&type_script.args);
-    }
-    // Hash output data
-    hasher.write_var_bytes(data);
+    exec_hash_cell_output(hasher, output, data);
 }
 
-fn hash_embedded_cell_metadata(hasher: &mut impl Hasher, metadata: &EmbeddedCellMetadata) {
-    hasher.update(metadata.lock_hash).write_bool(metadata.type_hash.is_some());
-    if let Some(type_hash) = metadata.type_hash {
-        hasher.update(type_hash);
-    }
-    hasher.update(metadata.data_hash).write_u64(metadata.data_bytes);
+pub fn outputs_hash(tx: &CellTx, hash_type: SigHashType, reused_values: &impl SigHashReusedValues, input_index: usize) -> Hash {
+    standard_outputs_hash(tx, hash_type, reused_values, input_index)
 }
 
-fn real_signing_entry<'a>(
-    _verifiable_tx: &'a impl VerifiableTransaction,
-    _input_index: usize,
-) -> Option<&'a crate::cell_diff::CellMeta> {
-    // CellMeta (aka CellEntry) always carries metadata, so there are no "real script" entries.
-    // All signing now goes through the cell_metadata path.
-    None
+fn signing_input_material(verifiable_tx: &impl VerifiableTransaction, input_index: usize) -> StandardSigningInput {
+    if let Some(cell_metadata) = verifiable_tx.cell_metadata(input_index) {
+        return StandardSigningInput {
+            lock_hash: cell_metadata.lock_hash,
+            type_hash: cell_metadata.type_hash,
+            data_hash: cell_metadata.data_hash,
+            data_bytes: cell_metadata.data_bytes,
+            capacity: cell_metadata.capacity,
+        };
+    }
+
+    let entry = verifiable_tx
+        .cell_entry(input_index)
+        .expect("calc_schnorr_signature_hash requires either canonical cell metadata or a populated cell entry");
+    StandardSigningInput {
+        lock_hash: entry.lock_hash,
+        type_hash: entry.type_hash,
+        data_hash: entry.data_hash,
+        data_bytes: entry.data_bytes,
+        capacity: entry.capacity,
+    }
 }
 
 pub fn calc_schnorr_signature_hash(
@@ -274,44 +212,8 @@ pub fn calc_schnorr_signature_hash(
     reused_values: &impl SigHashReusedValues,
 ) -> Hash {
     let tx = verifiable_tx.tx();
-    let input = &verifiable_tx.inputs()[input_index];
-    let mut hasher = SchnorrSigningHash::new();
-    hasher
-        .write_u32(tx.version)
-        .update(previous_outputs_hash(tx, hash_type, reused_values))
-        .update(sequences_hash(tx, hash_type, reused_values))
-        .update(sig_op_counts_hash(tx, hash_type, reused_values));
-    hash_outpoint(&mut hasher, input.previous_output);
-    if let Some(entry) = real_signing_entry(verifiable_tx, input_index) {
-        // This branch is now unreachable since CellMeta always has metadata
-        let metadata = entry.embedded_cell_metadata().expect("CellMeta always has metadata");
-        hash_embedded_cell_metadata(&mut hasher, &metadata);
-        hasher.write_u64(entry.capacity);
-    } else if let Some(cell_metadata) = verifiable_tx.cell_metadata(input_index) {
-        let metadata = EmbeddedCellMetadata {
-            lock_hash: cell_metadata.lock_hash,
-            type_hash: cell_metadata.type_hash,
-            data_hash: cell_metadata.data_hash,
-            data_bytes: cell_metadata.data_bytes,
-        };
-        hash_embedded_cell_metadata(&mut hasher, &metadata);
-        hasher.write_u64(cell_metadata.capacity);
-    } else {
-        let entry = verifiable_tx
-            .cell_entry(input_index)
-            .expect("calc_schnorr_signature_hash requires either canonical cell metadata or a populated cell entry");
-        let metadata = entry.embedded_cell_metadata().expect("CellMeta always has metadata");
-        hash_embedded_cell_metadata(&mut hasher, &metadata);
-        hasher.write_u64(entry.capacity);
-    }
-    hasher
-        .write_u64(input.since)
-        .write_u8(1) // one implicit sigop per Cell input
-        .update(outputs_hash(tx, hash_type, reused_values, input_index))
-        .write_u64(0) // lock_time: no equivalent in CellTx
-        .update(payload_hash(tx, reused_values))
-        .write_u8(hash_type.to_u8());
-    hasher.finalize()
+    let signing_input = signing_input_material(verifiable_tx, input_index);
+    calc_standard_signature_hash(tx, input_index, hash_type, &signing_input, reused_values)
 }
 
 pub fn calc_ecdsa_signature_hash(
@@ -320,29 +222,116 @@ pub fn calc_ecdsa_signature_hash(
     hash_type: SigHashType,
     reused_values: &impl SigHashReusedValues,
 ) -> Hash {
-    let hash = calc_schnorr_signature_hash(tx, input_index, hash_type, reused_values);
-    let mut hasher = TransactionSigningHashECDSA::new();
-    hasher.update(hash);
-    hasher.finalize()
+    let signing_input = signing_input_material(tx, input_index);
+    calc_standard_ecdsa_signature_hash(tx.tx(), input_index, hash_type, &signing_input, reused_values)
 }
 
 #[cfg(test)]
 mod tests {
-    #[test]
-    #[ignore = "Needs rewrite for canonical Script-based signing fixtures"]
-    fn test_signature_hash_disabled() {
-        assert!(true);
+    use super::*;
+    use crate::{
+        cell_diff::CellMeta,
+        cell_metadata::CellMetadata,
+        hashing::sighash_type::SIG_HASH_ALL,
+        tx::{CellInput, CellOutput, CellTx, MutableTransaction, OutPoint, Script},
+    };
+    use spora_hashes::Hash;
+
+    fn test_cell_tx() -> CellTx {
+        let tx = CellTx::new(
+            vec![CellInput::new(OutPoint::new([0x11; 32], 0), 42)],
+            vec![],
+            vec![CellOutput { lock: Script::new([0x55; 32], 1, vec![0xAB; 20]), type_: None, capacity: 1_000 }],
+            vec![vec![0xCC; 8]],
+            vec![vec![1, 2, 3]],
+        );
+        tx.expect("test tx should be valid")
+    }
+
+    fn test_entry() -> CellMeta {
+        CellMeta {
+            out_point: OutPoint::new([0x22; 32], 7),
+            capacity: 2_500,
+            data_bytes: 16,
+            lock_hash: [0x33; 32],
+            type_hash: Some([0x44; 32]),
+            data_hash: [0x55; 32],
+            block_daa_score: 99,
+            is_cellbase: false,
+        }
+    }
+
+    fn test_metadata() -> CellMetadata {
+        CellMetadata {
+            out_point: OutPoint::new([0x22; 32], 7),
+            capacity: 2_500,
+            data_bytes: 16,
+            lock_hash: [0x33; 32],
+            type_hash: Some([0x44; 32]),
+            data_hash: [0x55; 32],
+            block_daa_score: 99,
+            is_cellbase: false,
+            block_hash: Hash::from_bytes([0x66; 32]),
+            lock_code_hash: Some([0x77; 32]),
+            type_code_hash: Some([0x88; 32]),
+            lock_script: Some(Script::new([0x99; 32], 1, vec![0xAA; 20])),
+            type_script: None,
+            data: Some(vec![0xBB; 16]),
+        }
     }
 
     #[test]
-    #[ignore = "Needs rewrite for canonical Script-based signing fixtures"]
-    fn test_signature_hash_resolved_metadata_overrides_embedded_disabled() {
-        assert!(true);
+    fn test_signature_hash_matches_between_entry_and_metadata_views() {
+        let tx = test_cell_tx();
+        let entry_tx = MutableTransaction {
+            tx: tx.clone(),
+            entries: vec![Some(test_entry())],
+            resolved_cell_metadata: vec![None],
+            calculated_fee: None,
+            calculated_non_contextual_masses: None,
+            calculated_contextual_masses: None,
+            verified_cycles: None,
+        };
+        let metadata_tx = MutableTransaction::with_resolved_metadata(tx, vec![test_metadata()]);
+        let reused_entry = SigHashReusedValuesUnsync::new();
+        let reused_metadata = SigHashReusedValuesUnsync::new();
+
+        let entry_hash = calc_schnorr_signature_hash(&entry_tx.as_verifiable(), 0, SIG_HASH_ALL, &reused_entry);
+        let metadata_hash = calc_schnorr_signature_hash(&metadata_tx.as_verifiable(), 0, SIG_HASH_ALL, &reused_metadata);
+
+        assert_eq!(entry_hash, metadata_hash);
     }
 
     #[test]
-    #[ignore = "Needs rewrite for canonical Script-based signing fixtures"]
-    fn test_signature_hash_uses_metadata_for_embedded_entries_disabled() {
-        assert!(true);
+    fn test_signature_hash_prefers_resolved_metadata_when_both_exist() {
+        let tx = test_cell_tx();
+        let entry =
+            CellMeta { lock_hash: [0x10; 32], type_hash: None, data_hash: [0x20; 32], data_bytes: 0, capacity: 100, ..test_entry() };
+        let metadata = CellMetadata {
+            lock_hash: [0x33; 32],
+            type_hash: Some([0x44; 32]),
+            data_hash: [0x55; 32],
+            data_bytes: 16,
+            capacity: 2_500,
+            ..test_metadata()
+        };
+        let both_tx = MutableTransaction {
+            tx,
+            entries: vec![Some(entry)],
+            resolved_cell_metadata: vec![Some(metadata.clone())],
+            calculated_fee: None,
+            calculated_non_contextual_masses: None,
+            calculated_contextual_masses: None,
+            verified_cycles: None,
+        };
+        let metadata_only_tx = MutableTransaction::with_resolved_metadata(both_tx.tx.clone(), vec![metadata]);
+        let reused_both = SigHashReusedValuesUnsync::new();
+        let reused_metadata = SigHashReusedValuesUnsync::new();
+
+        let hash_with_both = calc_schnorr_signature_hash(&both_tx.as_verifiable(), 0, SIG_HASH_ALL, &reused_both);
+        let hash_with_metadata_only =
+            calc_schnorr_signature_hash(&metadata_only_tx.as_verifiable(), 0, SIG_HASH_ALL, &reused_metadata);
+
+        assert_eq!(hash_with_both, hash_with_metadata_only);
     }
 }

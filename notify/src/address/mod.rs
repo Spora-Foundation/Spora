@@ -3,15 +3,15 @@ pub mod tracker;
 
 pub mod test_helpers {
     use spora_addresses::Address;
-    use spora_addresses::{Prefix, Version};
+    use spora_addresses::Prefix;
 
     pub const ADDRESS_PREFIX: Prefix = Prefix::Mainnet;
 
     pub fn get_3_addresses(sorted: bool) -> Vec<Address> {
         let mut addresses = vec![
-            Address::new(ADDRESS_PREFIX, Version::PubKey, &[1u8; 32]).expect("Valid address"),
-            Address::new(ADDRESS_PREFIX, Version::PubKey, &[2u8; 32]).expect("Valid address"),
-            Address::new(ADDRESS_PREFIX, Version::PubKey, &[0u8; 32]).expect("Valid address"),
+            Address::new_std_single(ADDRESS_PREFIX, &[1u8; 32]).expect("Valid address"),
+            Address::new_std_single(ADDRESS_PREFIX, &[2u8; 32]).expect("Valid address"),
+            Address::new_std_single(ADDRESS_PREFIX, &[0u8; 32]).expect("Valid address"),
         ];
         if sorted {
             addresses.sort()

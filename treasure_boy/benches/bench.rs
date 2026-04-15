@@ -2,7 +2,7 @@ use criterion::{criterion_group, criterion_main, Criterion};
 use rayon::prelude::*;
 
 use spora_consensus_core::{
-    tx::{CellOutput, CellInput, CellTx, Script, TransactionOutpoint},
+    tx::{CellInput, CellOutput, CellTx, Script, TransactionOutpoint},
     Hash,
 };
 

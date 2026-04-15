@@ -130,12 +130,21 @@ impl CellDB {
         let _lock = self.write_lock.write();
 
         let cf = self.db.cf_handle(CF_CELLS).ok_or_else(|| StateError::Database("CF_CELLS not found".to_string()))?;
+        let cf_spent = self.db.cf_handle(CF_SPENT).ok_or_else(|| StateError::Database("CF_SPENT not found".to_string()))?;
+        let cf_journal =
+            self.db.cf_handle(CF_SPEND_JOURNAL).ok_or_else(|| StateError::Database("CF_SPEND_JOURNAL not found".to_string()))?;
 
         let key = out_point.to_key();
         let normalized = Self::normalize_meta_for_storage(meta);
         let value = borsh::to_vec(&normalized).map_err(|e| StateError::Serialization(e.to_string()))?;
 
-        self.db.put_cf(&cf, &key, &value).map_err(|e| StateError::Database(e.to_string()))?;
+        let mut batch = WriteBatch::default();
+        // Re-adding a live cell after a reorg must clear the previous canonical spend marker.
+        batch.delete_cf(&cf_spent, &key);
+        batch.delete_cf(&cf_journal, &key);
+        batch.put_cf(&cf, &key, &value);
+
+        self.db.write(batch).map_err(|e| StateError::Database(e.to_string()))?;
 
         Ok(())
     }
@@ -222,6 +231,9 @@ impl CellDB {
         let _lock = self.write_lock.write();
 
         let cf = self.db.cf_handle(CF_CELLS).ok_or_else(|| StateError::Database("CF_CELLS not found".to_string()))?;
+        let cf_spent = self.db.cf_handle(CF_SPENT).ok_or_else(|| StateError::Database("CF_SPENT not found".to_string()))?;
+        let cf_journal =
+            self.db.cf_handle(CF_SPEND_JOURNAL).ok_or_else(|| StateError::Database("CF_SPEND_JOURNAL not found".to_string()))?;
 
         let mut batch = WriteBatch::default();
 
@@ -229,6 +241,8 @@ impl CellDB {
             let key = out_point.to_key();
             let normalized = Self::normalize_meta_for_storage(meta);
             let value = borsh::to_vec(&normalized).map_err(|e| StateError::Serialization(e.to_string()))?;
+            batch.delete_cf(&cf_spent, &key);
+            batch.delete_cf(&cf_journal, &key);
             batch.put_cf(&cf, &key, &value);
         }
 
@@ -271,9 +285,14 @@ impl CellDB {
 
     /// Get Cell state at a specific DAA score.
     ///
-    /// This is an index/debug helper only. DAA does not uniquely identify a DAG
-    /// history POV, so this method must not be used for consensus validation,
-    /// reorg logic, or double-spend decisions.
+    /// # WARNING: Non-consensus index helper
+    ///
+    /// DAA score does not uniquely identify a DAG history point-of-view.
+    /// This method MUST NOT be used for consensus validation, reorg logic,
+    /// or double-spend decisions.
+    ///
+    /// For consensus-safe queries, use [`get_cell_snapshot_at_pov`] or
+    /// [`batch_get_cell_snapshots_at_pov`] which are anchored by block hash.
     ///
     /// Logic:
     /// - Cell must have been created at or before `at_daa`
@@ -283,6 +302,7 @@ impl CellDB {
     ///
     /// Correct consensus queries must be anchored by block hash / POV, for
     /// example `get_cell_at_pov(outpoint, block_hash)`.
+    #[deprecated(since = "0.2.0", note = "Use get_cell_snapshot_at_pov() for consensus queries. This DAA-based method is retained only for index/debug purposes.")]
     pub fn get_cell_snapshot_at_daa(&self, out_point: &OutPoint, at_daa: u64) -> Result<Option<CellMeta>> {
         let cf_cells = self.db.cf_handle(CF_CELLS).ok_or_else(|| StateError::Database("CF_CELLS not found".to_string()))?;
         let cf_journal =
@@ -324,12 +344,83 @@ impl CellDB {
         Ok(None)
     }
 
+    /// Get Cell state from the canonical journal using an explicit POV block.
+    ///
+    /// The caller supplies the DAG-specific ancestry predicate that decides
+    /// whether `block_hash` is included in the history visible from `pov`.
+    /// This keeps `CellDB` free of consensus dependencies while still enabling
+    /// branch-aware historical queries.
+    pub fn get_cell_snapshot_at_pov<F>(
+        &self,
+        out_point: &OutPoint,
+        pov: [u8; 32],
+        mut block_in_pov_history: F,
+    ) -> Result<Option<CellMeta>>
+    where
+        F: FnMut([u8; 32], [u8; 32]) -> Result<bool>,
+    {
+        let cf_cells = self.db.cf_handle(CF_CELLS).ok_or_else(|| StateError::Database("CF_CELLS not found".to_string()))?;
+        let cf_journal =
+            self.db.cf_handle(CF_SPEND_JOURNAL).ok_or_else(|| StateError::Database("CF_SPEND_JOURNAL not found".to_string()))?;
+
+        let key = out_point.to_key();
+
+        if let Some(data) = self.db.get_cf(&cf_cells, &key).map_err(|e| StateError::Database(e.to_string()))? {
+            let meta = CellMeta::try_from_slice(&data).map_err(|e| StateError::Serialization(e.to_string()))?;
+            return if block_in_pov_history(meta.block_hash, pov)? { Ok(Some(meta)) } else { Ok(None) };
+        }
+
+        if let Some(journal_data) = self.db.get_cf(&cf_journal, &key).map_err(|e| StateError::Database(e.to_string()))? {
+            let spend_record = SpendRecord::try_from_slice(&journal_data).map_err(|e| StateError::Serialization(e.to_string()))?;
+
+            let created_visible = block_in_pov_history(spend_record.cell_meta.block_hash, pov)?;
+            if !created_visible {
+                return Ok(None);
+            }
+
+            let spend_visible = block_in_pov_history(spend_record.spent_in_block, pov)?;
+            return if spend_visible { Ok(None) } else { Ok(Some(spend_record.cell_meta)) };
+        }
+
+        Ok(None)
+    }
+
     /// Batch query Cells at a specific DAA score for index/debug use.
+    ///
+    /// # WARNING: Non-consensus index helper
+    ///
+    /// DAA score does not uniquely identify a DAG history point-of-view.
+    /// This method MUST NOT be used for consensus validation, reorg logic,
+    /// or double-spend decisions.
+    ///
+    /// For consensus-safe queries, use [`get_cell_snapshot_at_pov`] or
+    /// [`batch_get_cell_snapshots_at_pov`] which are anchored by block hash.
+    #[deprecated(since = "0.2.0", note = "Use batch_get_cell_snapshots_at_pov() for consensus queries. This DAA-based method is retained only for index/debug purposes.")]
+    #[allow(deprecated)]
     pub fn batch_get_cell_snapshots_at_daa(&self, out_points: &[OutPoint], at_daa: u64) -> Result<Vec<Option<CellMeta>>> {
         let mut results = Vec::with_capacity(out_points.len());
 
         for out_point in out_points {
             results.push(self.get_cell_snapshot_at_daa(out_point, at_daa)?);
+        }
+
+        Ok(results)
+    }
+
+    /// Batch query Cells from the canonical journal using an explicit POV block.
+    pub fn batch_get_cell_snapshots_at_pov<F>(
+        &self,
+        out_points: &[OutPoint],
+        pov: [u8; 32],
+        mut block_in_pov_history: F,
+    ) -> Result<Vec<Option<CellMeta>>>
+    where
+        F: FnMut([u8; 32], [u8; 32]) -> Result<bool>,
+    {
+        let mut results = Vec::with_capacity(out_points.len());
+
+        for out_point in out_points {
+            results.push(self.get_cell_snapshot_at_pov(out_point, pov, &mut block_in_pov_history)?);
         }
 
         Ok(results)
@@ -439,6 +530,24 @@ mod tests {
 
         let retrieved = db.get(&out_point).unwrap().unwrap();
         assert_eq!(retrieved, meta);
+    }
+
+    #[test]
+    fn test_put_clears_stale_spent_state_when_cell_becomes_live_again() {
+        let tmp = TempDir::new().unwrap();
+        let db = CellDB::open(tmp.path()).unwrap();
+
+        let out_point = OutPoint::new([0x42; 32], 7);
+        let meta = create_test_cell_meta(1000, 100);
+
+        db.put(&out_point, &meta).unwrap();
+        db.spend_in_block(&out_point, 150, [0x99; 32]).unwrap();
+        assert_eq!(db.is_spent(&out_point).unwrap(), Some(150));
+
+        db.put(&out_point, &meta).unwrap();
+
+        assert_eq!(db.is_spent(&out_point).unwrap(), None);
+        assert_eq!(db.get(&out_point).unwrap(), Some(meta));
     }
 
     #[test]
@@ -682,5 +791,112 @@ mod tests {
         assert!(results[0].is_some()); // meta1: created at 50, still live
         assert!(results[1].is_some()); // meta2: created at 60, spent at 100 (live at 80)
         assert!(results[2].is_some()); // meta3: created at 70, still live
+    }
+
+    #[test]
+    fn test_get_cell_at_pov_live_cell_requires_creation_in_visible_history() {
+        let temp_dir = TempDir::new().unwrap();
+        let db = CellDB::open(temp_dir.path()).unwrap();
+
+        let out_point = OutPoint::new([9; 32], 0);
+        let creation_block = [0x11; 32];
+        let visible_pov = [0xAA; 32];
+        let hidden_pov = [0xBB; 32];
+        let mut meta = create_test_cell_meta(1000, 50);
+        meta.block_hash = creation_block;
+
+        db.put(&out_point, &meta).unwrap();
+
+        let visible =
+            db.get_cell_snapshot_at_pov(&out_point, visible_pov, |block_hash, pov| {
+                Ok(pov == visible_pov && block_hash == creation_block)
+            })
+            .unwrap();
+        assert_eq!(visible, Some(meta.clone()));
+
+        let hidden = db
+            .get_cell_snapshot_at_pov(&out_point, hidden_pov, |block_hash, pov| Ok(pov == visible_pov && block_hash == creation_block))
+            .unwrap();
+        assert_eq!(hidden, None);
+    }
+
+    #[test]
+    fn test_get_cell_at_pov_spent_cell_uses_branch_visibility() {
+        let temp_dir = TempDir::new().unwrap();
+        let db = CellDB::open(temp_dir.path()).unwrap();
+
+        let out_point = OutPoint::new([0x31; 32], 0);
+        let creation_block = [0x41; 32];
+        let spend_block = [0x51; 32];
+        let pov_before_spend = [0x61; 32];
+        let pov_after_spend = [0x71; 32];
+        let unrelated_pov = [0x81; 32];
+        let mut meta = create_test_cell_meta(1000, 50);
+        meta.block_hash = creation_block;
+
+        db.put(&out_point, &meta).unwrap();
+        db.spend_in_block(&out_point, 150, spend_block).unwrap();
+
+        let before_spend = db
+            .get_cell_snapshot_at_pov(&out_point, pov_before_spend, |block_hash, pov| {
+                Ok(match pov {
+                    p if p == pov_before_spend => block_hash == creation_block,
+                    p if p == pov_after_spend => block_hash == creation_block || block_hash == spend_block,
+                    _ => false,
+                })
+            })
+            .unwrap();
+        assert_eq!(before_spend, Some(meta.clone()));
+
+        let after_spend = db
+            .get_cell_snapshot_at_pov(&out_point, pov_after_spend, |block_hash, pov| {
+                Ok(match pov {
+                    p if p == pov_before_spend => block_hash == creation_block,
+                    p if p == pov_after_spend => block_hash == creation_block || block_hash == spend_block,
+                    _ => false,
+                })
+            })
+            .unwrap();
+        assert_eq!(after_spend, None);
+
+        let unrelated = db
+            .get_cell_snapshot_at_pov(&out_point, unrelated_pov, |block_hash, pov| {
+                Ok(match pov {
+                    p if p == pov_before_spend => block_hash == creation_block,
+                    p if p == pov_after_spend => block_hash == creation_block || block_hash == spend_block,
+                    _ => false,
+                })
+            })
+            .unwrap();
+        assert_eq!(unrelated, None);
+    }
+
+    #[test]
+    fn test_batch_get_at_pov() {
+        let temp_dir = TempDir::new().unwrap();
+        let db = CellDB::open(temp_dir.path()).unwrap();
+
+        let pov = [0xD1; 32];
+        let live_block = [0xD2; 32];
+        let hidden_block = [0xD3; 32];
+
+        let out1 = OutPoint::new([0x91; 32], 0);
+        let out2 = OutPoint::new([0x92; 32], 0);
+
+        let mut meta1 = create_test_cell_meta(1000, 50);
+        meta1.block_hash = live_block;
+        let mut meta2 = create_test_cell_meta(2000, 60);
+        meta2.block_hash = hidden_block;
+
+        db.put(&out1, &meta1).unwrap();
+        db.put(&out2, &meta2).unwrap();
+
+        let results = db
+            .batch_get_cell_snapshots_at_pov(&[out1.clone(), out2.clone()], pov, |block_hash, query_pov| {
+                Ok(query_pov == pov && block_hash == live_block)
+            })
+            .unwrap();
+
+        assert_eq!(results, vec![Some(meta1), None]);
     }
 }

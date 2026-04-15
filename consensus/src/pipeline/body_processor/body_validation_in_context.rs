@@ -66,6 +66,12 @@ impl BlockBodyProcessor {
         // Results are collected into a Vec whose indices correspond 1-to-1
         // with `non_coinbase_txs` (i.e. block-original order), so error
         // reporting and cycles/mass accumulation are fully deterministic.
+        //
+        // NOTE: Isolation checks (format, capacity, data-size) are already
+        // performed by `validate_body_in_isolation` which the caller
+        // (`validate_body`) is required to invoke first. We therefore skip
+        // `validate_in_isolation` here and go straight to DAG-context +
+        // script verification.
         #[cfg(feature = "vm")]
         {
             let block_hash = block.hash();
@@ -76,8 +82,12 @@ impl BlockBodyProcessor {
                 .par_iter()
                 .map(|&(idx, tx)| {
                     let non_contextual_masses = self.mass_calculator.calc_non_contextual_masses_cell(tx);
+                    // DAG-context validation (existence, capacity, maturity, time-locks)
+                    // followed by script verification. Isolation validation is intentionally
+                    // omitted — it was already executed by `validate_body_in_isolation`.
                     let res = validator
-                        .validate_full_with_scripts_and_cycles(tx, block_hash, daa_score, timestamp)
+                        .validate_in_dag(tx, block_hash, daa_score, timestamp)
+                        .and_then(|_| validator.verify_scripts_with_cycles(tx, block_hash, daa_score))
                         .map_err(|e| self.map_cell_validation_error(tx, block_hash, daa_score, provider.as_ref(), e))
                         .and_then(|verified_cycles| {
                             let resolved_inputs = self
@@ -147,6 +157,8 @@ impl BlockBodyProcessor {
                 .par_iter()
                 .map(|&(_, tx)| {
                     let non_contextual_masses = self.mass_calculator.calc_non_contextual_masses_cell(tx);
+                    // DAG-context validation only; isolation was already done
+                    // by `validate_body_in_isolation`.
                     validator
                         .validate_in_dag(tx, block_hash, daa_score, timestamp)
                         .map_err(|e| self.map_cell_validation_error(tx, block_hash, daa_score, provider.as_ref(), e))
@@ -367,7 +379,9 @@ impl BlockBodyProcessor {
         tx.inputs
             .iter()
             .map(|input| {
-                provider.get_cell_at_pov(&input.previous_output, pov)?.ok_or_else(|| format!("missing input cell {:?}", input.previous_output))
+                provider
+                    .get_cell_at_pov(&input.previous_output, pov)?
+                    .ok_or_else(|| format!("missing input cell {:?}", input.previous_output))
             })
             .collect()
     }
@@ -420,6 +434,16 @@ impl BlockBodyProcessor {
                 }
 
                 RuleError::TxInContextFailed(tx_id, TxRuleError::MissingTxOutpoints)
+            }
+            CellValidationError::ScriptVerificationFailed(msg) | CellValidationError::ScriptFailed(msg) => {
+                RuleError::TxInContextFailed(tx_id, TxRuleError::CellValidationFailed(msg))
+            }
+            CellValidationError::ExceededMaxCycles { total, limit } => RuleError::TxInContextFailed(
+                tx_id,
+                TxRuleError::CellValidationFailed(format!("script cycles exceeded limit: total {total}, limit {limit}")),
+            ),
+            CellValidationError::InvalidSignature => {
+                RuleError::TxInContextFailed(tx_id, TxRuleError::CellValidationFailed("invalid signature".to_string()))
             }
             CellValidationError::InvalidFormat(msg) => {
                 RuleError::CellValidationError(format!("Context validation failed for tx {:?}: {}", tx_id, msg))
@@ -518,7 +542,7 @@ mod tests {
     use spora_core::assert_match;
     #[cfg(feature = "vm")]
     use spora_exec::scripts::always_success_code_hash;
-    use spora_exec::{CellDep, CellOutput, CellInput, CellTx, DepType, OutPoint, Script};
+    use spora_exec::{CellDep, CellInput, CellOutput, CellTx, DepType, OutPoint, Script};
     use spora_hashes::Hash;
     use std::collections::HashMap;
 

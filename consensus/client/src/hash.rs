@@ -1,6 +1,6 @@
 //!
-//! WASM bindings for transaction hashers: [`TransactionSigningHash`](native::TransactionSigningHash)
-//! and [`TransactionSigningHashECDSA`](native::TransactionSigningHashECDSA).
+//! WASM bindings for transaction hashers: [`CellTxSigningHash`](native::CellTxSigningHash)
+//! and [`CellTxSigningHashEcdsa`](native::CellTxSigningHashEcdsa).
 //!
 
 #![allow(non_snake_case)]
@@ -14,15 +14,15 @@ use spora_wasm_core::types::BinaryT;
 /// @category Wallet SDK
 #[derive(Default, Clone)]
 #[wasm_bindgen]
-pub struct TransactionSigningHash {
-    hasher: native::TransactionSigningHash,
+pub struct CellTxSigningHash {
+    hasher: native::CellTxSigningHash,
 }
 
 #[wasm_bindgen]
-impl TransactionSigningHash {
+impl CellTxSigningHash {
     #[wasm_bindgen(constructor)]
     pub fn new() -> Self {
-        Self { hasher: native::TransactionSigningHash::new() }
+        Self { hasher: native::CellTxSigningHash::new() }
     }
 
     pub fn update(&mut self, data: BinaryT) -> Result<()> {
@@ -39,15 +39,15 @@ impl TransactionSigningHash {
 /// @category Wallet SDK
 #[derive(Default, Clone)]
 #[wasm_bindgen]
-pub struct TransactionSigningHashECDSA {
-    hasher: native::TransactionSigningHashECDSA,
+pub struct CellTxSigningHashEcdsa {
+    hasher: native::CellTxSigningHashEcdsa,
 }
 
 #[wasm_bindgen]
-impl TransactionSigningHashECDSA {
+impl CellTxSigningHashEcdsa {
     #[wasm_bindgen(constructor)]
     pub fn new() -> Self {
-        Self { hasher: native::TransactionSigningHashECDSA::new() }
+        Self { hasher: native::CellTxSigningHashEcdsa::new() }
     }
 
     pub fn update(&mut self, data: BinaryT) -> Result<()> {

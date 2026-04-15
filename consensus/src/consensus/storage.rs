@@ -166,8 +166,6 @@ impl ConsensusStorage {
         let acceptance_data_builder = PolicyBuilder::new().bytes_budget(acceptance_data_budget).tracked_bytes();
         let past_pruning_points_builder = PolicyBuilder::new().max_items(1024).untracked();
 
-        // TODO: consider tracking CellDiff byte sizes more accurately including the exact script payload size
-
         // Headers
         let statuses_store = Arc::new(RwLock::new(DbStatusesStore::new(db.clone(), statuses_builder.build())));
         let relations_stores = Arc::new(RwLock::new(

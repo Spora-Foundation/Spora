@@ -10,7 +10,7 @@ use crate::{
     },
 };
 use spora_consensus_client::pay_to_address_lock_script;
-use spora_consensus_core::tx::{MutableTransaction, OutPointCompat, TransactionId};
+use spora_consensus_core::tx::{MutableTransaction, TransactionId};
 use std::collections::{hash_set::Iter, HashMap, HashSet, VecDeque};
 
 pub(crate) type TransactionsEdges = HashMap<TransactionId, TransactionIdSet>;
@@ -54,8 +54,9 @@ pub(crate) trait Pool {
     fn get_parent_transaction_ids_in_pool(&self, transaction: &MutableTransaction) -> TransactionIdSet {
         let mut parents = HashSet::with_capacity(transaction.tx.inputs.len());
         for input in transaction.tx.inputs.iter() {
-            if self.has(&input.previous_output.transaction_id()) {
-                parents.insert(input.previous_output.transaction_id());
+            let previous_tx_id = TransactionId::from_bytes(input.previous_output.tx_hash);
+            if self.has(&previous_tx_id) {
+                parents.insert(previous_tx_id);
             }
         }
         parents
@@ -70,8 +71,14 @@ pub(crate) trait Pool {
     /// NOTE: this operation's complexity might become linear in the size of the mempool if the mempool
     /// contains deeply chained transactions
     fn get_redeemer_ids_in_pool(&self, transaction_id: &TransactionId) -> Vec<TransactionId> {
-        // TODO: study if removals based on the results of this function should occur in reversed
-        // topological order to prevent missing outpoints in concurrent processes.
+        // DESIGN(P2): The BFS traversal returns redeemer ids in discovery order, which is NOT
+        // guaranteed to be reverse-topological. When a caller removes these redeemers sequentially,
+        // removing a parent before its child may momentarily create a "missing outpoint" state
+        // visible to concurrent readers (e.g. block-template builder or revalidation). In practice
+        // this is benign today because removals happen under the mempool write lock, but if the
+        // lock is ever split (see MiningManager locking note), removals should be sorted in
+        // reverse-topological order (children first, then parents) so that no intermediate state
+        // exposes a transaction whose parent has already been evicted.
         let mut visited = TransactionIdSet::new();
         let mut descendants = vec![];
         if let Some(transaction) = self.get(transaction_id) {

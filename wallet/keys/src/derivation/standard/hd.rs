@@ -3,7 +3,7 @@ use crate::imports::*;
 use hmac::Mac;
 use ripemd::Ripemd160;
 use sha2::{Digest, Sha256};
-use spora_addresses::{Address, Prefix as AddressPrefix, Version as AddressVersion};
+use spora_addresses::{Address, Prefix as AddressPrefix};
 use spora_bip32::types::{ChainCode, HmacSha512, KeyFingerprint, PublicKeyBytes, KEY_SIZE};
 use spora_bip32::{
     AddressType, ChildNumber, DerivationPath, ExtendedKey, ExtendedKeyAttrs, ExtendedPrivateKey, ExtendedPublicKey, Prefix,
@@ -62,15 +62,11 @@ impl PubkeyDerivationManager {
     }
 
     pub fn create_address(key: &secp256k1::PublicKey, prefix: AddressPrefix, ecdsa: bool) -> Result<Address> {
-        let address = if ecdsa {
-            let payload = &key.serialize();
-            Address::new(prefix, AddressVersion::PubKeyECDSA, payload)
+        if ecdsa {
+            Ok(Address::new_std_single_ecdsa(prefix, &key.serialize())?)
         } else {
-            let payload = &key.x_only_public_key().0.serialize();
-            Address::new(prefix, AddressVersion::PubKey, payload)
-        };
-
-        Ok(address?)
+            Ok(Address::new_std_single(prefix, &key.x_only_public_key().0.serialize())?)
+        }
     }
 
     pub fn public_key(&self) -> ExtendedPublicKey<secp256k1::PublicKey> {
@@ -449,22 +445,16 @@ mod tests {
     use super::{PubkeyDerivationManager, WalletDerivationManager, WalletDerivationManagerTrait};
     use spora_addresses::Prefix;
 
-    fn gen1_receive_addresses() -> Vec<&'static str> {
-        vec![
-            "spora:qrgqpkue0tzhmqd77tljdhwjc757hc26uestam0gc4kycjx4k8uu6j8rmut",
-            "spora:qqmquth4lyayewfl32pj8w9w9dpzqk6c9ngyp4xxmyqusxruhjm0jnpdm8a",
-        ]
+    fn standard_receive_addresses() -> Vec<&'static str> {
+        vec!["spora:qpq897p39y2yur8mwtytvr043yn608trkqrufs2n", "spora:qpvwv8setd0pjrru7hj7qzkmp7qz87xkygsv9a77"]
     }
 
-    fn gen1_change_addresses() -> Vec<&'static str> {
-        vec![
-            "spora:qrsr3glsc0sp8u32jfyx5cp4xg8jmem7nyhycwqfn5skqkmwpf072cam9kt",
-            "spora:qz5a8zvn7hrgkxkz4tw8mxcnfdd7ttpxenpf5e3g9kyl9lj59nhfky2gwhd",
-        ]
+    fn standard_change_addresses() -> Vec<&'static str> {
+        vec!["spora:qqdul4s5gxrf67np5ltym2fr4p4uv4hszv5a382w", "spora:qpv2z70xjvks6ppn2gpjpdczmdsflhx8cyf7cwqd"]
     }
 
     #[tokio::test]
-    async fn hd_wallet_gen1() {
+    async fn hd_wallet_standard() {
         let master_xprv =
             "kprv5y2qurMHCsXYrNfU3GCihuwG3vMqFji7PZXajMEqyBkNh9UZUJgoHYBLTKu1eM4MvUtomcXPQ3Sw9HZ5ebbM4byoUciHo1zrPJBQfqpLorQ";
 
@@ -472,8 +462,8 @@ mod tests {
         assert!(hd_wallet.is_ok(), "Could not parse key");
         let hd_wallet = hd_wallet.unwrap();
 
-        let receive_addresses = gen1_receive_addresses();
-        let change_addresses = gen1_change_addresses();
+        let receive_addresses = standard_receive_addresses();
+        let change_addresses = standard_change_addresses();
 
         for index in 0..2 {
             let pubkey = hd_wallet.derive_receive_pubkey(index).unwrap();
@@ -530,7 +520,7 @@ mod tests {
 
         let key = wallet.derive_receive_pubkey(1).unwrap();
         let address = PubkeyDerivationManager::create_address(&key, Prefix::Testnet, false).unwrap().to_string();
-        assert_eq!(address, "spora0:qpy7k0dt6esg0ud7l7mnytzn5zdwsuy2yf9td36s8qtwl6hdeufv6mctfvn")
+        assert_eq!(address, "spora0:qr0t48zdaymwqwcgsenqtngagfpspu7zkqsdhg36")
     }
 
     #[tokio::test]
@@ -554,8 +544,8 @@ mod tests {
             .collect::<Vec<String>>();
         println!("receive addresses: {addresses_receive:#?}");
         println!("change addresses: {addresses_change:#?}");
-        let receive_addresses = gen1_receive_addresses();
-        let change_addresses = gen1_change_addresses();
+        let receive_addresses = standard_receive_addresses();
+        let change_addresses = standard_change_addresses();
         for index in 0..2 {
             assert_eq!(receive_addresses[index], addresses_receive[index], "receive address at {index} failed");
             assert_eq!(change_addresses[index], addresses_change[index], "change address at {index} failed");
@@ -564,10 +554,7 @@ mod tests {
 
     #[tokio::test]
     async fn generate_sporatest_addresses() {
-        let receive_addresses = [
-            "spora0:qrgqpkue0tzhmqd77tljdhwjc757hc26uestam0gc4kycjx4k8uu6zn7sl0",
-            "spora0:qqmquth4lyayewfl32pj8w9w9dpzqk6c9ngyp4xxmyqusxruhjm0jr4ssye",
-        ];
+        let receive_addresses = ["spora0:qpq897p39y2yur8mwtytvr043yn608trkqluar8z", "spora0:qpvwv8setd0pjrru7hj7qzkmp7qz87xkygvv3wn0"];
 
         let master_xprv =
             "kprv5y2qurMHCsXYrNfU3GCihuwG3vMqFji7PZXajMEqyBkNh9UZUJgoHYBLTKu1eM4MvUtomcXPQ3Sw9HZ5ebbM4byoUciHo1zrPJBQfqpLorQ";
@@ -576,12 +563,12 @@ mod tests {
         assert!(hd_wallet.is_ok(), "Could not parse key");
         let hd_wallet = hd_wallet.unwrap();
 
-        //let mut receive_addresses = vec![]; //gen1_receive_addresses();
-        //let change_addresses = gen1_change_addresses();
+        //let mut receive_addresses = vec![]; //standard_receive_addresses();
+        //let change_addresses = standard_change_addresses();
 
         for index in 0..2 {
             let key = hd_wallet.derive_receive_pubkey(index).unwrap();
-            //let address = Address::new(Prefix::Testnet, spora_addresses::Version::PubKey, key.to_bytes());
+            //let address = Address::new(Prefix::Testnet, spora_addresses::Version::StdSingle, key.to_bytes());
             let address = PubkeyDerivationManager::create_address(&key, Prefix::Testnet, false).unwrap();
             //receive_addresses.push(String::from(address));
             assert_eq!(receive_addresses[index as usize], address.to_string(), "receive address at {index} failed");

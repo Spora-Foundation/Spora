@@ -26,9 +26,12 @@ pub struct TransactionStore {
 
 impl TransactionStore {
     pub fn new<P: AsRef<Path>>(folder: P, name: &str) -> TransactionStore {
+        let resolved_folder =
+            folder.as_ref().to_str().and_then(|path| fs::resolve_path(path).ok()).unwrap_or_else(|| folder.as_ref().to_path_buf());
+
         TransactionStore {
             inner: Arc::new(Mutex::new(Inner { known_folders: HashSet::default() })),
-            folder: fs::resolve_path(folder.as_ref().to_str().unwrap()).expect("transaction store folder is invalid"),
+            folder: resolved_folder,
             name: name.to_string(),
         }
     }

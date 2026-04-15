@@ -518,7 +518,7 @@ impl CellProcessor {
             virtual_daa_score,
         } = self.rpc_api().get_server_info().await?;
 
-        if rpc_api_version > RPC_API_VERSION {
+        if rpc_api_version != RPC_API_VERSION || rpc_api_revision != RPC_API_REVISION {
             let current = format!("{RPC_API_VERSION}.{RPC_API_REVISION}");
             let connected = format!("{rpc_api_version}.{rpc_api_revision}");
             return Err(Error::RpcApiVersion(current, connected));

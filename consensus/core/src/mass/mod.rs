@@ -5,7 +5,7 @@ use crate::{
     constants::TRANSIENT_BYTE_TO_MASS_FACTOR,
     tx::{CellOutput, CellTx, Script, VerifiableTransaction},
 };
-use spora_exec::vm::VmLimits;
+use spora_exec::{celltx::types::cell_tx_estimated_serialized_size as exec_cell_tx_estimated_serialized_size, vm::VmLimits};
 
 #[cfg(test)]
 const ENTRY_VIEW_CONST_STORAGE: u64 =
@@ -39,53 +39,12 @@ const CELL_ENTRY_OVERHEAD_EXCLUDING_OUTPUT_BODY: u64 =
 ;
 
 /// Estimated serialized size of a CellTx transaction.
-/// Deterministic but not necessarily accurate — only used as the size
-/// component in the transaction and block mass limit calculation.
+///
+/// The canonical implementation lives in `spora_exec::celltx`; this wrapper
+/// preserves the consensus-core API surface while ensuring every caller uses
+/// the same estimator.
 pub fn cell_tx_estimated_serialized_size(tx: &CellTx) -> u64 {
-    let mut size: u64 = 0;
-    size += 2; // ver (u16)
-
-    // Inputs: each CellInput = outpoint (32+4) + since (8) = 44 bytes
-    size += 8; // number of inputs
-    size += tx.inputs.len() as u64 * 44;
-
-    // Deps: each CellDep = outpoint (32+4) + dep_type (1) = 37 bytes
-    size += 8; // number of deps
-    size += tx.cell_deps.len() as u64 * 37;
-
-    // Header deps: each is a 32-byte hash
-    size += 8; // number of header_deps
-    size += tx.header_deps.len() as u64 * 32;
-
-    // Outputs: each CellOutput = lock script + optional type script + capacity
-    size += 8; // number of outputs
-    for output in &tx.outputs {
-        size += 32 + 1 + 8; // lock.code_hash + lock.hash_type + len(lock.args)
-        size += output.lock.args.len() as u64;
-        if let Some(ref type_script) = output.type_ {
-            size += 1 + 32 + 1 + 8; // flag + code_hash + hash_type + len(args)
-            size += type_script.args.len() as u64;
-        } else {
-            size += 1; // no-type flag
-        }
-        size += 8; // capacity
-    }
-
-    // Outputs data
-    size += 8; // number of outputs_data
-    for data in &tx.outputs_data {
-        size += 8; // length prefix
-        size += data.len() as u64;
-    }
-
-    // Witnesses
-    size += 8; // number of witnesses
-    for witness in &tx.witnesses {
-        size += 8; // length prefix
-        size += witness.len() as u64;
-    }
-
-    size
+    exec_cell_tx_estimated_serialized_size(tx)
 }
 
 /// Returns the cell storage plurality for this lock script.
@@ -562,12 +521,9 @@ mod tests {
         // With canonical cell storage, even an empty script occupies two 100-byte units.
         assert!(cell_plurality(&Script::new([0; 32], 0, vec![])) == 2);
         // Assert the CANONICAL_CELL_CONST_STORAGE=126, CELL_UNIT_SIZE=100 constants.
+        assert!(cell_plurality(&Script::new([0; 32], 0, vec![1; (CELL_UNIT_SIZE * 2 - CANONICAL_CELL_CONST_STORAGE) as usize])) == 2);
         assert!(
-            cell_plurality(&Script::new([0; 32], 0, vec![1; (CELL_UNIT_SIZE * 2 - CANONICAL_CELL_CONST_STORAGE) as usize])) == 2
-        );
-        assert!(
-            cell_plurality(&Script::new([0; 32], 0, vec![1; (CELL_UNIT_SIZE * 2 - CANONICAL_CELL_CONST_STORAGE + 1) as usize]))
-                == 3
+            cell_plurality(&Script::new([0; 32], 0, vec![1; (CELL_UNIT_SIZE * 2 - CANONICAL_CELL_CONST_STORAGE + 1) as usize])) == 3
         );
     }
 

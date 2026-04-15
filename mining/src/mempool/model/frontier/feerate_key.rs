@@ -95,11 +95,11 @@ pub(crate) mod tests {
         mass::{ContextualMasses, NonContextualMasses},
         tx::{CellInput, MutableTransaction, TransactionOutpoint},
     };
-    use spora_hashes::{HasherBase, TransactionID};
+    use spora_hashes::{CellTxId, HasherBase};
     use std::sync::Arc;
 
     fn generate_unique_tx(i: u64) -> Arc<CellTx> {
-        let mut hasher = TransactionID::new();
+        let mut hasher = CellTxId::new();
         let prev = hasher.update(i.to_le_bytes()).clone().finalize();
         let input = CellInput::new(TransactionOutpoint::new(prev.as_bytes(), 0), 0);
         Arc::new(CellTx::new(vec![input], vec![], vec![], vec![], vec![vec![]]).expect("test tx must be a valid CellTx"))

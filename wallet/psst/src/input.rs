@@ -23,8 +23,7 @@ pub struct Input {
     pub previous_outpoint: TransactionOutpoint,
     /// The encoded Cell `since` value for this input.
     pub since: Option<u64>,
-    /// A map from public keys to their corresponding signature as would be
-    /// pushed to the stack from a scriptSig.
+    /// A map from public keys to their corresponding signature bytes.
     pub partial_sigs: PartialSigs,
     #[builder(setter)]
     /// The sighash type to be used for this input. Signatures for this input
@@ -32,15 +31,14 @@ pub struct Input {
     pub sighash_type: SigHashType,
     #[serde(with = "spora_utils::serde_bytes_optional")]
     #[builder(setter(strip_option))]
-    /// The redeem script for this input.
-    pub redeem_script: Option<Vec<u8>>,
+    /// Optional witness template bytes for this input.
+    pub witness_template: Option<Vec<u8>>,
     /// A map from public keys needed to sign this input to their corresponding
     /// master key fingerprints and derivation paths.
     pub bip32_derivations: BTreeMap<secp256k1::PublicKey, Option<KeySource>>,
     #[serde(with = "spora_utils::serde_bytes_optional")]
-    /// The finalized, fully-constructed scriptSig with signatures and any other
-    /// scripts necessary for this input to pass validation.
-    pub final_script_sig: Option<Vec<u8>>,
+    /// Finalized witness bytes for this input.
+    pub final_witness: Option<Vec<u8>>,
     #[serde(skip_serializing, default)]
     pub(crate) hidden: PhantomData<()>, // prevents manual filling of fields
     #[builder(setter)]
@@ -60,9 +58,9 @@ impl Default for Input {
             since: Default::default(),
             partial_sigs: Default::default(),
             sighash_type: SIG_HASH_ALL,
-            redeem_script: Default::default(),
+            witness_template: Default::default(),
             bip32_derivations: Default::default(),
-            final_script_sig: Default::default(),
+            final_witness: Default::default(),
             hidden: Default::default(),
             proprietaries: Default::default(),
             unknowns: Default::default(),
@@ -100,22 +98,22 @@ impl Add for Input {
         // todo combine sighash? or always use sighash all since all signatures must be passed after completion of construction step
         // self.sighash_type
 
-        self.redeem_script = match (self.redeem_script.take(), rhs.redeem_script) {
+        self.witness_template = match (self.witness_template.take(), rhs.witness_template) {
             (None, None) => None,
             (Some(script), None) | (None, Some(script)) => Some(script),
             (Some(script_left), Some(script_right)) if script_left == script_right => Some(script_left),
             (Some(script_left), Some(script_right)) => {
-                return Err(CombineError::NotCompatibleRedeemScripts { this: script_left, that: script_right })
+                return Err(CombineError::NotCompatibleWitnessTemplates { this: script_left, that: script_right })
             }
         };
 
-        // todo Does Combiner allowed to change final script sig??
-        self.final_script_sig = match (self.final_script_sig.take(), rhs.final_script_sig) {
+        // todo Does Combiner allow overriding finalized witness bytes?
+        self.final_witness = match (self.final_witness.take(), rhs.final_witness) {
             (None, None) => None,
             (Some(script), None) | (None, Some(script)) => Some(script),
             (Some(script_left), Some(script_right)) if script_left == script_right => Some(script_left),
             (Some(script_left), Some(script_right)) => {
-                return Err(CombineError::NotCompatibleRedeemScripts { this: script_left, that: script_right })
+                return Err(CombineError::NotCompatibleWitnessTemplates { this: script_left, that: script_right })
             }
         };
 
@@ -145,8 +143,8 @@ pub enum CombineError {
         /// Into a psst with `that` spent output index.
         that: u32,
     },
-    #[error("Two different redeem scripts detected")]
-    NotCompatibleRedeemScripts { this: Vec<u8>, that: Vec<u8> },
+    #[error("Two different witness templates detected")]
+    NotCompatibleWitnessTemplates { this: Vec<u8>, that: Vec<u8> },
     #[error("Two different cells detected")]
     NotCompatibleCells { this: CellMeta, that: CellMeta },
 

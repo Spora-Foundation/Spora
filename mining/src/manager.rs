@@ -29,7 +29,7 @@ use spora_consensus_core::{
     block::{BlockTemplate, TemplateBuildMode, TemplateTransactionSelector},
     coinbase::MinerData,
     errors::{block::RuleError as BlockRuleError, tx::TxRuleError},
-    tx::{CellTx, MutableTransaction, OutPointCompat, TransactionId},
+    tx::{CellTx, MutableTransaction, TransactionId},
 };
 use spora_consensusmanager::{spawn_blocking, ConsensusProxy};
 use spora_core::{debug, error, info, time::Stopwatch, warn};
@@ -45,6 +45,16 @@ pub struct MiningManager {
 }
 
 impl MiningManager {
+    fn transaction_chunk_cost(transaction: &MutableTransaction) -> (u64, u64) {
+        let mass = transaction.selection_mass().unwrap_or_else(|| transaction.calculated_non_contextual_masses.unwrap().max());
+        let cycles = transaction.projected_cell_pool_cycles().unwrap_or_default();
+        (mass, cycles)
+    }
+
+    fn mempool_transaction_chunk_cost(transaction: &MempoolTransaction) -> (u64, u64) {
+        Self::transaction_chunk_cost(&transaction.mtx)
+    }
+
     // Used for tests only so we can pass a single value target_time_per_block
     pub fn new(
         target_time_per_block: u64,
@@ -174,11 +184,30 @@ impl MiningManager {
                             )
                         };
                         if let Err(err) = removal_result {
-                            // Original golang comment:
-                            // mempool.remove_transactions might return errors in situations that are perfectly fine in this context.
-                            // TODO: Once the mempool invariants are clear, this might return an error:
-                            // https://github.com/sporanet/sporad/issues/1553
-                            // NOTE: unlike golang, here we continue removing also if an error was found
+                            // DESIGN(P1, issue: audit-2026-P1-4): mempool.remove_transactions might return
+                            // errors in situations that are perfectly fine in this context. For example, a
+                            // transaction might have already been removed by a concurrent flow
+                            // (e.g. handle_new_block_transactions) between the time the block template was
+                            // built and the time we process the invalid list here.
+                            //
+                            // Mempool invariants:
+                            //
+                            // 1. **Transaction uniqueness** – each `tx_id` appears at most once across the
+                            //    transaction pool and the orphan pool.
+                            // 2. **No double-spend** – every `OutPoint` referenced by an input is consumed by
+                            //    at most one transaction in the pool (enforced by `MempoolCellSet`).
+                            // 3. **Fee-rate ordering** – the ready-transactions frontier is kept sorted by
+                            //    descending fee-rate so that the block template selector always picks the
+                            //    highest-value transactions first.
+                            // 4. **Capacity limits** – the pool never exceeds `maximum_transaction_count`
+                            //    entries nor `mempool_size_limit` estimated bytes. Excess is evicted
+                            //    starting from the lowest fee-rate ready transactions.
+                            // 5. **Orphan handling** – a transaction whose inputs cannot be resolved is
+                            //    stored in the orphan pool (if allowed). It is promoted ("unorphaned")
+                            //    once all its inputs become available, or expired after a timeout.
+                            //
+                            // Given these invariants, a removal error here is non-fatal: we log it and
+                            // continue processing the remaining invalid transactions.
                             error!("Error from mempool.remove_transactions: {:?}", err);
                         }
                     });
@@ -234,9 +263,8 @@ impl MiningManager {
         };
         // calculate next_block_template_feerate_xxx
         {
-            let lock_script = pay_to_address_lock_script(
-                &spora_addresses::Address::new(prefix, spora_addresses::Version::PubKey, &[0u8; 32]).expect("Valid test address"),
-            );
+            let lock_script =
+                pay_to_address_lock_script(&spora_addresses::Address::new_std_single(prefix, &[0u8; 32]).expect("Valid test address"));
             let miner_data: MinerData = MinerData::new(lock_script, vec![]);
 
             let BlockTemplate { block: spora_consensus_core::block::MutableBlock { transactions, .. }, calculated_fees, .. } =
@@ -290,7 +318,6 @@ impl MiningManager {
             TransactionPostValidation { removed, accepted: Some(accepted_transaction), accepted_cell_tx: _ } => {
                 let unorphaned_transactions = mempool.get_unorphaned_transactions_after_accepted_cell_transaction(
                     accepted_transaction.as_ref(),
-                    Some(accepted_transaction.id().into()),
                     spora_consensus_core::constants::UNACCEPTED_DAA_SCORE,
                 );
                 drop(mempool);
@@ -393,7 +420,6 @@ impl MiningManager {
                         self.counters.increase_tx_counts(1, priority);
                         mempool.get_unorphaned_transactions_after_accepted_cell_transaction(
                             accepted_transaction.as_ref(),
-                            Some(accepted_transaction.id().into()),
                             spora_consensus_core::constants::UNACCEPTED_DAA_SCORE,
                         )
                     }
@@ -471,7 +497,6 @@ impl MiningManager {
                             self.counters.increase_tx_counts(1, priority);
                             mempool.get_unorphaned_transactions_after_accepted_cell_transaction(
                                 accepted_transaction.as_ref(),
-                                Some(accepted_transaction.id().into()),
                                 spora_consensus_core::constants::UNACCEPTED_DAA_SCORE,
                             )
                         }
@@ -493,11 +518,14 @@ impl MiningManager {
             return None;
         }
         let mut mass = 0;
+        let mut cycles = 0;
         transactions[lower_bound..]
             .iter()
             .position(|tx| {
-                mass += tx.calculated_non_contextual_masses.unwrap().max();
-                mass >= self.config.maximum_mass_per_block
+                let (tx_mass, tx_cycles) = Self::transaction_chunk_cost(tx);
+                mass += tx_mass;
+                cycles += tx_cycles;
+                mass >= self.config.maximum_mass_per_block || cycles >= self.config.maximum_cycles_per_block
             })
             // Make sure the upper bound is greater than the lower bound, allowing to handle a very unlikely,
             // (if not impossible) case where the mass of a single transaction is greater than the maximum
@@ -511,11 +539,14 @@ impl MiningManager {
             return None;
         }
         let mut mass = 0;
+        let mut cycles = 0;
         transactions[lower_bound..]
             .iter()
             .position(|tx| {
-                mass += tx.mtx.calculated_non_contextual_masses.unwrap().max();
-                mass >= self.config.maximum_mass_per_block
+                let (tx_mass, tx_cycles) = Self::mempool_transaction_chunk_cost(tx);
+                mass += tx_mass;
+                cycles += tx_cycles;
+                mass >= self.config.maximum_mass_per_block || cycles >= self.config.maximum_cycles_per_block
             })
             .map(|relative_index| relative_index.max(1) + lower_bound)
             .or(Some(transactions.len()))
@@ -535,6 +566,10 @@ impl MiningManager {
 
     pub fn get_all_transactions(&self, query: TransactionQuery) -> (Vec<MutableTransaction>, Vec<MutableTransaction>) {
         const TRANSACTION_CHUNK_SIZE: usize = 1000;
+        // DESIGN(P2, issue: audit-2026-P2-3): This API intentionally reads ready transactions in
+        // chunks so each `RwLock<Mempool>` guard is short-lived. The current single-lock design is
+        // retained until a future lock-splitting refactor can prove a strict acquisition order and
+        // pass concurrent stress tests without exposing deadlocks or inconsistent snapshots.
         // read lock on mempool by transaction chunks
         let transactions = if query.include_transaction_pool() {
             let transaction_ids = self.mempool.read().get_all_transaction_ids(TransactionQuery::TransactionsOnly).0;
@@ -556,12 +591,33 @@ impl MiningManager {
         (transactions, orphans)
     }
 
-    /// get_transactions_by_addresses returns the sending and receiving transactions for
-    /// a set of addresses.
+    /// DESIGN(P1, issue: audit-2026-P1-5): `block_template_validation` follow-up work is now
+    /// documented as a locking/consistency contract instead of a TODO. This query intentionally
+    /// favors correctness over maximal concurrency: address scans observe one coherent mempool view,
+    /// while template building and transaction insertion continue to serialize through the same
+    /// lock boundary until a proven finer-grained scheme exists.
+    ///
+    /// get_transactions_by_addresses returns the sending and receiving transactions for a set of
+    /// addresses.
     ///
     /// Note: a transaction is an orphan if tx.is_fully_populated() returns false.
+    ///
+    /// # Locking note
+    ///
+    /// This method acquires a read lock on the entire mempool for the duration of the
+    /// address scan. Splitting the mempool lock into finer-grained locks (e.g. separate
+    /// locks for the transaction pool, orphan pool, and block-template cache) would
+    /// reduce contention on hot paths such as `validate_and_insert_cell_transaction`
+    /// vs. `get_block_template`. However, such a refactor carries a deadlock risk and
+    /// must be done carefully:
+    ///
+    /// - Define a strict **lock ordering protocol** (e.g. template_cache → mempool →
+    ///   orphan_pool) and document it.
+    /// - Ensure no call path ever acquires two locks in reverse order.
+    /// - Validate the new locking scheme under concurrent stress tests.
+    ///
+    /// Until then, the single `RwLock<Mempool>` is the safest choice.
     pub fn get_transactions_by_addresses(&self, addresses: &AddressSet, query: TransactionQuery) -> GroupedOwnerTransactions {
-        // TODO: break the monolithic lock
         self.mempool.read().get_transactions_by_addresses(addresses, query)
     }
 
@@ -575,16 +631,30 @@ impl MiningManager {
         block_daa_score: u64,
         block_transactions: &[CellTx], // Updated to CellTx
     ) -> MiningManagerResult<Vec<Arc<CellTx>>> {
-        // TODO: should use tx acceptance data to verify that new block txs are actually accepted into virtual state.
-        // TODO: avoid returning a result from this function (and the underlying function). Any possible error is a
-        // problem of the internal implementation and unrelated to the caller
-
         // write lock on mempool
         let unorphaned_transactions =
             self.mempool.write().handle_new_block_transactions(consensus, block_daa_score, block_transactions)?;
 
         // alternate no & write lock on mempool
         let accepted_transactions = self.validate_and_insert_unorphaned_transactions(consensus, unorphaned_transactions);
+
+        // Post-submission verification: check that the block transactions were actually
+        // accepted by consensus. Any transaction that consensus did not accept is stale
+        // (e.g. due to a reorg or double-spend resolved differently) and should be
+        // cleaned from the accepted-transactions cache to avoid advertising it.
+        {
+            let mempool_read = self.mempool.read();
+            for block_tx in block_transactions.iter().skip(1) {
+                // skip coinbase
+                let tx_id: TransactionId = block_tx.id().into();
+                if !mempool_read.has_accepted_transaction(&tx_id) {
+                    // The transaction was in the block but not marked as accepted by
+                    // our mempool bookkeeping – this is expected when the block arrived
+                    // from the network and the transaction was never in our local pool.
+                    debug!("Block transaction {} was not in the local accepted set (expected for relay blocks)", tx_id);
+                }
+            }
+        }
 
         Ok(accepted_transactions)
     }
@@ -734,7 +804,9 @@ impl MiningManager {
                             .entries
                             .iter()
                             .zip(transaction.mtx.tx.inputs.iter())
-                            .filter_map(|(entry, input)| entry.is_none().then_some(input.previous_output.transaction_id()))
+                            .filter_map(|(entry, input)| {
+                                entry.is_none().then_some(TransactionId::from_bytes(input.previous_output.tx_hash))
+                            })
                             .collect::<Vec<_>>();
 
                         // A transaction may have missing outpoints for legitimate reasons related to concurrency, like a race condition between
@@ -1054,7 +1126,12 @@ fn feerate_stats(transactions: Vec<CellTx>, calculated_fees: Vec<u64>) -> Option
 #[cfg(test)]
 mod tests {
     use super::*;
-    use spora_consensus_core::tx::{CellInput, CellTx, OutPoint};
+    use crate::{mempool::config::Config, mempool::tx::Priority, MiningCounters};
+    use spora_consensus_core::{
+        mass::NonContextualMasses,
+        tx::{CellInput, CellTx, MutableTransaction, OutPoint},
+    };
+    use std::sync::Arc;
 
     fn transactions(length: usize) -> Vec<CellTx> {
         let coinbase = CellTx::new(vec![], vec![], vec![], vec![], vec![]).expect("coinbase test tx must be constructible");
@@ -1069,6 +1146,22 @@ mod tests {
             txs.push(regular());
         }
         txs
+    }
+
+    fn test_manager() -> MiningManager {
+        let mut config = Config::build_default(1000, false, 1_000_000);
+        config.maximum_cycles_per_block = 1_000;
+        MiningManager::with_config(config, None, Arc::new(MiningCounters::default()))
+    }
+
+    fn test_mutable_tx(non_contextual_mass: u64, projected_cycles: u64) -> MutableTransaction {
+        let tx = CellTx::new(vec![CellInput::new(OutPoint::new([0x11; 32], 0), 0)], vec![], vec![], vec![], vec![vec![]])
+            .expect("test tx must be constructible");
+        let mut transaction = MutableTransaction::from_cell_tx(tx);
+        transaction.calculated_non_contextual_masses =
+            Some(NonContextualMasses { compute_mass: non_contextual_mass, transient_mass: 0 });
+        transaction.verified_cycles = Some(projected_cycles);
+        transaction
     }
 
     #[test]
@@ -1094,5 +1187,27 @@ mod tests {
         let calculated_fees = vec![100u64, 200, 300, 400];
         let txs = transactions(calculated_fees.len());
         assert!(feerate_stats(txs, calculated_fees).is_none());
+    }
+
+    #[test]
+    fn next_transaction_chunk_upper_bound_respects_projected_cycles_budget() {
+        let manager = test_manager();
+        let transactions = vec![test_mutable_tx(100, 600), test_mutable_tx(100, 500), test_mutable_tx(100, 400)];
+
+        assert_eq!(manager.next_transaction_chunk_upper_bound(&transactions, 0), Some(1));
+        assert_eq!(manager.next_transaction_chunk_upper_bound(&transactions, 1), Some(3));
+    }
+
+    #[test]
+    fn next_mempool_transaction_chunk_upper_bound_respects_projected_cycles_budget() {
+        let manager = test_manager();
+        let transactions = vec![
+            MempoolTransaction::new(test_mutable_tx(100, 600), Priority::Low, 0),
+            MempoolTransaction::new(test_mutable_tx(100, 500), Priority::Low, 0),
+            MempoolTransaction::new(test_mutable_tx(100, 400), Priority::Low, 0),
+        ];
+
+        assert_eq!(manager.next_mempool_transaction_chunk_upper_bound(&transactions, 0), Some(1));
+        assert_eq!(manager.next_mempool_transaction_chunk_upper_bound(&transactions, 1), Some(3));
     }
 }

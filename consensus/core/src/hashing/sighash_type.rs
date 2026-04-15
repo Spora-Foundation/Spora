@@ -19,7 +19,7 @@ const ALLOWED_SIG_HASH_TYPES_VALUES: [u8; 6] = [
     SIG_HASH_SINGLE.0 | SIG_HASH_ANY_ONE_CAN_PAY.0,
 ];
 
-#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[wasm_bindgen]
 pub struct SigHashType(pub(crate) u8);
 

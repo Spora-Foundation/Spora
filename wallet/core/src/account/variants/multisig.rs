@@ -3,8 +3,10 @@
 //!
 
 use crate::account::{create_private_keys, DerivationCapableAccount, Inner};
-use crate::derivation::{AddressDerivationManager, AddressDerivationManagerTrait};
+use crate::derivation::{AddressDerivationManager, AddressDerivationManagerTrait, AddressManager};
 use crate::imports::*;
+use spora_consensus_core::tx::{multisig_witness_template, multisig_witness_template_ecdsa};
+use spora_utils::hex::ToHex;
 
 pub const MULTISIG_ACCOUNT_KIND: &str = "spora-multisig-standard";
 
@@ -160,6 +162,33 @@ impl MultiSig {
     fn watch_only(&self) -> bool {
         self.prv_key_data_ids.is_none()
     }
+
+    fn current_lock_script_hex(&self, manager: Arc<AddressManager>) -> Result<String> {
+        let mut keys = Vec::with_capacity(manager.pubkey_managers.len());
+        for pubkey_manager in manager.pubkey_managers.iter() {
+            keys.push(pubkey_manager.current_pubkey()?);
+        }
+
+        if self.ecdsa {
+            let compressed_keys = keys.iter().map(|key| key.serialize()).collect::<Vec<_>>();
+            let script = multisig_witness_template_ecdsa(compressed_keys.iter(), self.minimum_signatures as usize)
+                .map_err(|err| Error::custom(format!("unable to derive multisig ECDSA lock script: {err}")))?;
+            Ok(script.to_hex())
+        } else {
+            let xonly_keys = keys
+                .iter()
+                .map(|key| {
+                    let serialized = key.serialize();
+                    let mut xonly = [0u8; 32];
+                    xonly.copy_from_slice(&serialized[1..33]);
+                    xonly
+                })
+                .collect::<Vec<_>>();
+            let script = multisig_witness_template(xonly_keys.iter(), self.minimum_signatures as usize)
+                .map_err(|err| Error::custom(format!("unable to derive multisig lock script: {err}")))?;
+            Ok(script.to_hex())
+        }
+    }
 }
 
 #[async_trait]
@@ -239,7 +268,7 @@ impl Account for MultiSig {
     }
 
     fn descriptor(&self) -> Result<AccountDescriptor> {
-        let descriptor = AccountDescriptor::new(
+        let mut descriptor = AccountDescriptor::new(
             MULTISIG_ACCOUNT_KIND.into(),
             *self.id(),
             self.name(),
@@ -251,7 +280,17 @@ impl Account for MultiSig {
         )
         .with_property(AccountDescriptorProperty::XpubKeys, self.xpub_keys.clone().into())
         .with_property(AccountDescriptorProperty::Ecdsa, self.ecdsa.into())
-        .with_property(AccountDescriptorProperty::DerivationMeta, self.derivation.address_derivation_meta().into());
+        .with_property(AccountDescriptorProperty::DerivationMeta, self.derivation.address_derivation_meta().into())
+        .with_property(AccountDescriptorProperty::Other("addressModel".to_string()), "lock-script".into());
+
+        if let Ok(receive_lock_script) = self.current_lock_script_hex(self.derivation.receive_address_manager()) {
+            descriptor = descriptor
+                .with_property(AccountDescriptorProperty::Other("receiveLockScript".to_string()), receive_lock_script.into());
+        }
+        if let Ok(change_lock_script) = self.current_lock_script_hex(self.derivation.change_address_manager()) {
+            descriptor =
+                descriptor.with_property(AccountDescriptorProperty::Other("changeLockScript".to_string()), change_lock_script.into());
+        }
 
         Ok(descriptor)
     }

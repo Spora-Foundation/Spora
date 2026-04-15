@@ -9,7 +9,7 @@
 // ## Migration from the previous lock_time flow
 //
 // Previous wallet code used `lock_time` in `GeneratorSettings` to create time-locked
-// outputs using `pay_to_address_with_lock_time_script`. This has been deprecated
+// outputs using `pay_to_address_with_lock_time_script`. This path was removed
 // because:
 //
 // 1. `OP_CHECKLOCKTIMEVERIFY` is disabled in Cell model

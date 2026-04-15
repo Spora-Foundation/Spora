@@ -28,7 +28,10 @@ pub use input::*;
 pub use outpoint::*;
 pub use output::*;
 pub use serializable::*;
-pub use standard_script::{extract_address_from_lock_script, pay_to_address_lock_script, pay_to_script_hash_lock_script};
+pub use standard_script::{
+    address_to_builtin_standard_lock, address_to_full_script_lock, address_to_lock_script, classify_script,
+    extract_address_from_script, pay_to_address_lock_script, LockScriptClass,
+};
 pub use transaction::*;
 
 cfg_if::cfg_if! {
@@ -41,6 +44,6 @@ cfg_if::cfg_if! {
         pub use header::*;
         pub use utils::*;
         pub use hash::*;
-        pub use sign::sign_with_multiple_v3;
+        pub use sign::sign_with_multiple;
     }
 }

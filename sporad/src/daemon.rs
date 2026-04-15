@@ -435,7 +435,7 @@ do you confirm? (answer y/n or pass --yes to the Sporad command line to confirm 
                         .with_files_limit(1)
                         .build()
                         .unwrap();
-                    info!("Scanning for deprecated records to cleanup");
+                    info!("Scanning for stale records to cleanup");
 
                     let mut gd_record_count: u32 = 0;
                     let mut compact_record_count: u32 = 0;
@@ -469,7 +469,7 @@ do you confirm? (answer y/n or pass --yes to the Sporad command line to confirm 
 
                     trace!("Number of Ghostdag records to cleanup: {}", gd_record_count);
                     trace!("Number of GhostdagCompact records to cleanup: {}", compact_record_count);
-                    info!("Number of deprecated records to cleanup: {}", gd_record_count + compact_record_count);
+                    info!("Number of stale records to cleanup: {}", gd_record_count + compact_record_count);
 
                     let msg =
                         "Node database currently at version 3. Upgrade process to version 4 needs to be applied. Continue? (y/n)";

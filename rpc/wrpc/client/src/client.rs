@@ -5,6 +5,7 @@ use crate::parse::parse_host;
 use crate::{error::Error, node::NodeDescriptor};
 use spora_consensus_core::network::NetworkType;
 use spora_notify::{
+    connection::ChannelType,
     listener::ListenerLifespan,
     subscription::{context::SubscriptionContext, CellsChangedMutationPolicy, MutationPolicies},
 };
@@ -13,6 +14,7 @@ use spora_rpc_core::{
     notify::collector::{RpcCoreCollector, RpcCoreConverter},
 };
 pub use spora_rpc_macros::build_wrpc_client_interface;
+use std::collections::HashMap;
 use std::fmt::Debug;
 use workflow_core::{channel::Multiplexer, runtime as application_runtime};
 use workflow_dom::utils::window;
@@ -263,6 +265,7 @@ const WRPC_CLIENT: &str = "wrpc-client";
 #[derive(Clone)]
 pub struct SporaRpcClient {
     inner: Arc<Inner>,
+    active_notification_subscriptions: Arc<AsyncMutex<HashMap<u64, (ListenerId, Scope)>>>,
 }
 
 impl Debug for SporaRpcClient {
@@ -300,7 +303,10 @@ impl SporaRpcClient {
     ) -> Result<SporaRpcClient> {
         let inner = Arc::new(Inner::new(encoding, url, resolver, network_id)?);
         inner.build_notifier(subscription_context)?;
-        let client = SporaRpcClient { inner };
+        let client = SporaRpcClient {
+            inner,
+            active_notification_subscriptions: Arc::new(AsyncMutex::new(HashMap::new())),
+        };
         //     notification_mode: NotificationMode,
         //     url: &str,
         //     subscription_context: Option<SubscriptionContext>,
@@ -691,5 +697,29 @@ impl RpcApi for SporaRpcClient {
     async fn stop_notify(&self, id: ListenerId, scope: Scope) -> RpcResult<()> {
         self.notifier().try_stop_notify(id, scope)?;
         Ok(())
+    }
+
+    async fn subscribe_notifications(&self, request: SubscribeNotificationsRequest) -> RpcResult<SubscribeNotificationsResponse> {
+        let channel = Channel::unbounded();
+        let connection = ChannelConnection::new("wrpc-client", channel.sender, ChannelType::Closable);
+        let listener_id = self.register_new_listener(connection);
+        let subscription_id = listener_id as u64;
+
+        self.start_notify(listener_id, request.scope.clone()).await?;
+        self.active_notification_subscriptions.lock().await.insert(subscription_id, (listener_id, request.scope));
+        Ok(SubscribeNotificationsResponse::new(subscription_id))
+    }
+
+    async fn unsubscribe_notifications(&self, request: UnsubscribeNotificationsRequest) -> RpcResult<UnsubscribeNotificationsResponse> {
+        let Some((listener_id, scope)) = self.active_notification_subscriptions.lock().await.remove(&request.subscription_id) else {
+            return Err(spora_rpc_core::error::RpcError::General(format!(
+                "unknown subscription id {}",
+                request.subscription_id
+            )));
+        };
+
+        self.stop_notify(listener_id, scope).await?;
+        self.unregister_listener(listener_id).await?;
+        Ok(UnsubscribeNotificationsResponse {})
     }
 }

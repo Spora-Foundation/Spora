@@ -142,7 +142,7 @@ pub fn register(ctx: FlowContext, router: Arc<Router>) -> Vec<Box<dyn Flow>> {
     // The reject message is handled as a special case by the router
     // P2pMessagePayloadType::Reject,
 
-    // We do not register the below two messages since they are deprecated also in go-spora
+    // We do not register the below two messages because go-spora no longer serves them.
     // P2pMessagePayloadType::BlockWithTrustedData,
     // P2pMessagePayloadType::IbdBlockLocator,
 

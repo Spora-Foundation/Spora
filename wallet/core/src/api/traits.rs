@@ -464,10 +464,9 @@ pub trait WalletApi: Send + Sync + AnySync {
         request: AccountsCommitRevealManualRequest,
     ) -> Result<AccountsCommitRevealManualResponse>;
 
-    /// Commit-reveal funds to P2SH of given script signature present in
-    /// [`AccountsCommitRevealRequest`] that provides a pubkey placeholder
-    /// used by given address type and address index looked up in derivation
-    /// manager.
+    /// Commit-reveal funds using the witness template present in
+    /// [`AccountsCommitRevealRequest`] for the address resolved by
+    /// `address_type` + `address_index`.
     /// Returns an [`AccountsCommitRevealResponse`] struct that contains
     /// transaction ids.
     async fn accounts_commit_reveal_call(

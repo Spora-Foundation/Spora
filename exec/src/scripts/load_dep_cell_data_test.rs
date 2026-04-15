@@ -5,7 +5,7 @@
 
 #[cfg(all(test, feature = "vm"))]
 mod tests {
-    use crate::celltx::{CellDep, CellOutput, CellInput, CellTx, DepType, OutPoint, Script};
+    use crate::celltx::{CellDep, CellInput, CellOutput, CellTx, DepType, OutPoint, Script};
     use crate::scripts::{load_dep_cell_data_code_hash, LOAD_DEP_CELL_DATA_SCRIPT};
     use crate::vm::{ResolvedCell, ScriptVersion, SimpleDataProvider, TransactionScriptVerifier};
     use std::sync::Arc;

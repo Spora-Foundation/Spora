@@ -310,7 +310,7 @@ mod tests {
     use spora_consensus_core::{
         cell_metadata::CellMetadata,
         mass::project_verifiable_transaction_mass,
-        tx::{CellOutput, CellInput, CellTx, Script, TransactionOutpoint},
+        tx::{CellInput, CellOutput, CellTx, Script, TransactionOutpoint},
     };
     use spora_hashes::Hash;
 

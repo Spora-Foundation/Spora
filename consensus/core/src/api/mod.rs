@@ -22,7 +22,7 @@ use crate::{
     mass::{ContextualMasses, NonContextualMasses},
     pruning::{PruningPointProof, PruningPointTrustedData, PruningPointsList, PruningProofMetadata},
     trusted::{ExternalGhostdagData, TrustedBlock},
-    tx::{CellTx, MutableTransaction, ResolvedCellTransaction, SignableTransaction, TransactionOutpoint, VerifiableTransaction},
+    tx::{CellTx, MutableTransaction, ResolvedCellTransaction, TransactionOutpoint, VerifiableTransaction},
     // Transaction-output inquirer errors were removed during the Cell migration.
     BlockHashSet,
     BlueWorkType,
@@ -205,10 +205,6 @@ pub trait ConsensusApi: Send + Sync {
         unimplemented!()
     }
 
-    /// Returns the fully resolved transaction with the given txid which was accepted at the provided accepting_block_daa_score.
-    /// The argument `accepting_block_daa_score` is expected to be the DAA score of the accepting chain block of `txid`.
-    fn get_populated_transaction(&self, txid: Hash, accepting_block_daa_score: u64) -> Result<SignableTransaction, String>;
-
     /// Returns the canonical Cell transaction plus fully resolved input metadata for the given txid.
     ///
     /// The argument `accepting_block_daa_score` is expected to be the DAA score of the accepting
@@ -228,8 +224,7 @@ pub trait ConsensusApi: Send + Sync {
 
     /// Returns the canonical Cell transaction for the given txid.
     ///
-    /// New Cell-model callers should prefer this over `get_transaction`, which
-    /// is a compatibility view backed by `Transaction`.
+    /// New Cell-model callers should prefer this for canonical transaction reads.
     fn get_cell_transaction(&self, hash: Hash) -> ConsensusResult<CellTx>;
 
     fn get_virtual_parents(&self) -> BlockHashSet {

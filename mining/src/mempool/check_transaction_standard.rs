@@ -5,27 +5,14 @@ use crate::mempool::{
 use spora_consensus_core::mass::NonContextualMasses;
 use spora_consensus_core::{
     constants::MAX_SAU,
-    tx::{CellOutput, MutableTransaction},
+    tx::{is_cell_lock_unspendable, CellOutput, MutableTransaction, HASH_TYPE_TYPE},
 };
 
-/// MAXIMUM_STANDARD_SIGNATURE_SCRIPT_SIZE is the maximum size allowed for a
-/// transaction input signature script to be considered standard. This
-/// value allows for a 15-of-15 CHECKMULTISIG pay-to-script-hash with
-/// compressed keys.
+/// Maximum per-input witness size accepted by standard relay policy.
 ///
-/// The form of the overall script is: OP_0 <15 signatures> OP_PUSHDATA2
-/// <2 bytes len> [OP_15 <15 pubkeys> OP_15 OP_CHECKMULTISIG]
-///
-/// For the p2sh script portion, each of the 15 compressed pubkeys are
-/// 33 bytes (plus one for the OP_DATA_33 opcode), and the thus it totals
-/// to (15*34)+3 = 513 bytes. Next, each of the 15 signatures is a max
-/// of 73 bytes (plus one for the OP_DATA_73 opcode). Also, there is one
-/// extra byte for the initial extra OP_0 push and 3 bytes for the
-/// OP_PUSHDATA2 needed to specify the 513 bytes for the script push.
-/// That brings the total to 1+(15*74)+3+513 = 1627. This value also
-/// adds a few extra bytes to provide a little buffer.
-/// (1 + 15*74 + 3) + (15*34 + 3) + 23 = 1650
-const MAXIMUM_STANDARD_SIGNATURE_SCRIPT_SIZE: u64 = 1650;
+/// This is a conservative anti-DoS cap for signature and script payloads in
+/// witnesses and is intentionally independent of legacy script templates.
+const MAXIMUM_STANDARD_WITNESS_SIZE: u64 = 1650;
 
 /// MAXIMUM_STANDARD_TRANSACTION_MASS is the maximum mass allowed for transactions that
 /// are considered standard and will therefore be relayed and considered for mining.
@@ -67,29 +54,30 @@ impl Mempool {
             // Each transaction input witness must not exceed the
             // maximum size allowed for a standard transaction.
             //
-            // See the comment on MAXIMUM_STANDARD_SIGNATURE_SCRIPT_SIZE for
+            // See the comment on MAXIMUM_STANDARD_WITNESS_SIZE for
             // more details.
             let _ = input; // input used for iteration only
             let witness = transaction.tx.witnesses.get(i).map(|w| w.len()).unwrap_or(0) as u64;
-            if witness > MAXIMUM_STANDARD_SIGNATURE_SCRIPT_SIZE {
-                return Err(NonStandardError::RejectSignatureScriptSize(
-                    transaction_id,
-                    i,
-                    witness,
-                    MAXIMUM_STANDARD_SIGNATURE_SCRIPT_SIZE,
-                ));
+            if witness > MAXIMUM_STANDARD_WITNESS_SIZE {
+                return Err(NonStandardError::RejectSignatureScriptSize(transaction_id, i, witness, MAXIMUM_STANDARD_WITNESS_SIZE));
             }
         }
 
         // None of the output lock scripts can be a non-standard script or be "dust".
         for (i, output) in transaction.tx.outputs.iter().enumerate() {
-            // Standard relay currently only supports CKB-compatible Data-hash lock scripts.
-            if output.lock.hash_type != 0 {
+            // Standard relay accepts:
+            // - data-hash lock scripts (`hash_type = 0`), and
+            // - builtin standard locks encoded with type hash (`hash_type = 1`).
+            if output.lock.hash_type != 0 && output.lock.hash_type != HASH_TYPE_TYPE {
                 return Err(NonStandardError::RejectLockScriptHashType(transaction_id, i));
             }
 
-            // ScriptClass check removed - all scripts are validated through CKB-VM
-            // TODO: Add proper script validation for Cell model
+            // Remove the legacy inline-raw-script placeholder shape:
+            // `hash_type = 0 && code_hash = 0x00..00`.
+            // New Cell lock scripts must reference real code hashes.
+            if output.lock.hash_type == 0 && output.lock.code_hash == [0u8; 32] {
+                return Err(NonStandardError::RejectOutputScriptClass(transaction_id, i));
+            }
 
             if self.is_transaction_output_dust_cell(output) {
                 return Err(NonStandardError::RejectDust(transaction_id, i, output.capacity));
@@ -104,14 +92,12 @@ impl Mempool {
     /// relay fee.
     pub(crate) fn is_transaction_output_dust_cell(&self, output: &CellOutput) -> bool {
         // Unspendable outputs are considered dust.
-        let lock_bytes = output.lock.to_bytes();
-        // TODO: Add unspendable script detection for Cell model
-        if lock_bytes.is_empty() || lock_bytes[0] == 0x6a {
-            // OP_RETURN
+        if is_cell_lock_unspendable(&output.lock) {
             return true;
         }
 
         // Estimate serialized size for dust calculation
+        let lock_bytes = output.lock.to_bytes();
         let output_size: u64 = 8 /* capacity */ + 2 /* script version */ + 8 /* script len */ + lock_bytes.len() as u64;
         let total_serialized_size = output_size + 148;
 
@@ -138,8 +124,7 @@ impl Mempool {
     /// check_transaction_standard_in_context performs a series of checks on a transaction's
     /// inputs to ensure they are "standard". A standard transaction input within the
     /// context of this function is one whose referenced public key script is of a
-    /// standard form and, for pay-to-script-hash, does not have more than
-    /// maxStandardP2SHSigOps signature operations.
+    /// standard form.
     /// In addition, makes sure that the transaction's fee is above the minimum for acceptance
     /// into the mempool and relay.
     pub(crate) fn check_transaction_standard_in_context(&self, transaction: &MutableTransaction) -> NonStandardResult<()> {
@@ -167,7 +152,7 @@ impl Mempool {
 
         // Script-class inspection has been removed. Input standardness now relies on:
         // 1. canonical Cell metadata being resolved by the validation pipeline, and
-        // 2. CKB-VM script execution enforcing the actual lock/type semantics.
+        // 2. native standard-signature verification or VM execution enforcing the actual lock/type semantics.
         let _ = transaction;
 
         Ok(())
@@ -209,7 +194,7 @@ mod tests {
         constants::{CELL_TX_VERSION, MAX_TX_IN_SEQUENCE_NUM, SAU_PER_SPORA},
         mass::{ContextualMasses, NonContextualMasses},
         network::NetworkType,
-        tx::{pay_to_address_lock_script, CellOutput, CellInput, CellTx, MutableTransaction, Script, TransactionOutpoint},
+        tx::{pay_to_address_lock_script, CellInput, CellOutput, CellTx, MutableTransaction, Script, TransactionOutpoint},
     };
     use std::sync::Arc;
 
@@ -335,9 +320,9 @@ mod tests {
                 minimum_relay_transaction_fee: u64::MAX,
                 is_dust: false,
             },
-            // Opaque one-byte scripts are not currently treated as unspendable by the Cell path.
+            // Legacy inline lock placeholders are no longer treated as "dust-by-script".
             Test {
-                name: "opaque one-byte script remains non-dust at zero relay fee",
+                name: "opaque one-byte legacy inline script is not auto-dust",
                 cell_out: make_cell_out(5000, invalid_script_public_key),
                 minimum_relay_transaction_fee: 0,
                 is_dust: false,
@@ -367,9 +352,9 @@ mod tests {
         let dummy_prev_out = TransactionOutpoint::new(spora_hashes::Hash::from_u64_word(1).as_bytes(), 1);
         let dummy_sig_script = vec![0u8; 65];
         let dummy_tx_input = CellInput::new(dummy_prev_out, MAX_TX_IN_SEQUENCE_NUM);
-        let addr_hash = vec![1u8; 32];
+        let addr_hash = vec![1u8; 20];
 
-        let addr = Address::new(Prefix::Testnet, Version::PubKey, &addr_hash).expect("Valid test address");
+        let addr = Address::new(Prefix::Testnet, Version::StdSingle, &addr_hash).expect("Valid test address");
         let dummy_lock_script = pay_to_address_lock_script(&addr);
         let dummy_tx_out = CellOutput { capacity: SAU_PER_SPORA, lock: dummy_lock_script.clone(), type_: None };
 
@@ -449,7 +434,7 @@ mod tests {
                             vec![],
                             vec![dummy_tx_out.clone()],
                             vec![vec![]],
-                            vec![vec![0u8; MAXIMUM_STANDARD_SIGNATURE_SCRIPT_SIZE as usize + 1]],
+                            vec![vec![0u8; MAXIMUM_STANDARD_WITNESS_SIZE as usize + 1]],
                         )
                         .expect("test helper must construct a valid CellTx");
                         tx.version = CELL_TX_VERSION + 1;
@@ -460,7 +445,7 @@ mod tests {
                 is_standard: false,
             },
             Test {
-                name: "Valid opaque script is currently accepted in isolation",
+                name: "Legacy inline raw script is rejected in isolation",
                 mtx: new_mtx(
                     CellTx::new(
                         vec![dummy_tx_input.clone()],
@@ -472,7 +457,7 @@ mod tests {
                     .expect("test helper must construct a valid CellTx"),
                     1000,
                 ),
-                is_standard: true,
+                is_standard: false,
             },
             Test {
                 name: "Dust output",
@@ -490,7 +475,7 @@ mod tests {
                 is_standard: false,
             },
             Test {
-                name: "Lock script bytes starting with op-return in args are currently accepted",
+                name: "Legacy inline op-return lock is rejected",
                 mtx: new_mtx(
                     CellTx::new(
                         vec![dummy_tx_input],
@@ -502,7 +487,7 @@ mod tests {
                     .expect("test helper must construct a valid CellTx"),
                     1000,
                 ),
-                is_standard: true,
+                is_standard: false,
             },
         ];
 

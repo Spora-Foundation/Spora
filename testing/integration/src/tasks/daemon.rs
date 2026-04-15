@@ -99,11 +99,7 @@ impl DaemonArgs {
         let mut private_key_bytes = [0u8; 32];
         faster_hex::hex_decode(self.private_key.as_bytes(), &mut private_key_bytes).unwrap();
         let schnorr_key = secp256k1::Keypair::from_seckey_slice(secp256k1::SECP256K1, &private_key_bytes).unwrap();
-        Address::new(
-            NetworkType::Simnet.into(),
-            spora_addresses::Version::PubKey,
-            &schnorr_key.public_key().x_only_public_key().0.serialize(),
-        )
+        Address::new_std_single(NetworkType::Simnet.into(), &schnorr_key.public_key().x_only_public_key().0.serialize())
     }
 
     #[cfg(feature = "devnet-prealloc")]

@@ -17,12 +17,12 @@ const OP_PUSH_DATA2: u8 = 0x4d;
 const OP_PUSH_DATA4: u8 = 0x4e;
 #[cfg(test)]
 const OP_RETURN: u8 = 0x6a;
+#[cfg(test)]
 const OP_DATA32: u8 = 0x20;
-const OP_DATA33: u8 = 0x21;
-const OP_EQUAL: u8 = 0x87;
-const OP_BLAKE3: u8 = 0xaa;
 const OP_CHECK_MULTI_SIG_ECDSA: u8 = 0xa9;
+#[cfg(test)]
 const OP_CHECK_SIG_ECDSA: u8 = 0xab;
+#[cfg(test)]
 const OP_CHECK_SIG: u8 = 0xac;
 #[cfg(test)]
 const OP_CHECK_SIG_VERIFY: u8 = 0xad;
@@ -35,11 +35,20 @@ const OP_SMALL_INT_MAX: u8 = 0x60;
 const MAX_SCRIPT_ELEMENT_SIZE: usize = 520;
 const MAX_SCRIPT_SIZE: usize = 10_000;
 const MAX_PUB_KEYS_PER_MULTISIG: u64 = 20;
+const MAX_FULL_SCRIPT_ARGS_LEN: usize = 10_000;
 
 const NON_STANDARD: &str = "nonstandard";
-const PUB_KEY: &str = "pubkey";
-const PUB_KEY_ECDSA: &str = "pubkeyecdsa";
-const SCRIPT_HASH: &str = "scripthash";
+const STD_SINGLE: &str = "stdsingle";
+const STD_SINGLE_ECDSA: &str = "stdsingleecdsa";
+const ACCOUNT: &str = "account";
+const FULL_SCRIPT: &str = "fullscript";
+
+pub const HASH_TYPE_TYPE: u8 = 1;
+
+const BUILTIN_CODE_HASH_DOMAIN: &[u8] = b"spora/builtin-lock/v1";
+const BUILTIN_SCHNORR_BLAKE3_160_TAG: &[u8] = b"schnorr-blake3-160";
+const BUILTIN_ECDSA_BLAKE3_160_TAG: &[u8] = b"ecdsa-blake3-160";
+const BUILTIN_ACCOUNT_DESCRIPTOR_TAG: &[u8] = b"account-descriptor";
 
 #[derive(Error, PartialEq, Eq, Debug, Clone)]
 pub enum StandardScriptError {
@@ -57,7 +66,7 @@ pub enum StandardScriptError {
 }
 
 #[derive(Error, PartialEq, Eq, Debug, Clone)]
-pub enum MultisigRedeemScriptError {
+pub enum MultisigWitnessTemplateError {
     #[error("too many required signatures")]
     TooManyRequiredSignatures,
 
@@ -73,33 +82,20 @@ pub enum MultisigRedeemScriptError {
 #[repr(u8)]
 pub enum ScriptClass {
     NonStandard = 0,
-    PubKey,
-    PubKeyECDSA,
-    ScriptHash,
+    StdSingle = 3,
+    StdSingleECDSA = 4,
+    Account = 5,
+    FullScript = 6,
 }
 
 impl ScriptClass {
-    #[inline(always)]
-    pub fn is_pay_to_pubkey(lock_script: &[u8]) -> bool {
-        (lock_script.len() == 34) && (lock_script[0] == OP_DATA32) && (lock_script[33] == OP_CHECK_SIG)
-    }
-
-    #[inline(always)]
-    pub fn is_pay_to_pubkey_ecdsa(lock_script: &[u8]) -> bool {
-        (lock_script.len() == 35) && (lock_script[0] == OP_DATA33) && (lock_script[34] == OP_CHECK_SIG_ECDSA)
-    }
-
-    #[inline(always)]
-    pub fn is_pay_to_script_hash(lock_script: &[u8]) -> bool {
-        (lock_script.len() == 35) && (lock_script[0] == OP_BLAKE3) && (lock_script[1] == OP_DATA32) && (lock_script[34] == OP_EQUAL)
-    }
-
     fn as_str(&self) -> &'static str {
         match self {
             ScriptClass::NonStandard => NON_STANDARD,
-            ScriptClass::PubKey => PUB_KEY,
-            ScriptClass::PubKeyECDSA => PUB_KEY_ECDSA,
-            ScriptClass::ScriptHash => SCRIPT_HASH,
+            ScriptClass::StdSingle => STD_SINGLE,
+            ScriptClass::StdSingleECDSA => STD_SINGLE_ECDSA,
+            ScriptClass::Account => ACCOUNT,
+            ScriptClass::FullScript => FULL_SCRIPT,
         }
     }
 }
@@ -116,9 +112,10 @@ impl FromStr for ScriptClass {
     fn from_str(script_class: &str) -> Result<Self, Self::Err> {
         match script_class {
             NON_STANDARD => Ok(ScriptClass::NonStandard),
-            PUB_KEY => Ok(ScriptClass::PubKey),
-            PUB_KEY_ECDSA => Ok(ScriptClass::PubKeyECDSA),
-            SCRIPT_HASH => Ok(ScriptClass::ScriptHash),
+            STD_SINGLE => Ok(ScriptClass::StdSingle),
+            STD_SINGLE_ECDSA => Ok(ScriptClass::StdSingleECDSA),
+            ACCOUNT => Ok(ScriptClass::Account),
+            FULL_SCRIPT => Ok(ScriptClass::FullScript),
             _ => Err(StandardScriptError::InvalidScriptClass(script_class.to_string())),
         }
     }
@@ -127,44 +124,79 @@ impl FromStr for ScriptClass {
 impl From<Version> for ScriptClass {
     fn from(value: Version) -> Self {
         match value {
-            Version::PubKey => ScriptClass::PubKey,
-            Version::PubKeyECDSA => ScriptClass::PubKeyECDSA,
-            Version::ScriptHash => ScriptClass::ScriptHash,
+            Version::StdSingle => ScriptClass::StdSingle,
+            Version::StdSingleECDSA => ScriptClass::StdSingleECDSA,
+            Version::Account => ScriptClass::Account,
+            Version::FullScript => ScriptClass::FullScript,
         }
     }
 }
 
 impl From<&Script> for ScriptClass {
     fn from(lock_script: &Script) -> Self {
-        classify_lock_script(lock_script.args.as_slice())
+        classify_script(lock_script)
     }
 }
 
-pub fn classify_lock_script(lock_script: &[u8]) -> ScriptClass {
-    if ScriptClass::is_pay_to_pubkey(lock_script) {
-        ScriptClass::PubKey
-    } else if ScriptClass::is_pay_to_pubkey_ecdsa(lock_script) {
-        ScriptClass::PubKeyECDSA
-    } else if ScriptClass::is_pay_to_script_hash(lock_script) {
-        ScriptClass::ScriptHash
-    } else {
-        ScriptClass::NonStandard
+pub fn classify_script(script: &Script) -> ScriptClass {
+    if script.hash_type == HASH_TYPE_TYPE
+        && script.code_hash == builtin_code_hash(BUILTIN_SCHNORR_BLAKE3_160_TAG)
+        && script.args.len() == 20
+    {
+        return ScriptClass::StdSingle;
     }
+    if script.hash_type == HASH_TYPE_TYPE
+        && script.code_hash == builtin_code_hash(BUILTIN_ECDSA_BLAKE3_160_TAG)
+        && script.args.len() == 20
+    {
+        return ScriptClass::StdSingleECDSA;
+    }
+    if script.hash_type == HASH_TYPE_TYPE
+        && script.code_hash == builtin_code_hash(BUILTIN_ACCOUNT_DESCRIPTOR_TAG)
+        && script.args.len() == 32
+    {
+        return ScriptClass::Account;
+    }
+    if script.hash_type <= 4 {
+        return ScriptClass::FullScript;
+    }
+    ScriptClass::NonStandard
+}
+
+pub fn address_to_builtin_standard_lock(address: &Address) -> Option<Script> {
+    match address.version {
+        Version::StdSingle => {
+            Some(Script::new(builtin_code_hash(BUILTIN_SCHNORR_BLAKE3_160_TAG), HASH_TYPE_TYPE, address.payload.to_vec()))
+        }
+        Version::StdSingleECDSA => {
+            Some(Script::new(builtin_code_hash(BUILTIN_ECDSA_BLAKE3_160_TAG), HASH_TYPE_TYPE, address.payload.to_vec()))
+        }
+        Version::Account => {
+            Some(Script::new(builtin_code_hash(BUILTIN_ACCOUNT_DESCRIPTOR_TAG), HASH_TYPE_TYPE, address.payload.to_vec()))
+        }
+        Version::FullScript => None,
+    }
+}
+
+pub fn address_to_full_script_lock(address: &Address) -> Option<Script> {
+    match address.version {
+        Version::FullScript => decode_full_script_payload(address.payload.as_slice()),
+        _ => None,
+    }
+}
+
+pub fn address_to_lock_script(address: &Address) -> Script {
+    if let Some(script) = address_to_builtin_standard_lock(address) {
+        return script;
+    }
+    if let Some(script) = address_to_full_script_lock(address) {
+        return script;
+    }
+    Script::new([0u8; 32], 0, vec![])
 }
 
 pub fn pay_to_address_lock_script(address: &Address) -> Script {
-    let lock_script = match address.version {
-        Version::PubKey => pay_to_pub_key(address.payload.as_slice()),
-        Version::PubKeyECDSA => pay_to_pub_key_ecdsa(address.payload.as_slice()),
-        Version::ScriptHash => pay_to_script_hash(address.payload.as_slice()),
-    };
-    Script::new(compute_lock_hash(&lock_script), 0, lock_script)
-}
-
-pub fn pay_to_script_hash_lock_script(redeem_script: &[u8]) -> Script {
-    let redeem_script_hash = blake3::hash(redeem_script);
-    let lock_script = pay_to_script_hash(redeem_script_hash.as_bytes());
-    Script::new(compute_lock_hash(&lock_script), 0, lock_script)
+    address_to_lock_script(address)
 }
 
 pub fn push_data_script(data: &[u8]) -> Result<Vec<u8>, StandardScriptError> {
@@ -173,19 +205,12 @@ pub fn push_data_script(data: &[u8]) -> Result<Vec<u8>, StandardScriptError> {
     Ok(script)
 }
 
-pub fn pay_to_script_hash_witness_script(redeem_script: &[u8], signature: Vec<u8>) -> Result<Vec<u8>, StandardScriptError> {
-    let mut script = Vec::new();
-    push_data(&mut script, &signature)?;
-    push_data(&mut script, redeem_script)?;
-    Ok(script)
-}
-
-pub fn multisig_redeem_script(
+pub fn multisig_witness_template(
     pub_keys: impl Iterator<Item = impl Borrow<[u8; 32]>>,
     required: usize,
-) -> Result<Vec<u8>, MultisigRedeemScriptError> {
+) -> Result<Vec<u8>, MultisigWitnessTemplateError> {
     if required > MAX_PUB_KEYS_PER_MULTISIG as usize || pub_keys.size_hint().1.is_some_and(|upper| upper < required) {
-        return Err(MultisigRedeemScriptError::TooManyRequiredSignatures);
+        return Err(MultisigWitnessTemplateError::TooManyRequiredSignatures);
     }
 
     let mut script = Vec::new();
@@ -195,16 +220,16 @@ pub fn multisig_redeem_script(
     for pub_key in pub_keys {
         count += 1;
         if count > MAX_PUB_KEYS_PER_MULTISIG as usize {
-            return Err(MultisigRedeemScriptError::TooManyRequiredSignatures);
+            return Err(MultisigWitnessTemplateError::TooManyRequiredSignatures);
         }
         push_data(&mut script, pub_key.borrow().as_slice())?;
     }
 
     if count < required {
-        return Err(MultisigRedeemScriptError::TooManyRequiredSignatures);
+        return Err(MultisigWitnessTemplateError::TooManyRequiredSignatures);
     }
     if count == 0 {
-        return Err(MultisigRedeemScriptError::EmptyKeys);
+        return Err(MultisigWitnessTemplateError::EmptyKeys);
     }
 
     push_script_int(&mut script, count as i64)?;
@@ -212,12 +237,12 @@ pub fn multisig_redeem_script(
     Ok(script)
 }
 
-pub fn multisig_redeem_script_ecdsa(
+pub fn multisig_witness_template_ecdsa(
     pub_keys: impl Iterator<Item = impl Borrow<[u8; 33]>>,
     required: usize,
-) -> Result<Vec<u8>, MultisigRedeemScriptError> {
+) -> Result<Vec<u8>, MultisigWitnessTemplateError> {
     if required > MAX_PUB_KEYS_PER_MULTISIG as usize || pub_keys.size_hint().1.is_some_and(|upper| upper < required) {
-        return Err(MultisigRedeemScriptError::TooManyRequiredSignatures);
+        return Err(MultisigWitnessTemplateError::TooManyRequiredSignatures);
     }
 
     let mut script = Vec::new();
@@ -227,16 +252,16 @@ pub fn multisig_redeem_script_ecdsa(
     for pub_key in pub_keys {
         count += 1;
         if count > MAX_PUB_KEYS_PER_MULTISIG as usize {
-            return Err(MultisigRedeemScriptError::TooManyRequiredSignatures);
+            return Err(MultisigWitnessTemplateError::TooManyRequiredSignatures);
         }
         push_data(&mut script, pub_key.borrow().as_slice())?;
     }
 
     if count < required {
-        return Err(MultisigRedeemScriptError::TooManyRequiredSignatures);
+        return Err(MultisigWitnessTemplateError::TooManyRequiredSignatures);
     }
     if count == 0 {
-        return Err(MultisigRedeemScriptError::EmptyKeys);
+        return Err(MultisigWitnessTemplateError::EmptyKeys);
     }
 
     push_script_int(&mut script, count as i64)?;
@@ -244,12 +269,16 @@ pub fn multisig_redeem_script_ecdsa(
     Ok(script)
 }
 
-pub fn extract_address_from_lock_script(lock_script: &[u8], prefix: Prefix) -> Result<Address, StandardScriptError> {
-    match classify_lock_script(lock_script) {
+pub fn extract_address_from_script(script: &Script, prefix: Prefix) -> Result<Address, StandardScriptError> {
+    match classify_script(script) {
+        ScriptClass::StdSingle => Ok(Address::new(prefix, Version::StdSingle, script.args.as_slice())?),
+        ScriptClass::StdSingleECDSA => Ok(Address::new(prefix, Version::StdSingleECDSA, script.args.as_slice())?),
+        ScriptClass::Account => Ok(Address::new(prefix, Version::Account, script.args.as_slice())?),
+        ScriptClass::FullScript => {
+            let payload = encode_full_script_payload(script);
+            Ok(Address::new(prefix, Version::FullScript, payload.as_slice())?)
+        }
         ScriptClass::NonStandard => Err(StandardScriptError::NonStandardLockScript),
-        ScriptClass::PubKey => Ok(Address::new(prefix, Version::PubKey, &lock_script[1..33])?),
-        ScriptClass::PubKeyECDSA => Ok(Address::new(prefix, Version::PubKeyECDSA, &lock_script[1..34])?),
-        ScriptClass::ScriptHash => Ok(Address::new(prefix, Version::ScriptHash, &lock_script[2..34])?),
     }
 }
 
@@ -271,39 +300,20 @@ pub fn is_script_unspendable(script: &[u8]) -> bool {
     false
 }
 
+pub fn is_cell_lock_unspendable(_lock: &Script) -> bool {
+    false
+}
+
 #[cfg(test)]
 pub fn get_witness_sig_op_count_upper_bound(witness_script: &[u8], prev_lock_script: &Script) -> u64 {
-    if !ScriptClass::is_pay_to_script_hash(prev_lock_script.args.as_slice()) {
-        return count_sig_ops(prev_lock_script.args.as_slice());
-    }
-
-    let mut offset = 0;
-    let mut last_push = None;
-    while offset < witness_script.len() {
-        let Some(opcode) = parse_next_opcode(witness_script, &mut offset) else {
-            return 0;
-        };
-        if !opcode.is_push() {
-            return 0;
-        }
-        last_push = Some(opcode.data);
-    }
-
-    last_push.map_or(0, count_sig_ops)
+    let _ = witness_script;
+    count_sig_ops(prev_lock_script.args.as_slice())
 }
 
 #[cfg(test)]
 #[derive(Clone, Copy)]
-struct ParsedOpcode<'a> {
+struct ParsedOpcode {
     code: u8,
-    data: &'a [u8],
-}
-
-#[cfg(test)]
-impl ParsedOpcode<'_> {
-    fn is_push(self) -> bool {
-        self.code <= OP_SMALL_INT_MAX
-    }
 }
 
 #[cfg(test)]
@@ -332,7 +342,7 @@ fn count_sig_ops(script: &[u8]) -> u64 {
 }
 
 #[cfg(test)]
-fn parse_next_opcode<'a>(script: &'a [u8], offset: &mut usize) -> Option<ParsedOpcode<'a>> {
+fn parse_next_opcode(script: &[u8], offset: &mut usize) -> Option<ParsedOpcode> {
     let code = *script.get(*offset)?;
     *offset += 1;
 
@@ -357,9 +367,9 @@ fn parse_next_opcode<'a>(script: &'a [u8], offset: &mut usize) -> Option<ParsedO
         _ => {}
     }
 
-    let data = script.get(*offset..(*offset + data_len))?;
+    let _ = script.get(*offset..(*offset + data_len))?;
     *offset += data_len;
-    Some(ParsedOpcode { code, data })
+    Some(ParsedOpcode { code })
 }
 
 #[cfg(test)]
@@ -371,40 +381,101 @@ fn as_small_int(opcode: u8) -> Option<u8> {
     }
 }
 
-fn pay_to_pub_key(address_payload: &[u8]) -> Vec<u8> {
-    assert_eq!(address_payload.len(), 32);
-    let mut script = Vec::with_capacity(34);
-    script.push(OP_DATA32);
-    script.extend_from_slice(address_payload);
-    script.push(OP_CHECK_SIG);
-    script
-}
-
-fn pay_to_pub_key_ecdsa(address_payload: &[u8]) -> Vec<u8> {
-    assert_eq!(address_payload.len(), 33);
-    let mut script = Vec::with_capacity(35);
-    script.push(OP_DATA33);
-    script.extend_from_slice(address_payload);
-    script.push(OP_CHECK_SIG_ECDSA);
-    script
-}
-
-fn pay_to_script_hash(script_hash: &[u8]) -> Vec<u8> {
-    assert_eq!(script_hash.len(), 32);
-    let mut script = Vec::with_capacity(35);
-    script.push(OP_BLAKE3);
-    script.push(OP_DATA32);
-    script.extend_from_slice(script_hash);
-    script.push(OP_EQUAL);
-    script
-}
-
+#[cfg(test)]
 fn compute_lock_hash(script: &[u8]) -> [u8; 32] {
     let mut hasher = blake3::Hasher::new();
     hasher.update(b"spora-cell/lock");
     hasher.update(&0u16.to_le_bytes());
     hasher.update(script);
     *hasher.finalize().as_bytes()
+}
+
+pub fn builtin_schnorr_blake3_160_code_hash() -> [u8; 32] {
+    builtin_code_hash(BUILTIN_SCHNORR_BLAKE3_160_TAG)
+}
+
+pub fn builtin_ecdsa_blake3_160_code_hash() -> [u8; 32] {
+    builtin_code_hash(BUILTIN_ECDSA_BLAKE3_160_TAG)
+}
+
+pub fn builtin_account_descriptor_code_hash() -> [u8; 32] {
+    builtin_code_hash(BUILTIN_ACCOUNT_DESCRIPTOR_TAG)
+}
+
+fn builtin_code_hash(tag: &[u8]) -> [u8; 32] {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(BUILTIN_CODE_HASH_DOMAIN);
+    hasher.update(tag);
+    *hasher.finalize().as_bytes()
+}
+
+fn encode_varint(mut value: usize) -> Vec<u8> {
+    let mut out = Vec::new();
+    loop {
+        let mut byte = (value & 0x7f) as u8;
+        value >>= 7;
+        if value != 0 {
+            byte |= 0x80;
+        }
+        out.push(byte);
+        if value == 0 {
+            break;
+        }
+    }
+    out
+}
+
+fn decode_varint(bytes: &[u8]) -> Option<(usize, usize)> {
+    let mut shift = 0usize;
+    let mut value = 0usize;
+    for (idx, byte) in bytes.iter().copied().enumerate() {
+        let low = usize::from(byte & 0x7f);
+        value |= low.checked_shl(shift as u32)?;
+        if byte & 0x80 == 0 {
+            let consumed = idx + 1;
+            let canonical = encode_varint(value);
+            if canonical.len() != consumed || canonical.as_slice() != &bytes[..consumed] {
+                return None;
+            }
+            return Some((value, idx + 1));
+        }
+        shift += 7;
+        if shift > usize::BITS as usize {
+            return None;
+        }
+    }
+    None
+}
+
+pub fn encode_full_script_payload(script: &Script) -> Vec<u8> {
+    let mut payload = Vec::with_capacity(33 + 5 + script.args.len());
+    payload.extend_from_slice(&script.code_hash);
+    payload.push(script.hash_type);
+    payload.extend_from_slice(&encode_varint(script.args.len()));
+    payload.extend_from_slice(&script.args);
+    payload
+}
+
+pub fn decode_full_script_payload(payload: &[u8]) -> Option<Script> {
+    if payload.len() < 34 {
+        return None;
+    }
+    let mut code_hash = [0u8; 32];
+    code_hash.copy_from_slice(&payload[..32]);
+    let hash_type = payload[32];
+    if hash_type > 4 {
+        return None;
+    }
+    let (args_len, varint_bytes) = decode_varint(&payload[33..])?;
+    if args_len > MAX_FULL_SCRIPT_ARGS_LEN {
+        return None;
+    }
+    let args_offset = 33 + varint_bytes;
+    let args_end = args_offset.checked_add(args_len)?;
+    if args_end != payload.len() {
+        return None;
+    }
+    Some(Script::new(code_hash, hash_type, payload[args_offset..args_end].to_vec()))
 }
 
 fn push_script_int(script: &mut Vec<u8>, val: i64) -> Result<(), StandardScriptError> {
@@ -528,18 +599,65 @@ mod tests {
 
     #[test]
     fn standard_address_scripts_roundtrip() {
-        let address = Address::new(Prefix::Testnet, Version::PubKey, &[0x11; 32]).unwrap();
+        let address = Address::new(Prefix::Testnet, Version::StdSingle, &[0x11; 20]).unwrap();
         let lock_script = pay_to_address_lock_script(&address);
-        let decoded = extract_address_from_lock_script(lock_script.args.as_slice(), Prefix::Testnet).unwrap();
+        let decoded = extract_address_from_script(&lock_script, Prefix::Testnet).unwrap();
         assert_eq!(decoded, address);
-        assert_eq!(classify_lock_script(lock_script.args.as_slice()), ScriptClass::PubKey);
+        assert_eq!(classify_script(&lock_script), ScriptClass::StdSingle);
+    }
+
+    #[test]
+    fn full_script_payload_roundtrip() {
+        let script = Script::new([0x42; 32], HASH_TYPE_TYPE, vec![0xAA, 0xBB, 0xCC]);
+        let payload = encode_full_script_payload(&script);
+        let decoded = decode_full_script_payload(&payload).expect("full-script decode should work");
+        assert_eq!(decoded, script);
+    }
+
+    #[test]
+    fn full_script_payload_rejects_non_minimal_varint() {
+        let mut payload = Vec::new();
+        payload.extend_from_slice(&[0x42; 32]);
+        payload.push(HASH_TYPE_TYPE);
+        payload.extend_from_slice(&[0x81, 0x00]); // non-minimal encoding for 1
+        payload.push(0xAA);
+        assert!(decode_full_script_payload(&payload).is_none());
+    }
+
+    #[test]
+    fn full_script_payload_rejects_trailing_bytes() {
+        let script = Script::new([0x42; 32], HASH_TYPE_TYPE, vec![0xAA]);
+        let mut payload = encode_full_script_payload(&script);
+        payload.push(0xFF);
+        assert!(decode_full_script_payload(&payload).is_none());
+    }
+
+    #[test]
+    fn full_script_payload_rejects_invalid_hash_type() {
+        let mut payload = Vec::new();
+        payload.extend_from_slice(&[0x42; 32]);
+        payload.push(0xFF);
+        payload.push(0x00);
+        assert!(decode_full_script_payload(&payload).is_none());
+    }
+
+    #[test]
+    fn script_class_rejects_unknown_labels() {
+        assert_eq!(ScriptClass::StdSingle.to_string(), "stdsingle");
+        assert_eq!(ScriptClass::StdSingleECDSA.to_string(), "stdsingleecdsa");
+
+        assert!("unsupported".parse::<ScriptClass>().is_err());
+        assert!("unsupported_ecdsa".parse::<ScriptClass>().is_err());
     }
 
     #[test]
     fn script_unspendable_for_op_return_and_parse_errors() {
         assert!(is_script_unspendable(&[OP_RETURN]));
         assert!(is_script_unspendable(&[OP_PUSH_DATA1]));
+        assert!(!is_script_unspendable(&[]));
         assert!(!is_script_unspendable(&[OP_TRUE]));
+        assert!(!is_cell_lock_unspendable(&Script::new([0u8; 32], 0, vec![])));
+        assert!(!is_cell_lock_unspendable(&Script::new([0u8; 32], 0, vec![OP_RETURN])));
     }
 
     #[test]
@@ -556,30 +674,13 @@ mod tests {
     }
 
     #[test]
-    fn sig_op_counter_reads_p2sh_redeem_script() {
-        let redeem_script = vec![OP_TRUE + 2, OP_CHECK_MULTI_SIG];
-        let p2sh = pay_to_script_hash_lock_script(&redeem_script);
-        let mut witness_script = Vec::new();
-        push_data(&mut witness_script, &[0x33; 64]).unwrap();
-        push_data(&mut witness_script, &redeem_script).unwrap();
-        assert_eq!(get_witness_sig_op_count_upper_bound(&witness_script, &p2sh), 3);
-    }
-
-    #[test]
-    fn sig_op_counter_rejects_non_push_p2sh_witness_script() {
-        let redeem_script = vec![OP_TRUE, OP_CHECK_MULTI_SIG];
-        let p2sh = pay_to_script_hash_lock_script(&redeem_script);
-        assert_eq!(get_witness_sig_op_count_upper_bound(&[OP_CHECK_SIG], &p2sh), 0);
-    }
-
-    #[test]
     fn push_data_script_encodes_canonical_pushes() {
         assert_eq!(push_data_script(&[0x11, 0x22]).unwrap(), vec![0x02, 0x11, 0x22]);
     }
 
     #[test]
-    fn multisig_redeem_script_uses_small_int_encoding() {
-        let script = multisig_redeem_script([[0x11; 32], [0x22; 32]].into_iter(), 2).unwrap();
+    fn multisig_witness_template_uses_small_int_encoding() {
+        let script = multisig_witness_template([[0x11; 32], [0x22; 32]].into_iter(), 2).unwrap();
         assert_eq!(script[0], OP_TRUE + 1);
         assert_eq!(script[1], OP_DATA32);
         assert_eq!(script[34], OP_DATA32);
@@ -588,9 +689,9 @@ mod tests {
     }
 
     #[test]
-    fn multisig_redeem_script_supports_counts_above_small_int_range() {
+    fn multisig_witness_template_supports_counts_above_small_int_range() {
         let keys = (0..17).map(|idx| [idx as u8; 32]);
-        let script = multisig_redeem_script(keys, 17).unwrap();
+        let script = multisig_witness_template(keys, 17).unwrap();
         assert_eq!(script.last(), Some(&OP_CHECK_MULTI_SIG));
     }
 }

@@ -311,7 +311,7 @@ mod tests {
     use super::*;
     use spora_consensus_core::{
         config::params::MAINNET_PARAMS,
-        tx::{CellOutput, CellInput, CellTx, Script, TransactionOutpoint},
+        tx::{CellInput, CellOutput, CellTx, Script, TransactionOutpoint},
     };
 
     fn test_lock_script(arg_len: usize) -> Script {

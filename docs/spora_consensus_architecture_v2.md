@@ -1,13 +1,28 @@
 # Spora 共识架构 V2
 
-- 日期: 2026-04-11
-- 状态: Draft
+- 日期: 2026-04-15
+- 状态: Living Draft（规范优先，持续与实现对齐）
+- 最后同步: 2026-04-15（与 gap / issue / RFC 摘要三份文档一致）
 - 目的: 作为新的协议级架构文档，替代“实现说明式”的旧文档
 - 适用范围: `GhostDAG + Cell + CKB-VM` 的共识、状态、重组、模板构造、mempool 接口
 - 替代参考: [spora_ghostdag_cell_architecture.md](/Users/arthur/RustroverProjects/Spora/docs/spora_ghostdag_cell_architecture.md)
 - 评审摘要: [spora_consensus_v2_rfc_summary.md](/Users/arthur/RustroverProjects/Spora/docs/spora_consensus_v2_rfc_summary.md)
 - 实现跟踪: [spora_consensus_v2_gap_analysis.md](/Users/arthur/RustroverProjects/Spora/docs/spora_consensus_v2_gap_analysis.md)
 - Issue 清单: [spora_consensus_v2_issue_list.md](/Users/arthur/RustroverProjects/Spora/docs/spora_consensus_v2_issue_list.md)
+
+## 0.1 当前实现同步摘要（2026-04-15）
+
+截至本次同步，以下能力已进入主路径：
+
+1. `selected_parent + ordered_mergeset + accepted_id_merkle_root + cell_root + cell_commitment` 校验闭环
+2. `body / mempool / template` 共享 Cell 校验语义，不再依赖早期 placeholder 桥接
+3. 地址锁现代化已接入 `StdSingle / StdSingleECDSA` canonical tuple，legacy inline 锁治理已收口为固定终态策略
+4. legacy inline 锁在 body / mempool / template / replay 路径统一拒绝，错误语义稳定收敛到 `CellValidationFailed`
+
+仍待收口的事项请以以下两份文档为准：
+
+1. [spora_consensus_v2_gap_analysis.md](/Users/arthur/RustroverProjects/Spora/docs/spora_consensus_v2_gap_analysis.md)
+2. [spora_consensus_v2_issue_list.md](/Users/arthur/RustroverProjects/Spora/docs/spora_consensus_v2_issue_list.md)
 
 ## 1. 为什么要有 V2
 
@@ -639,15 +654,15 @@ policy 层不能重新发明一套共识规则。
 - 不先统一状态机，测试通过也不能证明协议闭环
 - 不把 VM 纳入共识，Spora 仍然只是“带脚本字段的 DAG Cell”
 
-## 16. 当前建议
+## 16. 当前建议（状态更新：2026-04-15）
 
 如果以 V2 为目标，接下来的优先级应该是：
 
-1. 把 `POV-aware state transition engine` 提升为唯一共识入口。
-2. 把 `body_validation_in_context` 接到真实 Cell context/DAG/script 校验。
-3. 把 `mempool` 和 `template` 从“迁移态简化实现”切到共享状态机。
-4. 把 `CKB-VM` 的真实 data provider 纳入主共识路径。
-5. 把旧文档中 `DAA-only` 历史查询的描述降级为非共识索引。
+1. ~~把 `POV-aware state transition engine` 提升为唯一共识入口。~~ **已完成** — POV-aware 验证已实现于 `VirtualSnapshotCellProvider`，重复隔离验证已消除。
+2. ~~把 `body_validation_in_context` 接到真实 Cell context/DAG/script 校验。~~ **已完成** — `CellValidator` 四层验证链（隔离/上下文/DAG/脚本）已串联于 `body_validation_in_context.rs`。
+3. ~~把 `mempool` 和 `template` 从"迁移态简化实现"切到共享状态机。~~ **已完成** — Mining 模块已完全迁移到 CellTx，共享 `VirtualSnapshotCellProvider` 状态视图。
+4. ~~把 `CKB-VM` 的真实 data provider 纳入主共识路径。~~ **已完成** — `PreparedVmDataProvider` 实现 `CellDataProvider`，已嵌入主共识验证路径。
+5. ~~把旧文档中 `DAA-only` 历史查询的描述降级为非共识索引。~~ **已完成** — DAA-based 查询 API 已标记 `#[deprecated]`，文档警告已补全。
 
 ## 17. 一句话总结
 

@@ -18,7 +18,7 @@ use spora_consensus_core::config::params::Params;
 use spora_consensus_core::mass::{ContextualMasses, MassCalculator};
 use spora_consensus_core::{
     hashing::sighash_type::SigHashType,
-    tx::{CellOutput, CellInput, CellTx, MutableTransaction, SignableTransaction, TransactionId},
+    tx::{CellInput, CellOutput, CellTx, MutableTransaction, SignableTransaction, TransactionId},
 };
 
 #[derive(Debug, Default, Serialize, Deserialize, Clone)]
@@ -424,7 +424,7 @@ impl PSST<Finalizer> {
                 return Err(FinalizeError::EmptySignature(idx));
             }
             input.since = Some(input.since.unwrap_or_default());
-            input.final_script_sig = Some(sig);
+            input.final_witness = Some(sig);
             Ok(())
         })?;
         self.inner_psst.global.id = Some(self.calculate_id_internal());
@@ -439,7 +439,7 @@ impl PSST<Extractor> {
         let resolved_cell_metadata = entries.iter().map(|entry| entry.as_ref().map(|entry| CellMetadata::from(entry))).collect();
         let mut tx = tx.tx;
         tx.witnesses.iter_mut().zip(self.inner_psst.inputs).try_for_each(|(dest, src)| {
-            *dest = src.final_script_sig.ok_or(TxNotFinalized {})?;
+            *dest = src.final_witness.ok_or(TxNotFinalized {})?;
             Ok(())
         })?;
         let mut tx = MutableTransaction {
@@ -464,9 +464,6 @@ impl PSST<Extractor> {
         self.extract_tx_unchecked(params).map_err(Into::into)
     }
 }
-
-// Re-export for downstream callers that may reference the old return type
-pub type ExtractedTransaction = MutableTransaction<CellTx>;
 
 /// Error combining psst.
 #[derive(thiserror::Error, Debug, Clone, PartialEq, Eq)]
@@ -508,14 +505,14 @@ mod tests {
     use crate::output::OutputBuilder;
     use crate::role::Creator;
     use secp256k1::{rand::thread_rng, Keypair, Secp256k1};
-    use spora_addresses::{Address, Prefix, Version as AddressVersion};
+    use spora_addresses::{Address, Prefix};
     use spora_consensus_core::{
         cell_diff::CellMeta,
         config::params::TESTNET_PARAMS,
         hashing::sighash::{calc_schnorr_signature_hash, SigHashReusedValuesUnsync},
         tx::{
-            multisig_redeem_script, outpoint_from_id, pay_to_address_lock_script, pay_to_script_hash_lock_script, push_data_script,
-            CellOutput, CellInput, CellTx, Script, TransactionId, TransactionOutpoint,
+            outpoint_from_id, pay_to_address_lock_script, push_data_script, CellInput, CellOutput, CellTx, Script, TransactionId,
+            TransactionOutpoint,
         },
     };
     use std::str::FromStr;
@@ -617,8 +614,8 @@ mod tests {
     fn extract_tx_validates_direct_schnorr_input_with_local_validator() {
         let secp = Secp256k1::new();
         let signer = Keypair::new(&secp, &mut thread_rng());
-        let signer_address = Address::new(Prefix::Testnet, AddressVersion::PubKey, &signer.x_only_public_key().0.serialize()).unwrap();
-        let recipient = Address::new(Prefix::Testnet, AddressVersion::PubKey, &[0x22; 32]).unwrap();
+        let signer_address = Address::new_std_single(Prefix::Testnet, &signer.x_only_public_key().0.serialize()).unwrap();
+        let recipient = Address::new_std_single(Prefix::Testnet, &[0x22; 32]).unwrap();
         let signer_script = pay_to_address_lock_script(&signer_address);
 
         let input = InputBuilder::default()
@@ -652,64 +649,6 @@ mod tests {
                 let mut sig = Vec::from(inner.inputs[0].partial_sigs.values().next().unwrap().into_bytes());
                 sig.push(inner.inputs[0].sighash_type.to_u8());
                 witness.extend(push_data_script(&sig).map_err(|e| e.to_string())?);
-                Ok(vec![witness])
-            })
-            .unwrap();
-
-        let extracted = finalized.extractor().unwrap().extract_tx(&TESTNET_PARAMS).unwrap();
-        assert_eq!(extracted.tx.inputs.len(), 1);
-    }
-
-    #[test]
-    fn extract_tx_validates_p2sh_multisig_with_local_validator() {
-        let secp = Secp256k1::new();
-        let signers = [Keypair::new(&secp, &mut thread_rng()), Keypair::new(&secp, &mut thread_rng())];
-        let redeem_script =
-            multisig_redeem_script(signers.iter().map(|kp| kp.x_only_public_key().0.serialize()), 2).expect("multisig script");
-        let recipient = Address::new(Prefix::Testnet, AddressVersion::PubKey, &[0x33; 32]).unwrap();
-        let p2sh_script = pay_to_script_hash_lock_script(&redeem_script);
-
-        let input = InputBuilder::default()
-            .cell_entry(test_cell_meta_from_lock_script(12793000000000, p2sh_script.clone(), 36151168, false))
-            .previous_outpoint(outpoint_from_id(
-                TransactionId::from_str("63020db736215f8b1105a9281f7bcbb6473d965ecc45bb2fb5da59bd35e6ff84").unwrap(),
-                0,
-            ))
-            .redeem_script(redeem_script.clone())
-            .build()
-            .unwrap();
-        let recipient_script = pay_to_address_lock_script(&recipient);
-        let output = OutputBuilder::default().capacity(12792999900000).lock_script(recipient_script).build().unwrap();
-
-        let base = PSST::<Creator>::default().constructor().input(input).output(output).signer();
-        let reused_values = SigHashReusedValuesUnsync::new();
-        let sign = |psst: PSST<Signer>, kp: &Keypair| {
-            psst.pass_signature_sync(|tx, sighash| -> Result<Vec<SignInputOk>, String> {
-                let hash = calc_schnorr_signature_hash(&tx.as_verifiable(), 0, sighash[0], &reused_values);
-                let msg = secp256k1::Message::from_digest_slice(&hash.as_bytes()).map_err(|e| e.to_string())?;
-                Ok(vec![SignInputOk {
-                    signature: Signature::Schnorr(kp.sign_schnorr(msg)),
-                    pub_key: kp.public_key(),
-                    key_source: None,
-                }])
-            })
-            .unwrap()
-        };
-
-        let combined = (PSST::<Combiner>::from(base.deref().clone()) + sign(base.clone(), &signers[0]))
-            .and_then(|psst| psst + sign(base, &signers[1]))
-            .unwrap();
-        let finalized = combined
-            .signer()
-            .finalizer()
-            .finalize_sync(|inner| -> Result<Vec<Vec<u8>>, String> {
-                let mut witness = Vec::new();
-                for signer in &signers {
-                    let mut sig = Vec::from(inner.inputs[0].partial_sigs.get(&signer.public_key()).unwrap().into_bytes());
-                    sig.push(inner.inputs[0].sighash_type.to_u8());
-                    witness.extend(push_data_script(&sig).map_err(|e| e.to_string())?);
-                }
-                witness.extend(push_data_script(inner.inputs[0].redeem_script.as_ref().unwrap()).map_err(|e| e.to_string())?);
                 Ok(vec![witness])
             })
             .unwrap();

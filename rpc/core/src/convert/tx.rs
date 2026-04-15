@@ -2,25 +2,40 @@
 
 use crate::{RpcError, RpcResult, RpcTransaction, RpcTransactionInput, RpcTransactionOutput};
 use spora_consensus_core::{
-    mass::project_cell_tx_mass,
-    tx::{CellInput, CellTx},
+    mass::{project_cell_tx_mass, project_verifiable_transaction_mass},
+    tx::{CellInput, CellTx, VerifiableTransaction},
 };
 
 // ----------------------------------------------------------------------------
 // consensus_core to rpc_core
 // ----------------------------------------------------------------------------
 
-impl From<&CellTx> for RpcTransaction {
-    fn from(item: &CellTx) -> Self {
-        let projected_mass = project_cell_tx_mass(item, None);
+impl RpcTransaction {
+    pub fn from_cell_tx_with_selection_mass(item: &CellTx, selection_mass: u64) -> Self {
         Self {
             version: item.version,
             inputs: RpcTransactionInput::from_cell_refs(&item.inputs, &item.witnesses),
             outputs: RpcTransactionOutput::from_cell_outputs(&item.outputs, &item.outputs_data),
             payload: item.payload().map(ToOwned::to_owned).unwrap_or_default(),
-            mass: projected_mass.selection_mass,
+            mass: selection_mass,
             verbose_data: None,
         }
+    }
+
+    pub fn from_cell_tx_with_fallback_mass(item: &CellTx) -> Self {
+        let projected_mass = project_cell_tx_mass(item, None);
+        Self::from_cell_tx_with_selection_mass(item, projected_mass.selection_mass)
+    }
+
+    pub fn from_verifiable_transaction(item: &(impl VerifiableTransaction + ?Sized)) -> Self {
+        let projected_mass = project_verifiable_transaction_mass(item, None);
+        Self::from_cell_tx_with_selection_mass(item.tx(), projected_mass.selection_mass)
+    }
+}
+
+impl From<&CellTx> for RpcTransaction {
+    fn from(item: &CellTx) -> Self {
+        Self::from_cell_tx_with_fallback_mass(item)
     }
 }
 
@@ -41,7 +56,8 @@ impl TryFrom<RpcTransaction> for CellTx {
             ));
         }
 
-        let inputs: Vec<CellInput> = item.inputs.iter().map(|input| CellInput::new(input.previous_outpoint.into(), input.since)).collect();
+        let inputs: Vec<CellInput> =
+            item.inputs.iter().map(|input| CellInput::new(input.previous_outpoint.into(), input.since)).collect();
 
         let mut witnesses: Vec<Vec<u8>> = item.inputs.into_iter().map(|input| input.witness).collect();
 
@@ -72,8 +88,9 @@ impl TryFrom<RpcTransaction> for CellTx {
 mod tests {
     use super::*;
     use spora_consensus_core::{
+        cell_diff::CellMeta,
         mass::project_cell_tx_mass,
-        tx::{CellOutput, OutPoint, Script},
+        tx::{CellOutput, MutableTransaction, OutPoint, Script},
     };
 
     #[test]
@@ -148,5 +165,34 @@ mod tests {
 
         let error = CellTx::try_from(rpc_tx).expect_err("reserved payload must be rejected on normal transactions");
         assert!(error.to_string().contains("payload"));
+    }
+
+    #[test]
+    fn verifiable_transaction_projection_uses_contextual_selection_mass() {
+        let lock = Script::new([0x55; 32], 0, vec![]);
+        let tx = CellTx {
+            version: 0,
+            inputs: vec![CellInput::new(OutPoint::new([0x66; 32], 0), 0), CellInput::new(OutPoint::new([0x66; 32], 1), 0)],
+            cell_deps: vec![],
+            header_deps: vec![],
+            outputs: vec![
+                CellOutput { lock: lock.clone(), type_: None, capacity: 50 },
+                CellOutput { lock: lock.clone(), type_: None, capacity: 250 },
+            ],
+            outputs_data: vec![vec![0; 15], vec![0; 15]],
+            witnesses: vec![],
+        };
+        let signable = MutableTransaction::with_entries(
+            tx.clone(),
+            vec![
+                CellMeta::from_cell_metadata(100, 0, lock.hash(), None, [0; 32], 0, false),
+                CellMeta::from_cell_metadata(200, 0, lock.hash(), None, [0; 32], 0, false),
+            ],
+        );
+
+        let fallback_mass = project_cell_tx_mass(&tx, None).selection_mass;
+        let rpc_tx = RpcTransaction::from_verifiable_transaction(&signable.as_verifiable());
+
+        assert!(rpc_tx.mass > fallback_mass, "test fixture must exercise contextual storage mass");
     }
 }

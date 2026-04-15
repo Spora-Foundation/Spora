@@ -3,7 +3,7 @@ use crate::pb as protowire;
 use spora_consensus_core::{
     cell_diff::CellMeta,
     mass::project_cell_tx_mass,
-    tx::{CellOutput, CellInput, CellTx, Script, TransactionId, TransactionOutpoint},
+    tx::{CellInput, CellOutput, CellTx, Script, TransactionId, TransactionOutpoint},
 };
 use spora_hashes::Hash;
 
@@ -197,8 +197,14 @@ mod tests {
     }
 
     fn sample_non_coinbase_tx() -> CellTx {
-        CellTx::new(vec![CellInput::new(OutPoint::new([7; 32], 0), 42)], vec![], vec![sample_output(9)], vec![vec![]], vec![vec![0xaa]])
-            .expect("sample tx")
+        CellTx::new(
+            vec![CellInput::new(OutPoint::new([7; 32], 0), 42)],
+            vec![],
+            vec![sample_output(9)],
+            vec![vec![]],
+            vec![vec![0xaa]],
+        )
+        .expect("sample tx")
     }
 
     fn sample_coinbase_tx() -> CellTx {

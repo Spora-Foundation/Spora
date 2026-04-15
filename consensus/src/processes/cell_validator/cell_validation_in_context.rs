@@ -18,7 +18,40 @@ pub trait CellStateProvider {
     fn get_cell_capacity(&self, out_point: &OutPoint, pov: Hash) -> Result<Option<u64>, String>;
 }
 
-/// Validate cell transaction in state context
+/// Validate a Cell transaction in state context (Layer 2 validation).
+///
+/// This function performs **stateful context checks** that require querying the
+/// current Cell state at the given point-of-view (`pov`) block:
+///
+/// 1. **Cell availability** — every input must reference an existing, unspent Cell
+///    in the state snapshot identified by `pov`. A spent or missing Cell causes
+///    [`CellValidationError::CellAlreadySpent`].
+///
+/// 2. **Capacity conservation** — the sum of output capacities must not exceed
+///    the sum of input capacities (`output_capacity ≤ input_capacity`). The
+///    difference (fee) is implicitly collected by the coinbase of the block that
+///    includes this transaction.
+///
+/// # Parameters
+///
+/// - `tx`: The Cell transaction to validate.
+/// - `pov`: The point-of-view block hash that defines the state snapshot.
+/// - `_daa_score`: The current DAA score. Reserved for future use; DAA-based
+///   time-lock validation is handled separately in
+///   [`cell_validation_in_dag::validate_time_locks`], which checks the `since`
+///   field of each input against absolute/relative DAA score or timestamp
+///   thresholds.
+/// - `provider`: A [`CellStateProvider`] that answers availability and capacity
+///   queries relative to `pov`.
+///
+/// # Relationship to Time-Lock Validation
+///
+/// This function intentionally does **not** check time locks. Time-lock
+/// enforcement (both DAA-score-based and timestamp-based) is the responsibility
+/// of [`cell_validation_in_dag::validate_time_locks`], which is called as a
+/// separate step in the validation pipeline (L3). This separation keeps context
+/// validation focused on economic invariants (capacity conservation) while
+/// DAG-topology-dependent checks live in their own module.
 pub fn validate_cell_tx_in_context<P: CellStateProvider>(
     tx: &CellTx,
     pov: Hash,

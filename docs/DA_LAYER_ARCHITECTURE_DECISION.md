@@ -1,8 +1,8 @@
 # Spora DA层架构决策文档
 
-- **日期**: 2026-04-13
-- **状态**: 已审计
-- **文档版本**: v1.0
+- **日期**: 2026-04-15
+- **状态**: 已审计并更新
+- **文档版本**: v1.1
 - **关联文档**:
   - [spora.md](/Users/arthur/RustroverProjects/Spora/spora.md)
   - [spora_consensus_architecture_v2.md](/Users/arthur/RustroverProjects/Spora/docs/spora_consensus_architecture_v2.md)
@@ -154,29 +154,42 @@
 
 #### 3.3.3 Spora中的NMT应用
 
-在Spora中，NMT用于承诺Segment中的Cell大数据：
+**当前实现状态**：当前使用传统 Merkle 树，NMT 作为未来升级路径。
+
+在Spora中，Segment存储使用传统 Merkle 树承诺 Cell 大数据：
 
 ```rust
-// Segment结构中的NMT应用
-pub struct SegmentWriter {
-    chunks: Vec<ChunkMeta>,  // 每个Cell数据作为一个chunk
+// state/src/store/proof.rs
+pub struct MerkleTreeBuilder {
+    leaves: Vec<[u8; 32]>,
 }
 
-impl SegmentWriter {
-    pub fn seal(&mut self) -> Result<SegmentRoot> {
-        // 1. 构建NMT，所有chunk使用ns=DA_NAMESPACE
-        let mut nmt = NMT::new(NS_CELL_DATA);
-        
-        for chunk in &self.chunks {
-            nmt.append(chunk.hash());
-        }
-        
-        // 2. 计算NMT根，作为segment_root
-        let nmt_root = nmt.root();
-        
-        Ok(SegmentRoot { nmt_root, ... })
+impl MerkleTreeBuilder {
+    pub fn add_leaf(&mut self, data: &[u8]) {
+        self.leaves.push(hash_leaf(data));
+    }
+    
+    pub fn build(&self) -> [u8; 32] {
+        compute_merkle_root_from_leaves(&self.leaves)
     }
 }
+
+// 区块级别的 segment_root 计算（processor.rs）
+fn compute_block_segment_root(&self, transactions: &[CellTx]) -> Hash {
+    let chunks = transactions.iter()
+        .flat_map(|tx| tx.outputs_data.iter())
+        .filter(|chunk| !chunk.is_empty())
+        .cloned()
+        .collect::<Vec<_>>();
+    Hash::from_bytes(compute_segment_root(&chunks))
+}
+```
+
+**未来 NMT 升级路径**：
+```rust
+// 预留的 NMT 接口（当前使用 MerkleTreeBuilder 作为占位）
+// Future: Replace with proper NMT implementation while keeping the same
+// high-level proof API.
 ```
 
 #### 3.3.4 NMT vs 传统Merkle树
@@ -295,9 +308,9 @@ impl SegmentWriter {
 |------|------|------|
 | `cell_root` | ✅ 已集成 | 共识层 live cell 状态承诺已闭环 |
 | `cell_commitment` | ✅ 已集成 | V0 包装器已具备协议意义 |
-| `SegmentWriter` / `SegmentReader` | ✅ 已接入索引链路 | `indexes/cellindex` 已可将 payload 写入 segment 并按需回填 |
-| `segment_root` | ❌ 未进入区块头 | 目前不参与共识承诺 |
-| NMT | ❌ 设计目标，未完整实现 | 当前更接近通用 Merkle chunk commitment，而非 namespaced DA commitment |
+| `SegmentWriter` / `SegmentReader` | ✅ 已接入索引链路 | `state/src/store` 提供分段存储与读取能力 |
+| `segment_root` | ✅ 已进入区块头 | 区块头包含 `segment_root` 字段，共识层验证其与交易数据计算的 Merkle 根一致 |
+| NMT | ⚠️ 部分实现 | 当前使用传统 Merkle 树（`MerkleTreeBuilder`），预留升级到 NMT/KZG 的接口 |
 
 ### 4.2 当前实现的真实分层
 
@@ -347,7 +360,7 @@ impl SegmentWriter {
 | 索引层重复落盘 | 🔴 高 | 共识层已有状态/差分，索引层又保存 live + spent + journal 副本 |
 | `ScriptIndex` 单 key 膨胀 | 🔴 高 | `script_hash -> Vec/Set<OutPoint>` 会导致整值读改写 |
 | spend history 无保留边界 | 🟡 中 | 若不做 pruning / retention，已花费 cell 历史将持续累积 |
-| `segment_root` 与当前实现脱节 | 🟡 中 | 文档写 NMT/DA，但代码尚未形成完整协议闭环 |
+| `segment_root`验证基于交易数据而非 Segment 文件 | 🟡 中 | 当前 segment_root 从交易 outputs_data 计算，与 Segment 文件存储尚未完全关联 |
 
 ### 4.5 必须明确的工程口径
 
@@ -368,7 +381,7 @@ impl SegmentWriter {
 
 4. **谁为轻客户端负责**
    - 轻客户端 DA 保证属于 `segment_root` + DA protocol 阶段
-   - 在此之前，segment 只是一种 payload 落盘与取回机制，不应被文档描述成“已完成的 DA 层”
+   - 当前 `segment_root` 已参与共识验证，但仅承诺交易数据，尚未实现完整的 DA 抽样协议
 
 ---
 
@@ -534,20 +547,21 @@ impl SegmentWriter {
 
 ### 7.4 阶段4：协议级 DA 完整化
 
-目标：从“分层存储”升级为“可验证 DA”。
+目标：从"区块级数据承诺"升级为"可验证 DA 层"。
 
 任务：
 
-1. 区块头引入 `segment_root`
-2. 把当前 chunk commitment 升级为真实 NMT / namespace commitment
-3. 定义 segment 发布、抽样、证明、缺失惩罚或失败语义
-4. 为轻客户端补齐验证路径
+1. ~~区块头引入 `segment_root`~~ ✅ 已完成
+2. 把当前 Merkle chunk commitment 升级为真实 NMT / namespace commitment
+3. 将 `segment_root` 计算从交易数据改为基于 Segment 文件的 NMT 根
+4. 定义 segment 发布、抽样、证明、缺失惩罚或失败语义
+5. 为轻客户端补齐验证路径
 
 交付后效果：
 
-- `segment_root` 具备协议意义
+- `segment_root` 具备完整 DA 协议意义
 - 轻客户端可验证大数据可用性
-- 文档中的 DA 叙述与实现一致
+- Segment 文件层与共识承诺完全关联
 
 ---
 
@@ -557,17 +571,17 @@ impl SegmentWriter {
 |------|------|
 | 三者是否重合？ | ❌ **不重合**，职责分离清晰 |
 | `cell_commitment`是否多余？ | ❌ **不多余**，版本化抽象必要 |
-| `segment_root`是否必要？ | ✅ **长期必要**，短期可选 |
-| 当前实现问题？ | ⚠️ **不是方向错，而是工程负担偏重** |
-| 现在最该做什么？ | ✅ **先降写放大，再压缩重复索引职责** |
-| 是否需要精简？ | ✅ 当前以 `cell_root` + `cell_commitment` 为主，`segment_root` 留待 DA 阶段完成 |
+| `segment_root`是否必要？ | ✅ **长期必要**，短期已具备基础形式 |
+| 当前实现问题？ | ⚠️ **segment_root 已参与共识，但计算基于交易数据而非 Segment 文件** |
+| 现在最该做什么？ | ✅ **将 segment_root 计算与 Segment 文件层关联，完善 DA 协议** |
+| 是否需要精简？ | ✅ 当前 `cell_root` + `cell_commitment` + `segment_root` 三者共存，后者需升级为完整 NMT |
 
 **最终建议**：
 
 1. **保留三者设计**：职责清晰，不重合
-2. **收敛工程实现**：先把 segment 写放大和索引层重复落盘降下来
-3. **当前阶段**：区块头只承诺 `cell_root` + `cell_commitment`
-4. **DA阶段**：待真实 NMT 与轻客户端协议完成后，再引入 `segment_root`
+2. **收敛工程实现**：优化 Segment 文件写入性能，降低写放大
+3. **当前阶段**：`segment_root` 已进入区块头并参与共识验证，但计算基于交易数据
+4. **DA阶段**：将 `segment_root` 计算迁移为基于 Segment 文件的 NMT 根，实现完整 DA 协议
 
 ---
 

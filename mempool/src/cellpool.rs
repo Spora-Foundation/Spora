@@ -358,7 +358,7 @@ impl CellPool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use spora_exec::{CellOutput, CellInput, Script};
+    use spora_exec::{CellInput, CellOutput, Script};
 
     fn create_test_tx(inputs: Vec<OutPoint>, capacity: u64) -> CellTx {
         let lock = Script::new([0x00; 32], 0, vec![0; 20]);

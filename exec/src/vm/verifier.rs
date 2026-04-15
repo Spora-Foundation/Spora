@@ -11,7 +11,7 @@ use crate::celltx::{CellOutput, CellTx, Script};
 use borsh::{BorshDeserialize, BorshSerialize};
 use ckb_vm::{DefaultMachineRunner, Syscalls};
 use rayon::prelude::*;
-use std::sync::Arc;
+use std::{collections::HashSet, sync::Arc};
 
 /// Script group type
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -96,6 +96,16 @@ pub trait CellDataProvider: Send + Sync + 'static {
 
     /// Load a fully resolved header by hash.
     fn load_header(&self, hash: &[u8; 32]) -> Option<ResolvedHeader>;
+
+    /// Load the header associated with a resolved input or dep outpoint.
+    fn load_header_by_outpoint(&self, tx_hash: &[u8; 32], index: u32) -> Option<ResolvedHeader>;
+
+    /// Load a fully resolved cell associated with a header hash.
+    ///
+    /// This supports `Source::HeaderDep` in `LOAD_CELL` / `LOAD_CELL_DATA`
+    /// syscalls by mapping a block header hash to a representative cell
+    /// (e.g. the cellbase output of that block).
+    fn load_cell_by_header(&self, header_hash: &[u8; 32]) -> Option<ResolvedCell>;
 }
 
 /// Transaction script verifier
@@ -112,6 +122,10 @@ pub struct TransactionScriptVerifier<D: CellDataProvider> {
     max_memory: usize,
     /// Max script binary size.
     max_script_size: usize,
+    /// Skip lock-script groups and verify only type-script groups.
+    skip_lock_groups: bool,
+    /// Skip selected lock-script groups by script hash.
+    skip_lock_script_hashes: HashSet<[u8; 32]>,
 }
 
 impl<D: CellDataProvider> TransactionScriptVerifier<D> {
@@ -124,6 +138,8 @@ impl<D: CellDataProvider> TransactionScriptVerifier<D> {
             max_cycles: 10_000_000, // 10M cycles default
             max_memory: MAX_VM_MEMORY,
             max_script_size: MAX_SCRIPT_SIZE,
+            skip_lock_groups: false,
+            skip_lock_script_hashes: HashSet::new(),
         }
     }
 
@@ -151,6 +167,18 @@ impl<D: CellDataProvider> TransactionScriptVerifier<D> {
         self
     }
 
+    /// Verify only type-script groups and skip lock-script groups.
+    pub fn with_skip_lock_groups(mut self, skip_lock_groups: bool) -> Self {
+        self.skip_lock_groups = skip_lock_groups;
+        self
+    }
+
+    /// Skip lock-script groups whose script hash is included in `script_hashes`.
+    pub fn with_skip_lock_script_hashes(mut self, script_hashes: HashSet<[u8; 32]>) -> Self {
+        self.skip_lock_script_hashes = script_hashes;
+        self
+    }
+
     /// Extract script groups from transaction
     pub fn extract_script_groups(&self) -> ScriptResult<Vec<ScriptGroup>> {
         use std::collections::BTreeMap;
@@ -160,25 +188,32 @@ impl<D: CellDataProvider> TransactionScriptVerifier<D> {
 
         // Lock scripts execute against resolved input cells.
         for (i, input) in self.tx.inputs.iter().enumerate() {
-            let resolved =
-                self.data_provider.load_cell_by_outpoint(&input.previous_output.tx_hash, input.previous_output.index).ok_or_else(|| {
+            let resolved = self
+                .data_provider
+                .load_cell_by_outpoint(&input.previous_output.tx_hash, input.previous_output.index)
+                .ok_or_else(|| {
                     ScriptError::VM(super::error::VMError::ItemMissing(format!(
                         "missing resolved input cell {:02x?}:{}",
                         input.previous_output.tx_hash, input.previous_output.index
                     )))
                 })?;
-            let lock_hash = resolved.cell_output.lock.hash();
+            if !self.skip_lock_groups {
+                let lock_hash = resolved.cell_output.lock.hash();
+                if self.skip_lock_script_hashes.contains(&lock_hash) {
+                    continue;
+                }
 
-            lock_groups
-                .entry(lock_hash)
-                .or_insert_with(|| ScriptGroup {
-                    script: resolved.cell_output.lock.clone(),
-                    group_type: ScriptGroupType::Lock,
-                    input_indices: vec![],
-                    output_indices: vec![],
-                })
-                .input_indices
-                .push(i);
+                lock_groups
+                    .entry(lock_hash)
+                    .or_insert_with(|| ScriptGroup {
+                        script: resolved.cell_output.lock.clone(),
+                        group_type: ScriptGroupType::Lock,
+                        input_indices: vec![],
+                        output_indices: vec![],
+                    })
+                    .input_indices
+                    .push(i);
+            }
 
             if let Some(ref type_script) = resolved.cell_output.type_ {
                 let type_hash = type_script.hash();
@@ -250,7 +285,7 @@ impl<D: CellDataProvider> TransactionScriptVerifier<D> {
         let args = vec![group.script.args.clone()];
 
         // Create syscalls
-        let syscalls = self.build_syscalls(group);
+        let syscalls = self.build_syscalls(group)?;
 
         // Create VM context
         let context = VmContext::with_limits(self.version, self.max_cycles, self.max_memory, self.max_script_size);
@@ -264,15 +299,35 @@ impl<D: CellDataProvider> TransactionScriptVerifier<D> {
     }
 
     /// Build syscalls for a script group
-    fn build_syscalls(&self, group: &ScriptGroup) -> Vec<Box<dyn Syscalls<<Machine as DefaultMachineRunner>::Inner>>> {
+    fn build_syscalls(&self, group: &ScriptGroup) -> ScriptResult<Vec<Box<dyn Syscalls<<Machine as DefaultMachineRunner>::Inner>>>> {
+        use super::syscalls::load_signature_hash::standard_signing_input_from_resolved_cell;
         use super::syscalls::*;
 
         let mut syscalls: Vec<Box<dyn Syscalls<<Machine as DefaultMachineRunner>::Inner>>> = Vec::new();
+        let resolved_inputs = self
+            .tx
+            .inputs
+            .iter()
+            .map(|input| {
+                self.data_provider
+                    .load_cell_by_outpoint(&input.previous_output.tx_hash, input.previous_output.index)
+                    .map(|resolved| standard_signing_input_from_resolved_cell(&resolved))
+                    .ok_or_else(|| {
+                        ScriptError::VM(super::error::VMError::ItemMissing(format!(
+                            "missing resolved input cell {:02x?}:{}",
+                            input.previous_output.tx_hash, input.previous_output.index
+                        )))
+                    })
+            })
+            .collect::<ScriptResult<Vec<_>>>()?;
 
         // CKB standard syscalls
         // Compute tx hash using our sighash function
         let tx_hash = crate::celltx::compute_txid(&self.tx);
-        syscalls.push(Box::new(LoadTx::new(tx_hash)));
+        let tx_data = borsh::to_vec(self.tx.as_ref()).map_err(|e| {
+            ScriptError::VM(super::error::VMError::InvalidData(format!("failed to serialize tx for LOAD_TRANSACTION syscall: {e}")))
+        })?;
+        syscalls.push(Box::new(LoadTx::new(tx_hash, tx_data)));
         syscalls.push(Box::new(LoadCell::new(
             Arc::clone(&self.tx),
             Arc::clone(&self.data_provider),
@@ -286,16 +341,38 @@ impl<D: CellDataProvider> TransactionScriptVerifier<D> {
             group.output_indices.clone(),
         )));
         syscalls.push(Box::new(LoadInput::new(Arc::clone(&self.tx), group.input_indices.clone())));
-        syscalls.push(Box::new(LoadWitness::new(Arc::clone(&self.tx), group.input_indices.clone())));
+        syscalls.push(Box::new(LoadWitness::new(Arc::clone(&self.tx), group.input_indices.clone(), group.output_indices.clone())));
         syscalls.push(Box::new(LoadScript::new(Arc::new(group.script.clone()))));
-        syscalls.push(Box::new(LoadHeader::new(Arc::clone(&self.tx), Arc::clone(&self.data_provider))));
+        syscalls.push(Box::new(LoadSignatureHash::new(Arc::clone(&self.tx), resolved_inputs, group.input_indices.clone())));
+        syscalls.push(Box::new(LoadHeader::new(
+            Arc::clone(&self.tx),
+            Arc::clone(&self.data_provider),
+            group.input_indices.clone(),
+            group.output_indices.clone(),
+        )));
+        syscalls.push(Box::new(VMVersion::new()));
         syscalls.push(Box::new(CurrentCycles::new()));
         syscalls.push(Box::new(Debugger::new(group.script.code_hash)));
+        syscalls.push(Box::new(Exec::new(
+            Arc::clone(&self.tx),
+            Arc::clone(&self.data_provider),
+            group.input_indices.clone(),
+            group.output_indices.clone(),
+        )));
+        syscalls.push(Box::new(ProcessId::default()));
+        syscalls.push(Box::new(Spawn::new()));
+        syscalls.push(Box::new(Wait::new()));
+        syscalls.push(Box::new(Pipe::new()));
+        syscalls.push(Box::new(Read::new()));
+        syscalls.push(Box::new(Write::new()));
+        syscalls.push(Box::new(InheritedFd::new()));
+        syscalls.push(Box::new(Close::new()));
 
         // Spora extensions
         syscalls.push(Box::new(Blake3Hash::new()));
+        syscalls.push(Box::new(Secp256k1Verify::new()));
 
-        syscalls
+        Ok(syscalls)
     }
 }
 
@@ -304,6 +381,8 @@ pub struct SimpleDataProvider {
     scripts: std::collections::HashMap<[u8; 32], Vec<u8>>,
     cells: std::collections::HashMap<([u8; 32], u32), ResolvedCell>,
     headers: std::collections::HashMap<[u8; 32], ResolvedHeader>,
+    cell_headers: std::collections::HashMap<([u8; 32], u32), [u8; 32]>,
+    header_cells: std::collections::HashMap<[u8; 32], ResolvedCell>,
 }
 
 impl SimpleDataProvider {
@@ -312,6 +391,8 @@ impl SimpleDataProvider {
             scripts: std::collections::HashMap::new(),
             cells: std::collections::HashMap::new(),
             headers: std::collections::HashMap::new(),
+            cell_headers: std::collections::HashMap::new(),
+            header_cells: std::collections::HashMap::new(),
         }
     }
 
@@ -323,8 +404,18 @@ impl SimpleDataProvider {
         self.cells.insert((tx_hash, index), cell);
     }
 
+    pub fn add_cell_with_header(&mut self, tx_hash: [u8; 32], index: u32, cell: ResolvedCell, header_hash: [u8; 32]) {
+        self.cells.insert((tx_hash, index), cell);
+        self.cell_headers.insert((tx_hash, index), header_hash);
+    }
+
     pub fn add_header(&mut self, hash: [u8; 32], header: ResolvedHeader) {
         self.headers.insert(hash, header);
+    }
+
+    /// Register a cell associated with a header hash (e.g. cellbase output).
+    pub fn add_cell_by_header(&mut self, header_hash: [u8; 32], cell: ResolvedCell) {
+        self.header_cells.insert(header_hash, cell);
     }
 }
 
@@ -339,6 +430,15 @@ impl CellDataProvider for SimpleDataProvider {
 
     fn load_header(&self, hash: &[u8; 32]) -> Option<ResolvedHeader> {
         self.headers.get(hash).cloned()
+    }
+
+    fn load_header_by_outpoint(&self, tx_hash: &[u8; 32], index: u32) -> Option<ResolvedHeader> {
+        let header_hash = self.cell_headers.get(&(*tx_hash, index))?;
+        self.headers.get(header_hash).cloned()
+    }
+
+    fn load_cell_by_header(&self, header_hash: &[u8; 32]) -> Option<ResolvedCell> {
+        self.header_cells.get(header_hash).cloned()
     }
 }
 
@@ -445,5 +545,45 @@ mod tests {
         assert_eq!(type_group.script, shared_type);
         assert_eq!(type_group.input_indices, vec![0]);
         assert_eq!(type_group.output_indices, vec![0]);
+    }
+
+    #[test]
+    fn test_extract_script_groups_skips_selected_lock_groups() {
+        let skipped_lock = Script::new([0x11; 32], 0, vec![0xAA]);
+        let retained_lock = Script::new([0x22; 32], 0, vec![0xBB]);
+        let skipped_out_point = OutPoint::new([0x31; 32], 0);
+        let retained_out_point = OutPoint::new([0x32; 32], 0);
+        let tx = Arc::new(
+            CellTx::new(
+                vec![CellInput::new(skipped_out_point, 0), CellInput::new(retained_out_point, 0)],
+                vec![],
+                vec![],
+                vec![],
+                vec![],
+            )
+            .unwrap(),
+        );
+
+        let mut provider = SimpleDataProvider::new();
+        provider.add_cell(
+            [0x31; 32],
+            0,
+            ResolvedCell { cell_output: CellOutput { capacity: 1000, lock: skipped_lock.clone(), type_: None }, data: Some(vec![]) },
+        );
+        provider.add_cell(
+            [0x32; 32],
+            0,
+            ResolvedCell { cell_output: CellOutput { capacity: 1000, lock: retained_lock.clone(), type_: None }, data: Some(vec![]) },
+        );
+
+        let mut skip = HashSet::new();
+        skip.insert(skipped_lock.hash());
+        let groups =
+            TransactionScriptVerifier::new(tx, Arc::new(provider)).with_skip_lock_script_hashes(skip).extract_script_groups().unwrap();
+
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].group_type, ScriptGroupType::Lock);
+        assert_eq!(groups[0].script, retained_lock);
+        assert_eq!(groups[0].input_indices, vec![1]);
     }
 }

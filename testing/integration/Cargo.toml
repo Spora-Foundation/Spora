@@ -35,6 +35,7 @@ spora-rpc-core.workspace = true
 spora-rpc-service.workspace = true
 spora-utils.workspace = true
 spora-wrpc-server.workspace = true
+spora-wallet-core.workspace = true
 sporad.workspace = true
 
 async-channel.workspace = true

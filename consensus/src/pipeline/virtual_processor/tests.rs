@@ -1,3 +1,5 @@
+#[cfg(feature = "vm")]
+use crate::test_helpers::{always_success_cell_metadata, always_success_lock_script};
 use crate::{
     consensus::test_consensus::TestConsensus,
     errors::RuleError,
@@ -7,6 +9,10 @@ use crate::{
     },
     test_helpers::{empty_miner_data, test_cell_entry},
 };
+#[cfg(feature = "vm")]
+use secp256k1::Keypair;
+#[cfg(feature = "vm")]
+use spora_addresses::{Address, Prefix};
 use spora_consensus_core::{
     api::args::{TransactionValidationArgs, TransactionValidationBatchArgs},
     api::ConsensusApi,
@@ -21,8 +27,13 @@ use spora_consensus_core::{
     tx::{MutableTransaction, TransactionOutpoint},
     BlockHashMap, BlockHashSet,
 };
+#[cfg(feature = "vm")]
+use spora_consensus_core::{
+    sign::{sign, sign_with_multiple_v2},
+    tx::pay_to_address_lock_script,
+};
 use spora_core::assert_match;
-use spora_exec::{CellDep, CellOutput, CellInput, CellTx, DepType, OutPoint, Script};
+use spora_exec::{CellDep, CellInput, CellOutput, CellTx, DepType, OutPoint, Script};
 use spora_hashes::Hash;
 use std::{collections::VecDeque, thread::JoinHandle};
 
@@ -411,11 +422,54 @@ fn lock_script_from_bytes(script: Vec<u8>) -> Script {
     Script::new(*hasher.finalize().as_bytes(), 0, script)
 }
 
+#[cfg(feature = "vm")]
+fn metadata_from_tx_output(
+    block_hash: Hash,
+    block_daa_score: u64,
+    is_cellbase: bool,
+    tx: &CellTx,
+    output_index: u32,
+) -> spora_consensus_core::cell_metadata::CellMetadata {
+    let output = &tx.outputs[output_index as usize];
+    let output_data = tx.outputs_data.get(output_index as usize).map(Vec::as_slice).unwrap_or(&[]);
+    spora_consensus_core::cell_metadata::CellMetadata {
+        out_point: TransactionOutpoint { tx_hash: tx.id(), index: output_index },
+        capacity: output.capacity,
+        data_bytes: output_data.len() as u64,
+        lock_hash: output.lock.hash(),
+        type_hash: output.type_.as_ref().map(|script| script.hash()),
+        data_hash: crate::processes::utils::compute_data_hash(output_data),
+        block_daa_score,
+        is_cellbase,
+        block_hash,
+        lock_code_hash: Some(output.lock.code_hash),
+        type_code_hash: output.type_.as_ref().map(|script| script.code_hash),
+        lock_script: Some(output.lock.clone()),
+        type_script: output.type_.clone(),
+        data: Some(output_data.to_vec()),
+    }
+}
+
+#[allow(dead_code)]
 fn build_cell_spend_tx_with_dep(previous_outpoint: OutPoint, dep_outpoint: OutPoint, value: u64) -> CellTx {
     let lock = Script::new([0; 32], 0, vec![]);
     CellTx::new(
         vec![CellInput::new(previous_outpoint, 0)],
         vec![CellDep { out_point: dep_outpoint, dep_type: DepType::Code }],
+        vec![CellOutput { lock, type_: None, capacity: value }],
+        vec![vec![]],
+        vec![],
+    )
+    .unwrap()
+}
+
+#[cfg(feature = "vm")]
+fn build_cell_spend_tx_with_header_dep(previous_outpoint: OutPoint, header_dep: [u8; 32], value: u64) -> CellTx {
+    let lock = Script::new([0; 32], 0, vec![]);
+    CellTx::new_with_header_deps(
+        vec![CellInput::new(previous_outpoint, 0)],
+        vec![],
+        vec![header_dep],
         vec![CellOutput { lock, type_: None, capacity: value }],
         vec![vec![]],
         vec![],
@@ -1058,6 +1112,234 @@ async fn validates_direct_cell_mempool_transaction_with_resolved_lock_script_and
 
     assert_eq!(mirror.calculated_fee, Some(1_000));
     assert_eq!(mirror.verified_cycles.unwrap_or(0) > 0, true);
+
+    consensus.shutdown(wait_handles);
+}
+
+#[cfg(feature = "vm")]
+#[tokio::test]
+async fn validates_direct_cell_mempool_transaction_with_native_pubkey_lock_and_no_code_dep() {
+    let config = ConfigBuilder::new(MAINNET_PARAMS).skip_proof_of_work().build();
+    let consensus = TestConsensus::new(&config);
+    let wait_handles = consensus.init();
+
+    let warmup = consensus
+        .build_block_template(empty_miner_data(), Box::new(OnetimeTxSelector::new(vec![])), TemplateBuildMode::Standard)
+        .unwrap();
+    consensus.validate_and_insert_block(warmup.block.to_immutable()).virtual_state_task.await.unwrap();
+
+    let input_outpoint = OutPoint::new([0x88; 32], 0);
+    let keypair = Keypair::from_seckey_slice(secp256k1::SECP256K1, &[0x66; 32]).expect("valid secret key");
+    let pubkey = keypair.public_key().x_only_public_key().0.serialize();
+    let address = Address::new_std_single(Prefix::Testnet, &pubkey).expect("valid address");
+    let lock_script = pay_to_address_lock_script(&address);
+    let unsigned_tx = CellTx::new(
+        vec![CellInput::new(input_outpoint, 0)],
+        vec![],
+        vec![CellOutput { lock: lock_script.clone(), type_: None, capacity: 9_000 }],
+        vec![vec![]],
+        vec![vec![]],
+    )
+    .unwrap();
+    let resolved_input = spora_consensus_core::cell_metadata::CellMetadata {
+        out_point: TransactionOutpoint { tx_hash: input_outpoint.tx_hash, index: input_outpoint.index },
+        capacity: 10_000,
+        data_bytes: 0,
+        lock_hash: lock_script.hash(),
+        type_hash: None,
+        data_hash: [0; 32],
+        block_daa_score: 0,
+        is_cellbase: false,
+        block_hash: Hash::from_bytes([0x89; 32]),
+        lock_code_hash: None,
+        type_code_hash: None,
+        lock_script: Some(lock_script.clone()),
+        type_script: None,
+        data: Some(vec![]),
+    };
+    let signed_tx = sign(MutableTransaction::with_resolved_metadata(unsigned_tx, vec![resolved_input.clone()]), keypair).tx;
+    let mut mirror = MutableTransaction::with_resolved_metadata(std::sync::Arc::new(signed_tx.clone()), vec![resolved_input]);
+
+    consensus
+        .validate_mempool_cell_transaction(&mut mirror, &signed_tx, &TransactionValidationArgs::default())
+        .expect("resolved standard pubkey input should validate without explicit code deps");
+
+    assert_eq!(mirror.calculated_fee, Some(1_000));
+    assert_eq!(mirror.verified_cycles.unwrap_or(0) > 0, true);
+
+    consensus.shutdown(wait_handles);
+}
+
+#[cfg(feature = "vm")]
+#[tokio::test]
+async fn validates_direct_cell_mempool_transaction_with_native_pubkey_ecdsa_lock_and_no_code_dep() {
+    let config = ConfigBuilder::new(MAINNET_PARAMS).skip_proof_of_work().build();
+    let consensus = TestConsensus::new(&config);
+    let wait_handles = consensus.init();
+
+    let warmup = consensus
+        .build_block_template(empty_miner_data(), Box::new(OnetimeTxSelector::new(vec![])), TemplateBuildMode::Standard)
+        .unwrap();
+    consensus.validate_and_insert_block(warmup.block.to_immutable()).virtual_state_task.await.unwrap();
+
+    let input_outpoint = OutPoint::new([0x90; 32], 0);
+    let secret_key = [0x67; 32];
+    let keypair = Keypair::from_seckey_slice(secp256k1::SECP256K1, &secret_key).expect("valid secret key");
+    let pubkey = keypair.public_key().serialize();
+    let address = Address::new_std_single_ecdsa(Prefix::Testnet, &pubkey).expect("valid address");
+    let lock_script = pay_to_address_lock_script(&address);
+    let unsigned_tx = CellTx::new(
+        vec![CellInput::new(input_outpoint, 0)],
+        vec![],
+        vec![CellOutput { lock: lock_script.clone(), type_: None, capacity: 9_000 }],
+        vec![vec![]],
+        vec![vec![]],
+    )
+    .unwrap();
+    let resolved_input = spora_consensus_core::cell_metadata::CellMetadata {
+        out_point: TransactionOutpoint { tx_hash: input_outpoint.tx_hash, index: input_outpoint.index },
+        capacity: 10_000,
+        data_bytes: 0,
+        lock_hash: lock_script.hash(),
+        type_hash: None,
+        data_hash: [0; 32],
+        block_daa_score: 0,
+        is_cellbase: false,
+        block_hash: Hash::from_bytes([0x91; 32]),
+        lock_code_hash: None,
+        type_code_hash: None,
+        lock_script: Some(lock_script.clone()),
+        type_script: None,
+        data: Some(vec![]),
+    };
+    let signed_tx =
+        sign_with_multiple_v2(MutableTransaction::with_resolved_metadata(unsigned_tx, vec![resolved_input.clone()]), &[secret_key])
+            .fully_signed()
+            .expect("ecdsa native signing should succeed")
+            .tx;
+    let mut mirror = MutableTransaction::with_resolved_metadata(std::sync::Arc::new(signed_tx.clone()), vec![resolved_input]);
+
+    consensus
+        .validate_mempool_cell_transaction(&mut mirror, &signed_tx, &TransactionValidationArgs::default())
+        .expect("resolved standard ecdsa input should validate without explicit code deps");
+
+    assert_eq!(mirror.calculated_fee, Some(1_000));
+    assert_eq!(mirror.verified_cycles.unwrap_or(0) > 0, true);
+
+    consensus.shutdown(wait_handles);
+}
+
+#[cfg(feature = "vm")]
+#[tokio::test]
+async fn build_block_template_accepts_native_pubkey_schnorr_candidate_in_standard_mode() {
+    let config = ConfigBuilder::new(MAINNET_PARAMS)
+        .skip_proof_of_work()
+        .edit_consensus_params(|params| {
+            params.coinbase_maturity = 0;
+        })
+        .build();
+    let consensus = TestConsensus::new(&config);
+    let wait_handles = consensus.init();
+
+    let keypair = Keypair::from_seckey_slice(secp256k1::SECP256K1, &[0x69; 32]).expect("valid secret key");
+    let pubkey = keypair.public_key().x_only_public_key().0.serialize();
+    let address = Address::new_std_single(Prefix::Testnet, &pubkey).expect("valid address");
+    let lock_script = pay_to_address_lock_script(&address);
+    let miner_data = MinerData::new(lock_script.clone(), vec![]);
+
+    let warmup = consensus
+        .build_block_template(miner_data.clone(), Box::new(OnetimeTxSelector::new(vec![])), TemplateBuildMode::Standard)
+        .unwrap();
+    consensus.validate_and_insert_block(warmup.block.to_immutable()).virtual_state_task.await.unwrap();
+
+    let funding = consensus
+        .build_block_template(miner_data.clone(), Box::new(OnetimeTxSelector::new(vec![])), TemplateBuildMode::Standard)
+        .unwrap();
+    let funding_coinbase = funding.block.transactions[0].clone();
+    let funding_block_hash = funding.block.header.hash;
+    let funding_block_daa = funding.block.header.daa_score;
+    consensus.validate_and_insert_block(funding.block.to_immutable()).virtual_state_task.await.unwrap();
+
+    let input_outpoint = OutPoint::new(funding_coinbase.id(), 0);
+    let spend_capacity = funding_coinbase.outputs[0].capacity.checked_sub(1_000).expect("coinbase output should be large enough");
+    let unsigned_tx = CellTx::new(
+        vec![CellInput::new(input_outpoint, 0)],
+        vec![],
+        vec![CellOutput { lock: lock_script.clone(), type_: None, capacity: spend_capacity }],
+        vec![vec![]],
+        vec![vec![]],
+    )
+    .unwrap();
+    let resolved_input = metadata_from_tx_output(funding_block_hash, funding_block_daa, true, &funding_coinbase, 0);
+    let signed_tx = sign(MutableTransaction::with_resolved_metadata(unsigned_tx, vec![resolved_input]), keypair).tx;
+
+    let template = consensus
+        .build_block_template(miner_data, Box::new(OnetimeTxSelector::new(vec![signed_tx.clone()])), TemplateBuildMode::Standard)
+        .expect("standard mode should accept native stdsingle candidate");
+
+    assert_eq!(template.block.transactions.len(), 2, "coinbase + signed candidate");
+    assert_eq!(template.block.transactions[1].id(), signed_tx.id());
+    assert_eq!(template.calculated_fees, vec![1_000]);
+
+    consensus.shutdown(wait_handles);
+}
+
+#[cfg(feature = "vm")]
+#[tokio::test]
+async fn build_block_template_accepts_native_pubkey_ecdsa_candidate_in_standard_mode() {
+    let config = ConfigBuilder::new(MAINNET_PARAMS)
+        .skip_proof_of_work()
+        .edit_consensus_params(|params| {
+            params.coinbase_maturity = 0;
+        })
+        .build();
+    let consensus = TestConsensus::new(&config);
+    let wait_handles = consensus.init();
+
+    let secret_key = [0x68; 32];
+    let keypair = Keypair::from_seckey_slice(secp256k1::SECP256K1, &secret_key).expect("valid secret key");
+    let pubkey = keypair.public_key().serialize();
+    let address = Address::new_std_single_ecdsa(Prefix::Testnet, &pubkey).expect("valid address");
+    let lock_script = pay_to_address_lock_script(&address);
+    let miner_data = MinerData::new(lock_script.clone(), vec![]);
+
+    let warmup = consensus
+        .build_block_template(miner_data.clone(), Box::new(OnetimeTxSelector::new(vec![])), TemplateBuildMode::Standard)
+        .unwrap();
+    consensus.validate_and_insert_block(warmup.block.to_immutable()).virtual_state_task.await.unwrap();
+
+    let funding = consensus
+        .build_block_template(miner_data.clone(), Box::new(OnetimeTxSelector::new(vec![])), TemplateBuildMode::Standard)
+        .unwrap();
+    let funding_coinbase = funding.block.transactions[0].clone();
+    let funding_block_hash = funding.block.header.hash;
+    let funding_block_daa = funding.block.header.daa_score;
+    consensus.validate_and_insert_block(funding.block.to_immutable()).virtual_state_task.await.unwrap();
+
+    let input_outpoint = OutPoint::new(funding_coinbase.id(), 0);
+    let spend_capacity = funding_coinbase.outputs[0].capacity.checked_sub(1_000).expect("coinbase output should be large enough");
+    let unsigned_tx = CellTx::new(
+        vec![CellInput::new(input_outpoint, 0)],
+        vec![],
+        vec![CellOutput { lock: lock_script.clone(), type_: None, capacity: spend_capacity }],
+        vec![vec![]],
+        vec![vec![]],
+    )
+    .unwrap();
+    let resolved_input = metadata_from_tx_output(funding_block_hash, funding_block_daa, true, &funding_coinbase, 0);
+    let signed_tx =
+        sign_with_multiple_v2(MutableTransaction::with_resolved_metadata(unsigned_tx, vec![resolved_input]), &[secret_key])
+            .fully_signed()
+            .expect("ecdsa native signing should succeed")
+            .tx;
+
+    let template = consensus
+        .build_block_template(miner_data, Box::new(OnetimeTxSelector::new(vec![signed_tx.clone()])), TemplateBuildMode::Standard)
+        .expect("standard mode should accept native stdsingleecdsa candidate");
+
+    assert_eq!(template.block.transactions.len(), 2, "coinbase + signed candidate");
+    assert_eq!(template.block.transactions[1].id(), signed_tx.id());
+    assert_eq!(template.calculated_fees, vec![1_000]);
 
     consensus.shutdown(wait_handles);
 }

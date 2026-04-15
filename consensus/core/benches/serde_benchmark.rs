@@ -1,5 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use spora_consensus_core::tx::{outpoint_from_id, CellOutput, CellInput, CellTx, Script, TransactionId};
+use spora_consensus_core::tx::{outpoint_from_id, CellInput, CellOutput, CellTx, Script, TransactionId};
 use std::time::{Duration, Instant};
 
 fn sample_lock_script(tag: u8) -> Script {

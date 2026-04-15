@@ -410,7 +410,9 @@ impl WalletApi for super::Wallet {
         let guard = guard.lock().await;
 
         let account = self.create_account(&wallet_secret, account_create_args, true, &guard).await?;
-        account.clone().scan(Some(100), Some(5000)).await?;
+        if self.is_connected() {
+            account.clone().scan(Some(100), Some(5000)).await?;
+        }
         let account_descriptor = account.descriptor()?;
         self.store().as_account_store()?.store_single(&account.to_storage()?, account.metadata()?.as_ref()).await?;
         self.store().commit(&wallet_secret).await?;
@@ -553,7 +555,7 @@ impl WalletApi for super::Wallet {
     ) -> Result<AccountsCommitRevealManualResponse> {
         let AccountsCommitRevealManualRequest {
             account_id,
-            script_sig,
+            witness_template,
             start_destination,
             end_destination,
             wallet_secret,
@@ -575,7 +577,7 @@ impl WalletApi for super::Wallet {
             .commit_reveal_manual(
                 start_destination,
                 end_destination,
-                script_sig,
+                witness_template,
                 wallet_secret,
                 payment_secret,
                 fee_rate,
@@ -597,7 +599,7 @@ impl WalletApi for super::Wallet {
             account_id,
             address_type,
             address_index,
-            script_sig,
+            witness_template,
             commit_amount_sau,
             wallet_secret,
             payment_secret,
@@ -634,7 +636,7 @@ impl WalletApi for super::Wallet {
             .clone()
             .commit_reveal(
                 address,
-                script_sig,
+                witness_template,
                 wallet_secret,
                 payment_secret,
                 commit_amount_sau,
@@ -754,7 +756,12 @@ impl WalletApi for super::Wallet {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tests::make_xpub;
     use crate::wallet::PrvKeyDataVariantKind;
+    use spora_bip32::Prefix as KeyPrefix;
+    use spora_consensus_core::network::{NetworkId, NetworkType};
+    use std::time::Duration;
+    use tokio::time::timeout;
 
     #[tokio::test]
     async fn register_and_unregister_notifications_tracks_channel_ids() {
@@ -778,6 +785,202 @@ mod tests {
 
         let notification = receiver.recv().await.unwrap();
         assert!(matches!(notification, WalletNotification::Error { message } if message == "test notification"));
+    }
+
+    #[tokio::test]
+    async fn accounts_create_watch_only_emits_account_create_notification() {
+        let wallet = Arc::new(
+            super::super::Wallet::try_with_rpc(None, super::super::Wallet::resident_store().unwrap(), None)
+                .unwrap()
+                .with_network_id(NetworkId::new(NetworkType::Mainnet))
+                .unwrap(),
+        );
+        let wallet_secret = Secret::from("test-wallet-secret");
+
+        wallet
+            .clone()
+            .wallet_create(wallet_secret.clone(), WalletCreateArgs::new(None, None, EncryptionKind::default(), None, false))
+            .await
+            .unwrap();
+
+        let (_channel_id, receiver) = wallet.clone().register_notifications().await.unwrap();
+
+        let descriptor = wallet
+            .clone()
+            .accounts_create(
+                wallet_secret,
+                AccountCreateArgs::new_watch_only(None, vec![make_xpub().to_string(Some(KeyPrefix::XPUB))], 1, false),
+            )
+            .await
+            .unwrap();
+        assert_eq!(descriptor.kind.as_ref(), WATCH_ONLY_ACCOUNT_KIND);
+
+        let notification = receiver.recv().await.unwrap();
+        assert!(matches!(
+            notification,
+            WalletNotification::AccountCreate { account_descriptor }
+            if account_descriptor.kind.as_ref() == WATCH_ONLY_ACCOUNT_KIND
+        ));
+    }
+
+    #[tokio::test]
+    async fn accounts_create_multisig_emits_account_create_notification() {
+        let wallet = Arc::new(
+            super::super::Wallet::try_with_rpc(None, super::super::Wallet::resident_store().unwrap(), None)
+                .unwrap()
+                .with_network_id(NetworkId::new(NetworkType::Mainnet))
+                .unwrap(),
+        );
+        let wallet_secret = Secret::from("test-wallet-secret");
+
+        wallet
+            .clone()
+            .wallet_create(wallet_secret.clone(), WalletCreateArgs::new(None, None, EncryptionKind::default(), None, false))
+            .await
+            .unwrap();
+
+        let prv_key_data_id = wallet
+            .clone()
+            .prv_key_data_create(
+                wallet_secret.clone(),
+                PrvKeyDataCreateArgs::new(
+                    Some("multisig".to_string()),
+                    None,
+                    Secret::from("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"),
+                    PrvKeyDataVariantKind::Mnemonic,
+                ),
+            )
+            .await
+            .unwrap();
+
+        let (_channel_id, receiver) = wallet.clone().register_notifications().await.unwrap();
+
+        let descriptor = wallet
+            .clone()
+            .accounts_create(
+                wallet_secret,
+                AccountCreateArgs::new_multisig(
+                    vec![PrvKeyDataArgs::new(prv_key_data_id, None)],
+                    vec![make_xpub().to_string(Some(KeyPrefix::XPUB))],
+                    Some("team vault".to_string()),
+                    2,
+                ),
+            )
+            .await
+            .unwrap();
+        assert_eq!(descriptor.kind.as_ref(), MULTISIG_ACCOUNT_KIND);
+
+        let notification = receiver.recv().await.unwrap();
+        assert!(matches!(
+            notification,
+            WalletNotification::AccountCreate { account_descriptor }
+            if account_descriptor.kind.as_ref() == MULTISIG_ACCOUNT_KIND
+        ));
+    }
+
+    #[tokio::test]
+    async fn accounts_import_watch_only_succeeds_offline_and_emits_notification() {
+        let wallet = Arc::new(
+            super::super::Wallet::try_with_rpc(None, super::super::Wallet::resident_store().unwrap(), None)
+                .unwrap()
+                .with_network_id(NetworkId::new(NetworkType::Mainnet))
+                .unwrap(),
+        );
+        let wallet_secret = Secret::from("test-wallet-secret");
+
+        wallet
+            .clone()
+            .wallet_create(wallet_secret.clone(), WalletCreateArgs::new(None, None, EncryptionKind::default(), None, false))
+            .await
+            .unwrap();
+
+        let (_channel_id, receiver) = wallet.clone().register_notifications().await.unwrap();
+
+        let descriptor = wallet
+            .clone()
+            .accounts_import(
+                wallet_secret,
+                AccountCreateArgs::new_watch_only(None, vec![make_xpub().to_string(Some(KeyPrefix::XPUB))], 1, false),
+            )
+            .await
+            .unwrap();
+        assert_eq!(descriptor.kind.as_ref(), WATCH_ONLY_ACCOUNT_KIND);
+
+        let notification = receiver.recv().await.unwrap();
+        assert!(matches!(
+            notification,
+            WalletNotification::AccountCreate { account_descriptor }
+            if account_descriptor.kind.as_ref() == WATCH_ONLY_ACCOUNT_KIND
+        ));
+    }
+
+    #[tokio::test]
+    async fn accounts_import_multisig_succeeds_offline_and_emits_notification() {
+        let wallet = Arc::new(
+            super::super::Wallet::try_with_rpc(None, super::super::Wallet::resident_store().unwrap(), None)
+                .unwrap()
+                .with_network_id(NetworkId::new(NetworkType::Mainnet))
+                .unwrap(),
+        );
+        let wallet_secret = Secret::from("test-wallet-secret");
+
+        wallet
+            .clone()
+            .wallet_create(wallet_secret.clone(), WalletCreateArgs::new(None, None, EncryptionKind::default(), None, false))
+            .await
+            .unwrap();
+
+        let prv_key_data_id = wallet
+            .clone()
+            .prv_key_data_create(
+                wallet_secret.clone(),
+                PrvKeyDataCreateArgs::new(
+                    Some("multisig".to_string()),
+                    None,
+                    Secret::from("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"),
+                    PrvKeyDataVariantKind::Mnemonic,
+                ),
+            )
+            .await
+            .unwrap();
+
+        let (_channel_id, receiver) = wallet.clone().register_notifications().await.unwrap();
+
+        let descriptor = wallet
+            .clone()
+            .accounts_import(
+                wallet_secret,
+                AccountCreateArgs::new_multisig(
+                    vec![PrvKeyDataArgs::new(prv_key_data_id, None)],
+                    vec![make_xpub().to_string(Some(KeyPrefix::XPUB))],
+                    Some("team vault".to_string()),
+                    2,
+                ),
+            )
+            .await
+            .unwrap();
+        assert_eq!(descriptor.kind.as_ref(), MULTISIG_ACCOUNT_KIND);
+
+        let notification = receiver.recv().await.unwrap();
+        assert!(matches!(
+            notification,
+            WalletNotification::AccountCreate { account_descriptor }
+            if account_descriptor.kind.as_ref() == MULTISIG_ACCOUNT_KIND
+        ));
+    }
+
+    #[tokio::test]
+    async fn unregister_notifications_closes_receiver_and_stops_delivery() {
+        let wallet =
+            Arc::new(super::super::Wallet::try_with_rpc(None, super::super::Wallet::resident_store().unwrap(), None).unwrap());
+        let (channel_id, receiver) = wallet.clone().register_notifications().await.unwrap();
+
+        wallet.clone().unregister_notifications(channel_id).await.unwrap();
+        wallet.notify(Events::Error { message: "should-not-deliver".to_string() }).await.unwrap();
+
+        let recv_result =
+            timeout(Duration::from_millis(200), receiver.recv()).await.expect("receiver should close once channel is unregistered");
+        assert!(recv_result.is_err(), "receiver should be closed after unregister");
     }
 
     #[tokio::test]

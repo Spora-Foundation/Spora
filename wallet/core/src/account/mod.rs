@@ -187,8 +187,7 @@ pub trait Account: AnySync + Send + Sync + 'static {
     }
 
     fn prv_key_data_id(&self) -> Result<&PrvKeyDataId> {
-        // TODO - change to AssocPrvKeyDataIds
-        Err(Error::ResidentAccount)
+        Err(Error::AccountKindFeature)
     }
 
     async fn prv_key_data(&self, wallet_secret: Secret) -> Result<PrvKeyData> {
@@ -389,7 +388,7 @@ pub trait Account: AnySync + Send + Sync + 'static {
         self: Arc<Self>,
         start_destination: PaymentDestination,
         end_destination: PaymentDestination,
-        script_sig: Vec<u8>,
+        witness_template: Vec<u8>,
         wallet_secret: Secret,
         payment_secret: Option<Secret>,
         fee_rate: Option<f64>,
@@ -400,7 +399,7 @@ pub trait Account: AnySync + Send + Sync + 'static {
         commit_reveal_batch_bundle(
             pssb::CommitRevealBatchKind::Manual { hop_payment: start_destination, destination_payment: end_destination },
             reveal_fee_sau,
-            script_sig,
+            witness_template,
             payload,
             fee_rate,
             self.clone().as_dyn_arc(),
@@ -414,7 +413,7 @@ pub trait Account: AnySync + Send + Sync + 'static {
     async fn commit_reveal(
         self: Arc<Self>,
         address: Address,
-        script_sig: Vec<u8>,
+        witness_template: Vec<u8>,
         wallet_secret: Secret,
         payment_secret: Option<Secret>,
         commit_amount_sau: u64,
@@ -426,7 +425,7 @@ pub trait Account: AnySync + Send + Sync + 'static {
         commit_reveal_batch_bundle(
             pssb::CommitRevealBatchKind::Parameterized { address, commit_amount_sau },
             reveal_fee_sau,
-            script_sig,
+            witness_template,
             payload,
             fee_rate,
             self.clone().as_dyn_arc(),
@@ -868,12 +867,12 @@ mod tests {
     use super::create_private_keys;
     use super::ExtendedPrivateKey;
     use crate::imports::BIP32_ACCOUNT_KIND;
-    use spora_addresses::{Address, Prefix, Version};
+    use spora_addresses::{Address, Prefix};
     use spora_bip32::secp256k1::SecretKey;
     use std::str::FromStr;
 
     fn dummy_address() -> Address {
-        Address::new(Prefix::Testnet, Version::PubKey, &[0u8; 32]).expect("Valid dummy address")
+        Address::new_std_single(Prefix::Testnet, &[0u8; 32]).expect("Valid dummy address")
     }
 
     #[tokio::test]

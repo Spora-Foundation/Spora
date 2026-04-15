@@ -229,9 +229,6 @@ pub enum Error {
     #[error("Not allowed on a resident wallet")]
     ResidentWallet,
 
-    #[error("Not allowed on a resident account")]
-    ResidentAccount,
-
     #[error("Not allowed on an bip32-watch account")]
     Bip32WatchAccount,
 
@@ -290,7 +287,7 @@ pub enum Error {
     InvalidRange(u64, u64),
 
     #[error(transparent)]
-    MultisigRedeemScript(#[from] spora_consensus_core::tx::MultisigRedeemScriptError),
+    MultisigWitnessTemplate(#[from] spora_consensus_core::tx::MultisigWitnessTemplateError),
 
     #[error("AssocPrvKeyDataIds required {0} but got {1:?}")]
     AssocPrvKeyDataIds(String, AssocPrvKeyDataIds),
@@ -353,9 +350,6 @@ pub enum Error {
 
     #[error("No payment outputs found in destination")]
     CommitRevealEmptyPaymentOutputs,
-
-    #[error("Failed to generate redeem script")]
-    RevealRedeemScriptTemplateError,
 
     #[error("Failed to generate PSST: {0}")]
     PSSTGenerationError(String),

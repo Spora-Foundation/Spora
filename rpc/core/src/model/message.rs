@@ -3,6 +3,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 use spora_consensus_core::api::stats::BlockCount;
 use spora_core::debug;
+use spora_notify::scope::Scope;
 use spora_notify::subscription::{context::SubscriptionContext, single::CellsChangedSubscription, Command};
 use spora_utils::hex::ToHex;
 use std::collections::HashMap;
@@ -22,7 +23,6 @@ pub type RpcExtraData = Vec<u8>;
 #[serde(rename_all = "camelCase")]
 pub struct SubmitBlockRequest {
     pub block: RpcRawBlock,
-    #[serde(alias = "allowNonDAABlocks")]
     pub allow_non_daa_blocks: bool,
 }
 impl SubmitBlockRequest {
@@ -3625,6 +3625,127 @@ impl Serializer for NewBlockTemplateNotification {
 }
 
 impl Deserializer for NewBlockTemplateNotification {
+    fn deserialize<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
+        let _version = load!(u16, reader)?;
+        Ok(Self {})
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// SubscribeNotifications / UnsubscribeNotifications
+
+/// Request to subscribe to notifications of a given scope.
+///
+/// The server creates an internal notification channel and returns a
+/// `subscription_id` that the client can later use to unsubscribe.
+///
+/// This is the recommended RPC-friendly replacement for the internal
+/// `register_new_listener` + `start_notify` workflow.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SubscribeNotificationsRequest {
+    /// The notification scope to subscribe to.
+    pub scope: Scope,
+}
+
+impl SubscribeNotificationsRequest {
+    pub fn new(scope: Scope) -> Self {
+        Self { scope }
+    }
+}
+
+impl Serializer for SubscribeNotificationsRequest {
+    fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
+        store!(u16, &1, writer)?;
+        workflow_serializer::serializer::Serializer::serialize(&self.scope, writer)?;
+        Ok(())
+    }
+}
+
+impl Deserializer for SubscribeNotificationsRequest {
+    fn deserialize<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
+        let _version = load!(u16, reader)?;
+        let scope = <Scope as workflow_serializer::serializer::Deserializer>::deserialize(reader)?;
+        Ok(Self { scope })
+    }
+}
+
+/// Response to a [`SubscribeNotificationsRequest`].
+///
+/// Contains the `subscription_id` that uniquely identifies this
+/// subscription and must be supplied when unsubscribing.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SubscribeNotificationsResponse {
+    /// Opaque identifier for this subscription.
+    pub subscription_id: u64,
+}
+
+impl SubscribeNotificationsResponse {
+    pub fn new(subscription_id: u64) -> Self {
+        Self { subscription_id }
+    }
+}
+
+impl Serializer for SubscribeNotificationsResponse {
+    fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
+        store!(u16, &1, writer)?;
+        store!(u64, &self.subscription_id, writer)?;
+        Ok(())
+    }
+}
+
+impl Deserializer for SubscribeNotificationsResponse {
+    fn deserialize<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
+        let _version = load!(u16, reader)?;
+        let subscription_id = load!(u64, reader)?;
+        Ok(Self { subscription_id })
+    }
+}
+
+/// Request to cancel an active notification subscription.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UnsubscribeNotificationsRequest {
+    /// The subscription identifier returned by [`SubscribeNotificationsResponse`].
+    pub subscription_id: u64,
+}
+
+impl UnsubscribeNotificationsRequest {
+    pub fn new(subscription_id: u64) -> Self {
+        Self { subscription_id }
+    }
+}
+
+impl Serializer for UnsubscribeNotificationsRequest {
+    fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
+        store!(u16, &1, writer)?;
+        store!(u64, &self.subscription_id, writer)?;
+        Ok(())
+    }
+}
+
+impl Deserializer for UnsubscribeNotificationsRequest {
+    fn deserialize<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
+        let _version = load!(u16, reader)?;
+        let subscription_id = load!(u64, reader)?;
+        Ok(Self { subscription_id })
+    }
+}
+
+/// Response to an [`UnsubscribeNotificationsRequest`].
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UnsubscribeNotificationsResponse {}
+
+impl Serializer for UnsubscribeNotificationsResponse {
+    fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
+        store!(u16, &1, writer)?;
+        Ok(())
+    }
+}
+
+impl Deserializer for UnsubscribeNotificationsResponse {
     fn deserialize<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
         let _version = load!(u16, reader)?;
         Ok(Self {})

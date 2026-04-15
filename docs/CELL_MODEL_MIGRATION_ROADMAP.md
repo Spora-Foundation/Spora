@@ -1,6 +1,6 @@
 # Spora Cell 模型迁移路线图
 
-- 日期: 2026-04-13
+- 日期: 2026-04-15
 - 文档版本: v2.0
 - 状态: 已审计更新
 - 定位: 迁移完成后的审计记录与后续收尾路线
@@ -17,7 +17,7 @@
 
 这个判断已经不再准确。
 
-截至 2026-04-13，Spora 的代码主路径已经完成以下迁移：
+截至 2026-04-15，Spora 的代码主路径已经完成以下迁移：
 
 - 共识、RPC、钱包、P2P、index、mining、notify 主路径都已切到 Cell-native / Script-native / Address-native
 - `ScriptPublicKey`、`SubnetworkId`、`get_subnetwork`、legacy bridge helper 已从主路径删除
@@ -108,6 +108,16 @@
 
 这些工作已经不属于“Cell 主路径迁移未完成”，而属于收尾或独立重构：
 
+### 5.0 地址锁迁移终态策略已固化（新增）
+
+地址锁现代化主路径已完成并进入固定终态策略：
+
+1. `legacy_inline_lock_phase_b_daa_score` / `legacy_inline_lock_phase_c_daa_score` 已从共识参数层移除
+2. `CellValidator` 对 legacy inline 锁执行一致拒绝（`LegacyInlineLockDisabled`）
+3. body / mempool / template / replay 路径错误语义已统一收口为 `CellValidationFailed`
+
+后续仅保留文档与运行观测面的持续对齐，不再存在“主网/测试网阈值治理”这一收尾项。
+
 ### 5.1 文档与说明材料
 
 这一类问题现在主要是“历史文档口径落后于代码现状”，而不是实现层仍有兼容桥。
@@ -118,7 +128,7 @@
 - 部分 README
 - 历史审计文档与设计评审文档
 - `docs/CONSENSUS_SECURITY_AUDIT_2026.md`
-- `docs/V2-P1-04-phase2-summary.md`
+- `docs/spora_consensus_v2_issue_list.md`（`V2-P1-01` / `V2-P1-02`）
 
 这些材料中的典型过时表述包括：
 

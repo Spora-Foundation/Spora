@@ -11,15 +11,17 @@ mod standard_script;
 
 pub use script_cache::{ScriptCacheCounters, ScriptCacheCountersSnapshot};
 pub use standard_script::{
-    classify_lock_script, extract_address_from_lock_script, multisig_redeem_script, multisig_redeem_script_ecdsa,
-    pay_to_address_lock_script, pay_to_script_hash_lock_script, pay_to_script_hash_witness_script, push_data_script,
-    MultisigRedeemScriptError, ScriptClass, StandardScriptError,
+    address_to_builtin_standard_lock, address_to_full_script_lock, address_to_lock_script, builtin_account_descriptor_code_hash,
+    builtin_ecdsa_blake3_160_code_hash, builtin_schnorr_blake3_160_code_hash, classify_script, decode_full_script_payload,
+    encode_full_script_payload, extract_address_from_script, is_cell_lock_unspendable, multisig_witness_template,
+    multisig_witness_template_ecdsa, pay_to_address_lock_script, push_data_script, MultisigWitnessTemplateError, ScriptClass,
+    StandardScriptError, HASH_TYPE_TYPE,
 };
 
 use crate::cell_diff::CellMeta;
 use crate::cell_metadata::CellMetadata;
 use crate::mass::{cell_tx_estimated_serialized_size, ContextualMasses, NonContextualMasses};
-pub use spora_exec::celltx::{CellDep, CellOutput, CellInput, CellTx, DepType, OutPoint, Script};
+pub use spora_exec::celltx::{CellDep, CellInput, CellOutput, CellTx, DepType, OutPoint, Script};
 use spora_exec::vm::VmLimits;
 use spora_utils::mem_size::MemSizeEstimator;
 use std::mem::size_of_val;
@@ -36,19 +38,6 @@ pub type TransactionIndexType = u32;
 /// Migration: was a struct with `transaction_id: TransactionId` + `index: u32`,
 /// now aliases `spora_exec::celltx::OutPoint` which uses `tx_hash: [u8; 32]` + `index: u32`.
 pub type TransactionOutpoint = spora_exec::celltx::OutPoint;
-
-/// Extension trait bridging OutPoint's `tx_hash: [u8; 32]` to the `TransactionId` wrapper type.
-pub trait OutPointCompat {
-    /// Get the transaction ID as a `TransactionId` (Hash wrapper).
-    fn transaction_id(&self) -> TransactionId;
-}
-
-impl OutPointCompat for TransactionOutpoint {
-    #[inline]
-    fn transaction_id(&self) -> TransactionId {
-        TransactionId::from_bytes(self.tx_hash)
-    }
-}
 
 /// Convenience constructor that accepts `TransactionId` instead of raw `[u8; 32]`.
 pub fn outpoint_from_id(transaction_id: TransactionId, index: u32) -> TransactionOutpoint {

@@ -25,7 +25,7 @@ use spora_core::debug;
 use spora_notify::subscription::Command;
 use spora_rpc_core::{
     RpcContextualPeerAddress, RpcError, RpcExtraData, RpcHash, RpcIpAddress, RpcNetworkType, RpcPeerAddress, RpcResult,
-    SubmitBlockRejectReason, SubmitBlockReport,
+    SubmitBlockReport,
 };
 use spora_utils::hex::*;
 use std::str::FromStr;
@@ -84,7 +84,6 @@ macro_rules! try_from {
                 if let Some(ref err) = $name.error {
                     Err(err.into())
                 } else {
-                    #[allow(unreachable_code)] // TODO: remove attribute when all converters are implemented
                     Ok($ctor)
                 }
             }
@@ -106,7 +105,6 @@ macro_rules! try_from {
         impl TryFrom<$from_type> for $to_type {
             type Error = RpcError;
             fn try_from($name: $from_type) -> RpcResult<Self> {
-                #[allow(unreachable_code)] // TODO: remove attribute when all converters are implemented
                 Ok($body)
             }
         }
@@ -132,9 +130,7 @@ from!(item: &spora_rpc_core::SubmitBlockReport, RejectReason, {
         spora_rpc_core::SubmitBlockReport::Success => RejectReason::None,
         spora_rpc_core::SubmitBlockReport::Reject(spora_rpc_core::SubmitBlockRejectReason::BlockInvalid) => RejectReason::BlockInvalid,
         spora_rpc_core::SubmitBlockReport::Reject(spora_rpc_core::SubmitBlockRejectReason::IsInIBD) => RejectReason::IsInIbd,
-        // The conversion of RouteIsFull falls back to None since there exist no such variant in the original protowire version
-        // and we do not want to break backwards compatibility
-        spora_rpc_core::SubmitBlockReport::Reject(spora_rpc_core::SubmitBlockRejectReason::RouteIsFull) => RejectReason::None,
+        spora_rpc_core::SubmitBlockReport::Reject(spora_rpc_core::SubmitBlockRejectReason::RouteIsFull) => RejectReason::RouteIsFull,
     }
 });
 
@@ -142,9 +138,7 @@ from!(item: &spora_rpc_core::SubmitBlockRequest, protowire::SubmitBlockRequestMe
     Self { block: Some((&item.block).into()), allow_non_daa_blocks: item.allow_non_daa_blocks }
 });
 // This conversion breaks the general conversion convention (see file header) since the message may
-// contain both a non default reject_reason and a matching error message. In the RouteIsFull case
-// reject_reason is None (because this reason has no variant in protowire) but a specific error
-// message is provided.
+// contain both a non default reject_reason and a matching error message.
 from!(item: RpcResult<&spora_rpc_core::SubmitBlockResponse>, protowire::SubmitBlockResponseMessage, {
     let error: Option<protowire::RpcError> = match item.report {
         spora_rpc_core::SubmitBlockReport::Success => None,
@@ -495,8 +489,8 @@ from!(item: RpcResult<&spora_rpc_core::GetMetricsResponse>, protowire::GetMetric
         bandwidth_metrics: item.bandwidth_metrics.as_ref().map(|x| x.into()),
         consensus_metrics: item.consensus_metrics.as_ref().map(|x| x.into()),
         storage_metrics: item.storage_metrics.as_ref().map(|x| x.into()),
-        // TODO
-        // custom_metrics : None,
+        // Note: custom_metrics are not supported in the gRPC protowire schema
+        // and are intentionally omitted from the response message.
         error: None,
     }
 });
@@ -602,6 +596,7 @@ from!(item: RejectReason, spora_rpc_core::SubmitBlockReport, {
         RejectReason::None => spora_rpc_core::SubmitBlockReport::Success,
         RejectReason::BlockInvalid => spora_rpc_core::SubmitBlockReport::Reject(spora_rpc_core::SubmitBlockRejectReason::BlockInvalid),
         RejectReason::IsInIbd => spora_rpc_core::SubmitBlockReport::Reject(spora_rpc_core::SubmitBlockRejectReason::IsInIBD),
+        RejectReason::RouteIsFull => spora_rpc_core::SubmitBlockReport::Reject(spora_rpc_core::SubmitBlockRejectReason::RouteIsFull),
     }
 });
 
@@ -618,21 +613,13 @@ try_from!(item: &protowire::SubmitBlockRequestMessage, spora_rpc_core::SubmitBlo
 impl TryFrom<&protowire::SubmitBlockResponseMessage> for spora_rpc_core::SubmitBlockResponse {
     type Error = RpcError;
     // This conversion breaks the general conversion convention (see file header) since the message may
-    // contain both a non-None reject_reason and a matching error message. Things get even challenging
-    // in the RouteIsFull case where reject_reason is None (because this reason has no variant in protowire)
-    // but a specific error message is provided.
+    // contain both a non-None reject_reason and a matching error message.
     fn try_from(item: &protowire::SubmitBlockResponseMessage) -> RpcResult<Self> {
         let report: SubmitBlockReport =
             RejectReason::try_from(item.reject_reason).map_err(|_| RpcError::PrimitiveToEnumConversionError)?.into();
         if let Some(ref err) = item.error {
             match report {
-                SubmitBlockReport::Success => {
-                    if err.message == RpcError::SubmitBlockError(SubmitBlockRejectReason::RouteIsFull).to_string() {
-                        Ok(Self { report: SubmitBlockReport::Reject(SubmitBlockRejectReason::RouteIsFull) })
-                    } else {
-                        Err(err.into())
-                    }
-                }
+                SubmitBlockReport::Success => Err(err.into()),
                 SubmitBlockReport::Reject(_) => Ok(Self { report }),
             }
         } else {
@@ -883,8 +870,31 @@ try_from!(item: &protowire::GetHeadersRequestMessage, spora_rpc_core::GetHeaders
     Self { start_hash: RpcHash::from_str(&item.start_hash)?, limit: item.limit, is_ascending: item.is_ascending }
 });
 try_from!(item: &protowire::GetHeadersResponseMessage, RpcResult<spora_rpc_core::GetHeadersResponse>, {
-    // TODO
-    Self { headers: vec![] }
+    // The gRPC proto schema only carries header hashes (repeated string).
+    // Reconstruct minimal RpcHeader instances with the parsed hash;
+    // remaining fields are zeroed because the wire format does not carry them.
+    Self {
+        headers: item.headers.iter().map(|h| {
+            let hash = RpcHash::from_str(h)?;
+            Ok(spora_rpc_core::RpcHeader {
+                hash,
+                version: 0,
+                parents_by_level: vec![],
+                hash_merkle_root: Default::default(),
+                accepted_id_merkle_root: Default::default(),
+                cell_commitment: Default::default(),
+                cell_root: Default::default(),
+                segment_root: Default::default(),
+                timestamp: 0,
+                bits: 0,
+                nonce: 0,
+                daa_score: 0,
+                blue_work: Default::default(),
+                blue_score: 0,
+                pruning_point: Default::default(),
+            })
+        }).collect::<RpcResult<Vec<_>>>()?
+    }
 });
 
 try_from!(item: &protowire::GetCellsByAddressRequestMessage, spora_rpc_core::GetCellsByAddressRequest, {
@@ -1033,7 +1043,8 @@ try_from!(item: &protowire::GetMetricsResponseMessage, RpcResult<spora_rpc_core:
         bandwidth_metrics: item.bandwidth_metrics.as_ref().map(|x| x.try_into()).transpose()?,
         consensus_metrics: item.consensus_metrics.as_ref().map(|x| x.try_into()).transpose()?,
         storage_metrics: item.storage_metrics.as_ref().map(|x| x.try_into()).transpose()?,
-        // TODO
+        // Note: custom_metrics are not part of the gRPC protowire schema
+        // and are always None when deserialised from a gRPC message.
         custom_metrics: None,
     }
 });
@@ -1140,8 +1151,6 @@ try_from!(&protowire::NotifySinkBlueScoreChangedResponseMessage, RpcResult<spora
 // Unit tests
 // ----------------------------------------------------------------------------
 
-// TODO: tests
-
 #[cfg(test)]
 mod tests {
     use spora_rpc_core::{RpcError, RpcResult, SubmitBlockRejectReason, SubmitBlockReport, SubmitBlockResponse};
@@ -1188,7 +1197,7 @@ mod tests {
             Test::new(
                 Ok(SubmitBlockResponse { report: SubmitBlockReport::Reject(SubmitBlockRejectReason::RouteIsFull) }),
                 SubmitBlockResponseMessage {
-                    reject_reason: RejectReason::None as i32, // This rpc core reject reason has no matching protowire variant
+                    reject_reason: RejectReason::RouteIsFull as i32,
                     error: Some(protowire::RpcError {
                         message: RpcError::SubmitBlockError(SubmitBlockRejectReason::RouteIsFull).to_string(),
                     }),

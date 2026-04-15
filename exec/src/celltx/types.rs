@@ -48,6 +48,8 @@ mod outpoint_serde {
 
 /// Cell transaction version: 0xC001
 pub const CELL_TX_VERSION: u32 = 0xC001;
+/// Domain used by the versioned script hash format.
+pub const SCRIPT_HASH_V1_DOMAIN: &[u8] = b"spora-cell/script-hash";
 /// Additional bytes a live-cell state entry needs beyond the raw output body.
 const CELL_ENTRY_OVERHEAD_EXCLUDING_OUTPUT_BODY: u64 = 32 + 4 + 8 + 1;
 /// Static transient-mass factor used before block-context VM cycles are known.
@@ -55,12 +57,87 @@ const CELL_ENTRY_OVERHEAD_EXCLUDING_OUTPUT_BODY: u64 = 32 + 4 + 8 + 1;
 /// This intentionally mirrors the consensus-side transient-byte policy until the
 /// Cell-native mass model is fully centralized.
 const TRANSIENT_BYTE_TO_MASS_FACTOR: u64 = 4;
-/// Static surcharge applied to execution-facing surfaces before runtime cycles exist.
+/// Mass coefficient for each serialized transaction byte.
 ///
-/// This is intentionally conservative: witnesses, deps, output data and type-script
-/// arguments all expand the deterministic work surface of a CellTx even before VM
-/// execution is measured.
-const EXECUTION_SURFACE_BYTE_TO_COMPUTE_FACTOR: u64 = 1;
+/// Kept in sync with the consensus-side default params so pre-VM estimates in the
+/// exec crate match the non-contextual compute mass policy.
+const MASS_PER_TX_BYTE: u64 = 1;
+/// Mass coefficient for output lock/type script bytes.
+const MASS_PER_SCRIPT_PUB_KEY_BYTE: u64 = 10;
+/// Mass coefficient for each implicit input sigop.
+const MASS_PER_SIG_OP: u64 = 1000;
+
+/// Estimated serialized size of a `CellTx`.
+///
+/// This is the canonical estimator shared by exec-side estimate helpers and
+/// consensus-side mass calculation. Keep this logic centralized to avoid
+/// drift between compatibility estimates and the authoritative mass path.
+pub fn cell_tx_estimated_serialized_size(tx: &CellTx) -> u64 {
+    let mut size: u64 = 0;
+    size += 2; // ver (u16)
+
+    // Inputs: each CellInput = outpoint (32+4) + since (8) = 44 bytes
+    size += 8; // number of inputs
+    size += tx.inputs.len() as u64 * 44;
+
+    // Deps: each CellDep = outpoint (32+4) + dep_type (1) = 37 bytes
+    size += 8; // number of deps
+    size += tx.cell_deps.len() as u64 * 37;
+
+    // Header deps: each is a 32-byte hash
+    size += 8; // number of header_deps
+    size += tx.header_deps.len() as u64 * 32;
+
+    // Outputs: each CellOutput = lock script + optional type script + capacity
+    size += 8; // number of outputs
+    for output in &tx.outputs {
+        size += 32 + 1 + 8; // lock.code_hash + lock.hash_type + len(lock.args)
+        size += output.lock.args.len() as u64;
+        if let Some(ref type_script) = output.type_ {
+            size += 1 + 32 + 1 + 8; // flag + code_hash + hash_type + len(args)
+            size += type_script.args.len() as u64;
+        } else {
+            size += 1; // no-type flag
+        }
+        size += 8; // capacity
+    }
+
+    // Outputs data
+    size += 8; // number of outputs_data
+    for data in &tx.outputs_data {
+        size += 8; // length prefix
+        size += data.len() as u64;
+    }
+
+    // Witnesses
+    size += 8; // number of witnesses
+    for witness in &tx.witnesses {
+        size += 8; // length prefix
+        size += witness.len() as u64;
+    }
+
+    size
+}
+
+/// Structured capacity validation error shared by Cell outputs and Cell metadata.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum CapacityError {
+    /// The declared capacity is below the minimum occupied capacity.
+    #[error("insufficient capacity: required {required}, available {available}")]
+    InsufficientCapacity {
+        /// Minimum occupied capacity required by the cell shape.
+        required: u64,
+        /// Capacity declared by the offending value.
+        available: u64,
+    },
+}
+
+/// Script hash format selector.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ScriptHashVersion {
+    /// Domain-separated format with an explicit version byte.
+    V1,
+}
 
 /// OutPoint: uniquely identifies a Cell (tx_hash || output_index)
 ///
@@ -133,13 +210,28 @@ impl Script {
         Self { code_hash, hash_type, args }
     }
 
-    /// Calculate script hash (for indexing)
+    /// Calculate the canonical script hash currently used by the protocol.
     pub fn hash(&self) -> [u8; 32] {
+        self.hash_v1()
+    }
+
+    /// Calculate the V1 script hash with explicit domain separation and versioning.
+    pub fn hash_v1(&self) -> [u8; 32] {
         let mut hasher = blake3::Hasher::new();
+        hasher.update(SCRIPT_HASH_V1_DOMAIN);
+        hasher.update(&[1u8]);
         hasher.update(&self.code_hash);
         hasher.update(&[self.hash_type]);
+        hasher.update(&(self.args.len() as u32).to_le_bytes());
         hasher.update(&self.args);
         *hasher.finalize().as_bytes()
+    }
+
+    /// Calculate the script hash using an explicit format version.
+    pub fn hash_with_version(&self, version: ScriptHashVersion) -> [u8; 32] {
+        match version {
+            ScriptHashVersion::V1 => self.hash_v1(),
+        }
     }
 
     /// Serialize the script reference to bytes.
@@ -184,10 +276,10 @@ impl CellOutput {
     }
 
     /// Verify capacity is sufficient
-    pub fn verify_capacity(&self, data_len: usize) -> Result<(), &'static str> {
+    pub fn verify_capacity(&self, data_len: usize) -> Result<(), CapacityError> {
         let occupied = self.occupied_capacity(data_len);
         if self.capacity < occupied {
-            return Err("Insufficient capacity");
+            return Err(CapacityError::InsufficientCapacity { required: occupied, available: self.capacity });
         }
         Ok(())
     }
@@ -337,15 +429,11 @@ impl CellTx {
     }
 
     /// Get transaction ID (same as compute_txid)
-    ///
-    /// This is for compatibility with Transaction interface
     pub fn id(&self) -> [u8; 32] {
         crate::celltx::compute_txid(self)
     }
 
     /// Get transaction version
-    ///
-    /// This is for compatibility with Transaction interface
     pub fn version(&self) -> u32 {
         self.version
     }
@@ -359,42 +447,53 @@ impl CellTx {
 
     /// Get the compute-side mass hint of the transaction.
     ///
-    /// This is a deterministic pre-VM compute hint composed of serialized size
-    /// plus a conservative surcharge for execution-facing surfaces.
-    pub fn compute_mass(&self) -> u64 {
+    /// This is a deterministic pre-VM compute hint aligned with the
+    /// consensus-side non-contextual mass policy:
+    ///
+    /// - serialized bytes
+    /// - output lock/type script bytes
+    /// - one implicit sigop per input
+    ///
+    /// It does not include actual VM-verified cycles, so consensus and mempool
+    /// callers must continue using the unified mass pipeline when they need the
+    /// authoritative `effective_compute_mass`.
+    pub fn estimated_compute_mass(&self) -> u64 {
         let serialized_size = self.serialized_size() as u64;
-        let execution_surface = self.execution_surface_bytes();
-        serialized_size.saturating_add(execution_surface.saturating_mul(EXECUTION_SURFACE_BYTE_TO_COMPUTE_FACTOR))
+        let size_mass = serialized_size.saturating_mul(MASS_PER_TX_BYTE);
+        let script_mass = self.total_output_script_bytes().saturating_mul(MASS_PER_SCRIPT_PUB_KEY_BYTE);
+        let sigops_mass = (self.inputs.len() as u64).saturating_mul(MASS_PER_SIG_OP);
+        size_mass.saturating_add(script_mass).saturating_add(sigops_mass)
     }
 
     /// Get the transient-storage mass of the transaction.
     ///
     /// This tracks temporary mempool/relay footprint using a deterministic
     /// serialized-size based factor before contextual execution data exists.
-    pub fn transient_mass(&self) -> u64 {
+    pub fn estimated_transient_mass(&self) -> u64 {
         (self.serialized_size() as u64).saturating_mul(TRANSIENT_BYTE_TO_MASS_FACTOR)
     }
 
-    fn execution_surface_bytes(&self) -> u64 {
-        let witness_bytes = self.witnesses.iter().map(|witness| witness.len() as u64).sum::<u64>();
-        let dep_bytes = self.cell_deps.len() as u64 * 37;
-        let header_dep_bytes = self.header_deps.len() as u64 * 32;
-        let output_data_bytes = self.outputs_data.iter().map(|data| data.len() as u64).sum::<u64>();
-        let type_script_arg_bytes =
-            self.outputs.iter().map(|output| output.type_.as_ref().map_or(0, |script| script.args.len() as u64)).sum::<u64>();
-
-        witness_bytes
-            .saturating_add(dep_bytes)
-            .saturating_add(header_dep_bytes)
-            .saturating_add(output_data_bytes)
-            .saturating_add(type_script_arg_bytes)
+    fn total_output_script_bytes(&self) -> u64 {
+        self.outputs
+            .iter()
+            .map(|output| {
+                let mut script_size = 32 + 1 + output.lock.args.len() as u64;
+                if let Some(ref type_script) = output.type_ {
+                    script_size = script_size.saturating_add(32 + 1 + type_script.args.len() as u64);
+                }
+                script_size
+            })
+            .sum()
     }
 
     /// Get the storage-side mass of the transaction.
     ///
     /// This tracks the persistent live-cell footprint created by outputs,
     /// including per-entry overhead in the state commitment layer.
-    pub fn storage_mass(&self) -> u64 {
+    ///
+    /// It remains an output-footprint estimate and is not the contextual
+    /// KIP-0009 storage truth used after input resolution.
+    pub fn estimated_storage_mass(&self) -> u64 {
         self.outputs
             .iter()
             .zip(self.outputs_data.iter())
@@ -402,48 +501,26 @@ impl CellTx {
             .sum()
     }
 
-    /// Get the persisted mass commitment of the transaction.
-    ///
-    /// This is the storage-side mass, kept under the legacy `mass()` name so the
-    /// compatibility bridge keeps writing the right semantic value.
-    pub fn mass(&self) -> u64 {
-        self.storage_mass()
-    }
-
-    /// Get cellbase payload (first output data for coinbase tx)
-    ///
-    /// This is for compatibility with old Transaction.payload field.
-    /// When a legacy coinbase has no reward outputs, we preserve its payload in
-    /// the first witness so it remains available and hash-committed.
+    /// Get cellbase payload (first output data for coinbase tx).
     pub fn payload(&self) -> Option<&[u8]> {
-        if self.is_coinbase() && !self.outputs_data.is_empty() {
-            Some(&self.outputs_data[0])
-        } else if self.is_coinbase() && self.outputs.is_empty() {
-            self.witnesses.first().map(Vec::as_slice)
-        } else {
-            None
+        if !self.is_coinbase() {
+            return None;
         }
+
+        if let Some(first_output_data) = self.outputs_data.first() {
+            return Some(first_output_data);
+        }
+
+        self.witnesses.first().map(Vec::as_slice)
     }
 
-    /// Estimate serialized size (approximate)
+    /// Estimate serialized size using the canonical shared estimator.
     pub fn serialized_size(&self) -> usize {
-        // Simplified estimation
-        let mut size = 2; // ver
-        size += 4 + self.inputs.len() * 40; // inputs
-        size += 4 + self.cell_deps.len() * 37; // cell_deps
-        size += 4 + self.header_deps.len() * 32; // header deps
-        size += 4 + self
-            .outputs
-            .iter()
-            .map(|o| 8 + 33 + o.lock.args.len() + o.type_.as_ref().map_or(0, |t| 33 + t.args.len()))
-            .sum::<usize>();
-        size += 4 + self.outputs_data.iter().map(|d| d.len()).sum::<usize>();
-        size += 4 + self.witnesses.iter().map(|w| w.len()).sum::<usize>();
-        size
+        cell_tx_estimated_serialized_size(self) as usize
     }
 
     /// Calculate total input capacity (requires resolved inputs)
-    pub fn input_capacity(&self, resolved_inputs: &[CellMeta]) -> u64 {
+    pub fn input_capacity(&self, resolved_inputs: &[ResolvedCellMeta]) -> u64 {
         resolved_inputs.iter().map(|m| m.cell_output.capacity).sum()
     }
 
@@ -453,16 +530,16 @@ impl CellTx {
     }
 
     /// Calculate fee (input_capacity - output_capacity)
-    pub fn fee(&self, resolved_inputs: &[CellMeta]) -> u64 {
+    pub fn fee(&self, resolved_inputs: &[ResolvedCellMeta]) -> u64 {
         self.input_capacity(resolved_inputs).saturating_sub(self.output_capacity())
     }
 }
 
 /// Cell metadata (DAG-aware)
 ///
-/// Reference: CKB CellMeta
+/// Reference: CKB CellMeta, specialized for resolved execution inputs.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct CellMeta {
+pub struct ResolvedCellMeta {
     /// Cell output structure
     pub cell_output: CellOutput,
     /// OutPoint
@@ -477,7 +554,7 @@ pub struct CellMeta {
     pub mem_cell_data_hash: Option<[u8; 32]>,
 }
 
-impl CellMeta {
+impl ResolvedCellMeta {
     /// Check if this is a cellbase (mining reward)
     pub fn is_cellbase(&self) -> bool {
         self.transaction_info.as_ref().map(|info| info.is_cellbase).unwrap_or(false)
@@ -510,7 +587,7 @@ pub struct TransactionInfo {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CellStatus {
     /// Cell exists and is unspent
-    Live(Box<CellMeta>),
+    Live(Box<ResolvedCellMeta>),
     /// Cell has been spent (at given DAA score)
     Dead(u64),
     /// Cell not found in index
@@ -525,9 +602,9 @@ pub struct ResolvedCellTx {
     /// The transaction
     pub transaction: CellTx,
     /// Resolved inputs
-    pub resolved_inputs: Vec<CellMeta>,
+    pub resolved_inputs: Vec<ResolvedCellMeta>,
     /// Resolved dependencies
-    pub resolved_deps: Vec<CellMeta>,
+    pub resolved_deps: Vec<ResolvedCellMeta>,
 }
 
 impl AsRef<CellTx> for CellTx {
@@ -572,12 +649,26 @@ mod tests {
     }
 
     #[test]
+    fn test_script_hash_v1_is_versioned_and_distinct() {
+        let script = Script::new([0x11; 32], 1, vec![0xAA, 0xBB]);
+        let canonical = script.hash();
+        let versioned = script.hash_v1();
+
+        assert_eq!(canonical, versioned);
+        assert_eq!(versioned, script.hash_with_version(ScriptHashVersion::V1));
+    }
+
+    #[test]
     fn test_cell_out_capacity() {
         let lock = Script::new([0x00; 32], 0, vec![0; 20]);
         let cell = CellOutput { lock, type_: None, capacity: 1000 };
         let occupied = cell.occupied_capacity(100);
         assert!(occupied > 0);
         assert!(cell.verify_capacity(100).is_ok());
+        assert_eq!(
+            CellOutput { lock: Script::new([0x00; 32], 0, vec![0; 20]), type_: None, capacity: 10 }.verify_capacity(100),
+            Err(CapacityError::InsufficientCapacity { required: occupied, available: 10 })
+        );
     }
 
     #[test]
@@ -616,13 +707,36 @@ mod tests {
         let witnesses = vec![vec![0; 65]];
 
         let tx = CellTx::new(inputs, deps, outputs, outputs_data, witnesses).unwrap();
-        assert!(tx.compute_mass() > tx.serialized_size() as u64);
-        assert!(tx.compute_mass() > 0);
-        assert!(tx.transient_mass() > 0);
-        assert!(tx.storage_mass() > 0);
-        assert_eq!(tx.transient_mass(), (tx.serialized_size() as u64) * TRANSIENT_BYTE_TO_MASS_FACTOR);
-        assert_eq!(tx.mass(), tx.storage_mass());
-        assert_ne!(tx.compute_mass(), tx.storage_mass());
+        assert!(tx.estimated_compute_mass() > tx.serialized_size() as u64);
+        assert!(tx.estimated_compute_mass() > 0);
+        assert!(tx.estimated_transient_mass() > 0);
+        assert!(tx.estimated_storage_mass() > 0);
+        assert_eq!(tx.estimated_transient_mass(), (tx.serialized_size() as u64) * TRANSIENT_BYTE_TO_MASS_FACTOR);
+        assert_ne!(tx.estimated_compute_mass(), tx.estimated_storage_mass());
+    }
+
+    #[test]
+    fn test_celltx_compute_mass_matches_non_contextual_formula() {
+        let inputs = vec![CellInput::new(OutPoint::new([0x01; 32], 0), 0), CellInput::new(OutPoint::new([0x02; 32], 1), 0)];
+        let deps = vec![];
+        let outputs = vec![
+            CellOutput { lock: Script::new([0x10; 32], 1, vec![1; 20]), type_: None, capacity: 10_000 },
+            CellOutput {
+                lock: Script::new([0x20; 32], 1, vec![2; 32]),
+                type_: Some(Script::new([0x30; 32], 1, vec![3; 12])),
+                capacity: 20_000,
+            },
+        ];
+        let outputs_data = vec![vec![0xAA; 16], vec![0xBB; 8]];
+        let witnesses = vec![vec![0xCC; 65], vec![0xDD; 32]];
+
+        let tx = CellTx::new(inputs, deps, outputs, outputs_data, witnesses).unwrap();
+        let serialized_size = tx.serialized_size() as u64;
+        let total_output_script_bytes = (32 + 1 + 20) + (32 + 1 + 32) + (32 + 1 + 12);
+        let expected =
+            serialized_size * MASS_PER_TX_BYTE + total_output_script_bytes as u64 * MASS_PER_SCRIPT_PUB_KEY_BYTE + 2 * MASS_PER_SIG_OP;
+
+        assert_eq!(tx.estimated_compute_mass(), expected);
     }
 
     #[test]

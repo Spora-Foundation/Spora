@@ -66,11 +66,39 @@ use crate::tx::{
 };
 use spora_consensus_client::{pay_to_address_lock_script, CellEntry, TransactionInput};
 use spora_consensus_core::constants::UNACCEPTED_DAA_SCORE;
-use spora_consensus_core::tx::TransactionOutpoint;
+use spora_consensus_core::tx::{TransactionId, TransactionOutpoint};
 use spora_exec::{CellInput, CellTx};
 use std::collections::VecDeque;
 
 use super::SignerT;
+
+/// Options for Child-Pays-for-Parent (CPFP) fee bumping.
+///
+/// CPFP allows a child transaction to pay a higher fee to incentivize miners
+/// to confirm both the parent (stuck/low-fee) transaction and the child
+/// transaction together.
+///
+/// # Fee Calculation
+///
+/// The child fee is calculated so that the *combined* fee rate of the
+/// parent + child package meets `target_fee_rate`:
+///
+/// ```text
+/// child_fee = target_fee_rate * (parent_mass + child_mass) - parent_fee
+/// ```
+///
+/// If the parent already meets the target rate, no additional fee is added.
+#[derive(Debug, Clone)]
+pub struct CpfpOptions {
+    /// Target fee rate (fees per unit of mass) for the combined parent+child package.
+    pub target_fee_rate: f64,
+    /// Transaction ID of the unconfirmed parent transaction to accelerate.
+    pub parent_transaction_id: TransactionId,
+    /// Total mass of the parent transaction.
+    pub parent_transaction_mass: u64,
+    /// Fee already paid by the parent transaction (in SAU).
+    pub parent_transaction_fee: u64,
+}
 
 // fee reduction - when a transactions has some storage mass
 // and the total mass is below this threshold (as well as
@@ -290,6 +318,8 @@ struct Inner {
     signature_mass_per_input: u64,
     // fee rate
     fee_rate: Option<f64>,
+    // CPFP (Child-Pays-for-Parent) options
+    cpfp: Option<CpfpOptions>,
     // final transaction amount and fees
     // `None` is used for sweep transactions
     final_transaction: Option<FinalTransaction>,
@@ -323,6 +353,7 @@ impl std::fmt::Debug for Inner {
             .field("signature_mass_per_input", &self.signature_mass_per_input)
             // .field("final_transaction", &self.final_transaction)
             .field("fee_rate", &self.fee_rate)
+            .field("cpfp", &self.cpfp)
             .field("final_transaction_priority_fee", &self.final_transaction_priority_fee)
             .field("final_transaction_outputs", &self.final_transaction_outputs)
             .field("final_transaction_outputs_harmonic", &self.final_transaction_outputs_harmonic)
@@ -454,6 +485,7 @@ impl Generator {
             standard_change_output_compute_mass: standard_change_output_mass,
             signature_mass_per_input,
             fee_rate,
+            cpfp: None,
             final_transaction,
             final_transaction_priority_fee,
             final_transaction_outputs,
@@ -465,6 +497,77 @@ impl Generator {
         };
 
         Ok(Self { inner: Arc::new(inner) })
+    }
+
+    /// Create a new [`Generator`] with CPFP (Child-Pays-for-Parent) fee bumping enabled.
+    ///
+    /// This is a convenience builder that configures the generator to calculate
+    /// additional fees so that the combined parent+child transaction package meets
+    /// the desired fee rate.
+    ///
+    /// # Arguments
+    /// * `settings` - Standard generator settings.
+    /// * `signer` - Optional transaction signer.
+    /// * `abortable` - Optional abort trigger.
+    /// * `cpfp` - CPFP options specifying the parent transaction details and target fee rate.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let cpfp = CpfpOptions {
+    ///     target_fee_rate: 2.0,
+    ///     parent_transaction_id: parent_tx_id,
+    ///     parent_transaction_mass: 2000,
+    ///     parent_transaction_fee: 500,
+    /// };
+    /// let generator = Generator::with_cpfp(settings, None, None, cpfp)?;
+    /// ```
+    pub fn with_cpfp(
+        settings: GeneratorSettings,
+        signer: Option<Arc<dyn SignerT>>,
+        abortable: Option<&Abortable>,
+        cpfp: CpfpOptions,
+    ) -> Result<Self> {
+        let mut gen = Self::try_new(settings, signer, abortable)?;
+        // Safety: we just created `gen` and hold the only Arc reference.
+        Arc::get_mut(&mut gen.inner)
+            .expect("generator inner is uniquely owned at construction time")
+            .cpfp = Some(cpfp);
+        Ok(gen)
+    }
+
+    /// Calculate the additional fee that the child transaction must pay to meet
+    /// the CPFP target fee rate for the combined parent+child package.
+    ///
+    /// Returns `0` if no CPFP options are configured or if the parent already
+    /// meets the target rate.
+    ///
+    /// The formula is:
+    /// ```text
+    /// child_extra = target_rate * (parent_mass + child_mass) - parent_fee - base_child_fee
+    /// ```
+    pub fn calc_cpfp_additional_fee(&self, child_mass: u64, base_child_fee: u64) -> u64 {
+        if let Some(cpfp) = &self.inner.cpfp {
+            let combined_mass = cpfp.parent_transaction_mass.saturating_add(child_mass);
+            let required_combined_fee = (cpfp.target_fee_rate * combined_mass as f64) as u64;
+            // The child must make up the deficit between required combined fee
+            // and what is already covered by parent_fee + base_child_fee.
+            let already_covered = cpfp.parent_transaction_fee.saturating_add(base_child_fee);
+            required_combined_fee.saturating_sub(already_covered)
+        } else {
+            0
+        }
+    }
+
+    /// Returns the [`CpfpOptions`] if CPFP is configured for this generator.
+    pub fn cpfp_options(&self) -> Option<&CpfpOptions> {
+        self.inner.cpfp.as_ref()
+    }
+
+    /// Check whether any of the current transaction inputs originate from an
+    /// unconfirmed parent transaction.  A cell entry with `block_daa_score ==
+    /// UNACCEPTED_DAA_SCORE` is treated as unconfirmed.
+    pub fn has_unconfirmed_parent_inputs(&self, entries: &[CellEntryReference]) -> bool {
+        entries.iter().any(|e| e.cell.block_daa_score == UNACCEPTED_DAA_SCORE)
     }
 
     /// Returns the current [`NetworkType`]

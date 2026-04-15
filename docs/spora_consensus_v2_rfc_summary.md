@@ -1,6 +1,6 @@
 # Spora 共识架构 V2 RFC 摘要
 
-- 日期: 2026-04-13
+- 日期: 2026-04-15
 - 文档版本: v2.0
 - 状态: 已按当前实现审计更新
 - 正文: [spora_consensus_architecture_v2.md](/Users/arthur/RustroverProjects/Spora/docs/spora_consensus_architecture_v2.md)
@@ -11,7 +11,7 @@
 
 这份文档不再是 “V2 draft review briefing”。
 
-截至 2026-04-13，更准确的定位是：
+截至 2026-04-15，更准确的定位是：
 
 - 说明 V2 RFC 的协议核心仍然是什么
 - 标明哪些协议判断已经被代码主路径实现
@@ -81,12 +81,15 @@ V2 仍然定义 Spora 为：
 - mempool 主路径上的真实输入解析、POV 视角校验、fee 计算与 contextual mass 回填
 - template 构造中的 canonical commitment / acceptance / coinbase 主路径
 - `txscript` 删除、`ScriptPublicKey` 主路径退役、wallet legacy account / compat / gen0 删除
+- 地址锁迁移机制已收口为固定终态策略（legacy inline 锁共识路径统一拒绝）
+- `LegacyInlineLockDisabled` 错误语义已在 mempool/template 路径稳定映射为 `CellValidationFailed`
 
 ### 仍然需要继续收尾
 
-- Cell-native 资源模型仍是简化实现，`compute_mass()` 仍是静态 hint
+- Cell-native 资源模型主路径已经收口；剩余事项主要是历史文档和少量命名/辅助层整理
 - `CellMeta` / metadata / wrapper 分层仍有继续收敛空间
 - `mempool` / `template` 虽然已经不是 placeholder，但仍有内部 helper 和命名可继续收口
+- 地址锁迁移相关历史文档口径仍需持续清理（避免残留“分阶段激活”叙述）
 - 历史文档与说明材料仍有一部分口径落后于代码现状
 
 ## 5. 对旧版摘要里几条判断的修正

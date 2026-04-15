@@ -4,9 +4,10 @@
 // Load input syscall
 // Reference: ckb/script/src/syscalls/load_input.rs
 
-use super::utils::{store_data, INDEX_OUT_OF_BOUND, ITEM_MISSING, SUCCESS};
+use super::utils::{store_data, INDEX_OUT_OF_BOUND, ITEM_MISSING};
 use super::{InputField, Source, LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER, LOAD_INPUT_SYSCALL_NUMBER};
 use crate::celltx::{CellInput, CellTx};
+use crate::vm::transferred_byte_cycles;
 use ckb_vm::{
     registers::{A0, A3, A4, A5, A7},
     Error as VMError, Register, SupportMachine, Syscalls,
@@ -93,8 +94,9 @@ impl<M: SupportMachine> Syscalls<M> for LoadInput {
         };
 
         // Store data using CKB-style store_data
-        store_data(machine, &data)?;
-        machine.set_register(A0, M::REG::from_u8(SUCCESS));
+        let result = store_data(machine, &data)?;
+        machine.add_cycles_no_checking(transferred_byte_cycles(result.written_size))?;
+        machine.set_register(A0, M::REG::from_u8(result.return_code));
 
         Ok(true)
     }
@@ -103,6 +105,7 @@ impl<M: SupportMachine> Syscalls<M> for LoadInput {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::vm::syscalls::SUCCESS;
     use crate::vm::ScriptVersion;
     use ckb_vm::{
         registers::{A1, A2},

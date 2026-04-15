@@ -9,12 +9,6 @@ pub const CELL_TX_VERSION: u32 = spora_exec::CELL_TX_VERSION;
 
 pub const LOCK_TIME_THRESHOLD: u64 = 500_000_000_000;
 
-/// MAX_SCRIPT_PUBLIC_KEY_VERSION is the current latest supported public key script version.
-pub const MAX_SCRIPT_PUBLIC_KEY_VERSION: u16 = 0;
-
-// Script version constants for different script types
-pub const SCRIPT_VER_CLASSIC: u16 = 0; // Classic script types (PubKey, ScriptHash, etc.)
-
 /// SauPerSpora is the number of sau in one spora (1 SPORA).
 pub const SAU_PER_SPORA: u64 = 100_000_000;
 

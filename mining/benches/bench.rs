@@ -2,7 +2,7 @@ use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use itertools::Itertools;
 use rand::{thread_rng, Rng};
 use spora_consensus_core::tx::{CellInput, CellTx, TransactionOutpoint};
-use spora_hashes::{HasherBase, TransactionID};
+use spora_hashes::{CellTxId, HasherBase};
 use spora_mining::{model::topological_index::TopologicalIndex, FeerateTransactionKey, Frontier, Policy};
 use std::{
     collections::{hash_set::Iter, HashMap, HashSet},
@@ -76,7 +76,7 @@ pub fn bench_compare_topological_index_fns(c: &mut Criterion) {
 }
 
 fn generate_unique_tx(i: u64) -> Arc<CellTx> {
-    let mut hasher = TransactionID::new();
+    let mut hasher = CellTxId::new();
     let prev = hasher.update(i.to_le_bytes()).clone().finalize();
     let input = CellInput::new(TransactionOutpoint::new(prev.as_bytes(), 0), 0);
     Arc::new(CellTx::new(vec![input], vec![], vec![], vec![], vec![vec![]]).expect("benchmark tx must be a valid CellTx"))
@@ -189,7 +189,7 @@ pub fn bench_mempool_selectors(c: &mut Criterion) {
             b.iter(|| {
                 black_box({
                     let mut selector = frontier.build_rebalancing_selector();
-                    selector.select_transactions().iter().map(|k| k.compute_mass()).sum::<u64>()
+                    selector.select_transactions().iter().map(|k| k.estimated_compute_mass()).sum::<u64>()
                 })
             })
         });
@@ -202,7 +202,7 @@ pub fn bench_mempool_selectors(c: &mut Criterion) {
                 black_box({
                     let mut selector = frontier.build_selector_sample_inplace(&mut collisions);
                     n += 1;
-                    selector.select_transactions().iter().map(|k| k.compute_mass()).sum::<u64>()
+                    selector.select_transactions().iter().map(|k| k.estimated_compute_mass()).sum::<u64>()
                 })
             })
         });
@@ -216,7 +216,7 @@ pub fn bench_mempool_selectors(c: &mut Criterion) {
                 b.iter(|| {
                     black_box({
                         let mut selector = frontier.build_selector_take_all();
-                        selector.select_transactions().iter().map(|k| k.compute_mass()).sum::<u64>()
+                        selector.select_transactions().iter().map(|k| k.estimated_compute_mass()).sum::<u64>()
                     })
                 })
             });
@@ -226,7 +226,7 @@ pub fn bench_mempool_selectors(c: &mut Criterion) {
             b.iter(|| {
                 black_box({
                     let mut selector = frontier.build_selector(&Policy::new(500_000));
-                    selector.select_transactions().iter().map(|k| k.compute_mass()).sum::<u64>()
+                    selector.select_transactions().iter().map(|k| k.estimated_compute_mass()).sum::<u64>()
                 })
             })
         });
@@ -262,7 +262,7 @@ pub fn bench_inplace_sampling_worst_case(c: &mut Criterion) {
                 black_box({
                     let mut selector = frontier.build_selector_sample_inplace(&mut collisions);
                     n += 1;
-                    selector.select_transactions().iter().map(|k| k.compute_mass()).sum::<u64>()
+                    selector.select_transactions().iter().map(|k| k.estimated_compute_mass()).sum::<u64>()
                 })
             })
         });

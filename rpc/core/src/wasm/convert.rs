@@ -83,16 +83,11 @@ cfg_if::cfg_if! {
             fn from(tx: &Transaction) -> Self {
                 let cell_tx =
                     tx.cell_tx().unwrap_or_else(|err| panic!("Transaction must be canonical before RPC conversion: {err}"));
-                let projected_mass = tx
+                tx
                     .signable_transaction()
                     .ok()
-                    .map(|signable_tx| {
-                        spora_consensus_core::mass::project_verifiable_transaction_mass(&signable_tx.as_verifiable(), None).selection_mass
-                    })
-                    .unwrap_or_else(|| spora_consensus_core::mass::project_cell_tx_mass(&cell_tx, None).selection_mass);
-                let mut rpc_tx = RpcTransaction::from(&cell_tx);
-                rpc_tx.mass = projected_mass;
-                rpc_tx
+                    .map(|signable_tx| RpcTransaction::from_verifiable_transaction(&signable_tx.as_verifiable()))
+                    .unwrap_or_else(|| RpcTransaction::from_cell_tx_with_fallback_mass(&cell_tx))
             }
         }
     }

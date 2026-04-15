@@ -14,7 +14,7 @@ pub use async_trait::async_trait;
 pub use borsh::{BorshDeserialize, BorshSerialize};
 pub use js_sys::Array;
 pub use serde::{Deserialize, Serialize};
-pub use spora_addresses::{Address, Version as AddressVersion};
+pub use spora_addresses::Address;
 pub use spora_bip32::{ChildNumber, ExtendedPrivateKey, ExtendedPublicKey, SecretKey};
 pub use spora_consensus_core::network::{NetworkId, NetworkTypeT};
 pub use spora_utils::hex::*;

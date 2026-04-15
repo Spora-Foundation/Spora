@@ -327,9 +327,8 @@ impl PruningProofManager {
                     let ghostdag = self.ghostdag_store.get_data(hash).unwrap();
                     e.insert((&*ghostdag).into());
 
-                    // We fill `ghostdag_blocks` only for sporad-go compatibility reasons, but the real set we
-                    // send is `daa_window_blocks` which represents the full trusted sub-DAG in the antifuture
-                    // of the pruning point which sporad-rust nodes expect to get when synced with headers proof
+                    // Keep the hash-indexable GHOSTDAG projection alongside the authoritative DAA-window
+                    // trusted headers set used to sync and validate the pruning-point antifuture sub-DAG.
                     if let Entry::Vacant(e) = daa_window_blocks.entry(hash) {
                         e.insert(TrustedHeader {
                             header: self.headers_store.get_header(hash).unwrap(),

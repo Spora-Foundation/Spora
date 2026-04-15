@@ -5,7 +5,7 @@
 
 #[cfg(all(test, feature = "vm"))]
 mod tests {
-    use crate::celltx::{CellOutput, CellInput, CellTx, OutPoint, Script};
+    use crate::celltx::{CellInput, CellOutput, CellTx, OutPoint, Script};
     use crate::scripts::{load_header_timestamp_code_hash, LOAD_HEADER_TIMESTAMP_SCRIPT};
     use crate::vm::{ResolvedCell, ResolvedHeader, ScriptVersion, SimpleDataProvider, TransactionScriptVerifier};
     use std::sync::Arc;

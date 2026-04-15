@@ -35,8 +35,7 @@ use spora_consensus_core::mining_rules::MiningRules;
 use spora_consensus_core::network::{NetworkId, NetworkType::Mainnet};
 use spora_consensus_core::trusted::{ExternalGhostdagData, TrustedBlock};
 use spora_consensus_core::tx::{
-    outpoint_from_id, pay_to_script_hash_lock_script, push_data_script, CellEntry, CellOutput, CellInput, CellTx, MutableTransaction,
-    ScriptCacheCounters, Script, TransactionOutpoint,
+    outpoint_from_id, CellEntry, CellInput, CellOutput, CellTx, MutableTransaction, Script, ScriptCacheCounters, TransactionOutpoint,
 };
 use spora_consensus_core::{blockhash, hashing, BlockHashMap, BlueWorkType};
 use spora_consensus_notify::root::ConsensusNotificationRoot;
@@ -57,7 +56,6 @@ use serde_json::{Map as JsonMap, Value as JsonValue};
 use spora_cellindex::api::{CellIndexApi, CellIndexProxy};
 use spora_cellindex::CellIndex;
 use spora_consensus_core::errors::tx::TxRuleError;
-use spora_consensus_core::hashing::sighash::calc_schnorr_signature_hash;
 use spora_consensus_core::merkle::calc_hash_merkle_root;
 use spora_consensus_core::muhash::MuHashExtensions;
 use spora_core::core::Core;
@@ -100,21 +98,7 @@ impl From<&JsonBlock> for DagBlock {
 
 // Test configuration
 const NUM_BLOCKS_EXPONENT: i32 = 12;
-const OP_FALSE: u8 = 0x00;
 const OP_TRUE: u8 = 0x51;
-const OP_IF: u8 = 0x63;
-const OP_ELSE: u8 = 0x67;
-const OP_ENDIF: u8 = 0x68;
-const OP_CHECKSIG: u8 = 0xac;
-const OP_TX_INPUT_SPK: u8 = 0xbf;
-
-fn push_only_witness_script(parts: &[&[u8]]) -> Vec<u8> {
-    let mut script = Vec::new();
-    for part in parts {
-        script.extend(push_data_script(part).expect("test witness/signature script push must be canonical"));
-    }
-    script
-}
 
 fn reachability_stretch_test(use_attack_json: bool) {
     // Arrange
@@ -1842,105 +1826,6 @@ async fn staging_consensus_test() {
     core.join(joins);
 }
 
-/// Tests the KIP-10 transaction introspection opcode activation by verifying that:
-/// 1. Transactions using these opcodes are rejected before the activation DAA score
-/// 2. The same transactions are accepted at and after the activation score
-/// Uses OpInputSpk opcode as an example
-#[tokio::test]
-async fn run_kip10_activation_test() {
-    // KIP-10 activates at DAA score 3 in this test
-    const KIP10_ACTIVATION_DAA_SCORE: u64 = 3;
-
-    init_allocator_with_default_settings();
-
-    // Create P2SH script that attempts to use OpInputSpk - this will be our test subject
-    // The script should fail before KIP-10 activation and succeed after
-    let redeem_script = vec![OP_FALSE, OP_TX_INPUT_SPK];
-    let lock_script = pay_to_script_hash_lock_script(&redeem_script);
-
-    // Set up initial cell with our test script
-    let initial_cell_collection = [(
-        TransactionOutpoint::new(1.into(), 0),
-        CellEntry::from_cell_metadata(SAU_PER_SPORA, 0, lock_script.hash(), None, [0; 32], 0, false),
-    )];
-
-    // Initialize consensus with KIP-10 activation point
-    let config = ConfigBuilder::new(DEVNET_PARAMS)
-        .skip_proof_of_work()
-        .apply_args(|cfg| {
-            let mut genesis_multiset = MuHash::new();
-            initial_cell_collection.iter().for_each(|(outpoint, cell)| {
-                genesis_multiset.add_cell_entry(outpoint, cell);
-            });
-            cfg.params.genesis.cell_commitment = genesis_multiset.finalize();
-            let genesis_header: Header = (&cfg.params.genesis).into();
-            cfg.params.genesis.hash = genesis_header.hash;
-        })
-        .edit_consensus_params(|_p| {
-            // crescendo removed - activation is always on
-        })
-        .build();
-
-    let consensus = TestConsensus::new(&config);
-    let mut genesis_multiset = MuHash::new();
-    consensus.append_imported_pruning_point_cells(&initial_cell_collection, &mut genesis_multiset);
-    consensus.import_pruning_point_cell_set(config.genesis.hash, genesis_multiset).unwrap();
-    consensus.init();
-
-    // Build blockchain up to one block before activation
-    let mut index = 0;
-    for _ in 0..KIP10_ACTIVATION_DAA_SCORE - 1 {
-        let parent = if index == 0 { config.genesis.hash } else { index.into() };
-        consensus.add_cell_valid_block_with_parents((index + 1).into(), vec![parent], vec![]).await.unwrap();
-        index += 1;
-    }
-    assert_eq!(consensus.get_virtual_daa_score(), index);
-
-    // Create transaction that attempts to use the KIP-10 opcode
-    let input = CellInput::new(initial_cell_collection[0].0, 0);
-    let witness_script = push_data_script(&redeem_script).expect("test redeem script push must be canonical");
-    let output = CellOutput { capacity: initial_cell_collection[0].1.capacity() - 5000, lock: lock_script.clone(), type_: None };
-    let tx = CellTx::new(
-        vec![input],
-        vec![], // cell_deps
-        vec![output],
-        vec![vec![]],         // outputs_data
-        vec![witness_script], // witnesses
-    )
-    .expect("valid CellTx");
-    let tx_id = tx.id();
-
-    let mut tx = MutableTransaction::with_entries(tx, vec![initial_cell_collection[0].1.clone()]);
-    // This triggers storage mass population
-    let _ = consensus.validate_mempool_transaction(&mut tx, &TransactionValidationArgs::default());
-    let tx = tx.tx.unwrap_or_clone();
-
-    // Test 1: Build empty block, then manually insert invalid tx and verify consensus rejects it
-    {
-        let miner_data = MinerData::new(vec![]);
-
-        // First build block without transactions
-        let mut block =
-            consensus.build_cell_valid_block_with_parents((index + 1).into(), vec![index.into()], miner_data.clone(), vec![]);
-
-        // Insert our test transaction and recalculate block hashes
-        block.transactions.push(tx.clone());
-        block.header.hash_merkle_root = calc_hash_merkle_root(block.transactions.iter(), true);
-        let block_status = consensus.validate_and_insert_block(block.to_immutable()).virtual_state_task.await;
-        assert!(matches!(block_status, Ok(BlockStatus::StatusDisqualifiedFromChain)));
-        assert_eq!(consensus.lkg_virtual_state.load().daa_score, 2);
-        index += 1;
-    }
-    // // Add one more block to reach activation score
-    consensus.add_cell_valid_block_with_parents((index + 1).into(), vec![(index - 1).into()], vec![]).await.unwrap();
-    index += 1;
-
-    // Test 2: Verify the same transaction is accepted after activation
-    let status = consensus.add_cell_valid_block_with_parents((index + 1).into(), vec![index.into()], vec![tx.clone()]).await;
-    assert!(matches!(status, Ok(BlockStatus::StatusCellValid)));
-    assert!(consensus.lkg_virtual_state.load().accepted_tx_ids.contains(&tx_id));
-}
-
 #[tokio::test]
 async fn payload_test() {
     let config = ConfigBuilder::new(DEVNET_PARAMS)
@@ -2103,121 +1988,4 @@ async fn payload_activation_test() {
 
     assert!(matches!(status, Ok(BlockStatus::StatusCellValid)));
     assert!(consensus.lkg_virtual_state.load().accepted_tx_ids.contains(&tx_id));
-}
-
-#[tokio::test]
-async fn runtime_sig_op_counting_test() {
-    use spora_consensus_core::{hashing::sighash::SigHashReusedValuesUnsync, hashing::sighash_type::SIG_HASH_ALL};
-
-    // Runtime sig op counting activates at DAA score 3
-    const RUNTIME_SIGOP_ACTIVATION_DAA_SCORE: u64 = 3;
-
-    init_allocator_with_default_settings();
-
-    // Set up signing key for signature verification
-    let secp = secp256k1::Secp256k1::new();
-    let (secret_key, _) = secp.generate_keypair(&mut rand::thread_rng());
-    let keypair = secp256k1::Keypair::from_seckey_slice(secp256k1::SECP256K1, &secret_key.secret_bytes()).unwrap();
-    let pub_key = keypair.x_only_public_key().0.serialize();
-
-    let reused_values = SigHashReusedValuesUnsync::new();
-
-    // Create redeem script that has 1 sig op in the executed branch (true)
-    // and 3 sig ops in the non-executed branch (false)
-    let redeem_script = vec![OP_TRUE, OP_IF, OP_CHECKSIG, OP_ELSE, OP_CHECKSIG, OP_CHECKSIG, OP_CHECKSIG, OP_ENDIF];
-
-    let lock_script = pay_to_script_hash_lock_script(&redeem_script);
-
-    // Set up initial cell with P2SH script
-    let initial_cell_collection = [(
-        TransactionOutpoint::new(1.into(), 0),
-        CellEntry::from_cell_metadata(SAU_PER_SPORA, 0, lock_script.hash(), None, [0; 32], 0, false),
-    )];
-
-    let config = ConfigBuilder::new(DEVNET_PARAMS)
-        .skip_proof_of_work()
-        .apply_args(|cfg| {
-            let mut genesis_multiset = MuHash::new();
-            initial_cell_collection.iter().for_each(|(outpoint, cell)| {
-                genesis_multiset.add_cell_entry(outpoint, cell);
-            });
-            cfg.params.genesis.cell_commitment = genesis_multiset.finalize();
-            let genesis_header: Header = (&cfg.params.genesis).into();
-            cfg.params.genesis.hash = genesis_header.hash;
-        })
-        .edit_consensus_params(|_p| {
-            // crescendo removed - activation is always on
-        })
-        .build();
-
-    let consensus = TestConsensus::new(&config);
-    let mut genesis_multiset = MuHash::new();
-    consensus.append_imported_pruning_point_cells(&initial_cell_collection, &mut genesis_multiset);
-    consensus.import_pruning_point_cell_set(config.genesis.hash, genesis_multiset).unwrap();
-    consensus.init();
-
-    // Build blockchain up to one block before activation
-    let mut index = 0;
-    for _ in 0..RUNTIME_SIGOP_ACTIVATION_DAA_SCORE - 1 {
-        let parent = if index == 0 { config.genesis.hash } else { index.into() };
-        consensus.add_cell_valid_block_with_parents((index + 1).into(), vec![parent], vec![]).await.unwrap();
-        index += 1;
-    }
-
-    // Create transaction spending P2SH with 1 sig op limit
-    let input = CellInput::new(initial_cell_collection[0].0, 0);
-    let output = CellOutput {
-        capacity: initial_cell_collection[0].1.capacity() - 5000,
-        lock: Script::new([0u8; 32], 0, vec![OP_TRUE]),
-        type_: None,
-    };
-    let mut tx = CellTx::new(
-        vec![input],
-        vec![], // cell_deps
-        vec![output],
-        vec![vec![]], // outputs_data
-        vec![vec![]], // witnesses (placeholder)
-    )
-    .expect("valid CellTx");
-
-    // Sign transaction
-    let mut tx_for_signing = MutableTransaction::with_entries(tx.clone(), vec![initial_cell_collection[0].1.clone()]);
-
-    let signature = {
-        let hash = calc_schnorr_signature_hash(&tx_for_signing.as_verifiable(), 0, SIG_HASH_ALL, &reused_values);
-        let msg = secp256k1::Message::from_digest_slice(hash.as_bytes().as_slice()).unwrap();
-        let sig = keypair.sign_schnorr(msg);
-        let mut signature = sig.as_ref().to_vec();
-        signature.push(SIG_HASH_ALL.to_u8());
-        signature
-    };
-
-    // Complete transaction with signature script in witness
-    let witness_script = push_only_witness_script(&[&signature, &pub_key, &redeem_script]);
-    tx.witnesses[0] = witness_script;
-
-    let mut tx = MutableTransaction::with_entries(tx, vec![initial_cell_collection[0].1.clone()]);
-    // This triggers storage mass population
-    let _ = consensus.validate_mempool_transaction(&mut tx, &TransactionValidationArgs::default());
-    let tx = tx.tx.unwrap_or_clone();
-
-    // Test 1: Before activation, tx should be rejected due to static sig op counting (sees 3 ops)
-    {
-        let miner_data = MinerData::new(vec![]);
-        let mut block =
-            consensus.build_cell_valid_block_with_parents((index + 1).into(), vec![index.into()], miner_data.clone(), vec![]);
-        block.transactions.push(tx.clone());
-        block.header.hash_merkle_root = calc_hash_merkle_root(block.transactions.iter(), true);
-        let block_status = consensus.validate_and_insert_block(block.to_immutable()).virtual_state_task.await;
-        assert!(matches!(block_status, Ok(BlockStatus::StatusDisqualifiedFromChain)));
-        index += 1;
-    }
-
-    // Add block to reach activation
-    consensus.add_cell_valid_block_with_parents((index + 1).into(), vec![(index - 1).into()], vec![]).await.unwrap();
-    index += 1;
-
-    // Test 2: After activation, tx should be accepted as runtime counting only sees 1 executed sig op
-    let status = consensus.add_cell_valid_block_with_parents((index + 1).into(), vec![index.into()], vec![tx]).await;
-    assert!(matches!(status, Ok(BlockStatus::StatusCellValid)));
 }

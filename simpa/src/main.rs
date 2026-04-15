@@ -310,15 +310,16 @@ fn main_impl(mut args: Args) {
 
                     cbad.accepted_transactions.iter().for_each(|ate| {
                         attempted_reconstruction += 1;
-                        match consensus.get_populated_transaction_in_accepting_block(ate.transaction_id, source_block) {
+                        match consensus
+                            .get_resolved_cell_transaction_in_accepting_block(ate.transaction_id, source_block)
+                            .map(spora_consensus_core::tx::ResolvedCellTransaction::into_signable_transaction)
+                        {
                             Ok(_) => successful_reconstruction += 1,
                             Err(err) => {
                                 failed_reconstruction += 1;
                                 if reconstruction_error_examples.len() < 3 {
-                                    reconstruction_error_examples.push(format!(
-                                        "{} in source block {}: {}",
-                                        ate.transaction_id, source_block, err
-                                    ));
+                                    reconstruction_error_examples
+                                        .push(format!("{} in source block {}: {}", ate.transaction_id, source_block, err));
                                 }
                             }
                         }
@@ -466,7 +467,11 @@ async fn validate(src_consensus: &Consensus, dst_consensus: &Consensus, params: 
     }
 
     // Assert that at least one body tip was resolved with valid cells
-    assert!(dst_consensus.body_tips().iter().copied().any(|h| dst_consensus.get_block_status(h) == Some(BlockStatus::StatusCellValid)));
+    assert!(dst_consensus
+        .body_tips()
+        .iter()
+        .copied()
+        .any(|h| dst_consensus.get_block_status(h) == Some(BlockStatus::StatusCellValid)));
     let elapsed = start.elapsed();
     info!(
         "Total validation time: {:?}, {} processing rate: {:.2} (b/s), transaction processing rate: {:.2} (t/s)",

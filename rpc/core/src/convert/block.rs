@@ -14,7 +14,7 @@ impl From<&Block> for RpcBlock {
     fn from(item: &Block) -> Self {
         Self {
             header: item.header.as_ref().into(),
-            transactions: item.transactions.iter().map(crate::RpcTransaction::from).collect(),
+            transactions: item.transactions.iter().map(crate::RpcTransaction::from_cell_tx_with_fallback_mass).collect(),
             verbose_data: None,
         }
     }
@@ -22,7 +22,10 @@ impl From<&Block> for RpcBlock {
 
 impl From<&Block> for RpcRawBlock {
     fn from(item: &Block) -> Self {
-        Self { header: item.header.as_ref().into(), transactions: item.transactions.iter().map(crate::RpcTransaction::from).collect() }
+        Self {
+            header: item.header.as_ref().into(),
+            transactions: item.transactions.iter().map(crate::RpcTransaction::from_cell_tx_with_fallback_mass).collect(),
+        }
     }
 }
 
@@ -30,7 +33,7 @@ impl From<&MutableBlock> for RpcBlock {
     fn from(item: &MutableBlock) -> Self {
         Self {
             header: item.header.as_ref().into(),
-            transactions: item.transactions.iter().map(crate::RpcTransaction::from).collect(),
+            transactions: item.transactions.iter().map(crate::RpcTransaction::from_cell_tx_with_fallback_mass).collect(),
             verbose_data: None,
         }
     }
@@ -38,13 +41,19 @@ impl From<&MutableBlock> for RpcBlock {
 
 impl From<&MutableBlock> for RpcRawBlock {
     fn from(item: &MutableBlock) -> Self {
-        Self { header: item.header.as_ref().into(), transactions: item.transactions.iter().map(crate::RpcTransaction::from).collect() }
+        Self {
+            header: item.header.as_ref().into(),
+            transactions: item.transactions.iter().map(crate::RpcTransaction::from_cell_tx_with_fallback_mass).collect(),
+        }
     }
 }
 
 impl From<MutableBlock> for RpcRawBlock {
     fn from(item: MutableBlock) -> Self {
-        Self { header: item.header.into(), transactions: item.transactions.iter().map(crate::RpcTransaction::from).collect() }
+        Self {
+            header: item.header.into(),
+            transactions: item.transactions.iter().map(crate::RpcTransaction::from_cell_tx_with_fallback_mass).collect(),
+        }
     }
 }
 
@@ -71,7 +80,7 @@ impl TryFrom<RpcRawBlock> for Block {
 #[cfg(test)]
 mod tests {
     use spora_consensus_core::mass::project_cell_tx_mass;
-    use spora_consensus_core::tx::{CellOutput, CellInput, CellTx, OutPoint, Script};
+    use spora_consensus_core::tx::{CellInput, CellOutput, CellTx, OutPoint, Script};
 
     #[test]
     fn rpc_transaction_from_cell_tx_preserves_canonical_output_metadata() {

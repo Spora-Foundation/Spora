@@ -71,7 +71,7 @@ use spora_consensus_core::{
     network::NetworkType,
     pruning::{PruningPointProof, PruningPointTrustedData, PruningPointsList, PruningProofMetadata},
     trusted::{ExternalGhostdagData, TrustedBlock},
-    tx::{CellTx, MutableTransaction, ResolvedCellTransaction, SignableTransaction, TransactionOutpoint},
+    tx::{CellTx, MutableTransaction, ResolvedCellTransaction, TransactionOutpoint},
     BlockHashSet, BlueWorkType, ChainPath, HashMapCustomHasher,
 };
 use spora_consensus_notify::root::ConsensusNotificationRoot;
@@ -305,15 +305,6 @@ impl Consensus {
         }
     }
 
-    pub fn get_populated_transaction_in_accepting_block(
-        &self,
-        txid: Hash,
-        accepting_block: Hash,
-    ) -> Result<SignableTransaction, String> {
-        self.get_resolved_cell_transaction_in_accepting_block_impl(txid, accepting_block)
-            .map(ResolvedCellTransaction::into_signable_transaction)
-    }
-
     fn get_resolved_cell_transaction_in_accepting_block_impl(
         &self,
         txid: Hash,
@@ -351,7 +342,11 @@ impl Consensus {
                 provider
                     .get_cell_at_pov(&input.previous_output, pov)
                     .map_err(|e| {
-                        format!("input resolution failed for {}:{}: {e}", hex::encode(input.previous_output.tx_hash), input.previous_output.index)
+                        format!(
+                            "input resolution failed for {}:{}: {e}",
+                            hex::encode(input.previous_output.tx_hash),
+                            input.previous_output.index
+                        )
                     })?
                     .ok_or_else(|| {
                         format!(
@@ -1016,10 +1011,6 @@ impl ConsensusApi for Consensus {
         sample_headers
     }
 
-    fn get_populated_transaction(&self, txid: Hash, accepting_block_daa_score: u64) -> Result<SignableTransaction, String> {
-        self.get_resolved_cell_transaction(txid, accepting_block_daa_score).map(ResolvedCellTransaction::into_signable_transaction)
-    }
-
     fn get_resolved_cell_transaction(&self, txid: Hash, accepting_block_daa_score: u64) -> Result<ResolvedCellTransaction, String> {
         let cell_tx = self.block_transactions_store.get_transaction(txid).map_err(|e| format!("transaction lookup failed: {e}"))?;
         if cell_tx.is_coinbase() {
@@ -1086,9 +1077,7 @@ impl ConsensusApi for Consensus {
 
     #[cfg(not(doctest))]
     fn get_transaction_location(&self, txid: Hash) -> Result<(Hash, usize), String> {
-        self.block_transactions_store
-            .get_transaction_location(txid)
-            .map_err(|e| format!("transaction location lookup failed: {e}"))
+        self.block_transactions_store.get_transaction_location(txid).map_err(|e| format!("transaction location lookup failed: {e}"))
     }
 
     #[cfg(not(doctest))]

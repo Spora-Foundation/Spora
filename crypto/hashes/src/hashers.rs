@@ -2,13 +2,12 @@
 //!
 //! ⚠️ **Modified for the radical transition from blake2b & sha256 to full-scale BLAKE3 adoption.**
 //!
-//! All previous domain-separated `sha256` and `blake2b` hashers are to be progressively deprecated.
-//! Use unified BLAKE3-based equivalents moving forward for:
+//! Domain-separated hashers are implemented on top of BLAKE3 for:
 //! - Transaction ID
 //! - Block hash
 //! - Signing challenge hash
 //! - Merkle tree hashing
-//! - PoW identifiersuse once_cell::sync::Lazy;
+//! - PoW identifiers
 use crate::{blake3::blake3_256, Hash};
 use sha2::{Digest, Sha256};
 
@@ -90,16 +89,16 @@ macro_rules! impl_hasher {
 
 // ✅ Now define all hashers via BLAKE3
 blake3_hasher! {
-    struct TransactionHash             => b"TransactionHash",
-    struct TransactionID               => b"TransactionID",
-    struct TransactionSigningHash      => b"TransactionSigningHash",
+    struct CellTxHash                  => b"TransactionHash",
+    struct CellTxId                    => b"TransactionID",
+    struct CellTxSigningHash           => b"TransactionSigningHash",
     struct BlockHash                   => b"BlockHash",
     struct ProofOfWorkHash             => b"ProofOfWorkHash",
     struct MerkleBranchHash            => b"MerkleBranchHash",
     struct MuHashElementHash           => b"MuHashElement",
     struct MuHashFinalizeHash          => b"MuHashFinalize",
-    struct PersonalMessageSigningHash  => b"PersonalMessageSigningHash",
-    struct TransactionSigningHashECDSA => b"TransactionSigningHashECDSA",
+    struct CellMessageSigningHash      => b"PersonalMessageSigningHash",
+    struct CellTxSigningHashEcdsa      => b"TransactionSigningHashECDSA",
 }
 
 // Add dedicated SHA256 hasher for Schnorr signatures
@@ -152,8 +151,8 @@ mod tests {
             assert_eq!(result.0.len(), 32);
         }
 
-        run_test_vector(&input_data, TransactionHash::new);
-        run_test_vector(&input_data, TransactionID::new);
+        run_test_vector(&input_data, CellTxHash::new);
+        run_test_vector(&input_data, CellTxId::new);
         run_test_vector(&input_data, BlockHash::new);
     }
 }

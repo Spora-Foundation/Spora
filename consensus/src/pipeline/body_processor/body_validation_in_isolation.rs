@@ -11,6 +11,17 @@ use spora_consensus_core::{
 };
 
 impl BlockBodyProcessor {
+    /// Validate the block body in isolation (non-contextual checks).
+    ///
+    /// This is the **sole entry point** for all isolation-level validation:
+    /// merkle root, coinbase structure, per-tx format/capacity/data-size checks,
+    /// block mass limits, duplicate detection, double-spend detection, and
+    /// chained-transaction detection.
+    ///
+    /// **Contract**: `validate_body_in_context` relies on this function having
+    /// already been called and does **not** repeat any isolation checks.
+    /// Callers (i.e. `validate_body`) must always invoke this function before
+    /// `validate_body_in_context`.
     pub fn validate_body_in_isolation(self: &Arc<Self>, block: &Block) -> BlockProcessResult<Mass> {
         let crescendo_activated = true; // always active
 
@@ -179,7 +190,7 @@ mod tests {
         merkle::calc_hash_merkle_root_cell as calc_hash_merkle_root_with_options,
     };
     use spora_core::assert_match;
-    use spora_exec::{CellOutput, CellInput, CellTx, OutPoint, Script};
+    use spora_exec::{CellInput, CellOutput, CellTx, OutPoint, Script};
     use spora_hashes::Hash;
 
     fn calc_hash_merkle_root<'a>(txs: impl ExactSizeIterator<Item = &'a CellTx>) -> Hash {

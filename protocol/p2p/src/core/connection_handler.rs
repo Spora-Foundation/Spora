@@ -77,8 +77,8 @@ impl ConnectionHandler {
                 .send_compressed(tonic::codec::CompressionEncoding::Gzip)
                 .max_decoding_message_size(P2P_MAX_MESSAGE_SIZE);
 
-            // TODO: check whether we should set tcp_keepalive
             let serve_result = TonicServer::builder()
+                .tcp_keepalive(Some(Duration::from_millis(Self::keep_alive())))
                 .layer(MapRequestBodyLayer::new(move |body| CountBytesBody::new(body, bytes_rx.clone()).boxed_unsync()))
                 .layer(MapResponseBodyLayer::new(move |body| CountBytesBody::new(body, bytes_tx.clone())))
                 .add_service(proto_server)

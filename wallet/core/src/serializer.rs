@@ -6,9 +6,8 @@ use crate::imports::*;
 
 /// A struct that contains the magic `u32` and the version `u32` values of the serialized data.
 /// This struct is used by various primitives in the wallet framework to serialize their
-/// versions and detect these versions when deserializing. This allows for future
-/// data storage compatibility of the wallet subsystem, even if serialized structures themselves
-/// change. The `magic` value is a unique `u32` value set by each structure and used to detect
+/// versions and detect these versions when deserializing.
+/// The `magic` value is a unique `u32` value set by each structure and used to detect
 /// memory alignment errors during deserialization.
 #[derive(Debug, Clone)]
 pub struct StorageHeader {
@@ -37,14 +36,10 @@ impl StorageHeader {
     }
 
     pub fn try_version(self, version: u32) -> IoResult<Self> {
-        if self.version > version {
+        if self.version != version {
             Err(IoError::new(
                 IoErrorKind::Other,
-                format!(
-                    "Deserializer data has a newer version than the current version: expected version at most '{}' received '{}' (your data may have been generated on a newer version of the software)",
-                    version,
-                    self.version
-                ),
+                format!("Deserializer version mismatch: expected version '{}' received '{}'", version, self.version),
             ))
         } else {
             Ok(self)

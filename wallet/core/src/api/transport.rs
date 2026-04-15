@@ -20,8 +20,8 @@ use crate::wallet::Wallet;
 use async_trait::async_trait;
 use borsh::BorshDeserialize;
 use spora_wallet_macros::{build_wallet_client_transport_interface, build_wallet_server_transport_interface};
-use workflow_core::task::spawn;
 use workflow_core::channel::{unbounded, DuplexChannel, Receiver, Sender};
+use workflow_core::task::spawn;
 
 /// Transport interface supporting Borsh serialization
 #[async_trait]
@@ -284,6 +284,12 @@ impl WalletServer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::storage::keydata::PrvKeyDataVariantKind;
+    use crate::tests::make_xpub;
+    use spora_bip32::Prefix as KeyPrefix;
+    use spora_consensus_core::network::{NetworkId, NetworkType};
+    use std::time::Duration;
+    use tokio::time::timeout;
 
     struct NoopCodec;
 
@@ -317,6 +323,221 @@ mod tests {
 
         let notification = receiver.recv().await.unwrap();
         assert!(matches!(notification, WalletNotification::Error { message } if message == "server notification"));
+
+        server.stop_task().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn wallet_server_forwards_watch_only_account_create_notification() {
+        let wallet = Arc::new(
+            Wallet::try_with_rpc(None, Wallet::resident_store().unwrap(), None)
+                .unwrap()
+                .with_network_id(NetworkId::new(NetworkType::Mainnet))
+                .unwrap(),
+        );
+        let wallet_secret = Secret::from("test-wallet-secret");
+        wallet
+            .clone()
+            .wallet_create(wallet_secret.clone(), WalletCreateArgs::new(None, None, EncryptionKind::default(), None, false))
+            .await
+            .unwrap();
+
+        let client = Arc::new(WalletClient::new(Codec::Borsh(Arc::new(NoopCodec))));
+        let server = Arc::new(WalletServer::new(wallet.clone(), client.clone()));
+        let (_channel_id, receiver) = client.clone().register_notifications().await.unwrap();
+
+        server.start();
+        let descriptor = wallet
+            .clone()
+            .accounts_create(
+                wallet_secret,
+                AccountCreateArgs::new_watch_only(None, vec![make_xpub().to_string(Some(KeyPrefix::XPUB))], 1, false),
+            )
+            .await
+            .unwrap();
+        assert_eq!(descriptor.kind.as_ref(), WATCH_ONLY_ACCOUNT_KIND);
+
+        let notification = receiver.recv().await.unwrap();
+        assert!(matches!(
+            notification,
+            WalletNotification::AccountCreate { account_descriptor }
+            if account_descriptor.kind.as_ref() == WATCH_ONLY_ACCOUNT_KIND
+        ));
+
+        server.stop_task().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn wallet_server_forwards_multisig_account_create_notification() {
+        let wallet = Arc::new(
+            Wallet::try_with_rpc(None, Wallet::resident_store().unwrap(), None)
+                .unwrap()
+                .with_network_id(NetworkId::new(NetworkType::Mainnet))
+                .unwrap(),
+        );
+        let wallet_secret = Secret::from("test-wallet-secret");
+        wallet
+            .clone()
+            .wallet_create(wallet_secret.clone(), WalletCreateArgs::new(None, None, EncryptionKind::default(), None, false))
+            .await
+            .unwrap();
+        let prv_key_data_id = wallet
+            .clone()
+            .prv_key_data_create(
+                wallet_secret.clone(),
+                PrvKeyDataCreateArgs::new(
+                    Some("multisig".to_string()),
+                    None,
+                    Secret::from("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"),
+                    PrvKeyDataVariantKind::Mnemonic,
+                ),
+            )
+            .await
+            .unwrap();
+
+        let client = Arc::new(WalletClient::new(Codec::Borsh(Arc::new(NoopCodec))));
+        let server = Arc::new(WalletServer::new(wallet.clone(), client.clone()));
+        let (_channel_id, receiver) = client.clone().register_notifications().await.unwrap();
+
+        server.start();
+        let descriptor = wallet
+            .clone()
+            .accounts_create(
+                wallet_secret,
+                AccountCreateArgs::new_multisig(
+                    vec![PrvKeyDataArgs::new(prv_key_data_id, None)],
+                    vec![make_xpub().to_string(Some(KeyPrefix::XPUB))],
+                    Some("team vault".to_string()),
+                    2,
+                ),
+            )
+            .await
+            .unwrap();
+        assert_eq!(descriptor.kind.as_ref(), MULTISIG_ACCOUNT_KIND);
+
+        let notification = receiver.recv().await.unwrap();
+        assert!(matches!(
+            notification,
+            WalletNotification::AccountCreate { account_descriptor }
+            if account_descriptor.kind.as_ref() == MULTISIG_ACCOUNT_KIND
+        ));
+
+        server.stop_task().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn wallet_server_forwards_watch_only_account_import_notification_offline() {
+        let wallet = Arc::new(
+            Wallet::try_with_rpc(None, Wallet::resident_store().unwrap(), None)
+                .unwrap()
+                .with_network_id(NetworkId::new(NetworkType::Mainnet))
+                .unwrap(),
+        );
+        let wallet_secret = Secret::from("test-wallet-secret");
+        wallet
+            .clone()
+            .wallet_create(wallet_secret.clone(), WalletCreateArgs::new(None, None, EncryptionKind::default(), None, false))
+            .await
+            .unwrap();
+
+        let client = Arc::new(WalletClient::new(Codec::Borsh(Arc::new(NoopCodec))));
+        let server = Arc::new(WalletServer::new(wallet.clone(), client.clone()));
+        let (_channel_id, receiver) = client.clone().register_notifications().await.unwrap();
+
+        server.start();
+        let descriptor = wallet
+            .clone()
+            .accounts_import(
+                wallet_secret,
+                AccountCreateArgs::new_watch_only(None, vec![make_xpub().to_string(Some(KeyPrefix::XPUB))], 1, false),
+            )
+            .await
+            .unwrap();
+        assert_eq!(descriptor.kind.as_ref(), WATCH_ONLY_ACCOUNT_KIND);
+
+        let notification = receiver.recv().await.unwrap();
+        assert!(matches!(
+            notification,
+            WalletNotification::AccountCreate { account_descriptor }
+            if account_descriptor.kind.as_ref() == WATCH_ONLY_ACCOUNT_KIND
+        ));
+
+        server.stop_task().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn wallet_server_forwards_multisig_account_import_notification_offline() {
+        let wallet = Arc::new(
+            Wallet::try_with_rpc(None, Wallet::resident_store().unwrap(), None)
+                .unwrap()
+                .with_network_id(NetworkId::new(NetworkType::Mainnet))
+                .unwrap(),
+        );
+        let wallet_secret = Secret::from("test-wallet-secret");
+        wallet
+            .clone()
+            .wallet_create(wallet_secret.clone(), WalletCreateArgs::new(None, None, EncryptionKind::default(), None, false))
+            .await
+            .unwrap();
+        let prv_key_data_id = wallet
+            .clone()
+            .prv_key_data_create(
+                wallet_secret.clone(),
+                PrvKeyDataCreateArgs::new(
+                    Some("multisig".to_string()),
+                    None,
+                    Secret::from("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"),
+                    PrvKeyDataVariantKind::Mnemonic,
+                ),
+            )
+            .await
+            .unwrap();
+
+        let client = Arc::new(WalletClient::new(Codec::Borsh(Arc::new(NoopCodec))));
+        let server = Arc::new(WalletServer::new(wallet.clone(), client.clone()));
+        let (_channel_id, receiver) = client.clone().register_notifications().await.unwrap();
+
+        server.start();
+        let descriptor = wallet
+            .clone()
+            .accounts_import(
+                wallet_secret,
+                AccountCreateArgs::new_multisig(
+                    vec![PrvKeyDataArgs::new(prv_key_data_id, None)],
+                    vec![make_xpub().to_string(Some(KeyPrefix::XPUB))],
+                    Some("team vault".to_string()),
+                    2,
+                ),
+            )
+            .await
+            .unwrap();
+        assert_eq!(descriptor.kind.as_ref(), MULTISIG_ACCOUNT_KIND);
+
+        let notification = receiver.recv().await.unwrap();
+        assert!(matches!(
+            notification,
+            WalletNotification::AccountCreate { account_descriptor }
+            if account_descriptor.kind.as_ref() == MULTISIG_ACCOUNT_KIND
+        ));
+
+        server.stop_task().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn wallet_client_unregister_notifications_stops_transport_delivery() {
+        let wallet = Arc::new(Wallet::try_with_rpc(None, Wallet::resident_store().unwrap(), None).unwrap());
+        let client = Arc::new(WalletClient::new(Codec::Borsh(Arc::new(NoopCodec))));
+        let server = Arc::new(WalletServer::new(wallet.clone(), client.clone()));
+        let (channel_id, receiver) = client.clone().register_notifications().await.unwrap();
+
+        server.start();
+        client.clone().unregister_notifications(channel_id).await.unwrap();
+        wallet.notify(Events::Error { message: "should-not-deliver".to_string() }).await.unwrap();
+
+        let recv_result = timeout(Duration::from_millis(200), receiver.recv())
+            .await
+            .expect("receiver should close once notification channel is unregistered");
+        assert!(recv_result.is_err(), "receiver should be closed after unregister");
 
         server.stop_task().await.unwrap();
     }

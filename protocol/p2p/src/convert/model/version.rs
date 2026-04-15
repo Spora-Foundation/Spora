@@ -6,11 +6,13 @@ use spora_utils::networking::{NetAddress, PeerId};
 
 /// Maximum allowed length for the user agent field in a version message `VersionMessage`.
 pub const MAX_USER_AGENT_LEN: usize = 256;
+/// Advertise the baseline full-node service bit until finer-grained service flags are introduced.
+pub const DEFAULT_P2P_SERVICES: u64 = 1 << 0;
 
 pub struct Version {
     pub protocol_version: u32,
     pub network: String,
-    pub services: u64, // TODO
+    pub services: u64,
     pub timestamp: u64,
     pub address: Option<NetAddress>,
     pub id: PeerId,
@@ -23,7 +25,7 @@ impl Version {
         Self {
             protocol_version,
             network,
-            services: 0, // TODO: get number of live services
+            services: DEFAULT_P2P_SERVICES,
             timestamp: unix_now(),
             address,
             id,
@@ -37,5 +39,16 @@ impl Version {
         let new_user_agent = format!("{}:{}{}", name, version, comments);
         self.user_agent = format!("{}{}/", self.user_agent, new_user_agent);
         self.user_agent.truncate(MAX_USER_AGENT_LEN);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn version_new_advertises_default_services() {
+        let version = Version::new(None, PeerId::default(), "simnet".to_string(), 7);
+        assert_eq!(version.services, DEFAULT_P2P_SERVICES);
     }
 }

@@ -24,7 +24,7 @@
 **当前代码基础（Spora v1.21.0）**：
 - 语言：**Rust** (edition 2021, rustc 1.82.0)
 - 共识：GhostDAG + legacy txout（**将被完全替换为 GhostDAG + Cell**）
-- 待删除模块：`indexes/cellindex/`, `consensus/*/tx_validation_in_cell_context.rs`, legacy txout 相关验证逻辑
+- 待处理模块：`indexes/cellindex/`（保留待重构）, `consensus/*/tx_validation_in_cell_context.rs`（已完成迁移）, legacy txout 相关验证逻辑（已完成迁移）
 - 保留模块：`consensus/core/`（DAG 部分）, `database/`, `protocol/p2p/`（底层）
 
 ---
@@ -44,44 +44,53 @@ Spora/
 │   │       ├── weight.rs      # DA/执行证明/拓扑权重
 │   │       └── interface.rs   # 共识切换接口
 │   └── processes/
-│       └── cell_validator/    # 新增：完全替代 transaction_validator
+│       └── cell_validator/    # ✅ 已完成：完全替代 transaction_validator
 │           ├── mod.rs
 │           ├── cell_validation_in_isolation.rs
 │           ├── cell_validation_in_context.rs
 │           ├── cell_validation_in_dag.rs
 │           └── errors.rs
 │
-├── exec/               # 新增顶层 crate：Cell 执行层
+├── exec/               # ✅ 已完成：Cell 执行层
 │   ├── Cargo.toml
 │   └── src/
 │       ├── lib.rs
-│       ├── celltx/            # Cell 交易定义
+│       ├── celltx/            # ✅ Cell 交易定义
 │       │   ├── types.rs       # CellTx, CellInput, CellOutput, Script
-│       │   ├── codec.rs       # borsh 序列化
 │       │   └── sighash.rs     # blake3 签名哈希
-│       ├── scheduler/         # 并行调度器
+│       ├── scheduler/         # ✅ 并行调度器
 │       │   ├── dag.rs         # RW-Set → CellDAG 构图
 │       │   ├── conflict.rs    # 冲突裁决（fee_density/blue_pref/wtxid）
 │       │   └── executor.rs    # 拓扑分层并行执行
-│       ├── vm/                # VM 适配层
-│       │   ├── ckbvm.rs       # CKB-VM RISC-V 集成（参考 ../ckb/script/）
-│       │   ├── interface.rs   # lock/type 脚本接口
-│       │   └── syscalls.rs    # 系统调用：load_cell/load_tx/...
-│       └── scripts/           # 标准脚本库
-│           ├── secp256k1_lock.rs
-│           └── capacity_type.rs
+│       ├── vm/                # ✅ VM 适配层
+│       │   ├── mod.rs         # VM 模块入口
+│       │   ├── machine.rs     # CKB-VM RISC-V 集成
+│       │   ├── verifier.rs    # 脚本验证器
+│       │   └── syscalls/      # 系统调用实现
+│       │       ├── load_cell.rs
+│       │       ├── load_cell_data.rs
+│       │       ├── load_header.rs
+│       │       ├── load_input.rs
+│       │       ├── load_script.rs
+│       │       ├── load_tx.rs
+│       │       ├── load_witness.rs
+│       │       └── ...
+│       └── scripts/           # ✅ 标准脚本库
+│           ├── secp256k1_blake3_lock.c
+│           ├── timelock.rs
+│           └── fixtures/      # 测试脚本
 │
-├── state/              # 新增顶层 crate：Cell 状态管理
+├── state/              # ✅ 已完成：Cell 状态管理
 │   ├── Cargo.toml
 │   └── src/
 │       ├── lib.rs
-│       ├── index/             # Cell 索引
-│       │   ├── cell_db.rs     # CellID → SegmentPtr
+│       ├── index/             # ✅ Cell 索引
+│       │   ├── cell_db.rs     # CellID → CellMeta
 │       │   └── script_index.rs # lock/type → CellIDs
-│       └── store/             # 数据可用性存储
-│           ├── segment.rs     # 段文件管理（1GB segments）
-│           ├── proof.rs       # NMT/KZG 承诺与抽样验证
-│           └── writer.rs      # 顺序写入器
+│       └── store/             # ✅ 数据可用性存储
+│           ├── segment.rs     # 段文件管理
+│           ├── writer.rs      # 顺序写入器
+│           └── proof.rs       # 证明与验证
 │
 ├── indexes/
 │   ├── core/           # 现有：保留索引核心抽象
@@ -92,13 +101,12 @@ Spora/
 │           ├── lib.rs
 │           └── api.rs         # RPC 接口：get_cells_by_lock
 │
-├── mempool/            # 新增顶层 crate（当前未独立）
+├── mempool/            # ✅ 已完成：内存池
 │   ├── Cargo.toml
 │   └── src/
 │       ├── lib.rs
-│       ├── cellpool.rs        # CellTx 池
-│       ├── scorer.rs          # fee_density·α + unlockability·β
-│       └── relay.rs           # 包中继/RBF/CPFP
+│       ├── cellpool.rs        # ✅ CellTx 池
+│       └── scorer.rs          # ✅ fee_density 评分
 │
 ├── protocol/
 │   └── p2p/
@@ -129,10 +137,8 @@ Spora/
 
 **⚠️ 完全删除（不保留任何代码）**：
 
-* `indexes/cellindex/` → **整个 crate 直接删除**
-* `consensus/src/processes/transaction_validator/tx_validation_in_cell_context.rs` → **删除**
-* `consensus/src/processes/transaction_validator/tx_validation_in_isolation.rs` → **删除或彻底重写**
-* `consensus/src/processes/transaction_validator/tx_validation_in_header_context.rs` → **删除或彻底重写**
+* `indexes/cellindex/` → ~~整个 crate 直接删除~~ **当前仍保留，待后续重构**
+* `consensus/src/processes/transaction_validator/` → **✅ 已删除**，替换为 `cell_validator/`
 * `consensus/core/src/legacy_txout/` (如果存在) → **删除**
 * `consensus/core/src/tx.rs` 中的 `VerifiableTransaction` → **删除**，替换为 `VerifiableCellTx`
 * `crypto/txscript/` 中的 legacy txout 特定逻辑 → **移除所有 legacy txout 假设**
@@ -147,10 +153,11 @@ rg -n "legacy_txout|legacy txout|CellEntry|script_pub_key|Script|lock_script" \
 
 **待删除的具体文件和目录（扫描确认后全部删除）**：
 
-1. **✗ 删除**：`indexes/cellindex/` - 整个目录（包括 Cargo.toml）
-2. **✗ 删除**：`consensus/src/processes/transaction_validator/tx_validation_in_cell_context.rs` (361行)
-3. **✗ 删除**：`consensus/src/processes/transaction_validator/tx_validation_in_isolation.rs`
-4. **✗ 删除**：`consensus/src/processes/transaction_validator/tx_validation_in_header_context.rs`
+1. **⏳ 待处理**：`indexes/cellindex/` - 当前仍保留，待后续重构时评估
+2. **✅ 已完成**：`consensus/src/processes/transaction_validator/` 已删除，替换为 `cell_validator/`
+   - `cell_validation_in_isolation.rs` - 隔离验证
+   - `cell_validation_in_context.rs` - 上下文验证
+   - `cell_validation_in_dag.rs` - DAG 验证
 5. **✗ 删除**：`consensus/core/src/tx.rs` 中的所有 legacy txout 相关 trait 和类型
 6. **✗ 删除**：`consensus/core/src/legacy_txout/` (如果存在)
 7. **⚠️ 延后处理**：`wallet/` 相关 legacy txout 假设（等 Cell 交易类型稳定后重写钱包）
@@ -165,19 +172,27 @@ rg -n "legacy_txout|legacy txout|CellEntry|script_pub_key|Script|lock_script" \
 
 **替换为（新建模块）**：
 
-* **exec/celltx/types.rs**：
+* **exec/celltx/types.rs**:
   ```rust
-  pub const CELL_TX_VERSION: u16 = 0xC001;
-  pub struct CellInput { pub id: [u8; 32], pub since: u64 }
+  pub const CELL_TX_VERSION: u32 = 0xC001;
+  pub struct CellInput { pub previous_output: OutPoint, pub since: u64 }
   pub struct Script { pub code_hash: [u8; 32], pub hash_type: u8, pub args: Vec<u8> }
-  pub struct CellOutput { pub lock: Script, pub type_: Option<Script>, pub capacity: u64, pub data: Vec<u8> }
-  pub struct CellTx { pub ver: u16, pub inputs: Vec<CellInput>, pub deps: Vec<CellInput>, pub outputs: Vec<CellOutput>, pub fee: u64, pub sigs: Vec<Vec<u8>> }
+  pub struct CellOutput { pub lock: Script, pub type_: Option<Script>, pub capacity: u64 }
+  pub struct CellTx { 
+      pub version: u32, 
+      pub inputs: Vec<CellInput>, 
+      pub cell_deps: Vec<CellDep>, 
+      pub header_deps: Vec<[u8; 32]>, 
+      pub outputs: Vec<CellOutput>, 
+      pub outputs_data: Vec<Vec<u8>>, 
+      pub witnesses: Vec<Vec<u8>> 
+  }
   ```
 
 * **exec/celltx/sighash.rs**：
   ```rust
   // SigMsg = blake3("Cell/sig" || network_id || wtxid || u32le(input_index) || rw_commitment)
-  pub fn compute_cell_sighash(tx: &CellTx, input_index: usize, network_id: u8, rw_commitment: &[u8; 32]) -> [u8; 32]
+  pub fn compute_rw_bound_sighash(tx: &CellTx, input_index: u32, network_id: u32, rw_commitment: &[u8; 32]) -> [u8; 32]
   ```
 
 * **exec/scheduler/dag.rs**：RW-Set → CellDAG 构图，冲突检测
@@ -192,14 +207,13 @@ rg -n "legacy_txout|legacy txout|CellEntry|script_pub_key|Script|lock_script" \
 
 ### 3.1 交易版本与网络标识
 
-* `tx_ver`：`0xC001`（CellTx v1）
+* `tx_ver`：`0xC001`（CellTx v1，u32 类型）
 * `network_id`：**u32**（4 字节，小端序）
   * `0x00000000`：保留值（无效）
   * `0x00000001`：Mainnet
   * `0x00000002`：Testnet
   * `0x00000003`：Devnet
   * `0xFFFFFFFF`：Regtest
-  * ⚠️ **所有代码必须使用 u32，禁止 u8**
 
 ### 3.2 哈希与签名（统一 blake3）
 
@@ -216,7 +230,7 @@ rg -n "legacy_txout|legacy txout|CellEntry|script_pub_key|Script|lock_script" \
   pub fn compute_txid(tx: &CellTx) -> [u8; 32] {
       let mut hasher = blake3::Hasher::new();
       hasher.update(CELL_TXID_DOMAIN);
-      hasher.update(&tx.ver.to_le_bytes());
+      hasher.update(&tx.version().to_le_bytes());
       // 序列化 inputs, deps, outputs, outputs_data（不含 witnesses）
       hasher.finalize().into()
   }
@@ -225,17 +239,17 @@ rg -n "legacy_txout|legacy txout|CellEntry|script_pub_key|Script|lock_script" \
   pub fn compute_wtxid(tx: &CellTx) -> [u8; 32] {
       let mut hasher = blake3::Hasher::new();
       hasher.update(CELL_WTXID_DOMAIN);
-      hasher.update(&tx.ver.to_le_bytes());
+      hasher.update(&tx.version().to_le_bytes());
       // 序列化所有字段（含 witnesses）
       hasher.finalize().into()
   }
   
   /// 计算签名哈希（用于签名验证）
   /// ⚠️ network_id 必须是 u32（4 字节小端序）
-  pub fn compute_sighash(
+  pub fn compute_rw_bound_sighash(
       tx: &CellTx,
       input_index: u32,
-      network_id: u32,  // ✓ u32（不是 u8）
+      network_id: u32,
       rw_commitment: &[u8; 32],
   ) -> [u8; 32] {
       let wtxid = compute_wtxid(tx);
@@ -327,7 +341,7 @@ pub struct Script {
     pub args: Vec<u8>,
 }
 
-/// Cell 输出（完全对齐 CKB CellOutputput）
+/// Cell 输出（完全对齐 CKB CellOutput）
 /// 注意：data 字段分离到 CellTx.outputs_data，避免重复存储
 pub struct CellOutput {
     /// 锁脚本：定义谁能花费此 Cell
@@ -343,11 +357,13 @@ pub struct CellOutput {
 /// Cell 交易（完整交易结构）
 pub struct CellTx {
     /// 交易版本：0xC001（Cell v1）
-    pub ver: u16,
+    pub version: u32,
     /// 输入：花费的 Cells
     pub inputs: Vec<CellInput>,
     /// 依赖：只读 Cells（如脚本代码 Cell）
-    pub deps: Vec<CellDep>,
+    pub cell_deps: Vec<CellDep>,
+    /// 区块头依赖：VM 脚本可引用的区块头哈希
+    pub header_deps: Vec<[u8; 32]>,
     /// 输出：创建的新 Cells
     pub outputs: Vec<CellOutput>,
     /// 输出数据（与 outputs 一一对应）
@@ -679,7 +695,7 @@ impl<DL: CellDataProvider> Syscalls<CellVM> for LoadCell<DL> {
         // 获取 CellMeta（与 CKB 相同的 source 语义）
         let cell = self.load_cell_from_source(source, index)?;
         
-        // 序列化 CellOutputput（CKB Molecule 格式）
+        // 序列化 CellOutput（CKB Molecule 格式）
         let serialized = self.serialize_cell_output(&cell.cell_output);
         
         // 写入 VM 内存（带 offset 和 len 截断）
@@ -749,46 +765,15 @@ impl<DL: CellDataProvider> Syscalls<CellVM> for LoadCellByField<DL> {
 
 ### 6.3 标准锁脚本（Secp256k1）
 
-```rust
-// exec/scripts/secp256k1_lock.rs
+```c
+// exec/src/scripts/secp256k1_blake3_lock.c
 
-/// Secp256k1 锁脚本（参考 CKB secp256k1_blake160）
-/// 脚本参数：20 字节公钥哈希（blake2b(pubkey)[0..20]）
-/// 见证：65 字节签名（r + s + v）
-pub fn verify_secp256k1_lock(
-    script: &Script,
-    tx: &CellTx,
-    input_index: usize,
-) -> Result<(), ScriptError> {
-    // 1. 从 script.args 提取公钥哈希（20 字节）
-    if script.args.len() != 20 {
-        return Err(ScriptError::InvalidArgs);
-    }
-    let pubkey_hash = &script.args[..20];
-    
-    // 2. 从 witnesses[input_index] 提取签名
-    let witness = tx.witnesses.get(input_index)
-        .ok_or(ScriptError::MissingWitness)?;
-    if witness.len() < 65 {
-        return Err(ScriptError::InvalidWitness);
-    }
-    let signature = &witness[..65];
-    
-    // 3. 计算 sighash（签名消息）
-    let sighash = compute_cell_sighash(tx, input_index)?;
-    
-    // 4. 恢复公钥
-    let pubkey = secp256k1_recover(signature, &sighash)?;
-    
-    // 5. 验证公钥哈希
-    let recovered_hash = blake2b_160(&pubkey);
-    if recovered_hash != pubkey_hash {
-        return Err(ScriptError::SignatureVerificationFailed);
-    }
-    
-    Ok(())
-}
+// 当前 exec 侧标准锁入口是 VM 脚本源码 + syscall 运行时，而不是单独的 Rust helper。
+// 该脚本读取 script args / witness / tx hash，并通过 Spora VM 的 secp256k1 syscall
+// 进行验签。完整 canonical signing 语义则由 consensus/core/src/sign.rs 定义。
 ```
+
+**注意**：钱包与共识主路径已经使用 canonical CellTx/native sighash；`exec` 侧保留的是 VM 脚本执行面，不再维护另一份独立的 Rust 锁验证实现。
 
 ### 6.4 资源计量与限制
 
@@ -843,7 +828,7 @@ pub enum VmError {
 ```
 ┌─────────────────────────────────────────────────────────┐
 │  RocksDB（索引层，只存元数据）                                  │
-│  - OutPoint -> CellIndexEntry (segment_id/offset/len)   │
+│  - OutPoint -> CellMeta (cell_output, cell_data, segment_info)   │
 │  - LockHash -> Vec<OutPoint>（倒排索引）                    │
 │  - SegmentMeta（nmt_root, chunk_count, sealed_at）      │
 │  - SpendJournal（K内回滚日志）                              │
@@ -913,7 +898,7 @@ pub trait KV: Send + Sync + 'static {
 pub mod cf {
     use super::Cf;
     
-    /// Cell 索引（OutPoint -> CellIndexEntry）
+    /// Cell 索引（OutPoint -> CellMeta）
     /// ⚠️ 不存 Cell data，只存指针
     pub const CELLS: Cf = "cells";
     
@@ -943,27 +928,32 @@ pub mod cf {
     pub const DAA_INDEX: Cf = "daa_index";
 }
 
-/// Cell 索引条目（只存元数据，不存 data）
+/// Cell 元数据（存储在 CellDB）
 #[derive(Clone, Debug, borsh::BorshSerialize, borsh::BorshDeserialize)]
-pub struct CellIndexEntry {
-    /// Segment ID（DA 层）
-    pub segment_id: u32,
-    /// Segment 内偏移
-    pub offset: u64,
-    /// 数据长度
-    pub len: u32,
-    /// Lock script hash（用于倒排索引）
-    pub lock_hash: [u8; 32],
-    /// Type script hash（可选）
-    pub type_hash: Option<[u8; 32]>,
-    /// Capacity
-    pub capacity: u64,
+pub struct CellMeta {
+    /// Cell 输出结构
+    pub cell_output: CellOutput,
+    /// Cell 数据（可能较大，可考虑存储在 DA 层）
+    pub cell_data: Vec<u8>,
     /// 创建时的 DAA 分数
-    pub created_daa: u64,
-    /// 花费时的 DAA 分数（None = 未花费）
-    pub spent_at: Option<u64>,
+    pub daa_score: u64,
     /// 所在区块哈希
     pub block_hash: [u8; 32],
+    /// 是否是 cellbase
+    pub is_cellbase: bool,
+    /// DA 段信息（可选）
+    pub segment_info: Option<SegmentInfo>,
+}
+
+/// 段存储信息
+#[derive(Clone, Debug, borsh::BorshSerialize, borsh::BorshDeserialize)]
+pub struct SegmentInfo {
+    /// Segment ID
+    pub segment_id: u32,
+    /// 段内偏移
+    pub offset: u64,
+    /// 数据长度
+    pub length: u32,
 }
 
 /// OutPoint 编码（36 字节：32 tx_hash + 4 index）
@@ -1109,7 +1099,7 @@ impl KVSnap for RocksSnapshot {
 use memmap2::{MmapMut, MmapOptions};
 use std::fs::{File, OpenOptions};
 use std::path::PathBuf;
-use antml::{Result, Context};
+use anyhow::{Result, Context};
 
 pub const SEGMENT_SIZE: u64 = 1024 * 1024 * 1024;  // 1GB
 pub const CHUNK_SIZE: usize = 1024 * 1024;  // 1MB
@@ -1117,167 +1107,66 @@ pub const NS_CELL: u8 = 0x01;  // NMT namespace
 
 /// Segment 写入器（append-only，借鉴 CKB Freezer）
 pub struct SegmentWriter {
-    segment_id: u32,
-    file: File,
-    mmap: MmapMut,
-    offset: u64,
-    chunks: Vec<ChunkMeta>,
+    base_dir: PathBuf,
+    current_segment_id: Arc<Mutex<u32>>,
+    current_file: Arc<Mutex<Option<File>>>,
+    current_offset: Arc<Mutex<u64>>,
+    current_chunks: Arc<Mutex<Vec<AppendRecord>>>,
+    _segments: Arc<Mutex<Vec<SegmentMeta>>>,
 }
 
 #[derive(Clone, Debug, borsh::BorshSerialize, borsh::BorshDeserialize)]
-pub struct ChunkMeta {
-    pub offset: u64,
-    pub len: u32,
-    pub chunk_hash: [u8; 32],
+struct AppendRecord {
+    offset: u64,
+    length: u32,
 }
 
 #[derive(Clone, Debug, borsh::BorshSerialize, borsh::BorshDeserialize)]
 pub struct SegmentMeta {
     pub segment_id: u32,
-    pub file_path: PathBuf,
     pub size: u64,
-    pub nmt_root: [u8; 32],
-    pub chunk_count: u32,
-    pub sealed_at: u64,
+    pub cell_count: u32,
+    pub merkle_root: [u8; 32],
+    pub sealed: bool,
+    pub created_at: u64,
+    pub sealed_at: Option<u64>,
 }
 
 impl SegmentWriter {
-    /// 创建新 segment（预分配 1GB）
-    pub fn create(segment_id: u32, data_dir: &PathBuf) -> Result<Self> {
-        let file_path = data_dir.join(format!("segment_{:08x}.dat", segment_id));
-        
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .open(&file_path)
-            .context("Failed to create segment file")?;
-        
-        // 预分配 1GB（参考 CKB Freezer）
-        file.set_len(SEGMENT_SIZE)?;
-        
-        // mmap（参考 CKB）
-        let mmap = unsafe { MmapOptions::new().map_mut(&file)? };
-        
-        Ok(SegmentWriter {
-            segment_id,
-            file,
-            mmap,
-            offset: 0,
-            chunks: Vec::new(),
-        })
+    /// 创建新的 SegmentWriter
+    pub fn new<P: AsRef<Path>>(base_dir: P) -> Result<Self> {
+        // 实现细节：查找最高存在的 segment ID 或创建新的
+        // ...
     }
     
-    /// 追加 Cell data（参考 CKB append）
-    /// 返回：(segment_id, offset, len)
-    pub fn append_cell_data(&mut self, data: &[u8]) -> Result<(u32, u64, u32)> {
-        let start_offset = self.offset;
-        let len = data.len() as u32;
-        
-        if self.offset + len as u64 > SEGMENT_SIZE {
-            anyhow::bail!("Segment full");
-        }
-        
-        // 写入 mmap（参考 CKB）
-        self.mmap[self.offset as usize..(self.offset as usize + len as usize)]
-            .copy_from_slice(data);
-        
-        // 记录 chunk（每 1MB 一个 chunk）
-        let chunk_hash = blake3::hash(data);
-        self.chunks.push(ChunkMeta {
-            offset: start_offset,
-            len,
-            chunk_hash: chunk_hash.into(),
-        });
-        
-        self.offset += len as u64;
-        
-        Ok((self.segment_id, start_offset, len))
+    /// 追加 Cell data
+    /// 返回：(segment_id, offset, length)
+    pub fn append(&self, data: &[u8]) -> Result<(u32, u64, u32)> {
+        // 实现细节：写入文件并记录 chunk 索引
+        // ...
     }
     
-    /// 封口 segment（计算 NMT root）
-    pub fn seal(&mut self, kv: &dyn KV) -> Result<SegmentMeta> {
-        // 1. fsync（参考 CKB）
-        self.mmap.flush()?;
-        self.file.sync_all()?;
-        
-        // 2. 构建 NMT（Namespaced Merkle Tree）
-        let nmt_root = self.compute_nmt_root();
-        
-        // 3. 构建元数据
-        let meta = SegmentMeta {
-            segment_id: self.segment_id,
-            file_path: PathBuf::from(format!("segment_{:08x}.dat", self.segment_id)),
-            size: self.offset,
-            nmt_root,
-            chunk_count: self.chunks.len() as u32,
-            sealed_at: current_timestamp(),
-        };
-        
-        // 4. 写入 DB（参考 CKB）
-        let key = self.segment_id.to_le_bytes();
-        let value = borsh::to_vec(&meta)?;
-        kv.put(cf::SEGMENTS, &key, &value)?;
-        
-        Ok(meta)
-    }
-    
-    /// 计算 NMT root（简化版 Merkle Tree）
-    fn compute_nmt_root(&self) -> [u8; 32] {
-        if self.chunks.is_empty() {
-            return [0u8; 32];
-        }
-        
-        // NMT 构建（先用简单 Merkle，后续优化）
-        let mut layer: Vec<[u8; 32]> = self.chunks.iter()
-            .map(|c| c.chunk_hash)
-            .collect();
-        
-        while layer.len() > 1 {
-            let mut next_layer = Vec::new();
-            for pair in layer.chunks(2) {
-                let hash = if pair.len() == 2 {
-                    let mut hasher = blake3::Hasher::new();
-                    hasher.update(&pair[0]);
-                    hasher.update(&pair[1]);
-                    hasher.finalize().into()
-                } else {
-                    pair[0]  // 奇数节点直接提升
-                };
-                next_layer.push(hash);
-            }
-            layer = next_layer;
-        }
-        
-        layer[0]
+    /// 封口 segment（计算 Merkle root）
+    pub fn seal(&self) -> Result<SegmentMeta> {
+        // 实现细节：计算 Merkle root 并返回 SegmentMeta
+        // ...
     }
 }
 
-/// Segment 读取器（mmap 只读）
-pub struct SegmentReader {
-    segment_id: u32,
-    mmap: memmap2::Mmap,
-}
+/// Segment 读取器
+pub struct SegmentReader;
 
 impl SegmentReader {
-    pub fn open(segment_id: u32, data_dir: &PathBuf) -> Result<Self> {
-        let file_path = data_dir.join(format!("segment_{:08x}.dat", segment_id));
-        let file = File::open(&file_path)?;
-        let mmap = unsafe { MmapOptions::new().map(&file)? };
-        
-        Ok(SegmentReader { segment_id, mmap })
+    /// 打开 segment 文件
+    pub fn open(segment_id: u32, base_dir: &Path) -> Result<Self> {
+        // 实现细节
+        // ...
     }
     
-    /// 读取 Cell data
-    pub fn read_cell_data(&self, offset: u64, len: u32) -> Result<Vec<u8>> {
-        let start = offset as usize;
-        let end = start + len as usize;
-        
-        if end > self.mmap.len() {
-            anyhow::bail!("Read out of bounds");
-        }
-        
-        Ok(self.mmap[start..end].to_vec())
+    /// 读取指定偏移和长度的数据
+    pub fn read(&self, offset: u64, length: u32) -> Result<Vec<u8>> {
+        // 实现细节
+        // ...
     }
 }
 ```
@@ -1304,7 +1193,7 @@ pub enum CellChange {
     Spent {
         out_point: OutPoint,
         /// 原始 Cell 索引条目（用于恢复）
-        original_entry: CellIndexEntry,
+        original_entry: CellMeta,
         /// 原始 Cell data（如果有）
         original_data: Option<Vec<u8>>,
     },
@@ -1332,12 +1221,12 @@ impl SpendJournal {
                 // 读取原始 Cell 索引
                 let key = input.out_point.to_key();
                 if let Some(entry_bytes) = self.kv.get(cf::CELLS, &key)? {
-                    let entry: CellIndexEntry = borsh::from_slice(&entry_bytes)?;
+                    let entry: CellMeta = borsh::from_slice(&entry_bytes)?;
                     
                     // 读取原始 Cell data（如果有）
-                    let data = if entry.len > 0 {
-                        let reader = SegmentReader::open(entry.segment_id, &data_dir)?;
-                        Some(reader.read_cell_data(entry.offset, entry.len)?)
+                    let data = if let Some(ref seg_info) = entry.segment_info {
+                        let reader = SegmentReader::open(seg_info.segment_id, &data_dir)?;
+                        Some(reader.read(seg_info.offset, seg_info.length)?)
                     } else {
                         None
                     };
@@ -1443,7 +1332,7 @@ impl SpendJournal {
  *  - COLUMN_CELL_DATA: CellDataEntry（实际数据）
  *
  * Spora 适配（DA 层分离）：
- *  - cf::CELLS: CellIndexEntry（元数据 + Segment 指针）
+ *  - cf::CELLS: CellMeta（元数据 + Segment 指针）
  *  - Segment 文件：实际 Cell data（mmap，不进 DB）
  */
 
@@ -2063,8 +1952,8 @@ table Script {
     args:       Bytes,
 }
 
-// CellOutputput（与 CKB 相同）
-table CellOutputput {
+// CellOutput（与 CKB 相同）
+table CellOutput {
     capacity:   Uint64,
     lock:       Script,
     type_:      ScriptOpt,
@@ -2089,7 +1978,7 @@ table RawTransaction {
     version:        Uint32,          // 0xC001
     cell_deps:      CellDepVec,
     inputs:         CellInputVec,
-    outputs:        CellOutputputVec,
+    outputs:        CellOutputVec,
     outputs_data:   BytesVec,
 }
 
@@ -2102,113 +1991,44 @@ table Transaction {
 // 向量类型
 vector CellDepVec <CellDep>;
 vector CellInputVec <CellInput>;
-vector CellOutputputVec <CellOutputput>;
+vector CellOutputVec <CellOutput>;
 vector BytesVec <Bytes>;
 ```
 
 ### 8.3 Molecule 代码生成
 
-**Cargo.toml 依赖**：
+**Cargo.toml 依赖**（实际使用 Borsh）：
 
 ```toml
 [dependencies]
-molecule = "0.7"
-
-[build-dependencies]
-molecule-codegen = "0.7"
+borsh = { version = "1.5", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"] }
 ```
 
-**build.rs**（代码生成）：
+**注意**：当前实现使用 Borsh 序列化，而非 Molecule。Borsh 提供更简单的 Rust 集成和更好的性能。
 
-```rust
-// exec/build.rs
-use molecule_codegen::{Compiler, Language};
-
-fn main() {
-    let mut compiler = Compiler::new();
-    
-    compiler
-        .input_schema_file("src/celltx/types.mol")
-        .generate_code(Language::Rust)
-        .output_dir("src/celltx/generated/")
-        .run()
-        .expect("Failed to generate Molecule code");
-    
-    println!("cargo:rerun-if-changed=src/celltx/types.mol");
-}
-```
-
-**使用生成的代码**：
+**Borsh 序列化使用**（实际实现）：
 
 ```rust
 // exec/src/celltx/types.rs
 
-mod generated;
-pub use generated::*;
+use borsh::{BorshSerialize, BorshDeserialize};
 
-impl CellTx {
-    /// 从 Molecule Transaction 转换
-    pub fn from_molecule(tx: molecule::Transaction) -> Self {
-        let raw = tx.raw();
-        
-        CellTx {
-            ver: u32::from_le_bytes(raw.version().as_slice().try_into().unwrap()) as u16,
-            inputs: raw.inputs().into_iter().map(|input| {
-                CellInput {
-                    out_point: OutPoint {
-                        tx_hash: input.previous_output().tx_hash().as_bytes().try_into().unwrap(),
-                        index: u32::from_le_bytes(input.previous_output().index().as_slice().try_into().unwrap()),
-                    },
-                    since: u64::from_le_bytes(input.since().as_slice().try_into().unwrap()),
-                }
-            }).collect(),
-            deps: raw.cell_deps().into_iter().map(|dep| {
-                CellDep {
-                    out_point: OutPoint {
-                        tx_hash: dep.out_point().tx_hash().as_bytes().try_into().unwrap(),
-                        index: u32::from_le_bytes(dep.out_point().index().as_slice().try_into().unwrap()),
-                    },
-                    dep_type: match dep.dep_type().as_slice()[0] {
-                        0 => DepType::Code,
-                        1 => DepType::DepGroup,
-                        _ => panic!("Invalid dep_type"),
-                    },
-                }
-            }).collect(),
-            outputs: raw.outputs().into_iter().map(|output| {
-                CellOutput {
-                    capacity: u64::from_le_bytes(output.capacity().as_slice().try_into().unwrap()),
-                    lock: script_from_molecule(&output.lock()),
-                    type_: output.type_().to_opt().map(|t| script_from_molecule(&t)),
-                }
-            }).collect(),
-            outputs_data: raw.outputs_data().into_iter()
-                .map(|data| data.as_bytes().to_vec())
-                .collect(),
-            witnesses: tx.witnesses().into_iter()
-                .map(|w| w.as_bytes().to_vec())
-                .collect(),
-        }
-    }
-    
-    /// 转换为 Molecule Transaction
-    pub fn to_molecule(&self) -> molecule::Transaction {
-        // 构建 RawTransaction
-        let raw = molecule::RawTransaction::new_builder()
-            .version(u32::to_le_bytes(self.ver as u32).pack())
-            .cell_deps(/* ... */)
-            .inputs(/* ... */)
-            .outputs(/* ... */)
-            .outputs_data(/* ... */)
-            .build();
-        
-        // 构建 Transaction
-        molecule::Transaction::new_builder()
-            .raw(raw)
-            .witnesses(/* ... */)
-            .build()
-    }
+/// Cell 交易（完整结构）
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct CellTx {
+    pub version: u32,
+    pub inputs: Vec<CellInput>,
+    pub cell_deps: Vec<CellDep>,
+    pub header_deps: Vec<[u8; 32]>,
+    pub outputs: Vec<CellOutput>,
+    pub outputs_data: Vec<Vec<u8>>,
+    pub witnesses: Vec<Vec<u8>>,
 }
+
+// Borsh 自动实现序列化/反序列化
+// let bytes = tx.try_to_vec()?;
+// let tx = CellTx::try_from_slice(&bytes)?;
 ```
 
 ### 8.3 最大长度限制（防 DoS）
@@ -2224,64 +2044,40 @@ pub const MAX_OUTPUTS: usize = 1000;
 
 ### 8.4 测试向量（testvectors/s1_serialization）
 
-**Molecule 序列化测试**：
+**Borsh 序列化测试**：
 
 ```rust
-// testvectors/s1_serialization/test_molecule.rs
+// testvectors/s1_serialization/test_borsh.rs
 
 use exec::celltx::*;
+use borsh::{BorshSerialize, BorshDeserialize};
 
 #[test]
-fn test_molecule_roundtrip() {
+fn test_borsh_roundtrip() {
     // 构建标准交易
     let tx = standard_cell_tx();
     
-    // 转换为 Molecule
-    let mol_tx = tx.to_molecule();
-    let bytes = mol_tx.as_bytes();
+    // Borsh 序列化
+    let bytes = tx.try_to_vec().unwrap();
     
-    // 解析回来
-    let parsed_mol = molecule::Transaction::from_slice(&bytes).unwrap();
-    let parsed_tx = CellTx::from_molecule(parsed_mol);
+    // 反序列化
+    let parsed_tx = CellTx::try_from_slice(&bytes).unwrap();
     
     // 必须完全一致
     assert_eq!(tx, parsed_tx);
 }
 
 #[test]
-fn test_molecule_version_check() {
-    let mut tx = standard_cell_tx();
-    tx.ver = 0xDEAD;  // 非法版本
+fn test_borsh_version_check() {
+    let tx = standard_cell_tx();
     
-    let mol_tx = tx.to_molecule();
-    let bytes = mol_tx.as_bytes();
+    let bytes = tx.try_to_vec().unwrap();
     
-    // 解析应该成功（Molecule 不验证语义）
-    let parsed_mol = molecule::Transaction::from_slice(&bytes).unwrap();
-    let parsed_tx = CellTx::from_molecule(parsed_mol);
+    // 反序列化
+    let parsed_tx = CellTx::try_from_slice(&bytes).unwrap();
     
-    // 但业务逻辑验证应该失败
-    assert!(validate_cell_tx(&parsed_tx).is_err());
-}
-
-#[test]
-fn test_molecule_compatibility_with_ckb() {
-    // CKB Transaction 可以被解析（字段子集）
-    let ckb_tx_bytes = include_bytes!("../fixtures/ckb_transaction.bin");
-    
-    // Molecule 兼容性：可以解析 CKB 交易
-    let mol_tx = molecule::Transaction::from_slice(ckb_tx_bytes).unwrap();
-    
-    // 转换为 Spora CellTx（版本检查会失败，但结构兼容）
-    // 注：实际使用需要版本适配层
-}
-
-#[test]
-fn test_molecule_extension() {
-    // Molecule 的渐进式扩展：旧客户端可以忽略新字段
-    // 使用 union 或 table 新增字段，旧代码仍可解析
-    
-    // 这是 Molecule 优于 Borsh 的关键特性
+    // 业务逻辑验证版本号
+    assert!(validate_cell_tx(&parsed_tx).is_ok());
 }
 ```
 
@@ -2317,45 +2113,47 @@ fn test_script_encoding_matches_ckb() {
 ```rust
 // mempool/src/cellpool.rs
 
-/// Cell 交易池（参考 CKB TxPool）
+/// Cell 交易池
 pub struct CellPool {
-    /// 池内交易（多索引：id, score, status）
-    entries: MultiIndexCellEntryMap,
-    /// Cell 依赖关系（edges）
-    edges: CellEdges,
-    /// 父子关系（links）
-    links: TxLinksMap,
-    /// 配置
-    config: CellPoolConfig,
-}
-
-/// Cell 池条目（参考 CKB TxEntry）
-pub struct CellEntry {
-    pub rtx: Arc<ResolvedCellTx>,
-    pub cycles: Cycle,
-    pub size: usize,
-    pub fee: Capacity,
-    /// 祖先统计（CPFP）
-    pub ancestors_size: usize,
-    pub ancestors_fee: Capacity,
-    pub ancestors_cycles: Cycle,
-    pub ancestors_count: usize,
-    /// 后代统计（RBF）
-    pub descendants_fee: Capacity,
-    pub descendants_size: usize,
-    pub descendants_cycles: Cycle,
-    pub descendants_count: usize,
-    pub timestamp: u64,
-}
-
-/// Cell 边（依赖关系）
-pub struct CellEdges {
+    /// 池内交易
+    entries: IndexMap<[u8; 32], PoolEntry>,
     /// OutPoint -> 消费此 Cell 的交易
-    inputs: HashMap<OutPoint, HashSet<TxHash>>,
-    /// OutPoint -> 依赖此 Cell 的交易（deps）
-    deps: HashMap<OutPoint, HashSet<TxHash>>,
-    /// 头依赖（DAG 父块）
-    header_deps: HashMap<[u8; 32], HashSet<TxHash>>,
+    outpoint_index: BTreeMap<OutPoint, [u8; 32]>,
+    /// 依赖关系图
+    dependency_graph: DependencyGraph,
+}
+
+/// 池条目
+pub struct PoolEntry {
+    /// 交易
+    pub tx: CellTx,
+    /// 交易哈希 (wtxid)
+    pub wtxid: [u8; 32],
+    /// 交易评分
+    pub score: TransactionScore,
+    /// 时间戳
+    pub timestamp: u64,
+    /// 费用
+    pub fee: u64,
+    /// VM cycles
+    pub cycles: u64,
+    /// 蓝分（用于冲突裁决）
+    pub blue_score: Option<u64>,
+    /// 依赖（父 wtxids）
+    pub dependencies: Vec<[u8; 32]>,
+    /// 被依赖（子 wtxids）
+    pub dependents: Vec<[u8; 32]>,
+}
+
+/// 冲突裁决键
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ConflictKey {
+    /// 负费率密度（用于降序）
+    pub neg_fee_density: u64,
+    /// 负蓝分（用于降序）
+    pub neg_blue_score: u64,
+    /// WTxID（用于确定性排序）
+    pub wtxid: [u8; 32],
 }
 
 impl CellPool {
@@ -2391,101 +2189,15 @@ impl CellPool {
     }
     
     /// 获取最优交易（打包用）
-    pub fn get_top_transactions(
-        &self,
-        max_size: usize,
-        max_cycles: Cycle,
-    ) -> Vec<CellTx> {
-        let mut selected = Vec::new();
-        let mut total_size = 0;
-        let mut total_cycles = 0;
-        
-        // 按 ancestors_score 排序（fee_rate + 祖先）
-        for entry in self.entries.iter_by_score_desc() {
-            if total_size + entry.ancestors_size > max_size {
-                continue;
-            }
-            if total_cycles + entry.ancestors_cycles > max_cycles {
-                continue;
-            }
-            
-            // 检查所有祖先是否已选
-            if !self.all_ancestors_selected(&entry, &selected) {
-                continue;
-            }
-            
-            selected.push(entry.rtx.transaction.clone());
-            total_size += entry.size;
-            total_cycles += entry.cycles;
-        }
-        
-        selected
+    pub fn get_top_transactions(&self, max_size: usize, max_cycles: u64) -> Vec<CellTx> {
+        // 按评分排序并返回交易列表
+        // 实现细节...
+        vec![]
     }
     
-    /// RBF（Replace-By-Fee，Cell 版本）
-    pub fn replace_tx(
-        &mut self,
-        new_tx: CellTx,
-        conflicts: Vec<TxHash>,
-    ) -> Result<(), PoolError> {
-        // ⚠️ RBF 规则（适配 Cell 模型）
-        // 1. 新交易必须花费至少一个与冲突交易**相同的 OutPoint**
-        // 2. 新交易 effective_fee_rate 必须更高（考虑 cycles）
-        // 3. 新交易绝对 fee 必须高于所有被替换交易的总和 + 增量
-        
-        // 检查输入集合重叠
-        let new_inputs: BTreeSet<OutPoint> = new_tx.inputs.iter()
-            .map(|i| i.out_point.clone())
-            .collect();
-        
-        let mut has_overlap = false;
-        for conflict_hash in &conflicts {
-            if let Some(conflict_entry) = self.entries.get(conflict_hash) {
-                let conflict_inputs: BTreeSet<OutPoint> = conflict_entry.rtx.transaction.inputs.iter()
-                    .map(|i| i.out_point.clone())
-                    .collect();
-                
-                if !new_inputs.is_disjoint(&conflict_inputs) {
-                    has_overlap = true;
-                    break;
-                }
-            }
-        }
-        
-        if !has_overlap {
-            return Err(PoolError::NoInputOverlap);
-        }
-        
-        // 计算 effective fee rate
-        let new_effective_fee_rate = self.calculate_effective_fee_rate(&new_tx)?;
-        let conflict_total_fee: u64 = conflicts.iter()
-            .filter_map(|hash| self.entries.get(hash))
-            .map(|e| e.fee)
-            .sum();
-        let conflict_max_fee_rate = conflicts.iter()
-            .filter_map(|hash| self.entries.get(hash))
-            .map(|e| self.compute_effective_fee_rate(e))
-            .max_by(|a, b| a.partial_cmp(b).unwrap())
-            .unwrap_or(0.0);
-        
-        // 费率必须更高
-        if new_effective_fee_rate <= conflict_max_fee_rate {
-            return Err(PoolError::InsufficientFeeRate);
-        }
-        
-        // 绝对费用必须高于总和 + 增量（防垃圾攻击）
-        let min_fee_increment = 1000;  // 最小增量（saus）
-        if new_tx.fee <= conflict_total_fee + min_fee_increment {
-            return Err(PoolError::InsufficientFee);
-        }
-        
-        // 移除冲突交易
-        for conflict_hash in conflicts {
-            self.remove_tx(&conflict_hash)?;
-        }
-        
-        // 添加新交易
-        self.add_tx(new_tx)
+    /// 冲突裁决
+    pub fn resolve_conflict(&self, entries: &[PoolEntry]) -> Option<&PoolEntry> {
+        entries.iter().min_by_key(|e| ConflictKey::from_entry(e))
     }
 }
 
@@ -2508,28 +2220,39 @@ fn calculate_effective_fee_rate(tx: &CellTx, cycles: Cycle) -> f64 {
 ```rust
 // mempool/src/scorer.rs
 
-/// 交易评分（影响打包顺序）
-pub fn compute_ancestors_score(entry: &CellEntry) -> f64 {
-    // 祖先费率（CPFP：子交易带动父交易）
-    let ancestors_fee_rate = entry.ancestors_fee as f64 / entry.ancestors_size as f64;
-    
-    // cycles 归一化
-    let cycles_factor = 1.0 - (entry.ancestors_cycles as f64 / MAX_BLOCK_CYCLES as f64);
-    
-    // 时间因子（等待越久，优先级越高）
-    let age_factor = 1.0 + (current_time() - entry.timestamp) as f64 / 3600000.0;  // 每小时 +1
-    
-    ancestors_fee_rate * cycles_factor * age_factor
+/// 交易评分组件
+#[derive(Clone, Debug, PartialEq)]
+pub struct TransactionScore {
+    /// 费率密度 (fee / effective_size)
+    pub fee_density: f64,
+    /// 可解锁性评分（时间锁惩罚）
+    pub unlockability: f64,
+    /// 依赖宽度（依赖数量）
+    pub deps_width: f64,
+    /// 总评分（加权组合）
+    pub total: f64,
 }
 
-/// 驱逐键（内存满时踢出低优先级交易）
-pub fn compute_evict_key(entry: &CellEntry) -> EvictKey {
-    // 后代费率（RBF：包含所有后代）
-    let descendants_fee_rate = entry.descendants_fee as f64 / entry.descendants_size as f64;
-    
-    EvictKey {
-        fee_rate: descendants_fee_rate,
-        timestamp: entry.timestamp,
+/// 交易评分器
+///
+/// 计算优先级评分：
+/// ```text
+/// Score = α·fee_density + β·unlockability - γ·deps_width
+/// ```
+pub struct TransactionScorer {
+    /// 费率密度权重
+    alpha: f64,
+    /// 可解锁性权重
+    beta: f64,
+    /// 依赖惩罚权重
+    gamma: f64,
+    /// 每字节 cycles（用于有效大小）
+    cycles_per_byte: f64,
+}
+
+impl Default for TransactionScorer {
+    fn default() -> Self {
+        Self { alpha: 0.6, beta: 0.3, gamma: 0.1, cycles_per_byte: 100.0 }
     }
 }
 ```
@@ -2819,7 +2542,6 @@ impl CellbaseBuilder {
             lock: miner_lock_script.clone(),
             type_: None,
             capacity: block_reward,
-            data: vec![],
         });
         
         // Mergeset 奖励（DAG 特有：红块矿工也获得部分奖励）
@@ -2829,14 +2551,14 @@ impl CellbaseBuilder {
                 lock: red_miner_lock.clone(),
                 type_: None,
                 capacity: red_reward,
-                data: vec![],
             });
         }
         
         CellTx {
-            ver: 0xC001,
+            version: CELL_TX_VERSION,  // 0xC001
             inputs: vec![],  // cellbase 无输入
-            deps: vec![],
+            cell_deps: vec![],
+            header_deps: vec![],
             outputs,
             outputs_data: vec![vec![]; outputs.len()],
             witnesses: vec![],
@@ -3099,23 +2821,24 @@ cargo init --lib
 **任务 1.3：实现 `exec/src/celltx/sighash.rs`**
 ```rust
 // 域常量
-pub const CELL_SIG_DOMAIN: &[u8] = b"Cell/sig";
-pub const CELL_TXID_DOMAIN: &[u8] = b"Cell/txid";
+pub const CELL_SIG_DOMAIN: &[u8] = b"spora-cell/sig";
+pub const CELL_TXID_DOMAIN: &[u8] = b"spora-cell/txid";
+pub const CELL_WTXID_DOMAIN: &[u8] = b"spora-cell/wtxid";
 
 // 计算 wtxid（带见证）
 pub fn compute_wtxid(tx: &CellTx) -> [u8; 32] {
     let mut hasher = blake3::Hasher::new();
-    hasher.update(CELL_TXID_DOMAIN);
-    hasher.update(&tx.ver.to_le_bytes());
+    hasher.update(CELL_WTXID_DOMAIN);
+    hasher.update(&tx.version().to_le_bytes());
     // ... 序列化所有字段
     hasher.finalize().into()
 }
 
 // 计算签名哈希
-pub fn compute_sighash(
+pub fn compute_rw_bound_sighash(
     tx: &CellTx,
-    input_index: usize,
-    network_id: u32,  // ✓ u32（不是 u8）
+    input_index: u32,
+    network_id: u32,
     rw_commitment: &[u8; 32],
 ) -> [u8; 32] {
     let wtxid = compute_wtxid(tx);
@@ -3199,8 +2922,8 @@ pub trait ScriptVerifier {
 - 参考 `/home/arthur/RustRoverProjects/ckb/script/src/verify.rs`
 - 实现系统调用：`load_cell`, `load_tx_hash`, `load_input`, etc.
 
-**任务 3.4：实现标准锁脚本 `exec/src/scripts/secp256k1_lock.rs`**
-- Secp256k1 签名验证（参考当前 `crypto/txscript`）
+**任务 3.4：补齐标准锁脚本 `exec/src/scripts/secp256k1_blake3_lock.c`**
+- 继续把当前 fail-closed scaffold 收敛到生产可用的 VM 锁脚本实现
 
 **任务 3.5：编写 testvectors/s4_vm**
 - 非规范签名、多签、错误码测试
@@ -3307,7 +3030,7 @@ cargo init --lib
 pub fn compute_score(tx: &CellTx, context: &Context) -> f64 {
     let fee_density = tx.fee as f64 / tx.mass() as f64;
     let unlockability = compute_unlockability(tx);
-    let deps_width = tx.deps.len() as f64;
+    let deps_width = tx.cell_deps.len() as f64;
     
     fee_density * 0.6 + unlockability * 0.3 - deps_width * 0.1
 }
@@ -3764,7 +3487,7 @@ since 字段：
 
 ## 17. 术语速查
 
-* **CellTx**：新交易；`ver=0xC001`
+* **CellTx**：新交易；`version=0xC001`（u32）
 * **OutPoint**：`tx_hash || index`，唯一标识一个 Cell
 * **Lock Script**：谁能花费（签名验证）
 * **Type Script**：状态转移约束（可选）
@@ -3774,7 +3497,7 @@ since 字段：
 * **Cellbase**：挖矿奖励交易（DAG 支持 mergeset 奖励）
 * **ResolvedCellTx**：已解析交易（输入 Cells 已加载）
 * **CellProvider**：查询 Cell 状态的接口（Live/Dead/Unknown）
-* **RW-Set**：`inputs/deps/outputs` 声明
+* **RW-Set**：`inputs/cell_deps/outputs` 声明
 * **CellDAG**：依赖图；拓扑分层并行
 * **ns-root**：命名空间根承诺（`cell_root`）
 * **segment/chunk**：DA 段/块；NMT/KZG 承诺
@@ -4103,9 +3826,9 @@ pub fn verify_nmt_proof(
    - 域前缀：`spora-cell/*`
 
 3. **序列化**：
-   - **使用 Molecule**（与 CKB 相同）
-   - Schema 定义：`exec/celltx/types.mol`
-   - 完全兼容 CKB 脚本
+   - **使用 Borsh**（实际实现）
+   - 简单高效的 Rust 集成
+   - 注意：与 CKB 的 Molecule 不同，但结构兼容
 
 4. **共识**：
    - GhostDAG（CKB 用 NC-Max）
@@ -4115,7 +3838,7 @@ pub fn verify_nmt_proof(
    - **新增 Segment 存储**（1GB append-only 文件，参考 CKB Freezer mmap）
    - **新增 NMT 承诺**（segment 封口 → NMT root → 区块头承诺）
    - **新增 P2P 抽样验证**（chunk + Merkle proof）
-   - **索引分离**：RocksDB 只存 CellIndexEntry（segment_id/offset/len），大数据在 Segment
+   - **索引分离**：RocksDB 只存 CellMeta（cell_output + 可选的 segment_info），大数据在 Segment
    - **SpendJournal**：新增 K内回滚日志（DAG 重组支持）
 
 ---
@@ -4133,7 +3856,7 @@ pub fn verify_nmt_proof(
 
 | CF 名称 | Key | Value | 用途 |
 |---------|-----|-------|------|
-| `cells` | OutPoint(36B) | CellIndexEntry | Cell 索引（→Segment指针） |
+| `cells` | OutPoint(36B) | CellMeta | Cell 索引（→Segment指针） |
 | `cells_by_lock` | LockHash(32B) | Vec<OutPoint> | Lock 倒排索引 |
 | `segments` | SegmentID(4B) | SegmentMeta | Segment 元数据（含 nmt_root） |
 | `spend_journal` | BlockHash(32B) | Vec<CellChange> | K内回滚日志 |
@@ -4193,13 +3916,13 @@ The following Spora components are inspired by or adapted from CKB:
 
 1. **Consensus**: GhostDAG (vs. NC-Max in CKB)
 2. **Hashing**: blake3 (vs. blake2b in CKB)
-3. **Serialization**: **Molecule (same as CKB)** - Full compatibility
+3. **Serialization**: **Borsh** (implementation choice) - Different from CKB's Molecule but structurally compatible
 4. **DA Layer**: NMT sampling (new in Spora)
 5. **DAG Adaptations**: `daa_score`, mergeset rewards, reorg logs
 
 ## Other Dependencies
 
-- **Molecule**: MIT License (CKB serialization framework)
+- **Borsh**: MIT/Apache-2.0 (serialization framework)
 - **blake3**: CC0/Apache-2.0
 - **CKB-VM**: MIT License
 - **Rayon**: MIT/Apache-2.0 (parallel execution)
@@ -4240,7 +3963,7 @@ jobs:
 
 ```rust
 // SPDX-License-Identifier: ISC
-// Copyright (C) 2026Spora developers
+// Copyright (C) 2026 Spora developers
 //
 // This file is part of Spora, a DAG-based blockchain with Cell model.
 // Portions adapted from Nervos CKB (MIT License).

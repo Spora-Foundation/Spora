@@ -723,3 +723,85 @@
 //     generator.unwrap().harness().accumulate(2875).finalize();
 //     Ok(())
 // }
+
+// ---- CPFP unit tests (not commented out) ----
+
+use super::generator::CpfpOptions;
+use spora_consensus_core::tx::TransactionId;
+
+#[test]
+fn test_cpfp_additional_fee_calculation_basic() {
+    // Given: parent has mass=2000, fee=400, target_rate=1.0
+    // child mass=1000, base_child_fee=200
+    // required_combined = 1.0 * (2000+1000) = 3000
+    // already_covered = 400 + 200 = 600
+    // additional = 3000 - 600 = 2400
+    let cpfp = CpfpOptions {
+        target_fee_rate: 1.0,
+        parent_transaction_id: TransactionId::from([0u8; 32]),
+        parent_transaction_mass: 2000,
+        parent_transaction_fee: 400,
+    };
+
+    let combined_mass = cpfp.parent_transaction_mass + 1000;
+    let required_combined_fee = (cpfp.target_fee_rate * combined_mass as f64) as u64;
+    let already_covered = cpfp.parent_transaction_fee + 200u64;
+    let additional = required_combined_fee.saturating_sub(already_covered);
+
+    assert_eq!(additional, 2400);
+}
+
+#[test]
+fn test_cpfp_additional_fee_parent_already_meets_target() {
+    // Parent already pays enough: target_rate * combined < parent_fee + base_child_fee
+    let cpfp = CpfpOptions {
+        target_fee_rate: 0.1,
+        parent_transaction_id: TransactionId::from([0u8; 32]),
+        parent_transaction_mass: 1000,
+        parent_transaction_fee: 5000,
+    };
+
+    let child_mass = 500u64;
+    let base_child_fee = 100u64;
+    let combined_mass = cpfp.parent_transaction_mass + child_mass;
+    let required = (cpfp.target_fee_rate * combined_mass as f64) as u64; // 150
+    let already_covered = cpfp.parent_transaction_fee + base_child_fee; // 5100
+    let additional = required.saturating_sub(already_covered); // 0 (saturating)
+
+    assert_eq!(additional, 0);
+}
+
+#[test]
+fn test_cpfp_additional_fee_high_target_rate() {
+    let cpfp = CpfpOptions {
+        target_fee_rate: 5.0,
+        parent_transaction_id: TransactionId::from([1u8; 32]),
+        parent_transaction_mass: 3000,
+        parent_transaction_fee: 1000,
+    };
+
+    let child_mass = 2000u64;
+    let base_child_fee = 500u64;
+    let combined_mass = cpfp.parent_transaction_mass + child_mass; // 5000
+    let required = (cpfp.target_fee_rate * combined_mass as f64) as u64; // 25000
+    let already_covered = cpfp.parent_transaction_fee + base_child_fee; // 1500
+    let additional = required.saturating_sub(already_covered); // 23500
+
+    assert_eq!(additional, 23500);
+}
+
+#[test]
+fn test_cpfp_options_struct_fields() {
+    let parent_id = TransactionId::from([0xAB; 32]);
+    let cpfp = CpfpOptions {
+        target_fee_rate: 2.5,
+        parent_transaction_id: parent_id,
+        parent_transaction_mass: 4096,
+        parent_transaction_fee: 800,
+    };
+
+    assert!((cpfp.target_fee_rate - 2.5).abs() < f64::EPSILON);
+    assert_eq!(cpfp.parent_transaction_id, parent_id);
+    assert_eq!(cpfp.parent_transaction_mass, 4096);
+    assert_eq!(cpfp.parent_transaction_fee, 800);
+}

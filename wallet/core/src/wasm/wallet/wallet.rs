@@ -1,5 +1,5 @@
-use crate::imports::*;
 use crate::events::EventKind;
+use crate::imports::*;
 use crate::storage::local::interface::LocalStore;
 use crate::storage::WalletDescriptor;
 use crate::wallet as native;

@@ -779,7 +779,6 @@ impl ConnectionInitializer for FlowContext {
         // Subnets are not currently supported
         let mut self_version_message = Version::new(local_address, self.node_id, network_name.clone(), PROTOCOL_VERSION);
         self_version_message.add_user_agent(name(), version(), &self.config.user_agent_comments);
-        // TODO: get number of live services
         // TODO: disable_relay_tx from config/cmd
 
         // Perform the handshake
@@ -824,6 +823,7 @@ impl ConnectionInitializer for FlowContext {
         // Build and register the peer properties
         let peer_properties = Arc::new(PeerProperties {
             user_agent: peer_version.user_agent.to_owned(),
+            services: peer_version.services,
             advertised_protocol_version: peer_version.protocol_version,
             protocol_version: applied_protocol_version,
             disable_relay_tx: peer_version.disable_relay_tx,

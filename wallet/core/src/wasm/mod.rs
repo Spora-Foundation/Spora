@@ -35,3 +35,8 @@ cfg_if! {
         pub use self::wallet::*;
     }
 }
+
+// WASM account variant tests
+#[cfg(test)]
+#[cfg(target_arch = "wasm32")]
+pub mod account_variant_tests;

@@ -1773,7 +1773,9 @@ impl VirtualStateProcessor {
         tx.inputs
             .iter()
             .map(|input| {
-                provider.get_cell_at_pov(&input.previous_output, pov)?.ok_or_else(|| format!("missing input cell {:?}", input.previous_output))
+                provider
+                    .get_cell_at_pov(&input.previous_output, pov)?
+                    .ok_or_else(|| format!("missing input cell {:?}", input.previous_output))
             })
             .collect()
     }
@@ -2339,7 +2341,7 @@ enum MergesetIncreaseResult {
 mod tests {
     use super::filter_conflicting_template_transactions;
     use spora_consensus_core::{block::TemplateTransactionSelector, tx::TransactionId};
-    use spora_exec::{celltx::sighash::compute_wtxid, CellOutput, CellInput, CellTx, OutPoint, Script};
+    use spora_exec::{celltx::sighash::compute_wtxid, CellInput, CellOutput, CellTx, OutPoint, Script};
 
     struct NoopSelector;
 

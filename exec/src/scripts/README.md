@@ -74,7 +74,30 @@ let code_hash = timelock_absolute_code_hash();
 let since = encode_absolute_timestamp_since(1735689600);
 ```
 
-### 3. HTLC (Hash Time Locked Contract)
+### 3. Signature Hash Fixture (CKB-VM)
+
+**Source**: `fixtures/load_ecdsa_signature_hash.rs`  
+**Binary**: `fixtures/load_ecdsa_signature_hash.elf`
+
+**Purpose**:
+- Exercises VM syscall `3004`
+- Loads the canonical per-input ECDSA sighash for the first group input
+- Compares it against an expected digest carried in witness 0
+
+**Witness Format**:
+- `[0..32]`: expected canonical ECDSA sighash
+- `[32]`: sighash type byte passed to syscall `3004`
+
+**Usage**:
+```rust
+use spora_exec::scripts::{load_ecdsa_signature_hash_code_hash, LOAD_ECDSA_SIGNATURE_HASH_SCRIPT};
+
+let code_hash = load_ecdsa_signature_hash_code_hash();
+let expected_digest = [0u8; 32];
+let witness = expected_digest.into_iter().chain([0x01]).collect::<Vec<_>>();
+```
+
+### 4. HTLC (Hash Time Locked Contract)
 
 **Source**: `fixtures/htlc.rs`
 **Binary**: `fixtures/htlc.elf` (768KB)
@@ -107,7 +130,7 @@ let args = build_htlc_args(secret_hash, recipient_pubkey, sender_pubkey, lock_ty
 let lock = Script::new(code_hash, 0, args);
 ```
 
-### 4. Always Success (Testing Only)
+### 5. Always Success (Testing Only)
 
 **Code**: real RISC-V ELF fixture
 
@@ -125,19 +148,44 @@ let lock = Script {
 };
 ```
 
-### 5. Secp256k1 + Blake3 Lock
+### 6. Secp256k1 + Blake3 Lock (Production-Ready)
 
 **File**: `secp256k1_blake3_lock.c`
 
 **Functionality**:
-- Verifies secp256k1 signatures
-- Uses **blake3** for hashing (Spora-specific!)
+- Verifies secp256k1 signatures using **blake3** for hashing (Spora-specific!)
 - Args: pubkey hash (20 bytes, blake3 of pubkey)
-- Witness: signature (65 bytes, r + s + v)
+- Witness: recoverable signature (65 bytes, r + s + v), optionally followed by 1-byte sighash flag
+- Loads the canonical per-input ECDSA sighash from VM syscall `3004`
+- Verifies every witness in the current input group against syscall `3002`
+- Fail-closed semantics: returns 1 (failure) on any error path
 
-**Current status**:
-- The source is included for reference and future compilation.
-- The secp256k1 verification routine inside `secp256k1_blake3_lock.c` is still a scaffold, so the resulting ELF is not production-ready yet.
+**Security Features**:
+- Strict `LOAD_SCRIPT` args boundary validation (`args_len == 20` + out-of-bounds rejection)
+- Low-S signature enforcement (syscall 3002 rejects non-canonical high-S signatures)
+- Canonical ECDSA sighash binding (per-input via syscall 3004)
+
+**Build**:
+```bash
+# Using RISC-V GNU toolchain
+riscv64-unknown-elf-gcc -O3 -nostdlib -nostartfiles \
+    -fno-builtin-printf -fno-builtin-memcmp \
+    -Wl,-Ttext=0x0 \
+    -o secp256k1_blake3_lock.elf \
+    secp256k1_blake3_lock.c
+
+riscv64-unknown-elf-objcopy -O binary \
+    secp256k1_blake3_lock.elf \
+    secp256k1_blake3_lock.bin
+
+# Get code hash
+cargo run -p spora-exec --example fixture_hashes -- secp256k1_blake3_lock.bin
+```
+
+**Verification**:
+- Script-level regression tests: `cargo test -p spora-exec --lib`
+- Consensus integration: `cargo test -p spora-consensus --features vm --lib`
+- Syscall 3002 tests: `exec/src/vm/syscalls/secp256k1_verify.rs` (5 test cases covering valid signatures, tampered signatures, invalid recovery ids, high-S attacks)
 
 **Build**:
 ```bash
@@ -158,6 +206,12 @@ riscv64-unknown-elf-objcopy -O binary \
 
 # Get code hash (for use in transactions)
 blake3sum secp256k1_blake3_lock.bin
+
+# If blake3sum/b3sum is unavailable, use workspace helper
+cargo run -p spora-exec --example fixture_hashes -- secp256k1_blake3_lock.bin
+
+# For fixture ELFs, use the batch builder (also writes CODE_HASHES.blake3)
+bash exec/src/scripts/fixtures/build_fixtures.sh
 ```
 
 **Usage**:

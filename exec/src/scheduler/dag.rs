@@ -233,7 +233,7 @@ pub enum DagError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::celltx::types::{CellOutput, CellInput, Script};
+    use crate::celltx::types::{CellInput, CellOutput, Script};
 
     fn create_test_tx(inputs: Vec<OutPoint>, outputs_count: usize) -> CellTx {
         let lock = Script::new([0x00; 32], 0, vec![]);

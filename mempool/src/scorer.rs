@@ -124,7 +124,7 @@ impl TransactionScorer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use spora_exec::{CellOutput, CellInput, OutPoint, Script};
+    use spora_exec::{CellInput, CellOutput, OutPoint, Script};
 
     fn create_test_tx(num_inputs: usize, num_deps: usize) -> CellTx {
         let lock = Script::new([0x00; 32], 0, vec![0; 20]);

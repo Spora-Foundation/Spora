@@ -2,7 +2,7 @@ use self::{
     error::{Error, Result},
     resolver::{id::IdResolver, queue::QueueResolver, DynResolver},
 };
-use async_channel::{Receiver, Sender};
+use async_channel::{unbounded, Receiver, Sender};
 use async_trait::async_trait;
 pub use client_pool::ClientPool;
 use connection_event::ConnectionEvent;
@@ -42,6 +42,7 @@ use spora_utils_tower::{
     middleware::{BodyExt, CountBytesBody, MapRequestBodyLayer, MapResponseBodyLayer, ServiceBuilder},
 };
 use std::{
+    collections::HashMap,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -79,6 +80,8 @@ pub struct GrpcClient {
     subscription_context: SubscriptionContext,
     policies: MutationPolicies,
     notification_mode: NotificationMode,
+    active_notification_subscriptions: Arc<Mutex<HashMap<u64, Scope>>>,
+    next_subscription_id: Arc<std::sync::atomic::AtomicU64>,
 }
 
 const GRPC_CLIENT: &str = "grpc-client";
@@ -158,7 +161,17 @@ impl GrpcClient {
             inner.clone().spawn_connection_monitor(notifier.clone(), subscriptions.clone(), subscription_context.clone());
         }
 
-        Ok(Self { inner, notifier, collector, subscriptions, subscription_context, policies, notification_mode })
+        Ok(Self {
+            inner,
+            notifier,
+            collector,
+            subscriptions,
+            subscription_context,
+            policies,
+            notification_mode,
+            active_notification_subscriptions: Arc::new(Mutex::new(HashMap::new())),
+            next_subscription_id: Arc::new(std::sync::atomic::AtomicU64::new(1)),
+        })
     }
 
     #[inline(always)]
@@ -350,6 +363,44 @@ impl RpcApi for GrpcClient {
         } else {
             Err(RpcError::UnsupportedFeature)
         }
+    }
+
+    async fn subscribe_notifications(&self, request: SubscribeNotificationsRequest) -> RpcResult<SubscribeNotificationsResponse> {
+        let scope = request.scope;
+        let subscription_id = match self.notification_mode {
+            NotificationMode::MultiListeners => {
+                let (sender, _receiver) = unbounded();
+                let connection = ChannelConnection::new(GRPC_CLIENT, sender, spora_notify::connection::ChannelType::Closable);
+                self.register_new_listener(connection)
+            }
+            NotificationMode::Direct => self.next_subscription_id.fetch_add(1, Ordering::Relaxed),
+        };
+
+        let notify_listener_id = match self.notification_mode {
+            NotificationMode::MultiListeners => subscription_id,
+            NotificationMode::Direct => Self::DIRECT_MODE_LISTENER_ID,
+        };
+
+        self.start_notify(notify_listener_id, scope.clone()).await?;
+        self.active_notification_subscriptions.lock().await.insert(subscription_id, scope);
+        Ok(SubscribeNotificationsResponse::new(subscription_id))
+    }
+
+    async fn unsubscribe_notifications(&self, request: UnsubscribeNotificationsRequest) -> RpcResult<UnsubscribeNotificationsResponse> {
+        let Some(scope) = self.active_notification_subscriptions.lock().await.remove(&request.subscription_id) else {
+            return Err(RpcError::General(format!("unknown subscription id {}", request.subscription_id)));
+        };
+
+        let notify_listener_id = match self.notification_mode {
+            NotificationMode::MultiListeners => request.subscription_id,
+            NotificationMode::Direct => Self::DIRECT_MODE_LISTENER_ID,
+        };
+
+        self.stop_notify(notify_listener_id, scope).await?;
+        if matches!(self.notification_mode, NotificationMode::MultiListeners) {
+            self.unregister_listener(request.subscription_id).await?;
+        }
+        Ok(UnsubscribeNotificationsResponse {})
     }
 }
 

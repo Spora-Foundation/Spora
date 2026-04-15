@@ -1,7 +1,7 @@
 # P2B Virtual Processor 并行化设计
 
-- 日期: 2026-04-12
-- 状态: Draft
+- 日期: 2026-04-15
+- 状态: Draft (已部分实现基础结构)
 - 结论级别: 设计评审结论
 - 相关文档:
   - [CONSENSUS_SECURITY_AUDIT_2026.md](/Users/arthur/RustroverProjects/Spora/docs/CONSENSUS_SECURITY_AUDIT_2026.md)
@@ -80,6 +80,22 @@ P2b 的前提不是更多线程，而是先把 virtual-state 执行语义变成�
 - `virtual_processor` 的 mergeset blue block 处理仍是串行
 - `exec/scheduler/*` 还没有进入 production virtual-state 路径
 - `calculate_cell_state()` 仍然通过可变共享状态逐块重放
+
+### 2.3 已实现的基础结构
+
+当前代码中已存在部分 effect 模型的基础结构，但尚未完全实现文档设计的并行化方案：
+
+- **已存在的结构**（`consensus/src/pipeline/virtual_processor/cell_processing.rs`）：
+  - `BlockCellProcessingEffect`（第 108-115 行）：类似文档中的 `BlockExecutionEffect`，包含 `block_hash`、`accepted_tx_ids`、`cell_diff`、`reward_data` 等字段
+  - `SelectedParentCoinbaseEffect`（第 101-106 行）：处理选中父块 coinbase 的 effect
+  - `commit_block_effect()`（第 426-443 行）：将 effect 提交到上下文
+
+- **与设计的差距**：
+  - `process_blue_block()` 仍直接修改 `CellStateTree` 和 `processed_txs`，不是纯分析函数
+  - 不存在 `BlockAccessSummary` 和 `ExecutionSnapshot`
+  - 尚未实现 "并行生成 effect + 顺序提交" 的完整模型
+
+**当前状态总结**：已有初步的 effect 分离结构，但分析和提交阶段尚未完全解耦，距离 P2b 并行化还有重构工作要做。
 
 核心代码路径：
 
@@ -570,13 +586,23 @@ P2b 的问题不是 DAG 模型不够，而是执行层没被正确分层。
 
 建议按以下顺序推进：
 
-1. 在 `virtual_processor/cell_processing.rs` 中把 `process_blue_block(...)` 进一步拆成纯分析函数和提交函数
-2. 为 blue block 增加 `BlockAccessSummary`
-3. 补一组 reference 测试，锁住：
+1. **重构 `process_blue_block(...)`**（`consensus/src/pipeline/virtual_processor/cell_processing.rs`）：
+   - 当前已实现 `BlockCellProcessingEffect` 和 `commit_block_effect()`
+   - 需要进一步将 `process_blue_block()` 改为纯分析函数 `analyze_blue_block()`，不接收 `&mut CellStateTree`
+   - 引入 `ExecutionSnapshot` 作为只读快照
+
+2. **为 blue block 增加 `BlockAccessSummary`**
+   - 新增文件 `consensus/src/pipeline/virtual_processor/access_summary.rs`
+   - 包含 `spent_outpoints`、`created_outpoints`、`read_deps`、`tx_ids` 等字段
+
+3. **补一组 reference 测试**，锁住：
    - same mergeset, same result
    - duplicate tx across blues
    - double spend across blues
-4. 在 reference 语义稳定后，再引入 block-level execution DAG
+
+4. **在 reference 语义稳定后，再引入 block-level execution DAG**
+   - 保留 tx-level `CellDAG` 给模板/块内分析
+   - 为 P2b 新增 block-level `ExecutionDAG`
 
 ## 12. 一次性落地方案
 

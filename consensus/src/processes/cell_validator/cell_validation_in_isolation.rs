@@ -4,6 +4,7 @@
 // Cell transaction validation in isolation (no state required)
 
 use super::errors::CellValidationError;
+use spora_exec::CapacityError;
 use spora_exec::CellTx;
 
 /// Validate cell transaction format and basic constraints
@@ -37,7 +38,11 @@ pub fn validate_cell_tx_in_isolation(tx: &CellTx, max_cell_data_size: usize) -> 
                 data_len, max_cell_data_size
             )));
         }
-        output.verify_capacity(data_len).map_err(|e| CellValidationError::InvalidFormat(e.to_string()))?;
+        output.verify_capacity(data_len).map_err(|e| match e {
+            CapacityError::InsufficientCapacity { required, available } => {
+                CellValidationError::InsufficientCapacity { required, available }
+            }
+        })?;
     }
 
     Ok(())
@@ -46,7 +51,7 @@ pub fn validate_cell_tx_in_isolation(tx: &CellTx, max_cell_data_size: usize) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use spora_exec::{CellOutput, CellInput, OutPoint, Script};
+    use spora_exec::{CellInput, CellOutput, OutPoint, Script};
 
     fn create_test_tx() -> CellTx {
         let lock = Script::new([0x00; 32], 0, vec![0; 20]);
@@ -80,5 +85,21 @@ mod tests {
 
         let result = validate_cell_tx_in_isolation(&tx, 512);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_rejects_insufficient_output_capacity_with_structured_error() {
+        let lock = Script::new([0x00; 32], 0, vec![0; 20]);
+        let tx = CellTx::new(
+            vec![CellInput::new(OutPoint::new([0; 32], 0), 0)],
+            vec![],
+            vec![CellOutput { lock, type_: None, capacity: 10 }],
+            vec![vec![0u8; 100]],
+            vec![],
+        )
+        .unwrap();
+
+        let result = validate_cell_tx_in_isolation(&tx, 500 * 1024);
+        assert!(matches!(result, Err(CellValidationError::InsufficientCapacity { .. })));
     }
 }

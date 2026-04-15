@@ -16,6 +16,7 @@ crate-type = ["cdylib", "lib"]
 async-trait.workspace = true
 borsh = { workspace = true, features = ["rc"] }
 futures.workspace = true
+futures-util.workspace = true
 spora-consensus-core.workspace = true
 spora-core.workspace = true
 spora-grpc-client.workspace = true
@@ -35,3 +36,4 @@ workflow-log.workspace = true
 workflow-rpc.workspace = true
 workflow-serializer.workspace = true
 rustls.workspace = true
+serde_json.workspace = true

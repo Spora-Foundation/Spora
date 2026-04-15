@@ -1,8 +1,6 @@
 use crate::{
     consensus::{
-        services::{
-            ConsensusServices, DbBlockDepthManager, DbGhostdagManager, DbParentsManager, DbWindowManager,
-        },
+        services::{ConsensusServices, DbBlockDepthManager, DbGhostdagManager, DbParentsManager, DbWindowManager},
         storage::ConsensusStorage,
     },
     errors::{BlockProcessResult, RuleError},

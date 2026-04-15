@@ -111,10 +111,10 @@ impl BorshDeserialize for WalletStorage {
             ));
         }
 
-        if version > Self::STORAGE_VERSION {
+        if version != Self::STORAGE_VERSION {
             return Err(IoError::new(
                 IoErrorKind::InvalidData,
-                format!("This wallet data was generated using a new version of the software. Please upgrade your software environment. Expected at most version '{}', encountered version '{}'", Self::STORAGE_VERSION, version),
+                format!("Wallet storage version mismatch. Expected '{}', encountered '{}'", Self::STORAGE_VERSION, version),
             ));
         }
 

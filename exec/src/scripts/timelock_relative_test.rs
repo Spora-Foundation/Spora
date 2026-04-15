@@ -5,7 +5,7 @@
 
 #[cfg(all(test, feature = "vm"))]
 mod tests {
-    use crate::celltx::{CellOutput, CellInput, CellTx, OutPoint, Script};
+    use crate::celltx::{CellInput, CellOutput, CellTx, OutPoint, Script};
     use crate::scripts::timelock::encode_relative_daa_since;
     use crate::scripts::{timelock_relative_code_hash, TIMELOCK_RELATIVE_SCRIPT};
     use crate::vm::{ResolvedCell, ScriptVersion, SimpleDataProvider, TransactionScriptVerifier};

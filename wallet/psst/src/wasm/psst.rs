@@ -1,3 +1,10 @@
+//! # PSST WASM Bindings
+//!
+//! WebAssembly bindings for the Partially Signed Spora Transaction (PSST)
+//! workflow.  Exposes a role-based state machine that guides users through
+//! the PSST lifecycle: Creator → Constructor → Updater → Signer →
+//! Combiner → Finalizer → Extractor.
+
 use crate::psst::{Input, Output, PSST as Native};
 use crate::role::*;
 use spora_consensus_core::mass::MassCalculator;
@@ -22,6 +29,12 @@ use workflow_wasm::{
 use super::error::*;
 use super::result::*;
 
+/// Serialisable PSST role/state envelope.
+///
+/// Each variant wraps a native [`PSST`](crate::psst::PSST) at the
+/// corresponding lifecycle stage.  The `NoOp` variant is used for PSSTs
+/// that were loaded from a serialised payload and have not yet been
+/// assigned a role.
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(tag = "state", content = "payload")]
 pub enum State {
@@ -42,7 +55,10 @@ impl AsRef<State> for State {
 }
 
 impl State {
-    // this is not a Display trait intentionally
+    /// Returns a human-readable label for the current state.
+    ///
+    /// This is intentionally *not* a `Display` trait implementation to
+    /// avoid ambiguity with other display formats.
     pub fn display(&self) -> &'static str {
         match self {
             State::NoOp(_) => "Init",
@@ -69,8 +85,11 @@ extern "C" {
     pub type CtorT;
 }
 
+/// Intermediate serialisation helper for deserialising a PSST from a
+/// hex-encoded or JSON string.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Payload {
+    /// Hex-encoded (prefixed with `"PSST"`) or raw JSON string.
     data: String,
 }
 
@@ -87,6 +106,20 @@ impl<T> TryFrom<Payload> for Native<T> {
     }
 }
 
+/// WebAssembly-facing PSST handle.
+///
+/// This struct wraps the internal PSST state machine behind an `Arc<Mutex<_>>`
+/// so that it can be safely shared across JavaScript promises and callbacks.
+///
+/// # JavaScript API
+///
+/// ```js
+/// const psst = new PSST();             // Creator role
+/// const constructor = psst.toConstructor();
+/// constructor.input({ ... });
+/// constructor.output({ ... });
+/// const signer = constructor.toSigner();
+/// ```
 #[wasm_bindgen(inspectable)]
 #[derive(Clone, CastFromJs)]
 pub struct PSST {
@@ -121,22 +154,40 @@ impl TryCastFromJs for PSST {
 
 #[wasm_bindgen]
 impl PSST {
+    /// Create a new PSST instance.
+    ///
+    /// # Arguments
+    ///
+    /// * `payload` - One of:
+    ///   - `undefined` – creates an empty PSST in the **Creator** role.
+    ///   - A hex string starting with `"PSST"` – deserialised from the
+    ///     portable PSST format.
+    ///   - A JSON string – deserialised from a JSON payload.
+    ///   - Another `PSST` instance – cloned.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the payload cannot be parsed.
     #[wasm_bindgen(constructor)]
     pub fn new(payload: CtorT) -> Result<PSST> {
         PSST::try_owned_from(payload.unchecked_into::<JsValue>().as_ref()).map_err(|err| Error::Ctor(err.to_string()))
     }
 
+    /// Returns the current role name (e.g. `"Creator"`, `"Signer"`).
     #[wasm_bindgen(getter, js_name = "role")]
     pub fn role_getter(&self) -> String {
         self.state().as_ref().unwrap().display().to_string()
     }
 
+    /// Returns the underlying state as a JavaScript value suitable for
+    /// serialisation or transfer between WASM workers.
     #[wasm_bindgen(getter, js_name = "payload")]
     pub fn payload_getter(&self) -> JsValue {
         let state = self.state();
         workflow_wasm::serde::to_value(state.as_ref().unwrap()).unwrap()
     }
 
+    /// Serialise the current PSST state to a JSON string.
     pub fn serialize(&self) -> String {
         let state = self.state();
         serde_json::to_string(state.as_ref().unwrap()).unwrap()
@@ -245,6 +296,11 @@ impl PSST {
         self.replace(state)
     }
 
+    /// Mark inputs as modifiable (Creator role only).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the PSST is not in the Creator state.
     #[wasm_bindgen(js_name = inputsModifiable)]
     pub fn inputs_modifiable(&self) -> Result<PSST> {
         let state = match self.take() {
@@ -255,6 +311,11 @@ impl PSST {
         self.replace(state)
     }
 
+    /// Mark outputs as modifiable (Creator role only).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the PSST is not in the Creator state.
     #[wasm_bindgen(js_name = outputsModifiable)]
     pub fn outputs_modifiable(&self) -> Result<PSST> {
         let state = match self.take() {
@@ -265,6 +326,11 @@ impl PSST {
         self.replace(state)
     }
 
+    /// Signal that no more inputs will be added (Constructor role only).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the PSST is not in the Constructor state.
     #[wasm_bindgen(js_name = noMoreInputs)]
     pub fn no_more_inputs(&self) -> Result<PSST> {
         let state = match self.take() {
@@ -275,6 +341,11 @@ impl PSST {
         self.replace(state)
     }
 
+    /// Signal that no more outputs will be added (Constructor role only).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the PSST is not in the Constructor state.
     #[wasm_bindgen(js_name = noMoreOutputs)]
     pub fn no_more_outputs(&self) -> Result<PSST> {
         let state = match self.take() {
@@ -285,17 +356,28 @@ impl PSST {
         self.replace(state)
     }
 
-    #[wasm_bindgen(js_name = inputAndRedeemScript)]
-    pub fn input_with_redeem(&self, input: &JsValue, data: &JsValue) -> Result<PSST> {
+    /// Add an input together with a witness template (Constructor role only).
+    ///
+    /// # Arguments
+    ///
+    /// * `input` – Input JS object (see [`Input`]).
+    /// * `data`  – JS object with a `witnessTemplate` hex string field.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the witness template is not valid hex or the
+    /// PSST is not in the Constructor state.
+    #[wasm_bindgen(js_name = inputAndWitnessTemplate)]
+    pub fn input_with_witness_template(&self, input: &JsValue, data: &JsValue) -> Result<PSST> {
         let obj = js_sys::Object::from(data.clone());
 
         let mut input: Input = from_value(input.clone())?;
-        let redeem_script = js_sys::Reflect::get(&obj, &"redeemScript".into())
-            .expect("Missing redeemscript field")
+        let witness_template = js_sys::Reflect::get(&obj, &"witnessTemplate".into())
+            .expect("Missing witnessTemplate field")
             .as_string()
-            .expect("redeemscript must be a string");
-        input.redeem_script =
-            Some(hex::decode(redeem_script).map_err(|e| Error::custom(format!("Redeem script is not a hex string: {}", e)))?);
+            .expect("witnessTemplate must be a string");
+        input.witness_template =
+            Some(hex::decode(witness_template).map_err(|e| Error::custom(format!("witnessTemplate is not a hex string: {}", e)))?);
         let state = match self.take() {
             State::Constructor(psst) => State::Constructor(psst.input(input)),
             _ => Err(Error::expected_state("Constructor"))?,
@@ -304,6 +386,16 @@ impl PSST {
         self.replace(state)
     }
 
+    /// Add an input to the PSST (Constructor role only).
+    ///
+    /// # Arguments
+    ///
+    /// * `input` – A JS object conforming to the [`Input`] schema.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if deserialisation fails or the PSST is not in the
+    /// Constructor state.
     pub fn input(&self, input: &JsValue) -> Result<PSST> {
         let input: Input = from_value(input.clone())?;
         let state = match self.take() {
@@ -314,6 +406,16 @@ impl PSST {
         self.replace(state)
     }
 
+    /// Add an output to the PSST (Constructor role only).
+    ///
+    /// # Arguments
+    ///
+    /// * `output` – A JS object conforming to the [`Output`] schema.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if deserialisation fails or the PSST is not in the
+    /// Constructor state.
     pub fn output(&self, output: &JsValue) -> Result<PSST> {
         let output: Output = from_value(output.clone())?;
         let state = match self.take() {
@@ -324,6 +426,18 @@ impl PSST {
         self.replace(state)
     }
 
+    /// Set the `since` (relative timelock) value on a specific input
+    /// (Updater role only).
+    ///
+    /// # Arguments
+    ///
+    /// * `n` – The `since` value.
+    /// * `input_index` – Zero-based index of the target input.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the index is out of range or the PSST is not in
+    /// the Updater state.
     #[wasm_bindgen(js_name = setSince)]
     pub fn set_since(&self, n: u64, input_index: usize) -> Result<PSST> {
         let state = match self.take() {
@@ -334,6 +448,11 @@ impl PSST {
         self.replace(state)
     }
 
+    /// Calculate the transaction ID without finalising (Signer role only).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the PSST is not in the Signer state.
     #[wasm_bindgen(js_name = calculateId)]
     pub fn calculate_id(&self) -> Result<TransactionId> {
         let state = self.state();
@@ -343,6 +462,28 @@ impl PSST {
         }
     }
 
+    /// Estimate the transaction mass for the current PSST.
+    ///
+    /// The method internally finalises a **clone** of the PSST (filling in
+    /// dummy witnesses) and then computes the mass using the network-specific
+    /// [`MassCalculator`].
+    ///
+    /// # Arguments
+    ///
+    /// * `data` – A JS object with a `networkId` string field (e.g.
+    ///   `{ networkId: "mainnet" }`).
+    ///
+    /// # Returns
+    ///
+    /// The estimated transaction mass as `u64`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - `networkId` is missing or invalid.
+    /// - Any input contains a witness template (not supported for mass
+    ///   estimation).
+    /// - Finalisation or extraction fails.
     #[wasm_bindgen(js_name = calculateMass)]
     pub fn calculate_mass(&self, data: &JsValue) -> Result<u64> {
         let obj = js_sys::Object::from(data.clone());
@@ -363,8 +504,8 @@ impl PSST {
             match finalizer_state {
                 State::Finalizer(psst) => {
                     for input in psst.inputs.iter() {
-                        if input.redeem_script.is_some() {
-                            return Err(Error::custom("Mass calculation is not supported for inputs with redeem scripts"));
+                        if input.witness_template.is_some() {
+                            return Err(Error::custom("Mass calculation is not supported for inputs with witness templates"));
                         }
                     }
                     let psst = psst

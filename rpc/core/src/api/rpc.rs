@@ -509,6 +509,14 @@ pub trait RpcApi: Sync + Send + AnySync {
     // Notification API
 
     /// Register a new listener and returns an id identifying it.
+    ///
+    /// # Deprecated
+    ///
+    /// This method exposes internal channel plumbing to the caller and is
+    /// unsuitable for transport over standard RPC protocols.  Use
+    /// [`subscribe_notifications`](Self::subscribe_notifications) /
+    /// [`unsubscribe_notifications`](Self::unsubscribe_notifications) instead.
+    #[deprecated(note = "Use subscribe_notifications / unsubscribe_notifications instead")]
     fn register_new_listener(&self, connection: ChannelConnection) -> ListenerId;
 
     /// Unregister an existing listener.
@@ -530,6 +538,24 @@ pub trait RpcApi: Sync + Send + AnySync {
             Command::Stop => self.stop_notify(id, scope).await,
         }
     }
+
+    /// Subscribe to notifications matching the given `scope`.
+    ///
+    /// The server creates an internal channel for this subscription and
+    /// returns a [`SubscribeNotificationsResponse`] containing a unique
+    /// `subscription_id`.  The caller should use that id to later cancel
+    /// the subscription via [`unsubscribe_notifications`](Self::unsubscribe_notifications).
+    async fn subscribe_notifications(
+        &self,
+        request: SubscribeNotificationsRequest,
+    ) -> RpcResult<SubscribeNotificationsResponse>;
+
+    /// Cancel an active notification subscription identified by
+    /// `subscription_id`.
+    async fn unsubscribe_notifications(
+        &self,
+        request: UnsubscribeNotificationsRequest,
+    ) -> RpcResult<UnsubscribeNotificationsResponse>;
 }
 
 pub type DynRpcService = Arc<dyn RpcApi>;

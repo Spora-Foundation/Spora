@@ -151,8 +151,19 @@ impl TransactionsPool {
     fn get_effective_parent_transaction_ids_in_pool(&self, transaction: &MempoolTransaction) -> TransactionIdSet {
         let mut parents = self.get_parent_transaction_ids_in_pool(&transaction.mtx);
 
+        for input in &transaction.mtx.tx.inputs {
+            if let Some(parent_id) = self.cell_set.get_mempool_cell_owner_id(&input.previous_output).copied() {
+                parents.insert(parent_id);
+            }
+        }
+
         if let Some(cell_tx) = transaction.cell_tx() {
             for input in &cell_tx.inputs {
+                if let Some(parent_id) = self.cell_set.get_mempool_cell_owner_id(&input.previous_output).copied() {
+                    parents.insert(parent_id);
+                    continue;
+                }
+
                 let cell_parent_id: TransactionId = input.previous_output.tx_hash.into();
                 if let Some(parent_id) = self.cell_transaction_ids.get(&cell_parent_id).copied() {
                     parents.insert(parent_id);
@@ -311,7 +322,7 @@ impl TransactionsPool {
             self.cell_wtxids.insert(cell_wtxid, id);
         }
 
-        self.cell_set.add_transaction(&transaction.mtx);
+        self.cell_set.add_transaction(&transaction);
         self.estimated_size += transaction_size;
         self.all_transactions.insert(id, transaction);
         self.refresh_ready_status(id);
@@ -361,10 +372,8 @@ impl TransactionsPool {
         // The tradeoff to consider is whether it might be possible that a parent tx exists in the pool
         // however its relation as parent is not registered. This can supposedly happen in rare cases where
         // the parent was removed w/o redeemers and then re-added
-        let parent_ids = self.get_parent_transaction_ids_in_pool(&removed_tx.mtx);
-
         // Remove the transaction from the transitional mempool Cell set
-        self.cell_set.remove_transaction(&removed_tx.mtx, &parent_ids);
+        self.cell_set.remove_transaction(&removed_tx);
         self.estimated_size -= removed_tx.mtx.mempool_estimated_bytes();
 
         let mut maybe_ready = TransactionIdSet::new();
@@ -562,6 +571,10 @@ impl TransactionsPool {
         self.cell_set.get_outpoint_owner_id(outpoint)
     }
 
+    pub(crate) fn get_mempool_cell_owner_id(&self, outpoint: &TransactionOutpoint) -> Option<&TransactionId> {
+        self.cell_set.get_mempool_cell_owner_id(outpoint)
+    }
+
     pub(crate) fn resolve_transaction_id_by_cell_transaction_id(&self, cell_transaction_id: &TransactionId) -> Option<TransactionId> {
         self.cell_transaction_ids.get(cell_transaction_id).copied()
     }
@@ -648,7 +661,7 @@ mod tests {
     use crate::cell_conversion::cell_output_to_placeholder_entry;
     use spora_consensus_core::{
         mass::{ContextualMasses, NonContextualMasses},
-        tx::{CellOutput, CellInput, CellTx, MutableTransaction, Script, TransactionId, TransactionOutpoint},
+        tx::{CellInput, CellOutput, CellTx, MutableTransaction, Script, TransactionId, TransactionOutpoint},
     };
 
     fn build_test_mtx() -> MutableTransaction {

@@ -24,8 +24,8 @@ pub struct Output {
     pub output_data: Option<Vec<u8>>,
     #[builder(setter(strip_option))]
     #[serde(with = "spora_utils::serde_bytes_optional")]
-    /// The redeem script for this output.
-    pub redeem_script: Option<Vec<u8>>,
+    /// Optional witness template bytes attached to this output metadata.
+    pub witness_template: Option<Vec<u8>>,
     /// A map from public keys needed to spend this output to their
     /// corresponding master key fingerprints and derivation paths.
     pub bip32_derivations: BTreeMap<secp256k1::PublicKey, Option<KeySource>>,
@@ -43,7 +43,7 @@ impl Default for Output {
             lock_script: Script::new([0; 32], 0, vec![]),
             type_script: None,
             output_data: None,
-            redeem_script: None,
+            witness_template: None,
             bip32_derivations: BTreeMap::new(),
             proprietaries: BTreeMap::new(),
             unknowns: BTreeMap::new(),
@@ -67,12 +67,12 @@ impl Add for Output {
         if self.output_data != rhs.output_data {
             return Err(CombineError::OutputDataMismatch { this: self.output_data, that: rhs.output_data });
         }
-        self.redeem_script = match (self.redeem_script.take(), rhs.redeem_script) {
+        self.witness_template = match (self.witness_template.take(), rhs.witness_template) {
             (None, None) => None,
             (Some(script), None) | (None, Some(script)) => Some(script),
             (Some(script_left), Some(script_right)) if script_left == script_right => Some(script_left),
             (Some(script_left), Some(script_right)) => {
-                return Err(CombineError::NotCompatibleRedeemScripts { this: script_left, that: script_right })
+                return Err(CombineError::NotCompatibleWitnessTemplates { this: script_left, that: script_right })
             }
         };
         self.bip32_derivations = combine_if_no_conflicts(self.bip32_derivations, rhs.bip32_derivations)?;
@@ -95,8 +95,8 @@ pub enum CombineError {
     TypeScriptMismatch { this: Option<Script>, that: Option<Script> },
     #[error("The output data is not the same")]
     OutputDataMismatch { this: Option<Vec<u8>>, that: Option<Vec<u8>> },
-    #[error("Two different redeem scripts detected")]
-    NotCompatibleRedeemScripts { this: Vec<u8>, that: Vec<u8> },
+    #[error("Two different witness templates detected")]
+    NotCompatibleWitnessTemplates { this: Vec<u8>, that: Vec<u8> },
 
     #[error("Two different derivations for the same key")]
     NotCompatibleBip32Derivations(#[from] crate::utils::Error<secp256k1::PublicKey, Option<KeySource>>),

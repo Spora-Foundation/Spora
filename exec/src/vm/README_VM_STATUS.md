@@ -51,7 +51,10 @@ fixture still lack end-to-end execution coverage.
 Key remaining implementation gaps:
 
 1. **Syscall completeness**
-   - `LoadHeader` now supports `HeaderDep` loading with a richer resolved-header view
+   - `LoadHeader` now supports `Input` / `CellDep` / `GroupInput` / `HeaderDep` loading with a richer resolved-header view
+   - `LoadWitness` now supports `Input` / `Output` / `GroupInput` / `GroupOutput`
+   - Standard `load_*` syscalls now feed transferred-byte cycles back into the VM machine counter
+   - Shared `store_data` partial-read handling now returns `SLICE_OUT_OF_BOUND` for offsets past the available payload instead of silently clamping
    - `LoadCell` / `LoadCellData` now cover inputs / deps, but full CKB-compatible layouts are not complete
 
 2. **Fixture realism**
@@ -60,7 +63,7 @@ Key remaining implementation gaps:
 
 3. **Header/runtime model**
    - `HeaderDep` is now modeled in `CellTx`
-   - Header-loading syscalls still only source headers from `HeaderDep`; further DAG-specific semantics can be added if scripts begin depending on them
+   - Header-loading syscalls now source headers from resolved inputs / deps as well; output-side header semantics are still intentionally unsupported
 
 ### Solution Options
 
@@ -109,7 +112,7 @@ All concepts are implemented:
 
 1. **Complete runtime environment**
    - Complete remaining `LoadCell` / `LoadCellData` layout branches
-   - Expand `LoadHeader` beyond `HeaderDep` if future scripts need additional header source semantics
+   - Expand `LoadHeader` further if future scripts need output-side or additional DAG-specific header source semantics
 
 2. **Basic Tests** (1-2 hours)
    - Extend beyond always-success

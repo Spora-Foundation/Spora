@@ -29,7 +29,7 @@ mod tests {
     use super::*;
     use spora_consensus_core::{
         header::Header,
-        tx::{CellOutput, CellInput, CellTx, OutPoint, Script},
+        tx::{CellInput, CellOutput, CellTx, OutPoint, Script},
         BlueWorkType,
     };
     use spora_hashes::Hash;

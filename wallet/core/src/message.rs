@@ -3,7 +3,7 @@
 //!
 
 use secp256k1::{Error, XOnlyPublicKey};
-use spora_hashes::{Hash, PersonalMessageSigningHash};
+use spora_hashes::{CellMessageSigningHash, Hash};
 
 /// A personal message (text) that can be signed.
 #[derive(Clone)]
@@ -54,7 +54,7 @@ pub fn verify_message(msg: &PersonalMessage, signature: &Vec<u8>, pubkey: &XOnly
 }
 
 fn calc_personal_message_hash(msg: &PersonalMessage) -> Hash {
-    let mut hasher = PersonalMessageSigningHash::new();
+    let mut hasher = CellMessageSigningHash::new();
     hasher.write(msg);
     hasher.finalize()
 }

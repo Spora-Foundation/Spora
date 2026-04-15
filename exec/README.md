@@ -9,7 +9,7 @@ This crate implements the execution layer for Cell transactions, including:
 - **CellTx Types**: Cell transaction structure (Lock/Type scripts, capacity, data)
 - **Scheduler**: Parallel transaction execution with RW-Set DAG
 - **VM Integration**: CKB-VM (RISC-V) for script verification
-- **Standard Scripts**: Secp256k1 lock script, capacity type script
+- **Standard Scripts**: VM lock fixtures, timelock helpers, and script sources
 
 ## Architecture
 
@@ -28,8 +28,10 @@ exec/
 │   ├── interface.rs # Lock/type script interface
 │   └── syscalls.rs  # System calls: load_cell/load_tx/...
 └── scripts/         # Standard script library
-    ├── secp256k1_lock.rs
-    └── capacity_type.rs
+    ├── mod.rs
+    ├── secp256k1_blake3_lock.c
+    ├── timelock.rs
+    └── fixtures/
 ```
 
 ## References
@@ -43,5 +45,4 @@ exec/
 🚧 **Under Construction** - Part of the Spora fork (Cell model migration)
 
 See `spora.md` for full implementation plan.
-
 

@@ -87,17 +87,13 @@ impl PublicKey {
 impl PublicKey {
     #[inline]
     pub fn to_address(&self, network_type: NetworkType) -> Result<Address> {
-        let payload = &self.xonly_public_key.serialize();
-        let address = Address::new(network_type.into(), AddressVersion::PubKey, payload)?;
-        Ok(address)
+        Ok(Address::new_std_single(network_type.into(), &self.xonly_public_key.serialize())?)
     }
 
     #[inline]
     pub fn to_address_ecdsa(&self, network_type: NetworkType) -> Result<Address> {
         if let Some(public_key) = self.public_key.as_ref() {
-            let payload = &public_key.serialize();
-            let address = Address::new(network_type.into(), AddressVersion::PubKeyECDSA, payload)?;
-            Ok(address)
+            Ok(Address::new_std_single_ecdsa(network_type.into(), &public_key.serialize())?)
         } else {
             Err(Error::InvalidXOnlyPublicKeyForECDSA)
         }
@@ -220,19 +216,15 @@ impl XOnlyPublicKey {
     /// JavaScript: `let address = xOnlyPublicKey.toAddress(NetworkType.MAINNET);`.
     #[wasm_bindgen(js_name = toAddress)]
     pub fn to_address(&self, network: &NetworkTypeT) -> Result<Address> {
-        let payload = &self.inner.serialize();
-        let address = Address::new(network.try_into()?, AddressVersion::PubKey, payload)?;
-        Ok(address)
+        Ok(Address::new_std_single(network.try_into()?, &self.inner.serialize())?)
     }
 
     /// Get `ECDSA` [`Address`] of this XOnlyPublicKey.
     /// Receives a [`NetworkType`] to determine the prefix of the address.
     /// JavaScript: `let address = xOnlyPublicKey.toAddress(NetworkType.MAINNET);`.
     #[wasm_bindgen(js_name = toAddressECDSA)]
-    pub fn to_address_ecdsa(&self, network: &NetworkTypeT) -> Result<Address> {
-        let payload = &self.inner.serialize();
-        let address = Address::new(network.try_into()?, AddressVersion::PubKeyECDSA, payload)?;
-        Ok(address)
+    pub fn to_address_ecdsa(&self, _network: &NetworkTypeT) -> Result<Address> {
+        Err(Error::InvalidXOnlyPublicKeyForECDSA)
     }
 
     #[wasm_bindgen(js_name = fromAddress)]

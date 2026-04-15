@@ -3,9 +3,10 @@
 //
 // Load script syscall
 
-use super::utils::{store_data, SUCCESS};
+use super::utils::store_data;
 use super::{LOAD_SCRIPT_HASH_SYSCALL_NUMBER, LOAD_SCRIPT_SYSCALL_NUMBER};
 use crate::celltx::Script;
+use crate::vm::transferred_byte_cycles;
 use ckb_vm::{
     registers::{A0, A7},
     Error as VMError, Register, SupportMachine, Syscalls,
@@ -62,8 +63,9 @@ impl<M: SupportMachine> Syscalls<M> for LoadScript {
         };
 
         // Store data using CKB-style store_data
-        store_data(machine, &data)?;
-        machine.set_register(A0, M::REG::from_u8(SUCCESS));
+        let result = store_data(machine, &data)?;
+        machine.add_cycles_no_checking(transferred_byte_cycles(result.written_size))?;
+        machine.set_register(A0, M::REG::from_u8(result.return_code));
 
         Ok(true)
     }
@@ -72,6 +74,7 @@ impl<M: SupportMachine> Syscalls<M> for LoadScript {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::vm::syscalls::SUCCESS;
     use crate::vm::ScriptVersion;
     use ckb_vm::{
         registers::{A1, A2},

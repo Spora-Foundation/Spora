@@ -5,6 +5,13 @@
 - 审计方式: 静态代码审计
 - 结论摘要: 当前实现下，这个 `cell dag` 方案还不能认为“共识已经成立”
 
+> 状态说明（2026-04-13）：
+> 本文是 2026-04-11 的历史快照，其中部分 P0/P1 结论已被后续实现修复或降级。
+> 当前状态请优先参考：
+> [spora_architecture_business_process_audit_2026.md](/Users/arthur/RustroverProjects/Spora/docs/spora_architecture_business_process_audit_2026.md)、
+> [spora_consensus_v2_gap_analysis.md](/Users/arthur/RustroverProjects/Spora/docs/spora_consensus_v2_gap_analysis.md)、
+> [spora_deep_code_audit_2026.md](/Users/arthur/RustroverProjects/Spora/docs/spora_deep_code_audit_2026.md)。
+
 ## 结论
 
 按设计方向看，`GhostDAG + Cell` 并非不可行；但按当前仓库中的代码与文档状态，这套方案还没有形成一个自洽、闭环、可验证的共识实现。

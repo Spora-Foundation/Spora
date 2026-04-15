@@ -2,7 +2,7 @@ use std::{str::FromStr, sync::Arc, time::Duration};
 
 use crate::common::{client_notify::ChannelNotify, daemon::Daemon};
 use futures_util::future::try_join_all;
-use spora_addresses::{Address, Prefix, Version};
+use spora_addresses::{Address, Prefix};
 use spora_consensus::params::SIMNET_GENESIS;
 use spora_consensus_core::{constants::MAX_SAU, tx::CellTx};
 use spora_core::{assert_match, info};
@@ -21,7 +21,7 @@ use sporad_lib::args::Args;
 use tokio::task::JoinHandle;
 
 fn test_address(seed: u8) -> Address {
-    Address::new(Prefix::Simnet, Version::PubKey, &[seed; 32]).expect("test address must be valid")
+    Address::new_std_single(Prefix::Simnet, &[seed; 32]).expect("test address must be valid")
 }
 
 #[macro_export]

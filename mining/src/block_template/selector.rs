@@ -171,9 +171,22 @@ impl RebalancingWeightedTransactionSelector {
     fn reset_selection(&mut self) {
         assert_eq!(self.transactions.len(), self.selectable_txs.len());
         self.selected_txs.clear();
-        // TODO: consider to min with the approximated amount of txs which fit into max block mass
-        self.selected_txs.reserve_exact(self.transactions.len());
+        self.selected_txs.reserve_exact(self.estimated_selection_capacity());
         self.selected_txs_map = None;
+    }
+
+    fn estimated_selection_capacity(&self) -> usize {
+        let Some(min_mass) = self
+            .transactions
+            .iter()
+            .filter_map(|transaction| (transaction.calculated_mass > 0).then_some(transaction.calculated_mass))
+            .min()
+        else {
+            return self.transactions.len();
+        };
+
+        let approx_fit = self.policy.max_block_mass.saturating_add(min_mass.saturating_sub(1)).saturating_div(min_mass);
+        usize::try_from(approx_fit).unwrap_or(usize::MAX).min(self.transactions.len())
     }
 
     /// calc_tx_value calculates a value to be used in transaction selection.
@@ -233,7 +246,7 @@ mod tests {
     use spora_consensus_core::{
         constants::{MAX_TX_IN_SEQUENCE_NUM, SAU_PER_SPORA},
         mass::cell_tx_estimated_serialized_size,
-        tx::{pay_to_script_hash_witness_script, CellOutput, CellInput, CellTx, TransactionId, TransactionOutpoint},
+        tx::{CellInput, CellOutput, CellTx, TransactionId, TransactionOutpoint},
     };
     use std::{collections::HashSet, sync::Arc};
 
@@ -295,8 +308,7 @@ mod tests {
 
     fn create_transaction(value: u64) -> CandidateTransaction {
         let previous_outpoint = TransactionOutpoint::new(TransactionId::default().as_bytes(), 0);
-        let (lock_script, redeem_script) = op_true_script();
-        let witness_script = pay_to_script_hash_witness_script(&redeem_script, vec![]).expect("the redeem script is canonical");
+        let (lock_script, _witness) = op_true_script();
 
         let tx = Arc::new(
             CellTx::new(
@@ -304,7 +316,7 @@ mod tests {
                 vec![],
                 vec![CellOutput { lock: lock_script, type_: None, capacity: value - DEFAULT_MINIMUM_RELAY_TRANSACTION_FEE }],
                 vec![vec![]],
-                vec![witness_script],
+                vec![vec![]],
             )
             .expect("test helper must construct a valid CellTx"),
         );
@@ -319,5 +331,18 @@ mod tests {
             cell_fee_density: None,
             cell_deps_width: None,
         }
+    }
+
+    #[test]
+    fn test_reset_selection_reserves_only_estimated_fit_count() {
+        let mut transactions = (0..64).map(|i| create_transaction(SAU_PER_SPORA * (i + 1) as u64)).collect_vec();
+        for tx in &mut transactions {
+            tx.calculated_mass = 10_000;
+        }
+
+        let mut selector = RebalancingWeightedTransactionSelector::new(Policy::new(25_000), transactions);
+        selector.reset_selection();
+
+        assert_eq!(selector.selected_txs.capacity(), 3);
     }
 }

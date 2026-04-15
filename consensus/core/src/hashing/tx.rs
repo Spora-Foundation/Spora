@@ -11,7 +11,7 @@ pub fn hash(tx: &crate::tx::CellTx) -> Hash {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tx::{outpoint_from_id, CellOutput, CellInput, CellTx, Script};
+    use crate::tx::{outpoint_from_id, CellInput, CellOutput, CellTx, Script};
     use spora_hashes::Hash;
 
     fn sample_non_coinbase_tx() -> CellTx {

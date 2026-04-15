@@ -60,8 +60,6 @@ impl Mempool {
                 .or_else(|| self.find_local_transaction_id_for_accepted_cell_tx(transaction))
                 .unwrap_or(transaction_id);
 
-            let accepted_compat_transaction_id: Option<TransactionId> = None;
-
             // Rust rewrite: This behavior does differ from golang implementation.
             // If the transaction got accepted via a peer but is still an orphan here, do not remove
             // its redeemers in the orphan pool. We give those a chance to be unorphaned and included
@@ -82,11 +80,7 @@ impl Mempool {
                 output_counts += transaction.outputs.len();
             }
 
-            let newly_unorphaned = self.get_unorphaned_transactions_after_accepted_cell_transaction(
-                transaction,
-                accepted_compat_transaction_id,
-                block_daa_score,
-            );
+            let newly_unorphaned = self.get_unorphaned_transactions_after_accepted_cell_transaction(transaction, block_daa_score);
             if !newly_unorphaned.is_empty() {
                 unorphaned_transactions.extend(newly_unorphaned);
             } else {

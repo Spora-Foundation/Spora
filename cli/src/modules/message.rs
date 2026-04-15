@@ -1,5 +1,5 @@
 use spora_addresses::Version;
-use spora_bip32::secp256k1::XOnlyPublicKey;
+use spora_bip32::secp256k1::{PublicKey, SecretKey, XOnlyPublicKey};
 use spora_wallet_core::message::SignMessageOptions;
 use spora_wallet_core::{
     account::{BIP32_ACCOUNT_KIND, KEYPAIR_ACCOUNT_KIND},
@@ -69,10 +69,7 @@ impl Message {
         ctx.term().help(
             &[
                 ("sign <spora_address>", "Sign a message with the private key that matches the given address. Prompts for message."),
-                (
-                    "verify <spora_address> <signature>",
-                    "Verify the signature against the message and spora_address. Prompts for message.",
-                ),
+                ("verify <spora_address> <signature>", "Verify a 96-byte StdSingle signature envelope (xonly-pubkey||signature)."),
             ],
             None,
         )?;
@@ -82,20 +79,28 @@ impl Message {
 
     async fn sign(self: Arc<Self>, ctx: Arc<SporaCli>, spora_address: &str, message: &str) -> Result<()> {
         let spora_address = Address::try_from(spora_address)?;
-        if spora_address.version != Version::PubKey {
+        if spora_address.version != Version::StdSingle {
             return Err(spora_addresses::AddressError::InvalidVersion(spora_address.version as u8).into());
         }
 
         let pm = PersonalMessage(message);
-        let privkey = self.get_address_private_key(&ctx, spora_address).await?;
+        let privkey = self.clone().get_address_private_key(&ctx, spora_address.clone()).await?;
         let sign_options = SignMessageOptions { no_aux_rand: false };
 
         let sig_result = sign_message(&pm, &privkey, &sign_options);
 
         match sig_result {
             Ok(signature) => {
-                let sig_hex = faster_hex::hex_string(signature.as_slice());
-                tprintln!(ctx, "Signature: {}", sig_hex);
+                let secret_key = SecretKey::from_slice(&privkey).map_err(|e| Error::custom(e.to_string()))?;
+                let public_key = PublicKey::from_secret_key_global(&secret_key);
+                let xonly_pubkey = public_key.x_only_public_key().0.serialize();
+                self.ensure_stdsingle_pubkey_matches_address(&spora_address, &xonly_pubkey)?;
+
+                let mut envelope = Vec::with_capacity(96);
+                envelope.extend_from_slice(&xonly_pubkey);
+                envelope.extend_from_slice(signature.as_slice());
+                let envelope_hex = faster_hex::hex_string(envelope.as_slice());
+                tprintln!(ctx, "Signature: {}", envelope_hex);
                 Ok(())
             }
             Err(_) => Err(Error::custom("Message signing failed")),
@@ -104,17 +109,27 @@ impl Message {
 
     async fn verify(self: Arc<Self>, ctx: Arc<SporaCli>, spora_address: &str, signature: &str, message: &str) -> Result<()> {
         let spora_address = Address::try_from(spora_address)?;
-        if spora_address.version != Version::PubKey {
+        if spora_address.version != Version::StdSingle {
             return Err(spora_addresses::AddressError::InvalidVersion(spora_address.version as u8).into());
         }
 
-        let pubkey = XOnlyPublicKey::from_slice(&spora_address.payload[0..32]).unwrap();
-
-        let mut signature_hex = [0u8; 64];
-        faster_hex::hex_decode(signature.as_bytes(), &mut signature_hex)?;
+        let signature_hex = self.decode_signature_hex(signature)?;
+        let (pubkey, signature) = match signature_hex.len() {
+            96 => {
+                let pubkey_slice: [u8; 32] =
+                    signature_hex[0..32].try_into().map_err(|_| Error::custom("Invalid signature envelope pubkey"))?;
+                let signature_slice: [u8; 64] =
+                    signature_hex[32..96].try_into().map_err(|_| Error::custom("Invalid signature envelope payload"))?;
+                self.ensure_stdsingle_pubkey_matches_address(&spora_address, &pubkey_slice)?;
+                (XOnlyPublicKey::from_slice(&pubkey_slice).map_err(|e| Error::custom(e.to_string()))?, signature_slice.to_vec())
+            }
+            _ => {
+                return Err(Error::custom("Invalid signature length; expected 192 hex chars (StdSingle envelope)"));
+            }
+        };
 
         let pm = PersonalMessage(message);
-        let verify_result = verify_message(&pm, &signature_hex.to_vec(), &pubkey);
+        let verify_result = verify_message(&pm, &signature, &pubkey);
 
         match verify_result {
             Ok(()) => {
@@ -125,6 +140,23 @@ impl Message {
             }
         }
 
+        Ok(())
+    }
+
+    fn decode_signature_hex(&self, signature: &str) -> Result<Vec<u8>> {
+        if signature.len() % 2 != 0 {
+            return Err(Error::custom("Invalid hex signature length"));
+        }
+        let mut decoded = vec![0u8; signature.len() / 2];
+        faster_hex::hex_decode(signature.as_bytes(), &mut decoded)?;
+        Ok(decoded)
+    }
+
+    fn ensure_stdsingle_pubkey_matches_address(&self, address: &Address, pubkey: &[u8; 32]) -> Result<()> {
+        let expected_address = Address::new_std_single(address.prefix, pubkey)?;
+        if expected_address.payload != address.payload {
+            return Err(Error::custom("Signature pubkey does not match the provided StdSingle address"));
+        }
         Ok(())
     }
 

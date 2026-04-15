@@ -94,7 +94,14 @@ impl OrphanPool {
     ) -> RuleResult<()> {
         // Rust rewrite: original name is maybeAddOrphan
         if self.config.maximum_orphan_transaction_count == 0 {
-            // TODO: determine how/why this may happen
+            // DESIGN(P2): `maximum_orphan_transaction_count == 0` means the node operator has
+            // explicitly disabled orphan acceptance via configuration. This can happen in:
+            //   1. Pruned/light nodes that do not want to hold unresolvable transactions.
+            //   2. Mining-only nodes behind a gateway that pre-filters transactions.
+            //   3. High-throughput DAG topologies where the orphan churn rate is too high
+            //      and the operator prefers to reject orphans rather than pay the memory cost.
+            // When disabled, we silently accept the call (return Ok) so that callers do not
+            // need to special-case the "orphans disabled" path.
             return Ok(());
         }
         self.check_orphan_duplicate(&transaction)?;

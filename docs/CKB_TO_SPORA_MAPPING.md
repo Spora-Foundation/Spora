@@ -8,14 +8,50 @@
 
 | CKB 类型 | CKB 文件 | SPORA 类型 | SPORA 文件 | 差异 |
 |---------|---------|-----------|-----------|------|
-| `CellOutputput` | `util/types/src/core/cell.rs` | `CellOutput` | `exec/src/celltx/types.rs` | ✅ 结构相同 |
-| `OutPoint` | `util/types/src/core/cell.rs` | `OutPoint` | `exec/src/celltx/types.rs` | ✅ 完全相同 |
-| `Script` | `util/types/src/core/cell.rs` | `Script` | `exec/src/celltx/types.rs` | ✅ 结构相同 |
-| `CellInput` | `util/types/src/core/cell.rs` | `CellInput` | `exec/src/celltx/types.rs` | ✅ 结构相同 |
-| `CellDep` | `util/types/src/core/cell.rs` | `CellDep` | `exec/src/celltx/types.rs` | ✅ 完全相同 |
-| `Transaction` | `util/types/src/core/views.rs` | `CellTx` | `exec/src/celltx/types.rs` | ✅ 有 header_deps |
-| `ResolvedTransaction` | `util/types/src/core/cell.rs` | `ResolvedCellTx` | `exec/src/celltx/types.rs` | ✅ 概念相同 |
-| `CellMeta` | `util/types/src/core/cell.rs` | `CellMeta` | `exec/src/celltx/types.rs` | ✅ 添加 DAG 字段 |
+| `CellOutput` | `util/gen-types/schemas/blockchain.mol:46` | `CellOutput` | `exec/src/celltx/types.rs:164` (定义)<br>`consensus/core/src/tx.rs:24` (重新导出) | ⚠️ 字段顺序不同(见下方) |
+| `OutPoint` | `util/gen-types/schemas/blockchain.mol:36` | `OutPoint` | `exec/src/celltx/types.rs:71` (定义)<br>`consensus/core/src/tx.rs:24` (重新导出) | ✅ 完全相同 |
+| `Script` | `util/gen-types/schemas/blockchain.mol:30` | `Script` | `exec/src/celltx/types.rs:114` (定义)<br>`consensus/core/src/tx.rs:24` (重新导出) | ✅ 结构相同 |
+| `CellInput` | `util/gen-types/schemas/blockchain.mol:41` | `CellInput` | `exec/src/celltx/types.rs:200` (定义)<br>`consensus/core/src/tx.rs:24` (重新导出) | ⚠️ 字段顺序不同(见下方) |
+| `CellDep` | `util/gen-types/schemas/blockchain.mol:52` | `CellDep` | `exec/src/celltx/types.rs:236` (定义)<br>`consensus/core/src/tx.rs:24` (重新导出) | ✅ 完全相同 |
+| `Transaction` | `util/gen-types/schemas/blockchain.mol:66` | `CellTx` | `exec/src/celltx/types.rs:294` | ✅ 有 header_deps |
+| `ResolvedTransaction` | `util/types/src/core/cell.rs:19` | `ResolvedCellTx` | `exec/src/celltx/types.rs:524` | ✅ 概念相同 |
+| `CellMeta` | `util/types/src/core/cell.rs:37` | `CellMeta` | `exec/src/celltx/types.rs:465` | ✅ 添加 DAG 字段 |
+
+### 1.1 字段顺序差异详情
+
+**CellInput 字段顺序对比**:
+```rust
+// CKB (blockchain.mol:41)
+struct CellInput {
+    since:           Uint64,        // 第1个字段
+    previous_output: OutPoint,      // 第2个字段
+}
+
+// SPORA (exec/src/celltx/types.rs:200)
+pub struct CellInput {
+    pub previous_output: OutPoint,  // 第1个字段
+    pub since: u64,                 // 第2个字段
+}
+```
+注意：字段顺序差异不影响功能，两者使用不同的序列化格式。
+
+**CellOutput 字段顺序对比**:
+```rust
+// CKB (blockchain.mol:46)
+table CellOutput {
+    capacity: Uint64,      // 第1个字段
+    lock: Script,          // 第2个字段
+    type_: ScriptOpt,      // 第3个字段
+}
+
+// SPORA (exec/src/celltx/types.rs:164)
+pub struct CellOutput {
+    pub lock: Script,           // 第1个字段
+    pub type_: Option<Script>,  // 第2个字段
+    pub capacity: u64,          // 第3个字段
+}
+```
+注意：字段顺序差异不影响功能，两者使用不同的序列化格式。
 
 ## 2. 哈希函数映射
 
@@ -51,6 +87,7 @@ let hash = *hasher.finalize().as_bytes();
 | LOAD_WITNESS | 2074 | `script/src/syscalls/load_witness.rs` | `exec/src/vm/syscalls/load_witness.rs` | 100% |
 | CURRENT_CYCLES | 2042 | `script/src/syscalls/current_cycles.rs` | `exec/src/vm/syscalls/current_cycles.rs` | 100% |
 | DEBUG_PRINT | 2177 | `script/src/syscalls/debugger.rs` | `exec/src/vm/syscalls/debugger.rs` | 100% |
+| SECP256K1_VERIFY | 3002 | SPORA特有 | `exec/src/vm/syscalls/secp256k1_verify.rs` | 100% |
 
 ### 3.2 需要修改哈希 ⚠️
 
@@ -82,6 +119,14 @@ let hash = *hasher.finalize().as_bytes();
 |---------|------|---------|--------|
 | EXEC | 2043 | `script/src/syscalls/exec.rs` | P2 |
 | SPAWN | 2601+ | `script/src/syscalls/spawn.rs` | P3 |
+
+### 3.6 系统调用实现统计
+
+| 类别 | 数量 | 状态 |
+|------|------|------|
+| CKB兼容syscall | 10 | ✅ 100%完成 |
+| SPORA特有扩展 | 2 | ✅ 100%完成 (BLAKE3_HASH, SECP256K1_VERIFY) |
+| 待实现 | 2 | ⏳ P2/P3优先级 |
 
 ## 4. VM 组件映射
 
@@ -346,12 +391,12 @@ cp ckb/script/src/syscalls/spawn.rs exec/src/vm/syscalls/spawn.rs  # ⏳ 待实�
 | `Bytes` | `Vec<u8>` | SPORA使用标准Vec |
 | `Byte32` | `[u8; 32]` | 固定大小数组 |
 | `Script` | `Script` | 脚本引用 |
-| `CellOutputput` | `CellOutput` | Cell输出 |
+| `CellOutput` | `CellOutput` | Cell输出 |
 | `CellInput` | `CellInput` | Cell输入（含since） |
 | `Transaction` | `CellTx` | 交易（含header_deps） |
 | `OutPoint` | `OutPoint` | 完全相同 |
 | `CellDep` | `CellDep` | 完全相同 |
-| `ScriptHashType` | `u8` | 0=Data, 1=Type, 2=Data1, 4=Data2 |
+| `ScriptHashType` | `u8` | 0=Data, 1=Type, 2=Data1, 4=Data2 (与CKB完全对齐) |
 
 ### 11.3 脚本验证流程
 
@@ -384,6 +429,19 @@ let result = verifier.verify()?;
 | `ckb-store` | `spora-state` | ⚠️ DAG 适配 |
 | `ckb-tx-pool` | `spora-mempool` | ⚠️ DAG 适配 |
 
+### 12.0 ScriptHashType 映射详情
+
+| CKB ScriptHashType | 值 | SPORA u8 | 说明 |
+|-------------------|-----|---------|------|
+| `Data` | 0 | 0 | 通过Cell数据哈希匹配脚本代码，在v0 CKB-VM中运行 |
+| `Type` | 1 | 1 | 通过Cell类型脚本哈希匹配脚本代码 |
+| `Data1` | 2 | 2 | 通过Cell数据哈希匹配，在v1 CKB-VM中运行 |
+| `Data2` | 4 | 4 | 通过Cell数据哈希匹配，在v2 CKB-VM中运行 |
+| `DataN` | N<<1 | N<<1 | CKB支持Data3-Data127，SPORA当前仅验证0/1/2/4 |
+
+**CKB 定义位置**: `util/gen-types/src/core.rs:18-33`
+**SPORA 定义位置**: `exec/src/celltx/types.rs:118-125` (注释说明)
+
 ### 12.1 Cargo.toml 依赖对比
 
 **CKB script/Cargo.toml**:
@@ -413,12 +471,13 @@ blake3 = "1.5"
 
 ### ✅ 100% 完成
 
-**核心系统调用**: 10/12 (83%)
+**核心系统调用**: 11/13 (85%)
 - ✅ LoadCell, LoadCellData
 - ✅ LoadInput, LoadHeader (DAG适配)
 - ✅ LoadTx, LoadWitness, LoadScript
 - ✅ CurrentCycles, Debugger
 - ✅ Blake3Hash (SPORA特有扩展)
+- ✅ Secp256k1Verify (SPORA特有扩展，原生签名验证加速)
 
 **VM 执行层**: 100%
 - ✅ VM Machine 类型定义
@@ -451,6 +510,32 @@ blake3 = "1.5"
 
 ---
 
-**最后更新**: 2025-04-12  
+**最后更新**: 2026-04-15 (对比 CKB `/Users/arthur/RustroverProjects/ckb/` 更新)  
 **实施状态**: ✅ 核心100%完成，VM执行层生产就绪  
 **维护者**: SPORA Team
+
+---
+
+## 14. 架构分层说明
+
+### 14.1 Transaction vs CellTx 的关系
+
+SPORA 在架构上明确区分了两个层次的"交易"概念：
+
+| 层次 | 类型 | 位置 | 用途 |
+|------|------|------|------|
+| 核心共识层 | `CellTx` | `exec/src/celltx/types.rs` | 执行层、VM验证、共识验证 |
+| 客户端/钱包层 | `Transaction` | `consensus/client/src/transaction.rs` | WASM/TS绑定、用户API |
+
+**设计意图**:
+- `CellTx` 是底层执行原语，直接对应 CKB 的 Transaction 概念
+- `Transaction` 是客户端友好的包装类型，支持序列化、JS绑定等高层功能
+- 两者可以相互转换，保持语义一致性
+
+### 14.2 与CKB的对应关系
+
+| CKB概念 | SPORA对应 | 说明 |
+|---------|----------|------|
+| `ckb_types::core::Transaction` | `CellTx` | 核心交易类型 |
+| `ckb_jsonrpc_types::Transaction` | `Transaction` | 客户端/JSON表示 |
+| `ckb_types::core::ScriptHashType` | `u8` (hash_type) | 编码完全对齐：Data=0, Type=1, Data1=2, Data2=4 |
