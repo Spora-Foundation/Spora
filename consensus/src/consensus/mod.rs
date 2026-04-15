@@ -469,6 +469,7 @@ impl Consensus {
             pruning_receiver.clone(),
             virtual_pool,
             params,
+            config.resumable_virtual_state_step_cycles,
             db.clone(),
             &storage,
             &services,

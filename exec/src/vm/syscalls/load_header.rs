@@ -38,11 +38,7 @@ impl<D: CellDataProvider> LoadHeader<D> {
         Self { tx, provider, group_input_indices, group_output_indices }
     }
 
-    fn get_header(&self, source: u64, index: usize) -> HeaderLookupResult {
-        let Some(source) = Source::parse(source) else {
-            return HeaderLookupResult::IndexOutOfBound;
-        };
-
+    fn get_header(&self, source: Source, index: usize) -> HeaderLookupResult {
         match source {
             Source::Input => match self.tx.inputs.get(index) {
                 Some(input) => self
@@ -85,26 +81,27 @@ impl<D: CellDataProvider> LoadHeader<D> {
                 Some(_) => HeaderLookupResult::ItemMissing,
                 None => HeaderLookupResult::IndexOutOfBound,
             },
+            Source::GroupCellDep | Source::GroupHeaderDep => HeaderLookupResult::IndexOutOfBound,
         }
     }
 
-    fn serialize_header_field(&self, header: &ResolvedHeader, field: u64) -> Option<Vec<u8>> {
-        match HeaderField::parse(field)? {
-            HeaderField::DaaScore => Some(header.daa_score.to_le_bytes().to_vec()),
-            HeaderField::Timestamp => Some(header.timestamp.to_le_bytes().to_vec()),
-            HeaderField::Hash => Some(header.hash.to_vec()),
-            HeaderField::Parents => Some(header.direct_parents().iter().flatten().copied().collect()),
-            HeaderField::Version => Some(header.version.to_le_bytes().to_vec()),
-            HeaderField::Bits => Some(header.bits.to_le_bytes().to_vec()),
-            HeaderField::Nonce => Some(header.nonce.to_le_bytes().to_vec()),
-            HeaderField::HashMerkleRoot => Some(header.hash_merkle_root.to_vec()),
-            HeaderField::AcceptedIdMerkleRoot => Some(header.accepted_id_merkle_root.to_vec()),
-            HeaderField::CellCommitment => Some(header.cell_commitment.to_vec()),
-            HeaderField::CellRoot => Some(header.cell_root.to_vec()),
-            HeaderField::SegmentRoot => Some(header.segment_root.to_vec()),
-            HeaderField::BlueScore => Some(header.blue_score.to_le_bytes().to_vec()),
-            HeaderField::BlueWork => Some(header.blue_work.to_vec()),
-            HeaderField::PruningPoint => Some(header.pruning_point.to_vec()),
+    fn serialize_header_field(&self, header: &ResolvedHeader, field: u64) -> Result<Vec<u8>, VMError> {
+        match HeaderField::parse_from_u64(field)? {
+            HeaderField::DaaScore => Ok(header.daa_score.to_le_bytes().to_vec()),
+            HeaderField::Timestamp => Ok(header.timestamp.to_le_bytes().to_vec()),
+            HeaderField::Hash => Ok(header.hash.to_vec()),
+            HeaderField::Parents => Ok(header.direct_parents().iter().flatten().copied().collect()),
+            HeaderField::Version => Ok(header.version.to_le_bytes().to_vec()),
+            HeaderField::Bits => Ok(header.bits.to_le_bytes().to_vec()),
+            HeaderField::Nonce => Ok(header.nonce.to_le_bytes().to_vec()),
+            HeaderField::HashMerkleRoot => Ok(header.hash_merkle_root.to_vec()),
+            HeaderField::AcceptedIdMerkleRoot => Ok(header.accepted_id_merkle_root.to_vec()),
+            HeaderField::CellCommitment => Ok(header.cell_commitment.to_vec()),
+            HeaderField::CellRoot => Ok(header.cell_root.to_vec()),
+            HeaderField::SegmentRoot => Ok(header.segment_root.to_vec()),
+            HeaderField::BlueScore => Ok(header.blue_score.to_le_bytes().to_vec()),
+            HeaderField::BlueWork => Ok(header.blue_work.to_vec()),
+            HeaderField::PruningPoint => Ok(header.pruning_point.to_vec()),
         }
     }
 
@@ -127,7 +124,7 @@ impl<D: CellDataProvider, M: SupportMachine> Syscalls<M> for LoadHeader<D> {
         }
 
         let index = machine.registers()[A3].to_u64() as usize;
-        let source = machine.registers()[A4].to_u64();
+        let source = Source::parse_from_u64(machine.registers()[A4].to_u64())?;
 
         let header = match self.get_header(source, index) {
             HeaderLookupResult::Header(header) => header,
@@ -143,13 +140,7 @@ impl<D: CellDataProvider, M: SupportMachine> Syscalls<M> for LoadHeader<D> {
 
         let data = if syscall_number == LOAD_HEADER_BY_FIELD_SYSCALL_NUMBER {
             let field = machine.registers()[A5].to_u64();
-            match self.serialize_header_field(&header, field) {
-                Some(data) => data,
-                None => {
-                    machine.set_register(A0, M::REG::from_u8(ITEM_MISSING));
-                    return Ok(true);
-                }
-            }
+            self.serialize_header_field(&header, field)?
         } else {
             self.serialize_header(&header)?
         };
@@ -307,10 +298,9 @@ mod tests {
         machine.set_register(A7, LOAD_HEADER_BY_FIELD_SYSCALL_NUMBER);
 
         let mut syscall = LoadHeader::new(tx, provider, vec![0], vec![]);
-        let handled = syscall.ecall(&mut machine).expect("load header syscall should be handled");
+        let err = syscall.ecall(&mut machine).expect_err("unknown field should trap");
 
-        assert!(handled);
-        assert_eq!(machine.registers()[A0].to_u64(), ITEM_MISSING as u64);
+        assert_eq!(err, VMError::External("HeaderField parse_from_u64 99".to_string()));
     }
 
     #[test]

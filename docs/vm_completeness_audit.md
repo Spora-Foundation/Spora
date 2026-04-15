@@ -216,6 +216,13 @@ cargo test -p spora-exec --features vm
    - CurrentCycles/VMVersion/Debugger/Exec ✅
    - Blake3Hash/Secp256k1Verify（Spora 扩展）✅
 
+4. **多进程调度完整实现（2025.04更新）**：
+   - Spawn/Wait/ProcessId ✅ - 子进程创建与等待
+   - Pipe/Read/Write/Close ✅ - 管道与文件描述符
+   - InheritedFd ✅ - FD 继承
+   - VmScheduler ✅ - 多VM状态机（MAX_VMS=16, MAX_INSTANTIATED=4）
+   - 可恢复验证 ✅ - suspend/resume/complete
+
 ### 工程判断
 
-> **VM 已经可以跑真实脚本。下一阶段工作的重点是系统级优化（mempool 预算裁剪、调度器完善），而非核心功能补齐。**
+> **VM 已完整实现，包括多进程调度。所有 CKB 系统调用均已实现，生产就绪。**

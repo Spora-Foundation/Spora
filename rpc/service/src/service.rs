@@ -1358,17 +1358,10 @@ NOTE: This error usually indicates an RPC conversion error between the node and 
         Ok(())
     }
 
-    async fn subscribe_notifications(
-        &self,
-        request: SubscribeNotificationsRequest,
-    ) -> RpcResult<SubscribeNotificationsResponse> {
+    async fn subscribe_notifications(&self, request: SubscribeNotificationsRequest) -> RpcResult<SubscribeNotificationsResponse> {
         // Create an internal channel and register it as a new dynamic listener.
         let channel = Channel::default();
-        let connection = ChannelConnection::new(
-            "rpc-subscribe",
-            channel.sender(),
-            spora_notify::connection::ChannelType::Closable,
-        );
+        let connection = ChannelConnection::new("rpc-subscribe", channel.sender(), spora_notify::connection::ChannelType::Closable);
         #[allow(deprecated)]
         let listener_id = self.register_new_listener(connection);
 

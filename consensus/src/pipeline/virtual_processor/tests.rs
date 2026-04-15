@@ -1,11 +1,16 @@
 #[cfg(feature = "vm")]
+use crate::pipeline::virtual_processor::ResumableVirtualStateCalculation;
+#[cfg(feature = "vm")]
 use crate::test_helpers::{always_success_cell_metadata, always_success_lock_script};
 use crate::{
     consensus::test_consensus::TestConsensus,
     errors::RuleError,
     model::{
         services::reachability::ReachabilityService,
-        stores::{block_transactions::BlockTransactionsStoreReader, headers::HeaderStoreReader},
+        stores::{
+            block_transactions::BlockTransactionsStoreReader, cell_roots::CellRootsStoreReader, headers::HeaderStoreReader,
+            virtual_state::VirtualStateStoreReader,
+        },
     },
     test_helpers::{empty_miner_data, test_cell_entry},
 };
@@ -1340,6 +1345,134 @@ async fn build_block_template_accepts_native_pubkey_ecdsa_candidate_in_standard_
     assert_eq!(template.block.transactions.len(), 2, "coinbase + signed candidate");
     assert_eq!(template.block.transactions[1].id(), signed_tx.id());
     assert_eq!(template.calculated_fees, vec![1_000]);
+
+    consensus.shutdown(wait_handles);
+}
+
+#[cfg(feature = "vm")]
+#[tokio::test]
+async fn calculate_virtual_state_resumable_matches_direct_for_native_pubkey_tip() {
+    let config = ConfigBuilder::new(MAINNET_PARAMS)
+        .skip_proof_of_work()
+        .set_resumable_virtual_state_step_cycles(Some(1))
+        .edit_consensus_params(|params| {
+            params.coinbase_maturity = 0;
+        })
+        .build();
+    let consensus = TestConsensus::new(&config);
+    let wait_handles = consensus.init();
+    let virtual_processor = consensus.virtual_processor().clone();
+
+    let keypair = Keypair::from_seckey_slice(secp256k1::SECP256K1, &[0x67; 32]).expect("valid secret key");
+    let pubkey = keypair.public_key().x_only_public_key().0.serialize();
+    let address = Address::new_std_single(Prefix::Testnet, &pubkey).expect("valid address");
+    let lock_script = pay_to_address_lock_script(&address);
+    let miner_data = MinerData::new(lock_script.clone(), vec![]);
+
+    let warmup = consensus
+        .build_block_template(miner_data.clone(), Box::new(OnetimeTxSelector::new(vec![])), TemplateBuildMode::Standard)
+        .unwrap();
+    consensus.validate_and_insert_block(warmup.block.to_immutable()).virtual_state_task.await.unwrap();
+
+    let funding = consensus
+        .build_block_template(miner_data.clone(), Box::new(OnetimeTxSelector::new(vec![])), TemplateBuildMode::Standard)
+        .unwrap();
+    let funding_coinbase = funding.block.transactions[0].clone();
+    let funding_block_hash = funding.block.header.hash;
+    let funding_block_daa = funding.block.header.daa_score;
+    consensus.validate_and_insert_block(funding.block.to_immutable()).virtual_state_task.await.unwrap();
+
+    let staging = consensus
+        .build_block_template(miner_data.clone(), Box::new(OnetimeTxSelector::new(vec![])), TemplateBuildMode::Standard)
+        .unwrap();
+    consensus.validate_and_insert_block(staging.block.to_immutable()).virtual_state_task.await.unwrap();
+
+    let input_outpoint = OutPoint::new(funding_coinbase.id(), 0);
+    let spend_capacity = funding_coinbase.outputs[0].capacity.checked_sub(1_000).expect("coinbase output should be large enough");
+    let unsigned_tx = CellTx::new(
+        vec![CellInput::new(input_outpoint, 0)],
+        vec![],
+        vec![CellOutput { lock: lock_script.clone(), type_: None, capacity: spend_capacity }],
+        vec![vec![]],
+        vec![vec![]],
+    )
+    .unwrap();
+    let resolved_input = metadata_from_tx_output(funding_block_hash, funding_block_daa, true, &funding_coinbase, 0);
+    let signed_tx = sign(MutableTransaction::with_resolved_metadata(unsigned_tx, vec![resolved_input]), keypair).tx;
+
+    let spend_block = consensus
+        .build_block_template(miner_data, Box::new(OnetimeTxSelector::new(vec![signed_tx.clone()])), TemplateBuildMode::Standard)
+        .expect("standard mode should accept native stdsingle candidate")
+        .block
+        .to_immutable();
+    consensus.validate_and_insert_block(spend_block.clone()).virtual_state_task.await.unwrap();
+
+    let virtual_read = virtual_processor.virtual_stores.read();
+    let current_virtual = virtual_read.state.get().expect("virtual state must exist");
+    let virtual_parents = current_virtual.parents.clone();
+    let virtual_ghostdag_data = current_virtual.ghostdag_data.clone();
+    let selected_parent_cell_root =
+        virtual_processor.cell_roots_store.get(virtual_ghostdag_data.selected_parent).expect("selected parent cell root must exist");
+
+    let mut direct_accumulated_diff = current_virtual.cell_diff.clone().reverse();
+    let direct = virtual_processor
+        .calculate_virtual_state(
+            &virtual_read,
+            virtual_parents.clone(),
+            virtual_ghostdag_data.clone(),
+            selected_parent_cell_root,
+            &mut direct_accumulated_diff,
+        )
+        .expect("direct virtual state calculation should succeed");
+
+    let resumable_start_diff = current_virtual.cell_diff.clone().reverse();
+    let initial = virtual_processor
+        .calculate_virtual_state_resumable(
+            &virtual_read,
+            virtual_parents.clone(),
+            virtual_ghostdag_data.clone(),
+            selected_parent_cell_root,
+            &resumable_start_diff,
+            1,
+        )
+        .expect("initial resumable virtual state calculation should succeed");
+    drop(current_virtual);
+    drop(virtual_read);
+
+    let output = match initial {
+        ResumableVirtualStateCalculation::Completed(output) => output,
+        ResumableVirtualStateCalculation::Suspended(state) => {
+            assert!(state.current_cycles() <= u64::MAX, "suspended virtual state should report a valid cycle count");
+            match virtual_processor
+                .resume_calculate_virtual_state_from_state(state, u64::MAX)
+                .expect("resumed virtual state calculation should succeed")
+            {
+                ResumableVirtualStateCalculation::Completed(output) => output,
+                ResumableVirtualStateCalculation::Suspended(state) => virtual_processor
+                    .complete_calculate_virtual_state_from_state(state, u64::MAX)
+                    .expect("complete virtual state calculation from resumed state"),
+            }
+        }
+    };
+
+    assert_eq!(output.accumulated_diff.add, direct_accumulated_diff.add);
+    assert_eq!(output.accumulated_diff.remove, direct_accumulated_diff.remove);
+    assert_eq!(output.virtual_state.parents, direct.parents);
+    assert_eq!(output.virtual_state.ghostdag_data.selected_parent, direct.ghostdag_data.selected_parent);
+    assert_eq!(output.virtual_state.daa_score, direct.daa_score);
+    assert_eq!(output.virtual_state.bits, direct.bits);
+    assert_eq!(output.virtual_state.past_median_time, direct.past_median_time);
+    assert_eq!(output.virtual_state.cell_diff.add, direct.cell_diff.add);
+    assert_eq!(output.virtual_state.cell_diff.remove, direct.cell_diff.remove);
+    assert_eq!(output.virtual_state.accepted_tx_ids, direct.accepted_tx_ids);
+    assert_eq!(output.virtual_state.mergeset_rewards.len(), direct.mergeset_rewards.len());
+    for (block_hash, expected_reward) in &direct.mergeset_rewards {
+        let actual_reward =
+            output.virtual_state.mergeset_rewards.get(block_hash).expect("resumable virtual state should preserve reward entries");
+        assert_eq!(actual_reward.subsidy, expected_reward.subsidy);
+        assert_eq!(actual_reward.total_fees, expected_reward.total_fees);
+        assert_eq!(actual_reward.lock_script.hash(), expected_reward.lock_script.hash());
+    }
 
     consensus.shutdown(wait_handles);
 }

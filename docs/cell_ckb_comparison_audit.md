@@ -1,9 +1,11 @@
 # Spora vs CKB Cell/CellTx 设计对比审计报告
 
-**日期**: 2026-04-12  
+**日期**: 2026-04-15  
 **CKB 路径**: `/Users/arthur/RustroverProjects/ckb/`  
 **Spora 路径**: `/Users/arthur/RustroverProjects/Spora/`  
-**审计范围**: Cell 核心结构体、CellTx 交易结构体、模型原理
+**审计范围**: Cell 核心结构体、CellTx 交易结构体、Header/Block 结构体、模型原理
+
+**更新说明**: 本次重审计更新了 CellInput 字段名变更(previous_output)、CellTx 字段名统一(cell_deps)、Header 新增 segment_root 字段、version 类型统一为 u32 等最新代码变更。
 
 ---
 
@@ -11,7 +13,7 @@
 
 | 维度 | 一致性评级 | 说明 |
 |------|-----------|------|
-| **结构体字段** | 95% | 核心字段完全一致，仅版本号类型不同 |
+| **结构体字段** | 98% | 核心字段完全一致，版本号和字段名已与 CKB 对齐 |
 | **模型原理** | 90% | 均基于 CKB Cell 模型，Spora 适配 DAG 共识 |
 | **序列化** | 逻辑等价 | Molecule (CKB) vs Borsh (Spora) |
 | **哈希函数** | 不兼容 | Blake2b (CKB) vs Blake3 (Spora) |
@@ -170,13 +172,15 @@ pub struct CellInput {
 }
 ```
 
-**Spora CellInput** (`exec/src/celltx/types.rs:193-202`):
+**Spora CellInput** (`exec/src/celltx/types.rs:288-300`):
 ```rust
 pub struct CellInput {
-    pub out_point: OutPoint,    // 要花费的 Cell
-    pub since: u64,             // 时间锁
+    pub previous_output: OutPoint,  // 要花费的 Cell (CKB 兼容字段名)
+    pub since: u64,                 // 时间锁
 }
 ```
+
+**字段名更新说明**: Spora 已将字段名从 `out_point` 更新为 `previous_output`，与 CKB 完全一致。
 
 **since 字段编码** (两者完全相同):
 ```
@@ -265,18 +269,22 @@ pub struct Transaction {
 }
 ```
 
-**Spora CellTx** (`exec/src/celltx/types.rs:287-304`):
+**Spora CellTx** (`exec/src/celltx/types.rs:382-402`):
 ```rust
 pub struct CellTx {
-    pub ver: u16,                   // 0xC001 (Cell v1)
+    pub version: u32,                   // 0xC001 (Cell v1)
     pub inputs: Vec<CellInput>,
-    pub deps: Vec<CellDep>,
+    pub cell_deps: Vec<CellDep>,        // 字段名与 CKB 一致
     pub header_deps: Vec<[u8; 32]>,
     pub outputs: Vec<CellOutput>,
     pub outputs_data: Vec<Vec<u8>>,
     pub witnesses: Vec<Vec<u8>>,
 }
 ```
+
+**字段名更新说明**: 
+- `ver` → `version`: 字段名与 CKB 一致
+- `deps` → `cell_deps`: 字段名与 CKB 一致
 
 ---
 
@@ -286,9 +294,10 @@ pub struct CellTx {
 
 **CKB**: `version: u32`，当前必须为 0
 
-**Spora**: `ver: u16 = 0xC001`
+**Spora**: `version: u32 = 0xC001`
 - `0xC001` = "Cell v1" (C=Cell, 001=版本1)
-- 强制校验: 验证时检查 `tx.ver == CELL_TX_VERSION`
+- 已从 `u16` 升级为 `u32`，与 CKB 版本类型一致
+- 强制校验: 验证时检查 `tx.version == CELL_TX_VERSION`
 
 #### header_deps 设计
 
@@ -404,7 +413,7 @@ pub const CELL_SIG_DOMAIN: &[u8] = b"spora-cell/sig";
 | CellOutput/CellOutput | 100% | 已对齐（原 CellOut） |
 | CellInput/CellInput | 100% | 已对齐（原 CellRef） |
 | CellDep | 100% | 完全一致 |
-| Transaction/CellTx | 98% | 版本号类型已对齐为 u32 |
+| Transaction/CellTx | 99% | 版本号类型和字段名已与 CKB 对齐 |
 
 ### 6.2 模型原理一致性
 
@@ -426,6 +435,7 @@ pub const CELL_SIG_DOMAIN: &[u8] = b"spora-cell/sig";
 | 哈希函数不兼容 | 中 | 无法直接复用 CKB 工具，需转换 |
 | 序列化差异 | 低 | 逻辑等价，仅编码方式不同 |
 | DAG 语义差异 | 低 | 预期内的共识层适配 |
+| DA 层字段 | 低 | Spora 新增 segment_root 用于数据可用性层 |
 
 ### 6.4 总体评价
 
@@ -440,6 +450,8 @@ pub const CELL_SIG_DOMAIN: &[u8] = b"spora-cell/sig";
 - ✅ hash_type 编码对齐（Data2=4）
 - ✅ 结构体命名对齐（ScriptRef→Script, CellOut→CellOutput, CellRef→CellInput）
 - ✅ version 类型对齐（u16→u32）
+- ✅ CellInput 字段名对齐（out_point→previous_output）
+- ✅ CellTx 字段名对齐（deps→cell_deps, ver→version）
 
 **建议**:
 - 文档中明确标注与 CKB 的差异点
@@ -453,7 +465,7 @@ pub const CELL_SIG_DOMAIN: &[u8] = b"spora-cell/sig";
 
 | 字段 | CKB Header | Spora Header | 一致性 | 说明 |
 |------|------------|--------------|--------|------|
-| `version` | `u32` | `u16` | 兼容 | 版本号 |
+| `version` | `u32` | `u32` | 一致 | 版本号（已与 CKB 对齐） |
 | `compact_target`/`bits` | `u32` | `u32` | 一致 | 难度目标 |
 | `timestamp` | `u64` (毫秒) | `u64` (毫秒) | 一致 | 时间戳 |
 | `number` | `BlockNumber` (u64) | 不存在 | N/A | CKB 线性链高度 |
@@ -466,6 +478,7 @@ pub const CELL_SIG_DOMAIN: &[u8] = b"spora-cell/sig";
 | `accepted_id_merkle_root` | 不存在 | `Hash` | DAG特有 | 接受ID默克尔根 |
 | `cell_commitment` | 不存在 | `Hash` | Cell特有 | Cell状态承诺 |
 | `cell_root` | 不存在 | `Hash` | Cell特有 | Cell默克尔根 |
+| `segment_root` | 不存在 | `Hash` | DA特有 | DA 段承诺（Spora 新增） |
 | `dao` | `Byte32` | 不存在 | N/A | CKB DAO字段 |
 | `nonce` | `Uint128` (128位) | `u64` (64位) | 差异 | 随机数 |
 | `daa_score` | 不存在 | `u64` | DAG特有 | DAA分数 |
@@ -494,16 +507,17 @@ pub struct Header {
 
 ### 7.3 Spora Header
 
-**Spora Header** (`consensus/core/src/header.rs:8-29`):
+**Spora Header** (`consensus/core/src/header.rs:8-31`):
 ```rust
 pub struct Header {
     pub hash: Hash,                          // 缓存的区块哈希
-    pub version: u16,                        // 版本号
+    pub version: u32,                        // 版本号（已与 CKB 对齐为 u32）
     pub parents_by_level: Vec<Vec<Hash>>,    // 分层父块列表
     pub hash_merkle_root: Hash,              // 交易哈希默克尔根
     pub accepted_id_merkle_root: Hash,       // 接受ID默克尔根
     pub cell_commitment: Hash,               // Cell状态承诺
     pub cell_root: Hash,                     // Cell状态默克尔根
+    pub segment_root: Hash,                  // DA 段承诺（新增字段）
     pub timestamp: u64,                      // 毫秒时间戳
     pub bits: u32,                           // 难度目标
     pub nonce: u64,                          // 64位随机数
@@ -513,6 +527,10 @@ pub struct Header {
     pub pruning_point: Hash,                 // 修剪点哈希
 }
 ```
+
+**更新说明**:
+- `version`: 已从 `u16` 更新为 `u32`，与 CKB 对齐
+- `segment_root`: 新增字段，用于 DA (Data Availability) 层段承诺
 
 ### 7.4 关键差异详解
 
@@ -683,8 +701,8 @@ pub struct MutableBlock {
 | CellOutputput/CellOutput | 100% | 完全一致 |
 | CellInput/CellInput | 100% | 字段顺序不同 |
 | CellDep | 100% | 完全一致 |
-| Transaction/CellTx | 95% | 版本号类型不同 |
-| **Header** | **60%** | **链结构差异大** |
+| Transaction/CellTx | 99% | 版本号类型和字段名已与 CKB 对齐 |
+| **Header** | **70%** | **链结构差异大，version/segment_root 已更新** |
 | **Block** | **70%** | **无叔块/提案机制** |
 
 ### 10.2 模型原理一致性（含区块）
@@ -704,7 +722,7 @@ pub struct MutableBlock {
 **Spora 与 CKB 的区块/区块头设计差异显著**:
 
 1. **链结构**: 根本差异（线性链 vs DAG）
-2. **区块头**: 约 60% 一致，差异源于共识机制
+2. **区块头**: 约 70% 一致，version 已与 CKB 对齐，新增 segment_root 用于 DA 层
 3. **区块体**: 约 70% 一致，Spora 更简化
 4. **状态承诺**: Spora 更先进，支持状态证明
 
@@ -730,12 +748,12 @@ pub struct MutableBlock {
 | **Lock/Type Script** | ✅ | ✅ | 否 | 权限控制和状态转换约束完整 |
 | **时间锁 (since)** | ✅ | ✅ | 否 | 支持绝对/相对时间戳和 DAA score 锁 |
 | **Cell Dep 依赖** | ✅ | ✅ | 否 | Code 和 DepGroup 完整支持 |
-| **VM 系统调用** | 12个 | 10个 | 否 | 核心syscall完整，2个高级功能可选 |
+| **VM 系统调用** | 17个 | 17个 | 否 | 完整CKB兼容，含Spawn/Exec多进程 |
 | **交易验证** | ✅ | ✅ | 否 | 四层验证架构完整 |
 | **header_deps 验证** | ✅ | ⚠️ | 否 | DAG架构下语义不同，字段保留 |
 | **叔块机制** | ✅ | ❌ | 否 | DAG无需叔块，GhostDAG原生支持并发 |
 | **提案机制** | ✅ | ❌ | 否 | 可选优化，非核心必要 |
-| **Exec/Spawn** | ✅ | ⏳ | 否 | 高级功能，P2/P3优先级 |
+| **Exec/Spawn** | ✅ | ✅ | 否 | 完整多进程调度实现 |
 
 ### 11.3 关键差异解释
 
@@ -762,7 +780,7 @@ pub struct MutableBlock {
 | 评估维度 | 评级 | 说明 |
 |----------|------|------|
 | **核心机制完整性** | 100% | Cell模型、脚本验证、时间锁全部完整 |
-| **VM功能完整性** | 90% | 10/12 syscall完成，高级功能可选 |
+| **VM功能完整性** | 100% | 17/17 syscall完成，含Spawn多进程调度 |
 | **架构差异合理性** | 100% | DAG适配均为预期内设计 |
 | **生产就绪度** | 100% | 当前实现可支撑完整智能合约执行 |
 
@@ -775,11 +793,11 @@ pub struct MutableBlock {
 | OutPoint | `util/jsonrpc-types/src/blockchain.rs:223` | `exec/src/celltx/types.rs:71` |
 | Script | `util/jsonrpc-types/src/blockchain.rs:107` | `exec/src/celltx/types.rs:114` |
 | CellOutputput | `util/jsonrpc-types/src/blockchain.rs:163` | `exec/src/celltx/types.rs:157` |
-| CellInput | `util/jsonrpc-types/src/blockchain.rs:268` | `exec/src/celltx/types.rs:193` |
-| CellDep | `util/jsonrpc-types/src/blockchain.rs:353` | `exec/src/celltx/types.rs:229` |
-| Transaction | `util/jsonrpc-types/src/blockchain.rs:390` | `exec/src/celltx/types.rs:287` |
-| ScriptHashType | `util/jsonrpc-types/src/blockchain.rs:33` | `exec/src/celltx/types.rs` (u8) |
-| DepType | `util/jsonrpc-types/src/blockchain.rs:300` | `exec/src/celltx/types.rs:243` |
-| **Header** | `util/jsonrpc-types/src/blockchain.rs:738` | `consensus/core/src/header.rs:10` |
+| CellInput | `util/jsonrpc-types/src/blockchain.rs:268` | `exec/src/celltx/types.rs:288` |
+| CellDep | `util/jsonrpc-types/src/blockchain.rs:353` | `exec/src/celltx/types.rs:324` |
+| Transaction | `util/jsonrpc-types/src/blockchain.rs:390` | `exec/src/celltx/types.rs:382` |
+| ScriptHashType | `util/jsonrpc-types/src/blockchain.rs:33` | `exec/src/celltx/types.rs:188` (u8) |
+| DepType | `util/jsonrpc-types/src/blockchain.rs:300` | `exec/src/celltx/types.rs:336` |
+| **Header** | `util/jsonrpc-types/src/blockchain.rs:738` | `consensus/core/src/header.rs:8` |
 | **Block** | `util/jsonrpc-types/src/blockchain.rs:982` | `consensus/core/src/block.rs:34` |
 | **UncleBlock** | `util/jsonrpc-types/src/blockchain.rs:910` | N/A |

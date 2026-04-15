@@ -88,6 +88,8 @@ use spora_database::prelude::{StoreError, StoreResultEmptyTuple, StoreResultExte
 use spora_hashes::{Hash, ZERO_HASH};
 use spora_notify::{events::EventType, notifier::Notify};
 
+#[cfg(feature = "vm")]
+use super::cell_processing::{CellStateCalculationResult, CellStateCalculationState};
 use super::{
     cell_processing::{apply_cell_diff_to_tree, exec_outpoint, CellProcessingContext},
     errors::{PruningImportError, PruningImportResult},
@@ -492,6 +494,7 @@ pub struct VirtualStateProcessor {
     pub(super) max_block_parents: u8,
     pub(super) mergeset_size_limit: u64,
     pub(super) coinbase_maturity: u64,
+    pub(super) resumable_virtual_state_step_cycles: Option<u64>,
 
     // Stores
     pub(super) statuses_store: Arc<RwLock<DbStatusesStore>>,
@@ -544,6 +547,66 @@ pub struct VirtualStateProcessor {
     counters: Arc<ProcessingCounters>,
 }
 
+#[cfg(feature = "vm")]
+pub struct VirtualStateCalculationOutput {
+    pub virtual_state: Arc<VirtualState>,
+    pub accumulated_diff: CellDiff,
+}
+
+#[cfg(feature = "vm")]
+pub struct VirtualStateCalculationState {
+    virtual_parents: Vec<Hash>,
+    virtual_ghostdag_data: Arc<GhostdagData>,
+    virtual_daa_score: u64,
+    virtual_bits: u32,
+    virtual_past_median_time: u64,
+    mergeset_non_daa: BlockHashSet,
+    accumulated_diff: CellDiff,
+    ctx: CellProcessingContext<'static>,
+    cell_state_state: CellStateCalculationState,
+}
+
+#[cfg(feature = "vm")]
+impl VirtualStateCalculationState {
+    fn new(
+        virtual_parents: Vec<Hash>,
+        virtual_ghostdag_data: Arc<GhostdagData>,
+        virtual_daa_score: u64,
+        virtual_bits: u32,
+        virtual_past_median_time: u64,
+        mergeset_non_daa: BlockHashSet,
+        accumulated_diff: CellDiff,
+        ctx: CellProcessingContext<'static>,
+        cell_state_state: CellStateCalculationState,
+    ) -> Self {
+        Self {
+            virtual_parents,
+            virtual_ghostdag_data,
+            virtual_daa_score,
+            virtual_bits,
+            virtual_past_median_time,
+            mergeset_non_daa,
+            accumulated_diff,
+            ctx,
+            cell_state_state,
+        }
+    }
+
+    pub fn current_cycles(&self) -> u64 {
+        self.cell_state_state.current_cycles()
+    }
+
+    pub fn next_limit_cycles(&self, step_cycles: u64, max_cycles: u64) -> (u64, bool) {
+        self.cell_state_state.next_limit_cycles(step_cycles, max_cycles)
+    }
+}
+
+#[cfg(feature = "vm")]
+pub enum ResumableVirtualStateCalculation {
+    Completed(VirtualStateCalculationOutput),
+    Suspended(VirtualStateCalculationState),
+}
+
 impl VirtualStateProcessor {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -552,6 +615,7 @@ impl VirtualStateProcessor {
         pruning_receiver: CrossbeamReceiver<PruningProcessingMessage>,
         thread_pool: Arc<ThreadPool>,
         params: &Params,
+        resumable_virtual_state_step_cycles: Option<u64>,
         db: Arc<DB>,
         storage: &Arc<ConsensusStorage>,
         services: &Arc<ConsensusServices>,
@@ -569,6 +633,7 @@ impl VirtualStateProcessor {
             max_block_parents: params.max_block_parents(),
             mergeset_size_limit: params.mergeset_size_limit(),
             coinbase_maturity: params.coinbase_maturity(),
+            resumable_virtual_state_step_cycles,
 
             db,
             statuses_store: storage.statuses_store.clone(),
@@ -687,7 +752,7 @@ impl VirtualStateProcessor {
         // Cache the DAA and Median time windows of the sink for future use, as well as prepare for virtual's window calculations
         self.cache_sink_windows(new_sink, prev_sink, &sink_ghostdag_data);
 
-        let new_virtual_state = match self.calculate_virtual_state(
+        let new_virtual_state = match self.calculate_virtual_state_with_runtime_mode(
             &virtual_read,
             virtual_parents.clone(),
             virtual_ghostdag_data,
@@ -703,7 +768,7 @@ impl VirtualStateProcessor {
                 let fallback_parents = vec![new_sink];
                 let fallback_ghostdag_data = self.ghostdag_manager.ghostdag(&fallback_parents);
                 accumulated_diff = prev_state.cell_diff.clone().reverse();
-                self.calculate_virtual_state(
+                self.calculate_virtual_state_with_runtime_mode(
                     &virtual_read,
                     fallback_parents,
                     fallback_ghostdag_data,
@@ -1067,6 +1132,229 @@ impl VirtualStateProcessor {
 
     // The old commit path was removed; use commit_cell_state in cell_processing.rs.
 
+    fn calculate_virtual_state_with_runtime_mode(
+        &self,
+        virtual_stores: &VirtualStores,
+        virtual_parents: Vec<Hash>,
+        virtual_ghostdag_data: GhostdagData,
+        selected_parent_cell_root: Hash,
+        accumulated_diff: &mut CellDiff,
+    ) -> Result<Arc<VirtualState>, RuleError> {
+        #[cfg(feature = "vm")]
+        if let Some(step_cycles) = self.resumable_virtual_state_step_cycles {
+            let mut limit_cycles = step_cycles;
+            let initial = self.calculate_virtual_state_resumable(
+                virtual_stores,
+                virtual_parents,
+                virtual_ghostdag_data,
+                selected_parent_cell_root,
+                accumulated_diff,
+                limit_cycles,
+            )?;
+
+            let output = match initial {
+                ResumableVirtualStateCalculation::Completed(output) => output,
+                ResumableVirtualStateCalculation::Suspended(mut state) => loop {
+                    let (next_limit, _) = state.next_limit_cycles(step_cycles, u64::MAX);
+                    limit_cycles = next_limit;
+                    match self.resume_calculate_virtual_state_from_state(state, limit_cycles)? {
+                        ResumableVirtualStateCalculation::Completed(output) => break output,
+                        ResumableVirtualStateCalculation::Suspended(next_state) => state = next_state,
+                    }
+                },
+            };
+
+            *accumulated_diff = output.accumulated_diff;
+            return Ok(output.virtual_state);
+        }
+
+        self.calculate_virtual_state(
+            virtual_stores,
+            virtual_parents,
+            virtual_ghostdag_data,
+            selected_parent_cell_root,
+            accumulated_diff,
+        )
+    }
+
+    #[cfg(feature = "vm")]
+    fn finalize_virtual_state_calculation(
+        &self,
+        virtual_parents: Vec<Hash>,
+        virtual_ghostdag_data: Arc<GhostdagData>,
+        virtual_daa_score: u64,
+        virtual_bits: u32,
+        virtual_past_median_time: u64,
+        mergeset_non_daa: BlockHashSet,
+        mut accumulated_diff: CellDiff,
+        ctx: CellProcessingContext<'static>,
+    ) -> Result<VirtualStateCalculationOutput, RuleError> {
+        let CellProcessingContext { cell_state_tree, mergeset_cell_diff, block_cell_diffs, accepted_tx_ids, mergeset_rewards, .. } =
+            ctx;
+
+        accumulated_diff.with_diff_in_place(&mergeset_cell_diff).map_err(|e| {
+            RuleError::CellValidationError(format!("failed to compose virtual cell diff while calculating virtual state: {}", e))
+        })?;
+
+        Ok(VirtualStateCalculationOutput {
+            virtual_state: Arc::new(VirtualState::new(
+                virtual_parents,
+                virtual_daa_score,
+                virtual_bits,
+                virtual_past_median_time,
+                cell_state_tree,
+                mergeset_cell_diff,
+                block_cell_diffs,
+                accepted_tx_ids,
+                mergeset_rewards,
+                mergeset_non_daa,
+                (*virtual_ghostdag_data).clone(),
+            )),
+            accumulated_diff,
+        })
+    }
+
+    #[cfg(feature = "vm")]
+    pub fn calculate_virtual_state_resumable(
+        &self,
+        virtual_stores: &VirtualStores,
+        virtual_parents: Vec<Hash>,
+        virtual_ghostdag_data: GhostdagData,
+        selected_parent_cell_root: Hash,
+        accumulated_diff: &CellDiff,
+        limit_cycles: u64,
+    ) -> Result<ResumableVirtualStateCalculation, RuleError> {
+        let virtual_state = virtual_stores.state.get().expect("virtual state must exist");
+        let mut selected_parent_cell_tree = self.reconstruct_tree_from_virtual_diff(&virtual_state, accumulated_diff);
+        let calculated_selected_parent_root = selected_parent_cell_tree.root();
+        if calculated_selected_parent_root != selected_parent_cell_root {
+            return Err(RuleError::BadCellRoot(format!(
+                "selected parent reconstruction mismatch while calculating virtual state: expected {:?}, got {:?}",
+                selected_parent_cell_root, calculated_selected_parent_root
+            )));
+        }
+
+        let virtual_ghostdag_data = Arc::new(virtual_ghostdag_data);
+        let mut ctx = CellProcessingContext::new_owned(virtual_ghostdag_data.clone(), selected_parent_cell_tree);
+        let virtual_daa_window = self.window_manager.block_daa_window(virtual_ghostdag_data.as_ref())?;
+        let virtual_bits = self.window_manager.calculate_difficulty_bits(virtual_ghostdag_data.as_ref(), &virtual_daa_window);
+        let virtual_past_median_time = self.window_manager.calc_past_median_time(virtual_ghostdag_data.as_ref())?.0;
+        let virtual_daa_score = virtual_daa_window.daa_score;
+        let mergeset_non_daa = virtual_daa_window.mergeset_non_daa;
+
+        match self.calculate_cell_state_resumable(
+            &mut ctx,
+            virtual_daa_score,
+            virtual_ghostdag_data.selected_parent,
+            virtual_past_median_time,
+            limit_cycles,
+        )? {
+            CellStateCalculationResult::Completed => {
+                Ok(ResumableVirtualStateCalculation::Completed(self.finalize_virtual_state_calculation(
+                    virtual_parents,
+                    virtual_ghostdag_data,
+                    virtual_daa_score,
+                    virtual_bits,
+                    virtual_past_median_time,
+                    mergeset_non_daa,
+                    accumulated_diff.clone(),
+                    ctx,
+                )?))
+            }
+            CellStateCalculationResult::Suspended(cell_state_state) => {
+                Ok(ResumableVirtualStateCalculation::Suspended(VirtualStateCalculationState::new(
+                    virtual_parents,
+                    virtual_ghostdag_data,
+                    virtual_daa_score,
+                    virtual_bits,
+                    virtual_past_median_time,
+                    mergeset_non_daa,
+                    accumulated_diff.clone(),
+                    ctx,
+                    cell_state_state,
+                )))
+            }
+        }
+    }
+
+    #[cfg(feature = "vm")]
+    pub fn resume_calculate_virtual_state_from_state(
+        &self,
+        state: VirtualStateCalculationState,
+        limit_cycles: u64,
+    ) -> Result<ResumableVirtualStateCalculation, RuleError> {
+        let VirtualStateCalculationState {
+            virtual_parents,
+            virtual_ghostdag_data,
+            virtual_daa_score,
+            virtual_bits,
+            virtual_past_median_time,
+            mergeset_non_daa,
+            accumulated_diff,
+            mut ctx,
+            cell_state_state,
+        } = state;
+
+        match self.resume_calculate_cell_state_from_state(&mut ctx, &cell_state_state, limit_cycles)? {
+            CellStateCalculationResult::Completed => {
+                Ok(ResumableVirtualStateCalculation::Completed(self.finalize_virtual_state_calculation(
+                    virtual_parents,
+                    virtual_ghostdag_data,
+                    virtual_daa_score,
+                    virtual_bits,
+                    virtual_past_median_time,
+                    mergeset_non_daa,
+                    accumulated_diff,
+                    ctx,
+                )?))
+            }
+            CellStateCalculationResult::Suspended(next_cell_state) => {
+                Ok(ResumableVirtualStateCalculation::Suspended(VirtualStateCalculationState::new(
+                    virtual_parents,
+                    virtual_ghostdag_data,
+                    virtual_daa_score,
+                    virtual_bits,
+                    virtual_past_median_time,
+                    mergeset_non_daa,
+                    accumulated_diff,
+                    ctx,
+                    next_cell_state,
+                )))
+            }
+        }
+    }
+
+    #[cfg(feature = "vm")]
+    pub fn complete_calculate_virtual_state_from_state(
+        &self,
+        state: VirtualStateCalculationState,
+        max_cycles: u64,
+    ) -> Result<VirtualStateCalculationOutput, RuleError> {
+        let VirtualStateCalculationState {
+            virtual_parents,
+            virtual_ghostdag_data,
+            virtual_daa_score,
+            virtual_bits,
+            virtual_past_median_time,
+            mergeset_non_daa,
+            accumulated_diff,
+            mut ctx,
+            cell_state_state,
+        } = state;
+
+        self.complete_calculate_cell_state_from_state(&mut ctx, &cell_state_state, max_cycles)?;
+        self.finalize_virtual_state_calculation(
+            virtual_parents,
+            virtual_ghostdag_data,
+            virtual_daa_score,
+            virtual_bits,
+            virtual_past_median_time,
+            mergeset_non_daa,
+            accumulated_diff,
+            ctx,
+        )
+    }
+
     fn calculate_and_commit_virtual_state(
         &self,
         virtual_read: RwLockUpgradableReadGuard<'_, VirtualStores>,
@@ -1076,7 +1364,7 @@ impl VirtualStateProcessor {
         accumulated_diff: &mut CellDiff,
         chain_path: &ChainPath,
     ) -> Result<Arc<VirtualState>, RuleError> {
-        let new_virtual_state = self.calculate_virtual_state(
+        let new_virtual_state = self.calculate_virtual_state_with_runtime_mode(
             &virtual_read,
             virtual_parents,
             virtual_ghostdag_data,

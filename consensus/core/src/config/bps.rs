@@ -20,6 +20,9 @@ pub fn calculate_ghostdag_k(x: f64, delta: f64) -> u64 {
     }
 }
 
+/// Bps-related constants generator for 1-bps networks
+pub type OneBps = Bps<1>;
+
 /// Bps-related constants generator for 10-bps networks
 pub type TenBps = Bps<10>;
 

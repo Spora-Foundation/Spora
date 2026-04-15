@@ -46,26 +46,18 @@ impl BlockAccessSummary {
 
             // inputs → spent_outpoints
             for input in &tx.inputs {
-                spent_outpoints.insert(TransactionOutpoint {
-                    tx_hash: input.previous_output.tx_hash,
-                    index: input.previous_output.index,
-                });
+                spent_outpoints
+                    .insert(TransactionOutpoint { tx_hash: input.previous_output.tx_hash, index: input.previous_output.index });
             }
 
             // outputs → created_outpoints
             for (idx, _output) in tx.outputs.iter().enumerate() {
-                created_outpoints.insert(TransactionOutpoint {
-                    tx_hash: tx.id(),
-                    index: idx as u32,
-                });
+                created_outpoints.insert(TransactionOutpoint { tx_hash: tx.id(), index: idx as u32 });
             }
 
             // cell_deps → read_deps
             for dep in &tx.cell_deps {
-                read_deps.insert(TransactionOutpoint {
-                    tx_hash: dep.out_point.tx_hash,
-                    index: dep.out_point.index,
-                });
+                read_deps.insert(TransactionOutpoint { tx_hash: dep.out_point.tx_hash, index: dep.out_point.index });
             }
         }
 
@@ -84,10 +76,7 @@ impl BlockAccessSummary {
         let mut read_deps = BTreeSet::new();
         for tx in block_txs {
             for dep in &tx.cell_deps {
-                read_deps.insert(TransactionOutpoint {
-                    tx_hash: dep.out_point.tx_hash,
-                    index: dep.out_point.index,
-                });
+                read_deps.insert(TransactionOutpoint { tx_hash: dep.out_point.tx_hash, index: dep.out_point.index });
             }
         }
 

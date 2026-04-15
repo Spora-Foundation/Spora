@@ -1,6 +1,6 @@
+use spora_addresses::{Address, Prefix};
 use std::io::Write;
 use std::process::Command;
-use spora_addresses::{Address, Prefix};
 use tempfile::NamedTempFile;
 
 fn treasure_boy_command() -> Command {
@@ -84,7 +84,8 @@ fn test_cli_generate_addresses_to_file() {
 fn test_cli_with_address_file() {
     // Create temporary address file
     let mut temp_file = NamedTempFile::new().unwrap();
-    let addresses_content = format!("# Test addresses\n{}\n{}\n", valid_address(Prefix::Testnet, 1), valid_address(Prefix::Testnet, 2));
+    let addresses_content =
+        format!("# Test addresses\n{}\n{}\n", valid_address(Prefix::Testnet, 1), valid_address(Prefix::Testnet, 2));
 
     temp_file.write_all(addresses_content.as_bytes()).unwrap();
     temp_file.flush().unwrap();

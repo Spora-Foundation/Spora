@@ -86,6 +86,28 @@ impl Default for VmLimits {
     }
 }
 
+/// VM syscall semantics profile.
+///
+/// `SporaExtended` preserves current Spora-only syscall extensions such as
+/// resolving `HeaderDep` through `LOAD_CELL` / `LOAD_CELL_DATA`.
+/// `CkbStrict` disables those extensions so syscall behavior more closely
+/// matches upstream CKB.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum VmSemantics {
+    /// Preserve Spora-specific syscall extensions.
+    #[default]
+    SporaExtended,
+    /// Prefer upstream CKB syscall semantics.
+    CkbStrict,
+}
+
+impl VmSemantics {
+    /// Whether `LOAD_CELL` / `LOAD_CELL_DATA` may map `HeaderDep` to a cell.
+    pub const fn allow_header_dep_cell_lookup(self) -> bool {
+        matches!(self, Self::SporaExtended)
+    }
+}
+
 impl VmLimits {
     /// Create VM limits with custom values
     pub const fn new(

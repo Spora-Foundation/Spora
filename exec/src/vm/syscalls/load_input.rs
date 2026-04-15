@@ -4,7 +4,7 @@
 // Load input syscall
 // Reference: ckb/script/src/syscalls/load_input.rs
 
-use super::utils::{store_data, INDEX_OUT_OF_BOUND, ITEM_MISSING};
+use super::utils::{store_data, INDEX_OUT_OF_BOUND};
 use super::{InputField, Source, LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER, LOAD_INPUT_SYSCALL_NUMBER};
 use crate::celltx::{CellInput, CellTx};
 use crate::vm::transferred_byte_cycles;
@@ -27,23 +27,23 @@ impl LoadInput {
         Self { tx, group_input_indices }
     }
 
-    fn get_input(&self, source: u64, index: usize) -> Option<&CellInput> {
-        match Source::parse(source)? {
+    fn get_input(&self, source: Source, index: usize) -> Option<&CellInput> {
+        match source {
             Source::Input => self.tx.inputs.get(index),
             Source::GroupInput => self.group_input_indices.get(index).and_then(|&idx| self.tx.inputs.get(idx)),
             _ => None,
         }
     }
 
-    fn serialize_input_field(&self, input: &CellInput, field: u64) -> Option<Vec<u8>> {
-        match InputField::parse(field)? {
+    fn serialize_input_field(&self, input: &CellInput, field: u64) -> Result<Vec<u8>, VMError> {
+        match InputField::parse_from_u64(field)? {
             InputField::OutPoint => {
                 let mut data = Vec::with_capacity(36);
                 data.extend_from_slice(&input.previous_output.tx_hash);
                 data.extend_from_slice(&input.previous_output.index.to_le_bytes());
-                Some(data)
+                Ok(data)
             }
-            InputField::Since => Some(input.since.to_le_bytes().to_vec()),
+            InputField::Since => Ok(input.since.to_le_bytes().to_vec()),
         }
     }
 }
@@ -62,7 +62,7 @@ impl<M: SupportMachine> Syscalls<M> for LoadInput {
         }
 
         let index = machine.registers()[A3].to_u64() as usize;
-        let source = machine.registers()[A4].to_u64();
+        let source = Source::parse_from_u64(machine.registers()[A4].to_u64())?;
 
         // Get input
         let input = match self.get_input(source, index) {
@@ -77,13 +77,7 @@ impl<M: SupportMachine> Syscalls<M> for LoadInput {
         let data = if syscall_number == LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER {
             // LOAD_INPUT_BY_FIELD
             let field = machine.registers()[A5].to_u64();
-            match self.serialize_input_field(input, field) {
-                Some(d) => d,
-                None => {
-                    machine.set_register(A0, M::REG::from_u8(ITEM_MISSING));
-                    return Ok(true);
-                }
-            }
+            self.serialize_input_field(input, field)?
         } else {
             // LOAD_INPUT (full input = outpoint + since = 44 bytes)
             let mut data = Vec::with_capacity(44);
@@ -170,9 +164,8 @@ mod tests {
         machine.set_register(A7, LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER);
 
         let mut syscall = LoadInput::new(tx, vec![0]);
-        let handled = syscall.ecall(&mut machine).expect("load input by field should be handled");
+        let err = syscall.ecall(&mut machine).expect_err("unknown field should trap");
 
-        assert!(handled);
-        assert_eq!(machine.registers()[A0].to_u64(), ITEM_MISSING as u64);
+        assert_eq!(err, VMError::External("InputField parse_from_u64 99".to_string()));
     }
 }

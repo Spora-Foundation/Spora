@@ -5,11 +5,11 @@
 // Reference: ckb/script/src/verify.rs
 
 use super::error::{ScriptError, ScriptResult};
-use super::machine::{run_script, Machine, ScriptVersion, VmContext};
-use super::{MAX_SCRIPT_SIZE, MAX_VM_MEMORY};
+use super::machine::ScriptVersion;
+use super::scheduler::{FullSuspendedState, ProgramPiece, ProgramPlace, ProgramResolver, RunMode, VmScheduler};
+use super::{VmSemantics, MAX_SCRIPT_SIZE, MAX_VM_MEMORY};
 use crate::celltx::{CellOutput, CellTx, Script};
 use borsh::{BorshDeserialize, BorshSerialize};
-use ckb_vm::{DefaultMachineRunner, Syscalls};
 use rayon::prelude::*;
 use std::{collections::HashSet, sync::Arc};
 
@@ -20,6 +20,67 @@ pub enum ScriptGroupType {
     Lock,
     /// Type script (state transition rules)
     Type,
+}
+
+/// Transaction-level resumable verification state.
+#[derive(Clone)]
+pub struct TransactionState {
+    /// Current script-group index being verified.
+    pub current: usize,
+    /// Optional suspended scheduler state for the current group.
+    pub state: Option<FullSuspendedState>,
+    /// Total cycles completed before the current group fully finishes.
+    pub current_cycles: u64,
+    /// The cycle budget used for the current suspended step.
+    pub limit_cycles: u64,
+}
+
+impl TransactionState {
+    /// Create a resumable transaction verification state.
+    pub fn new(state: Option<FullSuspendedState>, current: usize, current_cycles: u64, limit_cycles: u64) -> Self {
+        Self { current, state, current_cycles, limit_cycles }
+    }
+
+    /// Return the next cycle budget from an incremental step size and a maximum bound.
+    pub fn next_limit_cycles(&self, step_cycles: u64, max_cycles: u64) -> (u64, bool) {
+        let remain = max_cycles.saturating_sub(self.current_cycles);
+        let next_limit = self.limit_cycles.saturating_add(step_cycles);
+        if next_limit < remain {
+            (next_limit, false)
+        } else {
+            (remain, true)
+        }
+    }
+}
+
+impl std::fmt::Debug for TransactionState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TransactionState")
+            .field("current", &self.current)
+            .field("current_cycles", &self.current_cycles)
+            .field("limit_cycles", &self.limit_cycles)
+            .finish()
+    }
+}
+
+/// Result of resumable transaction verification.
+#[derive(Debug)]
+pub enum VerifyResult {
+    /// Verification completed and returns total consumed cycles.
+    Completed(u64),
+    /// Verification suspended and returns resumable transaction state.
+    Suspended(TransactionState),
+}
+
+enum GroupRunResult {
+    Completed(u64),
+    Suspended(FullSuspendedState),
+}
+
+struct GroupRuntime {
+    script_code: Vec<u8>,
+    program_resolver: ProgramResolver,
+    syscall_factory: Arc<dyn Fn(u64, &super::scheduler::VmRuntime) -> ScriptResult<Vec<super::scheduler::BoxedSyscall>> + Send + Sync>,
 }
 
 /// Script group: cells sharing the same script
@@ -126,6 +187,8 @@ pub struct TransactionScriptVerifier<D: CellDataProvider> {
     skip_lock_groups: bool,
     /// Skip selected lock-script groups by script hash.
     skip_lock_script_hashes: HashSet<[u8; 32]>,
+    /// Runtime syscall semantics profile.
+    semantics: VmSemantics,
 }
 
 impl<D: CellDataProvider> TransactionScriptVerifier<D> {
@@ -140,6 +203,7 @@ impl<D: CellDataProvider> TransactionScriptVerifier<D> {
             max_script_size: MAX_SCRIPT_SIZE,
             skip_lock_groups: false,
             skip_lock_script_hashes: HashSet::new(),
+            semantics: VmSemantics::SporaExtended,
         }
     }
 
@@ -176,6 +240,12 @@ impl<D: CellDataProvider> TransactionScriptVerifier<D> {
     /// Skip lock-script groups whose script hash is included in `script_hashes`.
     pub fn with_skip_lock_script_hashes(mut self, script_hashes: HashSet<[u8; 32]>) -> Self {
         self.skip_lock_script_hashes = script_hashes;
+        self
+    }
+
+    /// Select VM syscall semantics profile.
+    pub fn with_semantics(mut self, semantics: VmSemantics) -> Self {
+        self.semantics = semantics;
         self
     }
 
@@ -260,7 +330,8 @@ impl<D: CellDataProvider> TransactionScriptVerifier<D> {
     /// Verify all scripts in the transaction and return the total consumed cycles.
     pub fn verify_with_cycles(&self) -> ScriptResult<u64> {
         let script_groups = self.extract_script_groups()?;
-        let group_results: Vec<ScriptResult<u64>> = script_groups.par_iter().map(|group| self.verify_script_group(group)).collect();
+        let group_results: Vec<ScriptResult<u64>> =
+            script_groups.par_iter().map(|group| self.verify_script_group(group, self.max_cycles)).collect();
 
         // Keep error selection deterministic by folding results in the stable
         // script-group order produced by extract_script_groups.
@@ -269,42 +340,202 @@ impl<D: CellDataProvider> TransactionScriptVerifier<D> {
             .try_fold(0u64, |total_cycles, group_cycles| group_cycles.map(|cycles| total_cycles.saturating_add(cycles)))
     }
 
+    /// Verify all scripts with a resumable transaction-level state machine.
+    pub fn resumable_verify(&self, limit_cycles: u64) -> ScriptResult<VerifyResult> {
+        let script_groups = self.extract_script_groups()?;
+        let mut total_cycles = 0u64;
+        let mut current_consumed_cycles = 0u64;
+
+        for (idx, group) in script_groups.iter().enumerate() {
+            let remain_cycles = limit_cycles.checked_sub(current_consumed_cycles).ok_or_else(|| {
+                ScriptError::VM(super::error::VMError::CyclesExceeded { limit: limit_cycles, actual: current_consumed_cycles })
+            })?;
+
+            match self.verify_script_group_chunk(group, remain_cycles, None)? {
+                GroupRunResult::Completed(group_cycles) => {
+                    current_consumed_cycles = current_consumed_cycles.saturating_add(group_cycles);
+                    total_cycles = total_cycles.saturating_add(group_cycles);
+                }
+                GroupRunResult::Suspended(state) => {
+                    return Ok(VerifyResult::Suspended(TransactionState::new(Some(state), idx, total_cycles, remain_cycles)));
+                }
+            }
+        }
+
+        Ok(VerifyResult::Completed(total_cycles))
+    }
+
+    /// Resume transaction verification from a previous suspended state.
+    pub fn resume_from_state(&self, state: &TransactionState, limit_cycles: u64) -> ScriptResult<VerifyResult> {
+        let script_groups = self.extract_script_groups()?;
+        let current_group = script_groups.get(state.current).ok_or_else(|| {
+            ScriptError::VM(super::error::VMError::ExecutionError(format!("snapshot group missing {}", state.current)))
+        })?;
+
+        let mut current_used = 0u64;
+        let mut total_cycles = state.current_cycles;
+
+        match self.verify_script_group_chunk(current_group, limit_cycles, state.state.as_ref())? {
+            GroupRunResult::Completed(group_cycles) => {
+                current_used = current_used.saturating_add(group_cycles);
+                total_cycles = total_cycles.saturating_add(group_cycles);
+            }
+            GroupRunResult::Suspended(next_state) => {
+                return Ok(VerifyResult::Suspended(TransactionState::new(
+                    Some(next_state),
+                    state.current,
+                    total_cycles,
+                    limit_cycles,
+                )));
+            }
+        }
+
+        for (idx, group) in script_groups.iter().enumerate().skip(state.current + 1) {
+            let remain_cycles = limit_cycles
+                .checked_sub(current_used)
+                .ok_or_else(|| ScriptError::VM(super::error::VMError::CyclesExceeded { limit: limit_cycles, actual: current_used }))?;
+
+            match self.verify_script_group_chunk(group, remain_cycles, None)? {
+                GroupRunResult::Completed(group_cycles) => {
+                    current_used = current_used.saturating_add(group_cycles);
+                    total_cycles = total_cycles.saturating_add(group_cycles);
+                }
+                GroupRunResult::Suspended(next_state) => {
+                    return Ok(VerifyResult::Suspended(TransactionState::new(Some(next_state), idx, total_cycles, remain_cycles)));
+                }
+            }
+        }
+
+        Ok(VerifyResult::Completed(total_cycles))
+    }
+
+    /// Finish a suspended verification or return a cycles-exceeded error if it still cannot complete.
+    pub fn complete(&self, state: &TransactionState, max_cycles: u64) -> ScriptResult<u64> {
+        if max_cycles < state.current_cycles {
+            return Err(ScriptError::VM(super::error::VMError::CyclesExceeded { limit: max_cycles, actual: state.current_cycles }));
+        }
+
+        let script_groups = self.extract_script_groups()?;
+        let current_group = script_groups.get(state.current).ok_or_else(|| {
+            ScriptError::VM(super::error::VMError::ExecutionError(format!("snapshot group missing {}", state.current)))
+        })?;
+
+        let mut total_cycles = state.current_cycles;
+
+        match self.verify_script_group_chunk(current_group, max_cycles - total_cycles, state.state.as_ref())? {
+            GroupRunResult::Completed(group_cycles) => {
+                total_cycles = total_cycles.saturating_add(group_cycles);
+            }
+            GroupRunResult::Suspended(_) => {
+                return Err(ScriptError::VM(super::error::VMError::CyclesExceeded {
+                    limit: max_cycles,
+                    actual: max_cycles.saturating_add(1),
+                }));
+            }
+        }
+
+        for group in script_groups.iter().skip(state.current + 1) {
+            let remain_cycles = max_cycles
+                .checked_sub(total_cycles)
+                .ok_or_else(|| ScriptError::VM(super::error::VMError::CyclesExceeded { limit: max_cycles, actual: total_cycles }))?;
+            match self.verify_script_group_chunk(group, remain_cycles, None)? {
+                GroupRunResult::Completed(group_cycles) => {
+                    total_cycles = total_cycles.saturating_add(group_cycles);
+                }
+                GroupRunResult::Suspended(_) => {
+                    return Err(ScriptError::VM(super::error::VMError::CyclesExceeded {
+                        limit: max_cycles,
+                        actual: max_cycles.saturating_add(1),
+                    }));
+                }
+            }
+        }
+
+        Ok(total_cycles)
+    }
+
     /// Verify a single script group
-    fn verify_script_group(&self, group: &ScriptGroup) -> ScriptResult<u64> {
+    fn verify_script_group(&self, group: &ScriptGroup, max_cycles: u64) -> ScriptResult<u64> {
+        let mut scheduler = self.create_scheduler(group)?;
+        let result = scheduler.run_with_mode(RunMode::LimitCycles(max_cycles))?;
+        if result.exit_code != 0 {
+            return Err(ScriptError::VM(super::error::VMError::NonZeroExitCode(result.exit_code)));
+        }
+
+        log::debug!("Script group {:?} verified successfully, cycles: {}", group.group_type, result.consumed_cycles);
+
+        Ok(result.consumed_cycles)
+    }
+
+    fn verify_script_group_chunk(
+        &self,
+        group: &ScriptGroup,
+        max_cycles: u64,
+        state: Option<&FullSuspendedState>,
+    ) -> ScriptResult<GroupRunResult> {
+        let mut scheduler = match state {
+            Some(state) => self.resume_scheduler(group, state)?,
+            None => self.create_scheduler(group)?,
+        };
+
+        match scheduler.run_with_mode(RunMode::LimitCycles(max_cycles)) {
+            Ok(result) => {
+                if result.exit_code != 0 {
+                    return Err(ScriptError::VM(super::error::VMError::NonZeroExitCode(result.exit_code)));
+                }
+                Ok(GroupRunResult::Completed(result.consumed_cycles))
+            }
+            Err(ScriptError::VM(super::error::VMError::CyclesExceeded { .. } | super::error::VMError::Paused)) => {
+                Ok(GroupRunResult::Suspended(scheduler.suspend()?))
+            }
+            Err(other) => Err(other),
+        }
+    }
+
+    fn create_scheduler(&self, group: &ScriptGroup) -> ScriptResult<VmScheduler> {
+        let prepared = self.prepare_group_runtime(group)?;
+        Ok(VmScheduler::new(
+            self.version,
+            self.max_cycles,
+            self.max_memory,
+            self.max_script_size,
+            prepared.script_code,
+            vec![group.script.args.clone()],
+            prepared.syscall_factory,
+            prepared.program_resolver,
+        ))
+    }
+
+    fn resume_scheduler(&self, group: &ScriptGroup, state: &FullSuspendedState) -> ScriptResult<VmScheduler> {
+        let prepared = self.prepare_group_runtime(group)?;
+
+        VmScheduler::resume(
+            self.version,
+            self.max_cycles,
+            self.max_memory,
+            self.max_script_size,
+            prepared.script_code,
+            vec![group.script.args.clone()],
+            prepared.syscall_factory,
+            prepared.program_resolver,
+            state.clone(),
+        )
+    }
+
+    fn prepare_group_runtime(&self, group: &ScriptGroup) -> ScriptResult<GroupRuntime> {
         if group.script.hash_type != 0 {
             return Err(ScriptError::InvalidHashType(group.script.hash_type));
         }
 
-        // Load script code from data provider
         let script_code = self
             .data_provider
             .load_cell_data(&group.script.code_hash)
             .ok_or_else(|| ScriptError::ScriptNotFound(group.script.code_hash))?;
 
-        // Prepare arguments
-        let args = vec![group.script.args.clone()];
-
-        // Create syscalls
-        let syscalls = self.build_syscalls(group)?;
-
-        // Create VM context
-        let context = VmContext::with_limits(self.version, self.max_cycles, self.max_memory, self.max_script_size);
-
-        // Run script
-        let cycles = run_script(&script_code, &args, syscalls, &context).map_err(ScriptError::VM)?;
-
-        log::debug!("Script group {:?} verified successfully, cycles: {}", group.group_type, cycles);
-
-        Ok(cycles)
-    }
-
-    /// Build syscalls for a script group
-    fn build_syscalls(&self, group: &ScriptGroup) -> ScriptResult<Vec<Box<dyn Syscalls<<Machine as DefaultMachineRunner>::Inner>>>> {
         use super::syscalls::load_signature_hash::standard_signing_input_from_resolved_cell;
         use super::syscalls::*;
 
-        let mut syscalls: Vec<Box<dyn Syscalls<<Machine as DefaultMachineRunner>::Inner>>> = Vec::new();
-        let resolved_inputs = self
+        let signing_inputs = self
             .tx
             .inputs
             .iter()
@@ -321,58 +552,141 @@ impl<D: CellDataProvider> TransactionScriptVerifier<D> {
             })
             .collect::<ScriptResult<Vec<_>>>()?;
 
-        // CKB standard syscalls
-        // Compute tx hash using our sighash function
+        let tx = Arc::clone(&self.tx);
+        let provider = Arc::clone(&self.data_provider);
+        let script = Arc::new(group.script.clone());
+        let group_input_indices = group.input_indices.clone();
+        let group_output_indices = group.output_indices.clone();
         let tx_hash = crate::celltx::compute_txid(&self.tx);
         let tx_data = borsh::to_vec(self.tx.as_ref()).map_err(|e| {
             ScriptError::VM(super::error::VMError::InvalidData(format!("failed to serialize tx for LOAD_TRANSACTION syscall: {e}")))
         })?;
-        syscalls.push(Box::new(LoadTx::new(tx_hash, tx_data)));
-        syscalls.push(Box::new(LoadCell::new(
-            Arc::clone(&self.tx),
-            Arc::clone(&self.data_provider),
-            group.input_indices.clone(),
-            group.output_indices.clone(),
-        )));
-        syscalls.push(Box::new(LoadCellData::new(
-            Arc::clone(&self.tx),
-            Arc::clone(&self.data_provider),
-            group.input_indices.clone(),
-            group.output_indices.clone(),
-        )));
-        syscalls.push(Box::new(LoadInput::new(Arc::clone(&self.tx), group.input_indices.clone())));
-        syscalls.push(Box::new(LoadWitness::new(Arc::clone(&self.tx), group.input_indices.clone(), group.output_indices.clone())));
-        syscalls.push(Box::new(LoadScript::new(Arc::new(group.script.clone()))));
-        syscalls.push(Box::new(LoadSignatureHash::new(Arc::clone(&self.tx), resolved_inputs, group.input_indices.clone())));
-        syscalls.push(Box::new(LoadHeader::new(
-            Arc::clone(&self.tx),
-            Arc::clone(&self.data_provider),
-            group.input_indices.clone(),
-            group.output_indices.clone(),
-        )));
-        syscalls.push(Box::new(VMVersion::new()));
-        syscalls.push(Box::new(CurrentCycles::new()));
-        syscalls.push(Box::new(Debugger::new(group.script.code_hash)));
-        syscalls.push(Box::new(Exec::new(
-            Arc::clone(&self.tx),
-            Arc::clone(&self.data_provider),
-            group.input_indices.clone(),
-            group.output_indices.clone(),
-        )));
-        syscalls.push(Box::new(ProcessId::default()));
-        syscalls.push(Box::new(Spawn::new()));
-        syscalls.push(Box::new(Wait::new()));
-        syscalls.push(Box::new(Pipe::new()));
-        syscalls.push(Box::new(Read::new()));
-        syscalls.push(Box::new(Write::new()));
-        syscalls.push(Box::new(InheritedFd::new()));
-        syscalls.push(Box::new(Close::new()));
 
-        // Spora extensions
-        syscalls.push(Box::new(Blake3Hash::new()));
-        syscalls.push(Box::new(Secp256k1Verify::new()));
+        let program_resolver: ProgramResolver = Arc::new({
+            let tx = Arc::clone(&tx);
+            let provider = Arc::clone(&provider);
+            let group_input_indices = group_input_indices.clone();
+            let group_output_indices = group_output_indices.clone();
+            move |piece: &ProgramPiece| -> Result<Vec<u8>, u8> {
+                match piece.place {
+                    ProgramPlace::CellData => match piece.source {
+                        Source::Input => {
+                            let input = tx.inputs.get(piece.index).ok_or(INDEX_OUT_OF_BOUND)?;
+                            provider
+                                .load_cell_by_outpoint(&input.previous_output.tx_hash, input.previous_output.index)
+                                .map(|cell| cell.data.unwrap_or_default())
+                                .ok_or(ITEM_MISSING)
+                        }
+                        Source::Output => {
+                            tx.outputs.get(piece.index).ok_or(INDEX_OUT_OF_BOUND)?;
+                            tx.outputs_data.get(piece.index).cloned().ok_or(ITEM_MISSING)
+                        }
+                        Source::CellDep => {
+                            let dep = tx.cell_deps.get(piece.index).ok_or(INDEX_OUT_OF_BOUND)?;
+                            provider
+                                .load_cell_by_outpoint(&dep.out_point.tx_hash, dep.out_point.index)
+                                .map(|cell| cell.data.unwrap_or_default())
+                                .ok_or(ITEM_MISSING)
+                        }
+                        Source::GroupInput => {
+                            let input_index = group_input_indices.get(piece.index).copied().ok_or(INDEX_OUT_OF_BOUND)?;
+                            let input = tx.inputs.get(input_index).ok_or(INDEX_OUT_OF_BOUND)?;
+                            provider
+                                .load_cell_by_outpoint(&input.previous_output.tx_hash, input.previous_output.index)
+                                .map(|cell| cell.data.unwrap_or_default())
+                                .ok_or(ITEM_MISSING)
+                        }
+                        Source::GroupOutput => {
+                            let output_index = group_output_indices.get(piece.index).copied().ok_or(INDEX_OUT_OF_BOUND)?;
+                            tx.outputs.get(output_index).ok_or(INDEX_OUT_OF_BOUND)?;
+                            tx.outputs_data.get(output_index).cloned().ok_or(ITEM_MISSING)
+                        }
+                        Source::GroupCellDep | Source::GroupHeaderDep => Err(INDEX_OUT_OF_BOUND),
+                        Source::HeaderDep => Err(INDEX_OUT_OF_BOUND),
+                    },
+                    ProgramPlace::Witness => {
+                        let witness_index = match piece.source {
+                            Source::Input => piece.index,
+                            Source::Output => tx.inputs.len().checked_add(piece.index).ok_or(INDEX_OUT_OF_BOUND)?,
+                            Source::CellDep => tx
+                                .inputs
+                                .len()
+                                .checked_add(tx.outputs.len())
+                                .and_then(|base| base.checked_add(piece.index))
+                                .ok_or(INDEX_OUT_OF_BOUND)?,
+                            Source::GroupInput => group_input_indices.get(piece.index).copied().ok_or(INDEX_OUT_OF_BOUND)?,
+                            Source::GroupOutput => {
+                                let output_index = group_output_indices.get(piece.index).copied().ok_or(INDEX_OUT_OF_BOUND)?;
+                                tx.inputs.len().checked_add(output_index).ok_or(INDEX_OUT_OF_BOUND)?
+                            }
+                            Source::GroupCellDep | Source::GroupHeaderDep => return Err(INDEX_OUT_OF_BOUND),
+                            Source::HeaderDep => return Err(INDEX_OUT_OF_BOUND),
+                        };
+                        tx.witnesses.get(witness_index).cloned().ok_or(INDEX_OUT_OF_BOUND)
+                    }
+                }
+            }
+        });
 
-        Ok(syscalls)
+        let syscall_factory = Arc::new({
+            let tx = Arc::clone(&tx);
+            let provider = Arc::clone(&provider);
+            let script = Arc::clone(&script);
+            let signing_inputs = signing_inputs.clone();
+            let group_input_indices = group_input_indices.clone();
+            let group_output_indices = group_output_indices.clone();
+            let tx_hash = tx_hash;
+            let tx_data = tx_data.clone();
+            let program_resolver = Arc::clone(&program_resolver);
+            let semantics = self.semantics;
+            move |vm_id, runtime: &super::scheduler::VmRuntime| -> ScriptResult<Vec<super::scheduler::BoxedSyscall>> {
+                let mut syscalls: Vec<super::scheduler::BoxedSyscall> = Vec::new();
+                syscalls.push(Box::new(LoadTx::new(tx_hash, tx_data.clone())));
+                syscalls.push(Box::new(
+                    LoadCell::new(Arc::clone(&tx), Arc::clone(&provider), group_input_indices.clone(), group_output_indices.clone())
+                        .with_semantics(semantics),
+                ));
+                syscalls.push(Box::new(
+                    LoadCellData::new(
+                        Arc::clone(&tx),
+                        Arc::clone(&provider),
+                        group_input_indices.clone(),
+                        group_output_indices.clone(),
+                    )
+                    .with_semantics(semantics),
+                ));
+                syscalls.push(Box::new(LoadInput::new(Arc::clone(&tx), group_input_indices.clone())));
+                syscalls.push(Box::new(LoadWitness::new(Arc::clone(&tx), group_input_indices.clone(), group_output_indices.clone())));
+                syscalls.push(Box::new(LoadScript::new(Arc::clone(&script))));
+                syscalls.push(Box::new(LoadSignatureHash::new(Arc::clone(&tx), signing_inputs.clone(), group_input_indices.clone())));
+                syscalls.push(Box::new(LoadHeader::new(
+                    Arc::clone(&tx),
+                    Arc::clone(&provider),
+                    group_input_indices.clone(),
+                    group_output_indices.clone(),
+                )));
+                syscalls.push(Box::new(VMVersion::new()));
+                syscalls.push(Box::new(CurrentCycles::with_base_cycles(Arc::clone(&runtime.base_cycles))));
+                syscalls.push(Box::new(Debugger::new(script.code_hash)));
+                syscalls.push(Box::new(
+                    Exec::new(Arc::clone(&tx), Arc::clone(&provider), group_input_indices.clone(), group_output_indices.clone())
+                        .with_snapshot_tracking(Arc::clone(&runtime.snapshot2_context), runtime.data_source.clone()),
+                ));
+                syscalls.push(Box::new(ProcessId::new(vm_id)));
+                syscalls.push(Box::new(Spawn::with_runtime(vm_id, runtime, Arc::clone(&program_resolver))));
+                syscalls.push(Box::new(Wait::with_runtime(vm_id, runtime)));
+                syscalls.push(Box::new(Pipe::with_runtime(vm_id, runtime)));
+                syscalls.push(Box::new(Read::with_runtime(vm_id, runtime)));
+                syscalls.push(Box::new(Write::with_runtime(vm_id, runtime)));
+                syscalls.push(Box::new(InheritedFd::with_runtime(vm_id, runtime)));
+                syscalls.push(Box::new(Close::with_runtime(vm_id, runtime)));
+                syscalls.push(Box::new(Blake3Hash::new()));
+                syscalls.push(Box::new(Secp256k1Verify::new()));
+                Ok(syscalls)
+            }
+        });
+
+        Ok(GroupRuntime { script_code, program_resolver, syscall_factory })
     }
 }
 
@@ -446,6 +760,35 @@ impl CellDataProvider for SimpleDataProvider {
 mod tests {
     use super::*;
     use crate::celltx::{CellInput, OutPoint};
+    use crate::scripts::{always_success_code_hash, ALWAYS_SUCCESS_SCRIPT};
+    use crate::vm::VmSemantics;
+
+    fn always_success_verifier() -> TransactionScriptVerifier<SimpleDataProvider> {
+        let mut provider = SimpleDataProvider::new();
+        let code_hash = always_success_code_hash();
+        provider.add_script(code_hash, ALWAYS_SUCCESS_SCRIPT.to_vec());
+        let input_out_point = OutPoint::new([0x44; 32], 0);
+        provider.add_cell(
+            input_out_point.tx_hash,
+            input_out_point.index,
+            ResolvedCell {
+                cell_output: CellOutput { capacity: 1000, lock: Script::new(code_hash, 0, vec![]), type_: None },
+                data: Some(vec![]),
+            },
+        );
+
+        let tx = Arc::new(CellTx {
+            version: 0xC001,
+            inputs: vec![CellInput::new(input_out_point, 0)],
+            cell_deps: vec![],
+            header_deps: vec![],
+            outputs: vec![CellOutput { capacity: 1000, lock: Script::new(code_hash, 0, vec![]), type_: None }],
+            outputs_data: vec![vec![]],
+            witnesses: vec![],
+        });
+
+        TransactionScriptVerifier::new(tx, Arc::new(provider)).with_version(ScriptVersion::V2).with_max_cycles(10_000)
+    }
 
     #[test]
     fn test_verifier_creation() {
@@ -585,5 +928,71 @@ mod tests {
         assert_eq!(groups[0].group_type, ScriptGroupType::Lock);
         assert_eq!(groups[0].script, retained_lock);
         assert_eq!(groups[0].input_indices, vec![1]);
+    }
+
+    #[test]
+    fn test_verifier_defaults_to_spora_extended_semantics() {
+        let tx = Arc::new(CellTx::new(vec![], vec![], vec![], vec![], vec![]).unwrap());
+        let provider = Arc::new(SimpleDataProvider::new());
+
+        let verifier = TransactionScriptVerifier::new(tx, provider);
+
+        assert_eq!(verifier.semantics, VmSemantics::SporaExtended);
+    }
+
+    #[test]
+    fn test_verifier_allows_overriding_semantics() {
+        let tx = Arc::new(CellTx::new(vec![], vec![], vec![], vec![], vec![]).unwrap());
+        let provider = Arc::new(SimpleDataProvider::new());
+
+        let verifier = TransactionScriptVerifier::new(tx, provider).with_semantics(VmSemantics::CkbStrict);
+
+        assert_eq!(verifier.semantics, VmSemantics::CkbStrict);
+    }
+
+    #[test]
+    fn test_resumable_verify_suspends_and_resume_completes() {
+        let verifier = always_success_verifier();
+
+        let initial = verifier.resumable_verify(1).expect("initial resumable verify should succeed");
+        let state = match initial {
+            VerifyResult::Suspended(state) => state,
+            VerifyResult::Completed(cycles) => panic!("expected suspension, got completion with {cycles} cycles"),
+        };
+
+        let resumed = verifier.resume_from_state(&state, 10_000).expect("resume_from_state should succeed");
+
+        let resumed_cycles = match resumed {
+            VerifyResult::Completed(cycles) => cycles,
+            VerifyResult::Suspended(_) => panic!("expected resumed verification to complete"),
+        };
+
+        let direct_cycles = verifier.verify_with_cycles().expect("direct verification should succeed");
+        assert_eq!(resumed_cycles, direct_cycles);
+    }
+
+    #[test]
+    fn test_complete_finishes_suspended_verification() {
+        let verifier = always_success_verifier();
+
+        let initial = verifier.resumable_verify(1).expect("initial resumable verify should succeed");
+        let state = match initial {
+            VerifyResult::Suspended(state) => state,
+            VerifyResult::Completed(cycles) => panic!("expected suspension, got completion with {cycles} cycles"),
+        };
+
+        let completed_cycles = verifier.complete(&state, 10_000).expect("complete should finish verification");
+        let direct_cycles = verifier.verify_with_cycles().expect("direct verification should succeed");
+
+        assert_eq!(completed_cycles, direct_cycles);
+    }
+
+    #[test]
+    fn test_transaction_state_next_limit_cycles_caps_at_max() {
+        let state = TransactionState::new(None, 0, 80, 10);
+
+        let (next_limit, last) = state.next_limit_cycles(15, 100);
+        assert_eq!(next_limit, 20);
+        assert!(last);
     }
 }

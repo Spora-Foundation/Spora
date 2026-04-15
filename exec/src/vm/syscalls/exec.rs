@@ -6,9 +6,11 @@
 
 use super::{Source, EXEC_SYSCALL_NUMBER, INDEX_OUT_OF_BOUND, ITEM_MISSING, SLICE_OUT_OF_BOUND, WRONG_FORMAT};
 use crate::celltx::CellTx;
+use crate::vm::scheduler::{ProgramDataId, ProgramPiece, ProgramPlace, SchedulerDataSource, VmSnapshotHandle};
 use crate::vm::transferred_byte_cycles;
 use crate::vm::CellDataProvider;
 use ckb_vm::{
+    elf::parse_elf,
     memory::load_c_string_byte_by_byte,
     registers::{A0, A1, A2, A3, A4, A5, A7},
     Bytes, Error as VMError, Memory, Register, SupportMachine, Syscalls, DEFAULT_STACK_SIZE, RISCV_MAX_MEMORY,
@@ -24,11 +26,20 @@ enum ExecPlace {
 }
 
 impl ExecPlace {
-    fn parse(value: u64) -> Option<Self> {
+    fn parse_from_u64(value: u64) -> Result<Self, VMError> {
         match value {
-            0 => Some(Self::CellData),
-            1 => Some(Self::Witness),
-            _ => None,
+            0 => Ok(Self::CellData),
+            1 => Ok(Self::Witness),
+            _ => Err(VMError::External(format!("Place parse_from_u64 {value}"))),
+        }
+    }
+}
+
+impl From<ExecPlace> for ProgramPlace {
+    fn from(value: ExecPlace) -> Self {
+        match value {
+            ExecPlace::CellData => ProgramPlace::CellData,
+            ExecPlace::Witness => ProgramPlace::Witness,
         }
     }
 }
@@ -44,11 +55,19 @@ pub struct Exec<D: CellDataProvider> {
     provider: Arc<D>,
     group_input_indices: Vec<usize>,
     group_output_indices: Vec<usize>,
+    snapshot2_context: Option<VmSnapshotHandle>,
+    data_source: Option<SchedulerDataSource>,
 }
 
 impl<D: CellDataProvider> Exec<D> {
     pub fn new(tx: Arc<CellTx>, provider: Arc<D>, group_input_indices: Vec<usize>, group_output_indices: Vec<usize>) -> Self {
-        Self { tx, provider, group_input_indices, group_output_indices }
+        Self { tx, provider, group_input_indices, group_output_indices, snapshot2_context: None, data_source: None }
+    }
+
+    pub fn with_snapshot_tracking(mut self, snapshot2_context: VmSnapshotHandle, data_source: SchedulerDataSource) -> Self {
+        self.snapshot2_context = Some(snapshot2_context);
+        self.data_source = Some(data_source);
+        self
     }
 
     fn resolve_output_index(&self, source: Source, index: usize) -> Result<usize, u8> {
@@ -98,6 +117,7 @@ impl<D: CellDataProvider> Exec<D> {
                 self.tx.outputs.get(output_index).ok_or(INDEX_OUT_OF_BOUND)?;
                 self.tx.outputs_data.get(output_index).cloned().ok_or(ITEM_MISSING)
             }
+            Source::GroupCellDep | Source::GroupHeaderDep => Err(INDEX_OUT_OF_BOUND),
             Source::HeaderDep => Err(INDEX_OUT_OF_BOUND),
         }
     }
@@ -117,6 +137,7 @@ impl<D: CellDataProvider> Exec<D> {
             Source::GroupOutput => self
                 .resolve_output_index(source, index)
                 .and_then(|output_index| self.tx.inputs.len().checked_add(output_index).ok_or(INDEX_OUT_OF_BOUND)),
+            Source::GroupCellDep | Source::GroupHeaderDep => Err(INDEX_OUT_OF_BOUND),
             Source::HeaderDep => Err(INDEX_OUT_OF_BOUND),
         }
     }
@@ -138,14 +159,8 @@ impl<D: CellDataProvider, M: SupportMachine> Syscalls<M> for Exec<D> {
         }
 
         let index = machine.registers()[A0].to_u64() as usize;
-        let Some(source) = Source::parse(machine.registers()[A1].to_u64()) else {
-            machine.set_register(A0, M::REG::from_u8(INDEX_OUT_OF_BOUND));
-            return Ok(true);
-        };
-        let Some(place) = ExecPlace::parse(machine.registers()[A2].to_u64()) else {
-            machine.set_register(A0, M::REG::from_u8(INDEX_OUT_OF_BOUND));
-            return Ok(true);
-        };
+        let source = Source::parse_from_u64(machine.registers()[A1].to_u64())?;
+        let place = ExecPlace::parse_from_u64(machine.registers()[A2].to_u64())?;
 
         let payload = match place {
             ExecPlace::CellData => match self.load_cell_data(source, index) {
@@ -186,6 +201,14 @@ impl<D: CellDataProvider, M: SupportMachine> Syscalls<M> for Exec<D> {
             }
             &payload[offset..end]
         };
+        let program = Bytes::copy_from_slice(program_slice);
+        let metadata = match parse_elf::<u64>(&program, machine.version()) {
+            Ok(metadata) => metadata,
+            Err(_) => {
+                machine.set_register(A0, M::REG::from_u8(WRONG_FORMAT));
+                return Ok(true);
+            }
+        };
 
         let argc = machine.registers()[A4].to_u64();
         let mut argv_ptr_addr = machine.registers()[A5].to_u64();
@@ -207,7 +230,6 @@ impl<D: CellDataProvider, M: SupportMachine> Syscalls<M> for Exec<D> {
         machine.reset(max_cycles);
         machine.set_cycles(consumed_cycles);
 
-        let program = Bytes::copy_from_slice(program_slice);
         let loaded_bytes = match machine.load_elf(&program, true) {
             Ok(size) => size,
             Err(_) => {
@@ -231,6 +253,18 @@ impl<D: CellDataProvider, M: SupportMachine> Syscalls<M> for Exec<D> {
         };
         let stack_bytes = usize::try_from(stack_bytes).map_err(|_| VMError::MemOutOfBound)?;
         machine.add_cycles_no_checking(transferred_byte_cycles(stack_bytes))?;
+
+        if let (Some(snapshot2_context), Some(data_source)) = (&self.snapshot2_context, &self.data_source) {
+            let mut snapshot_context =
+                snapshot2_context.lock().map_err(|err| VMError::Unexpected(format!("snapshot2 context poisoned: {err}")))?;
+            *snapshot_context = data_source.snapshot_context();
+            snapshot_context.mark_program(
+                machine,
+                &metadata,
+                &ProgramDataId::Piece(ProgramPiece { source, index, place: place.into() }),
+                offset as u64,
+            )?;
+        }
 
         Ok(true)
     }
@@ -350,5 +384,45 @@ mod tests {
 
         assert!(handled);
         assert_eq!(machine.registers()[A0].to_u64(), WRONG_FORMAT as u64);
+    }
+
+    #[test]
+    fn test_exec_traps_on_invalid_source_encoding() {
+        let out_point = OutPoint::new([0xAB; 32], 0);
+        let tx = sample_dep_tx(out_point.clone());
+        let provider = Arc::new(SimpleDataProvider::new());
+        let mut machine = ScriptVersion::V2.init_core_machine(10_000);
+        machine.set_register(A0, 0);
+        machine.set_register(A1, 0x99);
+        machine.set_register(A2, 0);
+        machine.set_register(A3, 0);
+        machine.set_register(A4, 0);
+        machine.set_register(A5, 0);
+        machine.set_register(A7, EXEC_SYSCALL_NUMBER);
+
+        let mut syscall = Exec::new(tx, provider, vec![], vec![]);
+        let err = syscall.ecall(&mut machine).expect_err("invalid source should trap");
+
+        assert_eq!(err, VMError::External("SourceEntry parse_from_u64 153".to_string()));
+    }
+
+    #[test]
+    fn test_exec_traps_on_invalid_place_encoding() {
+        let out_point = OutPoint::new([0xAB; 32], 0);
+        let tx = sample_dep_tx(out_point.clone());
+        let provider = Arc::new(SimpleDataProvider::new());
+        let mut machine = ScriptVersion::V2.init_core_machine(10_000);
+        machine.set_register(A0, 0);
+        machine.set_register(A1, Source::CellDep as u64);
+        machine.set_register(A2, 99);
+        machine.set_register(A3, 0);
+        machine.set_register(A4, 0);
+        machine.set_register(A5, 0);
+        machine.set_register(A7, EXEC_SYSCALL_NUMBER);
+
+        let mut syscall = Exec::new(tx, provider, vec![], vec![]);
+        let err = syscall.ecall(&mut machine).expect_err("invalid place should trap");
+
+        assert_eq!(err, VMError::External("Place parse_from_u64 99".to_string()));
     }
 }

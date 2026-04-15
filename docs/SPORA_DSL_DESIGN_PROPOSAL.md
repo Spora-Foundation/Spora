@@ -198,7 +198,7 @@ CellScript intentionally does not target:
 
 - **General computation**: No loops over unbounded data. No arbitrary string processing. No floating point. If you need to run a neural network, CellScript is the wrong tool.
 - **Off-chain logic**: CellScript has no networking, no file I/O, no randomness. It executes deterministically inside ckbvm.
-- **UI/Frontend**: CellScript does not generate client-side code. SDKs in Rust/TypeScript/Go interact with CellScript-compiled scripts through the existing RPC and transaction builder APIs.
+- **UI/Frontend**: CellScript does not generate client-side code. SDKs in Rust/TypeScript/Go interact with CellScript-compiled scripts through RPC plus transaction-construction/planning APIs.
 - **Cross-chain messaging**: CellScript validates state transitions within Spora. Bridge logic requires off-chain relayers that construct CellScript-compatible transactions.
 
 ### 3.3 Protocol-Designer Freedom vs Application-Level Freedom
@@ -2272,7 +2272,58 @@ CellScript is a compiler that targets the existing infrastructure. It adds capab
 
 6. **Molecule serialization**: CKB uses Molecule for on-chain encoding. Spora has already adopted Borsh (80% smaller code size). CellScript generates Borsh encoding exclusively.
 
-### 13.6 What Goes Where
+### 13.6 How CellScript Replaces CoBuild / OTX / tx-builder Mental Models
+
+CellScript should not be misunderstood as a proposal to eliminate transactions, witnesses, signatures, or collaborative transaction construction. Those functions remain necessary. What changes is where they live and how they are exposed.
+
+In the old model, an application action does not map directly to an on-chain state transition. Something in the middle must still:
+
+1. query live Cells
+2. select inputs
+3. materialize outputs and change
+4. resolve deps and header_deps
+5. organize input groups
+6. lay out witnesses
+7. estimate fees and storage obligations
+8. produce signable messages
+9. coordinate partial construction across multiple actors
+
+That is why ecosystems grow bespoke `tx-builder` layers, witness helpers, OTX packets, CoBuild-like coordination formats, wallet-specific signing flows, and script-specific glue code. These are not fake complexity. They are compensation for the lack of a blessed high-level coordination contract.
+
+CellScript's value is to internalize this coordination stack into one canonical pipeline:
+
+```text
+App Intent
+ └─ CellScript compiler
+     └─ Cell Plan
+         └─ Tx Plan
+             └─ Witness Obligations
+                 └─ Auth / Wallet adapters
+                     └─ Execution proofs / signatures
+                         └─ chain
+```
+
+This changes the role of each legacy component:
+
+| Legacy Tooling Concern | CellScript Replacement |
+|---|---|
+| `tx-builder` | The standard `Cell Plan -> Tx Plan` planner stage |
+| witness helpers | The `Witness Obligations` layer |
+| CoBuild-style coordination formats | Canonical IR plus a standard obligation protocol |
+| OTX packets | Partial intents, unresolved obligations, and mergeable tx plans |
+
+The key shift is that witness handling is no longer primarily a byte-layout problem presented directly to application developers. It becomes an obligation problem:
+
+- which actor must authorize which action
+- which auth adapter is responsible
+- whether the proof is Schnorr, ECDSA, multisig, passkey, or something else
+- which transaction fields are actually being authorized
+
+Wallets and signers still matter. They still handle key custody, user consent, hardware signing, multisig coordination, passkey flows, and proof generation. CellScript does not replace auth adapters, and it does not remove fee payers, storage sponsors, or verifier-facing data providers. What it does is replace fragmented ecosystem protocols with a standard internal stack that hands those components semantically clear inputs instead of ad hoc transaction skeletons and witness conventions.
+
+Stated precisely: CellScript does not erase the underlying functions behind CoBuild, OTX, or tx-builders. It removes the need for them to remain front-stage developer burdens and fragmented external coordination formats.
+
+### 13.7 What Goes Where
 
 | Concern | Location | Rationale |
 |---|---|---|
@@ -2287,7 +2338,7 @@ CellScript is a compiler that targets the existing infrastructure. It adds capab
 | Mass estimation | Compiler + consensus MassCalculator | Compiler estimates mass; consensus layer computes authoritative mass. |
 | CellStateTree commitment | Consensus layer (unchanged) | MuHash accumulator, cell_commitment hash. CellScript does not touch this. |
 
-### 13.7 Closing Note
+### 13.8 Closing Note
 
 CellScript is not an attempt to build "Spora's Solidity." It is an attempt to build the language that Spora's architecture implies but does not yet have. The Cell model, the DAG consensus, the RISC-V execution, the 3-dimensional mass — these are strong, well-designed foundations. What is missing is the layer that lets protocol designers think in terms of assets, pools, receipts, and lifecycles instead of syscall numbers, witness byte offsets, and raw ELF binaries.
 

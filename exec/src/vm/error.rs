@@ -20,6 +20,10 @@ pub enum VMError {
     #[error("VM execution error: {0}")]
     ExecutionError(String),
 
+    /// VM execution paused by an external pause signal
+    #[error("VM execution paused")]
+    Paused,
+
     /// Script exited with non-zero code
     #[error("Script exited with code {0}")]
     NonZeroExitCode(i8),

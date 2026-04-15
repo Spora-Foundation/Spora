@@ -239,10 +239,7 @@ mod tests {
     fn duplicate_tx_conflict_serialized() {
         // Block 0 和 Block 1 包含相同 tx → 串行
         let shared = hash(0xAA);
-        let summaries = vec![
-            make_summary(1, &[], &[], &[], &[shared]),
-            make_summary(2, &[], &[], &[], &[shared]),
-        ];
+        let summaries = vec![make_summary(1, &[], &[], &[], &[shared]), make_summary(2, &[], &[], &[], &[shared])];
         let dag = ExecutionDAG::build(&summaries);
         assert_eq!(dag.layer_count(), 2);
         assert_eq!(dag.layers, vec![vec![0], vec![1]]);

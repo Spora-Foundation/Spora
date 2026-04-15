@@ -90,6 +90,7 @@ pub struct Args {
     pub disable_grpc: bool,
     pub ram_scale: f64,
     pub retention_period_days: Option<f64>,
+    pub resumable_virtual_state_step_cycles: Option<u64>,
 }
 
 impl Default for Args {
@@ -140,6 +141,7 @@ impl Default for Args {
             disable_grpc: false,
             ram_scale: 1.0,
             retention_period_days: None,
+            resumable_virtual_state_step_cycles: None,
         }
     }
 }
@@ -159,6 +161,7 @@ impl Args {
         config.externalip = self.externalip.map(|v| v.normalize(config.default_p2p_port()));
         config.ram_scale = self.ram_scale;
         config.retention_period_days = self.retention_period_days;
+        config.resumable_virtual_state_step_cycles = self.resumable_virtual_state_step_cycles.filter(|value| *value > 0);
 
         #[cfg(feature = "devnet-prealloc")]
         if let Some(num_prealloc_cells) = self.num_prealloc_cells {
@@ -371,6 +374,13 @@ a large RAM (~64GB) can set this value to ~3.0-4.0 and gain superior performance
                 .value_parser(clap::value_parser!(f64))
                 .help("The number of total days of data to keep.")
         )
+        .arg(
+            Arg::new("resumable-virtual-state-step-cycles")
+                .long("resumable-virtual-state-step-cycles")
+                .require_equals(true)
+                .value_parser(clap::value_parser!(u64))
+                .help("Optional cycle budget for chunked virtual-state processing. Values greater than 0 enable resumable virtual-state execution."),
+        )
         ;
 
     #[cfg(feature = "devnet-prealloc")]
@@ -450,6 +460,10 @@ impl Args {
             disable_grpc: arg_match_unwrap_or::<bool>(&m, "nogrpc", defaults.disable_grpc),
             ram_scale: arg_match_unwrap_or::<f64>(&m, "ram-scale", defaults.ram_scale),
             retention_period_days: m.get_one::<f64>("retention-period-days").cloned().or(defaults.retention_period_days),
+            resumable_virtual_state_step_cycles: m
+                .get_one::<u64>("resumable-virtual-state-step-cycles")
+                .cloned()
+                .or(defaults.resumable_virtual_state_step_cycles),
 
             #[cfg(feature = "devnet-prealloc")]
             num_prealloc_cells: m.get_one::<u64>("num-prealloc-cells").cloned(),
@@ -473,6 +487,35 @@ fn arg_match_many_unwrap_or<T: Clone + Send + Sync + 'static>(m: &clap::ArgMatch
     match m.get_many::<T>(arg_id) {
         Some(val_ref) => val_ref.cloned().collect(),
         None => default,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Args;
+    use spora_consensus_core::{config::Config, network::NetworkType};
+
+    #[test]
+    fn parse_resumable_virtual_state_step_cycles_from_cli() {
+        let args =
+            Args::parse(["sporad", "--resumable-virtual-state-step-cycles=123"]).expect("cli parsing should accept resumable step cycles");
+        assert_eq!(args.resumable_virtual_state_step_cycles, Some(123));
+    }
+
+    #[test]
+    fn apply_to_config_sets_positive_resumable_virtual_state_step_cycles() {
+        let args = Args { resumable_virtual_state_step_cycles: Some(77), ..Default::default() };
+        let mut config = Config::new(NetworkType::Mainnet.into());
+        args.apply_to_config(&mut config);
+        assert_eq!(config.resumable_virtual_state_step_cycles, Some(77));
+    }
+
+    #[test]
+    fn apply_to_config_filters_zero_resumable_virtual_state_step_cycles() {
+        let args = Args { resumable_virtual_state_step_cycles: Some(0), ..Default::default() };
+        let mut config = Config::new(NetworkType::Mainnet.into());
+        args.apply_to_config(&mut config);
+        assert_eq!(config.resumable_virtual_state_step_cycles, None);
     }
 }
 

@@ -127,6 +127,10 @@ struct Args {
     long_payload: bool,
     #[arg(long)]
     retention_period_days: Option<f64>,
+
+    /// Optional cycle budget for chunked virtual-state processing.
+    #[arg(long)]
+    resumable_virtual_state_step_cycles: Option<u64>,
 }
 
 #[cfg(feature = "heap")]
@@ -203,6 +207,7 @@ fn main_impl(mut args: Args) {
         .apply_args(|config| {
             config.ram_scale = args.ram_scale;
             config.retention_period_days = args.retention_period_days;
+            config.resumable_virtual_state_step_cycles = args.resumable_virtual_state_step_cycles.filter(|value| *value > 0);
         })
         .skip_proof_of_work()
         .enable_sanity_checks();

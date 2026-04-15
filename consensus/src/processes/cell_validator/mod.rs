@@ -36,7 +36,8 @@ use spora_consensus_core::{
 use spora_exec::{
     vm::{
         syscalls::{LOAD_SIGNATURE_HASH_BASE_CYCLES, SECP256K1_VERIFY_BASE_CYCLES},
-        transferred_byte_cycles, CellDataProvider, ResolvedCell, ResolvedHeader, ScriptError, TransactionScriptVerifier, VMError,
+        transferred_byte_cycles, CellDataProvider, ResolvedCell, ResolvedHeader, ScriptError, TransactionScriptVerifier,
+        TransactionState, VMError, VerifyResult,
     },
     CellDep, CellTx, DepType, OutPoint,
 };
@@ -106,6 +107,95 @@ struct PreparedVmDataProvider {
 }
 
 #[cfg(feature = "vm")]
+struct ScriptVerificationPlan {
+    resolved_inputs: Vec<CellMetadata>,
+    per_tx_cycles_limit: u64,
+    use_native_standard_locks: bool,
+    requires_vm_type_validation: bool,
+    native_standard_input_indices: Vec<usize>,
+}
+
+#[cfg(feature = "vm")]
+impl ScriptVerificationPlan {
+    fn native_cycles_budget(&self) -> u64 {
+        native_standard_lock_cycles_per_input().saturating_mul(self.native_standard_input_indices.len() as u64)
+    }
+
+    fn should_verify_native_standard_locks(&self) -> bool {
+        !self.native_standard_input_indices.is_empty()
+    }
+
+    fn native_only(&self) -> bool {
+        self.should_verify_native_standard_locks() && self.use_native_standard_locks && !self.requires_vm_type_validation
+    }
+
+    fn verify_native_standard_locks(&self, tx: &CellTx) -> Result<u64, CellValidationError> {
+        verify_native_standard_locks(tx, self.resolved_inputs.clone(), &self.native_standard_input_indices, self.per_tx_cycles_limit)
+    }
+}
+
+#[cfg(feature = "vm")]
+#[derive(Clone, Debug)]
+pub enum CellScriptVerificationPhase {
+    NativePending,
+    Vm(TransactionState),
+}
+
+#[cfg(feature = "vm")]
+#[derive(Clone, Debug)]
+pub struct CellScriptVerificationState {
+    pub native_cycles: u64,
+    pub limit_cycles: u64,
+    pub phase: CellScriptVerificationPhase,
+}
+
+#[cfg(feature = "vm")]
+impl CellScriptVerificationState {
+    fn native_pending(native_cycles: u64, limit_cycles: u64) -> Self {
+        Self { native_cycles, limit_cycles, phase: CellScriptVerificationPhase::NativePending }
+    }
+
+    fn vm(native_cycles: u64, limit_cycles: u64, state: TransactionState) -> Self {
+        Self { native_cycles, limit_cycles, phase: CellScriptVerificationPhase::Vm(state) }
+    }
+
+    pub fn current_cycles(&self) -> u64 {
+        match &self.phase {
+            CellScriptVerificationPhase::NativePending => 0,
+            CellScriptVerificationPhase::Vm(state) => {
+                let vm_cycles = state.state.as_ref().map(|snapshot| snapshot.total_cycles).unwrap_or(state.current_cycles);
+                self.native_cycles.saturating_add(vm_cycles)
+            }
+        }
+    }
+
+    pub fn next_limit_cycles(&self, step_cycles: u64, max_cycles: u64) -> (u64, bool) {
+        let capped_max_cycles = max_cycles.max(self.current_cycles());
+        let next_limit = match &self.phase {
+            CellScriptVerificationPhase::NativePending => self.limit_cycles.saturating_add(step_cycles).max(self.native_cycles),
+            CellScriptVerificationPhase::Vm(state) => {
+                let max_vm_cycles = capped_max_cycles.saturating_sub(self.native_cycles);
+                let (next_vm_limit, _) = state.next_limit_cycles(step_cycles, max_vm_cycles);
+                self.native_cycles.saturating_add(next_vm_limit)
+            }
+        };
+
+        if next_limit < capped_max_cycles {
+            (next_limit, false)
+        } else {
+            (capped_max_cycles, true)
+        }
+    }
+}
+
+#[cfg(feature = "vm")]
+#[derive(Debug)]
+pub enum CellScriptVerifyResult {
+    Completed(u64),
+    Suspended(CellScriptVerificationState),
+}
+
+#[cfg(feature = "vm")]
 impl PreparedVmDataProvider {
     fn insert_cell(&mut self, out_point: &OutPoint, cell: ResolvedCell, header_hash: Hash) {
         self.cells.insert((out_point.tx_hash, out_point.index), cell);
@@ -145,6 +235,13 @@ impl CellDataProvider for PreparedVmDataProvider {
     fn load_header_by_outpoint(&self, tx_hash: &[u8; 32], index: u32) -> Option<ResolvedHeader> {
         let header_hash = self.cell_headers.get(&(*tx_hash, index))?;
         self.headers.get(header_hash).cloned()
+    }
+
+    fn load_cell_by_header(&self, header_hash: &[u8; 32]) -> Option<ResolvedCell> {
+        self.cell_headers
+            .iter()
+            .find_map(|(out_point, mapped_header_hash)| (*mapped_header_hash == *header_hash).then(|| self.cells.get(out_point)))
+            .and_then(|cell| cell.cloned())
     }
 }
 
@@ -247,45 +344,212 @@ impl<P: CellStateProvider> CellValidator<P> {
     where
         P: CellScriptDataProvider + DagCellProvider,
     {
-        let resolved_inputs = self.resolve_input_metadata(tx, pov)?;
-        let per_tx_cycles_limit = self.params.max_tx_cycles.min(self.params.max_block_cycles);
+        let plan = self.prepare_script_verification_plan(tx, pov)?;
+        let native_cycles = if plan.should_verify_native_standard_locks() { plan.verify_native_standard_locks(tx)? } else { 0 };
 
-        let use_native_standard_locks = uses_native_standard_signature_verification(tx, &resolved_inputs);
-        let requires_vm_type_validation = has_any_type_scripts(tx, &resolved_inputs);
-        let native_standard_input_indices = collect_native_standard_input_indices(tx, &resolved_inputs);
-        let mut native_cycles = 0u64;
-
-        if !native_standard_input_indices.is_empty() {
-            native_cycles =
-                verify_native_standard_locks(tx, resolved_inputs.clone(), &native_standard_input_indices, per_tx_cycles_limit)?;
-            if use_native_standard_locks && !requires_vm_type_validation {
-                return Ok(native_cycles);
-            }
+        if plan.native_only() {
+            return Ok(native_cycles);
         }
 
-        let provider = Arc::new(self.prepare_vm_data_provider_with_resolved_inputs(tx, pov, &resolved_inputs)?);
-        let vm_cycles_limit = per_tx_cycles_limit.saturating_sub(native_cycles);
-
-        // Create verifier
-        let mut verifier = TransactionScriptVerifier::new(Arc::new(tx.clone()), provider).with_max_cycles(vm_cycles_limit);
-        if !native_standard_input_indices.is_empty() {
-            let native_standard_lock_hashes = collect_lock_hashes_for_indices(&resolved_inputs, &native_standard_input_indices);
-            verifier = verifier.with_skip_lock_script_hashes(native_standard_lock_hashes);
-        }
-
-        // Verify all scripts
-        let vm_cycles = verifier.verify_with_cycles().map_err(|e| match e {
-            ScriptError::VM(VMError::CyclesExceeded { actual, .. }) => {
-                CellValidationError::ExceededMaxCycles { total: native_cycles.saturating_add(actual), limit: per_tx_cycles_limit }
-            }
-            other => CellValidationError::ScriptVerificationFailed(other.to_string()),
-        })?;
+        let verifier = self.build_vm_verifier(tx, pov, &plan, native_cycles)?;
+        let vm_cycles =
+            verifier.verify_with_cycles().map_err(|err| map_vm_script_error(err, native_cycles, plan.per_tx_cycles_limit))?;
         let total_cycles = native_cycles.saturating_add(vm_cycles);
-        if total_cycles > per_tx_cycles_limit {
-            return Err(CellValidationError::ExceededMaxCycles { total: total_cycles, limit: per_tx_cycles_limit });
-        }
+        ensure_total_cycles_within_limit(total_cycles, plan.per_tx_cycles_limit)?;
 
         Ok(total_cycles)
+    }
+
+    /// Verify scripts with a resumable transaction-level state machine.
+    #[cfg(feature = "vm")]
+    pub fn verify_scripts_resumable(
+        &self,
+        tx: &CellTx,
+        pov: Hash,
+        _current_daa_score: u64,
+        limit_cycles: u64,
+    ) -> Result<CellScriptVerifyResult, CellValidationError>
+    where
+        P: CellScriptDataProvider + DagCellProvider,
+    {
+        let plan = self.prepare_script_verification_plan(tx, pov)?;
+        let effective_limit = limit_cycles.min(plan.per_tx_cycles_limit);
+        let native_cycles = plan.native_cycles_budget();
+
+        if plan.should_verify_native_standard_locks() && effective_limit < native_cycles {
+            return Ok(CellScriptVerifyResult::Suspended(CellScriptVerificationState::native_pending(native_cycles, effective_limit)));
+        }
+
+        let verified_native_cycles =
+            if plan.should_verify_native_standard_locks() { plan.verify_native_standard_locks(tx)? } else { 0 };
+
+        if plan.native_only() {
+            ensure_total_cycles_within_limit(verified_native_cycles, effective_limit)?;
+            return Ok(CellScriptVerifyResult::Completed(verified_native_cycles));
+        }
+
+        let verifier = self.build_vm_verifier(tx, pov, &plan, verified_native_cycles)?;
+        let vm_limit = effective_limit.saturating_sub(verified_native_cycles);
+        match verifier.resumable_verify(vm_limit).map_err(|err| map_vm_script_error(err, verified_native_cycles, effective_limit))? {
+            VerifyResult::Completed(vm_cycles) => {
+                let total_cycles = verified_native_cycles.saturating_add(vm_cycles);
+                ensure_total_cycles_within_limit(total_cycles, effective_limit)?;
+                Ok(CellScriptVerifyResult::Completed(total_cycles))
+            }
+            VerifyResult::Suspended(vm_state) => Ok(CellScriptVerifyResult::Suspended(CellScriptVerificationState::vm(
+                verified_native_cycles,
+                effective_limit,
+                vm_state,
+            ))),
+        }
+    }
+
+    /// Resume script verification from a previous suspended state.
+    #[cfg(feature = "vm")]
+    pub fn resume_scripts_from_state(
+        &self,
+        tx: &CellTx,
+        pov: Hash,
+        _current_daa_score: u64,
+        state: &CellScriptVerificationState,
+        limit_cycles: u64,
+    ) -> Result<CellScriptVerifyResult, CellValidationError>
+    where
+        P: CellScriptDataProvider + DagCellProvider,
+    {
+        let plan = self.prepare_script_verification_plan(tx, pov)?;
+        let effective_limit = limit_cycles.min(plan.per_tx_cycles_limit);
+        let native_cycles = plan.native_cycles_budget();
+        if native_cycles != state.native_cycles {
+            return Err(CellValidationError::InvalidFormat(format!(
+                "resumable script state native cycle mismatch: expected {}, got {}",
+                native_cycles, state.native_cycles
+            )));
+        }
+
+        match &state.phase {
+            CellScriptVerificationPhase::NativePending => {
+                if effective_limit < native_cycles {
+                    return Ok(CellScriptVerifyResult::Suspended(CellScriptVerificationState::native_pending(
+                        native_cycles,
+                        effective_limit,
+                    )));
+                }
+
+                let verified_native_cycles =
+                    if plan.should_verify_native_standard_locks() { plan.verify_native_standard_locks(tx)? } else { 0 };
+
+                if plan.native_only() {
+                    ensure_total_cycles_within_limit(verified_native_cycles, effective_limit)?;
+                    return Ok(CellScriptVerifyResult::Completed(verified_native_cycles));
+                }
+
+                let verifier = self.build_vm_verifier(tx, pov, &plan, verified_native_cycles)?;
+                let vm_limit = effective_limit.saturating_sub(verified_native_cycles);
+                match verifier
+                    .resumable_verify(vm_limit)
+                    .map_err(|err| map_vm_script_error(err, verified_native_cycles, effective_limit))?
+                {
+                    VerifyResult::Completed(vm_cycles) => {
+                        let total_cycles = verified_native_cycles.saturating_add(vm_cycles);
+                        ensure_total_cycles_within_limit(total_cycles, effective_limit)?;
+                        Ok(CellScriptVerifyResult::Completed(total_cycles))
+                    }
+                    VerifyResult::Suspended(vm_state) => Ok(CellScriptVerifyResult::Suspended(CellScriptVerificationState::vm(
+                        verified_native_cycles,
+                        effective_limit,
+                        vm_state,
+                    ))),
+                }
+            }
+            CellScriptVerificationPhase::Vm(vm_state) => {
+                ensure_total_cycles_within_limit(state.current_cycles(), effective_limit)?;
+                if plan.native_only() {
+                    return Err(CellValidationError::InvalidFormat(
+                        "cannot resume VM script state for a native-only verification plan".to_string(),
+                    ));
+                }
+
+                let verifier = self.build_vm_verifier(tx, pov, &plan, native_cycles)?;
+                let vm_limit = effective_limit.saturating_sub(native_cycles);
+                match verifier
+                    .resume_from_state(vm_state, vm_limit)
+                    .map_err(|err| map_vm_script_error(err, native_cycles, effective_limit))?
+                {
+                    VerifyResult::Completed(vm_cycles) => {
+                        let total_cycles = native_cycles.saturating_add(vm_cycles);
+                        ensure_total_cycles_within_limit(total_cycles, effective_limit)?;
+                        Ok(CellScriptVerifyResult::Completed(total_cycles))
+                    }
+                    VerifyResult::Suspended(next_vm_state) => Ok(CellScriptVerifyResult::Suspended(CellScriptVerificationState::vm(
+                        native_cycles,
+                        effective_limit,
+                        next_vm_state,
+                    ))),
+                }
+            }
+        }
+    }
+
+    /// Finish a suspended verification or return a cycles-exceeded error if it still cannot complete.
+    #[cfg(feature = "vm")]
+    pub fn complete_scripts_from_state(
+        &self,
+        tx: &CellTx,
+        pov: Hash,
+        _current_daa_score: u64,
+        state: &CellScriptVerificationState,
+        max_cycles: u64,
+    ) -> Result<u64, CellValidationError>
+    where
+        P: CellScriptDataProvider + DagCellProvider,
+    {
+        let plan = self.prepare_script_verification_plan(tx, pov)?;
+        let effective_limit = max_cycles.min(plan.per_tx_cycles_limit);
+        let native_cycles = plan.native_cycles_budget();
+        if native_cycles != state.native_cycles {
+            return Err(CellValidationError::InvalidFormat(format!(
+                "resumable script state native cycle mismatch: expected {}, got {}",
+                native_cycles, state.native_cycles
+            )));
+        }
+
+        match &state.phase {
+            CellScriptVerificationPhase::NativePending => {
+                if effective_limit < native_cycles {
+                    return Err(CellValidationError::ExceededMaxCycles { total: native_cycles, limit: effective_limit });
+                }
+                let verified_native_cycles =
+                    if plan.should_verify_native_standard_locks() { plan.verify_native_standard_locks(tx)? } else { 0 };
+                if plan.native_only() {
+                    ensure_total_cycles_within_limit(verified_native_cycles, effective_limit)?;
+                    return Ok(verified_native_cycles);
+                }
+
+                let verifier = self.build_vm_verifier(tx, pov, &plan, verified_native_cycles)?;
+                let vm_cycles =
+                    verifier.verify_with_cycles().map_err(|err| map_vm_script_error(err, verified_native_cycles, effective_limit))?;
+                let total_cycles = verified_native_cycles.saturating_add(vm_cycles);
+                ensure_total_cycles_within_limit(total_cycles, effective_limit)?;
+                Ok(total_cycles)
+            }
+            CellScriptVerificationPhase::Vm(vm_state) => {
+                ensure_total_cycles_within_limit(state.current_cycles(), effective_limit)?;
+                if plan.native_only() {
+                    return Err(CellValidationError::InvalidFormat(
+                        "cannot complete VM script state for a native-only verification plan".to_string(),
+                    ));
+                }
+
+                let verifier = self.build_vm_verifier(tx, pov, &plan, native_cycles)?;
+                let vm_limit = effective_limit.saturating_sub(native_cycles);
+                let vm_cycles =
+                    verifier.complete(vm_state, vm_limit).map_err(|err| map_vm_script_error(err, native_cycles, effective_limit))?;
+                let total_cycles = native_cycles.saturating_add(vm_cycles);
+                ensure_total_cycles_within_limit(total_cycles, effective_limit)?;
+                Ok(total_cycles)
+            }
+        }
     }
 
     /// Full validation with scripts (isolation + context + DAG + VM)
@@ -324,6 +588,59 @@ impl<P: CellStateProvider> CellValidator<P> {
         Ok(total_cycles)
     }
 
+    /// Full validation with resumable script verification.
+    #[cfg(feature = "vm")]
+    pub fn validate_full_with_scripts_resumable(
+        &self,
+        tx: &spora_exec::CellTx,
+        pov: Hash,
+        daa_score: u64,
+        timestamp: u64,
+        limit_cycles: u64,
+    ) -> Result<CellScriptVerifyResult, CellValidationError>
+    where
+        P: cell_validation_in_dag::DagCellProvider + CellScriptDataProvider,
+    {
+        self.validate_full(tx, pov, daa_score, timestamp)?;
+        self.verify_scripts_resumable(tx, pov, daa_score, limit_cycles)
+    }
+
+    /// Resume a previous full validation with suspended script verification state.
+    #[cfg(feature = "vm")]
+    pub fn resume_full_with_scripts_from_state(
+        &self,
+        tx: &spora_exec::CellTx,
+        pov: Hash,
+        daa_score: u64,
+        timestamp: u64,
+        state: &CellScriptVerificationState,
+        limit_cycles: u64,
+    ) -> Result<CellScriptVerifyResult, CellValidationError>
+    where
+        P: cell_validation_in_dag::DagCellProvider + CellScriptDataProvider,
+    {
+        self.validate_full(tx, pov, daa_score, timestamp)?;
+        self.resume_scripts_from_state(tx, pov, daa_score, state, limit_cycles)
+    }
+
+    /// Finish a previous full validation with suspended script verification state.
+    #[cfg(feature = "vm")]
+    pub fn complete_full_with_scripts_from_state(
+        &self,
+        tx: &spora_exec::CellTx,
+        pov: Hash,
+        daa_score: u64,
+        timestamp: u64,
+        state: &CellScriptVerificationState,
+        max_cycles: u64,
+    ) -> Result<u64, CellValidationError>
+    where
+        P: cell_validation_in_dag::DagCellProvider + CellScriptDataProvider,
+    {
+        self.validate_full(tx, pov, daa_score, timestamp)?;
+        self.complete_scripts_from_state(tx, pov, daa_score, state, max_cycles)
+    }
+
     #[cfg(feature = "vm")]
     fn resolve_input_metadata(&self, tx: &CellTx, pov: Hash) -> Result<Vec<CellMetadata>, CellValidationError>
     where
@@ -338,6 +655,43 @@ impl<P: CellStateProvider> CellValidator<P> {
                     .ok_or(CellValidationError::CellNotFound(input.previous_output.tx_hash))
             })
             .collect()
+    }
+
+    #[cfg(feature = "vm")]
+    fn prepare_script_verification_plan(&self, tx: &CellTx, pov: Hash) -> Result<ScriptVerificationPlan, CellValidationError>
+    where
+        P: DagCellProvider,
+    {
+        let resolved_inputs = self.resolve_input_metadata(tx, pov)?;
+        Ok(ScriptVerificationPlan {
+            per_tx_cycles_limit: self.params.max_tx_cycles.min(self.params.max_block_cycles),
+            use_native_standard_locks: uses_native_standard_signature_verification(tx, &resolved_inputs),
+            requires_vm_type_validation: has_any_type_scripts(tx, &resolved_inputs),
+            native_standard_input_indices: collect_native_standard_input_indices(tx, &resolved_inputs),
+            resolved_inputs,
+        })
+    }
+
+    #[cfg(feature = "vm")]
+    fn build_vm_verifier(
+        &self,
+        tx: &CellTx,
+        pov: Hash,
+        plan: &ScriptVerificationPlan,
+        native_cycles: u64,
+    ) -> Result<TransactionScriptVerifier<PreparedVmDataProvider>, CellValidationError>
+    where
+        P: CellScriptDataProvider + DagCellProvider,
+    {
+        let provider = Arc::new(self.prepare_vm_data_provider_with_resolved_inputs(tx, pov, &plan.resolved_inputs)?);
+        let vm_cycles_limit = plan.per_tx_cycles_limit.saturating_sub(native_cycles);
+        let mut verifier = TransactionScriptVerifier::new(Arc::new(tx.clone()), provider).with_max_cycles(vm_cycles_limit);
+        if plan.should_verify_native_standard_locks() {
+            let native_standard_lock_hashes =
+                collect_lock_hashes_for_indices(&plan.resolved_inputs, &plan.native_standard_input_indices);
+            verifier = verifier.with_skip_lock_script_hashes(native_standard_lock_hashes);
+        }
+        Ok(verifier)
     }
 
     #[cfg(feature = "vm")]
@@ -569,6 +923,24 @@ fn verify_native_standard_locks(
     }
 
     Ok(native_cycles)
+}
+
+#[cfg(feature = "vm")]
+fn ensure_total_cycles_within_limit(total_cycles: u64, limit: u64) -> Result<(), CellValidationError> {
+    if total_cycles > limit {
+        return Err(CellValidationError::ExceededMaxCycles { total: total_cycles, limit });
+    }
+    Ok(())
+}
+
+#[cfg(feature = "vm")]
+fn map_vm_script_error(error: ScriptError, native_cycles: u64, total_limit: u64) -> CellValidationError {
+    match error {
+        ScriptError::VM(VMError::CyclesExceeded { actual, .. }) => {
+            CellValidationError::ExceededMaxCycles { total: native_cycles.saturating_add(actual), limit: total_limit }
+        }
+        other => CellValidationError::ScriptVerificationFailed(other.to_string()),
+    }
 }
 
 #[cfg(all(test, feature = "vm"))]

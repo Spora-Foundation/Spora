@@ -303,10 +303,7 @@ impl SporaRpcClient {
     ) -> Result<SporaRpcClient> {
         let inner = Arc::new(Inner::new(encoding, url, resolver, network_id)?);
         inner.build_notifier(subscription_context)?;
-        let client = SporaRpcClient {
-            inner,
-            active_notification_subscriptions: Arc::new(AsyncMutex::new(HashMap::new())),
-        };
+        let client = SporaRpcClient { inner, active_notification_subscriptions: Arc::new(AsyncMutex::new(HashMap::new())) };
         //     notification_mode: NotificationMode,
         //     url: &str,
         //     subscription_context: Option<SubscriptionContext>,
@@ -710,12 +707,12 @@ impl RpcApi for SporaRpcClient {
         Ok(SubscribeNotificationsResponse::new(subscription_id))
     }
 
-    async fn unsubscribe_notifications(&self, request: UnsubscribeNotificationsRequest) -> RpcResult<UnsubscribeNotificationsResponse> {
+    async fn unsubscribe_notifications(
+        &self,
+        request: UnsubscribeNotificationsRequest,
+    ) -> RpcResult<UnsubscribeNotificationsResponse> {
         let Some((listener_id, scope)) = self.active_notification_subscriptions.lock().await.remove(&request.subscription_id) else {
-            return Err(spora_rpc_core::error::RpcError::General(format!(
-                "unknown subscription id {}",
-                request.subscription_id
-            )));
+            return Err(spora_rpc_core::error::RpcError::General(format!("unknown subscription id {}", request.subscription_id)));
         };
 
         self.stop_notify(listener_id, scope).await?;

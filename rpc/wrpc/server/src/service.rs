@@ -117,9 +117,7 @@ impl RpcHandler for SporaRpcHandler {
         let request: HandshakeRequest = match timeout(handshake_timeout, receiver.next()).await {
             Ok(Some(Ok(msg))) => {
                 let text = msg.to_text().map_err(|e| e.to_string())?;
-                serde_json::from_str(text).map_err(|e| {
-                    format!("invalid handshake request from {peer}: {e}")
-                })?
+                serde_json::from_str(text).map_err(|e| format!("invalid handshake request from {peer}: {e}"))?
             }
             Ok(Some(Err(e))) => return Err(format!("handshake recv error from {peer}: {e}").into()),
             Ok(None) => return Err(format!("peer {peer} disconnected before handshake").into()),
@@ -128,42 +126,26 @@ impl RpcHandler for SporaRpcHandler {
 
         // Step 2 – version compatibility check
         if request.protocol_version < 1 {
-            let err_msg = format!(
-                "unsupported handshake protocol version {} from {peer} (server requires >= 1)",
-                request.protocol_version
-            );
+            let err_msg =
+                format!("unsupported handshake protocol version {} from {peer} (server requires >= 1)", request.protocol_version);
             warn!("{}", err_msg);
             // Best-effort: try to inform the client before disconnecting.
-            let _ = sender
-                .send(Message::Text(
-                    serde_json::json!({ "error": err_msg }).to_string().into(),
-                ))
-                .await;
+            let _ = sender.send(Message::Text(serde_json::json!({ "error": err_msg }).to_string().into())).await;
             return Err(err_msg.into());
         }
 
         if request.rpc_api_version != RPC_API_VERSION {
-            let err_msg = format!(
-                "RPC API version mismatch: client={} server={} (peer {peer})",
-                request.rpc_api_version, RPC_API_VERSION
-            );
+            let err_msg =
+                format!("RPC API version mismatch: client={} server={} (peer {peer})", request.rpc_api_version, RPC_API_VERSION);
             warn!("{}", err_msg);
-            let _ = sender
-                .send(Message::Text(
-                    serde_json::json!({ "error": err_msg }).to_string().into(),
-                ))
-                .await;
+            let _ = sender.send(Message::Text(serde_json::json!({ "error": err_msg }).to_string().into())).await;
             return Err(err_msg.into());
         }
 
         // Step 3 – compute capability intersection & build response
         let negotiated_version = request.protocol_version.min(HANDSHAKE_PROTOCOL_VERSION);
-        let capabilities: Vec<String> = request
-            .capabilities
-            .iter()
-            .filter(|c| SERVER_CAPABILITIES.contains(&c.as_str()))
-            .cloned()
-            .collect();
+        let capabilities: Vec<String> =
+            request.capabilities.iter().filter(|c| SERVER_CAPABILITIES.contains(&c.as_str())).cloned().collect();
 
         let response = HandshakeResponse {
             protocol_version: negotiated_version,
@@ -172,8 +154,7 @@ impl RpcHandler for SporaRpcHandler {
             capabilities,
         };
 
-        let response_json = serde_json::to_string(&response)
-            .map_err(|e| format!("failed to serialise handshake response: {e}"))?;
+        let response_json = serde_json::to_string(&response).map_err(|e| format!("failed to serialise handshake response: {e}"))?;
 
         sender
             .send(Message::Text(response_json.into()))

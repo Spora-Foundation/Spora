@@ -113,20 +113,26 @@ let hash = *hasher.finalize().as_bytes();
 |---------|------|-----------|------|
 | BLAKE3_HASH | 3001 | `exec/src/vm/syscalls/blake3.rs` | SPORA特有，原生Blake3加速 |
 
-### 3.5 待实现（高级功能） ⏳
+### 3.5 高级功能（已实现） ✅
 
-| 系统调用 | 编号 | CKB 文件 | 优先级 |
-|---------|------|---------|--------|
-| EXEC | 2043 | `script/src/syscalls/exec.rs` | P2 |
-| SPAWN | 2601+ | `script/src/syscalls/spawn.rs` | P3 |
+| 系统调用 | 编号 | CKB 文件 | 状态 |
+|---------|------|---------|------|
+| EXEC | 2043 | `script/src/syscalls/exec.rs` | ✅ 完整实现 |
+| SPAWN | 2601 | `script/src/syscalls/spawn.rs` | ✅ 完整实现 |
+| WAIT | 2602 | `script/src/syscalls/wait.rs` | ✅ 完整实现 |
+| PIPE | 2604 | `script/src/syscalls/pipe.rs` | ✅ 完整实现 |
+| READ | 2606 | `script/src/syscalls/read.rs` | ✅ 完整实现 |
+| WRITE | 2605 | `script/src/syscalls/write.rs` | ✅ 完整实现 |
+| CLOSE | 2608 | `script/src/syscalls/close.rs` | ✅ 完整实现 |
+| INHERITED_FD | 2607 | `script/src/syscalls/inherited_fd.rs` | ✅ 完整实现 |
 
 ### 3.6 系统调用实现统计
 
 | 类别 | 数量 | 状态 |
 |------|------|------|
-| CKB兼容syscall | 10 | ✅ 100%完成 |
+| CKB兼容syscall | 17 | ✅ 100%完成 |
 | SPORA特有扩展 | 2 | ✅ 100%完成 (BLAKE3_HASH, SECP256K1_VERIFY) |
-| 待实现 | 2 | ⏳ P2/P3优先级 |
+| 待实现 | 0 | ✅ 全部完成 |
 
 ## 4. VM 组件映射
 
@@ -153,26 +159,36 @@ TransactionScriptsVerifier
 └── Syscalls (完整实现)
 ```
 
-**SPORA VM 架构** (简化但完整):
+**SPORA VM 架构** (完整多进程调度):
 ```
 TransactionScriptVerifier
-├── 顺序脚本组执行
-│   ├── Lock脚本验证
-│   └── Type脚本验证
-└── Syscalls (核心功能完整)
+├── VmScheduler (多VM状态机)
+│   ├── 最多16个VM管理
+│   ├── 同时实例化4个VM (轮换调度)
+│   ├── Spawn/Wait子进程管理
+│   ├── Pipe/FD进程间通信
+│   └── 快照/恢复机制
+├── 可恢复验证 (Resumable)
+│   ├── 分步执行支持
+│   ├── 状态持久化
+│   └── 交易级并行
+└── Syscalls (完整实现)
     ├── 数据加载 (Cell/Input/Header/Witness)
+    ├── 多进程 (Spawn/Wait/Pipe)
+    ├── FD操作 (Read/Write/Close)
     ├── 哈希计算 (Blake3原生)
     └── 调试/周期计数
 ```
 
 ### 4.3 关键差异说明
 
-| 特性 | CKB | SPORA | 原因 |
+| 特性 | CKB | SPORA | 说明 |
 |------|-----|-------|------|
-| Spawn/Exec | ✅ 完整支持 | ⏳ 待实现 | 优先级较低 |
+| Spawn/Exec | ✅ 完整支持 | ✅ 完整支持 | 多进程调度完整 |
 | 并行脚本执行 | ❌ 无 | ✅ 交易级并行 | SPORA特有优化 |
-| 文件描述符 | ✅ 完整 | ❌ 不需要 | 简化设计 |
-| 多VM调度 | ✅ 复杂调度器 | ⏳ placeholder | 当前顺序执行足够 |
+| 文件描述符 | ✅ 完整 | ✅ 完整 | Pipe/Read/Write/Close |
+| 多VM调度 | ✅ 复杂调度器 | ✅ 完整调度器 | MAX_VMS=16, MAX_INSTANTIATED=4 |
+| 可恢复验证 | ✅ 支持 | ✅ 支持 | suspend/resume/complete |
 | Blake3加速 | ❌ VM内计算 | ✅ 原生syscall | 性能优化 |
 
 ## 5. 验证器映射

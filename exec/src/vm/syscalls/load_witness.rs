@@ -41,11 +41,11 @@ impl LoadWitness {
                 .group_output_indices
                 .get(index)
                 .and_then(|&idx| self.tx.outputs.get(idx).map(|_| self.tx.inputs.len().saturating_add(idx))),
+            Source::GroupCellDep | Source::GroupHeaderDep => None,
         }
     }
 
-    fn get_witness(&self, source: u64, index: usize) -> Option<&[u8]> {
-        let source = Source::parse(source)?;
+    fn get_witness(&self, source: Source, index: usize) -> Option<&[u8]> {
         let witness_index = self.source_witness_index(source, index)?;
         self.tx.witnesses.get(witness_index).map(|w| w.as_slice())
     }
@@ -65,7 +65,7 @@ impl<M: SupportMachine> Syscalls<M> for LoadWitness {
         }
 
         let index = machine.registers()[A3].to_u64() as usize;
-        let source = machine.registers()[A4].to_u64();
+        let source = Source::parse_from_u64(machine.registers()[A4].to_u64())?;
 
         // Get witness data
         let witness = match self.get_witness(source, index) {
@@ -150,10 +150,9 @@ mod tests {
         machine.set_register(A7, LOAD_WITNESS_SYSCALL_NUMBER);
 
         let mut syscall = LoadWitness::new(tx, vec![], vec![]);
-        let handled = syscall.ecall(&mut machine).expect("load witness syscall should be handled");
+        let err = syscall.ecall(&mut machine).expect_err("invalid source should trap");
 
-        assert!(handled);
-        assert_eq!(machine.registers()[A0].to_u64(), INDEX_OUT_OF_BOUND as u64);
+        assert_eq!(err, VMError::External("SourceEntry parse_from_u64 153".to_string()));
     }
 
     #[test]
@@ -186,12 +185,12 @@ mod tests {
         });
 
         let syscall = LoadWitness::new(tx, vec![1], vec![2]);
-        assert_eq!(syscall.get_witness(Source::Output as u64, 1).unwrap(), &[0xB1]);
-        assert_eq!(syscall.get_witness(Source::GroupOutput as u64, 0).unwrap(), &[0xB2]);
-        assert_eq!(syscall.get_witness(Source::CellDep as u64, 0).unwrap(), &[0xC0]);
-        assert_eq!(syscall.get_witness(Source::GroupInput as u64, 0).unwrap(), &[0xA1]);
-        assert!(syscall.get_witness(0x0100_0000_0000_0001, 0).is_none());
-        assert!(syscall.get_witness(0x0100_0000_0000_0002, 0).is_none());
+        assert_eq!(syscall.get_witness(Source::Output, 1).unwrap(), &[0xB1]);
+        assert_eq!(syscall.get_witness(Source::GroupOutput, 0).unwrap(), &[0xB2]);
+        assert_eq!(syscall.get_witness(Source::CellDep, 0).unwrap(), &[0xC0]);
+        assert_eq!(syscall.get_witness(Source::GroupInput, 0).unwrap(), &[0xA1]);
+        assert_eq!(syscall.get_witness(Source::parse(0x0100_0000_0000_0001).unwrap(), 0).unwrap(), &[0xA1]);
+        assert_eq!(syscall.get_witness(Source::parse(0x0100_0000_0000_0002).unwrap(), 0).unwrap(), &[0xB2]);
     }
 
     #[test]

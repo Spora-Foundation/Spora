@@ -1,4 +1,6 @@
 use super::BlockBodyProcessor;
+#[cfg(feature = "vm")]
+use crate::processes::cell_validator::{CellScriptVerificationState, CellScriptVerifyResult};
 use crate::{
     consensus::cell_provider::{ConsensusCellProvider, OverlayCellProvider},
     errors::{BlockProcessResult, RuleError},
@@ -35,12 +37,119 @@ type BodyConsensusCellProvider = ConsensusCellProvider<
 >;
 type BodyValidationOverlayProvider<B> = OverlayCellProvider<B>;
 
+#[cfg(feature = "vm")]
+#[derive(Clone, Debug)]
+pub struct BodyValidationContextState {
+    pub current: usize,
+    pub script_state: CellScriptVerificationState,
+    pub total_block_cycles: u64,
+    pub total_compute_mass: u64,
+    pub total_transient_mass: u64,
+    pub total_storage_mass: u64,
+    pub limit_cycles: u64,
+}
+
+#[cfg(feature = "vm")]
+impl BodyValidationContextState {
+    fn new(
+        current: usize,
+        script_state: CellScriptVerificationState,
+        total_block_cycles: u64,
+        total_compute_mass: u64,
+        total_transient_mass: u64,
+        total_storage_mass: u64,
+        limit_cycles: u64,
+    ) -> Self {
+        Self { current, script_state, total_block_cycles, total_compute_mass, total_transient_mass, total_storage_mass, limit_cycles }
+    }
+
+    pub fn current_cycles(&self) -> u64 {
+        self.total_block_cycles.saturating_add(self.script_state.current_cycles())
+    }
+
+    pub fn next_limit_cycles(&self, step_cycles: u64, max_cycles: u64) -> (u64, bool) {
+        let current_cycles = self.current_cycles();
+        let capped_max_cycles = max_cycles.max(current_cycles);
+        let next_limit = self.limit_cycles.saturating_add(step_cycles).max(current_cycles);
+        if next_limit < capped_max_cycles {
+            (next_limit, false)
+        } else {
+            (capped_max_cycles, true)
+        }
+    }
+}
+
+#[cfg(feature = "vm")]
+#[derive(Debug)]
+pub enum BodyValidationContextResult {
+    Completed(Mass),
+    Suspended(BodyValidationContextState),
+}
+
+#[cfg(feature = "vm")]
+#[derive(Clone, Copy, Debug, Default)]
+struct BodyValidationAccumulators {
+    block_cycles: u64,
+    compute_mass: u64,
+    transient_mass: u64,
+    storage_mass: u64,
+}
+
+#[cfg(feature = "vm")]
+impl BodyValidationAccumulators {
+    fn into_mass(self) -> Mass {
+        (NonContextualMasses::new(self.compute_mass, self.transient_mass), ContextualMasses::new(self.storage_mass))
+    }
+}
+
 impl BlockBodyProcessor {
     pub fn validate_body_in_context(self: &Arc<Self>, block: &Block) -> BlockProcessResult<Mass> {
         self.check_parent_bodies_exist(block)?;
         self.check_coinbase_outputs_limit(block)?;
         self.check_coinbase_blue_score_and_subsidy(block)?;
         self.check_block_transactions_in_context(block)
+    }
+
+    #[cfg(feature = "vm")]
+    pub fn validate_body_in_context_resumable(
+        self: &Arc<Self>,
+        block: &Block,
+        limit_cycles: u64,
+    ) -> BlockProcessResult<BodyValidationContextResult> {
+        self.check_parent_bodies_exist(block)?;
+        self.check_coinbase_outputs_limit(block)?;
+        self.check_coinbase_blue_score_and_subsidy(block)?;
+        self.check_block_transactions_in_context_resumable(block, None, limit_cycles)
+    }
+
+    #[cfg(feature = "vm")]
+    pub fn resume_body_in_context_from_state(
+        self: &Arc<Self>,
+        block: &Block,
+        state: &BodyValidationContextState,
+        limit_cycles: u64,
+    ) -> BlockProcessResult<BodyValidationContextResult> {
+        self.check_parent_bodies_exist(block)?;
+        self.check_coinbase_outputs_limit(block)?;
+        self.check_coinbase_blue_score_and_subsidy(block)?;
+        self.check_block_transactions_in_context_resumable(block, Some(state), limit_cycles)
+    }
+
+    #[cfg(feature = "vm")]
+    pub fn complete_body_in_context_from_state(
+        self: &Arc<Self>,
+        block: &Block,
+        state: &BodyValidationContextState,
+        max_cycles: u64,
+    ) -> BlockProcessResult<Mass> {
+        match self.resume_body_in_context_from_state(block, state, max_cycles)? {
+            BodyValidationContextResult::Completed(mass) => Ok(mass),
+            BodyValidationContextResult::Suspended(next_state) => Err(RuleError::CellValidationError(format!(
+                "body script cycles exceeded limit while completing: total {}, limit {}",
+                next_state.current_cycles(),
+                max_cycles
+            ))),
+        }
     }
 
     fn check_block_transactions_in_context(self: &Arc<Self>, block: &Block) -> BlockProcessResult<Mass> {
@@ -202,6 +311,167 @@ impl BlockBodyProcessor {
                 ContextualMasses::new(total_storage_mass),
             ));
         }
+    }
+
+    #[cfg(feature = "vm")]
+    fn check_block_transactions_in_context_resumable(
+        self: &Arc<Self>,
+        block: &Block,
+        state: Option<&BodyValidationContextState>,
+        limit_cycles: u64,
+    ) -> BlockProcessResult<BodyValidationContextResult> {
+        if block.transactions.iter().all(|tx| tx.is_coinbase()) {
+            return Ok(BodyValidationContextResult::Completed((NonContextualMasses::new(0, 0), ContextualMasses::new(0))));
+        }
+
+        let provider = Arc::new(self.build_body_validation_provider(block)?);
+        let validator = CellValidator::new(
+            Arc::new(CellConsensusParams { cellbase_maturity: self.coinbase_maturity, ..CellConsensusParams::default() }),
+            provider.clone(),
+        );
+        let non_coinbase_txs: Vec<(usize, &spora_exec::CellTx)> =
+            block.transactions.iter().enumerate().filter(|(_, tx)| !tx.is_coinbase()).collect();
+        let block_hash = block.hash();
+        let daa_score = block.header.daa_score;
+        let timestamp = block.header.timestamp;
+        let vm_limits = VmLimits::default();
+        let max_block_cycles = CellConsensusParams::default().max_block_cycles;
+        let effective_limit = limit_cycles.min(max_block_cycles);
+
+        let mut accum = state
+            .map(|state| BodyValidationAccumulators {
+                block_cycles: state.total_block_cycles,
+                compute_mass: state.total_compute_mass,
+                transient_mass: state.total_transient_mass,
+                storage_mass: state.total_storage_mass,
+            })
+            .unwrap_or_default();
+        let start = state.map(|state| state.current).unwrap_or(0);
+
+        if start > non_coinbase_txs.len() {
+            return Err(RuleError::CellValidationError(format!(
+                "resumable body validation state out of range: current {}, tx count {}",
+                start,
+                non_coinbase_txs.len()
+            )));
+        }
+        if let Some(state) = state {
+            if state.current_cycles() > effective_limit {
+                return Err(RuleError::CellValidationError(format!(
+                    "body script cycles exceeded limit while resuming: total {}, limit {}",
+                    state.current_cycles(),
+                    effective_limit
+                )));
+            }
+        }
+
+        for position in start..non_coinbase_txs.len() {
+            let (_, tx) = non_coinbase_txs[position];
+            let non_contextual_masses = self.mass_calculator.calc_non_contextual_masses_cell(tx);
+            self.validate_body_tx_in_context(tx, block_hash, daa_score, timestamp, provider.as_ref(), &validator)?;
+            let storage_mass = self.resolve_body_tx_storage_mass(tx, provider.as_ref(), block_hash)?;
+
+            let remaining_block_cycles = effective_limit.saturating_sub(accum.block_cycles);
+            let script_result = match state.filter(|state| state.current == position) {
+                Some(state) => {
+                    validator.resume_scripts_from_state(tx, block_hash, daa_score, &state.script_state, remaining_block_cycles)
+                }
+                None => validator.verify_scripts_resumable(tx, block_hash, daa_score, remaining_block_cycles),
+            };
+
+            match script_result.map_err(|err| self.map_cell_validation_error(tx, block_hash, daa_score, provider.as_ref(), err))? {
+                CellScriptVerifyResult::Completed(tx_cycles) => {
+                    self.accumulate_body_tx_validation(tx, non_contextual_masses, storage_mass, tx_cycles, &mut accum, &vm_limits)?;
+                }
+                CellScriptVerifyResult::Suspended(script_state) => {
+                    return Ok(BodyValidationContextResult::Suspended(BodyValidationContextState::new(
+                        position,
+                        script_state,
+                        accum.block_cycles,
+                        accum.compute_mass,
+                        accum.transient_mass,
+                        accum.storage_mass,
+                        effective_limit,
+                    )));
+                }
+            }
+        }
+
+        Ok(BodyValidationContextResult::Completed(accum.into_mass()))
+    }
+
+    #[cfg(feature = "vm")]
+    fn validate_body_tx_in_context(
+        &self,
+        tx: &spora_exec::CellTx,
+        block_hash: Hash,
+        daa_score: u64,
+        timestamp: u64,
+        provider: &BodyValidationOverlayProvider<BodyConsensusCellProvider>,
+        validator: &CellValidator<BodyValidationOverlayProvider<BodyConsensusCellProvider>>,
+    ) -> BlockProcessResult<()> {
+        validator
+            .validate_in_dag(tx, block_hash, daa_score, timestamp)
+            .map_err(|err| self.map_cell_validation_error(tx, block_hash, daa_score, provider, err))
+    }
+
+    #[cfg(feature = "vm")]
+    fn resolve_body_tx_storage_mass(
+        &self,
+        tx: &spora_exec::CellTx,
+        provider: &BodyValidationOverlayProvider<BodyConsensusCellProvider>,
+        block_hash: Hash,
+    ) -> BlockProcessResult<u64> {
+        let resolved_inputs = self
+            .resolve_cell_tx_inputs_from_provider(tx, provider, block_hash)
+            .map_err(|_| RuleError::TxInContextFailed(tx.id().into(), TxRuleError::MissingTxOutpoints))?;
+        let resolved_tx = MutableTransaction::with_resolved_metadata(tx.clone(), resolved_inputs);
+        let verifiable = resolved_tx.as_verifiable();
+        self.mass_calculator
+            .calc_contextual_masses(&verifiable)
+            .map(|contextual_masses| contextual_masses.storage_mass)
+            .ok_or_else(|| RuleError::TxInContextFailed(tx.id().into(), TxRuleError::MissingTxOutpoints))
+    }
+
+    #[cfg(feature = "vm")]
+    fn accumulate_body_tx_validation(
+        &self,
+        tx: &spora_exec::CellTx,
+        non_contextual_masses: NonContextualMasses,
+        storage_mass: u64,
+        tx_cycles: u64,
+        accum: &mut BodyValidationAccumulators,
+        vm_limits: &VmLimits,
+    ) -> BlockProcessResult<()> {
+        let max_block_cycles = CellConsensusParams::default().max_block_cycles;
+        accum.block_cycles = accum.block_cycles.saturating_add(tx_cycles);
+        if accum.block_cycles > max_block_cycles {
+            return Err(RuleError::CellValidationError(format!(
+                "block script cycles exceeded limit: total {}, limit {}",
+                accum.block_cycles, max_block_cycles
+            )));
+        }
+
+        let effective_compute_mass =
+            non_contextual_masses
+                .compute_mass
+                .max(vm_limits.effective_size(spora_consensus_core::mass::cell_tx_estimated_serialized_size(tx) as usize, tx_cycles)
+                    as u64);
+        accum.compute_mass = accum.compute_mass.saturating_add(effective_compute_mass);
+        accum.transient_mass = accum.transient_mass.saturating_add(non_contextual_masses.transient_mass);
+        accum.storage_mass = accum.storage_mass.saturating_add(storage_mass);
+
+        if accum.compute_mass > self.max_block_mass {
+            return Err(RuleError::ExceedsComputeMassLimit(accum.compute_mass, self.max_block_mass));
+        }
+        if accum.transient_mass > self.max_block_mass {
+            return Err(RuleError::ExceedsTransientMassLimit(accum.transient_mass, self.max_block_mass));
+        }
+        if accum.storage_mass > self.max_block_mass {
+            return Err(RuleError::ExceedsStorageMassLimit(accum.storage_mass, self.max_block_mass));
+        }
+
+        Ok(())
     }
 
     fn build_body_validation_provider(
@@ -526,9 +796,15 @@ impl BlockBodyProcessor {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "vm")]
+    use super::BodyValidationContextResult;
     use super::BodyValidationOverlayProvider;
     use crate::processes::{CellStateProvider, DagCellProvider};
     use crate::{config::ConfigBuilder, consensus::test_consensus::TestConsensus, errors::RuleError, params::DEVNET_PARAMS};
+    #[cfg(feature = "vm")]
+    use secp256k1::Keypair;
+    #[cfg(feature = "vm")]
+    use spora_addresses::{Address, Prefix};
     use spora_consensus_core::{
         api::ConsensusApi,
         block::{Block, TemplateBuildMode, TemplateTransactionSelector},
@@ -538,6 +814,11 @@ mod tests {
         errors::tx::TxRuleError,
         merkle::calc_hash_merkle_root_cell as calc_hash_merkle_root_with_options,
         tx::TransactionOutpoint,
+    };
+    #[cfg(feature = "vm")]
+    use spora_consensus_core::{
+        sign::sign,
+        tx::{pay_to_address_lock_script, MutableTransaction},
     };
     use spora_core::assert_match;
     #[cfg(feature = "vm")]
@@ -632,6 +913,34 @@ mod tests {
         .unwrap()
     }
 
+    #[cfg(feature = "vm")]
+    fn metadata_from_tx_output(
+        block_hash: Hash,
+        block_daa_score: u64,
+        is_cellbase: bool,
+        tx: &CellTx,
+        output_index: u32,
+    ) -> CellMetadata {
+        let output = &tx.outputs[output_index as usize];
+        let output_data = tx.outputs_data.get(output_index as usize).map(Vec::as_slice).unwrap_or(&[]);
+        CellMetadata {
+            out_point: TransactionOutpoint { tx_hash: tx.id(), index: output_index },
+            capacity: output.capacity,
+            data_bytes: output_data.len() as u64,
+            lock_hash: output.lock.hash(),
+            type_hash: output.type_.as_ref().map(|script| script.hash()),
+            data_hash: super::BlockBodyProcessor::compute_output_data_hash(output_data),
+            block_daa_score,
+            is_cellbase,
+            block_hash,
+            lock_code_hash: Some(output.lock.code_hash),
+            type_code_hash: output.type_.as_ref().map(|script| script.code_hash),
+            lock_script: Some(output.lock.clone()),
+            type_script: output.type_.clone(),
+            data: Some(output_data.to_vec()),
+        }
+    }
+
     #[derive(Default)]
     struct MockDagProvider {
         cells: HashMap<OutPoint, CellMetadata>,
@@ -686,7 +995,7 @@ mod tests {
             block.header.hash_merkle_root = calc_hash_merkle_root(block.transactions.iter());
 
             assert_match!(
-                consensus.validate_and_insert_block(block.clone().to_immutable()).virtual_state_task.await, Err(RuleError::WrongSubsidy(expected,_)) if expected == 11400000000);
+                consensus.validate_and_insert_block(block.clone().to_immutable()).virtual_state_task.await, Err(RuleError::WrongSubsidy(expected,_)) if expected == 114000000000);
 
             // The second time we send an invalid block we expect it to be a known invalid.
             assert_match!(
@@ -724,8 +1033,89 @@ mod tests {
             let mut block = consensus.build_block_with_parents_and_transactions(7.into(), vec![6.into()], vec![]);
             block.transactions[0].outputs_data[0][8..16].copy_from_slice(&(5_u64).to_le_bytes());
             block.header.hash_merkle_root = calc_hash_merkle_root(block.transactions.iter());
-            assert_match!(consensus.validate_and_insert_block(block.to_immutable()).virtual_state_task.await, Err(RuleError::WrongSubsidy(expected,_)) if expected == 4500000000);
+            assert_match!(consensus.validate_and_insert_block(block.to_immutable()).virtual_state_task.await, Err(RuleError::WrongSubsidy(expected,_)) if expected == 45000000000);
         }
+
+        consensus.shutdown(wait_handles);
+    }
+
+    #[cfg(feature = "vm")]
+    #[tokio::test]
+    async fn validate_body_in_context_resumable_matches_direct_for_native_pubkey_block() {
+        let config = ConfigBuilder::new(MAINNET_PARAMS)
+            .skip_proof_of_work()
+            .edit_consensus_params(|params| {
+                params.coinbase_maturity = 0;
+            })
+            .build();
+        let consensus = TestConsensus::new(&config);
+        let wait_handles = consensus.init();
+        let body_processor = consensus.block_body_processor();
+
+        let keypair = Keypair::from_seckey_slice(secp256k1::SECP256K1, &[0x69; 32]).expect("valid secret key");
+        let pubkey = keypair.public_key().x_only_public_key().0.serialize();
+        let address = Address::new_std_single(Prefix::Testnet, &pubkey).expect("valid address");
+        let lock_script = pay_to_address_lock_script(&address);
+        let miner_data = MinerData::new(lock_script.clone(), vec![]);
+
+        let warmup = consensus
+            .build_block_template(miner_data.clone(), Box::new(OnetimeTxSelector::new(vec![])), TemplateBuildMode::Standard)
+            .unwrap();
+        consensus.validate_and_insert_block(warmup.block.to_immutable()).virtual_state_task.await.unwrap();
+
+        let funding = consensus
+            .build_block_template(miner_data.clone(), Box::new(OnetimeTxSelector::new(vec![])), TemplateBuildMode::Standard)
+            .unwrap();
+        let funding_coinbase = funding.block.transactions[0].clone();
+        let funding_block_hash = funding.block.header.hash;
+        let funding_block_daa = funding.block.header.daa_score;
+        consensus.validate_and_insert_block(funding.block.to_immutable()).virtual_state_task.await.unwrap();
+
+        let input_outpoint = OutPoint::new(funding_coinbase.id(), 0);
+        let spend_capacity = funding_coinbase.outputs[0].capacity.checked_sub(1_000).expect("coinbase output should be large enough");
+        let unsigned_tx = CellTx::new(
+            vec![CellInput::new(input_outpoint, 0)],
+            vec![],
+            vec![CellOutput { lock: lock_script.clone(), type_: None, capacity: spend_capacity }],
+            vec![vec![]],
+            vec![vec![]],
+        )
+        .unwrap();
+        let resolved_input = metadata_from_tx_output(funding_block_hash, funding_block_daa, true, &funding_coinbase, 0);
+        let signed_tx = sign(MutableTransaction::with_resolved_metadata(unsigned_tx, vec![resolved_input]), keypair).tx;
+
+        let template = consensus
+            .build_block_template(miner_data, Box::new(OnetimeTxSelector::new(vec![signed_tx.clone()])), TemplateBuildMode::Standard)
+            .expect("standard mode should accept native stdsingle candidate");
+        let block = template.block.to_immutable();
+
+        let direct_mass =
+            body_processor.validate_body_in_context(&block).expect("direct body validation should succeed for native stdsingle block");
+        let initial =
+            body_processor.validate_body_in_context_resumable(&block, 1).expect("initial resumable body validation should succeed");
+        let state = match initial {
+            BodyValidationContextResult::Suspended(state) => state,
+            BodyValidationContextResult::Completed(mass) => {
+                panic!("expected suspension for tiny cycle budget, got completed mass {mass:?}")
+            }
+        };
+        assert_eq!(state.current, 0, "single tx block should suspend on the first non-coinbase tx");
+
+        let resumed = body_processor
+            .resume_body_in_context_from_state(&block, &state, crate::processes::CellConsensusParams::default().max_block_cycles)
+            .expect("resumed body validation should succeed");
+        let resumed_mass = match resumed {
+            BodyValidationContextResult::Completed(mass) => mass,
+            BodyValidationContextResult::Suspended(next_state) => body_processor
+                .complete_body_in_context_from_state(
+                    &block,
+                    &next_state,
+                    crate::processes::CellConsensusParams::default().max_block_cycles,
+                )
+                .expect("completing body validation from resumed state"),
+        };
+
+        assert_eq!(resumed_mass, direct_mass, "resumed block validation should match direct mass accounting");
 
         consensus.shutdown(wait_handles);
     }

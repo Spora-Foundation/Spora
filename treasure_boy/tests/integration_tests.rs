@@ -1,5 +1,5 @@
-use std::io::Write;
 use spora_addresses::{Address, Prefix};
+use std::io::Write;
 use tempfile::NamedTempFile;
 use treasure_boy::{load_addresses_from_file, AddressDistributionTracker, Config, NetworkType, TxsFeeConfig};
 

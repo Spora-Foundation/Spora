@@ -302,7 +302,10 @@ impl CellDB {
     ///
     /// Correct consensus queries must be anchored by block hash / POV, for
     /// example `get_cell_at_pov(outpoint, block_hash)`.
-    #[deprecated(since = "0.2.0", note = "Use get_cell_snapshot_at_pov() for consensus queries. This DAA-based method is retained only for index/debug purposes.")]
+    #[deprecated(
+        since = "0.2.0",
+        note = "Use get_cell_snapshot_at_pov() for consensus queries. This DAA-based method is retained only for index/debug purposes."
+    )]
     pub fn get_cell_snapshot_at_daa(&self, out_point: &OutPoint, at_daa: u64) -> Result<Option<CellMeta>> {
         let cf_cells = self.db.cf_handle(CF_CELLS).ok_or_else(|| StateError::Database("CF_CELLS not found".to_string()))?;
         let cf_journal =
@@ -395,7 +398,10 @@ impl CellDB {
     ///
     /// For consensus-safe queries, use [`get_cell_snapshot_at_pov`] or
     /// [`batch_get_cell_snapshots_at_pov`] which are anchored by block hash.
-    #[deprecated(since = "0.2.0", note = "Use batch_get_cell_snapshots_at_pov() for consensus queries. This DAA-based method is retained only for index/debug purposes.")]
+    #[deprecated(
+        since = "0.2.0",
+        note = "Use batch_get_cell_snapshots_at_pov() for consensus queries. This DAA-based method is retained only for index/debug purposes."
+    )]
     #[allow(deprecated)]
     pub fn batch_get_cell_snapshots_at_daa(&self, out_points: &[OutPoint], at_daa: u64) -> Result<Vec<Option<CellMeta>>> {
         let mut results = Vec::with_capacity(out_points.len());

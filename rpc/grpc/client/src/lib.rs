@@ -386,7 +386,10 @@ impl RpcApi for GrpcClient {
         Ok(SubscribeNotificationsResponse::new(subscription_id))
     }
 
-    async fn unsubscribe_notifications(&self, request: UnsubscribeNotificationsRequest) -> RpcResult<UnsubscribeNotificationsResponse> {
+    async fn unsubscribe_notifications(
+        &self,
+        request: UnsubscribeNotificationsRequest,
+    ) -> RpcResult<UnsubscribeNotificationsResponse> {
         let Some(scope) = self.active_notification_subscriptions.lock().await.remove(&request.subscription_id) else {
             return Err(RpcError::General(format!("unknown subscription id {}", request.subscription_id)));
         };

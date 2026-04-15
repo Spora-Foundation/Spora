@@ -68,6 +68,11 @@ pub struct Config {
 
     /// The number of days to keep data for
     pub retention_period_days: Option<f64>,
+
+    /// Optional cycle budget for chunked virtual-state processing.
+    /// When set, the virtual processor advances resumable validation in
+    /// bounded steps until the calculation completes.
+    pub resumable_virtual_state_step_cycles: Option<u64>,
 }
 
 impl Config {
@@ -95,6 +100,7 @@ impl Config {
             disable_upnp: false,
             ram_scale: 1.0,
             retention_period_days: None,
+            resumable_virtual_state_step_cycles: None,
         }
     }
 
@@ -169,6 +175,11 @@ impl ConfigBuilder {
 
     pub fn skip_adding_genesis(mut self) -> Self {
         self.config.process_genesis = false;
+        self
+    }
+
+    pub fn set_resumable_virtual_state_step_cycles(mut self, step_cycles: Option<u64>) -> Self {
+        self.config.resumable_virtual_state_step_cycles = step_cycles.filter(|value| *value > 0);
         self
     }
 

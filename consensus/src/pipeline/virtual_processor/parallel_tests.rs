@@ -29,9 +29,7 @@ mod tests {
 
     use crate::pipeline::virtual_processor::{
         access_summary::BlockAccessSummary,
-        cell_processing::{
-            apply_cell_diff_to_tree, BlockExecutionEffect,
-        },
+        cell_processing::{apply_cell_diff_to_tree, BlockExecutionEffect},
         execution_dag::ExecutionDAG,
     };
 
@@ -153,10 +151,7 @@ mod tests {
         let summary_b = make_summary(2, &[outpoint(2, 0)], &[outpoint(2, 1)], &[], &[shared_tx, hash(0x22)]);
 
         // B depends on A because of the shared tx_id
-        assert!(
-            summary_b.has_dependency_on(&summary_a),
-            "Duplicate tx_id must create a dependency"
-        );
+        assert!(summary_b.has_dependency_on(&summary_a), "Duplicate tx_id must create a dependency");
 
         // DAG must serialize them: A before B
         let dag = ExecutionDAG::build(&[summary_a, summary_b]);
@@ -213,10 +208,7 @@ mod tests {
         let summary_a = make_summary(1, &[contested_outpoint], &[outpoint(1, 0)], &[], &[hash(0x10)]);
         let summary_b = make_summary(2, &[contested_outpoint], &[outpoint(2, 0)], &[], &[hash(0x20)]);
 
-        assert!(
-            summary_b.has_dependency_on(&summary_a),
-            "Double-spend must create a dependency"
-        );
+        assert!(summary_b.has_dependency_on(&summary_a), "Double-spend must create a dependency");
 
         let dag = ExecutionDAG::build(&[summary_a, summary_b]);
         assert_eq!(dag.layer_count(), 2, "Double-spend blocks must be serialized");
@@ -288,23 +280,20 @@ mod tests {
         let created_by_a = outpoint(0xA0, 0);
         let summary_a = make_summary(
             1,
-            &[],                       // spends nothing
-            &[created_by_a],           // creates cell
+            &[],             // spends nothing
+            &[created_by_a], // creates cell
             &[],
             &[hash(0x10)],
         );
         let summary_b = make_summary(
             2,
-            &[created_by_a],           // spends A's creation
-            &[outpoint(0xB0, 0)],      // creates its own cell
+            &[created_by_a],      // spends A's creation
+            &[outpoint(0xB0, 0)], // creates its own cell
             &[],
             &[hash(0x20)],
         );
 
-        assert!(
-            summary_b.has_dependency_on(&summary_a),
-            "B must depend on A (spend dependency)"
-        );
+        assert!(summary_b.has_dependency_on(&summary_a), "B must depend on A (spend dependency)");
 
         let dag = ExecutionDAG::build(&[summary_a, summary_b]);
         assert_eq!(dag.layer_count(), 2, "A→B dependency must put them in separate layers");
@@ -319,25 +308,16 @@ mod tests {
         // Block A creates cell(0xA0, 0)
         // Block B references cell(0xA0, 0) as a cell_dep (read dependency)
         let created_by_a = outpoint(0xA0, 0);
-        let summary_a = make_summary(
-            1,
-            &[],
-            &[created_by_a],
-            &[],
-            &[hash(0x10)],
-        );
+        let summary_a = make_summary(1, &[], &[created_by_a], &[], &[hash(0x10)]);
         let summary_b = make_summary(
             2,
             &[outpoint(0xB1, 0)],
             &[outpoint(0xB0, 0)],
-            &[created_by_a],           // read dep on A's creation
+            &[created_by_a], // read dep on A's creation
             &[hash(0x20)],
         );
 
-        assert!(
-            summary_b.has_dependency_on(&summary_a),
-            "B must depend on A (read dependency)"
-        );
+        assert!(summary_b.has_dependency_on(&summary_a), "B must depend on A (read dependency)");
 
         let dag = ExecutionDAG::build(&[summary_a, summary_b]);
         assert_eq!(dag.layer_count(), 2, "Read dependency must serialize the blocks");
@@ -494,10 +474,7 @@ mod tests {
         // matches the serial order. This is the key invariant.
         let parallel_commit_order: Vec<usize> = dag.layers.iter().flat_map(|l| l.iter().copied()).collect();
         let serial_commit_order: Vec<usize> = serial_order.iter().flat_map(|l| l.iter().copied()).collect();
-        assert_eq!(
-            parallel_commit_order, serial_commit_order,
-            "Commit order must be identical regardless of parallelization"
-        );
+        assert_eq!(parallel_commit_order, serial_commit_order, "Commit order must be identical regardless of parallelization");
     }
 
     #[test]
@@ -521,10 +498,10 @@ mod tests {
 
         let created_by_a = outpoint(0xA0, 0);
         let summaries = vec![
-            make_summary(1, &[], &[created_by_a], &[], &[hash(0x10)]),      // A: creates cell
+            make_summary(1, &[], &[created_by_a], &[], &[hash(0x10)]), // A: creates cell
             make_summary(2, &[created_by_a], &[outpoint(0xB0, 0)], &[], &[hash(0x20)]), // B: spends A's cell
-            make_summary(3, &[outpoint(3, 0)], &[outpoint(3, 1)], &[], &[hash(0x30)]),  // C: independent
-            make_summary(4, &[outpoint(4, 0)], &[outpoint(4, 1)], &[], &[hash(0x40)]),  // D: independent
+            make_summary(3, &[outpoint(3, 0)], &[outpoint(3, 1)], &[], &[hash(0x30)]), // C: independent
+            make_summary(4, &[outpoint(4, 0)], &[outpoint(4, 1)], &[], &[hash(0x40)]), // D: independent
         ];
 
         let dag = ExecutionDAG::build(&summaries);
@@ -537,10 +514,7 @@ mod tests {
         // In serial mode: A(index 0) committed before B(index 1) → A committed first.
         let a_layer = dag.layers.iter().position(|l| l.contains(&0)).unwrap();
         let b_layer = dag.layers.iter().position(|l| l.contains(&1)).unwrap();
-        assert!(
-            a_layer < b_layer,
-            "A must be committed before B in parallel mode"
-        );
+        assert!(a_layer < b_layer, "A must be committed before B in parallel mode");
     }
 
     #[test]
@@ -646,18 +620,12 @@ mod tests {
         parallel_merged.with_diff_in_place(&diff_a).unwrap(); // A
         parallel_merged.with_diff_in_place(&diff_b).unwrap(); // B
         parallel_merged.with_diff_in_place(&diff_d).unwrap(); // D
-        // Layer 1
+                                                              // Layer 1
         parallel_merged.with_diff_in_place(&diff_c).unwrap(); // C
 
         // Compare net results
-        assert_eq!(
-            serial_merged.num_added(), parallel_merged.num_added(),
-            "Net added cells must match"
-        );
-        assert_eq!(
-            serial_merged.num_removed(), parallel_merged.num_removed(),
-            "Net removed cells must match"
-        );
+        assert_eq!(serial_merged.num_added(), parallel_merged.num_added(), "Net added cells must match");
+        assert_eq!(serial_merged.num_removed(), parallel_merged.num_removed(), "Net removed cells must match");
 
         // Both should have: cell_a2, cell_b1, cell_c_out, cell_d1 in add
         // cell_a1 was created and consumed → cancels out

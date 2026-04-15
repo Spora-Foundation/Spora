@@ -295,10 +295,7 @@ mod tests {
 
         assert!(handled);
         assert_eq!(machine.registers()[A0].to_u64(), SUCCESS as u64);
-        assert_eq!(
-            machine.memory_mut().load_bytes(BUFFER_ADDR, 8).unwrap().as_ref(),
-            &header.timestamp.to_le_bytes()
-        );
+        assert_eq!(machine.memory_mut().load_bytes(BUFFER_ADDR, 8).unwrap().as_ref(), &header.timestamp.to_le_bytes());
     }
 
     // -----------------------------------------------------------------------
@@ -330,11 +327,7 @@ mod tests {
             input_out_point.tx_hash,
             input_out_point.index,
             ResolvedCell {
-                cell_output: CellOutput {
-                    capacity: capacity_val,
-                    lock: Script::new([0xE1; 32], 0, vec![]),
-                    type_: None,
-                },
+                cell_output: CellOutput { capacity: capacity_val, lock: Script::new([0xE1; 32], 0, vec![]), type_: None },
                 data: Some(cell_data.clone()),
             },
         );
@@ -359,10 +352,7 @@ mod tests {
             let handled = syscall.ecall(&mut machine).unwrap();
             assert!(handled);
             assert_eq!(machine.registers()[A0].to_u64(), SUCCESS as u64);
-            assert_eq!(
-                machine.memory_mut().load_bytes(BUFFER_ADDR, 8).unwrap().as_ref(),
-                &capacity_val.to_le_bytes()
-            );
+            assert_eq!(machine.memory_mut().load_bytes(BUFFER_ADDR, 8).unwrap().as_ref(), &capacity_val.to_le_bytes());
         }
 
         // --- 2) LOAD_CELL_DATA: read cell data of input 0 ---
@@ -381,10 +371,7 @@ mod tests {
             assert!(handled);
             assert_eq!(machine.registers()[A0].to_u64(), SUCCESS as u64);
             assert_eq!(machine.memory_mut().load64(&SIZE_ADDR).unwrap().to_u64(), cell_data.len() as u64);
-            assert_eq!(
-                machine.memory_mut().load_bytes(BUFFER_ADDR, cell_data.len() as u64).unwrap().as_ref(),
-                cell_data.as_slice()
-            );
+            assert_eq!(machine.memory_mut().load_bytes(BUFFER_ADDR, cell_data.len() as u64).unwrap().as_ref(), cell_data.as_slice());
         }
 
         // --- 3) LOAD_WITNESS: read witness of input 0 ---
@@ -424,10 +411,7 @@ mod tests {
             let handled = syscall.ecall(&mut machine).unwrap();
             assert!(handled);
             assert_eq!(machine.registers()[A0].to_u64(), SUCCESS as u64);
-            assert_eq!(
-                machine.memory_mut().load_bytes(BUFFER_ADDR, 8).unwrap().as_ref(),
-                &header.daa_score.to_le_bytes()
-            );
+            assert_eq!(machine.memory_mut().load_bytes(BUFFER_ADDR, 8).unwrap().as_ref(), &header.daa_score.to_le_bytes());
         }
     }
 
@@ -474,10 +458,7 @@ mod tests {
         assert!(handled);
         assert_eq!(machine.registers()[A0].to_u64(), SUCCESS as u64);
         assert_eq!(machine.memory_mut().load64(&SIZE_ADDR).unwrap().to_u64(), cell_data.len() as u64);
-        assert_eq!(
-            machine.memory_mut().load_bytes(BUFFER_ADDR, cell_data.len() as u64).unwrap().as_ref(),
-            cell_data.as_slice()
-        );
+        assert_eq!(machine.memory_mut().load_bytes(BUFFER_ADDR, cell_data.len() as u64).unwrap().as_ref(), cell_data.as_slice());
     }
 
     /// LOAD_CELL_DATA with Source::HeaderDep returns ITEM_MISSING when no cell

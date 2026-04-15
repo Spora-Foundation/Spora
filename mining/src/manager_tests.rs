@@ -1376,11 +1376,7 @@ mod tests {
 
         // After parents are mined, children should now be the ready transactions
         let ready_after = mining_manager.build_selector().select_transactions();
-        assert_eq!(
-            TX_PAIRS_COUNT,
-            ready_after.len(),
-            "after mining parents, all child transactions should become ready candidates"
-        );
+        assert_eq!(TX_PAIRS_COUNT, ready_after.len(), "after mining parents, all child transactions should become ready candidates");
     }
 
     // This is a sanity test for the mempool eviction policy. We check that if the mempool reached to its maximum
@@ -1873,7 +1869,8 @@ mod tests {
         let funding_tx = create_cell_transaction_without_input(vec![SAU_PER_SPORA]);
         consensus.add_cell_transaction(funding_tx.clone(), 0);
 
-        let tx1 = create_cell_transaction_with_change(std::iter::once(&funding_tx), vec![0], None, DEFAULT_MINIMUM_RELAY_TRANSACTION_FEE);
+        let tx1 =
+            create_cell_transaction_with_change(std::iter::once(&funding_tx), vec![0], None, DEFAULT_MINIMUM_RELAY_TRANSACTION_FEE);
         let tx2 = create_cell_transaction_with_change(
             std::iter::once(&funding_tx),
             vec![0],
@@ -1935,10 +1932,7 @@ mod tests {
             // by checking that the selector produced a non-empty ordered result.
             // The fee-rate ordering is already tested by the feerate_stats tests;
             // here we just verify the full pipeline works.
-            assert!(
-                prev_size > 0.0 && curr_size > 0.0,
-                "all selected transactions must have positive serialized size"
-            );
+            assert!(prev_size > 0.0 && curr_size > 0.0, "all selected transactions must have positive serialized size");
         }
     }
 
@@ -1966,11 +1960,7 @@ mod tests {
         );
         assert!(result.is_ok(), "orphan CellTx should be accepted into the orphan pool");
         assert_transaction_count(&mining_manager, 0, "orphan should not be in the transaction pool");
-        assert_eq!(
-            1,
-            mining_manager.transaction_count(TransactionQuery::OrphansOnly),
-            "child should be in the orphan pool"
-        );
+        assert_eq!(1, mining_manager.transaction_count(TransactionQuery::OrphansOnly), "child should be in the orphan pool");
 
         // Now add the parent to the mempool.
         let result = mining_manager.validate_and_insert_cell_transaction(
@@ -1985,11 +1975,7 @@ mod tests {
         // The child should have been unorphaned and now be in the transaction pool.
         // The total populated count should be 2 (parent + child).
         let total = mining_manager.transaction_count(TransactionQuery::TransactionsOnly);
-        assert!(
-            total >= 1,
-            "after parent insertion, at least the parent should be in the transaction pool, got {}",
-            total
-        );
+        assert!(total >= 1, "after parent insertion, at least the parent should be in the transaction pool, got {}", total);
     }
 
     /// Verifies that the block template includes the correct set of transactions
@@ -2016,12 +2002,7 @@ mod tests {
         }
 
         let selected = mining_manager.build_selector().select_transactions();
-        assert_eq!(
-            TX_COUNT as usize,
-            selected.len(),
-            "selector should include all {} transactions",
-            TX_COUNT
-        );
+        assert_eq!(TX_COUNT as usize, selected.len(), "selector should include all {} transactions", TX_COUNT);
         for expected_id in &expected_cell_tx_ids {
             assert!(
                 selected.iter().any(|tx| tx.id() == *expected_id),

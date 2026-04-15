@@ -102,8 +102,14 @@ pub const SPAWN_EXTRA_CYCLES_BASE: u64 = 100_000;
 /// Spawn/IPC yield syscall cost baseline from CKB.
 pub const SPAWN_YIELD_CYCLES_BASE: u64 = 800;
 
+/// Canonical CKB group-source high-bit flag.
+pub const SOURCE_GROUP_FLAG: u64 = 0x0100_0000_0000_0000;
+const SOURCE_GROUP_MASK: u64 = 0xFF00_0000_0000_0000;
+pub const SOURCE_ENTRY_MASK: u64 = 0x00FF_FFFF_FFFF_FFFF;
+
 /// Source type for loading data
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u64)]
 pub enum Source {
     /// Load from transaction inputs
     Input = 0x01,
@@ -117,11 +123,43 @@ pub enum Source {
     GroupInput = 0x0100,
     /// Load from current script group outputs
     GroupOutput = 0x0200,
+    /// Load from current script group's cell deps
+    GroupCellDep = 0x0300,
+    /// Load from current script group's header deps
+    GroupHeaderDep = 0x0400,
 }
 
 impl Source {
     /// Parse source from u64
     pub fn parse(source: u64) -> Option<Self> {
+        if let Some(legacy) = Self::parse_legacy(source) {
+            return Some(legacy);
+        }
+
+        let entry = source & SOURCE_ENTRY_MASK;
+        let is_group = source & SOURCE_GROUP_MASK == SOURCE_GROUP_FLAG;
+        match (is_group, entry) {
+            (false, 0x01) => Some(Self::Input),
+            (false, 0x02) => Some(Self::Output),
+            (false, 0x03) => Some(Self::CellDep),
+            (false, 0x04) => Some(Self::HeaderDep),
+            (true, 0x01) => Some(Self::GroupInput),
+            (true, 0x02) => Some(Self::GroupOutput),
+            (true, 0x03) => Some(Self::GroupCellDep),
+            (true, 0x04) => Some(Self::GroupHeaderDep),
+            _ => None,
+        }
+    }
+
+    pub fn parse_from_u64(source: u64) -> Result<Self, ckb_vm::Error> {
+        if let Some(parsed) = Self::parse(source) {
+            return Ok(parsed);
+        }
+
+        Err(ckb_vm::Error::External(format!("SourceEntry parse_from_u64 {}", source & SOURCE_ENTRY_MASK)))
+    }
+
+    fn parse_legacy(source: u64) -> Option<Self> {
         match source {
             0x01 => Some(Self::Input),
             0x02 => Some(Self::Output),
@@ -129,6 +167,8 @@ impl Source {
             0x04 => Some(Self::HeaderDep),
             0x0100 => Some(Self::GroupInput),
             0x0200 => Some(Self::GroupOutput),
+            0x0300 => Some(Self::GroupCellDep),
+            0x0400 => Some(Self::GroupHeaderDep),
             _ => None,
         }
     }
@@ -167,6 +207,10 @@ impl CellField {
             _ => None,
         }
     }
+
+    pub fn parse_from_u64(field: u64) -> Result<Self, ckb_vm::Error> {
+        Self::parse(field).ok_or_else(|| ckb_vm::Error::External(format!("CellField parse_from_u64 {field}")))
+    }
 }
 
 /// Input field selector
@@ -186,6 +230,10 @@ impl InputField {
             1 => Some(Self::Since),
             _ => None,
         }
+    }
+
+    pub fn parse_from_u64(field: u64) -> Result<Self, ckb_vm::Error> {
+        Self::parse(field).ok_or_else(|| ckb_vm::Error::External(format!("InputField parse_from_u64 {field}")))
     }
 }
 
@@ -246,6 +294,10 @@ impl HeaderField {
             _ => None,
         }
     }
+
+    pub fn parse_from_u64(field: u64) -> Result<Self, ckb_vm::Error> {
+        Self::parse(field).ok_or_else(|| ckb_vm::Error::External(format!("HeaderField parse_from_u64 {field}")))
+    }
 }
 
 #[cfg(test)]
@@ -259,8 +311,10 @@ mod tests {
         assert_eq!(Source::parse(0x03), Some(Source::CellDep));
         assert_eq!(Source::parse(0x0100), Some(Source::GroupInput));
         assert_eq!(Source::parse(0x0200), Some(Source::GroupOutput));
-        assert_eq!(Source::parse(0x0100_0000_0000_0001), None);
-        assert_eq!(Source::parse(0x0100_0000_0000_0002), None);
+        assert_eq!(Source::parse(0x0100_0000_0000_0001), Some(Source::GroupInput));
+        assert_eq!(Source::parse(0x0100_0000_0000_0002), Some(Source::GroupOutput));
+        assert_eq!(Source::parse(0x0100_0000_0000_0003), Some(Source::GroupCellDep));
+        assert_eq!(Source::parse(0x0100_0000_0000_0004), Some(Source::GroupHeaderDep));
         assert_eq!(Source::parse(0x99), None);
     }
 

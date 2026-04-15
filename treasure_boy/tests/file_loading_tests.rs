@@ -1,6 +1,6 @@
+use spora_addresses::{Address, Prefix};
 use std::fs;
 use std::io::Write;
-use spora_addresses::{Address, Prefix};
 use tempfile::NamedTempFile;
 use treasure_boy::load_addresses_from_file;
 

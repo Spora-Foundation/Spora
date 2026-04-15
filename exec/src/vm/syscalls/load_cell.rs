@@ -8,7 +8,7 @@ use super::utils::{store_data, INDEX_OUT_OF_BOUND, ITEM_MISSING};
 use super::{CellField, Source, LOAD_CELL_BY_FIELD_SYSCALL_NUMBER, LOAD_CELL_SYSCALL_NUMBER};
 use crate::celltx::{CellTx, Script};
 use crate::vm::transferred_byte_cycles;
-use crate::vm::{CellDataProvider, ResolvedCell};
+use crate::vm::{CellDataProvider, ResolvedCell, VmSemantics};
 use ckb_vm::{
     registers::{A0, A3, A4, A5, A7},
     Error as VMError, Register, SupportMachine, Syscalls,
@@ -25,6 +25,7 @@ pub struct LoadCell<D: CellDataProvider> {
     provider: Arc<D>,
     group_input_indices: Vec<usize>,
     group_output_indices: Vec<usize>,
+    semantics: VmSemantics,
 }
 
 enum CellLookupResult {
@@ -35,14 +36,15 @@ enum CellLookupResult {
 
 impl<D: CellDataProvider> LoadCell<D> {
     pub fn new(tx: Arc<CellTx>, provider: Arc<D>, group_input_indices: Vec<usize>, group_output_indices: Vec<usize>) -> Self {
-        Self { tx, provider, group_input_indices, group_output_indices }
+        Self { tx, provider, group_input_indices, group_output_indices, semantics: VmSemantics::SporaExtended }
     }
 
-    fn resolve_cell(&self, source: u64, index: usize) -> CellLookupResult {
-        let Some(source) = Source::parse(source) else {
-            return CellLookupResult::IndexOutOfBound;
-        };
+    pub fn with_semantics(mut self, semantics: VmSemantics) -> Self {
+        self.semantics = semantics;
+        self
+    }
 
+    fn resolve_cell(&self, source: Source, index: usize) -> CellLookupResult {
         match source {
             Source::Input => match self.tx.inputs.get(index) {
                 Some(input) => self
@@ -78,11 +80,10 @@ impl<D: CellDataProvider> LoadCell<D> {
                 None => CellLookupResult::IndexOutOfBound,
             },
             Source::HeaderDep => match self.tx.header_deps.get(index) {
-                Some(hash) => self
-                    .provider
-                    .load_cell_by_header(hash)
-                    .map(CellLookupResult::Cell)
-                    .unwrap_or(CellLookupResult::ItemMissing),
+                Some(hash) if self.semantics.allow_header_dep_cell_lookup() => {
+                    self.provider.load_cell_by_header(hash).map(CellLookupResult::Cell).unwrap_or(CellLookupResult::ItemMissing)
+                }
+                Some(_) => CellLookupResult::IndexOutOfBound,
                 None => CellLookupResult::IndexOutOfBound,
             },
             Source::GroupOutput => match self.group_output_indices.get(index).and_then(|&idx| self.tx.outputs.get(idx)).cloned() {
@@ -92,30 +93,31 @@ impl<D: CellDataProvider> LoadCell<D> {
                 }
                 None => CellLookupResult::IndexOutOfBound,
             },
+            Source::GroupCellDep | Source::GroupHeaderDep => CellLookupResult::IndexOutOfBound,
         }
     }
 
-    fn serialize_cell_field(&self, cell: &ResolvedCell, field: u64) -> Option<Vec<u8>> {
-        match CellField::parse(field)? {
-            CellField::Capacity => Some(cell.cell_output.capacity.to_le_bytes().to_vec()),
+    fn serialize_cell_field(&self, cell: &ResolvedCell, field: u64) -> Result<Option<Vec<u8>>, VMError> {
+        match CellField::parse_from_u64(field)? {
+            CellField::Capacity => Ok(Some(cell.cell_output.capacity.to_le_bytes().to_vec())),
             CellField::DataHash => {
                 let data = cell.data.as_deref().unwrap_or(&[]);
-                Some(if data.is_empty() {
+                Ok(Some(if data.is_empty() {
                     [0u8; 32].to_vec()
                 } else {
                     let mut hasher = blake3::Hasher::new();
                     hasher.update(b"spora-cell/data");
                     hasher.update(data);
                     hasher.finalize().as_bytes().to_vec()
-                })
+                }))
             }
-            CellField::Lock => Some(self.serialize_script(&cell.cell_output.lock)),
-            CellField::LockHash => Some(cell.cell_output.lock.hash().to_vec()),
-            CellField::Type => cell.cell_output.type_.as_ref().map(|s| self.serialize_script(s)),
-            CellField::TypeHash => cell.cell_output.type_.as_ref().map(|s| s.hash().to_vec()),
+            CellField::Lock => Ok(Some(self.serialize_script(&cell.cell_output.lock))),
+            CellField::LockHash => Ok(Some(cell.cell_output.lock.hash().to_vec())),
+            CellField::Type => Ok(cell.cell_output.type_.as_ref().map(|s| self.serialize_script(s))),
+            CellField::TypeHash => Ok(cell.cell_output.type_.as_ref().map(|s| s.hash().to_vec())),
             CellField::OccupiedCapacity => {
                 let data_len = cell.data.as_ref().map_or(0, Vec::len);
-                Some(cell.cell_output.occupied_capacity(data_len).to_le_bytes().to_vec())
+                Ok(Some(cell.cell_output.occupied_capacity(data_len).to_le_bytes().to_vec()))
             }
         }
     }
@@ -170,7 +172,7 @@ impl<D: CellDataProvider, M: SupportMachine> Syscalls<M> for LoadCell<D> {
         // A4: source
         // A5: field (only for 2081)
         let index = machine.registers()[A3].to_u64() as usize;
-        let source = machine.registers()[A4].to_u64();
+        let source = Source::parse_from_u64(machine.registers()[A4].to_u64())?;
 
         // Get cell
         let cell = match self.resolve_cell(source, index) {
@@ -189,7 +191,7 @@ impl<D: CellDataProvider, M: SupportMachine> Syscalls<M> for LoadCell<D> {
         let data = if syscall_number == LOAD_CELL_BY_FIELD_SYSCALL_NUMBER {
             // LOAD_CELL_BY_FIELD
             let field = machine.registers()[A5].to_u64();
-            match self.serialize_cell_field(&cell, field) {
+            match self.serialize_cell_field(&cell, field)? {
                 Some(d) => d,
                 None => {
                     machine.set_register(A0, M::REG::from_u8(ITEM_MISSING));
@@ -215,7 +217,7 @@ mod tests {
     use super::*;
     use crate::celltx::{CellDep, CellInput, CellOutput, DepType, OutPoint};
     use crate::vm::syscalls::SUCCESS;
-    use crate::vm::{ResolvedCell, ScriptVersion, SimpleDataProvider};
+    use crate::vm::{ResolvedCell, ScriptVersion, SimpleDataProvider, VmSemantics};
     use ckb_vm::{
         registers::{A1, A2},
         CoreMachine, Memory, Register,
@@ -275,17 +277,20 @@ mod tests {
         );
 
         let syscall = LoadCell::new(tx, Arc::new(provider), vec![0], vec![0]);
-        let input_cell = match syscall.resolve_cell(0x01, 0) {
+        let input_cell = match syscall.resolve_cell(Source::Input, 0) {
             CellLookupResult::Cell(cell) => cell,
             _ => panic!("resolved input cell"),
         };
-        let dep_cell = match syscall.resolve_cell(0x03, 0) {
+        let dep_cell = match syscall.resolve_cell(Source::CellDep, 0) {
             CellLookupResult::Cell(cell) => cell,
             _ => panic!("resolved dep cell"),
         };
         assert_eq!(input_cell.cell_output.capacity, 2000);
         assert_eq!(dep_cell.cell_output.capacity, 3000);
-        assert_eq!(syscall.serialize_cell_field(&input_cell, 6).unwrap(), input_cell.cell_output.occupied_capacity(2).to_le_bytes());
+        assert_eq!(
+            syscall.serialize_cell_field(&input_cell, 6).unwrap().unwrap(),
+            input_cell.cell_output.occupied_capacity(2).to_le_bytes()
+        );
     }
 
     #[test]
@@ -362,10 +367,9 @@ mod tests {
         machine.set_register(A7, LOAD_CELL_BY_FIELD_SYSCALL_NUMBER);
 
         let mut syscall = LoadCell::new(tx, Arc::new(provider), vec![0], vec![]);
-        let handled = syscall.ecall(&mut machine).expect("load cell by field should be handled");
+        let err = syscall.ecall(&mut machine).expect_err("unknown field should trap");
 
-        assert!(handled);
-        assert_eq!(machine.registers()[A0].to_u64(), ITEM_MISSING as u64);
+        assert_eq!(err, VMError::External("CellField parse_from_u64 99".to_string()));
     }
 
     #[test]
@@ -464,7 +468,7 @@ mod tests {
         );
 
         let syscall = LoadCell::new(tx, Arc::new(provider), vec![], vec![]);
-        let cell = match syscall.resolve_cell(Source::HeaderDep as u64, 0) {
+        let cell = match syscall.resolve_cell(Source::HeaderDep, 0) {
             CellLookupResult::Cell(c) => c,
             _ => panic!("expected Cell for HeaderDep source"),
         };
@@ -485,7 +489,7 @@ mod tests {
         });
         let provider = Arc::new(SimpleDataProvider::new());
         let syscall = LoadCell::new(tx, provider, vec![], vec![]);
-        assert!(matches!(syscall.resolve_cell(Source::HeaderDep as u64, 0), CellLookupResult::IndexOutOfBound));
+        assert!(matches!(syscall.resolve_cell(Source::HeaderDep, 0), CellLookupResult::IndexOutOfBound));
     }
 
     #[test]
@@ -503,7 +507,7 @@ mod tests {
         // No cell registered for this header
         let provider = Arc::new(SimpleDataProvider::new());
         let syscall = LoadCell::new(tx, provider, vec![], vec![]);
-        assert!(matches!(syscall.resolve_cell(Source::HeaderDep as u64, 0), CellLookupResult::ItemMissing));
+        assert!(matches!(syscall.resolve_cell(Source::HeaderDep, 0), CellLookupResult::ItemMissing));
     }
 
     #[test]
@@ -544,5 +548,42 @@ mod tests {
         assert!(handled);
         assert_eq!(machine.registers()[A0].to_u64(), SUCCESS as u64);
         assert_eq!(machine.memory_mut().load_bytes(BUFFER_ADDR, 8).unwrap().as_ref(), &capacity.to_le_bytes());
+    }
+
+    #[test]
+    fn test_load_cell_ckb_strict_rejects_header_dep_source() {
+        let header_hash = [0xCD; 32];
+        let tx = Arc::new(CellTx {
+            version: 0xC001,
+            inputs: vec![],
+            cell_deps: vec![],
+            header_deps: vec![header_hash],
+            outputs: vec![],
+            outputs_data: vec![],
+            witnesses: vec![],
+        });
+        let mut provider = SimpleDataProvider::new();
+        provider.add_cell_by_header(
+            header_hash,
+            ResolvedCell {
+                cell_output: CellOutput { capacity: 7000, lock: Script::new([7u8; 32], 0, vec![]), type_: None },
+                data: Some(vec![1, 2, 3]),
+            },
+        );
+
+        let mut machine = ScriptVersion::V2.init_core_machine(10_000);
+        machine.memory_mut().store64(&SIZE_ADDR, &8u64).unwrap();
+        machine.set_register(A0, BUFFER_ADDR);
+        machine.set_register(A1, SIZE_ADDR);
+        machine.set_register(A2, 0);
+        machine.set_register(A3, 0);
+        machine.set_register(A4, Source::HeaderDep as u64);
+        machine.set_register(A7, LOAD_CELL_SYSCALL_NUMBER);
+
+        let mut syscall = LoadCell::new(tx, Arc::new(provider), vec![], vec![]).with_semantics(VmSemantics::CkbStrict);
+        let handled = syscall.ecall(&mut machine).expect("strict load cell syscall should be handled");
+
+        assert!(handled);
+        assert_eq!(machine.registers()[A0].to_u64(), INDEX_OUT_OF_BOUND as u64);
     }
 }

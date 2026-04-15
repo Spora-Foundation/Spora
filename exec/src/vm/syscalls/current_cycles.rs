@@ -8,17 +8,27 @@ use ckb_vm::{
     registers::{A0, A7},
     Error as VMError, Register, SupportMachine, Syscalls,
 };
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Arc,
+};
 
 /// Syscall: Current Cycles
 ///
 /// Syscall number: 2042
 ///
 /// Returns the current cycle count in A0 register
-pub struct CurrentCycles;
+pub struct CurrentCycles {
+    base_cycles: Arc<AtomicU64>,
+}
 
 impl CurrentCycles {
     pub fn new() -> Self {
-        Self
+        Self { base_cycles: Arc::new(AtomicU64::new(0)) }
+    }
+
+    pub fn with_base_cycles(base_cycles: Arc<AtomicU64>) -> Self {
+        Self { base_cycles }
     }
 }
 
@@ -35,9 +45,7 @@ impl<M: SupportMachine> Syscalls<M> for CurrentCycles {
             return Ok(false);
         }
 
-        // Return the machine's current cycle counter.
-        // ckb-vm exposes this through SupportMachine for both core and wrapped machines.
-        let cycles = machine.cycles();
+        let cycles = self.base_cycles.load(Ordering::Acquire).checked_add(machine.cycles()).ok_or(VMError::CyclesOverflow)?;
 
         // Return cycles in A0
         machine.set_register(A0, M::REG::from_u64(cycles));
@@ -54,6 +62,7 @@ mod tests {
         registers::{A0, A7},
         CoreMachine, Register, SupportMachine, Syscalls,
     };
+    use std::sync::{atomic::AtomicU64, Arc};
 
     #[test]
     fn test_current_cycles_returns_machine_cycles() {
@@ -78,5 +87,18 @@ mod tests {
         let handled = syscall.ecall(&mut machine).expect("non-matching syscall should not error");
 
         assert!(!handled);
+    }
+
+    #[test]
+    fn test_current_cycles_includes_base_cycles() {
+        let mut machine = ScriptVersion::V2.init_core_machine(10_000);
+        machine.set_cycles(42);
+        machine.set_register(A7, CURRENT_CYCLES_SYSCALL_NUMBER);
+
+        let mut syscall = CurrentCycles::with_base_cycles(Arc::new(AtomicU64::new(1_000)));
+        let handled = syscall.ecall(&mut machine).expect("current cycles syscall should succeed");
+
+        assert!(handled);
+        assert_eq!(machine.registers()[A0].to_u64(), 1_042);
     }
 }

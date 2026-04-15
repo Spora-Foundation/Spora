@@ -545,17 +545,12 @@ pub trait RpcApi: Sync + Send + AnySync {
     /// returns a [`SubscribeNotificationsResponse`] containing a unique
     /// `subscription_id`.  The caller should use that id to later cancel
     /// the subscription via [`unsubscribe_notifications`](Self::unsubscribe_notifications).
-    async fn subscribe_notifications(
-        &self,
-        request: SubscribeNotificationsRequest,
-    ) -> RpcResult<SubscribeNotificationsResponse>;
+    async fn subscribe_notifications(&self, request: SubscribeNotificationsRequest) -> RpcResult<SubscribeNotificationsResponse>;
 
     /// Cancel an active notification subscription identified by
     /// `subscription_id`.
-    async fn unsubscribe_notifications(
-        &self,
-        request: UnsubscribeNotificationsRequest,
-    ) -> RpcResult<UnsubscribeNotificationsResponse>;
+    async fn unsubscribe_notifications(&self, request: UnsubscribeNotificationsRequest)
+        -> RpcResult<UnsubscribeNotificationsResponse>;
 }
 
 pub type DynRpcService = Arc<dyn RpcApi>;

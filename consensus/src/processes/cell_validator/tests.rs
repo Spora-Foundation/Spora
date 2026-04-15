@@ -10,7 +10,9 @@ mod tests {
         CellValidator, DagCellProvider,
     };
     #[cfg(feature = "vm")]
-    use crate::processes::cell_validator::{CellScriptDataProvider, CellValidationError};
+    use crate::processes::cell_validator::{
+        CellScriptDataProvider, CellScriptVerificationPhase, CellScriptVerifyResult, CellValidationError,
+    };
     #[cfg(feature = "vm")]
     use crate::test_helpers::{always_success_cell_metadata, always_success_lock_script};
     #[cfg(feature = "vm")]
@@ -527,6 +529,69 @@ mod tests {
 
     #[cfg(feature = "vm")]
     #[test]
+    fn test_verify_scripts_resumable_matches_direct_cycles_for_always_success() {
+        let pov = Hash::from_bytes([0x26; 32]);
+        let input_out_point = OutPoint::new([0x27; 32], 0);
+        let dep_out_point = OutPoint::new([0x28; 32], 0);
+        let input_block_hash = Hash::from_bytes([0x29; 32]);
+        let dep_block_hash = Hash::from_bytes([0x2A; 32]);
+        let always_success_lock = always_success_lock_script();
+
+        let mut provider = MockProvider { cells: HashMap::new(), block_timestamps: HashMap::new() };
+        provider.cells.insert(
+            (pov, input_out_point.clone()),
+            CellMetadata {
+                out_point: tx_outpoint(&input_out_point),
+                capacity: 1_000,
+                data_bytes: 0,
+                lock_hash: [0; 32],
+                type_hash: None,
+                data_hash: [0; 32],
+                block_daa_score: 0,
+                is_cellbase: false,
+                block_hash: input_block_hash,
+                lock_code_hash: None,
+                type_code_hash: None,
+                lock_script: Some(always_success_lock.clone()),
+                type_script: None,
+                data: Some(vec![]),
+            },
+        );
+        provider.cells.insert((pov, dep_out_point.clone()), always_success_cell_metadata(&dep_out_point, dep_block_hash));
+        provider.block_timestamps.insert(input_block_hash, 0);
+        provider.block_timestamps.insert(dep_block_hash, 0);
+
+        let tx = CellTx::new(
+            vec![CellInput::new(input_out_point, 0)],
+            vec![CellDep { out_point: dep_out_point, dep_type: DepType::Code }],
+            vec![CellOutput { lock: always_success_lock.clone(), type_: None, capacity: 1_000 }],
+            vec![vec![]],
+            vec![],
+        )
+        .unwrap();
+
+        let validator = CellValidator::new(Arc::new(CellConsensusParams::default()), Arc::new(provider));
+        let direct_cycles = validator.verify_scripts_with_cycles(&tx, pov, 0).expect("direct always-success verification");
+        let initial = validator.verify_scripts_resumable(&tx, pov, 0, 1).expect("initial resumable verify should succeed");
+        let state = match initial {
+            CellScriptVerifyResult::Suspended(state) => state,
+            CellScriptVerifyResult::Completed(cycles) => panic!("expected suspension, got completion with {cycles} cycles"),
+        };
+        assert!(matches!(state.phase, CellScriptVerificationPhase::Vm(_)), "expected VM suspension state");
+
+        let resumed =
+            validator.resume_scripts_from_state(&tx, pov, 0, &state, direct_cycles).expect("resuming always-success verification");
+        let resumed_cycles = match resumed {
+            CellScriptVerifyResult::Completed(cycles) => cycles,
+            CellScriptVerifyResult::Suspended(next_state) => validator
+                .complete_scripts_from_state(&tx, pov, 0, &next_state, direct_cycles)
+                .expect("complete always-success verification from suspended state"),
+        };
+        assert_eq!(resumed_cycles, direct_cycles, "resumed verification should match direct cycles");
+    }
+
+    #[cfg(feature = "vm")]
+    #[test]
     fn test_full_validation_with_native_pubkey_lock_and_no_code_dep() {
         let pov = Hash::from_bytes([0x31; 32]);
         let input_out_point = OutPoint::new([0x32; 32], 0);
@@ -571,6 +636,76 @@ mod tests {
         let validator = CellValidator::new(Arc::new(CellConsensusParams::default()), Arc::new(provider));
         let result = validator.validate_full_with_scripts_and_cycles(&signed_tx, pov, 0, 0).expect("native pubkey verification");
         assert!(result > 0, "native verification should be charged cycles");
+    }
+
+    #[cfg(feature = "vm")]
+    #[test]
+    fn test_validate_full_with_scripts_resumable_waits_for_native_cycle_floor() {
+        let pov = Hash::from_bytes([0x35; 32]);
+        let input_out_point = OutPoint::new([0x36; 32], 0);
+        let block_hash = Hash::from_bytes([0x37; 32]);
+        let secret_key = [0x38; 32];
+        let keypair = Keypair::from_seckey_slice(secp256k1::SECP256K1, &secret_key).expect("valid secret key");
+        let pubkey = keypair.public_key().x_only_public_key().0.serialize();
+        let address = Address::new_std_single(Prefix::Testnet, &pubkey).expect("valid address");
+        let lock_script = pay_to_address_lock_script(&address);
+
+        let resolved_input = CellMetadata {
+            out_point: tx_outpoint(&input_out_point),
+            capacity: 10_000,
+            data_bytes: 0,
+            lock_hash: lock_script.hash(),
+            type_hash: None,
+            data_hash: [0; 32],
+            block_daa_score: 0,
+            is_cellbase: false,
+            block_hash,
+            lock_code_hash: None,
+            type_code_hash: None,
+            lock_script: Some(lock_script.clone()),
+            type_script: None,
+            data: Some(vec![]),
+        };
+
+        let unsigned_tx = CellTx::new(
+            vec![CellInput::new(input_out_point, 0)],
+            vec![],
+            vec![CellOutput { lock: lock_script.clone(), type_: None, capacity: 9_000 }],
+            vec![vec![]],
+            vec![vec![]],
+        )
+        .unwrap();
+        let signed_tx = sign(MutableTransaction::with_resolved_metadata(unsigned_tx, vec![resolved_input.clone()]), keypair).tx;
+
+        let mut provider = MockProvider { cells: HashMap::new(), block_timestamps: HashMap::new() };
+        provider.cells.insert((pov, input_out_point), resolved_input);
+        provider.block_timestamps.insert(block_hash, 0);
+
+        let validator = CellValidator::new(Arc::new(CellConsensusParams::default()), Arc::new(provider));
+        let direct_cycles =
+            validator.validate_full_with_scripts_and_cycles(&signed_tx, pov, 0, 0).expect("direct native verification");
+
+        let initial = validator
+            .validate_full_with_scripts_resumable(&signed_tx, pov, 0, 0, direct_cycles.saturating_sub(1))
+            .expect("initial resumable native verification");
+        let state = match initial {
+            CellScriptVerifyResult::Suspended(state) => state,
+            CellScriptVerifyResult::Completed(cycles) => {
+                panic!("expected native floor suspension, got completion with {cycles} cycles")
+            }
+        };
+        assert!(matches!(state.phase, CellScriptVerificationPhase::NativePending), "expected native-pending state");
+
+        let resumed = validator
+            .resume_full_with_scripts_from_state(&signed_tx, pov, 0, 0, &state, direct_cycles)
+            .expect("resume full native verification");
+        let resumed_cycles = match resumed {
+            CellScriptVerifyResult::Completed(cycles) => cycles,
+            CellScriptVerifyResult::Suspended(next_state) => validator
+                .complete_full_with_scripts_from_state(&signed_tx, pov, 0, 0, &next_state, direct_cycles)
+                .expect("complete native verification from resumed state"),
+        };
+        assert_eq!(resumed_cycles, direct_cycles, "native resumable path should match direct cycles");
     }
 
     #[cfg(feature = "vm")]

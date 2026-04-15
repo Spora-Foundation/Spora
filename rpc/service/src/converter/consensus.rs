@@ -5,7 +5,10 @@ use spora_consensus_core::{
     blockstatus::BlockStatus,
     config::Config,
     header::Header,
-    mass::{project_cell_tx_mass_with_calculator, project_verifiable_transaction_mass_with_calculator, MassCalculator, ProjectedTransactionMass},
+    mass::{
+        project_cell_tx_mass_with_calculator, project_verifiable_transaction_mass_with_calculator, MassCalculator,
+        ProjectedTransactionMass,
+    },
     tx::{
         classify_script, extract_address_from_script, CellInput, CellTx, CellTxContainer, MutableTransaction, ResolvedCellTransaction,
         TransactionId, TransactionOutpoint, VerifiableTransaction,
@@ -168,7 +171,12 @@ impl ConsensusConverter {
         include_verbose_data: bool,
     ) -> RpcTransaction {
         let projected_mass = project_verifiable_transaction_mass_with_calculator(&self.mass_calculator(), transaction, None);
-        self.build_rpc_transaction(transaction.tx(), header, include_verbose_data, Some(RpcMassProjection::from_projected(projected_mass, None)))
+        self.build_rpc_transaction(
+            transaction.tx(),
+            header,
+            include_verbose_data,
+            Some(RpcMassProjection::from_projected(projected_mass, None)),
+        )
     }
 
     pub fn get_resolved_cell_transaction(
@@ -430,10 +438,7 @@ mod tests {
 
         assert_eq!(rpc_tx.mass, transaction.selection_mass().expect("selection mass should be available"));
         assert_eq!(verbose.compute_mass, transaction.effective_compute_mass().expect("effective compute mass should be available"));
-        assert_eq!(
-            verbose.transient_mass,
-            transaction.calculated_non_contextual_masses.map(|masses| masses.transient_mass)
-        );
+        assert_eq!(verbose.transient_mass, transaction.calculated_non_contextual_masses.map(|masses| masses.transient_mass));
         assert_eq!(verbose.storage_mass, transaction.contextual_storage_mass());
         assert_eq!(verbose.verified_cycles, transaction.verified_cycles);
     }

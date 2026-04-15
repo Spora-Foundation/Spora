@@ -10,6 +10,8 @@ use crate::consensus::cell_provider::{ConsensusCellProvider, OverlayCellProvider
 use crate::model::stores::{
     block_transactions::BlockTransactionsStoreReader, ghostdag::GhostdagData, statuses::StatusesStoreBatchExtensions,
 };
+#[cfg(feature = "vm")]
+use crate::processes::cell_validator::{CellScriptVerificationState, CellScriptVerifyResult};
 use crate::processes::utils::{compute_data_hash, outpoint_to_hash};
 #[cfg(feature = "vm")]
 use crate::processes::CellValidator;
@@ -99,6 +101,12 @@ impl<'a> CellProcessingContext<'a> {
     }
 }
 
+impl CellProcessingContext<'static> {
+    pub fn new_owned(ghostdag_data: Arc<GhostdagData>, selected_parent_cell_tree: CellStateTree) -> Self {
+        Self::new(ghostdag_data.into(), selected_parent_cell_tree)
+    }
+}
+
 /// Block-level execution effect containing all information needed to commit to canonical state.
 /// Produced by the pure analysis phase (analyze_blue_block) without any state mutation.
 #[derive(Debug, Clone)]
@@ -145,6 +153,87 @@ impl BlockExecutionEffect {
             && self.consumed_cycles == 0
             && self.newly_processed_tx_ids.is_empty()
     }
+}
+
+#[cfg(feature = "vm")]
+#[derive(Clone)]
+pub(super) struct BlueBlockExecutionState {
+    current: usize,
+    effect: BlockExecutionEffect,
+    local_tree: CellStateTree,
+    replay_ctx: ReplayValidationContext,
+    tx_script_state: CellScriptVerificationState,
+}
+
+#[cfg(feature = "vm")]
+impl BlueBlockExecutionState {
+    fn new(
+        current: usize,
+        effect: BlockExecutionEffect,
+        local_tree: CellStateTree,
+        replay_ctx: ReplayValidationContext,
+        tx_script_state: CellScriptVerificationState,
+    ) -> Self {
+        Self { current, effect, local_tree, replay_ctx, tx_script_state }
+    }
+
+    pub fn current_cycles(&self) -> u64 {
+        self.replay_ctx.accumulated_cycles.saturating_add(self.tx_script_state.current_cycles())
+    }
+
+    pub fn next_limit_cycles(&self, step_cycles: u64, max_cycles: u64) -> (u64, bool) {
+        let completed_cycles = self.replay_ctx.accumulated_cycles;
+        let capped_max_cycles = max_cycles.max(self.current_cycles());
+        let remaining_cycles = capped_max_cycles.saturating_sub(completed_cycles);
+        let (next_tx_limit, _) = self.tx_script_state.next_limit_cycles(step_cycles, remaining_cycles);
+        let next_limit = completed_cycles.saturating_add(next_tx_limit);
+        if next_limit < capped_max_cycles {
+            (next_limit, false)
+        } else {
+            (capped_max_cycles, true)
+        }
+    }
+}
+
+#[cfg(feature = "vm")]
+pub(super) enum BlueBlockExecutionResult {
+    Completed(BlockExecutionEffect),
+    Suspended(BlueBlockExecutionState),
+}
+
+#[cfg(feature = "vm")]
+#[derive(Clone)]
+pub(super) struct CellStateCalculationState {
+    blue_block_index: usize,
+    processed_txs: HashSet<Hash>,
+    replay_ctx: ReplayValidationContext,
+    block_state: BlueBlockExecutionState,
+}
+
+#[cfg(feature = "vm")]
+impl CellStateCalculationState {
+    fn new(
+        blue_block_index: usize,
+        processed_txs: HashSet<Hash>,
+        replay_ctx: ReplayValidationContext,
+        block_state: BlueBlockExecutionState,
+    ) -> Self {
+        Self { blue_block_index, processed_txs, replay_ctx, block_state }
+    }
+
+    pub fn current_cycles(&self) -> u64 {
+        self.block_state.current_cycles()
+    }
+
+    pub fn next_limit_cycles(&self, step_cycles: u64, max_cycles: u64) -> (u64, bool) {
+        self.block_state.next_limit_cycles(step_cycles, max_cycles)
+    }
+}
+
+#[cfg(feature = "vm")]
+pub(super) enum CellStateCalculationResult {
+    Completed,
+    Suspended(CellStateCalculationState),
 }
 
 pub(super) fn exec_outpoint(outpoint: &TransactionOutpoint) -> OutPoint {
@@ -271,6 +360,7 @@ fn cell_metadata_from_output(
 /// transactions within the current block being processed. When the accumulated
 /// cycles exceed `MAX_BLOCK_CYCLES` (from [`CellConsensusParams`]), subsequent
 /// transactions in that block are pruned (skipped without applying to state).
+#[derive(Clone)]
 struct ReplayValidationContext {
     snapshot_pov: Hash,
     current_daa_score: u64,
@@ -330,24 +420,7 @@ impl ExecutionSnapshot {
 }
 
 impl ReplayValidationContext {
-    /// Perform complete four-layer validation on a non-coinbase transaction.
-    ///
-    /// Returns the number of VM cycles consumed by script verification (0 when
-    /// the `vm` feature is disabled).
-    ///
-    /// # Validation Order
-    ///
-    /// 1. **L1 — Isolation (stateless):** structural format checks, output constraints,
-    ///    and serialized size limit via [`cell_validation_in_isolation::validate_cell_tx_in_isolation`].
-    /// 2. **L2 — Context (state-dependent):** capacity conservation and Cell availability
-    ///    against the POV snapshot via [`cell_validation_in_context::validate_cell_tx_in_context`].
-    /// 3. **L3 — DAG (topology-dependent):** Cell existence in the DAG state, `since`
-    ///    time-lock satisfaction, and cellbase maturity via `cell_validation_in_dag::*`.
-    /// 4. **L4 — Scripts (VM):** lock and type script execution via [`CellValidator::verify_scripts_with_cycles`]
-    ///    (only when the `vm` feature is enabled).
-    ///
-    /// Any failure at a layer short-circuits the remaining checks.
-    fn validate_tx(&self, tx: &spora_exec::CellTx) -> Result<u64, RuleError> {
+    fn validate_tx_pre_scripts(&self, tx: &spora_exec::CellTx) -> Result<(), RuleError> {
         // L1: Isolation (stateless) — no provider needed
         cell_validation_in_isolation::validate_cell_tx_in_isolation(tx, self.params.max_cell_data_size)
             .map_err(|err| self.map_validation_error(tx, err))?;
@@ -390,6 +463,29 @@ impl ReplayValidationContext {
         )
         .map_err(|err| self.map_validation_error(tx, err))?;
 
+        Ok(())
+    }
+
+    /// Perform complete four-layer validation on a non-coinbase transaction.
+    ///
+    /// Returns the number of VM cycles consumed by script verification (0 when
+    /// the `vm` feature is disabled).
+    ///
+    /// # Validation Order
+    ///
+    /// 1. **L1 — Isolation (stateless):** structural format checks, output constraints,
+    ///    and serialized size limit via [`cell_validation_in_isolation::validate_cell_tx_in_isolation`].
+    /// 2. **L2 — Context (state-dependent):** capacity conservation and Cell availability
+    ///    against the POV snapshot via [`cell_validation_in_context::validate_cell_tx_in_context`].
+    /// 3. **L3 — DAG (topology-dependent):** Cell existence in the DAG state, `since`
+    ///    time-lock satisfaction, and cellbase maturity via `cell_validation_in_dag::*`.
+    /// 4. **L4 — Scripts (VM):** lock and type script execution via [`CellValidator::verify_scripts_with_cycles`]
+    ///    (only when the `vm` feature is enabled).
+    ///
+    /// Any failure at a layer short-circuits the remaining checks.
+    fn validate_tx(&self, tx: &spora_exec::CellTx) -> Result<u64, RuleError> {
+        self.validate_tx_pre_scripts(tx)?;
+
         // L4: VM script verification (only when vm feature enabled)
         // Returns consumed cycles; 0 when VM is disabled.
         let mut _tx_cycles: u64 = 0;
@@ -402,6 +498,24 @@ impl ReplayValidationContext {
         }
 
         Ok(_tx_cycles)
+    }
+
+    #[cfg(feature = "vm")]
+    fn validate_tx_resumable(
+        &self,
+        tx: &spora_exec::CellTx,
+        state: Option<&CellScriptVerificationState>,
+        limit_cycles: u64,
+    ) -> Result<CellScriptVerifyResult, RuleError> {
+        self.validate_tx_pre_scripts(tx)?;
+
+        let validator = CellValidator::new(self.params.clone(), Arc::new(self.provider.clone()));
+        let result = match state {
+            Some(state) => validator.resume_scripts_from_state(tx, self.snapshot_pov, self.current_daa_score, state, limit_cycles),
+            None => validator.verify_scripts_resumable(tx, self.snapshot_pov, self.current_daa_score, limit_cycles),
+        };
+
+        result.map_err(|err| self.map_validation_error(tx, err))
     }
 
     fn spend_cell(&mut self, out_point: &OutPoint) -> Result<(), RuleError> {
@@ -642,17 +756,13 @@ impl VirtualStateProcessor {
 
             effect.newly_processed_tx_ids.push(tx_id.into());
             effect.accepted_tx_ids.push(tx_id.into());
-            effect.accepted_transactions.push(AcceptedTxEntry {
-                transaction_id: tx_id.into(),
-                index_within_block: tx_index as u32,
-            });
+            effect.accepted_transactions.push(AcceptedTxEntry { transaction_id: tx_id.into(), index_within_block: tx_index as u32 });
 
             // ── Four-layer validation (non-coinbase) ─────────────────
             if !is_coinbase {
                 let tx_cycles = local_replay.validate_tx(tx)?;
 
-                local_replay.accumulated_cycles =
-                    local_replay.accumulated_cycles.saturating_add(tx_cycles);
+                local_replay.accumulated_cycles = local_replay.accumulated_cycles.saturating_add(tx_cycles);
                 if local_replay.accumulated_cycles > max_block_cycles {
                     // Undo acceptance bookkeeping for the tx that exceeded the limit
                     effect.newly_processed_tx_ids.pop();
@@ -665,10 +775,7 @@ impl VirtualStateProcessor {
             // ── Consume inputs ───────────────────────────────────────
             let mut input_capacity = 0u64;
             for input in &tx.inputs {
-                let outpoint = TransactionOutpoint {
-                    tx_hash: input.previous_output.tx_hash,
-                    index: input.previous_output.index,
-                };
+                let outpoint = TransactionOutpoint { tx_hash: input.previous_output.tx_hash, index: input.previous_output.index };
                 let outpoint_hash = outpoint_to_hash(&outpoint);
 
                 if effect.cell_diff.remove.contains_key(&outpoint) {
@@ -677,20 +784,13 @@ impl VirtualStateProcessor {
 
                 let removed_entry = local_tree
                     .remove(&outpoint_hash)
-                    .ok_or_else(|| {
-                        RuleError::TxInContextFailed(tx_id.into(), TxRuleError::MissingTxOutpoints)
-                    })?;
+                    .ok_or_else(|| RuleError::TxInContextFailed(tx_id.into(), TxRuleError::MissingTxOutpoints))?;
                 let removed_meta = cell_entry_to_meta(&outpoint, &removed_entry);
                 input_capacity = input_capacity
                     .checked_add(removed_meta.capacity)
-                    .ok_or_else(|| {
-                        RuleError::TxInContextFailed(tx_id.into(), TxRuleError::InputAmountOverflow)
-                    })?;
+                    .ok_or_else(|| RuleError::TxInContextFailed(tx_id.into(), TxRuleError::InputAmountOverflow))?;
                 if input_capacity > MAX_SAU {
-                    return Err(RuleError::TxInContextFailed(
-                        tx_id.into(),
-                        TxRuleError::InputAmountTooHigh,
-                    ));
+                    return Err(RuleError::TxInContextFailed(tx_id.into(), TxRuleError::InputAmountTooHigh));
                 }
 
                 // Mirror the original diff bookkeeping:
@@ -698,12 +798,7 @@ impl VirtualStateProcessor {
                 // simply remove it from the `add` set; otherwise record it in
                 // the `remove` set.
                 if effect.cell_diff.add.remove(&removed_meta.out_point).is_none() {
-                    if effect
-                        .cell_diff
-                        .remove
-                        .insert(removed_meta.out_point.clone(), removed_meta)
-                        .is_some()
-                    {
+                    if effect.cell_diff.remove.insert(removed_meta.out_point.clone(), removed_meta).is_some() {
                         return Err(RuleError::DoubleSpendInSameBlock(outpoint));
                     }
                 }
@@ -715,14 +810,9 @@ impl VirtualStateProcessor {
             for (index, output) in tx.outputs.iter().enumerate() {
                 output_capacity = output_capacity
                     .checked_add(output.capacity)
-                    .ok_or_else(|| {
-                        RuleError::TxInContextFailed(tx_id.into(), TxRuleError::OutputsValueOverflow)
-                    })?;
+                    .ok_or_else(|| RuleError::TxInContextFailed(tx_id.into(), TxRuleError::OutputsValueOverflow))?;
                 if output_capacity > MAX_SAU {
-                    return Err(RuleError::TxInContextFailed(
-                        tx_id.into(),
-                        TxRuleError::TotalTxOutTooHigh,
-                    ));
+                    return Err(RuleError::TxInContextFailed(tx_id.into(), TxRuleError::TotalTxOutTooHigh));
                 }
 
                 let outpoint = TransactionOutpoint { tx_hash: tx_id, index: index as u32 };
@@ -739,8 +829,7 @@ impl VirtualStateProcessor {
                 }
 
                 let type_hash = output.type_.as_ref().map(|ts| ts.hash());
-                let output_data =
-                    tx.outputs_data.get(index).map(|d| d.as_slice()).unwrap_or(&[]);
+                let output_data = tx.outputs_data.get(index).map(|d| d.as_slice()).unwrap_or(&[]);
                 let data_hash = self.compute_data_hash(output_data);
 
                 let cell_meta = CellMeta {
@@ -756,11 +845,7 @@ impl VirtualStateProcessor {
 
                 // Update local tree so subsequent txs in the same block can
                 // reference this output.
-                local_tree.insert_with_outpoint(
-                    outpoint_hash,
-                    exec_outpoint(&outpoint),
-                    cell_meta_to_entry(&cell_meta),
-                );
+                local_tree.insert_with_outpoint(outpoint_hash, exec_outpoint(&outpoint), cell_meta_to_entry(&cell_meta));
                 effect.cell_diff.add_cell(outpoint, cell_meta);
                 local_replay.add_cell(cell_metadata_from_output(
                     blue_block,
@@ -780,27 +865,238 @@ impl VirtualStateProcessor {
         Ok(effect)
     }
 
+    #[cfg(feature = "vm")]
+    fn analyze_blue_block_resumable(
+        &self,
+        snapshot: &ExecutionSnapshot,
+        blue_block: Hash,
+        block_txs: &[spora_exec::CellTx],
+        blue_block_daa_score: u64,
+        limit_cycles: u64,
+    ) -> Result<BlueBlockExecutionResult, RuleError> {
+        self.analyze_blue_block_chunk(snapshot, blue_block, block_txs, blue_block_daa_score, None, limit_cycles)
+    }
+
+    #[cfg(feature = "vm")]
+    fn resume_analyze_blue_block_from_state(
+        &self,
+        snapshot: &ExecutionSnapshot,
+        blue_block: Hash,
+        block_txs: &[spora_exec::CellTx],
+        blue_block_daa_score: u64,
+        state: &BlueBlockExecutionState,
+        limit_cycles: u64,
+    ) -> Result<BlueBlockExecutionResult, RuleError> {
+        self.analyze_blue_block_chunk(snapshot, blue_block, block_txs, blue_block_daa_score, Some(state), limit_cycles)
+    }
+
+    #[cfg(feature = "vm")]
+    fn complete_blue_block_from_state(
+        &self,
+        snapshot: &ExecutionSnapshot,
+        blue_block: Hash,
+        block_txs: &[spora_exec::CellTx],
+        blue_block_daa_score: u64,
+        state: &BlueBlockExecutionState,
+        max_cycles: u64,
+    ) -> Result<BlockExecutionEffect, RuleError> {
+        match self.resume_analyze_blue_block_from_state(snapshot, blue_block, block_txs, blue_block_daa_score, state, max_cycles)? {
+            BlueBlockExecutionResult::Completed(effect) => Ok(effect),
+            BlueBlockExecutionResult::Suspended(next_state) => Err(RuleError::CellValidationError(format!(
+                "blue block analysis suspended before completion: block {}, tx index {}, total cycles {}, limit {}",
+                blue_block,
+                next_state.current,
+                next_state.current_cycles(),
+                max_cycles
+            ))),
+        }
+    }
+
+    #[cfg(feature = "vm")]
+    fn analyze_blue_block_chunk(
+        &self,
+        snapshot: &ExecutionSnapshot,
+        blue_block: Hash,
+        block_txs: &[spora_exec::CellTx],
+        blue_block_daa_score: u64,
+        state: Option<&BlueBlockExecutionState>,
+        limit_cycles: u64,
+    ) -> Result<BlueBlockExecutionResult, RuleError> {
+        let (mut effect, mut local_tree, mut local_replay, start_index) = if let Some(state) = state {
+            if state.current > block_txs.len() {
+                return Err(RuleError::CellValidationError(format!(
+                    "resumable blue-block analysis state out of range: current {}, tx count {}",
+                    state.current,
+                    block_txs.len()
+                )));
+            }
+            if state.current_cycles() > limit_cycles {
+                return Err(RuleError::CellValidationError(format!(
+                    "blue block analysis cycles exceeded limit while resuming: block {}, total {}, limit {}",
+                    blue_block,
+                    state.current_cycles(),
+                    limit_cycles
+                )));
+            }
+
+            (state.effect.clone(), state.local_tree.clone(), state.replay_ctx.clone(), state.current)
+        } else {
+            (
+                BlockExecutionEffect {
+                    block_hash: blue_block,
+                    block_daa_score: blue_block_daa_score,
+                    cell_diff: CellDiff::default(),
+                    accepted_tx_ids: Vec::new(),
+                    accepted_transactions: Vec::with_capacity(block_txs.len()),
+                    reward_data: self.build_block_reward_data(block_txs, blue_block_daa_score),
+                    consumed_cycles: 0,
+                    newly_processed_tx_ids: Vec::new(),
+                },
+                snapshot.cell_state_tree.clone(),
+                ReplayValidationContext {
+                    snapshot_pov: snapshot.snapshot_pov,
+                    current_daa_score: snapshot.current_daa_score,
+                    current_timestamp: snapshot.current_timestamp,
+                    params: snapshot.params.clone(),
+                    provider: snapshot.provider.clone(),
+                    accumulated_cycles: 0,
+                },
+                0,
+            )
+        };
+        let max_block_cycles = local_replay.params.max_block_cycles;
+
+        for tx_index in start_index..block_txs.len() {
+            let tx = &block_txs[tx_index];
+            let tx_id = tx.id();
+            let is_coinbase = tx_index == 0 && tx.is_coinbase();
+
+            if snapshot.processed_txs.contains(&tx_id.into()) {
+                continue;
+            }
+
+            if !is_coinbase {
+                let remaining_cycles = limit_cycles.saturating_sub(local_replay.accumulated_cycles);
+                let current_tx_state = state.filter(|state| state.current == tx_index).map(|state| &state.tx_script_state);
+                match local_replay.validate_tx_resumable(tx, current_tx_state, remaining_cycles)? {
+                    CellScriptVerifyResult::Completed(tx_cycles) => {
+                        local_replay.accumulated_cycles = local_replay.accumulated_cycles.saturating_add(tx_cycles);
+                        if local_replay.accumulated_cycles > max_block_cycles {
+                            break;
+                        }
+                    }
+                    CellScriptVerifyResult::Suspended(tx_script_state) => {
+                        return Ok(BlueBlockExecutionResult::Suspended(BlueBlockExecutionState::new(
+                            tx_index,
+                            effect,
+                            local_tree,
+                            local_replay,
+                            tx_script_state,
+                        )));
+                    }
+                }
+            }
+
+            effect.newly_processed_tx_ids.push(tx_id.into());
+            effect.accepted_tx_ids.push(tx_id.into());
+            effect.accepted_transactions.push(AcceptedTxEntry { transaction_id: tx_id.into(), index_within_block: tx_index as u32 });
+
+            let mut input_capacity = 0u64;
+            for input in &tx.inputs {
+                let outpoint = TransactionOutpoint { tx_hash: input.previous_output.tx_hash, index: input.previous_output.index };
+                let outpoint_hash = outpoint_to_hash(&outpoint);
+
+                if effect.cell_diff.remove.contains_key(&outpoint) {
+                    return Err(RuleError::DoubleSpendInSameBlock(outpoint));
+                }
+
+                let removed_entry = local_tree
+                    .remove(&outpoint_hash)
+                    .ok_or_else(|| RuleError::TxInContextFailed(tx_id.into(), TxRuleError::MissingTxOutpoints))?;
+                let removed_meta = cell_entry_to_meta(&outpoint, &removed_entry);
+                input_capacity = input_capacity
+                    .checked_add(removed_meta.capacity)
+                    .ok_or_else(|| RuleError::TxInContextFailed(tx_id.into(), TxRuleError::InputAmountOverflow))?;
+                if input_capacity > MAX_SAU {
+                    return Err(RuleError::TxInContextFailed(tx_id.into(), TxRuleError::InputAmountTooHigh));
+                }
+
+                if effect.cell_diff.add.remove(&removed_meta.out_point).is_none() {
+                    if effect.cell_diff.remove.insert(removed_meta.out_point.clone(), removed_meta).is_some() {
+                        return Err(RuleError::DoubleSpendInSameBlock(outpoint));
+                    }
+                }
+                local_replay.spend_cell(&input.previous_output)?;
+            }
+
+            let mut output_capacity = 0u64;
+            for (index, output) in tx.outputs.iter().enumerate() {
+                output_capacity = output_capacity
+                    .checked_add(output.capacity)
+                    .ok_or_else(|| RuleError::TxInContextFailed(tx_id.into(), TxRuleError::OutputsValueOverflow))?;
+                if output_capacity > MAX_SAU {
+                    return Err(RuleError::TxInContextFailed(tx_id.into(), TxRuleError::TotalTxOutTooHigh));
+                }
+
+                let outpoint = TransactionOutpoint { tx_hash: tx_id, index: index as u32 };
+                let outpoint_hash = outpoint_to_hash(&outpoint);
+
+                if local_tree.get(&outpoint_hash).is_some()
+                    || effect.cell_diff.add.contains_key(&outpoint)
+                    || effect.cell_diff.remove.contains_key(&outpoint)
+                {
+                    return Err(RuleError::CellValidationError(format!(
+                        "transaction {} tried to create duplicate outpoint {outpoint}",
+                        Hash::from_bytes(outpoint.tx_hash),
+                    )));
+                }
+
+                let type_hash = output.type_.as_ref().map(|ts| ts.hash());
+                let output_data = tx.outputs_data.get(index).map(|d| d.as_slice()).unwrap_or(&[]);
+                let data_hash = self.compute_data_hash(output_data);
+
+                let cell_meta = CellMeta {
+                    out_point: outpoint.clone(),
+                    capacity: output.capacity,
+                    data_bytes: output_data.len() as u64,
+                    lock_hash: output.lock.hash(),
+                    type_hash,
+                    data_hash,
+                    block_daa_score: blue_block_daa_score,
+                    is_cellbase: tx_index == 0 && tx.is_coinbase(),
+                };
+
+                local_tree.insert_with_outpoint(outpoint_hash, exec_outpoint(&outpoint), cell_meta_to_entry(&cell_meta));
+                effect.cell_diff.add_cell(outpoint, cell_meta);
+                local_replay.add_cell(cell_metadata_from_output(
+                    blue_block,
+                    blue_block_daa_score,
+                    tx_index == 0 && tx.is_coinbase(),
+                    tx_id,
+                    index as u32,
+                    output,
+                    output_data,
+                ))?;
+            }
+        }
+
+        effect.consumed_cycles = local_replay.accumulated_cycles;
+        Ok(BlueBlockExecutionResult::Completed(effect))
+    }
+
     /// Commit a [`BlockExecutionEffect`] produced by the pure analysis phase
     /// into the mutable [`CellProcessingContext`].
     ///
     /// This is the **only** place where shared mutable state is updated after
     /// the analysis functions run.  The separation ensures that analysis can
     /// be parallelised in the future while commits remain strictly sequential.
-    fn commit_execution_effect(
-        &self,
-        ctx: &mut CellProcessingContext,
-        effect: BlockExecutionEffect,
-    ) -> Result<(), RuleError> {
+    fn commit_execution_effect(&self, ctx: &mut CellProcessingContext, effect: BlockExecutionEffect) -> Result<(), RuleError> {
         // 1. Apply cell diff to the canonical state tree
         apply_cell_diff_to_tree(&mut ctx.cell_state_tree, &effect.cell_diff);
 
         // 2. Record per-block cell diff (if non-empty)
         if !effect.cell_diff.is_empty() {
-            ctx.block_cell_diffs.push(BlockCellDiff::new(
-                effect.block_hash,
-                effect.block_daa_score,
-                effect.cell_diff.clone(),
-            ));
+            ctx.block_cell_diffs.push(BlockCellDiff::new(effect.block_hash, effect.block_daa_score, effect.cell_diff.clone()));
         }
 
         // 3. Merge acceptance data
@@ -820,9 +1116,7 @@ impl VirtualStateProcessor {
         }
 
         // 6. Merge cell diff into the mergeset-level diff
-        ctx.mergeset_cell_diff
-            .with_diff_in_place(&effect.cell_diff)
-            .map_err(RuleError::CellValidationError)
+        ctx.mergeset_cell_diff.with_diff_in_place(&effect.cell_diff).map_err(RuleError::CellValidationError)
     }
 
     // ────────────────────────────────────────────────────────────────────────
@@ -872,6 +1166,169 @@ impl VirtualStateProcessor {
         }
 
         Ok(())
+    }
+
+    #[cfg(feature = "vm")]
+    fn process_selected_parent_coinbase(
+        &self,
+        ctx: &mut CellProcessingContext,
+        processed_txs: &mut HashSet<Hash>,
+        replay_validation: &mut ReplayValidationContext,
+    ) -> Result<(), RuleError> {
+        let selected_parent = ctx.ghostdag_data.selected_parent;
+        let selected_parent_txs = self.block_transactions_store.get(selected_parent).unwrap();
+        let selected_parent_daa_score = self.headers_store.get_daa_score(selected_parent).expect("selected parent header must exist");
+
+        let snapshot = ExecutionSnapshot::from_current_state(&ctx.cell_state_tree, processed_txs, replay_validation);
+        let sp_effect = self.analyze_selected_parent_coinbase(
+            &snapshot,
+            selected_parent,
+            selected_parent_txs.as_slice(),
+            selected_parent_daa_score,
+        )?;
+
+        for tx_id in &sp_effect.newly_processed_tx_ids {
+            processed_txs.insert(*tx_id);
+        }
+
+        self.apply_effect_to_overlay(replay_validation, &sp_effect, selected_parent, selected_parent_txs.as_slice())?;
+        self.commit_execution_effect(ctx, sp_effect)?;
+        Ok(())
+    }
+
+    #[cfg(feature = "vm")]
+    fn process_red_blocks(&self, ctx: &mut CellProcessingContext) -> Result<(), RuleError> {
+        let mergeset_reds = ctx.ghostdag_data.mergeset_reds.iter().copied().collect::<Vec<_>>();
+        for red_block in mergeset_reds {
+            let block_txs = self.block_transactions_store.get(red_block).unwrap();
+            let red_block_daa_score = self.headers_store.get_daa_score(red_block).expect("red block header must exist");
+            ensure_red_block_outputs_absent(&ctx.cell_state_tree, red_block, block_txs.as_slice())?;
+
+            ctx.mergeset_acceptance_data
+                .push(MergesetBlockAcceptanceData { block_hash: red_block, accepted_transactions: Vec::new() });
+
+            let mut red_effect = BlockExecutionEffect::empty(red_block, red_block_daa_score);
+            red_effect.reward_data = self.build_block_reward_data(block_txs.as_slice(), red_block_daa_score);
+            self.commit_execution_effect(ctx, red_effect)?;
+        }
+
+        Ok(())
+    }
+
+    #[cfg(feature = "vm")]
+    fn calculate_cell_state_blue_blocks_resumable(
+        &self,
+        ctx: &mut CellProcessingContext,
+        mut processed_txs: HashSet<Hash>,
+        mut replay_validation: ReplayValidationContext,
+        start_blue_block_index: usize,
+        current_block_state: Option<&BlueBlockExecutionState>,
+        limit_cycles: u64,
+    ) -> Result<CellStateCalculationResult, RuleError> {
+        let mergeset_blues = ctx.ghostdag_data.mergeset_blues.iter().copied().collect::<Vec<_>>();
+        for blue_block_index in start_blue_block_index..mergeset_blues.len() {
+            let blue_block = mergeset_blues[blue_block_index];
+            let block_txs = self.block_transactions_store.get(blue_block).unwrap();
+            let blue_block_daa_score = self.headers_store.get_daa_score(blue_block).expect("blue block header must exist");
+            let snapshot = ExecutionSnapshot::from_current_state(&ctx.cell_state_tree, &processed_txs, &replay_validation);
+
+            let result = if blue_block_index == start_blue_block_index {
+                match current_block_state {
+                    Some(block_state) => self.resume_analyze_blue_block_from_state(
+                        &snapshot,
+                        blue_block,
+                        block_txs.as_slice(),
+                        blue_block_daa_score,
+                        block_state,
+                        limit_cycles,
+                    )?,
+                    None => self.analyze_blue_block_resumable(
+                        &snapshot,
+                        blue_block,
+                        block_txs.as_slice(),
+                        blue_block_daa_score,
+                        limit_cycles,
+                    )?,
+                }
+            } else {
+                self.analyze_blue_block_resumable(&snapshot, blue_block, block_txs.as_slice(), blue_block_daa_score, limit_cycles)?
+            };
+
+            let effect = match result {
+                BlueBlockExecutionResult::Completed(effect) => effect,
+                BlueBlockExecutionResult::Suspended(block_state) => {
+                    return Ok(CellStateCalculationResult::Suspended(CellStateCalculationState::new(
+                        blue_block_index,
+                        processed_txs,
+                        replay_validation,
+                        block_state,
+                    )));
+                }
+            };
+
+            for tx_id in &effect.newly_processed_tx_ids {
+                processed_txs.insert(*tx_id);
+            }
+
+            self.apply_effect_to_overlay(&mut replay_validation, &effect, blue_block, block_txs.as_slice())?;
+            replay_validation.accumulated_cycles = effect.consumed_cycles;
+            self.commit_execution_effect(ctx, effect)?;
+        }
+
+        self.process_red_blocks(ctx)?;
+        Ok(CellStateCalculationResult::Completed)
+    }
+
+    #[cfg(feature = "vm")]
+    pub(super) fn calculate_cell_state_resumable(
+        &self,
+        ctx: &mut CellProcessingContext,
+        pov_daa_score: u64,
+        snapshot_pov: Hash,
+        current_timestamp: u64,
+        limit_cycles: u64,
+    ) -> Result<CellStateCalculationResult, RuleError> {
+        let mut processed_txs = HashSet::new();
+        let mut replay_validation =
+            self.build_replay_validation_context(snapshot_pov, ctx.ghostdag_data.selected_parent, pov_daa_score, current_timestamp);
+
+        self.process_selected_parent_coinbase(ctx, &mut processed_txs, &mut replay_validation)?;
+        self.calculate_cell_state_blue_blocks_resumable(ctx, processed_txs, replay_validation, 0, None, limit_cycles)
+    }
+
+    #[cfg(feature = "vm")]
+    pub(super) fn resume_calculate_cell_state_from_state(
+        &self,
+        ctx: &mut CellProcessingContext,
+        state: &CellStateCalculationState,
+        limit_cycles: u64,
+    ) -> Result<CellStateCalculationResult, RuleError> {
+        self.calculate_cell_state_blue_blocks_resumable(
+            ctx,
+            state.processed_txs.clone(),
+            state.replay_ctx.clone(),
+            state.blue_block_index,
+            Some(&state.block_state),
+            limit_cycles,
+        )
+    }
+
+    #[cfg(feature = "vm")]
+    pub(super) fn complete_calculate_cell_state_from_state(
+        &self,
+        ctx: &mut CellProcessingContext,
+        state: &CellStateCalculationState,
+        max_cycles: u64,
+    ) -> Result<(), RuleError> {
+        match self.resume_calculate_cell_state_from_state(ctx, state, max_cycles)? {
+            CellStateCalculationResult::Completed => Ok(()),
+            CellStateCalculationResult::Suspended(next_state) => Err(RuleError::CellValidationError(format!(
+                "cell state calculation suspended before completion: blue block index {}, total cycles {}, limit {}",
+                next_state.blue_block_index,
+                next_state.current_cycles(),
+                max_cycles
+            ))),
+        }
     }
 
     /// Calculate the Cell state for a block using the **layer-parallel
@@ -924,15 +1381,10 @@ impl VirtualStateProcessor {
 
         // ── STEP 1: Selected parent coinbase (analyze → commit) ──────
         let selected_parent_txs = self.block_transactions_store.get(selected_parent).unwrap();
-        let selected_parent_daa_score =
-            self.headers_store.get_daa_score(selected_parent).expect("selected parent header must exist");
+        let selected_parent_daa_score = self.headers_store.get_daa_score(selected_parent).expect("selected parent header must exist");
 
         // Phase 1 — Analyze: produce effect from immutable snapshot
-        let snapshot = ExecutionSnapshot::from_current_state(
-            &ctx.cell_state_tree,
-            &processed_txs,
-            &replay_validation,
-        );
+        let snapshot = ExecutionSnapshot::from_current_state(&ctx.cell_state_tree, &processed_txs, &replay_validation);
         let sp_effect = self.analyze_selected_parent_coinbase(
             &snapshot,
             selected_parent,
@@ -946,12 +1398,7 @@ impl VirtualStateProcessor {
         }
 
         // Sync overlay with the effect so subsequent blocks see these cells
-        self.apply_effect_to_overlay(
-            &mut replay_validation,
-            &sp_effect,
-            selected_parent,
-            selected_parent_txs.as_slice(),
-        )?;
+        self.apply_effect_to_overlay(&mut replay_validation, &sp_effect, selected_parent, selected_parent_txs.as_slice())?;
 
         // Phase 2 — Commit: apply effect to mutable context
         self.commit_execution_effect(ctx, sp_effect)?;
@@ -978,9 +1425,9 @@ impl VirtualStateProcessor {
         // so cell_root, accepted_tx_ids, mergeset_acceptance_data, and reward_data
         // are bitwise identical to the serial two-phase model.
         {
-            use rayon::prelude::*;
             use super::access_summary::BlockAccessSummary;
             use super::execution_dag::ExecutionDAG;
+            use rayon::prelude::*;
 
             // 2a. Collect all blue blocks' transactions, DAA scores, and access summaries
             let mergeset_blues = ctx.ghostdag_data.mergeset_blues.iter().copied().collect::<Vec<_>>();
@@ -989,8 +1436,7 @@ impl VirtualStateProcessor {
 
             for blue_block in &mergeset_blues {
                 let block_txs = self.block_transactions_store.get(*blue_block).unwrap();
-                let blue_block_daa_score =
-                    self.headers_store.get_daa_score(*blue_block).expect("blue block header must exist");
+                let blue_block_daa_score = self.headers_store.get_daa_score(*blue_block).expect("blue block header must exist");
 
                 let summary = BlockAccessSummary::from_block_txs(*blue_block, block_txs.as_slice());
                 summaries.push(summary);
@@ -1007,17 +1453,8 @@ impl VirtualStateProcessor {
                     let idx = layer[0];
                     let (blue_block, ref block_txs, blue_block_daa_score) = blue_block_data[idx];
 
-                    let snapshot = ExecutionSnapshot::from_current_state(
-                        &ctx.cell_state_tree,
-                        &processed_txs,
-                        &replay_validation,
-                    );
-                    let effect = self.analyze_blue_block(
-                        &snapshot,
-                        blue_block,
-                        block_txs.as_slice(),
-                        blue_block_daa_score,
-                    )?;
+                    let snapshot = ExecutionSnapshot::from_current_state(&ctx.cell_state_tree, &processed_txs, &replay_validation);
+                    let effect = self.analyze_blue_block(&snapshot, blue_block, block_txs.as_slice(), blue_block_daa_score)?;
 
                     // Update cross-block bookkeeping
                     for tx_id in &effect.newly_processed_tx_ids {
@@ -1025,12 +1462,7 @@ impl VirtualStateProcessor {
                     }
 
                     // Sync overlay for subsequent blocks
-                    self.apply_effect_to_overlay(
-                        &mut replay_validation,
-                        &effect,
-                        blue_block,
-                        block_txs.as_slice(),
-                    )?;
+                    self.apply_effect_to_overlay(&mut replay_validation, &effect, blue_block, block_txs.as_slice())?;
 
                     replay_validation.accumulated_cycles = effect.consumed_cycles;
 
@@ -1042,23 +1474,14 @@ impl VirtualStateProcessor {
                     // All blocks in this layer share the same frozen snapshot.
                     // They are analyzed concurrently on independent local copies,
                     // then committed sequentially in canonical order.
-                    let snapshot = ExecutionSnapshot::from_current_state(
-                        &ctx.cell_state_tree,
-                        &processed_txs,
-                        &replay_validation,
-                    );
+                    let snapshot = ExecutionSnapshot::from_current_state(&ctx.cell_state_tree, &processed_txs, &replay_validation);
 
                     // Parallel analysis via rayon par_iter
                     let effects: Result<Vec<BlockExecutionEffect>, RuleError> = layer
                         .par_iter()
                         .map(|&idx| {
                             let (blue_block, ref block_txs, blue_block_daa_score) = blue_block_data[idx];
-                            self.analyze_blue_block(
-                                &snapshot,
-                                blue_block,
-                                block_txs.as_slice(),
-                                blue_block_daa_score,
-                            )
+                            self.analyze_blue_block(&snapshot, blue_block, block_txs.as_slice(), blue_block_daa_score)
                         })
                         .collect();
                     let effects = effects?;
@@ -1097,12 +1520,7 @@ impl VirtualStateProcessor {
                         }
 
                         // Sync overlay
-                        self.apply_effect_to_overlay(
-                            &mut replay_validation,
-                            &final_effect,
-                            blue_block,
-                            block_txs.as_slice(),
-                        )?;
+                        self.apply_effect_to_overlay(&mut replay_validation, &final_effect, blue_block, block_txs.as_slice())?;
 
                         replay_validation.accumulated_cycles = final_effect.consumed_cycles;
 
@@ -1127,16 +1545,13 @@ impl VirtualStateProcessor {
         let mergeset_reds = ctx.ghostdag_data.mergeset_reds.iter().copied().collect::<Vec<_>>();
         for red_block in mergeset_reds {
             let block_txs = self.block_transactions_store.get(red_block).unwrap();
-            let red_block_daa_score =
-                self.headers_store.get_daa_score(red_block).expect("red block header must exist");
+            let red_block_daa_score = self.headers_store.get_daa_score(red_block).expect("red block header must exist");
             ensure_red_block_outputs_absent(&ctx.cell_state_tree, red_block, block_txs.as_slice())?;
 
             // Red blocks always get an acceptance data entry (even though empty)
             // to maintain parity with the original per-block acceptance tracking.
-            ctx.mergeset_acceptance_data.push(MergesetBlockAcceptanceData {
-                block_hash: red_block,
-                accepted_transactions: Vec::new(),
-            });
+            ctx.mergeset_acceptance_data
+                .push(MergesetBlockAcceptanceData { block_hash: red_block, accepted_transactions: Vec::new() });
 
             let mut red_effect = BlockExecutionEffect::empty(red_block, red_block_daa_score);
             red_effect.reward_data = self.build_block_reward_data(block_txs.as_slice(), red_block_daa_score);
@@ -1197,12 +1612,84 @@ impl VirtualStateProcessor {
 #[cfg(test)]
 mod tests {
     use super::ensure_red_block_outputs_absent;
+    #[cfg(feature = "vm")]
+    use super::{BlueBlockExecutionResult, ExecutionSnapshot};
     use crate::errors::RuleError;
     use crate::processes::utils::outpoint_to_hash;
+    #[cfg(feature = "vm")]
+    use crate::{config::ConfigBuilder, consensus::test_consensus::TestConsensus};
+    #[cfg(feature = "vm")]
+    use secp256k1::Keypair;
+    #[cfg(feature = "vm")]
+    use spora_addresses::{Address, Prefix};
     use spora_consensus_core::tx::TransactionOutpoint;
+    #[cfg(feature = "vm")]
+    use spora_consensus_core::{api::ConsensusApi, sign::sign, tx::pay_to_address_lock_script};
+    #[cfg(feature = "vm")]
+    use spora_consensus_core::{
+        block::{TemplateBuildMode, TemplateTransactionSelector},
+        coinbase::MinerData,
+        config::params::MAINNET_PARAMS,
+        tx::MutableTransaction,
+    };
     use spora_exec::{CellOutput, CellTx, OutPoint, Script};
     use spora_hashes::Hash;
     use spora_state::{CellEntry, CellStateTree};
+    #[cfg(feature = "vm")]
+    use std::collections::HashSet;
+
+    #[cfg(feature = "vm")]
+    struct OnetimeTxSelector {
+        txs: Option<Vec<CellTx>>,
+    }
+
+    #[cfg(feature = "vm")]
+    impl OnetimeTxSelector {
+        fn new(txs: Vec<CellTx>) -> Self {
+            Self { txs: Some(txs) }
+        }
+    }
+
+    #[cfg(feature = "vm")]
+    impl TemplateTransactionSelector for OnetimeTxSelector {
+        fn select_transactions(&mut self) -> Vec<CellTx> {
+            self.txs.take().unwrap_or_default()
+        }
+
+        fn reject_selection(&mut self, _tx_id: spora_consensus_core::tx::TransactionId) {}
+
+        fn is_successful(&self) -> bool {
+            true
+        }
+    }
+
+    #[cfg(feature = "vm")]
+    fn metadata_from_tx_output(
+        block_hash: Hash,
+        block_daa_score: u64,
+        is_cellbase: bool,
+        tx: &CellTx,
+        output_index: u32,
+    ) -> spora_consensus_core::cell_metadata::CellMetadata {
+        let output = &tx.outputs[output_index as usize];
+        let output_data = tx.outputs_data.get(output_index as usize).map(Vec::as_slice).unwrap_or(&[]);
+        spora_consensus_core::cell_metadata::CellMetadata {
+            out_point: TransactionOutpoint { tx_hash: tx.id(), index: output_index },
+            capacity: output.capacity,
+            data_bytes: output_data.len() as u64,
+            lock_hash: output.lock.hash(),
+            type_hash: output.type_.as_ref().map(|script| script.hash()),
+            data_hash: crate::processes::utils::compute_data_hash(output_data),
+            block_daa_score,
+            is_cellbase,
+            block_hash,
+            lock_code_hash: Some(output.lock.code_hash),
+            type_code_hash: output.type_.as_ref().map(|script| script.code_hash),
+            lock_script: Some(output.lock.clone()),
+            type_script: output.type_.clone(),
+            data: Some(output_data.to_vec()),
+        }
+    }
 
     #[test]
     fn outpoint_hash_distinguishes_transaction_id_and_index() {
@@ -1221,6 +1708,141 @@ mod tests {
         let same = TransactionOutpoint { tx_hash: tx.tx_hash, index: tx.index };
 
         assert_eq!(outpoint_to_hash(&consensus_outpoint), outpoint_to_hash(&same));
+    }
+
+    #[cfg(feature = "vm")]
+    #[tokio::test]
+    async fn analyze_blue_block_resumable_matches_direct_for_native_pubkey_candidate() {
+        let config = ConfigBuilder::new(MAINNET_PARAMS)
+            .skip_proof_of_work()
+            .edit_consensus_params(|params| {
+                params.coinbase_maturity = 0;
+            })
+            .build();
+        let consensus = TestConsensus::new(&config);
+        let wait_handles = consensus.init();
+        let virtual_processor = consensus.virtual_processor().clone();
+
+        let keypair = Keypair::from_seckey_slice(secp256k1::SECP256K1, &[0x71; 32]).expect("valid secret key");
+        let pubkey = keypair.public_key().x_only_public_key().0.serialize();
+        let address = Address::new_std_single(Prefix::Testnet, &pubkey).expect("valid address");
+        let lock_script = pay_to_address_lock_script(&address);
+        let miner_data = MinerData::new(lock_script.clone(), vec![]);
+
+        let warmup = consensus
+            .build_block_template(miner_data.clone(), Box::new(OnetimeTxSelector::new(vec![])), TemplateBuildMode::Standard)
+            .unwrap();
+        consensus.validate_and_insert_block(warmup.block.to_immutable()).virtual_state_task.await.unwrap();
+
+        let funding = consensus
+            .build_block_template(miner_data.clone(), Box::new(OnetimeTxSelector::new(vec![])), TemplateBuildMode::Standard)
+            .unwrap();
+        let funding_coinbase = funding.block.transactions[0].clone();
+        let funding_block_hash = funding.block.header.hash;
+        let funding_block_daa = funding.block.header.daa_score;
+        consensus.validate_and_insert_block(funding.block.to_immutable()).virtual_state_task.await.unwrap();
+
+        let staging = consensus
+            .build_block_template(miner_data.clone(), Box::new(OnetimeTxSelector::new(vec![])), TemplateBuildMode::Standard)
+            .unwrap();
+        consensus.validate_and_insert_block(staging.block.to_immutable()).virtual_state_task.await.unwrap();
+
+        let input_outpoint = OutPoint::new(funding_coinbase.id(), 0);
+        let spend_capacity = funding_coinbase.outputs[0].capacity.checked_sub(1_000).expect("coinbase output should be large enough");
+        let unsigned_tx = CellTx::new(
+            vec![spora_exec::CellInput::new(input_outpoint, 0)],
+            vec![],
+            vec![CellOutput { lock: lock_script.clone(), type_: None, capacity: spend_capacity }],
+            vec![vec![]],
+            vec![vec![]],
+        )
+        .unwrap();
+        let resolved_input = metadata_from_tx_output(funding_block_hash, funding_block_daa, true, &funding_coinbase, 0);
+        let signed_tx = sign(MutableTransaction::with_resolved_metadata(unsigned_tx, vec![resolved_input]), keypair).tx;
+
+        let template = consensus
+            .build_block_template(miner_data, Box::new(OnetimeTxSelector::new(vec![signed_tx.clone()])), TemplateBuildMode::Standard)
+            .expect("standard mode should accept native stdsingle candidate");
+        let block = template.block.to_immutable();
+        let selected_parent = block.header.direct_parents()[0];
+        let virtual_state = virtual_processor.lkg_virtual_state.load();
+        let replay_ctx = virtual_processor.build_replay_validation_context(
+            selected_parent,
+            selected_parent,
+            block.header.daa_score,
+            block.header.timestamp,
+        );
+        let snapshot = ExecutionSnapshot::from_current_state(&virtual_state.cell_state_tree, &HashSet::new(), &replay_ctx);
+
+        let direct = virtual_processor
+            .analyze_blue_block(&snapshot, block.hash(), block.transactions.as_slice(), block.header.daa_score)
+            .expect("direct blue block analysis should succeed");
+        let initial = virtual_processor
+            .analyze_blue_block_resumable(&snapshot, block.hash(), block.transactions.as_slice(), block.header.daa_score, 1)
+            .expect("initial resumable analysis should succeed");
+        let state = match initial {
+            BlueBlockExecutionResult::Suspended(state) => state,
+            BlueBlockExecutionResult::Completed(effect) => {
+                panic!("expected suspension for tiny cycle budget, got completed effect with {} cycles", effect.consumed_cycles)
+            }
+        };
+        assert_eq!(state.current, 1, "candidate block should suspend on the first non-coinbase tx");
+        let current_cycles = state.current_cycles();
+        assert!(current_cycles <= direct.consumed_cycles, "suspended cycles must not exceed the completed direct budget");
+        let (next_limit, exhausted) = state.next_limit_cycles(1, direct.consumed_cycles.saturating_add(1));
+        assert!(
+            exhausted || next_limit >= current_cycles,
+            "resumable limit progression must stay monotonic even when the budget is exhausted"
+        );
+        assert!(next_limit >= current_cycles, "next resumable limit must not move backwards");
+
+        let resumed = virtual_processor
+            .resume_analyze_blue_block_from_state(
+                &snapshot,
+                block.hash(),
+                block.transactions.as_slice(),
+                block.header.daa_score,
+                &state,
+                direct.consumed_cycles,
+            )
+            .expect("resumed blue block analysis should succeed");
+        let resumed_effect = match resumed {
+            BlueBlockExecutionResult::Completed(effect) => effect,
+            BlueBlockExecutionResult::Suspended(next_state) => virtual_processor
+                .complete_blue_block_from_state(
+                    &snapshot,
+                    block.hash(),
+                    block.transactions.as_slice(),
+                    block.header.daa_score,
+                    &next_state,
+                    direct.consumed_cycles,
+                )
+                .expect("complete blue block analysis from resumed state"),
+        };
+
+        assert_eq!(resumed_effect.block_hash, direct.block_hash);
+        assert_eq!(resumed_effect.block_daa_score, direct.block_daa_score);
+        assert_eq!(resumed_effect.accepted_tx_ids, direct.accepted_tx_ids);
+        assert_eq!(resumed_effect.newly_processed_tx_ids, direct.newly_processed_tx_ids);
+        assert_eq!(resumed_effect.consumed_cycles, direct.consumed_cycles);
+        assert_eq!(resumed_effect.cell_diff.add, direct.cell_diff.add);
+        assert_eq!(resumed_effect.cell_diff.remove, direct.cell_diff.remove);
+        assert_eq!(resumed_effect.accepted_transactions.len(), direct.accepted_transactions.len());
+        for (lhs, rhs) in resumed_effect.accepted_transactions.iter().zip(direct.accepted_transactions.iter()) {
+            assert_eq!(lhs.transaction_id, rhs.transaction_id);
+            assert_eq!(lhs.index_within_block, rhs.index_within_block);
+        }
+        match (&resumed_effect.reward_data, &direct.reward_data) {
+            (Some(lhs), Some(rhs)) => {
+                assert_eq!(lhs.subsidy, rhs.subsidy);
+                assert_eq!(lhs.total_fees, rhs.total_fees);
+                assert_eq!(lhs.lock_script.hash(), rhs.lock_script.hash());
+            }
+            (None, None) => {}
+            other => panic!("reward_data mismatch: {other:?}"),
+        }
+
+        consensus.shutdown(wait_handles);
     }
 
     #[test]
