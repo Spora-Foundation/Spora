@@ -857,14 +857,22 @@ impl<'a> Parser<'a> {
         let name = self.parse_name()?;
 
         let params = self.parse_params()?;
-        if self.check(&TokenKind::Arrow) {
+        let return_type = if self.check(&TokenKind::Arrow) {
             self.advance();
-            let _ = self.parse_type()?;
-        }
+            self.parse_type()?
+        } else {
+            Type::Bool
+        };
         let body = self.parse_block()?;
 
         let end_span = self.current().span;
-        Ok(LockDef { name, params, body, span: Span::new(start_span.start, end_span.end, start_span.line, start_span.column) })
+        Ok(LockDef {
+            name,
+            params,
+            return_type,
+            body,
+            span: Span::new(start_span.start, end_span.end, start_span.line, start_span.column),
+        })
     }
 
     /// 解析参数列表
@@ -937,17 +945,17 @@ impl<'a> Parser<'a> {
     /// 解析语句
     fn parse_stmt(&mut self) -> Result<Stmt> {
         let stmt = match &self.current().kind {
-            TokenKind::Let => Ok(Stmt::Let(self.parse_let()?)),
-            TokenKind::Return => Ok(Stmt::Return(self.parse_return()?)),
-            TokenKind::If => Ok(Stmt::If(self.parse_if()?)),
-            TokenKind::For => Ok(Stmt::For(self.parse_for()?)),
-            TokenKind::While => Ok(Stmt::While(self.parse_while()?)),
+            TokenKind::Let => Stmt::Let(self.parse_let()?),
+            TokenKind::Return => Stmt::Return(self.parse_return()?),
+            TokenKind::If => Stmt::If(self.parse_if()?),
+            TokenKind::For => Stmt::For(self.parse_for()?),
+            TokenKind::While => Stmt::While(self.parse_while()?),
             _ => {
                 // 尝试解析表达式语句
                 let expr = self.parse_expr()?;
-                Ok(Stmt::Expr(expr))
+                Stmt::Expr(expr)
             }
-        }?;
+        };
         self.consume_optional_semi();
         Ok(stmt)
     }
@@ -1396,9 +1404,11 @@ impl<'a> Parser<'a> {
             }
             TokenKind::Create => self.parse_create(),
             TokenKind::Consume => self.parse_consume(),
+            TokenKind::TransferKw => self.parse_transfer(),
             TokenKind::DestroyKw => self.parse_destroy(),
             TokenKind::Claim => self.parse_claim(),
             TokenKind::Settle => self.parse_settle(),
+            TokenKind::ReadRef => self.parse_read_ref_expr(),
             TokenKind::If => self.parse_if_expr(),
             TokenKind::Match => self.parse_match_expr(),
             TokenKind::Assert => self.parse_assert(),
@@ -1538,6 +1548,47 @@ impl<'a> Parser<'a> {
         let end_span = self.current().span;
         Ok(Expr::Destroy(DestroyExpr {
             expr: Box::new(expr),
+            span: Span::new(start_span.start, end_span.end, start_span.line, start_span.column),
+        }))
+    }
+
+    fn parse_read_ref_expr(&mut self) -> Result<Expr> {
+        let start_span = self.current().span;
+        self.expect(TokenKind::ReadRef)?;
+
+        let ty = if self.check(&TokenKind::Lt) {
+            self.advance();
+            let ty = self.parse_type()?;
+            self.expect(TokenKind::Gt)?;
+            Self::render_type(&ty)
+        } else {
+            Self::render_type(&self.parse_type()?)
+        };
+
+        if self.check(&TokenKind::LParen) {
+            self.advance();
+            self.expect(TokenKind::RParen)?;
+        }
+
+        let end_span = self.current().span;
+        Ok(Expr::ReadRef(ReadRefExpr { ty, span: Span::new(start_span.start, end_span.end, start_span.line, start_span.column) }))
+    }
+
+    fn parse_transfer(&mut self) -> Result<Expr> {
+        let start_span = self.current().span;
+        self.expect(TokenKind::TransferKw)?;
+
+        let expr = self.parse_expr()?;
+        let marker = self.parse_name_path()?;
+        if marker != "to" {
+            return Err(CompileError::new("expected 'to' in transfer expression", self.current().span));
+        }
+        let to = self.parse_expr()?;
+
+        let end_span = self.current().span;
+        Ok(Expr::Transfer(TransferExpr {
+            expr: Box::new(expr),
+            to: Box::new(to),
             span: Span::new(start_span.start, end_span.end, start_span.line, start_span.column),
         }))
     }

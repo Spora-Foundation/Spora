@@ -1,6 +1,6 @@
 # CellScript
 
-CellScript 是 Spora 区块链的领域特定语言 (DSL)，当前处于 **MVP 编译器** 阶段。
+CellScript 是 Spora 区块链的领域特定语言 (DSL)，当前处于 **可工作的编译器/工具链推进阶段**：核心编译链、部分 CKB-style runtime lowering、元数据、CLI、格式化、docgen、package、test、Wasm scaffold 和 IDE/LSP scaffold 均已落地，但还不能称为完整生产级 stateful contract language。
 
 实现状态快照见：
 [CELLSCRIPT_IMPLEMENTATION_STATUS.md](/Users/arthur/RustroverProjects/Spora/docs/CELLSCRIPT_IMPLEMENTATION_STATUS.md)
@@ -12,6 +12,9 @@ CellScript 是 Spora 区块链的领域特定语言 (DSL)，当前处于 **MVP �
 - **效果与调度标注**: 支持 `#[effect]`、`#[scheduler_hint]` 等前端语法并进入部分 lowering
 - **包感知编译**: 支持单文件、包目录、`Cell.toml`、本地 `path` 依赖和 `source_roots`
 - **RISC-V 产物**: 支持 `riscv64-asm` 和 `riscv64-elf`
+- **审计元数据**: 编译时输出 lowering/runtime/scheduler JSON sidecar，也可通过 `cellc metadata` 直接查看
+- **Schema 布局元数据**: 输出类型字段 offset / fixed encoded size；命名入参、`consume` 输入和 `read_ref<T>()` 上的固定标量字段 (`bool/u8/u16/u32/u64`) 可 lowered 到无对齐要求的 little-endian byte-load 组合；从 cell bytes 加载的路径带 loaded-byte bounds check
+- **Create 输出字段验证**: 简单 `create Type { scalar_field: const_or_param }` 会生成 `LOAD_CELL Source::Output`、bounds check 和字段相等性检查；`u64` 字段额外支持 consumed-input alias 和左结合 `+/-` 链
 
 ## 当前状态
 
@@ -20,14 +23,33 @@ CellScript 是 Spora 区块链的领域特定语言 (DSL)，当前处于 **MVP �
 - `cellc` 主入口编译器
 - `lex / parse / compile` 主链
 - `RISC-V assembly` 与 `RISC-V ELF` 产物
+- 命名 schema 入参的固定标量字段访问 ELF lowering；该 ABI 当前只有 pointer，没有 length，因此入口参数字段访问没有 runtime bounds check
+- `consume token` 的输入 Cell 预加载，以及 `token.scalar_field` 的 loaded-byte bounds check
+- `read_ref<T>().scalar_field` 的 CKB-runtime ELF lowering，包含 `LOAD_CELL Source::CellDep` 和 loaded-byte bounds check
+- 简单 `create` 输出固定标量字段的 assembly verifier prelude
+- 简单 `consume input.u64_field -> create output.u64_field` 等值守恒检查的 assembly verifier prelude
+- 简单 `consume input.u64_field +/- const_or_param_or_local_const +/- ... -> create output.u64_field` 左结合算术链检查的 assembly verifier prelude
 - 本地包加载与 examples / CLI / library 回归测试
+- `build` / `check` / `doc` / `fmt` / `metadata` / compile-test 子命令
+- feature-gated `cellc run` 无参纯 ELF CKB-VM runner
 
 当前还不能视为完成的有：
 
-- 完整子命令工作流 (`cellc build/test/doc/fmt/...`)
-- WebAssembly 主目标
-- 完整 LSP / 优化器 / 文档生成器 / 包管理器生态
-- 复杂控制流、资源副作用和所有语言构造的完整 lowering
+- WebAssembly executable 主目标
+- 完整生产级 LSP / 优化器 / 包注册表生态
+- `consume` 加载 cell bytes 后的完整 resource conservation / state-transition verification
+- `create` 的完整 resource-handle / lock / type script / state-transition verification
+- `read_ref` 的广义 schema decoding，目前只支持固定标量字段；nested/dynamic schema 仍未完成
+- 资源副作用、witness binding 和所有 stateful 构造的完整 executable lowering
+- runtime/property/fuzz/invariant 测试执行器
+
+说明：
+
+- `publish` / `install` / `update` / `login` 等注册表命令仍会明确拒绝执行，而不是伪装成成功。
+- `cellc test` 当前是 compile-test harness，会发现并编译 `tests/**/*.cell`；它还不是可信 runtime/property 测试执行器。
+- `src/wasm/` 现在参与编译和测试，但对 `action` / `lock` executable lowering 明确 fail-closed。
+- 当前 schema lowering 只覆盖命名 action/lock 入参、`consume` 输入、`read_ref<T>()` 和简单 `create` output 上的固定宽度标量字段。字段读取使用 byte-wise little-endian 组合，避免 Borsh 紧凑布局导致的非对齐 load；输入到输出的守恒仍只覆盖 `u64` 字段别名和左结合 `+/- const_or_param_or_local_const` 链，并支持简单 move/alias 传播。其他 cell-derived 字段访问仍然 fail-closed，不能当作完整状态 decoding。
+- `cellc run` 不会运行带 entrypoint 参数或 CKB syscall runtime 需求的 ELF；这类 artifact 需要真实交易/ABI/syscall 上下文。
 
 ## 快速开始
 
@@ -86,7 +108,43 @@ cellc examples/token.cell --parse
 | `-i` / `--interactive` | 启动 REPL |
 | `--gen-stdlib` | 输出标准库汇编 |
 
-`cellscript/src/cli/` 下存在更完整的子命令骨架，但当前主入口仍是 [cellscript/src/main.rs](/Users/arthur/RustroverProjects/Spora/cellscript/src/main.rs) 这条编译路径。
+| 子命令 | 状态 |
+|------|------|
+| `cellc build` | 编译当前包并写入 artifact + metadata |
+| `cellc check` | 类型检查 / lowering 检查，不写 artifact |
+| `cellc doc --format markdown|html|json` | 从包源生成文档 |
+| `cellc fmt [--check]` | 格式化包源或指定文件 |
+| `cellc metadata [INPUT]` | 输出 lowering/runtime/scheduler JSON |
+| `cellc test [--no-run]` | 发现并编译 `tests/**/*.cell` |
+| `cellc run` | 需要 `vm-runner` feature；仅支持无参纯 ELF 路径 |
+| `publish/install/update/login` | 注册表生态未完成，fail-closed |
+
+## 编辑器支持
+
+仓库现在包含一个薄层 VS Code 扩展骨架，用于 `.cell` 语法高亮、语言配置和基础 snippets：
+
+- [cellscript/editors/vscode-cellscript](/Users/arthur/RustroverProjects/Spora/cellscript/editors/vscode-cellscript)
+
+它当前覆盖：
+
+- `.cell` 文件关联
+- TextMate 语法高亮
+- 注释 / 括号 / 自动闭合配置
+- 基础模板片段
+- 本地 `npm run validate` / `npm run package` 骨架
+- 基于 `cellc` 的基础诊断
+- 与 in-crate LSP 对齐的格式化 / hover / definition / references 方向
+- action hover 中展示 lowering metadata、ELF 兼容性、symbolic runtime features 和 CKB access summary
+- diagnostics 中提示 ELF-incompatible symbolic runtime action
+- code actions 中给出查看 `cellc metadata` 和临时使用 asm target 的建议
+
+它当前仍不承诺：
+
+- rename
+- 完整跨包语义索引
+- 调试器或完整 LSP 体验
+
+`src/lsp/` 现在有最小真实路径并参与测试，但仍不是成熟语言服务器。
 
 ## 语言特性
 
@@ -169,7 +227,7 @@ RISC-V Assembly / RISC-V ELF
 
 说明：
 
-- `Optimizer`/`Wasm` 相关模块目前不属于稳定主路径。
+- `Optimizer`/`Wasm` 相关模块目前不属于稳定 executable 主路径；`wasm` 模块会 fail-closed，避免隐藏过期后端。
 - 当前最可信的链路是 `Lexer -> Parser -> Type Checker -> Linear Check -> 最小 IR -> Codegen -> asm/elf`。
 
 ## 贡献

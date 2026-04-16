@@ -6,6 +6,7 @@
 use super::utils::store_data;
 use super::{LOAD_SCRIPT_HASH_SYSCALL_NUMBER, LOAD_SCRIPT_SYSCALL_NUMBER};
 use crate::celltx::Script;
+use crate::serialization::vm_abi::serialize_script;
 use crate::vm::transferred_byte_cycles;
 use ckb_vm::{
     registers::{A0, A7},
@@ -28,16 +29,8 @@ impl LoadScript {
     }
 
     fn serialize_script(&self) -> Vec<u8> {
-        let mut data = Vec::new();
-        // code_hash (32 bytes)
-        data.extend_from_slice(&self.script.code_hash);
-        // hash_type (1 byte)
-        data.push(self.script.hash_type);
-        // args length (4 bytes)
-        data.extend_from_slice(&(self.script.args.len() as u32).to_le_bytes());
-        // args
-        data.extend_from_slice(&self.script.args);
-        data
+        // Use standardized VM ABI serialization
+        serialize_script(&self.script)
     }
 }
 

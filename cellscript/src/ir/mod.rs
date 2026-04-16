@@ -46,6 +46,7 @@ pub struct IrField {
     pub name: String,
     pub ty: IrType,
     pub offset: usize,
+    pub fixed_size: Option<usize>,
 }
 
 /// IR 类型
@@ -171,7 +172,7 @@ pub enum IrInstruction {
     /// 创建资源
     Create { dest: IrVar, pattern: CreatePattern },
     /// 转移资源
-    Transfer { operand: IrOperand, to: IrOperand },
+    Transfer { dest: IrVar, operand: IrOperand, to: IrOperand },
     /// 销毁资源
     Destroy { operand: IrOperand },
     /// 声明收据
@@ -259,6 +260,7 @@ pub struct IrGenerator {
     block_counter: usize,
     aggregate_fields: HashMap<usize, HashMap<String, IrVar>>,
     type_fields: HashMap<String, HashMap<String, IrType>>,
+    type_kinds: HashMap<String, IrTypeKind>,
     enum_variants: HashMap<String, HashMap<String, u64>>,
     constants: HashMap<String, Expr>,
     errors: Vec<CompileError>,
@@ -278,6 +280,7 @@ impl IrGenerator {
             block_counter: 0,
             aggregate_fields: HashMap::new(),
             type_fields: HashMap::new(),
+            type_kinds: HashMap::new(),
             enum_variants: HashMap::new(),
             constants: HashMap::new(),
             errors: Vec::new(),
@@ -298,24 +301,28 @@ impl IrGenerator {
             }
             match item {
                 Item::Resource(r) => {
+                    self.type_kinds.insert(r.name.clone(), IrTypeKind::Resource);
                     self.type_fields.insert(
                         r.name.clone(),
                         r.fields.iter().map(|field| (field.name.clone(), self.convert_type(&field.ty))).collect(),
                     );
                 }
                 Item::Shared(s) => {
+                    self.type_kinds.insert(s.name.clone(), IrTypeKind::Shared);
                     self.type_fields.insert(
                         s.name.clone(),
                         s.fields.iter().map(|field| (field.name.clone(), self.convert_type(&field.ty))).collect(),
                     );
                 }
                 Item::Receipt(r) => {
+                    self.type_kinds.insert(r.name.clone(), IrTypeKind::Receipt);
                     self.type_fields.insert(
                         r.name.clone(),
                         r.fields.iter().map(|field| (field.name.clone(), self.convert_type(&field.ty))).collect(),
                     );
                 }
                 Item::Struct(s) => {
+                    self.type_kinds.insert(s.name.clone(), IrTypeKind::Struct);
                     self.type_fields.insert(
                         s.name.clone(),
                         s.fields.iter().map(|field| (field.name.clone(), self.convert_type(&field.ty))).collect(),
@@ -377,11 +384,7 @@ impl IrGenerator {
         IrTypeDef {
             name: resource.name.clone(),
             kind: IrTypeKind::Resource,
-            fields: resource
-                .fields
-                .iter()
-                .map(|f| IrField { name: f.name.clone(), ty: self.convert_type(&f.ty), offset: 0 })
-                .collect(),
+            fields: self.layout_fields(&resource.fields),
             capabilities: resource.capabilities.clone(),
         }
     }
@@ -391,7 +394,7 @@ impl IrGenerator {
         IrTypeDef {
             name: shared.name.clone(),
             kind: IrTypeKind::Shared,
-            fields: shared.fields.iter().map(|f| IrField { name: f.name.clone(), ty: self.convert_type(&f.ty), offset: 0 }).collect(),
+            fields: self.layout_fields(&shared.fields),
             capabilities: shared.capabilities.clone(),
         }
     }
@@ -401,7 +404,7 @@ impl IrGenerator {
         IrTypeDef {
             name: receipt.name.clone(),
             kind: IrTypeKind::Receipt,
-            fields: receipt.fields.iter().map(|f| IrField { name: f.name.clone(), ty: self.convert_type(&f.ty), offset: 0 }).collect(),
+            fields: self.layout_fields(&receipt.fields),
             capabilities: receipt.capabilities.clone(),
         }
     }
@@ -411,12 +414,36 @@ impl IrGenerator {
         IrTypeDef {
             name: struct_def.name.clone(),
             kind: IrTypeKind::Struct,
-            fields: struct_def
-                .fields
-                .iter()
-                .map(|f| IrField { name: f.name.clone(), ty: self.convert_type(&f.ty), offset: 0 })
-                .collect(),
+            fields: self.layout_fields(&struct_def.fields),
             capabilities: Vec::new(),
+        }
+    }
+
+    fn layout_fields(&self, fields: &[Field]) -> Vec<IrField> {
+        let mut next_offset = Some(0usize);
+        fields
+            .iter()
+            .map(|field| {
+                let ty = self.convert_type(&field.ty);
+                let fixed_size = self.fixed_encoded_size(&ty);
+                let offset = next_offset.unwrap_or(0);
+                next_offset = next_offset.and_then(|current| fixed_size.map(|size| current + size));
+                IrField { name: field.name.clone(), ty, offset, fixed_size }
+            })
+            .collect()
+    }
+
+    fn fixed_encoded_size(&self, ty: &IrType) -> Option<usize> {
+        match ty {
+            IrType::U8 | IrType::Bool => Some(1),
+            IrType::U16 => Some(2),
+            IrType::U32 => Some(4),
+            IrType::U64 => Some(8),
+            IrType::U128 => Some(16),
+            IrType::Address | IrType::Hash => Some(32),
+            IrType::Array(inner, len) => self.fixed_encoded_size(inner).map(|inner_size| inner_size * len),
+            IrType::Tuple(items) => items.iter().try_fold(0usize, |acc, item| self.fixed_encoded_size(item).map(|size| acc + size)),
+            IrType::Named(_) | IrType::Ref(_) | IrType::MutRef(_) => None,
         }
     }
 
@@ -429,6 +456,8 @@ impl IrGenerator {
 
         // 分析效果类别
         let effect_class = self.analyze_effect_class(action);
+        let touches_shared = self.infer_touches_shared(&body);
+        let estimated_cycles = self.estimate_cycles(&body);
 
         IrAction {
             name: action.name.clone(),
@@ -445,10 +474,10 @@ impl IrGenerator {
                 .as_ref()
                 .map(|hint| SchedulerHints {
                     parallelizable: hint.parallelizable,
-                    touches_shared: Vec::new(),
-                    estimated_cycles: hint.estimated_cycles,
+                    touches_shared: touches_shared.clone(),
+                    estimated_cycles: hint.estimated_cycles.max(estimated_cycles),
                 })
-                .unwrap_or_default(),
+                .unwrap_or(SchedulerHints { parallelizable: touches_shared.is_empty(), touches_shared, estimated_cycles }),
         }
     }
 
@@ -540,6 +569,22 @@ impl IrGenerator {
         match expr {
             Expr::Consume(_) => *has_consume = true,
             Expr::Create(_) => *has_create = true,
+            Expr::Transfer(transfer) => {
+                *has_consume = true;
+                *has_create = true;
+                self.check_expr_effects(&transfer.expr, has_consume, has_create);
+                self.check_expr_effects(&transfer.to, has_consume, has_create);
+            }
+            Expr::Claim(claim) => {
+                *has_consume = true;
+                *has_create = true;
+                self.check_expr_effects(&claim.receipt, has_consume, has_create);
+            }
+            Expr::Settle(settle) => {
+                *has_consume = true;
+                *has_create = true;
+                self.check_expr_effects(&settle.expr, has_consume, has_create);
+            }
             Expr::Assign(assign) => {
                 self.check_expr_effects(&assign.target, has_consume, has_create);
                 self.check_expr_effects(&assign.value, has_consume, has_create);
@@ -629,8 +674,133 @@ impl IrGenerator {
         let mut blocks = Vec::new();
         let entry = self.push_block(&mut blocks);
         let _ = self.lower_stmts(stmts, entry, &mut blocks, &mut vars);
+        let consume_set = self.collect_consume_patterns(&blocks);
+        let read_refs = self.collect_read_ref_patterns(&blocks);
+        let create_set = self.collect_create_patterns(&blocks);
 
-        (ir_params, IrBody { consume_set: Vec::new(), read_refs: Vec::new(), create_set: Vec::new(), blocks })
+        (ir_params, IrBody { consume_set, read_refs, create_set, blocks })
+    }
+
+    fn collect_consume_patterns(&self, blocks: &[IrBlock]) -> Vec<CellPattern> {
+        let mut patterns = Vec::new();
+        for block in blocks {
+            for instruction in &block.instructions {
+                if let IrInstruction::Consume { operand } = instruction {
+                    if let Some(pattern) = self.cell_pattern_from_operand(operand) {
+                        patterns.push(pattern);
+                    }
+                } else if let IrInstruction::Transfer { operand, .. } = instruction {
+                    if let Some(pattern) = self.cell_pattern_from_operand(operand) {
+                        patterns.push(pattern);
+                    }
+                } else if let IrInstruction::Claim { receipt, .. } = instruction {
+                    if let Some(pattern) = self.cell_pattern_from_operand(receipt) {
+                        patterns.push(pattern);
+                    }
+                } else if let IrInstruction::Settle { operand } = instruction {
+                    if let Some(pattern) = self.cell_pattern_from_operand(operand) {
+                        patterns.push(pattern);
+                    }
+                }
+            }
+        }
+        patterns
+    }
+
+    fn collect_read_ref_patterns(&self, blocks: &[IrBlock]) -> Vec<CellPattern> {
+        let mut patterns = Vec::new();
+        for block in blocks {
+            for instruction in &block.instructions {
+                if let IrInstruction::ReadRef { dest, ty } = instruction {
+                    patterns.push(CellPattern {
+                        type_hash: Some(type_hash_for_name(ty)),
+                        binding: dest.name.clone(),
+                        fields: Vec::new(),
+                    });
+                }
+            }
+        }
+        patterns
+    }
+
+    fn collect_create_patterns(&self, blocks: &[IrBlock]) -> Vec<CreatePattern> {
+        let mut patterns = Vec::new();
+        for block in blocks {
+            for instruction in &block.instructions {
+                if let IrInstruction::Create { pattern, .. } = instruction {
+                    patterns.push(pattern.clone());
+                } else if let IrInstruction::Transfer { dest, .. } = instruction {
+                    if let Some(pattern) = self.create_pattern_from_var(dest) {
+                        patterns.push(pattern);
+                    }
+                } else if let IrInstruction::Claim { dest, .. } = instruction {
+                    if let Some(pattern) = self.create_pattern_from_var(dest) {
+                        patterns.push(pattern);
+                    }
+                }
+            }
+        }
+        patterns
+    }
+
+    fn cell_pattern_from_operand(&self, operand: &IrOperand) -> Option<CellPattern> {
+        let IrOperand::Var(var) = operand else {
+            return None;
+        };
+        let type_name = match &var.ty {
+            IrType::Named(name) => Some(name.as_str()),
+            IrType::Ref(inner) | IrType::MutRef(inner) => match inner.as_ref() {
+                IrType::Named(name) => Some(name.as_str()),
+                _ => None,
+            },
+            _ => None,
+        }?;
+        Some(CellPattern { type_hash: Some(type_hash_for_name(type_name)), binding: var.name.clone(), fields: Vec::new() })
+    }
+
+    fn create_pattern_from_var(&self, var: &IrVar) -> Option<CreatePattern> {
+        let type_name = match &var.ty {
+            IrType::Named(name) => Some(name.as_str()),
+            IrType::Ref(inner) | IrType::MutRef(inner) => match inner.as_ref() {
+                IrType::Named(name) => Some(name.as_str()),
+                _ => None,
+            },
+            _ => None,
+        }?;
+        Some(CreatePattern { ty: type_name.to_string(), binding: var.name.clone(), fields: Vec::new(), lock: None })
+    }
+
+    fn infer_touches_shared(&self, body: &IrBody) -> Vec<[u8; 32]> {
+        let shared_hashes = self
+            .type_kinds
+            .iter()
+            .filter_map(|(name, kind)| (*kind == IrTypeKind::Shared).then_some(type_hash_for_name(name)))
+            .collect::<Vec<_>>();
+        let mut hashes = Vec::new();
+        for pattern in body.read_refs.iter().chain(body.consume_set.iter()) {
+            if let Some(type_hash) = pattern.type_hash {
+                if shared_hashes.contains(&type_hash) {
+                    hashes.push(type_hash);
+                }
+            }
+        }
+        for pattern in &body.create_set {
+            if self.type_kinds.get(&pattern.ty) == Some(&IrTypeKind::Shared) {
+                hashes.push(type_hash_for_name(&pattern.ty));
+            }
+        }
+        hashes.sort();
+        hashes.dedup();
+        hashes
+    }
+
+    fn estimate_cycles(&self, body: &IrBody) -> u64 {
+        let instruction_count = body.blocks.iter().map(|block| block.instructions.len() as u64).sum::<u64>();
+        let branch_count =
+            body.blocks.iter().filter(|block| matches!(block.terminator, IrTerminator::Jump(_) | IrTerminator::Branch { .. })).count()
+                as u64;
+        let cell_ops = (body.consume_set.len() + body.read_refs.len() + body.create_set.len()) as u64;
+        (instruction_count * 8) + (branch_count * 4) + (cell_ops * 128) + 32
     }
 
     fn lower_stmts(
@@ -797,7 +967,10 @@ impl IrGenerator {
             Expr::ReadRef(read_ref) => self.lower_read_ref_expr(read_ref, current, blocks),
             Expr::Create(create) => self.lower_create_expr(create, current, blocks, vars),
             Expr::Consume(consume) => self.lower_consume_expr(consume, current, blocks, vars),
+            Expr::Transfer(transfer) => self.lower_transfer_expr(transfer, current, blocks, vars),
             Expr::Destroy(destroy) => self.lower_destroy_expr(destroy, current, blocks, vars),
+            Expr::Claim(claim) => self.lower_claim_expr(claim, current, blocks, vars),
+            Expr::Settle(settle) => self.lower_settle_expr(settle, current, blocks, vars),
             Expr::StructInit(init) => self.lower_struct_init(init, current, blocks, vars),
             Expr::FieldAccess(field) => self.lower_field_access(field, current, blocks, vars),
             Expr::Index(index) => self.lower_index_expr(index, current, blocks, vars),
@@ -827,14 +1000,9 @@ impl IrGenerator {
             Expr::If(if_expr) => self.lower_if_expr(if_expr, current, blocks, vars),
             Expr::Match(match_expr) => self.lower_match_expr(match_expr, current, blocks, vars),
             Expr::Cast(cast) => self.lower_expr(&cast.expr, current, blocks, vars),
-            Expr::Tuple(_)
-            | Expr::Array(_)
-            | Expr::String(_)
-            | Expr::ByteString(_)
-            | Expr::Transfer(_)
-            | Expr::Claim(_)
-            | Expr::Settle(_)
-            | Expr::Range(_) => LoweredExpr { operand: IrOperand::Const(IrConst::U64(0)), current: Some(current) },
+            Expr::Tuple(_) | Expr::Array(_) | Expr::String(_) | Expr::ByteString(_) | Expr::Range(_) => {
+                LoweredExpr { operand: IrOperand::Const(IrConst::U64(0)), current: Some(current) }
+            }
         }
     }
 
@@ -1233,10 +1401,69 @@ impl IrGenerator {
         LoweredExpr { operand: lowered.operand, current: Some(active) }
     }
 
+    fn lower_transfer_expr(
+        &mut self,
+        transfer: &TransferExpr,
+        current: BlockId,
+        blocks: &mut Vec<IrBlock>,
+        vars: &mut HashMap<String, IrVar>,
+    ) -> LoweredExpr {
+        let lowered_expr = self.lower_expr(&transfer.expr, current, blocks, vars);
+        let Some(active) = lowered_expr.current else {
+            return lowered_expr;
+        };
+        let lowered_to = self.lower_expr(&transfer.to, active, blocks, vars);
+        let Some(active) = lowered_to.current else {
+            return lowered_to;
+        };
+
+        let dest_ty = self.operand_type(&lowered_expr.operand).unwrap_or(IrType::U64);
+        let dest = self.new_var("transfer_tmp", dest_ty);
+        self.block_mut(blocks, active).instructions.push(IrInstruction::Transfer {
+            dest: dest.clone(),
+            operand: lowered_expr.operand,
+            to: lowered_to.operand,
+        });
+        LoweredExpr { operand: IrOperand::Var(dest), current: Some(active) }
+    }
+
     fn lower_read_ref_expr(&mut self, read_ref: &ReadRefExpr, current: BlockId, blocks: &mut Vec<IrBlock>) -> LoweredExpr {
         let dest = self.new_var(format!("read_ref_{}", read_ref.ty), IrType::Ref(Box::new(IrType::Named(read_ref.ty.clone()))));
         self.block_mut(blocks, current).instructions.push(IrInstruction::ReadRef { dest: dest.clone(), ty: read_ref.ty.clone() });
         LoweredExpr { operand: IrOperand::Var(dest), current: Some(current) }
+    }
+
+    fn lower_claim_expr(
+        &mut self,
+        claim: &ClaimExpr,
+        current: BlockId,
+        blocks: &mut Vec<IrBlock>,
+        vars: &mut HashMap<String, IrVar>,
+    ) -> LoweredExpr {
+        let lowered_receipt = self.lower_expr(&claim.receipt, current, blocks, vars);
+        let Some(active) = lowered_receipt.current else {
+            return lowered_receipt;
+        };
+        let dest = self.new_var("claim_tmp", IrType::U64);
+        self.block_mut(blocks, active)
+            .instructions
+            .push(IrInstruction::Claim { dest: dest.clone(), receipt: lowered_receipt.operand });
+        LoweredExpr { operand: IrOperand::Var(dest), current: Some(active) }
+    }
+
+    fn lower_settle_expr(
+        &mut self,
+        settle: &SettleExpr,
+        current: BlockId,
+        blocks: &mut Vec<IrBlock>,
+        vars: &mut HashMap<String, IrVar>,
+    ) -> LoweredExpr {
+        let lowered = self.lower_expr(&settle.expr, current, blocks, vars);
+        let Some(active) = lowered.current else {
+            return lowered;
+        };
+        self.block_mut(blocks, active).instructions.push(IrInstruction::Settle { operand: lowered.operand.clone() });
+        LoweredExpr { operand: lowered.operand, current: Some(active) }
     }
 
     fn lower_index_expr(
@@ -1764,4 +1991,8 @@ fn ast_type_to_ir_type(ty: &Type) -> IrType {
         Type::Ref(inner) => IrType::Ref(Box::new(ast_type_to_ir_type(inner))),
         Type::MutRef(inner) => IrType::MutRef(Box::new(ast_type_to_ir_type(inner))),
     }
+}
+
+fn type_hash_for_name(name: &str) -> [u8; 32] {
+    *blake3::hash(name.as_bytes()).as_bytes()
 }

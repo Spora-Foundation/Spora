@@ -6,6 +6,7 @@
 use super::utils::{store_data, INDEX_OUT_OF_BOUND, ITEM_MISSING};
 use super::{HeaderField, Source, LOAD_HEADER_BY_FIELD_SYSCALL_NUMBER, LOAD_HEADER_SYSCALL_NUMBER};
 use crate::celltx::CellTx;
+use crate::serialization::VmSerializable;
 use crate::vm::transferred_byte_cycles;
 use crate::vm::{CellDataProvider, ResolvedHeader};
 use ckb_vm::{
@@ -106,7 +107,9 @@ impl<D: CellDataProvider> LoadHeader<D> {
     }
 
     fn serialize_header(&self, header: &ResolvedHeader) -> Result<Vec<u8>, VMError> {
-        borsh::to_vec(header).map_err(|e| VMError::Unexpected(format!("Failed to serialize header: {e}")))
+        // Use VmSerializable trait for ABI abstraction
+        // This allows future migration to Molecule without changing syscall logic
+        Ok(header.to_vm_bytes())
     }
 }
 
@@ -155,9 +158,9 @@ impl<D: CellDataProvider, M: SupportMachine> Syscalls<M> for LoadHeader<D> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::serialization::VmSerializable;
     use crate::vm::syscalls::SUCCESS;
     use crate::vm::{ScriptVersion, SimpleDataProvider};
-    use borsh::BorshDeserialize;
     use ckb_vm::{
         registers::{A1, A2},
         CoreMachine, Memory, Register,
@@ -322,7 +325,8 @@ mod tests {
         assert_eq!(machine.registers()[A0].to_u64(), SUCCESS as u64);
         let size = machine.memory_mut().load64(&SIZE_ADDR).unwrap().to_u64();
         let bytes = machine.memory_mut().load_bytes(BUFFER_ADDR, size).unwrap();
-        let header = ResolvedHeader::try_from_slice(bytes.as_ref()).expect("header should deserialize");
+        // Use VmSerializable for deserialization to match syscall serialization
+        let header = ResolvedHeader::from_vm_bytes(bytes.as_ref()).expect("header should deserialize");
         assert_eq!(header, resolved_header([0x77; 32]));
     }
 

@@ -4,8 +4,8 @@
 
 pub mod commands;
 
-use commands::{Command, CommandExecutor, CliParser};
 use crate::error::Result;
+use commands::{CliParser, CommandExecutor};
 
 /// 运行 CLI
 pub fn run() -> Result<()> {

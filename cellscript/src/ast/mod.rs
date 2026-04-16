@@ -127,6 +127,7 @@ pub struct ActionDef {
 pub struct LockDef {
     pub name: String,
     pub params: Vec<Param>,
+    pub return_type: Type,
     pub body: Vec<Stmt>,
     pub span: Span,
 }

@@ -12,8 +12,11 @@
 
 ## 实现状态
 
-> 以下表格已按当前代码状态收紧。若需要实现真相而不是设计目标，请优先查看
-> [CELLSCRIPT_IMPLEMENTATION_STATUS.md](/Users/arthur/RustroverProjects/Spora/docs/CELLSCRIPT_IMPLEMENTATION_STATUS.md)。
+> ⚠️ **重要提示**: 本文档是设计提案，描述的是**设计意图**而非**实现真相**。
+> 
+> 若需要了解当前代码的实际状态，请优先查看 **[CELLSCRIPT_IMPLEMENTATION_STATUS.md](/Users/arthur/RustroverProjects/Spora/docs/CELLSCRIPT_IMPLEMENTATION_STATUS.md)**。
+> 
+> 以下表格已按当前代码状态收紧，但可能仍有滞后。
 
 | 组件 | 状态 | 路径 |
 |---|---|---|
@@ -27,17 +30,17 @@
 | CLI 编译器 | 🟡 主编译入口可用 | `cellscript/src/main.rs` |
 | 标准库 | 🟡 基础运行时支持已接通 | `cellscript/src/stdlib/` |
 | REPL 交互式解释器 | 🟡 基础可用 | `cellscript/src/repl.rs` |
-| 调度器元数据生成 | 🚧 结构存在，未形成完整产物链 | `cellscript/src/stdlib/mod.rs` |
+| 调度器元数据生成 | 🟡 结构存在，基础实现可用 | `cellscript/src/stdlib/mod.rs` |
 | 模块系统/名称解析 | 🟡 本地包 / path 依赖可用 | `cellscript/src/resolve/` |
-| 生命周期验证 | 🚧 模块存在，未纳入主编译闭环 | `cellscript/src/lifecycle/` |
-| 优化器 | 🚧 实验性模块，未进入主编译链 | `cellscript/src/optimize/` |
+| 生命周期验证 | 🚧 原型级，未集成到主编译路径 | `cellscript/src/lifecycle/` |
+| 优化器 | 🚧 原型级，未进入主编译链 | `cellscript/src/optimize/` |
 | 文档生成器 | 🚧 原型级 | `cellscript/src/docgen/` |
 | 代码格式化器 | 🚧 原型级 | `cellscript/src/fmt/` |
 | LSP 服务器 | 🚧 原型级 | `cellscript/src/lsp/` |
 | 包管理器 | 🚧 原型级 | `cellscript/src/package/` |
 | 测试框架 | 🚧 原型级 | `cellscript/src/test/` |
-| Wasm 目标 | 🚧 预留模块，未接主目标链 | `cellscript/src/wasm/` |
-| 增量编译 | 🚧 预留模块，未接主编译链 | `cellscript/src/incremental/` |
+| Wasm 目标 | 🚧 预留模块/stub，未接主目标链 | `cellscript/src/wasm/` |
+| 增量编译 | 🚧 预留模块/stub，未接主编译链 | `cellscript/src/incremental/` |
 | CLI 子命令 | 🚧 有代码骨架，未接主入口 | `cellscript/src/cli/` |
 | 集合类型 | 🚧 基础定义 | `cellscript/src/stdlib/collections.rs` |
 | 调试信息 | 🚧 原型级 | `cellscript/src/debug/` |
@@ -295,7 +298,7 @@ CellScript 占据中间地带：
 
 **如何映射到 Spora**：
 
-```
+```CellScript
 resource FungibleToken {
     amount: u64,
     symbol: [u8; 8],
@@ -439,7 +442,7 @@ CellScript 的类型系统是故意最小的。它包括：
 2. **丢弃资源**：让资源在没有消费、转移或销毁的情况下超出范围是编译错误。
 3. **资源别名**：`&resource T` 引用是受限生命周期的只读借用。你不能通过借用提取资源。
 
-```
+```CellScript
 resource Token { amount: u64 }
 
 action bad_example(t: Token) {
@@ -931,6 +934,8 @@ action batch_settle(
 
 ### 6.7 示例：短暂对象
 
+> ⚠️ **实现状态**: `ephemeral` 关键字在词法分析器和解析器中已支持，但在类型检查和代码生成中的语义支持仍在完善中。
+
 ```cellscript
 // swap_router.cell — 具有短暂中间状态的多跳交换
 
@@ -1156,6 +1161,8 @@ use my_module as mm;  // 别名
 
 ### A.11 生命周期验证
 
+> ⚠️ **实现状态**: 生命周期验证模块 (`src/lifecycle/`) 存在，但为原型级实现，**尚未集成到主编译路径**。`#[lifecycle(...)]` 属性可以被解析，但完整的验证逻辑暂未在编译器中强制执行。
+
 `#[lifecycle(...)]` 属性验证：
 
 **状态定义**：
@@ -1164,38 +1171,40 @@ use my_module as mm;  // 别名
 receipt VestingGrant { ... }
 ```
 
-**验证规则**：
+**验证规则**（设计中）：
 - 至少 2 个状态
 - 状态名唯一
 - 只允许前向转换（Created → Active → Settled）
 - 禁止跳过中间状态
 - 禁止反向转换
 
-**API**：
+**API**（模块已存在，待集成）：
 - `LifecycleChecker::register_lifecycle()` - 注册生命周期
 - `LifecycleChecker::validate_transition()` - 验证状态转换
 - `LifecycleChecker::get_lifecycle_info()` - 获取生命周期信息
 
 ### A.12 优化器
 
-支持多级优化：
+> ⚠️ **实现状态**: 优化器模块 (`src/optimize/`) 为**原型级**，尚未进入主编译链。以下描述的优化 passes 为设计目标，当前编译器主要依赖简单的直接代码生成。
 
-**常量折叠**：
+设计中支持的多级优化：
+
+**常量折叠**（计划中）：
 - 编译期计算常量表达式
 - 支持 +, -, *, /, %, &, |, ^, &&, || 等运算
 
-**代数简化**：
+**代数简化**（计划中）：
 - `x + 0 = x`
 - `x * 0 = 0`
 - `x * 1 = x`
 - `x ^ x = 0`
 - 双重否定消除
 
-**死代码消除**：
+**死代码消除**（计划中）：
 - 删除无副作用的纯表达式
 - 常量条件分支折叠
 
-**优化级别**：
+**优化级别**（CLI 支持，优化 passes 待完善）：
 - `-O0`: 无优化
 - `-O1`: 常量折叠
 - `-O2`: + 代数简化

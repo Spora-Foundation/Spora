@@ -7,6 +7,7 @@
 use super::utils::{store_data, INDEX_OUT_OF_BOUND};
 use super::{InputField, Source, LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER, LOAD_INPUT_SYSCALL_NUMBER};
 use crate::celltx::{CellInput, CellTx};
+use crate::serialization::vm_abi::{serialize_cell_input, serialize_outpoint};
 use crate::vm::transferred_byte_cycles;
 use ckb_vm::{
     registers::{A0, A3, A4, A5, A7},
@@ -37,12 +38,7 @@ impl LoadInput {
 
     fn serialize_input_field(&self, input: &CellInput, field: u64) -> Result<Vec<u8>, VMError> {
         match InputField::parse_from_u64(field)? {
-            InputField::OutPoint => {
-                let mut data = Vec::with_capacity(36);
-                data.extend_from_slice(&input.previous_output.tx_hash);
-                data.extend_from_slice(&input.previous_output.index.to_le_bytes());
-                Ok(data)
-            }
+            InputField::OutPoint => Ok(serialize_outpoint(&input.previous_output)),
             InputField::Since => Ok(input.since.to_le_bytes().to_vec()),
         }
     }

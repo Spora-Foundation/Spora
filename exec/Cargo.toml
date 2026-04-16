@@ -44,10 +44,14 @@ hex = { version = "0.4", optional = true }
 [dev-dependencies]
 # Testing
 proptest = "1.4"
-criterion = "0.5"
+criterion = { version = "0.5", features = ["html_reports"] }
 
 [features]
 default = ["vm"]
 vm = ["ckb-vm", "byteorder", "hex"]  # VM integration enabled
+
+[[bench]]
+name = "serialization_bench"
+harness = false
 
 

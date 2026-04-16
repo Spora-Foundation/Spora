@@ -538,7 +538,7 @@ impl CellTx {
 /// Cell metadata (DAG-aware)
 ///
 /// Reference: CKB CellMeta, specialized for resolved execution inputs.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct ResolvedCellMeta {
     /// Cell output structure
     pub cell_output: CellOutput,
@@ -569,7 +569,7 @@ impl ResolvedCellMeta {
 /// DAG transaction information
 ///
 /// CKB uses BlockNumber, Spora uses DAA Score
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct TransactionInfo {
     /// Transaction hash
     pub tx_hash: [u8; 32],
@@ -597,7 +597,7 @@ pub enum CellStatus {
 /// Resolved Cell transaction (all inputs/deps loaded)
 ///
 /// Reference: CKB ResolvedTransaction
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, BorshSerialize, BorshDeserialize, PartialEq, Eq)]
 pub struct ResolvedCellTx {
     /// The transaction
     pub transaction: CellTx,
@@ -761,4 +761,56 @@ mod tests {
         assert!(parse_dep_group_data(&[1, 0, 0, 0]).is_err()); // count=1 but no data
         assert!(parse_dep_group_data(&[1, 0, 0, 0, 0]).is_err()); // count=1 but only 1 byte
     }
+}
+
+// ============================================================================
+// VersionedSerializable Implementations
+// ============================================================================
+//
+// These implementations enable schema versioning for storage layer types.
+// All Cell transaction types use version 1 as the initial schema version.
+
+use crate::serialization::VersionedSerializable;
+
+/// Current schema version for Cell transaction types
+pub const CELLTX_SCHEMA_VERSION: u8 = 1;
+
+impl VersionedSerializable for OutPoint {
+    const CURRENT_VERSION: u8 = CELLTX_SCHEMA_VERSION;
+}
+
+impl VersionedSerializable for Script {
+    const CURRENT_VERSION: u8 = CELLTX_SCHEMA_VERSION;
+}
+
+impl VersionedSerializable for CellOutput {
+    const CURRENT_VERSION: u8 = CELLTX_SCHEMA_VERSION;
+}
+
+impl VersionedSerializable for CellInput {
+    const CURRENT_VERSION: u8 = CELLTX_SCHEMA_VERSION;
+}
+
+impl VersionedSerializable for CellDep {
+    const CURRENT_VERSION: u8 = CELLTX_SCHEMA_VERSION;
+}
+
+impl VersionedSerializable for DepType {
+    const CURRENT_VERSION: u8 = CELLTX_SCHEMA_VERSION;
+}
+
+impl VersionedSerializable for CellTx {
+    const CURRENT_VERSION: u8 = CELLTX_SCHEMA_VERSION;
+}
+
+impl VersionedSerializable for TransactionInfo {
+    const CURRENT_VERSION: u8 = CELLTX_SCHEMA_VERSION;
+}
+
+impl VersionedSerializable for ResolvedCellMeta {
+    const CURRENT_VERSION: u8 = CELLTX_SCHEMA_VERSION;
+}
+
+impl VersionedSerializable for ResolvedCellTx {
+    const CURRENT_VERSION: u8 = CELLTX_SCHEMA_VERSION;
 }

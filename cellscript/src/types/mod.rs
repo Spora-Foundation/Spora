@@ -278,6 +278,10 @@ impl<'a> TypeChecker<'a> {
 
     /// 检查 lock 定义
     fn check_lock(&mut self, lock: &LockDef) -> Result<()> {
+        if lock.return_type != Type::Bool {
+            return Err(CompileError::new("lock definitions must return bool", lock.span));
+        }
+
         let mut env = self.env.child();
 
         for param in &lock.params {
@@ -289,9 +293,14 @@ impl<'a> TypeChecker<'a> {
             self.check_stmt(&mut env, stmt)?;
         }
 
-        if let Some(stmt) = lock.body.last() {
-            self.mark_stmt_as_returned(&mut env, stmt)?;
+        let Some(stmt) = lock.body.last() else {
+            return Err(CompileError::new("lock body must return a bool value", lock.span));
+        };
+        let return_ty = self.infer_lock_terminal_stmt(&mut env, stmt)?;
+        if !self.is_bool_type(&return_ty) {
+            return Err(CompileError::new("lock body must evaluate to bool", lock.span));
         }
+        self.mark_stmt_as_returned(&mut env, stmt)?;
 
         env.check_linear_complete()
     }
@@ -474,9 +483,17 @@ impl<'a> TypeChecker<'a> {
                 Ok(Type::U64)
             }
             Expr::Transfer(transfer) => {
-                self.infer_expr(env, &transfer.expr)?;
-                self.infer_expr(env, &transfer.to)?;
-                Ok(Type::U64)
+                let expr_ty = self.infer_expr(env, &transfer.expr)?;
+                let to_ty = self.infer_expr(env, &transfer.to)?;
+                if !self.is_address_like_type(&to_ty) {
+                    return Err(CompileError::new("transfer destination must be address-like", transfer.span));
+                }
+                if let Expr::Identifier(name) = transfer.expr.as_ref() {
+                    if self.is_linear_type(&expr_ty) {
+                        env.consume(name)?;
+                    }
+                }
+                Ok(expr_ty)
             }
             Expr::Destroy(destroy) => {
                 if let Expr::Identifier(name) = destroy.expr.as_ref() {
@@ -489,15 +506,17 @@ impl<'a> TypeChecker<'a> {
                 }
                 Ok(Type::U64)
             }
-            Expr::ReadRef(read_ref) => Ok(Type::Named(read_ref.ty.clone())),
+            Expr::ReadRef(read_ref) => Ok(Type::Ref(Box::new(Type::Named(read_ref.ty.clone())))),
             Expr::Claim(claim) => {
-                self.infer_expr(env, &claim.receipt)?;
+                let receipt_ty = self.infer_expr(env, &claim.receipt)?;
+                if let Expr::Identifier(name) = claim.receipt.as_ref() {
+                    if self.is_linear_type(&receipt_ty) {
+                        env.consume(name)?;
+                    }
+                }
                 Ok(Type::U64)
             }
-            Expr::Settle(settle) => {
-                self.infer_expr(env, &settle.expr)?;
-                Ok(Type::U64)
-            }
+            Expr::Settle(settle) => self.infer_expr(env, &settle.expr),
             Expr::Block(stmts) => {
                 let mut block_env = env.child();
                 let mut last_ty = Type::U64;
@@ -608,6 +627,46 @@ impl<'a> TypeChecker<'a> {
         }
     }
 
+    fn infer_lock_terminal_stmt(&mut self, env: &mut TypeEnv, stmt: &Stmt) -> Result<Type> {
+        match stmt {
+            Stmt::Expr(expr) => self.infer_expr(env, expr),
+            Stmt::Return(Some(expr)) => self.infer_expr(env, expr),
+            Stmt::If(if_stmt) => {
+                let cond_ty = self.infer_expr(env, &if_stmt.condition)?;
+                if !self.is_bool_type(&cond_ty) {
+                    return Err(CompileError::new("if condition must be boolean", if_stmt.span));
+                }
+                let mut then_env = env.child();
+                let then_ty = if let Some(stmt) = if_stmt.then_branch.last() {
+                    for stmt in &if_stmt.then_branch[..if_stmt.then_branch.len().saturating_sub(1)] {
+                        self.check_stmt(&mut then_env, stmt)?;
+                    }
+                    self.infer_lock_terminal_stmt(&mut then_env, stmt)?
+                } else {
+                    return Err(CompileError::new("lock if branch must end with a bool expression", if_stmt.span));
+                };
+                let else_branch = if_stmt
+                    .else_branch
+                    .as_ref()
+                    .ok_or_else(|| CompileError::new("lock if statement must have an else branch", if_stmt.span))?;
+                let mut else_env = env.child();
+                let else_ty = if let Some(stmt) = else_branch.last() {
+                    for stmt in &else_branch[..else_branch.len().saturating_sub(1)] {
+                        self.check_stmt(&mut else_env, stmt)?;
+                    }
+                    self.infer_lock_terminal_stmt(&mut else_env, stmt)?
+                } else {
+                    return Err(CompileError::new("lock else branch must end with a bool expression", if_stmt.span));
+                };
+                if !self.types_equal(&then_ty, &else_ty) {
+                    return Err(CompileError::new("lock branches must return matching types", if_stmt.span));
+                }
+                Ok(then_ty)
+            }
+            _ => Err(CompileError::new("lock body must end with an expression or explicit return", stmt_span(stmt))),
+        }
+    }
+
     fn mark_expr_as_moved(&mut self, env: &mut TypeEnv, expr: &Expr) -> Result<()> {
         match expr {
             Expr::Identifier(name) => {
@@ -626,6 +685,8 @@ impl<'a> TypeChecker<'a> {
             }
             Expr::Cast(cast) => self.mark_expr_as_moved(env, &cast.expr),
             Expr::Assign(assign) => self.mark_expr_as_moved(env, &assign.value),
+            Expr::Transfer(_) | Expr::Claim(_) => Ok(()),
+            Expr::Settle(settle) => self.mark_expr_as_moved(env, &settle.expr),
             Expr::If(if_expr) => {
                 self.mark_expr_as_moved(env, &if_expr.then_branch)?;
                 self.mark_expr_as_moved(env, &if_expr.else_branch)
@@ -896,6 +957,52 @@ impl<'a> TypeChecker<'a> {
     /// 检查是否为布尔类型
     fn is_bool_type(&self, ty: &Type) -> bool {
         matches!(ty, Type::Bool)
+    }
+
+    fn is_address_like_type(&self, ty: &Type) -> bool {
+        match ty {
+            Type::Address => true,
+            Type::Ref(inner) | Type::MutRef(inner) => self.is_address_like_type(inner),
+            _ => false,
+        }
+    }
+}
+
+fn stmt_span(stmt: &Stmt) -> Span {
+    match stmt {
+        Stmt::Let(let_stmt) => let_stmt.span,
+        Stmt::Expr(expr) => expr_span(expr),
+        Stmt::Return(Some(expr)) => expr_span(expr),
+        Stmt::Return(None) => Span::default(),
+        Stmt::If(if_stmt) => if_stmt.span,
+        Stmt::For(for_stmt) => for_stmt.span,
+        Stmt::While(while_stmt) => while_stmt.span,
+    }
+}
+
+fn expr_span(expr: &Expr) -> Span {
+    match expr {
+        Expr::Integer(_) | Expr::Bool(_) | Expr::String(_) | Expr::ByteString(_) | Expr::Identifier(_) => Span::default(),
+        Expr::Assign(assign) => assign.span,
+        Expr::Binary(binary) => binary.span,
+        Expr::Unary(unary) => unary.span,
+        Expr::Call(call) => call.span,
+        Expr::FieldAccess(field) => field.span,
+        Expr::Index(index) => index.span,
+        Expr::Create(create) => create.span,
+        Expr::Consume(consume) => consume.span,
+        Expr::Transfer(transfer) => transfer.span,
+        Expr::Destroy(destroy) => destroy.span,
+        Expr::ReadRef(read_ref) => read_ref.span,
+        Expr::Claim(claim) => claim.span,
+        Expr::Settle(settle) => settle.span,
+        Expr::Block(stmts) => stmts.last().map(stmt_span).unwrap_or_default(),
+        Expr::Tuple(_) | Expr::Array(_) => Span::default(),
+        Expr::If(if_expr) => if_expr.span,
+        Expr::Cast(cast) => cast.span,
+        Expr::Range(range) => range.span,
+        Expr::StructInit(init) => init.span,
+        Expr::Match(match_expr) => match_expr.span,
     }
 }
 

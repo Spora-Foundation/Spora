@@ -7,6 +7,7 @@
 use super::utils::{store_data, INDEX_OUT_OF_BOUND, ITEM_MISSING};
 use super::{CellField, Source, LOAD_CELL_BY_FIELD_SYSCALL_NUMBER, LOAD_CELL_SYSCALL_NUMBER};
 use crate::celltx::{CellTx, Script};
+use crate::serialization::vm_abi::{serialize_cell_output, serialize_script};
 use crate::vm::transferred_byte_cycles;
 use crate::vm::{CellDataProvider, ResolvedCell, VmSemantics};
 use ckb_vm::{
@@ -123,33 +124,13 @@ impl<D: CellDataProvider> LoadCell<D> {
     }
 
     fn serialize_script(&self, script: &Script) -> Vec<u8> {
-        let mut data = Vec::new();
-        data.extend_from_slice(&script.code_hash);
-        data.push(script.hash_type);
-        data.extend_from_slice(&(script.args.len() as u32).to_le_bytes());
-        data.extend_from_slice(&script.args);
-        data
+        // Use standardized VM ABI serialization
+        serialize_script(script)
     }
 
     fn serialize_cell(&self, cell: &ResolvedCell) -> Vec<u8> {
-        let mut data = Vec::new();
-        data.extend_from_slice(&cell.cell_output.capacity.to_le_bytes());
-
-        let lock = self.serialize_script(&cell.cell_output.lock);
-        data.extend_from_slice(&(lock.len() as u32).to_le_bytes());
-        data.extend_from_slice(&lock);
-
-        match cell.cell_output.type_.as_ref() {
-            Some(type_script) => {
-                data.push(1);
-                let type_bytes = self.serialize_script(type_script);
-                data.extend_from_slice(&(type_bytes.len() as u32).to_le_bytes());
-                data.extend_from_slice(&type_bytes);
-            }
-            None => data.push(0),
-        }
-
-        data
+        // Use standardized VM ABI serialization
+        serialize_cell_output(&cell.cell_output)
     }
 }
 

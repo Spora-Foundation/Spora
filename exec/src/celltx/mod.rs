@@ -15,4 +15,11 @@ pub use sighash::{compute_rw_bound_sighash, compute_txid, compute_wtxid, pubkey_
 pub use types::{
     cell_tx_estimated_serialized_size, encode_dep_group_data, parse_dep_group_data, CapacityError, CellDep, CellInput, CellOutput,
     CellStatus, CellTx, DepType, OutPoint, ResolvedCellMeta, ResolvedCellTx, Script, ScriptHashVersion, TransactionInfo,
+    CELLTX_SCHEMA_VERSION,
+};
+
+// Re-export VersionedSerializable implementations for storage layer types
+pub use types::{
+    ResolvedCellMeta as ResolvedCellMetaVersioned, ResolvedCellTx as ResolvedCellTxVersioned,
+    TransactionInfo as TransactionInfoVersioned,
 };

@@ -41,6 +41,10 @@ impl CompileError {
         Self { message: message.into(), span, file: None }
     }
 
+    pub fn without_span(message: impl Into<String>) -> Self {
+        Self::new(message, Span::default())
+    }
+
     pub fn with_file(mut self, file: Utf8PathBuf) -> Self {
         self.file = Some(file);
         self
@@ -58,6 +62,24 @@ impl fmt::Display for CompileError {
 }
 
 impl std::error::Error for CompileError {}
+
+impl From<std::io::Error> for CompileError {
+    fn from(value: std::io::Error) -> Self {
+        Self::without_span(value.to_string())
+    }
+}
+
+impl From<toml::de::Error> for CompileError {
+    fn from(value: toml::de::Error) -> Self {
+        Self::without_span(value.to_string())
+    }
+}
+
+impl From<toml::ser::Error> for CompileError {
+    fn from(value: toml::ser::Error) -> Self {
+        Self::without_span(value.to_string())
+    }
+}
 
 /// 编译结果类型
 pub type Result<T> = std::result::Result<T, CompileError>;

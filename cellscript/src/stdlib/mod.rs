@@ -475,7 +475,7 @@ pub struct SchedulerMetadata;
 
 impl SchedulerMetadata {
     /// 生成调度器见证元数据
-    pub fn generate(effect_class: &str, touches_shared: Vec<[u8; 32]>, estimated_cycles: u64) -> Vec<u8> {
+    pub fn generate(effect_class: &str, parallelizable: bool, touches_shared: Vec<[u8; 32]>, estimated_cycles: u64) -> Vec<u8> {
         use borsh::{to_vec, BorshSerialize};
 
         #[derive(BorshSerialize)]
@@ -502,7 +502,7 @@ impl SchedulerMetadata {
             magic: 0xCE11,
             version: 0,
             effect_class: effect_class_id,
-            parallelizable: true,
+            parallelizable,
             touches_shared_count: touches_shared.len() as u32,
             touches_shared,
             estimated_cycles,

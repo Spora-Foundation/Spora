@@ -185,27 +185,21 @@ impl PackageManager {
     pub fn new(root: impl AsRef<Path>) -> Self {
         let root = root.as_ref().to_path_buf();
         let cache_dir = root.join(".cell").join("cache");
-        
-        Self {
-            root,
-            cache_dir,
-            resolved: HashMap::new(),
-        }
+
+        Self { root, cache_dir, resolved: HashMap::new() }
     }
 
     /// 读取包清单
     pub fn read_manifest(&self) -> Result<PackageManifest> {
         let manifest_path = self.root.join("Cell.toml");
-        
+
         if !manifest_path.exists() {
-            return Err(CompileError::without_span(
-                "Cell.toml not found. Run 'cellc init' to create a new package."
-            ));
+            return Err(CompileError::without_span("Cell.toml not found. Run 'cellc init' to create a new package."));
         }
-        
+
         let content = std::fs::read_to_string(&manifest_path)?;
         let manifest: PackageManifest = toml::from_str(&content)?;
-        
+
         Ok(manifest)
     }
 
@@ -223,7 +217,7 @@ impl PackageManager {
         std::fs::create_dir_all(self.root.join("src"))?;
         std::fs::create_dir_all(self.root.join("tests"))?;
         std::fs::create_dir_all(self.root.join("examples"))?;
-        
+
         // 创建 Cell.toml
         let manifest = PackageManifest {
             package: PackageInfo {
@@ -247,16 +241,19 @@ impl PackageManager {
             build: BuildConfig::default(),
             metadata: HashMap::new(),
         };
-        
+
         self.write_manifest(&manifest)?;
-        
+
         // 创建默认入口文件
-        let main_content = format!(r#"module {};
+        let main_content = format!(
+            r#"module {};
 
 // Entry point for {}
-"#, name, name);
+"#,
+            name, name
+        );
         std::fs::write(self.root.join("src/main.cell"), main_content)?;
-        
+
         // 创建 .gitignore
         let gitignore = r#"# CellScript
 .cell/
@@ -266,19 +263,16 @@ dist/
 *.bin
 "#;
         std::fs::write(self.root.join(".gitignore"), gitignore)?;
-        
+
         Ok(())
     }
 
     /// 添加依赖
     pub fn add_dependency(&self, name: &str, version: &str) -> Result<()> {
         let mut manifest = self.read_manifest()?;
-        
-        manifest.dependencies.insert(
-            name.to_string(),
-            Dependency::Simple(version.to_string()),
-        );
-        
+
+        manifest.dependencies.insert(name.to_string(), Dependency::Simple(version.to_string()));
+
         self.write_manifest(&manifest)?;
         Ok(())
     }
@@ -294,11 +288,11 @@ dist/
     /// 解析依赖
     pub fn resolve_dependencies(&mut self) -> Result<()> {
         let manifest = self.read_manifest()?;
-        
+
         for (name, dep) in &manifest.dependencies {
             self.resolve_dependency(name, dep)?;
         }
-        
+
         Ok(())
     }
 
@@ -307,11 +301,9 @@ dist/
         if self.resolved.contains_key(name) {
             return Ok(());
         }
-        
+
         let resolved = match dep {
-            Dependency::Simple(version) => {
-                self.resolve_from_registry(name, version)?
-            }
+            Dependency::Simple(version) => self.resolve_from_registry(name, version)?,
             Dependency::Detailed(detailed) => {
                 if let Some(path) = &detailed.path {
                     self.resolve_from_path(name, path)?
@@ -322,7 +314,7 @@ dist/
                 }
             }
         };
-        
+
         self.resolved.insert(name.to_string(), resolved);
         Ok(())
     }
@@ -331,15 +323,12 @@ dist/
     fn resolve_from_registry(&self, name: &str, version: &str) -> Result<ResolvedPackage> {
         // 简化实现：实际应该从远程注册表下载
         let package_dir = self.cache_dir.join("registry").join(name).join(version);
-        
+
         Ok(ResolvedPackage {
             name: name.to_string(),
             version: version.to_string(),
             path: package_dir,
-            source: PackageSource::Registry {
-                name: name.to_string(),
-                version: version.to_string(),
-            },
+            source: PackageSource::Registry { name: name.to_string(), version: version.to_string() },
             dependencies: vec![],
         })
     }
@@ -348,16 +337,14 @@ dist/
     fn resolve_from_path(&self, name: &str, path: &str) -> Result<ResolvedPackage> {
         let package_path = self.root.join(path);
         let manifest_path = package_path.join("Cell.toml");
-        
+
         if !manifest_path.exists() {
-            return Err(CompileError::without_span(
-                format!("Dependency '{}' not found at path '{}'", name, path)
-            ));
+            return Err(CompileError::without_span(format!("Dependency '{}' not found at path '{}'", name, path)));
         }
-        
+
         let content = std::fs::read_to_string(&manifest_path)?;
         let manifest: PackageManifest = toml::from_str(&content)?;
-        
+
         Ok(ResolvedPackage {
             name: name.to_string(),
             version: manifest.package.version,
@@ -368,31 +355,17 @@ dist/
     }
 
     /// 从 Git 解析
-    fn resolve_from_git(
-        &self,
-        name: &str,
-        url: &str,
-        detailed: &DetailedDependency,
-    ) -> Result<ResolvedPackage> {
+    fn resolve_from_git(&self, name: &str, url: &str, detailed: &DetailedDependency) -> Result<ResolvedPackage> {
         // 简化实现：实际应该克隆 Git 仓库
-        let revision = detailed.rev.clone()
-            .or(detailed.tag.clone())
-            .or(detailed.branch.clone())
-            .unwrap_or_else(|| "main".to_string());
-        
-        let package_dir = self.cache_dir
-            .join("git")
-            .join(name)
-            .join(&revision);
-        
+        let revision = detailed.rev.clone().or(detailed.tag.clone()).or(detailed.branch.clone()).unwrap_or_else(|| "main".to_string());
+
+        let package_dir = self.cache_dir.join("git").join(name).join(&revision);
+
         Ok(ResolvedPackage {
             name: name.to_string(),
             version: "0.0.0".to_string(), // Git 包版本从 tag 获取
             path: package_dir,
-            source: PackageSource::Git {
-                url: url.to_string(),
-                revision,
-            },
+            source: PackageSource::Git { url: url.to_string(), revision },
             dependencies: vec![],
         })
     }
@@ -405,36 +378,31 @@ dist/
     /// 构建依赖图
     pub fn build_dependency_graph(&self) -> DependencyGraph {
         let mut graph = DependencyGraph::new();
-        
+
         for (name, package) in &self.resolved {
             graph.add_node(name.clone());
             for dep in &package.dependencies {
                 graph.add_edge(name.clone(), dep.clone());
             }
         }
-        
+
         graph
     }
 
     /// 检查循环依赖
     pub fn check_circular_deps(&self) -> Result<()> {
         let graph = self.build_dependency_graph();
-        
+
         if let Some(cycle) = graph.find_cycle() {
-            return Err(CompileError::without_span(
-                format!("Circular dependency detected: {}", cycle.join(" -> "))
-            ));
+            return Err(CompileError::without_span(format!("Circular dependency detected: {}", cycle.join(" -> "))));
         }
-        
+
         Ok(())
     }
 
     /// 获取依赖的源码路径
     pub fn get_source_paths(&self) -> Vec<PathBuf> {
-        self.resolved
-            .values()
-            .map(|p| p.path.join("src"))
-            .collect()
+        self.resolved.values().map(|p| p.path.join("src")).collect()
     }
 }
 
@@ -447,10 +415,7 @@ pub struct DependencyGraph {
 impl DependencyGraph {
     /// 创建新的依赖图
     pub fn new() -> Self {
-        Self {
-            nodes: Vec::new(),
-            edges: HashMap::new(),
-        }
+        Self { nodes: Vec::new(), edges: HashMap::new() }
     }
 
     /// 添加节点
@@ -469,7 +434,7 @@ impl DependencyGraph {
     pub fn find_cycle(&self) -> Option<Vec<String>> {
         let mut visited = HashMap::new();
         let mut rec_stack = Vec::new();
-        
+
         for node in &self.nodes {
             if !visited.contains_key(node) {
                 if let Some(cycle) = self.dfs_find_cycle(node, &mut visited, &mut rec_stack) {
@@ -477,20 +442,15 @@ impl DependencyGraph {
                 }
             }
         }
-        
+
         None
     }
 
     /// DFS 查找循环
-    fn dfs_find_cycle(
-        &self,
-        node: &str,
-        visited: &mut HashMap<String, bool>,
-        rec_stack: &mut Vec<String>,
-    ) -> Option<Vec<String>> {
+    fn dfs_find_cycle(&self, node: &str, visited: &mut HashMap<String, bool>, rec_stack: &mut Vec<String>) -> Option<Vec<String>> {
         visited.insert(node.to_string(), true);
         rec_stack.push(node.to_string());
-        
+
         if let Some(neighbors) = self.edges.get(node) {
             for neighbor in neighbors {
                 if !visited.contains_key(neighbor) {
@@ -506,7 +466,7 @@ impl DependencyGraph {
                 }
             }
         }
-        
+
         rec_stack.pop();
         None
     }
@@ -521,19 +481,19 @@ pub mod version {
         if req == "*" {
             return Ok(VersionReq::Any);
         }
-        
+
         if req.starts_with('^') {
             return Ok(VersionReq::Compatible(req[1..].to_string()));
         }
-        
+
         if req.starts_with('=') {
             return Ok(VersionReq::Exact(req[1..].to_string()));
         }
-        
+
         if req.contains(',') || req.contains('>') || req.contains('<') {
             return Ok(VersionReq::Range(req.to_string()));
         }
-        
+
         // 默认为兼容版本
         Ok(VersionReq::Compatible(req.to_string()))
     }
@@ -552,16 +512,16 @@ pub mod version {
     fn is_compatible(version: &str, base: &str) -> bool {
         let v_parts: Vec<u32> = version.split('.').filter_map(|p| p.parse().ok()).collect();
         let b_parts: Vec<u32> = base.split('.').filter_map(|p| p.parse().ok()).collect();
-        
+
         if v_parts.is_empty() || b_parts.is_empty() {
             return false;
         }
-        
+
         // 主版本必须相同
         if v_parts[0] != b_parts[0] {
             return false;
         }
-        
+
         // 如果主版本为 0，次版本也必须相同
         if v_parts[0] == 0 {
             if v_parts.len() < 2 || b_parts.len() < 2 {
@@ -571,12 +531,12 @@ pub mod version {
                 return false;
             }
         }
-        
+
         true
     }
 
     /// 检查是否满足范围
-    fn satisfies_range(version: &str, range: &str) -> bool {
+    fn satisfies_range(_version: &str, _range: &str) -> bool {
         // 简化实现
         true
     }
@@ -610,7 +570,7 @@ mod tests {
             build: BuildConfig::default(),
             metadata: HashMap::new(),
         };
-        
+
         let toml_str = toml::to_string(&manifest).unwrap();
         assert!(toml_str.contains("name = \"test\""));
         assert!(toml_str.contains("version = \"0.1.0\""));
@@ -624,9 +584,9 @@ mod tests {
         graph.add_node("C".to_string());
         graph.add_edge("A".to_string(), "B".to_string());
         graph.add_edge("B".to_string(), "C".to_string());
-        
+
         assert!(graph.find_cycle().is_none());
-        
+
         // 添加循环
         graph.add_edge("C".to_string(), "A".to_string());
         assert!(graph.find_cycle().is_some());
@@ -634,12 +594,10 @@ mod tests {
 
     #[test]
     fn test_version_compatibility() {
-        use version::*;
-        
-        assert!(is_compatible("1.2.3", "1.0.0"));
-        assert!(is_compatible("1.5.0", "1.2.3"));
-        assert!(!is_compatible("2.0.0", "1.0.0"));
-        assert!(!is_compatible("0.2.0", "0.1.0"));
-        assert!(is_compatible("0.1.5", "0.1.0"));
+        assert!(version::satisfies("1.2.3", &VersionReq::Compatible("1.0.0".to_string())));
+        assert!(version::satisfies("1.5.0", &VersionReq::Compatible("1.2.3".to_string())));
+        assert!(!version::satisfies("2.0.0", &VersionReq::Compatible("1.0.0".to_string())));
+        assert!(!version::satisfies("0.2.0", &VersionReq::Compatible("0.1.0".to_string())));
+        assert!(version::satisfies("0.1.5", &VersionReq::Compatible("0.1.0".to_string())));
     }
 }

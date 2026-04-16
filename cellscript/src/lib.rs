@@ -3,21 +3,27 @@
 //! 当前后端可输出 RISC-V 汇编或 ELF 产物。
 
 pub mod ast;
+pub mod cli;
 pub mod codegen;
+pub mod docgen;
 pub mod error;
+pub mod fmt;
 pub mod ir;
 pub mod lexer;
+pub mod lsp;
+pub mod package;
 pub mod parser;
 pub mod repl;
 pub mod resolve;
 pub mod stdlib;
 pub mod types;
+pub mod wasm;
 
 use camino::{Utf8Path, Utf8PathBuf};
 use error::{CompileError, Result};
 use resolve::ModuleResolver;
-use serde::Deserialize;
-use std::collections::{HashMap, HashSet};
+use serde::{Deserialize, Serialize};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 /// 编译选项
 #[derive(Debug, Clone)]
@@ -85,6 +91,141 @@ pub struct CompileResult {
     pub artifact_format: ArtifactFormat,
     /// 产物哈希
     pub artifact_hash: [u8; 32],
+    /// 可供调度器/工具消费的编译元数据
+    pub metadata: CompileMetadata,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CompileMetadata {
+    pub module: String,
+    pub artifact_format: String,
+    pub lowering: LoweringMetadata,
+    pub runtime: RuntimeMetadata,
+    pub types: Vec<TypeMetadata>,
+    pub actions: Vec<ActionMetadata>,
+    pub locks: Vec<LockMetadata>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct LoweringMetadata {
+    pub protocol_semantics: String,
+    pub assembly_path: String,
+    pub elf_path: String,
+    pub semantics_preserving_claim: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct RuntimeMetadata {
+    pub vm_target: String,
+    pub vm_version: String,
+    pub syscall_abi: String,
+    pub pure_elf_runner: String,
+    pub ckb_runtime_required: bool,
+    pub ckb_runtime_features: Vec<String>,
+    pub standalone_runner_compatible: bool,
+    pub symbolic_cell_runtime_required: bool,
+    pub unsupported_elf_features: Vec<String>,
+    pub ckb_runtime_accesses: Vec<CkbRuntimeAccessMetadata>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CkbRuntimeAccessMetadata {
+    pub operation: String,
+    pub syscall: String,
+    pub source: String,
+    pub index: usize,
+    pub binding: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct TypeMetadata {
+    pub name: String,
+    pub kind: String,
+    pub encoded_size: Option<usize>,
+    pub fields: Vec<FieldMetadata>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct FieldMetadata {
+    pub name: String,
+    pub ty: String,
+    pub offset: usize,
+    pub encoded_size: Option<usize>,
+    pub fixed_width: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ActionMetadata {
+    pub name: String,
+    pub params: Vec<ParamMetadata>,
+    pub effect_class: String,
+    pub parallelizable: bool,
+    pub touches_shared: Vec<String>,
+    pub estimated_cycles: u64,
+    pub scheduler_witness_borsh_hex: String,
+    pub consume_set: Vec<CellPatternMetadata>,
+    pub read_refs: Vec<CellPatternMetadata>,
+    pub create_set: Vec<CreatePatternMetadata>,
+    pub ckb_runtime_accesses: Vec<CkbRuntimeAccessMetadata>,
+    pub ckb_runtime_features: Vec<String>,
+    pub symbolic_runtime_features: Vec<String>,
+    pub elf_compatible: bool,
+    pub standalone_runner_compatible: bool,
+    pub block_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct LockMetadata {
+    pub name: String,
+    pub params: Vec<ParamMetadata>,
+    pub consume_set: Vec<CellPatternMetadata>,
+    pub read_refs: Vec<CellPatternMetadata>,
+    pub create_set: Vec<CreatePatternMetadata>,
+    pub ckb_runtime_accesses: Vec<CkbRuntimeAccessMetadata>,
+    pub ckb_runtime_features: Vec<String>,
+    pub symbolic_runtime_features: Vec<String>,
+    pub elf_compatible: bool,
+    pub standalone_runner_compatible: bool,
+    pub block_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ParamMetadata {
+    pub name: String,
+    pub ty: String,
+    pub is_mut: bool,
+    pub is_ref: bool,
+    pub schema_pointer_abi: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CellPatternMetadata {
+    pub type_hash: Option<String>,
+    pub binding: String,
+    pub fields: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CreatePatternMetadata {
+    pub ty: String,
+    pub binding: String,
+    pub fields: Vec<String>,
+    pub has_lock: bool,
+}
+
+#[derive(Debug, Clone)]
+struct MetadataFieldLayout {
+    ty: ir::IrType,
+    fixed_size: Option<usize>,
+}
+
+type MetadataTypeLayouts = HashMap<String, HashMap<String, MetadataFieldLayout>>;
+
+#[derive(Debug, Clone)]
+pub struct LoadedModule {
+    pub path: Utf8PathBuf,
+    pub source: String,
+    pub ast: ast::Module,
 }
 
 impl CompileResult {
@@ -104,6 +245,23 @@ impl CompileResult {
         std::fs::write(output_path, &self.artifact_bytes)
             .map_err(|e| CompileError::new(format!("failed to write output '{}': {}", output_path, e), error::Span::default()))
     }
+
+    pub fn default_metadata_path(&self, artifact_path: &Utf8Path) -> Utf8PathBuf {
+        metadata_output_path_from_artifact(artifact_path)
+    }
+
+    pub fn write_metadata_to_path(&self, output_path: &Utf8Path) -> Result<()> {
+        if let Some(parent) = output_path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| {
+                CompileError::new(format!("failed to create metadata directory '{}': {}", parent, e), error::Span::default())
+            })?;
+        }
+
+        let json = serde_json::to_vec_pretty(&self.metadata)
+            .map_err(|e| CompileError::new(format!("failed to serialize metadata: {}", e), error::Span::default()))?;
+        std::fs::write(output_path, json)
+            .map_err(|e| CompileError::new(format!("failed to write metadata '{}': {}", output_path, e), error::Span::default()))
+    }
 }
 
 /// 解析编译输入到具体的 CellScript 源文件
@@ -120,6 +278,35 @@ pub fn default_output_path_for_input<P: AsRef<Utf8Path>>(
     default_output_path_from_input(input.as_ref(), resolved_input, artifact_format)
 }
 
+pub fn default_metadata_path_for_artifact<P: AsRef<Utf8Path>>(artifact_path: P) -> Utf8PathBuf {
+    metadata_output_path_from_artifact(artifact_path.as_ref())
+}
+
+pub fn load_modules_for_input<P: AsRef<Utf8Path>>(input: P) -> Result<Vec<LoadedModule>> {
+    let resolved = resolve_input_path(input.as_ref())?;
+    let mut files = if let Some(package_root) = find_package_root(&resolved)? {
+        collect_package_cell_files(&package_root)?
+    } else {
+        vec![resolved.clone()]
+    };
+
+    if !files.contains(&resolved) {
+        files.push(resolved);
+        files.sort();
+    }
+
+    files
+        .into_iter()
+        .map(|path| {
+            let source = std::fs::read_to_string(&path)
+                .map_err(|e| CompileError::new(format!("failed to read module '{}': {}", path, e), error::Span::default()))?;
+            let tokens = lexer::lex(&source).map_err(|e| e.with_file(path.clone()))?;
+            let ast = parser::parse(&tokens).map_err(|e| e.with_file(path.clone()))?;
+            Ok(LoadedModule { path, source, ast })
+        })
+        .collect()
+}
+
 /// 编译 CellScript 源代码
 pub fn compile(source: &str, options: CompileOptions) -> Result<CompileResult> {
     // 1. 词法分析
@@ -129,6 +316,16 @@ pub fn compile(source: &str, options: CompileOptions) -> Result<CompileResult> {
     let ast = parser::parse(&tokens)?;
 
     compile_ast(&ast, &options, None)
+}
+
+/// 只生成编译元数据，不生成 asm/elf artifact。
+pub fn compile_metadata(source: &str, target: Option<String>) -> Result<CompileMetadata> {
+    let tokens = lexer::lex(source)?;
+    let ast = parser::parse(&tokens)?;
+    let artifact_format = ArtifactFormat::from_target(target.as_deref().unwrap_or(DEFAULT_TARGET))?;
+    types::check(&ast)?;
+    let ir = ir::generate(&ast)?;
+    Ok(compile_metadata_from_ir(&ir, artifact_format))
 }
 
 fn compile_ast(ast: &ast::Module, options: &CompileOptions, resolver: Option<(&ModuleResolver, &str)>) -> Result<CompileResult> {
@@ -166,7 +363,9 @@ fn compile_ast_with_build(
 
     let artifact_hash = *blake3::hash(&artifact_bytes).as_bytes();
 
-    Ok(CompileResult { artifact_bytes, artifact_format, artifact_hash })
+    let metadata = compile_metadata_from_ir(&ir, artifact_format);
+
+    Ok(CompileResult { artifact_bytes, artifact_format, artifact_hash, metadata })
 }
 
 /// 从文件、包目录或 Cell.toml 编译
@@ -411,6 +610,469 @@ fn default_output_path_from_input(
     Ok(resolved_input.with_extension(artifact_format.file_extension()))
 }
 
+fn metadata_output_path_from_artifact(artifact_path: &Utf8Path) -> Utf8PathBuf {
+    let file_name = artifact_path.file_name().unwrap_or("artifact");
+    let metadata_name = format!("{}.meta.json", file_name);
+    artifact_path.with_file_name(metadata_name)
+}
+
+fn compile_metadata_from_ir(ir: &ir::IrModule, artifact_format: ArtifactFormat) -> CompileMetadata {
+    let type_layouts = metadata_type_layouts(ir);
+    let unsupported_elf_features = module_symbolic_runtime_features(ir, &type_layouts);
+    let ckb_runtime_features = module_ckb_runtime_features(ir);
+    let ckb_runtime_accesses = module_ckb_runtime_accesses(ir);
+    let has_entry_params = module_has_entry_params(ir);
+    let ckb_runtime_required = !ckb_runtime_features.is_empty();
+    let standalone_runner_compatible = unsupported_elf_features.is_empty() && !ckb_runtime_required && !has_entry_params;
+    CompileMetadata {
+        module: ir.name.clone(),
+        artifact_format: artifact_format.display_name().to_string(),
+        lowering: LoweringMetadata {
+            protocol_semantics: "CellScript IR records consume/read_ref/create summaries before RISC-V codegen".to_string(),
+            assembly_path: "riscv64-asm preserves symbolic cell/runtime operations with CKB-style syscall ABI comments and metadata"
+                .to_string(),
+            elf_path: if unsupported_elf_features.is_empty() {
+                "riscv64-elf is enabled for pure computation/control-flow programs, restricted fixed-width schema-parameter fields, and restricted read_ref fields that use CKB runtime syscalls"
+                    .to_string()
+            } else {
+                "riscv64-elf is fail-closed while symbolic cell/runtime features are present".to_string()
+            },
+            semantics_preserving_claim:
+                "Pure computation lowering is executable; stateful protocol lowering is represented in metadata and asm but is not yet a proved schema decoder/verifier"
+                    .to_string(),
+        },
+        runtime: RuntimeMetadata {
+            vm_target: "CKB-VM compatible RISC-V 64 IMC+B+MOP".to_string(),
+            vm_version: "VERSION2".to_string(),
+            syscall_abi: "CKB store_data ABI: A0=buffer, A1=size pointer, A2=offset, A3=index, A4=source".to_string(),
+            pure_elf_runner: "cellc run --features vm-runner executes no-argument pure ELF with ckb-vm 0.24".to_string(),
+            ckb_runtime_required,
+            ckb_runtime_features,
+            standalone_runner_compatible,
+            symbolic_cell_runtime_required: !unsupported_elf_features.is_empty(),
+            unsupported_elf_features,
+            ckb_runtime_accesses,
+        },
+        types: ir
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                ir::IrItem::TypeDef(type_def) => Some(type_metadata(type_def)),
+                _ => None,
+            })
+            .collect(),
+        actions: ir
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                ir::IrItem::Action(action) => {
+                    let param_schema_vars = schema_pointer_var_ids(&action.body, &action.params);
+                    let symbolic_runtime_features =
+                        body_symbolic_runtime_features(&action.body, &param_schema_vars, &type_layouts);
+                    let ckb_runtime_features = body_ckb_runtime_features(&action.body);
+                    let standalone_runner_compatible =
+                        symbolic_runtime_features.is_empty() && ckb_runtime_features.is_empty() && action.params.is_empty();
+                    Some(ActionMetadata {
+                        name: action.name.clone(),
+                        params: action.params.iter().map(param_metadata).collect(),
+                        effect_class: format!("{:?}", action.effect_class),
+                        parallelizable: action.scheduler_hints.parallelizable,
+                        touches_shared: action.scheduler_hints.touches_shared.iter().map(|hash| hex_hash(hash)).collect(),
+                        estimated_cycles: action.scheduler_hints.estimated_cycles,
+                        scheduler_witness_borsh_hex: hex_bytes(&crate::stdlib::SchedulerMetadata::generate(
+                            &format!("{:?}", action.effect_class),
+                            action.scheduler_hints.parallelizable,
+                            action.scheduler_hints.touches_shared.clone(),
+                            action.scheduler_hints.estimated_cycles,
+                        )),
+                        consume_set: action.body.consume_set.iter().map(cell_pattern_metadata).collect(),
+                        read_refs: action.body.read_refs.iter().map(cell_pattern_metadata).collect(),
+                        create_set: action.body.create_set.iter().map(create_pattern_metadata).collect(),
+                        ckb_runtime_accesses: body_ckb_runtime_accesses(&action.body),
+                        ckb_runtime_features,
+                        elf_compatible: symbolic_runtime_features.is_empty(),
+                        standalone_runner_compatible,
+                        symbolic_runtime_features,
+                        block_count: action.body.blocks.len(),
+                    })
+                }
+                _ => None,
+            })
+            .collect(),
+        locks: ir
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                ir::IrItem::Lock(lock) => {
+                    let param_schema_vars = schema_pointer_var_ids(&lock.body, &lock.params);
+                    let symbolic_runtime_features =
+                        body_symbolic_runtime_features(&lock.body, &param_schema_vars, &type_layouts);
+                    let ckb_runtime_features = body_ckb_runtime_features(&lock.body);
+                    let standalone_runner_compatible =
+                        symbolic_runtime_features.is_empty() && ckb_runtime_features.is_empty() && lock.params.is_empty();
+                    Some(LockMetadata {
+                        name: lock.name.clone(),
+                        params: lock.params.iter().map(param_metadata).collect(),
+                        consume_set: lock.body.consume_set.iter().map(cell_pattern_metadata).collect(),
+                        read_refs: lock.body.read_refs.iter().map(cell_pattern_metadata).collect(),
+                        create_set: lock.body.create_set.iter().map(create_pattern_metadata).collect(),
+                        ckb_runtime_accesses: body_ckb_runtime_accesses(&lock.body),
+                        ckb_runtime_features,
+                        elf_compatible: symbolic_runtime_features.is_empty(),
+                        standalone_runner_compatible,
+                        symbolic_runtime_features,
+                        block_count: lock.body.blocks.len(),
+                    })
+                }
+                _ => None,
+            })
+            .collect(),
+    }
+}
+
+fn module_symbolic_runtime_features(ir: &ir::IrModule, type_layouts: &MetadataTypeLayouts) -> Vec<String> {
+    let mut features = BTreeSet::new();
+    for item in &ir.items {
+        match item {
+            ir::IrItem::Action(action) => {
+                let param_schema_vars = schema_pointer_var_ids(&action.body, &action.params);
+                features.extend(body_symbolic_runtime_features(&action.body, &param_schema_vars, type_layouts));
+            }
+            ir::IrItem::Lock(lock) => {
+                let param_schema_vars = schema_pointer_var_ids(&lock.body, &lock.params);
+                features.extend(body_symbolic_runtime_features(&lock.body, &param_schema_vars, type_layouts));
+            }
+            ir::IrItem::TypeDef(_) => {}
+        }
+    }
+    features.into_iter().collect()
+}
+
+fn module_ckb_runtime_accesses(ir: &ir::IrModule) -> Vec<CkbRuntimeAccessMetadata> {
+    let mut accesses = Vec::new();
+    for item in &ir.items {
+        match item {
+            ir::IrItem::Action(action) => accesses.extend(body_ckb_runtime_accesses(&action.body)),
+            ir::IrItem::Lock(lock) => accesses.extend(body_ckb_runtime_accesses(&lock.body)),
+            ir::IrItem::TypeDef(_) => {}
+        }
+    }
+    accesses
+}
+
+fn module_ckb_runtime_features(ir: &ir::IrModule) -> Vec<String> {
+    let mut features = BTreeSet::new();
+    for item in &ir.items {
+        match item {
+            ir::IrItem::Action(action) => features.extend(body_ckb_runtime_features(&action.body)),
+            ir::IrItem::Lock(lock) => features.extend(body_ckb_runtime_features(&lock.body)),
+            ir::IrItem::TypeDef(_) => {}
+        }
+    }
+    features.into_iter().collect()
+}
+
+fn module_has_entry_params(ir: &ir::IrModule) -> bool {
+    ir.items.iter().any(|item| match item {
+        ir::IrItem::Action(action) => !action.params.is_empty(),
+        ir::IrItem::Lock(lock) => !lock.params.is_empty(),
+        ir::IrItem::TypeDef(_) => false,
+    })
+}
+
+fn body_symbolic_runtime_features(
+    body: &ir::IrBody,
+    param_schema_vars: &BTreeSet<usize>,
+    type_layouts: &MetadataTypeLayouts,
+) -> Vec<String> {
+    let mut features = BTreeSet::new();
+    if !body.consume_set.is_empty() {
+        features.insert("consume-input-cell".to_string());
+    }
+    if !body.create_set.is_empty() {
+        features.insert("verify-output-cell".to_string());
+    }
+    for block in &body.blocks {
+        for instruction in &block.instructions {
+            match instruction {
+                ir::IrInstruction::FieldAccess { obj, field, .. } => {
+                    if !is_executable_schema_field_access(obj, field, param_schema_vars, type_layouts) {
+                        features.insert("schema-field-access".to_string());
+                    }
+                }
+                ir::IrInstruction::Index { .. } => {
+                    features.insert("indexed-state-access".to_string());
+                }
+                ir::IrInstruction::Length { operand, .. } if operand_static_length(operand).is_none() => {
+                    features.insert("dynamic-length".to_string());
+                }
+                ir::IrInstruction::TypeHash { .. } => {
+                    features.insert("type-hash".to_string());
+                }
+                ir::IrInstruction::CollectionNew { .. }
+                | ir::IrInstruction::CollectionPush { .. }
+                | ir::IrInstruction::CollectionExtend { .. } => {
+                    features.insert("collection-runtime".to_string());
+                }
+                ir::IrInstruction::ReadRef { .. } => {}
+                ir::IrInstruction::Consume { .. } => {
+                    features.insert("consume-expression".to_string());
+                }
+                ir::IrInstruction::Create { .. } => {
+                    features.insert("create-expression".to_string());
+                }
+                ir::IrInstruction::Transfer { .. } => {
+                    features.insert("transfer-expression".to_string());
+                }
+                ir::IrInstruction::Destroy { .. } => {
+                    features.insert("destroy-expression".to_string());
+                }
+                ir::IrInstruction::Claim { .. } => {
+                    features.insert("claim-expression".to_string());
+                }
+                ir::IrInstruction::Settle { .. } => {
+                    features.insert("settle-expression".to_string());
+                }
+                _ => {}
+            }
+        }
+    }
+    features.into_iter().collect()
+}
+
+fn body_ckb_runtime_features(body: &ir::IrBody) -> Vec<String> {
+    let mut features = BTreeSet::new();
+    if !body.consume_set.is_empty() {
+        features.insert("consume-input-cell".to_string());
+    }
+    if !body.read_refs.is_empty() {
+        features.insert("read-cell-dep".to_string());
+    }
+    if !body.create_set.is_empty() {
+        features.insert("verify-output-cell".to_string());
+    }
+    features.into_iter().collect()
+}
+
+fn is_executable_schema_field_access(
+    obj: &ir::IrOperand,
+    field: &str,
+    param_schema_vars: &BTreeSet<usize>,
+    type_layouts: &MetadataTypeLayouts,
+) -> bool {
+    let ir::IrOperand::Var(var) = obj else {
+        return false;
+    };
+    if !param_schema_vars.contains(&var.id) {
+        return false;
+    }
+    let Some(type_name) = named_type_name(&var.ty) else {
+        return false;
+    };
+    let Some(layout) = type_layouts.get(type_name).and_then(|fields| fields.get(field)) else {
+        return false;
+    };
+    executable_scalar_width(&layout.ty, layout.fixed_size).is_some()
+}
+
+fn executable_scalar_width(ty: &ir::IrType, fixed_size: Option<usize>) -> Option<usize> {
+    match (ty, fixed_size) {
+        (ir::IrType::Bool | ir::IrType::U8, Some(1)) => Some(1),
+        (ir::IrType::U16, Some(2)) => Some(2),
+        (ir::IrType::U32, Some(4)) => Some(4),
+        (ir::IrType::U64, Some(8)) => Some(8),
+        _ => None,
+    }
+}
+
+fn schema_pointer_var_ids(body: &ir::IrBody, params: &[ir::IrParam]) -> BTreeSet<usize> {
+    let mut vars =
+        params.iter().filter(|param| named_type_name(&param.ty).is_some()).map(|param| param.binding.id).collect::<BTreeSet<_>>();
+
+    for block in &body.blocks {
+        for instruction in &block.instructions {
+            if let ir::IrInstruction::ReadRef { dest, .. } = instruction {
+                vars.insert(dest.id);
+            }
+            if let Some(var_id) = consumed_schema_var_id(instruction) {
+                vars.insert(var_id);
+            }
+        }
+    }
+
+    vars
+}
+
+fn consumed_schema_var_id(instruction: &ir::IrInstruction) -> Option<usize> {
+    let operand = match instruction {
+        ir::IrInstruction::Consume { operand }
+        | ir::IrInstruction::Transfer { operand, .. }
+        | ir::IrInstruction::Settle { operand } => operand,
+        ir::IrInstruction::Claim { receipt, .. } => receipt,
+        _ => return None,
+    };
+    match operand {
+        ir::IrOperand::Var(var) if named_type_name(&var.ty).is_some() => Some(var.id),
+        _ => None,
+    }
+}
+
+fn body_ckb_runtime_accesses(body: &ir::IrBody) -> Vec<CkbRuntimeAccessMetadata> {
+    let mut accesses = Vec::new();
+    for (index, pattern) in body.consume_set.iter().enumerate() {
+        accesses.push(CkbRuntimeAccessMetadata {
+            operation: "consume".to_string(),
+            syscall: "LOAD_CELL".to_string(),
+            source: "Input".to_string(),
+            index,
+            binding: pattern.binding.clone(),
+        });
+    }
+    for (index, pattern) in body.read_refs.iter().enumerate() {
+        accesses.push(CkbRuntimeAccessMetadata {
+            operation: "read_ref".to_string(),
+            syscall: "LOAD_CELL".to_string(),
+            source: "CellDep".to_string(),
+            index,
+            binding: pattern.binding.clone(),
+        });
+    }
+    for (index, pattern) in body.create_set.iter().enumerate() {
+        accesses.push(CkbRuntimeAccessMetadata {
+            operation: "create".to_string(),
+            syscall: "LOAD_CELL".to_string(),
+            source: "Output".to_string(),
+            index,
+            binding: pattern.binding.clone(),
+        });
+    }
+    accesses
+}
+
+fn metadata_type_layouts(ir: &ir::IrModule) -> MetadataTypeLayouts {
+    let mut layouts = HashMap::new();
+    for item in &ir.items {
+        let ir::IrItem::TypeDef(type_def) = item else {
+            continue;
+        };
+        let fields = type_def
+            .fields
+            .iter()
+            .map(|field| (field.name.clone(), MetadataFieldLayout { ty: field.ty.clone(), fixed_size: field.fixed_size }))
+            .collect();
+        layouts.insert(type_def.name.clone(), fields);
+    }
+    layouts
+}
+
+fn type_metadata(type_def: &ir::IrTypeDef) -> TypeMetadata {
+    TypeMetadata {
+        name: type_def.name.clone(),
+        kind: format!("{:?}", type_def.kind),
+        encoded_size: type_encoded_size(type_def),
+        fields: type_def.fields.iter().map(field_metadata).collect(),
+    }
+}
+
+fn field_metadata(field: &ir::IrField) -> FieldMetadata {
+    FieldMetadata {
+        name: field.name.clone(),
+        ty: ir_type_to_string(&field.ty),
+        offset: field.offset,
+        encoded_size: field.fixed_size,
+        fixed_width: field.fixed_size.is_some(),
+    }
+}
+
+fn type_encoded_size(type_def: &ir::IrTypeDef) -> Option<usize> {
+    type_def.fields.iter().try_fold(0usize, |acc, field| field.fixed_size.map(|size| acc + size))
+}
+
+fn ir_type_to_string(ty: &ir::IrType) -> String {
+    match ty {
+        ir::IrType::U8 => "u8".to_string(),
+        ir::IrType::U16 => "u16".to_string(),
+        ir::IrType::U32 => "u32".to_string(),
+        ir::IrType::U64 => "u64".to_string(),
+        ir::IrType::U128 => "u128".to_string(),
+        ir::IrType::Bool => "bool".to_string(),
+        ir::IrType::Address => "Address".to_string(),
+        ir::IrType::Hash => "Hash".to_string(),
+        ir::IrType::Array(inner, size) => format!("[{}; {}]", ir_type_to_string(inner), size),
+        ir::IrType::Tuple(items) => {
+            let fields = items.iter().map(ir_type_to_string).collect::<Vec<_>>().join(", ");
+            format!("({})", fields)
+        }
+        ir::IrType::Named(name) => name.clone(),
+        ir::IrType::Ref(inner) => format!("&{}", ir_type_to_string(inner)),
+        ir::IrType::MutRef(inner) => format!("&mut {}", ir_type_to_string(inner)),
+    }
+}
+
+fn named_type_name(ty: &ir::IrType) -> Option<&str> {
+    match ty {
+        ir::IrType::Named(name) => Some(name.as_str()),
+        ir::IrType::Ref(inner) | ir::IrType::MutRef(inner) => named_type_name(inner),
+        _ => None,
+    }
+}
+
+fn operand_static_length(operand: &ir::IrOperand) -> Option<usize> {
+    match operand {
+        ir::IrOperand::Var(var) => type_static_length(&var.ty),
+        ir::IrOperand::Const(ir::IrConst::Array(items)) => Some(items.len()),
+        _ => None,
+    }
+}
+
+fn type_static_length(ty: &ir::IrType) -> Option<usize> {
+    match ty {
+        ir::IrType::Array(_, size) => Some(*size),
+        ir::IrType::Ref(inner) | ir::IrType::MutRef(inner) => type_static_length(inner),
+        _ => None,
+    }
+}
+
+fn param_metadata(param: &ir::IrParam) -> ParamMetadata {
+    ParamMetadata {
+        name: param.name.clone(),
+        ty: ir_type_to_string(&param.ty),
+        is_mut: param.is_mut,
+        is_ref: param.is_ref,
+        schema_pointer_abi: named_type_name(&param.ty).is_some(),
+    }
+}
+
+fn cell_pattern_metadata(pattern: &ir::CellPattern) -> CellPatternMetadata {
+    CellPatternMetadata {
+        type_hash: pattern.type_hash.as_ref().map(hex_hash),
+        binding: pattern.binding.clone(),
+        fields: pattern.fields.iter().map(|(field, _)| field.clone()).collect(),
+    }
+}
+
+fn create_pattern_metadata(pattern: &ir::CreatePattern) -> CreatePatternMetadata {
+    CreatePatternMetadata {
+        ty: pattern.ty.clone(),
+        binding: pattern.binding.clone(),
+        fields: pattern.fields.iter().map(|(field, _)| field.clone()).collect(),
+        has_lock: pattern.lock.is_some(),
+    }
+}
+
+fn hex_hash(bytes: &[u8; 32]) -> String {
+    hex_bytes(bytes)
+}
+
+fn hex_bytes(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        use std::fmt::Write as _;
+        let _ = write!(&mut out, "{:02x}", byte);
+    }
+    out
+}
+
 fn collect_package_cell_files(package_root: &Utf8Path) -> Result<Vec<Utf8PathBuf>> {
     let manifest = load_manifest(package_root)?;
     let mut roots = Vec::new();
@@ -582,8 +1244,10 @@ pub const NAME: &str = "cellc";
 #[cfg(test)]
 mod tests {
     use super::{
-        compile, compile_file, compile_path, default_output_path_for_input, resolve_input_path, ArtifactFormat, CompileOptions,
+        compile, compile_file, compile_path, default_output_path_for_input, load_modules_for_input, resolve_input_path,
+        ArtifactFormat, CompileOptions,
     };
+    use crate::{ir, lexer, parser};
     use camino::{Utf8Path, Utf8PathBuf};
     use std::{env, process::Command};
     use tempfile::tempdir;
@@ -744,6 +1408,21 @@ action mint(owner: Address) -> Token {
 }
 "#;
 
+    const CREATE_VERIFY_PROGRAM: &str = r#"
+module test
+
+resource Token {
+    amount: u64,
+}
+
+action issue() -> Token {
+    let token = create Token {
+        amount: 42
+    }
+    return token
+}
+"#;
+
     const CONSUME_DESTROY_PROGRAM: &str = r#"
 module test
 
@@ -766,6 +1445,153 @@ struct Snapshot {
 
 action inspect(snapshot: Snapshot) -> u64 {
     return snapshot.amount
+}
+"#;
+
+    const PACKED_SCALAR_FIELD_PROGRAM: &str = r#"
+module test
+
+shared Flags {
+    enabled: bool,
+    nonce: u32,
+}
+
+action inspect() -> u32 {
+    let flags = read_ref<Flags>()
+    let enabled = flags.enabled
+    return flags.nonce
+}
+"#;
+
+    const CREATE_SCALAR_VERIFY_PROGRAM: &str = r#"
+module test
+
+resource Flags {
+    enabled: bool,
+    nonce: u32,
+}
+
+action issue(nonce: u32) -> Flags {
+    let enabled = true
+    let out = create Flags {
+        enabled: enabled,
+        nonce: nonce
+    }
+    return out
+}
+"#;
+
+    const READ_REF_FIELD_PROGRAM: &str = r#"
+module test
+
+shared Config {
+    threshold: u64,
+}
+
+action inspect() -> u64 {
+    let cfg = read_ref<Config>()
+    return cfg.threshold
+}
+"#;
+
+    const CONSUME_FIELD_PROGRAM: &str = r#"
+module test
+
+resource Token {
+    amount: u64,
+}
+
+action inspect(token: Token) -> u64 {
+    let amount = token.amount
+    consume token
+    return amount
+}
+"#;
+
+    const CONSUME_CREATE_CONSERVATION_PROGRAM: &str = r#"
+module test
+
+resource Token {
+    amount: u64,
+}
+
+action pass(token: Token) -> Token {
+    let amount = token.amount
+    consume token
+    let out = create Token {
+        amount: amount
+    }
+    return out
+}
+"#;
+
+    const CONSUME_CREATE_ARITHMETIC_CONSERVATION_PROGRAM: &str = r#"
+module test
+
+resource Token {
+    amount: u64,
+}
+
+action withdraw(token: Token, fee: u64) -> Token {
+    let amount = token.amount
+    let remaining = amount - fee
+    consume token
+    let out = create Token {
+        amount: remaining
+    }
+    return out
+}
+"#;
+
+    const CONSUME_CREATE_CHAINED_ARITHMETIC_CONSERVATION_PROGRAM: &str = r#"
+module test
+
+resource Token {
+    amount: u64,
+}
+
+action withdraw(token: Token, fee: u64, tax: u64) -> Token {
+    let amount = token.amount
+    let after_fee = amount - fee
+    let remaining = after_fee - tax
+    consume token
+    let out = create Token {
+        amount: remaining
+    }
+    return out
+}
+"#;
+
+    const CONSUME_CREATE_LOCAL_CONST_CONSERVATION_PROGRAM: &str = r#"
+module test
+
+resource Token {
+    amount: u64,
+}
+
+action withdraw(token: Token) -> Token {
+    let amount = token.amount
+    let fee = 2
+    let remaining = amount - fee
+    consume token
+    let out = create Token {
+        amount: remaining
+    }
+    return out
+}
+"#;
+
+    const DUPLICATE_READ_REF_PROGRAM: &str = r#"
+module test
+
+shared Config {
+    threshold: u64,
+}
+
+action inspect() -> u64 {
+    let left = read_ref<Config>()
+    let right = read_ref<Config>()
+    return left.threshold + right.threshold
 }
 "#;
 
@@ -841,6 +1667,57 @@ module test
 
 action is_zero(target: Address) -> bool {
     return target == Address::zero()
+}
+"#;
+
+    const SUMMARY_PROGRAM: &str = r#"
+module test
+
+shared Config {
+    threshold: u64,
+}
+
+resource Token has store, transfer, destroy {
+    amount: u64,
+}
+
+action update(amount: u64) -> u64 {
+    let cfg = read_ref<Config>()
+    let token = create Token { amount: amount }
+    consume token
+    return cfg.threshold
+}
+"#;
+
+    const BAD_LOCK_PROGRAM: &str = r#"
+module test
+
+lock invalid(owner: Address) -> u64 {
+    return 1
+}
+"#;
+
+    const TRANSFER_CLAIM_SETTLE_PROGRAM: &str = r#"
+module test
+
+resource Token has store, transfer, destroy {
+    amount: u64,
+}
+
+receipt VestingReceipt {
+    amount: u64,
+}
+
+action move_token(token: Token, to: Address) -> Token {
+    return transfer token to to
+}
+
+action redeem(receipt: VestingReceipt) -> u64 {
+    return claim receipt
+}
+
+action finalize(token: Token) -> Token {
+    return settle token
 }
 "#;
 
@@ -995,6 +1872,30 @@ action is_zero(target: Address) -> bool {
     }
 
     #[test]
+    fn compile_emits_create_output_field_verification_for_fixed_u64_fields() {
+        let result = compile(CREATE_VERIFY_PROGRAM, CompileOptions::default()).unwrap();
+        let asm = String::from_utf8(result.artifact_bytes.clone()).unwrap();
+
+        assert!(
+            asm.contains("# cellscript abi: LOAD_CELL reason=create source=Output index=0"),
+            "create output was not loaded from CKB Output source:\n{}",
+            asm
+        );
+        assert!(
+            asm.contains("# cellscript abi: bounds check Token.amount required=8"),
+            "create output verification missed field bounds check:\n{}",
+            asm
+        );
+        assert!(
+            asm.contains("# cellscript abi: verify output field Token.amount offset=0 size=8"),
+            "create output field verification was not emitted:\n{}",
+            asm
+        );
+        assert!(asm.contains("li t1, 42"), "create output verification did not load expected constant:\n{}", asm);
+        assert!(asm.contains("sub t2, t0, t1"), "create output verification did not compare actual and expected values:\n{}", asm);
+    }
+
+    #[test]
     fn compile_preserves_consume_and_destroy_instructions_in_assembly() {
         let result = compile(CONSUME_DESTROY_PROGRAM, CompileOptions::default()).unwrap();
         let asm = String::from_utf8(result.artifact_bytes.clone()).unwrap();
@@ -1004,12 +1905,287 @@ action is_zero(target: Address) -> bool {
     }
 
     #[test]
+    fn compile_preserves_read_ref_instructions_in_assembly() {
+        let result = compile(SUMMARY_PROGRAM, CompileOptions::default()).unwrap();
+        let asm = String::from_utf8(result.artifact_bytes.clone()).unwrap();
+
+        assert!(asm.contains("# read_ref Config"), "read_ref expression vanished from assembly:\n{}", asm);
+    }
+
+    #[test]
+    fn compile_lowers_read_ref_schema_field_to_ckb_runtime_assembly() {
+        let result = compile(READ_REF_FIELD_PROGRAM, CompileOptions::default()).unwrap();
+        let asm = String::from_utf8(result.artifact_bytes.clone()).unwrap();
+
+        assert!(
+            asm.contains("# cellscript abi: LOAD_CELL reason=read_ref source=CellDep index=0"),
+            "read_ref did not lower to CKB LOAD_CELL CellDep ABI:\n{}",
+            asm
+        );
+        assert!(
+            asm.contains("# cellscript abi: bounds check Config.threshold required=8"),
+            "read_ref schema field access did not emit a loaded-byte bounds check:\n{}",
+            asm
+        );
+        assert!(
+            asm.contains("# cellscript abi: schema field Config.threshold offset=0 size=8"),
+            "read_ref schema field access did not expose concrete layout:\n{}",
+            asm
+        );
+        assert!(
+            asm.contains("lbu t2, 0(t4)") && asm.contains("slli t2, t2, 56"),
+            "read_ref u64 field access did not lower to an unaligned-safe byte load sequence:\n{}",
+            asm
+        );
+    }
+
+    #[test]
+    fn compile_binds_duplicate_read_refs_by_order_not_name() {
+        let result = compile(DUPLICATE_READ_REF_PROGRAM, CompileOptions::default()).unwrap();
+        let asm = String::from_utf8(result.artifact_bytes.clone()).unwrap();
+
+        assert!(
+            asm.contains("# cellscript abi: LOAD_CELL reason=read_ref source=CellDep index=0"),
+            "first read_ref did not bind to CellDep index 0:\n{}",
+            asm
+        );
+        assert!(
+            asm.contains("# cellscript abi: LOAD_CELL reason=read_ref source=CellDep index=1"),
+            "second read_ref did not bind to CellDep index 1:\n{}",
+            asm
+        );
+        assert_eq!(
+            asm.matches("# cellscript abi: bounds check Config.threshold required=8").count(),
+            2,
+            "duplicate read_refs should each have a schema bounds check:\n{}",
+            asm
+        );
+    }
+
+    #[test]
+    fn compile_emits_ckb_style_load_cell_abi_for_cell_runtime_summary() {
+        let result = compile(SUMMARY_PROGRAM, CompileOptions::default()).unwrap();
+        let asm = String::from_utf8(result.artifact_bytes.clone()).unwrap();
+
+        assert!(
+            asm.contains("# cellscript abi: LOAD_CELL reason=consume source=Input index=0"),
+            "consume summary did not use CKB Source::Input LOAD_CELL ABI:\n{}",
+            asm
+        );
+        assert!(
+            asm.contains("# cellscript abi: LOAD_CELL reason=read_ref source=CellDep index=0"),
+            "read_ref summary did not use CKB Source::CellDep LOAD_CELL ABI:\n{}",
+            asm
+        );
+        assert!(
+            asm.contains("# cellscript abi: LOAD_CELL reason=create source=Output index=0"),
+            "create summary did not use CKB Source::Output LOAD_CELL ABI:\n{}",
+            asm
+        );
+        assert!(asm.contains("addi a0, sp,"), "store_data buffer address was not prepared:\n{}", asm);
+        assert!(asm.contains("addi a1, sp,"), "store_data size pointer was not prepared:\n{}", asm);
+        assert!(asm.contains("li a2, 0"), "store_data offset was not prepared:\n{}", asm);
+        assert!(asm.contains("li a3, 0"), "LOAD_CELL index register was not prepared:\n{}", asm);
+        assert!(asm.contains("li a4, 1"), "Input source register was not prepared:\n{}", asm);
+        assert!(asm.contains("li a4, 2"), "Output source register was not prepared:\n{}", asm);
+        assert!(asm.contains("li a4, 3"), "CellDep source register was not prepared:\n{}", asm);
+        assert!(asm.contains("li a7, 2071"), "LOAD_CELL syscall number was not emitted:\n{}", asm);
+        assert!(!asm.contains("li a7, 2073"), "summary consume regressed to LOAD_INPUT with stale argument order:\n{}", asm);
+    }
+
+    #[test]
     fn compile_preserves_schema_backed_parameter_field_access_in_assembly() {
         let result = compile(PARAM_FIELD_PROGRAM, CompileOptions::default()).unwrap();
         let asm = String::from_utf8(result.artifact_bytes.clone()).unwrap();
 
         assert!(asm.contains("# field access .amount"), "parameter field access vanished from assembly:\n{}", asm);
+        assert!(
+            asm.contains("# cellscript abi: schema field Snapshot.amount offset=0 size=8"),
+            "schema field access did not expose the concrete layout contract:\n{}",
+            asm
+        );
+        assert!(
+            asm.contains("lbu t2, 0(t4)") && asm.contains("slli t2, t2, 56"),
+            "u64 schema field access did not lower to an unaligned-safe byte load sequence:\n{}",
+            asm
+        );
         assert!(!asm.contains("field access '.amount' has no lowered schema-backed representation"));
+    }
+
+    #[test]
+    fn compile_lowers_packed_bool_and_u32_schema_fields_without_aligned_loads() {
+        let result = compile(PACKED_SCALAR_FIELD_PROGRAM, CompileOptions::default()).unwrap();
+        let asm = String::from_utf8(result.artifact_bytes.clone()).unwrap();
+
+        assert!(
+            asm.contains("# cellscript abi: schema field Flags.enabled offset=0 size=1"),
+            "bool schema field access did not expose concrete layout:\n{}",
+            asm
+        );
+        assert!(
+            asm.contains("# cellscript abi: schema field Flags.nonce offset=1 size=4"),
+            "u32 schema field access did not expose packed Borsh offset:\n{}",
+            asm
+        );
+        assert!(
+            asm.contains("# cellscript abi: bounds check Flags.nonce required=5"),
+            "packed u32 schema field access did not check full byte span:\n{}",
+            asm
+        );
+        assert!(
+            asm.contains("lbu t2, 1(t4)") && asm.contains("slli t2, t2, 24"),
+            "packed u32 field access did not lower to unaligned-safe little-endian byte loads:\n{}",
+            asm
+        );
+    }
+
+    #[test]
+    fn compile_verifies_created_output_bool_and_u32_fields() {
+        let result = compile(CREATE_SCALAR_VERIFY_PROGRAM, CompileOptions::default()).unwrap();
+        let asm = String::from_utf8(result.artifact_bytes.clone()).unwrap();
+
+        assert!(
+            asm.contains("# cellscript abi: verify output field Flags.enabled offset=0 size=1"),
+            "created bool output field was not verified:\n{}",
+            asm
+        );
+        assert!(
+            asm.contains("# cellscript abi: verify output field Flags.nonce offset=1 size=4"),
+            "created u32 output field was not verified:\n{}",
+            asm
+        );
+        assert!(
+            asm.contains("# cellscript abi: bounds check Flags.nonce required=5"),
+            "created packed u32 output field did not check full byte span:\n{}",
+            asm
+        );
+        assert!(asm.contains("li t1, 1"), "created bool expected value was not loaded as 1:\n{}", asm);
+        assert!(
+            asm.contains("lbu t2, 1(t4)") && asm.contains("slli t2, t2, 24"),
+            "created packed u32 verifier did not use unaligned-safe byte loads:\n{}",
+            asm
+        );
+    }
+
+    #[test]
+    fn compile_lowers_consumed_input_field_access_through_loaded_cell_bytes() {
+        let result = compile(CONSUME_FIELD_PROGRAM, CompileOptions::default()).unwrap();
+        let asm = String::from_utf8(result.artifact_bytes.clone()).unwrap();
+
+        assert!(
+            asm.contains("# cellscript abi: LOAD_CELL reason=consume source=Input index=0"),
+            "consume summary did not load the consumed input cell:\n{}",
+            asm
+        );
+        assert!(
+            asm.contains("# cellscript abi: bounds check Token.amount required=8"),
+            "consumed input field access did not check loaded cell bounds:\n{}",
+            asm
+        );
+        assert!(
+            asm.contains("# cellscript abi: schema field Token.amount offset=0 size=8"),
+            "consumed input field access did not expose concrete schema layout:\n{}",
+            asm
+        );
+        assert!(
+            asm.contains("# cellscript abi: consumed input pointer retained for verifier field checks"),
+            "consume instruction destroyed the preloaded input pointer:\n{}",
+            asm
+        );
+    }
+
+    #[test]
+    fn compile_verifies_create_output_against_consumed_input_field_alias() {
+        let result = compile(CONSUME_CREATE_CONSERVATION_PROGRAM, CompileOptions::default()).unwrap();
+        let asm = String::from_utf8(result.artifact_bytes.clone()).unwrap();
+
+        assert!(
+            asm.contains("# cellscript abi: LOAD_CELL reason=consume source=Input index=0"),
+            "conservation prelude did not load consumed input:\n{}",
+            asm
+        );
+        assert!(
+            asm.contains("# cellscript abi: LOAD_CELL reason=create source=Output index=0"),
+            "conservation prelude did not load created output:\n{}",
+            asm
+        );
+        assert!(
+            asm.contains("# cellscript abi: verify output field Token.amount offset=0 size=8"),
+            "created output amount was not verified:\n{}",
+            asm
+        );
+        assert!(
+            asm.contains("# cellscript abi: expected field Token.amount offset=0 size=8"),
+            "created output amount was not compared against the consumed input amount:\n{}",
+            asm
+        );
+        assert!(asm.contains("sub t2, t0, t1"), "created output amount and consumed input amount were not compared:\n{}", asm);
+    }
+
+    #[test]
+    fn compile_verifies_create_output_against_prelude_u64_arithmetic() {
+        let result = compile(CONSUME_CREATE_ARITHMETIC_CONSERVATION_PROGRAM, CompileOptions::default()).unwrap();
+        let asm = String::from_utf8(result.artifact_bytes.clone()).unwrap();
+
+        assert!(
+            asm.contains("# cellscript abi: expected expression u64 add/sub chain"),
+            "created output amount was not compared against a prelude arithmetic expression:\n{}",
+            asm
+        );
+        assert!(
+            asm.contains("# cellscript abi: expected field Token.amount offset=0 size=8"),
+            "prelude arithmetic expression did not read the consumed input amount:\n{}",
+            asm
+        );
+        assert!(asm.contains("sub t1, t3, t1"), "prelude arithmetic expression did not compute input amount minus fee:\n{}", asm);
+        assert!(
+            asm.contains("# cellscript abi: verify output field Token.amount offset=0 size=8"),
+            "created output amount was not verified:\n{}",
+            asm
+        );
+    }
+
+    #[test]
+    fn compile_verifies_create_output_against_left_associative_prelude_u64_chain() {
+        let result = compile(CONSUME_CREATE_CHAINED_ARITHMETIC_CONSERVATION_PROGRAM, CompileOptions::default()).unwrap();
+        let asm = String::from_utf8(result.artifact_bytes.clone()).unwrap();
+
+        assert_eq!(
+            asm.matches("# cellscript abi: expected expression u64 add/sub chain").count(),
+            2,
+            "left-associative prelude arithmetic chain should be recomputed recursively:\n{}",
+            asm
+        );
+        assert!(
+            asm.contains("# cellscript abi: expected field Token.amount offset=0 size=8"),
+            "prelude arithmetic chain did not read the consumed input amount:\n{}",
+            asm
+        );
+        assert!(asm.matches("sub t1, t3, t1").count() >= 2, "prelude arithmetic chain did not subtract both fee and tax:\n{}", asm);
+        assert!(
+            asm.contains("# cellscript abi: verify output field Token.amount offset=0 size=8"),
+            "created output amount was not verified:\n{}",
+            asm
+        );
+    }
+
+    #[test]
+    fn compile_verifies_create_output_against_local_const_prelude_u64() {
+        let result = compile(CONSUME_CREATE_LOCAL_CONST_CONSERVATION_PROGRAM, CompileOptions::default()).unwrap();
+        let asm = String::from_utf8(result.artifact_bytes.clone()).unwrap();
+
+        assert!(
+            asm.contains("# cellscript abi: expected expression u64 add/sub chain"),
+            "created output amount was not compared against the local-const arithmetic expression:\n{}",
+            asm
+        );
+        assert!(asm.contains("li t1, 2"), "prelude arithmetic expression did not preserve local const fee:\n{}", asm);
+        assert!(asm.contains("sub t1, t3, t1"), "prelude arithmetic expression did not subtract local const fee:\n{}", asm);
+        assert!(
+            asm.contains("# cellscript abi: verify output field Token.amount offset=0 size=8"),
+            "created output amount was not verified:\n{}",
+            asm
+        );
     }
 
     #[test]
@@ -1115,10 +2291,35 @@ action is_zero(target: Address) -> bool {
 
     #[test]
     fn compile_rejects_symbolic_cell_runtime_programs_as_elf() {
-        let err =
-            compile(PARAM_FIELD_PROGRAM, CompileOptions { target: Some("riscv64-elf".to_string()), ..CompileOptions::default() })
-                .unwrap_err();
+        let err = compile(SUMMARY_PROGRAM, CompileOptions { target: Some("riscv64-elf".to_string()), ..CompileOptions::default() })
+            .unwrap_err();
         assert!(err.message.contains("riscv64-elf emission is not yet supported for symbolic cell/runtime operations"));
+    }
+
+    #[test]
+    fn compile_lowers_schema_backed_parameter_field_access_to_elf() {
+        let result =
+            compile(PARAM_FIELD_PROGRAM, CompileOptions { target: Some("riscv64-elf".to_string()), ..CompileOptions::default() })
+                .unwrap();
+
+        assert_eq!(result.artifact_format, ArtifactFormat::RiscvElf);
+        assert!(result.artifact_bytes.starts_with(b"\x7fELF"));
+        assert!(!result.metadata.runtime.symbolic_cell_runtime_required);
+        assert!(result.metadata.runtime.unsupported_elf_features.is_empty());
+    }
+
+    #[test]
+    fn compile_lowers_read_ref_schema_field_to_ckb_runtime_elf() {
+        let result =
+            compile(READ_REF_FIELD_PROGRAM, CompileOptions { target: Some("riscv64-elf".to_string()), ..CompileOptions::default() })
+                .unwrap();
+
+        assert_eq!(result.artifact_format, ArtifactFormat::RiscvElf);
+        assert!(result.artifact_bytes.starts_with(b"\x7fELF"));
+        assert!(result.metadata.runtime.ckb_runtime_required);
+        assert!(!result.metadata.runtime.standalone_runner_compatible);
+        assert!(result.metadata.runtime.ckb_runtime_features.contains(&"read-cell-dep".to_string()));
+        assert!(result.metadata.runtime.unsupported_elf_features.is_empty());
     }
 
     #[test]
@@ -1127,6 +2328,143 @@ action is_zero(target: Address) -> bool {
             compile(VEC_BUILTIN_PROGRAM, CompileOptions { target: Some("riscv64-elf".to_string()), ..CompileOptions::default() })
                 .unwrap_err();
         assert!(err.message.contains("symbolic cell/runtime operations"));
+    }
+
+    #[test]
+    fn load_modules_for_input_collects_package_source_roots() {
+        let temp = tempdir().unwrap();
+        let root = Utf8Path::from_path(temp.path()).unwrap();
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::create_dir_all(root.join("shared")).unwrap();
+        std::fs::write(
+            root.join("Cell.toml"),
+            r#"
+[package]
+name = "demo"
+version = "0.1.0"
+source_roots = ["src", "shared"]
+"#,
+        )
+        .unwrap();
+        std::fs::write(root.join("src/main.cell"), "module demo::main\naction ping() -> u64 { 1 }\n").unwrap();
+        std::fs::write(root.join("shared/types.cell"), "module demo::types\nstruct Pair { left: u64, right: u64 }\n").unwrap();
+
+        let modules = load_modules_for_input(root).unwrap();
+        assert_eq!(modules.len(), 2);
+    }
+
+    #[test]
+    fn ir_summary_captures_cell_runtime_accesses() {
+        let tokens = lexer::lex(SUMMARY_PROGRAM).unwrap();
+        let module = parser::parse(&tokens).unwrap();
+        let ir = ir::generate(&module).unwrap();
+        let action = ir
+            .items
+            .iter()
+            .find_map(|item| match item {
+                ir::IrItem::Action(action) if action.name == "update" => Some(action),
+                _ => None,
+            })
+            .expect("update action");
+
+        assert_eq!(action.body.read_refs.len(), 1);
+        assert_eq!(action.body.create_set.len(), 1);
+        assert_eq!(action.body.consume_set.len(), 1);
+        assert_eq!(action.body.read_refs[0].binding, "read_ref_Config");
+        assert_eq!(action.body.create_set[0].ty, "Token");
+        assert!(!action.scheduler_hints.touches_shared.is_empty());
+        assert!(action.scheduler_hints.estimated_cycles > 32);
+    }
+
+    #[test]
+    fn compile_rejects_non_bool_lock_definitions() {
+        let err = compile(BAD_LOCK_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(err.message.contains("lock definitions must return bool"));
+    }
+
+    #[test]
+    fn compile_preserves_transfer_claim_settle_instructions_in_assembly() {
+        let result = compile(TRANSFER_CLAIM_SETTLE_PROGRAM, CompileOptions::default()).unwrap();
+        let asm = String::from_utf8(result.artifact_bytes.clone()).unwrap();
+
+        assert!(asm.contains("# transfer"), "transfer expression vanished from assembly:\n{}", asm);
+        assert!(asm.contains("# claim"), "claim expression vanished from assembly:\n{}", asm);
+        assert!(asm.contains("# settle"), "settle expression vanished from assembly:\n{}", asm);
+    }
+
+    #[test]
+    fn ir_summary_captures_transfer_and_claim_consumes() {
+        let tokens = lexer::lex(TRANSFER_CLAIM_SETTLE_PROGRAM).unwrap();
+        let module = parser::parse(&tokens).unwrap();
+        let ir = ir::generate(&module).unwrap();
+
+        let transfer_action = ir
+            .items
+            .iter()
+            .find_map(|item| match item {
+                ir::IrItem::Action(action) if action.name == "move_token" => Some(action),
+                _ => None,
+            })
+            .expect("move_token action");
+        assert_eq!(transfer_action.body.consume_set.len(), 1);
+        assert_eq!(transfer_action.body.create_set.len(), 1);
+        assert_eq!(transfer_action.body.consume_set[0].binding, "token");
+        assert_eq!(transfer_action.body.create_set[0].ty, "Token");
+
+        let claim_action = ir
+            .items
+            .iter()
+            .find_map(|item| match item {
+                ir::IrItem::Action(action) if action.name == "redeem" => Some(action),
+                _ => None,
+            })
+            .expect("redeem action");
+        assert_eq!(claim_action.body.consume_set.len(), 1);
+        assert_eq!(claim_action.body.consume_set[0].binding, "receipt");
+    }
+
+    #[test]
+    fn compile_result_exposes_scheduler_metadata_sidecar() {
+        let result = compile(SUMMARY_PROGRAM, CompileOptions::default()).unwrap();
+        assert_eq!(result.metadata.module, "test");
+        assert_eq!(result.metadata.runtime.vm_version, "VERSION2");
+        assert!(result.metadata.runtime.symbolic_cell_runtime_required);
+        assert!(result.metadata.runtime.ckb_runtime_required);
+        assert!(result.metadata.runtime.ckb_runtime_features.contains(&"read-cell-dep".to_string()));
+        assert!(!result.metadata.runtime.unsupported_elf_features.contains(&"read-ref-expression".to_string()));
+        assert!(!result.metadata.runtime.unsupported_elf_features.contains(&"schema-field-access".to_string()));
+        assert!(result.metadata.runtime.ckb_runtime_accesses.iter().any(|access| access.source == "Input"));
+        assert!(result.metadata.runtime.ckb_runtime_accesses.iter().any(|access| access.source == "CellDep"));
+        assert!(result.metadata.runtime.ckb_runtime_accesses.iter().any(|access| access.source == "Output"));
+        let action = result.metadata.actions.iter().find(|action| action.name == "update").expect("update metadata");
+        assert_eq!(action.read_refs.len(), 1);
+        assert_eq!(action.create_set.len(), 1);
+        assert_eq!(action.consume_set.len(), 1);
+        assert!(!action.elf_compatible);
+        assert!(action.ckb_runtime_features.contains(&"read-cell-dep".to_string()));
+        assert!(!action.symbolic_runtime_features.contains(&"read-ref-expression".to_string()));
+        assert!(!action.touches_shared.is_empty());
+        assert!(action.estimated_cycles > 32);
+        assert!(!action.scheduler_witness_borsh_hex.is_empty());
+        assert!(action.scheduler_witness_borsh_hex.starts_with("11ce"));
+    }
+
+    #[test]
+    fn compile_result_exposes_schema_layout_metadata() {
+        let result = compile(PARAM_FIELD_PROGRAM, CompileOptions::default()).unwrap();
+        let snapshot = result.metadata.types.iter().find(|ty| ty.name == "Snapshot").expect("Snapshot type metadata");
+        let action = result.metadata.actions.iter().find(|action| action.name == "inspect").expect("inspect metadata");
+        assert_eq!(action.params.len(), 1);
+        assert_eq!(action.params[0].name, "snapshot");
+        assert_eq!(action.params[0].ty, "Snapshot");
+        assert!(action.params[0].schema_pointer_abi);
+        assert_eq!(snapshot.kind, "Struct");
+        assert_eq!(snapshot.encoded_size, Some(8));
+        let amount = snapshot.fields.iter().find(|field| field.name == "amount").expect("amount field metadata");
+        assert_eq!(amount.ty, "u64");
+        assert_eq!(amount.offset, 0);
+        assert_eq!(amount.encoded_size, Some(8));
+        assert!(amount.fixed_width);
     }
 
     #[test]

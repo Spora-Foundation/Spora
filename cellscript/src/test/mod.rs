@@ -115,11 +115,7 @@ pub enum Value {
 impl TestRunner {
     /// 创建新的测试运行器
     pub fn new() -> Self {
-        Self {
-            tests: Vec::new(),
-            results: Vec::new(),
-            fail_fast: false,
-        }
+        Self { tests: Vec::new(), results: Vec::new(), fail_fast: false }
     }
 
     /// 设置 fail-fast
@@ -143,19 +139,19 @@ impl TestRunner {
     /// 运行所有测试
     pub fn run(&mut self) -> TestSummary {
         let start = std::time::Instant::now();
-        
+
         for test in &self.tests {
             let result = self.run_test(test);
             let passed = result.passed;
             self.results.push(result);
-            
+
             if !passed && self.fail_fast {
                 break;
             }
         }
-        
+
         let duration = start.elapsed();
-        
+
         TestSummary {
             total: self.results.len(),
             passed: self.results.iter().filter(|r| r.passed).count(),
@@ -168,16 +164,16 @@ impl TestRunner {
     /// 运行单个测试
     fn run_test(&self, test: &TestCase) -> TestResult {
         let start = std::time::Instant::now();
-        
+
         let (passed, output, error) = match &test.ty {
             TestType::Unit => self.run_unit_test(test),
             TestType::Integration => self.run_integration_test(test),
             TestType::Doc => self.run_doc_test(test),
             TestType::Property => self.run_property_test(test),
         };
-        
+
         let duration = start.elapsed();
-        
+
         TestResult {
             name: test.name.clone(),
             passed,
@@ -189,57 +185,41 @@ impl TestRunner {
 
     /// 运行单元测试
     fn run_unit_test(&self, test: &TestCase) -> (bool, Option<String>, Option<String>) {
-        // 1. 解析测试代码
-        // 2. 类型检查
-        // 3. 执行测试
-        // 4. 验证结果
-        
-        // 简化实现
-        (true, None, None)
+        self.unsupported_test_execution(test, "unit")
     }
 
     /// 运行集成测试
     fn run_integration_test(&self, test: &TestCase) -> (bool, Option<String>, Option<String>) {
-        // 集成测试需要完整的环境
-        (true, None, None)
+        self.unsupported_test_execution(test, "integration")
     }
 
     /// 运行文档测试
     fn run_doc_test(&self, test: &TestCase) -> (bool, Option<String>, Option<String>) {
-        // 文档测试从注释中提取代码
-        (true, None, None)
+        self.unsupported_test_execution(test, "doc")
     }
 
     /// 运行属性测试
     fn run_property_test(&self, test: &TestCase) -> (bool, Option<String>, Option<String>) {
-        // 属性测试使用随机输入验证属性
-        // 简化实现：运行固定次数
-        let iterations = 100;
-        
-        for _ in 0..iterations {
-            // 生成随机输入并验证
-        }
-        
-        (true, None, None)
+        self.unsupported_test_execution(test, "property")
+    }
+
+    fn unsupported_test_execution(&self, test: &TestCase, kind: &str) -> (bool, Option<String>, Option<String>) {
+        let message = format!(
+            "cellscript {} test execution is still experimental and has no trusted runtime backend; refusing to report '{}' as passed",
+            kind, test.name
+        );
+        (false, None, Some(message))
     }
 
     /// 打印测试结果
     pub fn print_results(&self) {
         println!("\n{}", "Running tests:".bold());
-        
+
         for result in &self.results {
             if result.passed {
-                println!("  {} {} ({} µs)", 
-                    "✓".green(), 
-                    result.name,
-                    result.duration_us
-                );
+                println!("  {} {} ({} µs)", "✓".green(), result.name, result.duration_us);
             } else {
-                println!("  {} {} ({} µs)", 
-                    "✗".red(), 
-                    result.name,
-                    result.duration_us
-                );
+                println!("  {} {} ({} µs)", "✗".red(), result.name, result.duration_us);
                 if let Some(error) = &result.error {
                     println!("    {}", error.red());
                 }
@@ -276,7 +256,7 @@ impl TestSummary {
         println!("  Passed:  {}", self.passed.to_string().green());
         println!("  Failed:  {}", self.failed.to_string().red());
         println!("  Time:    {:.2}s", self.duration.as_secs_f64());
-        
+
         if self.all_passed() {
             println!("\n{}", "All tests passed!".green().bold());
         } else {
@@ -327,7 +307,7 @@ impl TestParser {
     /// 从模块提取测试
     pub fn extract_tests(module: &Module) -> Vec<TestCase> {
         let mut tests = Vec::new();
-        
+
         for item in &module.items {
             if let Item::Action(action) = item {
                 if action.name.starts_with("test_") {
@@ -342,7 +322,7 @@ impl TestParser {
                 }
             }
         }
-        
+
         tests
     }
 
@@ -350,14 +330,14 @@ impl TestParser {
     pub fn extract_doc_tests(source: &str) -> Vec<TestCase> {
         let mut tests = Vec::new();
         let lines: Vec<&str> = source.lines().collect();
-        
+
         let mut in_test = false;
         let mut test_code = Vec::new();
         let mut line_num = 0;
-        
+
         for (i, line) in lines.iter().enumerate() {
             let trimmed = line.trim();
-            
+
             if trimmed.starts_with("/// ```cellscript") {
                 in_test = true;
                 test_code.clear();
@@ -376,7 +356,7 @@ impl TestParser {
                 test_code.push(&trimmed[4..]);
             }
         }
-        
+
         tests
     }
 }
@@ -390,7 +370,7 @@ impl PropertyTester {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
         use std::time::SystemTime;
-        
+
         let mut hasher = DefaultHasher::new();
         SystemTime::now().hash(&mut hasher);
         hasher.finish()
@@ -411,7 +391,7 @@ impl PropertyTester {
         F: Fn() -> bool,
     {
         let start = std::time::Instant::now();
-        
+
         for i in 0..iterations {
             if !property() {
                 return TestResult {
@@ -423,7 +403,7 @@ impl PropertyTester {
                 };
             }
         }
-        
+
         TestResult {
             name: name.to_string(),
             passed: true,
@@ -441,7 +421,7 @@ mod tests {
     #[test]
     fn test_test_runner() {
         let mut runner = TestRunner::new();
-        
+
         runner.add_test(TestCase {
             name: "test_pass".to_string(),
             ty: TestType::Unit,
@@ -450,16 +430,19 @@ mod tests {
             source_file: String::new(),
             line: 0,
         });
-        
+
         let summary = runner.run();
         assert_eq!(summary.total, 1);
+        assert_eq!(summary.failed, 1);
+        assert!(!summary.all_passed());
+        assert!(summary.results[0].error.as_deref().unwrap_or_default().contains("still experimental"));
     }
 
     #[test]
     fn test_property_tester() {
         let result = PropertyTester::verify("always_true", || true, 100);
         assert!(result.passed);
-        
+
         let result = PropertyTester::verify("always_false", || false, 100);
         assert!(!result.passed);
     }
@@ -474,7 +457,7 @@ mod tests {
 /// ```
 resource Test {}
 "#;
-        
+
         let tests = TestParser::extract_doc_tests(source);
         assert_eq!(tests.len(), 1);
         assert!(tests[0].code.contains("let x = 42"));

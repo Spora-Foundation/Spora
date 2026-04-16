@@ -9,6 +9,7 @@ use super::machine::ScriptVersion;
 use super::scheduler::{FullSuspendedState, ProgramPiece, ProgramPlace, ProgramResolver, RunMode, VmScheduler};
 use super::{VmSemantics, MAX_SCRIPT_SIZE, MAX_VM_MEMORY};
 use crate::celltx::{CellOutput, CellTx, Script};
+use crate::serialization::{VmAbiError, VmAbiNegotiator, VmSerializable};
 use borsh::{BorshDeserialize, BorshSerialize};
 use rayon::prelude::*;
 use std::{collections::HashSet, sync::Arc};
@@ -97,7 +98,7 @@ pub struct ScriptGroup {
 }
 
 /// Fully resolved cell contents available to the VM runtime.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, BorshSerialize, BorshDeserialize, PartialEq, Eq)]
 pub struct ResolvedCell {
     /// Full cell output structure.
     pub cell_output: CellOutput,
@@ -144,6 +145,44 @@ impl ResolvedHeader {
     /// Returns direct parent hashes (level 0 of the DAG parent set).
     pub fn direct_parents(&self) -> &[[u8; 32]] {
         self.parents_by_level.first().map(Vec::as_slice).unwrap_or(&[])
+    }
+}
+
+impl VmSerializable for ResolvedHeader {
+    /// Current ABI version: Borsh-based ABI v1
+    fn abi_version() -> u16 {
+        VmAbiNegotiator::ABI_VERSION_BORSH_V1
+    }
+
+    /// Serialize to VM-visible bytes using Borsh
+    fn to_vm_bytes(&self) -> Vec<u8> {
+        // Current: Borsh implementation
+        // Future: Can switch to Molecule without changing ABI
+        borsh::to_vec(self).expect("Borsh serialization should not fail for ResolvedHeader")
+    }
+
+    /// Deserialize from VM-visible bytes using Borsh
+    fn from_vm_bytes(bytes: &[u8]) -> Result<Self, VmAbiError> {
+        BorshDeserialize::try_from_slice(bytes)
+            .map_err(|e| VmAbiError::DeserializationFailed(e.to_string()))
+    }
+}
+
+impl VmSerializable for ResolvedCell {
+    /// Current ABI version: Borsh-based ABI v1
+    fn abi_version() -> u16 {
+        VmAbiNegotiator::ABI_VERSION_BORSH_V1
+    }
+
+    /// Serialize to VM-visible bytes using Borsh
+    fn to_vm_bytes(&self) -> Vec<u8> {
+        borsh::to_vec(self).expect("Borsh serialization should not fail for ResolvedCell")
+    }
+
+    /// Deserialize from VM-visible bytes using Borsh
+    fn from_vm_bytes(bytes: &[u8]) -> Result<Self, VmAbiError> {
+        BorshDeserialize::try_from_slice(bytes)
+            .map_err(|e| VmAbiError::DeserializationFailed(e.to_string()))
     }
 }
 

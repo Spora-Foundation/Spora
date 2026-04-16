@@ -5,7 +5,9 @@ use clap::Parser;
 use colored::Colorize;
 use std::process;
 
-use cellscript::{compile_path, default_output_path_for_input, resolve_input_path, CompileOptions};
+use cellscript::{
+    compile_path, default_metadata_path_for_artifact, default_output_path_for_input, resolve_input_path, CompileOptions,
+};
 
 /// CellScript 编译器
 #[derive(Parser, Debug)]
@@ -51,6 +53,39 @@ struct Cli {
 }
 
 fn main() {
+    if std::env::args()
+        .nth(1)
+        .map(|arg| {
+            matches!(
+                arg.as_str(),
+                "build"
+                    | "test"
+                    | "doc"
+                    | "fmt"
+                    | "init"
+                    | "add"
+                    | "remove"
+                    | "clean"
+                    | "repl"
+                    | "check"
+                    | "metadata"
+                    | "run"
+                    | "publish"
+                    | "install"
+                    | "update"
+                    | "info"
+                    | "login"
+            )
+        })
+        .unwrap_or(false)
+    {
+        if let Err(e) = cellscript::cli::run() {
+            eprintln!("{}: {}", "error".red(), e);
+            process::exit(1);
+        }
+        return;
+    }
+
     let cli = Cli::parse();
 
     // 设置日志
@@ -158,11 +193,17 @@ fn main() {
                 eprintln!("{}: {}", "error".red(), e);
                 process::exit(1);
             }
+            let metadata_path = default_metadata_path_for_artifact(&output_path);
+            if let Err(e) = result.write_metadata_to_path(&metadata_path) {
+                eprintln!("{}: {}", "error".red(), e);
+                process::exit(1);
+            }
 
             println!("{}: compiled successfully", "success".green());
             println!("  Artifact format: {}", result.artifact_format.display_name());
             println!("  Artifact hash: {:x?}", result.artifact_hash);
             println!("  Output: {}", output_path);
+            println!("  Metadata: {}", metadata_path);
         }
         Err(e) => {
             eprintln!("{}: {}", "error".red(), e);
