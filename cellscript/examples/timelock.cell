@@ -160,7 +160,7 @@ action request_release(
 }
 
 /// 执行释放
-#[effect(Destroying)]
+#[effect(Mutating)]
 #[scheduler_hint(sequential, estimated_cycles = 4000)]
 action execute_release(
     time_lock: TimeLock,
@@ -249,7 +249,7 @@ action approve_emergency_release(
 }
 
 /// 执行紧急释放
-#[effect(Destroying)]
+#[effect(Mutating)]
 #[scheduler_hint(sequential, estimated_cycles = 5000)]
 action execute_emergency_release(
     time_lock: TimeLock,

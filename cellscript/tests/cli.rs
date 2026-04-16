@@ -119,6 +119,79 @@ action pass_through(token: Token) -> Token {
 }
 
 #[test]
+fn cellc_rejects_underdeclared_effects_from_path_dependency_calls() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    let dep_root = root.join("dep_pkg");
+    let app_root = root.join("app_pkg");
+
+    std::fs::create_dir_all(dep_root.join("src")).unwrap();
+    std::fs::create_dir_all(app_root.join("src")).unwrap();
+
+    std::fs::write(
+        dep_root.join("Cell.toml"),
+        r#"
+[package]
+name = "dep_pkg"
+version = "0.1.0"
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        dep_root.join("src").join("token.cell"),
+        r#"
+module dep::token
+
+resource Token {
+    amount: u64
+}
+
+action issue(amount: u64) -> Token {
+    let out = create Token {
+        amount: amount
+    }
+    return out
+}
+"#,
+    )
+    .unwrap();
+
+    std::fs::write(
+        app_root.join("Cell.toml"),
+        r#"
+[package]
+name = "app_pkg"
+version = "0.1.0"
+
+[dependencies]
+dep_pkg = { path = "../dep_pkg" }
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        app_root.join("src").join("main.cell"),
+        r#"
+module app::main
+
+use dep::token::Token
+use dep::token::issue
+
+#[effect(ReadOnly)]
+action wrapper(amount: u64) -> Token {
+    return issue(amount)
+}
+"#,
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_cellc")).arg(&app_root).output().unwrap();
+    assert!(!output.status.success(), "unexpected success: {}", String::from_utf8_lossy(&output.stdout));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("declared effect ReadOnly is too weak"), "unexpected stderr: {}", stderr);
+    assert!(stderr.contains("inferred effect is Creating"), "unexpected stderr: {}", stderr);
+}
+
+#[test]
 fn cellc_uses_manifest_build_out_dir_for_package_input() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path();
@@ -409,6 +482,7 @@ action update(amount: u64) -> u64 {
     assert!(stdout.contains("\"lowering\""));
     assert!(stdout.contains("\"runtime\""));
     assert!(stdout.contains("\"symbolic_cell_runtime_required\": true"));
+    assert!(stdout.contains("\"fail_closed_runtime_features\""));
     assert!(stdout.contains("\"source\": \"Input\""));
     assert!(stdout.contains("\"source\": \"CellDep\""));
     assert!(stdout.contains("\"source\": \"Output\""));

@@ -699,9 +699,10 @@ fn lowering_diagnostics(module: &Module, metadata: &crate::CompileMetadata) -> V
             range: span_to_range(span),
             severity: DiagnosticSeverity::Warning,
             message: format!(
-                "action '{}' is not currently ELF-compatible; symbolic runtime features: {}; CKB runtime features: {}; CKB accesses: {}",
+                "action '{}' is not currently ELF-compatible; symbolic runtime features: {}; fail-closed runtime features: {}; CKB runtime features: {}; CKB accesses: {}",
                 action.name,
                 diagnostic_list(&action.symbolic_runtime_features),
+                diagnostic_list(&action.fail_closed_runtime_features),
                 diagnostic_list(&action.ckb_runtime_features),
                 diagnostic_access_list(&action.ckb_runtime_accesses)
             ),
@@ -725,9 +726,10 @@ fn lowering_diagnostics(module: &Module, metadata: &crate::CompileMetadata) -> V
             range: span_to_range(span),
             severity: DiagnosticSeverity::Warning,
             message: format!(
-                "lock '{}' is not currently ELF-compatible; symbolic runtime features: {}; CKB runtime features: {}; CKB accesses: {}",
+                "lock '{}' is not currently ELF-compatible; symbolic runtime features: {}; fail-closed runtime features: {}; CKB runtime features: {}; CKB accesses: {}",
                 lock.name,
                 diagnostic_list(&lock.symbolic_runtime_features),
+                diagnostic_list(&lock.fail_closed_runtime_features),
                 diagnostic_list(&lock.ckb_runtime_features),
                 diagnostic_access_list(&lock.ckb_runtime_accesses)
             ),
@@ -797,6 +799,11 @@ fn action_metadata_hover(name: &str, metadata: Option<&crate::CompileMetadata>) 
 
     let features =
         if action.symbolic_runtime_features.is_empty() { "none".to_string() } else { action.symbolic_runtime_features.join(", ") };
+    let fail_closed_features = if action.fail_closed_runtime_features.is_empty() {
+        "none".to_string()
+    } else {
+        action.fail_closed_runtime_features.join(", ")
+    };
     let ckb_features =
         if action.ckb_runtime_features.is_empty() { "none".to_string() } else { action.ckb_runtime_features.join(", ") };
     let accesses = if action.ckb_runtime_accesses.is_empty() {
@@ -811,8 +818,14 @@ fn action_metadata_hover(name: &str, metadata: Option<&crate::CompileMetadata>) 
     };
 
     format!(
-        "\n\n**Lowering metadata**\n\nEffect: `{}`\n\nELF compatible: `{}`\n\nStandalone runner compatible: `{}`\n\nSymbolic runtime features: `{}`\n\nCKB runtime features: `{}`\n\nCKB runtime accesses: `{}`",
-        action.effect_class, action.elf_compatible, action.standalone_runner_compatible, features, ckb_features, accesses
+        "\n\n**Lowering metadata**\n\nEffect: `{}`\n\nELF compatible: `{}`\n\nStandalone runner compatible: `{}`\n\nSymbolic runtime features: `{}`\n\nFail-closed runtime features: `{}`\n\nCKB runtime features: `{}`\n\nCKB runtime accesses: `{}`",
+        action.effect_class,
+        action.elf_compatible,
+        action.standalone_runner_compatible,
+        features,
+        fail_closed_features,
+        ckb_features,
+        accesses
     )
 }
 
@@ -1070,6 +1083,7 @@ action update(amount: u64) -> u64 {
         assert!(hover.contents.contains("Lowering metadata"));
         assert!(hover.contents.contains("ELF compatible: `false`"));
         assert!(hover.contents.contains("Standalone runner compatible: `false`"));
+        assert!(hover.contents.contains("Fail-closed runtime features: `none`"));
         assert!(hover.contents.contains("CKB runtime features: `consume-input-cell, read-cell-dep, verify-output-cell`"));
         assert!(hover.contents.contains("consume:Input#0"));
         assert!(hover.contents.contains("read_ref:CellDep#0"));
@@ -1104,6 +1118,7 @@ action update(amount: u64) -> u64 {
         let warning = diagnostics.iter().find(|diagnostic| diagnostic.source == "cellscript-lowering").expect("lowering diagnostic");
         assert_eq!(warning.severity, DiagnosticSeverity::Warning);
         assert!(warning.message.contains("not currently ELF-compatible"));
+        assert!(warning.message.contains("fail-closed runtime features: none"));
         assert!(warning.message.contains("read-cell-dep"));
         assert!(warning.message.contains("consume:Input#0"));
         assert!(warning.message.contains("read_ref:CellDep#0"));

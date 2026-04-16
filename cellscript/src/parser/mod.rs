@@ -810,12 +810,15 @@ impl<'a> Parser<'a> {
         let body = self.parse_block()?;
 
         let end_span = self.current().span;
+        let effect_declared = effect.is_some();
+
         Ok(ActionDef {
             name,
             params,
             return_type,
             body,
             effect: effect.unwrap_or(EffectClass::Pure),
+            effect_declared,
             scheduler_hint,
             doc_comment: None,
             span: Span::new(start_span.start, end_span.end, start_span.line, start_span.column),
@@ -843,6 +846,7 @@ impl<'a> Parser<'a> {
             return_type,
             body,
             effect: EffectClass::Pure,
+            effect_declared: false,
             scheduler_hint: None,
             doc_comment: None,
             span: Span::new(start_span.start, end_span.end, start_span.line, start_span.column),

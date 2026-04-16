@@ -117,6 +117,7 @@ pub struct ActionDef {
     pub return_type: Option<Type>,
     pub body: Vec<Stmt>,
     pub effect: EffectClass,
+    pub effect_declared: bool,
     pub scheduler_hint: Option<SchedulerHint>,
     pub doc_comment: Option<String>,
     pub span: Span,

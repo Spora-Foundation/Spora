@@ -58,6 +58,14 @@ fn fixed_scalar_const_value(value: &IrConst) -> Option<u64> {
     }
 }
 
+fn abi_arg_label(index: usize) -> String {
+    if index < 8 {
+        format!("a{}", index)
+    } else {
+        format!("stack+{}", (index - 8) * 8)
+    }
+}
+
 #[derive(Debug, Clone)]
 enum PreludeU64OperandSource {
     Const(u64),
@@ -103,13 +111,15 @@ pub struct CodeGenerator {
     requires_symbolic_runtime: bool,
     /// Named schema field layouts, keyed by type name then field name.
     type_layouts: HashMap<String, HashMap<String, SchemaFieldLayout>>,
+    /// Fixed encoded size of named schemas when all fields have fixed-width layouts.
+    type_fixed_sizes: HashMap<String, usize>,
     /// Function parameters whose slot contains a pointer to Borsh-encoded schema bytes.
     schema_pointer_vars: BTreeSet<usize>,
     /// Function parameter slots available before the prelude summaries run.
     param_vars: BTreeSet<usize>,
     /// Schema pointer slots backed by a VM-loaded cell buffer size word.
     schema_pointer_size_offsets: HashMap<usize, usize>,
-    /// U64 temporaries that are aliases for schema-backed field loads.
+    /// Fixed scalar temporaries that are aliases for schema-backed field loads.
     schema_field_value_sources: HashMap<usize, SchemaFieldValueSource>,
     /// U64 temporaries that can be recomputed in the CKB-runtime prelude.
     prelude_u64_value_sources: HashMap<usize, PreludeU64ValueSource>,
@@ -142,6 +152,7 @@ impl CodeGenerator {
             next_virtual_output: 0,
             requires_symbolic_runtime: false,
             type_layouts: HashMap::new(),
+            type_fixed_sizes: HashMap::new(),
             schema_pointer_vars: BTreeSet::new(),
             param_vars: BTreeSet::new(),
             schema_pointer_size_offsets: HashMap::new(),
@@ -251,6 +262,9 @@ impl CodeGenerator {
     }
 
     fn register_type_def(&mut self, type_def: &IrTypeDef) {
+        if let Some(fixed_size) = type_def.fields.iter().try_fold(0usize, |acc, field| field.fixed_size.map(|size| acc + size)) {
+            self.type_fixed_sizes.insert(type_def.name.clone(), fixed_size);
+        }
         let fields = type_def
             .fields
             .iter()
@@ -344,7 +358,6 @@ impl CodeGenerator {
 
     fn set_schema_pointer_params(&mut self, params: &[IrParam]) {
         self.schema_pointer_vars.clear();
-        self.schema_pointer_size_offsets.clear();
         self.param_vars.clear();
         for param in params {
             self.param_vars.insert(param.binding.id);
@@ -396,7 +409,7 @@ impl CodeGenerator {
                         }
                     }
                     IrInstruction::FieldAccess { dest, obj: IrOperand::Var(obj), field } => {
-                        if !self.schema_pointer_vars.contains(&obj.id) || dest.ty != IrType::U64 {
+                        if !self.schema_pointer_vars.contains(&obj.id) {
                             continue;
                         }
                         let Some(type_name) = named_type_name(&obj.ty) else {
@@ -405,7 +418,7 @@ impl CodeGenerator {
                         let Some(layout) = self.type_layouts.get(type_name).and_then(|fields| fields.get(field)).cloned() else {
                             continue;
                         };
-                        if layout.ty == IrType::U64 && layout.fixed_size == Some(8) {
+                        if fixed_scalar_width(&layout.ty, layout.fixed_size).is_some() && layout.ty == dest.ty {
                             let source = SchemaFieldValueSource {
                                 obj_var_id: obj.id,
                                 type_name: type_name.to_string(),
@@ -413,7 +426,9 @@ impl CodeGenerator {
                                 layout,
                             };
                             self.schema_field_value_sources.insert(dest.id, source.clone());
-                            self.prelude_u64_value_sources.insert(dest.id, PreludeU64ValueSource::Field(source));
+                            if dest.ty == IrType::U64 {
+                                self.prelude_u64_value_sources.insert(dest.id, PreludeU64ValueSource::Field(source));
+                            }
                         }
                     }
                     IrInstruction::Binary { dest, op, left, right }
@@ -575,6 +590,9 @@ impl CodeGenerator {
             self.emit_create_output_checks(pattern);
         } else {
             self.emit("# cellscript abi: output field verification incomplete for this create pattern");
+            self.emit("# cellscript abi: fail closed because the output state is not fully verified");
+            self.emit("li a0, 5");
+            self.emit_epilogue();
         }
 
         Ok(())
@@ -750,8 +768,16 @@ impl CodeGenerator {
         self.consume_indices.clear();
         self.read_ref_order.clear();
         self.read_ref_indices.clear();
+        self.schema_pointer_size_offsets.clear();
 
         let mut next_cell_slot = locals_size;
+        for param in params {
+            if named_type_name(&param.ty).is_some() {
+                self.schema_pointer_size_offsets.insert(param.binding.id, next_cell_slot);
+                next_cell_slot += 8;
+            }
+        }
+
         let mut consume_index = 0usize;
         for block in &body.blocks {
             for instruction in &block.instructions {
@@ -843,6 +869,25 @@ impl CodeGenerator {
         self.emit_label(&ok_label);
     }
 
+    fn emit_loaded_schema_exact_size_check(&mut self, size_offset: usize, expected_size: usize, context: &str) {
+        let ok_label = self.fresh_label("schema_size_ok");
+        self.emit(format!("# cellscript abi: exact size check {} expected={}", context, expected_size));
+        self.emit(format!("ld t1, {}(sp)", size_offset));
+        self.emit(format!("li t2, {}", expected_size));
+        self.emit("sub t1, t1, t2");
+        self.emit(format!("beqz t1, {}", ok_label));
+        self.emit("li a0, 4");
+        self.emit_epilogue();
+        self.emit_label(&ok_label);
+    }
+
+    fn emit_symbolic_runtime_fail_closed(&mut self, feature: &str) {
+        self.emit(format!("# cellscript abi: {} symbolic runtime is not executable", feature));
+        self.emit("# cellscript abi: fail closed because the source operation has no complete verifier lowering");
+        self.emit("li a0, 6");
+        self.emit_epilogue();
+    }
+
     fn emit_loaded_field_equals_expected(
         &mut self,
         size_offset: usize,
@@ -877,6 +922,8 @@ impl CodeGenerator {
             IrOperand::Var(var) => {
                 if let Some(value) = self.prelude_scalar_immediates.get(&var.id).copied() {
                     self.emit(format!("li t1, {}", value));
+                } else if let Some(source) = self.schema_field_value_sources.get(&var.id).cloned() {
+                    self.emit_schema_field_source_to_t1(&source);
                 } else if let Some(source) = self.prelude_u64_value_sources.get(&var.id).cloned() {
                     self.emit_prelude_u64_value_source_to_t1(&source);
                 } else {
@@ -921,6 +968,9 @@ impl CodeGenerator {
             return;
         };
         if let Some(size_offset) = self.schema_pointer_size_offsets.get(&source.obj_var_id).copied() {
+            if let Some(expected_size) = self.type_fixed_sizes.get(&source.type_name).copied() {
+                self.emit_loaded_schema_exact_size_check(size_offset, expected_size, &source.type_name);
+            }
             self.emit_loaded_schema_bounds_check(size_offset, source.layout.offset + width, &context);
         }
         self.emit(format!("# cellscript abi: expected field {} offset={} size={}", context, source.layout.offset, width));
@@ -932,8 +982,15 @@ impl CodeGenerator {
         if pattern.lock.is_some() || pattern.fields.is_empty() {
             return false;
         }
+        let Some(layouts) = self.type_layouts.get(&pattern.ty) else {
+            return false;
+        };
+        let covered_fields = pattern.fields.iter().map(|(field, _)| field.as_str()).collect::<BTreeSet<_>>();
+        if !layouts.keys().all(|field| covered_fields.contains(field.as_str())) {
+            return false;
+        }
         pattern.fields.iter().all(|(field, value)| {
-            self.type_layouts.get(&pattern.ty).and_then(|fields| fields.get(field)).is_some_and(|layout| {
+            layouts.get(field).is_some_and(|layout| {
                 fixed_scalar_width(&layout.ty, layout.fixed_size).is_some() && self.is_prelude_available_scalar(value)
             })
         })
@@ -942,6 +999,9 @@ impl CodeGenerator {
     fn emit_create_output_checks(&mut self, pattern: &CreatePattern) {
         let size_offset = self.runtime_scratch_size_offset();
         let buffer_offset = self.runtime_scratch_buffer_offset();
+        if let Some(expected_size) = self.type_fixed_sizes.get(&pattern.ty).copied() {
+            self.emit_loaded_schema_exact_size_check(size_offset, expected_size, &pattern.ty);
+        }
         for (field, value) in &pattern.fields {
             let Some(layout) = self.type_layouts.get(&pattern.ty).and_then(|fields| fields.get(field)).cloned() else {
                 continue;
@@ -957,6 +1017,7 @@ impl CodeGenerator {
                 matches!(var.ty, IrType::Bool | IrType::U8 | IrType::U16 | IrType::U32 | IrType::U64)
                     && (self.param_vars.contains(&var.id)
                         || self.prelude_scalar_immediates.contains_key(&var.id)
+                        || self.schema_field_value_sources.contains_key(&var.id)
                         || (var.ty == IrType::U64 && self.prelude_u64_value_sources.contains_key(&var.id)))
             }
             _ => false,
@@ -981,18 +1042,38 @@ impl CodeGenerator {
     }
 
     fn emit_param_spills(&mut self, params: &[IrParam]) -> Result<()> {
-        if params.len() > 8 {
-            return Err(CompileError::new(
-                format!("functions with more than 8 parameters are not yet supported (got {})", params.len()),
-                crate::error::Span::default(),
-            ));
-        }
-
-        for (index, param) in params.iter().enumerate() {
-            self.emit(format!("sd a{}, {}(sp)", index, param.binding.id * 8));
+        let mut abi_index = 0usize;
+        for param in params {
+            if named_type_name(&param.ty).is_some() {
+                self.emit(format!(
+                    "# cellscript abi: schema param {} pointer={} length={}",
+                    param.name,
+                    abi_arg_label(abi_index),
+                    abi_arg_label(abi_index + 1)
+                ));
+                self.emit_spill_abi_arg(abi_index, param.binding.id * 8);
+                if let Some(size_offset) = self.schema_pointer_size_offsets.get(&param.binding.id).copied() {
+                    self.emit_spill_abi_arg(abi_index + 1, size_offset);
+                }
+                abi_index += 2;
+            } else {
+                self.emit_spill_abi_arg(abi_index, param.binding.id * 8);
+                abi_index += 1;
+            }
         }
 
         Ok(())
+    }
+
+    fn emit_spill_abi_arg(&mut self, abi_index: usize, stack_offset: usize) {
+        if abi_index < 8 {
+            self.emit(format!("sd a{}, {}(sp)", abi_index, stack_offset));
+        } else {
+            let caller_stack_offset = (abi_index - 8) * 8;
+            self.emit(format!("# cellscript abi: arg{} loaded from caller stack +{}", abi_index, caller_stack_offset));
+            self.emit(format!("ld t0, {}(fp)", caller_stack_offset));
+            self.emit(format!("sd t0, {}(sp)", stack_offset));
+        }
     }
 
     fn record_instruction_var(&self, instruction: &IrInstruction, max_var_id: &mut Option<usize>) {
@@ -1198,6 +1279,7 @@ impl CodeGenerator {
         }
         self.emit(format!("addi t0, t0, {}", self.symbolic_field_tag(field)));
         self.emit(format!("sd t0, {}(sp)", dest.id * 8));
+        self.emit_symbolic_runtime_fail_closed("field access");
         Ok(())
     }
 
@@ -1221,6 +1303,9 @@ impl CodeGenerator {
         self.emit(format!("# field access .{}", field));
         self.emit(format!("# cellscript abi: schema field {}.{} offset={} size={}", type_name, field, layout.offset, width));
         if let Some(size_offset) = self.schema_pointer_size_offsets.get(&var.id).copied() {
+            if let Some(expected_size) = self.type_fixed_sizes.get(type_name).copied() {
+                self.emit_loaded_schema_exact_size_check(size_offset, expected_size, type_name);
+            }
             self.emit_loaded_schema_bounds_check(size_offset, layout.offset + width, &format!("{}.{}", type_name, field));
         }
         self.emit(format!("ld t4, {}(sp)", var.id * 8));
@@ -1246,6 +1331,7 @@ impl CodeGenerator {
         self.emit("slli t1, t1, 4");
         self.emit("add t0, t0, t1");
         self.emit(format!("sd t0, {}(sp)", dest.id * 8));
+        self.emit_symbolic_runtime_fail_closed("index access");
         Ok(())
     }
 
@@ -1256,6 +1342,7 @@ impl CodeGenerator {
         } else {
             self.requires_symbolic_runtime = true;
             self.emit("li t0, 4");
+            self.emit_symbolic_runtime_fail_closed("dynamic length");
         }
         self.emit(format!("sd t0, {}(sp)", dest.id * 8));
         Ok(())
@@ -1266,6 +1353,7 @@ impl CodeGenerator {
         self.emit("# type_hash");
         self.emit(format!("li t0, {}", self.symbolic_type_tag(operand)));
         self.emit(format!("sd t0, {}(sp)", dest.id * 8));
+        self.emit_symbolic_runtime_fail_closed("type_hash");
         Ok(())
     }
 
@@ -1275,6 +1363,7 @@ impl CodeGenerator {
         self.emit(format!("li t0, {}", 0x2000usize + self.next_virtual_output * 0x40 + self.symbolic_collection_tag(ty)));
         self.emit(format!("sd t0, {}(sp)", dest.id * 8));
         self.next_virtual_output += 1;
+        self.emit_symbolic_runtime_fail_closed("collection new");
         Ok(())
     }
 
@@ -1283,6 +1372,7 @@ impl CodeGenerator {
         self.emit("# collection push");
         self.emit_symbolic_operand_comment("collection", collection);
         self.emit_symbolic_operand_comment("value", value);
+        self.emit_symbolic_runtime_fail_closed("collection push");
         Ok(())
     }
 
@@ -1291,6 +1381,7 @@ impl CodeGenerator {
         self.emit("# collection extend_from_slice");
         self.emit_symbolic_operand_comment("collection", collection);
         self.emit_symbolic_operand_comment("slice", slice);
+        self.emit_symbolic_runtime_fail_closed("collection extend");
         Ok(())
     }
 
@@ -1333,6 +1424,7 @@ impl CodeGenerator {
         self.emit(format!("li t0, {}", 0x1000usize + self.next_virtual_output * 0x40));
         self.emit(format!("sd t0, {}(sp)", dest.id * 8));
         self.next_virtual_output += 1;
+        self.emit_symbolic_runtime_fail_closed("read_ref");
         Ok(())
     }
 
@@ -1358,6 +1450,7 @@ impl CodeGenerator {
             }
             self.emit(format!("sd zero, {}(sp)", var.id * 8));
         }
+        self.emit_symbolic_runtime_fail_closed("consume");
         Ok(())
     }
 
@@ -1391,6 +1484,7 @@ impl CodeGenerator {
         self.emit(format!("li t0, {}", 0x2000usize + self.next_virtual_output * 0x40));
         self.emit(format!("sd t0, {}(sp)", dest.id * 8));
         self.next_virtual_output += 1;
+        self.emit_symbolic_runtime_fail_closed("transfer");
         Ok(())
     }
 
@@ -1401,6 +1495,7 @@ impl CodeGenerator {
         if let IrOperand::Var(var) = _operand {
             self.emit(format!("sd zero, {}(sp)", var.id * 8));
         }
+        self.emit_symbolic_runtime_fail_closed("destroy");
         Ok(())
     }
 
@@ -1465,6 +1560,7 @@ impl CodeGenerator {
         self.emit(format!("li t0, {}", 0x3000usize + self.next_virtual_output * 0x40));
         self.emit(format!("sd t0, {}(sp)", dest.id * 8));
         self.next_virtual_output += 1;
+        self.emit_symbolic_runtime_fail_closed("claim");
         Ok(())
     }
 
@@ -1473,6 +1569,7 @@ impl CodeGenerator {
         self.requires_symbolic_runtime = true;
         self.emit("# settle");
         self.emit_symbolic_operand_comment("value", operand);
+        self.emit_symbolic_runtime_fail_closed("settle");
         Ok(())
     }
 

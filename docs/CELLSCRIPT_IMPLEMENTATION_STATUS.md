@@ -44,8 +44,12 @@ These parts are real and currently wired into the main compiler entry:
 | RISC-V assembly emission | Usable MVP | Main output path |
 | RISC-V ELF emission | Usable subset | Main output path for pure computation, restricted fixed-width scalar schema-parameter field loads, and restricted `read_ref` field loads, with external toolchain support and built-in fallback |
 | Schema layout metadata | Usable MVP | Type/field offset and fixed encoded-size metadata is emitted for audit/tooling |
-| Consume input field verification | Partial | Consumed Input cell bytes are loaded with CKB `LOAD_CELL`; fixed-width scalar fields (`bool/u8/u16/u32/u64`) are read with unaligned-safe byte loads and bounds-checked when backed by loaded cell bytes, but resource conservation semantics are not complete |
-| Create output verification | Partial | Simple fixed-width scalar output fields are checked in assembly against constants or parameters; `u64` fields also support local-const expected values, consumed-input field aliases, and left-associative `+/-` chains over prelude-available operands; simple move/alias propagation is supported; full resource creation semantics are not complete |
+| Consume input field verification | Partial | Consumed Input cell bytes are loaded with CKB `LOAD_CELL`; fixed-width scalar fields (`bool/u8/u16/u32/u64`) are read with unaligned-safe byte loads and exact-size/bounds checked when backed by loaded cell bytes, but resource conservation semantics are not complete |
+| Create output verification | Partial | Simple fixed-width scalar output schemas are checked in assembly with exact-size checks and per-field equality against constants, parameters, or consumed/read schema field aliases; `u64` fields also support local-const expected values and left-associative `+/-` chains over prelude-available operands; simple move/alias propagation is supported; incomplete create verifiers now fail closed instead of continuing with comments; full resource creation semantics are not complete |
+| Symbolic runtime lowering | Safer partial | Unsupported stateful/runtime operations now emit explicit fail-closed return paths instead of placeholder success values |
+| Fail-closed metadata | Usable MVP | Runtime/action/lock metadata now expose `fail_closed_runtime_features` separately from broader symbolic and CKB runtime feature lists |
+| Effect enforcement | Safer partial | Action effects are inferred from read/create/consume/destroy/transfer/claim/settle operations, same-module function calls, and local `path` dependency imports; explicit under-declarations are rejected |
+| `fn` purity boundary | Safer partial | Helper `fn` definitions must infer `Pure`; direct, same-module indirect, and local imported Cell/runtime operations are rejected instead of being lowered as hidden actions |
 | Main CLI compiler | Usable MVP | `cellscript/src/main.rs` is the real entry point |
 | Examples / compiler regression tests | Stable MVP | Library, CLI, and examples coverage exist |
 
@@ -150,10 +154,15 @@ The compiler is no longer just “shape-complete”. Some real semantics are now
 - `return <expr>` now lowers into actual return-value generation
 - minimal pure-compute functions such as `add(x, y)` now compile into meaningful arithmetic assembly
 - named schema parameters expose fixed field layout metadata
-- `param.scalar_field` on a named action/lock schema parameter lowers to unaligned-safe little-endian byte loads for fixed `bool/u8/u16/u32/u64` fields and can emit ELF; the current parameter ABI has no length word, so this path does not provide runtime bounds checks
-- `consume token` preloads the consumed Input cell bytes in assembly, retains the verifier pointer, and lets `token.scalar_field` lower through loaded-byte bounds checks and byte-wise loads; ELF still rejects `consume-expression`
-- `read_ref<T>().scalar_field` lowers through `LOAD_CELL Source::CellDep`, loaded-byte bounds checks, and byte-wise loads; it can emit CKB-runtime ELF but requires transaction/syscall context
-- simple `create Type { scalar_field: const_or_param }` output fields are verified with `LOAD_CELL Source::Output`, bounds checks, and equality checks
+- `param.scalar_field` on a named action/lock schema parameter lowers to unaligned-safe little-endian byte loads for fixed `bool/u8/u16/u32/u64` fields and can emit ELF; the generated ABI now passes schema values as `aN=borsh_ptr, aN+1=borsh_len`, so fixed schema field access performs exact-size and bounds checks
+- `consume token` preloads the consumed Input cell bytes in assembly, retains the verifier pointer, and lets `token.scalar_field` lower through loaded-byte exact-size/bounds checks and byte-wise loads; ELF still rejects `consume-expression`
+- `read_ref<T>().scalar_field` lowers through `LOAD_CELL Source::CellDep`, loaded-byte exact-size/bounds checks, and byte-wise loads; it can emit CKB-runtime ELF but requires transaction/syscall context
+- simple fixed-scalar `create Type { ... }` outputs are verified with `LOAD_CELL Source::Output`, exact-size checks, per-field bounds checks, and equality checks against constants, parameters, or consumed/read schema field aliases; all fixed scalar fields must be covered before the verifier claims completeness
+- incomplete `create` output verification paths fail closed in generated assembly instead of silently continuing after an audit comment
+- symbolic runtime fallback paths for `transfer`, `destroy`, `claim`, `settle`, dynamic collections, `type_hash`, non-lowered field/index access, dynamic `len`, and non-preloaded `read_ref` now fail closed in generated assembly rather than pretending to produce executable verifier semantics
+- metadata now exposes fail-closed runtime features explicitly, so CI/IDE/audit tools do not need to infer those paths from assembly comments
+- explicit `#[effect(...)]` annotations are checked against inferred action behavior, including same-module calls and local `path` dependency imports; under-declared scheduler/effect metadata is now a compiler error
+- `fn` definitions are enforced as pure helpers, so direct, same-module indirect, or locally imported stateful behavior cannot hide behind action-style lowering
 - simple `consume input.u64_field -> create output.u64_field` aliases are verified by comparing loaded Input and Output fields in the prelude
 - simple `consume input.u64_field +/- const_or_param_or_local_const +/- ... -> create output.u64_field` expressions are verified in the prelude for left-associative `u64` add/sub chains
 - simple `LoadConst` and `Move` sources propagate into prelude-verifiable `u64` expressions, so local constants and aliases do not silently erase verification
@@ -174,8 +183,8 @@ Still not safe to call semantically complete:
 
 At the time of this snapshot, the `cellscript` crate passed:
 
-- `108` library tests
-- `12` CLI tests
+- `116` library tests
+- `15` CLI tests with `vm-runner`; `13` CLI tests without `vm-runner`
 - `1` examples test group
 
 This is enough to justify “working MVP compiler core”, but not enough to justify “complete language toolchain”.

@@ -48,6 +48,43 @@
 
 **编译器项目路径**: `/Users/arthur/RustroverProjects/Spora/cellscript/`  
 
+---
+
+## 文档范围与规范性边界
+
+本文档区分以下四类内容，读者不应混淆：
+
+### 1. 核心语言语义（规范性）
+- 第3-6节定义的类型系统、所有权模型、效果系统
+- `resource`、`shared`、`action`、`consume`、`create`等关键字的行为
+- 线性检查、生命周期验证的规则
+- **约束**：必须严格符合红线哲学，禁止任何隐藏效果、隐藏成本、隐藏控制流的特性
+
+### 2. 附录与路线图（非规范性，探索性）
+- 附录A中的"🚧 原型级"标记内容
+- "v1后研究方向"章节
+- 明确标记为"设计中"、"计划中"的功能
+- **约束**：这些不构成实现承诺，未来需单独的设计提案和安全性论证
+
+### 3. 编译器内部实现（工程细节，非语义承诺）
+- Spora IR的数据结构表示
+- AST、类型检查器、优化器的内部算法
+- 代码生成器的实现策略
+- **约束**：编译器可使用常规工程数据结构（Vec/HashMap等），但这些是内部实现细节，不构成对用户代码的语言级保证，也不得泄漏为共识执行路径的用户可见抽象
+
+### 4. 链下工具（共识外）
+- SDK、交易构建器、LSP、文档生成器
+- 测试框架、模拟环境
+- **约束**：这些工具在共识执行环境外运行，可使用常规工程手段，不影响共识语言设计
+
+**重要原则**：
+- 核心语言语义是薄而锋利的
+- 附录项目是探索性的，不是承诺
+- 编译器内部实现细节不得成为用户依赖的语义
+- 链下工具的工程便利不得影响共识路径的严格性
+
+---
+
 ### 当前可依赖的主路径
 
 截至当前代码状态，可以认为稳定的主路径是：
@@ -118,6 +155,7 @@ Spora 的状态模型围绕离散的 Cell 对象组织：
 ```
 CellTx {
     ver: u16 (0xC001),
+    // 注：以下Vec是协议层CellTx信封的序列化格式，不是CellScript语言级类型
     inputs: Vec<CellInput>,          // 要消费的 Cell
     deps: Vec<CellDep>,            // 只读 Cell 引用
     header_deps: Vec<[u8;32]>,     // 区块头引用
@@ -521,7 +559,7 @@ shared Registry {
                 │  (RocksDB)      │
                 ├─────────────────┤
                 │ type_hash →     │
-                │   Vec<OutPoint> │
+                │   [OutPoint; N] │  // N为编译期已知上限
                 └────────┬────────┘
                          │
             ┌────────────┴────────────┐
@@ -532,7 +570,7 @@ shared Registry {
     └───────────────┘        └───────────────┘
 ```
 
-读取者将共享 Cell 作为 `CellDep` 包括。写入者消费它并重新创建它。调度器元数据包括 `touches_shared: Vec<type_hash>` 以启用冲突检测。
+读取者将共享 Cell 作为 `CellDep` 包括。写入者消费它并重新创建它。调度器元数据包括 `touches_shared: [Hash; N]`（固定大小数组）以启用冲突检测。
 
 ### 5.7 生命周期表示
 
@@ -555,6 +593,79 @@ resource VestingGrant {
 3. 防止无效状态（不能从 `Settled` 返回到 `Active`）
 
 `state` 字段存储在 Cell 数据中。类型脚本读取输入 Cell 的状态，读取输出 Cell 的状态，并验证转换是否有效。
+
+### 5.8 错误处理模型
+
+CellScript **严格禁止**异常/try-catch式栈展开语义。这是为了保持控制流的显式性和可审计性。
+
+#### 强制规则
+
+1. **禁止异常**: 没有 `throw`、`try`、`catch`、`finally` 关键字
+2. **强制Result**: 所有可能失败的操作必须返回 `Result<T, E>`
+3. **禁止unwrap**: `unwrap()`、`expect()`、`unwrap_or()` 在共识代码中**编译错误**
+4. **显式处理**: 错误必须通过 `match` 或 `if let` 显式处理
+5. **无panic**: `panic!` 或任何隐式panic语义不允许
+
+#### 示例
+
+```cellscript
+// 正确：显式错误处理
+action safe_divide(a: u64, b: u64) -> Result<u64, MathError> {
+    if b == 0 {
+        return Err(MathError::DivisionByZero)
+    }
+    Ok(a / b)
+}
+
+// 正确：调用者显式处理Result
+action caller() -> Result<Token, Error> {
+    // ? 传播操作符：允许，但仅限于显式lowering为match形式
+    let result = safe_divide(100, 0)?;
+    // 上述?等价于以下显式match：
+    // match safe_divide(100, 0) {
+    //     Ok(v) => v,
+    //     Err(e) => return Err(e.into())
+    // }
+}
+
+// 错误：unwrap 不允许
+action bad_example(opt: Option<u64>) -> u64 {
+    opt.unwrap()  // 编译错误：unwrap 不允许在共识代码中
+}
+
+// 错误：expect 不允许
+action another_bad(opt: Option<u64>) -> u64 {
+    opt.expect("must have value")  // 编译错误：expect 不允许
+}
+```
+
+#### `?` 传播操作符的精确语义
+
+`?` **允许**使用，但必须满足以下条件：
+
+1. **透明lowering**: `expr?` 必须降低为等价的显式match：
+   ```cellscript
+   match expr {
+       Ok(v) => v,
+       Err(e) => return Err(e.into())
+   }
+   ```
+
+2. **无隐式转换**: 如果涉及错误类型转换，必须显式使用`.map_err()`，不得隐式
+
+3. **无效果边界变化**: `?` 不得跨越效果边界（如从纯函数跳到effectful上下文）
+
+4. **静态可预测**: 编译器必须能够在编译期确定所有`?`的展开点
+
+**禁止的`?`用法**:
+- 跨越异步边界（CellScript无async，但明确禁止）
+- 任何导致非局部控制流的情况
+
+#### 与红线哲学的对齐
+
+- **红线#4** (No exceptions): 完全遵守
+- **红线#7** (No syntax sugar that obscures lowered behavior): `unwrap` 隐藏了失败路径，因此禁止；`?`在透明lowering条件下允许
+- **红线#10** (Keep control flow statically legible): 显式 `match` 使所有控制路径可见；`?`的展开点编译期确定
 
 ---
 
@@ -908,6 +1019,9 @@ use spora::fungible_token::Token
 use spora::vesting::VestingReceipt
 
 /// 批量结算多个归属收据。
+/// 
+/// 注意：for循环仅限于固定大小数组，编译期展开为显式索引访问
+/// receipts: [VestingReceipt; 4] — 数组大小必须在编译期已知
 action batch_settle(
     receipts: [VestingReceipt; 4],
     beneficiary: Address
@@ -916,6 +1030,12 @@ action batch_settle(
     
     ephemeral total_amount: u64 = 0
 
+    // for循环仅限于固定大小数组[N]，编译期确定迭代次数N
+    // 精确lowering形式：
+    //   for receipt in arr { body }
+    // 降低为：
+    //   { let mut i = 0; while i < N { let receipt = arr[i]; body; i = i + 1 } }
+    // 其中N是编译时常量，while循环有界且可预测
     for receipt in receipts {
         assert_invariant(current_daa >= receipt.vesting_end_daa,
             "not fully vested")
@@ -1132,8 +1252,10 @@ struct SchedulerWitness {
     version: u8,             // 0
     effect_class: u8,        // 0=Pure, 1=ReadOnly, 2=Mutating, 3=Creating, 4=Destroying
     parallelizable: bool,
-    touches_shared_count: u32,
-    touches_shared: Vec<[u8; 32]>,
+    touches_shared_count: u32,   // 实际共享对象数量
+    // touches_shared: 固定大小数组，编译期已知上限
+    // 实际使用touches_shared_count个元素，其余忽略
+    touches_shared: [Hash; MAX_SHARED_TOUCHES],  // MAX_SHARED_TOUCHES = 16
     estimated_cycles: u64,
 }
 ```
@@ -1309,12 +1431,45 @@ receipt VestingGrant { ... }
 - `cellc info` - 显示包信息
 - `cellc login` - 登录注册表
 
-**集合类型 (stdlib/collections/)**：
-- `Vec` - 动态数组，支持 push, pop, get, len, sort 等
-- `HashMap` - 哈希表，支持 insert, get, remove, keys, values 等
-- `HashSet` - 哈希集合，支持 union, intersection, difference 等
-- `Option` - 可选值类型，支持 Some, None, unwrap, map 等
-- `Result` - 结果类型，支持 Ok, Err, unwrap_or 等
+**集合类型边界政策**：
+
+CellScript v1 核心语言**不允许**以下动态容器进入共识执行路径：
+- `Vec<T>` / 动态数组 — 隐藏堆分配，迭代成本不稳定，破坏成本可预测性
+- `HashMap<K, V>` / `HashSet<T>` — 隐藏hash语义，可能隐式重排，分配不透明
+- 任何需要运行时堆分配的数据结构
+- `sort` 等算法成本不稳定的操作
+
+**允许的有界形式**（仅允许这些）：
+- `[T; N]` — 固定大小数组，N必须是编译时常量，成本完全可预测
+- `Option<T>` — 可选值，但**禁止**`unwrap()`/`expect()`；必须显式`match`处理
+- `Result<T, E>` — 显式错误处理，**禁止**`unwrap()`/`unwrap_or()`/`expect()`
+
+**可变大小数据的正确建模**：
+如需表达"列表"或"映射"语义，应使用以下显式模式之一：
+1. **多Cell模式**: 每个元素作为一个独立Cell，通过共享索引Cell管理
+2. **固定数组+显式长度**: `[T; MAX]`配合显式`len`字段，超出部分截断或拒绝
+3. **Merkle承诺模式**: 数据在链下，链上仅存储Merkle根和证明验证逻辑
+
+**编译器内部实现**（不构成语言语义承诺）:
+编译器实现可使用常规工程数据结构（Vec/HashMap等），但这些：
+- 是编译器内部实现细节
+- 不构成对用户代码的语言级保证
+- 不得泄漏为共识执行路径的用户可见抽象
+
+**链下工具专用**（不得进入ckbvm执行）:
+动态容器**允许**用于：
+- 链下SDK/交易构建工具代码
+- 测试框架和模拟环境
+- LSP、文档生成器等开发工具
+
+这两类的区别：
+- 编译器内部：需要保证正确性，但使用工程常规手段
+- 链下工具：仅需工程实用性，不触及共识
+
+**v1后研究方向**（明确不属于当前核心）：
+- `BoundedVec<T, const N: usize>` — 编译期已知上限的受限向量
+- 显式arena分配器的受限形式
+- 这些需要单独的设计提案和安全性论证，不得在当前文档中暗示为已承诺功能
 
 **调试信息 (debug/)**：
 - DWARF 调试信息生成
@@ -1388,24 +1543,29 @@ Spora IR 是一个中级表示，在降级到 RISC-V 之前抽象地描述 Cell 
 
 struct SporaIR {
     /// 要消费的 Cell（成为输入）
+    /// 注：Vec是编译器内部IR表示，用户代码中不允许
     consume_set: Vec<CellPattern>,
 
     /// 要读取而不消费的 Cell（成为 CellDeps）
+    /// 注：Vec是编译器内部IR表示，用户代码中不允许
     read_refs: Vec<CellPattern>,
 
     /// 要创建的新 Cell（成为输出 + outputs_data）
+    /// 注：Vec是编译器内部IR表示，用户代码中不允许
     create_set: Vec<(CellOutputPattern, DataLayout)>,
 
     /// 用于调度器的效果分类
     effect_class: EffectClass,
 
     /// 此脚本验证的生命周期转换规则
+    /// 注：Vec是编译器内部IR表示，用户代码中不允许
     lifecycle_rules: Vec<StateTransition>,
 
     /// 作为见证元数据发出的调度器提示
     scheduler_hints: SchedulerHints,
 
     /// 实际计算（基本块、SSA 形式）
+    /// 注：Vec是编译器内部IR表示，用户代码中不允许
     body: Vec<BasicBlock>,
 }
 
@@ -1426,6 +1586,7 @@ struct SchedulerHints {
     /// 此操作可以与其他操作并行运行吗？
     parallelizable: bool,
     /// 接触的共享对象的 type_hashes
+    /// 注：Vec是编译器内部IR表示，实际见证格式为固定大小数组
     touches_shared: Vec<[u8; 32]>,
     /// 估计的周期成本（用于模板构建器优先级排序）
     estimated_cycles: u64,
@@ -1521,13 +1682,17 @@ CellScript 产生两种脚本：
 // 格式：0xCE11 (魔法数) || 版本(u8) || payload_len(u32) || payload
 //
 // Payload（Borsh 编码）：
+// 注：以下Vec仅用于概念描述，实际见证格式使用固定大小数组+count字段
 struct SchedulerWitness {
     effect_class: u8,           // 0=Pure, 1=ReadOnly, 2=Mutating, 3=Creating, 4=Destroying
     parallelizable: bool,
-    touches_shared: Vec<[u8; 32]>,  // 共享对象的 type_hashes
+    touches_shared_count: u8,   // 实际数量，上限16
+    touches_shared: [Hash; 16], // 固定大小数组，仅前touches_shared_count个有效
     estimated_cycles: u64,
-    consumed_type_hashes: Vec<[u8; 32]>,
-    created_type_hashes: Vec<[u8; 32]>,
+    consumed_count: u8,         // 实际数量，上限32
+    consumed_type_hashes: [Hash; 32],
+    created_count: u8,          // 实际数量，上限32
+    created_type_hashes: [Hash; 32],
 }
 ```
 

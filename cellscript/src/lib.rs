@@ -125,6 +125,7 @@ pub struct RuntimeMetadata {
     pub standalone_runner_compatible: bool,
     pub symbolic_cell_runtime_required: bool,
     pub unsupported_elf_features: Vec<String>,
+    pub fail_closed_runtime_features: Vec<String>,
     pub ckb_runtime_accesses: Vec<CkbRuntimeAccessMetadata>,
 }
 
@@ -169,6 +170,7 @@ pub struct ActionMetadata {
     pub ckb_runtime_accesses: Vec<CkbRuntimeAccessMetadata>,
     pub ckb_runtime_features: Vec<String>,
     pub symbolic_runtime_features: Vec<String>,
+    pub fail_closed_runtime_features: Vec<String>,
     pub elf_compatible: bool,
     pub standalone_runner_compatible: bool,
     pub block_count: usize,
@@ -184,6 +186,7 @@ pub struct LockMetadata {
     pub ckb_runtime_accesses: Vec<CkbRuntimeAccessMetadata>,
     pub ckb_runtime_features: Vec<String>,
     pub symbolic_runtime_features: Vec<String>,
+    pub fail_closed_runtime_features: Vec<String>,
     pub elf_compatible: bool,
     pub standalone_runner_compatible: bool,
     pub block_count: usize,
@@ -196,6 +199,7 @@ pub struct ParamMetadata {
     pub is_mut: bool,
     pub is_ref: bool,
     pub schema_pointer_abi: bool,
+    pub schema_length_abi: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -619,6 +623,7 @@ fn metadata_output_path_from_artifact(artifact_path: &Utf8Path) -> Utf8PathBuf {
 fn compile_metadata_from_ir(ir: &ir::IrModule, artifact_format: ArtifactFormat) -> CompileMetadata {
     let type_layouts = metadata_type_layouts(ir);
     let unsupported_elf_features = module_symbolic_runtime_features(ir, &type_layouts);
+    let fail_closed_runtime_features = module_fail_closed_runtime_features(ir, &type_layouts);
     let ckb_runtime_features = module_ckb_runtime_features(ir);
     let ckb_runtime_accesses = module_ckb_runtime_accesses(ir);
     let has_entry_params = module_has_entry_params(ir);
@@ -651,6 +656,7 @@ fn compile_metadata_from_ir(ir: &ir::IrModule, artifact_format: ArtifactFormat) 
             standalone_runner_compatible,
             symbolic_cell_runtime_required: !unsupported_elf_features.is_empty(),
             unsupported_elf_features,
+            fail_closed_runtime_features,
             ckb_runtime_accesses,
         },
         types: ir
@@ -669,6 +675,8 @@ fn compile_metadata_from_ir(ir: &ir::IrModule, artifact_format: ArtifactFormat) 
                     let param_schema_vars = schema_pointer_var_ids(&action.body, &action.params);
                     let symbolic_runtime_features =
                         body_symbolic_runtime_features(&action.body, &param_schema_vars, &type_layouts);
+                    let fail_closed_runtime_features =
+                        body_fail_closed_runtime_features(&action.body, &param_schema_vars, &type_layouts);
                     let ckb_runtime_features = body_ckb_runtime_features(&action.body);
                     let standalone_runner_compatible =
                         symbolic_runtime_features.is_empty() && ckb_runtime_features.is_empty() && action.params.is_empty();
@@ -693,6 +701,7 @@ fn compile_metadata_from_ir(ir: &ir::IrModule, artifact_format: ArtifactFormat) 
                         elf_compatible: symbolic_runtime_features.is_empty(),
                         standalone_runner_compatible,
                         symbolic_runtime_features,
+                        fail_closed_runtime_features,
                         block_count: action.body.blocks.len(),
                     })
                 }
@@ -707,6 +716,8 @@ fn compile_metadata_from_ir(ir: &ir::IrModule, artifact_format: ArtifactFormat) 
                     let param_schema_vars = schema_pointer_var_ids(&lock.body, &lock.params);
                     let symbolic_runtime_features =
                         body_symbolic_runtime_features(&lock.body, &param_schema_vars, &type_layouts);
+                    let fail_closed_runtime_features =
+                        body_fail_closed_runtime_features(&lock.body, &param_schema_vars, &type_layouts);
                     let ckb_runtime_features = body_ckb_runtime_features(&lock.body);
                     let standalone_runner_compatible =
                         symbolic_runtime_features.is_empty() && ckb_runtime_features.is_empty() && lock.params.is_empty();
@@ -721,6 +732,7 @@ fn compile_metadata_from_ir(ir: &ir::IrModule, artifact_format: ArtifactFormat) 
                         elf_compatible: symbolic_runtime_features.is_empty(),
                         standalone_runner_compatible,
                         symbolic_runtime_features,
+                        fail_closed_runtime_features,
                         block_count: lock.body.blocks.len(),
                     })
                 }
@@ -741,6 +753,24 @@ fn module_symbolic_runtime_features(ir: &ir::IrModule, type_layouts: &MetadataTy
             ir::IrItem::Lock(lock) => {
                 let param_schema_vars = schema_pointer_var_ids(&lock.body, &lock.params);
                 features.extend(body_symbolic_runtime_features(&lock.body, &param_schema_vars, type_layouts));
+            }
+            ir::IrItem::TypeDef(_) => {}
+        }
+    }
+    features.into_iter().collect()
+}
+
+fn module_fail_closed_runtime_features(ir: &ir::IrModule, type_layouts: &MetadataTypeLayouts) -> Vec<String> {
+    let mut features = BTreeSet::new();
+    for item in &ir.items {
+        match item {
+            ir::IrItem::Action(action) => {
+                let param_schema_vars = schema_pointer_var_ids(&action.body, &action.params);
+                features.extend(body_fail_closed_runtime_features(&action.body, &param_schema_vars, type_layouts));
+            }
+            ir::IrItem::Lock(lock) => {
+                let param_schema_vars = schema_pointer_var_ids(&lock.body, &lock.params);
+                features.extend(body_fail_closed_runtime_features(&lock.body, &param_schema_vars, type_layouts));
             }
             ir::IrItem::TypeDef(_) => {}
         }
@@ -820,6 +850,63 @@ fn body_symbolic_runtime_features(
                 }
                 ir::IrInstruction::Create { .. } => {
                     features.insert("create-expression".to_string());
+                }
+                ir::IrInstruction::Transfer { .. } => {
+                    features.insert("transfer-expression".to_string());
+                }
+                ir::IrInstruction::Destroy { .. } => {
+                    features.insert("destroy-expression".to_string());
+                }
+                ir::IrInstruction::Claim { .. } => {
+                    features.insert("claim-expression".to_string());
+                }
+                ir::IrInstruction::Settle { .. } => {
+                    features.insert("settle-expression".to_string());
+                }
+                _ => {}
+            }
+        }
+    }
+    features.into_iter().collect()
+}
+
+fn body_fail_closed_runtime_features(
+    body: &ir::IrBody,
+    param_schema_vars: &BTreeSet<usize>,
+    type_layouts: &MetadataTypeLayouts,
+) -> Vec<String> {
+    let mut features = BTreeSet::new();
+    for block in &body.blocks {
+        for instruction in &block.instructions {
+            match instruction {
+                ir::IrInstruction::FieldAccess { obj, field, .. } => {
+                    if !is_executable_schema_field_access(obj, field, param_schema_vars, type_layouts) {
+                        features.insert("field-access".to_string());
+                    }
+                }
+                ir::IrInstruction::Index { .. } => {
+                    features.insert("index-access".to_string());
+                }
+                ir::IrInstruction::Length { operand, .. } if operand_static_length(operand).is_none() => {
+                    features.insert("dynamic-length".to_string());
+                }
+                ir::IrInstruction::TypeHash { .. } => {
+                    features.insert("type-hash".to_string());
+                }
+                ir::IrInstruction::CollectionNew { .. } => {
+                    features.insert("collection-new".to_string());
+                }
+                ir::IrInstruction::CollectionPush { .. } => {
+                    features.insert("collection-push".to_string());
+                }
+                ir::IrInstruction::CollectionExtend { .. } => {
+                    features.insert("collection-extend".to_string());
+                }
+                ir::IrInstruction::Consume { operand } if consumed_schema_var_id(instruction).is_none() => {
+                    features.insert("consume-expression".to_string());
+                    if matches!(operand, ir::IrOperand::Const(_)) {
+                        features.insert("non-cell-consume".to_string());
+                    }
                 }
                 ir::IrInstruction::Transfer { .. } => {
                     features.insert("transfer-expression".to_string());
@@ -1034,12 +1121,14 @@ fn type_static_length(ty: &ir::IrType) -> Option<usize> {
 }
 
 fn param_metadata(param: &ir::IrParam) -> ParamMetadata {
+    let schema_pointer_abi = named_type_name(&param.ty).is_some();
     ParamMetadata {
         name: param.name.clone(),
         ty: ir_type_to_string(&param.ty),
         is_mut: param.is_mut,
         is_ref: param.is_ref,
-        schema_pointer_abi: named_type_name(&param.ty).is_some(),
+        schema_pointer_abi,
+        schema_length_abi: schema_pointer_abi,
     }
 }
 
@@ -1481,6 +1570,26 @@ action issue(nonce: u32) -> Flags {
 }
 "#;
 
+    const CONSUME_CREATE_SCALAR_ALIAS_PROGRAM: &str = r#"
+module test
+
+resource Flags {
+    enabled: bool,
+    nonce: u32,
+}
+
+action pass(flags: Flags) -> Flags {
+    let enabled = flags.enabled
+    let nonce = flags.nonce
+    consume flags
+    let out = create Flags {
+        enabled: enabled,
+        nonce: nonce
+    }
+    return out
+}
+"#;
+
     const READ_REF_FIELD_PROGRAM: &str = r#"
 module test
 
@@ -1491,6 +1600,88 @@ shared Config {
 action inspect() -> u64 {
     let cfg = read_ref<Config>()
     return cfg.threshold
+}
+"#;
+
+    const READ_ONLY_EFFECT_PROGRAM: &str = r#"
+module test
+
+shared Config {
+    threshold: u64,
+}
+
+#[effect(ReadOnly)]
+action inspect() -> u64 {
+    let cfg = read_ref<Config>()
+    return cfg.threshold
+}
+"#;
+
+    const UNDERDECLARED_EFFECT_PROGRAM: &str = r#"
+module test
+
+resource Token {
+    amount: u64,
+}
+
+#[effect(ReadOnly)]
+action issue(amount: u64) -> Token {
+    let out = create Token {
+        amount: amount
+    }
+    return out
+}
+"#;
+
+    const IMPURE_FN_PROGRAM: &str = r#"
+module test
+
+shared Config {
+    threshold: u64,
+}
+
+fn helper() -> u64 {
+    let cfg = read_ref<Config>()
+    return cfg.threshold
+}
+"#;
+
+    const INDIRECT_IMPURE_FN_PROGRAM: &str = r#"
+module test
+
+resource Token {
+    amount: u64,
+}
+
+action issue(amount: u64) -> Token {
+    let out = create Token {
+        amount: amount
+    }
+    return out
+}
+
+fn helper(amount: u64) -> Token {
+    return issue(amount)
+}
+"#;
+
+    const INDIRECT_UNDERDECLARED_EFFECT_PROGRAM: &str = r#"
+module test
+
+resource Token {
+    amount: u64,
+}
+
+action issue(amount: u64) -> Token {
+    let out = create Token {
+        amount: amount
+    }
+    return out
+}
+
+#[effect(ReadOnly)]
+action wrapper(amount: u64) -> Token {
+    return issue(amount)
 }
 "#;
 
@@ -1869,6 +2060,17 @@ action finalize(token: Token) -> Token {
         assert!(asm.contains("# create Token"), "create expression vanished from assembly:\n{}", asm);
         assert!(asm.contains("#   field amount = 42"), "create fields were not preserved in assembly comments:\n{}", asm);
         assert!(asm.contains("#   with_lock <expr>"), "create lock binding vanished from assembly:\n{}", asm);
+        assert!(
+            asm.contains("# cellscript abi: output field verification incomplete for this create pattern"),
+            "incomplete locked create verifier did not expose its incomplete verification status:\n{}",
+            asm
+        );
+        assert!(
+            asm.contains("# cellscript abi: fail closed because the output state is not fully verified"),
+            "incomplete create verifier did not fail closed:\n{}",
+            asm
+        );
+        assert!(asm.contains("li a0, 5"), "incomplete create verifier did not return failure code 5:\n{}", asm);
     }
 
     #[test]
@@ -1891,6 +2093,16 @@ action finalize(token: Token) -> Token {
             "create output field verification was not emitted:\n{}",
             asm
         );
+        assert!(
+            !asm.contains("# cellscript abi: output field verification incomplete for this create pattern"),
+            "fully verified create output was incorrectly marked incomplete:\n{}",
+            asm
+        );
+        assert!(
+            asm.contains("# cellscript abi: exact size check Token expected=8"),
+            "create output verification did not enforce exact fixed schema size:\n{}",
+            asm
+        );
         assert!(asm.contains("li t1, 42"), "create output verification did not load expected constant:\n{}", asm);
         assert!(asm.contains("sub t2, t0, t1"), "create output verification did not compare actual and expected values:\n{}", asm);
     }
@@ -1902,6 +2114,16 @@ action finalize(token: Token) -> Token {
 
         assert!(asm.contains("# consume"), "consume expression vanished from assembly:\n{}", asm);
         assert!(asm.contains("# destroy"), "destroy expression vanished from assembly:\n{}", asm);
+        assert!(
+            asm.contains("# cellscript abi: destroy symbolic runtime is not executable"),
+            "destroy symbolic runtime did not fail closed:\n{}",
+            asm
+        );
+        assert!(
+            asm.contains("# cellscript abi: fail closed because the source operation has no complete verifier lowering"),
+            "symbolic runtime operation did not explain fail-closed lowering:\n{}",
+            asm
+        );
     }
 
     #[test]
@@ -1925,6 +2147,11 @@ action finalize(token: Token) -> Token {
         assert!(
             asm.contains("# cellscript abi: bounds check Config.threshold required=8"),
             "read_ref schema field access did not emit a loaded-byte bounds check:\n{}",
+            asm
+        );
+        assert!(
+            asm.contains("# cellscript abi: exact size check Config expected=8"),
+            "read_ref schema field access did not enforce exact fixed schema size:\n{}",
             asm
         );
         assert!(
@@ -2005,6 +2232,21 @@ action finalize(token: Token) -> Token {
             asm
         );
         assert!(
+            asm.contains("# cellscript abi: schema param snapshot pointer=a0 length=a1"),
+            "schema parameter did not use pointer+length ABI:\n{}",
+            asm
+        );
+        assert!(
+            asm.contains("# cellscript abi: bounds check Snapshot.amount required=8"),
+            "schema parameter field access did not emit length-backed bounds check:\n{}",
+            asm
+        );
+        assert!(
+            asm.contains("# cellscript abi: exact size check Snapshot expected=8"),
+            "schema parameter field access did not enforce exact fixed schema size:\n{}",
+            asm
+        );
+        assert!(
             asm.contains("lbu t2, 0(t4)") && asm.contains("slli t2, t2, 56"),
             "u64 schema field access did not lower to an unaligned-safe byte load sequence:\n{}",
             asm
@@ -2055,6 +2297,11 @@ action finalize(token: Token) -> Token {
             asm
         );
         assert!(
+            asm.contains("# cellscript abi: exact size check Flags expected=5"),
+            "created packed scalar output did not enforce exact fixed schema size:\n{}",
+            asm
+        );
+        assert!(
             asm.contains("# cellscript abi: bounds check Flags.nonce required=5"),
             "created packed u32 output field did not check full byte span:\n{}",
             asm
@@ -2063,6 +2310,38 @@ action finalize(token: Token) -> Token {
         assert!(
             asm.contains("lbu t2, 1(t4)") && asm.contains("slli t2, t2, 24"),
             "created packed u32 verifier did not use unaligned-safe byte loads:\n{}",
+            asm
+        );
+    }
+
+    #[test]
+    fn compile_verifies_created_scalar_fields_against_consumed_input_aliases() {
+        let result = compile(CONSUME_CREATE_SCALAR_ALIAS_PROGRAM, CompileOptions::default()).unwrap();
+        let asm = String::from_utf8(result.artifact_bytes.clone()).unwrap();
+
+        assert!(
+            asm.contains("# cellscript abi: LOAD_CELL reason=consume source=Input index=0"),
+            "scalar alias verifier did not load consumed input:\n{}",
+            asm
+        );
+        assert!(
+            asm.contains("# cellscript abi: LOAD_CELL reason=create source=Output index=0"),
+            "scalar alias verifier did not load created output:\n{}",
+            asm
+        );
+        assert!(
+            asm.contains("# cellscript abi: expected field Flags.enabled offset=0 size=1"),
+            "created bool field was not compared against consumed input alias:\n{}",
+            asm
+        );
+        assert!(
+            asm.contains("# cellscript abi: expected field Flags.nonce offset=1 size=4"),
+            "created u32 field was not compared against consumed input alias:\n{}",
+            asm
+        );
+        assert!(
+            asm.contains("# cellscript abi: exact size check Flags expected=5"),
+            "scalar alias verifier did not enforce exact fixed schema size:\n{}",
             asm
         );
     }
@@ -2080,6 +2359,11 @@ action finalize(token: Token) -> Token {
         assert!(
             asm.contains("# cellscript abi: bounds check Token.amount required=8"),
             "consumed input field access did not check loaded cell bounds:\n{}",
+            asm
+        );
+        assert!(
+            asm.contains("# cellscript abi: exact size check Token expected=8"),
+            "consumed input field access did not enforce exact fixed schema size:\n{}",
             asm
         );
         assert!(
@@ -2195,6 +2479,12 @@ action finalize(token: Token) -> Token {
 
         assert!(asm.contains("# index access"), "array indexing vanished from assembly:\n{}", asm);
         assert!(asm.contains("# field access .1"), "tuple projection vanished from assembly:\n{}", asm);
+        assert!(
+            asm.contains("# cellscript abi: index access symbolic runtime is not executable")
+                || asm.contains("# cellscript abi: field access symbolic runtime is not executable"),
+            "symbolic index/tuple lowering did not fail closed:\n{}",
+            asm
+        );
     }
 
     #[test]
@@ -2240,6 +2530,11 @@ action finalize(token: Token) -> Token {
             asm
         );
         assert!(asm.contains("# length"), "len() did not stay on builtin length path:\n{}", asm);
+        assert!(
+            asm.contains("# cellscript abi: collection new symbolic runtime is not executable"),
+            "collection symbolic runtime did not fail closed:\n{}",
+            asm
+        );
         assert!(!asm.contains("# call push"), "push() leaked through generic call path:\n{}", asm);
         assert!(!asm.contains("# call extend_from_slice"), "extend_from_slice() leaked through generic call path:\n{}", asm);
         assert!(!asm.contains("# call len"), "len() leaked through generic call path:\n{}", asm);
@@ -2251,6 +2546,11 @@ action finalize(token: Token) -> Token {
         let asm = String::from_utf8(result.artifact_bytes.clone()).unwrap();
 
         assert!(asm.contains("# type_hash"), "type_hash() did not lower into builtin instruction:\n{}", asm);
+        assert!(
+            asm.contains("# cellscript abi: type_hash symbolic runtime is not executable"),
+            "type_hash symbolic runtime did not fail closed:\n{}",
+            asm
+        );
         assert!(!asm.contains("# call type_hash"), "type_hash() leaked through generic call path:\n{}", asm);
     }
 
@@ -2320,6 +2620,50 @@ action finalize(token: Token) -> Token {
         assert!(!result.metadata.runtime.standalone_runner_compatible);
         assert!(result.metadata.runtime.ckb_runtime_features.contains(&"read-cell-dep".to_string()));
         assert!(result.metadata.runtime.unsupported_elf_features.is_empty());
+        assert!(result.metadata.runtime.fail_closed_runtime_features.is_empty());
+    }
+
+    #[test]
+    fn compile_infers_and_validates_read_only_effects() {
+        let result = compile(READ_ONLY_EFFECT_PROGRAM, CompileOptions::default()).unwrap();
+        let action = result.metadata.actions.iter().find(|action| action.name == "inspect").expect("inspect metadata");
+
+        assert_eq!(action.effect_class, "ReadOnly");
+        assert!(action.ckb_runtime_features.contains(&"read-cell-dep".to_string()));
+        assert!(action.fail_closed_runtime_features.is_empty());
+    }
+
+    #[test]
+    fn compile_rejects_underdeclared_effect_annotations() {
+        let err = compile(UNDERDECLARED_EFFECT_PROGRAM, CompileOptions::default()).unwrap_err();
+
+        assert!(err.message.contains("declared effect ReadOnly is too weak"), "unexpected error: {}", err.message);
+        assert!(err.message.contains("inferred effect is Creating"), "unexpected error: {}", err.message);
+    }
+
+    #[test]
+    fn compile_rejects_impure_helper_functions() {
+        let err = compile(IMPURE_FN_PROGRAM, CompileOptions::default()).unwrap_err();
+
+        assert!(err.message.contains("fn 'helper' must be pure"), "unexpected error: {}", err.message);
+        assert!(err.message.contains("inferred effect is ReadOnly"), "unexpected error: {}", err.message);
+    }
+
+    #[test]
+    fn compile_rejects_helper_functions_that_indirectly_call_impure_actions() {
+        let err = compile(INDIRECT_IMPURE_FN_PROGRAM, CompileOptions::default()).unwrap_err();
+
+        assert!(err.message.contains("fn 'helper' must be pure"), "unexpected error: {}", err.message);
+        assert!(err.message.contains("inferred effect is Creating"), "unexpected error: {}", err.message);
+    }
+
+    #[test]
+    fn compile_rejects_underdeclared_effects_through_calls() {
+        let err = compile(INDIRECT_UNDERDECLARED_EFFECT_PROGRAM, CompileOptions::default()).unwrap_err();
+
+        assert!(err.message.contains("declared effect ReadOnly is too weak"), "unexpected error: {}", err.message);
+        assert!(err.message.contains("action 'wrapper'"), "unexpected error: {}", err.message);
+        assert!(err.message.contains("inferred effect is Creating"), "unexpected error: {}", err.message);
     }
 
     #[test]
@@ -2390,6 +2734,36 @@ source_roots = ["src", "shared"]
         assert!(asm.contains("# transfer"), "transfer expression vanished from assembly:\n{}", asm);
         assert!(asm.contains("# claim"), "claim expression vanished from assembly:\n{}", asm);
         assert!(asm.contains("# settle"), "settle expression vanished from assembly:\n{}", asm);
+        assert!(
+            asm.contains("# cellscript abi: transfer symbolic runtime is not executable"),
+            "transfer symbolic runtime did not fail closed:\n{}",
+            asm
+        );
+        assert!(
+            asm.contains("# cellscript abi: claim symbolic runtime is not executable"),
+            "claim symbolic runtime did not fail closed:\n{}",
+            asm
+        );
+        assert!(
+            asm.contains("# cellscript abi: settle symbolic runtime is not executable"),
+            "settle symbolic runtime did not fail closed:\n{}",
+            asm
+        );
+        assert!(
+            result.metadata.runtime.fail_closed_runtime_features.contains(&"transfer-expression".to_string()),
+            "transfer fail-closed feature missing from metadata: {:?}",
+            result.metadata.runtime.fail_closed_runtime_features
+        );
+        assert!(
+            result.metadata.runtime.fail_closed_runtime_features.contains(&"claim-expression".to_string()),
+            "claim fail-closed feature missing from metadata: {:?}",
+            result.metadata.runtime.fail_closed_runtime_features
+        );
+        assert!(
+            result.metadata.runtime.fail_closed_runtime_features.contains(&"settle-expression".to_string()),
+            "settle fail-closed feature missing from metadata: {:?}",
+            result.metadata.runtime.fail_closed_runtime_features
+        );
     }
 
     #[test]
@@ -2436,6 +2810,7 @@ source_roots = ["src", "shared"]
         assert!(result.metadata.runtime.ckb_runtime_accesses.iter().any(|access| access.source == "Input"));
         assert!(result.metadata.runtime.ckb_runtime_accesses.iter().any(|access| access.source == "CellDep"));
         assert!(result.metadata.runtime.ckb_runtime_accesses.iter().any(|access| access.source == "Output"));
+        assert!(result.metadata.runtime.fail_closed_runtime_features.is_empty());
         let action = result.metadata.actions.iter().find(|action| action.name == "update").expect("update metadata");
         assert_eq!(action.read_refs.len(), 1);
         assert_eq!(action.create_set.len(), 1);
@@ -2443,6 +2818,7 @@ source_roots = ["src", "shared"]
         assert!(!action.elf_compatible);
         assert!(action.ckb_runtime_features.contains(&"read-cell-dep".to_string()));
         assert!(!action.symbolic_runtime_features.contains(&"read-ref-expression".to_string()));
+        assert!(action.fail_closed_runtime_features.is_empty());
         assert!(!action.touches_shared.is_empty());
         assert!(action.estimated_cycles > 32);
         assert!(!action.scheduler_witness_borsh_hex.is_empty());
@@ -2458,6 +2834,7 @@ source_roots = ["src", "shared"]
         assert_eq!(action.params[0].name, "snapshot");
         assert_eq!(action.params[0].ty, "Snapshot");
         assert!(action.params[0].schema_pointer_abi);
+        assert!(action.params[0].schema_length_abi);
         assert_eq!(snapshot.kind, "Struct");
         assert_eq!(snapshot.encoded_size, Some(8));
         let amount = snapshot.fields.iter().find(|field| field.name == "amount").expect("amount field metadata");

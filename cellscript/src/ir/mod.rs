@@ -4,7 +4,7 @@
 
 use crate::ast::*;
 use crate::error::{CompileError, Result, Span};
-use crate::resolve::{ModuleResolver, TypeDef};
+use crate::resolve::{FunctionDef, ModuleResolver, TypeDef};
 use std::collections::HashMap;
 
 /// Spora IR 模块
@@ -253,6 +253,13 @@ impl Default for SchedulerHints {
     }
 }
 
+#[derive(Default)]
+struct EffectFootprint {
+    has_read_ref: bool,
+    has_consume: bool,
+    has_create: bool,
+}
+
 /// IR 生成器
 pub struct IrGenerator {
     module: IrModule,
@@ -263,6 +270,8 @@ pub struct IrGenerator {
     type_kinds: HashMap<String, IrTypeKind>,
     enum_variants: HashMap<String, HashMap<String, u64>>,
     constants: HashMap<String, Expr>,
+    function_effects: HashMap<String, EffectClass>,
+    external_function_effects: HashMap<String, EffectClass>,
     errors: Vec<CompileError>,
 }
 
@@ -283,6 +292,8 @@ impl IrGenerator {
             type_kinds: HashMap::new(),
             enum_variants: HashMap::new(),
             constants: HashMap::new(),
+            function_effects: HashMap::new(),
+            external_function_effects: HashMap::new(),
             errors: Vec::new(),
         }
     }
@@ -290,6 +301,16 @@ impl IrGenerator {
     pub fn with_type_fields(module_name: String, type_fields: HashMap<String, HashMap<String, IrType>>) -> Self {
         let mut generator = Self::new(module_name);
         generator.type_fields = type_fields;
+        generator
+    }
+
+    pub fn with_import_context(
+        module_name: String,
+        type_fields: HashMap<String, HashMap<String, IrType>>,
+        external_function_effects: HashMap<String, EffectClass>,
+    ) -> Self {
+        let mut generator = Self::with_type_fields(module_name, type_fields);
+        generator.external_function_effects = external_function_effects;
         generator
     }
 
@@ -338,6 +359,8 @@ impl IrGenerator {
             }
         }
 
+        self.infer_module_function_effects(&ast.items);
+
         for item in &ast.items {
             match item {
                 Item::Resource(r) => {
@@ -362,6 +385,10 @@ impl IrGenerator {
                     self.module.items.push(ir_item);
                 }
                 Item::Function(f) => {
+                    let inferred_effect = self.analyze_effect_class(f);
+                    if inferred_effect != EffectClass::Pure {
+                        self.record_error(format!("fn '{}' must be pure; inferred effect is {:?}", f.name, inferred_effect), f.span);
+                    }
                     let ir_item = IrItem::Action(self.gen_action(f));
                     self.module.items.push(ir_item);
                 }
@@ -419,6 +446,32 @@ impl IrGenerator {
         }
     }
 
+    fn infer_module_function_effects(&mut self, items: &[Item]) {
+        for item in items {
+            if let Item::Action(action) | Item::Function(action) = item {
+                self.function_effects.insert(action.name.clone(), EffectClass::Pure);
+            }
+        }
+
+        for _ in 0..items.len().saturating_add(1) {
+            let mut changed = false;
+            for item in items {
+                if let Item::Action(action) | Item::Function(action) = item {
+                    let inferred = self.analyze_effect_class(action);
+                    let declared = self.convert_effect_class(action.effect);
+                    let effective = if action.effect_declared && self.effect_covers(declared, inferred) { declared } else { inferred };
+                    if self.function_effects.get(&action.name).copied() != Some(effective) {
+                        self.function_effects.insert(action.name.clone(), effective);
+                        changed = true;
+                    }
+                }
+            }
+            if !changed {
+                break;
+            }
+        }
+    }
+
     fn layout_fields(&self, fields: &[Field]) -> Vec<IrField> {
         let mut next_offset = Some(0usize);
         fields
@@ -454,8 +507,17 @@ impl IrGenerator {
         self.aggregate_fields.clear();
         let (params, body) = self.lower_signature_and_body(&action.params, &action.body);
 
-        // 分析效果类别
         let effect_class = self.analyze_effect_class(action);
+        let declared_effect_class = self.convert_effect_class(action.effect);
+        if action.effect_declared && !self.effect_covers(declared_effect_class, effect_class) {
+            self.record_error(
+                format!(
+                    "declared effect {:?} is too weak for action '{}'; inferred effect is {:?}",
+                    declared_effect_class, action.name, effect_class
+                ),
+                action.span,
+            );
+        }
         let touches_shared = self.infer_touches_shared(&body);
         let estimated_cycles = self.estimate_cycles(&body);
 
@@ -464,11 +526,7 @@ impl IrGenerator {
             params,
             return_type: action.return_type.as_ref().map(|t| self.convert_type(t)),
             body,
-            effect_class: if action.effect == crate::ast::EffectClass::Pure {
-                effect_class
-            } else {
-                self.convert_effect_class(action.effect)
-            },
+            effect_class: if action.effect_declared { declared_effect_class } else { effect_class },
             scheduler_hints: action
                 .scheduler_hint
                 .as_ref()
@@ -512,52 +570,62 @@ impl IrGenerator {
 
     /// 分析效果类别
     fn analyze_effect_class(&self, action: &ActionDef) -> EffectClass {
-        // 简化分析：检查函数体中是否有 consume/create
-        let mut has_consume = false;
-        let mut has_create = false;
+        let mut footprint = EffectFootprint::default();
 
         for stmt in &action.body {
-            self.check_stmt_effects(stmt, &mut has_consume, &mut has_create);
+            self.check_stmt_effects(stmt, &mut footprint);
         }
 
-        match (has_consume, has_create) {
-            (true, true) => EffectClass::Mutating,
-            (true, false) => EffectClass::Destroying,
-            (false, true) => EffectClass::Creating,
-            (false, false) => EffectClass::Pure,
+        match (footprint.has_consume, footprint.has_create, footprint.has_read_ref) {
+            (true, true, _) => EffectClass::Mutating,
+            (true, false, _) => EffectClass::Destroying,
+            (false, true, _) => EffectClass::Creating,
+            (false, false, true) => EffectClass::ReadOnly,
+            (false, false, false) => EffectClass::Pure,
+        }
+    }
+
+    fn effect_covers(&self, declared: EffectClass, inferred: EffectClass) -> bool {
+        match (declared, inferred) {
+            (EffectClass::Pure, EffectClass::Pure) => true,
+            (EffectClass::ReadOnly, EffectClass::Pure | EffectClass::ReadOnly) => true,
+            (EffectClass::Creating, EffectClass::Pure | EffectClass::ReadOnly | EffectClass::Creating) => true,
+            (EffectClass::Destroying, EffectClass::Pure | EffectClass::ReadOnly | EffectClass::Destroying) => true,
+            (EffectClass::Mutating, _) => true,
+            _ => false,
         }
     }
 
     /// 检查语句效果
-    fn check_stmt_effects(&self, stmt: &Stmt, has_consume: &mut bool, has_create: &mut bool) {
+    fn check_stmt_effects(&self, stmt: &Stmt, footprint: &mut EffectFootprint) {
         match stmt {
             Stmt::Expr(expr) | Stmt::Let(LetStmt { value: expr, .. }) => {
-                self.check_expr_effects(expr, has_consume, has_create);
+                self.check_expr_effects(expr, footprint);
             }
             Stmt::Return(Some(expr)) => {
-                self.check_expr_effects(expr, has_consume, has_create);
+                self.check_expr_effects(expr, footprint);
             }
             Stmt::If(if_stmt) => {
-                self.check_expr_effects(&if_stmt.condition, has_consume, has_create);
+                self.check_expr_effects(&if_stmt.condition, footprint);
                 for stmt in &if_stmt.then_branch {
-                    self.check_stmt_effects(stmt, has_consume, has_create);
+                    self.check_stmt_effects(stmt, footprint);
                 }
                 if let Some(ref else_branch) = if_stmt.else_branch {
                     for stmt in else_branch {
-                        self.check_stmt_effects(stmt, has_consume, has_create);
+                        self.check_stmt_effects(stmt, footprint);
                     }
                 }
             }
             Stmt::For(for_stmt) => {
-                self.check_expr_effects(&for_stmt.iterable, has_consume, has_create);
+                self.check_expr_effects(&for_stmt.iterable, footprint);
                 for stmt in &for_stmt.body {
-                    self.check_stmt_effects(stmt, has_consume, has_create);
+                    self.check_stmt_effects(stmt, footprint);
                 }
             }
             Stmt::While(while_stmt) => {
-                self.check_expr_effects(&while_stmt.condition, has_consume, has_create);
+                self.check_expr_effects(&while_stmt.condition, footprint);
                 for stmt in &while_stmt.body {
-                    self.check_stmt_effects(stmt, has_consume, has_create);
+                    self.check_stmt_effects(stmt, footprint);
                 }
             }
             _ => {}
@@ -565,83 +633,121 @@ impl IrGenerator {
     }
 
     /// 检查表达式效果
-    fn check_expr_effects(&self, expr: &Expr, has_consume: &mut bool, has_create: &mut bool) {
+    fn check_expr_effects(&self, expr: &Expr, footprint: &mut EffectFootprint) {
         match expr {
-            Expr::Consume(_) => *has_consume = true,
-            Expr::Create(_) => *has_create = true,
+            Expr::Consume(consume) => {
+                footprint.has_consume = true;
+                self.check_expr_effects(&consume.expr, footprint);
+            }
+            Expr::Create(create) => {
+                footprint.has_create = true;
+                for (_, value) in &create.fields {
+                    self.check_expr_effects(value, footprint);
+                }
+                if let Some(lock) = &create.lock {
+                    self.check_expr_effects(lock, footprint);
+                }
+            }
             Expr::Transfer(transfer) => {
-                *has_consume = true;
-                *has_create = true;
-                self.check_expr_effects(&transfer.expr, has_consume, has_create);
-                self.check_expr_effects(&transfer.to, has_consume, has_create);
+                footprint.has_consume = true;
+                footprint.has_create = true;
+                self.check_expr_effects(&transfer.expr, footprint);
+                self.check_expr_effects(&transfer.to, footprint);
+            }
+            Expr::Destroy(destroy) => {
+                footprint.has_consume = true;
+                self.check_expr_effects(&destroy.expr, footprint);
+            }
+            Expr::ReadRef(_) => {
+                footprint.has_read_ref = true;
             }
             Expr::Claim(claim) => {
-                *has_consume = true;
-                *has_create = true;
-                self.check_expr_effects(&claim.receipt, has_consume, has_create);
+                footprint.has_consume = true;
+                footprint.has_create = true;
+                self.check_expr_effects(&claim.receipt, footprint);
             }
             Expr::Settle(settle) => {
-                *has_consume = true;
-                *has_create = true;
-                self.check_expr_effects(&settle.expr, has_consume, has_create);
+                footprint.has_consume = true;
+                footprint.has_create = true;
+                self.check_expr_effects(&settle.expr, footprint);
             }
             Expr::Assign(assign) => {
-                self.check_expr_effects(&assign.target, has_consume, has_create);
-                self.check_expr_effects(&assign.value, has_consume, has_create);
+                self.check_expr_effects(&assign.target, footprint);
+                self.check_expr_effects(&assign.value, footprint);
             }
             Expr::Binary(bin) => {
-                self.check_expr_effects(&bin.left, has_consume, has_create);
-                self.check_expr_effects(&bin.right, has_consume, has_create);
+                self.check_expr_effects(&bin.left, footprint);
+                self.check_expr_effects(&bin.right, footprint);
             }
             Expr::Unary(unary) => {
-                self.check_expr_effects(&unary.expr, has_consume, has_create);
+                self.check_expr_effects(&unary.expr, footprint);
             }
             Expr::Call(call) => {
+                if let Expr::Identifier(name) = call.func.as_ref() {
+                    if let Some(effect) = self.function_effects.get(name).copied() {
+                        self.apply_effect_to_footprint(effect, footprint);
+                    } else if let Some(effect) = self.external_function_effects.get(name).copied() {
+                        self.apply_effect_to_footprint(effect, footprint);
+                    }
+                }
                 for arg in &call.args {
-                    self.check_expr_effects(arg, has_consume, has_create);
+                    self.check_expr_effects(arg, footprint);
                 }
             }
             Expr::FieldAccess(field) => {
-                self.check_expr_effects(&field.expr, has_consume, has_create);
+                self.check_expr_effects(&field.expr, footprint);
             }
             Expr::Index(index) => {
-                self.check_expr_effects(&index.expr, has_consume, has_create);
-                self.check_expr_effects(&index.index, has_consume, has_create);
+                self.check_expr_effects(&index.expr, footprint);
+                self.check_expr_effects(&index.index, footprint);
             }
             Expr::If(if_expr) => {
-                self.check_expr_effects(&if_expr.condition, has_consume, has_create);
-                self.check_expr_effects(&if_expr.then_branch, has_consume, has_create);
-                self.check_expr_effects(&if_expr.else_branch, has_consume, has_create);
+                self.check_expr_effects(&if_expr.condition, footprint);
+                self.check_expr_effects(&if_expr.then_branch, footprint);
+                self.check_expr_effects(&if_expr.else_branch, footprint);
             }
             Expr::Cast(cast) => {
-                self.check_expr_effects(&cast.expr, has_consume, has_create);
+                self.check_expr_effects(&cast.expr, footprint);
             }
             Expr::Range(range) => {
-                self.check_expr_effects(&range.start, has_consume, has_create);
-                self.check_expr_effects(&range.end, has_consume, has_create);
+                self.check_expr_effects(&range.start, footprint);
+                self.check_expr_effects(&range.end, footprint);
             }
             Expr::StructInit(init) => {
                 for (_, value) in &init.fields {
-                    self.check_expr_effects(value, has_consume, has_create);
+                    self.check_expr_effects(value, footprint);
                 }
             }
             Expr::Match(match_expr) => {
-                self.check_expr_effects(&match_expr.expr, has_consume, has_create);
+                self.check_expr_effects(&match_expr.expr, footprint);
                 for arm in &match_expr.arms {
-                    self.check_expr_effects(&arm.value, has_consume, has_create);
+                    self.check_expr_effects(&arm.value, footprint);
                 }
             }
             Expr::Block(stmts) => {
                 for stmt in stmts {
-                    self.check_stmt_effects(stmt, has_consume, has_create);
+                    self.check_stmt_effects(stmt, footprint);
                 }
             }
             Expr::Tuple(elems) | Expr::Array(elems) => {
                 for elem in elems {
-                    self.check_expr_effects(elem, has_consume, has_create);
+                    self.check_expr_effects(elem, footprint);
                 }
             }
             _ => {}
+        }
+    }
+
+    fn apply_effect_to_footprint(&self, effect: EffectClass, footprint: &mut EffectFootprint) {
+        match effect {
+            EffectClass::Pure => {}
+            EffectClass::ReadOnly => footprint.has_read_ref = true,
+            EffectClass::Creating => footprint.has_create = true,
+            EffectClass::Destroying => footprint.has_consume = true,
+            EffectClass::Mutating => {
+                footprint.has_consume = true;
+                footprint.has_create = true;
+            }
         }
     }
 
@@ -1942,6 +2048,7 @@ pub fn generate(ast: &Module) -> Result<IrModule> {
 
 pub fn generate_with_resolver(ast: &Module, resolver: &ModuleResolver, module_name: &str) -> Result<IrModule> {
     let mut type_fields = HashMap::new();
+    let mut external_function_effects = HashMap::new();
 
     for item in &ast.items {
         let Item::Use(use_stmt) = item else {
@@ -1950,17 +2057,182 @@ pub fn generate_with_resolver(ast: &Module, resolver: &ModuleResolver, module_na
 
         for import in &use_stmt.imports {
             let local_name = import.alias.clone().unwrap_or_else(|| import.name.clone());
-            let Some(type_def) = resolver.resolve_type(module_name, &local_name) else {
-                continue;
-            };
-            if let Some(fields) = resolver_type_fields_to_ir(&type_def) {
-                type_fields.insert(local_name, fields);
+            if let Some(type_def) = resolver.resolve_type(module_name, &local_name) {
+                if let Some(fields) = resolver_type_fields_to_ir(&type_def) {
+                    type_fields.insert(local_name.clone(), fields);
+                }
+            }
+            if let Some(function) = resolver.resolve_function(module_name, &local_name) {
+                external_function_effects.insert(local_name, function_def_effect_class(&function));
             }
         }
     }
 
-    let generator = IrGenerator::with_type_fields(ast.name.clone(), type_fields);
+    let generator = IrGenerator::with_import_context(ast.name.clone(), type_fields, external_function_effects);
     generator.generate(ast)
+}
+
+fn function_def_effect_class(function: &FunctionDef) -> EffectClass {
+    match function {
+        FunctionDef::Action(action) | FunctionDef::Function(action) => {
+            if action.effect_declared {
+                ast_effect_to_ir(action.effect)
+            } else {
+                infer_action_effect_without_call_graph(action)
+            }
+        }
+        FunctionDef::Lock(_) => EffectClass::ReadOnly,
+    }
+}
+
+fn infer_action_effect_without_call_graph(action: &ActionDef) -> EffectClass {
+    let mut footprint = EffectFootprint::default();
+    for stmt in &action.body {
+        collect_ast_stmt_effects(stmt, &mut footprint);
+    }
+    effect_from_footprint(&footprint)
+}
+
+fn collect_ast_stmt_effects(stmt: &Stmt, footprint: &mut EffectFootprint) {
+    match stmt {
+        Stmt::Expr(expr) | Stmt::Let(LetStmt { value: expr, .. }) | Stmt::Return(Some(expr)) => {
+            collect_ast_expr_effects(expr, footprint);
+        }
+        Stmt::If(if_stmt) => {
+            collect_ast_expr_effects(&if_stmt.condition, footprint);
+            for stmt in &if_stmt.then_branch {
+                collect_ast_stmt_effects(stmt, footprint);
+            }
+            if let Some(else_branch) = &if_stmt.else_branch {
+                for stmt in else_branch {
+                    collect_ast_stmt_effects(stmt, footprint);
+                }
+            }
+        }
+        Stmt::For(for_stmt) => {
+            collect_ast_expr_effects(&for_stmt.iterable, footprint);
+            for stmt in &for_stmt.body {
+                collect_ast_stmt_effects(stmt, footprint);
+            }
+        }
+        Stmt::While(while_stmt) => {
+            collect_ast_expr_effects(&while_stmt.condition, footprint);
+            for stmt in &while_stmt.body {
+                collect_ast_stmt_effects(stmt, footprint);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn collect_ast_expr_effects(expr: &Expr, footprint: &mut EffectFootprint) {
+    match expr {
+        Expr::Consume(consume) => {
+            footprint.has_consume = true;
+            collect_ast_expr_effects(&consume.expr, footprint);
+        }
+        Expr::Create(create) => {
+            footprint.has_create = true;
+            for (_, value) in &create.fields {
+                collect_ast_expr_effects(value, footprint);
+            }
+            if let Some(lock) = &create.lock {
+                collect_ast_expr_effects(lock, footprint);
+            }
+        }
+        Expr::Transfer(transfer) => {
+            footprint.has_consume = true;
+            footprint.has_create = true;
+            collect_ast_expr_effects(&transfer.expr, footprint);
+            collect_ast_expr_effects(&transfer.to, footprint);
+        }
+        Expr::Destroy(destroy) => {
+            footprint.has_consume = true;
+            collect_ast_expr_effects(&destroy.expr, footprint);
+        }
+        Expr::ReadRef(_) => footprint.has_read_ref = true,
+        Expr::Claim(claim) => {
+            footprint.has_consume = true;
+            footprint.has_create = true;
+            collect_ast_expr_effects(&claim.receipt, footprint);
+        }
+        Expr::Settle(settle) => {
+            footprint.has_consume = true;
+            footprint.has_create = true;
+            collect_ast_expr_effects(&settle.expr, footprint);
+        }
+        Expr::Assign(assign) => {
+            collect_ast_expr_effects(&assign.target, footprint);
+            collect_ast_expr_effects(&assign.value, footprint);
+        }
+        Expr::Binary(binary) => {
+            collect_ast_expr_effects(&binary.left, footprint);
+            collect_ast_expr_effects(&binary.right, footprint);
+        }
+        Expr::Unary(unary) => collect_ast_expr_effects(&unary.expr, footprint),
+        Expr::Call(call) => {
+            for arg in &call.args {
+                collect_ast_expr_effects(arg, footprint);
+            }
+        }
+        Expr::FieldAccess(field) => collect_ast_expr_effects(&field.expr, footprint),
+        Expr::Index(index) => {
+            collect_ast_expr_effects(&index.expr, footprint);
+            collect_ast_expr_effects(&index.index, footprint);
+        }
+        Expr::If(if_expr) => {
+            collect_ast_expr_effects(&if_expr.condition, footprint);
+            collect_ast_expr_effects(&if_expr.then_branch, footprint);
+            collect_ast_expr_effects(&if_expr.else_branch, footprint);
+        }
+        Expr::Cast(cast) => collect_ast_expr_effects(&cast.expr, footprint),
+        Expr::Range(range) => {
+            collect_ast_expr_effects(&range.start, footprint);
+            collect_ast_expr_effects(&range.end, footprint);
+        }
+        Expr::StructInit(init) => {
+            for (_, value) in &init.fields {
+                collect_ast_expr_effects(value, footprint);
+            }
+        }
+        Expr::Match(match_expr) => {
+            collect_ast_expr_effects(&match_expr.expr, footprint);
+            for arm in &match_expr.arms {
+                collect_ast_expr_effects(&arm.value, footprint);
+            }
+        }
+        Expr::Block(stmts) => {
+            for stmt in stmts {
+                collect_ast_stmt_effects(stmt, footprint);
+            }
+        }
+        Expr::Tuple(items) | Expr::Array(items) => {
+            for item in items {
+                collect_ast_expr_effects(item, footprint);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn effect_from_footprint(footprint: &EffectFootprint) -> EffectClass {
+    match (footprint.has_consume, footprint.has_create, footprint.has_read_ref) {
+        (true, true, _) => EffectClass::Mutating,
+        (true, false, _) => EffectClass::Destroying,
+        (false, true, _) => EffectClass::Creating,
+        (false, false, true) => EffectClass::ReadOnly,
+        (false, false, false) => EffectClass::Pure,
+    }
+}
+
+fn ast_effect_to_ir(effect: crate::ast::EffectClass) -> EffectClass {
+    match effect {
+        crate::ast::EffectClass::Pure => EffectClass::Pure,
+        crate::ast::EffectClass::ReadOnly => EffectClass::ReadOnly,
+        crate::ast::EffectClass::Mutating => EffectClass::Mutating,
+        crate::ast::EffectClass::Creating => EffectClass::Creating,
+        crate::ast::EffectClass::Destroying => EffectClass::Destroying,
+    }
 }
 
 fn resolver_type_fields_to_ir(type_def: &TypeDef) -> Option<HashMap<String, IrType>> {
