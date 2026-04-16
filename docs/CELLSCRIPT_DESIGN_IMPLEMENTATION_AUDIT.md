@@ -47,6 +47,8 @@ Several older audit claims are now stale:
 | Symbolic runtime paths may silently continue | Improved. Unsupported runtime features emit explicit fail-closed assembly and metadata. |
 | Scheduler metadata has no fail-closed signal | Improved. Metadata exposes `fail_closed_runtime_features` separately from `symbolic_runtime_features`. |
 | No-return helpers behave like `u64` values | Fixed for the local compiler. Helpers without a return type use internal `Unit`, lower to destinationless calls, and cannot be bound or returned as values. |
+| `assert_invariant` behaves like a boolean value | Fixed for the local compiler. Assertions are `Unit`, lower to fail-closed verifier CFG, cannot be bound or used as value-returning tail expressions, and require static string literal messages. |
+| Source after `return` can be silently ignored by lowering | Fixed for guaranteed-return source paths. The type checker rejects unreachable statements after `return` or complete branch returns. |
 | Unknown call return types become implicit `u64` | Fixed in IR lowering. Unresolved call return types are rejected instead of fabricating a numeric result. |
 | Tail expressions are only source sugar | Improved. Typed tail expressions and terminal `if` tails lower to real `Return(Some(...))` terminators for value-returning `action` / `fn` bodies. |
 | Empty arrays silently become `[u64; 0]` | Fixed. Empty arrays require explicit zero-length array annotations and preserve the declared element type. |
@@ -68,7 +70,7 @@ The main negative findings remain valid:
 |---|---|---:|
 | `resource` | Parsed, typed, lowered into IR, participates in partial linear checks and metadata | 70% |
 | `shared` | Parsed and represented, can appear in metadata, but complete contention/runtime semantics are missing | 45% |
-| `receipt` | Parsed and represented; lifecycle declarations are statically checked, but `claim` is still fail-closed | 40% |
+| `receipt` | Parsed and represented; lifecycle declarations are statically checked; `receipt Name -> Output` claim outputs are type-checked and represented in IR/metadata, but executable claim condition/output verification is still fail-closed | 45% |
 | `launch` | Reserved/syntactic direction only; no compiler-known executable creation semantics | 10% |
 | `pool` | Not a first-class semantic primitive; only approximated through shared state ideas | 5% |
 | `settle` | Recognized but fail-closed in codegen | 10% |
@@ -85,7 +87,7 @@ Verdict: the vocabulary exists for several design concepts, but the executable p
 | Fixed arrays | Supported in frontend/type checking; empty arrays require explicit zero-length annotations; local static index/foreach/len lowering exists for supported cases | 70-78% |
 | Struct/resource/shared/receipt shapes | Real AST/IR/type presence | 75% |
 | Linear usage checks | Present and useful, but not a full resource proof system | 65-72% |
-| Capabilities such as store/transfer/destroy | Frontend-level support exists; semantic enforcement incomplete | 45% |
+| Capabilities such as store/transfer/destroy | Parser/type checker now merge attribute and inline declarations, reject `transfer` without `transfer`, reject `destroy` without `destroy`, restrict `claim` to receipts, require declared receipt claim outputs to be resource/shared cells, and restrict `settle` to cell-backed linear values; full conservation/runtime proof is still incomplete | 60-67% |
 | Immutable vs mutable fields | Not fully enforced as first-class transition constraints | 20% |
 | Schema evolution/versioning | Not implemented as a complete language feature | 10% |
 | Lifecycle declaration/runtime checks | Main-path checks reject duplicate states, invalid state field types, missing create `state`, static out-of-range create states, non-initial static creates, and static reset-to-initial updates; complete fixed-scalar verifier paths emit state-range and `old_state + 1 == new_state` prelude checks | 45-55% |
@@ -103,10 +105,10 @@ Verdict: the type system now rejects several previous false-value edges, but sti
 | `read_ref` | Real for restricted fixed-scalar CKB CellDep field access | 70-80% |
 | `transfer` | Parsed/lowered as symbolic, codegen fail-closed | 20% |
 | `destroy` | Parsed/lowered as symbolic, codegen fail-closed | 20% |
-| `claim` | Parsed/lowered as symbolic, codegen fail-closed | 15% |
+| `claim` | Parsed/lowered as symbolic, can type/lower declared `receipt -> output` cells into operation-tagged `create_set`, codegen still fail-closed for actual claim semantics | 20-25% |
 | `settle` | Parsed/lowered as symbolic, codegen fail-closed | 10% |
 | `launch` | Mostly reserved/design-level | 10% |
-| `assert_invariant` | Syntax exists; full proof/lowering story incomplete | 40-50% |
+| `assert_invariant` | Lowers to fail-closed CFG, is typed as value-less `Unit`, and requires static string literal messages; full invariant proof/lowering story remains incomplete | 58-68% |
 | Tail expressions / value returns | All value-returning `action` / `fn` paths must return; typed tail expressions and terminal `if` branches lower to real return terminators | 70-80% |
 | `?` / Result propagation | Not implemented | 0-5% |
 
@@ -120,8 +122,8 @@ Verdict: syntax is significantly ahead of executable semantics. This is acceptab
 | Parser | Stable main path for supported syntax | 88-92% |
 | AST | Stable main path for supported syntax | 88-92% |
 | Name/module resolution | Local path dependencies work; remote/registry story incomplete | 60-70% |
-| Type checking | Useful and stricter on returns, empty arrays, `Unit`, and local `Vec` item propagation; still not full semantic proof | 65-72% |
-| IR lowering | Real, with action/lock/function/effect metadata, destinationless no-return calls, typed empty arrays, and tail-return terminators | 75-85% |
+| Type checking | Useful and stricter on returns, unreachable statements, assertions, empty arrays, `Unit`, and local `Vec` item propagation; still not full semantic proof | 67-74% |
+| IR lowering | Real, with action/lock/function/effect metadata, destinationless no-return calls, Unit-valued assertions, typed empty arrays, and tail-return terminators | 76-86% |
 | Optimization | Not part of the trusted path | 10-15% |
 | RISC-V assembly codegen | Real for pure and restricted runtime paths | 60-70% |
 | RISC-V ELF output | Real for pure/restricted executable paths | 50-60% |
@@ -157,7 +159,7 @@ Verdict: CKB-style runtime integration is no longer imaginary, but only a narrow
 | `seed_pool` | Not implemented | 0-5% |
 | `swap` | Not implemented | 0-5% |
 | `wrap` / `unwrap` | Not implemented | 0-5% |
-| `claim` | recognized but fail-closed | 10-15% |
+| `claim` | recognized, declared output type is now visible to type checker/IR/metadata, executable verifier semantics remain fail-closed | 15-20% |
 | `settle` | recognized but fail-closed | 10% |
 
 Verdict: this is the largest gap between the design proposal and implementation. The standard primitive layer is still mostly a design target.
@@ -264,13 +266,13 @@ Required fix:
 
 Real today:
 
-- `consume_set`
-- `read_refs`
-- `create_set`
+- operation-tagged `consume_set`
+- operation-tagged `read_refs`
+- operation-tagged `create_set`
 - `touches_shared`
 - effect classes
-- scheduler witness bytes
-- CKB runtime access summaries
+- scheduler witness bytes with operation/source/index/binding-hash access records
+- CKB runtime access summaries with operation/source/index/binding provenance
 
 Missing:
 
@@ -289,7 +291,7 @@ Verdict:
 | Tooling area | Current status | Gap |
 |---|---|---|
 | `cellc build` | Real local package flow with pre-artifact policy gate | registry/distribution missing |
-| `cellc check` | Real compile/check flow plus CLI and manifest production/fail-closed/symbolic/CKB runtime policy gates | broader CI presets missing |
+| `cellc check` | Real compile/check flow plus CLI and manifest production/fail-closed/symbolic/CKB/runtime-obligation policy gates | broader CI presets missing |
 | `cellc metadata` | Real JSON metadata | external CI policy integration missing |
 | `cellc doc` | Real API docgen plus lowering audit report / verifier obligations | deeper invariant/spec docs missing |
 | `cellc fmt` | Real formatter path | style stability needs more tests |
@@ -306,7 +308,7 @@ Verdict:
 | M1: parsing, type checking, IR | Mostly complete for supported language core | 84-90% |
 | M2: CKBVM verifier artifacts | Partial, restricted executable subset | 50-60% |
 | M3: shared/receipt/lifecycle | Frontend exists; semantics incomplete | 25-35% |
-| M4: scheduler metadata | Metadata emitted; scheduler enforcement missing | 25-35% |
+| M4: scheduler metadata | Metadata and operation-tagged scheduler witness emitted; scheduler enforcement missing | 35-45% |
 | M5: launch/pool/claim/settle E2E | Mostly not executable | 5-15% |
 
 ## Prioritized Gap List

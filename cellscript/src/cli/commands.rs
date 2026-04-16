@@ -76,6 +76,7 @@ pub struct BuildArgs {
     pub deny_fail_closed: bool,
     pub deny_symbolic_runtime: bool,
     pub deny_ckb_runtime: bool,
+    pub deny_runtime_obligations: bool,
 }
 
 /// 测试参数
@@ -160,6 +161,7 @@ pub struct CheckArgs {
     pub deny_fail_closed: bool,
     pub deny_symbolic_runtime: bool,
     pub deny_ckb_runtime: bool,
+    pub deny_runtime_obligations: bool,
 }
 
 /// 元数据参数
@@ -184,6 +186,7 @@ pub struct VerifyArtifactArgs {
     pub deny_fail_closed: bool,
     pub deny_symbolic_runtime: bool,
     pub deny_ckb_runtime: bool,
+    pub deny_runtime_obligations: bool,
 }
 
 /// 运行参数
@@ -263,7 +266,8 @@ impl CommandExecutor {
         let policy_verified = policy_args.production
             || policy_args.deny_fail_closed
             || policy_args.deny_symbolic_runtime
-            || policy_args.deny_ckb_runtime;
+            || policy_args.deny_ckb_runtime
+            || policy_args.deny_runtime_obligations;
         if args.json {
             let summary = serde_json::json!({
                 "status": "ok",
@@ -279,6 +283,9 @@ impl CommandExecutor {
                 "standalone_runner_compatible": result.metadata.runtime.standalone_runner_compatible,
                 "ckb_runtime_required": result.metadata.runtime.ckb_runtime_required,
                 "symbolic_cell_runtime_required": result.metadata.runtime.symbolic_cell_runtime_required,
+                "verifier_obligations": result.metadata.runtime.verifier_obligations.len(),
+                "runtime_required_verifier_obligations": runtime_required_obligation_count(&result.metadata),
+                "fail_closed_verifier_obligations": fail_closed_obligation_count(&result.metadata),
                 "policy_verified": policy_verified,
             });
             let json = serde_json::to_string_pretty(&summary)
@@ -752,11 +759,14 @@ impl CommandExecutor {
                 "symbolic_cell_runtime_required": result.metadata.runtime.symbolic_cell_runtime_required,
                 "fail_closed_runtime_features": result.metadata.runtime.fail_closed_runtime_features,
                 "verifier_obligations": result.metadata.runtime.verifier_obligations.len(),
+                "runtime_required_verifier_obligations": runtime_required_obligation_count(&result.metadata),
+                "fail_closed_verifier_obligations": fail_closed_obligation_count(&result.metadata),
             }));
             checked_targets.push(target_label);
         }
 
         let policy_verified = args.production || args.deny_fail_closed || args.deny_symbolic_runtime || args.deny_ckb_runtime;
+        let policy_verified = policy_verified || args.deny_runtime_obligations;
         if args.json {
             let summary = serde_json::json!({
                 "status": "ok",
@@ -768,6 +778,7 @@ impl CommandExecutor {
                     "deny_fail_closed": args.deny_fail_closed,
                     "deny_symbolic_runtime": args.deny_symbolic_runtime,
                     "deny_ckb_runtime": args.deny_ckb_runtime,
+                    "deny_runtime_obligations": args.deny_runtime_obligations,
                 },
             });
             let json = serde_json::to_string_pretty(&summary)
@@ -850,13 +861,18 @@ impl CommandExecutor {
                 deny_fail_closed: args.deny_fail_closed,
                 deny_symbolic_runtime: args.deny_symbolic_runtime,
                 deny_ckb_runtime: args.deny_ckb_runtime,
+                deny_runtime_obligations: args.deny_runtime_obligations,
                 ..CheckArgs::default()
             },
         )?;
 
         let expected_hashes_verified =
             args.expect_artifact_hash.is_some() || args.expect_source_hash.is_some() || args.expect_source_content_hash.is_some();
-        let policy_verified = args.production || args.deny_fail_closed || args.deny_symbolic_runtime || args.deny_ckb_runtime;
+        let policy_verified = args.production
+            || args.deny_fail_closed
+            || args.deny_symbolic_runtime
+            || args.deny_ckb_runtime
+            || args.deny_runtime_obligations;
 
         if args.json {
             let summary = serde_json::json!({
@@ -871,6 +887,9 @@ impl CommandExecutor {
                 "source_hash_blake3": result.metadata.source_hash_blake3,
                 "source_content_hash_blake3": result.metadata.source_content_hash_blake3,
                 "source_units": result.metadata.source_units.len(),
+                "verifier_obligations": result.metadata.runtime.verifier_obligations.len(),
+                "runtime_required_verifier_obligations": runtime_required_obligation_count(&result.metadata),
+                "fail_closed_verifier_obligations": fail_closed_obligation_count(&result.metadata),
                 "sources_verified": args.verify_sources,
                 "expected_hashes_verified": expected_hashes_verified,
                 "policy_verified": policy_verified,
@@ -1107,6 +1126,7 @@ fn effective_build_check_args(args: &BuildArgs) -> Result<CheckArgs> {
         deny_fail_closed: args.deny_fail_closed,
         deny_symbolic_runtime: args.deny_symbolic_runtime,
         deny_ckb_runtime: args.deny_ckb_runtime,
+        deny_runtime_obligations: args.deny_runtime_obligations,
     })
 }
 
@@ -1115,6 +1135,7 @@ fn merge_check_policy(args: &mut CheckArgs, policy: &PolicyConfig) {
     args.deny_fail_closed |= policy.deny_fail_closed;
     args.deny_symbolic_runtime |= policy.deny_symbolic_runtime;
     args.deny_ckb_runtime |= policy.deny_ckb_runtime;
+    args.deny_runtime_obligations |= policy.deny_runtime_obligations;
 }
 
 fn validate_expected_metadata_hash(field: &str, actual: Option<&str>, expected: Option<&str>) -> Result<()> {
@@ -1180,11 +1201,32 @@ fn validate_check_policy(metadata: &crate::CompileMetadata, args: &CheckArgs) ->
         violations.push(format!("CKB runtime features: {}", metadata.runtime.ckb_runtime_features.join(", ")));
     }
 
+    if args.deny_runtime_obligations {
+        let runtime_required_obligations = metadata
+            .runtime
+            .verifier_obligations
+            .iter()
+            .filter(|obligation| obligation.status == "runtime-required")
+            .map(|obligation| format!("{}:{} ({})", obligation.scope, obligation.feature, obligation.category))
+            .collect::<Vec<_>>();
+        if !runtime_required_obligations.is_empty() {
+            violations.push(format!("runtime-required verifier obligations: {}", runtime_required_obligations.join(", ")));
+        }
+    }
+
     if violations.is_empty() {
         return Ok(());
     }
 
     Err(crate::error::CompileError::without_span(format!("check policy failed:\n  - {}", violations.join("\n  - "))))
+}
+
+fn runtime_required_obligation_count(metadata: &crate::CompileMetadata) -> usize {
+    metadata.runtime.verifier_obligations.iter().filter(|obligation| obligation.status == "runtime-required").count()
+}
+
+fn fail_closed_obligation_count(metadata: &crate::CompileMetadata) -> usize {
+    metadata.runtime.verifier_obligations.iter().filter(|obligation| obligation.status == "fail-closed").count()
 }
 
 #[derive(Debug, Default)]
@@ -1197,12 +1239,17 @@ struct CompileTestExpectation {
     deny_fail_closed: bool,
     deny_symbolic_runtime: bool,
     deny_ckb_runtime: bool,
+    deny_runtime_obligations: bool,
     expect_standalone: Option<bool>,
     expect_ckb_runtime: Option<bool>,
     expect_symbolic_runtime: Option<bool>,
     expect_fail_closed: Option<bool>,
     expected_runtime_features: Vec<String>,
     forbidden_runtime_features: Vec<String>,
+    expected_verifier_obligations: Vec<String>,
+    forbidden_verifier_obligations: Vec<String>,
+    expected_runtime_required_obligations: Vec<String>,
+    forbidden_runtime_required_obligations: Vec<String>,
     expected_artifact_format: Option<String>,
     expected_actions: Vec<String>,
     forbidden_actions: Vec<String>,
@@ -1222,6 +1269,7 @@ impl CompileTestExpectation {
             deny_fail_closed: self.deny_fail_closed,
             deny_symbolic_runtime: self.deny_symbolic_runtime,
             deny_ckb_runtime: self.deny_ckb_runtime,
+            deny_runtime_obligations: self.deny_runtime_obligations,
         }
     }
 }
@@ -1266,6 +1314,8 @@ fn parse_test_expectation(path: &Path, source: &str) -> Result<CompileTestExpect
             expectation.deny_symbolic_runtime = true;
         } else if directive == "deny-ckb-runtime" {
             expectation.deny_ckb_runtime = true;
+        } else if directive == "deny-runtime-obligations" {
+            expectation.deny_runtime_obligations = true;
         } else if directive == "expect-standalone" {
             expectation.expect_standalone = Some(true);
         } else if directive == "expect-not-standalone" {
@@ -1292,6 +1342,38 @@ fn parse_test_expectation(path: &Path, source: &str) -> Result<CompileTestExpect
                 return Err(compile_test_directive_error(path, line_number, "expect-no-runtime-feature requires non-empty text"));
             }
             expectation.forbidden_runtime_features.push(feature.to_string());
+        } else if let Some(obligation) = directive.strip_prefix("expect-verifier-obligation:").map(str::trim) {
+            push_non_empty_test_directive(
+                path,
+                line_number,
+                "expect-verifier-obligation",
+                obligation,
+                &mut expectation.expected_verifier_obligations,
+            )?;
+        } else if let Some(obligation) = directive.strip_prefix("expect-no-verifier-obligation:").map(str::trim) {
+            push_non_empty_test_directive(
+                path,
+                line_number,
+                "expect-no-verifier-obligation",
+                obligation,
+                &mut expectation.forbidden_verifier_obligations,
+            )?;
+        } else if let Some(obligation) = directive.strip_prefix("expect-runtime-required-obligation:").map(str::trim) {
+            push_non_empty_test_directive(
+                path,
+                line_number,
+                "expect-runtime-required-obligation",
+                obligation,
+                &mut expectation.expected_runtime_required_obligations,
+            )?;
+        } else if let Some(obligation) = directive.strip_prefix("expect-no-runtime-required-obligation:").map(str::trim) {
+            push_non_empty_test_directive(
+                path,
+                line_number,
+                "expect-no-runtime-required-obligation",
+                obligation,
+                &mut expectation.forbidden_runtime_required_obligations,
+            )?;
         } else if let Some(format) = directive.strip_prefix("expect-artifact-format:").map(str::trim) {
             if format.is_empty() {
                 return Err(compile_test_directive_error(path, line_number, "expect-artifact-format requires non-empty text"));
@@ -1446,6 +1528,21 @@ fn validate_compile_test_metadata(
         }
     }
 
+    validate_compile_test_summary_contains(
+        path,
+        "verifier obligation",
+        &compile_test_obligation_summary(metadata, None),
+        &expectation.expected_verifier_obligations,
+        &expectation.forbidden_verifier_obligations,
+    )?;
+    validate_compile_test_summary_contains(
+        path,
+        "runtime-required verifier obligation",
+        &compile_test_obligation_summary(metadata, Some("runtime-required")),
+        &expectation.expected_runtime_required_obligations,
+        &expectation.forbidden_runtime_required_obligations,
+    )?;
+
     validate_named_metadata_set(
         path,
         "action",
@@ -1468,6 +1565,32 @@ fn validate_compile_test_metadata(
         &expectation.forbidden_locks,
     )?;
 
+    Ok(())
+}
+
+fn validate_compile_test_summary_contains(
+    path: &Utf8Path,
+    label: &str,
+    summary: &str,
+    expected: &[String],
+    forbidden: &[String],
+) -> Result<()> {
+    for expected in expected {
+        if !summary.contains(expected) {
+            return Err(crate::error::CompileError::without_span(format!(
+                "{}: expected {} metadata to contain '{}'",
+                path, label, expected
+            )));
+        }
+    }
+    for forbidden in forbidden {
+        if summary.contains(forbidden) {
+            return Err(crate::error::CompileError::without_span(format!(
+                "{}: expected {} metadata not to contain '{}'",
+                path, label, forbidden
+            )));
+        }
+    }
     Ok(())
 }
 
@@ -1506,6 +1629,22 @@ fn compile_test_runtime_summary(metadata: &crate::CompileMetadata) -> String {
         ));
     }
     values.join("\n")
+}
+
+fn compile_test_obligation_summary(metadata: &crate::CompileMetadata, status: Option<&str>) -> String {
+    metadata
+        .runtime
+        .verifier_obligations
+        .iter()
+        .filter(|obligation| match status {
+            Some(status) => obligation.status == status,
+            None => true,
+        })
+        .map(|obligation| {
+            format!("{}:{}:{}:{}:{}", obligation.scope, obligation.category, obligation.feature, obligation.status, obligation.detail)
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn collect_cell_files(root: &Path) -> Result<Vec<PathBuf>> {
@@ -1595,6 +1734,12 @@ impl CliParser {
                             .long("deny-ckb-runtime")
                             .action(ArgAction::SetTrue)
                             .help("Reject CKB transaction/syscall runtime requirements before writing artifacts"),
+                    )
+                    .arg(
+                        Arg::new("deny-runtime-obligations")
+                            .long("deny-runtime-obligations")
+                            .action(ArgAction::SetTrue)
+                            .help("Reject runtime-required verifier obligations before writing artifacts"),
                     ),
             )
             .subcommand(
@@ -1697,6 +1842,12 @@ impl CliParser {
                             .long("deny-ckb-runtime")
                             .action(ArgAction::SetTrue)
                             .help("Reject CKB transaction/syscall runtime requirements"),
+                    )
+                    .arg(
+                        Arg::new("deny-runtime-obligations")
+                            .long("deny-runtime-obligations")
+                            .action(ArgAction::SetTrue)
+                            .help("Reject runtime-required verifier obligations"),
                     ),
             )
             .subcommand(
@@ -1770,6 +1921,12 @@ impl CliParser {
                             .long("deny-ckb-runtime")
                             .action(ArgAction::SetTrue)
                             .help("Reject CKB transaction/syscall runtime requirements"),
+                    )
+                    .arg(
+                        Arg::new("deny-runtime-obligations")
+                            .long("deny-runtime-obligations")
+                            .action(ArgAction::SetTrue)
+                            .help("Reject runtime-required verifier obligations"),
                     ),
             )
             .subcommand(
@@ -1815,6 +1972,7 @@ impl CliParser {
                 deny_fail_closed: m.get_flag("deny-fail-closed"),
                 deny_symbolic_runtime: m.get_flag("deny-symbolic-runtime"),
                 deny_ckb_runtime: m.get_flag("deny-ckb-runtime"),
+                deny_runtime_obligations: m.get_flag("deny-runtime-obligations"),
                 ..Default::default()
             }),
             Some(("test", m)) => Command::Test(TestArgs {
@@ -1871,6 +2029,7 @@ impl CliParser {
                 deny_fail_closed: m.get_flag("deny-fail-closed"),
                 deny_symbolic_runtime: m.get_flag("deny-symbolic-runtime"),
                 deny_ckb_runtime: m.get_flag("deny-ckb-runtime"),
+                deny_runtime_obligations: m.get_flag("deny-runtime-obligations"),
                 features: Vec::new(),
             }),
             Some(("metadata", m)) => Command::Metadata(MetadataArgs {
@@ -1890,6 +2049,7 @@ impl CliParser {
                 deny_fail_closed: m.get_flag("deny-fail-closed"),
                 deny_symbolic_runtime: m.get_flag("deny-symbolic-runtime"),
                 deny_ckb_runtime: m.get_flag("deny-ckb-runtime"),
+                deny_runtime_obligations: m.get_flag("deny-runtime-obligations"),
             }),
             Some(("run", m)) => Command::Run(RunArgs {
                 args: m.get_many::<String>("args").map(|values| values.cloned().collect()).unwrap_or_default(),

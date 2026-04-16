@@ -12,12 +12,17 @@ CellScript 是 Spora 区块链的领域特定语言 (DSL)，当前处于 **可�
 - **效果与调度标注**: 支持 `#[effect]`、`#[scheduler_hint]` 等前端语法并进入部分 lowering
 - **包感知编译**: 支持单文件、包目录、`Cell.toml`、本地 `path` 依赖和 `source_roots`
 - **RISC-V 产物**: 支持 `riscv64-asm` 和 `riscv64-elf`
-- **审计元数据**: 编译时输出 lowering/runtime/scheduler JSON sidecar，也可通过 `cellc metadata` 直接查看；metadata 会区分 CKB runtime access、symbolic runtime feature、fail-closed runtime feature 和 verifier obligation，并记录路径绑定的 source set BLAKE3、路径无关的 source content BLAKE3 与源文件单元
-- **Schema 布局元数据**: 输出类型字段 offset / fixed encoded size；命名入参、`consume` 输入和 `read_ref<T>()` 上的固定标量字段 (`bool/u8/u16/u32/u64`) 可 lowered 到无对齐要求的 little-endian byte-load 组合；携带 length 的固定 schema source 会做 exact-size check 和字段 bounds check
+- **审计元数据**: 编译时输出 lowering/runtime/scheduler JSON sidecar，也可通过 `cellc metadata` 直接查看；metadata 会区分 CKB runtime access、symbolic runtime feature、fail-closed runtime feature 和 verifier obligation，并记录路径绑定的 source set BLAKE3、路径无关的 source content BLAKE3、源文件单元与 Input/CellDep/Output cell access operation provenance；scheduler witness v1 还携带 operation/source/index/binding-hash 访问记录
+- **资源操作审计**: `verifier_obligations` 会把 capability/type 层已经证明的 `transfer` / `destroy` / `claim` / `settle` 标为 `checked-static`，把 output scan、claim condition、claim output、settle finalization 等交易级条件标为 `runtime-required`，同时保留未完成 runtime lowering 的 `fail-closed` 义务
+- **Receipt claim 输出类型**: `receipt Grant -> Token { ... }` 是一等语义；`claim grant` 的返回类型、IR `create_set`、Output access provenance、scheduler access witness 和 type metadata 都使用声明的输出类型。未声明 `-> Type` 的 legacy receipt 仍按 non-cell `u64` claim 结果处理。
+- **Schema 布局元数据**: 输出类型字段 offset / fixed encoded size；命名入参、`consume` / `transfer` / `destroy` / `claim` / `settle` 输入和 `read_ref<T>()` 上的固定标量字段 (`bool/u8/u16/u32/u64`) 可 lowered 到无对齐要求的 little-endian byte-load 组合；携带 length 的固定 schema source 会做 exact-size check 和字段 bounds check
 - **Create 输出字段验证**: 简单 fixed-scalar `create Type { ... }` 会生成 `LOAD_CELL Source::Output`、exact-size check、bounds check 和字段相等性检查；`u64` 字段额外支持 consumed-input alias 和左结合 `+/-` 链
 - **Effect 约束**: `action` effect 会从 `read_ref` / `consume` / `create` / `destroy` / `transfer` / `claim` / `settle` 推断，并传播同模块普通函数调用和本地 `path` 依赖导入函数的 effect；显式 `#[effect(...)]` 低于真实行为时编译失败，避免调度器 metadata 低报
+- **Capability 约束**: `#[capability(...)]` 与 `has ...` 声明会合并；`transfer` 必须声明 `transfer`，`destroy` 必须声明 `destroy`，`claim` 只能作用于 `receipt`，`settle` 只能作用于 cell-backed linear value
 - **`fn` 边界**: `fn` 是独立 pure helper 类别并进入 `functions[]` metadata；`fn` 只能调用 `fn`，不能调用 `action` 或 `lock`，任何 `read_ref` 或 Cell runtime 操作出现在 `fn` 内都会编译失败；无返回 helper 使用内部 `Unit`，只能作为语句调用，不能绑定或返回成值
 - **返回语义**: 有返回值的 `action` / `fn` 必须在所有路径返回；显式 `return`、类型正确的尾表达式和两边都完整返回的 terminal `if` 都会 lowered 成真实 `Return(Some(...))` terminator
+- **不可达代码拒绝**: `return` 或两边都 guaranteed-return 的 `if` 之后不能继续写语句；编译器会拒绝这种审计上不可见但 source 中存在的 dead code
+- **断言语义**: `assert_invariant` lowered 成失败时返回非零错误码的 CFG，并被类型化为 `Unit`；它不能被 `let` 绑定，也不能伪装成尾返回值；message 必须是静态字符串字面量
 - **局部集合语义**: 固定数组要求同质元素，空数组必须有显式零长度类型标注；`Vec::new()` 可由首次 `push(T)` 推断为 `Vec<T>`，后续不兼容 `push` 会编译失败
 - **Lifecycle 静态/运行时守门**: `#[lifecycle(...)]` receipt 现在进入主编译路径、LSP 诊断和 metadata；metadata 显式输出 lifecycle states 与相邻 transition 边；重复状态、非法 `state` 字段类型、缺失 `state` 的 lifecycle create、静态越界状态值、非初始状态创建和静态重置到初始状态都会编译失败；可完整验证的 consume-to-create fixed-scalar output 会生成 `old_state < state_count`、`new_state < state_count`、`old_state + 1 == new_state` verifier prelude
 
@@ -35,10 +40,10 @@ CellScript 是 Spora 区块链的领域特定语言 (DSL)，当前处于 **可�
 - 简单 `consume input.u64_field -> create output.u64_field` 等值守恒检查的 assembly verifier prelude
 - 简单 `consume input.u64_field +/- const_or_param_or_local_const +/- ... -> create output.u64_field` 左结合算术链检查的 assembly verifier prelude
 - 本地包加载与 examples / CLI / library 回归测试
-- `build` / `check` / `doc` / `fmt` / `metadata` / `verify-artifact` / compile-test 子命令；`build` / `check` 支持命令行和 manifest `[policy]` production / symbolic-runtime / CKB-runtime policy gate，`verify-artifact` 支持对已生成 artifact 执行同类 policy gate
+- `build` / `check` / `doc` / `fmt` / `metadata` / `verify-artifact` / compile-test 子命令；`build` / `check` 支持命令行和 manifest `[policy]` production / symbolic-runtime / CKB-runtime / runtime-obligation policy gate，`verify-artifact` 支持对已生成 artifact 执行同类 policy gate
 - feature-gated `cellc run` 无参纯 ELF CKB-VM runner
 - lifecycle declaration / create-state 静态检查、transition metadata 和 LSP 诊断
-- no-return helper 的内部 `Unit` 类型、destinationless call lowering、未知调用返回类型拒绝、尾表达式返回 lowering、空数组类型标注和 `Vec.push` 类型传播
+- no-return helper 的内部 `Unit` 类型、destinationless call lowering、`assert_invariant` 的 Unit/value-less 语义、不可达语句拒绝、未知调用返回类型拒绝、尾表达式返回 lowering、空数组类型标注和 `Vec.push` 类型传播
 
 当前还不能视为完成的有：
 
@@ -54,7 +59,7 @@ CellScript 是 Spora 区块链的领域特定语言 (DSL)，当前处于 **可�
 说明：
 
 - `publish` / `install` / `update` / `login` 等注册表命令仍会明确拒绝执行，而不是伪装成成功。
-- `cellc test` 当前是 compiler-test harness，会发现 `tests/**/*.cell`，支持正向编译测试、`// cellscript-test: expect-success` / `expect-fail` / `expect-error: ...` 诊断测试、`target: ...` 目标选择、`production` / `deny-*` policy 指令、standalone/CKB/symbolic/fail-closed runtime metadata 断言，以及 action/function/lock metadata 分类断言；测试指令严格解析，拼写错误会失败；`--json` 输出 CI 可解析 test summary；它还不是可信 runtime/property 测试执行器。
+- `cellc test` 当前是 compiler-test harness，会发现 `tests/**/*.cell`，支持正向编译测试、`// cellscript-test: expect-success` / `expect-fail` / `expect-error: ...` 诊断测试、`target: ...` 目标选择、`production` / `deny-*` policy 指令、standalone/CKB/symbolic/fail-closed runtime metadata 断言、runtime feature / verifier obligation / runtime-required obligation 断言，以及 action/function/lock metadata 分类断言；测试指令严格解析，拼写错误会失败；`deny-runtime-obligations` 可用于拒绝仍需外部 runtime/scheduler 兑现的 verifier obligations；`--json` 输出 CI 可解析 test summary；它还不是可信 runtime/property 测试执行器。
 - `src/wasm/` 现在参与编译和测试，但仅提供受限 metadata-only 路径；`action` / `lock` executable lowering 会明确 fail-closed。
 - 当前 schema lowering 只覆盖命名 action/lock 入参、`consume` 输入、`read_ref<T>()` 和简单 `create` output 上的固定宽度标量字段。字段读取使用 byte-wise little-endian 组合，避免 Borsh 紧凑布局导致的非对齐 load；本地固定数组 literal 支持静态索引读写、静态 foreach 展开、`len()` 常量折叠，并拒绝异构元素/不可变元素赋值；本地 tuple literal 支持静态字段投影/赋值和 destructuring，数组内 tuple 的静态索引投影及本地 array-of-tuples foreach destructuring 也不会退回 symbolic runtime；输入到输出的守恒仍只覆盖 `u64` 字段别名和左结合 `+/- const_or_param_or_local_const` 链，并支持简单 move/alias 传播。其他 cell-derived 字段访问仍然 fail-closed，不能当作完整状态 decoding。
 - `create` output 只有在 fixed-scalar schema 的所有字段都被 verifier 覆盖时才继续执行；带 lock、动态字段、缺失字段或其它未完整证明的 output verifier 会显式 fail-closed。
@@ -122,8 +127,8 @@ cellc examples/token.cell --parse
 
 | 子命令 | 状态 |
 |------|------|
-| `cellc build [--json] [--production] [--deny-fail-closed] [--deny-symbolic-runtime] [--deny-ckb-runtime]` | 编译当前包并写入 artifact + metadata；写入前执行 metadata policy gate；`--json` 输出 CI 可解析摘要 |
-| `cellc check [--all-targets] [--json] [--production] [--deny-fail-closed] [--deny-symbolic-runtime] [--deny-ckb-runtime]` | 类型检查 / lowering 检查，不写 artifact；`--all-targets` 同时验证 asm 与 ELF lowering；可按 metadata policy 拒绝 fail-closed、symbolic runtime 或 CKB runtime 需求；`--json` 输出 CI 可解析摘要 |
+| `cellc build [--json] [--production] [--deny-fail-closed] [--deny-symbolic-runtime] [--deny-ckb-runtime] [--deny-runtime-obligations]` | 编译当前包并写入 artifact + metadata；写入前执行 metadata policy gate；`--json` 输出 CI 可解析摘要 |
+| `cellc check [--all-targets] [--json] [--production] [--deny-fail-closed] [--deny-symbolic-runtime] [--deny-ckb-runtime] [--deny-runtime-obligations]` | 类型检查 / lowering 检查，不写 artifact；`--all-targets` 同时验证 asm 与 ELF lowering；可按 metadata policy 拒绝 fail-closed、symbolic runtime、CKB runtime 或 runtime-required verifier obligations；`--json` 输出 CI 可解析摘要 |
 | `cellc doc --format markdown|html|json [--json]` | 从包源生成 API 文档，并附带 lowering audit report / verifier obligations；`--json` 输出 CI 可解析 doc summary |
 | `cellc fmt [--check] [--json]` | 格式化包源或指定文件；`--json` 输出 CI 可解析 changed-file summary |
 | `cellc init [NAME] [PATH] [--lib] [--json]` | 创建包目录、manifest 和入口文件；`--json` 输出 package/path/manifest/entry summary |
@@ -132,7 +137,7 @@ cellc examples/token.cell --parse
 | `cellc clean [--json]` | 删除本地构建缓存；`--json` 输出 removed-path summary |
 | `cellc info [--json]` | 读取 `Cell.toml` 包信息；`--json` 输出 manifest/package/dependency/policy summary |
 | `cellc metadata [INPUT]` | 输出 lowering/runtime/scheduler/source provenance JSON |
-| `cellc verify-artifact ARTIFACT [--metadata FILE] [--verify-sources] [--json] [--expect-artifact-hash HASH] [--expect-source-content-hash HASH] [--production] [--deny-fail-closed] [--deny-symbolic-runtime] [--deny-ckb-runtime]` | 校验 artifact、metadata sidecar、可选磁盘源文件绑定、供应链 hash pin，以及已生成 artifact 的上线 policy gate；`--json` 输出 CI 可解析摘要 |
+| `cellc verify-artifact ARTIFACT [--metadata FILE] [--verify-sources] [--json] [--expect-artifact-hash HASH] [--expect-source-content-hash HASH] [--production] [--deny-fail-closed] [--deny-symbolic-runtime] [--deny-ckb-runtime] [--deny-runtime-obligations]` | 校验 artifact、metadata sidecar、可选磁盘源文件绑定、供应链 hash pin，以及已生成 artifact 的上线 policy gate；`--json` 输出 CI 可解析摘要 |
 | `cellc test [--no-run]` | 发现 `tests/**/*.cell`，执行正向编译测试、注释驱动的负向诊断测试、per-file target/policy/runtime-metadata compiler tests |
 | `cellc run` | 需要 `vm-runner` feature；仅支持无参纯 ELF 路径 |
 | `publish/install/update/login` | 注册表生态未完成，fail-closed |
@@ -147,9 +152,10 @@ production = true
 deny_fail_closed = true
 deny_symbolic_runtime = false
 deny_ckb_runtime = false
+deny_runtime_obligations = false
 ```
 
-建议生产合约至少启用 `production = true`，让 CI 拒绝当前仍 fail-closed 的 lowering 路径。
+建议生产合约至少启用 `production = true`，让 CI 拒绝当前仍 fail-closed 的 lowering 路径；如果部署环境没有独立 runtime/scheduler obligation consumer，还应启用 `deny_runtime_obligations = true`。
 
 ## 编辑器支持
 
@@ -195,7 +201,7 @@ shared LiquidityPool {
 }
 
 // 基础收据声明
-receipt VestingGrant {
+receipt VestingGrant -> Token {
     beneficiary: Address,
     total_amount: u64,
 }

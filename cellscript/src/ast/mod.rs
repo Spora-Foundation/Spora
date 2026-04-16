@@ -47,6 +47,7 @@ pub struct SharedDef {
 #[derive(Debug, Clone)]
 pub struct ReceiptDef {
     pub name: String,
+    pub claim_output: Option<Type>,
     pub lifecycle: Option<Lifecycle>,
     pub capabilities: Vec<Capability>,
     pub fields: Vec<Field>,
@@ -94,7 +95,7 @@ pub struct Lifecycle {
 }
 
 /// 能力
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Capability {
     Store,
     Transfer,

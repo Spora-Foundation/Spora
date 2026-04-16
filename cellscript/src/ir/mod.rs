@@ -30,6 +30,7 @@ pub struct IrTypeDef {
     pub kind: IrTypeKind,
     pub fields: Vec<IrField>,
     pub capabilities: Vec<Capability>,
+    pub claim_output: Option<IrType>,
     pub lifecycle_states: Option<Vec<String>>,
 }
 
@@ -120,6 +121,7 @@ pub struct IrBody {
 /// Cell 模式
 #[derive(Debug, Clone)]
 pub struct CellPattern {
+    pub operation: String,
     pub type_hash: Option<[u8; 32]>,
     pub binding: String,
     pub fields: Vec<(String, IrOperand)>,
@@ -128,6 +130,7 @@ pub struct CellPattern {
 /// 创建模式
 #[derive(Debug, Clone)]
 pub struct CreatePattern {
+    pub operation: String,
     pub ty: String,
     pub binding: String,
     pub fields: Vec<(String, IrOperand)>,
@@ -211,6 +214,7 @@ pub enum IrOperand {
 /// IR 常量
 #[derive(Debug, Clone)]
 pub enum IrConst {
+    Unit,
     U8(u8),
     U16(u16),
     U32(u32),
@@ -281,6 +285,7 @@ pub struct IrGenerator {
     aggregate_elements: HashMap<usize, Vec<IrVar>>,
     type_fields: HashMap<String, HashMap<String, IrType>>,
     type_kinds: HashMap<String, IrTypeKind>,
+    receipt_claim_outputs: HashMap<String, Option<IrType>>,
     enum_variants: HashMap<String, HashMap<String, u64>>,
     constants: HashMap<String, Expr>,
     function_effects: HashMap<String, EffectClass>,
@@ -306,6 +311,7 @@ impl IrGenerator {
             aggregate_elements: HashMap::new(),
             type_fields: HashMap::new(),
             type_kinds: HashMap::new(),
+            receipt_claim_outputs: HashMap::new(),
             enum_variants: HashMap::new(),
             constants: HashMap::new(),
             function_effects: HashMap::new(),
@@ -325,10 +331,14 @@ impl IrGenerator {
     pub fn with_import_context(
         module_name: String,
         type_fields: HashMap<String, HashMap<String, IrType>>,
+        type_kinds: HashMap<String, IrTypeKind>,
+        receipt_claim_outputs: HashMap<String, Option<IrType>>,
         external_function_effects: HashMap<String, EffectClass>,
         external_function_return_types: HashMap<String, Option<IrType>>,
     ) -> Self {
         let mut generator = Self::with_type_fields(module_name, type_fields);
+        generator.type_kinds.extend(type_kinds);
+        generator.receipt_claim_outputs.extend(receipt_claim_outputs);
         generator.external_function_effects = external_function_effects;
         generator.external_function_return_types = external_function_return_types;
         generator
@@ -357,6 +367,7 @@ impl IrGenerator {
                 }
                 Item::Receipt(r) => {
                     self.type_kinds.insert(r.name.clone(), IrTypeKind::Receipt);
+                    self.receipt_claim_outputs.insert(r.name.clone(), r.claim_output.as_ref().map(|ty| self.convert_type(ty)));
                     self.type_fields.insert(
                         r.name.clone(),
                         r.fields.iter().map(|field| (field.name.clone(), self.convert_type(&field.ty))).collect(),
@@ -447,6 +458,7 @@ impl IrGenerator {
             kind: IrTypeKind::Resource,
             fields: self.layout_fields(&resource.fields),
             capabilities: resource.capabilities.clone(),
+            claim_output: None,
             lifecycle_states: None,
         }
     }
@@ -458,6 +470,7 @@ impl IrGenerator {
             kind: IrTypeKind::Shared,
             fields: self.layout_fields(&shared.fields),
             capabilities: shared.capabilities.clone(),
+            claim_output: None,
             lifecycle_states: None,
         }
     }
@@ -469,6 +482,7 @@ impl IrGenerator {
             kind: IrTypeKind::Receipt,
             fields: self.layout_fields(&receipt.fields),
             capabilities: receipt.capabilities.clone(),
+            claim_output: receipt.claim_output.as_ref().map(|ty| self.convert_type(ty)),
             lifecycle_states: receipt.lifecycle.as_ref().map(|lifecycle| lifecycle.states.clone()),
         }
     }
@@ -480,6 +494,7 @@ impl IrGenerator {
             kind: IrTypeKind::Struct,
             fields: self.layout_fields(&struct_def.fields),
             capabilities: Vec::new(),
+            claim_output: None,
             lifecycle_states: None,
         }
     }
@@ -756,7 +771,6 @@ impl IrGenerator {
             }
             Expr::Assert(assert_expr) => {
                 self.check_expr_effects(&assert_expr.condition, footprint);
-                self.check_expr_effects(&assert_expr.message, footprint);
             }
             Expr::Assign(assign) => {
                 self.check_expr_effects(&assign.target, footprint);
@@ -879,19 +893,23 @@ impl IrGenerator {
         for block in blocks {
             for instruction in &block.instructions {
                 if let IrInstruction::Consume { operand } = instruction {
-                    if let Some(pattern) = self.cell_pattern_from_operand(operand) {
+                    if let Some(pattern) = self.cell_pattern_from_operand(operand, "consume") {
                         patterns.push(pattern);
                     }
                 } else if let IrInstruction::Transfer { operand, .. } = instruction {
-                    if let Some(pattern) = self.cell_pattern_from_operand(operand) {
+                    if let Some(pattern) = self.cell_pattern_from_operand(operand, "transfer") {
+                        patterns.push(pattern);
+                    }
+                } else if let IrInstruction::Destroy { operand } = instruction {
+                    if let Some(pattern) = self.cell_pattern_from_operand(operand, "destroy") {
                         patterns.push(pattern);
                     }
                 } else if let IrInstruction::Claim { receipt, .. } = instruction {
-                    if let Some(pattern) = self.cell_pattern_from_operand(receipt) {
+                    if let Some(pattern) = self.cell_pattern_from_operand(receipt, "claim") {
                         patterns.push(pattern);
                     }
                 } else if let IrInstruction::Settle { operand } = instruction {
-                    if let Some(pattern) = self.cell_pattern_from_operand(operand) {
+                    if let Some(pattern) = self.cell_pattern_from_operand(operand, "settle") {
                         patterns.push(pattern);
                     }
                 }
@@ -906,6 +924,7 @@ impl IrGenerator {
             for instruction in &block.instructions {
                 if let IrInstruction::ReadRef { dest, ty } = instruction {
                     patterns.push(CellPattern {
+                        operation: "read_ref".to_string(),
                         type_hash: Some(type_hash_for_name(ty)),
                         binding: dest.name.clone(),
                         fields: Vec::new(),
@@ -923,11 +942,11 @@ impl IrGenerator {
                 if let IrInstruction::Create { pattern, .. } = instruction {
                     patterns.push(pattern.clone());
                 } else if let IrInstruction::Transfer { dest, .. } = instruction {
-                    if let Some(pattern) = self.create_pattern_from_var(dest) {
+                    if let Some(pattern) = self.create_pattern_from_var(dest, "transfer") {
                         patterns.push(pattern);
                     }
                 } else if let IrInstruction::Claim { dest, .. } = instruction {
-                    if let Some(pattern) = self.create_pattern_from_var(dest) {
+                    if let Some(pattern) = self.create_pattern_from_var(dest, "claim") {
                         patterns.push(pattern);
                     }
                 }
@@ -936,7 +955,7 @@ impl IrGenerator {
         patterns
     }
 
-    fn cell_pattern_from_operand(&self, operand: &IrOperand) -> Option<CellPattern> {
+    fn cell_pattern_from_operand(&self, operand: &IrOperand, operation: &str) -> Option<CellPattern> {
         let IrOperand::Var(var) = operand else {
             return None;
         };
@@ -948,10 +967,15 @@ impl IrGenerator {
             },
             _ => None,
         }?;
-        Some(CellPattern { type_hash: Some(type_hash_for_name(type_name)), binding: var.name.clone(), fields: Vec::new() })
+        Some(CellPattern {
+            operation: operation.to_string(),
+            type_hash: Some(type_hash_for_name(type_name)),
+            binding: var.name.clone(),
+            fields: Vec::new(),
+        })
     }
 
-    fn create_pattern_from_var(&self, var: &IrVar) -> Option<CreatePattern> {
+    fn create_pattern_from_var(&self, var: &IrVar, operation: &str) -> Option<CreatePattern> {
         let type_name = match &var.ty {
             IrType::Named(name) => Some(name.as_str()),
             IrType::Ref(inner) | IrType::MutRef(inner) => match inner.as_ref() {
@@ -960,7 +984,29 @@ impl IrGenerator {
             },
             _ => None,
         }?;
-        Some(CreatePattern { ty: type_name.to_string(), binding: var.name.clone(), fields: Vec::new(), lock: None })
+        Some(CreatePattern {
+            operation: operation.to_string(),
+            ty: type_name.to_string(),
+            binding: var.name.clone(),
+            fields: Vec::new(),
+            lock: None,
+        })
+    }
+
+    fn named_type_name_from_ir_type<'a>(&self, ty: &'a IrType) -> Option<&'a str> {
+        match ty {
+            IrType::Named(name) => Some(name.as_str()),
+            IrType::Ref(inner) | IrType::MutRef(inner) => self.named_type_name_from_ir_type(inner),
+            _ => None,
+        }
+    }
+
+    fn claim_output_type_for_operand(&self, operand: &IrOperand) -> IrType {
+        let ty = self.operand_type(operand);
+        self.named_type_name_from_ir_type(&ty)
+            .and_then(|name| self.receipt_claim_outputs.get(name))
+            .and_then(Clone::clone)
+            .unwrap_or(IrType::U64)
     }
 
     fn infer_touches_shared(&self, body: &IrBody) -> Vec<[u8; 32]> {
@@ -1204,7 +1250,7 @@ impl IrGenerator {
                     }
                     Some(None) => {
                         self.block_mut(blocks, active).instructions.push(IrInstruction::Call { dest: None, func, args });
-                        LoweredExpr { operand: IrOperand::Const(IrConst::Bool(true)), current: Some(active) }
+                        LoweredExpr { operand: IrOperand::Const(IrConst::Unit), current: Some(active) }
                     }
                     None => {
                         self.record_error(format!("call '{}' has no known return type during IR lowering", source_func), call.span);
@@ -1273,6 +1319,7 @@ impl IrGenerator {
             IrConst::U32(_) => IrType::U32,
             IrConst::U64(_) => IrType::U64,
             IrConst::U128(_) => IrType::U128,
+            IrConst::Unit => IrType::Unit,
             IrConst::Bool(_) => IrType::Bool,
             IrConst::Address(_) => IrType::Address,
             IrConst::Hash(_) => IrType::Hash,
@@ -1583,7 +1630,7 @@ impl IrGenerator {
         self.block_mut(blocks, active).terminator = IrTerminator::Branch { cond, then_block: ok_block, else_block: fail_block };
         self.block_mut(blocks, fail_block).terminator = IrTerminator::Return(Some(IrOperand::Const(IrConst::U64(7))));
 
-        LoweredExpr { operand: IrOperand::Const(IrConst::Bool(true)), current: Some(ok_block) }
+        LoweredExpr { operand: IrOperand::Const(IrConst::Unit), current: Some(ok_block) }
     }
 
     fn lower_assign_expr(
@@ -1673,7 +1720,13 @@ impl IrGenerator {
             None
         };
 
-        let pattern = CreatePattern { ty: create.ty.clone(), binding: dest.name.clone(), fields: lowered_fields, lock: lowered_lock };
+        let pattern = CreatePattern {
+            operation: "create".to_string(),
+            ty: create.ty.clone(),
+            binding: dest.name.clone(),
+            fields: lowered_fields,
+            lock: lowered_lock,
+        };
         self.block_mut(blocks, active).instructions.push(IrInstruction::Create { dest: dest.clone(), pattern });
         self.aggregate_fields.insert(dest.id, field_vars);
         LoweredExpr { operand: IrOperand::Var(dest), current: Some(active) }
@@ -1752,7 +1805,8 @@ impl IrGenerator {
         let Some(active) = lowered_receipt.current else {
             return lowered_receipt;
         };
-        let dest = self.new_var("claim_tmp", IrType::U64);
+        let dest_ty = self.claim_output_type_for_operand(&lowered_receipt.operand);
+        let dest = self.new_var("claim_tmp", dest_ty);
         self.block_mut(blocks, active)
             .instructions
             .push(IrInstruction::Claim { dest: dest.clone(), receipt: lowered_receipt.operand });
@@ -2477,6 +2531,8 @@ pub fn generate(ast: &Module) -> Result<IrModule> {
 
 pub fn generate_with_resolver(ast: &Module, resolver: &ModuleResolver, module_name: &str) -> Result<IrModule> {
     let mut type_fields = HashMap::new();
+    let mut type_kinds = HashMap::new();
+    let mut receipt_claim_outputs = HashMap::new();
     let mut external_function_effects = HashMap::new();
     let mut external_function_return_types = HashMap::new();
 
@@ -2488,6 +2544,12 @@ pub fn generate_with_resolver(ast: &Module, resolver: &ModuleResolver, module_na
         for import in &use_stmt.imports {
             let local_name = import.alias.clone().unwrap_or_else(|| import.name.clone());
             if let Some(type_def) = resolver.resolve_type(module_name, &local_name) {
+                if let Some(kind) = resolver_type_kind(&type_def) {
+                    type_kinds.insert(local_name.clone(), kind);
+                }
+                if let Some(output) = resolver_receipt_claim_output_to_ir(&type_def) {
+                    receipt_claim_outputs.insert(local_name.clone(), output);
+                }
                 if let Some(fields) = resolver_type_fields_to_ir(&type_def) {
                     type_fields.insert(local_name.clone(), fields);
                 }
@@ -2505,8 +2567,14 @@ pub fn generate_with_resolver(ast: &Module, resolver: &ModuleResolver, module_na
         }
     }
 
-    let generator =
-        IrGenerator::with_import_context(ast.name.clone(), type_fields, external_function_effects, external_function_return_types);
+    let generator = IrGenerator::with_import_context(
+        ast.name.clone(),
+        type_fields,
+        type_kinds,
+        receipt_claim_outputs,
+        external_function_effects,
+        external_function_return_types,
+    );
     generator.generate(ast)
 }
 
@@ -2596,7 +2664,6 @@ fn collect_call_names_from_expr(expr: &Expr, names: &mut HashSet<String>) {
         Expr::Settle(settle) => collect_call_names_from_expr(&settle.expr, names),
         Expr::Assert(assert_expr) => {
             collect_call_names_from_expr(&assert_expr.condition, names);
-            collect_call_names_from_expr(&assert_expr.message, names);
         }
         Expr::Block(stmts) => collect_call_names_from_stmts(stmts, names),
         Expr::Tuple(items) | Expr::Array(items) => {
@@ -2756,7 +2823,6 @@ fn collect_ast_expr_effects(expr: &Expr, footprint: &mut EffectFootprint) {
         }
         Expr::Assert(assert_expr) => {
             collect_ast_expr_effects(&assert_expr.condition, footprint);
-            collect_ast_expr_effects(&assert_expr.message, footprint);
         }
         Expr::Assign(assign) => {
             collect_ast_expr_effects(&assign.target, footprint);
@@ -2842,6 +2908,23 @@ fn resolver_type_fields_to_ir(type_def: &TypeDef) -> Option<HashMap<String, IrTy
     };
 
     Some(fields.iter().map(|field| (field.name.clone(), ast_type_to_ir_type(&field.ty))).collect())
+}
+
+fn resolver_type_kind(type_def: &TypeDef) -> Option<IrTypeKind> {
+    match type_def {
+        TypeDef::Resource(_) => Some(IrTypeKind::Resource),
+        TypeDef::Shared(_) => Some(IrTypeKind::Shared),
+        TypeDef::Receipt(_) => Some(IrTypeKind::Receipt),
+        TypeDef::Struct(_) => Some(IrTypeKind::Struct),
+        TypeDef::Enum(_) => None,
+    }
+}
+
+fn resolver_receipt_claim_output_to_ir(type_def: &TypeDef) -> Option<Option<IrType>> {
+    match type_def {
+        TypeDef::Receipt(receipt) => Some(receipt.claim_output.as_ref().map(ast_type_to_ir_type)),
+        TypeDef::Resource(_) | TypeDef::Shared(_) | TypeDef::Struct(_) | TypeDef::Enum(_) => None,
+    }
 }
 
 fn ast_type_to_ir_type(ty: &Type) -> IrType {

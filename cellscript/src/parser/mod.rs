@@ -433,8 +433,8 @@ impl<'a> Parser<'a> {
 
         let name = self.parse_name()?;
 
-        // 可选的能力
-        let capabilities = attr_capabilities.unwrap_or(self.parse_capabilities()?);
+        // 可选的能力。属性形式和 `has ...` 形式可以共存，语义上合并。
+        let capabilities = merge_capabilities(attr_capabilities, self.parse_capabilities()?);
 
         // 字段
         let fields = self.parse_fields()?;
@@ -455,7 +455,7 @@ impl<'a> Parser<'a> {
 
         let name = self.parse_name()?;
 
-        let capabilities = attr_capabilities.unwrap_or(self.parse_capabilities()?);
+        let capabilities = merge_capabilities(attr_capabilities, self.parse_capabilities()?);
         let fields = self.parse_fields()?;
 
         let end_span = self.current().span;
@@ -473,6 +473,12 @@ impl<'a> Parser<'a> {
         self.expect(TokenKind::Receipt)?;
 
         let name = self.parse_name()?;
+        let claim_output = if self.check(&TokenKind::Arrow) {
+            self.advance();
+            Some(self.parse_type()?)
+        } else {
+            None
+        };
 
         // 可选的生命周期属性
         let lifecycle = if let Some(lifecycle) = attr_lifecycle {
@@ -483,12 +489,13 @@ impl<'a> Parser<'a> {
             None
         };
 
-        let capabilities = attr_capabilities.unwrap_or(self.parse_capabilities()?);
+        let capabilities = merge_capabilities(attr_capabilities, self.parse_capabilities()?);
         let fields = self.parse_fields()?;
 
         let end_span = self.current().span;
         Ok(ReceiptDef {
             name,
+            claim_output,
             lifecycle,
             capabilities,
             fields,
@@ -1755,6 +1762,16 @@ pub fn parse(tokens: &[Token]) -> Result<Module> {
     parser.parse_module()
 }
 
+fn merge_capabilities(attr_capabilities: Option<Vec<Capability>>, inline_capabilities: Vec<Capability>) -> Vec<Capability> {
+    let mut merged = attr_capabilities.unwrap_or_default();
+    for capability in inline_capabilities {
+        if !merged.contains(&capability) {
+            merged.push(capability);
+        }
+    }
+    merged
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1774,6 +1791,28 @@ resource Token has store, transfer, destroy {
         let module = parse(&tokens).unwrap();
         assert_eq!(module.name, "test");
         assert_eq!(module.items.len(), 1);
+    }
+
+    #[test]
+    fn test_parse_merges_attribute_and_inline_capabilities() {
+        let input = r#"
+module test
+
+#[capability(store)]
+resource Token has transfer, destroy {
+    amount: u64
+}
+"#;
+        let tokens = lex(input).unwrap();
+        let module = parse(&tokens).unwrap();
+        let resource = match &module.items[0] {
+            Item::Resource(resource) => resource,
+            other => panic!("expected resource item, found {:?}", other),
+        };
+
+        assert!(resource.capabilities.contains(&Capability::Store));
+        assert!(resource.capabilities.contains(&Capability::Transfer));
+        assert!(resource.capabilities.contains(&Capability::Destroy));
     }
 
     #[test]

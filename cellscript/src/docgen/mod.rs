@@ -384,6 +384,9 @@ fn item_doc(item: &Item) -> Option<ItemDoc> {
         }),
         Item::Receipt(receipt) => {
             let mut summary = String::new();
+            if let Some(output) = &receipt.claim_output {
+                summary.push_str(&format!("Claim output: {}. ", format_type(output)));
+            }
             if let Some(lifecycle) = &receipt.lifecycle {
                 summary.push_str(&format!("Lifecycle: {}. ", lifecycle.states.join(" -> ")));
                 let transitions =
@@ -396,7 +399,12 @@ fn item_doc(item: &Item) -> Option<ItemDoc> {
             Some(ItemDoc {
                 kind: "receipt".to_string(),
                 name: receipt.name.clone(),
-                signature: format!("receipt {}{}", receipt.name, format_capability_clause(&receipt.capabilities)),
+                signature: format!(
+                    "receipt {}{}{}",
+                    receipt.name,
+                    receipt.claim_output.as_ref().map(|ty| format!(" -> {}", format_type(ty))).unwrap_or_default(),
+                    format_capability_clause(&receipt.capabilities)
+                ),
                 summary,
             })
         }

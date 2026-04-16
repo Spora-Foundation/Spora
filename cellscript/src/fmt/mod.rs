@@ -54,7 +54,7 @@ impl Formatter {
                 if let Some(lifecycle) = &receipt.lifecycle {
                     self.push_line(&format!("#[lifecycle({})]", lifecycle.states.join(", ")));
                 }
-                self.format_type_def("receipt", &receipt.name, &receipt.fields, Some(&receipt.capabilities))
+                self.format_receipt_def(receipt)
             }
             Item::Struct(struct_def) => self.format_type_def("struct", &struct_def.name, &struct_def.fields, None),
             Item::Const(constant) => {
@@ -125,6 +125,25 @@ impl Formatter {
         self.push_line(&format!("{} {{", header));
         self.indent_level += 1;
         for field in fields {
+            self.push_line(&format!("{}: {},", field.name, format_type(&field.ty)));
+        }
+        self.indent_level -= 1;
+        self.push_line("}");
+        Ok(())
+    }
+
+    fn format_receipt_def(&mut self, receipt: &ReceiptDef) -> Result<()> {
+        let mut header = format!("receipt {}", receipt.name);
+        if let Some(output) = &receipt.claim_output {
+            header.push_str(&format!(" -> {}", format_type(output)));
+        }
+        if !receipt.capabilities.is_empty() {
+            let rendered = receipt.capabilities.iter().map(format_capability).collect::<Vec<_>>().join(", ");
+            header.push_str(&format!(" has {}", rendered));
+        }
+        self.push_line(&format!("{} {{", header));
+        self.indent_level += 1;
+        for field in &receipt.fields {
             self.push_line(&format!("{}: {},", field.name, format_type(&field.ty)));
         }
         self.indent_level -= 1;

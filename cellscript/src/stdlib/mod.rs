@@ -345,20 +345,45 @@ pub struct StdFunction {
 /// 调度器见证元数据生成
 pub struct SchedulerMetadata;
 
+/// Scheduler-visible CKB runtime access summary.
+#[derive(Debug, Clone)]
+pub struct SchedulerAccess {
+    pub operation: String,
+    pub source: String,
+    pub index: u32,
+    pub binding: String,
+}
+
 impl SchedulerMetadata {
     /// 生成调度器见证元数据
-    pub fn generate(effect_class: &str, parallelizable: bool, touches_shared: Vec<[u8; 32]>, estimated_cycles: u64) -> Vec<u8> {
+    pub fn generate(
+        effect_class: &str,
+        parallelizable: bool,
+        touches_shared: Vec<[u8; 32]>,
+        estimated_cycles: u64,
+        accesses: Vec<SchedulerAccess>,
+    ) -> Vec<u8> {
         use borsh::{to_vec, BorshSerialize};
 
         #[derive(BorshSerialize)]
         struct SchedulerWitness {
             magic: u16,  // 0xCE11
-            version: u8, // 0
+            version: u8, // 1
             effect_class: u8,
             parallelizable: bool,
             touches_shared_count: u32,
             touches_shared: Vec<[u8; 32]>,
             estimated_cycles: u64,
+            access_count: u32,
+            accesses: Vec<SchedulerAccessWitness>,
+        }
+
+        #[derive(BorshSerialize)]
+        struct SchedulerAccessWitness {
+            operation: u8,
+            source: u8,
+            index: u32,
+            binding_hash: [u8; 32],
         }
 
         let effect_class_id = match effect_class {
@@ -370,17 +395,52 @@ impl SchedulerMetadata {
             _ => 0,
         };
 
+        let access_count = accesses.len() as u32;
+        let accesses = accesses
+            .into_iter()
+            .map(|access| SchedulerAccessWitness {
+                operation: scheduler_operation_id(&access.operation),
+                source: scheduler_source_id(&access.source),
+                index: access.index,
+                binding_hash: *blake3::hash(access.binding.as_bytes()).as_bytes(),
+            })
+            .collect();
+
         let witness = SchedulerWitness {
             magic: 0xCE11,
-            version: 0,
+            version: 1,
             effect_class: effect_class_id,
             parallelizable,
             touches_shared_count: touches_shared.len() as u32,
             touches_shared,
             estimated_cycles,
+            access_count,
+            accesses,
         };
 
         to_vec(&witness).unwrap_or_default()
+    }
+}
+
+fn scheduler_operation_id(operation: &str) -> u8 {
+    match operation {
+        "consume" => 1,
+        "transfer" => 2,
+        "destroy" => 3,
+        "claim" => 4,
+        "settle" => 5,
+        "read_ref" => 6,
+        "create" => 7,
+        _ => 0,
+    }
+}
+
+fn scheduler_source_id(source: &str) -> u8 {
+    match source {
+        "Input" => 1,
+        "CellDep" => 2,
+        "Output" => 3,
+        _ => 0,
     }
 }
 

@@ -21,7 +21,7 @@ enum LockType {
 
 /// 时间锁资源
 #[capability(store)]
-resource TimeLock {
+resource TimeLock has destroy {
     owner: Address,
     lock_type: LockType,
     unlock_height: u64,       // 解锁区块高度
@@ -30,7 +30,7 @@ resource TimeLock {
 
 /// 锁定资产
 #[capability(store)]
-resource LockedAsset {
+resource LockedAsset has destroy {
     asset_type: AssetType,
     amount: u64,
     lock_hash: Hash,          // 关联的时间锁哈希
@@ -45,7 +45,7 @@ enum AssetType {
 
 /// 释放请求
 #[lifecycle(Created, Processing, Released, Cancelled)]
-receipt ReleaseRequest {
+receipt ReleaseRequest has destroy {
     lock_hash: Hash,
     requester: Address,
     requested_at: u64,
@@ -60,7 +60,7 @@ receipt ReleaseRecord {
 
 /// 紧急释放请求
 #[lifecycle(Created, Pending, Approved, Rejected)]
-receipt EmergencyRelease {
+receipt EmergencyRelease has destroy {
     lock_hash: Hash,
     requester: Address,
     reason: String,

@@ -46,7 +46,7 @@ impl Default for CompileOptions {
 }
 
 const DEFAULT_TARGET: &str = "riscv64-asm";
-pub const METADATA_SCHEMA_VERSION: u32 = 1;
+pub const METADATA_SCHEMA_VERSION: u32 = 6;
 
 /// 编译产物格式
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -522,6 +522,8 @@ pub struct VerifierObligationMetadata {
 pub struct TypeMetadata {
     pub name: String,
     pub kind: String,
+    pub capabilities: Vec<String>,
+    pub claim_output: Option<String>,
     pub lifecycle_states: Vec<String>,
     pub lifecycle_transitions: Vec<LifecycleTransitionMetadata>,
     pub encoded_size: Option<usize>,
@@ -610,6 +612,7 @@ pub struct ParamMetadata {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CellPatternMetadata {
+    pub operation: String,
     pub type_hash: Option<String>,
     pub binding: String,
     pub fields: Vec<String>,
@@ -617,6 +620,7 @@ pub struct CellPatternMetadata {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreatePatternMetadata {
+    pub operation: String,
     pub ty: String,
     pub binding: String,
     pub fields: Vec<String>,
@@ -1222,6 +1226,7 @@ fn compile_metadata_from_ir(ir: &ir::IrModule, artifact_format: ArtifactFormat) 
                             action.scheduler_hints.parallelizable,
                             action.scheduler_hints.touches_shared.clone(),
                             action.scheduler_hints.estimated_cycles,
+                            scheduler_accesses_from_metadata(&ckb_runtime_accesses),
                         )),
                         consume_set: action.body.consume_set.iter().map(cell_pattern_metadata).collect(),
                         read_refs: action.body.read_refs.iter().map(cell_pattern_metadata).collect(),
@@ -1499,6 +1504,30 @@ fn body_verifier_obligations(
         );
     }
 
+    for check in body_static_resource_operation_checks(body) {
+        push_verifier_obligation(
+            &mut obligations,
+            &mut seen,
+            &scope,
+            "resource-operation",
+            &check.feature,
+            "checked-static",
+            &check.detail,
+        );
+    }
+
+    for check in body_transaction_resource_obligations(body) {
+        push_verifier_obligation(
+            &mut obligations,
+            &mut seen,
+            &scope,
+            "transaction-invariant",
+            &check.feature,
+            "runtime-required",
+            &check.detail,
+        );
+    }
+
     for feature in symbolic_runtime_features {
         if fail_closed.contains(feature) {
             push_verifier_obligation(
@@ -1550,6 +1579,132 @@ fn body_verifier_obligations(
     obligations
 }
 
+struct StaticResourceOperationCheck {
+    feature: String,
+    detail: String,
+}
+
+fn body_static_resource_operation_checks(body: &ir::IrBody) -> Vec<StaticResourceOperationCheck> {
+    let mut checks = Vec::new();
+    for block in &body.blocks {
+        for instruction in &block.instructions {
+            match instruction {
+                ir::IrInstruction::Transfer { operand, .. } => {
+                    if let Some(type_name) = operand_named_type_name(operand) {
+                        checks.push(StaticResourceOperationCheck {
+                            feature: format!("transfer:{}", type_name),
+                            detail: format!(
+                                "Type checker verified '{}' declares transfer capability and the source value is linearly consumed; runtime output/lock verification remains a separate lowering obligation",
+                                type_name
+                            ),
+                        });
+                    }
+                }
+                ir::IrInstruction::Destroy { operand } => {
+                    if let Some(type_name) = operand_named_type_name(operand) {
+                        checks.push(StaticResourceOperationCheck {
+                            feature: format!("destroy:{}", type_name),
+                            detail: format!(
+                                "Type checker verified '{}' declares destroy capability and the source value is marked destroyed; transaction-level absence of replacement outputs remains a runtime/protocol obligation",
+                                type_name
+                            ),
+                        });
+                    }
+                }
+                ir::IrInstruction::Claim { receipt, .. } => {
+                    if let Some(type_name) = operand_named_type_name(receipt) {
+                        checks.push(StaticResourceOperationCheck {
+                            feature: format!("claim:{}", type_name),
+                            detail: format!(
+                                "Type checker verified '{}' is a receipt value and the receipt is linearly consumed; witness/time-lock claim conditions remain runtime/protocol obligations",
+                                type_name
+                            ),
+                        });
+                    }
+                }
+                ir::IrInstruction::Settle { operand } => {
+                    if let Some(type_name) = operand_named_type_name(operand) {
+                        checks.push(StaticResourceOperationCheck {
+                            feature: format!("settle:{}", type_name),
+                            detail: format!(
+                                "Type checker verified '{}' is a cell-backed linear value and settle consumes it; finalization invariants remain runtime/protocol obligations",
+                                type_name
+                            ),
+                        });
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    checks
+}
+
+fn body_transaction_resource_obligations(body: &ir::IrBody) -> Vec<StaticResourceOperationCheck> {
+    let mut checks = Vec::new();
+    for block in &body.blocks {
+        for instruction in &block.instructions {
+            match instruction {
+                ir::IrInstruction::Transfer { operand, .. } => {
+                    if let Some(type_name) = operand_named_type_name(operand) {
+                        checks.push(StaticResourceOperationCheck {
+                            feature: format!("transfer-output:{}", type_name),
+                            detail: format!(
+                                "Runtime verifier must prove the consumed '{}' cell data is preserved in exactly the intended output and that the output lock is rebound to the transfer destination",
+                                type_name
+                            ),
+                        });
+                    }
+                }
+                ir::IrInstruction::Destroy { operand } => {
+                    if let Some(type_name) = operand_named_type_name(operand) {
+                        checks.push(StaticResourceOperationCheck {
+                            feature: format!("destroy-output-scan:{}", type_name),
+                            detail: format!(
+                                "Runtime verifier must scan transaction outputs or equivalent grouped outputs to prove the destroyed '{}' instance is not recreated by the same state transition",
+                                type_name
+                            ),
+                        });
+                    }
+                }
+                ir::IrInstruction::Claim { dest, receipt } => {
+                    if let Some(type_name) = operand_named_type_name(receipt) {
+                        checks.push(StaticResourceOperationCheck {
+                            feature: format!("claim-conditions:{}", type_name),
+                            detail: format!(
+                                "Runtime verifier must bind '{}' claim conditions to witness/signature/time context and verify the claimed output relation",
+                                type_name
+                            ),
+                        });
+                    }
+                    if let Some(type_name) = named_type_name(&dest.ty) {
+                        checks.push(StaticResourceOperationCheck {
+                            feature: format!("claim-output:{}", type_name),
+                            detail: format!(
+                                "Runtime verifier must prove claim creates the declared '{}' output cell and binds its fields to the consumed receipt semantics",
+                                type_name
+                            ),
+                        });
+                    }
+                }
+                ir::IrInstruction::Settle { operand } => {
+                    if let Some(type_name) = operand_named_type_name(operand) {
+                        checks.push(StaticResourceOperationCheck {
+                            feature: format!("settle-finalization:{}", type_name),
+                            detail: format!(
+                                "Runtime verifier must prove '{}' finalization invariants and reject invalid pending-to-final state transitions",
+                                type_name
+                            ),
+                        });
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    checks
+}
+
 fn push_verifier_obligation(
     obligations: &mut Vec<VerifierObligationMetadata>,
     seen: &mut BTreeSet<(String, String, String, String)>,
@@ -1589,6 +1744,7 @@ fn body_consumed_named_types(body: &ir::IrBody) -> BTreeSet<String> {
             let operand = match instruction {
                 ir::IrInstruction::Consume { operand }
                 | ir::IrInstruction::Transfer { operand, .. }
+                | ir::IrInstruction::Destroy { operand }
                 | ir::IrInstruction::Settle { operand } => Some(operand),
                 ir::IrInstruction::Claim { receipt, .. } => Some(receipt),
                 _ => None,
@@ -1601,6 +1757,13 @@ fn body_consumed_named_types(body: &ir::IrBody) -> BTreeSet<String> {
         }
     }
     types
+}
+
+fn operand_named_type_name(operand: &ir::IrOperand) -> Option<String> {
+    match operand {
+        ir::IrOperand::Var(var) => named_type_name(&var.ty).map(str::to_string),
+        ir::IrOperand::Const(_) => None,
+    }
 }
 
 fn module_has_entry_params(ir: &ir::IrModule) -> bool {
@@ -1806,6 +1969,7 @@ fn consumed_schema_var_id(instruction: &ir::IrInstruction) -> Option<usize> {
     let operand = match instruction {
         ir::IrInstruction::Consume { operand }
         | ir::IrInstruction::Transfer { operand, .. }
+        | ir::IrInstruction::Destroy { operand }
         | ir::IrInstruction::Settle { operand } => operand,
         ir::IrInstruction::Claim { receipt, .. } => receipt,
         _ => return None,
@@ -1820,7 +1984,7 @@ fn body_ckb_runtime_accesses(body: &ir::IrBody) -> Vec<CkbRuntimeAccessMetadata>
     let mut accesses = Vec::new();
     for (index, pattern) in body.consume_set.iter().enumerate() {
         accesses.push(CkbRuntimeAccessMetadata {
-            operation: "consume".to_string(),
+            operation: pattern.operation.clone(),
             syscall: "LOAD_CELL".to_string(),
             source: "Input".to_string(),
             index,
@@ -1838,7 +2002,7 @@ fn body_ckb_runtime_accesses(body: &ir::IrBody) -> Vec<CkbRuntimeAccessMetadata>
     }
     for (index, pattern) in body.create_set.iter().enumerate() {
         accesses.push(CkbRuntimeAccessMetadata {
-            operation: "create".to_string(),
+            operation: pattern.operation.clone(),
             syscall: "LOAD_CELL".to_string(),
             source: "Output".to_string(),
             index,
@@ -1846,6 +2010,18 @@ fn body_ckb_runtime_accesses(body: &ir::IrBody) -> Vec<CkbRuntimeAccessMetadata>
         });
     }
     accesses
+}
+
+fn scheduler_accesses_from_metadata(accesses: &[CkbRuntimeAccessMetadata]) -> Vec<crate::stdlib::SchedulerAccess> {
+    accesses
+        .iter()
+        .map(|access| crate::stdlib::SchedulerAccess {
+            operation: access.operation.clone(),
+            source: access.source.clone(),
+            index: u32::try_from(access.index).unwrap_or(u32::MAX),
+            binding: access.binding.clone(),
+        })
+        .collect()
 }
 
 fn metadata_type_layouts(ir: &ir::IrModule) -> MetadataTypeLayouts {
@@ -1882,11 +2058,22 @@ fn type_metadata(type_def: &ir::IrTypeDef) -> TypeMetadata {
     TypeMetadata {
         name: type_def.name.clone(),
         kind: format!("{:?}", type_def.kind),
+        capabilities: type_def.capabilities.iter().map(metadata_capability_name).collect(),
+        claim_output: type_def.claim_output.as_ref().map(ir_type_to_string),
         lifecycle_transitions: lifecycle_transition_metadata(&lifecycle_states),
         lifecycle_states,
         encoded_size: type_encoded_size(type_def),
         fields: type_def.fields.iter().map(field_metadata).collect(),
     }
+}
+
+fn metadata_capability_name(capability: &crate::ast::Capability) -> String {
+    match capability {
+        crate::ast::Capability::Store => "store",
+        crate::ast::Capability::Transfer => "transfer",
+        crate::ast::Capability::Destroy => "destroy",
+    }
+    .to_string()
 }
 
 fn lifecycle_transition_metadata(states: &[String]) -> Vec<LifecycleTransitionMetadata> {
@@ -1976,6 +2163,7 @@ fn param_metadata(param: &ir::IrParam) -> ParamMetadata {
 
 fn cell_pattern_metadata(pattern: &ir::CellPattern) -> CellPatternMetadata {
     CellPatternMetadata {
+        operation: pattern.operation.clone(),
         type_hash: pattern.type_hash.as_ref().map(hex_hash),
         binding: pattern.binding.clone(),
         fields: pattern.fields.iter().map(|(field, _)| field.clone()).collect(),
@@ -1984,6 +2172,7 @@ fn cell_pattern_metadata(pattern: &ir::CellPattern) -> CellPatternMetadata {
 
 fn create_pattern_metadata(pattern: &ir::CreatePattern) -> CreatePatternMetadata {
     CreatePatternMetadata {
+        operation: pattern.operation.clone(),
         ty: pattern.ty.clone(),
         binding: pattern.binding.clone(),
         fields: pattern.fields.iter().map(|(field, _)| field.clone()).collect(),
@@ -2179,9 +2368,15 @@ mod tests {
         ArtifactFormat, CompileOptions,
     };
     use crate::{ir, lexer, parser};
+    use borsh::BorshDeserialize;
     use camino::{Utf8Path, Utf8PathBuf};
     use std::{env, process::Command};
     use tempfile::tempdir;
+
+    fn decode_hex_bytes(hex: &str) -> Vec<u8> {
+        assert_eq!(hex.len() % 2, 0, "hex string must contain full bytes");
+        (0..hex.len()).step_by(2).map(|index| u8::from_str_radix(&hex[index..index + 2], 16).expect("valid hex byte")).collect()
+    }
 
     const SIMPLE_PROGRAM: &str = r#"
 module test
@@ -2342,6 +2537,32 @@ action bad(x: u64) -> u64 {
 }
 "#;
 
+    const ASSERT_DYNAMIC_MESSAGE_PROGRAM: &str = r#"
+module test
+
+action bad(x: u64) -> u64 {
+    assert_invariant(x > 0, x)
+    return x
+}
+"#;
+
+    const ASSERT_BINDING_PROGRAM: &str = r#"
+module test
+
+action bad(x: u64) -> u64 {
+    let ok = assert_invariant(x > 0, "x must be positive")
+    return x
+}
+"#;
+
+    const ASSERT_TAIL_RETURN_PROGRAM: &str = r#"
+module test
+
+action bad(x: u64) -> bool {
+    assert_invariant(x > 0, "x must be positive")
+}
+"#;
+
     const STRING_VALUE_PROGRAM: &str = r#"
 module test
 
@@ -2383,7 +2604,7 @@ action issue() -> Token {
     const CONSUME_DESTROY_PROGRAM: &str = r#"
 module test
 
-resource Token {
+resource Token has destroy {
     amount: u64,
 }
 
@@ -2679,6 +2900,28 @@ action bad(flag: bool) -> u64 {
         return 1
     }
     let x = 2
+}
+"#;
+
+    const UNREACHABLE_AFTER_RETURN_PROGRAM: &str = r#"
+module test
+
+action bad() -> u64 {
+    return 1
+    let x = 2
+}
+"#;
+
+    const UNREACHABLE_AFTER_BRANCH_RETURN_PROGRAM: &str = r#"
+module test
+
+action bad(flag: bool) -> u64 {
+    if flag {
+        return 1
+    } else {
+        return 2
+    }
+    let x = 3
 }
 "#;
 
@@ -3115,7 +3358,7 @@ resource Token has store, transfer, destroy {
     amount: u64,
 }
 
-receipt VestingReceipt {
+receipt VestingReceipt -> Token {
     amount: u64,
 }
 
@@ -3123,12 +3366,88 @@ action move_token(token: Token, to: Address) -> Token {
     return transfer token to to
 }
 
-action redeem(receipt: VestingReceipt) -> u64 {
+action redeem(receipt: VestingReceipt) -> Token {
     return claim receipt
 }
 
 action finalize(token: Token) -> Token {
     return settle token
+}
+"#;
+
+    const MISSING_TRANSFER_CAPABILITY_PROGRAM: &str = r#"
+module test
+
+resource Token has store {
+    amount: u64,
+}
+
+action move_token(token: Token, to: Address) -> Token {
+    return transfer token to to
+}
+"#;
+
+    const MISSING_DESTROY_CAPABILITY_PROGRAM: &str = r#"
+module test
+
+resource Token has store {
+    amount: u64,
+}
+
+action burn(token: Token) {
+    destroy token
+}
+"#;
+
+    const CLAIM_NON_RECEIPT_PROGRAM: &str = r#"
+module test
+
+resource Token has store {
+    amount: u64,
+}
+
+action redeem(token: Token) -> u64 {
+    return claim token
+}
+"#;
+
+    const CLAIM_OUTPUT_NON_CELL_PROGRAM: &str = r#"
+module test
+
+receipt VestingReceipt -> u64 {
+    amount: u64,
+}
+
+action redeem(receipt: VestingReceipt) -> u64 {
+    return claim receipt
+}
+"#;
+
+    const CLAIM_OUTPUT_RECEIPT_PROGRAM: &str = r#"
+module test
+
+receipt OtherReceipt {
+    amount: u64,
+}
+
+receipt VestingReceipt -> OtherReceipt {
+    amount: u64,
+}
+
+action redeem(receipt: VestingReceipt) -> OtherReceipt {
+    return claim receipt
+}
+"#;
+
+    const SETTLE_NON_CELL_PROGRAM: &str = r#"
+module test
+
+struct Snapshot {
+    amount: u64,
+}
+
+action finalize(snapshot: Snapshot) -> Snapshot {
+    return settle snapshot
 }
 "#;
 
@@ -3421,6 +3740,31 @@ action activate(ticket: Ticket) -> Ticket {
     }
 
     #[test]
+    fn compile_rejects_dynamic_assert_invariant_messages() {
+        let err = compile(ASSERT_DYNAMIC_MESSAGE_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(err.message.contains("assert message must be a string literal"), "unexpected error: {}", err.message);
+    }
+
+    #[test]
+    fn compile_rejects_binding_assert_invariant_results() {
+        let err = compile(ASSERT_BINDING_PROGRAM, CompileOptions::default()).unwrap_err();
+
+        assert!(
+            err.message.contains("cannot bind the result of a function without a return value"),
+            "unexpected error: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn compile_rejects_assert_invariant_as_tail_return_value() {
+        let err = compile(ASSERT_TAIL_RETURN_PROGRAM, CompileOptions::default()).unwrap_err();
+
+        assert!(err.message.contains("tail expression type mismatch"), "unexpected error: {}", err.message);
+        assert!(err.message.contains("Unit"), "unexpected error: {}", err.message);
+    }
+
+    #[test]
     fn compile_rejects_string_literals_as_runtime_values() {
         let err = compile(STRING_VALUE_PROGRAM, CompileOptions::default()).unwrap_err();
         assert!(err.message.contains("string literals are only supported in metadata positions"), "unexpected error: {}", err.message);
@@ -3498,6 +3842,25 @@ action activate(ticket: Ticket) -> Ticket {
             "symbolic runtime operation did not explain fail-closed lowering:\n{}",
             asm
         );
+
+        let action = result.metadata.actions.iter().find(|action| action.name == "burn").expect("burn metadata");
+        assert_eq!(action.consume_set.len(), 2);
+        assert!(action.consume_set.iter().any(|pattern| pattern.binding == "a"));
+        assert!(action.consume_set.iter().any(|pattern| pattern.binding == "b" && pattern.operation == "destroy"));
+        assert!(action
+            .ckb_runtime_accesses
+            .iter()
+            .any(|access| access.source == "Input" && access.binding == "b" && access.operation == "destroy"));
+        assert!(action.verifier_obligations.iter().any(|obligation| {
+            obligation.category == "resource-operation"
+                && obligation.feature == "destroy:Token"
+                && obligation.status == "checked-static"
+        }));
+        assert!(action.verifier_obligations.iter().any(|obligation| {
+            obligation.category == "transaction-invariant"
+                && obligation.feature == "destroy-output-scan:Token"
+                && obligation.status == "runtime-required"
+        }));
     }
 
     #[test]
@@ -4502,6 +4865,20 @@ action activate(ticket: Ticket) -> Ticket {
     }
 
     #[test]
+    fn compile_rejects_unreachable_statements_after_return() {
+        let err = compile(UNREACHABLE_AFTER_RETURN_PROGRAM, CompileOptions::default()).unwrap_err();
+
+        assert!(err.message.contains("unreachable statement after guaranteed return"), "unexpected error: {}", err.message);
+    }
+
+    #[test]
+    fn compile_rejects_unreachable_statements_after_complete_branch_return() {
+        let err = compile(UNREACHABLE_AFTER_BRANCH_RETURN_PROGRAM, CompileOptions::default()).unwrap_err();
+
+        assert!(err.message.contains("unreachable statement after guaranteed return"), "unexpected error: {}", err.message);
+    }
+
+    #[test]
     fn compile_lowers_env_current_daa_score_as_ckb_runtime_call() {
         let result = compile(ENV_DAA_PROGRAM, CompileOptions::default()).unwrap();
         let asm = String::from_utf8(result.artifact_bytes).unwrap();
@@ -4761,6 +5138,41 @@ source_roots = ["src", "shared"]
                 && obligation.feature == "settle-expression"
                 && obligation.status == "fail-closed"
         }));
+        assert!(result.metadata.runtime.verifier_obligations.iter().any(|obligation| {
+            obligation.category == "resource-operation"
+                && obligation.feature == "transfer:Token"
+                && obligation.status == "checked-static"
+        }));
+        assert!(result.metadata.runtime.verifier_obligations.iter().any(|obligation| {
+            obligation.category == "resource-operation"
+                && obligation.feature == "claim:VestingReceipt"
+                && obligation.status == "checked-static"
+        }));
+        assert!(result.metadata.runtime.verifier_obligations.iter().any(|obligation| {
+            obligation.category == "resource-operation"
+                && obligation.feature == "settle:Token"
+                && obligation.status == "checked-static"
+        }));
+        assert!(result.metadata.runtime.verifier_obligations.iter().any(|obligation| {
+            obligation.category == "transaction-invariant"
+                && obligation.feature == "transfer-output:Token"
+                && obligation.status == "runtime-required"
+        }));
+        assert!(result.metadata.runtime.verifier_obligations.iter().any(|obligation| {
+            obligation.category == "transaction-invariant"
+                && obligation.feature == "claim-conditions:VestingReceipt"
+                && obligation.status == "runtime-required"
+        }));
+        assert!(result.metadata.runtime.verifier_obligations.iter().any(|obligation| {
+            obligation.category == "transaction-invariant"
+                && obligation.feature == "claim-output:Token"
+                && obligation.status == "runtime-required"
+        }));
+        assert!(result.metadata.runtime.verifier_obligations.iter().any(|obligation| {
+            obligation.category == "transaction-invariant"
+                && obligation.feature == "settle-finalization:Token"
+                && obligation.status == "runtime-required"
+        }));
     }
 
     #[test]
@@ -4780,7 +5192,9 @@ source_roots = ["src", "shared"]
         assert_eq!(transfer_action.body.consume_set.len(), 1);
         assert_eq!(transfer_action.body.create_set.len(), 1);
         assert_eq!(transfer_action.body.consume_set[0].binding, "token");
+        assert_eq!(transfer_action.body.consume_set[0].operation, "transfer");
         assert_eq!(transfer_action.body.create_set[0].ty, "Token");
+        assert_eq!(transfer_action.body.create_set[0].operation, "transfer");
 
         let claim_action = ir
             .items
@@ -4792,6 +5206,62 @@ source_roots = ["src", "shared"]
             .expect("redeem action");
         assert_eq!(claim_action.body.consume_set.len(), 1);
         assert_eq!(claim_action.body.consume_set[0].binding, "receipt");
+        assert_eq!(claim_action.body.consume_set[0].operation, "claim");
+        assert_eq!(claim_action.body.create_set.len(), 1);
+        assert_eq!(claim_action.body.create_set[0].ty, "Token");
+        assert_eq!(claim_action.body.create_set[0].operation, "claim");
+
+        let settle_action = ir
+            .items
+            .iter()
+            .find_map(|item| match item {
+                ir::IrItem::Action(action) if action.name == "finalize" => Some(action),
+                _ => None,
+            })
+            .expect("finalize action");
+        assert_eq!(settle_action.body.consume_set.len(), 1);
+        assert_eq!(settle_action.body.consume_set[0].binding, "token");
+        assert_eq!(settle_action.body.consume_set[0].operation, "settle");
+    }
+
+    #[test]
+    fn compile_rejects_transfer_without_transfer_capability() {
+        let err = compile(MISSING_TRANSFER_CAPABILITY_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(err.message.contains("does not declare 'transfer' capability"), "unexpected error: {}", err.message);
+    }
+
+    #[test]
+    fn compile_rejects_destroy_without_destroy_capability() {
+        let err = compile(MISSING_DESTROY_CAPABILITY_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(err.message.contains("does not declare 'destroy' capability"), "unexpected error: {}", err.message);
+    }
+
+    #[test]
+    fn compile_rejects_claim_on_non_receipt_values() {
+        let err = compile(CLAIM_NON_RECEIPT_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(err.message.contains("claim requires a receipt value"), "unexpected error: {}", err.message);
+    }
+
+    #[test]
+    fn compile_rejects_non_cell_receipt_claim_outputs() {
+        let err = compile(CLAIM_OUTPUT_NON_CELL_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(
+            err.message.contains("receipt claim output must be a cell-backed resource or shared type"),
+            "unexpected error: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn compile_rejects_receipt_to_receipt_claim_outputs() {
+        let err = compile(CLAIM_OUTPUT_RECEIPT_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(err.message.contains("receipt claim output must not be another receipt"), "unexpected error: {}", err.message);
+    }
+
+    #[test]
+    fn compile_rejects_settle_on_non_cell_values() {
+        let err = compile(SETTLE_NON_CELL_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(err.message.contains("settle requires a cell-backed linear value"), "unexpected error: {}", err.message);
     }
 
     #[test]
@@ -4812,6 +5282,8 @@ source_roots = ["src", "shared"]
         assert_eq!(action.read_refs.len(), 1);
         assert_eq!(action.create_set.len(), 1);
         assert_eq!(action.consume_set.len(), 1);
+        assert_eq!(action.create_set[0].operation, "create");
+        assert!(action.ckb_runtime_accesses.iter().any(|access| access.source == "Output" && access.operation == "create"));
         assert!(!action.elf_compatible);
         assert!(action.ckb_runtime_features.contains(&"read-cell-dep".to_string()));
         assert!(!action.symbolic_runtime_features.contains(&"read-ref-expression".to_string()));
@@ -4820,6 +5292,64 @@ source_roots = ["src", "shared"]
         assert!(action.estimated_cycles > 32);
         assert!(!action.scheduler_witness_borsh_hex.is_empty());
         assert!(action.scheduler_witness_borsh_hex.starts_with("11ce"));
+
+        #[derive(BorshDeserialize)]
+        struct SchedulerAccessWitness {
+            operation: u8,
+            source: u8,
+            index: u32,
+            binding_hash: [u8; 32],
+        }
+
+        #[derive(BorshDeserialize)]
+        struct SchedulerWitness {
+            magic: u16,
+            version: u8,
+            effect_class: u8,
+            parallelizable: bool,
+            touches_shared_count: u32,
+            touches_shared: Vec<[u8; 32]>,
+            estimated_cycles: u64,
+            access_count: u32,
+            accesses: Vec<SchedulerAccessWitness>,
+        }
+
+        let witness_bytes = decode_hex_bytes(&action.scheduler_witness_borsh_hex);
+        let witness = SchedulerWitness::try_from_slice(&witness_bytes).expect("scheduler witness should decode");
+        assert_eq!(witness.magic, 0xCE11);
+        assert_eq!(witness.version, 1);
+        assert_eq!(witness.effect_class, 2);
+        assert!(!witness.parallelizable);
+        assert_eq!(witness.touches_shared_count as usize, witness.touches_shared.len());
+        assert_eq!(witness.estimated_cycles, action.estimated_cycles);
+        assert_eq!(witness.access_count as usize, witness.accesses.len());
+
+        let access_ops = witness.accesses.iter().map(|access| access.operation).collect::<std::collections::BTreeSet<_>>();
+        let access_sources = witness.accesses.iter().map(|access| access.source).collect::<std::collections::BTreeSet<_>>();
+        assert!(access_ops.contains(&1), "consume access missing from scheduler witness");
+        assert!(access_ops.contains(&6), "read_ref access missing from scheduler witness");
+        assert!(access_ops.contains(&7), "create access missing from scheduler witness");
+        assert!(access_sources.contains(&1), "Input source missing from scheduler witness");
+        assert!(access_sources.contains(&2), "CellDep source missing from scheduler witness");
+        assert!(access_sources.contains(&3), "Output source missing from scheduler witness");
+        assert!(witness.accesses.iter().any(|access| access.index == 0));
+        assert!(witness.accesses.iter().any(|access| access.binding_hash != [0u8; 32]));
+    }
+
+    #[test]
+    fn metadata_exposes_output_operation_provenance_for_transfer() {
+        let result = compile(TRANSFER_CLAIM_SETTLE_PROGRAM, CompileOptions::default()).unwrap();
+
+        let transfer_action = result.metadata.actions.iter().find(|action| action.name == "move_token").expect("move_token metadata");
+        assert_eq!(transfer_action.create_set.len(), 1);
+        assert_eq!(transfer_action.create_set[0].operation, "transfer");
+        assert!(transfer_action.ckb_runtime_accesses.iter().any(|access| access.source == "Output" && access.operation == "transfer"));
+
+        let claim_action = result.metadata.actions.iter().find(|action| action.name == "redeem").expect("redeem metadata");
+        assert_eq!(claim_action.create_set.len(), 1);
+        assert_eq!(claim_action.create_set[0].ty, "Token");
+        assert_eq!(claim_action.create_set[0].operation, "claim");
+        assert!(claim_action.ckb_runtime_accesses.iter().any(|access| access.source == "Output" && access.operation == "claim"));
     }
 
     #[test]
@@ -4839,6 +5369,21 @@ source_roots = ["src", "shared"]
         assert_eq!(amount.offset, 0);
         assert_eq!(amount.encoded_size, Some(8));
         assert!(amount.fixed_width);
+    }
+
+    #[test]
+    fn compile_result_exposes_type_capability_metadata() {
+        let result = compile(TRANSFER_CLAIM_SETTLE_PROGRAM, CompileOptions::default()).unwrap();
+        let token = result.metadata.types.iter().find(|ty| ty.name == "Token").expect("Token type metadata");
+        let receipt = result.metadata.types.iter().find(|ty| ty.name == "VestingReceipt").expect("VestingReceipt type metadata");
+
+        assert_eq!(token.kind, "Resource");
+        assert!(token.capabilities.contains(&"store".to_string()));
+        assert!(token.capabilities.contains(&"transfer".to_string()));
+        assert!(token.capabilities.contains(&"destroy".to_string()));
+        assert_eq!(receipt.kind, "Receipt");
+        assert!(receipt.capabilities.is_empty());
+        assert_eq!(receipt.claim_output.as_deref(), Some("Token"));
     }
 
     #[test]

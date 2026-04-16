@@ -23,7 +23,7 @@ struct Metadata {
 
 /// NFT Token - 非同质化代币
 #[capability(store, transfer, destroy)]
-resource NFT {
+resource NFT has destroy {
     token_id: u64,
     owner: Address,
     metadata_hash: Hash,
@@ -44,7 +44,7 @@ resource Collection {
 
 /// 挂单 - 生命周期示例
 #[lifecycle(Created, Active, Filled, Cancelled)]
-receipt Listing {
+receipt Listing has destroy {
     token_id: u64,
     seller: Address,
     price: u64,
@@ -53,7 +53,7 @@ receipt Listing {
 
 /// 出价 - 生命周期示例
 #[lifecycle(Created, Active, Accepted, Expired)]
-receipt Offer {
+receipt Offer has destroy {
     token_id: u64,
     buyer: Address,
     price: u64,

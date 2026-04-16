@@ -44,7 +44,7 @@ resource MultisigWallet {
 
 /// 交易提案
 #[lifecycle(Created, Pending, Executed, Cancelled)]
-receipt Proposal {
+receipt Proposal has destroy {
     wallet_hash: Hash,               // 钱包哈希
     proposal_id: u64,                // 提案 ID
     proposer: Address,               // 提案者

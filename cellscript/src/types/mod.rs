@@ -4,7 +4,7 @@
 
 use crate::ast::*;
 use crate::error::{CompileError, Result, Span};
-use crate::resolve::{FunctionDef, ModuleResolver};
+use crate::resolve::{FunctionDef, ModuleResolver, TypeDef};
 use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -18,6 +18,13 @@ enum CallableKind {
 struct FunctionSignature {
     return_type: Option<Type>,
     kind: CallableKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CellTypeKind {
+    Resource,
+    Shared,
+    Receipt,
 }
 
 /// 类型环境
@@ -97,18 +104,30 @@ impl TypeEnv {
 
     /// 标记资源为已消费
     pub fn consume(&mut self, name: &str) -> Result<()> {
+        self.set_linear_state(name, LinearState::Consumed)
+    }
+
+    pub fn transfer(&mut self, name: &str) -> Result<()> {
+        self.set_linear_state(name, LinearState::Transferred)
+    }
+
+    pub fn destroy(&mut self, name: &str) -> Result<()> {
+        self.set_linear_state(name, LinearState::Destroyed)
+    }
+
+    fn set_linear_state(&mut self, name: &str, next: LinearState) -> Result<()> {
         match self.linear_states.get_mut(name) {
             Some(state) => {
                 if *state != LinearState::Available {
                     return Err(CompileError::new(format!("resource '{}' already {:?}", name, state), Span::default()));
                 }
-                *state = LinearState::Consumed;
+                *state = next;
                 Ok(())
             }
             None => {
                 // 检查父环境
                 if let Some(ref mut parent) = self.parent {
-                    parent.consume(name)
+                    parent.set_linear_state(name, next)
                 } else {
                     Err(CompileError::new(format!("unknown resource '{}'", name), Span::default()))
                 }
@@ -147,6 +166,9 @@ pub struct TypeChecker<'a> {
     type_fields: HashMap<String, HashMap<String, Type>>,
     functions: HashMap<String, FunctionSignature>,
     linear_types: HashSet<String>,
+    cell_type_kinds: HashMap<String, CellTypeKind>,
+    type_capabilities: HashMap<String, HashSet<Capability>>,
+    receipt_claim_outputs: HashMap<String, Option<Type>>,
     resolver: Option<&'a ModuleResolver>,
     current_module: Option<String>,
     current_callable: Option<CallableKind>,
@@ -188,6 +210,9 @@ impl<'a> TypeChecker<'a> {
             type_fields: HashMap::new(),
             functions: HashMap::new(),
             linear_types: HashSet::new(),
+            cell_type_kinds: HashMap::new(),
+            type_capabilities: HashMap::new(),
+            receipt_claim_outputs: HashMap::new(),
             resolver: None,
             current_module: None,
             current_callable: None,
@@ -215,6 +240,8 @@ impl<'a> TypeChecker<'a> {
                 }
                 Item::Resource(resource) => {
                     self.linear_types.insert(resource.name.clone());
+                    self.cell_type_kinds.insert(resource.name.clone(), CellTypeKind::Resource);
+                    self.type_capabilities.insert(resource.name.clone(), resource.capabilities.iter().copied().collect());
                     self.type_fields.insert(
                         resource.name.clone(),
                         resource.fields.iter().map(|field| (field.name.clone(), field.ty.clone())).collect(),
@@ -222,6 +249,8 @@ impl<'a> TypeChecker<'a> {
                 }
                 Item::Shared(shared) => {
                     self.linear_types.insert(shared.name.clone());
+                    self.cell_type_kinds.insert(shared.name.clone(), CellTypeKind::Shared);
+                    self.type_capabilities.insert(shared.name.clone(), shared.capabilities.iter().copied().collect());
                     self.type_fields.insert(
                         shared.name.clone(),
                         shared.fields.iter().map(|field| (field.name.clone(), field.ty.clone())).collect(),
@@ -229,6 +258,9 @@ impl<'a> TypeChecker<'a> {
                 }
                 Item::Receipt(receipt) => {
                     self.linear_types.insert(receipt.name.clone());
+                    self.cell_type_kinds.insert(receipt.name.clone(), CellTypeKind::Receipt);
+                    self.type_capabilities.insert(receipt.name.clone(), receipt.capabilities.iter().copied().collect());
+                    self.receipt_claim_outputs.insert(receipt.name.clone(), receipt.claim_output.clone());
                     self.type_fields.insert(
                         receipt.name.clone(),
                         receipt.fields.iter().map(|field| (field.name.clone(), field.ty.clone())).collect(),
@@ -304,6 +336,10 @@ impl<'a> TypeChecker<'a> {
         for field in &receipt.fields {
             self.validate_type(&field.ty)?;
         }
+        if let Some(output) = &receipt.claim_output {
+            self.validate_type(output)?;
+            self.validate_receipt_claim_output(output, receipt.span)?;
+        }
         Ok(())
     }
 
@@ -339,6 +375,7 @@ impl<'a> TypeChecker<'a> {
                 env.insert(param.name.clone(), param.ty.clone(), is_linear, param.is_mut);
             }
             let return_env = env.clone();
+            self.check_no_unreachable_stmts(&action.body)?;
 
             for stmt in &action.body {
                 self.check_stmt(&mut env, stmt)?;
@@ -371,6 +408,7 @@ impl<'a> TypeChecker<'a> {
                 env.insert(param.name.clone(), param.ty.clone(), is_linear, param.is_mut);
             }
             let return_env = env.clone();
+            self.check_no_unreachable_stmts(&function.body)?;
 
             for stmt in &function.body {
                 self.check_stmt(&mut env, stmt)?;
@@ -413,6 +451,7 @@ impl<'a> TypeChecker<'a> {
                 let is_linear = self.is_linear_type(&param.ty);
                 env.insert(param.name.clone(), param.ty.clone(), is_linear, param.is_mut);
             }
+            self.check_no_unreachable_stmts(&lock.body)?;
 
             for stmt in &lock.body {
                 self.check_stmt(&mut env, stmt)?;
@@ -526,6 +565,34 @@ impl<'a> TypeChecker<'a> {
                 Ok(())
             }
         }
+    }
+
+    fn check_no_unreachable_stmts(&self, stmts: &[Stmt]) -> Result<()> {
+        let mut previous_guaranteed_return = false;
+        for stmt in stmts {
+            if previous_guaranteed_return {
+                return Err(CompileError::new("unreachable statement after guaranteed return", stmt_span(stmt)));
+            }
+            self.check_no_unreachable_nested(stmt)?;
+            previous_guaranteed_return = self.stmt_always_returns(stmt);
+        }
+        Ok(())
+    }
+
+    fn check_no_unreachable_nested(&self, stmt: &Stmt) -> Result<()> {
+        match stmt {
+            Stmt::If(if_stmt) => {
+                self.check_no_unreachable_stmts(&if_stmt.then_branch)?;
+                if let Some(else_branch) = &if_stmt.else_branch {
+                    self.check_no_unreachable_stmts(else_branch)?;
+                }
+            }
+            Stmt::For(for_stmt) => self.check_no_unreachable_stmts(&for_stmt.body)?,
+            Stmt::While(while_stmt) => self.check_no_unreachable_stmts(&while_stmt.body)?,
+            Stmt::Expr(Expr::Block(stmts)) => self.check_no_unreachable_stmts(stmts)?,
+            _ => {}
+        }
+        Ok(())
     }
 
     fn infer_let_value_type(&mut self, env: &mut TypeEnv, let_stmt: &LetStmt) -> Result<Type> {
@@ -663,17 +730,20 @@ impl<'a> TypeChecker<'a> {
                 if !self.is_address_like_type(&to_ty) {
                     return Err(CompileError::new("transfer destination must be address-like", transfer.span));
                 }
+                self.require_capability(&expr_ty, Capability::Transfer, "transfer", transfer.span)?;
                 if let Expr::Identifier(name) = transfer.expr.as_ref() {
                     if self.is_linear_type(&expr_ty) {
-                        env.consume(name)?;
+                        env.transfer(name)?;
                     }
                 }
                 Ok(expr_ty)
             }
             Expr::Destroy(destroy) => {
+                let destroy_ty = self.infer_expr(env, &destroy.expr)?;
+                self.require_capability(&destroy_ty, Capability::Destroy, "destroy", destroy.span)?;
                 if let Expr::Identifier(name) = destroy.expr.as_ref() {
                     match env.lookup(name).cloned() {
-                        Some(ty) if self.is_linear_type(&ty) => env.consume(name)?,
+                        Some(ty) if self.is_linear_type(&ty) => env.destroy(name)?,
                         Some(Type::Named(_)) => {}
                         Some(_) => {}
                         None => return Err(CompileError::new(format!("undefined variable '{}'", name), Span::default())),
@@ -684,21 +754,35 @@ impl<'a> TypeChecker<'a> {
             Expr::ReadRef(read_ref) => Ok(Type::Ref(Box::new(Type::Named(read_ref.ty.clone())))),
             Expr::Claim(claim) => {
                 let receipt_ty = self.infer_expr(env, &claim.receipt)?;
+                if !self.is_receipt_type(&receipt_ty) {
+                    return Err(CompileError::new("claim requires a receipt value", claim.span));
+                }
                 if let Expr::Identifier(name) = claim.receipt.as_ref() {
                     if self.is_linear_type(&receipt_ty) {
                         env.consume(name)?;
                     }
                 }
-                Ok(Type::U64)
+                Ok(self.resolve_receipt_claim_output(&receipt_ty).unwrap_or(Type::U64))
             }
-            Expr::Settle(settle) => self.infer_expr(env, &settle.expr),
+            Expr::Settle(settle) => {
+                let settle_ty = self.infer_expr(env, &settle.expr)?;
+                if !self.is_linear_type(&settle_ty) {
+                    return Err(CompileError::new("settle requires a cell-backed linear value", settle.span));
+                }
+                if let Expr::Identifier(name) = settle.expr.as_ref() {
+                    env.consume(name)?;
+                }
+                Ok(settle_ty)
+            }
             Expr::Assert(assert_expr) => {
                 let cond_ty = self.infer_expr(env, &assert_expr.condition)?;
                 if !self.is_bool_type(&cond_ty) {
                     return Err(CompileError::new("assert condition must be boolean", assert_expr.span));
                 }
-                self.infer_expr(env, &assert_expr.message)?;
-                Ok(Type::Bool)
+                if !matches!(assert_expr.message.as_ref(), Expr::String(_)) {
+                    return Err(CompileError::new("assert message must be a string literal", expr_span(&assert_expr.message)));
+                }
+                Ok(Type::Unit)
             }
             Expr::Block(stmts) => {
                 let mut block_env = env.child();
@@ -973,12 +1057,8 @@ impl<'a> TypeChecker<'a> {
             }
             Expr::Cast(cast) => self.mark_expr_as_moved(env, &cast.expr),
             Expr::Assign(assign) => self.mark_expr_as_moved(env, &assign.value),
-            Expr::Transfer(_) | Expr::Claim(_) => Ok(()),
-            Expr::Settle(settle) => self.mark_expr_as_moved(env, &settle.expr),
-            Expr::Assert(assert_expr) => {
-                self.mark_expr_as_moved(env, &assert_expr.condition)?;
-                self.mark_expr_as_moved(env, &assert_expr.message)
-            }
+            Expr::Transfer(_) | Expr::Claim(_) | Expr::Settle(_) => Ok(()),
+            Expr::Assert(assert_expr) => self.mark_expr_as_moved(env, &assert_expr.condition),
             Expr::If(if_expr) => {
                 self.mark_expr_as_moved(env, &if_expr.then_branch)?;
                 self.mark_expr_as_moved(env, &if_expr.else_branch)
@@ -1284,6 +1364,89 @@ impl<'a> TypeChecker<'a> {
         }
     }
 
+    fn base_type_name<'b>(&self, ty: &'b Type) -> Option<&'b str> {
+        match ty {
+            Type::Named(name) => Some(name.split('<').next().unwrap_or(name.as_str())),
+            Type::Ref(inner) | Type::MutRef(inner) => self.base_type_name(inner),
+            _ => None,
+        }
+    }
+
+    fn resolve_cell_type_kind(&self, name: &str) -> Option<CellTypeKind> {
+        if let Some(kind) = self.cell_type_kinds.get(name).copied() {
+            return Some(kind);
+        }
+        let (resolver, module) = (self.resolver?, self.current_module.as_ref()?);
+        match resolver.resolve_type(module, name)? {
+            TypeDef::Resource(_) => Some(CellTypeKind::Resource),
+            TypeDef::Shared(_) => Some(CellTypeKind::Shared),
+            TypeDef::Receipt(_) => Some(CellTypeKind::Receipt),
+            TypeDef::Struct(_) | TypeDef::Enum(_) => None,
+        }
+    }
+
+    fn resolve_receipt_claim_output(&self, ty: &Type) -> Option<Type> {
+        let type_name = self.base_type_name(ty)?;
+        if let Some(output) = self.receipt_claim_outputs.get(type_name) {
+            return output.clone();
+        }
+        let (resolver, module) = (self.resolver?, self.current_module.as_ref()?);
+        match resolver.resolve_type(module, type_name)? {
+            TypeDef::Receipt(receipt) => receipt.claim_output,
+            TypeDef::Resource(_) | TypeDef::Shared(_) | TypeDef::Struct(_) | TypeDef::Enum(_) => None,
+        }
+    }
+
+    fn validate_receipt_claim_output(&self, output: &Type, span: Span) -> Result<()> {
+        let Some(type_name) = self.base_type_name(output) else {
+            return Err(CompileError::new("receipt claim output must be a cell-backed resource or shared type", span));
+        };
+        match self.resolve_cell_type_kind(type_name) {
+            Some(CellTypeKind::Resource | CellTypeKind::Shared) => Ok(()),
+            Some(CellTypeKind::Receipt) => Err(CompileError::new("receipt claim output must not be another receipt", span)),
+            None => Err(CompileError::new("receipt claim output must be a cell-backed resource or shared type", span)),
+        }
+    }
+
+    fn resolve_capabilities(&self, name: &str) -> Option<HashSet<Capability>> {
+        if let Some(capabilities) = self.type_capabilities.get(name) {
+            return Some(capabilities.clone());
+        }
+        let (resolver, module) = (self.resolver?, self.current_module.as_ref()?);
+        match resolver.resolve_type(module, name)? {
+            TypeDef::Resource(resource) => Some(resource.capabilities.into_iter().collect()),
+            TypeDef::Shared(shared) => Some(shared.capabilities.into_iter().collect()),
+            TypeDef::Receipt(receipt) => Some(receipt.capabilities.into_iter().collect()),
+            TypeDef::Struct(_) | TypeDef::Enum(_) => None,
+        }
+    }
+
+    fn require_capability(&self, ty: &Type, capability: Capability, operation: &str, span: Span) -> Result<()> {
+        let Some(type_name) = self.base_type_name(ty) else {
+            return Err(CompileError::new(format!("{} requires a cell-backed value", operation), span));
+        };
+        let Some(capabilities) = self.resolve_capabilities(type_name) else {
+            return Err(CompileError::new(format!("{} requires a cell-backed value", operation), span));
+        };
+        if capabilities.contains(&capability) {
+            Ok(())
+        } else {
+            Err(CompileError::new(
+                format!(
+                    "type '{}' does not declare '{}' capability required by {}",
+                    type_name,
+                    capability_name(capability),
+                    operation
+                ),
+                span,
+            ))
+        }
+    }
+
+    fn is_receipt_type(&self, ty: &Type) -> bool {
+        self.base_type_name(ty).and_then(|name| self.resolve_cell_type_kind(name)).is_some_and(|kind| kind == CellTypeKind::Receipt)
+    }
+
     /// 检查是否为线性类型
     fn is_linear_type(&self, ty: &Type) -> bool {
         match ty {
@@ -1364,6 +1527,14 @@ fn assignment_root_name(expr: &Expr) -> Option<&str> {
         Expr::FieldAccess(field) => assignment_root_name(&field.expr),
         Expr::Index(index) => assignment_root_name(&index.expr),
         _ => None,
+    }
+}
+
+fn capability_name(capability: Capability) -> &'static str {
+    match capability {
+        Capability::Store => "store",
+        Capability::Transfer => "transfer",
+        Capability::Destroy => "destroy",
     }
 }
 

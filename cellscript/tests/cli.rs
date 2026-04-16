@@ -213,6 +213,8 @@ action add(x: u64, y: u64) -> u64 {
     assert_eq!(stdout["expected_hashes_verified"], true);
     assert_eq!(stdout["policy_verified"], false);
     assert_eq!(stdout["sources_verified"], false);
+    assert_eq!(stdout["runtime_required_verifier_obligations"], 0);
+    assert_eq!(stdout["fail_closed_verifier_obligations"], 0);
 
     let verify = Command::new(env!("CARGO_BIN_EXE_cellc"))
         .arg("verify-artifact")
@@ -638,6 +640,8 @@ action ping() -> u64 {
     assert_eq!(stdout["status"], "ok");
     assert_eq!(stdout["artifact_format"], "RISC-V assembly");
     assert_eq!(stdout["policy_verified"], false);
+    assert_eq!(stdout["runtime_required_verifier_obligations"], 0);
+    assert_eq!(stdout["fail_closed_verifier_obligations"], 0);
     assert!(stdout["artifact"].as_str().unwrap().ends_with("build/main.s"));
     assert!(stdout["metadata"].as_str().unwrap().ends_with("build/main.s.meta.json"));
     assert!(stdout["artifact_hash_blake3"].as_str().unwrap().len() == 64);
@@ -694,6 +698,8 @@ action ping() -> u64 {
     assert_eq!(stdout["policy_verified"], false);
     let checked_targets = stdout["checked_targets"].as_array().unwrap();
     assert_eq!(checked_targets.len(), 2);
+    assert!(checked_targets.iter().all(|target| target["runtime_required_verifier_obligations"] == 0));
+    assert!(checked_targets.iter().all(|target| target["fail_closed_verifier_obligations"] == 0));
     assert!(checked_targets.iter().any(|target| target["requested_target"] == "riscv64-asm"));
     assert!(checked_targets.iter().any(|target| target["requested_target"] == "riscv64-elf"));
 }
@@ -777,6 +783,47 @@ action issue(amount: u64) -> Token {
     assert!(stderr.contains("check policy failed"), "unexpected stderr: {}", stderr);
     assert!(stderr.contains("symbolic Cell/runtime"), "unexpected stderr: {}", stderr);
     assert!(stderr.contains("verify-output-cell"), "unexpected stderr: {}", stderr);
+}
+
+#[test]
+fn cellc_check_can_reject_runtime_required_obligations() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(
+        root.join("Cell.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("src").join("main.cell"),
+        r#"
+module demo::main
+
+resource Token has store, transfer, destroy {
+    amount: u64,
+}
+
+action move_token(token: Token, to: Address) -> Token {
+    return transfer token to to
+}
+"#,
+    )
+    .unwrap();
+
+    let output =
+        Command::new(env!("CARGO_BIN_EXE_cellc")).current_dir(root).arg("check").arg("--deny-runtime-obligations").output().unwrap();
+    assert!(!output.status.success(), "unexpected success: {}", String::from_utf8_lossy(&output.stdout));
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("check policy failed"), "unexpected stderr: {}", stderr);
+    assert!(stderr.contains("runtime-required verifier obligations"), "unexpected stderr: {}", stderr);
+    assert!(stderr.contains("transfer-output:Token"), "unexpected stderr: {}", stderr);
 }
 
 #[test]
@@ -1164,6 +1211,11 @@ action ping() -> u64 {
 // cellscript-test: expect-symbolic-runtime
 // cellscript-test: expect-fail-closed-runtime
 // cellscript-test: expect-runtime-feature: transfer-expression
+// cellscript-test: expect-verifier-obligation: transfer:Token
+// cellscript-test: expect-verifier-obligation: transfer-output:Token
+// cellscript-test: expect-runtime-required-obligation: transfer-output:Token
+// cellscript-test: expect-no-verifier-obligation: not-present
+// cellscript-test: expect-no-runtime-required-obligation: destroy-output-scan:Token
 module demo::tests::metadata
 
 resource Token has store, transfer, destroy {

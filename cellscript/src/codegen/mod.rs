@@ -625,8 +625,8 @@ impl CodeGenerator {
     fn generate_create(&mut self, pattern: &CreatePattern, index: usize) -> Result<()> {
         // The verifier cannot create cells inside CKB-VM; it can only verify the
         // transaction output selected by the lowering metadata.
-        self.emit(format!("# create {}", pattern.ty));
-        self.emit_load_cell_syscall("create", CKB_SOURCE_OUTPUT, index);
+        self.emit(format!("# {} output {}", pattern.operation, pattern.ty));
+        self.emit_load_cell_syscall(&pattern.operation, CKB_SOURCE_OUTPUT, index);
         self.emit_return_on_syscall_error(1);
 
         // 如果有 lock 脚本，设置 lock
@@ -1265,6 +1265,7 @@ impl CodeGenerator {
     /// 加载常量
     fn emit_load_const(&mut self, dest: &IrVar, value: &IrConst) -> Result<()> {
         match value {
+            IrConst::Unit => self.emit("li t0, 0"),
             IrConst::U8(n) => self.emit(format!("li t0, {}", n)),
             IrConst::U16(n) => self.emit(format!("li t0, {}", n)),
             IrConst::U32(n) => self.emit(format!("li t0, {}", n)),
@@ -1633,6 +1634,7 @@ impl CodeGenerator {
     fn symbolic_type_tag(&self, operand: &IrOperand) -> usize {
         let repr = match operand {
             IrOperand::Var(var) => format!("{:?}", var.ty),
+            IrOperand::Const(IrConst::Unit) => "Unit".to_string(),
             IrOperand::Const(IrConst::Address(_)) => "Address".to_string(),
             IrOperand::Const(IrConst::Hash(_)) => "Hash".to_string(),
             IrOperand::Const(IrConst::Bool(_)) => "Bool".to_string(),

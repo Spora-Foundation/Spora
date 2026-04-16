@@ -149,6 +149,9 @@ pub struct PolicyConfig {
     /// 拒绝 CKB transaction/syscall runtime requirements
     #[serde(default)]
     pub deny_ckb_runtime: bool,
+    /// 拒绝需要外部 runtime/scheduler 兑现的 verifier obligations
+    #[serde(default)]
+    pub deny_runtime_obligations: bool,
 }
 
 /// 包管理器
