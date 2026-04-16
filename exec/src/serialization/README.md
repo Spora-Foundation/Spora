@@ -6,7 +6,7 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  Layer 3: VM/Script ABI 层 (长期需 Molecule)                    │
+│  Layer 3: VM/Script ABI 层 (Borsh v1 + Molecule v1)             │
 │  - ResolvedHeader, ResolvedCell, Witness Payload                │
 │  - 脚本可见的所有数据结构                                        │
 │  - 需要: canonical, partial read, version兼容                  │
@@ -40,12 +40,18 @@
 - [x] VM syscall 使用新抽象
 - [x] `vm_abi` 模块提供标准化序列化
 
-### Phase 3: Molecule 迁移 🔮 预留
+### Phase 3: Molecule ABI ✅ 已部分完成
 
-- [ ] Molecule schema 定义
-- [ ] Molecule 代码生成
-- [ ] Molecule 版本 `VmSerializable` 实现
-- [ ] ABI 版本协商完整支持
+- [x] CKB-style `Script` / `OutPoint` / `CellInput` / `CellOutput` Molecule wire layout
+- [x] Spora VM `ResolvedHeader` / `ResolvedCell` Molecule wire layout
+- [x] Molecule ABI version `0x8001` exposed through `VmAbiNegotiator`
+- [x] CellScript artifact metadata declares VM object ABI `0x8001`
+- [x] Exec verifier can select syscall output format from artifact ABI version
+- [x] RISC-V ELF artifact ABI trailer can be stripped before CKB-VM loading
+- [x] Roundtrip and known-layout tests
+- [ ] Generated `.mol` bindings via `moleculec`
+- [ ] Embedded/authenticated ABI manifest for non-ELF artifacts
+- [ ] Multi-language SDK compatibility validation
 
 ## 核心组件
 
@@ -95,9 +101,10 @@ let header = ResolvedHeader::from_vm_bytes(&bytes)?;
 
 ### ABI 版本 (VmSerializable)
 
-- `0x0001`: Borsh-based ABI v1 (当前)
-- `0x8001`: Molecule-based ABI v1 (未来)
+- `0x0001`: Borsh-based ABI v1 (legacy default)
+- `0x8001`: Molecule-based ABI v1 (available canonical VM ABI)
 - 使用 `VmAbiNegotiator` 协商版本
+- 使用 `VmAbiFormat` 在 VM runtime/syscall 边界选择实际 wire format
 
 ## 模块结构
 
@@ -105,7 +112,7 @@ let header = ResolvedHeader::from_vm_bytes(&bytes)?;
 serialization/
 ├── mod.rs              # 核心 trait 和类型
 ├── vm_abi.rs           # VM ABI 序列化辅助函数
-├── molecule_compat.rs  # Molecule 迁移预留接口
+├── molecule_compat.rs  # Molecule canonical VM ABI 编码/解码
 └── README.md           # 本文档
 ```
 
@@ -122,8 +129,12 @@ serialization/
 - 支持脚本指定 ABI 版本
 - 添加更多 VM-facing 类型的 `VmSerializable` 实现
 
-### Phase 3 (按需 6-12 个月)
-- 实现 `molecule_compat` 模块
-- 添加 Molecule 版本的 `VmSerializable`
-- 评估是否全栈切换到 Molecule
-- 保持分层架构，独立迁移各层
+### Phase 3 (当前推进)
+- `molecule_compat` 已实现 canonical Molecule wire layout，不再是 NotImplemented 占位
+- `LOAD_SCRIPT` / `LOAD_INPUT` / `LOAD_CELL` / `LOAD_HEADER` full-load 路径已支持 `VmAbiFormat::Molecule`
+- CellScript metadata 通过 `runtime.vm_abi.version = 0x8001` 声明所需 VM object ABI
+- RISC-V ELF artifact 可以内嵌固定 ABI trailer；verifier/loader 在交给 CKB-VM 前 strip trailer，并据此选择 Molecule syscall 输出格式
+- verifier caller 仍可以用 `with_abi_version(0x8001)` 将 artifact metadata 映射到 Molecule syscall 输出格式
+- 现有 syscall 默认输出仍是 legacy，避免破坏 Borsh/custom ABI v1 脚本
+- 非 ELF artifact 的 sidecar metadata 不是链上自动事实；仍需嵌入或认证 artifact ABI manifest
+- 保持分层架构，不做全栈 Molecule 切换

@@ -8,8 +8,8 @@
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use spora_exec::{
-    CellDep, CellInput, CellOutput, CellTx, DepType, OutPoint, Script, VersionedEnvelope,
-    VersionedSerializable, VmAbiNegotiator, VmSerializable, CELLTX_SCHEMA_VERSION,
+    CellDep, CellInput, CellOutput, CellTx, DepType, OutPoint, Script, VersionedEnvelope, VersionedSerializable, VmAbiNegotiator,
+    CELLTX_SCHEMA_VERSION,
 };
 
 /// Test that all CellTx types can be serialized with VersionedEnvelope
@@ -30,11 +30,7 @@ fn test_all_celltx_types_versioned_serialization() {
     assert_eq!(script, restored);
 
     // CellOutput
-    let output = CellOutput {
-        lock: script.clone(),
-        type_: Some(Script::new([0xDD; 32], 2, vec![0xEE; 10])),
-        capacity: 1000,
-    };
+    let output = CellOutput { lock: script.clone(), type_: Some(Script::new([0xDD; 32], 2, vec![0xEE; 10])), capacity: 1000 };
     let envelope = VersionedEnvelope::new(&output).expect("CellOutput should serialize");
     assert_eq!(envelope.schema_version(), CellOutput::CURRENT_VERSION);
     let restored: CellOutput = envelope.parse().expect("CellOutput should deserialize");
@@ -48,10 +44,7 @@ fn test_all_celltx_types_versioned_serialization() {
     assert_eq!(input, restored);
 
     // CellDep
-    let cell_dep = CellDep {
-        out_point: outpoint,
-        dep_type: DepType::Code,
-    };
+    let cell_dep = CellDep { out_point: outpoint, dep_type: DepType::Code };
     let envelope = VersionedEnvelope::new(&cell_dep).expect("CellDep should serialize");
     assert_eq!(envelope.schema_version(), CellDep::CURRENT_VERSION);
     let restored: CellDep = envelope.parse().expect("CellDep should deserialize");
@@ -65,14 +58,8 @@ fn test_all_celltx_types_versioned_serialization() {
     assert_eq!(dep_type, restored);
 
     // Full CellTx
-    let tx = CellTx::new(
-        vec![input],
-        vec![cell_dep],
-        vec![output],
-        vec![vec![0x11; 100]],
-        vec![vec![0x22; 65]],
-    )
-    .expect("valid transaction");
+    let tx = CellTx::new(vec![input], vec![cell_dep], vec![output], vec![vec![0x11; 100]], vec![vec![0x22; 65]])
+        .expect("valid transaction");
 
     let envelope = VersionedEnvelope::new(&tx).expect("CellTx should serialize");
     assert_eq!(envelope.schema_version(), CellTx::CURRENT_VERSION);
@@ -104,8 +91,7 @@ fn test_versioned_envelope_format() {
     let bytes = borsh::to_vec(&envelope).expect("should serialize envelope");
 
     // Deserialize back
-    let restored: VersionedEnvelope<CellTx> =
-        borsh::from_slice(&bytes).expect("should deserialize envelope");
+    let restored: VersionedEnvelope<CellTx> = borsh::from_slice(&bytes).expect("should deserialize envelope");
 
     // Parse the content
     let restored_tx: CellTx = restored.parse().expect("should parse content");
@@ -208,18 +194,8 @@ fn test_multiple_roundtrips() {
 /// Helper function to create a sample transaction
 fn create_sample_tx() -> CellTx {
     let lock_script = Script::new([0x00; 32], 0, vec![0xAB; 20]);
-    let output = CellOutput {
-        lock: lock_script,
-        type_: None,
-        capacity: 1000,
-    };
+    let output = CellOutput { lock: lock_script, type_: None, capacity: 1000 };
 
-    CellTx::new(
-        vec![CellInput::new(OutPoint::new([0x11; 32], 0), 0)],
-        vec![],
-        vec![output],
-        vec![vec![]],
-        vec![vec![0xCC; 65]],
-    )
-    .expect("valid transaction")
+    CellTx::new(vec![CellInput::new(OutPoint::new([0x11; 32], 0), 0)], vec![], vec![output], vec![vec![]], vec![vec![0xCC; 65]])
+        .expect("valid transaction")
 }

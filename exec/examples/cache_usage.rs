@@ -6,9 +6,7 @@
 // This example demonstrates the serialization cache for optimizing
 // repeated serialization operations.
 
-use spora_exec::{
-    CellOutput, Script, SerializationCache, ThreadSafeSerializationCache,
-};
+use spora_exec::{CellOutput, Script, SerializationCache, ThreadSafeSerializationCache};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== Serialization Cache Usage Example ===\n");
@@ -59,11 +57,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n--- Multiple Items ---");
 
     let outputs: Vec<CellOutput> = (0..10)
-        .map(|i| CellOutput {
-            lock: Script::new([i as u8; 32], 0, vec![i as u8; 20]),
-            type_: None,
-            capacity: i as u64,
-        })
+        .map(|i| CellOutput { lock: Script::new([i as u8; 32], 0, vec![i as u8; 20]), type_: None, capacity: i as u64 })
         .collect();
 
     // First pass - populate cache
@@ -94,11 +88,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut small_cache = small_cache; // Make it mutable
 
     let items: Vec<CellOutput> = (0..5)
-        .map(|i| CellOutput {
-            lock: Script::new([i as u8; 32], 0, vec![i as u8; 20]),
-            type_: None,
-            capacity: i as u64,
-        })
+        .map(|i| CellOutput { lock: Script::new([i as u8; 32], 0, vec![i as u8; 20]), type_: None, capacity: i as u64 })
         .collect();
 
     // Add 3 items
@@ -127,11 +117,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n--- Thread-Safe Cache ---");
 
     let thread_cache = ThreadSafeSerializationCache::new(100);
-    let output = CellOutput {
-        lock: Script::new([0xFF; 32], 0, vec![0xEE; 20]),
-        type_: None,
-        capacity: 9999,
-    };
+    let output = CellOutput { lock: Script::new([0xFF; 32], 0, vec![0xEE; 20]), type_: None, capacity: 9999 };
 
     // Simulate concurrent access
     let bytes1 = thread_cache.get_or_serialize(&output)?;
@@ -151,11 +137,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let large_outputs: Vec<CellOutput> = (0..1000)
         .map(|i| CellOutput {
             lock: Script::new([i as u8; 32], 0, vec![0xBB; 20]),
-            type_: if i % 2 == 0 {
-                Some(Script::new([0x11; 32], 1, vec![0x22; 10]))
-            } else {
-                None
-            },
+            type_: if i % 2 == 0 { Some(Script::new([0x11; 32], 1, vec![0x22; 10])) } else { None },
             capacity: i as u64,
         })
         .collect();

@@ -50,15 +50,15 @@ pub fn serialize_outpoint(outpoint: &OutPoint) -> Vec<u8> {
 /// type_script: 同上（如果 has_type == 1）
 pub fn serialize_cell_output(output: &CellOutput) -> Vec<u8> {
     let mut data = Vec::new();
-    
+
     // capacity
     data.extend_from_slice(&output.capacity.to_le_bytes());
-    
+
     // lock script
     let lock = serialize_script(&output.lock);
     data.extend_from_slice(&(lock.len() as u32).to_le_bytes());
     data.extend_from_slice(&lock);
-    
+
     // type script (optional)
     match output.type_.as_ref() {
         Some(type_script) => {
@@ -69,7 +69,7 @@ pub fn serialize_cell_output(output: &CellOutput) -> Vec<u8> {
         }
         None => data.push(0),
     }
-    
+
     data
 }
 
@@ -93,7 +93,7 @@ mod tests {
     fn test_serialize_script() {
         let script = Script::new([0xAA; 32], 1, vec![0x10, 0x20, 0x30]);
         let bytes = serialize_script(&script);
-        
+
         assert_eq!(bytes.len(), 32 + 1 + 4 + 3); // code_hash + hash_type + args_len + args
         assert_eq!(&bytes[0..32], &[0xAA; 32]);
         assert_eq!(bytes[32], 1);
@@ -105,7 +105,7 @@ mod tests {
     fn test_serialize_cell_input() {
         let input = CellInput::new(OutPoint::new([0xBB; 32], 0x12345678), 0xABCDEF00);
         let bytes = serialize_cell_input(&input);
-        
+
         assert_eq!(bytes.len(), 44);
         assert_eq!(&bytes[0..32], &[0xBB; 32]);
         assert_eq!(&bytes[32..36], &[0x78, 0x56, 0x34, 0x12]); // index in LE
@@ -116,7 +116,7 @@ mod tests {
     fn test_serialize_outpoint() {
         let outpoint = OutPoint::new([0xCC; 32], 0xDEADBEEF);
         let bytes = serialize_outpoint(&outpoint);
-        
+
         assert_eq!(bytes.len(), 36);
         assert_eq!(&bytes[0..32], &[0xCC; 32]);
         assert_eq!(&bytes[32..36], &[0xEF, 0xBE, 0xAD, 0xDE]); // index in LE
@@ -126,17 +126,13 @@ mod tests {
     fn test_serialize_cell_output_with_type() {
         let lock = Script::new([0x11; 32], 0, vec![0xAA; 20]);
         let type_script = Script::new([0x22; 32], 1, vec![0xBB; 10]);
-        let output = CellOutput {
-            lock,
-            type_: Some(type_script),
-            capacity: 0x0102030405060708,
-        };
-        
+        let output = CellOutput { lock, type_: Some(type_script), capacity: 0x0102030405060708 };
+
         let bytes = serialize_cell_output(&output);
-        
+
         // Check capacity
         assert_eq!(&bytes[0..8], &[0x08, 0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01]);
-        
+
         // Check has_type flag
         let lock_len = u32::from_le_bytes([bytes[8], bytes[9], bytes[10], bytes[11]]) as usize;
         assert!(lock_len > 0);
@@ -146,14 +142,10 @@ mod tests {
     #[test]
     fn test_serialize_cell_output_without_type() {
         let lock = Script::new([0x11; 32], 0, vec![]);
-        let output = CellOutput {
-            lock,
-            type_: None,
-            capacity: 1000,
-        };
-        
+        let output = CellOutput { lock, type_: None, capacity: 1000 };
+
         let bytes = serialize_cell_output(&output);
-        
+
         // Check has_type flag
         let lock_len = u32::from_le_bytes([bytes[8], bytes[9], bytes[10], bytes[11]]) as usize;
         assert_eq!(bytes[8 + 4 + lock_len], 0); // has_type = 0
@@ -163,12 +155,8 @@ mod tests {
     fn test_serialized_size_helpers() {
         let script = Script::new([0xAA; 32], 1, vec![0x10, 0x20, 0x30]);
         assert_eq!(serialized_script_size(&script), 32 + 1 + 4 + 3);
-        
-        let output = CellOutput {
-            lock: script.clone(),
-            type_: Some(script.clone()),
-            capacity: 1000,
-        };
+
+        let output = CellOutput { lock: script.clone(), type_: Some(script.clone()), capacity: 1000 };
         let expected_size = 8 + 4 + serialized_script_size(&script) + 1 + 4 + serialized_script_size(&script);
         assert_eq!(serialized_cell_output_size(&output), expected_size);
     }

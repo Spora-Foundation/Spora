@@ -5,7 +5,7 @@
 use crate::ast::*;
 use crate::error::{CompileError, Result, Span};
 use crate::resolve::{FunctionDef, ModuleResolver, TypeDef};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Spora IR 模块
 #[derive(Debug, Clone)]
@@ -19,6 +19,7 @@ pub struct IrModule {
 pub enum IrItem {
     TypeDef(IrTypeDef),
     Action(IrAction),
+    PureFn(IrPureFn),
     Lock(IrLock),
 }
 
@@ -29,6 +30,7 @@ pub struct IrTypeDef {
     pub kind: IrTypeKind,
     pub fields: Vec<IrField>,
     pub capabilities: Vec<Capability>,
+    pub lifecycle_states: Option<Vec<String>>,
 }
 
 /// IR 类型种类
@@ -58,6 +60,7 @@ pub enum IrType {
     U64,
     U128,
     Bool,
+    Unit,
     Address,
     Hash,
     Array(Box<IrType>, usize),
@@ -76,6 +79,15 @@ pub struct IrAction {
     pub body: IrBody,
     pub effect_class: EffectClass,
     pub scheduler_hints: SchedulerHints,
+}
+
+/// IR pure helper function
+#[derive(Debug, Clone)]
+pub struct IrPureFn {
+    pub name: String,
+    pub params: Vec<IrParam>,
+    pub return_type: Option<IrType>,
+    pub body: IrBody,
 }
 
 /// IR Lock
@@ -266,12 +278,15 @@ pub struct IrGenerator {
     var_counter: usize,
     block_counter: usize,
     aggregate_fields: HashMap<usize, HashMap<String, IrVar>>,
+    aggregate_elements: HashMap<usize, Vec<IrVar>>,
     type_fields: HashMap<String, HashMap<String, IrType>>,
     type_kinds: HashMap<String, IrTypeKind>,
     enum_variants: HashMap<String, HashMap<String, u64>>,
     constants: HashMap<String, Expr>,
     function_effects: HashMap<String, EffectClass>,
     external_function_effects: HashMap<String, EffectClass>,
+    function_return_types: HashMap<String, Option<IrType>>,
+    external_function_return_types: HashMap<String, Option<IrType>>,
     errors: Vec<CompileError>,
 }
 
@@ -288,12 +303,15 @@ impl IrGenerator {
             var_counter: 0,
             block_counter: 0,
             aggregate_fields: HashMap::new(),
+            aggregate_elements: HashMap::new(),
             type_fields: HashMap::new(),
             type_kinds: HashMap::new(),
             enum_variants: HashMap::new(),
             constants: HashMap::new(),
             function_effects: HashMap::new(),
             external_function_effects: HashMap::new(),
+            function_return_types: HashMap::new(),
+            external_function_return_types: HashMap::new(),
             errors: Vec::new(),
         }
     }
@@ -308,9 +326,11 @@ impl IrGenerator {
         module_name: String,
         type_fields: HashMap<String, HashMap<String, IrType>>,
         external_function_effects: HashMap<String, EffectClass>,
+        external_function_return_types: HashMap<String, Option<IrType>>,
     ) -> Self {
         let mut generator = Self::with_type_fields(module_name, type_fields);
         generator.external_function_effects = external_function_effects;
+        generator.external_function_return_types = external_function_return_types;
         generator
     }
 
@@ -355,6 +375,20 @@ impl IrGenerator {
                         e.variants.iter().enumerate().map(|(index, variant)| (variant.name.clone(), index as u64)).collect(),
                     );
                 }
+                Item::Action(action) => {
+                    let return_type = action.return_type.as_ref().map(ast_type_to_ir);
+                    self.function_return_types.insert(action.name.clone(), return_type.clone());
+                    self.function_return_types.insert(format!("{}::{}", self.module.name, action.name), return_type);
+                }
+                Item::Function(function) => {
+                    let return_type = function.return_type.as_ref().map(ast_type_to_ir);
+                    self.function_return_types.insert(function.name.clone(), return_type.clone());
+                    self.function_return_types.insert(format!("{}::{}", self.module.name, function.name), return_type);
+                }
+                Item::Lock(lock) => {
+                    self.function_return_types.insert(lock.name.clone(), Some(IrType::Bool));
+                    self.function_return_types.insert(format!("{}::{}", self.module.name, lock.name), Some(IrType::Bool));
+                }
                 _ => {}
             }
         }
@@ -385,11 +419,11 @@ impl IrGenerator {
                     self.module.items.push(ir_item);
                 }
                 Item::Function(f) => {
-                    let inferred_effect = self.analyze_effect_class(f);
+                    let inferred_effect = self.analyze_body_effect_class(&f.body);
                     if inferred_effect != EffectClass::Pure {
                         self.record_error(format!("fn '{}' must be pure; inferred effect is {:?}", f.name, inferred_effect), f.span);
                     }
-                    let ir_item = IrItem::Action(self.gen_action(f));
+                    let ir_item = IrItem::PureFn(self.gen_function(f));
                     self.module.items.push(ir_item);
                 }
                 Item::Lock(l) => {
@@ -413,6 +447,7 @@ impl IrGenerator {
             kind: IrTypeKind::Resource,
             fields: self.layout_fields(&resource.fields),
             capabilities: resource.capabilities.clone(),
+            lifecycle_states: None,
         }
     }
 
@@ -423,6 +458,7 @@ impl IrGenerator {
             kind: IrTypeKind::Shared,
             fields: self.layout_fields(&shared.fields),
             capabilities: shared.capabilities.clone(),
+            lifecycle_states: None,
         }
     }
 
@@ -433,6 +469,7 @@ impl IrGenerator {
             kind: IrTypeKind::Receipt,
             fields: self.layout_fields(&receipt.fields),
             capabilities: receipt.capabilities.clone(),
+            lifecycle_states: receipt.lifecycle.as_ref().map(|lifecycle| lifecycle.states.clone()),
         }
     }
 
@@ -443,32 +480,70 @@ impl IrGenerator {
             kind: IrTypeKind::Struct,
             fields: self.layout_fields(&struct_def.fields),
             capabilities: Vec::new(),
+            lifecycle_states: None,
         }
     }
 
     fn infer_module_function_effects(&mut self, items: &[Item]) {
         for item in items {
-            if let Item::Action(action) | Item::Function(action) = item {
-                self.function_effects.insert(action.name.clone(), EffectClass::Pure);
+            match item {
+                Item::Action(action) => {
+                    self.function_effects.insert(action.name.clone(), EffectClass::Pure);
+                    self.function_effects.insert(format!("{}::{}", self.module.name, action.name), EffectClass::Pure);
+                }
+                Item::Function(function) => {
+                    self.function_effects.insert(function.name.clone(), EffectClass::Pure);
+                    self.function_effects.insert(format!("{}::{}", self.module.name, function.name), EffectClass::Pure);
+                }
+                _ => {}
             }
         }
 
         for _ in 0..items.len().saturating_add(1) {
             let mut changed = false;
             for item in items {
-                if let Item::Action(action) | Item::Function(action) = item {
-                    let inferred = self.analyze_effect_class(action);
-                    let declared = self.convert_effect_class(action.effect);
-                    let effective = if action.effect_declared && self.effect_covers(declared, inferred) { declared } else { inferred };
-                    if self.function_effects.get(&action.name).copied() != Some(effective) {
-                        self.function_effects.insert(action.name.clone(), effective);
-                        changed = true;
+                match item {
+                    Item::Action(action) => {
+                        let inferred = self.analyze_effect_class(action);
+                        let declared = self.convert_effect_class(action.effect);
+                        let effective =
+                            if action.effect_declared && self.effect_covers(declared, inferred) { declared } else { inferred };
+                        if self.function_effects.get(&action.name).copied() != Some(effective) {
+                            self.function_effects.insert(action.name.clone(), effective);
+                            self.function_effects.insert(format!("{}::{}", self.module.name, action.name), effective);
+                            changed = true;
+                        }
                     }
+                    Item::Function(function) => {
+                        let inferred = self.analyze_body_effect_class(&function.body);
+                        if self.function_effects.get(&function.name).copied() != Some(inferred) {
+                            self.function_effects.insert(function.name.clone(), inferred);
+                            self.function_effects.insert(format!("{}::{}", self.module.name, function.name), inferred);
+                            changed = true;
+                        }
+                    }
+                    _ => {}
                 }
             }
             if !changed {
                 break;
             }
+        }
+    }
+
+    /// 生成纯函数
+    fn gen_function(&mut self, function: &FnDef) -> IrPureFn {
+        self.var_counter = 0;
+        self.block_counter = 0;
+        self.aggregate_fields.clear();
+        self.aggregate_elements.clear();
+        let (params, body) = self.lower_signature_and_body(&function.params, &function.body, function.return_type.is_some());
+
+        IrPureFn {
+            name: function.name.clone(),
+            params,
+            return_type: function.return_type.as_ref().map(|t| self.convert_type(t)),
+            body,
         }
     }
 
@@ -496,6 +571,7 @@ impl IrGenerator {
             IrType::Address | IrType::Hash => Some(32),
             IrType::Array(inner, len) => self.fixed_encoded_size(inner).map(|inner_size| inner_size * len),
             IrType::Tuple(items) => items.iter().try_fold(0usize, |acc, item| self.fixed_encoded_size(item).map(|size| acc + size)),
+            IrType::Unit => Some(0),
             IrType::Named(_) | IrType::Ref(_) | IrType::MutRef(_) => None,
         }
     }
@@ -505,7 +581,8 @@ impl IrGenerator {
         self.var_counter = 0;
         self.block_counter = 0;
         self.aggregate_fields.clear();
-        let (params, body) = self.lower_signature_and_body(&action.params, &action.body);
+        self.aggregate_elements.clear();
+        let (params, body) = self.lower_signature_and_body(&action.params, &action.body, action.return_type.is_some());
 
         let effect_class = self.analyze_effect_class(action);
         let declared_effect_class = self.convert_effect_class(action.effect);
@@ -544,7 +621,8 @@ impl IrGenerator {
         self.var_counter = 0;
         self.block_counter = 0;
         self.aggregate_fields.clear();
-        let (params, body) = self.lower_signature_and_body(&lock.params, &lock.body);
+        self.aggregate_elements.clear();
+        let (params, body) = self.lower_signature_and_body(&lock.params, &lock.body, false);
 
         IrLock { name: lock.name.clone(), params, body }
     }
@@ -558,6 +636,7 @@ impl IrGenerator {
             Type::U64 => IrType::U64,
             Type::U128 => IrType::U128,
             Type::Bool => IrType::Bool,
+            Type::Unit => IrType::Unit,
             Type::Address => IrType::Address,
             Type::Hash => IrType::Hash,
             Type::Array(elem, size) => IrType::Array(Box::new(self.convert_type(elem)), *size),
@@ -570,9 +649,13 @@ impl IrGenerator {
 
     /// 分析效果类别
     fn analyze_effect_class(&self, action: &ActionDef) -> EffectClass {
+        self.analyze_body_effect_class(&action.body)
+    }
+
+    fn analyze_body_effect_class(&self, body: &[Stmt]) -> EffectClass {
         let mut footprint = EffectFootprint::default();
 
-        for stmt in &action.body {
+        for stmt in body {
             self.check_stmt_effects(stmt, &mut footprint);
         }
 
@@ -671,6 +754,10 @@ impl IrGenerator {
                 footprint.has_create = true;
                 self.check_expr_effects(&settle.expr, footprint);
             }
+            Expr::Assert(assert_expr) => {
+                self.check_expr_effects(&assert_expr.condition, footprint);
+                self.check_expr_effects(&assert_expr.message, footprint);
+            }
             Expr::Assign(assign) => {
                 self.check_expr_effects(&assign.target, footprint);
                 self.check_expr_effects(&assign.value, footprint);
@@ -761,7 +848,7 @@ impl IrGenerator {
         }
     }
 
-    fn lower_signature_and_body(&mut self, params: &[Param], stmts: &[Stmt]) -> (Vec<IrParam>, IrBody) {
+    fn lower_signature_and_body(&mut self, params: &[Param], stmts: &[Stmt], tail_expr_returns: bool) -> (Vec<IrParam>, IrBody) {
         let mut vars = HashMap::new();
         let ir_params = params
             .iter()
@@ -779,7 +866,7 @@ impl IrGenerator {
             .collect::<Vec<_>>();
         let mut blocks = Vec::new();
         let entry = self.push_block(&mut blocks);
-        let _ = self.lower_stmts(stmts, entry, &mut blocks, &mut vars);
+        let _ = self.lower_stmts(stmts, entry, &mut blocks, &mut vars, tail_expr_returns);
         let consume_set = self.collect_consume_patterns(&blocks);
         let read_refs = self.collect_read_ref_patterns(&blocks);
         let create_set = self.collect_create_patterns(&blocks);
@@ -915,8 +1002,20 @@ impl IrGenerator {
         mut current: BlockId,
         blocks: &mut Vec<IrBlock>,
         vars: &mut HashMap<String, IrVar>,
+        tail_expr_returns: bool,
     ) -> Option<BlockId> {
-        for stmt in stmts {
+        for (index, stmt) in stmts.iter().enumerate() {
+            if tail_expr_returns && index + 1 == stmts.len() {
+                if let Stmt::Expr(expr) = stmt {
+                    let lowered = self.lower_expr(expr, current, blocks, vars);
+                    let active = lowered.current?;
+                    self.block_mut(blocks, active).terminator = IrTerminator::Return(Some(lowered.operand));
+                    return None;
+                }
+                if let Stmt::If(if_stmt) = stmt {
+                    return self.lower_if_stmt(if_stmt, current, blocks, vars, true);
+                }
+            }
             let Some(next) = self.lower_stmt(stmt, current, blocks, vars) else {
                 return None;
             };
@@ -935,7 +1034,12 @@ impl IrGenerator {
     ) -> Option<BlockId> {
         match stmt {
             Stmt::Let(let_stmt) => {
-                let lowered = self.lower_expr(&let_stmt.value, current, blocks, vars);
+                let lowered = match (&let_stmt.value, &let_stmt.ty) {
+                    (Expr::Array(items), Some(declared_ty)) if items.is_empty() => {
+                        self.lower_empty_array_expr_with_type(declared_ty, current, blocks)
+                    }
+                    _ => self.lower_expr(&let_stmt.value, current, blocks, vars),
+                };
                 let active = lowered.current?;
                 let block = self.block_mut(blocks, active);
                 self.bind_pattern(&let_stmt.pattern, lowered.operand, block, vars);
@@ -952,7 +1056,7 @@ impl IrGenerator {
                 self.block_mut(blocks, active).terminator = IrTerminator::Return(Some(lowered.operand));
                 None
             }
-            Stmt::If(if_stmt) => self.lower_if_stmt(if_stmt, current, blocks, vars),
+            Stmt::If(if_stmt) => self.lower_if_stmt(if_stmt, current, blocks, vars, false),
             Stmt::For(for_stmt) => self.lower_for_stmt(for_stmt, current, blocks, vars),
             Stmt::While(while_stmt) => self.lower_while_stmt(while_stmt, current, blocks, vars),
         }
@@ -965,15 +1069,37 @@ impl IrGenerator {
                 vars.insert(name.clone(), var);
             }
             BindingPattern::Tuple(items) => {
+                let base_var = match &value {
+                    IrOperand::Var(var) => Some(var.clone()),
+                    IrOperand::Const(_) => None,
+                };
                 for (index, item) in items.iter().enumerate() {
-                    let name = match item {
-                        BindingPattern::Name(name) => name.as_str(),
-                        BindingPattern::Wildcard => "_",
-                        BindingPattern::Tuple(_) => "tuple_item",
-                    };
-                    let tuple_name = format!("{}_{}", name, index);
-                    let tuple_var = self.materialize_operand(&tuple_name, value.clone(), block);
-                    self.bind_pattern(item, IrOperand::Var(tuple_var), block, vars);
+                    if matches!(item, BindingPattern::Wildcard) {
+                        continue;
+                    }
+                    let field = index.to_string();
+                    let tuple_name = format!("{}_{}", binding_pattern_label(item), index);
+                    let projected = base_var
+                        .as_ref()
+                        .and_then(|var| self.aggregate_fields.get(&var.id).and_then(|fields| fields.get(&field)).cloned())
+                        .map(IrOperand::Var)
+                        .or_else(|| {
+                            let base_var = base_var.as_ref()?;
+                            let field_ty = self.lookup_field_ir_type(&base_var.ty, &field)?;
+                            let field_var = self.new_var(tuple_name, field_ty);
+                            block.instructions.push(IrInstruction::FieldAccess {
+                                dest: field_var.clone(),
+                                obj: IrOperand::Var(base_var.clone()),
+                                field,
+                            });
+                            Some(IrOperand::Var(field_var))
+                        });
+
+                    if let Some(projected) = projected {
+                        self.bind_pattern(item, projected, block, vars);
+                    } else {
+                        self.record_error("tuple binding requires a lowered tuple aggregate", Span::default());
+                    }
                 }
             }
             BindingPattern::Wildcard => {}
@@ -1060,15 +1186,31 @@ impl IrGenerator {
                     active = next;
                     args.push(lowered.operand);
                 }
-                let dest = self.new_var("call_tmp", IrType::U64);
                 let func = match call.func.as_ref() {
-                    Expr::Identifier(name) => name.clone(),
+                    Expr::Identifier(name) => self.lower_call_target_name(name),
                     Expr::FieldAccess(field) => field.field.clone(),
                     _ => "__expr_call".to_string(),
                 };
-                let block = self.block_mut(blocks, active);
-                block.instructions.push(IrInstruction::Call { dest: Some(dest.clone()), func, args });
-                LoweredExpr { operand: IrOperand::Var(dest), current: Some(active) }
+                let source_func = match call.func.as_ref() {
+                    Expr::Identifier(name) => name.as_str(),
+                    Expr::FieldAccess(field) => field.field.as_str(),
+                    _ => "__expr_call",
+                };
+                match self.call_return_type(source_func, &func) {
+                    Some(Some(return_type)) => {
+                        let dest = self.new_var("call_tmp", return_type);
+                        self.block_mut(blocks, active).instructions.push(IrInstruction::Call { dest: Some(dest.clone()), func, args });
+                        LoweredExpr { operand: IrOperand::Var(dest), current: Some(active) }
+                    }
+                    Some(None) => {
+                        self.block_mut(blocks, active).instructions.push(IrInstruction::Call { dest: None, func, args });
+                        LoweredExpr { operand: IrOperand::Const(IrConst::Bool(true)), current: Some(active) }
+                    }
+                    None => {
+                        self.record_error(format!("call '{}' has no known return type during IR lowering", source_func), call.span);
+                        LoweredExpr { operand: IrOperand::Const(IrConst::U64(0)), current: Some(active) }
+                    }
+                }
             }
             Expr::ReadRef(read_ref) => self.lower_read_ref_expr(read_ref, current, blocks),
             Expr::Create(create) => self.lower_create_expr(create, current, blocks, vars),
@@ -1077,6 +1219,7 @@ impl IrGenerator {
             Expr::Destroy(destroy) => self.lower_destroy_expr(destroy, current, blocks, vars),
             Expr::Claim(claim) => self.lower_claim_expr(claim, current, blocks, vars),
             Expr::Settle(settle) => self.lower_settle_expr(settle, current, blocks, vars),
+            Expr::Assert(assert_expr) => self.lower_assert_expr(assert_expr, current, blocks, vars),
             Expr::StructInit(init) => self.lower_struct_init(init, current, blocks, vars),
             Expr::FieldAccess(field) => self.lower_field_access(field, current, blocks, vars),
             Expr::Index(index) => self.lower_index_expr(index, current, blocks, vars),
@@ -1106,7 +1249,18 @@ impl IrGenerator {
             Expr::If(if_expr) => self.lower_if_expr(if_expr, current, blocks, vars),
             Expr::Match(match_expr) => self.lower_match_expr(match_expr, current, blocks, vars),
             Expr::Cast(cast) => self.lower_expr(&cast.expr, current, blocks, vars),
-            Expr::Tuple(_) | Expr::Array(_) | Expr::String(_) | Expr::ByteString(_) | Expr::Range(_) => {
+            Expr::Array(items) => self.lower_array_expr(items, current, blocks, vars),
+            Expr::Tuple(items) => self.lower_tuple_expr(items, current, blocks, vars),
+            Expr::String(_) => {
+                self.record_error("string literals are only supported in metadata positions such as assert messages", Span::default());
+                LoweredExpr { operand: IrOperand::Const(IrConst::U64(0)), current: Some(current) }
+            }
+            Expr::ByteString(_) => {
+                self.record_error("byte string literals require an explicit lowered byte-array context", Span::default());
+                LoweredExpr { operand: IrOperand::Const(IrConst::U64(0)), current: Some(current) }
+            }
+            Expr::Range(_) => {
+                self.record_error("range expressions are only supported as for-loop iterables", Span::default());
                 LoweredExpr { operand: IrOperand::Const(IrConst::U64(0)), current: Some(current) }
             }
         }
@@ -1176,6 +1330,7 @@ impl IrGenerator {
         current: BlockId,
         blocks: &mut Vec<IrBlock>,
         vars: &mut HashMap<String, IrVar>,
+        tail_expr_returns: bool,
     ) -> Option<BlockId> {
         let lowered_cond = self.lower_expr(&if_stmt.condition, current, blocks, vars);
         let cond = lowered_cond.operand;
@@ -1186,11 +1341,11 @@ impl IrGenerator {
         self.block_mut(blocks, current).terminator = IrTerminator::Branch { cond, then_block, else_block };
 
         let mut then_vars = vars.clone();
-        let then_exit = self.lower_stmts(&if_stmt.then_branch, then_block, blocks, &mut then_vars);
+        let then_exit = self.lower_stmts(&if_stmt.then_branch, then_block, blocks, &mut then_vars, tail_expr_returns);
 
         let mut else_vars = vars.clone();
         let else_exit = if let Some(else_branch) = &if_stmt.else_branch {
-            self.lower_stmts(else_branch, else_block, blocks, &mut else_vars)
+            self.lower_stmts(else_branch, else_block, blocks, &mut else_vars, tail_expr_returns)
         } else {
             Some(else_block)
         };
@@ -1228,7 +1383,7 @@ impl IrGenerator {
         self.block_mut(blocks, cond_exit).terminator = IrTerminator::Branch { cond, then_block: body_block, else_block: exit_block };
 
         let mut body_vars = vars.clone();
-        let body_exit = self.lower_stmts(&while_stmt.body, body_block, blocks, &mut body_vars);
+        let body_exit = self.lower_stmts(&while_stmt.body, body_block, blocks, &mut body_vars, false);
         if let Some(exit) = body_exit {
             self.block_mut(blocks, exit).terminator = IrTerminator::Jump(cond_entry);
         }
@@ -1261,6 +1416,12 @@ impl IrGenerator {
         blocks: &mut Vec<IrBlock>,
         vars: &mut HashMap<String, IrVar>,
     ) -> Option<BlockId> {
+        if let IrOperand::Var(iterable_var) = &iterable {
+            if let Some(elements) = self.aggregate_elements.get(&iterable_var.id).cloned() {
+                return self.lower_for_local_fixed_array_stmt(for_stmt, elements, current, blocks, vars);
+            }
+        }
+
         let Some(item_ty) = self.iter_item_type(&iterable) else {
             self.record_error("for-loop iterable has no lowered item type", for_stmt.span);
             return Some(current);
@@ -1302,7 +1463,7 @@ impl IrGenerator {
 
         let mut body_vars = vars.clone();
         self.bind_pattern(&for_stmt.pattern, IrOperand::Var(item_var), self.block_mut(blocks, body_block), &mut body_vars);
-        let body_exit = self.lower_stmts(&for_stmt.body, body_block, blocks, &mut body_vars);
+        let body_exit = self.lower_stmts(&for_stmt.body, body_block, blocks, &mut body_vars, false);
         if let Some(exit) = body_exit {
             let next_index = self.new_var("iter_next", IrType::U64);
             let block = self.block_mut(blocks, exit);
@@ -1317,6 +1478,29 @@ impl IrGenerator {
         }
 
         Some(exit_block)
+    }
+
+    fn lower_for_local_fixed_array_stmt(
+        &mut self,
+        for_stmt: &ForStmt,
+        elements: Vec<IrVar>,
+        mut current: BlockId,
+        blocks: &mut Vec<IrBlock>,
+        vars: &mut HashMap<String, IrVar>,
+    ) -> Option<BlockId> {
+        for (index, element_var) in elements.into_iter().enumerate() {
+            let item_var = self.new_var(format!("iter_item_{}", index), element_var.ty.clone());
+            self.block_mut(blocks, current)
+                .instructions
+                .push(IrInstruction::Move { dest: item_var.clone(), src: IrOperand::Var(element_var.clone()) });
+            self.copy_aggregate_metadata(&IrOperand::Var(element_var), item_var.id);
+
+            let mut body_vars = vars.clone();
+            self.bind_pattern(&for_stmt.pattern, IrOperand::Var(item_var), self.block_mut(blocks, current), &mut body_vars);
+            current = self.lower_stmts(&for_stmt.body, current, blocks, &mut body_vars, false)?;
+        }
+
+        Some(current)
     }
 
     fn lower_for_range_stmt(
@@ -1364,7 +1548,7 @@ impl IrGenerator {
 
         let mut body_vars = vars.clone();
         self.bind_pattern(&for_stmt.pattern, IrOperand::Var(index_var.clone()), self.block_mut(blocks, body_block), &mut body_vars);
-        let body_exit = self.lower_stmts(&for_stmt.body, body_block, blocks, &mut body_vars);
+        let body_exit = self.lower_stmts(&for_stmt.body, body_block, blocks, &mut body_vars, false);
         if let Some(exit) = body_exit {
             let next_index = self.new_var("for_next", IrType::U64);
             let block = self.block_mut(blocks, exit);
@@ -1379,6 +1563,27 @@ impl IrGenerator {
         }
 
         Some(exit_block)
+    }
+
+    fn lower_assert_expr(
+        &mut self,
+        assert_expr: &AssertExpr,
+        current: BlockId,
+        blocks: &mut Vec<IrBlock>,
+        vars: &mut HashMap<String, IrVar>,
+    ) -> LoweredExpr {
+        let lowered_cond = self.lower_expr(&assert_expr.condition, current, blocks, vars);
+        let Some(active) = lowered_cond.current else {
+            return lowered_cond;
+        };
+        let cond = lowered_cond.operand;
+
+        let ok_block = self.push_block(blocks);
+        let fail_block = self.push_block(blocks);
+        self.block_mut(blocks, active).terminator = IrTerminator::Branch { cond, then_block: ok_block, else_block: fail_block };
+        self.block_mut(blocks, fail_block).terminator = IrTerminator::Return(Some(IrOperand::Const(IrConst::U64(7))));
+
+        LoweredExpr { operand: IrOperand::Const(IrConst::Bool(true)), current: Some(ok_block) }
     }
 
     fn lower_assign_expr(
@@ -1420,10 +1625,7 @@ impl IrGenerator {
                 LoweredExpr { operand: IrOperand::Var(target_var), current: Some(active) }
             }
             Expr::FieldAccess(field) => self.lower_field_assign(field, assign.op, lowered_value.operand, active, blocks, vars),
-            Expr::Index(index) => {
-                self.record_error("index assignment is not implemented in IR lowering", index.span);
-                LoweredExpr { operand: lowered_value.operand, current: Some(active) }
-            }
+            Expr::Index(index) => self.lower_index_assign(index, assign.op, lowered_value.operand, active, blocks, vars),
             _ => {
                 self.record_error("invalid assignment target reached IR lowering", assign.span);
                 LoweredExpr { operand: lowered_value.operand, current: Some(active) }
@@ -1523,7 +1725,7 @@ impl IrGenerator {
             return lowered_to;
         };
 
-        let dest_ty = self.operand_type(&lowered_expr.operand).unwrap_or(IrType::U64);
+        let dest_ty = self.operand_type(&lowered_expr.operand);
         let dest = self.new_var("transfer_tmp", dest_ty);
         self.block_mut(blocks, active).instructions.push(IrInstruction::Transfer {
             dest: dest.clone(),
@@ -1588,6 +1790,23 @@ impl IrGenerator {
             return lowered_idx;
         };
 
+        if let IrOperand::Var(arr_var) = &lowered_arr.operand {
+            if let Some(elements) = self.aggregate_elements.get(&arr_var.id) {
+                let Some(index_value) = const_usize_operand(&lowered_idx.operand) else {
+                    self.record_error("local fixed-array indexing requires a compile-time constant index", index.span);
+                    return LoweredExpr { operand: IrOperand::Const(IrConst::U64(0)), current: Some(active) };
+                };
+                let Some(element_var) = elements.get(index_value).cloned() else {
+                    self.record_error(
+                        format!("array index {} is out of bounds for local fixed array of length {}", index_value, elements.len()),
+                        index.span,
+                    );
+                    return LoweredExpr { operand: IrOperand::Const(IrConst::U64(0)), current: Some(active) };
+                };
+                return LoweredExpr { operand: IrOperand::Var(element_var), current: Some(active) };
+            }
+        }
+
         let Some(result_ty) = self.index_result_type(&lowered_arr.operand) else {
             self.record_error("index expression has no lowered element type", index.span);
             return LoweredExpr { operand: IrOperand::Const(IrConst::U64(0)), current: Some(active) };
@@ -1600,6 +1819,109 @@ impl IrGenerator {
             idx: lowered_idx.operand,
         });
         LoweredExpr { operand: IrOperand::Var(dest), current: Some(active) }
+    }
+
+    fn lower_array_expr(
+        &mut self,
+        items: &[Expr],
+        current: BlockId,
+        blocks: &mut Vec<IrBlock>,
+        vars: &mut HashMap<String, IrVar>,
+    ) -> LoweredExpr {
+        if items.is_empty() {
+            self.record_error("empty array literal reached IR lowering without a declared array type", Span::default());
+            return LoweredExpr { operand: IrOperand::Const(IrConst::U64(0)), current: Some(current) };
+        }
+
+        let mut active = current;
+        let mut elements = Vec::with_capacity(items.len());
+        let mut element_ty = None;
+
+        for (index, item) in items.iter().enumerate() {
+            let lowered = self.lower_expr(item, active, blocks, vars);
+            let Some(next) = lowered.current else {
+                return lowered;
+            };
+            active = next;
+
+            let ty = match &lowered.operand {
+                IrOperand::Var(var) => var.ty.clone(),
+                IrOperand::Const(value) => self.const_type(value),
+            };
+            element_ty.get_or_insert_with(|| ty.clone());
+            let element_var = self.new_var(format!("array_elem_{}", index), ty);
+            self.block_mut(blocks, active)
+                .instructions
+                .push(IrInstruction::Move { dest: element_var.clone(), src: lowered.operand.clone() });
+            self.copy_aggregate_metadata(&lowered.operand, element_var.id);
+            elements.push(element_var);
+        }
+
+        let Some(element_ty) = element_ty else {
+            self.record_error("non-empty array literal did not produce an element type during IR lowering", Span::default());
+            return LoweredExpr { operand: IrOperand::Const(IrConst::U64(0)), current: Some(active) };
+        };
+        let array_ty = IrType::Array(Box::new(element_ty), items.len());
+        let aggregate = self.new_var("array_tmp", array_ty);
+        self.block_mut(blocks, active)
+            .instructions
+            .push(IrInstruction::Move { dest: aggregate.clone(), src: IrOperand::Const(IrConst::U64(0)) });
+        self.aggregate_elements.insert(aggregate.id, elements);
+        LoweredExpr { operand: IrOperand::Var(aggregate), current: Some(active) }
+    }
+
+    fn lower_empty_array_expr_with_type(&mut self, declared_ty: &Type, current: BlockId, blocks: &mut Vec<IrBlock>) -> LoweredExpr {
+        let ir_ty = self.convert_type(declared_ty);
+        if !matches!(ir_ty, IrType::Array(_, 0)) {
+            self.record_error("empty array literal requires a zero-length declared array type", Span::default());
+            return LoweredExpr { operand: IrOperand::Const(IrConst::U64(0)), current: Some(current) };
+        }
+
+        let aggregate = self.new_var("array_tmp", ir_ty);
+        self.block_mut(blocks, current)
+            .instructions
+            .push(IrInstruction::Move { dest: aggregate.clone(), src: IrOperand::Const(IrConst::U64(0)) });
+        self.aggregate_elements.insert(aggregate.id, Vec::new());
+        LoweredExpr { operand: IrOperand::Var(aggregate), current: Some(current) }
+    }
+
+    fn lower_tuple_expr(
+        &mut self,
+        items: &[Expr],
+        current: BlockId,
+        blocks: &mut Vec<IrBlock>,
+        vars: &mut HashMap<String, IrVar>,
+    ) -> LoweredExpr {
+        let mut active = current;
+        let mut fields = HashMap::new();
+        let mut types = Vec::with_capacity(items.len());
+
+        for (index, item) in items.iter().enumerate() {
+            let lowered = self.lower_expr(item, active, blocks, vars);
+            let Some(next) = lowered.current else {
+                return lowered;
+            };
+            active = next;
+
+            let ty = match &lowered.operand {
+                IrOperand::Var(var) => var.ty.clone(),
+                IrOperand::Const(value) => self.const_type(value),
+            };
+            let field_var = self.new_var(format!("tuple_{}", index), ty.clone());
+            self.block_mut(blocks, active)
+                .instructions
+                .push(IrInstruction::Move { dest: field_var.clone(), src: lowered.operand.clone() });
+            self.copy_aggregate_metadata(&lowered.operand, field_var.id);
+            fields.insert(index.to_string(), field_var);
+            types.push(ty);
+        }
+
+        let aggregate = self.new_var("tuple_tmp", IrType::Tuple(types));
+        self.block_mut(blocks, active)
+            .instructions
+            .push(IrInstruction::Move { dest: aggregate.clone(), src: IrOperand::Const(IrConst::U64(0)) });
+        self.aggregate_fields.insert(aggregate.id, fields);
+        LoweredExpr { operand: IrOperand::Var(aggregate), current: Some(active) }
     }
 
     fn lower_struct_init(
@@ -1713,6 +2035,67 @@ impl IrGenerator {
         LoweredExpr { operand: IrOperand::Var(field_var), current: Some(active) }
     }
 
+    fn lower_index_assign(
+        &mut self,
+        index: &IndexExpr,
+        op: AssignOp,
+        value: IrOperand,
+        current: BlockId,
+        blocks: &mut Vec<IrBlock>,
+        vars: &mut HashMap<String, IrVar>,
+    ) -> LoweredExpr {
+        let lowered_arr = self.lower_expr(&index.expr, current, blocks, vars);
+        let Some(active) = lowered_arr.current else {
+            return lowered_arr;
+        };
+        let lowered_idx = self.lower_expr(&index.index, active, blocks, vars);
+        let Some(active) = lowered_idx.current else {
+            return lowered_idx;
+        };
+
+        let Some(arr_var) = (match lowered_arr.operand {
+            IrOperand::Var(var) => Some(var),
+            IrOperand::Const(_) => None,
+        }) else {
+            self.record_error("index assignment requires a local fixed-array value", index.span);
+            return LoweredExpr { operand: value, current: Some(active) };
+        };
+        let Some(index_value) = const_usize_operand(&lowered_idx.operand) else {
+            self.record_error("local fixed-array assignment requires a compile-time constant index", index.span);
+            return LoweredExpr { operand: value, current: Some(active) };
+        };
+        let Some(elements) = self.aggregate_elements.get(&arr_var.id) else {
+            self.record_error("index assignment requires a local fixed-array value with lowered element slots", index.span);
+            return LoweredExpr { operand: value, current: Some(active) };
+        };
+        let Some(element_var) = elements.get(index_value).cloned() else {
+            self.record_error(
+                format!("array index {} is out of bounds for local fixed array of length {}", index_value, elements.len()),
+                index.span,
+            );
+            return LoweredExpr { operand: value, current: Some(active) };
+        };
+
+        match op {
+            AssignOp::Assign => {
+                self.block_mut(blocks, active).instructions.push(IrInstruction::Move { dest: element_var.clone(), src: value });
+            }
+            AssignOp::AddAssign => {
+                let tmp = self.new_var("index_assign_tmp", element_var.ty.clone());
+                let block = self.block_mut(blocks, active);
+                block.instructions.push(IrInstruction::Binary {
+                    dest: tmp.clone(),
+                    op: BinaryOp::Add,
+                    left: IrOperand::Var(element_var.clone()),
+                    right: value,
+                });
+                block.instructions.push(IrInstruction::Move { dest: element_var.clone(), src: IrOperand::Var(tmp) });
+            }
+        }
+
+        LoweredExpr { operand: IrOperand::Var(element_var), current: Some(active) }
+    }
+
     fn lower_if_expr(
         &mut self,
         if_expr: &IfExpr,
@@ -1739,8 +2122,11 @@ impl IrGenerator {
             return LoweredExpr { operand: IrOperand::Const(IrConst::U64(0)), current: None };
         }
 
-        let result_ty =
-            self.operand_type(&then_lowered.operand).or_else(|| self.operand_type(&else_lowered.operand)).unwrap_or(IrType::U64);
+        let result_ty = match (then_lowered.current.is_some(), else_lowered.current.is_some()) {
+            (true, _) => self.operand_type(&then_lowered.operand),
+            (false, true) => self.operand_type(&else_lowered.operand),
+            (false, false) => return LoweredExpr { operand: IrOperand::Const(IrConst::U64(0)), current: None },
+        };
         let dest = self.new_var("if_tmp", result_ty);
         let join = self.push_block(blocks);
 
@@ -1821,7 +2207,7 @@ impl IrGenerator {
             };
 
             if result_dest.is_none() {
-                let ty = self.operand_type(&lowered_value.operand).unwrap_or(IrType::U64);
+                let ty = self.operand_type(&lowered_value.operand);
                 result_dest = Some(self.new_var("match_tmp", ty));
             }
             let dest = result_dest.as_ref().expect("match result destination must be initialized");
@@ -1836,10 +2222,10 @@ impl IrGenerator {
         LoweredExpr { operand: IrOperand::Var(dest), current: Some(join) }
     }
 
-    fn operand_type(&self, operand: &IrOperand) -> Option<IrType> {
+    fn operand_type(&self, operand: &IrOperand) -> IrType {
         match operand {
-            IrOperand::Var(var) => Some(var.ty.clone()),
-            IrOperand::Const(value) => Some(self.const_type(value)),
+            IrOperand::Var(var) => var.ty.clone(),
+            IrOperand::Const(value) => self.const_type(value),
         }
     }
 
@@ -1858,6 +2244,15 @@ impl IrGenerator {
                 "Hash::zero" if call.args.is_empty() => {
                     Some(LoweredExpr { operand: IrOperand::Const(IrConst::Hash([0; 32])), current: Some(current) })
                 }
+                "env::current_daa_score" if call.args.is_empty() => {
+                    let dest = self.new_var("current_daa_score", IrType::U64);
+                    self.block_mut(blocks, current).instructions.push(IrInstruction::Call {
+                        dest: Some(dest.clone()),
+                        func: "__env_current_daa_score".to_string(),
+                        args: Vec::new(),
+                    });
+                    Some(LoweredExpr { operand: IrOperand::Var(dest), current: Some(current) })
+                }
                 "Vec::new" if call.args.is_empty() => {
                     let dest = self.new_var("vec_new_tmp", IrType::Named("Vec".to_string()));
                     self.block_mut(blocks, current)
@@ -1871,6 +2266,14 @@ impl IrGenerator {
                 "len" if call.args.is_empty() => {
                     let lowered = self.lower_expr(&field.expr, current, blocks, vars);
                     let active = lowered.current?;
+                    if let IrOperand::Var(var) = &lowered.operand {
+                        if let Some(elements) = self.aggregate_elements.get(&var.id) {
+                            return Some(LoweredExpr {
+                                operand: IrOperand::Const(IrConst::U64(elements.len() as u64)),
+                                current: Some(active),
+                            });
+                        }
+                    }
                     let dest = self.new_var("len_tmp", IrType::U64);
                     self.block_mut(blocks, active)
                         .instructions
@@ -1891,27 +2294,23 @@ impl IrGenerator {
                     let active = lowered_collection.current?;
                     let lowered_value = self.lower_expr(&call.args[0], active, blocks, vars);
                     let active = lowered_value.current?;
-                    let result = self.new_var("push_tmp", IrType::U64);
                     let block = self.block_mut(blocks, active);
                     block
                         .instructions
                         .push(IrInstruction::CollectionPush { collection: lowered_collection.operand, value: lowered_value.operand });
-                    block.instructions.push(IrInstruction::Move { dest: result.clone(), src: IrOperand::Const(IrConst::U64(0)) });
-                    Some(LoweredExpr { operand: IrOperand::Var(result), current: Some(active) })
+                    Some(LoweredExpr { operand: IrOperand::Const(IrConst::Bool(true)), current: Some(active) })
                 }
                 "extend_from_slice" if call.args.len() == 1 => {
                     let lowered_collection = self.lower_expr(&field.expr, current, blocks, vars);
                     let active = lowered_collection.current?;
                     let lowered_slice = self.lower_expr(&call.args[0], active, blocks, vars);
                     let active = lowered_slice.current?;
-                    let result = self.new_var("extend_tmp", IrType::U64);
                     let block = self.block_mut(blocks, active);
                     block.instructions.push(IrInstruction::CollectionExtend {
                         collection: lowered_collection.operand,
                         slice: lowered_slice.operand,
                     });
-                    block.instructions.push(IrInstruction::Move { dest: result.clone(), src: IrOperand::Const(IrConst::U64(0)) });
-                    Some(LoweredExpr { operand: IrOperand::Var(result), current: Some(active) })
+                    Some(LoweredExpr { operand: IrOperand::Const(IrConst::Bool(true)), current: Some(active) })
                 }
                 _ => None,
             },
@@ -2021,6 +2420,24 @@ impl IrGenerator {
         }
     }
 
+    fn lower_call_target_name(&self, name: &str) -> String {
+        if let Some((module, symbol)) = name.rsplit_once("::") {
+            if module == self.module.name {
+                return symbol.to_string();
+            }
+        }
+        name.to_string()
+    }
+
+    fn call_return_type(&self, source_name: &str, lowered_name: &str) -> Option<Option<IrType>> {
+        self.function_return_types
+            .get(source_name)
+            .or_else(|| self.function_return_types.get(lowered_name))
+            .or_else(|| self.external_function_return_types.get(source_name))
+            .or_else(|| self.external_function_return_types.get(lowered_name))
+            .cloned()
+    }
+
     fn materialize_schema_field(
         &mut self,
         base_var: &IrVar,
@@ -2038,6 +2455,18 @@ impl IrGenerator {
         self.aggregate_fields.entry(base_var.id).or_default().insert(field.to_string(), field_var.clone());
         Some(field_var)
     }
+
+    fn copy_aggregate_metadata(&mut self, source: &IrOperand, dest_id: usize) {
+        let IrOperand::Var(source_var) = source else {
+            return;
+        };
+        if let Some(fields) = self.aggregate_fields.get(&source_var.id).cloned() {
+            self.aggregate_fields.insert(dest_id, fields);
+        }
+        if let Some(elements) = self.aggregate_elements.get(&source_var.id).cloned() {
+            self.aggregate_elements.insert(dest_id, elements);
+        }
+    }
 }
 
 /// 生成 IR 的入口函数
@@ -2049,6 +2478,7 @@ pub fn generate(ast: &Module) -> Result<IrModule> {
 pub fn generate_with_resolver(ast: &Module, resolver: &ModuleResolver, module_name: &str) -> Result<IrModule> {
     let mut type_fields = HashMap::new();
     let mut external_function_effects = HashMap::new();
+    let mut external_function_return_types = HashMap::new();
 
     for item in &ast.items {
         let Item::Use(use_stmt) = item else {
@@ -2063,31 +2493,194 @@ pub fn generate_with_resolver(ast: &Module, resolver: &ModuleResolver, module_na
                 }
             }
             if let Some(function) = resolver.resolve_function(module_name, &local_name) {
-                external_function_effects.insert(local_name, function_def_effect_class(&function));
+                external_function_effects.insert(local_name.clone(), function_def_effect_class(&function));
+                external_function_return_types.insert(local_name, function_def_return_type(&function));
             }
         }
     }
+    for call_name in collect_call_names(ast) {
+        if let Some(function) = resolver.resolve_function(module_name, &call_name) {
+            external_function_effects.insert(call_name.clone(), function_def_effect_class(&function));
+            external_function_return_types.insert(call_name, function_def_return_type(&function));
+        }
+    }
 
-    let generator = IrGenerator::with_import_context(ast.name.clone(), type_fields, external_function_effects);
+    let generator =
+        IrGenerator::with_import_context(ast.name.clone(), type_fields, external_function_effects, external_function_return_types);
     generator.generate(ast)
+}
+
+fn collect_call_names(ast: &Module) -> HashSet<String> {
+    let mut names = HashSet::new();
+    for item in &ast.items {
+        match item {
+            Item::Action(action) => collect_call_names_from_stmts(&action.body, &mut names),
+            Item::Function(function) => collect_call_names_from_stmts(&function.body, &mut names),
+            Item::Lock(lock) => collect_call_names_from_stmts(&lock.body, &mut names),
+            _ => {}
+        }
+    }
+    names
+}
+
+fn collect_call_names_from_stmts(stmts: &[Stmt], names: &mut HashSet<String>) {
+    for stmt in stmts {
+        collect_call_names_from_stmt(stmt, names);
+    }
+}
+
+fn collect_call_names_from_stmt(stmt: &Stmt, names: &mut HashSet<String>) {
+    match stmt {
+        Stmt::Expr(expr) | Stmt::Let(LetStmt { value: expr, .. }) | Stmt::Return(Some(expr)) => {
+            collect_call_names_from_expr(expr, names);
+        }
+        Stmt::If(if_stmt) => {
+            collect_call_names_from_expr(&if_stmt.condition, names);
+            collect_call_names_from_stmts(&if_stmt.then_branch, names);
+            if let Some(else_branch) = &if_stmt.else_branch {
+                collect_call_names_from_stmts(else_branch, names);
+            }
+        }
+        Stmt::For(for_stmt) => {
+            collect_call_names_from_expr(&for_stmt.iterable, names);
+            collect_call_names_from_stmts(&for_stmt.body, names);
+        }
+        Stmt::While(while_stmt) => {
+            collect_call_names_from_expr(&while_stmt.condition, names);
+            collect_call_names_from_stmts(&while_stmt.body, names);
+        }
+        Stmt::Return(None) => {}
+    }
+}
+
+fn collect_call_names_from_expr(expr: &Expr, names: &mut HashSet<String>) {
+    match expr {
+        Expr::Call(call) => {
+            if let Expr::Identifier(name) = call.func.as_ref() {
+                names.insert(name.clone());
+            }
+            collect_call_names_from_expr(&call.func, names);
+            for arg in &call.args {
+                collect_call_names_from_expr(arg, names);
+            }
+        }
+        Expr::Assign(assign) => {
+            collect_call_names_from_expr(&assign.target, names);
+            collect_call_names_from_expr(&assign.value, names);
+        }
+        Expr::Binary(binary) => {
+            collect_call_names_from_expr(&binary.left, names);
+            collect_call_names_from_expr(&binary.right, names);
+        }
+        Expr::Unary(unary) => collect_call_names_from_expr(&unary.expr, names),
+        Expr::FieldAccess(field) => collect_call_names_from_expr(&field.expr, names),
+        Expr::Index(index) => {
+            collect_call_names_from_expr(&index.expr, names);
+            collect_call_names_from_expr(&index.index, names);
+        }
+        Expr::Create(create) => {
+            for (_, value) in &create.fields {
+                collect_call_names_from_expr(value, names);
+            }
+            if let Some(lock) = &create.lock {
+                collect_call_names_from_expr(lock, names);
+            }
+        }
+        Expr::Consume(consume) => collect_call_names_from_expr(&consume.expr, names),
+        Expr::Transfer(transfer) => {
+            collect_call_names_from_expr(&transfer.expr, names);
+            collect_call_names_from_expr(&transfer.to, names);
+        }
+        Expr::Destroy(destroy) => collect_call_names_from_expr(&destroy.expr, names),
+        Expr::Claim(claim) => collect_call_names_from_expr(&claim.receipt, names),
+        Expr::Settle(settle) => collect_call_names_from_expr(&settle.expr, names),
+        Expr::Assert(assert_expr) => {
+            collect_call_names_from_expr(&assert_expr.condition, names);
+            collect_call_names_from_expr(&assert_expr.message, names);
+        }
+        Expr::Block(stmts) => collect_call_names_from_stmts(stmts, names),
+        Expr::Tuple(items) | Expr::Array(items) => {
+            for item in items {
+                collect_call_names_from_expr(item, names);
+            }
+        }
+        Expr::If(if_expr) => {
+            collect_call_names_from_expr(&if_expr.condition, names);
+            collect_call_names_from_expr(&if_expr.then_branch, names);
+            collect_call_names_from_expr(&if_expr.else_branch, names);
+        }
+        Expr::Cast(cast) => collect_call_names_from_expr(&cast.expr, names),
+        Expr::Range(range) => {
+            collect_call_names_from_expr(&range.start, names);
+            collect_call_names_from_expr(&range.end, names);
+        }
+        Expr::StructInit(init) => {
+            for (_, value) in &init.fields {
+                collect_call_names_from_expr(value, names);
+            }
+        }
+        Expr::Match(match_expr) => {
+            collect_call_names_from_expr(&match_expr.expr, names);
+            for arm in &match_expr.arms {
+                collect_call_names_from_expr(&arm.value, names);
+            }
+        }
+        Expr::Integer(_) | Expr::Bool(_) | Expr::String(_) | Expr::ByteString(_) | Expr::Identifier(_) | Expr::ReadRef(_) => {}
+    }
 }
 
 fn function_def_effect_class(function: &FunctionDef) -> EffectClass {
     match function {
-        FunctionDef::Action(action) | FunctionDef::Function(action) => {
+        FunctionDef::Action(action) => {
             if action.effect_declared {
                 ast_effect_to_ir(action.effect)
             } else {
                 infer_action_effect_without_call_graph(action)
             }
         }
+        FunctionDef::Function(function) => infer_fn_effect_without_call_graph(function),
         FunctionDef::Lock(_) => EffectClass::ReadOnly,
+    }
+}
+
+fn function_def_return_type(function: &FunctionDef) -> Option<IrType> {
+    match function {
+        FunctionDef::Action(action) => action.return_type.as_ref().map(ast_type_to_ir),
+        FunctionDef::Function(function) => function.return_type.as_ref().map(ast_type_to_ir),
+        FunctionDef::Lock(_) => Some(IrType::Bool),
+    }
+}
+
+fn ast_type_to_ir(ty: &Type) -> IrType {
+    match ty {
+        Type::U8 => IrType::U8,
+        Type::U16 => IrType::U16,
+        Type::U32 => IrType::U32,
+        Type::U64 => IrType::U64,
+        Type::U128 => IrType::U128,
+        Type::Bool => IrType::Bool,
+        Type::Unit => IrType::Unit,
+        Type::Address => IrType::Address,
+        Type::Hash => IrType::Hash,
+        Type::Array(elem, size) => IrType::Array(Box::new(ast_type_to_ir(elem)), *size),
+        Type::Tuple(types) => IrType::Tuple(types.iter().map(ast_type_to_ir).collect()),
+        Type::Named(name) => IrType::Named(name.clone()),
+        Type::Ref(inner) => IrType::Ref(Box::new(ast_type_to_ir(inner))),
+        Type::MutRef(inner) => IrType::MutRef(Box::new(ast_type_to_ir(inner))),
     }
 }
 
 fn infer_action_effect_without_call_graph(action: &ActionDef) -> EffectClass {
     let mut footprint = EffectFootprint::default();
     for stmt in &action.body {
+        collect_ast_stmt_effects(stmt, &mut footprint);
+    }
+    effect_from_footprint(&footprint)
+}
+
+fn infer_fn_effect_without_call_graph(function: &FnDef) -> EffectClass {
+    let mut footprint = EffectFootprint::default();
+    for stmt in &function.body {
         collect_ast_stmt_effects(stmt, &mut footprint);
     }
     effect_from_footprint(&footprint)
@@ -2160,6 +2753,10 @@ fn collect_ast_expr_effects(expr: &Expr, footprint: &mut EffectFootprint) {
             footprint.has_consume = true;
             footprint.has_create = true;
             collect_ast_expr_effects(&settle.expr, footprint);
+        }
+        Expr::Assert(assert_expr) => {
+            collect_ast_expr_effects(&assert_expr.condition, footprint);
+            collect_ast_expr_effects(&assert_expr.message, footprint);
         }
         Expr::Assign(assign) => {
             collect_ast_expr_effects(&assign.target, footprint);
@@ -2255,6 +2852,7 @@ fn ast_type_to_ir_type(ty: &Type) -> IrType {
         Type::U64 => IrType::U64,
         Type::U128 => IrType::U128,
         Type::Bool => IrType::Bool,
+        Type::Unit => IrType::Unit,
         Type::Address => IrType::Address,
         Type::Hash => IrType::Hash,
         Type::Array(inner, size) => IrType::Array(Box::new(ast_type_to_ir_type(inner)), *size),
@@ -2262,6 +2860,24 @@ fn ast_type_to_ir_type(ty: &Type) -> IrType {
         Type::Named(name) => IrType::Named(name.clone()),
         Type::Ref(inner) => IrType::Ref(Box::new(ast_type_to_ir_type(inner))),
         Type::MutRef(inner) => IrType::MutRef(Box::new(ast_type_to_ir_type(inner))),
+    }
+}
+
+fn const_usize_operand(operand: &IrOperand) -> Option<usize> {
+    match operand {
+        IrOperand::Const(IrConst::U8(value)) => Some(*value as usize),
+        IrOperand::Const(IrConst::U16(value)) => Some(*value as usize),
+        IrOperand::Const(IrConst::U32(value)) => Some(*value as usize),
+        IrOperand::Const(IrConst::U64(value)) => usize::try_from(*value).ok(),
+        _ => None,
+    }
+}
+
+fn binding_pattern_label(pattern: &BindingPattern) -> &str {
+    match pattern {
+        BindingPattern::Name(name) => name.as_str(),
+        BindingPattern::Wildcard => "_",
+        BindingPattern::Tuple(_) => "tuple_item",
     }
 }
 

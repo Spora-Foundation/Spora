@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: ISC
 // Copyright (C) 2026 Spora developers
 //
-// Reference tests for P2B parallelization.
+// Reference tests for VSP parallelization.
 //
 // These tests verify the correctness of the parallel execution model
 // by exercising BlockAccessSummary, ExecutionDAG, and BlockExecutionEffect
-// against the 5 protocol semantic rules defined in P2B_PROTOCOL_SEMANTICS.md.
+// against the 5 protocol semantic rules defined in VSP_PROTOCOL_SEMANTICS.md.
 //
 // The tests are organized into 6 categories:
 //   T1: Deterministic result for same mergeset
@@ -82,7 +82,7 @@ mod tests {
     // T1: Same Mergeset, Deterministic Result
     // ========================================================================
     //
-    // Verifies P2B_PROTOCOL_SEMANTICS invariant 1: for the same mergeset,
+    // Verifies VSP_PROTOCOL_SEMANTICS invariant 1: for the same mergeset,
     // the ExecutionDAG layering is deterministic regardless of construction
     // order. Since BlockAccessSummary and ExecutionDAG are pure functions of
     // the input data, repeated construction must produce identical results.
@@ -139,7 +139,7 @@ mod tests {
     // T2: Duplicate Transaction Across Blue Blocks
     // ========================================================================
     //
-    // Verifies P2B_PROTOCOL_SEMANTICS rule 1: when the same tx_id appears
+    // Verifies VSP_PROTOCOL_SEMANTICS rule 1: when the same tx_id appears
     // in multiple blue blocks, only the first (in canonical order) is accepted.
     // The access summary must detect this as a dependency, forcing serialization.
 
@@ -197,7 +197,7 @@ mod tests {
     // T3: Double Spend Across Blue Blocks
     // ========================================================================
     //
-    // Verifies P2B_PROTOCOL_SEMANTICS rule 2: when different transactions in
+    // Verifies VSP_PROTOCOL_SEMANTICS rule 2: when different transactions in
     // different blue blocks consume the same outpoint, only the first (in
     // canonical order) succeeds. The later block's effect is invalidated.
 
@@ -344,7 +344,7 @@ mod tests {
     // T5: Red/Blue Reward and Acceptance Data Stability
     // ========================================================================
     //
-    // Verifies P2B_PROTOCOL_SEMANTICS rules 4 and 5:
+    // Verifies VSP_PROTOCOL_SEMANTICS rules 4 and 5:
     // - Blue blocks: accepted_tx_ids are source of truth for acceptance data and reward
     // - Red blocks: only reward data, no transaction acceptance
     // - Effect invalidation → empty accepted_tx_ids → reward based on zero acceptance
@@ -438,7 +438,7 @@ mod tests {
     // T6: Serial vs Parallel Runner Equivalence
     // ========================================================================
     //
-    // Verifies P2B_PROTOCOL_SEMANTICS invariant 1: serial and parallel
+    // Verifies VSP_PROTOCOL_SEMANTICS invariant 1: serial and parallel
     // processing of the same mergeset must produce identical results.
     //
     // Since we cannot easily instantiate a full VirtualStateProcessor in a

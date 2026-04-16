@@ -34,8 +34,8 @@ pub fn serialize_to_bytes<T: VersionedSerializable>(value: &T) -> Result<Vec<u8>
 /// let restored: CellTx = deserialize_from_bytes(&bytes).unwrap();
 /// ```
 pub fn deserialize_from_bytes<T: VersionedSerializable>(bytes: &[u8]) -> Result<T, SerializationError> {
-    let envelope: VersionedEnvelope<T> = borsh::from_slice(bytes)
-        .map_err(|e| SerializationError::DeserializationFailed(e.to_string()))?;
+    let envelope: VersionedEnvelope<T> =
+        borsh::from_slice(bytes).map_err(|e| SerializationError::DeserializationFailed(e.to_string()))?;
     envelope.parse()
 }
 
@@ -46,14 +46,14 @@ pub fn is_valid_versioned_envelope(bytes: &[u8]) -> bool {
     if bytes.len() < 3 {
         return false;
     }
-    
+
     // Check format version (first byte)
     let format_version = bytes[0];
     if format_version > 0x80 {
         // Future Molecule format, not yet supported
         return false;
     }
-    
+
     // Basic length check - should have at least format_version, schema_version, and some payload
     bytes.len() >= 3
 }
@@ -85,32 +85,32 @@ pub fn serialize_many<T: VersionedSerializable>(values: &[T]) -> Result<Vec<u8>,
     // 检查 count 是否超过 u32::MAX
     let count = values.len();
     if count > u32::MAX as usize {
-        return Err(SerializationError::DeserializationFailed(
-            format!("Too many values: {} exceeds maximum {}", count, u32::MAX)
-        ));
+        return Err(SerializationError::DeserializationFailed(format!("Too many values: {} exceeds maximum {}", count, u32::MAX)));
     }
-    
+
     let mut result = Vec::new();
-    
+
     // Write count
     result.extend_from_slice(&(count as u32).to_le_bytes());
-    
+
     // Write each value
     for value in values {
         let bytes = serialize_to_bytes(value)?;
         let len = bytes.len();
-        
+
         // 检查单个值大小是否超过 u32::MAX
         if len > u32::MAX as usize {
-            return Err(SerializationError::DeserializationFailed(
-                format!("Value too large: {} bytes exceeds maximum {}", len, u32::MAX)
-            ));
+            return Err(SerializationError::DeserializationFailed(format!(
+                "Value too large: {} bytes exceeds maximum {}",
+                len,
+                u32::MAX
+            )));
         }
-        
+
         result.extend_from_slice(&(len as u32).to_le_bytes());
         result.extend_from_slice(&bytes);
     }
-    
+
     Ok(result)
 }
 
@@ -119,36 +119,30 @@ pub fn serialize_many<T: VersionedSerializable>(values: &[T]) -> Result<Vec<u8>,
 /// 与 `serialize_many` 配对使用。
 pub fn deserialize_many<T: VersionedSerializable>(bytes: &[u8]) -> Result<Vec<T>, SerializationError> {
     if bytes.len() < 4 {
-        return Err(SerializationError::DeserializationFailed(
-            "insufficient bytes for count".to_string()
-        ));
+        return Err(SerializationError::DeserializationFailed("insufficient bytes for count".to_string()));
     }
-    
+
     let count = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as usize;
     let mut result = Vec::with_capacity(count);
     let mut offset = 4;
-    
+
     for _ in 0..count {
         if offset + 4 > bytes.len() {
-            return Err(SerializationError::DeserializationFailed(
-                "insufficient bytes for length prefix".to_string()
-            ));
+            return Err(SerializationError::DeserializationFailed("insufficient bytes for length prefix".to_string()));
         }
-        
-        let len = u32::from_le_bytes([bytes[offset], bytes[offset+1], bytes[offset+2], bytes[offset+3]]) as usize;
+
+        let len = u32::from_le_bytes([bytes[offset], bytes[offset + 1], bytes[offset + 2], bytes[offset + 3]]) as usize;
         offset += 4;
-        
+
         if offset + len > bytes.len() {
-            return Err(SerializationError::DeserializationFailed(
-                "insufficient bytes for value".to_string()
-            ));
+            return Err(SerializationError::DeserializationFailed("insufficient bytes for value".to_string()));
         }
-        
-        let value = deserialize_from_bytes(&bytes[offset..offset+len])?;
+
+        let value = deserialize_from_bytes(&bytes[offset..offset + len])?;
         result.push(value);
         offset += len;
     }
-    
+
     Ok(result)
 }
 
@@ -167,14 +161,10 @@ pub type SerializeResult<T> = Result<T, SerializationError>;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::celltx::{CellOutput, OutPoint, Script};
+    use crate::celltx::{CellOutput, Script};
 
     fn create_test_output() -> CellOutput {
-        CellOutput {
-            lock: Script::new([0xAA; 32], 0, vec![0xBB; 20]),
-            type_: None,
-            capacity: 1000,
-        }
+        CellOutput { lock: Script::new([0xAA; 32], 0, vec![0xBB; 20]), type_: None, capacity: 1000 }
     }
 
     #[test]
@@ -190,12 +180,12 @@ mod tests {
         let output = create_test_output();
         let bytes = serialize_to_bytes(&output).unwrap();
         assert!(is_valid_versioned_envelope(&bytes));
-        
+
         // Invalid: too short
         assert!(!is_valid_versioned_envelope(&[]));
         assert!(!is_valid_versioned_envelope(&[0x00]));
         assert!(!is_valid_versioned_envelope(&[0x00, 0x01]));
-        
+
         // Invalid: future format
         assert!(!is_valid_versioned_envelope(&[0x81, 0x01, 0x00]));
     }
@@ -204,7 +194,7 @@ mod tests {
     fn test_peek_schema_version() {
         let output = create_test_output();
         let bytes = serialize_to_bytes(&output).unwrap();
-        
+
         let version = peek_schema_version(&bytes).unwrap();
         assert_eq!(version, CellOutput::CURRENT_VERSION);
     }
@@ -213,7 +203,7 @@ mod tests {
     fn test_peek_format_version() {
         let output = create_test_output();
         let bytes = serialize_to_bytes(&output).unwrap();
-        
+
         let version = peek_format_version(&bytes).unwrap();
         assert_eq!(version, 0x00); // Borsh format
     }
@@ -221,16 +211,12 @@ mod tests {
     #[test]
     fn test_serialize_many_roundtrip() {
         let outputs: Vec<CellOutput> = (0..5)
-            .map(|i| CellOutput {
-                lock: Script::new([i as u8; 32], 0, vec![i as u8; 20]),
-                type_: None,
-                capacity: 1000 + i as u64,
-            })
+            .map(|i| CellOutput { lock: Script::new([i as u8; 32], 0, vec![i as u8; 20]), type_: None, capacity: 1000 + i as u64 })
             .collect();
-        
+
         let bytes = serialize_many(&outputs).unwrap();
         let restored = deserialize_many::<CellOutput>(&bytes).unwrap();
-        
+
         assert_eq!(outputs.len(), restored.len());
         for (orig, rest) in outputs.iter().zip(restored.iter()) {
             assert_eq!(orig, rest);
@@ -242,7 +228,7 @@ mod tests {
         let outputs: Vec<CellOutput> = vec![];
         let bytes = serialize_many(&outputs).unwrap();
         assert_eq!(bytes.len(), 4); // Just the count (0)
-        
+
         let restored = deserialize_many::<CellOutput>(&bytes).unwrap();
         assert!(restored.is_empty());
     }
@@ -252,7 +238,7 @@ mod tests {
         let output = create_test_output();
         let estimated = estimate_serialized_size(&output).unwrap();
         let actual = serialize_to_bytes(&output).unwrap().len();
-        
+
         // Estimate should be close to actual
         let diff = if estimated > actual { estimated - actual } else { actual - estimated };
         assert!(diff <= 10, "estimate {} should be close to actual {}", estimated, actual);
@@ -263,11 +249,13 @@ mod tests {
         // Too short for count
         let result = deserialize_many::<CellOutput>(&[0x00]);
         assert!(result.is_err());
-        
+
         // Invalid count (claims more items than present)
-        let invalid = vec![0x02, 0x00, 0x00, 0x00, // count = 2
-                          0x05, 0x00, 0x00, 0x00, // len = 5
-                          0x01, 0x02, 0x03, 0x04]; // only 4 bytes
+        let invalid = vec![
+            0x02, 0x00, 0x00, 0x00, // count = 2
+            0x05, 0x00, 0x00, 0x00, // len = 5
+            0x01, 0x02, 0x03, 0x04,
+        ]; // only 4 bytes
         let result = deserialize_many::<CellOutput>(&invalid);
         assert!(result.is_err());
     }

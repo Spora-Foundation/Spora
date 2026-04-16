@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: ISC
 // Copyright (C) 2026 Spora developers
 //
-// Block-level execution DAG for P2B parallelization
+// Block-level execution DAG for VSP parallelization
 
 use std::collections::BTreeMap;
 

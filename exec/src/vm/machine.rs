@@ -5,6 +5,7 @@
 // Reference: ckb/script/src/types.rs
 
 use super::{error::VMError, MAX_SCRIPT_SIZE, MAX_VM_MEMORY};
+use crate::serialization::split_vm_abi_trailer;
 use ckb_vm::{
     cost_model::estimate_cycles,
     machine::{VERSION0, VERSION1, VERSION2},
@@ -135,6 +136,8 @@ pub fn run_script(
         });
     let mut machine = Machine::new(builder.build());
 
+    let (program, _) =
+        split_vm_abi_trailer(program).map_err(|err| VMError::InvalidData(format!("invalid VM ABI artifact trailer: {}", err)))?;
     let program = Bytes::copy_from_slice(program);
     let args = args.iter().cloned().map(Bytes::from).map(Ok);
 

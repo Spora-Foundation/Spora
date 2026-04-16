@@ -778,6 +778,7 @@ impl<'a> Parser<'a> {
             Type::U64 => "u64".to_string(),
             Type::U128 => "u128".to_string(),
             Type::Bool => "bool".to_string(),
+            Type::Unit => "()".to_string(),
             Type::Address => "Address".to_string(),
             Type::Hash => "Hash".to_string(),
             Type::Array(elem, size) => format!("[{}; {}]", Self::render_type(elem), size),
@@ -825,7 +826,7 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_fn(&mut self) -> Result<ActionDef> {
+    fn parse_fn(&mut self) -> Result<FnDef> {
         let start_span = self.current().span;
         self.expect(TokenKind::Fn)?;
 
@@ -840,14 +841,11 @@ impl<'a> Parser<'a> {
         let body = self.parse_block()?;
         let end_span = self.current().span;
 
-        Ok(ActionDef {
+        Ok(FnDef {
             name,
             params,
             return_type,
             body,
-            effect: EffectClass::Pure,
-            effect_declared: false,
-            scheduler_hint: None,
             doc_comment: None,
             span: Span::new(start_span.start, end_span.end, start_span.line, start_span.column),
         })
@@ -1448,6 +1446,7 @@ impl<'a> Parser<'a> {
                     Ok(expr)
                 }
             }
+            TokenKind::LBracket => self.parse_array_expr(),
             TokenKind::LBrace => {
                 // 块表达式
                 let stmts = self.parse_block()?;
@@ -1455,6 +1454,26 @@ impl<'a> Parser<'a> {
             }
             _ => Err(CompileError::new(format!("unexpected token in expression: {}", self.current().kind), self.current().span)),
         }
+    }
+
+    fn parse_array_expr(&mut self) -> Result<Expr> {
+        self.expect(TokenKind::LBracket)?;
+        let mut elems = Vec::new();
+        loop {
+            self.skip_newlines();
+            if self.check(&TokenKind::RBracket) || self.check(&TokenKind::Eof) {
+                break;
+            }
+            elems.push(self.parse_expr()?);
+            self.skip_newlines();
+            if self.check(&TokenKind::Comma) {
+                self.advance();
+                continue;
+            }
+            break;
+        }
+        self.expect(TokenKind::RBracket)?;
+        Ok(Expr::Array(elems))
     }
 
     /// 解析参数列表
@@ -1627,20 +1646,25 @@ impl<'a> Parser<'a> {
 
     /// 解析 assert_invariant
     fn parse_assert(&mut self) -> Result<Expr> {
+        let start_span = self.current().span;
         self.expect(TokenKind::Assert)?;
         if self.check(&TokenKind::Not) {
             self.advance();
         }
         self.expect(TokenKind::LParen)?;
         self.skip_newlines();
-        let _condition = self.parse_expr()?;
+        let condition = self.parse_expr()?;
         self.expect(TokenKind::Comma)?;
         self.skip_newlines();
-        let _message = self.parse_expr()?;
+        let message = self.parse_expr()?;
         self.skip_newlines();
+        let end_span = self.current().span;
         self.expect(TokenKind::RParen)?;
-        // 简化处理，返回一个占位符表达式
-        Ok(Expr::Bool(true))
+        Ok(Expr::Assert(AssertExpr {
+            condition: Box::new(condition),
+            message: Box::new(message),
+            span: Span::new(start_span.start, end_span.end, start_span.line, start_span.column),
+        }))
     }
 
     fn parse_if_expr(&mut self) -> Result<Expr> {

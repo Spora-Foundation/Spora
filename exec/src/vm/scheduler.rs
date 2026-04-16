@@ -9,6 +9,7 @@ use super::syscalls::{
     INVALID_FD, MAX_FDS_CREATED, MAX_VMS_SPAWNED, OTHER_END_CLOSED, SPAWN_EXTRA_CYCLES_BASE, SUCCESS, WAIT_FAILURE,
 };
 use super::transferred_byte_cycles;
+use crate::serialization::split_vm_abi_trailer;
 use ckb_vm::{
     bytes::Bytes,
     cost_model::estimate_cycles,
@@ -1059,6 +1060,8 @@ impl VmScheduler {
             VmArgs::Reader { vm_id, argc, argv } => self.collect_args_from_vm(vm_id, argc, argv)?,
         };
 
+        let (program, _) = split_vm_abi_trailer(program)
+            .map_err(|err| ScriptError::VM(VMError::InvalidData(format!("invalid VM ABI artifact trailer: {}", err))))?;
         let program = Bytes::copy_from_slice(program);
         let metadata = parse_elf::<u64>(&program, machine.inner_mut().version())
             .map_err(|err| ScriptError::VM(VMError::LoadProgramError(err.to_string())))?;

@@ -7,11 +7,10 @@
 
 use spora_exec::{
     serialization::vm_abi::{
-        serialize_cell_input, serialize_cell_output, serialize_outpoint, serialize_script,
-        serialized_cell_output_size, serialized_script_size,
+        serialize_cell_input, serialize_cell_output, serialize_outpoint, serialize_script, serialized_cell_output_size,
+        serialized_script_size,
     },
-    CellInput, CellOutput, OutPoint, ResolvedCell, ResolvedHeader, Script, VmAbiNegotiator,
-    VmSerializable,
+    CellInput, CellOutput, OutPoint, ResolvedCell, ResolvedHeader, Script, VmAbiNegotiator, VmSerializable,
 };
 
 /// Test ResolvedHeader VmSerializable implementation
@@ -36,10 +35,7 @@ fn test_resolved_header_vm_serializable() {
     };
 
     // Test ABI version
-    assert_eq!(
-        ResolvedHeader::abi_version(),
-        VmAbiNegotiator::ABI_VERSION_BORSH_V1
-    );
+    assert_eq!(ResolvedHeader::abi_version(), VmAbiNegotiator::ABI_VERSION_BORSH_V1);
 
     // Test serialization roundtrip
     let bytes = header.to_vm_bytes();
@@ -60,10 +56,7 @@ fn test_resolved_cell_vm_serializable() {
     };
 
     // Test ABI version
-    assert_eq!(
-        ResolvedCell::abi_version(),
-        VmAbiNegotiator::ABI_VERSION_BORSH_V1
-    );
+    assert_eq!(ResolvedCell::abi_version(), VmAbiNegotiator::ABI_VERSION_BORSH_V1);
 
     // Test serialization roundtrip
     let bytes = cell.to_vm_bytes();
@@ -74,14 +67,8 @@ fn test_resolved_cell_vm_serializable() {
 /// Test ResolvedCell without data
 #[test]
 fn test_resolved_cell_without_data() {
-    let cell = ResolvedCell {
-        cell_output: CellOutput {
-            lock: Script::new([0xAA; 32], 0, vec![]),
-            type_: None,
-            capacity: 500,
-        },
-        data: None,
-    };
+    let cell =
+        ResolvedCell { cell_output: CellOutput { lock: Script::new([0xAA; 32], 0, vec![]), type_: None, capacity: 500 }, data: None };
 
     let bytes = cell.to_vm_bytes();
     let restored = ResolvedCell::from_vm_bytes(&bytes).expect("should deserialize");
@@ -156,11 +143,7 @@ fn test_vm_abi_serialize_cell_output_with_type() {
 /// Test vm_abi serialize_cell_output without type script
 #[test]
 fn test_vm_abi_serialize_cell_output_without_type() {
-    let output = CellOutput {
-        lock: Script::new([0x11; 32], 0, vec![]),
-        type_: None,
-        capacity: 1000,
-    };
+    let output = CellOutput { lock: Script::new([0x11; 32], 0, vec![]), type_: None, capacity: 1000 };
 
     let bytes = serialize_cell_output(&output);
 

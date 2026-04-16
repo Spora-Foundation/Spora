@@ -10,6 +10,7 @@ pub mod error;
 pub mod fmt;
 pub mod ir;
 pub mod lexer;
+pub mod lifecycle;
 pub mod lsp;
 pub mod package;
 pub mod parser;
@@ -45,6 +46,7 @@ impl Default for CompileOptions {
 }
 
 const DEFAULT_TARGET: &str = "riscv64-asm";
+pub const METADATA_SCHEMA_VERSION: u32 = 1;
 
 /// 编译产物格式
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -80,6 +82,14 @@ impl ArtifactFormat {
             Self::RiscvElf => "RISC-V ELF",
         }
     }
+
+    pub fn from_display_name(value: &str) -> Result<Self> {
+        match value {
+            "RISC-V assembly" => Ok(Self::RiscvAssembly),
+            "RISC-V ELF" => Ok(Self::RiscvElf),
+            other => Err(CompileError::without_span(format!("unsupported artifact format in metadata: '{}'", other))),
+        }
+    }
 }
 
 /// 编译结果
@@ -95,18 +105,39 @@ pub struct CompileResult {
     pub metadata: CompileMetadata,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompileMetadata {
+    pub metadata_schema_version: u32,
+    pub compiler_version: String,
     pub module: String,
     pub artifact_format: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub artifact_hash_blake3: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub artifact_size_bytes: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_hash_blake3: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_content_hash_blake3: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub source_units: Vec<SourceUnitMetadata>,
     pub lowering: LoweringMetadata,
     pub runtime: RuntimeMetadata,
     pub types: Vec<TypeMetadata>,
     pub actions: Vec<ActionMetadata>,
+    pub functions: Vec<FunctionMetadata>,
     pub locks: Vec<LockMetadata>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SourceUnitMetadata {
+    pub path: String,
+    pub role: String,
+    pub hash_blake3: String,
+    pub size_bytes: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LoweringMetadata {
     pub protocol_semantics: String,
     pub assembly_path: String,
@@ -114,11 +145,12 @@ pub struct LoweringMetadata {
     pub semantics_preserving_claim: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RuntimeMetadata {
     pub vm_target: String,
     pub vm_version: String,
     pub syscall_abi: String,
+    pub vm_abi: VmAbiMetadata,
     pub pure_elf_runner: String,
     pub ckb_runtime_required: bool,
     pub ckb_runtime_features: Vec<String>,
@@ -127,9 +159,348 @@ pub struct RuntimeMetadata {
     pub unsupported_elf_features: Vec<String>,
     pub fail_closed_runtime_features: Vec<String>,
     pub ckb_runtime_accesses: Vec<CkbRuntimeAccessMetadata>,
+    pub verifier_obligations: Vec<VerifierObligationMetadata>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VmAbiMetadata {
+    pub format: String,
+    pub version: u16,
+    pub default: bool,
+    pub embedded_in_artifact: bool,
+    pub scope: String,
+    pub selection: String,
+}
+
+const VM_ABI_TRAILER_MAGIC: &[u8; 8] = b"SPORABI\0";
+const VM_ABI_TRAILER_LEN: usize = 16;
+const MOLECULE_VM_ABI_VERSION: u16 = 0x8001;
+
+/// Strip CellScript's fixed VM ABI trailer before directly loading an ELF into CKB-VM.
+pub fn strip_vm_abi_trailer(bytes: &[u8]) -> &[u8] {
+    if has_vm_abi_trailer_magic(bytes) {
+        &bytes[..bytes.len() - VM_ABI_TRAILER_LEN]
+    } else {
+        bytes
+    }
+}
+
+fn has_vm_abi_trailer_magic(bytes: &[u8]) -> bool {
+    if bytes.len() < VM_ABI_TRAILER_LEN {
+        return false;
+    }
+    let trailer_start = bytes.len() - VM_ABI_TRAILER_LEN;
+    &bytes[trailer_start..trailer_start + VM_ABI_TRAILER_MAGIC.len()] == VM_ABI_TRAILER_MAGIC
+}
+
+fn vm_abi_trailer_version(bytes: &[u8]) -> Result<Option<u16>> {
+    if !has_vm_abi_trailer_magic(bytes) {
+        return Ok(None);
+    }
+
+    let trailer_start = bytes.len() - VM_ABI_TRAILER_LEN;
+    let trailer = &bytes[trailer_start..];
+    let version = u16::from_le_bytes([trailer[8], trailer[9]]);
+    let flags = u16::from_le_bytes([trailer[10], trailer[11]]);
+    let reserved = u32::from_le_bytes([trailer[12], trailer[13], trailer[14], trailer[15]]);
+    if flags != 0 || reserved != 0 {
+        return Err(CompileError::without_span("invalid VM ABI trailer: flags/reserved bytes must be zero"));
+    }
+    Ok(Some(version))
+}
+
+fn append_vm_abi_trailer(mut artifact: Vec<u8>, abi_version: u16) -> Vec<u8> {
+    if strip_vm_abi_trailer(&artifact).len() != artifact.len() {
+        artifact.truncate(artifact.len() - VM_ABI_TRAILER_LEN);
+    }
+    artifact.extend_from_slice(VM_ABI_TRAILER_MAGIC);
+    artifact.extend_from_slice(&abi_version.to_le_bytes());
+    artifact.extend_from_slice(&0u16.to_le_bytes());
+    artifact.extend_from_slice(&0u32.to_le_bytes());
+    artifact
+}
+
+pub fn validate_compile_metadata(metadata: &CompileMetadata, artifact_format: ArtifactFormat) -> Result<()> {
+    if metadata.metadata_schema_version != METADATA_SCHEMA_VERSION {
+        return Err(CompileError::without_span(format!(
+            "unsupported metadata_schema_version {}; expected {}",
+            metadata.metadata_schema_version, METADATA_SCHEMA_VERSION
+        )));
+    }
+    if metadata.compiler_version != VERSION {
+        return Err(CompileError::without_span(format!(
+            "metadata compiler_version '{}' does not match current compiler '{}'",
+            metadata.compiler_version, VERSION
+        )));
+    }
+
+    if metadata.artifact_format != artifact_format.display_name() {
+        return Err(CompileError::without_span(format!(
+            "metadata artifact_format '{}' does not match compiler artifact format '{}'",
+            metadata.artifact_format,
+            artifact_format.display_name()
+        )));
+    }
+
+    if metadata.runtime.vm_abi.format != "molecule" {
+        return Err(CompileError::without_span(format!(
+            "metadata runtime.vm_abi.format must be 'molecule', got '{}'",
+            metadata.runtime.vm_abi.format
+        )));
+    }
+    if metadata.runtime.vm_abi.version != MOLECULE_VM_ABI_VERSION {
+        return Err(CompileError::without_span(format!(
+            "metadata runtime.vm_abi.version must be 0x{:04x}, got 0x{:04x}",
+            MOLECULE_VM_ABI_VERSION, metadata.runtime.vm_abi.version
+        )));
+    }
+
+    let should_embed_abi = artifact_format == ArtifactFormat::RiscvElf;
+    if metadata.runtime.vm_abi.embedded_in_artifact != should_embed_abi {
+        return Err(CompileError::without_span(format!(
+            "metadata runtime.vm_abi.embedded_in_artifact must be {} for {} artifacts",
+            should_embed_abi,
+            artifact_format.display_name()
+        )));
+    }
+
+    if metadata.runtime.standalone_runner_compatible {
+        if metadata.runtime.ckb_runtime_required {
+            return Err(CompileError::without_span(
+                "metadata marks artifact as standalone-compatible while CKB runtime features are required",
+            ));
+        }
+        if metadata.runtime.symbolic_cell_runtime_required || !metadata.runtime.unsupported_elf_features.is_empty() {
+            return Err(CompileError::without_span(
+                "metadata marks artifact as standalone-compatible while symbolic Cell/runtime features are required",
+            ));
+        }
+    }
+
+    validate_source_metadata(metadata)?;
+
+    Ok(())
+}
+
+fn hex_encode(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        out.push(HEX[(byte >> 4) as usize] as char);
+        out.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    out
+}
+
+fn bind_artifact_metadata(metadata: &mut CompileMetadata, artifact_bytes: &[u8], artifact_hash: &[u8; 32]) {
+    metadata.artifact_hash_blake3 = Some(hex_encode(artifact_hash));
+    metadata.artifact_size_bytes = Some(artifact_bytes.len());
+}
+
+fn bind_source_metadata(metadata: &mut CompileMetadata, mut source_units: Vec<SourceUnitMetadata>) {
+    if source_units.is_empty() {
+        metadata.source_hash_blake3 = None;
+        metadata.source_content_hash_blake3 = None;
+        metadata.source_units.clear();
+        return;
+    }
+
+    source_units.sort_by(|left, right| left.path.cmp(&right.path).then(left.role.cmp(&right.role)));
+    let mut source_set_hasher = blake3::Hasher::new();
+    for unit in &source_units {
+        update_source_set_hasher(&mut source_set_hasher, unit);
+    }
+    metadata.source_hash_blake3 = Some(hex_encode(source_set_hasher.finalize().as_bytes()));
+    metadata.source_content_hash_blake3 = Some(compute_source_content_hash(&source_units));
+    metadata.source_units = source_units;
+}
+
+fn update_source_set_hasher(hasher: &mut blake3::Hasher, unit: &SourceUnitMetadata) {
+    hasher.update(unit.role.as_bytes());
+    hasher.update(b"\0");
+    hasher.update(unit.path.as_bytes());
+    hasher.update(b"\0");
+    hasher.update(unit.hash_blake3.as_bytes());
+    hasher.update(b"\0");
+    hasher.update(&unit.size_bytes.to_le_bytes());
+    hasher.update(b"\0");
+}
+
+fn compute_source_content_hash(source_units: &[SourceUnitMetadata]) -> String {
+    let mut stable_units = source_units.iter().collect::<Vec<_>>();
+    stable_units.sort_by(|left, right| {
+        left.role.cmp(&right.role).then(left.hash_blake3.cmp(&right.hash_blake3)).then(left.size_bytes.cmp(&right.size_bytes))
+    });
+    let mut hasher = blake3::Hasher::new();
+    for unit in stable_units {
+        hasher.update(unit.role.as_bytes());
+        hasher.update(b"\0");
+        hasher.update(unit.hash_blake3.as_bytes());
+        hasher.update(b"\0");
+        hasher.update(&unit.size_bytes.to_le_bytes());
+        hasher.update(b"\0");
+    }
+    hex_encode(hasher.finalize().as_bytes())
+}
+
+fn validate_source_metadata(metadata: &CompileMetadata) -> Result<()> {
+    if metadata.source_units.is_empty() {
+        if metadata.source_hash_blake3.is_some() {
+            return Err(CompileError::without_span("metadata source_hash_blake3 is present but source_units is empty"));
+        }
+        if metadata.source_content_hash_blake3.is_some() {
+            return Err(CompileError::without_span("metadata source_content_hash_blake3 is present but source_units is empty"));
+        }
+        return Ok(());
+    }
+
+    let mut source_set_hasher = blake3::Hasher::new();
+    for unit in &metadata.source_units {
+        if unit.path.is_empty() {
+            return Err(CompileError::without_span("metadata source_units contains an empty path"));
+        }
+        if unit.role.is_empty() {
+            return Err(CompileError::without_span(format!("metadata source unit '{}' has an empty role", unit.path)));
+        }
+        if unit.hash_blake3.len() != 64 || !unit.hash_blake3.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return Err(CompileError::without_span(format!(
+                "metadata source unit '{}' has invalid hash_blake3 '{}'",
+                unit.path, unit.hash_blake3
+            )));
+        }
+        update_source_set_hasher(&mut source_set_hasher, unit);
+    }
+
+    let computed_hash = hex_encode(source_set_hasher.finalize().as_bytes());
+    match &metadata.source_hash_blake3 {
+        Some(hash) if hash == &computed_hash => {}
+        Some(hash) => Err(CompileError::without_span(format!(
+            "metadata source_hash_blake3 '{}' does not match source_units '{}'",
+            hash, computed_hash
+        )))?,
+        None => return Err(CompileError::without_span("metadata is missing source_hash_blake3 for non-empty source_units")),
+    };
+
+    let computed_content_hash = compute_source_content_hash(&metadata.source_units);
+    match &metadata.source_content_hash_blake3 {
+        Some(hash) if hash == &computed_content_hash => Ok(()),
+        Some(hash) => Err(CompileError::without_span(format!(
+            "metadata source_content_hash_blake3 '{}' does not match source_units '{}'",
+            hash, computed_content_hash
+        ))),
+        None => Err(CompileError::without_span("metadata is missing source_content_hash_blake3 for non-empty source_units")),
+    }
+}
+
+pub fn validate_source_units_on_disk(metadata: &CompileMetadata) -> Result<()> {
+    validate_source_metadata(metadata)?;
+    if metadata.source_units.is_empty() {
+        return Err(CompileError::without_span("metadata has no source_units to verify"));
+    }
+
+    for unit in &metadata.source_units {
+        if unit.path.starts_with('<') && unit.path.ends_with('>') {
+            return Err(CompileError::without_span(format!(
+                "source unit '{}' is not backed by a disk file and cannot be verified",
+                unit.path
+            )));
+        }
+
+        let path = Utf8Path::new(&unit.path);
+        let bytes = std::fs::read(path)
+            .map_err(|error| CompileError::without_span(format!("failed to read source unit '{}': {}", unit.path, error)))?;
+        if bytes.len() != unit.size_bytes {
+            return Err(CompileError::without_span(format!(
+                "source unit '{}' size {} does not match metadata size {}",
+                unit.path,
+                bytes.len(),
+                unit.size_bytes
+            )));
+        }
+
+        let hash = hex_encode(blake3::hash(&bytes).as_bytes());
+        if hash != unit.hash_blake3 {
+            return Err(CompileError::without_span(format!(
+                "source unit '{}' hash '{}' does not match metadata hash '{}'",
+                unit.path, hash, unit.hash_blake3
+            )));
+        }
+    }
+
+    Ok(())
+}
+
+pub fn validate_compile_result(result: &CompileResult) -> Result<()> {
+    validate_compile_metadata(&result.metadata, result.artifact_format)?;
+
+    if result.artifact_bytes.is_empty() {
+        return Err(CompileError::without_span("compiler produced an empty artifact"));
+    }
+
+    let computed_hash = *blake3::hash(&result.artifact_bytes).as_bytes();
+    if computed_hash != result.artifact_hash {
+        return Err(CompileError::without_span("artifact_hash does not match artifact_bytes"));
+    }
+    let computed_hash_hex = hex_encode(&computed_hash);
+    match &result.metadata.artifact_hash_blake3 {
+        Some(metadata_hash) if metadata_hash == &computed_hash_hex => {}
+        Some(metadata_hash) => {
+            return Err(CompileError::without_span(format!(
+                "metadata artifact_hash_blake3 '{}' does not match artifact bytes '{}'",
+                metadata_hash, computed_hash_hex
+            )));
+        }
+        None => return Err(CompileError::without_span("metadata is missing artifact_hash_blake3")),
+    }
+    match result.metadata.artifact_size_bytes {
+        Some(size) if size == result.artifact_bytes.len() => {}
+        Some(size) => {
+            return Err(CompileError::without_span(format!(
+                "metadata artifact_size_bytes {} does not match artifact size {}",
+                size,
+                result.artifact_bytes.len()
+            )));
+        }
+        None => return Err(CompileError::without_span("metadata is missing artifact_size_bytes")),
+    }
+
+    match result.artifact_format {
+        ArtifactFormat::RiscvAssembly => {
+            if vm_abi_trailer_version(&result.artifact_bytes)?.is_some() {
+                return Err(CompileError::without_span("RISC-V assembly artifacts must not embed a VM ABI trailer"));
+            }
+        }
+        ArtifactFormat::RiscvElf => {
+            if !result.artifact_bytes.starts_with(b"\x7fELF") {
+                return Err(CompileError::without_span("RISC-V ELF artifact does not start with ELF magic"));
+            }
+            let Some(trailer_version) = vm_abi_trailer_version(&result.artifact_bytes)? else {
+                return Err(CompileError::without_span("RISC-V ELF artifact is missing its VM ABI trailer"));
+            };
+            if trailer_version != result.metadata.runtime.vm_abi.version {
+                return Err(CompileError::without_span(format!(
+                    "ELF VM ABI trailer version 0x{:04x} does not match metadata runtime.vm_abi.version 0x{:04x}",
+                    trailer_version, result.metadata.runtime.vm_abi.version
+                )));
+            }
+            if !strip_vm_abi_trailer(&result.artifact_bytes).starts_with(b"\x7fELF") {
+                return Err(CompileError::without_span("stripped RISC-V ELF artifact does not start with ELF magic"));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+pub fn validate_artifact_metadata(artifact_bytes: Vec<u8>, metadata: CompileMetadata) -> Result<CompileResult> {
+    let artifact_format = ArtifactFormat::from_display_name(&metadata.artifact_format)?;
+    let artifact_hash = *blake3::hash(&artifact_bytes).as_bytes();
+    let result = CompileResult { artifact_bytes, artifact_format, artifact_hash, metadata };
+    result.validate()?;
+    Ok(result)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CkbRuntimeAccessMetadata {
     pub operation: String,
     pub syscall: String,
@@ -138,15 +509,34 @@ pub struct CkbRuntimeAccessMetadata {
     pub binding: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VerifierObligationMetadata {
+    pub scope: String,
+    pub category: String,
+    pub feature: String,
+    pub status: String,
+    pub detail: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TypeMetadata {
     pub name: String,
     pub kind: String,
+    pub lifecycle_states: Vec<String>,
+    pub lifecycle_transitions: Vec<LifecycleTransitionMetadata>,
     pub encoded_size: Option<usize>,
     pub fields: Vec<FieldMetadata>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LifecycleTransitionMetadata {
+    pub from: String,
+    pub to: String,
+    pub from_index: usize,
+    pub to_index: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FieldMetadata {
     pub name: String,
     pub ty: String,
@@ -155,7 +545,7 @@ pub struct FieldMetadata {
     pub fixed_width: bool,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ActionMetadata {
     pub name: String,
     pub params: Vec<ParamMetadata>,
@@ -171,12 +561,27 @@ pub struct ActionMetadata {
     pub ckb_runtime_features: Vec<String>,
     pub symbolic_runtime_features: Vec<String>,
     pub fail_closed_runtime_features: Vec<String>,
+    pub verifier_obligations: Vec<VerifierObligationMetadata>,
     pub elf_compatible: bool,
     pub standalone_runner_compatible: bool,
     pub block_count: usize,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FunctionMetadata {
+    pub name: String,
+    pub params: Vec<ParamMetadata>,
+    pub return_type: Option<String>,
+    pub ckb_runtime_accesses: Vec<CkbRuntimeAccessMetadata>,
+    pub ckb_runtime_features: Vec<String>,
+    pub symbolic_runtime_features: Vec<String>,
+    pub fail_closed_runtime_features: Vec<String>,
+    pub verifier_obligations: Vec<VerifierObligationMetadata>,
+    pub elf_compatible: bool,
+    pub block_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LockMetadata {
     pub name: String,
     pub params: Vec<ParamMetadata>,
@@ -187,12 +592,13 @@ pub struct LockMetadata {
     pub ckb_runtime_features: Vec<String>,
     pub symbolic_runtime_features: Vec<String>,
     pub fail_closed_runtime_features: Vec<String>,
+    pub verifier_obligations: Vec<VerifierObligationMetadata>,
     pub elf_compatible: bool,
     pub standalone_runner_compatible: bool,
     pub block_count: usize,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ParamMetadata {
     pub name: String,
     pub ty: String,
@@ -202,14 +608,14 @@ pub struct ParamMetadata {
     pub schema_length_abi: bool,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CellPatternMetadata {
     pub type_hash: Option<String>,
     pub binding: String,
     pub fields: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreatePatternMetadata {
     pub ty: String,
     pub binding: String,
@@ -233,6 +639,11 @@ pub struct LoadedModule {
 }
 
 impl CompileResult {
+    /// Validate that artifact bytes, hash, format, and metadata agree.
+    pub fn validate(&self) -> Result<()> {
+        validate_compile_result(self)
+    }
+
     /// 默认输出路径
     pub fn default_output_path(&self, input_path: &Utf8Path) -> Utf8PathBuf {
         input_path.with_extension(self.artifact_format.file_extension())
@@ -240,6 +651,7 @@ impl CompileResult {
 
     /// 将产物写入文件
     pub fn write_to_path(&self, output_path: &Utf8Path) -> Result<()> {
+        self.validate()?;
         if let Some(parent) = output_path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| {
                 CompileError::new(format!("failed to create output directory '{}': {}", parent, e), error::Span::default())
@@ -255,6 +667,7 @@ impl CompileResult {
     }
 
     pub fn write_metadata_to_path(&self, output_path: &Utf8Path) -> Result<()> {
+        self.validate()?;
         if let Some(parent) = output_path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| {
                 CompileError::new(format!("failed to create metadata directory '{}': {}", parent, e), error::Span::default())
@@ -319,7 +732,10 @@ pub fn compile(source: &str, options: CompileOptions) -> Result<CompileResult> {
     // 2. 解析
     let ast = parser::parse(&tokens)?;
 
-    compile_ast(&ast, &options, None)
+    let mut result = compile_ast(&ast, &options, None)?;
+    bind_source_metadata(&mut result.metadata, vec![source_unit_from_bytes("<memory>", "memory", source.as_bytes())]);
+    result.validate()?;
+    Ok(result)
 }
 
 /// 只生成编译元数据，不生成 asm/elf artifact。
@@ -328,8 +744,12 @@ pub fn compile_metadata(source: &str, target: Option<String>) -> Result<CompileM
     let ast = parser::parse(&tokens)?;
     let artifact_format = ArtifactFormat::from_target(target.as_deref().unwrap_or(DEFAULT_TARGET))?;
     types::check(&ast)?;
+    lifecycle::check(&ast)?;
     let ir = ir::generate(&ast)?;
-    Ok(compile_metadata_from_ir(&ir, artifact_format))
+    let mut metadata = compile_metadata_from_ir(&ir, artifact_format);
+    bind_source_metadata(&mut metadata, vec![source_unit_from_bytes("<memory>", "memory", source.as_bytes())]);
+    validate_compile_metadata(&metadata, artifact_format)?;
+    Ok(metadata)
 }
 
 fn compile_ast(ast: &ast::Module, options: &CompileOptions, resolver: Option<(&ModuleResolver, &str)>) -> Result<CompileResult> {
@@ -350,6 +770,7 @@ fn compile_ast_with_build(
     } else {
         types::check(ast)?;
     }
+    lifecycle::check(ast)?;
 
     // 4. 生成 IR
     let ir = if let Some((resolver, module_name)) = resolver {
@@ -360,16 +781,21 @@ fn compile_ast_with_build(
 
     // 5. 代码生成
     let codegen_options = codegen::CodegenOptions { opt_level: options.opt_level, debug: options.debug };
-    let artifact_bytes = codegen::generate(&ir, &codegen_options, artifact_format)?;
+    let mut artifact_bytes = codegen::generate(&ir, &codegen_options, artifact_format)?;
     if artifact_bytes.is_empty() {
         return Err(CompileError::new("backend produced an empty artifact", error::Span::default()));
     }
 
+    let mut metadata = compile_metadata_from_ir(&ir, artifact_format);
+    if metadata.runtime.vm_abi.embedded_in_artifact {
+        artifact_bytes = append_vm_abi_trailer(artifact_bytes, metadata.runtime.vm_abi.version);
+    }
     let artifact_hash = *blake3::hash(&artifact_bytes).as_bytes();
+    bind_artifact_metadata(&mut metadata, &artifact_bytes, &artifact_hash);
 
-    let metadata = compile_metadata_from_ir(&ir, artifact_format);
-
-    Ok(CompileResult { artifact_bytes, artifact_format, artifact_hash, metadata })
+    let result = CompileResult { artifact_bytes, artifact_format, artifact_hash, metadata };
+    result.validate()?;
+    Ok(result)
 }
 
 /// 从文件、包目录或 Cell.toml 编译
@@ -387,7 +813,76 @@ pub fn compile_file<P: AsRef<Utf8Path>>(path: P, options: CompileOptions) -> Res
     let ast = parser::parse(&tokens)?;
     let resolver = build_module_resolver(path, &ast)?;
     let manifest = find_package_root(path)?.map(|root| load_manifest(&root)).transpose()?;
-    compile_ast_with_build(&ast, &options, Some((&resolver, &ast.name)), manifest.as_ref().map(|manifest| &manifest.build))
+    let mut result =
+        compile_ast_with_build(&ast, &options, Some((&resolver, &ast.name)), manifest.as_ref().map(|manifest| &manifest.build))?;
+    bind_source_metadata(&mut result.metadata, collect_source_units_for_compile_file(path)?);
+    result.validate()?;
+    Ok(result)
+}
+
+fn source_unit_from_bytes(path: impl Into<String>, role: impl Into<String>, bytes: &[u8]) -> SourceUnitMetadata {
+    SourceUnitMetadata {
+        path: path.into(),
+        role: role.into(),
+        hash_blake3: hex_encode(blake3::hash(bytes).as_bytes()),
+        size_bytes: bytes.len(),
+    }
+}
+
+fn source_unit_from_file(path: &Utf8Path, role: &str) -> Result<SourceUnitMetadata> {
+    let bytes = std::fs::read(path)
+        .map_err(|e| CompileError::new(format!("failed to read source unit '{}': {}", path, e), error::Span::default()))?;
+    Ok(source_unit_from_bytes(path.to_string(), role.to_string(), &bytes))
+}
+
+fn collect_source_units_for_compile_file(entry_path: &Utf8Path) -> Result<Vec<SourceUnitMetadata>> {
+    let entry_path = canonical_utf8_path(entry_path)?;
+    let mut source_paths = BTreeSet::new();
+    let package_root = find_package_root(&entry_path)?;
+
+    if let Some(package_root) = &package_root {
+        let mut visited_roots = HashSet::new();
+        collect_package_source_paths_recursive(package_root, &mut visited_roots, &mut source_paths)?;
+    } else if let Some(parent) = entry_path.parent() {
+        for source_path in collect_cell_files(parent)? {
+            source_paths.insert(source_path);
+        }
+    }
+    source_paths.insert(entry_path.clone());
+
+    source_paths
+        .into_iter()
+        .map(|source_path| {
+            let role = if source_path == entry_path {
+                "entry"
+            } else if package_root.as_ref().is_some_and(|root| source_path.starts_with(root)) {
+                "package"
+            } else {
+                "dependency"
+            };
+            source_unit_from_file(&source_path, role)
+        })
+        .collect()
+}
+
+fn collect_package_source_paths_recursive(
+    package_root: &Utf8Path,
+    visited_roots: &mut HashSet<Utf8PathBuf>,
+    source_paths: &mut BTreeSet<Utf8PathBuf>,
+) -> Result<()> {
+    let package_root = canonical_utf8_path(package_root)?;
+    if !visited_roots.insert(package_root.clone()) {
+        return Ok(());
+    }
+
+    for source_path in collect_package_cell_files(&package_root)? {
+        source_paths.insert(source_path);
+    }
+    for dep_root in local_dependency_roots(&package_root)? {
+        collect_package_source_paths_recursive(&dep_root, visited_roots, source_paths)?;
+    }
+
+    Ok(())
 }
 
 fn build_module_resolver(path: &Utf8Path, current_module: &ast::Module) -> Result<ModuleResolver> {
@@ -622,16 +1117,25 @@ fn metadata_output_path_from_artifact(artifact_path: &Utf8Path) -> Utf8PathBuf {
 
 fn compile_metadata_from_ir(ir: &ir::IrModule, artifact_format: ArtifactFormat) -> CompileMetadata {
     let type_layouts = metadata_type_layouts(ir);
+    let lifecycle_states = metadata_lifecycle_states(ir);
     let unsupported_elf_features = module_symbolic_runtime_features(ir, &type_layouts);
     let fail_closed_runtime_features = module_fail_closed_runtime_features(ir, &type_layouts);
     let ckb_runtime_features = module_ckb_runtime_features(ir);
     let ckb_runtime_accesses = module_ckb_runtime_accesses(ir);
+    let verifier_obligations = module_verifier_obligations(ir, &type_layouts, &lifecycle_states);
     let has_entry_params = module_has_entry_params(ir);
     let ckb_runtime_required = !ckb_runtime_features.is_empty();
     let standalone_runner_compatible = unsupported_elf_features.is_empty() && !ckb_runtime_required && !has_entry_params;
     CompileMetadata {
+        metadata_schema_version: METADATA_SCHEMA_VERSION,
+        compiler_version: VERSION.to_string(),
         module: ir.name.clone(),
         artifact_format: artifact_format.display_name().to_string(),
+        artifact_hash_blake3: None,
+        artifact_size_bytes: None,
+        source_hash_blake3: None,
+        source_content_hash_blake3: None,
+        source_units: Vec::new(),
         lowering: LoweringMetadata {
             protocol_semantics: "CellScript IR records consume/read_ref/create summaries before RISC-V codegen".to_string(),
             assembly_path: "riscv64-asm preserves symbolic cell/runtime operations with CKB-style syscall ABI comments and metadata"
@@ -650,6 +1154,20 @@ fn compile_metadata_from_ir(ir: &ir::IrModule, artifact_format: ArtifactFormat) 
             vm_target: "CKB-VM compatible RISC-V 64 IMC+B+MOP".to_string(),
             vm_version: "VERSION2".to_string(),
             syscall_abi: "CKB store_data ABI: A0=buffer, A1=size pointer, A2=offset, A3=index, A4=source".to_string(),
+            vm_abi: VmAbiMetadata {
+                format: "molecule".to_string(),
+                version: MOLECULE_VM_ABI_VERSION,
+                default: true,
+                embedded_in_artifact: artifact_format == ArtifactFormat::RiscvElf,
+                scope: "CKB-style full object load syscalls: LOAD_SCRIPT, LOAD_INPUT, LOAD_CELL, LOAD_HEADER".to_string(),
+                selection: if artifact_format == ArtifactFormat::RiscvElf {
+                    "RISC-V ELF artifacts embed a fixed VM ABI trailer; verifier callers strip the trailer and select the declared ABI"
+                        .to_string()
+                } else {
+                    "Compiler artifact metadata declares the required VM object ABI; verifier callers must pass this ABI to the runtime"
+                        .to_string()
+                },
+            },
             pure_elf_runner: "cellc run --features vm-runner executes no-argument pure ELF with ckb-vm 0.24".to_string(),
             ckb_runtime_required,
             ckb_runtime_features,
@@ -658,6 +1176,7 @@ fn compile_metadata_from_ir(ir: &ir::IrModule, artifact_format: ArtifactFormat) 
             unsupported_elf_features,
             fail_closed_runtime_features,
             ckb_runtime_accesses,
+            verifier_obligations,
         },
         types: ir
             .items
@@ -678,6 +1197,17 @@ fn compile_metadata_from_ir(ir: &ir::IrModule, artifact_format: ArtifactFormat) 
                     let fail_closed_runtime_features =
                         body_fail_closed_runtime_features(&action.body, &param_schema_vars, &type_layouts);
                     let ckb_runtime_features = body_ckb_runtime_features(&action.body);
+                    let ckb_runtime_accesses = body_ckb_runtime_accesses(&action.body);
+                    let verifier_obligations = body_verifier_obligations(
+                        "action",
+                        &action.name,
+                        &action.body,
+                        &symbolic_runtime_features,
+                        &fail_closed_runtime_features,
+                        &ckb_runtime_features,
+                        &ckb_runtime_accesses,
+                        &lifecycle_states,
+                    );
                     let standalone_runner_compatible =
                         symbolic_runtime_features.is_empty() && ckb_runtime_features.is_empty() && action.params.is_empty();
                     Some(ActionMetadata {
@@ -696,13 +1226,52 @@ fn compile_metadata_from_ir(ir: &ir::IrModule, artifact_format: ArtifactFormat) 
                         consume_set: action.body.consume_set.iter().map(cell_pattern_metadata).collect(),
                         read_refs: action.body.read_refs.iter().map(cell_pattern_metadata).collect(),
                         create_set: action.body.create_set.iter().map(create_pattern_metadata).collect(),
-                        ckb_runtime_accesses: body_ckb_runtime_accesses(&action.body),
+                        ckb_runtime_accesses,
                         ckb_runtime_features,
                         elf_compatible: symbolic_runtime_features.is_empty(),
                         standalone_runner_compatible,
                         symbolic_runtime_features,
                         fail_closed_runtime_features,
+                        verifier_obligations,
                         block_count: action.body.blocks.len(),
+                    })
+                }
+                _ => None,
+            })
+            .collect(),
+        functions: ir
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                ir::IrItem::PureFn(function) => {
+                    let param_schema_vars = schema_pointer_var_ids(&function.body, &function.params);
+                    let symbolic_runtime_features =
+                        body_symbolic_runtime_features(&function.body, &param_schema_vars, &type_layouts);
+                    let fail_closed_runtime_features =
+                        body_fail_closed_runtime_features(&function.body, &param_schema_vars, &type_layouts);
+                    let ckb_runtime_features = body_ckb_runtime_features(&function.body);
+                    let ckb_runtime_accesses = body_ckb_runtime_accesses(&function.body);
+                    let verifier_obligations = body_verifier_obligations(
+                        "fn",
+                        &function.name,
+                        &function.body,
+                        &symbolic_runtime_features,
+                        &fail_closed_runtime_features,
+                        &ckb_runtime_features,
+                        &ckb_runtime_accesses,
+                        &lifecycle_states,
+                    );
+                    Some(FunctionMetadata {
+                        name: function.name.clone(),
+                        params: function.params.iter().map(param_metadata).collect(),
+                        return_type: function.return_type.as_ref().map(ir_type_to_string),
+                        ckb_runtime_accesses,
+                        ckb_runtime_features,
+                        elf_compatible: symbolic_runtime_features.is_empty(),
+                        symbolic_runtime_features,
+                        fail_closed_runtime_features,
+                        verifier_obligations,
+                        block_count: function.body.blocks.len(),
                     })
                 }
                 _ => None,
@@ -719,6 +1288,17 @@ fn compile_metadata_from_ir(ir: &ir::IrModule, artifact_format: ArtifactFormat) 
                     let fail_closed_runtime_features =
                         body_fail_closed_runtime_features(&lock.body, &param_schema_vars, &type_layouts);
                     let ckb_runtime_features = body_ckb_runtime_features(&lock.body);
+                    let ckb_runtime_accesses = body_ckb_runtime_accesses(&lock.body);
+                    let verifier_obligations = body_verifier_obligations(
+                        "lock",
+                        &lock.name,
+                        &lock.body,
+                        &symbolic_runtime_features,
+                        &fail_closed_runtime_features,
+                        &ckb_runtime_features,
+                        &ckb_runtime_accesses,
+                        &lifecycle_states,
+                    );
                     let standalone_runner_compatible =
                         symbolic_runtime_features.is_empty() && ckb_runtime_features.is_empty() && lock.params.is_empty();
                     Some(LockMetadata {
@@ -727,12 +1307,13 @@ fn compile_metadata_from_ir(ir: &ir::IrModule, artifact_format: ArtifactFormat) 
                         consume_set: lock.body.consume_set.iter().map(cell_pattern_metadata).collect(),
                         read_refs: lock.body.read_refs.iter().map(cell_pattern_metadata).collect(),
                         create_set: lock.body.create_set.iter().map(create_pattern_metadata).collect(),
-                        ckb_runtime_accesses: body_ckb_runtime_accesses(&lock.body),
+                        ckb_runtime_accesses,
                         ckb_runtime_features,
                         elf_compatible: symbolic_runtime_features.is_empty(),
                         standalone_runner_compatible,
                         symbolic_runtime_features,
                         fail_closed_runtime_features,
+                        verifier_obligations,
                         block_count: lock.body.blocks.len(),
                     })
                 }
@@ -749,6 +1330,10 @@ fn module_symbolic_runtime_features(ir: &ir::IrModule, type_layouts: &MetadataTy
             ir::IrItem::Action(action) => {
                 let param_schema_vars = schema_pointer_var_ids(&action.body, &action.params);
                 features.extend(body_symbolic_runtime_features(&action.body, &param_schema_vars, type_layouts));
+            }
+            ir::IrItem::PureFn(function) => {
+                let param_schema_vars = schema_pointer_var_ids(&function.body, &function.params);
+                features.extend(body_symbolic_runtime_features(&function.body, &param_schema_vars, type_layouts));
             }
             ir::IrItem::Lock(lock) => {
                 let param_schema_vars = schema_pointer_var_ids(&lock.body, &lock.params);
@@ -768,6 +1353,10 @@ fn module_fail_closed_runtime_features(ir: &ir::IrModule, type_layouts: &Metadat
                 let param_schema_vars = schema_pointer_var_ids(&action.body, &action.params);
                 features.extend(body_fail_closed_runtime_features(&action.body, &param_schema_vars, type_layouts));
             }
+            ir::IrItem::PureFn(function) => {
+                let param_schema_vars = schema_pointer_var_ids(&function.body, &function.params);
+                features.extend(body_fail_closed_runtime_features(&function.body, &param_schema_vars, type_layouts));
+            }
             ir::IrItem::Lock(lock) => {
                 let param_schema_vars = schema_pointer_var_ids(&lock.body, &lock.params);
                 features.extend(body_fail_closed_runtime_features(&lock.body, &param_schema_vars, type_layouts));
@@ -783,6 +1372,7 @@ fn module_ckb_runtime_accesses(ir: &ir::IrModule) -> Vec<CkbRuntimeAccessMetadat
     for item in &ir.items {
         match item {
             ir::IrItem::Action(action) => accesses.extend(body_ckb_runtime_accesses(&action.body)),
+            ir::IrItem::PureFn(function) => accesses.extend(body_ckb_runtime_accesses(&function.body)),
             ir::IrItem::Lock(lock) => accesses.extend(body_ckb_runtime_accesses(&lock.body)),
             ir::IrItem::TypeDef(_) => {}
         }
@@ -795,6 +1385,7 @@ fn module_ckb_runtime_features(ir: &ir::IrModule) -> Vec<String> {
     for item in &ir.items {
         match item {
             ir::IrItem::Action(action) => features.extend(body_ckb_runtime_features(&action.body)),
+            ir::IrItem::PureFn(function) => features.extend(body_ckb_runtime_features(&function.body)),
             ir::IrItem::Lock(lock) => features.extend(body_ckb_runtime_features(&lock.body)),
             ir::IrItem::TypeDef(_) => {}
         }
@@ -802,10 +1393,221 @@ fn module_ckb_runtime_features(ir: &ir::IrModule) -> Vec<String> {
     features.into_iter().collect()
 }
 
+fn module_verifier_obligations(
+    ir: &ir::IrModule,
+    type_layouts: &MetadataTypeLayouts,
+    lifecycle_states: &HashMap<String, Vec<String>>,
+) -> Vec<VerifierObligationMetadata> {
+    let mut obligations = Vec::new();
+    for item in &ir.items {
+        match item {
+            ir::IrItem::Action(action) => {
+                let param_schema_vars = schema_pointer_var_ids(&action.body, &action.params);
+                let symbolic_runtime_features = body_symbolic_runtime_features(&action.body, &param_schema_vars, type_layouts);
+                let fail_closed_runtime_features = body_fail_closed_runtime_features(&action.body, &param_schema_vars, type_layouts);
+                let ckb_runtime_features = body_ckb_runtime_features(&action.body);
+                let ckb_runtime_accesses = body_ckb_runtime_accesses(&action.body);
+                obligations.extend(body_verifier_obligations(
+                    "action",
+                    &action.name,
+                    &action.body,
+                    &symbolic_runtime_features,
+                    &fail_closed_runtime_features,
+                    &ckb_runtime_features,
+                    &ckb_runtime_accesses,
+                    lifecycle_states,
+                ));
+            }
+            ir::IrItem::PureFn(function) => {
+                let param_schema_vars = schema_pointer_var_ids(&function.body, &function.params);
+                let symbolic_runtime_features = body_symbolic_runtime_features(&function.body, &param_schema_vars, type_layouts);
+                let fail_closed_runtime_features = body_fail_closed_runtime_features(&function.body, &param_schema_vars, type_layouts);
+                let ckb_runtime_features = body_ckb_runtime_features(&function.body);
+                let ckb_runtime_accesses = body_ckb_runtime_accesses(&function.body);
+                obligations.extend(body_verifier_obligations(
+                    "fn",
+                    &function.name,
+                    &function.body,
+                    &symbolic_runtime_features,
+                    &fail_closed_runtime_features,
+                    &ckb_runtime_features,
+                    &ckb_runtime_accesses,
+                    lifecycle_states,
+                ));
+            }
+            ir::IrItem::Lock(lock) => {
+                let param_schema_vars = schema_pointer_var_ids(&lock.body, &lock.params);
+                let symbolic_runtime_features = body_symbolic_runtime_features(&lock.body, &param_schema_vars, type_layouts);
+                let fail_closed_runtime_features = body_fail_closed_runtime_features(&lock.body, &param_schema_vars, type_layouts);
+                let ckb_runtime_features = body_ckb_runtime_features(&lock.body);
+                let ckb_runtime_accesses = body_ckb_runtime_accesses(&lock.body);
+                obligations.extend(body_verifier_obligations(
+                    "lock",
+                    &lock.name,
+                    &lock.body,
+                    &symbolic_runtime_features,
+                    &fail_closed_runtime_features,
+                    &ckb_runtime_features,
+                    &ckb_runtime_accesses,
+                    lifecycle_states,
+                ));
+            }
+            ir::IrItem::TypeDef(_) => {}
+        }
+    }
+    obligations
+}
+
+#[allow(clippy::too_many_arguments)]
+fn body_verifier_obligations(
+    scope_kind: &str,
+    name: &str,
+    body: &ir::IrBody,
+    symbolic_runtime_features: &[String],
+    fail_closed_runtime_features: &[String],
+    ckb_runtime_features: &[String],
+    ckb_runtime_accesses: &[CkbRuntimeAccessMetadata],
+    lifecycle_states: &HashMap<String, Vec<String>>,
+) -> Vec<VerifierObligationMetadata> {
+    let scope = format!("{}:{}", scope_kind, name);
+    let fail_closed = fail_closed_runtime_features.iter().cloned().collect::<BTreeSet<_>>();
+    let ckb_features = ckb_runtime_features.iter().cloned().collect::<BTreeSet<_>>();
+    let mut seen = BTreeSet::new();
+    let mut obligations = Vec::new();
+
+    for feature in ckb_runtime_features {
+        push_verifier_obligation(
+            &mut obligations,
+            &mut seen,
+            &scope,
+            "ckb-runtime",
+            feature,
+            "ckb-runtime",
+            "Requires the CKB-style transaction context and syscall ABI during verification",
+        );
+    }
+
+    for access in ckb_runtime_accesses {
+        push_verifier_obligation(
+            &mut obligations,
+            &mut seen,
+            &scope,
+            "cell-access",
+            &format!("{}:{}#{}", access.operation, access.source, access.index),
+            "ckb-runtime",
+            &format!("{} {} from {}#{} bound to {}", access.syscall, access.operation, access.source, access.index, access.binding),
+        );
+    }
+
+    for feature in symbolic_runtime_features {
+        if fail_closed.contains(feature) {
+            push_verifier_obligation(
+                &mut obligations,
+                &mut seen,
+                &scope,
+                "runtime-fail-closed",
+                feature,
+                "fail-closed",
+                "Generated code rejects this path instead of accepting an unimplemented symbolic runtime operation",
+            );
+        } else if !ckb_features.contains(feature) {
+            push_verifier_obligation(
+                &mut obligations,
+                &mut seen,
+                &scope,
+                "standalone-elf-limitation",
+                feature,
+                "unsupported-standalone",
+                "This source-level feature prevents standalone pure-ELF compatibility; audit the CKB-runtime path and emitted access summary",
+            );
+        }
+    }
+
+    for feature in fail_closed_runtime_features {
+        push_verifier_obligation(
+            &mut obligations,
+            &mut seen,
+            &scope,
+            "runtime-fail-closed",
+            feature,
+            "fail-closed",
+            "Generated code rejects this path instead of accepting an unimplemented runtime operation",
+        );
+    }
+
+    for ty in body_lifecycle_transition_types(body, lifecycle_states) {
+        push_verifier_obligation(
+            &mut obligations,
+            &mut seen,
+            &scope,
+            "lifecycle-transition",
+            &format!("{}.state", ty),
+            "checked-partial",
+            "Compiler emits declaration/static checks and, for complete fixed-scalar output verifiers, runtime old_state + 1 and state range checks",
+        );
+    }
+
+    obligations
+}
+
+fn push_verifier_obligation(
+    obligations: &mut Vec<VerifierObligationMetadata>,
+    seen: &mut BTreeSet<(String, String, String, String)>,
+    scope: &str,
+    category: &str,
+    feature: &str,
+    status: &str,
+    detail: &str,
+) {
+    let key = (scope.to_string(), category.to_string(), feature.to_string(), status.to_string());
+    if seen.insert(key) {
+        obligations.push(VerifierObligationMetadata {
+            scope: scope.to_string(),
+            category: category.to_string(),
+            feature: feature.to_string(),
+            status: status.to_string(),
+            detail: detail.to_string(),
+        });
+    }
+}
+
+fn body_lifecycle_transition_types(body: &ir::IrBody, lifecycle_states: &HashMap<String, Vec<String>>) -> Vec<String> {
+    let consumed_types = body_consumed_named_types(body);
+    let mut types = BTreeSet::new();
+    for pattern in &body.create_set {
+        if lifecycle_states.contains_key(&pattern.ty) && consumed_types.contains(&pattern.ty) {
+            types.insert(pattern.ty.clone());
+        }
+    }
+    types.into_iter().collect()
+}
+
+fn body_consumed_named_types(body: &ir::IrBody) -> BTreeSet<String> {
+    let mut types = BTreeSet::new();
+    for block in &body.blocks {
+        for instruction in &block.instructions {
+            let operand = match instruction {
+                ir::IrInstruction::Consume { operand }
+                | ir::IrInstruction::Transfer { operand, .. }
+                | ir::IrInstruction::Settle { operand } => Some(operand),
+                ir::IrInstruction::Claim { receipt, .. } => Some(receipt),
+                _ => None,
+            };
+            if let Some(ir::IrOperand::Var(var)) = operand {
+                if let Some(type_name) = named_type_name(&var.ty) {
+                    types.insert(type_name.to_string());
+                }
+            }
+        }
+    }
+    types
+}
+
 fn module_has_entry_params(ir: &ir::IrModule) -> bool {
     ir.items.iter().any(|item| match item {
         ir::IrItem::Action(action) => !action.params.is_empty(),
         ir::IrItem::Lock(lock) => !lock.params.is_empty(),
+        ir::IrItem::PureFn(_) => false,
         ir::IrItem::TypeDef(_) => false,
     })
 }
@@ -938,6 +1740,16 @@ fn body_ckb_runtime_features(body: &ir::IrBody) -> Vec<String> {
     if !body.create_set.is_empty() {
         features.insert("verify-output-cell".to_string());
     }
+    for block in &body.blocks {
+        for instruction in &block.instructions {
+            match instruction {
+                ir::IrInstruction::Call { func, .. } if func == "__env_current_daa_score" => {
+                    features.insert("load-header-daa-score".to_string());
+                }
+                _ => {}
+            }
+        }
+    }
     features.into_iter().collect()
 }
 
@@ -1052,13 +1864,42 @@ fn metadata_type_layouts(ir: &ir::IrModule) -> MetadataTypeLayouts {
     layouts
 }
 
+fn metadata_lifecycle_states(ir: &ir::IrModule) -> HashMap<String, Vec<String>> {
+    let mut states = HashMap::new();
+    for item in &ir.items {
+        let ir::IrItem::TypeDef(type_def) = item else {
+            continue;
+        };
+        if let Some(lifecycle_states) = &type_def.lifecycle_states {
+            states.insert(type_def.name.clone(), lifecycle_states.clone());
+        }
+    }
+    states
+}
+
 fn type_metadata(type_def: &ir::IrTypeDef) -> TypeMetadata {
+    let lifecycle_states = type_def.lifecycle_states.clone().unwrap_or_default();
     TypeMetadata {
         name: type_def.name.clone(),
         kind: format!("{:?}", type_def.kind),
+        lifecycle_transitions: lifecycle_transition_metadata(&lifecycle_states),
+        lifecycle_states,
         encoded_size: type_encoded_size(type_def),
         fields: type_def.fields.iter().map(field_metadata).collect(),
     }
+}
+
+fn lifecycle_transition_metadata(states: &[String]) -> Vec<LifecycleTransitionMetadata> {
+    states
+        .windows(2)
+        .enumerate()
+        .map(|(index, window)| LifecycleTransitionMetadata {
+            from: window[0].clone(),
+            to: window[1].clone(),
+            from_index: index,
+            to_index: index + 1,
+        })
+        .collect()
 }
 
 fn field_metadata(field: &ir::IrField) -> FieldMetadata {
@@ -1083,6 +1924,7 @@ fn ir_type_to_string(ty: &ir::IrType) -> String {
         ir::IrType::U64 => "u64".to_string(),
         ir::IrType::U128 => "u128".to_string(),
         ir::IrType::Bool => "bool".to_string(),
+        ir::IrType::Unit => "()".to_string(),
         ir::IrType::Address => "Address".to_string(),
         ir::IrType::Hash => "Hash".to_string(),
         ir::IrType::Array(inner, size) => format!("[{}; {}]", ir_type_to_string(inner), size),
@@ -1482,6 +2324,32 @@ action widen(x: u16) -> u64 {
 }
 "#;
 
+    const ASSERT_PROGRAM: &str = r#"
+module test
+
+action checked(x: u64) -> u64 {
+    assert_invariant(x > 0, "x must be positive")
+    return x
+}
+"#;
+
+    const ASSERT_NON_BOOL_PROGRAM: &str = r#"
+module test
+
+action bad(x: u64) -> u64 {
+    assert_invariant(x, "x must be boolean")
+    return x
+}
+"#;
+
+    const STRING_VALUE_PROGRAM: &str = r#"
+module test
+
+action bad() -> String {
+    return "not a lowered runtime value"
+}
+"#;
+
     const CREATE_PROGRAM: &str = r#"
 module test
 
@@ -1665,6 +2533,187 @@ fn helper(amount: u64) -> Token {
 }
 "#;
 
+    const ACTION_CALLS_FN_PROGRAM: &str = r#"
+module test
+
+fn add_one(x: u64) -> u64 {
+    return x + 1
+}
+
+action run(x: u64) -> u64 {
+    return add_one(x)
+}
+"#;
+
+    const QUALIFIED_ACTION_CALLS_FN_PROGRAM: &str = r#"
+module test
+
+fn add_one(x: u64) -> u64 {
+    return x + 1
+}
+
+action run(x: u64) -> u64 {
+    return test::add_one(x)
+}
+"#;
+
+    const BOOL_FN_CALL_PROGRAM: &str = r#"
+module test
+
+fn ready() -> bool {
+    return true
+}
+
+action run() -> bool {
+    return test::ready()
+}
+"#;
+
+    const UNIT_FN_CALL_PROGRAM: &str = r#"
+module test
+
+fn note(x: u64) {
+    let y = x + 1
+}
+
+action run(x: u64) -> u64 {
+    note(x)
+    return x
+}
+"#;
+
+    const BIND_UNIT_FN_CALL_PROGRAM: &str = r#"
+module test
+
+fn note(x: u64) {
+    let y = x + 1
+}
+
+action bad(x: u64) -> u64 {
+    let y = note(x)
+    return x
+}
+"#;
+
+    const RETURN_UNIT_FN_CALL_PROGRAM: &str = r#"
+module test
+
+fn note(x: u64) {
+    let y = x + 1
+}
+
+action bad(x: u64) -> u64 {
+    return note(x)
+}
+"#;
+
+    const RETURN_VALUE_FROM_UNIT_ACTION_PROGRAM: &str = r#"
+module test
+
+action bad() {
+    return 1
+}
+"#;
+
+    const BARE_RETURN_FROM_VALUE_ACTION_PROGRAM: &str = r#"
+module test
+
+action bad() -> u64 {
+    return
+}
+"#;
+
+    const MISSING_ACTION_RETURN_PROGRAM: &str = r#"
+module test
+
+action bad() -> u64 {
+    let x = 1
+}
+"#;
+
+    const MISSING_FUNCTION_RETURN_PROGRAM: &str = r#"
+module test
+
+fn bad() -> u64 {
+    let x = 1
+}
+
+action run() -> u64 {
+    return 1
+}
+"#;
+
+    const TAIL_EXPR_ACTION_RETURN_PROGRAM: &str = r#"
+module test
+
+action bad() -> u64 {
+    1
+}
+"#;
+
+    const BRANCH_COMPLETE_RETURN_PROGRAM: &str = r#"
+module test
+
+action choose(flag: bool) -> u64 {
+    if flag {
+        return 1
+    } else {
+        return 2
+    }
+}
+"#;
+
+    const TAIL_IF_ACTION_RETURN_PROGRAM: &str = r#"
+module test
+
+action choose(flag: bool) -> u64 {
+    if flag { 1 } else { 2 }
+}
+"#;
+
+    const BRANCH_INCOMPLETE_RETURN_PROGRAM: &str = r#"
+module test
+
+action bad(flag: bool) -> u64 {
+    if flag {
+        return 1
+    }
+    let x = 2
+}
+"#;
+
+    const ENV_DAA_PROGRAM: &str = r#"
+module test
+
+action now() -> u64 {
+    return env::current_daa_score()
+}
+"#;
+
+    const LOCK_CALLS_FN_PROGRAM: &str = r#"
+module test
+
+fn yes() -> bool {
+    return true
+}
+
+lock guard() -> bool {
+    return yes()
+}
+"#;
+
+    const FN_CALLS_LOCK_PROGRAM: &str = r#"
+module test
+
+lock guard() -> bool {
+    return true
+}
+
+fn bad() -> bool {
+    return guard()
+}
+"#;
+
     const INDIRECT_UNDERDECLARED_EFFECT_PROGRAM: &str = r#"
 module test
 
@@ -1682,6 +2731,26 @@ action issue(amount: u64) -> Token {
 #[effect(ReadOnly)]
 action wrapper(amount: u64) -> Token {
     return issue(amount)
+}
+"#;
+
+    const QUALIFIED_UNDERDECLARED_EFFECT_PROGRAM: &str = r#"
+module test
+
+resource Token {
+    amount: u64,
+}
+
+action issue(amount: u64) -> Token {
+    let out = create Token {
+        amount: amount
+    }
+    return out
+}
+
+#[effect(ReadOnly)]
+action wrapper(amount: u64) -> Token {
+    return test::issue(amount)
 }
 "#;
 
@@ -1806,11 +2875,162 @@ action sum(items: [u64; 3]) -> u64 {
 }
 "#;
 
+    const LOCAL_FOREACH_ARRAY_PROGRAM: &str = r#"
+module test
+
+action sum() -> u64 {
+    let items = [1, 2, 3]
+    let mut total: u64 = 0
+    for item in items {
+        total += item
+    }
+    return total
+}
+"#;
+
+    const LOCAL_FOREACH_ARRAY_OF_TUPLES_PROGRAM: &str = r#"
+module test
+
+action sum() -> u64 {
+    let entries = [(Address::zero, 2), (Address::zero, 5)]
+    let mut total: u64 = 0
+    for (_, amount) in entries {
+        total += amount
+    }
+    return total
+}
+"#;
+
     const LEN_METHOD_PROGRAM: &str = r#"
 module test
 
 action count(items: [u64; 3]) -> u64 {
     return items.len()
+}
+"#;
+
+    const LOCAL_ARRAY_LEN_PROGRAM: &str = r#"
+module test
+
+action count() -> u64 {
+    let items = [1, 2, 3]
+    return items.len()
+}
+"#;
+
+    const TYPED_EMPTY_ARRAY_PROGRAM: &str = r#"
+module test
+
+action count() -> u64 {
+    let items: [u8; 0] = []
+    return items.len()
+}
+"#;
+
+    const UNTYPED_EMPTY_ARRAY_PROGRAM: &str = r#"
+module test
+
+action bad() -> u64 {
+    let items = []
+    return 0
+}
+"#;
+
+    const WRONG_LENGTH_EMPTY_ARRAY_PROGRAM: &str = r#"
+module test
+
+action bad() -> u64 {
+    let items: [u8; 1] = []
+    return 0
+}
+"#;
+
+    const LOCAL_ARRAY_STATIC_INDEX_PROGRAM: &str = r#"
+module test
+
+action tweak() -> u64 {
+    let mut items = [1, 2, 3]
+    items[1] += 5
+    items[0] = 7
+    return items[0] + items[1] + items[2]
+}
+"#;
+
+    const IMMUTABLE_ARRAY_ASSIGN_PROGRAM: &str = r#"
+module test
+
+action bad() -> u64 {
+    let items = [1, 2]
+    items[0] = 3
+    return items[0]
+}
+"#;
+
+    const HETEROGENEOUS_ARRAY_PROGRAM: &str = r#"
+module test
+
+action bad() -> u64 {
+    let items = [1, false]
+    return 1
+}
+"#;
+
+    const LOCAL_ARRAY_OOB_READ_PROGRAM: &str = r#"
+module test
+
+action bad() -> u64 {
+    let items = [1, 2]
+    return items[2]
+}
+"#;
+
+    const LOCAL_ARRAY_OOB_WRITE_PROGRAM: &str = r#"
+module test
+
+action bad() -> u64 {
+    let mut items = [1, 2]
+    items[2] = 3
+    return items[0]
+}
+"#;
+
+    const LOCAL_TUPLE_STATIC_FIELD_PROGRAM: &str = r#"
+module test
+
+action tweak() -> u64 {
+    let mut pair = (1, 2)
+    pair.1 += 5
+    pair.0 = 7
+    return pair.0 + pair.1
+}
+"#;
+
+    const ARRAY_OF_TUPLES_STATIC_INDEX_PROGRAM: &str = r#"
+module test
+
+action pick() -> u64 {
+    let entries = [(Address::zero, 2), (Address::zero, 5)]
+    return entries[1].1
+}
+"#;
+
+    const IMMUTABLE_TUPLE_ASSIGN_PROGRAM: &str = r#"
+module test
+
+action bad() -> u64 {
+    let pair = (1, 2)
+    pair.1 = 3
+    return pair.1
+}
+"#;
+
+    const LOCAL_TUPLE_DESTRUCTURE_PROGRAM: &str = r#"
+module test
+
+action split() -> u64 {
+    let pair = (1, 2)
+    let (a, b) = pair
+    return a + b
 }
 "#;
 
@@ -1909,6 +3129,138 @@ action redeem(receipt: VestingReceipt) -> u64 {
 
 action finalize(token: Token) -> Token {
     return settle token
+}
+"#;
+
+    const LIFECYCLE_DUPLICATE_STATE_PROGRAM: &str = r#"
+module test
+
+#[lifecycle(Created -> Created)]
+receipt Ticket has store {
+    state: u8,
+    id: u64,
+}
+
+action noop() -> u64 {
+    return 0
+}
+"#;
+
+    const LIFECYCLE_MISSING_STATE_CREATE_PROGRAM: &str = r#"
+module test
+
+#[lifecycle(Created -> Active)]
+receipt Ticket has store {
+    state: u8,
+    id: u64,
+}
+
+action make() -> Ticket {
+    return create Ticket {
+        id: 1,
+    }
+}
+"#;
+
+    const LIFECYCLE_BAD_STATE_TYPE_PROGRAM: &str = r#"
+module test
+
+#[lifecycle(Created -> Active)]
+receipt Ticket has store {
+    state: bool,
+    id: u64,
+}
+
+action noop() -> u64 {
+    return 0
+}
+"#;
+
+    const LIFECYCLE_OUT_OF_RANGE_STATE_CREATE_PROGRAM: &str = r#"
+module test
+
+#[lifecycle(Created -> Active)]
+receipt Ticket has store {
+    state: u8,
+    id: u64,
+}
+
+action make() -> Ticket {
+    return create Ticket {
+        state: 2,
+        id: 1,
+    }
+}
+"#;
+
+    const LIFECYCLE_NON_INITIAL_CREATE_PROGRAM: &str = r#"
+module test
+
+#[lifecycle(Created -> Active)]
+receipt Ticket has store {
+    state: u8,
+    id: u64,
+}
+
+action make() -> Ticket {
+    return create Ticket {
+        state: 1,
+        id: 1,
+    }
+}
+"#;
+
+    const LIFECYCLE_DYNAMIC_INITIAL_CREATE_PROGRAM: &str = r#"
+module test
+
+#[lifecycle(Created -> Active)]
+receipt Ticket has store {
+    state: u8,
+    id: u64,
+}
+
+action make(state: u8) -> Ticket {
+    return create Ticket {
+        state: state,
+        id: 1,
+    }
+}
+"#;
+
+    const LIFECYCLE_RESET_UPDATE_PROGRAM: &str = r#"
+module test
+
+#[lifecycle(Created -> Active)]
+receipt Ticket has store {
+    state: u8,
+    id: u64,
+}
+
+action reset(ticket: Ticket) -> Ticket {
+    consume ticket
+    return create Ticket {
+        state: 0,
+        id: ticket.id,
+    }
+}
+"#;
+
+    const LIFECYCLE_STATIC_UPDATE_PROGRAM: &str = r#"
+module test
+
+#[lifecycle(Created -> Active)]
+receipt Ticket has store {
+    state: u8,
+    id: u64,
+}
+
+action activate(ticket: Ticket) -> Ticket {
+    let active = 1
+    consume ticket
+    return create Ticket {
+        state: active,
+        id: ticket.id,
+    }
 }
 "#;
 
@@ -2012,7 +3364,7 @@ action finalize(token: Token) -> Token {
         assert!(asm.contains("li t0, 1"), "missing initial x field constant:\n{}", asm);
         assert!(asm.contains("li t0, 2"), "missing initial y field constant:\n{}", asm);
         assert!(asm.contains("sd t0, 8(sp)"), "missing field x storage slot writes:\n{}", asm);
-        assert!(!asm.contains("# field access .x"), "local struct field access fell back to placeholder path:\n{}", asm);
+        assert!(!asm.contains("# field access .x"), "local struct field access fell back to symbolic field path:\n{}", asm);
     }
 
     #[test]
@@ -2044,12 +3396,34 @@ action finalize(token: Token) -> Token {
     }
 
     #[test]
-    fn compile_lowers_numeric_cast_without_zero_placeholder() {
+    fn compile_lowers_numeric_cast_without_zero_fallback() {
         let result = compile(CAST_PROGRAM, CompileOptions::default()).unwrap();
         let asm = String::from_utf8(result.artifact_bytes.clone()).unwrap();
 
-        assert!(!asm.contains("li t0, 0"), "cast lowering regressed to zero placeholder:\n{}", asm);
+        assert!(!asm.contains("li t0, 0"), "cast lowering regressed to zero fallback:\n{}", asm);
         assert!(asm.contains(".global widen"), "missing widened function symbol:\n{}", asm);
+    }
+
+    #[test]
+    fn compile_lowers_assert_invariant_into_fail_closed_cfg() {
+        let result = compile(ASSERT_PROGRAM, CompileOptions::default()).unwrap();
+        let asm = String::from_utf8(result.artifact_bytes.clone()).unwrap();
+
+        assert!(asm.contains("beqz t0"), "assert condition did not branch on failure:\n{}", asm);
+        assert!(asm.contains("li a0, 7"), "assert failure path did not return a non-zero failure code:\n{}", asm);
+        assert!(!asm.contains("assert_invariant"), "assert was not lowered out of source form:\n{}", asm);
+    }
+
+    #[test]
+    fn compile_rejects_non_bool_assert_condition() {
+        let err = compile(ASSERT_NON_BOOL_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(err.message.contains("assert condition must be boolean"), "unexpected error: {}", err.message);
+    }
+
+    #[test]
+    fn compile_rejects_string_literals_as_runtime_values() {
+        let err = compile(STRING_VALUE_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(err.message.contains("string literals are only supported in metadata positions"), "unexpected error: {}", err.message);
     }
 
     #[test]
@@ -2499,12 +3873,176 @@ action finalize(token: Token) -> Token {
     }
 
     #[test]
+    fn compile_unrolls_local_fixed_array_foreach_without_symbolic_indexing() {
+        let result = compile(LOCAL_FOREACH_ARRAY_PROGRAM, CompileOptions::default()).unwrap();
+        let asm = String::from_utf8(result.artifact_bytes.clone()).unwrap();
+
+        assert!(!asm.contains("# length"), "local fixed-array foreach unnecessarily used length runtime:\n{}", asm);
+        assert!(!asm.contains("# index access"), "local fixed-array foreach fell back to symbolic indexing:\n{}", asm);
+        assert!(
+            !asm.contains("index access symbolic runtime is not executable"),
+            "local fixed-array foreach incorrectly failed closed:\n{}",
+            asm
+        );
+        assert!(asm.contains("li t0, 1"), "unrolled foreach lost first element literal:\n{}", asm);
+        assert!(asm.contains("li t0, 2"), "unrolled foreach lost second element literal:\n{}", asm);
+        assert!(asm.contains("li t0, 3"), "unrolled foreach lost third element literal:\n{}", asm);
+    }
+
+    #[test]
+    fn compile_unrolls_local_array_of_tuples_foreach_destructuring() {
+        let result = compile(LOCAL_FOREACH_ARRAY_OF_TUPLES_PROGRAM, CompileOptions::default()).unwrap();
+        let asm = String::from_utf8(result.artifact_bytes.clone()).unwrap();
+
+        assert!(!asm.contains("# index access"), "local array-of-tuples foreach fell back to symbolic indexing:\n{}", asm);
+        assert!(!asm.contains("# field access .1"), "tuple foreach destructuring fell back to symbolic field access:\n{}", asm);
+        assert!(
+            !asm.contains("symbolic runtime is not executable"),
+            "local array-of-tuples foreach incorrectly required symbolic runtime:\n{}",
+            asm
+        );
+        assert!(asm.contains("li t0, 2"), "tuple foreach lost first amount literal:\n{}", asm);
+        assert!(asm.contains("li t0, 5"), "tuple foreach lost second amount literal:\n{}", asm);
+    }
+
+    #[test]
     fn compile_lowers_len_method_to_length_instruction() {
         let result = compile(LEN_METHOD_PROGRAM, CompileOptions::default()).unwrap();
         let asm = String::from_utf8(result.artifact_bytes.clone()).unwrap();
 
         assert!(asm.contains("# length"), "len() call did not lower to length instruction:\n{}", asm);
         assert!(!asm.contains("# call len"), "len() call leaked through generic call path:\n{}", asm);
+    }
+
+    #[test]
+    fn compile_folds_local_fixed_array_len_to_constant() {
+        let result = compile(LOCAL_ARRAY_LEN_PROGRAM, CompileOptions::default()).unwrap();
+        let asm = String::from_utf8(result.artifact_bytes.clone()).unwrap();
+
+        assert!(!asm.contains("# length"), "local fixed-array len should fold before runtime length lowering:\n{}", asm);
+        assert!(
+            !asm.contains("dynamic length symbolic runtime is not executable"),
+            "local fixed-array len incorrectly required symbolic runtime:\n{}",
+            asm
+        );
+        assert!(asm.contains("li a0, 3"), "local fixed-array len did not return the static length:\n{}", asm);
+    }
+
+    #[test]
+    fn compile_supports_typed_empty_array_literals() {
+        let result = compile(TYPED_EMPTY_ARRAY_PROGRAM, CompileOptions::default()).unwrap();
+        let asm = String::from_utf8(result.artifact_bytes.clone()).unwrap();
+
+        assert!(!asm.contains("# length"), "typed empty fixed-array len should fold before runtime length lowering:\n{}", asm);
+        assert!(asm.contains("li a0, 0"), "typed empty fixed-array len did not return zero:\n{}", asm);
+    }
+
+    #[test]
+    fn compile_rejects_untyped_empty_array_literals() {
+        let err = compile(UNTYPED_EMPTY_ARRAY_PROGRAM, CompileOptions::default()).unwrap_err();
+
+        assert!(
+            err.message.contains("empty array literal requires an explicit array type annotation"),
+            "unexpected error: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn compile_rejects_empty_array_length_mismatch() {
+        let err = compile(WRONG_LENGTH_EMPTY_ARRAY_PROGRAM, CompileOptions::default()).unwrap_err();
+
+        assert!(err.message.contains("empty array literal cannot initialize non-empty array"), "unexpected error: {}", err.message);
+    }
+
+    #[test]
+    fn compile_lowers_local_fixed_array_static_index_reads_and_writes() {
+        let result = compile(LOCAL_ARRAY_STATIC_INDEX_PROGRAM, CompileOptions::default()).unwrap();
+        let asm = String::from_utf8(result.artifact_bytes.clone()).unwrap();
+
+        assert!(!asm.contains("# index access"), "local fixed-array static indexes fell back to symbolic runtime:\n{}", asm);
+        assert!(
+            !asm.contains("index access symbolic runtime is not executable"),
+            "local fixed-array static indexes incorrectly failed closed:\n{}",
+            asm
+        );
+        assert!(asm.contains("li t0, 7"), "array element assignment did not preserve assigned constant:\n{}", asm);
+        assert!(asm.contains("add t0, t0, t1"), "array element read/write result did not lower into arithmetic:\n{}", asm);
+    }
+
+    #[test]
+    fn compile_rejects_assignment_to_immutable_array_element() {
+        let err = compile(IMMUTABLE_ARRAY_ASSIGN_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(err.message.contains("assignment target rooted at 'items' is not mutable"), "unexpected error: {}", err.message);
+    }
+
+    #[test]
+    fn compile_rejects_heterogeneous_array_literals() {
+        let err = compile(HETEROGENEOUS_ARRAY_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(err.message.contains("array elements must have matching types"), "unexpected error: {}", err.message);
+    }
+
+    #[test]
+    fn compile_rejects_local_fixed_array_static_oob_read() {
+        let err = compile(LOCAL_ARRAY_OOB_READ_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(
+            err.message.contains("array index 2 is out of bounds for local fixed array of length 2"),
+            "unexpected error: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn compile_rejects_local_fixed_array_static_oob_write() {
+        let err = compile(LOCAL_ARRAY_OOB_WRITE_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(
+            err.message.contains("array index 2 is out of bounds for local fixed array of length 2"),
+            "unexpected error: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn compile_lowers_local_tuple_static_field_reads_and_writes() {
+        let result = compile(LOCAL_TUPLE_STATIC_FIELD_PROGRAM, CompileOptions::default()).unwrap();
+        let asm = String::from_utf8(result.artifact_bytes.clone()).unwrap();
+
+        assert!(!asm.contains("# field access .1"), "local tuple field access fell back to symbolic/schema path:\n{}", asm);
+        assert!(asm.contains("li t0, 7"), "tuple field assignment did not preserve assigned constant:\n{}", asm);
+        assert!(asm.contains("add t0, t0, t1"), "tuple field reads did not lower into arithmetic:\n{}", asm);
+    }
+
+    #[test]
+    fn compile_lowers_array_of_tuples_static_index_projection() {
+        let result = compile(ARRAY_OF_TUPLES_STATIC_INDEX_PROGRAM, CompileOptions::default()).unwrap();
+        let asm = String::from_utf8(result.artifact_bytes.clone()).unwrap();
+
+        assert!(!asm.contains("# index access"), "local array-of-tuples static index fell back to symbolic runtime:\n{}", asm);
+        assert!(!asm.contains("# field access .1"), "local tuple projection fell back to symbolic/schema path:\n{}", asm);
+        assert!(
+            !asm.contains("symbolic runtime is not executable"),
+            "local array-of-tuples projection incorrectly required symbolic runtime:\n{}",
+            asm
+        );
+        assert!(asm.contains("li t0, 5"), "selected tuple amount did not preserve expected literal:\n{}", asm);
+    }
+
+    #[test]
+    fn compile_rejects_assignment_to_immutable_tuple_field() {
+        let err = compile(IMMUTABLE_TUPLE_ASSIGN_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(err.message.contains("assignment target rooted at 'pair' is not mutable"), "unexpected error: {}", err.message);
+    }
+
+    #[test]
+    fn compile_lowers_local_tuple_destructuring_to_field_slots() {
+        let result = compile(LOCAL_TUPLE_DESTRUCTURE_PROGRAM, CompileOptions::default()).unwrap();
+        let asm = String::from_utf8(result.artifact_bytes.clone()).unwrap();
+
+        assert!(!asm.contains("# field access .0"), "tuple destructuring fell back to symbolic field access:\n{}", asm);
+        assert!(!asm.contains("# field access .1"), "tuple destructuring fell back to symbolic field access:\n{}", asm);
+        assert!(asm.contains("li t0, 1"), "tuple destructuring lost first literal:\n{}", asm);
+        assert!(asm.contains("li t0, 2"), "tuple destructuring lost second literal:\n{}", asm);
+        assert!(asm.contains("add t0, t0, t1"), "tuple destructuring did not feed arithmetic:\n{}", asm);
     }
 
     #[test]
@@ -2587,6 +4125,148 @@ action finalize(token: Token) -> Token {
         assert_eq!(result.artifact_format, ArtifactFormat::RiscvElf);
         assert!(result.artifact_bytes.starts_with(b"\x7fELF"));
         assert!(!result.artifact_bytes.is_empty());
+        assert!(result.metadata.runtime.vm_abi.embedded_in_artifact);
+        assert!(result.artifact_bytes.len() > crate::strip_vm_abi_trailer(&result.artifact_bytes).len());
+        assert!(crate::strip_vm_abi_trailer(&result.artifact_bytes).starts_with(b"\x7fELF"));
+    }
+
+    #[test]
+    fn compile_metadata_declares_molecule_vm_abi() {
+        let result =
+            compile(SIMPLE_PROGRAM, CompileOptions { target: Some("riscv64-elf".to_string()), ..CompileOptions::default() }).unwrap();
+
+        assert_eq!(result.metadata.metadata_schema_version, crate::METADATA_SCHEMA_VERSION);
+        assert_eq!(result.metadata.compiler_version, crate::VERSION);
+        assert_eq!(result.metadata.runtime.vm_abi.format, "molecule");
+        assert_eq!(result.metadata.runtime.vm_abi.version, 0x8001);
+        assert!(result.metadata.runtime.vm_abi.default);
+        assert!(result.metadata.runtime.vm_abi.embedded_in_artifact);
+        assert!(result.metadata.runtime.vm_abi.scope.contains("LOAD_SCRIPT"));
+        assert!(result.metadata.runtime.vm_abi.selection.contains("embed"));
+        assert_eq!(result.metadata.artifact_hash_blake3.as_deref(), Some(crate::hex_encode(&result.artifact_hash).as_str()));
+        assert_eq!(result.metadata.artifact_size_bytes, Some(result.artifact_bytes.len()));
+        assert!(result.metadata.source_hash_blake3.is_some());
+        assert!(result.metadata.source_content_hash_blake3.is_some());
+        assert_eq!(result.metadata.source_units.len(), 1);
+        assert_eq!(result.metadata.source_units[0].path, "<memory>");
+        assert_eq!(result.metadata.source_units[0].role, "memory");
+    }
+
+    #[test]
+    fn compile_result_validation_accepts_current_outputs() {
+        let result =
+            compile(SIMPLE_PROGRAM, CompileOptions { target: Some("riscv64-elf".to_string()), ..CompileOptions::default() }).unwrap();
+
+        result.validate().unwrap();
+    }
+
+    #[test]
+    fn compile_result_validation_rejects_tampered_artifact_hash() {
+        let mut result = compile(SIMPLE_PROGRAM, CompileOptions::default()).unwrap();
+        result.artifact_bytes.push(b'\n');
+
+        let err = result.validate().unwrap_err();
+
+        assert!(err.message.contains("artifact_hash does not match artifact_bytes"), "unexpected error: {}", err.message);
+    }
+
+    #[test]
+    fn compile_result_validation_rejects_elf_without_vm_abi_trailer() {
+        let mut result =
+            compile(SIMPLE_PROGRAM, CompileOptions { target: Some("riscv64-elf".to_string()), ..CompileOptions::default() }).unwrap();
+        result.artifact_bytes.truncate(result.artifact_bytes.len() - crate::VM_ABI_TRAILER_LEN);
+        result.artifact_hash = *blake3::hash(&result.artifact_bytes).as_bytes();
+        result.metadata.artifact_hash_blake3 = Some(crate::hex_encode(&result.artifact_hash));
+        result.metadata.artifact_size_bytes = Some(result.artifact_bytes.len());
+
+        let err = result.validate().unwrap_err();
+
+        assert!(err.message.contains("missing its VM ABI trailer"), "unexpected error: {}", err.message);
+    }
+
+    #[test]
+    fn compile_result_validation_rejects_metadata_artifact_hash_mismatch() {
+        let mut result = compile(SIMPLE_PROGRAM, CompileOptions::default()).unwrap();
+        result.metadata.artifact_hash_blake3 = Some("00".repeat(32));
+
+        let err = result.validate().unwrap_err();
+
+        assert!(err.message.contains("metadata artifact_hash_blake3"), "unexpected error: {}", err.message);
+    }
+
+    #[test]
+    fn compile_result_validation_rejects_metadata_source_hash_mismatch() {
+        let mut result = compile(SIMPLE_PROGRAM, CompileOptions::default()).unwrap();
+        result.metadata.source_hash_blake3 = Some("00".repeat(32));
+
+        let err = result.validate().unwrap_err();
+
+        assert!(err.message.contains("metadata source_hash_blake3"), "unexpected error: {}", err.message);
+    }
+
+    #[test]
+    fn compile_result_validation_rejects_metadata_source_content_hash_mismatch() {
+        let mut result = compile(SIMPLE_PROGRAM, CompileOptions::default()).unwrap();
+        result.metadata.source_content_hash_blake3 = Some("00".repeat(32));
+
+        let err = result.validate().unwrap_err();
+
+        assert!(err.message.contains("metadata source_content_hash_blake3"), "unexpected error: {}", err.message);
+    }
+
+    #[test]
+    fn compile_file_source_content_hash_is_path_independent() {
+        let left = tempdir().unwrap();
+        let right = tempdir().unwrap();
+        let left_root = Utf8Path::from_path(left.path()).unwrap();
+        let right_root = Utf8Path::from_path(right.path()).unwrap();
+        let left_source = left_root.join("left.cell");
+        let right_source = right_root.join("right.cell");
+        std::fs::write(&left_source, SIMPLE_PROGRAM).unwrap();
+        std::fs::write(&right_source, SIMPLE_PROGRAM).unwrap();
+
+        let left_result = compile_file(&left_source, CompileOptions::default()).unwrap();
+        let right_result = compile_file(&right_source, CompileOptions::default()).unwrap();
+
+        assert_ne!(
+            left_result.metadata.source_hash_blake3, right_result.metadata.source_hash_blake3,
+            "path-bound source set hash must change when the same source lives at a different path"
+        );
+        assert_eq!(
+            left_result.metadata.source_content_hash_blake3, right_result.metadata.source_content_hash_blake3,
+            "path-independent source content hash must stay stable across equivalent source locations"
+        );
+    }
+
+    #[test]
+    fn compile_result_validation_rejects_metadata_schema_version_mismatch() {
+        let mut result = compile(SIMPLE_PROGRAM, CompileOptions::default()).unwrap();
+        result.metadata.metadata_schema_version = crate::METADATA_SCHEMA_VERSION + 1;
+
+        let err = result.validate().unwrap_err();
+
+        assert!(err.message.contains("unsupported metadata_schema_version"), "unexpected error: {}", err.message);
+    }
+
+    #[test]
+    fn compile_result_validation_rejects_compiler_version_mismatch() {
+        let mut result = compile(SIMPLE_PROGRAM, CompileOptions::default()).unwrap();
+        result.metadata.compiler_version = "0.0.0-old".to_string();
+
+        let err = result.validate().unwrap_err();
+
+        assert!(err.message.contains("compiler_version"), "unexpected error: {}", err.message);
+    }
+
+    #[test]
+    fn compile_result_validation_rejects_metadata_abi_embed_mismatch() {
+        let mut result =
+            compile(SIMPLE_PROGRAM, CompileOptions { target: Some("riscv64-elf".to_string()), ..CompileOptions::default() }).unwrap();
+        result.metadata.runtime.vm_abi.embedded_in_artifact = false;
+
+        let err = result.validate().unwrap_err();
+
+        assert!(err.message.contains("embedded_in_artifact"), "unexpected error: {}", err.message);
     }
 
     #[test]
@@ -2645,16 +4325,199 @@ action finalize(token: Token) -> Token {
     fn compile_rejects_impure_helper_functions() {
         let err = compile(IMPURE_FN_PROGRAM, CompileOptions::default()).unwrap_err();
 
-        assert!(err.message.contains("fn 'helper' must be pure"), "unexpected error: {}", err.message);
-        assert!(err.message.contains("inferred effect is ReadOnly"), "unexpected error: {}", err.message);
+        assert!(err.message.contains("pure function cannot contain 'read_ref'"), "unexpected error: {}", err.message);
     }
 
     #[test]
     fn compile_rejects_helper_functions_that_indirectly_call_impure_actions() {
         let err = compile(INDIRECT_IMPURE_FN_PROGRAM, CompileOptions::default()).unwrap_err();
 
-        assert!(err.message.contains("fn 'helper' must be pure"), "unexpected error: {}", err.message);
-        assert!(err.message.contains("inferred effect is Creating"), "unexpected error: {}", err.message);
+        assert!(err.message.contains("pure function cannot call action 'issue'"), "unexpected error: {}", err.message);
+    }
+
+    #[test]
+    fn compile_allows_actions_and_locks_to_call_pure_functions() {
+        let action_result = compile(ACTION_CALLS_FN_PROGRAM, CompileOptions::default()).unwrap();
+        assert!(action_result.metadata.functions.iter().any(|function| function.name == "add_one"));
+
+        let lock_result = compile(LOCK_CALLS_FN_PROGRAM, CompileOptions::default()).unwrap();
+        assert!(lock_result.metadata.functions.iter().any(|function| function.name == "yes"));
+    }
+
+    #[test]
+    fn compile_normalizes_same_module_qualified_helper_calls() {
+        let result = compile(QUALIFIED_ACTION_CALLS_FN_PROGRAM, CompileOptions::default()).unwrap();
+        let asm = String::from_utf8(result.artifact_bytes).unwrap();
+
+        assert!(asm.contains("call add_one"), "qualified helper call was not normalized:\n{}", asm);
+        assert!(!asm.contains("call test::add_one"), "qualified helper label leaked into assembly:\n{}", asm);
+    }
+
+    #[test]
+    fn ir_preserves_function_call_return_types() {
+        let tokens = lexer::lex(BOOL_FN_CALL_PROGRAM).unwrap();
+        let module = parser::parse(&tokens).unwrap();
+        let ir = ir::generate(&module).unwrap();
+        let action = ir
+            .items
+            .iter()
+            .find_map(|item| match item {
+                ir::IrItem::Action(action) if action.name == "run" => Some(action),
+                _ => None,
+            })
+            .expect("run action");
+        let call_dest = action
+            .body
+            .blocks
+            .iter()
+            .flat_map(|block| block.instructions.iter())
+            .find_map(|instruction| match instruction {
+                ir::IrInstruction::Call { dest: Some(dest), func, .. } if func == "ready" => Some(dest),
+                _ => None,
+            })
+            .expect("ready call");
+
+        assert_eq!(call_dest.ty, ir::IrType::Bool);
+    }
+
+    #[test]
+    fn ir_lowers_unit_function_calls_without_result_destinations() {
+        let tokens = lexer::lex(UNIT_FN_CALL_PROGRAM).unwrap();
+        let module = parser::parse(&tokens).unwrap();
+        let ir = ir::generate(&module).unwrap();
+        let action = ir
+            .items
+            .iter()
+            .find_map(|item| match item {
+                ir::IrItem::Action(action) if action.name == "run" => Some(action),
+                _ => None,
+            })
+            .expect("run action");
+        let call = action
+            .body
+            .blocks
+            .iter()
+            .flat_map(|block| block.instructions.iter())
+            .find(|instruction| matches!(instruction, ir::IrInstruction::Call { func, .. } if func == "note"))
+            .expect("note call");
+
+        assert!(matches!(call, ir::IrInstruction::Call { dest: None, .. }));
+    }
+
+    #[test]
+    fn ir_rejects_unknown_call_return_types_without_u64_fallback() {
+        let tokens = lexer::lex(UNKNOWN_FUNCTION_PROGRAM).unwrap();
+        let module = parser::parse(&tokens).unwrap();
+        let err = ir::generate(&module).unwrap_err();
+
+        assert!(err.message.contains("call 'missing' has no known return type"), "unexpected error: {}", err.message);
+    }
+
+    #[test]
+    fn compile_allows_unit_function_calls_as_statements() {
+        let result = compile(UNIT_FN_CALL_PROGRAM, CompileOptions::default()).unwrap();
+        let asm = String::from_utf8(result.artifact_bytes).unwrap();
+
+        assert!(asm.contains("call note"), "unit helper call was not emitted:\n{}", asm);
+    }
+
+    #[test]
+    fn compile_rejects_binding_unit_function_results() {
+        let err = compile(BIND_UNIT_FN_CALL_PROGRAM, CompileOptions::default()).unwrap_err();
+
+        assert!(
+            err.message.contains("cannot bind the result of a function without a return value"),
+            "unexpected error: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn compile_rejects_returning_unit_function_results() {
+        let err = compile(RETURN_UNIT_FN_CALL_PROGRAM, CompileOptions::default()).unwrap_err();
+
+        assert!(err.message.contains("return type mismatch"), "unexpected error: {}", err.message);
+        assert!(err.message.contains("Unit"), "unexpected error: {}", err.message);
+    }
+
+    #[test]
+    fn compile_rejects_return_values_from_unit_actions() {
+        let err = compile(RETURN_VALUE_FROM_UNIT_ACTION_PROGRAM, CompileOptions::default()).unwrap_err();
+
+        assert!(
+            err.message.contains("return value is not allowed in a function without a return type"),
+            "unexpected error: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn compile_rejects_bare_return_from_value_actions() {
+        let err = compile(BARE_RETURN_FROM_VALUE_ACTION_PROGRAM, CompileOptions::default()).unwrap_err();
+
+        assert!(err.message.contains("return without value"), "unexpected error: {}", err.message);
+    }
+
+    #[test]
+    fn compile_rejects_missing_action_return_paths() {
+        let err = compile(MISSING_ACTION_RETURN_PROGRAM, CompileOptions::default()).unwrap_err();
+
+        assert!(err.message.contains("action 'bad' with a return type must return a value"), "unexpected error: {}", err.message);
+    }
+
+    #[test]
+    fn compile_rejects_missing_function_return_paths() {
+        let err = compile(MISSING_FUNCTION_RETURN_PROGRAM, CompileOptions::default()).unwrap_err();
+
+        assert!(err.message.contains("function 'bad' with a return type must return a value"), "unexpected error: {}", err.message);
+    }
+
+    #[test]
+    fn compile_lowers_tail_expr_as_action_return() {
+        let result = compile(TAIL_EXPR_ACTION_RETURN_PROGRAM, CompileOptions::default()).unwrap();
+        let asm = String::from_utf8(result.artifact_bytes).unwrap();
+
+        assert!(asm.contains("li a0, 1"), "tail expression was not lowered as the action return value:\n{}", asm);
+    }
+
+    #[test]
+    fn compile_accepts_complete_branch_return_paths() {
+        compile(BRANCH_COMPLETE_RETURN_PROGRAM, CompileOptions::default()).unwrap();
+    }
+
+    #[test]
+    fn compile_lowers_tail_if_as_action_return() {
+        let result = compile(TAIL_IF_ACTION_RETURN_PROGRAM, CompileOptions::default()).unwrap();
+        let asm = String::from_utf8(result.artifact_bytes).unwrap();
+
+        assert!(asm.contains("li a0, 1"), "tail if then branch was not lowered as return:\n{}", asm);
+        assert!(asm.contains("li a0, 2"), "tail if else branch was not lowered as return:\n{}", asm);
+    }
+
+    #[test]
+    fn compile_rejects_incomplete_branch_return_paths() {
+        let err = compile(BRANCH_INCOMPLETE_RETURN_PROGRAM, CompileOptions::default()).unwrap_err();
+
+        assert!(err.message.contains("action 'bad' with a return type must return a value"), "unexpected error: {}", err.message);
+    }
+
+    #[test]
+    fn compile_lowers_env_current_daa_score_as_ckb_runtime_call() {
+        let result = compile(ENV_DAA_PROGRAM, CompileOptions::default()).unwrap();
+        let asm = String::from_utf8(result.artifact_bytes).unwrap();
+
+        assert!(asm.contains("call __env_current_daa_score"), "env call was not lowered to CKB runtime helper:\n{}", asm);
+        assert!(asm.contains("LOAD_HEADER_BY_FIELD field=daa_score"), "env runtime helper did not document header ABI:\n{}", asm);
+        assert!(result.metadata.runtime.ckb_runtime_required);
+        assert!(result.metadata.runtime.ckb_runtime_features.contains(&"load-header-daa-score".to_string()));
+        assert!(!result.metadata.runtime.standalone_runner_compatible);
+    }
+
+    #[test]
+    fn compile_rejects_pure_functions_that_call_locks() {
+        let err = compile(FN_CALLS_LOCK_PROGRAM, CompileOptions::default()).unwrap_err();
+
+        assert!(err.message.contains("pure function cannot call lock 'guard'"), "unexpected error: {}", err.message);
     }
 
     #[test]
@@ -2664,6 +4527,125 @@ action finalize(token: Token) -> Token {
         assert!(err.message.contains("declared effect ReadOnly is too weak"), "unexpected error: {}", err.message);
         assert!(err.message.contains("action 'wrapper'"), "unexpected error: {}", err.message);
         assert!(err.message.contains("inferred effect is Creating"), "unexpected error: {}", err.message);
+    }
+
+    #[test]
+    fn compile_rejects_underdeclared_effects_through_qualified_calls() {
+        let err = compile(QUALIFIED_UNDERDECLARED_EFFECT_PROGRAM, CompileOptions::default()).unwrap_err();
+
+        assert!(err.message.contains("declared effect ReadOnly is too weak"), "unexpected error: {}", err.message);
+        assert!(err.message.contains("action 'wrapper'"), "unexpected error: {}", err.message);
+        assert!(err.message.contains("inferred effect is Creating"), "unexpected error: {}", err.message);
+    }
+
+    #[test]
+    fn compile_rejects_duplicate_lifecycle_states_on_main_path() {
+        let err = compile(LIFECYCLE_DUPLICATE_STATE_PROGRAM, CompileOptions::default()).unwrap_err();
+
+        assert!(err.message.contains("duplicate lifecycle state: Created"), "unexpected error: {}", err.message);
+    }
+
+    #[test]
+    fn compile_rejects_missing_lifecycle_state_create_on_main_path() {
+        let err = compile(LIFECYCLE_MISSING_STATE_CREATE_PROGRAM, CompileOptions::default()).unwrap_err();
+
+        assert!(
+            err.message.contains("create of lifecycle receipt 'Ticket' must set its state field"),
+            "unexpected error: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn compile_rejects_bad_lifecycle_state_field_type_on_main_path() {
+        let err = compile(LIFECYCLE_BAD_STATE_TYPE_PROGRAM, CompileOptions::default()).unwrap_err();
+
+        assert!(
+            err.message.contains("lifecycle receipt 'Ticket' state field must be an unsigned integer type"),
+            "unexpected error: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn compile_rejects_out_of_range_lifecycle_state_create_on_main_path() {
+        let err = compile(LIFECYCLE_OUT_OF_RANGE_STATE_CREATE_PROGRAM, CompileOptions::default()).unwrap_err();
+
+        assert!(
+            err.message.contains("lifecycle state index 2 is out of range for 'Ticket' with 2 states"),
+            "unexpected error: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn compile_rejects_non_initial_lifecycle_create_without_consumed_prior_state() {
+        let err = compile(LIFECYCLE_NON_INITIAL_CREATE_PROGRAM, CompileOptions::default()).unwrap_err();
+
+        assert!(
+            err.message.contains("initial create of lifecycle receipt 'Ticket' must use initial state index 0, got 1"),
+            "unexpected error: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn compile_rejects_dynamic_initial_lifecycle_create_state() {
+        let err = compile(LIFECYCLE_DYNAMIC_INITIAL_CREATE_PROGRAM, CompileOptions::default()).unwrap_err();
+
+        assert!(
+            err.message.contains("initial create of lifecycle receipt 'Ticket' must use statically known initial state index 0"),
+            "unexpected error: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn compile_rejects_static_lifecycle_update_reset_to_initial_state() {
+        let err = compile(LIFECYCLE_RESET_UPDATE_PROGRAM, CompileOptions::default()).unwrap_err();
+
+        assert!(
+            err.message.contains("lifecycle update of 'Ticket' cannot reset to initial state index 0"),
+            "unexpected error: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn compile_accepts_static_lifecycle_update_to_non_initial_state() {
+        let result = compile(LIFECYCLE_STATIC_UPDATE_PROGRAM, CompileOptions::default()).unwrap();
+        let asm = String::from_utf8(result.artifact_bytes.clone()).unwrap();
+        let ticket = result.metadata.types.iter().find(|ty| ty.name == "Ticket").expect("Ticket type metadata");
+        let action = result.metadata.actions.iter().find(|action| action.name == "activate").expect("activate metadata");
+
+        assert_eq!(result.metadata.module, "test");
+        assert_eq!(ticket.lifecycle_states, vec!["Created".to_string(), "Active".to_string()]);
+        assert_eq!(ticket.lifecycle_transitions.len(), 1);
+        assert_eq!(ticket.lifecycle_transitions[0].from, "Created");
+        assert_eq!(ticket.lifecycle_transitions[0].to, "Active");
+        assert_eq!(ticket.lifecycle_transitions[0].from_index, 0);
+        assert_eq!(ticket.lifecycle_transitions[0].to_index, 1);
+        assert!(action.verifier_obligations.iter().any(|obligation| {
+            obligation.category == "lifecycle-transition"
+                && obligation.feature == "Ticket.state"
+                && obligation.status == "checked-partial"
+        }));
+        assert!(result.metadata.runtime.verifier_obligations.iter().any(|obligation| {
+            obligation.scope == "action:activate"
+                && obligation.category == "lifecycle-transition"
+                && obligation.feature == "Ticket.state"
+                && obligation.status == "checked-partial"
+        }));
+        assert!(
+            asm.contains("# cellscript abi: lifecycle transition Ticket.state old+1"),
+            "missing lifecycle runtime transition verifier:\n{}",
+            asm
+        );
+        assert!(asm.contains("li a0, 7"), "missing lifecycle transition failure code in verifier:\n{}", asm);
+        assert!(asm.contains("state_count=2"), "missing lifecycle state-count marker in verifier:\n{}", asm);
+        assert!(asm.contains("li a0, 9"), "missing lifecycle old-state range failure code:\n{}", asm);
+        assert!(asm.contains("li t3, 2"), "missing lifecycle output state range check:\n{}", asm);
+        assert!(asm.contains("li a0, 8"), "missing lifecycle output state range failure code:\n{}", asm);
     }
 
     #[test]
@@ -2764,6 +4746,21 @@ source_roots = ["src", "shared"]
             "settle fail-closed feature missing from metadata: {:?}",
             result.metadata.runtime.fail_closed_runtime_features
         );
+        assert!(result.metadata.runtime.verifier_obligations.iter().any(|obligation| {
+            obligation.category == "runtime-fail-closed"
+                && obligation.feature == "transfer-expression"
+                && obligation.status == "fail-closed"
+        }));
+        assert!(result.metadata.runtime.verifier_obligations.iter().any(|obligation| {
+            obligation.category == "runtime-fail-closed"
+                && obligation.feature == "claim-expression"
+                && obligation.status == "fail-closed"
+        }));
+        assert!(result.metadata.runtime.verifier_obligations.iter().any(|obligation| {
+            obligation.category == "runtime-fail-closed"
+                && obligation.feature == "settle-expression"
+                && obligation.status == "fail-closed"
+        }));
     }
 
     #[test]
@@ -2952,6 +4949,11 @@ action pass_through(token: Token) -> Token {
         let result = compile_file(&app_entry, CompileOptions::default()).unwrap();
         assert_eq!(result.artifact_format, ArtifactFormat::RiscvAssembly);
         assert!(!result.artifact_bytes.is_empty());
+        assert!(result.metadata.source_hash_blake3.is_some());
+        let roles = result.metadata.source_units.iter().map(|unit| unit.role.as_str()).collect::<Vec<_>>();
+        assert!(roles.contains(&"entry"), "missing entry source unit: {:?}", result.metadata.source_units);
+        assert!(roles.contains(&"dependency"), "missing dependency source unit: {:?}", result.metadata.source_units);
+        assert_eq!(result.metadata.source_units.len(), 2);
     }
 
     #[test]

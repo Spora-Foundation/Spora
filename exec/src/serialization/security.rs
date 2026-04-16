@@ -126,30 +126,24 @@ impl SecureEnvelope {
     /// 从字节解析
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, SerializationError> {
         if bytes.len() < 36 {
-            return Err(SerializationError::DeserializationFailed(
-                "Insufficient bytes for SecureEnvelope".to_string()
-            ));
+            return Err(SerializationError::DeserializationFailed("Insufficient bytes for SecureEnvelope".to_string()));
         }
 
         let length = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as usize;
-        
+
         if bytes.len() < 36 + length {
-            return Err(SerializationError::DeserializationFailed(
-                format!("Expected {} bytes, got {}", 36 + length, bytes.len())
-            ));
+            return Err(SerializationError::DeserializationFailed(format!("Expected {} bytes, got {}", 36 + length, bytes.len())));
         }
 
-        let hash: [u8; 32] = bytes[4..36].try_into()
-            .map_err(|_| SerializationError::DeserializationFailed("Invalid hash length".to_string()))?;
-        
+        let hash: [u8; 32] =
+            bytes[4..36].try_into().map_err(|_| SerializationError::DeserializationFailed("Invalid hash length".to_string()))?;
+
         let data = bytes[36..36 + length].to_vec();
 
         let envelope = Self { data, hash, length: length as u32 };
-        
+
         if !envelope.verify() {
-            return Err(SerializationError::DeserializationFailed(
-                "Integrity check failed".to_string()
-            ));
+            return Err(SerializationError::DeserializationFailed("Integrity check failed".to_string()));
         }
 
         Ok(envelope)
@@ -167,10 +161,7 @@ pub struct SecurityGuard {
 impl SecurityGuard {
     /// 创建新的安全守卫
     pub fn new(config: SecurityConfig) -> Self {
-        Self {
-            config,
-            current_depth: 0,
-        }
+        Self { config, current_depth: 0 }
     }
 
     /// 使用默认配置创建
@@ -181,21 +172,21 @@ impl SecurityGuard {
     /// 检查大小限制
     pub fn check_size(&self, size: usize) -> Result<(), SerializationError> {
         if self.config.enable_size_limit && size > self.config.max_size {
-            return Err(SerializationError::DeserializationFailed(
-                format!("Size {} exceeds maximum {}", size, self.config.max_size)
-            ));
+            return Err(SerializationError::DeserializationFailed(format!("Size {} exceeds maximum {}", size, self.config.max_size)));
         }
         Ok(())
     }
 
     /// 进入嵌套层级
     pub fn enter_nested(&mut self) -> Result<(), SerializationError> {
-        self.current_depth += 1;
-        if self.config.enable_depth_limit && self.current_depth > self.config.max_depth {
-            return Err(SerializationError::DeserializationFailed(
-                format!("Maximum nesting depth {} exceeded", self.config.max_depth)
-            ));
+        let next_depth = self.current_depth.saturating_add(1);
+        if self.config.enable_depth_limit && next_depth > self.config.max_depth {
+            return Err(SerializationError::DeserializationFailed(format!(
+                "Maximum nesting depth {} exceeded",
+                self.config.max_depth
+            )));
         }
+        self.current_depth = next_depth;
         Ok(())
     }
 
@@ -222,9 +213,7 @@ impl SecurityGuard {
     /// 验证并打开安全信封
     pub fn unseal(&self, envelope: &SecureEnvelope) -> Result<Vec<u8>, SerializationError> {
         if self.config.enable_integrity_check && !envelope.verify() {
-            return Err(SerializationError::DeserializationFailed(
-                "Integrity check failed".to_string()
-            ));
+            return Err(SerializationError::DeserializationFailed("Integrity check failed".to_string()));
         }
         self.check_size(envelope.data.len())?;
         Ok(envelope.data.clone())
@@ -251,25 +240,17 @@ pub fn verify_integrity(data: &[u8], expected_hash: &[u8; 32]) -> bool {
 }
 
 /// 带完整性校验的序列化
-pub fn serialize_with_integrity<T: borsh::BorshSerialize>(
-    value: &T,
-) -> Result<SecureEnvelope, SerializationError> {
-    let data = borsh::to_vec(value)
-        .map_err(|e| SerializationError::IoError(e.to_string()))?;
+pub fn serialize_with_integrity<T: borsh::BorshSerialize>(value: &T) -> Result<SecureEnvelope, SerializationError> {
+    let data = borsh::to_vec(value).map_err(|e| SerializationError::IoError(e.to_string()))?;
     Ok(SecureEnvelope::new(data))
 }
 
 /// 带完整性校验的反序列化
-pub fn deserialize_with_integrity<T: borsh::BorshDeserialize>(
-    envelope: &SecureEnvelope,
-) -> Result<T, SerializationError> {
+pub fn deserialize_with_integrity<T: borsh::BorshDeserialize>(envelope: &SecureEnvelope) -> Result<T, SerializationError> {
     if !envelope.verify() {
-        return Err(SerializationError::DeserializationFailed(
-            "Integrity check failed".to_string()
-        ));
+        return Err(SerializationError::DeserializationFailed("Integrity check failed".to_string()));
     }
-    borsh::from_slice(&envelope.data)
-        .map_err(|e| SerializationError::DeserializationFailed(e.to_string()))
+    borsh::from_slice(&envelope.data).map_err(|e| SerializationError::DeserializationFailed(e.to_string()))
 }
 
 #[cfg(test)]
@@ -287,7 +268,7 @@ mod tests {
     fn test_secure_envelope_basic() {
         let data = vec![0x01, 0x02, 0x03, 0x04];
         let envelope = SecureEnvelope::new(data.clone());
-        
+
         assert_eq!(envelope.data, data);
         assert_eq!(envelope.length, 4);
         assert!(envelope.verify());
@@ -297,10 +278,10 @@ mod tests {
     fn test_secure_envelope_serialization() {
         let data = vec![0x01, 0x02, 0x03, 0x04];
         let envelope = SecureEnvelope::new(data);
-        
+
         let bytes = envelope.to_bytes();
         let restored = SecureEnvelope::from_bytes(&bytes).unwrap();
-        
+
         assert_eq!(envelope, restored);
     }
 
@@ -308,10 +289,10 @@ mod tests {
     fn test_secure_envelope_tamper_detection() {
         let data = vec![0x01, 0x02, 0x03, 0x04];
         let mut envelope = SecureEnvelope::new(data);
-        
+
         // Tamper with data
         envelope.data[0] = 0xFF;
-        
+
         assert!(!envelope.verify());
     }
 
@@ -319,10 +300,10 @@ mod tests {
     fn test_secure_envelope_invalid_hash() {
         let data = vec![0x01, 0x02, 0x03, 0x04];
         let mut envelope = SecureEnvelope::new(data);
-        
+
         // Corrupt hash
         envelope.hash[0] = 0xFF;
-        
+
         assert!(!envelope.verify());
     }
 
@@ -331,10 +312,10 @@ mod tests {
         let data = vec![0x01, 0x02, 0x03, 0x04];
         let envelope = SecureEnvelope::new(data);
         let mut bytes = envelope.to_bytes();
-        
+
         // Corrupt the data portion
-        bytes[40] = 0xFF;
-        
+        bytes[39] = 0xFF;
+
         let result = SecureEnvelope::from_bytes(&bytes);
         assert!(result.is_err());
     }
@@ -343,10 +324,10 @@ mod tests {
     fn test_security_guard_size_check() {
         let config = SecurityConfig::strict();
         let guard = SecurityGuard::new(config);
-        
+
         // Should pass for small size
         assert!(guard.check_size(100).is_ok());
-        
+
         // Should fail for large size
         assert!(guard.check_size(20 * 1024 * 1024).is_err());
     }
@@ -355,15 +336,15 @@ mod tests {
     fn test_security_guard_depth_check() {
         let config = SecurityConfig::strict();
         let mut guard = SecurityGuard::new(config);
-        
+
         // Enter nested levels
         for _ in 0..50 {
             assert!(guard.enter_nested().is_ok());
         }
-        
+
         // Should fail at depth 51
         assert!(guard.enter_nested().is_err());
-        
+
         // Exit and re-enter should work
         guard.exit_nested();
         assert!(guard.enter_nested().is_ok());
@@ -373,11 +354,11 @@ mod tests {
     fn test_security_guard_seal_unseal() {
         let config = SecurityConfig::default();
         let guard = SecurityGuard::new(config);
-        
+
         let data = vec![0x01, 0x02, 0x03];
         let envelope = guard.seal(data.clone()).unwrap();
         let unsealed = guard.unseal(&envelope).unwrap();
-        
+
         assert_eq!(data, unsealed);
     }
 
@@ -386,11 +367,11 @@ mod tests {
         let data1 = vec![0x01, 0x02, 0x03];
         let data2 = vec![0x01, 0x02, 0x03];
         let data3 = vec![0x01, 0x02, 0x04];
-        
+
         let hash1 = compute_hash(&data1);
         let hash2 = compute_hash(&data2);
         let hash3 = compute_hash(&data3);
-        
+
         assert_eq!(hash1, hash2);
         assert_ne!(hash1, hash3);
     }
@@ -399,37 +380,31 @@ mod tests {
     fn test_verify_integrity() {
         let data = vec![0x01, 0x02, 0x03];
         let hash = compute_hash(&data);
-        
+
         assert!(verify_integrity(&data, &hash));
-        
+
         let wrong_hash = [0u8; 32];
         assert!(!verify_integrity(&data, &wrong_hash));
     }
 
     #[test]
     fn test_serialize_with_integrity() {
-        let data = TestData {
-            value: 42,
-            data: vec![0x01, 0x02, 0x03],
-        };
-        
+        let data = TestData { value: 42, data: vec![0x01, 0x02, 0x03] };
+
         let envelope = serialize_with_integrity(&data).unwrap();
         assert!(envelope.verify());
-        
+
         let restored: TestData = deserialize_with_integrity(&envelope).unwrap();
         assert_eq!(data, restored);
     }
 
     #[test]
     fn test_deserialize_with_integrity_corrupted() {
-        let data = TestData {
-            value: 42,
-            data: vec![0x01, 0x02, 0x03],
-        };
-        
+        let data = TestData { value: 42, data: vec![0x01, 0x02, 0x03] };
+
         let mut envelope = serialize_with_integrity(&data).unwrap();
         envelope.data[0] = 0xFF; // Corrupt data
-        
+
         let result: Result<TestData, _> = deserialize_with_integrity(&envelope);
         assert!(result.is_err());
     }
@@ -439,12 +414,12 @@ mod tests {
         let minimal = SecurityConfig::minimal();
         assert!(!minimal.enable_integrity_check);
         assert!(minimal.enable_size_limit);
-        
+
         let strict = SecurityConfig::strict();
         assert!(strict.enable_integrity_check);
         assert!(strict.enable_size_limit);
         assert!(strict.enable_depth_limit);
-        
+
         let none = SecurityConfig::none();
         assert!(!none.enable_integrity_check);
         assert!(!none.enable_size_limit);
@@ -455,7 +430,7 @@ mod tests {
     fn test_secure_envelope_empty_data() {
         let data: Vec<u8> = vec![];
         let envelope = SecureEnvelope::new(data);
-        
+
         assert!(envelope.verify());
         let bytes = envelope.to_bytes();
         let restored = SecureEnvelope::from_bytes(&bytes).unwrap();
@@ -466,11 +441,11 @@ mod tests {
     fn test_secure_envelope_large_data() {
         let data: Vec<u8> = (0..10000).map(|i| (i % 256) as u8).collect();
         let envelope = SecureEnvelope::new(data);
-        
+
         assert!(envelope.verify());
         let bytes = envelope.to_bytes();
         assert_eq!(bytes.len(), 36 + 10000);
-        
+
         let restored = SecureEnvelope::from_bytes(&bytes).unwrap();
         assert_eq!(envelope, restored);
     }

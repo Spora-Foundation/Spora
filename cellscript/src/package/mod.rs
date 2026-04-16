@@ -21,6 +21,9 @@ pub struct PackageManifest {
     /// 构建配置
     #[serde(default)]
     pub build: BuildConfig,
+    /// 检查/发布策略
+    #[serde(default)]
+    pub policy: PolicyConfig,
     /// 元数据
     #[serde(default)]
     pub metadata: HashMap<String, toml::Value>,
@@ -131,6 +134,23 @@ pub struct BuildConfig {
     pub dependencies: HashMap<String, Dependency>,
 }
 
+/// 包级检查策略
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PolicyConfig {
+    /// 拒绝 fail-closed lowering 路径，适合生产/CI
+    #[serde(default)]
+    pub production: bool,
+    /// 显式拒绝 fail-closed runtime features/obligations
+    #[serde(default)]
+    pub deny_fail_closed: bool,
+    /// 拒绝 symbolic Cell/runtime requirements
+    #[serde(default)]
+    pub deny_symbolic_runtime: bool,
+    /// 拒绝 CKB transaction/syscall runtime requirements
+    #[serde(default)]
+    pub deny_ckb_runtime: bool,
+}
+
 /// 包管理器
 pub struct PackageManager {
     /// 根目录
@@ -239,6 +259,7 @@ impl PackageManager {
             dependencies: HashMap::new(),
             dev_dependencies: HashMap::new(),
             build: BuildConfig::default(),
+            policy: PolicyConfig::default(),
             metadata: HashMap::new(),
         };
 
@@ -568,6 +589,7 @@ mod tests {
             dependencies: HashMap::new(),
             dev_dependencies: HashMap::new(),
             build: BuildConfig::default(),
+            policy: PolicyConfig::default(),
             metadata: HashMap::new(),
         };
 

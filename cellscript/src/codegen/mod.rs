@@ -113,6 +113,8 @@ pub struct CodeGenerator {
     type_layouts: HashMap<String, HashMap<String, SchemaFieldLayout>>,
     /// Fixed encoded size of named schemas when all fields have fixed-width layouts.
     type_fixed_sizes: HashMap<String, usize>,
+    /// Lifecycle state names for receipt schemas that declared #[lifecycle(...)].
+    lifecycle_states: HashMap<String, Vec<String>>,
     /// Function parameters whose slot contains a pointer to Borsh-encoded schema bytes.
     schema_pointer_vars: BTreeSet<usize>,
     /// Function parameter slots available before the prelude summaries run.
@@ -133,6 +135,8 @@ pub struct CodeGenerator {
     consume_order: Vec<usize>,
     /// Consumed Input index keyed by IR operand variable id.
     consume_indices: HashMap<usize, usize>,
+    /// Consumed named schema type keyed by IR operand variable id.
+    consume_type_names: HashMap<usize, String>,
     /// Read-ref IR destination variable ids in source lowering order.
     read_ref_order: Vec<usize>,
     /// Read-ref CellDep index keyed by IR destination variable id.
@@ -153,6 +157,7 @@ impl CodeGenerator {
             requires_symbolic_runtime: false,
             type_layouts: HashMap::new(),
             type_fixed_sizes: HashMap::new(),
+            lifecycle_states: HashMap::new(),
             schema_pointer_vars: BTreeSet::new(),
             param_vars: BTreeSet::new(),
             schema_pointer_size_offsets: HashMap::new(),
@@ -163,6 +168,7 @@ impl CodeGenerator {
             cell_buffer_size_offsets: HashMap::new(),
             consume_order: Vec::new(),
             consume_indices: HashMap::new(),
+            consume_type_names: HashMap::new(),
             read_ref_order: Vec::new(),
             read_ref_indices: HashMap::new(),
             next_runtime_label: 0,
@@ -171,6 +177,7 @@ impl CodeGenerator {
 
     /// 生成代码
     pub fn generate(mut self, ir: &IrModule, format: ArtifactFormat) -> Result<Vec<u8>> {
+        let has_entrypoint = ir.items.iter().any(|item| matches!(item, IrItem::Action(_) | IrItem::Lock(_)));
         for item in &ir.items {
             if let IrItem::TypeDef(type_def) = item {
                 self.register_type_def(type_def);
@@ -195,10 +202,19 @@ impl CodeGenerator {
                 IrItem::Action(action) => {
                     self.generate_action(action)?;
                 }
-                IrItem::Lock(lock) => {
-                    self.generate_lock(lock)?;
-                }
                 _ => {}
+            }
+        }
+        for item in &ir.items {
+            if let IrItem::Lock(lock) = item {
+                self.generate_lock(lock)?;
+            }
+        }
+        if has_entrypoint {
+            for item in &ir.items {
+                if let IrItem::PureFn(function) = item {
+                    self.generate_pure_fn(function)?;
+                }
             }
         }
 
@@ -265,6 +281,9 @@ impl CodeGenerator {
         if let Some(fixed_size) = type_def.fields.iter().try_fold(0usize, |acc, field| field.fixed_size.map(|size| acc + size)) {
             self.type_fixed_sizes.insert(type_def.name.clone(), fixed_size);
         }
+        if let Some(states) = &type_def.lifecycle_states {
+            self.lifecycle_states.insert(type_def.name.clone(), states.clone());
+        }
         let fields = type_def
             .fields
             .iter()
@@ -291,6 +310,7 @@ impl CodeGenerator {
             IrType::Named(_) => 11,
             IrType::Ref(_) => 12,
             IrType::MutRef(_) => 13,
+            IrType::Unit => 14,
         }
     }
 
@@ -314,6 +334,34 @@ impl CodeGenerator {
 
         // 生成函数体
         self.generate_body(&action.body)?;
+
+        self.current_function = None;
+        self.schema_pointer_vars.clear();
+        self.schema_pointer_size_offsets.clear();
+        self.schema_field_value_sources.clear();
+        self.prelude_u64_value_sources.clear();
+        self.prelude_scalar_immediates.clear();
+        self.param_vars.clear();
+        Ok(())
+    }
+
+    /// 生成 pure helper function
+    fn generate_pure_fn(&mut self, function: &IrPureFn) -> Result<()> {
+        self.current_function = Some(function.name.clone());
+        self.prepare_function_layout(&function.body, &function.params);
+        self.next_virtual_output = 0;
+        self.next_runtime_label = 0;
+        self.set_schema_pointer_params(&function.params);
+        self.set_consumed_schema_pointers(&function.body);
+        self.set_read_ref_schema_pointers(&function.body);
+        self.set_schema_field_value_sources(&function.body);
+
+        self.emit_global(&function.name);
+        self.emit_label(&function.name);
+
+        self.emit_prologue();
+        self.emit_param_spills(&function.params)?;
+        self.generate_body(&function.body)?;
 
         self.current_function = None;
         self.schema_pointer_vars.clear();
@@ -766,6 +814,7 @@ impl CodeGenerator {
         self.cell_buffer_size_offsets.clear();
         self.consume_order.clear();
         self.consume_indices.clear();
+        self.consume_type_names.clear();
         self.read_ref_order.clear();
         self.read_ref_indices.clear();
         self.schema_pointer_size_offsets.clear();
@@ -782,6 +831,9 @@ impl CodeGenerator {
         for block in &body.blocks {
             for instruction in &block.instructions {
                 if let Some(var) = consumed_operand_var(instruction) {
+                    if let Some(type_name) = named_type_name(&var.ty) {
+                        self.consume_type_names.insert(var.id, type_name.to_string());
+                    }
                     self.cell_buffer_size_offsets.insert(var.id, next_cell_slot);
                     self.cell_buffer_offsets.insert(var.id, next_cell_slot + 8);
                     self.consume_order.push(var.id);
@@ -1008,6 +1060,71 @@ impl CodeGenerator {
             };
             self.emit_loaded_field_equals_expected(size_offset, buffer_offset, &layout, value, &format!("{}.{}", pattern.ty, field));
         }
+        self.emit_lifecycle_transition_check(pattern, size_offset, buffer_offset);
+    }
+
+    fn emit_lifecycle_transition_check(&mut self, pattern: &CreatePattern, output_size_offset: usize, output_buffer_offset: usize) {
+        let Some(states) = self.lifecycle_states.get(&pattern.ty) else {
+            return;
+        };
+        let state_count = states.len();
+        let Some(consumed_var_id) = self.consumed_var_for_type(&pattern.ty) else {
+            return;
+        };
+        let Some(input_size_offset) = self.cell_buffer_size_offsets.get(&consumed_var_id).copied() else {
+            return;
+        };
+        let Some(input_buffer_offset) = self.cell_buffer_offsets.get(&consumed_var_id).copied() else {
+            return;
+        };
+        let Some(state_layout) = self.type_layouts.get(&pattern.ty).and_then(|fields| fields.get("state")).cloned() else {
+            return;
+        };
+        let Some(width) = fixed_scalar_width(&state_layout.ty, state_layout.fixed_size) else {
+            return;
+        };
+        let Some(expected_size) = self.type_fixed_sizes.get(&pattern.ty).copied() else {
+            return;
+        };
+
+        self.emit(format!("# cellscript abi: lifecycle transition {}.state old+1 state_count={}", pattern.ty, state_count));
+        self.emit_loaded_schema_exact_size_check(input_size_offset, expected_size, &format!("{} input", pattern.ty));
+        self.emit_loaded_schema_bounds_check(input_size_offset, state_layout.offset + width, &format!("{} input.state", pattern.ty));
+        self.emit_loaded_schema_bounds_check(output_size_offset, state_layout.offset + width, &format!("{} output.state", pattern.ty));
+        self.emit(format!("addi t4, sp, {}", input_buffer_offset));
+        self.emit_unaligned_scalar_load("t4", "t0", "t2", state_layout.offset, width);
+        let old_range_ok_label = self.fresh_label("lifecycle_old_state_range_ok");
+        self.emit(format!("li t3, {}", state_count));
+        self.emit("sltu t2, t0, t3");
+        self.emit(format!("bnez t2, {}", old_range_ok_label));
+        self.emit("li a0, 9");
+        self.emit_epilogue();
+        self.emit_label(&old_range_ok_label);
+
+        self.emit(format!("addi t4, sp, {}", output_buffer_offset));
+        self.emit_unaligned_scalar_load("t4", "t1", "t2", state_layout.offset, width);
+        self.emit("addi t0, t0, 1");
+        self.emit("sub t2, t1, t0");
+        let ok_label = self.fresh_label("lifecycle_transition_ok");
+        self.emit(format!("beqz t2, {}", ok_label));
+        self.emit("li a0, 7");
+        self.emit_epilogue();
+        self.emit_label(&ok_label);
+
+        let range_ok_label = self.fresh_label("lifecycle_state_range_ok");
+        self.emit(format!("li t3, {}", state_count));
+        self.emit("sltu t2, t1, t3");
+        self.emit(format!("bnez t2, {}", range_ok_label));
+        self.emit("li a0, 8");
+        self.emit_epilogue();
+        self.emit_label(&range_ok_label);
+    }
+
+    fn consumed_var_for_type(&self, type_name: &str) -> Option<usize> {
+        self.consume_order
+            .iter()
+            .copied()
+            .find(|var_id| self.consume_type_names.get(var_id).is_some_and(|consumed_type| consumed_type == type_name))
     }
 
     fn is_prelude_available_scalar(&self, operand: &IrOperand) -> bool {
@@ -1387,6 +1504,12 @@ impl CodeGenerator {
 
     /// 函数调用
     fn emit_call(&mut self, dest: Option<&IrVar>, func: &str, args: &[IrOperand]) -> Result<()> {
+        if func.contains("::") {
+            return Err(CompileError::new(
+                format!("external function call '{}' is not linkable yet; importable function summaries are only used for type/effect checking", func),
+                crate::error::Span::default(),
+            ));
+        }
         self.emit(format!("# call {}", func));
 
         // 设置参数
@@ -1577,26 +1700,24 @@ impl CodeGenerator {
     fn generate_runtime_support(&mut self) {
         self.emit_section(".text");
 
-        // Borsh 序列化函数
-        self.emit_global("__borsh_serialize_u64");
-        self.emit_label("__borsh_serialize_u64");
-        self.emit("addi sp, sp, -16");
-        self.emit("sd ra, 8(sp)");
-        self.emit("sd a0, 0(sp)"); // 值
-                                   // 写入缓冲区
-        self.emit("ld ra, 8(sp)");
-        self.emit("addi sp, sp, 16");
-        self.emit("ret");
-
-        // Borsh 反序列化函数
-        self.emit_global("__borsh_deserialize_u64");
-        self.emit_label("__borsh_deserialize_u64");
-        self.emit("addi sp, sp, -16");
-        self.emit("sd ra, 8(sp)");
-        // 从缓冲区读取
-        self.emit("li a0, 0"); // 返回值
-        self.emit("ld ra, 8(sp)");
-        self.emit("addi sp, sp, 16");
+        self.emit_global("__env_current_daa_score");
+        self.emit_label("__env_current_daa_score");
+        self.emit("addi sp, sp, -32");
+        self.emit("sd ra, 24(sp)");
+        self.emit("# cellscript abi: LOAD_HEADER_BY_FIELD field=daa_score source=HeaderDep index=0");
+        self.emit("li t0, 8");
+        self.emit("sd t0, 8(sp)");
+        self.emit("addi a0, sp, 16");
+        self.emit("addi a1, sp, 8");
+        self.emit("li a2, 0");
+        self.emit("li a3, 0");
+        self.emit("li a4, 4");
+        self.emit("li a5, 0");
+        self.emit("li a7, 2082");
+        self.emit("ecall");
+        self.emit("ld a0, 16(sp)");
+        self.emit("ld ra, 24(sp)");
+        self.emit("addi sp, sp, 32");
         self.emit("ret");
     }
 

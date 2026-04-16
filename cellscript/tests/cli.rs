@@ -27,6 +27,203 @@ action add(x: u64, y: u64) -> u64 {
     assert!(metadata.contains("\"actions\""));
     assert!(metadata.contains("\"add\""));
     assert!(metadata.contains("\"scheduler_witness_borsh_hex\""));
+    assert!(metadata.contains("\"metadata_schema_version\""));
+    assert!(metadata.contains("\"compiler_version\""));
+    assert!(metadata.contains("\"artifact_hash_blake3\""));
+    assert!(metadata.contains("\"artifact_size_bytes\""));
+    assert!(metadata.contains("\"source_hash_blake3\""));
+    assert!(metadata.contains("\"source_content_hash_blake3\""));
+    assert!(metadata.contains("\"source_units\""));
+}
+
+#[test]
+fn cellc_verify_artifact_accepts_matching_sidecar() {
+    let dir = tempfile::tempdir().unwrap();
+    let input = dir.path().join("sample.cell");
+    let output = dir.path().join("sample.s");
+    let source = r#"
+module test
+
+action add(x: u64, y: u64) -> u64 {
+    x + y
+}
+"#;
+    std::fs::write(&input, source).unwrap();
+
+    let build = Command::new(env!("CARGO_BIN_EXE_cellc")).arg(&input).arg("-o").arg(&output).status().unwrap();
+    assert!(build.success());
+
+    let verify = Command::new(env!("CARGO_BIN_EXE_cellc")).arg("verify-artifact").arg(&output).output().unwrap();
+
+    assert!(verify.status.success(), "{}", String::from_utf8_lossy(&verify.stderr));
+    let stdout = String::from_utf8_lossy(&verify.stdout);
+    assert!(stdout.contains("Artifact verification succeeded"));
+    assert!(stdout.contains("Metadata schema"));
+    assert!(stdout.contains("Compiler"));
+    assert!(stdout.contains("RISC-V assembly"));
+
+    let verify_sources =
+        Command::new(env!("CARGO_BIN_EXE_cellc")).arg("verify-artifact").arg(&output).arg("--verify-sources").output().unwrap();
+    assert!(verify_sources.status.success(), "{}", String::from_utf8_lossy(&verify_sources.stderr));
+    let stdout = String::from_utf8_lossy(&verify_sources.stdout);
+    assert!(stdout.contains("Sources: verified 1 unit(s)"), "{}", stdout);
+}
+
+#[test]
+fn cellc_verify_artifact_rejects_tampered_artifact() {
+    let dir = tempfile::tempdir().unwrap();
+    let input = dir.path().join("sample.cell");
+    let output = dir.path().join("sample.s");
+    let source = r#"
+module test
+
+action add(x: u64, y: u64) -> u64 {
+    x + y
+}
+"#;
+    std::fs::write(&input, source).unwrap();
+
+    let build = Command::new(env!("CARGO_BIN_EXE_cellc")).arg(&input).arg("-o").arg(&output).status().unwrap();
+    assert!(build.success());
+    std::fs::write(&output, b"tampered").unwrap();
+
+    let verify = Command::new(env!("CARGO_BIN_EXE_cellc")).arg("verify-artifact").arg(&output).output().unwrap();
+
+    assert!(!verify.status.success());
+    let stderr = String::from_utf8_lossy(&verify.stderr);
+    assert!(stderr.contains("metadata artifact_hash_blake3") || stderr.contains("artifact_hash"), "{}", stderr);
+}
+
+#[test]
+fn cellc_verify_artifact_rejects_tampered_source_when_requested() {
+    let dir = tempfile::tempdir().unwrap();
+    let input = dir.path().join("sample.cell");
+    let output = dir.path().join("sample.s");
+    let source = r#"
+module test
+
+action add(x: u64, y: u64) -> u64 {
+    x + y
+}
+"#;
+    std::fs::write(&input, source).unwrap();
+
+    let build = Command::new(env!("CARGO_BIN_EXE_cellc")).arg(&input).arg("-o").arg(&output).status().unwrap();
+    assert!(build.success());
+    std::fs::write(
+        &input,
+        r#"
+module test
+
+action add(x: u64, y: u64) -> u64 {
+    x + y + 1
+}
+"#,
+    )
+    .unwrap();
+
+    let verify =
+        Command::new(env!("CARGO_BIN_EXE_cellc")).arg("verify-artifact").arg(&output).arg("--verify-sources").output().unwrap();
+
+    assert!(!verify.status.success());
+    let stderr = String::from_utf8_lossy(&verify.stderr);
+    assert!(stderr.contains("source unit") && stderr.contains("does not match metadata"), "{}", stderr);
+}
+
+#[test]
+fn cellc_verify_artifact_enforces_policy_flags() {
+    let dir = tempfile::tempdir().unwrap();
+    let input = dir.path().join("sample.cell");
+    let output = dir.path().join("sample.s");
+    let source = r#"
+module test
+
+resource Token has store, transfer, destroy {
+    amount: u64,
+}
+
+action move_token(token: Token, to: Address) -> Token {
+    return transfer token to to
+}
+"#;
+    std::fs::write(&input, source).unwrap();
+
+    let build = Command::new(env!("CARGO_BIN_EXE_cellc")).arg(&input).arg("-o").arg(&output).status().unwrap();
+    assert!(build.success());
+
+    let verify = Command::new(env!("CARGO_BIN_EXE_cellc")).arg("verify-artifact").arg(&output).arg("--production").output().unwrap();
+
+    assert!(!verify.status.success(), "unexpected success: {}", String::from_utf8_lossy(&verify.stdout));
+    let stderr = String::from_utf8_lossy(&verify.stderr);
+    assert!(stderr.contains("check policy failed"), "unexpected stderr: {}", stderr);
+    assert!(stderr.contains("transfer-expression"), "unexpected stderr: {}", stderr);
+    assert!(stderr.contains("fail-closed"), "unexpected stderr: {}", stderr);
+}
+
+#[test]
+fn cellc_verify_artifact_enforces_expected_hashes() {
+    let dir = tempfile::tempdir().unwrap();
+    let input = dir.path().join("sample.cell");
+    let output = dir.path().join("sample.s");
+    let source = r#"
+module test
+
+action add(x: u64, y: u64) -> u64 {
+    x + y
+}
+"#;
+    std::fs::write(&input, source).unwrap();
+
+    let build = Command::new(env!("CARGO_BIN_EXE_cellc")).arg(&input).arg("-o").arg(&output).status().unwrap();
+    assert!(build.success());
+
+    let metadata_path = dir.path().join("sample.s.meta.json");
+    let metadata_json: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&metadata_path).unwrap()).unwrap();
+    let artifact_hash = metadata_json["artifact_hash_blake3"].as_str().unwrap();
+    let source_content_hash = metadata_json["source_content_hash_blake3"].as_str().unwrap();
+
+    let verify = Command::new(env!("CARGO_BIN_EXE_cellc"))
+        .arg("verify-artifact")
+        .arg(&output)
+        .arg("--expect-artifact-hash")
+        .arg(artifact_hash)
+        .arg("--expect-source-content-hash")
+        .arg(source_content_hash)
+        .output()
+        .unwrap();
+    assert!(verify.status.success(), "{}", String::from_utf8_lossy(&verify.stderr));
+    let stdout = String::from_utf8_lossy(&verify.stdout);
+    assert!(stdout.contains("Expected hashes: verified"), "{}", stdout);
+
+    let verify = Command::new(env!("CARGO_BIN_EXE_cellc"))
+        .arg("verify-artifact")
+        .arg(&output)
+        .arg("--json")
+        .arg("--expect-artifact-hash")
+        .arg(artifact_hash)
+        .arg("--expect-source-content-hash")
+        .arg(source_content_hash)
+        .output()
+        .unwrap();
+    assert!(verify.status.success(), "{}", String::from_utf8_lossy(&verify.stderr));
+    let stdout: serde_json::Value = serde_json::from_slice(&verify.stdout).unwrap();
+    assert_eq!(stdout["status"], "ok");
+    assert_eq!(stdout["artifact_hash_blake3"], artifact_hash);
+    assert_eq!(stdout["source_content_hash_blake3"], source_content_hash);
+    assert_eq!(stdout["expected_hashes_verified"], true);
+    assert_eq!(stdout["policy_verified"], false);
+    assert_eq!(stdout["sources_verified"], false);
+
+    let verify = Command::new(env!("CARGO_BIN_EXE_cellc"))
+        .arg("verify-artifact")
+        .arg(&output)
+        .arg("--expect-source-content-hash")
+        .arg("00".repeat(32))
+        .output()
+        .unwrap();
+    assert!(!verify.status.success(), "unexpected success: {}", String::from_utf8_lossy(&verify.stdout));
+    let stderr = String::from_utf8_lossy(&verify.stderr);
+    assert!(stderr.contains("source_content_hash_blake3") && stderr.contains("does not match expected"), "{}", stderr);
 }
 
 #[test]
@@ -189,6 +386,88 @@ action wrapper(amount: u64) -> Token {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("declared effect ReadOnly is too weak"), "unexpected stderr: {}", stderr);
     assert!(stderr.contains("inferred effect is Creating"), "unexpected stderr: {}", stderr);
+
+    std::fs::write(
+        app_root.join("src").join("main.cell"),
+        r#"
+module app::main
+
+use dep::token::Token
+
+#[effect(ReadOnly)]
+action wrapper(amount: u64) -> Token {
+    return dep::token::issue(amount)
+}
+"#,
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_cellc")).arg(&app_root).output().unwrap();
+    assert!(!output.status.success(), "unexpected success: {}", String::from_utf8_lossy(&output.stdout));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("declared effect ReadOnly is too weak"), "unexpected stderr: {}", stderr);
+    assert!(stderr.contains("inferred effect is Creating"), "unexpected stderr: {}", stderr);
+}
+
+#[test]
+fn cellc_rejects_external_dependency_function_calls_until_linking_exists() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    let dep_root = root.join("dep_pkg");
+    let app_root = root.join("app_pkg");
+
+    std::fs::create_dir_all(dep_root.join("src")).unwrap();
+    std::fs::create_dir_all(app_root.join("src")).unwrap();
+
+    std::fs::write(
+        dep_root.join("Cell.toml"),
+        r#"
+[package]
+name = "dep_pkg"
+version = "0.1.0"
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        dep_root.join("src").join("math.cell"),
+        r#"
+module dep::math
+
+fn add_one(x: u64) -> u64 {
+    return x + 1
+}
+"#,
+    )
+    .unwrap();
+
+    std::fs::write(
+        app_root.join("Cell.toml"),
+        r#"
+[package]
+name = "app_pkg"
+version = "0.1.0"
+
+[dependencies]
+dep_pkg = { path = "../dep_pkg" }
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        app_root.join("src").join("main.cell"),
+        r#"
+module app::main
+
+action run(x: u64) -> u64 {
+    return dep::math::add_one(x)
+}
+"#,
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_cellc")).arg(&app_root).output().unwrap();
+    assert!(!output.status.success(), "unexpected success: {}", String::from_utf8_lossy(&output.stdout));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("external function call 'dep::math::add_one' is not linkable yet"), "unexpected stderr: {}", stderr);
 }
 
 #[test]
@@ -352,6 +631,238 @@ action ping() -> u64 {
     let metadata = std::fs::read_to_string(root.join("build").join("main.s.meta.json")).unwrap();
     assert!(metadata.contains("\"module\": \"demo::main\""));
     assert!(metadata.contains("\"scheduler_witness_borsh_hex\""));
+
+    let output = Command::new(env!("CARGO_BIN_EXE_cellc")).current_dir(root).arg("build").arg("--json").output().unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let stdout: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(stdout["status"], "ok");
+    assert_eq!(stdout["artifact_format"], "RISC-V assembly");
+    assert_eq!(stdout["policy_verified"], false);
+    assert!(stdout["artifact"].as_str().unwrap().ends_with("build/main.s"));
+    assert!(stdout["metadata"].as_str().unwrap().ends_with("build/main.s.meta.json"));
+    assert!(stdout["artifact_hash_blake3"].as_str().unwrap().len() == 64);
+    assert!(stdout["source_content_hash_blake3"].as_str().unwrap().len() == 64);
+}
+
+#[test]
+fn cellc_check_all_targets_checks_asm_and_elf_without_writing_artifacts() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(
+        root.join("Cell.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+
+[build]
+target = "riscv64-elf"
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("src").join("main.cell"),
+        r#"
+module demo::main
+
+action ping() -> u64 {
+    1
+}
+"#,
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_cellc")).current_dir(root).arg("check").arg("--all-targets").output().unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Check succeeded"), "unexpected stdout: {}", stdout);
+    assert!(stdout.contains("riscv64-asm (RISC-V assembly)"), "unexpected stdout: {}", stdout);
+    assert!(stdout.contains("riscv64-elf (RISC-V ELF)"), "unexpected stdout: {}", stdout);
+    assert!(!root.join("build").join("main.s").exists());
+    assert!(!root.join("build").join("main.elf").exists());
+    assert!(!root.join("build").join("main.s.meta.json").exists());
+    assert!(!root.join("build").join("main.elf.meta.json").exists());
+
+    let output =
+        Command::new(env!("CARGO_BIN_EXE_cellc")).current_dir(root).arg("check").arg("--all-targets").arg("--json").output().unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let stdout: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(stdout["status"], "ok");
+    assert_eq!(stdout["all_targets"], true);
+    assert_eq!(stdout["policy_verified"], false);
+    let checked_targets = stdout["checked_targets"].as_array().unwrap();
+    assert_eq!(checked_targets.len(), 2);
+    assert!(checked_targets.iter().any(|target| target["requested_target"] == "riscv64-asm"));
+    assert!(checked_targets.iter().any(|target| target["requested_target"] == "riscv64-elf"));
+}
+
+#[test]
+fn cellc_check_production_rejects_fail_closed_runtime_paths() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(
+        root.join("Cell.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("src").join("main.cell"),
+        r#"
+module demo::main
+
+resource Token has store, transfer, destroy {
+    amount: u64,
+}
+
+action move_token(token: Token, to: Address) -> Token {
+    return transfer token to to
+}
+"#,
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_cellc")).current_dir(root).arg("check").arg("--production").output().unwrap();
+    assert!(!output.status.success(), "unexpected success: {}", String::from_utf8_lossy(&output.stdout));
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("check policy failed"), "unexpected stderr: {}", stderr);
+    assert!(stderr.contains("transfer-expression"), "unexpected stderr: {}", stderr);
+    assert!(stderr.contains("fail-closed"), "unexpected stderr: {}", stderr);
+}
+
+#[test]
+fn cellc_check_can_reject_symbolic_runtime_requirements() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(
+        root.join("Cell.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("src").join("main.cell"),
+        r#"
+module demo::main
+
+resource Token has store, transfer, destroy {
+    amount: u64,
+}
+
+action issue(amount: u64) -> Token {
+    return create Token { amount: amount }
+}
+"#,
+    )
+    .unwrap();
+
+    let output =
+        Command::new(env!("CARGO_BIN_EXE_cellc")).current_dir(root).arg("check").arg("--deny-symbolic-runtime").output().unwrap();
+    assert!(!output.status.success(), "unexpected success: {}", String::from_utf8_lossy(&output.stdout));
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("check policy failed"), "unexpected stderr: {}", stderr);
+    assert!(stderr.contains("symbolic Cell/runtime"), "unexpected stderr: {}", stderr);
+    assert!(stderr.contains("verify-output-cell"), "unexpected stderr: {}", stderr);
+}
+
+#[test]
+fn cellc_check_uses_manifest_policy_defaults() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(
+        root.join("Cell.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+
+[policy]
+production = true
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("src").join("main.cell"),
+        r#"
+module demo::main
+
+resource Token has store, transfer, destroy {
+    amount: u64,
+}
+
+action move_token(token: Token, to: Address) -> Token {
+    return transfer token to to
+}
+"#,
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_cellc")).current_dir(root).arg("check").output().unwrap();
+    assert!(!output.status.success(), "unexpected success: {}", String::from_utf8_lossy(&output.stdout));
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("check policy failed"), "unexpected stderr: {}", stderr);
+    assert!(stderr.contains("transfer-expression"), "unexpected stderr: {}", stderr);
+}
+
+#[test]
+fn cellc_build_uses_manifest_policy_before_writing_artifacts() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(
+        root.join("Cell.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+
+[policy]
+production = true
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("src").join("main.cell"),
+        r#"
+module demo::main
+
+resource Token has store, transfer, destroy {
+    amount: u64,
+}
+
+action move_token(token: Token, to: Address) -> Token {
+    return transfer token to to
+}
+"#,
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_cellc")).current_dir(root).arg("build").output().unwrap();
+    assert!(!output.status.success(), "unexpected success: {}", String::from_utf8_lossy(&output.stdout));
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("check policy failed"), "unexpected stderr: {}", stderr);
+    assert!(stderr.contains("transfer-expression"), "unexpected stderr: {}", stderr);
+    assert!(!root.join("build").join("main.s").exists());
+    assert!(!root.join("build").join("main.s.meta.json").exists());
 }
 
 #[test]
@@ -399,6 +910,523 @@ action adds() -> u64 {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Test compile complete"));
     assert!(stdout.contains("Compiled 1 test file(s)"));
+
+    let output =
+        Command::new(env!("CARGO_BIN_EXE_cellc")).current_dir(root).arg("test").arg("--no-run").arg("--json").output().unwrap();
+    assert!(output.status.success(), "stderr: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(stdout["status"], "ok");
+    assert_eq!(stdout["test_files"], 1);
+    assert_eq!(stdout["passed"], 1);
+    assert_eq!(stdout["failed"], 0);
+    assert_eq!(stdout["no_run"], true);
+    assert_eq!(stdout["execution"], "disabled");
+    let tests = stdout["tests"].as_array().unwrap();
+    assert_eq!(tests.len(), 1);
+    assert_eq!(tests[0]["status"], "passed");
+    assert!(tests[0]["path"].as_str().unwrap().ends_with("tests/math.cell"));
+}
+
+#[test]
+fn cellc_test_subcommand_supports_expected_compile_failures() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::create_dir_all(root.join("tests")).unwrap();
+    std::fs::write(
+        root.join("Cell.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("src").join("main.cell"),
+        r#"
+module demo::main
+
+action ping() -> u64 {
+    1
+}
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("tests").join("negative.cell"),
+        r#"
+// cellscript-test: expect-error: pure function cannot call action
+module demo::tests::negative
+
+action impure() -> u64 {
+    1
+}
+
+fn helper() -> u64 {
+    impure()
+}
+"#,
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_cellc")).current_dir(root).arg("test").arg("--no-run").output().unwrap();
+    assert!(output.status.success(), "stderr: {}", String::from_utf8_lossy(&output.stderr));
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Test compile complete"));
+    assert!(stdout.contains("Compiled 1 test file(s)"));
+}
+
+#[test]
+fn cellc_test_subcommand_rejects_missing_expected_error_text() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::create_dir_all(root.join("tests")).unwrap();
+    std::fs::write(
+        root.join("Cell.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("src").join("main.cell"),
+        r#"
+module demo::main
+
+action ping() -> u64 {
+    1
+}
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("tests").join("negative.cell"),
+        r#"
+// cellscript-test: expect-error: this text is intentionally absent
+module demo::tests::negative
+
+action impure() -> u64 {
+    1
+}
+
+fn helper() -> u64 {
+    impure()
+}
+"#,
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_cellc")).current_dir(root).arg("test").arg("--no-run").output().unwrap();
+    assert!(!output.status.success(), "unexpected success: {}", String::from_utf8_lossy(&output.stdout));
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("expected error text not found"), "unexpected stderr: {}", stderr);
+}
+
+#[test]
+fn cellc_test_subcommand_supports_target_directive() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::create_dir_all(root.join("tests")).unwrap();
+    std::fs::write(
+        root.join("Cell.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("src").join("main.cell"),
+        r#"
+module demo::main
+
+action ping() -> u64 {
+    1
+}
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("tests").join("elf.cell"),
+        r#"
+// cellscript-test: target: riscv64-elf
+module demo::tests::elf
+
+action main() -> u64 {
+    0
+}
+"#,
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_cellc")).current_dir(root).arg("test").arg("--no-run").output().unwrap();
+    assert!(output.status.success(), "stderr: {}", String::from_utf8_lossy(&output.stderr));
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Compiled 1 test file(s)"), "unexpected stdout: {}", stdout);
+}
+
+#[test]
+fn cellc_test_subcommand_supports_policy_directives() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::create_dir_all(root.join("tests")).unwrap();
+    std::fs::write(
+        root.join("Cell.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("src").join("main.cell"),
+        r#"
+module demo::main
+
+action ping() -> u64 {
+    1
+}
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("tests").join("policy.cell"),
+        r#"
+// cellscript-test: production
+// cellscript-test: expect-error: transfer-expression
+module demo::tests::policy
+
+resource Token has store, transfer, destroy {
+    amount: u64,
+}
+
+action move_token(token: Token, to: Address) -> Token {
+    return transfer token to to
+}
+"#,
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_cellc")).current_dir(root).arg("test").arg("--no-run").output().unwrap();
+    assert!(output.status.success(), "stderr: {}", String::from_utf8_lossy(&output.stderr));
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Compiled 1 test file(s)"), "unexpected stdout: {}", stdout);
+}
+
+#[test]
+fn cellc_test_subcommand_supports_runtime_metadata_directives() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::create_dir_all(root.join("tests")).unwrap();
+    std::fs::write(
+        root.join("Cell.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("src").join("main.cell"),
+        r#"
+module demo::main
+
+action ping() -> u64 {
+    1
+}
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("tests").join("metadata.cell"),
+        r#"
+// cellscript-test: expect-not-standalone
+// cellscript-test: expect-ckb-runtime
+// cellscript-test: expect-symbolic-runtime
+// cellscript-test: expect-fail-closed-runtime
+// cellscript-test: expect-runtime-feature: transfer-expression
+module demo::tests::metadata
+
+resource Token has store, transfer, destroy {
+    amount: u64,
+}
+
+action move_token(token: Token, to: Address) -> Token {
+    return transfer token to to
+}
+"#,
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_cellc")).current_dir(root).arg("test").arg("--no-run").output().unwrap();
+    assert!(output.status.success(), "stderr: {}", String::from_utf8_lossy(&output.stderr));
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Compiled 1 test file(s)"), "unexpected stdout: {}", stdout);
+}
+
+#[test]
+fn cellc_test_subcommand_rejects_missing_runtime_metadata() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::create_dir_all(root.join("tests")).unwrap();
+    std::fs::write(
+        root.join("Cell.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("src").join("main.cell"),
+        r#"
+module demo::main
+
+action ping() -> u64 {
+    1
+}
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("tests").join("metadata.cell"),
+        r#"
+// cellscript-test: expect-runtime-feature: not-present
+module demo::tests::metadata
+
+action ping() -> u64 {
+    1
+}
+"#,
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_cellc")).current_dir(root).arg("test").arg("--no-run").output().unwrap();
+    assert!(!output.status.success(), "unexpected success: {}", String::from_utf8_lossy(&output.stdout));
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("expected runtime metadata to contain 'not-present'"), "unexpected stderr: {}", stderr);
+}
+
+#[test]
+fn cellc_test_subcommand_supports_entrypoint_metadata_directives() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::create_dir_all(root.join("tests")).unwrap();
+    std::fs::write(
+        root.join("Cell.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("src").join("main.cell"),
+        r#"
+module demo::main
+
+action ping() -> u64 {
+    1
+}
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("tests").join("entries.cell"),
+        r#"
+// cellscript-test: expect-artifact-format: RISC-V assembly
+// cellscript-test: expect-action: run
+// cellscript-test: expect-function: helper
+// cellscript-test: expect-no-action: helper
+// cellscript-test: expect-no-lock: run
+module demo::tests::entries
+
+fn helper(x: u64) -> u64 {
+    x + 1
+}
+
+action run(x: u64) -> u64 {
+    helper(x)
+}
+"#,
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_cellc")).current_dir(root).arg("test").arg("--no-run").output().unwrap();
+    assert!(output.status.success(), "stderr: {}", String::from_utf8_lossy(&output.stderr));
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Compiled 1 test file(s)"), "unexpected stdout: {}", stdout);
+}
+
+#[test]
+fn cellc_test_subcommand_rejects_missing_entrypoint_metadata() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::create_dir_all(root.join("tests")).unwrap();
+    std::fs::write(
+        root.join("Cell.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("src").join("main.cell"),
+        r#"
+module demo::main
+
+action ping() -> u64 {
+    1
+}
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("tests").join("entries.cell"),
+        r#"
+// cellscript-test: expect-function: missing_helper
+module demo::tests::entries
+
+action run(x: u64) -> u64 {
+    x
+}
+"#,
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_cellc")).current_dir(root).arg("test").arg("--no-run").output().unwrap();
+    assert!(!output.status.success(), "unexpected success: {}", String::from_utf8_lossy(&output.stdout));
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("expected function metadata to contain 'missing_helper'"), "unexpected stderr: {}", stderr);
+}
+
+#[test]
+fn cellc_test_subcommand_rejects_unknown_directives() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::create_dir_all(root.join("tests")).unwrap();
+    std::fs::write(
+        root.join("Cell.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("src").join("main.cell"),
+        r#"
+module demo::main
+
+action ping() -> u64 {
+    1
+}
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("tests").join("typo.cell"),
+        r#"
+// cellscript-test: expect-eror: typo should not be ignored
+module demo::tests::typo
+
+action ping() -> u64 {
+    1
+}
+"#,
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_cellc")).current_dir(root).arg("test").arg("--no-run").output().unwrap();
+    assert!(!output.status.success(), "unexpected success: {}", String::from_utf8_lossy(&output.stdout));
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("unknown cellscript-test directive"), "unexpected stderr: {}", stderr);
+    assert!(stderr.contains("expect-eror"), "unexpected stderr: {}", stderr);
+}
+
+#[test]
+fn cellc_test_subcommand_rejects_conflicting_expectations() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::create_dir_all(root.join("tests")).unwrap();
+    std::fs::write(
+        root.join("Cell.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("src").join("main.cell"),
+        r#"
+module demo::main
+
+action ping() -> u64 {
+    1
+}
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("tests").join("conflict.cell"),
+        r#"
+// cellscript-test: expect-success
+// cellscript-test: expect-fail
+module demo::tests::conflict
+
+action ping() -> u64 {
+    1
+}
+"#,
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_cellc")).current_dir(root).arg("test").arg("--no-run").output().unwrap();
+    assert!(!output.status.success(), "unexpected success: {}", String::from_utf8_lossy(&output.stdout));
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("conflicting cellscript-test directives"), "unexpected stderr: {}", stderr);
 }
 
 #[test]
@@ -428,13 +1456,159 @@ action ping() -> u64 {
     )
     .unwrap();
 
-    let status =
-        Command::new(env!("CARGO_BIN_EXE_cellc")).current_dir(root).arg("doc").arg("--format").arg("markdown").status().unwrap();
-    assert!(status.success());
+    let output = Command::new(env!("CARGO_BIN_EXE_cellc"))
+        .current_dir(root)
+        .arg("doc")
+        .arg("--format")
+        .arg("markdown")
+        .arg("--json")
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "stderr: {}", String::from_utf8_lossy(&output.stderr));
+
+    let summary: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(summary["status"], "ok");
+    assert_eq!(summary["format"], "markdown");
+    assert!(summary["output"].as_str().unwrap().ends_with("docs/cellscript-api.md"));
+    assert!(summary["output_size_bytes"].as_u64().unwrap() > 0);
 
     let docs = std::fs::read_to_string(root.join("docs").join("cellscript-api.md")).unwrap();
     assert!(docs.contains("## Module `demo::main`"));
     assert!(docs.contains("### action `ping`"));
+    assert!(docs.contains("## Lowering Audit Report"));
+    assert!(docs.contains("### Verifier Obligations"));
+}
+
+#[test]
+fn cellc_init_subcommand_supports_json_summary() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("demo_pkg");
+
+    let output =
+        Command::new(env!("CARGO_BIN_EXE_cellc")).arg("init").arg("demo").arg(&root).arg("--lib").arg("--json").output().unwrap();
+    assert!(output.status.success(), "stderr: {}", String::from_utf8_lossy(&output.stderr));
+
+    let summary: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(summary["status"], "ok");
+    assert_eq!(summary["kind"], "library");
+    assert_eq!(summary["package"], "demo");
+    assert!(summary["manifest"].as_str().unwrap().ends_with("demo_pkg/Cell.toml"));
+    assert_eq!(summary["entry"], "src/lib.cell");
+    assert!(root.join("Cell.toml").exists());
+    assert!(root.join("src").join("lib.cell").exists());
+}
+
+#[test]
+fn cellc_clean_subcommand_supports_json_summary() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+
+    std::fs::create_dir_all(root.join("target")).unwrap();
+    std::fs::create_dir_all(root.join(".cell").join("cache")).unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_cellc")).current_dir(root).arg("clean").arg("--json").output().unwrap();
+    assert!(output.status.success(), "stderr: {}", String::from_utf8_lossy(&output.stderr));
+
+    let summary: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(summary["status"], "ok");
+    assert_eq!(summary["removed"], 2);
+    assert_eq!(summary["removed_paths"].as_array().unwrap().len(), 2);
+    assert!(!root.join("target").exists());
+    assert!(!root.join(".cell").join("cache").exists());
+}
+
+#[test]
+fn cellc_info_subcommand_supports_json_summary() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+
+    std::fs::write(
+        root.join("Cell.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+authors = ["Audit Bot"]
+description = "demo package"
+license = "MIT"
+entry = "src/main.cell"
+
+[dependencies]
+math = "1"
+
+[policy]
+deny_fail_closed = true
+"#,
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_cellc")).current_dir(root).arg("info").arg("--json").output().unwrap();
+    assert!(output.status.success(), "stderr: {}", String::from_utf8_lossy(&output.stderr));
+
+    let summary: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(summary["status"], "ok");
+    assert_eq!(summary["manifest"], "Cell.toml");
+    assert_eq!(summary["package"]["name"], "demo");
+    assert_eq!(summary["package"]["authors"][0], "Audit Bot");
+    assert_eq!(summary["dependencies"]["math"], "1");
+    assert_eq!(summary["policy"]["deny_fail_closed"], true);
+}
+
+#[test]
+fn cellc_add_and_remove_subcommands_honor_dev_path_and_json() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+
+    std::fs::write(
+        root.join("Cell.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+"#,
+    )
+    .unwrap();
+
+    let add_output = Command::new(env!("CARGO_BIN_EXE_cellc"))
+        .current_dir(root)
+        .arg("add")
+        .arg("--dev")
+        .arg("--path")
+        .arg("../math")
+        .arg("--json")
+        .arg("math")
+        .output()
+        .unwrap();
+    assert!(add_output.status.success(), "stderr: {}", String::from_utf8_lossy(&add_output.stderr));
+
+    let add_summary: serde_json::Value = serde_json::from_slice(&add_output.stdout).unwrap();
+    assert_eq!(add_summary["status"], "ok");
+    assert_eq!(add_summary["target"], "dev-dependencies");
+    assert_eq!(add_summary["added"][0], "math");
+    assert_eq!(add_summary["dependency"]["path"], "../math");
+
+    let manifest: toml::Value = std::fs::read_to_string(root.join("Cell.toml")).unwrap().parse().unwrap();
+    assert_eq!(manifest["dev_dependencies"]["math"]["path"].as_str().unwrap(), "../math");
+    assert!(manifest.get("dependencies").and_then(|value| value.get("math")).is_none());
+
+    let remove_output = Command::new(env!("CARGO_BIN_EXE_cellc"))
+        .current_dir(root)
+        .arg("remove")
+        .arg("--dev")
+        .arg("--json")
+        .arg("math")
+        .output()
+        .unwrap();
+    assert!(remove_output.status.success(), "stderr: {}", String::from_utf8_lossy(&remove_output.stderr));
+
+    let remove_summary: serde_json::Value = serde_json::from_slice(&remove_output.stdout).unwrap();
+    assert_eq!(remove_summary["status"], "ok");
+    assert_eq!(remove_summary["target"], "dev-dependencies");
+    assert_eq!(remove_summary["removed"][0], "math");
+    assert!(remove_summary["missing"].as_array().unwrap().is_empty());
+
+    let manifest_after: toml::Value = std::fs::read_to_string(root.join("Cell.toml")).unwrap().parse().unwrap();
+    assert!(manifest_after.get("dev_dependencies").and_then(|value| value.get("math")).is_none());
 }
 
 #[test]
@@ -483,6 +1657,7 @@ action update(amount: u64) -> u64 {
     assert!(stdout.contains("\"runtime\""));
     assert!(stdout.contains("\"symbolic_cell_runtime_required\": true"));
     assert!(stdout.contains("\"fail_closed_runtime_features\""));
+    assert!(stdout.contains("\"verifier_obligations\""));
     assert!(stdout.contains("\"source\": \"Input\""));
     assert!(stdout.contains("\"source\": \"CellDep\""));
     assert!(stdout.contains("\"source\": \"Output\""));
@@ -511,14 +1686,27 @@ version = "0.1.0"
     let source_path = root.join("src").join("main.cell");
     std::fs::write(&source_path, "module demo::main\naction ping(x:u64)->u64{x}\n").unwrap();
 
+    let dirty_check =
+        Command::new(env!("CARGO_BIN_EXE_cellc")).current_dir(root).arg("fmt").arg("--check").arg("--json").output().unwrap();
+    assert!(!dirty_check.status.success(), "unexpected success: {}", String::from_utf8_lossy(&dirty_check.stdout));
+    let stdout: serde_json::Value = serde_json::from_slice(&dirty_check.stdout).unwrap();
+    assert_eq!(stdout["status"], "failed");
+    assert_eq!(stdout["mode"], "check");
+    assert_eq!(stdout["changed"], 1);
+    assert!(stdout["changed_files"][0].as_str().unwrap().ends_with("src/main.cell"));
+
     let status = Command::new(env!("CARGO_BIN_EXE_cellc")).current_dir(root).arg("fmt").status().unwrap();
     assert!(status.success());
 
     let formatted = std::fs::read_to_string(&source_path).unwrap();
     assert!(formatted.contains("action ping(x: u64) -> u64 {"));
 
-    let check = Command::new(env!("CARGO_BIN_EXE_cellc")).current_dir(root).arg("fmt").arg("--check").status().unwrap();
-    assert!(check.success());
+    let check = Command::new(env!("CARGO_BIN_EXE_cellc")).current_dir(root).arg("fmt").arg("--check").arg("--json").output().unwrap();
+    assert!(check.status.success(), "{}", String::from_utf8_lossy(&check.stderr));
+    let stdout: serde_json::Value = serde_json::from_slice(&check.stdout).unwrap();
+    assert_eq!(stdout["status"], "ok");
+    assert_eq!(stdout["mode"], "check");
+    assert_eq!(stdout["changed"], 0);
 }
 
 #[cfg(not(feature = "vm-runner"))]

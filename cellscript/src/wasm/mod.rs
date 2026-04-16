@@ -20,7 +20,10 @@ pub enum WasmSupportStatus {
     UnsupportedProgram,
 }
 
-/// Wasm compiler placeholder that can only emit metadata-only modules.
+/// Wasm target gate.
+///
+/// It emits metadata-only modules for type-only IR and rejects executable
+/// CellScript entries until a real Wasm backend exists.
 pub struct WasmCompiler {
     module: WasmModule,
 }
@@ -174,6 +177,7 @@ pub fn audit_module(ir: &IrModule) -> WasmCompileReport {
     for item in &ir.items {
         match item {
             IrItem::Action(action) => blockers.push(format!("action '{}' has no wasm lowering", action.name)),
+            IrItem::PureFn(function) => blockers.push(format!("fn '{}' has no wasm lowering", function.name)),
             IrItem::Lock(lock) => blockers.push(format!("lock '{}' has no wasm lowering", lock.name)),
             IrItem::TypeDef(_) => {}
         }
@@ -188,7 +192,7 @@ pub fn audit_module(ir: &IrModule) -> WasmCompileReport {
 
 pub fn ir_type_to_wasm(ty: &IrType) -> WasmValType {
     match ty {
-        IrType::U8 | IrType::U16 | IrType::U32 | IrType::Bool | IrType::Address | IrType::Hash => WasmValType::I32,
+        IrType::U8 | IrType::U16 | IrType::U32 | IrType::Bool | IrType::Unit | IrType::Address | IrType::Hash => WasmValType::I32,
         IrType::U64 | IrType::U128 => WasmValType::I64,
         IrType::Array(_, _) | IrType::Tuple(_) | IrType::Named(_) | IrType::Ref(_) | IrType::MutRef(_) => WasmValType::I64,
     }

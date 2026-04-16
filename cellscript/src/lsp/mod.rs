@@ -193,7 +193,7 @@ impl LspServer {
         };
 
         self.ast_cache.insert(uri.to_string(), ast.clone());
-        let diagnostics = match crate::types::check(&ast) {
+        let diagnostics = match crate::types::check(&ast).and_then(|_| crate::lifecycle::check(&ast)) {
             Ok(()) => {
                 let mut diagnostics = Vec::new();
                 if let Ok(metadata) = crate::compile_metadata(content, None) {
@@ -431,7 +431,10 @@ impl LspServer {
                 range: Some(range),
             }),
             Item::Shared(s) => Some(Hover { contents: format!("```cellscript\nshared {}\n```", s.name), range: Some(range) }),
-            Item::Receipt(r) => Some(Hover { contents: format!("```cellscript\nreceipt {}\n```", r.name), range: Some(range) }),
+            Item::Receipt(r) => Some(Hover {
+                contents: format!("```cellscript\nreceipt {}\n```{}", r.name, receipt_lifecycle_hover(r, metadata)),
+                range: Some(range),
+            }),
             Item::Struct(s) => Some(Hover { contents: format!("```cellscript\nstruct {}\n```", s.name), range: Some(range) }),
             Item::Action(a) => Some(Hover {
                 contents: format!(
@@ -789,6 +792,42 @@ fn item_span(item: &Item) -> Span {
     }
 }
 
+fn receipt_lifecycle_hover(receipt: &ReceiptDef, metadata: Option<&crate::CompileMetadata>) -> String {
+    if let Some(type_metadata) =
+        metadata.and_then(|metadata| metadata.types.iter().find(|type_metadata| type_metadata.name == receipt.name))
+    {
+        if type_metadata.lifecycle_states.is_empty() {
+            return String::new();
+        }
+
+        let transitions = if type_metadata.lifecycle_transitions.is_empty() {
+            "none".to_string()
+        } else {
+            type_metadata
+                .lifecycle_transitions
+                .iter()
+                .map(|transition| {
+                    format!("{}[{}] -> {}[{}]", transition.from, transition.from_index, transition.to, transition.to_index)
+                })
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+
+        return format!(
+            "\n\n**Lifecycle metadata**\n\nStates: `{}`\n\nTransitions: `{}`",
+            type_metadata.lifecycle_states.join(" -> "),
+            transitions
+        );
+    }
+
+    let Some(lifecycle) = &receipt.lifecycle else {
+        return String::new();
+    };
+    let transitions = lifecycle.states.windows(2).map(|window| format!("{} -> {}", window[0], window[1])).collect::<Vec<_>>();
+    let transitions = if transitions.is_empty() { "none".to_string() } else { transitions.join(", ") };
+    format!("\n\n**Lifecycle**\n\nStates: `{}`\n\nTransitions: `{}`", lifecycle.states.join(" -> "), transitions)
+}
+
 fn action_metadata_hover(name: &str, metadata: Option<&crate::CompileMetadata>) -> String {
     let Some(metadata) = metadata else {
         return String::new();
@@ -816,16 +855,27 @@ fn action_metadata_hover(name: &str, metadata: Option<&crate::CompileMetadata>) 
             .collect::<Vec<_>>()
             .join(", ")
     };
+    let obligations = if action.verifier_obligations.is_empty() {
+        "none".to_string()
+    } else {
+        action
+            .verifier_obligations
+            .iter()
+            .map(|obligation| format!("{}:{} ({})", obligation.category, obligation.feature, obligation.status))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
 
     format!(
-        "\n\n**Lowering metadata**\n\nEffect: `{}`\n\nELF compatible: `{}`\n\nStandalone runner compatible: `{}`\n\nSymbolic runtime features: `{}`\n\nFail-closed runtime features: `{}`\n\nCKB runtime features: `{}`\n\nCKB runtime accesses: `{}`",
+        "\n\n**Lowering metadata**\n\nEffect: `{}`\n\nELF compatible: `{}`\n\nStandalone runner compatible: `{}`\n\nSymbolic runtime features: `{}`\n\nFail-closed runtime features: `{}`\n\nCKB runtime features: `{}`\n\nCKB runtime accesses: `{}`\n\nVerifier obligations: `{}`",
         action.effect_class,
         action.elf_compatible,
         action.standalone_runner_compatible,
         features,
         fail_closed_features,
         ckb_features,
-        accesses
+        accesses,
+        obligations
     )
 }
 
@@ -1088,6 +1138,60 @@ action update(amount: u64) -> u64 {
         assert!(hover.contents.contains("consume:Input#0"));
         assert!(hover.contents.contains("read_ref:CellDep#0"));
         assert!(hover.contents.contains("create:Output#0"));
+        assert!(hover.contents.contains("Verifier obligations"));
+        assert!(hover.contents.contains("cell-access:consume:Input#0 (ckb-runtime)"));
+    }
+
+    #[test]
+    fn test_receipt_hover_includes_lifecycle_metadata() {
+        let mut server = LspServer::new();
+        let uri = "file:///lifecycle_hover.cell".to_string();
+        let source = r#"
+module lifecycle_hover
+
+#[lifecycle(Created -> Active)]
+receipt Ticket has store {
+    state: u8,
+    id: u64,
+}
+
+action activate(ticket: Ticket) -> Ticket {
+    let active = 1
+    consume ticket
+    return create Ticket {
+        state: active,
+        id: ticket.id,
+    }
+}
+"#;
+        server.open_document(uri.clone(), source.to_string());
+
+        let hover = server.hover(&uri, Position { line: 4, character: 9 }).expect("hover");
+        assert!(hover.contents.contains("receipt Ticket"));
+        assert!(hover.contents.contains("Lifecycle metadata"));
+        assert!(hover.contents.contains("States: `Created -> Active`"));
+        assert!(hover.contents.contains("Created[0] -> Active[1]"));
+    }
+
+    #[test]
+    fn test_lifecycle_errors_become_lsp_diagnostics() {
+        let mut server = LspServer::new();
+        let uri = "file:///bad_lifecycle.cell".to_string();
+        let source = r#"
+module bad_lifecycle
+
+#[lifecycle(Created -> Created)]
+receipt Ticket has store {
+    state: u8,
+    id: u64,
+}
+"#;
+        server.open_document(uri.clone(), source.to_string());
+
+        let diagnostics = server.get_diagnostics(&uri);
+        let error = diagnostics.iter().find(|diagnostic| diagnostic.source == "cellscript").expect("lifecycle diagnostic");
+        assert_eq!(error.severity, DiagnosticSeverity::Error);
+        assert!(error.message.contains("duplicate lifecycle state: Created"));
     }
 
     #[test]

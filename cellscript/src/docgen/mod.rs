@@ -2,6 +2,7 @@
 
 use crate::ast::*;
 use crate::error::Result;
+use crate::CompileMetadata;
 use serde::Serialize;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -31,14 +32,61 @@ pub struct ItemDoc {
     pub summary: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct AuditDoc {
+    pub metadata_schema_version: u32,
+    pub compiler_version: String,
+    pub module: String,
+    pub artifact_format: String,
+    pub artifact_hash_blake3: Option<String>,
+    pub artifact_size_bytes: Option<usize>,
+    pub source_hash_blake3: Option<String>,
+    pub source_content_hash_blake3: Option<String>,
+    pub source_units: Vec<AuditSourceUnitDoc>,
+    pub vm_abi_format: String,
+    pub vm_abi_version: u16,
+    pub vm_abi_embedded_in_artifact: bool,
+    pub vm_abi_scope: String,
+    pub ckb_runtime_required: bool,
+    pub standalone_runner_compatible: bool,
+    pub symbolic_cell_runtime_required: bool,
+    pub ckb_runtime_features: Vec<String>,
+    pub fail_closed_runtime_features: Vec<String>,
+    pub verifier_obligations: Vec<AuditObligationDoc>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AuditSourceUnitDoc {
+    pub path: String,
+    pub role: String,
+    pub hash_blake3: String,
+    pub size_bytes: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AuditObligationDoc {
+    pub scope: String,
+    pub category: String,
+    pub feature: String,
+    pub status: String,
+    pub detail: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DocumentationBundle {
+    pub modules: Vec<ModuleDoc>,
+    pub audit: Option<AuditDoc>,
+}
+
 pub struct DocGenerator {
     modules: Vec<ModuleDoc>,
+    audit: Option<AuditDoc>,
     format: OutputFormat,
 }
 
 impl DocGenerator {
     pub fn new(format: OutputFormat) -> Self {
-        Self { modules: Vec::new(), format }
+        Self { modules: Vec::new(), audit: None, format }
     }
 
     pub fn add_module(&mut self, module: &Module) {
@@ -46,13 +94,60 @@ impl DocGenerator {
         self.modules.push(ModuleDoc { name: module.name.clone(), items });
     }
 
+    pub fn set_compile_metadata(&mut self, metadata: &CompileMetadata) {
+        self.audit = Some(AuditDoc {
+            metadata_schema_version: metadata.metadata_schema_version,
+            compiler_version: metadata.compiler_version.clone(),
+            module: metadata.module.clone(),
+            artifact_format: metadata.artifact_format.clone(),
+            artifact_hash_blake3: metadata.artifact_hash_blake3.clone(),
+            artifact_size_bytes: metadata.artifact_size_bytes,
+            source_hash_blake3: metadata.source_hash_blake3.clone(),
+            source_content_hash_blake3: metadata.source_content_hash_blake3.clone(),
+            source_units: metadata
+                .source_units
+                .iter()
+                .map(|unit| AuditSourceUnitDoc {
+                    path: unit.path.clone(),
+                    role: unit.role.clone(),
+                    hash_blake3: unit.hash_blake3.clone(),
+                    size_bytes: unit.size_bytes,
+                })
+                .collect(),
+            vm_abi_format: metadata.runtime.vm_abi.format.clone(),
+            vm_abi_version: metadata.runtime.vm_abi.version,
+            vm_abi_embedded_in_artifact: metadata.runtime.vm_abi.embedded_in_artifact,
+            vm_abi_scope: metadata.runtime.vm_abi.scope.clone(),
+            ckb_runtime_required: metadata.runtime.ckb_runtime_required,
+            standalone_runner_compatible: metadata.runtime.standalone_runner_compatible,
+            symbolic_cell_runtime_required: metadata.runtime.symbolic_cell_runtime_required,
+            ckb_runtime_features: metadata.runtime.ckb_runtime_features.clone(),
+            fail_closed_runtime_features: metadata.runtime.fail_closed_runtime_features.clone(),
+            verifier_obligations: metadata
+                .runtime
+                .verifier_obligations
+                .iter()
+                .map(|obligation| AuditObligationDoc {
+                    scope: obligation.scope.clone(),
+                    category: obligation.category.clone(),
+                    feature: obligation.feature.clone(),
+                    status: obligation.status.clone(),
+                    detail: obligation.detail.clone(),
+                })
+                .collect(),
+        });
+    }
+
     pub fn generate(&self) -> Result<String> {
         match self.format {
             OutputFormat::Markdown => Ok(self.generate_markdown()),
             OutputFormat::Html => Ok(self.generate_html()),
-            OutputFormat::Json => Ok(serde_json::to_string_pretty(&self.modules).map_err(|error| {
-                crate::error::CompileError::new(format!("failed to serialize docs: {}", error), crate::error::Span::default())
-            })?),
+            OutputFormat::Json => {
+                Ok(serde_json::to_string_pretty(&DocumentationBundle { modules: self.modules.clone(), audit: self.audit.clone() })
+                    .map_err(|error| {
+                        crate::error::CompileError::new(format!("failed to serialize docs: {}", error), crate::error::Span::default())
+                    })?)
+            }
         }
     }
 
@@ -75,6 +170,9 @@ impl DocGenerator {
                     out.push_str("\n\n");
                 }
             }
+        }
+        if let Some(audit) = &self.audit {
+            out.push_str(&audit.generate_markdown());
         }
         out
     }
@@ -106,9 +204,167 @@ impl DocGenerator {
             }
             out.push_str("</section>");
         }
+        if let Some(audit) = &self.audit {
+            out.push_str(&audit.generate_html());
+        }
         out.push_str("</body></html>");
         out
     }
+}
+
+impl AuditDoc {
+    fn generate_markdown(&self) -> String {
+        let mut out = String::new();
+        out.push_str("## Lowering Audit Report\n\n");
+        out.push_str(&format!("- Metadata schema version: `{}`\n", self.metadata_schema_version));
+        out.push_str(&format!("- Compiler version: `{}`\n", self.compiler_version));
+        out.push_str(&format!("- Module: `{}`\n", self.module));
+        out.push_str(&format!("- Artifact format: `{}`\n", self.artifact_format));
+        if let Some(hash) = &self.artifact_hash_blake3 {
+            out.push_str(&format!("- Artifact hash (BLAKE3): `{}`\n", hash));
+        }
+        if let Some(size) = self.artifact_size_bytes {
+            out.push_str(&format!("- Artifact size: `{}` bytes\n", size));
+        }
+        if let Some(hash) = &self.source_hash_blake3 {
+            out.push_str(&format!("- Source set hash (BLAKE3): `{}`\n", hash));
+        }
+        if let Some(hash) = &self.source_content_hash_blake3 {
+            out.push_str(&format!("- Source content hash (BLAKE3): `{}`\n", hash));
+        }
+        out.push_str(&format!("- VM ABI: `{}` (`0x{:04x}`)\n", self.vm_abi_format, self.vm_abi_version));
+        out.push_str(&format!("- VM ABI embedded in artifact: `{}`\n", self.vm_abi_embedded_in_artifact));
+        out.push_str(&format!("- VM ABI scope: `{}`\n", self.vm_abi_scope));
+        out.push_str(&format!("- CKB runtime required: `{}`\n", self.ckb_runtime_required));
+        out.push_str(&format!("- Standalone runner compatible: `{}`\n", self.standalone_runner_compatible));
+        out.push_str(&format!("- Symbolic Cell/runtime required: `{}`\n", self.symbolic_cell_runtime_required));
+        out.push_str(&format!("- CKB runtime features: `{}`\n", comma_or_none(&self.ckb_runtime_features)));
+        out.push_str(&format!("- Fail-closed runtime features: `{}`\n\n", comma_or_none(&self.fail_closed_runtime_features)));
+
+        if !self.source_units.is_empty() {
+            out.push_str("### Source Units\n\n");
+            out.push_str("| Role | Path | BLAKE3 | Size |\n");
+            out.push_str("|---|---|---|---|\n");
+            for unit in &self.source_units {
+                out.push_str(&format!(
+                    "| `{}` | `{}` | `{}` | `{}` bytes |\n",
+                    escape_markdown_table_cell(&unit.role),
+                    escape_markdown_table_cell(&unit.path),
+                    escape_markdown_table_cell(&unit.hash_blake3),
+                    unit.size_bytes
+                ));
+            }
+            out.push('\n');
+        }
+
+        out.push_str("### Verifier Obligations\n\n");
+        if self.verifier_obligations.is_empty() {
+            out.push_str("_No verifier obligations emitted._\n\n");
+            return out;
+        }
+
+        out.push_str("| Scope | Category | Feature | Status | Detail |\n");
+        out.push_str("|---|---|---|---|---|\n");
+        for obligation in &self.verifier_obligations {
+            out.push_str(&format!(
+                "| `{}` | `{}` | `{}` | `{}` | {} |\n",
+                escape_markdown_table_cell(&obligation.scope),
+                escape_markdown_table_cell(&obligation.category),
+                escape_markdown_table_cell(&obligation.feature),
+                escape_markdown_table_cell(&obligation.status),
+                escape_markdown_table_cell(&obligation.detail)
+            ));
+        }
+        out.push('\n');
+        out
+    }
+
+    fn generate_html(&self) -> String {
+        let mut out = String::new();
+        out.push_str("<section><h2>Lowering Audit Report</h2>");
+        out.push_str("<ul>");
+        out.push_str(&format!("<li>Metadata schema version: <code>{}</code></li>", self.metadata_schema_version));
+        out.push_str(&format!("<li>Compiler version: <code>{}</code></li>", escape_html(&self.compiler_version)));
+        out.push_str(&format!("<li>Module: <code>{}</code></li>", escape_html(&self.module)));
+        out.push_str(&format!("<li>Artifact format: <code>{}</code></li>", escape_html(&self.artifact_format)));
+        if let Some(hash) = &self.artifact_hash_blake3 {
+            out.push_str(&format!("<li>Artifact hash (BLAKE3): <code>{}</code></li>", escape_html(hash)));
+        }
+        if let Some(size) = self.artifact_size_bytes {
+            out.push_str(&format!("<li>Artifact size: <code>{}</code> bytes</li>", size));
+        }
+        if let Some(hash) = &self.source_hash_blake3 {
+            out.push_str(&format!("<li>Source set hash (BLAKE3): <code>{}</code></li>", escape_html(hash)));
+        }
+        if let Some(hash) = &self.source_content_hash_blake3 {
+            out.push_str(&format!("<li>Source content hash (BLAKE3): <code>{}</code></li>", escape_html(hash)));
+        }
+        out.push_str(&format!(
+            "<li>VM ABI: <code>{}</code> (<code>0x{:04x}</code>)</li>",
+            escape_html(&self.vm_abi_format),
+            self.vm_abi_version
+        ));
+        out.push_str(&format!("<li>VM ABI embedded in artifact: <code>{}</code></li>", self.vm_abi_embedded_in_artifact));
+        out.push_str(&format!("<li>VM ABI scope: <code>{}</code></li>", escape_html(&self.vm_abi_scope)));
+        out.push_str(&format!("<li>CKB runtime required: <code>{}</code></li>", self.ckb_runtime_required));
+        out.push_str(&format!("<li>Standalone runner compatible: <code>{}</code></li>", self.standalone_runner_compatible));
+        out.push_str(&format!("<li>Symbolic Cell/runtime required: <code>{}</code></li>", self.symbolic_cell_runtime_required));
+        out.push_str(&format!(
+            "<li>CKB runtime features: <code>{}</code></li>",
+            escape_html(&comma_or_none(&self.ckb_runtime_features))
+        ));
+        out.push_str(&format!(
+            "<li>Fail-closed runtime features: <code>{}</code></li>",
+            escape_html(&comma_or_none(&self.fail_closed_runtime_features))
+        ));
+        out.push_str("</ul>");
+        if !self.source_units.is_empty() {
+            out.push_str("<h3>Source Units</h3>");
+            out.push_str("<table><thead><tr><th>Role</th><th>Path</th><th>BLAKE3</th><th>Size</th></tr></thead><tbody>");
+            for unit in &self.source_units {
+                out.push_str(&format!(
+                    "<tr><td><code>{}</code></td><td><code>{}</code></td><td><code>{}</code></td><td><code>{}</code> bytes</td></tr>",
+                    escape_html(&unit.role),
+                    escape_html(&unit.path),
+                    escape_html(&unit.hash_blake3),
+                    unit.size_bytes
+                ));
+            }
+            out.push_str("</tbody></table>");
+        }
+        out.push_str("<h3>Verifier Obligations</h3>");
+        if self.verifier_obligations.is_empty() {
+            out.push_str("<p><em>No verifier obligations emitted.</em></p></section>");
+            return out;
+        }
+        out.push_str(
+            "<table><thead><tr><th>Scope</th><th>Category</th><th>Feature</th><th>Status</th><th>Detail</th></tr></thead><tbody>",
+        );
+        for obligation in &self.verifier_obligations {
+            out.push_str(&format!(
+                "<tr><td><code>{}</code></td><td><code>{}</code></td><td><code>{}</code></td><td><code>{}</code></td><td>{}</td></tr>",
+                escape_html(&obligation.scope),
+                escape_html(&obligation.category),
+                escape_html(&obligation.feature),
+                escape_html(&obligation.status),
+                escape_html(&obligation.detail)
+            ));
+        }
+        out.push_str("</tbody></table></section>");
+        out
+    }
+}
+
+fn comma_or_none(values: &[String]) -> String {
+    if values.is_empty() {
+        "none".to_string()
+    } else {
+        values.join(", ")
+    }
+}
+
+fn escape_markdown_table_cell(input: &str) -> String {
+    input.replace('|', "\\|").replace('\n', " ")
 }
 
 fn item_doc(item: &Item) -> Option<ItemDoc> {
@@ -130,6 +386,11 @@ fn item_doc(item: &Item) -> Option<ItemDoc> {
             let mut summary = String::new();
             if let Some(lifecycle) = &receipt.lifecycle {
                 summary.push_str(&format!("Lifecycle: {}. ", lifecycle.states.join(" -> ")));
+                let transitions =
+                    lifecycle.states.windows(2).map(|window| format!("{} -> {}", window[0], window[1])).collect::<Vec<_>>();
+                if !transitions.is_empty() {
+                    summary.push_str(&format!("Transitions: {}. ", transitions.join(", ")));
+                }
             }
             summary.push_str(&format!("Fields: {}", format_fields(&receipt.fields)));
             Some(ItemDoc {
@@ -181,7 +442,7 @@ fn item_doc(item: &Item) -> Option<ItemDoc> {
         Item::Function(function) => Some(ItemDoc {
             kind: "fn".to_string(),
             name: function.name.clone(),
-            signature: action_signature("fn", function),
+            signature: function_signature(function),
             summary: function.doc_comment.clone().unwrap_or_else(|| "Pure helper function.".to_string()),
         }),
         Item::Lock(lock) => Some(ItemDoc {
@@ -202,6 +463,15 @@ fn action_signature(keyword: &str, action: &ActionDef) -> String {
     let params = action.params.iter().map(format_param).collect::<Vec<_>>().join(", ");
     let mut signature = format!("{} {}({})", keyword, action.name, params);
     if let Some(return_type) = &action.return_type {
+        signature.push_str(&format!(" -> {}", format_type(return_type)));
+    }
+    signature
+}
+
+fn function_signature(function: &FnDef) -> String {
+    let params = function.params.iter().map(format_param).collect::<Vec<_>>().join(", ");
+    let mut signature = format!("fn {}({})", function.name, params);
+    if let Some(return_type) = &function.return_type {
         signature.push_str(&format!(" -> {}", format_type(return_type)));
     }
     signature
@@ -262,6 +532,7 @@ fn format_type(ty: &Type) -> String {
         Type::U64 => "u64".to_string(),
         Type::U128 => "u128".to_string(),
         Type::Bool => "bool".to_string(),
+        Type::Unit => "()".to_string(),
         Type::Address => "Address".to_string(),
         Type::Hash => "Hash".to_string(),
         Type::Array(inner, length) => format!("[{}; {}]", format_type(inner), length),

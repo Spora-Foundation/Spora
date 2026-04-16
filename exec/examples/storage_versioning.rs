@@ -6,9 +6,7 @@
 // This example demonstrates how to use VersionedEnvelope for RocksDB storage.
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use spora_exec::{
-    CellTx, VersionedEnvelope, VersionedSerializable, CELLTX_SCHEMA_VERSION,
-};
+use spora_exec::{CellTx, VersionedEnvelope, VersionedSerializable, CELLTX_SCHEMA_VERSION};
 use std::collections::HashMap;
 
 /// Simulated RocksDB storage
@@ -146,20 +144,10 @@ fn create_sample_tx() -> CellTx {
     use spora_exec::{CellInput, CellOutput, OutPoint, Script};
 
     let lock_script = Script::new([0x00; 32], 0, vec![0xAB; 20]);
-    let output = CellOutput {
-        lock: lock_script,
-        type_: None,
-        capacity: 1000,
-    };
+    let output = CellOutput { lock: lock_script, type_: None, capacity: 1000 };
 
-    CellTx::new(
-        vec![CellInput::new(OutPoint::new([0x11; 32], 0), 0)],
-        vec![],
-        vec![output],
-        vec![vec![]],
-        vec![vec![0xCC; 65]],
-    )
-    .expect("valid transaction")
+    CellTx::new(vec![CellInput::new(OutPoint::new([0x11; 32], 0), 0)], vec![], vec![output], vec![vec![]], vec![vec![0xCC; 65]])
+        .expect("valid transaction")
 }
 
 // Helper for hex encoding

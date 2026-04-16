@@ -80,42 +80,22 @@ impl CompressionConfig {
 
     /// 创建高速配置（LZ4）
     pub fn fast() -> Self {
-        Self {
-            algorithm: CompressionAlgorithm::LZ4,
-            level: 1,
-            min_size: 256,
-            auto_select: false,
-        }
+        Self { algorithm: CompressionAlgorithm::LZ4, level: 1, min_size: 256, auto_select: false }
     }
 
     /// 创建高压缩率配置（Zstd 级别 19）
     pub fn best() -> Self {
-        Self {
-            algorithm: CompressionAlgorithm::Zstd,
-            level: 19,
-            min_size: 512,
-            auto_select: false,
-        }
+        Self { algorithm: CompressionAlgorithm::Zstd, level: 19, min_size: 512, auto_select: false }
     }
 
     /// 创建无压缩配置
     pub fn none() -> Self {
-        Self {
-            algorithm: CompressionAlgorithm::None,
-            level: 0,
-            min_size: usize::MAX,
-            auto_select: false,
-        }
+        Self { algorithm: CompressionAlgorithm::None, level: 0, min_size: usize::MAX, auto_select: false }
     }
 
     /// 创建自动选择配置
     pub fn auto() -> Self {
-        Self {
-            algorithm: CompressionAlgorithm::Zstd,
-            level: 3,
-            min_size: 1024,
-            auto_select: true,
-        }
+        Self { algorithm: CompressionAlgorithm::Zstd, level: 3, min_size: 1024, auto_select: true }
     }
 }
 
@@ -180,20 +160,16 @@ pub fn compress(data: &[u8], config: &CompressionConfig) -> Result<CompressionRe
             original_size: data.len(),
             compressed_size: data.len(),
         }),
-        
+
         // LZ4 and Zstd are reserved for future implementation
         // Currently return error to prevent silent failures
-        CompressionAlgorithm::LZ4 => {
-            Err(SerializationError::DeserializationFailed(
-                "LZ4 compression not yet implemented. Add 'lz4' feature to enable.".to_string()
-            ))
-        }
-        
-        CompressionAlgorithm::Zstd => {
-            Err(SerializationError::DeserializationFailed(
-                "Zstd compression not yet implemented. Add 'zstd' feature to enable.".to_string()
-            ))
-        }
+        CompressionAlgorithm::LZ4 => Err(SerializationError::DeserializationFailed(
+            "LZ4 compression not yet implemented. Add 'lz4' feature to enable.".to_string(),
+        )),
+
+        CompressionAlgorithm::Zstd => Err(SerializationError::DeserializationFailed(
+            "Zstd compression not yet implemented. Add 'zstd' feature to enable.".to_string(),
+        )),
     }
 }
 
@@ -203,18 +179,14 @@ pub fn compress(data: &[u8], config: &CompressionConfig) -> Result<CompressionRe
 pub fn decompress(data: &[u8], algorithm: CompressionAlgorithm) -> Result<Vec<u8>, SerializationError> {
     match algorithm {
         CompressionAlgorithm::None => Ok(data.to_vec()),
-        
+
         // Placeholder implementations
         CompressionAlgorithm::LZ4 => {
-            Err(SerializationError::DeserializationFailed(
-                "LZ4 decompression not yet implemented".to_string()
-            ))
+            Err(SerializationError::DeserializationFailed("LZ4 decompression not yet implemented".to_string()))
         }
-        
+
         CompressionAlgorithm::Zstd => {
-            Err(SerializationError::DeserializationFailed(
-                "Zstd decompression not yet implemented".to_string()
-            ))
+            Err(SerializationError::DeserializationFailed("Zstd decompression not yet implemented".to_string()))
         }
     }
 }
@@ -234,25 +206,22 @@ impl CompressedEnvelope {
     /// 压缩数据
     pub fn compress(data: &[u8], config: &CompressionConfig) -> Result<Self, SerializationError> {
         let result = compress(data, config)?;
-        Ok(Self {
-            algorithm: result.algorithm,
-            data: result.data,
-            original_size: result.original_size as u32,
-        })
+        Ok(Self { algorithm: result.algorithm, data: result.data, original_size: result.original_size as u32 })
     }
 
     /// 解压数据
     pub fn decompress(&self) -> Result<Vec<u8>, SerializationError> {
         let data = decompress(&self.data, self.algorithm)?;
-        
+
         // Verify size
         if data.len() != self.original_size as usize {
-            return Err(SerializationError::DeserializationFailed(
-                format!("Decompressed size {} doesn't match expected {}",
-                    data.len(), self.original_size)
-            ));
+            return Err(SerializationError::DeserializationFailed(format!(
+                "Decompressed size {} doesn't match expected {}",
+                data.len(),
+                self.original_size
+            )));
         }
-        
+
         Ok(data)
     }
 
@@ -276,24 +245,16 @@ impl CompressedEnvelope {
     /// 从字节解析
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, SerializationError> {
         if bytes.len() < 5 {
-            return Err(SerializationError::DeserializationFailed(
-                "Insufficient bytes for CompressedEnvelope".to_string()
-            ));
+            return Err(SerializationError::DeserializationFailed("Insufficient bytes for CompressedEnvelope".to_string()));
         }
 
         let algorithm = CompressionAlgorithm::from_u8(bytes[0])
-            .ok_or_else(|| SerializationError::DeserializationFailed(
-                format!("Unknown compression algorithm: {}", bytes[0])
-            ))?;
-        
+            .ok_or_else(|| SerializationError::DeserializationFailed(format!("Unknown compression algorithm: {}", bytes[0])))?;
+
         let original_size = u32::from_le_bytes([bytes[1], bytes[2], bytes[3], bytes[4]]);
         let data = bytes[5..].to_vec();
 
-        Ok(Self {
-            algorithm,
-            data,
-            original_size,
-        })
+        Ok(Self { algorithm, data, original_size })
     }
 }
 
@@ -323,7 +284,7 @@ impl CompressionStats {
         self.total_compressions += 1;
         self.total_original_size += original_size as u64;
         self.total_compressed_size += compressed_size as u64;
-        
+
         if compressed_size < original_size {
             self.successful_compressions += 1;
         }
@@ -373,7 +334,7 @@ pub fn select_algorithm(data: &[u8], speed_priority: bool) -> CompressionAlgorit
     if data.len() < 1024 {
         return CompressionAlgorithm::None;
     }
-    
+
     if speed_priority {
         CompressionAlgorithm::LZ4
     } else {
@@ -405,14 +366,14 @@ mod tests {
         let default = CompressionConfig::default();
         assert_eq!(default.algorithm, CompressionAlgorithm::Zstd);
         assert_eq!(default.level, 3);
-        
+
         let fast = CompressionConfig::fast();
         assert_eq!(fast.algorithm, CompressionAlgorithm::LZ4);
-        
+
         let best = CompressionConfig::best();
         assert_eq!(best.algorithm, CompressionAlgorithm::Zstd);
         assert_eq!(best.level, 19);
-        
+
         let none = CompressionConfig::none();
         assert_eq!(none.algorithm, CompressionAlgorithm::None);
     }
@@ -421,7 +382,7 @@ mod tests {
     fn test_compress_none() {
         let config = CompressionConfig::none();
         let data = vec![0x01, 0x02, 0x03, 0x04];
-        
+
         let result = compress(&data, &config).unwrap();
         assert_eq!(result.algorithm, CompressionAlgorithm::None);
         assert_eq!(result.data, data);
@@ -431,12 +392,9 @@ mod tests {
 
     #[test]
     fn test_compress_min_size() {
-        let config = CompressionConfig {
-            min_size: 100,
-            ..CompressionConfig::default()
-        };
+        let config = CompressionConfig { min_size: 100, ..CompressionConfig::default() };
         let data = vec![0x01; 50]; // Less than min_size
-        
+
         let result = compress(&data, &config).unwrap();
         assert_eq!(result.algorithm, CompressionAlgorithm::None);
     }
@@ -445,16 +403,16 @@ mod tests {
     fn test_compressed_envelope() {
         let data = vec![0x01, 0x02, 0x03, 0x04];
         let config = CompressionConfig::none();
-        
+
         let envelope = CompressedEnvelope::compress(&data, &config).unwrap();
         assert_eq!(envelope.algorithm, CompressionAlgorithm::None);
         assert_eq!(envelope.original_size, 4);
-        
+
         let bytes = envelope.to_bytes();
         let restored = CompressedEnvelope::from_bytes(&bytes).unwrap();
         assert_eq!(envelope.algorithm, restored.algorithm);
         assert_eq!(envelope.original_size, restored.original_size);
-        
+
         let decompressed = restored.decompress().unwrap();
         assert_eq!(decompressed, data);
     }
@@ -469,25 +427,25 @@ mod tests {
     #[test]
     fn test_compression_stats() {
         let mut stats = CompressionStats::new();
-        
+
         stats.record(1000, 800);
         assert_eq!(stats.total_compressions, 1);
         assert_eq!(stats.successful_compressions, 1);
         assert_eq!(stats.total_original_size, 1000);
         assert_eq!(stats.total_compressed_size, 800);
-        
+
         stats.record_skipped();
         assert_eq!(stats.total_compressions, 2);
         assert_eq!(stats.skipped_compressions, 1);
-        
+
         assert_eq!(stats.space_saved(), 200);
-        assert_eq!(stats.savings_percent(), 20.0);
+        assert!((stats.savings_percent() - 20.0).abs() < 1e-9);
     }
 
     #[test]
     fn test_estimate_compressed_size() {
         let size = 1000;
-        
+
         assert_eq!(estimate_compressed_size(size, CompressionAlgorithm::None), 1000);
         assert!(estimate_compressed_size(size, CompressionAlgorithm::LZ4) < 1000);
         assert!(estimate_compressed_size(size, CompressionAlgorithm::Zstd) < 1000);
@@ -497,7 +455,7 @@ mod tests {
     fn test_select_algorithm() {
         let small_data = vec![0x01; 100];
         assert_eq!(select_algorithm(&small_data, false), CompressionAlgorithm::None);
-        
+
         let large_data = vec![0x01; 10000];
         assert_eq!(select_algorithm(&large_data, true), CompressionAlgorithm::LZ4);
         assert_eq!(select_algorithm(&large_data, false), CompressionAlgorithm::Zstd);
@@ -511,9 +469,9 @@ mod tests {
             original_size: 1000,
             compressed_size: 800,
         };
-        
+
         assert_eq!(result.ratio(), 0.8);
-        assert_eq!(result.savings_percent(), 20.0);
+        assert!((result.savings_percent() - 20.0).abs() < 1e-9);
         assert!(result.is_compressed());
     }
 
@@ -525,7 +483,7 @@ mod tests {
             original_size: 1000,
             compressed_size: 1000,
         };
-        
+
         assert!(!result.is_compressed());
         assert_eq!(result.savings_percent(), 0.0);
     }
@@ -534,12 +492,12 @@ mod tests {
     fn test_compressed_envelope_empty() {
         let data: Vec<u8> = vec![];
         let config = CompressionConfig::none();
-        
+
         let envelope = CompressedEnvelope::compress(&data, &config).unwrap();
         let bytes = envelope.to_bytes();
         let restored = CompressedEnvelope::from_bytes(&bytes).unwrap();
         let decompressed = restored.decompress().unwrap();
-        
+
         assert!(decompressed.is_empty());
     }
 
@@ -547,11 +505,11 @@ mod tests {
     fn test_compressed_envelope_large() {
         let data: Vec<u8> = (0..10000).map(|i| (i % 256) as u8).collect();
         let config = CompressionConfig::none();
-        
+
         let envelope = CompressedEnvelope::compress(&data, &config).unwrap();
         let bytes = envelope.to_bytes();
         assert_eq!(bytes.len(), 5 + data.len());
-        
+
         let restored = CompressedEnvelope::from_bytes(&bytes).unwrap();
         let decompressed = restored.decompress().unwrap();
         assert_eq!(decompressed, data);

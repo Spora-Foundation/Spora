@@ -84,7 +84,7 @@ impl Formatter {
                 Ok(())
             }
             Item::Action(action) => self.format_action_like("action", action),
-            Item::Function(function) => self.format_action_like("fn", function),
+            Item::Function(function) => self.format_function(function),
             Item::Lock(lock) => self.format_lock(lock),
             Item::Use(use_stmt) => {
                 let module_path = use_stmt.module_path.join("::");
@@ -154,6 +154,28 @@ impl Formatter {
         self.push_line(&format!("{} {{", signature));
         self.indent_level += 1;
         for stmt in &action.body {
+            self.format_stmt(stmt);
+        }
+        self.indent_level -= 1;
+        self.push_line("}");
+        Ok(())
+    }
+
+    fn format_function(&mut self, function: &FnDef) -> Result<()> {
+        if let Some(doc) = &function.doc_comment {
+            for line in doc.lines() {
+                self.push_line(&format!("/// {}", line));
+            }
+        }
+
+        let params = function.params.iter().map(format_param).collect::<Vec<_>>().join(", ");
+        let mut signature = format!("fn {}({})", function.name, params);
+        if let Some(return_type) = &function.return_type {
+            signature.push_str(&format!(" -> {}", format_type(return_type)));
+        }
+        self.push_line(&format!("{} {{", signature));
+        self.indent_level += 1;
+        for stmt in &function.body {
             self.format_stmt(stmt);
         }
         self.indent_level -= 1;
@@ -287,6 +309,9 @@ impl Formatter {
             Expr::ReadRef(read_ref) => format!("read_ref<{}>()", read_ref.ty),
             Expr::Claim(claim) => format!("claim {}", self.format_expr(&claim.receipt)),
             Expr::Settle(settle) => format!("settle {}", self.format_expr(&settle.expr)),
+            Expr::Assert(assert_expr) => {
+                format!("assert_invariant({}, {})", self.format_expr(&assert_expr.condition), self.format_expr(&assert_expr.message))
+            }
             Expr::Block(stmts) => {
                 let inner = stmts
                     .iter()
@@ -392,6 +417,7 @@ fn format_type(ty: &Type) -> String {
         Type::U64 => "u64".to_string(),
         Type::U128 => "u128".to_string(),
         Type::Bool => "bool".to_string(),
+        Type::Unit => "()".to_string(),
         Type::Address => "Address".to_string(),
         Type::Hash => "Hash".to_string(),
         Type::Array(inner, length) => format!("[{}; {}]", format_type(inner), length),

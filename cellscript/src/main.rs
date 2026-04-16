@@ -69,6 +69,7 @@ fn main() {
                     | "repl"
                     | "check"
                     | "metadata"
+                    | "verify-artifact"
                     | "run"
                     | "publish"
                     | "install"

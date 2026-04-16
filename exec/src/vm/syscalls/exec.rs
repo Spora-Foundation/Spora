@@ -6,6 +6,7 @@
 
 use super::{Source, EXEC_SYSCALL_NUMBER, INDEX_OUT_OF_BOUND, ITEM_MISSING, SLICE_OUT_OF_BOUND, WRONG_FORMAT};
 use crate::celltx::CellTx;
+use crate::serialization::split_vm_abi_trailer;
 use crate::vm::scheduler::{ProgramDataId, ProgramPiece, ProgramPlace, SchedulerDataSource, VmSnapshotHandle};
 use crate::vm::transferred_byte_cycles;
 use crate::vm::CellDataProvider;
@@ -200,6 +201,13 @@ impl<D: CellDataProvider, M: SupportMachine> Syscalls<M> for Exec<D> {
                 return Ok(true);
             }
             &payload[offset..end]
+        };
+        let program_slice = match split_vm_abi_trailer(program_slice) {
+            Ok((program_slice, _)) => program_slice,
+            Err(_) => {
+                machine.set_register(A0, M::REG::from_u8(WRONG_FORMAT));
+                return Ok(true);
+            }
         };
         let program = Bytes::copy_from_slice(program_slice);
         let metadata = match parse_elf::<u64>(&program, machine.version()) {

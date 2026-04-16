@@ -7,7 +7,9 @@
 use super::utils::{store_data, INDEX_OUT_OF_BOUND, ITEM_MISSING};
 use super::{CellField, Source, LOAD_CELL_BY_FIELD_SYSCALL_NUMBER, LOAD_CELL_SYSCALL_NUMBER};
 use crate::celltx::{CellTx, Script};
+use crate::serialization::molecule_compat::{serialize_cell_output_molecule, serialize_script_molecule};
 use crate::serialization::vm_abi::{serialize_cell_output, serialize_script};
+use crate::serialization::VmAbiFormat;
 use crate::vm::transferred_byte_cycles;
 use crate::vm::{CellDataProvider, ResolvedCell, VmSemantics};
 use ckb_vm::{
@@ -27,6 +29,7 @@ pub struct LoadCell<D: CellDataProvider> {
     group_input_indices: Vec<usize>,
     group_output_indices: Vec<usize>,
     semantics: VmSemantics,
+    abi_format: VmAbiFormat,
 }
 
 enum CellLookupResult {
@@ -37,11 +40,24 @@ enum CellLookupResult {
 
 impl<D: CellDataProvider> LoadCell<D> {
     pub fn new(tx: Arc<CellTx>, provider: Arc<D>, group_input_indices: Vec<usize>, group_output_indices: Vec<usize>) -> Self {
-        Self { tx, provider, group_input_indices, group_output_indices, semantics: VmSemantics::SporaExtended }
+        Self {
+            tx,
+            provider,
+            group_input_indices,
+            group_output_indices,
+            semantics: VmSemantics::SporaExtended,
+            abi_format: VmAbiFormat::Legacy,
+        }
     }
 
     pub fn with_semantics(mut self, semantics: VmSemantics) -> Self {
         self.semantics = semantics;
+        self
+    }
+
+    /// Select the VM ABI wire format used by full cell and script field loads.
+    pub fn with_abi_format(mut self, abi_format: VmAbiFormat) -> Self {
+        self.abi_format = abi_format;
         self
     }
 
@@ -112,9 +128,9 @@ impl<D: CellDataProvider> LoadCell<D> {
                     hasher.finalize().as_bytes().to_vec()
                 }))
             }
-            CellField::Lock => Ok(Some(self.serialize_script(&cell.cell_output.lock))),
+            CellField::Lock => Ok(Some(self.serialize_script(&cell.cell_output.lock)?)),
             CellField::LockHash => Ok(Some(cell.cell_output.lock.hash().to_vec())),
-            CellField::Type => Ok(cell.cell_output.type_.as_ref().map(|s| self.serialize_script(s))),
+            CellField::Type => cell.cell_output.type_.as_ref().map(|s| self.serialize_script(s)).transpose(),
             CellField::TypeHash => Ok(cell.cell_output.type_.as_ref().map(|s| s.hash().to_vec())),
             CellField::OccupiedCapacity => {
                 let data_len = cell.data.as_ref().map_or(0, Vec::len);
@@ -123,14 +139,18 @@ impl<D: CellDataProvider> LoadCell<D> {
         }
     }
 
-    fn serialize_script(&self, script: &Script) -> Vec<u8> {
-        // Use standardized VM ABI serialization
-        serialize_script(script)
+    fn serialize_script(&self, script: &Script) -> Result<Vec<u8>, VMError> {
+        match self.abi_format {
+            VmAbiFormat::Legacy => Ok(serialize_script(script)),
+            VmAbiFormat::Molecule => serialize_script_molecule(script).map_err(|e| VMError::External(e.to_string())),
+        }
     }
 
-    fn serialize_cell(&self, cell: &ResolvedCell) -> Vec<u8> {
-        // Use standardized VM ABI serialization
-        serialize_cell_output(&cell.cell_output)
+    fn serialize_cell(&self, cell: &ResolvedCell) -> Result<Vec<u8>, VMError> {
+        match self.abi_format {
+            VmAbiFormat::Legacy => Ok(serialize_cell_output(&cell.cell_output)),
+            VmAbiFormat::Molecule => serialize_cell_output_molecule(&cell.cell_output).map_err(|e| VMError::External(e.to_string())),
+        }
     }
 }
 
@@ -181,7 +201,7 @@ impl<D: CellDataProvider, M: SupportMachine> Syscalls<M> for LoadCell<D> {
             }
         } else {
             // LOAD_CELL (full cell output data)
-            self.serialize_cell(&cell)
+            self.serialize_cell(&cell)?
         };
 
         // Store data using CKB-style store_data
@@ -197,6 +217,8 @@ impl<D: CellDataProvider, M: SupportMachine> Syscalls<M> for LoadCell<D> {
 mod tests {
     use super::*;
     use crate::celltx::{CellDep, CellInput, CellOutput, DepType, OutPoint};
+    use crate::serialization::molecule_compat::serialize_cell_output_molecule;
+    use crate::serialization::VmAbiFormat;
     use crate::vm::syscalls::SUCCESS;
     use crate::vm::{ResolvedCell, ScriptVersion, SimpleDataProvider, VmSemantics};
     use ckb_vm::{
@@ -224,6 +246,43 @@ mod tests {
 
         let _syscall = LoadCell::new(tx, provider, vec![0], vec![0]);
         // Just ensure it compiles
+    }
+
+    #[test]
+    fn test_load_cell_molecule_abi_full_load() {
+        let output = CellOutput {
+            capacity: 1000,
+            lock: Script::new([1u8; 32], 0, vec![0xAA]),
+            type_: Some(Script::new([2u8; 32], 1, vec![0xBB, 0xCC])),
+        };
+        let expected = serialize_cell_output_molecule(&output).unwrap();
+        let tx = Arc::new(CellTx {
+            version: 0xC001,
+            inputs: vec![],
+            cell_deps: vec![],
+            header_deps: vec![],
+            outputs: vec![output],
+            outputs_data: vec![vec![]],
+            witnesses: vec![],
+        });
+
+        let mut machine = ScriptVersion::V2.init_core_machine(10_000);
+        machine.memory_mut().store64(&SIZE_ADDR, &(expected.len() as u64)).unwrap();
+        machine.set_register(A0, BUFFER_ADDR);
+        machine.set_register(A1, SIZE_ADDR);
+        machine.set_register(A2, 0);
+        machine.set_register(A3, 0);
+        machine.set_register(A4, Source::Output as u64);
+        machine.set_register(A7, LOAD_CELL_SYSCALL_NUMBER);
+
+        let mut syscall =
+            LoadCell::new(tx, Arc::new(SimpleDataProvider::new()), vec![], vec![]).with_abi_format(VmAbiFormat::Molecule);
+        let handled = syscall.ecall(&mut machine).expect("load cell syscall should succeed");
+
+        assert!(handled);
+        assert_eq!(machine.registers()[A0].to_u64(), SUCCESS as u64);
+        assert_eq!(machine.memory_mut().load64(&SIZE_ADDR).unwrap().to_u64(), expected.len() as u64);
+        assert_eq!(machine.memory_mut().load_bytes(BUFFER_ADDR, expected.len() as u64).unwrap().as_ref(), expected.as_slice());
     }
 
     #[test]

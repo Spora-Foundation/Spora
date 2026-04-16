@@ -20,7 +20,7 @@
 //!
 //! ```text
 //! ┌─────────────────────────────────────────────────────────────────┐
-//! │  Layer 3: VM/Script ABI 层 (长期需 Molecule)                    │
+//! │  Layer 3: VM/Script ABI 层 (Borsh v1 + Molecule v1)             │
 //! │  - ResolvedHeader, ResolvedCell, Witness Payload                │
 //! │  - 脚本可见的所有数据结构                                        │
 //! │  - 需要: canonical, partial read, version兼容                  │
@@ -42,13 +42,13 @@
 //!    - 所有共识关键哈希 (block hash, txid, sighash) 使用自定义流式哈希
 //!    - Borsh 仅用于内部通信和存储，不参与共识
 //!
-//! 2. **所有 VM-facing 类型必须使用 VersionedEnvelope**
-//!    - 确保脚本可见数据可以平滑演进
-//!    - 为未来切换到 Molecule 预留路径
+//! 2. **VM-facing ABI 必须经过显式格式边界**
+//!    - legacy default 仍保留 Borsh/custom v1，避免破坏现有脚本
+//!    - Molecule v1 (`0x8001`) 已作为 canonical VM ABI 可用
 //!
 //! 3. **VM ABI 是独立抽象层**
 //!    - 通过 [`VmSerializable`](serialization::VmSerializable) trait 抽象序列化实现
-//!    - 未来可单独切换 VM 层到 Molecule，不影响其他层
+//!    - VM 层可以独立切到 Molecule，不影响存储层和共识哈希层
 //!
 //! ### 相关模块
 //!
@@ -66,11 +66,13 @@ pub mod celltx;
 pub mod scheduler;
 /// Standard scripts (secp256k1 lock, capacity type)
 pub mod scripts;
+/// Serialization framework with version governance
+pub mod serialization;
 /// VM integration for script execution (CKB-VM based)
 #[cfg(feature = "vm")]
 pub mod vm;
-/// Serialization framework with version governance
-pub mod serialization;
+#[cfg(feature = "vm")]
+pub use vm::{ResolvedCell, ResolvedHeader};
 
 pub use celltx::{
     encode_dep_group_data, parse_dep_group_data, CapacityError, CellDep, CellInput, CellOutput, CellTx, DepType, OutPoint, Script,
@@ -79,52 +81,49 @@ pub use celltx::{
 
 // Re-export serialization framework
 pub use serialization::{
-    SerializationError, VersionedEnvelope, VersionedSerializable, VmAbiError, VmAbiNegotiator, VmSerializable,
+    append_vm_abi_trailer, split_vm_abi_trailer, SerializationError, VersionedEnvelope, VersionedSerializable, VmAbiError,
+    VmAbiFormat, VmAbiNegotiator, VmSerializable,
 };
 
 // Re-export vm_abi helpers
 pub use serialization::vm_abi::{
-    serialize_cell_input, serialize_cell_output, serialize_outpoint, serialize_script,
-    serialized_cell_output_size, serialized_script_size,
+    serialize_cell_input, serialize_cell_output, serialize_outpoint, serialize_script, serialized_cell_output_size,
+    serialized_script_size,
 };
 
 // Re-export utils
 pub use serialization::utils::{
-    deserialize_from_bytes, deserialize_many, estimate_serialized_size, is_valid_versioned_envelope,
-    peek_format_version, peek_schema_version, serialize_many, serialize_to_bytes, SerializeResult,
+    deserialize_from_bytes, deserialize_many, estimate_serialized_size, is_valid_versioned_envelope, peek_format_version,
+    peek_schema_version, serialize_many, serialize_to_bytes, SerializeResult,
 };
 
 // Re-export cache
-pub use serialization::cache::{
-    CacheStats, SerializationCache, ThreadSafeSerializationCache,
-};
+pub use serialization::cache::{CacheStats, SerializationCache, ThreadSafeSerializationCache};
 
 // Re-export validation
-pub use serialization::validation::{
-    is_valid_envelope, validate_envelope, SerializerValidator, ValidationConfig, ValidationResult,
-};
+pub use serialization::validation::{is_valid_envelope, validate_envelope, SerializerValidator, ValidationConfig, ValidationResult};
 
 // Re-export streaming
-pub use serialization::streaming::{
-    deserialize_streaming, serialize_streaming, StreamingDeserializer, StreamingSerializer,
-};
+pub use serialization::streaming::{deserialize_streaming, serialize_streaming, StreamingDeserializer, StreamingSerializer};
 
 // Re-export security
 pub use serialization::security::{
-    compute_hash, deserialize_with_integrity, serialize_with_integrity, SecureEnvelope,
-    SecurityConfig, SecurityGuard, verify_integrity,
+    compute_hash, deserialize_with_integrity, serialize_with_integrity, verify_integrity, SecureEnvelope, SecurityConfig,
+    SecurityGuard,
 };
 
 // Re-export compression
 pub use serialization::compression::{
-    compress, decompress, CompressedEnvelope, CompressionAlgorithm, CompressionConfig,
-    CompressionResult, CompressionStats, estimate_compressed_size, select_algorithm,
+    compress, decompress, estimate_compressed_size, select_algorithm, CompressedEnvelope, CompressionAlgorithm, CompressionConfig,
+    CompressionResult, CompressionStats,
 };
 
 // Re-export molecule compatibility layer
 pub use serialization::molecule_compat::{
-    deserialize_resolved_cell_molecule, deserialize_resolved_header_molecule, serialize_resolved_cell_molecule,
-    serialize_resolved_header_molecule, MoleculeError, MoleculeSerializer,
+    deserialize_cell_input_molecule, deserialize_cell_output_molecule, deserialize_outpoint_molecule,
+    deserialize_resolved_cell_molecule, deserialize_resolved_header_molecule, deserialize_script_molecule,
+    serialize_cell_input_molecule, serialize_cell_output_molecule, serialize_outpoint_molecule, serialize_resolved_cell_molecule,
+    serialize_resolved_header_molecule, serialize_script_molecule, MoleculeError, MoleculeSerializer,
 };
 
 /// Cell transaction version

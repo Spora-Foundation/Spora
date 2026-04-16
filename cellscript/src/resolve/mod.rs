@@ -43,7 +43,7 @@ pub enum TypeDef {
 #[derive(Debug, Clone)]
 pub enum FunctionDef {
     Action(ActionDef),
-    Function(ActionDef),
+    Function(FnDef),
     Lock(LockDef),
 }
 

@@ -235,7 +235,6 @@ macro_rules! define_schema_version {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::serialization::{VersionedSerializable, VmSerializable};
     use borsh::{BorshDeserialize, BorshSerialize};
 
@@ -249,9 +248,11 @@ mod tests {
         value: u64,
     }
 
+    impl_versioned_serializable!(TestData, 5);
+    impl_vm_serializable!(TestVmData, 0x1234);
+
     #[test]
     fn test_impl_versioned_serializable() {
-        impl_versioned_serializable!(TestData, 5);
         assert_eq!(TestData::CURRENT_VERSION, 5);
 
         let data = TestData { value: 42 };
@@ -260,7 +261,6 @@ mod tests {
 
     #[test]
     fn test_impl_vm_serializable() {
-        impl_vm_serializable!(TestVmData, 0x1234);
         assert_eq!(TestVmData::abi_version(), 0x1234);
 
         let data = TestVmData { value: 42 };
@@ -272,10 +272,14 @@ mod tests {
     #[test]
     fn test_impl_versioned_serializable_batch() {
         #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
-        struct TypeA { value: u32 }
+        struct TypeA {
+            value: u32,
+        }
 
         #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
-        struct TypeB { value: u64 }
+        struct TypeB {
+            value: u64,
+        }
 
         impl_versioned_serializable_batch! {
             (TypeA, 1),
@@ -288,49 +292,69 @@ mod tests {
 
     #[test]
     fn test_envelope_macro() {
-        impl_versioned_serializable!(TestData, 1);
+        #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+        struct EnvelopeData {
+            value: u64,
+        }
+        impl_versioned_serializable!(EnvelopeData, 1);
 
-        let data = TestData { value: 42 };
+        let data = EnvelopeData { value: 42 };
         let envelope = envelope!(data).unwrap();
         assert_eq!(envelope.schema_version(), 1);
     }
 
     #[test]
     fn test_serialize_macro() {
-        impl_versioned_serializable!(TestData, 1);
+        #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+        struct SerializeData {
+            value: u64,
+        }
+        impl_versioned_serializable!(SerializeData, 1);
 
-        let data = TestData { value: 42 };
+        let data = SerializeData { value: 42 };
         let bytes = serialize!(data).unwrap();
         assert!(!bytes.is_empty());
     }
 
     #[test]
     fn test_deserialize_macro() {
-        impl_versioned_serializable!(TestData, 1);
+        #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+        struct DeserializeData {
+            value: u64,
+        }
+        impl_versioned_serializable!(DeserializeData, 1);
 
-        let data = TestData { value: 42 };
+        let data = DeserializeData { value: 42 };
         let bytes = serialize!(data).unwrap();
-        let restored: TestData = deserialize!(&bytes).unwrap();
+        let restored: DeserializeData = deserialize!(&bytes).unwrap();
         assert_eq!(data, restored);
     }
 
     #[test]
     fn test_deserialize_macro_with_type() {
-        impl_versioned_serializable!(TestData, 1);
+        #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+        struct DeserializeTypedData {
+            value: u64,
+        }
+        impl_versioned_serializable!(DeserializeTypedData, 1);
 
-        let data = TestData { value: 42 };
+        let data = DeserializeTypedData { value: 42 };
         let bytes = serialize!(data).unwrap();
-        let restored = deserialize!(&bytes, TestData).unwrap();
+        let restored = deserialize!(&bytes, DeserializeTypedData).unwrap();
         assert_eq!(data, restored);
     }
 
     #[test]
     fn test_define_schema_version() {
         #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
-        struct SchemaTypeA { value: u32 }
+        struct SchemaTypeA {
+            value: u32,
+        }
 
         #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
-        struct SchemaTypeB { value: u64 }
+        struct SchemaTypeB {
+            value: u64,
+        }
 
         define_schema_version!(TEST_SCHEMA_VERSION = 3, SchemaTypeA, SchemaTypeB);
 

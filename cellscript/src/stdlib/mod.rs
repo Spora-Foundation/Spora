@@ -1,6 +1,9 @@
 //! CellScript 标准库
 //!
-//! 提供 Borsh 序列化、系统调用包装器、数学函数等
+//! 提供 CKB syscall 包装器、数学函数、哈希函数和环境函数。
+//!
+//! VM 内对象 ABI 使用 Molecule；Borsh 仅用于 Rust-side scheduler witness
+//! metadata，不作为 CellScript VM 标准库函数暴露。
 
 pub mod collections;
 
@@ -13,53 +16,6 @@ impl StdLib {
     /// 获取标准库函数列表
     pub fn functions() -> Vec<StdFunction> {
         vec![
-            // Borsh 序列化
-            StdFunction {
-                name: "borsh_serialize_u8".to_string(),
-                params: vec![("value".to_string(), IrType::U8)],
-                return_type: Some(IrType::Array(Box::new(IrType::U8), 1)),
-            },
-            StdFunction {
-                name: "borsh_serialize_u16".to_string(),
-                params: vec![("value".to_string(), IrType::U16)],
-                return_type: Some(IrType::Array(Box::new(IrType::U8), 2)),
-            },
-            StdFunction {
-                name: "borsh_serialize_u32".to_string(),
-                params: vec![("value".to_string(), IrType::U32)],
-                return_type: Some(IrType::Array(Box::new(IrType::U8), 4)),
-            },
-            StdFunction {
-                name: "borsh_serialize_u64".to_string(),
-                params: vec![("value".to_string(), IrType::U64)],
-                return_type: Some(IrType::Array(Box::new(IrType::U8), 8)),
-            },
-            StdFunction {
-                name: "borsh_serialize_u128".to_string(),
-                params: vec![("value".to_string(), IrType::U128)],
-                return_type: Some(IrType::Array(Box::new(IrType::U8), 16)),
-            },
-            StdFunction {
-                name: "borsh_serialize_bool".to_string(),
-                params: vec![("value".to_string(), IrType::Bool)],
-                return_type: Some(IrType::Array(Box::new(IrType::U8), 1)),
-            },
-            StdFunction {
-                name: "borsh_serialize_address".to_string(),
-                params: vec![("value".to_string(), IrType::Address)],
-                return_type: Some(IrType::Array(Box::new(IrType::U8), 32)),
-            },
-            StdFunction {
-                name: "borsh_serialize_hash".to_string(),
-                params: vec![("value".to_string(), IrType::Hash)],
-                return_type: Some(IrType::Array(Box::new(IrType::U8), 32)),
-            },
-            // Borsh 反序列化
-            StdFunction {
-                name: "borsh_deserialize_u64".to_string(),
-                params: vec![("data".to_string(), IrType::Array(Box::new(IrType::U8), 8))],
-                return_type: Some(IrType::U64),
-            },
             // ckbvm 系统调用包装器
             StdFunction { name: "syscall_load_tx_hash".to_string(), params: vec![], return_type: Some(IrType::Hash) },
             StdFunction { name: "syscall_load_script_hash".to_string(), params: vec![], return_type: Some(IrType::Hash) },
@@ -142,12 +98,6 @@ impl StdLib {
         asm.push_str("# CellScript Standard Library\n\n");
         asm.push_str(".section .text\n\n");
 
-        // Borsh 序列化函数
-        asm.push_str(&Self::generate_borsh_serialize());
-
-        // Borsh 反序列化函数
-        asm.push_str(&Self::generate_borsh_deserialize());
-
         // 系统调用包装器
         asm.push_str(&Self::generate_syscalls());
 
@@ -159,84 +109,6 @@ impl StdLib {
 
         // 环境函数
         asm.push_str(&Self::generate_env());
-
-        asm
-    }
-
-    /// 生成 Borsh 序列化代码
-    fn generate_borsh_serialize() -> String {
-        let mut asm = String::new();
-
-        // u64 序列化: little-endian 8 bytes
-        asm.push_str("# Borsh serialize u64\n");
-        asm.push_str(".global __borsh_serialize_u64\n");
-        asm.push_str("__borsh_serialize_u64:\n");
-        asm.push_str("    addi sp, sp, -16\n");
-        asm.push_str("    sd ra, 8(sp)\n");
-        asm.push_str("    # a0 = value to serialize\n");
-        asm.push_str("    # result buffer pointer returned in a0\n");
-        asm.push_str("    li a7, 2092  # LOAD_CELL_DATA syscall for buffer allocation\n");
-        asm.push_str("    li a0, 8     # size\n");
-        asm.push_str("    ecall\n");
-        asm.push_str("    # Store value in little-endian\n");
-        asm.push_str("    sb a0, 0(a0)\n");
-        asm.push_str("    srli t0, a0, 8\n");
-        asm.push_str("    sb t0, 1(a0)\n");
-        asm.push_str("    srli t0, a0, 16\n");
-        asm.push_str("    sb t0, 2(a0)\n");
-        asm.push_str("    srli t0, a0, 24\n");
-        asm.push_str("    sb t0, 3(a0)\n");
-        asm.push_str("    srli t0, a0, 32\n");
-        asm.push_str("    sb t0, 4(a0)\n");
-        asm.push_str("    srli t0, a0, 40\n");
-        asm.push_str("    sb t0, 5(a0)\n");
-        asm.push_str("    srli t0, a0, 48\n");
-        asm.push_str("    sb t0, 6(a0)\n");
-        asm.push_str("    srli t0, a0, 56\n");
-        asm.push_str("    sb t0, 7(a0)\n");
-        asm.push_str("    ld ra, 8(sp)\n");
-        asm.push_str("    addi sp, sp, 16\n");
-        asm.push_str("    ret\n\n");
-
-        asm
-    }
-
-    /// 生成 Borsh 反序列化代码
-    fn generate_borsh_deserialize() -> String {
-        let mut asm = String::new();
-
-        // u64 反序列化: little-endian 8 bytes
-        asm.push_str("# Borsh deserialize u64\n");
-        asm.push_str(".global __borsh_deserialize_u64\n");
-        asm.push_str("__borsh_deserialize_u64:\n");
-        asm.push_str("    addi sp, sp, -16\n");
-        asm.push_str("    sd ra, 8(sp)\n");
-        asm.push_str("    # a0 = pointer to 8-byte buffer\n");
-        asm.push_str("    lb t0, 0(a0)\n");
-        asm.push_str("    lb t1, 1(a0)\n");
-        asm.push_str("    slli t1, t1, 8\n");
-        asm.push_str("    or t0, t0, t1\n");
-        asm.push_str("    lb t1, 2(a0)\n");
-        asm.push_str("    slli t1, t1, 16\n");
-        asm.push_str("    or t0, t0, t1\n");
-        asm.push_str("    lb t1, 3(a0)\n");
-        asm.push_str("    slli t1, t1, 24\n");
-        asm.push_str("    or t0, t0, t1\n");
-        asm.push_str("    lb t1, 4(a0)\n");
-        asm.push_str("    slli t1, t1, 32\n");
-        asm.push_str("    or t0, t0, t1\n");
-        asm.push_str("    lb t1, 5(a0)\n");
-        asm.push_str("    slli t1, t1, 40\n");
-        asm.push_str("    or t0, t0, t1\n");
-        asm.push_str("    lb t1, 6(a0)\n");
-        asm.push_str("    slli t1, t1, 48\n");
-        asm.push_str("    or t0, t0, t1\n");
-        asm.push_str("    lb t1, 7(a0)\n");
-        asm.push_str("    slli t1, t1, 56\n");
-        asm.push_str("    or a0, t0, t1\n");
-        asm.push_str("    ld ra, 8(sp)\n");
-        asm.push_str("    addi sp, sp, 16\n");
-        asm.push_str("    ret\n\n");
 
         asm
     }
@@ -520,7 +392,8 @@ mod tests {
     fn test_std_functions() {
         let funcs = StdLib::functions();
         assert!(!funcs.is_empty());
-        assert!(StdLib::is_std_function("borsh_serialize_u64"));
+        assert!(!StdLib::is_std_function("borsh_serialize_u64"));
+        assert!(!StdLib::is_std_function("borsh_deserialize_u64"));
         assert!(StdLib::is_std_function("syscall_load_cell"));
         assert!(StdLib::is_std_function("math_isqrt"));
     }
@@ -536,7 +409,8 @@ mod tests {
     #[test]
     fn test_generate_assembly() {
         let asm = StdLib::generate_assembly();
-        assert!(asm.contains("__borsh_serialize_u64"));
+        assert!(!asm.contains("__borsh_serialize_u64"));
+        assert!(!asm.contains("__borsh_deserialize_u64"));
         assert!(asm.contains("__syscall_load_cell"));
         assert!(asm.contains("__math_isqrt"));
     }

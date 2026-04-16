@@ -53,5 +53,3 @@ vm = ["ckb-vm", "byteorder", "hex"]  # VM integration enabled
 [[bench]]
 name = "serialization_bench"
 harness = false
-
-

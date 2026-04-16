@@ -6,7 +6,8 @@
 use super::utils::{store_data, INDEX_OUT_OF_BOUND, ITEM_MISSING};
 use super::{HeaderField, Source, LOAD_HEADER_BY_FIELD_SYSCALL_NUMBER, LOAD_HEADER_SYSCALL_NUMBER};
 use crate::celltx::CellTx;
-use crate::serialization::VmSerializable;
+use crate::serialization::molecule_compat::serialize_resolved_header_molecule;
+use crate::serialization::{VmAbiFormat, VmSerializable};
 use crate::vm::transferred_byte_cycles;
 use crate::vm::{CellDataProvider, ResolvedHeader};
 use ckb_vm::{
@@ -26,6 +27,7 @@ pub struct LoadHeader<D: CellDataProvider> {
     provider: Arc<D>,
     group_input_indices: Vec<usize>,
     group_output_indices: Vec<usize>,
+    abi_format: VmAbiFormat,
 }
 
 enum HeaderLookupResult {
@@ -36,7 +38,13 @@ enum HeaderLookupResult {
 
 impl<D: CellDataProvider> LoadHeader<D> {
     pub fn new(tx: Arc<CellTx>, provider: Arc<D>, group_input_indices: Vec<usize>, group_output_indices: Vec<usize>) -> Self {
-        Self { tx, provider, group_input_indices, group_output_indices }
+        Self { tx, provider, group_input_indices, group_output_indices, abi_format: VmAbiFormat::Legacy }
+    }
+
+    /// Select the VM ABI wire format used by full header loads.
+    pub fn with_abi_format(mut self, abi_format: VmAbiFormat) -> Self {
+        self.abi_format = abi_format;
+        self
     }
 
     fn get_header(&self, source: Source, index: usize) -> HeaderLookupResult {
@@ -107,9 +115,10 @@ impl<D: CellDataProvider> LoadHeader<D> {
     }
 
     fn serialize_header(&self, header: &ResolvedHeader) -> Result<Vec<u8>, VMError> {
-        // Use VmSerializable trait for ABI abstraction
-        // This allows future migration to Molecule without changing syscall logic
-        Ok(header.to_vm_bytes())
+        match self.abi_format {
+            VmAbiFormat::Legacy => Ok(header.to_vm_bytes()),
+            VmAbiFormat::Molecule => serialize_resolved_header_molecule(header).map_err(|e| VMError::External(e.to_string())),
+        }
     }
 }
 
@@ -158,7 +167,8 @@ impl<D: CellDataProvider, M: SupportMachine> Syscalls<M> for LoadHeader<D> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::serialization::VmSerializable;
+    use crate::serialization::molecule_compat::serialize_resolved_header_molecule;
+    use crate::serialization::{VmAbiFormat, VmSerializable};
     use crate::vm::syscalls::SUCCESS;
     use crate::vm::{ScriptVersion, SimpleDataProvider};
     use ckb_vm::{
@@ -371,8 +381,31 @@ mod tests {
         assert_eq!(machine.registers()[A0].to_u64(), SUCCESS as u64);
         let size = machine.memory_mut().load64(&SIZE_ADDR).unwrap().to_u64();
         let bytes = machine.memory_mut().load_bytes(BUFFER_ADDR, size).unwrap();
-        let header = ResolvedHeader::try_from_slice(bytes.as_ref()).expect("header should deserialize");
+        let header = ResolvedHeader::from_vm_bytes(bytes.as_ref()).expect("header should deserialize");
         assert_eq!(header.hash, [0x55; 32]);
+    }
+
+    #[test]
+    fn test_load_header_molecule_abi_full_load() {
+        let (tx, provider) = build_tx_and_provider();
+        let header = provider.load_header(&tx.header_deps[0]).expect("header dep should exist");
+        let expected = serialize_resolved_header_molecule(&header).unwrap();
+        let mut machine = ScriptVersion::V2.init_core_machine(10_000);
+        machine.memory_mut().store64(&SIZE_ADDR, &(expected.len() as u64)).unwrap();
+        machine.set_register(A0, BUFFER_ADDR);
+        machine.set_register(A1, SIZE_ADDR);
+        machine.set_register(A2, 0);
+        machine.set_register(A3, 0);
+        machine.set_register(A4, Source::HeaderDep as u64);
+        machine.set_register(A7, LOAD_HEADER_SYSCALL_NUMBER);
+
+        let mut syscall = LoadHeader::new(tx, provider, vec![0], vec![]).with_abi_format(VmAbiFormat::Molecule);
+        let handled = syscall.ecall(&mut machine).expect("load header syscall should succeed");
+
+        assert!(handled);
+        assert_eq!(machine.registers()[A0].to_u64(), SUCCESS as u64);
+        assert_eq!(machine.memory_mut().load64(&SIZE_ADDR).unwrap().to_u64(), expected.len() as u64);
+        assert_eq!(machine.memory_mut().load_bytes(BUFFER_ADDR, expected.len() as u64).unwrap().as_ref(), expected.as_slice());
     }
 
     #[test]

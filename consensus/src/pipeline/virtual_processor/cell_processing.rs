@@ -1347,7 +1347,7 @@ impl VirtualStateProcessor {
     ///    update the snapshot so the next block's analysis sees the latest
     ///    canonical state.
     ///
-    /// For mergeset blues, this implements **P2B parallelization**:
+    /// For mergeset blues, this implements **VSP parallelization**:
     /// - Statically extract [`BlockAccessSummary`] from each blue block's
     ///   raw transactions.
     /// - Build an [`ExecutionDAG`] that groups independent blocks into layers.
@@ -1356,7 +1356,7 @@ impl VirtualStateProcessor {
     ///   effects **sequentially** in GhostDAG canonical order.
     /// - Before each commit, run conflict detection: if a consumed cell
     ///   has been removed by a preceding same-layer commit, the effect
-    ///   is invalidated per P2B_PROTOCOL_SEMANTICS rule 3.
+    ///   is invalidated per VSP_PROTOCOL_SEMANTICS rule 3.
     ///
     /// # GHOSTDAG-aware Process
     /// 1. Process selected parent coinbase (analyze → commit)
@@ -1405,7 +1405,7 @@ impl VirtualStateProcessor {
 
         // ── STEP 2: Mergeset blues — layer-parallel analyze, sequential commit ──
         //
-        // Design: P2B parallelization via ExecutionDAG
+        // Design: VSP parallelization via ExecutionDAG
         //
         // 1. Pre-scan: statically extract BlockAccessSummary from each blue block's
         //    raw transactions (no full analysis needed — just read the inputs/outputs/deps).
@@ -1419,7 +1419,7 @@ impl VirtualStateProcessor {
         //    - Before each commit, run conflict detection: if any consumed cell
         //      has already been removed by a preceding same-layer commit, the
         //      effect is invalidated (replaced with an empty effect) per
-        //      P2B_PROTOCOL_SEMANTICS rule 3.
+        //      VSP_PROTOCOL_SEMANTICS rule 3.
         //
         // Invariant: final commit order is identical to the original serial order,
         // so cell_root, accepted_tx_ids, mergeset_acceptance_data, and reward_data
@@ -1494,7 +1494,7 @@ impl VirtualStateProcessor {
                         let (blue_block, ref block_txs, blue_block_daa_score) = blue_block_data[idx];
                         let effect = &effects[layer_pos];
 
-                        // ── Conflict detection (P2B_PROTOCOL_SEMANTICS rule 3) ──
+                        // ── Conflict detection (VSP_PROTOCOL_SEMANTICS rule 3) ──
                         // If any cell this effect tries to consume has already been
                         // removed from the canonical tree by a preceding same-layer
                         // commit, the entire effect is invalidated.

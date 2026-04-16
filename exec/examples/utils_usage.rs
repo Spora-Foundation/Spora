@@ -6,12 +6,11 @@
 // This example demonstrates the utility functions for serialization.
 
 use spora_exec::{
-    CellOutput, Script, VersionedSerializable,
     serialization::utils::{
-        deserialize_from_bytes, deserialize_many, estimate_serialized_size,
-        is_valid_versioned_envelope, peek_format_version, peek_schema_version,
-        serialize_many, serialize_to_bytes,
+        deserialize_from_bytes, deserialize_many, estimate_serialized_size, is_valid_versioned_envelope, peek_format_version,
+        peek_schema_version, serialize_many, serialize_to_bytes,
     },
+    CellOutput, Script, VersionedSerializable,
 };
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -21,7 +20,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Basic Serialization
     // ============================================================================
     println!("--- Basic Serialization ---");
-    
+
     let output = CellOutput {
         lock: Script::new([0xAA; 32], 0, vec![0xBB; 20]),
         type_: Some(Script::new([0xCC; 32], 1, vec![0xDD; 10])),
@@ -114,11 +113,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n--- Performance Comparison ---");
 
     let large_outputs: Vec<CellOutput> = (0..1000)
-        .map(|i| CellOutput {
-            lock: Script::new([i as u8; 32], 0, vec![0xBB; 20]),
-            type_: None,
-            capacity: i as u64,
-        })
+        .map(|i| CellOutput { lock: Script::new([i as u8; 32], 0, vec![0xBB; 20]), type_: None, capacity: i as u64 })
         .collect();
 
     // Individual serialization

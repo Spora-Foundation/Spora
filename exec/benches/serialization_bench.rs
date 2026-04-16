@@ -5,8 +5,8 @@
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
 use spora_exec::{
-    CellInput, CellOutput, CellTx, OutPoint, ResolvedCellMeta, ResolvedHeader, Script,
-    TransactionInfo, VersionedEnvelope, VersionedSerializable, VmSerializable,
+    CellInput, CellOutput, CellTx, OutPoint, ResolvedCellMeta, ResolvedHeader, Script, TransactionInfo, VersionedEnvelope,
+    VersionedSerializable, VmSerializable,
 };
 
 fn create_sample_tx() -> CellTx {
@@ -21,18 +21,9 @@ fn create_sample_tx() -> CellTx {
         })
         .collect();
 
-    let inputs: Vec<CellInput> = (0..5)
-        .map(|i| CellInput::new(OutPoint::new([i as u8; 32], i as u32), i as u64))
-        .collect();
+    let inputs: Vec<CellInput> = (0..5).map(|i| CellInput::new(OutPoint::new([i as u8; 32], i as u32), i as u64)).collect();
 
-    CellTx::new(
-        inputs,
-        vec![],
-        outputs,
-        vec![vec![0x11; 100]; 10],
-        vec![vec![0x22; 65]; 5],
-    )
-    .expect("valid transaction")
+    CellTx::new(inputs, vec![], outputs, vec![vec![0x11; 100]; 10], vec![vec![0x22; 65]; 5]).expect("valid transaction")
 }
 
 fn create_sample_resolved_header() -> ResolvedHeader {
@@ -63,12 +54,7 @@ fn create_sample_resolved_cell_meta() -> ResolvedCellMeta {
             capacity: 1000,
         },
         out_point: OutPoint::new([0xEE; 32], 0),
-        transaction_info: Some(TransactionInfo {
-            tx_hash: [0xFF; 32],
-            daa_score: 100,
-            block_hash: [0x11; 32],
-            is_cellbase: false,
-        }),
+        transaction_info: Some(TransactionInfo { tx_hash: [0xFF; 32], daa_score: 100, block_hash: [0x11; 32], is_cellbase: false }),
         data_bytes: 100,
         mem_cell_data: Some(vec![0x22; 100]),
         mem_cell_data_hash: Some([0x33; 32]),
@@ -110,8 +96,7 @@ fn bench_celltx_serialization(c: &mut Criterion) {
 
     group.bench_function("versioned_envelope_parse", |b| {
         b.iter(|| {
-            let envelope: VersionedEnvelope<CellTx> =
-                borsh::from_slice(black_box(&envelope_bytes)).unwrap();
+            let envelope: VersionedEnvelope<CellTx> = borsh::from_slice(black_box(&envelope_bytes)).unwrap();
             let tx = envelope.parse().unwrap();
             black_box(tx);
         })
@@ -197,8 +182,7 @@ fn bench_resolved_cell_meta_serialization(c: &mut Criterion) {
 
     group.bench_function("versioned_envelope_parse", |b| {
         b.iter(|| {
-            let envelope: VersionedEnvelope<ResolvedCellMeta> =
-                borsh::from_slice(black_box(&envelope_bytes)).unwrap();
+            let envelope: VersionedEnvelope<ResolvedCellMeta> = borsh::from_slice(black_box(&envelope_bytes)).unwrap();
             let cell = envelope.parse().unwrap();
             black_box(cell);
         })

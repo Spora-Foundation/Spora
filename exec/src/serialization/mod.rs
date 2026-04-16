@@ -11,26 +11,26 @@
 //!    - 所有共识关键哈希 (block hash, txid, sighash) 使用自定义流式哈希
 //!    - Borsh 仅用于内部通信和存储，不参与共识
 //!
-//! 2. **所有 VM-facing 类型必须使用 VersionedEnvelope**
-//!    - 确保脚本可见数据可以平滑演进
-//!    - 为未来切换到 Molecule 预留路径
+//! 2. **VM-facing ABI 必须经过显式格式边界**
+//!    - legacy default 仍保留 Borsh/custom v1，避免破坏现有脚本
+//!    - Molecule v1 (`0x8001`) 已作为 canonical VM ABI 可用
 //!
 //! 3. **VM ABI 是独立抽象层**
 //!    - 通过 `VmSerializable` trait 抽象序列化实现
-//!    - 未来可单独切换 VM 层到 Molecule，不影响其他层
+//!    - VM 层可以独立切到 Molecule，不影响其他层
 //!
 //! ## 分层责任
 //!
 //! - Layer 1 (共识): 自定义流式哈希，完全绕过 Borsh
 //! - Layer 2 (存储): Borsh + VersionedEnvelope
-//! - Layer 3 (VM ABI): Borsh (当前) → Molecule (未来)
+//! - Layer 3 (VM ABI): Borsh v1 for legacy defaults, Molecule v1 as the CKB-style canonical ABI
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
 /// VM ABI 序列化辅助函数
 pub mod vm_abi;
 
-/// Molecule 兼容性层（预留）
+/// Molecule canonical VM ABI compatibility layer
 pub mod molecule_compat;
 
 /// 序列化工具函数
@@ -65,7 +65,12 @@ pub enum SerializationError {
     DeserializationFailed(String),
     /// 升级路径不可用
     #[error("upgrade path not available: from {from} to {to}")]
-    UpgradePathNotAvailable { from: u8, to: u8 },
+    UpgradePathNotAvailable {
+        /// Stored schema version.
+        from: u8,
+        /// Current schema version requested by the type.
+        to: u8,
+    },
     /// IO 错误
     #[error("io error: {0}")]
     IoError(String),
@@ -101,13 +106,9 @@ pub trait VersionedSerializable: Sized + BorshSerialize + BorshDeserialize {
     /// * `Err(Error)` - 解析失败或不支持的版本
     fn upgrade_from(version: u8, bytes: &[u8]) -> Result<Self, SerializationError> {
         if version == Self::CURRENT_VERSION {
-            BorshDeserialize::try_from_slice(bytes)
-                .map_err(|e| SerializationError::DeserializationFailed(e.to_string()))
+            BorshDeserialize::try_from_slice(bytes).map_err(|e| SerializationError::DeserializationFailed(e.to_string()))
         } else {
-            Err(SerializationError::UpgradePathNotAvailable {
-                from: version,
-                to: Self::CURRENT_VERSION,
-            })
+            Err(SerializationError::UpgradePathNotAvailable { from: version, to: Self::CURRENT_VERSION })
         }
     }
 }
@@ -137,7 +138,7 @@ pub struct VersionedEnvelope<T> {
 impl<T: VersionedSerializable> VersionedEnvelope<T> {
     /// Borsh 格式版本标识
     pub const FORMAT_VERSION_BORSH: u8 = 0x00;
-    /// Molecule 格式版本标识 (预留)
+    /// Molecule 格式版本标识
     pub const FORMAT_VERSION_MOLECULE: u8 = 0x80;
 
     /// 创建新的版本化信封 (使用当前版本)
@@ -184,12 +185,7 @@ impl<T: VersionedSerializable> VersionedEnvelope<T> {
 
 impl<T> Default for VersionedEnvelope<T> {
     fn default() -> Self {
-        Self {
-            format_version: 0,
-            schema_version: 0,
-            payload: Vec::new(),
-            _phantom: std::marker::PhantomData,
-        }
+        Self { format_version: 0, schema_version: 0, payload: Vec::new(), _phantom: std::marker::PhantomData }
     }
 }
 
@@ -204,9 +200,14 @@ pub enum VmAbiError {
     DeserializationFailed(String),
     /// ABI 版本不匹配
     #[error("ABI version mismatch: expected {expected}, got {actual}")]
-    VersionMismatch { expected: u16, actual: u16 },
+    VersionMismatch {
+        /// ABI version requested by the script.
+        expected: u16,
+        /// First VM-supported ABI version reported during negotiation.
+        actual: u16,
+    },
     /// 不支持的 ABI 版本
-    #[error("unsupported ABI version: {0}")]
+    #[error("unsupported ABI version: 0x{0:04x}")]
     UnsupportedAbiVersion(u16),
 }
 
@@ -230,13 +231,84 @@ pub trait VmSerializable: Sized {
     }
 }
 
+/// VM-visible ABI wire format.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum VmAbiFormat {
+    /// Legacy Spora VM ABI: Borsh for aggregate VM objects and historical custom encoders for CKB-style values.
+    #[default]
+    Legacy,
+    /// Canonical Molecule VM ABI.
+    Molecule,
+}
+
+impl VmAbiFormat {
+    /// Return the negotiated ABI version for this wire format.
+    pub const fn abi_version(self) -> u16 {
+        match self {
+            Self::Legacy => VmAbiNegotiator::ABI_VERSION_BORSH_V1,
+            Self::Molecule => VmAbiNegotiator::ABI_VERSION_MOLECULE_V1,
+        }
+    }
+
+    /// Resolve a VM ABI version into a wire format.
+    pub fn from_abi_version(version: u16) -> Result<Self, VmAbiError> {
+        match version {
+            VmAbiNegotiator::ABI_VERSION_BORSH_V1 => Ok(Self::Legacy),
+            VmAbiNegotiator::ABI_VERSION_MOLECULE_V1 => Ok(Self::Molecule),
+            other => Err(VmAbiError::UnsupportedAbiVersion(other)),
+        }
+    }
+}
+
+/// Fixed trailer used by executable artifacts to declare the VM object ABI.
+///
+/// The VM loader must strip this trailer before parsing/loading the ELF payload. The code hash still
+/// covers the complete artifact bytes, including the trailer.
+pub const VM_ABI_TRAILER_MAGIC: &[u8; 8] = b"SPORABI\0";
+/// Length in bytes of the fixed VM ABI trailer.
+pub const VM_ABI_TRAILER_LEN: usize = 16;
+
+/// Append or replace a fixed VM ABI trailer.
+pub fn append_vm_abi_trailer(mut artifact: Vec<u8>, abi_format: VmAbiFormat) -> Vec<u8> {
+    if split_vm_abi_trailer(&artifact).ok().and_then(|(_, format)| format).is_some() {
+        artifact.truncate(artifact.len() - VM_ABI_TRAILER_LEN);
+    }
+    artifact.extend_from_slice(VM_ABI_TRAILER_MAGIC);
+    artifact.extend_from_slice(&abi_format.abi_version().to_le_bytes());
+    artifact.extend_from_slice(&0u16.to_le_bytes());
+    artifact.extend_from_slice(&0u32.to_le_bytes());
+    artifact
+}
+
+/// Split an optional fixed VM ABI trailer from executable artifact bytes.
+pub fn split_vm_abi_trailer(bytes: &[u8]) -> Result<(&[u8], Option<VmAbiFormat>), VmAbiError> {
+    if bytes.len() < VM_ABI_TRAILER_LEN {
+        return Ok((bytes, None));
+    }
+
+    let trailer_start = bytes.len() - VM_ABI_TRAILER_LEN;
+    let trailer = &bytes[trailer_start..];
+    if &trailer[..VM_ABI_TRAILER_MAGIC.len()] != VM_ABI_TRAILER_MAGIC {
+        return Ok((bytes, None));
+    }
+
+    let version = u16::from_le_bytes([trailer[8], trailer[9]]);
+    let flags = u16::from_le_bytes([trailer[10], trailer[11]]);
+    let reserved = u32::from_le_bytes([trailer[12], trailer[13], trailer[14], trailer[15]]);
+    if flags != 0 || reserved != 0 {
+        return Err(VmAbiError::DeserializationFailed("VM ABI trailer flags/reserved bytes must be zero".to_string()));
+    }
+
+    Ok((&bytes[..trailer_start], Some(VmAbiFormat::from_abi_version(version)?)))
+}
+
 /// VM ABI 版本协商器
 pub struct VmAbiNegotiator;
 
 impl VmAbiNegotiator {
     /// Borsh-based ABI v1 版本号
     pub const ABI_VERSION_BORSH_V1: u16 = 0x0001;
-    /// Molecule-based ABI v1 版本号 (预留)
+    /// Molecule-based ABI v1 版本号
     pub const ABI_VERSION_MOLECULE_V1: u16 = 0x8001;
 
     /// 协商脚本和 VM 之间的 ABI 版本
@@ -265,15 +337,12 @@ impl VmAbiNegotiator {
             }
         }
 
-        Err(VmAbiError::VersionMismatch {
-            expected: script_version,
-            actual: vm_capabilities.first().copied().unwrap_or(0),
-        })
+        Err(VmAbiError::VersionMismatch { expected: script_version, actual: vm_capabilities.first().copied().unwrap_or(0) })
     }
 
     /// 获取 VM 默认支持的 ABI 版本列表
     pub fn default_capabilities() -> Vec<u16> {
-        vec![Self::ABI_VERSION_BORSH_V1]
+        vec![Self::ABI_VERSION_BORSH_V1, Self::ABI_VERSION_MOLECULE_V1]
     }
 }
 
@@ -291,12 +360,23 @@ mod tests {
         const CURRENT_VERSION: u8 = 1;
     }
 
+    impl VmSerializable for TestData {
+        fn to_vm_bytes(&self) -> Vec<u8> {
+            borsh::to_vec(self).unwrap_or_default()
+        }
+
+        fn from_vm_bytes(bytes: &[u8]) -> Result<Self, VmAbiError> {
+            BorshDeserialize::try_from_slice(bytes).map_err(|e| VmAbiError::DeserializationFailed(e.to_string()))
+        }
+
+        fn abi_version() -> u16 {
+            Self::CURRENT_VERSION as u16
+        }
+    }
+
     #[test]
     fn test_versioned_envelope_roundtrip() {
-        let data = TestData {
-            value: 42,
-            name: "test".to_string(),
-        };
+        let data = TestData { value: 42, name: "test".to_string() };
 
         let envelope = VersionedEnvelope::new(&data).unwrap();
         assert_eq!(envelope.format_version, VersionedEnvelope::<TestData>::FORMAT_VERSION_BORSH);
@@ -329,10 +409,29 @@ mod tests {
         };
 
         let result = envelope.parse();
-        assert!(matches!(
-            result,
-            Err(SerializationError::UpgradePathNotAvailable { from: 0, to: 1 })
-        ));
+        assert!(matches!(result, Err(SerializationError::UpgradePathNotAvailable { from: 0, to: 1 })));
+    }
+
+    #[test]
+    fn test_vm_abi_trailer_roundtrip() {
+        let artifact = b"\x7fELFdemo".to_vec();
+        let with_trailer = append_vm_abi_trailer(artifact.clone(), VmAbiFormat::Molecule);
+
+        let (stripped, format) = split_vm_abi_trailer(&with_trailer).unwrap();
+
+        assert_eq!(stripped, artifact.as_slice());
+        assert_eq!(format, Some(VmAbiFormat::Molecule));
+        assert_eq!(with_trailer.len(), artifact.len() + VM_ABI_TRAILER_LEN);
+    }
+
+    #[test]
+    fn test_vm_abi_trailer_ignores_plain_artifacts() {
+        let artifact = b"\x7fELFplain";
+
+        let (stripped, format) = split_vm_abi_trailer(artifact).unwrap();
+
+        assert_eq!(stripped, artifact);
+        assert_eq!(format, None);
     }
 
     #[test]
@@ -355,16 +454,14 @@ mod tests {
     fn test_vm_abi_negotiation_failure() {
         let caps = vec![0x0002]; // 只支持 v2
         let result = VmAbiNegotiator::negotiate(0x0001, &caps);
-        assert!(matches!(
-            result,
-            Err(VmAbiError::VersionMismatch { expected: 0x0001, actual: 0x0002 })
-        ));
+        assert!(matches!(result, Err(VmAbiError::VersionMismatch { expected: 0x0001, actual: 0x0002 })));
     }
 
     #[test]
     fn test_default_capabilities() {
         let caps = VmAbiNegotiator::default_capabilities();
         assert!(caps.contains(&VmAbiNegotiator::ABI_VERSION_BORSH_V1));
+        assert!(caps.contains(&VmAbiNegotiator::ABI_VERSION_MOLECULE_V1));
     }
 
     #[test]
@@ -377,12 +474,9 @@ mod tests {
 
     #[test]
     fn test_versioned_envelope_size_methods() {
-        let data = TestData {
-            value: 42,
-            name: "test".to_string(),
-        };
+        let data = TestData { value: 42, name: "test".to_string() };
         let envelope = VersionedEnvelope::new(&data).unwrap();
-        
+
         assert_eq!(envelope.format_version(), VersionedEnvelope::<TestData>::FORMAT_VERSION_BORSH);
         assert_eq!(envelope.schema_version(), TestData::CURRENT_VERSION);
         assert!(envelope.payload_size() > 0);
@@ -416,8 +510,7 @@ mod tests {
         }
 
         fn from_vm_bytes(bytes: &[u8]) -> Result<Self, VmAbiError> {
-            BorshDeserialize::try_from_slice(bytes)
-                .map_err(|e| VmAbiError::DeserializationFailed(e.to_string()))
+            BorshDeserialize::try_from_slice(bytes).map_err(|e| VmAbiError::DeserializationFailed(e.to_string()))
         }
 
         fn abi_version() -> u16 {
@@ -427,14 +520,11 @@ mod tests {
 
     #[test]
     fn test_vm_serializable_roundtrip() {
-        let data = TestVmData {
-            id: 123,
-            data: vec![1, 2, 3, 4, 5],
-        };
+        let data = TestVmData { id: 123, data: vec![1, 2, 3, 4, 5] };
 
         let bytes = data.to_vm_bytes();
         let restored = TestVmData::from_vm_bytes(&bytes).unwrap();
-        
+
         assert_eq!(data, restored);
         assert_eq!(TestVmData::abi_version(), 0x0001);
     }
@@ -519,8 +609,7 @@ mod tests {
                         let value = u16::from_le_bytes([bytes[0], bytes[1]]) as u32;
                         Ok(Self { value })
                     }
-                    3 => BorshDeserialize::try_from_slice(bytes)
-                        .map_err(|e| SerializationError::DeserializationFailed(e.to_string())),
+                    3 => BorshDeserialize::try_from_slice(bytes).map_err(|e| SerializationError::DeserializationFailed(e.to_string())),
                     _ => Err(SerializationError::UpgradePathNotAvailable { from: version, to: 3 }),
                 }
             }
@@ -551,20 +640,17 @@ mod tests {
     fn test_vm_abi_negotiation_with_empty_capabilities() {
         let result = VmAbiNegotiator::negotiate(0x0001, &[]);
         assert!(result.is_err());
-        assert!(matches!(
-            result,
-            Err(VmAbiError::VersionMismatch { expected: 0x0001, actual: 0 })
-        ));
+        assert!(matches!(result, Err(VmAbiError::VersionMismatch { expected: 0x0001, actual: 0 })));
     }
 
     #[test]
     fn test_vm_abi_negotiation_with_multiple_capabilities() {
         let caps = vec![0x0001, 0x0002, 0x8001];
-        
+
         // Should find exact match
         let result = VmAbiNegotiator::negotiate(0x0002, &caps).unwrap();
         assert_eq!(result, 0x0002);
-        
+
         // Should fall back from Molecule to Borsh
         let result = VmAbiNegotiator::negotiate(0x8002, &caps).unwrap();
         assert_eq!(result, 0x0002);

@@ -4,12 +4,12 @@
 // Cell transaction script verifier
 // Reference: ckb/script/src/verify.rs
 
-use super::error::{ScriptError, ScriptResult};
+use super::error::{ScriptError, ScriptResult, VMError};
 use super::machine::ScriptVersion;
 use super::scheduler::{FullSuspendedState, ProgramPiece, ProgramPlace, ProgramResolver, RunMode, VmScheduler};
 use super::{VmSemantics, MAX_SCRIPT_SIZE, MAX_VM_MEMORY};
 use crate::celltx::{CellOutput, CellTx, Script};
-use crate::serialization::{VmAbiError, VmAbiNegotiator, VmSerializable};
+use crate::serialization::{split_vm_abi_trailer, VmAbiError, VmAbiFormat, VmAbiNegotiator, VmSerializable};
 use borsh::{BorshDeserialize, BorshSerialize};
 use rayon::prelude::*;
 use std::{collections::HashSet, sync::Arc};
@@ -163,8 +163,7 @@ impl VmSerializable for ResolvedHeader {
 
     /// Deserialize from VM-visible bytes using Borsh
     fn from_vm_bytes(bytes: &[u8]) -> Result<Self, VmAbiError> {
-        BorshDeserialize::try_from_slice(bytes)
-            .map_err(|e| VmAbiError::DeserializationFailed(e.to_string()))
+        BorshDeserialize::try_from_slice(bytes).map_err(|e| VmAbiError::DeserializationFailed(e.to_string()))
     }
 }
 
@@ -181,8 +180,7 @@ impl VmSerializable for ResolvedCell {
 
     /// Deserialize from VM-visible bytes using Borsh
     fn from_vm_bytes(bytes: &[u8]) -> Result<Self, VmAbiError> {
-        BorshDeserialize::try_from_slice(bytes)
-            .map_err(|e| VmAbiError::DeserializationFailed(e.to_string()))
+        BorshDeserialize::try_from_slice(bytes).map_err(|e| VmAbiError::DeserializationFailed(e.to_string()))
     }
 }
 
@@ -228,6 +226,8 @@ pub struct TransactionScriptVerifier<D: CellDataProvider> {
     skip_lock_script_hashes: HashSet<[u8; 32]>,
     /// Runtime syscall semantics profile.
     semantics: VmSemantics,
+    /// VM ABI wire format for full object load syscalls.
+    abi_format: VmAbiFormat,
 }
 
 impl<D: CellDataProvider> TransactionScriptVerifier<D> {
@@ -243,6 +243,7 @@ impl<D: CellDataProvider> TransactionScriptVerifier<D> {
             skip_lock_groups: false,
             skip_lock_script_hashes: HashSet::new(),
             semantics: VmSemantics::SporaExtended,
+            abi_format: VmAbiFormat::Legacy,
         }
     }
 
@@ -286,6 +287,19 @@ impl<D: CellDataProvider> TransactionScriptVerifier<D> {
     pub fn with_semantics(mut self, semantics: VmSemantics) -> Self {
         self.semantics = semantics;
         self
+    }
+
+    /// Select the VM ABI wire format used by full object load syscalls.
+    pub fn with_abi_format(mut self, abi_format: VmAbiFormat) -> Self {
+        self.abi_format = abi_format;
+        self
+    }
+
+    /// Select the VM ABI wire format from a negotiated artifact/runtime ABI version.
+    pub fn with_abi_version(mut self, abi_version: u16) -> ScriptResult<Self> {
+        self.abi_format = VmAbiFormat::from_abi_version(abi_version)
+            .map_err(|err| VMError::InvalidData(format!("invalid VM ABI version: {}", err)))?;
+        Ok(self)
     }
 
     /// Extract script groups from transaction
@@ -566,10 +580,14 @@ impl<D: CellDataProvider> TransactionScriptVerifier<D> {
             return Err(ScriptError::InvalidHashType(group.script.hash_type));
         }
 
-        let script_code = self
+        let raw_script_code = self
             .data_provider
             .load_cell_data(&group.script.code_hash)
             .ok_or_else(|| ScriptError::ScriptNotFound(group.script.code_hash))?;
+        let (script_code, artifact_abi_format) = split_vm_abi_trailer(&raw_script_code)
+            .map_err(|err| ScriptError::VM(VMError::InvalidData(format!("invalid VM ABI artifact trailer: {}", err))))?;
+        let script_code = script_code.to_vec();
+        let effective_abi_format = artifact_abi_format.unwrap_or(self.abi_format);
 
         use super::syscalls::load_signature_hash::standard_signing_input_from_resolved_cell;
         use super::syscalls::*;
@@ -678,12 +696,14 @@ impl<D: CellDataProvider> TransactionScriptVerifier<D> {
             let tx_data = tx_data.clone();
             let program_resolver = Arc::clone(&program_resolver);
             let semantics = self.semantics;
+            let abi_format = effective_abi_format;
             move |vm_id, runtime: &super::scheduler::VmRuntime| -> ScriptResult<Vec<super::scheduler::BoxedSyscall>> {
                 let mut syscalls: Vec<super::scheduler::BoxedSyscall> = Vec::new();
                 syscalls.push(Box::new(LoadTx::new(tx_hash, tx_data.clone())));
                 syscalls.push(Box::new(
                     LoadCell::new(Arc::clone(&tx), Arc::clone(&provider), group_input_indices.clone(), group_output_indices.clone())
-                        .with_semantics(semantics),
+                        .with_semantics(semantics)
+                        .with_abi_format(abi_format),
                 ));
                 syscalls.push(Box::new(
                     LoadCellData::new(
@@ -694,16 +714,14 @@ impl<D: CellDataProvider> TransactionScriptVerifier<D> {
                     )
                     .with_semantics(semantics),
                 ));
-                syscalls.push(Box::new(LoadInput::new(Arc::clone(&tx), group_input_indices.clone())));
+                syscalls.push(Box::new(LoadInput::new(Arc::clone(&tx), group_input_indices.clone()).with_abi_format(abi_format)));
                 syscalls.push(Box::new(LoadWitness::new(Arc::clone(&tx), group_input_indices.clone(), group_output_indices.clone())));
-                syscalls.push(Box::new(LoadScript::new(Arc::clone(&script))));
+                syscalls.push(Box::new(LoadScript::new(Arc::clone(&script)).with_abi_format(abi_format)));
                 syscalls.push(Box::new(LoadSignatureHash::new(Arc::clone(&tx), signing_inputs.clone(), group_input_indices.clone())));
-                syscalls.push(Box::new(LoadHeader::new(
-                    Arc::clone(&tx),
-                    Arc::clone(&provider),
-                    group_input_indices.clone(),
-                    group_output_indices.clone(),
-                )));
+                syscalls.push(Box::new(
+                    LoadHeader::new(Arc::clone(&tx), Arc::clone(&provider), group_input_indices.clone(), group_output_indices.clone())
+                        .with_abi_format(abi_format),
+                ));
                 syscalls.push(Box::new(VMVersion::new()));
                 syscalls.push(Box::new(CurrentCycles::with_base_cycles(Arc::clone(&runtime.base_cycles))));
                 syscalls.push(Box::new(Debugger::new(script.code_hash)));
@@ -846,6 +864,31 @@ mod tests {
 
         assert_eq!(verifier.version, ScriptVersion::latest());
         assert_eq!(verifier.max_cycles, 10_000_000);
+    }
+
+    #[test]
+    fn test_verifier_selects_abi_from_artifact_version() {
+        let tx = Arc::new(CellTx::new(vec![], vec![], vec![], vec![], vec![]).unwrap());
+        let provider = Arc::new(SimpleDataProvider::new());
+
+        let verifier = TransactionScriptVerifier::new(tx, provider)
+            .with_abi_version(VmAbiNegotiator::ABI_VERSION_MOLECULE_V1)
+            .expect("molecule ABI should be supported");
+
+        assert_eq!(verifier.abi_format, VmAbiFormat::Molecule);
+    }
+
+    #[test]
+    fn test_verifier_rejects_unknown_artifact_abi_version() {
+        let tx = Arc::new(CellTx::new(vec![], vec![], vec![], vec![], vec![]).unwrap());
+        let provider = Arc::new(SimpleDataProvider::new());
+
+        let err = match TransactionScriptVerifier::new(tx, provider).with_abi_version(0x9001) {
+            Ok(_) => panic!("unknown ABI version should be rejected"),
+            Err(err) => err,
+        };
+
+        assert!(matches!(err, ScriptError::VM(VMError::InvalidData(message)) if message.contains("0x9001")));
     }
 
     #[test]

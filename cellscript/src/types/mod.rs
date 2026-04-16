@@ -7,6 +7,19 @@ use crate::error::{CompileError, Result, Span};
 use crate::resolve::{FunctionDef, ModuleResolver};
 use std::collections::{HashMap, HashSet};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CallableKind {
+    Action,
+    Function,
+    Lock,
+}
+
+#[derive(Debug, Clone)]
+struct FunctionSignature {
+    return_type: Option<Type>,
+    kind: CallableKind,
+}
+
 /// 类型环境
 pub struct TypeEnv {
     /// 变量类型
@@ -61,6 +74,27 @@ impl TypeEnv {
         }
     }
 
+    fn update_type(&mut self, name: &str, ty: Type) -> bool {
+        if self.vars.contains_key(name) {
+            self.vars.insert(name.to_string(), ty);
+            true
+        } else {
+            self.parent.as_mut().map(|parent| parent.update_type(name, ty)).unwrap_or(false)
+        }
+    }
+
+    fn merge_existing_type_refinements_from(&mut self, other: &TypeEnv) {
+        let names = self.vars.keys().cloned().collect::<Vec<_>>();
+        for name in names {
+            if let Some(ty) = other.lookup(&name).cloned() {
+                self.vars.insert(name, ty);
+            }
+        }
+        if let Some(parent) = self.parent.as_mut() {
+            parent.merge_existing_type_refinements_from(other);
+        }
+    }
+
     /// 标记资源为已消费
     pub fn consume(&mut self, name: &str) -> Result<()> {
         match self.linear_states.get_mut(name) {
@@ -111,10 +145,39 @@ impl Clone for TypeEnv {
 pub struct TypeChecker<'a> {
     env: TypeEnv,
     type_fields: HashMap<String, HashMap<String, Type>>,
-    functions: HashMap<String, Option<Type>>,
+    functions: HashMap<String, FunctionSignature>,
     linear_types: HashSet<String>,
     resolver: Option<&'a ModuleResolver>,
     current_module: Option<String>,
+    current_callable: Option<CallableKind>,
+    current_return_type: Option<Option<Type>>,
+}
+
+fn function_def_kind(function: &FunctionDef) -> CallableKind {
+    match function {
+        FunctionDef::Action(_) => CallableKind::Action,
+        FunctionDef::Function(_) => CallableKind::Function,
+        FunctionDef::Lock(_) => CallableKind::Lock,
+    }
+}
+
+fn type_repr(ty: &Type) -> String {
+    match ty {
+        Type::U8 => "u8".to_string(),
+        Type::U16 => "u16".to_string(),
+        Type::U32 => "u32".to_string(),
+        Type::U64 => "u64".to_string(),
+        Type::U128 => "u128".to_string(),
+        Type::Bool => "bool".to_string(),
+        Type::Unit => "()".to_string(),
+        Type::Address => "Address".to_string(),
+        Type::Hash => "Hash".to_string(),
+        Type::Array(inner, size) => format!("[{}; {}]", type_repr(inner), size),
+        Type::Tuple(items) => format!("({})", items.iter().map(type_repr).collect::<Vec<_>>().join(", ")),
+        Type::Named(name) => name.clone(),
+        Type::Ref(inner) => format!("&{}", type_repr(inner)),
+        Type::MutRef(inner) => format!("&mut {}", type_repr(inner)),
+    }
 }
 
 impl<'a> TypeChecker<'a> {
@@ -127,6 +190,8 @@ impl<'a> TypeChecker<'a> {
             linear_types: HashSet::new(),
             resolver: None,
             current_module: None,
+            current_callable: None,
+            current_return_type: None,
         }
     }
 
@@ -139,6 +204,9 @@ impl<'a> TypeChecker<'a> {
 
     /// 检查模块
     pub fn check_module(&mut self, module: &Module) -> Result<()> {
+        if self.current_module.is_none() {
+            self.current_module = Some(module.name.clone());
+        }
         for item in &module.items {
             match item {
                 Item::Const(const_def) => {
@@ -173,13 +241,20 @@ impl<'a> TypeChecker<'a> {
                     );
                 }
                 Item::Action(action) => {
-                    self.functions.insert(action.name.clone(), action.return_type.clone());
+                    self.functions.insert(
+                        action.name.clone(),
+                        FunctionSignature { return_type: action.return_type.clone(), kind: CallableKind::Action },
+                    );
                 }
                 Item::Function(function) => {
-                    self.functions.insert(function.name.clone(), function.return_type.clone());
+                    self.functions.insert(
+                        function.name.clone(),
+                        FunctionSignature { return_type: function.return_type.clone(), kind: CallableKind::Function },
+                    );
                 }
                 Item::Lock(lock) => {
-                    self.functions.insert(lock.name.clone(), Some(Type::Bool));
+                    self.functions
+                        .insert(lock.name.clone(), FunctionSignature { return_type: Some(Type::Bool), kind: CallableKind::Lock });
                 }
                 Item::Enum(_) | Item::Use(_) => {}
             }
@@ -201,7 +276,7 @@ impl<'a> TypeChecker<'a> {
             Item::Const(c) => self.check_const(c),
             Item::Enum(_) => Ok(()),
             Item::Action(a) => self.check_action(a),
-            Item::Function(f) => self.check_action(f),
+            Item::Function(f) => self.check_function(f),
             Item::Lock(l) => self.check_lock(l),
             Item::Use(_) => Ok(()), // use 语句不需要类型检查
         }
@@ -254,62 +329,116 @@ impl<'a> TypeChecker<'a> {
 
     /// 检查 action 定义
     fn check_action(&mut self, action: &ActionDef) -> Result<()> {
-        // 创建新的环境
-        let mut env = self.env.child();
+        let previous_callable = self.current_callable.replace(CallableKind::Action);
+        let previous_return_type = self.current_return_type.replace(action.return_type.clone());
+        let result = (|| {
+            let mut env = self.env.child();
 
-        // 添加参数到环境
-        for param in &action.params {
-            let is_linear = self.is_linear_type(&param.ty);
-            env.insert(param.name.clone(), param.ty.clone(), is_linear, param.is_mut);
-        }
+            for param in &action.params {
+                let is_linear = self.is_linear_type(&param.ty);
+                env.insert(param.name.clone(), param.ty.clone(), is_linear, param.is_mut);
+            }
+            let return_env = env.clone();
 
-        // 检查函数体
-        for stmt in &action.body {
-            self.check_stmt(&mut env, stmt)?;
-        }
+            for stmt in &action.body {
+                self.check_stmt(&mut env, stmt)?;
+            }
 
-        if let Some(stmt) = action.body.last() {
-            self.mark_stmt_as_returned(&mut env, stmt)?;
-        }
+            if let Some(return_type) = &action.return_type {
+                self.check_body_returns_or_tail_expr("action", &action.name, &action.body, return_type, action.span, &return_env)?;
+            }
 
-        // 检查所有线性资源是否已处理
-        env.check_linear_complete()
+            if let Some(stmt) = action.body.last() {
+                self.mark_stmt_as_returned(&mut env, stmt)?;
+            }
+
+            env.check_linear_complete()
+        })();
+        self.current_callable = previous_callable;
+        self.current_return_type = previous_return_type;
+        result
+    }
+
+    /// 检查纯函数定义
+    fn check_function(&mut self, function: &FnDef) -> Result<()> {
+        let previous_callable = self.current_callable.replace(CallableKind::Function);
+        let previous_return_type = self.current_return_type.replace(function.return_type.clone());
+        let result = (|| {
+            let mut env = self.env.child();
+
+            for param in &function.params {
+                let is_linear = self.is_linear_type(&param.ty);
+                env.insert(param.name.clone(), param.ty.clone(), is_linear, param.is_mut);
+            }
+            let return_env = env.clone();
+
+            for stmt in &function.body {
+                self.check_stmt(&mut env, stmt)?;
+            }
+
+            if let Some(return_type) = &function.return_type {
+                self.check_body_returns_or_tail_expr(
+                    "function",
+                    &function.name,
+                    &function.body,
+                    return_type,
+                    function.span,
+                    &return_env,
+                )?;
+            }
+
+            if let Some(stmt) = function.body.last() {
+                self.mark_stmt_as_returned(&mut env, stmt)?;
+            }
+
+            env.check_linear_complete()
+        })();
+        self.current_callable = previous_callable;
+        self.current_return_type = previous_return_type;
+        result
     }
 
     /// 检查 lock 定义
     fn check_lock(&mut self, lock: &LockDef) -> Result<()> {
-        if lock.return_type != Type::Bool {
-            return Err(CompileError::new("lock definitions must return bool", lock.span));
-        }
+        let previous_callable = self.current_callable.replace(CallableKind::Lock);
+        let previous_return_type = self.current_return_type.replace(Some(Type::Bool));
+        let result = (|| {
+            if lock.return_type != Type::Bool {
+                return Err(CompileError::new("lock definitions must return bool", lock.span));
+            }
 
-        let mut env = self.env.child();
+            let mut env = self.env.child();
 
-        for param in &lock.params {
-            let is_linear = self.is_linear_type(&param.ty);
-            env.insert(param.name.clone(), param.ty.clone(), is_linear, param.is_mut);
-        }
+            for param in &lock.params {
+                let is_linear = self.is_linear_type(&param.ty);
+                env.insert(param.name.clone(), param.ty.clone(), is_linear, param.is_mut);
+            }
 
-        for stmt in &lock.body {
-            self.check_stmt(&mut env, stmt)?;
-        }
+            for stmt in &lock.body {
+                self.check_stmt(&mut env, stmt)?;
+            }
 
-        let Some(stmt) = lock.body.last() else {
-            return Err(CompileError::new("lock body must return a bool value", lock.span));
-        };
-        let return_ty = self.infer_lock_terminal_stmt(&mut env, stmt)?;
-        if !self.is_bool_type(&return_ty) {
-            return Err(CompileError::new("lock body must evaluate to bool", lock.span));
-        }
-        self.mark_stmt_as_returned(&mut env, stmt)?;
+            let Some(stmt) = lock.body.last() else {
+                return Err(CompileError::new("lock body must return a bool value", lock.span));
+            };
+            let return_ty = self.infer_lock_terminal_stmt(&mut env, stmt)?;
+            if !self.is_bool_type(&return_ty) {
+                return Err(CompileError::new("lock body must evaluate to bool", lock.span));
+            }
+            self.mark_stmt_as_returned(&mut env, stmt)?;
 
-        env.check_linear_complete()
+            env.check_linear_complete()
+        })();
+        self.current_callable = previous_callable;
+        self.current_return_type = previous_return_type;
+        result
     }
 
     /// 检查语句
     fn check_stmt(&mut self, env: &mut TypeEnv, stmt: &Stmt) -> Result<()> {
         match stmt {
             Stmt::Let(let_stmt) => {
-                let ty = self.infer_expr(env, &let_stmt.value)?;
+                let ty = self.infer_let_value_type(env, let_stmt)?;
                 if let Some(ref declared_ty) = let_stmt.ty {
                     if !self.types_equal(&ty, declared_ty) {
                         return Err(CompileError::new(
@@ -318,6 +447,9 @@ impl<'a> TypeChecker<'a> {
                         ));
                     }
                 }
+                if matches!(ty, Type::Unit) {
+                    return Err(CompileError::new("cannot bind the result of a function without a return value", let_stmt.span));
+                }
                 self.bind_pattern(env, &let_stmt.pattern, &ty, let_stmt.is_mut, let_stmt.span)?;
                 Ok(())
             }
@@ -325,9 +457,32 @@ impl<'a> TypeChecker<'a> {
                 self.infer_expr(env, expr)?;
                 Ok(())
             }
-            Stmt::Return(None) => Ok(()),
+            Stmt::Return(None) => {
+                if let Some(Some(expected)) = &self.current_return_type {
+                    return Err(CompileError::new(
+                        format!("return without value in function returning {:?}", expected),
+                        stmt_span(stmt),
+                    ));
+                }
+                Ok(())
+            }
             Stmt::Return(Some(expr)) => {
-                self.infer_expr(env, expr)?;
+                let ty = self.infer_expr(env, expr)?;
+                match &self.current_return_type {
+                    Some(Some(expected)) if !self.types_equal(expected, &ty) => {
+                        return Err(CompileError::new(
+                            format!("return type mismatch: expected {:?}, found {:?}", expected, ty),
+                            expr_span(expr),
+                        ));
+                    }
+                    Some(None) => {
+                        return Err(CompileError::new(
+                            "return value is not allowed in a function without a return type",
+                            expr_span(expr),
+                        ));
+                    }
+                    _ => {}
+                }
                 Ok(())
             }
             Stmt::If(if_stmt) => {
@@ -355,6 +510,7 @@ impl<'a> TypeChecker<'a> {
                 for stmt in &for_stmt.body {
                     self.check_stmt(&mut loop_env, stmt)?;
                 }
+                env.merge_existing_type_refinements_from(&loop_env);
                 Ok(())
             }
             Stmt::While(while_stmt) => {
@@ -366,13 +522,32 @@ impl<'a> TypeChecker<'a> {
                 for stmt in &while_stmt.body {
                     self.check_stmt(&mut while_env, stmt)?;
                 }
+                env.merge_existing_type_refinements_from(&while_env);
                 Ok(())
             }
         }
     }
 
+    fn infer_let_value_type(&mut self, env: &mut TypeEnv, let_stmt: &LetStmt) -> Result<Type> {
+        if let Expr::Array(elems) = &let_stmt.value {
+            if elems.is_empty() {
+                return match &let_stmt.ty {
+                    Some(declared @ Type::Array(_, 0)) => Ok(declared.clone()),
+                    Some(Type::Array(_, size)) => Err(CompileError::new(
+                        format!("empty array literal cannot initialize non-empty array of length {}", size),
+                        let_stmt.span,
+                    )),
+                    Some(_) => Err(CompileError::new("empty array literal requires an array type annotation", let_stmt.span)),
+                    None => Err(CompileError::new("empty array literal requires an explicit array type annotation", let_stmt.span)),
+                };
+            }
+        }
+        self.infer_expr(env, &let_stmt.value)
+    }
+
     /// 推断表达式类型
     fn infer_expr(&mut self, env: &mut TypeEnv, expr: &Expr) -> Result<Type> {
+        self.validate_expr_allowed_in_current_callable(expr)?;
         match expr {
             Expr::Integer(_) => Ok(Type::U64),
             Expr::Bool(_) => Ok(Type::Bool),
@@ -517,9 +692,17 @@ impl<'a> TypeChecker<'a> {
                 Ok(Type::U64)
             }
             Expr::Settle(settle) => self.infer_expr(env, &settle.expr),
+            Expr::Assert(assert_expr) => {
+                let cond_ty = self.infer_expr(env, &assert_expr.condition)?;
+                if !self.is_bool_type(&cond_ty) {
+                    return Err(CompileError::new("assert condition must be boolean", assert_expr.span));
+                }
+                self.infer_expr(env, &assert_expr.message)?;
+                Ok(Type::Bool)
+            }
             Expr::Block(stmts) => {
                 let mut block_env = env.child();
-                let mut last_ty = Type::U64;
+                let mut last_ty = Type::Unit;
                 for stmt in stmts {
                     match stmt {
                         Stmt::Expr(e) => {
@@ -541,9 +724,15 @@ impl<'a> TypeChecker<'a> {
             }
             Expr::Array(elems) => {
                 if elems.is_empty() {
-                    return Ok(Type::Array(Box::new(Type::U64), 0));
+                    return Err(CompileError::new("empty array literal requires an explicit array type annotation", expr_span(expr)));
                 }
                 let elem_ty = self.infer_expr(env, &elems[0])?;
+                for elem in elems.iter().skip(1) {
+                    let next_ty = self.infer_expr(env, elem)?;
+                    if !self.types_equal(&elem_ty, &next_ty) {
+                        return Err(CompileError::new("array elements must have matching types", expr_span(elem)));
+                    }
+                }
                 Ok(Type::Array(Box::new(elem_ty), elems.len()))
             }
             Expr::If(if_expr) => {
@@ -593,6 +782,35 @@ impl<'a> TypeChecker<'a> {
         }
     }
 
+    fn validate_expr_allowed_in_current_callable(&self, expr: &Expr) -> Result<()> {
+        if self.current_callable != Some(CallableKind::Function) {
+            return Ok(());
+        }
+
+        let operation = match expr {
+            Expr::Create(_) => Some("create"),
+            Expr::Consume(_) => Some("consume"),
+            Expr::Transfer(_) => Some("transfer"),
+            Expr::Destroy(_) => Some("destroy"),
+            Expr::ReadRef(_) => Some("read_ref"),
+            Expr::Claim(_) => Some("claim"),
+            Expr::Settle(_) => Some("settle"),
+            _ => None,
+        };
+
+        if let Some(operation) = operation {
+            return Err(CompileError::new(
+                format!(
+                    "pure function cannot contain '{}' Cell/runtime operation; move state transition logic into an action",
+                    operation
+                ),
+                expr_span(expr),
+            ));
+        }
+
+        Ok(())
+    }
+
     fn bind_pattern(&self, env: &mut TypeEnv, pattern: &BindingPattern, ty: &Type, is_mut: bool, span: Span) -> Result<()> {
         match pattern {
             BindingPattern::Name(name) => {
@@ -625,6 +843,76 @@ impl<'a> TypeChecker<'a> {
             Stmt::Return(Some(expr)) => self.mark_expr_as_moved(env, expr),
             _ => Ok(()),
         }
+    }
+
+    fn stmts_always_return(&self, stmts: &[Stmt]) -> bool {
+        stmts.iter().any(|stmt| self.stmt_always_returns(stmt))
+    }
+
+    fn stmt_always_returns(&self, stmt: &Stmt) -> bool {
+        match stmt {
+            Stmt::Return(_) => true,
+            Stmt::If(if_stmt) => {
+                let Some(else_branch) = &if_stmt.else_branch else {
+                    return false;
+                };
+                self.stmts_always_return(&if_stmt.then_branch) && self.stmts_always_return(else_branch)
+            }
+            Stmt::Expr(Expr::Block(stmts)) => self.stmts_always_return(stmts),
+            _ => false,
+        }
+    }
+
+    fn check_body_returns_or_tail_expr(
+        &mut self,
+        kind: &str,
+        name: &str,
+        body: &[Stmt],
+        return_type: &Type,
+        span: Span,
+        env: &TypeEnv,
+    ) -> Result<()> {
+        if self.body_returns_or_tail_expr(body, return_type, env)? {
+            return Ok(());
+        }
+
+        Err(CompileError::new(format!("{} '{}' with a return type must return a value on all paths", kind, name), span))
+    }
+
+    fn body_returns_or_tail_expr(&mut self, body: &[Stmt], return_type: &Type, env: &TypeEnv) -> Result<bool> {
+        if self.stmts_always_return(body) {
+            return Ok(true);
+        }
+
+        let Some((last, prefix)) = body.split_last() else {
+            return Ok(false);
+        };
+        let mut tail_env = env.clone();
+        for stmt in prefix {
+            self.check_stmt(&mut tail_env, stmt)?;
+        }
+
+        if let Stmt::Expr(expr) = last {
+            let tail_ty = self.infer_expr(&mut tail_env, expr)?;
+            if self.types_equal(&tail_ty, return_type) {
+                return Ok(true);
+            }
+            return Err(CompileError::new(
+                format!("tail expression type mismatch: expected {:?}, found {:?}", return_type, tail_ty),
+                expr_span(expr),
+            ));
+        }
+
+        if let Stmt::If(if_stmt) = last {
+            let Some(else_branch) = &if_stmt.else_branch else {
+                return Ok(false);
+            };
+            let then_ok = self.body_returns_or_tail_expr(&if_stmt.then_branch, return_type, &tail_env.child())?;
+            let else_ok = self.body_returns_or_tail_expr(else_branch, return_type, &tail_env.child())?;
+            return Ok(then_ok && else_ok);
+        }
+
+        Ok(false)
     }
 
     fn infer_lock_terminal_stmt(&mut self, env: &mut TypeEnv, stmt: &Stmt) -> Result<Type> {
@@ -687,6 +975,10 @@ impl<'a> TypeChecker<'a> {
             Expr::Assign(assign) => self.mark_expr_as_moved(env, &assign.value),
             Expr::Transfer(_) | Expr::Claim(_) => Ok(()),
             Expr::Settle(settle) => self.mark_expr_as_moved(env, &settle.expr),
+            Expr::Assert(assert_expr) => {
+                self.mark_expr_as_moved(env, &assert_expr.condition)?;
+                self.mark_expr_as_moved(env, &assert_expr.message)
+            }
             Expr::If(if_expr) => {
                 self.mark_expr_as_moved(env, &if_expr.then_branch)?;
                 self.mark_expr_as_moved(env, &if_expr.else_branch)
@@ -736,6 +1028,12 @@ impl<'a> TypeChecker<'a> {
                 Ok(target_ty)
             }
             Expr::FieldAccess(_) | Expr::Index(_) => {
+                if let Some(root) = assignment_root_name(assign.target.as_ref()) {
+                    let root_is_mut_ref = matches!(env.lookup(root), Some(Type::MutRef(_)));
+                    if !env.is_mutable(root) && !root_is_mut_ref {
+                        return Err(CompileError::new(format!("assignment target rooted at '{}' is not mutable", root), assign.span));
+                    }
+                }
                 let target_ty = self.infer_expr(env, &assign.target)?;
                 match assign.op {
                     AssignOp::Assign => {
@@ -843,13 +1141,21 @@ impl<'a> TypeChecker<'a> {
     fn infer_call_type(&mut self, env: &mut TypeEnv, call: &CallExpr) -> Result<Type> {
         match call.func.as_ref() {
             Expr::Identifier(name) => {
-                if let Some(ret_ty) = self.functions.get(name).cloned().flatten() {
-                    return Ok(ret_ty);
+                if let Some(signature) = self.functions.get(name).cloned() {
+                    self.validate_call_allowed(name, signature.kind, call.span)?;
+                    return Ok(signature.return_type.unwrap_or(Type::Unit));
                 }
                 if let Some(function) = self.resolve_function(name) {
-                    return Ok(self.function_return_type(&function).unwrap_or(Type::U64));
+                    self.validate_call_allowed(name, function_def_kind(&function), call.span)?;
+                    return Ok(self.function_return_type(&function).unwrap_or(Type::Unit));
                 }
                 if let Some((prefix, suffix)) = name.rsplit_once("::") {
+                    if self.current_module.as_deref() == Some(prefix) {
+                        if let Some(signature) = self.functions.get(suffix).cloned() {
+                            self.validate_call_allowed(name, signature.kind, call.span)?;
+                            return Ok(signature.return_type.unwrap_or(Type::Unit));
+                        }
+                    }
                     return Ok(match (prefix, suffix) {
                         ("env", "current_daa_score") => Type::U64,
                         ("Address", "zero") => Type::Address,
@@ -869,8 +1175,31 @@ impl<'a> TypeChecker<'a> {
                 match field.field.as_str() {
                     "type_hash" => Ok(Type::Hash),
                     "len" => Ok(Type::U64),
-                    "push" => Ok(Type::U64),
-                    "extend_from_slice" => Ok(Type::U64),
+                    "push" => {
+                        if call.args.len() != 1 {
+                            return Err(CompileError::new("Vec.push expects exactly one argument", call.span));
+                        }
+                        let arg_ty = self.infer_expr(env, &call.args[0])?;
+                        if let Type::Named(name) = &receiver_ty {
+                            if name == "Vec" {
+                                if let Expr::Identifier(receiver_name) = field.expr.as_ref() {
+                                    env.update_type(receiver_name, Type::Named(format!("Vec<{}>", type_repr(&arg_ty))));
+                                }
+                                return Ok(Type::Unit);
+                            }
+                            if let Some(item_ty) = self.parse_named_collection_item_type(name) {
+                                if !self.types_equal(&item_ty, &arg_ty) {
+                                    return Err(CompileError::new(
+                                        format!("Vec.push type mismatch: expected {:?}, found {:?}", item_ty, arg_ty),
+                                        call.span,
+                                    ));
+                                }
+                                return Ok(Type::Unit);
+                            }
+                        }
+                        Err(CompileError::new("push is only supported on Vec values", call.span))
+                    }
+                    "extend_from_slice" => Ok(Type::Unit),
                     _ => self.lookup_field_type(&receiver_ty, &field.field, field.span),
                 }
             }
@@ -888,14 +1217,35 @@ impl<'a> TypeChecker<'a> {
 
     fn function_return_type(&self, function: &FunctionDef) -> Option<Type> {
         match function {
-            FunctionDef::Action(action) | FunctionDef::Function(action) => action.return_type.clone(),
+            FunctionDef::Action(action) => action.return_type.clone(),
+            FunctionDef::Function(function) => function.return_type.clone(),
             FunctionDef::Lock(_) => Some(Type::Bool),
+        }
+    }
+
+    fn validate_call_allowed(&self, callee_name: &str, callee_kind: CallableKind, span: Span) -> Result<()> {
+        match (self.current_callable, callee_kind) {
+            (Some(CallableKind::Function), CallableKind::Action) => Err(CompileError::new(
+                format!("pure function cannot call action '{}'; move state transition logic into an action", callee_name),
+                span,
+            )),
+            (Some(CallableKind::Function), CallableKind::Lock) => {
+                Err(CompileError::new(format!("pure function cannot call lock '{}'", callee_name), span))
+            }
+            (Some(CallableKind::Lock), CallableKind::Action) => {
+                Err(CompileError::new(format!("lock cannot call action '{}'", callee_name), span))
+            }
+            (Some(CallableKind::Lock), CallableKind::Lock) => {
+                Err(CompileError::new(format!("lock cannot call lock '{}'", callee_name), span))
+            }
+            _ => Ok(()),
         }
     }
 
     /// 验证类型
     fn validate_type(&self, ty: &Type) -> Result<()> {
         match ty {
+            Type::Unit => Ok(()),
             Type::Array(elem_ty, _) => self.validate_type(elem_ty),
             Type::Tuple(types) => {
                 for t in types {
@@ -920,6 +1270,7 @@ impl<'a> TypeChecker<'a> {
             (Type::U64, Type::U64) => true,
             (Type::U128, Type::U128) => true,
             (Type::Bool, Type::Bool) => true,
+            (Type::Unit, Type::Unit) => true,
             (Type::Address, Type::Address) => true,
             (Type::Hash, Type::Hash) => true,
             (Type::Array(a1, n1), Type::Array(b1, n2)) => n1 == n2 && self.types_equal(a1, b1),
@@ -996,6 +1347,7 @@ fn expr_span(expr: &Expr) -> Span {
         Expr::ReadRef(read_ref) => read_ref.span,
         Expr::Claim(claim) => claim.span,
         Expr::Settle(settle) => settle.span,
+        Expr::Assert(assert_expr) => assert_expr.span,
         Expr::Block(stmts) => stmts.last().map(stmt_span).unwrap_or_default(),
         Expr::Tuple(_) | Expr::Array(_) => Span::default(),
         Expr::If(if_expr) => if_expr.span,
@@ -1003,6 +1355,15 @@ fn expr_span(expr: &Expr) -> Span {
         Expr::Range(range) => range.span,
         Expr::StructInit(init) => init.span,
         Expr::Match(match_expr) => match_expr.span,
+    }
+}
+
+fn assignment_root_name(expr: &Expr) -> Option<&str> {
+    match expr {
+        Expr::Identifier(name) => Some(name.as_str()),
+        Expr::FieldAccess(field) => assignment_root_name(&field.expr),
+        Expr::Index(index) => assignment_root_name(&index.expr),
+        _ => None,
     }
 }
 

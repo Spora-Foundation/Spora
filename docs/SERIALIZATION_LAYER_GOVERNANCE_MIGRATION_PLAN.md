@@ -43,7 +43,7 @@ Spora 项目当前采用 **Borsh** 作为默认序列化方案，与 CKB 使用�
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  Layer 3: VM/Script ABI 层 (长期需 Molecule)                    │
+│  Layer 3: VM/Script ABI 层 (Borsh v1 + Molecule v1)             │
 │  - ResolvedHeader, ResolvedCell, Witness Payload                │
 │  - 脚本可见的所有数据结构                                        │
 │  - 需要: canonical, partial read, version兼容                  │
@@ -241,13 +241,13 @@ impl<T: BorshSerialize + BorshDeserialize> VersionedEnvelope<T> {
 //!    - 所有共识关键哈希 (block hash, txid, sighash) 使用自定义流式哈希
 //!    - Borsh 仅用于内部通信和存储，不参与共识
 //!
-//! 2. **所有 VM-facing 类型必须使用 VersionedEnvelope**
-//!    - 确保脚本可见数据可以平滑演进
-//!    - 为未来切换到 Molecule 预留路径
+//! 2. **VM-facing ABI 必须经过显式格式边界**
+//!    - legacy default 仍保留 Borsh/custom v1，避免破坏现有脚本
+//!    - Molecule v1 (`0x8001`) 已作为 canonical VM ABI 可用
 //!
 //! 3. **VM ABI 是独立抽象层**
 //!    - 通过 `VmSerializable` trait 抽象序列化实现
-//!    - 未来可单独切换 VM 层到 Molecule，不影响其他层
+//!    - VM 层可以独立切到 Molecule，不影响其他层
 //!
 //! ## 分层责任
 //!
@@ -434,11 +434,15 @@ impl VmAbiNegotiator {
     ├── 添加单元测试
     └── 创建使用示例
 
-🔮 Phase 3 (预留，按需执行)
+✅ Phase 3 (部分完成，继续推进)
     ├── 评估 VM ABI 定型状态
-    ├── 实现 Molecule 版本 (如需要)
-    ├── molecule_compat 模块已预留
-    └── 主网升级协调
+    ├── 实现 Molecule canonical wire layout
+    ├── molecule_compat 模块已可用
+    ├── 保留 legacy syscall 默认 ABI
+    ├── CellScript artifact metadata 声明 VM object ABI 0x8001
+    ├── RISC-V ELF artifact 内嵌固定 ABI trailer
+    ├── verifier 可从 artifact ABI version/trailer 选择 Molecule 输出格式
+    └── 主网升级协调仍待制定
 ```
 
 ---
@@ -465,13 +469,22 @@ impl VmAbiNegotiator {
 - [x] 单元测试覆盖核心功能
 - [ ] 集成测试通过 (包括脚本执行) (待运行)
 
-### 7.3 Phase 3 完成标准 (预留) 🔮
+### 7.3 Phase 3 完成标准 (部分完成) 🟡
 
-- [ ] Molecule schema 定义
+- [x] Molecule canonical wire layout 定义
+- [ ] Molecule `.mol` schema 文件落库
 - [ ] Molecule 代码生成集成
-- [ ] `molecule_compat` 模块完整实现
-- [ ] Molecule 版本的 `VmSerializable` 实现
-- [ ] 版本协商机制完整支持
+- [x] `molecule_compat` 模块核心编码/解码实现
+- [x] CKB-style `Script` / `OutPoint` / `CellInput` / `CellOutput` Molecule ABI
+- [x] Spora VM `ResolvedHeader` / `ResolvedCell` Molecule ABI
+- [x] `VmAbiFormat` 格式参数化
+- [x] 版本协商机制声明 `0x8001` 能力
+- [x] `LOAD_SCRIPT` / `LOAD_INPUT` / `LOAD_CELL` / `LOAD_HEADER` 支持 Molecule full-load 输出
+- [x] CellScript compile metadata 发出 `runtime.vm_abi.version = 0x8001`
+- [x] CellScript RISC-V ELF artifact 内嵌固定 VM ABI trailer
+- [x] VM loader/verifier 在加载 ELF 前 strip ABI trailer
+- [x] VM verifier 支持 `with_abi_version(0x8001)` 映射到 Molecule 输出格式
+- [ ] 非 ELF artifact 的链上/共识路径嵌入或认证 artifact ABI manifest，并自动传入 verifier
 - [ ] 多语言 SDK 兼容性验证
 - [ ] 主网升级计划制定
 
@@ -504,6 +517,9 @@ impl VmAbiNegotiator {
 | 2026-04-15 | 强制使用 VersionedEnvelope | 解决 schema 演进风险，预留格式切换路径 |
 | 2026-04-15 | 创建 vm_abi 模块 | 统一 VM-facing 类型的序列化格式，确保 ABI 稳定性 |
 | 2026-04-15 | 预留 molecule_compat 模块 | 为未来 Molecule 迁移提供清晰的接口和迁移路径 |
+| 2026-04-16 | 实现 Molecule canonical VM ABI 编码/解码 | VM 范围需要 canonical/partial-read-friendly ABI，但不能破坏 legacy Borsh/custom 默认路径 |
+| 2026-04-16 | CellScript artifact metadata 声明 Molecule VM object ABI | 编译产物必须显式携带 `0x8001` 要求，由 verifier policy 选择 syscall 输出格式 |
+| 2026-04-16 | RISC-V ELF artifact 内嵌固定 VM ABI trailer | ELF code cell bytes 自带 ABI version；loader/verifier strip trailer 后再交给 CKB-VM，不需要修改 CKB-VM |
 
 ---
 

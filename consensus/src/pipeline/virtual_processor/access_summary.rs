@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: ISC
 // Copyright (C) 2026 Spora developers
 //
-// Block-level access summary for P2B parallelization dependency analysis
+// Block-level access summary for VSP parallelization dependency analysis
 
 use std::collections::BTreeSet;
 

@@ -323,7 +323,7 @@ impl DebugInfoGenerator {
     /// 生成调试信息段
     fn generate_debug_info(&self, dwarf: &mut DwarfGenerator) {
         // DWARF 编译单元头
-        dwarf.debug_info.extend_from_slice(&[0x00; 4]); // 长度占位
+        dwarf.debug_info.extend_from_slice(&[0x00; 4]); // length backpatch slot
         dwarf.debug_info.extend_from_slice(&[0x04, 0x00]); // 版本 4
         dwarf.debug_info.push(0x08); // 地址大小
         dwarf.debug_info.push(0x00); // 缩写表偏移
@@ -449,7 +449,7 @@ impl DebugInfoGenerator {
         dwarf.debug_line.extend_from_slice(&[0x00; 4]); // 长度
         dwarf.debug_line.push(0x04); // 版本
         dwarf.debug_line.push(0x00);
-        dwarf.debug_line.extend_from_slice(&[0x00; 4]); // 头长度占位
+        dwarf.debug_line.extend_from_slice(&[0x00; 4]); // header length backpatch slot
         
         // 最小指令长度
         dwarf.debug_line.push(0x01);

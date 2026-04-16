@@ -20,7 +20,7 @@ pub enum Item {
     Const(ConstDef),
     Enum(EnumDef),
     Action(ActionDef),
-    Function(ActionDef),
+    Function(FnDef),
     Lock(LockDef),
     Use(UseStmt),
 }
@@ -123,6 +123,17 @@ pub struct ActionDef {
     pub span: Span,
 }
 
+/// Function 定义。`fn` 是纯计算 helper，不是状态转换入口。
+#[derive(Debug, Clone)]
+pub struct FnDef {
+    pub name: String,
+    pub params: Vec<Param>,
+    pub return_type: Option<Type>,
+    pub body: Vec<Stmt>,
+    pub doc_comment: Option<String>,
+    pub span: Span,
+}
+
 /// Lock 定义
 #[derive(Debug, Clone)]
 pub struct LockDef {
@@ -167,6 +178,7 @@ pub enum Type {
     U64,
     U128,
     Bool,
+    Unit,
     Address,
     Hash,
     Array(Box<Type>, usize),
@@ -253,6 +265,7 @@ pub enum Expr {
     ReadRef(ReadRefExpr),
     Claim(ClaimExpr),
     Settle(SettleExpr),
+    Assert(AssertExpr),
     Block(Vec<Stmt>),
     Tuple(Vec<Expr>),
     Array(Vec<Expr>),
@@ -396,6 +409,14 @@ pub struct ClaimExpr {
 #[derive(Debug, Clone)]
 pub struct SettleExpr {
     pub expr: Box<Expr>,
+    pub span: Span,
+}
+
+/// Assert / assert_invariant expression
+#[derive(Debug, Clone)]
+pub struct AssertExpr {
+    pub condition: Box<Expr>,
+    pub message: Box<Expr>,
     pub span: Span,
 }
 

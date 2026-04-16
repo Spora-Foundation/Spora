@@ -39,7 +39,7 @@ impl Default for ValidationConfig {
             min_schema_version: 1,
             max_schema_version: 255,
             allow_borsh: true,
-            allow_molecule: false, // Molecule not yet supported
+            allow_molecule: false,              // Molecule not yet supported
             max_payload_size: 10 * 1024 * 1024, // 10MB default
             strict_mode: false,
         }
@@ -130,12 +130,8 @@ impl ValidationResult {
         match self {
             ValidationResult::Valid => Ok(()),
             ValidationResult::Warning(_) if !strict => Ok(()),
-            ValidationResult::Warning(msg) => {
-                Err(SerializationError::DeserializationFailed(format!("Validation warning: {}", msg)))
-            }
-            ValidationResult::Invalid(msg) => {
-                Err(SerializationError::DeserializationFailed(format!("Validation failed: {}", msg)))
-            }
+            ValidationResult::Warning(msg) => Err(SerializationError::DeserializationFailed(format!("Validation warning: {}", msg))),
+            ValidationResult::Invalid(msg) => Err(SerializationError::DeserializationFailed(format!("Validation failed: {}", msg))),
         }
     }
 }
@@ -160,9 +156,7 @@ impl SerializerValidator {
     pub fn validate_envelope(&self, bytes: &[u8]) -> ValidationResult {
         // Check minimum size
         if bytes.len() < 3 {
-            return ValidationResult::Invalid(
-                format!("Data too short: {} bytes, minimum 3", bytes.len())
-            );
+            return ValidationResult::Invalid(format!("Data too short: {} bytes, minimum 3", bytes.len()));
         }
 
         let format_version = bytes[0];
@@ -182,10 +176,11 @@ impl SerializerValidator {
 
         // Validate payload size (approximate)
         if bytes.len() > self.config.max_payload_size + 10 {
-            return ValidationResult::Invalid(
-                format!("Payload too large: {} bytes, max {}", 
-                    bytes.len(), self.config.max_payload_size)
-            );
+            return ValidationResult::Invalid(format!(
+                "Payload too large: {} bytes, max {}",
+                bytes.len(),
+                self.config.max_payload_size
+            ));
         }
 
         // Combine results
@@ -210,28 +205,18 @@ impl SerializerValidator {
             0x00 if self.config.allow_borsh => ValidationResult::Valid,
             0x00 => ValidationResult::Invalid("Borsh format not allowed".to_string()),
             0x80..=0x8F if self.config.allow_molecule => ValidationResult::Valid,
-            0x80..=0x8F => ValidationResult::Warning(
-                "Molecule format not yet fully supported".to_string()
-            ),
-            _ => ValidationResult::Invalid(
-                format!("Unknown format version: 0x{:02X}", version)
-            ),
+            0x80..=0x8F => ValidationResult::Warning("Molecule format requires an ABI-specific payload validator".to_string()),
+            _ => ValidationResult::Invalid(format!("Unknown format version: 0x{:02X}", version)),
         }
     }
 
     /// 验证 schema 版本
     fn validate_schema_version(&self, version: u8) -> ValidationResult {
         if version < self.config.min_schema_version {
-            ValidationResult::Invalid(format!(
-                "Schema version {} below minimum {}",
-                version, self.config.min_schema_version
-            ))
+            ValidationResult::Invalid(format!("Schema version {} below minimum {}", version, self.config.min_schema_version))
         } else if version > self.config.max_schema_version {
             if self.config.strict_mode {
-                ValidationResult::Invalid(format!(
-                    "Schema version {} above maximum {}",
-                    version, self.config.max_schema_version
-                ))
+                ValidationResult::Invalid(format!("Schema version {} above maximum {}", version, self.config.max_schema_version))
             } else {
                 ValidationResult::Warning(format!(
                     "Schema version {} above maximum {}, may need upgrade",
@@ -305,10 +290,7 @@ mod tests {
 
     #[test]
     fn test_validation_config_builder() {
-        let config = ValidationConfig::default()
-            .with_min_schema_version(2)
-            .with_max_schema_version(10)
-            .with_max_payload_size(1024);
+        let config = ValidationConfig::default().with_min_schema_version(2).with_max_schema_version(10).with_max_payload_size(1024);
 
         assert_eq!(config.min_schema_version, 2);
         assert_eq!(config.max_schema_version, 10);
@@ -351,8 +333,7 @@ mod tests {
 
     #[test]
     fn test_validate_envelope_molecule_allowed() {
-        let config = ValidationConfig::default()
-            .with_min_schema_version(0);
+        let config = ValidationConfig::default().with_min_schema_version(0);
         let validator = SerializerValidator::new(config);
         let data = vec![0x80, 0x01, 0x00];
         let result = validator.validate_envelope(&data);
@@ -381,8 +362,7 @@ mod tests {
 
     #[test]
     fn test_validate_envelope_schema_too_high_non_strict() {
-        let config = ValidationConfig::default()
-            .with_max_schema_version(1);
+        let config = ValidationConfig::default().with_max_schema_version(1);
         let validator = SerializerValidator::new(config);
         let data = vec![0x00, 0x02, 0x00];
         let result = validator.validate_envelope(&data);

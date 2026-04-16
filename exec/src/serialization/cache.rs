@@ -79,33 +79,25 @@ impl SerializationCache {
     /// # Arguments
     /// * `max_size` - 最大缓存项数
     pub fn new(max_size: usize) -> Self {
-        Self {
-            cache: HashMap::with_capacity(max_size),
-            max_size,
-            access_order: Vec::with_capacity(max_size),
-        }
+        Self { cache: HashMap::with_capacity(max_size), max_size, access_order: Vec::with_capacity(max_size) }
     }
 
     /// 获取或序列化值
     ///
     /// 如果值已在缓存中，返回缓存的副本。
     /// 否则，序列化值并缓存结果。
-    pub fn get_or_serialize<T: VersionedSerializable + Hash>(
-        &mut self,
-        value: &T,
-    ) -> Result<Arc<Vec<u8>>, SerializationError> {
+    pub fn get_or_serialize<T: VersionedSerializable + 'static>(&mut self, value: &T) -> Result<Arc<Vec<u8>>, SerializationError> {
         let key = self.make_key(value);
 
         // Check cache
-        if let Some(cached) = self.cache.get(&key) {
+        if let Some(cached) = self.cache.get(&key).cloned() {
             self.update_access_order(&key);
-            return Ok(Arc::clone(cached));
+            return Ok(cached);
         }
 
         // Serialize
         let envelope = crate::serialization::VersionedEnvelope::new(value)?;
-        let bytes = borsh::to_vec(&envelope)
-            .map_err(|e| SerializationError::IoError(e.to_string()))?;
+        let bytes = borsh::to_vec(&envelope).map_err(|e| SerializationError::IoError(e.to_string()))?;
         let bytes = Arc::new(bytes);
 
         // Store in cache
@@ -115,18 +107,14 @@ impl SerializationCache {
     }
 
     /// 检查值是否在缓存中
-    pub fn contains<T: VersionedSerializable + Hash>(&self, value: &T) -> bool {
+    pub fn contains<T: VersionedSerializable + 'static>(&self, value: &T) -> bool {
         let key = self.make_key(value);
         self.cache.contains_key(&key)
     }
 
     /// 获取缓存命中率统计
     pub fn stats(&self) -> CacheStats {
-        CacheStats {
-            size: self.cache.len(),
-            max_size: self.max_size,
-            utilization: self.cache.len() as f64 / self.max_size as f64,
-        }
+        CacheStats { size: self.cache.len(), max_size: self.max_size, utilization: self.cache.len() as f64 / self.max_size as f64 }
     }
 
     /// 清空缓存
@@ -145,31 +133,25 @@ impl SerializationCache {
         self.cache.is_empty()
     }
 
-    fn make_key<T: VersionedSerializable + Hash>(&self, value: &T) -> CacheKey {
+    fn make_key<T: VersionedSerializable + 'static>(&self, value: &T) -> CacheKey {
         // 首先序列化数据
         let serialized = match crate::serialization::utils::serialize_to_bytes(value) {
             Ok(bytes) => bytes,
             Err(_) => {
                 // 如果序列化失败，使用类型哈希作为回退
                 let mut hasher = std::collections::hash_map::DefaultHasher::new();
-                value.hash(&mut hasher);
+                std::any::TypeId::of::<T>().hash(&mut hasher);
                 let hash_val = hasher.finish();
                 let mut bytes = vec![0u8; 32];
                 bytes[..8].copy_from_slice(&hash_val.to_le_bytes());
-                return CacheKey {
-                    type_id: std::any::TypeId::of::<T>(),
-                    hash: bytes.try_into().unwrap(),
-                };
+                return CacheKey { type_id: std::any::TypeId::of::<T>(), hash: bytes.try_into().unwrap() };
             }
         };
-        
+
         // 计算 BLAKE3 哈希
         let hash = crate::serialization::security::compute_hash(&serialized);
-        
-        CacheKey {
-            type_id: std::any::TypeId::of::<T>(),
-            hash,
-        }
+
+        CacheKey { type_id: std::any::TypeId::of::<T>(), hash }
     }
 
     fn insert(&mut self, key: CacheKey, value: Arc<Vec<u8>>) {
@@ -228,16 +210,11 @@ pub struct ThreadSafeSerializationCache {
 impl ThreadSafeSerializationCache {
     /// 创建新的线程安全缓存
     pub fn new(max_size: usize) -> Self {
-        Self {
-            inner: RwLock::new(SerializationCache::new(max_size)),
-        }
+        Self { inner: RwLock::new(SerializationCache::new(max_size)) }
     }
 
     /// 获取或序列化值
-    pub fn get_or_serialize<T: VersionedSerializable + Hash>(
-        &self,
-        value: &T,
-    ) -> Result<Arc<Vec<u8>>, SerializationError> {
+    pub fn get_or_serialize<T: VersionedSerializable + 'static>(&self, value: &T) -> Result<Arc<Vec<u8>>, SerializationError> {
         let mut cache = self.inner.write();
         cache.get_or_serialize(value)
     }
@@ -267,11 +244,7 @@ mod tests {
     use crate::celltx::{CellOutput, Script};
 
     fn create_test_output() -> CellOutput {
-        CellOutput {
-            lock: Script::new([0xAA; 32], 0, vec![0xBB; 20]),
-            type_: None,
-            capacity: 1000,
-        }
+        CellOutput { lock: Script::new([0xAA; 32], 0, vec![0xBB; 20]), type_: None, capacity: 1000 }
     }
 
     #[test]
@@ -303,21 +276,9 @@ mod tests {
     fn test_cache_eviction() {
         let mut cache = SerializationCache::new(2);
 
-        let output1 = CellOutput {
-            lock: Script::new([0x01; 32], 0, vec![0x01; 20]),
-            type_: None,
-            capacity: 1000,
-        };
-        let output2 = CellOutput {
-            lock: Script::new([0x02; 32], 0, vec![0x02; 20]),
-            type_: None,
-            capacity: 2000,
-        };
-        let output3 = CellOutput {
-            lock: Script::new([0x03; 32], 0, vec![0x03; 20]),
-            type_: None,
-            capacity: 3000,
-        };
+        let output1 = CellOutput { lock: Script::new([0x01; 32], 0, vec![0x01; 20]), type_: None, capacity: 1000 };
+        let output2 = CellOutput { lock: Script::new([0x02; 32], 0, vec![0x02; 20]), type_: None, capacity: 2000 };
+        let output3 = CellOutput { lock: Script::new([0x03; 32], 0, vec![0x03; 20]), type_: None, capacity: 3000 };
 
         cache.get_or_serialize(&output1).unwrap();
         cache.get_or_serialize(&output2).unwrap();
