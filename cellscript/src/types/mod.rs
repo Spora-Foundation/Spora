@@ -542,16 +542,14 @@ impl<'a> TypeChecker<'a> {
             let return_env = env.clone();
             self.check_no_unreachable_stmts(&action.body)?;
 
-            for stmt in &action.body {
-                self.check_stmt(&mut env, stmt)?;
-            }
+            let tail = self.check_body_statements(&mut env, &action.body)?;
 
             if let Some(return_type) = &action.return_type {
                 self.check_body_returns_or_tail_expr("action", &action.name, &action.body, return_type, action.span, &return_env)?;
             }
 
-            if let Some(stmt) = action.body.last() {
-                self.mark_stmt_as_returned(&mut env, stmt)?;
+            if let Some((tail_base, stmt)) = tail {
+                self.mark_stmt_as_returned(&mut env, &tail_base, stmt)?;
             }
 
             env.check_linear_complete()
@@ -579,9 +577,7 @@ impl<'a> TypeChecker<'a> {
             let return_env = env.clone();
             self.check_no_unreachable_stmts(&function.body)?;
 
-            for stmt in &function.body {
-                self.check_stmt(&mut env, stmt)?;
-            }
+            let tail = self.check_body_statements(&mut env, &function.body)?;
 
             if let Some(return_type) = &function.return_type {
                 self.check_body_returns_or_tail_expr(
@@ -594,8 +590,8 @@ impl<'a> TypeChecker<'a> {
                 )?;
             }
 
-            if let Some(stmt) = function.body.last() {
-                self.mark_stmt_as_returned(&mut env, stmt)?;
+            if let Some((tail_base, stmt)) = tail {
+                self.mark_stmt_as_returned(&mut env, &tail_base, stmt)?;
             }
 
             env.check_linear_complete()
@@ -623,9 +619,7 @@ impl<'a> TypeChecker<'a> {
             }
             self.check_no_unreachable_stmts(&lock.body)?;
 
-            for stmt in &lock.body {
-                self.check_stmt(&mut env, stmt)?;
-            }
+            let tail = self.check_body_statements(&mut env, &lock.body)?;
 
             let Some(stmt) = lock.body.last() else {
                 return Err(CompileError::new("lock body must return a bool value", lock.span));
@@ -634,13 +628,27 @@ impl<'a> TypeChecker<'a> {
             if !self.is_bool_type(&return_ty) {
                 return Err(CompileError::new("lock body must evaluate to bool", lock.span));
             }
-            self.mark_stmt_as_returned(&mut env, stmt)?;
+            if let Some((tail_base, stmt)) = tail {
+                self.mark_stmt_as_returned(&mut env, &tail_base, stmt)?;
+            }
 
             env.check_linear_complete()
         })();
         self.current_callable = previous_callable;
         self.current_return_type = previous_return_type;
         result
+    }
+
+    fn check_body_statements<'body>(&mut self, env: &mut TypeEnv, body: &'body [Stmt]) -> Result<Option<(TypeEnv, &'body Stmt)>> {
+        let Some((last, prefix)) = body.split_last() else {
+            return Ok(None);
+        };
+        for stmt in prefix {
+            self.check_stmt(env, stmt)?;
+        }
+        let tail_base = env.clone();
+        self.check_stmt(env, last)?;
+        Ok(Some((tail_base, last)))
     }
 
     /// 检查语句
@@ -1273,12 +1281,37 @@ impl<'a> TypeChecker<'a> {
         }
     }
 
-    fn mark_stmt_as_returned(&mut self, env: &mut TypeEnv, stmt: &Stmt) -> Result<()> {
+    fn mark_stmt_as_returned(&mut self, env: &mut TypeEnv, tail_base: &TypeEnv, stmt: &Stmt) -> Result<()> {
         match stmt {
             Stmt::Expr(expr) => self.mark_expr_as_moved(env, expr),
             Stmt::Return(Some(_)) => Ok(()),
+            Stmt::If(if_stmt) if matches!(self.current_return_type, Some(Some(_))) => {
+                let Some(else_branch) = &if_stmt.else_branch else {
+                    return Ok(());
+                };
+                let then_env = self.branch_env_with_tail_return(tail_base, &if_stmt.then_branch)?;
+                let else_env = self.branch_env_with_tail_return(tail_base, else_branch)?;
+                let mut merged = tail_base.clone();
+                merged.merge_branch_linear_states(&then_env, true, Some(&else_env), true, if_stmt.span)?;
+                *env = merged;
+                Ok(())
+            }
             _ => Ok(()),
         }
+    }
+
+    fn branch_env_with_tail_return(&mut self, base_env: &TypeEnv, branch: &[Stmt]) -> Result<TypeEnv> {
+        let mut branch_env = base_env.child();
+        let Some((last, prefix)) = branch.split_last() else {
+            return Ok(branch_env);
+        };
+        for stmt in prefix {
+            self.check_stmt(&mut branch_env, stmt)?;
+        }
+        let tail_base = branch_env.clone();
+        self.check_stmt(&mut branch_env, last)?;
+        self.mark_stmt_as_returned(&mut branch_env, &tail_base, last)?;
+        Ok(branch_env)
     }
 
     fn stmts_always_return(&self, stmts: &[Stmt]) -> bool {
@@ -1422,8 +1455,11 @@ impl<'a> TypeChecker<'a> {
                 Ok(())
             }
             Expr::Block(stmts) => {
-                if let Some(stmt) = stmts.last() {
-                    self.mark_stmt_as_returned(env, stmt)?;
+                let block_env = self.branch_env_with_tail_return(env, stmts)?;
+                for name in env.linear_names() {
+                    if let Some(state) = block_env.linear_state(&name) {
+                        env.set_existing_linear_state(&name, state);
+                    }
                 }
                 Ok(())
             }

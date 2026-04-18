@@ -7599,6 +7599,30 @@ action bad(token: Token, flag: bool) -> u64 {
 }
 "#;
 
+    const LINEAR_TAIL_IF_RETURN_PROGRAM: &str = r#"
+module test
+
+resource Token {
+    amount: u64,
+}
+
+action choose(token: Token, flag: bool) -> Token {
+    if flag { token } else { token }
+}
+"#;
+
+    const LINEAR_TAIL_IF_INCONSISTENT_RETURN_PROGRAM: &str = r#"
+module test
+
+resource Token {
+    amount: u64,
+}
+
+action bad(left: Token, right: Token, flag: bool) -> Token {
+    if flag { left } else { right }
+}
+"#;
+
     const TAIL_IF_ACTION_RETURN_PROGRAM: &str = r#"
 module test
 
@@ -10801,6 +10825,19 @@ struct TokenSnapshot {
         let err = compile(LINEAR_BRANCH_INCONSISTENT_RETURN_PROGRAM, CompileOptions::default()).unwrap_err();
         assert!(
             err.message.contains("linear resource 'token' has inconsistent ownership state across if branches"),
+            "unexpected error: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn compile_tracks_linear_values_returned_from_tail_if_branches() {
+        compile(LINEAR_TAIL_IF_RETURN_PROGRAM, CompileOptions::default()).unwrap();
+
+        let err = compile(LINEAR_TAIL_IF_INCONSISTENT_RETURN_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(
+            err.message.contains("linear resource 'left' has inconsistent ownership state across if branches")
+                || err.message.contains("linear resource 'right' has inconsistent ownership state across if branches"),
             "unexpected error: {}",
             err.message
         );

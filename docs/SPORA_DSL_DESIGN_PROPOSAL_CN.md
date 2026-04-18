@@ -2070,6 +2070,8 @@ Slice 71 更新：显式分支 `return` 也进入线性所有权合并。`if fla
 
 Slice 72 更新：优化器从孤立原型进入受限主编译链。`src/optimize/` 现在作为 `pub mod optimize` 编译，`opt_level > 0` 时会在原始 AST 通过类型/生命周期检查后执行保守 AST 优化，再对优化后的 AST 重新类型/生命周期检查，然后进入 IR lowering。当前覆盖字面量常量折叠、保守代数简化、字面量 `if` 分支折叠和 `while false` 删除；不会做跨作用域常量传播、纯表达式 DCE、Cell/runtime 操作消除、SSA 优化或内联。
 
+Slice 73 更新：tail-if 返回路径也进入线性所有权合并。`action choose(token: Token, flag: bool) -> Token { if flag { token } else { token } }` 现在可通过，因为两个 tail 分支都移动同一个 resource；`if flag { left } else { right }` 会被拒绝，因为任一执行路径都会留下另一个 resource 未处理。实现上，类型检查器在检查尾部语句前保留 tail base env，对尾部 `if` 的 then/else 分支分别重放检查和 tail move，再用同一套 branch linear-state merge 规则合并。
+
 目标：
 - 在后端工作扩展之前冻结最小语言核心。
 
