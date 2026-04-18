@@ -65,6 +65,7 @@ use crate::tx::{
     PendingTransactionIterator, PendingTransactionStream,
 };
 use spora_consensus_client::{pay_to_address_lock_script, CellEntry, TransactionInput};
+use spora_consensus_core::block::CellScriptSchedulerAccessList;
 use spora_consensus_core::constants::UNACCEPTED_DAA_SCORE;
 use spora_consensus_core::tx::{TransactionId, TransactionOutpoint};
 use spora_exec::{CellInput, CellTx};
@@ -335,6 +336,9 @@ struct Inner {
     final_transaction_payload: Vec<u8>,
     // final transaction payload mass
     final_transaction_payload_mass: u64,
+    // compiled CellScript scheduler witness for the final transaction
+    final_cellscript_compiled_scheduler_witness: Option<Vec<u8>>,
+    final_cellscript_compiled_scheduler_witness_mass: u64,
     // execution context
     context: Mutex<Context>,
 }
@@ -360,6 +364,10 @@ impl std::fmt::Debug for Inner {
             .field("final_transaction_outputs_compute_mass", &self.final_transaction_outputs_compute_mass)
             .field("final_transaction_payload", &self.final_transaction_payload)
             .field("final_transaction_payload_mass", &self.final_transaction_payload_mass)
+            .field(
+                "final_cellscript_compiled_scheduler_witness_mass",
+                &self.final_cellscript_compiled_scheduler_witness_mass,
+            )
             // .field("context", &self.context)
             .finish()
     }
@@ -388,6 +396,7 @@ impl Generator {
             final_transaction_priority_fee,
             final_transaction_destination,
             final_transaction_payload,
+            final_cellscript_compiled_scheduler_witness,
             destination_cell_context,
         } = settings;
 
@@ -437,6 +446,10 @@ impl Generator {
         let final_transaction_outputs_compute_mass = mass_calculator.calc_compute_mass_for_payment_outputs(&final_transaction_outputs);
         let final_transaction_payload = final_transaction_payload.unwrap_or_default();
         let final_transaction_payload_mass = mass_calculator.calc_compute_mass_for_payload(final_transaction_payload.len());
+        let final_cellscript_compiled_scheduler_witness_mass = final_cellscript_compiled_scheduler_witness
+            .as_ref()
+            .map(|witness| mass_calculator.calc_compute_mass_for_payload(witness.len()))
+            .unwrap_or_default();
         let final_transaction_outputs_harmonic = mass_calculator
             .calc_storage_mass_payment_output_harmonic(&final_transaction_outputs)
             .ok_or(Error::MassCalculationError)?;
@@ -447,7 +460,10 @@ impl Generator {
             value_with_priority_fee: amount + final_transaction_priority_fee.additional(),
         });
 
-        let mass_sanity_check = standard_change_output_mass + final_transaction_outputs_compute_mass + final_transaction_payload_mass;
+        let mass_sanity_check = standard_change_output_mass
+            + final_transaction_outputs_compute_mass
+            + final_transaction_payload_mass
+            + final_cellscript_compiled_scheduler_witness_mass;
         if mass_sanity_check > MAXIMUM_STANDARD_TRANSACTION_MASS / 5 * 4 {
             return Err(Error::GeneratorTransactionOutputsAreTooHeavy { mass: mass_sanity_check, kind: "compute mass" });
         }
@@ -493,6 +509,8 @@ impl Generator {
             final_transaction_outputs_compute_mass,
             final_transaction_payload,
             final_transaction_payload_mass,
+            final_cellscript_compiled_scheduler_witness,
+            final_cellscript_compiled_scheduler_witness_mass,
             destination_cell_context,
         };
 
@@ -529,9 +547,7 @@ impl Generator {
     ) -> Result<Self> {
         let mut gen = Self::try_new(settings, signer, abortable)?;
         // Safety: we just created `gen` and hold the only Arc reference.
-        Arc::get_mut(&mut gen.inner)
-            .expect("generator inner is uniquely owned at construction time")
-            .cpfp = Some(cpfp);
+        Arc::get_mut(&mut gen.inner).expect("generator inner is uniquely owned at construction time").cpfp = Some(cpfp);
         Ok(gen)
     }
 
@@ -1147,7 +1163,12 @@ impl Generator {
                     });
                 }
 
-                let tx = self.build_unsigned_cell_transaction(inputs, final_outputs, self.inner.final_transaction_payload.clone())?;
+                let mut tx =
+                    self.build_unsigned_cell_transaction(inputs, final_outputs, self.inner.final_transaction_payload.clone())?;
+                let cellscript_scheduler_accesses = attach_cellscript_compiled_scheduler_witness(
+                    &mut tx,
+                    self.inner.final_cellscript_compiled_scheduler_witness.clone(),
+                )?;
 
                 let transaction_mass = self.inner.mass_calculator.calc_overall_mass_for_unsigned_consensus_transaction(
                     &tx,
@@ -1177,6 +1198,7 @@ impl Generator {
                     transaction_mass,
                     transaction_fees,
                     kind,
+                    cellscript_scheduler_accesses,
                 )?))
             }
             (kind, data) => {
@@ -1249,6 +1271,7 @@ impl Generator {
                     transaction_mass,
                     transaction_fees,
                     kind,
+                    None,
                 )?))
             }
         }
@@ -1323,4 +1346,99 @@ impl Generator {
 fn cell_out_from_payment_output(output: &PaymentOutput) -> spora_exec::CellOutput {
     let lock_script = pay_to_address_lock_script(&output.address);
     spora_exec::CellOutput { lock: lock_script, type_: None, capacity: output.amount }
+}
+
+fn attach_cellscript_compiled_scheduler_witness(
+    tx: &mut CellTx,
+    compiled_scheduler_witness: Option<Vec<u8>>,
+) -> Result<Option<CellScriptSchedulerAccessList>> {
+    let Some(compiled_scheduler_witness) = compiled_scheduler_witness else {
+        return Ok(None);
+    };
+
+    tx.push_cellscript_compiled_scheduler_witness(compiled_scheduler_witness)
+        .map(Some)
+        .map_err(|err| Error::custom(format!("invalid CellScript scheduler witness for generated transaction: {err}")))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use spora_exec::celltx::{
+        CellScriptSchedulerAccessWitness, CellScriptSchedulerWitness, CELLSCRIPT_SCHEDULER_EFFECT_CREATING,
+        CELLSCRIPT_SCHEDULER_OP_CREATE, CELLSCRIPT_SCHEDULER_SOURCE_OUTPUT, CELLSCRIPT_SCHEDULER_WITNESS_VERSION,
+    };
+    use spora_exec::{CellOutput, Script};
+
+    #[test]
+    fn test_attach_cellscript_compiled_scheduler_witness_returns_trusted_summary() {
+        let mut tx = CellTx::new(
+            vec![],
+            vec![],
+            vec![CellOutput { lock: Script::new([0u8; 32], 0, vec![]), type_: None, capacity: 1000 }],
+            vec![vec![]],
+            vec![],
+        )
+        .unwrap();
+        let access = CellScriptSchedulerAccessWitness {
+            operation: CELLSCRIPT_SCHEDULER_OP_CREATE,
+            source: CELLSCRIPT_SCHEDULER_SOURCE_OUTPUT,
+            index: 0,
+            binding_hash: [0x4a; 32],
+        };
+        let witness = borsh::to_vec(&CellScriptSchedulerWitness {
+            magic: 0xCE11,
+            version: CELLSCRIPT_SCHEDULER_WITNESS_VERSION,
+            effect_class: CELLSCRIPT_SCHEDULER_EFFECT_CREATING,
+            parallelizable: false,
+            touches_shared_count: 0,
+            touches_shared: vec![],
+            estimated_cycles: 64,
+            access_count: 1,
+            accesses: vec![access.clone()],
+        })
+        .unwrap();
+
+        let summary = attach_cellscript_compiled_scheduler_witness(&mut tx, Some(witness.clone())).unwrap();
+
+        assert_eq!(summary.as_ref().map(|summary| summary.accesses.as_slice()), Some([access].as_slice()));
+        assert_eq!(tx.witnesses.last().map(Vec::as_slice), Some(witness.as_slice()));
+    }
+
+    #[test]
+    fn test_attach_cellscript_compiled_scheduler_witness_none_is_noop() {
+        let mut tx = CellTx::new(vec![], vec![], vec![], vec![], vec![]).unwrap();
+
+        let summary = attach_cellscript_compiled_scheduler_witness(&mut tx, None).unwrap();
+
+        assert_eq!(summary, None);
+        assert!(tx.witnesses.is_empty());
+    }
+
+    #[test]
+    fn test_attach_cellscript_compiled_scheduler_witness_rejects_shape_mismatch_without_append() {
+        let mut tx = CellTx::new(vec![], vec![], vec![], vec![], vec![]).unwrap();
+        let witness = borsh::to_vec(&CellScriptSchedulerWitness {
+            magic: 0xCE11,
+            version: CELLSCRIPT_SCHEDULER_WITNESS_VERSION,
+            effect_class: CELLSCRIPT_SCHEDULER_EFFECT_CREATING,
+            parallelizable: false,
+            touches_shared_count: 0,
+            touches_shared: vec![],
+            estimated_cycles: 64,
+            access_count: 1,
+            accesses: vec![CellScriptSchedulerAccessWitness {
+                operation: CELLSCRIPT_SCHEDULER_OP_CREATE,
+                source: CELLSCRIPT_SCHEDULER_SOURCE_OUTPUT,
+                index: 0,
+                binding_hash: [0x4b; 32],
+            }],
+        })
+        .unwrap();
+
+        let error = attach_cellscript_compiled_scheduler_witness(&mut tx, Some(witness)).unwrap_err();
+
+        assert!(error.to_string().contains("invalid CellScript scheduler witness"));
+        assert!(tx.witnesses.is_empty());
+    }
 }

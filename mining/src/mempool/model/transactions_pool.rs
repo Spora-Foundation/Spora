@@ -122,12 +122,22 @@ impl TransactionsPool {
                                 score_total: Some(entry.score.total),
                                 fee_density: Some(entry.score.fee_density),
                                 deps_width: Some(entry.score.deps_width),
+                                cellscript_scheduler_accesses: transaction.cellscript_scheduler_accesses().cloned(),
                             },
                         )
                     })
                     .or_else(|| {
                         transaction.cell_tx().map(|cell_tx| {
-                            (transaction.id(), CandidateCellData { cell_tx, score_total: None, fee_density: None, deps_width: None })
+                            (
+                                transaction.id(),
+                                CandidateCellData {
+                                    cell_tx,
+                                    score_total: None,
+                                    fee_density: None,
+                                    deps_width: None,
+                                    cellscript_scheduler_accesses: transaction.cellscript_scheduler_accesses().cloned(),
+                                },
+                            )
                         })
                     })
             })

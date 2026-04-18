@@ -1,12 +1,13 @@
 # CellScript: Spora 区块链的领域特定语言
 
-**状态**: 实现中 (MVP 阶段，文档已按当前代码状态收紧)  
+**状态**: 实现中 (Phase 1 编译器 MVP 已收尾，Phase 2 资产生命周期/共享状态 operational exit gate 已关闭，Phase 3 节点/调度器集成 operational exit gate 已关闭，Phase 4 生产强化已开始；文档已按当前代码状态收紧)
 **日期**: 2026-04-13  
 **作者**: Spora 核心团队  
 **类别**: 语言设计 / 协议工程  
 **依赖**: ckbvm (RISC-V), CellTx 信封, GhostDAG 共识  
 
 **实现快照文档**: [CELLSCRIPT_IMPLEMENTATION_STATUS.md](/Users/arthur/RustroverProjects/Spora/docs/CELLSCRIPT_IMPLEMENTATION_STATUS.md)
+**执行阶段表**: [CELLSCRIPT_EXECUTION_PHASES.md](/Users/arthur/RustroverProjects/Spora/docs/CELLSCRIPT_EXECUTION_PHASES.md)
 
 ---
 
@@ -21,30 +22,30 @@
 | 组件 | 状态 | 路径 |
 |---|---|---|
 | 词法分析器 (Lexer) | ✅ 已实现 | `cellscript/src/lexer/` |
-| 解析器 (Parser) | ✅ 已实现 | `cellscript/src/parser/` |
+| 解析器 (Parser) | ✅ 当前语法子集稳定 | `cellscript/src/parser/` |
 | AST 定义 | ✅ 已实现 | `cellscript/src/ast/` |
-| 类型检查器 | 🟡 MVP 可用 | `cellscript/src/types/` |
-| 线性检查器 | 🟡 MVP 可用 | `cellscript/src/types/` |
-| Spora IR | 🟡 最小 lowering 已接通 | `cellscript/src/ir/` |
-| RISC-V 代码生成 | 🟡 `asm` / `ELF` MVP 可用 | `cellscript/src/codegen/` |
+| 类型检查器 | 🟡 生产加固中，非完整语义证明 | `cellscript/src/types/` |
+| 线性检查器 | 🟡 生产加固中，非完整资源证明 | `cellscript/src/types/` |
+| Spora IR | 🟡 lowering 主路径真实可用，复杂状态语义仍不完整 | `cellscript/src/ir/` |
+| RISC-V 代码生成 | 🟡 `asm` 主路径稳定 / `ELF` 可用子集 | `cellscript/src/codegen/` |
 | CLI 编译器 | 🟡 主编译入口可用 | `cellscript/src/main.rs` |
-| 标准库 | 🟡 基础运行时支持已接通 | `cellscript/src/stdlib/` |
+| 标准库 | 🟡 基础运行时支持已接通，非完整标准库 | `cellscript/src/stdlib/` |
 | REPL 交互式解释器 | 🟡 基础可用 | `cellscript/src/repl.rs` |
-| 调度器元数据生成 | 🟡 结构存在，基础实现可用 | `cellscript/src/stdlib/mod.rs` |
+| 调度器元数据生成 | 🟡 metadata / `scheduler_witness_borsh_hex` 可用，`spora-exec` 可 admission，MPE `BlockAccessSummary` 已开始消费 shared touch 冲突域 | `cellscript/src/stdlib/mod.rs` |
 | 模块系统/名称解析 | 🟡 本地包 / path 依赖可用 | `cellscript/src/resolve/` |
-| 生命周期验证 | 🚧 原型级，未集成到主编译路径 | `cellscript/src/lifecycle/` |
+| 生命周期验证 | 🟡 部分集成到主编译路径/LSP，完整运行时转换验证未完成 | `cellscript/src/lifecycle/` |
 | 优化器 | 🚧 原型级，未进入主编译链 | `cellscript/src/optimize/` |
-| 文档生成器 | 🚧 原型级 | `cellscript/src/docgen/` |
-| 代码格式化器 | 🚧 原型级 | `cellscript/src/fmt/` |
-| LSP 服务器 | 🚧 原型级 | `cellscript/src/lsp/` |
-| 包管理器 | 🚧 原型级 | `cellscript/src/package/` |
-| 测试框架 | 🚧 原型级 | `cellscript/src/test/` |
-| Wasm 目标 | 🚧 预留模块/stub，未接主目标链 | `cellscript/src/wasm/` |
+| 文档生成器 | 🟡 API 文档 + lowering audit / obligation 输出可用子集 | `cellscript/src/docgen/` |
+| 代码格式化器 | 🟡 部分可用 | `cellscript/src/fmt/` |
+| LSP 服务器 | 🟡 最小真实路径，metadata-aware hover/诊断/code action | `cellscript/src/lsp/` |
+| 包管理器 | 🟡 本地包 / path 依赖可用，registry/remote 流程未完成 | `cellscript/src/package/` |
+| 测试框架 | 🟡 compile-test 发现与期望失败诊断可用，非运行时/属性测试框架 | `cellscript/src/test/` |
+| Wasm 目标 | 🚧 metadata-only / fail-closed，非可执行后端 | `cellscript/src/wasm/` |
 | 增量编译 | 🚧 预留模块/stub，未接主编译链 | `cellscript/src/incremental/` |
-| CLI 子命令 | 🚧 有代码骨架，未接主入口 | `cellscript/src/cli/` |
+| CLI 子命令 | 🟡 本地工作流已接主入口，registry/runtime 命令仍 fail-closed/feature-gated | `cellscript/src/cli/` |
 | 集合类型 | 🚧 基础定义 | `cellscript/src/stdlib/collections.rs` |
 | 调试信息 | 🚧 原型级 | `cellscript/src/debug/` |
-| 测试套件 | 🟡 编译器核心回归已建立 | `cellscript/src/` |
+| 测试套件 | 🟡 默认特性 `cargo test -p cellscript` 当前 276 项通过 | `cellscript/src/`, `cellscript/tests/` |
 
 **编译器项目路径**: `/Users/arthur/RustroverProjects/Spora/cellscript/`  
 
@@ -96,11 +97,13 @@
 
 不能把下列模块视为“已完成并可依赖”：
 
-- 完整 CLI 子命令生态
+- 完整 registry / runtime CLI 生态
 - 完整优化器
 - 完整 LSP / Docgen / Fmt / Package Manager
 - WebAssembly 主目标链
 - 复杂控制流、资源副作用和跨模块调用的完整 lowering
+- `launch` / `pool` / `claim` / `settle` / `transfer` 的完整可执行协议语义
+- 调度器元数据在共识/MPE 执行层的强制消费
 
 ---
 
@@ -174,7 +177,7 @@ CellScript 的类型系统直接映射到这个结构：
 | `create expr` | `outputs` + `outputs_data` 中的条目 |
 | `read_ref expr` | `deps` 中的条目作为 `CellDep` |
 | `shared` 声明 | 通过 `CellDep`（读取）或 `CellInput`（写入）访问的 Cell |
-| `ephemeral` 绑定 | 见证数据或中间计算；永不在 CellStateTree 中 |
+| 本地 `let` 绑定 | 见证数据或中间计算；永不在 CellStateTree 中 |
 | `action` 函数 | 编译为 RISC-V ELF 的类型脚本逻辑 |
 | `lock` 函数 | 编译为 RISC-V ELF 的锁定脚本逻辑 |
 
@@ -187,19 +190,19 @@ CellScript 的类型系统直接映射到这个结构：
 - 多个区块可以并发挖掘
 - 蓝色区块的合并集按规范顺序处理
 - VirtualProcessor 从每个区块累积 CellDiff
-- 区块内的并行执行是可能的（P1，已完成），跨蓝色区块的并行执行也是可能的（P2b，设计中）
+- 区块内的并行执行是可能的（P1，已完成），跨蓝色区块的并行执行也是可能的（MPE，设计中）
 
 CellScript 通过以下方式支持这一点：
 
 1. **效果分类**：每个 `action` 都标有效果类别（`Pure`、`ReadOnly`、`Mutating`、`Creating`、`Destroying`）。编译器从 action 主体推断这一点。
 
-2. **访问摘要发出**：编译器在指定的见证字段中发出与 `BlockAccessSummary` 兼容的元数据 blob，列出：
+2. **访问摘要发出**：设计目标是让编译器在指定的见证字段中发出与 `BlockAccessSummary` 兼容的元数据 blob；当前实现先通过 compile metadata / sidecar 暴露这些信息，列出：
    - `spent_outpoints`: 消费的 OutPoints
    - `created_outpoints`: 创建的 OutPoints（从确定性 OutPoint 推导预测）
    - `read_deps`: 通过 `read_ref` 读取的 OutPoints
    - `touches_shared`: 访问的共享对象的 type_hashes
 
-3. **调度器提示嵌入**：元数据包括 `parallelizable: bool` 和 `estimated_cycles: u64`，使区块模板构建器和 P2b 执行 DAG 能够在不重新分析脚本代码的情况下做出调度决策。
+3. **调度器提示嵌入**：元数据包括 `parallelizable: bool` 和 `estimated_cycles: u64`，使区块模板构建器和 MPE 执行 DAG 能够在不重新分析脚本代码的情况下做出调度决策。
 
 重要的设计选择是，这个接触面应该默认从 action 主体**推断**：
 - `consume` 意味着消费的输入
@@ -211,11 +214,11 @@ CellScript 通过以下方式支持这一点：
 - 效果类别消歧
 - 编译器无法自行推断足够调度器表面的罕见情况
 
-这直接支持 P2b 设计文档的阶段 2（`BlockAccessSummary`）和阶段 3（`区块级执行 DAG`），而无需更改 GhostDAG 本身。
+这直接支持 MPE 设计文档的阶段 2（`BlockAccessSummary`）和阶段 3（`区块级执行 DAG`），而无需更改 GhostDAG 本身。
 
-### 2.3 CellScript 如何适配 P2B 并行化设计
+### 2.3 CellScript 如何适配 MPE 并行化设计
 
-P2B 设计文档确定了核心需求：蓝色区块处理必须分解为**纯效果生成**，然后是**顺序提交**。CellScript 通过设计与此对齐：
+MPE 设计文档确定了核心需求：蓝色区块处理必须分解为**纯效果生成**，然后是**顺序提交**。CellScript 通过设计与此对齐：
 
 ```
                     CellScript 源代码
@@ -334,7 +337,7 @@ CellScript 占据中间地带：
 - 防止"丢失的 Cell"（创建但从未使用的资源）
 - 使资产供应不变量可由编译器检查
 
-**如何映射到 Spora**：
+**提交细节**：
 
 ```CellScript
 resource FungibleToken {
@@ -388,30 +391,32 @@ resource FungibleToken {
 - 类型脚本强制执行收据 Cell 只能由有效的认领操作消费
 - 一旦被消费，收据就消失了——它不能被重放
 
-### 4.4 `launch` — 结构化资产创建
+### 4.4 `launch` — v1 后的交易构建器模式
 
-**含义**：`launch` 是一个编译器已知的操作，将新资产类型的创建与其初始配置捆绑在一起。它结合：
+**含义**：`launch` 是一个 v1 后的交易构建器模式，将新资产类型的创建与其初始配置捆绑在一起。它结合：
 1. 创建资产的类型脚本 Cell（部署合约）
 2. 铸造初始供应
 3. 可选地播种流动性池
 4. 将初始代币分发到指定地址
 
-**存在原因**：实际上，在任何链上启动新代币都涉及多个协调交易。CellScript 使其成为单个原子操作，减少了部分部署错误的表面。
+**存在原因**：实际上，在任何链上启动新代币都涉及多个协调输出。未来的 CellScript 交易构建器可以把它变成单个原子 CellTx，减少部分部署错误。
 
-**如何映射到 Spora**：`launch` 编译为单个 CellTx，具有：
+**如何映射到 Spora**：未来的 `launch` lowering 会编译为单个 CellTx，具有：
 - 输出 0：类型脚本 Cell（资产的代码，作为数据 = ELF 二进制文件的 Cell 部署）
 - 输出 1..N：初始代币 Cell（铸造的供应分发给接收者）
 - 输出 N+1：可选的池 Cell（以初始流动性播种）
 - 输出 N+2：可选的 LP 收据 Cell（初始流动性提供的证明）
 
-### 4.5 `pool` — 共享流动性对象
+当前状态：`launch` 不是 v1 语言核心。在交易构建器 lowering 存在之前，示例应使用显式 `create` 操作和普通 action 建模 launch。
 
-**含义**：`pool` 是一个 `shared` Cell，持有两种或更多资产类型的储备并强制执行定价不变量（例如，恒定乘积 x·y=k）。它通过收据管理 LP（流动性提供者）会计。
+### 4.5 池模式 — 共享流动性对象
 
-**存在原因**：AMM 池是 DeFi 中最常见的共享状态模式。使其成为一流概念意味着：
-- 编译器可以在类型级别验证不变量保留
-- 调度器元数据自动包括池的 type_hash 以进行争用检测
-- 生成具有正确 Cell 模式的标准交换/添加/删除操作
+**含义**：池是由 `shared` Cell、action 逻辑、不变量和 receipt/resource 输出组成的协议模式。它不是独立的语言关键字或声明类。
+
+**存在原因**：AMM 池是 DeFi 中最常见的共享状态模式。它们值得标准 metadata 和工具支持，但不变量族属于协议特定逻辑，不属于语言核心语义：
+- 调度器元数据仍可包含底层 shared Cell 的 type_hash 以进行争用检测
+- 审计 metadata 可暴露池特定运行时义务
+- 标准库可提供 AMM 模板，而不把 AMM 数学硬编码进语言
 
 **如何映射到 Spora**：池是一个共享 Cell，其中：
 - `CellOutput.type_` = 池类型脚本（强制执行 AMM 不变量）
@@ -429,18 +434,17 @@ resource FungibleToken {
 - 产生最终资产 Cell（输出）
 - 将生命周期状态从 `Pending` 转换为 `Settled`
 
-### 4.7 `ephemeral` — 交易范围内的对象
+### 4.7 交易局部值与 CellStateTree 提交
 
-**含义**：`ephemeral` 绑定仅在交易执行期间存在。它永远不会提交到 CellStateTree。短暂对象用于中间计算、见证数据解析和不需要持久性的临时状态。
+**含义**：普通本地绑定仅在交易执行期间存在，不会提交到 CellStateTree。中间计算、见证数据解析和临时状态使用普通 `let` 绑定。
 
 **如何映射到 Spora**：
-- 见证数据（`CellTx.witnesses`）本质上是短暂的
+- 见证数据（`CellTx.witnesses`）本质上是交易局部的
 - 中间计算结果存在于 ckbvm 内存中
-- 编译器确保短暂值永远不会分配给具有 `store` 能力的类型
+- 只有 `create` 会产生进入 CellStateTree 的 Cell 输出
+- 线性资源检查确保 Cell 支撑的值被消费、返回或显式物化
 
-### 4.8 `persistent` — CellStateTree 提交的对象
-
-**含义**：所有 Cell 默认都是持久的。当通过 `create` 创建 `resource` 或 `shared` 对象时，它成为 CellStateTree 中的 Cell，由 MuHash 跟踪以进行 O(1) 增量根计算。`persistent` 关键字是隐式的——它在概念上存在，但不在代码中显式编写。
+**CellStateTree 提交**：当通过 `create` 创建 `resource`、`shared` 或 `receipt` 对象时，它成为 CellStateTree 中的 Cell，由 MuHash 跟踪以进行 O(1) 增量根计算。这个行为不需要单独的关键字。
 
 **如何映射到 Spora**：
 - CellStateTree 存储 `CellEntry { capacity, data_bytes, lock_hash, type_hash, data_hash, block_daa_score, is_cellbase }`
@@ -864,6 +868,7 @@ action seed_pool(
 ) -> (Pool, LPReceipt) {
     assert_invariant(token_a.symbol != token_b.symbol, "same token")
     assert_invariant(token_a.amount > 0 && token_b.amount > 0, "zero liquidity")
+    assert_invariant(fee_rate_bps <= 10000, "fee too high")
     
     let initial_lp = math::isqrt(token_a.amount * token_b.amount)
     
@@ -1028,7 +1033,7 @@ action batch_settle(
 ) -> Token {
     let current_daa = env::current_daa_score()
     
-    ephemeral total_amount: u64 = 0
+    let mut total_amount: u64 = 0
 
     // for循环仅限于固定大小数组[N]，编译期确定迭代次数N
     // 精确lowering形式：
@@ -1052,9 +1057,7 @@ action batch_settle(
 }
 ```
 
-### 6.7 示例：短暂对象
-
-> ⚠️ **实现状态**: `ephemeral` 关键字在词法分析器和解析器中已支持，但在类型检查和代码生成中的语义支持仍在完善中。
+### 6.7 示例：交易局部中间值
 
 ```cellscript
 // swap_router.cell — 具有短暂中间状态的多跳交换
@@ -1072,8 +1075,8 @@ action multi_hop_swap(
     min_final_output: u64,
     to: Address
 ) -> Token {
-    // 中间代币 B — 短暂的，永远不会持久化
-    ephemeral intermediate: Token = swap_a_for_b(pool_ab, input, 0, to)
+    // 中间代币 B — 交易局部值，不会作为输出提交
+    let intermediate: Token = swap_a_for_b(pool_ab, input, 0, to)
     
     // 中间代币仅存在于此交易的范围内。
     // 编译器验证它在操作结束前被消费。
@@ -1094,7 +1097,7 @@ action multi_hop_swap(
 | Cell 创建 | `create` | 镜像 `consume`；使 Cell 生命周期视觉上对称 |
 | CellDep 访问 | `read_ref` | 澄清这是非消费性读取 |
 | 约束检查 | `assert_invariant` | 比 `assert` 更强——编译器验证所有路径 |
-| 交易范围内 | `ephemeral` | 清楚标记永远不会命中 CellStateTree 的值 |
+| 交易局部值 | `let` | 本地绑定不会命中 CellStateTree，除非通过 `create` 显式物化 |
 | 生命周期属性 | `#[lifecycle(...)]` | 状态机作为元数据，不是语法污染 |
 | 所有者分配 | `with_lock(addr)` | 使锁定脚本分配显式 |
 | 销毁 | `destroy` | 能力门控；需要 `destroy` 能力 |
@@ -1244,19 +1247,26 @@ cellc> action mint() { create Token { amount: 100 } }
 
 ### A.9 调度器元数据
 
-编译器自动生成调度器元数据 (SchedulerWitness)：
+编译器自动生成调度器元数据 (SchedulerWitness)。当前实现将其暴露在编译元数据的
+`actions[].scheduler_witness_borsh_hex` 字段中；`spora-exec` 的 `CellTx`
+已有按 `0xCE11` magic/version 放置、发现并解码 CellScript scheduler witness 的低层 helper，
+并能在 admission 时拒绝非法 effect/operation/source、越界 Input/CellDep/Output index，以及与可信摘要不一致的 operation/source/index/binding_hash multiset。共识侧 MPE `BlockAccessSummary`
+现在会消费 transaction-admitted witness，把 Input/CellDep/Output access 合并进块访问摘要，并把 `touches_shared` 分成 shared read/write 争用域；write/read 和 write/write 会序列化 DAG，read/read 仍可并行。
+Mempool validation 和 template prefilter 现在会在接收/选择前拒绝 malformed CellScript scheduler metadata；template policy 的 strict 测试路径也覆盖 missing / mismatched trusted summary。编译元数据可通过 `ActionMetadata::scheduler_witness_bytes()` 输出 witness bytes；`CellTx::push_cellscript_compiled_scheduler_witness(...)` 会把这些 bytes 对具体交易做 admission、写入 witness，并返回 strict policy 使用的 trusted access summary。Mining 的 mempool-entry / candidate snapshot / template selector 已能保存并传递 producer-backed trusted summary，包括可信空 summary；wallet transaction generator 已能把 compiled scheduler witness 附加到最终交易，并在 `PendingTransaction` 上暴露 trusted access summary；focused mining 测试已经证明 producer-returned summary 能通过 sidecar insertion 进入 selector exposure。剩余缺口是 selector-provided builder summary 进入 strict template prefilter 的测试，以及 RPC/外部提交路径是否需要显式携带 trusted summary。`read_ref`、`&mut shared` 参数以及返回值中含 `shared`
+类型的组合调用现在会进入
+`touches_shared` 推断；它已进入第一条 MPE 调度消费路径，但仍不是完整的 v1 共识声明契约。
 
 ```rust
 struct SchedulerWitness {
     magic: u16,              // 0xCE11
-    version: u8,             // 0
+    version: u8,             // 1
     effect_class: u8,        // 0=Pure, 1=ReadOnly, 2=Mutating, 3=Creating, 4=Destroying
     parallelizable: bool,
-    touches_shared_count: u32,   // 实际共享对象数量
-    // touches_shared: 固定大小数组，编译期已知上限
-    // 实际使用touches_shared_count个元素，其余忽略
-    touches_shared: [Hash; MAX_SHARED_TOUCHES],  // MAX_SHARED_TOUCHES = 16
+    touches_shared_count: u32,
+    touches_shared: Vec<Hash>,
     estimated_cycles: u64,
+    access_count: u32,
+    accesses: Vec<SchedulerAccessWitness>,
 }
 ```
 
@@ -1283,7 +1293,7 @@ use my_module as mm;  // 别名
 
 ### A.11 生命周期验证
 
-> ⚠️ **实现状态**: 生命周期验证模块 (`src/lifecycle/`) 存在，但为原型级实现，**尚未集成到主编译路径**。`#[lifecycle(...)]` 属性可以被解析，但完整的验证逻辑暂未在编译器中强制执行。
+> ⚠️ **实现状态**: 生命周期验证模块 (`src/lifecycle/`) 已部分集成到主编译路径。当前可信范围包括声明检查、静态 create/reset 检查、生命周期状态/相邻转换元数据，以及完整 fixed-scalar consume-to-create verifier 路径中的状态范围和 `old_state + 1 == new_state` 检查。动态/嵌套/复杂输出转换验证仍未完成。
 
 `#[lifecycle(...)]` 属性验证：
 
@@ -1293,14 +1303,14 @@ use my_module as mm;  // 别名
 receipt VestingGrant { ... }
 ```
 
-**验证规则**（设计中）：
+**验证规则**（部分已实现，完整运行时覆盖仍在推进）：
 - 至少 2 个状态
 - 状态名唯一
 - 只允许前向转换（Created → Active → Settled）
 - 禁止跳过中间状态
 - 禁止反向转换
 
-**API**（模块已存在，待集成）：
+**API**：
 - `LifecycleChecker::register_lifecycle()` - 注册生命周期
 - `LifecycleChecker::validate_transition()` - 验证状态转换
 - `LifecycleChecker::get_lifecycle_info()` - 获取生命周期信息
@@ -1674,25 +1684,27 @@ CellScript 产生两种脚本：
 
 ### 8.3 调度器感知
 
-编译器在指定的见证字段中发出调度器元数据。元数据格式：
+设计目标是让编译器在指定的见证字段中发出调度器元数据。当前实现已经生成
+`scheduler_witness_borsh_hex` metadata sidecar；`spora-exec` 已有 CellTx witness
+放置/发现/解码/admission helper；共识 MPE `BlockAccessSummary` 已开始消费 transaction-admitted witness。
+当前 `touches_shared` 会覆盖 `read_ref`、`&mut shared` 参数触点，以及返回值中含 `shared`
+类型的组合调用。MPE DAG 会把 `Pure` / `ReadOnly` 的 shared touch 视为 shared read，把其它 effect 的 shared touch 视为 shared write；read/read overlap 可并行，write/read 或 write/write overlap 会形成 DAG 依赖。共识 MPE 现在也有 strict trusted-access-set 路径：当交易构建器或编译元数据提供可信 operation/source/index/binding_hash multiset 时，缺失或不匹配会在 merge 前失败。Mempool validation 和 template prefilter 已经消费 admission policy：malformed CellScript scheduler metadata 会在接收/选择前失败，template strict policy fixtures 也覆盖 missing / mismatched trusted summary。低层 producer helper 已能从 compiled metadata witness bytes 生成并附加 witness，同时返回 trusted summary；Mining 的 mempool-entry / candidate snapshot / template selector 已能保存并传递这个 summary；wallet transaction generator 已能把 compiled scheduler witness 附加到最终交易并把 trusted summary 暴露给调用方；focused mining 测试证明 producer-returned summary 能通过 sidecar insertion 进入 selector exposure；focused consensus 测试证明 selector-provided builder summary 会被 strict template prefilter 接收或拒绝。剩余未闭合的是外部提交路径的 trusted summary 认证/传递策略，以及更完整的 producer-backed 恶意元数据测试。
+元数据格式：
 
 ```
-// 用于调度器元数据的 Witness[N]（按约定最后一个见证条目）
-//
-// 格式：0xCE11 (魔法数) || 版本(u8) || payload_len(u32) || payload
-//
-// Payload（Borsh 编码）：
-// 注：以下Vec仅用于概念描述，实际见证格式使用固定大小数组+count字段
+// 用于调度器元数据的 Witness[N]（设计目标：按约定最后一个见证条目）
+// 当前代码路径：作为 CompileMetadata.actions[].scheduler_witness_borsh_hex 暴露
+// Payload 使用 Borsh 编码：
 struct SchedulerWitness {
+    magic: u16,                 // 0xCE11
+    version: u8,                // 1
     effect_class: u8,           // 0=Pure, 1=ReadOnly, 2=Mutating, 3=Creating, 4=Destroying
     parallelizable: bool,
-    touches_shared_count: u8,   // 实际数量，上限16
-    touches_shared: [Hash; 16], // 固定大小数组，仅前touches_shared_count个有效
+    touches_shared_count: u32,
+    touches_shared: Vec<Hash>,
     estimated_cycles: u64,
-    consumed_count: u8,         // 实际数量，上限32
-    consumed_type_hashes: [Hash; 32],
-    created_count: u8,          // 实际数量，上限32
-    created_type_hashes: [Hash; 32],
+    access_count: u32,
+    accesses: Vec<SchedulerAccessWitness>,
 }
 ```
 
@@ -1711,9 +1723,9 @@ struct SchedulerWitness {
 区块模板构建器读取此元数据以：
 1. 在将冲突交易包含在区块中之前过滤它们（P2a，已完成）
 2. 确定哪些交易可以在区块内并行执行（P1，已完成）
-3. 为 P2b 合并集级并行化提供 `BlockAccessSummary` 数据（未来）
+3. 为 MPE 合并集级并行化提供 `BlockAccessSummary` shared read/write 争用域（已开始）
 
-此元数据是**建议性的**。共识层不强制执行它。恶意交易可以对其调度器提示撒谎。执行层始终执行完整验证。提示是诚实矿工构建区块模板的优化。
+此元数据仍不是完整的 v1 共识声明契约。当前 MPE 路径会先 admission witness 再使用其 shared-touch 争用域；strict 路径还可以在 merge 前对照可信 access-set summary。恶意、缺失或不一致元数据仍必须通过后续 builder-backed mempool/template/adversarial 测试收口。执行层始终执行完整验证，调度信息不能替代 verifier 语义。
 
 这种信任边界是故意的。
 
@@ -1734,7 +1746,7 @@ CellScript 使用：
 
 1. **模板构建器** (P2a)：通过调度器元数据检测冲突。每块每共享对象最多包括一个写入者。多个读取者可以共存。
 2. **区块验证** (P1)：尽可能并行验证交易。接触同一共享对象的交易被序列化。
-3. **虚拟处理器** (P2b 未来)：合并集中的多个蓝色区块可能每个都包含对同一共享对象的写入。规范顺序解决此问题：第一个蓝色区块（按 GhostDAG 顺序）获胜，后续冲突写入被跳过。
+3. **虚拟处理器** (MPE 未来)：合并集中的多个蓝色区块可能每个都包含对同一共享对象的写入。规范顺序解决此问题：第一个蓝色区块（按 GhostDAG 顺序）获胜，后续冲突写入被跳过。
 
 CellScript 不在语言级别解决争用问题。它使争用可见（通过 `shared` 关键字和调度器元数据），以便执行栈可以高效处理它。
 
@@ -1755,19 +1767,19 @@ CellScript 不在语言级别解决争用问题。它使争用可见（通过 `s
 
 一个 CellTx = 一个原子执行单元。所有输入被消费，所有输出被创建，所有脚本通过，或整个交易失败。没有部分执行。这是从 Cell 模型继承的，CellScript 没有改变它。
 
-系统级并行性来自同一块中的多个 CellTx（P1）或跨合并集中蓝色区块的多个 CellTx（P2b）。
+系统级并行性来自同一块中的多个 CellTx（P1）或跨合并集中蓝色区块的多个 CellTx（MPE）。
 
 ---
 
-## 9. 标准原语
+## 9. 标准操作和协议模式
 
 ### 9.1 `launch` — 创建新资产类型
 
 **语义保证**：原子性地创建类型脚本 Cell、铸造初始供应、可选地播种池。要么创建所有输出，要么都不创建。
 
-**为什么原生/标准**：代币启动是任何区块链上最常见的第一个操作。使其原子化可防止部分部署状态（类型脚本已部署但没有铸造代币，或代币已铸造但池未播种）。
+**为什么标准**：代币启动是任何区块链上最常见的第一个操作。使其原子化可防止部分部署状态（类型脚本已部署但没有铸造代币，或代币已铸造但池未播种）。
 
-**实现级别**：**编译器已知**。编译器生成具有确定性输出排序的特定 CellTx 模式。`launch` 关键字不是库调用——它是一个编译器指令，构建整个交易。
+**实现级别**：**v1 后交易构建器特性**。它是确定性的多 `create` CellTx 模板，不是 v1 核心表达式。当前实现应在可执行表达式位置拒绝 `launch`，直到 builder lowering 存在。
 
 ### 9.2 `mint` — 创建新单位
 
@@ -1787,7 +1799,7 @@ CellScript 不在语言级别解决争用问题。它使争用可见（通过 `s
 
 **语义保证**：消费具有一个锁定脚本的资源 Cell，创建具有不同锁定脚本的新资源 Cell。数据被保留。`transfer` 能力必须被声明。
 
-**实现级别**：**语言语法**。`transfer token to address` 是一流表达式。编译器生成消费输入 + 创建输出模式，并更改锁定脚本。
+**实现级别**：**`consume` + `create` 之上的语言糖**。`transfer token to address` 保留资源字段，只改变输出 lock。它值得保留，因为这是高频操作，并让 verifier 工具能识别 lock 重绑定。
 
 ```cellscript
 transfer my_token to recipient_address
@@ -1796,29 +1808,29 @@ transfer my_token to recipient_address
 // create Token { ...my_token fields... } with_lock(recipient_address)
 ```
 
-### 9.5 `seed_pool` — 初始化流动性池
+### 9.5 `seed_pool` — 初始化流动性池模式
 
 **语义保证**：创建具有初始储备的共享池 Cell。返回 LP 收据。恒定乘积不变量在创建时建立。
 
-**实现级别**：**编译器已知**。编译器生成特定输出模式：池 Cell + LP 收据 Cell。池的类型脚本生成以强制执行 AMM 不变量。
+**实现级别**：**标准库/协议模式，并带编译器可见 metadata**。这不应是语言原语。编译器可以为审计和策略工具暴露结构化池义务，但 AMM 数学属于库、生成 verifier 或交易构建器策略。
 
 ### 9.6 `swap` — 通过池交换
 
 **语义保证**：原子性地通过池将一种资产交换为另一种。池的不变量（x·y ≥ k 扣除手续费后）由类型脚本验证。
 
-**实现级别**：**标准库**。交换操作是库函数。池类型脚本执行不变量检查。
+**实现级别**：**标准库/协议模式**。交换操作是作用于 `shared` 池值的库函数。池类型脚本或生成 verifier 执行不变量检查。
 
 ### 9.7 `wrap` / `unwrap` — 原生容量转换
 
 **语义保证**：`wrap` 将原生容量（SAU）转换为包装资产代币。`unwrap` 转换回。包装的总供应等于锁定的容量。
 
-**实现级别**：**标准库**。标准包装模式：在包装器 Cell 中锁定容量，创建包装资产 Cell。解包反转此过程。
+**实现级别**：**🚧 未实现**。这是 v1 后计划的标准库特性。当前标准库不包含 `wrap`/`unwrap` 实现；包装资产模式需通过显式 `create`/`consume` 操作和自定义包装器 Cell 类型手动实现。
 
 ### 9.8 `claim` — 消费收据以获取资产
 
 **语义保证**：消费收据 Cell，验证认领条件，产生资产 Cell。收据的类型脚本强制执行单次使用。
 
-**实现级别**：**语言语法**。`claim receipt` 是一流表达式。编译器生成模式：消费收据 Cell，验证条件（通过 `since` 字段的时间锁、通过见证的签名），创建资产 Cell。
+**实现级别**：**义务分类语法或 intrinsic**。`claim receipt` 降低为消费 receipt Cell + 验证条件 + 创建输出 Cell。它的价值不是新的 CellTx 原语，而是 `claim-conditions` 义务的 metadata 锚点。
 
 ```cellscript
 let tokens = claim vesting_receipt
@@ -1830,7 +1842,7 @@ let tokens = claim vesting_receipt
 
 **语义保证**：将资源从待定生命周期状态转换为最终状态。消费待定 Cell，产生最终 Cell。
 
-**实现级别**：**语言语法**。`settle` 关键字将操作标记为最终化步骤。编译器验证生命周期转换是否有效（例如，`Active → Settled` 但不是 `Destroyed → Active`）。
+**实现级别**：**义务分类语法或 intrinsic**。`settle` 标记最终化路径，使 metadata 和策略工具能把 settlement 与普通 consume/create 更新区分开。它应保持通用和生命周期导向，不承载具体业务语义。
 
 ---
 
@@ -1841,13 +1853,13 @@ let tokens = claim vesting_receipt
 | **执行目标** | RISC-V ELF (ckbvm) | EVM 字节码 | Move 字节码 | FuelVM 字节码 |
 | **状态模型** | Cell（类 UTXO，类型化） | 账户 + 存储槽 | 全局存储中的资源 | UTXO + 原生资产 |
 | **通用表达力** | 窄域（资产聚焦） | 宽域（图灵完备） | 中等（模块范围） | 中等（谓词感知） |
-| **资产表达力** | 原生（资源类型、生命周期、池） | 手动（ERC-20 模式） | 原生（资源类型） | 部分（原生资产，无类型脚本） |
+| **资产表达力** | 原生（资源类型、生命周期、shared 池模式） | 手动（ERC-20 模式） | 原生（资源类型） | 部分（原生资产，无类型脚本） |
 | **线性类型** | 是（由编译器 + 能力模型强制执行） | 否 | 是（能力：key/store/copy/drop） | 否 |
 | **共享状态** | 显式（`shared` 关键字，CellDep/CellInput） | 隐式（所有存储都是共享的） | 显式（Sui 共享对象） | 否（纯 UTXO） |
 | **调度器提示** | 原生（IR 发出、效果类别、见证元数据） | 无（顺序 EVM） | 无 | 部分（谓词） |
 | **DAG 感知** | 原生（为 GhostDAG 合并集设计） | 无（单链） | 无（单链或 Narwhal） | 无（单链） |
 | **并行化支持** | 原生（效果类别、访问摘要、争用检测） | 无 | 部分（Sui 对象级） | 部分（谓词独立性） |
-| **冷启动友好性** | 高（`launch` 原语：原子部署 + 铸造 + 池） | 低（部署 → 初始化 → 批准 → 添加流动性 = 4+ 笔交易） | 中等（发布模块 → 初始化） | 中等（部署谓词） |
+| **冷启动友好性** | 当前中等；v1 后 launch builder 落地后高（原子部署 + 铸造 + 池） | 低（部署 → 初始化 → 批准 → 添加流动性 = 4+ 笔交易） | 中等（发布模块 → 初始化） | 中等（部署谓词） |
 | **开发者人体工程学** | 好（类似 Rust 的语法，窄域） | 高（知名，庞大生态系统） | 好（但新概念，陡峭学习曲线） | 好（类似 Rust，但 Fuel 特定） |
 | **生态系统成熟度** | 无（全新） | 庞大 | 增长中 | 小 |
 | **重入风险** | 不可能（Cell 模型，无回调） | 高（委托调用、外部调用） | 低（默认无动态分派） | 低（谓词中无回调） |
@@ -1860,7 +1872,7 @@ let tokens = claim vesting_receipt
 关键差异化因素是：
 
 1. **Cell 原生**：CellScript 的语义模型 1:1 映射到 Spora 的 CellTx。没有阻抗不匹配。
-2. **DAG 感知**：调度器提示由编译器发出，启用 P1/P2a/P2b 优化。
+2. **DAG 感知**：调度器提示由编译器发出，启用 P1/P2a/MPE 优化。
 3. **ckbvm 目标**：编译为 RISC-V ELF。不需要新 VM。与现有原始脚本向后兼容。
 4. **Mass 感知**：编译器可以在编译时估计 mass 贡献（计算、瞬态、存储），在交易构建之前启用费用估计。
 
@@ -1869,6 +1881,8 @@ let tokens = claim vesting_receipt
 ## 11. 执行计划
 
 本节用更具观点性的执行计划取代通用编译器路线图。
+
+实际执行时，阶段状态以 [`CELLSCRIPT_EXECUTION_PHASES.md`](./CELLSCRIPT_EXECUTION_PHASES.md) 为准。该文件维护当前 active 阶段、退出门槛、剩余收尾项和 `go on` 推进规则。
 
 关键决策是：
 
@@ -1884,11 +1898,9 @@ let tokens = claim vesting_receipt
   - `resource`
   - `shared`
   - `receipt`
-  - `launch`
-  - `pool`
   - `settle`
-  - `ephemeral`
-  - `persistent`
+  - 交易局部计算
+  - v1 后 launch builder 模式
 
 这为 Spora 提供了一条现在可实现的途径，而不会永远被困在"更好的原始 CKB 脚本编写"中。
 
@@ -1941,7 +1953,7 @@ v1 执行计划必须保留这些边界：
 - 效果清单约定
 - Spora IR
 - 编译器已知的生命周期规则
-- 编译器已知的标准原语
+- 编译器已知的标准操作和协议模式 metadata
 
 #### 明确推迟
 
@@ -1963,6 +1975,74 @@ v1 执行计划必须保留这些边界：
 
 #### 工作流 A — 语义内核
 
+Slice 16 更新：`claim` / `settle` 的输出关系义务现在会按 verifier 覆盖情况细分；如果 operation-tagged `create_set` 输出字段已被固定字段 verifier 完整检查，则 `claim-output:<T>` / `settle-output:<T>` 标记为 `checked-runtime`，不再作为 unresolved runtime-required 输出义务重复出现。真正的 `claim-conditions:<Receipt>`（见证/签名/时间条件）和 `settle-finalization:<T>`（最终化/准入语义）仍保持 `runtime-required`，没有被弱化。
+
+Slice 17 更新：`&mut shared` 参数现在不只影响调度器元数据。编译器会为可变 shared 参数暴露 `shared-state` 类 verifier obligation，例如 AMM 中 `swap_a_for_b` / `add_liquidity` / `remove_liquidity` 都带有 `shared-mutation:Pool` / `runtime-required`。这表示 Pool 输入到替换输出的状态转换还没有被证明；它现在是显式策略门控项，而不是隐藏在 `touches_shared` 之后的语义缺口。
+
+Slice 18 更新：同样的显式义务现在扩展到非 shared 的可变 Cell 参数。`mint(auth: &mut MintAuthority, ...)` 会暴露 `cell-state` / `mutable-cell:MintAuthority` / `runtime-required`，表示 MintAuthority 的替换输出 cell、权限状态和供应量更新仍需要运行时/交易构造器证明。这样 `launch` / `mint` 的普通 action 模拟路径不会被误报为 v1 后 launch builder 已完成。
+
+Slice 19 更新：IR / metadata 现在增加 `mutate_set`，用于记录可变 Cell 参数的直接字段写入摘要。示例：`mint(auth: &mut MintAuthority, ...)` 暴露 `binding=auth, ty=MintAuthority, fields=[minted]`；AMM 的 `&mut Pool` 路径暴露 `reserve_a`、`reserve_b`、`total_lp` 等被写字段。这只是审计和调度输入，不能替代 consumed input 到 replacement output 的交易级证明；后续还必须定义 replacement output index ABI、type/lock identity 保留和字段转换 verifier。
+
+Slice 20 更新：`mutate_set` 现在带有 replacement-output ABI：`input_source/input_index`、`output_source/output_index`、`preserve_type_hash`、`preserve_lock_hash`、`fields`（需要转换证明的字段）、`preserved_fields`（需要等值保留的字段）、`field_equality_status` 和 `field_transition_status`。编译器还把这些绑定暴露为 `ckb_runtime_accesses` 中的 `mutate-input` / `mutate-output` 记录，并进入 scheduler witness 输入。当前状态仍是 `runtime-required`：ABI 已稳定暴露，真正的 TypeHash/LockHash 和字段 transition verifier 将在后续 slice 中执行化。
+
+Slice 21 更新：`mutate_set` 的 replacement-output ABI 现在开始进入可执行 verifier 路径。对要求保留身份的可变 Cell，生成的 RISC-V assembly 会通过 `LOAD_CELL_BY_FIELD` 分别加载 Input 和 Output 的 `TypeHash` / `LockHash`，精确检查长度为 32 字节，并逐字节比较。metadata schema v10 当时新增 `type_hash_preservation_status` / `lock_hash_preservation_status`，当前已随 Pool primitive 结构化元数据推进到 schema v14。字段等值保留（`preserved_fields`）和 transition 字段公式仍保持 `runtime-required`，没有被误报为已完成。
+
+Slice 22 更新：`preserved_fields` 中固定宽度、能放入当前 verifier scratch buffer 的字段现在也进入可执行等值检查。生成器会加载 replacement Input / Output 的完整 cell bytes，检查 schema 固定大小，对每个 preserved field 做 bounds check 和逐字节比较。当前示例中 `MintAuthority.max_supply` / `token_symbol` 以及 AMM `Pool` 的 `fee_rate_bps`、`token_a_symbol`、`token_b_symbol`、`total_lp` 等保留字段会报告 `field_equality_status=checked-runtime`。真正的 transition 字段公式，例如 `MintAuthority.minted = old + amount` 和 Pool 储备量更新，仍保持 `runtime-required`。
+
+Slice 23 更新：第一类 transition 字段公式已经可执行化。IR 会记录简单的 `field = field + operand`、`field = field - operand` 和 `field += operand` 形式；codegen 会加载 replacement Input / Output cell bytes，并验证 `new_field == old_field +/- operand`。当前落地范围覆盖 `token.cell` 中 `MintAuthority.minted = old + amount`，因此 `mint` 的 `mutable-cell:MintAuthority` obligation 现在是 `checked-runtime`。AMM Pool 的储备量公式涉及更多中间值、除法和非参数 operand，仍保持 `runtime-required`。
+
+Slice 24 更新：transition 字段公式的 operand 覆盖面扩展到可由 verifier 重新加载的 schema-backed 参数字段。AMM 中 `input.amount`、`token_a.amount`、`token_b.amount`、`receipt.lp_amount` 这类参数 Cell 字段现在可以作为 `old +/- operand` 的 delta 被检查，因此 `swap_a_for_b` 的 `reserve_a`、`add_liquidity` 的 `reserve_a/reserve_b`、`remove_liquidity` 的 `total_lp` 都有 executable transition check。AMM Pool 的 `field_transition_status` 现在是 `checked-partial`：已经覆盖的字段不会再被混同为完全 runtime-required，但依赖计算局部值的 `output`、`lp_amount`、`amount_a`、`amount_b` 仍等待下一步 prelude 公式重算。
+
+Slice 25 更新：AMM 控制样例中的计算局部值也已进入 verifier prelude 重算路径。编译器会把可证明的 u64 表达式传播为 transition operand，当前覆盖 add/sub/mul/div 和 `min(...)`，所以 `output`、`lp_amount`、`amount_a`、`amount_b` 不再从 action body 栈值中取信，而是由 verifier 从 schema-backed 输入字段重新计算。`swap_a_for_b`、`add_liquidity`、`remove_liquidity` 的 `Pool` replacement 现在都报告 `field_transition_status=checked-runtime`，普通 `shared-mutation:Pool` 字段转换义务也变为 `checked-runtime`。这仍不等于 池语言原语完成；池不变量、准入规则、调度器/交易构造器层的池特化语义仍需要单独显式化。
+
+Slice 26 更新：Pool 专属语义缺口现在已从普通 `shared-mutation:Pool` 义务中拆出来。metadata 新增 `pool-pattern` 类 runtime-required obligations：`seed_pool` 暴露 `pool-create:Pool`，AMM 的 `swap_a_for_b` / `add_liquidity` / `remove_liquidity` 暴露 `pool-mutation-invariants:Pool`，`launch_token -> seed_pool -> Pool` 的组合路径暴露 `pool-composition:Pool`。因此，普通 Pool replacement 的 TypeHash/LockHash、preserved fields 和 source-level field transitions 可以是 `checked-runtime`，但审计/策略工具仍会明确看到 池模式准入规则、AMM 不变量、LP supply consistency、fee accounting 和 launch/pool composition 语义还没有执行化。
+
+Slice 27 更新：Pool 专属义务现在不只是字符串。metadata schema v11 新增 runtime/action/fn/lock 级 `pool_primitives[]`，每条记录包含 `operation`、`feature`、`ty`、`status`、`source`、`checked_components`、`runtime_required_components`、`source_invariant_count`、可选 `binding` / `callee` / Input/Output index，以及 transition/preserved field 列表。当前 `seed_pool` 的 `pool-create:Pool` 会记录 create source、Output index、source invariant guard 数量和 token-pair/reserve/fee/LP runtime 组件；AMM mutation 会记录 replacement ABI、transition/preserved fields、checked generic mutation components 和 reserve/fee/LP/admission runtime 组件；`launch_token` 会记录 `seed_pool` callee 和 launch-pool atomicity 债务。docgen 的 lowering audit 也会输出 Pool Pattern Metadata 表。
+
+Slice 28 更新：Pool pattern metadata 现在进入 schema v12，并新增 `invariant_families[]`：每个 family 记录 `name`、`status` 和 `source`。受控 AMM/launch 样例中的源码 `assert_invariant` CFG guard 会被命名为 checked component，例如 `seed_pool` 的 `token-pair-distinct` / `positive-reserves`，`swap_a_for_b` 的 input-token match、minimum-output 和 reserve-output bounds，`add_liquidity` 的 deposit-token matches，`remove_liquidity` 的 LP receipt pool-id match，以及 `launch_token` 的 mint/seed/distribution cap。与此同时，fee policy、LP supply、constant-product pricing、proportional liquidity/withdrawal accounting、pool admission 和 launch-pool atomicity 仍保持 `runtime-required`，没有被误报为 池模式语义已完成。
+
+Slice 29 更新：`invariant_families[]` 现在不只是审计输出，也进入 CLI policy 面。`cellc build --json`、`cellc check --json` 和 `cellc verify-artifact --json` 会输出 checked/runtime-required Pool invariant family 计数；`--deny-runtime-obligations` 会拒绝 runtime-required Pool invariant families。受控 `seed_pool` 路径中，`positive-reserve-admission` 只有在 `positive-reserves` 源码 guard 和 create-output field verifier 都覆盖时才被提升为 `checked-runtime`。`token-pair-admission`、`fee-policy`、`lp-supply-invariant` 仍是 `runtime-required`。
+
+Slice 30 更新：受控 `seed_pool` 现在新增 `fee_rate_bps <= 10000` 的源码 invariant guard，并在 Pool pattern metadata 中命名为 `fee-bps-bound`。当该 guard 与 create-output field verifier 同时覆盖时，`fee-policy` 会被重分类为 `checked-runtime`，并从 `runtime_required_components` / CLI `--deny-runtime-obligations` 的 Pool invariant family 失败列表中移除。`token-pair-admission` 和 `lp-supply-invariant` 仍保持 `runtime-required`，因此 池模式准入仍未完成。
+
+Slice 31 更新：`seed_pool` 的 LP supply admission 现在有受控可执行覆盖。metadata 会要求 `Pool` create fields 可验证、同一 action 中存在可验证的 `LPReceipt` create fields，并且 `Pool.total_lp` 与 `LPReceipt.lp_amount` 来自同一个固定宽度 verifier source；满足这些条件时，`lp-supply-invariant` 被标记为 `checked-runtime`，source 为 `create-output-field-coupling`，并从 CLI runtime-required Pool family 失败列表中移除。`token-pair-admission` 仍保持 `runtime-required`，因为仅凭符号字段还不足以表达完整资产身份/type-id 语义。
+
+Slice 32 更新：粗粒度 `token-pair-admission` 被拆成两个 family。`token-pair-symbol-admission` 在受控 `seed_pool` 中可被标记为 `checked-runtime`：它要求 `token-pair-distinct` 源码 guard 存在，并且 created `Pool.token_a_symbol` / `Pool.token_b_symbol` 字段都由 verifier 覆盖且来自不同 token symbol source。完整资产身份/type-id 准入当时仍以 `token-pair-identity-admission=runtime-required` 暴露给 CLI policy 和审计工具；Slice 60 已把受控 `seed_pool` 的 Input TypeHash 不等式路径执行化。
+
+Slice 33 更新：Pool pattern metadata 当时进入 schema v13，并新增 `runtime_input_requirements[]`。受控 `seed_pool` 中，`token-pair-identity-admission` 当时仍是 `runtime-required`，但不再只是宽泛的 Pool admission 字符串：它的 invariant family source 改为 `token-input-type-id-abi`，并且 `pool_primitives[]` 明确记录 `Input#0:token_a` 与 `Input#1:token_b` 都需要 `input-type-id-32` ABI。Slice 60 已把这个受控 ABI 路径升级为 executable `LOAD_CELL_BY_FIELD` TypeHash 比较；docgen 的 Pool Pattern Metadata 表仍会输出未覆盖 Pool family 的 runtime input requirements。
+
+Slice 34 更新：Pool pattern metadata 现在进入 schema v14，`runtime_input_requirements[]` 每项新增可选 `field`，可以把运行时 ABI/source 要求指到具体 cell 字段。受控 `swap_a_for_b` 中，`fee-accounting` 和 `constant-product-pricing` 仍是 `runtime-required`，但它们的 source 分别变为 `swap-fee-accounting-abi` 和 `swap-constant-product-abi`，并显式记录 `Input#0:input.amount`、`Input#1:pool.fee_rate_bps`、`Input#1:pool.reserve_a`、`Input#1:pool.reserve_b`、`Output#1:pool.reserve_a`、`Output#1:pool.reserve_b` 等字段来源。这一步只暴露 verifier/交易构造器需要验证的字段 ABI，没有把 AMM fee 或 constant-product 经济语义误标为 checked。
+
+Slice 35 更新：schema v14 的 field-aware `runtime_input_requirements[]` 继续覆盖 AMM add/remove 路径。受控 `add_liquidity` 中，`proportional-liquidity-accounting` 和 `lp-supply-consistency` 仍是 `runtime-required`，但 source 现在分别为 `add-liquidity-proportional-abi` 和 `pool-lp-supply-consistency-abi`，并显式记录 `token_a.amount`、`token_b.amount`、Pool `reserve_a/reserve_b/total_lp` 的 Input/Output 字段，以及创建出的 `LPReceipt.lp_amount`。受控 `remove_liquidity` 中，`proportional-withdrawal-accounting` 和 `lp-supply-consistency` 仍是 `runtime-required`，但 source 现在分别为 `remove-liquidity-proportional-withdrawal-abi` 和 `pool-lp-supply-consistency-abi`，并显式记录 `receipt.lp_amount`、Pool reserve/total_lp Input/Output 字段，以及创建出的两个 Token `amount` 字段。这一步继续只暴露运行时 ABI/source 义务，没有把比例铸造、比例赎回或 LP supply 经济语义误标为 checked。
+
+Slice 36 更新：AMM mutation 的 `reserve-conservation` family 也被收窄到字段级 runtime ABI/source。`swap_a_for_b`、`add_liquidity` 和 `remove_liquidity` 仍把 `reserve-conservation` 保持为 `runtime-required`，但 invariant family source 现在是 `pool-reserve-conservation-abi`，并记录 Pool `reserve_a` / `reserve_b` 的 Input/Output 字段。各 action 还会记录对应的金额来源：swap 记录 `input.amount` 与 created Token `amount`，add 记录 `token_a.amount` / `token_b.amount`，remove 记录两个 created Token `amount` 字段。这一步继续只让运行时/交易构造器知道要读取哪些字段，不把 reserve conservation 经济语义误标为 checked。
+
+Slice 37 更新：AMM mutation 的 `pool-specific-admission` family 也被收窄到字段级 runtime ABI/source。`swap_a_for_b`、`add_liquidity` 和 `remove_liquidity` 仍把 Pool admission 语义保持为 `runtime-required`，但 invariant family source 现在是 `pool-specific-admission-abi`。受控 swap 记录 `input.symbol`、Pool `token_a_symbol/token_b_symbol` 和 created Token `symbol`；add 记录 `token_a.symbol`、`token_b.symbol`、Pool token symbols、Pool `type_hash` 和 created `LPReceipt.pool_id`；remove 记录 `receipt.pool_id`、Pool `type_hash`、Pool token symbols 和两个 created Token `symbol` 字段。这一步只暴露运行时/交易构造器要读取的准入字段，没有把池特化 token/type-id admission 语义误标为 checked。
+
+Slice 38 更新：`swap_a_for_b` 剩余的 `lp-supply-consistency` 运行时要求也进入 field-aware metadata。swap 不铸造或销毁 LPReceipt，但 Pool primitive 仍把 LP supply 一致性保持为 `runtime-required`；现在它的 runtime input requirements 明确记录 Pool `total_lp` 的 Input/Output 字段，source 仍是 `pool-lp-supply-consistency-abi`。这一步只暴露 LP supply 检查所需字段，没有把 LP 经济语义误标为 checked。
+
+Slice 39 更新：`launch_token -> seed_pool -> Pool` 组合路径也开始暴露运行时 ABI/source 要求。`callee-pool-admission` 的 source 现在是 `pool-composition-callee-admission-abi`，并记录池种子 created Token 的 `Output#5:type_hash/symbol`、配对 token 参数的 `Param#4:type_hash/symbol` 和 `fee_rate_bps` 参数；`launch-pool-atomicity` 的 source 现在是 `launch-pool-atomicity-abi`，并记录 `initial_mint`、`pool_seed_amount`、`distribution`、created `MintAuthority.minted/token_symbol` 和池种子 Token `amount/symbol`；`pool-id-continuity` 的 source 现在是 `pool-id-continuity-abi`，并记录 tuple `CallReturn#0:Pool.type_hash` 与 `CallReturn#1:LPReceipt.pool_id`。这些 family 仍保持 `runtime-required`，这一步只把组合语义需要读取的 `Param` / `Output` / `CallReturn` ABI 显式化，没有把 launch builder 或 pool-pattern 组合语义误标为 checked。
+
+Slice 40 更新：Pool runtime input requirements 现在进入更直接的报告/策略面。`cellc build --json`、`cellc check --json` 和 `cellc verify-artifact --json` 会输出 `pool_runtime_input_requirements` 计数和 `pool_runtime_input_requirement_summaries`；`--deny-runtime-obligations` 除了列出 runtime-required Pool invariant families，也会列出对应的 runtime input requirement 摘要。docgen 的 Markdown/HTML lowering audit 现在新增独立的 `Pool Runtime Input Requirements` 表，docgen JSON 也新增扁平化 `pool_runtime_input_requirements` 数组。Slice 40 没有把任何 Pool family 升级为 checked；它只把 Slice 33-39 收集到的 ABI 债务接到审计和 policy 输出上。下一步第一个可执行候选被限定为 `launch-pool-atomicity` 的局部字段耦合：先证明 `Param#2 initial_mint -> Output#0 MintAuthority.minted`、`Param#3 pool_seed_amount -> Output#5 Token.amount` 和 symbol 一致性，仍不关闭完整 launch/pool 原子性 family。
+
+Slice 41 更新：`launch-pool-atomicity` 的第一批字段耦合已经作为 checked subcomponents 暴露。受控 `launch_token` 组合 primitive 现在会在 `checked_components` 中报告 `launch-pool-atomicity:minted-equals-initial-mint=checked-runtime`、`launch-pool-atomicity:seed-token-amount=checked-runtime` 和 `launch-pool-atomicity:symbol-consistency=checked-runtime`，条件是对应 create output fields 已被 verifier 覆盖且与参数 source 一致。完整 `launch-pool-atomicity` invariant family 仍保持 `runtime-required`，因为 distribution 总量耦合、callee seed_pool admission、池实例身份连续性和交易构造器原子性还没有全部执行化。
+
+Slice 42 更新：`launch-pool-atomicity` 的 distribution allocation coupling 也进入 checked subcomponents。编译器现在会追踪受控 `launch_token` IR 中固定 tuple-array 参数 `distribution[i].1` 的全量求和来源，并确认该求和加 `pool_seed_amount` 后通过 `<= initial_mint` 的 runtime 分支检查；满足这些条件时，Pool composition metadata 会报告 `launch-pool-atomicity:distribution-sum-plus-seed-lte-initial-mint=checked-runtime`。完整 `launch-pool-atomicity` family 仍保持 `runtime-required`，因为 callee Pool admission、Pool/LPReceipt identity continuity 和交易构造器原子性还没有全部执行化。
+
+Slice 43 更新：`launch_token -> seed_pool` 的 callee Pool admission 也开始拆出可证明 handoff 子组件。编译器现在检查 direct call 实参是否把最后创建的池种子 Token 传给 `seed_pool` 的 token_a，把 `pool_paired_token` 参数传给 token_b，并把 `fee_rate_bps` 参数传给 callee 的 fee 参数；在 seed token `symbol` 已由 create-output verifier 证明、paired token `symbol` 字段布局可由 schema 参数 ABI 覆盖、fee 参数是 verifier-coverable `u16` 时，metadata 会报告 `callee-pool-admission:seed-token-symbol-handoff=checked-runtime`、`callee-pool-admission:paired-token-symbol-handoff=checked-runtime` 和 `callee-pool-admission:fee-bound-handoff=checked-runtime`。完整 `callee-pool-admission` family 仍保持 `runtime-required`，因为 token type-id/asset identity admission 还没有执行化。
+
+Slice 58 更新：`claim` 授权路径现在有一个受限的可执行签名验证约定。若 receipt 暴露固定 `[u8; 20]` 字段 `signer_pubkey_hash`、`claim_pubkey_hash`、`owner_pubkey_hash`、`beneficiary_pubkey_hash` 或 `pubkey_hash`，codegen 会在消费该 receipt 后检查字段 bounds，复用已验证的 65/66 字节 witness envelope 和 `LOAD_ECDSA_SIGNATURE_HASH` canonical sighash，并调用 `SECP256K1_VERIFY` syscall `3002`。metadata 会把该路径的 `claim-witness-signature` 与 `claim-signer-key-binding` 标为 `checked-runtime`。没有这种 20 字节 signer 字段的 receipt，例如当前 `VestingGrant`，仍保持 `claim-witness-signature=runtime-required` 和 `witness-verification-gap`，避免把 generalized claim 授权误报为完成。
+
+Slice 59 更新：`settle` 最终态路径现在有一个受限的可执行生命周期约定。若被 settle 的类型有 lifecycle metadata 且暴露 fixed-scalar `state` 字段，codegen 会在 settle-created output verification 中检查 consumed Input 和 created Output 的 `state` 都等于最后一个 lifecycle 状态索引，并在 metadata 中把该路径的 `settle-final-state-context` 标为 `checked-runtime`。非 lifecycle 类型或无法由 fixed-field verifier 覆盖的 settle 仍保持 `finalization-policy-gap`，避免把 generalized settle finalization 误报为完成。
+
+Slice 60 更新：受控 `seed_pool` 的 `token-pair-identity-admission` 现在有可执行 verifier 路径。codegen 会用 `LOAD_CELL_BY_FIELD Source::Input field=5` 分别加载 `Input#0:token_a` 和 `Input#1:token_b` 的 TypeHash，精确检查 32 字节长度，并拒绝二者完全相等的 token pair。metadata 把该 family 标为 `checked-runtime`，source 为 `input-type-id-abi+load-cell-by-field`，并从 Pool runtime input requirement 摘要中移除旧的 `token-input-type-id-abi` runtime-required 条目。更广义的 Pool admission、swap/add/remove 经济不变量和 launch-pool composition 原子性仍保持 runtime-required，避免把 pool-pattern 误报为完整语言原语。
+
+Slice 61 更新：受控 `launch_token -> seed_pool` tuple 返回路径现在有真实的 return-register ABI 支撑。IR 新增 tuple aggregate 指令，callee 返回 tuple 时把字段放入 `a0..a7`，caller 的 tuple field projection 从对应返回寄存器落栈。metadata 在 `Pool` 与 `LPReceipt` 返回字段都被投影且 `LPReceipt.pool_id` 是固定 32 字节字段时，将 `pool-id-continuity` family 标为 `checked-runtime`，source 为 `callee-output-field-coupling+tuple-return-abi`，并移除旧的 `CallReturn#0:Pool.type_hash`、`CallReturn#1:LPReceipt.pool_id` 和 `CallReturnPair#0` equality runtime input requirement。完整一等 `launch` builder、广义 Pool admission 和 AMM 经济不变量仍未关闭。
+
+Slice 62 更新：受控 `swap_a_for_b` 的 `lp-supply-consistency` 现在从 field-aware runtime requirement 收敛为 `checked-runtime`。该 action 不创建或销毁 LPReceipt，且 `Pool.total_lp` 已在 `mutate_set.preserved_fields` 中通过 Input/Output fixed-width preserved-field equality verifier 覆盖；metadata 因此把 `lp-supply-consistency` source 标为 `mutate-preserved-field-equality`，并移除旧的 Pool `total_lp` Input/Output runtime input requirement。`add_liquidity` / `remove_liquidity` 的 LP 供应变化、fee accounting、constant-product、proportional-liquidity/withdrawal、reserve conservation 和 pool-specific admission 仍保持 runtime-required，避免把完整 AMM 经济语义误报为完成。
+
+Slice 63 更新：schema v18 为 Pool `invariant_families[]` 和 Pool `runtime_input_requirements[]` 增加可选 `blocker` / `blocker_class`。剩余 runtime-required Pool family 现在按稳定类别暴露：generalized Pool admission 为 `phase2-deferred-pool-admission`，fee policy/accounting 为 `phase2-deferred-pool-fee-policy`，LP supply 为 `phase2-deferred-lp-supply-policy`，AMM reserve/pricing/liquidity/withdrawal 分别为 `phase2-deferred-amm-reserve-conservation`、`phase2-deferred-amm-pricing`、`phase2-deferred-amm-liquidity-accounting`、`phase2-deferred-amm-withdrawal-accounting`，launch/pool atomicity 为 `phase2-deferred-launch-atomicity`，generalized pool-id continuity 为 `phase2-deferred-pool-id-continuity`。CLI JSON、`--deny-runtime-obligations` 诊断和 docgen Markdown/HTML 都会显示这些 blocker class。Slice 63 没有把 AMM 经济语义或 launch builder 误标为 checked；它把 Phase 2 不关闭的 generalized Pool/launch 语义变成 policy-visible 的稳定边界。
+
 目标：
 - 在后端工作扩展之前冻结最小语言核心。
 
@@ -1972,18 +2052,19 @@ v1 执行计划必须保留这些边界：
   - `shared`
   - `receipt`
   - `object`
-  - `ephemeral`
 - 定义原始操作类：
-  - `launch`
   - `mint`
   - `burn`
   - `transfer`
-  - `seed_pool`
-  - `swap`
   - `wrap`
   - `unwrap`
   - `claim`
   - `settle`
+- 定义协议模式 metadata：
+  - launch builder
+  - pool/AMM flow
+  - `seed_pool`
+  - `swap`
 - 定义所有权、线性和生命周期规则
 - 定义 `touches` 语法和效果声明语法
 - 明确定义 `touches` 是：
@@ -2005,6 +2086,7 @@ v1 执行计划必须保留这些边界：
   - `consume_set`
   - `read_refs`
   - `write_intents`
+  - `mutate_set`（当前实现中的保守 replacement ABI + 字段级 mutation 摘要，尚不等价于完整 `write_intents`）
   - `create_set`
   - `effect_class`
   - `lifecycle_rules`
@@ -2105,6 +2187,14 @@ v1 执行计划必须保留这些边界：
 
 上述工作流应通过四个阶段交付。
 
+阶段推进规则：
+
+- 维护一个独立阶段表，而不是只维护百分比。
+- `go on` 表示继续执行阶段表中第一个未关闭阶段，直到该阶段退出门槛满足或出现真实阻塞。
+- 阶段收尾时必须更新阶段表：状态、证据、剩余工作和阻塞项。
+- 如果当前阶段在同一轮工作中收尾完成，应自动将下一阶段设为 active，并开始下一阶段第一个可执行事项。
+- 只有缺少凭据、外部依赖、破坏性操作或需要产品/协议决策时才暂停等待用户。
+
 ### 阶段 0 — 冻结系统契约
 
 目标：
@@ -2112,7 +2202,7 @@ v1 执行计划必须保留这些边界：
 
 构建：
 - 语义内核
-- 标准原语列表
+- 标准操作列表
 - 对象头格式
 - 效果清单格式
 - Spora IR 初稿
@@ -2124,7 +2214,7 @@ v1 执行计划必须保留这些边界：
 - 高级宏系统
 
 门槛：
-- 核心团队可以阅读规范并明确回答 `resource`、`shared`、`receipt`、`launch`、`pool` 和 `settle` 的含义。
+- 核心团队可以阅读规范并明确回答 `resource`、`shared`、`receipt`、`transfer`、`destroy`、`claim` 和 `settle` 的含义，并说明为什么 `launch` 和池 flow 不属于 v1 语言核心。
 
 ### 阶段 1 — 编译器 MVP
 
@@ -2155,6 +2245,8 @@ v1 执行计划必须保留这些边界：
 
 ### 阶段 2 — 资产生命周期和共享状态核心
 
+当前执行状态（2026-04-18）：Phase 2 和 Phase 3 operational exit gate 已关闭，Phase 4 生产强化已开始。`vesting.cell` 是当前受控目标；`read_ref` 参数调度器可见，schema-backed `Address` / `Hash` / `[u8; N]` 输出字段保存已进入 verifier 覆盖；create 的固定字节常量、`[u8; N<=8]` 参数、32 字节 `Address` / `Hash` 指针+长度参数输出验证已落地；固定宽度 aggregate 参数（例如 `[u64; N]`、`[(Address, u64); N]`）现在也有指针+长度 ABI、exact-size/bounds check、静态 foreach 展开、固定索引 lowering 和 tuple field projection；已知 tuple 返回类型的调用现在可通过真实 RISC-V 返回寄存器 ABI 返回并投影 `.0` 到 `.7`；受控 `launch_token -> seed_pool` 的 `pool-id-continuity` 已标为 `checked-runtime`；受控 `swap_a_for_b` 的 LP supply 不变式已通过 preserved `Pool.total_lp` equality 标为 `checked-runtime`；新建 Output 的 `type_hash()` 现在可通过 `LOAD_CELL_BY_FIELD Source::Output field=5` 读取实例 TypeHash，并作为固定字节 verifier source；命名 schema 参数的 `type_hash()` 现在要求可信的 32 字节指针+长度 ABI，而不是把 Pool 实例身份简化为编译期类型名 hash；可证明的 `with_lock(...)` 绑定现在会通过 `LOAD_CELL_BY_FIELD` 读取输出 `LockHash` 并做 32 字节比较；命名 cell-backed `destroy` 现在会通过 `LOAD_CELL_BY_FIELD Source::GroupOutput field=5` 扫描 grouped outputs，区分 `INDEX_OUT_OF_BOUND` 扫描结束和 `ITEM_MISSING` 无 type script，并把 destroy output absence / group boundary 标为 `checked-runtime`。剩余真实差距集中在 post-v1 launch builder、更广义的池特化 admission/经济不变量、launch-pool 原子性，以及 generalized `claim` 授权策略和 `settle` 生命周期/最终化验证；其中 generalized claim/settle 已通过 transaction runtime input blocker class 表示，Pool/launch 剩余义务已通过 schema v19 `pool_primitives[]` blocker class 表示。池仍是 shared-state 协议模式，不是 v1 语言原语。Phase 3 已完成 CellTx witness placement helper、Borsh envelope decode/admission、effect/operation/source class 校验、transaction Input/CellDep/Output index bounds 校验、trusted operation/source/index/binding_hash access-set multiset 对比、compiled-metadata producer helper、wallet transaction generator witness 自动附加与 `PendingTransaction` trusted summary 暴露、producer-returned summary 通过 mining sidecar insertion 进入 selector exposure、selector-provided builder summary 的 strict template prefilter 接收/拒绝测试、consensus MPE access-summary consumption、mempool/template admission policy gate、mempool-entry/template selector producer sidecar 保存与传递，以及 malformed/illegal/out-of-bounds/underreported/forged/missing/mismatched/transaction-shape-incompatible witness summary、malformed/missing/mismatched policy metadata 和 selector sidecar 传递的第一批对抗测试；schema v19 还会把 claim witness/signature 这类 runtime-only 访问从 scheduler witness 中过滤出去。Phase 4 当前差距是外部提交路径 trusted summary 认证/传递策略、更完整的调度器/状态转换 adversarial/property 测试，以及 release-grade 格式化/检查/审计门禁。
+
 目标：
 - 使语言对真正的 Spora 原生协议有用。
 
@@ -2162,12 +2254,10 @@ v1 执行计划必须保留这些边界：
 - `shared`
 - `receipt`
 - 生命周期转换
-- `launch`
-- `seed_pool`
-- `swap`
 - `claim`
 - `settle`
 - 调度器提示发出
+- 池示例的协议模式 metadata
 
 里程碑演示：
 - 一个完整的启动流程：
@@ -2725,7 +2815,7 @@ action settle_pool(
         "settlement time not reached")
     
     // 计算每个存款人的份额并分发
-    ephemeral distributed: u64 = 0
+    let mut distributed: u64 = 0
     
     for receipt in receipts {
         assert_invariant(receipt.pool_type_hash == pool.type_hash(),
@@ -2787,7 +2877,7 @@ action emergency_withdraw(
 
 3. **编译目标已经存在。** ckbvm 正在运行。系统调用接口稳定。RISC-V 工具链成熟。CellScript 只需要生成有效的 ELF 二进制文件，仅此而已。这是一个编译器项目，不是 VM 项目。
 
-4. **DAG 调度需要语言级支持。** P2B 并行化设计需要 `BlockAccessSummary` 和 `BlockExecutionEffect` 元数据。CellScript 的调度器提示自动提供此元数据，加速 P2B 路线图。
+4. **DAG 调度需要语言级支持。** MPE 并行化设计需要 `BlockAccessSummary` 和 `BlockExecutionEffect` 元数据。CellScript 的调度器提示自动提供此元数据，加速 MPE 路线图。
 
 ### 13.2 名称理由
 
@@ -2801,7 +2891,7 @@ action emergency_withdraw(
 - **最小表面积**：CellScript 做一件事（Cell 生命周期管理）并做好。该语言可以在一天内被任何知道 Rust 的人学会。
 - **零阻抗不匹配**：每个 CellScript 概念直接映射到 Spora 运行时概念。没有翻译层，没有适配器模式，没有"但底层模型实际上并不那样工作"。
 - **编译器强制执行的安全**：线性类型在编译时防止双重花费错误。生命周期属性在编译时防止无效状态转换。这些是原始脚本编程无法提供的保证。
-- **与 P2B 向前兼容**：调度器提示系统今天为明天正在构建的并行化模型设计，但它保持建议性。当 P2B 落地时，CellScript 编译的脚本可以受益，而不必将调度声明移入共识信任边界。
+- **与 MPE 向前兼容**：调度器提示系统今天为明天正在构建的并行化模型设计，但它保持建议性。当 MPE 落地时，CellScript 编译的脚本可以受益，而不必将调度声明移入共识信任边界。
 - **对 Cell 层透明**：只有当开发者仍然可以看到源代码如何降级为 `inputs`、`outputs`、`deps` 和见证时，该语言才有用。CellScript 保持该映射可检查。
 - **低注释负担**：开发者不应该必须手写完整的接触状态清单。编译器推断明显的部分，显式 `touches` 保留给共享写入和模糊情况。
 
@@ -2835,7 +2925,7 @@ CellScript 是一个针对现有基础设施的编译器。它在不修改基础
 
 4. **无生命周期感知**：CKB 没有资源生命周期状态的概念。CellScript 添加 `#[lifecycle(...)]` 属性，生成用于状态机强制执行的类型脚本逻辑。
 
-5. **无调度器提示**：CKB 脚本不提供并行执行的元数据。CellScript 在见证字段中发出 `SchedulerWitness` 数据，使区块模板构建器和虚拟处理器能够做出明智的调度决策。
+5. **无调度器提示**：CKB 脚本不提供并行执行的元数据。CellScript 的设计目标是在见证字段中发出 `SchedulerWitness` 数据，使区块模板构建器和虚拟处理器能够做出明智的调度决策。当前实现先将该数据作为编译 metadata sidecar 暴露。
 
    重要信任边界：
    这些提示仅是建议性的。链在 v1 中不能依赖它们进行共识有效性。
@@ -2902,7 +2992,7 @@ CellScript 的价值是将此协调栈内部化为一个规范管道：
 | 可选对象头模板 | 选定模式的编译器约定 | 对某些 `shared` / `receipt` / `settle` 模式有用，但不是全局强制的 |
 | 状态转换规则 | 类型脚本 ELF（编译器输出） | 类型脚本就是编译的 CellScript 操作。它在 ckbvm 中运行。 |
 | 授权逻辑 | 锁定脚本 ELF（编译器输出） | 锁定脚本从 CellScript 锁定函数编译。 |
-| 调度器元数据 | 见证字段（编译器输出） | 模板构建器 / 虚拟处理器的建议性数据。不是共识强制执行的。 |
+| 调度器元数据 | metadata sidecar（当前实现）；见证字段（设计目标） | 模板构建器 / 虚拟处理器的建议性数据。当前不是共识强制执行的。 |
 | 线性强制执行 | 编译器类型检查器 | 编译时保证。生产中线性检查没有运行时成本。 |
 | 生命周期强制执行 | 类型脚本逻辑（运行时） | 执行期间类型脚本验证生命周期转换。 |
 | mass 估计 | 编译器 + 共识 MassCalculator | 编译器估计 mass；共识层计算权威 mass。 |

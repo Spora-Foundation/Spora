@@ -7,9 +7,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use spora_consensus_core::tx::TransactionOutpoint;
 use spora_exec::celltx::{
-    CellScriptSchedulerAccessWitness, CellScriptSchedulerWitness, CellScriptSchedulerWitnessError, CellTx,
-    CELLSCRIPT_SCHEDULER_EFFECT_PURE, CELLSCRIPT_SCHEDULER_EFFECT_READ_ONLY, CELLSCRIPT_SCHEDULER_SOURCE_CELL_DEP,
-    CELLSCRIPT_SCHEDULER_SOURCE_INPUT, CELLSCRIPT_SCHEDULER_SOURCE_OUTPUT,
+    CellScriptSchedulerWitness, CellScriptSchedulerWitnessError, CellTx, CELLSCRIPT_SCHEDULER_EFFECT_PURE,
+    CELLSCRIPT_SCHEDULER_EFFECT_READ_ONLY, CELLSCRIPT_SCHEDULER_SOURCE_CELL_DEP, CELLSCRIPT_SCHEDULER_SOURCE_INPUT,
+    CELLSCRIPT_SCHEDULER_SOURCE_OUTPUT,
 };
 use spora_hashes::Hash;
 use thiserror::Error;
@@ -24,14 +24,16 @@ pub(super) enum BlockAccessSummaryError {
     },
     #[error("transaction {tx_id} carries CellScript scheduler witness but no trusted access set was provided")]
     MissingTrustedCellScriptAccessSet { tx_id: Hash },
+    #[error("transaction {tx_id} has a stale trusted CellScript scheduler access set but no scheduler witness")]
+    StaleTrustedCellScriptAccessSet { tx_id: Hash },
 }
 
-/// Trusted operation/source/index/binding-hash summaries keyed by CellTx id.
+/// Trusted full scheduler summaries keyed by CellTx id.
 ///
 /// The intended producers are transaction-builder output or authenticated
 /// compiled metadata. The transaction witness remains untrusted until it
-/// matches this multiset exactly.
-pub(super) type TrustedCellScriptSchedulerAccessSets = BTreeMap<Hash, Vec<CellScriptSchedulerAccessWitness>>;
+/// matches the full scheduler summary exactly.
+pub(super) type TrustedCellScriptSchedulerAccessSets = BTreeMap<Hash, CellScriptSchedulerWitness>;
 
 /// 块级访问摘要，记录一个 blue block 的完整读写集。
 /// 用于判断两个 blue blocks 之间是否存在数据依赖，
@@ -109,11 +111,11 @@ impl BlockAccessSummary {
         Self::try_from_block_txs_with_cellscript_scheduler_policy(block_hash, block_txs, None)
     }
 
-    /// Extract a block access summary with strict trusted-access-set matching.
+    /// Extract a block access summary with strict trusted-summary matching.
     ///
     /// This is the runtime bridge for transaction-builder or compiled-metadata
     /// summaries: every transaction that carries a CellScript scheduler witness
-    /// must have a trusted expected access multiset, and the decoded witness
+    /// must have a trusted expected scheduler summary, and the decoded witness
     /// must match it exactly before the witness contributes to MPE scheduling.
     pub fn try_from_block_txs_with_trusted_cellscript_scheduler_accesses(
         block_hash: Hash,
@@ -131,13 +133,25 @@ impl BlockAccessSummary {
         let mut summary = Self::from_block_txs(block_hash, block_txs);
         for tx in block_txs {
             let tx_id = Hash::from_bytes(tx.id());
+            let scheduler_witness_count = tx.cellscript_scheduler_witnesses().count();
+            if scheduler_witness_count > 1 {
+                return Err(BlockAccessSummaryError::CellScriptSchedulerWitness {
+                    tx_id,
+                    source: CellScriptSchedulerWitnessError::DuplicateSchedulerWitness { count: scheduler_witness_count },
+                });
+            }
+            if let Some(trusted_access_sets) = trusted_access_sets {
+                if trusted_access_sets.contains_key(&tx_id) && scheduler_witness_count == 0 {
+                    return Err(BlockAccessSummaryError::StaleTrustedCellScriptAccessSet { tx_id });
+                }
+            }
             for witness in tx.admitted_cellscript_scheduler_witnesses() {
                 let witness = witness.map_err(|source| BlockAccessSummaryError::CellScriptSchedulerWitness { tx_id, source })?;
                 if let Some(trusted_access_sets) = trusted_access_sets {
-                    let expected_accesses =
+                    let expected_summary =
                         trusted_access_sets.get(&tx_id).ok_or(BlockAccessSummaryError::MissingTrustedCellScriptAccessSet { tx_id })?;
                     witness
-                        .validate_access_set(expected_accesses)
+                        .validate_summary(expected_summary)
                         .map_err(|source| BlockAccessSummaryError::CellScriptSchedulerWitness { tx_id, source })?;
                 }
                 summary.merge_cellscript_scheduler_witness(tx, &witness);
@@ -301,7 +315,15 @@ mod tests {
         touches_shared: Vec<[u8; 32]>,
         accesses: Vec<CellScriptSchedulerAccessWitness>,
     ) -> Vec<u8> {
-        borsh::to_vec(&CellScriptSchedulerWitness {
+        borsh::to_vec(&scheduler_witness(effect_class, touches_shared, accesses)).unwrap()
+    }
+
+    fn scheduler_witness(
+        effect_class: u8,
+        touches_shared: Vec<[u8; 32]>,
+        accesses: Vec<CellScriptSchedulerAccessWitness>,
+    ) -> CellScriptSchedulerWitness {
+        CellScriptSchedulerWitness {
             magic: 0xCE11,
             version: CELLSCRIPT_SCHEDULER_WITNESS_VERSION,
             effect_class,
@@ -311,8 +333,7 @@ mod tests {
             estimated_cycles: 64,
             access_count: accesses.len() as u32,
             accesses,
-        })
-        .unwrap()
+        }
     }
 
     #[test]
@@ -409,6 +430,25 @@ mod tests {
 
         let error = BlockAccessSummary::try_from_block_txs_with_cellscript_scheduler(hash(0x01), &[tx]).unwrap_err();
         assert!(error.to_string().contains("invalid CellScript scheduler witness"));
+    }
+
+    #[test]
+    fn block_summary_rejects_duplicate_cellscript_scheduler_witnesses() {
+        let witness = scheduler_witness_bytes(
+            CELLSCRIPT_SCHEDULER_EFFECT_CREATING,
+            vec![],
+            vec![CellScriptSchedulerAccessWitness {
+                operation: CELLSCRIPT_SCHEDULER_OP_CREATE,
+                source: CELLSCRIPT_SCHEDULER_SOURCE_OUTPUT,
+                index: 0,
+                binding_hash: [0x24; 32],
+            }],
+        );
+        let tx = test_tx(vec![], vec![], 1, vec![witness.clone(), witness]);
+
+        let error = BlockAccessSummary::try_from_block_txs_with_cellscript_scheduler(hash(0x01), &[tx]).unwrap_err();
+
+        assert!(error.to_string().contains("duplicate CellScript scheduler witnesses"));
     }
 
     #[test]
@@ -513,10 +553,11 @@ mod tests {
             index: 0,
             binding_hash: [0x24; 32],
         };
-        let witness = scheduler_witness_bytes(CELLSCRIPT_SCHEDULER_EFFECT_CREATING, vec![[0x42; 32]], vec![expected_access.clone()]);
+        let trusted_summary = scheduler_witness(CELLSCRIPT_SCHEDULER_EFFECT_CREATING, vec![[0x42; 32]], vec![expected_access.clone()]);
+        let witness = borsh::to_vec(&trusted_summary).unwrap();
         let tx = test_tx(vec![], vec![], 1, vec![witness]);
         let mut trusted = TrustedCellScriptSchedulerAccessSets::new();
-        trusted.insert(Hash::from_bytes(tx.id()), vec![expected_access]);
+        trusted.insert(Hash::from_bytes(tx.id()), trusted_summary);
 
         let summary =
             BlockAccessSummary::try_from_block_txs_with_trusted_cellscript_scheduler_accesses(hash(0x01), &[tx.clone()], &trusted)
@@ -555,12 +596,81 @@ mod tests {
         let witness = scheduler_witness_bytes(CELLSCRIPT_SCHEDULER_EFFECT_CREATING, vec![], vec![actual_access]);
         let tx = test_tx(vec![], vec![], 1, vec![witness]);
         let mut trusted = TrustedCellScriptSchedulerAccessSets::new();
-        trusted.insert(Hash::from_bytes(tx.id()), vec![expected_access]);
+        trusted
+            .insert(Hash::from_bytes(tx.id()), scheduler_witness(CELLSCRIPT_SCHEDULER_EFFECT_CREATING, vec![], vec![expected_access]));
 
         let error = BlockAccessSummary::try_from_block_txs_with_trusted_cellscript_scheduler_accesses(hash(0x01), &[tx], &trusted)
             .unwrap_err();
 
         assert!(error.to_string().contains("access set mismatch"));
+    }
+
+    #[test]
+    fn trusted_access_set_path_rejects_shared_touch_tampering() {
+        let access = CellScriptSchedulerAccessWitness {
+            operation: CELLSCRIPT_SCHEDULER_OP_CREATE,
+            source: CELLSCRIPT_SCHEDULER_SOURCE_OUTPUT,
+            index: 0,
+            binding_hash: [0x24; 32],
+        };
+        let trusted_summary = scheduler_witness(CELLSCRIPT_SCHEDULER_EFFECT_CREATING, vec![[0x42; 32]], vec![access.clone()]);
+        let tampered_witness = scheduler_witness_bytes(CELLSCRIPT_SCHEDULER_EFFECT_CREATING, vec![], vec![access]);
+        let tx = test_tx(vec![], vec![], 1, vec![tampered_witness]);
+        let mut trusted = TrustedCellScriptSchedulerAccessSets::new();
+        trusted.insert(Hash::from_bytes(tx.id()), trusted_summary);
+
+        let error = BlockAccessSummary::try_from_block_txs_with_trusted_cellscript_scheduler_accesses(hash(0x01), &[tx], &trusted)
+            .unwrap_err();
+
+        assert!(error.to_string().contains("trusted summary mismatch"));
+        assert!(error.to_string().contains("touches_shared"));
+    }
+
+    #[test]
+    fn trusted_access_set_path_rejects_extra_untrusted_scheduler_witness() {
+        let expected_access = CellScriptSchedulerAccessWitness {
+            operation: CELLSCRIPT_SCHEDULER_OP_CREATE,
+            source: CELLSCRIPT_SCHEDULER_SOURCE_OUTPUT,
+            index: 0,
+            binding_hash: [0x24; 32],
+        };
+        let unexpected_access = CellScriptSchedulerAccessWitness {
+            operation: CELLSCRIPT_SCHEDULER_OP_CREATE,
+            source: CELLSCRIPT_SCHEDULER_SOURCE_OUTPUT,
+            index: 0,
+            binding_hash: [0x25; 32],
+        };
+        let trusted_summary = scheduler_witness(CELLSCRIPT_SCHEDULER_EFFECT_CREATING, vec![], vec![expected_access.clone()]);
+        let expected_witness = borsh::to_vec(&trusted_summary).unwrap();
+        let unexpected_witness = scheduler_witness_bytes(CELLSCRIPT_SCHEDULER_EFFECT_CREATING, vec![], vec![unexpected_access]);
+        let tx = test_tx(vec![], vec![], 1, vec![expected_witness, unexpected_witness]);
+        let mut trusted = TrustedCellScriptSchedulerAccessSets::new();
+        trusted.insert(Hash::from_bytes(tx.id()), trusted_summary);
+
+        let error = BlockAccessSummary::try_from_block_txs_with_trusted_cellscript_scheduler_accesses(hash(0x01), &[tx], &trusted)
+            .unwrap_err();
+
+        assert!(error.to_string().contains("duplicate CellScript scheduler witnesses"));
+    }
+
+    #[test]
+    fn trusted_access_set_path_rejects_duplicate_matching_scheduler_witnesses() {
+        let expected_access = CellScriptSchedulerAccessWitness {
+            operation: CELLSCRIPT_SCHEDULER_OP_CREATE,
+            source: CELLSCRIPT_SCHEDULER_SOURCE_OUTPUT,
+            index: 0,
+            binding_hash: [0x24; 32],
+        };
+        let trusted_summary = scheduler_witness(CELLSCRIPT_SCHEDULER_EFFECT_CREATING, vec![], vec![expected_access]);
+        let expected_witness = borsh::to_vec(&trusted_summary).unwrap();
+        let tx = test_tx(vec![], vec![], 1, vec![expected_witness.clone(), expected_witness]);
+        let mut trusted = TrustedCellScriptSchedulerAccessSets::new();
+        trusted.insert(Hash::from_bytes(tx.id()), trusted_summary);
+
+        let error = BlockAccessSummary::try_from_block_txs_with_trusted_cellscript_scheduler_accesses(hash(0x01), &[tx], &trusted)
+            .unwrap_err();
+
+        assert!(error.to_string().contains("duplicate CellScript scheduler witnesses"));
     }
 
     #[test]
@@ -574,5 +684,17 @@ mod tests {
         assert_eq!(summary.spent_outpoints, BTreeSet::from([outpoint(0x51, 0)]));
         assert!(summary.cellscript_shared_reads.is_empty());
         assert!(summary.cellscript_shared_writes.is_empty());
+    }
+
+    #[test]
+    fn trusted_access_set_path_rejects_stale_summary_for_plain_transaction() {
+        let tx = test_tx(vec![CellInput::new(OutPoint::new([0x52; 32], 0), 0)], vec![], 1, vec![]);
+        let mut trusted = TrustedCellScriptSchedulerAccessSets::new();
+        trusted.insert(Hash::from_bytes(tx.id()), scheduler_witness(CELLSCRIPT_SCHEDULER_EFFECT_CREATING, vec![], vec![]));
+
+        let error = BlockAccessSummary::try_from_block_txs_with_trusted_cellscript_scheduler_accesses(hash(0x01), &[tx], &trusted)
+            .unwrap_err();
+
+        assert!(error.to_string().contains("stale trusted CellScript scheduler access set"));
     }
 }

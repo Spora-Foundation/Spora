@@ -53,12 +53,3 @@ vm-runner = ["dep:ckb-vm"]
 [dev-dependencies]
 pretty_assertions = "1.4"
 tempfile = "3.10"
-
-[profile.release]
-opt-level = 3
-lto = true
-codegen-units = 1
-
-[profile.dev]
-opt-level = 0
-debug = true

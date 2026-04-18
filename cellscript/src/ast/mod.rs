@@ -167,6 +167,7 @@ pub struct Param {
     pub ty: Type,
     pub is_mut: bool,
     pub is_ref: bool,
+    pub is_read_ref: bool,
     pub span: Span,
 }
 
@@ -215,7 +216,6 @@ pub struct LetStmt {
     pub ty: Option<Type>,
     pub value: Expr,
     pub is_mut: bool,
-    pub is_ephemeral: bool,
     pub span: Span,
 }
 

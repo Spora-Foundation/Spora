@@ -5,7 +5,6 @@
 //
 // This example demonstrates how to use VersionedEnvelope for RocksDB storage.
 
-use borsh::{BorshDeserialize, BorshSerialize};
 use spora_exec::{CellTx, VersionedEnvelope, VersionedSerializable, CELLTX_SCHEMA_VERSION};
 use std::collections::HashMap;
 
@@ -70,7 +69,7 @@ fn main() -> Result<(), StorageError> {
     println!("Current schema version: {}", CELLTX_SCHEMA_VERSION);
 
     // Store transaction with version envelope
-    let key = format!("tx:{:02x}", hex::encode(&tx_id));
+    let key = format!("tx:{}", hex::encode(&tx_id));
     storage.put(key.as_bytes(), &tx)?;
     println!("\nStored transaction with VersionedEnvelope");
 

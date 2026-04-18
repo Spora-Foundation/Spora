@@ -26,7 +26,7 @@ use spora_consensus_core::{
         args::{TransactionValidationArgs, TransactionValidationBatchArgs},
         ConsensusApi,
     },
-    block::{BlockTemplate, TemplateBuildMode, TemplateTransactionSelector},
+    block::{BlockTemplate, CellScriptSchedulerAccessList, TemplateBuildMode, TemplateTransactionSelector},
     coinbase::MinerData,
     errors::{block::RuleError as BlockRuleError, tx::TxRuleError},
     tx::{CellTx, MutableTransaction, TransactionId},
@@ -300,8 +300,28 @@ impl MiningManager {
         orphan: Orphan,
         rbf_policy: RbfPolicy,
     ) -> MiningManagerResult<TransactionInsertion> {
-        let TransactionPreValidation { mut transaction, cell_tx, feerate_threshold } =
-            self.mempool.read().pre_validate_and_populate_cell_transaction(consensus, cell_tx, rbf_policy)?;
+        self.validate_and_insert_cell_transaction_with_scheduler_accesses(consensus, cell_tx, None, priority, orphan, rbf_policy)
+    }
+
+    /// Internal producer path for locally verified CellScript scheduler summaries.
+    /// External/RPC transaction submission must carry scheduler witnesses in the
+    /// transaction itself and pass the normal validation path.
+    pub(crate) fn validate_and_insert_cell_transaction_with_scheduler_accesses(
+        &self,
+        consensus: &dyn ConsensusApi,
+        cell_tx: CellTx,
+        cellscript_scheduler_accesses: Option<CellScriptSchedulerAccessList>,
+        priority: Priority,
+        orphan: Orphan,
+        rbf_policy: RbfPolicy,
+    ) -> MiningManagerResult<TransactionInsertion> {
+        let TransactionPreValidation { mut transaction, cell_tx, cellscript_scheduler_accesses, feerate_threshold } =
+            self.mempool.read().pre_validate_and_populate_cell_transaction_with_scheduler_accesses(
+                consensus,
+                cell_tx,
+                cellscript_scheduler_accesses,
+                rbf_policy,
+            )?;
         let args = TransactionValidationArgs::new(feerate_threshold);
         let canonical_cell_tx = cell_tx.expect("cell transaction pre-validation must preserve the canonical CellTx");
         let validation_result = validate_mempool_cell_transaction(consensus, &mut transaction, canonical_cell_tx.as_ref(), &args);
@@ -311,6 +331,7 @@ impl MiningManager {
             validation_result,
             transaction,
             Some(canonical_cell_tx),
+            cellscript_scheduler_accesses,
             priority,
             orphan,
             rbf_policy,
@@ -361,7 +382,12 @@ impl MiningManager {
             for cell_tx in chunk {
                 let transaction_id: TransactionId = cell_tx.id().into();
                 match mempool.pre_validate_and_populate_cell_transaction(consensus, cell_tx.as_ref().clone(), rbf_policy) {
-                    Ok(TransactionPreValidation { transaction, cell_tx: Some(canonical_cell_tx), feerate_threshold }) => {
+                    Ok(TransactionPreValidation {
+                        transaction,
+                        cell_tx: Some(canonical_cell_tx),
+                        cellscript_scheduler_accesses: _,
+                        feerate_threshold,
+                    }) => {
                         validation_args.push(TransactionValidationArgs::new(feerate_threshold));
                         transactions.push(transaction);
                         canonical_cell_txs.push(canonical_cell_tx);
@@ -411,6 +437,7 @@ impl MiningManager {
                     validation_result,
                     transaction,
                     Some(cell_tx),
+                    None,
                     priority,
                     orphan,
                     rbf_policy,
@@ -482,12 +509,14 @@ impl MiningManager {
                     let priority = transaction.priority;
                     let rbf_policy = Mempool::get_orphan_transaction_rbf_policy(priority);
                     let cell_tx = transaction.cell_tx();
+                    let cellscript_scheduler_accesses = transaction.cellscript_scheduler_accesses().cloned();
                     let mtx = transaction.mtx;
                     match mempool.post_validate_and_insert_transaction(
                         consensus,
                         validation_result,
                         mtx,
                         cell_tx,
+                        cellscript_scheduler_accesses,
                         priority,
                         Orphan::Allowed,
                         rbf_policy,

@@ -52,7 +52,7 @@ impl VersionedSerializable for UserDataV2 {
 
                 // Migrate to new version
                 // Assume current year is 2026 for age calculation
-                let current_year = 2026;
+                let current_year: u32 = 2026;
                 let birth_year = current_year.saturating_sub(v1.age);
 
                 Ok(Self {
@@ -112,12 +112,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     // Store as v1 (simulating old database entry)
-    let old_envelope = VersionedEnvelope {
-        format_version: 0x00, // Borsh
-        schema_version: 1,    // Old version
-        payload: borsh::to_vec(&user_v1)?,
-        _phantom: std::marker::PhantomData::<UserDataV2>,
-    };
+    let mut old_envelope = VersionedEnvelope::<UserDataV2>::default();
+    old_envelope.format_version = 0x00; // Borsh
+    old_envelope.schema_version = 1; // Old version
+    old_envelope.payload = borsh::to_vec(&user_v1)?;
     let old_stored_bytes = borsh::to_vec(&old_envelope)?;
 
     println!("Old v1 data: {:?}", user_v1);

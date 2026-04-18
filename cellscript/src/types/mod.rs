@@ -16,6 +16,7 @@ enum CallableKind {
 
 #[derive(Debug, Clone)]
 struct FunctionSignature {
+    params: Vec<Type>,
     return_type: Option<Type>,
     kind: CallableKind,
 }
@@ -135,6 +136,54 @@ impl TypeEnv {
         }
     }
 
+    fn linear_state(&self, name: &str) -> Option<LinearState> {
+        self.linear_states.get(name).copied().or_else(|| self.parent.as_ref().and_then(|parent| parent.linear_state(name)))
+    }
+
+    fn linear_names(&self) -> Vec<String> {
+        self.linear_states.keys().cloned().collect()
+    }
+
+    fn set_existing_linear_state(&mut self, name: &str, next: LinearState) {
+        if let Some(state) = self.linear_states.get_mut(name) {
+            *state = next;
+        } else if let Some(parent) = self.parent.as_mut() {
+            parent.set_existing_linear_state(name, next);
+        }
+    }
+
+    fn merge_branch_linear_states(
+        &mut self,
+        then_env: &TypeEnv,
+        then_returns: bool,
+        else_env: Option<&TypeEnv>,
+        else_returns: bool,
+        span: Span,
+    ) -> Result<()> {
+        for name in self.linear_names() {
+            let before = self.linear_state(&name).unwrap_or(LinearState::Available);
+            let then_state = then_env.linear_state(&name).unwrap_or(before);
+            let else_state = else_env.and_then(|env| env.linear_state(&name)).unwrap_or(before);
+
+            let merged = match (then_returns, else_env.is_some(), else_returns) {
+                (true, _, true) => before,
+                (true, true, false) => else_state,
+                (false, true, true) => then_state,
+                (false, true, false) if then_state == else_state => then_state,
+                (false, false, _) if then_state == before => before,
+                _ => {
+                    return Err(CompileError::new(
+                        format!("linear resource '{}' has inconsistent ownership state across if branches", name),
+                        span,
+                    ));
+                }
+            };
+
+            self.set_existing_linear_state(&name, merged);
+        }
+        Ok(())
+    }
+
     /// 检查所有线性资源是否已正确处理
     pub fn check_linear_complete(&self) -> Result<()> {
         for (name, state) in &self.linear_states {
@@ -164,11 +213,14 @@ impl Clone for TypeEnv {
 pub struct TypeChecker<'a> {
     env: TypeEnv,
     type_fields: HashMap<String, HashMap<String, Type>>,
+    enum_variants: HashMap<String, Vec<String>>,
+    enum_payload_variants: HashMap<String, HashSet<String>>,
     functions: HashMap<String, FunctionSignature>,
     linear_types: HashSet<String>,
     cell_type_kinds: HashMap<String, CellTypeKind>,
     type_capabilities: HashMap<String, HashSet<Capability>>,
     receipt_claim_outputs: HashMap<String, Option<Type>>,
+    lifecycle_receipts: HashSet<String>,
     resolver: Option<&'a ModuleResolver>,
     current_module: Option<String>,
     current_callable: Option<CallableKind>,
@@ -180,6 +232,14 @@ fn function_def_kind(function: &FunctionDef) -> CallableKind {
         FunctionDef::Action(_) => CallableKind::Action,
         FunctionDef::Function(_) => CallableKind::Function,
         FunctionDef::Lock(_) => CallableKind::Lock,
+    }
+}
+
+fn function_def_param_types(function: &FunctionDef) -> Vec<Type> {
+    match function {
+        FunctionDef::Action(action) => action.params.iter().map(|param| param.ty.clone()).collect(),
+        FunctionDef::Function(function) => function.params.iter().map(|param| param.ty.clone()).collect(),
+        FunctionDef::Lock(lock) => lock.params.iter().map(|param| param.ty.clone()).collect(),
     }
 }
 
@@ -208,11 +268,14 @@ impl<'a> TypeChecker<'a> {
         Self {
             env: TypeEnv::new(),
             type_fields: HashMap::new(),
+            enum_variants: HashMap::new(),
+            enum_payload_variants: HashMap::new(),
             functions: HashMap::new(),
             linear_types: HashSet::new(),
             cell_type_kinds: HashMap::new(),
             type_capabilities: HashMap::new(),
             receipt_claim_outputs: HashMap::new(),
+            lifecycle_receipts: HashSet::new(),
             resolver: None,
             current_module: None,
             current_callable: None,
@@ -232,7 +295,13 @@ impl<'a> TypeChecker<'a> {
         if self.current_module.is_none() {
             self.current_module = Some(module.name.clone());
         }
+        let mut seen_symbols = HashSet::new();
         for item in &module.items {
+            if let Some((symbol, span)) = item_symbol_name_and_span(item) {
+                if !seen_symbols.insert(symbol.to_string()) {
+                    return Err(CompileError::new(format!("duplicate symbol '{}'", symbol), span));
+                }
+            }
             match item {
                 Item::Const(const_def) => {
                     self.validate_type(&const_def.ty)?;
@@ -261,6 +330,9 @@ impl<'a> TypeChecker<'a> {
                     self.cell_type_kinds.insert(receipt.name.clone(), CellTypeKind::Receipt);
                     self.type_capabilities.insert(receipt.name.clone(), receipt.capabilities.iter().copied().collect());
                     self.receipt_claim_outputs.insert(receipt.name.clone(), receipt.claim_output.clone());
+                    if receipt.lifecycle.is_some() {
+                        self.lifecycle_receipts.insert(receipt.name.clone());
+                    }
                     self.type_fields.insert(
                         receipt.name.clone(),
                         receipt.fields.iter().map(|field| (field.name.clone(), field.ty.clone())).collect(),
@@ -272,23 +344,50 @@ impl<'a> TypeChecker<'a> {
                         struct_def.fields.iter().map(|field| (field.name.clone(), field.ty.clone())).collect(),
                     );
                 }
+                Item::Enum(enum_def) => {
+                    self.enum_variants
+                        .insert(enum_def.name.clone(), enum_def.variants.iter().map(|variant| variant.name.clone()).collect());
+                    self.enum_payload_variants.insert(
+                        enum_def.name.clone(),
+                        enum_def
+                            .variants
+                            .iter()
+                            .filter(|variant| !variant.fields.is_empty())
+                            .map(|variant| variant.name.clone())
+                            .collect(),
+                    );
+                }
                 Item::Action(action) => {
                     self.functions.insert(
                         action.name.clone(),
-                        FunctionSignature { return_type: action.return_type.clone(), kind: CallableKind::Action },
+                        FunctionSignature {
+                            params: action.params.iter().map(|param| param.ty.clone()).collect(),
+                            return_type: action.return_type.clone(),
+                            kind: CallableKind::Action,
+                        },
                     );
                 }
                 Item::Function(function) => {
                     self.functions.insert(
                         function.name.clone(),
-                        FunctionSignature { return_type: function.return_type.clone(), kind: CallableKind::Function },
+                        FunctionSignature {
+                            params: function.params.iter().map(|param| param.ty.clone()).collect(),
+                            return_type: function.return_type.clone(),
+                            kind: CallableKind::Function,
+                        },
                     );
                 }
                 Item::Lock(lock) => {
-                    self.functions
-                        .insert(lock.name.clone(), FunctionSignature { return_type: Some(Type::Bool), kind: CallableKind::Lock });
+                    self.functions.insert(
+                        lock.name.clone(),
+                        FunctionSignature {
+                            params: lock.params.iter().map(|param| param.ty.clone()).collect(),
+                            return_type: Some(Type::Bool),
+                            kind: CallableKind::Lock,
+                        },
+                    );
                 }
-                Item::Enum(_) | Item::Use(_) => {}
+                Item::Use(_) => {}
             }
         }
 
@@ -306,7 +405,7 @@ impl<'a> TypeChecker<'a> {
             Item::Receipt(r) => self.check_receipt(r),
             Item::Struct(s) => self.check_struct(s),
             Item::Const(c) => self.check_const(c),
-            Item::Enum(_) => Ok(()),
+            Item::Enum(e) => self.check_enum(e),
             Item::Action(a) => self.check_action(a),
             Item::Function(f) => self.check_function(f),
             Item::Lock(l) => self.check_lock(l),
@@ -351,6 +450,19 @@ impl<'a> TypeChecker<'a> {
         Ok(())
     }
 
+    fn check_enum(&mut self, enum_def: &EnumDef) -> Result<()> {
+        let mut seen = HashSet::new();
+        for variant in &enum_def.variants {
+            if !seen.insert(variant.name.clone()) {
+                return Err(CompileError::new(format!("duplicate enum variant '{}::{}'", enum_def.name, variant.name), variant.span));
+            }
+            for field_ty in &variant.fields {
+                self.validate_type(field_ty)?;
+            }
+        }
+        Ok(())
+    }
+
     fn check_const(&mut self, const_def: &ConstDef) -> Result<()> {
         let mut env = self.env.clone();
         let value_ty = self.infer_expr(&mut env, &const_def.value)?;
@@ -371,8 +483,12 @@ impl<'a> TypeChecker<'a> {
             let mut env = self.env.child();
 
             for param in &action.params {
+                self.validate_type(&param.ty)?;
                 let is_linear = self.is_linear_type(&param.ty);
                 env.insert(param.name.clone(), param.ty.clone(), is_linear, param.is_mut);
+            }
+            if let Some(return_type) = &action.return_type {
+                self.validate_type(return_type)?;
             }
             let return_env = env.clone();
             self.check_no_unreachable_stmts(&action.body)?;
@@ -404,8 +520,12 @@ impl<'a> TypeChecker<'a> {
             let mut env = self.env.child();
 
             for param in &function.params {
+                self.validate_type(&param.ty)?;
                 let is_linear = self.is_linear_type(&param.ty);
                 env.insert(param.name.clone(), param.ty.clone(), is_linear, param.is_mut);
+            }
+            if let Some(return_type) = &function.return_type {
+                self.validate_type(return_type)?;
             }
             let return_env = env.clone();
             self.check_no_unreachable_stmts(&function.body)?;
@@ -448,6 +568,7 @@ impl<'a> TypeChecker<'a> {
             let mut env = self.env.child();
 
             for param in &lock.params {
+                self.validate_type(&param.ty)?;
                 let is_linear = self.is_linear_type(&param.ty);
                 env.insert(param.name.clone(), param.ty.clone(), is_linear, param.is_mut);
             }
@@ -479,6 +600,7 @@ impl<'a> TypeChecker<'a> {
             Stmt::Let(let_stmt) => {
                 let ty = self.infer_let_value_type(env, let_stmt)?;
                 if let Some(ref declared_ty) = let_stmt.ty {
+                    self.validate_type(declared_ty)?;
                     if !self.types_equal(&ty, declared_ty) {
                         return Err(CompileError::new(
                             format!("type mismatch: expected {:?}, found {:?}", declared_ty, ty),
@@ -533,11 +655,16 @@ impl<'a> TypeChecker<'a> {
                 for stmt in &if_stmt.then_branch {
                     self.check_stmt(&mut then_env, stmt)?;
                 }
+                let then_returns = self.stmts_always_return(&if_stmt.then_branch);
                 if let Some(ref else_branch) = if_stmt.else_branch {
                     let mut else_env = env.child();
                     for stmt in else_branch {
                         self.check_stmt(&mut else_env, stmt)?;
                     }
+                    let else_returns = self.stmts_always_return(else_branch);
+                    env.merge_branch_linear_states(&then_env, then_returns, Some(&else_env), else_returns, if_stmt.span)?;
+                } else {
+                    env.merge_branch_linear_states(&then_env, then_returns, None, false, if_stmt.span)?;
                 }
                 Ok(())
             }
@@ -625,6 +752,8 @@ impl<'a> TypeChecker<'a> {
                     Ok(ty)
                 } else if let Some(constant) = self.resolve_constant(name) {
                     Ok(constant.ty)
+                } else if let Some(ty) = self.enum_variant_expr_type(name, expr_span(expr))? {
+                    Ok(ty)
                 } else if let Some((prefix, _)) = name.split_once("::") {
                     Ok(Type::Named(prefix.to_string()))
                 } else {
@@ -686,13 +815,16 @@ impl<'a> TypeChecker<'a> {
                 }
             }
             Expr::Call(call) => {
+                self.reject_forbidden_consensus_call(call)?;
+                let mut arg_types = Vec::with_capacity(call.args.len());
                 for arg in &call.args {
-                    self.infer_expr(env, arg)?;
+                    arg_types.push(self.infer_expr(env, arg)?);
                 }
+                let return_type = self.infer_call_type(env, call, &arg_types)?;
                 for arg in &call.args {
                     self.mark_expr_as_moved(env, arg)?;
                 }
-                self.infer_call_type(env, call)
+                Ok(return_type)
             }
             Expr::FieldAccess(field) => {
                 let expr_ty = self.infer_expr(env, &field.expr)?;
@@ -707,71 +839,46 @@ impl<'a> TypeChecker<'a> {
                 self.index_result_type(&expr_ty, index.span)
             }
             Expr::Create(create) => {
-                // 检查字段
-                for (_, value) in &create.fields {
-                    self.infer_expr(env, value)?;
-                }
+                self.require_create_target_cell_backed(&create.ty, create.span)?;
+                self.check_field_initializer(env, &create.ty, &create.fields, create.span, "create")?;
                 Ok(Type::Named(create.ty.clone()))
             }
             Expr::Consume(consume) => {
-                if let Expr::Identifier(name) = consume.expr.as_ref() {
-                    match env.lookup(name).cloned() {
-                        Some(ty) if self.is_linear_type(&ty) => env.consume(name)?,
-                        Some(Type::Named(_)) => {}
-                        Some(_) => {}
-                        None => return Err(CompileError::new(format!("undefined variable '{}'", name), Span::default())),
-                    }
-                }
+                let (_consume_ty, name) = self.require_named_linear_cell_operand(env, &consume.expr, "consume", consume.span)?;
+                env.consume(&name)?;
                 Ok(Type::U64)
             }
             Expr::Transfer(transfer) => {
-                let expr_ty = self.infer_expr(env, &transfer.expr)?;
+                let (expr_ty, name) = self.require_named_linear_cell_operand(env, &transfer.expr, "transfer", transfer.span)?;
                 let to_ty = self.infer_expr(env, &transfer.to)?;
                 if !self.is_address_like_type(&to_ty) {
                     return Err(CompileError::new("transfer destination must be address-like", transfer.span));
                 }
                 self.require_capability(&expr_ty, Capability::Transfer, "transfer", transfer.span)?;
-                if let Expr::Identifier(name) = transfer.expr.as_ref() {
-                    if self.is_linear_type(&expr_ty) {
-                        env.transfer(name)?;
-                    }
-                }
+                env.transfer(&name)?;
                 Ok(expr_ty)
             }
             Expr::Destroy(destroy) => {
-                let destroy_ty = self.infer_expr(env, &destroy.expr)?;
+                let (destroy_ty, name) = self.require_named_linear_cell_operand(env, &destroy.expr, "destroy", destroy.span)?;
                 self.require_capability(&destroy_ty, Capability::Destroy, "destroy", destroy.span)?;
-                if let Expr::Identifier(name) = destroy.expr.as_ref() {
-                    match env.lookup(name).cloned() {
-                        Some(ty) if self.is_linear_type(&ty) => env.destroy(name)?,
-                        Some(Type::Named(_)) => {}
-                        Some(_) => {}
-                        None => return Err(CompileError::new(format!("undefined variable '{}'", name), Span::default())),
-                    }
-                }
+                env.destroy(&name)?;
                 Ok(Type::U64)
             }
-            Expr::ReadRef(read_ref) => Ok(Type::Ref(Box::new(Type::Named(read_ref.ty.clone())))),
+            Expr::ReadRef(read_ref) => {
+                self.require_read_ref_target_cell_backed(&read_ref.ty, read_ref.span)?;
+                Ok(Type::Ref(Box::new(Type::Named(read_ref.ty.clone()))))
+            }
             Expr::Claim(claim) => {
-                let receipt_ty = self.infer_expr(env, &claim.receipt)?;
+                let (receipt_ty, name) = self.require_named_linear_cell_operand(env, &claim.receipt, "claim", claim.span)?;
                 if !self.is_receipt_type(&receipt_ty) {
                     return Err(CompileError::new("claim requires a receipt value", claim.span));
                 }
-                if let Expr::Identifier(name) = claim.receipt.as_ref() {
-                    if self.is_linear_type(&receipt_ty) {
-                        env.consume(name)?;
-                    }
-                }
+                env.consume(&name)?;
                 Ok(self.resolve_receipt_claim_output(&receipt_ty).unwrap_or(Type::U64))
             }
             Expr::Settle(settle) => {
-                let settle_ty = self.infer_expr(env, &settle.expr)?;
-                if !self.is_linear_type(&settle_ty) {
-                    return Err(CompileError::new("settle requires a cell-backed linear value", settle.span));
-                }
-                if let Expr::Identifier(name) = settle.expr.as_ref() {
-                    env.consume(name)?;
-                }
+                let (settle_ty, name) = self.require_named_linear_cell_operand(env, &settle.expr, "settle", settle.span)?;
+                env.consume(&name)?;
                 Ok(settle_ty)
             }
             Expr::Assert(assert_expr) => {
@@ -845,13 +952,12 @@ impl<'a> TypeChecker<'a> {
                 Ok(Type::Named("Range".to_string()))
             }
             Expr::StructInit(init) => {
-                for (_, value) in &init.fields {
-                    self.infer_expr(env, value)?;
-                }
+                self.check_field_initializer(env, &init.ty, &init.fields, init.span, "struct literal")?;
                 Ok(Type::Named(init.ty.clone()))
             }
             Expr::Match(match_expr) => {
-                self.infer_expr(env, &match_expr.expr)?;
+                let scrutinee_ty = self.infer_expr(env, &match_expr.expr)?;
+                self.check_match_patterns(&scrutinee_ty, match_expr)?;
                 let mut arm_ty = None;
                 for arm in &match_expr.arms {
                     let ty = self.infer_expr(env, &arm.value)?;
@@ -864,6 +970,177 @@ impl<'a> TypeChecker<'a> {
                 arm_ty.ok_or_else(|| CompileError::new("match expression must contain at least one arm", match_expr.span))
             }
         }
+    }
+
+    fn check_match_patterns(&self, scrutinee_ty: &Type, match_expr: &MatchExpr) -> Result<()> {
+        let Type::Named(enum_name) = scrutinee_ty else {
+            return Ok(());
+        };
+        let Some(variants) = self.resolve_enum_variants(enum_name) else {
+            return Ok(());
+        };
+        let variant_set = variants.iter().map(String::as_str).collect::<HashSet<_>>();
+        let mut seen = HashSet::new();
+        let mut has_wildcard = false;
+
+        for arm in &match_expr.arms {
+            if arm.pattern == "_" {
+                has_wildcard = true;
+                continue;
+            }
+            let Some(variant) = match_pattern_variant(enum_name, &arm.pattern) else {
+                return Err(CompileError::new(
+                    format!("match pattern '{}' does not match enum '{}'", arm.pattern, enum_name),
+                    arm.span,
+                ));
+            };
+            if !variant_set.contains(variant) {
+                return Err(CompileError::new(
+                    format!("unknown enum variant '{}::{}' in match pattern", enum_name, variant),
+                    arm.span,
+                ));
+            }
+            if self.enum_payload_variants.get(enum_name).is_some_and(|payloads| payloads.contains(variant)) {
+                return Err(CompileError::new(
+                    format!(
+                        "match pattern '{}::{}' targets a payload enum variant; payload destructuring lowering is not implemented",
+                        enum_name, variant
+                    ),
+                    arm.span,
+                ));
+            }
+            if !seen.insert(variant.to_string()) {
+                return Err(CompileError::new(format!("duplicate match arm for enum variant '{}::{}'", enum_name, variant), arm.span));
+            }
+        }
+
+        if !has_wildcard && seen.len() != variants.len() {
+            let missing = variants.iter().filter(|variant| !seen.contains(*variant)).cloned().collect::<Vec<_>>().join(", ");
+            return Err(CompileError::new(
+                format!("non-exhaustive match for enum '{}'; missing {}", enum_name, missing),
+                match_expr.span,
+            ));
+        }
+
+        Ok(())
+    }
+
+    fn resolve_enum_variants(&self, enum_name: &str) -> Option<Vec<String>> {
+        if let Some(variants) = self.enum_variants.get(enum_name) {
+            return Some(variants.clone());
+        }
+        self.resolver
+            .zip(self.current_module.as_deref())
+            .and_then(|(resolver, module)| resolver.resolve_type(module, enum_name))
+            .and_then(|ty| match ty {
+                TypeDef::Enum(enum_def) => Some(enum_def.variants.into_iter().map(|variant| variant.name).collect()),
+                _ => None,
+            })
+    }
+
+    fn check_field_initializer(
+        &mut self,
+        env: &mut TypeEnv,
+        type_name: &str,
+        fields: &[(String, Expr)],
+        span: Span,
+        context: &str,
+    ) -> Result<()> {
+        let Some(expected_fields) = self.resolve_named_type_fields(type_name) else {
+            return Err(CompileError::new(format!("{} target type '{}' has no declared fields", context, type_name), span));
+        };
+
+        let mut seen = HashSet::new();
+        for (field_name, value) in fields {
+            if !seen.insert(field_name.clone()) {
+                return Err(CompileError::new(format!("duplicate field '{}' in {} for '{}'", field_name, context, type_name), span));
+            }
+            let Some(expected_ty) = expected_fields.get(field_name) else {
+                return Err(CompileError::new(format!("unknown field '{}' in {} for '{}'", field_name, context, type_name), span));
+            };
+            let actual_ty = self.infer_expr(env, value)?;
+            if !self.initializer_types_equal(&actual_ty, expected_ty) {
+                return Err(CompileError::new(
+                    format!(
+                        "field '{}' in {} for '{}' has type mismatch: expected {:?}, found {:?}",
+                        field_name, context, type_name, expected_ty, actual_ty
+                    ),
+                    expr_span(value),
+                ));
+            }
+        }
+
+        let missing = expected_fields
+            .keys()
+            .filter(|field_name| !seen.contains(*field_name))
+            .filter(|field_name| !(self.lifecycle_receipts.contains(type_name) && field_name.as_str() == "state"))
+            .cloned()
+            .collect::<Vec<_>>();
+        if !missing.is_empty() {
+            return Err(CompileError::new(
+                format!("{} for '{}' is missing field(s): {}", context, type_name, missing.join(", ")),
+                span,
+            ));
+        }
+
+        Ok(())
+    }
+
+    fn require_create_target_cell_backed(&self, type_name: &str, span: Span) -> Result<()> {
+        match self.resolve_cell_type_kind(type_name) {
+            Some(CellTypeKind::Resource | CellTypeKind::Shared | CellTypeKind::Receipt) => Ok(()),
+            None => Err(CompileError::new(
+                format!("create target type '{}' must be a resource, shared, or receipt cell type", type_name),
+                span,
+            )),
+        }
+    }
+
+    fn require_read_ref_target_cell_backed(&self, type_name: &str, span: Span) -> Result<()> {
+        match self.resolve_cell_type_kind(type_name) {
+            Some(CellTypeKind::Resource | CellTypeKind::Shared | CellTypeKind::Receipt) => Ok(()),
+            None => Err(CompileError::new(
+                format!("read_ref target type '{}' must be a resource, shared, or receipt cell type", type_name),
+                span,
+            )),
+        }
+    }
+
+    fn enum_variant_expr_type(&self, name: &str, span: Span) -> Result<Option<Type>> {
+        let Some((enum_name, variant)) = name.rsplit_once("::") else {
+            return Ok(None);
+        };
+        let Some(variants) = self.resolve_enum_variants(enum_name) else {
+            return Ok(None);
+        };
+        if !variants.iter().any(|candidate| candidate == variant) {
+            return Err(CompileError::new(format!("unknown enum variant '{}::{}'", enum_name, variant), span));
+        }
+        if self.enum_variant_has_payload(enum_name, variant) {
+            return Err(CompileError::new(
+                format!(
+                    "enum payload variant '{}::{}' cannot be used as a value until payload construction lowering is implemented",
+                    enum_name, variant
+                ),
+                span,
+            ));
+        }
+        Ok(Some(Type::Named(enum_name.to_string())))
+    }
+
+    fn enum_variant_has_payload(&self, enum_name: &str, variant: &str) -> bool {
+        if self.enum_payload_variants.get(enum_name).is_some_and(|payloads| payloads.contains(variant)) {
+            return true;
+        }
+        self.resolver
+            .zip(self.current_module.as_deref())
+            .and_then(|(resolver, module)| resolver.resolve_type(module, enum_name))
+            .is_some_and(|ty| match ty {
+                TypeDef::Enum(enum_def) => {
+                    enum_def.variants.iter().any(|candidate| candidate.name == variant && !candidate.fields.is_empty())
+                }
+                _ => false,
+            })
     }
 
     fn validate_expr_allowed_in_current_callable(&self, expr: &Expr) -> Result<()> {
@@ -893,6 +1170,11 @@ impl<'a> TypeChecker<'a> {
         }
 
         Ok(())
+    }
+
+    fn initializer_types_equal(&self, actual: &Type, expected: &Type) -> bool {
+        self.types_equal(actual, expected)
+            || matches!((actual, expected), (Type::Named(actual), Type::Named(expected)) if actual == "Vec" && expected.starts_with("Vec<"))
     }
 
     fn bind_pattern(&self, env: &mut TypeEnv, pattern: &BindingPattern, ty: &Type, is_mut: bool, span: Span) -> Result<()> {
@@ -1198,18 +1480,9 @@ impl<'a> TypeChecker<'a> {
             Type::Ref(inner) | Type::MutRef(inner) => self.lookup_field_type(inner, field, span),
             Type::Named(name) => {
                 let base_name = name.split('<').next().unwrap_or(name.as_str());
-                if let Some(fields) = self.type_fields.get(base_name) {
+                if let Some(fields) = self.resolve_named_type_fields(base_name) {
                     if let Some(field_ty) = fields.get(field) {
                         return Ok(field_ty.clone());
-                    }
-                }
-                if let Some(module) = &self.current_module {
-                    if let Some(resolver) = self.resolver {
-                        if let Some(fields) = resolver.type_fields(module, base_name) {
-                            if let Some((_, field_ty)) = fields.into_iter().find(|(field_name, _)| field_name == field) {
-                                return Ok(field_ty);
-                            }
-                        }
                     }
                 }
                 Err(CompileError::new(format!("unknown field '{}' on type '{}'", field, base_name), span))
@@ -1218,34 +1491,67 @@ impl<'a> TypeChecker<'a> {
         }
     }
 
-    fn infer_call_type(&mut self, env: &mut TypeEnv, call: &CallExpr) -> Result<Type> {
+    fn resolve_named_type_fields(&self, type_name: &str) -> Option<HashMap<String, Type>> {
+        let base_name = type_name.split('<').next().unwrap_or(type_name);
+        if let Some(fields) = self.type_fields.get(base_name) {
+            return Some(fields.clone());
+        }
+        self.resolver
+            .zip(self.current_module.as_deref())
+            .and_then(|(resolver, module)| resolver.type_fields(module, base_name))
+            .map(|fields| fields.into_iter().collect())
+    }
+
+    fn infer_call_type(&mut self, env: &mut TypeEnv, call: &CallExpr, arg_types: &[Type]) -> Result<Type> {
         match call.func.as_ref() {
             Expr::Identifier(name) => {
                 if let Some(signature) = self.functions.get(name).cloned() {
                     self.validate_call_allowed(name, signature.kind, call.span)?;
+                    self.validate_call_args(name, &signature.params, arg_types, call.span)?;
                     return Ok(signature.return_type.unwrap_or(Type::Unit));
                 }
                 if let Some(function) = self.resolve_function(name) {
                     self.validate_call_allowed(name, function_def_kind(&function), call.span)?;
+                    let params = function_def_param_types(&function);
+                    self.validate_call_args(name, &params, arg_types, call.span)?;
                     return Ok(self.function_return_type(&function).unwrap_or(Type::Unit));
                 }
                 if let Some((prefix, suffix)) = name.rsplit_once("::") {
                     if self.current_module.as_deref() == Some(prefix) {
                         if let Some(signature) = self.functions.get(suffix).cloned() {
                             self.validate_call_allowed(name, signature.kind, call.span)?;
+                            self.validate_call_args(name, &signature.params, arg_types, call.span)?;
                             return Ok(signature.return_type.unwrap_or(Type::Unit));
                         }
                     }
                     return Ok(match (prefix, suffix) {
-                        ("env", "current_daa_score") => Type::U64,
-                        ("Address", "zero") => Type::Address,
-                        ("Hash", "zero") => Type::Hash,
-                        (_, "new") => Type::Named(prefix.to_string()),
-                        (_, "zero") => Type::Named(prefix.to_string()),
+                        ("env", "current_daa_score") => {
+                            self.validate_builtin_arity(name, 0, arg_types, call.span)?;
+                            Type::U64
+                        }
+                        ("Address", "zero") => {
+                            self.validate_builtin_arity(name, 0, arg_types, call.span)?;
+                            Type::Address
+                        }
+                        ("Hash", "zero") => {
+                            self.validate_builtin_arity(name, 0, arg_types, call.span)?;
+                            Type::Hash
+                        }
+                        (_, "new") => {
+                            self.validate_builtin_arity(name, 0, arg_types, call.span)?;
+                            self.validate_namespaced_type_constructor(prefix, suffix, call.span)?;
+                            Type::Named(prefix.to_string())
+                        }
+                        (_, "zero") => {
+                            self.validate_builtin_arity(name, 0, arg_types, call.span)?;
+                            self.validate_namespaced_type_constructor(prefix, suffix, call.span)?;
+                            Type::Named(prefix.to_string())
+                        }
                         _ => return Err(CompileError::new(format!("unknown namespaced function '{}'", name), call.span)),
                     });
                 }
                 if name == "min" || name == "max" || name == "isqrt" {
+                    self.validate_numeric_builtin_call(name, arg_types, call.span)?;
                     return Ok(Type::U64);
                 }
                 Err(CompileError::new(format!("unknown function '{}'", name), call.span))
@@ -1253,22 +1559,26 @@ impl<'a> TypeChecker<'a> {
             Expr::FieldAccess(field) => {
                 let receiver_ty = self.infer_expr(env, &field.expr)?;
                 match field.field.as_str() {
-                    "type_hash" => Ok(Type::Hash),
-                    "len" => Ok(Type::U64),
+                    "type_hash" => {
+                        self.validate_builtin_arity(&field.field, 0, arg_types, call.span)?;
+                        Ok(Type::Hash)
+                    }
+                    "len" => {
+                        self.validate_builtin_arity(&field.field, 0, arg_types, call.span)?;
+                        Ok(Type::U64)
+                    }
                     "push" => {
-                        if call.args.len() != 1 {
-                            return Err(CompileError::new("Vec.push expects exactly one argument", call.span));
-                        }
-                        let arg_ty = self.infer_expr(env, &call.args[0])?;
+                        self.validate_builtin_arity("Vec.push", 1, arg_types, call.span)?;
+                        let arg_ty = &arg_types[0];
                         if let Type::Named(name) = &receiver_ty {
                             if name == "Vec" {
                                 if let Expr::Identifier(receiver_name) = field.expr.as_ref() {
-                                    env.update_type(receiver_name, Type::Named(format!("Vec<{}>", type_repr(&arg_ty))));
+                                    env.update_type(receiver_name, Type::Named(format!("Vec<{}>", type_repr(arg_ty))));
                                 }
                                 return Ok(Type::Unit);
                             }
                             if let Some(item_ty) = self.parse_named_collection_item_type(name) {
-                                if !self.types_equal(&item_ty, &arg_ty) {
+                                if !self.types_equal(&item_ty, arg_ty) {
                                     return Err(CompileError::new(
                                         format!("Vec.push type mismatch: expected {:?}, found {:?}", item_ty, arg_ty),
                                         call.span,
@@ -1279,12 +1589,97 @@ impl<'a> TypeChecker<'a> {
                         }
                         Err(CompileError::new("push is only supported on Vec values", call.span))
                     }
-                    "extend_from_slice" => Ok(Type::Unit),
+                    "extend_from_slice" => {
+                        self.validate_builtin_arity("Vec.extend_from_slice", 1, arg_types, call.span)?;
+                        Ok(Type::Unit)
+                    }
                     _ => self.lookup_field_type(&receiver_ty, &field.field, field.span),
                 }
             }
             _ => Err(CompileError::new("unsupported call target", call.span)),
         }
+    }
+
+    fn validate_namespaced_type_constructor(&self, type_name: &str, constructor: &str, span: Span) -> Result<()> {
+        if type_name == "Vec" {
+            return Ok(());
+        }
+        self.validate_named_type(type_name)
+            .map_err(|_| CompileError::new(format!("unknown namespaced function '{}::{}'", type_name, constructor), span))
+    }
+
+    fn validate_call_args(&self, callee_name: &str, expected: &[Type], actual: &[Type], span: Span) -> Result<()> {
+        if actual.len() != expected.len() {
+            return Err(CompileError::new(
+                format!(
+                    "function '{}' expects {} argument{}, found {}",
+                    callee_name,
+                    expected.len(),
+                    if expected.len() == 1 { "" } else { "s" },
+                    actual.len()
+                ),
+                span,
+            ));
+        }
+
+        for (index, (expected_ty, actual_ty)) in expected.iter().zip(actual.iter()).enumerate() {
+            if !self.call_argument_type_compatible(expected_ty, actual_ty) {
+                return Err(CompileError::new(
+                    format!(
+                        "function '{}' argument {} type mismatch: expected {}, found {}",
+                        callee_name,
+                        index + 1,
+                        type_repr(expected_ty),
+                        type_repr(actual_ty)
+                    ),
+                    span,
+                ));
+            }
+        }
+
+        Ok(())
+    }
+
+    fn call_argument_type_compatible(&self, expected: &Type, actual: &Type) -> bool {
+        match (expected, actual) {
+            (Type::Ref(expected_inner), Type::MutRef(actual_inner)) => self.types_equal(expected_inner, actual_inner),
+            _ => self.types_equal(expected, actual),
+        }
+    }
+
+    fn validate_builtin_arity(&self, name: &str, expected: usize, actual: &[Type], span: Span) -> Result<()> {
+        if actual.len() == expected {
+            Ok(())
+        } else {
+            Err(CompileError::new(
+                format!("{} expects {} argument{}, found {}", name, expected, if expected == 1 { "" } else { "s" }, actual.len()),
+                span,
+            ))
+        }
+    }
+
+    fn validate_numeric_builtin_call(&self, name: &str, arg_types: &[Type], span: Span) -> Result<()> {
+        let expected = if name == "isqrt" { 1 } else { 2 };
+        self.validate_builtin_arity(name, expected, arg_types, span)?;
+        for (index, arg_ty) in arg_types.iter().enumerate() {
+            if !self.is_numeric_type(arg_ty) {
+                return Err(CompileError::new(
+                    format!("{} argument {} must be numeric, found {}", name, index + 1, type_repr(arg_ty)),
+                    span,
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    fn reject_forbidden_consensus_call(&self, call: &CallExpr) -> Result<()> {
+        if let Some(name) = forbidden_consensus_call_name(call.func.as_ref()) {
+            return Err(CompileError::new(
+                format!("{} is forbidden in consensus CellScript; use explicit control flow and checked error handling instead", name),
+                call.span,
+            ));
+        }
+        Ok(())
     }
 
     fn resolve_function(&self, name: &str) -> Option<FunctionDef> {
@@ -1334,7 +1729,36 @@ impl<'a> TypeChecker<'a> {
                 Ok(())
             }
             Type::Ref(inner) | Type::MutRef(inner) => self.validate_type(inner),
+            Type::Named(name) => self.validate_named_type(name),
             _ => Ok(()),
+        }
+    }
+
+    fn validate_named_type(&self, name: &str) -> Result<()> {
+        let base_name = name.split('<').next().unwrap_or(name);
+        match base_name {
+            "Option" | "Result" => {
+                return Err(CompileError::new(
+                    format!("type '{}' is reserved for the explicit error model but is not implemented yet", base_name),
+                    Span::default(),
+                ));
+            }
+            "String" | "Range" | "Vec" | "usize" | "isize" => return Ok(()),
+            _ => {}
+        }
+
+        if self.type_fields.contains_key(base_name)
+            || self.enum_variants.contains_key(base_name)
+            || self.cell_type_kinds.contains_key(base_name)
+            || self
+                .resolver
+                .zip(self.current_module.as_deref())
+                .and_then(|(resolver, module)| resolver.resolve_type(module, base_name))
+                .is_some()
+        {
+            Ok(())
+        } else {
+            Err(CompileError::new(format!("unknown type '{}'", name), Span::default()))
         }
     }
 
@@ -1405,6 +1829,26 @@ impl<'a> TypeChecker<'a> {
             Some(CellTypeKind::Resource | CellTypeKind::Shared) => Ok(()),
             Some(CellTypeKind::Receipt) => Err(CompileError::new("receipt claim output must not be another receipt", span)),
             None => Err(CompileError::new("receipt claim output must be a cell-backed resource or shared type", span)),
+        }
+    }
+
+    fn require_named_linear_cell_operand(
+        &mut self,
+        env: &mut TypeEnv,
+        expr: &Expr,
+        operation: &str,
+        span: Span,
+    ) -> Result<(Type, String)> {
+        let ty = self.infer_expr(env, expr)?;
+        if !self.is_linear_type(&ty) {
+            return Err(CompileError::new(format!("{} requires a cell-backed linear value", operation), span));
+        }
+        match expr {
+            Expr::Identifier(name) => Ok((ty, name.clone())),
+            _ => Err(CompileError::new(
+                format!("{} requires a named cell-backed value so the compiler can track linear ownership", operation),
+                span,
+            )),
         }
     }
 
@@ -1518,6 +1962,51 @@ fn expr_span(expr: &Expr) -> Span {
         Expr::Range(range) => range.span,
         Expr::StructInit(init) => init.span,
         Expr::Match(match_expr) => match_expr.span,
+    }
+}
+
+fn forbidden_consensus_call_name(expr: &Expr) -> Option<&'static str> {
+    match expr {
+        Expr::Identifier(name) => forbidden_consensus_terminal(name),
+        Expr::FieldAccess(field) => forbidden_consensus_terminal(&field.field),
+        _ => None,
+    }
+}
+
+fn forbidden_consensus_terminal(name: &str) -> Option<&'static str> {
+    match name.rsplit("::").next().unwrap_or(name) {
+        "unwrap" => Some("unwrap"),
+        "expect" => Some("expect"),
+        "unwrap_or" => Some("unwrap_or"),
+        _ => None,
+    }
+}
+
+fn match_pattern_variant<'a>(enum_name: &str, pattern: &'a str) -> Option<&'a str> {
+    if let Some((qualifier, variant)) = pattern.rsplit_once("::") {
+        let qualifier_terminal = qualifier.rsplit("::").next().unwrap_or(qualifier);
+        if qualifier == enum_name || qualifier_terminal == enum_name {
+            Some(variant)
+        } else {
+            None
+        }
+    } else {
+        Some(pattern)
+    }
+}
+
+fn item_symbol_name_and_span(item: &Item) -> Option<(&str, Span)> {
+    match item {
+        Item::Resource(def) => Some((&def.name, def.span)),
+        Item::Shared(def) => Some((&def.name, def.span)),
+        Item::Receipt(def) => Some((&def.name, def.span)),
+        Item::Struct(def) => Some((&def.name, def.span)),
+        Item::Enum(def) => Some((&def.name, def.span)),
+        Item::Const(def) => Some((&def.name, def.span)),
+        Item::Action(def) => Some((&def.name, def.span)),
+        Item::Function(def) => Some((&def.name, def.span)),
+        Item::Lock(def) => Some((&def.name, def.span)),
+        Item::Use(_) => None,
     }
 }
 

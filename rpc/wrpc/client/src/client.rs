@@ -699,7 +699,7 @@ impl RpcApi for SporaRpcClient {
     async fn subscribe_notifications(&self, request: SubscribeNotificationsRequest) -> RpcResult<SubscribeNotificationsResponse> {
         let channel = Channel::unbounded();
         let connection = ChannelConnection::new("wrpc-client", channel.sender, ChannelType::Closable);
-        let listener_id = self.register_new_listener(connection);
+        let listener_id = self.register_local_listener(connection);
         let subscription_id = listener_id as u64;
 
         self.start_notify(listener_id, request.scope.clone()).await?;

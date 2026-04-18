@@ -19,7 +19,7 @@ mod tests {
     use spora_addresses::{Address, Prefix};
     use spora_consensus_core::{
         api::ConsensusApi,
-        block::TemplateBuildMode,
+        block::{CellScriptSchedulerAccessList, TemplateBuildMode},
         coinbase::MinerData,
         constants::SAU_PER_SPORA,
         errors::tx::TxRuleError,
@@ -29,6 +29,10 @@ mod tests {
             TransactionOutpoint,
         },
     };
+    use spora_exec::celltx::{
+        CellScriptSchedulerAccessWitness, CellScriptSchedulerWitness, CELLSCRIPT_SCHEDULER_EFFECT_CREATING,
+        CELLSCRIPT_SCHEDULER_OP_CREATE, CELLSCRIPT_SCHEDULER_SOURCE_OUTPUT, CELLSCRIPT_SCHEDULER_WITNESS_VERSION,
+    };
     use spora_hashes::Hash;
     use spora_mining_errors::mempool::RuleResult;
     use std::{iter::once, sync::Arc};
@@ -36,6 +40,43 @@ mod tests {
 
     const TARGET_TIME_PER_BLOCK: u64 = 1_000;
     const MAX_BLOCK_MASS: u64 = 500_000;
+
+    fn scheduler_accesses(marker: u8) -> CellScriptSchedulerAccessList {
+        scheduler_summary(vec![CellScriptSchedulerAccessWitness {
+            operation: CELLSCRIPT_SCHEDULER_OP_CREATE,
+            source: CELLSCRIPT_SCHEDULER_SOURCE_OUTPUT,
+            index: 0,
+            binding_hash: [marker; 32],
+        }])
+    }
+
+    fn scheduler_summary(accesses: Vec<CellScriptSchedulerAccessWitness>) -> CellScriptSchedulerAccessList {
+        CellScriptSchedulerWitness {
+            magic: 0xCE11,
+            version: CELLSCRIPT_SCHEDULER_WITNESS_VERSION,
+            effect_class: CELLSCRIPT_SCHEDULER_EFFECT_CREATING,
+            parallelizable: false,
+            touches_shared_count: 0,
+            touches_shared: vec![],
+            estimated_cycles: 64,
+            access_count: accesses.len() as u32,
+            accesses,
+        }
+    }
+
+    fn scheduler_witness_bytes(summary: CellScriptSchedulerAccessList) -> Vec<u8> {
+        borsh::to_vec(&summary).expect("test helper must encode scheduler witness")
+    }
+
+    fn expiring_sidecar_test_config() -> Config {
+        let mut config = Config::build_default(TARGET_TIME_PER_BLOCK, false, MAX_BLOCK_MASS);
+        config.transaction_expire_interval_daa_score = 1;
+        config.transaction_expire_scan_interval_daa_score = 1;
+        config.transaction_expire_scan_interval_milliseconds = 0;
+        config.orphan_expire_interval_daa_score = 1;
+        config.orphan_expire_scan_interval_daa_score = 1;
+        config
+    }
 
     // test_validate_and_insert_transaction verifies that valid transactions were successfully inserted into the mempool.
     #[test]
@@ -201,6 +242,647 @@ mod tests {
             stored.calculated_non_contextual_masses,
             Some(expected_mass),
             "mempool mass calculation must use the original canonical CellTx"
+        );
+    }
+
+    #[test]
+    fn test_validate_and_insert_cell_transaction_with_scheduler_accesses_reaches_selector() {
+        let consensus = Arc::new(ConsensusMock::new());
+        let counters = Arc::new(MiningCounters::default());
+        let mining_manager = MiningManager::new(TARGET_TIME_PER_BLOCK, false, MAX_BLOCK_MASS, None, counters);
+
+        let funding_tx = create_cell_transaction_without_input(vec![500 * SAU_PER_SPORA]);
+        let funding_outpoint = TransactionOutpoint::new(funding_tx.id(), 0);
+        consensus.add_cell_transaction(funding_tx, 1);
+
+        let (lock_script, _witness) = op_true_script();
+        let cell_tx = CellTx::new(
+            vec![CellInput::new(funding_outpoint, 0)],
+            vec![],
+            vec![CellOutput { lock: lock_script, type_: None, capacity: 500 * SAU_PER_SPORA - DEFAULT_MINIMUM_RELAY_TRANSACTION_FEE }],
+            vec![vec![]],
+            vec![vec![]],
+        )
+        .expect("test helper must construct a valid CellTx");
+        let tx_id = TransactionId::from_bytes(cell_tx.id());
+        let accesses = scheduler_accesses(0x56);
+
+        mining_manager
+            .validate_and_insert_cell_transaction_with_scheduler_accesses(
+                consensus.as_ref(),
+                cell_tx.clone(),
+                Some(accesses.clone()),
+                Priority::High,
+                Orphan::Forbidden,
+                RbfPolicy::Forbidden,
+            )
+            .expect("CellTx with producer scheduler sidecar should be accepted");
+
+        let mut selector = mining_manager.build_selector();
+        let selected = selector.select_transactions();
+        assert!(selected.iter().any(|selected_tx| selected_tx.id() == cell_tx.id()));
+        assert_eq!(selector.selected_cellscript_scheduler_accesses().get(&tx_id), Some(&accesses));
+    }
+
+    #[test]
+    fn test_builder_backed_cellscript_scheduler_summary_reaches_selector() {
+        let consensus = Arc::new(ConsensusMock::new());
+        let counters = Arc::new(MiningCounters::default());
+        let mining_manager = MiningManager::new(TARGET_TIME_PER_BLOCK, false, MAX_BLOCK_MASS, None, counters);
+
+        let funding_tx = create_cell_transaction_without_input(vec![500 * SAU_PER_SPORA]);
+        let funding_outpoint = TransactionOutpoint::new(funding_tx.id(), 0);
+        consensus.add_cell_transaction(funding_tx, 1);
+
+        let (lock_script, _witness) = op_true_script();
+        let mut cell_tx = CellTx::new(
+            vec![CellInput::new(funding_outpoint, 0)],
+            vec![],
+            vec![CellOutput { lock: lock_script, type_: None, capacity: 500 * SAU_PER_SPORA - DEFAULT_MINIMUM_RELAY_TRANSACTION_FEE }],
+            vec![vec![]],
+            vec![vec![]],
+        )
+        .expect("test helper must construct a valid CellTx");
+        let tx_id = TransactionId::from_bytes(cell_tx.id());
+        let expected_accesses = scheduler_accesses(0x77);
+        let producer_accesses = cell_tx
+            .push_cellscript_compiled_scheduler_witness(scheduler_witness_bytes(expected_accesses.clone()))
+            .expect("compiled scheduler witness should match the concrete transaction shape");
+
+        assert_eq!(producer_accesses, expected_accesses);
+        assert_eq!(cell_tx.cellscript_scheduler_witnesses().count(), 1);
+
+        mining_manager
+            .validate_and_insert_cell_transaction_with_scheduler_accesses(
+                consensus.as_ref(),
+                cell_tx.clone(),
+                Some(producer_accesses.clone()),
+                Priority::High,
+                Orphan::Forbidden,
+                RbfPolicy::Forbidden,
+            )
+            .expect("builder-backed scheduler sidecar should be accepted");
+
+        let mut selector = mining_manager.build_selector();
+        let selected = selector.select_transactions();
+        assert!(selected.iter().any(|selected_tx| selected_tx.id() == cell_tx.id()));
+        assert_eq!(selector.selected_cellscript_scheduler_accesses().get(&tx_id), Some(&producer_accesses));
+    }
+
+    #[test]
+    fn test_mempool_mixed_cellscript_scheduler_sidecar_storage_reaches_selector() {
+        let consensus = Arc::new(ConsensusMock::new());
+        let counters = Arc::new(MiningCounters::default());
+        let mining_manager = MiningManager::new(TARGET_TIME_PER_BLOCK, false, MAX_BLOCK_MASS, None, counters);
+
+        let funding_tx = create_cell_transaction_without_input(vec![500 * SAU_PER_SPORA, 600 * SAU_PER_SPORA]);
+        let sidecar_funding_outpoint = TransactionOutpoint::new(funding_tx.id(), 0);
+        let plain_funding_outpoint = TransactionOutpoint::new(funding_tx.id(), 1);
+        consensus.add_cell_transaction(funding_tx, 1);
+
+        let (lock_script, _witness) = op_true_script();
+        let sidecar_tx = CellTx::new(
+            vec![CellInput::new(sidecar_funding_outpoint, 0)],
+            vec![],
+            vec![CellOutput {
+                lock: lock_script.clone(),
+                type_: None,
+                capacity: 500 * SAU_PER_SPORA - DEFAULT_MINIMUM_RELAY_TRANSACTION_FEE,
+            }],
+            vec![vec![]],
+            vec![vec![]],
+        )
+        .expect("test helper must construct a valid CellTx");
+        let plain_tx = CellTx::new(
+            vec![CellInput::new(plain_funding_outpoint, 0)],
+            vec![],
+            vec![CellOutput { lock: lock_script, type_: None, capacity: 600 * SAU_PER_SPORA - DEFAULT_MINIMUM_RELAY_TRANSACTION_FEE }],
+            vec![vec![]],
+            vec![vec![]],
+        )
+        .expect("test helper must construct a valid CellTx");
+
+        let sidecar_tx_id = TransactionId::from_bytes(sidecar_tx.id());
+        let plain_tx_id = TransactionId::from_bytes(plain_tx.id());
+        let accesses = scheduler_accesses(0x58);
+
+        mining_manager
+            .validate_and_insert_cell_transaction_with_scheduler_accesses(
+                consensus.as_ref(),
+                sidecar_tx.clone(),
+                Some(accesses.clone()),
+                Priority::High,
+                Orphan::Forbidden,
+                RbfPolicy::Forbidden,
+            )
+            .expect("CellTx with producer scheduler sidecar should be accepted");
+        mining_manager
+            .validate_and_insert_cell_transaction(
+                consensus.as_ref(),
+                plain_tx.clone(),
+                Priority::High,
+                Orphan::Forbidden,
+                RbfPolicy::Forbidden,
+            )
+            .expect("plain CellTx should be accepted without a scheduler sidecar");
+
+        let mut selector = mining_manager.build_selector();
+        let selected = selector.select_transactions();
+        assert!(selected.iter().any(|selected_tx| selected_tx.id() == sidecar_tx.id()));
+        assert!(selected.iter().any(|selected_tx| selected_tx.id() == plain_tx.id()));
+
+        let selected_accesses = selector.selected_cellscript_scheduler_accesses();
+        assert_eq!(selected_accesses.get(&sidecar_tx_id), Some(&accesses));
+        assert!(!selected_accesses.contains_key(&plain_tx_id));
+        assert_eq!(selected_accesses.len(), 1);
+    }
+
+    #[test]
+    fn test_mempool_orphan_cellscript_scheduler_sidecar_survives_promotion_to_selector() {
+        let consensus = Arc::new(ConsensusMock::new());
+        let counters = Arc::new(MiningCounters::default());
+        let mining_manager = MiningManager::new(TARGET_TIME_PER_BLOCK, false, MAX_BLOCK_MASS, None, counters);
+
+        let (parent_tx, child_tx) =
+            create_parent_and_children_cell_transactions(&consensus, vec![500 * SAU_PER_SPORA, 3_000 * SAU_PER_SPORA]);
+        let child_tx_id = TransactionId::from_bytes(child_tx.id());
+        let child_accesses = scheduler_accesses(0x59);
+
+        let orphan_insertion = mining_manager
+            .validate_and_insert_cell_transaction_with_scheduler_accesses(
+                consensus.as_ref(),
+                child_tx.clone(),
+                Some(child_accesses.clone()),
+                Priority::Low,
+                Orphan::Allowed,
+                RbfPolicy::Forbidden,
+            )
+            .expect("child transaction with producer scheduler sidecar should be accepted into the orphan pool");
+        assert!(orphan_insertion.accepted.is_empty(), "orphan insertion must not accept a ready transaction");
+
+        let (populated_txs, orphans) = mining_manager.get_all_transactions(TransactionQuery::All);
+        assert!(populated_txs.is_empty(), "child must remain outside the ready mempool while its parent is missing");
+        assert!(contained_by(child_tx_id, &orphans), "child must be stored in the orphan pool");
+
+        let mut selector = mining_manager.build_selector();
+        let selected = selector.select_transactions();
+        assert!(selected.is_empty(), "orphan transactions must not be selectable");
+        assert!(selector.selected_cellscript_scheduler_accesses().is_empty(), "orphan sidecars must not be exposed before promotion");
+
+        consensus.add_cell_transaction(parent_tx.clone(), 2);
+        let promoted_transactions = mining_manager
+            .handle_new_block_transactions(consensus.as_ref(), 2, &build_block_transactions(std::iter::once(&parent_tx)))
+            .expect("accepted parent block transaction should promote the sidecar-bearing child orphan");
+        assert!(
+            contained_by(child_tx_id, &promoted_transactions),
+            "accepted parent block transaction should promote and accept the child transaction"
+        );
+
+        let (populated_txs, orphans) = mining_manager.get_all_transactions(TransactionQuery::All);
+        assert!(contained_by(child_tx_id, &populated_txs), "promoted child should be stored in the ready mempool");
+        assert!(orphans.is_empty(), "the orphan pool should be empty after the child is promoted");
+
+        let mut selector = mining_manager.build_selector();
+        let selected = selector.select_transactions();
+        assert!(selected.iter().any(|selected_tx| selected_tx.id() == child_tx.id()));
+
+        let selected_accesses = selector.selected_cellscript_scheduler_accesses();
+        assert_eq!(selected_accesses.get(&child_tx_id), Some(&child_accesses));
+        assert_eq!(selected_accesses.len(), 1);
+    }
+
+    #[test]
+    fn test_mempool_rbf_removes_replaced_cellscript_scheduler_sidecar() {
+        let consensus = Arc::new(ConsensusMock::new());
+        let counters = Arc::new(MiningCounters::default());
+        let mining_manager = MiningManager::new(TARGET_TIME_PER_BLOCK, false, MAX_BLOCK_MASS, None, counters);
+
+        let funding_tx = create_cell_transaction_without_input(vec![500 * SAU_PER_SPORA]);
+        let funding_outpoint = TransactionOutpoint::new(funding_tx.id(), 0);
+        consensus.add_cell_transaction(funding_tx, 1);
+
+        let (lock_script, _witness) = op_true_script();
+        let original_tx = CellTx::new(
+            vec![CellInput::new(funding_outpoint, 0)],
+            vec![],
+            vec![CellOutput {
+                lock: lock_script.clone(),
+                type_: None,
+                capacity: 500 * SAU_PER_SPORA - DEFAULT_MINIMUM_RELAY_TRANSACTION_FEE,
+            }],
+            vec![vec![]],
+            vec![vec![]],
+        )
+        .expect("test helper must construct a valid CellTx");
+        let replacement_tx = CellTx::new(
+            vec![CellInput::new(funding_outpoint, 0)],
+            vec![],
+            vec![CellOutput {
+                lock: lock_script,
+                type_: None,
+                capacity: 500 * SAU_PER_SPORA - (DEFAULT_MINIMUM_RELAY_TRANSACTION_FEE * 2),
+            }],
+            vec![vec![]],
+            vec![vec![]],
+        )
+        .expect("test helper must construct a valid CellTx");
+
+        let original_tx_id = TransactionId::from_bytes(original_tx.id());
+        let replacement_tx_id = TransactionId::from_bytes(replacement_tx.id());
+        let original_accesses = scheduler_accesses(0x5a);
+        assert_ne!(original_tx_id, replacement_tx_id, "RBF replacement must have a distinct transaction id");
+
+        mining_manager
+            .validate_and_insert_cell_transaction_with_scheduler_accesses(
+                consensus.as_ref(),
+                original_tx.clone(),
+                Some(original_accesses.clone()),
+                Priority::High,
+                Orphan::Forbidden,
+                RbfPolicy::Forbidden,
+            )
+            .expect("original CellTx with producer scheduler sidecar should be accepted");
+
+        let mut selector = mining_manager.build_selector();
+        selector.select_transactions();
+        assert_eq!(selector.selected_cellscript_scheduler_accesses().get(&original_tx_id), Some(&original_accesses));
+
+        let replacement_insertion = mining_manager
+            .validate_and_insert_cell_transaction(
+                consensus.as_ref(),
+                replacement_tx.clone(),
+                Priority::Low,
+                Orphan::Forbidden,
+                RbfPolicy::Allowed,
+            )
+            .expect("higher-fee replacement should replace the sidecar-bearing transaction");
+        assert_eq!(
+            replacement_insertion.removed.as_ref().map(|tx| TransactionId::from_bytes(tx.id())),
+            Some(original_tx_id),
+            "RBF should report the sidecar-bearing transaction as removed"
+        );
+        assert!(contained_by(replacement_tx_id, &replacement_insertion.accepted), "RBF should accept the replacement transaction");
+        assert!(
+            !mining_manager.has_transaction(&original_tx_id, TransactionQuery::All),
+            "replaced transaction must leave the mempool"
+        );
+        assert!(
+            mining_manager.has_transaction(&replacement_tx_id, TransactionQuery::TransactionsOnly),
+            "replacement transaction must be stored in the ready mempool"
+        );
+
+        let mut selector = mining_manager.build_selector();
+        let selected = selector.select_transactions();
+        assert!(selected.iter().any(|selected_tx| selected_tx.id() == replacement_tx.id()));
+        assert!(!selected.iter().any(|selected_tx| selected_tx.id() == original_tx.id()));
+
+        let selected_accesses = selector.selected_cellscript_scheduler_accesses();
+        assert!(!selected_accesses.contains_key(&original_tx_id));
+        assert!(!selected_accesses.contains_key(&replacement_tx_id));
+        assert!(selected_accesses.is_empty());
+    }
+
+    #[test]
+    fn test_mempool_rbf_replaces_cellscript_scheduler_sidecar_with_replacement_sidecar() {
+        let consensus = Arc::new(ConsensusMock::new());
+        let counters = Arc::new(MiningCounters::default());
+        let mining_manager = MiningManager::new(TARGET_TIME_PER_BLOCK, false, MAX_BLOCK_MASS, None, counters);
+
+        let funding_tx = create_cell_transaction_without_input(vec![500 * SAU_PER_SPORA]);
+        let funding_outpoint = TransactionOutpoint::new(funding_tx.id(), 0);
+        consensus.add_cell_transaction(funding_tx, 1);
+
+        let (lock_script, _witness) = op_true_script();
+        let original_tx = CellTx::new(
+            vec![CellInput::new(funding_outpoint, 0)],
+            vec![],
+            vec![CellOutput {
+                lock: lock_script.clone(),
+                type_: None,
+                capacity: 500 * SAU_PER_SPORA - DEFAULT_MINIMUM_RELAY_TRANSACTION_FEE,
+            }],
+            vec![vec![]],
+            vec![vec![]],
+        )
+        .expect("test helper must construct a valid CellTx");
+        let replacement_tx = CellTx::new(
+            vec![CellInput::new(funding_outpoint, 0)],
+            vec![],
+            vec![CellOutput {
+                lock: lock_script,
+                type_: None,
+                capacity: 500 * SAU_PER_SPORA - (DEFAULT_MINIMUM_RELAY_TRANSACTION_FEE * 2),
+            }],
+            vec![vec![]],
+            vec![vec![]],
+        )
+        .expect("test helper must construct a valid CellTx");
+
+        let original_tx_id = TransactionId::from_bytes(original_tx.id());
+        let replacement_tx_id = TransactionId::from_bytes(replacement_tx.id());
+        let original_accesses = scheduler_accesses(0x5b);
+        let replacement_accesses = scheduler_accesses(0x5c);
+        assert_ne!(original_tx_id, replacement_tx_id, "RBF replacement must have a distinct transaction id");
+
+        mining_manager
+            .validate_and_insert_cell_transaction_with_scheduler_accesses(
+                consensus.as_ref(),
+                original_tx.clone(),
+                Some(original_accesses.clone()),
+                Priority::High,
+                Orphan::Forbidden,
+                RbfPolicy::Forbidden,
+            )
+            .expect("original CellTx with producer scheduler sidecar should be accepted");
+
+        let replacement_insertion = mining_manager
+            .validate_and_insert_cell_transaction_with_scheduler_accesses(
+                consensus.as_ref(),
+                replacement_tx.clone(),
+                Some(replacement_accesses.clone()),
+                Priority::Low,
+                Orphan::Forbidden,
+                RbfPolicy::Allowed,
+            )
+            .expect("higher-fee sidecar-bearing replacement should replace the original sidecar-bearing transaction");
+        assert_eq!(
+            replacement_insertion.removed.as_ref().map(|tx| TransactionId::from_bytes(tx.id())),
+            Some(original_tx_id),
+            "RBF should report the original sidecar-bearing transaction as removed"
+        );
+        assert!(
+            contained_by(replacement_tx_id, &replacement_insertion.accepted),
+            "RBF should accept the sidecar-bearing replacement transaction"
+        );
+
+        let mut selector = mining_manager.build_selector();
+        let selected = selector.select_transactions();
+        assert!(selected.iter().any(|selected_tx| selected_tx.id() == replacement_tx.id()));
+        assert!(!selected.iter().any(|selected_tx| selected_tx.id() == original_tx.id()));
+
+        let selected_accesses = selector.selected_cellscript_scheduler_accesses();
+        assert!(!selected_accesses.contains_key(&original_tx_id));
+        assert_eq!(selected_accesses.get(&replacement_tx_id), Some(&replacement_accesses));
+        assert_eq!(selected_accesses.len(), 1);
+    }
+
+    #[test]
+    fn test_mempool_accepted_block_removes_cellscript_scheduler_sidecar() {
+        let consensus = Arc::new(ConsensusMock::new());
+        let counters = Arc::new(MiningCounters::default());
+        let mining_manager = MiningManager::new(TARGET_TIME_PER_BLOCK, false, MAX_BLOCK_MASS, None, counters);
+
+        let funding_tx = create_cell_transaction_without_input(vec![500 * SAU_PER_SPORA]);
+        let funding_outpoint = TransactionOutpoint::new(funding_tx.id(), 0);
+        consensus.add_cell_transaction(funding_tx, 1);
+
+        let (lock_script, _witness) = op_true_script();
+        let cell_tx = CellTx::new(
+            vec![CellInput::new(funding_outpoint, 0)],
+            vec![],
+            vec![CellOutput { lock: lock_script, type_: None, capacity: 500 * SAU_PER_SPORA - DEFAULT_MINIMUM_RELAY_TRANSACTION_FEE }],
+            vec![vec![]],
+            vec![vec![]],
+        )
+        .expect("test helper must construct a valid CellTx");
+        let tx_id = TransactionId::from_bytes(cell_tx.id());
+        let accesses = scheduler_accesses(0x5d);
+
+        mining_manager
+            .validate_and_insert_cell_transaction_with_scheduler_accesses(
+                consensus.as_ref(),
+                cell_tx.clone(),
+                Some(accesses.clone()),
+                Priority::High,
+                Orphan::Forbidden,
+                RbfPolicy::Forbidden,
+            )
+            .expect("CellTx with producer scheduler sidecar should be accepted");
+
+        let mut selector = mining_manager.build_selector();
+        selector.select_transactions();
+        assert_eq!(selector.selected_cellscript_scheduler_accesses().get(&tx_id), Some(&accesses));
+
+        mining_manager
+            .handle_new_block_transactions(consensus.as_ref(), 2, &build_block_transactions(std::iter::once(&cell_tx)))
+            .expect("handling an accepted sidecar-bearing block transaction should succeed");
+
+        assert!(
+            !mining_manager.has_transaction(&tx_id, TransactionQuery::All),
+            "accepted transaction must be removed from the mempool"
+        );
+        let mut selector = mining_manager.build_selector();
+        let selected = selector.select_transactions();
+        assert!(selected.is_empty(), "accepted sidecar-bearing transaction must not remain selectable");
+        assert!(
+            selector.selected_cellscript_scheduler_accesses().is_empty(),
+            "accepted sidecar-bearing transaction must not leave trusted-summary state behind"
+        );
+    }
+
+    #[test]
+    fn test_mempool_block_double_spend_removes_cellscript_scheduler_sidecar() {
+        let consensus = Arc::new(ConsensusMock::new());
+        let counters = Arc::new(MiningCounters::default());
+        let mining_manager = MiningManager::new(TARGET_TIME_PER_BLOCK, false, MAX_BLOCK_MASS, None, counters);
+
+        let funding_tx = create_cell_transaction_without_input(vec![500 * SAU_PER_SPORA]);
+        let funding_outpoint = TransactionOutpoint::new(funding_tx.id(), 0);
+        consensus.add_cell_transaction(funding_tx, 1);
+
+        let (lock_script, _witness) = op_true_script();
+        let cell_tx = CellTx::new(
+            vec![CellInput::new(funding_outpoint, 0)],
+            vec![],
+            vec![CellOutput { lock: lock_script, type_: None, capacity: 500 * SAU_PER_SPORA - DEFAULT_MINIMUM_RELAY_TRANSACTION_FEE }],
+            vec![vec![]],
+            vec![vec![]],
+        )
+        .expect("test helper must construct a valid CellTx");
+        let tx_id = TransactionId::from_bytes(cell_tx.id());
+        let accesses = scheduler_accesses(0x5e);
+
+        mining_manager
+            .validate_and_insert_cell_transaction_with_scheduler_accesses(
+                consensus.as_ref(),
+                cell_tx.clone(),
+                Some(accesses.clone()),
+                Priority::High,
+                Orphan::Forbidden,
+                RbfPolicy::Forbidden,
+            )
+            .expect("CellTx with producer scheduler sidecar should be accepted");
+
+        let mut block_double_spend_tx = cell_tx.clone();
+        block_double_spend_tx.outputs[0].capacity += 1;
+        let block_double_spend_tx_id = TransactionId::from_bytes(block_double_spend_tx.id());
+        assert_ne!(tx_id, block_double_spend_tx_id, "block double-spend transaction must have a distinct id");
+
+        mining_manager
+            .handle_new_block_transactions(consensus.as_ref(), 2, &build_block_transactions(std::iter::once(&block_double_spend_tx)))
+            .expect("handling a block double-spending a sidecar-bearing mempool transaction should succeed");
+
+        assert!(
+            !mining_manager.has_transaction(&tx_id, TransactionQuery::All),
+            "block double-spend victim must be removed from the mempool"
+        );
+        let mut selector = mining_manager.build_selector();
+        let selected = selector.select_transactions();
+        assert!(selected.is_empty(), "block double-spend victim must not remain selectable");
+        assert!(
+            selector.selected_cellscript_scheduler_accesses().is_empty(),
+            "block double-spend victim must not leave trusted-summary state behind"
+        );
+    }
+
+    #[test]
+    fn test_mempool_low_priority_expiration_removes_cellscript_scheduler_sidecar() {
+        let consensus = Arc::new(ConsensusMock::new());
+        let counters = Arc::new(MiningCounters::default());
+        let mining_manager = MiningManager::with_config(expiring_sidecar_test_config(), None, counters);
+
+        let cell_tx = create_financed_cell_transaction(&consensus, 0, 1, DEFAULT_MINIMUM_RELAY_TRANSACTION_FEE);
+        let tx_id = TransactionId::from_bytes(cell_tx.id());
+        let accesses = scheduler_accesses(0x5f);
+
+        mining_manager
+            .validate_and_insert_cell_transaction_with_scheduler_accesses(
+                consensus.as_ref(),
+                cell_tx.clone(),
+                Some(accesses.clone()),
+                Priority::Low,
+                Orphan::Forbidden,
+                RbfPolicy::Forbidden,
+            )
+            .expect("low-priority CellTx with producer scheduler sidecar should be accepted");
+
+        let mut selector = mining_manager.build_selector();
+        selector.select_transactions();
+        assert_eq!(selector.selected_cellscript_scheduler_accesses().get(&tx_id), Some(&accesses));
+
+        consensus.set_virtual_daa_score(2);
+        mining_manager.expire_low_priority_transactions(consensus.as_ref());
+
+        assert!(
+            !mining_manager.has_transaction(&tx_id, TransactionQuery::All),
+            "expired low-priority transaction must be removed from all mempool pools"
+        );
+        let mut selector = mining_manager.build_selector();
+        let selected = selector.select_transactions();
+        assert!(selected.is_empty(), "expired sidecar-bearing transaction must not remain selectable");
+        assert!(
+            selector.selected_cellscript_scheduler_accesses().is_empty(),
+            "expired sidecar-bearing transaction must not leave trusted-summary state behind"
+        );
+    }
+
+    #[test]
+    fn test_mempool_eviction_removes_cellscript_scheduler_sidecar() {
+        let consensus = Arc::new(ConsensusMock::new());
+        let counters = Arc::new(MiningCounters::default());
+        let mut config = Config::build_default(TARGET_TIME_PER_BLOCK, false, MAX_BLOCK_MASS);
+        config.maximum_transaction_count = 1;
+        let mining_manager = MiningManager::with_config(config, None, counters);
+
+        let sidecar_tx = create_financed_cell_transaction(&consensus, 0, 1, DEFAULT_MINIMUM_RELAY_TRANSACTION_FEE);
+        let plain_tx = create_financed_cell_transaction(&consensus, 1, 1, DEFAULT_MINIMUM_RELAY_TRANSACTION_FEE * 10);
+        let sidecar_tx_id = TransactionId::from_bytes(sidecar_tx.id());
+        let plain_tx_id = TransactionId::from_bytes(plain_tx.id());
+        let accesses = scheduler_accesses(0x60);
+
+        mining_manager
+            .validate_and_insert_cell_transaction_with_scheduler_accesses(
+                consensus.as_ref(),
+                sidecar_tx.clone(),
+                Some(accesses.clone()),
+                Priority::Low,
+                Orphan::Forbidden,
+                RbfPolicy::Forbidden,
+            )
+            .expect("low-fee CellTx with producer scheduler sidecar should be accepted");
+
+        let mut selector = mining_manager.build_selector();
+        selector.select_transactions();
+        assert_eq!(selector.selected_cellscript_scheduler_accesses().get(&sidecar_tx_id), Some(&accesses));
+
+        mining_manager
+            .validate_and_insert_cell_transaction(
+                consensus.as_ref(),
+                plain_tx.clone(),
+                Priority::Low,
+                Orphan::Forbidden,
+                RbfPolicy::Forbidden,
+            )
+            .expect("higher-fee plain CellTx should evict the sidecar-bearing transaction");
+
+        assert!(
+            !mining_manager.has_transaction(&sidecar_tx_id, TransactionQuery::All),
+            "evicted sidecar-bearing transaction must be removed from the mempool"
+        );
+        assert!(
+            mining_manager.has_transaction(&plain_tx_id, TransactionQuery::TransactionsOnly),
+            "higher-fee plain transaction must be retained after eviction"
+        );
+
+        let mut selector = mining_manager.build_selector();
+        let selected = selector.select_transactions();
+        assert!(selected.iter().any(|selected_tx| selected_tx.id() == plain_tx.id()));
+        assert!(!selected.iter().any(|selected_tx| selected_tx.id() == sidecar_tx.id()));
+        assert!(
+            selector.selected_cellscript_scheduler_accesses().is_empty(),
+            "capacity eviction must not leak the removed transaction's trusted scheduler summary"
+        );
+    }
+
+    #[test]
+    fn test_mempool_expired_orphan_cellscript_scheduler_sidecar_cannot_promote() {
+        let consensus = Arc::new(ConsensusMock::new());
+        let counters = Arc::new(MiningCounters::default());
+        let mining_manager = MiningManager::with_config(expiring_sidecar_test_config(), None, counters);
+
+        let (parent_tx, child_tx) =
+            create_parent_and_children_cell_transactions(&consensus, vec![500 * SAU_PER_SPORA, 3_000 * SAU_PER_SPORA]);
+        let child_tx_id = TransactionId::from_bytes(child_tx.id());
+        let child_accesses = scheduler_accesses(0x61);
+
+        let orphan_insertion = mining_manager
+            .validate_and_insert_cell_transaction_with_scheduler_accesses(
+                consensus.as_ref(),
+                child_tx.clone(),
+                Some(child_accesses),
+                Priority::Low,
+                Orphan::Allowed,
+                RbfPolicy::Forbidden,
+            )
+            .expect("child transaction with producer scheduler sidecar should be accepted into the orphan pool");
+        assert!(orphan_insertion.accepted.is_empty(), "orphan insertion must not accept a ready transaction");
+        assert!(
+            mining_manager.has_transaction(&child_tx_id, TransactionQuery::OrphansOnly),
+            "sidecar-bearing child must start in the orphan pool"
+        );
+
+        consensus.set_virtual_daa_score(2);
+        mining_manager.expire_low_priority_transactions(consensus.as_ref());
+        assert!(
+            !mining_manager.has_transaction(&child_tx_id, TransactionQuery::All),
+            "expired orphan must be removed before its parent becomes available"
+        );
+
+        consensus.add_cell_transaction(parent_tx.clone(), 3);
+        let promoted_transactions = mining_manager
+            .handle_new_block_transactions(consensus.as_ref(), 3, &build_block_transactions(std::iter::once(&parent_tx)))
+            .expect("handling an accepted parent after orphan expiration should succeed");
+        assert!(
+            promoted_transactions.is_empty(),
+            "expired sidecar-bearing orphan must not promote after its parent becomes available"
+        );
+
+        let mut selector = mining_manager.build_selector();
+        let selected = selector.select_transactions();
+        assert!(selected.is_empty(), "expired orphan must not become selectable after parent acceptance");
+        assert!(
+            selector.selected_cellscript_scheduler_accesses().is_empty(),
+            "expired orphan sidecar must not leave trusted-summary state behind"
         );
     }
 

@@ -48,7 +48,7 @@ action launch_token(
         symbol: symbol
     } with_lock(creator)
 
-    // 原子性地播种池
+    // 调用池模式 helper 播种池
     let (pool, lp_receipt) = seed_pool(
         pool_token,
         pool_paired_token,

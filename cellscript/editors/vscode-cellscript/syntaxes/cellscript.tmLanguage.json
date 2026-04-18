@@ -167,7 +167,7 @@
         },
         {
           "name": "keyword.other.cellscript",
-          "match": "\\b(has|store|consume|create|read_ref|claim|settle|launch|ephemeral|self|env|with_lock|assert_invariant|transfer|destroy)\\b"
+          "match": "\\b(has|store|consume|create|read_ref|claim|settle|launch|self|env|with_lock|assert_invariant|transfer|destroy)\\b"
         },
         {
           "name": "constant.language.boolean.cellscript",

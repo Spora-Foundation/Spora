@@ -9,7 +9,7 @@ use super::{
     policy::Policy,
 };
 use spora_consensus_core::{
-    block::TemplateTransactionSelector,
+    block::{CellScriptSchedulerAccessSets, TemplateTransactionSelector},
     tx::{CellTx, TransactionId},
 };
 
@@ -40,6 +40,7 @@ pub struct RebalancingWeightedTransactionSelector {
     /// Optional state for handling selection rejections. Maps from a selected tx id
     /// to the index of the tx in the `transactions` vec
     selected_txs_map: Option<HashMap<TransactionId, TransactionIndex>>,
+    selected_cellscript_scheduler_accesses: CellScriptSchedulerAccessSets,
 
     // Inner state of the selection process
     candidate_list: CandidateList,
@@ -63,6 +64,7 @@ impl RebalancingWeightedTransactionSelector {
             selectable_txs: Default::default(),
             selected_txs: Default::default(),
             selected_txs_map: None,
+            selected_cellscript_scheduler_accesses: Default::default(),
             candidate_list: Default::default(),
             overall_rejections: 0,
             used_count: 0,
@@ -159,6 +161,14 @@ impl RebalancingWeightedTransactionSelector {
         }
 
         self.selected_txs.sort();
+        self.selected_cellscript_scheduler_accesses = self
+            .selected_txs
+            .iter()
+            .filter_map(|&tx_index| {
+                let tx = &self.transactions[tx_index];
+                tx.cellscript_scheduler_accesses.clone().map(|accesses| (tx.tx.id().into(), accesses))
+            })
+            .collect();
 
         self.get_transactions()
     }
@@ -173,6 +183,7 @@ impl RebalancingWeightedTransactionSelector {
         self.selected_txs.clear();
         self.selected_txs.reserve_exact(self.estimated_selection_capacity());
         self.selected_txs_map = None;
+        self.selected_cellscript_scheduler_accesses.clear();
     }
 
     fn estimated_selection_capacity(&self) -> usize {
@@ -215,12 +226,17 @@ impl TemplateTransactionSelector for RebalancingWeightedTransactionSelector {
         selected_cell_txs
     }
 
+    fn selected_cellscript_scheduler_accesses(&self) -> CellScriptSchedulerAccessSets {
+        self.selected_cellscript_scheduler_accesses.clone()
+    }
+
     fn reject_selection(&mut self, tx_id: TransactionId) {
         let selected_txs_map = self
             .selected_txs_map
             // We lazy-create the map only when there are actual rejections
             .get_or_insert_with(|| self.selected_txs.iter().map(|&x| (self.transactions[x].tx.id().into(), x)).collect());
         let tx_index = selected_txs_map.remove(&tx_id).expect("only previously selected txs can be rejected (and only once)");
+        self.selected_cellscript_scheduler_accesses.remove(&tx_id);
         let tx = &self.transactions[tx_index];
         self.total_mass -= tx.calculated_mass;
         self.total_fees -= tx.calculated_fee;
@@ -244,18 +260,23 @@ mod tests {
     use crate::testutils::script::op_true_script;
     use itertools::Itertools;
     use spora_consensus_core::{
+        block::CellScriptSchedulerAccessList,
         constants::{MAX_TX_IN_SEQUENCE_NUM, SAU_PER_SPORA},
         mass::cell_tx_estimated_serialized_size,
         tx::{CellInput, CellOutput, CellTx, TransactionId, TransactionOutpoint},
+    };
+    use spora_exec::celltx::{
+        CellScriptSchedulerAccessWitness, CellScriptSchedulerWitness, CELLSCRIPT_SCHEDULER_EFFECT_CREATING,
+        CELLSCRIPT_SCHEDULER_OP_CREATE, CELLSCRIPT_SCHEDULER_SOURCE_OUTPUT, CELLSCRIPT_SCHEDULER_WITNESS_VERSION,
     };
     use std::{collections::HashSet, sync::Arc};
 
     use crate::{
         mempool::{
             config::DEFAULT_MINIMUM_RELAY_TRANSACTION_FEE,
-            model::frontier::selectors::{SequenceSelector, SequenceSelectorInput, SequenceSelectorTransaction},
+            model::frontier::selectors::{SequenceSelector, SequenceSelectorInput, SequenceSelectorTransaction, TakeAllSelector},
         },
-        model::candidate_tx::CandidateTransaction,
+        model::candidate_tx::{CandidateCellData, CandidateTransaction},
     };
 
     #[test]
@@ -330,7 +351,143 @@ mod tests {
             cell_score_total: None,
             cell_fee_density: None,
             cell_deps_width: None,
+            cellscript_scheduler_accesses: None,
         }
+    }
+
+    fn scheduler_accesses(marker: u8) -> CellScriptSchedulerAccessList {
+        scheduler_summary(vec![CellScriptSchedulerAccessWitness {
+            operation: CELLSCRIPT_SCHEDULER_OP_CREATE,
+            source: CELLSCRIPT_SCHEDULER_SOURCE_OUTPUT,
+            index: 0,
+            binding_hash: [marker; 32],
+        }])
+    }
+
+    fn scheduler_summary(accesses: Vec<CellScriptSchedulerAccessWitness>) -> CellScriptSchedulerAccessList {
+        CellScriptSchedulerWitness {
+            magic: 0xCE11,
+            version: CELLSCRIPT_SCHEDULER_WITNESS_VERSION,
+            effect_class: CELLSCRIPT_SCHEDULER_EFFECT_CREATING,
+            parallelizable: false,
+            touches_shared_count: 0,
+            touches_shared: vec![],
+            estimated_cycles: 64,
+            access_count: accesses.len() as u32,
+            accesses,
+        }
+    }
+
+    #[test]
+    fn test_selectors_expose_cellscript_scheduler_sidecars() {
+        let mut transactions = vec![create_transaction(SAU_PER_SPORA), create_transaction(SAU_PER_SPORA * 2)];
+        let tx_id = transactions[0].tx.id().into();
+        let empty_tx_id = transactions[1].tx.id().into();
+        let accesses = scheduler_accesses(0x42);
+        let empty_accesses = scheduler_summary(vec![]);
+        transactions[0].cellscript_scheduler_accesses = Some(accesses.clone());
+        transactions[1].cellscript_scheduler_accesses = Some(empty_accesses.clone());
+
+        let sequence: SequenceSelectorInput = transactions
+            .iter()
+            .map(|tx| {
+                SequenceSelectorTransaction::new_with_cellscript_scheduler_accesses(
+                    tx.tx.clone(),
+                    tx.cell_tx.clone(),
+                    tx.calculated_mass,
+                    tx.cellscript_scheduler_accesses.clone(),
+                )
+            })
+            .collect();
+        let mut sequence_selector = SequenceSelector::new(sequence, Policy::new(100_000));
+        sequence_selector.select_transactions();
+        assert_eq!(sequence_selector.selected_cellscript_scheduler_accesses().get(&tx_id), Some(&accesses));
+        assert_eq!(sequence_selector.selected_cellscript_scheduler_accesses().get(&empty_tx_id), Some(&empty_accesses));
+
+        let mut rebalancing_selector = RebalancingWeightedTransactionSelector::new(Policy::new(100_000), transactions.clone());
+        rebalancing_selector.select_transactions();
+        assert_eq!(rebalancing_selector.selected_cellscript_scheduler_accesses().get(&tx_id), Some(&accesses));
+        assert_eq!(rebalancing_selector.selected_cellscript_scheduler_accesses().get(&empty_tx_id), Some(&empty_accesses));
+
+        let cells = transactions
+            .into_iter()
+            .map(|tx| CandidateCellData {
+                cell_tx: tx.cell_tx,
+                score_total: None,
+                fee_density: None,
+                deps_width: None,
+                cellscript_scheduler_accesses: tx.cellscript_scheduler_accesses,
+            })
+            .collect();
+        let mut take_all_selector = TakeAllSelector::from_cell_data(cells);
+        take_all_selector.select_transactions();
+        assert_eq!(take_all_selector.selected_cellscript_scheduler_accesses().get(&tx_id), Some(&accesses));
+        assert_eq!(take_all_selector.selected_cellscript_scheduler_accesses().get(&empty_tx_id), Some(&empty_accesses));
+    }
+
+    #[test]
+    fn test_selectors_remove_cellscript_scheduler_sidecars_on_reject() {
+        let mut transactions =
+            vec![create_transaction(SAU_PER_SPORA), create_transaction(SAU_PER_SPORA * 2), create_transaction(SAU_PER_SPORA * 3)];
+        let rejected_tx_id: TransactionId = transactions[0].tx.id().into();
+        let kept_tx_id: TransactionId = transactions[1].tx.id().into();
+        let plain_tx_id: TransactionId = transactions[2].tx.id().into();
+        let rejected_accesses = scheduler_accesses(0x52);
+        let kept_accesses = scheduler_accesses(0x53);
+        transactions[0].cellscript_scheduler_accesses = Some(rejected_accesses.clone());
+        transactions[1].cellscript_scheduler_accesses = Some(kept_accesses.clone());
+        transactions[2].cellscript_scheduler_accesses = None;
+
+        let sequence: SequenceSelectorInput = transactions
+            .iter()
+            .map(|tx| {
+                SequenceSelectorTransaction::new_with_cellscript_scheduler_accesses(
+                    tx.tx.clone(),
+                    tx.cell_tx.clone(),
+                    tx.calculated_mass,
+                    tx.cellscript_scheduler_accesses.clone(),
+                )
+            })
+            .collect();
+        let mut sequence_selector = SequenceSelector::new(sequence, Policy::new(100_000));
+        let selected = sequence_selector.select_transactions();
+        assert_eq!(selected.len(), 3);
+        assert_eq!(sequence_selector.selected_cellscript_scheduler_accesses().get(&rejected_tx_id), Some(&rejected_accesses));
+        assert_eq!(sequence_selector.selected_cellscript_scheduler_accesses().get(&kept_tx_id), Some(&kept_accesses));
+        assert!(!sequence_selector.selected_cellscript_scheduler_accesses().contains_key(&plain_tx_id));
+        sequence_selector.reject_selection(rejected_tx_id);
+        assert!(!sequence_selector.selected_cellscript_scheduler_accesses().contains_key(&rejected_tx_id));
+        assert_eq!(sequence_selector.selected_cellscript_scheduler_accesses().get(&kept_tx_id), Some(&kept_accesses));
+
+        let mut rebalancing_selector = RebalancingWeightedTransactionSelector::new(Policy::new(100_000), transactions.clone());
+        let selected = rebalancing_selector.select_transactions();
+        assert_eq!(selected.len(), 3);
+        assert_eq!(rebalancing_selector.selected_cellscript_scheduler_accesses().get(&rejected_tx_id), Some(&rejected_accesses));
+        assert_eq!(rebalancing_selector.selected_cellscript_scheduler_accesses().get(&kept_tx_id), Some(&kept_accesses));
+        assert!(!rebalancing_selector.selected_cellscript_scheduler_accesses().contains_key(&plain_tx_id));
+        rebalancing_selector.reject_selection(rejected_tx_id);
+        assert!(!rebalancing_selector.selected_cellscript_scheduler_accesses().contains_key(&rejected_tx_id));
+        assert_eq!(rebalancing_selector.selected_cellscript_scheduler_accesses().get(&kept_tx_id), Some(&kept_accesses));
+
+        let cells = transactions
+            .into_iter()
+            .map(|tx| CandidateCellData {
+                cell_tx: tx.cell_tx,
+                score_total: None,
+                fee_density: None,
+                deps_width: None,
+                cellscript_scheduler_accesses: tx.cellscript_scheduler_accesses,
+            })
+            .collect();
+        let mut take_all_selector = TakeAllSelector::from_cell_data(cells);
+        let selected = take_all_selector.select_transactions();
+        assert_eq!(selected.len(), 3);
+        assert_eq!(take_all_selector.selected_cellscript_scheduler_accesses().get(&rejected_tx_id), Some(&rejected_accesses));
+        assert_eq!(take_all_selector.selected_cellscript_scheduler_accesses().get(&kept_tx_id), Some(&kept_accesses));
+        assert!(!take_all_selector.selected_cellscript_scheduler_accesses().contains_key(&plain_tx_id));
+        take_all_selector.reject_selection(rejected_tx_id);
+        assert!(!take_all_selector.selected_cellscript_scheduler_accesses().contains_key(&rejected_tx_id));
+        assert_eq!(take_all_selector.selected_cellscript_scheduler_accesses().get(&kept_tx_id), Some(&kept_accesses));
     }
 
     #[test]

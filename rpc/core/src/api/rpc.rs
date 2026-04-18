@@ -508,6 +508,17 @@ pub trait RpcApi: Sync + Send + AnySync {
     // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     // Notification API
 
+    /// Register an in-process listener channel and return its id.
+    ///
+    /// This low-level API is for native clients, tests, and internal services
+    /// that own a local notification receiver. Standard RPC transports should
+    /// use [`subscribe_notifications`](Self::subscribe_notifications) /
+    /// [`unsubscribe_notifications`](Self::unsubscribe_notifications) instead.
+    fn register_local_listener(&self, connection: ChannelConnection) -> ListenerId {
+        #[allow(deprecated)]
+        self.register_new_listener(connection)
+    }
+
     /// Register a new listener and returns an id identifying it.
     ///
     /// # Deprecated

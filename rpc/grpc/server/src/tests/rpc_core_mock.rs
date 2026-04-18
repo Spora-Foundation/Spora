@@ -7,7 +7,11 @@ use spora_notify::scope::Scope;
 use spora_notify::subscription::context::SubscriptionContext;
 use spora_notify::subscription::{CellsChangedMutationPolicy, MutationPolicies};
 use spora_rpc_core::{api::connection::DynRpcConnection, api::rpc::RpcApi, *};
-use spora_rpc_core::{notify::connection::ChannelConnection, RpcResult};
+use spora_rpc_core::{
+    notify::connection::{ChannelConnection, ChannelType},
+    RpcResult,
+};
+use spora_utils::channel::Channel;
 use std::sync::Arc;
 
 pub(super) type RpcCoreNotifier = Notifier<Notification, ChannelConnection>;
@@ -414,5 +418,22 @@ impl RpcApi for RpcCoreMock {
     async fn stop_notify(&self, id: ListenerId, scope: Scope) -> RpcResult<()> {
         self.core_notifier.try_stop_notify(id, scope)?;
         Ok(())
+    }
+
+    async fn subscribe_notifications(&self, request: SubscribeNotificationsRequest) -> RpcResult<SubscribeNotificationsResponse> {
+        let channel = Channel::default();
+        let connection = ChannelConnection::new("rpc-core-mock", channel.sender(), ChannelType::Closable);
+        let listener_id = self.core_notifier.register_new_listener(connection, ListenerLifespan::Dynamic);
+
+        self.start_notify(listener_id, request.scope).await?;
+        Ok(SubscribeNotificationsResponse::new(listener_id))
+    }
+
+    async fn unsubscribe_notifications(
+        &self,
+        request: UnsubscribeNotificationsRequest,
+    ) -> RpcResult<UnsubscribeNotificationsResponse> {
+        self.unregister_listener(request.subscription_id).await?;
+        Ok(UnsubscribeNotificationsResponse {})
     }
 }

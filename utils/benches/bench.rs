@@ -116,10 +116,6 @@ mod ref_lock {
             g.replace(Arc::downgrade(&rg));
             rg
         }
-
-        pub async fn write(&self) -> OwnedTokioRwLockWriteGuard<T> {
-            self.inner.clone().write_owned().await
-        }
     }
 
     #[async_trait::async_trait]
@@ -136,7 +132,7 @@ mod ref_lock {
         }
 
         async fn write_(&self) -> Self::WriteGuard {
-            self.write().await
+            self.inner.clone().write_owned().await
         }
     }
 }

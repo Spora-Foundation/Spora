@@ -5664,6 +5664,7 @@ name = "spora-mining"
 version = "1.21.0"
 dependencies = [
  "blake3",
+ "borsh",
  "criterion",
  "futures-util",
  "itertools 0.13.0",
@@ -5678,6 +5679,7 @@ dependencies = [
  "spora-consensus-core",
  "spora-consensusmanager",
  "spora-core",
+ "spora-exec",
  "spora-hashes",
  "spora-mempool",
  "spora-mining-errors",

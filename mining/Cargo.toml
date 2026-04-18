@@ -34,8 +34,10 @@ tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal"] }
 blake3.workspace = true
 
 [dev-dependencies]
+borsh.workspace = true
 criterion.workspace = true
 secp256k1.workspace = true
+spora-exec.workspace = true
 
 [[bench]]
 name = "bench"

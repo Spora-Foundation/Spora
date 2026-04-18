@@ -12,6 +12,7 @@ use crate::mempool::{
 };
 use spora_consensus_core::{
     api::ConsensusApi,
+    block::CellScriptSchedulerAccessList,
     tx::{CellTx, MutableTransaction, TransactionId, TransactionOutpoint},
 };
 use spora_core::{debug, info};
@@ -23,6 +24,16 @@ impl Mempool {
         cell_tx: CellTx,
         rbf_policy: RbfPolicy,
     ) -> RuleResult<TransactionPreValidation> {
+        self.pre_validate_and_populate_cell_transaction_with_scheduler_accesses(consensus, cell_tx, None, rbf_policy)
+    }
+
+    pub(crate) fn pre_validate_and_populate_cell_transaction_with_scheduler_accesses(
+        &self,
+        consensus: &dyn ConsensusApi,
+        cell_tx: CellTx,
+        cellscript_scheduler_accesses: Option<CellScriptSchedulerAccessList>,
+        rbf_policy: RbfPolicy,
+    ) -> RuleResult<TransactionPreValidation> {
         let mut transaction = MutableTransaction::from_cell_tx(cell_tx.clone());
         self.validate_transaction_unacceptance(&transaction)?;
         transaction.calculated_non_contextual_masses =
@@ -30,7 +41,12 @@ impl Mempool {
         self.validate_transaction_in_isolation(&transaction)?;
         let feerate_threshold = self.get_replace_by_fee_constraint(&transaction, rbf_policy)?;
         self.populate_mempool_entries(&mut transaction);
-        Ok(TransactionPreValidation { transaction, cell_tx: Some(Arc::new(cell_tx)), feerate_threshold })
+        Ok(TransactionPreValidation {
+            transaction,
+            cell_tx: Some(Arc::new(cell_tx)),
+            cellscript_scheduler_accesses,
+            feerate_threshold,
+        })
     }
 
     pub(crate) fn post_validate_and_insert_transaction(
@@ -39,6 +55,7 @@ impl Mempool {
         validation_result: RuleResult<()>,
         transaction: MutableTransaction,
         cell_tx: Option<Arc<CellTx>>,
+        cellscript_scheduler_accesses: Option<CellScriptSchedulerAccessList>,
         priority: Priority,
         orphan: Orphan,
         rbf_policy: RbfPolicy,
@@ -64,9 +81,13 @@ impl Mempool {
                 }
                 let _ = self.get_replace_by_fee_constraint(&transaction, rbf_policy)?;
                 let mempool_tx = match cell_tx.clone() {
-                    Some(cell_tx) => {
-                        MempoolTransaction::new_with_cell_tx(transaction, cell_tx, priority, consensus.get_virtual_daa_score())
-                    }
+                    Some(cell_tx) => MempoolTransaction::new_with_cell_tx_and_cellscript_scheduler_accesses(
+                        transaction,
+                        cell_tx,
+                        cellscript_scheduler_accesses.clone(),
+                        priority,
+                        consensus.get_virtual_daa_score(),
+                    ),
                     None => MempoolTransaction::new(transaction, priority, consensus.get_virtual_daa_score()),
                 };
                 self.orphan_pool.try_add_mempool_transaction_orphan(mempool_tx)?;
@@ -129,7 +150,13 @@ impl Mempool {
 
         // Add the transaction to the mempool as a MempoolTransaction and return clones of the stored transaction views.
         let mempool_tx = match cell_tx {
-            Some(cell_tx) => MempoolTransaction::new_with_cell_tx(transaction, cell_tx, priority, consensus.get_virtual_daa_score()),
+            Some(cell_tx) => MempoolTransaction::new_with_cell_tx_and_cellscript_scheduler_accesses(
+                transaction,
+                cell_tx,
+                cellscript_scheduler_accesses,
+                priority,
+                consensus.get_virtual_daa_score(),
+            ),
             None => MempoolTransaction::new(transaction, priority, consensus.get_virtual_daa_score()),
         };
         let accepted = self.transaction_pool.add_mempool_transaction(mempool_tx, transaction_size)?;

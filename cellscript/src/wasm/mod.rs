@@ -360,12 +360,12 @@ mod tests {
     use crate::ir::{IrAction, IrBody};
 
     fn empty_body() -> IrBody {
-        IrBody { consume_set: Vec::new(), read_refs: Vec::new(), create_set: Vec::new(), blocks: Vec::new() }
+        IrBody { consume_set: Vec::new(), read_refs: Vec::new(), create_set: Vec::new(), mutate_set: Vec::new(), blocks: Vec::new() }
     }
 
     #[test]
     fn wasm_audit_reports_metadata_only_for_type_only_module() {
-        let ir = IrModule { name: "types_only".to_string(), items: Vec::new() };
+        let ir = IrModule { name: "types_only".to_string(), items: Vec::new(), external_type_defs: Vec::new() };
         let report = audit_module(&ir);
         assert_eq!(report.status, WasmSupportStatus::MetadataOnly);
         assert!(report.blockers.is_empty());
@@ -375,6 +375,7 @@ mod tests {
     fn wasm_compiler_fails_closed_for_action_modules() {
         let ir = IrModule {
             name: "demo".to_string(),
+            external_type_defs: Vec::new(),
             items: vec![IrItem::Action(IrAction {
                 name: "main".to_string(),
                 params: Vec::new(),

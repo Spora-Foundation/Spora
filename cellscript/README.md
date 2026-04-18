@@ -12,18 +12,23 @@ CellScript 是 Spora 区块链的领域特定语言 (DSL)，当前处于 **可�
 - **效果与调度标注**: 支持 `#[effect]`、`#[scheduler_hint]` 等前端语法并进入部分 lowering
 - **包感知编译**: 支持单文件、包目录、`Cell.toml`、本地 `path` 依赖和 `source_roots`
 - **RISC-V 产物**: 支持 `riscv64-asm` 和 `riscv64-elf`
-- **审计元数据**: 编译时输出 lowering/runtime/scheduler JSON sidecar，也可通过 `cellc metadata` 直接查看；metadata 会区分 CKB runtime access、symbolic runtime feature、fail-closed runtime feature 和 verifier obligation，并记录路径绑定的 source set BLAKE3、路径无关的 source content BLAKE3、源文件单元与 Input/CellDep/Output cell access operation provenance；scheduler witness v1 还携带 operation/source/index/binding-hash 访问记录
-- **资源操作审计**: `verifier_obligations` 会把 capability/type 层已经证明的 `transfer` / `destroy` / `claim` / `settle` 标为 `checked-static`，把 output scan、claim condition、claim output、settle finalization 等交易级条件标为 `runtime-required`，同时保留未完成 runtime lowering 的 `fail-closed` 义务
-- **Receipt claim 输出类型**: `receipt Grant -> Token { ... }` 是一等语义；`claim grant` 的返回类型、IR `create_set`、Output access provenance、scheduler access witness 和 type metadata 都使用声明的输出类型。未声明 `-> Type` 的 legacy receipt 仍按 non-cell `u64` claim 结果处理。
+- **审计元数据**: 编译时输出 lowering/runtime/scheduler JSON sidecar，也可通过 `cellc metadata` 直接查看；metadata 会区分 CKB runtime access、symbolic runtime feature、fail-closed runtime feature 和 verifier obligation，并记录路径绑定的 source set BLAKE3、路径无关的 source content BLAKE3、源文件单元与 Input/CellDep/Output cell access operation provenance；schema v19 的 scheduler witness v1 携带 operation/source/index/binding-hash 访问记录，并过滤 claim witness/signature 等 runtime-only syscall 访问，使 witness 只描述调度器可见的 CellStateTree source；`spora-exec` 可 admission 这些 witness，共识 MPE `BlockAccessSummary` 已开始消费 admitted shared touch 争用域，并提供 strict trusted-access-set 路径在 merge 前对照 builder/metadata summary
+- **资源操作审计**: `verifier_obligations` 会把 capability/type 层已经证明的 `transfer` / `destroy` / `claim` / `settle` 标为 `checked-static`；命名 `destroy` 的 grouped-output TypeHash absence scan 可标为 `checked-runtime`，claim condition、claim output、settle output、settle finalization 等交易级条件按覆盖度标为 `checked-runtime` 或 `runtime-required`，同时保留未完成 runtime lowering 的 `fail-closed` 义务
+- **Receipt claim 输出类型**: `receipt Grant -> Token { ... }` 是一等语义；`claim grant` 的返回类型、IR `create_set`、Output access provenance、scheduler access witness 和 type metadata 都使用声明的输出类型。同名同类型 fixed-scalar 字段会从 consumed receipt 映射到 claim-created output verifier checks；未声明 `-> Type` 的 legacy receipt 仍按 non-cell `u64` claim 结果处理。
 - **Schema 布局元数据**: 输出类型字段 offset / fixed encoded size；命名入参、`consume` / `transfer` / `destroy` / `claim` / `settle` 输入和 `read_ref<T>()` 上的固定标量字段 (`bool/u8/u16/u32/u64`) 可 lowered 到无对齐要求的 little-endian byte-load 组合；携带 length 的固定 schema source 会做 exact-size check 和字段 bounds check
-- **Create 输出字段验证**: 简单 fixed-scalar `create Type { ... }` 会生成 `LOAD_CELL Source::Output`、exact-size check、bounds check 和字段相等性检查；`u64` 字段额外支持 consumed-input alias 和左结合 `+/-` 链
+- **Create / transfer / claim / settle 输出字段验证**: 简单 fixed-scalar `create Type { ... }` 会生成 `LOAD_CELL Source::Output`、exact-size check、bounds check 和字段相等性检查；`u64` 字段额外支持 consumed-input alias 和左结合 `+/-` 链。`transfer asset to addr`、`claim receipt` 和 `settle value` 会把同名同类型 fixed-scalar 字段从 consumed cell 映射到对应 output verifier checks；transfer lock rebinding、claim witness envelope / ECDSA authorization-domain sighash、显式 20 字节 signer pubkey hash 字段上的 `SECP256K1_VERIFY`、lifecycle-backed fixed-scalar `state` final-state settle 检查、以及 checked DAA source predicates 可在覆盖路径标为 `checked-runtime`，但没有该 signer 字段约定的 claim 授权和非 lifecycle/generalized settle finalization 仍是 runtime-required 义务。
+- **Pool pattern 审计**: Pool 仍不是一等语言原语，而是 `shared` + action + metadata 模式；受控 `seed_pool` 现在会通过 `LOAD_CELL_BY_FIELD Source::Input field=5` 加载 `token_a` / `token_b` TypeHash 并拒绝相同 32 字节 identity，metadata 将 `token-pair-identity-admission` 标为 `checked-runtime`。受控 `launch_token -> seed_pool` tuple 返回路径会通过真实 RISC-V return-register ABI 标记 `pool-id-continuity` 为 `checked-runtime`；受控 `swap_a_for_b` 的 LP supply 不变式会通过 preserved `Pool.total_lp` equality 标为 `checked-runtime`。更广义的 Pool admission、AMM 经济不变量、launch/pool atomicity 和一等 Pool/launch 语言语义仍作为 runtime-required obligations 或 post-v1 边界暴露，并带有稳定 `blocker_class` 供 CLI policy 和 docgen 审计使用。
+- **Create 目标边界**: `create` 只能作用于 cell-backed `resource` / `shared` / `receipt` 类型；普通 `struct` 必须使用 struct literal，不能伪装成 transaction output。
+- **ReadRef 目标边界**: `read_ref<T>()` 只能作用于 cell-backed `resource` / `shared` / `receipt` 类型；普通 `struct` 不能伪装成 CellDep 读取。
+- **Stateful 操作数边界**: `consume` / `transfer` / `destroy` / `claim` / `settle` 只能作用于具名的 cell-backed linear value；匿名表达式或普通 `struct` 不能绕过线性状态追踪。
+- **分支线性状态合并**: `if` 分支会保守合并 linear ownership；只有部分继续路径 consume/transfer/destroy 同一资源会编译失败，避免分支内资源状态变化丢失。
 - **Effect 约束**: `action` effect 会从 `read_ref` / `consume` / `create` / `destroy` / `transfer` / `claim` / `settle` 推断，并传播同模块普通函数调用和本地 `path` 依赖导入函数的 effect；显式 `#[effect(...)]` 低于真实行为时编译失败，避免调度器 metadata 低报
 - **Capability 约束**: `#[capability(...)]` 与 `has ...` 声明会合并；`transfer` 必须声明 `transfer`，`destroy` 必须声明 `destroy`，`claim` 只能作用于 `receipt`，`settle` 只能作用于 cell-backed linear value
-- **`fn` 边界**: `fn` 是独立 pure helper 类别并进入 `functions[]` metadata；`fn` 只能调用 `fn`，不能调用 `action` 或 `lock`，任何 `read_ref` 或 Cell runtime 操作出现在 `fn` 内都会编译失败；无返回 helper 使用内部 `Unit`，只能作为语句调用，不能绑定或返回成值
+- **`fn` 边界与调用签名**: `fn` 是独立 pure helper 类别并进入 `functions[]` metadata；`fn` 只能调用 `fn`，不能调用 `action` 或 `lock`，任何 `read_ref` 或 Cell runtime 操作出现在 `fn` 内都会编译失败；无返回 helper 使用内部 `Unit`，只能作为语句调用，不能绑定或返回成值；本地、同模块限定和本地 path 依赖调用会校验参数个数和参数类型，`&mut T` 可传给只读 `&T`
 - **返回语义**: 有返回值的 `action` / `fn` 必须在所有路径返回；显式 `return`、类型正确的尾表达式和两边都完整返回的 terminal `if` 都会 lowered 成真实 `Return(Some(...))` terminator
 - **不可达代码拒绝**: `return` 或两边都 guaranteed-return 的 `if` 之后不能继续写语句；编译器会拒绝这种审计上不可见但 source 中存在的 dead code
 - **断言语义**: `assert_invariant` lowered 成失败时返回非零错误码的 CFG，并被类型化为 `Unit`；它不能被 `let` 绑定，也不能伪装成尾返回值；message 必须是静态字符串字面量
-- **局部集合语义**: 固定数组要求同质元素，空数组必须有显式零长度类型标注；`Vec::new()` 可由首次 `push(T)` 推断为 `Vec<T>`，后续不兼容 `push` 会编译失败
+- **局部集合语义**: 固定数组要求同质元素，空数组必须有显式零长度类型标注；`Vec::new()` 可由首次 `push(T)` 推断为 `Vec<T>`，后续不兼容 `push` 会编译失败；`len`、`push`、`extend_from_slice` 等方法调用会先经过 arity/type gate 再 lowering
 - **Lifecycle 静态/运行时守门**: `#[lifecycle(...)]` receipt 现在进入主编译路径、LSP 诊断和 metadata；metadata 显式输出 lifecycle states 与相邻 transition 边；重复状态、非法 `state` 字段类型、缺失 `state` 的 lifecycle create、静态越界状态值、非初始状态创建和静态重置到初始状态都会编译失败；可完整验证的 consume-to-create fixed-scalar output 会生成 `old_state < state_count`、`new_state < state_count`、`old_state + 1 == new_state` verifier prelude
 
 ## 当前状态
@@ -43,6 +48,7 @@ CellScript 是 Spora 区块链的领域特定语言 (DSL)，当前处于 **可�
 - `build` / `check` / `doc` / `fmt` / `metadata` / `verify-artifact` / compile-test 子命令；`build` / `check` 支持命令行和 manifest `[policy]` production / symbolic-runtime / CKB-runtime / runtime-obligation policy gate，`verify-artifact` 支持对已生成 artifact 执行同类 policy gate
 - feature-gated `cellc run` 无参纯 ELF CKB-VM runner
 - lifecycle declaration / create-state 静态检查、transition metadata 和 LSP 诊断
+- CellScript scheduler witness 的低层 CellTx 放置/发现/admission helper，以及共识 MPE `BlockAccessSummary` 对 admitted witness shared read/write 争用域的首条消费路径
 - no-return helper 的内部 `Unit` 类型、destinationless call lowering、`assert_invariant` 的 Unit/value-less 语义、不可达语句拒绝、未知调用返回类型拒绝、尾表达式返回 lowering、空数组类型标注和 `Vec.push` 类型传播
 
 当前还不能视为完成的有：
@@ -53,6 +59,7 @@ CellScript 是 Spora 区块链的领域特定语言 (DSL)，当前处于 **可�
 - `create` 的完整 resource-handle / lock / type script / state-transition verification
 - `read_ref` 的广义 schema decoding，目前只支持固定标量字段；nested/dynamic schema 仍未完成
 - 资源副作用、witness binding 和所有 stateful 构造的完整 executable lowering
+- RPC/提交路径 trusted summary 认证/传递策略，以及更完整的 producer-backed 恶意 scheduler metadata 测试；wallet transaction generator 已能自动附加 compiled scheduler witness 并在 `PendingTransaction` 上暴露 trusted access summary，focused mining/consensus 测试已证明 producer-returned summary 能通过 sidecar insertion 进入 selector exposure，并被 strict template prefilter 接收或拒绝
 - runtime/property/fuzz/invariant 测试执行器
 - 完整 consume-to-create lifecycle transition verifier；当前 lifecycle 已做声明、静态 create-state、部分静态 reset，以及可完整 verified create output 的 `old_state + 1 == new_state` prelude，但尚未覆盖动态/nested/locked output 等所有路径
 
@@ -63,7 +70,7 @@ CellScript 是 Spora 区块链的领域特定语言 (DSL)，当前处于 **可�
 - `src/wasm/` 现在参与编译和测试，但仅提供受限 metadata-only 路径；`action` / `lock` executable lowering 会明确 fail-closed。
 - 当前 schema lowering 只覆盖命名 action/lock 入参、`consume` 输入、`read_ref<T>()` 和简单 `create` output 上的固定宽度标量字段。字段读取使用 byte-wise little-endian 组合，避免 Borsh 紧凑布局导致的非对齐 load；本地固定数组 literal 支持静态索引读写、静态 foreach 展开、`len()` 常量折叠，并拒绝异构元素/不可变元素赋值；本地 tuple literal 支持静态字段投影/赋值和 destructuring，数组内 tuple 的静态索引投影及本地 array-of-tuples foreach destructuring 也不会退回 symbolic runtime；输入到输出的守恒仍只覆盖 `u64` 字段别名和左结合 `+/- const_or_param_or_local_const` 链，并支持简单 move/alias 传播。其他 cell-derived 字段访问仍然 fail-closed，不能当作完整状态 decoding。
 - `create` output 只有在 fixed-scalar schema 的所有字段都被 verifier 覆盖时才继续执行；带 lock、动态字段、缺失字段或其它未完整证明的 output verifier 会显式 fail-closed。
-- 未完成真实 verifier lowering 的 symbolic runtime 操作会显式 fail-closed，包括 `transfer` / `destroy` / `claim` / `settle`、动态 collection、`type_hash`、未预加载的 `read_ref`、以及未 lower 到 concrete schema bytes 的 field/index 访问；这些路径不会再返回静默成功值。
+- 未完成真实 verifier lowering 的 symbolic runtime 操作会显式 fail-closed，包括 `transfer` / `claim` / `settle`、不支持的 destroy operand、动态 collection、`type_hash`、未预加载的 `read_ref`、以及未 lower 到 concrete schema bytes 的 field/index 访问；命名 cell-backed `destroy` 已有受限 `GroupOutput` TypeHash absence scan，这些路径不会再返回静默成功值。
 - 显式 action effect 声明必须覆盖编译器推断出的 effect；`ReadOnly` 不能声明在 `create`/`consume` 路径上，`Creating` 不能覆盖 destroy-only 路径，`Destroying` 不能覆盖 create-only 路径。
 - `fn` 不允许隐藏状态访问或资源操作；同模块调用链和本地 `path` 依赖导入函数上的 impure action/fn 也会污染 `fn` 纯度。`action` 和 `lock` 可以调用 `fn`，但 `fn` 不能调用 `action` 或 `lock`；无返回 `fn` 在 IR 中不会生成调用目标，不能被 `let` 绑定或从有返回入口 `return`；需要访问 Cell/runtime 的入口必须是 `action` 或 `lock`。
 - `cellc run` 不会运行带 entrypoint 参数或 CKB syscall runtime 需求的 ELF；这类 artifact 需要真实交易/ABI/syscall 上下文。

@@ -30,7 +30,7 @@ CellScript exists to close this gap: give protocol designers a language that und
 
 ### 1.3 Why Not Solidity / Move / Sway Directly
 
-**Solidity** assumes an account-based storage model. Every `SSTORE`/`SLOAD` targets a 256-bit slot in a contract's persistent storage. Spora has no such model. Cells are discrete objects with OutPoint identity, consumed and created atomically. Adapting Solidity to Cell semantics would require gutting its storage model, at which point you no longer have Solidity.
+**Solidity** assumes an account-based storage model. Every `SSTORE`/`SLOAD` targets a 256-bit slot in a contract's durable storage. Spora has no such model. Cells are discrete objects with OutPoint identity, consumed and created atomically. Adapting Solidity to Cell semantics would require gutting its storage model, at which point you no longer have Solidity.
 
 **Move** is closer. It has resource types with linear semantics. But Move's module system assumes a global module store with named addresses, and its bytecode is stack-based with no concept of CellDep, OutPoint, or DAG scheduling. Move on Sui adds shared objects, but Sui's execution model (Narwhal/Bullshark) differs fundamentally from GhostDAG mergeset processing. Porting Move would mean forking the language and diverging permanently.
 
@@ -77,7 +77,7 @@ CellScript's type system maps directly onto this structure:
 | `create expr` | Entry in `outputs` + `outputs_data` |
 | `read_ref expr` | Entry in `deps` as `CellDep` |
 | `shared` declaration | Cell accessed via `CellDep` (read) or `CellInput` (write) |
-| `ephemeral` binding | Witness data or intermediate computation; never in CellStateTree |
+| local `let` binding | Witness data or intermediate computation; never in CellStateTree |
 | `action` function | Type script logic compiled to RISC-V ELF |
 | `lock` function | Lock script logic compiled to RISC-V ELF |
 
@@ -90,7 +90,7 @@ In a single-chain blockchain, transactions execute sequentially within a block. 
 - Multiple blocks can be mined concurrently
 - A mergeset of blue blocks is processed in canonical order
 - VirtualProcessor accumulates CellDiffs from each block
-- Parallel execution is possible within a block (P1, completed) and potentially across blue blocks (P2b, in design)
+- Parallel execution is possible within a block (P1, completed) and potentially across blue blocks (MPE, in design)
 
 CellScript supports this by:
 
@@ -102,7 +102,7 @@ CellScript supports this by:
    - `read_deps`: OutPoints read via `read_ref`
    - `touches_shared`: type_hashes of shared objects accessed
 
-3. **Scheduler hint embedding**: The metadata includes `parallelizable: bool` and `estimated_cycles: u64`, enabling the block template builder and P2b execution DAG to make scheduling decisions without re-analyzing script code.
+3. **Scheduler hint embedding**: The metadata includes `parallelizable: bool` and `estimated_cycles: u64`, enabling the block template builder and MPE execution DAG to make scheduling decisions without re-analyzing script code.
 
 The important design choice is that this touch surface should be **inferred by default** from the action body:
 - `consume` implies consumed inputs
@@ -114,11 +114,11 @@ Only the non-obvious part should need explicit annotation:
 - effect-class disambiguation
 - rare cases where the compiler cannot infer an adequate scheduler surface on its own
 
-This directly supports the P2b design document's Phase 2 (`BlockAccessSummary`) and Phase 3 (`block-level execution DAG`) without requiring changes to GhostDAG itself.
+This directly supports the MPE design document's Phase 2 (`BlockAccessSummary`) and Phase 3 (`block-level execution DAG`) without requiring changes to GhostDAG itself.
 
-### 2.3 How CellScript Fits the P2B Parallelization Design
+### 2.3 How CellScript Fits the MPE Parallelization Design
 
-The P2B design document identifies the core requirement: blue block processing must be decomposed into **pure effect generation** followed by **sequential commit**. CellScript aligns with this by design:
+The MPE design document identifies the core requirement: blue block processing must be decomposed into **pure effect generation** followed by **sequential commit**. CellScript aligns with this by design:
 
 ```
                     CellScript Source
@@ -237,7 +237,7 @@ The target user is a **protocol designer** who thinks in terms of "I have an ass
 - Prevents "lost Cells" (resources created but never used)
 - Makes asset supply invariants checkable by the compiler
 
-**How it maps to Spora**:
+**Commit details**:
 
 ```
 resource FungibleToken {
@@ -277,7 +277,7 @@ Maps to:
 - **Move (Sui)**: Has explicit `shared` objects with consensus-ordered access. Similar concept, but Sui uses a different consensus mechanism (not GhostDAG).
 - **Sway**: No shared state concept. UTXOs are either spent or not.
 
-### 4.3 `receipt` — Ephemeral Proof-of-Action
+### 4.3 `receipt` — Single-Use Proof-of-Action
 
 **What it means**: A `receipt` is a single-use proof that some action occurred. It is a Cell with a special type script that enforces: (1) it can only be created by a specific action, and (2) it must be consumed exactly once. Receipts are the Cell model's equivalent of "events" in account-based systems, but with a crucial difference: they are stateful objects that must be explicitly claimed.
 
@@ -291,30 +291,32 @@ Maps to:
 - The type script enforces that the receipt Cell can only be consumed by a valid claim action
 - Once consumed, the receipt is gone — it cannot be replayed
 
-### 4.4 `launch` — Structured Asset Creation
+### 4.4 `launch` — Post-v1 Transaction-Builder Pattern
 
-**What it means**: A `launch` is a compiler-known action that bundles the creation of a new asset type with its initial configuration. It combines:
+**What it means**: A `launch` is a post-v1 transaction-builder pattern that bundles the creation of a new asset type with its initial configuration. It combines:
 1. Creating the asset's type script Cell (deploying the contract)
 2. Minting initial supply
 3. Optionally seeding a liquidity pool
 4. Distributing initial tokens to specified addresses
 
-**Why it exists**: In practice, launching a new token on any chain involves multiple coordinated transactions. CellScript makes this a single atomic action, reducing the surface for partial-deployment bugs.
+**Why it exists**: In practice, launching a new token on any chain involves multiple coordinated outputs. A future CellScript transaction builder can make this a single atomic CellTx, reducing the surface for partial-deployment bugs.
 
-**How it maps to Spora**: A `launch` compiles to a single CellTx with:
+**How it maps to Spora**: A future `launch` lowering would compile to a single CellTx with:
 - Output 0: Type script Cell (the asset's code, deployed as a Cell with data = ELF binary)
 - Output 1..N: Initial token Cells (minted supply distributed to recipients)
 - Output N+1: Optional pool Cell (seeded with initial liquidity)
 - Output N+2: Optional LP receipt Cells (proof of initial liquidity provision)
 
-### 4.5 `pool` — Shared Liquidity Object
+Current status: `launch` is not part of the v1 language core. Until transaction-builder lowering exists, examples should model launches explicitly with `create` operations and ordinary actions.
 
-**What it means**: A `pool` is a `shared` Cell that holds reserves of two or more asset types and enforces a pricing invariant (e.g., constant product x·y=k). It manages LP (liquidity provider) accounting through receipts.
+### 4.5 Pool Pattern — Shared Liquidity Object
 
-**Why it exists**: AMM pools are the most common shared-state pattern in DeFi. Making them a first-class concept means:
-- The compiler can verify invariant preservation at the type level
-- Scheduler metadata automatically includes the pool's type_hash for contention detection
-- Standard swap/add/remove operations are generated with correct Cell patterns
+**What it means**: A pool is a protocol pattern built from a `shared` Cell, action logic, invariants, and receipt/resource outputs. It is not a separate language keyword or declaration class.
+
+**Why it exists**: AMM pools are the most common shared-state pattern in DeFi. They deserve standard metadata and tooling support, but their invariant family is protocol-specific rather than language-core semantics:
+- Scheduler metadata can still include the underlying shared Cell's type_hash for contention detection
+- Audit metadata can expose pool-specific runtime obligations
+- Standard libraries can provide AMM templates without hard-coding AMM math into the language
 
 **How it maps to Spora**: A pool is a shared Cell where:
 - `CellOutput.type_` = pool type script (enforces AMM invariant)
@@ -332,18 +334,17 @@ Maps to:
 - Produces final asset Cells (outputs)
 - Transitions lifecycle state from `Pending` to `Settled`
 
-### 4.7 `ephemeral` — Transaction-Scoped Objects
+### 4.7 Transaction-Local Values and CellStateTree Commit
 
-**What it means**: An `ephemeral` binding exists only during a transaction's execution. It is never committed to CellStateTree. Ephemeral objects are used for intermediate computations, witness data parsing, and temporary state that does not need persistence.
+**What it means**: Ordinary local bindings exist only during a transaction's execution. They are not committed to CellStateTree. Intermediate computation, witness parsing, and temporary state use normal `let` bindings.
 
 **How it maps to Spora**:
-- Witness data (`CellTx.witnesses`) is ephemeral by nature
+- Witness data (`CellTx.witnesses`) is transaction-local by nature
 - Intermediate computation results live in ckbvm memory
-- The compiler ensures ephemeral values are never assigned to `store`-capable types
+- Only `create` produces Cell outputs that enter CellStateTree
+- Linear resource checks ensure cell-backed values are consumed, returned, or explicitly materialized
 
-### 4.8 `persistent` — CellStateTree-Committed Objects
-
-**What it means**: All Cells are persistent by default. When a `resource` or `shared` object is created via `create`, it becomes a Cell in the CellStateTree, tracked by MuHash for O(1) incremental root computation. The `persistent` keyword is implicit — it exists conceptually but is not written explicitly in code.
+**CellStateTree commit**: When a `resource`, `shared`, or `receipt` object is created via `create`, it becomes a Cell in the CellStateTree, tracked by MuHash for O(1) incremental root computation. No separate keyword is required for this behavior.
 
 **How it maps to Spora**:
 - CellStateTree stores `CellEntry { capacity, data_bytes, lock_hash, type_hash, data_hash, block_daa_score, is_cellbase }`
@@ -439,7 +440,7 @@ Generics are monomorphized at compile time. The compiler generates a separate ty
 
 ### 5.5 Object Identity
 
-Every persistent object has an identity: its `OutPoint` (`tx_hash || index`). When a resource is consumed and re-created (e.g., updating shared state), the OutPoint changes. CellScript provides a `type_id` pattern for stable identity:
+Every CellStateTree object has an identity: its `OutPoint` (`tx_hash || index`). When a resource is consumed and re-created (e.g., updating shared state), the OutPoint changes. CellScript provides a `type_id` pattern for stable identity:
 
 ```
 // type_id: first output of a specific genesis transaction
@@ -855,7 +856,7 @@ action batch_settle(
 ) -> Token {
     let current_daa = env::current_daa_score()
     
-    ephemeral total_amount: u64 = 0
+    let mut total_amount: u64 = 0
 
     for receipt in receipts {
         assert_invariant(current_daa >= receipt.vesting_end_daa,
@@ -873,10 +874,10 @@ action batch_settle(
 }
 ```
 
-### 6.7 Example: Ephemeral Object
+### 6.7 Example: Transaction-Local Intermediate
 
 ```cellscript
-// swap_router.cell — Multi-hop swap with ephemeral intermediate state
+// swap_router.cell — Multi-hop swap with transaction-local intermediate state
 
 module spora::router
 
@@ -891,8 +892,8 @@ action multi_hop_swap(
     min_final_output: u64,
     to: Address
 ) -> Token {
-    // Intermediate token B — ephemeral, never persisted
-    ephemeral intermediate: Token = swap_a_for_b(pool_ab, input, 0, to)
+    // Intermediate token B — transaction-local and never committed as an output
+    let intermediate: Token = swap_a_for_b(pool_ab, input, 0, to)
     
     // The intermediate token exists only in this transaction's scope.
     // The compiler verifies it is consumed before the action ends.
@@ -913,7 +914,7 @@ action multi_hop_swap(
 | Cell creation | `create` | Mirrors `consume`; makes Cell lifecycle visually symmetric |
 | CellDep access | `read_ref` | Clarifies that this is a non-consuming read |
 | Constraint check | `assert_invariant` | Stronger than `assert` — compiler verifies all paths |
-| Transaction-scoped | `ephemeral` | Clearly marks values that never hit CellStateTree |
+| Transaction-scoped values | `let` | Local bindings never hit CellStateTree unless explicitly materialized through `create` |
 | Lifecycle attribute | `#[lifecycle(...)]` | State machine as metadata, not syntax pollution |
 | Owner assignment | `with_lock(addr)` | Makes lock script assignment explicit |
 | Destruction | `destroy` | Capability-gated; requires `destroy` ability |
@@ -1062,7 +1063,7 @@ The compiler may emit standardized layouts where they buy real value, but the pr
 
 **vs. Solidity/EVM**:
 - Solidity compiles to EVM bytecode (stack-based, 256-bit word size). Storage is modeled as `(contract_address, slot) -> 256-bit value`.
-- CellScript has no persistent storage slots. State is stored in Cells. "Updating state" means consuming an old Cell and creating a new one. This is fundamentally different from `SSTORE`.
+- CellScript has no durable storage slots. State is stored in Cells. "Updating state" means consuming an old Cell and creating a new one. This is fundamentally different from `SSTORE`.
 - EVM has no concept of linearity, effect classes, or scheduler hints. Parallelization (if any) must be inferred externally.
 
 ---
@@ -1111,20 +1112,63 @@ CellScript produces two kinds of scripts:
 The compiler emits scheduler metadata in a designated witness field. The metadata format:
 
 ```
-// Witness[N] for scheduler metadata (last witness entry by convention)
+// Witness[N] for scheduler metadata (ordinary transaction witness slot)
 //
-// Format: 0xCE11 (magic) || version(u8) || payload_len(u32) || payload
-//
-// Payload (Borsh-encoded):
+// Format: Borsh-encoded SchedulerWitness. The first bytes are the little-endian
+// magic 0xCE11 (`11 ce`) followed by version 1, so transaction policy can
+// discover candidate witnesses before full decode.
 struct SchedulerWitness {
+    magic: u16,                  // 0xCE11
+    version: u8,                 // 1
     effect_class: u8,           // 0=Pure, 1=ReadOnly, 2=Mutating, 3=Creating, 4=Destroying
     parallelizable: bool,
+    touches_shared_count: u32,
     touches_shared: Vec<[u8; 32]>,  // type_hashes of shared objects
     estimated_cycles: u64,
-    consumed_type_hashes: Vec<[u8; 32]>,
-    created_type_hashes: Vec<[u8; 32]>,
+    access_count: u32,
+    accesses: Vec<SchedulerAccessWitness>,
+}
+
+struct SchedulerAccessWitness {
+    operation: u8,               // consume/transfer/destroy/claim/settle/read_ref/create/mutate-*
+    source: u8,                  // Input=1, CellDep=2, Output=3
+    index: u32,
+    binding_hash: [u8; 32],
 }
 ```
+
+Current implementation note: schema v19 keeps scheduler witness access records
+limited to scheduler-visible Input/CellDep/Output cell-state accesses. Runtime-only
+claim witness/signature syscalls stay in `ckb_runtime_accesses`, not in the compact
+scheduler witness. `spora-exec` can attach/discover/decode/admit these witnesses
+and rejects invalid ids, illegal operation/source pairs, and out-of-bounds
+transaction source indexes before scheduler policy consumes them. It also has an
+exact operation/source/index/binding_hash multiset check for comparing decoded
+witnesses against trusted transaction-builder or compiled-metadata summaries.
+Consensus MPE `BlockAccessSummary` now consumes transaction-admitted witnesses:
+scheduler-visible Input/CellDep/Output accesses are merged into block summaries,
+and `touches_shared` is classified as shared read domains for `Pure`/`ReadOnly`
+effects and shared write domains for mutating/creating/destroying effects. Shared
+read/read overlap remains parallelizable; shared write/read or write/write overlap
+creates an execution-DAG dependency. Mempool validation and template prefiltering
+now reject malformed CellScript scheduler metadata before acceptance/selection,
+and template policy tests cover missing or mismatched trusted summaries. Compiled
+metadata exposes witness bytes through `ActionMetadata::scheduler_witness_bytes()`;
+`CellTx::push_cellscript_compiled_scheduler_witness(...)` admits those bytes against
+a concrete transaction, appends the witness, and returns the trusted access
+summary for strict policy. A strict
+MPE `BlockAccessSummary` path can already require a trusted
+transaction-builder or compiled-metadata operation/source/index/binding_hash
+multiset and reject missing or mismatched summaries before witness data is merged.
+Mining mempool entries and template selectors can now carry producer-backed trusted
+summaries into the strict template policy path, including trusted empty summaries.
+Wallet transaction generation can now attach one compiled scheduler witness to the
+final transaction and expose the returned trusted summary on `PendingTransaction`.
+Focused mining coverage proves a producer-returned summary survives sidecar
+insertion into selector exposure. Focused consensus coverage proves
+selector-provided builder summaries are consumed/rejected by strict template
+prefiltering. An explicit external submission surface for trusted summaries
+remains open.
 
 Source-level policy:
 - `touches` is not intended to be a verbose hand-written manifest
@@ -1141,9 +1185,9 @@ So the model is:
 The block template builder reads this metadata to:
 1. Filter conflicting transactions before including them in a block (P2a, already completed)
 2. Determine which transactions can execute in parallel within a block (P1, already completed)
-3. Provide `BlockAccessSummary` data for P2b mergeset-level parallelization (future)
+3. Provide `BlockAccessSummary` shared read/write contention domains for MPE mergeset-level parallelization (started)
 
-This metadata is **advisory**. The consensus layer does not enforce it. A malicious transaction can lie about its scheduler hints. The execution layer always performs full validation. The hints are an optimization for honest miners building block templates.
+This metadata is still not a complete v1 consensus declaration contract. The current MPE path admits witness bytes before consuming shared-touch conflict domains, and the strict path can compare them against trusted access-set summaries before merge. Malicious, missing, or inconsistent metadata still needs transaction-builder, mempool, and adversarial-test closure. The execution layer always performs full validation, so scheduler hints do not replace verifier semantics.
 
 This trust boundary is intentional.
 
@@ -1164,7 +1208,7 @@ When multiple transactions in the same block touch the same shared object (same 
 
 1. **Template builder** (P2a): Detects conflict via scheduler metadata. Includes at most one writer per shared object per block. Multiple readers can coexist.
 2. **Block validation** (P1): Validates transactions in parallel where possible. Transactions touching the same shared object are serialized.
-3. **Virtual processor** (P2b future): Multiple blue blocks in a mergeset may each contain a write to the same shared object. The canonical ordering resolves this: the first blue block (in GhostDAG order) wins, subsequent conflicting writes are skipped.
+3. **Virtual processor** (MPE path): Multiple blue blocks in a mergeset may each contain a write to the same shared object. The canonical ordering resolves this: the first blue block (in GhostDAG order) wins, subsequent conflicting writes are skipped.
 
 CellScript does not solve the contention problem at the language level. It makes contention visible (via `shared` keyword and scheduler metadata) so that the execution stack can handle it efficiently.
 
@@ -1185,19 +1229,19 @@ Developers must be able to inspect the generated CellTx shape directly. This is 
 
 One CellTx = one atomic execution unit. All inputs are consumed, all outputs are created, all scripts pass, or the entire transaction fails. There is no partial execution. This is inherited from the Cell model and not changed by CellScript.
 
-System-level parallelism comes from multiple CellTx in the same block (P1) or across blue blocks in a mergeset (P2b).
+System-level parallelism comes from multiple CellTx in the same block (P1) or across blue blocks in a mergeset (MPE).
 
 ---
 
-## 9. Standard Primitives
+## 9. Standard Operations And Protocol Patterns
 
 ### 9.1 `launch` — Create New Asset Type
 
 **Semantic guarantees**: Atomically creates a type script Cell, mints initial supply, and optionally seeds a pool. Either all outputs are created or none are.
 
-**Why native/standard**: Token launch is the most common first action on any blockchain. Making it atomic prevents partial-deployment states (type script deployed but no tokens minted, or tokens minted but pool not seeded).
+**Why standard**: Token launch is the most common first action on any blockchain. Making it atomic prevents partial-deployment states (type script deployed but no tokens minted, or tokens minted but pool not seeded).
 
-**Implementation level**: **Compiler-known**. The compiler generates a specific CellTx pattern with deterministic output ordering. The `launch` keyword is not a library call — it's a compiler directive that structures the entire transaction.
+**Implementation level**: **Post-v1 transaction-builder feature**. It is a deterministic multi-`create` CellTx template, not a v1 core expression. Current implementations should reject `launch` in executable expression position until builder lowering exists.
 
 ### 9.2 `mint` — Create New Units
 
@@ -1217,7 +1261,7 @@ System-level parallelism comes from multiple CellTx in the same block (P1) or ac
 
 **Semantic guarantees**: Consumes a resource Cell with one lock script, creates a new resource Cell with a different lock script. Data is preserved. The `transfer` capability must be declared.
 
-**Implementation level**: **Language syntax**. `transfer token to address` is a first-class expression. The compiler generates the consume-input + create-output pattern with lock script change.
+**Implementation level**: **Language sugar over `consume` + `create`**. `transfer token to address` preserves the resource fields and changes only the output lock. It remains useful because it is high-frequency and lets verifier tooling recognize lock rebinding.
 
 ```cellscript
 transfer my_token to recipient_address
@@ -1226,17 +1270,17 @@ transfer my_token to recipient_address
 // create Token { ...my_token fields... } with_lock(recipient_address)
 ```
 
-### 9.5 `seed_pool` — Initialize Liquidity Pool
+### 9.5 `seed_pool` — Initialize Liquidity Pool Pattern
 
 **Semantic guarantees**: Creates a shared pool Cell with initial reserves. Returns LP receipts. The constant-product invariant is established at creation time.
 
-**Implementation level**: **Compiler-known**. The compiler generates a specific output pattern: pool Cell + LP receipt Cell(s). The pool's type script is generated to enforce the AMM invariant.
+**Implementation level**: **Stdlib/protocol pattern with compiler-visible metadata**. This should not be a language primitive. The compiler may expose structured pool obligations for audit and policy tooling, but AMM math belongs to libraries, generated verifiers, or transaction-builder policy.
 
 ### 9.6 `swap` — Exchange Through Pool
 
 **Semantic guarantees**: Atomically exchanges one asset for another through a pool. The pool's invariant (x·y ≥ k after fees) is verified by the type script.
 
-**Implementation level**: **Stdlib**. The swap action is a library function. The pool type script performs the invariant check.
+**Implementation level**: **Stdlib/protocol pattern**. The swap action is a library function over a `shared` pool value. The pool type script or generated verifier performs the invariant check.
 
 ### 9.7 `wrap` / `unwrap` — Native Capacity Conversion
 
@@ -1248,7 +1292,7 @@ transfer my_token to recipient_address
 
 **Semantic guarantees**: Consumes a receipt Cell, verifies claim conditions, produces an asset Cell. The receipt's type script enforces single-use.
 
-**Implementation level**: **Language syntax**. `claim receipt` is a first-class expression. The compiler generates the pattern: consume receipt Cell, verify conditions (time lock via `since` field, signatures via witness), create asset Cell.
+**Implementation level**: **Obligation-classifying syntax or intrinsic**. `claim receipt` lowers to consume receipt Cell + verify conditions + create output Cell. Its value is not a new CellTx primitive; it is the metadata anchor for `claim-conditions` obligations.
 
 ```cellscript
 let tokens = claim vesting_receipt
@@ -1260,7 +1304,7 @@ let tokens = claim vesting_receipt
 
 **Semantic guarantees**: Transitions a resource from a pending lifecycle state to a final state. Consumes pending Cells, produces final Cells.
 
-**Implementation level**: **Language syntax**. The `settle` keyword marks an action as a finalization step. The compiler verifies that lifecycle transitions are valid (e.g., `Active → Settled` but not `Destroyed → Active`).
+**Implementation level**: **Obligation-classifying syntax or intrinsic**. `settle` marks a finalization path so metadata and policy tooling can distinguish settlement from an ordinary consume/create update. It should remain generic and lifecycle-oriented, not business-specific.
 
 ---
 
@@ -1271,13 +1315,13 @@ let tokens = claim vesting_receipt
 | **Execution target** | RISC-V ELF (ckbvm) | EVM bytecode | Move bytecode | FuelVM bytecode |
 | **State model** | Cell (UTXO-like, typed) | Account + storage slots | Resources in global store | UTXO + native assets |
 | **General expressiveness** | Narrow (asset-focused) | Wide (Turing-complete) | Medium (module-scoped) | Medium (predicate-aware) |
-| **Asset expressiveness** | Native (resource types, lifecycle, pool) | Manual (ERC-20 pattern) | Native (resource types) | Partial (native assets, no type scripts) |
+| **Asset expressiveness** | Native (resource types, lifecycle, shared pool patterns) | Manual (ERC-20 pattern) | Native (resource types) | Partial (native assets, no type scripts) |
 | **Linear types** | Yes (enforced by compiler + capability model) | No | Yes (abilities: key/store/copy/drop) | No |
 | **Shared state** | Explicit (`shared` keyword, CellDep/CellInput) | Implicit (all storage is shared) | Explicit (Sui shared objects) | No (pure UTXO) |
 | **Scheduler hints** | Native (IR emission, effect classes, witness metadata) | None (sequential EVM) | None | Partial (predicates) |
 | **DAG awareness** | Native (designed for GhostDAG mergeset) | None (single-chain) | None (single-chain or Narwhal) | None (single-chain) |
 | **Parallelization support** | Native (effect class, access summary, contention detection) | None | Partial (Sui object-level) | Partial (predicate independence) |
-| **Cold-start friendliness** | High (`launch` primitive: atomic deploy + mint + pool) | Low (deploy → init → approve → add liquidity = 4+ txs) | Medium (publish module → init) | Medium (deploy predicate) |
+| **Cold-start friendliness** | Medium now; high after post-v1 launch builder (atomic deploy + mint + pool) | Low (deploy → init → approve → add liquidity = 4+ txs) | Medium (publish module → init) | Medium (deploy predicate) |
 | **Developer ergonomics** | Good (Rust-like syntax, narrow domain) | High (well-known, huge ecosystem) | Good (but new concepts, steep learning curve) | Good (Rust-like, but Fuel-specific) |
 | **Ecosystem maturity** | None (greenfield) | Massive | Growing | Small |
 | **Reentrancy risk** | Impossible (Cell model, no callbacks) | High (delegate calls, external calls) | Low (no dynamic dispatch by default) | Low (no callbacks in predicates) |
@@ -1290,7 +1334,7 @@ let tokens = claim vesting_receipt
 The critical differentiators are:
 
 1. **Cell-native**: CellScript's semantic model maps 1:1 to Spora's CellTx. No impedance mismatch.
-2. **DAG-aware**: Scheduler hints are emitted by the compiler, enabling P1/P2a/P2b optimizations.
+2. **DAG-aware**: Scheduler hints are emitted by the compiler, enabling P1/P2a/MPE optimizations.
 3. **ckbvm-targeted**: Compiles to RISC-V ELF. No new VM needed. Backward-compatible with existing raw scripts.
 4. **Mass-aware**: The compiler can estimate mass contributions (compute, transient, storage) at compile time, enabling fee estimation before transaction construction.
 
@@ -1314,11 +1358,9 @@ In practical terms:
   - `resource`
   - `shared`
   - `receipt`
-  - `launch`
-  - `pool`
   - `settle`
-  - `ephemeral`
-  - `persistent`
+  - transaction-local computation
+  - post-v1 launch builder patterns
 
 This gives Spora a path that is implementable now without trapping it forever in “better raw CKB scripting.”
 
@@ -1371,7 +1413,7 @@ The v1 execution plan must preserve these boundaries:
 - effect manifest conventions
 - Spora IR
 - compiler-known lifecycle rules
-- compiler-known standard primitives
+- compiler-known standard operations and protocol-pattern metadata
 
 #### Explicitly defer
 
@@ -1402,18 +1444,19 @@ Scope:
   - `shared`
   - `receipt`
   - `object`
-  - `ephemeral`
 - define primitive action classes:
-  - `launch`
   - `mint`
   - `burn`
   - `transfer`
-  - `seed_pool`
-  - `swap`
   - `wrap`
   - `unwrap`
   - `claim`
   - `settle`
+- define protocol-pattern metadata for:
+  - launch builders
+  - pool/AMM flows
+  - `seed_pool`
+  - `swap`
 - define ownership, linearity, and lifecycle rules
 - define `touches` syntax and effect declaration grammar
 - explicitly define that `touches` is:
@@ -1542,7 +1585,7 @@ Objective:
 
 Build:
 - semantic kernel
-- standard primitive list
+- standard operation list
 - object header format
 - effect manifest format
 - first draft of Spora IR
@@ -1554,7 +1597,7 @@ Do not build yet:
 - advanced macro system
 
 Gate:
-- core team can read the spec and answer, without ambiguity, what `resource`, `shared`, `receipt`, `launch`, `pool`, and `settle` mean.
+- core team can read the spec and answer, without ambiguity, what `resource`, `shared`, `receipt`, `transfer`, `destroy`, `claim`, and `settle` mean, and why `launch` and pool flows sit outside the v1 language core.
 
 ### Phase 1 — Compiler MVP
 
@@ -1592,12 +1635,10 @@ Build:
 - `shared`
 - `receipt`
 - lifecycle transitions
-- `launch`
-- `seed_pool`
-- `swap`
 - `claim`
 - `settle`
 - scheduler hint emission
+- protocol-pattern metadata for pool examples
 
 Milestone demo:
 - one complete launch flow:
@@ -1607,6 +1648,7 @@ Milestone demo:
   - create vesting receipt
   - claim from receipt
   - settle shared state
+- marked as a controlled transaction-builder/protocol-pattern demo, not evidence that `launch` or `pool` are v1 language primitives
 
 ### Phase 3 — Node/Scheduler Integration
 
@@ -1705,7 +1747,7 @@ The execution plan should be managed by milestone, not by “compiler percentage
 
 #### Milestone M5
 
-- end-to-end launch/pool/claim/settle example works in a controlled test environment
+- end-to-end explicit create/shared/claim/settle example works in a controlled test environment, with launch/pool behavior exposed as protocol-pattern metadata
 
 ### 11.10 Risks and Mitigations
 
@@ -1713,7 +1755,7 @@ The execution plan should be managed by milestone, not by “compiler percentage
 |---|---|---|---|
 | backend becomes a disguised new VM effort | Critical | Medium | keep `ckbvm` fixed, treat DSL as compiler + verifier generator only |
 | language surface drifts back into generic smart-contract design | High | Medium | freeze semantic kernel early and reject off-model features |
-| shared object semantics are underspecified | Critical | Medium | define versioning and write discipline in IR before pool/settle work |
+| shared object semantics are underspecified | Critical | Medium | define versioning and write discipline in IR before pool-pattern/settle work |
 | compiler/runtime boundary gets blurry | High | Medium | keep envelope/object/compiler/runtime split explicit in spec and tests |
 | scheduler metadata is inaccurate or dishonest | High | Medium | keep validity in verifier path; use differential checks between metadata and executed object set |
 | code size or cycle cost grows too fast | High | Medium | keep stdlib minimal, profile generated ELF early, optimize only after end-to-end flows work |
@@ -1736,7 +1778,7 @@ If execution started immediately, the most defensible path is:
 1. keep the backend close to current Spora and `ckbvm`
 2. freeze Hypha-style semantics early
 3. build Spora IR before ambitious code generation
-4. ship a narrow compiler that handles asset launch, receipts, pools, and settlement well
+4. ship a narrow compiler that handles resources, receipts, shared-state flows, claim/settle obligations, and pool-pattern metadata well
 5. let generality wait
 
 ---
@@ -2155,7 +2197,7 @@ action settle_pool(
         "settlement time not reached")
     
     // Calculate each depositor's share and distribute
-    ephemeral distributed: u64 = 0
+    let mut distributed: u64 = 0
     
     for receipt in receipts {
         assert_invariant(receipt.pool_type_hash == pool.type_hash(),
@@ -2217,7 +2259,7 @@ CellScript should be built. The reasoning is:
 
 3. **The compilation target already exists.** ckbvm is operational. The syscall interface is stable. RISC-V toolchains are mature. CellScript needs to generate valid ELF binaries and nothing more. This is a compiler project, not a VM project.
 
-4. **DAG scheduling demands language-level support.** The P2B parallelization design requires `BlockAccessSummary` and `BlockExecutionEffect` metadata. CellScript's scheduler hints provide this metadata automatically, accelerating the P2B roadmap.
+4. **DAG scheduling demands language-level support.** The MPE parallelization design requires `BlockAccessSummary` and `BlockExecutionEffect` metadata. CellScript's scheduler hints provide this metadata automatically, accelerating the MPE roadmap.
 
 ### 13.2 Name Justification
 
@@ -2231,7 +2273,7 @@ CellScript should be built. The reasoning is:
 - **Minimal surface area**: CellScript does one thing (Cell lifecycle management) and does it well. The language is learnable in a day by anyone who knows Rust.
 - **Zero impedance mismatch**: Every CellScript concept maps directly to a Spora runtime concept. There is no translation layer, no adaptor pattern, no "but the underlying model doesn't really work that way."
 - **Compiler-enforced safety**: Linear types prevent double-spend bugs at compile time. Lifecycle attributes prevent invalid state transitions at compile time. These are guarantees that raw script programming cannot provide.
-- **Forward-compatible with P2B**: The scheduler hint system is designed today for the parallelization model being built tomorrow, but it remains advisory. When P2B lands, CellScript-compiled scripts can benefit without moving scheduling declarations into the consensus trust boundary.
+- **Forward-compatible with MPE**: The scheduler hint system is designed today for the parallelization model being built tomorrow, but it remains advisory. When MPE lands, CellScript-compiled scripts can benefit without moving scheduling declarations into the consensus trust boundary.
 - **Transparent to the Cell layer**: The language is only useful if developers can still see how source code lowers into `inputs`, `outputs`, `deps`, and witnesses. CellScript keeps that mapping inspectable.
 - **Low annotation burden**: Developers should not have to hand-write complete touched-state manifests. The compiler infers the obvious parts, and explicit `touches` is reserved for shared-write and ambiguous cases.
 

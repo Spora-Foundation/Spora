@@ -16,8 +16,13 @@ use secp256k1::{self, rand::rngs::OsRng, All, Keypair, Scalar, Secp256k1, Secret
 use sha2::{Digest, Sha256};
 
 // --- Helper functions ---
-fn kscalar_from_bytes(bytes: &[u8; 32]) -> KScalar {
+fn kscalar_reduce_bytes(bytes: &[u8; 32]) -> KScalar {
     <KScalar as Reduce<U256>>::reduce_bytes(&(*bytes).into())
+}
+
+fn kscalar_from_canonical_bytes(bytes: &[u8; 32]) -> Result<KScalar, AdaptorError> {
+    secp_scalar_from_bytes(bytes)?;
+    Ok(kscalar_reduce_bytes(bytes))
 }
 
 fn kscalar_to_bytes(scalar: &KScalar) -> [u8; 32] {
@@ -47,10 +52,10 @@ pub fn create_secret_and_point(secp: &Secp256k1<All>) -> (AdaptorSecret, Adaptor
 
 pub fn create_proof(secp: &Secp256k1<All>, secret_x_bytes: &Scalar32, point_y: &AdaptorPoint) -> Result<AdaptorProof, AdaptorError> {
     let mut rng = OsRng;
-    let x = kscalar_from_bytes(secret_x_bytes);
+    let x = kscalar_from_canonical_bytes(secret_x_bytes)?;
 
     let k_sk = SecretKey::new(&mut rng);
-    let k = kscalar_from_bytes(&k_sk.secret_bytes());
+    let k = kscalar_reduce_bytes(&k_sk.secret_bytes());
     let t_point = k_sk.public_key(secp);
     let (t_xonly, _) = t_point.x_only_public_key();
 
@@ -58,7 +63,7 @@ pub fn create_proof(secp: &Secp256k1<All>, secret_x_bytes: &Scalar32, point_y: &
     hasher.update(point_y.0.serialize());
     hasher.update(t_xonly.serialize());
     let e_bytes: [u8; 32] = hasher.finalize().into();
-    let e = kscalar_from_bytes(&e_bytes);
+    let e = kscalar_reduce_bytes(&e_bytes);
 
     let z_kscalar = k + (e * x);
     let z_bytes = kscalar_to_bytes(&z_kscalar);
@@ -95,22 +100,22 @@ pub fn verify_proof(secp: &Secp256k1<All>, point_y: &AdaptorPoint, proof: &Adapt
 }
 
 pub fn make_partial_signature(s_scalar: &Scalar, x_bytes: &Scalar32) -> Result<AdaptorPartialSignature, AdaptorError> {
-    let s_k = kscalar_from_bytes(&s_scalar.to_be_bytes());
-    let x_k = kscalar_from_bytes(x_bytes);
+    let s_k = kscalar_from_canonical_bytes(&s_scalar.to_be_bytes())?;
+    let x_k = kscalar_from_canonical_bytes(x_bytes)?;
     let s_prime_k = s_k - x_k;
     Ok(AdaptorPartialSignature(kscalar_to_bytes(&s_prime_k)))
 }
 
 pub fn complete_signature(s_prime_bytes: &Scalar32, x_bytes: &Scalar32) -> Result<Scalar, AdaptorError> {
-    let s_prime_k = kscalar_from_bytes(s_prime_bytes);
-    let x_k = kscalar_from_bytes(x_bytes);
+    let s_prime_k = kscalar_from_canonical_bytes(s_prime_bytes)?;
+    let x_k = kscalar_from_canonical_bytes(x_bytes)?;
     let s_k = s_prime_k + x_k;
     secp_scalar_from_bytes(&kscalar_to_bytes(&s_k))
 }
 
 pub fn recover_secret(s_bytes: &Scalar32, s_prime_bytes: &Scalar32) -> Result<Scalar32, AdaptorError> {
-    let s_k = kscalar_from_bytes(s_bytes);
-    let s_prime_k = kscalar_from_bytes(s_prime_bytes);
+    let s_k = kscalar_from_canonical_bytes(s_bytes)?;
+    let s_prime_k = kscalar_from_canonical_bytes(s_prime_bytes)?;
     let x_k = s_k - s_prime_k;
     Ok(kscalar_to_bytes(&x_k))
 }
@@ -129,8 +134,8 @@ pub fn verify_secret(secp: &Secp256k1<All>, secret_x: &AdaptorSecret, point_y: &
 }
 /// A public helper function to multiply two secp256k1 Scalars using k256 for the arithmetic.
 pub fn multiply_scalars(a: &Scalar, b: &Scalar) -> Result<Scalar, AdaptorError> {
-    let a_k = kscalar_from_bytes(&a.to_be_bytes());
-    let b_k = kscalar_from_bytes(&b.to_be_bytes());
+    let a_k = kscalar_from_canonical_bytes(&a.to_be_bytes())?;
+    let b_k = kscalar_from_canonical_bytes(&b.to_be_bytes())?;
     let result_k = a_k * b_k;
     secp_scalar_from_bytes(&kscalar_to_bytes(&result_k))
 }
@@ -163,5 +168,25 @@ mod tests {
         let (recovered_y, _) = recovered_sk.public_key(&secp).x_only_public_key();
         assert_eq!(y_point.0, recovered_y);
         println!("Adaptor signature roundtrip test passed with serializable types!");
+    }
+
+    #[test]
+    fn rejects_non_canonical_scalar_inputs() {
+        let secp = Secp256k1::new();
+        let mut rng = OsRng;
+        let (x_secret, y_point) = create_secret_and_point(&secp);
+        let s_scalar = Scalar::from(SecretKey::new(&mut rng));
+        let s_prime = make_partial_signature(&s_scalar, &x_secret.0).expect("canonical partial signature");
+        let curve_order: Scalar32 = [
+            0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xfe, 0xba, 0xae, 0xdc, 0xe6,
+            0xaf, 0x48, 0xa0, 0x3b, 0xbf, 0xd2, 0x5e, 0x8c, 0xd0, 0x36, 0x41, 0x41,
+        ];
+
+        assert_eq!(create_proof(&secp, &curve_order, &y_point), Err(AdaptorError::ScalarOutOfRange));
+        assert_eq!(make_partial_signature(&s_scalar, &curve_order), Err(AdaptorError::ScalarOutOfRange));
+        assert_eq!(complete_signature(&s_prime.0, &curve_order), Err(AdaptorError::ScalarOutOfRange));
+        assert_eq!(complete_signature(&curve_order, &x_secret.0), Err(AdaptorError::ScalarOutOfRange));
+        assert_eq!(recover_secret(&curve_order, &s_prime.0), Err(AdaptorError::ScalarOutOfRange));
+        assert_eq!(recover_secret(&s_scalar.to_be_bytes(), &curve_order), Err(AdaptorError::ScalarOutOfRange));
     }
 }

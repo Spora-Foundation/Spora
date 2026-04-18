@@ -4,9 +4,9 @@
 
 This memo proposes a new Spora-native DSL named **Hypha**.
 
-Hypha is not intended to be a general smart contract language. It is a **state-transition DSL for cell lineage**: a language for defining assets, objects, receipts, pools, launches, and settlement flows as explicit effectful transitions over discrete state objects. The unit of programming is not “a contract with storage”; it is “a typed transition over consumed, read, shared-written, and created objects.”
+Hypha is not intended to be a general smart contract language. It is a **state-transition DSL for cell lineage**: a language for defining assets, objects, receipts, shared-state flows, and settlement flows as explicit effectful transitions over discrete state objects. Pool and launch flows are important protocol patterns, but they should be modeled over the core Cell primitives rather than promoted into separate language declaration classes. The unit of programming is not “a contract with storage”; it is “a typed transition over consumed, read, shared-written, and created objects.”
 
-This DSL should exist because Spora is already no longer just “CKB but DAG.” It already has DAG-aware scheduling, lineage-sensitive state, and a growing need for protocol-visible effect summaries. Raw CKB contract authoring is too low-level for the protocol surface Spora wants to support: launches, receipts, pools, settlement, lifecycle transitions, and high-velocity asset creation. The scheduler also needs declared touch-sets and effect classes. A generic VM-first language hides too much.
+This DSL should exist because Spora is already no longer just “CKB but DAG.” It already has DAG-aware scheduling, lineage-sensitive state, and a growing need for protocol-visible effect summaries. Raw CKB contract authoring is too low-level for the protocol surface Spora wants to support: receipts, shared-state protocols, settlement, lifecycle transitions, high-velocity asset creation, and post-v1 transaction-builder patterns such as launch flows. The scheduler also needs declared touch-sets and effect classes. A generic VM-first language hides too much.
 
 Why not Solidity:
 - Solidity assumes an account/storage world.
@@ -20,7 +20,7 @@ Why not Move directly:
 
 Why not Sway directly:
 - Sway is closer on explicit execution surfaces, but it is still VM-first and account-contract shaped.
-- It lacks a first-class notion of receipts, launches, settlement classes, and lifecycle-typed lineage objects.
+- It lacks a first-class notion of receipts, settlement classes, and lifecycle-typed lineage objects.
 
 The design direction is:
 - Rust-like syntax for clarity and explicitness
@@ -33,8 +33,8 @@ The intended result is a language that feels native to:
 - objects
 - receipts
 - shared-state updates
-- pools
-- launch flows
+- shared-state protocol patterns, including pools
+- post-v1 launch-builder flows
 - settlement
 - lifecycle-aware state transitions
 
@@ -54,11 +54,11 @@ Relevant code and docs:
 - [exec/src/celltx/types.rs](/Users/arthur/RustroverProjects/Spora/exec/src/celltx/types.rs)
 - [exec/src/scheduler/dag.rs](/Users/arthur/RustroverProjects/Spora/exec/src/scheduler/dag.rs)
 - [exec/src/scheduler/executor.rs](/Users/arthur/RustroverProjects/Spora/exec/src/scheduler/executor.rs)
-- [docs/P2B_VIRTUAL_PROCESSOR_PARALLELIZATION_DESIGN.md](/Users/arthur/RustroverProjects/Spora/docs/P2B_VIRTUAL_PROCESSOR_PARALLELIZATION_DESIGN.md)
+- [docs/MPE_VIRTUAL_PROCESSOR_PARALLELIZATION_DESIGN.md](/Users/arthur/RustroverProjects/Spora/docs/MPE_VIRTUAL_PROCESSOR_PARALLELIZATION_DESIGN.md)
 
 ### 2.2 Fit with Cell / State Ontology
 
-Every persistent Hypha value lowers to one or more typed Cells with:
+Every CellStateTree-backed Hypha value lowers to one or more typed Cells with:
 - a canonical object header
 - a typed payload
 - a lock policy
@@ -196,8 +196,8 @@ What problems it solves:
 - Implicit value creation or destruction
 
 How it maps to Spora:
-- Persistent resources lower to Cells or sets of Cells.
-- Ephemeral resources may exist during action execution but must either be consumed or materialized.
+- Cell-backed resources lower to Cells or sets of Cells.
+- Transaction-local resource values may exist during action execution but must either be consumed or materialized.
 
 How it differs:
 - Versus Solidity: stronger than balance accounting.
@@ -207,7 +207,7 @@ How it differs:
 ### 4.2 `shared`
 
 What it means:
-- A persistent object that may be read by many transactions but written only through an explicit shared-write discipline.
+- A CellStateTree-backed object that may be read by many transactions but written only through an explicit shared-write discipline.
 
 Why it exists:
 - Spora needs shared state, but only in a scheduler-visible form.
@@ -243,7 +243,7 @@ What problems it solves:
 - Loss of provenance across multi-step flows
 
 How it maps to Spora:
-- A receipt is a persistent linear object with provenance fields and one-shot or partial-consume rules.
+- A receipt is a cell-backed linear object with provenance fields and one-shot or partial-consume rules.
 
 How it differs:
 - Versus Solidity: stronger than events, because it is state not metadata.
@@ -253,10 +253,10 @@ How it differs:
 ### 4.4 `launch`
 
 What it means:
-- A lifecycle transition that instantiates an asset plus initial distribution and optionally initial pool state.
+- A post-v1 transaction-builder pattern that instantiates an asset plus initial distribution and optionally initial pool state.
 
 Why it exists:
-- Launches are not just constructors. They are protocol-significant transitions with repeatable semantics.
+- Launches are not just constructors. They are protocol-significant multi-output transaction templates with repeatable semantics.
 
 What problems it solves:
 - Re-implementing asset genesis and initial liquidity setup in every app
@@ -264,23 +264,23 @@ What problems it solves:
 - Weak scheduler visibility for launch-related effects
 
 How it maps to Spora:
-- A compiler-known effect class producing:
+- A future transaction-builder lowering producing:
   - asset root object
   - optional pool object
   - optional receipts
   - lifecycle state transitions
 
 How it differs:
-- Versus Solidity: not a constructor on persistent storage.
+- Versus Solidity: not a constructor on contract storage.
 - Versus Move/Sway: more native to asset genesis and liquidity bootstrapping.
 
-### 4.5 `pool`
+### 4.5 Pool Pattern
 
 What it means:
-- A shared object carrying liquidity state plus invariant rules.
+- A protocol pattern built from a shared object carrying liquidity state plus invariant rules.
 
 Why it exists:
-- Pools are a core economic state object and deserve a standard semantic frame.
+- Pools are a core economic state object and deserve a standard semantic frame in libraries, metadata, and tooling.
 
 What problems it solves:
 - Ad hoc pool encodings
@@ -296,13 +296,14 @@ How it maps to Spora:
   - shared-write discipline
 
 How it differs:
-- Versus Solidity: more first-class and scheduler-visible than “a contract with balances.”
+- Versus Solidity: more scheduler-visible than “a contract with balances.”
 - Versus Move/Sway: more explicitly modeled as a shared lineage object.
+- Versus language primitives: not a separate declaration class; AMM curves and pool admission rules are protocol-specific.
 
 ### 4.6 `settle`
 
 What it means:
-- Deterministic finalization of accumulated claims, deltas, or queued effects into persistent state.
+- Deterministic finalization of accumulated claims, deltas, or queued effects into CellStateTree state.
 
 Why it exists:
 - Spora needs a clean path for high-throughput flows that cannot safely mutate every shared object directly in every action.
@@ -319,41 +320,26 @@ How it differs:
 - Not “just another function call.”
 - It is a named effect class with protocol-visible meaning.
 
-### 4.7 `ephemeral`
+### 4.7 Transaction-Local Values and CellStateTree Commit
 
 What it means:
-- A transaction-scoped value that cannot persist across the transaction boundary.
+- Ordinary local values are transaction-scoped and cannot cross the transaction boundary unless they are explicitly materialized through `create`.
+- A value created through `create` becomes a live lineage object after commit.
 
 Why it exists:
-- Developers need intermediate typed computation without polluting persistent state.
+- Spora needs a clear distinction between local computation and chain state without adding marker keywords for behavior already implied by `let` and `create`.
 
 What problems it solves:
-- Accidental persistence of temporary state
-- Confusion between computation objects and lineage objects
-
-How it maps to Spora:
-- Witness-only or VM-local value, erased after verification.
-
-How it differs:
-- Stronger boundary than Solidity memory because persistence is type-forbidden.
-
-### 4.8 `persistent`
-
-What it means:
-- A value that becomes a live lineage object after commit.
-
-Why it exists:
-- Spora needs a strong type-level distinction between temporary values and chain state.
-
-What problems it solves:
-- Fuzzy persistence boundaries
+- Fuzzy state-commit boundaries
 - Ad hoc serialization discipline
+- Confusion between computation values and lineage objects
 
 How it maps to Spora:
-- Output Cells with canonical object header plus payload.
+- Witness-only or VM-local values are erased after verification.
+- Output Cells carry canonical object headers plus payloads.
 
 How it differs:
-- Unlike generic contract storage, persistence is explicit and object-shaped.
+- Unlike generic contract storage, state commitment is explicit and object-shaped.
 
 ## 5. Type System Proposal
 
@@ -372,7 +358,6 @@ Recommended minimum:
   - `receipt`
   - `object`
   - `shared object`
-  - `ephemeral struct`
 
 ### 5.2 Ownership / Linearity / Capability
 
@@ -387,9 +372,7 @@ Do not copy Move’s full ability system.
 Instead, use a simpler declaration-class model:
 - `plain`
 - `resource`
-- `persistent`
 - `shared`
-- `ephemeral`
 
 That is enough for v1.
 
@@ -408,7 +391,7 @@ Do not build:
 
 ### 5.4 Object Identity Model
 
-Every persistent object should carry a canonical header:
+Every CellStateTree object should carry a canonical header:
 
 ```text
 ObjectHeader {
@@ -432,7 +415,7 @@ Recommended semantics:
 
 ### 5.5 Shared Object Representation
 
-Shared objects should be represented as persistent objects with:
+Shared objects should be represented as CellStateTree objects with:
 - stable `object_id`
 - explicit `version`
 - lifecycle state
@@ -471,7 +454,6 @@ Structural forms:
 - `receipt`
 - `object`
 - `shared object`
-- `ephemeral struct`
 - `action`
 - `transition`
 - `requires`
@@ -561,16 +543,16 @@ requires {
 }
 ```
 
-#### Ephemeral object
+#### Transaction-local value
 
 ```hypha
-ephemeral struct Quote {
+struct Quote {
     base_in: u128,
     quote_out: u128,
     fee_paid: u128,
 }
 
-fn quote_swap(pool: &MemePool, base_in: u128) -> ephemeral Quote {
+fn quote_swap(pool: &MemePool, base_in: u128) -> Quote {
     let fee = (base_in * pool.fee_bps as u128) / 10_000;
     let net = base_in - fee;
     let out = (net * pool.quote_reserve) / (pool.base_reserve + net);
@@ -685,7 +667,7 @@ Shared object mutation declarations:
 
 #### `create set`
 
-New persistent objects:
+New CellStateTree objects:
 - assets
 - receipts
 - updated shared objects
@@ -698,13 +680,16 @@ Compiler-known action class:
 - `transfer`
 - `mint`
 - `burn`
-- `launch`
-- `seed_pool`
-- `swap`
 - `wrap`
 - `unwrap`
 - `claim`
 - `settle`
+
+Compiler-visible protocol patterns:
+- launch builders
+- pool/AMM flows
+- `seed_pool`
+- `swap`
 
 #### `lifecycle rules`
 
@@ -821,7 +806,7 @@ Implications:
 - only one lineage continuation can commit against a given shared version
 - read-only shared access remains parallel
 
-## 9. Standard Primitives
+## 9. Standard Operations And Protocol Patterns
 
 Most primitives should be **stdlib APIs with compiler-known lowering tags**, not special syntax. Syntax must stay small.
 
@@ -834,7 +819,7 @@ Why standard:
 - launches are common and structurally important
 
 Placement:
-- compiler-known effect class + stdlib
+- post-v1 transaction builder + stdlib template
 
 ### 9.2 `mint`
 
@@ -867,7 +852,7 @@ Why standard:
 - most common resource operation
 
 Placement:
-- stdlib intrinsic
+- syntax sugar or stdlib intrinsic over `consume` + `create` with preserved fields and a new lock
 
 ### 9.5 `seed_pool`
 
@@ -878,7 +863,7 @@ Why standard:
 - pools need canonical shape and initialization semantics
 
 Placement:
-- stdlib + compiler-known effect class
+- stdlib/protocol pattern with compiler-visible metadata
 
 ### 9.6 `swap`
 
@@ -889,7 +874,7 @@ Why standard:
 - scheduler/runtime should recognize this shared-write pattern
 
 Placement:
-- stdlib + compiler-known effect class
+- stdlib/protocol pattern over shared state with compiler-visible metadata
 
 ### 9.7 `wrap`
 
@@ -922,12 +907,12 @@ Why standard:
 - receipt-driven flows are native to Spora
 
 Placement:
-- stdlib + lifecycle rule
+- obligation-classifying intrinsic or stdlib helper with lifecycle metadata
 
 ### 9.10 `settle`
 
 Guarantee:
-- finalize queued or computed deltas into persistent state
+- finalize queued or computed deltas into CellStateTree state
 
 Why standard:
 - critical for high-throughput shared flows
@@ -963,9 +948,10 @@ Build first:
 ### 11.2 Phase 2
 
 Then build:
-- standard library for `asset`, `receipt`, `pool`, `launch`, `claim`, `settle`
+- standard library for `asset`, `receipt`, `claim`, `settle`, and shared-state protocol patterns
 - compiler-known conservation checks
 - compiler-known lifecycle checks
+- post-v1 transaction-builder support for launch flows
 - wallet/indexer support for typed object discovery and decoding
 
 ### 11.3 Phase 3
@@ -1162,7 +1148,8 @@ The core bet should be:
 - Do not port Solidity semantics into a Cell wrapper.
 - Do not copy Move’s ability system wholesale.
 - Do not let developers bypass effect declarations for shared objects.
-- Do not make pools, receipts, and settlement “just libraries” if the scheduler/runtime benefit from knowing them.
+- Do not make receipts and settlement “just libraries” if the scheduler/runtime benefit from knowing them.
+- Do keep pools as shared-state protocol patterns with structured metadata rather than a language keyword; AMM invariant families belong to libraries, generated verifiers, or transaction-builder policy.
 
 ### 13.2 Encoding Split: Envelope vs Object Model vs Compiler vs Runtime
 
@@ -1220,4 +1207,4 @@ That is why **Hypha** is likely to be strong enough to become the native contrac
 
 In one sentence:
 
-**Hypha should become for Spora what raw Cell scripts are today, except typed, lifecycle-aware, scheduler-visible, and built for launch/pool/receipt/settlement flows instead of forcing every protocol to re-invent them in byte payloads.**
+**Hypha should become for Spora what raw Cell scripts are today, except typed, lifecycle-aware, scheduler-visible, and built for receipt/settlement flows plus explicit shared-state protocol patterns instead of forcing every protocol to re-invent them in byte payloads.**

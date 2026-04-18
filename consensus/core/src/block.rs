@@ -1,10 +1,32 @@
 use crate::{coinbase::MinerData, header::Header, tx::TransactionId, BlueWorkType};
 use spora_hashes::Hash;
 use spora_utils::mem_size::MemSizeEstimator;
-use std::sync::Arc;
+use std::{collections::BTreeMap, sync::Arc};
 
 // Cell model: use CellTx instead of the removed Transaction type.
-use spora_exec::CellTx;
+use spora_exec::celltx::{CellScriptSchedulerAccessWitness, CellScriptSchedulerWitness, CellTx};
+
+/// Trusted CellScript scheduler access records for callers that need to inspect
+/// the access multiset directly.
+pub type CellScriptSchedulerAccessRecords = Vec<CellScriptSchedulerAccessWitness>;
+
+/// Trusted CellScript scheduler summary for one transaction.
+///
+/// Selectors may expose this for the most recent `select_transactions()` batch
+/// when transactions were built from authenticated CellScript compile metadata.
+pub type CellScriptSchedulerSummary = CellScriptSchedulerWitness;
+
+/// Compatibility alias for existing producer/selector sidecar APIs.
+///
+/// Despite the historical name, this carries the full authenticated scheduler
+/// summary, not just the access records.
+pub type CellScriptSchedulerAccessList = CellScriptSchedulerSummary;
+
+/// Trusted CellScript scheduler summaries keyed by transaction id.
+pub type CellScriptSchedulerSummarySets = BTreeMap<TransactionId, CellScriptSchedulerSummary>;
+
+/// Compatibility alias for existing selector APIs.
+pub type CellScriptSchedulerAccessSets = CellScriptSchedulerSummarySets;
 
 /// A mutable block structure where header and transactions within can still be mutated.
 #[derive(Debug, Clone)]
@@ -95,8 +117,17 @@ impl MemSizeEstimator for Block {
 pub trait TemplateTransactionSelector {
     /// Expected to return a batch of transactions which were not previously selected.
     /// The batch will typically contain sufficient transactions to fill the block
-    /// mass (along with the previously unrejected txs), or will drain the selector    
+    /// mass (along with the previously unrejected txs), or will drain the selector
     fn select_transactions(&mut self) -> Vec<CellTx>;
+
+    /// Trusted CellScript scheduler summaries for the most recent
+    /// `select_transactions()` batch.
+    ///
+    /// The default is empty for selectors that do not carry CellScript metadata.
+    /// Consumers should treat a non-empty map as a strict policy input.
+    fn selected_cellscript_scheduler_accesses(&self) -> CellScriptSchedulerAccessSets {
+        CellScriptSchedulerAccessSets::new()
+    }
 
     /// Should be used to report invalid transactions obtained from the *most recent*
     /// `select_transactions` call. Implementors should use this call to internally

@@ -40,7 +40,6 @@ pub enum TokenKind {
     Claim,      // claim
     Settle,     // settle
     Launch,     // launch
-    Ephemeral,  // ephemeral
     Assert,     // assert_invariant
     True,       // true
     False,      // false
@@ -146,7 +145,6 @@ impl fmt::Display for TokenKind {
             TokenKind::Claim => write!(f, "'claim'"),
             TokenKind::Settle => write!(f, "'settle'"),
             TokenKind::Launch => write!(f, "'launch'"),
-            TokenKind::Ephemeral => write!(f, "'ephemeral'"),
             TokenKind::Assert => write!(f, "'assert_invariant'"),
             TokenKind::True => write!(f, "'true'"),
             TokenKind::False => write!(f, "'false'"),
@@ -259,7 +257,7 @@ pub fn keyword_or_identifier(text: &str) -> TokenKind {
         "read_ref" => TokenKind::ReadRef,
         "claim" => TokenKind::Claim,
         "settle" => TokenKind::Settle,
-        "ephemeral" => TokenKind::Ephemeral,
+        "launch" => TokenKind::Launch,
         "assert" | "assert_invariant" => TokenKind::Assert,
         "true" => TokenKind::True,
         "false" => TokenKind::False,

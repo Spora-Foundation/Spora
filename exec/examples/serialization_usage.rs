@@ -5,10 +5,9 @@
 //
 // This example demonstrates how to use the versioned serialization framework.
 
-use borsh::{BorshDeserialize, BorshSerialize};
 use spora_exec::{
-    CellInput, CellOutput, CellTx, OutPoint, ResolvedCell, ResolvedHeader, Script, VersionedEnvelope, VersionedSerializable,
-    VmAbiNegotiator, VmSerializable,
+    CellInput, CellOutput, CellTx, OutPoint, ResolvedHeader, Script, VersionedEnvelope, VersionedSerializable, VmAbiNegotiator,
+    VmSerializable,
 };
 
 /// Example: Storing a CellTx with version envelope

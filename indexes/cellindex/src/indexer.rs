@@ -506,6 +506,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn test_update_with_block_diffs_preserves_creation_and_spend_journal() {
         let tmp_db = TempDir::new().unwrap();
         let tmp_script = TempDir::new().unwrap();

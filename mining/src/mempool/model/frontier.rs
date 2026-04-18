@@ -69,6 +69,7 @@ impl Frontier {
             score_total: None,
             fee_density: None,
             deps_width: None,
+            cellscript_scheduler_accesses: None,
         })
     }
 
@@ -200,7 +201,8 @@ impl Frontier {
                 }
                 item
             };
-            sequence.push(item.tx.clone(), Self::resolve_cell_data(item, cell_txs).cell_tx, item.mass);
+            let cell_data = Self::resolve_cell_data(item, cell_txs);
+            sequence.push(item.tx.clone(), cell_data.cell_tx, item.mass, cell_data.cellscript_scheduler_accesses);
             total_selected_mass += item.mass; // Max standard mass + Mempool capacity bound imply this will not overflow
         }
         trace!("[mempool frontier sample inplace] collisions: {collisions}, cache: {}", cache.len());
@@ -232,8 +234,8 @@ impl Frontier {
         cell_txs: Option<&HashMap<TransactionId, CandidateCellData>>,
     ) -> Box<dyn TemplateTransactionSelector> {
         if self.total_mass <= policy.max_block_mass {
-            Box::new(TakeAllSelector::new(
-                self.search_tree.ascending_iter().map(|k| Self::resolve_cell_data(k, cell_txs).cell_tx).collect(),
+            Box::new(TakeAllSelector::from_cell_data(
+                self.search_tree.ascending_iter().map(|k| Self::resolve_cell_data(k, cell_txs)).collect(),
             ))
         } else if self.total_mass > policy.max_block_mass * COLLISION_FACTOR {
             let mut rng = rand::thread_rng();

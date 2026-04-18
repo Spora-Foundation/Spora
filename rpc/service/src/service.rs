@@ -1319,7 +1319,6 @@ NOTE: This error usually indicates an RPC conversion error between the node and 
     // Notification API
 
     /// Register a new listener and returns an id identifying it.
-    #[allow(deprecated)]
     fn register_new_listener(&self, connection: ChannelConnection) -> ListenerId {
         self.notifier.register_new_listener(connection, ListenerLifespan::Dynamic)
     }
@@ -1362,8 +1361,7 @@ NOTE: This error usually indicates an RPC conversion error between the node and 
         // Create an internal channel and register it as a new dynamic listener.
         let channel = Channel::default();
         let connection = ChannelConnection::new("rpc-subscribe", channel.sender(), spora_notify::connection::ChannelType::Closable);
-        #[allow(deprecated)]
-        let listener_id = self.register_new_listener(connection);
+        let listener_id = self.register_local_listener(connection);
 
         // Activate the requested scope on the newly created listener.
         self.notifier.clone().start_notify(listener_id, request.scope).await?;

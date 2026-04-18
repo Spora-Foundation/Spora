@@ -62,7 +62,7 @@ async fn sanity_test() {
     let client = daemon.start().await;
     let (sender, _) = async_channel::unbounded();
     let connection = ChannelConnection::new("test", sender, ChannelType::Closable);
-    let listener_id = client.register_new_listener(connection);
+    let listener_id = client.register_local_listener(connection);
     let mut tasks: Vec<JoinHandle<()>> = Vec::new();
 
     // The intent of this for/match design (emphasizing the absence of an arm with fallback pattern in the match)

@@ -1,6 +1,6 @@
 use crate::Policy;
 use spora_consensus_core::{
-    block::TemplateTransactionSelector,
+    block::{CellScriptSchedulerAccessList, CellScriptSchedulerAccessSets, TemplateTransactionSelector},
     tx::{CellTx, TransactionId},
 };
 use std::{
@@ -12,11 +12,21 @@ pub struct SequenceSelectorTransaction {
     pub tx: Arc<CellTx>,
     pub cell_tx: Arc<CellTx>,
     pub mass: u64,
+    pub cellscript_scheduler_accesses: Option<CellScriptSchedulerAccessList>,
 }
 
 impl SequenceSelectorTransaction {
     pub fn new(tx: Arc<CellTx>, cell_tx: Arc<CellTx>, mass: u64) -> Self {
-        Self { tx, cell_tx, mass }
+        Self { tx, cell_tx, mass, cellscript_scheduler_accesses: None }
+    }
+
+    pub fn new_with_cellscript_scheduler_accesses(
+        tx: Arc<CellTx>,
+        cell_tx: Arc<CellTx>,
+        mass: u64,
+        cellscript_scheduler_accesses: Option<CellScriptSchedulerAccessList>,
+    ) -> Self {
+        Self { tx, cell_tx, mass, cellscript_scheduler_accesses }
     }
 }
 
@@ -37,9 +47,18 @@ impl FromIterator<SequenceSelectorTransaction> for SequenceSelectorInput {
 }
 
 impl SequenceSelectorInput {
-    pub fn push(&mut self, tx: Arc<CellTx>, cell_tx: Arc<CellTx>, mass: u64) {
+    pub fn push(
+        &mut self,
+        tx: Arc<CellTx>,
+        cell_tx: Arc<CellTx>,
+        mass: u64,
+        cellscript_scheduler_accesses: Option<CellScriptSchedulerAccessList>,
+    ) {
         let idx = self.inner.len() as SequencePriorityIndex;
-        self.inner.insert(idx, SequenceSelectorTransaction::new(tx, cell_tx, mass));
+        self.inner.insert(
+            idx,
+            SequenceSelectorTransaction::new_with_cellscript_scheduler_accesses(tx, cell_tx, mass, cellscript_scheduler_accesses),
+        );
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &SequenceSelectorTransaction> {
@@ -61,6 +80,7 @@ pub struct SequenceSelector {
     selected_vec: Vec<SequenceSelectorSelection>,
     /// Maps from selected tx ids to tx mass so that the total used mass can be subtracted on tx reject
     selected_map: Option<HashMap<TransactionId, u64>>,
+    selected_cellscript_scheduler_accesses: CellScriptSchedulerAccessSets,
     total_selected_mass: u64,
     overall_candidates: usize,
     overall_rejections: usize,
@@ -75,6 +95,7 @@ impl SequenceSelector {
             selected_vec: Vec::with_capacity(input_sequence.inner.len()),
             input_sequence,
             selected_map: Default::default(),
+            selected_cellscript_scheduler_accesses: Default::default(),
             total_selected_mass: Default::default(),
             overall_rejections: Default::default(),
             next_candidate_index: 0,
@@ -86,6 +107,7 @@ impl SequenceSelector {
     fn reset_selection(&mut self) {
         self.selected_vec.clear();
         self.selected_map = None;
+        self.selected_cellscript_scheduler_accesses.clear();
     }
 }
 
@@ -104,23 +126,37 @@ impl TemplateTransactionSelector for SequenceSelector {
 
             self.total_selected_mass = next_total_mass;
             self.next_candidate_index = priority_index + 1;
-            selected_candidates.push((priority_index, candidate.mass, candidate.cell_tx.clone()));
+            selected_candidates.push((
+                priority_index,
+                candidate.mass,
+                candidate.cell_tx.clone(),
+                candidate.cellscript_scheduler_accesses.clone(),
+            ));
         }
 
-        let selected = selected_candidates.iter().map(|(_, _, cell_tx)| cell_tx.as_ref().clone()).collect::<Vec<_>>();
+        let selected = selected_candidates.iter().map(|(_, _, cell_tx, _)| cell_tx.as_ref().clone()).collect::<Vec<_>>();
         self.selected_vec = selected_candidates
             .iter()
             .zip(selected.iter())
-            .map(|((_, mass, _), cell_tx)| SequenceSelectorSelection { tx_id: cell_tx.id().into(), mass: *mass })
+            .map(|((_, mass, _, _), cell_tx)| SequenceSelectorSelection { tx_id: cell_tx.id().into(), mass: *mass })
             .collect();
         self.selected_map = Some(self.selected_vec.iter().map(|tx| (tx.tx_id, tx.mass)).collect());
+        self.selected_cellscript_scheduler_accesses = selected_candidates
+            .into_iter()
+            .filter_map(|(_, _, cell_tx, accesses)| accesses.map(|accesses| (cell_tx.id().into(), accesses)))
+            .collect();
         selected
+    }
+
+    fn selected_cellscript_scheduler_accesses(&self) -> CellScriptSchedulerAccessSets {
+        self.selected_cellscript_scheduler_accesses.clone()
     }
 
     fn reject_selection(&mut self, tx_id: TransactionId) {
         // Lazy-create the map only when there are actual rejections
         let selected_map = self.selected_map.get_or_insert_with(|| self.selected_vec.iter().map(|tx| (tx.tx_id, tx.mass)).collect());
         let mass = selected_map.remove(&tx_id).expect("only previously selected txs can be rejected (and only once)");
+        self.selected_cellscript_scheduler_accesses.remove(&tx_id);
         // Selections must be counted in total selected mass, so this subtraction cannot underflow
         self.total_selected_mass -= mass;
         self.overall_rejections += 1;
@@ -142,25 +178,51 @@ impl TemplateTransactionSelector for SequenceSelector {
 /// should be called and provided with all the transactions.
 pub struct TakeAllSelector {
     txs: Vec<Arc<CellTx>>,
+    cellscript_scheduler_accesses: CellScriptSchedulerAccessSets,
+    selected_cellscript_scheduler_accesses: CellScriptSchedulerAccessSets,
 }
 
 impl TakeAllSelector {
     pub fn new(txs: Vec<Arc<CellTx>>) -> Self {
-        Self { txs }
+        Self {
+            txs,
+            cellscript_scheduler_accesses: CellScriptSchedulerAccessSets::new(),
+            selected_cellscript_scheduler_accesses: CellScriptSchedulerAccessSets::new(),
+        }
+    }
+
+    pub fn from_cell_data(cells: Vec<crate::model::candidate_tx::CandidateCellData>) -> Self {
+        let mut cellscript_scheduler_accesses = CellScriptSchedulerAccessSets::new();
+        let txs = cells
+            .into_iter()
+            .map(|cell| {
+                if let Some(accesses) = cell.cellscript_scheduler_accesses {
+                    cellscript_scheduler_accesses.insert(cell.cell_tx.id().into(), accesses);
+                }
+                cell.cell_tx
+            })
+            .collect();
+        Self { txs, cellscript_scheduler_accesses, selected_cellscript_scheduler_accesses: CellScriptSchedulerAccessSets::new() }
     }
 
     #[cfg(test)]
     pub fn from_cell_txs(txs: Vec<CellTx>) -> Self {
-        Self { txs: txs.into_iter().map(Arc::new).collect() }
+        Self::new(txs.into_iter().map(Arc::new).collect())
     }
 }
 
 impl TemplateTransactionSelector for TakeAllSelector {
     fn select_transactions(&mut self) -> Vec<CellTx> {
+        self.selected_cellscript_scheduler_accesses = std::mem::take(&mut self.cellscript_scheduler_accesses);
         std::mem::take(&mut self.txs).into_iter().map(|tx| tx.as_ref().clone()).collect()
     }
 
-    fn reject_selection(&mut self, _tx_id: TransactionId) {
+    fn selected_cellscript_scheduler_accesses(&self) -> CellScriptSchedulerAccessSets {
+        self.selected_cellscript_scheduler_accesses.clone()
+    }
+
+    fn reject_selection(&mut self, tx_id: TransactionId) {
+        self.selected_cellscript_scheduler_accesses.remove(&tx_id);
         // No need to track rejections (for reduced mass), since there's nothing else to select
     }
 

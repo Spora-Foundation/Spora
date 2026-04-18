@@ -336,6 +336,7 @@ pub fn psst_to_pending_transaction(
         final_transaction_priority_fee: fee_u.into(),
         final_transaction_destination,
         final_transaction_payload: None,
+        final_cellscript_compiled_scheduler_witness: None,
     };
 
     // Create the Generator
@@ -377,6 +378,7 @@ pub fn psst_to_pending_transaction(
         0,
         0,
         DataKind::Final, // kind parameter
+        None,
     )?;
 
     Ok(pending_tx)

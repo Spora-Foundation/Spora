@@ -6,6 +6,7 @@
 // This example demonstrates the serialization cache for optimizing
 // repeated serialization operations.
 
+use spora_exec::serialization::utils;
 use spora_exec::{CellOutput, Script, SerializationCache, ThreadSafeSerializationCache};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -146,7 +147,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let start = std::time::Instant::now();
     for _ in 0..10 {
         for output in &large_outputs {
-            let _ = crate::serialization::utils::serialize_to_bytes(output).unwrap();
+            let _ = utils::serialize_to_bytes(output).unwrap();
         }
     }
     let without_cache = start.elapsed();

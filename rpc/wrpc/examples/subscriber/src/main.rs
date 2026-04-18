@@ -113,7 +113,7 @@ impl Listener {
         // are "lost" if we disconnect. For that reason we must
         // re-register all notification scopes when we connect.
 
-        let listener_id = self.client().rpc_api().register_new_listener(ChannelConnection::new(
+        let listener_id = self.client().rpc_api().register_local_listener(ChannelConnection::new(
             "wrpc-example-subscriber",
             self.inner.notification_channel.sender.clone(),
             ChannelType::Persistent,

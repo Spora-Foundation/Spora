@@ -5,13 +5,14 @@
 use crate::ast::*;
 use crate::error::{CompileError, Result, Span};
 use crate::resolve::{FunctionDef, ModuleResolver, TypeDef};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 /// Spora IR 模块
 #[derive(Debug, Clone)]
 pub struct IrModule {
     pub name: String,
     pub items: Vec<IrItem>,
+    pub external_type_defs: Vec<IrTypeDef>,
 }
 
 /// IR 模块项
@@ -106,6 +107,7 @@ pub struct IrParam {
     pub ty: IrType,
     pub is_mut: bool,
     pub is_ref: bool,
+    pub is_read_ref: bool,
     pub binding: IrVar,
 }
 
@@ -115,6 +117,7 @@ pub struct IrBody {
     pub consume_set: Vec<CellPattern>,
     pub read_refs: Vec<CellPattern>,
     pub create_set: Vec<CreatePattern>,
+    pub mutate_set: Vec<MutatePattern>,
     pub blocks: Vec<IrBlock>,
 }
 
@@ -135,6 +138,35 @@ pub struct CreatePattern {
     pub binding: String,
     pub fields: Vec<(String, IrOperand)>,
     pub lock: Option<IrOperand>,
+}
+
+/// 可变 Cell 参数写入摘要
+#[derive(Debug, Clone)]
+pub struct MutatePattern {
+    pub operation: String,
+    pub ty: String,
+    pub binding: String,
+    pub fields: Vec<String>,
+    pub preserved_fields: Vec<String>,
+    pub transitions: Vec<MutateFieldTransition>,
+    pub input_index: usize,
+    pub output_index: usize,
+    pub preserve_type_hash: bool,
+    pub preserve_lock_hash: bool,
+}
+
+/// 可变 Cell 字段转换摘要
+#[derive(Debug, Clone)]
+pub struct MutateFieldTransition {
+    pub field: String,
+    pub op: MutateTransitionOp,
+    pub operand: IrOperand,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MutateTransitionOp {
+    Add,
+    Sub,
 }
 
 /// IR 基本块
@@ -182,6 +214,8 @@ pub enum IrInstruction {
     ReadRef { dest: IrVar, ty: String },
     /// 在变量槽之间移动值
     Move { dest: IrVar, src: IrOperand },
+    /// 构造固定 tuple aggregate，保留字段到 aggregate 的关系供 ABI/codegen 使用
+    Tuple { dest: IrVar, fields: Vec<IrOperand> },
     /// 消费资源
     Consume { operand: IrOperand },
     /// 创建资源
@@ -193,7 +227,7 @@ pub enum IrInstruction {
     /// 声明收据
     Claim { dest: IrVar, receipt: IrOperand },
     /// 结算
-    Settle { operand: IrOperand },
+    Settle { dest: IrVar, operand: IrOperand },
 }
 
 /// IR 变量
@@ -283,6 +317,10 @@ pub struct IrGenerator {
     block_counter: usize,
     aggregate_fields: HashMap<usize, HashMap<String, IrVar>>,
     aggregate_elements: HashMap<usize, Vec<IrVar>>,
+    mutated_fields: HashMap<usize, BTreeSet<String>>,
+    mutated_field_transitions: HashMap<usize, BTreeMap<String, MutateFieldTransition>>,
+    transition_param_ids: HashSet<usize>,
+    transition_coverable_value_ids: HashSet<usize>,
     type_fields: HashMap<String, HashMap<String, IrType>>,
     type_kinds: HashMap<String, IrTypeKind>,
     receipt_claim_outputs: HashMap<String, Option<IrType>>,
@@ -304,11 +342,15 @@ impl IrGenerator {
     /// 创建新的 IR 生成器
     pub fn new(module_name: String) -> Self {
         Self {
-            module: IrModule { name: module_name, items: Vec::new() },
+            module: IrModule { name: module_name, items: Vec::new(), external_type_defs: Vec::new() },
             var_counter: 0,
             block_counter: 0,
             aggregate_fields: HashMap::new(),
             aggregate_elements: HashMap::new(),
+            mutated_fields: HashMap::new(),
+            mutated_field_transitions: HashMap::new(),
+            transition_param_ids: HashSet::new(),
+            transition_coverable_value_ids: HashSet::new(),
             type_fields: HashMap::new(),
             type_kinds: HashMap::new(),
             receipt_claim_outputs: HashMap::new(),
@@ -552,6 +594,10 @@ impl IrGenerator {
         self.block_counter = 0;
         self.aggregate_fields.clear();
         self.aggregate_elements.clear();
+        self.mutated_fields.clear();
+        self.mutated_field_transitions.clear();
+        self.transition_param_ids.clear();
+        self.transition_coverable_value_ids.clear();
         let (params, body) = self.lower_signature_and_body(&function.params, &function.body, function.return_type.is_some());
 
         IrPureFn {
@@ -597,9 +643,19 @@ impl IrGenerator {
         self.block_counter = 0;
         self.aggregate_fields.clear();
         self.aggregate_elements.clear();
+        self.mutated_fields.clear();
+        self.mutated_field_transitions.clear();
+        self.transition_param_ids.clear();
+        self.transition_coverable_value_ids.clear();
         let (params, body) = self.lower_signature_and_body(&action.params, &action.body, action.return_type.is_some());
 
-        let effect_class = self.analyze_effect_class(action);
+        let mut effect_class = self.analyze_effect_class(action);
+        if params.iter().any(|param| param.is_read_ref) && effect_class == EffectClass::Pure {
+            effect_class = EffectClass::ReadOnly;
+        }
+        if params.iter().any(|param| self.param_mutates_shared_state(param)) {
+            effect_class = EffectClass::Mutating;
+        }
         let declared_effect_class = self.convert_effect_class(action.effect);
         if action.effect_declared && !self.effect_covers(declared_effect_class, effect_class) {
             self.record_error(
@@ -610,7 +666,7 @@ impl IrGenerator {
                 action.span,
             );
         }
-        let touches_shared = self.infer_touches_shared(&body);
+        let touches_shared = self.infer_touches_shared(&params, &body);
         let estimated_cycles = self.estimate_cycles(&body);
 
         IrAction {
@@ -637,6 +693,10 @@ impl IrGenerator {
         self.block_counter = 0;
         self.aggregate_fields.clear();
         self.aggregate_elements.clear();
+        self.mutated_fields.clear();
+        self.mutated_field_transitions.clear();
+        self.transition_param_ids.clear();
+        self.transition_coverable_value_ids.clear();
         let (params, body) = self.lower_signature_and_body(&lock.params, &lock.body, false);
 
         IrLock { name: lock.name.clone(), params, body }
@@ -874,18 +934,24 @@ impl IrGenerator {
                     ty: self.convert_type(&param.ty),
                     is_mut: param.is_mut,
                     is_ref: param.is_ref,
+                    is_read_ref: param.is_read_ref,
                     binding,
                 }
             })
             .collect::<Vec<_>>();
+        self.transition_param_ids = ir_params.iter().map(|param| param.binding.id).collect();
         let mut blocks = Vec::new();
         let entry = self.push_block(&mut blocks);
         let _ = self.lower_stmts(stmts, entry, &mut blocks, &mut vars, tail_expr_returns);
         let consume_set = self.collect_consume_patterns(&blocks);
-        let read_refs = self.collect_read_ref_patterns(&blocks);
+        let mut read_refs = self.collect_read_ref_param_patterns(&ir_params);
+        read_refs.extend(self.collect_read_ref_patterns(&blocks));
         let create_set = self.collect_create_patterns(&blocks);
+        let mutate_set = self.collect_mutate_param_patterns(&ir_params, consume_set.len(), create_set.len());
+        self.transition_param_ids.clear();
+        self.transition_coverable_value_ids.clear();
 
-        (ir_params, IrBody { consume_set, read_refs, create_set, blocks })
+        (ir_params, IrBody { consume_set, read_refs, create_set, mutate_set, blocks })
     }
 
     fn collect_consume_patterns(&self, blocks: &[IrBlock]) -> Vec<CellPattern> {
@@ -908,7 +974,7 @@ impl IrGenerator {
                     if let Some(pattern) = self.cell_pattern_from_operand(receipt, "claim") {
                         patterns.push(pattern);
                     }
-                } else if let IrInstruction::Settle { operand } = instruction {
+                } else if let IrInstruction::Settle { operand, .. } = instruction {
                     if let Some(pattern) = self.cell_pattern_from_operand(operand, "settle") {
                         patterns.push(pattern);
                     }
@@ -935,22 +1001,94 @@ impl IrGenerator {
         patterns
     }
 
+    fn collect_read_ref_param_patterns(&self, params: &[IrParam]) -> Vec<CellPattern> {
+        params
+            .iter()
+            .filter(|param| param.is_read_ref)
+            .filter_map(|param| {
+                self.named_type_name_from_ir_type(&param.ty).map(|type_name| CellPattern {
+                    operation: "read_ref".to_string(),
+                    type_hash: Some(type_hash_for_name(type_name)),
+                    binding: param.name.clone(),
+                    fields: Vec::new(),
+                })
+            })
+            .collect()
+    }
+
     fn collect_create_patterns(&self, blocks: &[IrBlock]) -> Vec<CreatePattern> {
         let mut patterns = Vec::new();
         for block in blocks {
             for instruction in &block.instructions {
                 if let IrInstruction::Create { pattern, .. } = instruction {
                     patterns.push(pattern.clone());
-                } else if let IrInstruction::Transfer { dest, .. } = instruction {
-                    if let Some(pattern) = self.create_pattern_from_var(dest, "transfer") {
+                } else if let IrInstruction::Transfer { dest, to, .. } = instruction {
+                    if let Some(pattern) = self.create_pattern_from_var_with_lock(dest, "transfer", Some(to.clone())) {
                         patterns.push(pattern);
                     }
                 } else if let IrInstruction::Claim { dest, .. } = instruction {
                     if let Some(pattern) = self.create_pattern_from_var(dest, "claim") {
                         patterns.push(pattern);
                     }
+                } else if let IrInstruction::Settle { dest, .. } = instruction {
+                    if let Some(pattern) = self.create_pattern_from_var(dest, "settle") {
+                        patterns.push(pattern);
+                    }
                 }
             }
+        }
+        patterns
+    }
+
+    fn collect_mutate_param_patterns(&self, params: &[IrParam], consume_count: usize, create_count: usize) -> Vec<MutatePattern> {
+        let mut patterns = Vec::new();
+        for param in params {
+            if !(param.is_mut || matches!(param.ty, IrType::MutRef(_))) {
+                continue;
+            }
+            let Some(type_name) = self.named_type_name_from_ir_type(&param.ty) else {
+                continue;
+            };
+            if !matches!(self.type_kinds.get(type_name), Some(IrTypeKind::Resource | IrTypeKind::Shared | IrTypeKind::Receipt)) {
+                continue;
+            }
+            let fields = self
+                .mutated_fields
+                .get(&param.binding.id)
+                .map(|fields| fields.iter().cloned().collect::<Vec<_>>())
+                .unwrap_or_default();
+            let mutated = fields.iter().cloned().collect::<BTreeSet<_>>();
+            let preserved_fields = self
+                .type_fields
+                .get(type_name)
+                .map(|fields| {
+                    fields
+                        .keys()
+                        .filter(|field| !mutated.contains(*field))
+                        .cloned()
+                        .collect::<BTreeSet<_>>()
+                        .into_iter()
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            let transitions = self
+                .mutated_field_transitions
+                .get(&param.binding.id)
+                .map(|fields| fields.values().cloned().collect::<Vec<_>>())
+                .unwrap_or_default();
+            let mutation_index = patterns.len();
+            patterns.push(MutatePattern {
+                operation: "mutate".to_string(),
+                ty: type_name.to_string(),
+                binding: param.name.clone(),
+                fields,
+                preserved_fields,
+                transitions,
+                input_index: consume_count + mutation_index,
+                output_index: create_count + mutation_index,
+                preserve_type_hash: true,
+                preserve_lock_hash: true,
+            });
         }
         patterns
     }
@@ -976,6 +1114,10 @@ impl IrGenerator {
     }
 
     fn create_pattern_from_var(&self, var: &IrVar, operation: &str) -> Option<CreatePattern> {
+        self.create_pattern_from_var_with_lock(var, operation, None)
+    }
+
+    fn create_pattern_from_var_with_lock(&self, var: &IrVar, operation: &str, lock: Option<IrOperand>) -> Option<CreatePattern> {
         let type_name = match &var.ty {
             IrType::Named(name) => Some(name.as_str()),
             IrType::Ref(inner) | IrType::MutRef(inner) => match inner.as_ref() {
@@ -984,13 +1126,17 @@ impl IrGenerator {
             },
             _ => None,
         }?;
-        Some(CreatePattern {
-            operation: operation.to_string(),
-            ty: type_name.to_string(),
-            binding: var.name.clone(),
-            fields: Vec::new(),
-            lock: None,
-        })
+        let fields = self
+            .aggregate_fields
+            .get(&var.id)
+            .map(|field_vars| {
+                let mut fields =
+                    field_vars.iter().map(|(field, var)| (field.clone(), IrOperand::Var(var.clone()))).collect::<Vec<_>>();
+                fields.sort_by(|(left, _), (right, _)| left.cmp(right));
+                fields
+            })
+            .unwrap_or_default();
+        Some(CreatePattern { operation: operation.to_string(), ty: type_name.to_string(), binding: var.name.clone(), fields, lock })
     }
 
     fn named_type_name_from_ir_type<'a>(&self, ty: &'a IrType) -> Option<&'a str> {
@@ -1009,13 +1155,55 @@ impl IrGenerator {
             .unwrap_or(IrType::U64)
     }
 
-    fn infer_touches_shared(&self, body: &IrBody) -> Vec<[u8; 32]> {
+    fn materialize_matching_output_fields(
+        &mut self,
+        source: &IrOperand,
+        output_ty: &IrType,
+        active: BlockId,
+        blocks: &mut Vec<IrBlock>,
+    ) -> HashMap<String, IrVar> {
+        let (IrOperand::Var(source_var), Some(output_type_name)) = (source, self.named_type_name_from_ir_type(output_ty)) else {
+            return HashMap::new();
+        };
+        let Some(output_fields) = self.type_fields.get(output_type_name).cloned() else {
+            return HashMap::new();
+        };
+
+        let mut field_names = output_fields.keys().cloned().collect::<Vec<_>>();
+        field_names.sort();
+        let mut field_vars = HashMap::new();
+        for field_name in field_names {
+            let Some(output_field_ty) = output_fields.get(&field_name) else {
+                continue;
+            };
+            let Some(source_field_ty) = self.lookup_field_ir_type(&source_var.ty, &field_name) else {
+                continue;
+            };
+            if &source_field_ty != output_field_ty {
+                continue;
+            }
+            if !is_verifier_coverable_output_field_type(output_field_ty) {
+                continue;
+            }
+            if let Some(field_var) = self.materialize_schema_field(source_var, &field_name, active, blocks) {
+                field_vars.insert(field_name, field_var);
+            }
+        }
+        field_vars
+    }
+
+    fn infer_touches_shared(&self, params: &[IrParam], body: &IrBody) -> Vec<[u8; 32]> {
         let shared_hashes = self
             .type_kinds
             .iter()
             .filter_map(|(name, kind)| (*kind == IrTypeKind::Shared).then_some(type_hash_for_name(name)))
             .collect::<Vec<_>>();
         let mut hashes = Vec::new();
+        for param in params {
+            if let Some(type_name) = self.param_shared_type_name(param) {
+                hashes.push(type_hash_for_name(type_name));
+            }
+        }
         for pattern in body.read_refs.iter().chain(body.consume_set.iter()) {
             if let Some(type_hash) = pattern.type_hash {
                 if shared_hashes.contains(&type_hash) {
@@ -1028,9 +1216,45 @@ impl IrGenerator {
                 hashes.push(type_hash_for_name(&pattern.ty));
             }
         }
+        for block in &body.blocks {
+            for instruction in &block.instructions {
+                if let IrInstruction::Call { dest: Some(dest), .. } = instruction {
+                    self.collect_shared_type_hashes_from_type(&dest.ty, &mut hashes);
+                }
+            }
+        }
         hashes.sort();
         hashes.dedup();
         hashes
+    }
+
+    fn param_shared_type_name<'a>(&self, param: &'a IrParam) -> Option<&'a str> {
+        let type_name = self.named_type_name_from_ir_type(&param.ty)?;
+        (self.type_kinds.get(type_name) == Some(&IrTypeKind::Shared)).then_some(type_name)
+    }
+
+    fn param_mutates_shared_state(&self, param: &IrParam) -> bool {
+        if self.param_shared_type_name(param).is_none() {
+            return false;
+        }
+        param.is_mut || matches!(param.ty, IrType::MutRef(_))
+    }
+
+    fn collect_shared_type_hashes_from_type(&self, ty: &IrType, hashes: &mut Vec<[u8; 32]>) {
+        match ty {
+            IrType::Named(name) if self.type_kinds.get(name) == Some(&IrTypeKind::Shared) => {
+                hashes.push(type_hash_for_name(name));
+            }
+            IrType::Ref(inner) | IrType::MutRef(inner) | IrType::Array(inner, _) => {
+                self.collect_shared_type_hashes_from_type(inner, hashes);
+            }
+            IrType::Tuple(items) => {
+                for item in items {
+                    self.collect_shared_type_hashes_from_type(item, hashes);
+                }
+            }
+            _ => {}
+        }
     }
 
     fn estimate_cycles(&self, body: &IrBody) -> u64 {
@@ -1080,6 +1304,8 @@ impl IrGenerator {
     ) -> Option<BlockId> {
         match stmt {
             Stmt::Let(let_stmt) => {
+                let transition_coverable = matches!(let_stmt.pattern, BindingPattern::Name(_))
+                    && self.transition_expr_is_coverable_u64(&let_stmt.value, vars);
                 let lowered = match (&let_stmt.value, &let_stmt.ty) {
                     (Expr::Array(items), Some(declared_ty)) if items.is_empty() => {
                         self.lower_empty_array_expr_with_type(declared_ty, current, blocks)
@@ -1088,7 +1314,20 @@ impl IrGenerator {
                 };
                 let active = lowered.current?;
                 let block = self.block_mut(blocks, active);
-                self.bind_pattern(&let_stmt.pattern, lowered.operand, block, vars);
+                if let (BindingPattern::Name(name), Some(declared_ty)) = (&let_stmt.pattern, &let_stmt.ty) {
+                    let declared_ty = self.convert_type(declared_ty);
+                    let var = self.materialize_operand_with_type(name, lowered.operand, declared_ty, block);
+                    if transition_coverable && var.ty == IrType::U64 {
+                        self.transition_coverable_value_ids.insert(var.id);
+                    }
+                    vars.insert(name.clone(), var);
+                    return Some(active);
+                }
+                let bound = self.bind_pattern(&let_stmt.pattern, lowered.operand, block, vars);
+                if transition_coverable && bound.as_ref().is_some_and(|var| var.ty == IrType::U64) {
+                    let bound = bound.expect("checked above");
+                    self.transition_coverable_value_ids.insert(bound.id);
+                }
                 Some(active)
             }
             Stmt::Expr(expr) => self.lower_expr(expr, current, blocks, vars).current,
@@ -1108,11 +1347,18 @@ impl IrGenerator {
         }
     }
 
-    fn bind_pattern(&mut self, pattern: &BindingPattern, value: IrOperand, block: &mut IrBlock, vars: &mut HashMap<String, IrVar>) {
+    fn bind_pattern(
+        &mut self,
+        pattern: &BindingPattern,
+        value: IrOperand,
+        block: &mut IrBlock,
+        vars: &mut HashMap<String, IrVar>,
+    ) -> Option<IrVar> {
         match pattern {
             BindingPattern::Name(name) => {
                 let var = self.materialize_operand(name, value, block);
-                vars.insert(name.clone(), var);
+                vars.insert(name.clone(), var.clone());
+                Some(var)
             }
             BindingPattern::Tuple(items) => {
                 let base_var = match &value {
@@ -1147,8 +1393,9 @@ impl IrGenerator {
                         self.record_error("tuple binding requires a lowered tuple aggregate", Span::default());
                     }
                 }
+                base_var
             }
-            BindingPattern::Wildcard => {}
+            BindingPattern::Wildcard => None,
         }
     }
 
@@ -1160,6 +1407,22 @@ impl IrGenerator {
                 let var = self.new_var(name.to_string(), ty);
                 block.instructions.push(IrInstruction::LoadConst { dest: var.clone(), value });
                 var
+            }
+        }
+    }
+
+    fn materialize_operand_with_type(&mut self, name: &str, operand: IrOperand, ty: IrType, block: &mut IrBlock) -> IrVar {
+        match operand {
+            IrOperand::Var(var) if var.ty == ty => var,
+            IrOperand::Var(var) => {
+                let dest = self.new_var(name.to_string(), ty);
+                block.instructions.push(IrInstruction::Move { dest: dest.clone(), src: IrOperand::Var(var) });
+                dest
+            }
+            IrOperand::Const(value) => {
+                let dest = self.new_var(name.to_string(), ty);
+                block.instructions.push(IrInstruction::LoadConst { dest: dest.clone(), value });
+                dest
             }
         }
     }
@@ -1467,6 +1730,10 @@ impl IrGenerator {
             if let Some(elements) = self.aggregate_elements.get(&iterable_var.id).cloned() {
                 return self.lower_for_local_fixed_array_stmt(for_stmt, elements, current, blocks, vars);
             }
+            if let IrType::Array(_, len) = &iterable_var.ty {
+                let len = *len;
+                return self.lower_for_static_array_pointer_stmt(for_stmt, iterable, len, current, blocks, vars);
+            }
         }
 
         let Some(item_ty) = self.iter_item_type(&iterable) else {
@@ -1525,6 +1792,36 @@ impl IrGenerator {
         }
 
         Some(exit_block)
+    }
+
+    fn lower_for_static_array_pointer_stmt(
+        &mut self,
+        for_stmt: &ForStmt,
+        iterable: IrOperand,
+        len: usize,
+        mut current: BlockId,
+        blocks: &mut Vec<IrBlock>,
+        vars: &mut HashMap<String, IrVar>,
+    ) -> Option<BlockId> {
+        let Some(item_ty) = self.iter_item_type(&iterable) else {
+            self.record_error("for-loop iterable has no lowered item type", for_stmt.span);
+            return Some(current);
+        };
+
+        for index in 0..len {
+            let item_var = self.new_var(format!("iter_item_{}", index), item_ty.clone());
+            self.block_mut(blocks, current).instructions.push(IrInstruction::Index {
+                dest: item_var.clone(),
+                arr: iterable.clone(),
+                idx: IrOperand::Const(IrConst::U64(index as u64)),
+            });
+
+            let mut body_vars = vars.clone();
+            self.bind_pattern(&for_stmt.pattern, IrOperand::Var(item_var), self.block_mut(blocks, current), &mut body_vars);
+            current = self.lower_stmts(&for_stmt.body, current, blocks, &mut body_vars, false)?;
+        }
+
+        Some(current)
     }
 
     fn lower_for_local_fixed_array_stmt(
@@ -1671,7 +1968,9 @@ impl IrGenerator {
                 }
                 LoweredExpr { operand: IrOperand::Var(target_var), current: Some(active) }
             }
-            Expr::FieldAccess(field) => self.lower_field_assign(field, assign.op, lowered_value.operand, active, blocks, vars),
+            Expr::FieldAccess(field) => {
+                self.lower_field_assign(field, assign.op, &assign.value, lowered_value.operand, active, blocks, vars)
+            }
             Expr::Index(index) => self.lower_index_assign(index, assign.op, lowered_value.operand, active, blocks, vars),
             _ => {
                 self.record_error("invalid assignment target reached IR lowering", assign.span);
@@ -1780,11 +2079,15 @@ impl IrGenerator {
 
         let dest_ty = self.operand_type(&lowered_expr.operand);
         let dest = self.new_var("transfer_tmp", dest_ty);
+        let transfer_output_fields = self.materialize_matching_output_fields(&lowered_expr.operand, &dest.ty, active, blocks);
         self.block_mut(blocks, active).instructions.push(IrInstruction::Transfer {
             dest: dest.clone(),
             operand: lowered_expr.operand,
             to: lowered_to.operand,
         });
+        if !transfer_output_fields.is_empty() {
+            self.aggregate_fields.insert(dest.id, transfer_output_fields);
+        }
         LoweredExpr { operand: IrOperand::Var(dest), current: Some(active) }
     }
 
@@ -1807,9 +2110,13 @@ impl IrGenerator {
         };
         let dest_ty = self.claim_output_type_for_operand(&lowered_receipt.operand);
         let dest = self.new_var("claim_tmp", dest_ty);
+        let claim_output_fields = self.materialize_matching_output_fields(&lowered_receipt.operand, &dest.ty, active, blocks);
         self.block_mut(blocks, active)
             .instructions
             .push(IrInstruction::Claim { dest: dest.clone(), receipt: lowered_receipt.operand });
+        if !claim_output_fields.is_empty() {
+            self.aggregate_fields.insert(dest.id, claim_output_fields);
+        }
         LoweredExpr { operand: IrOperand::Var(dest), current: Some(active) }
     }
 
@@ -1824,8 +2131,14 @@ impl IrGenerator {
         let Some(active) = lowered.current else {
             return lowered;
         };
-        self.block_mut(blocks, active).instructions.push(IrInstruction::Settle { operand: lowered.operand.clone() });
-        LoweredExpr { operand: lowered.operand, current: Some(active) }
+        let dest_ty = self.operand_type(&lowered.operand);
+        let dest = self.new_var("settle_tmp", dest_ty);
+        let settle_output_fields = self.materialize_matching_output_fields(&lowered.operand, &dest.ty, active, blocks);
+        self.block_mut(blocks, active).instructions.push(IrInstruction::Settle { dest: dest.clone(), operand: lowered.operand });
+        if !settle_output_fields.is_empty() {
+            self.aggregate_fields.insert(dest.id, settle_output_fields);
+        }
+        LoweredExpr { operand: IrOperand::Var(dest), current: Some(active) }
     }
 
     fn lower_index_expr(
@@ -1971,9 +2284,11 @@ impl IrGenerator {
         }
 
         let aggregate = self.new_var("tuple_tmp", IrType::Tuple(types));
+        let fields_for_instruction =
+            (0..items.len()).filter_map(|index| fields.get(&index.to_string()).cloned().map(IrOperand::Var)).collect::<Vec<_>>();
         self.block_mut(blocks, active)
             .instructions
-            .push(IrInstruction::Move { dest: aggregate.clone(), src: IrOperand::Const(IrConst::U64(0)) });
+            .push(IrInstruction::Tuple { dest: aggregate.clone(), fields: fields_for_instruction });
         self.aggregate_fields.insert(aggregate.id, fields);
         LoweredExpr { operand: IrOperand::Var(aggregate), current: Some(active) }
     }
@@ -2041,6 +2356,7 @@ impl IrGenerator {
         &mut self,
         field: &FieldAccessExpr,
         op: AssignOp,
+        value_expr: &Expr,
         value: IrOperand,
         current: BlockId,
         blocks: &mut Vec<IrBlock>,
@@ -2068,6 +2384,10 @@ impl IrGenerator {
             self.record_error(format!("field assignment '.{}' has no lowered schema-backed representation", field.field), field.span);
             return LoweredExpr { operand: value, current: Some(active) };
         };
+        self.mutated_fields.entry(base_var.id).or_default().insert(field.field.clone());
+        if let Some(transition) = self.mutate_transition_from_assignment(field, op, value_expr, &value, vars) {
+            self.mutated_field_transitions.entry(base_var.id).or_default().insert(field.field.clone(), transition);
+        }
 
         match op {
             AssignOp::Assign => {
@@ -2087,6 +2407,91 @@ impl IrGenerator {
         }
 
         LoweredExpr { operand: IrOperand::Var(field_var), current: Some(active) }
+    }
+
+    fn mutate_transition_from_assignment(
+        &self,
+        target: &FieldAccessExpr,
+        assign_op: AssignOp,
+        value_expr: &Expr,
+        _value_operand: &IrOperand,
+        vars: &HashMap<String, IrVar>,
+    ) -> Option<MutateFieldTransition> {
+        let (target_root, target_field) = direct_field_access_root(target)?;
+        let (op, operand) = match assign_op {
+            AssignOp::AddAssign => (MutateTransitionOp::Add, self.transition_operand_from_expr(value_expr, vars)?),
+            AssignOp::Assign => match value_expr {
+                Expr::Binary(binary) if matches!(binary.op, BinaryOp::Add | BinaryOp::Sub) => {
+                    let left_is_old = same_direct_field_access(&binary.left, target_root, target_field);
+                    let right_is_old = same_direct_field_access(&binary.right, target_root, target_field);
+                    match (binary.op, left_is_old, right_is_old) {
+                        (BinaryOp::Add, true, false) => {
+                            (MutateTransitionOp::Add, self.transition_operand_from_expr(&binary.right, vars)?)
+                        }
+                        (BinaryOp::Add, false, true) => {
+                            (MutateTransitionOp::Add, self.transition_operand_from_expr(&binary.left, vars)?)
+                        }
+                        (BinaryOp::Sub, true, false) => {
+                            (MutateTransitionOp::Sub, self.transition_operand_from_expr(&binary.right, vars)?)
+                        }
+                        _ => return None,
+                    }
+                }
+                _ => return None,
+            },
+        };
+        Some(MutateFieldTransition { field: target_field.to_string(), op, operand })
+    }
+
+    fn transition_operand_from_expr(&self, expr: &Expr, vars: &HashMap<String, IrVar>) -> Option<IrOperand> {
+        match expr {
+            Expr::Identifier(name) => vars
+                .get(name)
+                .filter(|var| self.transition_param_ids.contains(&var.id) || self.transition_coverable_value_ids.contains(&var.id))
+                .cloned()
+                .map(IrOperand::Var),
+            Expr::Integer(value) => Some(IrOperand::Const(IrConst::U64(*value))),
+            Expr::FieldAccess(field) => {
+                let (root, field_name) = direct_field_access_root(field)?;
+                let root_var = vars.get(root)?;
+                if !self.transition_param_ids.contains(&root_var.id) {
+                    return None;
+                }
+                self.aggregate_fields.get(&root_var.id)?.get(field_name).cloned().map(IrOperand::Var)
+            }
+            Expr::Cast(cast) => self.transition_operand_from_expr(&cast.expr, vars),
+            _ => None,
+        }
+    }
+
+    fn transition_expr_is_coverable_u64(&self, expr: &Expr, vars: &HashMap<String, IrVar>) -> bool {
+        match expr {
+            Expr::Identifier(name) => vars.get(name).is_some_and(|var| {
+                var.ty == IrType::U64
+                    && (self.transition_param_ids.contains(&var.id) || self.transition_coverable_value_ids.contains(&var.id))
+            }),
+            Expr::Integer(_) => true,
+            Expr::FieldAccess(field) => {
+                let Some((root, field_name)) = direct_field_access_root(field) else {
+                    return false;
+                };
+                let Some(root_var) = vars.get(root) else {
+                    return false;
+                };
+                self.transition_param_ids.contains(&root_var.id)
+                    && self
+                        .lookup_field_ir_type(&root_var.ty, field_name)
+                        .is_some_and(|ty| matches!(ty, IrType::U8 | IrType::U16 | IrType::U32 | IrType::U64))
+            }
+            Expr::Cast(cast) => self.transition_expr_is_coverable_u64(&cast.expr, vars),
+            Expr::Binary(binary) if matches!(binary.op, BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div) => {
+                self.transition_expr_is_coverable_u64(&binary.left, vars) && self.transition_expr_is_coverable_u64(&binary.right, vars)
+            }
+            Expr::Call(call) if call.args.len() == 2 && call_target_is_min(call.func.as_ref()) => {
+                call.args.iter().all(|arg| self.transition_expr_is_coverable_u64(arg, vars))
+            }
+            _ => false,
+        }
     }
 
     fn lower_index_assign(
@@ -2246,8 +2651,9 @@ impl IrGenerator {
                 let else_block = if index + 1 < match_expr.arms.len() {
                     self.push_block(blocks)
                 } else {
-                    self.record_error("match lowering currently requires a wildcard fallback arm", arm.span);
-                    return LoweredExpr { operand: IrOperand::Const(IrConst::U64(0)), current: Some(check_block) };
+                    let fail_block = self.push_block(blocks);
+                    self.block_mut(blocks, fail_block).terminator = IrTerminator::Return(Some(IrOperand::Const(IrConst::U64(8))));
+                    fail_block
                 };
                 self.block_mut(blocks, check_block).terminator =
                     IrTerminator::Branch { cond: IrOperand::Var(cond_var), then_block: arm_entry, else_block };
@@ -2533,6 +2939,8 @@ pub fn generate_with_resolver(ast: &Module, resolver: &ModuleResolver, module_na
     let mut type_fields = HashMap::new();
     let mut type_kinds = HashMap::new();
     let mut receipt_claim_outputs = HashMap::new();
+    let mut external_type_defs = Vec::new();
+    let mut external_type_names = HashSet::new();
     let mut external_function_effects = HashMap::new();
     let mut external_function_return_types = HashMap::new();
 
@@ -2552,6 +2960,11 @@ pub fn generate_with_resolver(ast: &Module, resolver: &ModuleResolver, module_na
                 }
                 if let Some(fields) = resolver_type_fields_to_ir(&type_def) {
                     type_fields.insert(local_name.clone(), fields);
+                }
+                if external_type_names.insert(local_name.clone()) {
+                    if let Some(ir_type_def) = resolver_type_def_to_ir(&local_name, &type_def) {
+                        external_type_defs.push(ir_type_def);
+                    }
                 }
             }
             if let Some(function) = resolver.resolve_function(module_name, &local_name) {
@@ -2575,7 +2988,9 @@ pub fn generate_with_resolver(ast: &Module, resolver: &ModuleResolver, module_na
         external_function_effects,
         external_function_return_types,
     );
-    generator.generate(ast)
+    let mut ir = generator.generate(ast)?;
+    ir.external_type_defs = external_type_defs;
+    Ok(ir)
 }
 
 fn collect_call_names(ast: &Module) -> HashSet<String> {
@@ -2910,6 +3325,73 @@ fn resolver_type_fields_to_ir(type_def: &TypeDef) -> Option<HashMap<String, IrTy
     Some(fields.iter().map(|field| (field.name.clone(), ast_type_to_ir_type(&field.ty))).collect())
 }
 
+fn resolver_type_def_to_ir(local_name: &str, type_def: &TypeDef) -> Option<IrTypeDef> {
+    match type_def {
+        TypeDef::Resource(resource) => Some(IrTypeDef {
+            name: local_name.to_string(),
+            kind: IrTypeKind::Resource,
+            fields: layout_resolver_fields(&resource.fields),
+            capabilities: resource.capabilities.clone(),
+            claim_output: None,
+            lifecycle_states: None,
+        }),
+        TypeDef::Shared(shared) => Some(IrTypeDef {
+            name: local_name.to_string(),
+            kind: IrTypeKind::Shared,
+            fields: layout_resolver_fields(&shared.fields),
+            capabilities: shared.capabilities.clone(),
+            claim_output: None,
+            lifecycle_states: None,
+        }),
+        TypeDef::Receipt(receipt) => Some(IrTypeDef {
+            name: local_name.to_string(),
+            kind: IrTypeKind::Receipt,
+            fields: layout_resolver_fields(&receipt.fields),
+            capabilities: receipt.capabilities.clone(),
+            claim_output: receipt.claim_output.as_ref().map(ast_type_to_ir_type),
+            lifecycle_states: receipt.lifecycle.as_ref().map(|lifecycle| lifecycle.states.clone()),
+        }),
+        TypeDef::Struct(struct_def) => Some(IrTypeDef {
+            name: local_name.to_string(),
+            kind: IrTypeKind::Struct,
+            fields: layout_resolver_fields(&struct_def.fields),
+            capabilities: Vec::new(),
+            claim_output: None,
+            lifecycle_states: None,
+        }),
+        TypeDef::Enum(_) => None,
+    }
+}
+
+fn layout_resolver_fields(fields: &[Field]) -> Vec<IrField> {
+    let mut next_offset = Some(0usize);
+    fields
+        .iter()
+        .map(|field| {
+            let ty = ast_type_to_ir_type(&field.ty);
+            let fixed_size = fixed_encoded_size_for_ir_type(&ty);
+            let offset = next_offset.unwrap_or(0);
+            next_offset = next_offset.and_then(|current| fixed_size.map(|size| current + size));
+            IrField { name: field.name.clone(), ty, offset, fixed_size }
+        })
+        .collect()
+}
+
+fn fixed_encoded_size_for_ir_type(ty: &IrType) -> Option<usize> {
+    match ty {
+        IrType::U8 | IrType::Bool => Some(1),
+        IrType::U16 => Some(2),
+        IrType::U32 => Some(4),
+        IrType::U64 => Some(8),
+        IrType::U128 => Some(16),
+        IrType::Address | IrType::Hash => Some(32),
+        IrType::Array(inner, len) => fixed_encoded_size_for_ir_type(inner).map(|inner_size| inner_size * len),
+        IrType::Tuple(items) => items.iter().try_fold(0usize, |acc, item| fixed_encoded_size_for_ir_type(item).map(|size| acc + size)),
+        IrType::Unit => Some(0),
+        IrType::Named(_) | IrType::Ref(_) | IrType::MutRef(_) => None,
+    }
+}
+
 fn resolver_type_kind(type_def: &TypeDef) -> Option<IrTypeKind> {
     match type_def {
         TypeDef::Resource(_) => Some(IrTypeKind::Resource),
@@ -2956,6 +3438,29 @@ fn const_usize_operand(operand: &IrOperand) -> Option<usize> {
     }
 }
 
+fn direct_field_access_root(field: &FieldAccessExpr) -> Option<(&str, &str)> {
+    match field.expr.as_ref() {
+        Expr::Identifier(root) => Some((root.as_str(), field.field.as_str())),
+        _ => None,
+    }
+}
+
+fn same_direct_field_access(expr: &Expr, root: &str, field_name: &str) -> bool {
+    let Expr::FieldAccess(field) = expr else {
+        return false;
+    };
+    matches!(field.expr.as_ref(), Expr::Identifier(name) if name == root) && field.field == field_name
+}
+
+fn call_target_is_min(expr: &Expr) -> bool {
+    matches!(expr, Expr::Identifier(name) if name == "min" || name == "math_min")
+}
+
+fn is_verifier_coverable_output_field_type(ty: &IrType) -> bool {
+    matches!(ty, IrType::Bool | IrType::U8 | IrType::U16 | IrType::U32 | IrType::U64 | IrType::Address | IrType::Hash)
+        || matches!(ty, IrType::Array(inner, _) if matches!(inner.as_ref(), IrType::U8))
+}
+
 fn binding_pattern_label(pattern: &BindingPattern) -> &str {
     match pattern {
         BindingPattern::Name(name) => name.as_str(),
@@ -2964,6 +3469,6 @@ fn binding_pattern_label(pattern: &BindingPattern) -> &str {
     }
 }
 
-fn type_hash_for_name(name: &str) -> [u8; 32] {
+pub(crate) fn type_hash_for_name(name: &str) -> [u8; 32] {
     *blake3::hash(name.as_bytes()).as_bytes()
 }

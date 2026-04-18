@@ -158,8 +158,6 @@ pub struct PolicyConfig {
 pub struct PackageManager {
     /// 根目录
     root: PathBuf,
-    /// 缓存目录
-    cache_dir: PathBuf,
     /// 已解析的依赖
     resolved: HashMap<String, ResolvedPackage>,
 }
@@ -207,9 +205,8 @@ impl PackageManager {
     /// 创建新的包管理器
     pub fn new(root: impl AsRef<Path>) -> Self {
         let root = root.as_ref().to_path_buf();
-        let cache_dir = root.join(".cell").join("cache");
 
-        Self { root, cache_dir, resolved: HashMap::new() }
+        Self { root, resolved: HashMap::new() }
     }
 
     /// 读取包清单
@@ -345,16 +342,10 @@ dist/
 
     /// 从注册表解析
     fn resolve_from_registry(&self, name: &str, version: &str) -> Result<ResolvedPackage> {
-        // 简化实现：实际应该从远程注册表下载
-        let package_dir = self.cache_dir.join("registry").join(name).join(version);
-
-        Ok(ResolvedPackage {
-            name: name.to_string(),
-            version: version.to_string(),
-            path: package_dir,
-            source: PackageSource::Registry { name: name.to_string(), version: version.to_string() },
-            dependencies: vec![],
-        })
+        Err(CompileError::without_span(format!(
+            "registry dependency '{}' with version '{}' is not supported yet; use a local path dependency",
+            name, version
+        )))
     }
 
     /// 从本地路径解析
@@ -380,18 +371,11 @@ dist/
 
     /// 从 Git 解析
     fn resolve_from_git(&self, name: &str, url: &str, detailed: &DetailedDependency) -> Result<ResolvedPackage> {
-        // 简化实现：实际应该克隆 Git 仓库
         let revision = detailed.rev.clone().or(detailed.tag.clone()).or(detailed.branch.clone()).unwrap_or_else(|| "main".to_string());
-
-        let package_dir = self.cache_dir.join("git").join(name).join(&revision);
-
-        Ok(ResolvedPackage {
-            name: name.to_string(),
-            version: "0.0.0".to_string(), // Git 包版本从 tag 获取
-            path: package_dir,
-            source: PackageSource::Git { url: url.to_string(), revision },
-            dependencies: vec![],
-        })
+        Err(CompileError::without_span(format!(
+            "git dependency '{}' from '{}' at revision '{}' is not supported yet; use a local path dependency",
+            name, url, revision
+        )))
     }
 
     /// 获取已解析的依赖
@@ -569,6 +553,7 @@ pub mod version {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::tempdir;
 
     #[test]
     fn test_manifest_serialization() {
@@ -624,5 +609,96 @@ mod tests {
         assert!(!version::satisfies("2.0.0", &VersionReq::Compatible("1.0.0".to_string())));
         assert!(!version::satisfies("0.2.0", &VersionReq::Compatible("0.1.0".to_string())));
         assert!(version::satisfies("0.1.5", &VersionReq::Compatible("0.1.0".to_string())));
+    }
+
+    #[test]
+    fn package_manager_resolves_local_path_dependencies() {
+        let temp = tempdir().unwrap();
+        let root = temp.path();
+        std::fs::create_dir_all(root.join("deps/math/src")).unwrap();
+        std::fs::write(
+            root.join("Cell.toml"),
+            r#"
+[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies.math]
+version = "0.1.0"
+path = "deps/math"
+"#,
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("deps/math/Cell.toml"),
+            r#"
+[package]
+name = "math"
+version = "0.1.0"
+"#,
+        )
+        .unwrap();
+
+        let mut manager = PackageManager::new(root);
+        manager.resolve_dependencies().unwrap();
+
+        let math = manager.get_resolved().get("math").expect("path dependency should resolve");
+        assert_eq!(math.name, "math");
+        assert_eq!(math.version, "0.1.0");
+        assert!(matches!(math.source, PackageSource::Local(_)));
+        assert_eq!(manager.get_source_paths(), vec![root.join("deps/math/src")]);
+    }
+
+    #[test]
+    fn package_manager_rejects_registry_dependencies_fail_closed() {
+        let temp = tempdir().unwrap();
+        std::fs::write(
+            temp.path().join("Cell.toml"),
+            r#"
+[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+remote = "1.2.3"
+"#,
+        )
+        .unwrap();
+
+        let mut manager = PackageManager::new(temp.path());
+        let error = manager.resolve_dependencies().unwrap_err();
+
+        assert!(error.message.contains("registry dependency 'remote'"));
+        assert!(error.message.contains("not supported yet"));
+        assert!(error.message.contains("local path dependency"));
+        assert!(manager.get_resolved().is_empty());
+    }
+
+    #[test]
+    fn package_manager_rejects_git_dependencies_fail_closed() {
+        let temp = tempdir().unwrap();
+        std::fs::write(
+            temp.path().join("Cell.toml"),
+            r#"
+[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies.remote]
+version = "0.1.0"
+git = "https://example.invalid/remote.git"
+rev = "abc123"
+"#,
+        )
+        .unwrap();
+
+        let mut manager = PackageManager::new(temp.path());
+        let error = manager.resolve_dependencies().unwrap_err();
+
+        assert!(error.message.contains("git dependency 'remote'"));
+        assert!(error.message.contains("https://example.invalid/remote.git"));
+        assert!(error.message.contains("abc123"));
+        assert!(error.message.contains("local path dependency"));
+        assert!(manager.get_resolved().is_empty());
     }
 }

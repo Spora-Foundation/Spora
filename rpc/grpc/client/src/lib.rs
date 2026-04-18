@@ -371,7 +371,7 @@ impl RpcApi for GrpcClient {
             NotificationMode::MultiListeners => {
                 let (sender, _receiver) = unbounded();
                 let connection = ChannelConnection::new(GRPC_CLIENT, sender, spora_notify::connection::ChannelType::Closable);
-                self.register_new_listener(connection)
+                self.notifier.as_ref().unwrap().register_new_listener(connection, ListenerLifespan::Dynamic)
             }
             NotificationMode::Direct => self.next_subscription_id.fetch_add(1, Ordering::Relaxed),
         };

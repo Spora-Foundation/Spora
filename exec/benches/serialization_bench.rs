@@ -4,10 +4,8 @@
 // Serialization Performance Benchmarks
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
-use spora_exec::{
-    CellInput, CellOutput, CellTx, OutPoint, ResolvedCellMeta, ResolvedHeader, Script, TransactionInfo, VersionedEnvelope,
-    VersionedSerializable, VmSerializable,
-};
+use spora_exec::celltx::{ResolvedCellMeta, TransactionInfo};
+use spora_exec::{CellInput, CellOutput, CellTx, OutPoint, ResolvedHeader, Script, VersionedEnvelope, VmSerializable};
 
 fn create_sample_tx() -> CellTx {
     let lock_script = Script::new([0x00; 32], 0, vec![0xAB; 20]);
@@ -193,7 +191,6 @@ fn bench_resolved_cell_meta_serialization(c: &mut Criterion) {
 
 fn bench_versioned_envelope_overhead(c: &mut Criterion) {
     let tx = create_sample_tx();
-    let tx_bytes = borsh::to_vec(&tx).unwrap();
 
     let mut group = c.benchmark_group("versioned_envelope_overhead");
 

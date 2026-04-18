@@ -660,7 +660,7 @@ impl RpcClient {
 
                             match ctl {
                                 Ctl::Connect => {
-                                    let listener_id = this.inner.client.register_new_listener(ChannelConnection::new(
+                                    let listener_id = this.inner.client.register_local_listener(ChannelConnection::new(
                                         "spora-wrpc-client-wasm",
                                         this.inner.notification_channel.sender.clone(),
                                         ChannelType::Persistent,

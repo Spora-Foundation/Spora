@@ -494,13 +494,14 @@ mod tests {
 
     #[test]
     fn test_keywords() {
-        let input = "module resource action consume create";
+        let input = "module resource action consume create launch";
         let tokens = lex(input).unwrap();
         assert_eq!(tokens[0].kind, TokenKind::Module);
         assert_eq!(tokens[1].kind, TokenKind::Resource);
         assert_eq!(tokens[2].kind, TokenKind::Action);
         assert_eq!(tokens[3].kind, TokenKind::Consume);
         assert_eq!(tokens[4].kind, TokenKind::Create);
+        assert_eq!(tokens[5].kind, TokenKind::Launch);
     }
 
     #[test]

@@ -431,6 +431,8 @@ fn scheduler_operation_id(operation: &str) -> u8 {
         "settle" => 5,
         "read_ref" => 6,
         "create" => 7,
+        "mutate-input" => 8,
+        "mutate-output" => 9,
         _ => 0,
     }
 }

@@ -83,33 +83,36 @@ impl ModuleResolver {
         for item in &module.items {
             match item {
                 Item::Resource(r) => {
-                    symbol_table.types.insert(r.name.clone(), TypeDef::Resource(r.clone()));
+                    Self::insert_type_symbol(&mut symbol_table, &r.name, TypeDef::Resource(r.clone()), r.span)?;
                 }
                 Item::Shared(s) => {
-                    symbol_table.types.insert(s.name.clone(), TypeDef::Shared(s.clone()));
+                    Self::insert_type_symbol(&mut symbol_table, &s.name, TypeDef::Shared(s.clone()), s.span)?;
                 }
                 Item::Receipt(r) => {
-                    symbol_table.types.insert(r.name.clone(), TypeDef::Receipt(r.clone()));
+                    Self::insert_type_symbol(&mut symbol_table, &r.name, TypeDef::Receipt(r.clone()), r.span)?;
                 }
                 Item::Struct(s) => {
-                    symbol_table.types.insert(s.name.clone(), TypeDef::Struct(s.clone()));
+                    Self::insert_type_symbol(&mut symbol_table, &s.name, TypeDef::Struct(s.clone()), s.span)?;
                 }
                 Item::Enum(e) => {
-                    symbol_table.types.insert(e.name.clone(), TypeDef::Enum(e.clone()));
+                    Self::insert_type_symbol(&mut symbol_table, &e.name, TypeDef::Enum(e.clone()), e.span)?;
                 }
                 Item::Const(c) => {
-                    symbol_table
-                        .constants
-                        .insert(c.name.clone(), ConstantDef { name: c.name.clone(), ty: c.ty.clone(), value: c.value.clone() });
+                    Self::insert_constant_symbol(
+                        &mut symbol_table,
+                        &c.name,
+                        ConstantDef { name: c.name.clone(), ty: c.ty.clone(), value: c.value.clone() },
+                        c.span,
+                    )?;
                 }
                 Item::Action(a) => {
-                    symbol_table.functions.insert(a.name.clone(), FunctionDef::Action(a.clone()));
+                    Self::insert_function_symbol(&mut symbol_table, &a.name, FunctionDef::Action(a.clone()), a.span)?;
                 }
                 Item::Function(f) => {
-                    symbol_table.functions.insert(f.name.clone(), FunctionDef::Function(f.clone()));
+                    Self::insert_function_symbol(&mut symbol_table, &f.name, FunctionDef::Function(f.clone()), f.span)?;
                 }
                 Item::Lock(l) => {
-                    symbol_table.functions.insert(l.name.clone(), FunctionDef::Lock(l.clone()));
+                    Self::insert_function_symbol(&mut symbol_table, &l.name, FunctionDef::Lock(l.clone()), l.span)?;
                 }
                 Item::Use(u) => {
                     for import in &u.imports {
@@ -133,6 +136,36 @@ impl ModuleResolver {
         Ok(())
     }
 
+    fn insert_type_symbol(symbol_table: &mut SymbolTable, name: &str, ty: TypeDef, span: Span) -> Result<()> {
+        Self::ensure_symbol_available(symbol_table, name, span)?;
+        symbol_table.types.insert(name.to_string(), ty);
+        Ok(())
+    }
+
+    fn insert_function_symbol(symbol_table: &mut SymbolTable, name: &str, function: FunctionDef, span: Span) -> Result<()> {
+        Self::ensure_symbol_available(symbol_table, name, span)?;
+        symbol_table.functions.insert(name.to_string(), function);
+        Ok(())
+    }
+
+    fn insert_constant_symbol(symbol_table: &mut SymbolTable, name: &str, constant: ConstantDef, span: Span) -> Result<()> {
+        Self::ensure_symbol_available(symbol_table, name, span)?;
+        symbol_table.constants.insert(name.to_string(), constant);
+        Ok(())
+    }
+
+    fn ensure_symbol_available(symbol_table: &SymbolTable, name: &str, span: Span) -> Result<()> {
+        if symbol_table.types.contains_key(name)
+            || symbol_table.functions.contains_key(name)
+            || symbol_table.constants.contains_key(name)
+            || symbol_table.imported.contains_key(name)
+        {
+            Err(CompileError::new(format!("duplicate symbol '{}'", name), span))
+        } else {
+            Ok(())
+        }
+    }
+
     /// 处理导入
     fn process_import(&mut self, symbol_table: &mut SymbolTable, import: &ImportItem) -> Result<()> {
         if import.module_path.is_empty() || import.name.is_empty() {
@@ -142,6 +175,7 @@ impl ModuleResolver {
         let full_path = import.module_path.iter().chain(std::iter::once(&import.name)).cloned().collect::<Vec<_>>().join("::");
         let local_name = import.alias.clone().unwrap_or_else(|| import.name.clone());
 
+        Self::ensure_symbol_available(symbol_table, &local_name, import.span)?;
         symbol_table.imported.insert(local_name, full_path);
 
         Ok(())
@@ -417,6 +451,76 @@ mod tests {
 
         assert!(matches!(resolver.resolve_type("spora::launch", "Token"), Some(TypeDef::Resource(_))));
         assert!(matches!(resolver.resolve_type("spora::launch", "MintAuthority"), Some(TypeDef::Resource(_))));
+    }
+
+    #[test]
+    fn test_rejects_duplicate_local_symbols() {
+        let mut resolver = ModuleResolver::new();
+        let err = resolver
+            .register_module(Module {
+                name: "test".to_string(),
+                items: vec![
+                    Item::Resource(ResourceDef {
+                        name: "Token".to_string(),
+                        capabilities: vec![Capability::Store],
+                        fields: vec![Field { name: "amount".to_string(), ty: Type::U64, span: Span::default() }],
+                        span: Span::default(),
+                    }),
+                    Item::Action(ActionDef {
+                        name: "Token".to_string(),
+                        params: Vec::new(),
+                        return_type: Some(Type::U64),
+                        body: vec![Stmt::Return(Some(Expr::Integer(0)))],
+                        effect: EffectClass::Pure,
+                        effect_declared: false,
+                        scheduler_hint: None,
+                        doc_comment: None,
+                        span: Span::default(),
+                    }),
+                ],
+                span: Span::default(),
+            })
+            .unwrap_err();
+
+        assert!(err.message.contains("duplicate symbol 'Token'"), "unexpected error: {}", err.message);
+    }
+
+    #[test]
+    fn test_rejects_import_alias_collisions() {
+        let mut resolver = ModuleResolver::new();
+        resolver
+            .register_module(Module {
+                name: "spora::token".to_string(),
+                items: vec![Item::Resource(ResourceDef {
+                    name: "Token".to_string(),
+                    capabilities: vec![Capability::Store],
+                    fields: vec![Field { name: "amount".to_string(), ty: Type::U64, span: Span::default() }],
+                    span: Span::default(),
+                })],
+                span: Span::default(),
+            })
+            .unwrap();
+
+        let err = resolver
+            .register_module(Module {
+                name: "app".to_string(),
+                items: vec![
+                    Item::Use(UseStmt {
+                        module_path: vec!["spora".to_string(), "token".to_string()],
+                        imports: vec![UseImport { name: "Token".to_string(), alias: None }],
+                        span: Span::default(),
+                    }),
+                    Item::Struct(StructDef {
+                        name: "Token".to_string(),
+                        fields: vec![Field { name: "amount".to_string(), ty: Type::U64, span: Span::default() }],
+                        span: Span::default(),
+                    }),
+                ],
+                span: Span::default(),
+            })
+            .unwrap_err();
+
+        assert!(err.message.contains("duplicate symbol 'Token'"), "unexpected error: {}", err.message);
     }
 
     #[test]

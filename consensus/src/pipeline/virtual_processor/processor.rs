@@ -91,6 +91,7 @@ use spora_notify::{events::EventType, notifier::Notify};
 #[cfg(feature = "vm")]
 use super::cell_processing::{CellStateCalculationResult, CellStateCalculationState};
 use super::{
+    access_summary::{BlockAccessSummary, BlockAccessSummaryError, TrustedCellScriptSchedulerAccessSets},
     cell_processing::{apply_cell_diff_to_tree, exec_outpoint, CellProcessingContext},
     errors::{PruningImportError, PruningImportResult},
 };
@@ -111,36 +112,74 @@ use std::{
 
 #[allow(dead_code)]
 fn filter_conflicting_template_transactions(txs: Vec<CellTx>, tx_selector: &mut dyn TemplateTransactionSelector) -> Vec<CellTx> {
-    prefilter_conflicting_template_transactions(txs, Some(tx_selector)).kept_txs
+    prefilter_conflicting_template_transactions(txs, Some(tx_selector), None).kept_txs
 }
 
 struct TemplateConflictPrefilterOutcome {
     kept_txs: Vec<CellTx>,
-    rejected_tx_ids: Vec<Hash>,
+    rejected_transactions: HashMap<Hash, TxRuleError>,
 }
 
 fn template_conflict_tx_rule_error() -> TxRuleError {
     TxRuleError::CellValidationFailed("template transaction conflicts with another selected transaction".to_string())
 }
 
+fn cellscript_scheduler_policy_tx_rule_error(error: BlockAccessSummaryError) -> TxRuleError {
+    TxRuleError::CellValidationFailed(format!("CellScript scheduler metadata policy rejected transaction: {error}"))
+}
+
+fn validate_cellscript_scheduler_metadata_policy(
+    txs: &[CellTx],
+    trusted_access_sets: Option<&TrustedCellScriptSchedulerAccessSets>,
+) -> TxResult<()> {
+    let result = if let Some(trusted_access_sets) = trusted_access_sets {
+        BlockAccessSummary::try_from_block_txs_with_trusted_cellscript_scheduler_accesses(ZERO_HASH, txs, trusted_access_sets)
+    } else {
+        BlockAccessSummary::try_from_block_txs_with_cellscript_scheduler(ZERO_HASH, txs)
+    };
+
+    result.map(|_| ()).map_err(cellscript_scheduler_policy_tx_rule_error)
+}
+
+fn validate_cellscript_scheduler_mempool_policy(tx: &CellTx) -> TxResult<()> {
+    validate_cellscript_scheduler_metadata_policy(std::slice::from_ref(tx), None)
+}
+
 fn prefilter_conflicting_template_transactions(
     txs: Vec<CellTx>,
     mut tx_selector: Option<&mut dyn TemplateTransactionSelector>,
+    trusted_access_sets: Option<&TrustedCellScriptSchedulerAccessSets>,
 ) -> TemplateConflictPrefilterOutcome {
-    if txs.len() <= 1 {
-        return TemplateConflictPrefilterOutcome { kept_txs: txs, rejected_tx_ids: Vec::new() };
+    let mut rejected_transactions = HashMap::new();
+    let mut admitted_txs = Vec::with_capacity(txs.len());
+
+    for tx in txs {
+        let tx_id = Hash::from_bytes(tx.id());
+        match validate_cellscript_scheduler_metadata_policy(std::slice::from_ref(&tx), trusted_access_sets) {
+            Ok(()) => admitted_txs.push(tx),
+            Err(error) => {
+                if let Some(selector) = tx_selector.as_deref_mut() {
+                    selector.reject_selection(tx_id);
+                }
+                rejected_transactions.insert(tx_id, error);
+            }
+        }
     }
 
-    let dag = match CellDAG::build(&txs) {
+    if admitted_txs.len() <= 1 {
+        return TemplateConflictPrefilterOutcome { kept_txs: admitted_txs, rejected_transactions };
+    }
+
+    let dag = match CellDAG::build(&admitted_txs) {
         Ok(dag) => dag,
         Err(err) => {
             warn!("template CellDAG analysis failed, skipping conflict prefilter: {err}");
-            return TemplateConflictPrefilterOutcome { kept_txs: txs, rejected_tx_ids: Vec::new() };
+            return TemplateConflictPrefilterOutcome { kept_txs: admitted_txs, rejected_transactions };
         }
     };
 
     if dag.conflicts.is_empty() {
-        return TemplateConflictPrefilterOutcome { kept_txs: txs, rejected_tx_ids: Vec::new() };
+        return TemplateConflictPrefilterOutcome { kept_txs: admitted_txs, rejected_transactions };
     }
 
     let mut rejected = HashSet::new();
@@ -168,18 +207,17 @@ fn prefilter_conflicting_template_transactions(
     }
 
     if rejected.is_empty() {
-        return TemplateConflictPrefilterOutcome { kept_txs: txs, rejected_tx_ids: Vec::new() };
+        return TemplateConflictPrefilterOutcome { kept_txs: admitted_txs, rejected_transactions };
     }
 
     let rejected_count = rejected.len();
-    let mut rejected_tx_ids = Vec::with_capacity(rejected_count);
-    let kept_txs = txs
+    let kept_txs = admitted_txs
         .into_iter()
         .enumerate()
         .filter_map(|(node_id, tx)| {
             if rejected.contains(&node_id) {
                 let tx_id = Hash::from_bytes(tx.id());
-                rejected_tx_ids.push(tx_id);
+                rejected_transactions.insert(tx_id, template_conflict_tx_rule_error());
                 if let Some(selector) = tx_selector.as_deref_mut() {
                     selector.reject_selection(tx_id);
                 }
@@ -191,7 +229,7 @@ fn prefilter_conflicting_template_transactions(
         .collect();
 
     trace!("template CellDAG prefilter removed {} conflicting/descendant transactions", rejected_count);
-    TemplateConflictPrefilterOutcome { kept_txs, rejected_tx_ids }
+    TemplateConflictPrefilterOutcome { kept_txs, rejected_transactions }
 }
 
 fn synthetic_metadata_from_tree_entry(outpoint: TransactionOutpoint, entry: &CellEntry) -> CellMetadata {
@@ -1588,7 +1626,7 @@ impl VirtualStateProcessor {
     /// Assumes:
     ///     1. `selected_parent` is a Cell-valid block
     ///     2. `candidates` are an antichain ordered in descending blue work order
-    ///     3. `candidates` do not contain `selected_parent` and `selected_parent.blue work > max(candidates.blue_work)`  
+    ///     3. `candidates` do not contain `selected_parent` and `selected_parent.blue work > max(candidates.blue_work)`
     pub(super) fn pick_virtual_parents(
         &self,
         selected_parent: Hash,
@@ -1891,6 +1929,8 @@ impl VirtualStateProcessor {
                 return Err(TxRuleError::TxDuplicateInputs);
             }
         }
+
+        validate_cellscript_scheduler_mempool_policy(cell_tx)?;
 
         let resolved_inputs = self.resolve_mempool_inputs(virtual_state.as_ref(), mutable_tx)?;
         backfill_mempool_entries_from_resolved_inputs(mutable_tx, &resolved_inputs);
@@ -2285,13 +2325,19 @@ impl VirtualStateProcessor {
 
         // We call for the initial tx batch before acquiring the virtual read lock,
         // optimizing for the common case where all txs are valid.
-        let prefilter = prefilter_conflicting_template_transactions(tx_selector.select_transactions(), Some(tx_selector.as_mut()));
+        let selected_txs = tx_selector.select_transactions();
+        let selected_trusted_access_sets = tx_selector.selected_cellscript_scheduler_accesses();
+        let selected_trusted_access_sets = (!selected_trusted_access_sets.is_empty()).then_some(selected_trusted_access_sets);
+        let prefilter = prefilter_conflicting_template_transactions(
+            selected_txs,
+            Some(tx_selector.as_mut()),
+            selected_trusted_access_sets.as_ref(),
+        );
         let virtual_read = self.virtual_stores.read();
         let virtual_state = virtual_read.state.get().expect("virtual state must exist");
         let TemplateValidationOutcome { valid_txs, calculated_fees, invalid_transactions: validation_invalids } =
             self.validate_and_filter_block_template_cell_transactions(prefilter.kept_txs, virtual_state.clone())?;
-        let mut invalid_transactions =
-            prefilter.rejected_tx_ids.into_iter().map(|tx_id| (tx_id, template_conflict_tx_rule_error())).collect::<HashMap<_, _>>();
+        let mut invalid_transactions = prefilter.rejected_transactions;
         for tx_id in validation_invalids.keys().copied() {
             tx_selector.reject_selection(tx_id);
         }
@@ -2319,11 +2365,10 @@ impl VirtualStateProcessor {
     {
         let virtual_read = self.virtual_stores.read();
         let virtual_state = virtual_read.state.get().expect("virtual state must exist");
-        let prefilter = prefilter_conflicting_template_transactions(tx_selector(virtual_state.as_ref()), None);
+        let prefilter = prefilter_conflicting_template_transactions(tx_selector(virtual_state.as_ref()), None, None);
         let TemplateValidationOutcome { valid_txs, calculated_fees, invalid_transactions: validation_invalids } =
             self.validate_and_filter_block_template_cell_transactions(prefilter.kept_txs, virtual_state.clone())?;
-        let mut invalid_transactions =
-            prefilter.rejected_tx_ids.into_iter().map(|tx_id| (tx_id, template_conflict_tx_rule_error())).collect::<HashMap<_, _>>();
+        let mut invalid_transactions = prefilter.rejected_transactions;
         invalid_transactions.extend(validation_invalids);
 
         if matches!(build_mode, TemplateBuildMode::Standard) && !invalid_transactions.is_empty() {
@@ -2340,11 +2385,10 @@ impl VirtualStateProcessor {
         txs: &[CellTx],
         virtual_state: &VirtualState,
     ) -> Result<(), RuleError> {
-        let prefilter = prefilter_conflicting_template_transactions(txs.to_vec(), None);
+        let prefilter = prefilter_conflicting_template_transactions(txs.to_vec(), None, None);
         let TemplateValidationOutcome { invalid_transactions: validation_invalids, .. } =
             self.validate_and_filter_block_template_cell_transactions(prefilter.kept_txs, Arc::new(virtual_state.clone()))?;
-        let mut invalid_transactions =
-            prefilter.rejected_tx_ids.into_iter().map(|tx_id| (tx_id, template_conflict_tx_rule_error())).collect::<HashMap<_, _>>();
+        let mut invalid_transactions = prefilter.rejected_transactions;
         invalid_transactions.extend(validation_invalids);
         if invalid_transactions.is_empty() {
             Ok(())
@@ -2628,9 +2672,23 @@ enum MergesetIncreaseResult {
 
 #[cfg(test)]
 mod tests {
-    use super::filter_conflicting_template_transactions;
-    use spora_consensus_core::{block::TemplateTransactionSelector, tx::TransactionId};
-    use spora_exec::{celltx::sighash::compute_wtxid, CellInput, CellOutput, CellTx, OutPoint, Script};
+    use super::super::access_summary::TrustedCellScriptSchedulerAccessSets;
+    use super::{
+        filter_conflicting_template_transactions, prefilter_conflicting_template_transactions,
+        validate_cellscript_scheduler_mempool_policy,
+    };
+    use spora_consensus_core::{
+        block::{CellScriptSchedulerAccessSets, TemplateTransactionSelector},
+        tx::TransactionId,
+    };
+    use spora_exec::{
+        celltx::{
+            sighash::compute_wtxid, CellScriptSchedulerAccessWitness, CellScriptSchedulerWitness,
+            CELLSCRIPT_SCHEDULER_EFFECT_CREATING, CELLSCRIPT_SCHEDULER_OP_CREATE, CELLSCRIPT_SCHEDULER_SOURCE_OUTPUT,
+            CELLSCRIPT_SCHEDULER_WITNESS_VERSION,
+        },
+        CellInput, CellOutput, CellTx, OutPoint, Script,
+    };
 
     struct NoopSelector;
 
@@ -2646,12 +2704,73 @@ mod tests {
         }
     }
 
+    struct SummarySelector {
+        txs: Vec<CellTx>,
+        selected_access_sets: CellScriptSchedulerAccessSets,
+        rejected: Vec<TransactionId>,
+    }
+
+    impl SummarySelector {
+        fn new(txs: Vec<CellTx>, selected_access_sets: CellScriptSchedulerAccessSets) -> Self {
+            Self { txs, selected_access_sets, rejected: Vec::new() }
+        }
+    }
+
+    impl TemplateTransactionSelector for SummarySelector {
+        fn select_transactions(&mut self) -> Vec<CellTx> {
+            self.txs.clone()
+        }
+
+        fn selected_cellscript_scheduler_accesses(&self) -> CellScriptSchedulerAccessSets {
+            self.selected_access_sets.clone()
+        }
+
+        fn reject_selection(&mut self, tx_id: TransactionId) {
+            self.rejected.push(tx_id);
+        }
+
+        fn is_successful(&self) -> bool {
+            self.rejected.is_empty()
+        }
+    }
+
     fn test_tx(inputs: Vec<OutPoint>, output_count: usize) -> CellTx {
+        test_tx_with_witnesses(inputs, output_count, vec![])
+    }
+
+    fn test_tx_with_witnesses(inputs: Vec<OutPoint>, output_count: usize, witnesses: Vec<Vec<u8>>) -> CellTx {
         let lock = Script::new([0x11; 32], 0, vec![]);
         let inputs = inputs.into_iter().map(|op| CellInput::new(op, 0)).collect();
         let outputs = vec![CellOutput { lock, type_: None, capacity: 1000 }; output_count];
         let outputs_data = vec![vec![]; output_count];
-        CellTx::new(inputs, vec![], outputs, outputs_data, vec![]).unwrap()
+        CellTx::new(inputs, vec![], outputs, outputs_data, witnesses).unwrap()
+    }
+
+    fn scheduler_witness_bytes(accesses: Vec<CellScriptSchedulerAccessWitness>) -> Vec<u8> {
+        borsh::to_vec(&scheduler_witness(accesses)).unwrap()
+    }
+
+    fn scheduler_witness(accesses: Vec<CellScriptSchedulerAccessWitness>) -> CellScriptSchedulerWitness {
+        CellScriptSchedulerWitness {
+            magic: 0xCE11,
+            version: CELLSCRIPT_SCHEDULER_WITNESS_VERSION,
+            effect_class: CELLSCRIPT_SCHEDULER_EFFECT_CREATING,
+            parallelizable: false,
+            touches_shared_count: 0,
+            touches_shared: vec![],
+            estimated_cycles: 64,
+            access_count: accesses.len() as u32,
+            accesses,
+        }
+    }
+
+    fn output_access(binding_hash: [u8; 32]) -> CellScriptSchedulerAccessWitness {
+        CellScriptSchedulerAccessWitness {
+            operation: CELLSCRIPT_SCHEDULER_OP_CREATE,
+            source: CELLSCRIPT_SCHEDULER_SOURCE_OUTPUT,
+            index: 0,
+            binding_hash,
+        }
     }
 
     #[test]
@@ -2679,5 +2798,246 @@ mod tests {
 
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].id(), tx_a.id());
+    }
+
+    #[test]
+    fn mempool_scheduler_policy_rejects_malformed_cellscript_witness() {
+        let tx = test_tx_with_witnesses(vec![OutPoint::new([0x61; 32], 0)], 1, vec![vec![0x11, 0xCE, 0x01]]);
+
+        let error = validate_cellscript_scheduler_mempool_policy(&tx).unwrap_err();
+
+        assert!(error.to_string().contains("CellScript scheduler metadata policy rejected transaction"));
+        assert!(error.to_string().contains("invalid CellScript scheduler witness"));
+    }
+
+    #[test]
+    fn template_scheduler_policy_rejects_malformed_cellscript_witness() {
+        let tx = test_tx_with_witnesses(vec![OutPoint::new([0x62; 32], 0)], 1, vec![vec![0x11, 0xCE, 0x01]]);
+        let tx_id = TransactionId::from_bytes(tx.id());
+
+        let prefilter = prefilter_conflicting_template_transactions(vec![tx], None, None);
+
+        assert!(prefilter.kept_txs.is_empty());
+        assert!(prefilter
+            .rejected_transactions
+            .get(&tx_id)
+            .is_some_and(|error| error.to_string().contains("invalid CellScript scheduler witness")));
+    }
+
+    #[test]
+    fn template_scheduler_policy_rejects_missing_trusted_summary() {
+        let expected = output_access([0x24; 32]);
+        let mut tx = test_tx(vec![OutPoint::new([0x63; 32], 0)], 1);
+        let producer_summary = tx.push_cellscript_compiled_scheduler_witness(scheduler_witness_bytes(vec![expected])).unwrap();
+        let tx_id = TransactionId::from_bytes(tx.id());
+        let trusted = TrustedCellScriptSchedulerAccessSets::new();
+
+        let prefilter = prefilter_conflicting_template_transactions(vec![tx], None, Some(&trusted));
+
+        assert_eq!(producer_summary.accesses, vec![output_access([0x24; 32])]);
+        assert!(prefilter.kept_txs.is_empty());
+        assert!(prefilter.rejected_transactions.get(&tx_id).is_some_and(|error| error.to_string().contains("no trusted access set")));
+    }
+
+    #[test]
+    fn template_scheduler_policy_rejects_mismatched_trusted_summary() {
+        let actual = output_access([0x24; 32]);
+        let expected = output_access([0x25; 32]);
+        let mut tx = test_tx(vec![OutPoint::new([0x64; 32], 0)], 1);
+        let producer_summary = tx.push_cellscript_compiled_scheduler_witness(scheduler_witness_bytes(vec![actual])).unwrap();
+        let tx_id = TransactionId::from_bytes(tx.id());
+        let mut trusted = TrustedCellScriptSchedulerAccessSets::new();
+        trusted.insert(tx_id, scheduler_witness(vec![expected]));
+
+        let prefilter = prefilter_conflicting_template_transactions(vec![tx], None, Some(&trusted));
+
+        assert_eq!(producer_summary.accesses, vec![output_access([0x24; 32])]);
+        assert!(prefilter.kept_txs.is_empty());
+        assert!(prefilter.rejected_transactions.get(&tx_id).is_some_and(|error| error.to_string().contains("access set mismatch")));
+    }
+
+    #[test]
+    fn template_scheduler_policy_rejects_unexpected_duplicate_access_in_witness() {
+        let access = output_access([0x2A; 32]);
+        let mut tx = test_tx(vec![OutPoint::new([0x6A; 32], 0)], 1);
+        let producer_summary =
+            tx.push_cellscript_compiled_scheduler_witness(scheduler_witness_bytes(vec![access.clone(), access.clone()])).unwrap();
+        let tx_id = TransactionId::from_bytes(tx.id());
+        let mut trusted = TrustedCellScriptSchedulerAccessSets::new();
+        trusted.insert(tx_id, scheduler_witness(vec![access.clone()]));
+
+        let prefilter = prefilter_conflicting_template_transactions(vec![tx], None, Some(&trusted));
+
+        assert_eq!(producer_summary.accesses, vec![access.clone(), access]);
+        assert!(prefilter.kept_txs.is_empty());
+        assert!(prefilter.rejected_transactions.get(&tx_id).is_some_and(|error| error.to_string().contains("access set mismatch")));
+    }
+
+    #[test]
+    fn template_scheduler_policy_rejects_duplicate_matching_scheduler_witnesses() {
+        let access = output_access([0x30; 32]);
+        let witness = scheduler_witness_bytes(vec![access.clone()]);
+        let tx = test_tx_with_witnesses(vec![OutPoint::new([0x70; 32], 0)], 1, vec![witness.clone(), witness]);
+        let tx_id = TransactionId::from_bytes(tx.id());
+        let mut trusted = TrustedCellScriptSchedulerAccessSets::new();
+        trusted.insert(tx_id, scheduler_witness(vec![access]));
+
+        let prefilter = prefilter_conflicting_template_transactions(vec![tx], None, Some(&trusted));
+
+        assert!(prefilter.kept_txs.is_empty());
+        assert!(prefilter
+            .rejected_transactions
+            .get(&tx_id)
+            .is_some_and(|error| error.to_string().contains("duplicate CellScript scheduler witnesses")));
+    }
+
+    #[test]
+    fn template_scheduler_policy_rejects_only_bad_cellscript_summary_in_batch() {
+        let good_access = output_access([0x2B; 32]);
+        let mut good_tx = test_tx(vec![OutPoint::new([0x6B; 32], 0)], 1);
+        let good_summary = good_tx.push_cellscript_compiled_scheduler_witness(scheduler_witness_bytes(vec![good_access])).unwrap();
+        let good_tx_id = TransactionId::from_bytes(good_tx.id());
+
+        let bad_actual = output_access([0x2C; 32]);
+        let bad_expected = output_access([0x2D; 32]);
+        let mut bad_tx = test_tx(vec![OutPoint::new([0x6C; 32], 0)], 1);
+        let bad_summary = bad_tx.push_cellscript_compiled_scheduler_witness(scheduler_witness_bytes(vec![bad_actual])).unwrap();
+        let bad_tx_id = TransactionId::from_bytes(bad_tx.id());
+
+        let mut selected_access_sets = CellScriptSchedulerAccessSets::new();
+        selected_access_sets.insert(good_tx_id, good_summary);
+        selected_access_sets.insert(bad_tx_id, scheduler_witness(vec![bad_expected]));
+        let mut selector = SummarySelector::new(vec![good_tx.clone(), bad_tx], selected_access_sets);
+        let selected_txs = selector.select_transactions();
+        let selected_trusted_access_sets = selector.selected_cellscript_scheduler_accesses();
+
+        let prefilter =
+            prefilter_conflicting_template_transactions(selected_txs, Some(&mut selector), Some(&selected_trusted_access_sets));
+
+        assert_eq!(bad_summary.accesses, vec![output_access([0x2C; 32])]);
+        assert_eq!(prefilter.kept_txs.len(), 1);
+        assert_eq!(prefilter.kept_txs[0].id(), good_tx.id());
+        assert!(prefilter
+            .rejected_transactions
+            .get(&bad_tx_id)
+            .is_some_and(|error| error.to_string().contains("access set mismatch")));
+        assert!(!prefilter.rejected_transactions.contains_key(&good_tx_id));
+        assert_eq!(selector.rejected, vec![bad_tx_id]);
+    }
+
+    #[test]
+    fn template_scheduler_policy_does_not_require_summary_for_plain_transaction() {
+        let access = output_access([0x2E; 32]);
+        let mut scheduler_tx = test_tx(vec![OutPoint::new([0x6D; 32], 0)], 1);
+        let producer_summary = scheduler_tx.push_cellscript_compiled_scheduler_witness(scheduler_witness_bytes(vec![access])).unwrap();
+        let scheduler_tx_id = TransactionId::from_bytes(scheduler_tx.id());
+        let plain_tx = test_tx(vec![OutPoint::new([0x6E; 32], 0)], 1);
+
+        let mut trusted = TrustedCellScriptSchedulerAccessSets::new();
+        trusted.insert(scheduler_tx_id, producer_summary);
+
+        let prefilter =
+            prefilter_conflicting_template_transactions(vec![scheduler_tx.clone(), plain_tx.clone()], None, Some(&trusted));
+
+        assert!(prefilter.rejected_transactions.is_empty());
+        assert_eq!(prefilter.kept_txs.len(), 2);
+        assert_eq!(prefilter.kept_txs[0].id(), scheduler_tx.id());
+        assert_eq!(prefilter.kept_txs[1].id(), plain_tx.id());
+    }
+
+    #[test]
+    fn template_scheduler_policy_rejects_stale_summary_for_plain_transaction() {
+        let plain_tx = test_tx(vec![OutPoint::new([0x6F; 32], 0)], 1);
+        let plain_tx_id = TransactionId::from_bytes(plain_tx.id());
+        let mut trusted = TrustedCellScriptSchedulerAccessSets::new();
+        trusted.insert(plain_tx_id, scheduler_witness(vec![output_access([0x2F; 32])]));
+
+        let prefilter = prefilter_conflicting_template_transactions(vec![plain_tx], None, Some(&trusted));
+
+        assert!(prefilter.kept_txs.is_empty());
+        assert!(prefilter
+            .rejected_transactions
+            .get(&plain_tx_id)
+            .is_some_and(|error| error.to_string().contains("stale trusted CellScript scheduler access set")));
+    }
+
+    #[test]
+    fn template_scheduler_policy_accepts_matching_trusted_summary() {
+        let expected = output_access([0x24; 32]);
+        let mut tx = test_tx(vec![OutPoint::new([0x65; 32], 0)], 1);
+        let producer_summary = tx.push_cellscript_compiled_scheduler_witness(scheduler_witness_bytes(vec![expected])).unwrap();
+        let tx_id = TransactionId::from_bytes(tx.id());
+        let mut trusted = TrustedCellScriptSchedulerAccessSets::new();
+        trusted.insert(tx_id, producer_summary);
+
+        let prefilter = prefilter_conflicting_template_transactions(vec![tx.clone()], None, Some(&trusted));
+
+        assert!(prefilter.rejected_transactions.is_empty());
+        assert_eq!(prefilter.kept_txs.len(), 1);
+        assert_eq!(prefilter.kept_txs[0].id(), tx.id());
+    }
+
+    #[test]
+    fn template_scheduler_policy_accepts_selector_provided_builder_summary() {
+        let expected = output_access([0x26; 32]);
+        let mut tx = test_tx(vec![OutPoint::new([0x66; 32], 0)], 1);
+        let producer_summary = tx.push_cellscript_compiled_scheduler_witness(scheduler_witness_bytes(vec![expected])).unwrap();
+        let tx_id = TransactionId::from_bytes(tx.id());
+        let mut selected_access_sets = CellScriptSchedulerAccessSets::new();
+        selected_access_sets.insert(tx_id, producer_summary);
+        let mut selector = SummarySelector::new(vec![tx.clone()], selected_access_sets);
+        let selected_txs = selector.select_transactions();
+        let selected_trusted_access_sets = selector.selected_cellscript_scheduler_accesses();
+
+        let prefilter =
+            prefilter_conflicting_template_transactions(selected_txs, Some(&mut selector), Some(&selected_trusted_access_sets));
+
+        assert!(prefilter.rejected_transactions.is_empty());
+        assert_eq!(prefilter.kept_txs.len(), 1);
+        assert_eq!(prefilter.kept_txs[0].id(), tx.id());
+        assert!(selector.rejected.is_empty());
+    }
+
+    #[test]
+    fn template_scheduler_policy_rejects_selector_provided_mismatched_builder_summary() {
+        let actual = output_access([0x27; 32]);
+        let expected = output_access([0x28; 32]);
+        let mut tx = test_tx(vec![OutPoint::new([0x67; 32], 0)], 1);
+        let producer_summary = tx.push_cellscript_compiled_scheduler_witness(scheduler_witness_bytes(vec![actual])).unwrap();
+        let tx_id = TransactionId::from_bytes(tx.id());
+        let mut selected_access_sets = CellScriptSchedulerAccessSets::new();
+        selected_access_sets.insert(tx_id, scheduler_witness(vec![expected]));
+        let mut selector = SummarySelector::new(vec![tx], selected_access_sets);
+        let selected_txs = selector.select_transactions();
+        let selected_trusted_access_sets = selector.selected_cellscript_scheduler_accesses();
+
+        let prefilter =
+            prefilter_conflicting_template_transactions(selected_txs, Some(&mut selector), Some(&selected_trusted_access_sets));
+
+        assert_eq!(producer_summary.accesses, vec![output_access([0x27; 32])]);
+        assert!(prefilter.kept_txs.is_empty());
+        assert!(prefilter.rejected_transactions.get(&tx_id).is_some_and(|error| error.to_string().contains("access set mismatch")));
+        assert_eq!(selector.rejected, vec![tx_id]);
+    }
+
+    #[test]
+    fn template_scheduler_policy_rejects_selector_provided_stale_summary_for_plain_transaction() {
+        let plain_tx = test_tx(vec![OutPoint::new([0x68; 32], 0)], 1);
+        let tx_id = TransactionId::from_bytes(plain_tx.id());
+        let mut selected_access_sets = CellScriptSchedulerAccessSets::new();
+        selected_access_sets.insert(tx_id, scheduler_witness(vec![output_access([0x29; 32])]));
+        let mut selector = SummarySelector::new(vec![plain_tx], selected_access_sets);
+        let selected_txs = selector.select_transactions();
+        let selected_trusted_access_sets = selector.selected_cellscript_scheduler_accesses();
+
+        let prefilter =
+            prefilter_conflicting_template_transactions(selected_txs, Some(&mut selector), Some(&selected_trusted_access_sets));
+
+        assert!(prefilter.kept_txs.is_empty());
+        assert!(prefilter
+            .rejected_transactions
+            .get(&tx_id)
+            .is_some_and(|error| error.to_string().contains("stale trusted CellScript scheduler access set")));
+        assert_eq!(selector.rejected, vec![tx_id]);
     }
 }

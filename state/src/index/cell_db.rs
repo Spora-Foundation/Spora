@@ -678,6 +678,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn test_get_cell_at_daa_live_cell() {
         let temp_dir = TempDir::new().unwrap();
         let db = CellDB::open(temp_dir.path()).unwrap();
@@ -698,6 +699,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn test_get_cell_at_daa_spent_cell() {
         let temp_dir = TempDir::new().unwrap();
         let db = CellDB::open(temp_dir.path()).unwrap();
@@ -724,6 +726,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn test_get_cell_at_daa_reorg_scenario() {
         let temp_dir = TempDir::new().unwrap();
         let db = CellDB::open(temp_dir.path()).unwrap();
@@ -746,6 +749,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn test_get_cell_at_daa_fork_scenario() {
         let temp_dir = TempDir::new().unwrap();
         let db = CellDB::open(temp_dir.path()).unwrap();
@@ -772,6 +776,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn test_batch_get_at_daa() {
         let temp_dir = TempDir::new().unwrap();
         let db = CellDB::open(temp_dir.path()).unwrap();

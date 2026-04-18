@@ -623,7 +623,7 @@ impl CellProcessor {
     }
 
     async fn register_notification_listener(&self) -> Result<()> {
-        let listener_id = self.rpc_api().register_new_listener(ChannelConnection::new(
+        let listener_id = self.rpc_api().register_local_listener(ChannelConnection::new(
             "cell processor",
             self.inner.notification_channel.sender.clone(),
             ChannelType::Persistent,

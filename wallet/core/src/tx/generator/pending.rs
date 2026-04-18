@@ -9,6 +9,7 @@ use crate::imports::*;
 use crate::result::Result;
 use crate::rpc::DynRpcApi;
 use crate::tx::{DataKind, Generator, MAXIMUM_STANDARD_TRANSACTION_MASS};
+use spora_consensus_core::block::CellScriptSchedulerAccessList;
 use spora_consensus_core::hashing::sighash_type::SigHashType;
 use spora_consensus_core::sign::{sign_input, sign_with_multiple_v2, Signed};
 use spora_consensus_core::tx::{CellTx, SignableTransaction, TransactionId};
@@ -47,6 +48,8 @@ pub(crate) struct PendingTransactionInner {
     pub(crate) fees: u64,
     /// Indicates the type of the transaction
     pub(crate) kind: DataKind,
+    /// Trusted CellScript scheduler summary attached by the transaction generator.
+    pub(crate) cellscript_scheduler_accesses: Option<CellScriptSchedulerAccessList>,
 }
 
 impl std::fmt::Debug for PendingTransaction {
@@ -92,6 +95,7 @@ impl PendingTransaction {
         mass: u64,
         fees: u64,
         kind: DataKind,
+        cellscript_scheduler_accesses: Option<CellScriptSchedulerAccessList>,
     ) -> Result<Self> {
         let id = TransactionId::from_bytes(transaction.id());
         let entries = cell_entries.iter().map(|e| e.cell.as_ref().into()).collect::<Vec<_>>();
@@ -114,6 +118,7 @@ impl PendingTransaction {
                 mass,
                 fees,
                 kind,
+                cellscript_scheduler_accesses,
             }),
         })
     }
@@ -191,6 +196,11 @@ impl PendingTransaction {
 
     pub fn transaction(&self) -> CellTx {
         self.inner.signable_tx.lock().unwrap().tx.clone()
+    }
+
+    /// Trusted CellScript scheduler summary attached by the transaction generator.
+    pub fn cellscript_scheduler_accesses(&self) -> Option<&CellScriptSchedulerAccessList> {
+        self.inner.cellscript_scheduler_accesses.as_ref()
     }
 
     pub fn signable_transaction(&self) -> SignableTransaction {

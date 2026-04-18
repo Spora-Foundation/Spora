@@ -14,13 +14,29 @@ use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const CKB_LOAD_CELL_SYSCALL_NUMBER: u64 = 2071;
+const CKB_LOAD_WITNESS_SYSCALL_NUMBER: u64 = 2074;
+const CKB_LOAD_CELL_BY_FIELD_SYSCALL_NUMBER: u64 = 2081;
+const CKB_SECP256K1_VERIFY_SYSCALL_NUMBER: u64 = 3002;
+const CKB_LOAD_ECDSA_SIGNATURE_HASH_SYSCALL_NUMBER: u64 = 3004;
 const CKB_SOURCE_INPUT: u64 = 0x01;
 const CKB_SOURCE_OUTPUT: u64 = 0x02;
 const CKB_SOURCE_CELL_DEP: u64 = 0x03;
+const CKB_SOURCE_GROUP_INPUT: u64 = 0x0100;
+const CKB_SOURCE_GROUP_OUTPUT: u64 = 0x0200;
+const CKB_CELL_FIELD_LOCK_HASH: u64 = 3;
+const CKB_CELL_FIELD_TYPE_HASH: u64 = 5;
+const CKB_INDEX_OUT_OF_BOUND: u64 = 1;
+const CKB_ITEM_MISSING: u64 = 2;
+const CKB_SIG_HASH_ALL: u64 = 1;
 const RUNTIME_SCRATCH_BUFFER_SIZE: usize = 256;
-const RUNTIME_SCRATCH_SIZE: usize = 8 + RUNTIME_SCRATCH_BUFFER_SIZE;
+const RUNTIME_SCRATCH_SLOT_SIZE: usize = 8 + RUNTIME_SCRATCH_BUFFER_SIZE;
+const RUNTIME_SCRATCH_SIZE: usize = RUNTIME_SCRATCH_SLOT_SIZE * 2;
+const RUNTIME_EXPR_TEMP_SLOTS: usize = 8;
+const RUNTIME_EXPR_TEMP_SIZE: usize = RUNTIME_EXPR_TEMP_SLOTS * 8;
 const RUNTIME_CELL_BUFFER_SIZE: usize = 256;
 const RUNTIME_CELL_SLOT_SIZE: usize = 8 + RUNTIME_CELL_BUFFER_SIZE;
+const CLAIM_SIGNER_PUBKEY_HASH_FIELDS: [&str; 5] =
+    ["signer_pubkey_hash", "claim_pubkey_hash", "owner_pubkey_hash", "beneficiary_pubkey_hash", "pubkey_hash"];
 
 #[derive(Debug, Clone)]
 struct SchemaFieldLayout {
@@ -37,12 +53,91 @@ struct SchemaFieldValueSource {
     layout: SchemaFieldLayout,
 }
 
+#[derive(Debug, Clone)]
+struct AggregatePointerSource {
+    ty: IrType,
+}
+
+#[derive(Debug, Clone)]
+enum ExpectedFixedByteSource {
+    SchemaField(SchemaFieldValueSource),
+    Const(Vec<u8>),
+    StackSlot { var_id: usize, width: usize },
+    ParamBytes { var_id: usize, size_offset: usize, width: usize },
+    LoadedBytes { var_id: usize, size_offset: usize, width: usize },
+}
+
 fn fixed_scalar_width(ty: &IrType, fixed_size: Option<usize>) -> Option<usize> {
     match (ty, fixed_size) {
         (IrType::Bool | IrType::U8, Some(1)) => Some(1),
         (IrType::U16, Some(2)) => Some(2),
         (IrType::U32, Some(4)) => Some(4),
         (IrType::U64, Some(8)) => Some(8),
+        _ => None,
+    }
+}
+
+fn fixed_byte_width(ty: &IrType, fixed_size: Option<usize>) -> Option<usize> {
+    if let Some(width) = fixed_scalar_width(ty, fixed_size) {
+        return Some(width);
+    }
+    match (ty, fixed_size) {
+        (IrType::Address | IrType::Hash, Some(32)) => Some(32),
+        (IrType::Array(inner, len), Some(size)) if matches!(inner.as_ref(), IrType::U8) && *len == size => Some(size),
+        _ => None,
+    }
+}
+
+fn type_static_length(ty: &IrType) -> Option<usize> {
+    match ty {
+        IrType::Bool | IrType::U8 => Some(1),
+        IrType::U16 => Some(2),
+        IrType::U32 => Some(4),
+        IrType::U64 => Some(8),
+        IrType::U128 => Some(16),
+        IrType::Address | IrType::Hash => Some(32),
+        IrType::Array(inner, len) => type_static_length(inner).map(|inner_len| inner_len * len),
+        IrType::Tuple(items) => items.iter().try_fold(0usize, |acc, item| type_static_length(item).map(|len| acc + len)),
+        IrType::Unit => Some(0),
+        IrType::Named(_) | IrType::Ref(_) | IrType::MutRef(_) => None,
+    }
+}
+
+fn operand_fixed_byte_width(operand: &IrOperand) -> Option<usize> {
+    let ty = match operand {
+        IrOperand::Const(IrConst::Address(_)) | IrOperand::Const(IrConst::Hash(_)) => return Some(32),
+        IrOperand::Const(IrConst::Array(values)) => return Some(values.len()),
+        IrOperand::Var(var) => &var.ty,
+        _ => return None,
+    };
+    match ty {
+        IrType::Address | IrType::Hash => Some(32),
+        IrType::Array(inner, len) if matches!(inner.as_ref(), IrType::U8) => Some(*len),
+        _ => None,
+    }
+}
+
+fn fixed_byte_pointer_param_width(ty: &IrType) -> Option<usize> {
+    fixed_byte_width(ty, type_static_length(ty)).filter(|width| *width > 8)
+}
+
+fn fixed_aggregate_pointer_param_width(ty: &IrType) -> Option<usize> {
+    match ty {
+        IrType::Array(_, _) | IrType::Tuple(_) => type_static_length(ty).filter(|width| *width > 8),
+        _ => None,
+    }
+}
+
+fn fixed_byte_const_bytes(value: &IrConst) -> Option<Vec<u8>> {
+    match value {
+        IrConst::Address(bytes) | IrConst::Hash(bytes) => Some(bytes.to_vec()),
+        IrConst::Array(values) => values
+            .iter()
+            .map(|value| match value {
+                IrConst::U8(byte) => Some(*byte),
+                _ => None,
+            })
+            .collect(),
         _ => None,
     }
 }
@@ -58,6 +153,50 @@ fn fixed_scalar_const_value(value: &IrConst) -> Option<u64> {
     }
 }
 
+fn const_usize_operand(operand: &IrOperand) -> Option<usize> {
+    match operand {
+        IrOperand::Const(IrConst::U8(value)) => Some((*value).into()),
+        IrOperand::Const(IrConst::U16(value)) => Some((*value).into()),
+        IrOperand::Const(IrConst::U32(value)) => Some(*value as usize),
+        IrOperand::Const(IrConst::U64(value)) => usize::try_from(*value).ok(),
+        _ => None,
+    }
+}
+
+fn aggregate_type_label(ty: &IrType) -> String {
+    match ty {
+        IrType::Tuple(_) => "tuple".to_string(),
+        IrType::Array(_, len) => format!("array{}", len),
+        IrType::Address => "Address".to_string(),
+        IrType::Hash => "Hash".to_string(),
+        other => format!("{:?}", other),
+    }
+}
+
+fn aggregate_field_layout(ty: &IrType, field: &str) -> Option<SchemaFieldLayout> {
+    match ty {
+        IrType::Tuple(items) => {
+            let index = field.parse::<usize>().ok()?;
+            let field_ty = items.get(index)?.clone();
+            let offset = items.iter().take(index).try_fold(0usize, |acc, item| type_static_length(item).map(|size| acc + size))?;
+            let fixed_size = type_static_length(&field_ty);
+            Some(SchemaFieldLayout { offset, ty: field_ty, fixed_size })
+        }
+        IrType::Address | IrType::Hash if field == "0" => {
+            Some(SchemaFieldLayout { offset: 0, ty: IrType::Array(Box::new(IrType::U8), 32), fixed_size: Some(32) })
+        }
+        _ => None,
+    }
+}
+
+fn tuple_return_field_type(ty: &IrType, field: &str) -> Option<IrType> {
+    let IrType::Tuple(items) = ty else {
+        return None;
+    };
+    let index = field.parse::<usize>().ok()?;
+    (index < 8).then(|| items.get(index).cloned()).flatten()
+}
+
 fn abi_arg_label(index: usize) -> String {
     if index < 8 {
         format!("a{}", index)
@@ -70,15 +209,19 @@ fn abi_arg_label(index: usize) -> String {
 enum PreludeU64OperandSource {
     Const(u64),
     ParamVar(usize),
+    StackVar(usize),
     Field(SchemaFieldValueSource),
+    Expr(Box<PreludeU64ValueSource>),
 }
 
 #[derive(Debug, Clone)]
 enum PreludeU64ValueSource {
     Const(u64),
     ParamVar(usize),
+    StackVar(usize),
     Field(SchemaFieldValueSource),
     Binary { op: BinaryOp, left: Box<PreludeU64ValueSource>, right: PreludeU64OperandSource },
+    Min { left: Box<PreludeU64ValueSource>, right: PreludeU64OperandSource },
 }
 
 /// 代码生成选项
@@ -113,6 +256,8 @@ pub struct CodeGenerator {
     type_layouts: HashMap<String, HashMap<String, SchemaFieldLayout>>,
     /// Fixed encoded size of named schemas when all fields have fixed-width layouts.
     type_fixed_sizes: HashMap<String, usize>,
+    /// Named types declared as receipts.
+    receipt_type_names: BTreeSet<String>,
     /// Lifecycle state names for receipt schemas that declared #[lifecycle(...)].
     lifecycle_states: HashMap<String, Vec<String>>,
     /// Function parameters whose slot contains a pointer to Borsh-encoded schema bytes.
@@ -121,16 +266,36 @@ pub struct CodeGenerator {
     param_vars: BTreeSet<usize>,
     /// Schema pointer slots backed by a VM-loaded cell buffer size word.
     schema_pointer_size_offsets: HashMap<usize, usize>,
+    /// Fixed-byte parameter pointer slots backed by a separate ABI length word.
+    fixed_byte_param_size_offsets: HashMap<usize, usize>,
+    /// Fixed-width aggregate pointer slots backed by ABI bytes, keyed by IR variable id.
+    aggregate_pointer_sources: HashMap<usize, AggregatePointerSource>,
+    /// Tuple-valued call results that can be projected from RISC-V return registers.
+    tuple_call_return_vars: HashMap<usize, IrType>,
+    /// Stack slots populated from tuple call return registers, keyed by `(tuple_var_id, field)`.
+    tuple_call_return_field_slots: HashMap<(usize, String), usize>,
+    /// Tuple aggregate fields produced in the current function body, keyed by tuple var id.
+    tuple_aggregate_fields: HashMap<usize, Vec<IrOperand>>,
     /// Fixed scalar temporaries that are aliases for schema-backed field loads.
     schema_field_value_sources: HashMap<usize, SchemaFieldValueSource>,
     /// U64 temporaries that can be recomputed in the CKB-runtime prelude.
     prelude_u64_value_sources: HashMap<usize, PreludeU64ValueSource>,
     /// Fixed scalar temporaries that can be recomputed as immediates in the CKB-runtime prelude.
     prelude_scalar_immediates: HashMap<usize, u64>,
+    /// Fixed-byte constant temporaries that can be recomputed byte-by-byte in the CKB-runtime prelude.
+    prelude_fixed_byte_constants: HashMap<usize, Vec<u8>>,
     /// Per-CKB-runtime cell data buffers keyed by IR variable id.
     cell_buffer_offsets: HashMap<usize, usize>,
     /// Per-CKB-runtime cell size words keyed by IR variable id.
     cell_buffer_size_offsets: HashMap<usize, usize>,
+    /// `type_hash()` temporaries that can be loaded from a created Output cell's TypeHash field.
+    output_type_hash_sources: HashMap<usize, usize>,
+    /// Schema parameter TypeHash pointer slots, keyed by source parameter variable id.
+    param_type_hash_pointer_offsets: HashMap<usize, usize>,
+    /// Schema parameter TypeHash length slots, keyed by source parameter variable id.
+    param_type_hash_size_offsets: HashMap<usize, usize>,
+    /// `type_hash()` temporaries backed by trusted parameter TypeHash ABI bytes.
+    param_type_hash_sources: HashMap<usize, usize>,
     /// Consumed IR operand variable ids in source lowering order.
     consume_order: Vec<usize>,
     /// Consumed Input index keyed by IR operand variable id.
@@ -157,15 +322,26 @@ impl CodeGenerator {
             requires_symbolic_runtime: false,
             type_layouts: HashMap::new(),
             type_fixed_sizes: HashMap::new(),
+            receipt_type_names: BTreeSet::new(),
             lifecycle_states: HashMap::new(),
             schema_pointer_vars: BTreeSet::new(),
             param_vars: BTreeSet::new(),
             schema_pointer_size_offsets: HashMap::new(),
+            fixed_byte_param_size_offsets: HashMap::new(),
+            aggregate_pointer_sources: HashMap::new(),
+            tuple_call_return_vars: HashMap::new(),
+            tuple_call_return_field_slots: HashMap::new(),
+            tuple_aggregate_fields: HashMap::new(),
             schema_field_value_sources: HashMap::new(),
             prelude_u64_value_sources: HashMap::new(),
             prelude_scalar_immediates: HashMap::new(),
+            prelude_fixed_byte_constants: HashMap::new(),
             cell_buffer_offsets: HashMap::new(),
             cell_buffer_size_offsets: HashMap::new(),
+            output_type_hash_sources: HashMap::new(),
+            param_type_hash_pointer_offsets: HashMap::new(),
+            param_type_hash_size_offsets: HashMap::new(),
+            param_type_hash_sources: HashMap::new(),
             consume_order: Vec::new(),
             consume_indices: HashMap::new(),
             consume_type_names: HashMap::new(),
@@ -182,6 +358,9 @@ impl CodeGenerator {
             if let IrItem::TypeDef(type_def) = item {
                 self.register_type_def(type_def);
             }
+        }
+        for type_def in &ir.external_type_defs {
+            self.register_type_def(type_def);
         }
 
         // 生成文件头
@@ -284,6 +463,9 @@ impl CodeGenerator {
         if let Some(states) = &type_def.lifecycle_states {
             self.lifecycle_states.insert(type_def.name.clone(), states.clone());
         }
+        if type_def.kind == IrTypeKind::Receipt {
+            self.receipt_type_names.insert(type_def.name.clone());
+        }
         let fields = type_def
             .fields
             .iter()
@@ -338,9 +520,19 @@ impl CodeGenerator {
         self.current_function = None;
         self.schema_pointer_vars.clear();
         self.schema_pointer_size_offsets.clear();
+        self.fixed_byte_param_size_offsets.clear();
         self.schema_field_value_sources.clear();
+        self.aggregate_pointer_sources.clear();
+        self.tuple_call_return_vars.clear();
+        self.tuple_call_return_field_slots.clear();
+        self.tuple_aggregate_fields.clear();
+        self.output_type_hash_sources.clear();
+        self.param_type_hash_pointer_offsets.clear();
+        self.param_type_hash_size_offsets.clear();
+        self.param_type_hash_sources.clear();
         self.prelude_u64_value_sources.clear();
         self.prelude_scalar_immediates.clear();
+        self.prelude_fixed_byte_constants.clear();
         self.param_vars.clear();
         Ok(())
     }
@@ -366,9 +558,19 @@ impl CodeGenerator {
         self.current_function = None;
         self.schema_pointer_vars.clear();
         self.schema_pointer_size_offsets.clear();
+        self.fixed_byte_param_size_offsets.clear();
         self.schema_field_value_sources.clear();
+        self.aggregate_pointer_sources.clear();
+        self.tuple_call_return_vars.clear();
+        self.tuple_call_return_field_slots.clear();
+        self.tuple_aggregate_fields.clear();
+        self.output_type_hash_sources.clear();
+        self.param_type_hash_pointer_offsets.clear();
+        self.param_type_hash_size_offsets.clear();
+        self.param_type_hash_sources.clear();
         self.prelude_u64_value_sources.clear();
         self.prelude_scalar_immediates.clear();
+        self.prelude_fixed_byte_constants.clear();
         self.param_vars.clear();
         Ok(())
     }
@@ -397,9 +599,19 @@ impl CodeGenerator {
         self.current_function = None;
         self.schema_pointer_vars.clear();
         self.schema_pointer_size_offsets.clear();
+        self.fixed_byte_param_size_offsets.clear();
         self.schema_field_value_sources.clear();
+        self.aggregate_pointer_sources.clear();
+        self.tuple_call_return_vars.clear();
+        self.tuple_call_return_field_slots.clear();
+        self.tuple_aggregate_fields.clear();
+        self.output_type_hash_sources.clear();
+        self.param_type_hash_pointer_offsets.clear();
+        self.param_type_hash_size_offsets.clear();
+        self.param_type_hash_sources.clear();
         self.prelude_u64_value_sources.clear();
         self.prelude_scalar_immediates.clear();
+        self.prelude_fixed_byte_constants.clear();
         self.param_vars.clear();
         Ok(())
     }
@@ -407,10 +619,13 @@ impl CodeGenerator {
     fn set_schema_pointer_params(&mut self, params: &[IrParam]) {
         self.schema_pointer_vars.clear();
         self.param_vars.clear();
+        self.aggregate_pointer_sources.clear();
         for param in params {
             self.param_vars.insert(param.binding.id);
             if named_type_name(&param.ty).is_some() {
                 self.schema_pointer_vars.insert(param.binding.id);
+            } else if fixed_aggregate_pointer_param_width(&param.ty).is_some() {
+                self.aggregate_pointer_sources.insert(param.binding.id, AggregatePointerSource { ty: param.ty.clone() });
             }
         }
     }
@@ -445,9 +660,19 @@ impl CodeGenerator {
         self.schema_field_value_sources.clear();
         self.prelude_u64_value_sources.clear();
         self.prelude_scalar_immediates.clear();
+        self.prelude_fixed_byte_constants.clear();
+        self.tuple_call_return_vars.clear();
+        self.tuple_call_return_field_slots.clear();
+        self.tuple_aggregate_fields.clear();
         for block in &body.blocks {
             for instruction in &block.instructions {
                 match instruction {
+                    IrInstruction::Tuple { dest, fields } => {
+                        self.tuple_aggregate_fields.insert(dest.id, fields.clone());
+                    }
+                    IrInstruction::Call { dest: Some(dest), .. } if matches!(dest.ty, IrType::Tuple(_)) => {
+                        self.tuple_call_return_vars.insert(dest.id, dest.ty.clone());
+                    }
                     IrInstruction::LoadConst { dest, value } => {
                         if let Some(value) = fixed_scalar_const_value(value) {
                             self.prelude_scalar_immediates.insert(dest.id, value);
@@ -455,32 +680,75 @@ impl CodeGenerator {
                                 self.prelude_u64_value_sources.insert(dest.id, PreludeU64ValueSource::Const(value));
                             }
                         }
+                        if let Some(bytes) = fixed_byte_const_bytes(value) {
+                            self.prelude_fixed_byte_constants.insert(dest.id, bytes);
+                        }
                     }
                     IrInstruction::FieldAccess { dest, obj: IrOperand::Var(obj), field } => {
-                        if !self.schema_pointer_vars.contains(&obj.id) {
+                        if self
+                            .tuple_call_return_vars
+                            .get(&obj.id)
+                            .and_then(|ty| tuple_return_field_type(ty, field))
+                            .is_some_and(|field_ty| field_ty == dest.ty)
+                        {
+                            self.tuple_call_return_field_slots.insert((obj.id, field.clone()), dest.id);
                             continue;
                         }
-                        let Some(type_name) = named_type_name(&obj.ty) else {
-                            continue;
-                        };
-                        let Some(layout) = self.type_layouts.get(type_name).and_then(|fields| fields.get(field)).cloned() else {
-                            continue;
-                        };
-                        if fixed_scalar_width(&layout.ty, layout.fixed_size).is_some() && layout.ty == dest.ty {
-                            let source = SchemaFieldValueSource {
+                        let source = if self.schema_pointer_vars.contains(&obj.id) {
+                            let Some(type_name) = named_type_name(&obj.ty) else {
+                                continue;
+                            };
+                            let Some(layout) = self.type_layouts.get(type_name).and_then(|fields| fields.get(field)).cloned() else {
+                                continue;
+                            };
+                            Some(SchemaFieldValueSource {
                                 obj_var_id: obj.id,
                                 type_name: type_name.to_string(),
                                 field: field.clone(),
                                 layout,
-                            };
+                            })
+                        } else {
+                            self.aggregate_pointer_sources.get(&obj.id).and_then(|source| {
+                                aggregate_field_layout(&source.ty, field).map(|layout| SchemaFieldValueSource {
+                                    obj_var_id: obj.id,
+                                    type_name: aggregate_type_label(&source.ty),
+                                    field: field.clone(),
+                                    layout,
+                                })
+                            })
+                        };
+                        let Some(source) = source else {
+                            continue;
+                        };
+                        let layout = source.layout.clone();
+                        if fixed_byte_width(&layout.ty, layout.fixed_size).is_some() && layout.ty == dest.ty {
                             self.schema_field_value_sources.insert(dest.id, source.clone());
-                            if dest.ty == IrType::U64 {
+                            if fixed_scalar_width(&layout.ty, layout.fixed_size).is_some() {
                                 self.prelude_u64_value_sources.insert(dest.id, PreludeU64ValueSource::Field(source));
                             }
                         }
                     }
+                    IrInstruction::Index { dest, arr: IrOperand::Var(arr), idx } => {
+                        if self.aggregate_pointer_sources.contains_key(&arr.id) {
+                            if let (IrType::Array(inner, len), Some(index)) = (&arr.ty, const_usize_operand(idx)) {
+                                let element_ty = inner.as_ref();
+                                if index < *len && type_static_length(element_ty).is_some() {
+                                    if fixed_scalar_width(element_ty, type_static_length(element_ty)).is_some()
+                                        && element_ty == &dest.ty
+                                    {
+                                        if dest.ty == IrType::U64 {
+                                            self.prelude_u64_value_sources.insert(dest.id, PreludeU64ValueSource::StackVar(dest.id));
+                                        }
+                                    } else {
+                                        self.aggregate_pointer_sources
+                                            .insert(dest.id, AggregatePointerSource { ty: element_ty.clone() });
+                                    }
+                                }
+                            }
+                        }
+                    }
                     IrInstruction::Binary { dest, op, left, right }
-                        if dest.ty == IrType::U64 && matches!(op, BinaryOp::Add | BinaryOp::Sub) =>
+                        if dest.ty == IrType::U64 && matches!(op, BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div) =>
                     {
                         let Some(left) = self.prelude_u64_value_source(left) else {
                             continue;
@@ -490,6 +758,22 @@ impl CodeGenerator {
                         };
                         self.prelude_u64_value_sources
                             .insert(dest.id, PreludeU64ValueSource::Binary { op: *op, left: Box::new(left), right });
+                    }
+                    IrInstruction::Call { dest: Some(dest), func, args }
+                        if dest.ty == IrType::U64 && is_min_call(func) && args.len() == 2 =>
+                    {
+                        let Some(left) = self.prelude_u64_value_source(&args[0]) else {
+                            continue;
+                        };
+                        let Some(right) = self.prelude_u64_operand_source(&args[1]) else {
+                            continue;
+                        };
+                        self.prelude_u64_value_sources.insert(dest.id, PreludeU64ValueSource::Min { left: Box::new(left), right });
+                    }
+                    IrInstruction::Call { dest: Some(dest), func, args }
+                        if dest.ty == IrType::U64 && func == "__env_current_daa_score" && args.is_empty() =>
+                    {
+                        self.prelude_u64_value_sources.insert(dest.id, PreludeU64ValueSource::StackVar(dest.id));
                     }
                     IrInstruction::Move { dest, src } if dest.ty == IrType::U64 => {
                         let Some(source) = self.prelude_u64_value_source(src) else {
@@ -502,6 +786,11 @@ impl CodeGenerator {
                             self.prelude_scalar_immediates.insert(dest.id, value);
                         }
                     }
+                    IrInstruction::Move { dest, src } if fixed_byte_width(&dest.ty, type_static_length(&dest.ty)).is_some() => {
+                        if let Some(bytes) = self.prelude_fixed_byte_constant(src) {
+                            self.prelude_fixed_byte_constants.insert(dest.id, bytes);
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -512,6 +801,13 @@ impl CodeGenerator {
         match operand {
             IrOperand::Const(value) => fixed_scalar_const_value(value),
             IrOperand::Var(var) => self.prelude_scalar_immediates.get(&var.id).copied(),
+        }
+    }
+
+    fn prelude_fixed_byte_constant(&self, operand: &IrOperand) -> Option<Vec<u8>> {
+        match operand {
+            IrOperand::Const(value) => fixed_byte_const_bytes(value),
+            IrOperand::Var(var) => self.prelude_fixed_byte_constants.get(&var.id).cloned(),
         }
     }
 
@@ -535,8 +831,11 @@ impl CodeGenerator {
             IrOperand::Var(var) => match self.prelude_u64_value_sources.get(&var.id)? {
                 PreludeU64ValueSource::Const(n) => Some(PreludeU64OperandSource::Const(*n)),
                 PreludeU64ValueSource::ParamVar(var_id) => Some(PreludeU64OperandSource::ParamVar(*var_id)),
+                PreludeU64ValueSource::StackVar(var_id) => Some(PreludeU64OperandSource::StackVar(*var_id)),
                 PreludeU64ValueSource::Field(source) => Some(PreludeU64OperandSource::Field(source.clone())),
-                PreludeU64ValueSource::Binary { .. } => None,
+                PreludeU64ValueSource::Binary { .. } | PreludeU64ValueSource::Min { .. } => {
+                    Some(PreludeU64OperandSource::Expr(Box::new(self.prelude_u64_value_sources.get(&var.id)?.clone())))
+                }
             },
             _ => None,
         }
@@ -548,15 +847,24 @@ impl CodeGenerator {
         for (index, pattern) in body.consume_set.iter().enumerate() {
             self.generate_consume(pattern, index)?;
         }
+        self.emit_pool_seed_token_pair_identity_check(body);
 
         // 处理 read_refs
         for (index, pattern) in body.read_refs.iter().enumerate() {
             self.generate_read_ref(pattern, index)?;
         }
 
-        // 处理 create_set
+        // Symbolic transfer/claim/settle output summaries are verified from
+        // the entry prelude. Real `create` expressions are verified at the
+        // source instruction so computed field values are already in slots.
         for (index, pattern) in body.create_set.iter().enumerate() {
-            self.generate_create(pattern, index)?;
+            if pattern.operation != "create" {
+                self.generate_create(pattern, index)?;
+            }
+        }
+
+        for pattern in &body.mutate_set {
+            self.generate_mutate_replacement(pattern)?;
         }
 
         // 生成基本块
@@ -586,11 +894,24 @@ impl CodeGenerator {
                 self.emit_return_on_syscall_error(1);
                 self.emit(format!("addi t0, sp, {}", buffer_offset));
                 self.emit(format!("sd t0, {}(sp)", var_id * 8));
+                if self.should_emit_claim_witness_authorization_domain_check(pattern, var_id) {
+                    let signer_source = self.claim_signer_pubkey_hash_source(var_id);
+                    self.emit_claim_witness_authorization_domain_check(input_index, &pattern.binding, signer_source.as_ref());
+                }
+                if pattern.operation == "destroy" {
+                    self.emit_destroy_group_output_absence_scan(pattern);
+                }
                 return Ok(());
             }
         }
 
         self.emit_load_cell_syscall("consume", CKB_SOURCE_INPUT, index);
+        if pattern.operation == "claim" {
+            self.emit_claim_witness_authorization_domain_check(index, &pattern.binding, None);
+        }
+        if pattern.operation == "destroy" {
+            self.emit_destroy_group_output_absence_scan(pattern);
+        }
         Ok(())
     }
 
@@ -634,15 +955,42 @@ impl CodeGenerator {
             self.emit("# set lock script");
         }
 
-        if self.can_verify_create_output(pattern) {
+        if self.can_verify_create_output_fields(pattern) {
             self.emit_create_output_checks(pattern);
         } else {
             self.emit("# cellscript abi: output field verification incomplete for this create pattern");
             self.emit("# cellscript abi: fail closed because the output state is not fully verified");
             self.emit("li a0, 5");
             self.emit_epilogue();
+            return Ok(());
         }
 
+        if let Some(lock) = &pattern.lock {
+            if self.can_verify_output_lock(pattern) && self.emit_output_lock_hash_check(index, lock) {
+                return Ok(());
+            }
+            self.emit("# cellscript abi: output lock verification incomplete for this create pattern");
+            self.emit("# cellscript abi: fail closed because the output lock is not fully verified");
+            self.emit("li a0, 10");
+            self.emit_epilogue();
+        }
+
+        Ok(())
+    }
+
+    fn generate_mutate_replacement(&mut self, pattern: &MutatePattern) -> Result<()> {
+        self.emit(format!(
+            "# mutate replacement {} {} Input#{} -> Output#{}",
+            pattern.binding, pattern.ty, pattern.input_index, pattern.output_index
+        ));
+        if pattern.preserve_type_hash {
+            self.emit_mutate_replacement_field_hash_check(pattern, CKB_CELL_FIELD_TYPE_HASH, "type_hash", 11);
+        }
+        if pattern.preserve_lock_hash {
+            self.emit_mutate_replacement_field_hash_check(pattern, CKB_CELL_FIELD_LOCK_HASH, "lock_hash", 12);
+        }
+        self.emit_mutate_replacement_preserved_field_checks(pattern);
+        self.emit_mutate_replacement_transition_checks(pattern);
         Ok(())
     }
 
@@ -707,6 +1055,9 @@ impl CodeGenerator {
             IrInstruction::Move { dest, src } => {
                 self.emit_move(dest, src)?;
             }
+            IrInstruction::Tuple { dest, fields } => {
+                self.emit_tuple(dest, fields)?;
+            }
             IrInstruction::Consume { operand } => {
                 self.emit_consume(operand)?;
             }
@@ -722,8 +1073,8 @@ impl CodeGenerator {
             IrInstruction::Claim { dest, receipt } => {
                 self.emit_claim(dest, receipt)?;
             }
-            IrInstruction::Settle { operand } => {
-                self.emit_settle(operand)?;
+            IrInstruction::Settle { dest, operand } => {
+                self.emit_settle(dest, operand)?;
             }
         }
         Ok(())
@@ -736,16 +1087,21 @@ impl CodeGenerator {
                 self.emit_epilogue();
             }
             IrTerminator::Return(Some(operand)) => {
-                // 将返回值放入 a0
-                match operand {
-                    IrOperand::Const(c) => match c {
-                        IrConst::U64(n) => self.emit(format!("li a0, {}", n)),
-                        _ => self.emit("li a0, 0"),
-                    },
-                    IrOperand::Var(v) => {
-                        self.emit(format!("ld a0, {}(sp)", v.id * 8));
+                if let IrOperand::Var(v) = operand {
+                    if let Some(fields) = self.tuple_aggregate_fields.get(&v.id).cloned() {
+                        self.emit(format!("# cellscript abi: return tuple aggregate var{} fields={}", v.id, fields.len()));
+                        if fields.is_empty() {
+                            self.emit("li a0, 0");
+                        }
+                        for (index, field) in fields.iter().take(8).enumerate() {
+                            self.emit(format!("# cellscript abi: return tuple field .{} via a{}", index, index));
+                            self.emit_operand_to_register(&format!("a{}", index), field);
+                        }
+                        self.emit_epilogue();
+                        return Ok(());
                     }
                 }
+                self.emit_operand_to_register("a0", operand);
                 self.emit_epilogue();
             }
             IrTerminator::Jump(block_id) => {
@@ -812,17 +1168,47 @@ impl CodeGenerator {
         let locals_size = max_var_id.map(|id| (id + 1) * 8).unwrap_or(0);
         self.cell_buffer_offsets.clear();
         self.cell_buffer_size_offsets.clear();
+        self.output_type_hash_sources.clear();
         self.consume_order.clear();
         self.consume_indices.clear();
         self.consume_type_names.clear();
         self.read_ref_order.clear();
         self.read_ref_indices.clear();
         self.schema_pointer_size_offsets.clear();
+        self.fixed_byte_param_size_offsets.clear();
+        self.param_type_hash_pointer_offsets.clear();
+        self.param_type_hash_size_offsets.clear();
+        self.param_type_hash_sources.clear();
+
+        let schema_param_ids =
+            params.iter().filter(|param| named_type_name(&param.ty).is_some()).map(|param| param.binding.id).collect::<BTreeSet<_>>();
+        let mut param_type_hash_ids = BTreeSet::new();
+        for block in &body.blocks {
+            for instruction in &block.instructions {
+                if let IrInstruction::TypeHash { dest, operand: IrOperand::Var(var) } = instruction {
+                    if schema_param_ids.contains(&var.id) {
+                        param_type_hash_ids.insert(var.id);
+                        self.param_type_hash_sources.insert(dest.id, var.id);
+                    }
+                }
+            }
+        }
 
         let mut next_cell_slot = locals_size;
         for param in params {
             if named_type_name(&param.ty).is_some() {
                 self.schema_pointer_size_offsets.insert(param.binding.id, next_cell_slot);
+                next_cell_slot += 8;
+            } else if fixed_byte_pointer_param_width(&param.ty).is_some() || fixed_aggregate_pointer_param_width(&param.ty).is_some() {
+                self.fixed_byte_param_size_offsets.insert(param.binding.id, next_cell_slot);
+                next_cell_slot += 8;
+            }
+        }
+        for param in params {
+            if param_type_hash_ids.contains(&param.binding.id) {
+                self.param_type_hash_pointer_offsets.insert(param.binding.id, next_cell_slot);
+                next_cell_slot += 8;
+                self.param_type_hash_size_offsets.insert(param.binding.id, next_cell_slot);
                 next_cell_slot += 8;
             }
         }
@@ -858,7 +1244,33 @@ impl CodeGenerator {
             }
         }
 
-        self.frame_size = align_frame(next_cell_slot + RUNTIME_SCRATCH_SIZE + 16);
+        let mut create_dest_outputs = HashMap::new();
+        let mut create_index = 0usize;
+        for block in &body.blocks {
+            for instruction in &block.instructions {
+                match instruction {
+                    IrInstruction::Create { dest, .. } => {
+                        create_dest_outputs.insert(dest.id, create_index);
+                        create_index += 1;
+                    }
+                    IrInstruction::TypeHash { dest, operand: IrOperand::Var(var) } => {
+                        if let Some(output_index) = create_dest_outputs.get(&var.id).copied() {
+                            self.output_type_hash_sources.insert(dest.id, output_index);
+                            self.cell_buffer_size_offsets.insert(dest.id, next_cell_slot);
+                            self.cell_buffer_offsets.insert(dest.id, next_cell_slot + 8);
+                            next_cell_slot += RUNTIME_CELL_SLOT_SIZE;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        self.frame_size = align_frame(next_cell_slot + RUNTIME_EXPR_TEMP_SIZE + RUNTIME_SCRATCH_SIZE + 16);
+    }
+
+    fn runtime_expr_temp_offset(&self, depth: usize) -> Option<usize> {
+        (depth < RUNTIME_EXPR_TEMP_SLOTS).then(|| self.runtime_scratch_size_offset() - RUNTIME_EXPR_TEMP_SIZE + depth * 8)
     }
 
     fn runtime_scratch_size_offset(&self) -> usize {
@@ -867,6 +1279,14 @@ impl CodeGenerator {
 
     fn runtime_scratch_buffer_offset(&self) -> usize {
         self.runtime_scratch_size_offset() + 8
+    }
+
+    fn runtime_scratch2_size_offset(&self) -> usize {
+        self.runtime_scratch_size_offset() + RUNTIME_SCRATCH_SLOT_SIZE
+    }
+
+    fn runtime_scratch2_buffer_offset(&self) -> usize {
+        self.runtime_scratch2_size_offset() + 8
     }
 
     fn emit_store_data_args_at(&mut self, max_bytes: usize, size_offset: usize, buffer_offset: usize) {
@@ -897,6 +1317,102 @@ impl CodeGenerator {
         self.emit(format!("li a3, {}", index));
         self.emit(format!("li a4, {}", source));
         self.emit(format!("li a7, {}", CKB_LOAD_CELL_SYSCALL_NUMBER));
+        self.emit("ecall");
+        self.emit("# a0 = CKB syscall return code");
+    }
+
+    fn emit_load_witness_syscall_to_offsets(
+        &mut self,
+        reason: &str,
+        source: u64,
+        index: usize,
+        size_offset: usize,
+        buffer_offset: usize,
+        max_bytes: usize,
+    ) {
+        self.emit(format!("# cellscript abi: LOAD_WITNESS reason={} source={} index={}", reason, ckb_source_name(source), index));
+        self.emit_store_data_args_at(max_bytes, size_offset, buffer_offset);
+        self.emit(format!("li a3, {}", index));
+        self.emit(format!("li a4, {}", source));
+        self.emit(format!("li a7, {}", CKB_LOAD_WITNESS_SYSCALL_NUMBER));
+        self.emit("ecall");
+        self.emit("# a0 = CKB syscall return code");
+    }
+
+    fn emit_load_ecdsa_signature_hash_syscall_to_offsets(
+        &mut self,
+        reason: &str,
+        source: u64,
+        index: usize,
+        hash_type_reg: &str,
+        size_offset: usize,
+        buffer_offset: usize,
+        max_bytes: usize,
+    ) {
+        self.emit(format!(
+            "# cellscript abi: LOAD_ECDSA_SIGNATURE_HASH reason={} source={} index={} hash_type={}",
+            reason,
+            ckb_source_name(source),
+            index,
+            hash_type_reg
+        ));
+        self.emit_store_data_args_at(max_bytes, size_offset, buffer_offset);
+        self.emit(format!("li a3, {}", index));
+        self.emit(format!("li a4, {}", source));
+        self.emit(format!("addi a5, {}, 0", hash_type_reg));
+        self.emit(format!("li a7, {}", CKB_LOAD_ECDSA_SIGNATURE_HASH_SYSCALL_NUMBER));
+        self.emit("ecall");
+        self.emit("# a0 = CKB syscall return code");
+    }
+
+    fn emit_load_cell_by_field_syscall_to_offsets(
+        &mut self,
+        reason: &str,
+        source: u64,
+        index: usize,
+        field: u64,
+        size_offset: usize,
+        buffer_offset: usize,
+        max_bytes: usize,
+    ) {
+        self.emit(format!(
+            "# cellscript abi: LOAD_CELL_BY_FIELD reason={} source={} index={} field={}",
+            reason,
+            ckb_source_name(source),
+            index,
+            field
+        ));
+        self.emit_store_data_args_at(max_bytes, size_offset, buffer_offset);
+        self.emit(format!("li a3, {}", index));
+        self.emit(format!("li a4, {}", source));
+        self.emit(format!("li a5, {}", field));
+        self.emit(format!("li a7, {}", CKB_LOAD_CELL_BY_FIELD_SYSCALL_NUMBER));
+        self.emit("ecall");
+        self.emit("# a0 = CKB syscall return code");
+    }
+
+    fn emit_load_cell_by_field_syscall_to_offsets_dynamic_index(
+        &mut self,
+        reason: &str,
+        source: u64,
+        index_reg: &str,
+        field: u64,
+        size_offset: usize,
+        buffer_offset: usize,
+        max_bytes: usize,
+    ) {
+        self.emit(format!(
+            "# cellscript abi: LOAD_CELL_BY_FIELD reason={} source={} index={} field={}",
+            reason,
+            ckb_source_name(source),
+            index_reg,
+            field
+        ));
+        self.emit_store_data_args_at(max_bytes, size_offset, buffer_offset);
+        self.emit(format!("addi a3, {}, 0", index_reg));
+        self.emit(format!("li a4, {}", source));
+        self.emit(format!("li a5, {}", field));
+        self.emit(format!("li a7, {}", CKB_LOAD_CELL_BY_FIELD_SYSCALL_NUMBER));
         self.emit("ecall");
         self.emit("# a0 = CKB syscall return code");
     }
@@ -933,6 +1449,491 @@ impl CodeGenerator {
         self.emit_label(&ok_label);
     }
 
+    fn emit_mutate_replacement_field_hash_check(
+        &mut self,
+        pattern: &MutatePattern,
+        cell_field: u64,
+        field_name: &str,
+        error_code: u64,
+    ) {
+        let input_size_offset = self.runtime_scratch_size_offset();
+        let input_buffer_offset = self.runtime_scratch_buffer_offset();
+        let output_size_offset = self.runtime_scratch2_size_offset();
+        let output_buffer_offset = self.runtime_scratch2_buffer_offset();
+
+        self.emit_load_cell_by_field_syscall_to_offsets(
+            &format!("mutate_input_{}", field_name),
+            CKB_SOURCE_INPUT,
+            pattern.input_index,
+            cell_field,
+            input_size_offset,
+            input_buffer_offset,
+            32,
+        );
+        self.emit_return_on_syscall_error(1);
+        self.emit_load_cell_by_field_syscall_to_offsets(
+            &format!("mutate_output_{}", field_name),
+            CKB_SOURCE_OUTPUT,
+            pattern.output_index,
+            cell_field,
+            output_size_offset,
+            output_buffer_offset,
+            32,
+        );
+        self.emit_return_on_syscall_error(1);
+        self.emit_loaded_schema_exact_size_check(input_size_offset, 32, &format!("mutate input {}", field_name));
+        self.emit_loaded_schema_exact_size_check(output_size_offset, 32, &format!("mutate output {}", field_name));
+        self.emit(format!(
+            "# cellscript abi: verify mutate replacement {} {} Input#{} == Output#{} size=32",
+            pattern.ty, field_name, pattern.input_index, pattern.output_index
+        ));
+        self.emit(format!("addi t4, sp, {}", input_buffer_offset));
+        self.emit(format!("addi t5, sp, {}", output_buffer_offset));
+        for byte_index in 0..32 {
+            self.emit(format!("lbu t0, {}(t4)", byte_index));
+            self.emit(format!("lbu t1, {}(t5)", byte_index));
+            self.emit("sub t2, t0, t1");
+            let ok_label = self.fresh_label("mutate_identity_byte_ok");
+            self.emit(format!("beqz t2, {}", ok_label));
+            self.emit(format!("li a0, {}", error_code));
+            self.emit_epilogue();
+            self.emit_label(&ok_label);
+        }
+    }
+
+    fn should_emit_claim_witness_authorization_domain_check(&self, pattern: &CellPattern, var_id: usize) -> bool {
+        if pattern.operation == "claim" {
+            return true;
+        }
+        if pattern.operation != "consume" {
+            return false;
+        }
+        if !self.current_function.as_deref().is_some_and(|name| name.starts_with("claim")) {
+            return false;
+        }
+        self.consume_type_names.get(&var_id).is_some_and(|type_name| self.receipt_type_names.contains(type_name))
+    }
+
+    fn claim_signer_pubkey_hash_source(&self, var_id: usize) -> Option<SchemaFieldValueSource> {
+        let type_name = self.consume_type_names.get(&var_id)?;
+        if !self.receipt_type_names.contains(type_name) {
+            return None;
+        }
+        let fields = self.type_layouts.get(type_name)?;
+        CLAIM_SIGNER_PUBKEY_HASH_FIELDS.iter().find_map(|field| {
+            let layout = fields.get(*field)?.clone();
+            (fixed_byte_width(&layout.ty, layout.fixed_size) == Some(20)).then(|| SchemaFieldValueSource {
+                obj_var_id: var_id,
+                type_name: type_name.clone(),
+                field: (*field).to_string(),
+                layout,
+            })
+        })
+    }
+
+    fn emit_claim_witness_authorization_domain_check(
+        &mut self,
+        group_input_index: usize,
+        binding: &str,
+        signer_source: Option<&SchemaFieldValueSource>,
+    ) {
+        let witness_size_offset = self.runtime_scratch2_size_offset();
+        let witness_buffer_offset = self.runtime_scratch2_buffer_offset();
+        let sighash_size_offset = self.runtime_scratch_size_offset();
+        let sighash_buffer_offset = self.runtime_scratch_buffer_offset();
+
+        self.emit(format!(
+            "# cellscript abi: claim witness authorization-domain check binding={} source=GroupInput index={}",
+            binding, group_input_index
+        ));
+        self.emit_load_witness_syscall_to_offsets(
+            "claim_witness",
+            CKB_SOURCE_GROUP_INPUT,
+            group_input_index,
+            witness_size_offset,
+            witness_buffer_offset,
+            66,
+        );
+        self.emit_return_on_syscall_error(17);
+        self.emit_claim_witness_signature_size_check(witness_size_offset, witness_buffer_offset);
+        self.emit_load_ecdsa_signature_hash_syscall_to_offsets(
+            "claim_authorization_domain",
+            CKB_SOURCE_GROUP_INPUT,
+            group_input_index,
+            "t3",
+            sighash_size_offset,
+            sighash_buffer_offset,
+            32,
+        );
+        self.emit_return_on_syscall_error(18);
+        self.emit_loaded_schema_exact_size_check(sighash_size_offset, 32, "claim ECDSA signature hash");
+        if let Some(source) = signer_source {
+            self.emit_claim_witness_signature_verification(group_input_index, witness_buffer_offset, sighash_buffer_offset, source);
+        }
+    }
+
+    fn emit_claim_witness_signature_size_check(&mut self, size_offset: usize, buffer_offset: usize) {
+        let hash_type_from_witness_label = self.fresh_label("claim_witness_hash_type");
+        let ok_label = self.fresh_label("claim_witness_size_ok");
+        self.emit("# cellscript abi: claim witness signature length check accepted=65|66");
+        self.emit(format!("ld t0, {}(sp)", size_offset));
+        self.emit(format!("li t1, {}", 65));
+        self.emit("sub t2, t0, t1");
+        self.emit(format!("li t3, {}", CKB_SIG_HASH_ALL));
+        self.emit(format!("beqz t2, {}", ok_label));
+        self.emit(format!("li t1, {}", 66));
+        self.emit("sub t2, t0, t1");
+        self.emit(format!("beqz t2, {}", hash_type_from_witness_label));
+        self.emit("li a0, 17");
+        self.emit_epilogue();
+        self.emit_label(&hash_type_from_witness_label);
+        self.emit(format!("addi t4, sp, {}", buffer_offset));
+        self.emit("lbu t3, 65(t4)");
+        self.emit_label(&ok_label);
+    }
+
+    fn emit_claim_witness_signature_verification(
+        &mut self,
+        group_input_index: usize,
+        witness_buffer_offset: usize,
+        sighash_buffer_offset: usize,
+        signer_source: &SchemaFieldValueSource,
+    ) {
+        if let Some(size_offset) = self.cell_buffer_size_offsets.get(&signer_source.obj_var_id).copied() {
+            if let Some(expected_size) = self.type_fixed_sizes.get(&signer_source.type_name).copied() {
+                self.emit_loaded_schema_exact_size_check(
+                    size_offset,
+                    expected_size,
+                    &format!("{} claim signer input", signer_source.type_name),
+                );
+            }
+            self.emit_loaded_schema_bounds_check(
+                size_offset,
+                signer_source.layout.offset + 20,
+                &format!("{}.{}", signer_source.type_name, signer_source.field),
+            );
+        }
+        self.emit(format!(
+            "# cellscript abi: SECP256K1_VERIFY reason=claim_signature source=Input field={}.{} witness=GroupInput index={}",
+            signer_source.type_name, signer_source.field, group_input_index
+        ));
+        self.emit(format!("ld t4, {}(sp)", signer_source.obj_var_id * 8));
+        self.emit(format!("addi a0, t4, {}", signer_source.layout.offset));
+        self.emit(format!("addi a1, sp, {}", witness_buffer_offset));
+        self.emit(format!("addi a2, sp, {}", sighash_buffer_offset));
+        self.emit(format!("li a7, {}", CKB_SECP256K1_VERIFY_SYSCALL_NUMBER));
+        self.emit("ecall");
+        let ok_label = self.fresh_label("claim_signature_ok");
+        self.emit(format!("beqz a0, {}", ok_label));
+        self.emit("li a0, 19");
+        self.emit_epilogue();
+        self.emit_label(&ok_label);
+    }
+
+    fn emit_pool_seed_token_pair_identity_check(&mut self, body: &IrBody) {
+        if !self.current_function.as_deref().is_some_and(|name| name == "seed_pool") {
+            return;
+        }
+        if !body.create_set.iter().any(|pattern| pattern.operation == "create" && pattern.ty == "Pool") {
+            return;
+        }
+        let Some((left_index, left)) =
+            body.consume_set.iter().enumerate().find(|(_, pattern)| pattern.operation == "consume" && pattern.binding == "token_a")
+        else {
+            return;
+        };
+        let Some((right_index, right)) =
+            body.consume_set.iter().enumerate().find(|(_, pattern)| pattern.operation == "consume" && pattern.binding == "token_b")
+        else {
+            return;
+        };
+
+        let left_size_offset = self.runtime_scratch_size_offset();
+        let left_buffer_offset = self.runtime_scratch_buffer_offset();
+        let right_size_offset = self.runtime_scratch2_size_offset();
+        let right_buffer_offset = self.runtime_scratch2_buffer_offset();
+        self.emit(format!(
+            "# cellscript abi: pool token-pair identity admission source=Input left={}#{} right={}#{} field=type_hash size=32",
+            left.binding, left_index, right.binding, right_index
+        ));
+        self.emit_load_cell_by_field_syscall_to_offsets(
+            "pool_token_pair_left_type_hash",
+            CKB_SOURCE_INPUT,
+            left_index,
+            CKB_CELL_FIELD_TYPE_HASH,
+            left_size_offset,
+            left_buffer_offset,
+            32,
+        );
+        self.emit_return_on_syscall_error(22);
+        self.emit_load_cell_by_field_syscall_to_offsets(
+            "pool_token_pair_right_type_hash",
+            CKB_SOURCE_INPUT,
+            right_index,
+            CKB_CELL_FIELD_TYPE_HASH,
+            right_size_offset,
+            right_buffer_offset,
+            32,
+        );
+        self.emit_return_on_syscall_error(22);
+        self.emit_loaded_schema_exact_size_check(left_size_offset, 32, "pool token_a input type hash");
+        self.emit_loaded_schema_exact_size_check(right_size_offset, 32, "pool token_b input type hash");
+        self.emit("# cellscript abi: reject seed_pool when token_a and token_b Input TypeHash values are equal");
+        self.emit(format!("addi t4, sp, {}", left_buffer_offset));
+        self.emit(format!("addi t5, sp, {}", right_buffer_offset));
+        let distinct_label = self.fresh_label("pool_token_pair_type_hash_distinct");
+        for byte_index in 0..32 {
+            self.emit(format!("lbu t0, {}(t4)", byte_index));
+            self.emit(format!("lbu t1, {}(t5)", byte_index));
+            self.emit("sub t2, t0, t1");
+            self.emit(format!("bnez t2, {}", distinct_label));
+        }
+        self.emit("li a0, 22");
+        self.emit_epilogue();
+        self.emit_label(&distinct_label);
+    }
+
+    fn emit_destroy_group_output_absence_scan(&mut self, pattern: &CellPattern) {
+        let Some(type_hash) = pattern.type_hash else {
+            self.emit("# cellscript abi: destroy group-output scan unavailable because type_hash is unknown");
+            self.emit("li a0, 16");
+            self.emit_epilogue();
+            return;
+        };
+
+        let size_offset = self.runtime_scratch2_size_offset();
+        let buffer_offset = self.runtime_scratch2_buffer_offset();
+        let loop_label = self.fresh_label("destroy_group_output_scan");
+        let type_hash_label = self.fresh_label("destroy_group_output_type_hash");
+        let next_label = self.fresh_label("destroy_group_output_next");
+        let done_label = self.fresh_label("destroy_group_output_done");
+
+        self.emit(format!("# cellscript abi: destroy group output type-hash absence scan binding={} size=32", pattern.binding));
+        self.emit("li t6, 0");
+        self.emit_label(&loop_label);
+        self.emit_load_cell_by_field_syscall_to_offsets_dynamic_index(
+            "destroy_group_output_type_hash",
+            CKB_SOURCE_GROUP_OUTPUT,
+            "t6",
+            CKB_CELL_FIELD_TYPE_HASH,
+            size_offset,
+            buffer_offset,
+            32,
+        );
+        self.emit(format!("beqz a0, {}", type_hash_label));
+        self.emit(format!("li t0, {}", CKB_INDEX_OUT_OF_BOUND));
+        self.emit("sub t1, a0, t0");
+        self.emit(format!("beqz t1, {}", done_label));
+        self.emit(format!("li t0, {}", CKB_ITEM_MISSING));
+        self.emit("sub t1, a0, t0");
+        self.emit(format!("beqz t1, {}", next_label));
+        self.emit("li a0, 16");
+        self.emit_epilogue();
+
+        self.emit_label(&type_hash_label);
+        self.emit_loaded_schema_exact_size_check(size_offset, 32, "destroy group output type hash");
+        self.emit(format!(
+            "# cellscript abi: reject destroy replacement when GroupOutput#t6 TypeHash matches consumed {}",
+            pattern.binding
+        ));
+        self.emit(format!("addi t4, sp, {}", buffer_offset));
+        for (byte_index, byte) in type_hash.iter().enumerate() {
+            self.emit(format!("lbu t0, {}(t4)", byte_index));
+            self.emit(format!("li t1, {}", byte));
+            self.emit("sub t2, t0, t1");
+            self.emit(format!("bnez t2, {}", next_label));
+        }
+        self.emit("li a0, 16");
+        self.emit_epilogue();
+
+        self.emit_label(&next_label);
+        self.emit("addi t6, t6, 1");
+        self.emit(format!("j {}", loop_label));
+        self.emit_label(&done_label);
+    }
+
+    fn mutate_preserved_field_layouts(&self, pattern: &MutatePattern) -> Vec<(String, SchemaFieldLayout, usize)> {
+        let Some(type_size) = self.type_fixed_sizes.get(&pattern.ty).copied() else {
+            return Vec::new();
+        };
+        if type_size > RUNTIME_SCRATCH_BUFFER_SIZE {
+            return Vec::new();
+        }
+        pattern
+            .preserved_fields
+            .iter()
+            .filter_map(|field| {
+                let layout = self.type_layouts.get(&pattern.ty).and_then(|fields| fields.get(field)).cloned()?;
+                let width = fixed_byte_width(&layout.ty, layout.fixed_size)?;
+                (layout.offset + width <= RUNTIME_SCRATCH_BUFFER_SIZE).then(|| (field.clone(), layout, width))
+            })
+            .collect()
+    }
+
+    fn emit_mutate_replacement_preserved_field_checks(&mut self, pattern: &MutatePattern) {
+        let preserved_fields = self.mutate_preserved_field_layouts(pattern);
+        if preserved_fields.is_empty() {
+            return;
+        }
+        let input_size_offset = self.runtime_scratch_size_offset();
+        let input_buffer_offset = self.runtime_scratch_buffer_offset();
+        let output_size_offset = self.runtime_scratch2_size_offset();
+        let output_buffer_offset = self.runtime_scratch2_buffer_offset();
+        self.emit_load_cell_syscall_to_offsets(
+            "mutate_input_data",
+            CKB_SOURCE_INPUT,
+            pattern.input_index,
+            input_size_offset,
+            input_buffer_offset,
+            RUNTIME_SCRATCH_BUFFER_SIZE,
+        );
+        self.emit_return_on_syscall_error(1);
+        self.emit_load_cell_syscall_to_offsets(
+            "mutate_output_data",
+            CKB_SOURCE_OUTPUT,
+            pattern.output_index,
+            output_size_offset,
+            output_buffer_offset,
+            RUNTIME_SCRATCH_BUFFER_SIZE,
+        );
+        self.emit_return_on_syscall_error(1);
+        if let Some(expected_size) = self.type_fixed_sizes.get(&pattern.ty).copied() {
+            self.emit_loaded_schema_exact_size_check(input_size_offset, expected_size, &format!("{} mutate input", pattern.ty));
+            self.emit_loaded_schema_exact_size_check(output_size_offset, expected_size, &format!("{} mutate output", pattern.ty));
+        }
+        self.emit(format!(
+            "# cellscript abi: verify mutate preserved fields {} Input#{} == Output#{}",
+            pattern.ty, pattern.input_index, pattern.output_index
+        ));
+        self.emit(format!("addi t4, sp, {}", input_buffer_offset));
+        self.emit(format!("addi t5, sp, {}", output_buffer_offset));
+        for (field, layout, width) in preserved_fields {
+            self.emit_loaded_schema_bounds_check(input_size_offset, layout.offset + width, &format!("{} input.{}", pattern.ty, field));
+            self.emit_loaded_schema_bounds_check(
+                output_size_offset,
+                layout.offset + width,
+                &format!("{} output.{}", pattern.ty, field),
+            );
+            self.emit(format!(
+                "# cellscript abi: verify mutate preserved field {}.{} Input#{} == Output#{} offset={} size={}",
+                pattern.ty, field, pattern.input_index, pattern.output_index, layout.offset, width
+            ));
+            for byte_index in 0..width {
+                self.emit(format!("lbu t0, {}(t4)", layout.offset + byte_index));
+                self.emit(format!("lbu t1, {}(t5)", layout.offset + byte_index));
+                self.emit("sub t2, t0, t1");
+                let ok_label = self.fresh_label("mutate_preserved_byte_ok");
+                self.emit(format!("beqz t2, {}", ok_label));
+                self.emit("li a0, 13");
+                self.emit_epilogue();
+                self.emit_label(&ok_label);
+            }
+        }
+    }
+
+    fn mutate_transition_layouts(&self, pattern: &MutatePattern) -> Vec<(MutateFieldTransition, SchemaFieldLayout, usize)> {
+        let Some(type_size) = self.type_fixed_sizes.get(&pattern.ty).copied() else {
+            return Vec::new();
+        };
+        if type_size > RUNTIME_SCRATCH_BUFFER_SIZE {
+            return Vec::new();
+        }
+        pattern
+            .transitions
+            .iter()
+            .filter_map(|transition| {
+                let layout = self.type_layouts.get(&pattern.ty).and_then(|fields| fields.get(&transition.field)).cloned()?;
+                let width = fixed_scalar_width(&layout.ty, layout.fixed_size)?;
+                if layout.offset + width > RUNTIME_SCRATCH_BUFFER_SIZE {
+                    return None;
+                }
+                if self.prelude_u64_operand_source(&transition.operand).is_none() {
+                    return None;
+                }
+                Some((transition.clone(), layout, width))
+            })
+            .collect()
+    }
+
+    fn emit_mutate_replacement_transition_checks(&mut self, pattern: &MutatePattern) {
+        let transitions = self.mutate_transition_layouts(pattern);
+        if transitions.is_empty() {
+            return;
+        }
+        let input_size_offset = self.runtime_scratch_size_offset();
+        let input_buffer_offset = self.runtime_scratch_buffer_offset();
+        let output_size_offset = self.runtime_scratch2_size_offset();
+        let output_buffer_offset = self.runtime_scratch2_buffer_offset();
+        self.emit_load_cell_syscall_to_offsets(
+            "mutate_input_transition",
+            CKB_SOURCE_INPUT,
+            pattern.input_index,
+            input_size_offset,
+            input_buffer_offset,
+            RUNTIME_SCRATCH_BUFFER_SIZE,
+        );
+        self.emit_return_on_syscall_error(1);
+        self.emit_load_cell_syscall_to_offsets(
+            "mutate_output_transition",
+            CKB_SOURCE_OUTPUT,
+            pattern.output_index,
+            output_size_offset,
+            output_buffer_offset,
+            RUNTIME_SCRATCH_BUFFER_SIZE,
+        );
+        self.emit_return_on_syscall_error(1);
+        if let Some(expected_size) = self.type_fixed_sizes.get(&pattern.ty).copied() {
+            self.emit_loaded_schema_exact_size_check(
+                input_size_offset,
+                expected_size,
+                &format!("{} mutate transition input", pattern.ty),
+            );
+            self.emit_loaded_schema_exact_size_check(
+                output_size_offset,
+                expected_size,
+                &format!("{} mutate transition output", pattern.ty),
+            );
+        }
+        self.emit(format!(
+            "# cellscript abi: verify mutate transition fields {} Input#{} -> Output#{}",
+            pattern.ty, pattern.input_index, pattern.output_index
+        ));
+        for (transition, layout, width) in transitions {
+            let Some(delta) = self.prelude_u64_operand_source(&transition.operand) else {
+                continue;
+            };
+            self.emit_loaded_schema_bounds_check(
+                input_size_offset,
+                layout.offset + width,
+                &format!("{} input.{}", pattern.ty, transition.field),
+            );
+            self.emit_loaded_schema_bounds_check(
+                output_size_offset,
+                layout.offset + width,
+                &format!("{} output.{}", pattern.ty, transition.field),
+            );
+            self.emit(format!(
+                "# cellscript abi: verify mutate transition field {}.{} {:?} Input#{} -> Output#{} offset={} size={}",
+                pattern.ty, transition.field, transition.op, pattern.input_index, pattern.output_index, layout.offset, width
+            ));
+            self.emit(format!("addi t4, sp, {}", input_buffer_offset));
+            self.emit_unaligned_scalar_load("t4", "t0", "t2", layout.offset, width);
+            self.emit_prelude_u64_operand_source_to_t1(&delta);
+            match transition.op {
+                MutateTransitionOp::Add => self.emit("add t1, t0, t1"),
+                MutateTransitionOp::Sub => self.emit("sub t1, t0, t1"),
+            }
+            self.emit(format!("addi t4, sp, {}", output_buffer_offset));
+            self.emit_unaligned_scalar_load("t4", "t0", "t2", layout.offset, width);
+            self.emit("sub t2, t0, t1");
+            let ok_label = self.fresh_label("mutate_transition_ok");
+            self.emit(format!("beqz t2, {}", ok_label));
+            self.emit("li a0, 14");
+            self.emit_epilogue();
+            self.emit_label(&ok_label);
+        }
+    }
+
     fn emit_symbolic_runtime_fail_closed(&mut self, feature: &str) {
         self.emit(format!("# cellscript abi: {} symbolic runtime is not executable", feature));
         self.emit("# cellscript abi: fail closed because the source operation has no complete verifier lowering");
@@ -964,6 +1965,260 @@ impl CodeGenerator {
         self.emit_label(&ok_label);
     }
 
+    fn emit_loaded_field_bytes_equals_expected(
+        &mut self,
+        size_offset: usize,
+        buffer_offset: usize,
+        layout: &SchemaFieldLayout,
+        expected: &IrOperand,
+        context: &str,
+    ) -> bool {
+        if fixed_scalar_width(&layout.ty, layout.fixed_size).is_some() {
+            self.emit_loaded_field_equals_expected(size_offset, buffer_offset, layout, expected, context);
+            return true;
+        }
+        let Some(width) = fixed_byte_width(&layout.ty, layout.fixed_size) else {
+            return false;
+        };
+        let Some(source) = self.expected_fixed_byte_source(expected, width) else {
+            return false;
+        };
+        self.emit_loaded_schema_bounds_check(size_offset, layout.offset + width, context);
+        match source {
+            ExpectedFixedByteSource::SchemaField(source) => {
+                if let Some(source_size_offset) = self.schema_pointer_size_offsets.get(&source.obj_var_id).copied() {
+                    if let Some(expected_size) = self.type_fixed_sizes.get(&source.type_name).copied() {
+                        self.emit_loaded_schema_exact_size_check(source_size_offset, expected_size, &source.type_name);
+                    }
+                    self.emit_loaded_schema_bounds_check(
+                        source_size_offset,
+                        source.layout.offset + width,
+                        &format!("{}.{}", source.type_name, source.field),
+                    );
+                }
+                self.emit(format!("# cellscript abi: verify output bytes field {} offset={} size={}", context, layout.offset, width));
+                self.emit(format!(
+                    "# cellscript abi: expected bytes field {}.{} offset={} size={}",
+                    source.type_name, source.field, source.layout.offset, width
+                ));
+                self.emit(format!("addi t4, sp, {}", buffer_offset));
+                self.emit(format!("ld t5, {}(sp)", source.obj_var_id * 8));
+                for byte_index in 0..width {
+                    self.emit(format!("lbu t0, {}(t4)", layout.offset + byte_index));
+                    self.emit(format!("lbu t1, {}(t5)", source.layout.offset + byte_index));
+                    self.emit("sub t2, t0, t1");
+                    let ok_label = self.fresh_label("output_byte_ok");
+                    self.emit(format!("beqz t2, {}", ok_label));
+                    self.emit("li a0, 3");
+                    self.emit_epilogue();
+                    self.emit_label(&ok_label);
+                }
+            }
+            ExpectedFixedByteSource::Const(bytes) => {
+                self.emit(format!(
+                    "# cellscript abi: verify output bytes field {} offset={} size={} against const",
+                    context, layout.offset, width
+                ));
+                self.emit(format!("addi t4, sp, {}", buffer_offset));
+                for (byte_index, byte) in bytes.iter().enumerate() {
+                    self.emit(format!("lbu t0, {}(t4)", layout.offset + byte_index));
+                    self.emit(format!("li t1, {}", byte));
+                    self.emit("sub t2, t0, t1");
+                    let ok_label = self.fresh_label("output_byte_ok");
+                    self.emit(format!("beqz t2, {}", ok_label));
+                    self.emit("li a0, 3");
+                    self.emit_epilogue();
+                    self.emit_label(&ok_label);
+                }
+            }
+            ExpectedFixedByteSource::StackSlot { var_id, width } => {
+                self.emit(format!(
+                    "# cellscript abi: verify output bytes field {} offset={} size={} against stack slot var{}",
+                    context, layout.offset, width, var_id
+                ));
+                self.emit(format!("addi t4, sp, {}", buffer_offset));
+                self.emit(format!("addi t5, sp, {}", var_id * 8));
+                for byte_index in 0..width {
+                    self.emit(format!("lbu t0, {}(t4)", layout.offset + byte_index));
+                    self.emit(format!("lbu t1, {}(t5)", byte_index));
+                    self.emit("sub t2, t0, t1");
+                    let ok_label = self.fresh_label("output_byte_ok");
+                    self.emit(format!("beqz t2, {}", ok_label));
+                    self.emit("li a0, 3");
+                    self.emit_epilogue();
+                    self.emit_label(&ok_label);
+                }
+            }
+            ExpectedFixedByteSource::ParamBytes { var_id, size_offset, width } => {
+                self.emit_loaded_schema_exact_size_check(size_offset, width, &format!("param var{}", var_id));
+                self.emit(format!(
+                    "# cellscript abi: verify output bytes field {} offset={} size={} against fixed-byte param var{}",
+                    context, layout.offset, width, var_id
+                ));
+                self.emit(format!("addi t4, sp, {}", buffer_offset));
+                self.emit(format!("ld t5, {}(sp)", var_id * 8));
+                for byte_index in 0..width {
+                    self.emit(format!("lbu t0, {}(t4)", layout.offset + byte_index));
+                    self.emit(format!("lbu t1, {}(t5)", byte_index));
+                    self.emit("sub t2, t0, t1");
+                    let ok_label = self.fresh_label("output_byte_ok");
+                    self.emit(format!("beqz t2, {}", ok_label));
+                    self.emit("li a0, 3");
+                    self.emit_epilogue();
+                    self.emit_label(&ok_label);
+                }
+            }
+            ExpectedFixedByteSource::LoadedBytes { var_id, size_offset, width } => {
+                self.emit_loaded_schema_exact_size_check(size_offset, width, &format!("loaded bytes var{}", var_id));
+                self.emit(format!(
+                    "# cellscript abi: verify output bytes field {} offset={} size={} against loaded bytes var{}",
+                    context, layout.offset, width, var_id
+                ));
+                self.emit(format!("addi t4, sp, {}", buffer_offset));
+                self.emit(format!("ld t5, {}(sp)", var_id * 8));
+                for byte_index in 0..width {
+                    self.emit(format!("lbu t0, {}(t4)", layout.offset + byte_index));
+                    self.emit(format!("lbu t1, {}(t5)", byte_index));
+                    self.emit("sub t2, t0, t1");
+                    let ok_label = self.fresh_label("output_byte_ok");
+                    self.emit(format!("beqz t2, {}", ok_label));
+                    self.emit("li a0, 3");
+                    self.emit_epilogue();
+                    self.emit_label(&ok_label);
+                }
+            }
+        }
+        true
+    }
+
+    fn emit_prepare_fixed_byte_source(&mut self, source: &ExpectedFixedByteSource, width: usize, context: &str) {
+        match source {
+            ExpectedFixedByteSource::SchemaField(source) => {
+                if let Some(source_size_offset) = self.schema_pointer_size_offsets.get(&source.obj_var_id).copied() {
+                    if let Some(expected_size) = self.type_fixed_sizes.get(&source.type_name).copied() {
+                        self.emit_loaded_schema_exact_size_check(source_size_offset, expected_size, &source.type_name);
+                    }
+                    self.emit_loaded_schema_bounds_check(
+                        source_size_offset,
+                        source.layout.offset + width,
+                        &format!("{}.{}", source.type_name, source.field),
+                    );
+                }
+            }
+            ExpectedFixedByteSource::ParamBytes { var_id, size_offset, width } => {
+                self.emit_loaded_schema_exact_size_check(*size_offset, *width, &format!("{} param var{}", context, var_id));
+            }
+            ExpectedFixedByteSource::LoadedBytes { var_id, size_offset, width } => {
+                self.emit_loaded_schema_exact_size_check(*size_offset, *width, &format!("{} loaded bytes var{}", context, var_id));
+            }
+            ExpectedFixedByteSource::Const(_) | ExpectedFixedByteSource::StackSlot { .. } => {}
+        }
+    }
+
+    fn emit_fixed_byte_source_byte_to(&mut self, dest_reg: &str, base_reg: &str, source: &ExpectedFixedByteSource, byte_index: usize) {
+        match source {
+            ExpectedFixedByteSource::SchemaField(source) => {
+                self.emit(format!("ld {}, {}(sp)", base_reg, source.obj_var_id * 8));
+                self.emit(format!("lbu {}, {}({})", dest_reg, source.layout.offset + byte_index, base_reg));
+            }
+            ExpectedFixedByteSource::Const(bytes) => {
+                self.emit(format!("li {}, {}", dest_reg, bytes[byte_index]));
+            }
+            ExpectedFixedByteSource::StackSlot { var_id, .. } => {
+                self.emit(format!("addi {}, sp, {}", base_reg, var_id * 8));
+                self.emit(format!("lbu {}, {}({})", dest_reg, byte_index, base_reg));
+            }
+            ExpectedFixedByteSource::ParamBytes { var_id, .. } | ExpectedFixedByteSource::LoadedBytes { var_id, .. } => {
+                self.emit(format!("ld {}, {}(sp)", base_reg, var_id * 8));
+                self.emit(format!("lbu {}, {}({})", dest_reg, byte_index, base_reg));
+            }
+        }
+    }
+
+    fn emit_fixed_byte_comparison(&mut self, dest: &IrVar, op: BinaryOp, left: &IrOperand, right: &IrOperand) -> bool {
+        let Some(width) = operand_fixed_byte_width(left) else {
+            return false;
+        };
+        if operand_fixed_byte_width(right) != Some(width) {
+            return false;
+        }
+        let Some(left_source) = self.expected_fixed_byte_source(left, width) else {
+            return false;
+        };
+        let Some(right_source) = self.expected_fixed_byte_source(right, width) else {
+            return false;
+        };
+        self.emit(format!("# cellscript abi: fixed-byte {:?} comparison size={}", op, width));
+        self.emit_prepare_fixed_byte_source(&left_source, width, "left fixed-byte comparison");
+        self.emit_prepare_fixed_byte_source(&right_source, width, "right fixed-byte comparison");
+        let mismatch_label = self.fresh_label("fixed_byte_mismatch");
+        let done_label = self.fresh_label("fixed_byte_done");
+        for byte_index in 0..width {
+            self.emit_fixed_byte_source_byte_to("t0", "t4", &left_source, byte_index);
+            self.emit_fixed_byte_source_byte_to("t1", "t5", &right_source, byte_index);
+            self.emit("sub t2, t0, t1");
+            self.emit(format!("bnez t2, {}", mismatch_label));
+        }
+        let equal_value = if matches!(op, BinaryOp::Eq) { 1 } else { 0 };
+        let mismatch_value = if matches!(op, BinaryOp::Eq) { 0 } else { 1 };
+        self.emit(format!("li t3, {}", equal_value));
+        self.emit(format!("j {}", done_label));
+        self.emit_label(&mismatch_label);
+        self.emit(format!("li t3, {}", mismatch_value));
+        self.emit_label(&done_label);
+        self.emit(format!("sd t3, {}(sp)", dest.id * 8));
+        true
+    }
+
+    fn expected_fixed_byte_source(&self, operand: &IrOperand, expected_width: usize) -> Option<ExpectedFixedByteSource> {
+        match operand {
+            IrOperand::Const(value) => {
+                let bytes = fixed_byte_const_bytes(value)?;
+                (bytes.len() == expected_width).then_some(ExpectedFixedByteSource::Const(bytes))
+            }
+            IrOperand::Var(var) if fixed_byte_width(&var.ty, type_static_length(&var.ty)).is_some() => {
+                let var_width = fixed_byte_width(&var.ty, type_static_length(&var.ty))?;
+                if let Some(source) = self.schema_field_value_sources.get(&var.id).cloned() {
+                    let source_width = fixed_byte_width(&source.layout.ty, source.layout.fixed_size)?;
+                    if source_width == expected_width {
+                        return Some(ExpectedFixedByteSource::SchemaField(source));
+                    }
+                }
+                if let Some(bytes) = self.prelude_fixed_byte_constants.get(&var.id).cloned() {
+                    if bytes.len() == expected_width {
+                        return Some(ExpectedFixedByteSource::Const(bytes));
+                    }
+                }
+                if self.param_vars.contains(&var.id) && expected_width <= 8 {
+                    if var_width == expected_width {
+                        return Some(ExpectedFixedByteSource::StackSlot { var_id: var.id, width: expected_width });
+                    }
+                }
+                if self.param_vars.contains(&var.id) {
+                    if var_width == expected_width {
+                        if let Some(size_offset) = self.fixed_byte_param_size_offsets.get(&var.id).copied() {
+                            return Some(ExpectedFixedByteSource::ParamBytes { var_id: var.id, size_offset, width: expected_width });
+                        }
+                    }
+                }
+                if let Some(size_offset) = self.cell_buffer_size_offsets.get(&var.id).copied() {
+                    if self.output_type_hash_sources.contains_key(&var.id) && var_width == expected_width {
+                        return Some(ExpectedFixedByteSource::LoadedBytes { var_id: var.id, size_offset, width: expected_width });
+                    }
+                }
+                if let Some(param_id) = self.param_type_hash_sources.get(&var.id).copied() {
+                    if var_width == expected_width {
+                        if let Some(size_offset) = self.param_type_hash_size_offsets.get(&param_id).copied() {
+                            return Some(ExpectedFixedByteSource::LoadedBytes { var_id: var.id, size_offset, width: expected_width });
+                        }
+                    }
+                }
+                None
+            }
+            _ => None,
+        }
+    }
+
     fn emit_expected_operand_to_t1(&mut self, operand: &IrOperand) {
         match operand {
             IrOperand::Const(IrConst::Bool(b)) => self.emit(format!("li t1, {}", if *b { 1 } else { 0 })),
@@ -987,29 +2242,67 @@ impl CodeGenerator {
     }
 
     fn emit_prelude_u64_value_source_to_t1(&mut self, source: &PreludeU64ValueSource) {
+        self.emit_prelude_u64_value_source_to_t1_at_depth(source, 0);
+    }
+
+    fn emit_prelude_u64_value_source_to_t1_at_depth(&mut self, source: &PreludeU64ValueSource, depth: usize) {
         match source {
             PreludeU64ValueSource::Const(n) => self.emit(format!("li t1, {}", n)),
             PreludeU64ValueSource::ParamVar(var_id) => self.emit(format!("ld t1, {}(sp)", var_id * 8)),
+            PreludeU64ValueSource::StackVar(var_id) => self.emit(format!("ld t1, {}(sp)", var_id * 8)),
             PreludeU64ValueSource::Field(source) => self.emit_schema_field_source_to_t1(source),
             PreludeU64ValueSource::Binary { op, left, right } => {
-                self.emit("# cellscript abi: expected expression u64 add/sub chain");
-                self.emit_prelude_u64_value_source_to_t1(left);
-                self.emit("add t3, t1, zero");
-                self.emit_prelude_u64_operand_source_to_t1(right);
+                self.emit(format!("# cellscript abi: expected expression u64 {:?}", op));
+                let Some(temp_offset) = self.runtime_expr_temp_offset(depth) else {
+                    self.emit("# cellscript abi: fail closed because expression verifier temp stack is exhausted");
+                    self.emit("li a0, 15");
+                    self.emit_epilogue();
+                    return;
+                };
+                self.emit_prelude_u64_value_source_to_t1_at_depth(left, depth + 1);
+                self.emit(format!("sd t1, {}(sp)", temp_offset));
+                self.emit_prelude_u64_operand_source_to_t1_at_depth(right, depth + 1);
+                self.emit(format!("ld t3, {}(sp)", temp_offset));
                 match op {
                     BinaryOp::Add => self.emit("add t1, t3, t1"),
                     BinaryOp::Sub => self.emit("sub t1, t3, t1"),
-                    _ => unreachable!("prelude u64 binary source only supports add/sub"),
+                    BinaryOp::Mul => self.emit("mul t1, t3, t1"),
+                    BinaryOp::Div => self.emit("div t1, t3, t1"),
+                    _ => unreachable!("prelude u64 binary source only supports add/sub/mul/div"),
                 }
+            }
+            PreludeU64ValueSource::Min { left, right } => {
+                self.emit("# cellscript abi: expected expression u64 min");
+                let Some(temp_offset) = self.runtime_expr_temp_offset(depth) else {
+                    self.emit("# cellscript abi: fail closed because expression verifier temp stack is exhausted");
+                    self.emit("li a0, 15");
+                    self.emit_epilogue();
+                    return;
+                };
+                self.emit_prelude_u64_value_source_to_t1_at_depth(left, depth + 1);
+                self.emit(format!("sd t1, {}(sp)", temp_offset));
+                self.emit_prelude_u64_operand_source_to_t1_at_depth(right, depth + 1);
+                self.emit(format!("ld t3, {}(sp)", temp_offset));
+                self.emit("slt t2, t3, t1");
+                let right_ok_label = self.fresh_label("prelude_min_right_ok");
+                self.emit(format!("beqz t2, {}", right_ok_label));
+                self.emit("add t1, t3, zero");
+                self.emit_label(&right_ok_label);
             }
         }
     }
 
     fn emit_prelude_u64_operand_source_to_t1(&mut self, source: &PreludeU64OperandSource) {
+        self.emit_prelude_u64_operand_source_to_t1_at_depth(source, 0);
+    }
+
+    fn emit_prelude_u64_operand_source_to_t1_at_depth(&mut self, source: &PreludeU64OperandSource, depth: usize) {
         match source {
             PreludeU64OperandSource::Const(n) => self.emit(format!("li t1, {}", n)),
             PreludeU64OperandSource::ParamVar(var_id) => self.emit(format!("ld t1, {}(sp)", var_id * 8)),
+            PreludeU64OperandSource::StackVar(var_id) => self.emit(format!("ld t1, {}(sp)", var_id * 8)),
             PreludeU64OperandSource::Field(source) => self.emit_schema_field_source_to_t1(source),
+            PreludeU64OperandSource::Expr(source) => self.emit_prelude_u64_value_source_to_t1_at_depth(source, depth),
         }
     }
 
@@ -1030,8 +2323,8 @@ impl CodeGenerator {
         self.emit_unaligned_scalar_load("t4", "t1", "t2", source.layout.offset, width);
     }
 
-    fn can_verify_create_output(&self, pattern: &CreatePattern) -> bool {
-        if pattern.lock.is_some() || pattern.fields.is_empty() {
+    fn can_verify_create_output_fields(&self, pattern: &CreatePattern) -> bool {
+        if pattern.fields.is_empty() {
             return false;
         }
         let Some(layouts) = self.type_layouts.get(&pattern.ty) else {
@@ -1043,9 +2336,17 @@ impl CodeGenerator {
         }
         pattern.fields.iter().all(|(field, value)| {
             layouts.get(field).is_some_and(|layout| {
-                fixed_scalar_width(&layout.ty, layout.fixed_size).is_some() && self.is_prelude_available_scalar(value)
+                fixed_byte_width(&layout.ty, layout.fixed_size)
+                    .is_some_and(|width| self.is_prelude_available_fixed_value(value, width))
             })
         })
+    }
+
+    fn can_verify_output_lock(&self, pattern: &CreatePattern) -> bool {
+        match &pattern.lock {
+            Some(lock) => self.expected_fixed_byte_source(lock, 32).is_some(),
+            None => true,
+        }
     }
 
     fn emit_create_output_checks(&mut self, pattern: &CreatePattern) {
@@ -1058,9 +2359,41 @@ impl CodeGenerator {
             let Some(layout) = self.type_layouts.get(&pattern.ty).and_then(|fields| fields.get(field)).cloned() else {
                 continue;
             };
-            self.emit_loaded_field_equals_expected(size_offset, buffer_offset, &layout, value, &format!("{}.{}", pattern.ty, field));
+            self.emit_loaded_field_bytes_equals_expected(
+                size_offset,
+                buffer_offset,
+                &layout,
+                value,
+                &format!("{}.{}", pattern.ty, field),
+            );
         }
-        self.emit_lifecycle_transition_check(pattern, size_offset, buffer_offset);
+        if pattern.operation == "settle" {
+            self.emit_settle_final_state_check(pattern, size_offset, buffer_offset);
+        } else {
+            self.emit_lifecycle_transition_check(pattern, size_offset, buffer_offset);
+        }
+    }
+
+    fn emit_output_lock_hash_check(&mut self, output_index: usize, expected: &IrOperand) -> bool {
+        if self.expected_fixed_byte_source(expected, 32).is_none() {
+            return false;
+        }
+        let size_offset = self.runtime_scratch_size_offset();
+        let buffer_offset = self.runtime_scratch_buffer_offset();
+        self.emit_load_cell_by_field_syscall_to_offsets(
+            "output_lock_hash",
+            CKB_SOURCE_OUTPUT,
+            output_index,
+            CKB_CELL_FIELD_LOCK_HASH,
+            size_offset,
+            buffer_offset,
+            RUNTIME_SCRATCH_BUFFER_SIZE,
+        );
+        self.emit_return_on_syscall_error(1);
+        self.emit_loaded_schema_exact_size_check(size_offset, 32, "output lock hash");
+        self.emit("# cellscript abi: verify output lock hash offset=0 size=32");
+        let layout = SchemaFieldLayout { offset: 0, ty: IrType::Hash, fixed_size: Some(32) };
+        self.emit_loaded_field_bytes_equals_expected(size_offset, buffer_offset, &layout, expected, "output lock hash")
     }
 
     fn emit_lifecycle_transition_check(&mut self, pattern: &CreatePattern, output_size_offset: usize, output_buffer_offset: usize) {
@@ -1120,6 +2453,63 @@ impl CodeGenerator {
         self.emit_label(&range_ok_label);
     }
 
+    fn emit_settle_final_state_check(&mut self, pattern: &CreatePattern, output_size_offset: usize, output_buffer_offset: usize) {
+        let Some(states) = self.lifecycle_states.get(&pattern.ty) else {
+            return;
+        };
+        if states.len() < 2 {
+            return;
+        }
+        let final_state = states.len() - 1;
+        let Some(consumed_var_id) = self.consumed_var_for_type(&pattern.ty) else {
+            return;
+        };
+        let Some(input_size_offset) = self.cell_buffer_size_offsets.get(&consumed_var_id).copied() else {
+            return;
+        };
+        let Some(input_buffer_offset) = self.cell_buffer_offsets.get(&consumed_var_id).copied() else {
+            return;
+        };
+        let Some(state_layout) = self.type_layouts.get(&pattern.ty).and_then(|fields| fields.get("state")).cloned() else {
+            return;
+        };
+        let Some(width) = fixed_scalar_width(&state_layout.ty, state_layout.fixed_size) else {
+            return;
+        };
+        let Some(expected_size) = self.type_fixed_sizes.get(&pattern.ty).copied() else {
+            return;
+        };
+
+        self.emit(format!(
+            "# cellscript abi: settle final-state {}.state final_state={} state_count={}",
+            pattern.ty,
+            final_state,
+            states.len()
+        ));
+        self.emit_loaded_schema_exact_size_check(input_size_offset, expected_size, &format!("{} input", pattern.ty));
+        self.emit_loaded_schema_bounds_check(input_size_offset, state_layout.offset + width, &format!("{} input.state", pattern.ty));
+        self.emit_loaded_schema_bounds_check(output_size_offset, state_layout.offset + width, &format!("{} output.state", pattern.ty));
+
+        self.emit(format!("addi t4, sp, {}", input_buffer_offset));
+        self.emit_unaligned_scalar_load("t4", "t0", "t2", state_layout.offset, width);
+        self.emit(format!("li t3, {}", final_state));
+        self.emit("sub t2, t0, t3");
+        let input_ok_label = self.fresh_label("settle_input_final_state_ok");
+        self.emit(format!("beqz t2, {}", input_ok_label));
+        self.emit("li a0, 20");
+        self.emit_epilogue();
+        self.emit_label(&input_ok_label);
+
+        self.emit(format!("addi t4, sp, {}", output_buffer_offset));
+        self.emit_unaligned_scalar_load("t4", "t1", "t2", state_layout.offset, width);
+        self.emit("sub t2, t1, t3");
+        let output_ok_label = self.fresh_label("settle_output_final_state_ok");
+        self.emit(format!("beqz t2, {}", output_ok_label));
+        self.emit("li a0, 21");
+        self.emit_epilogue();
+        self.emit_label(&output_ok_label);
+    }
+
     fn consumed_var_for_type(&self, type_name: &str) -> Option<usize> {
         self.consume_order
             .iter()
@@ -1130,15 +2520,16 @@ impl CodeGenerator {
     fn is_prelude_available_scalar(&self, operand: &IrOperand) -> bool {
         match operand {
             IrOperand::Const(IrConst::Bool(_) | IrConst::U8(_) | IrConst::U16(_) | IrConst::U32(_) | IrConst::U64(_)) => true,
-            IrOperand::Var(var) => {
-                matches!(var.ty, IrType::Bool | IrType::U8 | IrType::U16 | IrType::U32 | IrType::U64)
-                    && (self.param_vars.contains(&var.id)
-                        || self.prelude_scalar_immediates.contains_key(&var.id)
-                        || self.schema_field_value_sources.contains_key(&var.id)
-                        || (var.ty == IrType::U64 && self.prelude_u64_value_sources.contains_key(&var.id)))
-            }
+            IrOperand::Var(var) => matches!(var.ty, IrType::Bool | IrType::U8 | IrType::U16 | IrType::U32 | IrType::U64),
             _ => false,
         }
+    }
+
+    fn is_prelude_available_fixed_value(&self, operand: &IrOperand, expected_width: usize) -> bool {
+        if self.is_prelude_available_scalar(operand) {
+            return true;
+        }
+        self.expected_fixed_byte_source(operand, expected_width).is_some()
     }
 
     fn emit_unaligned_scalar_load(&mut self, base_reg: &str, dest_reg: &str, scratch_reg: &str, offset: usize, width: usize) {
@@ -1170,6 +2561,46 @@ impl CodeGenerator {
                 ));
                 self.emit_spill_abi_arg(abi_index, param.binding.id * 8);
                 if let Some(size_offset) = self.schema_pointer_size_offsets.get(&param.binding.id).copied() {
+                    self.emit_spill_abi_arg(abi_index + 1, size_offset);
+                }
+                abi_index += 2;
+                if let (Some(pointer_offset), Some(size_offset)) = (
+                    self.param_type_hash_pointer_offsets.get(&param.binding.id).copied(),
+                    self.param_type_hash_size_offsets.get(&param.binding.id).copied(),
+                ) {
+                    self.emit(format!(
+                        "# cellscript abi: schema param {} type_hash pointer={} length={} size=32",
+                        param.name,
+                        abi_arg_label(abi_index),
+                        abi_arg_label(abi_index + 1)
+                    ));
+                    self.emit_spill_abi_arg(abi_index, pointer_offset);
+                    self.emit_spill_abi_arg(abi_index + 1, size_offset);
+                    abi_index += 2;
+                }
+            } else if let Some(width) = fixed_byte_pointer_param_width(&param.ty) {
+                self.emit(format!(
+                    "# cellscript abi: fixed-byte param {} pointer={} length={} size={}",
+                    param.name,
+                    abi_arg_label(abi_index),
+                    abi_arg_label(abi_index + 1),
+                    width
+                ));
+                self.emit_spill_abi_arg(abi_index, param.binding.id * 8);
+                if let Some(size_offset) = self.fixed_byte_param_size_offsets.get(&param.binding.id).copied() {
+                    self.emit_spill_abi_arg(abi_index + 1, size_offset);
+                }
+                abi_index += 2;
+            } else if let Some(width) = fixed_aggregate_pointer_param_width(&param.ty) {
+                self.emit(format!(
+                    "# cellscript abi: fixed-aggregate param {} pointer={} length={} size={}",
+                    param.name,
+                    abi_arg_label(abi_index),
+                    abi_arg_label(abi_index + 1),
+                    width
+                ));
+                self.emit_spill_abi_arg(abi_index, param.binding.id * 8);
+                if let Some(size_offset) = self.fixed_byte_param_size_offsets.get(&param.binding.id).copied() {
                     self.emit_spill_abi_arg(abi_index + 1, size_offset);
                 }
                 abi_index += 2;
@@ -1210,6 +2641,12 @@ impl CodeGenerator {
                 self.record_var(dest, max_var_id);
                 self.record_operand(src, max_var_id);
             }
+            IrInstruction::Tuple { dest, fields } => {
+                self.record_var(dest, max_var_id);
+                for field in fields {
+                    self.record_operand(field, max_var_id);
+                }
+            }
             IrInstruction::Binary { dest, left, right, .. } => {
                 self.record_var(dest, max_var_id);
                 self.record_operand(left, max_var_id);
@@ -1224,7 +2661,9 @@ impl CodeGenerator {
                     self.record_operand(arg, max_var_id);
                 }
             }
-            IrInstruction::Consume { operand } | IrInstruction::Destroy { operand } | IrInstruction::Settle { operand } => {
+            IrInstruction::Consume { operand } | IrInstruction::Destroy { operand } => self.record_operand(operand, max_var_id),
+            IrInstruction::Settle { dest, operand } => {
+                self.record_var(dest, max_var_id);
                 self.record_operand(operand, max_var_id)
             }
             IrInstruction::Transfer { dest, operand, to } => {
@@ -1314,6 +2753,19 @@ impl CodeGenerator {
 
     /// 二元运算
     fn emit_binary(&mut self, dest: &IrVar, op: BinaryOp, left: &IrOperand, right: &IrOperand) -> Result<()> {
+        if matches!(op, BinaryOp::Eq | BinaryOp::Ne)
+            && (operand_fixed_byte_width(left).is_some() || operand_fixed_byte_width(right).is_some())
+        {
+            if self.emit_fixed_byte_comparison(dest, op, left, right) {
+                return Ok(());
+            }
+            self.requires_symbolic_runtime = true;
+            self.emit(format!("# binary {:?} over fixed-byte operands", op));
+            self.emit_symbolic_runtime_fail_closed("fixed-byte comparison");
+            self.emit(format!("sd zero, {}(sp)", dest.id * 8));
+            return Ok(());
+        }
+
         // 加载左操作数
         match left {
             IrOperand::Const(IrConst::U64(n)) => self.emit(format!("li t0, {}", n)),
@@ -1386,6 +2838,12 @@ impl CodeGenerator {
         if self.emit_schema_field_access(dest, obj, field) {
             return Ok(());
         }
+        if self.emit_aggregate_field_access(dest, obj, field) {
+            return Ok(());
+        }
+        if self.emit_tuple_call_return_field_access(dest, obj, field) {
+            return Ok(());
+        }
 
         self.requires_symbolic_runtime = true;
         self.emit(format!("# field access .{}", field));
@@ -1414,7 +2872,7 @@ impl CodeGenerator {
         let Some(layout) = self.type_layouts.get(type_name).and_then(|fields| fields.get(field)).cloned() else {
             return false;
         };
-        let Some(width) = fixed_scalar_width(&layout.ty, layout.fixed_size) else {
+        let Some(width) = fixed_byte_width(&layout.ty, layout.fixed_size) else {
             return false;
         };
 
@@ -1427,13 +2885,69 @@ impl CodeGenerator {
             self.emit_loaded_schema_bounds_check(size_offset, layout.offset + width, &format!("{}.{}", type_name, field));
         }
         self.emit(format!("ld t4, {}(sp)", var.id * 8));
-        self.emit_unaligned_scalar_load("t4", "t0", "t2", layout.offset, width);
+        if fixed_scalar_width(&layout.ty, layout.fixed_size).is_some() {
+            self.emit_unaligned_scalar_load("t4", "t0", "t2", layout.offset, width);
+        } else {
+            self.emit(format!("addi t0, t4, {}", layout.offset));
+        }
         self.emit(format!("sd t0, {}(sp)", dest.id * 8));
+        true
+    }
+
+    fn emit_aggregate_field_access(&mut self, dest: &IrVar, obj: &IrOperand, field: &str) -> bool {
+        let IrOperand::Var(var) = obj else {
+            return false;
+        };
+        let Some(source) = self.aggregate_pointer_sources.get(&var.id) else {
+            return false;
+        };
+        let source_ty = source.ty.clone();
+        let Some(layout) = aggregate_field_layout(&source_ty, field) else {
+            return false;
+        };
+        let Some(width) = fixed_byte_width(&layout.ty, layout.fixed_size) else {
+            return false;
+        };
+
+        self.emit(format!("# field access .{}", field));
+        self.emit(format!(
+            "# cellscript abi: fixed aggregate field {}.{} offset={} size={}",
+            aggregate_type_label(&source_ty),
+            field,
+            layout.offset,
+            width
+        ));
+        self.emit(format!("ld t4, {}(sp)", var.id * 8));
+        if fixed_scalar_width(&layout.ty, layout.fixed_size).is_some() {
+            self.emit_unaligned_scalar_load("t4", "t0", "t2", layout.offset, width);
+        } else {
+            self.emit(format!("addi t0, t4, {}", layout.offset));
+        }
+        self.emit(format!("sd t0, {}(sp)", dest.id * 8));
+        true
+    }
+
+    fn emit_tuple_call_return_field_access(&mut self, dest: &IrVar, obj: &IrOperand, field: &str) -> bool {
+        let IrOperand::Var(var) = obj else {
+            return false;
+        };
+        let Some(slot_var_id) = self.tuple_call_return_field_slots.get(&(var.id, field.to_string())).copied() else {
+            return false;
+        };
+        if slot_var_id != dest.id {
+            return false;
+        }
+        self.emit(format!("# field access .{}", field));
+        self.emit(format!("# cellscript abi: tuple call return field .{} projected from return register", field));
         true
     }
 
     /// 数组索引
     fn emit_index(&mut self, dest: &IrVar, arr: &IrOperand, idx: &IrOperand) -> Result<()> {
+        if self.emit_fixed_aggregate_index(dest, arr, idx) {
+            return Ok(());
+        }
+
         self.requires_symbolic_runtime = true;
         self.emit("# index access");
         match arr {
@@ -1453,6 +2967,42 @@ impl CodeGenerator {
         Ok(())
     }
 
+    fn emit_fixed_aggregate_index(&mut self, dest: &IrVar, arr: &IrOperand, idx: &IrOperand) -> bool {
+        let (IrOperand::Var(arr_var), Some(index)) = (arr, const_usize_operand(idx)) else {
+            return false;
+        };
+        if !self.aggregate_pointer_sources.contains_key(&arr_var.id) {
+            return false;
+        }
+        let IrType::Array(inner, len) = &arr_var.ty else {
+            return false;
+        };
+        if index >= *len {
+            return false;
+        }
+        let Some(element_width) = type_static_length(inner) else {
+            return false;
+        };
+        let Some(total_width) = type_static_length(&arr_var.ty) else {
+            return false;
+        };
+        let offset = index * element_width;
+        self.emit(format!("# index access [{}]", index));
+        self.emit(format!("# cellscript abi: fixed aggregate index element_offset={} element_size={}", offset, element_width));
+        if let Some(size_offset) = self.fixed_byte_param_size_offsets.get(&arr_var.id).copied() {
+            self.emit_loaded_schema_exact_size_check(size_offset, total_width, "fixed aggregate param");
+            self.emit_loaded_schema_bounds_check(size_offset, offset + element_width, "fixed aggregate index");
+        }
+        self.emit(format!("ld t4, {}(sp)", arr_var.id * 8));
+        if let Some(width) = fixed_scalar_width(inner, Some(element_width)) {
+            self.emit_unaligned_scalar_load("t4", "t0", "t2", offset, width);
+        } else {
+            self.emit(format!("addi t0, t4, {}", offset));
+        }
+        self.emit(format!("sd t0, {}(sp)", dest.id * 8));
+        true
+    }
+
     fn emit_length(&mut self, dest: &IrVar, operand: &IrOperand) -> Result<()> {
         self.emit("# length");
         if let Some(static_len) = self.static_length(operand) {
@@ -1467,6 +3017,44 @@ impl CodeGenerator {
     }
 
     fn emit_type_hash(&mut self, dest: &IrVar, operand: &IrOperand) -> Result<()> {
+        if let Some(output_index) = self.output_type_hash_sources.get(&dest.id).copied() {
+            let Some(size_offset) = self.cell_buffer_size_offsets.get(&dest.id).copied() else {
+                return Ok(());
+            };
+            let Some(buffer_offset) = self.cell_buffer_offsets.get(&dest.id).copied() else {
+                return Ok(());
+            };
+            self.emit("# type_hash");
+            self.emit_symbolic_operand_comment("type_hash source", operand);
+            self.emit_load_cell_by_field_syscall_to_offsets(
+                "output_type_hash",
+                CKB_SOURCE_OUTPUT,
+                output_index,
+                CKB_CELL_FIELD_TYPE_HASH,
+                size_offset,
+                buffer_offset,
+                32,
+            );
+            self.emit_return_on_syscall_error(1);
+            self.emit_loaded_schema_exact_size_check(size_offset, 32, "output type hash");
+            self.emit(format!("addi t0, sp, {}", buffer_offset));
+            self.emit(format!("sd t0, {}(sp)", dest.id * 8));
+            return Ok(());
+        }
+        if let Some(param_id) = self.param_type_hash_sources.get(&dest.id).copied() {
+            let Some(pointer_offset) = self.param_type_hash_pointer_offsets.get(&param_id).copied() else {
+                return Ok(());
+            };
+            let Some(size_offset) = self.param_type_hash_size_offsets.get(&param_id).copied() else {
+                return Ok(());
+            };
+            self.emit("# type_hash");
+            self.emit_symbolic_operand_comment("type_hash source", operand);
+            self.emit_loaded_schema_exact_size_check(size_offset, 32, "param type hash");
+            self.emit(format!("ld t0, {}(sp)", pointer_offset));
+            self.emit(format!("sd t0, {}(sp)", dest.id * 8));
+            return Ok(());
+        }
         self.requires_symbolic_runtime = true;
         self.emit("# type_hash");
         self.emit(format!("li t0, {}", self.symbolic_type_tag(operand)));
@@ -1531,7 +3119,17 @@ impl CodeGenerator {
 
         // 保存返回值
         if let Some(d) = dest {
-            self.emit(format!("sd a0, {}(sp)", d.id * 8));
+            if let IrType::Tuple(items) = &d.ty {
+                self.emit(format!("sd a0, {}(sp)", d.id * 8));
+                for index in 0..items.len().min(8) {
+                    let field = index.to_string();
+                    if let Some(field_var_id) = self.tuple_call_return_field_slots.get(&(d.id, field)).copied() {
+                        self.emit(format!("sd a{}, {}(sp)", index, field_var_id * 8));
+                    }
+                }
+            } else {
+                self.emit(format!("sd a0, {}(sp)", d.id * 8));
+            }
         }
 
         Ok(())
@@ -1563,6 +3161,24 @@ impl CodeGenerator {
         Ok(())
     }
 
+    fn emit_tuple(&mut self, dest: &IrVar, fields: &[IrOperand]) -> Result<()> {
+        self.emit(format!("# cellscript abi: construct tuple aggregate var{} fields={}", dest.id, fields.len()));
+        self.emit(format!("sd zero, {}(sp)", dest.id * 8));
+        Ok(())
+    }
+
+    fn emit_operand_to_register(&mut self, register: &str, operand: &IrOperand) {
+        match operand {
+            IrOperand::Const(IrConst::U8(n)) => self.emit(format!("li {}, {}", register, n)),
+            IrOperand::Const(IrConst::U16(n)) => self.emit(format!("li {}, {}", register, n)),
+            IrOperand::Const(IrConst::U32(n)) => self.emit(format!("li {}, {}", register, n)),
+            IrOperand::Const(IrConst::U64(n)) => self.emit(format!("li {}, {}", register, n)),
+            IrOperand::Const(IrConst::Bool(b)) => self.emit(format!("li {}, {}", register, if *b { 1 } else { 0 })),
+            IrOperand::Var(v) => self.emit(format!("ld {}, {}(sp)", register, v.id * 8)),
+            _ => self.emit(format!("li {}, 0", register)),
+        }
+    }
+
     /// consume
     fn emit_consume(&mut self, operand: &IrOperand) -> Result<()> {
         self.requires_symbolic_runtime = true;
@@ -1581,6 +3197,7 @@ impl CodeGenerator {
     /// create
     fn emit_create(&mut self, dest: &IrVar, pattern: &CreatePattern) -> Result<()> {
         self.requires_symbolic_runtime = true;
+        self.generate_create(pattern, self.next_virtual_output)?;
         self.emit(format!("# create {}", pattern.ty));
         for (field, value) in &pattern.fields {
             match value {
@@ -1613,12 +3230,14 @@ impl CodeGenerator {
     }
 
     /// destroy
-    fn emit_destroy(&mut self, _operand: &IrOperand) -> Result<()> {
-        self.requires_symbolic_runtime = true;
+    fn emit_destroy(&mut self, operand: &IrOperand) -> Result<()> {
         self.emit("# destroy");
-        if let IrOperand::Var(var) = _operand {
+        if let IrOperand::Var(var) = operand {
             self.emit(format!("sd zero, {}(sp)", var.id * 8));
+            self.emit("# cellscript abi: destroy consumed input is checked by GroupOutput absence scan");
+            return Ok(());
         }
+        self.requires_symbolic_runtime = true;
         self.emit_symbolic_runtime_fail_closed("destroy");
         Ok(())
     }
@@ -1690,10 +3309,13 @@ impl CodeGenerator {
     }
 
     /// settle
-    fn emit_settle(&mut self, operand: &IrOperand) -> Result<()> {
+    fn emit_settle(&mut self, dest: &IrVar, operand: &IrOperand) -> Result<()> {
         self.requires_symbolic_runtime = true;
         self.emit("# settle");
         self.emit_symbolic_operand_comment("value", operand);
+        self.emit(format!("li t0, {}", 0x4000usize + self.next_virtual_output * 0x40));
+        self.emit(format!("sd t0, {}(sp)", dest.id * 8));
+        self.next_virtual_output += 1;
         self.emit_symbolic_runtime_fail_closed("settle");
         Ok(())
     }
@@ -1758,7 +3380,9 @@ fn named_type_name(ty: &IrType) -> Option<&str> {
 
 fn consumed_operand_var(instruction: &IrInstruction) -> Option<&IrVar> {
     let operand = match instruction {
-        IrInstruction::Consume { operand } | IrInstruction::Transfer { operand, .. } | IrInstruction::Settle { operand } => operand,
+        IrInstruction::Consume { operand } | IrInstruction::Transfer { operand, .. } | IrInstruction::Settle { operand, .. } => {
+            operand
+        }
         IrInstruction::Claim { receipt, .. } => receipt,
         _ => return None,
     };
@@ -2733,11 +4357,17 @@ fn align_frame(value: usize) -> usize {
     align_up(value.max(16), 16)
 }
 
+fn is_min_call(func: &str) -> bool {
+    matches!(func, "min" | "math_min" | "__math_min")
+}
+
 fn ckb_source_name(source: u64) -> &'static str {
     match source {
         CKB_SOURCE_INPUT => "Input",
         CKB_SOURCE_OUTPUT => "Output",
         CKB_SOURCE_CELL_DEP => "CellDep",
+        CKB_SOURCE_GROUP_INPUT => "GroupInput",
+        CKB_SOURCE_GROUP_OUTPUT => "GroupOutput",
         _ => "Unknown",
     }
 }

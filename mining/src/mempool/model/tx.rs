@@ -1,5 +1,8 @@
 use crate::mempool::tx::{Priority, RbfPolicy};
-use spora_consensus_core::tx::{CellTx, MutableTransaction, TransactionId, TransactionOutpoint};
+use spora_consensus_core::{
+    block::CellScriptSchedulerAccessList,
+    tx::{CellTx, MutableTransaction, TransactionId, TransactionOutpoint},
+};
 use spora_mining_errors::mempool::RuleError;
 use std::{
     fmt::{Display, Formatter},
@@ -19,6 +22,7 @@ pub(crate) struct MempoolTransaction {
     pub(crate) cell_tx_id: Option<TransactionId>,
     pub(crate) cell_wtxid: Option<[u8; 32]>,
     pub(crate) cell_mirror_kind: CellMirrorKind,
+    cellscript_scheduler_accesses: Option<CellScriptSchedulerAccessList>,
     pub(crate) priority: Priority,
     pub(crate) added_at_daa_score: u64,
 }
@@ -28,28 +32,46 @@ impl MempoolTransaction {
         assert_eq!(mtx.tx.inputs.len(), mtx.entries.len());
         // mtx.tx is already Arc<CellTx> after MutableTransaction migration
         let cell_tx = Some(mtx.tx.clone());
-        Self::new_with_cell_mirror(mtx, cell_tx, CellMirrorKind::DerivedView, priority, added_at_daa_score)
+        Self::new_with_cell_mirror(mtx, cell_tx, CellMirrorKind::DerivedView, None, priority, added_at_daa_score)
     }
 
-    pub(crate) fn new_with_cell_tx(
+    pub(crate) fn new_with_cell_tx_and_cellscript_scheduler_accesses(
         mtx: MutableTransaction,
         cell_tx: Arc<CellTx>,
+        cellscript_scheduler_accesses: Option<CellScriptSchedulerAccessList>,
         priority: Priority,
         added_at_daa_score: u64,
     ) -> Self {
-        Self::new_with_cell_mirror(mtx, Some(cell_tx), CellMirrorKind::CanonicalProvided, priority, added_at_daa_score)
+        Self::new_with_cell_mirror(
+            mtx,
+            Some(cell_tx),
+            CellMirrorKind::CanonicalProvided,
+            cellscript_scheduler_accesses,
+            priority,
+            added_at_daa_score,
+        )
     }
 
     fn new_with_cell_mirror(
         mtx: MutableTransaction,
         cell_tx: Option<Arc<CellTx>>,
         cell_mirror_kind: CellMirrorKind,
+        cellscript_scheduler_accesses: Option<CellScriptSchedulerAccessList>,
         priority: Priority,
         added_at_daa_score: u64,
     ) -> Self {
         assert_eq!(mtx.tx.inputs.len(), mtx.entries.len());
         let cell_tx_id = cell_tx.as_ref().map(|tx| TransactionId::from_bytes(tx.id()));
-        Self { mtx, cell_tx, cell_tx_id, cell_wtxid: None, cell_mirror_kind, priority, added_at_daa_score }
+        Self {
+            mtx,
+            cell_tx,
+            cell_tx_id,
+            cell_wtxid: None,
+            cell_mirror_kind,
+            cellscript_scheduler_accesses,
+            priority,
+            added_at_daa_score,
+        }
     }
 
     pub(crate) fn id(&self) -> TransactionId {
@@ -66,6 +88,10 @@ impl MempoolTransaction {
 
     pub(crate) fn cell_wtxid(&self) -> Option<[u8; 32]> {
         self.cell_wtxid
+    }
+
+    pub(crate) fn cellscript_scheduler_accesses(&self) -> Option<&CellScriptSchedulerAccessList> {
+        self.cellscript_scheduler_accesses.as_ref()
     }
 
     pub(crate) fn has_canonical_cell_tx(&self) -> bool {
@@ -133,6 +159,7 @@ impl From<&DoubleSpend> for RuleError {
 pub(crate) struct TransactionPreValidation {
     pub transaction: MutableTransaction,
     pub cell_tx: Option<Arc<CellTx>>,
+    pub cellscript_scheduler_accesses: Option<CellScriptSchedulerAccessList>,
     pub feerate_threshold: Option<f64>,
 }
 

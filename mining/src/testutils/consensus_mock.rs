@@ -24,7 +24,13 @@ use spora_core::time::unix_now;
 use spora_hashes::ZERO_HASH;
 
 use parking_lot::RwLock;
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::HashMap,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
+};
 
 type CellCollection = HashMap<TransactionOutpoint, CellMeta>;
 
@@ -32,6 +38,7 @@ pub(crate) struct ConsensusMock {
     transactions: RwLock<HashMap<TransactionId, Arc<CellTx>>>,
     statuses: RwLock<HashMap<TransactionId, TxResult<()>>>,
     cells: RwLock<CellCollection>,
+    virtual_daa_score: AtomicU64,
 }
 
 impl ConsensusMock {
@@ -40,7 +47,12 @@ impl ConsensusMock {
             transactions: RwLock::new(HashMap::default()),
             statuses: RwLock::new(HashMap::default()),
             cells: RwLock::new(HashMap::default()),
+            virtual_daa_score: AtomicU64::new(0),
         }
+    }
+
+    pub(crate) fn set_virtual_daa_score(&self, virtual_daa_score: u64) {
+        self.virtual_daa_score.store(virtual_daa_score, Ordering::Relaxed);
     }
 
     pub(crate) fn set_status(&self, transaction_id: TransactionId, status: TxResult<()>) {
@@ -208,7 +220,7 @@ impl ConsensusApi for ConsensusMock {
     }
 
     fn get_virtual_daa_score(&self) -> u64 {
-        0
+        self.virtual_daa_score.load(Ordering::Relaxed)
     }
 
     fn get_virtual_state_approx_id(&self) -> VirtualStateApproxId {

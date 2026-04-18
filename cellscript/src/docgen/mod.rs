@@ -2,7 +2,10 @@
 
 use crate::ast::*;
 use crate::error::Result;
-use crate::CompileMetadata;
+use crate::{
+    CompileMetadata, PoolInvariantMetadata, PoolPrimitiveMetadata, PoolRuntimeInputRequirementMetadata,
+    TransactionRuntimeInputRequirementMetadata, VerifierObligationMetadata,
+};
 use serde::Serialize;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -53,6 +56,10 @@ pub struct AuditDoc {
     pub ckb_runtime_features: Vec<String>,
     pub fail_closed_runtime_features: Vec<String>,
     pub verifier_obligations: Vec<AuditObligationDoc>,
+    pub transaction_invariant_checked_subconditions: Vec<AuditTransactionInvariantSubconditionDoc>,
+    pub transaction_runtime_input_requirements: Vec<TransactionRuntimeInputRequirementMetadata>,
+    pub pool_primitives: Vec<PoolPrimitiveMetadata>,
+    pub pool_runtime_input_requirements: Vec<AuditPoolRuntimeInputRequirementDoc>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -69,6 +76,30 @@ pub struct AuditObligationDoc {
     pub category: String,
     pub feature: String,
     pub status: String,
+    pub detail: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AuditPoolRuntimeInputRequirementDoc {
+    pub scope: String,
+    pub feature: String,
+    pub component: String,
+    pub source: String,
+    pub index: usize,
+    pub binding: String,
+    pub field: Option<String>,
+    pub abi: String,
+    pub byte_len: usize,
+    pub blocker: Option<String>,
+    pub blocker_class: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AuditTransactionInvariantSubconditionDoc {
+    pub scope: String,
+    pub feature: String,
+    pub status: String,
+    pub checked_subconditions: Vec<String>,
     pub detail: String,
 }
 
@@ -135,6 +166,12 @@ impl DocGenerator {
                     detail: obligation.detail.clone(),
                 })
                 .collect(),
+            transaction_invariant_checked_subconditions: transaction_invariant_checked_subcondition_docs(
+                &metadata.runtime.verifier_obligations,
+            ),
+            transaction_runtime_input_requirements: metadata.runtime.transaction_runtime_input_requirements.clone(),
+            pool_primitives: metadata.runtime.pool_primitives.clone(),
+            pool_runtime_input_requirements: pool_runtime_input_requirement_docs(&metadata.runtime.pool_primitives),
         });
     }
 
@@ -185,7 +222,7 @@ impl DocGenerator {
         );
         out.push_str("</head><body><h1>CellScript API Documentation</h1>");
         for module in &self.modules {
-            out.push_str(&format!("<section><h2>Module <code>{}</code></h2>", module.name));
+            out.push_str(&format!("<section><h2>Module <code>{}</code></h2>", escape_html(&module.name)));
             if module.items.is_empty() {
                 out.push_str("<p><em>No documentable items.</em></p></section>");
                 continue;
@@ -252,6 +289,101 @@ impl AuditDoc {
                     escape_markdown_table_cell(&unit.path),
                     escape_markdown_table_cell(&unit.hash_blake3),
                     unit.size_bytes
+                ));
+            }
+            out.push('\n');
+        }
+
+        out.push_str("### Pool Pattern Metadata\n\n");
+        if self.pool_primitives.is_empty() {
+            out.push_str("_No pool pattern metadata emitted._\n\n");
+        } else {
+            out.push_str(
+                "| Scope | Operation | Feature | Status | Invariant Families | Checked Components | Runtime Required | Runtime Input Requirements |\n",
+            );
+            out.push_str("|---|---|---|---|---|---|---|---|\n");
+            for primitive in &self.pool_primitives {
+                out.push_str(&format!(
+                    "| `{}` | `{}` | `{}` | `{}` | {} | {} | {} | {} |\n",
+                    escape_markdown_table_cell(&primitive.scope),
+                    escape_markdown_table_cell(&primitive.operation),
+                    escape_markdown_table_cell(&primitive.feature),
+                    escape_markdown_table_cell(&primitive.status),
+                    escape_markdown_table_cell(&pool_invariant_list(&primitive.invariant_families)),
+                    escape_markdown_table_cell(&comma_or_none(&primitive.checked_components)),
+                    escape_markdown_table_cell(&comma_or_none(&primitive.runtime_required_components)),
+                    escape_markdown_table_cell(&pool_runtime_input_requirement_list(&primitive.runtime_input_requirements))
+                ));
+            }
+            out.push('\n');
+        }
+
+        out.push_str("### Pool Runtime Input Requirements\n\n");
+        if self.pool_runtime_input_requirements.is_empty() {
+            out.push_str("_No pool runtime input requirements emitted._\n\n");
+        } else {
+            out.push_str("| Scope | Feature | Component | Source | Binding | Field | ABI | Bytes | Blocker | Blocker Class |\n");
+            out.push_str("|---|---|---|---|---|---|---|---|---|---|\n");
+            for requirement in &self.pool_runtime_input_requirements {
+                out.push_str(&format!(
+                    "| `{}` | `{}` | `{}` | `{}#{}` | `{}` | `{}` | `{}` | `{}` | {} | `{}` |\n",
+                    escape_markdown_table_cell(&requirement.scope),
+                    escape_markdown_table_cell(&requirement.feature),
+                    escape_markdown_table_cell(&requirement.component),
+                    escape_markdown_table_cell(&requirement.source),
+                    requirement.index,
+                    escape_markdown_table_cell(&requirement.binding),
+                    escape_markdown_table_cell(requirement.field.as_deref().unwrap_or("")),
+                    escape_markdown_table_cell(&requirement.abi),
+                    requirement.byte_len,
+                    escape_markdown_table_cell(requirement.blocker.as_deref().unwrap_or("")),
+                    escape_markdown_table_cell(requirement.blocker_class.as_deref().unwrap_or(""))
+                ));
+            }
+            out.push('\n');
+        }
+
+        out.push_str("### Transaction Invariant Checked Subconditions\n\n");
+        if self.transaction_invariant_checked_subconditions.is_empty() {
+            out.push_str("_No transaction invariant checked subconditions emitted._\n\n");
+        } else {
+            out.push_str("| Scope | Feature | Status | Checked Subconditions | Detail |\n");
+            out.push_str("|---|---|---|---|---|\n");
+            for subcondition in &self.transaction_invariant_checked_subconditions {
+                out.push_str(&format!(
+                    "| `{}` | `{}` | `{}` | {} | {} |\n",
+                    escape_markdown_table_cell(&subcondition.scope),
+                    escape_markdown_table_cell(&subcondition.feature),
+                    escape_markdown_table_cell(&subcondition.status),
+                    escape_markdown_table_cell(&comma_or_none(&subcondition.checked_subconditions)),
+                    escape_markdown_table_cell(&subcondition.detail)
+                ));
+            }
+            out.push('\n');
+        }
+
+        out.push_str("### Transaction Runtime Input Requirements\n\n");
+        if self.transaction_runtime_input_requirements.is_empty() {
+            out.push_str("_No transaction runtime input requirements emitted._\n\n");
+        } else {
+            out.push_str(
+                "| Scope | Feature | Status | Component | Source | Binding | Field | ABI | Bytes | Blocker | Blocker Class |\n",
+            );
+            out.push_str("|---|---|---|---|---|---|---|---|---|---|---|\n");
+            for requirement in &self.transaction_runtime_input_requirements {
+                out.push_str(&format!(
+                    "| `{}` | `{}` | `{}` | `{}` | `{}` | `{}` | `{}` | `{}` | `{}` | {} | {} |\n",
+                    escape_markdown_table_cell(&requirement.scope),
+                    escape_markdown_table_cell(&requirement.feature),
+                    escape_markdown_table_cell(&requirement.status),
+                    escape_markdown_table_cell(&requirement.component),
+                    escape_markdown_table_cell(&requirement.source),
+                    escape_markdown_table_cell(&requirement.binding),
+                    escape_markdown_table_cell(requirement.field.as_deref().unwrap_or("")),
+                    escape_markdown_table_cell(&requirement.abi),
+                    requirement.byte_len.map(|byte_len| byte_len.to_string()).unwrap_or_default(),
+                    escape_markdown_table_cell(requirement.blocker.as_deref().unwrap_or("")),
+                    escape_markdown_table_cell(requirement.blocker_class.as_deref().unwrap_or(""))
                 ));
             }
             out.push('\n');
@@ -332,6 +464,97 @@ impl AuditDoc {
             }
             out.push_str("</tbody></table>");
         }
+        out.push_str("<h3>Pool Pattern Metadata</h3>");
+        if self.pool_primitives.is_empty() {
+            out.push_str("<p><em>No pool pattern metadata emitted.</em></p>");
+        } else {
+            out.push_str(
+                "<table><thead><tr><th>Scope</th><th>Operation</th><th>Feature</th><th>Status</th><th>Invariant Families</th><th>Checked Components</th><th>Runtime Required</th><th>Runtime Input Requirements</th></tr></thead><tbody>",
+            );
+            for primitive in &self.pool_primitives {
+                out.push_str(&format!(
+                    "<tr><td><code>{}</code></td><td><code>{}</code></td><td><code>{}</code></td><td><code>{}</code></td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
+                    escape_html(&primitive.scope),
+                    escape_html(&primitive.operation),
+                    escape_html(&primitive.feature),
+                    escape_html(&primitive.status),
+                    escape_html(&pool_invariant_list(&primitive.invariant_families)),
+                    escape_html(&comma_or_none(&primitive.checked_components)),
+                    escape_html(&comma_or_none(&primitive.runtime_required_components)),
+                    escape_html(&pool_runtime_input_requirement_list(&primitive.runtime_input_requirements))
+                ));
+            }
+            out.push_str("</tbody></table>");
+        }
+        out.push_str("<h3>Pool Runtime Input Requirements</h3>");
+        if self.pool_runtime_input_requirements.is_empty() {
+            out.push_str("<p><em>No pool runtime input requirements emitted.</em></p>");
+        } else {
+            out.push_str(
+                "<table><thead><tr><th>Scope</th><th>Feature</th><th>Component</th><th>Source</th><th>Binding</th><th>Field</th><th>ABI</th><th>Bytes</th><th>Blocker</th><th>Blocker Class</th></tr></thead><tbody>",
+            );
+            for requirement in &self.pool_runtime_input_requirements {
+                out.push_str(&format!(
+                    "<tr><td><code>{}</code></td><td><code>{}</code></td><td><code>{}</code></td><td><code>{}#{}</code></td><td><code>{}</code></td><td><code>{}</code></td><td><code>{}</code></td><td><code>{}</code></td><td>{}</td><td><code>{}</code></td></tr>",
+                    escape_html(&requirement.scope),
+                    escape_html(&requirement.feature),
+                    escape_html(&requirement.component),
+                    escape_html(&requirement.source),
+                    requirement.index,
+                    escape_html(&requirement.binding),
+                    escape_html(requirement.field.as_deref().unwrap_or("")),
+                    escape_html(&requirement.abi),
+                    requirement.byte_len,
+                    escape_html(requirement.blocker.as_deref().unwrap_or("")),
+                    escape_html(requirement.blocker_class.as_deref().unwrap_or(""))
+                ));
+            }
+            out.push_str("</tbody></table>");
+        }
+        out.push_str("<h3>Transaction Invariant Checked Subconditions</h3>");
+        if self.transaction_invariant_checked_subconditions.is_empty() {
+            out.push_str("<p><em>No transaction invariant checked subconditions emitted.</em></p>");
+        } else {
+            out.push_str(
+                "<table><thead><tr><th>Scope</th><th>Feature</th><th>Status</th><th>Checked Subconditions</th><th>Detail</th></tr></thead><tbody>",
+            );
+            for subcondition in &self.transaction_invariant_checked_subconditions {
+                out.push_str(&format!(
+                    "<tr><td><code>{}</code></td><td><code>{}</code></td><td><code>{}</code></td><td>{}</td><td>{}</td></tr>",
+                    escape_html(&subcondition.scope),
+                    escape_html(&subcondition.feature),
+                    escape_html(&subcondition.status),
+                    escape_html(&comma_or_none(&subcondition.checked_subconditions)),
+                    escape_html(&subcondition.detail)
+                ));
+            }
+            out.push_str("</tbody></table>");
+        }
+        out.push_str("<h3>Transaction Runtime Input Requirements</h3>");
+        if self.transaction_runtime_input_requirements.is_empty() {
+            out.push_str("<p><em>No transaction runtime input requirements emitted.</em></p>");
+        } else {
+            out.push_str(
+                "<table><thead><tr><th>Scope</th><th>Feature</th><th>Status</th><th>Component</th><th>Source</th><th>Binding</th><th>Field</th><th>ABI</th><th>Bytes</th><th>Blocker</th><th>Blocker Class</th></tr></thead><tbody>",
+            );
+            for requirement in &self.transaction_runtime_input_requirements {
+                out.push_str(&format!(
+                    "<tr><td><code>{}</code></td><td><code>{}</code></td><td><code>{}</code></td><td><code>{}</code></td><td><code>{}</code></td><td><code>{}</code></td><td><code>{}</code></td><td><code>{}</code></td><td><code>{}</code></td><td>{}</td><td>{}</td></tr>",
+                    escape_html(&requirement.scope),
+                    escape_html(&requirement.feature),
+                    escape_html(&requirement.status),
+                    escape_html(&requirement.component),
+                    escape_html(&requirement.source),
+                    escape_html(&requirement.binding),
+                    escape_html(requirement.field.as_deref().unwrap_or("")),
+                    escape_html(&requirement.abi),
+                    requirement.byte_len.map(|byte_len| byte_len.to_string()).unwrap_or_default(),
+                    escape_html(requirement.blocker.as_deref().unwrap_or("")),
+                    escape_html(requirement.blocker_class.as_deref().unwrap_or(""))
+                ));
+            }
+            out.push_str("</tbody></table>");
+        }
         out.push_str("<h3>Verifier Obligations</h3>");
         if self.verifier_obligations.is_empty() {
             out.push_str("<p><em>No verifier obligations emitted.</em></p></section>");
@@ -360,6 +583,105 @@ fn comma_or_none(values: &[String]) -> String {
         "none".to_string()
     } else {
         values.join(", ")
+    }
+}
+
+fn pool_invariant_list(invariants: &[PoolInvariantMetadata]) -> String {
+    if invariants.is_empty() {
+        "none".to_string()
+    } else {
+        invariants
+            .iter()
+            .map(|invariant| {
+                let blocker = invariant.blocker.as_deref().map(|blocker| format!(" blocker={}", blocker)).unwrap_or_default();
+                let blocker_class =
+                    invariant.blocker_class.as_deref().map(|class| format!(" blocker_class={}", class)).unwrap_or_default();
+                format!("{}={} ({}){}{}", invariant.name, invariant.status, invariant.source, blocker, blocker_class)
+            })
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+}
+
+fn pool_runtime_input_requirement_docs(primitives: &[PoolPrimitiveMetadata]) -> Vec<AuditPoolRuntimeInputRequirementDoc> {
+    primitives
+        .iter()
+        .flat_map(|primitive| {
+            primitive.runtime_input_requirements.iter().map(move |requirement| AuditPoolRuntimeInputRequirementDoc {
+                scope: primitive.scope.clone(),
+                feature: primitive.feature.clone(),
+                component: requirement.component.clone(),
+                source: requirement.source.clone(),
+                index: requirement.index,
+                binding: requirement.binding.clone(),
+                field: requirement.field.clone(),
+                abi: requirement.abi.clone(),
+                byte_len: requirement.byte_len,
+                blocker: requirement.blocker.clone(),
+                blocker_class: requirement.blocker_class.clone(),
+            })
+        })
+        .collect()
+}
+
+fn transaction_invariant_checked_subcondition_docs(
+    obligations: &[VerifierObligationMetadata],
+) -> Vec<AuditTransactionInvariantSubconditionDoc> {
+    obligations
+        .iter()
+        .filter(|obligation| obligation.category == "transaction-invariant" && obligation.status == "runtime-required")
+        .filter_map(|obligation| {
+            let checked_subconditions = checked_runtime_subconditions(&obligation.detail);
+            if checked_subconditions.is_empty() {
+                None
+            } else {
+                Some(AuditTransactionInvariantSubconditionDoc {
+                    scope: obligation.scope.clone(),
+                    feature: obligation.feature.clone(),
+                    status: obligation.status.clone(),
+                    checked_subconditions,
+                    detail: obligation.detail.clone(),
+                })
+            }
+        })
+        .collect()
+}
+
+fn checked_runtime_subconditions(detail: &str) -> Vec<String> {
+    detail
+        .split(|ch: char| ch == ',' || ch == ';' || ch.is_whitespace())
+        .filter_map(|part| part.trim().strip_suffix("=checked-runtime"))
+        .map(|name| name.trim_matches(|ch: char| ch == '`' || ch == '.' || ch == ':').to_string())
+        .filter(|name| !name.is_empty())
+        .collect()
+}
+
+fn pool_runtime_input_requirement_list(requirements: &[PoolRuntimeInputRequirementMetadata]) -> String {
+    if requirements.is_empty() {
+        "none".to_string()
+    } else {
+        requirements
+            .iter()
+            .map(|requirement| {
+                let field = requirement.field.as_deref().map(|field| format!(".{}", field)).unwrap_or_default();
+                let blocker = requirement.blocker.as_deref().map(|blocker| format!(" blocker={}", blocker)).unwrap_or_default();
+                let blocker_class =
+                    requirement.blocker_class.as_deref().map(|class| format!(" blocker_class={}", class)).unwrap_or_default();
+                format!(
+                    "{}={}#{}:{}{}:{}[{}]{}{}",
+                    requirement.component,
+                    requirement.source,
+                    requirement.index,
+                    requirement.binding,
+                    field,
+                    requirement.abi,
+                    requirement.byte_len,
+                    blocker,
+                    blocker_class
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(", ")
     }
 }
 
@@ -528,7 +850,16 @@ fn format_param(param: &Param) -> String {
     }
     rendered.push_str(&param.name);
     rendered.push_str(": ");
-    rendered.push_str(&format_type(&param.ty));
+    if param.is_read_ref {
+        rendered.push_str("read_ref ");
+        let ty = match &param.ty {
+            Type::Ref(inner) => inner.as_ref(),
+            other => other,
+        };
+        rendered.push_str(&format_type(ty));
+    } else {
+        rendered.push_str(&format_type(&param.ty));
+    }
     rendered
 }
 
@@ -580,5 +911,179 @@ action add(x: u64, y: u64) -> u64 {
         assert!(docs.contains("## Module `demo`"));
         assert!(docs.contains("### action `add`"));
         assert!(docs.contains("action add(x: u64, y: u64) -> u64"));
+    }
+
+    #[test]
+    fn docgen_html_escapes_module_and_item_text() {
+        let generator = DocGenerator {
+            modules: vec![ModuleDoc {
+                name: "demo::<script>alert(1)</script>".to_string(),
+                items: vec![ItemDoc {
+                    kind: "action".to_string(),
+                    name: "mint<script>".to_string(),
+                    signature: "action mint<script>() -> u64".to_string(),
+                    summary: "docs <b>must</b> be inert & quoted".to_string(),
+                }],
+            }],
+            audit: None,
+            format: OutputFormat::Html,
+        };
+
+        let docs = generator.generate().unwrap();
+
+        assert!(docs.contains("demo::&lt;script&gt;alert(1)&lt;/script&gt;"));
+        assert!(docs.contains("mint&lt;script&gt;"));
+        assert!(docs.contains("action mint&lt;script&gt;() -&gt; u64"));
+        assert!(docs.contains("docs &lt;b&gt;must&lt;/b&gt; be inert &amp; quoted"));
+        assert!(!docs.contains("<script>alert(1)</script>"));
+        assert!(!docs.contains("<b>must</b>"));
+    }
+
+    #[test]
+    fn docgen_emits_flat_pool_runtime_input_requirements() {
+        let primitive = PoolPrimitiveMetadata {
+            scope: "action:launch_token".to_string(),
+            operation: "composition".to_string(),
+            feature: "pool-composition:Pool".to_string(),
+            ty: "Pool".to_string(),
+            status: "runtime-required".to_string(),
+            source: "call-return".to_string(),
+            checked_components: Vec::new(),
+            runtime_required_components: vec!["pool-id-continuity".to_string()],
+            runtime_input_requirements: vec![PoolRuntimeInputRequirementMetadata {
+                component: "pool-id-continuity".to_string(),
+                source: "CallReturn".to_string(),
+                index: 1,
+                binding: "call_tmp".to_string(),
+                field: Some("1.pool_id".to_string()),
+                abi: "tuple-call-return-field-hash-32".to_string(),
+                byte_len: 32,
+                blocker: Some("deferred beyond Phase 2 controlled-flow boundary".to_string()),
+                blocker_class: Some("phase2-deferred-pool-id-continuity".to_string()),
+            }],
+            invariant_families: Vec::new(),
+            source_invariant_count: 0,
+            binding: Some("call_tmp".to_string()),
+            callee: Some("seed_pool".to_string()),
+            input_source: None,
+            input_index: None,
+            output_source: None,
+            output_index: None,
+            transition_fields: Vec::new(),
+            preserved_fields: Vec::new(),
+        };
+
+        let mut generator = DocGenerator::new(OutputFormat::Markdown);
+        generator.audit = Some(AuditDoc {
+            metadata_schema_version: crate::METADATA_SCHEMA_VERSION,
+            compiler_version: "test".to_string(),
+            module: "demo".to_string(),
+            artifact_format: "RISC-V assembly".to_string(),
+            artifact_hash_blake3: None,
+            artifact_size_bytes: None,
+            source_hash_blake3: None,
+            source_content_hash_blake3: None,
+            source_units: Vec::new(),
+            vm_abi_format: "molecule".to_string(),
+            vm_abi_version: 0x8001,
+            vm_abi_embedded_in_artifact: false,
+            vm_abi_scope: "metadata".to_string(),
+            ckb_runtime_required: false,
+            standalone_runner_compatible: false,
+            symbolic_cell_runtime_required: false,
+            ckb_runtime_features: Vec::new(),
+            fail_closed_runtime_features: Vec::new(),
+            verifier_obligations: Vec::new(),
+            transaction_invariant_checked_subconditions: Vec::new(),
+            transaction_runtime_input_requirements: Vec::new(),
+            pool_primitives: vec![primitive.clone()],
+            pool_runtime_input_requirements: pool_runtime_input_requirement_docs(&[primitive]),
+        });
+
+        let docs = generator.generate().unwrap();
+        assert!(docs.contains("### Pool Runtime Input Requirements"));
+        assert!(docs.contains("`CallReturn#1`"));
+        assert!(docs.contains("`call_tmp`"));
+        assert!(docs.contains("`1.pool_id`"));
+        assert!(docs.contains("`tuple-call-return-field-hash-32`"));
+        assert!(docs.contains("phase2-deferred-pool-id-continuity"));
+    }
+
+    #[test]
+    fn docgen_emits_transaction_invariant_checked_subconditions() {
+        let obligation = crate::VerifierObligationMetadata {
+            scope: "action:claim_vested".to_string(),
+            category: "transaction-invariant".to_string(),
+            feature: "claim-conditions:VestingGrant".to_string(),
+            status: "runtime-required".to_string(),
+            detail: "Source claim predicates are present as daa-cliff-reached=checked-runtime, state-not-fully-claimed=checked-runtime, positive-claimable=checked-runtime, claim-witness-format=checked-runtime, claim-authorization-domain=checked-runtime; signature verification remains runtime-required".to_string(),
+        };
+
+        let mut generator = DocGenerator::new(OutputFormat::Markdown);
+        generator.audit = Some(AuditDoc {
+            metadata_schema_version: crate::METADATA_SCHEMA_VERSION,
+            compiler_version: "test".to_string(),
+            module: "demo".to_string(),
+            artifact_format: "RISC-V assembly".to_string(),
+            artifact_hash_blake3: None,
+            artifact_size_bytes: None,
+            source_hash_blake3: None,
+            source_content_hash_blake3: None,
+            source_units: Vec::new(),
+            vm_abi_format: "molecule".to_string(),
+            vm_abi_version: 0x8001,
+            vm_abi_embedded_in_artifact: false,
+            vm_abi_scope: "metadata".to_string(),
+            ckb_runtime_required: false,
+            standalone_runner_compatible: false,
+            symbolic_cell_runtime_required: false,
+            ckb_runtime_features: Vec::new(),
+            fail_closed_runtime_features: Vec::new(),
+            verifier_obligations: vec![AuditObligationDoc {
+                scope: obligation.scope.clone(),
+                category: obligation.category.clone(),
+                feature: obligation.feature.clone(),
+                status: obligation.status.clone(),
+                detail: obligation.detail.clone(),
+            }],
+            transaction_invariant_checked_subconditions: transaction_invariant_checked_subcondition_docs(&[obligation]),
+            transaction_runtime_input_requirements: vec![TransactionRuntimeInputRequirementMetadata {
+                scope: "action:claim_vested".to_string(),
+                feature: "claim-conditions:VestingGrant".to_string(),
+                status: "runtime-required".to_string(),
+                component: "claim-witness-signature".to_string(),
+                source: "Witness".to_string(),
+                binding: "VestingGrant".to_string(),
+                field: Some("signature".to_string()),
+                abi: "claim-witness-signature-65".to_string(),
+                byte_len: Some(65),
+                blocker: Some(
+                    "claim lowering checks witness shape but has no verifier-coverable signer key binding or secp256k1 verification call"
+                        .to_string(),
+                ),
+                blocker_class: Some("witness-verification-gap".to_string()),
+            }],
+            pool_primitives: Vec::new(),
+            pool_runtime_input_requirements: Vec::new(),
+        });
+
+        let docs = generator.generate().unwrap();
+        assert!(docs.contains("### Transaction Invariant Checked Subconditions"));
+        assert!(docs.contains("### Transaction Runtime Input Requirements"));
+        assert!(docs
+            .contains("| Scope | Feature | Status | Component | Source | Binding | Field | ABI | Bytes | Blocker | Blocker Class |"));
+        assert!(docs.contains("`claim-conditions:VestingGrant`"));
+        assert!(docs.contains("`runtime-required`"));
+        assert!(docs.contains(
+            "claim lowering checks witness shape but has no verifier-coverable signer key binding or secp256k1 verification call"
+        ));
+        assert!(docs.contains("witness-verification-gap"));
+        assert!(docs.contains("daa-cliff-reached"));
+        assert!(docs.contains("state-not-fully-claimed"));
+        assert!(docs.contains("positive-claimable"));
+        assert!(docs.contains("claim-witness-format"));
+        assert!(docs.contains("claim-authorization-domain"));
+        assert!(docs.contains("`claim-witness-signature-65`"));
+        assert!(docs.contains("signature verification remains runtime-required"));
     }
 }

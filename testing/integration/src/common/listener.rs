@@ -16,7 +16,7 @@ impl Listener {
     pub async fn subscribe(client: GrpcClient, scope: Scope) -> RpcResult<Listener> {
         let (sender, receiver) = async_channel::unbounded();
         let connection = ChannelConnection::new("client listener", sender, ChannelType::Closable);
-        let id = client.register_new_listener(connection);
+        let id = client.register_local_listener(connection);
         let event = scope.event_type();
         client.start_notify(id, scope).await?;
         let listener = Listener { client, id, event, receiver };

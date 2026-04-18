@@ -45,8 +45,18 @@ impl Default for CompileOptions {
     }
 }
 
+fn validate_compile_options(options: &CompileOptions) -> Result<()> {
+    if options.opt_level > 3 {
+        return Err(CompileError::without_span(format!("optimization level must be between 0 and 3, got {}", options.opt_level)));
+    }
+    Ok(())
+}
+
 const DEFAULT_TARGET: &str = "riscv64-asm";
-pub const METADATA_SCHEMA_VERSION: u32 = 6;
+pub const METADATA_SCHEMA_VERSION: u32 = 19;
+const METADATA_MUTATE_CELL_BUFFER_SIZE: usize = 256;
+const CLAIM_SIGNER_PUBKEY_HASH_FIELDS: [&str; 5] =
+    ["signer_pubkey_hash", "claim_pubkey_hash", "owner_pubkey_hash", "beneficiary_pubkey_hash", "pubkey_hash"];
 
 /// 编译产物格式
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -160,6 +170,10 @@ pub struct RuntimeMetadata {
     pub fail_closed_runtime_features: Vec<String>,
     pub ckb_runtime_accesses: Vec<CkbRuntimeAccessMetadata>,
     pub verifier_obligations: Vec<VerifierObligationMetadata>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub transaction_runtime_input_requirements: Vec<TransactionRuntimeInputRequirementMetadata>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pool_primitives: Vec<PoolPrimitiveMetadata>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -292,6 +306,10 @@ fn hex_encode(bytes: &[u8]) -> String {
     out
 }
 
+fn is_canonical_blake3_hex(hash: &str) -> bool {
+    hash.len() == 64 && hash.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
 fn bind_artifact_metadata(metadata: &mut CompileMetadata, artifact_bytes: &[u8], artifact_hash: &[u8; 32]) {
     metadata.artifact_hash_blake3 = Some(hex_encode(artifact_hash));
     metadata.artifact_size_bytes = Some(artifact_bytes.len());
@@ -362,9 +380,9 @@ fn validate_source_metadata(metadata: &CompileMetadata) -> Result<()> {
         if unit.role.is_empty() {
             return Err(CompileError::without_span(format!("metadata source unit '{}' has an empty role", unit.path)));
         }
-        if unit.hash_blake3.len() != 64 || !unit.hash_blake3.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        if !is_canonical_blake3_hex(&unit.hash_blake3) {
             return Err(CompileError::without_span(format!(
-                "metadata source unit '{}' has invalid hash_blake3 '{}'",
+                "metadata source unit '{}' has invalid hash_blake3 '{}'; expected 64 lowercase hex characters",
                 unit.path, unit.hash_blake3
             )));
         }
@@ -519,6 +537,85 @@ pub struct VerifierObligationMetadata {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TransactionRuntimeInputRequirementMetadata {
+    pub scope: String,
+    pub feature: String,
+    pub status: String,
+    pub component: String,
+    pub source: String,
+    pub binding: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub field: Option<String>,
+    pub abi: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub byte_len: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub blocker: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub blocker_class: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PoolInvariantMetadata {
+    pub name: String,
+    pub status: String,
+    pub source: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub blocker: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub blocker_class: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PoolRuntimeInputRequirementMetadata {
+    pub component: String,
+    pub source: String,
+    pub index: usize,
+    pub binding: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub field: Option<String>,
+    pub abi: String,
+    pub byte_len: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub blocker: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub blocker_class: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PoolPrimitiveMetadata {
+    pub scope: String,
+    pub operation: String,
+    pub feature: String,
+    pub ty: String,
+    pub status: String,
+    pub source: String,
+    pub checked_components: Vec<String>,
+    pub runtime_required_components: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub runtime_input_requirements: Vec<PoolRuntimeInputRequirementMetadata>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub invariant_families: Vec<PoolInvariantMetadata>,
+    pub source_invariant_count: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub binding: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub callee: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input_source: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input_index: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_source: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_index: Option<usize>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub transition_fields: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub preserved_fields: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TypeMetadata {
     pub name: String,
     pub kind: String,
@@ -559,14 +656,44 @@ pub struct ActionMetadata {
     pub consume_set: Vec<CellPatternMetadata>,
     pub read_refs: Vec<CellPatternMetadata>,
     pub create_set: Vec<CreatePatternMetadata>,
+    pub mutate_set: Vec<MutatePatternMetadata>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pool_primitives: Vec<PoolPrimitiveMetadata>,
     pub ckb_runtime_accesses: Vec<CkbRuntimeAccessMetadata>,
     pub ckb_runtime_features: Vec<String>,
     pub symbolic_runtime_features: Vec<String>,
     pub fail_closed_runtime_features: Vec<String>,
     pub verifier_obligations: Vec<VerifierObligationMetadata>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub transaction_runtime_input_requirements: Vec<TransactionRuntimeInputRequirementMetadata>,
     pub elf_compatible: bool,
     pub standalone_runner_compatible: bool,
     pub block_count: usize,
+}
+
+impl ActionMetadata {
+    /// Decode the compiled CellScript scheduler witness bytes for this action.
+    ///
+    /// Transaction builders can pass the returned bytes to
+    /// `CellTx::push_cellscript_compiled_scheduler_witness` and use the returned
+    /// access summary as the trusted scheduler policy input.
+    pub fn scheduler_witness_bytes(&self) -> Result<Vec<u8>> {
+        decode_scheduler_witness_hex(&self.scheduler_witness_borsh_hex)
+    }
+}
+
+/// Decode a hex-encoded scheduler witness from compile metadata.
+pub fn decode_scheduler_witness_hex(hex: &str) -> Result<Vec<u8>> {
+    if hex.len() % 2 != 0 {
+        return Err(CompileError::without_span("scheduler witness hex string must contain full bytes"));
+    }
+    let mut bytes = Vec::with_capacity(hex.len() / 2);
+    for index in (0..hex.len()).step_by(2) {
+        let byte = u8::from_str_radix(&hex[index..index + 2], 16)
+            .map_err(|error| CompileError::without_span(format!("invalid scheduler witness hex byte at offset {index}: {error}")))?;
+        bytes.push(byte);
+    }
+    Ok(bytes)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -574,11 +701,16 @@ pub struct FunctionMetadata {
     pub name: String,
     pub params: Vec<ParamMetadata>,
     pub return_type: Option<String>,
+    pub mutate_set: Vec<MutatePatternMetadata>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pool_primitives: Vec<PoolPrimitiveMetadata>,
     pub ckb_runtime_accesses: Vec<CkbRuntimeAccessMetadata>,
     pub ckb_runtime_features: Vec<String>,
     pub symbolic_runtime_features: Vec<String>,
     pub fail_closed_runtime_features: Vec<String>,
     pub verifier_obligations: Vec<VerifierObligationMetadata>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub transaction_runtime_input_requirements: Vec<TransactionRuntimeInputRequirementMetadata>,
     pub elf_compatible: bool,
     pub block_count: usize,
 }
@@ -590,11 +722,16 @@ pub struct LockMetadata {
     pub consume_set: Vec<CellPatternMetadata>,
     pub read_refs: Vec<CellPatternMetadata>,
     pub create_set: Vec<CreatePatternMetadata>,
+    pub mutate_set: Vec<MutatePatternMetadata>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pool_primitives: Vec<PoolPrimitiveMetadata>,
     pub ckb_runtime_accesses: Vec<CkbRuntimeAccessMetadata>,
     pub ckb_runtime_features: Vec<String>,
     pub symbolic_runtime_features: Vec<String>,
     pub fail_closed_runtime_features: Vec<String>,
     pub verifier_obligations: Vec<VerifierObligationMetadata>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub transaction_runtime_input_requirements: Vec<TransactionRuntimeInputRequirementMetadata>,
     pub elf_compatible: bool,
     pub standalone_runner_compatible: bool,
     pub block_count: usize,
@@ -608,6 +745,12 @@ pub struct ParamMetadata {
     pub is_ref: bool,
     pub schema_pointer_abi: bool,
     pub schema_length_abi: bool,
+    pub fixed_byte_pointer_abi: bool,
+    pub fixed_byte_length_abi: bool,
+    pub fixed_byte_len: Option<usize>,
+    pub type_hash_pointer_abi: bool,
+    pub type_hash_length_abi: bool,
+    pub type_hash_len: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -627,9 +770,29 @@ pub struct CreatePatternMetadata {
     pub has_lock: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MutatePatternMetadata {
+    pub operation: String,
+    pub ty: String,
+    pub binding: String,
+    pub fields: Vec<String>,
+    pub preserved_fields: Vec<String>,
+    pub input_source: String,
+    pub input_index: usize,
+    pub output_source: String,
+    pub output_index: usize,
+    pub preserve_type_hash: bool,
+    pub preserve_lock_hash: bool,
+    pub type_hash_preservation_status: String,
+    pub lock_hash_preservation_status: String,
+    pub field_equality_status: String,
+    pub field_transition_status: String,
+}
+
 #[derive(Debug, Clone)]
 struct MetadataFieldLayout {
     ty: ir::IrType,
+    offset: usize,
     fixed_size: Option<usize>,
 }
 
@@ -766,6 +929,7 @@ fn compile_ast_with_build(
     resolver: Option<(&ModuleResolver, &str)>,
     build: Option<&CellBuildConfig>,
 ) -> Result<CompileResult> {
+    validate_compile_options(options)?;
     let artifact_format = ArtifactFormat::from_target(resolve_target(options, build))?;
 
     // 3. 类型检查
@@ -1122,11 +1286,14 @@ fn metadata_output_path_from_artifact(artifact_path: &Utf8Path) -> Utf8PathBuf {
 fn compile_metadata_from_ir(ir: &ir::IrModule, artifact_format: ArtifactFormat) -> CompileMetadata {
     let type_layouts = metadata_type_layouts(ir);
     let lifecycle_states = metadata_lifecycle_states(ir);
+    let cell_type_kinds = metadata_cell_type_kinds(ir);
     let unsupported_elf_features = module_symbolic_runtime_features(ir, &type_layouts);
     let fail_closed_runtime_features = module_fail_closed_runtime_features(ir, &type_layouts);
-    let ckb_runtime_features = module_ckb_runtime_features(ir);
-    let ckb_runtime_accesses = module_ckb_runtime_accesses(ir);
-    let verifier_obligations = module_verifier_obligations(ir, &type_layouts, &lifecycle_states);
+    let ckb_runtime_features = module_ckb_runtime_features(ir, &cell_type_kinds, &type_layouts);
+    let ckb_runtime_accesses = module_ckb_runtime_accesses(ir, &cell_type_kinds, &type_layouts);
+    let verifier_obligations = module_verifier_obligations(ir, &type_layouts, &lifecycle_states, &cell_type_kinds);
+    let transaction_runtime_input_requirements = transaction_runtime_input_requirements_from_obligations(&verifier_obligations);
+    let pool_primitives = module_pool_primitive_metadata(ir, &type_layouts, &cell_type_kinds);
     let has_entry_params = module_has_entry_params(ir);
     let ckb_runtime_required = !ckb_runtime_features.is_empty();
     let standalone_runner_compatible = unsupported_elf_features.is_empty() && !ckb_runtime_required && !has_entry_params;
@@ -1181,15 +1348,17 @@ fn compile_metadata_from_ir(ir: &ir::IrModule, artifact_format: ArtifactFormat) 
             fail_closed_runtime_features,
             ckb_runtime_accesses,
             verifier_obligations,
+            transaction_runtime_input_requirements,
+            pool_primitives,
         },
-        types: ir
-            .items
-            .iter()
-            .filter_map(|item| match item {
+        types: {
+            let mut types = ir.external_type_defs.iter().map(type_metadata).collect::<Vec<_>>();
+            types.extend(ir.items.iter().filter_map(|item| match item {
                 ir::IrItem::TypeDef(type_def) => Some(type_metadata(type_def)),
                 _ => None,
-            })
-            .collect(),
+            }));
+            types
+        },
         actions: ir
             .items
             .iter()
@@ -1197,11 +1366,11 @@ fn compile_metadata_from_ir(ir: &ir::IrModule, artifact_format: ArtifactFormat) 
                 ir::IrItem::Action(action) => {
                     let param_schema_vars = schema_pointer_var_ids(&action.body, &action.params);
                     let symbolic_runtime_features =
-                        body_symbolic_runtime_features(&action.body, &param_schema_vars, &type_layouts);
+                        body_symbolic_runtime_features(&action.body, &param_schema_vars, &type_layouts, &action.params);
                     let fail_closed_runtime_features =
-                        body_fail_closed_runtime_features(&action.body, &param_schema_vars, &type_layouts);
-                    let ckb_runtime_features = body_ckb_runtime_features(&action.body);
-                    let ckb_runtime_accesses = body_ckb_runtime_accesses(&action.body);
+                        body_fail_closed_runtime_features(&action.body, &param_schema_vars, &type_layouts, &action.params);
+                    let ckb_runtime_features = body_ckb_runtime_features(&action.name, &action.body, &cell_type_kinds, &type_layouts);
+                    let ckb_runtime_accesses = body_ckb_runtime_accesses(&action.name, &action.body, &cell_type_kinds, &type_layouts);
                     let verifier_obligations = body_verifier_obligations(
                         "action",
                         &action.name,
@@ -1210,13 +1379,26 @@ fn compile_metadata_from_ir(ir: &ir::IrModule, artifact_format: ArtifactFormat) 
                         &fail_closed_runtime_features,
                         &ckb_runtime_features,
                         &ckb_runtime_accesses,
+                        &type_layouts,
+                        &action.params,
                         &lifecycle_states,
+                        &cell_type_kinds,
                     );
+                    let pool_primitives = body_pool_primitive_metadata(
+                        "action",
+                        &action.name,
+                        &action.body,
+                        &action.params,
+                        &type_layouts,
+                        &cell_type_kinds,
+                    );
+                    let transaction_runtime_input_requirements =
+                        transaction_runtime_input_requirements_from_obligations(&verifier_obligations);
                     let standalone_runner_compatible =
                         symbolic_runtime_features.is_empty() && ckb_runtime_features.is_empty() && action.params.is_empty();
                     Some(ActionMetadata {
                         name: action.name.clone(),
-                        params: action.params.iter().map(param_metadata).collect(),
+                        params: param_metadata_for_body(&action.params, &action.body),
                         effect_class: format!("{:?}", action.effect_class),
                         parallelizable: action.scheduler_hints.parallelizable,
                         touches_shared: action.scheduler_hints.touches_shared.iter().map(|hash| hex_hash(hash)).collect(),
@@ -1231,6 +1413,8 @@ fn compile_metadata_from_ir(ir: &ir::IrModule, artifact_format: ArtifactFormat) 
                         consume_set: action.body.consume_set.iter().map(cell_pattern_metadata).collect(),
                         read_refs: action.body.read_refs.iter().map(cell_pattern_metadata).collect(),
                         create_set: action.body.create_set.iter().map(create_pattern_metadata).collect(),
+                        mutate_set: action.body.mutate_set.iter().map(|pattern| mutate_pattern_metadata(pattern, &type_layouts)).collect(),
+                        pool_primitives,
                         ckb_runtime_accesses,
                         ckb_runtime_features,
                         elf_compatible: symbolic_runtime_features.is_empty(),
@@ -1238,6 +1422,7 @@ fn compile_metadata_from_ir(ir: &ir::IrModule, artifact_format: ArtifactFormat) 
                         symbolic_runtime_features,
                         fail_closed_runtime_features,
                         verifier_obligations,
+                        transaction_runtime_input_requirements,
                         block_count: action.body.blocks.len(),
                     })
                 }
@@ -1251,11 +1436,12 @@ fn compile_metadata_from_ir(ir: &ir::IrModule, artifact_format: ArtifactFormat) 
                 ir::IrItem::PureFn(function) => {
                     let param_schema_vars = schema_pointer_var_ids(&function.body, &function.params);
                     let symbolic_runtime_features =
-                        body_symbolic_runtime_features(&function.body, &param_schema_vars, &type_layouts);
+                        body_symbolic_runtime_features(&function.body, &param_schema_vars, &type_layouts, &function.params);
                     let fail_closed_runtime_features =
-                        body_fail_closed_runtime_features(&function.body, &param_schema_vars, &type_layouts);
-                    let ckb_runtime_features = body_ckb_runtime_features(&function.body);
-                    let ckb_runtime_accesses = body_ckb_runtime_accesses(&function.body);
+                        body_fail_closed_runtime_features(&function.body, &param_schema_vars, &type_layouts, &function.params);
+                    let ckb_runtime_features = body_ckb_runtime_features(&function.name, &function.body, &cell_type_kinds, &type_layouts);
+                    let ckb_runtime_accesses =
+                        body_ckb_runtime_accesses(&function.name, &function.body, &cell_type_kinds, &type_layouts);
                     let verifier_obligations = body_verifier_obligations(
                         "fn",
                         &function.name,
@@ -1264,18 +1450,34 @@ fn compile_metadata_from_ir(ir: &ir::IrModule, artifact_format: ArtifactFormat) 
                         &fail_closed_runtime_features,
                         &ckb_runtime_features,
                         &ckb_runtime_accesses,
+                        &type_layouts,
+                        &function.params,
                         &lifecycle_states,
+                        &cell_type_kinds,
                     );
+                    let pool_primitives = body_pool_primitive_metadata(
+                        "fn",
+                        &function.name,
+                        &function.body,
+                        &function.params,
+                        &type_layouts,
+                        &cell_type_kinds,
+                    );
+                    let transaction_runtime_input_requirements =
+                        transaction_runtime_input_requirements_from_obligations(&verifier_obligations);
                     Some(FunctionMetadata {
                         name: function.name.clone(),
-                        params: function.params.iter().map(param_metadata).collect(),
+                        params: param_metadata_for_body(&function.params, &function.body),
                         return_type: function.return_type.as_ref().map(ir_type_to_string),
+                        mutate_set: function.body.mutate_set.iter().map(|pattern| mutate_pattern_metadata(pattern, &type_layouts)).collect(),
+                        pool_primitives,
                         ckb_runtime_accesses,
                         ckb_runtime_features,
                         elf_compatible: symbolic_runtime_features.is_empty(),
                         symbolic_runtime_features,
                         fail_closed_runtime_features,
                         verifier_obligations,
+                        transaction_runtime_input_requirements,
                         block_count: function.body.blocks.len(),
                     })
                 }
@@ -1289,11 +1491,11 @@ fn compile_metadata_from_ir(ir: &ir::IrModule, artifact_format: ArtifactFormat) 
                 ir::IrItem::Lock(lock) => {
                     let param_schema_vars = schema_pointer_var_ids(&lock.body, &lock.params);
                     let symbolic_runtime_features =
-                        body_symbolic_runtime_features(&lock.body, &param_schema_vars, &type_layouts);
+                        body_symbolic_runtime_features(&lock.body, &param_schema_vars, &type_layouts, &lock.params);
                     let fail_closed_runtime_features =
-                        body_fail_closed_runtime_features(&lock.body, &param_schema_vars, &type_layouts);
-                    let ckb_runtime_features = body_ckb_runtime_features(&lock.body);
-                    let ckb_runtime_accesses = body_ckb_runtime_accesses(&lock.body);
+                        body_fail_closed_runtime_features(&lock.body, &param_schema_vars, &type_layouts, &lock.params);
+                    let ckb_runtime_features = body_ckb_runtime_features(&lock.name, &lock.body, &cell_type_kinds, &type_layouts);
+                    let ckb_runtime_accesses = body_ckb_runtime_accesses(&lock.name, &lock.body, &cell_type_kinds, &type_layouts);
                     let verifier_obligations = body_verifier_obligations(
                         "lock",
                         &lock.name,
@@ -1302,16 +1504,25 @@ fn compile_metadata_from_ir(ir: &ir::IrModule, artifact_format: ArtifactFormat) 
                         &fail_closed_runtime_features,
                         &ckb_runtime_features,
                         &ckb_runtime_accesses,
+                        &type_layouts,
+                        &lock.params,
                         &lifecycle_states,
+                        &cell_type_kinds,
                     );
+                    let pool_primitives =
+                        body_pool_primitive_metadata("lock", &lock.name, &lock.body, &lock.params, &type_layouts, &cell_type_kinds);
+                    let transaction_runtime_input_requirements =
+                        transaction_runtime_input_requirements_from_obligations(&verifier_obligations);
                     let standalone_runner_compatible =
                         symbolic_runtime_features.is_empty() && ckb_runtime_features.is_empty() && lock.params.is_empty();
                     Some(LockMetadata {
                         name: lock.name.clone(),
-                        params: lock.params.iter().map(param_metadata).collect(),
+                        params: param_metadata_for_body(&lock.params, &lock.body),
                         consume_set: lock.body.consume_set.iter().map(cell_pattern_metadata).collect(),
                         read_refs: lock.body.read_refs.iter().map(cell_pattern_metadata).collect(),
                         create_set: lock.body.create_set.iter().map(create_pattern_metadata).collect(),
+                        mutate_set: lock.body.mutate_set.iter().map(|pattern| mutate_pattern_metadata(pattern, &type_layouts)).collect(),
+                        pool_primitives,
                         ckb_runtime_accesses,
                         ckb_runtime_features,
                         elf_compatible: symbolic_runtime_features.is_empty(),
@@ -1319,6 +1530,7 @@ fn compile_metadata_from_ir(ir: &ir::IrModule, artifact_format: ArtifactFormat) 
                         symbolic_runtime_features,
                         fail_closed_runtime_features,
                         verifier_obligations,
+                        transaction_runtime_input_requirements,
                         block_count: lock.body.blocks.len(),
                     })
                 }
@@ -1334,15 +1546,15 @@ fn module_symbolic_runtime_features(ir: &ir::IrModule, type_layouts: &MetadataTy
         match item {
             ir::IrItem::Action(action) => {
                 let param_schema_vars = schema_pointer_var_ids(&action.body, &action.params);
-                features.extend(body_symbolic_runtime_features(&action.body, &param_schema_vars, type_layouts));
+                features.extend(body_symbolic_runtime_features(&action.body, &param_schema_vars, type_layouts, &action.params));
             }
             ir::IrItem::PureFn(function) => {
                 let param_schema_vars = schema_pointer_var_ids(&function.body, &function.params);
-                features.extend(body_symbolic_runtime_features(&function.body, &param_schema_vars, type_layouts));
+                features.extend(body_symbolic_runtime_features(&function.body, &param_schema_vars, type_layouts, &function.params));
             }
             ir::IrItem::Lock(lock) => {
                 let param_schema_vars = schema_pointer_var_ids(&lock.body, &lock.params);
-                features.extend(body_symbolic_runtime_features(&lock.body, &param_schema_vars, type_layouts));
+                features.extend(body_symbolic_runtime_features(&lock.body, &param_schema_vars, type_layouts, &lock.params));
             }
             ir::IrItem::TypeDef(_) => {}
         }
@@ -1356,15 +1568,15 @@ fn module_fail_closed_runtime_features(ir: &ir::IrModule, type_layouts: &Metadat
         match item {
             ir::IrItem::Action(action) => {
                 let param_schema_vars = schema_pointer_var_ids(&action.body, &action.params);
-                features.extend(body_fail_closed_runtime_features(&action.body, &param_schema_vars, type_layouts));
+                features.extend(body_fail_closed_runtime_features(&action.body, &param_schema_vars, type_layouts, &action.params));
             }
             ir::IrItem::PureFn(function) => {
                 let param_schema_vars = schema_pointer_var_ids(&function.body, &function.params);
-                features.extend(body_fail_closed_runtime_features(&function.body, &param_schema_vars, type_layouts));
+                features.extend(body_fail_closed_runtime_features(&function.body, &param_schema_vars, type_layouts, &function.params));
             }
             ir::IrItem::Lock(lock) => {
                 let param_schema_vars = schema_pointer_var_ids(&lock.body, &lock.params);
-                features.extend(body_fail_closed_runtime_features(&lock.body, &param_schema_vars, type_layouts));
+                features.extend(body_fail_closed_runtime_features(&lock.body, &param_schema_vars, type_layouts, &lock.params));
             }
             ir::IrItem::TypeDef(_) => {}
         }
@@ -1372,26 +1584,46 @@ fn module_fail_closed_runtime_features(ir: &ir::IrModule, type_layouts: &Metadat
     features.into_iter().collect()
 }
 
-fn module_ckb_runtime_accesses(ir: &ir::IrModule) -> Vec<CkbRuntimeAccessMetadata> {
+fn module_ckb_runtime_accesses(
+    ir: &ir::IrModule,
+    cell_type_kinds: &HashMap<String, ir::IrTypeKind>,
+    type_layouts: &MetadataTypeLayouts,
+) -> Vec<CkbRuntimeAccessMetadata> {
     let mut accesses = Vec::new();
     for item in &ir.items {
         match item {
-            ir::IrItem::Action(action) => accesses.extend(body_ckb_runtime_accesses(&action.body)),
-            ir::IrItem::PureFn(function) => accesses.extend(body_ckb_runtime_accesses(&function.body)),
-            ir::IrItem::Lock(lock) => accesses.extend(body_ckb_runtime_accesses(&lock.body)),
+            ir::IrItem::Action(action) => {
+                accesses.extend(body_ckb_runtime_accesses(&action.name, &action.body, cell_type_kinds, type_layouts))
+            }
+            ir::IrItem::PureFn(function) => {
+                accesses.extend(body_ckb_runtime_accesses(&function.name, &function.body, cell_type_kinds, type_layouts))
+            }
+            ir::IrItem::Lock(lock) => {
+                accesses.extend(body_ckb_runtime_accesses(&lock.name, &lock.body, cell_type_kinds, type_layouts))
+            }
             ir::IrItem::TypeDef(_) => {}
         }
     }
     accesses
 }
 
-fn module_ckb_runtime_features(ir: &ir::IrModule) -> Vec<String> {
+fn module_ckb_runtime_features(
+    ir: &ir::IrModule,
+    cell_type_kinds: &HashMap<String, ir::IrTypeKind>,
+    type_layouts: &MetadataTypeLayouts,
+) -> Vec<String> {
     let mut features = BTreeSet::new();
     for item in &ir.items {
         match item {
-            ir::IrItem::Action(action) => features.extend(body_ckb_runtime_features(&action.body)),
-            ir::IrItem::PureFn(function) => features.extend(body_ckb_runtime_features(&function.body)),
-            ir::IrItem::Lock(lock) => features.extend(body_ckb_runtime_features(&lock.body)),
+            ir::IrItem::Action(action) => {
+                features.extend(body_ckb_runtime_features(&action.name, &action.body, cell_type_kinds, type_layouts))
+            }
+            ir::IrItem::PureFn(function) => {
+                features.extend(body_ckb_runtime_features(&function.name, &function.body, cell_type_kinds, type_layouts))
+            }
+            ir::IrItem::Lock(lock) => {
+                features.extend(body_ckb_runtime_features(&lock.name, &lock.body, cell_type_kinds, type_layouts))
+            }
             ir::IrItem::TypeDef(_) => {}
         }
     }
@@ -1402,16 +1634,19 @@ fn module_verifier_obligations(
     ir: &ir::IrModule,
     type_layouts: &MetadataTypeLayouts,
     lifecycle_states: &HashMap<String, Vec<String>>,
+    cell_type_kinds: &HashMap<String, ir::IrTypeKind>,
 ) -> Vec<VerifierObligationMetadata> {
     let mut obligations = Vec::new();
     for item in &ir.items {
         match item {
             ir::IrItem::Action(action) => {
                 let param_schema_vars = schema_pointer_var_ids(&action.body, &action.params);
-                let symbolic_runtime_features = body_symbolic_runtime_features(&action.body, &param_schema_vars, type_layouts);
-                let fail_closed_runtime_features = body_fail_closed_runtime_features(&action.body, &param_schema_vars, type_layouts);
-                let ckb_runtime_features = body_ckb_runtime_features(&action.body);
-                let ckb_runtime_accesses = body_ckb_runtime_accesses(&action.body);
+                let symbolic_runtime_features =
+                    body_symbolic_runtime_features(&action.body, &param_schema_vars, type_layouts, &action.params);
+                let fail_closed_runtime_features =
+                    body_fail_closed_runtime_features(&action.body, &param_schema_vars, type_layouts, &action.params);
+                let ckb_runtime_features = body_ckb_runtime_features(&action.name, &action.body, cell_type_kinds, type_layouts);
+                let ckb_runtime_accesses = body_ckb_runtime_accesses(&action.name, &action.body, cell_type_kinds, type_layouts);
                 obligations.extend(body_verifier_obligations(
                     "action",
                     &action.name,
@@ -1420,15 +1655,20 @@ fn module_verifier_obligations(
                     &fail_closed_runtime_features,
                     &ckb_runtime_features,
                     &ckb_runtime_accesses,
+                    type_layouts,
+                    &action.params,
                     lifecycle_states,
+                    cell_type_kinds,
                 ));
             }
             ir::IrItem::PureFn(function) => {
                 let param_schema_vars = schema_pointer_var_ids(&function.body, &function.params);
-                let symbolic_runtime_features = body_symbolic_runtime_features(&function.body, &param_schema_vars, type_layouts);
-                let fail_closed_runtime_features = body_fail_closed_runtime_features(&function.body, &param_schema_vars, type_layouts);
-                let ckb_runtime_features = body_ckb_runtime_features(&function.body);
-                let ckb_runtime_accesses = body_ckb_runtime_accesses(&function.body);
+                let symbolic_runtime_features =
+                    body_symbolic_runtime_features(&function.body, &param_schema_vars, type_layouts, &function.params);
+                let fail_closed_runtime_features =
+                    body_fail_closed_runtime_features(&function.body, &param_schema_vars, type_layouts, &function.params);
+                let ckb_runtime_features = body_ckb_runtime_features(&function.name, &function.body, cell_type_kinds, type_layouts);
+                let ckb_runtime_accesses = body_ckb_runtime_accesses(&function.name, &function.body, cell_type_kinds, type_layouts);
                 obligations.extend(body_verifier_obligations(
                     "fn",
                     &function.name,
@@ -1437,15 +1677,20 @@ fn module_verifier_obligations(
                     &fail_closed_runtime_features,
                     &ckb_runtime_features,
                     &ckb_runtime_accesses,
+                    type_layouts,
+                    &function.params,
                     lifecycle_states,
+                    cell_type_kinds,
                 ));
             }
             ir::IrItem::Lock(lock) => {
                 let param_schema_vars = schema_pointer_var_ids(&lock.body, &lock.params);
-                let symbolic_runtime_features = body_symbolic_runtime_features(&lock.body, &param_schema_vars, type_layouts);
-                let fail_closed_runtime_features = body_fail_closed_runtime_features(&lock.body, &param_schema_vars, type_layouts);
-                let ckb_runtime_features = body_ckb_runtime_features(&lock.body);
-                let ckb_runtime_accesses = body_ckb_runtime_accesses(&lock.body);
+                let symbolic_runtime_features =
+                    body_symbolic_runtime_features(&lock.body, &param_schema_vars, type_layouts, &lock.params);
+                let fail_closed_runtime_features =
+                    body_fail_closed_runtime_features(&lock.body, &param_schema_vars, type_layouts, &lock.params);
+                let ckb_runtime_features = body_ckb_runtime_features(&lock.name, &lock.body, cell_type_kinds, type_layouts);
+                let ckb_runtime_accesses = body_ckb_runtime_accesses(&lock.name, &lock.body, cell_type_kinds, type_layouts);
                 obligations.extend(body_verifier_obligations(
                     "lock",
                     &lock.name,
@@ -1454,13 +1699,60 @@ fn module_verifier_obligations(
                     &fail_closed_runtime_features,
                     &ckb_runtime_features,
                     &ckb_runtime_accesses,
+                    type_layouts,
+                    &lock.params,
                     lifecycle_states,
+                    cell_type_kinds,
                 ));
             }
             ir::IrItem::TypeDef(_) => {}
         }
     }
     obligations
+}
+
+fn module_pool_primitive_metadata(
+    ir: &ir::IrModule,
+    type_layouts: &MetadataTypeLayouts,
+    cell_type_kinds: &HashMap<String, ir::IrTypeKind>,
+) -> Vec<PoolPrimitiveMetadata> {
+    let mut pool_primitives = Vec::new();
+    for item in &ir.items {
+        match item {
+            ir::IrItem::Action(action) => {
+                pool_primitives.extend(body_pool_primitive_metadata(
+                    "action",
+                    &action.name,
+                    &action.body,
+                    &action.params,
+                    type_layouts,
+                    cell_type_kinds,
+                ));
+            }
+            ir::IrItem::PureFn(function) => {
+                pool_primitives.extend(body_pool_primitive_metadata(
+                    "fn",
+                    &function.name,
+                    &function.body,
+                    &function.params,
+                    type_layouts,
+                    cell_type_kinds,
+                ));
+            }
+            ir::IrItem::Lock(lock) => {
+                pool_primitives.extend(body_pool_primitive_metadata(
+                    "lock",
+                    &lock.name,
+                    &lock.body,
+                    &lock.params,
+                    type_layouts,
+                    cell_type_kinds,
+                ));
+            }
+            ir::IrItem::TypeDef(_) => {}
+        }
+    }
+    pool_primitives
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1472,7 +1764,10 @@ fn body_verifier_obligations(
     fail_closed_runtime_features: &[String],
     ckb_runtime_features: &[String],
     ckb_runtime_accesses: &[CkbRuntimeAccessMetadata],
+    type_layouts: &MetadataTypeLayouts,
+    params: &[ir::IrParam],
     lifecycle_states: &HashMap<String, Vec<String>>,
+    cell_type_kinds: &HashMap<String, ir::IrTypeKind>,
 ) -> Vec<VerifierObligationMetadata> {
     let scope = format!("{}:{}", scope_kind, name);
     let fail_closed = fail_closed_runtime_features.iter().cloned().collect::<BTreeSet<_>>();
@@ -1516,16 +1811,16 @@ fn body_verifier_obligations(
         );
     }
 
-    for check in body_transaction_resource_obligations(body) {
-        push_verifier_obligation(
-            &mut obligations,
-            &mut seen,
-            &scope,
-            "transaction-invariant",
-            &check.feature,
-            "runtime-required",
-            &check.detail,
-        );
+    for check in body_transaction_resource_obligations(name, body, type_layouts, params, lifecycle_states, cell_type_kinds) {
+        push_verifier_obligation(&mut obligations, &mut seen, &scope, check.category, &check.feature, check.status, &check.detail);
+    }
+
+    for check in body_mutable_cell_state_obligations(body, params, cell_type_kinds, type_layouts) {
+        push_verifier_obligation(&mut obligations, &mut seen, &scope, check.category, &check.feature, check.status, &check.detail);
+    }
+
+    for check in body_pool_primitive_obligations(body, cell_type_kinds) {
+        push_verifier_obligation(&mut obligations, &mut seen, &scope, check.category, &check.feature, check.status, &check.detail);
     }
 
     for feature in symbolic_runtime_features {
@@ -1564,15 +1859,15 @@ fn body_verifier_obligations(
         );
     }
 
-    for ty in body_lifecycle_transition_types(body, lifecycle_states) {
+    for check in body_lifecycle_transition_checks(body, lifecycle_states, type_layouts, params) {
         push_verifier_obligation(
             &mut obligations,
             &mut seen,
             &scope,
             "lifecycle-transition",
-            &format!("{}.state", ty),
-            "checked-partial",
-            "Compiler emits declaration/static checks and, for complete fixed-scalar output verifiers, runtime old_state + 1 and state range checks",
+            &format!("{}.state", check.feature),
+            &check.status,
+            &check.detail,
         );
     }
 
@@ -1581,6 +1876,13 @@ fn body_verifier_obligations(
 
 struct StaticResourceOperationCheck {
     feature: String,
+    detail: String,
+}
+
+struct TransactionResourceObligation {
+    category: &'static str,
+    feature: String,
+    status: &'static str,
     detail: String,
 }
 
@@ -1622,7 +1924,7 @@ fn body_static_resource_operation_checks(body: &ir::IrBody) -> Vec<StaticResourc
                         });
                     }
                 }
-                ir::IrInstruction::Settle { operand } => {
+                ir::IrInstruction::Settle { operand, .. } => {
                     if let Some(type_name) = operand_named_type_name(operand) {
                         checks.push(StaticResourceOperationCheck {
                             feature: format!("settle:{}", type_name),
@@ -1640,69 +1942,2543 @@ fn body_static_resource_operation_checks(body: &ir::IrBody) -> Vec<StaticResourc
     checks
 }
 
-fn body_transaction_resource_obligations(body: &ir::IrBody) -> Vec<StaticResourceOperationCheck> {
+fn body_transaction_resource_obligations(
+    name: &str,
+    body: &ir::IrBody,
+    type_layouts: &MetadataTypeLayouts,
+    params: &[ir::IrParam],
+    lifecycle_states: &HashMap<String, Vec<String>>,
+    cell_type_kinds: &HashMap<String, ir::IrTypeKind>,
+) -> Vec<TransactionResourceObligation> {
+    let param_schema_vars = schema_pointer_var_ids(body, params);
+    let availability = metadata_prelude_availability(body, &param_schema_vars, type_layouts, params);
     let mut checks = Vec::new();
     for block in &body.blocks {
         for instruction in &block.instructions {
             match instruction {
                 ir::IrInstruction::Transfer { operand, .. } => {
                     if let Some(type_name) = operand_named_type_name(operand) {
-                        checks.push(StaticResourceOperationCheck {
+                        let lock_rebinding_detail = if transfer_lock_rebinding_is_checked(body, &availability, &type_name) {
+                            "; transfer-lock-rebinding=checked-runtime; transfer-destination-address-binding=checked-runtime"
+                        } else {
+                            ""
+                        };
+                        checks.push(TransactionResourceObligation {
+                            category: "transaction-invariant",
                             feature: format!("transfer-output:{}", type_name),
+                            status: "runtime-required",
                             detail: format!(
-                                "Runtime verifier must prove the consumed '{}' cell data is preserved in exactly the intended output and that the output lock is rebound to the transfer destination",
-                                type_name
+                                "Runtime verifier must prove the consumed '{}' cell data is preserved in exactly the intended output and that the output lock is rebound to the transfer destination{}",
+                                type_name, lock_rebinding_detail
                             ),
                         });
                     }
                 }
                 ir::IrInstruction::Destroy { operand } => {
                     if let Some(type_name) = operand_named_type_name(operand) {
-                        checks.push(StaticResourceOperationCheck {
+                        let binding = operand_var_name(operand).unwrap_or(&type_name);
+                        let scan_detail = if destroy_group_output_absence_scan_is_checked(body, &type_name, binding) {
+                            "; destroy-output-absence=checked-runtime; destroy-group-boundary=checked-runtime"
+                        } else {
+                            ""
+                        };
+                        checks.push(TransactionResourceObligation {
+                            category: "transaction-invariant",
                             feature: format!("destroy-output-scan:{}", type_name),
+                            status: if scan_detail.is_empty() { "runtime-required" } else { "checked-runtime" },
                             detail: format!(
-                                "Runtime verifier must scan transaction outputs or equivalent grouped outputs to prove the destroyed '{}' instance is not recreated by the same state transition",
-                                type_name
+                                "Runtime verifier must scan grouped outputs to prove the destroyed '{}' instance is not recreated by the same state transition{}",
+                                type_name, scan_detail
                             ),
                         });
                     }
                 }
                 ir::IrInstruction::Claim { dest, receipt } => {
                     if let Some(type_name) = operand_named_type_name(receipt) {
-                        checks.push(StaticResourceOperationCheck {
+                        checks.push(TransactionResourceObligation {
+                            category: "transaction-invariant",
                             feature: format!("claim-conditions:{}", type_name),
-                            detail: format!(
-                                "Runtime verifier must bind '{}' claim conditions to witness/signature/time context and verify the claimed output relation",
-                                type_name
+                            status: "runtime-required",
+                            detail: transaction_condition_detail(
+                                body,
+                                type_layouts,
+                                &availability,
+                                lifecycle_states,
+                                "claim",
+                                receipt,
+                                &type_name,
                             ),
                         });
                     }
                     if let Some(type_name) = named_type_name(&dest.ty) {
-                        checks.push(StaticResourceOperationCheck {
-                            feature: format!("claim-output:{}", type_name),
-                            detail: format!(
+                        checks.push(transaction_output_obligation(
+                            body,
+                            type_layouts,
+                            &availability,
+                            "claim",
+                            &dest.name,
+                            type_name,
+                            format!(
+                                "Compiler-emitted runtime verifier checks the claim-created '{}' output fields that are statically bound to the consumed receipt; witness/time-lock claim conditions remain separate runtime obligations",
+                                type_name
+                            ),
+                            format!(
                                 "Runtime verifier must prove claim creates the declared '{}' output cell and binds its fields to the consumed receipt semantics",
                                 type_name
                             ),
-                        });
+                        ));
                     }
                 }
-                ir::IrInstruction::Settle { operand } => {
+                ir::IrInstruction::Settle { dest, operand } => {
                     if let Some(type_name) = operand_named_type_name(operand) {
-                        checks.push(StaticResourceOperationCheck {
+                        checks.push(TransactionResourceObligation {
+                            category: "transaction-invariant",
                             feature: format!("settle-finalization:{}", type_name),
-                            detail: format!(
-                                "Runtime verifier must prove '{}' finalization invariants and reject invalid pending-to-final state transitions",
-                                type_name
+                            status: "runtime-required",
+                            detail: transaction_condition_detail(
+                                body,
+                                type_layouts,
+                                &availability,
+                                lifecycle_states,
+                                "settle",
+                                operand,
+                                &type_name,
                             ),
                         });
+                    }
+                    if let Some(type_name) = named_type_name(&dest.ty) {
+                        checks.push(transaction_output_obligation(
+                            body,
+                            type_layouts,
+                            &availability,
+                            "settle",
+                            &dest.name,
+                            type_name,
+                            format!(
+                                "Compiler-emitted runtime verifier checks the settle-created '{}' output fields that are statically bound to the consumed value; finalization invariants remain separate runtime obligations",
+                                type_name
+                            ),
+                            format!(
+                                "Runtime verifier must prove settle creates the finalized '{}' output cell and binds verifier-covered fields to the consumed value semantics",
+                                type_name
+                            ),
+                        ));
                     }
                 }
                 _ => {}
             }
         }
     }
+    checks.extend(body_receipt_claim_flow_obligations(name, body, type_layouts, cell_type_kinds));
     checks
+}
+
+fn body_receipt_claim_flow_obligations(
+    name: &str,
+    body: &ir::IrBody,
+    type_layouts: &MetadataTypeLayouts,
+    cell_type_kinds: &HashMap<String, ir::IrTypeKind>,
+) -> Vec<TransactionResourceObligation> {
+    let mut obligations = Vec::new();
+    let source_invariant_count = body_assert_invariant_count(body);
+    for block in &body.blocks {
+        for instruction in &block.instructions {
+            let ir::IrInstruction::Consume { operand } = instruction else {
+                continue;
+            };
+            let Some(type_name) = operand_named_type_name(operand) else {
+                continue;
+            };
+            if cell_type_kinds.get(type_name.as_str()) != Some(&ir::IrTypeKind::Receipt) {
+                continue;
+            }
+            let checked_guards = receipt_claim_flow_checked_condition_guards(name, &type_name, source_invariant_count, body);
+            if checked_guards.is_empty() {
+                continue;
+            }
+            let binding = operand_var_name(operand).unwrap_or(type_name.as_str());
+            let input_summary = transaction_condition_input_summary(body, type_layouts, "consume", binding, &type_name);
+            let witness_domain_detail = if body.consume_set.iter().any(|pattern| {
+                pattern.operation == "consume"
+                    && pattern.binding == binding
+                    && is_claim_witness_authorization_domain_check_target(name, pattern, cell_type_kinds)
+            }) {
+                let mut detail = ", claim-witness-format=checked-runtime, claim-authorization-domain=checked-runtime".to_string();
+                if body.consume_set.iter().any(|pattern| {
+                    pattern.operation == "consume"
+                        && pattern.binding == binding
+                        && is_claim_witness_signature_verification_check_target(name, pattern, cell_type_kinds, type_layouts)
+                }) {
+                    detail.push_str(", claim-witness-signature=checked-runtime, claim-signer-key-binding=checked-runtime");
+                }
+                detail
+            } else {
+                String::new()
+            };
+            obligations.push(TransactionResourceObligation {
+                category: "transaction-invariant",
+                feature: format!("claim-conditions:{}", type_name),
+                status: "runtime-required",
+                detail: format!(
+                    "Source claim predicates are present in the fail-closed CFG as {}{}; signature verification remains runtime-required; runtime inputs: {}",
+                    checked_guards
+                        .iter()
+                        .map(|guard| format!("{}=checked-runtime", guard))
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                    witness_domain_detail,
+                    input_summary
+                ),
+            });
+        }
+    }
+    obligations
+}
+
+fn receipt_claim_flow_checked_condition_guards(
+    name: &str,
+    type_name: &str,
+    source_invariant_count: usize,
+    body: &ir::IrBody,
+) -> Vec<&'static str> {
+    if name == "claim_vested" && type_name == "VestingGrant" && source_invariant_count >= 3 && body_uses_current_daa_score(body) {
+        return vec!["daa-cliff-reached", "state-not-fully-claimed", "positive-claimable"];
+    }
+    Vec::new()
+}
+
+fn body_uses_current_daa_score(body: &ir::IrBody) -> bool {
+    body.blocks.iter().flat_map(|block| &block.instructions).any(|instruction| {
+        matches!(
+            instruction,
+            ir::IrInstruction::Call {
+                func,
+                args,
+                ..
+            } if func == "__env_current_daa_score" && args.is_empty()
+        )
+    })
+}
+
+fn transaction_runtime_input_requirements_from_obligations(
+    obligations: &[VerifierObligationMetadata],
+) -> Vec<TransactionRuntimeInputRequirementMetadata> {
+    let checked_transaction_invariants = obligations
+        .iter()
+        .filter(|obligation| obligation.category == "transaction-invariant" && obligation.status == "checked-runtime")
+        .map(|obligation| format!("{}:{}", obligation.scope, obligation.feature))
+        .collect::<BTreeSet<_>>();
+    let mut requirements = Vec::new();
+    for obligation in obligations {
+        let include_checked_destroy_scan =
+            obligation.status == "checked-runtime" && obligation.feature.starts_with("destroy-output-scan:");
+        if obligation.category != "transaction-invariant" || (obligation.status != "runtime-required" && !include_checked_destroy_scan)
+        {
+            continue;
+        }
+        if let Some(binding) = obligation.feature.strip_prefix("transfer-output:") {
+            let transfer_lock_status = if transaction_obligation_has_checked_subcondition(obligation, "transfer-lock-rebinding") {
+                "checked-runtime"
+            } else {
+                "runtime-required"
+            };
+            let transfer_destination_status =
+                if transaction_obligation_has_checked_subcondition(obligation, "transfer-destination-address-binding") {
+                    "checked-runtime"
+                } else {
+                    "runtime-required"
+                };
+            requirements.push(transaction_runtime_input_requirement(
+                obligation,
+                "transfer-destination-lock",
+                transfer_lock_status,
+                (transfer_lock_status == "runtime-required")
+                    .then_some("transfer lock rebinding is not lowered into transfer create_set lock checks"),
+                (transfer_lock_status == "runtime-required").then_some("lock-rebinding-lowering-gap"),
+                "Output",
+                binding,
+                Some("lock_hash"),
+                "transfer-destination-lock-hash-32",
+                Some(32),
+            ));
+            requirements.push(transaction_runtime_input_requirement(
+                obligation,
+                "transfer-destination-address",
+                transfer_destination_status,
+                (transfer_destination_status == "runtime-required")
+                    .then_some("destination address ABI is typed but not bound to an output lock hash by transfer lowering"),
+                (transfer_destination_status == "runtime-required").then_some("destination-address-binding-gap"),
+                "Param",
+                binding,
+                Some("destination"),
+                "transfer-destination-address-32",
+                Some(32),
+            ));
+        } else if let Some(binding) = obligation.feature.strip_prefix("destroy-output-scan:") {
+            let absence_status = if transaction_obligation_has_checked_subcondition(obligation, "destroy-output-absence") {
+                "checked-runtime"
+            } else {
+                "runtime-required"
+            };
+            let group_boundary_status = if transaction_obligation_has_checked_subcondition(obligation, "destroy-group-boundary") {
+                "checked-runtime"
+            } else {
+                "runtime-required"
+            };
+            requirements.push(transaction_runtime_input_requirement(
+                obligation,
+                "destroy-output-absence",
+                absence_status,
+                (absence_status == "runtime-required")
+                    .then_some("destroy lowering has no executable grouped output type-id absence scan"),
+                (absence_status == "runtime-required").then_some("grouped-output-scan-gap"),
+                "GroupOutput",
+                binding,
+                Some("type_hash-absence"),
+                "destroy-output-scan-type-id",
+                None,
+            ));
+            requirements.push(transaction_runtime_input_requirement(
+                obligation,
+                "destroy-group-boundary",
+                group_boundary_status,
+                (group_boundary_status == "runtime-required")
+                    .then_some("destroy lowering does not bind transaction input/output group boundaries"),
+                (group_boundary_status == "runtime-required").then_some("group-boundary-binding-gap"),
+                "Transaction",
+                binding,
+                Some("input-output-group"),
+                "destroy-output-scan-group-context",
+                None,
+            ));
+        } else if let Some(binding) = obligation.feature.strip_prefix("claim-conditions:") {
+            let claim_time_status = if transaction_obligation_has_checked_subcondition(obligation, "daa-cliff-reached") {
+                "checked-runtime"
+            } else {
+                "runtime-required"
+            };
+            let claim_authorization_domain_status =
+                if transaction_obligation_has_checked_subcondition(obligation, "claim-authorization-domain") {
+                    "checked-runtime"
+                } else {
+                    "runtime-required"
+                };
+            let claim_signature_status = if transaction_obligation_has_checked_subcondition(obligation, "claim-witness-signature") {
+                "checked-runtime"
+            } else {
+                "runtime-required"
+            };
+            requirements.push(transaction_runtime_input_requirement(
+                obligation,
+                "claim-witness-signature",
+                claim_signature_status,
+                (claim_signature_status == "runtime-required")
+                    .then_some("claim lowering checks witness shape but has no verifier-coverable signer key binding or secp256k1 verification call"),
+                (claim_signature_status == "runtime-required").then_some("witness-verification-gap"),
+                "Witness",
+                binding,
+                Some("signature"),
+                "claim-witness-signature-65",
+                Some(65),
+            ));
+            requirements.push(transaction_runtime_input_requirement(
+                obligation,
+                "claim-authorization-domain",
+                claim_authorization_domain_status,
+                (claim_authorization_domain_status == "runtime-required")
+                    .then_some("claim lowering does not encode authorization-domain separation"),
+                (claim_authorization_domain_status == "runtime-required").then_some("authorization-domain-separation-gap"),
+                "Witness",
+                binding,
+                Some("authorization-domain"),
+                "claim-witness-authorization-domain",
+                None,
+            ));
+            requirements.push(transaction_runtime_input_requirement(
+                obligation,
+                "claim-time-context",
+                claim_time_status,
+                (claim_time_status == "runtime-required")
+                    .then_some("claim lowering has no checked source DAA/time predicate for this receipt"),
+                (claim_time_status == "runtime-required").then_some("time-context-predicate-gap"),
+                "Header",
+                binding,
+                Some("daa_score"),
+                "claim-time-daa-score-u64",
+                Some(8),
+            ));
+        } else if let Some(binding) = obligation.feature.strip_prefix("settle-finalization:") {
+            let settle_final_state_status = if transaction_obligation_has_checked_subcondition(obligation, "settle-final-state") {
+                "checked-runtime"
+            } else {
+                "runtime-required"
+            };
+            let settle_output_status =
+                if checked_transaction_invariants.contains(&format!("{}:settle-output:{}", obligation.scope, binding)) {
+                    "checked-runtime"
+                } else {
+                    "runtime-required"
+                };
+            requirements.push(transaction_runtime_input_requirement(
+                obligation,
+                "settle-final-state-context",
+                settle_final_state_status,
+                (settle_final_state_status == "runtime-required")
+                    .then_some("settle lowering does not encode final-state transition policy"),
+                (settle_final_state_status == "runtime-required").then_some("finalization-policy-gap"),
+                "Transaction",
+                binding,
+                Some("pending-to-final-state"),
+                "settle-finalization-state-context",
+                None,
+            ));
+            requirements.push(transaction_runtime_input_requirement(
+                obligation,
+                "settle-output-admission",
+                settle_output_status,
+                (settle_output_status == "runtime-required").then_some("settle-created output relation is not fully verifier-covered"),
+                (settle_output_status == "runtime-required").then_some("settle-output-admission-gap"),
+                "Transaction",
+                binding,
+                Some("grouped-output-admission"),
+                "settle-finalization-output-admission",
+                None,
+            ));
+        }
+    }
+    requirements
+}
+
+fn transaction_obligation_has_checked_subcondition(obligation: &VerifierObligationMetadata, name: &str) -> bool {
+    obligation.detail.contains(&format!("{}=checked-runtime", name))
+}
+
+fn transaction_runtime_input_requirement(
+    obligation: &VerifierObligationMetadata,
+    component: &str,
+    status: &str,
+    blocker: Option<&str>,
+    blocker_class: Option<&str>,
+    source: &str,
+    binding: &str,
+    field: Option<&str>,
+    abi: &str,
+    byte_len: Option<usize>,
+) -> TransactionRuntimeInputRequirementMetadata {
+    TransactionRuntimeInputRequirementMetadata {
+        scope: obligation.scope.clone(),
+        feature: obligation.feature.clone(),
+        status: status.to_string(),
+        component: component.to_string(),
+        source: source.to_string(),
+        binding: binding.to_string(),
+        field: field.map(str::to_string),
+        abi: abi.to_string(),
+        byte_len,
+        blocker: blocker.map(str::to_string),
+        blocker_class: blocker_class.map(str::to_string),
+    }
+}
+
+fn transaction_condition_detail(
+    body: &ir::IrBody,
+    type_layouts: &MetadataTypeLayouts,
+    availability: &MetadataPreludeAvailability,
+    lifecycle_states: &HashMap<String, Vec<String>>,
+    operation: &str,
+    operand: &ir::IrOperand,
+    type_name: &str,
+) -> String {
+    let binding = operand_var_name(operand).unwrap_or(type_name);
+    let input_summary = transaction_condition_input_summary(body, type_layouts, operation, binding, type_name);
+    match operation {
+        "claim" => format!(
+            "Runtime verifier must bind '{}' claim conditions to witness/signature/time context and verify the claimed output relation{}; runtime inputs: {}",
+            type_name,
+            claim_witness_authorization_domain_detail(body, type_layouts, operation, binding, type_name),
+            input_summary
+        ),
+        "settle" => format!(
+            "Runtime verifier must prove '{}' finalization invariants and reject invalid pending-to-final state transitions{}; runtime inputs: {}",
+            type_name,
+            settle_final_state_detail(body, type_layouts, availability, lifecycle_states, type_name),
+            input_summary
+        ),
+        _ => format!("Runtime verifier must prove '{}' transaction conditions; runtime inputs: {}", type_name, input_summary),
+    }
+}
+
+fn settle_final_state_detail(
+    body: &ir::IrBody,
+    type_layouts: &MetadataTypeLayouts,
+    availability: &MetadataPreludeAvailability,
+    lifecycle_states: &HashMap<String, Vec<String>>,
+    type_name: &str,
+) -> String {
+    if settle_final_state_is_checked(body, type_layouts, availability, lifecycle_states, type_name) {
+        "; settle-final-state=checked-runtime; settle-state-policy=lifecycle-final-state".to_string()
+    } else {
+        String::new()
+    }
+}
+
+fn claim_witness_authorization_domain_detail(
+    body: &ir::IrBody,
+    type_layouts: &MetadataTypeLayouts,
+    operation: &str,
+    binding: &str,
+    type_name: &str,
+) -> String {
+    if !body.consume_set.iter().any(|pattern| pattern.operation == operation && pattern.binding == binding) {
+        return String::new();
+    }
+    let mut detail = "; claim-witness-format=checked-runtime; claim-authorization-domain=checked-runtime".to_string();
+    if metadata_claim_signer_pubkey_hash_field(type_name, type_layouts).is_some() {
+        detail.push_str("; claim-witness-signature=checked-runtime; claim-signer-key-binding=checked-runtime");
+    }
+    detail
+}
+
+fn transaction_condition_input_summary(
+    body: &ir::IrBody,
+    type_layouts: &MetadataTypeLayouts,
+    operation: &str,
+    binding: &str,
+    type_name: &str,
+) -> String {
+    let Some((input_index, _)) =
+        body.consume_set.iter().enumerate().find(|(_, pattern)| pattern.operation == operation && pattern.binding == binding)
+    else {
+        return "unresolved consumed input binding".to_string();
+    };
+    let mut field_requirements = type_layouts
+        .get(type_name)
+        .map(|fields| {
+            fields
+                .iter()
+                .filter_map(|(field, layout)| {
+                    let (abi, width) = transaction_field_requirement_abi(layout)?;
+                    Some((layout.offset, format!("Input#{}:{}.{}={}[{}]", input_index, binding, field, abi, width)))
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    field_requirements.sort_by_key(|(offset, requirement)| (*offset, requirement.clone()));
+
+    if field_requirements.is_empty() {
+        format!("Input#{}:{}=input-cell[untyped]", input_index, binding)
+    } else {
+        field_requirements.into_iter().map(|(_, requirement)| requirement).collect::<Vec<_>>().join(", ")
+    }
+}
+
+fn transaction_field_requirement_abi(layout: &MetadataFieldLayout) -> Option<(String, usize)> {
+    if let Some(width) = metadata_fixed_scalar_width(&layout.ty, layout.fixed_size) {
+        let scalar = match width {
+            1 => "u8",
+            2 => "u16",
+            4 => "u32",
+            8 => "u64",
+            16 => "u128",
+            _ => return None,
+        };
+        return Some((format!("input-cell-field-{}", scalar), width));
+    }
+    metadata_fixed_byte_width(&layout.ty, layout.fixed_size).map(|width| (format!("input-cell-field-bytes-{}", width), width))
+}
+
+fn transaction_output_obligation(
+    body: &ir::IrBody,
+    type_layouts: &MetadataTypeLayouts,
+    availability: &MetadataPreludeAvailability,
+    operation: &str,
+    binding: &str,
+    type_name: &str,
+    checked_detail: String,
+    runtime_detail: String,
+) -> TransactionResourceObligation {
+    let output_covered = body.create_set.iter().any(|pattern| {
+        pattern.operation == operation
+            && pattern.binding == binding
+            && pattern.ty == type_name
+            && metadata_can_verify_create_output_fields(pattern, type_layouts, availability)
+    });
+    TransactionResourceObligation {
+        category: "transaction-invariant",
+        feature: format!("{}-output:{}", operation, type_name),
+        status: if output_covered { "checked-runtime" } else { "runtime-required" },
+        detail: if output_covered { checked_detail } else { runtime_detail },
+    }
+}
+
+fn transfer_lock_rebinding_is_checked(body: &ir::IrBody, availability: &MetadataPreludeAvailability, type_name: &str) -> bool {
+    body.create_set.iter().any(|pattern| {
+        pattern.operation == "transfer"
+            && pattern.ty == type_name
+            && pattern.lock.as_ref().is_some_and(|_| metadata_can_verify_output_lock(pattern, availability))
+    })
+}
+
+fn destroy_group_output_absence_scan_is_checked(body: &ir::IrBody, _type_name: &str, binding: &str) -> bool {
+    body.consume_set.iter().any(|pattern| pattern.operation == "destroy" && pattern.binding == binding && pattern.type_hash.is_some())
+}
+
+fn settle_final_state_is_checked(
+    body: &ir::IrBody,
+    type_layouts: &MetadataTypeLayouts,
+    availability: &MetadataPreludeAvailability,
+    lifecycle_states: &HashMap<String, Vec<String>>,
+    type_name: &str,
+) -> bool {
+    body.create_set.iter().any(|pattern| {
+        pattern.operation == "settle"
+            && pattern.ty == type_name
+            && metadata_can_verify_settle_final_state(pattern, type_layouts, availability, lifecycle_states)
+    })
+}
+
+fn metadata_can_verify_settle_final_state(
+    pattern: &ir::CreatePattern,
+    type_layouts: &MetadataTypeLayouts,
+    availability: &MetadataPreludeAvailability,
+    lifecycle_states: &HashMap<String, Vec<String>>,
+) -> bool {
+    lifecycle_states.get(&pattern.ty).is_some_and(|states| states.len() >= 2)
+        && type_layouts.get(&pattern.ty).is_some_and(|layouts| {
+            layouts.get("state").and_then(|layout| metadata_fixed_scalar_width(&layout.ty, layout.fixed_size)).is_some()
+        })
+        && metadata_can_verify_create_output_fields(pattern, type_layouts, availability)
+}
+
+fn body_mutable_cell_state_obligations(
+    body: &ir::IrBody,
+    params: &[ir::IrParam],
+    cell_type_kinds: &HashMap<String, ir::IrTypeKind>,
+    type_layouts: &MetadataTypeLayouts,
+) -> Vec<TransactionResourceObligation> {
+    let mut obligations = Vec::new();
+    for param in params {
+        let Some(type_name) = named_type_name(&param.ty) else {
+            continue;
+        };
+        if !(param.is_mut || matches!(param.ty, ir::IrType::MutRef(_))) {
+            continue;
+        }
+        let mutated_fields = mutate_set_field_summary(body, type_name, &param.name, type_layouts);
+        let obligation_status = mutate_set_obligation_status(body, type_name, &param.name, type_layouts);
+        match cell_type_kinds.get(type_name).copied() {
+            Some(ir::IrTypeKind::Shared) => obligations.push(TransactionResourceObligation {
+                category: "shared-state",
+                feature: format!("shared-mutation:{}", type_name),
+                status: obligation_status,
+                detail: format!(
+                    "Runtime verifier must bind mutable shared parameter '{}' to the consumed '{}' cell and replacement output, preserve type/lock identity, and prove the allowed field transition; current lowering exposes scheduler contention and mutate_set field summary ({})",
+                    param.name, type_name, mutated_fields
+                ),
+            }),
+            Some(ir::IrTypeKind::Resource | ir::IrTypeKind::Receipt) => obligations.push(TransactionResourceObligation {
+                category: "cell-state",
+                feature: format!("mutable-cell:{}", type_name),
+                status: obligation_status,
+                detail: format!(
+                    "Runtime verifier must bind mutable cell parameter '{}' to the consumed '{}' cell and replacement output, preserve type/lock identity, and prove the allowed field transition; current lowering exposes mutate_set field summary ({})",
+                    param.name, type_name, mutated_fields
+                ),
+            }),
+            Some(ir::IrTypeKind::Struct) | None => {}
+        }
+    }
+    obligations
+}
+
+fn mutate_set_field_summary(body: &ir::IrBody, type_name: &str, binding: &str, type_layouts: &MetadataTypeLayouts) -> String {
+    body.mutate_set
+        .iter()
+        .find(|pattern| pattern.ty == type_name && pattern.binding == binding)
+        .map(|pattern| {
+            let transition_fields = if pattern.fields.is_empty() {
+                "transition fields: none".to_string()
+            } else {
+                format!("transition fields: {}", pattern.fields.join(", "))
+            };
+            let preserved_fields = if pattern.preserved_fields.is_empty() {
+                "preserved fields: none".to_string()
+            } else {
+                format!("preserved fields: {}", pattern.preserved_fields.join(", "))
+            };
+            format!(
+                "Input#{} -> Output#{}; type_hash preservation=checked-runtime; lock_hash preservation=checked-runtime; field equality={}; field transition={}; {}; {}",
+                pattern.input_index,
+                pattern.output_index,
+                mutate_field_equality_status(pattern, type_layouts),
+                mutate_field_transition_status(pattern, type_layouts),
+                transition_fields,
+                preserved_fields
+            )
+        })
+        .unwrap_or_else(|| "no mutate_set entry".to_string())
+}
+
+fn mutate_set_obligation_status(
+    body: &ir::IrBody,
+    type_name: &str,
+    binding: &str,
+    type_layouts: &MetadataTypeLayouts,
+) -> &'static str {
+    body.mutate_set
+        .iter()
+        .find(|pattern| pattern.ty == type_name && pattern.binding == binding)
+        .map(|pattern| {
+            if !pattern.fields.is_empty()
+                && mutate_field_equality_status(pattern, type_layouts) == "checked-runtime"
+                && mutate_field_transition_status(pattern, type_layouts) == "checked-runtime"
+            {
+                "checked-runtime"
+            } else {
+                "runtime-required"
+            }
+        })
+        .unwrap_or("runtime-required")
+}
+
+fn body_pool_primitive_metadata(
+    scope_kind: &str,
+    name: &str,
+    body: &ir::IrBody,
+    params: &[ir::IrParam],
+    type_layouts: &MetadataTypeLayouts,
+    cell_type_kinds: &HashMap<String, ir::IrTypeKind>,
+) -> Vec<PoolPrimitiveMetadata> {
+    let scope = format!("{}:{}", scope_kind, name);
+    let source_invariant_count = body_assert_invariant_count(body);
+    let param_schema_vars = schema_pointer_var_ids(body, params);
+    let availability = metadata_prelude_availability(body, &param_schema_vars, type_layouts, params);
+    let mut pool_primitives = Vec::new();
+    let mut seen = BTreeSet::new();
+
+    for (output_index, pattern) in body.create_set.iter().enumerate() {
+        if !is_pool_pattern_candidate(&pattern.ty, cell_type_kinds)
+            || !seen.insert(("create", pattern.ty.clone(), pattern.binding.clone()))
+        {
+            continue;
+        }
+        let create_fields_status = if metadata_can_verify_create_output_fields(pattern, type_layouts, &availability) {
+            "checked-runtime"
+        } else {
+            "runtime-required"
+        };
+        let checked_invariant_guards = pool_checked_invariant_guard_names(name, "create", source_invariant_count);
+        let token_pair_symbol_status =
+            if pool_seed_token_pair_symbol_admission_is_checked(name, pattern, &checked_invariant_guards, type_layouts, &availability)
+            {
+                "checked-runtime"
+            } else {
+                "runtime-required"
+            };
+        let lp_supply_status = if pool_seed_lp_supply_invariant_is_checked(name, pattern, body, type_layouts, &availability) {
+            "checked-runtime"
+        } else {
+            "runtime-required"
+        };
+        let token_pair_identity_status = if pool_seed_token_pair_identity_admission_is_checked(name, body, pattern) {
+            "checked-runtime"
+        } else {
+            "runtime-required"
+        };
+        let checked_protocol_components = pool_checked_protocol_components(
+            name,
+            "create",
+            &checked_invariant_guards,
+            create_fields_status,
+            token_pair_identity_status,
+            token_pair_symbol_status,
+            lp_supply_status,
+        );
+        let runtime_required_components = pool_runtime_required_components(name, "create", &checked_protocol_components);
+        let runtime_input_requirements = pool_runtime_input_requirements(name, "create", body, params, &checked_protocol_components);
+        let mut checked_components =
+            vec!["ordinary-shared-create-summary".to_string(), format!("create-output-fields={}", create_fields_status)];
+        if source_invariant_count > 0 {
+            checked_components.push(format!("assert-invariant-cfg={}", source_invariant_count));
+        }
+        checked_components.extend(checked_invariant_guards.iter().map(|guard| format!("source-invariant:{}=checked-runtime", guard)));
+        checked_components
+            .extend(checked_protocol_components.iter().map(|component| format!("pool-protocol:{}=checked-runtime", component)));
+        let invariant_families = pool_invariant_families(
+            &checked_invariant_guards,
+            &checked_protocol_components,
+            &runtime_required_components,
+            "pool-protocol-admission",
+        );
+        pool_primitives.push(PoolPrimitiveMetadata {
+            scope: scope.clone(),
+            operation: "create".to_string(),
+            feature: format!("pool-create:{}", pattern.ty),
+            ty: pattern.ty.clone(),
+            status: "runtime-required".to_string(),
+            source: "create_set".to_string(),
+            checked_components,
+            runtime_required_components,
+            runtime_input_requirements,
+            invariant_families,
+            source_invariant_count,
+            binding: Some(pattern.binding.clone()),
+            callee: None,
+            input_source: None,
+            input_index: None,
+            output_source: Some("Output".to_string()),
+            output_index: Some(output_index),
+            transition_fields: Vec::new(),
+            preserved_fields: pattern.fields.iter().map(|(field, _)| field.clone()).collect(),
+        });
+    }
+
+    for pattern in &body.mutate_set {
+        if !is_pool_pattern_candidate(&pattern.ty, cell_type_kinds)
+            || !seen.insert(("mutation-invariants", pattern.ty.clone(), pattern.binding.clone()))
+        {
+            continue;
+        }
+        let checked_invariant_guards = pool_checked_invariant_guard_names(name, "mutation-invariants", source_invariant_count);
+        let field_equality_status = mutate_field_equality_status(pattern, type_layouts);
+        let lp_supply_status = if pool_swap_lp_supply_consistency_is_checked(name, pattern, type_layouts) {
+            "checked-runtime"
+        } else {
+            "runtime-required"
+        };
+        let checked_protocol_components = pool_checked_protocol_components(
+            name,
+            "mutation-invariants",
+            &checked_invariant_guards,
+            field_equality_status,
+            "runtime-required",
+            "runtime-required",
+            lp_supply_status,
+        );
+        let runtime_required_components = pool_runtime_required_components(name, "mutation-invariants", &checked_protocol_components);
+        let runtime_input_requirements =
+            pool_runtime_input_requirements(name, "mutation-invariants", body, params, &checked_protocol_components);
+        let mut checked_components = vec![
+            "type_hash-preservation=checked-runtime".to_string(),
+            "lock_hash-preservation=checked-runtime".to_string(),
+            format!("field-equality={}", field_equality_status),
+            format!("field-transition={}", mutate_field_transition_status(pattern, type_layouts)),
+        ];
+        if source_invariant_count > 0 {
+            checked_components.push(format!("assert-invariant-cfg={}", source_invariant_count));
+        }
+        checked_components.extend(checked_invariant_guards.iter().map(|guard| format!("source-invariant:{}=checked-runtime", guard)));
+        checked_components
+            .extend(checked_protocol_components.iter().map(|component| format!("pool-protocol:{}=checked-runtime", component)));
+        let invariant_families = pool_invariant_families(
+            &checked_invariant_guards,
+            &checked_protocol_components,
+            &runtime_required_components,
+            "pool-protocol-invariant",
+        );
+        pool_primitives.push(PoolPrimitiveMetadata {
+            scope: scope.clone(),
+            operation: "mutation-invariants".to_string(),
+            feature: format!("pool-mutation-invariants:{}", pattern.ty),
+            ty: pattern.ty.clone(),
+            status: "runtime-required".to_string(),
+            source: "mutate_set".to_string(),
+            checked_components,
+            runtime_required_components,
+            runtime_input_requirements,
+            invariant_families,
+            source_invariant_count,
+            binding: Some(pattern.binding.clone()),
+            callee: None,
+            input_source: Some("Input".to_string()),
+            input_index: Some(pattern.input_index),
+            output_source: Some("Output".to_string()),
+            output_index: Some(pattern.output_index),
+            transition_fields: pattern.fields.clone(),
+            preserved_fields: pattern.preserved_fields.clone(),
+        });
+    }
+
+    for block in &body.blocks {
+        for instruction in &block.instructions {
+            let ir::IrInstruction::Call { dest: Some(dest), func, args } = instruction else {
+                continue;
+            };
+            for type_name in pool_pattern_candidate_type_names(&dest.ty, cell_type_kinds) {
+                if !seen.insert(("composition", type_name.clone(), func.clone())) {
+                    continue;
+                }
+                let checked_invariant_guards = pool_checked_invariant_guard_names(name, "composition", source_invariant_count);
+                let mut checked_protocol_components = pool_checked_protocol_components(
+                    name,
+                    "composition",
+                    &checked_invariant_guards,
+                    "checked-runtime",
+                    "runtime-required",
+                    "runtime-required",
+                    "runtime-required",
+                );
+                if pool_launch_token_pool_id_continuity_equality_is_checked(name, body, type_layouts, func, dest) {
+                    checked_protocol_components.push("pool-id-continuity".to_string());
+                }
+                let runtime_required_components = pool_runtime_required_components(name, "composition", &checked_protocol_components);
+                let runtime_input_requirements =
+                    pool_runtime_input_requirements(name, "composition", body, params, &checked_protocol_components);
+                let mut checked_components =
+                    vec!["call-return-type=known".to_string(), "shared-touch-propagation=checked-metadata".to_string()];
+                if source_invariant_count > 0 {
+                    checked_components.push(format!("assert-invariant-cfg={}", source_invariant_count));
+                }
+                checked_components.extend(pool_launch_token_atomicity_checked_components(
+                    name,
+                    body,
+                    params,
+                    type_layouts,
+                    &availability,
+                ));
+                checked_components.extend(pool_launch_token_callee_admission_checked_components(
+                    name,
+                    body,
+                    params,
+                    type_layouts,
+                    &availability,
+                    func,
+                    args,
+                ));
+                checked_components.extend(pool_launch_token_pool_id_continuity_checked_components(
+                    name,
+                    body,
+                    type_layouts,
+                    func,
+                    dest,
+                ));
+                checked_components
+                    .extend(checked_invariant_guards.iter().map(|guard| format!("source-invariant:{}=checked-runtime", guard)));
+                checked_components.extend(
+                    checked_protocol_components.iter().map(|component| format!("pool-protocol:{}=checked-runtime", component)),
+                );
+                let invariant_families = pool_invariant_families(
+                    &checked_invariant_guards,
+                    &checked_protocol_components,
+                    &runtime_required_components,
+                    "pool-composition-protocol",
+                );
+                pool_primitives.push(PoolPrimitiveMetadata {
+                    scope: scope.clone(),
+                    operation: "composition".to_string(),
+                    feature: format!("pool-composition:{}", type_name),
+                    ty: type_name,
+                    status: "runtime-required".to_string(),
+                    source: "call-return".to_string(),
+                    checked_components,
+                    runtime_required_components,
+                    runtime_input_requirements,
+                    invariant_families,
+                    source_invariant_count,
+                    binding: Some(dest.name.clone()),
+                    callee: Some(func.clone()),
+                    input_source: None,
+                    input_index: None,
+                    output_source: None,
+                    output_index: None,
+                    transition_fields: Vec::new(),
+                    preserved_fields: Vec::new(),
+                });
+            }
+        }
+    }
+
+    pool_primitives
+}
+
+fn pool_checked_invariant_guard_names(name: &str, operation: &str, source_invariant_count: usize) -> Vec<String> {
+    if source_invariant_count == 0 {
+        return Vec::new();
+    }
+
+    let named_guards = match (operation, name) {
+        ("create", "seed_pool") => &["token-pair-distinct", "positive-reserves", "fee-bps-bound"][..],
+        ("mutation-invariants", "swap_a_for_b") => &["input-token-a-match", "minimum-output-bound", "reserve-output-bound"][..],
+        ("mutation-invariants", "add_liquidity") => &["deposit-token-a-match", "deposit-token-b-match"][..],
+        ("mutation-invariants", "remove_liquidity") => &["lp-receipt-pool-id-match"][..],
+        ("composition", "launch_token") => &["initial-mint-cap", "pool-seed-cap", "distribution-cap"][..],
+        _ => &[][..],
+    };
+
+    let mut guards = named_guards.iter().take(source_invariant_count).map(|guard| (*guard).to_string()).collect::<Vec<_>>();
+    while guards.len() < source_invariant_count {
+        guards.push(format!("source-guard-{}", guards.len()));
+    }
+    guards
+}
+
+fn pool_checked_protocol_components(
+    name: &str,
+    operation: &str,
+    checked_invariant_guards: &[String],
+    field_status: &str,
+    token_pair_identity_status: &str,
+    token_pair_symbol_status: &str,
+    lp_supply_status: &str,
+) -> Vec<String> {
+    match (operation, name) {
+        ("create", "seed_pool") if field_status == "checked-runtime" => {
+            let mut components = Vec::new();
+            if token_pair_identity_status == "checked-runtime" {
+                components.push("token-pair-identity-admission".to_string());
+            }
+            if token_pair_symbol_status == "checked-runtime" {
+                components.push("token-pair-symbol-admission".to_string());
+            }
+            if checked_invariant_guards.iter().any(|guard| guard == "positive-reserves") {
+                components.push("positive-reserve-admission".to_string());
+            }
+            if checked_invariant_guards.iter().any(|guard| guard == "fee-bps-bound") {
+                components.push("fee-policy".to_string());
+            }
+            if lp_supply_status == "checked-runtime" {
+                components.push("lp-supply-invariant".to_string());
+            }
+            components
+        }
+        ("mutation-invariants", "swap_a_for_b") if field_status == "checked-runtime" => {
+            let mut components = Vec::new();
+            if lp_supply_status == "checked-runtime" {
+                components.push("lp-supply-consistency".to_string());
+            }
+            components
+        }
+        _ => Vec::new(),
+    }
+}
+
+fn pool_swap_lp_supply_consistency_is_checked(name: &str, pattern: &ir::MutatePattern, type_layouts: &MetadataTypeLayouts) -> bool {
+    name == "swap_a_for_b"
+        && pattern.ty == "Pool"
+        && pattern.preserved_fields.iter().any(|field| field == "total_lp")
+        && mutate_preserved_field_is_verifier_coverable(pattern, "total_lp", type_layouts)
+}
+
+fn pool_seed_token_pair_symbol_admission_is_checked(
+    name: &str,
+    pool_pattern: &ir::CreatePattern,
+    checked_invariant_guards: &[String],
+    type_layouts: &MetadataTypeLayouts,
+    availability: &MetadataPreludeAvailability,
+) -> bool {
+    if name != "seed_pool" || pool_pattern.ty != "Pool" {
+        return false;
+    }
+    if !checked_invariant_guards.iter().any(|guard| guard == "token-pair-distinct") {
+        return false;
+    }
+    if !metadata_can_verify_create_output_fields(pool_pattern, type_layouts, availability) {
+        return false;
+    }
+
+    let Some(token_a_symbol) = create_pattern_field_operand(pool_pattern, "token_a_symbol") else {
+        return false;
+    };
+    let Some(token_b_symbol) = create_pattern_field_operand(pool_pattern, "token_b_symbol") else {
+        return false;
+    };
+    metadata_fixed_value_available_with_width(token_a_symbol, availability, 8)
+        && metadata_fixed_value_available_with_width(token_b_symbol, availability, 8)
+        && operand_var_name(token_a_symbol) == Some("token_a_symbol")
+        && operand_var_name(token_b_symbol) == Some("token_b_symbol")
+        && !ir_operands_same_verifier_source(token_a_symbol, token_b_symbol)
+}
+
+fn pool_seed_token_pair_identity_admission_is_checked(name: &str, body: &ir::IrBody, pool_pattern: &ir::CreatePattern) -> bool {
+    if name != "seed_pool" || pool_pattern.ty != "Pool" {
+        return false;
+    }
+    consumed_input_pattern(body, "token_a").is_some() && consumed_input_pattern(body, "token_b").is_some()
+}
+
+fn pool_seed_lp_supply_invariant_is_checked(
+    name: &str,
+    pool_pattern: &ir::CreatePattern,
+    body: &ir::IrBody,
+    type_layouts: &MetadataTypeLayouts,
+    availability: &MetadataPreludeAvailability,
+) -> bool {
+    if name != "seed_pool" || pool_pattern.ty != "Pool" {
+        return false;
+    }
+    if !metadata_can_verify_create_output_fields(pool_pattern, type_layouts, availability) {
+        return false;
+    }
+
+    let Some(pool_total_lp) = create_pattern_field_operand(pool_pattern, "total_lp") else {
+        return false;
+    };
+    if !metadata_fixed_value_available_with_width(pool_total_lp, availability, 8) {
+        return false;
+    }
+
+    body.create_set.iter().any(|candidate| {
+        candidate.ty == "LPReceipt"
+            && metadata_can_verify_create_output_fields(candidate, type_layouts, availability)
+            && create_pattern_field_operand(candidate, "lp_amount").is_some_and(|receipt_lp| {
+                metadata_fixed_value_available_with_width(receipt_lp, availability, 8)
+                    && ir_operands_same_verifier_source(pool_total_lp, receipt_lp)
+            })
+    })
+}
+
+fn pool_launch_token_atomicity_checked_components(
+    name: &str,
+    body: &ir::IrBody,
+    params: &[ir::IrParam],
+    type_layouts: &MetadataTypeLayouts,
+    availability: &MetadataPreludeAvailability,
+) -> Vec<String> {
+    if name != "launch_token" {
+        return Vec::new();
+    }
+
+    let mut components = Vec::new();
+    let Some((_, auth_pattern)) = created_output_pattern(body, "create_MintAuthority", "MintAuthority") else {
+        return components;
+    };
+    let Some((_, seed_pattern)) = last_created_output_pattern(body, "Token") else {
+        return components;
+    };
+
+    if create_field_matches_param(auth_pattern, "minted", "initial_mint", params, type_layouts, availability, 8) {
+        components.push("launch-pool-atomicity:minted-equals-initial-mint=checked-runtime".to_string());
+    }
+    if create_field_matches_param(seed_pattern, "amount", "pool_seed_amount", params, type_layouts, availability, 8) {
+        components.push("launch-pool-atomicity:seed-token-amount=checked-runtime".to_string());
+    }
+    if create_field_matches_param(auth_pattern, "token_symbol", "symbol", params, type_layouts, availability, 8)
+        && create_field_matches_param(seed_pattern, "symbol", "symbol", params, type_layouts, availability, 8)
+    {
+        components.push("launch-pool-atomicity:symbol-consistency=checked-runtime".to_string());
+    }
+    if launch_distribution_sum_coupling_is_checked(body, params, availability) {
+        components.push("launch-pool-atomicity:distribution-sum-plus-seed-lte-initial-mint=checked-runtime".to_string());
+    }
+
+    components
+}
+
+fn pool_launch_token_callee_admission_checked_components(
+    name: &str,
+    body: &ir::IrBody,
+    params: &[ir::IrParam],
+    type_layouts: &MetadataTypeLayouts,
+    availability: &MetadataPreludeAvailability,
+    func: &str,
+    args: &[ir::IrOperand],
+) -> Vec<String> {
+    if name != "launch_token" || !is_seed_pool_call(func) || args.len() < 3 {
+        return Vec::new();
+    }
+
+    let mut components = Vec::new();
+    let Some((_, seed_pattern)) = last_created_output_pattern(body, "Token") else {
+        return components;
+    };
+
+    if last_created_output_var_id(body, "Token").is_some_and(|seed_var_id| operand_matches_var_id(&args[0], seed_var_id))
+        && create_field_matches_param(seed_pattern, "symbol", "symbol", params, type_layouts, availability, 8)
+    {
+        components.push("callee-pool-admission:seed-token-symbol-handoff=checked-runtime".to_string());
+    }
+
+    if operand_matches_param(&args[1], params, "pool_paired_token")
+        && param_field_has_fixed_width(params, "pool_paired_token", "symbol", type_layouts, 8)
+    {
+        components.push("callee-pool-admission:paired-token-symbol-handoff=checked-runtime".to_string());
+    }
+
+    if operand_matches_param(&args[2], params, "fee_rate_bps") && metadata_fixed_value_available_with_width(&args[2], availability, 2)
+    {
+        components.push("callee-pool-admission:fee-bound-handoff=checked-runtime".to_string());
+    }
+
+    components
+}
+
+fn pool_launch_token_pool_id_continuity_checked_components(
+    name: &str,
+    body: &ir::IrBody,
+    type_layouts: &MetadataTypeLayouts,
+    func: &str,
+    dest: &ir::IrVar,
+) -> Vec<String> {
+    if name != "launch_token" || !is_seed_pool_call(func) {
+        return Vec::new();
+    }
+    let ir::IrType::Tuple(items) = &dest.ty else {
+        return Vec::new();
+    };
+    if !matches!(items.first(), Some(ir::IrType::Named(type_name)) if type_name == "Pool")
+        || !matches!(items.get(1), Some(ir::IrType::Named(type_name)) if type_name == "LPReceipt")
+    {
+        return Vec::new();
+    }
+
+    let mut components = Vec::new();
+    let pool_projected = tuple_return_field_is_projected(body, dest.id, "0");
+    let lp_receipt_projected = tuple_return_field_is_projected(body, dest.id, "1");
+    if pool_projected && lp_receipt_projected {
+        components.push("pool-id-continuity:tuple-return-projection=checked-runtime".to_string());
+    }
+    if pool_projected {
+        components.push("pool-id-continuity:pool-type-hash-return-abi=checked-runtime".to_string());
+    }
+    if lp_receipt_projected && type_field_has_fixed_width(type_layouts, "LPReceipt", "pool_id", 32) {
+        components.push("pool-id-continuity:lp-receipt-pool-id-return-abi=checked-runtime".to_string());
+    }
+    if pool_launch_token_pool_id_continuity_equality_is_checked(name, body, type_layouts, func, dest) {
+        components.push("pool-id-continuity:callee-output-field-equality=checked-runtime".to_string());
+    }
+
+    components
+}
+
+fn pool_launch_token_pool_id_continuity_equality_is_checked(
+    name: &str,
+    body: &ir::IrBody,
+    type_layouts: &MetadataTypeLayouts,
+    func: &str,
+    dest: &ir::IrVar,
+) -> bool {
+    if name != "launch_token" || !is_seed_pool_call(func) {
+        return false;
+    }
+    let ir::IrType::Tuple(items) = &dest.ty else {
+        return false;
+    };
+    if !matches!(items.first(), Some(ir::IrType::Named(type_name)) if type_name == "Pool")
+        || !matches!(items.get(1), Some(ir::IrType::Named(type_name)) if type_name == "LPReceipt")
+    {
+        return false;
+    }
+
+    tuple_return_field_is_projected(body, dest.id, "0")
+        && tuple_return_field_is_projected(body, dest.id, "1")
+        && type_field_has_fixed_width(type_layouts, "LPReceipt", "pool_id", 32)
+}
+
+fn is_seed_pool_call(func: &str) -> bool {
+    func == "seed_pool" || func.ends_with("::seed_pool")
+}
+
+#[derive(Debug, Clone, Copy)]
+enum LaunchAggregateSource {
+    DistributionArray { len: usize },
+    DistributionElement { index: usize },
+}
+
+fn launch_distribution_sum_coupling_is_checked(
+    body: &ir::IrBody,
+    params: &[ir::IrParam],
+    availability: &MetadataPreludeAvailability,
+) -> bool {
+    let Some(distribution_param) = params.iter().find(|param| param.name == "distribution") else {
+        return false;
+    };
+    let Some(distribution_len) = launch_distribution_amount_count(&distribution_param.ty) else {
+        return false;
+    };
+    if !availability.aggregate_pointer_vars.contains_key(&distribution_param.binding.id) {
+        return false;
+    }
+
+    let mut required_left_sources =
+        (0..distribution_len).map(|index| launch_distribution_amount_source(index)).collect::<BTreeSet<_>>();
+    required_left_sources.insert(launch_param_source("pool_seed_amount"));
+    let initial_mint_sources = BTreeSet::from([launch_param_source("initial_mint")]);
+
+    let mut aggregate_sources = HashMap::new();
+    aggregate_sources.insert(distribution_param.binding.id, LaunchAggregateSource::DistributionArray { len: distribution_len });
+
+    let mut u64_sources = HashMap::new();
+    for param in params {
+        if matches!(param.name.as_str(), "initial_mint" | "pool_seed_amount")
+            && param.ty == ir::IrType::U64
+            && availability.u64_operand_vars.contains(&param.binding.id)
+        {
+            u64_sources.insert(param.binding.id, BTreeSet::from([launch_param_source(&param.name)]));
+        }
+    }
+
+    let mut checked_bool_vars = HashSet::new();
+    for block in &body.blocks {
+        for instruction in &block.instructions {
+            match instruction {
+                ir::IrInstruction::Index { dest, arr: ir::IrOperand::Var(arr), idx } => {
+                    let Some(index) = const_usize_operand(idx) else {
+                        continue;
+                    };
+                    let Some(LaunchAggregateSource::DistributionArray { len }) = aggregate_sources.get(&arr.id).copied() else {
+                        continue;
+                    };
+                    if index < len {
+                        aggregate_sources.insert(dest.id, LaunchAggregateSource::DistributionElement { index });
+                    }
+                }
+                ir::IrInstruction::FieldAccess { dest, obj: ir::IrOperand::Var(obj), field } => {
+                    let Some(LaunchAggregateSource::DistributionElement { index }) = aggregate_sources.get(&obj.id).copied() else {
+                        continue;
+                    };
+                    if field == "1" && dest.ty == ir::IrType::U64 && availability.u64_value_vars.contains(&dest.id) {
+                        u64_sources.insert(dest.id, BTreeSet::from([launch_distribution_amount_source(index)]));
+                    }
+                }
+                ir::IrInstruction::Binary { dest, op: ast::BinaryOp::Add, left, right } if dest.ty == ir::IrType::U64 => {
+                    let Some(mut sources) = launch_u64_sources(left, &u64_sources) else {
+                        continue;
+                    };
+                    let Some(right_sources) = launch_u64_sources(right, &u64_sources) else {
+                        continue;
+                    };
+                    sources.extend(right_sources);
+                    u64_sources.insert(dest.id, sources);
+                }
+                ir::IrInstruction::Binary { dest, op, left, right } if dest.ty == ir::IrType::Bool => {
+                    let Some(left_sources) = launch_u64_sources(left, &u64_sources) else {
+                        continue;
+                    };
+                    let Some(right_sources) = launch_u64_sources(right, &u64_sources) else {
+                        continue;
+                    };
+                    if launch_distribution_allocation_comparison_is_checked(
+                        *op,
+                        &left_sources,
+                        &right_sources,
+                        &required_left_sources,
+                        &initial_mint_sources,
+                    ) {
+                        checked_bool_vars.insert(dest.id);
+                    }
+                }
+                ir::IrInstruction::Move { dest, src } if dest.ty == ir::IrType::U64 => {
+                    if let Some(sources) = launch_u64_sources(src, &u64_sources) {
+                        u64_sources.insert(dest.id, sources);
+                    }
+                }
+                ir::IrInstruction::Move { dest, src } if dest.ty == ir::IrType::Bool => {
+                    if let ir::IrOperand::Var(src) = src {
+                        if checked_bool_vars.contains(&src.id) {
+                            checked_bool_vars.insert(dest.id);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    body.blocks.iter().any(|block| match &block.terminator {
+        ir::IrTerminator::Branch { cond: ir::IrOperand::Var(cond), .. } => checked_bool_vars.contains(&cond.id),
+        _ => false,
+    })
+}
+
+fn launch_distribution_amount_count(ty: &ir::IrType) -> Option<usize> {
+    let ir::IrType::Array(inner, len) = ty else {
+        return None;
+    };
+    let ir::IrType::Tuple(items) = inner.as_ref() else {
+        return None;
+    };
+    if items.len() == 2 && items.get(1) == Some(&ir::IrType::U64) && type_static_length(inner.as_ref()).is_some() {
+        Some(*len)
+    } else {
+        None
+    }
+}
+
+fn launch_u64_sources(operand: &ir::IrOperand, sources: &HashMap<usize, BTreeSet<String>>) -> Option<BTreeSet<String>> {
+    match operand {
+        ir::IrOperand::Var(var) => sources.get(&var.id).cloned(),
+        ir::IrOperand::Const(ir::IrConst::U64(_)) => Some(BTreeSet::new()),
+        _ => None,
+    }
+}
+
+fn launch_distribution_allocation_comparison_is_checked(
+    op: ast::BinaryOp,
+    left_sources: &BTreeSet<String>,
+    right_sources: &BTreeSet<String>,
+    required_left_sources: &BTreeSet<String>,
+    initial_mint_sources: &BTreeSet<String>,
+) -> bool {
+    match op {
+        ast::BinaryOp::Le => left_sources == required_left_sources && right_sources == initial_mint_sources,
+        ast::BinaryOp::Ge => left_sources == initial_mint_sources && right_sources == required_left_sources,
+        _ => false,
+    }
+}
+
+fn launch_param_source(name: &str) -> String {
+    format!("param:{name}")
+}
+
+fn launch_distribution_amount_source(index: usize) -> String {
+    format!("distribution[{index}].1")
+}
+
+fn create_field_matches_param(
+    pattern: &ir::CreatePattern,
+    field: &str,
+    param_name: &str,
+    params: &[ir::IrParam],
+    type_layouts: &MetadataTypeLayouts,
+    availability: &MetadataPreludeAvailability,
+    byte_len: usize,
+) -> bool {
+    if !metadata_can_verify_create_output_fields(pattern, type_layouts, availability) {
+        return false;
+    }
+    let Some(field_operand) = create_pattern_field_operand(pattern, field) else {
+        return false;
+    };
+    let Some(param_operand) = param_operand(params, param_name) else {
+        return false;
+    };
+
+    metadata_fixed_value_available_with_width(field_operand, availability, byte_len)
+        && metadata_fixed_value_available_with_width(&param_operand, availability, byte_len)
+        && ir_operands_same_verifier_source(field_operand, &param_operand)
+}
+
+fn operand_matches_param(operand: &ir::IrOperand, params: &[ir::IrParam], param_name: &str) -> bool {
+    param_operand(params, param_name).is_some_and(|param_operand| ir_operands_same_verifier_source(operand, &param_operand))
+}
+
+fn operand_matches_var_id(operand: &ir::IrOperand, var_id: usize) -> bool {
+    matches!(operand, ir::IrOperand::Var(var) if var.id == var_id)
+}
+
+fn param_field_has_fixed_width(
+    params: &[ir::IrParam],
+    param_name: &str,
+    field: &str,
+    type_layouts: &MetadataTypeLayouts,
+    expected_width: usize,
+) -> bool {
+    let Some(param) = params.iter().find(|param| param.name == param_name) else {
+        return false;
+    };
+    let Some(type_name) = named_type_name(&param.ty) else {
+        return false;
+    };
+    type_field_has_fixed_width(type_layouts, type_name, field, expected_width)
+}
+
+fn type_field_has_fixed_width(type_layouts: &MetadataTypeLayouts, type_name: &str, field: &str, expected_width: usize) -> bool {
+    type_layouts
+        .get(type_name)
+        .and_then(|fields| fields.get(field))
+        .and_then(|layout| metadata_fixed_byte_width(&layout.ty, layout.fixed_size))
+        .is_some_and(|width| width == expected_width)
+}
+
+fn tuple_return_field_is_projected(body: &ir::IrBody, tuple_var_id: usize, field_name: &str) -> bool {
+    body.blocks.iter().flat_map(|block| &block.instructions).any(|instruction| {
+        matches!(
+            instruction,
+            ir::IrInstruction::FieldAccess {
+                obj: ir::IrOperand::Var(obj),
+                field,
+                ..
+            } if obj.id == tuple_var_id && field == field_name
+        )
+    })
+}
+
+fn param_operand(params: &[ir::IrParam], name: &str) -> Option<ir::IrOperand> {
+    params.iter().find(|param| param.name == name).map(|param| ir::IrOperand::Var(param.binding.clone()))
+}
+
+fn create_pattern_field_operand<'a>(pattern: &'a ir::CreatePattern, name: &str) -> Option<&'a ir::IrOperand> {
+    pattern.fields.iter().find_map(|(field, operand)| (field == name).then_some(operand))
+}
+
+fn operand_var_name(operand: &ir::IrOperand) -> Option<&str> {
+    match operand {
+        ir::IrOperand::Var(var) => Some(var.name.as_str()),
+        ir::IrOperand::Const(_) => None,
+    }
+}
+
+fn ir_operands_same_verifier_source(left: &ir::IrOperand, right: &ir::IrOperand) -> bool {
+    match (left, right) {
+        (ir::IrOperand::Var(left), ir::IrOperand::Var(right)) => left.id == right.id,
+        (ir::IrOperand::Const(left), ir::IrOperand::Const(right)) => ir_consts_equal(left, right),
+        _ => false,
+    }
+}
+
+fn ir_consts_equal(left: &ir::IrConst, right: &ir::IrConst) -> bool {
+    match (left, right) {
+        (ir::IrConst::Unit, ir::IrConst::Unit) => true,
+        (ir::IrConst::U8(left), ir::IrConst::U8(right)) => left == right,
+        (ir::IrConst::U16(left), ir::IrConst::U16(right)) => left == right,
+        (ir::IrConst::U32(left), ir::IrConst::U32(right)) => left == right,
+        (ir::IrConst::U64(left), ir::IrConst::U64(right)) => left == right,
+        (ir::IrConst::U128(left), ir::IrConst::U128(right)) => left == right,
+        (ir::IrConst::Bool(left), ir::IrConst::Bool(right)) => left == right,
+        (ir::IrConst::Address(left), ir::IrConst::Address(right)) => left == right,
+        (ir::IrConst::Hash(left), ir::IrConst::Hash(right)) => left == right,
+        (ir::IrConst::Array(left), ir::IrConst::Array(right)) => {
+            left.len() == right.len() && left.iter().zip(right.iter()).all(|(left, right)| ir_consts_equal(left, right))
+        }
+        _ => false,
+    }
+}
+
+fn pool_runtime_required_components(name: &str, operation: &str, checked_protocol_components: &[String]) -> Vec<String> {
+    let components = match operation {
+        "create" => &[
+            "token-pair-symbol-admission",
+            "token-pair-identity-admission",
+            "positive-reserve-admission",
+            "fee-policy",
+            "lp-supply-invariant",
+        ][..],
+        "mutation-invariants" => match name {
+            "swap_a_for_b" => &[
+                "reserve-conservation",
+                "fee-accounting",
+                "constant-product-pricing",
+                "lp-supply-consistency",
+                "pool-specific-admission",
+            ][..],
+            "add_liquidity" => {
+                &["reserve-conservation", "proportional-liquidity-accounting", "lp-supply-consistency", "pool-specific-admission"][..]
+            }
+            "remove_liquidity" => {
+                &["reserve-conservation", "proportional-withdrawal-accounting", "lp-supply-consistency", "pool-specific-admission"][..]
+            }
+            _ => &["reserve-conservation", "fee-accounting", "lp-supply-consistency", "pool-specific-admission"][..],
+        },
+        "composition" => &["callee-pool-admission", "launch-pool-atomicity", "pool-id-continuity"][..],
+        _ => &[][..],
+    };
+    components
+        .iter()
+        .filter(|component| !checked_protocol_components.iter().any(|checked| checked == **component))
+        .map(|component| (*component).to_string())
+        .collect()
+}
+
+fn pool_runtime_input_requirements(
+    name: &str,
+    operation: &str,
+    body: &ir::IrBody,
+    params: &[ir::IrParam],
+    checked_protocol_components: &[String],
+) -> Vec<PoolRuntimeInputRequirementMetadata> {
+    let mut requirements = match (operation, name) {
+        ("create", "seed_pool") => pool_seed_token_pair_identity_runtime_inputs(body),
+        ("mutation-invariants", "swap_a_for_b") => pool_swap_a_for_b_runtime_inputs(body),
+        ("mutation-invariants", "add_liquidity") => pool_add_liquidity_runtime_inputs(body),
+        ("mutation-invariants", "remove_liquidity") => pool_remove_liquidity_runtime_inputs(body),
+        ("composition", "launch_token") => pool_launch_token_composition_runtime_inputs(body, params),
+        _ => Vec::new(),
+    };
+    requirements.retain(|requirement| !checked_protocol_components.iter().any(|component| component == &requirement.component));
+    requirements
+}
+
+fn pool_seed_token_pair_identity_runtime_inputs(body: &ir::IrBody) -> Vec<PoolRuntimeInputRequirementMetadata> {
+    ["token_a", "token_b"]
+        .into_iter()
+        .filter_map(|binding| {
+            body.consume_set.iter().enumerate().find(|(_, pattern)| pattern.operation == "consume" && pattern.binding == binding).map(
+                |(index, pattern)| PoolRuntimeInputRequirementMetadata {
+                    component: "token-pair-identity-admission".to_string(),
+                    source: "Input".to_string(),
+                    index,
+                    binding: pattern.binding.clone(),
+                    field: None,
+                    abi: "input-type-id-32".to_string(),
+                    byte_len: 32,
+                    blocker: Some(pool_runtime_protocol_component_blocker("token-pair-identity-admission").to_string()),
+                    blocker_class: Some(pool_runtime_protocol_component_blocker_class("token-pair-identity-admission").to_string()),
+                },
+            )
+        })
+        .collect()
+}
+
+fn pool_swap_a_for_b_runtime_inputs(body: &ir::IrBody) -> Vec<PoolRuntimeInputRequirementMetadata> {
+    let mut requirements = Vec::new();
+    let Some((input_index, input_pattern)) = consumed_input_pattern(body, "input") else {
+        return requirements;
+    };
+    let Some(pool_pattern) = body.mutate_set.iter().find(|pattern| pattern.binding == "pool" && pattern.ty == "Pool") else {
+        return requirements;
+    };
+
+    requirements.push(pool_runtime_field_requirement(
+        "pool-specific-admission",
+        "Input",
+        input_index,
+        &input_pattern.binding,
+        "symbol",
+        "input-cell-field-bytes-8",
+        8,
+    ));
+    for field in ["token_a_symbol", "token_b_symbol"] {
+        requirements.push(pool_runtime_field_requirement(
+            "pool-specific-admission",
+            "Input",
+            pool_pattern.input_index,
+            &pool_pattern.binding,
+            field,
+            "mutate-input-field-bytes-8",
+            8,
+        ));
+    }
+    if let Some((token_index, token_pattern)) = created_output_pattern(body, "create_Token", "Token") {
+        requirements.push(pool_runtime_field_requirement(
+            "pool-specific-admission",
+            "Output",
+            token_index,
+            &token_pattern.binding,
+            "symbol",
+            "create-output-field-bytes-8",
+            8,
+        ));
+    }
+
+    requirements.push(pool_runtime_field_requirement(
+        "lp-supply-consistency",
+        "Input",
+        pool_pattern.input_index,
+        &pool_pattern.binding,
+        "total_lp",
+        "mutate-input-field-u64",
+        8,
+    ));
+    requirements.push(pool_runtime_field_requirement(
+        "lp-supply-consistency",
+        "Output",
+        pool_pattern.output_index,
+        &pool_pattern.binding,
+        "total_lp",
+        "mutate-output-field-u64",
+        8,
+    ));
+
+    requirements.push(pool_runtime_field_requirement(
+        "reserve-conservation",
+        "Input",
+        input_index,
+        &input_pattern.binding,
+        "amount",
+        "input-cell-field-u64",
+        8,
+    ));
+    for field in ["reserve_a", "reserve_b"] {
+        requirements.push(pool_runtime_field_requirement(
+            "reserve-conservation",
+            "Input",
+            pool_pattern.input_index,
+            &pool_pattern.binding,
+            field,
+            "mutate-input-field-u64",
+            8,
+        ));
+        requirements.push(pool_runtime_field_requirement(
+            "reserve-conservation",
+            "Output",
+            pool_pattern.output_index,
+            &pool_pattern.binding,
+            field,
+            "mutate-output-field-u64",
+            8,
+        ));
+    }
+    if let Some((token_index, token_pattern)) = created_output_pattern(body, "create_Token", "Token") {
+        requirements.push(pool_runtime_field_requirement(
+            "reserve-conservation",
+            "Output",
+            token_index,
+            &token_pattern.binding,
+            "amount",
+            "create-output-field-u64",
+            8,
+        ));
+    }
+
+    requirements.push(pool_runtime_field_requirement(
+        "fee-accounting",
+        "Input",
+        input_index,
+        &input_pattern.binding,
+        "amount",
+        "input-cell-field-u64",
+        8,
+    ));
+    requirements.push(pool_runtime_field_requirement(
+        "fee-accounting",
+        "Input",
+        pool_pattern.input_index,
+        &pool_pattern.binding,
+        "fee_rate_bps",
+        "mutate-input-field-u16",
+        2,
+    ));
+
+    for field in ["reserve_a", "reserve_b"] {
+        requirements.push(pool_runtime_field_requirement(
+            "constant-product-pricing",
+            "Input",
+            pool_pattern.input_index,
+            &pool_pattern.binding,
+            field,
+            "mutate-input-field-u64",
+            8,
+        ));
+        requirements.push(pool_runtime_field_requirement(
+            "constant-product-pricing",
+            "Output",
+            pool_pattern.output_index,
+            &pool_pattern.binding,
+            field,
+            "mutate-output-field-u64",
+            8,
+        ));
+    }
+    requirements.push(pool_runtime_field_requirement(
+        "constant-product-pricing",
+        "Input",
+        input_index,
+        &input_pattern.binding,
+        "amount",
+        "input-cell-field-u64",
+        8,
+    ));
+
+    requirements
+}
+
+fn pool_add_liquidity_runtime_inputs(body: &ir::IrBody) -> Vec<PoolRuntimeInputRequirementMetadata> {
+    let mut requirements = Vec::new();
+    let Some((token_a_index, token_a_pattern)) = consumed_input_pattern(body, "token_a") else {
+        return requirements;
+    };
+    let Some((token_b_index, token_b_pattern)) = consumed_input_pattern(body, "token_b") else {
+        return requirements;
+    };
+    let Some(pool_pattern) = body.mutate_set.iter().find(|pattern| pattern.binding == "pool" && pattern.ty == "Pool") else {
+        return requirements;
+    };
+
+    requirements.push(pool_runtime_field_requirement(
+        "pool-specific-admission",
+        "Input",
+        token_a_index,
+        &token_a_pattern.binding,
+        "symbol",
+        "input-cell-field-bytes-8",
+        8,
+    ));
+    requirements.push(pool_runtime_field_requirement(
+        "pool-specific-admission",
+        "Input",
+        token_b_index,
+        &token_b_pattern.binding,
+        "symbol",
+        "input-cell-field-bytes-8",
+        8,
+    ));
+    for field in ["token_a_symbol", "token_b_symbol"] {
+        requirements.push(pool_runtime_field_requirement(
+            "pool-specific-admission",
+            "Input",
+            pool_pattern.input_index,
+            &pool_pattern.binding,
+            field,
+            "mutate-input-field-bytes-8",
+            8,
+        ));
+    }
+    requirements.push(pool_runtime_field_requirement(
+        "pool-specific-admission",
+        "Input",
+        pool_pattern.input_index,
+        &pool_pattern.binding,
+        "type_hash",
+        "mutate-input-type-id-32",
+        32,
+    ));
+    if let Some((receipt_index, receipt_pattern)) = created_output_pattern(body, "create_LPReceipt", "LPReceipt") {
+        requirements.push(pool_runtime_field_requirement(
+            "pool-specific-admission",
+            "Output",
+            receipt_index,
+            &receipt_pattern.binding,
+            "pool_id",
+            "create-output-field-hash-32",
+            32,
+        ));
+    }
+
+    requirements.push(pool_runtime_field_requirement(
+        "reserve-conservation",
+        "Input",
+        token_a_index,
+        &token_a_pattern.binding,
+        "amount",
+        "input-cell-field-u64",
+        8,
+    ));
+    requirements.push(pool_runtime_field_requirement(
+        "reserve-conservation",
+        "Input",
+        token_b_index,
+        &token_b_pattern.binding,
+        "amount",
+        "input-cell-field-u64",
+        8,
+    ));
+    for field in ["reserve_a", "reserve_b"] {
+        requirements.push(pool_runtime_field_requirement(
+            "reserve-conservation",
+            "Input",
+            pool_pattern.input_index,
+            &pool_pattern.binding,
+            field,
+            "mutate-input-field-u64",
+            8,
+        ));
+        requirements.push(pool_runtime_field_requirement(
+            "reserve-conservation",
+            "Output",
+            pool_pattern.output_index,
+            &pool_pattern.binding,
+            field,
+            "mutate-output-field-u64",
+            8,
+        ));
+    }
+
+    requirements.push(pool_runtime_field_requirement(
+        "proportional-liquidity-accounting",
+        "Input",
+        token_a_index,
+        &token_a_pattern.binding,
+        "amount",
+        "input-cell-field-u64",
+        8,
+    ));
+    requirements.push(pool_runtime_field_requirement(
+        "proportional-liquidity-accounting",
+        "Input",
+        token_b_index,
+        &token_b_pattern.binding,
+        "amount",
+        "input-cell-field-u64",
+        8,
+    ));
+    for field in ["reserve_a", "reserve_b", "total_lp"] {
+        requirements.push(pool_runtime_field_requirement(
+            "proportional-liquidity-accounting",
+            "Input",
+            pool_pattern.input_index,
+            &pool_pattern.binding,
+            field,
+            "mutate-input-field-u64",
+            8,
+        ));
+        requirements.push(pool_runtime_field_requirement(
+            "proportional-liquidity-accounting",
+            "Output",
+            pool_pattern.output_index,
+            &pool_pattern.binding,
+            field,
+            "mutate-output-field-u64",
+            8,
+        ));
+    }
+
+    if let Some((receipt_index, receipt_pattern)) = created_output_pattern(body, "create_LPReceipt", "LPReceipt") {
+        requirements.push(pool_runtime_field_requirement(
+            "proportional-liquidity-accounting",
+            "Output",
+            receipt_index,
+            &receipt_pattern.binding,
+            "lp_amount",
+            "create-output-field-u64",
+            8,
+        ));
+        requirements.push(pool_runtime_field_requirement(
+            "lp-supply-consistency",
+            "Output",
+            receipt_index,
+            &receipt_pattern.binding,
+            "lp_amount",
+            "create-output-field-u64",
+            8,
+        ));
+    }
+    requirements.push(pool_runtime_field_requirement(
+        "lp-supply-consistency",
+        "Input",
+        pool_pattern.input_index,
+        &pool_pattern.binding,
+        "total_lp",
+        "mutate-input-field-u64",
+        8,
+    ));
+    requirements.push(pool_runtime_field_requirement(
+        "lp-supply-consistency",
+        "Output",
+        pool_pattern.output_index,
+        &pool_pattern.binding,
+        "total_lp",
+        "mutate-output-field-u64",
+        8,
+    ));
+
+    requirements
+}
+
+fn pool_remove_liquidity_runtime_inputs(body: &ir::IrBody) -> Vec<PoolRuntimeInputRequirementMetadata> {
+    let mut requirements = Vec::new();
+    let Some((receipt_index, receipt_pattern)) = consumed_input_pattern(body, "receipt") else {
+        return requirements;
+    };
+    let Some(pool_pattern) = body.mutate_set.iter().find(|pattern| pattern.binding == "pool" && pattern.ty == "Pool") else {
+        return requirements;
+    };
+
+    requirements.push(pool_runtime_field_requirement(
+        "pool-specific-admission",
+        "Input",
+        receipt_index,
+        &receipt_pattern.binding,
+        "pool_id",
+        "input-cell-field-hash-32",
+        32,
+    ));
+    requirements.push(pool_runtime_field_requirement(
+        "pool-specific-admission",
+        "Input",
+        pool_pattern.input_index,
+        &pool_pattern.binding,
+        "type_hash",
+        "mutate-input-type-id-32",
+        32,
+    ));
+    for field in ["token_a_symbol", "token_b_symbol"] {
+        requirements.push(pool_runtime_field_requirement(
+            "pool-specific-admission",
+            "Input",
+            pool_pattern.input_index,
+            &pool_pattern.binding,
+            field,
+            "mutate-input-field-bytes-8",
+            8,
+        ));
+    }
+    for (token_index, token_pattern) in
+        body.create_set.iter().enumerate().filter(|(_, pattern)| pattern.operation == "create" && pattern.ty == "Token").take(2)
+    {
+        requirements.push(pool_runtime_field_requirement(
+            "pool-specific-admission",
+            "Output",
+            token_index,
+            &token_pattern.binding,
+            "symbol",
+            "create-output-field-bytes-8",
+            8,
+        ));
+    }
+
+    for field in ["reserve_a", "reserve_b"] {
+        requirements.push(pool_runtime_field_requirement(
+            "reserve-conservation",
+            "Input",
+            pool_pattern.input_index,
+            &pool_pattern.binding,
+            field,
+            "mutate-input-field-u64",
+            8,
+        ));
+        requirements.push(pool_runtime_field_requirement(
+            "reserve-conservation",
+            "Output",
+            pool_pattern.output_index,
+            &pool_pattern.binding,
+            field,
+            "mutate-output-field-u64",
+            8,
+        ));
+    }
+    for (token_index, token_pattern) in
+        body.create_set.iter().enumerate().filter(|(_, pattern)| pattern.operation == "create" && pattern.ty == "Token").take(2)
+    {
+        requirements.push(pool_runtime_field_requirement(
+            "reserve-conservation",
+            "Output",
+            token_index,
+            &token_pattern.binding,
+            "amount",
+            "create-output-field-u64",
+            8,
+        ));
+    }
+
+    requirements.push(pool_runtime_field_requirement(
+        "proportional-withdrawal-accounting",
+        "Input",
+        receipt_index,
+        &receipt_pattern.binding,
+        "lp_amount",
+        "input-cell-field-u64",
+        8,
+    ));
+    for field in ["reserve_a", "reserve_b", "total_lp"] {
+        requirements.push(pool_runtime_field_requirement(
+            "proportional-withdrawal-accounting",
+            "Input",
+            pool_pattern.input_index,
+            &pool_pattern.binding,
+            field,
+            "mutate-input-field-u64",
+            8,
+        ));
+    }
+    for field in ["reserve_a", "reserve_b"] {
+        requirements.push(pool_runtime_field_requirement(
+            "proportional-withdrawal-accounting",
+            "Output",
+            pool_pattern.output_index,
+            &pool_pattern.binding,
+            field,
+            "mutate-output-field-u64",
+            8,
+        ));
+    }
+    for (token_index, token_pattern) in
+        body.create_set.iter().enumerate().filter(|(_, pattern)| pattern.operation == "create" && pattern.ty == "Token").take(2)
+    {
+        requirements.push(pool_runtime_field_requirement(
+            "proportional-withdrawal-accounting",
+            "Output",
+            token_index,
+            &token_pattern.binding,
+            "amount",
+            "create-output-field-u64",
+            8,
+        ));
+    }
+
+    requirements.push(pool_runtime_field_requirement(
+        "lp-supply-consistency",
+        "Input",
+        receipt_index,
+        &receipt_pattern.binding,
+        "lp_amount",
+        "input-cell-field-u64",
+        8,
+    ));
+    requirements.push(pool_runtime_field_requirement(
+        "lp-supply-consistency",
+        "Input",
+        pool_pattern.input_index,
+        &pool_pattern.binding,
+        "total_lp",
+        "mutate-input-field-u64",
+        8,
+    ));
+    requirements.push(pool_runtime_field_requirement(
+        "lp-supply-consistency",
+        "Output",
+        pool_pattern.output_index,
+        &pool_pattern.binding,
+        "total_lp",
+        "mutate-output-field-u64",
+        8,
+    ));
+
+    requirements
+}
+
+fn pool_launch_token_composition_runtime_inputs(
+    body: &ir::IrBody,
+    params: &[ir::IrParam],
+) -> Vec<PoolRuntimeInputRequirementMetadata> {
+    let mut requirements = Vec::new();
+    let Some((auth_index, auth_pattern)) = created_output_pattern(body, "create_MintAuthority", "MintAuthority") else {
+        return requirements;
+    };
+    let Some((pool_seed_index, pool_seed_pattern)) = last_created_output_pattern(body, "Token") else {
+        return requirements;
+    };
+
+    requirements.push(pool_runtime_field_requirement(
+        "callee-pool-admission",
+        "Output",
+        pool_seed_index,
+        &pool_seed_pattern.binding,
+        "type_hash",
+        "create-output-type-id-32",
+        32,
+    ));
+    if let Some((paired_index, paired_param)) = param_pattern(params, "pool_paired_token") {
+        requirements.push(pool_runtime_field_requirement(
+            "callee-pool-admission",
+            "Param",
+            paired_index,
+            &paired_param.name,
+            "type_hash",
+            "schema-param-type-id-32",
+            32,
+        ));
+        requirements.push(pool_runtime_field_requirement(
+            "callee-pool-admission",
+            "Param",
+            paired_index,
+            &paired_param.name,
+            "symbol",
+            "schema-param-field-bytes-8",
+            8,
+        ));
+    }
+    requirements.push(pool_runtime_field_requirement(
+        "callee-pool-admission",
+        "Output",
+        pool_seed_index,
+        &pool_seed_pattern.binding,
+        "symbol",
+        "create-output-field-bytes-8",
+        8,
+    ));
+    if let Some((fee_index, fee_param)) = param_pattern(params, "fee_rate_bps") {
+        requirements.push(pool_runtime_value_requirement(
+            "callee-pool-admission",
+            "Param",
+            fee_index,
+            &fee_param.name,
+            "param-u16",
+            2,
+        ));
+    }
+
+    if let Some((initial_index, initial_param)) = param_pattern(params, "initial_mint") {
+        requirements.push(pool_runtime_value_requirement(
+            "launch-pool-atomicity",
+            "Param",
+            initial_index,
+            &initial_param.name,
+            "param-u64",
+            8,
+        ));
+    }
+    if let Some((seed_amount_index, seed_amount_param)) = param_pattern(params, "pool_seed_amount") {
+        requirements.push(pool_runtime_value_requirement(
+            "launch-pool-atomicity",
+            "Param",
+            seed_amount_index,
+            &seed_amount_param.name,
+            "param-u64",
+            8,
+        ));
+    }
+    if let Some((distribution_index, distribution_param)) = param_pattern(params, "distribution") {
+        requirements.push(pool_runtime_value_requirement(
+            "launch-pool-atomicity",
+            "Param",
+            distribution_index,
+            &distribution_param.name,
+            "param-fixed-array-bytes-160",
+            160,
+        ));
+    }
+    requirements.push(pool_runtime_field_requirement(
+        "launch-pool-atomicity",
+        "Output",
+        auth_index,
+        &auth_pattern.binding,
+        "minted",
+        "create-output-field-u64",
+        8,
+    ));
+    requirements.push(pool_runtime_field_requirement(
+        "launch-pool-atomicity",
+        "Output",
+        auth_index,
+        &auth_pattern.binding,
+        "token_symbol",
+        "create-output-field-bytes-8",
+        8,
+    ));
+    requirements.push(pool_runtime_field_requirement(
+        "launch-pool-atomicity",
+        "Output",
+        pool_seed_index,
+        &pool_seed_pattern.binding,
+        "amount",
+        "create-output-field-u64",
+        8,
+    ));
+    requirements.push(pool_runtime_field_requirement(
+        "launch-pool-atomicity",
+        "Output",
+        pool_seed_index,
+        &pool_seed_pattern.binding,
+        "symbol",
+        "create-output-field-bytes-8",
+        8,
+    ));
+
+    if let Some((return_index, return_binding)) = pool_call_return_binding(body, "seed_pool") {
+        requirements.push(pool_runtime_field_requirement(
+            "pool-id-continuity",
+            "CallReturn",
+            return_index,
+            return_binding,
+            "0.type_hash",
+            "tuple-call-return-field-type-id-32",
+            32,
+        ));
+        requirements.push(pool_runtime_field_requirement(
+            "pool-id-continuity",
+            "CallReturn",
+            return_index + 1,
+            return_binding,
+            "1.pool_id",
+            "tuple-call-return-field-hash-32",
+            32,
+        ));
+        requirements.push(pool_runtime_field_requirement(
+            "pool-id-continuity",
+            "CallReturnPair",
+            return_index,
+            return_binding,
+            "0.type_hash == 1.pool_id",
+            "tuple-call-return-field-equality-32",
+            32,
+        ));
+    }
+
+    requirements
+}
+
+fn consumed_input_pattern<'a>(body: &'a ir::IrBody, binding: &str) -> Option<(usize, &'a ir::CellPattern)> {
+    body.consume_set.iter().enumerate().find(|(_, pattern)| pattern.operation == "consume" && pattern.binding == binding)
+}
+
+fn created_output_pattern<'a>(body: &'a ir::IrBody, binding: &str, ty: &str) -> Option<(usize, &'a ir::CreatePattern)> {
+    body.create_set
+        .iter()
+        .enumerate()
+        .find(|(_, pattern)| pattern.operation == "create" && pattern.binding == binding && pattern.ty == ty)
+}
+
+fn last_created_output_pattern<'a>(body: &'a ir::IrBody, ty: &str) -> Option<(usize, &'a ir::CreatePattern)> {
+    body.create_set.iter().enumerate().rev().find(|(_, pattern)| pattern.operation == "create" && pattern.ty == ty)
+}
+
+fn last_created_output_var_id(body: &ir::IrBody, ty: &str) -> Option<usize> {
+    body.blocks.iter().rev().flat_map(|block| block.instructions.iter().rev()).find_map(|instruction| match instruction {
+        ir::IrInstruction::Create { dest, pattern } if pattern.operation == "create" && pattern.ty == ty => Some(dest.id),
+        _ => None,
+    })
+}
+
+fn param_pattern<'a>(params: &'a [ir::IrParam], name: &str) -> Option<(usize, &'a ir::IrParam)> {
+    params.iter().enumerate().find(|(_, param)| param.name == name)
+}
+
+fn pool_call_return_binding<'a>(body: &'a ir::IrBody, func: &str) -> Option<(usize, &'a str)> {
+    body.blocks.iter().flat_map(|block| &block.instructions).find_map(|instruction| match instruction {
+        ir::IrInstruction::Call { dest: Some(dest), func: call_func, .. } if call_func == func => Some((0, dest.name.as_str())),
+        _ => None,
+    })
+}
+
+fn pool_runtime_field_requirement(
+    component: &str,
+    source: &str,
+    index: usize,
+    binding: &str,
+    field: &str,
+    abi: &str,
+    byte_len: usize,
+) -> PoolRuntimeInputRequirementMetadata {
+    PoolRuntimeInputRequirementMetadata {
+        component: component.to_string(),
+        source: source.to_string(),
+        index,
+        binding: binding.to_string(),
+        field: Some(field.to_string()),
+        abi: abi.to_string(),
+        byte_len,
+        blocker: Some(pool_runtime_protocol_component_blocker(component).to_string()),
+        blocker_class: Some(pool_runtime_protocol_component_blocker_class(component).to_string()),
+    }
+}
+
+fn pool_runtime_value_requirement(
+    component: &str,
+    source: &str,
+    index: usize,
+    binding: &str,
+    abi: &str,
+    byte_len: usize,
+) -> PoolRuntimeInputRequirementMetadata {
+    PoolRuntimeInputRequirementMetadata {
+        component: component.to_string(),
+        source: source.to_string(),
+        index,
+        binding: binding.to_string(),
+        field: None,
+        abi: abi.to_string(),
+        byte_len,
+        blocker: Some(pool_runtime_protocol_component_blocker(component).to_string()),
+        blocker_class: Some(pool_runtime_protocol_component_blocker_class(component).to_string()),
+    }
+}
+
+fn pool_invariant_families(
+    checked_invariant_guards: &[String],
+    checked_protocol_components: &[String],
+    runtime_required_components: &[String],
+    runtime_source: &str,
+) -> Vec<PoolInvariantMetadata> {
+    let mut families = Vec::new();
+    let mut seen = BTreeSet::new();
+
+    for guard in checked_invariant_guards {
+        if seen.insert(guard.clone()) {
+            families.push(PoolInvariantMetadata {
+                name: guard.clone(),
+                status: "checked-runtime".to_string(),
+                source: "assert-invariant-cfg".to_string(),
+                blocker: None,
+                blocker_class: None,
+            });
+        }
+    }
+
+    for component in checked_protocol_components {
+        if seen.insert(component.clone()) {
+            families.push(PoolInvariantMetadata {
+                name: component.clone(),
+                status: "checked-runtime".to_string(),
+                source: pool_checked_protocol_component_source(component).to_string(),
+                blocker: None,
+                blocker_class: None,
+            });
+        }
+    }
+
+    for component in runtime_required_components {
+        if seen.insert(component.clone()) {
+            families.push(PoolInvariantMetadata {
+                name: component.clone(),
+                status: "runtime-required".to_string(),
+                source: pool_runtime_protocol_component_source(component, runtime_source).to_string(),
+                blocker: Some(pool_runtime_protocol_component_blocker(component).to_string()),
+                blocker_class: Some(pool_runtime_protocol_component_blocker_class(component).to_string()),
+            });
+        }
+    }
+
+    families
+}
+
+fn pool_checked_protocol_component_source(component: &str) -> &'static str {
+    match component {
+        "token-pair-identity-admission" => "input-type-id-abi+load-cell-by-field",
+        "token-pair-symbol-admission" => "assert-invariant-cfg+create-output-symbol-fields",
+        "lp-supply-invariant" => "create-output-field-coupling",
+        "lp-supply-consistency" => "mutate-preserved-field-equality",
+        "pool-id-continuity" => "callee-output-field-coupling+tuple-return-abi",
+        _ => "assert-invariant-cfg+create-output-fields",
+    }
+}
+
+fn pool_runtime_protocol_component_source<'a>(component: &str, default_source: &'a str) -> &'a str {
+    match component {
+        "token-pair-identity-admission" => "token-input-type-id-abi",
+        "fee-accounting" => "swap-fee-accounting-abi",
+        "constant-product-pricing" => "swap-constant-product-abi",
+        "proportional-liquidity-accounting" => "add-liquidity-proportional-abi",
+        "proportional-withdrawal-accounting" => "remove-liquidity-proportional-withdrawal-abi",
+        "lp-supply-consistency" => "pool-lp-supply-consistency-abi",
+        "reserve-conservation" => "pool-reserve-conservation-abi",
+        "pool-specific-admission" => "pool-specific-admission-abi",
+        "callee-pool-admission" => "pool-composition-callee-admission-abi",
+        "launch-pool-atomicity" => "launch-pool-atomicity-abi",
+        "pool-id-continuity" => "pool-id-continuity-abi",
+        _ => default_source,
+    }
+}
+
+fn pool_runtime_protocol_component_blocker(component: &str) -> &'static str {
+    match component {
+        "token-pair-symbol-admission" | "token-pair-identity-admission" | "positive-reserve-admission" => {
+            "deferred beyond Phase 2 controlled-flow boundary: generalized Pool admission requires protocol policy over concrete asset identities and reserve context"
+        }
+        "fee-policy" => {
+            "deferred beyond Phase 2 controlled-flow boundary: generalized Pool fee policy requires protocol-level fee configuration and admission rules"
+        }
+        "lp-supply-invariant" | "lp-supply-consistency" => {
+            "deferred beyond Phase 2 controlled-flow boundary: generalized LP supply accounting requires protocol formula verification across LP receipts and Pool totals"
+        }
+        "reserve-conservation" => {
+            "deferred beyond Phase 2 controlled-flow boundary: AMM reserve conservation requires full transaction-level reserve formula verification"
+        }
+        "fee-accounting" => {
+            "deferred beyond Phase 2 controlled-flow boundary: AMM fee accounting requires protocol formula verification over input amount and pool fee fields"
+        }
+        "constant-product-pricing" => {
+            "deferred beyond Phase 2 controlled-flow boundary: constant-product pricing requires protocol formula verification over pre/post reserve state"
+        }
+        "proportional-liquidity-accounting" => {
+            "deferred beyond Phase 2 controlled-flow boundary: proportional liquidity accounting requires protocol formula verification over deposits, reserves, and minted LP amount"
+        }
+        "proportional-withdrawal-accounting" => {
+            "deferred beyond Phase 2 controlled-flow boundary: proportional withdrawal accounting requires protocol formula verification over burned LP amount and created token outputs"
+        }
+        "pool-specific-admission" | "callee-pool-admission" => {
+            "deferred beyond Phase 2 controlled-flow boundary: generalized Pool admission requires protocol-specific asset/type-id matching rules"
+        }
+        "launch-pool-atomicity" => {
+            "deferred beyond Phase 2 controlled-flow boundary: launch/pool atomicity belongs to post-v1 transaction-builder policy"
+        }
+        "pool-id-continuity" => {
+            "deferred beyond Phase 2 controlled-flow boundary: generalized Pool identity continuity requires transaction-builder/callee output binding policy"
+        }
+        _ => "deferred beyond Phase 2 controlled-flow boundary: unresolved Pool pattern policy requires protocol/runtime verification",
+    }
+}
+
+fn pool_runtime_protocol_component_blocker_class(component: &str) -> &'static str {
+    match component {
+        "token-pair-symbol-admission"
+        | "token-pair-identity-admission"
+        | "positive-reserve-admission"
+        | "pool-specific-admission"
+        | "callee-pool-admission" => "phase2-deferred-pool-admission",
+        "fee-policy" | "fee-accounting" => "phase2-deferred-pool-fee-policy",
+        "lp-supply-invariant" | "lp-supply-consistency" => "phase2-deferred-lp-supply-policy",
+        "reserve-conservation" => "phase2-deferred-amm-reserve-conservation",
+        "constant-product-pricing" => "phase2-deferred-amm-pricing",
+        "proportional-liquidity-accounting" => "phase2-deferred-amm-liquidity-accounting",
+        "proportional-withdrawal-accounting" => "phase2-deferred-amm-withdrawal-accounting",
+        "launch-pool-atomicity" => "phase2-deferred-launch-atomicity",
+        "pool-id-continuity" => "phase2-deferred-pool-id-continuity",
+        _ => "phase2-deferred-pool-pattern-policy",
+    }
+}
+
+fn body_pool_primitive_obligations(
+    body: &ir::IrBody,
+    cell_type_kinds: &HashMap<String, ir::IrTypeKind>,
+) -> Vec<TransactionResourceObligation> {
+    let mut obligations = Vec::new();
+    let mut seen = BTreeSet::new();
+
+    for pattern in &body.create_set {
+        if is_pool_pattern_candidate(&pattern.ty, cell_type_kinds) && seen.insert(("pool-create", pattern.ty.clone())) {
+            obligations.push(TransactionResourceObligation {
+                category: "pool-pattern",
+                feature: format!("pool-create:{}", pattern.ty),
+                status: "runtime-required",
+                detail: format!(
+                    "'{}' creation is lowered as ordinary shared Cell creation plus pool-pattern metadata; verifier-covered source guards may discharge selected admission families, but runtime/protocol admission must still enforce unresolved Pool families reported in pool_primitives[].invariant_families before treating this as a valid pool flow",
+                    pattern.ty
+                ),
+            });
+        }
+    }
+
+    for pattern in &body.mutate_set {
+        if is_pool_pattern_candidate(&pattern.ty, cell_type_kinds) && seen.insert(("pool-mutation-invariants", pattern.ty.clone())) {
+            obligations.push(TransactionResourceObligation {
+                category: "pool-pattern",
+                feature: format!("pool-mutation-invariants:{}", pattern.ty),
+                status: "runtime-required",
+                detail: format!(
+                    "Generic shared mutation checks for '{}' prove replacement identity and source-level field transitions only; runtime/protocol logic must separately enforce unresolved AMM Pool invariants reported in pool_primitives[].invariant_families, such as reserve conservation, fee accounting, LP supply consistency, and pool-specific admission semantics",
+                    pattern.ty
+                ),
+            });
+        }
+    }
+
+    for block in &body.blocks {
+        for instruction in &block.instructions {
+            let ir::IrInstruction::Call { dest: Some(dest), func, .. } = instruction else {
+                continue;
+            };
+            for type_name in pool_pattern_candidate_type_names(&dest.ty, cell_type_kinds) {
+                if seen.insert(("pool-composition", type_name.clone())) {
+                    obligations.push(TransactionResourceObligation {
+                        category: "pool-pattern",
+                        feature: format!("pool-composition:{}", type_name),
+                        status: "runtime-required",
+                        detail: format!(
+                            "Call '{}' returns or contains '{}'; caller metadata preserves scheduler visibility, but launch-builder/pool-pattern composition still inherits the callee's Pool admission and invariant obligations",
+                            func, type_name
+                        ),
+                    });
+                }
+            }
+        }
+    }
+
+    obligations
+}
+
+fn body_assert_invariant_count(body: &ir::IrBody) -> usize {
+    body.blocks
+        .iter()
+        .filter(|block| {
+            let ir::IrTerminator::Branch { else_block, .. } = &block.terminator else {
+                return false;
+            };
+            body.blocks.iter().find(|candidate| candidate.id == *else_block).is_some_and(|candidate| {
+                matches!(candidate.terminator, ir::IrTerminator::Return(Some(ir::IrOperand::Const(ir::IrConst::U64(7)))))
+            })
+        })
+        .count()
+}
+
+fn is_pool_pattern_candidate(type_name: &str, cell_type_kinds: &HashMap<String, ir::IrTypeKind>) -> bool {
+    type_name == "Pool" && cell_type_kinds.get(type_name) == Some(&ir::IrTypeKind::Shared)
+}
+
+fn pool_pattern_candidate_type_names(ty: &ir::IrType, cell_type_kinds: &HashMap<String, ir::IrTypeKind>) -> Vec<String> {
+    let mut names = BTreeSet::new();
+    collect_pool_pattern_candidate_type_names(ty, cell_type_kinds, &mut names);
+    names.into_iter().collect()
+}
+
+fn collect_pool_pattern_candidate_type_names(
+    ty: &ir::IrType,
+    cell_type_kinds: &HashMap<String, ir::IrTypeKind>,
+    names: &mut BTreeSet<String>,
+) {
+    match ty {
+        ir::IrType::Named(name) if is_pool_pattern_candidate(name, cell_type_kinds) => {
+            names.insert(name.clone());
+        }
+        ir::IrType::Array(inner, _) | ir::IrType::Ref(inner) | ir::IrType::MutRef(inner) => {
+            collect_pool_pattern_candidate_type_names(inner, cell_type_kinds, names);
+        }
+        ir::IrType::Tuple(items) => {
+            for item in items {
+                collect_pool_pattern_candidate_type_names(item, cell_type_kinds, names);
+            }
+        }
+        _ => {}
+    }
 }
 
 fn push_verifier_obligation(
@@ -1726,15 +4502,72 @@ fn push_verifier_obligation(
     }
 }
 
-fn body_lifecycle_transition_types(body: &ir::IrBody, lifecycle_states: &HashMap<String, Vec<String>>) -> Vec<String> {
+struct LifecycleTransitionCheck {
+    feature: String,
+    status: String,
+    detail: String,
+}
+
+fn body_lifecycle_transition_checks(
+    body: &ir::IrBody,
+    lifecycle_states: &HashMap<String, Vec<String>>,
+    type_layouts: &MetadataTypeLayouts,
+    params: &[ir::IrParam],
+) -> Vec<LifecycleTransitionCheck> {
     let consumed_types = body_consumed_named_types(body);
-    let mut types = BTreeSet::new();
+    let param_schema_vars = schema_pointer_var_ids(body, params);
+    let availability = metadata_prelude_availability(body, &param_schema_vars, type_layouts, params);
+    let mut checks = Vec::new();
+    let mut seen = BTreeSet::new();
     for pattern in &body.create_set {
-        if lifecycle_states.contains_key(&pattern.ty) && consumed_types.contains(&pattern.ty) {
-            types.insert(pattern.ty.clone());
+        if pattern.operation == "settle" {
+            continue;
+        }
+        if !lifecycle_states.contains_key(&pattern.ty) || !consumed_types.contains(&pattern.ty) {
+            continue;
+        }
+        if !seen.insert(pattern.ty.clone()) {
+            continue;
+        }
+        if metadata_can_verify_lifecycle_transition(pattern, type_layouts, &availability) {
+            checks.push(LifecycleTransitionCheck {
+                feature: pattern.ty.clone(),
+                status: "checked-runtime".to_string(),
+                detail: "Compiler emits runtime old_state + 1 and old/new state range checks, and the lifecycle output is already fully covered by the fixed-field verifier".to_string(),
+            });
+        } else {
+            checks.push(LifecycleTransitionCheck {
+                feature: pattern.ty.clone(),
+                status: "checked-partial".to_string(),
+                detail: "Compiler emits declaration/static checks, but this transition still lacks a complete fixed-field runtime verifier path".to_string(),
+            });
         }
     }
-    types.into_iter().collect()
+    checks
+}
+
+fn metadata_can_verify_lifecycle_transition(
+    pattern: &ir::CreatePattern,
+    type_layouts: &MetadataTypeLayouts,
+    availability: &MetadataPreludeAvailability,
+) -> bool {
+    let Some(layouts) = type_layouts.get(&pattern.ty) else {
+        return false;
+    };
+    if metadata_type_encoded_size_from_layouts(layouts).is_none() {
+        return false;
+    }
+    let Some(state_layout) = layouts.get("state") else {
+        return false;
+    };
+    if metadata_fixed_scalar_width(&state_layout.ty, state_layout.fixed_size).is_none() {
+        return false;
+    }
+    metadata_can_verify_create_output_fields(pattern, type_layouts, availability)
+}
+
+fn metadata_type_encoded_size_from_layouts(layouts: &HashMap<String, MetadataFieldLayout>) -> Option<usize> {
+    layouts.values().try_fold(0usize, |acc, layout| layout.fixed_size.map(|size| acc + size))
 }
 
 fn body_consumed_named_types(body: &ir::IrBody) -> BTreeSet<String> {
@@ -1745,7 +4578,7 @@ fn body_consumed_named_types(body: &ir::IrBody) -> BTreeSet<String> {
                 ir::IrInstruction::Consume { operand }
                 | ir::IrInstruction::Transfer { operand, .. }
                 | ir::IrInstruction::Destroy { operand }
-                | ir::IrInstruction::Settle { operand } => Some(operand),
+                | ir::IrInstruction::Settle { operand, .. } => Some(operand),
                 ir::IrInstruction::Claim { receipt, .. } => Some(receipt),
                 _ => None,
             };
@@ -1779,8 +4612,10 @@ fn body_symbolic_runtime_features(
     body: &ir::IrBody,
     param_schema_vars: &BTreeSet<usize>,
     type_layouts: &MetadataTypeLayouts,
+    params: &[ir::IrParam],
 ) -> Vec<String> {
     let mut features = BTreeSet::new();
+    let prelude_availability = metadata_prelude_availability(body, param_schema_vars, type_layouts, params);
     if !body.consume_set.is_empty() {
         features.insert("consume-input-cell".to_string());
     }
@@ -1791,18 +4626,29 @@ fn body_symbolic_runtime_features(
         for instruction in &block.instructions {
             match instruction {
                 ir::IrInstruction::FieldAccess { obj, field, .. } => {
-                    if !is_executable_schema_field_access(obj, field, param_schema_vars, type_layouts) {
+                    if !is_executable_schema_field_access(obj, field, param_schema_vars, type_layouts)
+                        && !is_executable_aggregate_field_access(obj, field, &prelude_availability)
+                        && !is_executable_tuple_call_return_field_access(obj, field, &prelude_availability)
+                    {
                         features.insert("schema-field-access".to_string());
                     }
                 }
-                ir::IrInstruction::Index { .. } => {
+                ir::IrInstruction::Binary { op: ast::BinaryOp::Eq | ast::BinaryOp::Ne, left, right, .. }
+                    if (operand_fixed_byte_width(left).is_some() || operand_fixed_byte_width(right).is_some())
+                        && !metadata_can_verify_fixed_byte_comparison(left, right, &prelude_availability) =>
+                {
+                    features.insert("fixed-byte-comparison".to_string());
+                }
+                ir::IrInstruction::Index { dest, .. } if !prelude_availability.aggregate_pointer_vars.contains_key(&dest.id) => {
                     features.insert("indexed-state-access".to_string());
                 }
                 ir::IrInstruction::Length { operand, .. } if operand_static_length(operand).is_none() => {
                     features.insert("dynamic-length".to_string());
                 }
                 ir::IrInstruction::TypeHash { .. } => {
-                    features.insert("type-hash".to_string());
+                    if !is_executable_output_type_hash(instruction, &prelude_availability) {
+                        features.insert("type-hash".to_string());
+                    }
                 }
                 ir::IrInstruction::CollectionNew { .. }
                 | ir::IrInstruction::CollectionPush { .. }
@@ -1819,8 +4665,10 @@ fn body_symbolic_runtime_features(
                 ir::IrInstruction::Transfer { .. } => {
                     features.insert("transfer-expression".to_string());
                 }
-                ir::IrInstruction::Destroy { .. } => {
-                    features.insert("destroy-expression".to_string());
+                ir::IrInstruction::Destroy { operand } => {
+                    if !is_executable_destroy(operand) {
+                        features.insert("destroy-expression".to_string());
+                    }
                 }
                 ir::IrInstruction::Claim { .. } => {
                     features.insert("claim-expression".to_string());
@@ -1839,24 +4687,43 @@ fn body_fail_closed_runtime_features(
     body: &ir::IrBody,
     param_schema_vars: &BTreeSet<usize>,
     type_layouts: &MetadataTypeLayouts,
+    params: &[ir::IrParam],
 ) -> Vec<String> {
     let mut features = BTreeSet::new();
+    let prelude_availability = metadata_prelude_availability(body, param_schema_vars, type_layouts, params);
+    if body.create_set.iter().any(|pattern| !metadata_can_verify_create_output_fields(pattern, type_layouts, &prelude_availability)) {
+        features.insert("output-verification-incomplete".to_string());
+    }
+    if body.create_set.iter().any(|pattern| !metadata_can_verify_output_lock(pattern, &prelude_availability)) {
+        features.insert("output-lock-verification-incomplete".to_string());
+    }
     for block in &body.blocks {
         for instruction in &block.instructions {
             match instruction {
                 ir::IrInstruction::FieldAccess { obj, field, .. } => {
-                    if !is_executable_schema_field_access(obj, field, param_schema_vars, type_layouts) {
+                    if !is_executable_schema_field_access(obj, field, param_schema_vars, type_layouts)
+                        && !is_executable_aggregate_field_access(obj, field, &prelude_availability)
+                        && !is_executable_tuple_call_return_field_access(obj, field, &prelude_availability)
+                    {
                         features.insert("field-access".to_string());
                     }
                 }
-                ir::IrInstruction::Index { .. } => {
+                ir::IrInstruction::Binary { op: ast::BinaryOp::Eq | ast::BinaryOp::Ne, left, right, .. }
+                    if (operand_fixed_byte_width(left).is_some() || operand_fixed_byte_width(right).is_some())
+                        && !metadata_can_verify_fixed_byte_comparison(left, right, &prelude_availability) =>
+                {
+                    features.insert("fixed-byte-comparison".to_string());
+                }
+                ir::IrInstruction::Index { dest, .. } if !prelude_availability.aggregate_pointer_vars.contains_key(&dest.id) => {
                     features.insert("index-access".to_string());
                 }
                 ir::IrInstruction::Length { operand, .. } if operand_static_length(operand).is_none() => {
                     features.insert("dynamic-length".to_string());
                 }
                 ir::IrInstruction::TypeHash { .. } => {
-                    features.insert("type-hash".to_string());
+                    if !is_executable_output_type_hash(instruction, &prelude_availability) {
+                        features.insert("type-hash".to_string());
+                    }
                 }
                 ir::IrInstruction::CollectionNew { .. } => {
                     features.insert("collection-new".to_string());
@@ -1876,8 +4743,10 @@ fn body_fail_closed_runtime_features(
                 ir::IrInstruction::Transfer { .. } => {
                     features.insert("transfer-expression".to_string());
                 }
-                ir::IrInstruction::Destroy { .. } => {
-                    features.insert("destroy-expression".to_string());
+                ir::IrInstruction::Destroy { operand } => {
+                    if !is_executable_destroy(operand) {
+                        features.insert("destroy-expression".to_string());
+                    }
                 }
                 ir::IrInstruction::Claim { .. } => {
                     features.insert("claim-expression".to_string());
@@ -1892,7 +4761,398 @@ fn body_fail_closed_runtime_features(
     features.into_iter().collect()
 }
 
-fn body_ckb_runtime_features(body: &ir::IrBody) -> Vec<String> {
+#[derive(Debug, Default)]
+struct MetadataPreludeAvailability {
+    scalar_vars: HashSet<usize>,
+    fixed_value_vars: HashSet<usize>,
+    u64_value_vars: HashSet<usize>,
+    u64_operand_vars: HashSet<usize>,
+    aggregate_pointer_vars: HashMap<usize, MetadataAggregatePointerSource>,
+    tuple_call_return_vars: HashMap<usize, ir::IrType>,
+    created_output_vars: HashMap<usize, usize>,
+    output_type_hash_vars: HashSet<usize>,
+    param_type_hash_vars: HashSet<usize>,
+}
+
+#[derive(Debug, Clone)]
+struct MetadataAggregatePointerSource {
+    ty: ir::IrType,
+}
+
+fn metadata_prelude_availability(
+    body: &ir::IrBody,
+    param_schema_vars: &BTreeSet<usize>,
+    type_layouts: &MetadataTypeLayouts,
+    params: &[ir::IrParam],
+) -> MetadataPreludeAvailability {
+    let mut availability = MetadataPreludeAvailability::default();
+    let schema_param_ids =
+        params.iter().filter(|param| named_type_name(&param.ty).is_some()).map(|param| param.binding.id).collect::<HashSet<_>>();
+
+    for param in params {
+        if metadata_fixed_scalar_size(&param.ty).is_some() {
+            availability.scalar_vars.insert(param.binding.id);
+            availability.fixed_value_vars.insert(param.binding.id);
+            if param.ty == ir::IrType::U64 {
+                availability.u64_value_vars.insert(param.binding.id);
+                availability.u64_operand_vars.insert(param.binding.id);
+            }
+        } else if metadata_fixed_byte_width(&param.ty, type_static_length(&param.ty)).is_some() {
+            availability.fixed_value_vars.insert(param.binding.id);
+        } else if metadata_fixed_aggregate_pointer_size(&param.ty).is_some() {
+            availability.aggregate_pointer_vars.insert(param.binding.id, MetadataAggregatePointerSource { ty: param.ty.clone() });
+        }
+    }
+
+    for block in &body.blocks {
+        for instruction in &block.instructions {
+            match instruction {
+                ir::IrInstruction::Call { dest: Some(dest), .. } if matches!(dest.ty, ir::IrType::Tuple(_)) => {
+                    availability.tuple_call_return_vars.insert(dest.id, dest.ty.clone());
+                }
+                ir::IrInstruction::Create { dest, .. } => {
+                    let output_index = availability.created_output_vars.len();
+                    availability.created_output_vars.insert(dest.id, output_index);
+                }
+                ir::IrInstruction::TypeHash { dest, operand: ir::IrOperand::Var(var) } => {
+                    if availability.created_output_vars.contains_key(&var.id) {
+                        availability.fixed_value_vars.insert(dest.id);
+                        availability.output_type_hash_vars.insert(dest.id);
+                    } else if schema_param_ids.contains(&var.id) {
+                        availability.fixed_value_vars.insert(dest.id);
+                        availability.param_type_hash_vars.insert(dest.id);
+                    }
+                }
+                ir::IrInstruction::LoadConst { dest, value } => {
+                    if metadata_fixed_scalar_const_value(value).is_some() {
+                        availability.scalar_vars.insert(dest.id);
+                        availability.fixed_value_vars.insert(dest.id);
+                        if dest.ty == ir::IrType::U64 {
+                            availability.u64_value_vars.insert(dest.id);
+                            availability.u64_operand_vars.insert(dest.id);
+                        }
+                    } else if metadata_fixed_byte_const_len(value)
+                        .is_some_and(|len| type_static_length(&dest.ty).is_some_and(|dest_len| dest_len == len))
+                    {
+                        availability.fixed_value_vars.insert(dest.id);
+                    }
+                }
+                ir::IrInstruction::FieldAccess { dest, obj: ir::IrOperand::Var(obj), field } => {
+                    if availability
+                        .tuple_call_return_vars
+                        .get(&obj.id)
+                        .and_then(|ty| metadata_tuple_return_field_type(ty, field))
+                        .is_some_and(|field_ty| field_ty == dest.ty)
+                    {
+                        continue;
+                    }
+                    let layout = if param_schema_vars.contains(&obj.id) {
+                        let Some(type_name) = named_type_name(&obj.ty) else {
+                            continue;
+                        };
+                        let Some(layout) = type_layouts.get(type_name).and_then(|fields| fields.get(field)).cloned() else {
+                            continue;
+                        };
+                        layout
+                    } else {
+                        let Some(source) = availability.aggregate_pointer_vars.get(&obj.id) else {
+                            continue;
+                        };
+                        let Some(layout) = metadata_aggregate_field_layout(&source.ty, field) else {
+                            continue;
+                        };
+                        layout
+                    };
+                    if metadata_fixed_byte_width(&layout.ty, layout.fixed_size).is_some() && layout.ty == dest.ty {
+                        availability.fixed_value_vars.insert(dest.id);
+                    }
+                    if metadata_fixed_scalar_width(&layout.ty, layout.fixed_size).is_some() && layout.ty == dest.ty {
+                        availability.scalar_vars.insert(dest.id);
+                        if dest.ty == ir::IrType::U64 {
+                            availability.u64_value_vars.insert(dest.id);
+                            availability.u64_operand_vars.insert(dest.id);
+                        }
+                    }
+                }
+                ir::IrInstruction::Index { dest, arr: ir::IrOperand::Var(arr), idx } => {
+                    if availability.aggregate_pointer_vars.contains_key(&arr.id) {
+                        if let (ir::IrType::Array(inner, len), Some(index)) = (&arr.ty, const_usize_operand(idx)) {
+                            let element_ty = inner.as_ref();
+                            let fixed_size = type_static_length(element_ty);
+                            if index < *len && fixed_size.is_some() {
+                                if metadata_fixed_scalar_width(element_ty, fixed_size).is_some() && element_ty == &dest.ty {
+                                    availability.scalar_vars.insert(dest.id);
+                                    availability.fixed_value_vars.insert(dest.id);
+                                    if dest.ty == ir::IrType::U64 {
+                                        availability.u64_value_vars.insert(dest.id);
+                                        availability.u64_operand_vars.insert(dest.id);
+                                    }
+                                } else {
+                                    availability
+                                        .aggregate_pointer_vars
+                                        .insert(dest.id, MetadataAggregatePointerSource { ty: element_ty.clone() });
+                                }
+                            }
+                        }
+                    }
+                }
+                ir::IrInstruction::Binary { dest, op, left, right }
+                    if dest.ty == ir::IrType::U64 && matches!(op, ast::BinaryOp::Add | ast::BinaryOp::Sub) =>
+                {
+                    if metadata_u64_value_available(left, &availability) && metadata_u64_operand_available(right, &availability) {
+                        availability.scalar_vars.insert(dest.id);
+                        availability.u64_value_vars.insert(dest.id);
+                    }
+                }
+                ir::IrInstruction::Call { dest: Some(dest), func, args }
+                    if dest.ty == ir::IrType::U64 && func == "__env_current_daa_score" && args.is_empty() =>
+                {
+                    availability.scalar_vars.insert(dest.id);
+                    availability.fixed_value_vars.insert(dest.id);
+                    availability.u64_value_vars.insert(dest.id);
+                    availability.u64_operand_vars.insert(dest.id);
+                }
+                ir::IrInstruction::Move { dest, src } => {
+                    if metadata_scalar_available(src, &availability) && metadata_fixed_scalar_size(&dest.ty).is_some() {
+                        availability.scalar_vars.insert(dest.id);
+                        availability.fixed_value_vars.insert(dest.id);
+                    }
+                    if metadata_fixed_value_available(src, &availability)
+                        && metadata_fixed_byte_width(&dest.ty, type_static_length(&dest.ty)).is_some()
+                    {
+                        availability.fixed_value_vars.insert(dest.id);
+                    }
+                    if dest.ty == ir::IrType::U64 && metadata_u64_value_available(src, &availability) {
+                        availability.u64_value_vars.insert(dest.id);
+                        if metadata_u64_operand_available(src, &availability) {
+                            availability.u64_operand_vars.insert(dest.id);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    availability
+}
+
+fn metadata_can_verify_create_output_fields(
+    pattern: &ir::CreatePattern,
+    type_layouts: &MetadataTypeLayouts,
+    availability: &MetadataPreludeAvailability,
+) -> bool {
+    if pattern.fields.is_empty() {
+        return false;
+    }
+    let Some(layouts) = type_layouts.get(&pattern.ty) else {
+        return false;
+    };
+    let covered_fields = pattern.fields.iter().map(|(field, _)| field.as_str()).collect::<BTreeSet<_>>();
+    if !layouts.keys().all(|field| covered_fields.contains(field.as_str())) {
+        return false;
+    }
+    pattern.fields.iter().all(|(field, value)| {
+        layouts.get(field).is_some_and(|layout| {
+            metadata_fixed_byte_width(&layout.ty, layout.fixed_size)
+                .is_some_and(|width| metadata_fixed_value_available_with_width(value, availability, width))
+        })
+    })
+}
+
+fn metadata_can_verify_output_lock(pattern: &ir::CreatePattern, availability: &MetadataPreludeAvailability) -> bool {
+    match &pattern.lock {
+        Some(lock) => metadata_fixed_value_available_with_width(lock, availability, 32),
+        None => true,
+    }
+}
+
+fn metadata_can_verify_fixed_byte_comparison(
+    left: &ir::IrOperand,
+    right: &ir::IrOperand,
+    availability: &MetadataPreludeAvailability,
+) -> bool {
+    let Some(width) = operand_fixed_byte_width(left) else {
+        return false;
+    };
+    if operand_fixed_byte_width(right) != Some(width) {
+        return false;
+    }
+    metadata_fixed_value_available_with_width(left, availability, width)
+        && metadata_fixed_value_available_with_width(right, availability, width)
+}
+
+fn metadata_fixed_value_available_with_width(
+    operand: &ir::IrOperand,
+    availability: &MetadataPreludeAvailability,
+    expected_width: usize,
+) -> bool {
+    if let ir::IrOperand::Const(value) = operand {
+        if metadata_fixed_scalar_const_value(value).is_some() {
+            return metadata_scalar_const_fits_width(value, expected_width);
+        }
+    }
+    metadata_fixed_value_available(operand, availability)
+        && metadata_operand_fixed_value_width(operand).is_some_and(|width| width == expected_width)
+}
+
+fn metadata_fixed_value_available(operand: &ir::IrOperand, availability: &MetadataPreludeAvailability) -> bool {
+    if metadata_scalar_available(operand, availability) {
+        return true;
+    }
+    match operand {
+        ir::IrOperand::Const(value) => metadata_fixed_byte_const_len(value).is_some(),
+        ir::IrOperand::Var(var) if metadata_fixed_byte_width(&var.ty, type_static_length(&var.ty)).is_some() => {
+            availability.fixed_value_vars.contains(&var.id)
+        }
+        _ => false,
+    }
+}
+
+fn metadata_scalar_const_fits_width(value: &ir::IrConst, expected_width: usize) -> bool {
+    let Some(value) = metadata_fixed_scalar_const_value(value) else {
+        return false;
+    };
+    match expected_width {
+        1 => value <= u8::MAX as u64,
+        2 => value <= u16::MAX as u64,
+        4 => value <= u32::MAX as u64,
+        8 => true,
+        _ => false,
+    }
+}
+
+fn metadata_operand_fixed_value_width(operand: &ir::IrOperand) -> Option<usize> {
+    match operand {
+        ir::IrOperand::Const(ir::IrConst::Bool(_) | ir::IrConst::U8(_)) => Some(1),
+        ir::IrOperand::Const(ir::IrConst::U16(_)) => Some(2),
+        ir::IrOperand::Const(ir::IrConst::U32(_)) => Some(4),
+        ir::IrOperand::Const(ir::IrConst::U64(_)) => Some(8),
+        ir::IrOperand::Const(value) => metadata_fixed_byte_const_len(value),
+        ir::IrOperand::Var(var) => metadata_fixed_byte_width(&var.ty, type_static_length(&var.ty)),
+    }
+}
+
+fn metadata_scalar_available(operand: &ir::IrOperand, _availability: &MetadataPreludeAvailability) -> bool {
+    match operand {
+        ir::IrOperand::Const(value) => metadata_fixed_scalar_const_value(value).is_some(),
+        ir::IrOperand::Var(var) => metadata_fixed_scalar_size(&var.ty).is_some(),
+    }
+}
+
+fn metadata_u64_value_available(operand: &ir::IrOperand, availability: &MetadataPreludeAvailability) -> bool {
+    match operand {
+        ir::IrOperand::Const(ir::IrConst::U64(_)) => true,
+        ir::IrOperand::Var(var) if var.ty == ir::IrType::U64 => availability.u64_value_vars.contains(&var.id),
+        _ => false,
+    }
+}
+
+fn metadata_u64_operand_available(operand: &ir::IrOperand, availability: &MetadataPreludeAvailability) -> bool {
+    match operand {
+        ir::IrOperand::Const(ir::IrConst::U64(_)) => true,
+        ir::IrOperand::Var(var) if var.ty == ir::IrType::U64 => availability.u64_operand_vars.contains(&var.id),
+        _ => false,
+    }
+}
+
+fn metadata_fixed_scalar_width(ty: &ir::IrType, fixed_size: Option<usize>) -> Option<usize> {
+    match (ty, fixed_size) {
+        (ir::IrType::Bool | ir::IrType::U8, Some(1)) => Some(1),
+        (ir::IrType::U16, Some(2)) => Some(2),
+        (ir::IrType::U32, Some(4)) => Some(4),
+        (ir::IrType::U64, Some(8)) => Some(8),
+        _ => None,
+    }
+}
+
+fn metadata_fixed_byte_width(ty: &ir::IrType, fixed_size: Option<usize>) -> Option<usize> {
+    if let Some(width) = metadata_fixed_scalar_width(ty, fixed_size) {
+        return Some(width);
+    }
+    match (ty, fixed_size) {
+        (ir::IrType::Address | ir::IrType::Hash, Some(32)) => Some(32),
+        (ir::IrType::Array(inner, len), Some(size)) if matches!(inner.as_ref(), ir::IrType::U8) && *len == size => Some(size),
+        _ => None,
+    }
+}
+
+fn metadata_fixed_aggregate_pointer_size(ty: &ir::IrType) -> Option<usize> {
+    match ty {
+        ir::IrType::Array(_, _) | ir::IrType::Tuple(_) => type_static_length(ty).filter(|width| *width > 8),
+        _ => None,
+    }
+}
+
+fn metadata_aggregate_field_layout(ty: &ir::IrType, field: &str) -> Option<MetadataFieldLayout> {
+    match ty {
+        ir::IrType::Tuple(items) => {
+            let index = field.parse::<usize>().ok()?;
+            let field_ty = items.get(index)?.clone();
+            let offset = items.iter().take(index).try_fold(0usize, |acc, item| type_static_length(item).map(|size| acc + size))?;
+            let fixed_size = type_static_length(&field_ty);
+            Some(MetadataFieldLayout { ty: field_ty, offset, fixed_size })
+        }
+        ir::IrType::Address | ir::IrType::Hash if field == "0" => {
+            Some(MetadataFieldLayout { ty: ir::IrType::Array(Box::new(ir::IrType::U8), 32), offset: 0, fixed_size: Some(32) })
+        }
+        _ => None,
+    }
+}
+
+fn metadata_tuple_return_field_type(ty: &ir::IrType, field: &str) -> Option<ir::IrType> {
+    let ir::IrType::Tuple(items) = ty else {
+        return None;
+    };
+    let index = field.parse::<usize>().ok()?;
+    (index < 8).then(|| items.get(index).cloned()).flatten()
+}
+
+fn const_usize_operand(operand: &ir::IrOperand) -> Option<usize> {
+    match operand {
+        ir::IrOperand::Const(ir::IrConst::U8(value)) => Some((*value).into()),
+        ir::IrOperand::Const(ir::IrConst::U16(value)) => Some((*value).into()),
+        ir::IrOperand::Const(ir::IrConst::U32(value)) => Some(*value as usize),
+        ir::IrOperand::Const(ir::IrConst::U64(value)) => usize::try_from(*value).ok(),
+        _ => None,
+    }
+}
+
+fn metadata_fixed_byte_const_len(value: &ir::IrConst) -> Option<usize> {
+    match value {
+        ir::IrConst::Address(_) | ir::IrConst::Hash(_) => Some(32),
+        ir::IrConst::Array(items) if items.iter().all(|item| matches!(item, ir::IrConst::U8(_))) => Some(items.len()),
+        _ => None,
+    }
+}
+
+fn metadata_fixed_scalar_size(ty: &ir::IrType) -> Option<usize> {
+    match ty {
+        ir::IrType::Bool | ir::IrType::U8 => Some(1),
+        ir::IrType::U16 => Some(2),
+        ir::IrType::U32 => Some(4),
+        ir::IrType::U64 => Some(8),
+        _ => None,
+    }
+}
+
+fn metadata_fixed_scalar_const_value(value: &ir::IrConst) -> Option<u64> {
+    match value {
+        ir::IrConst::Bool(value) => Some(u64::from(*value)),
+        ir::IrConst::U8(value) => Some(*value as u64),
+        ir::IrConst::U16(value) => Some(*value as u64),
+        ir::IrConst::U32(value) => Some(*value as u64),
+        ir::IrConst::U64(value) => Some(*value),
+        _ => None,
+    }
+}
+
+fn body_ckb_runtime_features(
+    name: &str,
+    body: &ir::IrBody,
+    cell_type_kinds: &HashMap<String, ir::IrTypeKind>,
+    type_layouts: &MetadataTypeLayouts,
+) -> Vec<String> {
     let mut features = BTreeSet::new();
     if !body.consume_set.is_empty() {
         features.insert("consume-input-cell".to_string());
@@ -1902,6 +5162,17 @@ fn body_ckb_runtime_features(body: &ir::IrBody) -> Vec<String> {
     }
     if !body.create_set.is_empty() {
         features.insert("verify-output-cell".to_string());
+    }
+    if !body.mutate_set.is_empty() {
+        features.insert("mutate-input-cell".to_string());
+        features.insert("verify-mutate-output-cell".to_string());
+    }
+    if body_has_claim_witness_authorization_domain_check(name, body, cell_type_kinds) {
+        features.insert("load-claim-witness".to_string());
+        features.insert("load-claim-ecdsa-signature-hash".to_string());
+    }
+    if body_has_claim_witness_signature_verification_check(name, body, cell_type_kinds, type_layouts) {
+        features.insert("verify-claim-secp256k1-signature".to_string());
     }
     for block in &body.blocks {
         for instruction in &block.instructions {
@@ -1934,17 +5205,107 @@ fn is_executable_schema_field_access(
     let Some(layout) = type_layouts.get(type_name).and_then(|fields| fields.get(field)) else {
         return false;
     };
-    executable_scalar_width(&layout.ty, layout.fixed_size).is_some()
+    metadata_fixed_byte_width(&layout.ty, layout.fixed_size).is_some()
 }
 
-fn executable_scalar_width(ty: &ir::IrType, fixed_size: Option<usize>) -> Option<usize> {
-    match (ty, fixed_size) {
-        (ir::IrType::Bool | ir::IrType::U8, Some(1)) => Some(1),
-        (ir::IrType::U16, Some(2)) => Some(2),
-        (ir::IrType::U32, Some(4)) => Some(4),
-        (ir::IrType::U64, Some(8)) => Some(8),
-        _ => None,
+fn is_executable_aggregate_field_access(obj: &ir::IrOperand, field: &str, availability: &MetadataPreludeAvailability) -> bool {
+    let ir::IrOperand::Var(var) = obj else {
+        return false;
+    };
+    let Some(source) = availability.aggregate_pointer_vars.get(&var.id) else {
+        return false;
+    };
+    let Some(layout) = metadata_aggregate_field_layout(&source.ty, field) else {
+        return false;
+    };
+    metadata_fixed_byte_width(&layout.ty, layout.fixed_size).is_some()
+}
+
+fn is_executable_tuple_call_return_field_access(obj: &ir::IrOperand, field: &str, availability: &MetadataPreludeAvailability) -> bool {
+    let ir::IrOperand::Var(var) = obj else {
+        return false;
+    };
+    availability.tuple_call_return_vars.get(&var.id).and_then(|ty| metadata_tuple_return_field_type(ty, field)).is_some()
+}
+
+fn is_executable_output_type_hash(instruction: &ir::IrInstruction, availability: &MetadataPreludeAvailability) -> bool {
+    let ir::IrInstruction::TypeHash { dest, .. } = instruction else {
+        return false;
+    };
+    availability.output_type_hash_vars.contains(&dest.id) || availability.param_type_hash_vars.contains(&dest.id)
+}
+
+fn is_executable_destroy(operand: &ir::IrOperand) -> bool {
+    operand_named_type_name(operand).is_some()
+}
+
+fn body_has_claim_witness_authorization_domain_check(
+    name: &str,
+    body: &ir::IrBody,
+    cell_type_kinds: &HashMap<String, ir::IrTypeKind>,
+) -> bool {
+    body.consume_set.iter().any(|pattern| is_claim_witness_authorization_domain_check_target(name, pattern, cell_type_kinds))
+}
+
+fn body_has_claim_witness_signature_verification_check(
+    name: &str,
+    body: &ir::IrBody,
+    cell_type_kinds: &HashMap<String, ir::IrTypeKind>,
+    type_layouts: &MetadataTypeLayouts,
+) -> bool {
+    body.consume_set
+        .iter()
+        .any(|pattern| is_claim_witness_signature_verification_check_target(name, pattern, cell_type_kinds, type_layouts))
+}
+
+fn is_claim_witness_authorization_domain_check_target(
+    name: &str,
+    pattern: &ir::CellPattern,
+    cell_type_kinds: &HashMap<String, ir::IrTypeKind>,
+) -> bool {
+    if pattern.operation == "claim" {
+        return true;
     }
+    pattern.operation == "consume" && name.starts_with("claim") && cell_pattern_is_receipt(pattern, cell_type_kinds)
+}
+
+fn cell_pattern_is_receipt(pattern: &ir::CellPattern, cell_type_kinds: &HashMap<String, ir::IrTypeKind>) -> bool {
+    cell_pattern_receipt_type_name(pattern, cell_type_kinds).is_some()
+}
+
+fn is_claim_witness_signature_verification_check_target(
+    name: &str,
+    pattern: &ir::CellPattern,
+    cell_type_kinds: &HashMap<String, ir::IrTypeKind>,
+    type_layouts: &MetadataTypeLayouts,
+) -> bool {
+    if !is_claim_witness_authorization_domain_check_target(name, pattern, cell_type_kinds) {
+        return false;
+    }
+    let Some(type_name) = cell_pattern_receipt_type_name(pattern, cell_type_kinds) else {
+        return false;
+    };
+    metadata_claim_signer_pubkey_hash_field(type_name, type_layouts).is_some()
+}
+
+fn cell_pattern_receipt_type_name<'a>(
+    pattern: &ir::CellPattern,
+    cell_type_kinds: &'a HashMap<String, ir::IrTypeKind>,
+) -> Option<&'a str> {
+    let Some(type_hash) = pattern.type_hash else {
+        return None;
+    };
+    cell_type_kinds.iter().find_map(|(type_name, kind)| {
+        (*kind == ir::IrTypeKind::Receipt && ir::type_hash_for_name(type_name) == type_hash).then_some(type_name.as_str())
+    })
+}
+
+fn metadata_claim_signer_pubkey_hash_field<'a>(type_name: &str, type_layouts: &'a MetadataTypeLayouts) -> Option<&'a str> {
+    let fields = type_layouts.get(type_name)?;
+    CLAIM_SIGNER_PUBKEY_HASH_FIELDS.iter().find_map(|field| {
+        let layout = fields.get(*field)?;
+        (metadata_fixed_byte_width(&layout.ty, layout.fixed_size) == Some(20)).then_some(*field)
+    })
 }
 
 fn schema_pointer_var_ids(body: &ir::IrBody, params: &[ir::IrParam]) -> BTreeSet<usize> {
@@ -1970,7 +5331,7 @@ fn consumed_schema_var_id(instruction: &ir::IrInstruction) -> Option<usize> {
         ir::IrInstruction::Consume { operand }
         | ir::IrInstruction::Transfer { operand, .. }
         | ir::IrInstruction::Destroy { operand }
-        | ir::IrInstruction::Settle { operand } => operand,
+        | ir::IrInstruction::Settle { operand, .. } => operand,
         ir::IrInstruction::Claim { receipt, .. } => receipt,
         _ => return None,
     };
@@ -1980,7 +5341,12 @@ fn consumed_schema_var_id(instruction: &ir::IrInstruction) -> Option<usize> {
     }
 }
 
-fn body_ckb_runtime_accesses(body: &ir::IrBody) -> Vec<CkbRuntimeAccessMetadata> {
+fn body_ckb_runtime_accesses(
+    name: &str,
+    body: &ir::IrBody,
+    cell_type_kinds: &HashMap<String, ir::IrTypeKind>,
+    type_layouts: &MetadataTypeLayouts,
+) -> Vec<CkbRuntimeAccessMetadata> {
     let mut accesses = Vec::new();
     for (index, pattern) in body.consume_set.iter().enumerate() {
         accesses.push(CkbRuntimeAccessMetadata {
@@ -1990,6 +5356,31 @@ fn body_ckb_runtime_accesses(body: &ir::IrBody) -> Vec<CkbRuntimeAccessMetadata>
             index,
             binding: pattern.binding.clone(),
         });
+        if is_claim_witness_authorization_domain_check_target(name, pattern, cell_type_kinds) {
+            accesses.push(CkbRuntimeAccessMetadata {
+                operation: "claim-witness".to_string(),
+                syscall: "LOAD_WITNESS".to_string(),
+                source: "GroupInput".to_string(),
+                index,
+                binding: pattern.binding.clone(),
+            });
+            accesses.push(CkbRuntimeAccessMetadata {
+                operation: "claim-authorization-domain".to_string(),
+                syscall: "LOAD_ECDSA_SIGNATURE_HASH".to_string(),
+                source: "GroupInput".to_string(),
+                index,
+                binding: pattern.binding.clone(),
+            });
+        }
+        if is_claim_witness_signature_verification_check_target(name, pattern, cell_type_kinds, type_layouts) {
+            accesses.push(CkbRuntimeAccessMetadata {
+                operation: "claim-signature".to_string(),
+                syscall: "SECP256K1_VERIFY".to_string(),
+                source: "Witness".to_string(),
+                index,
+                binding: pattern.binding.clone(),
+            });
+        }
     }
     for (index, pattern) in body.read_refs.iter().enumerate() {
         accesses.push(CkbRuntimeAccessMetadata {
@@ -2009,12 +5400,29 @@ fn body_ckb_runtime_accesses(body: &ir::IrBody) -> Vec<CkbRuntimeAccessMetadata>
             binding: pattern.binding.clone(),
         });
     }
+    for pattern in &body.mutate_set {
+        accesses.push(CkbRuntimeAccessMetadata {
+            operation: "mutate-input".to_string(),
+            syscall: "LOAD_CELL".to_string(),
+            source: "Input".to_string(),
+            index: pattern.input_index,
+            binding: pattern.binding.clone(),
+        });
+        accesses.push(CkbRuntimeAccessMetadata {
+            operation: "mutate-output".to_string(),
+            syscall: "LOAD_CELL".to_string(),
+            source: "Output".to_string(),
+            index: pattern.output_index,
+            binding: pattern.binding.clone(),
+        });
+    }
     accesses
 }
 
 fn scheduler_accesses_from_metadata(accesses: &[CkbRuntimeAccessMetadata]) -> Vec<crate::stdlib::SchedulerAccess> {
     accesses
         .iter()
+        .filter(|access| scheduler_access_is_cell_state_access(access))
         .map(|access| crate::stdlib::SchedulerAccess {
             operation: access.operation.clone(),
             source: access.source.clone(),
@@ -2024,8 +5432,26 @@ fn scheduler_accesses_from_metadata(accesses: &[CkbRuntimeAccessMetadata]) -> Ve
         .collect()
 }
 
+fn scheduler_access_is_cell_state_access(access: &CkbRuntimeAccessMetadata) -> bool {
+    matches!(access.source.as_str(), "Input" | "CellDep" | "Output")
+        && matches!(
+            access.operation.as_str(),
+            "consume" | "transfer" | "destroy" | "claim" | "settle" | "read_ref" | "create" | "mutate-input" | "mutate-output"
+        )
+}
+
 fn metadata_type_layouts(ir: &ir::IrModule) -> MetadataTypeLayouts {
     let mut layouts = HashMap::new();
+    for type_def in &ir.external_type_defs {
+        let fields = type_def
+            .fields
+            .iter()
+            .map(|field| {
+                (field.name.clone(), MetadataFieldLayout { ty: field.ty.clone(), offset: field.offset, fixed_size: field.fixed_size })
+            })
+            .collect();
+        layouts.insert(type_def.name.clone(), fields);
+    }
     for item in &ir.items {
         let ir::IrItem::TypeDef(type_def) = item else {
             continue;
@@ -2033,7 +5459,9 @@ fn metadata_type_layouts(ir: &ir::IrModule) -> MetadataTypeLayouts {
         let fields = type_def
             .fields
             .iter()
-            .map(|field| (field.name.clone(), MetadataFieldLayout { ty: field.ty.clone(), fixed_size: field.fixed_size }))
+            .map(|field| {
+                (field.name.clone(), MetadataFieldLayout { ty: field.ty.clone(), offset: field.offset, fixed_size: field.fixed_size })
+            })
             .collect();
         layouts.insert(type_def.name.clone(), fields);
     }
@@ -2042,6 +5470,11 @@ fn metadata_type_layouts(ir: &ir::IrModule) -> MetadataTypeLayouts {
 
 fn metadata_lifecycle_states(ir: &ir::IrModule) -> HashMap<String, Vec<String>> {
     let mut states = HashMap::new();
+    for type_def in &ir.external_type_defs {
+        if let Some(lifecycle_states) = &type_def.lifecycle_states {
+            states.insert(type_def.name.clone(), lifecycle_states.clone());
+        }
+    }
     for item in &ir.items {
         let ir::IrItem::TypeDef(type_def) = item else {
             continue;
@@ -2051,6 +5484,24 @@ fn metadata_lifecycle_states(ir: &ir::IrModule) -> HashMap<String, Vec<String>> 
         }
     }
     states
+}
+
+fn metadata_cell_type_kinds(ir: &ir::IrModule) -> HashMap<String, ir::IrTypeKind> {
+    let mut kinds = HashMap::new();
+    for type_def in &ir.external_type_defs {
+        if type_def.kind != ir::IrTypeKind::Struct {
+            kinds.insert(type_def.name.clone(), type_def.kind);
+        }
+    }
+    for item in &ir.items {
+        let ir::IrItem::TypeDef(type_def) = item else {
+            continue;
+        };
+        if type_def.kind != ir::IrTypeKind::Struct {
+            kinds.insert(type_def.name.clone(), type_def.kind);
+        }
+    }
+    kinds
 }
 
 fn type_metadata(type_def: &ir::IrTypeDef) -> TypeMetadata {
@@ -2137,20 +5588,65 @@ fn operand_static_length(operand: &ir::IrOperand) -> Option<usize> {
     match operand {
         ir::IrOperand::Var(var) => type_static_length(&var.ty),
         ir::IrOperand::Const(ir::IrConst::Array(items)) => Some(items.len()),
+        ir::IrOperand::Const(ir::IrConst::Address(_) | ir::IrConst::Hash(_)) => Some(32),
+        _ => None,
+    }
+}
+
+fn operand_fixed_byte_width(operand: &ir::IrOperand) -> Option<usize> {
+    match operand {
+        ir::IrOperand::Const(ir::IrConst::Address(_) | ir::IrConst::Hash(_)) => Some(32),
+        ir::IrOperand::Const(ir::IrConst::Array(items)) => Some(items.len()),
+        ir::IrOperand::Var(var) => match &var.ty {
+            ir::IrType::Address | ir::IrType::Hash => Some(32),
+            ir::IrType::Array(inner, len) if matches!(inner.as_ref(), ir::IrType::U8) => Some(*len),
+            _ => None,
+        },
         _ => None,
     }
 }
 
 fn type_static_length(ty: &ir::IrType) -> Option<usize> {
     match ty {
-        ir::IrType::Array(_, size) => Some(*size),
+        ir::IrType::Bool | ir::IrType::U8 => Some(1),
+        ir::IrType::U16 => Some(2),
+        ir::IrType::U32 => Some(4),
+        ir::IrType::U64 => Some(8),
+        ir::IrType::U128 => Some(16),
+        ir::IrType::Address | ir::IrType::Hash => Some(32),
+        ir::IrType::Array(inner, size) => type_static_length(inner).map(|inner_size| inner_size * size),
+        ir::IrType::Tuple(items) => items.iter().try_fold(0usize, |acc, item| type_static_length(item).map(|size| acc + size)),
+        ir::IrType::Unit => Some(0),
         ir::IrType::Ref(inner) | ir::IrType::MutRef(inner) => type_static_length(inner),
-        _ => None,
+        ir::IrType::Named(_) => None,
     }
 }
 
-fn param_metadata(param: &ir::IrParam) -> ParamMetadata {
+fn param_metadata_for_body(params: &[ir::IrParam], body: &ir::IrBody) -> Vec<ParamMetadata> {
+    let type_hash_param_ids = param_type_hash_param_ids(body);
+    params.iter().map(|param| param_metadata(param, &type_hash_param_ids)).collect()
+}
+
+fn param_type_hash_param_ids(body: &ir::IrBody) -> BTreeSet<usize> {
+    let mut ids = BTreeSet::new();
+    for block in &body.blocks {
+        for instruction in &block.instructions {
+            if let ir::IrInstruction::TypeHash { operand: ir::IrOperand::Var(var), .. } = instruction {
+                if named_type_name(&var.ty).is_some() {
+                    ids.insert(var.id);
+                }
+            }
+        }
+    }
+    ids
+}
+
+fn param_metadata(param: &ir::IrParam, type_hash_param_ids: &BTreeSet<usize>) -> ParamMetadata {
     let schema_pointer_abi = named_type_name(&param.ty).is_some();
+    let fixed_byte_len = metadata_fixed_byte_width(&param.ty, type_static_length(&param.ty))
+        .filter(|width| *width > 8)
+        .or_else(|| metadata_fixed_aggregate_pointer_size(&param.ty));
+    let type_hash_abi = schema_pointer_abi && type_hash_param_ids.contains(&param.binding.id);
     ParamMetadata {
         name: param.name.clone(),
         ty: ir_type_to_string(&param.ty),
@@ -2158,6 +5654,12 @@ fn param_metadata(param: &ir::IrParam) -> ParamMetadata {
         is_ref: param.is_ref,
         schema_pointer_abi,
         schema_length_abi: schema_pointer_abi,
+        fixed_byte_pointer_abi: fixed_byte_len.is_some(),
+        fixed_byte_length_abi: fixed_byte_len.is_some(),
+        fixed_byte_len,
+        type_hash_pointer_abi: type_hash_abi,
+        type_hash_length_abi: type_hash_abi,
+        type_hash_len: type_hash_abi.then_some(32),
     }
 }
 
@@ -2177,6 +5679,93 @@ fn create_pattern_metadata(pattern: &ir::CreatePattern) -> CreatePatternMetadata
         binding: pattern.binding.clone(),
         fields: pattern.fields.iter().map(|(field, _)| field.clone()).collect(),
         has_lock: pattern.lock.is_some(),
+    }
+}
+
+fn mutate_pattern_metadata(pattern: &ir::MutatePattern, type_layouts: &MetadataTypeLayouts) -> MutatePatternMetadata {
+    MutatePatternMetadata {
+        operation: pattern.operation.clone(),
+        ty: pattern.ty.clone(),
+        binding: pattern.binding.clone(),
+        fields: pattern.fields.clone(),
+        preserved_fields: pattern.preserved_fields.clone(),
+        input_source: "Input".to_string(),
+        input_index: pattern.input_index,
+        output_source: "Output".to_string(),
+        output_index: pattern.output_index,
+        preserve_type_hash: pattern.preserve_type_hash,
+        preserve_lock_hash: pattern.preserve_lock_hash,
+        type_hash_preservation_status: "checked-runtime".to_string(),
+        lock_hash_preservation_status: "checked-runtime".to_string(),
+        field_equality_status: mutate_field_equality_status(pattern, type_layouts).to_string(),
+        field_transition_status: mutate_field_transition_status(pattern, type_layouts).to_string(),
+    }
+}
+
+fn mutate_field_equality_status(pattern: &ir::MutatePattern, type_layouts: &MetadataTypeLayouts) -> &'static str {
+    if pattern.preserved_fields.is_empty() {
+        return "checked-runtime";
+    }
+    let checked = pattern
+        .preserved_fields
+        .iter()
+        .filter(|field| mutate_preserved_field_is_verifier_coverable(pattern, field, type_layouts))
+        .count();
+    if checked == pattern.preserved_fields.len() {
+        "checked-runtime"
+    } else if checked > 0 {
+        "checked-partial"
+    } else {
+        "runtime-required"
+    }
+}
+
+fn mutate_preserved_field_is_verifier_coverable(pattern: &ir::MutatePattern, field: &str, type_layouts: &MetadataTypeLayouts) -> bool {
+    let Some(layout) = type_layouts.get(&pattern.ty).and_then(|fields| fields.get(field)) else {
+        return false;
+    };
+    let Some(width) = metadata_fixed_byte_width(&layout.ty, layout.fixed_size) else {
+        return false;
+    };
+    layout.offset + width <= METADATA_MUTATE_CELL_BUFFER_SIZE
+}
+
+fn mutate_field_transition_status(pattern: &ir::MutatePattern, type_layouts: &MetadataTypeLayouts) -> &'static str {
+    if pattern.fields.is_empty() {
+        return "checked-runtime";
+    }
+    let checked = pattern
+        .transitions
+        .iter()
+        .filter(|transition| mutate_transition_is_verifier_coverable(pattern, transition, type_layouts))
+        .count();
+    if checked == pattern.fields.len() && pattern.transitions.len() == pattern.fields.len() {
+        "checked-runtime"
+    } else if checked > 0 {
+        "checked-partial"
+    } else {
+        "runtime-required"
+    }
+}
+
+fn mutate_transition_is_verifier_coverable(
+    pattern: &ir::MutatePattern,
+    transition: &ir::MutateFieldTransition,
+    type_layouts: &MetadataTypeLayouts,
+) -> bool {
+    let Some(layout) = type_layouts.get(&pattern.ty).and_then(|fields| fields.get(&transition.field)) else {
+        return false;
+    };
+    let Some(width) = metadata_fixed_scalar_width(&layout.ty, layout.fixed_size) else {
+        return false;
+    };
+    if layout.offset + width > METADATA_MUTATE_CELL_BUFFER_SIZE {
+        return false;
+    }
+    match &transition.operand {
+        ir::IrOperand::Const(ir::IrConst::U64(_)) => true,
+        ir::IrOperand::Var(var) => matches!(var.ty, ir::IrType::U8 | ir::IrType::U16 | ir::IrType::U32 | ir::IrType::U64),
+        _ => false,
     }
 }
 
@@ -2364,8 +5953,8 @@ pub const NAME: &str = "cellc";
 #[cfg(test)]
 mod tests {
     use super::{
-        compile, compile_file, compile_path, default_output_path_for_input, load_modules_for_input, resolve_input_path,
-        ArtifactFormat, CompileOptions,
+        compile, compile_file, compile_path, decode_scheduler_witness_hex, default_output_path_for_input, load_modules_for_input,
+        resolve_input_path, ArtifactFormat, CompileOptions,
     };
     use crate::{ir, lexer, parser};
     use borsh::BorshDeserialize;
@@ -2373,9 +5962,10 @@ mod tests {
     use std::{env, process::Command};
     use tempfile::tempdir;
 
-    fn decode_hex_bytes(hex: &str) -> Vec<u8> {
-        assert_eq!(hex.len() % 2, 0, "hex string must contain full bytes");
-        (0..hex.len()).step_by(2).map(|index| u8::from_str_radix(&hex[index..index + 2], 16).expect("valid hex byte")).collect()
+    fn rebind_artifact_integrity_for_test(result: &mut crate::CompileResult) {
+        result.artifact_hash = *blake3::hash(&result.artifact_bytes).as_bytes();
+        result.metadata.artifact_hash_blake3 = Some(crate::hex_encode(&result.artifact_hash));
+        result.metadata.artifact_size_bytes = Some(result.artifact_bytes.len());
     }
 
     const SIMPLE_PROGRAM: &str = r#"
@@ -2601,6 +6191,180 @@ action issue() -> Token {
 }
 "#;
 
+    const CREATE_UNSUPPORTED_OUTPUT_EXPR_PROGRAM: &str = r#"
+module test
+
+resource Token {
+    amount: u64,
+}
+
+action issue(amount: u64) -> Token {
+    let token = create Token {
+        amount: amount * 2
+    }
+    return token
+}
+"#;
+
+    const CREATE_DUPLICATE_FIELD_PROGRAM: &str = r#"
+module test
+
+resource Token {
+    amount: u64,
+}
+
+action issue() -> Token {
+    return create Token {
+        amount: 1,
+        amount: 2,
+    }
+}
+"#;
+
+    const CREATE_MISSING_FIELD_PROGRAM: &str = r#"
+module test
+
+resource Token {
+    amount: u64,
+    owner: Address,
+}
+
+action issue(owner: Address) -> Token {
+    return create Token {
+        amount: 1,
+    }
+}
+"#;
+
+    const CREATE_UNKNOWN_FIELD_PROGRAM: &str = r#"
+module test
+
+resource Token {
+    amount: u64,
+}
+
+action issue() -> Token {
+    return create Token {
+        amount: 1,
+        owner: Address::zero(),
+    }
+}
+"#;
+
+    const CREATE_FIELD_TYPE_MISMATCH_PROGRAM: &str = r#"
+module test
+
+resource Token {
+    amount: u64,
+}
+
+action issue() -> Token {
+    return create Token {
+        amount: false,
+    }
+}
+"#;
+
+    const CREATE_STRUCT_TARGET_PROGRAM: &str = r#"
+module test
+
+struct Snapshot {
+    amount: u64,
+}
+
+action bad() -> Snapshot {
+    return create Snapshot {
+        amount: 1,
+    }
+}
+"#;
+
+    const CONSUME_NON_CELL_PROGRAM: &str = r#"
+module test
+
+struct Snapshot {
+    amount: u64,
+}
+
+action bad(snapshot: Snapshot) -> u64 {
+    consume snapshot
+    return 0
+}
+"#;
+
+    const CONSUME_NON_NAMED_CELL_PROGRAM: &str = r#"
+module test
+
+resource Token {
+    amount: u64,
+}
+
+action bad(token: Token) -> u64 {
+    consume if true { token } else { token }
+    return 0
+}
+"#;
+
+    const TRANSFER_NON_NAMED_CELL_PROGRAM: &str = r#"
+module test
+
+resource Token has transfer {
+    amount: u64,
+}
+
+action bad(owner: Address) -> Token {
+    return transfer create Token { amount: 1 } to owner
+}
+"#;
+
+    const IF_BOTH_BRANCHES_CONSUME_PROGRAM: &str = r#"
+module test
+
+resource Token {
+    amount: u64,
+}
+
+action burn(token: Token, flag: bool) {
+    if flag {
+        consume token
+    } else {
+        consume token
+    }
+}
+"#;
+
+    const IF_PARTIAL_BRANCH_CONSUME_PROGRAM: &str = r#"
+module test
+
+resource Token {
+    amount: u64,
+}
+
+action burn(token: Token, flag: bool) {
+    if flag {
+        consume token
+    }
+    consume token
+}
+"#;
+
+    const IF_MISMATCHED_BRANCH_CONSUME_PROGRAM: &str = r#"
+module test
+
+resource Token {
+    amount: u64,
+}
+
+action burn(token: Token, flag: bool) {
+    if flag {
+        consume token
+    } else {
+        let amount = token.amount
+    }
+    consume token
+}
+"#;
+
     const CONSUME_DESTROY_PROGRAM: &str = r#"
 module test
 
@@ -2623,6 +6387,21 @@ struct Snapshot {
 
 action inspect(snapshot: Snapshot) -> u64 {
     return snapshot.amount
+}
+"#;
+
+    const FIXED_BYTE_FIELD_COMPARISON_PROGRAM: &str = r#"
+module test
+
+resource Token {
+    symbol: [u8; 8],
+}
+
+action same_symbol(left: Token, right: Token) -> bool {
+    let same = left.symbol == right.symbol
+    consume left
+    consume right
+    return same
 }
 "#;
 
@@ -2689,6 +6468,19 @@ shared Config {
 action inspect() -> u64 {
     let cfg = read_ref<Config>()
     return cfg.threshold
+}
+"#;
+
+    const READ_REF_STRUCT_TARGET_PROGRAM: &str = r#"
+module test
+
+struct Snapshot {
+    amount: u64,
+}
+
+action bad() -> u64 {
+    let snapshot = read_ref<Snapshot>()
+    return snapshot.amount
 }
 "#;
 
@@ -2766,6 +6558,30 @@ action run(x: u64) -> u64 {
 }
 "#;
 
+    const CALL_MISSING_ARGUMENT_PROGRAM: &str = r#"
+module test
+
+fn add(a: u64, b: u64) -> u64 {
+    return a + b
+}
+
+action run(x: u64) -> u64 {
+    return add(x)
+}
+"#;
+
+    const CALL_TYPE_MISMATCH_PROGRAM: &str = r#"
+module test
+
+fn add(a: u64, b: u64) -> u64 {
+    return a + b
+}
+
+action run(x: u64) -> u64 {
+    return add(x, false)
+}
+"#;
+
     const QUALIFIED_ACTION_CALLS_FN_PROGRAM: &str = r#"
 module test
 
@@ -2775,6 +6591,18 @@ fn add_one(x: u64) -> u64 {
 
 action run(x: u64) -> u64 {
     return test::add_one(x)
+}
+"#;
+
+    const QUALIFIED_CALL_EXTRA_ARGUMENT_PROGRAM: &str = r#"
+module test
+
+fn add_one(x: u64) -> u64 {
+    return x + 1
+}
+
+action run(x: u64) -> u64 {
+    return test::add_one(x, 2)
 }
 "#;
 
@@ -2930,6 +6758,56 @@ module test
 
 action now() -> u64 {
     return env::current_daa_score()
+}
+"#;
+
+    const ENV_DAA_CREATE_OUTPUT_PROGRAM: &str = r#"
+module test
+
+resource Clock {
+    now: u64,
+    later: u64,
+}
+
+action stamp(delta: u64) -> Clock {
+    let now = env::current_daa_score()
+    create Clock {
+        now: now,
+        later: now + delta
+    }
+}
+"#;
+
+    const BUILTIN_WRONG_ARITY_PROGRAM: &str = r#"
+module test
+
+action now(x: u64) -> u64 {
+    return env::current_daa_score(x)
+}
+"#;
+
+    const NUMERIC_BUILTIN_TYPE_MISMATCH_PROGRAM: &str = r#"
+module test
+
+action bad() -> u64 {
+    return min(1, false)
+}
+"#;
+
+    const UNKNOWN_NAMESPACED_CONSTRUCTOR_PROGRAM: &str = r#"
+module test
+
+action bad() -> u64 {
+    let value = Missing::new()
+    return 0
+}
+"#;
+
+    const METHOD_WRONG_ARITY_PROGRAM: &str = r#"
+module test
+
+action count(items: [u64; 3]) -> u64 {
+    return items.len(1)
 }
 "#;
 
@@ -3152,6 +7030,30 @@ action count(items: [u64; 3]) -> u64 {
 }
 "#;
 
+    const FORBIDDEN_UNWRAP_CALL_PROGRAM: &str = r#"
+module test
+
+action bad(value: u64) -> u64 {
+    return unwrap(value)
+}
+"#;
+
+    const FORBIDDEN_EXPECT_METHOD_PROGRAM: &str = r#"
+module test
+
+action bad(value: u64) -> u64 {
+    return value.expect("checked")
+}
+"#;
+
+    const FORBIDDEN_NAMESPACED_UNWRAP_OR_PROGRAM: &str = r#"
+module test
+
+action bad(value: u64) -> u64 {
+    return Option::unwrap_or(value, 0)
+}
+"#;
+
     const LOCAL_ARRAY_LEN_PROGRAM: &str = r#"
 module test
 
@@ -3293,6 +7195,145 @@ action select(flag: Flag) -> u64 {
 }
 "#;
 
+    const EXHAUSTIVE_MATCH_PROGRAM: &str = r#"
+module test
+
+enum Flag {
+    On,
+    Off,
+}
+
+action select(flag: Flag) -> u64 {
+    return match flag {
+        Flag::On => 1,
+        Flag::Off => 2,
+    }
+}
+"#;
+
+    const UNKNOWN_MATCH_VARIANT_PROGRAM: &str = r#"
+module test
+
+enum Flag {
+    On,
+    Off,
+}
+
+action select(flag: Flag) -> u64 {
+    return match flag {
+        Flag::Maybe => 1,
+        _ => 2,
+    }
+}
+"#;
+
+    const DUPLICATE_MATCH_VARIANT_PROGRAM: &str = r#"
+module test
+
+enum Flag {
+    On,
+    Off,
+}
+
+action select(flag: Flag) -> u64 {
+    return match flag {
+        Flag::On => 1,
+        On => 2,
+        _ => 3,
+    }
+}
+"#;
+
+    const NON_EXHAUSTIVE_MATCH_PROGRAM: &str = r#"
+module test
+
+enum Flag {
+    On,
+    Off,
+}
+
+action select(flag: Flag) -> u64 {
+    return match flag {
+        Flag::On => 1,
+    }
+}
+"#;
+
+    const ENUM_PAYLOAD_VARIANT_PROGRAM: &str = r#"
+module test
+
+enum MaybeAmount {
+    Some(u64),
+    None,
+}
+
+action select(value: MaybeAmount) -> u64 {
+    return match value {
+        MaybeAmount::Some => 1,
+        _ => 0,
+    }
+}
+"#;
+
+    const ENUM_PAYLOAD_VALUE_PROGRAM: &str = r#"
+module test
+
+enum AssetType {
+    Native,
+    Token(Hash),
+}
+
+action bad() -> AssetType {
+    return AssetType::Token
+}
+"#;
+
+    const UNKNOWN_ENUM_VALUE_PROGRAM: &str = r#"
+module test
+
+enum Flag {
+    On,
+    Off,
+}
+
+action bad() -> Flag {
+    return Flag::Maybe
+}
+"#;
+
+    const UNKNOWN_NAMED_TYPE_PROGRAM: &str = r#"
+module test
+
+resource Bad {
+    missing: MissingType,
+}
+
+action run(value: Bad) -> u64 {
+    destroy value
+    return 0
+}
+"#;
+
+    const RESERVED_OPTION_TYPE_PROGRAM: &str = r#"
+module test
+
+action bad(value: Option<u64>) -> u64 {
+    return 0
+}
+"#;
+
+    const DUPLICATE_TOP_LEVEL_SYMBOL_PROGRAM: &str = r#"
+module test
+
+resource Token {
+    amount: u64,
+}
+
+action Token() -> u64 {
+    return 0
+}
+"#;
+
     const VEC_BUILTIN_PROGRAM: &str = r#"
 module test
 
@@ -3370,8 +7411,104 @@ action redeem(receipt: VestingReceipt) -> Token {
     return claim receipt
 }
 
+    action finalize(token: Token) -> Token {
+        return settle token
+    }
+"#;
+
+    const SETTLE_LIFECYCLE_FINAL_STATE_PROGRAM: &str = r#"
+module test
+
+#[lifecycle(Pending -> Settled)]
+receipt Settlement has store {
+    state: u8,
+    amount: u64,
+}
+
+action finalize(settlement: Settlement) -> Settlement {
+    return settle settlement
+}
+"#;
+
+    const CLAIM_SIGNER_PUBKEY_HASH_PROGRAM: &str = r#"
+module test
+
+resource Token has store {
+    amount: u64,
+    signer_pubkey_hash: [u8; 20],
+}
+
+receipt SignedReceipt -> Token {
+    amount: u64,
+    signer_pubkey_hash: [u8; 20],
+}
+
+action redeem_signed(receipt: SignedReceipt) -> Token {
+    return claim receipt
+}
+"#;
+
+    const TRANSFER_CLAIM_SETTLE_NON_SCALAR_FIELD_PROGRAM: &str = r#"
+module test
+
+resource Token has store, transfer, destroy {
+    amount: u64,
+    owner: Address,
+}
+
+receipt VestingReceipt -> Token {
+    amount: u64,
+    owner: Address,
+}
+
+action move_token(token: Token, to: Address) -> Token {
+    return transfer token to to
+}
+
+action redeem(receipt: VestingReceipt) -> Token {
+    return claim receipt
+}
+
 action finalize(token: Token) -> Token {
     return settle token
+}
+"#;
+
+    const FIXED_BYTE_PARAM_AND_CONST_OUTPUT_PROGRAM: &str = r#"
+module test
+
+resource Config has store {
+    symbol: [u8; 8],
+}
+
+resource Fingerprint has store {
+    digest: Hash,
+}
+
+action make_config(symbol: [u8; 8]) -> Config {
+    create Config {
+        symbol: symbol
+    }
+}
+
+action make_fingerprint() -> Fingerprint {
+    create Fingerprint {
+        digest: Hash::zero()
+    }
+}
+"#;
+
+    const CONST_LOCK_OUTPUT_PROGRAM: &str = r#"
+module test
+
+resource Token has store {
+    amount: u64,
+}
+
+action mint() -> Token {
+    create Token {
+        amount: 42
+    } with_lock(Address::zero())
 }
 "#;
 
@@ -3574,7 +7711,7 @@ receipt Ticket has store {
 }
 
 action activate(ticket: Ticket) -> Ticket {
-    let active = 1
+    let active: u8 = 1
     consume ticket
     return create Ticket {
         state: active,
@@ -3779,16 +7916,49 @@ action activate(ticket: Ticket) -> Ticket {
         assert!(asm.contains("#   field amount = 42"), "create fields were not preserved in assembly comments:\n{}", asm);
         assert!(asm.contains("#   with_lock <expr>"), "create lock binding vanished from assembly:\n{}", asm);
         assert!(
-            asm.contains("# cellscript abi: output field verification incomplete for this create pattern"),
-            "incomplete locked create verifier did not expose its incomplete verification status:\n{}",
+            asm.contains("# cellscript abi: verify output field Token.amount offset=0 size=8"),
+            "locked create verifier should verify covered fields before checking lock binding:\n{}",
             asm
         );
         assert!(
-            asm.contains("# cellscript abi: fail closed because the output state is not fully verified"),
-            "incomplete create verifier did not fail closed:\n{}",
+            !asm.contains("# cellscript abi: output field verification incomplete for this create pattern"),
+            "locked create with coverable fields should not conflate lock verification with field verification:\n{}",
             asm
         );
-        assert!(asm.contains("li a0, 5"), "incomplete create verifier did not return failure code 5:\n{}", asm);
+        assert!(
+            asm.contains("# cellscript abi: fixed-byte param owner pointer=a0 length=a1 size=32"),
+            "Address lock parameter should use pointer+length ABI:\n{}",
+            asm
+        );
+        assert!(
+            asm.contains("# cellscript abi: LOAD_CELL_BY_FIELD reason=output_lock_hash source=Output index=0 field=3"),
+            "Address lock parameter should be checked with output LockHash syscall:\n{}",
+            asm
+        );
+        assert!(
+            asm.contains("# cellscript abi: verify output bytes field output lock hash offset=0 size=32 against fixed-byte param"),
+            "Address lock parameter should be compared byte-by-byte:\n{}",
+            asm
+        );
+        assert!(
+            !asm.contains("# cellscript abi: output lock verification incomplete for this create pattern"),
+            "Address lock parameter should no longer fail closed as incomplete:\n{}",
+            asm
+        );
+        assert!(
+            !result.metadata.runtime.fail_closed_runtime_features.contains(&"output-verification-incomplete".to_string()),
+            "coverable locked create fields should not be reflected as incomplete output fields: {:?}",
+            result.metadata.runtime.fail_closed_runtime_features
+        );
+        assert!(
+            !result.metadata.runtime.fail_closed_runtime_features.contains(&"output-lock-verification-incomplete".to_string()),
+            "coverable Address lock parameter should not be reflected as incomplete output lock verification: {:?}",
+            result.metadata.runtime.fail_closed_runtime_features
+        );
+        let action = result.metadata.actions.iter().find(|action| action.name == "mint").expect("mint metadata");
+        assert!(action.params[0].fixed_byte_pointer_abi);
+        assert!(action.params[0].fixed_byte_length_abi);
+        assert_eq!(action.params[0].fixed_byte_len, Some(32));
     }
 
     #[test]
@@ -3826,6 +7996,99 @@ action activate(ticket: Ticket) -> Ticket {
     }
 
     #[test]
+    fn compile_verifies_create_output_against_computed_scalar_stack_value() {
+        let result = compile(CREATE_UNSUPPORTED_OUTPUT_EXPR_PROGRAM, CompileOptions::default()).unwrap();
+        let asm = String::from_utf8(result.artifact_bytes.clone()).unwrap();
+
+        assert!(
+            asm.contains("# cellscript abi: verify output field Token.amount offset=0 size=8"),
+            "computed create expected expression did not emit output field verification:\n{}",
+            asm
+        );
+        assert!(asm.contains("mul t0, t0, t1"), "computed scalar field value did not lower before create verification:\n{}", asm);
+        assert!(
+            !result.metadata.runtime.fail_closed_runtime_features.contains(&"output-verification-incomplete".to_string()),
+            "computed scalar create expression should not be marked as incomplete output verification: {:?}",
+            result.metadata.runtime.fail_closed_runtime_features
+        );
+        let action = result.metadata.actions.iter().find(|action| action.name == "issue").expect("issue action");
+        assert!(
+            !action.fail_closed_runtime_features.contains(&"output-verification-incomplete".to_string()),
+            "computed scalar create expression should not reach action fail-closed metadata: {:?}",
+            action.fail_closed_runtime_features
+        );
+    }
+
+    #[test]
+    fn compile_rejects_invalid_create_field_initializers() {
+        let duplicate = compile(CREATE_DUPLICATE_FIELD_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(
+            duplicate.message.contains("duplicate field 'amount' in create for 'Token'"),
+            "unexpected error: {}",
+            duplicate.message
+        );
+
+        let missing = compile(CREATE_MISSING_FIELD_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(missing.message.contains("create for 'Token' is missing field(s): owner"), "unexpected error: {}", missing.message);
+
+        let unknown = compile(CREATE_UNKNOWN_FIELD_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(unknown.message.contains("unknown field 'owner' in create for 'Token'"), "unexpected error: {}", unknown.message);
+
+        let mismatch = compile(CREATE_FIELD_TYPE_MISMATCH_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(
+            mismatch.message.contains("field 'amount' in create for 'Token' has type mismatch"),
+            "unexpected error: {}",
+            mismatch.message
+        );
+
+        let struct_target = compile(CREATE_STRUCT_TARGET_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(
+            struct_target.message.contains("create target type 'Snapshot' must be a resource, shared, or receipt cell type"),
+            "unexpected error: {}",
+            struct_target.message
+        );
+    }
+
+    #[test]
+    fn compile_rejects_stateful_operations_without_named_linear_cell_operands() {
+        let non_cell = compile(CONSUME_NON_CELL_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(non_cell.message.contains("consume requires a cell-backed linear value"), "unexpected error: {}", non_cell.message);
+
+        let non_named_consume = compile(CONSUME_NON_NAMED_CELL_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(
+            non_named_consume.message.contains("consume requires a named cell-backed value"),
+            "unexpected error: {}",
+            non_named_consume.message
+        );
+
+        let non_named_transfer = compile(TRANSFER_NON_NAMED_CELL_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(
+            non_named_transfer.message.contains("transfer requires a named cell-backed value"),
+            "unexpected error: {}",
+            non_named_transfer.message
+        );
+    }
+
+    #[test]
+    fn compile_merges_if_branch_linear_states_conservatively() {
+        compile(IF_BOTH_BRANCHES_CONSUME_PROGRAM, CompileOptions::default()).unwrap();
+
+        let partial = compile(IF_PARTIAL_BRANCH_CONSUME_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(
+            partial.message.contains("linear resource 'token' has inconsistent ownership state across if branches"),
+            "unexpected error: {}",
+            partial.message
+        );
+
+        let mismatched = compile(IF_MISMATCHED_BRANCH_CONSUME_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(
+            mismatched.message.contains("linear resource 'token' has inconsistent ownership state across if branches"),
+            "unexpected error: {}",
+            mismatched.message
+        );
+    }
+
+    #[test]
     fn compile_preserves_consume_and_destroy_instructions_in_assembly() {
         let result = compile(CONSUME_DESTROY_PROGRAM, CompileOptions::default()).unwrap();
         let asm = String::from_utf8(result.artifact_bytes.clone()).unwrap();
@@ -3833,13 +8096,20 @@ action activate(ticket: Ticket) -> Ticket {
         assert!(asm.contains("# consume"), "consume expression vanished from assembly:\n{}", asm);
         assert!(asm.contains("# destroy"), "destroy expression vanished from assembly:\n{}", asm);
         assert!(
-            asm.contains("# cellscript abi: destroy symbolic runtime is not executable"),
-            "destroy symbolic runtime did not fail closed:\n{}",
+            asm.contains("# cellscript abi: destroy group output type-hash absence scan binding=b size=32"),
+            "destroy did not emit a GroupOutput TypeHash absence scan:\n{}",
             asm
         );
         assert!(
-            asm.contains("# cellscript abi: fail closed because the source operation has no complete verifier lowering"),
-            "symbolic runtime operation did not explain fail-closed lowering:\n{}",
+            asm.contains(
+                "# cellscript abi: LOAD_CELL_BY_FIELD reason=destroy_group_output_type_hash source=GroupOutput index=t6 field=5"
+            ),
+            "destroy absence scan did not use GroupOutput LOAD_CELL_BY_FIELD:\n{}",
+            asm
+        );
+        assert!(
+            !asm.contains("# cellscript abi: destroy symbolic runtime is not executable"),
+            "destroy should no longer use the symbolic fail-closed path:\n{}",
             asm
         );
 
@@ -3859,7 +8129,27 @@ action activate(ticket: Ticket) -> Ticket {
         assert!(action.verifier_obligations.iter().any(|obligation| {
             obligation.category == "transaction-invariant"
                 && obligation.feature == "destroy-output-scan:Token"
-                && obligation.status == "runtime-required"
+                && obligation.status == "checked-runtime"
+                && obligation.detail.contains("destroy-output-absence=checked-runtime")
+                && obligation.detail.contains("destroy-group-boundary=checked-runtime")
+        }));
+        assert!(action.transaction_runtime_input_requirements.iter().any(|requirement| {
+            requirement.feature == "destroy-output-scan:Token"
+                && requirement.status == "checked-runtime"
+                && requirement.component == "destroy-output-absence"
+                && requirement.source == "GroupOutput"
+                && requirement.field.as_deref() == Some("type_hash-absence")
+                && requirement.abi == "destroy-output-scan-type-id"
+                && requirement.blocker.is_none()
+                && requirement.blocker_class.is_none()
+        }));
+        assert!(result.metadata.runtime.transaction_runtime_input_requirements.iter().any(|requirement| {
+            requirement.scope == "action:burn"
+                && requirement.feature == "destroy-output-scan:Token"
+                && requirement.status == "checked-runtime"
+                && requirement.component == "destroy-group-boundary"
+                && requirement.blocker.is_none()
+                && requirement.blocker_class.is_none()
         }));
     }
 
@@ -3900,6 +8190,16 @@ action activate(ticket: Ticket) -> Ticket {
             asm.contains("lbu t2, 0(t4)") && asm.contains("slli t2, t2, 56"),
             "read_ref u64 field access did not lower to an unaligned-safe byte load sequence:\n{}",
             asm
+        );
+    }
+
+    #[test]
+    fn compile_rejects_read_ref_for_non_cell_backed_types() {
+        let err = compile(READ_REF_STRUCT_TARGET_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(
+            err.message.contains("read_ref target type 'Snapshot' must be a resource, shared, or receipt cell type"),
+            "unexpected error: {}",
+            err.message
         );
     }
 
@@ -3989,6 +8289,29 @@ action activate(ticket: Ticket) -> Ticket {
             asm
         );
         assert!(!asm.contains("field access '.amount' has no lowered schema-backed representation"));
+    }
+
+    #[test]
+    fn compile_lowers_fixed_byte_schema_field_comparison() {
+        let result = compile(FIXED_BYTE_FIELD_COMPARISON_PROGRAM, CompileOptions::default()).unwrap();
+        let asm = String::from_utf8(result.artifact_bytes.clone()).unwrap();
+        let action = result.metadata.actions.iter().find(|action| action.name == "same_symbol").unwrap();
+
+        assert!(
+            asm.contains("# cellscript abi: fixed-byte Eq comparison size=8"),
+            "schema-backed fixed-byte equality did not lower to a byte comparison:\n{}",
+            asm
+        );
+        assert!(
+            !asm.contains("fixed-byte comparison symbolic runtime is not executable"),
+            "verified fixed-byte equality should not use the symbolic fail-closed path:\n{}",
+            asm
+        );
+        assert!(
+            !action.fail_closed_runtime_features.contains(&"fixed-byte-comparison".to_string()),
+            "metadata should not report fixed-byte comparison when both operands are verifier-coverable: {:?}",
+            action.fail_closed_runtime_features
+        );
     }
 
     #[test]
@@ -4149,7 +8472,7 @@ action activate(ticket: Ticket) -> Ticket {
         let asm = String::from_utf8(result.artifact_bytes.clone()).unwrap();
 
         assert!(
-            asm.contains("# cellscript abi: expected expression u64 add/sub chain"),
+            asm.contains("# cellscript abi: expected expression u64 Sub"),
             "created output amount was not compared against a prelude arithmetic expression:\n{}",
             asm
         );
@@ -4172,7 +8495,7 @@ action activate(ticket: Ticket) -> Ticket {
         let asm = String::from_utf8(result.artifact_bytes.clone()).unwrap();
 
         assert_eq!(
-            asm.matches("# cellscript abi: expected expression u64 add/sub chain").count(),
+            asm.matches("# cellscript abi: expected expression u64 Sub").count(),
             2,
             "left-associative prelude arithmetic chain should be recomputed recursively:\n{}",
             asm
@@ -4196,7 +8519,7 @@ action activate(ticket: Ticket) -> Ticket {
         let asm = String::from_utf8(result.artifact_bytes.clone()).unwrap();
 
         assert!(
-            asm.contains("# cellscript abi: expected expression u64 add/sub chain"),
+            asm.contains("# cellscript abi: expected expression u64 Sub"),
             "created output amount was not compared against the local-const arithmetic expression:\n{}",
             asm
         );
@@ -4217,22 +8540,46 @@ action activate(ticket: Ticket) -> Ticket {
         assert!(asm.contains("# index access"), "array indexing vanished from assembly:\n{}", asm);
         assert!(asm.contains("# field access .1"), "tuple projection vanished from assembly:\n{}", asm);
         assert!(
-            asm.contains("# cellscript abi: index access symbolic runtime is not executable")
-                || asm.contains("# cellscript abi: field access symbolic runtime is not executable"),
-            "symbolic index/tuple lowering did not fail closed:\n{}",
+            asm.contains("# cellscript abi: fixed aggregate index element_offset=0 element_size=40"),
+            "fixed tuple-array indexing did not lower through the pointer+length ABI:\n{}",
+            asm
+        );
+        assert!(
+            asm.contains("# cellscript abi: fixed aggregate field tuple.1 offset=32 size=8"),
+            "fixed tuple projection did not lower through aggregate field access:\n{}",
+            asm
+        );
+        assert!(
+            !asm.contains("symbolic runtime is not executable"),
+            "fixed tuple-array index/projection should not fail closed:\n{}",
             asm
         );
     }
 
     #[test]
-    fn compile_lowers_foreach_array_into_index_length_loop_cfg() {
+    fn compile_unrolls_fixed_param_array_foreach_with_pointer_abi() {
         let result = compile(FOREACH_ARRAY_PROGRAM, CompileOptions::default()).unwrap();
         let asm = String::from_utf8(result.artifact_bytes.clone()).unwrap();
 
-        assert!(asm.contains("# length"), "foreach loop missing length lowering:\n{}", asm);
-        assert!(asm.contains("# index access"), "foreach loop missing index lowering:\n{}", asm);
-        assert!(asm.contains("li t0, 3"), "foreach loop missing static array length:\n{}", asm);
-        assert!(asm.contains("j .Lblock_1"), "foreach loop missing back edge:\n{}", asm);
+        assert!(!asm.contains("# length"), "fixed parameter foreach should be unrolled without dynamic length lowering:\n{}", asm);
+        assert!(!asm.contains("j .Lblock_1"), "fixed parameter foreach should be unrolled without a loop back edge:\n{}", asm);
+        assert!(
+            asm.contains("# cellscript abi: fixed-aggregate param items pointer=a0 length=a1 size=24"),
+            "fixed array parameter did not use pointer+length ABI:\n{}",
+            asm
+        );
+        assert!(
+            asm.contains("# cellscript abi: fixed aggregate index element_offset=0 element_size=8")
+                && asm.contains("# cellscript abi: fixed aggregate index element_offset=8 element_size=8")
+                && asm.contains("# cellscript abi: fixed aggregate index element_offset=16 element_size=8"),
+            "fixed parameter foreach did not unroll into exact aggregate indexes:\n{}",
+            asm
+        );
+        assert!(
+            !asm.contains("index access symbolic runtime is not executable"),
+            "fixed parameter foreach should not use symbolic index fail-closed lowering:\n{}",
+            asm
+        );
     }
 
     #[test]
@@ -4275,6 +8622,18 @@ action activate(ticket: Ticket) -> Ticket {
 
         assert!(asm.contains("# length"), "len() call did not lower to length instruction:\n{}", asm);
         assert!(!asm.contains("# call len"), "len() call leaked through generic call path:\n{}", asm);
+    }
+
+    #[test]
+    fn compile_rejects_forbidden_unwrap_helpers() {
+        let unwrap_err = compile(FORBIDDEN_UNWRAP_CALL_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(unwrap_err.message.contains("unwrap is forbidden"), "unexpected error: {}", unwrap_err.message);
+
+        let expect_err = compile(FORBIDDEN_EXPECT_METHOD_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(expect_err.message.contains("expect is forbidden"), "unexpected error: {}", expect_err.message);
+
+        let unwrap_or_err = compile(FORBIDDEN_NAMESPACED_UNWRAP_OR_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(unwrap_or_err.message.contains("unwrap_or is forbidden"), "unexpected error: {}", unwrap_or_err.message);
     }
 
     #[test]
@@ -4419,6 +8778,78 @@ action activate(ticket: Ticket) -> Ticket {
     }
 
     #[test]
+    fn compile_lowers_exhaustive_enum_match_without_wildcard() {
+        let result = compile(EXHAUSTIVE_MATCH_PROGRAM, CompileOptions::default()).unwrap();
+        let asm = String::from_utf8(result.artifact_bytes.clone()).unwrap();
+
+        assert!(asm.contains("seqz t0, t0"), "exhaustive match lowering missing equality check:\n{}", asm);
+        assert!(asm.contains("li a0, 8"), "exhaustive match did not retain invalid-discriminant fail-closed branch:\n{}", asm);
+    }
+
+    #[test]
+    fn compile_rejects_invalid_enum_match_patterns() {
+        let unknown = compile(UNKNOWN_MATCH_VARIANT_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(unknown.message.contains("unknown enum variant 'Flag::Maybe'"), "unexpected error: {}", unknown.message);
+
+        let duplicate = compile(DUPLICATE_MATCH_VARIANT_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(
+            duplicate.message.contains("duplicate match arm for enum variant 'Flag::On'"),
+            "unexpected error: {}",
+            duplicate.message
+        );
+
+        let non_exhaustive = compile(NON_EXHAUSTIVE_MATCH_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(
+            non_exhaustive.message.contains("non-exhaustive match for enum 'Flag'"),
+            "unexpected error: {}",
+            non_exhaustive.message
+        );
+        assert!(non_exhaustive.message.contains("Off"), "unexpected error: {}", non_exhaustive.message);
+    }
+
+    #[test]
+    fn compile_rejects_enum_payload_variants_until_lowering_exists() {
+        let err = compile(ENUM_PAYLOAD_VARIANT_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(
+            err.message.contains("match pattern 'MaybeAmount::Some' targets a payload enum variant"),
+            "unexpected error: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn compile_rejects_payload_or_unknown_enum_variant_values() {
+        let payload = compile(ENUM_PAYLOAD_VALUE_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(
+            payload.message.contains("enum payload variant 'AssetType::Token' cannot be used as a value"),
+            "unexpected error: {}",
+            payload.message
+        );
+
+        let unknown = compile(UNKNOWN_ENUM_VALUE_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(unknown.message.contains("unknown enum variant 'Flag::Maybe'"), "unexpected error: {}", unknown.message);
+    }
+
+    #[test]
+    fn compile_rejects_unknown_or_reserved_named_types() {
+        let unknown = compile(UNKNOWN_NAMED_TYPE_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(unknown.message.contains("unknown type 'MissingType'"), "unexpected error: {}", unknown.message);
+
+        let reserved = compile(RESERVED_OPTION_TYPE_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(
+            reserved.message.contains("type 'Option' is reserved for the explicit error model but is not implemented yet"),
+            "unexpected error: {}",
+            reserved.message
+        );
+    }
+
+    #[test]
+    fn compile_rejects_duplicate_top_level_symbols() {
+        let err = compile(DUPLICATE_TOP_LEVEL_SYMBOL_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(err.message.contains("duplicate symbol 'Token'"), "unexpected error: {}", err.message);
+    }
+
+    #[test]
     fn compile_lowers_vec_builtins_without_generic_calls() {
         let result = compile(VEC_BUILTIN_PROGRAM, CompileOptions::default()).unwrap();
         let asm = String::from_utf8(result.artifact_bytes.clone()).unwrap();
@@ -4448,11 +8879,31 @@ action activate(ticket: Ticket) -> Ticket {
 
         assert!(asm.contains("# type_hash"), "type_hash() did not lower into builtin instruction:\n{}", asm);
         assert!(
-            asm.contains("# cellscript abi: type_hash symbolic runtime is not executable"),
-            "type_hash symbolic runtime did not fail closed:\n{}",
+            asm.contains("# cellscript abi: schema param pool type_hash pointer=a2 length=a3 size=32"),
+            "schema parameter type_hash() should be backed by an explicit pointer+length ABI:\n{}",
+            asm
+        );
+        assert!(
+            asm.contains("# cellscript abi: exact size check param type hash expected=32"),
+            "schema parameter type_hash() should reject non-32-byte ABI payloads:\n{}",
+            asm
+        );
+        assert!(
+            !asm.contains("# cellscript abi: type_hash symbolic runtime is not executable"),
+            "schema parameter type_hash() should not use the symbolic fail-closed path:\n{}",
             asm
         );
         assert!(!asm.contains("# call type_hash"), "type_hash() leaked through generic call path:\n{}", asm);
+        let action = result.metadata.actions.iter().find(|action| action.name == "pool_id").unwrap();
+        assert!(
+            action.fail_closed_runtime_features.is_empty(),
+            "schema parameter type_hash() should be verifier-coverable: {:?}",
+            action.fail_closed_runtime_features
+        );
+        let param = action.params.iter().find(|param| param.name == "pool").unwrap();
+        assert!(param.type_hash_pointer_abi);
+        assert!(param.type_hash_length_abi);
+        assert_eq!(param.type_hash_len, Some(32));
     }
 
     #[test]
@@ -4462,8 +8913,13 @@ action activate(ticket: Ticket) -> Ticket {
 
         assert!(!asm.contains("# call zero"), "Address::zero() leaked through generic call path:\n{}", asm);
         assert!(
-            asm.contains("li t1, 0") || asm.contains("li t0, 0"),
-            "Address::zero() did not lower to zero constant compare:\n{}",
+            asm.contains("# cellscript abi: fixed-byte Eq comparison size=32"),
+            "Address::zero() comparison should lower to a full-width byte comparison:\n{}",
+            asm
+        );
+        assert!(
+            !asm.contains("fixed-byte comparison symbolic runtime is not executable"),
+            "Address::zero() comparison should not use the symbolic fail-closed path:\n{}",
             asm
         );
     }
@@ -4524,6 +8980,13 @@ action activate(ticket: Ticket) -> Ticket {
     }
 
     #[test]
+    fn compile_rejects_unsupported_optimization_level() {
+        let err = compile(SIMPLE_PROGRAM, CompileOptions { opt_level: 4, ..CompileOptions::default() }).unwrap_err();
+
+        assert!(err.message.contains("optimization level must be between 0 and 3"), "unexpected error: {}", err.message);
+    }
+
+    #[test]
     fn compile_result_validation_rejects_tampered_artifact_hash() {
         let mut result = compile(SIMPLE_PROGRAM, CompileOptions::default()).unwrap();
         result.artifact_bytes.push(b'\n');
@@ -4555,6 +9018,77 @@ action activate(ticket: Ticket) -> Ticket {
         let err = result.validate().unwrap_err();
 
         assert!(err.message.contains("metadata artifact_hash_blake3"), "unexpected error: {}", err.message);
+    }
+
+    #[test]
+    fn compile_result_validation_rejects_metadata_artifact_size_mismatch() {
+        let mut result = compile(SIMPLE_PROGRAM, CompileOptions::default()).unwrap();
+        result.metadata.artifact_size_bytes = Some(result.artifact_bytes.len() + 1);
+
+        let err = result.validate().unwrap_err();
+
+        assert!(err.message.contains("metadata artifact_size_bytes"), "unexpected error: {}", err.message);
+    }
+
+    #[test]
+    fn compile_result_validation_rejects_missing_metadata_artifact_size() {
+        let mut result = compile(SIMPLE_PROGRAM, CompileOptions::default()).unwrap();
+        result.metadata.artifact_size_bytes = None;
+
+        let err = result.validate().unwrap_err();
+
+        assert!(err.message.contains("metadata is missing artifact_size_bytes"), "unexpected error: {}", err.message);
+    }
+
+    #[test]
+    fn compile_result_validation_rejects_metadata_artifact_format_mismatch() {
+        let mut result = compile(SIMPLE_PROGRAM, CompileOptions::default()).unwrap();
+        result.metadata.artifact_format = ArtifactFormat::RiscvElf.display_name().to_string();
+
+        let err = result.validate().unwrap_err();
+
+        assert!(err.message.contains("metadata artifact_format"), "unexpected error: {}", err.message);
+    }
+
+    #[test]
+    fn compile_result_validation_rejects_assembly_with_vm_abi_trailer() {
+        let mut result = compile(SIMPLE_PROGRAM, CompileOptions::default()).unwrap();
+        result.artifact_bytes = crate::append_vm_abi_trailer(result.artifact_bytes, result.metadata.runtime.vm_abi.version);
+        rebind_artifact_integrity_for_test(&mut result);
+
+        let err = result.validate().unwrap_err();
+
+        assert!(
+            err.message.contains("RISC-V assembly artifacts must not embed a VM ABI trailer"),
+            "unexpected error: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn compile_result_validation_rejects_elf_vm_abi_trailer_version_mismatch() {
+        let mut result =
+            compile(SIMPLE_PROGRAM, CompileOptions { target: Some("riscv64-elf".to_string()), ..CompileOptions::default() }).unwrap();
+        let trailer_start = result.artifact_bytes.len() - crate::VM_ABI_TRAILER_LEN;
+        result.artifact_bytes[trailer_start + 8..trailer_start + 10].copy_from_slice(&0x8002u16.to_le_bytes());
+        rebind_artifact_integrity_for_test(&mut result);
+
+        let err = result.validate().unwrap_err();
+
+        assert!(err.message.contains("ELF VM ABI trailer version"), "unexpected error: {}", err.message);
+    }
+
+    #[test]
+    fn compile_result_validation_rejects_invalid_elf_vm_abi_trailer_flags() {
+        let mut result =
+            compile(SIMPLE_PROGRAM, CompileOptions { target: Some("riscv64-elf".to_string()), ..CompileOptions::default() }).unwrap();
+        let trailer_start = result.artifact_bytes.len() - crate::VM_ABI_TRAILER_LEN;
+        result.artifact_bytes[trailer_start + 10] = 1;
+        rebind_artifact_integrity_for_test(&mut result);
+
+        let err = result.validate().unwrap_err();
+
+        assert!(err.message.contains("invalid VM ABI trailer"), "unexpected error: {}", err.message);
     }
 
     #[test]
@@ -4609,6 +9143,26 @@ action activate(ticket: Ticket) -> Ticket {
         let err = result.validate().unwrap_err();
 
         assert!(err.message.contains("unsupported metadata_schema_version"), "unexpected error: {}", err.message);
+    }
+
+    #[test]
+    fn compile_result_validation_rejects_metadata_schema_downgrade() {
+        let mut result = compile(SIMPLE_PROGRAM, CompileOptions::default()).unwrap();
+        result.metadata.metadata_schema_version = crate::METADATA_SCHEMA_VERSION - 1;
+
+        let err = result.validate().unwrap_err();
+
+        assert!(err.message.contains("unsupported metadata_schema_version"), "unexpected error: {}", err.message);
+    }
+
+    #[test]
+    fn compile_result_validation_rejects_noncanonical_source_unit_hash() {
+        let mut result = compile(SIMPLE_PROGRAM, CompileOptions::default()).unwrap();
+        result.metadata.source_units[0].hash_blake3 = result.metadata.source_units[0].hash_blake3.to_uppercase();
+
+        let err = result.validate().unwrap_err();
+
+        assert!(err.message.contains("expected 64 lowercase hex characters"), "unexpected error: {}", err.message);
     }
 
     #[test]
@@ -4714,6 +9268,34 @@ action activate(ticket: Ticket) -> Ticket {
 
         assert!(asm.contains("call add_one"), "qualified helper call was not normalized:\n{}", asm);
         assert!(!asm.contains("call test::add_one"), "qualified helper label leaked into assembly:\n{}", asm);
+    }
+
+    #[test]
+    fn compile_rejects_function_call_argument_mismatches() {
+        let err = compile(CALL_MISSING_ARGUMENT_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(err.message.contains("function 'add' expects 2 arguments, found 1"), "unexpected error: {}", err.message);
+
+        let err = compile(CALL_TYPE_MISMATCH_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(err.message.contains("function 'add' argument 2 type mismatch"), "unexpected error: {}", err.message);
+        assert!(err.message.contains("expected u64, found bool"), "unexpected error: {}", err.message);
+
+        let err = compile(QUALIFIED_CALL_EXTRA_ARGUMENT_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(err.message.contains("function 'test::add_one' expects 1 argument, found 2"), "unexpected error: {}", err.message);
+    }
+
+    #[test]
+    fn compile_rejects_builtin_call_argument_mismatches() {
+        let err = compile(BUILTIN_WRONG_ARITY_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(err.message.contains("env::current_daa_score expects 0 arguments, found 1"), "unexpected error: {}", err.message);
+
+        let err = compile(NUMERIC_BUILTIN_TYPE_MISMATCH_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(err.message.contains("min argument 2 must be numeric, found bool"), "unexpected error: {}", err.message);
+
+        let err = compile(UNKNOWN_NAMESPACED_CONSTRUCTOR_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(err.message.contains("unknown namespaced function 'Missing::new'"), "unexpected error: {}", err.message);
+
+        let err = compile(METHOD_WRONG_ARITY_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(err.message.contains("len expects 0 arguments, found 1"), "unexpected error: {}", err.message);
     }
 
     #[test]
@@ -4891,6 +9473,28 @@ action activate(ticket: Ticket) -> Ticket {
     }
 
     #[test]
+    fn compile_verifies_create_output_against_daa_score_prelude() {
+        let result = compile(ENV_DAA_CREATE_OUTPUT_PROGRAM, CompileOptions::default()).unwrap();
+        let asm = String::from_utf8(result.artifact_bytes.clone()).unwrap();
+
+        assert!(
+            !result.metadata.runtime.fail_closed_runtime_features.contains(&"output-verification-incomplete".to_string()),
+            "DAA score and DAA + param output fields should be verifier-coverable: {:?}",
+            result.metadata.runtime.fail_closed_runtime_features
+        );
+        assert!(
+            asm.contains("# cellscript abi: verify output field Clock.now offset=0 size=8"),
+            "DAA output field was not verifier-covered:\n{}",
+            asm
+        );
+        assert!(
+            asm.contains("# cellscript abi: expected expression u64 Add"),
+            "DAA + param output expression was not reconstructed in the verifier prelude:\n{}",
+            asm
+        );
+    }
+
+    #[test]
     fn compile_rejects_pure_functions_that_call_locks() {
         let err = compile(FN_CALLS_LOCK_PROGRAM, CompileOptions::default()).unwrap_err();
 
@@ -5005,13 +9609,13 @@ action activate(ticket: Ticket) -> Ticket {
         assert!(action.verifier_obligations.iter().any(|obligation| {
             obligation.category == "lifecycle-transition"
                 && obligation.feature == "Ticket.state"
-                && obligation.status == "checked-partial"
+                && obligation.status == "checked-runtime"
         }));
         assert!(result.metadata.runtime.verifier_obligations.iter().any(|obligation| {
             obligation.scope == "action:activate"
                 && obligation.category == "lifecycle-transition"
                 && obligation.feature == "Ticket.state"
-                && obligation.status == "checked-partial"
+                && obligation.status == "checked-runtime"
         }));
         assert!(
             asm.contains("# cellscript abi: lifecycle transition Ticket.state old+1"),
@@ -5098,14 +9702,64 @@ source_roots = ["src", "shared"]
             "transfer symbolic runtime did not fail closed:\n{}",
             asm
         );
+        assert!(asm.contains("# transfer output Token"), "transfer-created output was not represented as an Output access:\n{}", asm);
+        assert!(
+            asm.contains("# cellscript abi: expected field Token.amount offset=0 size=8"),
+            "transfer-created output amount was not bound to the consumed token field:\n{}",
+            asm
+        );
+        assert!(
+            asm.contains("# cellscript abi: LOAD_CELL_BY_FIELD reason=output_lock_hash source=Output index=0 field=3"),
+            "transfer-created output lock was not loaded for destination rebinding:\n{}",
+            asm
+        );
+        assert!(
+            asm.contains("# cellscript abi: verify output lock hash offset=0 size=32"),
+            "transfer-created output lock hash was not checked:\n{}",
+            asm
+        );
         assert!(
             asm.contains("# cellscript abi: claim symbolic runtime is not executable"),
             "claim symbolic runtime did not fail closed:\n{}",
             asm
         );
         assert!(
+            asm.contains("# cellscript abi: LOAD_WITNESS reason=claim_witness source=GroupInput index=0"),
+            "claim did not load the grouped input witness before fail-closing signature verification:\n{}",
+            asm
+        );
+        assert!(
+            asm.contains("# cellscript abi: claim witness signature length check accepted=65|66"),
+            "claim did not validate the recoverable signature witness envelope:\n{}",
+            asm
+        );
+        assert!(
+            asm.contains(
+                "# cellscript abi: LOAD_ECDSA_SIGNATURE_HASH reason=claim_authorization_domain source=GroupInput index=0 hash_type=t3"
+            ),
+            "claim did not bind authorization-domain separation through the ECDSA sighash syscall:\n{}",
+            asm
+        );
+        assert!(asm.contains("# claim output Token"), "claim-created output was not represented as an Output access:\n{}", asm);
+        assert!(
+            asm.contains("# cellscript abi: verify output field Token.amount offset=0 size=8"),
+            "claim-created output amount was not verifier-covered:\n{}",
+            asm
+        );
+        assert!(
+            asm.contains("# cellscript abi: expected field VestingReceipt.amount offset=0 size=8"),
+            "claim-created output amount was not bound to the consumed receipt field:\n{}",
+            asm
+        );
+        assert!(
             asm.contains("# cellscript abi: settle symbolic runtime is not executable"),
             "settle symbolic runtime did not fail closed:\n{}",
+            asm
+        );
+        assert!(asm.contains("# settle output Token"), "settle-created output was not represented as an Output access:\n{}", asm);
+        assert!(
+            asm.matches("# cellscript abi: expected field Token.amount offset=0 size=8").count() >= 2,
+            "transfer/settle output amount checks were not both bound to consumed token fields:\n{}",
             asm
         );
         assert!(
@@ -5157,21 +9811,222 @@ source_roots = ["src", "shared"]
             obligation.category == "transaction-invariant"
                 && obligation.feature == "transfer-output:Token"
                 && obligation.status == "runtime-required"
+                && obligation.detail.contains("transfer-lock-rebinding=checked-runtime")
+                && obligation.detail.contains("transfer-destination-address-binding=checked-runtime")
         }));
-        assert!(result.metadata.runtime.verifier_obligations.iter().any(|obligation| {
-            obligation.category == "transaction-invariant"
-                && obligation.feature == "claim-conditions:VestingReceipt"
-                && obligation.status == "runtime-required"
+        assert!(result.metadata.runtime.transaction_runtime_input_requirements.iter().any(|requirement| {
+            requirement.feature == "transfer-output:Token"
+                && requirement.status == "checked-runtime"
+                && requirement.component == "transfer-destination-lock"
+                && requirement.source == "Output"
+                && requirement.field.as_deref() == Some("lock_hash")
+                && requirement.abi == "transfer-destination-lock-hash-32"
+                && requirement.byte_len == Some(32)
+                && requirement.blocker.is_none()
+                && requirement.blocker_class.is_none()
+        }));
+        assert!(result.metadata.runtime.transaction_runtime_input_requirements.iter().any(|requirement| {
+            requirement.feature == "transfer-output:Token"
+                && requirement.status == "checked-runtime"
+                && requirement.component == "transfer-destination-address"
+                && requirement.source == "Param"
+                && requirement.field.as_deref() == Some("destination")
+                && requirement.abi == "transfer-destination-address-32"
+                && requirement.byte_len == Some(32)
+                && requirement.blocker.is_none()
+                && requirement.blocker_class.is_none()
+        }));
+        let claim_conditions = result
+            .metadata
+            .runtime
+            .verifier_obligations
+            .iter()
+            .find(|obligation| {
+                obligation.category == "transaction-invariant"
+                    && obligation.feature == "claim-conditions:VestingReceipt"
+                    && obligation.status == "runtime-required"
+            })
+            .expect("claim conditions obligation");
+        assert!(
+            claim_conditions.detail.contains("Input#0:receipt.amount=input-cell-field-u64[8]"),
+            "claim conditions should expose field-aware receipt input requirements: {}",
+            claim_conditions.detail
+        );
+        assert!(
+            claim_conditions.detail.contains("claim-witness-format=checked-runtime")
+                && claim_conditions.detail.contains("claim-authorization-domain=checked-runtime"),
+            "claim conditions should mark witness format and authorization domain as runtime-checked subconditions: {}",
+            claim_conditions.detail
+        );
+        assert!(result.metadata.runtime.transaction_runtime_input_requirements.iter().any(|requirement| {
+            requirement.feature == "claim-conditions:VestingReceipt"
+                && requirement.status == "runtime-required"
+                && requirement.component == "claim-witness-signature"
+                && requirement.source == "Witness"
+                && requirement.field.as_deref() == Some("signature")
+                && requirement.abi == "claim-witness-signature-65"
+                && requirement.byte_len == Some(65)
+                && requirement.blocker.as_deref()
+                    == Some(
+                        "claim lowering checks witness shape but has no verifier-coverable signer key binding or secp256k1 verification call"
+                    )
+                && requirement.blocker_class.as_deref() == Some("witness-verification-gap")
+        }));
+        assert!(result.metadata.runtime.transaction_runtime_input_requirements.iter().any(|requirement| {
+            requirement.feature == "claim-conditions:VestingReceipt"
+                && requirement.status == "checked-runtime"
+                && requirement.component == "claim-authorization-domain"
+                && requirement.source == "Witness"
+                && requirement.field.as_deref() == Some("authorization-domain")
+                && requirement.abi == "claim-witness-authorization-domain"
+                && requirement.blocker.is_none()
+                && requirement.blocker_class.is_none()
+        }));
+        assert!(result.metadata.runtime.transaction_runtime_input_requirements.iter().any(|requirement| {
+            requirement.feature == "claim-conditions:VestingReceipt"
+                && requirement.status == "runtime-required"
+                && requirement.component == "claim-time-context"
+                && requirement.source == "Header"
+                && requirement.field.as_deref() == Some("daa_score")
+                && requirement.abi == "claim-time-daa-score-u64"
+                && requirement.byte_len == Some(8)
+                && requirement.blocker.as_deref() == Some("claim lowering has no checked source DAA/time predicate for this receipt")
+                && requirement.blocker_class.as_deref() == Some("time-context-predicate-gap")
         }));
         assert!(result.metadata.runtime.verifier_obligations.iter().any(|obligation| {
             obligation.category == "transaction-invariant"
                 && obligation.feature == "claim-output:Token"
+                && obligation.status == "checked-runtime"
+        }));
+        assert!(!result.metadata.runtime.verifier_obligations.iter().any(|obligation| {
+            obligation.category == "transaction-invariant"
+                && obligation.feature == "claim-output:Token"
                 && obligation.status == "runtime-required"
+        }));
+        let settle_finalization = result
+            .metadata
+            .runtime
+            .verifier_obligations
+            .iter()
+            .find(|obligation| {
+                obligation.category == "transaction-invariant"
+                    && obligation.feature == "settle-finalization:Token"
+                    && obligation.status == "runtime-required"
+            })
+            .expect("settle finalization obligation");
+        assert!(
+            settle_finalization.detail.contains("Input#0:token.amount=input-cell-field-u64[8]"),
+            "settle finalization should expose field-aware token input requirements: {}",
+            settle_finalization.detail
+        );
+        assert!(result.metadata.runtime.transaction_runtime_input_requirements.iter().any(|requirement| {
+            requirement.feature == "settle-finalization:Token"
+                && requirement.status == "runtime-required"
+                && requirement.component == "settle-final-state-context"
+                && requirement.source == "Transaction"
+                && requirement.field.as_deref() == Some("pending-to-final-state")
+                && requirement.abi == "settle-finalization-state-context"
+                && requirement.blocker.as_deref() == Some("settle lowering does not encode final-state transition policy")
+                && requirement.blocker_class.as_deref() == Some("finalization-policy-gap")
         }));
         assert!(result.metadata.runtime.verifier_obligations.iter().any(|obligation| {
             obligation.category == "transaction-invariant"
-                && obligation.feature == "settle-finalization:Token"
+                && obligation.feature == "settle-output:Token"
+                && obligation.status == "checked-runtime"
+        }));
+        assert!(result.metadata.runtime.transaction_runtime_input_requirements.iter().any(|requirement| {
+            requirement.feature == "settle-finalization:Token"
+                && requirement.status == "checked-runtime"
+                && requirement.component == "settle-output-admission"
+                && requirement.source == "Transaction"
+                && requirement.field.as_deref() == Some("grouped-output-admission")
+                && requirement.abi == "settle-finalization-output-admission"
+                && requirement.blocker.is_none()
+                && requirement.blocker_class.is_none()
+        }));
+        assert!(!result.metadata.runtime.verifier_obligations.iter().any(|obligation| {
+            obligation.category == "transaction-invariant"
+                && obligation.feature == "settle-output:Token"
                 && obligation.status == "runtime-required"
+        }));
+    }
+
+    #[test]
+    fn settle_lifecycle_final_state_field_is_checked_runtime() {
+        let result = compile(SETTLE_LIFECYCLE_FINAL_STATE_PROGRAM, CompileOptions::default()).unwrap();
+        let asm = String::from_utf8(result.artifact_bytes.clone()).unwrap();
+        assert!(
+            asm.contains("# cellscript abi: settle final-state Settlement.state final_state=1 state_count=2"),
+            "settle did not emit the lifecycle final-state verifier check:\n{}",
+            asm
+        );
+
+        let finalize = result.metadata.actions.iter().find(|action| action.name == "finalize").expect("finalize metadata");
+        let settle_finalization = finalize
+            .verifier_obligations
+            .iter()
+            .find(|obligation| obligation.feature == "settle-finalization:Settlement")
+            .expect("settle finalization obligation");
+        assert!(
+            settle_finalization.detail.contains("settle-final-state=checked-runtime")
+                && settle_finalization.detail.contains("settle-state-policy=lifecycle-final-state"),
+            "settle finalization should expose checked lifecycle final-state policy: {}",
+            settle_finalization.detail
+        );
+        assert!(finalize.transaction_runtime_input_requirements.iter().any(|requirement| {
+            requirement.feature == "settle-finalization:Settlement"
+                && requirement.status == "checked-runtime"
+                && requirement.component == "settle-final-state-context"
+                && requirement.source == "Transaction"
+                && requirement.field.as_deref() == Some("pending-to-final-state")
+                && requirement.abi == "settle-finalization-state-context"
+                && requirement.blocker.is_none()
+                && requirement.blocker_class.is_none()
+        }));
+    }
+
+    #[test]
+    fn claim_with_pubkey_hash_field_emits_secp256k1_verification() {
+        let result = compile(CLAIM_SIGNER_PUBKEY_HASH_PROGRAM, CompileOptions::default()).unwrap();
+        let asm = String::from_utf8(result.artifact_bytes.clone()).unwrap();
+        assert!(
+            asm.contains(
+                "# cellscript abi: SECP256K1_VERIFY reason=claim_signature source=Input field=SignedReceipt.signer_pubkey_hash witness=GroupInput index=0"
+            ),
+            "claim signature verification was not lowered:\n{}",
+            asm
+        );
+        assert!(asm.contains("li a7, 3002"), "claim signature verification did not call secp256k1 syscall:\n{}", asm);
+
+        let action = result.metadata.actions.iter().find(|action| action.name == "redeem_signed").expect("redeem_signed metadata");
+        assert!(action.ckb_runtime_features.contains(&"verify-claim-secp256k1-signature".to_string()));
+        assert!(action.ckb_runtime_accesses.iter().any(|access| {
+            access.operation == "claim-signature" && access.syscall == "SECP256K1_VERIFY" && access.source == "Witness"
+        }));
+        let claim_conditions = action
+            .verifier_obligations
+            .iter()
+            .find(|obligation| {
+                obligation.category == "transaction-invariant" && obligation.feature == "claim-conditions:SignedReceipt"
+            })
+            .expect("claim conditions obligation");
+        assert!(
+            claim_conditions.detail.contains("claim-witness-signature=checked-runtime")
+                && claim_conditions.detail.contains("claim-signer-key-binding=checked-runtime")
+                && claim_conditions.detail.contains("Input#0:receipt.signer_pubkey_hash=input-cell-field-bytes-20[20]"),
+            "claim conditions should expose checked signature verification and signer key binding: {}",
+            claim_conditions.detail
+        );
+        assert!(action.transaction_runtime_input_requirements.iter().any(|requirement| {
+            requirement.feature == "claim-conditions:SignedReceipt"
+                && requirement.status == "checked-runtime"
+                && requirement.component == "claim-witness-signature"
+                && requirement.source == "Witness"
+                && requirement.field.as_deref() == Some("signature")
+                && requirement.abi == "claim-witness-signature-65"
+                && requirement.byte_len == Some(65)
+                && requirement.blocker.is_none()
+                && requirement.blocker_class.is_none()
         }));
     }
 
@@ -5195,6 +10050,12 @@ source_roots = ["src", "shared"]
         assert_eq!(transfer_action.body.consume_set[0].operation, "transfer");
         assert_eq!(transfer_action.body.create_set[0].ty, "Token");
         assert_eq!(transfer_action.body.create_set[0].operation, "transfer");
+        assert_eq!(transfer_action.body.create_set[0].fields.len(), 1);
+        assert_eq!(transfer_action.body.create_set[0].fields[0].0, "amount");
+        assert!(
+            transfer_action.body.create_set[0].lock.is_some(),
+            "transfer-created output should carry the destination lock operand"
+        );
 
         let claim_action = ir
             .items
@@ -5210,6 +10071,8 @@ source_roots = ["src", "shared"]
         assert_eq!(claim_action.body.create_set.len(), 1);
         assert_eq!(claim_action.body.create_set[0].ty, "Token");
         assert_eq!(claim_action.body.create_set[0].operation, "claim");
+        assert_eq!(claim_action.body.create_set[0].fields.len(), 1);
+        assert_eq!(claim_action.body.create_set[0].fields[0].0, "amount");
 
         let settle_action = ir
             .items
@@ -5222,6 +10085,149 @@ source_roots = ["src", "shared"]
         assert_eq!(settle_action.body.consume_set.len(), 1);
         assert_eq!(settle_action.body.consume_set[0].binding, "token");
         assert_eq!(settle_action.body.consume_set[0].operation, "settle");
+        assert_eq!(settle_action.body.create_set.len(), 1);
+        assert_eq!(settle_action.body.create_set[0].ty, "Token");
+        assert_eq!(settle_action.body.create_set[0].operation, "settle");
+        assert_eq!(settle_action.body.create_set[0].fields.len(), 1);
+        assert_eq!(settle_action.body.create_set[0].fields[0].0, "amount");
+    }
+
+    #[test]
+    fn transfer_claim_settle_output_fields_expose_fixed_byte_preservation() {
+        let result = compile(TRANSFER_CLAIM_SETTLE_NON_SCALAR_FIELD_PROGRAM, CompileOptions::default()).unwrap();
+        let asm = String::from_utf8(result.artifact_bytes.clone()).unwrap();
+        assert!(
+            !result.metadata.runtime.fail_closed_runtime_features.contains(&"output-verification-incomplete".to_string()),
+            "fixed-byte transfer/claim/settle output fields should now be verifier-coverable: {:?}",
+            result.metadata.runtime.fail_closed_runtime_features
+        );
+        assert!(
+            asm.contains("# cellscript abi: verify output bytes field Token.owner offset=8 size=32"),
+            "fixed-byte owner field preservation was not emitted in assembly:\n{}",
+            asm
+        );
+        assert!(
+            asm.contains("# cellscript abi: expected bytes field Token.owner offset=8 size=32")
+                || asm.contains("# cellscript abi: expected bytes field VestingReceipt.owner offset=8 size=32"),
+            "fixed-byte expected source field was not emitted in assembly:\n{}",
+            asm
+        );
+        for action_name in ["move_token", "redeem", "finalize"] {
+            let action = result.metadata.actions.iter().find(|action| action.name == action_name).expect("action metadata");
+            assert!(
+                !action.fail_closed_runtime_features.contains(&"output-verification-incomplete".to_string()),
+                "{} should not expose incomplete output verification for fixed-byte field preservation: {:?}",
+                action_name,
+                action.fail_closed_runtime_features
+            );
+        }
+        let redeem = result.metadata.actions.iter().find(|action| action.name == "redeem").expect("redeem metadata");
+        let claim_conditions = redeem
+            .verifier_obligations
+            .iter()
+            .find(|obligation| obligation.feature == "claim-conditions:VestingReceipt")
+            .expect("redeem claim conditions obligation");
+        assert!(
+            claim_conditions.detail.contains("Input#0:receipt.owner=input-cell-field-bytes-32[32]"),
+            "claim conditions should expose fixed-byte receipt input requirements: {}",
+            claim_conditions.detail
+        );
+        let finalize = result.metadata.actions.iter().find(|action| action.name == "finalize").expect("finalize metadata");
+        let settle_finalization = finalize
+            .verifier_obligations
+            .iter()
+            .find(|obligation| obligation.feature == "settle-finalization:Token")
+            .expect("finalize settle finalization obligation");
+        assert!(
+            settle_finalization.detail.contains("Input#0:token.owner=input-cell-field-bytes-32[32]"),
+            "settle finalization should expose fixed-byte token input requirements: {}",
+            settle_finalization.detail
+        );
+
+        let tokens = lexer::lex(TRANSFER_CLAIM_SETTLE_NON_SCALAR_FIELD_PROGRAM).unwrap();
+        let module = parser::parse(&tokens).unwrap();
+        let ir = ir::generate(&module).unwrap();
+
+        for action_name in ["move_token", "redeem", "finalize"] {
+            let action = ir
+                .items
+                .iter()
+                .find_map(|item| match item {
+                    ir::IrItem::Action(action) if action.name == action_name => Some(action),
+                    _ => None,
+                })
+                .expect("action");
+            assert_eq!(action.body.create_set.len(), 1, "{} should produce one output access", action_name);
+            let fields = action.body.create_set[0].fields.iter().map(|(field, _)| field.as_str()).collect::<Vec<_>>();
+            assert_eq!(fields, vec!["amount", "owner"], "{} should preserve scalar and fixed-byte fields", action_name);
+            if action_name == "move_token" {
+                assert!(action.body.create_set[0].lock.is_some(), "transfer output should preserve destination lock binding");
+            }
+        }
+    }
+
+    #[test]
+    fn create_output_verifier_accepts_fixed_byte_params_and_consts() {
+        let result = compile(FIXED_BYTE_PARAM_AND_CONST_OUTPUT_PROGRAM, CompileOptions::default()).unwrap();
+        let asm = String::from_utf8(result.artifact_bytes.clone()).unwrap();
+
+        assert!(
+            !result.metadata.runtime.fail_closed_runtime_features.contains(&"output-verification-incomplete".to_string()),
+            "fixed-byte parameter and constant output fields should be verifier-coverable: {:?}",
+            result.metadata.runtime.fail_closed_runtime_features
+        );
+        assert!(
+            asm.contains("# cellscript abi: verify output bytes field Config.symbol offset=0 size=8 against stack slot"),
+            "fixed-byte stack parameter verification was not emitted:\n{}",
+            asm
+        );
+        assert!(
+            asm.contains("# cellscript abi: verify output bytes field Fingerprint.digest offset=0 size=32 against const"),
+            "fixed-byte constant verification was not emitted:\n{}",
+            asm
+        );
+
+        for action_name in ["make_config", "make_fingerprint"] {
+            let action = result.metadata.actions.iter().find(|action| action.name == action_name).expect("action metadata");
+            assert!(
+                !action.fail_closed_runtime_features.contains(&"output-verification-incomplete".to_string()),
+                "{} should not expose incomplete output verification for fixed-byte parameter/constant fields: {:?}",
+                action_name,
+                action.fail_closed_runtime_features
+            );
+        }
+    }
+
+    #[test]
+    fn create_output_verifier_accepts_const_lock_hash() {
+        let result = compile(CONST_LOCK_OUTPUT_PROGRAM, CompileOptions::default()).unwrap();
+        let asm = String::from_utf8(result.artifact_bytes.clone()).unwrap();
+
+        assert!(
+            !result.metadata.runtime.fail_closed_runtime_features.contains(&"output-verification-incomplete".to_string()),
+            "constant lock create should keep output fields verifier-coverable: {:?}",
+            result.metadata.runtime.fail_closed_runtime_features
+        );
+        assert!(
+            !result.metadata.runtime.fail_closed_runtime_features.contains(&"output-lock-verification-incomplete".to_string()),
+            "constant lock create should verify output lock hash instead of reporting a lock obligation: {:?}",
+            result.metadata.runtime.fail_closed_runtime_features
+        );
+        assert!(
+            asm.contains("# cellscript abi: LOAD_CELL_BY_FIELD reason=output_lock_hash source=Output index=0 field=3"),
+            "output lock hash syscall was not emitted:\n{}",
+            asm
+        );
+        assert!(
+            asm.contains("# cellscript abi: verify output lock hash offset=0 size=32"),
+            "output lock hash byte verification was not emitted:\n{}",
+            asm
+        );
+        assert!(
+            !asm.contains("# cellscript abi: output lock verification incomplete for this create pattern"),
+            "constant output lock should not fail closed as incomplete:\n{}",
+            asm
+        );
     }
 
     #[test]
@@ -5314,7 +10320,7 @@ source_roots = ["src", "shared"]
             accesses: Vec<SchedulerAccessWitness>,
         }
 
-        let witness_bytes = decode_hex_bytes(&action.scheduler_witness_borsh_hex);
+        let witness_bytes = action.scheduler_witness_bytes().expect("scheduler witness hex should decode");
         let witness = SchedulerWitness::try_from_slice(&witness_bytes).expect("scheduler witness should decode");
         assert_eq!(witness.magic, 0xCE11);
         assert_eq!(witness.version, 1);
@@ -5337,19 +10343,181 @@ source_roots = ["src", "shared"]
     }
 
     #[test]
+    fn scheduler_witness_omits_runtime_only_claim_witness_accesses() {
+        let result = compile(CLAIM_SIGNER_PUBKEY_HASH_PROGRAM, CompileOptions::default()).unwrap();
+        let action = result.metadata.actions.iter().find(|action| action.name == "redeem_signed").expect("redeem_signed metadata");
+        assert!(
+            action.ckb_runtime_accesses.iter().any(|access| access.operation == "claim-signature" && access.source == "Witness"),
+            "runtime metadata should still expose signature verification accesses"
+        );
+        assert!(
+            action.ckb_runtime_accesses.iter().any(|access| access.operation == "claim-witness" && access.source == "GroupInput"),
+            "runtime metadata should still expose claim witness envelope accesses"
+        );
+
+        #[derive(BorshDeserialize)]
+        struct SchedulerAccessWitness {
+            operation: u8,
+            source: u8,
+            index: u32,
+            binding_hash: [u8; 32],
+        }
+
+        #[derive(BorshDeserialize)]
+        struct SchedulerWitness {
+            magic: u16,
+            version: u8,
+            effect_class: u8,
+            parallelizable: bool,
+            touches_shared_count: u32,
+            touches_shared: Vec<[u8; 32]>,
+            estimated_cycles: u64,
+            access_count: u32,
+            accesses: Vec<SchedulerAccessWitness>,
+        }
+
+        let witness_bytes = action.scheduler_witness_bytes().expect("scheduler witness hex should decode");
+        let witness = SchedulerWitness::try_from_slice(&witness_bytes).expect("scheduler witness should decode");
+        assert_eq!(witness.magic, 0xCE11);
+        assert_eq!(witness.version, 1);
+        assert_eq!(witness.access_count as usize, witness.accesses.len());
+        assert!(matches!(witness.effect_class, 0..=4));
+        assert_eq!(witness.touches_shared_count as usize, witness.touches_shared.len());
+        assert!(witness.estimated_cycles > 0);
+        let _parallelizable = witness.parallelizable;
+        assert!(
+            witness.accesses.iter().all(|access| access.operation != 0 && matches!(access.source, 1 | 2 | 3)),
+            "scheduler witness must contain only scheduler-visible cell-state accesses"
+        );
+        assert!(witness.accesses.iter().any(|access| access.operation == 4 && access.source == 1));
+        assert!(witness.accesses.iter().any(|access| access.operation == 4 && access.source == 3));
+        assert!(witness.accesses.iter().all(|access| access.binding_hash != [0u8; 32]));
+        assert!(witness.accesses.iter().any(|access| access.index == 0));
+    }
+
+    #[test]
+    fn scheduler_witness_hex_decode_rejects_invalid_metadata_hex() {
+        let odd = decode_scheduler_witness_hex("11c").unwrap_err();
+        assert!(odd.message.contains("full bytes"));
+        let invalid = decode_scheduler_witness_hex("11xz").unwrap_err();
+        assert!(invalid.message.contains("invalid scheduler witness hex byte"));
+    }
+
+    #[test]
+    fn mutable_shared_param_forces_mutating_scheduler_hint() {
+        let source = r#"
+module test
+
+shared Pool has store {
+    reserve: u64
+}
+
+action touch(pool: &mut Pool, delta: u64) {
+    pool.reserve = pool.reserve + delta
+}
+"#;
+
+        let result = compile(source, CompileOptions::default()).unwrap();
+        let action = result.metadata.actions.iter().find(|action| action.name == "touch").expect("touch metadata");
+        assert_eq!(action.effect_class, "Mutating");
+        assert!(!action.parallelizable, "mutable shared params must not default to parallel execution");
+        assert!(!action.touches_shared.is_empty(), "mutable shared params must expose the shared type hash");
+        assert!(action.verifier_obligations.iter().any(|obligation| {
+            obligation.category == "shared-state"
+                && obligation.feature == "shared-mutation:Pool"
+                && obligation.status == "checked-runtime"
+                && obligation.detail.contains("field transition=checked-runtime")
+        }));
+        assert!(action.verifier_obligations.iter().any(|obligation| {
+            obligation.category == "pool-pattern"
+                && obligation.feature == "pool-mutation-invariants:Pool"
+                && obligation.status == "runtime-required"
+                && obligation.detail.contains("Generic shared mutation checks")
+        }));
+    }
+
+    #[test]
+    fn generic_shared_mutation_does_not_emit_pool_pattern_metadata() {
+        let source = r#"
+module test
+
+shared Ledger has store {
+    balance: u64,
+    owner: Address,
+}
+
+action credit(ledger: &mut Ledger, delta: u64) {
+    ledger.balance = ledger.balance + delta
+}
+"#;
+
+        let result = compile(source, CompileOptions::default()).unwrap();
+        let action = result.metadata.actions.iter().find(|action| action.name == "credit").expect("credit metadata");
+        let mutation = action
+            .mutate_set
+            .iter()
+            .find(|mutation| mutation.operation == "mutate" && mutation.ty == "Ledger" && mutation.binding == "ledger")
+            .expect("credit should expose Ledger mutate_set metadata");
+
+        assert_eq!(action.effect_class, "Mutating");
+        assert!(!action.parallelizable, "generic shared mutation must not default to parallel execution");
+        assert!(!action.touches_shared.is_empty(), "generic shared mutation must expose scheduler-visible shared type hash");
+        assert_eq!(mutation.fields, vec!["balance".to_string()]);
+        assert_eq!(mutation.preserved_fields, vec!["owner".to_string()]);
+        assert_eq!(mutation.input_source, "Input");
+        assert_eq!(mutation.input_index, 0);
+        assert_eq!(mutation.output_source, "Output");
+        assert_eq!(mutation.output_index, 0);
+        assert_eq!(mutation.field_equality_status, "checked-runtime");
+        assert_eq!(mutation.field_transition_status, "checked-runtime");
+        assert!(action.verifier_obligations.iter().any(|obligation| {
+            obligation.category == "shared-state"
+                && obligation.feature == "shared-mutation:Ledger"
+                && obligation.status == "checked-runtime"
+                && obligation.detail.contains("field equality=checked-runtime")
+                && obligation.detail.contains("field transition=checked-runtime")
+        }));
+        assert!(
+            action.pool_primitives.is_empty(),
+            "generic shared mutation must not emit Pool pattern metadata: {:?}",
+            action.pool_primitives
+        );
+        assert!(
+            !action.verifier_obligations.iter().any(|obligation| obligation.category == "pool-pattern"),
+            "generic shared mutation must not report Pool pattern obligations: {:?}",
+            action.verifier_obligations
+        );
+        assert!(
+            result.metadata.runtime.pool_primitives.is_empty(),
+            "runtime metadata must not aggregate Pool primitives for generic shared mutation: {:?}",
+            result.metadata.runtime.pool_primitives
+        );
+    }
+
+    #[test]
     fn metadata_exposes_output_operation_provenance_for_transfer() {
         let result = compile(TRANSFER_CLAIM_SETTLE_PROGRAM, CompileOptions::default()).unwrap();
 
         let transfer_action = result.metadata.actions.iter().find(|action| action.name == "move_token").expect("move_token metadata");
         assert_eq!(transfer_action.create_set.len(), 1);
         assert_eq!(transfer_action.create_set[0].operation, "transfer");
+        assert_eq!(transfer_action.create_set[0].fields, vec!["amount".to_string()]);
+        assert!(transfer_action.create_set[0].has_lock);
         assert!(transfer_action.ckb_runtime_accesses.iter().any(|access| access.source == "Output" && access.operation == "transfer"));
 
         let claim_action = result.metadata.actions.iter().find(|action| action.name == "redeem").expect("redeem metadata");
         assert_eq!(claim_action.create_set.len(), 1);
         assert_eq!(claim_action.create_set[0].ty, "Token");
         assert_eq!(claim_action.create_set[0].operation, "claim");
+        assert_eq!(claim_action.create_set[0].fields, vec!["amount".to_string()]);
         assert!(claim_action.ckb_runtime_accesses.iter().any(|access| access.source == "Output" && access.operation == "claim"));
+
+        let settle_action = result.metadata.actions.iter().find(|action| action.name == "finalize").expect("finalize metadata");
+        assert_eq!(settle_action.create_set.len(), 1);
+        assert_eq!(settle_action.create_set[0].ty, "Token");
+        assert_eq!(settle_action.create_set[0].operation, "settle");
+        assert_eq!(settle_action.create_set[0].fields, vec!["amount".to_string()]);
+        assert!(settle_action.ckb_runtime_accesses.iter().any(|access| access.source == "Output" && access.operation == "settle"));
     }
 
     #[test]

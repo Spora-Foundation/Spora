@@ -1,12 +1,13 @@
 # CellScript Design Proposal Implementation Audit
 
-**Snapshot date**: 2026-04-16  
+**Snapshot date**: 2026-04-18
 **Scope**: `docs/SPORA_DSL_DESIGN_PROPOSAL_CN.md` compared with the current `cellscript/` implementation  
 **Purpose**: track design-proposal coverage against code reality, not roadmap intent.
 
 This document should be read together with:
 
 - [CELLSCRIPT_IMPLEMENTATION_STATUS.md](./CELLSCRIPT_IMPLEMENTATION_STATUS.md)
+- [CELLSCRIPT_EXECUTION_PHASES.md](./CELLSCRIPT_EXECUTION_PHASES.md)
 - [CELLSCRIPT_COMPATIBILITY_MATRIX.md](./CELLSCRIPT_COMPATIBILITY_MATRIX.md)
 - [SPORA_DSL_DESIGN_PROPOSAL_CN.md](./SPORA_DSL_DESIGN_PROPOSAL_CN.md)
 
@@ -16,6 +17,14 @@ CellScript is no longer only a parser or syntax demo. It has a real compiler pat
 
 It is still not a complete implementation of the design proposal.
 
+Current implementation facts:
+
+- `cellscript/src/` contains `35,883` lines of Rust across `26` source files.
+- `cellscript/src/` plus `cellscript/tests/` contains `39,843` lines of Rust across `28` files.
+- `292` `#[test]` declarations are present in source/test files.
+- A fresh default-feature `cargo test -p cellscript` run executed `276` tests: `226` library tests, `43` CLI integration tests, `7` examples integration tests, and `0` doctests. All passed.
+- The repository includes `7` bundled `.cell` examples: `token`, `amm_pool`, `vesting`, `launch`, `nft`, `multisig`, and `timelock`.
+
 Approximate implementation status:
 
 | Area | Current coverage | Verdict |
@@ -24,12 +33,12 @@ Approximate implementation status:
 | Type checking / linear checks | 65-72% | Stronger value/resource checks, still not full semantic proof |
 | IR and metadata | 75-85% | Real, includes verifier obligations, still not full protocol semantics |
 | Pure compute lowering | 78-88% | Usable subset with stricter return/value semantics |
-| CKB-style runtime lowering | 35-45% | Partial and intentionally fail-closed where semantics are incomplete |
-| Stateful protocol primitives | 18-28% | Mostly not executable |
-| DAG scheduler integration | 20-30% | Metadata exists, runtime consumption missing |
-| CLI local workflow | 64-74% | Usable local developer loop with pre-artifact CLI and manifest metadata policy gates |
+| CKB-style runtime lowering | 58-68% | Partial and intentionally fail-closed where semantics are incomplete |
+| Stateful protocol primitives | 23-33% | Mostly not executable |
+| DAG scheduler integration | 80-86% | Metadata and per-action scheduler witness bytes exist; `read_ref`, `&mut shared`, composed shared-return touches, and mutable Cell `mutate-input` / `mutate-output` access records are visible; mutable shared-state and mutable authority cell-state transition obligations are explicit; schema v19 keeps scheduler witnesses limited to Input/CellDep/Output cell-state accesses; `ActionMetadata::scheduler_witness_bytes()` exposes compiled witness bytes, and `spora-exec` CellTx can attach/discover/admit CellScript scheduler witnesses by `0xCE11` magic/version, decode/admit the Borsh envelope with magic/version/count, effect/operation/source, operation/source compatibility, concrete transaction source-index bounds checks, exact trusted operation/source/index/binding_hash access-set matching, and produce a trusted access summary from compiled metadata bytes while appending the witness to a concrete transaction. Consensus MPE `BlockAccessSummary` consumes admitted witnesses, has a strict trusted-access-set constructor that rejects missing/mismatched builder or compiled-metadata summaries before merge, and uses shared read/write touch domains for DAG serialization. Mempool validation and template prefiltering now reject malformed CellScript scheduler metadata; mempool entries and template selectors can carry producer-backed trusted summaries into the strict template policy path. Wallet transaction generation can attach a compiled scheduler witness to the final transaction and expose the returned trusted summary on `PendingTransaction`; focused mining coverage proves producer-returned summaries survive sidecar insertion into selector exposure, and focused consensus coverage proves selector-provided builder summaries are consumed/rejected by strict template prefiltering. RPC trusted-summary submission/authentication and broader adversarial/property coverage remain open |
+| CLI local workflow | 70-80% | Usable local developer loop with pre-artifact CLI and manifest metadata policy gates |
 | IDE/LSP/tooling ecosystem | 35-50% | Useful metadata surfaces, not full semantic IDE |
-| Overall design proposal completion | 48-55% | Real implementation progress, not production-complete |
+| Overall design proposal completion | 70-75% | Real implementation progress, not production-complete |
 
 The critical distinction is:
 
@@ -43,7 +52,7 @@ Several older audit claims are now stale:
 |---|---|
 | Effects are mostly decorative metadata | Incorrect now. Explicit `#[effect(...)]` under-declarations are rejected for direct operations, same-module calls, and local `path` dependency imports. |
 | `fn` can hide stateful behavior | Mostly fixed for local code. `fn` definitions are distinct AST/IR/metadata entries, must infer `Pure`, cannot call `action` or `lock`, and reject direct, same-module indirect, and local imported stateful behavior. |
-| Create output checks are only comments | Incorrect for the supported subset. Fixed-scalar output fields can be checked with exact-size, bounds, and equality checks. Unsupported create paths fail closed. |
+| Create output checks are only comments | Incorrect for the supported subset. Fixed-scalar output fields can be checked with exact-size, bounds, and equality checks; fixed-byte constants, schema-backed fixed-byte aliases, stack-backed `[u8; N<=8]` parameters, pointer+length `Address` / `Hash` parameters, trusted schema-parameter TypeHash ABI bytes, and created Output TypeHash fields can be checked byte-by-byte for output fields. Verifier-coverable `with_lock(...)` bindings now compare output `LockHash` through `LOAD_CELL_BY_FIELD`; unsupported field or lock sources still fail closed. |
 | Symbolic runtime paths may silently continue | Improved. Unsupported runtime features emit explicit fail-closed assembly and metadata. |
 | Scheduler metadata has no fail-closed signal | Improved. Metadata exposes `fail_closed_runtime_features` separately from `symbolic_runtime_features`. |
 | No-return helpers behave like `u64` values | Fixed for the local compiler. Helpers without a return type use internal `Unit`, lower to destinationless calls, and cannot be bound or returned as values. |
@@ -53,29 +62,47 @@ Several older audit claims are now stale:
 | Tail expressions are only source sugar | Improved. Typed tail expressions and terminal `if` tails lower to real `Return(Some(...))` terminators for value-returning `action` / `fn` bodies. |
 | Empty arrays silently become `[u64; 0]` | Fixed. Empty arrays require explicit zero-length array annotations and preserve the declared element type. |
 | Local `Vec` values have no item-type enforcement | Improved. `Vec.push` propagates the first concrete item type from `Vec::new()` and rejects incompatible later pushes. |
+| SchedulerWitness binary format is missing | Too broad. The compiler generates Borsh scheduler witness bytes with magic `0xCE11` in action metadata as `scheduler_witness_borsh_hex`; schema v19 filters those records to scheduler-visible cell-state accesses; `ActionMetadata::scheduler_witness_bytes()` exposes compiled bytes; `spora-exec` now has low-level CellTx witness placement/discovery helpers, a compiled-metadata producer helper, and a compatible decoder/admission check for envelope, enum, operation/source, transaction source-index validity, and exact access-set matching against trusted summaries; consensus MPE block summaries consume admitted witnesses for shared read/write DAG conflicts, mempool/template policy gates reject malformed metadata with strict trusted-summary fixtures, mining stores/propagates producer-backed summaries through mempool entries and selectors, the wallet generator can attach a compiled scheduler witness to the final transaction while preserving the returned trusted summary on `PendingTransaction`, focused mining coverage proves producer-returned summaries reach selector exposure, and focused consensus coverage proves selector-provided builder summaries are consumed/rejected by strict template prefiltering. Remaining hardening is broader adversarial/property coverage plus any explicit RPC trusted-summary submission/authentication path. |
+| Lifecycle validation is not on the main compiler path | Stale. `lifecycle::check` is called by the main compile path and metadata path, but only declaration/static create/reset and restricted fixed-scalar transition checks are trusted today. |
+| CLI subcommands are only a disconnected skeleton | Stale. The local workflow subcommands are wired into the main binary; registry/runtime execution surfaces remain fail-closed or feature-gated. |
 
 The main negative findings remain valid:
 
-- `transfer`, `destroy`, `claim`, and `settle` are still not executable protocol semantics.
-- `launch`, `mint`, `burn`, `seed_pool`, `swap`, `wrap`, and `unwrap` are not complete standard primitives.
+- `transfer`, `claim`, and `settle` are still not complete executable protocol semantics; `destroy` now has a restricted executable grouped-output TypeHash absence scan, but full burn/conservation policy is still incomplete.
+- `mint`, `burn`, `wrap`, and `unwrap` are not complete standard operations; `launch`, `seed_pool`, and `swap` remain transaction-builder/protocol-pattern targets rather than v1 language primitives.
 - generalized resource conservation is not implemented.
 - lifecycle rules now have main-path and LSP declaration/static create-state checks plus explicit state/transition metadata, but full transition verification remains incomplete.
-- full DAG scheduling enforcement is not connected to runtime admission/conflict checks.
+- full DAG scheduling enforcement is still partially connected: MPE block summaries consume admitted shared-touch witnesses, the strict runtime path can require trusted access-set matching before merge, mempool validation and template prefiltering reject malformed CellScript scheduler metadata, mempool entries/template selectors can carry producer-backed summaries, the wallet generator can attach compiled scheduler witnesses, and the first adversarial summary/policy tests cover malformed, illegal, out-of-bounds, underreported, forged, missing, mismatched, transaction-shape-incompatible, selector-propagated witness summaries, and selector-provided builder summaries consumed/rejected by strict template prefiltering. Remaining work is broader adversarial/property coverage and any required external RPC trusted-summary submission/authentication path.
 
 ## Design Section Coverage
+
+### 0. IR Shape Differences From The Proposal
+
+The proposal sketches a `SporaIR` shape with fields such as `lifecycle_rules`, `write_intents`, and SSA-like basic blocks. The actual implementation is deliberately different in several places:
+
+| Proposal shape | Current implementation | Status |
+|---|---|---|
+| `consume_set`, `read_refs`, `create_set` | Present on `IrBody` as operation-tagged summaries | Implemented |
+| `mutate_set` | Present on `IrBody` as an operation-tagged mutable Cell parameter summary with binding/type/field names, replacement `Input#N -> Output#N` ABI, type/lock preservation requirements, checked TypeHash/LockHash preservation status, transition fields, preserved fields, field equality status, and simple scalar transition summaries | Implemented as audit/scheduler metadata plus executable TypeHash/LockHash preservation, fixed-width preserved-field equality checks, and scalar `old +/- operand` transition checks for verifier-coverable parameter, parameter-field, and add/sub/mul/div/min computed-local operands; Pool-specific invariant/admission debt is separately exposed as runtime-required `pool-pattern` obligations and structured `pool_primitives[]` records with named checked/runtime invariant families and field-aware runtime input requirements; broader formula classes still missing |
+| `effect_class` | Present on `IrAction` and exposed in metadata | Implemented |
+| `scheduler_hints` | Present on `IrAction`; metadata includes `parallelizable`, `touches_shared`, `estimated_cycles`, and scheduler witness bytes | Implemented as metadata |
+| `lifecycle_rules: Vec<StateTransition>` | No standalone IR field; lifecycle state lists live on type metadata and selected verifier checks are emitted from type/layout information | Different/partial |
+| `write_intents` | No standalone IR field | Not implemented |
+| SSA body | Actual IR uses `IrBody`, `IrBlock`, `IrInstruction`, and explicit temporaries; it is not a formal SSA contract | Different implementation |
+| Pure helper functions | Actual IR includes `IrPureFn`, which the proposal did not separately model | Implementation extension |
 
 ### 1. Core Semantic Model
 
 | Design concept | Current code status | Coverage |
 |---|---|---:|
 | `resource` | Parsed, typed, lowered into IR, participates in partial linear checks and metadata | 70% |
-| `shared` | Parsed and represented, can appear in metadata, but complete contention/runtime semantics are missing | 45% |
-| `receipt` | Parsed and represented; lifecycle declarations are statically checked; `receipt Name -> Output` claim outputs are type-checked and represented in IR/metadata, but executable claim condition/output verification is still fail-closed | 45% |
-| `launch` | Reserved/syntactic direction only; no compiler-known executable creation semantics | 10% |
-| `pool` | Not a first-class semantic primitive; only approximated through shared state ideas | 5% |
-| `settle` | Recognized but fail-closed in codegen | 10% |
-| `ephemeral` | Frontend support exists, but full transaction-scoped semantics are incomplete | 40% |
-| persistent state | Implicit through cell model assumptions; no complete first-class state-tree semantics in CellScript | 25% |
+| `shared` | Parsed and represented; `read_ref`, `&mut shared` parameters, composed calls returning shared values, trusted schema-parameter TypeHash ABI sources, replacement-bound `mutate_set` summaries, executable replacement TypeHash/LockHash checks, fixed-width preserved-field equality checks, and scalar `old +/- operand` transition checks for verifier-coverable parameter, parameter-field, and add/sub/mul/div/min computed-local operands are scheduler/verifier-visible; Pool-specific invariant/admission debt is explicitly reported as runtime-required `pool-pattern` obligations and schema v19 structured `pool_primitives[]` metadata with named checked/runtime invariant families, field-aware runtime input requirements, blocker strings, and stable blocker classes; first-class executable shared/pool invariant semantics are missing | 74-80% |
+| `receipt` | Parsed and represented; lifecycle declarations are statically checked; `receipt Name -> Output` claim outputs are type-checked and represented in IR/metadata; same-name same-type fixed-scalar and verifier-coverable fixed-byte output fields can be checked against consumed receipt bytes, the vesting example's computed scalar create outputs are source-order verified, complete fixed-field lifecycle updates are reported as `checked-runtime`, and verifier-covered claim output relation obligations are not reported as unresolved runtime requirements; runtime-required claim condition details now include field-aware consumed-input requirements plus structured witness/signature/time runtime input metadata; explicit claim and vesting-style `consume` claim flows can now check the `GroupInput` witness envelope and load the canonical ECDSA authorization-domain sighash, so those subconditions become `checked-runtime`; receipts with a fixed `[u8; 20]` signer field named `signer_pubkey_hash`, `claim_pubkey_hash`, `owner_pubkey_hash`, `beneficiary_pubkey_hash`, or `pubkey_hash` also lower `SECP256K1_VERIFY`, so witness signature verification and signer-key binding are checked for that explicit ABI convention; receipts without such a field still keep signature verification runtime-required | 70-74% |
+| `launch` | Reserved and explicitly rejected in expression position until post-v1 transaction-builder lowering exists; controlled launch examples can still be modeled as ordinary actions using explicit `create` operations, shared Pool scheduler touches through `seed_pool` composition, fixed tuple-array distribution checks, and mutable MintAuthority replacement checks | 26-30% |
+| pool pattern | Not a first-class language primitive; AMM pools are ordinary `shared` types plus actions and metadata. `&mut Pool` parameters and composed Pool returns produce scheduler `touches_shared` metadata, created Pool output TypeHash can verify `seed_pool` LPReceipt identity, replacement Pool TypeHash/LockHash preservation and fixed-width preserved-field equality are executable, controlled AMM reserve/LP transitions can be `checked-runtime`, controlled `seed_pool` checks token-pair identity admission by loading Input `token_a` / `token_b` TypeHash fields and rejecting equal 32-byte identities, controlled `launch_token -> seed_pool` discharges pool-id continuity through tuple return ABI, and controlled `swap_a_for_b` discharges LP supply consistency through preserved `Pool.total_lp` equality; broader AMM admission/economic invariant families remain protocol-pattern obligations exposed through `pool_primitives[]` with stable Phase-2-deferred blocker classes, not language-core semantics | 70-75% |
+| `settle` | Parsed and lowered as operation-tagged consume plus settle-created output; same-name same-type fixed-scalar and schema-backed fixed-byte output fields can be verifier-checked against consumed value bytes, complete output relation obligations are classified as `checked-runtime`, lifecycle-backed settle paths with a fixed-scalar `state` field now verify Input/Output state equals the final lifecycle index and mark `settle-final-state-context` as `checked-runtime`, and non-lifecycle/non-coverable finalization details still expose field-aware consumed-input requirements plus structured blocker metadata with `finalization-policy-gap`; generalized finalization semantics remain fail-closed/runtime-required | 28-33% |
+| transaction-local `let` values | Ordinary locals are parsed, typed, and lowered; they do not produce CellStateTree outputs unless used in `create` | 100% |
+| CellStateTree commit via `create` | Cell-backed outputs are represented through the existing resource/shared/receipt creation model; no separate marker keyword is modeled | 70% |
 
 Verdict: the vocabulary exists for several design concepts, but the executable protocol semantics are still partial. The language can describe intended resource/state operations more clearly than raw CKB scripts, but for many operations it still cannot prove or execute the intended transition.
 
@@ -84,15 +111,15 @@ Verdict: the vocabulary exists for several design concepts, but the executable p
 | Feature | Current code status | Coverage |
 |---|---|---:|
 | Primitive integers / bool / hash-like values | Real parser/type/codegen support for core scalar paths | 80-90% |
-| Fixed arrays | Supported in frontend/type checking; empty arrays require explicit zero-length annotations; local static index/foreach/len lowering exists for supported cases | 70-78% |
-| Struct/resource/shared/receipt shapes | Real AST/IR/type presence | 75% |
+| Fixed arrays | Supported in frontend/type checking; empty arrays require explicit zero-length annotations; local static index/foreach/len lowering exists, and fixed aggregate parameters such as `[u64; N]` / `[(Address, u64); N]` now lower through pointer+length ABI with static foreach unrolling in supported cases | 74-82% |
+| Struct/resource/shared/receipt/enum shapes | Real AST/IR/type presence; field-less enum variants lower as discriminants, unknown/payload enum variant values are rejected when lowering would be unsound, enum match checks unknown/duplicate/non-exhaustive arms, and payload variant patterns are rejected until payload destructuring lowering exists | 78-82% |
 | Linear usage checks | Present and useful, but not a full resource proof system | 65-72% |
 | Capabilities such as store/transfer/destroy | Parser/type checker now merge attribute and inline declarations, reject `transfer` without `transfer`, reject `destroy` without `destroy`, restrict `claim` to receipts, require declared receipt claim outputs to be resource/shared cells, and restrict `settle` to cell-backed linear values; full conservation/runtime proof is still incomplete | 60-67% |
 | Immutable vs mutable fields | Not fully enforced as first-class transition constraints | 20% |
 | Schema evolution/versioning | Not implemented as a complete language feature | 10% |
-| Lifecycle declaration/runtime checks | Main-path checks reject duplicate states, invalid state field types, missing create `state`, static out-of-range create states, non-initial static creates, and static reset-to-initial updates; complete fixed-scalar verifier paths emit state-range and `old_state + 1 == new_state` prelude checks | 45-55% |
+| Lifecycle declaration/runtime checks | Main-path checks reject duplicate states, invalid state field types, missing create `state`, static out-of-range create states, non-initial static creates, and static reset-to-initial updates; complete fixed-scalar verifier paths emit state-range and `old_state + 1 == new_state` prelude checks and are classified as `checked-runtime` obligations | 50-58% |
 | Generics | Not implemented as a real monomorphized type system | 5% |
-| Result/Option/error propagation | Not implemented as designed | 5% |
+| Result/Option/error propagation | Result/Option types and `?` propagation are not implemented as designed; `Option` / `Result` are reserved but rejected in user type positions, and `unwrap` / `expect` / `unwrap_or` are explicit compile errors in consensus code | 10-15% |
 
 Verdict: the type system now rejects several previous false-value edges, but still cannot claim Move-grade resource safety or Solidity-grade practical completeness.
 
@@ -103,14 +130,14 @@ Verdict: the type system now rejects several previous false-value edges, but sti
 | Module/type/action/lock syntax | Real | 85-95% |
 | `consume` / `create` syntax | Real, with partial executable checks | 65-75% |
 | `read_ref` | Real for restricted fixed-scalar CKB CellDep field access | 70-80% |
-| `transfer` | Parsed/lowered as symbolic, codegen fail-closed | 20% |
-| `destroy` | Parsed/lowered as symbolic, codegen fail-closed | 20% |
-| `claim` | Parsed/lowered as symbolic, can type/lower declared `receipt -> output` cells into operation-tagged `create_set`, codegen still fail-closed for actual claim semantics | 20-25% |
-| `settle` | Parsed/lowered as symbolic, codegen fail-closed | 10% |
-| `launch` | Mostly reserved/design-level | 10% |
+| `transfer` | Parsed/lowered as symbolic, can verify same-name same-type fixed-scalar and schema-backed fixed-byte output fields against consumed asset bytes, and verifier-coverable `Address` destinations are now checked against the transfer-created Output LockHash; full transfer semantics remain fail-closed/runtime-required | 30-38% |
+| `destroy` | Parsed/lowered; named cell-backed operands now emit an executable `GroupOutput` TypeHash absence scan that distinguishes scan end from missing type scripts, but full burn/conservation semantics remain incomplete | 28-34% |
+| `claim` | Parsed/lowered as symbolic, can type/lower declared `receipt -> output` cells into operation-tagged `create_set`, can verify same-name same-type fixed-scalar and verifier-coverable fixed-byte output fields against consumed receipt bytes, source-order `create` verification now covers the vesting claim output formulas, complete output relation obligations are classified as `checked-runtime`, runtime-required claim condition details expose field-aware consumed-input requirements plus structured witness/signature/time runtime input metadata, and the `claim_vested` flow reports checked DAA/cliff/state/claimable/witness-format/authorization-domain subconditions; generated assembly now loads `GroupInput` witness bytes, enforces the 65/66-byte signature envelope, loads the canonical ECDSA sighash for domain separation, and emits `SECP256K1_VERIFY` when the consumed receipt exposes an explicit fixed 20-byte signer pubkey hash field; generalized signer policy and time-lock semantics are still incomplete | 47-55% |
+| `settle` | Parsed/lowered as symbolic, can emit operation-tagged settle output field checks for fixed-scalar and schema-backed fixed-byte preservation, classify complete output relation obligations as `checked-runtime`, expose field-aware consumed-input requirements plus structured final-state/output-admission runtime input metadata, and check lifecycle-backed fixed-scalar `state` finality for the supported path; non-lifecycle/generalized finalization semantics remain fail-closed/runtime-required with blocker-class tags | 28-33% |
+| `launch` | Reserved and rejected as an expression until post-v1 transaction-builder lowering exists; ordinary actions can model current launch examples with explicit creates, verifier-coverable fixed tuple-array distribution paths, real tuple-return register ABI for composed `seed_pool` calls, checked controlled `pool-id-continuity`, and mutable MintAuthority replacement checks | 30-34% |
 | `assert_invariant` | Lowers to fail-closed CFG, is typed as value-less `Unit`, and requires static string literal messages; full invariant proof/lowering story remains incomplete | 58-68% |
 | Tail expressions / value returns | All value-returning `action` / `fn` paths must return; typed tail expressions and terminal `if` branches lower to real return terminators | 70-80% |
-| `?` / Result propagation | Not implemented | 0-5% |
+| `?` / Result propagation | Not implemented; hidden failure helpers `unwrap` / `expect` / `unwrap_or` are rejected | 5-10% |
 
 Verdict: syntax is significantly ahead of executable semantics. This is acceptable only if every unsupported path remains fail-closed and clearly surfaced in metadata, which is now mostly true.
 
@@ -122,8 +149,8 @@ Verdict: syntax is significantly ahead of executable semantics. This is acceptab
 | Parser | Stable main path for supported syntax | 88-92% |
 | AST | Stable main path for supported syntax | 88-92% |
 | Name/module resolution | Local path dependencies work; remote/registry story incomplete | 60-70% |
-| Type checking | Useful and stricter on returns, unreachable statements, assertions, empty arrays, `Unit`, and local `Vec` item propagation; still not full semantic proof | 67-74% |
-| IR lowering | Real, with action/lock/function/effect metadata, destinationless no-return calls, Unit-valued assertions, typed empty arrays, and tail-return terminators | 76-86% |
+| Type checking | Useful and stricter on callable argument count/type checks, returns, unreachable statements, assertions, empty arrays, `Unit`, and local `Vec` item propagation; still not full semantic proof | 69-76% |
+| IR lowering | Real, with action/lock/function/effect metadata, destinationless no-return calls, Unit-valued assertions, typed empty arrays, tail-return terminators, fixed aggregate index/projection, fixed parameter foreach unrolling, and known tuple-call return projection | 79-89% |
 | Optimization | Not part of the trusted path | 10-15% |
 | RISC-V assembly codegen | Real for pure and restricted runtime paths | 60-70% |
 | RISC-V ELF output | Real for pure/restricted executable paths | 50-60% |
@@ -136,49 +163,49 @@ Verdict: the main compiler pipeline is real. The trusted path should still be de
 | Runtime requirement | Current status | Coverage |
 |---|---|---:|
 | Pure CKB-VM-compatible ELF | Real for no-argument pure programs | 70% |
-| Parameter ABI | Real pointer+length ABI for fixed schema parameter access | 60-70% |
+| Parameter ABI | Real pointer+length ABI for fixed schema parameters and >8-byte fixed-byte values such as `Address` / `Hash` | 65-75% |
 | `LOAD_CELL Source::Input` | Used for restricted consumed-input field access | 45-55% |
 | `LOAD_CELL Source::CellDep` | Used for restricted `read_ref<T>().field` access | 55-65% |
-| `LOAD_CELL Source::Output` | Used for restricted `create` output verification | 40-50% |
+| `LOAD_CELL Source::Output` | Used for restricted fixed-scalar and fixed-byte `create` output verification; verifier-coverable locked outputs load `LockHash`, created-output identity loads `TypeHash` through `LOAD_CELL_BY_FIELD`, and schema-parameter TypeHash ABI bytes can feed output checks; unsupported lock/type-hash sources still fail closed | 60-70% |
 | Full `consume` expression semantics | Not complete; ELF remains fail-closed | 20% |
 | Full `create` resource-handle semantics | Not complete; only restricted verifier prelude exists | 25-35% |
 | Full lock/type script semantics | Partial entrypoint handling; witness/signature semantics incomplete | 25-35% |
-| Lifecycle transition verification | Declaration, static create-state, static reset, state/transition metadata exposure, LSP diagnostics, and complete fixed-scalar prelude checks exist; dynamic/nested/locked output transition legality is not fully verified | 40-50% |
+| Lifecycle transition verification | Declaration, static create-state, static reset, state/transition metadata exposure, LSP diagnostics, complete fixed-scalar prelude checks, and `checked-runtime` obligation classification for complete fixed-field paths exist; dynamic/nested/locked output transition legality is not fully verified | 45-55% |
 | Full transaction invariant checks | Not complete | 20% |
 
 Verdict: CKB-style runtime integration is no longer imaginary, but only a narrow subset has concrete verifier lowering.
 
-### 6. Standard Primitives
+### 6. Standard Operations And Protocol Patterns
 
-| Primitive | Current status | Coverage |
+| Surface | Current status | Coverage |
 |---|---|---:|
-| `launch` | Not implemented as executable compiler-known primitive | 5-10% |
-| `mint` | Not implemented as standard primitive | 5% |
-| `burn` / `destroy` | `destroy` recognized but fail-closed | 15-20% |
-| `transfer` | recognized but fail-closed | 15-20% |
-| `seed_pool` | Not implemented | 0-5% |
-| `swap` | Not implemented | 0-5% |
+| `launch` | Not implemented as executable post-v1 transaction-builder lowering; expression-position use is explicitly rejected | 5-10% |
+| `mint` | Not implemented as a standard primitive; `&mut MintAuthority` updates now emit explicit `mutable-cell:MintAuthority` metadata, executable replacement TypeHash/LockHash preservation checks, fixed-width preserved-field equality checks, and a scalar `minted = old + amount` transition check | 15-20% |
+| `burn` / `destroy` | `destroy` recognized and now checks grouped-output TypeHash absence for named cell-backed operands; generalized burn policy and conservation accounting remain incomplete | 24-30% |
+| `transfer` | recognized, can map same-name same-type fixed-scalar and schema-backed fixed-byte fields into output checks, and can check verifier-coverable destination lock rebinding through Output LockHash; full transfer semantics remain fail-closed | 30-35% |
+| `seed_pool` | Not a language primitive; ordinary action examples compile, created `Pool` outputs are scheduler-visible, callers can propagate Pool touches, created Pool output TypeHash can verify LPReceipt.pool_id, and `pool-create:Pool` exposes pool-pattern admission/invariant obligations in structured `pool_primitives[]` metadata. Token-pair symbol, positive-reserve, fee-policy, LP supply, and controlled token-pair asset identity/type-id inequality admission are covered for verifier-supported source/create-output/Input TypeHash patterns; generalized Pool identity/admission policy remains incomplete | 49-57% |
+| `swap` | Not a language primitive; ordinary `&mut Pool` swap actions expose shared Pool scheduler touches and checked generic shared-mutation obligations for supported formulas. Pool-specific fee accounting, constant-product pricing, LP consistency, and AMM economics remain protocol-pattern runtime requirements exposed through metadata | 23-27% |
 | `wrap` / `unwrap` | Not implemented | 0-5% |
 | `claim` | recognized, declared output type is now visible to type checker/IR/metadata, executable verifier semantics remain fail-closed | 15-20% |
-| `settle` | recognized but fail-closed | 10% |
+| `settle` | recognized, can map same-name same-type fixed-scalar and schema-backed fixed-byte fields into output checks, but full finalization semantics remain fail-closed | 18-22% |
 
-Verdict: this is the largest gap between the design proposal and implementation. The standard primitive layer is still mostly a design target.
+Verdict: this is the largest gap between the design proposal and implementation. The standard operation layer and protocol-pattern metadata are still mostly design targets.
 
 ## Protocol Use-Case Coverage
 
 | Use case | Current classification | Reason |
 |---|---|---|
 | Lock-style authorization | Expressible but under-specified | `lock` exists, bool return is enforced, but signature/witness/domain binding is incomplete. |
-| Type-script state transition validation | Expressible only in restricted cases | Simple fixed-scalar input/output checks exist; generalized transitions are missing. |
+| Type-script state transition validation | Expressible only in restricted cases | Simple fixed-scalar input/output checks and fixed-byte preservation checks exist for no-lock outputs; generalized and locked transitions are missing. |
 | Fungible assets / UDT invariants | Ambiguous / under-specified | Can model shapes, but generalized conservation/issuance/burning checks are incomplete. |
 | NFT / singleton objects | Expressible but awkward | Resource syntax helps, but identity/type-id/versioning semantics are incomplete. |
 | Vault / CDP / lending machines | Not properly expressible safely | Requires cross-cell invariants, prices, liquidation rules, witness proofs, and partial updates beyond current lowering. |
 | DAO / governance transitions | Expressible only with unsafe off-chain burden | Multicell invariants and voting state transitions are not first-class enough yet. |
-| Order matching / settlement | Not properly expressible safely | `settle` is fail-closed and intent/witness binding is not complete. |
+| Order matching / settlement | Not properly expressible safely | `settle` can expose restricted output field preservation, but finalization, intent binding, and witness binding are not complete. |
 | Multi-party signing / delegated authority | Under-specified | Needs first-class witness/signature domains and replay resistance. |
 | Upgrade / migration | Under-specified | No complete schema evolution/versioning model. |
 | Capability boundaries | Partial | Capabilities exist syntactically, but enforcement is incomplete. |
-| Resource conservation | Partial restricted subset | Simple fixed-scalar output equality and u64 arithmetic checks exist; generalized conservation is missing. |
+| Resource conservation | Partial restricted subset | Simple fixed-scalar output equality, schema-backed fixed-byte preservation, and u64 arithmetic checks exist; generalized conservation is missing. |
 | Cross-cell invariants | Mostly missing | Metadata helps, verifier semantics are incomplete. |
 | Transaction-level invariants | Mostly missing | No complete invariant language/lowering. |
 | Composability | Partial local module support | Local path dependency effects are propagated; registry summaries and semantic composition remain incomplete. |
@@ -218,7 +245,7 @@ Required fix:
 
 ### 3. Stateful lowering is still too narrow
 
-The current fixed-scalar schema verifier path is useful but limited. Serious protocols need nested schemas, dynamic fields, exact serialization rules, and multi-cell conservation checks.
+The current fixed-scalar and fixed-byte verifier path is useful but limited. Serious protocols need nested schemas, dynamic fields, exact serialization rules, generalized output lock verification, and multi-cell conservation checks.
 
 Required fix:
 
@@ -245,13 +272,23 @@ Current lowering strengths:
 - unsupported runtime paths now fail closed
 - metadata separates standalone ELF compatibility, CKB runtime access, symbolic features, fail-closed runtime features, and verifier obligations
 - restricted fixed-scalar schema loads use byte-wise little-endian decoding instead of unsafe aligned loads
-- create output verification requires full coverage for the supported fixed-scalar subset
+- create output verification requires full coverage for the supported fixed-scalar subset and now runs real `create` checks at source order so computed scalar locals are available
+- fixed-byte output preservation compares `Address`, `Hash`, and fixed `[u8; N]` fields byte-by-byte for constants, schema-backed aliases, stack-backed `[u8; N<=8]` parameters, pointer+length `Address` / `Hash` parameters, trusted schema-parameter TypeHash ABI bytes, and created Output TypeHash fields
+- verifier-coverable `with_lock(...)` bindings load output `LockHash` through `LOAD_CELL_BY_FIELD` and compare 32 bytes against constants, consumed/read schema-backed fixed-byte aliases, or 32-byte fixed parameters
+- mutable replacement cell TypeHash/LockHash preservation loads Input and Output hash fields through `LOAD_CELL_BY_FIELD`, exact-checks both values as 32 bytes, and byte-compares them before the action body
+- mutable replacement preserved-field equality loads Input and Output full cell bytes with `LOAD_CELL`, exact-checks schema size, bounds-checks fixed-width preserved fields, and byte-compares those field bytes
+- the mutable transition formula path captures simple scalar `field = field +/- operand` assignments when the operand is verifier-coverable, checking `MintAuthority.minted = old + amount`, AMM parameter-field deltas such as `input.amount`, `token_a.amount`, `token_b.amount`, and `receipt.lp_amount`, and AMM computed-local formulas such as `output`, `lp_amount`, `amount_a`, and `amount_b` against replacement Output bytes
+- verifier-coverable fixed-byte equality/inequality now lowers to byte-wise assembly for matching-width constants, schema-backed fields, small stack values, and fixed-byte pointer parameters
+- scalar `let` annotations are preserved in IR, allowing source-order create checks to verify narrow lifecycle state fields such as `u8`
 
 Current lowering gaps:
 
 - no machine-checkable proof that IR semantics preserve source semantics
 - no formal source-to-IR-to-ASM semantic spec
 - no complete source map / trace explaining every verifier branch back to source obligations
+- dynamic fixed-byte equality/inequality expressions outside the verifier-coverable source set still fail closed
+- generalized claim authorization and witness/time-lock semantics remain outside the verified subset, even though verifier-covered claim/settle output relations are now classified as `checked-runtime`, explicit 20-byte signer pubkey hash receipt fields can drive `SECP256K1_VERIFY`, and runtime-required claim/finalization obligations list field-aware consumed-input requirements
+- broader mutable replacement transition-field formulas remain runtime-required obligations outside the covered add/sub/mul/div/min expression subset, even though TypeHash/LockHash identity preservation, fixed-width preserved-field equality, scalar parameter transitions, parameter-field delta transitions, and controlled AMM computed-local transitions are now checked in assembly
 - no complete invariant coverage report that says which source-level claims were proved, assumed, or rejected
 - no generalized runtime test harness for malformed transaction contexts
 
@@ -269,22 +306,30 @@ Real today:
 - operation-tagged `consume_set`
 - operation-tagged `read_refs`
 - operation-tagged `create_set`
-- `touches_shared`
+- operation-tagged `mutate_set` replacement ABI, checked TypeHash/LockHash preservation, fixed-width preserved-field equality checks, scalar parameter/parameter-field/computed-local transition checks, and field summaries for mutable Cell parameters
+- `touches_shared`, including `read_ref`, `&mut shared` parameter-derived touches, and composed call return types containing shared values
 - effect classes
-- scheduler witness bytes with operation/source/index/binding-hash access records
+- per-action scheduler witness bytes with operation/source/index/binding-hash access records in metadata (`scheduler_witness_borsh_hex`), filtered to scheduler-visible Input/CellDep/Output accesses
+- `ActionMetadata::scheduler_witness_bytes()` for compiled metadata witness decoding
 - CKB runtime access summaries with operation/source/index/binding provenance
+- low-level `spora-exec` CellTx placement/discovery/decode/admission helpers, including operation/source compatibility, transaction source-index bounds checks, and exact access-set matching against trusted summaries
+- compiled-metadata producer helper `CellTx::push_cellscript_compiled_scheduler_witness(...)`, which appends a concrete transaction witness only after admission and returns the trusted access multiset
+- consensus MPE `BlockAccessSummary` consumption of transaction-admitted witnesses, including shared read/write touch domains where read/read remains parallelizable and write/read or write/write serializes the execution DAG
+- strict consensus MPE constructor for trusted transaction-builder or compiled-metadata access multisets; missing or mismatched summaries fail before witness data is merged
+- mempool validation and template prefilter policy gates for malformed CellScript scheduler metadata, plus strict template policy fixtures for trusted access-summary matching
+- producer-backed trusted summary storage and carrying through `MempoolTransaction`, candidate snapshots, mining selectors, and `TemplateTransactionSelector::selected_cellscript_scheduler_accesses()`
+- focused mining coverage for a producer-returned summary carried through sidecar insertion into selector exposure
+- first malicious-schedule coverage for malformed candidate witness bytes, illegal operation/source pairs, out-of-bounds source indexes, missing scheduler witnesses over structural double-spend conflicts, underreported witnesses over structural CellDep read dependencies, forged extra shared-write touches that only add serialization, admitted read-only shared-touch parallelism, missing trusted summaries, mismatched trusted summaries, malformed mempool metadata, malformed/missing/mismatched template policy metadata, and selector-propagated producer sidecars
 
 Missing:
 
-- real DAG scheduler consumption
-- conflict/admission checks
-- malicious schedule tests
 - canonical access hash/domain derivation
-- metadata/artifact consistency enforcement
+- broader strict-template adversarial/property coverage beyond focused selector-provided builder-summary prefilter tests
+- explicit RPC or external submission-surface support if trusted summaries must cross process boundaries
 
 Verdict:
 
-> CellScript emits useful DAG-oriented metadata, but the DAG integration is not complete until the runtime scheduler consumes and enforces it.
+> CellScript emits useful DAG-oriented metadata and has first MPE scheduler-consumption plus mempool/template policy paths, including producer-backed summary storage through mempool/template selection, wallet-generator witness attachment, and focused selector-backed strict template enforcement. DAG integration is not production-complete until broader adversarial/property coverage and any required cross-process trusted-summary submission surface are closed.
 
 ## Toolchain Coverage
 
@@ -307,9 +352,9 @@ Verdict:
 |---|---|---:|
 | M1: parsing, type checking, IR | Mostly complete for supported language core | 84-90% |
 | M2: CKBVM verifier artifacts | Partial, restricted executable subset | 50-60% |
-| M3: shared/receipt/lifecycle | Frontend exists; semantics incomplete | 25-35% |
-| M4: scheduler metadata | Metadata and operation-tagged scheduler witness emitted; scheduler enforcement missing | 35-45% |
-| M5: launch/pool/claim/settle E2E | Mostly not executable | 5-15% |
+| M3: shared/receipt/lifecycle | Frontend exists; `read_ref`, mutable shared parameters, and composed shared-return calls are scheduler-visible; mutable shared TypeHash/LockHash replacement preservation, fixed-width preserved-field equality, and parameter-field/computed-local transition checks are executable; mutable shared-state transition obligations are explicit; Pool-specific primitive obligations are separate from generic shared mutation; complete fixed-field lifecycle transitions are runtime-classified; semantics remain incomplete | 52-62% |
+| M4: scheduler metadata | Metadata and operation-tagged scheduler witness bytes are emitted in compile metadata; read, mutable shared, composed shared-return touches, mutable Cell `mutate_set` replacement ABI/status, and `mutate-input` / `mutate-output` access records are visible; unresolved mutable shared/resource/receipt transition fields are explicit obligations; CLI/docgen now separately report non-Pool runtime-required transaction invariants that already have checked source subconditions; schema v19 filters scheduler witness records to Input/CellDep/Output cell-state sources; compiled metadata exposes scheduler witness bytes; low-level CellTx witness placement/discovery, compiled-metadata producer helper, Borsh envelope admission, operation/source admission, transaction source-index bounds checks, exact trusted access-set matching, wallet-generator final transaction witness attachment, first consensus MPE shared-touch DAG consumption, strict trusted-summary MPE construction, first mempool/template policy gates, producer-backed summary storage through mempool/template selectors, focused producer-summary-to-selector coverage, selector-provided builder-summary strict prefilter coverage, and first adversarial scheduler-consumption/policy tests exist. RPC trusted-summary submission remains Phase 4 hardening because cross-process summaries need an explicit trust/authentication policy | 90-95% |
+| M5: launch/pool/claim/settle E2E | Mostly not executable, although the controlled `launch.cell` flow and AMM `seed_pool` / `add_liquidity` / `remove_liquidity` LPReceipt identity paths now verify without fail-closed runtime features; mutable authority/shared replacement TypeHash/LockHash preservation and fixed-width preserved-field equality are executable, MintAuthority has a scalar transition check, AMM Pool generic field transitions are checked for the controlled formulas, controlled `seed_pool` token-pair TypeHash inequality is executable, named `destroy` operands now have executable grouped-output TypeHash absence scans, claim/settle output relations are checked when fields are verifier-covered, explicit claim witness envelope and authorization-domain checks are executable, claim ECDSA signature verification is executable for receipts with the explicit fixed 20-byte signer pubkey hash field convention, lifecycle-backed settle final-state checks are executable for fixed-scalar `state`, and pool-pattern debt is explicit as runtime-required obligations plus structured metadata; broader pool-pattern economics/admission/equality, generalized claim authorization policy, and generalized settle finalization execution remain incomplete | 51-61% |
 
 ## Prioritized Gap List
 
@@ -318,7 +363,7 @@ Verdict:
 | Gap | Why it matters | Failure mode | Blocks serious protocol use | Fix type |
 |---|---|---|---|---|
 | Full resource conservation verifier | Asset protocols need proof that inputs/outputs conserve, mint, or burn only under valid rules | inflation, unauthorized burn, hidden state transition bugs | Yes | semantic redesign + compiler checks + runtime tests |
-| Executable `transfer` / `destroy` / `claim` / `settle` | These are core language promises | programs compile only to fail-closed paths | Yes | lowering + verifier semantics |
+| Executable `transfer` / `claim` / `settle` plus complete `destroy` policy | These are core language promises | incomplete state transitions, partial burn/conservation proof, or fail-closed paths for unsupported operations | Yes | lowering + verifier semantics |
 | Witness/signature/domain binding | Authorization without replay resistance is unsafe | replay, wrong-domain signature acceptance, witness confusion | Yes | language spec + stdlib + negative tests |
 | Complete typed cell decoding | Source fields must correspond exactly to loaded bytes | serialization ambiguity, wrong field reads, partial verification | Yes | decoder + layout spec + tests |
 | DAG scheduler enforcement | Metadata without runtime enforcement is advisory | unsafe parallel execution or missed conflicts | Yes for DAG claims | runtime integration + adversarial tests |
@@ -368,7 +413,7 @@ No-Go for:
 - public claims of Move/Solidity-grade completeness
 - public claims of full CKB contract compatibility
 - public claims that DAG scheduling is enforced end-to-end
-- public claims that `transfer`/`claim`/`settle`/`launch` are complete language primitives
+- public claims that `transfer`/`claim`/`settle`/`launch` are complete executable semantics, or that pool flows are language primitives rather than shared-state protocol patterns
 
 The accurate status is:
 

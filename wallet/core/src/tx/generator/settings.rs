@@ -35,6 +35,8 @@ pub struct GeneratorSettings {
     pub final_transaction_destination: PaymentDestination,
     // payload
     pub final_transaction_payload: Option<Vec<u8>>,
+    // CellScript compiled scheduler witness bytes for the final transaction.
+    pub final_cellscript_compiled_scheduler_witness: Option<Vec<u8>>,
     // transaction is a transfer between accounts
     pub destination_cell_context: Option<CellContext>,
 }
@@ -83,6 +85,7 @@ impl GeneratorSettings {
             final_transaction_priority_fee: final_priority_fee,
             final_transaction_destination,
             final_transaction_payload,
+            final_cellscript_compiled_scheduler_witness: None,
             destination_cell_context: None,
         };
 
@@ -114,6 +117,7 @@ impl GeneratorSettings {
             final_transaction_priority_fee: final_priority_fee,
             final_transaction_destination,
             final_transaction_payload,
+            final_cellscript_compiled_scheduler_witness: None,
             destination_cell_context: None,
         };
 
@@ -145,10 +149,16 @@ impl GeneratorSettings {
             final_transaction_priority_fee: final_priority_fee,
             final_transaction_destination,
             final_transaction_payload,
+            final_cellscript_compiled_scheduler_witness: None,
             destination_cell_context: None,
         };
 
         Ok(settings)
+    }
+
+    pub fn with_cellscript_compiled_scheduler_witness(mut self, witness: Vec<u8>) -> Self {
+        self.final_cellscript_compiled_scheduler_witness = Some(witness);
+        self
     }
 
     pub fn cell_context_transfer(mut self, destination_cell_context: &CellContext) -> Self {

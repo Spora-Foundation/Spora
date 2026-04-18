@@ -930,10 +930,18 @@ impl<'a> Parser<'a> {
         let name = self.parse_name()?;
 
         self.expect(TokenKind::Colon)?;
+        let is_read_ref = self.check(&TokenKind::ReadRef);
         let ty = self.parse_type()?;
 
         let end_span = self.current().span;
-        Ok(Param { name, ty, is_mut, is_ref, span: Span::new(start_span.start, end_span.end, start_span.line, start_span.column) })
+        Ok(Param {
+            name,
+            ty,
+            is_mut,
+            is_ref,
+            is_read_ref,
+            span: Span::new(start_span.start, end_span.end, start_span.line, start_span.column),
+        })
     }
 
     /// 解析代码块
@@ -981,13 +989,6 @@ impl<'a> Parser<'a> {
             false
         };
 
-        let is_ephemeral = if self.check(&TokenKind::Ephemeral) {
-            self.advance();
-            true
-        } else {
-            false
-        };
-
         let pattern = self.parse_binding_pattern()?;
 
         // 可选的类型注解
@@ -1002,14 +1003,7 @@ impl<'a> Parser<'a> {
         let value = self.parse_expr()?;
 
         let end_span = self.current().span;
-        Ok(LetStmt {
-            pattern,
-            ty,
-            value,
-            is_mut,
-            is_ephemeral,
-            span: Span::new(start_span.start, end_span.end, start_span.line, start_span.column),
-        })
+        Ok(LetStmt { pattern, ty, value, is_mut, span: Span::new(start_span.start, end_span.end, start_span.line, start_span.column) })
     }
 
     /// 解析 return 语句
@@ -1417,6 +1411,10 @@ impl<'a> Parser<'a> {
             TokenKind::DestroyKw => self.parse_destroy(),
             TokenKind::Claim => self.parse_claim(),
             TokenKind::Settle => self.parse_settle(),
+            TokenKind::Launch => Err(CompileError::new(
+                "launch is reserved for a post-v1 transaction builder and is not part of the executable language core; use explicit create/transfer/claim/settle operations",
+                self.current().span,
+            )),
             TokenKind::ReadRef => self.parse_read_ref_expr(),
             TokenKind::If => self.parse_if_expr(),
             TokenKind::Match => self.parse_match_expr(),
@@ -1863,6 +1861,20 @@ use spora::fungible_token::{Token, MintAuthority}
         assert_eq!(use_stmt.imports.len(), 2);
         assert_eq!(use_stmt.imports[0].name, "Token");
         assert_eq!(use_stmt.imports[1].name, "MintAuthority");
+    }
+
+    #[test]
+    fn test_launch_expression_is_reserved_until_lowering_exists() {
+        let input = r#"
+module test
+
+action bad() -> u64 {
+    return launch(Token)
+}
+"#;
+        let tokens = lex(input).unwrap();
+        let err = parse(&tokens).unwrap_err();
+        assert!(err.message.contains("launch is reserved for a post-v1 transaction builder"), "unexpected error: {}", err.message);
     }
 
     #[test]

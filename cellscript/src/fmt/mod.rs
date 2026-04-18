@@ -221,9 +221,6 @@ impl Formatter {
                 if let_stmt.is_mut {
                     line.push_str("mut ");
                 }
-                if let_stmt.is_ephemeral {
-                    line.push_str("ephemeral ");
-                }
                 line.push_str(&format_binding_pattern(&let_stmt.pattern));
                 if let Some(ty) = &let_stmt.ty {
                     line.push_str(&format!(": {}", format_type(ty)));
@@ -416,7 +413,16 @@ fn format_param(param: &Param) -> String {
     }
     rendered.push_str(&param.name);
     rendered.push_str(": ");
-    rendered.push_str(&format_type(&param.ty));
+    if param.is_read_ref {
+        rendered.push_str("read_ref ");
+        let ty = match &param.ty {
+            Type::Ref(inner) => inner.as_ref(),
+            other => other,
+        };
+        rendered.push_str(&format_type(ty));
+    } else {
+        rendered.push_str(&format_type(&param.ty));
+    }
     rendered
 }
 
