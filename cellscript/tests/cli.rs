@@ -989,6 +989,28 @@ action move_token(token: Token, to: Address) -> Token {
     )
     .unwrap();
 
+    let json_output = Command::new(env!("CARGO_BIN_EXE_cellc")).current_dir(root).arg("check").arg("--json").output().unwrap();
+    assert!(json_output.status.success(), "unexpected failure: {}", String::from_utf8_lossy(&json_output.stderr));
+    let stdout: serde_json::Value = serde_json::from_slice(&json_output.stdout).unwrap();
+    let target = &stdout["checked_targets"][0];
+    assert_eq!(target["runtime_required_transaction_runtime_input_requirements"], 1, "unexpected stdout: {}", stdout);
+    assert_eq!(target["runtime_required_transaction_runtime_input_blockers"], 1, "unexpected stdout: {}", stdout);
+    assert_eq!(target["runtime_required_transaction_runtime_input_blocker_classes"], 1, "unexpected stdout: {}", stdout);
+    let runtime_inputs = target["runtime_required_transaction_runtime_input_requirement_summaries"]
+        .as_array()
+        .expect("runtime-required transaction runtime input summaries array");
+    assert!(
+        runtime_inputs.iter().any(|value| value.as_str().is_some_and(|summary| {
+            summary.contains("transfer-output:Token:transfer-output-relation=Transaction:Token.output-relation")
+                && summary.contains("transfer-output-relation-consume-create-accounting")
+                && summary.contains("(runtime-required)")
+                && summary.contains("blocker=transfer-created output relation is not fully verifier-covered")
+                && summary.contains("blocker_class=transfer-output-relation-gap")
+        })),
+        "unexpected runtime-required transaction runtime input summaries: {}",
+        stdout
+    );
+
     let output =
         Command::new(env!("CARGO_BIN_EXE_cellc")).current_dir(root).arg("check").arg("--deny-runtime-obligations").output().unwrap();
     assert!(!output.status.success(), "unexpected success: {}", String::from_utf8_lossy(&output.stdout));
@@ -997,17 +1019,23 @@ action move_token(token: Token, to: Address) -> Token {
     assert!(stderr.contains("check policy failed"), "unexpected stderr: {}", stderr);
     assert!(stderr.contains("runtime-required verifier obligations"), "unexpected stderr: {}", stderr);
     assert!(stderr.contains("runtime-required transaction invariants with checked subconditions"), "unexpected stderr: {}", stderr);
+    assert!(stderr.contains("runtime-required transaction runtime input requirements"), "unexpected stderr: {}", stderr);
+    assert!(stderr.contains("runtime-required transaction runtime input blockers"), "unexpected stderr: {}", stderr);
+    assert!(stderr.contains("runtime-required transaction runtime input blocker classes"), "unexpected stderr: {}", stderr);
     assert!(stderr.contains("transfer-output:Token"), "unexpected stderr: {}", stderr);
+    assert!(stderr.contains("transfer-output-relation"), "unexpected stderr: {}", stderr);
+    assert!(stderr.contains("transfer-created output relation is not fully verifier-covered"), "unexpected stderr: {}", stderr);
+    assert!(stderr.contains("transfer-output-relation-gap"), "unexpected stderr: {}", stderr);
     assert!(stderr.contains("transfer-lock-rebinding"), "unexpected stderr: {}", stderr);
     assert!(stderr.contains("transfer-destination-address-binding"), "unexpected stderr: {}", stderr);
     assert!(
-        !stderr.contains("runtime-required transaction runtime input requirements"),
-        "checked transfer destination inputs should not be reported as runtime-required: {}",
+        !stderr.contains("transfer-destination-lock"),
+        "checked transfer lock input should not be reported as runtime-required: {}",
         stderr
     );
     assert!(
-        !stderr.contains("transfer-destination-lock"),
-        "checked transfer lock input should not be reported as runtime-required: {}",
+        !stderr.contains("destination-address-binding-gap"),
+        "checked transfer destination input should not be reported as runtime-required: {}",
         stderr
     );
 }

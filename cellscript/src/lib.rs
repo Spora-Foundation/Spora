@@ -2554,6 +2554,12 @@ fn transaction_runtime_input_requirements_from_obligations(
             continue;
         }
         if let Some(binding) = obligation.feature.strip_prefix("transfer-output:") {
+            let transfer_output_relation_status =
+                if transaction_obligation_has_checked_subcondition(obligation, "transfer-output-relation") {
+                    "checked-runtime"
+                } else {
+                    "runtime-required"
+                };
             let transfer_lock_status = if transaction_obligation_has_checked_subcondition(obligation, "transfer-lock-rebinding") {
                 "checked-runtime"
             } else {
@@ -2565,6 +2571,19 @@ fn transaction_runtime_input_requirements_from_obligations(
                 } else {
                     "runtime-required"
                 };
+            requirements.push(transaction_runtime_input_requirement(
+                obligation,
+                "transfer-output-relation",
+                transfer_output_relation_status,
+                (transfer_output_relation_status == "runtime-required")
+                    .then_some("transfer-created output relation is not fully verifier-covered"),
+                (transfer_output_relation_status == "runtime-required").then_some("transfer-output-relation-gap"),
+                "Transaction",
+                binding,
+                Some("output-relation"),
+                "transfer-output-relation-consume-create-accounting",
+                None,
+            ));
             requirements.push(transaction_runtime_input_requirement(
                 obligation,
                 "transfer-destination-lock",
@@ -10694,6 +10713,17 @@ source_roots = ["src", "shared"]
                 && obligation.detail.contains("transfer-output-relation=checked-runtime")
                 && obligation.detail.contains("transfer-lock-rebinding=checked-runtime")
                 && obligation.detail.contains("transfer-destination-address-binding=checked-runtime")
+        }));
+        assert!(result.metadata.runtime.transaction_runtime_input_requirements.iter().any(|requirement| {
+            requirement.feature == "transfer-output:Token"
+                && requirement.status == "checked-runtime"
+                && requirement.component == "transfer-output-relation"
+                && requirement.source == "Transaction"
+                && requirement.field.as_deref() == Some("output-relation")
+                && requirement.abi == "transfer-output-relation-consume-create-accounting"
+                && requirement.byte_len.is_none()
+                && requirement.blocker.is_none()
+                && requirement.blocker_class.is_none()
         }));
         assert!(result.metadata.runtime.transaction_runtime_input_requirements.iter().any(|requirement| {
             requirement.feature == "transfer-output:Token"
