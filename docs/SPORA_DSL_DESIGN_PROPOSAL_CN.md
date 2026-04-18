@@ -34,7 +34,7 @@
 | 调度器元数据生成 | 🟡 metadata / `scheduler_witness_borsh_hex` 可用，`spora-exec` 可 admission，MPE `BlockAccessSummary` 已开始消费 shared touch 冲突域 | `cellscript/src/stdlib/mod.rs` |
 | 模块系统/名称解析 | 🟡 本地包 / path 依赖可用 | `cellscript/src/resolve/` |
 | 生命周期验证 | 🟡 部分集成到主编译路径/LSP，完整运行时转换验证未完成 | `cellscript/src/lifecycle/` |
-| 优化器 | 🚧 原型级，未进入主编译链 | `cellscript/src/optimize/` |
+| 优化器 | 🟡 保守 AST 优化已接入 `opt_level > 0` 主编译链，非完整优化器 | `cellscript/src/optimize/` |
 | 文档生成器 | 🟡 API 文档 + lowering audit / obligation 输出可用子集 | `cellscript/src/docgen/` |
 | 代码格式化器 | 🟡 部分可用 | `cellscript/src/fmt/` |
 | LSP 服务器 | 🟡 最小真实路径，metadata-aware hover/诊断/code action | `cellscript/src/lsp/` |
@@ -1324,24 +1324,24 @@ receipt VestingGrant { ... }
 
 ### A.12 优化器
 
-> ⚠️ **实现状态**: 优化器模块 (`src/optimize/`) 为**原型级**，尚未进入主编译链。以下描述的优化 passes 为设计目标，当前编译器主要依赖简单的直接代码生成。
+> ⚠️ **实现状态**: 优化器模块 (`src/optimize/`) 已接入 `opt_level > 0` 主编译链。当前实现是保守 AST 优化：原始 AST 先通过类型/生命周期检查，优化后 AST 再次检查，然后才进入 IR lowering。以下 SSA、内联和更激进的优化 passes 仍是设计目标。
 
 设计中支持的多级优化：
 
-**常量折叠**（计划中）：
-- 编译期计算常量表达式
-- 支持 +, -, *, /, %, &, |, ^, &&, || 等运算
+**常量折叠**（已实现受限子集）：
+- 编译期计算语法局部的整数字面量、布尔字面量、字符串/字节串相等性表达式
+- 支持 `+`, `-`, `*`, `/`, `%`, 比较运算、布尔 `&&` / `||` 的字面量折叠；除零不会被折叠
 
-**代数简化**（计划中）：
+**代数简化**（已实现保守子集）：
 - `x + 0 = x`
-- `x * 0 = 0`
 - `x * 1 = x`
-- `x ^ x = 0`
 - 双重否定消除
+- 不执行会丢弃非字面量求值的规则，例如 `x * 0 = 0`
 
-**死代码消除**（计划中）：
-- 删除无副作用的纯表达式
-- 常量条件分支折叠
+**死代码消除/分支折叠**（已实现受限子集）：
+- 字面量条件的 `if` statement / `if` expression 分支折叠
+- `while false` 删除
+- 不删除任意纯表达式语句，不做跨作用域常量传播或内联
 
 **优化级别**（CLI 支持，优化 passes 待完善）：
 - `-O0`: 无优化
@@ -2067,6 +2067,8 @@ Slice 69 更新：pure helper `fn` 的 runtime 边界收紧。`fn` 现在不仅�
 Slice 70 更新：线性 `let` 绑定现在执行 move 语义。`let moved = token` 会先把原绑定 `token` 标记为已移动，再引入新绑定 `moved`；因此 `let copied = token` 后继续 `transfer token` / `destroy copied` 这类复制同一个 resource 的代码会被类型检查器拒绝。字段读取如 `let amount = token.amount` 仍是非线性标量读取，不会消费整个 Cell 值。
 
 Slice 71 更新：显式分支 `return` 也进入线性所有权合并。`if flag { return token } else { return token }` 现在可通过，因为两个 terminal 分支都移动同一个 resource；如果一个分支直接返回标量、另一个分支消费/返回 resource，类型检查器会报线性状态不一致。这样线性检查不再只覆盖继续执行的分支，也覆盖所有分支都终止的路径。
+
+Slice 72 更新：优化器从孤立原型进入受限主编译链。`src/optimize/` 现在作为 `pub mod optimize` 编译，`opt_level > 0` 时会在原始 AST 通过类型/生命周期检查后执行保守 AST 优化，再对优化后的 AST 重新类型/生命周期检查，然后进入 IR lowering。当前覆盖字面量常量折叠、保守代数简化、字面量 `if` 分支折叠和 `while false` 删除；不会做跨作用域常量传播、纯表达式 DCE、Cell/runtime 操作消除、SSA 优化或内联。
 
 目标：
 - 在后端工作扩展之前冻结最小语言核心。

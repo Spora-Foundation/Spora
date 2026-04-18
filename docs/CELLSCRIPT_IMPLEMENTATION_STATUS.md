@@ -24,8 +24,8 @@ Do **not** use `SPORA_DSL_DESIGN_PROPOSAL_CN.md` as the source of truth for impl
 
 This snapshot incorporates the 2026-04-19 continuation audit of `SPORA_DSL_DESIGN_PROPOSAL_CN.md`, the current `cellscript/` source tree, the current design-implementation audit, and a fresh default-feature test run.
 
-- Rust source size: `38,361` lines across `26` files under `cellscript/src/`; `42,730` lines across `28` Rust files when `cellscript/tests/` integration tests are included.
-- Test inventory: `328` `#[test]` declarations are present in source/test files; the default-feature active suite run below executed `312` tests.
+- Rust source size: `38,307` lines across `26` files under `cellscript/src/`; `42,676` lines across `28` Rust files when `cellscript/tests/` integration tests are included.
+- Test inventory: `330` `#[test]` declarations are present in source/test files; the default-feature active suite run below executed `316` tests.
 - Example programs: `7` bundled `.cell` examples compile under the default assembly target: `amm_pool`, `launch`, `multisig`, `nft`, `timelock`, `token`, and `vesting`.
 - Design-proposal completion: roughly `70-75%` overall. The compiler core is real; the stateful protocol language is not complete.
 
@@ -63,7 +63,7 @@ supported language subset; `Production-hardening`, `Partially integrated`, and
 | Spora IR | Production-hardening | `cellscript/src/ir/` | Lowering main path is real; complex control flow and full stateful semantics remain partial |
 | RISC-V codegen | Stable `asm` path; usable `ELF` subset | `cellscript/src/codegen/` | Pure compute and restricted CKB-style verifier paths are wired; this is not a complete backend for all language constructs |
 | Lifecycle validation | Partially integrated | `cellscript/src/lifecycle/` | Main compile path and LSP diagnostics cover declaration/static checks plus restricted fixed-scalar transition checks; full runtime transition verification is incomplete |
-| Optimizer | Prototype | `cellscript/src/optimize/` | Not part of the trusted release path |
+| Optimizer | Partially integrated | `cellscript/src/optimize/` | Conservative AST constant folding, algebraic simplification, and literal-condition pruning run for `opt_level > 0` after original type/lifecycle checks and before IR lowering; the optimized AST is rechecked, but this is not a full SSA optimizer/inliner |
 | LSP server | Minimal real path | `cellscript/src/lsp/` | Metadata-aware hover, diagnostics, and code actions exist; not a mature IDE surface |
 | Package manager | Local package/path dependencies usable | `cellscript/src/package/` | `Cell.toml`, local `path` dependencies, and `source_roots` are wired; registry/remote workflows remain incomplete |
 | Standard library | Basic runtime support | `cellscript/src/stdlib/` | Basic syscall/env/math/hash/collection support exists; not a complete standard runtime |
@@ -154,7 +154,7 @@ These modules exist, but should be considered **limited, unsupported for product
 | Module area | Status |
 |---|---|
 | `src/cli/` subcommand framework | Partial-to-good local workflow; registry commands fail-closed |
-| `src/optimize/` | Limited optimizer research path; not on the trusted release path |
+| `src/optimize/` | Partially integrated conservative AST optimization path for nonzero `opt_level`; not a complete optimizer or semantic proof pass |
 | `src/docgen/` | Partial-to-good API docs plus lowering audit report / verifier obligation output |
 | `src/fmt/` | Partial |
 | `src/lsp/` | Minimal real path with metadata-aware action hover, diagnostics, and code actions; not mature |
@@ -354,11 +354,11 @@ Still not safe to call semantically complete:
 
 At the time of this snapshot, `cargo test -p cellscript` passed under default features:
 
-- `256` library tests
+- `260` library tests
 - `49` CLI integration tests
 - `7` examples integration tests
 - `0` doctests
-- total executed: `312` tests, `0` failures
+- total executed: `316` tests, `0` failures
 
 This is enough to justify “working compiler core under production hardening”, but not enough to justify “complete language toolchain”.
 

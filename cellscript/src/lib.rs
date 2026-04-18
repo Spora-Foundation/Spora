@@ -12,6 +12,7 @@ pub mod ir;
 pub mod lexer;
 pub mod lifecycle;
 pub mod lsp;
+pub mod optimize;
 pub mod package;
 pub mod parser;
 pub mod repl;
@@ -997,11 +998,26 @@ fn compile_ast_with_build(
     }
     lifecycle::check(ast)?;
 
+    let optimized_ast = if options.opt_level > 0 {
+        let mut optimized = ast.clone();
+        optimize::optimize_module(&mut optimized, options.opt_level)?;
+        if let Some((resolver, module_name)) = resolver {
+            types::check_with_resolver(&optimized, resolver, module_name)?;
+        } else {
+            types::check(&optimized)?;
+        }
+        lifecycle::check(&optimized)?;
+        Some(optimized)
+    } else {
+        None
+    };
+    let lowering_ast = optimized_ast.as_ref().unwrap_or(ast);
+
     // 4. 生成 IR
     let ir = if let Some((resolver, module_name)) = resolver {
-        ir::generate_with_resolver(ast, resolver, module_name)?
+        ir::generate_with_resolver(lowering_ast, resolver, module_name)?
     } else {
-        ir::generate(ast)?
+        ir::generate(lowering_ast)?
     };
 
     // 5. 代码生成
@@ -6760,6 +6776,14 @@ action add(x: u64, y: u64) -> u64 {
 }
 "#;
 
+    const OPTIMIZER_PROGRAM: &str = r#"
+module test
+
+action calc() -> u64 {
+    return (2 + 3) * 4
+}
+"#;
+
     const IF_PROGRAM: &str = r#"
 module test
 
@@ -10242,6 +10266,21 @@ action activate(ticket: Ticket) -> Ticket {
         let err = compile(SIMPLE_PROGRAM, CompileOptions { opt_level: 4, ..CompileOptions::default() }).unwrap_err();
 
         assert!(err.message.contains("optimization level must be between 0 and 3"), "unexpected error: {}", err.message);
+    }
+
+    #[test]
+    fn compile_uses_ast_optimizer_for_nonzero_optimization_levels() {
+        let baseline = compile(OPTIMIZER_PROGRAM, CompileOptions::default()).unwrap();
+        let optimized = compile(OPTIMIZER_PROGRAM, CompileOptions { opt_level: 1, ..CompileOptions::default() }).unwrap();
+
+        let baseline_asm = String::from_utf8(baseline.artifact_bytes).unwrap();
+        let optimized_asm = String::from_utf8(optimized.artifact_bytes).unwrap();
+
+        assert!(baseline_asm.contains("add t0, t0, t1"), "baseline assembly should still compute the expression");
+        assert!(baseline_asm.contains("mul t0, t0, t1"), "baseline assembly should still compute the expression");
+        assert!(optimized_asm.contains("li a0, 20"), "optimized assembly should fold the constant expression:\n{}", optimized_asm);
+        assert!(!optimized_asm.contains("add t0, t0, t1"), "optimized assembly should not retain the folded add");
+        assert!(!optimized_asm.contains("mul t0, t0, t1"), "optimized assembly should not retain the folded multiply");
     }
 
     #[test]
