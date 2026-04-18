@@ -2725,6 +2725,19 @@ fn transaction_runtime_input_requirements_from_obligations(
                 "settle-finalization-output-admission",
                 None,
             ));
+        } else if let Some(binding) = obligation.feature.strip_prefix("resource-conservation:") {
+            requirements.push(transaction_runtime_input_requirement(
+                obligation,
+                "resource-conservation-proof",
+                "runtime-required",
+                Some("resource conservation is not fully lowered for this consumed-input/created-output shape"),
+                Some("resource-conservation-proof-gap"),
+                "Transaction",
+                binding,
+                Some("input-output-conservation"),
+                "resource-conservation-consume-create-accounting",
+                None,
+            ));
         }
     }
     requirements
@@ -9189,6 +9202,20 @@ action activate(ticket: Ticket) -> Ticket {
             "arithmetic resource conservation should remain runtime-required: {:?}",
             action.verifier_obligations
         );
+        assert!(
+            action.transaction_runtime_input_requirements.iter().any(|requirement| {
+                requirement.feature == "resource-conservation:Token"
+                    && requirement.component == "resource-conservation-proof"
+                    && requirement.status == "runtime-required"
+                    && requirement.source == "Transaction"
+                    && requirement.binding == "Token"
+                    && requirement.field.as_deref() == Some("input-output-conservation")
+                    && requirement.abi == "resource-conservation-consume-create-accounting"
+                    && requirement.blocker_class.as_deref() == Some("resource-conservation-proof-gap")
+            }),
+            "arithmetic resource conservation should expose a stable blocker class: {:?}",
+            action.transaction_runtime_input_requirements
+        );
     }
 
     #[test]
@@ -9254,6 +9281,17 @@ action activate(ticket: Ticket) -> Ticket {
                 "{} must not be marked checked-runtime: {:?}",
                 name,
                 action.verifier_obligations
+            );
+            assert!(
+                action.transaction_runtime_input_requirements.iter().any(|requirement| {
+                    requirement.feature == "resource-conservation:Token"
+                        && requirement.component == "resource-conservation-proof"
+                        && requirement.status == "runtime-required"
+                        && requirement.blocker_class.as_deref() == Some("resource-conservation-proof-gap")
+                }),
+                "{} should expose resource conservation blocker metadata: {:?}",
+                name,
+                action.transaction_runtime_input_requirements
             );
         }
     }
