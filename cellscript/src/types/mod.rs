@@ -779,6 +779,7 @@ impl<'a> TypeChecker<'a> {
             }
             self.validate_type(&param.ty)?;
             self.validate_callable_param_reference_shape(param, callable_kind, callable_name)?;
+            self.validate_callable_param_state_authority(param, callable_kind, callable_name)?;
             self.validate_callable_param_mutability(param)?;
             let is_linear = self.is_linear_type(&param.ty);
             env.bind_new(param.name.clone(), param.ty.clone(), is_linear, param.is_mut, param.span)?;
@@ -798,6 +799,22 @@ impl<'a> TypeChecker<'a> {
                     param.name,
                     callable_kind,
                     callable_name,
+                    type_repr(&param.ty)
+                ),
+                param.span,
+            ));
+        }
+        Ok(())
+    }
+
+    fn validate_callable_param_state_authority(&self, param: &Param, callable_kind: &str, callable_name: &str) -> Result<()> {
+        if callable_kind != "action" && matches!(param.ty, Type::MutRef(_)) {
+            return Err(CompileError::new(
+                format!(
+                    "{} '{}' parameter '{}' cannot use mutable reference type {}; only actions may receive mutable Cell state authority",
+                    callable_kind,
+                    callable_name,
+                    param.name,
                     type_repr(&param.ty)
                 ),
                 param.span,

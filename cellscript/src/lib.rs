@@ -7028,6 +7028,32 @@ action bad(mut pool: &mut Pool) {
 }
 "#;
 
+    const FUNCTION_MUT_REF_PARAM_PROGRAM: &str = r#"
+module test
+
+shared Pool {
+    reserve: u64,
+}
+
+fn bad(pool: &mut Pool) -> u64 {
+    pool.reserve = pool.reserve + 1
+    return pool.reserve
+}
+"#;
+
+    const LOCK_MUT_REF_PARAM_PROGRAM: &str = r#"
+module test
+
+shared Pool {
+    reserve: u64,
+}
+
+lock bad(pool: &mut Pool) -> bool {
+    pool.reserve = pool.reserve + 1
+    return true
+}
+"#;
+
     const MUT_REF_LOCAL_ALIAS_PROGRAM: &str = r#"
 module test
 
@@ -9945,6 +9971,20 @@ action activate(ticket: Ticket) -> Ticket {
 
         let err = compile(REDUNDANT_MUT_REF_PARAM_PROGRAM, CompileOptions::default()).unwrap_err();
         assert!(err.message.contains("parameter 'pool' is already an '&mut' reference"), "unexpected error: {}", err.message);
+
+        let err = compile(FUNCTION_MUT_REF_PARAM_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(
+            err.message.contains("function 'bad' parameter 'pool' cannot use mutable reference type &mut Pool"),
+            "unexpected error: {}",
+            err.message
+        );
+
+        let err = compile(LOCK_MUT_REF_PARAM_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(
+            err.message.contains("lock 'bad' parameter 'pool' cannot use mutable reference type &mut Pool"),
+            "unexpected error: {}",
+            err.message
+        );
     }
 
     #[test]

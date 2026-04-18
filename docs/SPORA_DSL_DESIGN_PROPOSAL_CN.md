@@ -2116,6 +2116,8 @@ Slice 94 更新：callable 参数中的引用类型现在只能出现在顶层�
 
 Slice 95 更新：legacy `ref name: T` 参数修饰符现在在 parser 层 fail closed。当前语言只承认类型位置的 `name: &T` / `name: &mut T`，不让 `ref` 这种没有独立 lifetime / ownership 语义的修饰符进入 AST/IR/metadata，避免文档和元数据暗示一条不存在的引用传参规则。
 
+Slice 96 更新：`&mut` 参数现在只允许出现在 `action` 签名中。`fn bad(pool: &mut Pool)` 和 `lock bad(pool: &mut Pool)` 会被拒绝，即使函数体当前没有可见状态操作；这样 writable Cell state authority 不会伪装成 pure helper 或 lock 输入。只读 `&T` 参数仍可用于 `fn` / `lock`。
+
 目标：
 - 在后端工作扩展之前冻结最小语言核心。
 
