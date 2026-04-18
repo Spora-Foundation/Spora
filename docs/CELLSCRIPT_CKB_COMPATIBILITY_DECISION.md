@@ -49,6 +49,17 @@ Short form:
 
 Version fields are still allowed. Their purpose is future schema evolution after launch, not prelaunch Borsh/Molecule dual-format compatibility.
 
+## Generic and Template Boundary
+
+This compatibility decision is also the source of truth for CellScript's v1 generic boundary:
+
+- User-defined generics are not part of the v1 executable language core.
+- Missing monomorphization for syntax such as `resource Vault<T>` or `Vault<Token>` is not a v1 contradiction; that syntax belongs to post-v1 package/codegen/template tooling.
+- Template tooling may generate specialized `.cell` modules, but the generated source must contain concrete `resource`, `shared`, `receipt`, and `struct` schemas.
+- Every generated persistent/stateful schema that reaches a public byte boundary must have a generated or declared Molecule layout before launch.
+- `Vec<T>` remains a controlled builtin collection notation for local bounded APIs and compiler/runtime metadata; it is not evidence of a general user-defined generic type system and must not be used to justify generic persisted schemas.
+- Audits should classify user-defined generics as **N/A for v1 core / post-v1 tooling**, while tracking generated Molecule schemas and schema evolution as the real launch-compatibility work.
+
 ## CKB Baseline
 
 CKB treats Molecule as the canonical encoding for chain objects. In CKB, `Script`, `OutPoint`, `CellInput`, `CellOutput`, `RawTransaction`, and `Transaction` are defined in `util/gen-types/schemas/blockchain.mol`. CKB script hash and transaction hash helpers operate over the canonical packed bytes.
