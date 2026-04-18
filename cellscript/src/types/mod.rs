@@ -1367,11 +1367,22 @@ impl<'a> TypeChecker<'a> {
     fn bind_pattern(&self, env: &mut TypeEnv, pattern: &BindingPattern, ty: &Type, is_mut: bool, span: Span) -> Result<()> {
         match pattern {
             BindingPattern::Name(name) => {
+                if name == "_" {
+                    if self.is_linear_type(ty) {
+                        return Err(CompileError::new("wildcard binding cannot discard a linear value", span));
+                    }
+                    return Ok(());
+                }
                 let is_linear = self.is_linear_type(ty);
                 env.insert(name.clone(), ty.clone(), is_linear, is_mut);
                 Ok(())
             }
-            BindingPattern::Wildcard => Ok(()),
+            BindingPattern::Wildcard => {
+                if self.is_linear_type(ty) {
+                    return Err(CompileError::new("wildcard binding cannot discard a linear value", span));
+                }
+                Ok(())
+            }
             BindingPattern::Tuple(items) => {
                 let Type::Tuple(types) = ty else {
                     return Err(CompileError::new("tuple binding requires a tuple value", span));
@@ -2121,6 +2132,8 @@ impl<'a> TypeChecker<'a> {
     /// 检查是否为线性类型
     fn is_linear_type(&self, ty: &Type) -> bool {
         match ty {
+            Type::Array(inner, _) => self.is_linear_type(inner),
+            Type::Tuple(items) => items.iter().any(|item| self.is_linear_type(item)),
             Type::Named(name) => {
                 let base_name = name.split('<').next().unwrap_or(name.as_str());
                 self.linear_types.contains(base_name)

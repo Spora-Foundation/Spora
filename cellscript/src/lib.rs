@@ -7724,6 +7724,69 @@ action burn(token: Token, flag: bool) -> u64 {
 }
 "#;
 
+    const LINEAR_TUPLE_BINDING_DROPPED_PROGRAM: &str = r#"
+module test
+
+resource Token {
+    amount: u64,
+}
+
+action bad(left: Token, right: Token) {
+    let pair = (left, right)
+}
+"#;
+
+    const LINEAR_ARRAY_BINDING_DROPPED_PROGRAM: &str = r#"
+module test
+
+resource Token {
+    amount: u64,
+}
+
+action bad(left: Token, right: Token) {
+    let items = [left, right]
+}
+"#;
+
+    const LINEAR_TUPLE_DESTRUCTURE_HANDLES_ITEMS_PROGRAM: &str = r#"
+module test
+
+resource Token has destroy {
+    amount: u64,
+}
+
+action choose(left: Token, right: Token) -> Token {
+    let (kept, burned) = (left, right)
+    destroy burned
+    return kept
+}
+"#;
+
+    const LINEAR_WILDCARD_DISCARD_PROGRAM: &str = r#"
+module test
+
+resource Token {
+    amount: u64,
+}
+
+action bad(token: Token) {
+    let _ = token
+}
+"#;
+
+    const LINEAR_TUPLE_WILDCARD_DISCARD_PROGRAM: &str = r#"
+module test
+
+resource Token has destroy {
+    amount: u64,
+}
+
+action bad(left: Token, right: Token) {
+    let (_, kept) = (left, right)
+    destroy kept
+}
+"#;
+
     const LINEAR_BLOCK_EXPR_LET_MOVE_PROGRAM: &str = r#"
 module test
 
@@ -11184,6 +11247,31 @@ struct TokenSnapshot {
                 || err.message.contains("linear resource 'right' has inconsistent ownership state across if branches"),
             "unexpected error: {}",
             err.message
+        );
+    }
+
+    #[test]
+    fn compile_tracks_linear_values_inside_aggregate_bindings() {
+        compile(LINEAR_TUPLE_DESTRUCTURE_HANDLES_ITEMS_PROGRAM, CompileOptions::default()).unwrap();
+
+        let tuple_err = compile(LINEAR_TUPLE_BINDING_DROPPED_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(tuple_err.message.contains("linear resource 'pair' was not consumed"), "unexpected error: {}", tuple_err.message);
+
+        let array_err = compile(LINEAR_ARRAY_BINDING_DROPPED_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(array_err.message.contains("linear resource 'items' was not consumed"), "unexpected error: {}", array_err.message);
+
+        let wildcard_err = compile(LINEAR_WILDCARD_DISCARD_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(
+            wildcard_err.message.contains("wildcard binding cannot discard a linear value"),
+            "unexpected error: {}",
+            wildcard_err.message
+        );
+
+        let tuple_wildcard_err = compile(LINEAR_TUPLE_WILDCARD_DISCARD_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(
+            tuple_wildcard_err.message.contains("wildcard binding cannot discard a linear value"),
+            "unexpected error: {}",
+            tuple_wildcard_err.message
         );
     }
 
