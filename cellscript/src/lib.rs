@@ -6963,6 +6963,35 @@ action bad() -> u64 {
 }
 "#;
 
+    const READ_REF_BINDING_FIELD_ASSIGN_PROGRAM: &str = r#"
+module test
+
+shared Config {
+    threshold: u64,
+}
+
+action bad() -> u64 {
+    let mut cfg = read_ref<Config>()
+    cfg.threshold = 2
+    return cfg.threshold
+}
+"#;
+
+    const READ_ONLY_REF_FIELD_ASSIGN_PROGRAM: &str = r#"
+module test
+
+struct Point {
+    x: u64,
+}
+
+action bad() -> u64 {
+    let mut point = Point { x: 1 }
+    let mut view = &point
+    view.x = 2
+    return point.x
+}
+"#;
+
     const IF_MISMATCH_PROGRAM: &str = r#"
 module test
 
@@ -9463,6 +9492,23 @@ action activate(ticket: Ticket) -> Ticket {
         let err = compile(READ_REF_FIELD_ASSIGN_PROGRAM, CompileOptions::default()).unwrap_err();
         assert!(
             err.message.contains("assignment target must be rooted at a named local or parameter"),
+            "unexpected error: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn compile_rejects_assignment_through_read_only_references() {
+        let err = compile(READ_REF_BINDING_FIELD_ASSIGN_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(
+            err.message.contains("assignment target rooted at 'cfg' is a read-only reference"),
+            "unexpected error: {}",
+            err.message
+        );
+
+        let err = compile(READ_ONLY_REF_FIELD_ASSIGN_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(
+            err.message.contains("assignment target rooted at 'view' is a read-only reference"),
             "unexpected error: {}",
             err.message
         );

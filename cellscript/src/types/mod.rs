@@ -1668,6 +1668,12 @@ impl<'a> TypeChecker<'a> {
                 let Some(root_ty) = env.lookup(root).cloned() else {
                     return Err(CompileError::new(format!("undefined variable '{}'", root), assign.span));
                 };
+                if matches!(root_ty, Type::Ref(_)) {
+                    return Err(CompileError::new(
+                        format!("assignment target rooted at '{}' is a read-only reference", root),
+                        assign.span,
+                    ));
+                }
                 let root_is_mut_ref = matches!(root_ty, Type::MutRef(_));
                 if !env.is_mutable(root) && !root_is_mut_ref {
                     return Err(CompileError::new(format!("assignment target rooted at '{}' is not mutable", root), assign.span));
