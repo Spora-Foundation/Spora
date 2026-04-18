@@ -103,6 +103,14 @@ impl TypeEnv {
         }
     }
 
+    fn merge_existing_linear_states_from(&mut self, other: &TypeEnv) {
+        for name in self.linear_names() {
+            if let Some(state) = other.linear_state(&name) {
+                self.set_existing_linear_state(&name, state);
+            }
+        }
+    }
+
     /// 标记资源为已消费
     pub fn consume(&mut self, name: &str) -> Result<()> {
         self.set_linear_state(name, LinearState::Consumed)
@@ -978,6 +986,13 @@ impl<'a> TypeChecker<'a> {
                         }
                     }
                 }
+                if let Some(Stmt::Expr(expr)) = stmts.last() {
+                    if self.is_linear_type(&last_ty) {
+                        self.mark_expr_as_moved(&mut block_env, expr)?;
+                    }
+                }
+                block_env.check_linear_complete()?;
+                env.merge_existing_linear_states_from(&block_env);
                 Ok(last_ty)
             }
             Expr::Tuple(elems) => {
@@ -1474,15 +1489,7 @@ impl<'a> TypeChecker<'a> {
                 }
                 Ok(())
             }
-            Expr::Block(stmts) => {
-                let block_env = self.branch_env_with_tail_return(env, stmts)?;
-                for name in env.linear_names() {
-                    if let Some(state) = block_env.linear_state(&name) {
-                        env.set_existing_linear_state(&name, state);
-                    }
-                }
-                Ok(())
-            }
+            Expr::Block(_) => Ok(()),
             _ => Ok(()),
         }
     }

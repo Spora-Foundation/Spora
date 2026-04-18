@@ -2074,6 +2074,8 @@ Slice 73 更新：tail-if 返回路径也进入线性所有权合并。`action c
 
 Slice 74 更新：普通 `if` expression 也使用同一套线性分支合并规则。`let moved = if flag { token } else { token }` 现在可通过，因为两个 expression 分支移动同一个 resource；`let moved = if flag { left } else { right }` 会被拒绝，因为分支只移动了不同 resource。带状态操作的 expression 分支也按路径合并，例如 `if flag { destroy token } else { destroy token }` 可通过，而只在单边 destroy/consume/transfer/claim/settle 会报分支线性状态不一致。实现上，`Expr::If` 的类型推断和 move 标记都改为使用独立分支环境，并且线性名称收集覆盖父环境链，避免 block/branch 子环境漏掉外层 resource 状态。
 
+Slice 75 更新：普通 block expression 现在会把父作用域中已有 resource 的线性状态从块内子环境写回父环境，同时保留块内局部绑定的词法作用域。`{ destroy token }`、`{ token }`、`{ let inner = token; inner }` 这类包在 block 里的状态操作或 move 不再被块作用域吞掉；block-local 线性绑定如果没有被处理或通过尾表达式移出，例如 `{ let out = create Token { ... }; 1 }`，会被类型检查器拒绝。尾部线性值在 block 自身类型推断阶段标记，外层 move 标记不再重新执行整段 block，避免对已经类型检查过的语句二次 consume/destroy。这样 block expression 和 `if` expression 使用同一套父作用域线性状态传播模型。
+
 目标：
 - 在后端工作扩展之前冻结最小语言核心。
 

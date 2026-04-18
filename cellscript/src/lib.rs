@@ -7661,6 +7661,64 @@ action burn(token: Token, flag: bool) -> u64 {
 }
 "#;
 
+    const LINEAR_BLOCK_EXPR_LET_MOVE_PROGRAM: &str = r#"
+module test
+
+resource Token {
+    amount: u64,
+}
+
+action choose(token: Token) -> Token {
+    let moved = { token }
+    return moved
+}
+"#;
+
+    const LINEAR_BLOCK_EXPR_PREFIX_MOVE_PROGRAM: &str = r#"
+module test
+
+resource Token {
+    amount: u64,
+}
+
+action choose(token: Token) -> Token {
+    let moved = {
+        let inner = token
+        inner
+    }
+    return moved
+}
+"#;
+
+    const LINEAR_BLOCK_EXPR_STATEFUL_PROGRAM: &str = r#"
+module test
+
+resource Token has destroy {
+    amount: u64,
+}
+
+action burn(token: Token) -> u64 {
+    { destroy token }
+}
+"#;
+
+    const LINEAR_BLOCK_EXPR_DROPPED_LOCAL_PROGRAM: &str = r#"
+module test
+
+resource Token {
+    amount: u64,
+}
+
+action bad() -> u64 {
+    {
+        let out = create Token {
+            amount: 1
+        }
+        1
+    }
+}
+"#;
+
     const TAIL_IF_ACTION_RETURN_PROGRAM: &str = r#"
 module test
 
@@ -10893,6 +10951,16 @@ struct TokenSnapshot {
             "unexpected error: {}",
             err.message
         );
+    }
+
+    #[test]
+    fn compile_merges_linear_moves_inside_block_expressions() {
+        compile(LINEAR_BLOCK_EXPR_LET_MOVE_PROGRAM, CompileOptions::default()).unwrap();
+        compile(LINEAR_BLOCK_EXPR_PREFIX_MOVE_PROGRAM, CompileOptions::default()).unwrap();
+        compile(LINEAR_BLOCK_EXPR_STATEFUL_PROGRAM, CompileOptions::default()).unwrap();
+
+        let err = compile(LINEAR_BLOCK_EXPR_DROPPED_LOCAL_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(err.message.contains("linear resource 'out' was not consumed"), "unexpected error: {}", err.message);
     }
 
     #[test]
