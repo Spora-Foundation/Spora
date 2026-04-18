@@ -2109,10 +2109,18 @@ fn body_transaction_resource_obligations(
                 }
                 ir::IrInstruction::Settle { dest, operand } => {
                     if let Some(type_name) = operand_named_type_name(operand) {
+                        let finalization_checked = settle_finalization_is_checked(
+                            body,
+                            type_layouts,
+                            &availability,
+                            lifecycle_states,
+                            output_index,
+                            &type_name,
+                        );
                         checks.push(TransactionResourceObligation {
                             category: "transaction-invariant",
                             feature: format!("settle-finalization:{}", type_name),
-                            status: "runtime-required",
+                            status: if finalization_checked { "checked-runtime" } else { "runtime-required" },
                             detail: transaction_condition_detail(
                                 body,
                                 type_layouts,
@@ -2121,6 +2129,7 @@ fn body_transaction_resource_obligations(
                                 "settle",
                                 operand,
                                 &type_name,
+                                finalization_checked,
                             ),
                         });
                     }
@@ -2403,11 +2412,14 @@ fn transaction_runtime_input_requirements_from_obligations(
             obligation.status == "checked-runtime" && obligation.feature.starts_with("transfer-output:");
         let include_checked_claim_conditions =
             obligation.status == "checked-runtime" && obligation.feature.starts_with("claim-conditions:");
+        let include_checked_settle_finalization =
+            obligation.status == "checked-runtime" && obligation.feature.starts_with("settle-finalization:");
         if obligation.category != "transaction-invariant"
             || (obligation.status != "runtime-required"
                 && !include_checked_destroy_scan
                 && !include_checked_transfer_output
-                && !include_checked_claim_conditions)
+                && !include_checked_claim_conditions
+                && !include_checked_settle_finalization)
         {
             continue;
         }
@@ -2627,11 +2639,18 @@ fn transaction_condition_detail(
     operation: &str,
     operand: &ir::IrOperand,
     type_name: &str,
+    checked: bool,
 ) -> String {
     let binding = operand_var_name(operand).unwrap_or(type_name);
     let input_summary = transaction_condition_input_summary(body, type_layouts, operation, binding, type_name);
-    match operation {
-        "settle" => format!(
+    match (operation, checked) {
+        ("settle", true) => format!(
+            "Compiler-emitted runtime verifier proves '{}' lifecycle final-state invariants and admits the settle-created output{}; settle-output-admission=checked-runtime; runtime inputs: {}",
+            type_name,
+            settle_final_state_detail(body, type_layouts, availability, lifecycle_states, type_name),
+            input_summary
+        ),
+        ("settle", false) => format!(
             "Runtime verifier must prove '{}' finalization invariants and reject invalid pending-to-final state transitions{}; runtime inputs: {}",
             type_name,
             settle_final_state_detail(body, type_layouts, availability, lifecycle_states, type_name),
@@ -2835,6 +2854,21 @@ fn settle_final_state_is_checked(
     type_name: &str,
 ) -> bool {
     body.create_set.iter().any(|pattern| {
+        pattern.operation == "settle"
+            && pattern.ty == type_name
+            && metadata_can_verify_settle_final_state(pattern, type_layouts, availability, lifecycle_states)
+    })
+}
+
+fn settle_finalization_is_checked(
+    body: &ir::IrBody,
+    type_layouts: &MetadataTypeLayouts,
+    availability: &MetadataPreludeAvailability,
+    lifecycle_states: &HashMap<String, Vec<String>>,
+    output_index: usize,
+    type_name: &str,
+) -> bool {
+    body.create_set.get(output_index).is_some_and(|pattern| {
         pattern.operation == "settle"
             && pattern.ty == type_name
             && metadata_can_verify_settle_final_state(pattern, type_layouts, availability, lifecycle_states)
@@ -10499,10 +10533,16 @@ source_roots = ["src", "shared"]
             .iter()
             .find(|obligation| obligation.feature == "settle-finalization:Settlement")
             .expect("settle finalization obligation");
+        assert_eq!(
+            settle_finalization.status, "checked-runtime",
+            "fully verifier-covered lifecycle settle finalization should be checked: {}",
+            settle_finalization.detail
+        );
         assert!(
             settle_finalization.detail.contains("settle-final-state=checked-runtime")
-                && settle_finalization.detail.contains("settle-state-policy=lifecycle-final-state"),
-            "settle finalization should expose checked lifecycle final-state policy: {}",
+                && settle_finalization.detail.contains("settle-state-policy=lifecycle-final-state")
+                && settle_finalization.detail.contains("settle-output-admission=checked-runtime"),
+            "settle finalization should expose checked lifecycle final-state and output admission policy: {}",
             settle_finalization.detail
         );
         assert!(finalize.transaction_runtime_input_requirements.iter().any(|requirement| {
@@ -10512,6 +10552,16 @@ source_roots = ["src", "shared"]
                 && requirement.source == "Transaction"
                 && requirement.field.as_deref() == Some("pending-to-final-state")
                 && requirement.abi == "settle-finalization-state-context"
+                && requirement.blocker.is_none()
+                && requirement.blocker_class.is_none()
+        }));
+        assert!(finalize.transaction_runtime_input_requirements.iter().any(|requirement| {
+            requirement.feature == "settle-finalization:Settlement"
+                && requirement.status == "checked-runtime"
+                && requirement.component == "settle-output-admission"
+                && requirement.source == "Transaction"
+                && requirement.field.as_deref() == Some("grouped-output-admission")
+                && requirement.abi == "settle-finalization-output-admission"
                 && requirement.blocker.is_none()
                 && requirement.blocker_class.is_none()
         }));
