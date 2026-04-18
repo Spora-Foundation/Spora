@@ -2536,6 +2536,43 @@ fn transaction_runtime_input_requirements_from_obligations(
         .collect::<BTreeSet<_>>();
     let mut requirements = Vec::new();
     for obligation in obligations {
+        if let Some(binding) = mutable_state_obligation_binding(obligation) {
+            if obligation.status == "runtime-required" {
+                let field_equality_status = obligation_detail_status(obligation, "field equality");
+                if field_equality_status.is_some_and(|status| status != "checked-runtime") {
+                    requirements.push(transaction_runtime_input_requirement(
+                        obligation,
+                        "mutate-field-equality",
+                        "runtime-required",
+                        Some("mutable preserved-field equality is not fully verifier-covered"),
+                        Some("state-field-equality-gap"),
+                        "InputOutput",
+                        binding,
+                        Some("preserved-fields"),
+                        "mutate-preserved-field-equality",
+                        None,
+                    ));
+                }
+
+                let field_transition_status = obligation_detail_status(obligation, "field transition");
+                if field_transition_status.is_some_and(|status| status != "checked-runtime") {
+                    requirements.push(transaction_runtime_input_requirement(
+                        obligation,
+                        "mutate-field-transition",
+                        "runtime-required",
+                        Some("mutable field transition formula is not fully verifier-covered"),
+                        Some("state-transition-formula-gap"),
+                        "InputOutput",
+                        binding,
+                        Some("transition-fields"),
+                        "mutate-field-transition-policy",
+                        None,
+                    ));
+                }
+            }
+            continue;
+        }
+
         let include_checked_destroy_scan =
             obligation.status == "checked-runtime" && obligation.feature.starts_with("destroy-output-scan:");
         let include_checked_transfer_output =
@@ -2760,6 +2797,22 @@ fn transaction_runtime_input_requirements_from_obligations(
         }
     }
     requirements
+}
+
+fn mutable_state_obligation_binding(obligation: &VerifierObligationMetadata) -> Option<&str> {
+    match obligation.category.as_str() {
+        "shared-state" => obligation.feature.strip_prefix("shared-mutation:"),
+        "cell-state" => obligation.feature.strip_prefix("mutable-cell:"),
+        _ => None,
+    }
+}
+
+fn obligation_detail_status<'a>(obligation: &'a VerifierObligationMetadata, label: &str) -> Option<&'a str> {
+    let needle = format!("{}=", label);
+    let start = obligation.detail.find(&needle)? + needle.len();
+    let suffix = &obligation.detail[start..];
+    let end = suffix.find(|ch: char| ch == ';' || ch == ',' || ch == ')').unwrap_or(suffix.len());
+    Some(suffix[..end].trim())
 }
 
 fn transaction_obligation_has_checked_subcondition(obligation: &VerifierObligationMetadata, name: &str) -> bool {
@@ -11502,6 +11555,53 @@ action credit(ledger: &mut Ledger, delta: u64) {
             "runtime metadata must not aggregate Pool primitives for generic shared mutation: {:?}",
             result.metadata.runtime.pool_primitives
         );
+    }
+
+    #[test]
+    fn mutable_state_transition_gaps_expose_runtime_input_blockers() {
+        let source = r#"
+module test
+
+shared Ledger has store {
+    balance: u128,
+    owner: Address,
+}
+
+action credit(ledger: &mut Ledger, delta: u128) {
+    ledger.balance = ledger.balance + delta
+}
+"#;
+
+        let result = compile(source, CompileOptions::default()).unwrap();
+        let action = result.metadata.actions.iter().find(|action| action.name == "credit").expect("credit metadata");
+        let mutation = action
+            .mutate_set
+            .iter()
+            .find(|mutation| mutation.operation == "mutate" && mutation.ty == "Ledger" && mutation.binding == "ledger")
+            .expect("credit should expose Ledger mutate_set metadata");
+
+        assert_eq!(mutation.field_equality_status, "checked-runtime");
+        assert_eq!(mutation.field_transition_status, "runtime-required");
+        assert!(action.verifier_obligations.iter().any(|obligation| {
+            obligation.category == "shared-state"
+                && obligation.feature == "shared-mutation:Ledger"
+                && obligation.status == "runtime-required"
+                && obligation.detail.contains("field equality=checked-runtime")
+                && obligation.detail.contains("field transition=runtime-required")
+        }));
+        assert!(action.transaction_runtime_input_requirements.iter().any(|requirement| {
+            requirement.feature == "shared-mutation:Ledger"
+                && requirement.status == "runtime-required"
+                && requirement.component == "mutate-field-transition"
+                && requirement.source == "InputOutput"
+                && requirement.field.as_deref() == Some("transition-fields")
+                && requirement.abi == "mutate-field-transition-policy"
+                && requirement.blocker.as_deref() == Some("mutable field transition formula is not fully verifier-covered")
+                && requirement.blocker_class.as_deref() == Some("state-transition-formula-gap")
+        }));
+        assert!(!action.transaction_runtime_input_requirements.iter().any(|requirement| {
+            requirement.feature == "shared-mutation:Ledger" && requirement.component == "mutate-field-equality"
+        }));
     }
 
     #[test]
