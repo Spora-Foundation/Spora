@@ -2667,6 +2667,8 @@ fn transaction_runtime_input_requirements_from_obligations(
             obligation.status == "checked-runtime" && obligation.feature.starts_with("transfer-output:");
         let include_checked_claim_output = obligation.status == "checked-runtime" && obligation.feature.starts_with("claim-output:");
         let include_checked_settle_output = obligation.status == "checked-runtime" && obligation.feature.starts_with("settle-output:");
+        let include_checked_resource_conservation =
+            obligation.status == "checked-runtime" && obligation.feature.starts_with("resource-conservation:");
         let include_checked_claim_conditions =
             obligation.status == "checked-runtime" && obligation.feature.starts_with("claim-conditions:");
         let include_checked_settle_finalization =
@@ -2677,6 +2679,7 @@ fn transaction_runtime_input_requirements_from_obligations(
                 && !include_checked_transfer_output
                 && !include_checked_claim_output
                 && !include_checked_settle_output
+                && !include_checked_resource_conservation
                 && !include_checked_claim_conditions
                 && !include_checked_settle_finalization)
         {
@@ -2917,9 +2920,10 @@ fn transaction_runtime_input_requirements_from_obligations(
             requirements.push(transaction_runtime_input_requirement(
                 obligation,
                 "resource-conservation-proof",
-                "runtime-required",
-                Some("resource conservation is not fully lowered for this consumed-input/created-output shape"),
-                Some("resource-conservation-proof-gap"),
+                obligation.status.as_str(),
+                (obligation.status == "runtime-required")
+                    .then_some("resource conservation is not fully lowered for this consumed-input/created-output shape"),
+                (obligation.status == "runtime-required").then_some("resource-conservation-proof-gap"),
                 "Transaction",
                 binding,
                 Some("input-output-conservation"),
@@ -9437,6 +9441,21 @@ action activate(ticket: Ticket) -> Ticket {
             "direct field-for-field resource conservation should be marked checked-runtime: {:?}",
             action.verifier_obligations
         );
+        assert!(
+            action.transaction_runtime_input_requirements.iter().any(|requirement| {
+                requirement.feature == "resource-conservation:Token"
+                    && requirement.component == "resource-conservation-proof"
+                    && requirement.status == "checked-runtime"
+                    && requirement.source == "Transaction"
+                    && requirement.binding == "Token"
+                    && requirement.field.as_deref() == Some("input-output-conservation")
+                    && requirement.abi == "resource-conservation-consume-create-accounting"
+                    && requirement.blocker.is_none()
+                    && requirement.blocker_class.is_none()
+            }),
+            "checked direct conservation should expose a checked transaction input component: {:?}",
+            action.transaction_runtime_input_requirements
+        );
     }
 
     #[test]
@@ -9519,6 +9538,17 @@ action activate(ticket: Ticket) -> Ticket {
             "amount-sum resource merge should be marked checked-runtime: {:?}",
             action.verifier_obligations
         );
+        assert!(
+            action.transaction_runtime_input_requirements.iter().any(|requirement| {
+                requirement.feature == "resource-conservation:Token"
+                    && requirement.component == "resource-conservation-proof"
+                    && requirement.status == "checked-runtime"
+                    && requirement.field.as_deref() == Some("input-output-conservation")
+                    && requirement.blocker_class.is_none()
+            }),
+            "checked merge conservation should expose a checked transaction input component: {:?}",
+            action.transaction_runtime_input_requirements
+        );
     }
 
     #[test]
@@ -9554,8 +9584,21 @@ action activate(ticket: Ticket) -> Ticket {
             action.verifier_obligations
         );
         assert!(
+            action.transaction_runtime_input_requirements.iter().any(|requirement| {
+                requirement.feature == "resource-conservation:Token"
+                    && requirement.component == "resource-conservation-proof"
+                    && requirement.status == "checked-runtime"
+                    && requirement.field.as_deref() == Some("input-output-conservation")
+                    && requirement.blocker_class.is_none()
+            }),
+            "checked split conservation should expose a checked transaction input component: {:?}",
+            action.transaction_runtime_input_requirements
+        );
+        assert!(
             !action.transaction_runtime_input_requirements.iter().any(|requirement| {
-                requirement.feature == "resource-conservation:Token" && requirement.component == "resource-conservation-proof"
+                requirement.feature == "resource-conservation:Token"
+                    && requirement.component == "resource-conservation-proof"
+                    && requirement.status == "runtime-required"
             }),
             "checked split conservation must not expose a runtime-required conservation blocker: {:?}",
             action.transaction_runtime_input_requirements
