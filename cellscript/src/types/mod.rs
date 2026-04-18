@@ -206,6 +206,25 @@ impl TypeEnv {
         Ok(())
     }
 
+    fn merge_match_linear_states(&mut self, arm_envs: &[TypeEnv], span: Span) -> Result<()> {
+        let Some(first_env) = arm_envs.first() else {
+            return Ok(());
+        };
+
+        for name in self.linear_names() {
+            let before = self.linear_state(&name).unwrap_or(LinearState::Available);
+            let first_state = first_env.linear_state(&name).unwrap_or(before);
+            if arm_envs.iter().skip(1).any(|env| env.linear_state(&name).unwrap_or(before) != first_state) {
+                return Err(CompileError::new(
+                    format!("linear resource '{}' has inconsistent ownership state across match arms", name),
+                    span,
+                ));
+            }
+            self.set_existing_linear_state(&name, first_state);
+        }
+        Ok(())
+    }
+
     /// 检查所有线性资源是否已正确处理
     pub fn check_linear_complete(&self) -> Result<()> {
         for (name, state) in &self.linear_states {
@@ -1036,14 +1055,18 @@ impl<'a> TypeChecker<'a> {
                 let scrutinee_ty = self.infer_expr(env, &match_expr.expr)?;
                 self.check_match_patterns(&scrutinee_ty, match_expr)?;
                 let mut arm_ty = None;
+                let mut arm_envs = Vec::with_capacity(match_expr.arms.len());
                 for arm in &match_expr.arms {
-                    let ty = self.infer_expr(env, &arm.value)?;
+                    let mut arm_env = env.child();
+                    let ty = self.infer_expr(&mut arm_env, &arm.value)?;
                     if arm_ty.as_ref().is_none_or(|existing| self.types_equal(existing, &ty)) {
                         arm_ty = Some(ty);
                     } else {
                         return Err(CompileError::new("match arms must have matching types", arm.span));
                     }
+                    arm_envs.push(arm_env);
                 }
+                env.merge_match_linear_states(&arm_envs, match_expr.span)?;
                 arm_ty.ok_or_else(|| CompileError::new("match expression must contain at least one arm", match_expr.span))
             }
         }
@@ -1520,10 +1543,13 @@ impl<'a> TypeChecker<'a> {
                 env.merge_branch_linear_states(&then_env, false, Some(&else_env), false, if_expr.span)
             }
             Expr::Match(match_expr) => {
+                let mut arm_envs = Vec::with_capacity(match_expr.arms.len());
                 for arm in &match_expr.arms {
-                    self.mark_expr_as_moved(env, &arm.value)?;
+                    let mut arm_env = env.child();
+                    self.mark_expr_as_moved(&mut arm_env, &arm.value)?;
+                    arm_envs.push(arm_env);
                 }
-                Ok(())
+                env.merge_match_linear_states(&arm_envs, match_expr.span)
             }
             Expr::Block(_) => Ok(()),
             _ => Ok(()),

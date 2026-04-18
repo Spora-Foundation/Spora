@@ -8389,6 +8389,88 @@ action select(flag: Flag) -> u64 {
 }
 "#;
 
+    const LINEAR_MATCH_EXPR_LET_MOVE_PROGRAM: &str = r#"
+module test
+
+enum Flag {
+    On,
+    Off,
+}
+
+resource Token {
+    amount: u64,
+}
+
+action choose(token: Token, flag: Flag) -> Token {
+    let moved = match flag {
+        Flag::On => token,
+        Flag::Off => token,
+    }
+    return moved
+}
+"#;
+
+    const LINEAR_MATCH_EXPR_INCONSISTENT_LET_MOVE_PROGRAM: &str = r#"
+module test
+
+enum Flag {
+    On,
+    Off,
+}
+
+resource Token {
+    amount: u64,
+}
+
+action bad(left: Token, right: Token, flag: Flag) -> Token {
+    let moved = match flag {
+        Flag::On => left,
+        Flag::Off => right,
+    }
+    return moved
+}
+"#;
+
+    const LINEAR_MATCH_EXPR_STATEFUL_ARMS_PROGRAM: &str = r#"
+module test
+
+enum Flag {
+    On,
+    Off,
+}
+
+resource Token has destroy {
+    amount: u64,
+}
+
+action burn(token: Token, flag: Flag) {
+    match flag {
+        Flag::On => destroy token,
+        Flag::Off => destroy token,
+    }
+}
+"#;
+
+    const LINEAR_MATCH_EXPR_INCONSISTENT_STATEFUL_ARMS_PROGRAM: &str = r#"
+module test
+
+enum Flag {
+    On,
+    Off,
+}
+
+resource Token has destroy {
+    amount: u64,
+}
+
+action bad(token: Token, flag: Flag) {
+    match flag {
+        Flag::On => destroy token,
+        Flag::Off => 0,
+    }
+}
+"#;
+
     const UNKNOWN_MATCH_VARIANT_PROGRAM: &str = r#"
 module test
 
@@ -10229,6 +10311,27 @@ action activate(ticket: Ticket) -> Ticket {
 
         assert!(asm.contains("seqz t0, t0"), "exhaustive match lowering missing equality check:\n{}", asm);
         assert!(asm.contains("li a0, 8"), "exhaustive match did not retain invalid-discriminant fail-closed branch:\n{}", asm);
+    }
+
+    #[test]
+    fn compile_merges_linear_moves_inside_match_expressions() {
+        compile(LINEAR_MATCH_EXPR_LET_MOVE_PROGRAM, CompileOptions::default()).unwrap();
+        compile(LINEAR_MATCH_EXPR_STATEFUL_ARMS_PROGRAM, CompileOptions::default()).unwrap();
+
+        let moved_err = compile(LINEAR_MATCH_EXPR_INCONSISTENT_LET_MOVE_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(
+            moved_err.message.contains("linear resource 'left' has inconsistent ownership state across match arms")
+                || moved_err.message.contains("linear resource 'right' has inconsistent ownership state across match arms"),
+            "unexpected error: {}",
+            moved_err.message
+        );
+
+        let stateful_err = compile(LINEAR_MATCH_EXPR_INCONSISTENT_STATEFUL_ARMS_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(
+            stateful_err.message.contains("linear resource 'token' has inconsistent ownership state across match arms"),
+            "unexpected error: {}",
+            stateful_err.message
+        );
     }
 
     #[test]

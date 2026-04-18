@@ -45,7 +45,7 @@
 | CLI 子命令 | 🟡 本地工作流已接主入口，registry/runtime 命令仍 fail-closed/feature-gated | `cellscript/src/cli/` |
 | 集合类型 | 🚧 基础定义 | `cellscript/src/stdlib/collections.rs` |
 | 调试信息 | 🚧 原型级 | `cellscript/src/debug/` |
-| 测试套件 | 🟡 默认特性 `cargo test -p cellscript` 当前 321 项通过 | `cellscript/src/`, `cellscript/tests/` |
+| 测试套件 | 🟡 默认特性 `cargo test -p cellscript` 当前 322 项通过 | `cellscript/src/`, `cellscript/tests/` |
 
 **编译器项目路径**: `/Users/arthur/RustroverProjects/Spora/cellscript/`  
 
@@ -2077,6 +2077,8 @@ Slice 74 更新：普通 `if` expression 也使用同一套线性分支合并规
 Slice 75 更新：普通 block expression 现在会把父作用域中已有 resource 的线性状态从块内子环境写回父环境，同时保留块内局部绑定的词法作用域。`{ destroy token }`、`{ token }`、`{ let inner = token; inner }` 这类包在 block 里的状态操作或 move 不再被块作用域吞掉；block-local 线性绑定如果没有被处理或通过尾表达式移出，例如 `{ let out = create Token { ... }; 1 }`，会被类型检查器拒绝。尾部线性值在 block 自身类型推断阶段标记，外层 move 标记不再重新执行整段 block，避免对已经类型检查过的语句二次 consume/destroy。这样 block expression 和 `if` expression 使用同一套父作用域线性状态传播模型。
 
 Slice 76 更新：block expression 的尾部 `if` 语句现在也可以作为值尾表达式参与类型检查、线性合并和 IR lowering。`let moved = { let inner = token; if flag { inner } else { inner } }` 现在可通过，因为两个 block-tail-if 分支移动同一个 block-local resource；`let moved = { if flag { left } else { right } }` 会被拒绝，因为分支只移动不同的父作用域 resource。纯值路径如 `let value = { if flag { 1 } else { 2 } }` 会 lowering 成 then/else 分支写入 join 临时变量，再由外层绑定或 return 使用。这样 block expression 不再只识别尾部 `Stmt::Expr`，也识别带 `else` 的尾部 `Stmt::If`。
+
+Slice 77 更新：`match` expression 现在也进入线性所有权分支合并。每个 arm 会在独立 child env 中类型检查和 move 标记，所有 arm 对父作用域 resource 的最终状态必须一致后才写回父环境。`let moved = match flag { Flag::On => token, Flag::Off => token }` 现在可通过；`Flag::On => left, Flag::Off => right` 会被拒绝，因为不同 arm 只移动不同 resource。状态操作也按同一规则处理，例如所有 arm 都 `destroy token` 可通过，只有单个 arm destroy 会报 `match arms` 线性状态不一致。
 
 目标：
 - 在后端工作扩展之前冻结最小语言核心。
