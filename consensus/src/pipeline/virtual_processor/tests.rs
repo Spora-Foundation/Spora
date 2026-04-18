@@ -635,6 +635,154 @@ async fn rejects_mergeset_history_when_a_blue_block_dep_was_spent_on_selected_pa
 
 #[cfg(not(feature = "vm"))]
 #[tokio::test]
+async fn virtual_state_mpe_mergeset_recalculation_is_deterministic_e2e() {
+    let config = ConfigBuilder::new(MAINNET_PARAMS)
+        .skip_proof_of_work()
+        .edit_consensus_params(|params| {
+            params.coinbase_maturity = 0;
+        })
+        .build();
+    let consensus = TestConsensus::new(&config);
+    let wait_handles = consensus.init();
+    let virtual_processor = consensus.virtual_processor().clone();
+    let miner_data = empty_miner_data();
+
+    let warmup = consensus
+        .build_block_template(miner_data.clone(), Box::new(OnetimeTxSelector::new(vec![])), TemplateBuildMode::Standard)
+        .unwrap();
+    consensus.validate_and_insert_block(warmup.block.to_immutable()).virtual_state_task.await.unwrap();
+
+    let funding_a = consensus
+        .build_block_template(miner_data.clone(), Box::new(OnetimeTxSelector::new(vec![])), TemplateBuildMode::Standard)
+        .unwrap();
+    let funding_a_coinbase = funding_a.block.transactions[0].clone();
+    consensus.validate_and_insert_block(funding_a.block.to_immutable()).virtual_state_task.await.unwrap();
+
+    let funding_b = consensus
+        .build_block_template(miner_data.clone(), Box::new(OnetimeTxSelector::new(vec![])), TemplateBuildMode::Standard)
+        .unwrap();
+    let funding_b_coinbase = funding_b.block.transactions[0].clone();
+    consensus.validate_and_insert_block(funding_b.block.to_immutable()).virtual_state_task.await.unwrap();
+
+    let funding_c = consensus
+        .build_block_template(miner_data.clone(), Box::new(OnetimeTxSelector::new(vec![])), TemplateBuildMode::Standard)
+        .unwrap();
+    let funding_c_coinbase = funding_c.block.transactions[0].clone();
+    consensus.validate_and_insert_block(funding_c.block.to_immutable()).virtual_state_task.await.unwrap();
+
+    let parent = consensus
+        .build_block_template(miner_data.clone(), Box::new(OnetimeTxSelector::new(vec![])), TemplateBuildMode::Standard)
+        .unwrap();
+    let parent_hash = parent.block.header.hash;
+    consensus.validate_and_insert_block(parent.block.to_immutable()).virtual_state_task.await.unwrap();
+
+    let spend_a_tx = build_cell_spend_tx(
+        OutPoint::new(funding_a_coinbase.id(), 0),
+        funding_a_coinbase.outputs[0].capacity.checked_sub(1_000).expect("coinbase output should be large enough"),
+        0,
+    );
+    let spend_b_tx = build_cell_spend_tx(
+        OutPoint::new(funding_b_coinbase.id(), 0),
+        funding_b_coinbase.outputs[0].capacity.checked_sub(1_000).expect("coinbase output should be large enough"),
+        0,
+    );
+    let spend_c_tx = build_cell_spend_tx(
+        OutPoint::new(funding_c_coinbase.id(), 0),
+        funding_c_coinbase.outputs[0].capacity.checked_sub(1_000).expect("coinbase output should be large enough"),
+        0,
+    );
+    let spend_a = consensus
+        .build_block_template(miner_data.clone(), Box::new(OnetimeTxSelector::new(vec![spend_a_tx])), TemplateBuildMode::Standard)
+        .unwrap();
+    assert_eq!(spend_a.block.header.direct_parents(), &[parent_hash]);
+
+    let spend_b = consensus
+        .build_block_template(miner_data.clone(), Box::new(OnetimeTxSelector::new(vec![spend_b_tx])), TemplateBuildMode::Standard)
+        .unwrap();
+    assert_eq!(spend_b.block.header.direct_parents(), &[parent_hash]);
+
+    let spend_c = consensus
+        .build_block_template(miner_data, Box::new(OnetimeTxSelector::new(vec![spend_c_tx])), TemplateBuildMode::Standard)
+        .unwrap();
+    assert_eq!(spend_c.block.header.direct_parents(), &[parent_hash]);
+
+    consensus.validate_and_insert_block(spend_a.block.to_immutable()).virtual_state_task.await.unwrap();
+    consensus.validate_and_insert_block(spend_b.block.to_immutable()).virtual_state_task.await.unwrap();
+    consensus.validate_and_insert_block(spend_c.block.to_immutable()).virtual_state_task.await.unwrap();
+
+    let virtual_read = virtual_processor.virtual_stores.read();
+    let current_virtual = virtual_read.state.get().expect("virtual state must exist");
+    let virtual_parents = current_virtual.parents.clone();
+    let virtual_ghostdag_data = current_virtual.ghostdag_data.clone();
+    assert!(virtual_parents.len() >= 3, "three same-parent blue tips should remain virtual parents");
+    assert!(virtual_ghostdag_data.mergeset_blues.len() >= 2, "three same-parent blue tips should produce a multi-block MPE mergeset");
+    let expected_blue_tx_ids = virtual_ghostdag_data
+        .mergeset_blues
+        .iter()
+        .flat_map(|blue_hash| {
+            consensus
+                .block_transactions_store
+                .get(*blue_hash)
+                .expect("blue block transactions must exist")
+                .iter()
+                .skip(1)
+                .map(|tx| Hash::from_bytes(tx.id()))
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+    assert!(expected_blue_tx_ids.len() >= 2, "MPE mergeset should include at least two non-coinbase blue transactions");
+    let selected_parent_cell_root =
+        virtual_processor.cell_roots_store.get(virtual_ghostdag_data.selected_parent).expect("selected parent cell root must exist");
+
+    let mut accumulated_a = current_virtual.cell_diff.clone().reverse();
+    let first = virtual_processor
+        .calculate_virtual_state(
+            &virtual_read,
+            virtual_parents.clone(),
+            virtual_ghostdag_data.clone(),
+            selected_parent_cell_root,
+            &mut accumulated_a,
+        )
+        .expect("first virtual state recalculation should succeed");
+
+    let mut accumulated_b = current_virtual.cell_diff.clone().reverse();
+    let second = virtual_processor
+        .calculate_virtual_state(&virtual_read, virtual_parents, virtual_ghostdag_data, selected_parent_cell_root, &mut accumulated_b)
+        .expect("second virtual state recalculation should succeed");
+    drop(current_virtual);
+    drop(virtual_read);
+
+    let mut first_tree = first.cell_state_tree.clone();
+    let mut second_tree = second.cell_state_tree.clone();
+    assert_eq!(first_tree.root(), second_tree.root());
+    assert_eq!(first.accepted_tx_ids, second.accepted_tx_ids);
+    for tx_id in expected_blue_tx_ids {
+        assert!(first.accepted_tx_ids.contains(&tx_id), "blue transaction {tx_id} should be accepted by MPE recalculation");
+    }
+    assert_eq!(first.cell_diff.add, second.cell_diff.add);
+    assert_eq!(first.cell_diff.remove, second.cell_diff.remove);
+    assert_eq!(accumulated_a.add, accumulated_b.add);
+    assert_eq!(accumulated_a.remove, accumulated_b.remove);
+    assert_eq!(first.block_cell_diffs.len(), second.block_cell_diffs.len());
+    for (first_diff, second_diff) in first.block_cell_diffs.iter().zip(second.block_cell_diffs.iter()) {
+        assert_eq!(first_diff.block_hash, second_diff.block_hash);
+        assert_eq!(first_diff.block_daa_score, second_diff.block_daa_score);
+        assert_eq!(first_diff.cell_diff.add, second_diff.cell_diff.add);
+        assert_eq!(first_diff.cell_diff.remove, second_diff.cell_diff.remove);
+    }
+    assert_eq!(first.mergeset_rewards.len(), second.mergeset_rewards.len());
+    for (block_hash, first_reward) in &first.mergeset_rewards {
+        let second_reward = second.mergeset_rewards.get(block_hash).expect("second calculation should retain reward entry");
+        assert_eq!(first_reward.subsidy, second_reward.subsidy);
+        assert_eq!(first_reward.total_fees, second_reward.total_fees);
+        assert_eq!(first_reward.lock_script.hash(), second_reward.lock_script.hash());
+    }
+
+    consensus.shutdown(wait_handles);
+}
+
+#[cfg(not(feature = "vm"))]
+#[tokio::test]
 async fn validates_mempool_transaction_against_virtual_state_and_sets_fee() {
     let config = ConfigBuilder::new(MAINNET_PARAMS).skip_proof_of_work().build();
     let consensus = TestConsensus::new(&config);

@@ -557,10 +557,11 @@ MPE 的问题不是 DAG 模型不够，而是执行层没被正确分层。
 2. 不同导入顺序、相同 GhostDAG 视角下，结果完全一致
 3. cross-blue-block duplicate tx / double spend / cell_dep read-after-spend 场景有明确规范测试
 4. 并行实现中不存在直接共享写 `cell_state_tree` / `processed_txs` / replay overlay 的路径
+5. `consensus/benches/mpe_parallel_execution.rs` 量化串行/分层并行 effect 合并和冲突检测成本
 
 建议再加一条工程验收门槛：
 
-5. 旧的“边分析边写共享状态”路径要被删除或明确降级为测试 reference runner，不能与新路径并存为双主实现
+6. 旧的“边分析边写共享状态”路径要被删除或明确降级为测试 reference runner，不能与新路径并存为双主实现
 
 ## 10. Go / No-Go 建议
 
@@ -778,6 +779,19 @@ pub struct BlockAccessSummary {
 这一步是一刀切方案的核心。
 
 如果做不到这一步，就说明还没有真正完成 `MPE`。
+
+#### Step 5a: VM resumable 模式的执行边界
+
+当 `vm` feature 启用且配置了 `resumable_virtual_state_step_cycles` 时，virtual processor 使用同一套：
+
+- `BlockAccessSummary`
+- `ExecutionDAG`
+- canonical commit order
+- commit-time consumed-cell / cell_dep 可用性验证
+
+但执行时只维护一个 suspension cursor，因此同层 block 不做 `par_iter()` 并行分析，而是按 `ExecutionDAG` 展平后的 canonical 顺序逐块执行。
+
+这条路径不是第二套共识语义，也不是旧的共享写状态机；它是 MPE 的 resumable 兼容模式。吞吐基准应优先看非 resumable `calculate_cell_state` 路径。
 
 #### Step 6: 删掉旧状态机残件
 

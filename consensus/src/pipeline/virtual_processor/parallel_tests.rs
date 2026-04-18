@@ -296,6 +296,22 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_commit_guard_requires_removed_cells_in_current_tree() {
+        use spora_state::CellStateTree;
+
+        let outpoint = outpoint(0xC0, 0);
+        let meta = make_cell_meta(outpoint, 5000, 1, true);
+        let mut effect = BlockExecutionEffect::empty(hash(0xB0), 10);
+        effect.cell_diff.add_cell(outpoint, meta.clone());
+        effect.cell_diff.remove_cell(outpoint, meta);
+
+        assert!(
+            execution_effect_conflicts_with_current_state(&CellStateTree::new(), &effect),
+            "Commit guard must not let a local add mask a remove whose prerequisite is absent from the canonical tree"
+        );
+    }
+
     // ========================================================================
     // T4: Created-Then-Spent Across Blue Blocks (Cross-Block Dependency)
     // ========================================================================

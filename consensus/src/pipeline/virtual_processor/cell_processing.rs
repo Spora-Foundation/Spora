@@ -252,18 +252,31 @@ fn record_tx_read_deps(read_deps: &mut BTreeSet<TransactionOutpoint>, tx: &spora
     }
 }
 
-fn effect_outpoint_available_for_commit(tree: &CellStateTree, effect: &BlockExecutionEffect, outpoint: &TransactionOutpoint) -> bool {
-    if effect.cell_diff.add.contains_key(outpoint) {
-        return true;
-    }
-
+fn outpoint_exists_in_tree(tree: &CellStateTree, outpoint: &TransactionOutpoint) -> bool {
     let outpoint_hash = outpoint_to_hash(outpoint);
     tree.get(&outpoint_hash).is_some()
 }
 
 pub(super) fn execution_effect_conflicts_with_current_state(tree: &CellStateTree, effect: &BlockExecutionEffect) -> bool {
-    effect.cell_diff.remove.keys().any(|outpoint| !effect_outpoint_available_for_commit(tree, effect, outpoint))
-        || effect.read_deps.iter().any(|outpoint| !effect_outpoint_available_for_commit(tree, effect, outpoint))
+    effect.cell_diff.remove.keys().any(|outpoint| !outpoint_exists_in_tree(tree, outpoint))
+        || effect
+            .read_deps
+            .iter()
+            .any(|outpoint| !effect.cell_diff.add.contains_key(outpoint) && !outpoint_exists_in_tree(tree, outpoint))
+}
+
+fn ensure_execution_effect_available_for_commit(
+    tree: &CellStateTree,
+    effect: &BlockExecutionEffect,
+    block_hash: Hash,
+) -> Result<(), RuleError> {
+    if execution_effect_conflicts_with_current_state(tree, effect) {
+        return Err(RuleError::CellValidationError(format!(
+            "blue block {block_hash} produced an execution effect whose consumed cells or cell_dep reads are unavailable at commit"
+        )));
+    }
+
+    Ok(())
 }
 
 fn invalidate_effect_preserving_reward(effect: &BlockExecutionEffect, block_hash: Hash, block_daa_score: u64) -> BlockExecutionEffect {
@@ -1264,6 +1277,9 @@ impl VirtualStateProcessor {
         let dag = ExecutionDAG::build(&summaries);
         let execution_order = dag.layers.iter().flat_map(|layer| layer.iter().copied()).collect::<Vec<_>>();
 
+        // Resumable execution keeps a single suspension cursor, so it uses the
+        // same canonical DAG order and commit validation as MPE but executes one
+        // block at a time.
         for execution_pos in start_blue_execution_pos..execution_order.len() {
             let blue_block_index = execution_order[execution_pos];
             let blue_block = mergeset_blues[blue_block_index];
@@ -1305,11 +1321,8 @@ impl VirtualStateProcessor {
                 }
             };
 
-            let final_effect = if execution_effect_conflicts_with_current_state(&ctx.cell_state_tree, &effect) {
-                invalidate_effect_preserving_reward(&effect, blue_block, blue_block_daa_score)
-            } else {
-                effect
-            };
+            ensure_execution_effect_available_for_commit(&ctx.cell_state_tree, &effect, blue_block)?;
+            let final_effect = effect;
 
             for tx_id in &final_effect.newly_processed_tx_ids {
                 processed_txs.insert(*tx_id);
@@ -1501,11 +1514,8 @@ impl VirtualStateProcessor {
 
                     let snapshot = ExecutionSnapshot::from_current_state(&ctx.cell_state_tree, &processed_txs, &replay_validation);
                     let effect = self.analyze_blue_block(&snapshot, blue_block, block_txs.as_slice(), blue_block_daa_score)?;
-                    let final_effect = if execution_effect_conflicts_with_current_state(&ctx.cell_state_tree, &effect) {
-                        invalidate_effect_preserving_reward(&effect, blue_block, blue_block_daa_score)
-                    } else {
-                        effect
-                    };
+                    ensure_execution_effect_available_for_commit(&ctx.cell_state_tree, &effect, blue_block)?;
+                    let final_effect = effect;
 
                     // Update cross-block bookkeeping
                     for tx_id in &final_effect.newly_processed_tx_ids {
