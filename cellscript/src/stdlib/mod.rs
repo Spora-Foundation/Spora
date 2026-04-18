@@ -29,11 +29,54 @@ impl StdLib {
                 return_type: Some(IrType::U64),
             },
             StdFunction {
+                name: "syscall_load_header".to_string(),
+                params: vec![
+                    ("buffer".to_string(), IrType::U64),
+                    ("size".to_string(), IrType::U64),
+                    ("offset".to_string(), IrType::U64),
+                    ("index".to_string(), IrType::U64),
+                    ("source".to_string(), IrType::U64),
+                ],
+                return_type: Some(IrType::U64),
+            },
+            StdFunction {
                 name: "syscall_load_input".to_string(),
                 params: vec![
                     ("index".to_string(), IrType::U64),
                     ("source".to_string(), IrType::U64),
                     ("field".to_string(), IrType::U64),
+                ],
+                return_type: Some(IrType::U64),
+            },
+            StdFunction {
+                name: "syscall_load_script".to_string(),
+                params: vec![
+                    ("buffer".to_string(), IrType::U64),
+                    ("size".to_string(), IrType::U64),
+                    ("offset".to_string(), IrType::U64),
+                ],
+                return_type: Some(IrType::U64),
+            },
+            StdFunction {
+                name: "syscall_load_cell_by_field".to_string(),
+                params: vec![
+                    ("buffer".to_string(), IrType::U64),
+                    ("size".to_string(), IrType::U64),
+                    ("offset".to_string(), IrType::U64),
+                    ("index".to_string(), IrType::U64),
+                    ("source".to_string(), IrType::U64),
+                    ("field".to_string(), IrType::U64),
+                ],
+                return_type: Some(IrType::U64),
+            },
+            StdFunction {
+                name: "syscall_load_cell_data".to_string(),
+                params: vec![
+                    ("buffer".to_string(), IrType::U64),
+                    ("size".to_string(), IrType::U64),
+                    ("offset".to_string(), IrType::U64),
+                    ("index".to_string(), IrType::U64),
+                    ("source".to_string(), IrType::U64),
                 ],
                 return_type: Some(IrType::U64),
             },
@@ -154,6 +197,19 @@ impl StdLib {
         asm.push_str("    addi sp, sp, 16\n");
         asm.push_str("    ret\n\n");
 
+        // syscall_load_header (2072)
+        asm.push_str("# Syscall: load_header (2072)\n");
+        asm.push_str(".global __syscall_load_header\n");
+        asm.push_str("__syscall_load_header:\n");
+        asm.push_str("    addi sp, sp, -16\n");
+        asm.push_str("    sd ra, 8(sp)\n");
+        asm.push_str("    li a7, 2072\n");
+        asm.push_str("    # a0 = buffer, a1 = size pointer, a2 = offset, a3 = index, a4 = source\n");
+        asm.push_str("    ecall\n");
+        asm.push_str("    ld ra, 8(sp)\n");
+        asm.push_str("    addi sp, sp, 16\n");
+        asm.push_str("    ret\n\n");
+
         // syscall_load_input (2073)
         asm.push_str("# Syscall: load_input (2073)\n");
         asm.push_str(".global __syscall_load_input\n");
@@ -175,6 +231,45 @@ impl StdLib {
         asm.push_str("    sd ra, 8(sp)\n");
         asm.push_str("    li a7, 2074\n");
         asm.push_str("    # a0 = index, a1 = source\n");
+        asm.push_str("    ecall\n");
+        asm.push_str("    ld ra, 8(sp)\n");
+        asm.push_str("    addi sp, sp, 16\n");
+        asm.push_str("    ret\n\n");
+
+        // syscall_load_script (2075)
+        asm.push_str("# Syscall: load_script (2075)\n");
+        asm.push_str(".global __syscall_load_script\n");
+        asm.push_str("__syscall_load_script:\n");
+        asm.push_str("    addi sp, sp, -16\n");
+        asm.push_str("    sd ra, 8(sp)\n");
+        asm.push_str("    li a7, 2075\n");
+        asm.push_str("    # a0 = buffer, a1 = size pointer, a2 = offset\n");
+        asm.push_str("    ecall\n");
+        asm.push_str("    ld ra, 8(sp)\n");
+        asm.push_str("    addi sp, sp, 16\n");
+        asm.push_str("    ret\n\n");
+
+        // syscall_load_cell_by_field (2081)
+        asm.push_str("# Syscall: load_cell_by_field (2081)\n");
+        asm.push_str(".global __syscall_load_cell_by_field\n");
+        asm.push_str("__syscall_load_cell_by_field:\n");
+        asm.push_str("    addi sp, sp, -16\n");
+        asm.push_str("    sd ra, 8(sp)\n");
+        asm.push_str("    li a7, 2081\n");
+        asm.push_str("    # a0 = buffer, a1 = size pointer, a2 = offset, a3 = index, a4 = source, a5 = field\n");
+        asm.push_str("    ecall\n");
+        asm.push_str("    ld ra, 8(sp)\n");
+        asm.push_str("    addi sp, sp, 16\n");
+        asm.push_str("    ret\n\n");
+
+        // syscall_load_cell_data (2092)
+        asm.push_str("# Syscall: load_cell_data (2092)\n");
+        asm.push_str(".global __syscall_load_cell_data\n");
+        asm.push_str("__syscall_load_cell_data:\n");
+        asm.push_str("    addi sp, sp, -16\n");
+        asm.push_str("    sd ra, 8(sp)\n");
+        asm.push_str("    li a7, 2092\n");
+        asm.push_str("    # a0 = buffer, a1 = size pointer, a2 = offset, a3 = index, a4 = source\n");
         asm.push_str("    ecall\n");
         asm.push_str("    ld ra, 8(sp)\n");
         asm.push_str("    addi sp, sp, 16\n");
@@ -457,6 +552,9 @@ mod tests {
         assert!(!StdLib::is_std_function("borsh_serialize_u64"));
         assert!(!StdLib::is_std_function("borsh_deserialize_u64"));
         assert!(StdLib::is_std_function("syscall_load_cell"));
+        assert!(StdLib::is_std_function("syscall_load_script"));
+        assert!(StdLib::is_std_function("syscall_load_cell_by_field"));
+        assert!(StdLib::is_std_function("syscall_load_cell_data"));
         assert!(StdLib::is_std_function("math_isqrt"));
     }
 
@@ -474,6 +572,12 @@ mod tests {
         assert!(!asm.contains("__borsh_serialize_u64"));
         assert!(!asm.contains("__borsh_deserialize_u64"));
         assert!(asm.contains("__syscall_load_cell"));
+        assert!(asm.contains("__syscall_load_script:\n"));
+        assert!(asm.contains("__syscall_load_cell_by_field:\n"));
+        assert!(asm.contains("__syscall_load_cell_data:\n"));
+        assert!(asm.contains("li a7, 2075"));
+        assert!(asm.contains("li a7, 2081"));
+        assert!(asm.contains("li a7, 2092"));
         assert!(asm.contains("__math_isqrt"));
     }
 }

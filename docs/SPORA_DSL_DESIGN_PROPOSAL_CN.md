@@ -306,7 +306,7 @@ CellScript 故意不针对：
 CellScript 占据中间地带：
 
 - **比 Solidity 更受约束**：你不能编写任意程序。类型系统强制线性。编译器拒绝复制资源或在没有显式销毁的情况下丢弃它们的代码。
-- **比 Bitcoin Script 更具表达力**：你有结构化类型、控制流、函数调用和泛型参数。你可以表达复杂的 AMM 不变量、归属计划和多边结算协议。
+- **比 Bitcoin Script 更具表达力**：你有结构化类型、控制流、具体辅助函数和协议可见的 Cell 操作。你可以表达复杂的 AMM 不变量、归属计划和多边结算协议。
 - **与 Move 类似级别**：面向资源，具有显式生命周期管理。但更窄——没有通用模块系统，没有动态分派，没有无界集合。
 
 目标用户是**协议设计者**，他们以"我有一个具有这些规则的资产、一个具有这些不变量的池、以及一个具有这些步骤的结算过程"的方式思考。CellScript 使这些思想可以直接表达并由编译器验证。
@@ -525,9 +525,11 @@ resource SoulBound has store {
 - `drop` 不作为隐式能力存在。销毁必须通过 `destroy` 能力显式进行。
 - `key` 被 `store` 取代。所有存储的资源都由 OutPoint 索引，而不是由单独的键索引。
 
-### 5.4 泛型类型
+### 5.4 Post-v1 模板，而不是核心泛型
 
-CellScript 支持有限的泛型，参数化数据布局：
+CellScript v1 的可执行源码不支持用户自定义泛型类型参数。这是刻意收窄的语言边界：CellScript 是 Cell 生命周期语言，进入 verifier 的持久化 schema 应当是具体、可审计、可被 metadata 稳定寻址的。
+
+下面的写法不是 v1 可执行语法：
 
 ```
 resource Vault<T: store> {
@@ -536,22 +538,23 @@ resource Vault<T: store> {
 }
 ```
 
-泛型在编译时单态化。编译器为每个具体实例化生成单独的类型脚本（`Vault<Token>`、`Vault<NFT>` 等）。泛型参数必须在编译时具有已知大小——没有 trait 对象，没有动态分派。
+参数化作者体验属于 post-v1 package/codegen/template 层。模板可以生成专门化的 `.cell` 模块，例如 `TokenVault` 或 `NftVault`，但生成后的 CellScript 必须包含具体字段类型、具体生命周期规则，以及 `#[type_id("...")]` 这样的稳定 schema metadata。
+
+实现说明：parser/type checker 会拒绝 `resource Vault<T>` 这类用户泛型定义，也会拒绝 `Vault<Token>` 这类用户自定义泛型实例化。`Vec<T>` 仍然作为局部有界集合 API 和编译器/runtime metadata 使用的受控内建集合记法保留；它不是通用用户泛型类型系统。
 
 ### 5.5 对象身份
 
 每个持久对象都有一个身份：它的 `OutPoint` (`tx_hash || index`)。当资源被消费并重新创建时（例如，更新共享状态），OutPoint 发生变化。CellScript 为稳定身份提供 `type_id` 模式：
 
 ```
-// type_id: 特定创世交易的第一个输出
-// 此模式继承自 CKB 的 type_id 约定
-shared Registry {
-    #[type_id]
+// stable type identity for tooling/schema metadata
+#[type_id("spora::registry::Registry:v1")]
+shared Registry has store {
     entries: [RegistryEntry; 64],
 }
 ```
 
-`#[type_id]` 属性指示类型脚本验证 Cell 的 OutPoint 链追溯到特定创世交易，在更新中提供稳定身份。
+当前实现说明：`#[type_id("...")]` 是 type definition 级属性，可用于 `resource` / `shared` / `receipt` / `struct`。编译器会解析它、拒绝同模块重复值、在 IR 中保留，并在 metadata schema v20 中输出 `types[].type_id` 和 `types[].type_id_hash_blake3`。这还不是完整的 CKB type_id lineage verifier；验证 Cell 的 OutPoint 链追溯到创世交易仍属于后续可执行 verifier / transaction-builder 语义。
 
 ### 5.6 共享对象表示
 
@@ -1198,8 +1201,12 @@ RISC-V 代码生成器：
 - `syscall_load_tx_hash` (2061)
 - `syscall_load_script_hash` (2062)
 - `syscall_load_cell` (2071)
+- `syscall_load_header` (2072)
 - `syscall_load_input` (2073)
 - `syscall_load_witness` (2074)
+- `syscall_load_script` (2075)
+- `syscall_load_cell_by_field` (2081)
+- `syscall_load_cell_data` (2092)
 - `syscall_current_cycles` (2042)
 - `syscall_debug_print` (2177)
 
@@ -1997,7 +2004,7 @@ Slice 25 更新：AMM 控制样例中的计算局部值也已进入 verifier pre
 
 Slice 26 更新：Pool 专属语义缺口现在已从普通 `shared-mutation:Pool` 义务中拆出来。metadata 新增 `pool-pattern` 类 runtime-required obligations：`seed_pool` 暴露 `pool-create:Pool`，AMM 的 `swap_a_for_b` / `add_liquidity` / `remove_liquidity` 暴露 `pool-mutation-invariants:Pool`，`launch_token -> seed_pool -> Pool` 的组合路径暴露 `pool-composition:Pool`。因此，普通 Pool replacement 的 TypeHash/LockHash、preserved fields 和 source-level field transitions 可以是 `checked-runtime`，但审计/策略工具仍会明确看到 池模式准入规则、AMM 不变量、LP supply consistency、fee accounting 和 launch/pool composition 语义还没有执行化。
 
-Slice 27 更新：Pool 专属义务现在不只是字符串。metadata schema v11 新增 runtime/action/fn/lock 级 `pool_primitives[]`，每条记录包含 `operation`、`feature`、`ty`、`status`、`source`、`checked_components`、`runtime_required_components`、`source_invariant_count`、可选 `binding` / `callee` / Input/Output index，以及 transition/preserved field 列表。当前 `seed_pool` 的 `pool-create:Pool` 会记录 create source、Output index、source invariant guard 数量和 token-pair/reserve/fee/LP runtime 组件；AMM mutation 会记录 replacement ABI、transition/preserved fields、checked generic mutation components 和 reserve/fee/LP/admission runtime 组件；`launch_token` 会记录 `seed_pool` callee 和 launch-pool atomicity 债务。docgen 的 lowering audit 也会输出 Pool Pattern Metadata 表。
+Slice 27 更新：Pool 专属义务现在不只是字符串。metadata schema v11 新增 runtime/action/fn/lock 级 `pool_primitives[]`，每条记录包含 `operation`、`feature`、`ty`、`status`、`source`、`checked_components`、`runtime_required_components`、`source_invariant_count`、可选 `binding` / `callee` / Input/Output index，以及 transition/preserved field 列表。当前 `seed_pool` 的 `pool-create:Pool` 会记录 create source、Output index、source invariant guard 数量和 token-pair/reserve/fee/LP runtime 组件；AMM mutation 会记录 replacement ABI、transition/preserved fields、checked general mutation components 和 reserve/fee/LP/admission runtime 组件；`launch_token` 会记录 `seed_pool` callee 和 launch-pool atomicity 债务。docgen 的 lowering audit 也会输出 Pool Pattern Metadata 表。
 
 Slice 28 更新：Pool pattern metadata 现在进入 schema v12，并新增 `invariant_families[]`：每个 family 记录 `name`、`status` 和 `source`。受控 AMM/launch 样例中的源码 `assert_invariant` CFG guard 会被命名为 checked component，例如 `seed_pool` 的 `token-pair-distinct` / `positive-reserves`，`swap_a_for_b` 的 input-token match、minimum-output 和 reserve-output bounds，`add_liquidity` 的 deposit-token matches，`remove_liquidity` 的 LP receipt pool-id match，以及 `launch_token` 的 mint/seed/distribution cap。与此同时，fee policy、LP supply、constant-product pricing、proportional liquidity/withdrawal accounting、pool admission 和 launch-pool atomicity 仍保持 `runtime-required`，没有被误报为 池模式语义已完成。
 
@@ -2210,7 +2217,7 @@ Slice 63 更新：schema v18 为 Pool `invariant_families[]` 和 Pool `runtime_i
 还不构建：
 - 优化器
 - LSP
-- 花哨的泛型
+- 可执行源码中的用户自定义泛型
 - 高级宏系统
 
 门槛：
@@ -2245,7 +2252,7 @@ Slice 63 更新：schema v18 为 Pool `invariant_families[]` 和 Pool `runtime_i
 
 ### 阶段 2 — 资产生命周期和共享状态核心
 
-当前执行状态（2026-04-18）：Phase 2 和 Phase 3 operational exit gate 已关闭，Phase 4 生产强化已开始。`vesting.cell` 是当前受控目标；`read_ref` 参数调度器可见，schema-backed `Address` / `Hash` / `[u8; N]` 输出字段保存已进入 verifier 覆盖；create 的固定字节常量、`[u8; N<=8]` 参数、32 字节 `Address` / `Hash` 指针+长度参数输出验证已落地；固定宽度 aggregate 参数（例如 `[u64; N]`、`[(Address, u64); N]`）现在也有指针+长度 ABI、exact-size/bounds check、静态 foreach 展开、固定索引 lowering 和 tuple field projection；已知 tuple 返回类型的调用现在可通过真实 RISC-V 返回寄存器 ABI 返回并投影 `.0` 到 `.7`；受控 `launch_token -> seed_pool` 的 `pool-id-continuity` 已标为 `checked-runtime`；受控 `swap_a_for_b` 的 LP supply 不变式已通过 preserved `Pool.total_lp` equality 标为 `checked-runtime`；新建 Output 的 `type_hash()` 现在可通过 `LOAD_CELL_BY_FIELD Source::Output field=5` 读取实例 TypeHash，并作为固定字节 verifier source；命名 schema 参数的 `type_hash()` 现在要求可信的 32 字节指针+长度 ABI，而不是把 Pool 实例身份简化为编译期类型名 hash；可证明的 `with_lock(...)` 绑定现在会通过 `LOAD_CELL_BY_FIELD` 读取输出 `LockHash` 并做 32 字节比较；命名 cell-backed `destroy` 现在会通过 `LOAD_CELL_BY_FIELD Source::GroupOutput field=5` 扫描 grouped outputs，区分 `INDEX_OUT_OF_BOUND` 扫描结束和 `ITEM_MISSING` 无 type script，并把 destroy output absence / group boundary 标为 `checked-runtime`。剩余真实差距集中在 post-v1 launch builder、更广义的池特化 admission/经济不变量、launch-pool 原子性，以及 generalized `claim` 授权策略和 `settle` 生命周期/最终化验证；其中 generalized claim/settle 已通过 transaction runtime input blocker class 表示，Pool/launch 剩余义务已通过 schema v19 `pool_primitives[]` blocker class 表示。池仍是 shared-state 协议模式，不是 v1 语言原语。Phase 3 已完成 CellTx witness placement helper、Borsh envelope decode/admission、effect/operation/source class 校验、transaction Input/CellDep/Output index bounds 校验、trusted operation/source/index/binding_hash access-set multiset 对比、compiled-metadata producer helper、wallet transaction generator witness 自动附加与 `PendingTransaction` trusted summary 暴露、producer-returned summary 通过 mining sidecar insertion 进入 selector exposure、selector-provided builder summary 的 strict template prefilter 接收/拒绝测试、consensus MPE access-summary consumption、mempool/template admission policy gate、mempool-entry/template selector producer sidecar 保存与传递，以及 malformed/illegal/out-of-bounds/underreported/forged/missing/mismatched/transaction-shape-incompatible witness summary、malformed/missing/mismatched policy metadata 和 selector sidecar 传递的第一批对抗测试；schema v19 还会把 claim witness/signature 这类 runtime-only 访问从 scheduler witness 中过滤出去。Phase 4 当前差距是外部提交路径 trusted summary 认证/传递策略、更完整的调度器/状态转换 adversarial/property 测试，以及 release-grade 格式化/检查/审计门禁。
+当前执行状态（2026-04-18）：Phase 2 和 Phase 3 operational exit gate 已关闭，Phase 4 生产强化已开始。`vesting.cell` 是当前受控目标；`read_ref` 参数调度器可见，schema-backed `Address` / `Hash` / `[u8; N]` 输出字段保存已进入 verifier 覆盖；create 的固定字节常量、`[u8; N<=8]` 参数、32 字节 `Address` / `Hash` 指针+长度参数输出验证已落地；固定宽度 aggregate 参数（例如 `[u64; N]`、`[(Address, u64); N]`）现在也有指针+长度 ABI、exact-size/bounds check、静态 foreach 展开、固定索引 lowering 和 tuple field projection；已知 tuple 返回类型的调用现在可通过真实 RISC-V 返回寄存器 ABI 返回并投影 `.0` 到 `.7`；受控 `launch_token -> seed_pool` 的 `pool-id-continuity` 已标为 `checked-runtime`；受控 `swap_a_for_b` 的 LP supply 不变式已通过 preserved `Pool.total_lp` equality 标为 `checked-runtime`；新建 Output 的 `type_hash()` 现在可通过 `LOAD_CELL_BY_FIELD Source::Output field=5` 读取实例 TypeHash，并作为固定字节 verifier source；命名 schema 参数的 `type_hash()` 现在要求可信的 32 字节指针+长度 ABI，而不是把 Pool 实例身份简化为编译期类型名 hash；可证明的 `with_lock(...)` 绑定现在会通过 `LOAD_CELL_BY_FIELD` 读取输出 `LockHash` 并做 32 字节比较；命名 cell-backed `destroy` 现在会通过 `LOAD_CELL_BY_FIELD Source::GroupOutput field=5` 扫描 grouped outputs，区分 `INDEX_OUT_OF_BOUND` 扫描结束和 `ITEM_MISSING` 无 type script，并把 destroy output absence / group boundary 标为 `checked-runtime`。剩余真实差距集中在 post-v1 launch builder、更广义的池特化 admission/经济不变量、launch-pool 原子性，以及 generalized `claim` 授权策略和 `settle` 生命周期/最终化验证；其中 generalized claim/settle 已通过 transaction runtime input blocker class 表示，Pool/launch 剩余义务已通过 schema v20 `pool_primitives[]` blocker class 表示。池仍是 shared-state 协议模式，不是 v1 语言原语。Phase 3 已完成 CellTx witness placement helper、Borsh envelope decode/admission、effect/operation/source class 校验、transaction Input/CellDep/Output index bounds 校验、trusted operation/source/index/binding_hash access-set multiset 对比、compiled-metadata producer helper、wallet transaction generator witness 自动附加与 `PendingTransaction` trusted summary 暴露、producer-returned summary 通过 mining sidecar insertion 进入 selector exposure、selector-provided builder summary 的 strict template prefilter 接收/拒绝测试、consensus MPE access-summary consumption、mempool/template admission policy gate、mempool-entry/template selector producer sidecar 保存与传递，以及 malformed/illegal/out-of-bounds/underreported/forged/missing/mismatched/transaction-shape-incompatible witness summary、malformed/missing/mismatched policy metadata 和 selector sidecar 传递的第一批对抗测试；schema v20 还会把 claim witness/signature 这类 runtime-only 访问从 scheduler witness 中过滤出去。Phase 4 当前差距是外部提交路径 trusted summary 认证/传递策略、更完整的调度器/状态转换 adversarial/property 测试，以及 release-grade 格式化/检查/审计门禁。
 
 目标：
 - 使语言对真正的 Spora 原生协议有用。
@@ -2302,7 +2309,7 @@ Slice 63 更新：schema v18 为 Pool `invariant_families[]` 和 Pool `runtime_i
 
 | 层 | v1 中必须构建 | 可以等待 |
 |---|---|---|
-| 语言 | 解析器、类型检查器、线性、生命周期核心、推断的 `touches` 和可选显式注释 | 高级泛型、宏系统 |
+| 语言 | 解析器、类型检查器、线性、生命周期核心、推断的 `touches` 和可选显式注释 | post-v1 template/codegen 泛型、宏系统 |
 | IR | 效果模型、对象模型、调度器提示 | 优化器级 SSA |
 | 后端 | 类型化布局降级、见证格式、ELF 输出 | 激进优化通道、全局对象头方案 |
 | 运行时 | 清单解析、对象验证、交易构建器集成 | 完整的链上效果 VM |

@@ -283,6 +283,10 @@ impl ModuleResolver {
         self.symbol_tables.values().find_map(|table| table.constants.get(symbol).cloned())
     }
 
+    pub fn imports_for_module(&self, module: &str) -> Vec<ImportItem> {
+        self.imports.get(module).cloned().unwrap_or_default()
+    }
+
     pub fn type_is_linear(&self, module: &str, name: &str) -> bool {
         matches!(self.resolve_type(module, name), Some(TypeDef::Resource(_)) | Some(TypeDef::Shared(_)) | Some(TypeDef::Receipt(_)))
     }
@@ -395,6 +399,7 @@ mod tests {
             name: "test".to_string(),
             items: vec![Item::Resource(ResourceDef {
                 name: "Token".to_string(),
+                type_id: None,
                 capabilities: vec![Capability::Store],
                 fields: vec![Field { name: "amount".to_string(), ty: Type::U64, span: Span::default() }],
                 span: Span::default(),
@@ -419,12 +424,14 @@ mod tests {
                 items: vec![
                     Item::Resource(ResourceDef {
                         name: "Token".to_string(),
+                        type_id: None,
                         capabilities: vec![Capability::Store],
                         fields: vec![Field { name: "amount".to_string(), ty: Type::U64, span: Span::default() }],
                         span: Span::default(),
                     }),
                     Item::Resource(ResourceDef {
                         name: "MintAuthority".to_string(),
+                        type_id: None,
                         capabilities: vec![Capability::Store],
                         fields: vec![Field { name: "max_supply".to_string(), ty: Type::U64, span: Span::default() }],
                         span: Span::default(),
@@ -462,6 +469,7 @@ mod tests {
                 items: vec![
                     Item::Resource(ResourceDef {
                         name: "Token".to_string(),
+                        type_id: None,
                         capabilities: vec![Capability::Store],
                         fields: vec![Field { name: "amount".to_string(), ty: Type::U64, span: Span::default() }],
                         span: Span::default(),
@@ -493,6 +501,7 @@ mod tests {
                 name: "spora::token".to_string(),
                 items: vec![Item::Resource(ResourceDef {
                     name: "Token".to_string(),
+                    type_id: None,
                     capabilities: vec![Capability::Store],
                     fields: vec![Field { name: "amount".to_string(), ty: Type::U64, span: Span::default() }],
                     span: Span::default(),
@@ -512,6 +521,7 @@ mod tests {
                     }),
                     Item::Struct(StructDef {
                         name: "Token".to_string(),
+                        type_id: None,
                         fields: vec![Field { name: "amount".to_string(), ty: Type::U64, span: Span::default() }],
                         span: Span::default(),
                     }),

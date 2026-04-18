@@ -360,7 +360,14 @@ mod tests {
     use crate::ir::{IrAction, IrBody};
 
     fn empty_body() -> IrBody {
-        IrBody { consume_set: Vec::new(), read_refs: Vec::new(), create_set: Vec::new(), mutate_set: Vec::new(), blocks: Vec::new() }
+        IrBody {
+            consume_set: Vec::new(),
+            read_refs: Vec::new(),
+            create_set: Vec::new(),
+            mutate_set: Vec::new(),
+            write_intents: Vec::new(),
+            blocks: Vec::new(),
+        }
     }
 
     #[test]

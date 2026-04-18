@@ -28,11 +28,21 @@ pub enum IrItem {
 #[derive(Debug, Clone)]
 pub struct IrTypeDef {
     pub name: String,
+    pub type_id: Option<String>,
     pub kind: IrTypeKind,
     pub fields: Vec<IrField>,
     pub capabilities: Vec<Capability>,
     pub claim_output: Option<IrType>,
     pub lifecycle_states: Option<Vec<String>>,
+    pub lifecycle_rules: Vec<IrLifecycleRule>,
+}
+
+#[derive(Debug, Clone)]
+pub struct IrLifecycleRule {
+    pub from: String,
+    pub to: String,
+    pub from_index: usize,
+    pub to_index: usize,
 }
 
 /// IR 类型种类
@@ -118,6 +128,7 @@ pub struct IrBody {
     pub read_refs: Vec<CellPattern>,
     pub create_set: Vec<CreatePattern>,
     pub mutate_set: Vec<MutatePattern>,
+    pub write_intents: Vec<WriteIntent>,
     pub blocks: Vec<IrBlock>,
 }
 
@@ -153,6 +164,22 @@ pub struct MutatePattern {
     pub output_index: usize,
     pub preserve_type_hash: bool,
     pub preserve_lock_hash: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct WriteIntent {
+    pub operation: String,
+    pub ty: String,
+    pub binding: String,
+    pub source: WriteIntentSource,
+    pub index: usize,
+    pub fields: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WriteIntentSource {
+    Output,
+    ReplacementOutput,
 }
 
 /// 可变 Cell 字段转换摘要
@@ -497,11 +524,13 @@ impl IrGenerator {
     fn gen_resource(&mut self, resource: &ResourceDef) -> IrTypeDef {
         IrTypeDef {
             name: resource.name.clone(),
+            type_id: resource.type_id.as_ref().map(|type_id| type_id.value.clone()),
             kind: IrTypeKind::Resource,
             fields: self.layout_fields(&resource.fields),
             capabilities: resource.capabilities.clone(),
             claim_output: None,
             lifecycle_states: None,
+            lifecycle_rules: Vec::new(),
         }
     }
 
@@ -509,11 +538,13 @@ impl IrGenerator {
     fn gen_shared(&mut self, shared: &SharedDef) -> IrTypeDef {
         IrTypeDef {
             name: shared.name.clone(),
+            type_id: shared.type_id.as_ref().map(|type_id| type_id.value.clone()),
             kind: IrTypeKind::Shared,
             fields: self.layout_fields(&shared.fields),
             capabilities: shared.capabilities.clone(),
             claim_output: None,
             lifecycle_states: None,
+            lifecycle_rules: Vec::new(),
         }
     }
 
@@ -521,11 +552,17 @@ impl IrGenerator {
     fn gen_receipt(&mut self, receipt: &ReceiptDef) -> IrTypeDef {
         IrTypeDef {
             name: receipt.name.clone(),
+            type_id: receipt.type_id.as_ref().map(|type_id| type_id.value.clone()),
             kind: IrTypeKind::Receipt,
             fields: self.layout_fields(&receipt.fields),
             capabilities: receipt.capabilities.clone(),
             claim_output: receipt.claim_output.as_ref().map(|ty| self.convert_type(ty)),
             lifecycle_states: receipt.lifecycle.as_ref().map(|lifecycle| lifecycle.states.clone()),
+            lifecycle_rules: receipt
+                .lifecycle
+                .as_ref()
+                .map(|lifecycle| Self::lifecycle_rules_from_states(&lifecycle.states))
+                .unwrap_or_default(),
         }
     }
 
@@ -533,12 +570,27 @@ impl IrGenerator {
     fn gen_struct(&mut self, struct_def: &StructDef) -> IrTypeDef {
         IrTypeDef {
             name: struct_def.name.clone(),
+            type_id: struct_def.type_id.as_ref().map(|type_id| type_id.value.clone()),
             kind: IrTypeKind::Struct,
             fields: self.layout_fields(&struct_def.fields),
             capabilities: Vec::new(),
             claim_output: None,
             lifecycle_states: None,
+            lifecycle_rules: Vec::new(),
         }
+    }
+
+    fn lifecycle_rules_from_states(states: &[String]) -> Vec<IrLifecycleRule> {
+        states
+            .windows(2)
+            .enumerate()
+            .map(|(index, window)| IrLifecycleRule {
+                from: window[0].clone(),
+                to: window[1].clone(),
+                from_index: index,
+                to_index: index + 1,
+            })
+            .collect()
     }
 
     fn infer_module_function_effects(&mut self, items: &[Item]) {
@@ -948,10 +1000,32 @@ impl IrGenerator {
         read_refs.extend(self.collect_read_ref_patterns(&blocks));
         let create_set = self.collect_create_patterns(&blocks);
         let mutate_set = self.collect_mutate_param_patterns(&ir_params, consume_set.len(), create_set.len());
+        let write_intents = Self::collect_write_intents(&create_set, &mutate_set);
         self.transition_param_ids.clear();
         self.transition_coverable_value_ids.clear();
 
-        (ir_params, IrBody { consume_set, read_refs, create_set, mutate_set, blocks })
+        (ir_params, IrBody { consume_set, read_refs, create_set, mutate_set, write_intents, blocks })
+    }
+
+    fn collect_write_intents(create_set: &[CreatePattern], mutate_set: &[MutatePattern]) -> Vec<WriteIntent> {
+        let create_intents = create_set.iter().enumerate().map(|(index, pattern)| WriteIntent {
+            operation: pattern.operation.clone(),
+            ty: pattern.ty.clone(),
+            binding: pattern.binding.clone(),
+            source: WriteIntentSource::Output,
+            index,
+            fields: pattern.fields.iter().map(|(field, _)| field.clone()).collect(),
+        });
+        let mutate_intents = mutate_set.iter().map(|pattern| WriteIntent {
+            operation: pattern.operation.clone(),
+            ty: pattern.ty.clone(),
+            binding: pattern.binding.clone(),
+            source: WriteIntentSource::ReplacementOutput,
+            index: pattern.output_index,
+            fields: pattern.fields.clone(),
+        });
+
+        create_intents.chain(mutate_intents).collect()
     }
 
     fn collect_consume_patterns(&self, blocks: &[IrBlock]) -> Vec<CellPattern> {
@@ -3325,39 +3399,64 @@ fn resolver_type_fields_to_ir(type_def: &TypeDef) -> Option<HashMap<String, IrTy
     Some(fields.iter().map(|field| (field.name.clone(), ast_type_to_ir_type(&field.ty))).collect())
 }
 
+fn lifecycle_states_to_rules(states: &[String]) -> Vec<IrLifecycleRule> {
+    states
+        .windows(2)
+        .enumerate()
+        .map(|(index, window)| IrLifecycleRule {
+            from: window[0].clone(),
+            to: window[1].clone(),
+            from_index: index,
+            to_index: index + 1,
+        })
+        .collect()
+}
+
 fn resolver_type_def_to_ir(local_name: &str, type_def: &TypeDef) -> Option<IrTypeDef> {
     match type_def {
         TypeDef::Resource(resource) => Some(IrTypeDef {
             name: local_name.to_string(),
+            type_id: resource.type_id.as_ref().map(|type_id| type_id.value.clone()),
             kind: IrTypeKind::Resource,
             fields: layout_resolver_fields(&resource.fields),
             capabilities: resource.capabilities.clone(),
             claim_output: None,
             lifecycle_states: None,
+            lifecycle_rules: Vec::new(),
         }),
         TypeDef::Shared(shared) => Some(IrTypeDef {
             name: local_name.to_string(),
+            type_id: shared.type_id.as_ref().map(|type_id| type_id.value.clone()),
             kind: IrTypeKind::Shared,
             fields: layout_resolver_fields(&shared.fields),
             capabilities: shared.capabilities.clone(),
             claim_output: None,
             lifecycle_states: None,
+            lifecycle_rules: Vec::new(),
         }),
         TypeDef::Receipt(receipt) => Some(IrTypeDef {
             name: local_name.to_string(),
+            type_id: receipt.type_id.as_ref().map(|type_id| type_id.value.clone()),
             kind: IrTypeKind::Receipt,
             fields: layout_resolver_fields(&receipt.fields),
             capabilities: receipt.capabilities.clone(),
             claim_output: receipt.claim_output.as_ref().map(ast_type_to_ir_type),
             lifecycle_states: receipt.lifecycle.as_ref().map(|lifecycle| lifecycle.states.clone()),
+            lifecycle_rules: receipt
+                .lifecycle
+                .as_ref()
+                .map(|lifecycle| lifecycle_states_to_rules(&lifecycle.states))
+                .unwrap_or_default(),
         }),
         TypeDef::Struct(struct_def) => Some(IrTypeDef {
             name: local_name.to_string(),
+            type_id: struct_def.type_id.as_ref().map(|type_id| type_id.value.clone()),
             kind: IrTypeKind::Struct,
             fields: layout_resolver_fields(&struct_def.fields),
             capabilities: Vec::new(),
             claim_output: None,
             lifecycle_states: None,
+            lifecycle_rules: Vec::new(),
         }),
         TypeDef::Enum(_) => None,
     }

@@ -206,7 +206,7 @@ CellScript intentionally does not target:
 CellScript occupies a middle ground:
 
 - **More constrained than Solidity**: You cannot write arbitrary programs. The type system enforces linearity. The compiler rejects code that copies resources or drops them without explicit destruction.
-- **More expressive than Bitcoin Script**: You have structured types, control flow, function calls, and generic parameters. You can express complex AMM invariants, vesting schedules, and multi-party settlement protocols.
+- **More expressive than Bitcoin Script**: You have structured types, control flow, concrete helper functions, and protocol-visible Cell operations. You can express complex AMM invariants, vesting schedules, and multi-party settlement protocols.
 - **Similar level to Move**: Resource-oriented, with explicit lifecycle management. But narrower — no general-purpose module system, no dynamic dispatch, no unbounded collections.
 
 The target user is a **protocol designer** who thinks in terms of "I have an asset with these rules, a pool with these invariants, and a settlement process with these steps." CellScript makes these thoughts directly expressible and compiler-verifiable.
@@ -425,9 +425,11 @@ Why not Move's abilities (`key`, `store`, `copy`, `drop`)?
 - `drop` does not exist as an implicit ability. Destruction must be explicit via `destroy` capability.
 - `key` is replaced by `store`. All stored resources are indexed by OutPoint, not by a separate key.
 
-### 5.4 Generic Types
+### 5.4 Post-v1 Templates, Not Core Generics
 
-CellScript supports limited generics, parameterized over data layout:
+CellScript v1 does not support user-defined generic type parameters in executable source. This is an intentional boundary: CellScript is a Cell lifecycle language, and every persisted schema that reaches the verifier should be concrete, auditable, and metadata-addressable.
+
+The following is not v1 executable syntax:
 
 ```
 resource Vault<T: store> {
@@ -436,22 +438,23 @@ resource Vault<T: store> {
 }
 ```
 
-Generics are monomorphized at compile time. The compiler generates a separate type script for each concrete instantiation (`Vault<Token>`, `Vault<NFT>`, etc.). Generic parameters must have known size at compile time — no trait objects, no dynamic dispatch.
+Parametric authoring belongs in a post-v1 package/codegen/template layer. A template may generate specialized `.cell` modules such as `TokenVault` or `NftVault`, but the generated CellScript must contain concrete field types, concrete lifecycle rules, and stable schema metadata such as `#[type_id("...")]`.
+
+Implementation note: generic-looking user type definitions and user-defined instantiations such as `Vault<Token>` are rejected by the parser/type checker. `Vec<T>` remains a controlled builtin collection notation for local bounded collection APIs and compiler/runtime metadata; it is not a general user-defined generic type system.
 
 ### 5.5 Object Identity
 
 Every CellStateTree object has an identity: its `OutPoint` (`tx_hash || index`). When a resource is consumed and re-created (e.g., updating shared state), the OutPoint changes. CellScript provides a `type_id` pattern for stable identity:
 
 ```
-// type_id: first output of a specific genesis transaction
-// This pattern is inherited from CKB's type_id convention
-shared Registry {
-    #[type_id]
+// stable type identity for tooling/schema metadata
+#[type_id("spora::registry::Registry:v1")]
+shared Registry has store {
     entries: [RegistryEntry; 64],
 }
 ```
 
-The `#[type_id]` attribute instructs the type script to verify that the Cell's OutPoint chain traces back to a specific genesis transaction, providing stable identity across updates.
+Current implementation note: `#[type_id("...")]` is an item-level attribute for `resource` / `shared` / `receipt` / `struct`. The compiler parses it, rejects duplicate values in the same module, preserves it in IR, and emits `types[].type_id` plus `types[].type_id_hash_blake3` in metadata schema v20. This is not yet a complete CKB type-id lineage verifier; proving that a Cell's OutPoint chain traces back to a genesis transaction remains future executable verifier / transaction-builder semantics.
 
 ### 5.6 Shared Object Representation
 
@@ -1137,7 +1140,7 @@ struct SchedulerAccessWitness {
 }
 ```
 
-Current implementation note: schema v19 keeps scheduler witness access records
+Current implementation note: schema v20 keeps scheduler witness access records
 limited to scheduler-visible Input/CellDep/Output cell-state accesses. Runtime-only
 claim witness/signature syscalls stay in `ckb_runtime_accesses`, not in the compact
 scheduler witness. `spora-exec` can attach/discover/decode/admit these witnesses
@@ -1593,7 +1596,7 @@ Build:
 Do not build yet:
 - optimizer
 - LSP
-- fancy generics
+- user-defined generics in executable source
 - advanced macro system
 
 Gate:
@@ -1684,7 +1687,7 @@ Milestone demo:
 
 | Layer | Must Build in v1 | Can Wait |
 |---|---|---|
-| Language | parser, type checker, linearity, lifecycle core, inferred `touches` with optional explicit annotations | advanced generics, macro system |
+| Language | parser, type checker, linearity, lifecycle core, inferred `touches` with optional explicit annotations | post-v1 template/codegen generics, macro system |
 | IR | effect model, object model, scheduler hints | optimizer-grade SSA |
 | Backend | typed layout lowering, witness format, ELF output | aggressive optimization passes, global object header schemes |
 | Runtime | manifest parsing, object validation, tx builder integration | full on-chain effect VM |

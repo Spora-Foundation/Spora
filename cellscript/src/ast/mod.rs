@@ -29,6 +29,7 @@ pub enum Item {
 #[derive(Debug, Clone)]
 pub struct ResourceDef {
     pub name: String,
+    pub type_id: Option<TypeIdentity>,
     pub capabilities: Vec<Capability>,
     pub fields: Vec<Field>,
     pub span: Span,
@@ -38,6 +39,7 @@ pub struct ResourceDef {
 #[derive(Debug, Clone)]
 pub struct SharedDef {
     pub name: String,
+    pub type_id: Option<TypeIdentity>,
     pub capabilities: Vec<Capability>,
     pub fields: Vec<Field>,
     pub span: Span,
@@ -47,6 +49,7 @@ pub struct SharedDef {
 #[derive(Debug, Clone)]
 pub struct ReceiptDef {
     pub name: String,
+    pub type_id: Option<TypeIdentity>,
     pub claim_output: Option<Type>,
     pub lifecycle: Option<Lifecycle>,
     pub capabilities: Vec<Capability>,
@@ -58,7 +61,15 @@ pub struct ReceiptDef {
 #[derive(Debug, Clone)]
 pub struct StructDef {
     pub name: String,
+    pub type_id: Option<TypeIdentity>,
     pub fields: Vec<Field>,
+    pub span: Span,
+}
+
+/// 稳定类型身份。用于跨版本 schema/工具链识别，不替代运行时 Cell TypeHash。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypeIdentity {
+    pub value: String,
     pub span: Span,
 }
 

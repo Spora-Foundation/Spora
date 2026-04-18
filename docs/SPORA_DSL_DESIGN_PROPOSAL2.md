@@ -347,9 +347,9 @@ How it differs:
 
 Recommended minimum:
 - Scalars: `u8`, `u16`, `u32`, `u64`, `u128`, `u256`, `bool`
-- Fixed bytes: `bytes<N>`
-- Dynamic bytes: `bytes`
-- Vectors: `vec<T>`
+- Fixed bytes: `[u8; N]`
+- Dynamic bytes: explicit witness/data slices only, not persisted schema fields
+- Vectors: controlled local `Vec<T>` notation for bounded collection APIs; persisted schemas use fixed arrays
 - Domain scalars: `address`, `hash`, `amount`
 - Product types: `struct`
 - Small sum types: `enum`
@@ -376,18 +376,21 @@ Instead, use a simpler declaration-class model:
 
 That is enough for v1.
 
-### 5.3 Generics
+### 5.3 Post-v1 Templates, Not Core Generics
 
-Generics are useful, but only in a narrow form.
+Generic authoring is useful, but it should not be part of the v1 executable language core.
 
 Recommended:
-- allow parametric structs and receipts
-- example: `receipt Claim<TAsset>`
+- reject user-defined generic type definitions and instantiations in v1 CellScript source
+- put parametric authoring in a post-v1 package/codegen/template layer
+- generate concrete `.cell` modules with concrete schema names, concrete fields, concrete lifecycle rules, and stable `#[type_id("...")]` metadata
+- keep `Vec<T>` as a controlled builtin collection notation, not as evidence of a general user-defined generic type system
 
 Do not build:
+- `resource Vault<T>` / `receipt Claim<TAsset>` as v1 executable syntax
 - higher-kinded abstractions
 - trait-heavy typeclass machinery
-- meta-programming systems
+- meta-programming systems inside consensus-facing source
 
 ### 5.4 Object Identity Model
 
@@ -468,7 +471,7 @@ Structural forms:
 module meme.launchpad;
 
 asset Meme {
-    symbol: bytes<8>,
+    symbol: [u8; 8],
     decimals: u8,
     total_supply: u128,
 }
@@ -477,7 +480,7 @@ asset Meme {
 #### Receipt object
 
 ```hypha
-receipt VestingClaim<Meme> {
+receipt MemeVestingClaim {
     beneficiary: address,
     remaining: u128,
     cliff_daa: u64,
@@ -504,15 +507,15 @@ enum PoolState { Seeded, Live, Frozen, Settled }
 ```hypha
 action launch_meme(
     admin: signer,
-    quote_seed: Coin<QuoteAsset>,
+    quote_seed: QuoteCoin,
     cfg: LaunchConfig
-) -> (Meme, shared MemePool, receipt VestingClaim<Meme>)
+) -> (Meme, shared MemePool, receipt MemeVestingClaim)
 touches {
     consume quote_seed,
     read cfg.template,
     create Meme,
     create shared MemePool,
-    create receipt VestingClaim<Meme>,
+    create receipt MemeVestingClaim,
     effect launch,
 }
 requires {
@@ -1003,7 +1006,7 @@ Then integrate deeply:
 module meme.launch;
 
 asset Meme {
-    symbol: bytes<8>,
+    symbol: [u8; 8],
     decimals: u8,
     total_supply: u128,
 }
@@ -1020,7 +1023,7 @@ enum PoolState { Seeded, Live }
 
 action launch_and_seed(
     admin: signer,
-    quote_seed: Coin<Quote>,
+    quote_seed: QuoteCoin,
     cfg: LaunchCfg
 ) -> (Meme, shared MemeQuotePool)
 touches {
@@ -1047,7 +1050,7 @@ ensures {
 module meme.vesting;
 
 asset Meme {
-    symbol: bytes<8>,
+    symbol: [u8; 8],
     decimals: u8,
     total_supply: u128,
 }
@@ -1060,19 +1063,19 @@ receipt Vesting {
     end_daa: u64,
 }
 
-action issue_vesting(admin: signer, grant: Coin<Meme>, plan: VestPlan) -> receipt Vesting
+action issue_vesting(admin: signer, grant: MemeCoin, plan: VestPlan) -> receipt Vesting
 touches {
     consume grant,
     create receipt Vesting,
     effect mint,
 }
 
-action claim(beneficiary: signer, vest: Vesting, now_daa: u64) -> (Coin<Meme>, receipt Vesting?)
+action claim(beneficiary: signer, vest: Vesting, now_daa: u64) -> (MemeCoin, receipt VestingRemainder)
 touches {
     consume vest,
     read now_daa,
-    create Coin<Meme>,
-    create receipt Vesting?,
+    create MemeCoin,
+    create receipt VestingRemainder,
     effect claim,
 }
 requires {
@@ -1105,7 +1108,7 @@ receipt SwapFill {
 action queue_swap(
     trader: signer,
     pool: &shared BatchPool,
-    in_coin: Coin<A>,
+    in_coin: TokenACoin,
     min_out: u128
 ) -> receipt SwapFill
 touches {
@@ -1118,12 +1121,12 @@ touches {
 action settle_batch(
     sequencer: signer,
     pool: &mut shared BatchPool,
-    fills: vec<SwapFill>
-) -> vec<Coin<any>>
+    fills: [SwapFill; 64]
+) -> [SettlementCoin; 64]
 touches {
     write pool@version,
     consume fills,
-    create Coin<any>,
+    create SettlementCoin,
     effect settle,
 }
 requires {

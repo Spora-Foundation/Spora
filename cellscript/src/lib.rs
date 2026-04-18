@@ -53,7 +53,7 @@ fn validate_compile_options(options: &CompileOptions) -> Result<()> {
 }
 
 const DEFAULT_TARGET: &str = "riscv64-asm";
-pub const METADATA_SCHEMA_VERSION: u32 = 19;
+pub const METADATA_SCHEMA_VERSION: u32 = 20;
 const METADATA_MUTATE_CELL_BUFFER_SIZE: usize = 256;
 const CLAIM_SIGNER_PUBKEY_HASH_FIELDS: [&str; 5] =
     ["signer_pubkey_hash", "claim_pubkey_hash", "owner_pubkey_hash", "beneficiary_pubkey_hash", "pubkey_hash"];
@@ -291,6 +291,7 @@ pub fn validate_compile_metadata(metadata: &CompileMetadata, artifact_format: Ar
         }
     }
 
+    validate_type_identity_metadata(metadata)?;
     validate_source_metadata(metadata)?;
 
     Ok(())
@@ -408,6 +409,58 @@ fn validate_source_metadata(metadata: &CompileMetadata) -> Result<()> {
         ))),
         None => Err(CompileError::without_span("metadata is missing source_content_hash_blake3 for non-empty source_units")),
     }
+}
+
+fn validate_type_identity_metadata(metadata: &CompileMetadata) -> Result<()> {
+    let mut seen_type_ids = HashMap::new();
+    for ty in &metadata.types {
+        match (&ty.type_id, &ty.type_id_hash_blake3) {
+            (None, None) => {}
+            (Some(type_id), Some(hash)) => {
+                if type_id.is_empty() {
+                    return Err(CompileError::without_span(format!("metadata type '{}' has an empty type_id", ty.name)));
+                }
+                if type_id.chars().any(char::is_control) {
+                    return Err(CompileError::without_span(format!(
+                        "metadata type '{}' has invalid control characters in type_id",
+                        ty.name
+                    )));
+                }
+                if !is_canonical_blake3_hex(hash) {
+                    return Err(CompileError::without_span(format!(
+                        "metadata type '{}' has invalid type_id_hash_blake3 '{}'; expected 64 lowercase hex characters",
+                        ty.name, hash
+                    )));
+                }
+                let expected = hex_encode(blake3::hash(type_id.as_bytes()).as_bytes());
+                if hash != &expected {
+                    return Err(CompileError::without_span(format!(
+                        "metadata type '{}' type_id_hash_blake3 '{}' does not match type_id '{}'",
+                        ty.name, hash, expected
+                    )));
+                }
+                if let Some(previous) = seen_type_ids.insert(type_id.clone(), ty.name.clone()) {
+                    return Err(CompileError::without_span(format!(
+                        "metadata type_id '{}' is declared by both '{}' and '{}'",
+                        type_id, previous, ty.name
+                    )));
+                }
+            }
+            (Some(_), None) => {
+                return Err(CompileError::without_span(format!(
+                    "metadata type '{}' has type_id but is missing type_id_hash_blake3",
+                    ty.name
+                )));
+            }
+            (None, Some(_)) => {
+                return Err(CompileError::without_span(format!(
+                    "metadata type '{}' has type_id_hash_blake3 but is missing type_id",
+                    ty.name
+                )));
+            }
+        }
+    }
+    Ok(())
 }
 
 pub fn validate_source_units_on_disk(metadata: &CompileMetadata) -> Result<()> {
@@ -618,6 +671,10 @@ pub struct PoolPrimitiveMetadata {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TypeMetadata {
     pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub type_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub type_id_hash_blake3: Option<String>,
     pub kind: String,
     pub capabilities: Vec<String>,
     pub claim_output: Option<String>,
@@ -5506,12 +5563,20 @@ fn metadata_cell_type_kinds(ir: &ir::IrModule) -> HashMap<String, ir::IrTypeKind
 
 fn type_metadata(type_def: &ir::IrTypeDef) -> TypeMetadata {
     let lifecycle_states = type_def.lifecycle_states.clone().unwrap_or_default();
+    let type_id = type_def.type_id.clone();
+    let type_id_hash_blake3 = type_id.as_ref().map(|value| hex_hash(blake3::hash(value.as_bytes()).as_bytes()));
     TypeMetadata {
         name: type_def.name.clone(),
+        type_id,
+        type_id_hash_blake3,
         kind: format!("{:?}", type_def.kind),
         capabilities: type_def.capabilities.iter().map(metadata_capability_name).collect(),
         claim_output: type_def.claim_output.as_ref().map(ir_type_to_string),
-        lifecycle_transitions: lifecycle_transition_metadata(&lifecycle_states),
+        lifecycle_transitions: if type_def.lifecycle_rules.is_empty() {
+            lifecycle_transition_metadata(&lifecycle_states)
+        } else {
+            type_def.lifecycle_rules.iter().map(lifecycle_rule_metadata).collect()
+        },
         lifecycle_states,
         encoded_size: type_encoded_size(type_def),
         fields: type_def.fields.iter().map(field_metadata).collect(),
@@ -5538,6 +5603,10 @@ fn lifecycle_transition_metadata(states: &[String]) -> Vec<LifecycleTransitionMe
             to_index: index + 1,
         })
         .collect()
+}
+
+fn lifecycle_rule_metadata(rule: &ir::IrLifecycleRule) -> LifecycleTransitionMetadata {
+    LifecycleTransitionMetadata { from: rule.from.clone(), to: rule.to.clone(), from_index: rule.from_index, to_index: rule.to_index }
 }
 
 fn field_metadata(field: &ir::IrField) -> FieldMetadata {
@@ -7322,6 +7391,22 @@ action bad(value: Option<u64>) -> u64 {
 }
 "#;
 
+    const USER_GENERIC_TYPE_PROGRAM: &str = r#"
+module test
+
+resource Token has store {
+    amount: u64,
+}
+
+resource Vault has store {
+    amount: u64,
+}
+
+action bad(input: Vault<Token>) -> u64 {
+    return 0
+}
+"#;
+
     const DUPLICATE_TOP_LEVEL_SYMBOL_PROGRAM: &str = r#"
 module test
 
@@ -8841,6 +8926,9 @@ action activate(ticket: Ticket) -> Ticket {
             "unexpected error: {}",
             reserved.message
         );
+
+        let generic = compile(USER_GENERIC_TYPE_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(generic.message.contains("post-v1 template/codegen syntax"), "unexpected error: {}", generic.message);
     }
 
     #[test]
@@ -9163,6 +9251,51 @@ action activate(ticket: Ticket) -> Ticket {
         let err = result.validate().unwrap_err();
 
         assert!(err.message.contains("expected 64 lowercase hex characters"), "unexpected error: {}", err.message);
+    }
+
+    #[test]
+    fn compile_result_validation_rejects_type_id_hash_mismatch() {
+        let program = r#"
+module audit::type_id
+
+#[type_id("spora::asset::Token:v1")]
+resource Token has store {
+    amount: u64
+}
+"#;
+        let mut result = compile(program, CompileOptions::default()).unwrap();
+        let token = result.metadata.types.iter_mut().find(|ty| ty.name == "Token").expect("Token type metadata");
+        token.type_id_hash_blake3 = Some("00".repeat(32));
+
+        let err = result.validate().unwrap_err();
+
+        assert!(err.message.contains("type_id_hash_blake3"), "unexpected error: {}", err.message);
+    }
+
+    #[test]
+    fn compile_result_validation_rejects_duplicate_type_ids() {
+        let program = r#"
+module audit::type_id
+
+#[type_id("spora::asset::Token:v1")]
+resource Token has store {
+    amount: u64
+}
+
+#[type_id("spora::asset::TokenSnapshot:v1")]
+struct TokenSnapshot {
+    amount: u64
+}
+"#;
+        let mut result = compile(program, CompileOptions::default()).unwrap();
+        let duplicate_hash = crate::hex_encode(blake3::hash(b"spora::asset::Token:v1").as_bytes());
+        let snapshot = result.metadata.types.iter_mut().find(|ty| ty.name == "TokenSnapshot").expect("TokenSnapshot metadata");
+        snapshot.type_id = Some("spora::asset::Token:v1".to_string());
+        snapshot.type_id_hash_blake3 = Some(duplicate_hash);
+
+        let err = result.validate().unwrap_err();
+
+        assert!(err.message.contains("declared by both"), "unexpected error: {}", err.message);
     }
 
     #[test]
@@ -9630,6 +9763,27 @@ action activate(ticket: Ticket) -> Ticket {
     }
 
     #[test]
+    fn ir_carries_lifecycle_rules() {
+        let tokens = lexer::lex(LIFECYCLE_STATIC_UPDATE_PROGRAM).unwrap();
+        let ast = parser::parse(&tokens).unwrap();
+        let module = ir::generate(&ast).unwrap();
+        let ticket = module
+            .items
+            .iter()
+            .find_map(|item| match item {
+                ir::IrItem::TypeDef(type_def) if type_def.name == "Ticket" => Some(type_def),
+                _ => None,
+            })
+            .expect("Ticket IR type");
+
+        assert_eq!(ticket.lifecycle_rules.len(), 1);
+        assert_eq!(ticket.lifecycle_rules[0].from, "Created");
+        assert_eq!(ticket.lifecycle_rules[0].to, "Active");
+        assert_eq!(ticket.lifecycle_rules[0].from_index, 0);
+        assert_eq!(ticket.lifecycle_rules[0].to_index, 1);
+    }
+
+    #[test]
     fn compile_rejects_symbolic_collection_programs_as_elf() {
         let err =
             compile(VEC_BUILTIN_PROGRAM, CompileOptions { target: Some("riscv64-elf".to_string()), ..CompileOptions::default() })
@@ -10056,6 +10210,10 @@ source_roots = ["src", "shared"]
             transfer_action.body.create_set[0].lock.is_some(),
             "transfer-created output should carry the destination lock operand"
         );
+        assert_eq!(transfer_action.body.write_intents.len(), 1);
+        assert_eq!(transfer_action.body.write_intents[0].operation, "transfer");
+        assert_eq!(transfer_action.body.write_intents[0].ty, "Token");
+        assert_eq!(transfer_action.body.write_intents[0].source, ir::WriteIntentSource::Output);
 
         let claim_action = ir
             .items
@@ -10073,6 +10231,8 @@ source_roots = ["src", "shared"]
         assert_eq!(claim_action.body.create_set[0].operation, "claim");
         assert_eq!(claim_action.body.create_set[0].fields.len(), 1);
         assert_eq!(claim_action.body.create_set[0].fields[0].0, "amount");
+        assert_eq!(claim_action.body.write_intents.len(), 1);
+        assert_eq!(claim_action.body.write_intents[0].operation, "claim");
 
         let settle_action = ir
             .items
@@ -10090,6 +10250,8 @@ source_roots = ["src", "shared"]
         assert_eq!(settle_action.body.create_set[0].operation, "settle");
         assert_eq!(settle_action.body.create_set[0].fields.len(), 1);
         assert_eq!(settle_action.body.create_set[0].fields[0].0, "amount");
+        assert_eq!(settle_action.body.write_intents.len(), 1);
+        assert_eq!(settle_action.body.write_intents[0].operation, "settle");
     }
 
     #[test]
@@ -10552,6 +10714,49 @@ action credit(ledger: &mut Ledger, delta: u64) {
         assert_eq!(receipt.kind, "Receipt");
         assert!(receipt.capabilities.is_empty());
         assert_eq!(receipt.claim_output.as_deref(), Some("Token"));
+    }
+
+    #[test]
+    fn compile_result_exposes_stable_type_id_metadata() {
+        let program = r#"
+module audit::type_id
+
+#[type_id("spora::asset::Token:v1")]
+resource Token has store {
+    amount: u64
+}
+
+action value() -> u64 {
+    return 1
+}
+"#;
+        let result = compile(program, CompileOptions::default()).unwrap();
+        let token = result.metadata.types.iter().find(|ty| ty.name == "Token").expect("Token type metadata");
+        let expected_hash = crate::hex_encode(blake3::hash(b"spora::asset::Token:v1").as_bytes());
+
+        assert_eq!(result.metadata.metadata_schema_version, 20);
+        assert_eq!(token.type_id.as_deref(), Some("spora::asset::Token:v1"));
+        assert_eq!(token.type_id_hash_blake3.as_deref(), Some(expected_hash.as_str()));
+    }
+
+    #[test]
+    fn compile_rejects_duplicate_stable_type_ids() {
+        let program = r#"
+module audit::type_id
+
+#[type_id("spora::asset::Token:v1")]
+resource Token has store {
+    amount: u64
+}
+
+#[type_id("spora::asset::Token:v1")]
+struct TokenSnapshot {
+    amount: u64
+}
+"#;
+        let err = compile(program, CompileOptions::default()).unwrap_err();
+
+        assert!(err.message.contains("duplicate type_id 'spora::asset::Token:v1'"), "unexpected error: {}", err.message);
     }
 
     #[test]

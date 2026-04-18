@@ -14,6 +14,7 @@ pub struct Parser<'a> {
 
 #[derive(Debug, Default, Clone)]
 struct PendingAttrs {
+    type_id: Option<TypeIdentity>,
     capabilities: Option<Vec<Capability>>,
     lifecycle: Option<Lifecycle>,
     effect: Option<EffectClass>,
@@ -217,6 +218,27 @@ impl<'a> Parser<'a> {
                     }
                     attrs.capabilities = Some(caps);
                 }
+                "type_id" => {
+                    if attrs.type_id.is_some() {
+                        return Err(CompileError::new("duplicate type_id attribute", self.current().span));
+                    }
+                    let span = self.current().span;
+                    let value = match &self.current().kind {
+                        TokenKind::String(value) => {
+                            let value = value.clone();
+                            self.advance();
+                            value
+                        }
+                        _ => return Err(CompileError::new("expected string literal type_id", self.current().span)),
+                    };
+                    if value.is_empty() {
+                        return Err(CompileError::new("type_id must not be empty", span));
+                    }
+                    if value.chars().any(char::is_control) {
+                        return Err(CompileError::new("type_id must not contain control characters", span));
+                    }
+                    attrs.type_id = Some(TypeIdentity { value, span });
+                }
                 "lifecycle" => {
                     let start_span = self.current().span;
                     let mut states = Vec::new();
@@ -346,17 +368,57 @@ impl<'a> Parser<'a> {
     fn parse_item(&mut self) -> Result<Item> {
         let attrs = self.parse_attrs()?;
         match &self.current().kind {
-            TokenKind::Use => Ok(Item::Use(self.parse_use()?)),
-            TokenKind::Resource => Ok(Item::Resource(self.parse_resource(attrs.capabilities)?)),
-            TokenKind::Shared => Ok(Item::Shared(self.parse_shared(attrs.capabilities)?)),
-            TokenKind::Receipt => Ok(Item::Receipt(self.parse_receipt(attrs.lifecycle, attrs.capabilities)?)),
-            TokenKind::Struct => Ok(Item::Struct(self.parse_struct()?)),
-            TokenKind::Const => Ok(Item::Const(self.parse_const()?)),
-            TokenKind::Enum => Ok(Item::Enum(self.parse_enum()?)),
-            TokenKind::Action => Ok(Item::Action(self.parse_action(attrs.effect, attrs.scheduler_hint)?)),
-            TokenKind::Fn => Ok(Item::Function(self.parse_fn()?)),
-            TokenKind::Lock => Ok(Item::Lock(self.parse_lock()?)),
+            TokenKind::Use => {
+                self.reject_type_id_attr(&attrs)?;
+                Ok(Item::Use(self.parse_use()?))
+            }
+            TokenKind::Resource => Ok(Item::Resource(self.parse_resource(attrs.type_id, attrs.capabilities)?)),
+            TokenKind::Shared => Ok(Item::Shared(self.parse_shared(attrs.type_id, attrs.capabilities)?)),
+            TokenKind::Receipt => Ok(Item::Receipt(self.parse_receipt(attrs.type_id, attrs.lifecycle, attrs.capabilities)?)),
+            TokenKind::Struct => Ok(Item::Struct(self.parse_struct(attrs.type_id)?)),
+            TokenKind::Const => {
+                self.reject_type_id_attr(&attrs)?;
+                Ok(Item::Const(self.parse_const()?))
+            }
+            TokenKind::Enum => {
+                self.reject_type_id_attr(&attrs)?;
+                Ok(Item::Enum(self.parse_enum()?))
+            }
+            TokenKind::Action => {
+                self.reject_type_id_attr(&attrs)?;
+                Ok(Item::Action(self.parse_action(attrs.effect, attrs.scheduler_hint)?))
+            }
+            TokenKind::Fn => {
+                self.reject_type_id_attr(&attrs)?;
+                Ok(Item::Function(self.parse_fn()?))
+            }
+            TokenKind::Lock => {
+                self.reject_type_id_attr(&attrs)?;
+                Ok(Item::Lock(self.parse_lock()?))
+            }
             _ => Err(CompileError::new(format!("unexpected token: {}", self.current().kind), self.current().span)),
+        }
+    }
+
+    fn reject_type_id_attr(&self, attrs: &PendingAttrs) -> Result<()> {
+        if let Some(type_id) = &attrs.type_id {
+            Err(CompileError::new("#[type_id] can only be applied to resource, shared, receipt, or struct definitions", type_id.span))
+        } else {
+            Ok(())
+        }
+    }
+
+    fn reject_generic_type_params(&self, type_name: &str) -> Result<()> {
+        if self.check(&TokenKind::Lt) {
+            Err(CompileError::new(
+                format!(
+                    "generic type parameters on '{}' are post-v1 template/codegen syntax, not CellScript v1 executable core; define a concrete type or generate a specialized .cell module",
+                    type_name
+                ),
+                self.current().span,
+            ))
+        } else {
+            Ok(())
         }
     }
 
@@ -427,11 +489,12 @@ impl<'a> Parser<'a> {
     }
 
     /// 解析 resource 定义
-    fn parse_resource(&mut self, attr_capabilities: Option<Vec<Capability>>) -> Result<ResourceDef> {
+    fn parse_resource(&mut self, type_id: Option<TypeIdentity>, attr_capabilities: Option<Vec<Capability>>) -> Result<ResourceDef> {
         let start_span = self.current().span;
         self.expect(TokenKind::Resource)?;
 
         let name = self.parse_name()?;
+        self.reject_generic_type_params(&name)?;
 
         // 可选的能力。属性形式和 `has ...` 形式可以共存，语义上合并。
         let capabilities = merge_capabilities(attr_capabilities, self.parse_capabilities()?);
@@ -442,6 +505,7 @@ impl<'a> Parser<'a> {
         let end_span = self.current().span;
         Ok(ResourceDef {
             name,
+            type_id,
             capabilities,
             fields,
             span: Span::new(start_span.start, end_span.end, start_span.line, start_span.column),
@@ -449,11 +513,12 @@ impl<'a> Parser<'a> {
     }
 
     /// 解析 shared 定义
-    fn parse_shared(&mut self, attr_capabilities: Option<Vec<Capability>>) -> Result<SharedDef> {
+    fn parse_shared(&mut self, type_id: Option<TypeIdentity>, attr_capabilities: Option<Vec<Capability>>) -> Result<SharedDef> {
         let start_span = self.current().span;
         self.expect(TokenKind::Shared)?;
 
         let name = self.parse_name()?;
+        self.reject_generic_type_params(&name)?;
 
         let capabilities = merge_capabilities(attr_capabilities, self.parse_capabilities()?);
         let fields = self.parse_fields()?;
@@ -461,6 +526,7 @@ impl<'a> Parser<'a> {
         let end_span = self.current().span;
         Ok(SharedDef {
             name,
+            type_id,
             capabilities,
             fields,
             span: Span::new(start_span.start, end_span.end, start_span.line, start_span.column),
@@ -468,11 +534,17 @@ impl<'a> Parser<'a> {
     }
 
     /// 解析 receipt 定义
-    fn parse_receipt(&mut self, attr_lifecycle: Option<Lifecycle>, attr_capabilities: Option<Vec<Capability>>) -> Result<ReceiptDef> {
+    fn parse_receipt(
+        &mut self,
+        type_id: Option<TypeIdentity>,
+        attr_lifecycle: Option<Lifecycle>,
+        attr_capabilities: Option<Vec<Capability>>,
+    ) -> Result<ReceiptDef> {
         let start_span = self.current().span;
         self.expect(TokenKind::Receipt)?;
 
         let name = self.parse_name()?;
+        self.reject_generic_type_params(&name)?;
         let claim_output = if self.check(&TokenKind::Arrow) {
             self.advance();
             Some(self.parse_type()?)
@@ -495,6 +567,7 @@ impl<'a> Parser<'a> {
         let end_span = self.current().span;
         Ok(ReceiptDef {
             name,
+            type_id,
             claim_output,
             lifecycle,
             capabilities,
@@ -535,16 +608,17 @@ impl<'a> Parser<'a> {
     }
 
     /// 解析 struct 定义
-    fn parse_struct(&mut self) -> Result<StructDef> {
+    fn parse_struct(&mut self, type_id: Option<TypeIdentity>) -> Result<StructDef> {
         let start_span = self.current().span;
         self.expect(TokenKind::Struct)?;
 
         let name = self.parse_name()?;
+        self.reject_generic_type_params(&name)?;
 
         let fields = self.parse_fields()?;
 
         let end_span = self.current().span;
-        Ok(StructDef { name, fields, span: Span::new(start_span.start, end_span.end, start_span.line, start_span.column) })
+        Ok(StructDef { name, type_id, fields, span: Span::new(start_span.start, end_span.end, start_span.line, start_span.column) })
     }
 
     /// 解析 const 定义
@@ -1811,6 +1885,57 @@ resource Token has transfer, destroy {
         assert!(resource.capabilities.contains(&Capability::Store));
         assert!(resource.capabilities.contains(&Capability::Transfer));
         assert!(resource.capabilities.contains(&Capability::Destroy));
+    }
+
+    #[test]
+    fn test_parse_type_id_attribute() {
+        let input = r#"
+module test
+
+#[type_id("spora::token::Token:v1")]
+resource Token has store {
+    amount: u64
+}
+"#;
+        let tokens = lex(input).unwrap();
+        let module = parse(&tokens).unwrap();
+        let resource = match &module.items[0] {
+            Item::Resource(resource) => resource,
+            other => panic!("expected resource item, found {:?}", other),
+        };
+
+        assert_eq!(resource.type_id.as_ref().map(|type_id| type_id.value.as_str()), Some("spora::token::Token:v1"));
+    }
+
+    #[test]
+    fn test_rejects_type_id_on_action() {
+        let input = r#"
+module test
+
+#[type_id("spora::action:v1")]
+action run() -> u64 {
+    return 0
+}
+"#;
+        let tokens = lex(input).unwrap();
+        let err = parse(&tokens).unwrap_err();
+
+        assert!(err.message.contains("#[type_id] can only be applied"), "unexpected error: {}", err.message);
+    }
+
+    #[test]
+    fn test_rejects_generic_resource_definition() {
+        let input = r#"
+module test
+
+resource Vault<T> has store {
+    content: T
+}
+"#;
+        let tokens = lex(input).unwrap();
+        let err = parse(&tokens).unwrap_err();
+
+        assert!(err.message.contains("post-v1 template/codegen syntax"), "unexpected error: {}", err.message);
     }
 
     #[test]

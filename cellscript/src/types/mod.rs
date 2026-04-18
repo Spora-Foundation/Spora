@@ -262,6 +262,30 @@ fn type_repr(ty: &Type) -> String {
     }
 }
 
+fn type_def_type_id(type_def: &TypeDef) -> Option<&TypeIdentity> {
+    match type_def {
+        TypeDef::Resource(resource) => resource.type_id.as_ref(),
+        TypeDef::Shared(shared) => shared.type_id.as_ref(),
+        TypeDef::Receipt(receipt) => receipt.type_id.as_ref(),
+        TypeDef::Struct(struct_def) => struct_def.type_id.as_ref(),
+        TypeDef::Enum(_) => None,
+    }
+}
+
+fn register_type_id_value(seen: &mut HashMap<String, Span>, type_name: &str, value: &str, span: Span) -> Result<()> {
+    if seen.insert(value.to_string(), span).is_some() {
+        return Err(CompileError::new(format!("duplicate type_id '{}' on type '{}'", value, type_name), span));
+    }
+    Ok(())
+}
+
+fn register_type_id(seen: &mut HashMap<String, Span>, type_name: &str, type_id: Option<&TypeIdentity>) -> Result<()> {
+    let Some(type_id) = type_id else {
+        return Ok(());
+    };
+    register_type_id_value(seen, type_name, &type_id.value, type_id.span)
+}
+
 impl<'a> TypeChecker<'a> {
     /// 创建新的类型检查器
     pub fn new() -> Self {
@@ -296,6 +320,7 @@ impl<'a> TypeChecker<'a> {
             self.current_module = Some(module.name.clone());
         }
         let mut seen_symbols = HashSet::new();
+        let mut seen_type_ids = HashMap::new();
         for item in &module.items {
             if let Some((symbol, span)) = item_symbol_name_and_span(item) {
                 if !seen_symbols.insert(symbol.to_string()) {
@@ -308,6 +333,7 @@ impl<'a> TypeChecker<'a> {
                     self.env.insert(const_def.name.clone(), const_def.ty.clone(), false, false);
                 }
                 Item::Resource(resource) => {
+                    register_type_id(&mut seen_type_ids, &resource.name, resource.type_id.as_ref())?;
                     self.linear_types.insert(resource.name.clone());
                     self.cell_type_kinds.insert(resource.name.clone(), CellTypeKind::Resource);
                     self.type_capabilities.insert(resource.name.clone(), resource.capabilities.iter().copied().collect());
@@ -317,6 +343,7 @@ impl<'a> TypeChecker<'a> {
                     );
                 }
                 Item::Shared(shared) => {
+                    register_type_id(&mut seen_type_ids, &shared.name, shared.type_id.as_ref())?;
                     self.linear_types.insert(shared.name.clone());
                     self.cell_type_kinds.insert(shared.name.clone(), CellTypeKind::Shared);
                     self.type_capabilities.insert(shared.name.clone(), shared.capabilities.iter().copied().collect());
@@ -326,6 +353,7 @@ impl<'a> TypeChecker<'a> {
                     );
                 }
                 Item::Receipt(receipt) => {
+                    register_type_id(&mut seen_type_ids, &receipt.name, receipt.type_id.as_ref())?;
                     self.linear_types.insert(receipt.name.clone());
                     self.cell_type_kinds.insert(receipt.name.clone(), CellTypeKind::Receipt);
                     self.type_capabilities.insert(receipt.name.clone(), receipt.capabilities.iter().copied().collect());
@@ -339,6 +367,7 @@ impl<'a> TypeChecker<'a> {
                     );
                 }
                 Item::Struct(struct_def) => {
+                    register_type_id(&mut seen_type_ids, &struct_def.name, struct_def.type_id.as_ref())?;
                     self.type_fields.insert(
                         struct_def.name.clone(),
                         struct_def.fields.iter().map(|field| (field.name.clone(), field.ty.clone())).collect(),
@@ -391,9 +420,29 @@ impl<'a> TypeChecker<'a> {
             }
         }
 
+        self.register_imported_type_ids(&mut seen_type_ids)?;
+
         for item in &module.items {
             self.check_item(item)?;
         }
+        Ok(())
+    }
+
+    fn register_imported_type_ids(&self, seen_type_ids: &mut HashMap<String, Span>) -> Result<()> {
+        let (Some(resolver), Some(module_name)) = (self.resolver, self.current_module.as_deref()) else {
+            return Ok(());
+        };
+
+        for import in resolver.imports_for_module(module_name) {
+            let local_name = import.alias.as_deref().unwrap_or(&import.name);
+            let Some(type_def) = resolver.resolve_type(module_name, local_name) else {
+                continue;
+            };
+            if let Some(type_id) = type_def_type_id(&type_def) {
+                register_type_id_value(seen_type_ids, local_name, &type_id.value, import.span)?;
+            }
+        }
+
         Ok(())
     }
 
@@ -1743,6 +1792,20 @@ impl<'a> TypeChecker<'a> {
                     Span::default(),
                 ));
             }
+            _ => {}
+        }
+
+        if name.contains('<') && base_name != "Vec" {
+            return Err(CompileError::new(
+                format!(
+                    "generic type '{}' is post-v1 template/codegen syntax, not CellScript v1 executable core; use a concrete schema type or generate a specialized .cell module",
+                    name
+                ),
+                Span::default(),
+            ));
+        }
+
+        match base_name {
             "String" | "Range" | "Vec" | "usize" | "isize" => return Ok(()),
             _ => {}
         }
@@ -2051,6 +2114,11 @@ mod tests {
         parser::parse(&tokens).unwrap()
     }
 
+    fn source_module(source: &str) -> Module {
+        let tokens = lexer::lex(source).unwrap();
+        parser::parse(&tokens).unwrap()
+    }
+
     #[test]
     fn imported_token_type_is_treated_as_linear() {
         let token = example_module("token.cell");
@@ -2076,6 +2144,51 @@ mod tests {
         resolver.register_module(launch.clone()).unwrap();
 
         check_with_resolver(&launch, &resolver, &launch.name).unwrap();
+    }
+
+    #[test]
+    fn imported_type_ids_must_not_collide_in_visible_module_scope() {
+        let left = source_module(
+            r#"
+module spora::left
+
+#[type_id("spora::asset::Token:v1")]
+resource TokenA has store {
+    amount: u64
+}
+"#,
+        );
+        let right = source_module(
+            r#"
+module spora::right
+
+#[type_id("spora::asset::Token:v1")]
+resource TokenB has store {
+    amount: u64
+}
+"#,
+        );
+        let app = source_module(
+            r#"
+module app
+
+use spora::left::TokenA
+use spora::right::TokenB
+
+action main(a: TokenA) -> u64 {
+    return a.amount
+}
+"#,
+        );
+
+        let mut resolver = ModuleResolver::new();
+        resolver.register_module(left).unwrap();
+        resolver.register_module(right).unwrap();
+        resolver.register_module(app.clone()).unwrap();
+
+        let err = check_with_resolver(&app, &resolver, &app.name).unwrap_err();
+
+        assert!(err.message.contains("duplicate type_id 'spora::asset::Token:v1'"), "unexpected error: {}", err.message);
     }
 
     #[test]
