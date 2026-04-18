@@ -924,7 +924,7 @@ impl VirtualStateProcessor {
         self.analyze_blue_block_chunk(snapshot, blue_block, block_txs, blue_block_daa_score, Some(state), limit_cycles)
     }
 
-    #[cfg(feature = "vm")]
+    #[cfg(all(feature = "vm", test))]
     fn complete_blue_block_from_state(
         &self,
         snapshot: &ExecutionSnapshot,
