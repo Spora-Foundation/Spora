@@ -1789,6 +1789,7 @@ impl<'a> TypeChecker<'a> {
 
     fn infer_assign_expr(&mut self, env: &mut TypeEnv, assign: &AssignExpr) -> Result<Type> {
         let value_ty = self.infer_expr(env, &assign.value)?;
+        self.reject_assignment_reference_to_linear_root(env, &assign.value, assign.span)?;
 
         match assign.target.as_ref() {
             Expr::Identifier(name) => {
@@ -1858,6 +1859,10 @@ impl<'a> TypeChecker<'a> {
             }
             _ => Err(CompileError::new("invalid assignment target", assign.span)),
         }
+    }
+
+    fn reject_assignment_reference_to_linear_root(&self, env: &TypeEnv, value: &Expr, span: Span) -> Result<()> {
+        self.reject_stored_linear_reference_alias(env, value, span)
     }
 
     fn index_result_type(&self, ty: &Type, span: Span) -> Result<Type> {

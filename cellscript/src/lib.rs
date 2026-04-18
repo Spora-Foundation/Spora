@@ -7112,6 +7112,51 @@ action bad(token: Token, flag: bool) -> u64 {
 }
 "#;
 
+    const LINEAR_ASSIGN_REF_ALIAS_PROGRAM: &str = r#"
+module test
+
+resource Token has destroy {
+    amount: u64,
+}
+
+action bad(token: Token) -> u64 {
+    let mut view = read_ref<Token>()
+    view = &token
+    destroy token
+    return view.amount
+}
+"#;
+
+    const LINEAR_ASSIGN_TUPLE_REF_ALIAS_PROGRAM: &str = r#"
+module test
+
+resource Token has destroy {
+    amount: u64,
+}
+
+action bad(token: Token) -> u64 {
+    let mut pair = (read_ref<Token>(), 0)
+    pair = (&token, 0)
+    destroy token
+    return pair.0.amount
+}
+"#;
+
+    const LINEAR_ASSIGN_TUPLE_FIELD_REF_ALIAS_PROGRAM: &str = r#"
+module test
+
+resource Token has destroy {
+    amount: u64,
+}
+
+action bad(token: Token) -> u64 {
+    let mut pair = (read_ref<Token>(), 0)
+    pair.0 = &token
+    destroy token
+    return pair.0.amount
+}
+"#;
+
     const ACTION_RETURN_REF_PROGRAM: &str = r#"
 module test
 
@@ -9736,6 +9781,27 @@ action activate(ticket: Ticket) -> Ticket {
         );
 
         let err = compile(LINEAR_IF_REF_ALIAS_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(
+            err.message.contains("local binding cannot store a read-only reference rooted at linear/resource value 'token'"),
+            "unexpected error: {}",
+            err.message
+        );
+
+        let err = compile(LINEAR_ASSIGN_REF_ALIAS_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(
+            err.message.contains("local binding cannot store a read-only reference rooted at linear/resource value 'token'"),
+            "unexpected error: {}",
+            err.message
+        );
+
+        let err = compile(LINEAR_ASSIGN_TUPLE_REF_ALIAS_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(
+            err.message.contains("local binding cannot store a read-only reference rooted at linear/resource value 'token'"),
+            "unexpected error: {}",
+            err.message
+        );
+
+        let err = compile(LINEAR_ASSIGN_TUPLE_FIELD_REF_ALIAS_PROGRAM, CompileOptions::default()).unwrap_err();
         assert!(
             err.message.contains("local binding cannot store a read-only reference rooted at linear/resource value 'token'"),
             "unexpected error: {}",

@@ -2104,6 +2104,8 @@ Slice 88 更新：引用类型的作用域边界进一步收紧。`&T` / `&mut T
 
 Slice 89 更新：本地只读引用别名检查现在覆盖被存储的嵌套结果。`let pair = (&token, 0)`、`let refs = [&token]`、`let view = if flag { &token } else { &token }`，以及等价的 `match` arm 或 block tail 返回值都会被拒绝，不能把根在 linear Cell 上的 `&T` 藏进 tuple / array / branch result 后再 `destroy` / `consume` / `transfer` 原值。普通 `helper(&token)` 仍不受影响，因为 call 参数不是被保存的本地别名。
 
+Slice 90 更新：同一条本地引用别名规则现在也覆盖 assignment RHS。`let mut view = read_ref<Token>(); view = &token`、`pair = (&token, 0)`、`pair.0 = &token` 都会失败，避免先创建一个可变本地容器/引用变量，再通过赋值把 `&linear Cell` 保存进去。短生命周期的 call 参数借用仍保持可用。
+
 目标：
 - 在后端工作扩展之前冻结最小语言核心。
 
