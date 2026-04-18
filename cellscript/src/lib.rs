@@ -2096,11 +2096,11 @@ fn body_transaction_resource_obligations(
                             &dest.name,
                             type_name,
                             format!(
-                                "Compiler-emitted runtime verifier checks the claim-created '{}' output fields that are statically bound to the consumed receipt; witness/time-lock claim conditions remain separate runtime obligations",
+                                "Compiler-emitted runtime verifier checks the claim-created '{}' output fields that are statically bound to the consumed receipt; claim-output-relation=checked-runtime; witness/time-lock claim conditions remain separate runtime obligations",
                                 type_name
                             ),
                             format!(
-                                "Runtime verifier must prove claim creates the declared '{}' output cell and binds its fields to the consumed receipt semantics",
+                                "Runtime verifier must prove claim creates the declared '{}' output cell and binds its fields to the consumed receipt semantics; claim-output-relation=runtime-required",
                                 type_name
                             ),
                         ));
@@ -2142,11 +2142,11 @@ fn body_transaction_resource_obligations(
                             &dest.name,
                             type_name,
                             format!(
-                                "Compiler-emitted runtime verifier checks the settle-created '{}' output fields that are statically bound to the consumed value; finalization invariants remain separate runtime obligations",
+                                "Compiler-emitted runtime verifier checks the settle-created '{}' output fields that are statically bound to the consumed value; settle-output-relation=checked-runtime; finalization invariants remain separate runtime obligations",
                                 type_name
                             ),
                             format!(
-                                "Runtime verifier must prove settle creates the finalized '{}' output cell and binds verifier-covered fields to the consumed value semantics",
+                                "Runtime verifier must prove settle creates the finalized '{}' output cell and binds verifier-covered fields to the consumed value semantics; settle-output-relation=runtime-required",
                                 type_name
                             ),
                         ));
@@ -2665,6 +2665,8 @@ fn transaction_runtime_input_requirements_from_obligations(
             obligation.status == "checked-runtime" && obligation.feature.starts_with("destroy-output-scan:");
         let include_checked_transfer_output =
             obligation.status == "checked-runtime" && obligation.feature.starts_with("transfer-output:");
+        let include_checked_claim_output = obligation.status == "checked-runtime" && obligation.feature.starts_with("claim-output:");
+        let include_checked_settle_output = obligation.status == "checked-runtime" && obligation.feature.starts_with("settle-output:");
         let include_checked_claim_conditions =
             obligation.status == "checked-runtime" && obligation.feature.starts_with("claim-conditions:");
         let include_checked_settle_finalization =
@@ -2673,6 +2675,8 @@ fn transaction_runtime_input_requirements_from_obligations(
             || (obligation.status != "runtime-required"
                 && !include_checked_destroy_scan
                 && !include_checked_transfer_output
+                && !include_checked_claim_output
+                && !include_checked_settle_output
                 && !include_checked_claim_conditions
                 && !include_checked_settle_finalization)
         {
@@ -2770,6 +2774,32 @@ fn transaction_runtime_input_requirements_from_obligations(
                 binding,
                 Some("input-output-group"),
                 "destroy-output-scan-group-context",
+                None,
+            ));
+        } else if let Some(binding) = obligation.feature.strip_prefix("claim-output:") {
+            requirements.push(transaction_runtime_input_requirement(
+                obligation,
+                "claim-output-relation",
+                obligation.status.as_str(),
+                (obligation.status == "runtime-required").then_some("claim-created output relation is not fully verifier-covered"),
+                (obligation.status == "runtime-required").then_some("claim-output-relation-gap"),
+                "Transaction",
+                binding,
+                Some("output-relation"),
+                "claim-output-relation-consume-create-accounting",
+                None,
+            ));
+        } else if let Some(binding) = obligation.feature.strip_prefix("settle-output:") {
+            requirements.push(transaction_runtime_input_requirement(
+                obligation,
+                "settle-output-relation",
+                obligation.status.as_str(),
+                (obligation.status == "runtime-required").then_some("settle-created output relation is not fully verifier-covered"),
+                (obligation.status == "runtime-required").then_some("settle-output-relation-gap"),
+                "Transaction",
+                binding,
+                Some("output-relation"),
+                "settle-output-relation-consume-create-accounting",
                 None,
             ));
         } else if let Some(binding) = obligation.feature.strip_prefix("claim-conditions:") {
@@ -8306,6 +8336,26 @@ action redeem(receipt: VestingReceipt) -> Token {
     }
 "#;
 
+    const CLAIM_SETTLE_UNSUPPORTED_OUTPUT_RELATION_PROGRAM: &str = r#"
+module test
+
+resource Token {
+    amount: u128,
+}
+
+receipt VestingReceipt -> Token {
+    amount: u128,
+}
+
+action redeem(receipt: VestingReceipt) -> Token {
+    return claim receipt
+}
+
+action finalize(token: Token) -> Token {
+    return settle token
+}
+"#;
+
     const SETTLE_LIFECYCLE_FINAL_STATE_PROGRAM: &str = r#"
 module test
 
@@ -11056,6 +11106,18 @@ source_roots = ["src", "shared"]
             obligation.category == "transaction-invariant"
                 && obligation.feature == "claim-output:Token"
                 && obligation.status == "checked-runtime"
+                && obligation.detail.contains("claim-output-relation=checked-runtime")
+        }));
+        assert!(result.metadata.runtime.transaction_runtime_input_requirements.iter().any(|requirement| {
+            requirement.feature == "claim-output:Token"
+                && requirement.status == "checked-runtime"
+                && requirement.component == "claim-output-relation"
+                && requirement.source == "Transaction"
+                && requirement.field.as_deref() == Some("output-relation")
+                && requirement.abi == "claim-output-relation-consume-create-accounting"
+                && requirement.byte_len.is_none()
+                && requirement.blocker.is_none()
+                && requirement.blocker_class.is_none()
         }));
         assert!(!result.metadata.runtime.verifier_obligations.iter().any(|obligation| {
             obligation.category == "transaction-invariant"
@@ -11092,6 +11154,18 @@ source_roots = ["src", "shared"]
             obligation.category == "transaction-invariant"
                 && obligation.feature == "settle-output:Token"
                 && obligation.status == "checked-runtime"
+                && obligation.detail.contains("settle-output-relation=checked-runtime")
+        }));
+        assert!(result.metadata.runtime.transaction_runtime_input_requirements.iter().any(|requirement| {
+            requirement.feature == "settle-output:Token"
+                && requirement.status == "checked-runtime"
+                && requirement.component == "settle-output-relation"
+                && requirement.source == "Transaction"
+                && requirement.field.as_deref() == Some("output-relation")
+                && requirement.abi == "settle-output-relation-consume-create-accounting"
+                && requirement.byte_len.is_none()
+                && requirement.blocker.is_none()
+                && requirement.blocker_class.is_none()
         }));
         assert!(result.metadata.runtime.transaction_runtime_input_requirements.iter().any(|requirement| {
             requirement.feature == "settle-finalization:Token"
@@ -11108,6 +11182,55 @@ source_roots = ["src", "shared"]
                 && obligation.feature == "settle-output:Token"
                 && obligation.status == "runtime-required"
         }));
+    }
+
+    #[test]
+    fn claim_and_settle_output_relation_gaps_are_transaction_inputs() {
+        let result = compile(CLAIM_SETTLE_UNSUPPORTED_OUTPUT_RELATION_PROGRAM, CompileOptions::default()).unwrap();
+        let redeem = result.metadata.actions.iter().find(|action| action.name == "redeem").expect("redeem metadata");
+        let finalize = result.metadata.actions.iter().find(|action| action.name == "finalize").expect("finalize metadata");
+
+        assert!(
+            redeem.fail_closed_runtime_features.contains(&"claim-expression".to_string())
+                && redeem.fail_closed_runtime_features.contains(&"output-verification-incomplete".to_string()),
+            "unsupported claim output relation should remain fail-closed: {:?}",
+            redeem.fail_closed_runtime_features
+        );
+        assert!(
+            redeem.transaction_runtime_input_requirements.iter().any(|requirement| {
+                requirement.feature == "claim-output:Token"
+                    && requirement.status == "runtime-required"
+                    && requirement.component == "claim-output-relation"
+                    && requirement.source == "Transaction"
+                    && requirement.field.as_deref() == Some("output-relation")
+                    && requirement.abi == "claim-output-relation-consume-create-accounting"
+                    && requirement.blocker.as_deref() == Some("claim-created output relation is not fully verifier-covered")
+                    && requirement.blocker_class.as_deref() == Some("claim-output-relation-gap")
+            }),
+            "unsupported claim output relation should expose a transaction input blocker: {:?}",
+            redeem.transaction_runtime_input_requirements
+        );
+
+        assert!(
+            finalize.fail_closed_runtime_features.contains(&"settle-expression".to_string())
+                && finalize.fail_closed_runtime_features.contains(&"output-verification-incomplete".to_string()),
+            "unsupported settle output relation should remain fail-closed: {:?}",
+            finalize.fail_closed_runtime_features
+        );
+        assert!(
+            finalize.transaction_runtime_input_requirements.iter().any(|requirement| {
+                requirement.feature == "settle-output:Token"
+                    && requirement.status == "runtime-required"
+                    && requirement.component == "settle-output-relation"
+                    && requirement.source == "Transaction"
+                    && requirement.field.as_deref() == Some("output-relation")
+                    && requirement.abi == "settle-output-relation-consume-create-accounting"
+                    && requirement.blocker.as_deref() == Some("settle-created output relation is not fully verifier-covered")
+                    && requirement.blocker_class.as_deref() == Some("settle-output-relation-gap")
+            }),
+            "unsupported settle output relation should expose a transaction input blocker: {:?}",
+            finalize.transaction_runtime_input_requirements
+        );
     }
 
     #[test]

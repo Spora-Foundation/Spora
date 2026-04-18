@@ -1423,9 +1423,9 @@ action redeem_signed_after_cliff(receipt: SignedVestingReceipt) -> Token {
     assert!(json_output.status.success(), "unexpected failure: {}", String::from_utf8_lossy(&json_output.stderr));
     let stdout: serde_json::Value = serde_json::from_slice(&json_output.stdout).unwrap();
     let target = &stdout["checked_targets"][0];
-    assert_eq!(target["transaction_runtime_input_requirements"], 4, "unexpected stdout: {}", stdout);
+    assert_eq!(target["transaction_runtime_input_requirements"], 5, "unexpected stdout: {}", stdout);
     assert_eq!(target["runtime_required_transaction_runtime_input_requirements"], 2, "unexpected stdout: {}", stdout);
-    assert_eq!(target["checked_transaction_runtime_input_requirements"], 2, "unexpected stdout: {}", stdout);
+    assert_eq!(target["checked_transaction_runtime_input_requirements"], 3, "unexpected stdout: {}", stdout);
     assert_eq!(target["runtime_required_transaction_runtime_input_blockers"], 2, "unexpected stdout: {}", stdout);
     assert_eq!(target["runtime_required_transaction_runtime_input_blocker_classes"], 2, "unexpected stdout: {}", stdout);
 
@@ -1470,6 +1470,16 @@ action redeem_signed_after_cliff(receipt: SignedVestingReceipt) -> Token {
             summary.contains(
                 "claim-conditions:SignedVestingReceipt:claim-authorization-domain=Witness:SignedVestingReceipt.authorization-domain",
             ) && summary.contains("(checked-runtime)")
+                && !summary.contains("blocker=")
+        })),
+        "unexpected checked transaction runtime input summaries: {}",
+        stdout
+    );
+    assert!(
+        checked_runtime_inputs.iter().any(|value| value.as_str().is_some_and(|summary| {
+            summary.contains("claim-output:Token:claim-output-relation=Transaction:Token.output-relation")
+                && summary.contains("claim-output-relation-consume-create-accounting")
+                && summary.contains("(checked-runtime)")
                 && !summary.contains("blocker=")
         })),
         "unexpected checked transaction runtime input summaries: {}",
