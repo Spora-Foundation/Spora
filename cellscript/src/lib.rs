@@ -2145,8 +2145,132 @@ fn body_transaction_resource_obligations(
             }
         }
     }
+    checks.extend(body_resource_conservation_obligations(body, type_layouts, &availability, params, cell_type_kinds));
     checks.extend(body_receipt_claim_flow_obligations(name, body, type_layouts, cell_type_kinds));
     checks
+}
+
+#[derive(Debug, Clone)]
+struct MetadataFieldAlias {
+    root_id: usize,
+    field: String,
+}
+
+fn body_resource_conservation_obligations(
+    body: &ir::IrBody,
+    type_layouts: &MetadataTypeLayouts,
+    availability: &MetadataPreludeAvailability,
+    params: &[ir::IrParam],
+    cell_type_kinds: &HashMap<String, ir::IrTypeKind>,
+) -> Vec<TransactionResourceObligation> {
+    let resource_param_types = params
+        .iter()
+        .filter_map(|param| {
+            let type_name = named_type_name(&param.ty)?;
+            (cell_type_kinds.get(type_name) == Some(&ir::IrTypeKind::Resource)).then_some((param.binding.id, type_name.to_string()))
+        })
+        .collect::<HashMap<_, _>>();
+    if resource_param_types.is_empty() {
+        return Vec::new();
+    }
+
+    let mut consumed_params: HashMap<String, Vec<ir::IrVar>> = HashMap::new();
+    let mut created_outputs: HashMap<String, Vec<ir::CreatePattern>> = HashMap::new();
+    for block in &body.blocks {
+        for instruction in &block.instructions {
+            match instruction {
+                ir::IrInstruction::Consume { operand: ir::IrOperand::Var(var) } => {
+                    if let Some(type_name) = resource_param_types.get(&var.id) {
+                        consumed_params.entry(type_name.clone()).or_default().push(var.clone());
+                    }
+                }
+                ir::IrInstruction::Create { pattern, .. }
+                    if pattern.operation == "create" && cell_type_kinds.get(&pattern.ty) == Some(&ir::IrTypeKind::Resource) =>
+                {
+                    created_outputs.entry(pattern.ty.clone()).or_default().push(pattern.clone());
+                }
+                _ => {}
+            }
+        }
+    }
+
+    let type_names = consumed_params.keys().chain(created_outputs.keys()).cloned().collect::<BTreeSet<_>>();
+    type_names
+        .iter()
+        .filter_map(|type_name| {
+            let consumed = consumed_params.get(type_name).cloned().unwrap_or_default();
+            let created = created_outputs.get(type_name).cloned().unwrap_or_default();
+            if consumed.is_empty() || created.is_empty() {
+                return None;
+            }
+            let checked = consumed.len() == 1
+                && created.len() == 1
+                && resource_conservation_pair_is_checked(body, type_layouts, availability, &consumed[0], &created[0]);
+            let fields = type_layouts
+                .get(type_name)
+                .map(|layouts| layouts.keys().cloned().collect::<BTreeSet<_>>().into_iter().collect::<Vec<_>>().join(", "))
+                .unwrap_or_else(|| "<unknown>".to_string());
+            Some(TransactionResourceObligation {
+                category: "transaction-invariant",
+                feature: format!("resource-conservation:{}", type_name),
+                status: if checked { "checked-runtime" } else { "runtime-required" },
+                detail: if checked {
+                    format!(
+                        "Compiler-emitted runtime verifier checks one consumed '{}' Input is preserved into one created Output; resource-conservation=checked-runtime; fields: {}",
+                        type_name, fields
+                    )
+                } else {
+                    format!(
+                        "Runtime verifier must prove '{}' resource conservation across {} consumed Input cell(s) and {} created Output cell(s); resource-conservation=runtime-required",
+                        type_name,
+                        consumed.len(),
+                        created.len()
+                    )
+                },
+            })
+        })
+        .collect()
+}
+
+fn resource_conservation_pair_is_checked(
+    body: &ir::IrBody,
+    type_layouts: &MetadataTypeLayouts,
+    availability: &MetadataPreludeAvailability,
+    consumed: &ir::IrVar,
+    created: &ir::CreatePattern,
+) -> bool {
+    if !metadata_can_verify_create_output_fields(created, type_layouts, availability)
+        || !metadata_can_verify_output_lock(created, availability)
+    {
+        return false;
+    }
+    let aliases = metadata_field_aliases(body);
+    created.fields.iter().all(|(field, operand)| {
+        let ir::IrOperand::Var(var) = operand else {
+            return false;
+        };
+        aliases.get(&var.id).is_some_and(|alias| alias.root_id == consumed.id && alias.field == field.as_str())
+    })
+}
+
+fn metadata_field_aliases(body: &ir::IrBody) -> HashMap<usize, MetadataFieldAlias> {
+    let mut aliases = HashMap::new();
+    for block in &body.blocks {
+        for instruction in &block.instructions {
+            match instruction {
+                ir::IrInstruction::FieldAccess { dest, obj: ir::IrOperand::Var(obj), field } => {
+                    aliases.insert(dest.id, MetadataFieldAlias { root_id: obj.id, field: field.clone() });
+                }
+                ir::IrInstruction::Move { dest, src: ir::IrOperand::Var(src) } => {
+                    if let Some(alias) = aliases.get(&src.id).cloned() {
+                        aliases.insert(dest.id, alias);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    aliases
 }
 
 fn body_receipt_claim_flow_obligations(
@@ -8668,6 +8792,18 @@ action activate(ticket: Ticket) -> Ticket {
             asm
         );
         assert!(asm.contains("sub t2, t0, t1"), "created output amount and consumed input amount were not compared:\n{}", asm);
+        let action = result.metadata.actions.iter().find(|action| action.name == "pass").expect("pass metadata");
+        assert!(
+            action.verifier_obligations.iter().any(|obligation| {
+                obligation.category == "transaction-invariant"
+                    && obligation.feature == "resource-conservation:Token"
+                    && obligation.status == "checked-runtime"
+                    && obligation.detail.contains("resource-conservation=checked-runtime")
+                    && obligation.detail.contains("fields: amount")
+            }),
+            "direct field-for-field resource conservation should be marked checked-runtime: {:?}",
+            action.verifier_obligations
+        );
     }
 
     #[test]
@@ -8690,6 +8826,17 @@ action activate(ticket: Ticket) -> Ticket {
             asm.contains("# cellscript abi: verify output field Token.amount offset=0 size=8"),
             "created output amount was not verified:\n{}",
             asm
+        );
+        let action = result.metadata.actions.iter().find(|action| action.name == "withdraw").expect("withdraw metadata");
+        assert!(
+            action.verifier_obligations.iter().any(|obligation| {
+                obligation.category == "transaction-invariant"
+                    && obligation.feature == "resource-conservation:Token"
+                    && obligation.status == "runtime-required"
+                    && obligation.detail.contains("resource-conservation=runtime-required")
+            }),
+            "arithmetic resource conservation should remain runtime-required: {:?}",
+            action.verifier_obligations
         );
     }
 
