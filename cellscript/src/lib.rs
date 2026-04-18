@@ -7070,6 +7070,48 @@ action bad(token: Token) -> u64 {
 }
 "#;
 
+    const LINEAR_TUPLE_REF_ALIAS_PROGRAM: &str = r#"
+module test
+
+resource Token has destroy {
+    amount: u64,
+}
+
+action bad(token: Token) -> u64 {
+    let pair = (&token, 0)
+    destroy token
+    return pair.0.amount
+}
+"#;
+
+    const LINEAR_ARRAY_REF_ALIAS_PROGRAM: &str = r#"
+module test
+
+resource Token has destroy {
+    amount: u64,
+}
+
+action bad(token: Token) -> u64 {
+    let refs = [&token]
+    destroy token
+    return refs[0].amount
+}
+"#;
+
+    const LINEAR_IF_REF_ALIAS_PROGRAM: &str = r#"
+module test
+
+resource Token has destroy {
+    amount: u64,
+}
+
+action bad(token: Token, flag: bool) -> u64 {
+    let view = if flag { &token } else { &token }
+    destroy token
+    return view.amount
+}
+"#;
+
     const ACTION_RETURN_REF_PROGRAM: &str = r#"
 module test
 
@@ -9673,6 +9715,27 @@ action activate(ticket: Ticket) -> Ticket {
         );
 
         let err = compile(LINEAR_FIELD_LOCAL_REF_ALIAS_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(
+            err.message.contains("local binding cannot store a read-only reference rooted at linear/resource value 'token'"),
+            "unexpected error: {}",
+            err.message
+        );
+
+        let err = compile(LINEAR_TUPLE_REF_ALIAS_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(
+            err.message.contains("local binding cannot store a read-only reference rooted at linear/resource value 'token'"),
+            "unexpected error: {}",
+            err.message
+        );
+
+        let err = compile(LINEAR_ARRAY_REF_ALIAS_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(
+            err.message.contains("local binding cannot store a read-only reference rooted at linear/resource value 'token'"),
+            "unexpected error: {}",
+            err.message
+        );
+
+        let err = compile(LINEAR_IF_REF_ALIAS_PROGRAM, CompileOptions::default()).unwrap_err();
         assert!(
             err.message.contains("local binding cannot store a read-only reference rooted at linear/resource value 'token'"),
             "unexpected error: {}",

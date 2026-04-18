@@ -2102,6 +2102,8 @@ Slice 87 更新：本地只读引用别名现在不能根在 linear Cell 值上�
 
 Slice 88 更新：引用类型的作用域边界进一步收紧。`&T` / `&mut T` / `read_ref T` 仍可作为 callable 参数和短生命周期表达式借用使用，但不能作为 `action` / `fn` 返回类型，也不能进入 `resource` / `shared` / `receipt` / `struct` 字段或 enum payload 字段。原因是 CellScript 目前没有 lifetime 模型，schema storage 也必须是 owned serializable value；让引用跨 callable 边界或进入持久布局会制造无来源的悬垂引用。
 
+Slice 89 更新：本地只读引用别名检查现在覆盖被存储的嵌套结果。`let pair = (&token, 0)`、`let refs = [&token]`、`let view = if flag { &token } else { &token }`，以及等价的 `match` arm 或 block tail 返回值都会被拒绝，不能把根在 linear Cell 上的 `&T` 藏进 tuple / array / branch result 后再 `destroy` / `consume` / `transfer` 原值。普通 `helper(&token)` 仍不受影响，因为 call 参数不是被保存的本地别名。
+
 目标：
 - 在后端工作扩展之前冻结最小语言核心。
 

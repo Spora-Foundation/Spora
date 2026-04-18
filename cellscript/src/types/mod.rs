@@ -1711,27 +1711,71 @@ impl<'a> TypeChecker<'a> {
     }
 
     fn reject_local_reference_to_linear_root(&self, env: &TypeEnv, value: &Expr, ty: &Type, span: Span) -> Result<()> {
-        let Expr::Unary(unary) = value else {
+        self.reject_stored_linear_reference_alias(env, value, span)?;
+        if matches!(value, Expr::Unary(_)) {
+            self.reject_unrooted_linear_reference_type(ty, span)?;
+        }
+        Ok(())
+    }
+
+    fn reject_stored_linear_reference_alias(&self, env: &TypeEnv, expr: &Expr, span: Span) -> Result<()> {
+        match expr {
+            Expr::Unary(unary) if matches!(unary.op, UnaryOp::Ref) => {
+                if let Some(root) = assignment_root_name(&unary.expr) {
+                    if let Some(root_ty) = env.lookup(root) {
+                        if self.is_linear_type(root_ty) {
+                            return Err(CompileError::new(
+                                format!(
+                                    "local binding cannot store a read-only reference rooted at linear/resource value '{}'; pass the reference directly to a helper call",
+                                    root
+                                ),
+                                span,
+                            ));
+                        }
+                    }
+                }
+                Ok(())
+            }
+            Expr::Tuple(items) | Expr::Array(items) => {
+                for item in items {
+                    self.reject_stored_linear_reference_alias(env, item, span)?;
+                }
+                Ok(())
+            }
+            Expr::Cast(cast) => self.reject_stored_linear_reference_alias(env, &cast.expr, span),
+            Expr::If(if_expr) => {
+                self.reject_stored_linear_reference_alias(env, &if_expr.then_branch, span)?;
+                self.reject_stored_linear_reference_alias(env, &if_expr.else_branch, span)
+            }
+            Expr::Match(match_expr) => {
+                for arm in &match_expr.arms {
+                    self.reject_stored_linear_reference_alias(env, &arm.value, span)?;
+                }
+                Ok(())
+            }
+            Expr::Block(stmts) => self.reject_stored_linear_reference_alias_in_tail_stmt(env, stmts, span),
+            _ => Ok(()),
+        }
+    }
+
+    fn reject_stored_linear_reference_alias_in_tail_stmt(&self, env: &TypeEnv, stmts: &[Stmt], span: Span) -> Result<()> {
+        let Some(last) = stmts.last() else {
             return Ok(());
         };
-        if !matches!(unary.op, UnaryOp::Ref) {
-            return Ok(());
-        }
-
-        if let Some(root) = assignment_root_name(&unary.expr) {
-            if let Some(root_ty) = env.lookup(root) {
-                if self.is_linear_type(root_ty) {
-                    return Err(CompileError::new(
-                        format!(
-                            "local binding cannot store a read-only reference rooted at linear/resource value '{}'; pass the reference directly to a helper call",
-                            root
-                        ),
-                        span,
-                    ));
+        match last {
+            Stmt::Expr(expr) | Stmt::Return(Some(expr)) => self.reject_stored_linear_reference_alias(env, expr, span),
+            Stmt::If(if_stmt) => {
+                self.reject_stored_linear_reference_alias_in_tail_stmt(env, &if_stmt.then_branch, span)?;
+                if let Some(else_branch) = &if_stmt.else_branch {
+                    self.reject_stored_linear_reference_alias_in_tail_stmt(env, else_branch, span)?;
                 }
+                Ok(())
             }
+            _ => Ok(()),
         }
+    }
 
+    fn reject_unrooted_linear_reference_type(&self, ty: &Type, span: Span) -> Result<()> {
         if let Type::Ref(inner) = ty {
             if self.is_linear_type(inner) {
                 return Err(CompileError::new(
@@ -1740,7 +1784,6 @@ impl<'a> TypeChecker<'a> {
                 ));
             }
         }
-
         Ok(())
     }
 
