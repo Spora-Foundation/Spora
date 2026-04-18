@@ -947,7 +947,14 @@ impl<'a> TypeChecker<'a> {
             }
             Expr::FieldAccess(field) => {
                 let expr_ty = self.infer_expr(env, &field.expr)?;
-                self.lookup_field_type(&expr_ty, &field.field, field.span)
+                let field_ty = self.lookup_field_type(&expr_ty, &field.field, field.span)?;
+                if self.is_linear_type(&field_ty) {
+                    return Err(CompileError::new(
+                        "field access cannot move a linear value out of an aggregate; use destructuring to bind linear fields",
+                        field.span,
+                    ));
+                }
+                Ok(field_ty)
             }
             Expr::Index(index) => {
                 let expr_ty = self.infer_expr(env, &index.expr)?;
@@ -955,7 +962,14 @@ impl<'a> TypeChecker<'a> {
                 if !self.is_numeric_type(&index_ty) {
                     return Err(CompileError::new("index expression requires a numeric index", index.span));
                 }
-                self.index_result_type(&expr_ty, index.span)
+                let item_ty = self.index_result_type(&expr_ty, index.span)?;
+                if self.is_linear_type(&item_ty) {
+                    return Err(CompileError::new(
+                        "index access cannot move a linear value out of an aggregate; use destructuring or explicit iteration that handles each item",
+                        index.span,
+                    ));
+                }
+                Ok(item_ty)
             }
             Expr::Create(create) => {
                 self.require_create_target_cell_backed(&create.ty, create.span)?;

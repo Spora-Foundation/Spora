@@ -7787,6 +7787,35 @@ action bad(left: Token, right: Token) {
 }
 "#;
 
+    const LINEAR_TUPLE_FIELD_PROJECTION_PROGRAM: &str = r#"
+module test
+
+resource Token has destroy {
+    amount: u64,
+}
+
+action bad(left: Token, right: Token) -> (Token, Token) {
+    let pair = (left, right)
+    let first = pair.0
+    destroy first
+    pair
+}
+"#;
+
+    const LINEAR_ARRAY_INDEX_PROJECTION_PROGRAM: &str = r#"
+module test
+
+resource Token has destroy {
+    amount: u64,
+}
+
+action bad(left: Token, right: Token) {
+    let items = [left, right]
+    let first = items[0]
+    destroy first
+}
+"#;
+
     const LINEAR_BLOCK_EXPR_LET_MOVE_PROGRAM: &str = r#"
 module test
 
@@ -11272,6 +11301,20 @@ struct TokenSnapshot {
             tuple_wildcard_err.message.contains("wildcard binding cannot discard a linear value"),
             "unexpected error: {}",
             tuple_wildcard_err.message
+        );
+
+        let field_err = compile(LINEAR_TUPLE_FIELD_PROJECTION_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(
+            field_err.message.contains("field access cannot move a linear value out of an aggregate"),
+            "unexpected error: {}",
+            field_err.message
+        );
+
+        let index_err = compile(LINEAR_ARRAY_INDEX_PROJECTION_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(
+            index_err.message.contains("index access cannot move a linear value out of an aggregate"),
+            "unexpected error: {}",
+            index_err.message
         );
     }
 

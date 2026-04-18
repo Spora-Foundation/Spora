@@ -2084,6 +2084,8 @@ Slice 78 更新：`for` / `while` 循环体现在补上了保守线性边界。�
 
 Slice 79 更新：线性类型判断现在递归覆盖 tuple / array 聚合。`(Token, Token)` 和 `[Token; N]` 本身会被视为线性值，不能通过 `let pair = (left, right)` 或 `let items = [left, right]` 把 resource 藏进普通局部变量后静默丢弃；tuple destructuring 仍然可用，但每个线性元素都会被显式绑定并继续参与线性检查。同时 wildcard 绑定不能接收线性值，包括 parser 传入的 `_` 名称和 tuple pattern 中的 `_`，因此 `let _ = token` / `let (_, kept) = (left, right)` 会被拒绝。
 
+Slice 80 更新：线性聚合的 field/index 投影现在也 fail-closed。`let first = pair.0` 或 `let first = items[0]` 不能把 `Token` 这类线性元素从 tuple / array 中取出，同时又让父聚合保持可用；在没有 partial move / field ownership 语义前，这会制造重复使用窗口。受支持的路径仍是 tuple destructuring，让每个线性元素显式绑定并由线性检查器继续跟踪。普通标量 tuple field 和数组 index 读取不受影响。
+
 目标：
 - 在后端工作扩展之前冻结最小语言核心。
 
