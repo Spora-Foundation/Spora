@@ -7606,6 +7606,38 @@ lock owned(_: Address) -> bool {
 }
 "#;
 
+    const LOCAL_BINDING_REUSE_PROGRAM: &str = r#"
+module test
+
+action bad() -> u64 {
+    let x = 1
+    let x = 2
+    return x
+}
+"#;
+
+    const TUPLE_BINDING_REUSE_PROGRAM: &str = r#"
+module test
+
+action bad() -> u64 {
+    let (x, x) = (1, 2)
+    return x
+}
+"#;
+
+    const BLOCK_BINDING_SHADOW_PROGRAM: &str = r#"
+module test
+
+action bad() -> u64 {
+    let x = 1
+    let y = {
+        let x = 2
+        x
+    }
+    return x + y
+}
+"#;
+
     const UNIT_FN_CALL_PROGRAM: &str = r#"
 module test
 
@@ -11192,6 +11224,30 @@ struct TokenSnapshot {
 
         let err = compile(WILDCARD_LOCK_PARAM_PROGRAM, CompileOptions::default()).unwrap_err();
         assert!(err.message.contains("lock 'owned' parameter must have a stable name"), "unexpected error: {}", err.message);
+    }
+
+    #[test]
+    fn compile_rejects_local_binding_name_reuse() {
+        let err = compile(LOCAL_BINDING_REUSE_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(
+            err.message.contains("binding 'x' already exists in this scope or an outer scope"),
+            "unexpected error: {}",
+            err.message
+        );
+
+        let err = compile(TUPLE_BINDING_REUSE_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(
+            err.message.contains("binding 'x' already exists in this scope or an outer scope"),
+            "unexpected error: {}",
+            err.message
+        );
+
+        let err = compile(BLOCK_BINDING_SHADOW_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(
+            err.message.contains("binding 'x' already exists in this scope or an outer scope"),
+            "unexpected error: {}",
+            err.message
+        );
     }
 
     #[test]

@@ -79,7 +79,17 @@ impl TypeEnv {
         self.mutability.insert(name.clone(), is_mut);
         if is_linear {
             self.linear_states.insert(name, LinearState::Available);
+        } else {
+            self.linear_states.remove(&name);
         }
+    }
+
+    fn bind_new(&mut self, name: String, ty: Type, is_linear: bool, is_mut: bool, span: Span) -> Result<()> {
+        if self.lookup(&name).is_some() {
+            return Err(CompileError::new(format!("binding '{}' already exists in this scope or an outer scope", name), span));
+        }
+        self.insert(name, ty, is_linear, is_mut);
+        Ok(())
     }
 
     fn update_type(&mut self, name: &str, ty: Type) -> bool {
@@ -713,7 +723,7 @@ impl<'a> TypeChecker<'a> {
             }
             self.validate_type(&param.ty)?;
             let is_linear = self.is_linear_type(&param.ty);
-            env.insert(param.name.clone(), param.ty.clone(), is_linear, param.is_mut);
+            env.bind_new(param.name.clone(), param.ty.clone(), is_linear, param.is_mut, param.span)?;
         }
         Ok(())
     }
@@ -1412,7 +1422,7 @@ impl<'a> TypeChecker<'a> {
                     return Ok(());
                 }
                 let is_linear = self.is_linear_type(ty);
-                env.insert(name.clone(), ty.clone(), is_linear, is_mut);
+                env.bind_new(name.clone(), ty.clone(), is_linear, is_mut, span)?;
                 Ok(())
             }
             BindingPattern::Wildcard => {

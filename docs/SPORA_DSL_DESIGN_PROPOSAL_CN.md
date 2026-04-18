@@ -45,7 +45,7 @@
 | CLI 子命令 | 🟡 本地工作流已接主入口，registry/runtime 命令仍 fail-closed/feature-gated | `cellscript/src/cli/` |
 | 集合类型 | 🚧 基础定义 | `cellscript/src/stdlib/collections.rs` |
 | 调试信息 | 🚧 原型级 | `cellscript/src/debug/` |
-| 测试套件 | 🟡 默认特性 `cargo test -p cellscript` 当前 326 项通过 | `cellscript/src/`, `cellscript/tests/` |
+| 测试套件 | 🟡 默认特性 `cargo test -p cellscript` 当前 327 项通过 | `cellscript/src/`, `cellscript/tests/` |
 
 **编译器项目路径**: `/Users/arthur/RustroverProjects/Spora/cellscript/`  
 
@@ -2089,6 +2089,8 @@ Slice 80 更新：线性聚合的 field/index 投影现在也 fail-closed。`let
 Slice 81 更新：`action` / `fn` / `lock` 的参数名现在进入稳定身份检查。重复参数名会在类型检查阶段报错，`_` 也不能作为 callable 参数名，因为参数会进入 ABI、IR 和 metadata，必须可稳定引用；`_` 只保留给局部 wildcard binding。这样不会再出现参数覆盖或匿名 ABI 参数在后续 lowering 中被误解释的情况。
 
 Slice 82 更新：schema 字段名也进入稳定身份检查。`resource` / `shared` / `receipt` / `struct` 定义中的重复字段名会被拒绝，`_` 也不能作为字段名；字段会进入 layout、IR、metadata 和 verifier field source，不能靠后续 `HashMap` 收集时覆盖前一个字段。这样 `Token { amount: u64, amount: u128 }` 这类定义不会再污染后续布局语义。
+
+Slice 83 更新：局部绑定现在也采用稳定单赋值身份。`let x = ...; let x = ...`、`let (x, x) = ...`、以及 block/loop/branch 子作用域里遮蔽外层可见绑定都会在类型检查阶段失败；callable 参数也走同一条新绑定路径，因此不会通过 `TypeEnv` 或 IR `vars` map 静默覆盖已有名字。内部非线性 `insert` 同时会清理同名旧线性状态，避免 stale linear state 污染后续检查。
 
 目标：
 - 在后端工作扩展之前冻结最小语言核心。
