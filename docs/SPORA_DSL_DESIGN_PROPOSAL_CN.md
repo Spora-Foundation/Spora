@@ -45,7 +45,7 @@
 | CLI 子命令 | 🟡 本地工作流已接主入口，registry/runtime 命令仍 fail-closed/feature-gated | `cellscript/src/cli/` |
 | 集合类型 | 🚧 基础定义 | `cellscript/src/stdlib/collections.rs` |
 | 调试信息 | 🚧 原型级 | `cellscript/src/debug/` |
-| 测试套件 | 🟡 默认特性 `cargo test -p cellscript` 当前 334 项通过 | `cellscript/src/`, `cellscript/tests/` |
+| 测试套件 | 🟡 默认特性 `cargo test -p cellscript` 当前 335 项通过 | `cellscript/src/`, `cellscript/tests/` |
 
 **编译器项目路径**: `/Users/arthur/RustroverProjects/Spora/cellscript/`  
 
@@ -2107,6 +2107,8 @@ Slice 89 更新：本地只读引用别名检查现在覆盖被存储的嵌套�
 Slice 90 更新：同一条本地引用别名规则现在也覆盖 assignment RHS。`let mut view = read_ref<Token>(); view = &token`、`pair = (&token, 0)`、`pair.0 = &token` 都会失败，避免先创建一个可变本地容器/引用变量，再通过赋值把 `&linear Cell` 保存进去。短生命周期的 call 参数借用仍保持可用。
 
 Slice 91 更新：`&mut` 参数现在不能被复制成本地别名或藏进聚合/分支结果。`let alias = pool`、`let pair = (pool, 0)`、`let alias = if flag { pool } else { pool }`、`alias = pool` 都会失败；合法形态仍是直接写 `pool.field = ...` 或把 `pool` 作为参数直接传给 helper。这样 mutable Cell 状态写能力在 callable 内保持单一根，避免多个本地名字同时代表同一 `&mut` 状态。
+
+Slice 92 更新：同一次 helper/action 调用里也不能把同一个 `&mut` 根传入 mutable 参数位多次。`bump_pair(pool, pool)` 和 `bump_with_view(pool, pool)` 会失败，只要其中一个参数位需要 `&mut Pool`，同根重复就被拒绝；两个参数都只是只读 `&Pool` 时，`sum_views(pool, pool)` 仍可作为短生命周期只读 reborrow。这样直接 call 不再成为绕过 Slice 91 的 mutable alias 通道。
 
 目标：
 - 在后端工作扩展之前冻结最小语言核心。

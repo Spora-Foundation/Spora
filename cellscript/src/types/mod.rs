@@ -1995,20 +1995,20 @@ impl<'a> TypeChecker<'a> {
             Expr::Identifier(name) => {
                 if let Some(signature) = self.functions.get(name).cloned() {
                     self.validate_call_allowed(name, signature.kind, call.span)?;
-                    self.validate_call_args(name, &signature.params, arg_types, call.span)?;
+                    self.validate_call_args(name, &signature.params, arg_types, &call.args, call.span)?;
                     return Ok(signature.return_type.unwrap_or(Type::Unit));
                 }
                 if let Some(function) = self.resolve_function(name) {
                     self.validate_call_allowed(name, function_def_kind(&function), call.span)?;
                     let params = function_def_param_types(&function);
-                    self.validate_call_args(name, &params, arg_types, call.span)?;
+                    self.validate_call_args(name, &params, arg_types, &call.args, call.span)?;
                     return Ok(self.function_return_type(&function).unwrap_or(Type::Unit));
                 }
                 if let Some((prefix, suffix)) = name.rsplit_once("::") {
                     if self.current_module.as_deref() == Some(prefix) {
                         if let Some(signature) = self.functions.get(suffix).cloned() {
                             self.validate_call_allowed(name, signature.kind, call.span)?;
-                            self.validate_call_args(name, &signature.params, arg_types, call.span)?;
+                            self.validate_call_args(name, &signature.params, arg_types, &call.args, call.span)?;
                             return Ok(signature.return_type.unwrap_or(Type::Unit));
                         }
                     }
@@ -2096,7 +2096,7 @@ impl<'a> TypeChecker<'a> {
             .map_err(|_| CompileError::new(format!("unknown namespaced function '{}::{}'", type_name, constructor), span))
     }
 
-    fn validate_call_args(&self, callee_name: &str, expected: &[Type], actual: &[Type], span: Span) -> Result<()> {
+    fn validate_call_args(&self, callee_name: &str, expected: &[Type], actual: &[Type], args: &[Expr], span: Span) -> Result<()> {
         if actual.len() != expected.len() {
             return Err(CompileError::new(
                 format!(
@@ -2125,6 +2125,42 @@ impl<'a> TypeChecker<'a> {
             }
         }
 
+        self.reject_duplicate_mutable_reference_call_roots(callee_name, expected, actual, args, span)?;
+
+        Ok(())
+    }
+
+    fn reject_duplicate_mutable_reference_call_roots(
+        &self,
+        callee_name: &str,
+        expected: &[Type],
+        actual: &[Type],
+        args: &[Expr],
+        span: Span,
+    ) -> Result<()> {
+        let mut roots: HashMap<&str, bool> = HashMap::new();
+        for (expected_ty, (actual_ty, arg)) in expected.iter().zip(actual.iter().zip(args.iter())) {
+            if !matches!(actual_ty, Type::MutRef(_)) {
+                continue;
+            }
+            let Some(root) = assignment_root_name(arg) else {
+                continue;
+            };
+            let participates_in_mutable_alias = matches!(expected_ty, Type::MutRef(_));
+            if let Some(prior_participated) = roots.get(root).copied() {
+                if participates_in_mutable_alias || prior_participated {
+                    return Err(CompileError::new(
+                        format!(
+                            "function '{}' cannot receive mutable reference root '{}' more than once in one call; pass distinct '&mut' roots or split the mutation",
+                            callee_name, root
+                        ),
+                        span,
+                    ));
+                }
+            } else {
+                roots.insert(root, participates_in_mutable_alias);
+            }
+        }
         Ok(())
     }
 

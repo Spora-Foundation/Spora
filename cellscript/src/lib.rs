@@ -7084,6 +7084,56 @@ action bad(pool: &mut Pool) -> u64 {
 }
 "#;
 
+    const MUT_REF_DUPLICATE_CALL_PROGRAM: &str = r#"
+module test
+
+shared Pool {
+    reserve: u64,
+}
+
+action bump_pair(left: &mut Pool, right: &mut Pool) {
+    left.reserve = left.reserve + 1
+    right.reserve = right.reserve + 1
+}
+
+action bad(pool: &mut Pool) {
+    bump_pair(pool, pool)
+}
+"#;
+
+    const MUT_REF_MIXED_DUPLICATE_CALL_PROGRAM: &str = r#"
+module test
+
+shared Pool {
+    reserve: u64,
+}
+
+action bump_with_view(target: &mut Pool, view: &Pool) -> u64 {
+    target.reserve = target.reserve + 1
+    return view.reserve
+}
+
+action bad(pool: &mut Pool) -> u64 {
+    return bump_with_view(pool, pool)
+}
+"#;
+
+    const MUT_REF_DUPLICATE_READ_ONLY_CALL_PROGRAM: &str = r#"
+module test
+
+shared Pool {
+    reserve: u64,
+}
+
+fn sum_views(left: &Pool, right: &Pool) -> u64 {
+    return left.reserve + right.reserve
+}
+
+action ok(pool: &mut Pool) -> u64 {
+    return sum_views(pool, pool)
+}
+"#;
+
     const OWNED_LINEAR_FIELD_ASSIGN_PROGRAM: &str = r#"
 module test
 
@@ -9821,6 +9871,25 @@ action activate(ticket: Ticket) -> Ticket {
 
         let err = compile(MUT_REF_ASSIGN_ALIAS_PROGRAM, CompileOptions::default()).unwrap_err();
         assert!(err.message.contains("assignment cannot store mutable reference type &mut Pool"), "unexpected error: {}", err.message);
+    }
+
+    #[test]
+    fn compile_rejects_duplicate_mutable_reference_call_roots() {
+        let err = compile(MUT_REF_DUPLICATE_CALL_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(
+            err.message.contains("function 'bump_pair' cannot receive mutable reference root 'pool' more than once"),
+            "unexpected error: {}",
+            err.message
+        );
+
+        let err = compile(MUT_REF_MIXED_DUPLICATE_CALL_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(
+            err.message.contains("function 'bump_with_view' cannot receive mutable reference root 'pool' more than once"),
+            "unexpected error: {}",
+            err.message
+        );
+
+        compile(MUT_REF_DUPLICATE_READ_ONLY_CALL_PROGRAM, CompileOptions::default()).unwrap();
     }
 
     #[test]
