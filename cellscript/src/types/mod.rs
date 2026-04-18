@@ -571,6 +571,11 @@ impl<'a> TypeChecker<'a> {
                 ));
             }
             self.validate_type(&field.ty)?;
+            self.validate_stored_type_has_no_references(
+                &field.ty,
+                &format!("{} '{}' field '{}'", item_kind, item_name, field.name),
+                field.span,
+            )?;
         }
         Ok(())
     }
@@ -583,6 +588,11 @@ impl<'a> TypeChecker<'a> {
             }
             for field_ty in &variant.fields {
                 self.validate_type(field_ty)?;
+                self.validate_stored_type_has_no_references(
+                    field_ty,
+                    &format!("enum variant '{}::{}' payload", enum_def.name, variant.name),
+                    variant.span,
+                )?;
             }
         }
         Ok(())
@@ -609,7 +619,7 @@ impl<'a> TypeChecker<'a> {
 
             self.bind_callable_params(&mut env, &action.params, "action", &action.name)?;
             if let Some(return_type) = &action.return_type {
-                self.validate_type(return_type)?;
+                self.validate_callable_return_type("action", &action.name, return_type, action.span)?;
             }
             let return_env = env.clone();
             self.check_no_unreachable_stmts(&action.body)?;
@@ -640,7 +650,7 @@ impl<'a> TypeChecker<'a> {
 
             self.bind_callable_params(&mut env, &function.params, "function", &function.name)?;
             if let Some(return_type) = &function.return_type {
-                self.validate_type(return_type)?;
+                self.validate_callable_return_type("function", &function.name, return_type, function.span)?;
             }
             let return_env = env.clone();
             self.check_no_unreachable_stmts(&function.body)?;
@@ -701,6 +711,42 @@ impl<'a> TypeChecker<'a> {
         self.current_callable = previous_callable;
         self.current_return_type = previous_return_type;
         result
+    }
+
+    fn validate_callable_return_type(&self, callable_kind: &str, callable_name: &str, return_type: &Type, span: Span) -> Result<()> {
+        self.validate_type(return_type)?;
+        if self.type_contains_reference(return_type) {
+            return Err(CompileError::new(
+                format!(
+                    "{} '{}' cannot return reference type {}; references cannot escape callable boundaries",
+                    callable_kind,
+                    callable_name,
+                    type_repr(return_type)
+                ),
+                span,
+            ));
+        }
+        Ok(())
+    }
+
+    fn validate_stored_type_has_no_references(&self, ty: &Type, owner: &str, span: Span) -> Result<()> {
+        if self.type_contains_reference(ty) {
+            return Err(CompileError::new(
+                format!("{} cannot use reference type {}; schema storage must use owned serializable values", owner, type_repr(ty)),
+                span,
+            ));
+        }
+        Ok(())
+    }
+
+    fn type_contains_reference(&self, ty: &Type) -> bool {
+        match ty {
+            Type::Ref(_) | Type::MutRef(_) => true,
+            Type::Array(inner, _) => self.type_contains_reference(inner),
+            Type::Tuple(items) => items.iter().any(|item| self.type_contains_reference(item)),
+            Type::Named(name) => name.contains("read_ref ") || name.contains("&mut "),
+            _ => false,
+        }
     }
 
     fn bind_callable_params(&self, env: &mut TypeEnv, params: &[Param], callable_kind: &str, callable_name: &str) -> Result<()> {

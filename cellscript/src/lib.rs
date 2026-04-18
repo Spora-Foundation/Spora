@@ -7070,6 +7070,55 @@ action bad(token: Token) -> u64 {
 }
 "#;
 
+    const ACTION_RETURN_REF_PROGRAM: &str = r#"
+module test
+
+resource Token {
+    amount: u64,
+}
+
+action leak(token: Token) -> &Token {
+    return &token
+}
+"#;
+
+    const FUNCTION_RETURN_REF_PROGRAM: &str = r#"
+module test
+
+struct Point {
+    x: u64,
+}
+
+fn leak(point: &Point) -> &Point {
+    return point
+}
+"#;
+
+    const SCHEMA_REFERENCE_FIELD_PROGRAM: &str = r#"
+module test
+
+resource Token {
+    amount: u64,
+}
+
+struct Holder {
+    view: &Token,
+}
+"#;
+
+    const ENUM_REFERENCE_PAYLOAD_PROGRAM: &str = r#"
+module test
+
+resource Token {
+    amount: u64,
+}
+
+enum MaybeToken {
+    Some(&Token),
+    None,
+}
+"#;
+
     const IF_MISMATCH_PROGRAM: &str = r#"
 module test
 
@@ -9626,6 +9675,29 @@ action activate(ticket: Ticket) -> Ticket {
         let err = compile(LINEAR_FIELD_LOCAL_REF_ALIAS_PROGRAM, CompileOptions::default()).unwrap_err();
         assert!(
             err.message.contains("local binding cannot store a read-only reference rooted at linear/resource value 'token'"),
+            "unexpected error: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn compile_rejects_reference_escape_boundaries() {
+        let err = compile(ACTION_RETURN_REF_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(err.message.contains("action 'leak' cannot return reference type &Token"), "unexpected error: {}", err.message);
+
+        let err = compile(FUNCTION_RETURN_REF_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(err.message.contains("function 'leak' cannot return reference type &Point"), "unexpected error: {}", err.message);
+
+        let err = compile(SCHEMA_REFERENCE_FIELD_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(
+            err.message.contains("struct 'Holder' field 'view' cannot use reference type &Token"),
+            "unexpected error: {}",
+            err.message
+        );
+
+        let err = compile(ENUM_REFERENCE_PAYLOAD_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(
+            err.message.contains("enum variant 'MaybeToken::Some' payload cannot use reference type &Token"),
             "unexpected error: {}",
             err.message
         );
