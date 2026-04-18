@@ -6992,6 +6992,56 @@ action bad() -> u64 {
 }
 "#;
 
+    const MUT_CELL_PARAM_PROGRAM: &str = r#"
+module test
+
+resource Token {
+    amount: u64,
+}
+
+action bad(mut token: Token) {
+    consume token
+}
+"#;
+
+    const MUT_READ_REF_PARAM_PROGRAM: &str = r#"
+module test
+
+shared Config {
+    threshold: u64,
+}
+
+action bad(mut cfg: read_ref Config) -> u64 {
+    return cfg.threshold
+}
+"#;
+
+    const REDUNDANT_MUT_REF_PARAM_PROGRAM: &str = r#"
+module test
+
+shared Pool {
+    reserve: u64,
+}
+
+action bad(mut pool: &mut Pool) {
+    pool.reserve = pool.reserve + 1
+}
+"#;
+
+    const OWNED_LINEAR_FIELD_ASSIGN_PROGRAM: &str = r#"
+module test
+
+resource Token has destroy {
+    amount: u64,
+}
+
+action bad() {
+    let mut token = create Token { amount: 1 }
+    token.amount = 2
+    destroy token
+}
+"#;
+
     const IF_MISMATCH_PROGRAM: &str = r#"
 module test
 
@@ -9509,6 +9559,28 @@ action activate(ticket: Ticket) -> Ticket {
         let err = compile(READ_ONLY_REF_FIELD_ASSIGN_PROGRAM, CompileOptions::default()).unwrap_err();
         assert!(
             err.message.contains("assignment target rooted at 'view' is a read-only reference"),
+            "unexpected error: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn compile_rejects_unsound_mutable_parameter_forms() {
+        let err = compile(MUT_CELL_PARAM_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(err.message.contains("cell-backed parameter 'token' cannot use leading 'mut'"), "unexpected error: {}", err.message);
+
+        let err = compile(MUT_READ_REF_PARAM_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(err.message.contains("parameter 'cfg' is a read-only reference"), "unexpected error: {}", err.message);
+
+        let err = compile(REDUNDANT_MUT_REF_PARAM_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(err.message.contains("parameter 'pool' is already an '&mut' reference"), "unexpected error: {}", err.message);
+    }
+
+    #[test]
+    fn compile_rejects_owned_linear_field_assignment() {
+        let err = compile(OWNED_LINEAR_FIELD_ASSIGN_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(
+            err.message.contains("assignment target rooted at linear/resource value 'token' is not supported"),
             "unexpected error: {}",
             err.message
         );

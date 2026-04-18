@@ -722,8 +722,38 @@ impl<'a> TypeChecker<'a> {
                 ));
             }
             self.validate_type(&param.ty)?;
+            self.validate_callable_param_mutability(param)?;
             let is_linear = self.is_linear_type(&param.ty);
             env.bind_new(param.name.clone(), param.ty.clone(), is_linear, param.is_mut, param.span)?;
+        }
+        Ok(())
+    }
+
+    fn validate_callable_param_mutability(&self, param: &Param) -> Result<()> {
+        if !param.is_mut {
+            return Ok(());
+        }
+        if param.is_read_ref || matches!(param.ty, Type::Ref(_)) {
+            return Err(CompileError::new(
+                format!("parameter '{}' is a read-only reference; use '&mut T' for writable reference parameters", param.name),
+                param.span,
+            ));
+        }
+        if matches!(param.ty, Type::MutRef(_)) {
+            return Err(CompileError::new(
+                format!("parameter '{}' is already an '&mut' reference; remove the leading 'mut' modifier", param.name),
+                param.span,
+            ));
+        }
+        if self.base_type_name(&param.ty).and_then(|name| self.resolve_cell_type_kind(name)).is_some() {
+            return Err(CompileError::new(
+                format!(
+                    "cell-backed parameter '{}' cannot use leading 'mut'; use '&mut {}' for mutable cell state or consume/create for ownership transitions",
+                    param.name,
+                    type_repr(&param.ty)
+                ),
+                param.span,
+            ));
         }
         Ok(())
     }
@@ -1675,6 +1705,15 @@ impl<'a> TypeChecker<'a> {
                     ));
                 }
                 let root_is_mut_ref = matches!(root_ty, Type::MutRef(_));
+                if !root_is_mut_ref && self.is_linear_type(&root_ty) {
+                    return Err(CompileError::new(
+                        format!(
+                            "assignment target rooted at linear/resource value '{}' is not supported; use '&mut T' for mutable cell state or consume/create for ownership transitions",
+                            root
+                        ),
+                        assign.span,
+                    ));
+                }
                 if !env.is_mutable(root) && !root_is_mut_ref {
                     return Err(CompileError::new(format!("assignment target rooted at '{}' is not mutable", root), assign.span));
                 }
