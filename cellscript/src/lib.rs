@@ -2010,12 +2010,21 @@ fn body_transaction_resource_obligations(
     let param_schema_vars = schema_pointer_var_ids(body, params);
     let availability = metadata_prelude_availability(body, &param_schema_vars, type_layouts, params);
     let mut checks = Vec::new();
+    let mut output_index = 0usize;
     for block in &body.blocks {
         for instruction in &block.instructions {
             match instruction {
+                ir::IrInstruction::Create { .. } => {
+                    output_index += 1;
+                }
                 ir::IrInstruction::Transfer { operand, .. } => {
                     if let Some(type_name) = operand_named_type_name(operand) {
-                        let lock_rebinding_detail = if transfer_lock_rebinding_is_checked(body, &availability, &type_name) {
+                        let output_relation_checked =
+                            transfer_output_relation_is_checked(body, type_layouts, &availability, output_index, &type_name);
+                        let lock_rebinding_checked = transfer_lock_rebinding_is_checked(body, &availability, &type_name);
+                        let output_relation_detail =
+                            if output_relation_checked { "; transfer-output-relation=checked-runtime" } else { "" };
+                        let lock_rebinding_detail = if lock_rebinding_checked {
                             "; transfer-lock-rebinding=checked-runtime; transfer-destination-address-binding=checked-runtime"
                         } else {
                             ""
@@ -2023,13 +2032,21 @@ fn body_transaction_resource_obligations(
                         checks.push(TransactionResourceObligation {
                             category: "transaction-invariant",
                             feature: format!("transfer-output:{}", type_name),
-                            status: "runtime-required",
-                            detail: format!(
-                                "Runtime verifier must prove the consumed '{}' cell data is preserved in exactly the intended output and that the output lock is rebound to the transfer destination{}",
-                                type_name, lock_rebinding_detail
-                            ),
+                            status: if output_relation_checked { "checked-runtime" } else { "runtime-required" },
+                            detail: if output_relation_checked {
+                                format!(
+                                    "Compiler-emitted runtime verifier checks the consumed '{}' cell data is preserved in the transfer-created output and that the output lock is rebound to the transfer destination{}{}",
+                                    type_name, output_relation_detail, lock_rebinding_detail
+                                )
+                            } else {
+                                format!(
+                                    "Runtime verifier must prove the consumed '{}' cell data is preserved in exactly the intended output and that the output lock is rebound to the transfer destination{}{}",
+                                    type_name, output_relation_detail, lock_rebinding_detail
+                                )
+                            },
                         });
                     }
+                    output_index += 1;
                 }
                 ir::IrInstruction::Destroy { operand } => {
                     if let Some(type_name) = operand_named_type_name(operand) {
@@ -2085,6 +2102,7 @@ fn body_transaction_resource_obligations(
                             ),
                         ));
                     }
+                    output_index += 1;
                 }
                 ir::IrInstruction::Settle { dest, operand } => {
                     if let Some(type_name) = operand_named_type_name(operand) {
@@ -2121,6 +2139,7 @@ fn body_transaction_resource_obligations(
                             ),
                         ));
                     }
+                    output_index += 1;
                 }
                 _ => {}
             }
@@ -2229,7 +2248,10 @@ fn transaction_runtime_input_requirements_from_obligations(
     for obligation in obligations {
         let include_checked_destroy_scan =
             obligation.status == "checked-runtime" && obligation.feature.starts_with("destroy-output-scan:");
-        if obligation.category != "transaction-invariant" || (obligation.status != "runtime-required" && !include_checked_destroy_scan)
+        let include_checked_transfer_output =
+            obligation.status == "checked-runtime" && obligation.feature.starts_with("transfer-output:");
+        if obligation.category != "transaction-invariant"
+            || (obligation.status != "runtime-required" && !include_checked_destroy_scan && !include_checked_transfer_output)
         {
             continue;
         }
@@ -2573,6 +2595,21 @@ fn transfer_lock_rebinding_is_checked(body: &ir::IrBody, availability: &Metadata
         pattern.operation == "transfer"
             && pattern.ty == type_name
             && pattern.lock.as_ref().is_some_and(|_| metadata_can_verify_output_lock(pattern, availability))
+    })
+}
+
+fn transfer_output_relation_is_checked(
+    body: &ir::IrBody,
+    type_layouts: &MetadataTypeLayouts,
+    availability: &MetadataPreludeAvailability,
+    output_index: usize,
+    type_name: &str,
+) -> bool {
+    body.create_set.get(output_index).is_some_and(|pattern| {
+        pattern.operation == "transfer"
+            && pattern.ty == type_name
+            && metadata_can_verify_create_output_fields(pattern, type_layouts, availability)
+            && metadata_can_verify_output_lock(pattern, availability)
     })
 }
 
@@ -10050,7 +10087,8 @@ source_roots = ["src", "shared"]
         assert!(result.metadata.runtime.verifier_obligations.iter().any(|obligation| {
             obligation.category == "transaction-invariant"
                 && obligation.feature == "transfer-output:Token"
-                && obligation.status == "runtime-required"
+                && obligation.status == "checked-runtime"
+                && obligation.detail.contains("transfer-output-relation=checked-runtime")
                 && obligation.detail.contains("transfer-lock-rebinding=checked-runtime")
                 && obligation.detail.contains("transfer-destination-address-binding=checked-runtime")
         }));

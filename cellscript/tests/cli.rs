@@ -979,7 +979,7 @@ version = "0.1.0"
 module demo::main
 
 resource Token has store, transfer, destroy {
-    amount: u64,
+    amount: u128,
 }
 
 action move_token(token: Token, to: Address) -> Token {
@@ -1711,7 +1711,7 @@ action ping() -> u64 {
 module demo::tests::policy
 
 resource Token has store, transfer, destroy {
-    amount: u64,
+    amount: u128,
 }
 
 action move_token(token: Token, to: Address) -> Token {
@@ -1766,7 +1766,7 @@ action ping() -> u64 {
 // cellscript-test: expect-no-runtime-feature: transfer-expression
 // cellscript-test: expect-verifier-obligation: transfer:Token
 // cellscript-test: expect-verifier-obligation: transfer-output:Token
-// cellscript-test: expect-runtime-required-obligation: transfer-output:Token
+// cellscript-test: expect-no-runtime-required-obligation: transfer-output:Token
 // cellscript-test: expect-no-verifier-obligation: not-present
 // cellscript-test: expect-no-runtime-required-obligation: destroy-output-scan:Token
 module demo::tests::metadata
