@@ -45,7 +45,7 @@
 | CLI 子命令 | 🟡 本地工作流已接主入口，registry/runtime 命令仍 fail-closed/feature-gated | `cellscript/src/cli/` |
 | 集合类型 | 🚧 基础定义 | `cellscript/src/stdlib/collections.rs` |
 | 调试信息 | 🚧 原型级 | `cellscript/src/debug/` |
-| 测试套件 | 🟡 默认特性 `cargo test -p cellscript` 当前 331 项通过 | `cellscript/src/`, `cellscript/tests/` |
+| 测试套件 | 🟡 默认特性 `cargo test -p cellscript` 当前 332 项通过 | `cellscript/src/`, `cellscript/tests/` |
 
 **编译器项目路径**: `/Users/arthur/RustroverProjects/Spora/cellscript/`  
 
@@ -2097,6 +2097,8 @@ Slice 84 更新：field/index 赋值目标现在必须有命名 local/parameter 
 Slice 85 更新：只读引用根现在不能被字段或索引赋值。`let mut cfg = read_ref<Config>()` 后执行 `cfg.threshold = 2`、或 `let mut view = &point` 后执行 `view.x = 2` 都会失败；`mut` 修饰的是引用变量本身，不会把 `&T` 升级成 `&mut T`。字段/索引写入现在只允许 mutable owned local 或显式 `&mut T` 根。
 
 Slice 86 更新：mutable Cell 参数形态现在收紧。`mut token: Token`、`mut cfg: read_ref Config`、`mut view: &Config`、`mut pool: &mut Pool` 都会在类型检查阶段失败，避免通过前置 `mut` 把 owned Cell、只读 CellDep、只读引用或冗余 mutable 引用伪装成 mutable ABI 参数；Cell 状态写入必须显式使用 `param: &mut T`。同时 owned linear/resource 根即使是 `let mut token = create ...` 也不能直接 `token.amount = ...`，必须走 `&mut T` 状态更新或 consume/create 所有权转换。
+
+Slice 87 更新：本地只读引用别名现在不能根在 linear Cell 值上。`let view = &token` 或 `let amount = &token.amount` 会在类型检查阶段失败，避免非线性 `&T` 局部别名跨越后续 `destroy token` / `consume token` / `transfer token` 存活；短生命周期的直接调用借用如 `helper(&token)` 仍是当前支持形态。这个规则不是完整 borrow checker，而是 Phase 4 中针对线性 Cell 本地别名复制窗口的 fail-closed 收敛。
 
 目标：
 - 在后端工作扩展之前冻结最小语言核心。

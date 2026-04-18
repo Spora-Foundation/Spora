@@ -787,6 +787,7 @@ impl<'a> TypeChecker<'a> {
                 if matches!(ty, Type::Unit) {
                     return Err(CompileError::new("cannot bind the result of a function without a return value", let_stmt.span));
                 }
+                self.reject_local_reference_to_linear_root(env, &let_stmt.value, &ty, let_stmt.span)?;
                 self.mark_expr_as_moved(env, &let_stmt.value)?;
                 self.bind_pattern(env, &let_stmt.pattern, &ty, let_stmt.is_mut, let_stmt.span)?;
                 Ok(())
@@ -1661,6 +1662,40 @@ impl<'a> TypeChecker<'a> {
             Expr::Block(_) => Ok(()),
             _ => Ok(()),
         }
+    }
+
+    fn reject_local_reference_to_linear_root(&self, env: &TypeEnv, value: &Expr, ty: &Type, span: Span) -> Result<()> {
+        let Expr::Unary(unary) = value else {
+            return Ok(());
+        };
+        if !matches!(unary.op, UnaryOp::Ref) {
+            return Ok(());
+        }
+
+        if let Some(root) = assignment_root_name(&unary.expr) {
+            if let Some(root_ty) = env.lookup(root) {
+                if self.is_linear_type(root_ty) {
+                    return Err(CompileError::new(
+                        format!(
+                            "local binding cannot store a read-only reference rooted at linear/resource value '{}'; pass the reference directly to a helper call",
+                            root
+                        ),
+                        span,
+                    ));
+                }
+            }
+        }
+
+        if let Type::Ref(inner) = ty {
+            if self.is_linear_type(inner) {
+                return Err(CompileError::new(
+                    "local binding cannot store a read-only reference to a linear/resource value; bind the cell value itself or pass the reference directly",
+                    span,
+                ));
+            }
+        }
+
+        Ok(())
     }
 
     fn infer_assign_expr(&mut self, env: &mut TypeEnv, assign: &AssignExpr) -> Result<Type> {

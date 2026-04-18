@@ -19,10 +19,10 @@ It is still not a complete implementation of the design proposal.
 
 Current implementation facts:
 
-- `cellscript/src/` contains `39,486` lines of Rust across `26` source files.
-- `cellscript/src/` plus `cellscript/tests/` contains `43,855` lines of Rust across `28` files.
-- `344` `#[test]` declarations are present in source/test files.
-- A fresh default-feature `cargo test -p cellscript` run executed `331` tests: `275` library tests, `49` CLI integration tests, `7` examples integration tests, and `0` doctests. All passed.
+- `cellscript/src/` contains `39,566` lines of Rust across `26` source files.
+- `cellscript/src/` plus `cellscript/tests/` contains `43,935` lines of Rust across `28` files.
+- `345` `#[test]` declarations are present in source/test files.
+- A fresh default-feature `cargo test -p cellscript` run executed `332` tests: `276` library tests, `49` CLI integration tests, `7` examples integration tests, and `0` doctests. All passed.
 - The repository includes `7` bundled `.cell` examples: `token`, `amm_pool`, `vesting`, `launch`, `nft`, `multisig`, and `timelock`.
 
 Approximate implementation status:
@@ -30,7 +30,7 @@ Approximate implementation status:
 | Area | Current coverage | Verdict |
 |---|---:|---|
 | Lexer / parser / AST | 88-92% | Stable main path for supported syntax |
-| Type checking / linear checks | 78-85% | Stronger value/resource checks, including stable/unique schema field names, stable/unique callable parameter names, no local binding reuse or visible-scope shadowing, named-root-only assignment targets, read-only reference assignment rejection, leading-`mut` Cell/read-ref parameter rejection, owned-linear field/index assignment rejection, linear `let` move semantics, aggregate-contained linear type tracking, wildcard-discard rejection, conservative rejection of linear field/index aggregate projection, explicit branch-return, tail-if return, `if` expression ownership merging, `match` expression arm ownership merging, block-expression parent-scope linear state propagation, block-tail-if value typing/linear merging, block-local linear completion checks, and conservative loop-local completion plus parent-state preservation checks; still not full semantic proof |
+| Type checking / linear checks | 78-85% | Stronger value/resource checks, including stable/unique schema field names, stable/unique callable parameter names, no local binding reuse or visible-scope shadowing, named-root-only assignment targets, read-only reference assignment rejection, local read-only reference alias rejection for linear Cell roots, leading-`mut` Cell/read-ref parameter rejection, owned-linear field/index assignment rejection, linear `let` move semantics, aggregate-contained linear type tracking, wildcard-discard rejection, conservative rejection of linear field/index aggregate projection, explicit branch-return, tail-if return, `if` expression ownership merging, `match` expression arm ownership merging, block-expression parent-scope linear state propagation, block-tail-if value typing/linear merging, block-local linear completion checks, and conservative loop-local completion plus parent-state preservation checks; still not full semantic proof |
 | IR and metadata | 75-85% | Real, includes verifier obligations, still not full protocol semantics |
 | Pure compute lowering | 78-88% | Usable subset with stricter return/value semantics |
 | CKB-style runtime lowering | 60-70% | Partial and intentionally fail-closed where semantics are incomplete |

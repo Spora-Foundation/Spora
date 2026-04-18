@@ -7042,6 +7042,34 @@ action bad() {
 }
 "#;
 
+    const LINEAR_LOCAL_REF_ALIAS_PROGRAM: &str = r#"
+module test
+
+resource Token has destroy {
+    amount: u64,
+}
+
+action bad(token: Token) -> u64 {
+    let view = &token
+    destroy token
+    return view.amount
+}
+"#;
+
+    const LINEAR_FIELD_LOCAL_REF_ALIAS_PROGRAM: &str = r#"
+module test
+
+resource Token has destroy {
+    amount: u64,
+}
+
+action bad(token: Token) -> u64 {
+    let amount = &token.amount
+    destroy token
+    return 0
+}
+"#;
+
     const IF_MISMATCH_PROGRAM: &str = r#"
 module test
 
@@ -9581,6 +9609,23 @@ action activate(ticket: Ticket) -> Ticket {
         let err = compile(OWNED_LINEAR_FIELD_ASSIGN_PROGRAM, CompileOptions::default()).unwrap_err();
         assert!(
             err.message.contains("assignment target rooted at linear/resource value 'token' is not supported"),
+            "unexpected error: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn compile_rejects_local_references_to_linear_roots() {
+        let err = compile(LINEAR_LOCAL_REF_ALIAS_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(
+            err.message.contains("local binding cannot store a read-only reference rooted at linear/resource value 'token'"),
+            "unexpected error: {}",
+            err.message
+        );
+
+        let err = compile(LINEAR_FIELD_LOCAL_REF_ALIAS_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(
+            err.message.contains("local binding cannot store a read-only reference rooted at linear/resource value 'token'"),
             "unexpected error: {}",
             err.message
         );
