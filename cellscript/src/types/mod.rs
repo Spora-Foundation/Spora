@@ -519,26 +519,17 @@ impl<'a> TypeChecker<'a> {
 
     /// 检查 resource 定义
     fn check_resource(&mut self, resource: &ResourceDef) -> Result<()> {
-        // 检查字段类型
-        for field in &resource.fields {
-            self.validate_type(&field.ty)?;
-        }
-        Ok(())
+        self.validate_schema_fields(&resource.fields, "resource", &resource.name)
     }
 
     /// 检查 shared 定义
     fn check_shared(&mut self, shared: &SharedDef) -> Result<()> {
-        for field in &shared.fields {
-            self.validate_type(&field.ty)?;
-        }
-        Ok(())
+        self.validate_schema_fields(&shared.fields, "shared", &shared.name)
     }
 
     /// 检查 receipt 定义
     fn check_receipt(&mut self, receipt: &ReceiptDef) -> Result<()> {
-        for field in &receipt.fields {
-            self.validate_type(&field.ty)?;
-        }
+        self.validate_schema_fields(&receipt.fields, "receipt", &receipt.name)?;
         if let Some(output) = &receipt.claim_output {
             self.validate_type(output)?;
             self.validate_receipt_claim_output(output, receipt.span)?;
@@ -548,7 +539,27 @@ impl<'a> TypeChecker<'a> {
 
     /// 检查 struct 定义
     fn check_struct(&mut self, struct_def: &StructDef) -> Result<()> {
-        for field in &struct_def.fields {
+        self.validate_schema_fields(&struct_def.fields, "struct", &struct_def.name)
+    }
+
+    fn validate_schema_fields(&self, fields: &[Field], item_kind: &str, item_name: &str) -> Result<()> {
+        let mut seen = HashSet::new();
+        for field in fields {
+            if field.name == "_" {
+                return Err(CompileError::new(
+                    format!(
+                        "{} '{}' field must have a stable name; '_' is reserved for local wildcard bindings",
+                        item_kind, item_name
+                    ),
+                    field.span,
+                ));
+            }
+            if !seen.insert(field.name.clone()) {
+                return Err(CompileError::new(
+                    format!("duplicate field '{}' in {} '{}'", field.name, item_kind, item_name),
+                    field.span,
+                ));
+            }
             self.validate_type(&field.ty)?;
         }
         Ok(())

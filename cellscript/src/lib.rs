@@ -6953,6 +6953,41 @@ action read(p: Point) -> u64 {
 }
 "#;
 
+    const DUPLICATE_RESOURCE_FIELD_PROGRAM: &str = r#"
+module test
+
+resource Token {
+    amount: u64,
+    amount: u128,
+}
+"#;
+
+    const DUPLICATE_SHARED_FIELD_PROGRAM: &str = r#"
+module test
+
+shared Pool {
+    reserve: u64,
+    reserve: u64,
+}
+"#;
+
+    const DUPLICATE_RECEIPT_FIELD_PROGRAM: &str = r#"
+module test
+
+receipt Grant {
+    amount: u64,
+    amount: u64,
+}
+"#;
+
+    const WILDCARD_STRUCT_FIELD_PROGRAM: &str = r#"
+module test
+
+struct Point {
+    _: u64,
+}
+"#;
+
     const UNKNOWN_FUNCTION_PROGRAM: &str = r#"
 module test
 
@@ -9364,6 +9399,21 @@ action activate(ticket: Ticket) -> Ticket {
         let err = compile(UNKNOWN_FIELD_PROGRAM, CompileOptions::default()).unwrap_err();
         assert!(err.message.contains("unknown field 'y'"));
         assert!(err.message.contains("Point"));
+    }
+
+    #[test]
+    fn compile_rejects_unstable_schema_field_names() {
+        let err = compile(DUPLICATE_RESOURCE_FIELD_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(err.message.contains("duplicate field 'amount' in resource 'Token'"), "unexpected error: {}", err.message);
+
+        let err = compile(DUPLICATE_SHARED_FIELD_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(err.message.contains("duplicate field 'reserve' in shared 'Pool'"), "unexpected error: {}", err.message);
+
+        let err = compile(DUPLICATE_RECEIPT_FIELD_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(err.message.contains("duplicate field 'amount' in receipt 'Grant'"), "unexpected error: {}", err.message);
+
+        let err = compile(WILDCARD_STRUCT_FIELD_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(err.message.contains("struct 'Point' field must have a stable name"), "unexpected error: {}", err.message);
     }
 
     #[test]
