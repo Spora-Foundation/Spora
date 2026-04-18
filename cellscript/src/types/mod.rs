@@ -660,6 +660,7 @@ impl<'a> TypeChecker<'a> {
                 if matches!(ty, Type::Unit) {
                     return Err(CompileError::new("cannot bind the result of a function without a return value", let_stmt.span));
                 }
+                self.mark_expr_as_moved(env, &let_stmt.value)?;
                 self.bind_pattern(env, &let_stmt.pattern, &ty, let_stmt.is_mut, let_stmt.span)?;
                 Ok(())
             }

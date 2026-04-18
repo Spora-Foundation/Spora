@@ -7100,6 +7100,33 @@ action bad(owner: Address) -> Token {
 }
 "#;
 
+    const LINEAR_LET_MOVE_PROGRAM: &str = r#"
+module test
+
+resource Token has transfer {
+    amount: u64,
+}
+
+action move_alias(token: Token, owner: Address) -> Token {
+    let moved = token
+    return transfer moved to owner
+}
+"#;
+
+    const LINEAR_LET_COPY_PROGRAM: &str = r#"
+module test
+
+resource Token has transfer, destroy {
+    amount: u64,
+}
+
+action duplicate(token: Token, owner: Address) {
+    let copied = token
+    transfer token to owner
+    destroy copied
+}
+"#;
+
     const IF_BOTH_BRANCHES_CONSUME_PROGRAM: &str = r#"
 module test
 
@@ -9052,6 +9079,14 @@ action activate(ticket: Ticket) -> Ticket {
             "unexpected error: {}",
             non_named_transfer.message
         );
+    }
+
+    #[test]
+    fn compile_moves_linear_values_through_let_bindings() {
+        compile(LINEAR_LET_MOVE_PROGRAM, CompileOptions::default()).unwrap();
+
+        let copied = compile(LINEAR_LET_COPY_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(copied.message.contains("resource 'token' already Consumed"), "unexpected error: {}", copied.message);
     }
 
     #[test]

@@ -2064,6 +2064,8 @@ Slice 68 更新：已覆盖的 `resource-conservation:<T>` 现在也进入 `tran
 
 Slice 69 更新：pure helper `fn` 的 runtime 边界收紧。`fn` 现在不仅不能包含 `create` / `consume` / `transfer` / `destroy` / `read_ref` / `claim` / `settle`，也不能调用 `env::*` runtime builtin 或 `type_hash()` Cell identity builtin；这些必须留在 `action` / `lock` / runtime-visible path 中。`Address::zero`、`Hash::zero`、`min` / `max` / `isqrt` 等纯 helper 不受影响。
 
+Slice 70 更新：线性 `let` 绑定现在执行 move 语义。`let moved = token` 会先把原绑定 `token` 标记为已移动，再引入新绑定 `moved`；因此 `let copied = token` 后继续 `transfer token` / `destroy copied` 这类复制同一个 resource 的代码会被类型检查器拒绝。字段读取如 `let amount = token.amount` 仍是非线性标量读取，不会消费整个 Cell 值。
+
 目标：
 - 在后端工作扩展之前冻结最小语言核心。
 
