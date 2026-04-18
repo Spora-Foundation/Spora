@@ -749,6 +749,16 @@ impl<'a> TypeChecker<'a> {
         }
     }
 
+    fn type_contains_mutable_reference(&self, ty: &Type) -> bool {
+        match ty {
+            Type::MutRef(_) => true,
+            Type::Array(inner, _) => self.type_contains_mutable_reference(inner),
+            Type::Tuple(items) => items.iter().any(|item| self.type_contains_mutable_reference(item)),
+            Type::Named(name) => name.contains("&mut "),
+            _ => false,
+        }
+    }
+
     fn bind_callable_params(&self, env: &mut TypeEnv, params: &[Param], callable_kind: &str, callable_name: &str) -> Result<()> {
         let mut seen = HashSet::new();
         for param in params {
@@ -834,6 +844,7 @@ impl<'a> TypeChecker<'a> {
                     return Err(CompileError::new("cannot bind the result of a function without a return value", let_stmt.span));
                 }
                 self.reject_local_reference_to_linear_root(env, &let_stmt.value, &ty, let_stmt.span)?;
+                self.reject_local_mutable_reference_alias(&ty, let_stmt.span)?;
                 self.mark_expr_as_moved(env, &let_stmt.value)?;
                 self.bind_pattern(env, &let_stmt.pattern, &ty, let_stmt.is_mut, let_stmt.span)?;
                 Ok(())
@@ -1787,9 +1798,23 @@ impl<'a> TypeChecker<'a> {
         Ok(())
     }
 
+    fn reject_local_mutable_reference_alias(&self, ty: &Type, span: Span) -> Result<()> {
+        if self.type_contains_mutable_reference(ty) {
+            return Err(CompileError::new(
+                format!(
+                    "local binding cannot store mutable reference type {}; pass the '&mut' parameter directly to a helper call or mutate its fields in place",
+                    type_repr(ty)
+                ),
+                span,
+            ));
+        }
+        Ok(())
+    }
+
     fn infer_assign_expr(&mut self, env: &mut TypeEnv, assign: &AssignExpr) -> Result<Type> {
         let value_ty = self.infer_expr(env, &assign.value)?;
         self.reject_assignment_reference_to_linear_root(env, &assign.value, assign.span)?;
+        self.reject_assignment_mutable_reference_alias(&value_ty, assign.span)?;
 
         match assign.target.as_ref() {
             Expr::Identifier(name) => {
@@ -1863,6 +1888,19 @@ impl<'a> TypeChecker<'a> {
 
     fn reject_assignment_reference_to_linear_root(&self, env: &TypeEnv, value: &Expr, span: Span) -> Result<()> {
         self.reject_stored_linear_reference_alias(env, value, span)
+    }
+
+    fn reject_assignment_mutable_reference_alias(&self, ty: &Type, span: Span) -> Result<()> {
+        if self.type_contains_mutable_reference(ty) {
+            return Err(CompileError::new(
+                format!(
+                    "assignment cannot store mutable reference type {}; pass the '&mut' parameter directly to a helper call or mutate its fields in place",
+                    type_repr(ty)
+                ),
+                span,
+            ));
+        }
+        Ok(())
     }
 
     fn index_result_type(&self, ty: &Type, span: Span) -> Result<Type> {

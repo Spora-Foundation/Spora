@@ -7028,6 +7028,62 @@ action bad(mut pool: &mut Pool) {
 }
 "#;
 
+    const MUT_REF_LOCAL_ALIAS_PROGRAM: &str = r#"
+module test
+
+shared Pool {
+    reserve: u64,
+}
+
+action bad(pool: &mut Pool) -> u64 {
+    let alias = pool
+    alias.reserve = alias.reserve + 1
+    return alias.reserve
+}
+"#;
+
+    const MUT_REF_TUPLE_ALIAS_PROGRAM: &str = r#"
+module test
+
+shared Pool {
+    reserve: u64,
+}
+
+action bad(pool: &mut Pool) -> u64 {
+    let pair = (pool, 0)
+    pair.0.reserve = pair.0.reserve + 1
+    return pair.0.reserve
+}
+"#;
+
+    const MUT_REF_IF_ALIAS_PROGRAM: &str = r#"
+module test
+
+shared Pool {
+    reserve: u64,
+}
+
+action bad(pool: &mut Pool, flag: bool) -> u64 {
+    let alias = if flag { pool } else { pool }
+    alias.reserve = alias.reserve + 1
+    return alias.reserve
+}
+"#;
+
+    const MUT_REF_ASSIGN_ALIAS_PROGRAM: &str = r#"
+module test
+
+shared Pool {
+    reserve: u64,
+}
+
+action bad(pool: &mut Pool) -> u64 {
+    let mut alias = read_ref<Pool>()
+    alias = pool
+    return alias.reserve
+}
+"#;
+
     const OWNED_LINEAR_FIELD_ASSIGN_PROGRAM: &str = r#"
 module test
 
@@ -9738,6 +9794,33 @@ action activate(ticket: Ticket) -> Ticket {
 
         let err = compile(REDUNDANT_MUT_REF_PARAM_PROGRAM, CompileOptions::default()).unwrap_err();
         assert!(err.message.contains("parameter 'pool' is already an '&mut' reference"), "unexpected error: {}", err.message);
+    }
+
+    #[test]
+    fn compile_rejects_local_mutable_reference_aliases() {
+        let err = compile(MUT_REF_LOCAL_ALIAS_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(
+            err.message.contains("local binding cannot store mutable reference type &mut Pool"),
+            "unexpected error: {}",
+            err.message
+        );
+
+        let err = compile(MUT_REF_TUPLE_ALIAS_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(
+            err.message.contains("local binding cannot store mutable reference type (&mut Pool, u64)"),
+            "unexpected error: {}",
+            err.message
+        );
+
+        let err = compile(MUT_REF_IF_ALIAS_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(
+            err.message.contains("local binding cannot store mutable reference type &mut Pool"),
+            "unexpected error: {}",
+            err.message
+        );
+
+        let err = compile(MUT_REF_ASSIGN_ALIAS_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(err.message.contains("assignment cannot store mutable reference type &mut Pool"), "unexpected error: {}", err.message);
     }
 
     #[test]

@@ -45,7 +45,7 @@
 | CLI 子命令 | 🟡 本地工作流已接主入口，registry/runtime 命令仍 fail-closed/feature-gated | `cellscript/src/cli/` |
 | 集合类型 | 🚧 基础定义 | `cellscript/src/stdlib/collections.rs` |
 | 调试信息 | 🚧 原型级 | `cellscript/src/debug/` |
-| 测试套件 | 🟡 默认特性 `cargo test -p cellscript` 当前 333 项通过 | `cellscript/src/`, `cellscript/tests/` |
+| 测试套件 | 🟡 默认特性 `cargo test -p cellscript` 当前 334 项通过 | `cellscript/src/`, `cellscript/tests/` |
 
 **编译器项目路径**: `/Users/arthur/RustroverProjects/Spora/cellscript/`  
 
@@ -2105,6 +2105,8 @@ Slice 88 更新：引用类型的作用域边界进一步收紧。`&T` / `&mut T
 Slice 89 更新：本地只读引用别名检查现在覆盖被存储的嵌套结果。`let pair = (&token, 0)`、`let refs = [&token]`、`let view = if flag { &token } else { &token }`，以及等价的 `match` arm 或 block tail 返回值都会被拒绝，不能把根在 linear Cell 上的 `&T` 藏进 tuple / array / branch result 后再 `destroy` / `consume` / `transfer` 原值。普通 `helper(&token)` 仍不受影响，因为 call 参数不是被保存的本地别名。
 
 Slice 90 更新：同一条本地引用别名规则现在也覆盖 assignment RHS。`let mut view = read_ref<Token>(); view = &token`、`pair = (&token, 0)`、`pair.0 = &token` 都会失败，避免先创建一个可变本地容器/引用变量，再通过赋值把 `&linear Cell` 保存进去。短生命周期的 call 参数借用仍保持可用。
+
+Slice 91 更新：`&mut` 参数现在不能被复制成本地别名或藏进聚合/分支结果。`let alias = pool`、`let pair = (pool, 0)`、`let alias = if flag { pool } else { pool }`、`alias = pool` 都会失败；合法形态仍是直接写 `pool.field = ...` 或把 `pool` 作为参数直接传给 helper。这样 mutable Cell 状态写能力在 callable 内保持单一根，避免多个本地名字同时代表同一 `&mut` 状态。
 
 目标：
 - 在后端工作扩展之前冻结最小语言核心。
