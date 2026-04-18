@@ -2168,6 +2168,12 @@ struct MetadataFieldAlias {
     field: String,
 }
 
+#[derive(Debug, Clone)]
+enum MetadataU64Source {
+    Field(MetadataFieldAlias),
+    Add(Box<MetadataU64Source>, Box<MetadataU64Source>),
+}
+
 fn body_resource_conservation_obligations(
     body: &ir::IrBody,
     type_layouts: &MetadataTypeLayouts,
@@ -2215,33 +2221,56 @@ fn body_resource_conservation_obligations(
             if consumed.is_empty() || created.is_empty() {
                 return None;
             }
-            let checked = consumed.len() == 1
-                && created.len() == 1
-                && resource_conservation_pair_is_checked(body, type_layouts, availability, &consumed[0], &created[0]);
             let fields = type_layouts
                 .get(type_name)
                 .map(|layouts| layouts.keys().cloned().collect::<BTreeSet<_>>().into_iter().collect::<Vec<_>>().join(", "))
                 .unwrap_or_else(|| "<unknown>".to_string());
+            let checked_detail = resource_conservation_checked_detail(body, type_layouts, availability, type_name, &consumed, &created, &fields);
             Some(TransactionResourceObligation {
                 category: "transaction-invariant",
                 feature: format!("resource-conservation:{}", type_name),
-                status: if checked { "checked-runtime" } else { "runtime-required" },
-                detail: if checked {
-                    format!(
-                        "Compiler-emitted runtime verifier checks one consumed '{}' Input is preserved into one created Output; resource-conservation=checked-runtime; fields: {}",
-                        type_name, fields
-                    )
-                } else {
+                status: if checked_detail.is_some() { "checked-runtime" } else { "runtime-required" },
+                detail: checked_detail.unwrap_or_else(|| {
                     format!(
                         "Runtime verifier must prove '{}' resource conservation across {} consumed Input cell(s) and {} created Output cell(s); resource-conservation=runtime-required",
                         type_name,
                         consumed.len(),
                         created.len()
                     )
-                },
+                }),
             })
         })
         .collect()
+}
+
+fn resource_conservation_checked_detail(
+    body: &ir::IrBody,
+    type_layouts: &MetadataTypeLayouts,
+    availability: &MetadataPreludeAvailability,
+    type_name: &str,
+    consumed: &[ir::IrVar],
+    created: &[ir::CreatePattern],
+    fields: &str,
+) -> Option<String> {
+    if consumed.len() == 1
+        && created.len() == 1
+        && resource_conservation_pair_is_checked(body, type_layouts, availability, &consumed[0], &created[0])
+    {
+        return Some(format!(
+            "Compiler-emitted runtime verifier checks one consumed '{}' Input is preserved into one created Output; resource-conservation=checked-runtime; fields: {}",
+            type_name, fields
+        ));
+    }
+
+    if resource_conservation_amount_merge_is_checked(body, type_layouts, availability, consumed, created) {
+        return Some(format!(
+            "Compiler-emitted runtime verifier checks {} consumed '{}' Inputs are merged into one created Output by a verifier-recomputed u64 amount sum; resource-conservation=checked-runtime; fields: amount",
+            consumed.len(),
+            type_name
+        ));
+    }
+
+    None
 }
 
 fn resource_conservation_pair_is_checked(
@@ -2265,6 +2294,60 @@ fn resource_conservation_pair_is_checked(
     })
 }
 
+fn resource_conservation_amount_merge_is_checked(
+    body: &ir::IrBody,
+    type_layouts: &MetadataTypeLayouts,
+    availability: &MetadataPreludeAvailability,
+    consumed: &[ir::IrVar],
+    created: &[ir::CreatePattern],
+) -> bool {
+    if consumed.len() < 2 || created.len() != 1 {
+        return false;
+    }
+    let created = &created[0];
+    if !metadata_can_verify_create_output_fields(created, type_layouts, availability)
+        || !metadata_can_verify_output_lock(created, availability)
+        || !resource_conservation_has_single_u64_amount_field(type_layouts, &created.ty)
+        || created.fields.len() != 1
+    {
+        return false;
+    }
+    let Some((field, operand)) = created.fields.first() else {
+        return false;
+    };
+    if field != "amount" {
+        return false;
+    }
+    let ir::IrOperand::Var(var) = operand else {
+        return false;
+    };
+
+    let sources = metadata_u64_sources(body);
+    let Some(source) = sources.get(&var.id) else {
+        return false;
+    };
+    let mut source_roots = Vec::new();
+    if !metadata_u64_source_collect_field_roots(source, "amount", &mut source_roots) {
+        return false;
+    }
+    source_roots.sort_unstable();
+    let mut consumed_roots = consumed.iter().map(|var| var.id).collect::<Vec<_>>();
+    consumed_roots.sort_unstable();
+    source_roots == consumed_roots
+}
+
+fn resource_conservation_has_single_u64_amount_field(type_layouts: &MetadataTypeLayouts, type_name: &str) -> bool {
+    let Some(layouts) = type_layouts.get(type_name) else {
+        return false;
+    };
+    if layouts.len() != 1 {
+        return false;
+    }
+    layouts
+        .get("amount")
+        .is_some_and(|layout| layout.ty == ir::IrType::U64 && metadata_fixed_scalar_width(&layout.ty, layout.fixed_size) == Some(8))
+}
+
 fn metadata_field_aliases(body: &ir::IrBody) -> HashMap<usize, MetadataFieldAlias> {
     let mut aliases = HashMap::new();
     for block in &body.blocks {
@@ -2283,6 +2366,53 @@ fn metadata_field_aliases(body: &ir::IrBody) -> HashMap<usize, MetadataFieldAlia
         }
     }
     aliases
+}
+
+fn metadata_u64_sources(body: &ir::IrBody) -> HashMap<usize, MetadataU64Source> {
+    let mut sources = HashMap::new();
+    for block in &body.blocks {
+        for instruction in &block.instructions {
+            match instruction {
+                ir::IrInstruction::FieldAccess { dest, obj: ir::IrOperand::Var(obj), field } if dest.ty == ir::IrType::U64 => {
+                    sources.insert(dest.id, MetadataU64Source::Field(MetadataFieldAlias { root_id: obj.id, field: field.clone() }));
+                }
+                ir::IrInstruction::Binary { dest, op: ast::BinaryOp::Add, left, right } if dest.ty == ir::IrType::U64 => {
+                    if let (Some(left), Some(right)) =
+                        (metadata_u64_source_for_operand(left, &sources), metadata_u64_source_for_operand(right, &sources))
+                    {
+                        sources.insert(dest.id, MetadataU64Source::Add(Box::new(left), Box::new(right)));
+                    }
+                }
+                ir::IrInstruction::Move { dest, src } if dest.ty == ir::IrType::U64 => {
+                    if let Some(source) = metadata_u64_source_for_operand(src, &sources) {
+                        sources.insert(dest.id, source);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    sources
+}
+
+fn metadata_u64_source_for_operand(operand: &ir::IrOperand, sources: &HashMap<usize, MetadataU64Source>) -> Option<MetadataU64Source> {
+    match operand {
+        ir::IrOperand::Var(var) => sources.get(&var.id).cloned(),
+        ir::IrOperand::Const(_) => None,
+    }
+}
+
+fn metadata_u64_source_collect_field_roots(source: &MetadataU64Source, field: &str, roots: &mut Vec<usize>) -> bool {
+    match source {
+        MetadataU64Source::Field(alias) if alias.field == field => {
+            roots.push(alias.root_id);
+            true
+        }
+        MetadataU64Source::Field(_) => false,
+        MetadataU64Source::Add(left, right) => {
+            metadata_u64_source_collect_field_roots(left, field, roots) && metadata_u64_source_collect_field_roots(right, field, roots)
+        }
+    }
 }
 
 fn body_receipt_claim_flow_obligations(
@@ -7338,6 +7468,26 @@ action pass(token: Token) -> Token {
 }
 "#;
 
+    const CONSUME_CREATE_MERGE_CONSERVATION_PROGRAM: &str = r#"
+module test
+
+resource Token {
+    amount: u64,
+}
+
+action merge(left: Token, right: Token) -> Token {
+    let left_amount = left.amount
+    let right_amount = right.amount
+    let total = left_amount + right_amount
+    consume left
+    consume right
+    let out = create Token {
+        amount: total
+    }
+    return out
+}
+"#;
+
     const CONSUME_CREATE_ARITHMETIC_CONSERVATION_PROGRAM: &str = r#"
 module test
 
@@ -8977,6 +9127,40 @@ action activate(ticket: Ticket) -> Ticket {
                     && obligation.detail.contains("resource-conservation=runtime-required")
             }),
             "arithmetic resource conservation should remain runtime-required: {:?}",
+            action.verifier_obligations
+        );
+    }
+
+    #[test]
+    fn compile_classifies_resource_merge_amount_sum_as_checked_runtime() {
+        let result = compile(CONSUME_CREATE_MERGE_CONSERVATION_PROGRAM, CompileOptions::default()).unwrap();
+        let asm = String::from_utf8(result.artifact_bytes.clone()).unwrap();
+
+        assert!(
+            asm.contains("# cellscript abi: expected expression u64 Add"),
+            "created output amount was not compared against the merged input amount expression:\n{}",
+            asm
+        );
+        assert!(
+            asm.matches("# cellscript abi: expected field Token.amount offset=0 size=8").count() >= 2,
+            "resource merge did not read both consumed input amounts:\n{}",
+            asm
+        );
+        assert!(
+            asm.contains("# cellscript abi: verify output field Token.amount offset=0 size=8"),
+            "merged output amount was not verified:\n{}",
+            asm
+        );
+        let action = result.metadata.actions.iter().find(|action| action.name == "merge").expect("merge metadata");
+        assert!(
+            action.verifier_obligations.iter().any(|obligation| {
+                obligation.category == "transaction-invariant"
+                    && obligation.feature == "resource-conservation:Token"
+                    && obligation.status == "checked-runtime"
+                    && obligation.detail.contains("2 consumed 'Token' Inputs")
+                    && obligation.detail.contains("verifier-recomputed u64 amount sum")
+            }),
+            "amount-sum resource merge should be marked checked-runtime: {:?}",
             action.verifier_obligations
         );
     }
