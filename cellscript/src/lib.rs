@@ -7488,6 +7488,66 @@ action merge(left: Token, right: Token) -> Token {
 }
 "#;
 
+    const CONSUME_CREATE_DUPLICATE_MERGE_CONSERVATION_PROGRAM: &str = r#"
+module test
+
+resource Token {
+    amount: u64,
+}
+
+action merge(left: Token, right: Token) -> Token {
+    let left_amount = left.amount
+    let total = left_amount + left_amount
+    consume left
+    consume right
+    let out = create Token {
+        amount: total
+    }
+    return out
+}
+"#;
+
+    const CONSUME_CREATE_MISSING_INPUT_MERGE_CONSERVATION_PROGRAM: &str = r#"
+module test
+
+resource Token {
+    amount: u64,
+}
+
+action merge(left: Token, right: Token) -> Token {
+    let total = left.amount
+    consume left
+    consume right
+    let out = create Token {
+        amount: total
+    }
+    return out
+}
+"#;
+
+    const CONSUME_CREATE_EXTRA_FIELD_MERGE_CONSERVATION_PROGRAM: &str = r#"
+module test
+
+resource Token {
+    amount: u64,
+    owner: Address,
+}
+
+action merge(left: Token, right: Token) -> Token {
+    let left_amount = left.amount
+    let right_amount = right.amount
+    let total = left_amount + right_amount
+    let owner = left.owner
+    consume left
+    consume right
+    let out = create Token {
+        amount: total,
+        owner: owner
+    }
+    return out
+}
+"#;
+
     const CONSUME_CREATE_ARITHMETIC_CONSERVATION_PROGRAM: &str = r#"
 module test
 
@@ -9163,6 +9223,39 @@ action activate(ticket: Ticket) -> Ticket {
             "amount-sum resource merge should be marked checked-runtime: {:?}",
             action.verifier_obligations
         );
+    }
+
+    #[test]
+    fn compile_keeps_unsound_resource_merges_runtime_required() {
+        for (name, program) in [
+            ("duplicate input amount leaf", CONSUME_CREATE_DUPLICATE_MERGE_CONSERVATION_PROGRAM),
+            ("missing consumed input amount leaf", CONSUME_CREATE_MISSING_INPUT_MERGE_CONSERVATION_PROGRAM),
+            ("extra non-amount field", CONSUME_CREATE_EXTRA_FIELD_MERGE_CONSERVATION_PROGRAM),
+        ] {
+            let result = compile(program, CompileOptions::default()).unwrap();
+            let action = result.metadata.actions.iter().find(|action| action.name == "merge").expect("merge metadata");
+            assert!(
+                action.verifier_obligations.iter().any(|obligation| {
+                    obligation.category == "transaction-invariant"
+                        && obligation.feature == "resource-conservation:Token"
+                        && obligation.status == "runtime-required"
+                        && obligation.detail.contains("resource-conservation=runtime-required")
+                }),
+                "{} should remain runtime-required resource conservation: {:?}",
+                name,
+                action.verifier_obligations
+            );
+            assert!(
+                !action.verifier_obligations.iter().any(|obligation| {
+                    obligation.category == "transaction-invariant"
+                        && obligation.feature == "resource-conservation:Token"
+                        && obligation.status == "checked-runtime"
+                }),
+                "{} must not be marked checked-runtime: {:?}",
+                name,
+                action.verifier_obligations
+            );
+        }
     }
 
     #[test]
