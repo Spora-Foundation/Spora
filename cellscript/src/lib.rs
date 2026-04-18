@@ -2172,6 +2172,7 @@ struct MetadataFieldAlias {
 enum MetadataU64Source {
     Field(MetadataFieldAlias),
     Add(Box<MetadataU64Source>, Box<MetadataU64Source>),
+    Sub(Box<MetadataU64Source>, ir::IrOperand),
 }
 
 fn body_resource_conservation_obligations(
@@ -2270,6 +2271,14 @@ fn resource_conservation_checked_detail(
         ));
     }
 
+    if resource_conservation_amount_split_is_checked(body, type_layouts, availability, consumed, created) {
+        return Some(format!(
+            "Compiler-emitted runtime verifier checks one consumed '{}' Input is split across {} created Outputs by a verifier-recomputed u64 amount subtraction with matching split outputs; resource-conservation=checked-runtime; fields: amount",
+            type_name,
+            created.len()
+        ));
+    }
+
     None
 }
 
@@ -2336,6 +2345,64 @@ fn resource_conservation_amount_merge_is_checked(
     source_roots == consumed_roots
 }
 
+fn resource_conservation_amount_split_is_checked(
+    body: &ir::IrBody,
+    type_layouts: &MetadataTypeLayouts,
+    availability: &MetadataPreludeAvailability,
+    consumed: &[ir::IrVar],
+    created: &[ir::CreatePattern],
+) -> bool {
+    if consumed.len() != 1 || created.len() < 2 {
+        return false;
+    }
+    if !resource_conservation_has_single_u64_amount_field(type_layouts, &created[0].ty) {
+        return false;
+    }
+    if !created.iter().all(|pattern| {
+        metadata_can_verify_create_output_fields(pattern, type_layouts, availability)
+            && metadata_can_verify_output_lock(pattern, availability)
+            && resource_conservation_has_single_u64_amount_field(type_layouts, &pattern.ty)
+            && pattern.fields.len() == 1
+            && pattern.fields.first().is_some_and(|(field, _)| field == "amount")
+    }) {
+        return false;
+    }
+
+    let sources = metadata_u64_sources(body);
+    let amount_operands = created.iter().filter_map(|pattern| pattern.fields.first().map(|(_, operand)| operand)).collect::<Vec<_>>();
+    let mut split_remainders = Vec::new();
+    for (index, operand) in amount_operands.iter().enumerate() {
+        let Some(source) = metadata_u64_source_for_operand(operand, &sources) else {
+            continue;
+        };
+        let Some(subtrahends) = metadata_u64_source_collect_amount_split_subtrahends(&source, consumed[0].id) else {
+            continue;
+        };
+        split_remainders.push((index, subtrahends));
+    }
+    if split_remainders.len() != 1 {
+        return false;
+    }
+
+    let (remainder_index, subtrahends) = split_remainders.remove(0);
+    let mut unmatched_outputs = amount_operands
+        .iter()
+        .enumerate()
+        .filter_map(|(index, operand)| (index != remainder_index).then_some((*operand).clone()))
+        .collect::<Vec<_>>();
+    if unmatched_outputs.len() != subtrahends.len() {
+        return false;
+    }
+    for subtrahend in subtrahends {
+        let Some(position) = unmatched_outputs.iter().position(|operand| ir_operands_same_verifier_source(operand, &subtrahend))
+        else {
+            return false;
+        };
+        unmatched_outputs.remove(position);
+    }
+    unmatched_outputs.is_empty()
+}
+
 fn resource_conservation_has_single_u64_amount_field(type_layouts: &MetadataTypeLayouts, type_name: &str) -> bool {
     let Some(layouts) = type_layouts.get(type_name) else {
         return false;
@@ -2383,6 +2450,11 @@ fn metadata_u64_sources(body: &ir::IrBody) -> HashMap<usize, MetadataU64Source> 
                         sources.insert(dest.id, MetadataU64Source::Add(Box::new(left), Box::new(right)));
                     }
                 }
+                ir::IrInstruction::Binary { dest, op: ast::BinaryOp::Sub, left, right } if dest.ty == ir::IrType::U64 => {
+                    if let Some(left) = metadata_u64_source_for_operand(left, &sources) {
+                        sources.insert(dest.id, MetadataU64Source::Sub(Box::new(left), right.clone()));
+                    }
+                }
                 ir::IrInstruction::Move { dest, src } if dest.ty == ir::IrType::U64 => {
                     if let Some(source) = metadata_u64_source_for_operand(src, &sources) {
                         sources.insert(dest.id, source);
@@ -2412,6 +2484,22 @@ fn metadata_u64_source_collect_field_roots(source: &MetadataU64Source, field: &s
         MetadataU64Source::Add(left, right) => {
             metadata_u64_source_collect_field_roots(left, field, roots) && metadata_u64_source_collect_field_roots(right, field, roots)
         }
+        MetadataU64Source::Sub(_, _) => false,
+    }
+}
+
+fn metadata_u64_source_collect_amount_split_subtrahends(
+    source: &MetadataU64Source,
+    consumed_root: usize,
+) -> Option<Vec<ir::IrOperand>> {
+    match source {
+        MetadataU64Source::Field(alias) if alias.root_id == consumed_root && alias.field == "amount" => Some(Vec::new()),
+        MetadataU64Source::Sub(left, right) => {
+            let mut subtrahends = metadata_u64_source_collect_amount_split_subtrahends(left, consumed_root)?;
+            subtrahends.push(right.clone());
+            Some(subtrahends)
+        }
+        MetadataU64Source::Field(_) | MetadataU64Source::Add(_, _) => None,
     }
 }
 
@@ -7587,6 +7675,51 @@ action merge(left: Token, right: Token) -> Token {
 }
 "#;
 
+    const CONSUME_CREATE_SPLIT_CONSERVATION_PROGRAM: &str = r#"
+module test
+
+resource Token {
+    amount: u64,
+}
+
+action split(token: Token, fee: u64) -> (Token, Token) {
+    let amount = token.amount
+    let remaining = amount - fee
+    consume token
+    let change = create Token {
+        amount: remaining
+    }
+    let paid_fee = create Token {
+        amount: fee
+    }
+    return (change, paid_fee)
+}
+"#;
+
+    const CONSUME_CREATE_DUPLICATE_SPLIT_CONSERVATION_PROGRAM: &str = r#"
+module test
+
+resource Token {
+    amount: u64,
+}
+
+action split(token: Token, fee: u64) -> (Token, Token, Token) {
+    let amount = token.amount
+    let remaining = amount - fee
+    consume token
+    let change = create Token {
+        amount: remaining
+    }
+    let paid_fee = create Token {
+        amount: fee
+    }
+    let extra_fee = create Token {
+        amount: fee
+    }
+    return (change, paid_fee, extra_fee)
+}
+"#;
+
     const CONSUME_CREATE_DUPLICATE_MERGE_CONSERVATION_PROGRAM: &str = r#"
 module test
 
@@ -9339,14 +9472,62 @@ action activate(ticket: Ticket) -> Ticket {
     }
 
     #[test]
-    fn compile_keeps_unsound_resource_merges_runtime_required() {
+    fn compile_classifies_resource_split_amount_subtraction_as_checked_runtime() {
+        let result = compile(CONSUME_CREATE_SPLIT_CONSERVATION_PROGRAM, CompileOptions::default()).unwrap();
+        let asm = String::from_utf8(result.artifact_bytes.clone()).unwrap();
+
+        assert!(
+            asm.contains("# cellscript abi: expected expression u64 Sub"),
+            "split output did not recompute consumed amount minus fee:\n{}",
+            asm
+        );
+        assert!(
+            asm.contains("# cellscript abi: expected field Token.amount offset=0 size=8"),
+            "split output did not read the consumed input amount:\n{}",
+            asm
+        );
+        assert!(
+            asm.matches("# cellscript abi: verify output field Token.amount offset=0 size=8").count() >= 2,
+            "resource split did not verify both created output amounts:\n{}",
+            asm
+        );
+        let action = result.metadata.actions.iter().find(|action| action.name == "split").expect("split metadata");
+        assert!(
+            action.verifier_obligations.iter().any(|obligation| {
+                obligation.category == "transaction-invariant"
+                    && obligation.feature == "resource-conservation:Token"
+                    && obligation.status == "checked-runtime"
+                    && obligation.detail.contains("one consumed 'Token' Input is split across 2 created Outputs")
+                    && obligation.detail.contains("verifier-recomputed u64 amount subtraction")
+            }),
+            "amount split resource conservation should be marked checked-runtime: {:?}",
+            action.verifier_obligations
+        );
+        assert!(
+            !action.transaction_runtime_input_requirements.iter().any(|requirement| {
+                requirement.feature == "resource-conservation:Token" && requirement.component == "resource-conservation-proof"
+            }),
+            "checked split conservation must not expose a runtime-required conservation blocker: {:?}",
+            action.transaction_runtime_input_requirements
+        );
+    }
+
+    #[test]
+    fn compile_keeps_unsound_resource_conservation_runtime_required() {
         for (name, program) in [
             ("duplicate input amount leaf", CONSUME_CREATE_DUPLICATE_MERGE_CONSERVATION_PROGRAM),
             ("missing consumed input amount leaf", CONSUME_CREATE_MISSING_INPUT_MERGE_CONSERVATION_PROGRAM),
             ("extra non-amount field", CONSUME_CREATE_EXTRA_FIELD_MERGE_CONSERVATION_PROGRAM),
+            ("duplicate split output", CONSUME_CREATE_DUPLICATE_SPLIT_CONSERVATION_PROGRAM),
         ] {
             let result = compile(program, CompileOptions::default()).unwrap();
-            let action = result.metadata.actions.iter().find(|action| action.name == "merge").expect("merge metadata");
+            let action = result
+                .metadata
+                .actions
+                .iter()
+                .find(|action| action.name == "merge")
+                .or_else(|| result.metadata.actions.iter().find(|action| action.name == "split"))
+                .expect("resource conservation metadata action");
             assert!(
                 action.verifier_obligations.iter().any(|obligation| {
                     obligation.category == "transaction-invariant"
