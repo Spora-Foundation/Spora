@@ -166,7 +166,7 @@ impl TypeEnv {
             let else_state = else_env.and_then(|env| env.linear_state(&name)).unwrap_or(before);
 
             let merged = match (then_returns, else_env.is_some(), else_returns) {
-                (true, _, true) => before,
+                (true, _, true) if then_state == else_state => then_state,
                 (true, true, false) => else_state,
                 (false, true, true) => then_state,
                 (false, true, false) if then_state == else_state => then_state,
@@ -694,6 +694,7 @@ impl<'a> TypeChecker<'a> {
                     }
                     _ => {}
                 }
+                self.mark_expr_as_moved(env, expr)?;
                 Ok(())
             }
             Stmt::If(if_stmt) => {
@@ -1275,7 +1276,7 @@ impl<'a> TypeChecker<'a> {
     fn mark_stmt_as_returned(&mut self, env: &mut TypeEnv, stmt: &Stmt) -> Result<()> {
         match stmt {
             Stmt::Expr(expr) => self.mark_expr_as_moved(env, expr),
-            Stmt::Return(Some(expr)) => self.mark_expr_as_moved(env, expr),
+            Stmt::Return(Some(_)) => Ok(()),
             _ => Ok(()),
         }
     }

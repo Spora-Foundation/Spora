@@ -7542,6 +7542,39 @@ action choose(flag: bool) -> u64 {
 }
 "#;
 
+    const LINEAR_BRANCH_RETURN_PROGRAM: &str = r#"
+module test
+
+resource Token {
+    amount: u64,
+}
+
+action choose(token: Token, flag: bool) -> Token {
+    if flag {
+        return token
+    } else {
+        return token
+    }
+}
+"#;
+
+    const LINEAR_BRANCH_INCONSISTENT_RETURN_PROGRAM: &str = r#"
+module test
+
+resource Token {
+    amount: u64,
+}
+
+action bad(token: Token, flag: bool) -> u64 {
+    if flag {
+        return 1
+    } else {
+        consume token
+        return 2
+    }
+}
+"#;
+
     const TAIL_IF_ACTION_RETURN_PROGRAM: &str = r#"
 module test
 
@@ -10720,6 +10753,18 @@ struct TokenSnapshot {
     #[test]
     fn compile_accepts_complete_branch_return_paths() {
         compile(BRANCH_COMPLETE_RETURN_PROGRAM, CompileOptions::default()).unwrap();
+    }
+
+    #[test]
+    fn compile_tracks_linear_values_returned_from_complete_branches() {
+        compile(LINEAR_BRANCH_RETURN_PROGRAM, CompileOptions::default()).unwrap();
+
+        let err = compile(LINEAR_BRANCH_INCONSISTENT_RETURN_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(
+            err.message.contains("linear resource 'token' has inconsistent ownership state across if branches"),
+            "unexpected error: {}",
+            err.message
+        );
     }
 
     #[test]

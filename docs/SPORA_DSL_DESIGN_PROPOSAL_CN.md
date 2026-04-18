@@ -2066,6 +2066,8 @@ Slice 69 更新：pure helper `fn` 的 runtime 边界收紧。`fn` 现在不仅�
 
 Slice 70 更新：线性 `let` 绑定现在执行 move 语义。`let moved = token` 会先把原绑定 `token` 标记为已移动，再引入新绑定 `moved`；因此 `let copied = token` 后继续 `transfer token` / `destroy copied` 这类复制同一个 resource 的代码会被类型检查器拒绝。字段读取如 `let amount = token.amount` 仍是非线性标量读取，不会消费整个 Cell 值。
 
+Slice 71 更新：显式分支 `return` 也进入线性所有权合并。`if flag { return token } else { return token }` 现在可通过，因为两个 terminal 分支都移动同一个 resource；如果一个分支直接返回标量、另一个分支消费/返回 resource，类型检查器会报线性状态不一致。这样线性检查不再只覆盖继续执行的分支，也覆盖所有分支都终止的路径。
+
 目标：
 - 在后端工作扩展之前冻结最小语言核心。
 
