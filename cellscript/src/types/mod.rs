@@ -586,11 +586,7 @@ impl<'a> TypeChecker<'a> {
         let result = (|| {
             let mut env = self.env.child();
 
-            for param in &action.params {
-                self.validate_type(&param.ty)?;
-                let is_linear = self.is_linear_type(&param.ty);
-                env.insert(param.name.clone(), param.ty.clone(), is_linear, param.is_mut);
-            }
+            self.bind_callable_params(&mut env, &action.params, "action", &action.name)?;
             if let Some(return_type) = &action.return_type {
                 self.validate_type(return_type)?;
             }
@@ -621,11 +617,7 @@ impl<'a> TypeChecker<'a> {
         let result = (|| {
             let mut env = self.env.child();
 
-            for param in &function.params {
-                self.validate_type(&param.ty)?;
-                let is_linear = self.is_linear_type(&param.ty);
-                env.insert(param.name.clone(), param.ty.clone(), is_linear, param.is_mut);
-            }
+            self.bind_callable_params(&mut env, &function.params, "function", &function.name)?;
             if let Some(return_type) = &function.return_type {
                 self.validate_type(return_type)?;
             }
@@ -667,11 +659,7 @@ impl<'a> TypeChecker<'a> {
 
             let mut env = self.env.child();
 
-            for param in &lock.params {
-                self.validate_type(&param.ty)?;
-                let is_linear = self.is_linear_type(&param.ty);
-                env.insert(param.name.clone(), param.ty.clone(), is_linear, param.is_mut);
-            }
+            self.bind_callable_params(&mut env, &lock.params, "lock", &lock.name)?;
             self.check_no_unreachable_stmts(&lock.body)?;
 
             let tail = self.check_body_statements(&mut env, &lock.body)?;
@@ -692,6 +680,31 @@ impl<'a> TypeChecker<'a> {
         self.current_callable = previous_callable;
         self.current_return_type = previous_return_type;
         result
+    }
+
+    fn bind_callable_params(&self, env: &mut TypeEnv, params: &[Param], callable_kind: &str, callable_name: &str) -> Result<()> {
+        let mut seen = HashSet::new();
+        for param in params {
+            if param.name == "_" {
+                return Err(CompileError::new(
+                    format!(
+                        "{} '{}' parameter must have a stable name; '_' is reserved for local wildcard bindings",
+                        callable_kind, callable_name
+                    ),
+                    param.span,
+                ));
+            }
+            if !seen.insert(param.name.clone()) {
+                return Err(CompileError::new(
+                    format!("duplicate parameter '{}' in {} '{}'", param.name, callable_kind, callable_name),
+                    param.span,
+                ));
+            }
+            self.validate_type(&param.ty)?;
+            let is_linear = self.is_linear_type(&param.ty);
+            env.insert(param.name.clone(), param.ty.clone(), is_linear, param.is_mut);
+        }
+        Ok(())
     }
 
     fn check_body_statements<'body>(&mut self, env: &mut TypeEnv, body: &'body [Stmt]) -> Result<Option<(TypeEnv, &'body Stmt)>> {

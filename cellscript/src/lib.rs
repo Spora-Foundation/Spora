@@ -7535,6 +7535,42 @@ action run() -> bool {
 }
 "#;
 
+    const DUPLICATE_ACTION_PARAM_PROGRAM: &str = r#"
+module test
+
+action bad(x: u64, x: u64) -> u64 {
+    return x
+}
+"#;
+
+    const WILDCARD_ACTION_PARAM_PROGRAM: &str = r#"
+module test
+
+action bad(_: u64) -> u64 {
+    return 1
+}
+"#;
+
+    const DUPLICATE_FN_PARAM_PROGRAM: &str = r#"
+module test
+
+fn bad(x: u64, x: u64) -> u64 {
+    return x
+}
+
+action run() -> u64 {
+    return 1
+}
+"#;
+
+    const WILDCARD_LOCK_PARAM_PROGRAM: &str = r#"
+module test
+
+lock owned(_: Address) -> bool {
+    return true
+}
+"#;
+
     const UNIT_FN_CALL_PROGRAM: &str = r#"
 module test
 
@@ -11091,6 +11127,21 @@ struct TokenSnapshot {
 
         let err = compile(QUALIFIED_CALL_EXTRA_ARGUMENT_PROGRAM, CompileOptions::default()).unwrap_err();
         assert!(err.message.contains("function 'test::add_one' expects 1 argument, found 2"), "unexpected error: {}", err.message);
+    }
+
+    #[test]
+    fn compile_rejects_unstable_callable_parameter_names() {
+        let err = compile(DUPLICATE_ACTION_PARAM_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(err.message.contains("duplicate parameter 'x' in action 'bad'"), "unexpected error: {}", err.message);
+
+        let err = compile(WILDCARD_ACTION_PARAM_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(err.message.contains("action 'bad' parameter must have a stable name"), "unexpected error: {}", err.message);
+
+        let err = compile(DUPLICATE_FN_PARAM_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(err.message.contains("duplicate parameter 'x' in function 'bad'"), "unexpected error: {}", err.message);
+
+        let err = compile(WILDCARD_LOCK_PARAM_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(err.message.contains("lock 'owned' parameter must have a stable name"), "unexpected error: {}", err.message);
     }
 
     #[test]

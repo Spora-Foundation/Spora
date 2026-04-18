@@ -19,10 +19,10 @@ It is still not a complete implementation of the design proposal.
 
 Current implementation facts:
 
-- `cellscript/src/` contains `39,080` lines of Rust across `26` source files.
-- `cellscript/src/` plus `cellscript/tests/` contains `43,449` lines of Rust across `28` files.
-- `337` `#[test]` declarations are present in source/test files.
-- A fresh default-feature `cargo test -p cellscript` run executed `324` tests: `268` library tests, `49` CLI integration tests, `7` examples integration tests, and `0` doctests. All passed.
+- `cellscript/src/` contains `39,144` lines of Rust across `26` source files.
+- `cellscript/src/` plus `cellscript/tests/` contains `43,513` lines of Rust across `28` files.
+- `338` `#[test]` declarations are present in source/test files.
+- A fresh default-feature `cargo test -p cellscript` run executed `325` tests: `269` library tests, `49` CLI integration tests, `7` examples integration tests, and `0` doctests. All passed.
 - The repository includes `7` bundled `.cell` examples: `token`, `amm_pool`, `vesting`, `launch`, `nft`, `multisig`, and `timelock`.
 
 Approximate implementation status:
@@ -30,7 +30,7 @@ Approximate implementation status:
 | Area | Current coverage | Verdict |
 |---|---:|---|
 | Lexer / parser / AST | 88-92% | Stable main path for supported syntax |
-| Type checking / linear checks | 75-82% | Stronger value/resource checks, including linear `let` move semantics, aggregate-contained linear type tracking, wildcard-discard rejection, conservative rejection of linear field/index aggregate projection, explicit branch-return, tail-if return, `if` expression ownership merging, `match` expression arm ownership merging, block-expression parent-scope linear state propagation, block-tail-if value typing/linear merging, block-local linear completion checks, and conservative loop-local completion plus parent-state preservation checks; still not full semantic proof |
+| Type checking / linear checks | 75-82% | Stronger value/resource checks, including stable/unique callable parameter names, linear `let` move semantics, aggregate-contained linear type tracking, wildcard-discard rejection, conservative rejection of linear field/index aggregate projection, explicit branch-return, tail-if return, `if` expression ownership merging, `match` expression arm ownership merging, block-expression parent-scope linear state propagation, block-tail-if value typing/linear merging, block-local linear completion checks, and conservative loop-local completion plus parent-state preservation checks; still not full semantic proof |
 | IR and metadata | 75-85% | Real, includes verifier obligations, still not full protocol semantics |
 | Pure compute lowering | 78-88% | Usable subset with stricter return/value semantics |
 | CKB-style runtime lowering | 60-70% | Partial and intentionally fail-closed where semantics are incomplete |
@@ -149,7 +149,7 @@ Verdict: syntax is significantly ahead of executable semantics. This is acceptab
 | Parser | Stable main path for supported syntax | 88-92% |
 | AST | Stable main path for supported syntax | 88-92% |
 | Name/module resolution | Local path dependencies work; remote/registry story incomplete | 60-70% |
-| Type checking | Useful and stricter on callable argument count/type checks, returns, unreachable statements, assertions, empty arrays, `Unit`, local `Vec` item propagation, aggregate-contained linear values, and scoped linear-state propagation; still not full semantic proof | 71-78% |
+| Type checking | Useful and stricter on callable parameter identity, callable argument count/type checks, returns, unreachable statements, assertions, empty arrays, `Unit`, local `Vec` item propagation, aggregate-contained linear values, and scoped linear-state propagation; still not full semantic proof | 72-79% |
 | IR lowering | Real, with action/lock/function/effect metadata, destinationless no-return calls, Unit-valued assertions, typed empty arrays, tail-return terminators, fixed aggregate index/projection, fixed parameter foreach unrolling, and known tuple-call return projection | 79-89% |
 | Optimization | Not part of the trusted path | 10-15% |
 | RISC-V assembly codegen | Real for pure and restricted runtime paths | 60-70% |
