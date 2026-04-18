@@ -2110,6 +2110,8 @@ Slice 91 更新：`&mut` 参数现在不能被复制成本地别名或藏进聚�
 
 Slice 92 更新：同一次 helper/action 调用里也不能把同一个 `&mut` 根传入 mutable 参数位多次。`bump_pair(pool, pool)` 和 `bump_with_view(pool, pool)` 会失败，只要其中一个参数位需要 `&mut Pool`，同根重复就被拒绝；两个参数都只是只读 `&Pool` 时，`sum_views(pool, pool)` 仍可作为短生命周期只读 reborrow。这样直接 call 不再成为绕过 Slice 91 的 mutable alias 通道。
 
+Slice 93 更新：duplicate mutable call-root 检查现在会透过 value wrapper 收集可能根名。`bump_pair({ pool }, pool)`、`bump_pair(if flag { pool } else { pool }, pool)`，以及等价的 cast / field-index root / match arm / block-tail-if 结果都会按同一个 `pool` 根处理并拒绝。单个参数内部的分支根会先去重，所以 `bump_one(if flag { pool } else { pool })` 不会因为同一参数的两个分支而误报。
+
 目标：
 - 在后端工作扩展之前冻结最小语言核心。
 

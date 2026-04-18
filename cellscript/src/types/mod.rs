@@ -2143,22 +2143,21 @@ impl<'a> TypeChecker<'a> {
             if !matches!(actual_ty, Type::MutRef(_)) {
                 continue;
             }
-            let Some(root) = assignment_root_name(arg) else {
-                continue;
-            };
             let participates_in_mutable_alias = matches!(expected_ty, Type::MutRef(_));
-            if let Some(prior_participated) = roots.get(root).copied() {
-                if participates_in_mutable_alias || prior_participated {
-                    return Err(CompileError::new(
-                        format!(
-                            "function '{}' cannot receive mutable reference root '{}' more than once in one call; pass distinct '&mut' roots or split the mutation",
-                            callee_name, root
-                        ),
-                        span,
-                    ));
+            for root in mutable_reference_root_names(arg) {
+                if let Some(prior_participated) = roots.get(root).copied() {
+                    if participates_in_mutable_alias || prior_participated {
+                        return Err(CompileError::new(
+                            format!(
+                                "function '{}' cannot receive mutable reference root '{}' more than once in one call; pass distinct '&mut' roots or split the mutation",
+                                callee_name, root
+                            ),
+                            span,
+                        ));
+                    }
+                } else {
+                    roots.insert(root, participates_in_mutable_alias);
                 }
-            } else {
-                roots.insert(root, participates_in_mutable_alias);
             }
         }
         Ok(())
@@ -2556,6 +2555,54 @@ fn assignment_root_name(expr: &Expr) -> Option<&str> {
         Expr::FieldAccess(field) => assignment_root_name(&field.expr),
         Expr::Index(index) => assignment_root_name(&index.expr),
         _ => None,
+    }
+}
+
+fn mutable_reference_root_names(expr: &Expr) -> Vec<&str> {
+    let mut roots = Vec::new();
+    collect_mutable_reference_root_names(expr, &mut roots);
+    roots
+}
+
+fn collect_mutable_reference_root_names<'a>(expr: &'a Expr, roots: &mut Vec<&'a str>) {
+    match expr {
+        Expr::Identifier(name) => push_unique_root(roots, name.as_str()),
+        Expr::FieldAccess(field) => collect_mutable_reference_root_names(&field.expr, roots),
+        Expr::Index(index) => collect_mutable_reference_root_names(&index.expr, roots),
+        Expr::Cast(cast) => collect_mutable_reference_root_names(&cast.expr, roots),
+        Expr::If(if_expr) => {
+            collect_mutable_reference_root_names(&if_expr.then_branch, roots);
+            collect_mutable_reference_root_names(&if_expr.else_branch, roots);
+        }
+        Expr::Match(match_expr) => {
+            for arm in &match_expr.arms {
+                collect_mutable_reference_root_names(&arm.value, roots);
+            }
+        }
+        Expr::Block(stmts) => collect_mutable_reference_root_names_from_tail_stmts(stmts, roots),
+        _ => {}
+    }
+}
+
+fn collect_mutable_reference_root_names_from_tail_stmts<'a>(stmts: &'a [Stmt], roots: &mut Vec<&'a str>) {
+    let Some(last) = stmts.last() else {
+        return;
+    };
+    match last {
+        Stmt::Expr(expr) | Stmt::Return(Some(expr)) => collect_mutable_reference_root_names(expr, roots),
+        Stmt::If(if_stmt) => {
+            collect_mutable_reference_root_names_from_tail_stmts(&if_stmt.then_branch, roots);
+            if let Some(else_branch) = &if_stmt.else_branch {
+                collect_mutable_reference_root_names_from_tail_stmts(else_branch, roots);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn push_unique_root<'a>(roots: &mut Vec<&'a str>, root: &'a str) {
+    if !roots.contains(&root) {
+        roots.push(root);
     }
 }
 
