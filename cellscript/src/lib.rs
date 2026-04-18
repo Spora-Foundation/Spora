@@ -7623,6 +7623,44 @@ action bad(left: Token, right: Token, flag: bool) -> Token {
 }
 "#;
 
+    const LINEAR_IF_EXPR_LET_MOVE_PROGRAM: &str = r#"
+module test
+
+resource Token {
+    amount: u64,
+}
+
+action choose(token: Token, flag: bool) -> Token {
+    let moved = if flag { token } else { token }
+    return moved
+}
+"#;
+
+    const LINEAR_IF_EXPR_INCONSISTENT_LET_MOVE_PROGRAM: &str = r#"
+module test
+
+resource Token {
+    amount: u64,
+}
+
+action bad(left: Token, right: Token, flag: bool) -> Token {
+    let moved = if flag { left } else { right }
+    return moved
+}
+"#;
+
+    const LINEAR_IF_EXPR_STATEFUL_BRANCHES_PROGRAM: &str = r#"
+module test
+
+resource Token has destroy {
+    amount: u64,
+}
+
+action burn(token: Token, flag: bool) -> u64 {
+    if flag { destroy token } else { destroy token }
+}
+"#;
+
     const TAIL_IF_ACTION_RETURN_PROGRAM: &str = r#"
 module test
 
@@ -10835,6 +10873,20 @@ struct TokenSnapshot {
         compile(LINEAR_TAIL_IF_RETURN_PROGRAM, CompileOptions::default()).unwrap();
 
         let err = compile(LINEAR_TAIL_IF_INCONSISTENT_RETURN_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(
+            err.message.contains("linear resource 'left' has inconsistent ownership state across if branches")
+                || err.message.contains("linear resource 'right' has inconsistent ownership state across if branches"),
+            "unexpected error: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn compile_merges_linear_moves_inside_if_expressions() {
+        compile(LINEAR_IF_EXPR_LET_MOVE_PROGRAM, CompileOptions::default()).unwrap();
+        compile(LINEAR_IF_EXPR_STATEFUL_BRANCHES_PROGRAM, CompileOptions::default()).unwrap();
+
+        let err = compile(LINEAR_IF_EXPR_INCONSISTENT_LET_MOVE_PROGRAM, CompileOptions::default()).unwrap_err();
         assert!(
             err.message.contains("linear resource 'left' has inconsistent ownership state across if branches")
                 || err.message.contains("linear resource 'right' has inconsistent ownership state across if branches"),

@@ -2072,6 +2072,8 @@ Slice 72 更新：优化器从孤立原型进入受限主编译链。`src/optimi
 
 Slice 73 更新：tail-if 返回路径也进入线性所有权合并。`action choose(token: Token, flag: bool) -> Token { if flag { token } else { token } }` 现在可通过，因为两个 tail 分支都移动同一个 resource；`if flag { left } else { right }` 会被拒绝，因为任一执行路径都会留下另一个 resource 未处理。实现上，类型检查器在检查尾部语句前保留 tail base env，对尾部 `if` 的 then/else 分支分别重放检查和 tail move，再用同一套 branch linear-state merge 规则合并。
 
+Slice 74 更新：普通 `if` expression 也使用同一套线性分支合并规则。`let moved = if flag { token } else { token }` 现在可通过，因为两个 expression 分支移动同一个 resource；`let moved = if flag { left } else { right }` 会被拒绝，因为分支只移动了不同 resource。带状态操作的 expression 分支也按路径合并，例如 `if flag { destroy token } else { destroy token }` 可通过，而只在单边 destroy/consume/transfer/claim/settle 会报分支线性状态不一致。实现上，`Expr::If` 的类型推断和 move 标记都改为使用独立分支环境，并且线性名称收集覆盖父环境链，避免 block/branch 子环境漏掉外层 resource 状态。
+
 目标：
 - 在后端工作扩展之前冻结最小语言核心。
 

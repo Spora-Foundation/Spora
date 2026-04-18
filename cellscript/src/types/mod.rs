@@ -141,7 +141,21 @@ impl TypeEnv {
     }
 
     fn linear_names(&self) -> Vec<String> {
-        self.linear_states.keys().cloned().collect()
+        let mut seen = HashSet::new();
+        let mut names = Vec::new();
+        self.collect_linear_names(&mut seen, &mut names);
+        names
+    }
+
+    fn collect_linear_names(&self, seen: &mut HashSet<String>, names: &mut Vec<String>) {
+        if let Some(parent) = &self.parent {
+            parent.collect_linear_names(seen, names);
+        }
+        for name in self.linear_states.keys() {
+            if seen.insert(name.clone()) {
+                names.push(name.clone());
+            }
+        }
     }
 
     fn set_existing_linear_state(&mut self, name: &str, next: LinearState) {
@@ -991,9 +1005,12 @@ impl<'a> TypeChecker<'a> {
                 if !self.is_bool_type(&cond_ty) {
                     return Err(CompileError::new("if expression condition must be boolean", if_expr.span));
                 }
-                let then_ty = self.infer_expr(env, &if_expr.then_branch)?;
-                let else_ty = self.infer_expr(env, &if_expr.else_branch)?;
+                let mut then_env = env.child();
+                let then_ty = self.infer_expr(&mut then_env, &if_expr.then_branch)?;
+                let mut else_env = env.child();
+                let else_ty = self.infer_expr(&mut else_env, &if_expr.else_branch)?;
                 if self.types_equal(&then_ty, &else_ty) {
+                    env.merge_branch_linear_states(&then_env, false, Some(&else_env), false, if_expr.span)?;
                     Ok(then_ty)
                 } else {
                     Err(CompileError::new(
@@ -1445,8 +1462,11 @@ impl<'a> TypeChecker<'a> {
             Expr::Transfer(_) | Expr::Claim(_) | Expr::Settle(_) => Ok(()),
             Expr::Assert(assert_expr) => self.mark_expr_as_moved(env, &assert_expr.condition),
             Expr::If(if_expr) => {
-                self.mark_expr_as_moved(env, &if_expr.then_branch)?;
-                self.mark_expr_as_moved(env, &if_expr.else_branch)
+                let mut then_env = env.child();
+                self.mark_expr_as_moved(&mut then_env, &if_expr.then_branch)?;
+                let mut else_env = env.child();
+                self.mark_expr_as_moved(&mut else_env, &if_expr.else_branch)?;
+                env.merge_branch_linear_states(&then_env, false, Some(&else_env), false, if_expr.span)
             }
             Expr::Match(match_expr) => {
                 for arm in &match_expr.arms {
