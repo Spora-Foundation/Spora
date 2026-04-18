@@ -306,6 +306,10 @@ pub struct CodeGenerator {
     read_ref_order: Vec<usize>,
     /// Read-ref CellDep index keyed by IR destination variable id.
     read_ref_indices: HashMap<usize, usize>,
+    /// Output index for source-level operations that materialize transaction Outputs.
+    operation_output_indices: HashMap<usize, usize>,
+    /// Operation destination ids whose transaction Output relation is fully verifier-covered.
+    verified_operation_outputs: BTreeSet<usize>,
     /// Unique label counter for runtime checks.
     next_runtime_label: usize,
 }
@@ -347,6 +351,8 @@ impl CodeGenerator {
             consume_type_names: HashMap::new(),
             read_ref_order: Vec::new(),
             read_ref_indices: HashMap::new(),
+            operation_output_indices: HashMap::new(),
+            verified_operation_outputs: BTreeSet::new(),
             next_runtime_label: 0,
         }
     }
@@ -506,6 +512,7 @@ impl CodeGenerator {
         self.set_consumed_schema_pointers(&action.body);
         self.set_read_ref_schema_pointers(&action.body);
         self.set_schema_field_value_sources(&action.body);
+        self.set_verified_operation_outputs(&action.body);
 
         self.emit_global(&action.name);
         self.emit_label(&action.name);
@@ -533,6 +540,8 @@ impl CodeGenerator {
         self.prelude_u64_value_sources.clear();
         self.prelude_scalar_immediates.clear();
         self.prelude_fixed_byte_constants.clear();
+        self.operation_output_indices.clear();
+        self.verified_operation_outputs.clear();
         self.param_vars.clear();
         Ok(())
     }
@@ -547,6 +556,7 @@ impl CodeGenerator {
         self.set_consumed_schema_pointers(&function.body);
         self.set_read_ref_schema_pointers(&function.body);
         self.set_schema_field_value_sources(&function.body);
+        self.set_verified_operation_outputs(&function.body);
 
         self.emit_global(&function.name);
         self.emit_label(&function.name);
@@ -571,6 +581,8 @@ impl CodeGenerator {
         self.prelude_u64_value_sources.clear();
         self.prelude_scalar_immediates.clear();
         self.prelude_fixed_byte_constants.clear();
+        self.operation_output_indices.clear();
+        self.verified_operation_outputs.clear();
         self.param_vars.clear();
         Ok(())
     }
@@ -585,6 +597,7 @@ impl CodeGenerator {
         self.set_consumed_schema_pointers(&lock.body);
         self.set_read_ref_schema_pointers(&lock.body);
         self.set_schema_field_value_sources(&lock.body);
+        self.set_verified_operation_outputs(&lock.body);
 
         self.emit_global(&lock.name);
         self.emit_label(&lock.name);
@@ -612,6 +625,8 @@ impl CodeGenerator {
         self.prelude_u64_value_sources.clear();
         self.prelude_scalar_immediates.clear();
         self.prelude_fixed_byte_constants.clear();
+        self.operation_output_indices.clear();
+        self.verified_operation_outputs.clear();
         self.param_vars.clear();
         Ok(())
     }
@@ -795,6 +810,54 @@ impl CodeGenerator {
                 }
             }
         }
+    }
+
+    fn set_verified_operation_outputs(&mut self, body: &IrBody) {
+        self.operation_output_indices.clear();
+        self.verified_operation_outputs.clear();
+
+        let mut output_index = 0usize;
+        for block in &body.blocks {
+            for instruction in &block.instructions {
+                match instruction {
+                    IrInstruction::Create { dest, .. } => {
+                        self.operation_output_indices.insert(dest.id, output_index);
+                        output_index += 1;
+                    }
+                    IrInstruction::Transfer { dest, .. } => {
+                        self.record_verified_operation_output(body, output_index, dest, "transfer");
+                        output_index += 1;
+                    }
+                    IrInstruction::Claim { dest, .. } => {
+                        self.record_verified_operation_output(body, output_index, dest, "claim");
+                        output_index += 1;
+                    }
+                    IrInstruction::Settle { dest, .. } => {
+                        self.record_verified_operation_output(body, output_index, dest, "settle");
+                        output_index += 1;
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    fn record_verified_operation_output(&mut self, body: &IrBody, output_index: usize, dest: &IrVar, operation: &str) {
+        self.operation_output_indices.insert(dest.id, output_index);
+        if body
+            .create_set
+            .get(output_index)
+            .is_some_and(|pattern| self.operation_output_pattern_is_verified(pattern, operation, &dest.ty))
+        {
+            self.verified_operation_outputs.insert(dest.id);
+        }
+    }
+
+    fn operation_output_pattern_is_verified(&self, pattern: &CreatePattern, operation: &str, dest_ty: &IrType) -> bool {
+        pattern.operation == operation
+            && named_type_name(dest_ty).is_some_and(|type_name| type_name == pattern.ty.as_str())
+            && self.can_verify_create_output_fields(pattern)
+            && self.can_verify_output_lock(pattern)
     }
 
     fn prelude_scalar_immediate(&self, operand: &IrOperand) -> Option<u64> {
@@ -3218,10 +3281,13 @@ impl CodeGenerator {
 
     /// transfer
     fn emit_transfer(&mut self, dest: &IrVar, operand: &IrOperand, to: &IrOperand) -> Result<()> {
-        self.requires_symbolic_runtime = true;
         self.emit("# transfer");
         self.emit_symbolic_operand_comment("asset", operand);
         self.emit_symbolic_operand_comment("to", to);
+        if self.emit_verified_operation_output_handle(dest, "transfer") {
+            return Ok(());
+        }
+        self.requires_symbolic_runtime = true;
         self.emit(format!("li t0, {}", 0x2000usize + self.next_virtual_output * 0x40));
         self.emit(format!("sd t0, {}(sp)", dest.id * 8));
         self.next_virtual_output += 1;
@@ -3298,9 +3364,12 @@ impl CodeGenerator {
 
     /// claim
     fn emit_claim(&mut self, dest: &IrVar, receipt: &IrOperand) -> Result<()> {
-        self.requires_symbolic_runtime = true;
         self.emit("# claim");
         self.emit_symbolic_operand_comment("receipt", receipt);
+        if self.emit_verified_operation_output_handle(dest, "claim") {
+            return Ok(());
+        }
+        self.requires_symbolic_runtime = true;
         self.emit(format!("li t0, {}", 0x3000usize + self.next_virtual_output * 0x40));
         self.emit(format!("sd t0, {}(sp)", dest.id * 8));
         self.next_virtual_output += 1;
@@ -3310,14 +3379,29 @@ impl CodeGenerator {
 
     /// settle
     fn emit_settle(&mut self, dest: &IrVar, operand: &IrOperand) -> Result<()> {
-        self.requires_symbolic_runtime = true;
         self.emit("# settle");
         self.emit_symbolic_operand_comment("value", operand);
+        if self.emit_verified_operation_output_handle(dest, "settle") {
+            return Ok(());
+        }
+        self.requires_symbolic_runtime = true;
         self.emit(format!("li t0, {}", 0x4000usize + self.next_virtual_output * 0x40));
         self.emit(format!("sd t0, {}(sp)", dest.id * 8));
         self.next_virtual_output += 1;
         self.emit_symbolic_runtime_fail_closed("settle");
         Ok(())
+    }
+
+    fn emit_verified_operation_output_handle(&mut self, dest: &IrVar, operation: &str) -> bool {
+        if !self.verified_operation_outputs.contains(&dest.id) {
+            return false;
+        }
+        let output_index = self.operation_output_indices.get(&dest.id).copied().unwrap_or(self.next_virtual_output);
+        self.emit(format!("# cellscript abi: {} output relation verified by prelude Output#{}", operation, output_index));
+        self.emit(format!("li t0, {}", output_index));
+        self.emit(format!("sd t0, {}(sp)", dest.id * 8));
+        self.next_virtual_output = self.next_virtual_output.max(output_index + 1);
+        true
     }
 
     /// 生成运行时支持函数

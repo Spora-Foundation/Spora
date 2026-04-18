@@ -4679,6 +4679,7 @@ fn body_symbolic_runtime_features(
     if !body.create_set.is_empty() {
         features.insert("verify-output-cell".to_string());
     }
+    let mut output_index = 0usize;
     for block in &body.blocks {
         for instruction in &block.instructions {
             match instruction {
@@ -4718,20 +4719,51 @@ fn body_symbolic_runtime_features(
                 }
                 ir::IrInstruction::Create { .. } => {
                     features.insert("create-expression".to_string());
+                    output_index += 1;
                 }
-                ir::IrInstruction::Transfer { .. } => {
-                    features.insert("transfer-expression".to_string());
+                ir::IrInstruction::Transfer { dest, .. } => {
+                    if !metadata_output_operation_is_verifier_covered(
+                        body,
+                        output_index,
+                        "transfer",
+                        dest,
+                        type_layouts,
+                        &prelude_availability,
+                    ) {
+                        features.insert("transfer-expression".to_string());
+                    }
+                    output_index += 1;
                 }
                 ir::IrInstruction::Destroy { operand } => {
                     if !is_executable_destroy(operand) {
                         features.insert("destroy-expression".to_string());
                     }
                 }
-                ir::IrInstruction::Claim { .. } => {
-                    features.insert("claim-expression".to_string());
+                ir::IrInstruction::Claim { dest, .. } => {
+                    if !metadata_output_operation_is_verifier_covered(
+                        body,
+                        output_index,
+                        "claim",
+                        dest,
+                        type_layouts,
+                        &prelude_availability,
+                    ) {
+                        features.insert("claim-expression".to_string());
+                    }
+                    output_index += 1;
                 }
-                ir::IrInstruction::Settle { .. } => {
-                    features.insert("settle-expression".to_string());
+                ir::IrInstruction::Settle { dest, .. } => {
+                    if !metadata_output_operation_is_verifier_covered(
+                        body,
+                        output_index,
+                        "settle",
+                        dest,
+                        type_layouts,
+                        &prelude_availability,
+                    ) {
+                        features.insert("settle-expression".to_string());
+                    }
+                    output_index += 1;
                 }
                 _ => {}
             }
@@ -4754,6 +4786,7 @@ fn body_fail_closed_runtime_features(
     if body.create_set.iter().any(|pattern| !metadata_can_verify_output_lock(pattern, &prelude_availability)) {
         features.insert("output-lock-verification-incomplete".to_string());
     }
+    let mut output_index = 0usize;
     for block in &body.blocks {
         for instruction in &block.instructions {
             match instruction {
@@ -4797,25 +4830,74 @@ fn body_fail_closed_runtime_features(
                         features.insert("non-cell-consume".to_string());
                     }
                 }
-                ir::IrInstruction::Transfer { .. } => {
-                    features.insert("transfer-expression".to_string());
+                ir::IrInstruction::Create { .. } => {
+                    output_index += 1;
+                }
+                ir::IrInstruction::Transfer { dest, .. } => {
+                    if !metadata_output_operation_is_verifier_covered(
+                        body,
+                        output_index,
+                        "transfer",
+                        dest,
+                        type_layouts,
+                        &prelude_availability,
+                    ) {
+                        features.insert("transfer-expression".to_string());
+                    }
+                    output_index += 1;
                 }
                 ir::IrInstruction::Destroy { operand } => {
                     if !is_executable_destroy(operand) {
                         features.insert("destroy-expression".to_string());
                     }
                 }
-                ir::IrInstruction::Claim { .. } => {
-                    features.insert("claim-expression".to_string());
+                ir::IrInstruction::Claim { dest, .. } => {
+                    if !metadata_output_operation_is_verifier_covered(
+                        body,
+                        output_index,
+                        "claim",
+                        dest,
+                        type_layouts,
+                        &prelude_availability,
+                    ) {
+                        features.insert("claim-expression".to_string());
+                    }
+                    output_index += 1;
                 }
-                ir::IrInstruction::Settle { .. } => {
-                    features.insert("settle-expression".to_string());
+                ir::IrInstruction::Settle { dest, .. } => {
+                    if !metadata_output_operation_is_verifier_covered(
+                        body,
+                        output_index,
+                        "settle",
+                        dest,
+                        type_layouts,
+                        &prelude_availability,
+                    ) {
+                        features.insert("settle-expression".to_string());
+                    }
+                    output_index += 1;
                 }
                 _ => {}
             }
         }
     }
     features.into_iter().collect()
+}
+
+fn metadata_output_operation_is_verifier_covered(
+    body: &ir::IrBody,
+    output_index: usize,
+    operation: &str,
+    dest: &ir::IrVar,
+    type_layouts: &MetadataTypeLayouts,
+    availability: &MetadataPreludeAvailability,
+) -> bool {
+    body.create_set.get(output_index).is_some_and(|pattern| {
+        pattern.operation == operation
+            && named_type_name(&dest.ty).is_some_and(|type_name| type_name == pattern.ty.as_str())
+            && metadata_can_verify_create_output_fields(pattern, type_layouts, availability)
+            && metadata_can_verify_output_lock(pattern, availability)
+    })
 }
 
 #[derive(Debug, Default)]
@@ -9852,8 +9934,13 @@ source_roots = ["src", "shared"]
         assert!(asm.contains("# claim"), "claim expression vanished from assembly:\n{}", asm);
         assert!(asm.contains("# settle"), "settle expression vanished from assembly:\n{}", asm);
         assert!(
-            asm.contains("# cellscript abi: transfer symbolic runtime is not executable"),
-            "transfer symbolic runtime did not fail closed:\n{}",
+            !asm.contains("# cellscript abi: transfer symbolic runtime is not executable"),
+            "verifier-covered transfer should not use the symbolic fail-closed path:\n{}",
+            asm
+        );
+        assert!(
+            asm.contains("# cellscript abi: transfer output relation verified by prelude Output#0"),
+            "transfer expression did not reuse the verifier-covered output relation:\n{}",
             asm
         );
         assert!(asm.contains("# transfer output Token"), "transfer-created output was not represented as an Output access:\n{}", asm);
@@ -9873,8 +9960,8 @@ source_roots = ["src", "shared"]
             asm
         );
         assert!(
-            asm.contains("# cellscript abi: claim symbolic runtime is not executable"),
-            "claim symbolic runtime did not fail closed:\n{}",
+            !asm.contains("# cellscript abi: claim symbolic runtime is not executable"),
+            "verifier-covered claim output should not use the symbolic fail-closed path:\n{}",
             asm
         );
         assert!(
@@ -9906,8 +9993,13 @@ source_roots = ["src", "shared"]
             asm
         );
         assert!(
-            asm.contains("# cellscript abi: settle symbolic runtime is not executable"),
-            "settle symbolic runtime did not fail closed:\n{}",
+            asm.contains("# cellscript abi: claim output relation verified by prelude Output#0"),
+            "claim expression did not reuse the verifier-covered output relation:\n{}",
+            asm
+        );
+        assert!(
+            !asm.contains("# cellscript abi: settle symbolic runtime is not executable"),
+            "verifier-covered settle output should not use the symbolic fail-closed path:\n{}",
             asm
         );
         assert!(asm.contains("# settle output Token"), "settle-created output was not represented as an Output access:\n{}", asm);
@@ -9917,34 +10009,28 @@ source_roots = ["src", "shared"]
             asm
         );
         assert!(
-            result.metadata.runtime.fail_closed_runtime_features.contains(&"transfer-expression".to_string()),
-            "transfer fail-closed feature missing from metadata: {:?}",
+            asm.contains("# cellscript abi: settle output relation verified by prelude Output#0"),
+            "settle expression did not reuse the verifier-covered output relation:\n{}",
+            asm
+        );
+        assert!(
+            !result.metadata.runtime.fail_closed_runtime_features.contains(&"transfer-expression".to_string()),
+            "verifier-covered transfer should not be marked fail-closed: {:?}",
             result.metadata.runtime.fail_closed_runtime_features
         );
         assert!(
-            result.metadata.runtime.fail_closed_runtime_features.contains(&"claim-expression".to_string()),
-            "claim fail-closed feature missing from metadata: {:?}",
+            !result.metadata.runtime.fail_closed_runtime_features.contains(&"claim-expression".to_string()),
+            "verifier-covered claim output should not be marked fail-closed: {:?}",
             result.metadata.runtime.fail_closed_runtime_features
         );
         assert!(
-            result.metadata.runtime.fail_closed_runtime_features.contains(&"settle-expression".to_string()),
-            "settle fail-closed feature missing from metadata: {:?}",
+            !result.metadata.runtime.fail_closed_runtime_features.contains(&"settle-expression".to_string()),
+            "verifier-covered settle output should not be marked fail-closed: {:?}",
             result.metadata.runtime.fail_closed_runtime_features
         );
-        assert!(result.metadata.runtime.verifier_obligations.iter().any(|obligation| {
+        assert!(!result.metadata.runtime.verifier_obligations.iter().any(|obligation| {
             obligation.category == "runtime-fail-closed"
-                && obligation.feature == "transfer-expression"
-                && obligation.status == "fail-closed"
-        }));
-        assert!(result.metadata.runtime.verifier_obligations.iter().any(|obligation| {
-            obligation.category == "runtime-fail-closed"
-                && obligation.feature == "claim-expression"
-                && obligation.status == "fail-closed"
-        }));
-        assert!(result.metadata.runtime.verifier_obligations.iter().any(|obligation| {
-            obligation.category == "runtime-fail-closed"
-                && obligation.feature == "settle-expression"
-                && obligation.status == "fail-closed"
+                && matches!(obligation.feature.as_str(), "transfer-expression" | "claim-expression" | "settle-expression")
         }));
         assert!(result.metadata.runtime.verifier_obligations.iter().any(|obligation| {
             obligation.category == "resource-operation"

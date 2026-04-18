@@ -213,7 +213,7 @@ fn cellc_verify_artifact_enforces_policy_flags() {
 module test
 
 resource Token has store, transfer, destroy {
-    amount: u64,
+    amount: u128,
 }
 
 action move_token(token: Token, to: Address) -> Token {
@@ -850,7 +850,7 @@ version = "0.1.0"
 module demo::main
 
 resource Token has store, transfer, destroy {
-    amount: u64,
+    amount: u128,
 }
 
 action move_token(token: Token, to: Address) -> Token {
@@ -1402,7 +1402,7 @@ production = true
 module demo::main
 
 resource Token has store, transfer, destroy {
-    amount: u64,
+    amount: u128,
 }
 
 action move_token(token: Token, to: Address) -> Token {
@@ -1444,7 +1444,7 @@ production = true
 module demo::main
 
 resource Token has store, transfer, destroy {
-    amount: u64,
+    amount: u128,
 }
 
 action move_token(token: Token, to: Address) -> Token {
@@ -1706,8 +1706,8 @@ action ping() -> u64 {
     std::fs::write(
         root.join("tests").join("policy.cell"),
         r#"
-// cellscript-test: production
-// cellscript-test: expect-error: transfer-expression
+// cellscript-test: deny-runtime-obligations
+// cellscript-test: expect-error: transfer-output:Token
 module demo::tests::policy
 
 resource Token has store, transfer, destroy {
@@ -1761,8 +1761,9 @@ action ping() -> u64 {
 // cellscript-test: expect-not-standalone
 // cellscript-test: expect-ckb-runtime
 // cellscript-test: expect-symbolic-runtime
-// cellscript-test: expect-fail-closed-runtime
-// cellscript-test: expect-runtime-feature: transfer-expression
+// cellscript-test: expect-no-fail-closed-runtime
+// cellscript-test: expect-runtime-feature: verify-output-cell
+// cellscript-test: expect-no-runtime-feature: transfer-expression
 // cellscript-test: expect-verifier-obligation: transfer:Token
 // cellscript-test: expect-verifier-obligation: transfer-output:Token
 // cellscript-test: expect-runtime-required-obligation: transfer-output:Token
