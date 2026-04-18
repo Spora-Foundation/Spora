@@ -6932,6 +6932,37 @@ action tweak() -> u64 {
 }
 "#;
 
+    const TEMPORARY_FIELD_ASSIGN_PROGRAM: &str = r#"
+module test
+
+struct Point {
+    x: u64,
+    y: u64,
+}
+
+fn point() -> Point {
+    return Point { x: 1, y: 2 }
+}
+
+action bad() -> u64 {
+    point().x = 3
+    return 0
+}
+"#;
+
+    const READ_REF_FIELD_ASSIGN_PROGRAM: &str = r#"
+module test
+
+shared Config {
+    threshold: u64,
+}
+
+action bad() -> u64 {
+    read_ref<Config>().threshold = 2
+    return 0
+}
+"#;
+
     const IF_MISMATCH_PROGRAM: &str = r#"
 module test
 
@@ -9418,6 +9449,23 @@ action activate(ticket: Ticket) -> Ticket {
         assert!(asm.contains("li t0, 2"), "missing initial y field constant:\n{}", asm);
         assert!(asm.contains("sd t0, 8(sp)"), "missing field x storage slot writes:\n{}", asm);
         assert!(!asm.contains("# field access .x"), "local struct field access fell back to symbolic field path:\n{}", asm);
+    }
+
+    #[test]
+    fn compile_rejects_assignment_to_temporary_field_targets() {
+        let err = compile(TEMPORARY_FIELD_ASSIGN_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(
+            err.message.contains("assignment target must be rooted at a named local or parameter"),
+            "unexpected error: {}",
+            err.message
+        );
+
+        let err = compile(READ_REF_FIELD_ASSIGN_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(
+            err.message.contains("assignment target must be rooted at a named local or parameter"),
+            "unexpected error: {}",
+            err.message
+        );
     }
 
     #[test]

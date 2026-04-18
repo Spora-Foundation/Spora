@@ -1662,11 +1662,15 @@ impl<'a> TypeChecker<'a> {
                 Ok(target_ty)
             }
             Expr::FieldAccess(_) | Expr::Index(_) => {
-                if let Some(root) = assignment_root_name(assign.target.as_ref()) {
-                    let root_is_mut_ref = matches!(env.lookup(root), Some(Type::MutRef(_)));
-                    if !env.is_mutable(root) && !root_is_mut_ref {
-                        return Err(CompileError::new(format!("assignment target rooted at '{}' is not mutable", root), assign.span));
-                    }
+                let Some(root) = assignment_root_name(assign.target.as_ref()) else {
+                    return Err(CompileError::new("assignment target must be rooted at a named local or parameter", assign.span));
+                };
+                let Some(root_ty) = env.lookup(root).cloned() else {
+                    return Err(CompileError::new(format!("undefined variable '{}'", root), assign.span));
+                };
+                let root_is_mut_ref = matches!(root_ty, Type::MutRef(_));
+                if !env.is_mutable(root) && !root_is_mut_ref {
+                    return Err(CompileError::new(format!("assignment target rooted at '{}' is not mutable", root), assign.span));
                 }
                 let target_ty = self.infer_expr(env, &assign.target)?;
                 match assign.op {
