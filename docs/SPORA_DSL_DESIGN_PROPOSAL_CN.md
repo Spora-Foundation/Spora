@@ -45,7 +45,7 @@
 | CLI 子命令 | 🟡 本地工作流已接主入口，registry/runtime 命令仍 fail-closed/feature-gated | `cellscript/src/cli/` |
 | 集合类型 | 🚧 基础定义 | `cellscript/src/stdlib/collections.rs` |
 | 调试信息 | 🚧 原型级 | `cellscript/src/debug/` |
-| 测试套件 | 🟡 默认特性 `cargo test -p cellscript` 当前 322 项通过 | `cellscript/src/`, `cellscript/tests/` |
+| 测试套件 | 🟡 默认特性 `cargo test -p cellscript` 当前 323 项通过 | `cellscript/src/`, `cellscript/tests/` |
 
 **编译器项目路径**: `/Users/arthur/RustroverProjects/Spora/cellscript/`  
 
@@ -2079,6 +2079,8 @@ Slice 75 更新：普通 block expression 现在会把父作用域中已有 reso
 Slice 76 更新：block expression 的尾部 `if` 语句现在也可以作为值尾表达式参与类型检查、线性合并和 IR lowering。`let moved = { let inner = token; if flag { inner } else { inner } }` 现在可通过，因为两个 block-tail-if 分支移动同一个 block-local resource；`let moved = { if flag { left } else { right } }` 会被拒绝，因为分支只移动不同的父作用域 resource。纯值路径如 `let value = { if flag { 1 } else { 2 } }` 会 lowering 成 then/else 分支写入 join 临时变量，再由外层绑定或 return 使用。这样 block expression 不再只识别尾部 `Stmt::Expr`，也识别带 `else` 的尾部 `Stmt::If`。
 
 Slice 77 更新：`match` expression 现在也进入线性所有权分支合并。每个 arm 会在独立 child env 中类型检查和 move 标记，所有 arm 对父作用域 resource 的最终状态必须一致后才写回父环境。`let moved = match flag { Flag::On => token, Flag::Off => token }` 现在可通过；`Flag::On => left, Flag::Off => right` 会被拒绝，因为不同 arm 只移动不同 resource。状态操作也按同一规则处理，例如所有 arm 都 `destroy token` 可通过，只有单个 arm destroy 会报 `match arms` 线性状态不一致。
+
+Slice 78 更新：`for` / `while` 循环体现在补上了保守线性边界。循环体内创建的 loop-local resource 必须在循环体作用域内被消费、转移、销毁或移出，否则会报未处理线性资源；同时循环体禁止改变父作用域已有 resource 的 ownership 状态，因为循环可能执行零次或多次，不能把一次性的 `consume` / `destroy` / `transfer` 语义安全写回父作用域。`for i in 0..n { let out = create Token { ... }; destroy out }` 可通过；`for i in 0..n { destroy token } destroy token` 和对应 `while` 形态会被拒绝，避免循环子环境吞掉父 resource 状态后产生双用。
 
 目标：
 - 在后端工作扩展之前冻结最小语言核心。

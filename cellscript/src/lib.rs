@@ -6852,6 +6852,69 @@ action countdown(n: u64) -> u64 {
 }
 "#;
 
+    const LOOP_LOCAL_LINEAR_COMPLETE_PROGRAM: &str = r#"
+module test
+
+resource Token has destroy {
+    amount: u64,
+}
+
+action ok(n: u64) {
+    for i in 0..n {
+        let out = create Token {
+            amount: i
+        }
+        destroy out
+    }
+}
+"#;
+
+    const LOOP_DROPPED_LOCAL_LINEAR_PROGRAM: &str = r#"
+module test
+
+resource Token {
+    amount: u64,
+}
+
+action bad(n: u64) {
+    for i in 0..n {
+        let out = create Token {
+            amount: i
+        }
+    }
+}
+"#;
+
+    const FOR_LOOP_PARENT_LINEAR_CHANGE_PROGRAM: &str = r#"
+module test
+
+resource Token has destroy {
+    amount: u64,
+}
+
+action bad(token: Token, n: u64) {
+    for i in 0..n {
+        destroy token
+    }
+    destroy token
+}
+"#;
+
+    const WHILE_LOOP_PARENT_LINEAR_CHANGE_PROGRAM: &str = r#"
+module test
+
+resource Token has destroy {
+    amount: u64,
+}
+
+action bad(token: Token, flag: bool) {
+    while flag {
+        destroy token
+    }
+    destroy token
+}
+"#;
+
     const STRUCT_FIELD_PROGRAM: &str = r#"
 module test
 
@@ -9126,6 +9189,28 @@ action activate(ticket: Ticket) -> Ticket {
         assert!(asm.contains("sub t0, t0, t1"), "missing subtraction for x = x - 1:\n{}", asm);
         assert!(asm.contains("add t0, t0, t1"), "missing addition for x += 1:\n{}", asm);
         assert!(asm.contains("sd t0, 8(sp)"), "missing assignment write-back into x slot:\n{}", asm);
+    }
+
+    #[test]
+    fn compile_rejects_linear_state_changes_hidden_inside_loops() {
+        compile(LOOP_LOCAL_LINEAR_COMPLETE_PROGRAM, CompileOptions::default()).unwrap();
+
+        let dropped = compile(LOOP_DROPPED_LOCAL_LINEAR_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(dropped.message.contains("linear resource 'out' was not consumed"), "unexpected error: {}", dropped.message);
+
+        let for_err = compile(FOR_LOOP_PARENT_LINEAR_CHANGE_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(
+            for_err.message.contains("linear resource 'token' cannot change ownership state inside a loop body"),
+            "unexpected error: {}",
+            for_err.message
+        );
+
+        let while_err = compile(WHILE_LOOP_PARENT_LINEAR_CHANGE_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(
+            while_err.message.contains("linear resource 'token' cannot change ownership state inside a loop body"),
+            "unexpected error: {}",
+            while_err.message
+        );
     }
 
     #[test]

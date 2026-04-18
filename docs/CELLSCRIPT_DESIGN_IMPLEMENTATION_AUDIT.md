@@ -19,10 +19,10 @@ It is still not a complete implementation of the design proposal.
 
 Current implementation facts:
 
-- `cellscript/src/` contains `38,819` lines of Rust across `26` source files.
-- `cellscript/src/` plus `cellscript/tests/` contains `43,188` lines of Rust across `28` files.
-- `335` `#[test]` declarations are present in source/test files.
-- A fresh default-feature `cargo test -p cellscript` run executed `322` tests: `266` library tests, `49` CLI integration tests, `7` examples integration tests, and `0` doctests. All passed.
+- `cellscript/src/` contains `38,922` lines of Rust across `26` source files.
+- `cellscript/src/` plus `cellscript/tests/` contains `43,291` lines of Rust across `28` files.
+- `336` `#[test]` declarations are present in source/test files.
+- A fresh default-feature `cargo test -p cellscript` run executed `323` tests: `267` library tests, `49` CLI integration tests, `7` examples integration tests, and `0` doctests. All passed.
 - The repository includes `7` bundled `.cell` examples: `token`, `amm_pool`, `vesting`, `launch`, `nft`, `multisig`, and `timelock`.
 
 Approximate implementation status:
@@ -30,7 +30,7 @@ Approximate implementation status:
 | Area | Current coverage | Verdict |
 |---|---:|---|
 | Lexer / parser / AST | 88-92% | Stable main path for supported syntax |
-| Type checking / linear checks | 72-79% | Stronger value/resource checks, including linear `let` move semantics, explicit branch-return, tail-if return, `if` expression ownership merging, `match` expression arm ownership merging, block-expression parent-scope linear state propagation, block-tail-if value typing/linear merging, and block-local linear completion checks; still not full semantic proof |
+| Type checking / linear checks | 73-80% | Stronger value/resource checks, including linear `let` move semantics, explicit branch-return, tail-if return, `if` expression ownership merging, `match` expression arm ownership merging, block-expression parent-scope linear state propagation, block-tail-if value typing/linear merging, block-local linear completion checks, and conservative loop-local completion plus parent-state preservation checks; still not full semantic proof |
 | IR and metadata | 75-85% | Real, includes verifier obligations, still not full protocol semantics |
 | Pure compute lowering | 78-88% | Usable subset with stricter return/value semantics |
 | CKB-style runtime lowering | 60-70% | Partial and intentionally fail-closed where semantics are incomplete |
@@ -113,7 +113,7 @@ Verdict: the vocabulary exists for several design concepts, but the executable p
 | Primitive integers / bool / hash-like values | Real parser/type/codegen support for core scalar paths | 80-90% |
 | Fixed arrays | Supported in frontend/type checking; empty arrays require explicit zero-length annotations; local static index/foreach/len lowering exists, and fixed aggregate parameters such as `[u64; N]` / `[(Address, u64); N]` now lower through pointer+length ABI with static foreach unrolling in supported cases | 74-82% |
 | Struct/resource/shared/receipt/enum shapes | Real AST/IR/type presence; field-less enum variants lower as discriminants, unknown/payload enum variant values are rejected when lowering would be unsound, enum match checks unknown/duplicate/non-exhaustive arms, and payload variant patterns are rejected until payload destructuring lowering exists | 78-82% |
-| Linear usage checks | Present and useful across direct moves, branch merges, tail returns, `if` expressions, `match` expressions, block-expression parent-scope propagation, block-tail-if value branches, and block-local completion, but not a full resource proof system | 70-76% |
+| Linear usage checks | Present and useful across direct moves, branch merges, tail returns, `if` expressions, `match` expressions, block-expression parent-scope propagation, block-tail-if value branches, block-local completion, loop-local completion, and conservative rejection of parent-visible loop ownership changes, but not a full resource proof system | 71-77% |
 | Capabilities such as store/transfer/destroy | Parser/type checker now merge attribute and inline declarations, reject `transfer` without `transfer`, reject `destroy` without `destroy`, restrict `claim` to receipts, require declared receipt claim outputs to be resource/shared cells, and restrict `settle` to cell-backed linear values; full conservation/runtime proof is still incomplete | 60-67% |
 | Immutable vs mutable fields | Not fully enforced as first-class transition constraints | 20% |
 | Schema evolution/versioning | `#[type_id("...")]` stable type identity is parsed for `resource` / `shared` / `receipt` / `struct`, duplicate IDs are rejected across the visible module scope including imported types, IR carries the string, and metadata schema v20 emits both `types[].type_id` and a BLAKE3 hash. This is metadata identity only; executable CKB type-id lineage verification and schema migration rules remain incomplete | 28-38% |

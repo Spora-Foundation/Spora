@@ -225,6 +225,20 @@ impl TypeEnv {
         Ok(())
     }
 
+    fn reject_loop_linear_state_changes(&self, loop_env: &TypeEnv, span: Span) -> Result<()> {
+        for name in self.linear_names() {
+            let before = self.linear_state(&name).unwrap_or(LinearState::Available);
+            let after = loop_env.linear_state(&name).unwrap_or(before);
+            if after != before {
+                return Err(CompileError::new(
+                    format!("linear resource '{}' cannot change ownership state inside a loop body", name),
+                    span,
+                ));
+            }
+        }
+        Ok(())
+    }
+
     /// 检查所有线性资源是否已正确处理
     pub fn check_linear_complete(&self) -> Result<()> {
         for (name, state) in &self.linear_states {
@@ -776,6 +790,8 @@ impl<'a> TypeChecker<'a> {
                 for stmt in &for_stmt.body {
                     self.check_stmt(&mut loop_env, stmt)?;
                 }
+                loop_env.check_linear_complete()?;
+                env.reject_loop_linear_state_changes(&loop_env, for_stmt.span)?;
                 env.merge_existing_type_refinements_from(&loop_env);
                 Ok(())
             }
@@ -788,6 +804,8 @@ impl<'a> TypeChecker<'a> {
                 for stmt in &while_stmt.body {
                     self.check_stmt(&mut while_env, stmt)?;
                 }
+                while_env.check_linear_complete()?;
+                env.reject_loop_linear_state_changes(&while_env, while_stmt.span)?;
                 env.merge_existing_type_refinements_from(&while_env);
                 Ok(())
             }
