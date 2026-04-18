@@ -2069,18 +2069,21 @@ fn body_transaction_resource_obligations(
                 }
                 ir::IrInstruction::Claim { dest, receipt } => {
                     if let Some(type_name) = operand_named_type_name(receipt) {
+                        let conditions_checked =
+                            claim_conditions_are_checked(name, body, type_layouts, cell_type_kinds, "claim", receipt, &type_name);
                         checks.push(TransactionResourceObligation {
                             category: "transaction-invariant",
                             feature: format!("claim-conditions:{}", type_name),
-                            status: "runtime-required",
-                            detail: transaction_condition_detail(
+                            status: if conditions_checked { "checked-runtime" } else { "runtime-required" },
+                            detail: transaction_claim_condition_detail(
                                 body,
                                 type_layouts,
-                                &availability,
-                                lifecycle_states,
+                                cell_type_kinds,
+                                name,
                                 "claim",
                                 receipt,
                                 &type_name,
+                                conditions_checked,
                             ),
                         });
                     }
@@ -2335,6 +2338,23 @@ fn body_receipt_claim_flow_obligations(
     obligations
 }
 
+fn claim_conditions_are_checked(
+    name: &str,
+    body: &ir::IrBody,
+    type_layouts: &MetadataTypeLayouts,
+    cell_type_kinds: &HashMap<String, ir::IrTypeKind>,
+    operation: &str,
+    operand: &ir::IrOperand,
+    type_name: &str,
+) -> bool {
+    let binding = operand_var_name(operand).unwrap_or(type_name);
+    body.consume_set.iter().any(|pattern| {
+        pattern.operation == operation
+            && pattern.binding == binding
+            && is_claim_witness_signature_verification_check_target(name, pattern, cell_type_kinds, type_layouts)
+    })
+}
+
 fn receipt_claim_flow_checked_condition_guards(
     name: &str,
     type_name: &str,
@@ -2374,8 +2394,13 @@ fn transaction_runtime_input_requirements_from_obligations(
             obligation.status == "checked-runtime" && obligation.feature.starts_with("destroy-output-scan:");
         let include_checked_transfer_output =
             obligation.status == "checked-runtime" && obligation.feature.starts_with("transfer-output:");
+        let include_checked_claim_conditions =
+            obligation.status == "checked-runtime" && obligation.feature.starts_with("claim-conditions:");
         if obligation.category != "transaction-invariant"
-            || (obligation.status != "runtime-required" && !include_checked_destroy_scan && !include_checked_transfer_output)
+            || (obligation.status != "runtime-required"
+                && !include_checked_destroy_scan
+                && !include_checked_transfer_output
+                && !include_checked_claim_conditions)
         {
             continue;
         }
@@ -2497,19 +2522,23 @@ fn transaction_runtime_input_requirements_from_obligations(
                 "claim-witness-authorization-domain",
                 None,
             ));
-            requirements.push(transaction_runtime_input_requirement(
-                obligation,
-                "claim-time-context",
-                claim_time_status,
-                (claim_time_status == "runtime-required")
-                    .then_some("claim lowering has no checked source DAA/time predicate for this receipt"),
-                (claim_time_status == "runtime-required").then_some("time-context-predicate-gap"),
-                "Header",
-                binding,
-                Some("daa_score"),
-                "claim-time-daa-score-u64",
-                Some(8),
-            ));
+            if obligation.status == "runtime-required"
+                || transaction_obligation_has_checked_subcondition(obligation, "daa-cliff-reached")
+            {
+                requirements.push(transaction_runtime_input_requirement(
+                    obligation,
+                    "claim-time-context",
+                    claim_time_status,
+                    (claim_time_status == "runtime-required")
+                        .then_some("claim lowering has no checked source DAA/time predicate for this receipt"),
+                    (claim_time_status == "runtime-required").then_some("time-context-predicate-gap"),
+                    "Header",
+                    binding,
+                    Some("daa_score"),
+                    "claim-time-daa-score-u64",
+                    Some(8),
+                ));
+            }
         } else if let Some(binding) = obligation.feature.strip_prefix("settle-finalization:") {
             let settle_final_state_status = if transaction_obligation_has_checked_subcondition(obligation, "settle-final-state") {
                 "checked-runtime"
@@ -2595,12 +2624,6 @@ fn transaction_condition_detail(
     let binding = operand_var_name(operand).unwrap_or(type_name);
     let input_summary = transaction_condition_input_summary(body, type_layouts, operation, binding, type_name);
     match operation {
-        "claim" => format!(
-            "Runtime verifier must bind '{}' claim conditions to witness/signature/time context and verify the claimed output relation{}; runtime inputs: {}",
-            type_name,
-            claim_witness_authorization_domain_detail(body, type_layouts, operation, binding, type_name),
-            input_summary
-        ),
         "settle" => format!(
             "Runtime verifier must prove '{}' finalization invariants and reject invalid pending-to-final state transitions{}; runtime inputs: {}",
             type_name,
@@ -2608,6 +2631,53 @@ fn transaction_condition_detail(
             input_summary
         ),
         _ => format!("Runtime verifier must prove '{}' transaction conditions; runtime inputs: {}", type_name, input_summary),
+    }
+}
+
+fn transaction_claim_condition_detail(
+    body: &ir::IrBody,
+    type_layouts: &MetadataTypeLayouts,
+    cell_type_kinds: &HashMap<String, ir::IrTypeKind>,
+    name: &str,
+    operation: &str,
+    operand: &ir::IrOperand,
+    type_name: &str,
+    checked: bool,
+) -> String {
+    let binding = operand_var_name(operand).unwrap_or(type_name);
+    let input_summary = transaction_condition_input_summary(body, type_layouts, operation, binding, type_name);
+    let witness_detail = claim_witness_authorization_domain_detail(body, type_layouts, operation, binding, type_name);
+    if checked {
+        let signer_field = metadata_claim_signer_pubkey_hash_field(type_name, type_layouts).unwrap_or("<missing>");
+        return format!(
+            "Compiler-emitted runtime verifier checks '{}' claim witness format, authorization-domain separation, secp256k1 signature verification, and signer-key binding via '{}.{}'; claim-witness-format=checked-runtime; claim-authorization-domain=checked-runtime; claim-witness-signature=checked-runtime; claim-signer-key-binding=checked-runtime; claimed output relation is tracked by claim-output obligations; runtime inputs: {}",
+            type_name, type_name, signer_field, input_summary
+        );
+    }
+    format!(
+        "Runtime verifier must bind '{}' claim conditions to witness/signature/time context and verify the claimed output relation{}{}; runtime inputs: {}",
+        type_name,
+        claim_runtime_gap_detail(name, body, cell_type_kinds, operation, binding),
+        witness_detail,
+        input_summary
+    )
+}
+
+fn claim_runtime_gap_detail(
+    name: &str,
+    body: &ir::IrBody,
+    cell_type_kinds: &HashMap<String, ir::IrTypeKind>,
+    operation: &str,
+    binding: &str,
+) -> &'static str {
+    if body.consume_set.iter().any(|pattern| {
+        pattern.operation == operation
+            && pattern.binding == binding
+            && is_claim_witness_authorization_domain_check_target(name, pattern, cell_type_kinds)
+    }) {
+        ""
+    } else {
+        "; claim witness binding is not verifier-covered"
     }
 }
 
@@ -10435,9 +10505,15 @@ source_roots = ["src", "shared"]
                 obligation.category == "transaction-invariant" && obligation.feature == "claim-conditions:SignedReceipt"
             })
             .expect("claim conditions obligation");
+        assert_eq!(
+            claim_conditions.status, "checked-runtime",
+            "signed receipt claim conditions should be fully checked for the explicit signer-field ABI: {}",
+            claim_conditions.detail
+        );
         assert!(
             claim_conditions.detail.contains("claim-witness-signature=checked-runtime")
                 && claim_conditions.detail.contains("claim-signer-key-binding=checked-runtime")
+                && claim_conditions.detail.contains("claim-authorization-domain=checked-runtime")
                 && claim_conditions.detail.contains("Input#0:receipt.signer_pubkey_hash=input-cell-field-bytes-20[20]"),
             "claim conditions should expose checked signature verification and signer key binding: {}",
             claim_conditions.detail
@@ -10453,6 +10529,22 @@ source_roots = ["src", "shared"]
                 && requirement.blocker.is_none()
                 && requirement.blocker_class.is_none()
         }));
+        assert!(action.transaction_runtime_input_requirements.iter().any(|requirement| {
+            requirement.feature == "claim-conditions:SignedReceipt"
+                && requirement.status == "checked-runtime"
+                && requirement.component == "claim-authorization-domain"
+                && requirement.source == "Witness"
+                && requirement.field.as_deref() == Some("authorization-domain")
+                && requirement.abi == "claim-witness-authorization-domain"
+                && requirement.blocker.is_none()
+                && requirement.blocker_class.is_none()
+        }));
+        assert!(
+            !action.transaction_runtime_input_requirements.iter().any(|requirement| {
+                requirement.feature == "claim-conditions:SignedReceipt" && requirement.component == "claim-time-context"
+            }),
+            "plain signed receipts without a time predicate should not expose a runtime-required claim-time-context"
+        );
     }
 
     #[test]
