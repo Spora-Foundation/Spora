@@ -1606,29 +1606,7 @@ impl IrGenerator {
             Expr::StructInit(init) => self.lower_struct_init(init, current, blocks, vars),
             Expr::FieldAccess(field) => self.lower_field_access(field, current, blocks, vars),
             Expr::Index(index) => self.lower_index_expr(index, current, blocks, vars),
-            Expr::Block(stmts) => {
-                let mut last = IrOperand::Const(IrConst::U64(0));
-                let mut active_block = current;
-                for stmt in stmts {
-                    match stmt {
-                        Stmt::Expr(expr) => {
-                            let lowered = self.lower_expr(expr, active_block, blocks, vars);
-                            last = lowered.operand;
-                            let Some(next) = lowered.current else {
-                                return LoweredExpr { operand: last, current: None };
-                            };
-                            active_block = next;
-                        }
-                        _ => {
-                            let Some(next_block) = self.lower_stmt(stmt, active_block, blocks, vars) else {
-                                return LoweredExpr { operand: last, current: None };
-                            };
-                            active_block = next_block;
-                        }
-                    }
-                }
-                LoweredExpr { operand: last, current: Some(active_block) }
-            }
+            Expr::Block(stmts) => self.lower_tail_block_value(stmts, current, blocks, vars),
             Expr::If(if_expr) => self.lower_if_expr(if_expr, current, blocks, vars),
             Expr::Match(match_expr) => self.lower_match_expr(match_expr, current, blocks, vars),
             Expr::Cast(cast) => self.lower_expr(&cast.expr, current, blocks, vars),
@@ -1645,6 +1623,35 @@ impl IrGenerator {
             Expr::Range(_) => {
                 self.record_error("range expressions are only supported as for-loop iterables", Span::default());
                 LoweredExpr { operand: IrOperand::Const(IrConst::U64(0)), current: Some(current) }
+            }
+        }
+    }
+
+    fn lower_tail_block_value(
+        &mut self,
+        stmts: &[Stmt],
+        current: BlockId,
+        blocks: &mut Vec<IrBlock>,
+        vars: &mut HashMap<String, IrVar>,
+    ) -> LoweredExpr {
+        let Some((last, prefix)) = stmts.split_last() else {
+            return LoweredExpr { operand: IrOperand::Const(IrConst::Unit), current: Some(current) };
+        };
+
+        let mut active = current;
+        for stmt in prefix {
+            let Some(next) = self.lower_stmt(stmt, active, blocks, vars) else {
+                return LoweredExpr { operand: IrOperand::Const(IrConst::Unit), current: None };
+            };
+            active = next;
+        }
+
+        match last {
+            Stmt::Expr(expr) => self.lower_expr(expr, active, blocks, vars),
+            Stmt::If(if_stmt) if if_stmt.else_branch.is_some() => self.lower_if_stmt_value(if_stmt, active, blocks, vars),
+            stmt => {
+                let next = self.lower_stmt(stmt, active, blocks, vars);
+                LoweredExpr { operand: IrOperand::Const(IrConst::Unit), current: next }
             }
         }
     }
@@ -1746,6 +1753,59 @@ impl IrGenerator {
             self.block_mut(blocks, exit).terminator = IrTerminator::Jump(join);
         }
         Some(join)
+    }
+
+    fn lower_if_stmt_value(
+        &mut self,
+        if_stmt: &IfStmt,
+        current: BlockId,
+        blocks: &mut Vec<IrBlock>,
+        vars: &mut HashMap<String, IrVar>,
+    ) -> LoweredExpr {
+        let lowered_cond = self.lower_expr(&if_stmt.condition, current, blocks, vars);
+        let cond = lowered_cond.operand;
+        let Some(current) = lowered_cond.current else {
+            return LoweredExpr { operand: IrOperand::Const(IrConst::Unit), current: None };
+        };
+        let Some(else_branch) = &if_stmt.else_branch else {
+            let next = self.lower_if_stmt(if_stmt, current, blocks, vars, false);
+            return LoweredExpr { operand: IrOperand::Const(IrConst::Unit), current: next };
+        };
+
+        let then_block = self.push_block(blocks);
+        let else_block = self.push_block(blocks);
+        self.block_mut(blocks, current).terminator = IrTerminator::Branch { cond, then_block, else_block };
+
+        let mut then_vars = vars.clone();
+        let then_lowered = self.lower_tail_block_value(&if_stmt.then_branch, then_block, blocks, &mut then_vars);
+        let mut else_vars = vars.clone();
+        let else_lowered = self.lower_tail_block_value(else_branch, else_block, blocks, &mut else_vars);
+
+        if then_lowered.current.is_none() && else_lowered.current.is_none() {
+            return LoweredExpr { operand: IrOperand::Const(IrConst::Unit), current: None };
+        }
+
+        let result_ty = match (then_lowered.current.is_some(), else_lowered.current.is_some()) {
+            (true, _) => self.operand_type(&then_lowered.operand),
+            (false, true) => self.operand_type(&else_lowered.operand),
+            (false, false) => return LoweredExpr { operand: IrOperand::Const(IrConst::Unit), current: None },
+        };
+        let dest = self.new_var("if_tmp", result_ty);
+        let join = self.push_block(blocks);
+
+        if let Some(exit) = then_lowered.current {
+            let block = self.block_mut(blocks, exit);
+            block.instructions.push(IrInstruction::Move { dest: dest.clone(), src: then_lowered.operand });
+            block.terminator = IrTerminator::Jump(join);
+        }
+
+        if let Some(exit) = else_lowered.current {
+            let block = self.block_mut(blocks, exit);
+            block.instructions.push(IrInstruction::Move { dest: dest.clone(), src: else_lowered.operand });
+            block.terminator = IrTerminator::Jump(join);
+        }
+
+        LoweredExpr { operand: IrOperand::Var(dest), current: Some(join) }
     }
 
     fn lower_while_stmt(

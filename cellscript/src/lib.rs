@@ -7719,6 +7719,52 @@ action bad() -> u64 {
 }
 "#;
 
+    const BLOCK_TAIL_IF_VALUE_PROGRAM: &str = r#"
+module test
+
+action choose(flag: bool) -> u64 {
+    let value = {
+        if flag {
+            1
+        } else {
+            2
+        }
+    }
+    return value
+}
+"#;
+
+    const LINEAR_BLOCK_TAIL_IF_MOVE_PROGRAM: &str = r#"
+module test
+
+resource Token {
+    amount: u64,
+}
+
+action choose(token: Token, flag: bool) -> Token {
+    let moved = {
+        let inner = token
+        if flag { inner } else { inner }
+    }
+    return moved
+}
+"#;
+
+    const LINEAR_BLOCK_TAIL_IF_INCONSISTENT_MOVE_PROGRAM: &str = r#"
+module test
+
+resource Token {
+    amount: u64,
+}
+
+action bad(left: Token, right: Token, flag: bool) -> Token {
+    let moved = {
+        if flag { left } else { right }
+    }
+    return moved
+}
+"#;
+
     const TAIL_IF_ACTION_RETURN_PROGRAM: &str = r#"
 module test
 
@@ -10961,6 +11007,27 @@ struct TokenSnapshot {
 
         let err = compile(LINEAR_BLOCK_EXPR_DROPPED_LOCAL_PROGRAM, CompileOptions::default()).unwrap_err();
         assert!(err.message.contains("linear resource 'out' was not consumed"), "unexpected error: {}", err.message);
+    }
+
+    #[test]
+    fn compile_lowers_block_tail_if_expressions() {
+        let result = compile(BLOCK_TAIL_IF_VALUE_PROGRAM, CompileOptions::default()).unwrap();
+        let asm = String::from_utf8(result.artifact_bytes).unwrap();
+        assert!(asm.contains("li t0, 1"), "block tail-if then value was not lowered:\n{}", asm);
+        assert!(asm.contains("li t0, 2"), "block tail-if else value was not lowered:\n{}", asm);
+    }
+
+    #[test]
+    fn compile_merges_linear_moves_inside_block_tail_if_expressions() {
+        compile(LINEAR_BLOCK_TAIL_IF_MOVE_PROGRAM, CompileOptions::default()).unwrap();
+
+        let err = compile(LINEAR_BLOCK_TAIL_IF_INCONSISTENT_MOVE_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(
+            err.message.contains("linear resource 'left' has inconsistent ownership state across if branches")
+                || err.message.contains("linear resource 'right' has inconsistent ownership state across if branches"),
+            "unexpected error: {}",
+            err.message
+        );
     }
 
     #[test]
