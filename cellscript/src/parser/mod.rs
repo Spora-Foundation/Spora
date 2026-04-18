@@ -987,12 +987,13 @@ impl<'a> Parser<'a> {
     fn parse_param(&mut self) -> Result<Param> {
         let start_span = self.current().span;
 
-        let is_ref = if self.check(&TokenKind::Ref) {
-            self.advance();
-            true
-        } else {
-            false
-        };
+        if self.check(&TokenKind::Ref) {
+            return Err(CompileError::new(
+                "parameter modifier 'ref' is reserved but unsupported; use '&T' or '&mut T' in the parameter type",
+                self.current().span,
+            ));
+        }
+        let is_ref = false;
 
         let is_mut = if self.check(&TokenKind::Mut) {
             self.advance();

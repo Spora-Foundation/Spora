@@ -7356,6 +7356,38 @@ fn bad(view: &read_ref Point) -> u64 {
 }
 "#;
 
+    const ACTION_REF_PARAM_MODIFIER_PROGRAM: &str = r#"
+module test
+
+resource Token {
+    amount: u64,
+}
+
+action bad(ref token: Token) {
+    consume token
+}
+"#;
+
+    const FUNCTION_REF_PARAM_MODIFIER_PROGRAM: &str = r#"
+module test
+
+struct Point {
+    x: u64,
+}
+
+fn bad(ref point: Point) -> u64 {
+    return point.x
+}
+"#;
+
+    const LOCK_REF_PARAM_MODIFIER_PROGRAM: &str = r#"
+module test
+
+lock bad(ref owner: Address) -> bool {
+    return true
+}
+"#;
+
     const SCHEMA_REFERENCE_FIELD_PROGRAM: &str = r#"
 module test
 
@@ -10072,6 +10104,15 @@ action activate(ticket: Ticket) -> Ticket {
             "unexpected error: {}",
             err.message
         );
+
+        let err = compile(ACTION_REF_PARAM_MODIFIER_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(err.message.contains("parameter modifier 'ref' is reserved but unsupported"), "unexpected error: {}", err.message);
+
+        let err = compile(FUNCTION_REF_PARAM_MODIFIER_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(err.message.contains("parameter modifier 'ref' is reserved but unsupported"), "unexpected error: {}", err.message);
+
+        let err = compile(LOCK_REF_PARAM_MODIFIER_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(err.message.contains("parameter modifier 'ref' is reserved but unsupported"), "unexpected error: {}", err.message);
 
         let err = compile(SCHEMA_REFERENCE_FIELD_PROGRAM, CompileOptions::default()).unwrap_err();
         assert!(

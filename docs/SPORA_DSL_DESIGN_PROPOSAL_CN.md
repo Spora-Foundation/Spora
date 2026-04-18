@@ -2114,6 +2114,8 @@ Slice 93 更新：duplicate mutable call-root 检查现在会透过 value wrappe
 
 Slice 94 更新：callable 参数中的引用类型现在只能出现在顶层。`view: &Point` 和 `pool: &mut Pool` 仍是合法短生命周期参数，但 `pair: (&Point, u64)`、`pools: [&mut Pool; 1]`、`view: &read_ref Point` 这类把引用藏进 tuple / array / nested reference 的 ABI 形态会被拒绝。这样引用不会通过聚合参数绕过当前没有完整 lifetime / ABI path 模型的边界。
 
+Slice 95 更新：legacy `ref name: T` 参数修饰符现在在 parser 层 fail closed。当前语言只承认类型位置的 `name: &T` / `name: &mut T`，不让 `ref` 这种没有独立 lifetime / ownership 语义的修饰符进入 AST/IR/metadata，避免文档和元数据暗示一条不存在的引用传参规则。
+
 目标：
 - 在后端工作扩展之前冻结最小语言核心。
 
