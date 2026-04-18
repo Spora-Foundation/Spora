@@ -2744,6 +2744,20 @@ fn transaction_runtime_input_requirements_from_obligations(
                     Some(8),
                 ));
             }
+            if obligation.detail.contains("source-predicate=runtime-required") {
+                requirements.push(transaction_runtime_input_requirement(
+                    obligation,
+                    "claim-source-predicate",
+                    "runtime-required",
+                    Some("claim source-level predicates are not fully verifier-covered"),
+                    Some("claim-source-predicate-gap"),
+                    "Transaction",
+                    binding,
+                    Some("source-predicate"),
+                    "claim-source-predicate-cfg",
+                    None,
+                ));
+            }
         } else if let Some(binding) = obligation.feature.strip_prefix("settle-finalization:") {
             let settle_final_state_status = if transaction_obligation_has_checked_subcondition(obligation, "settle-final-state") {
                 "checked-runtime"
@@ -11082,6 +11096,17 @@ source_roots = ["src", "shared"]
                 && requirement.abi == "claim-time-daa-score-u64"
                 && requirement.byte_len == Some(8)
                 && requirement.blocker_class.as_deref() == Some("time-context-predicate-gap")
+        }));
+        assert!(action.transaction_runtime_input_requirements.iter().any(|requirement| {
+            requirement.feature == "claim-conditions:SignedVestingReceipt"
+                && requirement.status == "runtime-required"
+                && requirement.component == "claim-source-predicate"
+                && requirement.source == "Transaction"
+                && requirement.field.as_deref() == Some("source-predicate")
+                && requirement.abi == "claim-source-predicate-cfg"
+                && requirement.byte_len.is_none()
+                && requirement.blocker.as_deref() == Some("claim source-level predicates are not fully verifier-covered")
+                && requirement.blocker_class.as_deref() == Some("claim-source-predicate-gap")
         }));
     }
 

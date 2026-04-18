@@ -1380,6 +1380,113 @@ action credit(ledger: &mut Ledger, delta: u128) {
 }
 
 #[test]
+fn cellc_check_reports_claim_source_predicate_blocker_class() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(
+        root.join("Cell.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("src").join("main.cell"),
+        r#"
+module demo::main
+
+resource Token has store {
+    amount: u64
+    signer_pubkey_hash: [u8; 20]
+}
+
+receipt SignedVestingReceipt -> Token {
+    amount: u64
+    signer_pubkey_hash: [u8; 20]
+    cliff_daa: u64
+}
+
+action redeem_signed_after_cliff(receipt: SignedVestingReceipt) -> Token {
+    let now = env::current_daa_score()
+    assert_invariant(now >= receipt.cliff_daa, "cliff not reached")
+    return claim receipt
+}
+"#,
+    )
+    .unwrap();
+
+    let json_output = Command::new(env!("CARGO_BIN_EXE_cellc")).current_dir(root).arg("check").arg("--json").output().unwrap();
+    assert!(json_output.status.success(), "unexpected failure: {}", String::from_utf8_lossy(&json_output.stderr));
+    let stdout: serde_json::Value = serde_json::from_slice(&json_output.stdout).unwrap();
+    let target = &stdout["checked_targets"][0];
+    assert_eq!(target["transaction_runtime_input_requirements"], 4, "unexpected stdout: {}", stdout);
+    assert_eq!(target["runtime_required_transaction_runtime_input_requirements"], 2, "unexpected stdout: {}", stdout);
+    assert_eq!(target["checked_transaction_runtime_input_requirements"], 2, "unexpected stdout: {}", stdout);
+    assert_eq!(target["runtime_required_transaction_runtime_input_blockers"], 2, "unexpected stdout: {}", stdout);
+    assert_eq!(target["runtime_required_transaction_runtime_input_blocker_classes"], 2, "unexpected stdout: {}", stdout);
+
+    let runtime_inputs = target["runtime_required_transaction_runtime_input_requirement_summaries"]
+        .as_array()
+        .expect("runtime-required transaction runtime input summaries array");
+    assert!(
+        runtime_inputs.iter().any(|value| value.as_str().is_some_and(|summary| {
+            summary.contains(
+                "claim-conditions:SignedVestingReceipt:claim-source-predicate=Transaction:SignedVestingReceipt.source-predicate",
+            ) && summary.contains("claim-source-predicate-cfg")
+                && summary.contains("(runtime-required)")
+                && summary.contains("blocker=claim source-level predicates are not fully verifier-covered")
+                && summary.contains("blocker_class=claim-source-predicate-gap")
+        })),
+        "unexpected runtime-required transaction runtime input summaries: {}",
+        stdout
+    );
+    assert!(
+        runtime_inputs.iter().any(|value| value.as_str().is_some_and(|summary| {
+            summary.contains("claim-conditions:SignedVestingReceipt:claim-time-context=Header:SignedVestingReceipt.daa_score")
+                && summary.contains("blocker_class=time-context-predicate-gap")
+        })),
+        "unexpected runtime-required transaction runtime input summaries: {}",
+        stdout
+    );
+
+    let checked_runtime_inputs = target["checked_transaction_runtime_input_requirement_summaries"]
+        .as_array()
+        .expect("checked transaction runtime input summaries array");
+    assert!(
+        checked_runtime_inputs.iter().any(|value| value.as_str().is_some_and(|summary| {
+            summary.contains("claim-conditions:SignedVestingReceipt:claim-witness-signature=Witness:SignedVestingReceipt.signature")
+                && summary.contains("(checked-runtime)")
+                && !summary.contains("blocker=")
+        })),
+        "unexpected checked transaction runtime input summaries: {}",
+        stdout
+    );
+    assert!(
+        checked_runtime_inputs.iter().any(|value| value.as_str().is_some_and(|summary| {
+            summary.contains(
+                "claim-conditions:SignedVestingReceipt:claim-authorization-domain=Witness:SignedVestingReceipt.authorization-domain",
+            ) && summary.contains("(checked-runtime)")
+                && !summary.contains("blocker=")
+        })),
+        "unexpected checked transaction runtime input summaries: {}",
+        stdout
+    );
+
+    let output =
+        Command::new(env!("CARGO_BIN_EXE_cellc")).current_dir(root).arg("check").arg("--deny-runtime-obligations").output().unwrap();
+    assert!(!output.status.success(), "unexpected success: {}", String::from_utf8_lossy(&output.stdout));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("claim-conditions:SignedVestingReceipt"), "unexpected stderr: {}", stderr);
+    assert!(stderr.contains("claim-source-predicate"), "unexpected stderr: {}", stderr);
+    assert!(stderr.contains("claim-source-predicate-gap"), "unexpected stderr: {}", stderr);
+    assert!(stderr.contains("claim source-level predicates are not fully verifier-covered"), "unexpected stderr: {}", stderr);
+}
+
+#[test]
 fn cellc_check_reports_pool_invariant_policy_families() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path();
