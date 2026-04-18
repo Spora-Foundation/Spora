@@ -7378,8 +7378,32 @@ resource Token {
     amount: u64,
 }
 
-lock bad(token: Token) -> bool {
-    return true
+    lock bad(token: Token) -> bool {
+        return true
+    }
+"#;
+
+    const CALLABLE_REFERENCE_TO_CELL_AGGREGATE_PARAM_PROGRAM: &str = r#"
+module test
+
+resource Token {
+    amount: u64,
+}
+
+fn bad(pair: &(Token, u64)) -> u64 {
+    return 0
+}
+"#;
+
+    const CALLABLE_MUT_REFERENCE_TO_CELL_AGGREGATE_PARAM_PROGRAM: &str = r#"
+module test
+
+shared Pool {
+    reserve: u64,
+}
+
+action bad(pool: &mut (Pool, u64)) -> u64 {
+    return 0
 }
 "#;
 
@@ -10209,6 +10233,24 @@ action activate(ticket: Ticket) -> Ticket {
         let err = compile(LOCK_CELL_PARAM_PROGRAM, CompileOptions::default()).unwrap_err();
         assert!(
             err.message.contains("lock 'bad' parameter 'token' cannot use owned cell-backed type Token"),
+            "unexpected error: {}",
+            err.message
+        );
+
+        let err = compile(CALLABLE_REFERENCE_TO_CELL_AGGREGATE_PARAM_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(
+            err.message.contains(
+                "parameter 'pair' in function 'bad' cannot use reference to aggregate containing cell-backed values &(Token, u64)"
+            ),
+            "unexpected error: {}",
+            err.message
+        );
+
+        let err = compile(CALLABLE_MUT_REFERENCE_TO_CELL_AGGREGATE_PARAM_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(
+            err.message.contains(
+                "parameter 'pool' in action 'bad' cannot use reference to aggregate containing cell-backed values &mut (Pool, u64)"
+            ),
             "unexpected error: {}",
             err.message
         );

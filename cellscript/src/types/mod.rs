@@ -782,6 +782,13 @@ impl<'a> TypeChecker<'a> {
         }
     }
 
+    fn reference_target_is_cell_backed_aggregate(&self, ty: &Type) -> bool {
+        match ty {
+            Type::Array(_, _) | Type::Tuple(_) => self.type_contains_cell_backed_value(ty),
+            _ => false,
+        }
+    }
+
     fn bind_callable_params(&self, env: &mut TypeEnv, params: &[Param], callable_kind: &str, callable_name: &str) -> Result<()> {
         let mut seen = HashSet::new();
         for param in params {
@@ -826,6 +833,20 @@ impl<'a> TypeChecker<'a> {
                 ),
                 param.span,
             ));
+        }
+        if let Type::Ref(inner) | Type::MutRef(inner) = &param.ty {
+            if self.reference_target_is_cell_backed_aggregate(inner) {
+                return Err(CompileError::new(
+                    format!(
+                        "parameter '{}' in {} '{}' cannot use reference to aggregate containing cell-backed values {}; use a direct '&T' or '&mut T' Cell view instead",
+                        param.name,
+                        callable_kind,
+                        callable_name,
+                        type_repr(&param.ty)
+                    ),
+                    param.span,
+                ));
+            }
         }
         Ok(())
     }

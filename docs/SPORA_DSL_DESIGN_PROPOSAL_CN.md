@@ -2122,6 +2122,8 @@ Slice 97 更新：`lock` 体现在不能包含 Cell 状态转换操作。`create
 
 Slice 98 更新：pure helper `fn` 的签名现在必须保持 Cell-free ownership。`fn bad(token: Token)` 和 `fn bad(...) -> Token` 会失败，因为 owned `resource` / `shared` / `receipt` 不能通过纯 helper 的参数或返回值转移；只读顶层 `&T` 参数仍可用于短生命周期 predicate/helper 读取。非 `action` 的 callable 参数也不能接收 owned Cell-backed 类型，所以 `lock` 不能通过签名拿到隐藏的 Cell 所有权输入；Cell ownership transition 继续集中在 `action`。
 
+Slice 99 更新：top-level 引用参数继续收紧为直接 Cell view。`&Token` 和 action 中的 `&mut Pool` 仍是合法短生命周期视图，但 `&(Token, u64)`、`&mut (Pool, u64)` 这类引用到含 Cell-backed 值的 tuple/array 聚合会失败。这样不会通过“引用聚合”绕过当前没有完整 lifetime/path ABI 的边界。
+
 目标：
 - 在后端工作扩展之前冻结最小语言核心。
 
