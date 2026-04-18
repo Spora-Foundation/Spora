@@ -2347,12 +2347,19 @@ fn claim_conditions_are_checked(
     operand: &ir::IrOperand,
     type_name: &str,
 ) -> bool {
+    if claim_body_has_unchecked_source_predicates(body) {
+        return false;
+    }
     let binding = operand_var_name(operand).unwrap_or(type_name);
     body.consume_set.iter().any(|pattern| {
         pattern.operation == operation
             && pattern.binding == binding
             && is_claim_witness_signature_verification_check_target(name, pattern, cell_type_kinds, type_layouts)
     })
+}
+
+fn claim_body_has_unchecked_source_predicates(body: &ir::IrBody) -> bool {
+    body_assert_invariant_count(body) > 0 || body_uses_current_daa_score(body)
 }
 
 fn receipt_claim_flow_checked_condition_guards(
@@ -2655,8 +2662,9 @@ fn transaction_claim_condition_detail(
         );
     }
     format!(
-        "Runtime verifier must bind '{}' claim conditions to witness/signature/time context and verify the claimed output relation{}{}; runtime inputs: {}",
+        "Runtime verifier must bind '{}' claim conditions to witness/signature/time context and verify the claimed output relation{}{}{}; runtime inputs: {}",
         type_name,
+        claim_unchecked_source_predicate_detail(body),
         claim_runtime_gap_detail(name, body, cell_type_kinds, operation, binding),
         witness_detail,
         input_summary
@@ -2678,6 +2686,14 @@ fn claim_runtime_gap_detail(
         ""
     } else {
         "; claim witness binding is not verifier-covered"
+    }
+}
+
+fn claim_unchecked_source_predicate_detail(body: &ir::IrBody) -> &'static str {
+    if claim_body_has_unchecked_source_predicates(body) {
+        "; source-predicate=runtime-required"
+    } else {
+        ""
     }
 }
 
@@ -7846,6 +7862,27 @@ action redeem_signed(receipt: SignedReceipt) -> Token {
 }
 "#;
 
+    const CLAIM_SIGNER_WITH_TIME_PREDICATE_PROGRAM: &str = r#"
+module test
+
+resource Token has store {
+    amount: u64,
+    signer_pubkey_hash: [u8; 20],
+}
+
+receipt SignedVestingReceipt -> Token {
+    amount: u64,
+    signer_pubkey_hash: [u8; 20],
+    cliff_daa: u64,
+}
+
+action redeem_signed_after_cliff(receipt: SignedVestingReceipt) -> Token {
+    let now = env::current_daa_score()
+    assert_invariant(now >= receipt.cliff_daa, "cliff not reached")
+    return claim receipt
+}
+"#;
+
     const TRANSFER_CLAIM_SETTLE_NON_SCALAR_FIELD_PROGRAM: &str = r#"
 module test
 
@@ -10545,6 +10582,59 @@ source_roots = ["src", "shared"]
             }),
             "plain signed receipts without a time predicate should not expose a runtime-required claim-time-context"
         );
+    }
+
+    #[test]
+    fn signer_backed_claim_with_source_predicate_remains_runtime_required() {
+        let result = compile(CLAIM_SIGNER_WITH_TIME_PREDICATE_PROGRAM, CompileOptions::default()).unwrap();
+        let action = result
+            .metadata
+            .actions
+            .iter()
+            .find(|action| action.name == "redeem_signed_after_cliff")
+            .expect("redeem_signed_after_cliff metadata");
+        let claim_conditions = action
+            .verifier_obligations
+            .iter()
+            .find(|obligation| {
+                obligation.category == "transaction-invariant" && obligation.feature == "claim-conditions:SignedVestingReceipt"
+            })
+            .expect("claim conditions obligation");
+
+        assert_eq!(
+            claim_conditions.status, "runtime-required",
+            "signed receipts with source predicates must not be classified as fully checked: {}",
+            claim_conditions.detail
+        );
+        assert!(
+            claim_conditions.detail.contains("source-predicate=runtime-required")
+                && claim_conditions.detail.contains("claim-witness-signature=checked-runtime")
+                && claim_conditions.detail.contains("claim-signer-key-binding=checked-runtime")
+                && claim_conditions.detail.contains("Input#0:receipt.cliff_daa=input-cell-field-u64[8]"),
+            "claim conditions should expose the unchecked source predicate while preserving checked signer subconditions: {}",
+            claim_conditions.detail
+        );
+        assert!(action.transaction_runtime_input_requirements.iter().any(|requirement| {
+            requirement.feature == "claim-conditions:SignedVestingReceipt"
+                && requirement.status == "checked-runtime"
+                && requirement.component == "claim-witness-signature"
+                && requirement.source == "Witness"
+                && requirement.field.as_deref() == Some("signature")
+                && requirement.abi == "claim-witness-signature-65"
+                && requirement.byte_len == Some(65)
+                && requirement.blocker.is_none()
+                && requirement.blocker_class.is_none()
+        }));
+        assert!(action.transaction_runtime_input_requirements.iter().any(|requirement| {
+            requirement.feature == "claim-conditions:SignedVestingReceipt"
+                && requirement.status == "runtime-required"
+                && requirement.component == "claim-time-context"
+                && requirement.source == "Header"
+                && requirement.field.as_deref() == Some("daa_score")
+                && requirement.abi == "claim-time-daa-score-u64"
+                && requirement.byte_len == Some(8)
+                && requirement.blocker_class.as_deref() == Some("time-context-predicate-gap")
+        }));
     }
 
     #[test]
