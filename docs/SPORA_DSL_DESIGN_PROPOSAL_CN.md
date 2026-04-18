@@ -45,7 +45,7 @@
 | CLI 子命令 | 🟡 本地工作流已接主入口，registry/runtime 命令仍 fail-closed/feature-gated | `cellscript/src/cli/` |
 | 集合类型 | 🚧 基础定义 | `cellscript/src/stdlib/collections.rs` |
 | 调试信息 | 🚧 原型级 | `cellscript/src/debug/` |
-| 测试套件 | 🟡 默认特性 `cargo test -p cellscript` 当前 335 项通过 | `cellscript/src/`, `cellscript/tests/` |
+| 测试套件 | 🟡 默认特性 `cargo test -p cellscript` 当前 336 项通过 | `cellscript/src/`, `cellscript/tests/` |
 
 **编译器项目路径**: `/Users/arthur/RustroverProjects/Spora/cellscript/`  
 
@@ -2117,6 +2117,8 @@ Slice 94 更新：callable 参数中的引用类型现在只能出现在顶层�
 Slice 95 更新：legacy `ref name: T` 参数修饰符现在在 parser 层 fail closed。当前语言只承认类型位置的 `name: &T` / `name: &mut T`，不让 `ref` 这种没有独立 lifetime / ownership 语义的修饰符进入 AST/IR/metadata，避免文档和元数据暗示一条不存在的引用传参规则。
 
 Slice 96 更新：`&mut` 参数现在只允许出现在 `action` 签名中。`fn bad(pool: &mut Pool)` 和 `lock bad(pool: &mut Pool)` 会被拒绝，即使函数体当前没有可见状态操作；这样 writable Cell state authority 不会伪装成 pure helper 或 lock 输入。只读 `&T` 参数仍可用于 `fn` / `lock`。
+
+Slice 97 更新：`lock` 体现在不能包含 Cell 状态转换操作。`create` / `consume` / `transfer` / `destroy` / `claim` / `settle` 出现在 lock 中会失败，避免 lock predicate 变成隐藏的 transition body；`read_ref` 仍然允许，因为它是只读 predicate/runtime 读取，不消费或创建 Cell。
 
 目标：
 - 在后端工作扩展之前冻结最小语言核心。

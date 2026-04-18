@@ -9433,6 +9433,45 @@ lock invalid(owner: Address) -> u64 {
 }
 "#;
 
+    const LOCK_CREATE_PROGRAM: &str = r#"
+module test
+
+resource Token {
+    amount: u64,
+}
+
+lock bad() -> bool {
+    let token = create Token { amount: 1 }
+    return true
+}
+"#;
+
+    const LOCK_DESTROY_PROGRAM: &str = r#"
+module test
+
+resource Token has destroy {
+    amount: u64,
+}
+
+lock bad(token: Token) -> bool {
+    destroy token
+    return true
+}
+"#;
+
+    const LOCK_READ_REF_PROGRAM: &str = r#"
+module test
+
+shared Config {
+    threshold: u64,
+}
+
+lock guard() -> bool {
+    let cfg = read_ref<Config>()
+    return cfg.threshold > 0
+}
+"#;
+
     const TRANSFER_CLAIM_SETTLE_PROGRAM: &str = r#"
 module test
 
@@ -12533,6 +12572,17 @@ source_roots = ["src", "shared"]
     fn compile_rejects_non_bool_lock_definitions() {
         let err = compile(BAD_LOCK_PROGRAM, CompileOptions::default()).unwrap_err();
         assert!(err.message.contains("lock definitions must return bool"));
+    }
+
+    #[test]
+    fn compile_rejects_state_transitions_inside_locks() {
+        let err = compile(LOCK_CREATE_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(err.message.contains("lock cannot contain 'create' Cell state transition"), "unexpected error: {}", err.message);
+
+        let err = compile(LOCK_DESTROY_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(err.message.contains("lock cannot contain 'destroy' Cell state transition"), "unexpected error: {}", err.message);
+
+        compile(LOCK_READ_REF_PROGRAM, CompileOptions::default()).unwrap();
     }
 
     #[test]

@@ -1487,10 +1487,6 @@ impl<'a> TypeChecker<'a> {
     }
 
     fn validate_expr_allowed_in_current_callable(&self, expr: &Expr) -> Result<()> {
-        if self.current_callable != Some(CallableKind::Function) {
-            return Ok(());
-        }
-
         let operation = match expr {
             Expr::Create(_) => Some("create"),
             Expr::Consume(_) => Some("consume"),
@@ -1502,14 +1498,23 @@ impl<'a> TypeChecker<'a> {
             _ => None,
         };
 
-        if let Some(operation) = operation {
-            return Err(CompileError::new(
-                format!(
-                    "pure function cannot contain '{}' Cell/runtime operation; move state transition logic into an action",
-                    operation
-                ),
-                expr_span(expr),
-            ));
+        match (self.current_callable, operation) {
+            (Some(CallableKind::Function), Some(operation)) => {
+                return Err(CompileError::new(
+                    format!(
+                        "pure function cannot contain '{}' Cell/runtime operation; move state transition logic into an action",
+                        operation
+                    ),
+                    expr_span(expr),
+                ));
+            }
+            (Some(CallableKind::Lock), Some(operation)) if operation != "read_ref" => {
+                return Err(CompileError::new(
+                    format!("lock cannot contain '{}' Cell state transition; move state transition logic into an action", operation),
+                    expr_span(expr),
+                ));
+            }
+            _ => {}
         }
 
         Ok(())
