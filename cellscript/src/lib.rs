@@ -7329,6 +7329,26 @@ fn helper(amount: u64) -> Token {
 }
 "#;
 
+    const FN_ENV_RUNTIME_PROGRAM: &str = r#"
+module test
+
+fn helper() -> u64 {
+    return env::current_daa_score()
+}
+"#;
+
+    const FN_TYPE_HASH_RUNTIME_PROGRAM: &str = r#"
+module test
+
+struct Plain {
+    value: u64,
+}
+
+fn helper(plain: Plain) -> Hash {
+    return plain.type_hash()
+}
+"#;
+
     const ACTION_CALLS_FN_PROGRAM: &str = r#"
 module test
 
@@ -10465,6 +10485,28 @@ struct TokenSnapshot {
         let err = compile(INDIRECT_IMPURE_FN_PROGRAM, CompileOptions::default()).unwrap_err();
 
         assert!(err.message.contains("pure function cannot call action 'issue'"), "unexpected error: {}", err.message);
+    }
+
+    #[test]
+    fn compile_rejects_pure_functions_that_call_env_runtime_builtins() {
+        let err = compile(FN_ENV_RUNTIME_PROGRAM, CompileOptions::default()).unwrap_err();
+
+        assert!(
+            err.message.contains("pure function cannot call 'env::current_daa_score' runtime builtin"),
+            "unexpected error: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn compile_rejects_pure_functions_that_call_type_hash_runtime_builtin() {
+        let err = compile(FN_TYPE_HASH_RUNTIME_PROGRAM, CompileOptions::default()).unwrap_err();
+
+        assert!(
+            err.message.contains("pure function cannot call 'type_hash' Cell identity builtin"),
+            "unexpected error: {}",
+            err.message
+        );
     }
 
     #[test]

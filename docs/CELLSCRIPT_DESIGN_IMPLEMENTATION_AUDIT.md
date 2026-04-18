@@ -51,7 +51,7 @@ Several older audit claims are now stale:
 | Older claim | Current reality |
 |---|---|
 | Effects are mostly decorative metadata | Incorrect now. Explicit `#[effect(...)]` under-declarations are rejected for direct operations, same-module calls, and local `path` dependency imports. |
-| `fn` can hide stateful behavior | Mostly fixed for local code. `fn` definitions are distinct AST/IR/metadata entries, must infer `Pure`, cannot call `action` or `lock`, and reject direct, same-module indirect, and local imported stateful behavior. |
+| `fn` can hide stateful behavior | Mostly fixed for local code. `fn` definitions are distinct AST/IR/metadata entries, must infer `Pure`, cannot call `action`, `lock`, `env::*` runtime builtins, or `type_hash()` Cell identity builtins, and reject direct, same-module indirect, and local imported stateful behavior. |
 | Create output checks are only comments | Incorrect for the supported subset. Fixed-scalar output fields can be checked with exact-size, bounds, and equality checks; fixed-byte constants, schema-backed fixed-byte aliases, stack-backed `[u8; N<=8]` parameters, pointer+length `Address` / `Hash` parameters, trusted schema-parameter TypeHash ABI bytes, and created Output TypeHash fields can be checked byte-by-byte for output fields. Verifier-coverable `with_lock(...)` bindings now compare output `LockHash` through `LOAD_CELL_BY_FIELD`; unsupported field or lock sources still fail closed. |
 | Symbolic runtime paths may silently continue | Improved. Unsupported runtime features emit explicit fail-closed assembly and metadata. |
 | Scheduler metadata has no fail-closed signal | Improved. Metadata exposes `fail_closed_runtime_features` separately from `symbolic_runtime_features`. |

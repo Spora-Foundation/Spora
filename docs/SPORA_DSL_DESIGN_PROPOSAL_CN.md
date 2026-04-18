@@ -2062,6 +2062,8 @@ Slice 67 更新：`claim-output:<T>` 和 `settle-output:<T>` 输出关系现在�
 
 Slice 68 更新：已覆盖的 `resource-conservation:<T>` 现在也进入 `transaction_runtime_input_requirements[]`。direct field alias、`amount: u64` additive merge、matched amount split 会生成 checked `resource-conservation-proof` 组件；未覆盖的 generalized conservation 继续生成 runtime-required `resource-conservation-proof` 并带 `resource-conservation-proof-gap`。这样 resource 守恒的已覆盖和未覆盖形态共享同一个审计字段，只通过 `status` 和 blocker 区分。
 
+Slice 69 更新：pure helper `fn` 的 runtime 边界收紧。`fn` 现在不仅不能包含 `create` / `consume` / `transfer` / `destroy` / `read_ref` / `claim` / `settle`，也不能调用 `env::*` runtime builtin 或 `type_hash()` Cell identity builtin；这些必须留在 `action` / `lock` / runtime-visible path 中。`Address::zero`、`Hash::zero`、`min` / `max` / `isqrt` 等纯 helper 不受影响。
+
 目标：
 - 在后端工作扩展之前冻结最小语言核心。
 

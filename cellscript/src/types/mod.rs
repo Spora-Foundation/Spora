@@ -865,6 +865,7 @@ impl<'a> TypeChecker<'a> {
             }
             Expr::Call(call) => {
                 self.reject_forbidden_consensus_call(call)?;
+                self.validate_runtime_call_allowed_in_current_callable(call)?;
                 let mut arg_types = Vec::with_capacity(call.args.len());
                 for arg in &call.args {
                     arg_types.push(self.infer_expr(env, arg)?);
@@ -1219,6 +1220,24 @@ impl<'a> TypeChecker<'a> {
         }
 
         Ok(())
+    }
+
+    fn validate_runtime_call_allowed_in_current_callable(&self, call: &CallExpr) -> Result<()> {
+        if self.current_callable != Some(CallableKind::Function) {
+            return Ok(());
+        }
+
+        match call.func.as_ref() {
+            Expr::Identifier(name) if name.starts_with("env::") => Err(CompileError::new(
+                format!("pure function cannot call '{}' runtime builtin; move runtime-dependent logic into an action", name),
+                call.span,
+            )),
+            Expr::FieldAccess(field) if field.field == "type_hash" => Err(CompileError::new(
+                "pure function cannot call 'type_hash' Cell identity builtin; move Cell identity logic into an action",
+                call.span,
+            )),
+            _ => Ok(()),
+        }
     }
 
     fn initializer_types_equal(&self, actual: &Type, expected: &Type) -> bool {
