@@ -7321,6 +7321,41 @@ fn leak(point: &Point) -> &Point {
 }
 "#;
 
+    const CALLABLE_TUPLE_REFERENCE_PARAM_PROGRAM: &str = r#"
+module test
+
+struct Point {
+    x: u64,
+}
+
+fn bad(pair: (&Point, u64)) -> u64 {
+    return pair.1
+}
+"#;
+
+    const CALLABLE_ARRAY_MUT_REFERENCE_PARAM_PROGRAM: &str = r#"
+module test
+
+shared Pool {
+    reserve: u64,
+}
+
+action bad(pools: [&mut Pool; 1]) {
+}
+"#;
+
+    const CALLABLE_NESTED_REFERENCE_PARAM_PROGRAM: &str = r#"
+module test
+
+struct Point {
+    x: u64,
+}
+
+fn bad(view: &read_ref Point) -> u64 {
+    return view.x
+}
+"#;
+
     const SCHEMA_REFERENCE_FIELD_PROGRAM: &str = r#"
 module test
 
@@ -10016,6 +10051,27 @@ action activate(ticket: Ticket) -> Ticket {
 
         let err = compile(FUNCTION_RETURN_REF_PROGRAM, CompileOptions::default()).unwrap_err();
         assert!(err.message.contains("function 'leak' cannot return reference type &Point"), "unexpected error: {}", err.message);
+
+        let err = compile(CALLABLE_TUPLE_REFERENCE_PARAM_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(
+            err.message.contains("parameter 'pair' in function 'bad' cannot contain nested reference type (&Point, u64)"),
+            "unexpected error: {}",
+            err.message
+        );
+
+        let err = compile(CALLABLE_ARRAY_MUT_REFERENCE_PARAM_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(
+            err.message.contains("parameter 'pools' in action 'bad' cannot contain nested reference type [&mut Pool; 1]"),
+            "unexpected error: {}",
+            err.message
+        );
+
+        let err = compile(CALLABLE_NESTED_REFERENCE_PARAM_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(
+            err.message.contains("parameter 'view' in function 'bad' cannot contain nested reference type &&Point"),
+            "unexpected error: {}",
+            err.message
+        );
 
         let err = compile(SCHEMA_REFERENCE_FIELD_PROGRAM, CompileOptions::default()).unwrap_err();
         assert!(

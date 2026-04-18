@@ -2112,6 +2112,8 @@ Slice 92 更新：同一次 helper/action 调用里也不能把同一个 `&mut` 
 
 Slice 93 更新：duplicate mutable call-root 检查现在会透过 value wrapper 收集可能根名。`bump_pair({ pool }, pool)`、`bump_pair(if flag { pool } else { pool }, pool)`，以及等价的 cast / field-index root / match arm / block-tail-if 结果都会按同一个 `pool` 根处理并拒绝。单个参数内部的分支根会先去重，所以 `bump_one(if flag { pool } else { pool })` 不会因为同一参数的两个分支而误报。
 
+Slice 94 更新：callable 参数中的引用类型现在只能出现在顶层。`view: &Point` 和 `pool: &mut Pool` 仍是合法短生命周期参数，但 `pair: (&Point, u64)`、`pools: [&mut Pool; 1]`、`view: &read_ref Point` 这类把引用藏进 tuple / array / nested reference 的 ABI 形态会被拒绝。这样引用不会通过聚合参数绕过当前没有完整 lifetime / ABI path 模型的边界。
+
 目标：
 - 在后端工作扩展之前冻结最小语言核心。
 

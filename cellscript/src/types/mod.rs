@@ -778,9 +778,30 @@ impl<'a> TypeChecker<'a> {
                 ));
             }
             self.validate_type(&param.ty)?;
+            self.validate_callable_param_reference_shape(param, callable_kind, callable_name)?;
             self.validate_callable_param_mutability(param)?;
             let is_linear = self.is_linear_type(&param.ty);
             env.bind_new(param.name.clone(), param.ty.clone(), is_linear, param.is_mut, param.span)?;
+        }
+        Ok(())
+    }
+
+    fn validate_callable_param_reference_shape(&self, param: &Param, callable_kind: &str, callable_name: &str) -> Result<()> {
+        let nested_reference = match &param.ty {
+            Type::Ref(inner) | Type::MutRef(inner) => self.type_contains_reference(inner),
+            ty => self.type_contains_reference(ty),
+        };
+        if nested_reference {
+            return Err(CompileError::new(
+                format!(
+                    "parameter '{}' in {} '{}' cannot contain nested reference type {}; references are only supported as top-level callable parameter types",
+                    param.name,
+                    callable_kind,
+                    callable_name,
+                    type_repr(&param.ty)
+                ),
+                param.span,
+            ));
         }
         Ok(())
     }
