@@ -726,6 +726,16 @@ impl<'a> TypeChecker<'a> {
                 span,
             ));
         }
+        if callable_kind == "function" && self.type_contains_cell_backed_value(return_type) {
+            return Err(CompileError::new(
+                format!(
+                    "function '{}' cannot return cell-backed type {}; pure helpers must return non-Cell values",
+                    callable_name,
+                    type_repr(return_type)
+                ),
+                span,
+            ));
+        }
         Ok(())
     }
 
@@ -755,6 +765,19 @@ impl<'a> TypeChecker<'a> {
             Type::Array(inner, _) => self.type_contains_mutable_reference(inner),
             Type::Tuple(items) => items.iter().any(|item| self.type_contains_mutable_reference(item)),
             Type::Named(name) => name.contains("&mut "),
+            _ => false,
+        }
+    }
+
+    fn type_contains_cell_backed_value(&self, ty: &Type) -> bool {
+        match ty {
+            Type::Array(inner, _) => self.type_contains_cell_backed_value(inner),
+            Type::Tuple(items) => items.iter().any(|item| self.type_contains_cell_backed_value(item)),
+            Type::Named(name) => {
+                let base_name = name.split('<').next().unwrap_or(name.as_str());
+                self.resolve_cell_type_kind(base_name).is_some()
+            }
+            Type::Ref(_) | Type::MutRef(_) => false,
             _ => false,
         }
     }
@@ -812,6 +835,18 @@ impl<'a> TypeChecker<'a> {
             return Err(CompileError::new(
                 format!(
                     "{} '{}' parameter '{}' cannot use mutable reference type {}; only actions may receive mutable Cell state authority",
+                    callable_kind,
+                    callable_name,
+                    param.name,
+                    type_repr(&param.ty)
+                ),
+                param.span,
+            ));
+        }
+        if callable_kind != "action" && self.type_contains_cell_backed_value(&param.ty) {
+            return Err(CompileError::new(
+                format!(
+                    "{} '{}' parameter '{}' cannot use owned cell-backed type {}; use a read-only '&T' parameter for predicate/helper reads or move ownership transitions into an action",
                     callable_kind,
                     callable_name,
                     param.name,

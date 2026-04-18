@@ -2120,6 +2120,8 @@ Slice 96 更新：`&mut` 参数现在只允许出现在 `action` 签名中。`fn
 
 Slice 97 更新：`lock` 体现在不能包含 Cell 状态转换操作。`create` / `consume` / `transfer` / `destroy` / `claim` / `settle` 出现在 lock 中会失败，避免 lock predicate 变成隐藏的 transition body；`read_ref` 仍然允许，因为它是只读 predicate/runtime 读取，不消费或创建 Cell。
 
+Slice 98 更新：pure helper `fn` 的签名现在必须保持 Cell-free ownership。`fn bad(token: Token)` 和 `fn bad(...) -> Token` 会失败，因为 owned `resource` / `shared` / `receipt` 不能通过纯 helper 的参数或返回值转移；只读顶层 `&T` 参数仍可用于短生命周期 predicate/helper 读取。非 `action` 的 callable 参数也不能接收 owned Cell-backed 类型，所以 `lock` 不能通过签名拿到隐藏的 Cell 所有权输入；Cell ownership transition 继续集中在 `action`。
+
 目标：
 - 在后端工作扩展之前冻结最小语言核心。
 

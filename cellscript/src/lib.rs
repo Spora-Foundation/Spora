@@ -7347,6 +7347,42 @@ fn leak(point: &Point) -> &Point {
 }
 "#;
 
+    const FUNCTION_CELL_PARAM_PROGRAM: &str = r#"
+module test
+
+resource Token {
+    amount: u64,
+}
+
+fn bad(token: Token) -> u64 {
+    return token.amount
+}
+"#;
+
+    const FUNCTION_CELL_RETURN_PROGRAM: &str = r#"
+module test
+
+resource Token {
+    amount: u64,
+}
+
+    fn bad(amount: u64) -> Token {
+        return amount
+    }
+"#;
+
+    const LOCK_CELL_PARAM_PROGRAM: &str = r#"
+module test
+
+resource Token {
+    amount: u64,
+}
+
+lock bad(token: Token) -> bool {
+    return true
+}
+"#;
+
     const CALLABLE_TUPLE_REFERENCE_PARAM_PROGRAM: &str = r#"
 module test
 
@@ -7969,18 +8005,19 @@ fn helper() -> u64 {
     const INDIRECT_IMPURE_FN_PROGRAM: &str = r#"
 module test
 
-resource Token {
+resource Token has destroy {
     amount: u64,
 }
 
-action issue(amount: u64) -> Token {
+action issue(amount: u64) -> u64 {
     let out = create Token {
         amount: amount
     }
-    return out
+    destroy out
+    return amount
 }
 
-fn helper(amount: u64) -> Token {
+fn helper(amount: u64) -> u64 {
     return issue(amount)
 }
 "#;
@@ -9449,11 +9486,7 @@ lock bad() -> bool {
     const LOCK_DESTROY_PROGRAM: &str = r#"
 module test
 
-resource Token has destroy {
-    amount: u64,
-}
-
-lock bad(token: Token) -> bool {
+lock bad() -> bool {
     destroy token
     return true
 }
@@ -10162,6 +10195,23 @@ action activate(ticket: Ticket) -> Ticket {
 
         let err = compile(FUNCTION_RETURN_REF_PROGRAM, CompileOptions::default()).unwrap_err();
         assert!(err.message.contains("function 'leak' cannot return reference type &Point"), "unexpected error: {}", err.message);
+
+        let err = compile(FUNCTION_CELL_PARAM_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(
+            err.message.contains("function 'bad' parameter 'token' cannot use owned cell-backed type Token"),
+            "unexpected error: {}",
+            err.message
+        );
+
+        let err = compile(FUNCTION_CELL_RETURN_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(err.message.contains("function 'bad' cannot return cell-backed type Token"), "unexpected error: {}", err.message);
+
+        let err = compile(LOCK_CELL_PARAM_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(
+            err.message.contains("lock 'bad' parameter 'token' cannot use owned cell-backed type Token"),
+            "unexpected error: {}",
+            err.message
+        );
 
         let err = compile(CALLABLE_TUPLE_REFERENCE_PARAM_PROGRAM, CompileOptions::default()).unwrap_err();
         assert!(
