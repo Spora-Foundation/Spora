@@ -1,11 +1,7 @@
 // SPDX-License-Identifier: ISC
 // Copyright (C) 2026 Spora developers
 //
-// Block-level execution DAG for VSP parallelization
-
-use std::collections::BTreeMap;
-
-use spora_hashes::Hash;
+// Block-level execution DAG for MPE parallelization
 
 use super::access_summary::BlockAccessSummary;
 
@@ -19,8 +15,6 @@ pub(super) struct ExecutionDAG {
     /// 分层结果，每层包含可并行分析的 block 索引
     /// 索引对应输入 summaries 数组的位置
     pub layers: Vec<Vec<usize>>,
-    /// 原始 block hashes，按 GhostDAG canonical order
-    pub block_hashes: Vec<Hash>,
 }
 
 impl ExecutionDAG {
@@ -29,81 +23,42 @@ impl ExecutionDAG {
     /// summaries 必须按 GhostDAG canonical order 排列。
     ///
     /// 算法：
-    /// 1. 构建依赖图：如果 block[j] 依赖 block[i]（i < j），则 i → j 有边
-    /// 2. Kahn 拓扑排序得到分层
-    /// 3. 同一层内的 blocks 互不冲突
+    /// 1. 从 GhostDAG canonical order 的当前位置开始构建一个连续层。
+    /// 2. 只要下一个 block 不依赖当前层中任一 block，就加入当前层。
+    /// 3. 一旦遇到依赖当前层的 block，在它之前切层。
+    ///
+    /// 这样每层内部仍可共享一个 snapshot 并行分析，同时所有层拼接后的
+    /// commit 顺序严格等于输入的 canonical order。后序独立块不会被提前
+    /// 提交到更早 canonical block 之前，避免 `accepted_tx_ids` /
+    /// acceptance_data 的顺序和串行 reference runner 分叉。
     pub fn build(summaries: &[BlockAccessSummary]) -> Self {
         let n = summaries.len();
-        let block_hashes: Vec<Hash> = summaries.iter().map(|s| s.block_hash).collect();
 
         if n == 0 {
-            return Self { layers: Vec::new(), block_hashes };
+            return Self { layers: Vec::new() };
         }
 
-        // Step 1: 构建邻接表和入度表
-        let mut adj: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
-        let mut in_degree = vec![0usize; n];
-
-        for j in 0..n {
-            for i in 0..j {
-                if summaries[j].has_dependency_on(&summaries[i]) {
-                    adj.entry(i).or_default().push(j);
-                    in_degree[j] += 1;
-                }
-            }
-        }
-
-        // Step 2: Kahn 算法分层
         let mut layers = Vec::new();
-        let mut current_layer: Vec<usize> = (0..n).filter(|&i| in_degree[i] == 0).collect();
+        let mut layer_start = 0usize;
 
-        let mut processed = 0usize;
+        while layer_start < n {
+            let mut layer = vec![layer_start];
+            let mut next = layer_start + 1;
 
-        while !current_layer.is_empty() {
-            current_layer.sort_unstable();
-            processed += current_layer.len();
-            let mut next_layer = Vec::new();
-
-            for &node in &current_layer {
-                if let Some(successors) = adj.get(&node) {
-                    for &succ in successors {
-                        in_degree[succ] -= 1;
-                        if in_degree[succ] == 0 {
-                            next_layer.push(succ);
-                        }
-                    }
+            while next < n {
+                if layer.iter().any(|&earlier_in_layer| summaries[next].has_dependency_on(&summaries[earlier_in_layer])) {
+                    break;
                 }
+
+                layer.push(next);
+                next += 1;
             }
 
-            layers.push(std::mem::take(&mut current_layer));
-            current_layer = next_layer;
+            layers.push(layer);
+            layer_start = next;
         }
 
-        // Block-level DAG 不应有环（canonical order 保证 i < j 的单向边）
-        debug_assert_eq!(processed, n, "ExecutionDAG: cycle detected, processed {processed} but expected {n}");
-
-        Self { layers, block_hashes }
-    }
-
-    /// 返回层数
-    pub fn layer_count(&self) -> usize {
-        self.layers.len()
-    }
-
-    /// 返回总 block 数
-    pub fn block_count(&self) -> usize {
-        self.block_hashes.len()
-    }
-
-    /// 判断 DAG 是否为"全串行"（每层只有一个 block）
-    /// 用于决定是否值得使用并行模式
-    pub fn is_fully_serial(&self) -> bool {
-        self.layers.iter().all(|layer| layer.len() <= 1)
-    }
-
-    /// 判断 DAG 是否为"全并行"（只有一层）
-    pub fn is_fully_parallel(&self) -> bool {
-        self.layers.len() <= 1
+        Self { layers }
     }
 }
 
@@ -111,6 +66,7 @@ impl ExecutionDAG {
 mod tests {
     use super::*;
     use spora_consensus_core::tx::TransactionOutpoint;
+    use spora_hashes::Hash;
 
     fn outpoint(tx: u8, idx: u32) -> TransactionOutpoint {
         TransactionOutpoint { tx_hash: [tx; 32], index: idx }
@@ -121,37 +77,38 @@ mod tests {
     }
 
     fn make_summary(
-        block: u8,
+        _block: u8,
         spent: &[TransactionOutpoint],
         created: &[TransactionOutpoint],
         read: &[TransactionOutpoint],
         txs: &[Hash],
     ) -> BlockAccessSummary {
         BlockAccessSummary {
-            block_hash: hash(block),
             spent_outpoints: spent.iter().cloned().collect(),
             created_outpoints: created.iter().cloned().collect(),
             read_deps: read.iter().cloned().collect(),
             tx_ids: txs.iter().cloned().collect(),
+            cellscript_shared_reads: Default::default(),
+            cellscript_shared_writes: Default::default(),
         }
     }
 
     #[test]
     fn empty_summaries() {
         let dag = ExecutionDAG::build(&[]);
-        assert_eq!(dag.layer_count(), 0);
-        assert_eq!(dag.block_count(), 0);
-        assert!(dag.is_fully_parallel());
+        assert_eq!(dag.layers.len(), 0);
+        assert_eq!(dag.layers.iter().map(Vec::len).sum::<usize>(), 0);
+        assert!(dag.layers.len() <= 1);
     }
 
     #[test]
     fn single_block() {
         let summaries = vec![make_summary(1, &[outpoint(0, 0)], &[outpoint(1, 0)], &[], &[hash(0x10)])];
         let dag = ExecutionDAG::build(&summaries);
-        assert_eq!(dag.layer_count(), 1);
-        assert_eq!(dag.block_count(), 1);
-        assert!(dag.is_fully_parallel());
-        assert!(dag.is_fully_serial());
+        assert_eq!(dag.layers.len(), 1);
+        assert_eq!(dag.layers.iter().map(Vec::len).sum::<usize>(), 1);
+        assert!(dag.layers.len() <= 1);
+        assert!(dag.layers.iter().all(|layer| layer.len() <= 1));
     }
 
     #[test]
@@ -163,10 +120,10 @@ mod tests {
             make_summary(3, &[outpoint(3, 0)], &[outpoint(3, 1)], &[], &[hash(0x30)]),
         ];
         let dag = ExecutionDAG::build(&summaries);
-        assert_eq!(dag.layer_count(), 1);
+        assert_eq!(dag.layers.len(), 1);
         assert_eq!(dag.layers[0], vec![0, 1, 2]);
-        assert!(dag.is_fully_parallel());
-        assert!(!dag.is_fully_serial());
+        assert!(dag.layers.len() <= 1);
+        assert!(!dag.layers.iter().all(|layer| layer.len() <= 1));
     }
 
     #[test]
@@ -178,10 +135,10 @@ mod tests {
             make_summary(3, &[outpoint(2, 0)], &[], &[], &[hash(0x30)]),
         ];
         let dag = ExecutionDAG::build(&summaries);
-        assert_eq!(dag.layer_count(), 3);
+        assert_eq!(dag.layers.len(), 3);
         assert_eq!(dag.layers, vec![vec![0], vec![1], vec![2]]);
-        assert!(dag.is_fully_serial());
-        assert!(!dag.is_fully_parallel());
+        assert!(dag.layers.iter().all(|layer| layer.len() <= 1));
+        assert!(dag.layers.len() > 1);
     }
 
     #[test]
@@ -189,8 +146,9 @@ mod tests {
         // Block 0: 创建 cell(1,0) 和 cell(1,1)
         // Block 1: 消费 cell(1,0) → 依赖 block 0
         // Block 2: 消费 cell(1,1) → 依赖 block 0
-        // Block 3: 独立
-        // 期望：layer 0 = [0, 3], layer 1 = [1, 2]
+        // Block 3: 独立，但在 canonical order 中位于依赖 block 之后；
+        // 为保持全局 commit order，它不能提前到 block 1/2 之前提交。
+        // 期望：layer 0 = [0], layer 1 = [1, 2, 3]
         let summaries = vec![
             make_summary(1, &[], &[outpoint(1, 0), outpoint(1, 1)], &[], &[hash(0x10)]),
             make_summary(2, &[outpoint(1, 0)], &[], &[], &[hash(0x20)]),
@@ -198,9 +156,9 @@ mod tests {
             make_summary(4, &[outpoint(4, 0)], &[], &[], &[hash(0x40)]),
         ];
         let dag = ExecutionDAG::build(&summaries);
-        assert_eq!(dag.layer_count(), 2);
-        assert_eq!(dag.layers[0], vec![0, 3]);
-        assert_eq!(dag.layers[1], vec![1, 2]);
+        assert_eq!(dag.layers.len(), 2);
+        assert_eq!(dag.layers[0], vec![0]);
+        assert_eq!(dag.layers[1], vec![1, 2, 3]);
     }
 
     #[test]
@@ -217,7 +175,7 @@ mod tests {
             make_summary(4, &[outpoint(2, 0), outpoint(3, 0)], &[], &[], &[hash(0x40)]),
         ];
         let dag = ExecutionDAG::build(&summaries);
-        assert_eq!(dag.layer_count(), 3);
+        assert_eq!(dag.layers.len(), 3);
         assert_eq!(dag.layers[0], vec![0]);
         assert_eq!(dag.layers[1], vec![1, 2]);
         assert_eq!(dag.layers[2], vec![3]);
@@ -231,7 +189,7 @@ mod tests {
             make_summary(2, &[outpoint(0, 0)], &[], &[], &[hash(0x20)]),
         ];
         let dag = ExecutionDAG::build(&summaries);
-        assert_eq!(dag.layer_count(), 2);
+        assert_eq!(dag.layers.len(), 2);
         assert_eq!(dag.layers, vec![vec![0], vec![1]]);
     }
 
@@ -241,7 +199,7 @@ mod tests {
         let shared = hash(0xAA);
         let summaries = vec![make_summary(1, &[], &[], &[], &[shared]), make_summary(2, &[], &[], &[], &[shared])];
         let dag = ExecutionDAG::build(&summaries);
-        assert_eq!(dag.layer_count(), 2);
+        assert_eq!(dag.layers.len(), 2);
         assert_eq!(dag.layers, vec![vec![0], vec![1]]);
     }
 
@@ -253,7 +211,32 @@ mod tests {
             make_summary(2, &[], &[], &[outpoint(1, 0)], &[hash(0x20)]),
         ];
         let dag = ExecutionDAG::build(&summaries);
-        assert_eq!(dag.layer_count(), 2);
+        assert_eq!(dag.layers.len(), 2);
+        assert_eq!(dag.layers, vec![vec![0], vec![1]]);
+    }
+
+    #[test]
+    fn read_dep_on_spent_cell_serialized() {
+        // Block 0 消费 cell(1,0)，Block 1 的 cell_deps 引用 cell(1,0) → 依赖
+        let summaries = vec![
+            make_summary(1, &[outpoint(1, 0)], &[], &[], &[hash(0x10)]),
+            make_summary(2, &[], &[], &[outpoint(1, 0)], &[hash(0x20)]),
+        ];
+        let dag = ExecutionDAG::build(&summaries);
+        assert_eq!(dag.layers.len(), 2);
+        assert_eq!(dag.layers, vec![vec![0], vec![1]]);
+    }
+
+    #[test]
+    fn shared_write_touch_serializes_blocks() {
+        let shared = hash(0x42);
+        let mut first = make_summary(1, &[], &[], &[], &[hash(0x10)]);
+        first.cellscript_shared_writes.insert(shared);
+        let mut second = make_summary(2, &[], &[], &[], &[hash(0x20)]);
+        second.cellscript_shared_writes.insert(shared);
+
+        let dag = ExecutionDAG::build(&[first, second]);
+        assert_eq!(dag.layers.len(), 2);
         assert_eq!(dag.layers, vec![vec![0], vec![1]]);
     }
 }

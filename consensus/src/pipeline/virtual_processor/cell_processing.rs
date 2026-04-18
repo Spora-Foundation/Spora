@@ -38,7 +38,7 @@ use spora_exec::OutPoint;
 use spora_hashes::Hash;
 use spora_state::{CellEntry, CellStateTree};
 use spora_utils::refs::Refs;
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 use std::sync::Arc;
 
 type ReplayConsensusCellProvider = ConsensusCellProvider<
@@ -101,6 +101,7 @@ impl<'a> CellProcessingContext<'a> {
     }
 }
 
+#[cfg(feature = "vm")]
 impl CellProcessingContext<'static> {
     pub fn new_owned(ghostdag_data: Arc<GhostdagData>, selected_parent_cell_tree: CellStateTree) -> Self {
         Self::new(ghostdag_data.into(), selected_parent_cell_tree)
@@ -117,6 +118,8 @@ pub(super) struct BlockExecutionEffect {
     pub block_daa_score: u64,
     /// Cell state diff (created and consumed cells)
     pub cell_diff: CellDiff,
+    /// Accepted transaction cell_deps that must still be available at commit time.
+    pub read_deps: BTreeSet<TransactionOutpoint>,
     /// Accepted transaction ID list
     pub accepted_tx_ids: Vec<TransactionId>,
     /// Accepted transaction entries (with in-block index)
@@ -136,22 +139,13 @@ impl BlockExecutionEffect {
             block_hash,
             block_daa_score,
             cell_diff: CellDiff::default(),
+            read_deps: BTreeSet::new(),
             accepted_tx_ids: Vec::new(),
             accepted_transactions: Vec::new(),
             reward_data: None,
             consumed_cycles: 0,
             newly_processed_tx_ids: Vec::new(),
         }
-    }
-
-    /// Returns true if this effect carries no state changes.
-    pub fn is_empty(&self) -> bool {
-        self.cell_diff.is_empty()
-            && self.accepted_tx_ids.is_empty()
-            && self.accepted_transactions.is_empty()
-            && self.reward_data.is_none()
-            && self.consumed_cycles == 0
-            && self.newly_processed_tx_ids.is_empty()
     }
 }
 
@@ -204,7 +198,7 @@ pub(super) enum BlueBlockExecutionResult {
 #[cfg(feature = "vm")]
 #[derive(Clone)]
 pub(super) struct CellStateCalculationState {
-    blue_block_index: usize,
+    blue_execution_pos: usize,
     processed_txs: HashSet<Hash>,
     replay_ctx: ReplayValidationContext,
     block_state: BlueBlockExecutionState,
@@ -213,12 +207,12 @@ pub(super) struct CellStateCalculationState {
 #[cfg(feature = "vm")]
 impl CellStateCalculationState {
     fn new(
-        blue_block_index: usize,
+        blue_execution_pos: usize,
         processed_txs: HashSet<Hash>,
         replay_ctx: ReplayValidationContext,
         block_state: BlueBlockExecutionState,
     ) -> Self {
-        Self { blue_block_index, processed_txs, replay_ctx, block_state }
+        Self { blue_execution_pos, processed_txs, replay_ctx, block_state }
     }
 
     pub fn current_cycles(&self) -> u64 {
@@ -250,6 +244,32 @@ pub(super) fn apply_cell_diff_to_tree(tree: &mut CellStateTree, diff: &CellDiff)
         let outpoint_hash = outpoint_to_hash(outpoint);
         tree.insert_with_outpoint(outpoint_hash, exec_outpoint(outpoint), cell_meta_to_entry(meta));
     }
+}
+
+fn record_tx_read_deps(read_deps: &mut BTreeSet<TransactionOutpoint>, tx: &spora_exec::CellTx) {
+    for dep in &tx.cell_deps {
+        read_deps.insert(TransactionOutpoint { tx_hash: dep.out_point.tx_hash, index: dep.out_point.index });
+    }
+}
+
+fn effect_outpoint_available_for_commit(tree: &CellStateTree, effect: &BlockExecutionEffect, outpoint: &TransactionOutpoint) -> bool {
+    if effect.cell_diff.add.contains_key(outpoint) {
+        return true;
+    }
+
+    let outpoint_hash = outpoint_to_hash(outpoint);
+    tree.get(&outpoint_hash).is_some()
+}
+
+pub(super) fn execution_effect_conflicts_with_current_state(tree: &CellStateTree, effect: &BlockExecutionEffect) -> bool {
+    effect.cell_diff.remove.keys().any(|outpoint| !effect_outpoint_available_for_commit(tree, effect, outpoint))
+        || effect.read_deps.iter().any(|outpoint| !effect_outpoint_available_for_commit(tree, effect, outpoint))
+}
+
+fn invalidate_effect_preserving_reward(effect: &BlockExecutionEffect, block_hash: Hash, block_daa_score: u64) -> BlockExecutionEffect {
+    let mut empty = BlockExecutionEffect::empty(block_hash, block_daa_score);
+    empty.reward_data = effect.reward_data.clone();
+    empty
 }
 
 fn ensure_red_block_outputs_absent(tree: &CellStateTree, red_block: Hash, block_txs: &[spora_exec::CellTx]) -> Result<(), RuleError> {
@@ -395,8 +415,6 @@ pub(super) struct ExecutionSnapshot {
     pub params: Arc<CellConsensusParams>,
     /// Cloned overlay provider state for replay validation
     pub provider: ReplayOverlayProvider,
-    /// Accumulated VM cycles carried over from preceding blocks
-    pub accumulated_cycles: u64,
 }
 
 impl ExecutionSnapshot {
@@ -414,7 +432,6 @@ impl ExecutionSnapshot {
             current_timestamp: replay_ctx.current_timestamp,
             params: replay_ctx.params.clone(),
             provider: replay_ctx.provider.clone(),
-            accumulated_cycles: replay_ctx.accumulated_cycles,
         }
     }
 }
@@ -657,6 +674,7 @@ impl VirtualStateProcessor {
             block_hash: selected_parent,
             block_daa_score: selected_parent_daa_score,
             cell_diff: CellDiff::default(),
+            read_deps: BTreeSet::new(),
             accepted_tx_ids: Vec::new(),
             accepted_transactions: Vec::new(),
             reward_data: self.build_block_reward_data(selected_parent_txs, selected_parent_daa_score),
@@ -726,6 +744,7 @@ impl VirtualStateProcessor {
             block_hash: blue_block,
             block_daa_score: blue_block_daa_score,
             cell_diff: CellDiff::default(),
+            read_deps: BTreeSet::new(),
             accepted_tx_ids: Vec::new(),
             accepted_transactions: Vec::with_capacity(block_txs.len()),
             reward_data: self.build_block_reward_data(block_txs, blue_block_daa_score),
@@ -771,6 +790,8 @@ impl VirtualStateProcessor {
                     break;
                 }
             }
+
+            record_tx_read_deps(&mut effect.read_deps, tx);
 
             // ── Consume inputs ───────────────────────────────────────
             let mut input_capacity = 0u64;
@@ -946,6 +967,7 @@ impl VirtualStateProcessor {
                     block_hash: blue_block,
                     block_daa_score: blue_block_daa_score,
                     cell_diff: CellDiff::default(),
+                    read_deps: BTreeSet::new(),
                     accepted_tx_ids: Vec::new(),
                     accepted_transactions: Vec::with_capacity(block_txs.len()),
                     reward_data: self.build_block_reward_data(block_txs, blue_block_daa_score),
@@ -1000,6 +1022,7 @@ impl VirtualStateProcessor {
             effect.newly_processed_tx_ids.push(tx_id.into());
             effect.accepted_tx_ids.push(tx_id.into());
             effect.accepted_transactions.push(AcceptedTxEntry { transaction_id: tx_id.into(), index_within_block: tx_index as u32 });
+            record_tx_read_deps(&mut effect.read_deps, tx);
 
             let mut input_capacity = 0u64;
             for input in &tx.inputs {
@@ -1221,18 +1244,34 @@ impl VirtualStateProcessor {
         ctx: &mut CellProcessingContext,
         mut processed_txs: HashSet<Hash>,
         mut replay_validation: ReplayValidationContext,
-        start_blue_block_index: usize,
+        start_blue_execution_pos: usize,
         current_block_state: Option<&BlueBlockExecutionState>,
         limit_cycles: u64,
     ) -> Result<CellStateCalculationResult, RuleError> {
+        use super::access_summary::BlockAccessSummary;
+        use super::execution_dag::ExecutionDAG;
+
         let mergeset_blues = ctx.ghostdag_data.mergeset_blues.iter().copied().collect::<Vec<_>>();
-        for blue_block_index in start_blue_block_index..mergeset_blues.len() {
+        let mut summaries = Vec::with_capacity(mergeset_blues.len());
+
+        for blue_block in &mergeset_blues {
+            let block_txs = self.block_transactions_store.get(*blue_block).unwrap();
+            let summary = BlockAccessSummary::try_from_block_txs_with_cellscript_scheduler(*blue_block, block_txs.as_slice())
+                .map_err(|err| RuleError::CellValidationError(err.to_string()))?;
+            summaries.push(summary);
+        }
+
+        let dag = ExecutionDAG::build(&summaries);
+        let execution_order = dag.layers.iter().flat_map(|layer| layer.iter().copied()).collect::<Vec<_>>();
+
+        for execution_pos in start_blue_execution_pos..execution_order.len() {
+            let blue_block_index = execution_order[execution_pos];
             let blue_block = mergeset_blues[blue_block_index];
             let block_txs = self.block_transactions_store.get(blue_block).unwrap();
             let blue_block_daa_score = self.headers_store.get_daa_score(blue_block).expect("blue block header must exist");
             let snapshot = ExecutionSnapshot::from_current_state(&ctx.cell_state_tree, &processed_txs, &replay_validation);
 
-            let result = if blue_block_index == start_blue_block_index {
+            let result = if execution_pos == start_blue_execution_pos {
                 match current_block_state {
                     Some(block_state) => self.resume_analyze_blue_block_from_state(
                         &snapshot,
@@ -1258,7 +1297,7 @@ impl VirtualStateProcessor {
                 BlueBlockExecutionResult::Completed(effect) => effect,
                 BlueBlockExecutionResult::Suspended(block_state) => {
                     return Ok(CellStateCalculationResult::Suspended(CellStateCalculationState::new(
-                        blue_block_index,
+                        execution_pos,
                         processed_txs,
                         replay_validation,
                         block_state,
@@ -1266,13 +1305,19 @@ impl VirtualStateProcessor {
                 }
             };
 
-            for tx_id in &effect.newly_processed_tx_ids {
+            let final_effect = if execution_effect_conflicts_with_current_state(&ctx.cell_state_tree, &effect) {
+                invalidate_effect_preserving_reward(&effect, blue_block, blue_block_daa_score)
+            } else {
+                effect
+            };
+
+            for tx_id in &final_effect.newly_processed_tx_ids {
                 processed_txs.insert(*tx_id);
             }
 
-            self.apply_effect_to_overlay(&mut replay_validation, &effect, blue_block, block_txs.as_slice())?;
-            replay_validation.accumulated_cycles = effect.consumed_cycles;
-            self.commit_execution_effect(ctx, effect)?;
+            self.apply_effect_to_overlay(&mut replay_validation, &final_effect, blue_block, block_txs.as_slice())?;
+            replay_validation.accumulated_cycles = final_effect.consumed_cycles;
+            self.commit_execution_effect(ctx, final_effect)?;
         }
 
         self.process_red_blocks(ctx)?;
@@ -1307,7 +1352,7 @@ impl VirtualStateProcessor {
             ctx,
             state.processed_txs.clone(),
             state.replay_ctx.clone(),
-            state.blue_block_index,
+            state.blue_execution_pos,
             Some(&state.block_state),
             limit_cycles,
         )
@@ -1323,8 +1368,8 @@ impl VirtualStateProcessor {
         match self.resume_calculate_cell_state_from_state(ctx, state, max_cycles)? {
             CellStateCalculationResult::Completed => Ok(()),
             CellStateCalculationResult::Suspended(next_state) => Err(RuleError::CellValidationError(format!(
-                "cell state calculation suspended before completion: blue block index {}, total cycles {}, limit {}",
-                next_state.blue_block_index,
+                "cell state calculation suspended before completion: blue execution position {}, total cycles {}, limit {}",
+                next_state.blue_execution_pos,
                 next_state.current_cycles(),
                 max_cycles
             ))),
@@ -1347,7 +1392,7 @@ impl VirtualStateProcessor {
     ///    update the snapshot so the next block's analysis sees the latest
     ///    canonical state.
     ///
-    /// For mergeset blues, this implements **VSP parallelization**:
+    /// For mergeset blues, this implements **MPE parallelization**:
     /// - Statically extract [`BlockAccessSummary`] from each blue block's
     ///   raw transactions.
     /// - Build an [`ExecutionDAG`] that groups independent blocks into layers.
@@ -1356,7 +1401,7 @@ impl VirtualStateProcessor {
     ///   effects **sequentially** in GhostDAG canonical order.
     /// - Before each commit, run conflict detection: if a consumed cell
     ///   has been removed by a preceding same-layer commit, the effect
-    ///   is invalidated per VSP_PROTOCOL_SEMANTICS rule 3.
+    ///   is invalidated per MPE_PROTOCOL_SEMANTICS rule 3.
     ///
     /// # GHOSTDAG-aware Process
     /// 1. Process selected parent coinbase (analyze → commit)
@@ -1405,21 +1450,21 @@ impl VirtualStateProcessor {
 
         // ── STEP 2: Mergeset blues — layer-parallel analyze, sequential commit ──
         //
-        // Design: VSP parallelization via ExecutionDAG
+        // Design: MPE parallelization via ExecutionDAG
         //
         // 1. Pre-scan: statically extract BlockAccessSummary from each blue block's
         //    raw transactions (no full analysis needed — just read the inputs/outputs/deps).
-        // 2. Build DAG: construct an ExecutionDAG that groups independent blocks into
-        //    layers using Kahn's algorithm on the dependency graph.
+        // 2. Build DAG: construct an ExecutionDAG that groups independent
+        //    canonical-contiguous blocks into layers.
         // 3. Execute per layer:
         //    - Freeze a shared ExecutionSnapshot at the current canonical state.
         //    - Analyze all blocks in the layer in parallel via rayon `par_iter()`.
         //    - After all analyses complete, commit effects sequentially in
         //      GhostDAG canonical order (= index order within blue_block_data).
         //    - Before each commit, run conflict detection: if any consumed cell
-        //      has already been removed by a preceding same-layer commit, the
-        //      effect is invalidated (replaced with an empty effect) per
-        //      VSP_PROTOCOL_SEMANTICS rule 3.
+        //      or read-only cell_dep prerequisite has already been removed by a
+        //      preceding same-layer commit, the effect is invalidated (replaced
+        //      with an empty effect) per MPE_PROTOCOL_SEMANTICS rule 3.
         //
         // Invariant: final commit order is identical to the original serial order,
         // so cell_root, accepted_tx_ids, mergeset_acceptance_data, and reward_data
@@ -1438,7 +1483,8 @@ impl VirtualStateProcessor {
                 let block_txs = self.block_transactions_store.get(*blue_block).unwrap();
                 let blue_block_daa_score = self.headers_store.get_daa_score(*blue_block).expect("blue block header must exist");
 
-                let summary = BlockAccessSummary::from_block_txs(*blue_block, block_txs.as_slice());
+                let summary = BlockAccessSummary::try_from_block_txs_with_cellscript_scheduler(*blue_block, block_txs.as_slice())
+                    .map_err(|err| RuleError::CellValidationError(err.to_string()))?;
                 summaries.push(summary);
                 blue_block_data.push((*blue_block, block_txs, blue_block_daa_score));
             }
@@ -1455,19 +1501,24 @@ impl VirtualStateProcessor {
 
                     let snapshot = ExecutionSnapshot::from_current_state(&ctx.cell_state_tree, &processed_txs, &replay_validation);
                     let effect = self.analyze_blue_block(&snapshot, blue_block, block_txs.as_slice(), blue_block_daa_score)?;
+                    let final_effect = if execution_effect_conflicts_with_current_state(&ctx.cell_state_tree, &effect) {
+                        invalidate_effect_preserving_reward(&effect, blue_block, blue_block_daa_score)
+                    } else {
+                        effect
+                    };
 
                     // Update cross-block bookkeeping
-                    for tx_id in &effect.newly_processed_tx_ids {
+                    for tx_id in &final_effect.newly_processed_tx_ids {
                         processed_txs.insert(*tx_id);
                     }
 
                     // Sync overlay for subsequent blocks
-                    self.apply_effect_to_overlay(&mut replay_validation, &effect, blue_block, block_txs.as_slice())?;
+                    self.apply_effect_to_overlay(&mut replay_validation, &final_effect, blue_block, block_txs.as_slice())?;
 
-                    replay_validation.accumulated_cycles = effect.consumed_cycles;
+                    replay_validation.accumulated_cycles = final_effect.consumed_cycles;
 
                     // Commit effect to mutable context
-                    self.commit_execution_effect(ctx, effect)?;
+                    self.commit_execution_effect(ctx, final_effect)?;
                 } else {
                     // ── Multiple blocks in layer — freeze snapshot, parallel analyze ──
                     //
@@ -1494,22 +1545,18 @@ impl VirtualStateProcessor {
                         let (blue_block, ref block_txs, blue_block_daa_score) = blue_block_data[idx];
                         let effect = &effects[layer_pos];
 
-                        // ── Conflict detection (VSP_PROTOCOL_SEMANTICS rule 3) ──
-                        // If any cell this effect tries to consume has already been
-                        // removed from the canonical tree by a preceding same-layer
-                        // commit, the entire effect is invalidated.
-                        let has_conflict = effect.cell_diff.remove.keys().any(|outpoint| {
-                            let outpoint_hash = crate::processes::utils::outpoint_to_hash(outpoint);
-                            ctx.cell_state_tree.get(&outpoint_hash).is_none()
-                        });
+                        // ── Conflict detection (MPE_PROTOCOL_SEMANTICS rule 3) ──
+                        // If any cell this effect consumes or reads as a cell_dep
+                        // has already been removed from the canonical tree by a
+                        // preceding same-layer commit, the entire effect is
+                        // invalidated.
+                        let has_conflict = execution_effect_conflicts_with_current_state(&ctx.cell_state_tree, effect);
 
                         let final_effect = if has_conflict {
                             // Replace with empty effect — block's txs are rejected
                             // but reward data is preserved (miner still gets reward
                             // for the block existing in the DAG).
-                            let mut empty = BlockExecutionEffect::empty(blue_block, blue_block_daa_score);
-                            empty.reward_data = effect.reward_data.clone();
-                            empty
+                            invalidate_effect_preserving_reward(effect, blue_block, blue_block_daa_score)
                         } else {
                             effects[layer_pos].clone()
                         };

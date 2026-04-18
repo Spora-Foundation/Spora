@@ -64,6 +64,10 @@ spora-addresses.workspace = true
 name = "parallel_muhash"
 harness = false
 
+[[bench]]
+name = "mpe_parallel_execution"
+harness = false
+
 [features]
 html_reports = []
 devnet-prealloc = ["spora-consensus-core/devnet-prealloc"]
