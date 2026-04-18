@@ -2124,6 +2124,8 @@ Slice 98 更新：pure helper `fn` 的签名现在必须保持 Cell-free ownersh
 
 Slice 99 更新：top-level 引用参数继续收紧为直接 Cell view。`&Token` 和 action 中的 `&mut Pool` 仍是合法短生命周期视图，但 `&(Token, u64)`、`&mut (Pool, u64)` 这类引用到含 Cell-backed 值的 tuple/array 聚合会失败。这样不会通过“引用聚合”绕过当前没有完整 lifetime/path ABI 的边界。
 
+Slice 100 更新：`Vec<T>` 不再允许携带引用。`Vec<&Token>` 和 `points.push(&point)` 会 fail closed，避免集合 item type 隐藏引用生命周期；`fn bad(tokens: Vec<Token>)` / `lock bad(tokens: Vec<Token>)` 仍会通过 Slice 98 的 owned Cell 签名规则失败。已有 action-visible symbolic 路径里的 `Vec<NFT>` batch 示例继续保留，直到后续有真正的 linear collection ownership model。
+
 目标：
 - 在后端工作扩展之前冻结最小语言核心。
 

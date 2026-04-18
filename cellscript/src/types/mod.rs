@@ -754,7 +754,7 @@ impl<'a> TypeChecker<'a> {
             Type::Ref(_) | Type::MutRef(_) => true,
             Type::Array(inner, _) => self.type_contains_reference(inner),
             Type::Tuple(items) => items.iter().any(|item| self.type_contains_reference(item)),
-            Type::Named(name) => name.contains("read_ref ") || name.contains("&mut "),
+            Type::Named(name) => self.named_type_contains_reference(name),
             _ => false,
         }
     }
@@ -775,10 +775,45 @@ impl<'a> TypeChecker<'a> {
             Type::Tuple(items) => items.iter().any(|item| self.type_contains_cell_backed_value(item)),
             Type::Named(name) => {
                 let base_name = name.split('<').next().unwrap_or(name.as_str());
-                self.resolve_cell_type_kind(base_name).is_some()
+                self.resolve_cell_type_kind(base_name).is_some() || self.named_type_generic_payload_contains_cell_backed_value(name)
             }
             Type::Ref(_) | Type::MutRef(_) => false,
             _ => false,
+        }
+    }
+
+    fn named_type_contains_reference(&self, name: &str) -> bool {
+        name.contains("read_ref ") || name.contains('&')
+    }
+
+    fn named_type_generic_payload<'b>(&self, name: &'b str) -> Option<&'b str> {
+        let start = name.find('<')?;
+        name.ends_with('>').then_some(&name[start + 1..name.len() - 1])
+    }
+
+    fn named_type_generic_payload_contains_cell_backed_value(&self, name: &str) -> bool {
+        self.named_type_generic_payload(name).is_some_and(|payload| self.type_fragment_contains_cell_backed_name(payload))
+    }
+
+    fn type_fragment_contains_cell_backed_name(&self, fragment: &str) -> bool {
+        let mut token = String::new();
+        for ch in fragment.chars() {
+            if ch.is_ascii_alphanumeric() || ch == '_' || ch == ':' {
+                token.push(ch);
+            } else if self.type_name_token_is_cell_backed(&token) {
+                return true;
+            } else {
+                token.clear();
+            }
+        }
+        self.type_name_token_is_cell_backed(&token)
+    }
+
+    fn type_name_token_is_cell_backed(&self, token: &str) -> bool {
+        match token {
+            "" | "u8" | "u16" | "u32" | "u64" | "u128" | "bool" | "Address" | "Hash" | "String" | "Range" | "Vec" | "usize"
+            | "isize" | "read_ref" | "mut" => false,
+            name => self.resolve_cell_type_kind(name).is_some(),
         }
     }
 
@@ -2157,6 +2192,15 @@ impl<'a> TypeChecker<'a> {
                     "push" => {
                         self.validate_builtin_arity("Vec.push", 1, arg_types, call.span)?;
                         let arg_ty = &arg_types[0];
+                        if self.type_contains_reference(arg_ty) {
+                            return Err(CompileError::new(
+                                format!(
+                                    "Vec.push cannot store reference type {}; Vec<T> values must use owned non-reference items",
+                                    type_repr(arg_ty)
+                                ),
+                                call.span,
+                            ));
+                        }
                         if let Type::Named(name) = &receiver_ty {
                             if name == "Vec" {
                                 if let Expr::Identifier(receiver_name) = field.expr.as_ref() {
@@ -2376,6 +2420,14 @@ impl<'a> TypeChecker<'a> {
                 ),
                 Span::default(),
             ));
+        }
+        if base_name == "Vec" && name.contains('<') {
+            if self.named_type_contains_reference(name) {
+                return Err(CompileError::new(
+                    format!("type '{}' cannot contain reference type; Vec<T> values must use owned non-reference items", name),
+                    Span::default(),
+                ));
+            }
         }
 
         match base_name {

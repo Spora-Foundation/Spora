@@ -7407,6 +7407,44 @@ action bad(pool: &mut (Pool, u64)) -> u64 {
 }
 "#;
 
+    const FUNCTION_VEC_CELL_PARAM_PROGRAM: &str = r#"
+module test
+
+resource Token {
+    amount: u64,
+}
+
+fn bad(tokens: Vec<Token>) -> u64 {
+    return 0
+}
+"#;
+
+    const STRUCT_VEC_REFERENCE_FIELD_PROGRAM: &str = r#"
+module test
+
+resource Token {
+    amount: u64,
+}
+
+struct Holder {
+    views: Vec<&Token>,
+}
+"#;
+
+    const VEC_PUSH_REFERENCE_PROGRAM: &str = r#"
+module test
+
+struct Point {
+    x: u64,
+}
+
+action bad(point: Point) -> u64 {
+    let points = Vec::new()
+    points.push(&point)
+    return 0
+}
+"#;
+
     const CALLABLE_TUPLE_REFERENCE_PARAM_PROGRAM: &str = r#"
 module test
 
@@ -10254,6 +10292,19 @@ action activate(ticket: Ticket) -> Ticket {
             "unexpected error: {}",
             err.message
         );
+
+        let err = compile(FUNCTION_VEC_CELL_PARAM_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(
+            err.message.contains("function 'bad' parameter 'tokens' cannot use owned cell-backed type Vec<Token>"),
+            "unexpected error: {}",
+            err.message
+        );
+
+        let err = compile(STRUCT_VEC_REFERENCE_FIELD_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(err.message.contains("cannot contain reference type"), "unexpected error: {}", err.message);
+
+        let err = compile(VEC_PUSH_REFERENCE_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(err.message.contains("Vec.push cannot store reference type &Point"), "unexpected error: {}", err.message);
 
         let err = compile(CALLABLE_TUPLE_REFERENCE_PARAM_PROGRAM, CompileOptions::default()).unwrap_err();
         assert!(
