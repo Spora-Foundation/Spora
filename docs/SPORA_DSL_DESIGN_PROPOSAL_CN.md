@@ -2130,6 +2130,8 @@ Slice 101 更新：action-visible 的 Cell-backed `Vec<T>` 现在不再只暴露
 
 Slice 102 更新：直接 `create` 的 verifier 覆盖缺口现在进入 transaction blocker 分类。若 `create` 输出字段无法由当前 verifier prelude 覆盖，metadata 会生成 `create-output:<Type>:<binding>` transaction-invariant obligation，并在 `transaction_runtime_input_requirements[]` 暴露 `create-output-fields` / `create-output-verification-gap`；若 `with_lock(...)` 绑定无法覆盖，则暴露 `create-output-lock` / `create-output-lock-verification-gap`。这一步不扩大可执行 verifier 覆盖，只把核心 `create` 输出字段和 lock 绑定的不完整路径从泛化 `output-verification-incomplete` / `output-lock-verification-incomplete` 提升为稳定 blocker class。
 
+Slice 103 更新：普通 `consume` 的 Input 数据加载现在进入 checked transaction input component surface。对源码层已被类型检查限制为 named cell-backed linear operand 的 `consume token`，metadata 会生成 `consume-input:<Type>:<binding>` transaction-invariant obligation，并在 `transaction_runtime_input_requirements[]` 暴露 checked `consume-input-data=Input:<binding>.data:consume-load-cell-input`。这一步只声明 codegen 已经真实执行的 `LOAD_CELL Source::Input` 数据加载，不把 broader TypeHash admission、资源守恒或 transaction-builder 输入选择误标为完成。
+
 目标：
 - 在后端工作扩展之前冻结最小语言核心。
 

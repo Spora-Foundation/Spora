@@ -1115,9 +1115,9 @@ action claim_vested(grant: VestingGrant) -> (Token, VestingGrant) {
     let target = &stdout["checked_targets"][0];
     assert!(target["runtime_required_transaction_invariants"].as_u64().unwrap() > 0, "unexpected stdout: {}", stdout);
     assert_eq!(target["runtime_required_transaction_invariant_checked_subconditions"], 5, "unexpected stdout: {}", stdout);
-    assert_eq!(target["transaction_runtime_input_requirements"], 3, "unexpected stdout: {}", stdout);
+    assert_eq!(target["transaction_runtime_input_requirements"], 4, "unexpected stdout: {}", stdout);
     assert_eq!(target["runtime_required_transaction_runtime_input_requirements"], 1, "unexpected stdout: {}", stdout);
-    assert_eq!(target["checked_transaction_runtime_input_requirements"], 2, "unexpected stdout: {}", stdout);
+    assert_eq!(target["checked_transaction_runtime_input_requirements"], 3, "unexpected stdout: {}", stdout);
     assert_eq!(target["runtime_required_transaction_runtime_input_blockers"], 1, "unexpected stdout: {}", stdout);
     assert_eq!(target["runtime_required_transaction_runtime_input_blocker_classes"], 1, "unexpected stdout: {}", stdout);
     let summaries = target["runtime_required_transaction_invariant_checked_subcondition_summaries"]
@@ -1150,6 +1150,17 @@ action claim_vested(grant: VestingGrant) -> (Token, VestingGrant) {
         checked_runtime_inputs.iter().any(|value| value.as_str().is_some_and(|summary| {
             summary.contains("claim-conditions:VestingGrant:claim-time-context=Header:VestingGrant.daa_score")
                 && summary.contains("claim-time-daa-score-u64[8]")
+                && summary.contains("(checked-runtime)")
+                && !summary.contains("blocker=")
+                && !summary.contains("blocker_class=")
+        })),
+        "unexpected checked transaction runtime input summaries: {}",
+        stdout
+    );
+    assert!(
+        checked_runtime_inputs.iter().any(|value| value.as_str().is_some_and(|summary| {
+            summary.contains("consume-input:VestingGrant:grant:consume-input-data=Input:grant.data")
+                && summary.contains("consume-load-cell-input")
                 && summary.contains("(checked-runtime)")
                 && !summary.contains("blocker=")
                 && !summary.contains("blocker_class=")

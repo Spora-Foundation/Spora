@@ -2157,6 +2157,11 @@ fn body_transaction_resource_obligations(
     for block in &body.blocks {
         for instruction in &block.instructions {
             match instruction {
+                ir::IrInstruction::Consume { operand } => {
+                    if let Some(check) = consume_input_data_obligation(body, operand) {
+                        checks.push(check);
+                    }
+                }
                 ir::IrInstruction::Create { pattern, .. } => {
                     if let Some(check) = create_output_verification_obligation(pattern, type_layouts, &availability) {
                         checks.push(check);
@@ -2306,6 +2311,22 @@ fn body_transaction_resource_obligations(
     checks.extend(body_resource_conservation_obligations(body, type_layouts, &availability, params, cell_type_kinds));
     checks.extend(body_receipt_claim_flow_obligations(name, body, type_layouts, cell_type_kinds));
     checks
+}
+
+fn consume_input_data_obligation(body: &ir::IrBody, operand: &ir::IrOperand) -> Option<TransactionResourceObligation> {
+    let type_name = operand_named_type_name(operand)?;
+    let binding = operand_var_name(operand).unwrap_or(type_name.as_str());
+    let pattern = body.consume_set.iter().find(|pattern| pattern.operation == "consume" && pattern.binding == binding)?;
+    pattern.type_hash?;
+    Some(TransactionResourceObligation {
+        category: "transaction-invariant",
+        feature: format!("consume-input:{}:{}", type_name, binding),
+        status: "checked-runtime",
+        detail: format!(
+            "Compiler-emitted runtime verifier loads consumed '{}' Input cell data for '{}' through LOAD_CELL Source::Input; consume-input-data=checked-runtime",
+            type_name, binding
+        ),
+    })
 }
 
 fn create_output_verification_obligation(
@@ -2886,6 +2907,7 @@ fn transaction_runtime_input_requirements_from_obligations(
             obligation.status == "checked-runtime" && obligation.feature.starts_with("transfer-output:");
         let include_checked_claim_output = obligation.status == "checked-runtime" && obligation.feature.starts_with("claim-output:");
         let include_checked_settle_output = obligation.status == "checked-runtime" && obligation.feature.starts_with("settle-output:");
+        let include_checked_consume_input = obligation.status == "checked-runtime" && obligation.feature.starts_with("consume-input:");
         let include_checked_resource_conservation =
             obligation.status == "checked-runtime" && obligation.feature.starts_with("resource-conservation:");
         let include_checked_claim_conditions =
@@ -2898,6 +2920,7 @@ fn transaction_runtime_input_requirements_from_obligations(
                 && !include_checked_transfer_output
                 && !include_checked_claim_output
                 && !include_checked_settle_output
+                && !include_checked_consume_input
                 && !include_checked_resource_conservation
                 && !include_checked_claim_conditions
                 && !include_checked_settle_finalization)
@@ -3022,6 +3045,20 @@ fn transaction_runtime_input_requirements_from_obligations(
                 binding,
                 Some("output-relation"),
                 "settle-output-relation-consume-create-accounting",
+                None,
+            ));
+        } else if let Some(binding) = obligation.feature.strip_prefix("consume-input:") {
+            let input_binding = binding.rsplit_once(':').map(|(_, binding)| binding).unwrap_or(binding);
+            requirements.push(transaction_runtime_input_requirement(
+                obligation,
+                "consume-input-data",
+                "checked-runtime",
+                None,
+                None,
+                "Input",
+                input_binding,
+                Some("data"),
+                "consume-load-cell-input",
                 None,
             ));
         } else if let Some(binding) = obligation.feature.strip_prefix("create-output:") {
@@ -11206,6 +11243,23 @@ action activate(ticket: Ticket) -> Ticket {
             obligation.category == "resource-operation"
                 && obligation.feature == "destroy:Token"
                 && obligation.status == "checked-static"
+        }));
+        assert!(action.verifier_obligations.iter().any(|obligation| {
+            obligation.category == "transaction-invariant"
+                && obligation.feature == "consume-input:Token:a"
+                && obligation.status == "checked-runtime"
+                && obligation.detail.contains("consume-input-data=checked-runtime")
+        }));
+        assert!(action.transaction_runtime_input_requirements.iter().any(|requirement| {
+            requirement.feature == "consume-input:Token:a"
+                && requirement.status == "checked-runtime"
+                && requirement.component == "consume-input-data"
+                && requirement.source == "Input"
+                && requirement.binding == "a"
+                && requirement.field.as_deref() == Some("data")
+                && requirement.abi == "consume-load-cell-input"
+                && requirement.blocker.is_none()
+                && requirement.blocker_class.is_none()
         }));
         assert!(action.verifier_obligations.iter().any(|obligation| {
             obligation.category == "transaction-invariant"
