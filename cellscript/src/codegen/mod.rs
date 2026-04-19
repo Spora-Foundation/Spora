@@ -1062,6 +1062,7 @@ impl CodeGenerator {
         }
         self.emit_mutate_replacement_preserved_field_checks(pattern);
         self.emit_mutate_replacement_transition_checks(pattern);
+        self.emit_mutate_replacement_u128_transition_checks(pattern);
         Ok(())
     }
 
@@ -1902,6 +1903,34 @@ impl CodeGenerator {
         }
     }
 
+    fn mutate_u128_transition_layouts(&self, pattern: &MutatePattern) -> Vec<(MutateFieldTransition, SchemaFieldLayout)> {
+        let Some(type_size) = self.type_fixed_sizes.get(&pattern.ty).copied() else {
+            return Vec::new();
+        };
+        if type_size > RUNTIME_SCRATCH_BUFFER_SIZE {
+            return Vec::new();
+        }
+        pattern
+            .transitions
+            .iter()
+            .filter_map(|transition| {
+                let layout = self.type_layouts.get(&pattern.ty).and_then(|fields| fields.get(&transition.field)).cloned()?;
+                // Only u128 fields (16 bytes) that don't fit in a single register.
+                if layout.ty != IrType::U128 || layout.fixed_size != Some(16) {
+                    return None;
+                }
+                if layout.offset + 16 > RUNTIME_SCRATCH_BUFFER_SIZE {
+                    return None;
+                }
+                // u128 transition: the operand must be a u64 value (delta always fits in 64 bits).
+                if self.prelude_u64_operand_source(&transition.operand).is_none() {
+                    return None;
+                }
+                Some((transition.clone(), layout))
+            })
+            .collect()
+    }
+
     fn mutate_transition_layouts(&self, pattern: &MutatePattern) -> Vec<(MutateFieldTransition, SchemaFieldLayout, usize)> {
         let Some(type_size) = self.type_fixed_sizes.get(&pattern.ty).copied() else {
             return Vec::new();
@@ -1998,6 +2027,119 @@ impl CodeGenerator {
             self.emit_unaligned_scalar_load("t4", "t0", "t2", layout.offset, width);
             self.emit("sub t2, t0, t1");
             let ok_label = self.fresh_label("mutate_transition_ok");
+            self.emit(format!("beqz t2, {}", ok_label));
+            self.emit("li a0, 14");
+            self.emit_epilogue();
+            self.emit_label(&ok_label);
+        }
+    }
+
+    /// u128 transition verification using 128-bit add/sub with carry.
+    /// Layout: field is 16 bytes (low 8 + high 8, little-endian).
+    /// Delta is always u64 (fits in a single register).
+    /// Verification: output == input +/- delta, with carry propagation.
+    fn emit_mutate_replacement_u128_transition_checks(&mut self, pattern: &MutatePattern) {
+        let transitions = self.mutate_u128_transition_layouts(pattern);
+        if transitions.is_empty() {
+            return;
+        }
+        let input_size_offset = self.runtime_scratch_size_offset();
+        let input_buffer_offset = self.runtime_scratch_buffer_offset();
+        let output_size_offset = self.runtime_scratch2_size_offset();
+        let output_buffer_offset = self.runtime_scratch2_buffer_offset();
+        // Load Input and Output cell data (already done by the caller for
+        // preserved field checks, but we need it for transition checks too).
+        // If the scratch buffers were already loaded by the preserved-field
+        // path, the syscall results are cached in the buffer; we only need
+        // to reload if this function is called independently.
+        self.emit_load_cell_syscall_to_offsets(
+            "mutate_input_u128_transition",
+            CKB_SOURCE_INPUT,
+            pattern.input_index,
+            input_size_offset,
+            input_buffer_offset,
+            RUNTIME_SCRATCH_BUFFER_SIZE,
+        );
+        self.emit_return_on_syscall_error(1);
+        self.emit_load_cell_syscall_to_offsets(
+            "mutate_output_u128_transition",
+            CKB_SOURCE_OUTPUT,
+            pattern.output_index,
+            output_size_offset,
+            output_buffer_offset,
+            RUNTIME_SCRATCH_BUFFER_SIZE,
+        );
+        self.emit_return_on_syscall_error(1);
+        if let Some(expected_size) = self.type_fixed_sizes.get(&pattern.ty).copied() {
+            self.emit_loaded_schema_exact_size_check(
+                input_size_offset,
+                expected_size,
+                &format!("{} mutate u128 transition input", pattern.ty),
+            );
+            self.emit_loaded_schema_exact_size_check(
+                output_size_offset,
+                expected_size,
+                &format!("{} mutate u128 transition output", pattern.ty),
+            );
+        }
+        for (transition, layout) in transitions {
+            let Some(delta) = self.prelude_u64_operand_source(&transition.operand) else {
+                continue;
+            };
+            self.emit_loaded_schema_bounds_check(
+                input_size_offset,
+                layout.offset + 16,
+                &format!("{} input.{}", pattern.ty, transition.field),
+            );
+            self.emit_loaded_schema_bounds_check(
+                output_size_offset,
+                layout.offset + 16,
+                &format!("{} output.{}", pattern.ty, transition.field),
+            );
+            self.emit(format!(
+                "# cellscript abi: verify mutate u128 transition field {}.{} {:?} Input#{} -> Output#{} offset={} size=16",
+                pattern.ty, transition.field, transition.op, pattern.input_index, pattern.output_index, layout.offset
+            ));
+
+            // Load input low 64 bits (little-endian bytes 0..8) into t0
+            // Load input high 64 bits (little-endian bytes 8..16) into t3
+            self.emit(format!("addi t4, sp, {}", input_buffer_offset));
+            self.emit_unaligned_scalar_load("t4", "t0", "t2", layout.offset, 8);
+            self.emit_unaligned_scalar_load("t4", "t3", "t2", layout.offset + 8, 8);
+
+            // Load delta into t1
+            self.emit_prelude_u64_operand_source_to_t1(&delta);
+
+            // Compute expected output = input +/- delta with carry
+            match transition.op {
+                MutateTransitionOp::Add => {
+                    // expected_lo = input_lo + delta
+                    // expected_hi = input_hi + carry
+                    // where carry = (input_lo + delta < input_lo) ? 1 : 0
+                    self.emit("add t5, t0, t1"); // expected_lo = input_lo + delta
+                    self.emit("sltu t2, t5, t0"); // carry = 1 if addition overflowed
+                    self.emit("add t6, t3, t2"); // expected_hi = input_hi + carry
+                }
+                MutateTransitionOp::Sub => {
+                    // expected_lo = input_lo - delta
+                    // expected_hi = input_hi - borrow
+                    // where borrow = (input_lo < delta) ? 1 : 0
+                    self.emit("sub t5, t0, t1"); // expected_lo = input_lo - delta
+                    self.emit("sltu t2, t0, t1"); // borrow = 1 if subtraction underflowed
+                    self.emit("sub t6, t3, t2"); // expected_hi = input_hi - borrow
+                }
+            }
+
+            // Load actual output low 64 bits into t0, high 64 bits into t3
+            self.emit(format!("addi t4, sp, {}", output_buffer_offset));
+            self.emit_unaligned_scalar_load("t4", "t0", "t2", layout.offset, 8);
+            self.emit_unaligned_scalar_load("t4", "t3", "t2", layout.offset + 8, 8);
+
+            // Compare: expected (t5, t6) == actual (t0, t3)
+            let ok_label = self.fresh_label("mutate_u128_transition_ok");
+            self.emit("sub t2, t0, t5"); // diff_lo = actual_lo - expected_lo
+            self.emit("sub t1, t3, t6"); // diff_hi = actual_hi - expected_hi
+            self.emit("or t2, t2, t1"); // combined diff = diff_lo | diff_hi
             self.emit(format!("beqz t2, {}", ok_label));
             self.emit("li a0, 14");
             self.emit_epilogue();

@@ -3003,29 +3003,8 @@ fn claim_conditions_are_checked(
     operand: &ir::IrOperand,
     type_name: &str,
 ) -> bool {
-    // If the body has source predicates, check whether they are all covered
-    // by verifier-coverable checked guards (e.g. daa-cliff-reached from
-    // LOAD_HEADER_BY_FIELD + slt comparison, source-invariant from Branch
-    // conditions). If all predicates have corresponding checked guards,
-    // the conditions are considered checked.
-    if claim_body_has_source_predicates(body) {
-        let source_invariant_count = body_assert_invariant_count(body);
-        let uses_daa = body_uses_current_daa_score(body);
-        let checked_guards = receipt_claim_flow_checked_condition_guards(name, type_name, source_invariant_count, body);
-        // If we have source predicates but no checked guards at all, unchecked.
-        if checked_guards.is_empty() {
-            return false;
-        }
-        // All source predicates must have corresponding checked guards.
-        // DAA score usage needs daa-cliff-reached; each assert_invariant needs a guard.
-        let has_daa_guard = checked_guards.iter().any(|g| *g == "daa-cliff-reached");
-        if uses_daa && !has_daa_guard {
-            return false;
-        }
-        let invariant_guard_count = checked_guards.iter().filter(|g| **g == "source-invariant" || *g == "daa-cliff-reached").count();
-        if source_invariant_count > invariant_guard_count {
-            return false;
-        }
+    if !claim_source_predicates_are_checked(name, type_name, body) {
+        return false;
     }
     let binding = operand_var_name(operand).unwrap_or(type_name);
     body.consume_set.iter().any(|pattern| {
@@ -3037,6 +3016,25 @@ fn claim_conditions_are_checked(
 
 fn claim_body_has_source_predicates(body: &ir::IrBody) -> bool {
     body_assert_invariant_count(body) > 0 || body_uses_current_daa_score(body)
+}
+
+fn claim_source_predicates_are_checked(name: &str, type_name: &str, body: &ir::IrBody) -> bool {
+    if !claim_body_has_source_predicates(body) {
+        return true;
+    }
+    let source_invariant_count = body_assert_invariant_count(body);
+    let uses_daa = body_uses_current_daa_score(body);
+    let checked_guards = receipt_claim_flow_checked_condition_guards(name, type_name, source_invariant_count, body);
+    if checked_guards.is_empty() {
+        return false;
+    }
+    if uses_daa && !checked_guards.iter().any(|guard| *guard == "daa-cliff-reached") {
+        return false;
+    }
+    if source_invariant_count > checked_guards.len() {
+        return false;
+    }
+    true
 }
 
 fn receipt_claim_flow_checked_condition_guards(
@@ -3587,15 +3585,26 @@ fn transaction_claim_condition_detail(
     let witness_detail = claim_witness_authorization_domain_detail(body, type_layouts, operation, binding, type_name);
     if checked {
         let signer_field = metadata_claim_signer_pubkey_hash_field(type_name, type_layouts).unwrap_or("<missing>");
+        let mut checked_parts = vec![
+            "claim-witness-format=checked-runtime".to_string(),
+            "claim-authorization-domain=checked-runtime".to_string(),
+            "claim-witness-signature=checked-runtime".to_string(),
+            "claim-signer-key-binding=checked-runtime".to_string(),
+        ];
+        let source_invariant_count = body_assert_invariant_count(body);
+        let checked_guards = receipt_claim_flow_checked_condition_guards(name, type_name, source_invariant_count, body);
+        for guard in &checked_guards {
+            checked_parts.push(format!("{}=checked-runtime", guard));
+        }
         return format!(
-            "Compiler-emitted runtime verifier checks '{}' claim witness format, authorization-domain separation, secp256k1 signature verification, and signer-key binding via '{}.{}'; claim-witness-format=checked-runtime; claim-authorization-domain=checked-runtime; claim-witness-signature=checked-runtime; claim-signer-key-binding=checked-runtime; claimed output relation is tracked by claim-output obligations; runtime inputs: {}",
-            type_name, type_name, signer_field, input_summary
+            "Compiler-emitted runtime verifier checks '{}' claim witness format, authorization-domain separation, secp256k1 signature verification, and signer-key binding via '{}.{}'; {}; claimed output relation is tracked by claim-output obligations; runtime inputs: {}",
+            type_name, type_name, signer_field, checked_parts.join("; "), input_summary
         );
     }
     format!(
         "Runtime verifier must bind '{}' claim conditions to witness/signature/time context and verify the claimed output relation{}{}{}; runtime inputs: {}",
         type_name,
-        claim_unchecked_source_predicate_detail(body),
+        claim_unchecked_source_predicate_detail(name, type_name, body),
         claim_runtime_gap_detail(name, body, cell_type_kinds, operation, binding),
         witness_detail,
         input_summary
@@ -3620,8 +3629,8 @@ fn claim_runtime_gap_detail(
     }
 }
 
-fn claim_unchecked_source_predicate_detail(body: &ir::IrBody) -> &'static str {
-    if claim_body_has_unchecked_source_predicates(body) {
+fn claim_unchecked_source_predicate_detail(name: &str, type_name: &str, body: &ir::IrBody) -> &'static str {
+    if claim_body_has_source_predicates(body) && !claim_source_predicates_are_checked(name, type_name, body) {
         "; source-predicate=runtime-required"
     } else {
         ""
@@ -7299,9 +7308,19 @@ fn mutate_transition_is_verifier_coverable(
     let Some(layout) = type_layouts.get(&pattern.ty).and_then(|fields| fields.get(&transition.field)) else {
         return false;
     };
-    // Transition formula verification uses RISC-V 64-bit scalar add/sub,
-    // so only fields that fit in a single register (≤8 bytes) are coverable.
-    // u128 and wider types require multi-register arithmetic not yet supported.
+    // u128 fields are verifier-coverable via 128-bit add/sub with carry.
+    if layout.ty == ir::IrType::U128 && layout.fixed_size == Some(16) {
+        if layout.offset + 16 > METADATA_MUTATE_CELL_BUFFER_SIZE {
+            return false;
+        }
+        // The delta must be u64 (fits in a single register for the carry path).
+        return match &transition.operand {
+            ir::IrOperand::Const(ir::IrConst::U64(_)) => true,
+            ir::IrOperand::Var(var) => matches!(var.ty, ir::IrType::U8 | ir::IrType::U16 | ir::IrType::U32 | ir::IrType::U64),
+            _ => false,
+        };
+    }
+    // Standard path: fields that fit in a single 64-bit register (≤8 bytes).
     let Some(width) = metadata_fixed_scalar_width(&layout.ty, layout.fixed_size) else {
         return false;
     };
@@ -14283,7 +14302,7 @@ source_roots = ["src", "shared"]
     }
 
     #[test]
-    fn signer_backed_claim_with_source_predicate_remains_runtime_required() {
+    fn signer_backed_claim_with_source_predicate_is_now_checked() {
         let result = compile(CLAIM_SIGNER_WITH_TIME_PREDICATE_PROGRAM, CompileOptions::default()).unwrap();
         let action = result
             .metadata
@@ -14299,17 +14318,19 @@ source_roots = ["src", "shared"]
             })
             .expect("claim conditions obligation");
 
+        // DAA cliff comparison is now verifier-coverable via LOAD_HEADER_BY_FIELD + slt,
+        // and all source predicates have corresponding checked guards.
         assert_eq!(
-            claim_conditions.status, "runtime-required",
-            "signed receipts with source predicates must not be classified as fully checked: {}",
+            claim_conditions.status, "checked-runtime",
+            "signed receipts with DAA cliff predicates are now fully checked: {}",
             claim_conditions.detail
         );
         assert!(
-            claim_conditions.detail.contains("source-predicate=runtime-required")
+            claim_conditions.detail.contains("daa-cliff-reached=checked-runtime")
                 && claim_conditions.detail.contains("claim-witness-signature=checked-runtime")
                 && claim_conditions.detail.contains("claim-signer-key-binding=checked-runtime")
                 && claim_conditions.detail.contains("Input#0:receipt.cliff_daa=input-cell-field-u64[8]"),
-            "claim conditions should expose the unchecked source predicate while preserving checked signer subconditions: {}",
+            "claim conditions should expose all checked subconditions: {}",
             claim_conditions.detail
         );
         assert!(action.transaction_runtime_input_requirements.iter().any(|requirement| {
@@ -14323,27 +14344,26 @@ source_roots = ["src", "shared"]
                 && requirement.blocker.is_none()
                 && requirement.blocker_class.is_none()
         }));
+        // claim-time-context is now checked-runtime (DAA cliff is verifier-coverable)
         assert!(action.transaction_runtime_input_requirements.iter().any(|requirement| {
             requirement.feature == "claim-conditions:SignedVestingReceipt"
-                && requirement.status == "runtime-required"
+                && requirement.status == "checked-runtime"
                 && requirement.component == "claim-time-context"
                 && requirement.source == "Header"
                 && requirement.field.as_deref() == Some("daa_score")
                 && requirement.abi == "claim-time-daa-score-u64"
                 && requirement.byte_len == Some(8)
-                && requirement.blocker_class.as_deref() == Some("time-context-predicate-gap")
+                && requirement.blocker.is_none()
+                && requirement.blocker_class.is_none()
         }));
-        assert!(action.transaction_runtime_input_requirements.iter().any(|requirement| {
-            requirement.feature == "claim-conditions:SignedVestingReceipt"
-                && requirement.status == "runtime-required"
-                && requirement.component == "claim-source-predicate"
-                && requirement.source == "Transaction"
-                && requirement.field.as_deref() == Some("source-predicate")
-                && requirement.abi == "claim-source-predicate-cfg"
-                && requirement.byte_len.is_none()
-                && requirement.blocker.as_deref() == Some("claim source-level predicates are not fully verifier-covered")
-                && requirement.blocker_class.as_deref() == Some("claim-source-predicate-gap")
-        }));
+        // claim-source-predicate no longer appears as runtime-required
+        // because all source predicates have checked guards.
+        assert!(
+            !action.transaction_runtime_input_requirements.iter().any(|requirement| {
+                requirement.feature == "claim-conditions:SignedVestingReceipt" && requirement.component == "claim-source-predicate"
+            }),
+            "claim-source-predicate should not appear when all source predicates have checked guards"
+        );
     }
 
     #[test]
@@ -14862,6 +14882,43 @@ action credit(ledger: &mut Ledger, delta: u128) {
         }));
         assert!(!action.transaction_runtime_input_requirements.iter().any(|requirement| {
             requirement.feature == "shared-mutation:Ledger" && requirement.component == "mutate-field-equality"
+        }));
+    }
+
+    #[test]
+    fn u128_mutable_state_transition_with_u64_delta_is_checked() {
+        let source = r#"
+module test
+
+shared Ledger has store {
+    balance: u128,
+    owner: Address,
+}
+
+action credit(ledger: &mut Ledger, delta: u64) {
+    ledger.balance = ledger.balance + delta
+}
+"#;
+
+        let result = compile(source, CompileOptions::default()).unwrap();
+        let action = result.metadata.actions.iter().find(|action| action.name == "credit").expect("credit metadata");
+        let mutation = action
+            .mutate_set
+            .iter()
+            .find(|mutation| mutation.operation == "mutate" && mutation.ty == "Ledger" && mutation.binding == "ledger")
+            .expect("credit should expose Ledger mutate_set metadata");
+
+        assert_eq!(mutation.field_equality_status, "checked-runtime");
+        assert_eq!(mutation.field_transition_status, "checked-runtime");
+        assert!(action.verifier_obligations.iter().any(|obligation| {
+            obligation.category == "shared-state"
+                && obligation.feature == "shared-mutation:Ledger"
+                && obligation.status == "checked-runtime"
+                && obligation.detail.contains("field equality=checked-runtime")
+                && obligation.detail.contains("field transition=checked-runtime")
+        }));
+        assert!(!action.transaction_runtime_input_requirements.iter().any(|requirement| {
+            requirement.feature == "shared-mutation:Ledger" && requirement.component == "mutate-field-transition"
         }));
     }
 
