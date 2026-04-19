@@ -23,10 +23,10 @@ The known v1-core residual gaps are now policy-visible through stable blocker cl
 
 Current implementation facts:
 
-- `cellscript/src/` contains `42,027` lines of Rust across `26` source files.
-- `cellscript/src/` plus `cellscript/tests/` contains `46,886` lines of Rust across `28` files.
-- `365` `#[test]` declarations are present in source/test files.
-- A fresh default-feature `cargo test -p cellscript` run executed `352` tests: `287` library tests, `58` CLI integration tests, `7` examples integration tests, and `0` doctests. All passed.
+- `cellscript/src/` contains `42,274` lines of Rust across `26` source files.
+- `cellscript/src/` plus `cellscript/tests/` contains `47,221` lines of Rust across `28` files.
+- `366` `#[test]` declarations are present in source/test files.
+- A fresh default-feature `cargo test -p cellscript` run executed `353` tests: `287` library tests, `59` CLI integration tests, `7` examples integration tests, and `0` doctests. All passed.
 - The repository includes `7` bundled `.cell` examples: `token`, `amm_pool`, `vesting`, `launch`, `nft`, `multisig`, and `timelock`.
 
 Approximate implementation status:

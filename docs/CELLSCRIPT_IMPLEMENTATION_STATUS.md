@@ -24,8 +24,8 @@ Do **not** use `SPORA_DSL_DESIGN_PROPOSAL_CN.md` as the source of truth for impl
 
 This snapshot incorporates the 2026-04-19 continuation audit of `SPORA_DSL_DESIGN_PROPOSAL_CN.md`, the current `cellscript/` source tree, the current design-implementation audit, and a fresh default-feature test run.
 
-- Rust source size: `42,027` lines across `26` files under `cellscript/src/`; `46,886` lines across `28` Rust files when `cellscript/tests/` integration tests are included.
-- Test inventory: `365` `#[test]` declarations are present in source/test files; the default-feature active suite run below executed `352` tests.
+- Rust source size: `42,274` lines across `26` files under `cellscript/src/`; `47,221` lines across `28` Rust files when `cellscript/tests/` integration tests are included.
+- Test inventory: `366` `#[test]` declarations are present in source/test files; the default-feature active suite run below executed `353` tests.
 - Example programs: `7` bundled `.cell` examples compile under the default assembly target: `amm_pool`, `launch`, `multisig`, `nft`, `timelock`, `token`, and `vesting`.
 - Design-proposal completion: roughly `70-75%` overall. The compiler core is real; the stateful protocol language is not complete.
 - v1 core-language convergence: **closed for the v1 executable-core boundary gate**. This measures stable executable-core boundaries and blocker-class coverage, not generalized protocol semantic completeness.
@@ -381,10 +381,10 @@ Still not safe to call semantically complete:
 At the time of this snapshot, `cargo test -p cellscript` passed under default features:
 
 - `286` library tests
-- `57` CLI integration tests
+- `59` CLI integration tests
 - `7` examples integration tests
 - `0` doctests
-- total executed: `352` tests, `0` failures
+- total executed: `353` tests, `0` failures
 
 This is enough to justify “working compiler core under production hardening”, but not enough to justify “complete language toolchain”.
 

@@ -1039,6 +1039,47 @@ action now() -> u64 {
 }
 
 #[test]
+fn cellc_check_rejects_portable_profile_daa_policy() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(
+        root.join("Cell.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("src").join("main.cell"),
+        r#"
+module demo::main
+
+action now() -> u64 {
+    return env::current_daa_score()
+}
+"#,
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_cellc"))
+        .current_dir(root)
+        .arg("check")
+        .arg("--target-profile")
+        .arg("portable-cell")
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success(), "unexpected success: {}", String::from_utf8_lossy(&output.stdout));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("target profile policy failed for 'portable-cell'"), "unexpected stderr: {}", stderr);
+    assert!(stderr.contains("DAA/header assumptions are Spora-specific"), "unexpected stderr: {}", stderr);
+}
+
+#[test]
 fn cellc_check_rejects_portable_profile_persistent_cell_types() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path();

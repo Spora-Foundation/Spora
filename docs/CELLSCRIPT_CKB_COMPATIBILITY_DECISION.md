@@ -137,6 +137,20 @@ These surfaces cannot be made CKB-compatible by serialization alone:
 | Pool/shared-state scheduling | CellScript's Pool and shared-state patterns are designed for Spora's parallel execution roadmap. |
 | Native helper syscalls | Spora-specific syscalls or syscall numbers must be excluded or shimmed for a real CKB target. |
 
+### Time Basis / Chain Clock Semantics
+
+CellScript must not treat Spora DAA score as a portable chain clock.
+
+`env::current_daa_score()` is a Spora-native time/ordering primitive. It depends on Spora DAG header semantics and lowers through the current Spora header ABI. CKB has different consensus time surfaces such as `since`, epoch-oriented locks, block/header fields, and transaction header dependencies. These are not a unit conversion of DAA score, so the compiler must not rewrite DAA predicates into CKB predicates automatically.
+
+Policy:
+
+- `spora` may use `env::current_daa_score()` and Spora DAG header fields.
+- `ckb` must reject `env::current_daa_score()` until a CKB-specific clock/header API and lowering are designed.
+- `portable-cell` must also reject `env::current_daa_score()`, because portable source must avoid target-specific chain-clock assumptions.
+- Portable application logic that needs time should accept an explicit `u64`/domain-specific parameter and bind that parameter off-chain or in a target-specific wrapper.
+- Future CKB support should introduce profile-specific APIs such as `ckb::since`, `ckb::header_epoch`, `ckb::header_timestamp`, or `ckb::block_number` only with explicit ABI, header-dep, and consensus-validity rules.
+
 ## Design Answer
 
 CellScript can be **source-level portable for a constrained common subset**, but a single compiled artifact should not be treated as both Spora-compatible and CKB-compatible.
@@ -355,7 +369,7 @@ Add lint/check gates for `portable-cell` and `ckb` targets:
 
 Exit gate: a source file can be mechanically classified as Spora-only, CKB-targetable, or portable-subset.
 
-Current implementation status (2026-04-19): Phase E has started in `cellc check`. `check --target-profile ckb|portable-cell` now compiles through the current Spora lowering path without writing artifacts and then applies target-profile policy classification. Pure portable source can pass the check gate. The gate rejects current metadata evidence for symbolic/fail-closed/runtime-required verifier obligations, runtime-required transaction inputs, persistent Cell types that still need generated Molecule schemas, metadata-only `type_id` declarations that need a real CKB type-id lineage verifier, Spora shared-state scheduler touch domains, pool-pattern scheduler/admission metadata, DAA/header assumptions for `ckb`, Spora-only claim helper syscall features, and CKB ELF packaging that would still contain the Spora `SPORABI` trailer. This is a lint/classification gate, not a CKB artifact generator.
+Current implementation status (2026-04-19): Phase E has started in `cellc check`. `check --target-profile ckb|portable-cell` now compiles through the current Spora lowering path without writing artifacts and then applies target-profile policy classification. Pure portable source can pass the check gate. The gate rejects current metadata evidence for symbolic/fail-closed/runtime-required verifier obligations, runtime-required transaction inputs, persistent Cell types that still need generated Molecule schemas, metadata-only `type_id` declarations that need a real CKB type-id lineage verifier, Spora shared-state scheduler touch domains, pool-pattern scheduler/admission metadata, DAA/header assumptions for both `ckb` and `portable-cell`, Spora-only claim helper syscall features, and CKB ELF packaging that would still contain the Spora `SPORABI` trailer. This is a lint/classification gate, not a CKB artifact generator.
 
 ### Phase F: Test Against CKB Baseline
 

@@ -45,7 +45,7 @@
 | CLI 子命令 | 🟡 本地工作流已接主入口，registry/runtime 命令仍 fail-closed/feature-gated | `cellscript/src/cli/` |
 | 集合类型 | 🚧 基础定义 | `cellscript/src/stdlib/collections.rs` |
 | 调试信息 | 🚧 原型级 | `cellscript/src/debug/` |
-| 测试套件 | ✅ 默认特性 `cargo test -p cellscript` 当前 352 项全部通过 | `cellscript/src/`, `cellscript/tests/` |
+| 测试套件 | ✅ 默认特性 `cargo test -p cellscript` 当前 353 项全部通过 | `cellscript/src/`, `cellscript/tests/` |
 
 **编译器项目路径**: `/Users/arthur/RustroverProjects/Spora/cellscript/`  
 

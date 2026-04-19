@@ -1440,10 +1440,6 @@ fn ckb_target_profile_policy_violations(metadata: &crate::CompileMetadata, artif
         );
     }
 
-    if metadata.runtime.ckb_runtime_features.iter().any(|feature| feature == "load-header-daa-score") {
-        violations.push("DAA/header assumptions are Spora-specific and not expressible on CKB".to_string());
-    }
-
     let spora_only_features = metadata
         .runtime
         .ckb_runtime_features
@@ -1464,6 +1460,10 @@ fn portable_cell_target_profile_policy_violations(metadata: &crate::CompileMetad
 
 fn common_portability_policy_violations(metadata: &crate::CompileMetadata) -> Vec<String> {
     let mut violations = Vec::new();
+
+    if metadata.runtime.ckb_runtime_features.iter().any(|feature| feature == "load-header-daa-score") {
+        violations.push("DAA/header assumptions are Spora-specific and not portable across target profiles".to_string());
+    }
 
     if metadata.runtime.symbolic_cell_runtime_required {
         violations.push(format!(
