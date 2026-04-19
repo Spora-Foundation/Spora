@@ -2128,6 +2128,8 @@ Slice 100 更新：`Vec<T>` 不再允许携带引用。`Vec<&Token>` 和 `points
 
 Slice 101 更新：action-visible 的 Cell-backed `Vec<T>` 现在不再只暴露为泛化 `collection-runtime`。当 `CollectionPush` / `CollectionExtend` 的 payload 含 `resource` / `shared` / `receipt` 值，或 action 声明返回 `Vec<CellType>` 时，metadata 会追加 `cell-backed-collection-runtime`、`cell-backed-collection-push`、`cell-backed-collection-extend` 和 `cell-backed-collection-return`，并生成 `linear-collection:<CellType>` transaction-invariant obligation。对应 `transaction_runtime_input_requirements[]` 会暴露 `linear-collection-ownership` / `linear-collection-ownership-gap`。这不是把线性集合语义执行化；`Vec<NFT>` / `Vec<TimeLock>` batch 路径仍然 symbolic/fail-closed，但审计、CLI policy 和 release gate 现在能稳定地区分“普通集合 runtime”与“Cell-backed 线性集合 ownership model 缺口”。
 
+Slice 102 更新：直接 `create` 的 verifier 覆盖缺口现在进入 transaction blocker 分类。若 `create` 输出字段无法由当前 verifier prelude 覆盖，metadata 会生成 `create-output:<Type>:<binding>` transaction-invariant obligation，并在 `transaction_runtime_input_requirements[]` 暴露 `create-output-fields` / `create-output-verification-gap`；若 `with_lock(...)` 绑定无法覆盖，则暴露 `create-output-lock` / `create-output-lock-verification-gap`。这一步不扩大可执行 verifier 覆盖，只把核心 `create` 输出字段和 lock 绑定的不完整路径从泛化 `output-verification-incomplete` / `output-lock-verification-incomplete` 提升为稳定 blocker class。
+
 目标：
 - 在后端工作扩展之前冻结最小语言核心。
 

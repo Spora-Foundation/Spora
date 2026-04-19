@@ -2157,7 +2157,10 @@ fn body_transaction_resource_obligations(
     for block in &body.blocks {
         for instruction in &block.instructions {
             match instruction {
-                ir::IrInstruction::Create { .. } => {
+                ir::IrInstruction::Create { pattern, .. } => {
+                    if let Some(check) = create_output_verification_obligation(pattern, type_layouts, &availability) {
+                        checks.push(check);
+                    }
                     output_index += 1;
                 }
                 ir::IrInstruction::Transfer { operand, .. } => {
@@ -2303,6 +2306,32 @@ fn body_transaction_resource_obligations(
     checks.extend(body_resource_conservation_obligations(body, type_layouts, &availability, params, cell_type_kinds));
     checks.extend(body_receipt_claim_flow_obligations(name, body, type_layouts, cell_type_kinds));
     checks
+}
+
+fn create_output_verification_obligation(
+    pattern: &ir::CreatePattern,
+    type_layouts: &MetadataTypeLayouts,
+    availability: &MetadataPreludeAvailability,
+) -> Option<TransactionResourceObligation> {
+    if pattern.operation != "create" {
+        return None;
+    }
+    let fields_checked = metadata_can_verify_create_output_fields(pattern, type_layouts, availability);
+    let lock_checked = metadata_can_verify_output_lock(pattern, availability);
+    if fields_checked && lock_checked {
+        return None;
+    }
+    let fields_status = if fields_checked { "checked-runtime" } else { "runtime-required" };
+    let lock_status = if lock_checked { "checked-runtime" } else { "runtime-required" };
+    Some(TransactionResourceObligation {
+        category: "transaction-invariant",
+        feature: format!("create-output:{}:{}", pattern.ty, pattern.binding),
+        status: "runtime-required",
+        detail: format!(
+            "Runtime verifier must prove create output '{}' bound to '{}' has verifier-covered fields and lock binding; create-output-fields={}; create-output-lock={}",
+            pattern.ty, pattern.binding, fields_status, lock_status
+        ),
+    })
 }
 
 fn body_linear_collection_obligations(
@@ -2995,6 +3024,38 @@ fn transaction_runtime_input_requirements_from_obligations(
                 "settle-output-relation-consume-create-accounting",
                 None,
             ));
+        } else if let Some(binding) = obligation.feature.strip_prefix("create-output:") {
+            let output_binding = binding.rsplit_once(':').map(|(_, binding)| binding).unwrap_or(binding);
+            let fields_status = obligation_detail_status(obligation, "create-output-fields").unwrap_or("runtime-required");
+            let lock_status = obligation_detail_status(obligation, "create-output-lock").unwrap_or("runtime-required");
+            if fields_status != "checked-runtime" {
+                requirements.push(transaction_runtime_input_requirement(
+                    obligation,
+                    "create-output-fields",
+                    "runtime-required",
+                    Some("create output field verifier is incomplete for this output shape"),
+                    Some("create-output-verification-gap"),
+                    "Output",
+                    output_binding,
+                    Some("fields"),
+                    "create-output-field-verifier",
+                    None,
+                ));
+            }
+            if lock_status != "checked-runtime" {
+                requirements.push(transaction_runtime_input_requirement(
+                    obligation,
+                    "create-output-lock",
+                    "runtime-required",
+                    Some("create output lock binding is not fully verifier-covered"),
+                    Some("create-output-lock-verification-gap"),
+                    "Output",
+                    output_binding,
+                    Some("lock_hash"),
+                    "create-output-lock-hash-32",
+                    Some(32),
+                ));
+            }
         } else if let Some(binding) = obligation.feature.strip_prefix("linear-collection:") {
             requirements.push(transaction_runtime_input_requirement(
                 obligation,
@@ -8101,6 +8162,26 @@ action issue(amount: u64) -> Token {
 }
 "#;
 
+    const CREATE_UNSUPPORTED_FIXED_BYTE_OUTPUT_PROGRAM: &str = r#"
+module test
+
+resource Fingerprint {
+    digest: Hash,
+}
+
+fn make_digest() -> Hash {
+    return Hash::zero()
+}
+
+action issue() -> Fingerprint {
+    let digest = make_digest()
+    let token = create Fingerprint {
+        digest: digest
+    }
+    return token
+}
+"#;
+
     const CREATE_DUPLICATE_FIELD_PROGRAM: &str = r#"
 module test
 
@@ -10963,6 +11044,51 @@ action activate(ticket: Ticket) -> Ticket {
             !action.fail_closed_runtime_features.contains(&"output-verification-incomplete".to_string()),
             "computed scalar create expression should not reach action fail-closed metadata: {:?}",
             action.fail_closed_runtime_features
+        );
+    }
+
+    #[test]
+    fn incomplete_create_output_verification_exposes_transaction_blocker() {
+        let result = compile(CREATE_UNSUPPORTED_FIXED_BYTE_OUTPUT_PROGRAM, CompileOptions::default()).unwrap();
+        let action = result.metadata.actions.iter().find(|action| action.name == "issue").expect("issue action");
+
+        assert!(
+            action.fail_closed_runtime_features.contains(&"output-verification-incomplete".to_string()),
+            "unsupported create output should still fail closed: {:?}",
+            action.fail_closed_runtime_features
+        );
+        let obligation = action
+            .verifier_obligations
+            .iter()
+            .find(|obligation| obligation.feature.starts_with("create-output:Fingerprint:"))
+            .expect("create output verifier obligation");
+        assert_eq!(obligation.category, "transaction-invariant");
+        assert_eq!(obligation.status, "runtime-required");
+        assert!(
+            obligation.detail.contains("create-output-fields=runtime-required")
+                && obligation.detail.contains("create-output-lock=checked-runtime"),
+            "create output obligation must classify field and lock coverage separately: {:?}",
+            obligation
+        );
+        assert!(
+            action.transaction_runtime_input_requirements.iter().any(|requirement| {
+                requirement.feature.starts_with("create-output:Fingerprint:")
+                    && requirement.binding == "create_Fingerprint"
+                    && requirement.component == "create-output-fields"
+                    && requirement.status == "runtime-required"
+                    && requirement.blocker_class.as_deref() == Some("create-output-verification-gap")
+            }),
+            "action metadata must expose create output field verifier blocker: {:?}",
+            action.transaction_runtime_input_requirements
+        );
+        assert!(
+            !action
+                .transaction_runtime_input_requirements
+                .iter()
+                .any(|requirement| requirement.feature.starts_with("create-output:Fingerprint:")
+                    && requirement.component == "create-output-lock"),
+            "absence of an explicit with_lock should not expose a lock blocker: {:?}",
+            action.transaction_runtime_input_requirements
         );
     }
 
