@@ -2134,6 +2134,8 @@ Slice 103 更新：普通 `consume` 的 Input 数据加载现在进入 checked t
 
 Slice 104 更新：`read_ref` 的 CellDep 数据加载也进入 checked transaction input component surface。表达式 `read_ref<T>()` 和 `read_ref` 参数都会生成带 CellDep 顺序的 `read-ref:<binding>#<index>` transaction-invariant obligation，并在 `transaction_runtime_input_requirements[]` 暴露 checked `read-ref-cell-dep-data=CellDep:<binding>.data:read-ref-load-cell-dep`。这一步只声明 codegen 已经真实执行的 `LOAD_CELL Source::CellDep` 数据加载；依赖选择、OutPoint/type-id 绑定和更广义的共享状态语义仍由 scheduler/builder/policy 层负责。
 
+Slice 105 更新：直接 `create` 的 verifier 覆盖结果现在也进入 checked/runtime 同一 metadata surface。完全覆盖的 `create Type { ... }` 会生成 `create-output:<Type>:<binding>` checked transaction-invariant obligation，并在 `transaction_runtime_input_requirements[]` 暴露 checked `create-output-fields=Output:<binding>.fields:create-output-field-verifier`；若存在 verifier-coverable `with_lock(...)`，还会暴露 checked `create-output-lock=Output:<binding>.lock_hash:create-output-lock-hash-32`。无 `with_lock` 的 create 明确标为 `create-output-lock=not-required`，不会伪造 lock component；未覆盖字段或显式 lock 仍保留 `create-output-verification-gap` / `create-output-lock-verification-gap`。
+
 目标：
 - 在后端工作扩展之前冻结最小语言核心。
 

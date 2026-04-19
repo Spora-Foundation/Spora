@@ -2357,19 +2357,32 @@ fn create_output_verification_obligation(
     }
     let fields_checked = metadata_can_verify_create_output_fields(pattern, type_layouts, availability);
     let lock_checked = metadata_can_verify_output_lock(pattern, availability);
-    if fields_checked && lock_checked {
-        return None;
-    }
     let fields_status = if fields_checked { "checked-runtime" } else { "runtime-required" };
-    let lock_status = if lock_checked { "checked-runtime" } else { "runtime-required" };
+    let lock_status = match &pattern.lock {
+        Some(_) if lock_checked => "checked-runtime",
+        Some(_) => "runtime-required",
+        None => "not-required",
+    };
+    let status = if fields_checked && lock_checked { "checked-runtime" } else { "runtime-required" };
     Some(TransactionResourceObligation {
         category: "transaction-invariant",
         feature: format!("create-output:{}:{}", pattern.ty, pattern.binding),
-        status: "runtime-required",
-        detail: format!(
-            "Runtime verifier must prove create output '{}' bound to '{}' has verifier-covered fields and lock binding; create-output-fields={}; create-output-lock={}",
-            pattern.ty, pattern.binding, fields_status, lock_status
-        ),
+        status,
+        detail: if status == "checked-runtime" {
+            format!(
+                "Compiler-emitted runtime verifier checks create output '{}' bound to '{}' has verifier-covered fields{}; create-output-fields={}; create-output-lock={}",
+                pattern.ty,
+                pattern.binding,
+                if pattern.lock.is_some() { " and lock binding" } else { "" },
+                fields_status,
+                lock_status
+            )
+        } else {
+            format!(
+                "Runtime verifier must prove create output '{}' bound to '{}' has verifier-covered fields and any explicit lock binding; create-output-fields={}; create-output-lock={}",
+                pattern.ty, pattern.binding, fields_status, lock_status
+            )
+        },
     })
 }
 
@@ -2927,6 +2940,7 @@ fn transaction_runtime_input_requirements_from_obligations(
         let include_checked_settle_output = obligation.status == "checked-runtime" && obligation.feature.starts_with("settle-output:");
         let include_checked_consume_input = obligation.status == "checked-runtime" && obligation.feature.starts_with("consume-input:");
         let include_checked_read_ref = obligation.status == "checked-runtime" && obligation.feature.starts_with("read-ref:");
+        let include_checked_create_output = obligation.status == "checked-runtime" && obligation.feature.starts_with("create-output:");
         let include_checked_resource_conservation =
             obligation.status == "checked-runtime" && obligation.feature.starts_with("resource-conservation:");
         let include_checked_claim_conditions =
@@ -2941,6 +2955,7 @@ fn transaction_runtime_input_requirements_from_obligations(
                 && !include_checked_settle_output
                 && !include_checked_consume_input
                 && !include_checked_read_ref
+                && !include_checked_create_output
                 && !include_checked_resource_conservation
                 && !include_checked_claim_conditions
                 && !include_checked_settle_finalization)
@@ -3099,33 +3114,34 @@ fn transaction_runtime_input_requirements_from_obligations(
             let output_binding = binding.rsplit_once(':').map(|(_, binding)| binding).unwrap_or(binding);
             let fields_status = obligation_detail_status(obligation, "create-output-fields").unwrap_or("runtime-required");
             let lock_status = obligation_detail_status(obligation, "create-output-lock").unwrap_or("runtime-required");
-            if fields_status != "checked-runtime" {
-                requirements.push(transaction_runtime_input_requirement(
-                    obligation,
-                    "create-output-fields",
-                    "runtime-required",
-                    Some("create output field verifier is incomplete for this output shape"),
-                    Some("create-output-verification-gap"),
-                    "Output",
-                    output_binding,
-                    Some("fields"),
-                    "create-output-field-verifier",
-                    None,
-                ));
-            }
-            if lock_status != "checked-runtime" {
-                requirements.push(transaction_runtime_input_requirement(
-                    obligation,
-                    "create-output-lock",
-                    "runtime-required",
-                    Some("create output lock binding is not fully verifier-covered"),
-                    Some("create-output-lock-verification-gap"),
-                    "Output",
-                    output_binding,
-                    Some("lock_hash"),
-                    "create-output-lock-hash-32",
-                    Some(32),
-                ));
+            requirements.push(transaction_runtime_input_requirement(
+                obligation,
+                "create-output-fields",
+                fields_status,
+                (fields_status == "runtime-required").then_some("create output field verifier is incomplete for this output shape"),
+                (fields_status == "runtime-required").then_some("create-output-verification-gap"),
+                "Output",
+                output_binding,
+                Some("fields"),
+                "create-output-field-verifier",
+                None,
+            ));
+            match lock_status {
+                "checked-runtime" | "runtime-required" => {
+                    requirements.push(transaction_runtime_input_requirement(
+                        obligation,
+                        "create-output-lock",
+                        lock_status,
+                        (lock_status == "runtime-required").then_some("create output lock binding is not fully verifier-covered"),
+                        (lock_status == "runtime-required").then_some("create-output-lock-verification-gap"),
+                        "Output",
+                        output_binding,
+                        Some("lock_hash"),
+                        "create-output-lock-hash-32",
+                        Some(32),
+                    ));
+                }
+                _ => {}
             }
         } else if let Some(binding) = obligation.feature.strip_prefix("linear-collection:") {
             requirements.push(transaction_runtime_input_requirement(
@@ -11058,6 +11074,35 @@ action activate(ticket: Ticket) -> Ticket {
         assert!(action.params[0].fixed_byte_pointer_abi);
         assert!(action.params[0].fixed_byte_length_abi);
         assert_eq!(action.params[0].fixed_byte_len, Some(32));
+        assert!(action.verifier_obligations.iter().any(|obligation| {
+            obligation.category == "transaction-invariant"
+                && obligation.feature == "create-output:Token:create_Token"
+                && obligation.status == "checked-runtime"
+                && obligation.detail.contains("create-output-fields=checked-runtime")
+                && obligation.detail.contains("create-output-lock=checked-runtime")
+        }));
+        assert!(action.transaction_runtime_input_requirements.iter().any(|requirement| {
+            requirement.feature == "create-output:Token:create_Token"
+                && requirement.component == "create-output-fields"
+                && requirement.status == "checked-runtime"
+                && requirement.binding == "create_Token"
+                && requirement.source == "Output"
+                && requirement.field.as_deref() == Some("fields")
+                && requirement.blocker.is_none()
+                && requirement.blocker_class.is_none()
+        }));
+        assert!(action.transaction_runtime_input_requirements.iter().any(|requirement| {
+            requirement.feature == "create-output:Token:create_Token"
+                && requirement.component == "create-output-lock"
+                && requirement.status == "checked-runtime"
+                && requirement.binding == "create_Token"
+                && requirement.source == "Output"
+                && requirement.field.as_deref() == Some("lock_hash")
+                && requirement.abi == "create-output-lock-hash-32"
+                && requirement.byte_len == Some(32)
+                && requirement.blocker.is_none()
+                && requirement.blocker_class.is_none()
+        }));
     }
 
     #[test]
@@ -11092,6 +11137,34 @@ action activate(ticket: Ticket) -> Ticket {
         );
         assert!(asm.contains("li t1, 42"), "create output verification did not load expected constant:\n{}", asm);
         assert!(asm.contains("sub t2, t0, t1"), "create output verification did not compare actual and expected values:\n{}", asm);
+        let action = result.metadata.actions.iter().find(|action| action.name == "issue").expect("issue metadata");
+        assert!(action.verifier_obligations.iter().any(|obligation| {
+            obligation.category == "transaction-invariant"
+                && obligation.feature == "create-output:Token:create_Token"
+                && obligation.status == "checked-runtime"
+                && obligation.detail.contains("create-output-fields=checked-runtime")
+                && obligation.detail.contains("create-output-lock=not-required")
+        }));
+        assert!(action.transaction_runtime_input_requirements.iter().any(|requirement| {
+            requirement.feature == "create-output:Token:create_Token"
+                && requirement.component == "create-output-fields"
+                && requirement.status == "checked-runtime"
+                && requirement.binding == "create_Token"
+                && requirement.source == "Output"
+                && requirement.field.as_deref() == Some("fields")
+                && requirement.abi == "create-output-field-verifier"
+                && requirement.blocker.is_none()
+                && requirement.blocker_class.is_none()
+        }));
+        assert!(
+            !action
+                .transaction_runtime_input_requirements
+                .iter()
+                .any(|requirement| requirement.feature == "create-output:Token:create_Token"
+                    && requirement.component == "create-output-lock"),
+            "create without with_lock should not expose a lock component: {:?}",
+            action.transaction_runtime_input_requirements
+        );
     }
 
     #[test]
@@ -11137,7 +11210,7 @@ action activate(ticket: Ticket) -> Ticket {
         assert_eq!(obligation.status, "runtime-required");
         assert!(
             obligation.detail.contains("create-output-fields=runtime-required")
-                && obligation.detail.contains("create-output-lock=checked-runtime"),
+                && obligation.detail.contains("create-output-lock=not-required"),
             "create output obligation must classify field and lock coverage separately: {:?}",
             obligation
         );
