@@ -25,7 +25,7 @@ use camino::{Utf8Path, Utf8PathBuf};
 use error::{CompileError, Result};
 use resolve::ModuleResolver;
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 /// 编译选项
 #[derive(Debug, Clone)]
@@ -1468,6 +1468,7 @@ fn compile_metadata_from_ir(ir: &ir::IrModule, artifact_format: ArtifactFormat) 
                         &action.params,
                         &lifecycle_states,
                         &cell_type_kinds,
+                        action.return_type.as_ref(),
                     );
                     let pool_primitives = body_pool_primitive_metadata(
                         "action",
@@ -1551,6 +1552,7 @@ fn compile_metadata_from_ir(ir: &ir::IrModule, artifact_format: ArtifactFormat) 
                         &function.params,
                         &lifecycle_states,
                         &cell_type_kinds,
+                        function.return_type.as_ref(),
                     );
                     let pool_primitives = body_pool_primitive_metadata(
                         "fn",
@@ -1617,6 +1619,7 @@ fn compile_metadata_from_ir(ir: &ir::IrModule, artifact_format: ArtifactFormat) 
                         &lock.params,
                         &lifecycle_states,
                         &cell_type_kinds,
+                        None,
                     );
                     let pool_primitives =
                         body_pool_primitive_metadata("lock", &lock.name, &lock.body, &lock.params, &type_layouts, &cell_type_kinds);
@@ -1830,6 +1833,7 @@ fn module_verifier_obligations(
                     &action.params,
                     lifecycle_states,
                     cell_type_kinds,
+                    action.return_type.as_ref(),
                 ));
             }
             ir::IrItem::PureFn(function) => {
@@ -1864,6 +1868,7 @@ fn module_verifier_obligations(
                     &function.params,
                     lifecycle_states,
                     cell_type_kinds,
+                    function.return_type.as_ref(),
                 ));
             }
             ir::IrItem::Lock(lock) => {
@@ -1892,6 +1897,7 @@ fn module_verifier_obligations(
                     &lock.params,
                     lifecycle_states,
                     cell_type_kinds,
+                    None,
                 ));
             }
             ir::IrItem::TypeDef(_) => {}
@@ -1957,6 +1963,7 @@ fn body_verifier_obligations(
     params: &[ir::IrParam],
     lifecycle_states: &HashMap<String, Vec<String>>,
     cell_type_kinds: &HashMap<String, ir::IrTypeKind>,
+    return_type: Option<&ir::IrType>,
 ) -> Vec<VerifierObligationMetadata> {
     let scope = format!("{}:{}", scope_kind, name);
     let fail_closed = fail_closed_runtime_features.iter().cloned().collect::<BTreeSet<_>>();
@@ -2001,6 +2008,10 @@ fn body_verifier_obligations(
     }
 
     for check in body_transaction_resource_obligations(name, body, type_layouts, params, lifecycle_states, cell_type_kinds) {
+        push_verifier_obligation(&mut obligations, &mut seen, &scope, check.category, &check.feature, check.status, &check.detail);
+    }
+
+    for check in body_linear_collection_obligations(body, return_type, cell_type_kinds) {
         push_verifier_obligation(&mut obligations, &mut seen, &scope, check.category, &check.feature, check.status, &check.detail);
     }
 
@@ -2292,6 +2303,53 @@ fn body_transaction_resource_obligations(
     checks.extend(body_resource_conservation_obligations(body, type_layouts, &availability, params, cell_type_kinds));
     checks.extend(body_receipt_claim_flow_obligations(name, body, type_layouts, cell_type_kinds));
     checks
+}
+
+fn body_linear_collection_obligations(
+    body: &ir::IrBody,
+    return_type: Option<&ir::IrType>,
+    cell_type_kinds: &HashMap<String, ir::IrTypeKind>,
+) -> Vec<TransactionResourceObligation> {
+    let mut operations_by_type = BTreeMap::<String, BTreeSet<&'static str>>::new();
+    for block in &body.blocks {
+        for instruction in &block.instructions {
+            match instruction {
+                ir::IrInstruction::CollectionPush { value, .. } => {
+                    for type_name in ir_operand_cell_backed_type_names(value, cell_type_kinds) {
+                        operations_by_type.entry(type_name).or_default().insert("push");
+                    }
+                }
+                ir::IrInstruction::CollectionExtend { slice, .. } => {
+                    for type_name in ir_operand_cell_backed_collection_type_names(slice, cell_type_kinds) {
+                        operations_by_type.entry(type_name).or_default().insert("extend");
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    if let Some(return_type) = return_type {
+        for type_name in ir_type_cell_backed_collection_type_names(return_type, cell_type_kinds) {
+            operations_by_type.entry(type_name).or_default().insert("return");
+        }
+    }
+
+    operations_by_type
+        .into_iter()
+        .map(|(type_name, operations)| {
+            let operations = operations.into_iter().collect::<Vec<_>>().join("+");
+            TransactionResourceObligation {
+                category: "transaction-invariant",
+                feature: format!("linear-collection:{}", type_name),
+                status: "runtime-required",
+                detail: format!(
+                    "Cell-backed collection carrying '{}' crosses {} path(s); linear-collection-ownership=runtime-required; generated code fails closed through cell-backed-collection-* features until a real linear collection ownership model exists",
+                    type_name, operations
+                ),
+            }
+        })
+        .collect()
 }
 
 #[derive(Debug, Clone)]
@@ -2935,6 +2993,19 @@ fn transaction_runtime_input_requirements_from_obligations(
                 binding,
                 Some("output-relation"),
                 "settle-output-relation-consume-create-accounting",
+                None,
+            ));
+        } else if let Some(binding) = obligation.feature.strip_prefix("linear-collection:") {
+            requirements.push(transaction_runtime_input_requirement(
+                obligation,
+                "linear-collection-ownership",
+                "runtime-required",
+                Some("cell-backed collection ownership is not backed by an executable linear collection model"),
+                Some("linear-collection-ownership-gap"),
+                "Transaction",
+                binding,
+                Some("collection-payload"),
+                "cell-backed-collection-linear-ownership-model",
                 None,
             ));
         } else if let Some(binding) = obligation.feature.strip_prefix("claim-conditions:") {
@@ -6543,6 +6614,23 @@ fn ir_operand_is_cell_backed_collection(operand: &ir::IrOperand, cell_type_kinds
     }
 }
 
+fn ir_operand_cell_backed_type_names(operand: &ir::IrOperand, cell_type_kinds: &HashMap<String, ir::IrTypeKind>) -> Vec<String> {
+    match operand {
+        ir::IrOperand::Var(var) => ir_type_cell_backed_value_type_names(&var.ty, cell_type_kinds),
+        ir::IrOperand::Const(_) => Vec::new(),
+    }
+}
+
+fn ir_operand_cell_backed_collection_type_names(
+    operand: &ir::IrOperand,
+    cell_type_kinds: &HashMap<String, ir::IrTypeKind>,
+) -> Vec<String> {
+    match operand {
+        ir::IrOperand::Var(var) => ir_type_cell_backed_collection_type_names(&var.ty, cell_type_kinds),
+        ir::IrOperand::Const(_) => Vec::new(),
+    }
+}
+
 fn ir_type_contains_cell_backed_value(ty: &ir::IrType, cell_type_kinds: &HashMap<String, ir::IrTypeKind>) -> bool {
     match ty {
         ir::IrType::Array(inner, _) => ir_type_contains_cell_backed_value(inner, cell_type_kinds),
@@ -6553,6 +6641,36 @@ fn ir_type_contains_cell_backed_value(ty: &ir::IrType, cell_type_kinds: &HashMap
         }
         ir::IrType::Ref(_) | ir::IrType::MutRef(_) => false,
         _ => false,
+    }
+}
+
+fn ir_type_cell_backed_value_type_names(ty: &ir::IrType, cell_type_kinds: &HashMap<String, ir::IrTypeKind>) -> Vec<String> {
+    let mut names = BTreeSet::new();
+    collect_ir_type_cell_backed_value_type_names(ty, cell_type_kinds, &mut names);
+    names.into_iter().collect()
+}
+
+fn collect_ir_type_cell_backed_value_type_names(
+    ty: &ir::IrType,
+    cell_type_kinds: &HashMap<String, ir::IrTypeKind>,
+    names: &mut BTreeSet<String>,
+) {
+    match ty {
+        ir::IrType::Array(inner, _) => collect_ir_type_cell_backed_value_type_names(inner, cell_type_kinds, names),
+        ir::IrType::Tuple(items) => {
+            for item in items {
+                collect_ir_type_cell_backed_value_type_names(item, cell_type_kinds, names);
+            }
+        }
+        ir::IrType::Named(name) => {
+            let base_name = name.split('<').next().unwrap_or(name.as_str());
+            if cell_type_kinds.contains_key(base_name) {
+                names.insert(base_name.to_string());
+            }
+            collect_named_type_generic_payload_cell_backed_names(name, cell_type_kinds, names);
+        }
+        ir::IrType::Ref(_) | ir::IrType::MutRef(_) => {}
+        _ => {}
     }
 }
 
@@ -6567,10 +6685,44 @@ fn ir_type_is_cell_backed_collection(ty: &ir::IrType, cell_type_kinds: &HashMap<
     }
 }
 
+fn ir_type_cell_backed_collection_type_names(ty: &ir::IrType, cell_type_kinds: &HashMap<String, ir::IrTypeKind>) -> Vec<String> {
+    let mut names = BTreeSet::new();
+    collect_ir_type_cell_backed_collection_type_names(ty, cell_type_kinds, &mut names);
+    names.into_iter().collect()
+}
+
+fn collect_ir_type_cell_backed_collection_type_names(
+    ty: &ir::IrType,
+    cell_type_kinds: &HashMap<String, ir::IrTypeKind>,
+    names: &mut BTreeSet<String>,
+) {
+    match ty {
+        ir::IrType::Named(name) => {
+            if let Some(payload) = name.strip_prefix("Vec<").and_then(|payload| payload.strip_suffix('>')) {
+                collect_type_fragment_cell_backed_names(payload, cell_type_kinds, names);
+            }
+        }
+        ir::IrType::Ref(inner) | ir::IrType::MutRef(inner) => {
+            collect_ir_type_cell_backed_collection_type_names(inner, cell_type_kinds, names);
+        }
+        _ => {}
+    }
+}
+
 fn named_type_generic_payload_contains_cell_backed_value(name: &str, cell_type_kinds: &HashMap<String, ir::IrTypeKind>) -> bool {
     name.find('<')
         .and_then(|start| name.ends_with('>').then_some(&name[start + 1..name.len() - 1]))
         .is_some_and(|payload| type_fragment_contains_cell_backed_name(payload, cell_type_kinds))
+}
+
+fn collect_named_type_generic_payload_cell_backed_names(
+    name: &str,
+    cell_type_kinds: &HashMap<String, ir::IrTypeKind>,
+    names: &mut BTreeSet<String>,
+) {
+    if let Some(payload) = name.find('<').and_then(|start| name.ends_with('>').then_some(&name[start + 1..name.len() - 1])) {
+        collect_type_fragment_cell_backed_names(payload, cell_type_kinds, names);
+    }
 }
 
 fn type_fragment_contains_cell_backed_name(fragment: &str, cell_type_kinds: &HashMap<String, ir::IrTypeKind>) -> bool {
@@ -6585,6 +6737,27 @@ fn type_fragment_contains_cell_backed_name(fragment: &str, cell_type_kinds: &Has
         }
     }
     type_name_token_is_cell_backed(&token, cell_type_kinds)
+}
+
+fn collect_type_fragment_cell_backed_names(
+    fragment: &str,
+    cell_type_kinds: &HashMap<String, ir::IrTypeKind>,
+    names: &mut BTreeSet<String>,
+) {
+    let mut token = String::new();
+    for ch in fragment.chars() {
+        if ch.is_ascii_alphanumeric() || ch == '_' || ch == ':' {
+            token.push(ch);
+        } else {
+            if type_name_token_is_cell_backed(&token, cell_type_kinds) {
+                names.insert(token.clone());
+            }
+            token.clear();
+        }
+    }
+    if type_name_token_is_cell_backed(&token, cell_type_kinds) {
+        names.insert(token);
+    }
 }
 
 fn type_name_token_is_cell_backed(token: &str, cell_type_kinds: &HashMap<String, ir::IrTypeKind>) -> bool {
@@ -11914,6 +12087,38 @@ action activate(ticket: Ticket) -> Ticket {
             result.metadata.runtime.fail_closed_runtime_features.contains(&"cell-backed-collection-push".to_string()),
             "runtime metadata must aggregate cell-backed collection fail-closed features: {:?}",
             result.metadata.runtime.fail_closed_runtime_features
+        );
+        let linear_collection_obligation = action
+            .verifier_obligations
+            .iter()
+            .find(|obligation| obligation.feature == "linear-collection:NFT")
+            .expect("cell-backed collection obligation");
+        assert_eq!(linear_collection_obligation.category, "transaction-invariant");
+        assert_eq!(linear_collection_obligation.status, "runtime-required");
+        assert!(
+            linear_collection_obligation.detail.contains("linear-collection-ownership=runtime-required"),
+            "linear collection obligation must expose the blocker detail: {:?}",
+            linear_collection_obligation
+        );
+        assert!(
+            action.transaction_runtime_input_requirements.iter().any(|requirement| {
+                requirement.feature == "linear-collection:NFT"
+                    && requirement.component == "linear-collection-ownership"
+                    && requirement.status == "runtime-required"
+                    && requirement.blocker_class.as_deref() == Some("linear-collection-ownership-gap")
+            }),
+            "action metadata must expose a linear collection runtime input blocker: {:?}",
+            action.transaction_runtime_input_requirements
+        );
+        assert!(
+            result.metadata.runtime.transaction_runtime_input_requirements.iter().any(|requirement| {
+                requirement.feature == "linear-collection:NFT"
+                    && requirement.component == "linear-collection-ownership"
+                    && requirement.status == "runtime-required"
+                    && requirement.blocker_class.as_deref() == Some("linear-collection-ownership-gap")
+            }),
+            "runtime metadata must aggregate the linear collection runtime input blocker: {:?}",
+            result.metadata.runtime.transaction_runtime_input_requirements
         );
     }
 
