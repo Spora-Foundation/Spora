@@ -185,6 +185,19 @@ fn vesting_read_ref_params_are_scheduler_visible() {
         "read_ref parameter was not exposed as a CellDep access: {:?}",
         grant_vesting.ckb_runtime_accesses
     );
+    assert!(
+        grant_vesting.transaction_runtime_input_requirements.iter().any(|requirement| {
+            requirement.feature == "read-ref:config#0"
+                && requirement.component == "read-ref-cell-dep-data"
+                && requirement.status == "checked-runtime"
+                && requirement.source == "CellDep"
+                && requirement.binding == "config"
+                && requirement.blocker.is_none()
+                && requirement.blocker_class.is_none()
+        }),
+        "read_ref parameter was not exposed as checked CellDep data requirement: {:?}",
+        grant_vesting.transaction_runtime_input_requirements
+    );
     assert!(grant_vesting.ckb_runtime_features.contains(&"read-cell-dep".to_string()));
     assert!(!grant_vesting.touches_shared.is_empty(), "shared read_ref should be scheduler-visible");
 }

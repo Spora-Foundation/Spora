@@ -2308,6 +2308,7 @@ fn body_transaction_resource_obligations(
             }
         }
     }
+    checks.extend(read_ref_cell_dep_data_obligations(body));
     checks.extend(body_resource_conservation_obligations(body, type_layouts, &availability, params, cell_type_kinds));
     checks.extend(body_receipt_claim_flow_obligations(name, body, type_layouts, cell_type_kinds));
     checks
@@ -2327,6 +2328,23 @@ fn consume_input_data_obligation(body: &ir::IrBody, operand: &ir::IrOperand) -> 
             type_name, binding
         ),
     })
+}
+
+fn read_ref_cell_dep_data_obligations(body: &ir::IrBody) -> Vec<TransactionResourceObligation> {
+    body.read_refs
+        .iter()
+        .enumerate()
+        .filter(|(_, pattern)| pattern.operation == "read_ref" && pattern.type_hash.is_some())
+        .map(|(index, pattern)| TransactionResourceObligation {
+            category: "transaction-invariant",
+            feature: format!("read-ref:{}#{}", pattern.binding, index),
+            status: "checked-runtime",
+            detail: format!(
+                "Compiler-emitted runtime verifier loads read_ref CellDep data for '{}' through LOAD_CELL Source::CellDep index {}; read-ref-cell-dep-data=checked-runtime",
+                pattern.binding, index
+            ),
+        })
+        .collect()
 }
 
 fn create_output_verification_obligation(
@@ -2908,6 +2926,7 @@ fn transaction_runtime_input_requirements_from_obligations(
         let include_checked_claim_output = obligation.status == "checked-runtime" && obligation.feature.starts_with("claim-output:");
         let include_checked_settle_output = obligation.status == "checked-runtime" && obligation.feature.starts_with("settle-output:");
         let include_checked_consume_input = obligation.status == "checked-runtime" && obligation.feature.starts_with("consume-input:");
+        let include_checked_read_ref = obligation.status == "checked-runtime" && obligation.feature.starts_with("read-ref:");
         let include_checked_resource_conservation =
             obligation.status == "checked-runtime" && obligation.feature.starts_with("resource-conservation:");
         let include_checked_claim_conditions =
@@ -2921,6 +2940,7 @@ fn transaction_runtime_input_requirements_from_obligations(
                 && !include_checked_claim_output
                 && !include_checked_settle_output
                 && !include_checked_consume_input
+                && !include_checked_read_ref
                 && !include_checked_resource_conservation
                 && !include_checked_claim_conditions
                 && !include_checked_settle_finalization)
@@ -3059,6 +3079,20 @@ fn transaction_runtime_input_requirements_from_obligations(
                 input_binding,
                 Some("data"),
                 "consume-load-cell-input",
+                None,
+            ));
+        } else if let Some(binding) = obligation.feature.strip_prefix("read-ref:") {
+            let cell_dep_binding = binding.rsplit_once('#').map(|(binding, _)| binding).unwrap_or(binding);
+            requirements.push(transaction_runtime_input_requirement(
+                obligation,
+                "read-ref-cell-dep-data",
+                "checked-runtime",
+                None,
+                None,
+                "CellDep",
+                cell_dep_binding,
+                Some("data"),
+                "read-ref-load-cell-dep",
                 None,
             ));
         } else if let Some(binding) = obligation.feature.strip_prefix("create-output:") {
@@ -11326,6 +11360,24 @@ action activate(ticket: Ticket) -> Ticket {
             "read_ref u64 field access did not lower to an unaligned-safe byte load sequence:\n{}",
             asm
         );
+        let action = result.metadata.actions.iter().find(|action| action.name == "inspect").expect("inspect metadata");
+        assert!(action.verifier_obligations.iter().any(|obligation| {
+            obligation.category == "transaction-invariant"
+                && obligation.feature == "read-ref:read_ref_Config#0"
+                && obligation.status == "checked-runtime"
+                && obligation.detail.contains("read-ref-cell-dep-data=checked-runtime")
+        }));
+        assert!(action.transaction_runtime_input_requirements.iter().any(|requirement| {
+            requirement.feature == "read-ref:read_ref_Config#0"
+                && requirement.status == "checked-runtime"
+                && requirement.component == "read-ref-cell-dep-data"
+                && requirement.source == "CellDep"
+                && requirement.binding == "read_ref_Config"
+                && requirement.field.as_deref() == Some("data")
+                && requirement.abi == "read-ref-load-cell-dep"
+                && requirement.blocker.is_none()
+                && requirement.blocker_class.is_none()
+        }));
     }
 
     #[test]

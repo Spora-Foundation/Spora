@@ -2132,6 +2132,8 @@ Slice 102 更新：直接 `create` 的 verifier 覆盖缺口现在进入 transac
 
 Slice 103 更新：普通 `consume` 的 Input 数据加载现在进入 checked transaction input component surface。对源码层已被类型检查限制为 named cell-backed linear operand 的 `consume token`，metadata 会生成 `consume-input:<Type>:<binding>` transaction-invariant obligation，并在 `transaction_runtime_input_requirements[]` 暴露 checked `consume-input-data=Input:<binding>.data:consume-load-cell-input`。这一步只声明 codegen 已经真实执行的 `LOAD_CELL Source::Input` 数据加载，不把 broader TypeHash admission、资源守恒或 transaction-builder 输入选择误标为完成。
 
+Slice 104 更新：`read_ref` 的 CellDep 数据加载也进入 checked transaction input component surface。表达式 `read_ref<T>()` 和 `read_ref` 参数都会生成带 CellDep 顺序的 `read-ref:<binding>#<index>` transaction-invariant obligation，并在 `transaction_runtime_input_requirements[]` 暴露 checked `read-ref-cell-dep-data=CellDep:<binding>.data:read-ref-load-cell-dep`。这一步只声明 codegen 已经真实执行的 `LOAD_CELL Source::CellDep` 数据加载；依赖选择、OutPoint/type-id 绑定和更广义的共享状态语义仍由 scheduler/builder/policy 层负责。
+
 目标：
 - 在后端工作扩展之前冻结最小语言核心。
 
