@@ -2136,6 +2136,8 @@ Slice 104 更新：`read_ref` 的 CellDep 数据加载也进入 checked transact
 
 Slice 105 更新：直接 `create` 的 verifier 覆盖结果现在也进入 checked/runtime 同一 metadata surface。完全覆盖的 `create Type { ... }` 会生成 `create-output:<Type>:<binding>` checked transaction-invariant obligation，并在 `transaction_runtime_input_requirements[]` 暴露 checked `create-output-fields=Output:<binding>.fields:create-output-field-verifier`；若存在 verifier-coverable `with_lock(...)`，还会暴露 checked `create-output-lock=Output:<binding>.lock_hash:create-output-lock-hash-32`。无 `with_lock` 的 create 明确标为 `create-output-lock=not-required`，不会伪造 lock component；未覆盖字段或显式 lock 仍保留 `create-output-verification-gap` / `create-output-lock-verification-gap`。
 
+Slice 106 更新：`transfer` / `destroy` / `claim` / `settle` 消费侧 Input 数据加载现在和普通 `consume` 使用同一个 checked component surface。对源码层已被类型检查限制为 named cell-backed linear operand 的操作，metadata 会生成 `transfer-input:<Type>:<binding>`、`destroy-input:<Type>:<binding>`、`claim-input:<Type>:<binding>` 或 `settle-input:<Type>:<binding>` transaction-invariant obligation，并在 `transaction_runtime_input_requirements[]` 暴露 checked `<op>-input-data=Input:<binding>.data:<op>-load-cell-input`。这一步只声明 codegen 已经真实执行的 operation-tagged `LOAD_CELL Source::Input` prelude 数据加载；不把 output relation、authorization、finalization、资源守恒或 transaction-builder 输入选择误标为完成。
+
 目标：
 - 在后端工作扩展之前冻结最小语言核心。
 

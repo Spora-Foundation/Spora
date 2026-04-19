@@ -940,14 +940,14 @@ impl CodeGenerator {
 
     /// 生成 consume 代码
     fn generate_consume(&mut self, pattern: &CellPattern, index: usize) -> Result<()> {
-        self.emit(format!("# consume {}", pattern.binding));
+        self.emit(format!("# {} input {}", pattern.operation, pattern.binding));
         if let Some(var_id) = self.consume_order.get(index).copied() {
             if let (Some(size_offset), Some(buffer_offset)) =
                 (self.cell_buffer_size_offsets.get(&var_id).copied(), self.cell_buffer_offsets.get(&var_id).copied())
             {
                 let input_index = self.consume_indices.get(&var_id).copied().unwrap_or(index);
                 self.emit_load_cell_syscall_to_offsets(
-                    "consume",
+                    &pattern.operation,
                     CKB_SOURCE_INPUT,
                     input_index,
                     size_offset,
@@ -968,7 +968,7 @@ impl CodeGenerator {
             }
         }
 
-        self.emit_load_cell_syscall("consume", CKB_SOURCE_INPUT, index);
+        self.emit_load_cell_syscall(&pattern.operation, CKB_SOURCE_INPUT, index);
         if pattern.operation == "claim" {
             self.emit_claim_witness_authorization_domain_check(index, &pattern.binding, None);
         }

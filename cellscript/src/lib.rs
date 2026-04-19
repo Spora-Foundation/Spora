@@ -2158,7 +2158,7 @@ fn body_transaction_resource_obligations(
         for instruction in &block.instructions {
             match instruction {
                 ir::IrInstruction::Consume { operand } => {
-                    if let Some(check) = consume_input_data_obligation(body, operand) {
+                    if let Some(check) = operation_input_data_obligation(body, "consume", operand) {
                         checks.push(check);
                     }
                 }
@@ -2169,6 +2169,9 @@ fn body_transaction_resource_obligations(
                     output_index += 1;
                 }
                 ir::IrInstruction::Transfer { operand, .. } => {
+                    if let Some(check) = operation_input_data_obligation(body, "transfer", operand) {
+                        checks.push(check);
+                    }
                     if let Some(type_name) = operand_named_type_name(operand) {
                         let output_relation_checked =
                             transfer_output_relation_is_checked(body, type_layouts, &availability, output_index, &type_name);
@@ -2200,6 +2203,9 @@ fn body_transaction_resource_obligations(
                     output_index += 1;
                 }
                 ir::IrInstruction::Destroy { operand } => {
+                    if let Some(check) = operation_input_data_obligation(body, "destroy", operand) {
+                        checks.push(check);
+                    }
                     if let Some(type_name) = operand_named_type_name(operand) {
                         let binding = operand_var_name(operand).unwrap_or(&type_name);
                         let scan_detail = if destroy_group_output_absence_scan_is_checked(body, &type_name, binding) {
@@ -2219,6 +2225,9 @@ fn body_transaction_resource_obligations(
                     }
                 }
                 ir::IrInstruction::Claim { dest, receipt } => {
+                    if let Some(check) = operation_input_data_obligation(body, "claim", receipt) {
+                        checks.push(check);
+                    }
                     if let Some(type_name) = operand_named_type_name(receipt) {
                         let conditions_checked =
                             claim_conditions_are_checked(name, body, type_layouts, cell_type_kinds, "claim", receipt, &type_name);
@@ -2259,6 +2268,9 @@ fn body_transaction_resource_obligations(
                     output_index += 1;
                 }
                 ir::IrInstruction::Settle { dest, operand } => {
+                    if let Some(check) = operation_input_data_obligation(body, "settle", operand) {
+                        checks.push(check);
+                    }
                     if let Some(type_name) = operand_named_type_name(operand) {
                         let finalization_checked = settle_finalization_is_checked(
                             body,
@@ -2314,18 +2326,23 @@ fn body_transaction_resource_obligations(
     checks
 }
 
-fn consume_input_data_obligation(body: &ir::IrBody, operand: &ir::IrOperand) -> Option<TransactionResourceObligation> {
+fn operation_input_data_obligation(
+    body: &ir::IrBody,
+    operation: &'static str,
+    operand: &ir::IrOperand,
+) -> Option<TransactionResourceObligation> {
     let type_name = operand_named_type_name(operand)?;
     let binding = operand_var_name(operand).unwrap_or(type_name.as_str());
-    let pattern = body.consume_set.iter().find(|pattern| pattern.operation == "consume" && pattern.binding == binding)?;
+    let pattern = body.consume_set.iter().find(|pattern| pattern.operation == operation && pattern.binding == binding)?;
     pattern.type_hash?;
+    let component = format!("{operation}-input-data");
     Some(TransactionResourceObligation {
         category: "transaction-invariant",
-        feature: format!("consume-input:{}:{}", type_name, binding),
+        feature: format!("{operation}-input:{}:{}", type_name, binding),
         status: "checked-runtime",
         detail: format!(
-            "Compiler-emitted runtime verifier loads consumed '{}' Input cell data for '{}' through LOAD_CELL Source::Input; consume-input-data=checked-runtime",
-            type_name, binding
+            "Compiler-emitted runtime verifier loads '{}' Input cell data for '{}' through LOAD_CELL Source::Input; {}=checked-runtime",
+            type_name, binding, component
         ),
     })
 }
@@ -2885,6 +2902,22 @@ fn body_uses_current_daa_score(body: &ir::IrBody) -> bool {
     })
 }
 
+fn operation_input_feature(feature: &str) -> Option<(&'static str, &str)> {
+    if let Some(binding) = feature.strip_prefix("consume-input:") {
+        Some(("consume", binding))
+    } else if let Some(binding) = feature.strip_prefix("transfer-input:") {
+        Some(("transfer", binding))
+    } else if let Some(binding) = feature.strip_prefix("destroy-input:") {
+        Some(("destroy", binding))
+    } else if let Some(binding) = feature.strip_prefix("claim-input:") {
+        Some(("claim", binding))
+    } else if let Some(binding) = feature.strip_prefix("settle-input:") {
+        Some(("settle", binding))
+    } else {
+        None
+    }
+}
+
 fn transaction_runtime_input_requirements_from_obligations(
     obligations: &[VerifierObligationMetadata],
 ) -> Vec<TransactionRuntimeInputRequirementMetadata> {
@@ -2938,7 +2971,8 @@ fn transaction_runtime_input_requirements_from_obligations(
             obligation.status == "checked-runtime" && obligation.feature.starts_with("transfer-output:");
         let include_checked_claim_output = obligation.status == "checked-runtime" && obligation.feature.starts_with("claim-output:");
         let include_checked_settle_output = obligation.status == "checked-runtime" && obligation.feature.starts_with("settle-output:");
-        let include_checked_consume_input = obligation.status == "checked-runtime" && obligation.feature.starts_with("consume-input:");
+        let include_checked_operation_input =
+            obligation.status == "checked-runtime" && operation_input_feature(obligation.feature.as_str()).is_some();
         let include_checked_read_ref = obligation.status == "checked-runtime" && obligation.feature.starts_with("read-ref:");
         let include_checked_create_output = obligation.status == "checked-runtime" && obligation.feature.starts_with("create-output:");
         let include_checked_resource_conservation =
@@ -2953,7 +2987,7 @@ fn transaction_runtime_input_requirements_from_obligations(
                 && !include_checked_transfer_output
                 && !include_checked_claim_output
                 && !include_checked_settle_output
-                && !include_checked_consume_input
+                && !include_checked_operation_input
                 && !include_checked_read_ref
                 && !include_checked_create_output
                 && !include_checked_resource_conservation
@@ -3082,18 +3116,20 @@ fn transaction_runtime_input_requirements_from_obligations(
                 "settle-output-relation-consume-create-accounting",
                 None,
             ));
-        } else if let Some(binding) = obligation.feature.strip_prefix("consume-input:") {
+        } else if let Some((operation, binding)) = operation_input_feature(obligation.feature.as_str()) {
             let input_binding = binding.rsplit_once(':').map(|(_, binding)| binding).unwrap_or(binding);
+            let component = format!("{operation}-input-data");
+            let abi = format!("{operation}-load-cell-input");
             requirements.push(transaction_runtime_input_requirement(
                 obligation,
-                "consume-input-data",
+                &component,
                 "checked-runtime",
                 None,
                 None,
                 "Input",
                 input_binding,
                 Some("data"),
-                "consume-load-cell-input",
+                &abi,
                 None,
             ));
         } else if let Some(binding) = obligation.feature.strip_prefix("read-ref:") {
@@ -11333,6 +11369,11 @@ action activate(ticket: Ticket) -> Ticket {
             asm
         );
         assert!(
+            asm.contains("# cellscript abi: LOAD_CELL reason=destroy source=Input index=1"),
+            "destroy input data load did not use operation-specific Input LOAD_CELL ABI:\n{}",
+            asm
+        );
+        assert!(
             !asm.contains("# cellscript abi: destroy symbolic runtime is not executable"),
             "destroy should no longer use the symbolic fail-closed path:\n{}",
             asm
@@ -11365,6 +11406,23 @@ action activate(ticket: Ticket) -> Ticket {
                 && requirement.binding == "a"
                 && requirement.field.as_deref() == Some("data")
                 && requirement.abi == "consume-load-cell-input"
+                && requirement.blocker.is_none()
+                && requirement.blocker_class.is_none()
+        }));
+        assert!(action.verifier_obligations.iter().any(|obligation| {
+            obligation.category == "transaction-invariant"
+                && obligation.feature == "destroy-input:Token:b"
+                && obligation.status == "checked-runtime"
+                && obligation.detail.contains("destroy-input-data=checked-runtime")
+        }));
+        assert!(action.transaction_runtime_input_requirements.iter().any(|requirement| {
+            requirement.feature == "destroy-input:Token:b"
+                && requirement.status == "checked-runtime"
+                && requirement.component == "destroy-input-data"
+                && requirement.source == "Input"
+                && requirement.binding == "b"
+                && requirement.field.as_deref() == Some("data")
+                && requirement.abi == "destroy-load-cell-input"
                 && requirement.blocker.is_none()
                 && requirement.blocker_class.is_none()
         }));
@@ -13628,6 +13686,41 @@ source_roots = ["src", "shared"]
                 && obligation.feature == "settle:Token"
                 && obligation.status == "checked-static"
         }));
+        let has_checked_input_data = |scope: &str, feature: &str, component: &str, binding: &str, abi: &str| {
+            result.metadata.runtime.transaction_runtime_input_requirements.iter().any(|requirement| {
+                requirement.scope == scope
+                    && requirement.feature == feature
+                    && requirement.status == "checked-runtime"
+                    && requirement.component == component
+                    && requirement.source == "Input"
+                    && requirement.binding == binding
+                    && requirement.field.as_deref() == Some("data")
+                    && requirement.abi == abi
+                    && requirement.blocker.is_none()
+                    && requirement.blocker_class.is_none()
+            })
+        };
+        assert!(has_checked_input_data(
+            "action:move_token",
+            "transfer-input:Token:token",
+            "transfer-input-data",
+            "token",
+            "transfer-load-cell-input"
+        ));
+        assert!(has_checked_input_data(
+            "action:redeem",
+            "claim-input:VestingReceipt:receipt",
+            "claim-input-data",
+            "receipt",
+            "claim-load-cell-input"
+        ));
+        assert!(has_checked_input_data(
+            "action:finalize",
+            "settle-input:Token:token",
+            "settle-input-data",
+            "token",
+            "settle-load-cell-input"
+        ));
         assert!(result.metadata.runtime.verifier_obligations.iter().any(|obligation| {
             obligation.category == "transaction-invariant"
                 && obligation.feature == "transfer-output:Token"
