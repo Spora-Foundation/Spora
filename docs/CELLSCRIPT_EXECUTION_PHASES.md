@@ -56,7 +56,7 @@ Current evidence:
 - `transfer-output-relation-gap`, `resource-conservation-proof-gap`, and `claim-source-predicate-gap` already have CLI JSON and `--deny-runtime-obligations` coverage.
 - `finalization-policy-gap` and `linear-collection-ownership-gap` are now covered by dedicated CLI JSON and `--deny-runtime-obligations` regressions.
 - Operation-specific checked Input data components are exposed for `consume`, `transfer`, `destroy`, `claim`, and `settle`.
-- The post-change `cargo test -p cellscript` gate passed: `286` library tests, `52` CLI integration tests, `7` bundled example tests, and `0` doctests.
+- The post-change `cargo test -p cellscript` gate passed: `286` library tests, `57` CLI integration tests, `7` bundled example tests, and `0` doctests.
 - `git diff --check` passed after the convergence changes.
 
 Remaining closure item:
@@ -85,7 +85,7 @@ Current gate coverage:
 
 - `cargo fmt --all --check`
 - `cargo check --workspace --all-targets`
-- Full `cellscript` tests: `286` library tests, `52` CLI integration tests, `7` bundled example tests, `0` doctests
+- Full `cellscript` tests: `286` library tests, `57` CLI integration tests, `7` bundled example tests, `0` doctests
 - `spora-adaptor`: `2` unit tests, `0` doctests, executable `adaptor_roundtrip` and `adaptor_reject_noncanonical` examples
 - `spora-exec`: `14` scheduler witness tests and `10` scheduler property tests
 - `spora-consensus`: `8` strict trusted-summary tests and `12` template scheduler policy tests

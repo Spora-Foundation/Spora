@@ -28,12 +28,12 @@ const CKB_CELL_FIELD_TYPE_HASH: u64 = 5;
 const CKB_INDEX_OUT_OF_BOUND: u64 = 1;
 const CKB_ITEM_MISSING: u64 = 2;
 const CKB_SIG_HASH_ALL: u64 = 1;
-const RUNTIME_SCRATCH_BUFFER_SIZE: usize = 256;
+const RUNTIME_SCRATCH_BUFFER_SIZE: usize = 512;
 const RUNTIME_SCRATCH_SLOT_SIZE: usize = 8 + RUNTIME_SCRATCH_BUFFER_SIZE;
 const RUNTIME_SCRATCH_SIZE: usize = RUNTIME_SCRATCH_SLOT_SIZE * 2;
 const RUNTIME_EXPR_TEMP_SLOTS: usize = 8;
 const RUNTIME_EXPR_TEMP_SIZE: usize = RUNTIME_EXPR_TEMP_SLOTS * 8;
-const RUNTIME_CELL_BUFFER_SIZE: usize = 256;
+const RUNTIME_CELL_BUFFER_SIZE: usize = 512;
 const RUNTIME_CELL_SLOT_SIZE: usize = 8 + RUNTIME_CELL_BUFFER_SIZE;
 const CLAIM_SIGNER_PUBKEY_HASH_FIELDS: [&str; 5] =
     ["signer_pubkey_hash", "claim_pubkey_hash", "owner_pubkey_hash", "beneficiary_pubkey_hash", "pubkey_hash"];
@@ -77,12 +77,20 @@ fn fixed_scalar_width(ty: &IrType, fixed_size: Option<usize>) -> Option<usize> {
     }
 }
 
+/// Fixed-width types that fit in a single RISC-V 64-bit register (≤8 bytes).
+/// Used by transition formula verification which needs scalar add/sub.
+fn fixed_register_width(ty: &IrType, fixed_size: Option<usize>) -> Option<usize> {
+    let w = fixed_scalar_width(ty, fixed_size)?;
+    (w <= 8).then_some(w)
+}
+
 fn fixed_byte_width(ty: &IrType, fixed_size: Option<usize>) -> Option<usize> {
     if let Some(width) = fixed_scalar_width(ty, fixed_size) {
         return Some(width);
     }
     match (ty, fixed_size) {
         (IrType::Address | IrType::Hash, Some(32)) => Some(32),
+        (IrType::U128, Some(16)) => Some(16),
         (IrType::Array(inner, len), Some(size)) if matches!(inner.as_ref(), IrType::U8) && *len == size => Some(size),
         _ => None,
     }
@@ -1906,7 +1914,7 @@ impl CodeGenerator {
             .iter()
             .filter_map(|transition| {
                 let layout = self.type_layouts.get(&pattern.ty).and_then(|fields| fields.get(&transition.field)).cloned()?;
-                let width = fixed_scalar_width(&layout.ty, layout.fixed_size)?;
+                let width = fixed_register_width(&layout.ty, layout.fixed_size)?;
                 if layout.offset + width > RUNTIME_SCRATCH_BUFFER_SIZE {
                     return None;
                 }

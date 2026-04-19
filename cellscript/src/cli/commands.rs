@@ -8,7 +8,7 @@ use crate::fmt::format_default;
 use crate::package::{Dependency, DetailedDependency, PackageManager, PolicyConfig};
 use crate::{
     compile_path, default_metadata_path_for_artifact, default_output_path_for_input, load_modules_for_input, resolve_input_path,
-    validate_artifact_metadata, validate_source_units_on_disk, CompileMetadata, CompileOptions,
+    validate_artifact_metadata, validate_source_units_on_disk, ArtifactFormat, CompileMetadata, CompileOptions, TargetProfile,
 };
 use camino::Utf8Path;
 #[cfg(feature = "vm-runner")]
@@ -772,6 +772,8 @@ impl CommandExecutor {
     /// 检查代码
     fn check(args: CheckArgs) -> Result<()> {
         let args = effective_check_args(args)?;
+        let requested_profile = effective_check_target_profile(&args)?;
+        let compile_target_profile = compile_target_profile_for_check(requested_profile);
         let mut checked_targets = Vec::new();
         let mut checked_target_json = Vec::new();
         let targets: Vec<Option<&'static str>> =
@@ -785,18 +787,30 @@ impl CommandExecutor {
                     output: None,
                     debug: false,
                     target: target.map(str::to_string),
-                    target_profile: args.target_profile.clone(),
+                    target_profile: compile_target_profile.clone(),
                 },
             )?;
             validate_check_policy(&result.metadata, &args)?;
+            let target_profile_policy_violations =
+                target_profile_policy_violations(&result.metadata, result.artifact_format, requested_profile);
+            if !target_profile_policy_violations.is_empty() {
+                return Err(crate::error::CompileError::without_span(format!(
+                    "target profile policy failed for '{}':\n  - {}",
+                    requested_profile.name(),
+                    target_profile_policy_violations.join("\n  - ")
+                )));
+            }
             let target_label = match target {
                 Some(target) => format!("{} ({})", target, result.artifact_format.display_name()),
                 None => format!("package default ({})", result.artifact_format.display_name()),
             };
+            let requested_profile_name = requested_profile.name();
             checked_target_json.push(serde_json::json!({
                 "requested_target": target.unwrap_or("package-default"),
                 "artifact_format": result.artifact_format.display_name(),
-                "target_profile": result.metadata.target_profile.name.as_str(),
+                "target_profile": requested_profile_name,
+                "compiled_target_profile": result.metadata.target_profile.name.as_str(),
+                "target_profile_policy_violations": target_profile_policy_violations,
                 "metadata_schema_version": result.metadata.metadata_schema_version,
                 "compiler_version": result.metadata.compiler_version,
                 "standalone_runner_compatible": result.metadata.runtime.standalone_runner_compatible,
@@ -852,6 +866,7 @@ impl CommandExecutor {
         }
 
         println!("{}", "Check succeeded".green());
+        println!("  Target profile: {}", requested_profile.name());
         for target in checked_targets {
             println!("  Checked: {}", target);
         }
@@ -1150,6 +1165,43 @@ fn effective_check_args(mut args: CheckArgs) -> Result<CheckArgs> {
     Ok(args)
 }
 
+fn effective_check_target_profile(args: &CheckArgs) -> Result<TargetProfile> {
+    if let Some(profile) = args.target_profile.as_deref() {
+        return TargetProfile::from_name(profile);
+    }
+
+    if let Some(profile) = manifest_target_profile()? {
+        return Ok(profile);
+    }
+
+    Ok(TargetProfile::Spora)
+}
+
+fn manifest_target_profile() -> Result<Option<TargetProfile>> {
+    let manifest_path = Path::new("Cell.toml");
+    if !manifest_path.exists() {
+        return Ok(None);
+    }
+
+    let source = std::fs::read_to_string(manifest_path).map_err(|error| {
+        crate::error::CompileError::without_span(format!("failed to read Cell.toml target profile policy: {}", error))
+    })?;
+    let manifest: toml::Value = toml::from_str(&source).map_err(|error| {
+        crate::error::CompileError::without_span(format!("failed to parse Cell.toml target profile policy: {}", error))
+    })?;
+    let Some(profile) = manifest.get("build").and_then(|build| build.get("target_profile")).and_then(toml::Value::as_str) else {
+        return Ok(None);
+    };
+    TargetProfile::from_name(profile).map(Some)
+}
+
+fn compile_target_profile_for_check(profile: TargetProfile) -> Option<String> {
+    match profile {
+        TargetProfile::Spora => Some(TargetProfile::Spora.name().to_string()),
+        TargetProfile::Ckb | TargetProfile::PortableCell => Some(TargetProfile::Spora.name().to_string()),
+    }
+}
+
 fn display_doc_output_format(format: &OutputFormat) -> &'static str {
     match format {
         OutputFormat::Html => "html",
@@ -1365,6 +1417,121 @@ fn validate_check_policy(metadata: &crate::CompileMetadata, args: &CheckArgs) ->
     }
 
     Err(crate::error::CompileError::without_span(format!("check policy failed:\n  - {}", violations.join("\n  - "))))
+}
+
+fn target_profile_policy_violations(
+    metadata: &crate::CompileMetadata,
+    artifact_format: ArtifactFormat,
+    profile: TargetProfile,
+) -> Vec<String> {
+    match profile {
+        TargetProfile::Spora => Vec::new(),
+        TargetProfile::Ckb => ckb_target_profile_policy_violations(metadata, artifact_format),
+        TargetProfile::PortableCell => portable_cell_target_profile_policy_violations(metadata),
+    }
+}
+
+fn ckb_target_profile_policy_violations(metadata: &crate::CompileMetadata, artifact_format: ArtifactFormat) -> Vec<String> {
+    let mut violations = common_portability_policy_violations(metadata);
+
+    if artifact_format == ArtifactFormat::RiscvElf {
+        violations.push(
+            "ckb artifact packaging is not implemented: current riscv64-elf output embeds the Spora SPORABI trailer".to_string(),
+        );
+    }
+
+    if metadata.runtime.ckb_runtime_features.iter().any(|feature| feature == "load-header-daa-score") {
+        violations.push("DAA/header assumptions are Spora-specific and not expressible on CKB".to_string());
+    }
+
+    let spora_only_features = metadata
+        .runtime
+        .ckb_runtime_features
+        .iter()
+        .filter(|feature| matches!(feature.as_str(), "load-claim-ecdsa-signature-hash" | "verify-claim-secp256k1-signature"))
+        .cloned()
+        .collect::<Vec<_>>();
+    if !spora_only_features.is_empty() {
+        violations.push(format!("Spora-only claim helper syscall features: {}", spora_only_features.join(", ")));
+    }
+
+    violations
+}
+
+fn portable_cell_target_profile_policy_violations(metadata: &crate::CompileMetadata) -> Vec<String> {
+    common_portability_policy_violations(metadata)
+}
+
+fn common_portability_policy_violations(metadata: &crate::CompileMetadata) -> Vec<String> {
+    let mut violations = Vec::new();
+
+    if metadata.runtime.symbolic_cell_runtime_required {
+        violations.push(format!(
+            "symbolic Cell/runtime features are not portable: {}",
+            metadata.runtime.unsupported_elf_features.join(", ")
+        ));
+    }
+    if !metadata.runtime.fail_closed_runtime_features.is_empty() {
+        violations.push(format!(
+            "fail-closed runtime features are not portable: {}",
+            metadata.runtime.fail_closed_runtime_features.join(", ")
+        ));
+    }
+
+    let runtime_required_obligations = metadata
+        .runtime
+        .verifier_obligations
+        .iter()
+        .filter(|obligation| obligation.status == "runtime-required")
+        .map(|obligation| format!("{}:{} ({})", obligation.scope, obligation.feature, obligation.category))
+        .collect::<Vec<_>>();
+    if !runtime_required_obligations.is_empty() {
+        violations
+            .push(format!("runtime-required verifier obligations are not portable: {}", runtime_required_obligations.join(", ")));
+    }
+
+    let runtime_required_inputs = transaction_runtime_input_requirement_summaries_by_status(metadata, "runtime-required");
+    if !runtime_required_inputs.is_empty() {
+        violations.push(format!("runtime-required transaction inputs are not portable: {}", runtime_required_inputs.join(", ")));
+    }
+
+    let persistent_types = metadata
+        .types
+        .iter()
+        .filter(|ty| matches!(ty.kind.as_str(), "Resource" | "Shared" | "Receipt"))
+        .map(|ty| format!("{} ({})", ty.name, ty.kind))
+        .collect::<Vec<_>>();
+    if !persistent_types.is_empty() {
+        violations.push(format!(
+            "generated Molecule schemas are required before persistent Cell types can be portable: {}",
+            persistent_types.join(", ")
+        ));
+    }
+
+    let metadata_only_type_ids = metadata.types.iter().filter(|ty| ty.type_id.is_some()).map(|ty| ty.name.clone()).collect::<Vec<_>>();
+    if !metadata_only_type_ids.is_empty() {
+        violations.push(format!(
+            "metadata-only type_id declarations require a real CKB type-id lineage verifier: {}",
+            metadata_only_type_ids.join(", ")
+        ));
+    }
+
+    let shared_touch_actions = metadata
+        .actions
+        .iter()
+        .filter(|action| !action.touches_shared.is_empty())
+        .map(|action| action.name.clone())
+        .collect::<Vec<_>>();
+    if !shared_touch_actions.is_empty() {
+        violations.push(format!("Spora shared-state scheduler touch domains are not portable: {}", shared_touch_actions.join(", ")));
+    }
+
+    if !metadata.runtime.pool_primitives.is_empty() {
+        let pool_features = metadata.runtime.pool_primitives.iter().map(|primitive| primitive.feature.clone()).collect::<Vec<_>>();
+        violations.push(format!("Spora pool-pattern scheduler/admission semantics are not portable: {}", pool_features.join(", ")));
+    }
+
+    violations
 }
 
 fn runtime_required_obligation_count(metadata: &crate::CompileMetadata) -> usize {

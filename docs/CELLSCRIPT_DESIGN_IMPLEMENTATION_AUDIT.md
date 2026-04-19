@@ -23,10 +23,10 @@ The known v1-core residual gaps are now policy-visible through stable blocker cl
 
 Current implementation facts:
 
-- `cellscript/src/` contains `41,860` lines of Rust across `26` source files.
-- `cellscript/src/` plus `cellscript/tests/` contains `46,501` lines of Rust across `28` files.
-- `358` `#[test]` declarations are present in source/test files.
-- A fresh default-feature `cargo test -p cellscript` run executed `345` tests: `286` library tests, `52` CLI integration tests, `7` examples integration tests, and `0` doctests. All passed.
+- `cellscript/src/` contains `42,027` lines of Rust across `26` source files.
+- `cellscript/src/` plus `cellscript/tests/` contains `46,886` lines of Rust across `28` files.
+- `363` `#[test]` declarations are present in source/test files.
+- A fresh default-feature `cargo test -p cellscript` run executed `350` tests: `286` library tests, `57` CLI integration tests, `7` examples integration tests, and `0` doctests. All passed.
 - The repository includes `7` bundled `.cell` examples: `token`, `amm_pool`, `vesting`, `launch`, `nft`, `multisig`, and `timelock`.
 
 Approximate implementation status:
@@ -40,7 +40,7 @@ Approximate implementation status:
 | CKB-style runtime lowering | 60-70% | Partial and intentionally fail-closed where semantics are incomplete |
 | Stateful protocol primitives | 23-33% | Mostly not executable |
 | DAG scheduler integration | 80-86% | Metadata and per-action scheduler witness bytes exist; `read_ref`, `&mut shared`, composed shared-return touches, and mutable Cell `mutate-input` / `mutate-output` access records are visible; mutable shared-state and mutable authority cell-state transition obligations are explicit; schema v21 keeps scheduler witnesses limited to Input/CellDep/Output cell-state accesses; `ActionMetadata::scheduler_witness_bytes()` exposes compiled witness bytes, and `spora-exec` CellTx can attach/discover/admit CellScript scheduler witnesses by `0xCE11` magic/version, decode/admit the Borsh envelope with magic/version/count, effect/operation/source, operation/source compatibility, concrete transaction source-index bounds checks, exact trusted operation/source/index/binding_hash access-set matching, and produce a trusted access summary from compiled metadata bytes while appending the witness to a concrete transaction. Consensus MPE `BlockAccessSummary` consumes admitted witnesses, has a strict trusted-access-set constructor that rejects missing/mismatched builder or compiled-metadata summaries before merge, and uses shared read/write touch domains for DAG serialization. Mempool validation and template prefiltering now reject malformed CellScript scheduler metadata; mempool entries and template selectors can carry producer-backed trusted summaries into the strict template policy path. Wallet transaction generation can attach a compiled scheduler witness to the final transaction and expose the returned trusted summary on `PendingTransaction`; focused mining coverage proves producer-returned summaries survive sidecar insertion into selector exposure, and focused consensus coverage proves selector-provided builder summaries are consumed/rejected by strict template prefiltering. RPC trusted-summary submission/authentication and broader adversarial/property coverage remain open |
-| CLI local workflow | 72-82% | Usable local developer loop with pre-artifact CLI/manifest metadata policy gates and explicit `spora` / `ckb` / `portable-cell` target-profile selection; non-`spora` profiles fail closed until compatibility gates exist |
+| CLI local workflow | 74-84% | Usable local developer loop with pre-artifact CLI/manifest metadata policy gates and explicit `spora` / `ckb` / `portable-cell` target-profile selection; artifact-producing non-`spora` profiles fail closed, while `cellc check --target-profile ckb|portable-cell` now runs portability classification and reports concrete blockers |
 | IDE/LSP/tooling ecosystem | 35-50% | Useful metadata surfaces, not full semantic IDE |
 | Overall design proposal completion | 70-75% | Real implementation progress, not production-complete |
 
@@ -340,7 +340,7 @@ Verdict:
 | Tooling area | Current status | Gap |
 |---|---|---|
 | `cellc build` | Real local package flow with pre-artifact policy gate | registry/distribution missing |
-| `cellc check` | Real compile/check flow plus CLI and manifest production/fail-closed/symbolic/CKB/runtime-obligation policy gates | broader CI presets missing |
+| `cellc check` | Real compile/check flow plus CLI and manifest production/fail-closed/symbolic/CKB/runtime-obligation policy gates, and target-profile portability classification for `ckb` / `portable-cell` without writing artifacts | broader CI presets missing |
 | `cellc metadata` | Real JSON metadata | external CI policy integration missing |
 | `cellc doc` | Real API docgen plus lowering audit report / verifier obligations | deeper invariant/spec docs missing |
 | `cellc fmt` | Real formatter path | style stability needs more tests |

@@ -829,12 +829,14 @@ action ping() -> u64 {
     assert!(checked_targets.iter().all(|target| target["runtime_required_verifier_obligations"] == 0));
     assert!(checked_targets.iter().all(|target| target["fail_closed_verifier_obligations"] == 0));
     assert!(checked_targets.iter().all(|target| target["target_profile"] == "spora"));
+    assert!(checked_targets.iter().all(|target| target["compiled_target_profile"] == "spora"));
+    assert!(checked_targets.iter().all(|target| target["target_profile_policy_violations"].as_array().unwrap().is_empty()));
     assert!(checked_targets.iter().any(|target| target["requested_target"] == "riscv64-asm"));
     assert!(checked_targets.iter().any(|target| target["requested_target"] == "riscv64-elf"));
 }
 
 #[test]
-fn cellc_check_rejects_prelaunch_gated_target_profile() {
+fn cellc_build_rejects_prelaunch_gated_target_profile() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path();
 
@@ -861,11 +863,227 @@ action ping() -> u64 {
     .unwrap();
 
     let output =
-        Command::new(env!("CARGO_BIN_EXE_cellc")).current_dir(root).arg("check").arg("--target-profile").arg("ckb").output().unwrap();
+        Command::new(env!("CARGO_BIN_EXE_cellc")).current_dir(root).arg("build").arg("--target-profile").arg("ckb").output().unwrap();
 
     assert!(!output.status.success(), "unexpected success: {}", String::from_utf8_lossy(&output.stdout));
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("target profile 'ckb' is prelaunch-gated"), "unexpected stderr: {}", stderr);
+}
+
+#[test]
+fn cellc_check_accepts_pure_portable_target_profile() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(
+        root.join("Cell.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("src").join("main.cell"),
+        r#"
+module demo::main
+
+action add(x: u64, y: u64) -> u64 {
+    return x + y
+}
+"#,
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_cellc"))
+        .current_dir(root)
+        .arg("check")
+        .arg("--target-profile")
+        .arg("portable-cell")
+        .arg("--json")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let stdout: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(stdout["status"], "ok");
+    let checked_targets = stdout["checked_targets"].as_array().unwrap();
+    assert_eq!(checked_targets.len(), 1);
+    assert_eq!(checked_targets[0]["target_profile"], "portable-cell");
+    assert_eq!(checked_targets[0]["compiled_target_profile"], "spora");
+    assert!(checked_targets[0]["target_profile_policy_violations"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn cellc_check_accepts_pure_ckb_target_profile() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(
+        root.join("Cell.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("src").join("main.cell"),
+        r#"
+module demo::main
+
+action add(x: u64, y: u64) -> u64 {
+    return x + y
+}
+"#,
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_cellc"))
+        .current_dir(root)
+        .arg("check")
+        .arg("--target-profile")
+        .arg("ckb")
+        .arg("--json")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let stdout: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(stdout["status"], "ok");
+    let checked_targets = stdout["checked_targets"].as_array().unwrap();
+    assert_eq!(checked_targets.len(), 1);
+    assert_eq!(checked_targets[0]["target_profile"], "ckb");
+    assert_eq!(checked_targets[0]["compiled_target_profile"], "spora");
+    assert!(checked_targets[0]["target_profile_policy_violations"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn cellc_check_uses_manifest_target_profile_policy() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(
+        root.join("Cell.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+
+[build]
+target_profile = "portable-cell"
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("src").join("main.cell"),
+        r#"
+module demo::main
+
+action add(x: u64, y: u64) -> u64 {
+    return x + y
+}
+"#,
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_cellc")).current_dir(root).arg("check").arg("--json").output().unwrap();
+
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let stdout: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let checked_targets = stdout["checked_targets"].as_array().unwrap();
+    assert_eq!(checked_targets.len(), 1);
+    assert_eq!(checked_targets[0]["target_profile"], "portable-cell");
+    assert_eq!(checked_targets[0]["compiled_target_profile"], "spora");
+}
+
+#[test]
+fn cellc_check_rejects_ckb_profile_daa_policy() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(
+        root.join("Cell.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("src").join("main.cell"),
+        r#"
+module demo::main
+
+action now() -> u64 {
+    return env::current_daa_score()
+}
+"#,
+    )
+    .unwrap();
+
+    let output =
+        Command::new(env!("CARGO_BIN_EXE_cellc")).current_dir(root).arg("check").arg("--target-profile").arg("ckb").output().unwrap();
+
+    assert!(!output.status.success(), "unexpected success: {}", String::from_utf8_lossy(&output.stdout));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("target profile policy failed for 'ckb'"), "unexpected stderr: {}", stderr);
+    assert!(stderr.contains("DAA/header assumptions are Spora-specific"), "unexpected stderr: {}", stderr);
+}
+
+#[test]
+fn cellc_check_rejects_portable_profile_persistent_cell_types() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(
+        root.join("Cell.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("src").join("main.cell"),
+        r#"
+module demo::main
+
+resource Token has store {
+    amount: u64
+}
+
+action mint(amount: u64) -> Token {
+    return create Token {
+        amount: amount
+    }
+}
+"#,
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_cellc"))
+        .current_dir(root)
+        .arg("check")
+        .arg("--target-profile")
+        .arg("portable-cell")
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success(), "unexpected success: {}", String::from_utf8_lossy(&output.stdout));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("target profile policy failed for 'portable-cell'"), "unexpected stderr: {}", stderr);
+    assert!(stderr.contains("generated Molecule schemas are required"), "unexpected stderr: {}", stderr);
+    assert!(stderr.contains("Token (Resource)"), "unexpected stderr: {}", stderr);
 }
 
 #[test]

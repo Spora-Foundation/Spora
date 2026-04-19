@@ -339,7 +339,7 @@ Profile rules:
 
 Exit gate: compiler metadata can clearly say whether an artifact is Spora-native, CKB-targeted, or only source-portable.
 
-Current implementation status (2026-04-19): Phase D has started. `cellc` now emits schema v21 `target_profile` metadata and accepts `--target-profile` / `[build].target_profile`. `spora` is the default and only profile that can produce artifacts. `ckb` and `portable-cell` are recognized names but fail closed until Phase E policy gates and Phase F byte-layout tests exist.
+Current implementation status (2026-04-19): Phase D is implemented for metadata and profile selection. `cellc` emits schema v21 `target_profile` metadata and accepts `--target-profile` / `[build].target_profile`. `spora` is the default and only profile that can produce artifacts. Artifact-producing `ckb` and `portable-cell` builds still fail closed until CKB packaging/hash/syscall/header rules and Phase F byte-layout tests exist.
 
 ### Phase E: Add CKB Compatibility Policy Gates
 
@@ -354,6 +354,8 @@ Add lint/check gates for `portable-cell` and `ckb` targets:
 - reject metadata-only `type_id("...")` when a real CKB type-id lineage verifier is required
 
 Exit gate: a source file can be mechanically classified as Spora-only, CKB-targetable, or portable-subset.
+
+Current implementation status (2026-04-19): Phase E has started in `cellc check`. `check --target-profile ckb|portable-cell` now compiles through the current Spora lowering path without writing artifacts and then applies target-profile policy classification. Pure portable source can pass the check gate. The gate rejects current metadata evidence for symbolic/fail-closed/runtime-required verifier obligations, runtime-required transaction inputs, persistent Cell types that still need generated Molecule schemas, metadata-only `type_id` declarations that need a real CKB type-id lineage verifier, Spora shared-state scheduler touch domains, pool-pattern scheduler/admission metadata, DAA/header assumptions for `ckb`, Spora-only claim helper syscall features, and CKB ELF packaging that would still contain the Spora `SPORABI` trailer. This is a lint/classification gate, not a CKB artifact generator.
 
 ### Phase F: Test Against CKB Baseline
 
@@ -384,7 +386,7 @@ The implementation tasks implied by the plan are:
 1. Replace prelaunch Borsh scheduler witness output with a Molecule launch schema.
 2. Add generated `.mol` schemas for Spora VM ABI objects instead of relying indefinitely on handwritten Molecule layout code.
 3. Add a CellScript schema generator for user-defined persistent state types.
-4. Add target-profile metadata and policy gates before launch:
+4. Continue the target-profile compatibility track before launch:
    - `target_chain`
    - `vm_abi`
    - `hash_domain`
@@ -392,16 +394,18 @@ The implementation tasks implied by the plan are:
    - `artifact_packaging`
    - `header_abi`
    - `scheduler_abi`
+   - `check --target-profile ckb|portable-cell` classification gates for portability blockers
 5. Implement the gated `ckb` compiler profile as part of the same compatibility track, even if it remains experimental until all CKB policy and layout tests pass.
 6. Split documentation wording:
    - "CKB-VM-compatible" for the execution substrate.
    - "CKB-compatible contract" only for an explicit gated restricted target profile.
-7. Add lint/policy gates for "portable-cell" mode:
+7. Expand lint/policy gates for "portable-cell" mode:
    - reject Spora-only syscalls
    - reject DAA/header assumptions
    - reject scheduler-required semantics
    - require Molecule schemas for persistent state
    - reject VM ABI trailer packaging
+   - keep artifact-producing non-`spora` profiles fail-closed until profile-specific byte layout and packaging tests exist
 
 ## Recommended External Wording
 

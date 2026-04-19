@@ -58,7 +58,7 @@ fn validate_compile_options(options: &CompileOptions) -> Result<()> {
 const DEFAULT_TARGET: &str = "riscv64-asm";
 const DEFAULT_TARGET_PROFILE: &str = "spora";
 pub const METADATA_SCHEMA_VERSION: u32 = 21;
-const METADATA_MUTATE_CELL_BUFFER_SIZE: usize = 256;
+const METADATA_MUTATE_CELL_BUFFER_SIZE: usize = 512;
 const CLAIM_SIGNER_PUBKEY_HASH_FIELDS: [&str; 5] =
     ["signer_pubkey_hash", "claim_pubkey_hash", "owner_pubkey_hash", "beneficiary_pubkey_hash", "pubkey_hash"];
 
@@ -6391,6 +6391,7 @@ fn metadata_fixed_scalar_width(ty: &ir::IrType, fixed_size: Option<usize>) -> Op
         (ir::IrType::U16, Some(2)) => Some(2),
         (ir::IrType::U32, Some(4)) => Some(4),
         (ir::IrType::U64, Some(8)) => Some(8),
+        (ir::IrType::U128, Some(16)) => Some(16),
         _ => None,
     }
 }
@@ -7265,9 +7266,15 @@ fn mutate_transition_is_verifier_coverable(
     let Some(layout) = type_layouts.get(&pattern.ty).and_then(|fields| fields.get(&transition.field)) else {
         return false;
     };
+    // Transition formula verification uses RISC-V 64-bit scalar add/sub,
+    // so only fields that fit in a single register (≤8 bytes) are coverable.
+    // u128 and wider types require multi-register arithmetic not yet supported.
     let Some(width) = metadata_fixed_scalar_width(&layout.ty, layout.fixed_size) else {
         return false;
     };
+    if width > 8 {
+        return false;
+    }
     if layout.offset + width > METADATA_MUTATE_CELL_BUFFER_SIZE {
         return false;
     }
