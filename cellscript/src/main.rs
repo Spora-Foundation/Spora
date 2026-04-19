@@ -35,6 +35,10 @@ struct Cli {
     #[arg(short, long)]
     target: Option<String>,
 
+    /// 目标 profile (spora, ckb, portable-cell)。v1 只允许 spora 生成产物。
+    #[arg(long)]
+    target_profile: Option<String>,
+
     /// 仅词法分析
     #[arg(long)]
     lex: bool,
@@ -175,7 +179,13 @@ fn main() {
 
     // 完整编译
     let output = cli.output.clone();
-    let options = CompileOptions { opt_level: cli.opt, output: output.clone(), debug: cli.debug, target: cli.target };
+    let options = CompileOptions {
+        opt_level: cli.opt,
+        output: output.clone(),
+        debug: cli.debug,
+        target: cli.target,
+        target_profile: cli.target_profile,
+    };
 
     match compile_path(Utf8Path::new(&input_file), options) {
         Ok(result) => {
@@ -202,6 +212,7 @@ fn main() {
 
             println!("{}: compiled successfully", "success".green());
             println!("  Artifact format: {}", result.artifact_format.display_name());
+            println!("  Target profile: {}", result.metadata.target_profile.name);
             println!("  Artifact hash: {:x?}", result.artifact_hash);
             println!("  Output: {}", output_path);
             println!("  Metadata: {}", metadata_path);

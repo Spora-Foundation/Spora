@@ -46,6 +46,13 @@ pub struct AuditDoc {
     pub source_hash_blake3: Option<String>,
     pub source_content_hash_blake3: Option<String>,
     pub source_units: Vec<AuditSourceUnitDoc>,
+    pub target_profile: String,
+    pub target_chain: String,
+    pub target_hash_domain: String,
+    pub target_syscall_set: String,
+    pub target_artifact_packaging: String,
+    pub target_header_abi: String,
+    pub target_scheduler_abi: String,
     pub vm_abi_format: String,
     pub vm_abi_version: u16,
     pub vm_abi_embedded_in_artifact: bool,
@@ -145,6 +152,13 @@ impl DocGenerator {
                     size_bytes: unit.size_bytes,
                 })
                 .collect(),
+            target_profile: metadata.target_profile.name.clone(),
+            target_chain: metadata.target_profile.target_chain.clone(),
+            target_hash_domain: metadata.target_profile.hash_domain.clone(),
+            target_syscall_set: metadata.target_profile.syscall_set.clone(),
+            target_artifact_packaging: metadata.target_profile.artifact_packaging.clone(),
+            target_header_abi: metadata.target_profile.header_abi.clone(),
+            target_scheduler_abi: metadata.target_profile.scheduler_abi.clone(),
             vm_abi_format: metadata.runtime.vm_abi.format.clone(),
             vm_abi_version: metadata.runtime.vm_abi.version,
             vm_abi_embedded_in_artifact: metadata.runtime.vm_abi.embedded_in_artifact,
@@ -257,6 +271,13 @@ impl AuditDoc {
         out.push_str(&format!("- Compiler version: `{}`\n", self.compiler_version));
         out.push_str(&format!("- Module: `{}`\n", self.module));
         out.push_str(&format!("- Artifact format: `{}`\n", self.artifact_format));
+        out.push_str(&format!("- Target profile: `{}`\n", self.target_profile));
+        out.push_str(&format!("- Target chain: `{}`\n", self.target_chain));
+        out.push_str(&format!("- Target hash domain: `{}`\n", self.target_hash_domain));
+        out.push_str(&format!("- Target syscall set: `{}`\n", self.target_syscall_set));
+        out.push_str(&format!("- Target artifact packaging: `{}`\n", self.target_artifact_packaging));
+        out.push_str(&format!("- Target header ABI: `{}`\n", self.target_header_abi));
+        out.push_str(&format!("- Target scheduler ABI: `{}`\n", self.target_scheduler_abi));
         if let Some(hash) = &self.artifact_hash_blake3 {
             out.push_str(&format!("- Artifact hash (BLAKE3): `{}`\n", hash));
         }
@@ -419,6 +440,13 @@ impl AuditDoc {
         out.push_str(&format!("<li>Compiler version: <code>{}</code></li>", escape_html(&self.compiler_version)));
         out.push_str(&format!("<li>Module: <code>{}</code></li>", escape_html(&self.module)));
         out.push_str(&format!("<li>Artifact format: <code>{}</code></li>", escape_html(&self.artifact_format)));
+        out.push_str(&format!("<li>Target profile: <code>{}</code></li>", escape_html(&self.target_profile)));
+        out.push_str(&format!("<li>Target chain: <code>{}</code></li>", escape_html(&self.target_chain)));
+        out.push_str(&format!("<li>Target hash domain: <code>{}</code></li>", escape_html(&self.target_hash_domain)));
+        out.push_str(&format!("<li>Target syscall set: <code>{}</code></li>", escape_html(&self.target_syscall_set)));
+        out.push_str(&format!("<li>Target artifact packaging: <code>{}</code></li>", escape_html(&self.target_artifact_packaging)));
+        out.push_str(&format!("<li>Target header ABI: <code>{}</code></li>", escape_html(&self.target_header_abi)));
+        out.push_str(&format!("<li>Target scheduler ABI: <code>{}</code></li>", escape_html(&self.target_scheduler_abi)));
         if let Some(hash) = &self.artifact_hash_blake3 {
             out.push_str(&format!("<li>Artifact hash (BLAKE3): <code>{}</code></li>", escape_html(hash)));
         }
@@ -984,6 +1012,13 @@ action add(x: u64, y: u64) -> u64 {
             source_hash_blake3: None,
             source_content_hash_blake3: None,
             source_units: Vec::new(),
+            target_profile: "spora".to_string(),
+            target_chain: "spora".to_string(),
+            target_hash_domain: "spora-domain-separated-blake3".to_string(),
+            target_syscall_set: "spora-ckb-style-load-syscalls".to_string(),
+            target_artifact_packaging: "spora-asm-sidecar".to_string(),
+            target_header_abi: "spora-dag-header".to_string(),
+            target_scheduler_abi: "spora-scheduler-witness-v1-temporary-borsh".to_string(),
             vm_abi_format: "molecule".to_string(),
             vm_abi_version: 0x8001,
             vm_abi_embedded_in_artifact: false,
@@ -1030,6 +1065,13 @@ action add(x: u64, y: u64) -> u64 {
             source_hash_blake3: None,
             source_content_hash_blake3: None,
             source_units: Vec::new(),
+            target_profile: "spora".to_string(),
+            target_chain: "spora".to_string(),
+            target_hash_domain: "spora-domain-separated-blake3".to_string(),
+            target_syscall_set: "spora-ckb-style-load-syscalls".to_string(),
+            target_artifact_packaging: "spora-asm-sidecar".to_string(),
+            target_header_abi: "spora-dag-header".to_string(),
+            target_scheduler_abi: "spora-scheduler-witness-v1-temporary-borsh".to_string(),
             vm_abi_format: "molecule".to_string(),
             vm_abi_version: 0x8001,
             vm_abi_embedded_in_artifact: false,

@@ -38,11 +38,13 @@ pub struct CompileOptions {
     pub debug: bool,
     /// 目标产物
     pub target: Option<String>,
+    /// 目标链/profile。v1 只允许 spora；ckb/portable-cell 先作为 gated prelaunch profile。
+    pub target_profile: Option<String>,
 }
 
 impl Default for CompileOptions {
     fn default() -> Self {
-        Self { opt_level: 0, output: None, debug: false, target: None }
+        Self { opt_level: 0, output: None, debug: false, target: None, target_profile: None }
     }
 }
 
@@ -54,10 +56,98 @@ fn validate_compile_options(options: &CompileOptions) -> Result<()> {
 }
 
 const DEFAULT_TARGET: &str = "riscv64-asm";
-pub const METADATA_SCHEMA_VERSION: u32 = 20;
+const DEFAULT_TARGET_PROFILE: &str = "spora";
+pub const METADATA_SCHEMA_VERSION: u32 = 21;
 const METADATA_MUTATE_CELL_BUFFER_SIZE: usize = 256;
 const CLAIM_SIGNER_PUBKEY_HASH_FIELDS: [&str; 5] =
     ["signer_pubkey_hash", "claim_pubkey_hash", "owner_pubkey_hash", "beneficiary_pubkey_hash", "pubkey_hash"];
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TargetProfile {
+    Spora,
+    Ckb,
+    PortableCell,
+}
+
+impl TargetProfile {
+    pub fn from_name(name: &str) -> Result<Self> {
+        match name {
+            "spora" => Ok(Self::Spora),
+            "ckb" => Ok(Self::Ckb),
+            "portable-cell" => Ok(Self::PortableCell),
+            other => Err(CompileError::without_span(format!(
+                "unsupported target profile '{}'; supported profiles: spora, ckb, portable-cell",
+                other
+            ))),
+        }
+    }
+
+    fn from_options(options: &CompileOptions, build: Option<&CellBuildConfig>) -> Result<Self> {
+        let profile = options
+            .target_profile
+            .as_deref()
+            .or_else(|| build.and_then(|build| build.target_profile.as_deref()))
+            .unwrap_or(DEFAULT_TARGET_PROFILE);
+        Self::from_name(profile)
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Spora => "spora",
+            Self::Ckb => "ckb",
+            Self::PortableCell => "portable-cell",
+        }
+    }
+
+    fn ensure_compile_supported(self) -> Result<()> {
+        if self == Self::Spora {
+            return Ok(());
+        }
+
+        Err(CompileError::without_span(format!(
+            "target profile '{}' is prelaunch-gated; only 'spora' can produce artifacts until CKB/portable-cell policy gates and Molecule byte-layout tests are implemented",
+            self.name()
+        )))
+    }
+
+    fn metadata(self, artifact_format: ArtifactFormat) -> TargetProfileMetadata {
+        match self {
+            Self::Spora => TargetProfileMetadata {
+                name: self.name().to_string(),
+                target_chain: "spora".to_string(),
+                vm_abi: format!("molecule-0x{:04x}", MOLECULE_VM_ABI_VERSION),
+                hash_domain: "spora-domain-separated-blake3".to_string(),
+                syscall_set: "spora-ckb-style-load-syscalls".to_string(),
+                artifact_packaging: match artifact_format {
+                    ArtifactFormat::RiscvAssembly => "spora-asm-sidecar".to_string(),
+                    ArtifactFormat::RiscvElf => "spora-elf-sporabi-trailer".to_string(),
+                },
+                header_abi: "spora-dag-header".to_string(),
+                scheduler_abi: "spora-scheduler-witness-v1-temporary-borsh".to_string(),
+            },
+            Self::Ckb => TargetProfileMetadata {
+                name: self.name().to_string(),
+                target_chain: "ckb".to_string(),
+                vm_abi: "ckb-molecule".to_string(),
+                hash_domain: "ckb-packed-molecule-blake2b".to_string(),
+                syscall_set: "ckb-mainnet-syscalls".to_string(),
+                artifact_packaging: "ckb-elf-no-sporabi-trailer".to_string(),
+                header_abi: "ckb-header".to_string(),
+                scheduler_abi: "none".to_string(),
+            },
+            Self::PortableCell => TargetProfileMetadata {
+                name: self.name().to_string(),
+                target_chain: "portable-cell-source-subset".to_string(),
+                vm_abi: "target-selected-molecule".to_string(),
+                hash_domain: "target-selected".to_string(),
+                syscall_set: "portable-cell-common-subset".to_string(),
+                artifact_packaging: "target-selected".to_string(),
+                header_abi: "portable-cell-common-subset".to_string(),
+                scheduler_abi: "none".to_string(),
+            },
+        }
+    }
+}
 
 /// 编译产物格式
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -122,6 +212,7 @@ pub struct CompileMetadata {
     pub compiler_version: String,
     pub module: String,
     pub artifact_format: String,
+    pub target_profile: TargetProfileMetadata,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub artifact_hash_blake3: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -175,6 +266,18 @@ pub struct RuntimeMetadata {
     pub transaction_runtime_input_requirements: Vec<TransactionRuntimeInputRequirementMetadata>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pool_primitives: Vec<PoolPrimitiveMetadata>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TargetProfileMetadata {
+    pub name: String,
+    pub target_chain: String,
+    pub vm_abi: String,
+    pub hash_domain: String,
+    pub syscall_set: String,
+    pub artifact_packaging: String,
+    pub header_abi: String,
+    pub scheduler_abi: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -256,6 +359,7 @@ pub fn validate_compile_metadata(metadata: &CompileMetadata, artifact_format: Ar
             artifact_format.display_name()
         )));
     }
+    validate_target_profile_metadata(metadata, artifact_format)?;
 
     if metadata.runtime.vm_abi.format != "molecule" {
         return Err(CompileError::without_span(format!(
@@ -294,6 +398,37 @@ pub fn validate_compile_metadata(metadata: &CompileMetadata, artifact_format: Ar
 
     validate_type_identity_metadata(metadata)?;
     validate_source_metadata(metadata)?;
+
+    Ok(())
+}
+
+fn validate_target_profile_metadata(metadata: &CompileMetadata, artifact_format: ArtifactFormat) -> Result<()> {
+    let profile = TargetProfile::from_name(&metadata.target_profile.name)?;
+    profile.ensure_compile_supported()?;
+    let expected = profile.metadata(artifact_format);
+    let actual = &metadata.target_profile;
+
+    let mismatches = [
+        ("target_chain", actual.target_chain.as_str(), expected.target_chain.as_str()),
+        ("vm_abi", actual.vm_abi.as_str(), expected.vm_abi.as_str()),
+        ("hash_domain", actual.hash_domain.as_str(), expected.hash_domain.as_str()),
+        ("syscall_set", actual.syscall_set.as_str(), expected.syscall_set.as_str()),
+        ("artifact_packaging", actual.artifact_packaging.as_str(), expected.artifact_packaging.as_str()),
+        ("header_abi", actual.header_abi.as_str(), expected.header_abi.as_str()),
+        ("scheduler_abi", actual.scheduler_abi.as_str(), expected.scheduler_abi.as_str()),
+    ];
+    for (field, actual, expected) in mismatches {
+        if actual != expected {
+            return Err(CompileError::without_span(format!(
+                "metadata target_profile.{} '{}' does not match expected '{}' for profile '{}' and {} artifact",
+                field,
+                actual,
+                expected,
+                profile.name(),
+                artifact_format.display_name()
+            )));
+        }
+    }
 
     Ok(())
 }
@@ -968,10 +1103,11 @@ pub fn compile_metadata(source: &str, target: Option<String>) -> Result<CompileM
     let tokens = lexer::lex(source)?;
     let ast = parser::parse(&tokens)?;
     let artifact_format = ArtifactFormat::from_target(target.as_deref().unwrap_or(DEFAULT_TARGET))?;
+    let target_profile = TargetProfile::Spora;
     types::check(&ast)?;
     lifecycle::check(&ast)?;
     let ir = ir::generate(&ast)?;
-    let mut metadata = compile_metadata_from_ir(&ir, artifact_format);
+    let mut metadata = compile_metadata_from_ir(&ir, artifact_format, target_profile);
     bind_source_metadata(&mut metadata, vec![source_unit_from_bytes("<memory>", "memory", source.as_bytes())]);
     validate_compile_metadata(&metadata, artifact_format)?;
     Ok(metadata)
@@ -988,6 +1124,8 @@ fn compile_ast_with_build(
     build: Option<&CellBuildConfig>,
 ) -> Result<CompileResult> {
     validate_compile_options(options)?;
+    let target_profile = TargetProfile::from_options(options, build)?;
+    target_profile.ensure_compile_supported()?;
     let artifact_format = ArtifactFormat::from_target(resolve_target(options, build))?;
 
     // 3. 类型检查
@@ -1027,7 +1165,7 @@ fn compile_ast_with_build(
         return Err(CompileError::new("backend produced an empty artifact", error::Span::default()));
     }
 
-    let mut metadata = compile_metadata_from_ir(&ir, artifact_format);
+    let mut metadata = compile_metadata_from_ir(&ir, artifact_format, target_profile);
     if metadata.runtime.vm_abi.embedded_in_artifact {
         artifact_bytes = append_vm_abi_trailer(artifact_bytes, metadata.runtime.vm_abi.version);
     }
@@ -1169,6 +1307,8 @@ struct CellManifestPackage {
 struct CellBuildConfig {
     #[serde(default)]
     target: Option<String>,
+    #[serde(default)]
+    target_profile: Option<String>,
     #[serde(default)]
     out_dir: Option<String>,
 }
@@ -1356,7 +1496,7 @@ fn metadata_output_path_from_artifact(artifact_path: &Utf8Path) -> Utf8PathBuf {
     artifact_path.with_file_name(metadata_name)
 }
 
-fn compile_metadata_from_ir(ir: &ir::IrModule, artifact_format: ArtifactFormat) -> CompileMetadata {
+fn compile_metadata_from_ir(ir: &ir::IrModule, artifact_format: ArtifactFormat, target_profile: TargetProfile) -> CompileMetadata {
     let type_layouts = metadata_type_layouts(ir);
     let lifecycle_states = metadata_lifecycle_states(ir);
     let cell_type_kinds = metadata_cell_type_kinds(ir);
@@ -1375,6 +1515,7 @@ fn compile_metadata_from_ir(ir: &ir::IrModule, artifact_format: ArtifactFormat) 
         compiler_version: VERSION.to_string(),
         module: ir.name.clone(),
         artifact_format: artifact_format.display_name().to_string(),
+        target_profile: target_profile.metadata(artifact_format),
         artifact_hash_blake3: None,
         artifact_size_bytes: None,
         source_hash_blake3: None,
@@ -12575,6 +12716,14 @@ action activate(ticket: Ticket) -> Ticket {
         assert!(result.metadata.runtime.vm_abi.embedded_in_artifact);
         assert!(result.metadata.runtime.vm_abi.scope.contains("LOAD_SCRIPT"));
         assert!(result.metadata.runtime.vm_abi.selection.contains("embed"));
+        assert_eq!(result.metadata.target_profile.name.as_str(), "spora");
+        assert_eq!(result.metadata.target_profile.target_chain.as_str(), "spora");
+        assert_eq!(result.metadata.target_profile.vm_abi.as_str(), "molecule-0x8001");
+        assert_eq!(result.metadata.target_profile.hash_domain.as_str(), "spora-domain-separated-blake3");
+        assert_eq!(result.metadata.target_profile.syscall_set.as_str(), "spora-ckb-style-load-syscalls");
+        assert_eq!(result.metadata.target_profile.artifact_packaging.as_str(), "spora-elf-sporabi-trailer");
+        assert_eq!(result.metadata.target_profile.header_abi.as_str(), "spora-dag-header");
+        assert_eq!(result.metadata.target_profile.scheduler_abi.as_str(), "spora-scheduler-witness-v1-temporary-borsh");
         assert_eq!(result.metadata.artifact_hash_blake3.as_deref(), Some(crate::hex_encode(&result.artifact_hash).as_str()));
         assert_eq!(result.metadata.artifact_size_bytes, Some(result.artifact_bytes.len()));
         assert!(result.metadata.source_hash_blake3.is_some());
@@ -12597,6 +12746,22 @@ action activate(ticket: Ticket) -> Ticket {
         let err = compile(SIMPLE_PROGRAM, CompileOptions { opt_level: 4, ..CompileOptions::default() }).unwrap_err();
 
         assert!(err.message.contains("optimization level must be between 0 and 3"), "unexpected error: {}", err.message);
+    }
+
+    #[test]
+    fn compile_rejects_prelaunch_gated_target_profile() {
+        let err = compile(SIMPLE_PROGRAM, CompileOptions { target_profile: Some("ckb".to_string()), ..CompileOptions::default() })
+            .unwrap_err();
+
+        assert!(err.message.contains("target profile 'ckb' is prelaunch-gated"), "unexpected error: {}", err.message);
+    }
+
+    #[test]
+    fn compile_rejects_unknown_target_profile() {
+        let err = compile(SIMPLE_PROGRAM, CompileOptions { target_profile: Some("unknown".to_string()), ..CompileOptions::default() })
+            .unwrap_err();
+
+        assert!(err.message.contains("unsupported target profile 'unknown'"), "unexpected error: {}", err.message);
     }
 
     #[test]
@@ -12676,6 +12841,16 @@ action activate(ticket: Ticket) -> Ticket {
         let err = result.validate().unwrap_err();
 
         assert!(err.message.contains("metadata artifact_format"), "unexpected error: {}", err.message);
+    }
+
+    #[test]
+    fn compile_result_validation_rejects_metadata_target_profile_mismatch() {
+        let mut result = compile(SIMPLE_PROGRAM, CompileOptions::default()).unwrap();
+        result.metadata.target_profile.artifact_packaging = "ckb-elf-no-sporabi-trailer".to_string();
+
+        let err = result.validate().unwrap_err();
+
+        assert!(err.message.contains("metadata target_profile.artifact_packaging"), "unexpected error: {}", err.message);
     }
 
     #[test]
@@ -14728,7 +14903,7 @@ action value() -> u64 {
         let token = result.metadata.types.iter().find(|ty| ty.name == "Token").expect("Token type metadata");
         let expected_hash = crate::hex_encode(blake3::hash(b"spora::asset::Token:v1").as_bytes());
 
-        assert_eq!(result.metadata.metadata_schema_version, 20);
+        assert_eq!(result.metadata.metadata_schema_version, crate::METADATA_SCHEMA_VERSION);
         assert_eq!(token.type_id.as_deref(), Some("spora::asset::Token:v1"));
         assert_eq!(token.type_id_hash_blake3.as_deref(), Some(expected_hash.as_str()));
     }
@@ -15039,6 +15214,41 @@ action ping() -> u64 {
         let result = compile_file(&entry, CompileOptions::default()).unwrap();
         assert_eq!(result.artifact_format, ArtifactFormat::RiscvElf);
         assert!(result.artifact_bytes.starts_with(b"\x7fELF"));
+    }
+
+    #[test]
+    fn compile_file_rejects_manifest_prelaunch_target_profile() {
+        let temp = tempdir().unwrap();
+        let root = Utf8Path::from_path(temp.path()).unwrap();
+
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(
+            root.join("Cell.toml"),
+            r#"
+[package]
+name = "demo"
+version = "0.1.0"
+
+[build]
+target_profile = "ckb"
+"#,
+        )
+        .unwrap();
+        let entry = root.join("src").join("main.cell");
+        std::fs::write(
+            &entry,
+            r#"
+module demo::main
+
+action ping() -> u64 {
+    1
+}
+"#,
+        )
+        .unwrap();
+
+        let err = compile_file(&entry, CompileOptions::default()).unwrap_err();
+        assert!(err.message.contains("target profile 'ckb' is prelaunch-gated"), "unexpected error: {}", err.message);
     }
 
     #[test]

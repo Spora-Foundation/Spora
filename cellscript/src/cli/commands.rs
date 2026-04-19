@@ -66,6 +66,7 @@ pub enum Command {
 pub struct BuildArgs {
     pub release: bool,
     pub target: Option<String>,
+    pub target_profile: Option<String>,
     pub jobs: Option<usize>,
     pub features: Vec<String>,
     pub all_features: bool,
@@ -155,6 +156,7 @@ pub struct InfoArgs {
 #[derive(Debug, Default)]
 pub struct CheckArgs {
     pub all_targets: bool,
+    pub target_profile: Option<String>,
     pub features: Vec<String>,
     pub json: bool,
     pub production: bool,
@@ -170,6 +172,7 @@ pub struct MetadataArgs {
     pub input: Option<PathBuf>,
     pub output: Option<PathBuf>,
     pub target: Option<String>,
+    pub target_profile: Option<String>,
 }
 
 /// 产物验证参数
@@ -254,7 +257,16 @@ impl CommandExecutor {
     fn build(args: BuildArgs) -> Result<()> {
         let opt_level = if args.release { 3 } else { 0 };
         let input = Utf8Path::new(".");
-        let result = compile_path(input, CompileOptions { opt_level, output: None, debug: false, target: args.target.clone() })?;
+        let result = compile_path(
+            input,
+            CompileOptions {
+                opt_level,
+                output: None,
+                debug: false,
+                target: args.target.clone(),
+                target_profile: args.target_profile.clone(),
+            },
+        )?;
         let policy_args = effective_build_check_args(&args)?;
         validate_check_policy(&result.metadata, &policy_args)?;
         let resolved = resolve_input_path(input)?;
@@ -274,6 +286,7 @@ impl CommandExecutor {
                 "artifact": output_path.to_string(),
                 "metadata": metadata_path.to_string(),
                 "artifact_format": result.artifact_format.display_name(),
+                "target_profile": result.metadata.target_profile.name.as_str(),
                 "artifact_hash_blake3": result.metadata.artifact_hash_blake3,
                 "artifact_size_bytes": result.artifact_bytes.len(),
                 "source_hash_blake3": result.metadata.source_hash_blake3,
@@ -315,6 +328,7 @@ impl CommandExecutor {
 
         println!("{}", "Build complete".green());
         println!("  Artifact format: {}", result.artifact_format.display_name());
+        println!("  Target profile: {}", result.metadata.target_profile.name);
         println!("  Output: {}", output_path);
         println!("  Metadata: {}", metadata_path);
         Ok(())
@@ -343,7 +357,7 @@ impl CommandExecutor {
         test_inputs.sort();
 
         if test_inputs.is_empty() {
-            compile_path(".", CompileOptions { opt_level: 0, output: None, debug: false, target: None })?;
+            compile_path(".", CompileOptions { opt_level: 0, output: None, debug: false, target: None, target_profile: None })?;
             if args.json {
                 let summary = serde_json::json!({
                     "status": "ok",
@@ -384,13 +398,15 @@ impl CommandExecutor {
             }
 
             let expectation = read_test_expectation(input)?;
-            let result =
-                compile_path(utf8, CompileOptions { opt_level: 0, output: None, debug: false, target: expectation.target.clone() })
-                    .and_then(|result| {
-                        let policy_args = expectation.check_args();
-                        validate_check_policy(&result.metadata, &policy_args)?;
-                        Ok(result)
-                    });
+            let result = compile_path(
+                utf8,
+                CompileOptions { opt_level: 0, output: None, debug: false, target: expectation.target.clone(), target_profile: None },
+            )
+            .and_then(|result| {
+                let policy_args = expectation.check_args();
+                validate_check_policy(&result.metadata, &policy_args)?;
+                Ok(result)
+            });
             match evaluate_compile_test_result(utf8, &expectation, result) {
                 Ok(()) => {
                     passed += 1;
@@ -484,7 +500,8 @@ impl CommandExecutor {
 
     fn generate_docs(args: &DocArgs) -> Result<PathBuf> {
         let modules = load_modules_for_input(".")?;
-        let compile_result = compile_path(".", CompileOptions { opt_level: 0, output: None, debug: false, target: None })?;
+        let compile_result =
+            compile_path(".", CompileOptions { opt_level: 0, output: None, debug: false, target: None, target_profile: None })?;
         let mut generator = DocGenerator::new(args.output_format);
         for module in &modules {
             generator.add_module(&module.ast);
@@ -761,8 +778,16 @@ impl CommandExecutor {
             if args.all_targets { vec![Some("riscv64-asm"), Some("riscv64-elf")] } else { vec![None] };
 
         for target in targets {
-            let result =
-                compile_path(".", CompileOptions { opt_level: 0, output: None, debug: false, target: target.map(str::to_string) })?;
+            let result = compile_path(
+                ".",
+                CompileOptions {
+                    opt_level: 0,
+                    output: None,
+                    debug: false,
+                    target: target.map(str::to_string),
+                    target_profile: args.target_profile.clone(),
+                },
+            )?;
             validate_check_policy(&result.metadata, &args)?;
             let target_label = match target {
                 Some(target) => format!("{} ({})", target, result.artifact_format.display_name()),
@@ -771,6 +796,7 @@ impl CommandExecutor {
             checked_target_json.push(serde_json::json!({
                 "requested_target": target.unwrap_or("package-default"),
                 "artifact_format": result.artifact_format.display_name(),
+                "target_profile": result.metadata.target_profile.name.as_str(),
                 "metadata_schema_version": result.metadata.metadata_schema_version,
                 "compiler_version": result.metadata.compiler_version,
                 "standalone_runner_compatible": result.metadata.runtime.standalone_runner_compatible,
@@ -837,7 +863,10 @@ impl CommandExecutor {
         let input_path = args.input.unwrap_or_else(|| PathBuf::from("."));
         let input = Utf8Path::from_path(&input_path)
             .ok_or_else(|| crate::error::CompileError::without_span(format!("path '{}' is not valid UTF-8", input_path.display())))?;
-        let result = compile_path(input, CompileOptions { opt_level: 0, output: None, debug: false, target: args.target })?;
+        let result = compile_path(
+            input,
+            CompileOptions { opt_level: 0, output: None, debug: false, target: args.target, target_profile: args.target_profile },
+        )?;
         let json = serde_json::to_string_pretty(&result.metadata)
             .map_err(|error| crate::error::CompileError::without_span(format!("failed to serialize metadata: {}", error)))?;
 
@@ -920,6 +949,7 @@ impl CommandExecutor {
                 "metadata_schema_version": result.metadata.metadata_schema_version,
                 "compiler_version": result.metadata.compiler_version,
                 "artifact_format": result.artifact_format.display_name(),
+                "target_profile": result.metadata.target_profile.name.as_str(),
                 "artifact_hash_blake3": result.metadata.artifact_hash_blake3,
                 "artifact_size_bytes": result.artifact_bytes.len(),
                 "source_hash_blake3": result.metadata.source_hash_blake3,
@@ -964,6 +994,7 @@ impl CommandExecutor {
         println!("  Metadata schema: {}", result.metadata.metadata_schema_version);
         println!("  Compiler: {}", result.metadata.compiler_version);
         println!("  Format: {}", result.artifact_format.display_name());
+        println!("  Target profile: {}", result.metadata.target_profile.name);
         println!("  Hash: {}", result.metadata.artifact_hash_blake3.as_deref().unwrap_or("missing"));
         println!("  Size: {} bytes", result.artifact_bytes.len());
         if expected_hashes_verified {
@@ -983,8 +1014,16 @@ impl CommandExecutor {
         #[cfg(feature = "vm-runner")]
         {
             let opt_level = if args.release { 3 } else { 0 };
-            let result =
-                compile_path(".", CompileOptions { opt_level, output: None, debug: false, target: Some("riscv64-elf".to_string()) })?;
+            let result = compile_path(
+                ".",
+                CompileOptions {
+                    opt_level,
+                    output: None,
+                    debug: false,
+                    target: Some("riscv64-elf".to_string()),
+                    target_profile: None,
+                },
+            )?;
             let parameterized_entries = result
                 .metadata
                 .actions
@@ -1177,6 +1216,7 @@ fn dependency_from_add_args(args: &AddArgs) -> Dependency {
 fn effective_build_check_args(args: &BuildArgs) -> Result<CheckArgs> {
     effective_check_args(CheckArgs {
         all_targets: false,
+        target_profile: args.target_profile.clone(),
         features: args.features.clone(),
         json: false,
         production: args.production,
@@ -1575,6 +1615,7 @@ impl CompileTestExpectation {
     fn check_args(&self) -> CheckArgs {
         CheckArgs {
             all_targets: false,
+            target_profile: None,
             features: Vec::new(),
             json: false,
             production: self.production,
@@ -2022,6 +2063,12 @@ impl CliParser {
                     .about("Compile the current package")
                     .arg(Arg::new("release").long("release").short('r').action(ArgAction::SetTrue).help("Build in release mode"))
                     .arg(Arg::new("target").long("target").short('t').value_name("TARGET").help("Target architecture"))
+                    .arg(
+                        Arg::new("target-profile")
+                            .long("target-profile")
+                            .value_name("PROFILE")
+                            .help("Target profile: spora, ckb, or portable-cell"),
+                    )
                     .arg(Arg::new("jobs").long("jobs").short('j').value_name("N").help("Number of parallel jobs"))
                     .arg(Arg::new("json").long("json").action(ArgAction::SetTrue).help("Emit a machine-readable JSON build summary"))
                     .arg(
@@ -2130,6 +2177,12 @@ impl CliParser {
                             .action(ArgAction::SetTrue)
                             .help("Also check the current ELF-compatible target path"),
                     )
+                    .arg(
+                        Arg::new("target-profile")
+                            .long("target-profile")
+                            .value_name("PROFILE")
+                            .help("Target profile: spora, ckb, or portable-cell"),
+                    )
                     .arg(Arg::new("json").long("json").action(ArgAction::SetTrue).help("Emit a machine-readable JSON check summary"))
                     .arg(
                         Arg::new("production")
@@ -2167,7 +2220,13 @@ impl CliParser {
                     .about("Emit compile metadata for lowering, scheduler, and CKB runtime auditing")
                     .arg(Arg::new("input").value_name("INPUT").help("Input .cell file, package directory, or Cell.toml"))
                     .arg(Arg::new("output").long("output").short('o').value_name("FILE").help("Write JSON metadata to a file"))
-                    .arg(Arg::new("target").long("target").short('t').value_name("TARGET").help("Target architecture")),
+                    .arg(Arg::new("target").long("target").short('t').value_name("TARGET").help("Target architecture"))
+                    .arg(
+                        Arg::new("target-profile")
+                            .long("target-profile")
+                            .value_name("PROFILE")
+                            .help("Target profile: spora, ckb, or portable-cell"),
+                    ),
             )
             .subcommand(
                 ClapCommand::new("verify-artifact")
@@ -2278,6 +2337,7 @@ impl CliParser {
             Some(("build", m)) => Command::Build(BuildArgs {
                 release: m.get_flag("release"),
                 target: m.get_one::<String>("target").cloned(),
+                target_profile: m.get_one::<String>("target-profile").cloned(),
                 jobs: m.get_one::<String>("jobs").and_then(|s| s.parse().ok()),
                 json: m.get_flag("json"),
                 production: m.get_flag("production"),
@@ -2336,6 +2396,7 @@ impl CliParser {
             Some(("repl", _)) => Command::Repl,
             Some(("check", m)) => Command::Check(CheckArgs {
                 all_targets: m.get_flag("all-targets"),
+                target_profile: m.get_one::<String>("target-profile").cloned(),
                 json: m.get_flag("json"),
                 production: m.get_flag("production"),
                 deny_fail_closed: m.get_flag("deny-fail-closed"),
@@ -2348,6 +2409,7 @@ impl CliParser {
                 input: m.get_one::<String>("input").map(PathBuf::from),
                 output: m.get_one::<String>("output").map(PathBuf::from),
                 target: m.get_one::<String>("target").cloned(),
+                target_profile: m.get_one::<String>("target-profile").cloned(),
             }),
             Some(("verify-artifact", m)) => Command::VerifyArtifact(VerifyArtifactArgs {
                 artifact: m.get_one::<String>("artifact").map(PathBuf::from).expect("required artifact"),

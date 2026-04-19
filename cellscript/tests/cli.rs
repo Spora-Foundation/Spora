@@ -34,6 +34,8 @@ action add(x: u64, y: u64) -> u64 {
     assert!(metadata.contains("\"source_hash_blake3\""));
     assert!(metadata.contains("\"source_content_hash_blake3\""));
     assert!(metadata.contains("\"source_units\""));
+    assert!(metadata.contains("\"target_profile\""));
+    assert!(metadata.contains("\"target_chain\""));
 }
 
 #[test]
@@ -764,6 +766,7 @@ action ping() -> u64 {
     let stdout: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(stdout["status"], "ok");
     assert_eq!(stdout["artifact_format"], "RISC-V assembly");
+    assert_eq!(stdout["target_profile"], "spora");
     assert_eq!(stdout["policy_verified"], false);
     assert_eq!(stdout["runtime_required_verifier_obligations"], 0);
     assert_eq!(stdout["fail_closed_verifier_obligations"], 0);
@@ -825,8 +828,44 @@ action ping() -> u64 {
     assert_eq!(checked_targets.len(), 2);
     assert!(checked_targets.iter().all(|target| target["runtime_required_verifier_obligations"] == 0));
     assert!(checked_targets.iter().all(|target| target["fail_closed_verifier_obligations"] == 0));
+    assert!(checked_targets.iter().all(|target| target["target_profile"] == "spora"));
     assert!(checked_targets.iter().any(|target| target["requested_target"] == "riscv64-asm"));
     assert!(checked_targets.iter().any(|target| target["requested_target"] == "riscv64-elf"));
+}
+
+#[test]
+fn cellc_check_rejects_prelaunch_gated_target_profile() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(
+        root.join("Cell.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("src").join("main.cell"),
+        r#"
+module demo::main
+
+action ping() -> u64 {
+    1
+}
+"#,
+    )
+    .unwrap();
+
+    let output =
+        Command::new(env!("CARGO_BIN_EXE_cellc")).current_dir(root).arg("check").arg("--target-profile").arg("ckb").output().unwrap();
+
+    assert!(!output.status.success(), "unexpected success: {}", String::from_utf8_lossy(&output.stdout));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("target profile 'ckb' is prelaunch-gated"), "unexpected stderr: {}", stderr);
 }
 
 #[test]

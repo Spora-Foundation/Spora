@@ -93,6 +93,7 @@ Spora already has the right partial architecture:
 - `VmAbiNegotiator` exposes Molecule ABI version `0x8001`.
 - `LOAD_SCRIPT`, `LOAD_INPUT`, `LOAD_CELL`, and `LOAD_HEADER` can select `VmAbiFormat::Molecule`.
 - CellScript compile metadata declares `runtime.vm_abi.format = "molecule"` and `runtime.vm_abi.version = 0x8001`.
+- CellScript compile metadata schema v21 also declares `target_profile` fields for `target_chain`, `vm_abi`, `hash_domain`, `syscall_set`, `artifact_packaging`, `header_abi`, and `scheduler_abi`.
 - CellScript ELF artifacts embed a fixed VM ABI trailer so Spora's verifier can strip the trailer and select the declared ABI before CKB-VM execution.
 - CellScript scheduler witness bytes are currently Borsh with magic/version and admission checks. This is an implementation state, not a launch ABI commitment.
 
@@ -337,6 +338,8 @@ Profile rules:
 | `portable-cell` | Source subset that avoids Spora-only semantics and can be compiled separately to `spora` or `ckb`. |
 
 Exit gate: compiler metadata can clearly say whether an artifact is Spora-native, CKB-targeted, or only source-portable.
+
+Current implementation status (2026-04-19): Phase D has started. `cellc` now emits schema v21 `target_profile` metadata and accepts `--target-profile` / `[build].target_profile`. `spora` is the default and only profile that can produce artifacts. `ckb` and `portable-cell` are recognized names but fail closed until Phase E policy gates and Phase F byte-layout tests exist.
 
 ### Phase E: Add CKB Compatibility Policy Gates
 

@@ -454,7 +454,7 @@ shared Registry has store {
 }
 ```
 
-Current implementation note: `#[type_id("...")]` is an item-level attribute for `resource` / `shared` / `receipt` / `struct`. The compiler parses it, rejects duplicate values in the same module, preserves it in IR, and emits `types[].type_id` plus `types[].type_id_hash_blake3` in metadata schema v20. This is not yet a complete CKB type-id lineage verifier; proving that a Cell's OutPoint chain traces back to a genesis transaction remains future executable verifier / transaction-builder semantics.
+Current implementation note: `#[type_id("...")]` is an item-level attribute for `resource` / `shared` / `receipt` / `struct`. The compiler parses it, rejects duplicate values in the same module, preserves it in IR, and emits `types[].type_id` plus `types[].type_id_hash_blake3` in metadata schema v21. This is not yet a complete CKB type-id lineage verifier; proving that a Cell's OutPoint chain traces back to a genesis transaction remains future executable verifier / transaction-builder semantics.
 
 ### 5.6 Shared Object Representation
 
@@ -1140,7 +1140,7 @@ struct SchedulerAccessWitness {
 }
 ```
 
-Current implementation note: schema v20 keeps scheduler witness access records
+Current implementation note: schema v21 keeps scheduler witness access records
 limited to scheduler-visible Input/CellDep/Output cell-state accesses. Runtime-only
 claim witness/signature syscalls stay in `ckb_runtime_accesses`, not in the compact
 scheduler witness. `spora-exec` can attach/discover/decode/admit these witnesses
