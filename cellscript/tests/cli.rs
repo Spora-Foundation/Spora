@@ -1413,6 +1413,183 @@ action credit(ledger: &mut Ledger, delta: u128) {
 }
 
 #[test]
+fn cellc_check_reports_settle_finalization_blocker_class() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(
+        root.join("Cell.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("src").join("main.cell"),
+        r#"
+module demo::main
+
+resource Token has store {
+    amount: u64
+}
+
+action finalize(token: Token) -> Token {
+    return settle token
+}
+"#,
+    )
+    .unwrap();
+
+    let json_output = Command::new(env!("CARGO_BIN_EXE_cellc")).current_dir(root).arg("check").arg("--json").output().unwrap();
+    assert!(json_output.status.success(), "unexpected failure: {}", String::from_utf8_lossy(&json_output.stderr));
+    let stdout: serde_json::Value = serde_json::from_slice(&json_output.stdout).unwrap();
+    let target = &stdout["checked_targets"][0];
+    assert_eq!(target["transaction_runtime_input_requirements"], 4, "unexpected stdout: {}", stdout);
+    assert_eq!(target["runtime_required_transaction_runtime_input_requirements"], 1, "unexpected stdout: {}", stdout);
+    assert_eq!(target["checked_transaction_runtime_input_requirements"], 3, "unexpected stdout: {}", stdout);
+    assert_eq!(target["runtime_required_transaction_runtime_input_blockers"], 1, "unexpected stdout: {}", stdout);
+    assert_eq!(target["runtime_required_transaction_runtime_input_blocker_classes"], 1, "unexpected stdout: {}", stdout);
+
+    let runtime_inputs = target["runtime_required_transaction_runtime_input_requirement_summaries"]
+        .as_array()
+        .expect("runtime-required transaction runtime input summaries array");
+    assert!(
+        runtime_inputs.iter().any(|value| value.as_str().is_some_and(|summary| {
+            summary.contains("settle-finalization:Token:settle-final-state-context=Transaction:Token.pending-to-final-state")
+                && summary.contains("settle-finalization-state-context")
+                && summary.contains("(runtime-required)")
+                && summary.contains("blocker=settle lowering does not encode final-state transition policy")
+                && summary.contains("blocker_class=finalization-policy-gap")
+        })),
+        "unexpected runtime-required transaction runtime input summaries: {}",
+        stdout
+    );
+
+    let checked_runtime_inputs = target["checked_transaction_runtime_input_requirement_summaries"]
+        .as_array()
+        .expect("checked transaction runtime input summaries array");
+    assert!(
+        checked_runtime_inputs.iter().any(|value| value.as_str().is_some_and(|summary| {
+            summary.contains("settle-input:Token:token:settle-input-data=Input:token.data")
+                && summary.contains("settle-load-cell-input")
+                && summary.contains("(checked-runtime)")
+                && !summary.contains("blocker=")
+        })),
+        "unexpected checked transaction runtime input summaries: {}",
+        stdout
+    );
+    assert!(
+        checked_runtime_inputs.iter().any(|value| value.as_str().is_some_and(|summary| {
+            summary.contains("settle-finalization:Token:settle-output-admission=Transaction:Token.grouped-output-admission")
+                && summary.contains("settle-finalization-output-admission")
+                && summary.contains("(checked-runtime)")
+                && !summary.contains("blocker=")
+        })),
+        "unexpected checked transaction runtime input summaries: {}",
+        stdout
+    );
+    assert!(
+        checked_runtime_inputs.iter().any(|value| value.as_str().is_some_and(|summary| {
+            summary.contains("settle-output:Token:settle-output-relation=Transaction:Token.output-relation")
+                && summary.contains("settle-output-relation-consume-create-accounting")
+                && summary.contains("(checked-runtime)")
+                && !summary.contains("blocker=")
+        })),
+        "unexpected checked transaction runtime input summaries: {}",
+        stdout
+    );
+
+    let output =
+        Command::new(env!("CARGO_BIN_EXE_cellc")).current_dir(root).arg("check").arg("--deny-runtime-obligations").output().unwrap();
+    assert!(!output.status.success(), "unexpected success: {}", String::from_utf8_lossy(&output.stdout));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("settle-finalization:Token"), "unexpected stderr: {}", stderr);
+    assert!(stderr.contains("settle-final-state-context"), "unexpected stderr: {}", stderr);
+    assert!(stderr.contains("finalization-policy-gap"), "unexpected stderr: {}", stderr);
+    assert!(stderr.contains("settle lowering does not encode final-state transition policy"), "unexpected stderr: {}", stderr);
+}
+
+#[test]
+fn cellc_check_reports_linear_collection_ownership_blocker_class() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(
+        root.join("Cell.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("src").join("main.cell"),
+        r#"
+module demo::main
+
+resource NFT {
+    token_id: u64
+    owner: Address
+}
+
+action batch_mint(owner: Address) -> Vec<NFT> {
+    let mut nfts = Vec::new()
+    let nft = create NFT {
+        token_id: 1,
+        owner: owner
+    }
+    nfts.push(nft)
+    return nfts
+}
+"#,
+    )
+    .unwrap();
+
+    let json_output = Command::new(env!("CARGO_BIN_EXE_cellc")).current_dir(root).arg("check").arg("--json").output().unwrap();
+    assert!(json_output.status.success(), "unexpected failure: {}", String::from_utf8_lossy(&json_output.stderr));
+    let stdout: serde_json::Value = serde_json::from_slice(&json_output.stdout).unwrap();
+    let target = &stdout["checked_targets"][0];
+    assert_eq!(target["transaction_runtime_input_requirements"], 2, "unexpected stdout: {}", stdout);
+    assert_eq!(target["runtime_required_transaction_runtime_input_requirements"], 1, "unexpected stdout: {}", stdout);
+    assert_eq!(target["checked_transaction_runtime_input_requirements"], 1, "unexpected stdout: {}", stdout);
+    assert_eq!(target["runtime_required_transaction_runtime_input_blockers"], 1, "unexpected stdout: {}", stdout);
+    assert_eq!(target["runtime_required_transaction_runtime_input_blocker_classes"], 1, "unexpected stdout: {}", stdout);
+
+    let runtime_inputs = target["runtime_required_transaction_runtime_input_requirement_summaries"]
+        .as_array()
+        .expect("runtime-required transaction runtime input summaries array");
+    assert!(
+        runtime_inputs.iter().any(|value| value.as_str().is_some_and(|summary| {
+            summary.contains("linear-collection:NFT:linear-collection-ownership=Transaction:NFT.collection-payload")
+                && summary.contains("cell-backed-collection-linear-ownership-model")
+                && summary.contains("(runtime-required)")
+                && summary.contains("blocker=cell-backed collection ownership is not backed by an executable linear collection model")
+                && summary.contains("blocker_class=linear-collection-ownership-gap")
+        })),
+        "unexpected runtime-required transaction runtime input summaries: {}",
+        stdout
+    );
+
+    let output =
+        Command::new(env!("CARGO_BIN_EXE_cellc")).current_dir(root).arg("check").arg("--deny-runtime-obligations").output().unwrap();
+    assert!(!output.status.success(), "unexpected success: {}", String::from_utf8_lossy(&output.stdout));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("linear-collection:NFT"), "unexpected stderr: {}", stderr);
+    assert!(stderr.contains("linear-collection-ownership"), "unexpected stderr: {}", stderr);
+    assert!(stderr.contains("linear-collection-ownership-gap"), "unexpected stderr: {}", stderr);
+    assert!(
+        stderr.contains("cell-backed collection ownership is not backed by an executable linear collection model"),
+        "unexpected stderr: {}",
+        stderr
+    );
+}
+
+#[test]
 fn cellc_check_reports_claim_source_predicate_blocker_class() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path();

@@ -17,12 +17,16 @@ CellScript is no longer only a parser or syntax demo. It has a real compiler pat
 
 It is still not a complete implementation of the design proposal.
 
+V1 core-language convergence is a boundary-quality gate, not a claim that every generalized protocol semantic is executable. The v1 executable core is the Cell lifecycle language: `resource`, `shared`, `receipt`, `consume`, `create`, `transfer`, `destroy`, `claim`, `settle`, `action`, `fn`, and `lock`. First-class `launch`, first-class `pool`, user-defined generics, registry distribution, schema migration, and executable Wasm are excluded from this gate.
+
+The known v1-core residual gaps are now policy-visible through stable blocker classes: `transfer-output-relation-gap`, `resource-conservation-proof-gap`, `claim-source-predicate-gap`, `finalization-policy-gap`, and `linear-collection-ownership-gap`. These blocker classes are covered by CLI JSON and `--deny-runtime-obligations` regressions, and the post-change `cargo test -p cellscript` gate passed, so v1 core-language convergence is closed for the executable-core boundary gate.
+
 Current implementation facts:
 
-- `cellscript/src/` contains `41,442` lines of Rust across `26` source files.
-- `cellscript/src/` plus `cellscript/tests/` contains `45,857` lines of Rust across `28` files.
-- `351` `#[test]` declarations are present in source/test files.
-- A fresh default-feature `cargo test -p cellscript` run executed `338` tests: `282` library tests, `49` CLI integration tests, `7` examples integration tests, and `0` doctests. All passed.
+- `cellscript/src/` contains `41,535` lines of Rust across `26` source files.
+- `cellscript/src/` plus `cellscript/tests/` contains `46,137` lines of Rust across `28` files.
+- `353` `#[test]` declarations are present in source/test files.
+- A fresh default-feature `cargo test -p cellscript` run executed `340` tests: `282` library tests, `51` CLI integration tests, `7` examples integration tests, and `0` doctests. All passed.
 - The repository includes `7` bundled `.cell` examples: `token`, `amm_pool`, `vesting`, `launch`, `nft`, `multisig`, and `timelock`.
 
 Approximate implementation status:

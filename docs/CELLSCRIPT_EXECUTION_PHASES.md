@@ -1,6 +1,6 @@
 # CellScript Execution Phase Table
 
-**Snapshot date**: 2026-04-18
+**Snapshot date**: 2026-04-19
 **Purpose**: maintain the operational execution plan for CellScript implementation work.
 
 This file is the working phase table. It is not a historical changelog. Detailed release evidence belongs in `docs/CELLSCRIPT_RELEASE_CHECKLIST.md`.
@@ -35,6 +35,34 @@ No implementation phase is currently active. Phase 4 is operationally closed.
 
 Current close distance: **0% for the Phase 4 operational gate**. There are no known core scheduler/metadata security blockers after the latest full release gate. Release tagging remains a separate release-management action.
 
+## Core Language Convergence Gate
+
+This gate is separate from Phase 4 operational closure. It measures whether the v1 executable core has a stable, auditable boundary, not whether every generalized protocol semantic is fully executable.
+
+Status: **Closed for the v1 core-language convergence gate**.
+
+Current close distance: **0% for v1 core-language convergence**.
+
+Close criteria:
+
+1. v1 core features have stable checked/runtime/fail-closed classification: `resource`, `shared`, `receipt`, `consume`, `create`, `transfer`, `destroy`, `claim`, `settle`, `action`, `fn`, and `lock`.
+2. Unsupported v1-core-adjacent semantics are either explicit `runtime-required` obligations with stable blocker classes or fail closed in generated artifacts.
+3. Post-v1 surfaces are not counted as v1 core promises: first-class `launch`, first-class `pool`, user-defined generics, registry distribution, schema migration, and executable Wasm.
+4. CLI/release-gate visible blockers cover the known core convergence gaps: `transfer-output-relation-gap`, `resource-conservation-proof-gap`, `claim-source-predicate-gap`, `finalization-policy-gap`, and `linear-collection-ownership-gap`.
+5. The final full `cellscript` test gate and `git diff --check` pass after the last convergence change.
+
+Current evidence:
+
+- `transfer-output-relation-gap`, `resource-conservation-proof-gap`, and `claim-source-predicate-gap` already have CLI JSON and `--deny-runtime-obligations` coverage.
+- `finalization-policy-gap` and `linear-collection-ownership-gap` are now covered by dedicated CLI JSON and `--deny-runtime-obligations` regressions.
+- Operation-specific checked Input data components are exposed for `consume`, `transfer`, `destroy`, `claim`, and `settle`.
+- The post-change `cargo test -p cellscript` gate passed: `282` library tests, `51` CLI integration tests, `7` bundled example tests, and `0` doctests.
+- `git diff --check` passed after the convergence changes.
+
+Remaining closure item:
+
+- None for the v1 convergence close gate. Generalized protocol semantics remain explicit blocker-classed debt rather than v1 core promises.
+
 Known non-Phase-4 blockers:
 
 - First-class `launch` language primitive.
@@ -57,7 +85,7 @@ Current gate coverage:
 
 - `cargo fmt --all --check`
 - `cargo check --workspace --all-targets`
-- Full `cellscript` tests: `237` library tests, `46` CLI integration tests, `7` bundled example tests, `0` doctests
+- Full `cellscript` tests: `282` library tests, `51` CLI integration tests, `7` bundled example tests, `0` doctests
 - `spora-adaptor`: `2` unit tests, `0` doctests, executable `adaptor_roundtrip` and `adaptor_reject_noncanonical` examples
 - `spora-exec`: `14` scheduler witness tests and `10` scheduler property tests
 - `spora-consensus`: `8` strict trusted-summary tests and `12` template scheduler policy tests

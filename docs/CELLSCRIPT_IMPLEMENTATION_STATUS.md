@@ -24,16 +24,40 @@ Do **not** use `SPORA_DSL_DESIGN_PROPOSAL_CN.md` as the source of truth for impl
 
 This snapshot incorporates the 2026-04-19 continuation audit of `SPORA_DSL_DESIGN_PROPOSAL_CN.md`, the current `cellscript/` source tree, the current design-implementation audit, and a fresh default-feature test run.
 
-- Rust source size: `41,535` lines across `26` files under `cellscript/src/`; `45,960` lines across `28` Rust files when `cellscript/tests/` integration tests are included.
-- Test inventory: `351` `#[test]` declarations are present in source/test files; the default-feature active suite run below executed `338` tests.
+- Rust source size: `41,535` lines across `26` files under `cellscript/src/`; `46,137` lines across `28` Rust files when `cellscript/tests/` integration tests are included.
+- Test inventory: `353` `#[test]` declarations are present in source/test files; the default-feature active suite run below executed `340` tests.
 - Example programs: `7` bundled `.cell` examples compile under the default assembly target: `amm_pool`, `launch`, `multisig`, `nft`, `timelock`, `token`, and `vesting`.
 - Design-proposal completion: roughly `70-75%` overall. The compiler core is real; the stateful protocol language is not complete.
+- v1 core-language convergence: **closed for the v1 executable-core boundary gate**. This measures stable executable-core boundaries and blocker-class coverage, not generalized protocol semantic completeness.
 
 ## Current headline
 
 `CellScript` is currently best described as:
 
 > **a working compiler/toolchain under production hardening, with fail-closed boundaries for incomplete semantics**
+
+## V1 Core-language convergence
+
+The v1 executable core is defined as the Cell lifecycle language boundary: `resource`, `shared`, `receipt`, `consume`, `create`, `transfer`, `destroy`, `claim`, `settle`, `action`, `fn`, and `lock`.
+
+The close target is not "all generalized protocol semantics are executable". The close target is:
+
+- supported paths are executable or classified as `checked-runtime`
+- incomplete paths are explicit `runtime-required` obligations with stable blocker classes, or fail closed
+- post-v1 features are not represented as v1 promises
+- CLI JSON and `--deny-runtime-obligations` expose the remaining blocker classes used by release policy
+
+The current blocker-class coverage for v1 convergence is:
+
+| Blocker class | Surface | CLI release-gate visibility |
+|---|---|---|
+| `transfer-output-relation-gap` | unsupported transfer output relation/conservation shapes | Covered |
+| `resource-conservation-proof-gap` | generalized resource conservation beyond the restricted checked subsets | Covered |
+| `claim-source-predicate-gap` | signer-backed claim source predicates not fully verifier-covered | Covered |
+| `finalization-policy-gap` | non-lifecycle/generalized settle finalization policy | Covered |
+| `linear-collection-ownership-gap` | action-visible `Vec<CellType>` ownership model | Covered |
+
+Excluded from v1 core convergence: first-class `launch`, first-class `pool`, user-defined generics, registry distribution, schema migration, and executable Wasm.
 
 Or, more bluntly:
 
@@ -355,10 +379,10 @@ Still not safe to call semantically complete:
 At the time of this snapshot, `cargo test -p cellscript` passed under default features:
 
 - `282` library tests
-- `49` CLI integration tests
+- `51` CLI integration tests
 - `7` examples integration tests
 - `0` doctests
-- total executed: `338` tests, `0` failures
+- total executed: `340` tests, `0` failures
 
 This is enough to justify “working compiler core under production hardening”, but not enough to justify “complete language toolchain”.
 
