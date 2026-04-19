@@ -1360,8 +1360,8 @@ fn compile_metadata_from_ir(ir: &ir::IrModule, artifact_format: ArtifactFormat) 
     let type_layouts = metadata_type_layouts(ir);
     let lifecycle_states = metadata_lifecycle_states(ir);
     let cell_type_kinds = metadata_cell_type_kinds(ir);
-    let unsupported_elf_features = module_symbolic_runtime_features(ir, &type_layouts);
-    let fail_closed_runtime_features = module_fail_closed_runtime_features(ir, &type_layouts);
+    let unsupported_elf_features = module_symbolic_runtime_features(ir, &type_layouts, &cell_type_kinds);
+    let fail_closed_runtime_features = module_fail_closed_runtime_features(ir, &type_layouts, &cell_type_kinds);
     let ckb_runtime_features = module_ckb_runtime_features(ir, &cell_type_kinds, &type_layouts);
     let ckb_runtime_accesses = module_ckb_runtime_accesses(ir, &cell_type_kinds, &type_layouts);
     let verifier_obligations = module_verifier_obligations(ir, &type_layouts, &lifecycle_states, &cell_type_kinds);
@@ -1438,10 +1438,22 @@ fn compile_metadata_from_ir(ir: &ir::IrModule, artifact_format: ArtifactFormat) 
             .filter_map(|item| match item {
                 ir::IrItem::Action(action) => {
                     let param_schema_vars = schema_pointer_var_ids(&action.body, &action.params);
-                    let symbolic_runtime_features =
-                        body_symbolic_runtime_features(&action.body, &param_schema_vars, &type_layouts, &action.params);
-                    let fail_closed_runtime_features =
-                        body_fail_closed_runtime_features(&action.body, &param_schema_vars, &type_layouts, &action.params);
+                    let symbolic_runtime_features = body_symbolic_runtime_features(
+                        &action.body,
+                        &param_schema_vars,
+                        &type_layouts,
+                        &action.params,
+                        &cell_type_kinds,
+                        action.return_type.as_ref(),
+                    );
+                    let fail_closed_runtime_features = body_fail_closed_runtime_features(
+                        &action.body,
+                        &param_schema_vars,
+                        &type_layouts,
+                        &action.params,
+                        &cell_type_kinds,
+                        action.return_type.as_ref(),
+                    );
                     let ckb_runtime_features = body_ckb_runtime_features(&action.name, &action.body, &cell_type_kinds, &type_layouts);
                     let ckb_runtime_accesses = body_ckb_runtime_accesses(&action.name, &action.body, &cell_type_kinds, &type_layouts);
                     let verifier_obligations = body_verifier_obligations(
@@ -1508,10 +1520,22 @@ fn compile_metadata_from_ir(ir: &ir::IrModule, artifact_format: ArtifactFormat) 
             .filter_map(|item| match item {
                 ir::IrItem::PureFn(function) => {
                     let param_schema_vars = schema_pointer_var_ids(&function.body, &function.params);
-                    let symbolic_runtime_features =
-                        body_symbolic_runtime_features(&function.body, &param_schema_vars, &type_layouts, &function.params);
-                    let fail_closed_runtime_features =
-                        body_fail_closed_runtime_features(&function.body, &param_schema_vars, &type_layouts, &function.params);
+                    let symbolic_runtime_features = body_symbolic_runtime_features(
+                        &function.body,
+                        &param_schema_vars,
+                        &type_layouts,
+                        &function.params,
+                        &cell_type_kinds,
+                        function.return_type.as_ref(),
+                    );
+                    let fail_closed_runtime_features = body_fail_closed_runtime_features(
+                        &function.body,
+                        &param_schema_vars,
+                        &type_layouts,
+                        &function.params,
+                        &cell_type_kinds,
+                        function.return_type.as_ref(),
+                    );
                     let ckb_runtime_features = body_ckb_runtime_features(&function.name, &function.body, &cell_type_kinds, &type_layouts);
                     let ckb_runtime_accesses =
                         body_ckb_runtime_accesses(&function.name, &function.body, &cell_type_kinds, &type_layouts);
@@ -1563,10 +1587,22 @@ fn compile_metadata_from_ir(ir: &ir::IrModule, artifact_format: ArtifactFormat) 
             .filter_map(|item| match item {
                 ir::IrItem::Lock(lock) => {
                     let param_schema_vars = schema_pointer_var_ids(&lock.body, &lock.params);
-                    let symbolic_runtime_features =
-                        body_symbolic_runtime_features(&lock.body, &param_schema_vars, &type_layouts, &lock.params);
-                    let fail_closed_runtime_features =
-                        body_fail_closed_runtime_features(&lock.body, &param_schema_vars, &type_layouts, &lock.params);
+                    let symbolic_runtime_features = body_symbolic_runtime_features(
+                        &lock.body,
+                        &param_schema_vars,
+                        &type_layouts,
+                        &lock.params,
+                        &cell_type_kinds,
+                        None,
+                    );
+                    let fail_closed_runtime_features = body_fail_closed_runtime_features(
+                        &lock.body,
+                        &param_schema_vars,
+                        &type_layouts,
+                        &lock.params,
+                        &cell_type_kinds,
+                        None,
+                    );
                     let ckb_runtime_features = body_ckb_runtime_features(&lock.name, &lock.body, &cell_type_kinds, &type_layouts);
                     let ckb_runtime_accesses = body_ckb_runtime_accesses(&lock.name, &lock.body, &cell_type_kinds, &type_layouts);
                     let verifier_obligations = body_verifier_obligations(
@@ -1613,21 +1649,46 @@ fn compile_metadata_from_ir(ir: &ir::IrModule, artifact_format: ArtifactFormat) 
     }
 }
 
-fn module_symbolic_runtime_features(ir: &ir::IrModule, type_layouts: &MetadataTypeLayouts) -> Vec<String> {
+fn module_symbolic_runtime_features(
+    ir: &ir::IrModule,
+    type_layouts: &MetadataTypeLayouts,
+    cell_type_kinds: &HashMap<String, ir::IrTypeKind>,
+) -> Vec<String> {
     let mut features = BTreeSet::new();
     for item in &ir.items {
         match item {
             ir::IrItem::Action(action) => {
                 let param_schema_vars = schema_pointer_var_ids(&action.body, &action.params);
-                features.extend(body_symbolic_runtime_features(&action.body, &param_schema_vars, type_layouts, &action.params));
+                features.extend(body_symbolic_runtime_features(
+                    &action.body,
+                    &param_schema_vars,
+                    type_layouts,
+                    &action.params,
+                    cell_type_kinds,
+                    action.return_type.as_ref(),
+                ));
             }
             ir::IrItem::PureFn(function) => {
                 let param_schema_vars = schema_pointer_var_ids(&function.body, &function.params);
-                features.extend(body_symbolic_runtime_features(&function.body, &param_schema_vars, type_layouts, &function.params));
+                features.extend(body_symbolic_runtime_features(
+                    &function.body,
+                    &param_schema_vars,
+                    type_layouts,
+                    &function.params,
+                    cell_type_kinds,
+                    function.return_type.as_ref(),
+                ));
             }
             ir::IrItem::Lock(lock) => {
                 let param_schema_vars = schema_pointer_var_ids(&lock.body, &lock.params);
-                features.extend(body_symbolic_runtime_features(&lock.body, &param_schema_vars, type_layouts, &lock.params));
+                features.extend(body_symbolic_runtime_features(
+                    &lock.body,
+                    &param_schema_vars,
+                    type_layouts,
+                    &lock.params,
+                    cell_type_kinds,
+                    None,
+                ));
             }
             ir::IrItem::TypeDef(_) => {}
         }
@@ -1635,21 +1696,46 @@ fn module_symbolic_runtime_features(ir: &ir::IrModule, type_layouts: &MetadataTy
     features.into_iter().collect()
 }
 
-fn module_fail_closed_runtime_features(ir: &ir::IrModule, type_layouts: &MetadataTypeLayouts) -> Vec<String> {
+fn module_fail_closed_runtime_features(
+    ir: &ir::IrModule,
+    type_layouts: &MetadataTypeLayouts,
+    cell_type_kinds: &HashMap<String, ir::IrTypeKind>,
+) -> Vec<String> {
     let mut features = BTreeSet::new();
     for item in &ir.items {
         match item {
             ir::IrItem::Action(action) => {
                 let param_schema_vars = schema_pointer_var_ids(&action.body, &action.params);
-                features.extend(body_fail_closed_runtime_features(&action.body, &param_schema_vars, type_layouts, &action.params));
+                features.extend(body_fail_closed_runtime_features(
+                    &action.body,
+                    &param_schema_vars,
+                    type_layouts,
+                    &action.params,
+                    cell_type_kinds,
+                    action.return_type.as_ref(),
+                ));
             }
             ir::IrItem::PureFn(function) => {
                 let param_schema_vars = schema_pointer_var_ids(&function.body, &function.params);
-                features.extend(body_fail_closed_runtime_features(&function.body, &param_schema_vars, type_layouts, &function.params));
+                features.extend(body_fail_closed_runtime_features(
+                    &function.body,
+                    &param_schema_vars,
+                    type_layouts,
+                    &function.params,
+                    cell_type_kinds,
+                    function.return_type.as_ref(),
+                ));
             }
             ir::IrItem::Lock(lock) => {
                 let param_schema_vars = schema_pointer_var_ids(&lock.body, &lock.params);
-                features.extend(body_fail_closed_runtime_features(&lock.body, &param_schema_vars, type_layouts, &lock.params));
+                features.extend(body_fail_closed_runtime_features(
+                    &lock.body,
+                    &param_schema_vars,
+                    type_layouts,
+                    &lock.params,
+                    cell_type_kinds,
+                    None,
+                ));
             }
             ir::IrItem::TypeDef(_) => {}
         }
@@ -1714,10 +1800,22 @@ fn module_verifier_obligations(
         match item {
             ir::IrItem::Action(action) => {
                 let param_schema_vars = schema_pointer_var_ids(&action.body, &action.params);
-                let symbolic_runtime_features =
-                    body_symbolic_runtime_features(&action.body, &param_schema_vars, type_layouts, &action.params);
-                let fail_closed_runtime_features =
-                    body_fail_closed_runtime_features(&action.body, &param_schema_vars, type_layouts, &action.params);
+                let symbolic_runtime_features = body_symbolic_runtime_features(
+                    &action.body,
+                    &param_schema_vars,
+                    type_layouts,
+                    &action.params,
+                    cell_type_kinds,
+                    action.return_type.as_ref(),
+                );
+                let fail_closed_runtime_features = body_fail_closed_runtime_features(
+                    &action.body,
+                    &param_schema_vars,
+                    type_layouts,
+                    &action.params,
+                    cell_type_kinds,
+                    action.return_type.as_ref(),
+                );
                 let ckb_runtime_features = body_ckb_runtime_features(&action.name, &action.body, cell_type_kinds, type_layouts);
                 let ckb_runtime_accesses = body_ckb_runtime_accesses(&action.name, &action.body, cell_type_kinds, type_layouts);
                 obligations.extend(body_verifier_obligations(
@@ -1736,10 +1834,22 @@ fn module_verifier_obligations(
             }
             ir::IrItem::PureFn(function) => {
                 let param_schema_vars = schema_pointer_var_ids(&function.body, &function.params);
-                let symbolic_runtime_features =
-                    body_symbolic_runtime_features(&function.body, &param_schema_vars, type_layouts, &function.params);
-                let fail_closed_runtime_features =
-                    body_fail_closed_runtime_features(&function.body, &param_schema_vars, type_layouts, &function.params);
+                let symbolic_runtime_features = body_symbolic_runtime_features(
+                    &function.body,
+                    &param_schema_vars,
+                    type_layouts,
+                    &function.params,
+                    cell_type_kinds,
+                    function.return_type.as_ref(),
+                );
+                let fail_closed_runtime_features = body_fail_closed_runtime_features(
+                    &function.body,
+                    &param_schema_vars,
+                    type_layouts,
+                    &function.params,
+                    cell_type_kinds,
+                    function.return_type.as_ref(),
+                );
                 let ckb_runtime_features = body_ckb_runtime_features(&function.name, &function.body, cell_type_kinds, type_layouts);
                 let ckb_runtime_accesses = body_ckb_runtime_accesses(&function.name, &function.body, cell_type_kinds, type_layouts);
                 obligations.extend(body_verifier_obligations(
@@ -1759,9 +1869,15 @@ fn module_verifier_obligations(
             ir::IrItem::Lock(lock) => {
                 let param_schema_vars = schema_pointer_var_ids(&lock.body, &lock.params);
                 let symbolic_runtime_features =
-                    body_symbolic_runtime_features(&lock.body, &param_schema_vars, type_layouts, &lock.params);
-                let fail_closed_runtime_features =
-                    body_fail_closed_runtime_features(&lock.body, &param_schema_vars, type_layouts, &lock.params);
+                    body_symbolic_runtime_features(&lock.body, &param_schema_vars, type_layouts, &lock.params, cell_type_kinds, None);
+                let fail_closed_runtime_features = body_fail_closed_runtime_features(
+                    &lock.body,
+                    &param_schema_vars,
+                    type_layouts,
+                    &lock.params,
+                    cell_type_kinds,
+                    None,
+                );
                 let ckb_runtime_features = body_ckb_runtime_features(&lock.name, &lock.body, cell_type_kinds, type_layouts);
                 let ckb_runtime_accesses = body_ckb_runtime_accesses(&lock.name, &lock.body, cell_type_kinds, type_layouts);
                 obligations.extend(body_verifier_obligations(
@@ -5318,6 +5434,8 @@ fn body_symbolic_runtime_features(
     param_schema_vars: &BTreeSet<usize>,
     type_layouts: &MetadataTypeLayouts,
     params: &[ir::IrParam],
+    cell_type_kinds: &HashMap<String, ir::IrTypeKind>,
+    return_type: Option<&ir::IrType>,
 ) -> Vec<String> {
     let mut features = BTreeSet::new();
     let prelude_availability = metadata_prelude_availability(body, param_schema_vars, type_layouts, params);
@@ -5356,10 +5474,20 @@ fn body_symbolic_runtime_features(
                         features.insert("type-hash".to_string());
                     }
                 }
-                ir::IrInstruction::CollectionNew { .. }
-                | ir::IrInstruction::CollectionPush { .. }
-                | ir::IrInstruction::CollectionExtend { .. } => {
+                ir::IrInstruction::CollectionNew { .. } => {
                     features.insert("collection-runtime".to_string());
+                }
+                ir::IrInstruction::CollectionPush { value, .. } => {
+                    features.insert("collection-runtime".to_string());
+                    if ir_operand_contains_cell_backed_value(value, cell_type_kinds) {
+                        features.insert("cell-backed-collection-runtime".to_string());
+                    }
+                }
+                ir::IrInstruction::CollectionExtend { slice, .. } => {
+                    features.insert("collection-runtime".to_string());
+                    if ir_operand_is_cell_backed_collection(slice, cell_type_kinds) {
+                        features.insert("cell-backed-collection-runtime".to_string());
+                    }
                 }
                 ir::IrInstruction::ReadRef { .. } => {}
                 ir::IrInstruction::Consume { .. } => {
@@ -5416,6 +5544,11 @@ fn body_symbolic_runtime_features(
                 _ => {}
             }
         }
+        if matches!(block.terminator, ir::IrTerminator::Return(Some(_)))
+            && return_type.is_some_and(|ty| ir_type_is_cell_backed_collection(ty, cell_type_kinds))
+        {
+            features.insert("cell-backed-collection-return".to_string());
+        }
     }
     features.into_iter().collect()
 }
@@ -5425,6 +5558,8 @@ fn body_fail_closed_runtime_features(
     param_schema_vars: &BTreeSet<usize>,
     type_layouts: &MetadataTypeLayouts,
     params: &[ir::IrParam],
+    cell_type_kinds: &HashMap<String, ir::IrTypeKind>,
+    return_type: Option<&ir::IrType>,
 ) -> Vec<String> {
     let mut features = BTreeSet::new();
     let prelude_availability = metadata_prelude_availability(body, param_schema_vars, type_layouts, params);
@@ -5466,11 +5601,17 @@ fn body_fail_closed_runtime_features(
                 ir::IrInstruction::CollectionNew { .. } => {
                     features.insert("collection-new".to_string());
                 }
-                ir::IrInstruction::CollectionPush { .. } => {
+                ir::IrInstruction::CollectionPush { value, .. } => {
                     features.insert("collection-push".to_string());
+                    if ir_operand_contains_cell_backed_value(value, cell_type_kinds) {
+                        features.insert("cell-backed-collection-push".to_string());
+                    }
                 }
-                ir::IrInstruction::CollectionExtend { .. } => {
+                ir::IrInstruction::CollectionExtend { slice, .. } => {
                     features.insert("collection-extend".to_string());
+                    if ir_operand_is_cell_backed_collection(slice, cell_type_kinds) {
+                        features.insert("cell-backed-collection-extend".to_string());
+                    }
                 }
                 ir::IrInstruction::Consume { operand } if consumed_schema_var_id(instruction).is_none() => {
                     features.insert("consume-expression".to_string());
@@ -5527,6 +5668,11 @@ fn body_fail_closed_runtime_features(
                 }
                 _ => {}
             }
+        }
+        if matches!(block.terminator, ir::IrTerminator::Return(Some(_)))
+            && return_type.is_some_and(|ty| ir_type_is_cell_backed_collection(ty, cell_type_kinds))
+        {
+            features.insert("cell-backed-collection-return".to_string());
         }
     }
     features.into_iter().collect()
@@ -6380,6 +6526,72 @@ fn named_type_name(ty: &ir::IrType) -> Option<&str> {
         ir::IrType::Named(name) => Some(name.as_str()),
         ir::IrType::Ref(inner) | ir::IrType::MutRef(inner) => named_type_name(inner),
         _ => None,
+    }
+}
+
+fn ir_operand_contains_cell_backed_value(operand: &ir::IrOperand, cell_type_kinds: &HashMap<String, ir::IrTypeKind>) -> bool {
+    match operand {
+        ir::IrOperand::Var(var) => ir_type_contains_cell_backed_value(&var.ty, cell_type_kinds),
+        ir::IrOperand::Const(_) => false,
+    }
+}
+
+fn ir_operand_is_cell_backed_collection(operand: &ir::IrOperand, cell_type_kinds: &HashMap<String, ir::IrTypeKind>) -> bool {
+    match operand {
+        ir::IrOperand::Var(var) => ir_type_is_cell_backed_collection(&var.ty, cell_type_kinds),
+        ir::IrOperand::Const(_) => false,
+    }
+}
+
+fn ir_type_contains_cell_backed_value(ty: &ir::IrType, cell_type_kinds: &HashMap<String, ir::IrTypeKind>) -> bool {
+    match ty {
+        ir::IrType::Array(inner, _) => ir_type_contains_cell_backed_value(inner, cell_type_kinds),
+        ir::IrType::Tuple(items) => items.iter().any(|item| ir_type_contains_cell_backed_value(item, cell_type_kinds)),
+        ir::IrType::Named(name) => {
+            let base_name = name.split('<').next().unwrap_or(name.as_str());
+            cell_type_kinds.contains_key(base_name) || named_type_generic_payload_contains_cell_backed_value(name, cell_type_kinds)
+        }
+        ir::IrType::Ref(_) | ir::IrType::MutRef(_) => false,
+        _ => false,
+    }
+}
+
+fn ir_type_is_cell_backed_collection(ty: &ir::IrType, cell_type_kinds: &HashMap<String, ir::IrTypeKind>) -> bool {
+    match ty {
+        ir::IrType::Named(name) => name
+            .strip_prefix("Vec<")
+            .and_then(|payload| payload.strip_suffix('>'))
+            .is_some_and(|payload| type_fragment_contains_cell_backed_name(payload, cell_type_kinds)),
+        ir::IrType::Ref(inner) | ir::IrType::MutRef(inner) => ir_type_is_cell_backed_collection(inner, cell_type_kinds),
+        _ => false,
+    }
+}
+
+fn named_type_generic_payload_contains_cell_backed_value(name: &str, cell_type_kinds: &HashMap<String, ir::IrTypeKind>) -> bool {
+    name.find('<')
+        .and_then(|start| name.ends_with('>').then_some(&name[start + 1..name.len() - 1]))
+        .is_some_and(|payload| type_fragment_contains_cell_backed_name(payload, cell_type_kinds))
+}
+
+fn type_fragment_contains_cell_backed_name(fragment: &str, cell_type_kinds: &HashMap<String, ir::IrTypeKind>) -> bool {
+    let mut token = String::new();
+    for ch in fragment.chars() {
+        if ch.is_ascii_alphanumeric() || ch == '_' || ch == ':' {
+            token.push(ch);
+        } else if type_name_token_is_cell_backed(&token, cell_type_kinds) {
+            return true;
+        } else {
+            token.clear();
+        }
+    }
+    type_name_token_is_cell_backed(&token, cell_type_kinds)
+}
+
+fn type_name_token_is_cell_backed(token: &str, cell_type_kinds: &HashMap<String, ir::IrTypeKind>) -> bool {
+    match token {
+        "" | "u8" | "u16" | "u32" | "u64" | "u128" | "bool" | "Address" | "Hash" | "String" | "Range" | "Vec" | "usize" | "isize"
+        | "read_ref" | "mut" => false,
+        name => cell_type_kinds.contains_key(name),
     }
 }
 
@@ -9485,6 +9697,25 @@ action pack(bytes: [u8; 3]) -> u64 {
 }
 "#;
 
+    const CELL_BACKED_VEC_PROGRAM: &str = r#"
+module test
+
+resource NFT {
+    token_id: u64,
+    owner: Address,
+}
+
+action batch_mint(owner: Address) -> Vec<NFT> {
+    let mut nfts = Vec::new()
+    let nft = create NFT {
+        token_id: 1,
+        owner: owner,
+    }
+    nfts.push(nft)
+    return nfts
+}
+"#;
+
     const TYPE_HASH_PROGRAM: &str = r#"
 module test
 
@@ -11647,6 +11878,43 @@ action activate(ticket: Ticket) -> Ticket {
         assert!(!asm.contains("# call push"), "push() leaked through generic call path:\n{}", asm);
         assert!(!asm.contains("# call extend_from_slice"), "extend_from_slice() leaked through generic call path:\n{}", asm);
         assert!(!asm.contains("# call len"), "len() leaked through generic call path:\n{}", asm);
+    }
+
+    #[test]
+    fn compile_marks_cell_backed_vec_runtime_features() {
+        let result = compile(CELL_BACKED_VEC_PROGRAM, CompileOptions::default()).unwrap();
+        let action = result.metadata.actions.iter().find(|action| action.name == "batch_mint").expect("batch_mint action metadata");
+
+        assert!(
+            action.symbolic_runtime_features.contains(&"cell-backed-collection-runtime".to_string()),
+            "cell-backed push must be visible in symbolic features: {:?}",
+            action.symbolic_runtime_features
+        );
+        assert!(
+            action.symbolic_runtime_features.contains(&"cell-backed-collection-return".to_string()),
+            "cell-backed Vec return must be visible in symbolic features: {:?}",
+            action.symbolic_runtime_features
+        );
+        assert!(
+            action.fail_closed_runtime_features.contains(&"cell-backed-collection-push".to_string()),
+            "cell-backed push must be visible in fail-closed features: {:?}",
+            action.fail_closed_runtime_features
+        );
+        assert!(
+            action.fail_closed_runtime_features.contains(&"cell-backed-collection-return".to_string()),
+            "cell-backed Vec return must be visible in fail-closed features: {:?}",
+            action.fail_closed_runtime_features
+        );
+        assert!(
+            result.metadata.runtime.unsupported_elf_features.contains(&"cell-backed-collection-runtime".to_string()),
+            "runtime metadata must aggregate cell-backed collection symbolic features: {:?}",
+            result.metadata.runtime.unsupported_elf_features
+        );
+        assert!(
+            result.metadata.runtime.fail_closed_runtime_features.contains(&"cell-backed-collection-push".to_string()),
+            "runtime metadata must aggregate cell-backed collection fail-closed features: {:?}",
+            result.metadata.runtime.fail_closed_runtime_features
+        );
     }
 
     #[test]

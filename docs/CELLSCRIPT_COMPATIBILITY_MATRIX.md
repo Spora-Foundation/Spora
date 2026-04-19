@@ -158,7 +158,7 @@ Real today:
 - low-level `spora-exec` CellTx helpers that attach/discover/decode/admit scheduler witnesses, reject invalid operation/source classes or out-of-bounds transaction source indexes, and compare operation/source/index/binding_hash access sets against trusted summaries
 - consensus MPE `BlockAccessSummary` consumption of admitted scheduler witnesses: scheduler-visible Input/CellDep/Output accesses are merged into concrete block summaries, and shared write/read or write/write overlaps serialize the execution DAG while shared read/read overlaps stay parallelizable
 - strict consensus MPE `BlockAccessSummary` construction against trusted transaction-builder or compiled-metadata access multisets, with missing or mismatched summaries rejected before scheduler merge
-- `fail_closed_runtime_features` for unsupported runtime paths that the generated assembly rejects
+- `fail_closed_runtime_features` for unsupported runtime paths that the generated assembly rejects, including dedicated `cell-backed-collection-*` entries for action-visible `Vec<CellType>` ownership gaps
 - entrypoint parameter ABI metadata
 - CLI-accessible JSON through `cellc metadata`
 

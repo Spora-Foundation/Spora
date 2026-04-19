@@ -2126,6 +2126,8 @@ Slice 99 更新：top-level 引用参数继续收紧为直接 Cell view。`&Toke
 
 Slice 100 更新：`Vec<T>` 不再允许携带引用。`Vec<&Token>` 和 `points.push(&point)` 会 fail closed，避免集合 item type 隐藏引用生命周期；`fn bad(tokens: Vec<Token>)` / `lock bad(tokens: Vec<Token>)` 仍会通过 Slice 98 的 owned Cell 签名规则失败。已有 action-visible symbolic 路径里的 `Vec<NFT>` batch 示例继续保留，直到后续有真正的 linear collection ownership model。
 
+Slice 101 更新：action-visible 的 Cell-backed `Vec<T>` 现在不再只暴露为泛化 `collection-runtime`。当 `CollectionPush` / `CollectionExtend` 的 payload 含 `resource` / `shared` / `receipt` 值，或 action 声明返回 `Vec<CellType>` 时，metadata 会追加 `cell-backed-collection-runtime`、`cell-backed-collection-push`、`cell-backed-collection-extend` 和 `cell-backed-collection-return`。这不是把线性集合语义执行化；`Vec<NFT>` / `Vec<TimeLock>` batch 路径仍然 symbolic/fail-closed，但审计、CLI policy 和 release gate 现在能稳定地区分“普通集合 runtime”与“Cell-backed 线性集合 ownership model 缺口”。
+
 目标：
 - 在后端工作扩展之前冻结最小语言核心。
 

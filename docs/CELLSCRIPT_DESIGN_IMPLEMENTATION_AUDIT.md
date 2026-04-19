@@ -19,10 +19,10 @@ It is still not a complete implementation of the design proposal.
 
 Current implementation facts:
 
-- `cellscript/src/` contains `40,664` lines of Rust across `26` source files.
-- `cellscript/src/` plus `cellscript/tests/` contains `45,033` lines of Rust across `28` files.
-- `349` `#[test]` declarations are present in source/test files.
-- A fresh default-feature `cargo test -p cellscript` run executed `336` tests: `280` library tests, `49` CLI integration tests, `7` examples integration tests, and `0` doctests. All passed.
+- `cellscript/src/` contains `40,932` lines of Rust across `26` source files.
+- `cellscript/src/` plus `cellscript/tests/` contains `45,301` lines of Rust across `28` files.
+- `350` `#[test]` declarations are present in source/test files.
+- A fresh default-feature `cargo test -p cellscript` run executed `337` tests: `281` library tests, `49` CLI integration tests, `7` examples integration tests, and `0` doctests. All passed.
 - The repository includes `7` bundled `.cell` examples: `token`, `amm_pool`, `vesting`, `launch`, `nft`, `multisig`, and `timelock`.
 
 Approximate implementation status:
@@ -54,7 +54,7 @@ Several older audit claims are now stale:
 | `fn` can hide stateful behavior | Mostly fixed for local code. `fn` definitions are distinct AST/IR/metadata entries, must infer `Pure`, cannot call `action`, `lock`, `env::*` runtime builtins, or `type_hash()` Cell identity builtins, and reject direct, same-module indirect, and local imported stateful behavior. |
 | Create output checks are only comments | Incorrect for the supported subset. Fixed-scalar output fields can be checked with exact-size, bounds, and equality checks; fixed-byte constants, schema-backed fixed-byte aliases, stack-backed `[u8; N<=8]` parameters, pointer+length `Address` / `Hash` parameters, trusted schema-parameter TypeHash ABI bytes, and created Output TypeHash fields can be checked byte-by-byte for output fields. Verifier-coverable `with_lock(...)` bindings now compare output `LockHash` through `LOAD_CELL_BY_FIELD`; unsupported field or lock sources still fail closed. |
 | Symbolic runtime paths may silently continue | Improved. Unsupported runtime features emit explicit fail-closed assembly and metadata. |
-| Scheduler metadata has no fail-closed signal | Improved. Metadata exposes `fail_closed_runtime_features` separately from `symbolic_runtime_features`. |
+| Scheduler metadata has no fail-closed signal | Improved. Metadata exposes `fail_closed_runtime_features` separately from `symbolic_runtime_features`, including dedicated Cell-backed collection markers for action-visible `Vec<CellType>` paths that still require a real linear collection model. |
 | No-return helpers behave like `u64` values | Fixed for the local compiler. Helpers without a return type use internal `Unit`, lower to destinationless calls, and cannot be bound or returned as values. |
 | `assert_invariant` behaves like a boolean value | Fixed for the local compiler. Assertions are `Unit`, lower to fail-closed verifier CFG, cannot be bound or used as value-returning tail expressions, and require static string literal messages. |
 | Source after `return` can be silently ignored by lowering | Fixed for guaranteed-return source paths. The type checker rejects unreachable statements after `return` or complete branch returns. |
