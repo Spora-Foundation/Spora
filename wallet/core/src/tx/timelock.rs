@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: ISC
+// SPDX-License-Identifier: MIT
 // Copyright (C) 2026 Spora developers
 //
 // Time lock support for wallet transactions (Cell model)

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: ISC
+// SPDX-License-Identifier: MIT
 // Copyright (C) 2024 Spora developers
 //
 // Cell State Tree - Merkle tree for live cells

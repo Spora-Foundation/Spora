@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: ISC
+// SPDX-License-Identifier: MIT
 // Copyright (C) 2026 Spora developers
 //
 // VM Machine implementation (adapted from CKB-VM)

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: ISC
+// SPDX-License-Identifier: MIT
 // Copyright (C) 2026 Spora developers
 //
 // Segment storage: 1GB data segments for DA layer

@@ -3,7 +3,7 @@ name = "spora-exec"
 version = "1.21.0"
 edition = "2021"
 authors = ["Spora developers"]
-license = "ISC"
+license = "MIT"
 description = "Cell execution layer for Spora DAG blockchain"
 
 [dependencies]

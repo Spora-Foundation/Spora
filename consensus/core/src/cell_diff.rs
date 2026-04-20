@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: ISC
+// SPDX-License-Identifier: MIT
 // Copyright (C) 2026 Spora developers
 //
 // Cell state difference - tracks additions and removals of cells

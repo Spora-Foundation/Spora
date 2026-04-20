@@ -2,7 +2,7 @@
 name = "spora-state"
 version = "1.21.0"
 edition = "2021"
-license = "ISC"
+license = "MIT"
 description = "Cell state management and data availability storage"
 
 [dependencies]

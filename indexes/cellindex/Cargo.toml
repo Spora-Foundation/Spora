@@ -2,7 +2,7 @@
 name = "spora-cellindex"
 version = "1.21.0"
 edition = "2021"
-license = "ISC"
+license = "MIT"
 description = "Cell indexing service with RPC API"
 
 [dependencies]
